@@ -6,7 +6,10 @@ import { dayOpen, RANGES, sparkline, type History, type RangeId } from '@/game/h
 import { money, pct, price, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { INDEX_ID, PLAYER, useGame } from '@/game/store';
 import { PriceChart } from './PriceChart';
-import { Card, Chip, Flash, Segmented, Sparkline } from './ui';
+import { Card, Chip, Flash, LockGlyph, Segmented, Sparkline } from './ui';
+import { licenseCheck } from '@/game/license';
+
+const locked = (w: WorldState, id: string) => !licenseCheck(w, PLAYER, id).ok;
 
 export interface SeriesInfo {
   id: string;
@@ -238,7 +241,10 @@ export function Watchlist() {
                 }`}
               >
                 <span className="min-w-0">
-                  <span className="num block text-small font-semibold text-fg">{id}</span>
+                  <span className="num flex items-center gap-1 text-small font-semibold text-fg">
+                    {id}
+                    {locked(world, id) && <LockGlyph size={14} />}
+                  </span>
                   <span className="block truncate text-caption text-fg-faint">{s.name}</span>
                 </span>
                 <Sparkline data={sparkline(history, id, 1, 32)} width={48} height={20} />
@@ -278,7 +284,7 @@ export function TickerStrip() {
                 data-testid={`watch-${id}`}
                 className={`flex min-h-11 flex-col justify-center rounded-md border px-3 text-left ${on ? 'border-brass bg-ink-2' : 'border-ink-3 bg-ink-1'}`}
               >
-                <span className="num text-caption font-semibold text-fg">{id}</span>
+                <span className="num flex items-center gap-1 text-caption font-semibold text-fg">{id}{locked(world, id) && <LockGlyph size={12} />}</span>
                 <span className={`num text-micro tracking-normal ${s.halted ? 'text-warn' : toneText[tone(s.changePct)]}`}>{s.halted ? 'Halted' : signedPct(s.changePct)}</span>
               </button>
             </li>

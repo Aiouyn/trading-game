@@ -4,10 +4,11 @@ import { useState } from 'react';
 import { openOrders, quote } from '@/engine';
 import type { Order, OrderType, Side } from '@/engine';
 import { tickMs } from '@/game/clock';
-import { money, price, qty as fmtQty } from '@/game/format';
+import { compactMoney, money, price, qty as fmtQty } from '@/game/format';
+import { licenseCheck, lockedText, type LicenseCheck } from '@/game/license';
 import { PLAYER, useGame } from '@/game/store';
 import { FIRST_TRADE_CAP, assetDef, chipQty, isWhole, previewTicket, type TicketInput } from '@/game/ticket';
-import { Card, Segmented, TickRing } from './ui';
+import { Card, LockGlyph, Segmented, TickRing } from './ui';
 
 const CHIPS = [
   { label: '10%', f: 0.1 },
@@ -51,6 +52,8 @@ export function OrderPad({ onPlaced }: { onPlaced?: (o: Order) => void }) {
 
   const def = assetDef(world, selected);
   const q = quote(world, selected);
+  const lic = licenseCheck(world, PLAYER, selected);
+  if (!lic.ok) return <LockedTicket assetId={selected} ask={q.price} check={lic} />;
   const unit = isWhole(def) ? 'shares' : 'units';
   const ticket: TicketInput = {
     assetId: selected,
@@ -218,6 +221,48 @@ function PendingRow({ order, halted, tick, ms, paused, onCancel }: { order: Orde
         Cancel
       </button>
     </div>
+  );
+}
+
+/** Ticket for an asset the player's license does not cover yet: watchable, not tradable. */
+function LockedTicket({ assetId, ask, check }: { assetId: string; ask: number; check: Extract<LicenseCheck, { ok: false }> }) {
+  return (
+    <Card className="flex flex-col gap-3 p-4" data-testid="order-pad">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="font-serif text-title text-fg">
+          Trade <span className="num text-small text-fg-muted">{assetId}</span>
+        </h2>
+        <span className="num text-caption text-fg-faint">Ask {price(ask)}</span>
+      </div>
+      <div className="flex items-start gap-3 rounded-md border border-ink-3 bg-ink-0 p-3" data-testid="license-locked">
+        <LockGlyph />
+        <div className="min-w-0">
+          <p className="text-small font-medium text-fg">{lockedText(check, compactMoney)}</p>
+          <p className="mt-1 text-caption text-fg-muted">
+            The {check.license.name} license opens {check.license.unlocks}. You can follow {assetId} on the chart until then.
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <div
+          className="h-1.5 flex-1 overflow-hidden rounded-chip bg-ink-3"
+          role="progressbar"
+          aria-label={`Progress to ${check.rank.name}`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(check.progress * 100)}
+          data-testid="license-progress"
+        >
+          <div className="h-full rounded-chip bg-brass" style={{ width: `${Math.max(2, check.progress * 100)}%` }} />
+        </div>
+        <span className="num whitespace-nowrap text-caption text-fg-faint">
+          {compactMoney(check.equity)} / {compactMoney(check.rank.threshold)} to {check.rank.name}
+        </span>
+      </div>
+      <button type="button" disabled className="h-12 w-full cursor-not-allowed rounded-md bg-ink-3 text-body font-medium text-fg-disabled" data-testid="order-submit">
+        Locked until {check.rank.name}
+      </button>
+    </Card>
   );
 }
 

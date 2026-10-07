@@ -3,6 +3,7 @@ import { createWorld, defaultConfig, openAccount, placeOrder, step } from '@/eng
 import { clockLabel, clockParts, dayIndex } from './clock';
 import { compactMoney, money, price, signedMoney, signedPct } from './format';
 import { candles, createHistory, dayOpen, record, sparkline } from './history';
+import { CLASS_LICENSE, hasLicense, licenseCheck, lockedText, requiredLicense } from './license';
 import { rankProgress } from './rank';
 import { chipQty, firstTradeCap, hasTraded, previewTicket } from './ticket';
 import { wireFromEvents } from './wire';
@@ -137,5 +138,32 @@ describe('wire', () => {
       items += wireFromEvents(w, r.events, r.fills).length;
     }
     expect(items).toBe(events);
+  });
+});
+
+describe('licenses', () => {
+  const w = openAccount(createWorld('lic', defaultConfig()), 'p');
+
+  it('gates by license flag, not ticker', () => {
+    for (const def of w.config.assets) expect(requiredLicense(def).id).toBe(CLASS_LICENSE[def.assetClass]);
+    const custom = { ...w.config.assets[0]!, license: 'pro' as const };
+    expect(requiredLicense(custom).id).toBe('pro');
+  });
+
+  it('locks commodities until Owner and keeps stocks and crypto open', () => {
+    const gold = licenseCheck(w, 'p', 'GOLD');
+    expect(gold.ok).toBe(false);
+    if (!gold.ok) expect(lockedText(gold, compactMoney)).toBe('Pro license at Owner, $250k');
+    expect(licenseCheck(w, 'p', 'OIL').ok).toBe(false);
+    expect(licenseCheck(w, 'p', 'HLCN').ok).toBe(true);
+    expect(licenseCheck(w, 'p', 'AUC').ok).toBe(true);
+  });
+
+  it('opens Pro at a $250k peak and never takes it back', () => {
+    expect(hasLicense(249_999, 'pro')).toBe(false);
+    expect(hasLicense(250_000, 'pro')).toBe(true);
+    const rich = structuredClone(w);
+    rich.accounts.p!.peakEquity = 300_000;
+    expect(licenseCheck(rich, 'p', 'GOLD').ok).toBe(true);
   });
 });

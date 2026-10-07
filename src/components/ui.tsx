@@ -126,3 +126,12 @@ export function Segmented<T extends string>({
 export function Chip({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <span className={`inline-flex items-center rounded-chip border border-ink-3 px-2 py-0.5 text-micro uppercase text-fg-muted ${className}`}>{children}</span>;
 }
+
+/** Steel padlock, used for anything a license has not opened yet. */
+export function LockGlyph({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" aria-label="Locked" role="img" className="shrink-0 fill-steel">
+      <path d="M7 9V7a4 4 0 0 1 8 0v2h1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h1Zm2 0h4V7a2 2 0 0 0-4 0v2Z" />
+    </svg>
+  );
+}
