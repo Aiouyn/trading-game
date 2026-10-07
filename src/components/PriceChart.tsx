@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import {
-  CandlestickSeries, ColorType, CrosshairMode, LineSeries, LineStyle, createChart,
+  CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, createChart,
   type IChartApi, type ISeriesApi, type Time, type UTCTimestamp,
 } from 'lightweight-charts';
 import { useGame } from '@/game/store';
@@ -45,11 +45,29 @@ function readPalette(host: HTMLElement): Palette {
 
 const toTime = (t: number) => t as UTCTimestamp;
 
+/** Any CSS color (oklch included) as rgba with the given alpha, via a 1×1 canvas. */
+function withAlpha(color: string, alpha: number): string {
+  const c = document.createElement('canvas');
+  c.width = c.height = 1;
+  const g = c.getContext('2d');
+  if (!g) return color;
+  g.fillStyle = color;
+  g.fillRect(0, 0, 1, 1);
+  const [r, gg, b] = g.getImageData(0, 0, 1, 1).data;
+  return `rgba(${r}, ${gg}, ${b}, ${alpha})`;
+}
+
+/** Price pane leaves the bottom quarter to volume; volume bars sit in that strip. */
+const PRICE_MARGINS = { top: 0.08, bottom: 0.26 };
+const VOLUME_MARGINS = { top: 0.8, bottom: 0.02 };
+
 export function PriceChart({ assetId }: { assetId: string }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candleSeries = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const lineSeries = useRef<ISeriesApi<'Line'> | null>(null);
+  const volumeSeries = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const volColors = useRef({ up: '', down: '' });
   const lastKey = useRef('');
 
   const range = useGame((s) => s.range);
@@ -64,9 +82,10 @@ export function PriceChart({ assetId }: { assetId: string }) {
     const p = readPalette(el);
     const c = createChart(el, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: p.bg }, textColor: p.text, fontFamily: p.font, fontSize: 11 },
+      // attribution moved to the Credits screen, as the Lightweight Charts license allows
+      layout: { background: { type: ColorType.Solid, color: p.bg }, textColor: p.text, fontFamily: p.font, fontSize: 11, attributionLogo: false },
       grid: { vertLines: { color: p.grid }, horzLines: { color: p.grid } },
-      rightPriceScale: { borderVisible: false },
+      rightPriceScale: { borderVisible: false, scaleMargins: PRICE_MARGINS },
       timeScale: { borderVisible: false, rightOffset: 4, timeVisible: true, secondsVisible: false },
       crosshair: { mode: CrosshairMode.Normal, vertLine: { color: p.cross, labelBackgroundColor: p.grid }, horzLine: { color: p.cross, labelBackgroundColor: p.grid } },
       localization: { priceFormatter: (v: number) => fmtPrice(v) },
@@ -79,12 +98,18 @@ export function PriceChart({ assetId }: { assetId: string }) {
     lineSeries.current = c.addSeries(LineSeries, {
       color: p.line, lineWidth: 2, priceLineColor: p.brass, priceLineStyle: LineStyle.Dotted, priceLineWidth: 1, visible: false,
     });
+    volColors.current = { up: withAlpha(p.gain, 0.32), down: withAlpha(p.loss, 0.32) };
+    volumeSeries.current = c.addSeries(HistogramSeries, {
+      priceScaleId: 'volume', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false,
+    });
+    c.priceScale('volume').applyOptions({ scaleMargins: VOLUME_MARGINS, visible: false });
     chart.current = c;
     return () => {
       c.remove();
       chart.current = null;
       candleSeries.current = null;
       lineSeries.current = null;
+      volumeSeries.current = null;
       lastKey.current = '';
     };
   }, []);
@@ -110,10 +135,19 @@ export function PriceChart({ assetId }: { assetId: string }) {
     if (!h || !candleSeries.current || !lineSeries.current) return;
     const bars: Bar[] = candles(h, assetId, range);
     if (bars.length === 0) return;
+    const vs = volumeSeries.current;
+    const hasVolume = bars[bars.length - 1]!.volume !== undefined;
+    const volPoint = (b: Bar) => ({
+      time: toTime(b.time),
+      value: b.volume ?? 0,
+      color: b.close >= b.open ? volColors.current.up : volColors.current.down,
+    });
     const key = `${useGame.getState().world?.seed}|${assetId}|${range}`;
     if (key !== lastKey.current) {
       candleSeries.current.setData(bars.map((b) => ({ ...b, time: toTime(b.time) })));
       lineSeries.current.setData(bars.map((b) => ({ time: toTime(b.time), value: b.close })));
+      vs?.applyOptions({ visible: hasVolume });
+      vs?.setData(hasVolume ? bars.map(volPoint) : []);
       chart.current?.timeScale().fitContent();
       lastKey.current = key;
       return;
@@ -121,6 +155,7 @@ export function PriceChart({ assetId }: { assetId: string }) {
     const last = bars[bars.length - 1]!;
     candleSeries.current.update({ ...last, time: toTime(last.time) });
     lineSeries.current.update({ time: toTime(last.time), value: last.close });
+    if (hasVolume) vs?.update(volPoint(last));
   }, [assetId, range, rev]);
 
   return <div ref={host} className="h-full w-full" data-testid="price-chart" />;

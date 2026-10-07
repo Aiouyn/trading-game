@@ -3,7 +3,7 @@
 import { portfolio, quote } from '@/engine';
 import type { WorldState } from '@/engine';
 import { dayOpen, RANGES, sparkline, type History, type RangeId } from '@/game/history';
-import { money, pct, price, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
+import { money, pct, price, qty, signedChange, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { INDEX_ID, PLAYER, useGame } from '@/game/store';
 import { PriceChart } from './PriceChart';
 import { Card, Chip, Flash, LockGlyph, Segmented, Sparkline } from './ui';
@@ -71,7 +71,7 @@ export function ChartCard({ phone = false }: { phone?: boolean }) {
               <span data-testid="chart-price">{price(info.price)}</span>
             </Flash>
             <span className={`num text-small ${t}`}>
-              {info.change >= 0 ? '+' : '\u2212'}{price(Math.abs(info.change))} ({signedPct(info.changePct)})
+              {signedChange(info.change, info.price)} ({signedPct(info.changePct)})
             </span>
             <span className="text-caption text-fg-faint">today</span>
           </div>

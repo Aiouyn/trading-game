@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, defaultConfig, openAccount, placeOrder, step } from '@/engine';
 import { clockLabel, clockParts, dayIndex } from './clock';
-import { compactMoney, money, price, signedMoney, signedPct } from './format';
-import { candles, createHistory, dayOpen, record, sparkline } from './history';
+import { compactMoney, money, price, signedChange, signedMoney, signedPct } from './format';
+import { candles, createHistory, dayOpen, ensureVolume, record, sparkline } from './history';
 import { CLASS_LICENSE, hasLicense, licenseCheck, lockedText, requiredLicense } from './license';
 import { rankProgress } from './rank';
 import { chipQty, firstTradeCap, hasTraded, previewTicket } from './ticket';
@@ -165,5 +165,44 @@ describe('licenses', () => {
     const rich = structuredClone(w);
     rich.accounts.p!.peakEquity = 300_000;
     expect(licenseCheck(rich, 'p', 'GOLD').ok).toBe(true);
+  });
+});
+
+describe('volume bars', () => {
+  it('builds bar volume from cumVolume differences, also when ticks are skipped', () => {
+    const tpd = 720;
+    const every = createHistory(['A'], tpd, ['A']);
+    const skipped = createHistory(['A'], tpd, ['A']);
+    let cum = 0;
+    for (let t = 1; t <= 48; t++) {
+      cum += t; // t units traded at tick t
+      record(every, t, { A: 100 }, { A: cum });
+      if (t % 3 === 0) record(skipped, t, { A: 100 }, { A: cum }); // app only saw every 3rd tick
+    }
+    const sum = (a: number, b: number) => a + (b > 0 ? b : 0);
+    const total = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i).reduce(sum, 0);
+    const bars = candles(every, 'A', '1D');
+    const bar12 = bars.find((b) => b.time === 12)!; // ticks 12..23
+    expect(bar12.volume).toBe(total(12, 23));
+    expect(every.series.A!.daily.at(-1)!.volume).toBe(total(2, 48)); // first reading has no baseline
+    // the skipped history attributes each 3-tick chunk to the tick that recorded it
+    expect(skipped.series.A!.daily.at(-1)!.volume).toBe(total(4, 48));
+  });
+
+  it('indices carry no volume and old saves gain volume rings', () => {
+    const h = createHistory(['GX', 'A'], 720, ['A']);
+    record(h, 1, { GX: 1000, A: 10 }, { A: 5 });
+    expect(candles(h, 'GX', '1D')[0]!.volume).toBeUndefined();
+    const old = createHistory(['A'], 720);
+    ensureVolume(old, ['A']);
+    record(old, 1, { A: 10 }, { A: 5 });
+    record(old, 2, { A: 10 }, { A: 9 });
+    expect(old.series.A!.daily.at(-1)!.volume).toBe(4);
+  });
+
+  it('shows the day change in the quote precision', () => {
+    expect(signedChange(0.0394, 141.89)).toBe('+0.04');
+    expect(signedChange(-0.4603, 64)).toBe(`${M}0.46`);
+    expect(signedChange(-0.001, 64)).toBe('+0.00');
   });
 });

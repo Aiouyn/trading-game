@@ -6,7 +6,7 @@ import {
 } from '@/engine';
 import type { Order, OrderRequest, WorldState } from '@/engine';
 import { tickMs, type Speed } from './clock';
-import { createHistory, record, type History, type RangeId } from './history';
+import { createHistory, ensureVolume, record, type History, type RangeId } from './history';
 import { clearSave, loadGame, saveGame } from './save';
 import { firstTradeCap, previewTicket } from './ticket';
 import { WIRE_KEEP, wireFromEvents, type WireItem } from './wire';
@@ -64,6 +64,17 @@ function snapshot(w: WorldState): Record<string, number> {
   return p;
 }
 
+/** Engine cumVolume per asset; history turns differences of these into volume bars. */
+function cumVolumes(w: WorldState): Record<string, number> {
+  const out: Record<string, number> = {};
+  w.config.assets.forEach((d, i) => { out[d.id] = w.assets[i]!.cumVolume ?? 0; });
+  return out;
+}
+
+function assetIds(w: WorldState): string[] {
+  return w.config.assets.map((a) => a.id);
+}
+
 function seriesIds(w: WorldState): string[] {
   return [...w.config.indices.map((i) => i.id), ...w.config.assets.map((a) => a.id)];
 }
@@ -117,7 +128,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!opts?.fresh && !opts?.seed) {
       const saved = await loadGame();
       if (saved && saved.world.accounts[PLAYER]) {
-        set({ world: saved.world, history: saved.history, wire: saved.wire ?? [], status: 'ready', loadProgress: 1, historyRev: 1 });
+        set({ world: saved.world, history: ensureVolume(saved.history, assetIds(saved.world)), wire: saved.wire ?? [], status: 'ready', loadProgress: 1, historyRev: 1 });
         return;
       }
     }
@@ -127,8 +138,8 @@ export const useGame = create<GameStore>((set, get) => ({
   async newGame(seed) {
     set({ status: 'loading', loadProgress: 0, toasts: [], wire: [], tradeSheetOpen: false });
     let w = createWorld(seed ?? randomSeed(), defaultConfig());
-    const h = createHistory(seriesIds(w), w.config.ticksPerDay);
-    record(h, w.tick, snapshot(w));
+    const h = createHistory(seriesIds(w), w.config.ticksPerDay, assetIds(w));
+    record(h, w.tick, snapshot(w), cumVolumes(w));
     const total = WARMUP_DAYS * w.config.ticksPerDay;
     let wire: WireItem[] = [];
     for (let done = 0; done < total; ) {
@@ -136,7 +147,7 @@ export const useGame = create<GameStore>((set, get) => ({
       for (let k = 0; k < n; k++) {
         const r = step(w);
         w = r.state;
-        record(h, w.tick, snapshot(w));
+        record(h, w.tick, snapshot(w), cumVolumes(w));
         if (r.events.length) wire = [...wireFromEvents(w, r.events, []).reverse(), ...wire].slice(0, WIRE_KEEP);
       }
       done += n;
@@ -156,16 +167,18 @@ export const useGame = create<GameStore>((set, get) => ({
     let wire = get().wire;
     const toasts: Toast[] = [];
     let playerChanged = false;
+    let playerFilled = false;
     for (let k = 0; k < n; k++) {
       const r = step(w);
       w = r.state;
-      record(history, w.tick, snapshot(w));
+      record(history, w.tick, snapshot(w), cumVolumes(w));
       if (r.events.length || r.fills.length) {
         wire = [...wireFromEvents(w, r.events, r.fills).reverse(), ...wire].slice(0, WIRE_KEEP);
       }
       for (const f of r.fills) {
         if (f.playerId !== PLAYER) continue;
         playerChanged = true;
+        playerFilled = true;
         toasts.push({
           id: `${f.orderId}-${f.tick}`,
           tone: f.side === 'buy' ? 'gain' : 'loss',
@@ -180,7 +193,8 @@ export const useGame = create<GameStore>((set, get) => ({
         toasts.push({ id: `${o.id}-closed`, tone: 'loss', text: closedText(o) });
       }
     }
-    set({ world: w, wire, historyRev: get().historyRev + 1, toasts: toasts.length ? [...get().toasts, ...toasts].slice(-4) : get().toasts });
+    // a fill closes the phone trade sheet so the new position and the docked toast are in view
+    set({ world: w, wire, historyRev: get().historyRev + 1, tradeSheetOpen: playerFilled ? false : get().tradeSheetOpen, toasts: toasts.length ? [...get().toasts, ...toasts].slice(-4) : get().toasts });
     ticksSinceSave += n;
     // a fill or a closed order is saved right away, so a reload never loses a trade
     if (playerChanged || ticksSinceSave >= AUTOSAVE_EVERY) get().persist();

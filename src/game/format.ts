@@ -18,6 +18,13 @@ export function price(n: number): string {
   return fixMinus(nf(d, d).format(n));
 }
 
+/** Signed change in the quote's own precision: +0.04 on a $141 stock, not +0.0394. */
+export function signedChange(change: number, ref: number): string {
+  const d = decimalsFor(ref);
+  const s = nf(d, d).format(Math.abs(change));
+  return `${change < 0 && Number(s.replace(/,/g, '')) !== 0 ? MINUS : '+'}${s}`;
+}
+
 /** $48,212.40 */
 export function money(n: number): string {
   const s = NF2.format(Math.abs(n));

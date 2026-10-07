@@ -15,6 +15,8 @@ export interface Bar {
   high: number;
   low: number;
   close: number;
+  /** units traded in the bar (assets only; indices have none) */
+  volume?: number;
 }
 
 export interface SeriesHistory {
@@ -26,6 +28,10 @@ export interface SeriesHistory {
   size: number;
   /** completed and current daily bars; time = first tick of the day */
   daily: Bar[];
+  /** engine cumVolume at each ring slot (NaN = unknown, e.g. a pre-volume save); absent for indices */
+  cum?: number[];
+  /** cumVolume at the last recorded tick */
+  lastCum?: number;
 }
 
 export interface History {
@@ -37,21 +43,47 @@ export interface History {
   series: Record<string, SeriesHistory>;
 }
 
-export function createHistory(ids: string[], ticksPerDay: number): History {
+export function createHistory(ids: string[], ticksPerDay: number, volumeIds: string[] = []): History {
   const capacity = ticksPerDay * RING_DAYS;
   const series: Record<string, SeriesHistory> = {};
   for (const id of ids) series[id] = { ring: new Array<number>(capacity).fill(0), head: 0, size: 0, daily: [] };
+  for (const id of volumeIds) if (series[id]) series[id].cum = new Array<number>(capacity).fill(NaN);
   return { version: 1, ticksPerDay, capacity, lastTick: -1, series };
 }
 
-/** Record one tick of prices (mutates; history lives outside React state for speed). */
-export function record(h: History, tick: number, priceById: Record<string, number>): void {
+/** Give a history saved before volume existed its volume rings (bars start at 0). Mutates. */
+export function ensureVolume(h: History, volumeIds: string[]): History {
+  for (const id of volumeIds) {
+    const s = h.series[id];
+    if (s && !s.cum) s.cum = new Array<number>(h.capacity).fill(NaN);
+  }
+  return h;
+}
+
+/** Volume between two cumVolume readings; unknown or reset readings count as 0. */
+function volDelta(cum: number | undefined, prev: number | undefined): number {
+  if (cum === undefined || prev === undefined || !Number.isFinite(cum) || !Number.isFinite(prev)) return 0;
+  return Math.max(0, cum - prev);
+}
+
+/**
+ * Record one tick of prices and, for assets, the engine's cumVolume (mutates; history lives
+ * outside React state for speed). Volume is always a cumVolume difference, so it stays right
+ * when ticks are skipped or recorded in batches.
+ */
+export function record(h: History, tick: number, priceById: Record<string, number>, cumById: Record<string, number> = {}): void {
   const d = dayIndex(tick, h.ticksPerDay);
   const dayStart = d * h.ticksPerDay + (tick <= 0 ? 0 : 1);
   for (const id in h.series) {
     const p = priceById[id];
     if (p === undefined || !Number.isFinite(p)) continue;
     const s = h.series[id]!;
+    const cum = s.cum ? cumById[id] : undefined;
+    const dv = volDelta(cum, s.lastCum);
+    if (s.cum) {
+      s.cum[s.head] = cum ?? NaN;
+      if (cum !== undefined) s.lastCum = cum;
+    }
     s.ring[s.head] = p;
     s.head = (s.head + 1) % h.capacity;
     if (s.size < h.capacity) s.size++;
@@ -60,28 +92,33 @@ export function record(h: History, tick: number, priceById: Record<string, numbe
       if (p > last.high) last.high = p;
       if (p < last.low) last.low = p;
       last.close = p;
+      if (s.cum) last.volume = (last.volume ?? 0) + dv;
     } else {
       const open = last ? last.close : p;
-      s.daily.push({ time: dayStart, open, high: Math.max(open, p), low: Math.min(open, p), close: p });
+      const bar: Bar = { time: dayStart, open, high: Math.max(open, p), low: Math.min(open, p), close: p };
+      if (s.cum) bar.volume = dv;
+      s.daily.push(bar);
       if (s.daily.length > MAX_DAILY_BARS) s.daily.splice(0, s.daily.length - MAX_DAILY_BARS);
     }
   }
   h.lastTick = tick;
 }
 
-/** Last n tick prices, oldest first, with their ticks. */
-export function lastTicks(h: History, id: string, n: number): { ticks: number[]; prices: number[] } {
+/** Last n tick prices, oldest first, with their ticks (and cumVolume readings when kept). */
+export function lastTicks(h: History, id: string, n: number): { ticks: number[]; prices: number[]; cums?: number[] } {
   const s = h.series[id];
   if (!s) return { ticks: [], prices: [] };
   const count = Math.min(n, s.size);
   const prices = new Array<number>(count);
   const ticks = new Array<number>(count);
+  const cums = s.cum ? new Array<number>(count) : undefined;
   for (let k = 0; k < count; k++) {
     const idx = (s.head - count + k + h.capacity * 2) % h.capacity;
     prices[k] = s.ring[idx]!;
+    if (cums) cums[k] = s.cum![idx]!;
     ticks[k] = h.lastTick - count + 1 + k;
   }
-  return { ticks, prices };
+  return { ticks, prices, cums };
 }
 
 export type RangeId = '1H' | '1D' | '1W' | '1Q' | '1Y';
@@ -116,22 +153,26 @@ export function candles(h: History, id: string, range: RangeId): Bar[] {
   if (!s || s.size === 0) return [];
   if (spec.bucket === 'daily') return s.daily.slice(-spec.span).map((b) => ({ ...b }));
   const b = spec.bucket;
-  const { ticks, prices } = lastTicks(h, id, spec.span + b);
+  const { ticks, prices, cums } = lastTicks(h, id, spec.span + b + 1);
   const firstAllowed = h.lastTick - spec.span + 1;
   const bars: Bar[] = [];
   let prevClose: number | undefined;
   for (let k = 0; k < ticks.length; k++) {
     const t = ticks[k]!;
     const p = prices[k]!;
+    const dv = cums && k > 0 ? volDelta(cums[k], cums[k - 1]) : 0;
     const start = Math.floor(t / b) * b;
     const cur = bars[bars.length - 1];
     if (cur && cur.time === start) {
       if (p > cur.high) cur.high = p;
       if (p < cur.low) cur.low = p;
       cur.close = p;
+      if (cums) cur.volume = (cur.volume ?? 0) + dv;
     } else {
       const open = cur ? cur.close : (prevClose ?? p);
-      bars.push({ time: start, open, high: Math.max(open, p), low: Math.min(open, p), close: p });
+      const bar: Bar = { time: start, open, high: Math.max(open, p), low: Math.min(open, p), close: p };
+      if (cums) bar.volume = dv;
+      bars.push(bar);
     }
     prevClose = p;
   }

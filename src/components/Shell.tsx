@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
 import type { WireItem } from '@/game/wire';
@@ -27,12 +28,12 @@ function Icon({ name }: { name: IconName }) {
   }
 }
 
-const NAV: { id: IconName; label: string }[] = [
+const NAV: { id: IconName; label: string; href?: string }[] = [
   { id: 'market', label: 'Market' },
   { id: 'portfolio', label: 'Portfolio' },
   { id: 'estate', label: 'Estate' },
   { id: 'wire', label: 'Wire' },
-  { id: 'more', label: 'More' },
+  { id: 'more', label: 'More', href: '/credits' },
 ];
 
 /** Desktop and tablet rail. Only Market exists in Phase 0; the rest are placeholders. */
@@ -43,6 +44,14 @@ export function NavRail() {
       <div className="mb-4 font-serif text-title text-brass" aria-hidden>T</div>
       {NAV.map((n) => {
         const on = n.id === 'market';
+        if (n.href) {
+          return (
+            <Link key={n.id} href={n.href} title="Credits" className="flex w-14 flex-col items-center gap-1 rounded-md py-2 text-micro tracking-normal text-fg-faint hover:bg-ink-2 hover:text-fg" data-testid={`nav-${n.id}`}>
+              <Icon name={n.id} />
+              {n.label}
+            </Link>
+          );
+        }
         return (
           <button
             key={n.id}
@@ -74,6 +83,14 @@ export function TabBar() {
     <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 flex h-[var(--tabbar-h)] border-t border-ink-2 bg-ink-0 pb-[env(safe-area-inset-bottom)]">
       {NAV.map((n) => {
         const on = n.id === 'market';
+        if (n.href) {
+          return (
+            <Link key={n.id} href={n.href} className="flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-micro tracking-normal text-fg-faint" data-testid={`tab-${n.id}`}>
+              <Icon name={n.id} />
+              {n.label}
+            </Link>
+          );
+        }
         return (
           <button
             key={n.id}

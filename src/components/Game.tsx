@@ -89,13 +89,16 @@ export function Game() {
     return (
       <div className="flex w-full flex-1 flex-col" data-layout="phone">
         <PhoneHeader />
-        <main className="flex flex-col gap-4 px-4 pt-4 pb-[calc(var(--tabbar-h)+88px)]">
+        {/* bottom padding = tab bar + 16 gap + 52 Trade button + 24, so the last row scrolls clear */}
+        <main className="flex flex-col gap-4 px-4 pt-4 pb-[calc(var(--tabbar-h)+92px)]" data-testid="phone-main">
           <TickerStrip />
           <ChartCard phone />
           <Positions phone />
           <OpenOrders />
         </main>
-        <div className="fixed inset-x-4 bottom-[calc(var(--tabbar-h)+12px)] z-10">
+        {/* ink fade behind the floating Trade button (mock §4) */}
+        <div className="pointer-events-none fixed inset-x-0 bottom-[var(--tabbar-h)] z-10 h-24 bg-linear-to-t from-ink-0 from-40% to-transparent" aria-hidden data-testid="trade-fade" />
+        <div className="fixed inset-x-4 bottom-[calc(var(--tabbar-h)+16px)] z-10">
           <button type="button" onClick={() => setSheet(true)} className="btn-brass h-13 w-full text-body" data-testid="open-trade">
             {tradable ? `Trade ${selected}` : 'Trade'}
           </button>
