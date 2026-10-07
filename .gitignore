@@ -49,3 +49,6 @@ next-env.d.ts
 
 
 balance-out/
+
+# world server data
+world-data/
