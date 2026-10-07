@@ -65,6 +65,21 @@ export function normalizeLoadings(a: AssetDef): AssetDef {
   return { ...a, wMarket: a.wMarket * k, wSector: a.wSector * k, wCrypto: a.wCrypto * k };
 }
 
+/**
+ * Expected total annualized volatility of an asset: diffusion plus compound Poisson jumps.
+ * Kou jumps with exponential sizes of mean η have E[J²] = 2η², so
+ *   expectedVol² = (vol · volMult)² + λ · jumpMult · (p · 2ηUp² + (1 − p) · 2ηDown²)
+ * GARCH has long-run mean h = 1, so it does not change the expectation.
+ * Without a regime this is the neutral calibration target that balance bands compare against.
+ */
+export function expectedVol(a: AssetDef, regime?: RegimeDef): number {
+  const volMult = regime?.volMult ?? 1;
+  const jumpMult = regime?.jumpMult ?? 1;
+  const p = Math.min(0.95, Math.max(0.05, a.jumpUpProb + (regime?.jumpUpShift ?? 0)));
+  const ej2 = p * 2 * a.jumpUpMean ** 2 + (1 - p) * 2 * a.jumpDownMean ** 2;
+  return Math.sqrt((a.vol * volMult) ** 2 + a.jumpsPerYear * jumpMult * ej2);
+}
+
 export function idioLoading(a: AssetDef): number {
   return Math.sqrt(Math.max(0, 1 - a.wMarket ** 2 - a.wSector ** 2 - a.wCrypto ** 2));
 }

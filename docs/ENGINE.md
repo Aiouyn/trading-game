@@ -19,6 +19,7 @@ quote(state, assetId): { assetId, price, fundamental, halted }
 prices(state): Record<assetId, price>
 indexLevel(state, 'GX'): number                                // cap-weighted, base 1000
 gameDay(state): number
+expectedVol(def, regime?): number                              // expected total annual vol, diffusion + jumps
 ```
 
 `WorldState` is plain JSON (numbers, strings, arrays), RNG state included. `JSON.parse(JSON.stringify(state))` is a valid save file and continues exactly. Events are `regime`, `jump`, `halt` and `reopen`, each tagged with the tick.
@@ -116,6 +117,16 @@ The reference run uses seed `alpha` and 5 game years, at about 17 µs per tick f
   - The circuit breaker halts, freezes, reopens with the gap, and fires at most once per day.
 
 Statistical tests use 24 ticks per day for speed. Calibration is per game year, so the results carry over to 720.
+
+## Expected volatility (balance target)
+
+`vol` in `AssetDef` is only the diffusive part, and jumps add on top. `expectedVol(def, regime?)` gives the total:
+
+$$
+\sigma_{tot}^2 = (vol \cdot volMult)^2 + \lambda \cdot jumpMult \cdot \left(p \cdot 2\eta_{up}^2 + (1-p) \cdot 2\eta_{down}^2\right)
+$$
+
+Balance bands compare realized vol against `expectedVol(def)` (neutral regime), never against raw `vol`. For example, Lumen Pharma has `vol` 38% but expected total vol of about 65%, because of its binary trial jumps.
 
 ## Tuning knobs
 

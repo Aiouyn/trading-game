@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, indexLevel, prices, quote, step, stepMany } from './sim';
-import { DEFAULT_ASSETS, DEFAULT_REGIMES, defaultConfig, normalizeLoadings } from './config';
+import { DEFAULT_ASSETS, DEFAULT_REGIMES, defaultConfig, expectedVol, normalizeLoadings } from './config';
 import type { AssetDef, RegimeDef, RegimeId, WorldConfig, WorldState } from './types';
 
 /** Coarse clock for statistical tests: 24 ticks per game day. Calibration is per game year, so results carry over. */
@@ -262,5 +262,31 @@ describe('circuit breaker', () => {
     // halts at most once per day
     const rest = stepMany(reopen.state, 300);
     expect(rest.events.filter((e) => e.type === 'halt').length).toBe(0);
+  });
+});
+
+describe('expectedVol', () => {
+  it('equals vol when there are no jumps', () => {
+    expect(expectedVol(testStock('E', 'e', { vol: 0.3, jumpsPerYear: 0 }))).toBeCloseTo(0.3, 12);
+  });
+
+  it('matches the closed form for Lumen Pharma (~65%)', () => {
+    const lmnp = DEFAULT_ASSETS.find((a) => a.id === 'LMNP')!;
+    // 0.38² + 6 · (0.5 · 2 · 0.12² + 0.5 · 2 · 0.18²) = 0.1444 + 0.2808
+    expect(expectedVol(lmnp)).toBeCloseTo(Math.sqrt(0.1444 + 0.2808), 12);
+  });
+
+  it('scales with regime vol and jump multipliers', () => {
+    const a = testStock('E', 'e', { jumpsPerYear: 4 });
+    expect(expectedVol(a, DEFAULT_REGIMES.contraction)).toBeGreaterThan(expectedVol(a));
+  });
+
+  it('predicts realized vol of a jump-heavy asset (±15%)', () => {
+    const a = testStock('JV', 'jv', { vol: 0.3, jumpsPerYear: 8, jumpUpMean: 0.1, jumpDownMean: 0.14 });
+    const cfg = defaultConfig({ ...FAST, assets: [a], indices: [], regimes: frozenRegimes() });
+    const { closes } = dailyCloses(createWorld('ev', cfg), 252 * 15);
+    const realized = sd(diffs(closes.JV!)) * Math.sqrt(252);
+    expect(realized / expectedVol(a)).toBeGreaterThan(0.85);
+    expect(realized / expectedVol(a)).toBeLessThan(1.15);
   });
 });

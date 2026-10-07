@@ -6,7 +6,7 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createWorld, step, indexLevel, defaultConfig } from '../src/engine';
+import { createWorld, step, indexLevel, defaultConfig, expectedVol } from '../src/engine';
 import type { StepEvent } from '../src/engine';
 
 function arg(name: string, fallback: string): string {
@@ -66,7 +66,7 @@ const rows = ['GX', ...ids].map((id) => {
     end: xs[xs.length - 1]!,
     cagr: Math.pow(xs[xs.length - 1]! / xs[0]!, 1 / years) - 1,
     vol: sd(r) * Math.sqrt(cfg.daysPerYear),
-    targetVol: def?.vol ?? null,
+    targetVol: def ? expectedVol(def) : null,
     maxDrawdown: maxDD(xs),
     corrGX: id === 'GX' ? 1 : corr(r, logRets(series.GX!)),
   };
