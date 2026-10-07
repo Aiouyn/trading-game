@@ -31,7 +31,7 @@ function hash(s: string) { let h = 2166136261; for (const c of s) { h ^= c.charC
 type SeedResult = {
   seed: string; volRatio: Record<string, number>; gxCagr: number; invalid: number; sawContraction: boolean;
   bh: number; random: number; momentum: number; finalHash: string; msPerTick: number;
-  fee: { bh: number; random: number; momentum: number; momentumFees: number };
+  fee: { bh: number; random: number; momentum: number; contrarian: number; momentumFees: number };
 };
 
 // Fee-aware strategies (engine task #2 order API): each strategy trades in its OWN same-seed world,
@@ -40,7 +40,7 @@ type SeedResult = {
 // sell everything, step 1 tick, buy floor(0.97 * cash / price), step 1 tick. Buy-and-hold buys an
 // equal-weight stock basket once on day 63. Result = equity multiple over the same window for all three.
 const START_CASH = 5000, PID = "tape";
-function feeAware(seed: string, cfg: ReturnType<typeof defaultConfig>, days: number, stockIdx: number[], kind: "bh" | "random" | "momentum") {
+function feeAware(seed: string, cfg: ReturnType<typeof defaultConfig>, days: number, stockIdx: number[], kind: "bh" | "random" | "momentum" | "contrarian") {
   const month = 21, look = 63;
   const lastStart = look + Math.floor((days - month - look) / month) * month;
   const end = lastStart + month;
@@ -64,7 +64,7 @@ function feeAware(seed: string, cfg: ReturnType<typeof defaultConfig>, days: num
       } else {
         let pick = stockIdx[0]!;
         if (kind === "random") pick = stockIdx[Math.floor(rand() * stockIdx.length)]!;
-        else { let best = -Infinity; for (const i of stockIdx) { const tr = closes[i]![d]! / closes[i]![d - look]!; if (tr > best) { best = tr; pick = i; } } }
+        else { const sgn = kind === "momentum" ? 1 : -1; let best = -Infinity; for (const i of stockIdx) { const tr = sgn * (closes[i]![d]! / closes[i]![d - look]!); if (tr > best) { best = tr; pick = i; } } }
         order(cfg.assets[pick]!.id, "buy", Math.floor((0.97 * cash) / px(pick)));
       }
       s = stepMany(s, 1).state; used++;
@@ -120,8 +120,8 @@ function runSeed(seed: string): SeedResult {
     bh *= gx[d + month]! / gx[d]!;
   }
   const finalHash = String(hash(JSON.stringify(state)));
-  const fb = feeAware(seed, cfg, days, stockIdx, "bh"), fr = feeAware(seed, cfg, days, stockIdx, "random"), fm = feeAware(seed, cfg, days, stockIdx, "momentum");
-  const fee = { bh: fb.multiple, random: fr.multiple, momentum: fm.multiple, momentumFees: fm.fees };
+  const fb = feeAware(seed, cfg, days, stockIdx, "bh"), fr = feeAware(seed, cfg, days, stockIdx, "random"), fm = feeAware(seed, cfg, days, stockIdx, "momentum"), fc = feeAware(seed, cfg, days, stockIdx, "contrarian");
+  const fee = { bh: fb.multiple, random: fr.multiple, momentum: fm.multiple, contrarian: fc.multiple, momentumFees: fm.fees };
   return { seed, volRatio, gxCagr, invalid, sawContraction, bh, random, momentum, finalHash, msPerTick, fee };
 }
 
@@ -143,6 +143,14 @@ function main() {
   // banded: fee-aware (real order API). Info only: the old no-fee index version, and medians.
   stats.bh_beats_random_share = results.filter((r) => r.fee.bh > r.fee.random).length / results.length;
   stats.bh_beats_momentum_share = results.filter((r) => r.fee.bh > r.fee.momentum).length / results.length;
+  stats.bh_beats_contrarian_share = results.filter((r) => r.fee.bh > r.fee.contrarian).length / results.length;
+  // Ledger 2026-10-07: no simple strategy beats buy-and-hold in more than 70% of seeds
+  const beats = (k: "random" | "momentum" | "contrarian") => results.filter((r) => r.fee[k] > r.fee.bh).length / results.length;
+  stats.info_random_beats_bh_share = beats("random");
+  stats.info_momentum_beats_bh_share = beats("momentum");
+  stats.info_contrarian_beats_bh_share = beats("contrarian");
+  stats.max_strategy_beats_bh_share = Math.max(beats("random"), beats("momentum"), beats("contrarian"));
+  stats.info_fee_median_multiple_contrarian = median(results.map((r) => r.fee.contrarian));
   stats.info_nofee_bh_beats_random_share = results.filter((r) => r.bh > r.random).length / results.length;
   stats.info_nofee_bh_beats_momentum_share = results.filter((r) => r.bh > r.momentum).length / results.length;
   stats.info_fee_median_multiple_bh = median(results.map((r) => r.fee.bh));

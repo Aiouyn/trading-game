@@ -18,8 +18,10 @@ export function phase0Bands(assetIds: string[]): Band[] {
     { id: "gx_cagr_median", label: "GX CAGR, median across seeds", min: 0, max: 0.12, source: Q },
     { id: "invalid_values", label: "NaN/Infinity, price below floor, or h outside [0.25, 9] (count)", min: 0, max: 0, source: Q },
     { id: "contraction_seed_share", label: "share of seeds with at least one contraction in the run", min: 0.5, max: 1, source: Q },
-    { id: "bh_beats_random_share", label: "share of seeds where buy-and-hold GX beats random monthly picks", min: 0.1, max: 0.9, source: `${Q}: no guaranteed edge either way` },
-    { id: "bh_beats_momentum_share", label: "share of seeds where buy-and-hold GX beats 63-day momentum", min: 0.1, max: 0.9, source: `${Q}: no guaranteed edge either way` },
+    { id: "bh_beats_random_share", label: "fee-aware: share of seeds where an equal-weight stock basket held from day 63 beats a random single stock rebalanced monthly", min: 0.1, max: 0.9, source: `${Q}: no guaranteed edge either way` },
+    { id: "bh_beats_momentum_share", label: "fee-aware: share of seeds where buy-and-hold beats the top 63-day performer rebalanced monthly", min: 0.1, max: 0.9, source: `${Q}: no guaranteed edge either way` },
+    { id: "bh_beats_contrarian_share", label: "fee-aware: share of seeds where buy-and-hold beats the worst 63-day performer rebalanced monthly", min: 0.1, max: 0.9, source: "Ledger 2026-10-07: contrarian strategy added" },
+    { id: "max_strategy_beats_bh_share", label: "highest share of seeds in which any simple strategy (random, momentum, contrarian) beats buy-and-hold", min: 0, max: 0.7, source: "Ledger 2026-10-07: no simple strategy beats buy-and-hold in more than 70% of seeds" },
     { id: "determinism_mismatch", label: "same seed run twice gives a different final state (count)", min: 0, max: 0, source: "Tape release check" },
   ];
 }
