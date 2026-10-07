@@ -248,7 +248,7 @@ export function Watchlist() {
           <h2 className="font-serif text-title">Markets</h2>
           <span className="num text-caption text-fg-faint">{ids.length}</span>
         </div>
-        <TextField value={q} onChange={setQ} placeholder="Search 170+ assets" className="mt-3 h-9 w-full text-small" testId="asset-search" />
+        <TextField value={q} onChange={setQ} placeholder="Search 155 assets" className="mt-3 h-9 w-full text-small" testId="asset-search" />
         <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
           {([['watch', 'Watch'], ['stock', 'Stocks'], ['crypto', 'Crypto'], ['commodity', 'Commod.'], ['forex', 'FX'], ['bond', 'Bonds'], ['index', 'Indices']] as [UniverseTab, string][]).map(([id, label]) => (
             <button key={id} type="button" onClick={() => { setTab(id); setQ(''); }} className={`shrink-0 rounded-sm px-2 py-1 text-caption ${tab === id && !q ? 'bg-ink-3 text-fg' : 'text-fg-faint hover:text-fg-muted'}`} data-testid={`uni-${id}`}>{label}</button>

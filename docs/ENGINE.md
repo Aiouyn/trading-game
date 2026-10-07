@@ -195,3 +195,14 @@ Trading: `config.trading` (`startingCash`, `fees`, `impactY`, `permanentImpactSh
 
 
 Everything lives in `WorldConfig` and `AssetDef`. Nothing is hard-coded in `sim.ts`. Tape's balance runs can override any field through `defaultConfig({ ... })`.
+
+## Game universe, rates, margin and options (multiplayer build)
+
+`universeConfig()` (in `universe.ts`) is the world the game runs; `defaultConfig()` stays the 17-asset calibration world the tests and balance bands use, so every original test keeps measuring the bare model.
+
+- **Universe**: 120 stocks in 12 sectors and 5 regions (a region factor `wRegion` on its own stream `region:<r>`), 15 crypto, 11 commodities (Compute, Data and Power included), 4 currencies, 5 bond funds and 13 unlisted property-district indices (`listed: false`: priced, never tradable). Per-asset `blurb`, `dividendYield`, `borrowFee`.
+- **Rates** (`rates.ts`, stream `rates:global`): inflation and growth drift to regime targets daily; a Taylor-rule central bank meets every 8 days in 25 bp steps (max 50); the market prices `expectedMove` and the surprise moves stocks (−4 × surprise, scaled by cycle beta); CPI and jobs releases alternate every 5 days with a consensus. Yields y2/y10/y30 reprice assets with `duration` and pay `yieldKey` carry (+ `carrySpread`). Events `rates` and `macro`.
+- **Margin** (`trading.ts`): signed positions (shorts), `maxLeverage`, `canShort`, `canOptions` per account (set by licenses in the world layer). Buying power = leverage × equity − gross exposure − reserved exposure. Margin call below 30% equity/gross (`margin_call` event), liquidation below 20% (largest first, `liquidation` event, `forced` orders). Daily: cash interest (½ policy), margin interest (policy + 3%), dividends (shorts pay), borrow fees. Cash accounts behave exactly as before.
+- **Orders**: `stop_limit`, `trailing` (`trailPct`, tracks `trailRef`), brackets (`takeProfit`/`stopLoss` → reduce-only OCO legs on the full fill), `reduceOnly`, `modifyOrder`.
+- **Options** (`options.ts`): `optionChain`, `optionQuote` (Black-Scholes on `expectedVol × √h`, policy rate), `tradeOption` (immediate at bid/ask, $0.65 per contract), cash settlement at the close of the expiry day (`option_expiry` event). Contract ids are `UNDERLYING|expiryDay|C/P|strike`.
+- Tests: `advanced.test.ts` (22).
