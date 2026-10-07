@@ -288,7 +288,13 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
       return { ok: true };
     }
     case 'admin.advance': return fail('admin only');
+    case 'admin.grant': {
+      credit(g, pid, cmd.amount, 'admin');
+      refreshNetWorth(g, p);
+      applyRank(g, p, out);
+      return { ok: true };
+    }
   }
-  void credit; void labFor; void emptyLab;
+  void labFor; void emptyLab;
   return fail('unknown command');
 }

@@ -116,6 +116,15 @@ describe('businesses', () => {
     expect(share2).toBeLessThan(share1);
   });
 
+  it('caps how many businesses of one tier a player can run', () => {
+    const g = game();
+    cmd(g, 'u1', { type: 'join', handle: 'spammer', country: 'AV' });
+    boost(g, 'u1', 10_000);
+    const cart = BUSINESSES.find((b) => b.tier === 1)!;
+    for (let k = 0; k < 4; k++) expect(cmd(g, 'u1', { type: 'biz.buy', defId: cart.id, cityId: 'avalon' }).ok).toBe(true);
+    expect(cmd(g, 'u1', { type: 'biz.buy', defId: cart.id, cityId: 'avalon' }).error).toMatch(/at most 4/);
+  });
+
   it('buying a business barely moves net worth (it is valued, not spent)', () => {
     const g = game();
     cmd(g, 'u1', { type: 'join', handle: 'tycoon', country: 'AV' });

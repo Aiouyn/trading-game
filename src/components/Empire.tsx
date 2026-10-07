@@ -43,7 +43,7 @@ export function EmpireView() {
 function Owned() {
   const me = useGame((s) => s.me)!;
   if (!me.businesses.length) {
-    return <Card className="p-8 text-center"><p className="font-serif text-title text-fg-muted">No businesses yet.</p><p className="mt-2 text-small text-fg-faint">A street food cart costs about $1,500 and pays for itself in under three game days.</p></Card>;
+    return <Card className="p-8 text-center"><p className="font-serif text-title text-fg-muted">No businesses yet.</p><p className="mt-2 text-small text-fg-faint">A street food cart costs $1,500 and pays for itself in about a real day. Upgrades and higher tiers pay more.</p></Card>;
   }
   return (
     <div className="grid gap-4 xl:grid-cols-2">
@@ -131,6 +131,8 @@ function Catalog({ onBought }: { onBought: () => void }) {
         {list.map((d) => {
           const t = TIERS[d.tier - 1]!;
           const locked = rIdx < rankIndex(t.rank);
+          const used = me.businesses.filter((b) => BIZ_BY_ID.get(b.defId)!.tier === d.tier).length;
+          const full = used >= t.max;
           const inc = d.income * demand;
           const sec = BIZ_SECTORS.find((s) => s.id === d.sector)!;
           return (
@@ -153,9 +155,10 @@ function Catalog({ onBought }: { onBought: () => void }) {
                   {d.power ? `Powers your data centers: ${d.power} MWh/day. ` : ''}{d.compute ? `Supplies compute. ` : ''}{d.feeds ? `Supplies ${BIZ_SECTORS.find((s) => s.id === d.feeds)?.name}: +5% to those businesses.` : ''}
                 </p>
               )}
-              <Button variant={locked ? 'outline' : 'brass'} className="mt-3 w-full" disabled={locked || cash < d.cost}
+              {!locked && <p className="num mt-2 text-caption text-fg-faint">{t.name} slots {used}/{t.max}</p>}
+              <Button variant={locked || full ? 'outline' : 'brass'} className="mt-3 w-full" disabled={locked || full || cash < d.cost}
                 onClick={async () => { const r = await act({ type: 'biz.buy', defId: d.id, cityId: city }, { success: `You now own ${d.name}` }); if (r.ok) onBought(); }} testId={`buy-biz-${d.id}`}>
-                {locked ? `Unlocks at ${RANKS.find((r) => r.id === t.rank)!.name}` : cash < d.cost ? `Need ${compactMoney(d.cost - cash)} more` : `Buy for ${money(d.cost)}`}
+                {locked ? `Unlocks at ${RANKS.find((r) => r.id === t.rank)!.name}` : full ? 'All slots in use' : cash < d.cost ? `Need ${compactMoney(d.cost - cash)} more` : `Buy for ${money(d.cost)}`}
               </Button>
             </Card>
           );

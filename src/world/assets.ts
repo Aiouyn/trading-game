@@ -37,6 +37,8 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
   const tier = TIERS[def.tier - 1]!;
   if (rankIndex(p.rankId) < rankIndex(tier.rank)) return fail(`${tier.name} businesses unlock at a higher rank`);
   if (!cityUnlocked(p, cityId)) return fail('that city is locked at your rank');
+  const owned = Object.values(g.businesses).filter((b) => b.ownerId === pid && bizDef(b).tier === def.tier).length;
+  if (owned >= tier.max) return fail(`you can run at most ${tier.max} ${tier.name} businesses: sell one or move up a tier`);
   if (p.heldUntil > g.market.tick) return fail('your assets are held by the court');
   if (cashOf(g, pid) < def.cost) return fail('not enough cash');
   bump(g, pid, -def.cost); // cash becomes the business: a conversion, not a sink
@@ -131,9 +133,9 @@ export function recomputeShares(g: GameState): void {
       const def = bizDef(b);
       const sec = BIZ_SECTOR_BY_ID.get(def.sector)!;
       const share = Math.exp(appeal(b)) / sum;
-      const shareFactor = clamp(share * (M + 1), 0.35, 2.5);
+      const shareFactor = clamp(share * (M + 1), 0.35, 1.8);
       const L = b.levels;
-      const mult = (1 + 0.12 * L.staff) * (1 + 0.1 * L.equipment) * (1 + 0.06 * L.location) * (1 + 0.08 * L.research);
+      const mult = (1 + 0.08 * L.staff) * (1 + 0.07 * L.equipment) * (1 + 0.05 * L.location) * (1 + 0.06 * L.research);
       const cycle = 1 + 0.25 * sec.cyclicality * regimeScore;
       const mine = owned.get(b.ownerId)!;
       let synergy = (mine.get(def.sector) ?? 0) >= 3 ? 1.1 : 1;

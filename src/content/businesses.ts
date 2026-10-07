@@ -46,15 +46,17 @@ export interface TierDef {
   roi: number;
   /** rank id needed to buy */
   rank: string;
+  /** most businesses of this tier one owner can run (attention is limited) */
+  max: number;
 }
 
 export const TIERS: TierDef[] = [
-  { tier: 1, name: 'Hustle', cost: 2_500, roi: 0.06, rank: 'R0' },
-  { tier: 2, name: 'Small Business', cost: 25_000, roi: 0.048, rank: 'R1' },
-  { tier: 3, name: 'Company', cost: 250_000, roi: 0.038, rank: 'R2' },
-  { tier: 4, name: 'Enterprise', cost: 3_000_000, roi: 0.03, rank: 'R3' },
-  { tier: 5, name: 'Conglomerate', cost: 40_000_000, roi: 0.024, rank: 'R4' },
-  { tier: 6, name: 'Megaproject', cost: 600_000_000, roi: 0.019, rank: 'R5' },
+  { tier: 1, name: 'Hustle', cost: 2_500, roi: 0.05, rank: 'R0', max: 4 },
+  { tier: 2, name: 'Small Business', cost: 25_000, roi: 0.038, rank: 'R1', max: 6 },
+  { tier: 3, name: 'Company', cost: 250_000, roi: 0.027, rank: 'R2', max: 8 },
+  { tier: 4, name: 'Enterprise', cost: 3_000_000, roi: 0.018, rank: 'R3', max: 10 },
+  { tier: 5, name: 'Conglomerate', cost: 40_000_000, roi: 0.012, rank: 'R4', max: 12 },
+  { tier: 6, name: 'Megaproject', cost: 600_000_000, roi: 0.008, rank: 'R5', max: 15 },
 ];
 
 export interface BizDef {
@@ -295,19 +297,19 @@ export interface UpgradeDef {
 }
 
 export const UPGRADES: UpgradeDef[] = [
-  { id: 'staff', name: 'Staff', effect: '+12% income per level', blurb: 'Hire better people and pay them more.' },
+  { id: 'staff', name: 'Staff', effect: "+8% income per level", blurb: 'Hire better people and pay them more.' },
   { id: 'marketing', name: 'Marketing', effect: '+0.25 appeal per level (more market share)', blurb: 'Win customers from competitors in the same city.' },
-  { id: 'equipment', name: 'Equipment', effect: '+10% income, fewer breakdowns', blurb: 'New machines break less and do more.' },
-  { id: 'location', name: 'Location', effect: '+0.2 appeal and +6% income per level', blurb: 'Move closer to the foot traffic.' },
+  { id: 'equipment', name: 'Equipment', effect: "+7% income, fewer breakdowns", blurb: 'New machines break less and do more.' },
+  { id: 'location', name: 'Location', effect: "+0.2 appeal and +5% income per level", blurb: 'Move closer to the foot traffic.' },
   { id: 'automation', name: 'Automation', effect: '+15% offline earnings per level', blurb: 'Keeps earning while you are away.' },
-  { id: 'research', name: 'R&D', effect: '+8% income and +25% data per level', blurb: 'New products and the data they produce.' },
+  { id: 'research', name: 'R&D', effect: "+6% income and +25% data per level", blurb: 'New products and the data they produce.' },
 ];
 
 export const MAX_UPGRADE = 5;
 
 /** Cost of the next level of an axis for a business that cost `cost`. */
 export function upgradeCost(cost: number, level: number): number {
-  return Math.round(cost * 0.35 * 1.7 ** level);
+  return Math.round(cost * 0.45 * 1.7 ** level);
 }
 
 /** Random business events (bible: NPC-only incidents in Phase 0, including data breaches). */

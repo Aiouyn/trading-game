@@ -101,6 +101,13 @@ const http = createServer(async (req, res) => {
       store.setPassword(acct.id, pw);
       return json(res, 200, { ok: true });
     }
+    if (req.method === 'POST' && url.pathname === '/api/admin/grant') {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer `) return json(res, 403, { ok: false });
+      const b = await body(req);
+      const p = Object.values(host.g.players).find((x) => x.handle.toLowerCase() === String(b.handle ?? '').toLowerCase());
+      if (!p) return json(res, 404, { ok: false });
+      return json(res, 200, host.command(p.id, { type: 'admin.grant', amount: Number(b.amount) || 0 }));
+    }
     if (req.method === 'POST' && url.pathname === '/api/admin/advance') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const n = Math.max(1, Math.min(20_000, Number(url.searchParams.get('n') ?? 1)));
@@ -145,7 +152,7 @@ wss.on('connection', (ws) => {
       case 'cmd': {
         if (!c.pid) return send(ws, { t: 'error', message: 'auth' });
         const cmd = msg.cmd;
-        if (!cmd || typeof cmd !== 'object' || typeof cmd.type !== 'string' || cmd.type === 'join' || cmd.type === 'admin.advance' || cmd.type === 'presence') {
+        if (!cmd || typeof cmd !== 'object' || typeof cmd.type !== 'string' || cmd.type === 'join' || cmd.type.startsWith('admin.') || cmd.type === 'presence') {
           return send(ws, { t: 'ack', id: msg.id, ok: false, error: 'bad command' });
         }
         const r = host.command(c.pid, cmd);

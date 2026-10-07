@@ -472,7 +472,9 @@ export type Command =
   | { type: 'court.settle'; caseId: string; amount: number }
   | { type: 'court.acceptSettlement'; caseId: string }
   | { type: 'donate'; amount: number; cause: string }
-  | { type: 'admin.advance'; ticks: number };
+  | { type: 'admin.advance'; ticks: number }
+  /** dev and tests only: the server refuses admin.* from clients */
+  | { type: 'admin.grant'; amount: number };
 
 export interface CommandResult {
   ok: boolean;

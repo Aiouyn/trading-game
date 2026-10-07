@@ -118,7 +118,7 @@ export function Coach() {
     };
   } else if (step < 2 && trades > 0) {
     card = {
-      key: 2, title: 'First trade done', body: 'Trading is half the game. Businesses earn every tick, even while you sleep: a street food cart pays for itself in about three game days.',
+      key: 2, title: 'First trade done', body: 'Trading is half the game. Businesses earn every tick, even while you sleep: a street food cart pays for itself in about a real day, and keeps paying.',
       action: { label: 'Open the Empire', run: () => { setScreen('empire'); void advance(2); } },
     };
   } else if (step < 3 && losing) {
