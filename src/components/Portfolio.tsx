@@ -16,6 +16,9 @@ const SLICE_COLOR: Record<Slice['id'], string> = {
   stock: 'bg-brass',
   crypto: 'bg-steel',
   commodity: 'bg-brass-lo',
+  forex: 'bg-info',
+  bond: 'bg-gain',
+  realestate: 'bg-warn',
   cash: 'bg-ink-3',
 };
 

@@ -1,27 +1,54 @@
 /**
- * Engine task #2: order execution and portfolio math (01 §7, Phase 0 single-player).
+ * Order execution and portfolio math (01 §7).
  *
  * Orders and accounts live inside WorldState, so a save is still plain JSON and a replay of
  * (seed, placed orders) is deterministic. Orders queue on placement and clear inside the next
  * step(), against NPC liquidity: mid ± half spread ± square-root impact.
  *
- * Phase 0 limits: long only (no shorting, no margin), fills sequential in order-id order within
- * a tick. The uniform-price batch auction between players comes with multiplayer.
+ * Cash accounts (the default) are long only and can never spend more than their cash. Margin
+ * accounts (maxLeverage > 1 or canShort, granted by licenses in the world layer) can short and
+ * borrow up to maxLeverage × equity of gross exposure; they get a margin call below the
+ * maintenance ratio and are liquidated, largest position first, below the liquidation ratio.
+ *
+ * Order types: market, limit, stop, stop-limit, trailing stop; any entry can carry a bracket
+ * (take-profit + stop-loss) whose legs cancel each other. Options trade immediately at the quoted
+ * bid/ask (see options.ts) and settle in cash at expiry.
  */
 import { DEFAULT_TRADING } from './config';
+import { optionQuote, optionsValue, parseContract } from './options';
 import type {
-  Account, AssetDef, Fill, FillEstimate, Order, OrderRequest, PortfolioView, PositionView,
-  Side, TradingConfig, WorldState,
+  Account, AssetDef, Fill, FillEstimate, MarginConfig, Order, OrderRequest, PortfolioView, PositionView,
+  Side, StepEvent, TradingConfig, WorldState,
 } from './types';
 
 const EPS = 1e-9;
+
+export const DEFAULT_MARGIN: MarginConfig = {
+  maintenance: 0.3,
+  liquidation: 0.2,
+  loanSpread: 0.03,
+  cashInterestShare: 0.5,
+  borrowFee: { stock: 0.01, crypto: 0.05, commodity: 0.02, forex: 0.005, bond: 0.005, realestate: 0.05 },
+  fallbackRate: 0.03,
+};
 
 export function tradingConfig(state: WorldState): TradingConfig {
   return state.config.trading ?? DEFAULT_TRADING;
 }
 
-function assetIndex(state: WorldState, assetId: string): number {
-  return state.config.assets.findIndex((a) => a.id === assetId);
+export function marginConfig(state: WorldState): MarginConfig {
+  return state.config.margin ?? DEFAULT_MARGIN;
+}
+
+/** id → config index, cached per asset list */
+const indexCache = new WeakMap<object, Map<string, number>>();
+export function assetIndex(state: WorldState, assetId: string): number {
+  let m = indexCache.get(state.config.assets);
+  if (!m) {
+    m = new Map(state.config.assets.map((a, i) => [a.id, i]));
+    indexCache.set(state.config.assets, m);
+  }
+  return m.get(assetId) ?? -1;
 }
 
 function mid(state: WorldState, i: number): number {
@@ -59,7 +86,8 @@ function execPrice(state: WorldState, i: number, side: Side, qty: number): { pri
 
 export function commission(state: WorldState, def: AssetDef, notional: number): number {
   if (notional <= 0) return 0;
-  const f = tradingConfig(state).fees[def.assetClass];
+  const fees = tradingConfig(state).fees;
+  const f = fees[def.assetClass] ?? fees.stock;
   return Math.max(f.min, f.rate * notional);
 }
 
@@ -69,6 +97,10 @@ function qtyStep(def: AssetDef): number {
 
 function roundQty(def: AssetDef, q: number): number {
   return qtyStep(def) === 1 ? Math.floor(q + EPS) : q;
+}
+
+export function isMarginAccount(acct: Account): boolean {
+  return (acct.maxLeverage ?? 1) > 1 || !!acct.canShort;
 }
 
 // ---------------------------------------------------------------- accounts
@@ -83,12 +115,51 @@ export function openAccount(state: WorldState, playerId: string, cash = tradingC
   return { ...state, accounts: { ...state.accounts, [playerId]: acct } };
 }
 
-function equityOf(state: WorldState, acct: Account): number {
+/** Change an account's trading permissions (licenses). Pure. */
+export function setAccountPermissions(
+  state: WorldState, playerId: string, perms: { maxLeverage?: number; canShort?: boolean; canOptions?: boolean },
+): WorldState {
+  const a = state.accounts[playerId];
+  if (!a) throw new Error(`no account ${playerId}`);
+  return { ...state, accounts: { ...state.accounts, [playerId]: { ...a, ...perms } } };
+}
+
+/**
+ * Move cash in or out of an account (business income, purchases, fines). Pure. Non-trading
+ * flows also move startingCash-free bookkeeping: they are not trading P&L, so `startingCash`
+ * (the trading baseline) shifts with them and trading P&L stays honest.
+ */
+export function adjustCash(state: WorldState, playerId: string, delta: number): WorldState {
+  const a = state.accounts[playerId];
+  if (!a) throw new Error(`no account ${playerId}`);
+  return {
+    ...state,
+    accounts: {
+      ...state.accounts,
+      [playerId]: {
+        ...a, cash: a.cash + delta, startingCash: a.startingCash + delta,
+        peakEquity: Math.max(0, a.peakEquity + delta), dayStartEquity: a.dayStartEquity + delta,
+      },
+    },
+  };
+}
+
+export function grossExposure(state: WorldState, acct: Account): number {
+  let g = 0;
+  for (const [assetId, pos] of Object.entries(acct.positions)) {
+    const i = assetIndex(state, assetId);
+    if (i >= 0) g += Math.abs(pos.qty) * mid(state, i);
+  }
+  return g;
+}
+
+export function equityOf(state: WorldState, acct: Account): number {
   let eq = acct.cash;
   for (const [assetId, pos] of Object.entries(acct.positions)) {
     const i = assetIndex(state, assetId);
     if (i >= 0) eq += pos.qty * mid(state, i);
   }
+  if (acct.options) eq += optionsValue(state, acct.options);
   return eq;
 }
 
@@ -111,18 +182,20 @@ export function estimateFill(state: WorldState, req: Pick<OrderRequest, 'assetId
   };
 }
 
-/** worst-case price used to reserve cash for an open buy */
+/** worst-case price used to reserve cash for an open order */
 function reservePrice(state: WorldState, i: number, o: OrderRequest, remaining: number): number {
-  if (o.type === 'limit' && o.limitPrice) return o.limitPrice;
-  const est = execPrice(state, i, 'buy', remaining).price;
-  if (o.type === 'stop' && o.stopPrice) return Math.max(est, o.stopPrice * (est / mid(state, i)));
+  if ((o.type === 'limit' || o.type === 'stop_limit') && o.limitPrice) return o.limitPrice;
+  const est = execPrice(state, i, o.side, remaining).price;
+  if (o.type === 'stop' && o.stopPrice) {
+    return o.side === 'buy' ? Math.max(est, o.stopPrice * (est / mid(state, i))) : est;
+  }
   return est;
 }
 
 function reservedCash(state: WorldState, playerId: string): number {
   let r = 0;
   for (const o of state.orders) {
-    if (o.status !== 'open' || o.playerId !== playerId || o.side !== 'buy') continue;
+    if (o.status !== 'open' || o.playerId !== playerId || o.side !== 'buy' || o.reduceOnly) continue;
     const i = assetIndex(state, o.assetId);
     const remaining = o.qty - o.filledQty;
     const px = reservePrice(state, i, o, remaining);
@@ -131,13 +204,38 @@ function reservedCash(state: WorldState, playerId: string): number {
   return r;
 }
 
-function reservedQty(state: WorldState, playerId: string, assetId: string): number {
+/** Gross notional that open non-reducing orders would add (margin accounts). */
+function reservedExposure(state: WorldState, playerId: string): number {
   let r = 0;
   for (const o of state.orders) {
-    if (o.status === 'open' && o.playerId === playerId && o.assetId === assetId && o.side === 'sell') r += o.qty - o.filledQty;
+    if (o.status !== 'open' || o.playerId !== playerId || o.reduceOnly) continue;
+    const i = assetIndex(state, o.assetId);
+    r += (o.qty - o.filledQty) * reservePrice(state, i, o, o.qty - o.filledQty);
   }
   return r;
 }
+
+function reservedQty(state: WorldState, playerId: string, assetId: string): number {
+  let r = 0;
+  for (const o of state.orders) {
+    if (o.status === 'open' && o.playerId === playerId && o.assetId === assetId && o.side === 'sell' && !o.reduceOnly) r += o.qty - o.filledQty;
+  }
+  return r;
+}
+
+/**
+ * What the player can still commit. Cash accounts: cash not reserved by open buys.
+ * Margin accounts: maxLeverage × equity − gross exposure − exposure reserved by open orders.
+ */
+export function buyingPower(state: WorldState, playerId: string): number {
+  const acct = state.accounts[playerId];
+  if (!acct) return 0;
+  if (!isMarginAccount(acct)) return Math.max(0, acct.cash - reservedCash(state, playerId));
+  const eq = equityOf(state, acct);
+  return Math.max(0, eq * (acct.maxLeverage ?? 1) - grossExposure(state, acct) - reservedExposure(state, playerId));
+}
+
+const TYPES = ['market', 'limit', 'stop', 'stop_limit', 'trailing'];
 
 function validate(state: WorldState, req: OrderRequest): string | null {
   const acct = state.accounts[req.playerId];
@@ -145,30 +243,58 @@ function validate(state: WorldState, req: OrderRequest): string | null {
   const i = assetIndex(state, req.assetId);
   if (i < 0) return 'unknown asset';
   const def = state.config.assets[i]!;
+  if (def.listed === false) return 'not tradable';
   if (req.side !== 'buy' && req.side !== 'sell') return 'bad side';
-  if (!['market', 'limit', 'stop'].includes(req.type)) return 'bad order type';
+  if (!TYPES.includes(req.type)) return 'bad order type';
   if (!Number.isFinite(req.qty) || req.qty <= 0) return 'qty must be > 0';
   if (qtyStep(def) === 1 && !Number.isInteger(req.qty)) return 'whole units only';
-  if (req.type === 'limit' && !(req.limitPrice !== undefined && req.limitPrice > 0)) return 'limit price required';
-  if (req.type === 'stop' && !(req.stopPrice !== undefined && req.stopPrice > 0)) return 'stop price required';
-  if (req.side === 'buy') {
-    const px = reservePrice(state, i, req, req.qty);
-    const need = req.qty * px + commission(state, def, req.qty * px);
-    if (need > acct.cash - reservedCash(state, req.playerId) + EPS) return 'insufficient cash';
-  } else {
-    const held = acct.positions[req.assetId]?.qty ?? 0;
-    if (req.qty > held - reservedQty(state, req.playerId, req.assetId) + EPS) return 'insufficient position';
+  if ((req.type === 'limit' || req.type === 'stop_limit') && !(req.limitPrice !== undefined && req.limitPrice > 0)) return 'limit price required';
+  if ((req.type === 'stop' || req.type === 'stop_limit') && !(req.stopPrice !== undefined && req.stopPrice > 0)) return 'stop price required';
+  if (req.type === 'trailing' && !(req.trailPct !== undefined && req.trailPct > 0 && req.trailPct < 0.5)) return 'trail between 0% and 50%';
+  if (req.takeProfit !== undefined && !(req.takeProfit > 0)) return 'bad take-profit';
+  if (req.stopLoss !== undefined && !(req.stopLoss > 0)) return 'bad stop-loss';
+  if (req.takeProfit !== undefined && req.stopLoss !== undefined) {
+    const ok = req.side === 'buy' ? req.takeProfit > req.stopLoss : req.takeProfit < req.stopLoss;
+    if (!ok) return 'take-profit must be on the profit side of the stop-loss';
   }
+  const held = acct.positions[req.assetId]?.qty ?? 0;
+  if (req.reduceOnly) {
+    if (held === 0 || Math.sign(held) === sign(req.side)) return 'nothing to reduce';
+    if (req.qty > Math.abs(held) + EPS) return 'more than the position';
+    return null;
+  }
+
+  if (!isMarginAccount(acct)) {
+    if (req.side === 'buy') {
+      const px = reservePrice(state, i, req, req.qty);
+      const need = req.qty * px + commission(state, def, req.qty * px);
+      if (need > acct.cash - reservedCash(state, req.playerId) + EPS) return 'insufficient cash';
+    } else if (req.qty > held - reservedQty(state, req.playerId, req.assetId) + EPS) {
+      return 'insufficient position';
+    }
+    return null;
+  }
+
+  // margin account
+  if (req.side === 'sell' && !acct.canShort && req.qty > held - reservedQty(state, req.playerId, req.assetId) + EPS) {
+    return 'insufficient position';
+  }
+  const px = reservePrice(state, i, req, req.qty) || mid(state, i);
+  const after = held + sign(req.side) * req.qty;
+  const addExposure = Math.max(0, Math.abs(after) - Math.abs(held)) * px;
+  if (addExposure > buyingPower(state, req.playerId) + EPS) return 'insufficient buying power';
   return null;
 }
 
-export function placeOrder(state: WorldState, req: OrderRequest): { state: WorldState; order: Order } {
-  const seq = state.orderSeq + 1;
-  const reason = validate(state, req);
-  const order: Order = {
+function newOrder(state: WorldState, seq: number, req: OrderRequest, reason: string | null, extra: Partial<Order> = {}): Order {
+  return {
     playerId: req.playerId, assetId: req.assetId, side: req.side, type: req.type, qty: req.qty,
     ...(req.limitPrice !== undefined ? { limitPrice: req.limitPrice } : {}),
     ...(req.stopPrice !== undefined ? { stopPrice: req.stopPrice } : {}),
+    ...(req.trailPct !== undefined ? { trailPct: req.trailPct } : {}),
+    ...(req.takeProfit !== undefined ? { takeProfit: req.takeProfit } : {}),
+    ...(req.stopLoss !== undefined ? { stopLoss: req.stopLoss } : {}),
+    ...(req.reduceOnly ? { reduceOnly: true } : {}),
     tif: req.tif ?? 'gtc',
     id: `${req.playerId}-${seq}`,
     status: reason ? 'rejected' : 'open',
@@ -178,7 +304,16 @@ export function placeOrder(state: WorldState, req: OrderRequest): { state: World
     avgFillPrice: 0,
     feesPaid: 0,
     ...(reason ? { rejectReason: reason, closedTick: state.tick } : {}),
+    ...extra,
   };
+}
+
+export function placeOrder(state: WorldState, req: OrderRequest): { state: WorldState; order: Order } {
+  const seq = state.orderSeq + 1;
+  const reason = validate(state, req);
+  const i = assetIndex(state, req.assetId);
+  const extra: Partial<Order> = req.type === 'trailing' && i >= 0 ? { trailRef: mid(state, i) } : {};
+  const order = newOrder(state, seq, req, reason, extra);
   return { state: { ...state, orderSeq: seq, orders: prune(state, [...state.orders, order]) }, order };
 }
 
@@ -191,6 +326,25 @@ export function cancelOrder(state: WorldState, playerId: string, orderId: string
   const orders = state.orders.slice();
   orders[idx] = { ...o, status: 'cancelled', closedTick: state.tick };
   return { ...state, orders };
+}
+
+/** Change the quantity or prices of an open order (it keeps its place in the queue). */
+export function modifyOrder(
+  state: WorldState, playerId: string, orderId: string, patch: { qty?: number; limitPrice?: number; stopPrice?: number; trailPct?: number },
+): { state: WorldState; error?: string } {
+  const idx = state.orders.findIndex((o) => o.id === orderId);
+  if (idx < 0) return { state, error: 'unknown order' };
+  const o = state.orders[idx]!;
+  if (o.playerId !== playerId) return { state, error: 'not your order' };
+  if (o.status !== 'open') return { state, error: 'order is closed' };
+  if (patch.qty !== undefined && patch.qty < o.filledQty + EPS) return { state, error: 'below the filled quantity' };
+  const next: Order = { ...o, ...patch };
+  const without = { ...state, orders: state.orders.filter((x) => x.id !== orderId) };
+  const err = validate(without, { ...next, qty: next.qty - next.filledQty });
+  if (err) return { state, error: err };
+  const orders = state.orders.slice();
+  orders[idx] = next;
+  return { state: { ...state, orders } };
 }
 
 export function openOrders(state: WorldState, playerId: string): Order[] {
@@ -212,24 +366,121 @@ function prune(state: WorldState, orders: Order[]): Order[] {
   });
 }
 
+// ---------------------------------------------------------------- booking
+
+/**
+ * Book a fill of q units at `price` (fee extra) into an account, handling longs, shorts and
+ * flips. Mutates `acct` (a working copy with its own positions map). Returns realized P&L.
+ */
+function book(acct: Account, assetId: string, side: Side, q: number, price: number, fee: number): number {
+  const s = sign(side);
+  const pos0 = acct.positions[assetId] ?? { qty: 0, avgCost: 0, realizedPnl: 0 };
+  const Q = pos0.qty;
+  // effective price per unit with the fee folded in: buys pay more, sells receive less
+  const e = price + (s * fee) / q;
+  let realized = 0;
+  let qty = Q;
+  let avg = pos0.avgCost;
+  let rem = q;
+  if (Q !== 0 && Math.sign(Q) !== s) {
+    const close = Math.min(rem, Math.abs(Q));
+    realized = close * (e - avg) * Math.sign(Q);
+    qty = Q + s * close;
+    rem -= close;
+    if (Math.abs(qty) <= EPS) { qty = 0; avg = 0; }
+  }
+  if (rem > EPS) {
+    const newQty = qty + s * rem;
+    avg = (Math.abs(qty) * avg + rem * e) / Math.abs(newQty);
+    qty = newQty;
+  }
+  acct.cash -= s * q * price + fee;
+  acct.realizedPnl += realized;
+  acct.feesPaid += fee;
+  if (Math.abs(qty) <= EPS) delete acct.positions[assetId];
+  else acct.positions[assetId] = { qty, avgCost: avg, realizedPnl: pos0.realizedPnl + realized };
+  return realized;
+}
+
+// ---------------------------------------------------------------- options
+
+export interface OptionTradeResult {
+  state: WorldState;
+  fill?: { contractId: string; side: Side; qty: number; price: number; fee: number; total: number };
+  error?: string;
+}
+
+/** Buy to open or sell to close listed option contracts at the current ask/bid. */
+export function tradeOption(state: WorldState, playerId: string, contractId: string, side: Side, qty: number): OptionTradeResult {
+  const cfg = state.config.options;
+  const acct0 = state.accounts[playerId];
+  if (!cfg) return { state, error: 'options are not listed' };
+  if (!acct0) return { state, error: 'no account' };
+  if (!acct0.canOptions) return { state, error: 'needs the Derivatives license' };
+  if (!Number.isInteger(qty) || qty <= 0) return { state, error: 'whole contracts only' };
+  const c = parseContract(contractId);
+  if (!c || !cfg.underlyings.includes(c.underlying)) return { state, error: 'unknown contract' };
+  const i = assetIndex(state, c.underlying);
+  if (state.assets[i]!.haltUntil !== -1) return { state, error: 'underlying is halted' };
+  const q = optionQuote(state, c);
+  if (q.expired) return { state, error: 'contract has expired' };
+  const fee = cfg.feePerContract * qty;
+  const acct: Account = { ...acct0, options: { ...(acct0.options ?? {}) } };
+  const held = acct.options![contractId];
+  if (side === 'buy') {
+    const total = q.ask * cfg.multiplier * qty + fee;
+    if (total > acct.cash + EPS) return { state, error: 'insufficient cash' };
+    acct.cash -= total;
+    const n = (held?.qty ?? 0) + qty;
+    acct.options![contractId] = { qty: n, avgCost: ((held?.qty ?? 0) * (held?.avgCost ?? 0) + total / cfg.multiplier) / n };
+    acct.feesPaid += fee;
+    return { state: { ...state, accounts: { ...state.accounts, [playerId]: acct } }, fill: { contractId, side, qty, price: q.ask, fee, total } };
+  }
+  if (!held || held.qty < qty) return { state, error: 'you hold fewer contracts' };
+  const proceeds = q.bid * cfg.multiplier * qty - fee;
+  acct.cash += proceeds;
+  acct.realizedPnl += proceeds - held.avgCost * cfg.multiplier * qty;
+  acct.feesPaid += fee;
+  if (held.qty === qty) delete acct.options![contractId];
+  else acct.options![contractId] = { ...held, qty: held.qty - qty };
+  return { state: { ...state, accounts: { ...state.accounts, [playerId]: acct } }, fill: { contractId, side, qty, price: q.bid, fee, total: proceeds } };
+}
+
 // ---------------------------------------------------------------- clearing (called by step)
 
 /**
- * Clear every open order against NPC liquidity at this tick's prices, then mark accounts.
- * `state` already holds the new tick's prices. Returns the new state and the fills.
+ * Clear every open order against NPC liquidity at this tick's prices, then settle daily finance
+ * (interest, dividends, borrow fees, option expiries), enforce margin and mark accounts.
+ * `state` already holds the new tick's prices.
  */
-export function clearOrders(state: WorldState, newDay: boolean): { state: WorldState; fills: Fill[] } {
+export function clearOrders(state: WorldState, newDay: boolean): { state: WorldState; fills: Fill[]; events: StepEvent[] } {
   const fills: Fill[] = [];
+  const events: StepEvent[] = [];
   const hasOpen = state.orders.some((o) => o.status === 'open');
   const accountIds = Object.keys(state.accounts);
-  if (!hasOpen && accountIds.length === 0) return { state, fills };
+  if (!hasOpen && accountIds.length === 0) return { state, fills, events };
 
   const t = tradingConfig(state);
   const tick = state.tick;
   const tpd = state.config.ticksPerDay;
   const s: WorldState = { ...state, orders: state.orders.slice(), assets: state.assets.slice(), accounts: { ...state.accounts } };
 
+  const printTape = (i: number, side: Side, q: number, price: number, imp: number) => {
+    const a = s.assets[i]!;
+    s.assets[i] = {
+      ...a,
+      // permanent share of impact moves the price; the pull to value decays it
+      lnP: a.lnP + Math.log1p(sign(side) * t.permanentImpactShare * imp),
+      volume: (a.volume ?? 0) + q,
+      notional: (a.notional ?? 0) + q * price,
+      dayVolume: (a.dayVolume ?? 0) + q,
+      dayNotional: (a.dayNotional ?? 0) + q * price,
+      cumVolume: (a.cumVolume ?? 0) + q,
+    };
+  };
+
   if (hasOpen) {
+    const spawned: Order[] = [];
     for (let k = 0; k < s.orders.length; k++) {
       let o = s.orders[k]!;
       if (o.status !== 'open') continue;
@@ -243,7 +494,14 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       if (s.assets[i]!.haltUntil !== -1) continue; // halted: wait for the reopen
       const p = mid(s, i);
 
-      if (o.type === 'stop' && !o.triggered) {
+      if (o.type === 'trailing' && !o.triggered) {
+        const ref = o.side === 'sell' ? Math.max(o.trailRef ?? p, p) : Math.min(o.trailRef ?? p, p);
+        const hit = o.side === 'sell' ? p <= ref * (1 - o.trailPct!) : p >= ref * (1 + o.trailPct!);
+        o = { ...o, trailRef: ref, ...(hit ? { triggered: true } : {}) };
+        s.orders[k] = o;
+        if (!hit) continue;
+      }
+      if ((o.type === 'stop' || o.type === 'stop_limit') && !o.triggered) {
         const hit = o.side === 'buy' ? p >= o.stopPrice! : p <= o.stopPrice!;
         if (!hit) continue;
         o = { ...o, triggered: true };
@@ -252,27 +510,35 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
 
       const acct0 = s.accounts[o.playerId];
       if (!acct0) { s.orders[k] = { ...o, status: 'cancelled', rejectReason: 'no account', closedTick: tick }; continue; }
+      const margin = isMarginAccount(acct0);
+      const held = acct0.positions[o.assetId]?.qty ?? 0;
 
       let q = o.qty - o.filledQty;
       const capUnits = (t.maxAdvPerTick * (def.advNotional ?? 1e9)) / p;
       q = roundQty(def, Math.min(q, capUnits));
-      if (o.side === 'sell') q = Math.min(q, acct0.positions[o.assetId]?.qty ?? 0);
+      if (o.reduceOnly) {
+        const can = held !== 0 && Math.sign(held) !== sign(o.side) ? Math.abs(held) : 0;
+        if (can <= EPS) { s.orders[k] = { ...o, status: 'cancelled', rejectReason: 'position closed', closedTick: tick }; continue; }
+        q = Math.min(q, can);
+      } else if (o.side === 'sell' && !(margin && acct0.canShort)) {
+        q = Math.min(q, Math.max(0, held));
+      }
       if (q <= EPS) {
         if (o.side === 'sell') s.orders[k] = { ...o, status: 'cancelled', rejectReason: 'insufficient position', closedTick: tick };
         continue;
       }
 
       let { price, imp } = execPrice(s, i, o.side, q);
-      if (o.type === 'limit') {
+      if (o.type === 'limit' || o.type === 'stop_limit') {
         if (o.side === 'buy' ? price > o.limitPrice! : price < o.limitPrice!) continue; // not marketable yet
       }
       let fee = commission(s, def, q * price);
 
       let shrunk = false;
-      if (o.side === 'buy' && q * price + fee > acct0.cash + EPS) {
+      if (!margin && o.side === 'buy' && q * price + fee > acct0.cash + EPS) {
         shrunk = true;
         // shrink to what the cash covers (prices moved since placement)
-        const f = t.fees[def.assetClass];
+        const f = t.fees[def.assetClass] ?? t.fees.stock;
         q = roundQty(def, Math.max(0, (acct0.cash - f.min) / (price * (1 + f.rate))));
         if (q <= EPS) {
           s.orders[k] = { ...o, status: o.filledQty > 0 ? 'cancelled' : 'rejected', rejectReason: 'insufficient cash', closedTick: tick };
@@ -286,23 +552,8 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         }
       }
 
-      // book the fill
       const acct: Account = { ...acct0, positions: { ...acct0.positions } };
-      const pos0 = acct.positions[o.assetId] ?? { qty: 0, avgCost: 0, realizedPnl: 0 };
-      if (o.side === 'buy') {
-        const qty = pos0.qty + q;
-        acct.positions[o.assetId] = { ...pos0, qty, avgCost: (pos0.qty * pos0.avgCost + q * price + fee) / qty };
-        acct.cash -= q * price + fee;
-      } else {
-        const proceeds = q * price - fee;
-        const realized = proceeds - q * pos0.avgCost;
-        const qty = pos0.qty - q;
-        acct.cash += proceeds;
-        acct.realizedPnl += realized;
-        if (qty <= EPS) delete acct.positions[o.assetId];
-        else acct.positions[o.assetId] = { ...pos0, qty, realizedPnl: pos0.realizedPnl + realized };
-      }
-      acct.feesPaid += fee;
+      book(acct, o.assetId, o.side, q, price, fee);
       s.accounts[o.playerId] = acct;
 
       const filledQty = o.filledQty + q;
@@ -318,26 +569,142 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         ...(!done && shrunk ? { rejectReason: 'insufficient cash' } : {}),
       };
       fills.push({ orderId: o.id, playerId: o.playerId, assetId: o.assetId, side: o.side, qty: q, price, fee, tick });
+      printTape(i, o.side, q, price, imp);
 
-      // permanent share of impact moves the price; the pull to value decays it
-      // player fills print on the tape like any other trade
-      const a = s.assets[i]!;
-      s.assets[i] = {
-        ...a,
-        lnP: a.lnP + Math.log1p(sign(o.side) * t.permanentImpactShare * imp),
-        volume: (a.volume ?? 0) + q,
-        notional: (a.notional ?? 0) + q * price,
-        dayVolume: (a.dayVolume ?? 0) + q,
-        dayNotional: (a.dayNotional ?? 0) + q * price,
-        cumVolume: (a.cumVolume ?? 0) + q,
-      };
+      // one-cancels-other: a fill on a bracket leg cancels its sibling
+      if (o.ocoGroup) {
+        for (let m = 0; m < s.orders.length; m++) {
+          const x = s.orders[m]!;
+          if (m !== k && x.status === 'open' && x.ocoGroup === o.ocoGroup) s.orders[m] = { ...x, status: 'cancelled', rejectReason: 'other leg filled', closedTick: tick };
+        }
+      }
+      // bracket: once the entry is complete, place its take-profit and stop-loss legs
+      if (done && (o.takeProfit !== undefined || o.stopLoss !== undefined)) {
+        const exit: Side = o.side === 'buy' ? 'sell' : 'buy';
+        const base = { playerId: o.playerId, assetId: o.assetId, side: exit, qty: filledQty, reduceOnly: true, tif: 'gtc' as const };
+        if (o.takeProfit !== undefined) {
+          s.orderSeq++;
+          spawned.push(newOrder(s, s.orderSeq, { ...base, type: 'limit', limitPrice: o.takeProfit }, null, { ocoGroup: o.id }));
+        }
+        if (o.stopLoss !== undefined) {
+          s.orderSeq++;
+          spawned.push(newOrder(s, s.orderSeq, { ...base, type: 'stop', stopPrice: o.stopLoss }, null, { ocoGroup: o.id }));
+        }
+      }
     }
+    for (const x of spawned) s.orders.push(x);
     s.orders = prune(s, s.orders);
   }
 
-  // mark to market
+  // ---- daily finance (rates on): cash interest, margin interest, dividends, borrow fees ----
+  const today = Math.floor((tick - 1) / tpd);
+  if (newDay && state.config.rates) {
+    const mc = marginConfig(s);
+    const policy = s.rates?.policy ?? mc.fallbackRate;
+    const dpy = s.config.daysPerYear;
+    for (const id of accountIds) {
+      const a = { ...s.accounts[id]!, positions: { ...s.accounts[id]!.positions } };
+      if (a.cash > 0) {
+        const earned = (a.cash * policy * mc.cashInterestShare) / dpy;
+        a.cash += earned;
+        a.interestEarned = (a.interestEarned ?? 0) + earned;
+      } else if (a.cash < 0) {
+        const paid = (-a.cash * (policy + mc.loanSpread)) / dpy;
+        a.cash -= paid;
+        a.interestPaid = (a.interestPaid ?? 0) + paid;
+      }
+      for (const [assetId, pos] of Object.entries(a.positions)) {
+        const i = assetIndex(s, assetId);
+        if (i < 0) continue;
+        const def = s.config.assets[i]!;
+        const value = pos.qty * mid(s, i);
+        if (def.dividendYield) {
+          const d = (value * def.dividendYield) / dpy; // shorts pay the dividend
+          a.cash += d;
+          a.dividends = (a.dividends ?? 0) + d;
+        }
+        if (pos.qty < 0) {
+          const fee = (-value * (def.borrowFee ?? mc.borrowFee[def.assetClass] ?? 0.01)) / dpy;
+          a.cash -= fee;
+          a.borrowPaid = (a.borrowPaid ?? 0) + fee;
+        }
+      }
+      s.accounts[id] = a;
+    }
+  }
+
+  // ---- option expiries: cash-settle every contract whose expiry day has closed ----
+  if (newDay && state.config.options) {
+    const mult = state.config.options.multiplier;
+    for (const id of accountIds) {
+      const a0 = s.accounts[id]!;
+      if (!a0.options || !Object.keys(a0.options).length) continue;
+      const a = { ...a0, options: { ...a0.options } };
+      for (const [cid, pos] of Object.entries(a.options)) {
+        const c = parseContract(cid);
+        if (!c || c.expiryDay >= today) continue;
+        const S = mid(s, assetIndex(s, c.underlying));
+        const intrinsic = c.kind === 'call' ? Math.max(0, S - c.strike) : Math.max(0, c.strike - S);
+        const payout = intrinsic * mult * pos.qty;
+        a.cash += payout;
+        a.realizedPnl += payout - pos.avgCost * mult * pos.qty;
+        delete a.options[cid];
+        events.push({ type: 'option_expiry', tick, playerId: id, contractId: cid, qty: pos.qty, payout });
+      }
+      s.accounts[id] = a;
+    }
+  }
+
+  // ---- margin calls and liquidation, then mark to market ----
+  const mc = marginConfig(s);
   for (const id of accountIds) {
-    const a = s.accounts[id]!;
+    let a = s.accounts[id]!;
+    if (isMarginAccount(a)) {
+      let gross = grossExposure(s, a);
+      let eq = equityOf(s, a);
+      if (gross > 0 && eq / gross < mc.liquidation) {
+        a = { ...a, positions: { ...a.positions } };
+        // close the largest positions first until the account is back above maintenance
+        const queue = Object.entries(a.positions)
+          .map(([assetId, pos]) => ({ assetId, value: Math.abs(pos.qty) * mid(s, assetIndex(s, assetId)) }))
+          .sort((x, y) => y.value - x.value || x.assetId.localeCompare(y.assetId));
+        for (const { assetId } of queue) {
+          if (gross <= 0 || eq / gross >= mc.maintenance) break;
+          const i = assetIndex(s, assetId);
+          if (s.assets[i]!.haltUntil !== -1) continue;
+          const pos = a.positions[assetId]!;
+          const side: Side = pos.qty > 0 ? 'sell' : 'buy';
+          const q = Math.abs(pos.qty);
+          const { price, imp } = execPrice(s, i, side, q);
+          const fee = commission(s, s.config.assets[i]!, q * price);
+          book(a, assetId, side, q, price, fee);
+          s.orderSeq++;
+          const forcedOrder = newOrder(s, s.orderSeq, { playerId: id, assetId, side, type: 'market', qty: q }, null, {
+            status: 'filled', filledQty: q, avgFillPrice: price, feesPaid: fee, closedTick: tick, forced: true,
+          });
+          s.orders.push(forcedOrder);
+          fills.push({ orderId: forcedOrder.id, playerId: id, assetId, side, qty: q, price, fee, tick });
+          events.push({ type: 'liquidation', tick, playerId: id, assetId, qty: q, price });
+          printTape(i, side, q, price, imp);
+          gross = grossExposure(s, a);
+          eq = equityOf(s, a);
+        }
+        // cancel the account's open non-reducing orders after a liquidation
+        for (let m = 0; m < s.orders.length; m++) {
+          const x = s.orders[m]!;
+          if (x.playerId === id && x.status === 'open' && !x.reduceOnly) s.orders[m] = { ...x, status: 'cancelled', rejectReason: 'margin liquidation', closedTick: tick };
+        }
+      }
+      if (gross > 0 && eq / gross < mc.maintenance) {
+        if (a.marginCallTick === undefined) {
+          a = { ...a, marginCallTick: tick };
+          events.push({ type: 'margin_call', tick, playerId: id, equity: eq, required: gross * mc.maintenance });
+        }
+      } else if (a.marginCallTick !== undefined) {
+        a = { ...a };
+        delete a.marginCallTick;
+      }
+    }
     const eq = equityOf(s, a);
     const peak = Math.max(a.peakEquity, eq);
     const dd = peak > 0 ? eq / peak - 1 : 0;
@@ -348,7 +715,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       dayStartEquity: newDay ? eq : a.dayStartEquity,
     };
   }
-  return { state: s, fills };
+  return { state: s, fills, events };
 }
 
 // ---------------------------------------------------------------- portfolio view
@@ -370,7 +737,7 @@ export function portfolio(state: WorldState, playerId: string): PortfolioView {
         price,
         marketValue,
         unrealizedPnl: marketValue - cost,
-        unrealizedPct: cost > 0 ? marketValue / cost - 1 : 0,
+        unrealizedPct: cost !== 0 ? (marketValue - cost) / Math.abs(cost) : 0,
         realizedPnl: pos.realizedPnl,
         weight: equity > 0 ? marketValue / equity : 0,
       };

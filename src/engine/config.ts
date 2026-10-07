@@ -64,10 +64,14 @@ function commodity(spec: AssetSpec): AssetDef {
  * idiosyncratic share: wIdio = sqrt(1 - wM² - wS² - wC²).
  */
 export function normalizeLoadings(a: AssetDef): AssetDef {
-  const sys = a.wMarket ** 2 + a.wSector ** 2 + a.wCrypto ** 2;
+  const wR = a.wRegion ?? 0;
+  const sys = a.wMarket ** 2 + a.wSector ** 2 + a.wCrypto ** 2 + wR ** 2;
   if (sys <= 0.95) return a;
   const k = Math.sqrt(0.95 / sys);
-  return { ...a, wMarket: a.wMarket * k, wSector: a.wSector * k, wCrypto: a.wCrypto * k };
+  return {
+    ...a, wMarket: a.wMarket * k, wSector: a.wSector * k, wCrypto: a.wCrypto * k,
+    ...(a.wRegion !== undefined ? { wRegion: a.wRegion * k } : {}),
+  };
 }
 
 /**
@@ -86,7 +90,7 @@ export function expectedVol(a: AssetDef, regime?: RegimeDef): number {
 }
 
 export function idioLoading(a: AssetDef): number {
-  return Math.sqrt(Math.max(0, 1 - a.wMarket ** 2 - a.wSector ** 2 - a.wCrypto ** 2));
+  return Math.sqrt(Math.max(0, 1 - a.wMarket ** 2 - a.wSector ** 2 - a.wCrypto ** 2 - (a.wRegion ?? 0) ** 2));
 }
 
 /**
@@ -130,6 +134,9 @@ export const DEFAULT_TRADING: TradingConfig = {
     stock: { rate: 0.001, min: 1 },
     commodity: { rate: 0.001, min: 1 },
     crypto: { rate: 0.002, min: 0 },
+    forex: { rate: 0.0002, min: 0 },
+    bond: { rate: 0.0005, min: 1 },
+    realestate: { rate: 0.01, min: 1 },
   },
   impactY: 0.8,
   permanentImpactShare: 0.5,

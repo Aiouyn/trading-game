@@ -27,6 +27,9 @@ export const CLASS_LICENSE: Record<AssetClass, LicenseId> = {
   stock: 'retail',
   crypto: 'retail',
   commodity: 'pro',
+  forex: 'pro',
+  bond: 'pro',
+  realestate: 'pro',
 };
 
 export function licenseRank(id: LicenseId): Rank {

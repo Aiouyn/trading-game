@@ -2,6 +2,7 @@ import { Rng, seedStream } from './rng';
 import { DEFAULT_VOLUME, defaultConfig, idioLoading } from './config';
 import { clearOrders } from './trading';
 import { catalystDay, peadDrift } from './catalysts';
+import { carryOf, initRates, ratesDay } from './rates';
 import type {
   AssetDef, AssetState, Fill, Quote, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
 } from './types';
@@ -38,7 +39,7 @@ export function createWorld(seed: string, config: WorldConfig = defaultConfig())
     cumVolume: 0,
     heat: 0,
   }));
-  return {
+  const world: WorldState = {
     version: 1,
     seed,
     tick: 0,
@@ -52,6 +53,17 @@ export function createWorld(seed: string, config: WorldConfig = defaultConfig())
     orderSeq: 0,
     config,
   };
+  const regions = regionKeys(config);
+  if (regions.length) {
+    world.regionRng = {};
+    for (const r of regions) world.regionRng[r] = seedStream(seed, `region:${r}`);
+  }
+  if (config.rates) world.rates = initRates(world, config.rates, 0);
+  return world;
+}
+
+function regionKeys(config: WorldConfig): string[] {
+  return [...new Set(config.assets.filter((a) => (a.wRegion ?? 0) !== 0 && a.region).map((a) => a.region!))].sort();
 }
 
 function sectorKeys(config: WorldConfig): string[] {
@@ -88,6 +100,16 @@ export function step(state: WorldState): StepResult {
     }
   }
   const rg = cfg.regimes[regime];
+
+  // ---- day boundary: macro, central bank and yields (own stream) ----
+  let rates = state.rates;
+  let rateShocks: number[] | null = null;
+  if (cfg.rates && newDay) {
+    const out = ratesDay(state, cfg.rates, regime, Math.floor(state.tick / cfg.ticksPerDay), tick);
+    rates = out.rates;
+    rateShocks = out.shocks;
+    for (const e of out.events) events.push(e);
+  }
   // GARCH standardizes yesterday's return by yesterday's regime vol, so a regime switch
   // alone never inflates h (otherwise alpha * volMult^2 + beta > 1 in crises and h explodes)
   const prevVolMult = cfg.regimes[state.regime].volMult;
@@ -101,6 +123,16 @@ export function step(state: WorldState): StepResult {
     const r = new Rng(state.sectorRng[s]!);
     zSector[s] = r.normal();
     sectorRng[s] = r.state();
+  }
+  const zRegion: Record<string, number> = {};
+  let regionRng = state.regionRng;
+  if (state.regionRng) {
+    regionRng = {};
+    for (const k of Object.keys(state.regionRng).sort()) {
+      const r = new Rng(state.regionRng[k]!);
+      zRegion[k] = r.normal();
+      regionRng[k] = r.state();
+    }
   }
 
   const vc = cfg.volume ?? DEFAULT_VOLUME;
@@ -133,6 +165,7 @@ export function step(state: WorldState): StepResult {
       def.wMarket * rg.marketLoadMult * zMarket +
       def.wSector * (zSector[def.sector] ?? 0) +
       def.wCrypto * zCrypto +
+      (def.wRegion ? def.wRegion * (zRegion[def.region ?? ''] ?? 0) : 0) +
       idioLoading(def) * rg.idioMult * eps;
 
     // compound Poisson jumps, Kou double exponential in log space
@@ -157,9 +190,11 @@ export function step(state: WorldState): StepResult {
       }
       catalyst += peadDrift(a, tick);
     }
+    // rates: yield repricing and policy/data surprises, once a day (all news, so value moves too)
+    if (rateShocks && rateShocks[i]) catalyst += rateShocks[i]!;
 
     // fundamental value: drift + the permanent share of news (catalysts are all news)
-    const mu = def.drift + def.cycleBeta * rg.equityDrift;
+    const mu = def.drift + def.cycleBeta * rg.equityDrift + carryOf(def, rates);
     const perm = cfg.permanentShare;
     const diff = sigma * sqrtDt * shock;
     a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + perm * diff + perm * jump + catalyst;
@@ -232,8 +267,11 @@ export function step(state: WorldState): StepResult {
     macroRng: macro.state(),
     sectorRng,
     assets,
+    ...(regionRng ? { regionRng } : {}),
+    ...(rates ? { rates } : {}),
   };
-  const { state: cleared, fills } = clearOrders(priced, newDay);
+  const { state: cleared, fills, events: clearEvents } = clearOrders(priced, newDay);
+  for (const e of clearEvents) events.push(e);
   return { state: cleared, events, fills };
 }
 

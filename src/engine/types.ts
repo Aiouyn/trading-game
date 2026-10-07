@@ -1,6 +1,9 @@
 import type { RngState } from './rng';
 
-export type AssetClass = 'stock' | 'crypto' | 'commodity';
+export type AssetClass = 'stock' | 'crypto' | 'commodity' | 'forex' | 'bond' | 'realestate';
+
+/** Which yield a rate-sensitive asset (bonds, property) reprices on. */
+export type YieldKey = 'y2' | 'y10' | 'y30';
 
 export type RegimeId = 'expansion' | 'overheating' | 'contraction' | 'recovery';
 
@@ -43,6 +46,24 @@ export interface AssetDef {
   advNotional?: number;
   /** quantity granularity: 1 = whole units (stocks), 0 = fractional; default 1 for stocks, 0 otherwise */
   qtyStep?: number;
+  /** economic region (stocks, FX); assets sharing a region share a region factor when wRegion > 0 */
+  region?: string;
+  /** loading on the region factor (default 0); counted in the unit-variance budget */
+  wRegion?: number;
+  /** false = priced by the engine but not tradable on the order book (property district indices) */
+  listed?: boolean;
+  /** one-line flavor text for the UI */
+  blurb?: string;
+  /** rate sensitivity: a +0.01 change in the keyed yield moves ln price by −0.01·duration (bonds, property) */
+  duration?: number;
+  /** the yield this asset reprices on and earns as carry (bonds) */
+  yieldKey?: YieldKey;
+  /** extra annual carry over the keyed yield (credit spread for corporate bonds) */
+  carrySpread?: number;
+  /** annual dividend yield paid in cash to holders at each day boundary */
+  dividendYield?: number;
+  /** annual stock-borrow fee for shorts; default by class */
+  borrowFee?: number;
 }
 
 export interface FeeSchedule {
@@ -118,6 +139,12 @@ export interface WorldConfig {
   volume?: VolumeConfig;
   /** earnings, previews, rumors and post-earnings drift; off when absent */
   catalysts?: CatalystConfig;
+  /** interest rates, inflation, growth and the central bank; off when absent */
+  rates?: RatesConfig;
+  /** listed options; off when absent */
+  options?: OptionsConfig;
+  /** margin, shorting and liquidation; defaults to DEFAULT_MARGIN */
+  margin?: MarginConfig;
   regimes: Record<RegimeId, RegimeDef>;
   assets: AssetDef[];
   indices: IndexDef[];
@@ -197,6 +224,75 @@ export interface CatalystConfig {
   peadDays: number;
 }
 
+/** Macro layer: inflation and growth follow the business cycle; a Taylor-rule central bank sets the policy rate. */
+export interface RatesConfig {
+  /** neutral real rate */
+  neutralReal: number;
+  inflationTarget: number;
+  /** per-regime targets for inflation and real growth (annual fractions) and the 10y term premium */
+  targets: Record<RegimeId, { inflation: number; growth: number; termPremium: number }>;
+  /** daily mean-reversion speed of inflation and growth toward the regime target */
+  reversion: number;
+  /** daily noise on inflation and growth */
+  noise: number;
+  /** game days between central bank meetings */
+  meetingEvery: number;
+  /** max move per meeting (0.005 = 50 bp) and the step size (0.0025 = 25 bp) */
+  maxMove: number;
+  stepSize: number;
+  /** game days between macro data releases (CPI and jobs alternate) */
+  releaseEvery: number;
+  initial: { policy: number; inflation: number; growth: number };
+}
+
+export interface RatesState {
+  policy: number;
+  inflation: number;
+  growth: number;
+  y2: number;
+  y10: number;
+  y30: number;
+  /** what the market expects at the next meeting (policy rate change, fraction) */
+  expectedMove: number;
+  /** 0-based game day of the next central bank meeting and the next data release */
+  nextMeeting: number;
+  nextRelease: number;
+  releaseKind: 'cpi' | 'jobs';
+  rng: RngState;
+}
+
+export interface OptionsConfig {
+  /** assets with listed options */
+  underlyings: string[];
+  /** game days between expiries (5 = weekly) and how many expiries are listed */
+  expiryEvery: number;
+  expiries: number;
+  /** strikes as fractions of spot around the money */
+  strikeSteps: number[];
+  /** units per contract */
+  multiplier: number;
+  /** half-spread as a fraction of premium, and the minimum half-spread in $ per unit */
+  halfSpread: number;
+  minHalfSpread: number;
+  /** commission per contract */
+  feePerContract: number;
+}
+
+export interface MarginConfig {
+  /** maintenance requirement as a fraction of gross exposure; below it a margin call goes out */
+  maintenance: number;
+  /** below this equity/gross ratio the engine liquidates */
+  liquidation: number;
+  /** spread over the policy rate charged on negative cash (annual) */
+  loanSpread: number;
+  /** interest paid on positive cash as a share of the policy rate */
+  cashInterestShare: number;
+  /** default annual borrow fee for shorts by class */
+  borrowFee: Record<AssetClass, number>;
+  /** policy rate to use when the rates layer is off */
+  fallbackRate: number;
+}
+
 export interface VolumeConfig {
   /** σ of the lognormal per-tick noise */
   noise: number;
@@ -221,7 +317,7 @@ export interface RegimeChange {
 }
 
 export type Side = 'buy' | 'sell';
-export type OrderType = 'market' | 'limit' | 'stop';
+export type OrderType = 'market' | 'limit' | 'stop' | 'stop_limit' | 'trailing';
 export type OrderStatus = 'open' | 'filled' | 'cancelled' | 'rejected' | 'expired';
 
 export interface OrderRequest {
@@ -234,6 +330,13 @@ export interface OrderRequest {
   stopPrice?: number;
   /** 'gtc' (default) stays open until filled or cancelled; 'day' expires at the next game-day boundary */
   tif?: 'day' | 'gtc';
+  /** trailing stop: distance from the best price since placement, as a fraction (0.05 = 5%) */
+  trailPct?: number;
+  /** bracket: on a full fill of this order, place a take-profit limit and a stop-loss (one cancels the other) */
+  takeProfit?: number;
+  stopLoss?: number;
+  /** only ever reduces an existing position (bracket children, close buttons) */
+  reduceOnly?: boolean;
 }
 
 export interface Order extends OrderRequest {
@@ -247,6 +350,12 @@ export interface Order extends OrderRequest {
   feesPaid: number;
   rejectReason?: string;
   closedTick?: number;
+  /** trailing stops: best mid since placement (highest for sells, lowest for buys) */
+  trailRef?: number;
+  /** bracket children share their parent's id here; a fill on one cancels the other */
+  ocoGroup?: string;
+  /** set by the engine when it closes a position for the player (margin liquidation) */
+  forced?: boolean;
 }
 
 export interface Fill {
@@ -261,10 +370,18 @@ export interface Fill {
 }
 
 export interface Position {
+  /** signed: negative is a short */
   qty: number;
-  /** average cost per unit, buy commissions included */
+  /** average entry per unit: longs include buy commissions, shorts are net of sell commissions */
   avgCost: number;
   realizedPnl: number;
+}
+
+export interface OptionPosition {
+  /** contracts held (long only) */
+  qty: number;
+  /** average premium paid per unit, fees included */
+  avgCost: number;
 }
 
 export interface Account {
@@ -277,6 +394,21 @@ export interface Account {
   peakEquity: number;
   maxDrawdown: number;
   dayStartEquity: number;
+  /** gross exposure allowed as a multiple of equity (1 = cash account, the default) */
+  maxLeverage?: number;
+  /** may sell what it does not hold */
+  canShort?: boolean;
+  /** may trade options */
+  canOptions?: boolean;
+  /** listed options held, by contract id */
+  options?: Record<string, OptionPosition>;
+  /** running totals */
+  interestPaid?: number;
+  interestEarned?: number;
+  dividends?: number;
+  borrowPaid?: number;
+  /** tick a margin call went out (cleared when the account recovers) */
+  marginCallTick?: number;
 }
 
 export interface WorldState {
@@ -293,6 +425,10 @@ export interface WorldState {
   orders: Order[];
   orderSeq: number;
   config: WorldConfig;
+  /** region factor streams ('region:<r>'), present when any asset loads on a region */
+  regionRng?: Record<string, RngState>;
+  /** interest rates and macro, present when config.rates is set */
+  rates?: RatesState;
 }
 
 export interface Quote {
@@ -324,7 +460,14 @@ export type StepEvent =
   /** an unconfirmed tip about an upcoming report; right with probability rumorAccuracy */
   | { type: 'rumor'; tick: number; assetId: string; direction: 1 | -1 }
   /** the report itself, released before the open; move is the price gap it causes (fraction) */
-  | { type: 'earnings'; tick: number; assetId: string; surprise: number; consensus: number; move: number };
+  | { type: 'earnings'; tick: number; assetId: string; surprise: number; consensus: number; move: number }
+  /** central bank decision; change is the policy rate move (0.0025 = +25 bp), expected what the market priced */
+  | { type: 'rates'; tick: number; policy: number; change: number; expected: number }
+  /** macro data release: actual vs consensus (annual fractions) */
+  | { type: 'macro'; tick: number; kind: 'cpi' | 'jobs'; actual: number; consensus: number }
+  | { type: 'margin_call'; tick: number; playerId: string; equity: number; required: number }
+  | { type: 'liquidation'; tick: number; playerId: string; assetId: string; qty: number; price: number }
+  | { type: 'option_expiry'; tick: number; playerId: string; contractId: string; qty: number; payout: number };
 
 export interface StepResult {
   state: WorldState;

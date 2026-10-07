@@ -3,7 +3,7 @@ import type { AssetClass, Order, WorldState } from '@/engine';
 
 export type Slice = { id: AssetClass | 'cash'; label: string; value: number; weight: number };
 
-const CLASS_LABEL: Record<AssetClass, string> = { stock: 'Stocks', crypto: 'Crypto', commodity: 'Commodities' };
+const CLASS_LABEL: Record<AssetClass, string> = { stock: 'Stocks', crypto: 'Crypto', commodity: 'Commodities', forex: 'Forex', bond: 'Bonds', realestate: 'Property' };
 
 /** Equity split by asset class plus cash, largest first, cash always last. Weights sum to 1 when equity > 0. */
 export function allocation(w: WorldState, playerId: string): Slice[] {
