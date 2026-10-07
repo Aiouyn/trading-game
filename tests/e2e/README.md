@@ -1,8 +1,13 @@
-# tests/e2e (owner: Tape)
+# tests/e2e
 
-Playwright specs. Two projects from `playwright.config.ts`: `desktop` (1440x900) and `phone` (390x844, touch).
+Playwright specs against the real multiplayer stack. `playwright.config.ts` starts:
 
-- `npm run e2e` builds, starts on port 3100 (override with `E2E_PORT`) and runs every spec on both projects.
-- Visual proof: specs save screenshots to `test-results/proof/<project>-<name>.png`. These are what Tape attaches to PASS reports.
-- One spec file per screen or flow (`portfolio.spec.ts`, `trade.spec.ts`, ...). Keep selectors role- or test-id-based (`data-testid`), never CSS classes.
-- A task is PASS only when `typecheck`, `lint`, `test`, `build` and `e2e` are all green and the proof screenshots look right at both sizes.
+- a **fresh world server** on port 8797 (`test-results/world-e2e`, 1-second ticks, 3 days of warmup history, admin token `e2e-admin` so specs can grant money), and
+- a **production build** of the web app on port 3200, built with `NEXT_PUBLIC_WORLD_URL` pointing at that world.
+
+Two projects: `desktop` (1440×900) and `phone` (390×844, touch). Run with `npm run e2e`.
+
+- `core.spec.ts`: cold open, the core loop (join, 20% first-trade cap, fill, reload keeps everything), buying a business.
+- `screens.spec.ts`: every screen opens without console errors or horizontal overflow (after a grant unlocks the Lab and Security), chat, and the late-game flow (option chain, AI research).
+- Proof screenshots go to `test-results/proof/<project>-<name>.png`.
+- Selectors are `data-testid` or roles, never CSS classes. Shared helpers live in `helpers.ts`.

@@ -3,8 +3,11 @@
 import { useState } from 'react';
 import { listedExpiries, optionChain } from '@/engine';
 import { money, price } from '@/game/format';
+
 import { useGame } from '@/game/store';
 import { Button, NumberField, Segmented, Td, Th } from './ui';
+
+const prem = (v: number) => v.toFixed(2);
 
 /**
  * The option chain (Derivatives license). Buy calls if you think the price goes up, puts if it
@@ -43,14 +46,14 @@ export function OptionChain({ underlying }: { underlying: string }) {
               const itmCall = r.strike < spot;
               return (
                 <tr key={r.strike} className="border-t border-ink-2">
-                  <Td right num className={itmCall ? 'bg-ink-2' : ''}>{price(r.call.bid)}</Td>
-                  <Td right num className={itmCall ? 'bg-ink-2' : ''}>{price(r.call.ask)}</Td>
+                  <Td right num className={itmCall ? 'bg-ink-2' : ''}>{prem(r.call.bid)}</Td>
+                  <Td right num className={itmCall ? 'bg-ink-2' : ''}>{prem(r.call.ask)}</Td>
                   <Td right num className="text-fg-faint">{r.call.delta.toFixed(2)}</Td>
                   <Td><Button size="sm" onClick={() => buy(r.call.id, `${underlying} ${r.strike} calls`)} testId={`buy-call-${r.strike}`}>Call {money(r.call.ask * 100 * contracts)}</Button></Td>
                   <Td right num className="font-semibold text-fg">{price(r.strike)}</Td>
                   <Td />
-                  <Td right num className={!itmCall ? 'bg-ink-2' : ''}>{price(r.put.bid)}</Td>
-                  <Td right num className={!itmCall ? 'bg-ink-2' : ''}>{price(r.put.ask)}</Td>
+                  <Td right num className={!itmCall ? 'bg-ink-2' : ''}>{prem(r.put.bid)}</Td>
+                  <Td right num className={!itmCall ? 'bg-ink-2' : ''}>{prem(r.put.ask)}</Td>
                   <Td right num className="text-fg-faint">{r.put.delta.toFixed(2)}</Td>
                   <Td><Button size="sm" onClick={() => buy(r.put.id, `${underlying} ${r.strike} puts`)} testId={`buy-put-${r.strike}`}>Put {money(r.put.ask * 100 * contracts)}</Button></Td>
                 </tr>

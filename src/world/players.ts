@@ -6,6 +6,7 @@ import {
 } from './core';
 import { playerBizSectors, refreshNetWorth } from './assets';
 import { computeBoards } from './boards';
+import { seedConnections } from './cyber';
 import type { CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -82,6 +83,7 @@ export function applyRank(g: GameState, p: Player, out: StepOutput | null, silen
   const lic = licenseFor(r.id);
   p.licenseId = lic.id;
   g.market = setAccountPermissions(g.market, p.id, { maxLeverage: lic.maxLeverage, canShort: lic.canShort, canOptions: lic.canOptions });
+  if (rankIndex(r.id) >= 3) seedConnections(g, p.id);
   if (silent || prev === r.id) return;
   out?.rankUps.push({ playerId: p.id, rankId: r.id });
   notify(g, out, p.id, { kind: 'rank', tone: 'brass', text: `Rank up: you are now ${r.name}. ${r.unlocks.join(' · ')}.` });

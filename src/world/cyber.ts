@@ -105,6 +105,14 @@ function ensureLegit(g: GameState, pid: string, rng: { uniform(): number }): voi
   void lo;
 }
 
+/** Give a player who just unlocked Security their normal list of legit connections. */
+export function seedConnections(g: GameState, pid: string): void {
+  if (entriesOf(g, pid).length) return;
+  const { rng, save } = drawFrom(g, 'cyber');
+  ensureLegit(g, pid, rng);
+  save();
+}
+
 export function setBudget(g: GameState, pid: string, budget: number): CommandResult {
   if (!(budget >= 0 && budget <= 1e9)) return { ok: false, error: 'bad budget' };
   defenseOf(g, pid).budget = budget;

@@ -102,7 +102,7 @@ const http = createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url.pathname === '/api/admin/grant') {
-      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer `) return json(res, 403, { ok: false });
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const b = await body(req);
       const p = Object.values(host.g.players).find((x) => x.handle.toLowerCase() === String(b.handle ?? '').toLowerCase());
       if (!p) return json(res, 404, { ok: false });

@@ -48,7 +48,7 @@ function Connections() {
   const cutCost = Math.min(250_000, 1000 + 0.0002 * me.netWorth.total);
   const lockdownActive = sec.lockdownUntil > tick;
   return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+    <div className="grid gap-4 xl:grid-cols-[1fr_360px] [&>*]:min-w-0">
       <Card data-testid="connections-panel">
         <CardHeader title="Connections" sub="Everything talking to your systems: data feeds, broker links, partners. Hostile sessions hide among them." right={
           <label className="flex items-center gap-2 text-caption text-fg-muted"><input type="checkbox" checked={onlyUntagged} onChange={(e) => setOnlyUntagged(e.target.checked)} /> Untagged only</label>
@@ -129,7 +129,7 @@ function Operations() {
   const [strength, setStrength] = useState<SessionStrength>('tap');
   const [modelId, setModel] = useState(models[0]?.id ?? '');
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
+    <div className="grid gap-4 xl:grid-cols-2 [&>*]:min-w-0">
       <Card className="p-4">
         <h3 className="font-serif text-title">New operation</h3>
         <p className="mt-1 text-small text-fg-muted">Plant a hidden session on a rival’s systems. While it stays connected it slowly copies their best model (never more than 85%). It can be found, and found sessions become evidence in court. New players, rookies and shielded accounts are off limits; hitting someone far smaller costs five times more.</p>

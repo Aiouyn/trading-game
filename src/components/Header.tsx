@@ -86,7 +86,9 @@ export function TopBar() {
         <div className="label">Rival</div>
         {rival ? (
           <button type="button" onClick={() => openProfile(rival.id)} className="num truncate text-small text-fg hover:underline" data-testid="rival">
-            {rival.handle} <span className="text-loss">+{compactMoney(rival.netWorth - nw)} ahead</span>
+            {rival.handle} {rival.netWorth > nw
+              ? <span className="text-loss">+{compactMoney(rival.netWorth - nw)} ahead</span>
+              : <span className="text-gain">{compactMoney(nw - rival.netWorth)} behind you</span>}
           </button>
         ) : <div className="text-small text-brass">You lead the world</div>}
       </div>

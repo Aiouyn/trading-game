@@ -137,7 +137,9 @@ export const useGame = create<GameStore>((set, get) => {
       }
       case 'tick': {
         const world = applyFrame(msg.frame, msg.me);
-        const mine = msg.rankUps.find((r) => r.playerId === get().playerId);
+        // rank-ups can come from a tick or from a command (a sale, a grant): compare ranks
+        const prevRank = get().me?.rank.id;
+        const mine = prevRank && msg.me.rank.id > prevRank ? { rankId: msg.me.rank.id } : msg.rankUps.find((r) => r.playerId === get().playerId);
         const toasts = msg.inbox.filter((n) => TOAST_KINDS.has(n.kind)).map((n) => ({ id: `t${++toastSeq}`, tone: n.tone, text: n.text }));
         const chat = { ...get().chat };
         let unread = get().chatUnread;
@@ -174,6 +176,7 @@ export const useGame = create<GameStore>((set, get) => {
         break;
       }
       case 'ack':
+        if (msg.me && get().me && msg.me.rank.id > get().me!.rank.id) set({ rankUp: msg.me.rank.id });
         if (msg.me) set({ me: msg.me, world: get().frame ? mirrorWorld(CONFIG, get().frame!, { id: get().playerId ?? 'me', account: msg.me.account, orders: msg.me.orders }, get().world ?? undefined) : get().world });
         break;
       default:

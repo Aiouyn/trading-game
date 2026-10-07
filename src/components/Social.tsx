@@ -55,10 +55,10 @@ function Boards() {
   const rows: BoardRow[] = board === 'country' ? pub.boards.country[me.player.country] ?? [] : (pub.boards[board] as BoardRow[]);
   const myPos = pub.boards.nwRank[me.player.id];
   return (
-    <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
-      <Card className="p-2">
+    <div className="grid gap-4 lg:grid-cols-[240px_1fr] [&>*]:min-w-0">
+      <Card className="flex gap-1 overflow-x-auto p-2 lg:block">
         {BOARDS.map((b) => (
-          <button key={b.id} type="button" onClick={() => setBoard(b.id)} className={`block w-full rounded-md px-3 py-2 text-left text-small ${board === b.id ? 'bg-ink-2 text-fg' : 'text-fg-muted hover:bg-ink-2'}`} data-testid={`board-${b.id}`}>{b.label}</button>
+          <button key={b.id} type="button" onClick={() => setBoard(b.id)} className={`block shrink-0 whitespace-nowrap rounded-md px-3 py-2 text-left text-small lg:w-full ${board === b.id ? 'bg-ink-2 text-fg' : 'text-fg-muted hover:bg-ink-2'}`} data-testid={`board-${b.id}`}>{b.label}</button>
         ))}
       </Card>
       <Card data-testid="leaderboard">

@@ -38,7 +38,7 @@ export function CourtView() {
         <h1 className="font-serif text-hero">Port Avalon Court</h1>
         <p className="max-w-2xl text-small text-fg-muted">Cases need evidence: 40 points clears the civil bar, model theft needs 55. Counsel shifts the odds slightly, never decisively. Verdicts award damages to you and a fine (a share of the loser’s net worth) that mostly leaves the economy. Nothing takes anyone below $5,000.</p>
       </Card>
-      <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[380px_1fr] [&>*]:min-w-0">
         <Card className="p-4">
           <h3 className="font-serif text-title">File a case</h3>
           <div className="mt-3 flex flex-col gap-2">

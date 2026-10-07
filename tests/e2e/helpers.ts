@@ -1,0 +1,55 @@
+import { expect, type Page } from '@playwright/test';
+
+export const WORLD = `http://localhost:${process.env.E2E_WORLD_PORT ?? 8797}`;
+export const ADMIN = 'e2e-admin';
+
+export const isPhone = (page: Page) => (page.viewportSize()?.width ?? 1440) < 768;
+
+/** Collect console errors and uncaught exceptions for the whole test. */
+export function watchErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('pageerror', (e) => errors.push(e.message));
+  return errors;
+}
+
+/** Register a fresh guest through the cold open and wait for the world to load. */
+export async function register(page: Page, prefix = 'e2e'): Promise<string> {
+  const handle = `${prefix}${Math.floor(Math.random() * 1e7)}`.slice(0, 18);
+  await page.goto('/');
+  await page.getByTestId('onboarding-start').click();
+  await page.getByTestId('handle').fill(handle);
+  await page.getByTestId('enter-world').click();
+  await expect(page.locator('html')).toHaveAttribute('data-game', 'ready', { timeout: 30_000 });
+  return handle;
+}
+
+export async function grant(handle: string, amount: number): Promise<void> {
+  const r = await fetch(`${WORLD}/api/admin/grant`, {
+    method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, amount }),
+  });
+  expect(r.status).toBe(200);
+}
+
+/** Open a screen from the rail (desktop) or tab bar / More sheet (phone). */
+export async function goTo(page: Page, screen: string): Promise<void> {
+  if (!isPhone(page)) { await page.getByTestId(`nav-${screen}`).click(); return; }
+  if (['market', 'portfolio', 'empire', 'estate'].includes(screen)) { await page.getByTestId(`tab-${screen}`).click(); return; }
+  await page.getByTestId('tab-more').click();
+  await page.getByTestId(`more-${screen}`).click();
+}
+
+export async function noHorizontalOverflow(page: Page): Promise<void> {
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+}
+
+export async function proof(page: Page, name: string): Promise<void> {
+  const project = isPhone(page) ? 'phone' : 'desktop';
+  await page.screenshot({ path: `test-results/proof/${project}-${name}.png` });
+}
+
+export async function skipTips(page: Page): Promise<void> {
+  const skip = page.getByTestId('coach').getByText('Skip tips');
+  if (await skip.isVisible().catch(() => false)) await skip.click();
+}

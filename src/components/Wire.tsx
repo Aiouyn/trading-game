@@ -26,7 +26,7 @@ export function WireView() {
   const kinds = FILTERS.find((x) => x.id === f)!.kinds;
   const items = wire.filter((w) => !kinds || kinds.includes(w.kind));
   return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_380px]" data-testid="wire-view">
+    <div className="grid gap-4 xl:grid-cols-[1fr_380px] [&>*]:min-w-0" data-testid="wire-view">
       <Card>
         <CardHeader title="The Wire" sub="Every headline comes from something that really happened in the world." />
         <div className="flex gap-1 overflow-x-auto px-4 pb-3">
