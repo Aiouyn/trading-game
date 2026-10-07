@@ -1,0 +1,224 @@
+import { universeConfig, type Account, type AssetState, type Order, type RatesState, type RegimeId, type WorldConfig, type WorldState } from '@/engine';
+import { RANKS, rankIndex } from '@/content/lifestyle';
+import { contractProgress } from './players';
+import { TPD, netWorthBreakdown, playerBusinesses, playerProperties, propValue, type NetWorthBreakdown } from './core';
+import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
+import { defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
+import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
+import type {
+  Alliance, BoardRow, Boards, Business, ChatMessage, ConnectionEntry, CourtCase, CyberOp, Deal, GameState, InboxItem,
+  LabState, Player, Property, WireItem,
+} from './types';
+
+/**
+ * What clients see. The market frame is public and carries no hidden state (no fundamental
+ * values, no upcoming earnings surprises, no true inflation/growth before release). The player
+ * view is private to its owner and strips server-only fields (hostile session details, which
+ * clues were real).
+ */
+
+/** Per asset, in config order: [lnP, h, haltUntil, lnOpen, volume, dayVolume, cumVolume, nextEarnings, consensus, rumor] */
+export type AssetFrame = [number, number, number, number, number, number, number, number, number, number];
+
+export interface MarketFrame {
+  tick: number;
+  regime: RegimeId;
+  assets: AssetFrame[];
+  /** last earnings per stock (public), only when changed: assetId → { day, surprise, move } */
+  lastEarnings?: Record<string, { day: number; surprise: number; move: number }>;
+  rates: Pick<RatesState, 'policy' | 'y2' | 'y10' | 'y30' | 'expectedMove' | 'nextMeeting' | 'nextRelease' | 'releaseKind'> | null;
+}
+
+export function marketFrame(g: GameState, withEarnings = false): MarketFrame {
+  const m = g.market;
+  const frame: MarketFrame = {
+    tick: m.tick,
+    regime: m.regime,
+    assets: m.assets.map((a) => [
+      a.lnP, a.h, a.haltUntil, a.lnOpen, a.volume ?? 0, a.dayVolume ?? 0, a.cumVolume ?? 0,
+      a.nextEarnings ?? -1, a.consensus ?? 0, a.rumor ?? 0,
+    ]),
+    rates: m.rates ? {
+      policy: m.rates.policy, y2: m.rates.y2, y10: m.rates.y10, y30: m.rates.y30, expectedMove: m.rates.expectedMove,
+      nextMeeting: m.rates.nextMeeting, nextRelease: m.rates.nextRelease, releaseKind: m.rates.releaseKind,
+    } : null,
+  };
+  if (withEarnings) {
+    frame.lastEarnings = {};
+    m.assets.forEach((a, i) => { if (a.lastEarnings) frame.lastEarnings![m.config.assets[i]!.id] = a.lastEarnings; });
+  }
+  return frame;
+}
+
+/**
+ * Build a client-side WorldState mirror from the public frame plus the player's own account and
+ * orders, so the engine's read-only functions (estimateFill, buyingPower, portfolio, optionChain)
+ * work in the browser. The mirror's fundamental value equals its price: the client never knows V.
+ */
+export function mirrorWorld(config: WorldConfig, frame: MarketFrame, me: { id: string; account: Account | null; orders: Order[] }, prev?: WorldState): WorldState {
+  const assets: AssetState[] = frame.assets.map((f, i) => {
+    const old = prev?.assets[i];
+    const zero = [0, 0, 0, 0] as [number, number, number, number];
+    return {
+      id: config.assets[i]!.id, lnP: f[0], lnV: f[0], h: f[1], lnOpen: f[3], haltUntil: f[2], haltedToday: false, dayJump: 0, pending: 0,
+      rng: zero, vrng: zero, volume: f[4], notional: f[4] * Math.exp(f[0]), dayVolume: f[5], dayNotional: f[5] * Math.exp(f[0]),
+      cumVolume: f[6], heat: 0,
+      ...(f[7] >= 0 ? { nextEarnings: f[7], consensus: f[8] || null, rumor: (f[9] || null) as 1 | -1 | null } : {}),
+      lastEarnings: frame.lastEarnings?.[config.assets[i]!.id] ?? old?.lastEarnings ?? null,
+    };
+  });
+  return {
+    version: 1, seed: 'mirror', tick: frame.tick, regime: frame.regime, regimeLog: [], macroRng: [0, 0, 0, 1], sectorRng: {},
+    assets, accounts: me.account ? { [me.id]: me.account } : {}, orders: me.orders, orderSeq: 0, config,
+    ...(frame.rates ? { rates: { ...frame.rates, inflation: 0, growth: 0, rng: [0, 0, 0, 1] } } : {}),
+  };
+}
+
+export function clientConfig(): WorldConfig {
+  return universeConfig();
+}
+
+// ---------------------------------------------------------------- the private player view
+
+export interface ContractView { id: string; text: string; done: boolean; claimed: boolean; reward: number; progress: number; target: number }
+
+export interface PlayerView {
+  player: Omit<Player, 'inbox'> & { inboxUnread: number };
+  account: Account | null;
+  orders: Order[];
+  netWorth: NetWorthBreakdown;
+  rank: { id: string; name: string; next: { id: string; name: string; threshold: number } | null; progress: number };
+  businesses: Business[];
+  properties: (Property & { value: number })[];
+  contracts: ContractView[];
+  inbox: InboxItem[];
+  lab: (LabState & { a: number; pflopPerDay: number; spotPrice: number; dataPrice: number }) | null;
+  security: {
+    tier: number; dp: number; budget: number; lastScanTick: number; lockdownUntil: number; shieldUntil: number;
+    entries: Omit<ConnectionEntry, 'hostile'>[];
+    clues: { id: string; tick: number; kind: string; entryId?: string }[];
+    myOps: CyberOp[];
+    evidence: { against: string; points: number }[];
+    liveSessions: { entryId: string; victimId: string; strength: string; progress: number; codename: string }[];
+  };
+  cases: CourtCase[];
+  deals: Deal[];
+  alliance: Alliance | null;
+  noteCost: number;
+  mortgageRate: number;
+  digest: { since: number; items: InboxItem[]; netWorthThen: number } | null;
+}
+
+export function playerView(g: GameState, pid: string): PlayerView | null {
+  const p = g.players[pid];
+  if (!p) return null;
+  const { inbox, ...rest } = p;
+  const rIdx = rankIndex(p.rankId);
+  const next = RANKS[rIdx + 1] ?? null;
+  const floor = rIdx === 0 ? 5000 : RANKS[rIdx]!.threshold;
+  const lab = g.lab[pid];
+  const d = defenseOf(g, pid);
+  const away = g.market.tick - p.digestSeenTick > TPD / 2 ? inbox.filter((n) => n.tick > p.digestSeenTick).slice(0, 40) : [];
+  return {
+    player: { ...rest, inboxUnread: inbox.filter((n) => !n.read).length },
+    account: g.market.accounts[pid] ?? null,
+    orders: g.market.orders.filter((o) => o.playerId === pid).slice(-120),
+    netWorth: netWorthBreakdown(g, pid),
+    rank: {
+      id: p.rankId, name: RANKS[rIdx]!.name,
+      next: next ? { id: next.id, name: next.name, threshold: next.threshold } : null,
+      progress: next ? Math.min(1, Math.max(0, (p.netWorth - floor) / (next.threshold - floor))) : 1,
+    },
+    businesses: playerBusinesses(g, pid),
+    properties: playerProperties(g, pid).map((x) => ({ ...x, value: propValue(g, x) })),
+    contracts: p.contracts.map((c) => ({ ...c, ...(() => { const pr = contractProgress(g, p, c.defId); return { progress: pr.value, target: pr.target }; })() })),
+    inbox: inbox.slice(0, 60),
+    lab: lab ? { ...lab, a: algorithmA(lab), pflopPerDay: ownedPflopPerDay(lab), spotPrice: spotPflopPrice(g), dataPrice: dataPrice(g) } : null,
+    security: {
+      tier: defenseTier(g, pid), dp: defensePoints(g, pid), budget: d.budget, lastScanTick: d.lastScanTick, lockdownUntil: d.lockdownUntil, shieldUntil: d.shieldUntil,
+      entries: entriesOf(g, pid).map(({ hostile: _h, ...e }) => e),
+      clues: g.cyber.clues.filter((c) => c.ownerId === pid).slice(-40).map(({ real: _r, ownerId: _o, ...c }) => c),
+      myOps: g.cyber.ops.filter((o) => o.attackerId === pid).slice(0, 30),
+      evidence: Object.entries(g.cyber.evidence).filter(([k]) => k.endsWith(`>${pid}`)).map(([k, v]) => ({ against: k.split('>')[0]!, points: v })),
+      liveSessions: Object.values(g.cyber.entries).filter((e) => e.hostile?.attackerId === pid).map((e) => ({
+        entryId: e.id, victimId: e.ownerId, strength: e.hostile!.strength, progress: e.hostile!.progress, codename: e.codename,
+      })),
+    },
+    cases: Object.values(g.court.cases).filter((c) => c.plaintiffId === pid || c.defendantId === pid),
+    deals: Object.values(g.deals).filter((x) => x.fromId === pid || x.toId === pid).slice(-50),
+    alliance: p.allianceId ? g.alliances[p.allianceId] ?? null : null,
+    noteCost: noteCost(g, pid),
+    mortgageRate: mortgageRate(g),
+    digest: away.length ? { since: p.digestSeenTick, items: away, netWorthThen: p.digestNetWorth } : null,
+  };
+}
+
+// ---------------------------------------------------------------- public directory and social
+
+export interface DirectoryRow {
+  id: string;
+  handle: string;
+  country: string;
+  rankId: string;
+  netWorth: number;
+  prestige: number;
+  reputation: number;
+  notoriety: number;
+  title: string;
+  allianceTag: string | null;
+  npc: boolean;
+  online: boolean;
+  bio: string;
+  businesses: number;
+  properties: number;
+  lifestyle: string[];
+  joinedTick: number;
+}
+
+export function directory(g: GameState): DirectoryRow[] {
+  const bizCount = new Map<string, number>();
+  for (const b of Object.values(g.businesses)) bizCount.set(b.ownerId, (bizCount.get(b.ownerId) ?? 0) + 1);
+  const propCount = new Map<string, number>();
+  for (const x of Object.values(g.properties)) propCount.set(x.ownerId, (propCount.get(x.ownerId) ?? 0) + 1);
+  return Object.values(g.players).map((p) => ({
+    id: p.id, handle: p.handle, country: p.country, rankId: p.rankId, netWorth: p.netWorth, prestige: p.prestige,
+    reputation: p.reputation, notoriety: p.mostWantedOptIn ? p.notoriety : 0, title: p.title,
+    allianceTag: p.allianceId ? g.alliances[p.allianceId]?.tag ?? null : null, npc: !!p.npc, online: p.online || !!p.npc,
+    bio: p.bio, businesses: bizCount.get(p.id) ?? 0, properties: propCount.get(p.id) ?? 0,
+    lifestyle: p.lifestyle.map((o) => o.itemId), joinedTick: p.joinedTick,
+  }));
+}
+
+export interface PublicState {
+  boards: Boards;
+  wire: WireItem[];
+  alliances: Alliance[];
+  economy: GameState['economy'];
+  chapter: GameState['chapter'];
+  hallOfFame: GameState['hallOfFame'];
+  collectibles: number;
+  cityDemand: Record<string, number>;
+  players: number;
+  online: number;
+}
+
+export function publicState(g: GameState): PublicState {
+  const ps = Object.values(g.players);
+  return {
+    boards: g.boards, wire: g.wire.slice(0, 120), alliances: Object.values(g.alliances), economy: g.economy, chapter: g.chapter,
+    hallOfFame: g.hallOfFame.slice(0, 10), collectibles: g.collectibles, cityDemand: CITY_DEMAND,
+    players: ps.length, online: ps.filter((p) => p.online || p.npc).length,
+  };
+}
+
+export function chatFor(g: GameState, pid: string): Record<string, ChatMessage[]> {
+  const p = g.players[pid];
+  const out: Record<string, ChatMessage[]> = {};
+  for (const [ch, msgs] of Object.entries(g.chat)) {
+    const visible = ch === 'world' || (p && (ch === `country:${p.country}` || ch === `alliance:${p.allianceId}` || (ch.startsWith('dm:') && ch.split(':').includes(pid))));
+    if (visible) out[ch] = msgs.slice(-60);
+  }
+  return out;
+}
+
+export type { BoardRow };
