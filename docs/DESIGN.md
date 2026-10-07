@@ -1,6 +1,6 @@
 # DESIGN — Ink & Brass
 
-**Owner:** Velvet (visual identity, design system, motion). **Status:** v1 for Phase 0, 2026-10-07. Ink & Brass was approved by Mathis.
+**Owner:** Velvet (visual identity, design system, motion). **Status:** v1.1 for Phase 0 (adds §6a order ticket states), 2026-10-07. Ink & Brass was approved by Mathis.
 **Tokens:** `src/styles/tokens.css` (the only place hex values live). **Mocks:** `docs/design/ink-brass-portfolio-desktop.png` (1440 × 900) and `docs/design/ink-brass-portfolio-phone.png` (390 × 844).
 **Full background:** the design bible section `04-experience-lifestyle.md` §9–§10 (box copy). This file is the build contract for Forge.
 
@@ -100,6 +100,20 @@ Easing: `ease-out` (cubic-bezier(.22,1,.36,1)) for anything entering or respondi
 | Chip | 1 px `ink-3` pill; the brass variant has a 45% brass border and 7% fill |
 | Wire strip | "THE WIRE" label in brass, items tagged by type color: Filing and Purchase brass, Macro info, Earnings loss or gain |
 | Empty state | One serif line + one suggested action |
+
+## 6a. Order ticket states (for Quant's task #2 API)
+
+| State | Ticket shows | Motion |
+|---|---|---|
+| Idle | Breakdown from `estimateFill` (price, fee, slippage in bps and $, total, buying power after); brass button "Buy 40 HALD" | Breakdown values roll 120 ms as qty changes |
+| First-trade cap (Simple mode) | Qty chips stop at 20% of cash; a one-line `fg-muted` note under the field: "First trade is capped at 20% of cash." Max chip reads "Max 20%" | None |
+| Invalid (qty over buying power, below 1 whole share) | Button disabled (`ink-3` fill, `fg-disabled` text), the reason in `warn` under the field | Field border pulses `warn` once, 220 ms |
+| Pending (placed, waits for next tick) | The button becomes a non-brass "Filling at next tick" row with the tick ring (22 px) filling to the next tick; a Cancel text link | Tick ring, synced to the server tick |
+| Halted asset | Same pending row, text "Waits for reopen", ring replaced by a steel pause glyph; a `warn` "Halted" chip on the price | None |
+| Filled | Toast top-right (desktop) or above the tab bar (phone): "Bought 40 HALD at 91.41 · fee $3.66", in `fg` with a gain or loss side bar; the new row slides into Positions and its cells flash | Toast 220 ms in, 4 s hold; row insert 220 ms; flash 420 ms |
+| Partial fill (limit) | Pending row shows "18 / 40 filled" with a thin brass progress bar | Bar eases 220 ms per fill |
+| Rejected | Toast with a `loss` side bar and Quant's `rejectReason` in plain words; ticket keeps the values so the player can fix and resend | Toast 220 ms in |
+| Open limit or stop | Listed under Positions as an "Open orders" strip: side, qty, type and trigger price in mono, Cancel | None |
 
 ## 7. Voice in the UI
 
