@@ -1,6 +1,6 @@
 # DESIGN — Ink & Brass
 
-**Owner:** Velvet (visual identity, design system, motion). **Status:** v1.1 for Phase 0 (adds §6a order ticket states), 2026-10-07. Ink & Brass was approved by Mathis.
+**Owner:** Velvet (visual identity, design system, motion). **Status:** v1.2 for Phase 0 (§6a order ticket states, §6b first-session onboarding, §6c rank-up Broke to Hustler, §6d the R0 shell), 2026-10-07. Ink & Brass was approved by Mathis.
 **Tokens:** `src/styles/tokens.css` (the only place hex values live). **Mocks:** `docs/design/ink-brass-portfolio-desktop.png` (1440 × 900) and `docs/design/ink-brass-portfolio-phone.png` (390 × 844).
 **Full background:** the design bible section `04-experience-lifestyle.md` §9–§10 (box copy). This file is the build contract for Forge.
 
@@ -59,7 +59,7 @@ const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains-mo
 ```
 **And in `src/app/globals.css`:** keep `@import "tailwindcss";`, add `@import "../styles/tokens.css";` on the next line, and delete the scaffold's `:root`, dark-mode block, `@theme inline` and `body` rules (tokens.css sets the body).
 
-Number formatting: thousands separators always (`48,212.40`); 2 decimals for money and prices under 10,000, 0 decimals for whole-dollar totals at T3+; compact form (`$48.2k`, `$1.2M`, `$3.4B`) only in progress bars, chips and Wire copy; percentages to 2 decimals with sign.
+Number formatting: thousands separators always (`48,212.40`); 2 decimals for money and prices under 10,000, 0 decimals for whole-dollar totals at T3+; compact form (`$48.2k`, `$1.2M`, `$3.4B`) only in progress bars, chips and Wire copy; percentages to 2 decimals with sign. Losses and drawdown always carry the minus (`−0.03%`, U+2212) and `loss` color; an exact zero shows `0.00%` in `fg-muted` with no sign.
 
 ## 4. Space, shape, layout
 
@@ -114,6 +114,41 @@ Easing: `ease-out` (cubic-bezier(.22,1,.36,1)) for anything entering or respondi
 | Partial fill (limit) | Pending row shows "18 / 40 filled" with a thin brass progress bar | Bar eases 220 ms per fill |
 | Rejected | Toast with a `loss` side bar and Quant's `rejectReason` in plain words; ticket keeps the values so the player can fix and resend | Toast 220 ms in |
 | Open limit or stop | Listed under Positions as an "Open orders" strip: side, qty, type and trigger price in mono, Cancel | None |
+
+## 6b. First-session onboarding (Phase 0)
+
+Adapted from the bible's 04 §4 for a solo, trading-only sandbox: no businesses, league or push permission yet. Rules: one sentence per prompt, everything skippable, no tutorial walls, and nothing scripted. Every headline and number comes from the live engine. The onboarding step is saved with the game, never repeats, and can be replayed later from More → "Replay intro".
+
+| # | When | What the player sees | Spec |
+|---|---|---|---|
+| 1 | New game, before the market | **Cold open (8 s).** Black. On phone a light haptic buzz. A phone lock screen fades up (ink-1 card, the R0 hairline crack across one corner) reading "Balance: $5,000.00" in serif and "Rent due Friday." in `fg-muted`. Behind it, a Port Avalon skyline silhouette in `ink-2`. One brass button, **Start**, plus a text link "I've played before" | Fade 420 ms per element, 220 ms stagger. "I've played before" skips steps 2–3 and the coach marks; the 20% first-trade cap still applies. Test ids `onboarding-coldopen`, `onboarding-start`, `onboarding-skip` |
+| 2 | Market opens (clock runs) | **First news.** The Wire strip's newest relevant item expands into a card anchored over the chart's top-left: type tag, headline, the asset's 1D sparkline and its move, and one button "Look at HALD" that selects it | Pick the largest absolute jump on a **stock** in the last game day; fall back to the largest day move in the watchlist. Card slides down 220 ms; dismiss on tap outside. Id `first-news` |
+| 3 | Asset selected | **Simple ticket.** Buy/Sell and the qty chips only; Limit and Stop tabs are hidden until the first fill. Under the button, one `fg-muted` line: "Prices can fall. That's the game." | Same pending ring and states as §6a. Ids `simple-ticket`, `honest-note` |
+| 4 | First fill | Fill toast as §6a, then a small "First trade" receipt card in the Positions card (asset, qty, price, fee, game time) that collapses into the row after 4 s | Receipt scales in from 0.96, 220 ms. Limit and Stop tabs fade in (220 ms) with a one-time brass dot |
+| 5 | First position is down 1% or more from its average cost | **Stop-loss explainer.** An inline card under that position row: "HALD is down 1.2% since you bought. A stop-loss sells it for you if it falls to a price you choose." A mini price ladder shows three ticks: your cost (fg), now (loss), and a dashed stop line at −5%. Buttons: brass **Set stop at 84.10** (−5% of cost, rounded to 2 decimals) and "Not now" | The brass button only **pre-fills** a Stop sell for the whole position in the ticket and focuses it; the player still confirms. Never place an order on their behalf. Shown once. Ids `stop-explainer`, `stop-preset` |
+| 5′ | First position instead closes at a profit | "First profitable trade" receipt card (04 §3.3), same component as step 4 with a gain side bar | Once |
+| 6 | After step 4, or 2 game hours of play | **Goals card** (Market under Positions, and top of Portfolio): "Reach $20k (Hustler)", "Close a profitable trade", "Hold 3 different assets", each with a thin brass progress bar | Completed goals tick with a 420 ms brass check, then the card shows the next goal. Id `goals-card` |
+| 7 | After that | Free play: no more prompts this session unless the player opens Help | — |
+
+Optional flavor if cheap: once in the first session, after the first fill, a grey in-world spam toast "Make $5k a day from your phone!" with a "Spam" tag and swipe to dismiss (R0 shell joke, 04 §9.3). Skip it if it competes with a real toast.
+
+## 6c. Rank-up: Broke to Hustler
+
+**Trigger:** net worth reaches $20,000 for the first time (rank is never lost). **Wait** until no order is pending and there's been no input for 10 s; never interrupt a countdown. Skippable after 1 s (tap or Esc). Total about 5 s. Id `rankup-overlay`, skip `rankup-skip`.
+
+| Time | Beat |
+|---|---|
+| 0–600 ms | Screen dims to `ink-0` at 85%. The R0 hairline crack in the header glints once (brass, 120 ms) |
+| 600–1400 ms | The crack heals: its stroke retracts to nothing (`ease-out`, 600 ms) while a soft brass sheen sweeps across the header (`animate-shimmer`, sped to 800 ms). Phone: medium haptic |
+| 1400–2600 ms | Centered: `.label` "RANK UP", then **Hustler** in Instrument Serif at 72 px (56 px phone) rising 12 px into place over 420 ms, then the new `R1 · Hustler` brass chip and the net worth in mono |
+| 2600–4200 ms | Three cards slide up with a 120 ms stagger. Phase 0 shows only real things: **"New phone: the crack is gone"**, **"Title: Hustler"** (on your profile), **"Next: Owner at $250k"** with a progress bar. Later phases swap in the real unlocks (T2 businesses, Studio) |
+| 4200 ms → | One brass button, **Keep going**, which closes the overlay. No menu |
+
+After it: the header chip is `R1 · Hustler`, the progress bar now reads "$20k / $250k to Owner", and a Wire item "You reached Hustler" is added (brass, type "Milestone"). Reduced motion: the same content as a static card, with no sheen, heal or rise.
+
+## 6d. The R0 shell (Broke)
+
+The bible's "interface is your status" starts here. At R0, a 1 px hairline crack in `fg-disabled` at 50% opacity runs across one corner of the top bar (desktop: top-right, behind the clock area; phone: top-left above the rank chip). It's an inline SVG under the content and never crosses text or controls. At R1 it's gone for good. Id `shell-crack`. That's the whole Phase 0 shell system; materials for later ranks come with their phases.
 
 ## 7. Voice in the UI
 
