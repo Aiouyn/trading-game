@@ -6,7 +6,7 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createWorld, step, indexLevel, defaultConfig, expectedVol } from '../src/engine';
+import { createWorld, step, indexLevel, defaultConfig, expectedVol, estimateFill } from '../src/engine';
 import type { StepEvent } from '../src/engine';
 
 function arg(name: string, fallback: string): string {
@@ -88,6 +88,24 @@ for (const r of rows) {
 console.log('');
 console.log('regimes:', timeline.map((t) => `d${t.fromDay} ${t.regime}`).join(' → '));
 console.log('events:', JSON.stringify(counts));
+
+// round-trip cost (buy then sell at the same price) on a fresh calm world, in bps of notional
+{
+  const w = createWorld(seed, cfg);
+  console.log('');
+  console.log('round-trip cost, calm market (spread + impact + fees, bps of notional):');
+  console.log(['asset', '$500', '$5k', '$50k', '$1M'].map((h) => h.padStart(10)).join(''));
+  for (const a of cfg.assets) {
+    const p = a.initialPrice;
+    const row = [500, 5000, 50000, 1e6].map((usd) => {
+      const qty = a.assetClass === 'stock' ? Math.max(1, Math.round(usd / p)) : usd / p;
+      const b = estimateFill(w, { assetId: a.id, side: 'buy', qty });
+      const sl = estimateFill(w, { assetId: a.id, side: 'sell', qty });
+      return f(((b.total - sl.total) / (qty * p)) * 1e4, 1);
+    });
+    console.log([a.id, ...row].map((x) => String(x).padStart(10)).join(''));
+  }
+}
 
 if (csvPath) {
   mkdirSync(dirname(csvPath), { recursive: true });

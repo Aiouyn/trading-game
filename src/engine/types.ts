@@ -37,6 +37,32 @@ export interface AssetDef {
   floor: number;
   /** whether the single-asset circuit breaker applies */
   circuitBreaker: boolean;
+  /** full bid-ask spread in a calm market, in basis points (01 §7.2); default 10 */
+  spreadBps?: number;
+  /** average daily traded value in $, for square-root impact (01 §7.3); default $1B */
+  advNotional?: number;
+  /** quantity granularity: 1 = whole units (stocks), 0 = fractional; default 1 for stocks, 0 otherwise */
+  qtyStep?: number;
+}
+
+export interface FeeSchedule {
+  /** commission as a fraction of notional */
+  rate: number;
+  /** minimum commission per fill, $ */
+  min: number;
+}
+
+export interface TradingConfig {
+  startingCash: number;
+  fees: Record<AssetClass, FeeSchedule>;
+  /** square-root impact coefficient Y (01 §7.3) */
+  impactY: number;
+  /** share of temporary impact that permanently moves the price (it then decays via the pull to value) */
+  permanentImpactShare: number;
+  /** max fill per order per tick, as a multiple of daily volume; the rest stays open */
+  maxAdvPerTick: number;
+  /** closed orders kept in state for history (oldest pruned first) */
+  closedOrdersKept: number;
 }
 
 export interface RegimeDef {
@@ -86,6 +112,8 @@ export interface WorldConfig {
   /** halt length in ticks (10 real minutes = 120 ticks) */
   haltTicks: number;
   initialRegime: RegimeId;
+  /** order execution and accounts; defaults to DEFAULT_TRADING */
+  trading?: TradingConfig;
   regimes: Record<RegimeId, RegimeDef>;
   assets: AssetDef[];
   indices: IndexDef[];
@@ -117,6 +145,65 @@ export interface RegimeChange {
   to: RegimeId;
 }
 
+export type Side = 'buy' | 'sell';
+export type OrderType = 'market' | 'limit' | 'stop';
+export type OrderStatus = 'open' | 'filled' | 'cancelled' | 'rejected' | 'expired';
+
+export interface OrderRequest {
+  playerId: string;
+  assetId: string;
+  side: Side;
+  type: OrderType;
+  qty: number;
+  limitPrice?: number;
+  stopPrice?: number;
+  /** 'gtc' (default) stays open until filled or cancelled; 'day' expires at the next game-day boundary */
+  tif?: 'day' | 'gtc';
+}
+
+export interface Order extends OrderRequest {
+  id: string;
+  status: OrderStatus;
+  placedTick: number;
+  /** stop orders: true once the stop price was crossed (the order then executes like a market order) */
+  triggered: boolean;
+  filledQty: number;
+  avgFillPrice: number;
+  feesPaid: number;
+  rejectReason?: string;
+  closedTick?: number;
+}
+
+export interface Fill {
+  orderId: string;
+  playerId: string;
+  assetId: string;
+  side: Side;
+  qty: number;
+  price: number;
+  fee: number;
+  tick: number;
+}
+
+export interface Position {
+  qty: number;
+  /** average cost per unit, buy commissions included */
+  avgCost: number;
+  realizedPnl: number;
+}
+
+export interface Account {
+  playerId: string;
+  cash: number;
+  startingCash: number;
+  positions: Record<string, Position>;
+  realizedPnl: number;
+  feesPaid: number;
+  peakEquity: number;
+  maxDrawdown: number;
+  dayStartEquity: number;
+}
+
 export interface WorldState {
   version: 1;
   seed: string;
@@ -126,6 +213,10 @@ export interface WorldState {
   macroRng: RngState;
   sectorRng: Record<string, RngState>;
   assets: AssetState[];
+  accounts: Record<string, Account>;
+  /** open orders plus the most recent closed ones, in placement order */
+  orders: Order[];
+  orderSeq: number;
   config: WorldConfig;
 }
 
@@ -145,4 +236,48 @@ export type StepEvent =
 export interface StepResult {
   state: WorldState;
   events: StepEvent[];
+  fills: Fill[];
+}
+
+export interface FillEstimate {
+  /** expected execution price per unit (mid ± half spread ± impact) */
+  price: number;
+  fee: number;
+  /** distance from mid, in basis points (always ≥ 0) */
+  slippageBps: number;
+  /** buy: cash out (qty·price + fee); sell: cash in (qty·price − fee) */
+  total: number;
+}
+
+export interface PositionView {
+  assetId: string;
+  qty: number;
+  avgCost: number;
+  price: number;
+  marketValue: number;
+  unrealizedPnl: number;
+  unrealizedPct: number;
+  realizedPnl: number;
+  /** share of equity */
+  weight: number;
+}
+
+export interface PortfolioView {
+  playerId: string;
+  cash: number;
+  equity: number;
+  startingCash: number;
+  positions: PositionView[];
+  realizedPnl: number;
+  unrealizedPnl: number;
+  /** equity − startingCash (fees included) */
+  totalPnl: number;
+  /** equity − equity at the start of the current game day */
+  dayPnl: number;
+  feesPaid: number;
+  peakEquity: number;
+  /** current drop from peak, as a fraction ≤ 0 */
+  drawdown: number;
+  /** worst drawdown so far, as a fraction ≤ 0 */
+  maxDrawdown: number;
 }

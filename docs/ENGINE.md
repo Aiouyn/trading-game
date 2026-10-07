@@ -1,4 +1,4 @@
-# Engine: seeded price simulator (Phase 0, task #1)
+# Engine: seeded price simulator and order execution (Phase 0, tasks #1 and #2)
 
 Owner: Quant. Design source: `vision/01-markets-economy.md` §1, §2, §5.3, §10.
 Code: `src/engine/` (pure TypeScript, no UI, no Node or browser APIs). Moves to `packages/engine` at the server phase.
@@ -128,6 +128,47 @@ $$
 
 Balance bands compare realized vol against `expectedVol(def)` (neutral regime), never against raw `vol`. For example, Lumen Pharma has `vol` 38% but expected total vol of about 65%, because of its binary trial jumps.
 
+## Orders and portfolio (task #2, `src/engine/trading.ts`)
+
+```ts
+openAccount(state, playerId, cash = 5000): WorldState            // throws if the account exists
+placeOrder(state, req): { state; order }                          // status 'open' or 'rejected' + rejectReason
+cancelOrder(state, playerId, orderId): WorldState                 // no-op if already closed
+estimateFill(state, { assetId, side, qty }): { price; fee; slippageBps; total }   // live ticket preview
+step(state): { state; events; fills }                             // open orders clear at the end of each tick
+openOrders(state, playerId) / orderHistory(state, playerId): Order[]
+portfolio(state, playerId): PortfolioView                         // cash, equity, positions, P&L, drawdown
+```
+
+Accounts and orders live in `WorldState` (`accounts`, `orders`, `orderSeq`), so saves stay plain JSON and a replay of the same seed plus the same orders is identical. Order ids are `<playerId>-<seq>`. A world with no accounts prices exactly as before.
+
+**Execution.** An order placed at tick t is tried at tick t+1, after prices move. Execution price for a quantity Q:
+
+$$ P_{exec} = P_{mid}\,\big(1 \pm (s/2 + Y\,\sigma_{daily}\sqrt{Q P / ADV})\big) $$
+
+- `s/2` is half of the asset's `spreadBps`, scaled by current vol (`regime.volMult · √h`), so spreads widen in crises.
+- `Y = 0.8`; `σ_daily = vol · volMult · √h / √252`; `ADV` is the asset's `advNotional` in dollars.
+- Half of the impact (`permanentImpactShare`) moves the price for everyone; the pull to value decays it.
+- Each order fills at most `3 × ADV` of notional per tick; the rest stays open and continues next tick.
+- Phase 0 fills sequentially in order-id order inside a tick. The uniform-price batch auction between players arrives with multiplayer.
+
+**Order types.** Market fills next tick. Limit fills once the execution price (spread and impact included) is at or better than the limit, at that price. Stop triggers when mid crosses the stop (buy: at or above, sell: at or below) and then fills like a market order, so a gap fills through the stop. `tif: 'day'` expires at the next game-day boundary; `gtc` (default) stays. Orders on a halted asset wait for the reopen.
+
+**Rules.** Long only, no margin. Stocks trade whole shares (`qtyStep: 1`); crypto and commodities are fractional. A buy is rejected if it would exceed cash minus what other open buys reserve (limit price, or estimated price for market and stop). A sell is rejected beyond the held quantity minus other open sells. If a buy no longer fits the cash at fill time (price moved), it fills what the cash covers and the rest is cancelled with `insufficient cash`.
+
+**Fees** (`config.trading.fees`, per asset class): stocks and commodities 0.10% with a $1 minimum, crypto 0.20% with no minimum.
+
+**Accounting.** `avgCost` includes buy commissions. Realized P&L on a sell is `qty · price − fee − qty · avgCost`. `realizedPnl + unrealizedPnl = equity − startingCash` holds exactly. `peakEquity` and `maxDrawdown` update every tick (marked at mid); `dayPnl` is measured from equity at the first tick of the game day. Drawdowns are fractions ≤ 0.
+
+**Default liquidity.** Stock spreads by market cap: ≥ $100B 2 bps, ≥ $40B 6 bps, ≥ $25B 12 bps, smaller 25 bps; ADV is 0.4% of market cap a day. AUC 5 bps / $20B, LTX 8 bps / $8B, SYN 60 bps / $300M. GOLD and OIL 3 bps / $30B. All are per-asset `AssetDef` fields (`spreadBps`, `advNotional`, `qtyStep`).
+
+The headless sim now prints a round-trip cost table (buy then sell at once, calm market, in bps of notional) for $500, $5k, $50k and $1M tickets. Typical: about 22 bps on a $5k mega-cap stock trade, 45 bps on AUC, about 100 bps on SYN; the $1 minimum fee makes $500 stock trades cost about 40 bps.
+
+Tests: `src/engine/trading.test.ts` (23 tests): fills and fees, round-trip accounting, square-root impact, permanent impact, 3×ADV cap, validation and reservations, limit and stop triggers, cancel, day expiry, halts, cash shrink, drawdown, day P&L, determinism with orders, JSON reload.
+
 ## Tuning knobs
+
+Trading: `config.trading` (`startingCash`, `fees`, `impactY`, `permanentImpactShare`, `maxAdvPerTick`, `closedOrdersKept`) and per-asset `spreadBps`, `advNotional`, `qtyStep`.
+
 
 Everything lives in `WorldConfig` and `AssetDef`. Nothing is hard-coded in `sim.ts`. Tape's balance runs can override any field through `defaultConfig({ ... })`.

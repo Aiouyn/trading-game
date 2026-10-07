@@ -1,7 +1,8 @@
 import { Rng, seedStream } from './rng';
 import { defaultConfig, idioLoading } from './config';
+import { clearOrders } from './trading';
 import type {
-  AssetDef, AssetState, Quote, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
+  AssetDef, AssetState, Fill, Quote, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
 } from './types';
 
 const LN2 = Math.log(2);
@@ -38,6 +39,9 @@ export function createWorld(seed: string, config: WorldConfig = defaultConfig())
     macroRng: seedStream(seed, 'macro:global'),
     sectorRng,
     assets,
+    accounts: {},
+    orders: [],
+    orderSeq: 0,
     config,
   };
 }
@@ -48,7 +52,7 @@ function sectorKeys(config: WorldConfig): string[] {
 
 /**
  * Advance the world by one tick (5 real seconds). Pure: the input state is not mutated.
- * Orders and player actions join here in task #2 (batch auction, §7); today the market is NPC-only.
+ * Queued orders (see trading.ts) clear at the end of the tick, after prices move.
  */
 export function step(state: WorldState): StepResult {
   const cfg = state.config;
@@ -163,30 +167,31 @@ export function step(state: WorldState): StepResult {
     assets[i] = a;
   }
 
-  return {
-    state: {
-      ...state,
-      tick,
-      regime,
-      regimeLog,
-      macroRng: macro.state(),
-      sectorRng,
-      assets,
-    },
-    events,
+  const priced: WorldState = {
+    ...state,
+    tick,
+    regime,
+    regimeLog,
+    macroRng: macro.state(),
+    sectorRng,
+    assets,
   };
+  const { state: cleared, fills } = clearOrders(priced, newDay);
+  return { state: cleared, events, fills };
 }
 
 /** Advance n ticks; collects events. Identical to calling step() n times. */
 export function stepMany(state: WorldState, n: number): StepResult {
   let s = state;
   const events: StepEvent[] = [];
+  const fills: Fill[] = [];
   for (let k = 0; k < n; k++) {
     const r = step(s);
     s = r.state;
     for (const e of r.events) events.push(e);
+    for (const f of r.fills) fills.push(f);
   }
-  return { state: s, events };
+  return { state: s, events, fills };
 }
 
 export function quote(state: WorldState, assetId: string): Quote {
