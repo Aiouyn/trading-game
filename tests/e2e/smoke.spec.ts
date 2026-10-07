@@ -13,6 +13,7 @@ test.describe("smoke", () => {
     await expect(page).toHaveTitle(/Trading Game/);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
+    await expect(page.locator("html")).toHaveAttribute("data-game", "ready", { timeout: 30_000 });
     await page.screenshot({ path: `test-results/proof/${info.project.name}-home.png`, fullPage: true });
     expect(errors, "console errors on /").toEqual([]);
   });
