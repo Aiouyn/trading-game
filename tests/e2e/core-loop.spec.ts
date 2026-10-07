@@ -42,11 +42,8 @@ test("core loop: buy within the first-trade cap, fill, persist across reload", a
   await expect(page.getByTestId("order-pending")).toBeVisible();
   await advance(page, 3);
   await expect(page.getByTestId("toast")).toBeVisible();
-  // phone: the trade sheet stays open after a fill (positions is still "visible" underneath), so always close it
-  if (info.project.name === "phone") {
-    await page.keyboard.press("Escape");
-    await expect(page.getByTestId("order-submit")).toBeHidden();
-  }
+  // phone: the trade sheet closes on its own after a fill (14cc4fc)
+  if (info.project.name === "phone") await expect(page.getByTestId("order-submit")).toBeHidden();
   await expect(page.getByTestId("position-HLCN")).toBeVisible();
   const cash1 = money(await page.getByTestId("cash").first().textContent());
   expect(cash1, "cash should drop by about the order total").toBeLessThan(cash0 - total * 0.9);
