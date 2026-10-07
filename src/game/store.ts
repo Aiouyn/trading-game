@@ -1,264 +1,333 @@
 'use client';
 
 import { create } from 'zustand';
-import {
-  cancelOrder, createWorld, defaultConfig, indexLevel, openAccount, placeOrder, portfolio, prices, step,
-} from '@/engine';
-import type { Order, OrderRequest, WorldState } from '@/engine';
-import { tickMs, type Speed } from './clock';
-import { createHistory, ensureSeries, ensureVolume, record, type History, type RangeId } from './history';
-import { clearSave, loadGame, saveGame } from './save';
-import { firstTradeCap, previewTicket } from './ticket';
-import { WIRE_KEEP, wireFromEvents, type WireItem } from './wire';
-import { compactMoney, money, price, qty } from './format';
-import { licenseCheck, lockedText } from './license';
+import { indexLevel, universeConfig, type WorldConfig, type WorldState } from '@/engine';
+import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
+import type { HistoryPayload, NwHistoryPayload, ServerMsg } from '@/net/protocol';
+import { mirrorWorld, type DirectoryRow, type MarketFrame, type PlayerView, type PublicState } from '@/world/view';
+import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
+import { createHistory, loadSeries, record, type History, type RangeId } from './history';
+import type { IndicatorId } from './indicators';
 
-export const PLAYER = 'you';
-export const INDEX_ID = 'GX';
-/** History the world has before the player arrives, so 1Q and 1Y charts have bars. */
-export const WARMUP_DAYS = 63;
-const AUTOSAVE_EVERY = 12;
-const CHUNK = 1500;
+export type Screen = 'market' | 'portfolio' | 'empire' | 'estate' | 'lab' | 'security' | 'court' | 'social' | 'wire' | 'profile';
 
 export interface Toast {
   id: string;
-  /** side bar color (DESIGN.md §6a): gain for buys, loss for sells and rejections */
-  tone: 'gain' | 'loss';
+  tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';
   text: string;
 }
 
+export const WIRE_KEEP = 300;
+const CONFIG: WorldConfig = universeConfig();
+const ASSET_IDS = CONFIG.assets.map((a) => a.id);
+const INDEX_IDS = CONFIG.indices.map((i) => i.id);
+
+/** Kinds of private notices that pop up as toasts (the rest stay in the inbox). */
+const TOAST_KINDS = new Set<InboxItem['kind']>(['fill', 'order', 'margin', 'rank', 'achievement', 'contract', 'court', 'security', 'deal', 'lab', 'alert', 'biz']);
+
 export interface GameStore {
-  status: 'idle' | 'loading' | 'ready';
-  loadProgress: number;
+  status: 'boot' | 'welcome' | 'connecting' | 'ready' | 'offline';
+  authError: string | null;
+  playerId: string | null;
+  tickMs: number;
+  /** wall-clock time the latest tick arrived (drives the tick ring) */
+  lastTickAt: number;
+  frame: MarketFrame | null;
+  /** client-side engine mirror for previews (estimateFill, buyingPower, optionChain…) */
   world: WorldState | null;
-  /** mutable, bumped through historyRev so components re-read it */
-  history: History | null;
+  config: WorldConfig;
+  me: PlayerView | null;
+  pub: PublicState | null;
+  directory: DirectoryRow[];
+  chat: Record<string, ChatMessage[]>;
+  chatUnread: number;
+  wire: WireItem[];
+  history: History;
   historyRev: number;
-  speed: Speed;
-  paused: boolean;
+  loaded: Record<string, true>;
+  nw: { samples: number[]; lastTick: number; every: number; daily: { day: number; value: number }[] } | null;
+  toasts: Toast[];
+  screen: Screen;
   selected: string;
   range: RangeId;
   chartMode: 'candles' | 'line';
-  wire: WireItem[];
-  toasts: Toast[];
+  indicators: Partial<Record<IndicatorId, boolean>>;
   tradeSheetOpen: boolean;
-  tab: Tab;
+  moreOpen: boolean;
+  inboxOpen: boolean;
+  chatOpen: boolean;
+  rankUp: string | null;
+  digestOpen: boolean;
+  /** a prefilled ticket (from the stop-loss explainer, a note, the option chain…) */
+  ticketPreset: { side: 'buy' | 'sell'; type: 'market' | 'limit' | 'stop' | 'stop_limit' | 'trailing'; qty?: number; stopPrice?: number; limitPrice?: number; nonce: number } | null;
+  profileId: string | null;
+  /** chat channel to open (a DM from a profile) */
+  dmTarget: string | null;
 
-  boot: (opts?: { seed?: string; fresh?: boolean }) => Promise<void>;
-  newGame: (seed?: string) => Promise<void>;
-  tick: (n?: number) => void;
-  setSpeed: (s: Speed) => void;
-  togglePause: () => void;
+  boot: () => void;
+  register: (handle: string, country: string) => Promise<string | null>;
+  login: (handle: string, password: string) => Promise<string | null>;
+  logout: () => void;
+  act: (cmd: Command, opts?: { silent?: boolean; success?: string }) => Promise<Ack>;
+  ensureHistory: (series: string) => Promise<void>;
+  loadNw: () => Promise<void>;
   select: (assetId: string) => void;
+  setScreen: (s: Screen) => void;
   setRange: (r: RangeId) => void;
   setChartMode: (m: 'candles' | 'line') => void;
+  toggleIndicator: (id: IndicatorId) => void;
   setTradeSheet: (open: boolean) => void;
-  setTab: (tab: Tab) => void;
-  submitOrder: (req: Omit<OrderRequest, 'playerId'>) => Order | null;
-  cancel: (orderId: string) => void;
+  setMore: (open: boolean) => void;
+  setInbox: (open: boolean) => void;
+  setChat: (open: boolean) => void;
+  toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: string) => void;
-  persist: () => void;
+  closeRankUp: () => void;
+  closeDigest: () => void;
+  presetTicket: (p: Omit<NonNullable<GameStore['ticketPreset']>, 'nonce'>) => void;
+  openProfile: (id: string | null) => void;
+  openDm: (channel: string) => void;
 }
 
-/** App-side series id for the player's net worth (the engine keeps no equity history). */
-export const NW_ID = 'NW';
+let client: WorldClient | null = null;
+let toastSeq = 0;
 
-export type Tab = 'market' | 'portfolio';
-
-function snapshot(w: WorldState): Record<string, number> {
-  const p = prices(w);
-  for (const idx of w.config.indices) p[idx.id] = indexLevel(w, idx.id);
-  if (w.accounts[PLAYER]) p[NW_ID] = portfolio(w, PLAYER).equity;
-  return p;
+function freshHistory(): History {
+  return createHistory([...INDEX_IDS, ...ASSET_IDS], CONFIG.ticksPerDay, ASSET_IDS);
 }
 
-/** Engine cumVolume per asset; history turns differences of these into volume bars. */
-function cumVolumes(w: WorldState): Record<string, number> {
-  const out: Record<string, number> = {};
-  w.config.assets.forEach((d, i) => { out[d.id] = w.assets[i]!.cumVolume ?? 0; });
-  return out;
+function readPrefs(): Partial<Pick<GameStore, 'indicators' | 'range' | 'chartMode' | 'selected'>> {
+  try { return JSON.parse(window.localStorage.getItem('tycoon.prefs') ?? '{}'); } catch { return {}; }
 }
 
-function assetIds(w: WorldState): string[] {
-  return w.config.assets.map((a) => a.id);
+function writePrefs(s: GameStore): void {
+  try { window.localStorage.setItem('tycoon.prefs', JSON.stringify({ indicators: s.indicators, range: s.range, chartMode: s.chartMode, selected: s.selected })); } catch { /* ignore */ }
 }
 
-function seriesIds(w: WorldState): string[] {
-  return [...w.config.indices.map((i) => i.id), ...w.config.assets.map((a) => a.id), NW_ID];
-}
-
-function randomSeed(): string {
-  const a = new Uint32Array(2);
-  crypto.getRandomValues(a);
-  return `${a[0]!.toString(36)}${a[1]!.toString(36)}`;
-}
-
-/** Quant's reject reasons, in plain words for the toast. */
-const REASONS: Record<string, string> = {
-  'insufficient cash': 'not enough cash',
-  'insufficient position': 'you don\'t hold that many',
-  'whole units only': 'whole shares only',
-  'qty must be > 0': 'enter a quantity',
-  'limit price required': 'set a limit price',
-  'stop price required': 'set a stop price',
-};
-
-export function closedText(o: Order): string {
-  const what = `${o.side === 'buy' ? 'Buy' : 'Sell'} ${qty(o.qty)} ${o.assetId}`;
-  if (o.status === 'expired') return `${what} expired at the close`;
-  const why = o.rejectReason ? REASONS[o.rejectReason] ?? o.rejectReason : 'the market refused it';
-  if (o.filledQty > 0) return `${qty(o.filledQty)} of ${qty(o.qty)} ${o.assetId} filled; the rest was cancelled: ${why}`;
-  return `${what} rejected: ${why}`;
-}
-
-const yieldToBrowser = () => new Promise<void>((r) => setTimeout(r, 0));
-
-let ticksSinceSave = 0;
-
-export const useGame = create<GameStore>((set, get) => ({
-  status: 'idle',
-  loadProgress: 0,
-  world: null,
-  history: null,
-  historyRev: 0,
-  speed: 1,
-  paused: false,
-  selected: 'HLCN',
-  range: '1D',
-  chartMode: 'candles',
-  wire: [],
-  toasts: [],
-  tradeSheetOpen: false,
-  tab: 'market',
-
-  async boot(opts) {
-    if (get().status !== 'idle') return;
-    set({ status: 'loading', loadProgress: 0 });
-    if (!opts?.fresh && !opts?.seed) {
-      const saved = await loadGame();
-      if (saved && saved.world.accounts[PLAYER]) {
-        set({ world: saved.world, history: ensureVolume(ensureSeries(saved.history, [NW_ID]), assetIds(saved.world)), wire: saved.wire ?? [], status: 'ready', loadProgress: 1, historyRev: 1 });
-        return;
-      }
+export const useGame = create<GameStore>((set, get) => {
+  /** Record a frame's prices into local history and rebuild the mirror. */
+  const applyFrame = (frame: MarketFrame, me: PlayerView | null) => {
+    const prev = get().world;
+    const world = mirrorWorld(CONFIG, frame, { id: get().playerId ?? 'me', account: me?.account ?? null, orders: me?.orders ?? [] }, prev ?? undefined);
+    const h = get().history;
+    if (frame.tick > h.lastTick) {
+      const p: Record<string, number> = {};
+      const cum: Record<string, number> = {};
+      CONFIG.assets.forEach((d, i) => { p[d.id] = Math.exp(frame.assets[i]![0]); cum[d.id] = frame.assets[i]![6]; });
+      for (const id of INDEX_IDS) p[id] = indexLevel(world, id);
+      record(h, frame.tick, p, cum);
     }
-    await get().newGame(opts?.seed);
-  },
+    return world;
+  };
 
-  async newGame(seed) {
-    set({ status: 'loading', loadProgress: 0, toasts: [], wire: [], tradeSheetOpen: false });
-    let w = createWorld(seed ?? randomSeed(), defaultConfig());
-    const h = createHistory(seriesIds(w), w.config.ticksPerDay, assetIds(w));
-    record(h, w.tick, snapshot(w), cumVolumes(w));
-    const total = WARMUP_DAYS * w.config.ticksPerDay;
-    let wire: WireItem[] = [];
-    for (let done = 0; done < total; ) {
-      const n = Math.min(CHUNK, total - done);
-      for (let k = 0; k < n; k++) {
-        const r = step(w);
-        w = r.state;
-        record(h, w.tick, snapshot(w), cumVolumes(w));
-        if (r.events.length) wire = [...wireFromEvents(w, r.events, []).reverse(), ...wire].slice(0, WIRE_KEEP);
-      }
-      done += n;
-      set({ loadProgress: done / total });
-      await yieldToBrowser();
-    }
-    w = openAccount(w, PLAYER);
-    record(h, w.tick, { [NW_ID]: portfolio(w, PLAYER).equity }); // net worth history starts at the opening bell
-    await clearSave();
-    set({ world: w, history: h, historyRev: get().historyRev + 1, wire, status: 'ready', loadProgress: 1, paused: false });
-    get().persist();
-  },
-
-  tick(n = 1) {
-    const { world, history } = get();
-    if (!world || !history) return;
-    let w = world;
-    let wire = get().wire;
-    const toasts: Toast[] = [];
-    let playerChanged = false;
-    let playerFilled = false;
-    for (let k = 0; k < n; k++) {
-      const r = step(w);
-      w = r.state;
-      record(history, w.tick, snapshot(w), cumVolumes(w));
-      if (r.events.length || r.fills.length) {
-        wire = [...wireFromEvents(w, r.events, r.fills).reverse(), ...wire].slice(0, WIRE_KEEP);
-      }
-      for (const f of r.fills) {
-        if (f.playerId !== PLAYER) continue;
-        playerChanged = true;
-        playerFilled = true;
-        toasts.push({
-          id: `${f.orderId}-${f.tick}`,
-          tone: f.side === 'buy' ? 'gain' : 'loss',
-          text: `${f.side === 'buy' ? 'Bought' : 'Sold'} ${qty(f.qty)} ${f.assetId} at ${price(f.price)} \u00b7 fee ${money(f.fee)}`,
+  const onMsg = (msg: ServerMsg) => {
+    switch (msg.t) {
+      case 'welcome': {
+        const h = freshHistory();
+        set({ history: h, loaded: {}, playerId: msg.playerId });
+        const world = applyFrame(msg.frame, msg.me);
+        set({
+          status: 'ready', playerId: msg.playerId, tickMs: msg.tickMs, lastTickAt: Date.now(), frame: msg.frame, world, me: msg.me,
+          pub: msg.pub, directory: msg.directory, chat: msg.chat, wire: msg.pub.wire, historyRev: get().historyRev + 1,
+          digestOpen: !!msg.me.digest && msg.me.digest.items.length > 0,
         });
+        void get().ensureHistory(get().selected);
+        for (const id of ['GX', ...msg.me.player.watchlist]) void get().ensureHistory(id);
+        break;
       }
-      // orders the engine closed this tick without filling all of it (cash ran out, day order expired)
-      for (const o of w.orders) {
-        if (o.playerId !== PLAYER || o.closedTick !== w.tick || o.status === 'filled') continue;
-        if (o.status === 'cancelled' && !o.rejectReason) continue; // the player's own cancel
-        playerChanged = true;
-        toasts.push({ id: `${o.id}-closed`, tone: 'loss', text: closedText(o) });
+      case 'tick': {
+        const world = applyFrame(msg.frame, msg.me);
+        const mine = msg.rankUps.find((r) => r.playerId === get().playerId);
+        const toasts = msg.inbox.filter((n) => TOAST_KINDS.has(n.kind)).map((n) => ({ id: `t${++toastSeq}`, tone: n.tone, text: n.text }));
+        const chat = { ...get().chat };
+        let unread = get().chatUnread;
+        for (const m of msg.chat) {
+          const arr = (chat[m.channel] = [...(chat[m.channel] ?? []), m].slice(-120));
+          void arr;
+          if (m.playerId !== get().playerId) unread++;
+        }
+        set({
+          frame: msg.frame, world, me: msg.me, lastTickAt: Date.now(), historyRev: get().historyRev + 1,
+          wire: msg.wire.length ? [...[...msg.wire].reverse(), ...get().wire].slice(0, WIRE_KEEP) : get().wire,
+          ...(msg.pub ? { pub: msg.pub } : {}), ...(msg.directory ? { directory: msg.directory } : {}),
+          ...(toasts.length ? { toasts: [...get().toasts, ...toasts].slice(-5) } : {}),
+          ...(msg.chat.length ? { chat, chatUnread: get().chatOpen ? 0 : unread } : {}),
+          ...(mine ? { rankUp: mine.rankId } : {}),
+          ...(msg.inbox.some((n) => n.kind === 'fill') ? { tradeSheetOpen: false } : {}),
+        });
+        const nw = get().nw;
+        if (nw && msg.frame.tick % nw.every === 0) {
+          nw.samples.push(msg.me.netWorth.total);
+          if (nw.samples.length > 600) nw.samples.shift();
+          nw.lastTick = msg.frame.tick;
+        }
+        break;
       }
+      case 'chat': {
+        const chat = { ...get().chat };
+        let unread = get().chatUnread;
+        for (const m of msg.chat) {
+          chat[m.channel] = [...(chat[m.channel] ?? []), m].slice(-120);
+          if (m.playerId !== get().playerId) unread++;
+        }
+        set({ chat, chatUnread: get().chatOpen ? 0 : unread });
+        break;
+      }
+      case 'ack':
+        if (msg.me) set({ me: msg.me, world: get().frame ? mirrorWorld(CONFIG, get().frame!, { id: get().playerId ?? 'me', account: msg.me.account, orders: msg.me.orders }, get().world ?? undefined) : get().world });
+        break;
+      default:
+        break;
     }
-    // a fill closes the phone trade sheet so the new position and the docked toast are in view
-    set({ world: w, wire, historyRev: get().historyRev + 1, tradeSheetOpen: playerFilled ? false : get().tradeSheetOpen, toasts: toasts.length ? [...get().toasts, ...toasts].slice(-4) : get().toasts });
-    ticksSinceSave += n;
-    // a fill or a closed order is saved right away, so a reload never loses a trade
-    if (playerChanged || ticksSinceSave >= AUTOSAVE_EVERY) get().persist();
-  },
+  };
 
-  setSpeed(speed) { set({ speed, paused: false }); },
-  togglePause() { set({ paused: !get().paused }); },
-  select(selected) { set({ selected }); },
-  setRange(range) { set({ range }); },
-  setChartMode(chartMode) { set({ chartMode }); },
-  setTradeSheet(tradeSheetOpen) { set({ tradeSheetOpen }); },
-  setTab(tab) { set({ tab, tradeSheetOpen: false }); },
+  const connect = (token: string) => {
+    client?.close();
+    set({ status: 'connecting' });
+    client = new WorldClient(token, onMsg, (s) => {
+      if (s === 'closed') set({ status: get().status === 'ready' ? 'offline' : get().status });
+      if (s === 'auth-failed') { setToken(null); set({ status: 'welcome', authError: null }); }
+    });
+    client.connect();
+  };
 
-  submitOrder(req) {
-    const w = get().world;
-    if (!w) return null;
-    // app-side license gate (04 §3.1): the engine does not know about licenses
-    const lic = licenseCheck(w, PLAYER, req.assetId);
-    if (!lic.ok) {
-      set({ toasts: [...get().toasts, { id: `lic-${w.tick}`, tone: 'loss' as const, text: `${lockedText(lic, compactMoney)}.` }].slice(-4) });
-      return null;
-    }
-    // app-side Simple-mode rule: the engine does not know about the first-trade cap
-    if (req.side === 'buy') {
-      const p = previewTicket(w, PLAYER, req);
-      if (p.total > firstTradeCap(w, PLAYER) + 1e-9) {
-        set({ toasts: [...get().toasts, { id: `cap-${w.tick}`, tone: 'loss' as const, text: 'First trade is capped at 20% of cash.' }].slice(-4) });
+  return {
+    status: 'boot',
+    authError: null,
+    playerId: null,
+    tickMs: 5000,
+    lastTickAt: 0,
+    frame: null,
+    world: null,
+    config: CONFIG,
+    me: null,
+    pub: null,
+    directory: [],
+    chat: {},
+    chatUnread: 0,
+    wire: [],
+    history: freshHistory(),
+    historyRev: 0,
+    loaded: {},
+    nw: null,
+    toasts: [],
+    screen: 'market',
+    selected: 'HLCN',
+    range: '1D',
+    chartMode: 'candles',
+    indicators: {},
+    tradeSheetOpen: false,
+    moreOpen: false,
+    inboxOpen: false,
+    chatOpen: false,
+    rankUp: null,
+    digestOpen: false,
+    ticketPreset: null,
+    profileId: null,
+    dmTarget: null,
+
+    boot() {
+      if (get().status !== 'boot') return;
+      const prefs = readPrefs();
+      set({ ...prefs });
+      const token = getToken();
+      if (token) connect(token);
+      else set({ status: 'welcome' });
+    },
+
+    async register(handle, country) {
+      try {
+        const r = await api.register(handle, country);
+        if (!r.ok || !r.token) return r.error ?? 'Could not create the account';
+        setToken(r.token);
+        connect(r.token);
         return null;
+      } catch {
+        return 'The world server is not reachable. Is it running (npm run world)?';
       }
-    }
-    const { state, order } = placeOrder(w, { ...req, playerId: PLAYER });
-    set({ world: state });
-    if (order.status === 'rejected') {
-      set({ toasts: [...get().toasts, { id: `${order.id}-rej`, tone: 'loss' as const, text: closedText(order) }].slice(-4) });
-    }
-    get().persist();
-    return order;
-  },
+    },
 
-  cancel(orderId) {
-    const w = get().world;
-    if (!w) return;
-    set({ world: cancelOrder(w, PLAYER, orderId) });
-    get().persist();
-  },
+    async login(handle, password) {
+      try {
+        const r = await api.login(handle, password);
+        if (!r.ok || !r.token) return r.error ?? 'Could not sign in';
+        setToken(r.token);
+        connect(r.token);
+        return null;
+      } catch {
+        return 'The world server is not reachable.';
+      }
+    },
 
-  dismissToast(id) { set({ toasts: get().toasts.filter((t) => t.id !== id) }); },
+    logout() {
+      client?.close();
+      client = null;
+      setToken(null);
+      set({ status: 'welcome', me: null, playerId: null, frame: null, world: null });
+    },
 
-  persist() {
-    const { world, history, wire } = get();
-    if (!world || !history) return;
-    ticksSinceSave = 0;
-    void saveGame({ saveVersion: 1, savedAt: Date.now(), world, history: structuredClone(history), wire });
-  },
-}));
+    async act(cmd, opts) {
+      if (!client) return { ok: false, error: 'offline' };
+      const r = await client.command(cmd);
+      if (!r.ok && !opts?.silent) get().toast({ tone: 'loss', text: capitalize(r.error ?? 'That did not work') });
+      if (r.ok && opts?.success) get().toast({ tone: 'gain', text: opts.success });
+      return r;
+    },
 
-export { tickMs };
+    async ensureHistory(series) {
+      if (!client || get().loaded[series]) return;
+      set({ loaded: { ...get().loaded, [series]: true } });
+      const p = await client.history(series);
+      if (!p || !(p as HistoryPayload).daily) { const l = { ...get().loaded }; delete l[series]; set({ loaded: l }); return; }
+      loadSeries(get().history, series, p as HistoryPayload);
+      set({ historyRev: get().historyRev + 1 });
+    },
+
+    async loadNw() {
+      if (!client) return;
+      const p = (await client.nwHistory()) as NwHistoryPayload;
+      if (p && Array.isArray(p.samples)) set({ nw: { ...p, samples: p.samples.slice() } });
+    },
+
+    select(selected) {
+      set({ selected });
+      void get().ensureHistory(selected);
+      writePrefs(get());
+    },
+    setScreen(screen) { set({ screen, tradeSheetOpen: false, moreOpen: false }); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); },
+    setRange(range) { set({ range }); writePrefs(get()); },
+    setChartMode(chartMode) { set({ chartMode }); writePrefs(get()); },
+    toggleIndicator(id) { set({ indicators: { ...get().indicators, [id]: !get().indicators[id] } }); writePrefs(get()); },
+    setTradeSheet(tradeSheetOpen) { set({ tradeSheetOpen }); },
+    setMore(moreOpen) { set({ moreOpen }); },
+    setInbox(inboxOpen) {
+      set({ inboxOpen });
+      if (inboxOpen && (get().me?.player.inboxUnread ?? 0) > 0) void get().act({ type: 'inbox.read' }, { silent: true });
+    },
+    setChat(chatOpen) { set({ chatOpen, ...(chatOpen ? { chatUnread: 0 } : {}) }); },
+    toast(t) { set({ toasts: [...get().toasts, { ...t, id: `t${++toastSeq}` }].slice(-5) }); },
+    dismissToast(id) { set({ toasts: get().toasts.filter((t) => t.id !== id) }); },
+    closeRankUp() { set({ rankUp: null }); },
+    closeDigest() {
+      set({ digestOpen: false });
+      void get().act({ type: 'digest.seen' }, { silent: true });
+    },
+    presetTicket(p) { set({ ticketPreset: { ...p, nonce: Date.now() }, screen: 'market', tradeSheetOpen: true }); },
+    openProfile(profileId) { set({ profileId }); },
+    openDm(channel) { set({ dmTarget: channel, profileId: null, chatOpen: true, chatUnread: 0 }); },
+  };
+});
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Convenience selectors. */
+export const PLAYER_FALLBACK = 'me';
+export function assetDefOf(id: string) {
+  return CONFIG.assets.find((a) => a.id === id);
+}
+export function isIndex(id: string) {
+  return INDEX_IDS.includes(id);
+}
+export { CONFIG, ASSET_IDS, INDEX_IDS };

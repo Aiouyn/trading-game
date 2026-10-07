@@ -80,7 +80,7 @@ export function clientConfig(): WorldConfig {
 
 // ---------------------------------------------------------------- the private player view
 
-export interface ContractView { id: string; text: string; done: boolean; claimed: boolean; reward: number; progress: number; target: number }
+export interface ContractView { id: string; defId: string; text: string; done: boolean; claimed: boolean; reward: number; progress: number; target: number }
 
 export interface PlayerView {
   player: Omit<Player, 'inbox'> & { inboxUnread: number };

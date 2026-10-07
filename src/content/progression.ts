@@ -141,7 +141,7 @@ export const CONTRACTS: ContractDef[] = [
   { id: 'upg-2', text: 'Buy 2 business upgrades this hour', stat: 'bizUpgrades', target: 2, reward: 0.015, minRank: 0 },
   { id: 'nw-2', text: 'Grow your net worth 2% this hour', stat: 'netWorthGain', target: 0.02, reward: 0.02, minRank: 0 },
   { id: 'nw-5', text: 'Grow your net worth 5% this hour', stat: 'netWorthGain', target: 0.05, reward: 0.04, minRank: 1 },
-  { id: 'beat', text: 'Beat the GX index this hour', stat: 'beatIndex', target: 0, reward: 0.02, minRank: 0 },
+  { id: 'beat', text: 'Beat the GX index by 0.5% this hour', stat: 'beatIndex', target: 0.005, reward: 0.02, minRank: 0 },
   { id: 'note-1', text: 'Buy an analyst note', stat: 'notesBought', target: 1, reward: 0.01, minRank: 1 },
   { id: 'prop-1', text: 'Buy a property', stat: 'propsBought', target: 1, reward: 0.02, minRank: 1 },
   { id: 'life-1', text: 'Buy something nice', stat: 'lifeBought', target: 1, reward: 0.01, minRank: 0 },

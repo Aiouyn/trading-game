@@ -1,209 +1,156 @@
 'use client';
 
-import { useState } from 'react';
-import { portfolio } from '@/engine';
-import type { Order } from '@/engine';
+import { useEffect, useMemo, useState } from 'react';
+import { portfolio, type AssetClass } from '@/engine';
+import { PROPERTY_TYPE_BY_ID } from '@/content/lifestyle';
+import { compactMoney, money, pct, price, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { clockLabel } from '@/game/clock';
-import { RANGES, type RangeId } from '@/game/history';
-import { money, pct, price, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
-import { allocation, orderLog, type Slice } from '@/game/portfolioView';
-import { NW_ID, PLAYER, useGame } from '@/game/store';
+import { CONFIG, assetDefOf, useGame } from '@/game/store';
+import { NetWorth } from './Header';
 import { Positions } from './Market';
 import { PriceChart } from './PriceChart';
-import { Card, Flash, Segmented } from './ui';
+import { Card, CardHeader, KV, Segmented, Stat, Td, Th } from './ui';
 
-const SLICE_COLOR: Record<Slice['id'], string> = {
-  stock: 'bg-brass',
-  crypto: 'bg-steel',
-  commodity: 'bg-brass-lo',
-  forex: 'bg-info',
-  bond: 'bg-gain',
-  realestate: 'bg-warn',
-  cash: 'bg-ink-3',
+const CLASS_COLOR: Record<string, string> = {
+  cash: 'bg-ink-3', stock: 'bg-brass', crypto: 'bg-steel', commodity: 'bg-brass-lo', forex: 'bg-info', bond: 'bg-gain', options: 'bg-warn',
+  businesses: 'bg-brass-hi', property: 'bg-fg-muted', lifestyle: 'bg-loss', lab: 'bg-info',
+};
+const CLASS_LABEL: Record<string, string> = {
+  cash: 'Cash', stock: 'Stocks', crypto: 'Crypto', commodity: 'Commodities', forex: 'Currencies', bond: 'Bonds', options: 'Options',
+  businesses: 'Businesses', property: 'Property (equity)', lifestyle: 'Lifestyle', lab: 'AI hardware',
 };
 
-function NetWorthCard({ phone }: { phone: boolean }) {
-  const world = useGame((s) => s.world)!;
-  useGame((s) => s.historyRev);
-  const [range, setRange] = useState<RangeId>('1W');
-  const pf = portfolio(world, PLAYER);
-  const ret = pf.startingCash > 0 ? pf.totalPnl / pf.startingCash : 0;
-  const ranges = (phone ? RANGES.filter((r) => r !== '1Q') : RANGES).map((r) => ({ value: r, label: r, testId: `nw-range-${r}` }));
+type NwRange = '1D' | '1W' | 'ALL';
 
-  return (
-    <Card className="flex flex-col p-4" data-testid="networth-card">
-      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-        {/* the header already shows net worth and today's move, so this card leads with the all-time result */}
-        <div className="min-w-0">
-          <h2 className="font-serif text-title text-fg">Net worth history</h2>
-          <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
-            <Flash value={pf.totalPnl} className={`num text-price ${toneText[tone(pf.totalPnl)]}`}>
-              <span data-testid="networth-total">{signedMoney(pf.totalPnl)}</span>
-            </Flash>
-            <span className={`num text-small ${toneText[tone(pf.totalPnl)]}`} data-testid="networth-return">{signedPct(ret)}</span>
-            <span className="text-caption text-fg-faint">since you started with {money(pf.startingCash)}</span>
-          </div>
-          <div className="num mt-1 text-caption text-fg-faint">
-            Now <span className="text-fg-muted" data-testid="networth">{money(pf.equity)}</span>
-            <span className="mx-2">&middot;</span>
-            Peak <span className="text-fg-muted">{money(pf.peakEquity)}</span>
-          </div>
-        </div>
-        <Segmented<RangeId> label="Net worth range" options={ranges} value={range} onChange={setRange} size="sm" />
-      </div>
-      <div className={`mt-3 ${phone ? 'h-[220px]' : 'h-[320px]'}`}>
-        <PriceChart assetId={NW_ID} range={range} mode="line" testId="networth-chart" />
-      </div>
-    </Card>
-  );
-}
-
-function Stat({ label, value, className = '', testId }: { label: string; value: string; className?: string; testId: string }) {
-  return (
-    <div className="flex flex-col gap-1 rounded-md bg-ink-2/60 px-3 py-2">
-      <span className="label">{label}</span>
-      <span className={`num text-body ${className || 'text-fg'}`} data-testid={testId}>{value}</span>
-    </div>
-  );
-}
-
-function StatsCard() {
-  const world = useGame((s) => s.world)!;
-  const pf = portfolio(world, PLAYER);
-  const invested = pf.positions.reduce((a, p) => a + p.marketValue, 0);
-  return (
-    <Card className="p-4" data-testid="portfolio-stats">
-      <h2 className="mb-3 font-serif text-title text-fg">Performance</h2>
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <Stat label="Cash" value={money(pf.cash)} testId="stat-cash" />
-        <Stat label="Invested" value={money(invested)} testId="stat-invested" />
-        <Stat label="Realized" value={signedMoney(pf.realizedPnl)} className={toneText[tone(pf.realizedPnl)]} testId="stat-realized" />
-        <Stat label="Unrealized" value={signedMoney(pf.unrealizedPnl)} className={toneText[tone(pf.unrealizedPnl)]} testId="stat-unrealized" />
-        <Stat label="Fees paid" value={money(pf.feesPaid)} testId="stat-fees" />
-        <Stat label="Peak" value={money(pf.peakEquity)} testId="stat-peak" />
-        <Stat label="Drawdown" value={pct(Math.abs(pf.drawdown))} className={pf.drawdown < 0 ? 'text-loss' : ''} testId="stat-drawdown" />
-        <Stat label="Max drawdown" value={pct(Math.abs(pf.maxDrawdown))} className={pf.maxDrawdown < 0 ? 'text-loss' : ''} testId="stat-maxdd" />
-      </div>
-    </Card>
-  );
-}
-
-function AllocationCard() {
-  const world = useGame((s) => s.world)!;
-  const slices = allocation(world, PLAYER);
-  return (
-    <Card className="p-4" data-testid="allocation">
-      <h2 className="mb-3 font-serif text-title text-fg">Allocation</h2>
-      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-ink-2" role="img" aria-label={slices.map((s) => `${s.label} ${pct(s.weight)}`).join(', ')}>
-        {slices.map((s) => (
-          <div key={s.id} className={SLICE_COLOR[s.id]} style={{ width: `${Math.max(0, s.weight) * 100}%` }} />
-        ))}
-      </div>
-      <ul className="mt-3 flex flex-col gap-2">
-        {slices.map((s) => (
-          <li key={s.id} className="flex items-center gap-2 text-small" data-testid={`alloc-${s.id}`}>
-            <span className={`size-2.5 rounded-sm ${SLICE_COLOR[s.id]}`} aria-hidden />
-            <span className="flex-1 text-fg-muted">{s.label}</span>
-            <span className="num text-fg">{money(s.value)}</span>
-            <span className="num w-14 text-right text-fg-faint">{pct(s.weight)}</span>
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
-const STATUS_TONE: Record<Order['status'], string> = {
-  filled: 'text-fg-muted',
-  open: 'text-brass-hi',
-  cancelled: 'text-fg-faint',
-  expired: 'text-fg-faint',
-  rejected: 'text-loss',
-};
-
-function OrderHistoryCard({ phone }: { phone: boolean }) {
-  const world = useGame((s) => s.world)!;
-  const tpd = world.config.ticksPerDay;
-  const orders = orderLog(world, PLAYER);
-  const when = (o: Order) => clockLabel(o.closedTick ?? o.placedTick, tpd);
-  const sideText = (o: Order) => (o.side === 'buy' ? 'Buy' : 'Sell');
-  const fillText = (o: Order) => (o.filledQty > 0 ? `${qty(o.filledQty)} @ ${price(o.avgFillPrice)}` : `${qty(o.qty)} ${o.type}`);
-
-  return (
-    <Card data-testid="order-history">
-      <div className="flex items-baseline justify-between px-4 pt-4 pb-2">
-        <h2 className="font-serif text-title text-fg">Order history</h2>
-        <span className="num text-caption text-fg-faint">{orders.length === 50 ? 'Latest 50' : `${orders.length} ${orders.length === 1 ? 'order' : 'orders'}`}</span>
-      </div>
-      {orders.length === 0 && <p className="px-4 pb-4 text-small text-fg-muted" data-testid="order-history-empty">No orders yet. Your trades will show up here.</p>}
-      {orders.length > 0 && phone && (
-        <ul>
-          {orders.map((o) => (
-            <li key={o.id} className="flex items-center gap-3 border-t border-ink-2 px-4 py-2" data-testid={`order-row-${o.id}`}>
-              <div className="min-w-0 flex-1">
-                <div className="num text-small text-fg"><span className={o.side === 'buy' ? 'text-gain' : 'text-loss'}>{sideText(o)}</span> {o.assetId}</div>
-                <div className="num truncate text-caption text-fg-faint">{when(o)}</div>
-              </div>
-              <div className="text-right">
-                <div className="num text-small text-fg">{fillText(o)}</div>
-                <div className={`text-caption capitalize ${STATUS_TONE[o.status]}`}>{o.status}</div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-      {orders.length > 0 && !phone && (
-        <div className="overflow-x-auto px-2 pb-2">
-          <table className="w-full text-small">
-            <thead>
-              <tr className="text-left">
-                {['Time', 'Side', 'Asset', 'Type', 'Filled', 'Fees', 'Status'].map((h) => (
-                  <th key={h} className={`label px-2 py-2 font-medium ${h === 'Filled' || h === 'Fees' ? 'text-right' : ''}`}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((o) => (
-                <tr key={o.id} className="border-t border-ink-2" data-testid={`order-row-${o.id}`}>
-                  <td className="num px-2 py-2 text-fg-faint">{when(o)}</td>
-                  <td className={`px-2 py-2 ${o.side === 'buy' ? 'text-gain' : 'text-loss'}`}>{sideText(o)}</td>
-                  <td className="num px-2 py-2 font-semibold text-fg">{o.assetId}</td>
-                  <td className="px-2 py-2 capitalize text-fg-muted">{o.type}</td>
-                  <td className="num px-2 py-2 text-right text-fg">{fillText(o)}</td>
-                  <td className="num px-2 py-2 text-right text-fg-muted">{money(o.feesPaid)}</td>
-                  <td className={`px-2 py-2 capitalize ${STATUS_TONE[o.status]}`} title={o.rejectReason}>{o.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-/** Portfolio tab: net worth history, performance, allocation, positions and order history. */
 export function PortfolioView({ phone = false }: { phone?: boolean }) {
-  if (phone) {
-    return (
-      <div className="flex flex-col gap-4" data-testid="portfolio-view">
-        <NetWorthCard phone />
-        <StatsCard />
-        <AllocationCard />
-        <Positions phone />
-        <OrderHistoryCard phone />
-      </div>
-    );
+  const me = useGame((s) => s.me)!;
+  const world = useGame((s) => s.world)!;
+  const playerId = useGame((s) => s.playerId)!;
+  const nw = useGame((s) => s.nw);
+  const loadNw = useGame((s) => s.loadNw);
+  useGame((s) => s.historyRev);
+  const [range, setRange] = useState<NwRange>('1W');
+  useEffect(() => { void loadNw(); }, [loadNw]);
+
+  const pf = portfolio(world, playerId);
+  const b = me.netWorth;
+  const series = useMemo(() => {
+    if (!nw) return [];
+    if (range === 'ALL') return nw.daily.map((d) => ({ time: d.day * 720 + 1, value: d.value }));
+    const n = range === '1D' ? 60 : nw.samples.length;
+    const s = nw.samples.slice(-n);
+    return s.map((v, k) => ({ time: nw.lastTick - (s.length - 1 - k) * nw.every, value: v }));
+  }, [nw, range, nw?.samples.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // allocation by bucket
+  const byClass = new Map<string, number>();
+  for (const p of pf.positions) {
+    const c = assetDefOf(p.assetId)?.assetClass as AssetClass;
+    byClass.set(c, (byClass.get(c) ?? 0) + p.marketValue);
   }
+  const optVal = pf.equity - pf.cash - pf.positions.reduce((s, p) => s + p.marketValue, 0);
+  const slices = [
+    ['cash', Math.max(0, b.cash)], ...[...byClass.entries()], ['options', optVal],
+    ['businesses', b.businesses], ['property', Math.max(0, b.property - b.mortgages)], ['lifestyle', b.lifestyle], ['lab', b.lab],
+  ].filter(([, v]) => (v as number) > 0.5) as [string, number][];
+  const total = slices.reduce((s, [, v]) => s + v, 0) || 1;
+
+  const incomeDay = me.businesses.reduce((s, x) => s + x.incomePerDay, 0);
+  const rentDay = me.properties.filter((p) => p.id !== me.player.homePropId).reduce((s, p) => s + (p.value * (PROPERTY_TYPE_BY_ID.get(p.typeId)?.rentYield ?? 0)) / 252, 0);
+  const mortgageDay = me.properties.reduce((s, p) => s + (p.mortgage * p.mortgageRate) / 252, 0);
+  const closed = me.orders.filter((o) => o.status !== 'open').slice(-50).reverse();
+
   return (
     <div className="flex flex-col gap-4" data-testid="portfolio-view">
-      <NetWorthCard phone={false} />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <StatsCard />
-        <AllocationCard />
+      <Card className="p-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="label">Net worth</div>
+            <NetWorth value={b.total} />
+            <div className={`num mt-1 text-small ${toneText[tone(b.total - 5000)]}`} data-testid="networth-total">{signedMoney(b.total - 5000)} ({signedPct(b.total / 5000 - 1)}) since you arrived with $5,000</div>
+          </div>
+          <Segmented label="Net worth range" size="sm" value={range} onChange={(v) => setRange(v as NwRange)}
+            options={[{ value: '1D', label: '1D', testId: 'nw-range-1D' }, { value: '1W', label: '1W', testId: 'nw-range-1W' }, { value: 'ALL', label: 'All', testId: 'nw-range-ALL' }]} />
+        </div>
+        <div className={phone ? 'mt-3 h-48' : 'mt-3 h-64'}>
+          {series.length > 1 ? <PriceChart assetId="NW" series={series} mode="area" testId="networth-chart" studies={false} /> : <div className="flex h-full items-center justify-center text-small text-fg-faint" data-testid="networth-chart">Your net worth history builds as the market ticks.</div>}
+        </div>
+      </Card>
+
+      <div className={`grid gap-4 ${phone ? '' : 'lg:grid-cols-2'}`}>
+        <Card className="p-4">
+          <h3 className="font-serif text-title">Balance sheet</h3>
+          <div className="mt-2">
+            <KV k="Cash" v={money(b.cash)} />
+            <KV k="Markets (positions + options)" v={money(b.markets)} />
+            <KV k="Businesses" v={money(b.businesses)} />
+            <KV k="Property" v={money(b.property)} />
+            <KV k="Mortgages" v={<span className="text-loss">{money(-b.mortgages)}</span>} />
+            <KV k="Lifestyle (resale)" v={money(b.lifestyle)} />
+            <KV k="AI hardware" v={money(b.lab)} />
+            <KV k={<span className="font-semibold text-fg">Net worth</span>} v={<span className="font-semibold">{money(b.total)}</span>} className="border-t border-ink-2 pt-2" />
+          </div>
+          <div className="mt-4 flex h-2 overflow-hidden rounded-chip" aria-label="Allocation">
+            {slices.map(([k, v]) => <span key={k} className={CLASS_COLOR[k] ?? 'bg-ink-3'} style={{ width: `${(v / total) * 100}%` }} title={`${CLASS_LABEL[k]} ${pct(v / total)}`} />)}
+          </div>
+          <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-caption">
+            {slices.map(([k, v]) => (
+              <li key={k} className="flex items-center gap-2" data-testid={`alloc-${k}`}>
+                <span className={`h-2 w-2 rounded-full ${CLASS_COLOR[k]}`} aria-hidden />
+                <span className="text-fg-muted">{CLASS_LABEL[k]}</span>
+                <span className="num ml-auto text-fg">{pct(v / total)}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+        <Card className="p-4">
+          <h3 className="font-serif text-title">Income per game day</h3>
+          <div className="mt-2">
+            <KV k="Businesses" v={<span className="text-gain">{signedMoney(incomeDay)}</span>} />
+            <KV k="Rent" v={<span className="text-gain">{signedMoney(rentDay)}</span>} />
+            <KV k="Mortgage interest" v={<span className="text-loss">{signedMoney(-mortgageDay)}</span>} />
+            <KV k={<span className="font-semibold text-fg">Passive income</span>} v={<span className="font-semibold">{signedMoney(incomeDay + rentDay - mortgageDay)}</span>} className="border-t border-ink-2 pt-2" />
+          </div>
+          <h3 className="mt-5 font-serif text-title">Trading</h3>
+          <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
+            <Stat label="Realized" value={<span className={toneText[tone(pf.realizedPnl)]}>{signedMoney(pf.realizedPnl)}</span>} testId="stat-realized" />
+            <Stat label="Unrealized" value={<span className={toneText[tone(pf.unrealizedPnl)]}>{signedMoney(pf.unrealizedPnl)}</span>} testId="stat-unrealized" />
+            <Stat label="Fees paid" value={money(pf.feesPaid)} testId="stat-fees" />
+            <Stat label="Dividends" value={money(me.account?.dividends ?? 0)} />
+            <Stat label="Interest" value={signedMoney((me.account?.interestEarned ?? 0) - (me.account?.interestPaid ?? 0))} />
+            <Stat label="Max drawdown" value={<span className={pf.maxDrawdown < 0 ? 'text-loss' : 'text-fg-muted'}>{signedPct(pf.maxDrawdown)}</span>} testId="stat-maxdd" />
+            <Stat label="Win rate" value={me.player.stats.trades ? pct(me.player.stats.winningTrades / Math.max(1, me.player.stats.trades)) : '—'} />
+            <Stat label="Best trade" value={signedMoney(me.player.stats.bestTrade)} />
+            <Stat label="Worst trade" value={<span className="text-loss">{signedMoney(me.player.stats.worstTrade)}</span>} />
+          </div>
+        </Card>
       </div>
-      <Positions />
-      <OrderHistoryCard phone={false} />
+
+      <Positions phone={phone} />
+
+      <Card data-testid="order-history">
+        <CardHeader title="Order history" sub={`Last ${closed.length} closed orders`} />
+        {closed.length === 0 ? <p className="px-4 pb-6 text-small text-fg-faint">Nothing yet.</p> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-small">
+              <thead><tr><Th>Time</Th><Th>Order</Th><Th right>Filled</Th><Th right>Avg price</Th><Th right>Fees</Th><Th>Status</Th></tr></thead>
+              <tbody>
+                {closed.map((o) => (
+                  <tr key={o.id} className="border-t border-ink-2" data-testid={`order-row-${o.id}`}>
+                    <Td num className="text-fg-faint">{clockLabel(o.closedTick ?? o.placedTick, 720)}</Td>
+                    <Td><span className={o.side === 'buy' ? 'text-gain' : 'text-loss'}>{o.side === 'buy' ? 'Buy' : 'Sell'}</span> {qty(o.qty)} {o.assetId} <span className="text-fg-faint">{o.type}{o.forced ? ' · liquidation' : ''}</span></Td>
+                    <Td right num>{qty(o.filledQty)}</Td>
+                    <Td right num>{o.filledQty ? price(o.avgFillPrice) : '—'}</Td>
+                    <Td right num>{money(o.feesPaid)}</Td>
+                    <Td className="text-fg-muted">{o.status}{o.rejectReason ? ` · ${o.rejectReason}` : ''}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      <p className="text-center text-caption text-fg-faint">Universe: {CONFIG.assets.filter((a) => a.listed !== false).length} tradable assets · {compactMoney(b.total)} net worth</p>
     </div>
   );
 }

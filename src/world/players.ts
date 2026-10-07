@@ -5,6 +5,7 @@ import {
   ONBOARDING_GRANT, TPD, clamp, credit, gx, keyedRng, notify, playerBusinesses, playerProperties, priceOf, pushWire, sanitize, today,
 } from './core';
 import { playerBizSectors, refreshNetWorth } from './assets';
+import { computeBoards } from './boards';
 import type { CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -58,6 +59,7 @@ export function join(g: GameState, id: string, handleIn: string, countryIn: stri
   pickRival(g, p);
   notify(g, out, id, { kind: 'system', tone: 'brass', text: `Welcome to Port Avalon, ${handle}. Your broker added a $${ONBOARDING_GRANT} sign-up bonus. Rent is due Friday.` });
   pushWire(g, out, { kind: 'milestone', tag: 'New', tone: 'info', playerId: id, text: `${handle} opens an account in Port Avalon` });
+  computeBoards(g);
   return ok({ id });
 }
 
@@ -149,7 +151,7 @@ export function contractProgress(g: GameState, p: Player, defId: string): { valu
   if (c.stat === 'beatIndex') {
     const mine = p.dayStart.netWorth > 0 ? p.netWorth / p.dayStart.netWorth - 1 : 0;
     const idx = p.dayStart.gx > 0 ? gx(g) / p.dayStart.gx - 1 : 0;
-    return { value: mine - idx, target: 1e-9 };
+    return { value: mine - idx, target: c.target };
   }
   const k = c.stat as keyof PlayerStats;
   return { value: p.stats[k] - p.dayStart.stats[k], target: c.target };

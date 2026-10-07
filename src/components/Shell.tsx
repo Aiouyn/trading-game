@@ -2,138 +2,157 @@
 
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
-import { useGame, type Tab } from '@/game/store';
-import type { WireItem } from '@/game/wire';
+import { useGame, type Screen } from '@/game/store';
+import { clockLabel } from '@/game/clock';
+import { rankIndex } from '@/content/lifestyle';
+import type { WireItem } from '@/world/types';
+import { Icon, type IconName } from './icons';
 import { OrderPad } from './OrderPad';
+import { ChatPanel } from './Social';
 
-const TONE: Record<WireItem['tone'], string> = {
+export const TONE_TEXT: Record<WireItem['tone'], string> = {
   gain: 'text-gain', loss: 'text-loss', warn: 'text-warn', info: 'text-info', brass: 'text-brass',
 };
+const TONE_BAR: Record<WireItem['tone'], string> = {
+  gain: 'bg-gain', loss: 'bg-loss', warn: 'bg-warn', info: 'bg-info', brass: 'bg-brass',
+};
 
-type IconName = 'market' | 'portfolio' | 'estate' | 'wire' | 'more';
+export interface NavItem { id: Screen; label: string; icon: IconName; rank?: string }
 
-function Icon({ name }: { name: IconName }) {
-  const common = { width: 22, height: 22, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true };
-  switch (name) {
-    case 'market':
-      return <svg {...common}><path d="M4 19V5" /><path d="M4 19h16" /><path d="M8 15l3-4 3 2 5-6" /></svg>;
-    case 'portfolio':
-      return <svg {...common}><rect x="3.5" y="7" width="17" height="12" rx="2" /><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7" /><path d="M3.5 12h17" /></svg>;
-    case 'estate':
-      return <svg {...common}><path d="M4 11l8-6 8 6" /><path d="M6 10v9h12v-9" /><path d="M10 19v-5h4v5" /></svg>;
-    case 'wire':
-      return <svg {...common}><path d="M5 5h11a3 3 0 0 1 3 3v11H8a3 3 0 0 1-3-3Z" /><path d="M9 9h6M9 12.5h6M9 16h3" /></svg>;
-    case 'more':
-      return <svg {...common}><circle cx="6" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="18" cy="12" r="1.2" /></svg>;
-  }
-}
-
-const NAV: { id: IconName; label: string; href?: string }[] = [
-  { id: 'market', label: 'Market' },
-  { id: 'portfolio', label: 'Portfolio' },
-  { id: 'estate', label: 'Estate' },
-  { id: 'wire', label: 'Wire' },
-  { id: 'more', label: 'More', href: '/credits' },
+export const NAV: NavItem[] = [
+  { id: 'market', label: 'Market', icon: 'market' },
+  { id: 'portfolio', label: 'Portfolio', icon: 'portfolio' },
+  { id: 'empire', label: 'Empire', icon: 'empire' },
+  { id: 'estate', label: 'Estate', icon: 'estate' },
+  { id: 'lab', label: 'AI Lab', icon: 'lab', rank: 'R2' },
+  { id: 'security', label: 'Security', icon: 'security', rank: 'R3' },
+  { id: 'court', label: 'Court', icon: 'court' },
+  { id: 'social', label: 'Social', icon: 'social' },
+  { id: 'wire', label: 'Wire', icon: 'wire' },
+  { id: 'profile', label: 'Profile', icon: 'profile' },
 ];
 
-const TABS: readonly Tab[] = ['market', 'portfolio'];
-const isTab = (id: string): id is Tab => (TABS as readonly string[]).includes(id);
+function useLocked() {
+  const rankId = useGame((s) => s.me?.player.rankId ?? 'R0');
+  return (n: NavItem) => !!n.rank && rankIndex(rankId) < rankIndex(n.rank);
+}
 
-/** Desktop and tablet rail. Market and Portfolio are live in Phase 0; Estate and Wire are placeholders. */
+/** Desktop and tablet rail. */
 export function NavRail() {
-  const newGame = useGame((s) => s.newGame);
-  const tab = useGame((s) => s.tab);
-  const setTab = useGame((s) => s.setTab);
+  const screen = useGame((s) => s.screen);
+  const setScreen = useGame((s) => s.setScreen);
+  const chatUnread = useGame((s) => s.chatUnread);
+  const setChat = useGame((s) => s.setChat);
+  const locked = useLocked();
   return (
-    <nav aria-label="Main" className="flex h-dvh w-[var(--rail-w)] shrink-0 flex-col items-center gap-1 border-r border-ink-2 py-4">
-      <div className="mb-4 font-serif text-title text-brass" aria-hidden>T</div>
+    <nav aria-label="Main" className="flex h-dvh w-[var(--rail-w)] shrink-0 flex-col items-center gap-0.5 overflow-y-auto border-r border-ink-2 py-3">
+      <div className="mb-2 font-serif text-title text-brass" aria-hidden>T</div>
       {NAV.map((n) => {
-        const on = n.id === tab;
-        if (n.href) {
-          return (
-            <Link key={n.id} href={n.href} title="Credits" className="flex w-14 flex-col items-center gap-1 rounded-md py-2 text-micro tracking-normal text-fg-faint hover:bg-ink-2 hover:text-fg" data-testid={`nav-${n.id}`}>
-              <Icon name={n.id} />
-              {n.label}
-            </Link>
-          );
-        }
-        const live = isTab(n.id);
+        const on = n.id === screen;
+        const lock = locked(n);
         return (
           <button
             key={n.id}
             type="button"
-            onClick={live ? () => setTab(n.id as Tab) : undefined}
+            onClick={() => setScreen(n.id)}
             aria-current={on ? 'page' : undefined}
-            aria-disabled={!live}
-            title={live ? n.label : `${n.label} (coming later)`}
-            className={`flex w-14 flex-col items-center gap-1 rounded-md py-2 text-micro tracking-normal ${on ? 'bg-ink-2 text-fg' : live ? 'text-fg-faint hover:bg-ink-2 hover:text-fg' : 'cursor-default text-fg-disabled'}`}
+            title={lock ? `${n.label} unlocks at a higher rank` : n.label}
+            className={`relative flex w-15 flex-col items-center gap-0.5 rounded-md py-1.5 text-[10px] tracking-normal ${on ? 'bg-ink-2 text-fg' : lock ? 'text-fg-disabled hover:bg-ink-2' : 'text-fg-faint hover:bg-ink-2 hover:text-fg'}`}
             data-testid={`nav-${n.id}`}
           >
-            <Icon name={n.id} />
+            <Icon name={n.icon} size={20} />
             {n.label}
+            {lock && <span className="absolute top-1 right-2 h-1.5 w-1.5 rounded-full bg-steel" aria-hidden />}
           </button>
         );
       })}
-      <button
-        type="button"
-        onClick={() => { if (window.confirm('Start a new game? Your current portfolio will be lost.')) void newGame(); }}
-        className="mt-auto w-14 rounded-md py-2 text-micro tracking-normal text-fg-faint hover:text-fg-muted"
-        data-testid="new-game"
-      >
-        New game
+      <button type="button" onClick={() => setChat(true)} className="relative mt-auto flex w-15 flex-col items-center gap-0.5 rounded-md py-1.5 text-[10px] text-fg-faint hover:bg-ink-2 hover:text-fg" data-testid="nav-chat">
+        <Icon name="chat" size={20} />
+        Chat
+        {chatUnread > 0 && <span className="num absolute top-0.5 right-1.5 rounded-chip bg-brass px-1 text-[9px] text-on-brass">{chatUnread > 99 ? '99+' : chatUnread}</span>}
       </button>
     </nav>
   );
 }
 
+const PHONE_TABS: Screen[] = ['market', 'portfolio', 'empire', 'estate'];
+
 export function TabBar() {
-  const tab = useGame((s) => s.tab);
-  const setTab = useGame((s) => s.setTab);
+  const screen = useGame((s) => s.screen);
+  const setScreen = useGame((s) => s.setScreen);
+  const setMore = useGame((s) => s.setMore);
+  const moreOn = !PHONE_TABS.includes(screen);
   return (
     <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 flex h-[var(--tabbar-h)] border-t border-ink-2 bg-ink-0 pb-[env(safe-area-inset-bottom)]">
-      {NAV.map((n) => {
-        const on = n.id === tab;
-        if (n.href) {
-          return (
-            <Link key={n.id} href={n.href} className="flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-micro tracking-normal text-fg-faint" data-testid={`tab-${n.id}`}>
-              <Icon name={n.id} />
-              {n.label}
-            </Link>
-          );
-        }
-        const live = isTab(n.id);
+      {NAV.filter((n) => PHONE_TABS.includes(n.id)).map((n) => {
+        const on = n.id === screen;
         return (
-          <button
-            key={n.id}
-            type="button"
-            onClick={live ? () => { setTab(n.id as Tab); window.scrollTo({ top: 0 }); } : undefined}
-            aria-current={on ? 'page' : undefined}
-            aria-disabled={!live}
-            className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-micro tracking-normal ${on ? 'text-brass-hi' : live ? 'text-fg-faint' : 'text-fg-disabled'}`}
-            data-testid={`tab-${n.id}`}
-          >
-            <Icon name={n.id} />
+          <button key={n.id} type="button" onClick={() => setScreen(n.id)} aria-current={on ? 'page' : undefined}
+            className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-micro tracking-normal ${on ? 'text-brass-hi' : 'text-fg-faint'}`} data-testid={`tab-${n.id}`}>
+            <Icon name={n.icon} />
             {n.label}
           </button>
         );
       })}
+      <button type="button" onClick={() => setMore(true)} className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-micro tracking-normal ${moreOn ? 'text-brass-hi' : 'text-fg-faint'}`} data-testid="tab-more">
+        <Icon name="more" />
+        More
+      </button>
     </nav>
+  );
+}
+
+export function MoreSheet() {
+  const open = useGame((s) => s.moreOpen);
+  const setMore = useGame((s) => s.setMore);
+  const setScreen = useGame((s) => s.setScreen);
+  const setChat = useGame((s) => s.setChat);
+  const locked = useLocked();
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col justify-end">
+      <button type="button" aria-label="Close menu" className="absolute inset-0 bg-ink-0/70" onClick={() => setMore(false)} />
+      <div role="dialog" aria-modal="true" aria-label="More" className="relative rounded-t-lg border-t border-ink-3 bg-ink-1 p-4 pb-[calc(env(safe-area-inset-bottom)+16px)] shadow-sheet" data-testid="more-sheet">
+        <div className="grid grid-cols-3 gap-2">
+          {NAV.filter((n) => !PHONE_TABS.includes(n.id)).map((n) => (
+            <button key={n.id} type="button" onClick={() => setScreen(n.id)} className={`flex flex-col items-center gap-1.5 rounded-md border border-ink-3 py-4 text-small ${locked(n) ? 'text-fg-disabled' : 'text-fg-muted'}`} data-testid={`more-${n.id}`}>
+              <Icon name={n.icon} />
+              {n.label}
+            </button>
+          ))}
+          <button type="button" onClick={() => { setMore(false); setChat(true); }} className="flex flex-col items-center gap-1.5 rounded-md border border-ink-3 py-4 text-small text-fg-muted" data-testid="more-chat">
+            <Icon name="chat" />
+            Chat
+          </button>
+          <Link href="/credits" className="flex flex-col items-center gap-1.5 rounded-md border border-ink-3 py-4 text-small text-fg-muted" data-testid="more-credits">
+            <Icon name="star" />
+            Credits
+          </Link>
+        </div>
+      </div>
+    </div>
   );
 }
 
 export function WireStrip() {
   const wire = useGame((s) => s.wire);
+  const setScreen = useGame((s) => s.setScreen);
+  const select = useGame((s) => s.select);
   return (
     <footer className="flex h-[34px] shrink-0 items-center gap-3 overflow-hidden border-t border-ink-2 bg-ink-0 px-4 text-caption" data-testid="wire-strip">
-      <span className="label shrink-0 text-brass">Wire</span>
+      <button type="button" onClick={() => setScreen('wire')} className="label shrink-0 text-brass hover:text-brass-hi">The Wire</button>
       {wire.length === 0 ? (
-        <span className="text-fg-faint">Quiet markets. Headlines appear here when something real happens.</span>
+        <span className="text-fg-faint">Quiet markets. Headlines appear here when something happens.</span>
       ) : (
         <ul className="flex min-w-0 gap-6 whitespace-nowrap">
-          {wire.slice(0, 8).map((w) => (
+          {wire.slice(0, 10).map((w) => (
             <li key={w.id} className="flex items-baseline gap-2">
-              <span className="num text-fg-faint">{w.time}</span>
-              <span className={`num font-semibold ${TONE[w.tone]}`}>{w.tag}</span>
+              <span className="num text-fg-faint">{clockLabel(w.tick, 720).replace('Day ', 'D')}</span>
+              {w.assetId ? (
+                <button type="button" onClick={() => { select(w.assetId!); setScreen('market'); }} className={`font-semibold hover:underline ${TONE_TEXT[w.tone]}`}>{w.tag}</button>
+              ) : (
+                <span className={`font-semibold ${TONE_TEXT[w.tone]}`}>{w.tag}</span>
+              )}
               <span className="text-fg-muted">{w.text}</span>
             </li>
           ))}
@@ -178,28 +197,67 @@ export function Toasts({ phone = false }: { phone?: boolean }) {
   useEffect(() => {
     if (toasts.length === 0) return;
     const id = toasts[0]!.id;
-    const t = setTimeout(() => dismiss(id), 4000);
+    const t = setTimeout(() => dismiss(id), 4500);
     return () => clearTimeout(t);
   }, [toasts, dismiss]);
   return (
-    <div
-      aria-live="polite"
-      className={`pointer-events-none fixed z-40 flex flex-col gap-2 ${
-        phone ? 'inset-x-4 bottom-[calc(var(--tabbar-h)+76px)]' : 'top-[calc(var(--topbar-h)+12px)] right-6 w-80 items-end'
-      }`}
-    >
+    <div aria-live="polite" className={`pointer-events-none fixed z-[60] flex flex-col gap-2 ${phone ? 'inset-x-4 bottom-[calc(var(--tabbar-h)+76px)]' : 'bottom-12 right-6 w-96 items-end'}`}>
       {toasts.map((t) => (
-        <div
-          key={t.id}
-          role="status"
-          className={`pointer-events-auto flex w-full overflow-hidden rounded-md border border-ink-3 bg-ink-1 ${phone ? '' : 'md:w-80'}`}
-          data-testid="toast"
-        >
-          <span className={`w-1 shrink-0 ${t.tone === 'gain' ? 'bg-gain' : 'bg-loss'}`} aria-hidden />
-          <span className="num px-4 py-3 text-small text-fg">{t.text}</span>
-        </div>
+        <button key={t.id} type="button" onClick={() => dismiss(t.id)} role="status"
+          className="pointer-events-auto flex w-full overflow-hidden rounded-md border border-ink-3 bg-ink-1 text-left shadow-sheet" data-testid="toast">
+          <span className={`w-1 shrink-0 ${TONE_BAR[t.tone]}`} aria-hidden />
+          <span className="px-4 py-3 text-small text-fg">{t.text}</span>
+        </button>
       ))}
     </div>
   );
 }
 
+export function InboxDrawer() {
+  const open = useGame((s) => s.inboxOpen);
+  const setInbox = useGame((s) => s.setInbox);
+  const inbox = useGame((s) => s.me?.inbox ?? []);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <button type="button" aria-label="Close inbox" className="absolute inset-0 bg-ink-0/60" onClick={() => setInbox(false)} />
+      <aside role="dialog" aria-label="Inbox" className="relative flex h-full w-full max-w-md flex-col border-l border-ink-3 bg-ink-1 shadow-sheet" data-testid="inbox">
+        <div className="flex items-center justify-between border-b border-ink-2 px-5 py-4">
+          <h2 className="font-serif text-title">Inbox</h2>
+          <button type="button" onClick={() => setInbox(false)} aria-label="Close" className="h-9 w-9 rounded-md text-fg-muted hover:bg-ink-2"><span aria-hidden>✕</span></button>
+        </div>
+        <ul className="flex-1 overflow-y-auto">
+          {inbox.length === 0 && <li className="px-5 py-8 text-center text-fg-faint">Nothing yet.</li>}
+          {inbox.map((n) => (
+            <li key={n.id} className="flex gap-3 border-b border-ink-2 px-5 py-3">
+              <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${TONE_BAR[n.tone]}`} aria-hidden />
+              <div className="min-w-0">
+                <p className="text-small text-fg">{n.text}</p>
+                <p className="num mt-0.5 text-caption text-fg-faint">{clockLabel(n.tick, 720)} · {n.kind}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </aside>
+    </div>
+  );
+}
+
+export function ChatDrawer() {
+  const open = useGame((s) => s.chatOpen);
+  const setChat = useGame((s) => s.setChat);
+  const dmTarget = useGame((s) => s.dmTarget);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <button type="button" aria-label="Close chat" className="absolute inset-0 bg-ink-0/60" onClick={() => setChat(false)} />
+      <aside role="dialog" aria-label="Chat" className="relative flex h-full w-full max-w-md flex-col border-l border-ink-3 bg-ink-1 shadow-sheet" data-testid="chat-drawer">
+        <div className="flex items-center justify-between border-b border-ink-2 px-5 py-4">
+          <h2 className="font-serif text-title">Chat</h2>
+          <button type="button" onClick={() => setChat(false)} aria-label="Close" className="h-9 w-9 rounded-md text-fg-muted hover:bg-ink-2"><span aria-hidden>✕</span></button>
+        </div>
+        <div className="min-h-0 flex-1"><ChatPanel key={dmTarget ?? 'world'} /></div>
+      </aside>
+    </div>
+  );
+}

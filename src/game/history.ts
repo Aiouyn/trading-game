@@ -129,6 +129,37 @@ export function lastTicks(h: History, id: string, n: number): { ticks: number[];
   return { ticks, prices, cums };
 }
 
+/**
+ * Replace one series with a server back-fill (recent tick prices ending at `lastTick`, daily
+ * bars, cumulative volumes). If the client has already recorded newer ticks, the series is padded
+ * with its newest price so the ring stays aligned to h.lastTick. Mutates.
+ */
+export function loadSeries(
+  h: History, id: string, payload: { daily: Bar[]; ticks: number[]; lastTick: number; cums?: number[] },
+): void {
+  const s = h.series[id] ?? (h.series[id] = { ring: new Array<number>(h.capacity).fill(0), head: 0, size: 0, daily: [] });
+  const prices = payload.ticks.slice();
+  const cums = payload.cums?.slice();
+  const lag = h.lastTick > payload.lastTick ? h.lastTick - payload.lastTick : 0;
+  for (let k = 0; k < lag; k++) {
+    prices.push(prices[prices.length - 1] ?? 0);
+    if (cums) cums.push(cums[cums.length - 1] ?? NaN);
+  }
+  const take = Math.min(h.capacity, prices.length);
+  const from = prices.length - take;
+  s.ring = new Array<number>(h.capacity).fill(0);
+  for (let k = 0; k < take; k++) s.ring[k] = prices[from + k]!;
+  s.size = take;
+  s.head = take % h.capacity;
+  if (cums) {
+    s.cum = new Array<number>(h.capacity).fill(NaN);
+    for (let k = 0; k < take; k++) s.cum[k] = cums[from + k]!;
+    s.lastCum = cums[cums.length - 1];
+  }
+  s.daily = payload.daily.map((b) => ({ ...b }));
+  if (h.lastTick < payload.lastTick) h.lastTick = payload.lastTick;
+}
+
 export type RangeId = '1H' | '1D' | '1W' | '1Q' | '1Y';
 
 export interface RangeSpec {

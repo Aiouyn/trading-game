@@ -1,210 +1,152 @@
 'use client';
 
-import { portfolio } from '@/engine';
-import { clockParts, SPEEDS, tickMs, type Speed } from '@/game/clock';
+import { useGame } from '@/game/store';
+import { clockParts } from '@/game/clock';
 import { compactMoney, money, signedMoney, signedPct, tone, toneText } from '@/game/format';
-import { rankProgress } from '@/game/rank';
-import { PLAYER, useGame } from '@/game/store';
-import { TickRing } from './ui';
+import { Icon } from './icons';
+import { BrassChip, Flash, Progress, TickRing } from './ui';
 
-function usePlayer() {
-  const world = useGame((s) => s.world)!;
-  const pf = portfolio(world, PLAYER);
-  const rp = rankProgress(pf.peakEquity, pf.equity, pf.startingCash);
-  const dayBase = pf.equity - pf.dayPnl;
-  return { world, pf, rp, dayPct: dayBase > 0 ? pf.dayPnl / dayBase : 0 };
-}
+const REGIME_LABEL: Record<string, string> = { expansion: 'Expansion', overheating: 'Overheating', contraction: 'Recession', recovery: 'Recovery' };
 
-function NetWorth({ value, size }: { value: number; size: 'hero' | 'hero-lg' }) {
-  const s = money(value);
-  const dot = s.lastIndexOf('.');
+/** Serif net worth with the cents at 65% in fg-muted (DESIGN §3). */
+export function NetWorth({ value, size = 'hero' }: { value: number; size?: 'hero' | 'hero-lg' }) {
+  const neg = value < 0;
+  const abs = Math.abs(value);
+  const whole = Math.floor(abs).toLocaleString('en-US');
+  const cents = (abs % 1).toFixed(2).slice(1);
   return (
-    <h1 className={`font-serif tracking-tight text-fg ${size === 'hero' ? 'text-hero' : 'text-hero-lg'}`} data-testid="net-worth">
-      <span className="sr-only">Net worth </span>
-      {s.slice(0, dot)}
-      <span className="text-fg-muted">{s.slice(dot)}</span>
-    </h1>
-  );
-}
-
-function RankChip() {
-  const { rp } = usePlayer();
-  return (
-    <span className="inline-flex h-7 items-center gap-1.5 rounded-chip border border-brass-lo/60 px-2.5 text-caption text-brass-hi" data-testid="rank-chip">
-      <span className="num text-micro text-brass">{rp.rank.id}</span>
-      <span className="font-medium">{rp.rank.name}</span>
-    </span>
-  );
-}
-
-function RankProgress({ className = '' }: { className?: string }) {
-  const { rp, pf } = usePlayer();
-  if (!rp.next) return null;
-  return (
-    <div className={`flex items-center gap-3 ${className}`}>
-      <div
-        className="h-1.5 flex-1 overflow-hidden rounded-chip bg-ink-3"
-        role="progressbar"
-        aria-label={`Progress to ${rp.next.name}`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(rp.progress * 100)}
-      >
-        <div className="h-full rounded-chip bg-brass" style={{ width: `${Math.max(2, rp.progress * 100)}%` }} />
-      </div>
-      <span className="num whitespace-nowrap text-caption text-fg-faint">
-        {compactMoney(pf.equity)} / {compactMoney(rp.next.threshold)} to {rp.next.name}
+    <Flash value={Math.round(value)}>
+      <span className={`font-serif ${size === 'hero' ? 'text-hero' : 'text-hero-lg'} text-fg`} data-testid="net-worth">
+        {neg ? '−' : ''}${whole}<span className="text-[65%] text-fg-muted">{cents}</span>
       </span>
-    </div>
+    </Flash>
   );
 }
 
-function Clock({ ring }: { ring: number }) {
-  const world = useGame((s) => s.world)!;
-  const speed = useGame((s) => s.speed);
-  const paused = useGame((s) => s.paused);
-  const c = clockParts(world.tick, world.config.ticksPerDay);
+function useHeaderData() {
+  const me = useGame((s) => s.me);
+  const frame = useGame((s) => s.frame);
+  const directory = useGame((s) => s.directory);
+  const nw = me?.netWorth.total ?? 0;
+  const dayStart = me?.player.dayStart.netWorth ?? nw;
+  const today = nw - dayStart;
+  const rival = me?.player.rivalId ? directory.find((d) => d.id === me.player.rivalId) : null;
+  const contracts = me?.contracts ?? [];
+  return { me, frame, nw, today, todayPct: dayStart ? today / dayStart : 0, rival, contracts };
+}
+
+function Clock({ size = 30 }: { size?: number }) {
+  const frame = useGame((s) => s.frame);
+  const tickMs = useGame((s) => s.tickMs);
+  const status = useGame((s) => s.status);
+  const tick = frame?.tick ?? 0;
+  const c = clockParts(tick, 720);
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-3" data-testid="game-clock">
       <div className="text-right">
-        <div className="num text-body text-fg" data-testid="game-clock">
-          Day {c.day} <span className="text-fg-faint">&middot;</span> {c.hhmm}
-        </div>
-        <div className="flex items-center justify-end gap-1.5 text-caption text-fg-faint" data-testid="market-state">
-          <span className="size-1.5 rounded-full bg-gain" aria-hidden />
-          Market open &middot; Port Avalon
+        <div className="num text-body text-fg">Day {c.day} · {c.hhmm}</div>
+        <div className="flex items-center justify-end gap-1.5 text-caption text-fg-muted">
+          <span className={`h-1.5 w-1.5 rounded-full ${status === 'ready' ? 'bg-gain' : 'bg-warn'}`} aria-hidden />
+          {status === 'ready' ? `${REGIME_LABEL[frame?.regime ?? 'expansion']} · Port Avalon` : 'Reconnecting…'}
         </div>
       </div>
-      <TickRing tick={world.tick} ms={tickMs(speed)} paused={paused} size={ring} />
+      <TickRing tick={tick} ms={tickMs} paused={status !== 'ready'} size={size} />
     </div>
   );
 }
 
-function SpeedControl({ compact = false }: { compact?: boolean }) {
-  const speed = useGame((s) => s.speed);
-  const paused = useGame((s) => s.paused);
-  const setSpeed = useGame((s) => s.setSpeed);
-  const togglePause = useGame((s) => s.togglePause);
-  const btn = 'flex items-center justify-center rounded-sm font-medium transition-colors duration-[var(--dur-fast)]';
-  if (compact) {
-    const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length] as Speed;
-    return (
-      <div className="flex items-center gap-1">
-        <button type="button" onClick={togglePause} className={`${btn} size-11 text-fg-muted`} aria-label={paused ? 'Resume' : 'Pause'} data-testid="pause">
-          {paused ? <PlayIcon /> : <PauseIcon />}
-        </button>
-        <button type="button" onClick={() => setSpeed(next)} className={`${btn} num h-11 min-w-11 px-1 text-caption text-fg-muted`} aria-label={`Speed ${speed}x, tap for ${next}x`} data-testid="speed">
-          {speed}&times;
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center rounded-md border border-ink-3 bg-ink-0 p-0.5" role="group" aria-label="Game speed">
-      <button type="button" onClick={togglePause} className={`${btn} size-7 ${paused ? 'bg-ink-3 text-fg' : 'text-fg-faint hover:text-fg-muted'}`} aria-label={paused ? 'Resume' : 'Pause'} aria-pressed={paused} data-testid="pause">
-        {paused ? <PlayIcon /> : <PauseIcon />}
-      </button>
-      {SPEEDS.map((s) => (
-        <button
-          key={s}
-          type="button"
-          onClick={() => setSpeed(s)}
-          aria-pressed={!paused && speed === s}
-          data-testid={`speed-${s}`}
-          className={`${btn} num h-7 px-2 text-caption ${!paused && speed === s ? 'bg-ink-3 text-fg' : 'text-fg-faint hover:text-fg-muted'}`}
-        >
-          {s}&times;
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function PauseIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className="fill-current">
-      <rect x="2" y="1.5" width="3" height="9" rx="0.75" />
-      <rect x="7" y="1.5" width="3" height="9" rx="0.75" />
-    </svg>
-  );
-}
-function PlayIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className="fill-current">
-      <path d="M3 1.8v8.4a.6.6 0 0 0 .9.5l6.6-4.2a.6.6 0 0 0 0-1L3.9 1.3a.6.6 0 0 0-.9.5Z" />
-    </svg>
-  );
-}
-
-function Today() {
-  const { pf, dayPct } = usePlayer();
-  const t = toneText[tone(pf.dayPnl)];
-  return (
-    <div className="flex items-baseline gap-2" data-testid="today-pnl">
-      <span className="label">Today</span>
-      <span className={`num text-small ${t}`}>{signedMoney(pf.dayPnl)}</span>
-      <span className={`num text-small ${t}`}>{signedPct(dayPct)}</span>
-    </div>
-  );
-}
-
-/** Desktop and tablet top bar (≥768). */
 export function TopBar() {
-  const { pf } = usePlayer();
+  const { me, nw, today, todayPct, rival, contracts, frame } = useHeaderData();
+  const setInbox = useGame((s) => s.setInbox);
+  const setScreen = useGame((s) => s.setScreen);
+  const openProfile = useGame((s) => s.openProfile);
+  if (!me) return null;
+  const r = me.rank;
+  const done = contracts.filter((c) => c.done && !c.claimed).length;
+  const unread = me.player.inboxUnread;
   return (
-    <header className="flex min-h-[var(--topbar-h)] items-center gap-6 border-b border-ink-2 px-5">
-      <div className="flex min-w-0 flex-col">
-        <span className="label">Net worth</span>
-        <div className="flex items-baseline gap-4">
-          <NetWorth value={pf.equity} size="hero" />
-          <Today />
+    <header className="relative flex h-[var(--topbar-h)] shrink-0 items-center gap-6 border-b border-ink-2 px-6" data-testid="top-bar">
+      {r.id === 'R0' && <Crack />}
+      <div className="min-w-0">
+        <div className="label">Net worth</div>
+        <NetWorth value={nw} />
+      </div>
+      <div className="hidden min-w-0 lg:block">
+        <div className="label">Today</div>
+        <div className={`num text-body ${toneText[tone(today)]}`} data-testid="today-pnl">{signedMoney(today)} {signedPct(todayPct)}</div>
+      </div>
+      <div className="min-w-0 flex-1 max-w-xs">
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setScreen('profile')}><BrassChip>{r.id} · {r.name}</BrassChip></button>
+          {r.next && <span className="num truncate text-caption text-fg-faint">{compactMoney(nw)} / {compactMoney(r.next.threshold)} to {r.next.name}</span>}
         </div>
+        <Progress value={r.progress} className="mt-2" label={`Progress to ${r.next?.name ?? 'the top'}`} />
       </div>
-      <div className="hidden min-w-0 flex-1 flex-col gap-1.5 lg:flex">
-        <div><RankChip /></div>
-        <RankProgress className="max-w-80" />
+      <div className="hidden min-w-0 xl:block">
+        <div className="label">Rival</div>
+        {rival ? (
+          <button type="button" onClick={() => openProfile(rival.id)} className="num truncate text-small text-fg hover:underline" data-testid="rival">
+            {rival.handle} <span className="text-loss">+{compactMoney(rival.netWorth - nw)} ahead</span>
+          </button>
+        ) : <div className="text-small text-brass">You lead the world</div>}
       </div>
+      <button type="button" onClick={() => setScreen('profile')} className="hidden min-w-0 text-left 2xl:block" data-testid="contracts-chip">
+        <div className="label">This hour</div>
+        <div className="num text-small text-fg">{contracts.filter((c) => c.done).length}/{contracts.length} contracts{done ? <span className="ml-1 text-brass"> · claim {done}</span> : null}</div>
+      </button>
       <div className="ml-auto flex items-center gap-4">
-        <SpeedControl />
-        <Clock ring={30} />
+        <div className="hidden text-right lg:block">
+          <div className="label">Policy rate</div>
+          <div className="num text-small text-fg-muted">{frame?.rates ? `${(frame.rates.policy * 100).toFixed(2)}%` : '—'}</div>
+        </div>
+        <Clock />
+        <button type="button" onClick={() => setInbox(true)} className="relative h-10 w-10 rounded-md text-fg-muted hover:bg-ink-2 hover:text-fg" aria-label={`Inbox, ${unread} unread`} data-testid="inbox-button">
+          <span className="flex justify-center"><Icon name="bell" /></span>
+          {unread > 0 && <span className="num absolute top-1 right-1 rounded-chip bg-brass px-1 text-[9px] text-on-brass">{unread > 99 ? '99+' : unread}</span>}
+        </button>
       </div>
     </header>
   );
 }
 
-/** Phone header (<768). */
 export function PhoneHeader() {
-  const { pf } = usePlayer();
+  const { me, nw, today, todayPct } = useHeaderData();
+  const setInbox = useGame((s) => s.setInbox);
+  if (!me) return null;
+  const r = me.rank;
+  const unread = me.player.inboxUnread;
   return (
-    <header className="flex flex-col gap-3 px-4 pt-3">
+    <header className="relative px-4 pt-4" data-testid="phone-header">
+      {r.id === 'R0' && <Crack phone />}
       <div className="flex items-center justify-between gap-2">
-        <RankChip />
-        <div className="flex items-center gap-1">
-          <SpeedControl compact />
-          <PhoneClock />
+        <BrassChip>{r.id} · {r.name}</BrassChip>
+        <div className="flex items-center gap-2">
+          <Clock size={22} />
+          <button type="button" onClick={() => setInbox(true)} className="relative h-10 w-10 rounded-md text-fg-muted" aria-label={`Inbox, ${unread} unread`} data-testid="inbox-button">
+            <span className="flex justify-center"><Icon name="bell" /></span>
+            {unread > 0 && <span className="num absolute top-1 right-1 rounded-chip bg-brass px-1 text-[9px] text-on-brass">{unread}</span>}
+          </button>
         </div>
       </div>
-      <div>
-        <span className="label">Net worth</span>
-        <NetWorth value={pf.equity} size="hero-lg" />
-        <div className="mt-1"><Today /></div>
+      <div className="mt-4 label">Net worth</div>
+      <NetWorth value={nw} size="hero-lg" />
+      <div className={`num mt-1 text-small ${toneText[tone(today)]}`}><span className="label mr-2 text-fg-faint">Today</span>{signedMoney(today)} {signedPct(todayPct)}</div>
+      <div className="mt-3 flex items-center gap-3">
+        <Progress value={r.progress} className="flex-1" label="Rank progress" />
+        {r.next && <span className="num shrink-0 text-caption text-fg-faint">{compactMoney(nw)} / {compactMoney(r.next.threshold)} to {r.next.name}</span>}
       </div>
-      <RankProgress />
     </header>
   );
 }
 
-function PhoneClock() {
-  const world = useGame((s) => s.world)!;
-  const speed = useGame((s) => s.speed);
-  const paused = useGame((s) => s.paused);
-  const c = clockParts(world.tick, world.config.ticksPerDay);
+/** The R0 hairline crack (DESIGN §6d). */
+function Crack({ phone = false }: { phone?: boolean }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="num text-small text-fg" data-testid="game-clock">
-        Day {c.day} <span className="text-fg-faint">&middot;</span> {c.hhmm}
-      </span>
-      <TickRing tick={world.tick} ms={tickMs(speed)} paused={paused} size={22} />
-    </div>
+    <svg className={`pointer-events-none absolute ${phone ? 'top-0 left-0' : 'top-0 right-40'} h-16 w-40 opacity-50`} viewBox="0 0 160 64" aria-hidden data-testid="shell-crack">
+      <path d="M2 2 L38 18 L52 12 L80 34 L96 30 L130 56" fill="none" className="stroke-fg-disabled" strokeWidth="1" />
+      <path d="M52 12 L60 2" fill="none" className="stroke-fg-disabled" strokeWidth="0.8" />
+    </svg>
   );
 }
+
+export { money };
