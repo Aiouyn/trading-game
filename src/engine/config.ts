@@ -1,4 +1,4 @@
-import type { AssetDef, IndexDef, RegimeDef, RegimeId, TradingConfig, WorldConfig } from './types';
+import type { AssetDef, IndexDef, RegimeDef, RegimeId, TradingConfig, VolumeConfig, WorldConfig } from './types';
 
 /** 01 §5.3. Lengths: Expansion 1.5–3 game yrs, the others 0.5–1 yr (252 trading days per year). */
 export const DEFAULT_REGIMES: Record<RegimeId, RegimeDef> = {
@@ -136,6 +136,19 @@ export const DEFAULT_TRADING: TradingConfig = {
   closedOrdersKept: 500,
 };
 
+/** Volume model (see ENGINE.md, Volume). Calibrated so the long-run mean day trades about advNotional. */
+export const DEFAULT_VOLUME: VolumeConfig = {
+  noise: 0.4,
+  moveBase: 0.6,
+  moveSlope: 0.5,
+  zCap: 40,
+  heatHalfLifeDays: 1 / 6,
+  jumpHeat: 50,
+  haltHeat: 1,
+  reopenHeat: 2,
+  uShape: 0.5,
+};
+
 export function defaultConfig(overrides: Partial<WorldConfig> = {}): WorldConfig {
   return {
     ticksPerDay: 720,
@@ -150,6 +163,7 @@ export function defaultConfig(overrides: Partial<WorldConfig> = {}): WorldConfig
     haltTicks: 120,
     initialRegime: 'expansion',
     trading: DEFAULT_TRADING,
+    volume: DEFAULT_VOLUME,
     regimes: DEFAULT_REGIMES,
     assets: DEFAULT_ASSETS,
     indices: DEFAULT_INDICES,

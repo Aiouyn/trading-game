@@ -114,6 +114,8 @@ export interface WorldConfig {
   initialRegime: RegimeId;
   /** order execution and accounts; defaults to DEFAULT_TRADING */
   trading?: TradingConfig;
+  /** volume model; defaults to DEFAULT_VOLUME */
+  volume?: VolumeConfig;
   regimes: Record<RegimeId, RegimeDef>;
   assets: AssetDef[];
   indices: IndexDef[];
@@ -137,6 +139,37 @@ export interface AssetState {
   /** log return accumulated while halted; applied in the reopening auction */
   pending: number;
   rng: RngState;
+  /** volume noise stream ('volume:<id>'); separate so volume never changes prices */
+  vrng: RngState;
+  /** traded units this tick (NPC flow plus player fills) */
+  volume: number;
+  /** traded value this tick, $ */
+  notional: number;
+  /** units traded since the start of the game day (this tick included) */
+  dayVolume: number;
+  /** $ traded since the start of the game day */
+  dayNotional: number;
+  /** units traded since the world began (monotonic; bucket volume = difference) */
+  cumVolume: number;
+  /** attention after news, jumps and halts: extra volume multiplier that decays */
+  heat: number;
+}
+
+export interface VolumeConfig {
+  /** σ of the lognormal per-tick noise */
+  noise: number;
+  /** tick activity = moveBase + moveSlope · min(|r| / σ_tick, zCap) */
+  moveBase: number;
+  moveSlope: number;
+  zCap: number;
+  /** half-life of heat, in game days */
+  heatHalfLifeDays: number;
+  /** heat added per unit of |jump| (log size): a 6% jump adds 0.06 · jumpHeat */
+  jumpHeat: number;
+  haltHeat: number;
+  reopenHeat: number;
+  /** intraday U shape amplitude for session assets (stocks, commodities); crypto trades flat */
+  uShape: number;
 }
 
 export interface RegimeChange {
@@ -225,6 +258,18 @@ export interface Quote {
   price: number;
   fundamental: number;
   halted: boolean;
+  /** units traded this tick */
+  volume: number;
+  /** $ traded this tick */
+  notional: number;
+  /** units traded so far today */
+  dayVolume: number;
+  /** $ traded so far today */
+  dayNotional: number;
+  /** units traded since the world began; a bar's volume is the difference across its ticks */
+  cumVolume: number;
+  /** average daily volume in units at the current price (advNotional / price), the same ADV impact uses */
+  adv: number;
 }
 
 export type StepEvent =

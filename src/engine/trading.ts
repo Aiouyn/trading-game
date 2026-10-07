@@ -320,8 +320,17 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       fills.push({ orderId: o.id, playerId: o.playerId, assetId: o.assetId, side: o.side, qty: q, price, fee, tick });
 
       // permanent share of impact moves the price; the pull to value decays it
+      // player fills print on the tape like any other trade
       const a = s.assets[i]!;
-      s.assets[i] = { ...a, lnP: a.lnP + Math.log1p(sign(o.side) * t.permanentImpactShare * imp) };
+      s.assets[i] = {
+        ...a,
+        lnP: a.lnP + Math.log1p(sign(o.side) * t.permanentImpactShare * imp),
+        volume: (a.volume ?? 0) + q,
+        notional: (a.notional ?? 0) + q * price,
+        dayVolume: (a.dayVolume ?? 0) + q,
+        dayNotional: (a.dayNotional ?? 0) + q * price,
+        cumVolume: (a.cumVolume ?? 0) + q,
+      };
     }
     s.orders = prune(s, s.orders);
   }

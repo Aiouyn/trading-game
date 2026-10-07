@@ -1,7 +1,7 @@
 /**
  * Headless price simulator run.
  *   npx tsx scripts/sim.ts --seed alpha --days 504 [--csv out/prices.csv] [--json out/summary.json]
- * Prints per-asset stats from daily closes, the regime timeline and an event count.
+ * Prints per-asset stats from daily closes, the regime timeline, event counts, volume stats and trading costs.
  * No UI, no network; same seed => same output, byte for byte.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -24,6 +24,10 @@ const ids = cfg.assets.map((a) => a.id);
 const series: Record<string, number[]> = { GX: [] };
 for (const id of ids) series[id] = [];
 const regimeByDay: string[] = [];
+/** per asset: each day's traded value / advNotional, and whether a jump or reopen happened that day */
+const dayVol: Record<string, number[]> = {};
+const newsDay: Record<string, boolean[]> = {};
+for (const id of ids) { dayVol[id] = []; newsDay[id] = []; }
 const counts: Record<StepEvent['type'], number> = { regime: 0, jump: 0, halt: 0, reopen: 0 };
 
 let state = createWorld(seed, cfg);
@@ -38,8 +42,15 @@ for (let d = 0; d < days; d++) {
   for (let t = 0; t < cfg.ticksPerDay; t++) {
     const r = step(state);
     state = r.state;
-    for (const e of r.events) counts[e.type]++;
+    for (const e of r.events) {
+      counts[e.type]++;
+      if ((e.type === 'jump' || e.type === 'reopen') && newsDay[e.assetId]) newsDay[e.assetId]![d] = true;
+    }
   }
+  state.assets.forEach((a, i) => {
+    dayVol[ids[i]!]!.push(a.dayNotional / (cfg.assets[i]!.advNotional ?? 1e9));
+    newsDay[ids[i]!]![d] ??= false;
+  });
   record();
 }
 const ms = performance.now() - t0;
@@ -89,6 +100,35 @@ console.log('');
 console.log('regimes:', timeline.map((t) => `d${t.fromDay} ${t.regime}`).join(' → '));
 console.log('events:', JSON.stringify(counts));
 
+// volume: mean day vs ADV, link to price moves, news days, regimes
+const median = (xs: number[]) => { const o = [...xs].sort((a, b) => a - b); return o.length ? o[o.length >> 1]! : NaN; };
+const volumeRows = ids.map((id) => {
+  const v = dayVol[id]!;
+  const absR = logRets(series[id]!).map(Math.abs);
+  const news = v.filter((_, d) => newsDay[id]![d]);
+  return {
+    id,
+    meanVsAdv: mean(v),
+    medianVsAdv: median(v),
+    maxVsAdv: Math.max(...v),
+    corrAbsRet: corr(absR, v),
+    newsDayMult: news.length ? mean(news) / median(v) : NaN,
+  };
+});
+const byRegime: Record<string, number[]> = {};
+for (let d = 0; d < days; d++) {
+  const rg = regimeByDay[d + 1]!;
+  (byRegime[rg] ??= []).push(mean(ids.map((id) => dayVol[id]![d]!)));
+}
+console.log('');
+console.log('volume (daily traded value / ADV):');
+console.log(['asset', 'mean', 'median', 'max', 'ρ(|r|,V)', 'news×'].map((h) => h.padStart(10)).join(''));
+for (const r of volumeRows) {
+  console.log([r.id, f(r.meanVsAdv), f(r.medianVsAdv), f(r.maxVsAdv), f(r.corrAbsRet), Number.isNaN(r.newsDayMult) ? '-' : f(r.newsDayMult)]
+    .map((c) => String(c).padStart(10)).join(''));
+}
+console.log('by regime (mean across assets):', Object.entries(byRegime).map(([k, v]) => `${k} ${f(mean(v))}`).join(', '));
+
 // round-trip cost (buy then sell at the same price) on a fresh calm world, in bps of notional
 {
   const w = createWorld(seed, cfg);
@@ -116,6 +156,6 @@ if (csvPath) {
 }
 if (jsonPath) {
   mkdirSync(dirname(jsonPath), { recursive: true });
-  writeFileSync(jsonPath, JSON.stringify({ seed, days, rows, timeline, events: counts }, null, 2));
+  writeFileSync(jsonPath, JSON.stringify({ seed, days, rows, volume: volumeRows, volumeByRegime: Object.fromEntries(Object.entries(byRegime).map(([k, v]) => [k, mean(v)])), timeline, events: counts }, null, 2));
   console.log(`wrote ${jsonPath}`);
 }

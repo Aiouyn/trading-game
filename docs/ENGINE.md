@@ -128,6 +128,29 @@ $$
 
 Balance bands compare realized vol against `expectedVol(def)` (neutral regime), never against raw `vol`. For example, Lumen Pharma has `vol` 38% but expected total vol of about 65%, because of its binary trial jumps.
 
+## Volume
+
+Every asset prints a deterministic volume each tick. It runs on its own seeded stream (`volume:<id>`), so it never changes prices: the same seed gives the same prices as before volume existed.
+
+Expected traded value per tick:
+
+$$ \text{notional} = \frac{ADV}{\text{ticksPerDay}} \cdot volMult \cdot \sqrt{h} \cdot (0.6 + 0.5\,\min(|z|, 40)) \cdot u(t) \cdot (1 + heat) \cdot noise $$
+
+- `ADV` is the asset's `advNotional`, the same number square-root impact uses. Calibrated so the long-run mean day trades about 1.0 × ADV (0.9 to 1.1 across the default universe over 5 years).
+- `volMult · √h`: crises and vol clusters trade more, calm expansion less (seed alpha, 5 yrs: expansion 0.83 × ADV, overheating 1.18, contraction 1.16, recovery 1.14).
+- `z` is this tick's return over expected tick vol, so big moves trade more. Daily correlation between |return| and volume is about 0.3 to 0.6.
+- `u(t) = 1 + 0.5·cos(2π·t/ticksPerDay)`: a U shape, busy at the open and close, quiet midday, for stocks and commodities. Crypto trades flat.
+- `heat` is attention after news: a jump adds `50·|jump|` (a 6% jump adds 3), a halt adds 1, a reopen adds 2; it halves every 1/6 of a game day. Jump and reopen days trade about 1.3 to 2.4 × the median day. Earnings and news events will plug into the same heat when they exist.
+- `noise` is lognormal with σ 0.4 and mean 1.
+- Halted ticks print 0. The tick that trips the halt and the reopening auction both trade, and the reopen bursts.
+- Stocks print whole shares. Player fills are added to the tick's volume.
+
+Per asset in `AssetState` and `quote(state, id)`: `volume` (units this tick), `notional` ($ this tick), `dayVolume` and `dayNotional` (since the day opened), `cumVolume` (monotonic since the world began), and in `quote` also `adv` (ADV in units at the current price). `volumes(state)` returns this tick's units for every asset, like `prices(state)`. For chart bars, a bucket's volume is the sum of its ticks' `volume`, or `cumVolume` at the bucket's last tick minus at the previous bucket's last tick, which stays right even if the app skips recording ticks. Saves from before volume load fine: missing fields start at 0 and the stream is seeded on the first step.
+
+Tuning: `config.volume` (`DEFAULT_VOLUME`). The headless sim prints a volume table (mean, median and max day vs ADV, ρ(|r|,V), news-day multiple) and the mean by regime.
+
+Tests: `src/engine/volume.test.ts` (10 tests): prices unchanged and legacy saves, determinism and JSON reload, mean ≈ ADV, link to moves, calm vs crisis, jump spikes and decay, halts and reopen burst, U shape vs flat crypto, counters and whole shares, player fills on the tape.
+
 ## Orders and portfolio (task #2, `src/engine/trading.ts`)
 
 ```ts

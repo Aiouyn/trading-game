@@ -1,5 +1,5 @@
 import { Rng, seedStream } from './rng';
-import { defaultConfig, idioLoading } from './config';
+import { DEFAULT_VOLUME, defaultConfig, idioLoading } from './config';
 import { clearOrders } from './trading';
 import type {
   AssetDef, AssetState, Fill, Quote, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
@@ -29,6 +29,13 @@ export function createWorld(seed: string, config: WorldConfig = defaultConfig())
     dayJump: 0,
     pending: 0,
     rng: seedStream(seed, `asset:${a.id}`),
+    vrng: seedStream(seed, `volume:${a.id}`),
+    volume: 0,
+    notional: 0,
+    dayVolume: 0,
+    dayNotional: 0,
+    cumVolume: 0,
+    heat: 0,
   }));
   return {
     version: 1,
@@ -94,6 +101,11 @@ export function step(state: WorldState): StepResult {
     zSector[s] = r.normal();
     sectorRng[s] = r.state();
   }
+
+  const vc = cfg.volume ?? DEFAULT_VOLUME;
+  const heatDecay = Math.pow(0.5, 1 / (vc.heatHalfLifeDays * cfg.ticksPerDay));
+  const tickOfDay = (tick - 1) % cfg.ticksPerDay;
+  const uSession = 1 + vc.uShape * Math.cos((2 * Math.PI * (tickOfDay + 0.5)) / cfg.ticksPerDay);
 
   const assets: AssetState[] = new Array(state.assets.length);
   for (let i = 0; i < state.assets.length; i++) {
@@ -164,6 +176,36 @@ export function step(state: WorldState): StepResult {
         }
       }
     }
+    // ---- volume (own stream, never feeds back into prices) ----
+    const vrng = new Rng(prev.vrng ?? seedStream(state.seed, `volume:${def.id}`));
+    const noise = Math.exp(vc.noise * vrng.normal() - 0.5 * vc.noise * vc.noise);
+    a.vrng = vrng.state();
+    let heat = (prev.heat ?? 0) * heatDecay;
+    if (jump !== 0) heat += vc.jumpHeat * Math.abs(jump);
+    for (let e = events.length - 1; e >= 0 && events[e]!.tick === tick; e--) {
+      const ev = events[e]!;
+      if (ev.type === 'halt' && ev.assetId === def.id) heat += vc.haltHeat;
+      if (ev.type === 'reopen' && ev.assetId === def.id) heat += vc.reopenHeat;
+    }
+    a.heat = heat;
+    const price = Math.exp(a.lnP);
+    let notional = 0;
+    let units = 0;
+    // halted ticks print nothing; the tick that trips the halt and the reopening auction both trade
+    if (prev.haltUntil === -1 || a.haltUntil === -1) {
+      const z = Math.min(Math.abs(a.lnP - prev.lnP) / (sigma * sqrtDt), vc.zCap);
+      const u = def.assetClass === 'crypto' ? 1 : uSession;
+      notional = ((def.advNotional ?? 1e9) / cfg.ticksPerDay) * rg.volMult * Math.sqrt(a.h)
+        * (vc.moveBase + vc.moveSlope * z) * u * (1 + heat) * noise;
+      units = notional / price;
+      if (def.assetClass === 'stock') { units = Math.round(units); notional = units * price; }
+    }
+    a.volume = units;
+    a.notional = notional;
+    a.dayVolume = (newDay ? 0 : prev.dayVolume ?? 0) + units;
+    a.dayNotional = (newDay ? 0 : prev.dayNotional ?? 0) + notional;
+    a.cumVolume = (prev.cumVolume ?? 0) + units;
+
     assets[i] = a;
   }
 
@@ -203,7 +245,20 @@ export function quote(state: WorldState, assetId: string): Quote {
     price: Math.exp(a.lnP),
     fundamental: Math.exp(a.lnV),
     halted: a.haltUntil !== -1 && a.haltUntil > state.tick,
+    volume: a.volume ?? 0,
+    notional: a.notional ?? 0,
+    dayVolume: a.dayVolume ?? 0,
+    dayNotional: a.dayNotional ?? 0,
+    cumVolume: a.cumVolume ?? 0,
+    adv: (state.config.assets[i]!.advNotional ?? 1e9) / Math.exp(a.lnP),
   };
+}
+
+/** Units traded this tick, per asset (for the chart's volume bars). */
+export function volumes(state: WorldState): Record<string, number> {
+  const out: Record<string, number> = {};
+  state.config.assets.forEach((d, i) => { out[d.id] = state.assets[i]!.volume ?? 0; });
+  return out;
 }
 
 export function prices(state: WorldState): Record<string, number> {
