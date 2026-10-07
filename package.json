@@ -15,9 +15,11 @@
     "balance": "tsx scripts/balance/run.ts"
   },
   "dependencies": {
+    "lightweight-charts": "^5.2.1",
     "next": "16.4.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
