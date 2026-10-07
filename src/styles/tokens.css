@@ -1,0 +1,126 @@
+/*
+ * Ink & Brass design tokens. Owner: Velvet. Spec: docs/DESIGN.md.
+ * Import from src/app/globals.css right after `@import "tailwindcss";`
+ *   @import "../styles/tokens.css";
+ * Fonts come from next/font in layout.tsx as --font-instrument-serif,
+ * --font-inter and --font-jetbrains-mono (see DESIGN.md §3).
+ * Change values here, never hard-code hex in components.
+ */
+
+@theme {
+  /* Surfaces: ink, darkest to lightest */
+  --color-ink-0: #0b0d10; /* app background */
+  --color-ink-1: #12151a; /* cards, panels */
+  --color-ink-2: #1a1e25; /* raised rows, hover, hairlines on ink-0 */
+  --color-ink-3: #262b33; /* borders, inputs, selected tabs */
+
+  /* Text */
+  --color-fg: #ece9e2;          /* primary text, 15:1 on ink-1 */
+  --color-fg-muted: #9aa0a8;    /* secondary text, 6.9:1 */
+  --color-fg-faint: #7e848e;    /* labels and captions, 4.9:1 on ink-1 (AA) */
+  --color-fg-disabled: #5f656e; /* disabled and decoration only, never body text */
+
+  /* Brass: wealth, rank, primary action. Use sparingly. */
+  --color-brass: #c9a45c;
+  --color-brass-hi: #e6cb8f;
+  --color-brass-lo: #b08a45;
+  --color-on-brass: #16120a;    /* text on brass buttons, 7.9:1 */
+
+  /* Market semantics */
+  --color-gain: #3fd1b0;
+  --color-loss: #ff6b5a;
+  --color-warn: #f2b33d;
+  --color-info: #6ea8fe;
+
+  /* Shadow sub-palette: Lab and Security Ops only */
+  --color-steel: #7c8a99;
+  --color-signal: #e5484d;      /* only for a defense-AI flag and Lockdown */
+
+  /* Type scale (size / line-height) */
+  --text-micro: 10.5px;  --text-micro--line-height: 14px;  --text-micro--letter-spacing: 0.14em;
+  --text-caption: 11.5px; --text-caption--line-height: 16px;
+  --text-small: 12.5px;  --text-small--line-height: 18px;
+  --text-body: 14px;     --text-body--line-height: 20px;
+  --text-title: 22px;    --text-title--line-height: 28px;   /* serif section titles */
+  --text-price: 30px;    --text-price--line-height: 36px;   /* mono hero price */
+  --text-hero: 40px;     --text-hero--line-height: 44px;    /* serif net worth, desktop */
+  --text-hero-lg: 48px;  --text-hero-lg--line-height: 50px; /* serif net worth, phone */
+
+  /* Radius */
+  --radius-chip: 999px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Elevation (dark UI: borders do most of the work) */
+  --shadow-brass: 0 1px 0 rgb(255 255 255 / 0.35) inset, 0 8px 24px rgb(201 164 92 / 0.18);
+  --shadow-sheet: 0 -12px 40px rgb(0 0 0 / 0.5);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --animate-flash-gain: flash-gain 420ms var(--ease-out);
+  --animate-flash-loss: flash-loss 420ms var(--ease-out);
+  --animate-tick: tick-ring 5000ms linear infinite;
+  --animate-shimmer: brass-shimmer 2400ms var(--ease-in-out);
+
+  @keyframes flash-gain { from { background-color: rgb(63 209 176 / 0.28); } to { background-color: transparent; } }
+  @keyframes flash-loss { from { background-color: rgb(255 107 90 / 0.28); } to { background-color: transparent; } }
+  @keyframes tick-ring  { from { stroke-dashoffset: var(--ring-length, 88); } to { stroke-dashoffset: 0; } }
+  @keyframes brass-shimmer { 0% { background-position: -150% 0; } 100% { background-position: 250% 0; } }
+}
+
+/* Fonts are runtime variables from next/font, so they must be inline. */
+@theme inline {
+  --font-serif: var(--font-instrument-serif), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+:root {
+  color-scheme: dark;
+  /* Durations for JS-driven motion (number roll, sheets, charts) */
+  --dur-fast: 120ms;     /* hover, press, toggles */
+  --dur-base: 220ms;     /* sheets, tabs, row inserts */
+  --dur-slow: 420ms;     /* price flash, rank-up beats, settle */
+  --dur-ambient: 2400ms; /* brass shimmer, idle glows */
+  --dur-tick: 5000ms;    /* one market tick; the tick ring */
+  /* Layout */
+  --rail-w: 72px;
+  --side-w: 344px;
+  --topbar-h: 76px;
+  --tabbar-h: 84px;
+  --focus-ring: 0 0 0 2px var(--color-ink-0), 0 0 0 4px var(--color-brass-hi);
+}
+
+@layer base {
+  html { background: var(--color-ink-0); }
+  body {
+    background: var(--color-ink-0);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+  ::selection { background: rgb(201 164 92 / 0.35); color: var(--color-fg); }
+}
+
+@layer utilities {
+  /* Every number on screen: prices, quantities, P&L, clocks */
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero; }
+  .label { font-size: var(--text-micro); letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-fg-faint); font-weight: 500; }
+  .btn-brass {
+    background: linear-gradient(180deg, var(--color-brass-hi) 0%, var(--color-brass) 55%, var(--color-brass-lo) 100%);
+    color: var(--color-on-brass); font-weight: 600; border-radius: var(--radius-md); box-shadow: var(--shadow-brass);
+    transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+  }
+  .btn-brass:hover { filter: brightness(1.06); }
+  .btn-brass:active { transform: translateY(1px) scale(0.99); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms; --dur-ambient: 0ms; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
