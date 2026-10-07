@@ -5,7 +5,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createWorld, stepMany, indexLevel, defaultConfig, seedStream } from "../../src/engine";
+import { createWorld, stepMany, indexLevel, defaultConfig, expectedVol } from "../../src/engine";
 import type { WorldState } from "../../src/engine";
 import { phase0Bands, check } from "./bands";
 
@@ -62,7 +62,7 @@ function runSeed(seed: string): SeedResult {
   const msPerTick = (performance.now() - t0) / state.tick;
 
   const volRatio: Record<string, number> = {};
-  ids.forEach((id, i) => { volRatio[id] = (sd(logRets(closes[i]!)) * Math.sqrt(cfg.daysPerYear)) / cfg.assets[i]!.vol; });
+  ids.forEach((id, i) => { volRatio[id] = (sd(logRets(closes[i]!)) * Math.sqrt(cfg.daysPerYear)) / expectedVol(cfg.assets[i]!); });
   const gxCagr = Math.pow(gx[gx.length - 1]! / gx[0]!, 1 / years) - 1;
 
   // Strategies on stocks, monthly (21 game days) holding periods, no fees (Phase 0 has no order book).
@@ -85,7 +85,6 @@ function main() {
   const cfg = defaultConfig({ ticksPerDay: tpd });
   const ids = cfg.assets.map((a) => a.id);
   const seeds = Array.from({ length: nSeeds }, (_, i) => `tape-${String(i + 1).padStart(2, "0")}`);
-  void seedStream; // engine export kept in the import list so API drift fails typecheck here
 
   const t0 = performance.now();
   const results = seeds.map(runSeed);

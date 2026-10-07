@@ -10,7 +10,7 @@ export function phase0Bands(assetIds: string[]): Band[] {
   return [
     ...assetIds.map((id) => ({
       id: `vol_ratio_median:${id}`,
-      label: `${id} realized/target vol, median across seeds`,
+      label: `${id} realized vol / expectedVol(def) (diffusive + jumps), median across seeds`,
       min: 0.85,
       max: 1.4,
       source: Q,
