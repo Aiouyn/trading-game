@@ -1,12 +1,13 @@
 /**
  * Headless price simulator run.
- *   npx tsx scripts/sim.ts --seed alpha --days 504 [--csv out/prices.csv] [--json out/summary.json]
+ *   npx tsx scripts/sim.ts --seed alpha --days 504 [--game] [--csv out/prices.csv] [--json out/summary.json]
+ *   --game runs the app's config (catalysts on: earnings, previews, rumors, post-earnings drift)
  * Prints per-asset stats from daily closes, the regime timeline, event counts, volume stats and trading costs.
  * No UI, no network; same seed => same output, byte for byte.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createWorld, step, indexLevel, defaultConfig, expectedVol, estimateFill } from '../src/engine';
+import { createWorld, step, indexLevel, defaultConfig, gameConfig, expectedVol, estimateFill } from '../src/engine';
 import type { StepEvent } from '../src/engine';
 
 function arg(name: string, fallback: string): string {
@@ -19,7 +20,7 @@ const days = Number(arg('days', '504'));
 const csvPath = process.argv.includes('--csv') ? arg('csv', 'out/prices.csv') : null;
 const jsonPath = process.argv.includes('--json') ? arg('json', 'out/summary.json') : null;
 
-const cfg = defaultConfig();
+const cfg = process.argv.includes('--game') ? gameConfig() : defaultConfig();
 const ids = cfg.assets.map((a) => a.id);
 const series: Record<string, number[]> = { GX: [] };
 for (const id of ids) series[id] = [];
@@ -28,7 +29,7 @@ const regimeByDay: string[] = [];
 const dayVol: Record<string, number[]> = {};
 const newsDay: Record<string, boolean[]> = {};
 for (const id of ids) { dayVol[id] = []; newsDay[id] = []; }
-const counts: Record<StepEvent['type'], number> = { regime: 0, jump: 0, halt: 0, reopen: 0 };
+const counts: Record<StepEvent['type'], number> = { regime: 0, jump: 0, halt: 0, reopen: 0, preview: 0, rumor: 0, earnings: 0 };
 
 let state = createWorld(seed, cfg);
 const record = () => {

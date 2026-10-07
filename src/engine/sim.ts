@@ -1,6 +1,7 @@
 import { Rng, seedStream } from './rng';
 import { DEFAULT_VOLUME, defaultConfig, idioLoading } from './config';
 import { clearOrders } from './trading';
+import { catalystDay, peadDrift } from './catalysts';
 import type {
   AssetDef, AssetState, Fill, Quote, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
 } from './types';
@@ -144,15 +145,28 @@ export function step(state: WorldState): StepResult {
       events.push({ type: 'jump', tick, assetId: def.id, logSize: jump });
     }
 
-    // fundamental value: drift + the permanent share of news
+    // catalysts (own stream): earnings gap before the open, then post-earnings drift
+    let catalyst = 0;
+    let earn = 0;
+    if (cfg.catalysts && def.assetClass === 'stock') {
+      if (newDay || prev.nextEarnings === undefined) {
+        const day = Math.floor(state.tick / cfg.ticksPerDay);
+        const out = catalystDay(a, def, cfg.catalysts, state.seed, day, tick, cfg.ticksPerDay);
+        if (out.jump !== 0) { catalyst += out.jump; earn = out.jump; a.dayJump += out.jump; }
+        for (const e of out.events) events.push(e);
+      }
+      catalyst += peadDrift(a, tick);
+    }
+
+    // fundamental value: drift + the permanent share of news (catalysts are all news)
     const mu = def.drift + def.cycleBeta * rg.equityDrift;
     const perm = cfg.permanentShare;
     const diff = sigma * sqrtDt * shock;
-    a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + perm * diff + perm * jump;
+    a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + perm * diff + perm * jump + catalyst;
 
     // market price: same drift, pull toward V, full shock and jump
     const kappa = LN2 / (def.halfLifeDays / cfg.daysPerYear);
-    const r = (mu - 0.5 * sigma * sigma) * dt + kappa * (a.lnV - prev.lnP) * dt + diff + jump;
+    const r = (mu - 0.5 * sigma * sigma) * dt + kappa * (a.lnV - prev.lnP) * dt + diff + jump + catalyst;
 
     a.rng = rng.state();
     const halted = prev.haltUntil !== -1;
@@ -182,6 +196,7 @@ export function step(state: WorldState): StepResult {
     a.vrng = vrng.state();
     let heat = (prev.heat ?? 0) * heatDecay;
     if (jump !== 0) heat += vc.jumpHeat * Math.abs(jump);
+    if (earn !== 0) heat += vc.jumpHeat * Math.abs(earn) + vc.reopenHeat;
     for (let e = events.length - 1; e >= 0 && events[e]!.tick === tick; e--) {
       const ev = events[e]!;
       if (ev.type === 'halt' && ev.assetId === def.id) heat += vc.haltHeat;

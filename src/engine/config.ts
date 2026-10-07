@@ -1,3 +1,4 @@
+import { DEFAULT_CATALYSTS } from './catalysts';
 import type { AssetDef, IndexDef, RegimeDef, RegimeId, TradingConfig, VolumeConfig, WorldConfig } from './types';
 
 /** 01 §5.3. Lengths: Expansion 1.5–3 game yrs, the others 0.5–1 yr (252 trading days per year). */
@@ -169,4 +170,13 @@ export function defaultConfig(overrides: Partial<WorldConfig> = {}): WorldConfig
     indices: DEFAULT_INDICES,
     ...overrides,
   };
+}
+
+/**
+ * The config the game runs: the calibrated engine plus catalysts (scheduled earnings, analyst
+ * previews, rumors, post-earnings drift). defaultConfig() stays catalyst-free so the engine's
+ * calibration tests and balance bands keep measuring the bare price model.
+ */
+export function gameConfig(overrides: Partial<WorldConfig> = {}): WorldConfig {
+  return defaultConfig({ catalysts: DEFAULT_CATALYSTS, ...overrides });
 }

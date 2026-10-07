@@ -116,6 +116,8 @@ export interface WorldConfig {
   trading?: TradingConfig;
   /** volume model; defaults to DEFAULT_VOLUME */
   volume?: VolumeConfig;
+  /** earnings, previews, rumors and post-earnings drift; off when absent */
+  catalysts?: CatalystConfig;
   regimes: Record<RegimeId, RegimeDef>;
   assets: AssetDef[];
   indices: IndexDef[];
@@ -153,6 +155,46 @@ export interface AssetState {
   cumVolume: number;
   /** attention after news, jumps and halts: extra volume multiplier that decays */
   heat: number;
+  // ---- catalysts (stocks only, when config.catalysts is set; all optional so old saves load) ----
+  /** earnings stream ('earnings:<id>'); separate so catalysts never shift the price stream */
+  erng?: RngState;
+  /** game day index (0-based) of the next earnings report, released before that day's open */
+  nextEarnings?: number;
+  /** published analyst lean for the next report in [-1, 1]; null until the preview */
+  consensus?: number | null;
+  /** hidden standardized surprise of the next report, drawn at the preview */
+  surprise?: number | null;
+  /** direction of the rumor about the next report, if one went out */
+  rumor?: 1 | -1 | null;
+  /** post-earnings drift: log move added each tick until peadUntil */
+  peadPerTick?: number;
+  peadUntil?: number;
+  /** the last report, for the UI */
+  lastEarnings?: { day: number; surprise: number; move: number } | null;
+}
+
+/** Scheduled earnings, analyst previews, rumors and post-earnings drift (ENGINE.md, Catalysts). */
+export interface CatalystConfig {
+  /** game days between reports (63 = quarterly) */
+  everyDays: number;
+  /** ± random days on each next report date */
+  jitterDays: number;
+  /** analysts publish their consensus this many days before the report */
+  previewDays: number;
+  /** a rumor may go out this many days before the report */
+  rumorDays: number;
+  rumorProb: number;
+  /** chance the rumor points the right way */
+  rumorAccuracy: number;
+  /** spread of the published consensus before clamping to [-1, 1] */
+  consensusSd: number;
+  /** correlation between consensus and the real surprise */
+  rho: number;
+  /** log move per unit surprise for a 30%-vol stock (scales with the stock's vol) */
+  moveScale: number;
+  /** extra drift after the report, as a share of the report move */
+  peadShare: number;
+  peadDays: number;
 }
 
 export interface VolumeConfig {
@@ -276,7 +318,13 @@ export type StepEvent =
   | { type: 'regime'; tick: number; from: RegimeId; to: RegimeId }
   | { type: 'jump'; tick: number; assetId: string; logSize: number }
   | { type: 'halt'; tick: number; assetId: string; move: number }
-  | { type: 'reopen'; tick: number; assetId: string; gap: number };
+  | { type: 'reopen'; tick: number; assetId: string; gap: number }
+  /** analysts publish their lean for an upcoming report */
+  | { type: 'preview'; tick: number; assetId: string; consensus: number; daysAway: number }
+  /** an unconfirmed tip about an upcoming report; right with probability rumorAccuracy */
+  | { type: 'rumor'; tick: number; assetId: string; direction: 1 | -1 }
+  /** the report itself, released before the open; move is the price gap it causes (fraction) */
+  | { type: 'earnings'; tick: number; assetId: string; surprise: number; consensus: number; move: number };
 
 export interface StepResult {
   state: WorldState;
