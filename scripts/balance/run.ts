@@ -5,7 +5,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createWorld, stepMany, indexLevel, defaultConfig, expectedVol } from "../../src/engine";
+import { createWorld, stepMany, indexLevel, defaultConfig, expectedVol, openAccount, placeOrder, portfolio } from "../../src/engine";
 import type { WorldState } from "../../src/engine";
 import { phase0Bands, check } from "./bands";
 
@@ -31,7 +31,49 @@ function hash(s: string) { let h = 2166136261; for (const c of s) { h ^= c.charC
 type SeedResult = {
   seed: string; volRatio: Record<string, number>; gxCagr: number; invalid: number; sawContraction: boolean;
   bh: number; random: number; momentum: number; finalHash: string; msPerTick: number;
+  fee: { bh: number; random: number; momentum: number; momentumFees: number };
 };
+
+// Fee-aware strategies (engine task #2 order API): each strategy trades in its OWN same-seed world,
+// because fills move prices (permanent impact) and would contaminate a shared world.
+// $5,000 start (the real game start), market orders, whole shares. Rebalance every 21 game days from day 63:
+// sell everything, step 1 tick, buy floor(0.97 * cash / price), step 1 tick. Buy-and-hold buys an
+// equal-weight stock basket once on day 63. Result = equity multiple over the same window for all three.
+const START_CASH = 5000, PID = "tape";
+function feeAware(seed: string, cfg: ReturnType<typeof defaultConfig>, days: number, stockIdx: number[], kind: "bh" | "random" | "momentum") {
+  const month = 21, look = 63;
+  const lastStart = look + Math.floor((days - month - look) / month) * month;
+  const end = lastStart + month;
+  const rand = mulberry32(hash(`${seed}::tape-random`));
+  let s: WorldState = openAccount(createWorld(seed, cfg), PID, START_CASH);
+  const closes: number[][] = cfg.assets.map(() => []);
+  const rec = () => s.assets.forEach((a, i) => closes[i]!.push(Math.exp(a.lnP)));
+  const order = (assetId: string, side: "buy" | "sell", qty: number) => { if (qty > 0) s = placeOrder(s, { playerId: PID, assetId, side, type: "market", qty }).state; };
+  const px = (i: number) => Math.exp(s.assets[i]!.lnP);
+  rec();
+  let startEq = START_CASH, endEq = START_CASH;
+  for (let d = 0; d < end; d++) {
+    let used = 0;
+    if (d >= look && d < end && (d - look) % month === 0 && (kind !== "bh" || d === look)) {
+      if (d === look) startEq = portfolio(s, PID).equity;
+      for (const [id, p] of Object.entries(s.accounts[PID]!.positions)) order(id, "sell", p.qty);
+      s = stepMany(s, 1).state; used++;
+      const cash = s.accounts[PID]!.cash;
+      if (kind === "bh") {
+        for (const i of stockIdx) order(cfg.assets[i]!.id, "buy", Math.floor((0.97 * cash) / stockIdx.length / px(i)));
+      } else {
+        let pick = stockIdx[0]!;
+        if (kind === "random") pick = stockIdx[Math.floor(rand() * stockIdx.length)]!;
+        else { let best = -Infinity; for (const i of stockIdx) { const tr = closes[i]![d]! / closes[i]![d - look]!; if (tr > best) { best = tr; pick = i; } } }
+        order(cfg.assets[pick]!.id, "buy", Math.floor((0.97 * cash) / px(pick)));
+      }
+      s = stepMany(s, 1).state; used++;
+    }
+    s = stepMany(s, tpd - used).state; rec();
+  }
+  endEq = portfolio(s, PID).equity;
+  return { multiple: endEq / startEq, fees: s.accounts[PID]!.feesPaid };
+}
 
 function runSeed(seed: string): SeedResult {
   const cfg = defaultConfig({ ticksPerDay: tpd });
@@ -78,7 +120,9 @@ function runSeed(seed: string): SeedResult {
     bh *= gx[d + month]! / gx[d]!;
   }
   const finalHash = String(hash(JSON.stringify(state)));
-  return { seed, volRatio, gxCagr, invalid, sawContraction, bh, random, momentum, finalHash, msPerTick };
+  const fb = feeAware(seed, cfg, days, stockIdx, "bh"), fr = feeAware(seed, cfg, days, stockIdx, "random"), fm = feeAware(seed, cfg, days, stockIdx, "momentum");
+  const fee = { bh: fb.multiple, random: fr.multiple, momentum: fm.multiple, momentumFees: fm.fees };
+  return { seed, volRatio, gxCagr, invalid, sawContraction, bh, random, momentum, finalHash, msPerTick, fee };
 }
 
 function main() {
@@ -96,8 +140,15 @@ function main() {
   stats.gx_cagr_median = median(results.map((r) => r.gxCagr));
   stats.invalid_values = results.reduce((a, r) => a + r.invalid, 0);
   stats.contraction_seed_share = results.filter((r) => r.sawContraction).length / results.length;
-  stats.bh_beats_random_share = results.filter((r) => r.bh > r.random).length / results.length;
-  stats.bh_beats_momentum_share = results.filter((r) => r.bh > r.momentum).length / results.length;
+  // banded: fee-aware (real order API). Info only: the old no-fee index version, and medians.
+  stats.bh_beats_random_share = results.filter((r) => r.fee.bh > r.fee.random).length / results.length;
+  stats.bh_beats_momentum_share = results.filter((r) => r.fee.bh > r.fee.momentum).length / results.length;
+  stats.info_nofee_bh_beats_random_share = results.filter((r) => r.bh > r.random).length / results.length;
+  stats.info_nofee_bh_beats_momentum_share = results.filter((r) => r.bh > r.momentum).length / results.length;
+  stats.info_fee_median_multiple_bh = median(results.map((r) => r.fee.bh));
+  stats.info_fee_median_multiple_random = median(results.map((r) => r.fee.random));
+  stats.info_fee_median_multiple_momentum = median(results.map((r) => r.fee.momentum));
+  stats.info_momentum_median_fees_usd = median(results.map((r) => r.fee.momentumFees));
   stats.determinism_mismatch = repeat.finalHash === results[0]!.finalHash ? 0 : 1;
 
   const checked = check(phase0Bands(ids), stats);
@@ -110,6 +161,7 @@ function main() {
     console.log(`${r.pass ? "PASS" : "FAIL"}  ${r.id.padEnd(30)} ${v.padStart(8)}   [${r.min}, ${r.max}]`);
   }
   const fails = checked.filter((r) => !r.pass).length;
+  for (const [k, v] of Object.entries(stats)) if (k.startsWith("info_")) console.log(`info  ${k.padEnd(40)} ${v.toFixed(3)}`);
   console.log(fails ? `balance: ${fails} band(s) FAILED` : "balance: all bands PASS");
   if (fails) process.exitCode = 1;
 }
