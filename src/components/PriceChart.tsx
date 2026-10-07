@@ -6,7 +6,7 @@ import {
   type IChartApi, type ISeriesApi, type Time, type UTCTimestamp,
 } from 'lightweight-charts';
 import { useGame } from '@/game/store';
-import { barTimeLabel, candles, rangeSpec, type Bar } from '@/game/history';
+import { barTimeLabel, candles, rangeSpec, type Bar, type RangeId } from '@/game/history';
 import { price as fmtPrice } from '@/game/format';
 
 /**
@@ -61,7 +61,13 @@ function withAlpha(color: string, alpha: number): string {
 const PRICE_MARGINS = { top: 0.08, bottom: 0.26 };
 const VOLUME_MARGINS = { top: 0.8, bottom: 0.02 };
 
-export function PriceChart({ assetId }: { assetId: string }) {
+export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, testId = 'price-chart' }: {
+  assetId: string;
+  /** defaults to the market chart's range and style in the store */
+  range?: RangeId;
+  mode?: 'candles' | 'line';
+  testId?: string;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candleSeries = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -70,8 +76,10 @@ export function PriceChart({ assetId }: { assetId: string }) {
   const volColors = useRef({ up: '', down: '' });
   const lastKey = useRef('');
 
-  const range = useGame((s) => s.range);
-  const mode = useGame((s) => s.chartMode);
+  const storeRange = useGame((s) => s.range);
+  const storeMode = useGame((s) => s.chartMode);
+  const range = rangeOverride ?? storeRange;
+  const mode = modeOverride ?? storeMode;
   const rev = useGame((s) => s.historyRev);
   const tpd = useGame((s) => s.world?.config.ticksPerDay ?? 720);
 
@@ -158,5 +166,5 @@ export function PriceChart({ assetId }: { assetId: string }) {
     if (hasVolume) vs?.update(volPoint(last));
   }, [assetId, range, rev]);
 
-  return <div ref={host} className="h-full w-full" data-testid="price-chart" />;
+  return <div ref={host} className="h-full w-full" data-testid={testId} />;
 }

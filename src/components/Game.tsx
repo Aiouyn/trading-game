@@ -7,6 +7,7 @@ import { useIsDesktop, useIsPhone } from '@/game/useMedia';
 import { PhoneHeader, TopBar } from './Header';
 import { ChartCard, Positions, TickerStrip, Watchlist } from './Market';
 import { OpenOrders, OrderPad } from './OrderPad';
+import { PortfolioView } from './Portfolio';
 import { NavRail, TabBar, Toasts, TradeSheet, WireStrip } from './Shell';
 
 declare global {
@@ -82,6 +83,7 @@ export function Game() {
   const selected = useGame((s) => s.selected);
   const setSheet = useGame((s) => s.setTradeSheet);
   const tradable = useGame((s) => !!s.world?.config.assets.some((a) => a.id === s.selected));
+  const tab = useGame((s) => s.tab);
 
   if (status !== 'ready') return <Loading />;
 
@@ -90,11 +92,17 @@ export function Game() {
       <div className="flex w-full flex-1 flex-col" data-layout="phone">
         <PhoneHeader />
         {/* bottom padding = tab bar + 16 gap + 52 Trade button + 24, so the last row scrolls clear */}
-        <main className="flex flex-col gap-4 px-4 pt-4 pb-[calc(var(--tabbar-h)+92px)]" data-testid="phone-main">
-          <TickerStrip />
-          <ChartCard phone />
-          <Positions phone />
-          <OpenOrders />
+        <main className="flex flex-col gap-4 px-4 pt-4 pb-[calc(var(--tabbar-h)+92px)]" data-testid="phone-main" data-tab={tab}>
+          {tab === 'portfolio' ? (
+            <PortfolioView phone />
+          ) : (
+            <>
+              <TickerStrip />
+              <ChartCard phone />
+              <Positions phone />
+              <OpenOrders />
+            </>
+          )}
         </main>
         {/* ink fade behind the floating Trade button (mock §4) */}
         <div className="pointer-events-none fixed inset-x-0 bottom-[var(--tabbar-h)] z-10 h-24 bg-linear-to-t from-ink-0 from-40% to-transparent" aria-hidden data-testid="trade-fade" />
@@ -118,10 +126,8 @@ export function Game() {
         {/* Only the area between the top bar and the Wire scrolls, so nothing ever renders under the Wire. */}
         {isDesktop ? (
           <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_var(--side-w)] grid-rows-[minmax(0,1fr)] gap-4 p-4">
-            <div className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="main-column">
-              <ChartCard />
-              <Positions />
-              <OpenOrders />
+            <div key={tab} className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="main-column" data-tab={tab}>
+              {tab === 'portfolio' ? <PortfolioView /> : <><ChartCard /><Positions /><OpenOrders /></>}
             </div>
             <aside className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="side-column">
               <div className="shrink-0"><OrderPad /></div>
@@ -131,10 +137,8 @@ export function Game() {
             </aside>
           </main>
         ) : (
-          <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4" data-testid="main-column">
-            <ChartCard />
-            <Positions />
-            <OpenOrders />
+          <main key={tab} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4" data-testid="main-column" data-tab={tab}>
+            {tab === 'portfolio' ? <PortfolioView /> : <><ChartCard /><Positions /><OpenOrders /></>}
             <aside className="grid grid-cols-2 items-start gap-4">
               <OrderPad />
               <div className="[&>section]:max-h-[640px]">

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
-import { useGame } from '@/game/store';
+import { useGame, type Tab } from '@/game/store';
 import type { WireItem } from '@/game/wire';
 import { OrderPad } from './OrderPad';
 
@@ -36,14 +36,19 @@ const NAV: { id: IconName; label: string; href?: string }[] = [
   { id: 'more', label: 'More', href: '/credits' },
 ];
 
-/** Desktop and tablet rail. Only Market exists in Phase 0; the rest are placeholders. */
+const TABS: readonly Tab[] = ['market', 'portfolio'];
+const isTab = (id: string): id is Tab => (TABS as readonly string[]).includes(id);
+
+/** Desktop and tablet rail. Market and Portfolio are live in Phase 0; Estate and Wire are placeholders. */
 export function NavRail() {
   const newGame = useGame((s) => s.newGame);
+  const tab = useGame((s) => s.tab);
+  const setTab = useGame((s) => s.setTab);
   return (
     <nav aria-label="Main" className="flex h-dvh w-[var(--rail-w)] shrink-0 flex-col items-center gap-1 border-r border-ink-2 py-4">
       <div className="mb-4 font-serif text-title text-brass" aria-hidden>T</div>
       {NAV.map((n) => {
-        const on = n.id === 'market';
+        const on = n.id === tab;
         if (n.href) {
           return (
             <Link key={n.id} href={n.href} title="Credits" className="flex w-14 flex-col items-center gap-1 rounded-md py-2 text-micro tracking-normal text-fg-faint hover:bg-ink-2 hover:text-fg" data-testid={`nav-${n.id}`}>
@@ -52,14 +57,17 @@ export function NavRail() {
             </Link>
           );
         }
+        const live = isTab(n.id);
         return (
           <button
             key={n.id}
             type="button"
+            onClick={live ? () => setTab(n.id as Tab) : undefined}
             aria-current={on ? 'page' : undefined}
-            aria-disabled={!on}
-            title={on ? n.label : `${n.label} (coming later)`}
-            className={`flex w-14 flex-col items-center gap-1 rounded-md py-2 text-micro tracking-normal ${on ? 'bg-ink-2 text-fg' : 'cursor-default text-fg-disabled'}`}
+            aria-disabled={!live}
+            title={live ? n.label : `${n.label} (coming later)`}
+            className={`flex w-14 flex-col items-center gap-1 rounded-md py-2 text-micro tracking-normal ${on ? 'bg-ink-2 text-fg' : live ? 'text-fg-faint hover:bg-ink-2 hover:text-fg' : 'cursor-default text-fg-disabled'}`}
+            data-testid={`nav-${n.id}`}
           >
             <Icon name={n.id} />
             {n.label}
@@ -79,10 +87,12 @@ export function NavRail() {
 }
 
 export function TabBar() {
+  const tab = useGame((s) => s.tab);
+  const setTab = useGame((s) => s.setTab);
   return (
     <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 flex h-[var(--tabbar-h)] border-t border-ink-2 bg-ink-0 pb-[env(safe-area-inset-bottom)]">
       {NAV.map((n) => {
-        const on = n.id === 'market';
+        const on = n.id === tab;
         if (n.href) {
           return (
             <Link key={n.id} href={n.href} className="flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-micro tracking-normal text-fg-faint" data-testid={`tab-${n.id}`}>
@@ -91,13 +101,16 @@ export function TabBar() {
             </Link>
           );
         }
+        const live = isTab(n.id);
         return (
           <button
             key={n.id}
             type="button"
+            onClick={live ? () => { setTab(n.id as Tab); window.scrollTo({ top: 0 }); } : undefined}
             aria-current={on ? 'page' : undefined}
-            aria-disabled={!on}
-            className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-micro tracking-normal ${on ? 'text-brass-hi' : 'text-fg-disabled'}`}
+            aria-disabled={!live}
+            className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-micro tracking-normal ${on ? 'text-brass-hi' : live ? 'text-fg-faint' : 'text-fg-disabled'}`}
+            data-testid={`tab-${n.id}`}
           >
             <Icon name={n.id} />
             {n.label}

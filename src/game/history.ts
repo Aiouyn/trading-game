@@ -51,6 +51,14 @@ export function createHistory(ids: string[], ticksPerDay: number, volumeIds: str
   return { version: 1, ticksPerDay, capacity, lastTick: -1, series };
 }
 
+/** Add empty series a newer app records (e.g. net worth) to an older saved history. Mutates. */
+export function ensureSeries(h: History, ids: string[]): History {
+  for (const id of ids) {
+    if (!h.series[id]) h.series[id] = { ring: new Array<number>(h.capacity).fill(0), head: 0, size: 0, daily: [] };
+  }
+  return h;
+}
+
 /** Give a history saved before volume existed its volume rings (bars start at 0). Mutates. */
 export function ensureVolume(h: History, volumeIds: string[]): History {
   for (const id of volumeIds) {

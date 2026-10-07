@@ -2,11 +2,11 @@
 
 import { create } from 'zustand';
 import {
-  cancelOrder, createWorld, defaultConfig, indexLevel, openAccount, placeOrder, prices, step,
+  cancelOrder, createWorld, defaultConfig, indexLevel, openAccount, placeOrder, portfolio, prices, step,
 } from '@/engine';
 import type { Order, OrderRequest, WorldState } from '@/engine';
 import { tickMs, type Speed } from './clock';
-import { createHistory, ensureVolume, record, type History, type RangeId } from './history';
+import { createHistory, ensureSeries, ensureVolume, record, type History, type RangeId } from './history';
 import { clearSave, loadGame, saveGame } from './save';
 import { firstTradeCap, previewTicket } from './ticket';
 import { WIRE_KEEP, wireFromEvents, type WireItem } from './wire';
@@ -42,6 +42,7 @@ export interface GameStore {
   wire: WireItem[];
   toasts: Toast[];
   tradeSheetOpen: boolean;
+  tab: Tab;
 
   boot: (opts?: { seed?: string; fresh?: boolean }) => Promise<void>;
   newGame: (seed?: string) => Promise<void>;
@@ -52,15 +53,22 @@ export interface GameStore {
   setRange: (r: RangeId) => void;
   setChartMode: (m: 'candles' | 'line') => void;
   setTradeSheet: (open: boolean) => void;
+  setTab: (tab: Tab) => void;
   submitOrder: (req: Omit<OrderRequest, 'playerId'>) => Order | null;
   cancel: (orderId: string) => void;
   dismissToast: (id: string) => void;
   persist: () => void;
 }
 
+/** App-side series id for the player's net worth (the engine keeps no equity history). */
+export const NW_ID = 'NW';
+
+export type Tab = 'market' | 'portfolio';
+
 function snapshot(w: WorldState): Record<string, number> {
   const p = prices(w);
   for (const idx of w.config.indices) p[idx.id] = indexLevel(w, idx.id);
+  if (w.accounts[PLAYER]) p[NW_ID] = portfolio(w, PLAYER).equity;
   return p;
 }
 
@@ -76,7 +84,7 @@ function assetIds(w: WorldState): string[] {
 }
 
 function seriesIds(w: WorldState): string[] {
-  return [...w.config.indices.map((i) => i.id), ...w.config.assets.map((a) => a.id)];
+  return [...w.config.indices.map((i) => i.id), ...w.config.assets.map((a) => a.id), NW_ID];
 }
 
 function randomSeed(): string {
@@ -121,6 +129,7 @@ export const useGame = create<GameStore>((set, get) => ({
   wire: [],
   toasts: [],
   tradeSheetOpen: false,
+  tab: 'market',
 
   async boot(opts) {
     if (get().status !== 'idle') return;
@@ -128,7 +137,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (!opts?.fresh && !opts?.seed) {
       const saved = await loadGame();
       if (saved && saved.world.accounts[PLAYER]) {
-        set({ world: saved.world, history: ensureVolume(saved.history, assetIds(saved.world)), wire: saved.wire ?? [], status: 'ready', loadProgress: 1, historyRev: 1 });
+        set({ world: saved.world, history: ensureVolume(ensureSeries(saved.history, [NW_ID]), assetIds(saved.world)), wire: saved.wire ?? [], status: 'ready', loadProgress: 1, historyRev: 1 });
         return;
       }
     }
@@ -155,6 +164,7 @@ export const useGame = create<GameStore>((set, get) => ({
       await yieldToBrowser();
     }
     w = openAccount(w, PLAYER);
+    record(h, w.tick, { [NW_ID]: portfolio(w, PLAYER).equity }); // net worth history starts at the opening bell
     await clearSave();
     set({ world: w, history: h, historyRev: get().historyRev + 1, wire, status: 'ready', loadProgress: 1, paused: false });
     get().persist();
@@ -206,6 +216,7 @@ export const useGame = create<GameStore>((set, get) => ({
   setRange(range) { set({ range }); },
   setChartMode(chartMode) { set({ chartMode }); },
   setTradeSheet(tradeSheetOpen) { set({ tradeSheetOpen }); },
+  setTab(tab) { set({ tab, tradeSheetOpen: false }); },
 
   submitOrder(req) {
     const w = get().world;
