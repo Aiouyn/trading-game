@@ -141,7 +141,7 @@ export function Positions({ phone = false }: { phone?: boolean }) {
         <ul>
           {rows.map((p) => (
             <li key={p.assetId}>
-              <button type="button" onClick={() => select(p.assetId)} className="flex min-h-14 w-full items-center gap-3 border-t border-ink-2 px-4 py-2 text-left">
+              <button type="button" onClick={() => select(p.assetId)} className="flex min-h-14 w-full items-center gap-3 border-t border-ink-2 px-4 py-2 text-left" data-testid={`position-${p.assetId}`}>
                 <div className="min-w-0 flex-1">
                   <div className="num text-small font-semibold text-fg">{p.assetId}</div>
                   <div className="num truncate text-caption text-fg-faint">{qty(p.qty)} &times; {price(p.avgCost)}</div>

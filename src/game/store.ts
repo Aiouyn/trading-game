@@ -154,6 +154,7 @@ export const useGame = create<GameStore>((set, get) => ({
     let w = world;
     let wire = get().wire;
     const toasts: Toast[] = [];
+    let playerChanged = false;
     for (let k = 0; k < n; k++) {
       const r = step(w);
       w = r.state;
@@ -163,6 +164,7 @@ export const useGame = create<GameStore>((set, get) => ({
       }
       for (const f of r.fills) {
         if (f.playerId !== PLAYER) continue;
+        playerChanged = true;
         toasts.push({
           id: `${f.orderId}-${f.tick}`,
           tone: f.side === 'buy' ? 'gain' : 'loss',
@@ -173,12 +175,14 @@ export const useGame = create<GameStore>((set, get) => ({
       for (const o of w.orders) {
         if (o.playerId !== PLAYER || o.closedTick !== w.tick || o.status === 'filled') continue;
         if (o.status === 'cancelled' && !o.rejectReason) continue; // the player's own cancel
+        playerChanged = true;
         toasts.push({ id: `${o.id}-closed`, tone: 'loss', text: closedText(o) });
       }
     }
     set({ world: w, wire, historyRev: get().historyRev + 1, toasts: toasts.length ? [...get().toasts, ...toasts].slice(-4) : get().toasts });
     ticksSinceSave += n;
-    if (ticksSinceSave >= AUTOSAVE_EVERY) get().persist();
+    // a fill or a closed order is saved right away, so a reload never loses a trade
+    if (playerChanged || ticksSinceSave >= AUTOSAVE_EVERY) get().persist();
   },
 
   setSpeed(speed) { set({ speed, paused: false }); },

@@ -24,11 +24,6 @@ function useBootAndLoop() {
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     void useGame.getState().boot({ seed: p.get('seed') ?? undefined, fresh: p.has('fresh') });
-    window.__tg = {
-      advance: (n = 1) => useGame.getState().tick(n),
-      pause: () => { if (!useGame.getState().paused) useGame.getState().togglePause(); },
-      state: useGame.getState,
-    };
     const save = () => useGame.getState().persist();
     const onHide = () => { if (document.visibilityState === 'hidden') save(); };
     document.addEventListener('visibilitychange', onHide);
@@ -38,6 +33,23 @@ function useBootAndLoop() {
       window.removeEventListener('pagehide', save);
     };
   }, []);
+
+  // Test hook and readiness flag appear only once the market has loaded, so waiting on either
+  // never catches the "Opening the market" screen.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (status !== 'ready') {
+      root.dataset.game = 'loading';
+      delete window.__tg;
+      return;
+    }
+    root.dataset.game = 'ready';
+    window.__tg = {
+      advance: (n = 1) => useGame.getState().tick(n),
+      pause: () => { if (!useGame.getState().paused) useGame.getState().togglePause(); },
+      state: useGame.getState,
+    };
+  }, [status]);
 
   useEffect(() => {
     if (status !== 'ready' || paused) return;
@@ -96,23 +108,38 @@ export function Game() {
   }
 
   return (
-    <div className="flex w-full flex-1" data-layout={isDesktop ? 'desktop' : 'tablet'}>
+    <div className="flex h-dvh w-full overflow-hidden" data-layout={isDesktop ? 'desktop' : 'tablet'}>
       <NavRail />
-      <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
+      <div className="flex h-dvh min-w-0 flex-1 flex-col">
         <TopBar />
-        <main className={`grid flex-1 content-start gap-4 p-4 ${isDesktop ? 'grid-cols-[minmax(0,1fr)_var(--side-w)]' : 'grid-cols-1'}`}>
-          <div className="flex min-w-0 flex-col gap-4">
+        {/* Only the area between the top bar and the Wire scrolls, so nothing ever renders under the Wire. */}
+        {isDesktop ? (
+          <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_var(--side-w)] grid-rows-[minmax(0,1fr)] gap-4 p-4">
+            <div className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="main-column">
+              <ChartCard />
+              <Positions />
+              <OpenOrders />
+            </div>
+            <aside className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="side-column">
+              <div className="shrink-0"><OrderPad /></div>
+              <div className="flex min-h-[176px] flex-1 flex-col [&>section]:flex-1">
+                <Watchlist />
+              </div>
+            </aside>
+          </main>
+        ) : (
+          <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4" data-testid="main-column">
             <ChartCard />
             <Positions />
             <OpenOrders />
-          </div>
-          <aside className={isDesktop ? 'flex min-w-0 flex-col gap-4' : 'grid grid-cols-2 items-start gap-4'}>
-            <OrderPad />
-            <div className={isDesktop ? 'max-h-[520px] min-h-0 [&>section]:max-h-[520px]' : '[&>section]:max-h-[640px]'}>
-              <Watchlist />
-            </div>
-          </aside>
-        </main>
+            <aside className="grid grid-cols-2 items-start gap-4">
+              <OrderPad />
+              <div className="[&>section]:max-h-[640px]">
+                <Watchlist />
+              </div>
+            </aside>
+          </main>
+        )}
         <WireStrip />
       </div>
       <Toasts />

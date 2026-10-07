@@ -39,7 +39,7 @@ const NAV: { id: IconName; label: string }[] = [
 export function NavRail() {
   const newGame = useGame((s) => s.newGame);
   return (
-    <nav aria-label="Main" className="sticky top-0 flex h-dvh w-[var(--rail-w)] shrink-0 flex-col items-center gap-1 border-r border-ink-2 py-4">
+    <nav aria-label="Main" className="flex h-dvh w-[var(--rail-w)] shrink-0 flex-col items-center gap-1 border-r border-ink-2 py-4">
       <div className="mb-4 font-serif text-title text-brass" aria-hidden>T</div>
       {NAV.map((n) => {
         const on = n.id === 'market';
@@ -94,7 +94,7 @@ export function TabBar() {
 export function WireStrip() {
   const wire = useGame((s) => s.wire);
   return (
-    <footer className="sticky bottom-0 z-10 flex h-[34px] shrink-0 items-center gap-3 overflow-hidden border-t border-ink-2 bg-ink-0 px-4 text-caption" data-testid="wire-strip">
+    <footer className="flex h-[34px] shrink-0 items-center gap-3 overflow-hidden border-t border-ink-2 bg-ink-0 px-4 text-caption" data-testid="wire-strip">
       <span className="label shrink-0 text-brass">Wire</span>
       {wire.length === 0 ? (
         <span className="text-fg-faint">Quiet markets. Headlines appear here when something real happens.</span>
