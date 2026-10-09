@@ -1,24 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, quote, shockPrice, shockValue, step, stepMany } from './sim';
 import { defaultConfig } from './config';
+import { universeConfig } from './universe';
 import { commission, estimateFill, halfSpread, impact, liquidationEquity, markCapOn, openAccount, permanentMove, placeOrder, portfolio, tradingConfig } from './trading';
-import type { WorldState } from './types';
+import type { WorldConfig, WorldState } from './types';
+import { median } from './hunt-helpers';
 
 /**
  * Clip splitting (Ledger, 2026-10-09). Tape's harness used SYN; this engine has SYN (Synapse, crypto,
  * $300M ADV, the thinnest book in the default universe), so it is the main case. AURH (Aurelius Holdings,
  * $72M ADV, the smallest-ADV stock) is checked too, in whole shares.
+ *
+ * Tape (hunts v1): the ratio and peak checks run on tape-01..tape-20 on defaultConfig (the bare engine), on
+ * tape-01..tape-05 on universeConfig with ecology off (the bare impact law), and on tape-01..tape-05 on universeConfig
+ * with full ecology (the game path). The full-ecology gate is the intraday peak lift, not the close: the closing auction
+ * reverts part of the impact, so the one-day close lift is noisy, and the close ratio is logged as info only.
  */
 const NOTIONAL = 1e6;
 const cfg = defaultConfig(); // the real 720 ticks per game day
+const uniCfg = universeConfig({ ticksPerDay: 720 }); // the game path
+const uniNoEco = universeConfig({ ticksPerDay: 720, ecology: undefined }); // the universe with the bare impact law
+const SEEDS = Array.from({ length: 20 }, (_, k) => `tape-${String(k + 1).padStart(2, '0')}`);
+const UNI_SEEDS = SEEDS.slice(0, 5);
 
 function idx(s: WorldState, id: string) { return s.config.assets.findIndex((a) => a.id === id); }
 
 /** lnP at the end of game day 0 after buying `units` either in one order at tick 1 or in 720 equal clips, one per tick */
-function dayLift(id: string, clips: number) {
-  const base = createWorld('clip', cfg);
+function dayLift(id: string, clips: number, c: WorldConfig = cfg, seed = 'clip') {
+  const base = createWorld(seed, c);
   const i = idx(base, id);
-  const def = cfg.assets[i]!;
+  const def = c.assets[i]!;
   const whole = def.qtyStep === 1;
   const per = whole ? Math.floor(NOTIONAL / def.initialPrice / 720) : NOTIONAL / def.initialPrice / 720;
   const total = per * 720;
@@ -26,43 +37,103 @@ function dayLift(id: string, clips: number) {
   let n = base;
   const marks: number[] = [];
   const mids: number[] = [];
-  for (let t = 0; t < cfg.ticksPerDay; t++) {
+  let peak = -Infinity; // the largest lnP lift the day reached, at any tick
+  for (let t = 0; t < c.ticksPerDay; t++) {
     if (clips === 1 && t === 0) s = placeOrder(s, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: total }).state;
     if (clips === 720) s = placeOrder(s, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: per }).state;
     s = step(s).state;
     n = step(n).state;
+    peak = Math.max(peak, s.assets[i]!.lnP - n.assets[i]!.lnP);
     const a = s.accounts.p1!;
     const qty = a.positions[id]?.qty ?? 0;
     marks.push(a.cash + qty * Math.exp(n.assets[i]!.lnP)); // holdings on the tape nobody pushed
     mids.push(a.cash + qty * Math.exp(s.assets[i]!.lnP)); // holdings at the mid you pushed
   }
   expect(s.accounts.p1!.positions[id]!.qty).toBeCloseTo(total, 6);
-  return { lift: s.assets[i]!.lnP - n.assets[i]!.lnP, state: s, marks, mids };
+  return { lift: s.assets[i]!.lnP - n.assets[i]!.lnP, peak, state: s, marks, mids };
 }
 
 describe('self impact: clips cost the same permanent impact as one order', () => {
   for (const id of ['SYN', 'AURH']) {
-    it(`self_impact_clip_ratio (${id}): 720 clips vs 1 clip, same notional, lift ratio <= 1.5`, { timeout: 60_000 }, () => {
-      const one = dayLift(id, 1);
-      const many = dayLift(id, 720);
-      const ratio = many.lift / one.lift;
-      console.log(`self_impact_clip_ratio ${id}: one-clip lift ${one.lift.toExponential(4)}, 720-clip lift ${many.lift.toExponential(4)}, ratio ${ratio.toFixed(4)}`);
-      expect(one.lift).toBeGreaterThan(0);
-      expect(ratio).toBeLessThanOrEqual(1.5);
-      expect(ratio).toBeGreaterThan(0.75);
+    it(`self_impact_clip_ratio (${id}, defaultConfig, tape-01..20): 720 clips vs 1 clip, same notional, lift ratio in (0.75, 1.5]`, { timeout: 60_000 }, () => {
+      const ratios: number[] = [];
+      for (const seed of SEEDS) {
+        const one = dayLift(id, 1, cfg, seed);
+        const many = dayLift(id, 720, cfg, seed);
+        expect(one.lift).toBeGreaterThan(0);
+        const ratio = many.lift / one.lift;
+        ratios.push(ratio);
+        expect(ratio).toBeLessThanOrEqual(1.5);
+        expect(ratio).toBeGreaterThan(0.75);
+      }
+      console.log(`self_impact_clip_ratio ${id} defaultConfig 20 seeds: median ${median(ratios).toFixed(4)}, min ${Math.min(...ratios).toFixed(4)}, max ${Math.max(...ratios).toFixed(4)}`);
     });
   }
 
-  it('self_mark_peak_pump: peak after the clip buy is not above the position marked on an unpushed tape', { timeout: 60_000 }, () => {
-    for (const clips of [720, 1]) {
-      const r = dayLift('SYN', clips);
-      const acct = r.state.accounts.p1!;
-      const unpumped = Math.max(3 * NOTIONAL, ...r.marks);
-      console.log(`self_mark_peak_pump SYN clips=${clips}: peak ${acct.peakEquity.toFixed(2)}, best no-pump mark ${unpumped.toFixed(2)}, best mid mark ${Math.max(...r.mids).toFixed(2)}, liquidation now ${liquidationEquity(r.state, 'p1').toFixed(2)}`);
-      expect(acct.peakEquity).toBeLessThanOrEqual(unpumped + 1e-6);
-      expect(portfolio(r.state, 'p1').peakEquity).toBeLessThanOrEqual(unpumped + 1e-6);
-      // the mid you pushed is above that mark; the peak is not built on it
-      if (clips === 720) expect(Math.max(...r.mids)).toBeGreaterThan(unpumped);
+  // The impact law itself (universe, ecology off): splitting into 720 clips lifts the close as much as one order.
+  for (const id of ['SYN', 'AURH']) {
+    it(`self_impact_clip_ratio (${id}, universeConfig 720 ticks, ecology off, tape-01..05): lift ratio in (0.75, 1.5]`, { timeout: 60_000 }, () => {
+      const ratios: number[] = [];
+      for (const seed of UNI_SEEDS) {
+        const one = dayLift(id, 1, uniNoEco, seed);
+        const many = dayLift(id, 720, uniNoEco, seed);
+        expect(one.lift).toBeGreaterThan(0);
+        const ratio = many.lift / one.lift;
+        ratios.push(ratio);
+        expect(ratio).toBeLessThanOrEqual(1.5);
+        expect(ratio).toBeGreaterThan(0.75);
+      }
+      console.log(`self_impact_clip_ratio ${id} universe ecology-off 5 seeds: median ${median(ratios).toFixed(4)}, min ${Math.min(...ratios).toFixed(4)}, max ${Math.max(...ratios).toFixed(4)}`);
+    });
+  }
+
+  // The game path (universe, full ecology). The gate is the intraday peak lift ratio, two-sided per seed: the largest lnP
+  // move the day reaches, before the closing auction can revert it. The close lift is not gated here. Under full ecology
+  // the auction sets the close and the one-clip close lift is near zero on some seeds, so a close ratio of two small
+  // numbers swings widely (on 20 seeds the one-clip close lift changes sign in 2 of 20 SYN and 3 of 20 AURH runs).
+  // The close ratio is printed for the record. Ledger's 0.997 sign-off used the close and is not reproduced by this gate.
+  for (const id of ['SYN', 'AURH']) {
+    it(`self_impact_peak_ratio (${id}, universeConfig 720 ticks, full ecology, tape-01..05): intraday peak lift ratio in (0.75, 1.5]`, { timeout: 60_000 }, () => {
+      const peakRatios: number[] = [];
+      const closeRatios: number[] = [];
+      for (const seed of UNI_SEEDS) {
+        const one = dayLift(id, 1, uniCfg, seed);
+        const many = dayLift(id, 720, uniCfg, seed);
+        expect(one.peak).toBeGreaterThan(0);
+        const ratio = many.peak / one.peak;
+        peakRatios.push(ratio);
+        closeRatios.push(many.lift / one.lift);
+        expect(ratio).toBeLessThanOrEqual(1.5);
+        expect(ratio).toBeGreaterThan(0.75);
+      }
+      console.log(`self_impact_peak_ratio ${id} universe full-ecology 5 seeds: peak ratio median ${median(peakRatios).toFixed(4)}, per seed ${peakRatios.map((x) => x.toFixed(3)).join(' ')}; info close-lift ratio median ${median(closeRatios).toFixed(4)}, per seed ${closeRatios.map((x) => x.toFixed(3)).join(' ')}`);
+    });
+  }
+
+  it('self_mark_peak_pump (SYN, tape-01..20): peak after the clip buy is not above the position marked on an unpushed tape', { timeout: 60_000 }, () => {
+    for (const seed of SEEDS) {
+      for (const clips of [720, 1]) {
+        const r = dayLift('SYN', clips, cfg, seed);
+        const acct = r.state.accounts.p1!;
+        const unpumped = Math.max(3 * NOTIONAL, ...r.marks);
+        expect(acct.peakEquity).toBeLessThanOrEqual(unpumped + 1e-6);
+        expect(portfolio(r.state, 'p1').peakEquity).toBeLessThanOrEqual(unpumped + 1e-6);
+        // the mid you pushed is above that mark; the peak is not built on it
+        if (clips === 720) expect(Math.max(...r.mids)).toBeGreaterThan(unpumped);
+        if (seed === SEEDS[0]) console.log(`self_mark_peak_pump SYN ${seed} clips=${clips}: peak ${acct.peakEquity.toFixed(2)}, best no-pump mark ${unpumped.toFixed(2)}, best mid mark ${Math.max(...r.mids).toFixed(2)}, liquidation now ${liquidationEquity(r.state, 'p1').toFixed(2)}`);
+      }
+    }
+  });
+
+  it('self_mark_peak_pump (SYN, universeConfig, tape-01..05): peak after the clip buy is not above the unpushed mark', { timeout: 60_000 }, () => {
+    for (const seed of UNI_SEEDS) {
+      for (const clips of [720, 1]) {
+        const r = dayLift('SYN', clips, uniCfg, seed);
+        const acct = r.state.accounts.p1!;
+        const unpumped = Math.max(3 * NOTIONAL, ...r.marks);
+        expect(acct.peakEquity).toBeLessThanOrEqual(unpumped + 1e-6);
+        expect(portfolio(r.state, 'p1').peakEquity).toBeLessThanOrEqual(unpumped + 1e-6);
+      }
     }
   });
 });

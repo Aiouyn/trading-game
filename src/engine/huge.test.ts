@@ -1,0 +1,155 @@
+import { describe, expect, it } from 'vitest';
+import { createWorld, step } from './sim';
+import { universeConfig } from './universe';
+import { estimateFill, liquidationEquity, openAccount, placeOrder, portfolio } from './trading';
+import { freeCash, freeQty } from './hunt-helpers';
+import type { WorldConfig, WorldState } from './types';
+
+/**
+ * X3 · Money at absurd scale (Tape, hunts v1; harness id huge_money_invalid). A player with $1e12 or $1e15 trades the
+ * game universe for one game year at 24 ticks a day (full ecology, rates, options, listings, world events). On buy days
+ * each tick spends a share of the largest quantity that the live cash can pay for (estimateFill total within 97% of the
+ * cash, bisection), so the order is sized against the cash that is there at that tick. On sell days the position in the
+ * asset bought the day before is sold evenly over the day. Every buy and sell must fill: a rejected order fails the test.
+ *
+ * Invalid means: a NaN or Infinity in equity, cash, fees, peak or liquidation equity; a non-positive asset price; negative
+ * cash; or accounting drift, i.e. realized + unrealized + interest + dividends − borrow fees − interest paid ≠ equity −
+ * startingCash beyond 1e-9 of the scale of the numbers. Orders above 2^53 units are refused (validate), so sizing stops there.
+ *
+ * Open (not gated here, needs a Ledger/Tape decision; measured on tape-01, see the commit body): the price response is not
+ * bounded at this size. At $1e12 FROG reaches 5.0e25 times its start price (log move 59.2 at tick 3288), year-end mid equity
+ * is 2.5e20, and liquidation equity is negative (about −6.7e25), so it is not a realizable value. The test logs the largest
+ * move, asserts every price stays finite and positive, that liquidation equity is finite, and that a mid mark does not lift
+ * the peak.
+ */
+const TPD = 24;
+const DAYS = 252;
+const cfg: WorldConfig = universeConfig({ ticksPerDay: TPD });
+const PID = 'huge';
+// buy day k holds ROTATION[k % 3]: one crypto that prices at 1e-6 (FROG: the cap binds at $1e12), one stock, one crypto
+const ROTATION = ['FROG', 'HLCN', 'SYN'];
+
+/** the largest whole (or fractional, for crypto) quantity whose estimated total fits in `budget`, at most 2^53 units */
+function largestBuy(s: WorldState, assetId: string, budget: number, whole: boolean): number {
+  const i = s.config.assets.findIndex((a) => a.id === assetId);
+  const px = Math.exp(s.assets[i]!.lnP);
+  const fits = (q: number) => estimateFill(s, { assetId, side: 'buy', qty: q }).total <= budget;
+  let lo = 0;
+  let hi = Math.min(Number.MAX_SAFE_INTEGER, (2 * budget) / px);
+  for (let k = 0; k < 60; k++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid; else hi = mid;
+  }
+  return whole ? Math.floor(lo) : lo;
+}
+
+interface YearRun {
+  state: WorldState;
+  fills: number;
+  orders: number;
+  rejects: Record<string, number>;
+  minCash: number;
+  /** the largest |lnP − ln(initialPrice)| any traded asset reached on any tick */
+  maxAbsLnMove: number;
+  /** the asset and tick that reached maxAbsLnMove */
+  maxAt: string;
+}
+
+/** one game year: buy on even days (sized to live cash, split over the day's ticks), sell the same asset on the next day */
+function oneYear(cash: number, seed: string): YearRun {
+  let s: WorldState = openAccount(createWorld(seed, cfg), PID, cash);
+  let fills = 0;
+  let orders = 0;
+  let minCash = Infinity;
+  let maxAbsLnMove = 0;
+  let maxAt = '';
+  const rejects: Record<string, number> = {};
+  const place = (assetId: string, side: 'buy' | 'sell', qty: number) => {
+    const r = placeOrder(s, { playerId: PID, assetId, side, type: 'market', qty });
+    orders++;
+    if (r.order.status === 'rejected') rejects[r.order.rejectReason ?? 'unknown'] = (rejects[r.order.rejectReason ?? 'unknown'] ?? 0) + 1;
+    s = r.state;
+  };
+  let bought = '';
+  for (let d = 0; d < DAYS; d++) {
+    const buyDay = d % 2 === 0;
+    if (buyDay) bought = ROTATION[(d / 2) % ROTATION.length]!;
+    const i = s.config.assets.findIndex((a) => a.id === bought);
+    const whole = s.config.assets[i]!.qtyStep === 1;
+    for (let t = 0; t < TPD; t++) {
+      const ticksLeft = TPD - t;
+      if (buyDay) {
+        const affordable = largestBuy(s, bought, 0.97 * freeCash(s, PID), whole);
+        const want = whole ? Math.floor(affordable / ticksLeft) : affordable / ticksLeft;
+        if (want > 0) place(bought, 'buy', want);
+      } else {
+        const held = freeQty(s, PID, bought);
+        const want = whole ? Math.floor(held / ticksLeft) : held / ticksLeft;
+        if (want > 0) place(bought, 'sell', want);
+      }
+      const res = step(s);
+      s = res.state;
+      fills += res.fills.filter((f) => f.playerId === PID).length;
+      minCash = Math.min(minCash, s.accounts[PID]!.cash);
+      for (const id of ROTATION) {
+        const j = s.config.assets.findIndex((a) => a.id === id);
+        const move = Math.abs(s.assets[j]!.lnP - Math.log(s.config.assets[j]!.initialPrice));
+        if (move > maxAbsLnMove) { maxAbsLnMove = move; maxAt = `${id} tick ${s.tick}`; }
+      }
+    }
+  }
+  return { state: s, fills, orders, rejects, minCash, maxAbsLnMove, maxAt };
+}
+
+/** The scale-aware drift of the trading identity, as a fraction of the largest number in it. */
+function driftOf(s: WorldState): { drift: number; scale: number } {
+  const a = s.accounts[PID]!;
+  const p = portfolio(s, PID);
+  const lhs = p.realizedPnl + p.unrealizedPnl + (a.interestEarned ?? 0) + (a.dividends ?? 0) - (a.interestPaid ?? 0) - (a.borrowPaid ?? 0);
+  const rhs = p.equity - a.startingCash;
+  const scale = Math.max(Math.abs(p.equity), Math.abs(a.startingCash), 1);
+  return { drift: Math.abs(lhs - rhs), scale };
+}
+
+describe('X3 huge money: a game year at $1e12 and $1e15 stays finite and balanced (huge_money_invalid = 0)', () => {
+  for (const cash of [1e12, 1e15]) {
+    it(`huge_money_invalid at $${cash.toExponential(0)} cash, one game year, 24 ticks a day`, { timeout: 60_000 }, () => {
+      const r = oneYear(cash, 'tape-01');
+      const p = portfolio(r.state, PID);
+      const a = r.state.accounts[PID]!;
+      console.log(`huge_money $${cash.toExponential(0)}: orders ${r.orders}, fills ${r.fills}, rejects ${JSON.stringify(r.rejects)}, equity ${p.equity.toExponential(4)}, cash ${a.cash.toExponential(4)}, fees ${p.feesPaid.toExponential(4)}, peak ${p.peakEquity.toExponential(4)}, liquidation ${p.liquidationEquity.toExponential(4)}, largest |lnP − ln P0| ${r.maxAbsLnMove.toFixed(2)} at ${r.maxAt}`);
+      expect(r.fills).toBeGreaterThan(0);
+      expect(r.rejects).toEqual({}); // sized to live cash: every order the test sends must be accepted
+      for (const v of [p.equity, a.cash, p.feesPaid, p.peakEquity, p.liquidationEquity, p.realizedPnl, p.unrealizedPnl, p.totalPnl]) {
+        expect(Number.isFinite(v)).toBe(true);
+      }
+      for (const asset of r.state.assets) {
+        expect(Number.isFinite(asset.lnP)).toBe(true);
+      }
+      // liquidation equity must be a finite number. It can be negative at this size (a long's exit price is
+      // p·(1 − spread − impact), and impact passes 1), so only finiteness is asserted. The peak reads liquidation
+      // value, so the mid mark (orders of magnitude above it) must not lift the peak.
+      expect(Number.isFinite(p.liquidationEquity)).toBe(true);
+      expect(Number.isFinite(liquidationEquity(r.state, PID))).toBe(true);
+      expect(p.peakEquity).toBeLessThan(p.equity);
+      expect(r.minCash).toBeGreaterThanOrEqual(0);
+      const { drift, scale } = driftOf(r.state);
+      expect(drift / scale).toBeLessThanOrEqual(1e-9);
+    });
+  }
+});
+
+describe('X3 huge money: quantities above 2^53 units are refused, not rounded', () => {
+  it('rejects a whole-unit or fractional order above the cap with a reason, and touches nothing', () => {
+    const s = openAccount(createWorld('huge-reject', cfg), PID, 1e15);
+    const big = placeOrder(s, { playerId: PID, assetId: 'FROG', side: 'buy', type: 'market', qty: 1e17 });
+    expect(big.order.status).toBe('rejected');
+    expect(big.order.rejectReason).toBe('quantity above 2^53 units');
+    expect(big.state.accounts[PID]).toEqual(s.accounts[PID]);
+    const stock = placeOrder(s, { playerId: PID, assetId: 'HLCN', side: 'buy', type: 'market', qty: 2 ** 54 });
+    expect(stock.order.rejectReason).toBe('quantity above 2^53 units');
+    // the cap itself is still a legal size
+    const ok = placeOrder(s, { playerId: PID, assetId: 'FROG', side: 'buy', type: 'market', qty: Number.MAX_SAFE_INTEGER });
+    expect(ok.order.rejectReason).toBeUndefined();
+  });
+});
