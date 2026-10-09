@@ -15,6 +15,7 @@
  * bid/ask (see options.ts) and settle in cash at expiry.
  */
 import { DEFAULT_TRADING } from './config';
+import { ecologyWeight } from './ecology';
 import { optionQuote, optionsValue, parseContract } from './options';
 import type {
   Account, AssetDef, CrowdHold, DayTraded, Fill, FillEstimate, MarginConfig, Order, OrderRequest, PortfolioView, PositionView,
@@ -168,6 +169,11 @@ export function guardedMark(state: WorldState, i: number, dir: 1 | -1): number {
   if (!g || g.dir !== dir || tallyDay(state) > g.untilDay) return m;
   const anchor = Math.exp(g.lnAnchor);
   return dir === 1 ? Math.min(m, anchor) : Math.max(m, anchor);
+}
+
+/** True when the ecology sets every close (full mode): peak, rank and licence marks then read the closing auction. */
+export function markCapOn(state: WorldState): boolean {
+  return ecologyWeight(state.config) === 1;
 }
 
 const FLOW_DAYS = 5;

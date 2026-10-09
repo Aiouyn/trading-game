@@ -412,6 +412,32 @@ export function quote(state: WorldState, assetId: string): Quote {
   };
 }
 
+/**
+ * Test-only: move an asset's price (log1p of pct, floored) without touching its value. Not exported from index.ts;
+ * the app never calls it, so a player cannot trigger a shock.
+ */
+export function shockPrice(state: WorldState, assetId: string, pct: number): WorldState {
+  const i = state.config.assets.findIndex((a) => a.id === assetId);
+  if (i < 0) throw new Error(`shockPrice: unknown asset ${assetId}`);
+  if (!Number.isFinite(pct) || pct <= -1) throw new Error('shockPrice: pct must be a finite number above -1');
+  const def = state.config.assets[i]!;
+  const assets = state.assets.slice();
+  const a = assets[i]!;
+  assets[i] = { ...a, lnP: Math.max(a.lnP + Math.log1p(pct), Math.log(def.floor)) };
+  return { ...state, assets };
+}
+
+/** Test-only: move an asset's fundamental value by pct (its price follows through the pull). Not exported from index.ts. */
+export function shockValue(state: WorldState, assetId: string, pct: number): WorldState {
+  const i = state.config.assets.findIndex((a) => a.id === assetId);
+  if (i < 0) throw new Error(`shockValue: unknown asset ${assetId}`);
+  if (!Number.isFinite(pct) || pct <= -1) throw new Error('shockValue: pct must be a finite number above -1');
+  const assets = state.assets.slice();
+  const a = assets[i]!;
+  assets[i] = { ...a, lnV: a.lnV + Math.log1p(pct) };
+  return { ...state, assets };
+}
+
 /** Units traded this tick, per asset (for the chart's volume bars). */
 export function volumes(state: WorldState): Record<string, number> {
   const out: Record<string, number> = {};
