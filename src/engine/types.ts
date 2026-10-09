@@ -730,7 +730,7 @@ export type StepEvent =
   | { type: 'listing'; tick: number; kind: 'ipo' | 'bankruptcy' | 'merger' | 'spinoff'; assetId: string; otherId?: string; price: number }
   | { type: 'margin_call'; tick: number; playerId: string; equity: number; required: number }
   | { type: 'liquidation'; tick: number; playerId: string; assetId: string; qty: number; price: number }
-  | { type: 'option_expiry'; tick: number; playerId: string; contractId: string; qty: number; payout: number };
+  | { type: 'option_expiry'; tick: number; playerId: string; contractId: string; qty: number; payout: number; reason?: 'delisting' };
 
 export interface StepResult {
   state: WorldState;

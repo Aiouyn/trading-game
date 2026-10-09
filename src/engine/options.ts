@@ -110,10 +110,23 @@ export function optionQuote(state: WorldState, c: OptionContract): OptionQuote {
   };
 }
 
-/** Listed expiry days (0-based game days) from today. */
-export function listedExpiries(state: WorldState): number[] {
+/** True when the underlying was delisted (bankruptcy, merger): its options no longer trade and no chain is listed. */
+export function underlyingDelisted(state: WorldState, underlying: string): boolean {
+  const def = state.config.assets.find((a) => a.id === underlying);
+  return def !== undefined && (def.listed === false || def.delisted === true);
+}
+
+/**
+ * Listed expiry days (0-based game days) from today. Given an underlying, none when that name is delisted. Without one,
+ * none when every configured underlying is delisted.
+ */
+export function listedExpiries(state: WorldState, underlying?: string): number[] {
   const cfg = state.config.options;
   if (!cfg) return [];
+  const none = underlying !== undefined
+    ? underlyingDelisted(state, underlying)
+    : cfg.underlyings.length > 0 && cfg.underlyings.every((u) => underlyingDelisted(state, u));
+  if (none) return [];
   const tpd = state.config.ticksPerDay;
   const today = state.tick <= 0 ? 0 : Math.floor((state.tick - 1) / tpd);
   const out: number[] = [];
@@ -126,7 +139,7 @@ export function listedExpiries(state: WorldState): number[] {
 /** The option chain for one underlying and expiry: strikes around today's spot. */
 export function optionChain(state: WorldState, underlying: string, expiryDay: number): { strike: number; call: OptionQuote; put: OptionQuote }[] {
   const cfg = state.config.options;
-  if (!cfg || !cfg.underlyings.includes(underlying)) return [];
+  if (!cfg || !cfg.underlyings.includes(underlying) || underlyingDelisted(state, underlying)) return [];
   const i = state.config.assets.findIndex((a) => a.id === underlying);
   const S = Math.exp(state.assets[i]!.lnP);
   const strikes = [...new Set(cfg.strikeSteps.map((k) => niceStrike(S * k)))].sort((x, y) => x - y);

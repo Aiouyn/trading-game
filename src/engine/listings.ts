@@ -1,5 +1,5 @@
 import { Rng, seedStream } from './rng';
-import { settleAsset } from './trading';
+import { settleAsset, settleOptionsOn } from './trading';
 import type {
   AssetDef, AssetState, EcoAssetState, RivalState, StepEvent, WorldConfig, WorldState,
 } from './types';
@@ -11,7 +11,8 @@ import type {
  * slot with `listed: false, delisted: true`, a frozen price, and no pool flow, so arrays stay aligned.
  *
  * Settlement: holders of a bankrupt or merged name are paid in cash at a settlement price, shorts are closed at it
- * too, and open orders in the name are cancelled. A spin-off hands each holder child shares at a fixed ratio and
+ * too, open orders in the name are cancelled, and listed options on it are cash-settled at intrinsic value against
+ * that price (no fee, as at expiry), after which the name's options refuse trades and list no chain. A spin-off hands each holder child shares at a fixed ratio and
  * lowers the parent by the same value, so the holder's total value is conserved (up to whole shares).
  */
 export interface ListingsConfig {
@@ -125,13 +126,23 @@ function settleRivals(state: WorldState, assetId: string, price: number): WorldS
   return { ...state, ecology: { ...state.ecology!, rivals } };
 }
 
-/** Delist one asset: frozen price, no trading, no pool flow, every holder settled in cash at `price`. */
-export function delist(state: WorldState, i: number, price: number): WorldState {
+/**
+ * Delist one asset: frozen price, no trading, no pool flow, every holder settled in cash at `price`, and every listed
+ * option on it cash-settled at intrinsic value against `price` (see settleOptionsOn). Returns the events too, so the
+ * world layer can notify each option holder.
+ */
+export function delistAsset(state: WorldState, i: number, price: number, tick: number = state.tick): { state: WorldState; events: StepEvent[] } {
   const def = state.config.assets[i]!;
   let next = settleAsset(state, def.id, price);
   next = settleRivals(next, def.id, price);
-  next = replaceDef(next, i, { ...def, listed: false, delisted: true });
-  return next;
+  const options = settleOptionsOn(next, def.id, price, tick);
+  next = replaceDef(options.state, i, { ...def, listed: false, delisted: true });
+  return { state: next, events: options.events };
+}
+
+/** Delist one asset (see delistAsset); the option settlement events are not returned here. */
+export function delist(state: WorldState, i: number, price: number): WorldState {
+  return delistAsset(state, i, price).state;
 }
 
 /**
@@ -216,16 +227,18 @@ export function listingsDay(state: WorldState, tick: number): { state: WorldStat
     const def = next.config.assets[i]!;
     const recovery = 0.02 + 0.13 * rng.uniform();
     const price = Math.exp(next.assets[i]!.lnP) * recovery;
-    next = delist(next, i, price);
-    events.push({ type: 'listing', tick, kind: 'bankruptcy', assetId: def.id, price });
+    const d = delistAsset(next, i, price, tick);
+    next = d.state;
+    events.push({ type: 'listing', tick, kind: 'bankruptcy', assetId: def.id, price }, ...d.events);
   } else if (kind === 'merger') {
     const i = pick();
     const def = next.config.assets[i]!;
     const price = Math.exp(next.assets[i]!.lnP) * MERGER_PREMIUM;
     const buyers = eligibleStocks(next).filter((j) => j !== i);
     const acquirer = buyers.length ? next.config.assets[buyers[Math.floor(rng.uniform() * buyers.length) % buyers.length]!]!.id : undefined;
-    next = delist(next, i, price);
-    events.push({ type: 'listing', tick, kind: 'merger', assetId: def.id, ...(acquirer ? { otherId: acquirer } : {}), price });
+    const d = delistAsset(next, i, price, tick);
+    next = d.state;
+    events.push({ type: 'listing', tick, kind: 'merger', assetId: def.id, ...(acquirer ? { otherId: acquirer } : {}), price }, ...d.events);
   } else {
     const i = pick();
     const parent = next.config.assets[i]!;

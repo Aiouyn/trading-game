@@ -16,7 +16,7 @@
  */
 import { DEFAULT_TRADING } from './config';
 import { ecologyWeight, PUBLIC_MAX_TRADER_SHARE, PUBLIC_MIN_TRADERS } from './ecology';
-import { optionQuote, optionsValue, parseContract } from './options';
+import { optionQuote, optionsValue, parseContract, underlyingDelisted } from './options';
 import type {
   Account, AssetDef, CrowdHold, DayTraded, Fill, FillEstimate, MarginConfig, Order, OrderRequest, PortfolioView, PositionView,
   Side, StepEvent, TickTraded, TradingConfig, WorldState,
@@ -659,6 +659,36 @@ export function settleAsset(state: WorldState, assetId: string, price: number): 
   return { ...state, accounts, orders };
 }
 
+/**
+ * Delisting settlement for listed options on one underlying: every open contract on it is cash-settled at intrinsic
+ * value against the settlement price, as at expiry (longs receive, shorts pay), with no fee. The contracts are removed.
+ * Pure: returns the next state and one `option_expiry` event per settled position, tagged `reason: 'delisting'`.
+ */
+export function settleOptionsOn(
+  state: WorldState, underlying: string, price: number, tick: number,
+): { state: WorldState; events: StepEvent[] } {
+  const mult = state.config.options?.multiplier ?? 100;
+  const events: StepEvent[] = [];
+  const accounts: Record<string, Account> = { ...state.accounts };
+  for (const [id, acct] of Object.entries(state.accounts)) {
+    if (!acct.options) continue;
+    let copy: Account | null = null;
+    for (const [cid, pos] of Object.entries(acct.options)) {
+      const c = parseContract(cid);
+      if (!c || c.underlying !== underlying) continue;
+      const intrinsic = c.kind === 'call' ? Math.max(0, price - c.strike) : Math.max(0, c.strike - price);
+      const payout = intrinsic * mult * pos.qty;
+      copy ??= { ...acct, options: { ...acct.options } };
+      copy.cash += payout;
+      copy.realizedPnl += payout - pos.avgCost * mult * pos.qty;
+      delete copy.options![cid];
+      events.push({ type: 'option_expiry', tick, playerId: id, contractId: cid, qty: pos.qty, payout, reason: 'delisting' });
+    }
+    if (copy) accounts[id] = copy;
+  }
+  return { state: { ...state, accounts }, events };
+}
+
 // ---------------------------------------------------------------- options
 
 export interface OptionTradeResult {
@@ -678,6 +708,7 @@ export function tradeOption(state: WorldState, playerId: string, contractId: str
   const c = parseContract(contractId);
   if (!c || !cfg.underlyings.includes(c.underlying)) return { state, error: 'unknown contract' };
   const i = assetIndex(state, c.underlying);
+  if (underlyingDelisted(state, c.underlying)) return { state, error: `${c.underlying} is delisted: its options no longer trade` };
   if (state.assets[i]!.haltUntil !== -1) return { state, error: 'underlying is halted' };
   const q = optionQuote(state, c);
   if (q.expired) return { state, error: 'contract has expired' };

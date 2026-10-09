@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, stepMany } from './sim';
 import { universeConfig } from './universe';
-import { delist, spinOff } from './listings';
-import { openAccount, placeOrder, settleAsset } from './trading';
+import { delist, delistAsset, spinOff } from './listings';
+import { openAccount, placeOrder, setAccountPermissions, settleAsset, tradeOption } from './trading';
+import { contractId, DEFAULT_OPTIONS, listedExpiries, optionChain } from './options';
 import type { AssetDef, StepEvent, WorldState } from './types';
 
 const TPD = 24;
@@ -102,5 +103,82 @@ describe('settlement and delisting', () => {
     const before = 1000 * pPrice;
     const afterValue = parentQty * newParent + childQty * cPrice;
     expect(afterValue).toBeCloseTo(before, 6);
+  });
+});
+
+describe('listed options on a delisted name', () => {
+  const OPT = { ...DEFAULT_OPTIONS, underlyings: [PARENT] };
+  const EXP = 4;
+  const callId = contractId({ underlying: PARENT, expiryDay: EXP, kind: 'call', strike: 20 });
+  const putId = contractId({ underlying: PARENT, expiryDay: EXP, kind: 'put', strike: 30 });
+
+  /** A world with options on PARENT, and p1 holding a long call and a short put on it. */
+  function withPositions(seed: string): WorldState {
+    const s0 = createWorld(seed, universeConfig({ ticksPerDay: TPD, options: OPT }));
+    const s = setAccountPermissions(openAccount(s0, 'p1'), 'p1', { canOptions: true });
+    return {
+      ...s,
+      accounts: {
+        ...s.accounts,
+        p1: {
+          ...s.accounts.p1!,
+          options: {
+            [callId]: { qty: 2, avgCost: 1.5 },
+            [putId]: { qty: -3, avgCost: 0.5 },
+          },
+          realizedPnl: 0,
+        },
+      },
+    };
+  }
+
+  const idx = (s: WorldState) => s.config.assets.findIndex((a) => a.id === PARENT);
+
+  it('a long call and a short put settle at intrinsic on a bankruptcy: cash and realized P&L booked, positions removed', () => {
+    const s0 = withPositions('opt-settle');
+    const cash0 = s0.accounts.p1!.cash;
+    const s1 = delist(s0, idx(s0), 25);
+    const p1 = s1.accounts.p1!;
+    // call 20 vs 25: intrinsic 5 x 100 x 2 long = +1000; put 30 vs 25: intrinsic 5 x 100 x -3 short = -1500
+    expect(p1.cash).toBeCloseTo(cash0 - 500, 9);
+    // realized: call 1000 - 1.5 x 100 x 2 = 700; put -1500 - 0.5 x 100 x (-3) = -1350
+    expect(p1.realizedPnl).toBeCloseTo(-650, 9);
+    expect(p1.options).toEqual({});
+    expect(s1.config.assets[idx(s1)]!.delisted).toBe(true);
+  });
+
+  it('emits one option_expiry event per settled position, tagged as a delisting, with the payout', () => {
+    const s0 = withPositions('opt-events');
+    const { events } = delistAsset(s0, idx(s0), 25, 7);
+    const ex = events.filter((e) => e.type === 'option_expiry');
+    expect(ex).toHaveLength(2);
+    expect(ex).toContainEqual({ type: 'option_expiry', tick: 7, playerId: 'p1', contractId: callId, qty: 2, payout: 1000, reason: 'delisting' });
+    expect(ex).toContainEqual({ type: 'option_expiry', tick: 7, playerId: 'p1', contractId: putId, qty: -3, payout: -1500, reason: 'delisting' });
+  });
+
+  it('refuses a trade on a contract whose underlying is delisted, buy or sell; the same contract trades before', () => {
+    const s0 = withPositions('opt-refuse');
+    expect(tradeOption(s0, 'p1', callId, 'buy', 1).error).toBeUndefined();
+    const s1 = delist(s0, idx(s0), 25);
+    const buy = tradeOption(s1, 'p1', callId, 'buy', 1);
+    expect(buy.error).toMatch(/delisted/);
+    expect(buy.state).toBe(s1);
+    expect(tradeOption(s1, 'p1', callId, 'sell', 1).error).toMatch(/delisted/);
+  });
+
+  it('lists no chain and no expiries for a delisted underlying', () => {
+    const s0 = withPositions('opt-chain');
+    expect(listedExpiries(s0, PARENT)).toHaveLength(4);
+    expect(optionChain(s0, PARENT, EXP).length).toBeGreaterThan(0);
+    const s1 = delist(s0, idx(s0), 25);
+    expect(listedExpiries(s1, PARENT)).toEqual([]);
+    expect(listedExpiries(s1)).toEqual([]);
+    expect(optionChain(s1, PARENT, EXP)).toEqual([]);
+  });
+
+  it('is deterministic: the same settlement replays byte-identical, through the following days too', () => {
+    const a = stepMany(delist(withPositions('opt-det'), idx(withPositions('opt-det')), 25), TPD * 2).state;
+    const b = stepMany(delist(withPositions('opt-det'), idx(withPositions('opt-det')), 25), TPD * 2).state;
+    expect(JSON.stringify(a)).toEqual(JSON.stringify(b));
   });
 });
