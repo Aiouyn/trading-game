@@ -5,6 +5,7 @@ export { defaultConfig, gameConfig, DEFAULT_TRADING, DEFAULT_VOLUME, DEFAULT_ASS
 export { createWorld, step, stepMany, quote, prices, volumes, indexLevel, gameDay } from './sim';
 export { jumpCompensator } from './drift';
 export { newsPricedIn, newsBand, bandOf } from './news';
+export { DEFAULT_ECOLOGY, ECO_POOLS, ecologyConfig, ecologyLog, ecologyOn, ecologyWeight } from './ecology';
 export type { NewsBand, NewsKind } from './news';
 export {
   openAccount, placeOrder, cancelOrder, modifyOrder, estimateFill, openOrders, orderHistory, portfolio,

@@ -159,6 +159,12 @@ export interface WorldConfig {
    * Off when absent.
    */
   markGuard?: { thr: number; K: number };
+  /**
+   * Market ecology (specs/quant-market-ecology.md, ported from engine-staging). Absent or mode 'off' = the live engine.
+   * 'full' (the game universe): six trader pools set every game day's close. 'shadow' computes them beside the live
+   * path without moving prices; 'hybrid' blends (weight 0.25 or 1).
+   */
+  ecology?: Partial<EcologyConfig>;
   regimes: Record<RegimeId, RegimeDef>;
   assets: AssetDef[];
   indices: IndexDef[];
@@ -467,12 +473,149 @@ export interface WorldState {
   rates?: RatesState;
   /** every account's long and short units per asset, recomputed at each tick's mark (crowd-exit liquidation marks) */
   crowd?: Record<string, CrowdHold>;
+  /** market ecology state (pools, maker, cause log); present once a step ran with the ecology on. Server-only. */
+  ecology?: EcologyState;
 }
 
 export interface CrowdHold {
   long: number;
   /** units short, as a positive number */
   short: number;
+}
+
+// ---------------------------------------------------------------- market ecology (shadow)
+
+export type EcologyMode = 'off' | 'shadow' | 'hybrid' | 'full';
+export type EcoPool = 'value' | 'trend' | 'retail' | 'pension';
+/** terms of the daily cause vector, in log return; they sum to the shadow close-to-close move */
+export type EcoCause = 'value' | 'trend' | 'retail' | 'pension' | 'maker' | 'news' | 'own';
+
+export interface EcologyConfig {
+  /**
+   * 'shadow' computes the pools beside the live path (prices unchanged). 'hybrid' (migration step 2) sets each
+   * close to (1 − weight) · live + weight · ecology; it needs `weight` in HYBRID_WEIGHTS (0.25 or 1). 'full'
+   * (migration step 3, the 100% save field) lets the ecology set every close: weight absent or exactly 1; it is the
+   * same path as hybrid weight 1 and as enterSimMode(). Any other mode or weight is off: today's engine, byte for byte.
+   */
+  mode: EcologyMode;
+  /** hybrid: 0.25 (step 2) or 1 (step 3). full: absent or 1. Anything else = off. */
+  weight?: number;
+  /** game days of per-asset detail kept in state.ecology.log */
+  logDays: number;
+  /** capacity cut on a pool adding to its own side: 1 / (1 + capacity · |position / size|) */
+  capacity: number;
+  /** share of the clearing impact that stays in the price; the rest is the maker's skew and unwinds */
+  permanentShare: number;
+  /** share of the maker's skew and inventory worked off each day */
+  makerUnwind: number;
+  /** maker inventory, in ADV-days, that counts as "full" for depth */
+  makerSize: number;
+  /** depth = clamp(1 / (1 + depthInv · |inv / makerSize| + depthH · max(0, h − 1)), depthMin, 1) */
+  depthInv: number;
+  depthH: number;
+  depthMin: number;
+  /** value pool: closes this share of the lnV − lnP gap per day if nobody else trades, order capped at maxAdv */
+  valueClose: number;
+  valueMaxAdv: number;
+  /** share of a jump (news) that prints in the shadow at once; the rest is a gap the pools trade. Absent = the live jumpImmediate */
+  newsPrint?: number;
+  /**
+   * share of the day's non-jump value move (factor and idiosyncratic diffusion, drift) that quotes reprice at once,
+   * before any pool trades; the rest is a gap the value pool trades like any other. Absent = 0 (shipping: off; it
+   * lifts vol to live level but fails IC1 and IC63, see docs/ENGINE.md "Vol level").
+   */
+  valuePrint?: number;
+  /**
+   * full / hybrid / enterSimMode only (ignored in shadow, off and legacy, which stay byte-identical): the ecology's own
+   * value line moves by drift + jumpPermanent·jump + valueVolScale·(the rest of the day's lnV change), i.e. only the
+   * non-jump diffusive innovation (factor and idiosyncratic shocks) is scaled; the deterministic drift and the jumps
+   * are not. The value pool trades toward that line. Live lnV and live prices are untouched. Absent = 1.
+   */
+  valueVolScale?: number;
+  /**
+   * SWEEP knob, full ecology only (enterSimMode or weight 1): multiplies the non-jump diffusive shock (perm · diff) of the
+   * world's own lnV (the public value players see) by this. Drift and jumps unscaled; the live intraday price shock
+   * is not scaled (it only feels lnV through the pull). 25%, shadow, off and legacy ignore it. Absent = FULL_MODE_DEFAULTS
+   * (1.15) in full mode; set 1 to turn it off.
+   */
+  lnVVolScale?: number;
+  /** value pool size cap in σ_daily: it never tries to move the price more than this in one day (0 = no cap) */
+  valueGapCap: number;
+  /** trend pool: kTrend · tanh(63-day vol-scaled return) − kFade · tanh(5-day vol-scaled return), in ADV */
+  trendK: number;
+  fadeK: number;
+  /** retail: N(0,1) · retailNoise + retailHeadline · (decayed sign of past headlines), in ADV */
+  retailNoise: number;
+  retailHeadline: number;
+  headlineHalfLifeDays: number;
+  /** pension: in the last pensionDays of every quarter, trades pensionK · (drift from policy weight) per day, in ADV per unit log drift */
+  pensionK: number;
+  pensionDays: number;
+  quarterDays: number;
+  /** pool sizes in ADV-days (capacity scale) and position half-lives in game days (positions age out to long holders) */
+  sizes: Record<EcoPool, number>;
+  halfLives: Record<EcoPool, number>;
+}
+
+export interface EcoAssetState {
+  id: string;
+  /** shadow log close (core + maker skew) */
+  lnS: number;
+  /** value (lnV) the pools saw at the last close; absent on ecology states saved before valuePrint (then no print that day) */
+  lnV?: number;
+  /** the ecology's own value line (valueVolScale ≠ 1 in full / hybrid only); absent = the live lnV */
+  lnVe?: number;
+  /** price before the maker's skew */
+  core: number;
+  /** the maker's temporary skew, in log price */
+  skew: number;
+  /** maker inventory, ADV-days (positive = long) */
+  inv: number;
+  /** pool positions, ADV-days */
+  pos: Record<EcoPool, number>;
+  /** last 64 shadow closes, oldest first */
+  closes: number[];
+  /** decayed sign of past headlines (retail reads it the next day) */
+  headline: number;
+  /** pension anchor: lnS at the last quarter-end rebalance */
+  pensionAnchor: number;
+  /** the player's signed flow today, ADV */
+  own: number;
+  /** retail stream eco:retail:<id> */
+  rng: RngState;
+}
+
+export interface EcoLogAsset {
+  id: string;
+  lnS: number;
+  lnV: number;
+  /** desired orders after the capacity cut, ADV (own = the player's fills) */
+  desired: Record<EcoPool | 'own', number>;
+  net: number;
+  /** gross shadow volume, ADV (sum of |orders|) */
+  gross: number;
+  depth: number;
+  inv: number;
+  cause: Record<EcoCause, number>;
+  /**
+   * Hybrid (weight < 1) only. The day's close move is (1 − weight) · live + weight · (sum of cause), where `live`
+   * is the live engine's move from the same previous close; the ecology is then re-anchored on that close.
+   */
+  blend?: { weight: number; live: number };
+}
+
+export interface EcoLogDay {
+  day: number;
+  tick: number;
+  regime: RegimeId;
+  assets: EcoLogAsset[];
+}
+
+export interface EcologyState {
+  /** game day of the last shadow close */
+  day: number;
+  assets: EcoAssetState[];
+  log: EcoLogDay[];
 }
 
 export interface Quote {
@@ -514,6 +657,8 @@ export interface DayTraded {
 export type StepEvent =
   | { type: 'regime'; tick: number; from: RegimeId; to: RegimeId }
   | { type: 'jump'; tick: number; assetId: string; logSize: number }
+  /** the closing auction (ecology on): the pools' clearing price replaced the live last price; move per asset, fraction */
+  | { type: 'auction'; tick: number; moves: Record<string, number> }
   | { type: 'halt'; tick: number; assetId: string; move: number }
   | { type: 'reopen'; tick: number; assetId: string; gap: number }
   /** analysts publish their lean for an upcoming report */

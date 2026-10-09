@@ -1,6 +1,7 @@
 import { Rng, seedStream } from './rng';
 import { DEFAULT_VOLUME, defaultConfig, idioLoading } from './config';
-import { clearOrders } from './trading';
+import { clearOrders, tallyToday } from './trading';
+import { addOwnFlow, ECO_POOLS, ecoDayInput, ecologyDay, ecologyOn, ecologyWeight, FULL_MODE_DEFAULTS, initEcology, reanchorEcology } from './ecology';
 import { catalystDay, peadDrift } from './catalysts';
 import { carryOf, initRates, ratesDay } from './rates';
 import { jumpCompensator } from './drift';
@@ -141,6 +142,11 @@ export function step(state: WorldState): StepResult {
   const tickOfDay = (tick - 1) % cfg.ticksPerDay;
   const uSession = 1 + vc.uShape * Math.cos((2 * Math.PI * (tickOfDay + 0.5)) / cfg.ticksPerDay);
 
+  // full ecology only: the world's own lnV (the value the pools trade toward) takes lnVVolScale x its non-jump
+  // diffusive shock, so the price that tracks it gets near live vol (Quant, FULL_MODE_DEFAULTS)
+  const lnVScale = ecologyWeight(cfg) === 1 ? (cfg.ecology?.lnVVolScale ?? FULL_MODE_DEFAULTS.lnVVolScale) : 1;
+  const eco = ecologyOn(cfg);
+
   const assets: AssetState[] = new Array(state.assets.length);
   for (let i = 0; i < state.assets.length; i++) {
     const prev = state.assets[i]!;
@@ -192,7 +198,10 @@ export function step(state: WorldState): StepResult {
       catalyst += peadDrift(a, tick);
     }
     // rates: yield repricing and policy/data surprises, once a day (all news, so value moves too)
-    if (rateShocks && rateShocks[i]) catalyst += rateShocks[i]!;
+    if (rateShocks && rateShocks[i]) {
+      catalyst += rateShocks[i]!;
+      if (eco) a.dayJump += rateShocks[i]!; // the pools read rate surprises as news, like earnings
+    }
 
     // fundamental value: drift + the permanent share of news (catalysts are all news)
     const perm = cfg.permanentShare;
@@ -201,7 +210,7 @@ export function step(state: WorldState): StepResult {
     const jp = cfg.jumpPermanent ?? perm;
     const mu = def.drift + def.cycleBeta * rg.equityDrift + carryOf(def, rates) - (cfg.jumpCompensation ? jumpCompensator(def, jp) : 0);
     const diff = sigma * sqrtDt * shock;
-    a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + perm * diff + jp * jump + catalyst;
+    a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + lnVScale * perm * diff + jp * jump + catalyst;
 
     // market price: same drift, pull toward V, full shock and jump
     const kappa = LN2 / (def.halfLifeDays / cfg.daysPerYear);
@@ -276,7 +285,60 @@ export function step(state: WorldState): StepResult {
   };
   const { state: cleared, fills, events: clearEvents } = clearOrders(priced, newDay);
   for (const e of clearEvents) events.push(e);
-  return { state: cleared, events, fills };
+  if (!eco) return { state: cleared, events, fills };
+  return ecologyStep(cleared, tick, events, fills);
+}
+
+/**
+ * The market ecology (ported from engine-staging sim.ts). Runs after the live tick is final and only reads it.
+ * Every tick it adds the accounts' fills to the day's own flow; on the day's last tick the six pools (value, trend,
+ * retail, pension, maker, plus macro through value) clear one square-root auction and, at weight 1 (full), SET the
+ * close: the closing auction. lnOpen moves with the close, so tomorrow's GARCH update still reads the live intraday
+ * move (h and the regime stay the live engine's). The pools' orders join the asset's shared day tally, so one
+ * tally holds everyone's flow; they trade after the day's last fills, so that write cannot change any price.
+ */
+function ecologyStep(cleared: WorldState, tick: number, events: StepEvent[], fills: Fill[]): StepResult {
+  const cfg = cleared.config;
+  const day = Math.floor((tick - 1) / cfg.ticksPerDay);
+  let eco = cleared.ecology && cleared.ecology.assets.length === cfg.assets.length ? cleared.ecology : initEcology(cleared);
+  eco = addOwnFlow(eco, cfg, fills);
+  if (tick % cfg.ticksPerDay !== 0) return { state: { ...cleared, ecology: eco }, events, fills };
+  const w = ecologyWeight(cfg);
+  eco = ecologyDay(cfg, eco, ecoDayInput(cleared, day), { setsClose: w > 0, full: w === 1 });
+  if (w === 0) return { state: { ...cleared, ecology: eco }, events, fills };
+  const poolDay = eco.log.length && eco.log[eco.log.length - 1]!.day === day ? eco.log[eco.log.length - 1]! : null;
+  const lnClose = cleared.assets.map((a, i) => {
+    if (w === 1) return eco.assets[i]!.lnS;
+    const live = a.lnP + a.pending; // a halted asset's unprinted live move counts in the live leg
+    return Math.max((1 - w) * live + w * eco.assets[i]!.lnS, Math.log(cfg.assets[i]!.floor));
+  });
+  const assets = cleared.assets.map((a, i) => {
+    const c = lnClose[i]!;
+    const next: AssetState = { ...a, lnP: c, lnOpen: a.lnOpen + (c - a.lnP), pending: 0 };
+    if (poolDay) {
+      const adv = cfg.assets[i]!.advNotional ?? 1e9;
+      const d = poolDay.assets[i]!.desired;
+      let buy = 0, sell = 0;
+      for (const k of ECO_POOLS) { const x = d[k] * adv; if (x > 0) buy += x; else sell -= x; }
+      if (w !== 1) { buy *= w; sell *= w; }
+      const t = tallyToday(a.dayTraded, day);
+      if (buy || sell) next.dayTraded = { day, buy: t.buy + buy, sell: t.sell + sell };
+    }
+    return next;
+  });
+  if (w !== 1) {
+    // log the blend so the cause vector still explains the printed move, then re-anchor the pools on the close
+    const prevClose = (i: number) => { const c = eco.assets[i]!.closes; return c.length >= 2 ? c[c.length - 2]! : eco.assets[i]!.lnS; };
+    if (poolDay) {
+      const la = poolDay.assets.map((x, i) => ({ ...x, blend: { weight: w, live: cleared.assets[i]!.lnP + cleared.assets[i]!.pending - prevClose(i) } }));
+      eco = { ...eco, log: [...eco.log.slice(0, -1), { ...poolDay, assets: la }] };
+    }
+    eco = reanchorEcology(cfg, eco, lnClose);
+  }
+  const moves: Record<string, number> = {};
+  cleared.assets.forEach((a, i) => { const m = lnClose[i]! - a.lnP; if (Math.abs(m) > 1e-12) moves[cfg.assets[i]!.id] = Math.expm1(m); });
+  events.push({ type: 'auction', tick, moves });
+  return { state: { ...cleared, assets, ecology: eco }, events, fills };
 }
 
 /** Advance n ticks; collects events. Identical to calling step() n times. */

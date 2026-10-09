@@ -442,6 +442,8 @@ export function universeConfig(overrides: Partial<WorldConfig> = {}): WorldConfi
     jumpCompensation: true,
     // alt-peak guard (Quant's C5): one-sided crowd flow > 25% ADV in a day or 50% ADV over 5 days freezes peak marks
     markGuard: { thr: 0.25, K: 0.5 },
+    // market ecology, full: six trader pools set every game day's close (the closing auction); Quant/Tape gates passed 2026-10-09
+    ecology: { mode: 'full', weight: 1 },
     haltThreshold: 0.15,
     haltTicks: 120,
     initialRegime: 'expansion',

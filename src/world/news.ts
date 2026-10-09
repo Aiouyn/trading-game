@@ -26,6 +26,22 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
         });
         break;
       }
+      case 'auction': {
+        // the closing auction: the trader pools' clearing price replaced the last trade; name the biggest listed mover
+        let best: { id: string; m: number } | null = null;
+        for (const [id, m] of Object.entries(e.moves)) {
+          const d = defOf(g, id);
+          if (!d || d.listed === false || d.assetClass === 'forex') continue;
+          if (!best || Math.abs(m) > Math.abs(best.m)) best = { id, m };
+        }
+        if (!best || Math.abs(best.m) < 0.01) break;
+        const d = defOf(g, best.id)!;
+        pushWire(g, out, {
+          kind: 'move', tag: 'Close', tone: best.m >= 0 ? 'gain' : 'loss', assetId: best.id,
+          text: `Closing auction: ${d.name} prints ${pctText(best.m)} from its last trade as the big desks square up`,
+        });
+        break;
+      }
       case 'halt': {
         const d = defOf(g, e.assetId);
         if (!d) break;
