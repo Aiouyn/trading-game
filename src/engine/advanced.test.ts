@@ -214,16 +214,17 @@ const TPD = 24;
 describe('rates and macro', () => {
   it('the central bank meets on schedule, data releases alternate, and both are deterministic', () => {
     const cfg = universeConfig({ ticksPerDay: TPD });
-    const a = stepMany(createWorld('macro', cfg), TPD * 60);
-    const b = stepMany(createWorld('macro', cfg), TPD * 60);
+    // a game year: the bank meets every 32 days (about 8 a year, as real central banks do), so 252 days hold 7 meetings
+    const a = stepMany(createWorld('macro', cfg), TPD * 252);
+    const b = stepMany(createWorld('macro', cfg), TPD * 252);
     const meetings = a.events.filter((e) => e.type === 'rates');
     const releases = a.events.filter((e): e is Extract<StepEvent, { type: 'macro' }> => e.type === 'macro');
-    expect(meetings.length).toBeGreaterThanOrEqual(6);
-    expect(releases.length).toBeGreaterThanOrEqual(10);
+    expect(meetings.length).toBe(Math.floor(252 / DEFAULT_RATES.meetingEvery));
+    expect(releases.length).toBeGreaterThanOrEqual(40);
     expect(new Set(releases.map((r) => r.kind))).toEqual(new Set(['cpi', 'jobs']));
     expect(a.state.rates).toEqual(b.state.rates);
     for (const m of meetings) if (m.type === 'rates') expect(Math.abs(m.change)).toBeLessThanOrEqual(DEFAULT_RATES.maxMove + 1e-12);
-  });
+  }, 60_000); // a game year of the full universe, run twice: longer than vitest's 5 s default on a loaded machine
 
   it('long bonds fall when yields rise (duration)', () => {
     const cfg = universeConfig({ ticksPerDay: TPD });
@@ -236,6 +237,17 @@ describe('rates and macro', () => {
     const moved = r.state.assets[i10]!.lnP - before;
     expect(r.state.rates!.y30).toBeGreaterThan(s.rates!.y30);
     expect(moved).toBeLessThan(0);
+  });
+
+  it('a rate shock is news, not volatility: GARCH does not read it, with the ecology off too', () => {
+    // a 2% yield jump on an 8.5-duration fund is a ~17% price move. Booked as diffusion it would drive GARCH h to its cap.
+    const cfg = universeConfig({ ticksPerDay: TPD, ecology: undefined, worldEvents: undefined, catalysts: undefined, listings: undefined });
+    const i10 = cfg.assets.findIndex((a) => a.id === 'AV10');
+    const w = createWorld('garch-rate', cfg);
+    const s = { ...w, rates: { ...w.rates!, inflation: 0.09 } };
+    // the shock lands in the day that opens at tick TPD; GARCH first reads it at the next day boundary (tick 2 * TPD)
+    const r = stepMany(s, 2 * TPD + 1).state;
+    expect(r.assets[i10]!.h).toBeLessThan(2);
   });
 
   it('turning rates on leaves the bare-engine price streams of non-rate assets alone on day 0', () => {

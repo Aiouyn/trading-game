@@ -12,6 +12,15 @@ import type { AssetDef, RatesConfig, RatesState, RegimeId, StepEvent, WorldState
  * their duration and earn their yield as carry.
  *
  * Runs on its own stream ('rates:global'): turning rates on never changes the price streams.
+ *
+ * Calibration (Tape, 2026-10-09). The yield process sets bond price vol through duration, so it has to be calm enough for
+ * a fund's own vol to carry the total (bands.ts, vol_ratio on AV2Y/AV10/AV30/IGCB/HYLD).
+ *  - meetingEvery 32: a central bank meets about 8 times a year, as real ones do (252 / 8 ≈ 32). The old 8 meant about 31
+ *    meetings a year, each moving the policy rate up to 50 bp.
+ *  - noise 0.0004: inflation and growth move by 4 bp of daily noise, so the stationary inflation spread is
+ *    0.0004 / sqrt(2 * 0.03) ≈ 0.16 pp. The old 0.0012 gave about 0.5 pp, more than a real curve moves between prints.
+ *  - The curve reads the macro regime (sim.ts), not the trading overlay: a crisis week moves prices and vol, and leaves the
+ *    central bank's targets and the term premium where they were.
  */
 export const DEFAULT_RATES: RatesConfig = {
   neutralReal: 0.01,
@@ -23,8 +32,8 @@ export const DEFAULT_RATES: RatesConfig = {
     recovery: { inflation: 0.02, growth: 0.04, termPremium: 0.01 },
   },
   reversion: 0.03,
-  noise: 0.0012,
-  meetingEvery: 8,
+  noise: 0.0004,
+  meetingEvery: 32,
   maxMove: 0.005,
   stepSize: 0.0025,
   releaseEvery: 5,
