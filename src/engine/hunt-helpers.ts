@@ -6,7 +6,7 @@
 import { createWorld, shockPrice, step } from './sim';
 import { defaultConfig } from './config';
 import { newsPricedIn } from './news';
-import { estimateFill, openAccount, placeOrder, portfolio } from './trading';
+import { cancelOrder, estimateFill, openAccount, openOrders, placeOrder, portfolio } from './trading';
 import type { WorldConfig, WorldState } from './types';
 
 export const LN2 = Math.log(2);
@@ -323,4 +323,68 @@ export function newsDriftVsBh(seed: string, cfg: WorldConfig, opts: { years?: nu
     }
   }
   return { news: portfolio(news, PID).equity / newsStart, bh: portfolio(bh, BH).equity / bhStart, fills, rejects };
+}
+
+/**
+ * Self impact (Ledger's clip gate; selfimpact.test.ts and scripts/balance/hunts.ts). Buy `notional` of asset `id` on day 0
+ * as one order at tick 1 (clips = 1) or as `ticksPerDay` equal clips, one per tick (clips = ticksPerDay), from an account
+ * holding 3 × notional, against the same seed with nobody trading. `lift` is the end-of-day lnP gap to that unpushed world,
+ * `peak` the largest gap at any tick of the day, `marks` the holdings on the unpushed tape and `mids` on the pushed one.
+ */
+export function clipDay(id: string, clips: number, c: WorldConfig, seed: string, notional = 1e6): {
+  lift: number; peak: number; qty: number; total: number; state: WorldState; marks: number[]; mids: number[];
+} {
+  const base = createWorld(seed, c);
+  const i = base.config.assets.findIndex((a) => a.id === id);
+  const def = c.assets[i]!;
+  const whole = def.qtyStep === 1;
+  const per = whole ? Math.floor(notional / def.initialPrice / c.ticksPerDay) : notional / def.initialPrice / c.ticksPerDay;
+  const total = per * c.ticksPerDay;
+  let s = openAccount(base, 'p1', 3 * notional);
+  let n = base;
+  const marks: number[] = [];
+  const mids: number[] = [];
+  let peak = -Infinity;
+  for (let t = 0; t < c.ticksPerDay; t++) {
+    if (clips === 1 && t === 0) s = placeOrder(s, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: total }).state;
+    if (clips === c.ticksPerDay) s = placeOrder(s, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: per }).state;
+    s = step(s).state;
+    n = step(n).state;
+    peak = Math.max(peak, s.assets[i]!.lnP - n.assets[i]!.lnP);
+    const a = s.accounts.p1!;
+    const held = a.positions[id]?.qty ?? 0;
+    marks.push(a.cash + held * Math.exp(n.assets[i]!.lnP));
+    mids.push(a.cash + held * Math.exp(s.assets[i]!.lnP));
+  }
+  return { lift: s.assets[i]!.lnP - n.assets[i]!.lnP, peak, qty: s.accounts.p1!.positions[id]?.qty ?? 0, total, state: s, marks, mids };
+}
+
+/**
+ * Realize to flat (X3, huge.test.ts and scripts/balance/huge-money.ts): cancel the account's resting orders, then sell every
+ * long unit at market, each day split evenly over the day's ticks, until the units are worth less than $1 or `maxDays` pass.
+ * Returns the game day it went flat (-1 if not), the cash at the end, and the mid value of units still held.
+ */
+export function realizeToFlat(start: WorldState, playerId: string, maxDays: number): { flatDay: number; cash: number; heldValue: number } {
+  const TPD = start.config.ticksPerDay;
+  let s = start;
+  for (const o of openOrders(s, playerId)) s = cancelOrder(s, playerId, o.id);
+  const heldValue = (st: WorldState) => st.config.assets.reduce((v, a, i) => {
+    const q = st.accounts[playerId]?.positions[a.id]?.qty ?? 0;
+    return q > 0 ? v + q * Math.exp(st.assets[i]!.lnP) : v;
+  }, 0);
+  let flatDay = -1;
+  for (let d = 0; d < maxDays && flatDay < 0; d++) {
+    for (let t = 0; t < TPD; t++) {
+      const ticksLeft = TPD - t;
+      for (const a of s.config.assets) {
+        const q = freeQty(s, playerId, a.id);
+        if (q <= 0) continue;
+        const want = a.qtyStep === 1 ? Math.floor(q / ticksLeft) : q / ticksLeft;
+        if (want > 0) s = placeOrder(s, { playerId, assetId: a.id, side: 'sell', type: 'market', qty: want }).state;
+      }
+      s = step(s).state;
+    }
+    if (heldValue(s) < 1) flatDay = d + 1;
+  }
+  return { flatDay, cash: s.accounts[playerId]!.cash, heldValue: heldValue(s) };
 }

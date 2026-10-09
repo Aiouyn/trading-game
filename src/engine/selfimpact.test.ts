@@ -4,7 +4,7 @@ import { defaultConfig } from './config';
 import { universeConfig } from './universe';
 import { commission, estimateFill, halfSpread, impact, liquidationEquity, markCapOn, openAccount, permanentMove, placeOrder, portfolio, tradingConfig } from './trading';
 import type { WorldConfig, WorldState } from './types';
-import { median } from './hunt-helpers';
+import { clipDay, median } from './hunt-helpers';
 
 /**
  * Clip splitting (Ledger, 2026-10-09). Tape's harness used SYN; this engine has SYN (Synapse, crypto,
@@ -26,31 +26,11 @@ const UNI_SEEDS = SEEDS.slice(0, 5);
 function idx(s: WorldState, id: string) { return s.config.assets.findIndex((a) => a.id === id); }
 
 /** lnP at the end of game day 0 after buying `units` either in one order at tick 1 or in 720 equal clips, one per tick */
+/** the shared clip day (clipDay in hunt-helpers.ts, the same code the harness reads), with the bought size checked */
 function dayLift(id: string, clips: number, c: WorldConfig = cfg, seed = 'clip') {
-  const base = createWorld(seed, c);
-  const i = idx(base, id);
-  const def = c.assets[i]!;
-  const whole = def.qtyStep === 1;
-  const per = whole ? Math.floor(NOTIONAL / def.initialPrice / 720) : NOTIONAL / def.initialPrice / 720;
-  const total = per * 720;
-  let s = openAccount(base, 'p1', 3 * NOTIONAL);
-  let n = base;
-  const marks: number[] = [];
-  const mids: number[] = [];
-  let peak = -Infinity; // the largest lnP lift the day reached, at any tick
-  for (let t = 0; t < c.ticksPerDay; t++) {
-    if (clips === 1 && t === 0) s = placeOrder(s, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: total }).state;
-    if (clips === 720) s = placeOrder(s, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: per }).state;
-    s = step(s).state;
-    n = step(n).state;
-    peak = Math.max(peak, s.assets[i]!.lnP - n.assets[i]!.lnP);
-    const a = s.accounts.p1!;
-    const qty = a.positions[id]?.qty ?? 0;
-    marks.push(a.cash + qty * Math.exp(n.assets[i]!.lnP)); // holdings on the tape nobody pushed
-    mids.push(a.cash + qty * Math.exp(s.assets[i]!.lnP)); // holdings at the mid you pushed
-  }
-  expect(s.accounts.p1!.positions[id]!.qty).toBeCloseTo(total, 6);
-  return { lift: s.assets[i]!.lnP - n.assets[i]!.lnP, peak, state: s, marks, mids };
+  const r = clipDay(id, clips, c, seed, NOTIONAL);
+  expect(r.qty).toBeCloseTo(r.total, 6);
+  return { lift: r.lift, peak: r.peak, state: r.state, marks: r.marks, mids: r.mids };
 }
 
 describe('self impact: clips cost the same permanent impact as one order', () => {
@@ -90,7 +70,9 @@ describe('self impact: clips cost the same permanent impact as one order', () =>
   // The game path (universe, full ecology). The gate is the intraday peak lift ratio, two-sided per seed: the largest lnP
   // move the day reaches, before the closing auction can revert it. The close lift is not gated here. Under full ecology
   // the auction sets the close and the one-clip close lift is near zero on some seeds, so a close ratio of two small
-  // numbers swings widely (on 20 seeds the one-clip close lift changes sign in 2 of 20 SYN and 3 of 20 AURH runs).
+  // numbers swings widely: on 20 seeds the one-clip close lift is <= 0 in 3 of 20 SYN and 4 of 20 AURH runs (hunts.ts
+  // info lines selfimpact_close1_nonpositive). The gate covers tape-01..05 only: on 20 seeds the AURH peak ratio is
+  // 0.83 to 2.74 (tape-10 is 2.74, outside the band; hunts.ts info lines selfimpact_peak_ratio_*), an open item for Ledger.
   // The close ratio is printed for the record. Ledger's 0.997 sign-off used the close and is not reproduced by this gate.
   for (const id of ['SYN', 'AURH']) {
     it(`self_impact_peak_ratio (${id}, universeConfig 720 ticks, full ecology, tape-01..05): intraday peak lift ratio in (0.75, 1.5]`, { timeout: 60_000 }, () => {

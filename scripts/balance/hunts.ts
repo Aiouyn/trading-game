@@ -19,8 +19,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { defaultConfig, gameConfig } from "../../src/engine";
 import {
-  earningsPairs, gapP95, halfLivesFor, ladderPnl, LN2, mean, median, newsDriftVsBh, pumpDump, sd, spearman,
+  clipDay, earningsPairs, gapP95, halfLivesFor, ladderPnl, LN2, mean, median, newsDriftVsBh, pumpDump, sd, spearman,
 } from "../../src/engine/hunt-helpers";
+import { universeConfig } from "../../src/engine/universe";
 
 function arg(name: string, fallback: string) {
   const i = process.argv.indexOf(`--${name}`);
@@ -104,6 +105,19 @@ function main() {
   const ic = spearman(X, Y);
   band("earnings_surprise_ic", `pooled rank IC of surprise vs next 21-day return after the report-day close (X2: > 0), ${X.length} reports; SE if independent ~${(1 / Math.sqrt(X.length)).toFixed(3)} (reports on one day share the market, so this understates it)`, ic, 0, 1, true);
   info("earnings_surprise_ic_seed_median", median(pairs.map((p) => spearman(p.x, p.y))));
+
+  // self impact (selfimpact.test.ts, Ledger's clip gate): full ecology, 720 ticks a game day, one day of SYN and AURH.
+  // Info only: the suite gates tape-01..05; these lines show the same measure on every harness seed.
+  const cfgClip = universeConfig({ ticksPerDay: TPD_TRADE });
+  for (const id of ["SYN", "AURH"]) {
+    const one = seeds.map((sd0) => clipDay(id, 1, cfgClip, sd0));
+    const many = seeds.map((sd0) => clipDay(id, TPD_TRADE, cfgClip, sd0));
+    const ratios = many.map((r, k) => r.peak / one[k]!.peak);
+    info(`selfimpact_close1_nonpositive:${id}`, `${one.filter((r) => r.lift <= 0).length} of ${seeds.length}`);
+    info(`selfimpact_peak_ratio_median:${id}`, median(ratios));
+    info(`selfimpact_peak_ratio_min_max:${id}`, `${Math.min(...ratios).toFixed(4)} to ${Math.max(...ratios).toFixed(4)}`);
+    info(`selfimpact_peak_ratio_outside_0.75_1.5:${id}`, `${ratios.filter((x) => !(x > 0.75 && x <= 1.5)).length} of ${seeds.length}`);
+  }
 
   // news_drift: the free-lunch check on the earnings signal (M04). Same gameConfig, 5 game years, from day 63.
   const nd = seeds.map((sd0) => newsDriftVsBh(sd0, cfgGame, { years: 5 }));

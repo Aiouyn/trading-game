@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createWorld, step } from './sim';
 import { universeConfig } from './universe';
 import { estimateFill, liquidationEquity, openAccount, placeOrder, portfolio } from './trading';
-import { freeCash, freeQty } from './hunt-helpers';
+import { freeCash, freeQty, realizeToFlat } from './hunt-helpers';
 import type { WorldConfig, WorldState } from './types';
 
 /**
@@ -16,11 +16,12 @@ import type { WorldConfig, WorldState } from './types';
  * cash; or accounting drift, i.e. realized + unrealized + interest + dividends − borrow fees − interest paid ≠ equity −
  * startingCash beyond 1e-9 of the scale of the numbers. Orders above 2^53 units are refused (validate), so sizing stops there.
  *
- * Open (not gated here, needs a Ledger/Tape decision; measured on tape-01, see the commit body): the price response is not
- * bounded at this size. At $1e12 FROG reaches 5.0e25 times its start price (log move 59.2 at tick 3288), year-end mid equity
- * is 2.5e20, and liquidation equity is negative (about −6.7e25), so it is not a realizable value. The test logs the largest
- * move, asserts every price stays finite and positive, that liquidation equity is finite, and that a mid mark does not lift
- * the peak.
+ * Open (not gated here, needs a Ledger/Tape decision; measured on tape-01 by scripts/balance/huge-money.ts): the price response
+ * is not bounded at this size. At $1e12 FROG reaches 5.0e25 times its start price (log move 59.2 at tick 3288), year-end mid
+ * equity is 2.5e20, and liquidation equity is negative (about −6.7e25). Realizable: selling to flat from the year end returns
+ * 2.0e11 at $1e12 (−80%, flat after 9 days) and 1.03e15 at $1e15 (+2.7%, flat after 70 days). The test logs the largest move,
+ * asserts every price stays finite and positive, that liquidation equity is finite on every tick, that the peak liquidation
+ * mark is returned by selling down (within 5%), and that a mid mark does not lift the peak.
  */
 const TPD = 24;
 const DAYS = 252;
@@ -53,6 +54,11 @@ interface YearRun {
   maxAbsLnMove: number;
   /** the asset and tick that reached maxAbsLnMove */
   maxAt: string;
+  /** ticks on which liquidation equity was not finite (must be 0) */
+  nonFiniteLiq: number;
+  /** the largest liquidation equity over the year, and the world at that tick (the peak rank and licences read) */
+  peakLiq: number;
+  peakState: WorldState;
 }
 
 /** one game year: buy on even days (sized to live cash, split over the day's ticks), sell the same asset on the next day */
@@ -63,6 +69,9 @@ function oneYear(cash: number, seed: string): YearRun {
   let minCash = Infinity;
   let maxAbsLnMove = 0;
   let maxAt = '';
+  let nonFiniteLiq = 0;
+  let peakLiq = -Infinity;
+  let peakState = s;
   const rejects: Record<string, number> = {};
   const place = (assetId: string, side: 'buy' | 'sell', qty: number) => {
     const r = placeOrder(s, { playerId: PID, assetId, side, type: 'market', qty });
@@ -91,6 +100,9 @@ function oneYear(cash: number, seed: string): YearRun {
       s = res.state;
       fills += res.fills.filter((f) => f.playerId === PID).length;
       minCash = Math.min(minCash, s.accounts[PID]!.cash);
+      const liq = liquidationEquity(s, PID);
+      if (!Number.isFinite(liq)) nonFiniteLiq++;
+      if (liq > peakLiq) { peakLiq = liq; peakState = s; }
       for (const id of ROTATION) {
         const j = s.config.assets.findIndex((a) => a.id === id);
         const move = Math.abs(s.assets[j]!.lnP - Math.log(s.config.assets[j]!.initialPrice));
@@ -98,7 +110,7 @@ function oneYear(cash: number, seed: string): YearRun {
       }
     }
   }
-  return { state: s, fills, orders, rejects, minCash, maxAbsLnMove, maxAt };
+  return { state: s, fills, orders, rejects, minCash, maxAbsLnMove, maxAt, nonFiniteLiq, peakLiq, peakState };
 }
 
 /** The scale-aware drift of the trading identity, as a fraction of the largest number in it. */
@@ -135,6 +147,14 @@ describe('X3 huge money: a game year at $1e12 and $1e15 stays finite and balance
       expect(r.minCash).toBeGreaterThanOrEqual(0);
       const { drift, scale } = driftOf(r.state);
       expect(drift / scale).toBeLessThanOrEqual(1e-9);
+      // liquidation equity is finite on every tick, not only at year end
+      expect(r.nonFiniteLiq).toBe(0);
+      // the peak liquidation mark is backed by proceeds: selling down from the tick it peaked (realize to flat, 100 days
+      // at most) returns at least 95% of it. The mid mark is not: it is orders of magnitude above what sells return.
+      const rz = realizeToFlat(r.peakState, PID, 100);
+      console.log(`huge_money_peak $${cash.toExponential(0)}: liquidation peak ${r.peakLiq.toExponential(4)} at tick ${r.peakState.tick}; realize to flat from there: flat day ${rz.flatDay}, cash ${rz.cash.toExponential(4)} (${(rz.cash / r.peakLiq).toFixed(4)} of the peak)`);
+      expect(rz.flatDay).toBeGreaterThan(0);
+      expect(rz.cash).toBeGreaterThanOrEqual(0.95 * r.peakLiq);
     });
   }
 });
