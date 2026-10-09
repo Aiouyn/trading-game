@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, stepMany } from './sim';
 import { universeConfig } from './universe';
-import { explainMove } from './ecology';
+import { depthByPool, explainMove } from './ecology';
 import { openAccount, placeOrder } from './trading';
 import type { WorldState } from './types';
 
@@ -19,6 +19,17 @@ function trade(players: string[], days: number, qty = 5): WorldState {
   }
   return s;
 }
+
+describe('depthByPool', () => {
+  it('shows a closed day by pool type only, and refuses the open day', () => {
+    const s = trade(['p0', 'p1', 'p2', 'p3', 'p4'], 3);
+    const d = depthByPool(s, ASSET, 1);
+    expect(Object.keys(d.desired).sort()).toEqual(['pension', 'retail', 'trend', 'value']);
+    expect(d.depth).toBeGreaterThan(0);
+    expect(d.depth).toBeLessThanOrEqual(1);
+    expect(() => depthByPool(s, ASSET, 3)).toThrow(/not a closed day/);
+  });
+});
 
 describe('explainMove', () => {
   it('rejects the open session day and anything after the last close', () => {

@@ -401,6 +401,30 @@ export interface MoveExplain {
   foldedDays: number[];
 }
 
+/** A closed day's book for one asset: the depth factor and each trader pool's desired flow, in ADV. Pool types only. */
+export interface DepthByPool {
+  assetId: string;
+  day: number;
+  depth: number;
+  desired: Record<'value' | 'trend' | 'retail' | 'pension', number>;
+}
+
+/**
+ * Order depth on a closed day, by pool type. Closed days only: a day the log does not hold (the open session, or
+ * before the listing) throws. The player's own flow is not in this view; it appears only through explainMove.
+ */
+export function depthByPool(state: WorldState, assetId: string, day: number): DepthByPool {
+  const idx = state.config.assets.findIndex((a) => a.id === assetId);
+  if (idx < 0) throw new Error(`depthByPool: unknown asset ${assetId}`);
+  const entry = ecologyLog(state).find((d) => d.day === day);
+  if (!entry) throw new Error(`depthByPool: day ${day} is not a closed day`);
+  const a = entry.assets[idx]!;
+  return {
+    assetId, day, depth: a.depth,
+    desired: { value: a.desired.value, trend: a.desired.trend, retail: a.desired.retail, pension: a.desired.pension },
+  };
+}
+
 /**
  * Why an asset moved between two closed days, from the cause vector the pools wrote each close. Closed days only:
  * a window that reaches the open session, or any day after the last close, throws. The window is clamped to the first
