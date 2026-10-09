@@ -19,7 +19,6 @@
   "common.day": "Jour {day}",
   "common.gameDays_one": "{count} jour de jeu",
   "common.gameDays_other": "{count} jours de jeu",
-
   "rank.R0": "Fauché",
   "rank.R1": "Débrouillard",
   "rank.R2": "Patron",
@@ -27,7 +26,6 @@
   "rank.R4": "Magnat",
   "rank.R5": "Titan",
   "rank.R6": "Dynastie",
-
   "app.broker": "Courtier",
   "app.portfolio": "Portefeuille",
   "app.wire": "Le Fil",
@@ -48,18 +46,20 @@
   "app.settings": "Réglages",
   "app.rivals": "Rivaux",
   "app.journal": "Journal",
-
   "order.market": "Au marché",
   "order.limit": "Limite",
   "order.stop": "Stop",
   "order.stop_limit": "Stop-limite",
   "order.trailing": "Suiveur",
   "order.honest": "Les prix peuvent baisser. C’est le jeu.",
-
   "settings.language": "Langue",
   "settings.palette": "Palette",
   "palette.ink-brass": "Encre & Laiton",
   "palette.broadsheet": "Grand format",
   "palette.phosphor": "Phosphore",
-  "palette.riviera": "Riviera"
+  "palette.riviera": "Riviera",
+  "news.band.early": "Tôt : l’essentiel reste à venir",
+  "news.band.mid": "En cours : le mouvement s’installe",
+  "news.band.late": "Tard : presque intégré",
+  "news.band.done": "Intégré au prix"
 }

@@ -19,7 +19,6 @@
   "common.day": "Day {day}",
   "common.gameDays_one": "{count} game day",
   "common.gameDays_other": "{count} game days",
-
   "rank.R0": "Broke",
   "rank.R1": "Hustler",
   "rank.R2": "Owner",
@@ -27,7 +26,6 @@
   "rank.R4": "Mogul",
   "rank.R5": "Titan",
   "rank.R6": "Dynasty",
-
   "app.broker": "Broker",
   "app.portfolio": "Portfolio",
   "app.wire": "Wire",
@@ -48,18 +46,20 @@
   "app.settings": "Settings",
   "app.rivals": "Rivals",
   "app.journal": "Journal",
-
   "order.market": "Market",
   "order.limit": "Limit",
   "order.stop": "Stop",
   "order.stop_limit": "Stop-limit",
   "order.trailing": "Trailing",
   "order.honest": "Prices can fall. That’s the game.",
-
   "settings.language": "Language",
   "settings.palette": "Palette",
   "palette.ink-brass": "Ink & Brass",
   "palette.broadsheet": "Broadsheet",
   "palette.phosphor": "Phosphor",
-  "palette.riviera": "Riviera"
+  "palette.riviera": "Riviera",
+  "news.band.early": "Early: mostly still to come",
+  "news.band.mid": "Mid: drifting in",
+  "news.band.late": "Late: nearly priced in",
+  "news.band.done": "Priced in"
 }

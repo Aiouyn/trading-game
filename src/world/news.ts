@@ -21,7 +21,7 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
         if (!d || d.listed === false) break;
         const move = Math.exp(e.logSize) - 1;
         pushWire(g, out, {
-          kind: 'move', tag: e.assetId, tone: move >= 0 ? 'gain' : 'loss', assetId: e.assetId,
+          kind: 'move', tag: e.assetId, tone: move >= 0 ? 'gain' : 'loss', assetId: e.assetId, news: 'jump',
           text: moveHeadline(e.assetId, d.sector, d.name, move, `${e.tick}:${e.assetId}`),
         });
         break;
@@ -41,7 +41,7 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
       case 'earnings': {
         const d = defOf(g, e.assetId);
         if (!d) break;
-        pushWire(g, out, { kind: 'earnings', tag: 'Earnings', tone: e.move >= 0 ? 'gain' : 'loss', assetId: e.assetId, text: earningsHeadline(d.name, e.surprise, e.move) });
+        pushWire(g, out, { kind: 'earnings', tag: 'Earnings', tone: e.move >= 0 ? 'gain' : 'loss', assetId: e.assetId, news: 'earnings', text: earningsHeadline(d.name, e.surprise, e.move) });
         break;
       }
       case 'preview': {

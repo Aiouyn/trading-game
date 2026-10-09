@@ -193,6 +193,8 @@ export interface WireItem {
   tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';
   assetId?: string;
   playerId?: string;
+  /** a news move whose drift is still running: the Wire shows its priced-in band (newsBand), never the share */
+  news?: 'jump' | 'earnings';
 }
 
 export interface ChatMessage {

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { earningsCalendar } from '@/engine';
+import { earningsCalendar, newsBand, type NewsBand } from '@/engine';
+import { useT } from '@/i18n';
 import { consensusLabel } from '@/content/news';
 import { clockLabel } from '@/game/clock';
 import { assetDefOf, useGame } from '@/game/store';
@@ -22,6 +23,9 @@ export function WireView() {
   const wire = useGame((s) => s.wire);
   const select = useGame((s) => s.select);
   const setScreen = useGame((s) => s.setScreen);
+  const config = useGame((s) => s.config);
+  const now = useGame((s) => s.frame?.tick ?? 0);
+  const t = useT();
   const [f, setF] = useState('all');
   const kinds = FILTERS.find((x) => x.id === f)!.kinds;
   const items = wire.filter((w) => !kinds || kinds.includes(w.kind));
@@ -43,6 +47,7 @@ export function WireView() {
                 {w.assetId ? (
                   <button type="button" className="text-left text-small text-fg hover:underline" onClick={() => { select(w.assetId!); setScreen('market'); }}>{w.text}</button>
                 ) : <span className="text-small text-fg">{w.text}</span>}
+                {w.news && w.assetId && <BandChip band={newsBand(config, w.assetId, w.news, now - w.tick)} label={t(`news.band.${newsBand(config, w.assetId, w.news, now - w.tick)}`)} />}
               </div>
             </li>
           ))}
@@ -52,6 +57,18 @@ export function WireView() {
       <Calendar />
     </div>
   );
+}
+
+const BAND_CLASS: Record<NewsBand, string> = {
+  early: 'border-brass/60 text-brass-hi',
+  mid: 'border-info/50 text-info',
+  late: 'border-ink-3 text-fg-muted',
+  done: 'border-ink-3 text-fg-faint',
+};
+
+/** How much of a news move is already in the price: Early (most still to come) to Done. */
+function BandChip({ band, label }: { band: NewsBand; label: string }) {
+  return <span className="ml-2 align-middle" data-testid={`news-band-${band}`}><Chip className={BAND_CLASS[band]}>{label}</Chip></span>;
 }
 
 export function Calendar() {
