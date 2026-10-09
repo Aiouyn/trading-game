@@ -16,12 +16,12 @@ import type { WorldConfig, WorldState } from './types';
  * cash; or accounting drift, i.e. realized + unrealized + interest + dividends − borrow fees − interest paid ≠ equity −
  * startingCash beyond 1e-9 of the scale of the numbers. Orders above 2^53 units are refused (validate), so sizing stops there.
  *
- * Open (not gated here, needs a Ledger/Tape decision; measured on tape-01 by scripts/balance/huge-money.ts): the price response
- * is not bounded at this size. At $1e12 FROG reaches 5.0e25 times its start price (log move 59.2 at tick 3288), year-end mid
- * equity is 2.5e20, and liquidation equity is negative (about −6.7e25). Realizable: selling to flat from the year end returns
- * 2.0e11 at $1e12 (−80%, flat after 9 days) and 1.03e15 at $1e15 (+2.7%, flat after 70 days). The test logs the largest move,
- * asserts every price stays finite and positive, that liquidation equity is finite on every tick, that the peak liquidation
- * mark is returned by selling down (within 5%), and that a mid mark does not lift the peak.
+ * F7 (Phase 1): a long's liquidation proceeds floor at 0, and a sale fill never prices below 0, so liquidation equity is
+ * at least cash on every tick (this test holds no shorts; the cover-cost bound is in the long/short unit test below).
+ * The price response is still unbounded at this size except through F8 (the close caps own flow at 3 x ADV, ecology.ts):
+ * scripts/balance/huge-money.ts measures it on tape-01. The test logs the largest move, asserts every price stays finite and
+ * positive, that liquidation equity is finite and not below cash on every tick, that the peak liquidation mark is returned
+ * by selling down (within 5%), and that a mid mark does not lift the peak.
  */
 const TPD = 24;
 const DAYS = 252;
@@ -56,6 +56,8 @@ interface YearRun {
   maxAt: string;
   /** ticks on which liquidation equity was not finite (must be 0) */
   nonFiniteLiq: number;
+  /** ticks on which liquidation equity was below cash (must be 0: longs only, proceeds floor at 0; F7) */
+  belowCash: number;
   /** the largest liquidation equity over the year, and the world at that tick (the peak rank and licences read) */
   peakLiq: number;
   peakState: WorldState;
@@ -70,6 +72,7 @@ function oneYear(cash: number, seed: string): YearRun {
   let maxAbsLnMove = 0;
   let maxAt = '';
   let nonFiniteLiq = 0;
+  let belowCash = 0;
   let peakLiq = -Infinity;
   let peakState = s;
   const rejects: Record<string, number> = {};
@@ -102,6 +105,7 @@ function oneYear(cash: number, seed: string): YearRun {
       minCash = Math.min(minCash, s.accounts[PID]!.cash);
       const liq = liquidationEquity(s, PID);
       if (!Number.isFinite(liq)) nonFiniteLiq++;
+      if (liq < s.accounts[PID]!.cash) belowCash++;
       if (liq > peakLiq) { peakLiq = liq; peakState = s; }
       for (const id of ROTATION) {
         const j = s.config.assets.findIndex((a) => a.id === id);
@@ -110,7 +114,7 @@ function oneYear(cash: number, seed: string): YearRun {
       }
     }
   }
-  return { state: s, fills, orders, rejects, minCash, maxAbsLnMove, maxAt, nonFiniteLiq, peakLiq, peakState };
+  return { state: s, fills, orders, rejects, minCash, maxAbsLnMove, maxAt, nonFiniteLiq, belowCash, peakLiq, peakState };
 }
 
 /** The scale-aware drift of the trading identity, as a fraction of the largest number in it. */
@@ -138,17 +142,20 @@ describe('X3 huge money: a game year at $1e12 and $1e15 stays finite and balance
       for (const asset of r.state.assets) {
         expect(Number.isFinite(asset.lnP)).toBe(true);
       }
-      // liquidation equity must be a finite number. It can be negative at this size (a long's exit price is
-      // p·(1 − spread − impact), and impact passes 1), so only finiteness is asserted. The peak reads liquidation
-      // value, so the mid mark (orders of magnitude above it) must not lift the peak.
+      // liquidation equity is finite and never below cash: this year holds longs only, and a long's exit proceeds floor at
+      // 0 (F7), so liquidation equity is exactly cash. The peak reads liquidation value, so the mid mark (orders of magnitude
+      // above it) must not lift the peak.
       expect(Number.isFinite(p.liquidationEquity)).toBe(true);
       expect(Number.isFinite(liquidationEquity(r.state, PID))).toBe(true);
-      expect(p.peakEquity).toBeLessThan(p.equity);
+      expect(liquidationEquity(r.state, PID)).toBeGreaterThanOrEqual(r.state.accounts[PID]!.cash);
+      // the engine peak is a liquidation peak: it cannot exceed the best liquidation mark the year reached (or the start cash)
+      expect(p.peakEquity).toBeLessThanOrEqual(Math.max(a.startingCash, r.peakLiq) * (1 + 1e-9) + 1e-6);
       expect(r.minCash).toBeGreaterThanOrEqual(0);
       const { drift, scale } = driftOf(r.state);
       expect(drift / scale).toBeLessThanOrEqual(1e-9);
       // liquidation equity is finite on every tick, not only at year end
       expect(r.nonFiniteLiq).toBe(0);
+      expect(r.belowCash).toBe(0);
       // the peak liquidation mark is backed by proceeds: selling down from the tick it peaked (realize to flat, 100 days
       // at most) returns at least 95% of it. The mid mark is not: it is orders of magnitude above what sells return.
       const rz = realizeToFlat(r.peakState, PID, 100);
@@ -171,5 +178,36 @@ describe('X3 huge money: quantities above 2^53 units are refused, not rounded', 
     // the cap itself is still a legal size
     const ok = placeOrder(s, { playerId: PID, assetId: 'FROG', side: 'buy', type: 'market', qty: Number.MAX_SAFE_INTEGER });
     expect(ok.order.rejectReason).toBeUndefined();
+  });
+});
+
+/**
+ * F7 (Phase 1 huge money): selling shares never pays negative money. At $1e12 of one stock the impact term passes 1, which
+ * made a long's modelled exit price, and so its liquidation proceeds, negative. The floor is 0: a long is worth nothing
+ * beyond cash at that size, and a short still pays its cover cost (the only term that can go below cash).
+ */
+describe('F7 liquidation floor: a sale never pays below zero, a short keeps its cover cost', () => {
+  it('a long too big to exit at a positive price marks at cash, and the sell estimate is not negative', () => {
+    // SYN at $1e13: the sale impact is about 10 x mid, so the unfloored exit price would be negative (the F7 case)
+    let s = openAccount(createWorld('f7-long', cfg), PID, 1e6);
+    const i = s.config.assets.findIndex((a) => a.id === 'SYN');
+    const px = Math.exp(s.assets[i]!.lnP);
+    const qty = 1e13 / px;
+    s = { ...s, accounts: { ...s.accounts, [PID]: { ...s.accounts[PID]!, positions: { SYN: { qty, avgCost: px, realizedPnl: 0 } } } } };
+    expect(estimateFill(s, { assetId: 'SYN', side: 'sell', qty }).price).toBe(0);
+    const liq = liquidationEquity(s, PID);
+    expect(Number.isFinite(liq)).toBe(true);
+    expect(liq).toBeCloseTo(1e6, 6);
+  });
+
+  it('a short at the same size pays its cover cost: liquidation equity is cash less at least the cover at mid', () => {
+    let s = openAccount(createWorld('f7-short', cfg), PID, 1e6);
+    const i = s.config.assets.findIndex((a) => a.id === 'SYN');
+    const px = Math.exp(s.assets[i]!.lnP);
+    const qty = 1e13 / px;
+    s = { ...s, accounts: { ...s.accounts, [PID]: { ...s.accounts[PID]!, positions: { SYN: { qty: -qty, avgCost: px, realizedPnl: 0 } } } } };
+    const liq = liquidationEquity(s, PID);
+    expect(Number.isFinite(liq)).toBe(true);
+    expect(liq).toBeLessThan(1e6 - qty * px);
   });
 });

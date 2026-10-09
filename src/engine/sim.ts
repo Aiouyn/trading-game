@@ -335,7 +335,7 @@ function advance(state: WorldState): StepResult {
   const { state: cleared, fills, events: clearEvents } = clearOrders(priced, newDay);
   for (const e of clearEvents) events.push(e);
   if (!eco) return { state: cleared, events, fills };
-  return ecologyStep(cleared, tick, events, fills);
+  return ecologyStep(cleared, tick, events, fills, priced);
 }
 
 /**
@@ -346,10 +346,12 @@ function advance(state: WorldState): StepResult {
  * move (h and the regime stay the live engine's). The pools' orders join the asset's shared day tally, so one
  * tally holds everyone's flow; they trade after the day's last fills, so that write cannot change any price.
  */
-function ecologyStep(cleared: WorldState, tick: number, events: StepEvent[], fills: Fill[]): StepResult {
+function ecologyStep(cleared: WorldState, tick: number, events: StepEvent[], fills: Fill[], priced: WorldState): StepResult {
   const cfg = cleared.config;
   const day = Math.floor((tick - 1) / cfg.ticksPerDay);
-  let eco = cleared.ecology && cleared.ecology.assets.length === cfg.assets.length ? cleared.ecology : initEcology(cleared);
+  // a fresh book anchors on the priced state, before this tick's fills: the player's own tick-1 impact must not become
+  // the value anchor the pools then trade back (AURH tape-10: a one-clip day anchored on its own impact, F5/F6)
+  let eco = cleared.ecology && cleared.ecology.assets.length === cfg.assets.length ? cleared.ecology : initEcology(priced);
   eco = addOwnFlow(eco, cfg, fills);
   if (tick % cfg.ticksPerDay !== 0) return { state: { ...cleared, ecology: eco }, events, fills };
   const w = ecologyWeight(cfg);

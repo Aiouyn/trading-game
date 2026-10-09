@@ -79,10 +79,18 @@ function sign(side: Side): 1 | -1 {
   return side === 'buy' ? 1 : -1;
 }
 
+/**
+ * A fill at mid p with half spread plus impact `c` (fractions of mid). A sale never pays below 0 (F7): at a size where
+ * the impact passes 1 the sell price floors at 0, not a negative price. Buys are unfloored.
+ */
+function fillPrice(p: number, side: Side, c: number): number {
+  return side === 'sell' ? Math.max(0, p * (1 - c)) : p * (1 + c);
+}
+
 function execPrice(state: WorldState, i: number, side: Side, qty: number): { price: number; imp: number } {
   const p = mid(state, i);
   const imp = impact(state, i, qty * p);
-  return { price: p * (1 + sign(side) * (halfSpread(state, i) + imp)), imp };
+  return { price: fillPrice(p, side, halfSpread(state, i) + imp), imp };
 }
 
 // ---------------------------------------------------------------- shared impact tallies (engine-staging, Ledger 2026-10-09)
@@ -276,7 +284,9 @@ function liquidationOf(state: WorldState, acct: Account, crowd: Record<string, C
     const q = Math.max(Math.abs(pos.qty), (long ? c?.long : c?.short) ?? 0);
     const p = guardedMark(state, i, long ? 1 : -1);
     const cost = halfSpread(state, i) + impact(state, i, q * p);
-    const price = long ? p * (1 - cost) : p * (1 + cost);
+    // F7 (Phase 1 huge money): selling shares never pays negative money. A long's exit price floors at 0, so at a size
+    // where the impact term passes 1 the proceeds are 0, not a negative sum. A short keeps its cover cost, which is what it is.
+    const price = long ? Math.max(0, p * (1 - cost)) : p * (1 + cost);
     eq += pos.qty * price - commission(state, def, Math.abs(pos.qty) * price);
   }
   if (acct.options) eq += optionsValue(state, acct.options);
@@ -740,7 +750,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
     const tt = tallyTick(s.assets[i]!.tickTraded, tick, s.assets[i]!.lnP);
     const p0 = Math.exp(tt.lnMid);
     const imp = marginalImpact(s, i, tt[side], q * p0);
-    return { price: p0 * (1 + sign(side) * (halfSpread(s, i) + imp)), p0 };
+    return { price: fillPrice(p0, side, halfSpread(s, i) + imp), p0 };
   };
 
   if (hasOpen) {
