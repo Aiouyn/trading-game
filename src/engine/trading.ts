@@ -637,6 +637,25 @@ function book(acct: Account, assetId: string, side: Side, q: number, price: numb
   return realized;
 }
 
+/**
+ * Close every account's position in one asset at a settlement price, with no fee: a bankruptcy's recovery, a cash
+ * merger's premium, or a spin-off's carve-out. Open orders in the asset are cancelled. Pure.
+ */
+export function settleAsset(state: WorldState, assetId: string, price: number): WorldState {
+  const accounts: Record<string, Account> = { ...state.accounts };
+  for (const [id, acct] of Object.entries(state.accounts)) {
+    const pos = acct.positions[assetId];
+    if (!pos) continue;
+    const copy: Account = { ...acct, positions: { ...acct.positions } };
+    book(copy, assetId, pos.qty > 0 ? 'sell' : 'buy', Math.abs(pos.qty), price, 0);
+    accounts[id] = copy;
+  }
+  const orders = state.orders.map((o) => (o.assetId === assetId && o.status === 'open'
+    ? { ...o, status: 'cancelled' as const, rejectReason: 'delisted', closedTick: state.tick }
+    : o));
+  return { ...state, accounts, orders };
+}
+
 // ---------------------------------------------------------------- options
 
 export interface OptionTradeResult {

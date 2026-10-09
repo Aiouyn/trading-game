@@ -1,5 +1,6 @@
 import type { RngState } from './rng';
 import type { WorldEventKind, WorldEventsConfig, WorldEventsState } from './worldEvents';
+import type { ListingsConfig } from './listings';
 
 export type AssetClass = 'stock' | 'crypto' | 'commodity' | 'forex' | 'bond' | 'realestate';
 
@@ -53,6 +54,8 @@ export interface AssetDef {
   wRegion?: number;
   /** false = priced by the engine but not tradable on the order book (property district indices) */
   listed?: boolean;
+  /** delisted by a bankruptcy, merger or spin-off settlement: no trading, price frozen, out of the indices and pools */
+  delisted?: boolean;
   /** one-line flavor text for the UI */
   blurb?: string;
   /** a yearly cycle in value (commodities); absent = none */
@@ -178,6 +181,8 @@ export interface WorldConfig {
   rivals?: RivalDef[];
   /** shared world events (crash, bubble, crisis week, flash; specs/quant-world-events.md); off when absent */
   worldEvents?: Partial<WorldEventsConfig>;
+  /** evolving universe: NPC IPOs, bankruptcies, mergers and spin-offs (listings.ts); off when absent */
+  listings?: Partial<ListingsConfig>;
   regimes: Record<RegimeId, RegimeDef>;
   assets: AssetDef[];
   indices: IndexDef[];
@@ -490,6 +495,8 @@ export interface WorldState {
   ecology?: EcologyState;
   /** shared world events; present once a world with events on has stepped a day. Server-only (the app gets worldEventView). */
   worldEvents?: WorldEventsState;
+  /** listings stream and sequence (evolving universe); present once a listing day has rolled */
+  listings?: { rng: RngState; seq: number };
 }
 
 export interface CrowdHold {
@@ -719,6 +726,8 @@ export type StepEvent =
   | { type: 'macro'; tick: number; kind: 'cpi' | 'jobs'; actual: number; consensus: number }
   /** a shared world event: announced (precursors), started, or ended (lastedDays and gxMove only on end) */
   | { type: 'world'; tick: number; phase: 'announced' | 'start' | 'end'; kind: WorldEventKind; id: string; headline: string; precursors?: string[]; lastedDays?: number; gxMove?: number }
+  /** the evolving universe: a listing (ipo, spin-off child), a delisting (bankruptcy, merger), or a spin-off parent */
+  | { type: 'listing'; tick: number; kind: 'ipo' | 'bankruptcy' | 'merger' | 'spinoff'; assetId: string; otherId?: string; price: number }
   | { type: 'margin_call'; tick: number; playerId: string; equity: number; required: number }
   | { type: 'liquidation'; tick: number; playerId: string; assetId: string; qty: number; price: number }
   | { type: 'option_expiry'; tick: number; playerId: string; contractId: string; qty: number; payout: number };

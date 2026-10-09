@@ -78,6 +78,21 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
       case 'rates':
         pushWire(g, out, { kind: 'rates', tag: 'Central bank', tone: e.change > 0 ? 'loss' : e.change < 0 ? 'gain' : 'info', text: ratesHeadline(e.policy, e.change, e.expected) });
         break;
+      case 'listing': {
+        const name = defOf(g, e.assetId)?.name ?? e.assetId;
+        const px = `$${e.price.toFixed(2)}`;
+        if (e.kind === 'ipo') {
+          pushWire(g, out, { kind: 'listing', tag: 'IPO', tone: 'info', assetId: e.assetId, text: `${name} lists on Port Avalon at ${px}` });
+        } else if (e.kind === 'bankruptcy') {
+          pushWire(g, out, { kind: 'listing', tag: 'Bankruptcy', tone: 'loss', assetId: e.assetId, text: `${name} files for bankruptcy; holders recover ${px} a share in cash` });
+        } else if (e.kind === 'merger') {
+          pushWire(g, out, { kind: 'listing', tag: 'Takeover', tone: 'gain', assetId: e.assetId, text: `${name} agrees to a cash takeover at ${px} a share; trading stops` });
+        } else {
+          const child = defOf(g, e.otherId ?? '')?.name ?? e.otherId ?? 'a new company';
+          pushWire(g, out, { kind: 'listing', tag: 'Spin-off', tone: 'info', assetId: e.assetId, text: `${name} spins off ${child}; holders receive shares in the new company` });
+        }
+        break;
+      }
       case 'world': {
         if (e.phase === 'announced') {
           for (const p of e.precursors ?? []) pushWire(g, out, { kind: 'world', tag: 'Markets', tone: 'warn', text: p });

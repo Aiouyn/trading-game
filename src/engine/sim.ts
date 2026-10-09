@@ -4,6 +4,7 @@ import { clearOrders, tallyToday } from './trading';
 import { addOwnFlow, ECO_POOLS, ecoDayInput, ecologyDay, ecologyOn, ecologyWeight, FULL_MODE_DEFAULTS, initEcology, reanchorEcology } from './ecology';
 import { catalystDay, peadDrift } from './catalysts';
 import { carryOf, initRates, ratesDay } from './rates';
+import { listingsConfig, listingsDay } from './listings';
 import { jumpCompensator } from './drift';
 import {
   initWorldEvents, tradingRegime, worldEventAccrue, worldEventIntraday, worldEventJumpMult, worldEventMove,
@@ -80,7 +81,19 @@ function sectorKeys(config: WorldConfig): string[] {
  * Advance the world by one tick (5 real seconds). Pure: the input state is not mutated.
  * Queued orders (see trading.ts) clear at the end of the tick, after prices move.
  */
-export function step(state: WorldState): StepResult {
+/**
+ * Advance the world by one tick. The evolving universe (listings.ts) settles at the day boundary, before the day's
+ * first tick, so a listing never moves a price inside a tick. Off when the config has no listings.
+ */
+export function step(input: WorldState): StepResult {
+  const lc = listingsConfig(input.config);
+  const boundary = lc !== null && input.tick > 0 && input.tick % input.config.ticksPerDay === 0;
+  const listed = boundary ? listingsDay(input, input.tick + 1) : null;
+  const r = advance(listed ? listed.state : input);
+  return listed && listed.events.length ? { ...r, events: [...listed.events, ...r.events] } : r;
+}
+
+function advance(state: WorldState): StepResult {
   const cfg = state.config;
   const events: StepEvent[] = [];
   const tick = state.tick + 1;
@@ -173,6 +186,7 @@ export function step(state: WorldState): StepResult {
   for (let i = 0; i < state.assets.length; i++) {
     const prev = state.assets[i]!;
     const def = cfg.assets[i]!;
+    if (def.delisted) { assets[i] = { ...prev, volume: 0, notional: 0 }; continue; } // delisted: frozen price, no flow
     const rng = new Rng(prev.rng);
     const a: AssetState = { ...prev };
 

@@ -269,6 +269,15 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
   for (let i = 0; i < eco.assets.length; i++) {
     const e = eco.assets[i]!;
     const def = cfg.assets[i]!;
+    if (def.delisted) {
+      // a delisted name has no pool flow: its book stays frozen and the log records zeros for it
+      assets[i] = e;
+      logAssets[i] = {
+        id: e.id, lnS: e.lnS, lnV: input.lnV[i]!, desired: { value: 0, trend: 0, retail: 0, pension: 0, own: 0 }, net: 0, gross: 0,
+        depth: 1, inv: e.inv, cause: { value: 0, trend: 0, retail: 0, pension: 0, own: 0, maker: 0, news: 0 },
+      };
+      continue;
+    }
     const lnV = input.lnV[i]!;
     const h = input.h[i]!;
     const s = (def.vol * rg.volMult * Math.sqrt(h)) / sqrtYear; // the same σ_daily as trading.impact()

@@ -478,6 +478,8 @@ export function universeConfig(overrides: Partial<WorldConfig> = {}): WorldConfi
     worldEvents: {},
     // NPC rival funds (Hale & Ward, Pinn Partners, Vetch): slices of the value and trend pools
     rivals: DEFAULT_RIVALS,
+    // the evolving universe: NPC IPOs, bankruptcies, cash mergers and spin-offs (listings.ts)
+    listings: {},
     options: { ...DEFAULT_OPTIONS, underlyings: OPTION_UNDERLYINGS },
     margin: DEFAULT_MARGIN,
     ...overrides,
