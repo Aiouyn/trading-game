@@ -130,6 +130,12 @@ export interface WorldConfig {
   studentNu: number;
   /** share of each diffusive shock and each jump that is news about value (moves V); the rest is noise that reverts */
   permanentShare: number;
+  /** share of a jump (news) that moves fundamental value; default: permanentShare */
+  jumpPermanent?: number;
+  /** share of a jump that prints in the price at once; the gap to value drifts in via the pull. Default 1 */
+  jumpImmediate?: number;
+  /** add the Merton compensator so jumps don't change an asset's expected (arithmetic) return. Default false */
+  jumpCompensation?: boolean;
   /** single-asset circuit breaker: halt after this move from the day open */
   haltThreshold: number;
   /** halt length in ticks (10 real minutes = 120 ticks) */

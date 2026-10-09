@@ -3,6 +3,7 @@ export { Rng, seedStream } from './rng';
 export type { RngState } from './rng';
 export { defaultConfig, gameConfig, DEFAULT_TRADING, DEFAULT_VOLUME, DEFAULT_ASSETS, DEFAULT_INDICES, DEFAULT_REGIMES, expectedVol, idioLoading, normalizeLoadings } from './config';
 export { createWorld, step, stepMany, quote, prices, volumes, indexLevel, gameDay } from './sim';
+export { jumpCompensator } from './drift';
 export {
   openAccount, placeOrder, cancelOrder, modifyOrder, estimateFill, openOrders, orderHistory, portfolio,
   halfSpread, impact, commission, tradingConfig, marginConfig, buyingPower, grossExposure, equityOf,

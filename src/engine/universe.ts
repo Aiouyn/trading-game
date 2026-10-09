@@ -435,7 +435,11 @@ export function universeConfig(overrides: Partial<WorldConfig> = {}): WorldConfi
     garchMin: 0.25,
     garchMax: 9,
     studentNu: 4,
-    permanentShare: 0.8,
+    // momentum fix (staging engine, Quant): news is permanent, prints 70% at once, drifts in the rest
+    permanentShare: 0.9,
+    jumpPermanent: 1,
+    jumpImmediate: 0.7,
+    jumpCompensation: true,
     haltThreshold: 0.15,
     haltTicks: 120,
     initialRegime: 'expansion',

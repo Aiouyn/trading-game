@@ -81,12 +81,12 @@ export function normalizeLoadings(a: AssetDef): AssetDef {
  * GARCH has long-run mean h = 1, so it does not change the expectation.
  * Without a regime this is the neutral calibration target that balance bands compare against.
  */
-export function expectedVol(a: AssetDef, regime?: RegimeDef): number {
+export function expectedVol(a: AssetDef, regime?: RegimeDef, jumpPrint = 1): number {
   const volMult = regime?.volMult ?? 1;
   const jumpMult = regime?.jumpMult ?? 1;
   const p = Math.min(0.95, Math.max(0.05, a.jumpUpProb + (regime?.jumpUpShift ?? 0)));
   const ej2 = p * 2 * a.jumpUpMean ** 2 + (1 - p) * 2 * a.jumpDownMean ** 2;
-  return Math.sqrt((a.vol * volMult) ** 2 + a.jumpsPerYear * jumpMult * ej2);
+  return Math.sqrt((a.vol * volMult) ** 2 + a.jumpsPerYear * jumpMult * ej2 * jumpPrint ** 2);
 }
 
 export function idioLoading(a: AssetDef): number {
