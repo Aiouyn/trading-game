@@ -1,4 +1,4 @@
-import type { StepEvent } from '@/engine';
+import type { StepEvent, WorldEventKind } from '@/engine';
 import {
   earningsHeadline, macroHeadline, moveHeadline, previewHeadline, ratesHeadline, regimeHeadline, rumorHeadline,
 } from '@/content/news';
@@ -78,6 +78,18 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
       case 'rates':
         pushWire(g, out, { kind: 'rates', tag: 'Central bank', tone: e.change > 0 ? 'loss' : e.change < 0 ? 'gain' : 'info', text: ratesHeadline(e.policy, e.change, e.expected) });
         break;
+      case 'world': {
+        if (e.phase === 'announced') {
+          for (const p of e.precursors ?? []) pushWire(g, out, { kind: 'world', tag: 'Markets', tone: 'warn', text: p });
+        } else if (e.phase === 'start') {
+          pushWire(g, out, { kind: 'world', tag: worldLabel(e.kind), tone: worldTone(e.kind), text: e.headline });
+        } else {
+          const lasted = e.kind === 'flash' ? '' : ` · lasted ${e.lastedDays} day${e.lastedDays === 1 ? '' : 's'}`;
+          const gx = e.gxMove !== undefined ? ` · GX ${pctText(e.gxMove)}` : '';
+          pushWire(g, out, { kind: 'world', tag: worldLabel(e.kind), tone: 'info', text: `${worldLabel(e.kind)} ended${lasted}${gx}` });
+        }
+        break;
+      }
       case 'margin_call':
         notify(g, out, e.playerId, { kind: 'margin', tone: 'warn', text: `Margin call: equity $${Math.round(e.equity).toLocaleString('en-US')} is below the $${Math.round(e.required).toLocaleString('en-US')} requirement. Add cash or cut positions before you are liquidated.` });
         break;
@@ -93,6 +105,14 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
         break;
     }
   }
+}
+
+function worldLabel(kind: WorldEventKind): string {
+  return kind === 'crash' ? 'Crash' : kind === 'bubble' ? 'Bubble' : kind === 'crisis' ? 'Crisis week' : 'Flash crash';
+}
+
+function worldTone(kind: WorldEventKind): 'gain' | 'loss' | 'warn' | 'info' {
+  return kind === 'crash' ? 'loss' : kind === 'bubble' ? 'gain' : kind === 'crisis' ? 'warn' : 'info';
 }
 
 function pctText(f: number): string {

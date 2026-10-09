@@ -16,6 +16,7 @@
 import { DEFAULT_TRADING } from './config';
 import { Rng, seedStream } from './rng';
 import { jumpCompensator } from './drift';
+import { tradingRegime } from './worldEvents';
 import type {
   EcoAssetState, EcoCause, EcoLogAsset, EcoLogDay, EcologyConfig, EcologyState, EcoPool, RegimeId, WorldConfig, WorldState,
 } from './types';
@@ -135,7 +136,7 @@ export function ecoDayInput(state: WorldState, day: number): EcoDayInput {
   return {
     day,
     tick: state.tick,
-    regime: state.regime,
+    regime: tradingRegime(state.worldEvents, state.tick, state.regime),
     lnV: state.assets.map((a) => a.lnV),
     h: state.assets.map((a) => a.h),
     jump: state.assets.map((a) => a.dayJump),

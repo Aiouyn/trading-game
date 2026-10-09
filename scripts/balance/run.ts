@@ -5,13 +5,20 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createWorld, stepMany, indexLevel, defaultConfig, expectedVol, openAccount, placeOrder, portfolio } from "../../src/engine";
+import { createWorld, stepMany, indexLevel, defaultConfig, universeConfig, expectedVol, openAccount, placeOrder, portfolio } from "../../src/engine";
 import type { WorldState } from "../../src/engine";
 import { phase0Bands, check } from "./bands";
 
 function arg(name: string, fallback: string) {
   const i = process.argv.indexOf(`--${name}`);
   return i > -1 && process.argv[i + 1] ? process.argv[i + 1]! : fallback;
+}
+
+/** --universe runs the app's 155-asset game universe (world events on) instead of the bare 17-asset engine */
+const universe = process.argv.includes("--universe");
+const noEvents = process.argv.includes("--no-events");
+function configFor(ticksPerDay: number) {
+  return universe ? universeConfig({ ticksPerDay, ...(noEvents ? { worldEvents: undefined } : {}) }) : defaultConfig({ ticksPerDay });
 }
 
 const nSeeds = Number(arg("seeds", "20"));
@@ -76,7 +83,7 @@ function feeAware(seed: string, cfg: ReturnType<typeof defaultConfig>, days: num
 }
 
 function runSeed(seed: string): SeedResult {
-  const cfg = defaultConfig({ ticksPerDay: tpd });
+  const cfg = configFor(tpd);
   const days = Math.round(years * cfg.daysPerYear);
   const ids = cfg.assets.map((a) => a.id);
   const stockIdx = cfg.assets.map((a, i) => (a.assetClass === "stock" ? i : -1)).filter((i) => i >= 0);
@@ -126,7 +133,7 @@ function runSeed(seed: string): SeedResult {
 }
 
 function main() {
-  const cfg = defaultConfig({ ticksPerDay: tpd });
+  const cfg = configFor(tpd);
   const ids = cfg.assets.map((a) => a.id);
   const seeds = Array.from({ length: nSeeds }, (_, i) => `tape-${String(i + 1).padStart(2, "0")}`);
 

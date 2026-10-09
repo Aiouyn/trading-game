@@ -1,4 +1,7 @@
-import { universeConfig, type Account, type AssetState, type Order, type RatesState, type RegimeId, type WorldConfig, type WorldState } from '@/engine';
+import {
+  universeConfig, worldEventView, type Account, type AssetState, type Order, type RatesState, type RegimeId, type WorldConfig,
+  type WorldEventView, type WorldState,
+} from '@/engine';
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { contractProgress } from './players';
 import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, propValue, type NetWorthBreakdown } from './core';
@@ -27,6 +30,8 @@ export interface MarketFrame {
   /** last earnings per stock (public), only when changed: assetId → { day, surprise, move } */
   lastEarnings?: Record<string, { day: number; surprise: number; move: number }>;
   rates: Pick<RatesState, 'policy' | 'y2' | 'y10' | 'y30' | 'expectedMove' | 'nextMeeting' | 'nextRelease' | 'releaseKind'> | null;
+  /** the shared world event now (announced or live), as the app may see it: never its end tick or planned moves */
+  worldEvent: WorldEventView | null;
 }
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -47,6 +52,7 @@ export function marketFrame(g: GameState, withEarnings = false): MarketFrame {
       policy: m.rates.policy, y2: m.rates.y2, y10: m.rates.y10, y30: m.rates.y30, expectedMove: m.rates.expectedMove,
       nextMeeting: m.rates.nextMeeting, nextRelease: m.rates.nextRelease, releaseKind: m.rates.releaseKind,
     } : null,
+    worldEvent: worldEventView(m),
   };
   if (withEarnings) {
     frame.lastEarnings = {};

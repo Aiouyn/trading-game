@@ -473,6 +473,8 @@ export function universeConfig(overrides: Partial<WorldConfig> = {}): WorldConfi
     // rumors per specs/quant-rumors.md: about 3 a game week across the market, 55% true
     catalysts: { ...DEFAULT_CATALYSTS, rumorProb: 0.32, rumorAccuracy: 0.55 },
     rates: DEFAULT_RATES,
+    // shared world events (crash, bubble, crisis week, flash) at the spec's odds: specs/quant-world-events.md
+    worldEvents: {},
     options: { ...DEFAULT_OPTIONS, underlyings: OPTION_UNDERLYINGS },
     margin: DEFAULT_MARGIN,
     ...overrides,

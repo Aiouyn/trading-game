@@ -1,4 +1,5 @@
 import type { RngState } from './rng';
+import type { WorldEventKind, WorldEventsConfig, WorldEventsState } from './worldEvents';
 
 export type AssetClass = 'stock' | 'crypto' | 'commodity' | 'forex' | 'bond' | 'realestate';
 
@@ -173,6 +174,8 @@ export interface WorldConfig {
    * path without moving prices; 'hybrid' blends (weight 0.25 or 1).
    */
   ecology?: Partial<EcologyConfig>;
+  /** shared world events (crash, bubble, crisis week, flash; specs/quant-world-events.md); off when absent */
+  worldEvents?: Partial<WorldEventsConfig>;
   regimes: Record<RegimeId, RegimeDef>;
   assets: AssetDef[];
   indices: IndexDef[];
@@ -483,6 +486,8 @@ export interface WorldState {
   crowd?: Record<string, CrowdHold>;
   /** market ecology state (pools, maker, cause log); present once a step ran with the ecology on. Server-only. */
   ecology?: EcologyState;
+  /** shared world events; present once a world with events on has stepped a day. Server-only (the app gets worldEventView). */
+  worldEvents?: WorldEventsState;
 }
 
 export interface CrowdHold {
@@ -679,6 +684,8 @@ export type StepEvent =
   | { type: 'rates'; tick: number; policy: number; change: number; expected: number }
   /** macro data release: actual vs consensus (annual fractions) */
   | { type: 'macro'; tick: number; kind: 'cpi' | 'jobs'; actual: number; consensus: number }
+  /** a shared world event: announced (precursors), started, or ended (lastedDays and gxMove only on end) */
+  | { type: 'world'; tick: number; phase: 'announced' | 'start' | 'end'; kind: WorldEventKind; id: string; headline: string; precursors?: string[]; lastedDays?: number; gxMove?: number }
   | { type: 'margin_call'; tick: number; playerId: string; equity: number; required: number }
   | { type: 'liquidation'; tick: number; playerId: string; assetId: string; qty: number; price: number }
   | { type: 'option_expiry'; tick: number; playerId: string; contractId: string; qty: number; payout: number };

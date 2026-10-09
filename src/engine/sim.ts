@@ -5,6 +5,10 @@ import { addOwnFlow, ECO_POOLS, ecoDayInput, ecologyDay, ecologyOn, ecologyWeigh
 import { catalystDay, peadDrift } from './catalysts';
 import { carryOf, initRates, ratesDay } from './rates';
 import { jumpCompensator } from './drift';
+import {
+  initWorldEvents, tradingRegime, worldEventAccrue, worldEventIntraday, worldEventJumpMult, worldEventMove,
+  worldEventStepEvent, worldEventsConfig, worldEventsDay,
+} from './worldEvents';
 import type {
   AssetDef, AssetState, Fill, Quote, SeasonalDef, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
 } from './types';
@@ -101,20 +105,38 @@ export function step(state: WorldState): StepResult {
       }
     }
   }
-  const rg = cfg.regimes[regime];
+  // ---- shared world events (own stream): rolls and ends at the day boundary; a crisis week trades as contraction ----
+  // a flash crash starts and ends inside a day, so its transitions are checked every tick (worldEventIntraday)
+  let worldEvents = state.worldEvents;
+  const evOn = worldEventsConfig(cfg) !== null;
+  if (evOn && newDay) {
+    const wstep = worldEventsDay(cfg, worldEvents ?? initWorldEvents(state), Math.floor(state.tick / cfg.ticksPerDay), tick, regime, compositeLevel(state));
+    worldEvents = wstep.state;
+    for (const p of wstep.events) events.push(worldEventStepEvent(p, tick));
+  }
+  if (evOn) {
+    const intra = worldEventIntraday(worldEvents, tick, () => compositeLevel(state));
+    worldEvents = intra.state;
+    for (const p of intra.events) events.push(worldEventStepEvent(p, tick));
+  }
+  const evJumpMult = worldEventJumpMult(worldEvents, tick);
+  const evMoves: Record<string, number> = {};
+  const regimeNow = tradingRegime(worldEvents, tick, regime);
+
+  const rg = cfg.regimes[regimeNow];
 
   // ---- day boundary: macro, central bank and yields (own stream) ----
   let rates = state.rates;
   let rateShocks: number[] | null = null;
   if (cfg.rates && newDay) {
-    const out = ratesDay(state, cfg.rates, regime, Math.floor(state.tick / cfg.ticksPerDay), tick);
+    const out = ratesDay(state, cfg.rates, regimeNow, Math.floor(state.tick / cfg.ticksPerDay), tick);
     rates = out.rates;
     rateShocks = out.shocks;
     for (const e of out.events) events.push(e);
   }
   // GARCH standardizes yesterday's return by yesterday's regime vol, so a regime switch
   // alone never inflates h (otherwise alpha * volMult^2 + beta > 1 in crises and h explodes)
-  const prevVolMult = cfg.regimes[state.regime].volMult;
+  const prevVolMult = cfg.regimes[tradingRegime(state.worldEvents, state.tick, state.regime)].volMult;
 
   // ---- common factor shocks (fixed draw order: market, crypto, then sectors sorted) ----
   const zMarket = macro.normal();
@@ -177,7 +199,7 @@ export function step(state: WorldState): StepResult {
 
     // compound Poisson jumps, Kou double exponential in log space
     let jump = 0;
-    const lambda = def.jumpsPerYear * rg.jumpMult * dt;
+    const lambda = def.jumpsPerYear * rg.jumpMult * dt * evJumpMult;
     if (rng.chance(lambda)) {
       const up = rng.chance(clamp(def.jumpUpProb + rg.jumpUpShift, 0.05, 0.95));
       jump = up ? rng.exponential(def.jumpUpMean) : -rng.exponential(def.jumpDownMean);
@@ -203,6 +225,11 @@ export function step(state: WorldState): StepResult {
       if (eco) a.dayJump += rateShocks[i]!; // the pools read rate surprises as news, like earnings
     }
 
+    // world events: the active event's planned move (and a bubble's hidden give-back) is news to value and price, like a
+    // catalyst; the flash crash is the exception (price takes the drop, value only the part not given back)
+    const wm = worldEventMove(worldEvents, def.id, tick);
+    if (wm.price !== 0) { a.dayJump += wm.price; evMoves[def.id] = wm.price; }
+
     // fundamental value: drift + the permanent share of news (catalysts are all news)
     const perm = cfg.permanentShare;
     // momentum fix: jumps can be fully permanent but print only partly at once (news underreaction);
@@ -211,11 +238,11 @@ export function step(state: WorldState): StepResult {
     const mu = def.drift + def.cycleBeta * rg.equityDrift + carryOf(def, rates) - (cfg.jumpCompensation ? jumpCompensator(def, jp) : 0)
       + (def.seasonal ? seasonalDrift(def.seasonal, tick, cfg.ticksPerDay, cfg.daysPerYear) : 0);
     const diff = sigma * sqrtDt * shock;
-    a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + lnVScale * perm * diff + jp * jump + catalyst;
+    a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + lnVScale * perm * diff + jp * jump + catalyst + wm.value;
 
     // market price: same drift, pull toward V, full shock and jump
     const kappa = LN2 / (def.halfLifeDays / cfg.daysPerYear);
-    const r = (mu - 0.5 * sigma * sigma) * dt + kappa * (a.lnV - prev.lnP) * dt + diff + (cfg.jumpImmediate ?? 1) * jump + catalyst;
+    const r = (mu - 0.5 * sigma * sigma) * dt + kappa * (a.lnV - prev.lnP) * dt + diff + (cfg.jumpImmediate ?? 1) * jump + catalyst + wm.price;
 
     a.rng = rng.state();
     const halted = prev.haltUntil !== -1;
@@ -273,6 +300,7 @@ export function step(state: WorldState): StepResult {
     assets[i] = a;
   }
 
+  if (worldEvents?.active && Object.keys(evMoves).length) worldEvents = worldEventAccrue(worldEvents, tick, cfg.ticksPerDay, evMoves);
   const priced: WorldState = {
     ...state,
     tick,
@@ -283,6 +311,7 @@ export function step(state: WorldState): StepResult {
     assets,
     ...(regionRng ? { regionRng } : {}),
     ...(rates ? { rates } : {}),
+    ...(worldEvents ? { worldEvents } : {}),
   };
   const { state: cleared, fills, events: clearEvents } = clearOrders(priced, newDay);
   for (const e of clearEvents) events.push(e);
@@ -415,6 +444,11 @@ export function indexLevel(state: WorldState, indexId: string): number {
 /** Game day number (0-based) for the current tick. */
 export function gameDay(state: WorldState): number {
   return Math.floor(state.tick / state.config.ticksPerDay);
+}
+
+/** The GX composite level, the reference for an event's GX move; 1 in a world with no GX index. */
+function compositeLevel(state: WorldState): number {
+  return state.config.indices.some((i) => i.id === 'GX') ? indexLevel(state, 'GX') : 1;
 }
 
 function pickNext(next: Partial<Record<RegimeId, number>>, u: number): RegimeId {
