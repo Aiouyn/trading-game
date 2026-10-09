@@ -329,16 +329,25 @@ function forexDef([id, name, region, price, vol, blurb]: (typeof FOREX)[number])
   });
 }
 
+/**
+ * Bond funds. Price vol is def.vol (the non-rate part: convexity, liquidity, spread noise) plus duration times the yield
+ * changes the rates layer produces (rates.ts, booked as dayJump). The two add in quadrature, so the total sits above
+ * def.vol: that is why AV10 and AV30 have vol ratios above 1 in bands.ts.
+ * Government funds have no jump term (jumpsPerYear 0). A separate jump would double count the rate path, which the rates
+ * layer already moves on each meeting and release. Credit funds keep their jumps: spread gaps and defaults.
+ * def.vol for AV10 and AV30 is 5.5% and 11.5% (it was 4% and 7%). Their expectedVol is now def.vol alone; with the old jump
+ * term it was 5.3% and 7.8%. Measured on 20 seeds, realized vol is 1.17 (AV10) and 1.19 (AV30) times expectedVol (bands.ts).
+ */
 const BONDS: AssetDef[] = [
-  ['AV2Y', 'Avalon 2-Year Note Fund', 'y2', 1.9, 0.015, 0, 0, 'Short government bonds: barely moves, pays the 2-year yield.'],
-  ['AV10', 'Avalon 10-Year Bond Fund', 'y10', 8.5, 0.04, 0, 0, 'The benchmark: falls when yields rise, rallies in a crisis.'],
-  ['AV30', 'Avalon 30-Year Long Bond Fund', 'y30', 18, 0.07, 0, 0, 'Long duration: a big rate bet in a bond wrapper.'],
-  ['IGCB', 'Investment-Grade Credit Fund', 'y10', 6.5, 0.04, 0.012, 0.25, 'Corporate bonds from solid companies.'],
-  ['HYLD', 'High-Yield Credit Fund', 'y10', 4, 0.07, 0.04, 0.5, 'Junk bonds: equity risk with a coupon.'],
-].map(([id, name, yieldKey, duration, vol, spread, wM, blurb]) => normalizeLoadings({
+  ['AV2Y', 'Avalon 2-Year Note Fund', 'y2', 1.9, 0.015, 0, 0, 0, 'Short government bonds: barely moves, pays the 2-year yield.'],
+  ['AV10', 'Avalon 10-Year Bond Fund', 'y10', 8.5, 0.055, 0, 0, 0, 'The benchmark: falls when yields rise, rallies in a crisis.'],
+  ['AV30', 'Avalon 30-Year Long Bond Fund', 'y30', 18, 0.115, 0, 0, 0, 'Long duration: a big rate bet in a bond wrapper.'],
+  ['IGCB', 'Investment-Grade Credit Fund', 'y10', 6.5, 0.04, 0.012, 0.25, 0.2, 'Corporate bonds from solid companies.'],
+  ['HYLD', 'High-Yield Credit Fund', 'y10', 4, 0.07, 0.04, 0.5, 1, 'Junk bonds: equity risk with a coupon.'],
+].map(([id, name, yieldKey, duration, vol, spread, wM, jumps, blurb]) => normalizeLoadings({
   id: id as string, name: name as string, assetClass: 'bond', sector: 'rates', initialPrice: 100, vol: vol as number, blurb: blurb as string,
   drift: 0, cycleBeta: (wM as number) > 0.3 ? 0.4 : 0, wMarket: wM as number, wSector: 0.6, wCrypto: 0,
-  halfLifeDays: 120, jumpsPerYear: (wM as number) > 0.3 ? 1 : 0.2, jumpUpMean: 0.01, jumpDownMean: 0.03, jumpUpProb: 0.4,
+  halfLifeDays: 120, jumpsPerYear: jumps as number, jumpUpMean: 0.01, jumpDownMean: 0.03, jumpUpProb: 0.4,
   floor: 1, circuitBreaker: false, spreadBps: 2, advNotional: 20e9, qtyStep: 0,
   yieldKey: yieldKey as AssetDef['yieldKey'], duration: duration as number, carrySpread: spread as number,
 }));

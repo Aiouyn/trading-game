@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createWorld, stepMany, indexLevel, defaultConfig, universeConfig, expectedVol, openAccount, placeOrder, portfolio } from "../../src/engine";
 import type { AssetDef, WorldState } from "../../src/engine";
-import { phase0Bands, check } from "./bands";
+import { phase0Bands, check, UNIVERSE_VOL_BANDS } from "./bands";
 
 function arg(name: string, fallback: string) {
   const i = process.argv.indexOf(`--${name}`);
@@ -30,13 +30,24 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 const sd = (xs: number[]) => { const m = mean(xs); return Math.sqrt(mean(xs.map((x) => (x - m) ** 2))); };
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); const k = s.length >> 1; return s.length % 2 ? s[k]! : (s[k - 1]! + s[k]!) / 2; };
 const logRets = (xs: number[]) => xs.slice(1).map((x, i) => Math.log(x / xs[i]!));
+/**
+ * Info only (universe): the share of log-return days where both ends are above the floor. A meme token that bleeds to its
+ * 1e-7 floor is pinned there for part of a run, and those days carry zero vol. The vol band is still measured on every day
+ * (logRets), the same definition as the bare engine; this share shows how much of a class's shortfall is that pinning.
+ */
+const aliveRets = (xs: number[], floor: number) => {
+  const lim = floor * (1 + 1e-9);
+  const out: number[] = [];
+  for (let k = 1; k < xs.length; k++) if (xs[k]! > lim && xs[k - 1]! > lim) out.push(Math.log(xs[k]! / xs[k - 1]!));
+  return out;
+};
 
 // Small seeded PRNG for the random-pick strategy only (kept separate from engine streams).
 function mulberry32(a: number) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 function hash(s: string) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
 
 type SeedResult = {
-  seed: string; volRatio: Record<string, number>; gxCagr: number; invalid: number; sawContraction: boolean;
+  seed: string; volRatio: Record<string, number>; aliveShare: Record<string, number>; gxCagr: number; invalid: number; sawContraction: boolean;
   bh: number; random: number; momentum: number; finalHash: string; msPerTick: number;
   fee: { bh: number; random: number; momentum: number; contrarian: number; momentumFees: number };
   /** assets appended by listings (IPOs, spin-offs) and assets delisted (bankruptcy, merger, spin-off parent), by the end */
@@ -146,8 +157,10 @@ function runSeed(seed: string): SeedResult {
   // Vol ratio only for assets listed from the start and never delisted. A late-listed name has a short history, and a
   // delisted one has a frozen price (zero vol) after its settlement, so neither would give a meaningful band.
   const volRatio: Record<string, number> = {};
+  const aliveShare: Record<string, number> = {};
   closes.forEach((c, i) => {
     if (firstRec[i] !== 0 || delistRec[i] !== Infinity) return;
+    if (universe) aliveShare[defs[i]!.id] = aliveRets(c, defs[i]!.floor).length / logRets(c).length;
     volRatio[defs[i]!.id] = (sd(logRets(c)) * Math.sqrt(cfg.daysPerYear)) / expectedVol(defs[i]!);
   });
   const gxCagr = Math.pow(gx[gx.length - 1]! / gx[0]!, 1 / years) - 1;
@@ -182,7 +195,7 @@ function runSeed(seed: string): SeedResult {
   const fee = { bh: fb.multiple, random: fr.multiple, momentum: fm.multiple, contrarian: fc.multiple, momentumFees: fm.fees };
   const listed = state.config.assets.length - cfg.assets.length;
   const delisted = state.config.assets.filter((a) => a.delisted).length;
-  return { seed, volRatio, gxCagr, invalid, sawContraction, bh, random, momentum, finalHash, msPerTick, fee, listed, delisted };
+  return { seed, volRatio, aliveShare, gxCagr, invalid, sawContraction, bh, random, momentum, finalHash, msPerTick, fee, listed, delisted };
 }
 
 function main() {
@@ -200,6 +213,8 @@ function main() {
   const volIds = ids.filter((id) => results.some((r) => r.volRatio[id] !== undefined));
   for (const id of volIds) stats[`vol_ratio_median:${id}`] = median(results.filter((r) => r.volRatio[id] !== undefined).map((r) => r.volRatio[id]!));
   stats.gx_cagr_median = median(results.map((r) => r.gxCagr));
+  // universe: share of days a vol-ratio asset is above its floor, median over seeds (info; see aliveRets)
+  const pinned = universe ? volIds.filter((id) => median(results.filter((r) => r.aliveShare[id] !== undefined).map((r) => r.aliveShare[id]!)) < 0.9) : [];
   stats.invalid_values = results.reduce((a, r) => a + r.invalid, 0);
   stats.contraction_seed_share = results.filter((r) => r.sawContraction).length / results.length;
   // banded: fee-aware (real order API). Info only: the old no-fee index version, and medians.
@@ -224,7 +239,7 @@ function main() {
   stats.info_seeds_with_listings_share = results.filter((r) => r.listed + r.delisted > 0).length / results.length;
   stats.determinism_mismatch = repeat.finalHash === results[0]!.finalHash ? 0 : 1;
 
-  const checked = check(phase0Bands(volIds), stats);
+  const checked = check(phase0Bands(volIds, universe ? UNIVERSE_VOL_BANDS : {}), stats);
   mkdirSync(out, { recursive: true });
   writeFileSync(path.join(out, "summary.json"), JSON.stringify({ seeds: nSeeds, years, ticksPerDay: tpd, stats, results: checked, perSeed: results }, null, 2));
 
@@ -237,6 +252,7 @@ function main() {
   const skipped = ids.filter((id) => !volIds.includes(id));
   if (skipped.length) console.log(`info  vol-ratio bands skipped (not listed the whole run in any seed): ${skipped.join(", ")}`);
   for (const [k, v] of Object.entries(stats)) if (k.startsWith("info_")) console.log(`info  ${k.padEnd(40)} ${v.toFixed(3)}`);
+  for (const id of pinned) console.log(`info  floor-pinned, vol ratio on alive days only: ${id} (median alive share ${median(results.filter((r) => r.aliveShare[id] !== undefined).map((r) => r.aliveShare[id]!)).toFixed(3)})`);
   console.log(fails ? `balance: ${fails} band(s) FAILED` : "balance: all bands PASS");
   if (fails) process.exitCode = 1;
 }

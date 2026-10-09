@@ -139,10 +139,13 @@ function advance(state: WorldState): StepResult {
   const rg = cfg.regimes[regimeNow];
 
   // ---- day boundary: macro, central bank and yields (own stream) ----
+  // The rates layer runs on the macro chain (`regime`), not the trading overlay: a crisis week is a market event and
+  // leaves the economy and the central bank alone (worldEvents.ts tradingRegime). Feeding it the overlay flipped the
+  // inflation target and term premium for each crisis week, a yield round trip the bond funds priced as vol.
   let rates = state.rates;
   let rateShocks: number[] | null = null;
   if (cfg.rates && newDay) {
-    const out = ratesDay(state, cfg.rates, regimeNow, Math.floor(state.tick / cfg.ticksPerDay), tick);
+    const out = ratesDay(state, cfg.rates, regime, Math.floor(state.tick / cfg.ticksPerDay), tick);
     rates = out.rates;
     rateShocks = out.shocks;
     for (const e of out.events) events.push(e);
@@ -233,10 +236,12 @@ function advance(state: WorldState): StepResult {
       }
       catalyst += peadDrift(a, tick);
     }
-    // rates: yield repricing and policy/data surprises, once a day (all news, so value moves too)
+    // rates: yield repricing and policy/data surprises, once a day (all news, so value moves too). Like catalysts, the
+    // shock is booked in dayJump in every mode, so GARCH reads the diffusive return only (a bond's rate move is not
+    // a volatility regime). In full ecology the pools also read it as news, like earnings.
     if (rateShocks && rateShocks[i]) {
       catalyst += rateShocks[i]!;
-      if (eco) a.dayJump += rateShocks[i]!; // the pools read rate surprises as news, like earnings
+      a.dayJump += rateShocks[i]!;
     }
 
     // world events: the active event's planned move (and a bubble's hidden give-back) is news to value and price, like a
