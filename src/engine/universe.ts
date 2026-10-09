@@ -2,6 +2,7 @@ import { DEFAULT_CATALYSTS } from './catalysts';
 import { DEFAULT_INDICES, DEFAULT_REGIMES, DEFAULT_TRADING, DEFAULT_VOLUME, normalizeLoadings } from './config';
 import { DEFAULT_OPTIONS } from './options';
 import { DEFAULT_RATES } from './rates';
+import { DEFAULT_RIVALS } from './rivals';
 import { DEFAULT_MARGIN } from './trading';
 import type { AssetDef, IndexDef, WorldConfig } from './types';
 
@@ -475,6 +476,8 @@ export function universeConfig(overrides: Partial<WorldConfig> = {}): WorldConfi
     rates: DEFAULT_RATES,
     // shared world events (crash, bubble, crisis week, flash) at the spec's odds: specs/quant-world-events.md
     worldEvents: {},
+    // NPC rival funds (Hale & Ward, Pinn Partners, Vetch): slices of the value and trend pools
+    rivals: DEFAULT_RIVALS,
     options: { ...DEFAULT_OPTIONS, underlyings: OPTION_UNDERLYINGS },
     margin: DEFAULT_MARGIN,
     ...overrides,

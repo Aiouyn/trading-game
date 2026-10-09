@@ -174,6 +174,8 @@ export interface WorldConfig {
    * path without moving prices; 'hybrid' blends (weight 0.25 or 1).
    */
   ecology?: Partial<EcologyConfig>;
+  /** NPC rival funds; they trade inside the ecology pools and need the ecology on. Absent or [] = none */
+  rivals?: RivalDef[];
   /** shared world events (crash, bubble, crisis week, flash; specs/quant-world-events.md); off when absent */
   worldEvents?: Partial<WorldEventsConfig>;
   regimes: Record<RegimeId, RegimeDef>;
@@ -636,6 +638,30 @@ export interface EcologyState {
   day: number;
   assets: EcoAssetState[];
   log: EcoLogDay[];
+  /** NPC rival funds (their trades are slices of the pools, rivals.ts); absent when none are configured */
+  rivals?: RivalState[];
+}
+
+export type RivalStyle = 'value' | 'momentum' | 'degen';
+
+/** An NPC rival fund: a name, a style and starting cash. Config only; no account, no order path, no chat. */
+export interface RivalDef {
+  id: string;
+  name: string;
+  style: RivalStyle;
+  startingCash: number;
+}
+
+/** A rival's book. Server-side: the public surface is the name and equity only (rivalLeaderboard). */
+export interface RivalState {
+  id: string;
+  cash: number;
+  /** units per asset id; stocks whole shares, crypto fractional */
+  units: Record<string, number>;
+  /** the names chosen at the last rebalance */
+  target: string[];
+  /** highest equity seen at a close */
+  peak: number;
 }
 
 export interface Quote {

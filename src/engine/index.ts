@@ -9,6 +9,8 @@ export { jumpCompensator } from './drift';
 export { newsPricedIn, newsBand, bandOf } from './news';
 export { DEFAULT_ECOLOGY, ECO_POOLS, ecologyConfig, ecologyLog, ecologyOn, ecologyWeight, explainMove, PUBLIC_MIN_TRADERS, PUBLIC_MAX_TRADER_SHARE } from './ecology';
 export type { ExplainRow, MoveExplain } from './ecology';
+export { DEFAULT_RIVALS, RIVAL_CAP_ADV, rivalEquity, rivalLeaderboard } from './rivals';
+export type { RivalRow } from './rivals';
 export type { NewsBand, NewsKind } from './news';
 export {
   openAccount, placeOrder, cancelOrder, modifyOrder, estimateFill, openOrders, orderHistory, portfolio,

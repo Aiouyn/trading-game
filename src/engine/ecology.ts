@@ -17,6 +17,7 @@ import { DEFAULT_TRADING } from './config';
 import { Rng, seedStream } from './rng';
 import { jumpCompensator } from './drift';
 import { tradingRegime } from './worldEvents';
+import { initRivals, rivalsClose, rivalsDay } from './rivals';
 import type {
   EcoAssetState, EcoCause, EcoLogAsset, EcoLogDay, EcologyConfig, EcologyState, EcoPool, RegimeId, WorldConfig, WorldState,
 } from './types';
@@ -159,6 +160,7 @@ export function initEcology(state: WorldState): EcologyState {
       };
     }),
     log: [],
+    ...(state.config.rivals?.length ? { rivals: initRivals(state.config) } : {}),
   };
 }
 
@@ -258,6 +260,10 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     });
   }
 
+  // rival funds plan their day from the closes already printed; their fills are slices of the pools' flow (rivals.ts)
+  const rivalPlan = rivalsDay(cfg, eco, input.lnV, input.day);
+  const qValue = new Array<number>(eco.assets.length);
+  const qTrend = new Array<number>(eco.assets.length);
   const assets: EcoAssetState[] = new Array(eco.assets.length);
   const logAssets: EcoLogAsset[] = new Array(eco.assets.length);
   for (let i = 0; i < eco.assets.length; i++) {
@@ -315,6 +321,9 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     if (q.retail !== 0 && sgn(q.retail) === sgn(p0.retail)) q.retail /= 1 + (ec.capacity * Math.abs(p0.retail)) / ec.sizes.retail;
     if (q.pension !== 0 && sgn(q.pension) === sgn(p0.pension)) q.pension /= 1 + (ec.capacity * Math.abs(p0.pension)) / ec.sizes.pension;
 
+    qValue[i] = q.value;
+    qTrend[i] = q.trend;
+
     // ---- clear against the maker ----
     const own = e.own;
     const net = q.value + q.trend + q.retail + q.pension + own;
@@ -358,7 +367,8 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
   const entry: EcoLogDay = { day: input.day, tick: input.tick, regime: input.regime, assets: logAssets };
   const keep = Math.max(0, Math.floor(ec.logDays));
   const log = keep > 0 ? [...eco.log, entry].slice(-keep) : [];
-  return { day: input.day, assets, log };
+  const rivals = rivalPlan ? rivalsClose(cfg, rivalPlan, qValue, qTrend, assets.map((a) => a.lnS)) : undefined;
+  return { day: input.day, assets, log, ...(rivals ? { rivals } : {}) };
 }
 
 /** Shadow close per asset (price, not log). Empty when the ecology never ran. */
