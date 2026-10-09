@@ -456,6 +456,9 @@ function validate(state: WorldState, req: OrderRequest): string | null {
   if (req.side !== 'buy' && req.side !== 'sell') return 'bad side';
   if (!TYPES.includes(req.type)) return 'bad order type';
   if (!Number.isFinite(req.qty) || req.qty <= 0) return 'qty must be > 0';
+  // X3 (Tape, hunts v1): above 2^53 a unit count is not exact (a share count rounds, a fraction is lost), so an order
+  // that large is refused whatever the cash. Huge balances size down to this cap, they do not get a silent rounding.
+  if (req.qty > Number.MAX_SAFE_INTEGER) return 'quantity above 2^53 units';
   if (qtyStep(def) === 1 && !Number.isInteger(req.qty)) return 'whole units only';
   if ((req.type === 'limit' || req.type === 'stop_limit') && !(req.limitPrice !== undefined && req.limitPrice > 0)) return 'limit price required';
   if ((req.type === 'stop' || req.type === 'stop_limit') && !(req.stopPrice !== undefined && req.stopPrice > 0)) return 'stop price required';
