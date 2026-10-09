@@ -162,6 +162,39 @@ export function crowdHoldings(state: WorldState): Record<string, CrowdHold> {
   return crowd;
 }
 
+/** Public short interest is shown only when the shorts are spread: at least this many holders, none above the cap. */
+export const PUBLIC_SI_MIN_HOLDERS = 5;
+export const PUBLIC_SI_MAX_HOLDER_SHARE = 0.4;
+
+/**
+ * Public aggregate short interest per stock: units held short across all accounts, as a share of shares outstanding.
+ * 0 when nobody is short; null (withheld) when the shorts are concentrated (fewer than 5 holders, or one holder above
+ * 40% of the total), because a lone short position would otherwise be read straight out of the total. No account is
+ * named, and the published set is by asset only.
+ */
+export function publicShortInterest(state: WorldState): Record<string, number | null> {
+  const per: Record<string, { total: number; holders: number; max: number }> = {};
+  for (const acct of Object.values(state.accounts)) {
+    for (const [assetId, pos] of Object.entries(acct.positions)) {
+      if (pos.qty >= 0) continue;
+      const s = -pos.qty;
+      const c = per[assetId] ?? (per[assetId] = { total: 0, holders: 0, max: 0 });
+      c.total += s;
+      c.holders++;
+      if (s > c.max) c.max = s;
+    }
+  }
+  const out: Record<string, number | null> = {};
+  for (const def of state.config.assets) {
+    if (def.assetClass !== 'stock' || !def.sharesOutstanding) continue;
+    const c = per[def.id];
+    if (!c) { out[def.id] = 0; continue; }
+    const spread = c.holders >= PUBLIC_SI_MIN_HOLDERS && c.max <= PUBLIC_SI_MAX_HOLDER_SHARE * c.total;
+    out[def.id] = spread ? Math.round((c.total / def.sharesOutstanding) * 1e4) / 1e4 : null;
+  }
+  return out;
+}
+
 /** Mark price of asset i for a long (dir 1) or short (dir −1) position: mid, held at the guard's anchor during a pump or dump. */
 export function guardedMark(state: WorldState, i: number, dir: 1 | -1): number {
   const m = mid(state, i);
