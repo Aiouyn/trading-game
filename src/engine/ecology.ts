@@ -125,6 +125,8 @@ export function reanchorEcology(cfg: WorldConfig, eco: EcologyState, lnClose: re
 export interface EcoDayInput {
   day: number;
   tick: number;
+  /** the world seed: rival streams (rivals.ts publicValueLine) are keyed on it */
+  seed: string;
   regime: RegimeId;
   /** per asset, config order */
   lnV: number[];
@@ -137,6 +139,7 @@ export function ecoDayInput(state: WorldState, day: number): EcoDayInput {
   return {
     day,
     tick: state.tick,
+    seed: state.seed,
     regime: tradingRegime(state.worldEvents, state.tick, state.regime),
     lnV: state.assets.map((a) => a.lnV),
     h: state.assets.map((a) => a.h),
@@ -261,7 +264,7 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
   }
 
   // rival funds plan their day from the closes already printed; their fills are slices of the pools' flow (rivals.ts)
-  const rivalPlan = rivalsDay(cfg, eco, input.lnV, input.day);
+  const rivalPlan = rivalsDay(cfg, eco, input.lnV, input.day, input.seed);
   const qValue = new Array<number>(eco.assets.length);
   const qTrend = new Array<number>(eco.assets.length);
   const assets: EcoAssetState[] = new Array(eco.assets.length);

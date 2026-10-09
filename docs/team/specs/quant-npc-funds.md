@@ -17,9 +17,9 @@ WorldState.rivals: Rival[]          // 3 by default, config.rivals
 
 | Style | What it does | Rebalance |
 |---|---|---|
-| value | buys the 3 stocks furthest below their own value (`lnP − lnV` most negative) | every 21 game days |
+| value | buys the 3 stocks furthest below their own value, read through a public value line: `lnV` plus one analyst-grade read per asset per 21-day epoch (sigma 0.088, the Hustler band). Hale never sees the true `lnV`, which no player can see (`lnP − lnVpub` most negative) | every 21 game days |
 | momentum | buys the single stock with the best 63-day return | every 21 game days |
-| degen | buys the crypto with the best 21-day return | every 5 game days |
+| degen | holds the 3 crypto with the best 21-day return, equal weight | every 5 game days |
 
 - Names and starting cash are fixed. Display names are Hale & Ward, Pinn Partners and Vetch. Engine ids stay `hale`, `pinn` and `vetch`. Hale (value) starts at $7,000, close enough to the player's $5,000 that the rival you meet early is beatable. Pinn (momentum) and Vetch (degen) start at $50,000 and stay aspirational. Each rival's slice of its pool is capped at 5% of that asset's ADV per rebalance, and that slice clears with the pool, not beside it.
 - Long only, whole shares, same fees as the player. They hold cash when nothing qualifies.
