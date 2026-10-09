@@ -54,6 +54,8 @@ export interface AssetDef {
   listed?: boolean;
   /** one-line flavor text for the UI */
   blurb?: string;
+  /** a yearly cycle in value (commodities); absent = none */
+  seasonal?: SeasonalDef;
   /** rate sensitivity: a +0.01 change in the keyed yield moves ln price by −0.01·duration (bonds, property) */
   duration?: number;
   /** the yield this asset reprices on and earns as carry (bonds) */
@@ -106,6 +108,12 @@ export interface RegimeDef {
   meanDays: number;
   /** where we go when we leave this regime (probabilities sum to 1) */
   next: Partial<Record<RegimeId, number>>;
+}
+
+/** A yearly cycle in value: log amplitude `amp`, highest on game-year day `peakDay` (0..daysPerYear-1). */
+export interface SeasonalDef {
+  amp: number;
+  peakDay: number;
 }
 
 export interface IndexDef {

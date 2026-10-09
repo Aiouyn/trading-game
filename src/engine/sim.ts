@@ -6,7 +6,7 @@ import { catalystDay, peadDrift } from './catalysts';
 import { carryOf, initRates, ratesDay } from './rates';
 import { jumpCompensator } from './drift';
 import type {
-  AssetDef, AssetState, Fill, Quote, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
+  AssetDef, AssetState, Fill, Quote, SeasonalDef, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
 } from './types';
 
 const LN2 = Math.log(2);
@@ -208,7 +208,8 @@ export function step(state: WorldState): StepResult {
     // momentum fix: jumps can be fully permanent but print only partly at once (news underreaction);
     // the compensator keeps jumps from changing the expected return. Missing fields = the legacy model.
     const jp = cfg.jumpPermanent ?? perm;
-    const mu = def.drift + def.cycleBeta * rg.equityDrift + carryOf(def, rates) - (cfg.jumpCompensation ? jumpCompensator(def, jp) : 0);
+    const mu = def.drift + def.cycleBeta * rg.equityDrift + carryOf(def, rates) - (cfg.jumpCompensation ? jumpCompensator(def, jp) : 0)
+      + (def.seasonal ? seasonalDrift(def.seasonal, tick, cfg.ticksPerDay, cfg.daysPerYear) : 0);
     const diff = sigma * sqrtDt * shock;
     a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + lnVScale * perm * diff + jp * jump + catalyst;
 
@@ -339,6 +340,15 @@ function ecologyStep(cleared: WorldState, tick: number, events: StepEvent[], fil
   cleared.assets.forEach((a, i) => { const m = lnClose[i]! - a.lnP; if (Math.abs(m) > 1e-12) moves[cfg.assets[i]!.id] = Math.expm1(m); });
   events.push({ type: 'auction', tick, moves });
   return { state: { ...cleared, assets, ecology: eco }, events, fills };
+}
+
+/**
+ * Annual drift of a seasonal asset: value carries amp · cos(2π (day − peakDay) / daysPerYear), so its drift per year
+ * is the derivative, −amp · 2π · sin(…). Deterministic and public: a learnable cycle, not a free lunch (vol swamps it).
+ */
+export function seasonalDrift(s: SeasonalDef, tick: number, ticksPerDay: number, daysPerYear: number): number {
+  const day = tick / ticksPerDay;
+  return -s.amp * 2 * Math.PI * Math.sin((2 * Math.PI * (day - s.peakDay)) / daysPerYear);
 }
 
 /** Advance n ticks; collects events. Identical to calling step() n times. */

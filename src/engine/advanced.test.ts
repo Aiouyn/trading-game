@@ -248,12 +248,12 @@ describe('rates and macro', () => {
 });
 
 describe('the game universe', () => {
-  it('has the bible\'s breadth: 120 stocks in 12 sectors and 5 regions, 15 crypto, FX, bonds and property', () => {
+  it('has the bible\'s breadth: 120 stocks in 12 sectors and 5 regions, 30 crypto (stables, majors, memes), FX, bonds and property', () => {
     const by = (c: string) => GAME_ASSETS.filter((a) => a.assetClass === c);
     expect(by('stock')).toHaveLength(120);
     expect(new Set(by('stock').map((a) => a.sector)).size).toBe(12);
     expect(new Set(by('stock').map((a) => a.region)).size).toBe(5);
-    expect(by('crypto')).toHaveLength(15);
+    expect(by('crypto')).toHaveLength(30);
     expect(by('commodity').map((a) => a.id)).toEqual(expect.arrayContaining(['GOLD', 'OIL', 'CMPT', 'DATA', 'PWR']));
     expect(by('forex')).toHaveLength(4);
     expect(by('bond')).toHaveLength(5);
@@ -275,5 +275,27 @@ describe('the game universe', () => {
     const s = openAccount(createWorld('re', universeConfig({ ticksPerDay: TPD })), 'p');
     const id = GAME_ASSETS.find((a) => a.assetClass === 'realestate')!.id;
     expect(placeOrder(s, { playerId: 'p', assetId: id, side: 'buy', type: 'market', qty: 1 }).order.rejectReason).toBe('not tradable');
+  });
+});
+
+describe('market content (V1)', () => {
+  it('stablecoins stay pinned near $1 for a game year', async () => {
+    const { createWorld, stepMany, universeConfig } = await import('./index');
+    const cfg = universeConfig({ ticksPerDay: 24 });
+    const s = stepMany(createWorld('stable', cfg), 24 * 252).state;
+    const i = cfg.assets.findIndex((a) => a.id === 'AUSD');
+    const p = Math.exp(s.assets[i]!.lnP);
+    expect(p).toBeGreaterThan(0.85);
+    expect(p).toBeLessThan(1.05);
+  }, 120_000);
+
+  it('seasonal drift is a pure yearly cycle: zero over a full year, highest pull before the peak', async () => {
+    const { seasonalDrift } = await import('./sim');
+    const s = { amp: 0.12, peakDay: 0 };
+    let sum = 0;
+    for (let d = 0; d < 252; d++) sum += seasonalDrift(s, d * 10, 10, 252);
+    expect(Math.abs(sum)).toBeLessThan(1e-9);
+    expect(seasonalDrift(s, (252 - 63) * 10, 10, 252)).toBeGreaterThan(0); // a quarter before the peak: rising
+    expect(seasonalDrift(s, 63 * 10, 10, 252)).toBeLessThan(0); // a quarter after: falling
   });
 });
