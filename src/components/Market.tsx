@@ -1,13 +1,14 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { earningsInfo, indexLevel, optionQuote, parseContract, portfolio, sectorName, REGIONS, type AssetClass, type WorldState } from '@/engine';
+import { earningsInfo, indexLevel, optionQuote, parseContract, portfolio, sectorName, REGIONS, type AssetClass, type WorldConfig, type WorldState } from '@/engine';
 import { consensusLabel, earningsGrade, gradeVerdict } from '@/content/news';
 import { licenseFor, LICENSES, rankIndex } from '@/content/lifestyle';
 import { dayOpen, RANGES, sparkline, type RangeId } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
 import { compactMoney, money, pct, price, qty, signedChange, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { assetDefOf, isIndex, useGame } from '@/game/store';
+import { isDelisted } from '@/game/universe';
 import { PriceChart } from './PriceChart';
 import { OptionChain } from './Options';
 import { Button, Card, CardHeader, Chip, ConfirmButton, Flash, LockGlyph, Modal, Segmented, Sparkline, Td, Th, TextField } from './ui';
@@ -147,7 +148,8 @@ export function AssetPanel() {
   const note = me.player.notes[selected];
   const rIdx = rankIndex(me.player.rankId);
   const cap = def.sharesOutstanding ? def.sharesOutstanding * px : null;
-  const optionsListed = config.options?.underlyings.includes(selected);
+  // a delisted name's options no longer trade: no chain button (held contracts show without a close control)
+  const optionsListed = config.options?.underlyings.includes(selected) && !isDelisted(config, selected);
   const canOptions = !!me.account?.canOptions;
   return (
     <Card className="p-4" data-testid="asset-panel">
@@ -376,30 +378,35 @@ export function Positions({ phone = false }: { phone?: boolean }) {
 function OptionPositions() {
   const me = useGame((s) => s.me)!;
   const world = useGame((s) => s.world)!;
+  const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const opts = Object.entries(me.account?.options ?? {});
   if (!opts.length) return null;
   return (
     <div className="border-t border-ink-2 px-4 py-3">
       <div className="label mb-2">Options</div>
-      <OptionRows rows={opts} world={world} onClose={(id, n) => act({ type: 'option.trade', contractId: id, side: 'sell', qty: n }, { success: 'Option sold' })} />
+      <OptionRows rows={opts} world={world} config={config} onClose={(id, n) => act({ type: 'option.trade', contractId: id, side: 'sell', qty: n }, { success: 'Option sold' })} />
     </div>
   );
 }
 
-function OptionRows({ rows, world, onClose }: { rows: [string, { qty: number; avgCost: number }][]; world: WorldState; onClose: (id: string, n: number) => void }) {
+/** Held contracts. On a delisted underlying they stay visible (they are still owned) but carry no close control. */
+function OptionRows({ rows, world, config, onClose }: { rows: [string, { qty: number; avgCost: number }][]; world: WorldState; config: WorldConfig; onClose: (id: string, n: number) => void }) {
   return (
     <ul className="flex flex-col gap-2">
       {rows.map(([id, pos]) => {
         const c = parseContract(id)!;
         const q = optionQuote(world, c);
         const pnl = (q.bid - pos.avgCost) * 100 * pos.qty;
+        const dead = isDelisted(config, c.underlying);
         return (
           <li key={id} className="flex flex-wrap items-center justify-between gap-2 text-small" data-testid={`option-${id}`}>
             <span className="num">{c.underlying} {c.strike} {c.kind === 'call' ? 'Call' : 'Put'} · day {c.expiryDay + 1} · ×{pos.qty}</span>
             <span className="num text-fg-muted">bid {price(q.bid)} · {q.daysLeft.toFixed(1)} days left</span>
             <span className={`num ${toneText[tone(pnl)]}`}>{signedMoney(pnl)}</span>
-            <Button size="sm" onClick={() => onClose(id, pos.qty)}>Sell</Button>
+            {dead
+              ? <span className="text-caption text-loss" data-testid={`option-delisted-${id}`}>{c.underlying} delisted: no trading</span>
+              : <Button size="sm" onClick={() => onClose(id, pos.qty)}>Sell</Button>}
           </li>
         );
       })}

@@ -1,4 +1,5 @@
-import { indexLevel, type Account, type Order, type WorldConfig, type WorldState } from '@/engine';
+import { indexLevel, parseContract, type Account, type Order, type WorldConfig, type WorldState } from '@/engine';
+import type { Command } from '@/world/types';
 import { mirrorWorld, type MarketFrame } from '@/world/view';
 import { ensureSeries, ensureVolume, record, type History } from './history';
 
@@ -69,4 +70,18 @@ export function absorbFrame(cur: Universe, history: History, prevWorld: WorldSta
 /** A name the universe lists and then delisted: it keeps its slot and price but no longer trades. */
 export function isDelisted(config: WorldConfig, id: string): boolean {
   return config.assets.some((a) => a.id === id && a.listed === false);
+}
+
+/**
+ * The reason a command must not be sent because its name is delisted, or null. The engine does not refuse these (a
+ * delisted name keeps a frozen price), so the client refuses them before sending: orders in the name, and options
+ * written on it (a listed option's underlying can be delisted later).
+ */
+export function delistedRefusal(config: WorldConfig, cmd: Command): string | null {
+  if (cmd.type === 'order.place' && isDelisted(config, cmd.order.assetId)) return `${cmd.order.assetId} is delisted and no longer trades`;
+  if (cmd.type === 'option.trade') {
+    const underlying = parseContract(cmd.contractId)?.underlying;
+    if (underlying && isDelisted(config, underlying)) return `${underlying} is delisted: its options no longer trade`;
+  }
+  return null;
 }

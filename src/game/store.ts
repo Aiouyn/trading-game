@@ -8,7 +8,7 @@ import { mirrorWorld, type DirectoryRow, type MarketFrame, type PlayerView, type
 import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
 import { createHistory, loadSeries, type History, type RangeId } from './history';
 import type { IndicatorId } from './indicators';
-import { absorbFrame, isDelisted, type MirrorMe } from './universe';
+import { absorbFrame, delistedRefusal, type MirrorMe } from './universe';
 
 export type Screen = 'market' | 'portfolio' | 'empire' | 'estate' | 'lab' | 'security' | 'court' | 'social' | 'wire' | 'profile';
 
@@ -110,7 +110,7 @@ function writePrefs(s: GameStore): void {
 
 export const useGame = create<GameStore>((set, get) => {
   /** The mirror's identity for this player (the engine's read-only helpers key on it). */
-  const mirrorMe = (me: PlayerView | null): MirrorMe => ({ id: get().playerId ?? 'me', account: me?.account ?? null, orders: me?.orders ?? [] });
+  const mirrorMe = (pid: string | null, me: PlayerView | null): MirrorMe => ({ id: pid ?? 'me', account: me?.account ?? null, orders: me?.orders ?? [] });
 
   /** Reconnect for a fresh welcome (and with it the current asset list). */
   const resync = () => {
@@ -124,10 +124,11 @@ export const useGame = create<GameStore>((set, get) => {
         // the server's asset list replaces the static one: listings made since the static universe are in it
         const config: WorldConfig = { ...get().config, assets: msg.defs };
         const h = freshHistory(config);
-        set({ history: h, loaded: {}, playerId: msg.playerId, config, cfgSeq: msg.frame.cfgSeq });
-        const r = absorbFrame({ config, cfgSeq: msg.frame.cfgSeq }, h, null, msg.frame, mirrorMe(msg.me));
+        const r = absorbFrame({ config, cfgSeq: msg.frame.cfgSeq }, h, null, msg.frame, mirrorMe(msg.playerId, msg.me));
+        // one set: the universe, its history and the frame never show up apart
         set({
           status: 'ready', playerId: msg.playerId, tickMs: msg.tickMs, lastTickAt: Date.now(), frame: msg.frame, world: r.world, me: msg.me,
+          config, cfgSeq: msg.frame.cfgSeq, history: h, loaded: {},
           pub: msg.pub, directory: msg.directory, chat: msg.chat, wire: msg.pub.wire, historyRev: get().historyRev + 1,
           digestOpen: !!msg.me.digest && msg.me.digest.items.length > 0,
         });
@@ -136,11 +137,7 @@ export const useGame = create<GameStore>((set, get) => {
         break;
       }
       case 'tick': {
-        const absorbed = absorbFrame({ config: get().config, cfgSeq: get().cfgSeq }, get().history, get().world, msg.frame, mirrorMe(msg.me));
-        // the mirror and history follow the universe even when the frame's list is missing (the entries are skipped); a
-        // behind client then reconnects for the current list
-        set({ config: absorbed.universe.config, cfgSeq: absorbed.universe.cfgSeq });
-        if (absorbed.behind) resync();
+        const absorbed = absorbFrame({ config: get().config, cfgSeq: get().cfgSeq }, get().history, get().world, msg.frame, mirrorMe(get().playerId, msg.me));
         // rank-ups can come from a tick or from a command (a sale, a grant): compare ranks
         const prevRank = get().me?.rank.id;
         const mine = prevRank && msg.me.rank.id > prevRank ? { rankId: msg.me.rank.id } : msg.rankUps.find((r) => r.playerId === get().playerId);
@@ -152,7 +149,10 @@ export const useGame = create<GameStore>((set, get) => {
           void arr;
           if (m.playerId !== get().playerId) unread++;
         }
+        // the mirror and history follow the universe even when the frame's list is missing (its extra entries are
+        // skipped); a behind client reconnects below for the current list
         set({
+          config: absorbed.universe.config, cfgSeq: absorbed.universe.cfgSeq,
           frame: msg.frame, world: absorbed.world, me: msg.me, lastTickAt: Date.now(), historyRev: get().historyRev + 1,
           wire: msg.wire.length ? [...[...msg.wire].reverse(), ...get().wire].slice(0, WIRE_KEEP) : get().wire,
           ...(msg.pub ? { pub: msg.pub } : {}), ...(msg.directory ? { directory: msg.directory } : {}),
@@ -161,6 +161,7 @@ export const useGame = create<GameStore>((set, get) => {
           ...(mine ? { rankUp: mine.rankId } : {}),
           ...(msg.inbox.some((n) => n.kind === 'fill') ? { tradeSheetOpen: false } : {}),
         });
+        if (absorbed.behind) resync();
         const nw = get().nw;
         if (nw && msg.frame.tick % nw.every === 0) {
           nw.samples.push(msg.me.netWorth.total);
@@ -181,7 +182,7 @@ export const useGame = create<GameStore>((set, get) => {
       }
       case 'ack':
         if (msg.me && get().me && msg.me.rank.id > get().me!.rank.id) set({ rankUp: msg.me.rank.id });
-        if (msg.me) set({ me: msg.me, world: get().frame ? mirrorWorld(get().config, get().frame!, { id: get().playerId ?? 'me', account: msg.me.account, orders: msg.me.orders }, get().world ?? undefined) : get().world });
+        if (msg.me) set({ me: msg.me, world: get().frame ? mirrorWorld(get().config, get().frame!, mirrorMe(get().playerId, msg.me), get().world ?? undefined) : get().world });
         break;
       default:
         break;
@@ -276,9 +277,10 @@ export const useGame = create<GameStore>((set, get) => {
 
     async act(cmd, opts) {
       if (!client) return { ok: false, error: 'offline' };
-      // a delisted name is refused here, before it is sent (the order pad hides it too)
-      if (cmd.type === 'order.place' && isDelisted(get().config, cmd.order.assetId)) {
-        const r = { ok: false, error: `${cmd.order.assetId} is delisted and no longer trades` };
+      // a delisted name (or an option on one) is refused here, before it is sent (the order pad and chain hide it too)
+      const refused = delistedRefusal(get().config, cmd);
+      if (refused) {
+        const r = { ok: false, error: refused };
         if (!opts?.silent) get().toast({ tone: 'loss', text: r.error });
         return r;
       }

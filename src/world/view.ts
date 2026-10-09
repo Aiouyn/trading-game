@@ -1,5 +1,5 @@
 import {
-  universeConfig, worldEventView, type Account, type AssetDef, type AssetState, type Order, type RatesState, type RegimeId, type WorldConfig,
+  worldEventView, type Account, type AssetDef, type AssetState, type Order, type RatesState, type RegimeId, type WorldConfig,
   type WorldEventView, type WorldState,
 } from '@/engine';
 import { RANKS, rankIndex } from '@/content/lifestyle';
@@ -100,10 +100,6 @@ export function mirrorWorld(config: WorldConfig, frame: MarketFrame, me: { id: s
     assets, accounts: me.account ? { [me.id]: me.account } : {}, orders: me.orders, orderSeq: 0, config,
     ...(frame.rates ? { rates: { ...frame.rates, inflation: 0, growth: 0, rng: [0, 0, 0, 1] } } : {}),
   };
-}
-
-export function clientConfig(): WorldConfig {
-  return universeConfig();
 }
 
 // ---------------------------------------------------------------- the private player view
