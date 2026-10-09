@@ -7,7 +7,7 @@ import { licenseFor, LICENSES, rankIndex } from '@/content/lifestyle';
 import { dayOpen, RANGES, sparkline, type RangeId } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
 import { compactMoney, money, pct, price, qty, signedChange, signedMoney, signedPct, tone, toneText } from '@/game/format';
-import { CONFIG, INDEX_IDS, assetDefOf, isIndex, useGame } from '@/game/store';
+import { assetDefOf, isIndex, useGame } from '@/game/store';
 import { PriceChart } from './PriceChart';
 import { OptionChain } from './Options';
 import { Button, Card, CardHeader, Chip, ConfirmButton, Flash, LockGlyph, Modal, Segmented, Sparkline, Td, Th, TextField } from './ui';
@@ -22,11 +22,12 @@ export function seriesInfo(world: WorldState, id: string, rankId: string): Serie
   if (isIndex(id)) {
     const p = indexLevel(world, id);
     const o = dayOpen(h, id) ?? p;
-    const idx = CONFIG.indices.find((i) => i.id === id)!;
+    const idx = useGame.getState().config.indices.find((i) => i.id === id)!;
     return { id, name: idx.name, sector: 'index', cls: 'index', tradable: false, locked: false, price: p, change: p - o, changePct: o ? p / o - 1 : 0, halted: false, blurb: `${idx.members.length} members, weighted by market value.` };
   }
-  const i = CONFIG.assets.findIndex((a) => a.id === id);
-  const def = CONFIG.assets[i]!;
+  const config = useGame.getState().config;
+  const i = config.assets.findIndex((a) => a.id === id);
+  const def = config.assets[i]!;
   const a = world.assets[i]!;
   const p = Math.exp(a.lnP);
   const o = Math.exp(a.lnOpen);
@@ -42,6 +43,7 @@ const RANGE_OPTS = RANGES.map((r) => ({ value: r, label: r, testId: `range-${r}`
 export function ChartCard({ phone = false }: { phone?: boolean }) {
   const world = useGame((s) => s.world)!;
   useGame((s) => s.historyRev);
+  useGame((s) => s.config);
   const rankId = useGame((s) => s.me?.player.rankId ?? 'R0');
   const selected = useGame((s) => s.selected);
   const range = useGame((s) => s.range);
@@ -65,6 +67,7 @@ export function ChartCard({ phone = false }: { phone?: boolean }) {
             <Chip>{info.cls === 'index' ? 'Index' : sectorName(info.sector)}</Chip>
             {region && <Chip title={region.name}>{region.flag}</Chip>}
             {info.halted && <Chip className="border-warn/60 text-warn">Halted</Chip>}
+            {info.cls !== 'index' && !info.tradable && <Chip className="border-loss/60 text-loss">Delisted</Chip>}
             {info.locked && <Chip className="border-steel/60 text-steel"><LockGlyph size={12} /> Pro license</Chip>}
           </div>
           <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
@@ -124,10 +127,11 @@ export function AssetPanel() {
   const world = useGame((s) => s.world)!;
   const me = useGame((s) => s.me)!;
   const selected = useGame((s) => s.selected);
+  const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const [chain, setChain] = useState(false);
   if (isIndex(selected)) {
-    const idx = CONFIG.indices.find((i) => i.id === selected)!;
+    const idx = config.indices.find((i) => i.id === selected)!;
     return (
       <Card className="p-4" data-testid="asset-panel">
         <h3 className="font-serif text-title">{idx.name}</h3>
@@ -136,17 +140,18 @@ export function AssetPanel() {
     );
   }
   const def = assetDefOf(selected)!;
-  const i = CONFIG.assets.findIndex((a) => a.id === selected);
+  const i = config.assets.findIndex((a) => a.id === selected);
   const a = world.assets[i]!;
   const px = Math.exp(a.lnP);
   const e = earningsInfo(world, selected);
   const note = me.player.notes[selected];
   const rIdx = rankIndex(me.player.rankId);
   const cap = def.sharesOutstanding ? def.sharesOutstanding * px : null;
-  const optionsListed = CONFIG.options?.underlyings.includes(selected);
+  const optionsListed = config.options?.underlyings.includes(selected);
   const canOptions = !!me.account?.canOptions;
   return (
     <Card className="p-4" data-testid="asset-panel">
+      {def.listed === false && <p className="mb-2 text-small text-loss" data-testid="delisted-note">Delisted: this name no longer trades. Its last price stays on the chart.</p>}
       <p className="text-small text-fg-muted">{def.blurb}</p>
       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-small sm:grid-cols-3">
         {cap && <Mini k="Market value" v={compactMoney(cap)} />}
@@ -225,21 +230,23 @@ export function Watchlist() {
   const selected = useGame((s) => s.selected);
   const select = useGame((s) => s.select);
   const act = useGame((s) => s.act);
+  const config = useGame((s) => s.config);
   const [tab, setTab] = useState<UniverseTab>('watch');
   const [q, setQ] = useState('');
   const watch = me.player.watchlist;
   const ids = useMemo(() => {
-    const all = [...INDEX_IDS, ...CONFIG.assets.filter((a) => a.listed !== false).map((a) => a.id)];
-    let list = tab === 'watch' ? watch : tab === 'index' ? INDEX_IDS : CONFIG.assets.filter((a) => a.assetClass === tab && a.listed !== false).map((a) => a.id);
+    const indexIds = config.indices.map((i) => i.id);
+    const all = [...indexIds, ...config.assets.filter((a) => a.listed !== false).map((a) => a.id)];
+    let list = tab === 'watch' ? watch : tab === 'index' ? indexIds : config.assets.filter((a) => a.assetClass === tab && a.listed !== false).map((a) => a.id);
     if (q.trim()) {
       const s = q.trim().toLowerCase();
       list = all.filter((id) => {
-        const d = assetDefOf(id);
+        const d = config.assets.find((a) => a.id === id);
         return id.toLowerCase().includes(s) || d?.name.toLowerCase().includes(s) || (d && sectorName(d.sector).toLowerCase().includes(s));
       });
     }
     return list;
-  }, [tab, q, watch]);
+  }, [tab, q, watch, config]);
   const h = useGame.getState().history;
   return (
     <Card className="flex min-h-0 flex-col" data-testid="watchlist">
@@ -267,6 +274,7 @@ export function Watchlist() {
                   <div className="flex items-center gap-1.5">
                     <span className="num text-small font-semibold text-fg">{id}</span>
                     {info.locked && <LockGlyph size={12} />}
+                    {info.cls !== 'index' && !info.tradable && <span className="text-micro text-loss">Delisted</span>}
                   </div>
                   <div className="truncate text-caption text-fg-faint">{info.name}</div>
                 </div>

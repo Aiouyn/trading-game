@@ -4,7 +4,8 @@ import { useMemo, useState } from 'react';
 import { buyingPower, commission, estimateFill, type OrderType, type Side } from '@/engine';
 import { licenseFor } from '@/content/lifestyle';
 import { money, price, qty as fmtQty } from '@/game/format';
-import { CONFIG, isIndex, useGame } from '@/game/store';
+import { isIndex, useGame } from '@/game/store';
+import { isDelisted } from '@/game/universe';
 import { Button, Card, KV, LockGlyph, NumberField, Segmented } from './ui';
 
 const TYPE_OPTS: { value: OrderType; label: string; testId: string }[] = [
@@ -40,6 +41,7 @@ function Ticket({ preset }: { preset: ReturnType<typeof useGame.getState>['ticke
   const me = useGame((s) => s.me);
   const playerId = useGame((s) => s.playerId);
   const selected = useGame((s) => s.selected);
+  const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const setSheet = useGame((s) => s.setTradeSheet);
   const [side, setSide] = useState<Side>(preset?.side ?? 'buy');
@@ -56,19 +58,22 @@ function Ticket({ preset }: { preset: ReturnType<typeof useGame.getState>['ticke
 
   const ctx = useMemo(() => {
     if (!world || !me || !playerId || isIndex(selected)) return null;
-    const i = CONFIG.assets.findIndex((a) => a.id === selected);
-    const def = CONFIG.assets[i];
+    const i = config.assets.findIndex((a) => a.id === selected);
+    const def = config.assets[i];
     if (!def || def.listed === false) return null;
     const a = world.assets[i]!;
     return { def, mid: Math.exp(a.lnP), halted: a.haltUntil !== -1 && a.haltUntil > world.tick };
-  }, [world, me, playerId, selected]);
+  }, [world, me, playerId, selected, config]);
 
   if (!world || !me || !playerId) return null;
   if (!ctx) {
+    const delisted = isDelisted(config, selected);
     return (
       <Card className="p-4" data-testid="order-pad">
         <h2 className="font-serif text-title">Trade</h2>
-        <p className="mt-2 text-small text-fg-muted">Indices can’t be traded directly. Pick a stock, coin, commodity, currency or bond fund.</p>
+        {delisted
+          ? <p className="mt-2 text-small text-loss" data-testid="order-delisted">{selected} is delisted and no longer trades.</p>
+          : <p className="mt-2 text-small text-fg-muted">Indices can’t be traded directly. Pick a stock, coin, commodity, currency or bond fund.</p>}
       </Card>
     );
   }
@@ -114,6 +119,7 @@ function Ticket({ preset }: { preset: ReturnType<typeof useGame.getState>['ticke
   const actionLabel = `${side === 'buy' ? (held < 0 ? 'Buy to cover' : 'Buy') : shorting ? 'Sell short' : 'Sell'} ${qtyN > 0 ? fmtQty(qtyN) : ''} ${selected}`.replace(/\s+/g, ' ');
 
   const submit = async () => {
+    if (def.listed === false) return; // a delisted name is refused before anything is sent
     const order = {
       assetId: selected, side, type, qty: qtyN, tif,
       ...(type === 'limit' || type === 'stop_limit' ? { limitPrice: num(limit) } : {}),

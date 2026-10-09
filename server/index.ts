@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
 import { WorldHost } from './host';
-import { chatFor, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
+import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
 import { validHandle, COUNTRIES } from '../src/world/players';
 import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type ServerMsg } from '../src/net/protocol';
 import type { ChatMessage } from '../src/world/types';
@@ -27,6 +27,8 @@ const log = (m: string) => console.log(`[world ${new Date().toISOString()}] ${m}
 const store = new Store(DATA_DIR);
 const host = new WorldHost(store, { seed: SEED, tickMs: TICK_MS, warmupDays: WARMUP_DAYS, snapshotEvery: 60, log });
 host.boot();
+/** the asset list version the clients were last sent (see onTick) */
+let sentCfgSeq = configSeq(host.g);
 
 interface Conn { ws: WebSocket; pid: string | null; budget: number; last: number }
 const conns = new Set<Conn>();
@@ -146,7 +148,7 @@ wss.on('connection', (ws) => {
         host.command(acct.id, { type: 'presence', online: true });
         const shared = publicCache();
         const dir = shared.topJson ?? JSON.stringify(directoryFor(host.g, shared.all, shared.top, acct.id));
-        ws.send(`{"t":"welcome","playerId":${JSON.stringify(acct.id)},"tickMs":${TICK_MS},"frame":${shared.frameJson},"me":${JSON.stringify(playerView(host.g, acct.id))},"pub":${shared.pubJson},"directory":${dir},"chat":${JSON.stringify(chatFor(host.g, acct.id))},"serverTime":${Date.now()}}`);
+        ws.send(`{"t":"welcome","playerId":${JSON.stringify(acct.id)},"tickMs":${TICK_MS},"frame":${shared.frameJson},"defs":${JSON.stringify(host.g.market.config.assets)},"me":${JSON.stringify(playerView(host.g, acct.id))},"pub":${shared.pubJson},"directory":${dir},"chat":${JSON.stringify(chatFor(host.g, acct.id))},"serverTime":${Date.now()}}`);
         return;
       }
       case 'cmd': {
@@ -204,8 +206,13 @@ function canSee(pid: string, channel: string): boolean {
 }
 
 host.onTick((out, publicTick) => {
+  // the asset list moved this tick (an IPO, a delisting, a spin-off): send it once in this frame. Clients connected
+  // since then got it in their welcome, so a normal tick carries only the small cfgSeq.
+  const cfgSeq = configSeq(host.g);
+  const defsChanged = cfgSeq !== sentCfgSeq;
+  sentCfgSeq = cfgSeq;
   // shared parts are serialized once per tick, not once per socket
-  const frameJson = JSON.stringify(marketFrame(host.g, publicTick));
+  const frameJson = JSON.stringify(marketFrame(host.g, publicTick, defsChanged));
   const wireJson = JSON.stringify(out.wire);
   const rankJson = JSON.stringify(out.rankUps);
   const pubJson = publicTick ? JSON.stringify(publicState(host.g)) : null;

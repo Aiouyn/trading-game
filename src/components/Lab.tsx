@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { DATA_SOURCES, MCS_TIERS, RESEARCH, mcsTier } from '@/content/research';
 import { rankIndex } from '@/content/lifestyle';
 import { compactMoney, money, pct } from '@/game/format';
-import { CONFIG, useGame } from '@/game/store';
+import { useGame } from '@/game/store';
 import { GPU_TIERS } from '@/world/core';
 import { mcsFor } from '@/world/lab';
 import type { Model, TradingBot } from '@/world/types';
@@ -230,6 +230,7 @@ function Models() {
 
 function Bots() {
   const me = useGame((s) => s.me)!;
+  const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const trading = (me.lab?.models ?? []).filter((m) => m.kind === 'trading');
   const [modelId, setModel] = useState(trading[0]?.id ?? '');
@@ -251,7 +252,7 @@ function Bots() {
           ]} />
           <TextField value={assets} onChange={setAssets} placeholder="Tickers, comma separated" />
           <NumberField label="Allocation" value={alloc} onChange={setAlloc} suffix="% of equity" />
-          <Button variant="brass" disabled={!modelId} onClick={() => act({ type: 'lab.bot', modelId, strategy, assets: assets.split(/[,\s]+/).map((s) => s.trim().toUpperCase()).filter((s) => CONFIG.assets.some((a) => a.id === s)), allocation: Number(alloc) / 100 }, { success: 'Bot deployed' })}>Deploy</Button>
+          <Button variant="brass" disabled={!modelId} onClick={() => act({ type: 'lab.bot', modelId, strategy, assets: assets.split(/[,\s]+/).map((s) => s.trim().toUpperCase()).filter((s) => config.assets.some((a) => a.id === s && a.listed !== false)), allocation: Number(alloc) / 100 }, { success: 'Bot deployed' })}>Deploy</Button>
         </div>
       </Card>
       <div className="flex flex-col gap-4">

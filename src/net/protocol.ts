@@ -1,5 +1,6 @@
 import type { Bar } from '@/game/history';
 import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
+import type { AssetDef } from '@/engine';
 import type { DirectoryRow, MarketFrame, PlayerView, PublicState } from '@/world/view';
 
 /** Messages from the browser to the world server. */
@@ -37,6 +38,8 @@ export type ServerMsg =
     playerId: string;
     tickMs: number;
     frame: MarketFrame;
+    /** the full asset list as the server has it now (runtime listings included), in config order */
+    defs: AssetDef[];
     me: PlayerView;
     pub: PublicState;
     directory: DirectoryRow[];

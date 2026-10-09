@@ -1,5 +1,5 @@
 import {
-  universeConfig, worldEventView, type Account, type AssetState, type Order, type RatesState, type RegimeId, type WorldConfig,
+  universeConfig, worldEventView, type Account, type AssetDef, type AssetState, type Order, type RatesState, type RegimeId, type WorldConfig,
   type WorldEventView, type WorldState,
 } from '@/engine';
 import { RANKS, rankIndex } from '@/content/lifestyle';
@@ -26,6 +26,11 @@ export type AssetFrame = [number, number, number, number, number, number, number
 export interface MarketFrame {
   tick: number;
   regime: RegimeId;
+  /** the asset list's version (see configSeq): the client's universe must match it before it can read `assets` */
+  cfgSeq: number;
+  /** the full asset list, sent only on the tick the list changed (a listing or delisting); absent otherwise */
+  defs?: AssetDef[];
+  /** in the same order as the config's assets (the list grows at runtime; delisted names keep their slot) */
   assets: AssetFrame[];
   /** last earnings per stock (public), only when changed: assetId → { day, surprise, move } */
   lastEarnings?: Record<string, { day: number; surprise: number; move: number }>;
@@ -38,11 +43,21 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
 const r7 = (x: number) => Math.round(x * 1e7) / 1e7;
 
-export function marketFrame(g: GameState, withEarnings = false): MarketFrame {
+/**
+ * The version of the asset list. The engine bumps its listings sequence on every IPO, bankruptcy, merger or spin-off,
+ * which are the only places the list grows or a name is delisted. 0 until the first listing.
+ */
+export function configSeq(g: GameState): number {
+  return g.market.listings?.seq ?? 0;
+}
+
+export function marketFrame(g: GameState, withEarnings = false, withDefs = false): MarketFrame {
   const m = g.market;
   const frame: MarketFrame = {
     tick: m.tick,
     regime: m.regime,
+    cfgSeq: configSeq(g),
+    ...(withDefs ? { defs: m.config.assets } : {}),
     // rounded to what the client needs: prices to 1e-7 in log space (≈ 0.00001%), volumes to units
     assets: m.assets.map((a) => [
       r7(a.lnP), r4(a.h), a.haltUntil, r7(a.lnOpen), r2(a.volume ?? 0), r2(a.dayVolume ?? 0), r2(a.cumVolume ?? 0),
@@ -67,7 +82,9 @@ export function marketFrame(g: GameState, withEarnings = false): MarketFrame {
  * work in the browser. The mirror's fundamental value equals its price: the client never knows V.
  */
 export function mirrorWorld(config: WorldConfig, frame: MarketFrame, me: { id: string; account: Account | null; orders: Order[] }, prev?: WorldState): WorldState {
-  const assets: AssetState[] = frame.assets.map((f, i) => {
+  // a frame can run one listing ahead of the client's config for a tick: entries past the config are ignored
+  const n = Math.min(frame.assets.length, config.assets.length);
+  const assets: AssetState[] = frame.assets.slice(0, n).map((f, i) => {
     const old = prev?.assets[i];
     const zero = [0, 0, 0, 0] as [number, number, number, number];
     return {
