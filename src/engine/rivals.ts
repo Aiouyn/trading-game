@@ -1,11 +1,13 @@
 import { DEFAULT_TRADING } from './config';
+import { Rng, seedStream } from './rng';
 import type { AssetDef, EcologyState, RivalDef, RivalState, RivalStyle, WorldConfig, WorldState } from './types';
 
 /**
  * NPC rival funds (specs/quant-npc-funds.md). A rival has no order path of its own. Each close, its trade is a slice of
  * its pool's flow (value pool for Hale, trend pool for Pinn and Vetch): filled pro rata, in the pool's own direction,
  * never more than the pool trades. So nothing is added twice, and a rival changes no price the pool would not already
- * move. Rules rank on closes already printed, and no rival sees the next close.
+ * move. Rules rank on information a player could have: closes already printed, and for Hale the public value read
+ * (publicValueLine), never the true lnV the pools trade toward. No rival sees the next close.
  */
 export const DEFAULT_RIVALS: RivalDef[] = [
   { id: 'hale', name: 'Hale & Ward', style: 'value', startingCash: 7000 },
@@ -15,7 +17,10 @@ export const DEFAULT_RIVALS: RivalDef[] = [
 
 /** Most a rival trades in one asset in one day, as a share of that asset's ADV. */
 export const RIVAL_CAP_ADV = 0.05;
+/** Hale's public value read: the analyst band a Hustler sees (src/world/assets.ts), in log units, one draw per asset per epoch. */
+export const PUBLIC_VALUE_SIGMA = 0.088;
 const REBALANCE_DAYS: Record<RivalStyle, number> = { value: 21, momentum: 21, degen: 5 };
+const N_TARGETS: Record<RivalStyle, number> = { value: 3, momentum: 1, degen: 3 };
 const RIVAL_POOL: Record<RivalStyle, 'value' | 'trend'> = { value: 'value', momentum: 'trend', degen: 'trend' };
 
 export function initRivals(cfg: WorldConfig): RivalState[] {
@@ -27,13 +32,26 @@ function eligible(def: AssetDef, style: RivalStyle): boolean {
   return style === 'degen' ? def.assetClass === 'crypto' : def.assetClass === 'stock';
 }
 
-/** Value: the 3 stocks furthest below their own value. Momentum: the best 63-day return. Degen: the best 21-day crypto. */
-function pickTargets(cfg: WorldConfig, eco: EcologyState, lnV: readonly number[], style: RivalStyle): string[] {
+/**
+ * The value line Hale ranks on: the true lnV plus one analyst-grade read per asset per 21-day epoch. The read is
+ * fixed within an epoch and drawn from its own seeded stream, so it is deterministic per seed. It is a rule input only:
+ * no pool trades on it, so prices do not depend on rivals.
+ */
+export function publicValueLine(seed: string, cfg: WorldConfig, lnV: readonly number[], day: number): number[] {
+  const epoch = Math.floor(day / REBALANCE_DAYS.value);
+  return cfg.assets.map((a, i) => lnV[i]! + PUBLIC_VALUE_SIGMA * new Rng(seedStream(seed, `rival:value:${a.id}:${epoch}`)).normal());
+}
+
+/**
+ * Value: the 3 stocks furthest below the public value read (`read` is publicValueLine). Momentum: the best 63-day
+ * return. Degen: the 3 best 21-day cryptos, equal weight.
+ */
+function pickTargets(cfg: WorldConfig, eco: EcologyState, read: readonly number[], style: RivalStyle): string[] {
   const scored: { i: number; s: number }[] = [];
   cfg.assets.forEach((def, i) => {
     if (!eligible(def, style)) return;
     if (style === 'value') {
-      scored.push({ i, s: eco.assets[i]!.lnS - lnV[i]! }); // most negative = furthest below value
+      scored.push({ i, s: eco.assets[i]!.lnS - read[i]! }); // most negative = furthest below the read value
       return;
     }
     const c = eco.assets[i]!.closes;
@@ -43,7 +61,7 @@ function pickTargets(cfg: WorldConfig, eco: EcologyState, lnV: readonly number[]
     scored.push({ i, s: back - c[c.length - 1]! }); // lower = better return
   });
   scored.sort((a, b) => a.s - b.s || a.i - b.i);
-  return scored.slice(0, style === 'value' ? 3 : 1).map((x) => cfg.assets[x.i]!.id);
+  return scored.slice(0, N_TARGETS[style]).map((x) => cfg.assets[x.i]!.id);
 }
 
 /** A day's rival plan, before the pools clear: rebalanced targets and each rival's wanted trade per asset. */
@@ -54,8 +72,11 @@ export interface RivalDay {
   desire: number[][];
 }
 
-/** Plan the rivals' day from the closes already printed. Null when no rivals are configured. Pure. */
-export function rivalsDay(cfg: WorldConfig, eco: EcologyState, lnV: readonly number[], day: number): RivalDay | null {
+/**
+ * Plan the rivals' day from the closes already printed and the public value read (never the true lnV, which only the
+ * pools see). Null when no rivals are configured. Pure.
+ */
+export function rivalsDay(cfg: WorldConfig, eco: EcologyState, lnV: readonly number[], day: number, seed: string): RivalDay | null {
   const defs = cfg.rivals ?? [];
   if (defs.length === 0) return null;
   const books = eco.rivals ?? initRivals(cfg);
@@ -65,7 +86,9 @@ export function rivalsDay(cfg: WorldConfig, eco: EcologyState, lnV: readonly num
   for (const book of books) {
     const def = defs.find((d) => d.id === book.id);
     if (!def) continue;
-    const target = day % REBALANCE_DAYS[def.style] === 0 ? pickTargets(cfg, eco, lnV, def.style) : book.target;
+    const rebalance = day % REBALANCE_DAYS[def.style] === 0;
+    const read = def.style === 'value' && rebalance ? publicValueLine(seed, cfg, lnV, day) : lnV;
+    const target = rebalance ? pickTargets(cfg, eco, read, def.style) : book.target;
     const px = eco.assets.map((a) => Math.exp(a.lnS));
     let equity = book.cash;
     cfg.assets.forEach((a, i) => { equity += (book.units[a.id] ?? 0) * px[i]!; });
