@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, step } from './sim';
 import { universeConfig } from './universe';
-import { estimateFill, liquidationEquity, openAccount, placeOrder, portfolio } from './trading';
+import { estimateFill, halfSpread, impact, liquidationEquity, openAccount, placeOrder, portfolio } from './trading';
 import { freeCash, freeQty, realizeToFlat } from './hunt-helpers';
 import type { WorldConfig, WorldState } from './types';
 
@@ -143,12 +143,16 @@ describe('X3 huge money: a game year at $1e12 and $1e15 stays finite and balance
         expect(Number.isFinite(asset.lnP)).toBe(true);
       }
       // liquidation equity is finite and never below cash: this year holds longs only, and a long's exit proceeds floor at
-      // 0 (F7), so liquidation equity is exactly cash. The peak reads liquidation value, so the mid mark (orders of magnitude
-      // above it) must not lift the peak.
+      // 0 (F7), so liquidation is cash plus non-negative proceeds. The peak reads liquidation value only, so the mid mark
+      // (at $1e15 about 8e33 at year end, some 8000 times the peak) must not lift it.
       expect(Number.isFinite(p.liquidationEquity)).toBe(true);
       expect(Number.isFinite(liquidationEquity(r.state, PID))).toBe(true);
       expect(liquidationEquity(r.state, PID)).toBeGreaterThanOrEqual(r.state.accounts[PID]!.cash);
-      // the engine peak is a liquidation peak: it cannot exceed the best liquidation mark the year reached (or the start cash)
+      // The engine peak starts at the starting cash (openAccount sets peakEquity to it) and rises at each tick's clearing, so
+      // it cannot exceed max(startingCash, the best liquidation this loop saw). The old check `peakEquity < equity` assumed the
+      // year-end mid mark sits above the peak; after F7 it does not (at $1e12 the year ends at cash, 4.5e9, under a 1e12 start
+      // peak), so it is replaced by this bound. The two samples differ only on a day's close tick (the engine marks before the
+      // ecology reprices the close, this loop after), so this is a check on tape-01, not an identity.
       expect(p.peakEquity).toBeLessThanOrEqual(Math.max(a.startingCash, r.peakLiq) * (1 + 1e-9) + 1e-6);
       expect(r.minCash).toBeGreaterThanOrEqual(0);
       const { drift, scale } = driftOf(r.state);
@@ -200,14 +204,38 @@ describe('F7 liquidation floor: a sale never pays below zero, a short keeps its 
     expect(liq).toBeCloseTo(1e6, 6);
   });
 
-  it('a short at the same size pays its cover cost: liquidation equity is cash less at least the cover at mid', () => {
+  it('a short at the same size pays its cover cost: liquidation equity is at least cash minus the cover cost', () => {
     let s = openAccount(createWorld('f7-short', cfg), PID, 1e6);
     const i = s.config.assets.findIndex((a) => a.id === 'SYN');
     const px = Math.exp(s.assets[i]!.lnP);
     const qty = 1e13 / px;
     s = { ...s, accounts: { ...s.accounts, [PID]: { ...s.accounts[PID]!, positions: { SYN: { qty: -qty, avgCost: px, realizedPnl: 0 } } } } };
     const liq = liquidationEquity(s, PID);
+    // the cover cost is what buying the short back costs at the same impact and fee (estimateFill's buy total). A short is
+    // not floored, so liquidation equity is cash less that cover: the lower bound the floor must not break, and an exact match
+    const cover = estimateFill(s, { assetId: 'SYN', side: 'buy', qty }).total;
+    expect(cover).toBeGreaterThan(qty * px); // the impact at this size costs more than the mid
     expect(Number.isFinite(liq)).toBe(true);
+    expect(liq).toBeGreaterThanOrEqual(1e6 - cover - 1e-9 * cover);
+    expect(Math.abs(liq - (1e6 - cover))).toBeLessThanOrEqual(1e-9 * cover);
     expect(liq).toBeLessThan(1e6 - qty * px);
+  });
+
+  it('below the floor a fill prices exactly as the unfloored formula: the floor only changes a sale that would pay below 0', () => {
+    // mid · (1 ∓ (spread + impact)), the same operations and order as execPrice, so the match is exact, not to a tolerance
+    const s = openAccount(createWorld('f7-id', cfg), PID, 1e6);
+    for (const id of ['SYN', 'HLCN', 'AURH']) {
+      const i = s.config.assets.findIndex((a) => a.id === id);
+      const p = Math.exp(s.assets[i]!.lnP);
+      for (const notional of [1e2, 1e4, 1e6]) {
+        const qty = notional / p;
+        const c = halfSpread(s, i) + impact(s, i, qty * p);
+        const sell = p * (1 - c);
+        const buy = p * (1 + c);
+        expect(sell).toBeGreaterThan(0); // the unfloored branch is the one under test
+        expect(estimateFill(s, { assetId: id, side: 'sell', qty }).price).toBe(sell);
+        expect(estimateFill(s, { assetId: id, side: 'buy', qty }).price).toBe(buy);
+      }
+    }
   });
 });

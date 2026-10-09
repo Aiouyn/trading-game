@@ -232,12 +232,12 @@ describe('shockValue (test-only)', () => {
 
 /**
  * F5/F6 root cause (AURH tape-10, peak ratio 2.74). A fresh ecology book is created on the first tick, and it was anchored on
- * the state AFTER that tick\x27s fills. A player\x27s tick-1 impact then became the day\x27s value anchor: the value pool sold it
+ * the state AFTER that tick's fills. A player's tick-1 impact then became the day's value anchor: the value pool sold it
  * back at the close, so a one-clip day closed below its intraday peak and a 720-clip day did not. The anchor is now the
  * priced state before the fills, so the same tick-1 buy leaves the book where it is in a world with nobody trading.
  */
-describe('ecology anchor: a fresh book is set before the first tick\x27s fills', () => {
-  it('a tick-1 buy does not move the new book\x27s core or close; its flow still enters as own flow', () => {
+describe('ecology anchor: a fresh book is set before the first tick\'s fills', () => {
+  it('a tick-1 buy does not move the new book\'s core or close; its flow still enters as own flow', () => {
     const c = universeConfig({ ticksPerDay: 720 });
     const i = c.assets.findIndex((a) => a.id === 'AURH');
     const px = c.assets[i]!.initialPrice;
