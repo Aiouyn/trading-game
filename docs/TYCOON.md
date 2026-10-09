@@ -44,7 +44,7 @@ Ranks key off peak net worth and are never lost. The rank-up ceremony (DESIGN §
 
 ## Businesses
 
-- 156 businesses: 13 sectors × 6 tiers × 2. Tier cost ≈ 10× per tier ($2.5k, $25k, $250k, $3M, $40M, $600M) and yield per game day falling by tier (5%, 3.8%, 2.7%, 1.8%, 1.2%, 0.8%).
+- 156 businesses: 13 sectors × 6 tiers × 2. Tier cost ≈ 10× per tier ($2.5k, $25k, $250k, $3M, $40M, $600M) Payback (Mathis, Oct 9: "like 10 days, a little fast so it isn't boring"): 10, 15, 30, 50, 80 and 120 game days by tier (yield 10%, 6.7%, 3.3%, 2%, 1.25%, 0.83% per game day). Fast at the start, slower as you climb, so the late game keeps a long runway.
 - **Slots**: at most 4/6/8/10/12/15 businesses per tier per player (attention is limited), so growth comes from climbing tiers, not spamming carts.
 - **Competition**: each city × sector is a demand pool with NPC competitors; share is a logit on appeal (marketing, location, staff, tier), capped at 1.8× baseline. Bigger cities pay more (Port Avalon 1.0× up to Isla Serena 1.3×). Demand follows the business cycle by sector cyclicality.
 - **Upgrades**: six axes, five levels (cost 45% × 1.7^level of the purchase price): Staff +8%, Marketing +appeal, Equipment +7% and fewer breakdowns, Location +appeal +5%, Automation +15% offline earnings, R&D +6% and +25% data.
@@ -90,7 +90,7 @@ Every dollar created (business income, rent, dividends, interest, contracts, the
 
 ## Balance (scripts/balance/wealth.ts)
 
-A businesses-only "median engaged" player (online 16 h, asleep 8 h, reinvests, saves for the next tier) reaches $10k on day 1, Hustler on day 3, $227k on day 7, Owner around day 9 and $14.5M (Operator) on day 21: 0.70×, 0.45× and 0.72× of the bible's day 1 / 7 / 21 targets before trading, property and contracts, which a real player adds on top. Growth decelerates from about 2× a day early to about 1.3× a day by week three.
+With the faster paybacks, a businesses-only "median engaged" player (online 16 h, asleep 8 h, reinvests, saves for the next tier) reaches Hustler on day 1 ($20k), Owner around day 5, $1.5M on day 7, Operator around day 11, $30M on day 14 and Mogul ($265M) on day 21: 1.3×, 3× and 13× the bible's day 1 / 7 / 21 targets, by design (faster than the bible, as Mathis asked). Growth slows from about 3× a real day early to about 1.35× a day by week three.
 
 ## Deliberately left out or simplified
 

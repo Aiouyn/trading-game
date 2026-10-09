@@ -51,12 +51,12 @@ export interface TierDef {
 }
 
 export const TIERS: TierDef[] = [
-  { tier: 1, name: 'Hustle', cost: 2_500, roi: 0.05, rank: 'R0', max: 4 },
-  { tier: 2, name: 'Small Business', cost: 25_000, roi: 0.038, rank: 'R1', max: 6 },
-  { tier: 3, name: 'Company', cost: 250_000, roi: 0.027, rank: 'R2', max: 8 },
-  { tier: 4, name: 'Enterprise', cost: 3_000_000, roi: 0.018, rank: 'R3', max: 10 },
-  { tier: 5, name: 'Conglomerate', cost: 40_000_000, roi: 0.012, rank: 'R4', max: 12 },
-  { tier: 6, name: 'Megaproject', cost: 600_000_000, roi: 0.008, rank: 'R5', max: 15 },
+  { tier: 1, name: 'Hustle', cost: 2_500, roi: 0.1, rank: 'R0', max: 4 },
+  { tier: 2, name: 'Small Business', cost: 25_000, roi: 0.067, rank: 'R1', max: 6 },
+  { tier: 3, name: 'Company', cost: 250_000, roi: 0.033, rank: 'R2', max: 8 },
+  { tier: 4, name: 'Enterprise', cost: 3_000_000, roi: 0.02, rank: 'R3', max: 10 },
+  { tier: 5, name: 'Conglomerate', cost: 40_000_000, roi: 0.0125, rank: 'R4', max: 12 },
+  { tier: 6, name: 'Megaproject', cost: 600_000_000, roi: 0.0083, rank: 'R5', max: 15 },
 ];
 
 export interface BizDef {
