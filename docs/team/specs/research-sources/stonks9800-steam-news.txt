@@ -1,0 +1,1199 @@
+
+
+######## 2026-09-04 | Update 0.10.2.2: better poker, reset option and more | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1842846814446510
+- Poker got more real rules: side pots - an all-in player can no longer win more than they covered (and your excess chips no longer vanish, which sometimes cost you the whole tournament), when everyone is all-in, cards are revealed immediately, minimum raise now equals the previous bet (no more +5 pokes over a 40 bet), starting stacks doubled to keep tournaments the same length. Three-way draws now split the pot instead of burning it.
+- Also some more poker polish.
+- The Fortune Teller trait got a real gift: every 2-3 months the cards whisper genuinely useful market info - which sector thrives, which company struggles. Cards are right about two times out of three. And the trait finally respects your Luck setting.
+- "No luck" mode was tripling bad fortune predictions - now it doubles them, as intended for a mode that merely withholds good luck.
+- Realtor bonus crash fix and the poker table no longer crashes when showing your prize.
+- New option in the main menu: Erase all progress - with a double confirmation. For those who want a truly fresh start (Steam achievements stay).
+- A new button in Options restores milestones from your Steam achievements if you've erased or lost your progress.
+- Modded games: an item with a broken sprite now shows a placeholder instead of crashing.
+- Clicking inside the gift window no longer also clicks the contact hiding behind it (and the recipient's name no longer turns into "?"). Tooltips no longer pop up from things covered by another window.
+- Company statistics showed ¥0 in money columns and a ¥ sign on share counts - fixed. The investor's offer also counted shares without a ¥.
+- Top-100 Tokyo list: no more "NaNth place", and the place number reads correctly in Japanese, Korean and Chinese.
+- Hoshi-sama shoot 'em up no longer crashes when played on a gamepad, and its control hints show the right buttons for your pad.
+- If you set your window to a custom size by dragging its edge, the game now remembers it. Picking a size from the list still works as before.
+- Switching fullscreen with Alt+Enter is now remembered in Settings (the Screen option follows what you actually did).
+
+######## 2026-08-30 | Update 0.10.2.1: Better Steam Deck | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1842212951308553
+[p]• Controller + keyboard/mouse now work together: mouse (or Steam Deck touchpad) movement no longer flips button prompts to keyboard — prompts change only on a real press, and follow your pad type (PS/Switch/Xbox) via Steam Input. New "Controls: Auto / Keyboard+Mouse / Gamepad" setting.[/p][p]• With a negative balance the bet slider could go negative - "winning" the final then cost you money (one player got a −¥1.14B prize). Bets now stay valid, prizes are never negative, and the final no longer invites you while you're in the hospital.[/p][p]• Two offers could arrive at once and accepting the first would secretly buy the second. Each offer now sticks to its question, and a new one waits until you've answered.[/p][p]• The art collection window no longer stays on screen (and eats clicks) when you get pulled into pachinko or another minigame.[/p][p]• FSA "recent big purchase" warning icon was hidden under the "…" bulk-buy button. The sell-side warning tooltip never showed at all - fixed.[/p][p]• Answer buttons overlapped the portrait - the window is taller, everything fits.[/p]
+
+######## 2026-08-28 | Update 0.10.2.0: big-money fixes, achievements, companies | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1842212951301551
+[p]Thanks for your bug reports! This update focuses on long saves with huge fortunes, plus a batch of fixes you asked for.
+[/p][h3]Huge fortunes[/h3][p]• Companies worth over 1,000 trillion yen no longer crash in price overnight when you load a save. Old saves that already hit this wall will recover.[/p][p]• Cash, company income and dividends keep flowing correctly at quintillion-yen levels. The money counter no longer freezes.[/p][p]• Fixed "NaN%" and stuck lines on the stock chart after buyouts and mergers.[/p][p]• When you're very rich, small everyday events (parking tickets, plumber, PC upgrades…) no longer bother you.[/p][p][/p][h3]Companies & stocks[/h3][p]• You can no longer own more than 100% of a company through a "cheap shares" offer. The bar version of that deal now actually works.[/p][p]• A CEO who owns the entire company can no longer be voted out by the board.[/p][p]• Board member salary was paid twice a month - fixed.[/p][p]• Your own company now splits its stock automatically when the share price gets very high, like other companies do.[/p][p]• Unlocked short-selling limit no longer ends up lower than the regular one.[/p][p][/p][h3]Achievements[/h3][p]• Horse Whisperer and Excellent Manager can now be earned (they were impossible to unlock).[/p][p]• Meeting results are shown even when every board task succeeded or every task failed.[/p][p][/p][h3]Other[/h3][p]• Your car wears out more slowly on evening outings.[/p][p]• Tooltips no longer pop up through an open window.[/p][p]• Fixed a crash when leaving karaoke.[/p]
+
+######## 2026-08-18 | Update 0.10.1.4 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183789602
+- Stock splits and reverse splits no longer mess up your books: average purchase price, position stats and the regulator's records now convert correctly with the split, so your P&L and taxes stay honest.
+- Dumping a huge stake in one day now draws the Financial Services Agency's attention. 
+- The mysterious investor no longer gifts your company free money. He now offers to BUY newly issued shares at market price - real money into your reserves with real dilution of your stake.
+- Project result notifications now say which company the project belongs to.
+- You can now pick February 29 as your birthday. Leap-day folks celebrate on Feb 29 when it exists, and on March 1 in other years. 
+- The acquisition offer window title is now properly translated in all languages (was stuck in Ukrainian).
+- Fixed text overflowing its panel on the downtown map and on the home screen.
+
+######## 2026-08-16 | v.0.10.1.3: Bug Fixes | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183783677
+- Fixed a crash in the arcade minigame when your score exactly tied the lowest highscore entry.
+- Fixed a rare crash when visiting locations while returning to the main menu.
+- Fixed crashes caused by mods with missing or outdated graphics - the game now skips the broken image instead of crashing.
+- Fixed a crash in property dialogs when the building had already been sold or demolished - dialogs also no longer show the wrong property in that case.
+- Improved crash reporting so future issues can be found and fixed faster.
+
+######## 2026-08-02 | Mods on Steam Deck are now working! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1839676055891628
+Yay!
+
+######## 2026-08-01 | Mac version update | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1839676055890656
+The Steam achievements and Workshop should finally be working now.
+
+######## 2026-07-31 | Update 0.10.1.2 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1839676055887709
+[list]
+[*] Discounted real estate listings are now shown first.
+[*] Added sorting for real estate listings and a Residential / Commercial filter.
+[*] Failed Shareholders’ Meetings now actually lower the share price. Previously, meetings that said “investors were disappointed” raised the price, while skipping a meeting improved the result instead of making it worse.
+[*] The Portfolio no longer hides a company placed in the last row of a page. Long company names are now shortened instead of overlapping the Shares column.
+[*] Companies with a single owner no longer hold Shareholders’ Meetings. Board support is also no longer required, and stock splits do not cause a market reaction.
+[*] The investor at the bar now offers an actual deal instead of simply giving you money. They buy newly issued shares at the current price, and you can decline the offer.
+[*] The “Realtor’s Number” item now works at any Reputation level.
+[*] Fixed a crash on the Relationships screen when Amy’s relationship level reached the maximum.
+[*] Added a few more defensive checks to make the game less likely to crash.
+[/list]
+
+######## 2026-07-26 | Update 0.10.1.1: Small Fixes | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1839041357034336
+[list][*][p] Buying and selling shares can now immediately affect the share price. This time, there are safeguards against exploits that would feel more like bugs than actual market manipulation.[/p][/*][*][p] Some of this sudden price change may fade by the next day.[/p][/*][*][p] Marrying into a wealthy family now grants a permanent seat on the Board of Directors instead of one that disappears the next day.[/p][/*][*][p] The blackjack table limit now applies per hand. Splitting and doubling down will correctly place the full second bet, allowing you to play both hands properly. Insurance now costs half of the original bet and pays 2:1, as stated.[/p][/*][*][p] Issuing shares can no longer increase your ownership above 100%. Hopefully.[/p][/*][*][p] Fixed a bug that could reduce the player’s share count overnight.[/p][/*][*][p] Fixed a crash in very long playthroughs when the company world became full.[/p][/*][*][p] For modmakers: added an early input_capture hook that runs at the start of the input frame, before the game reads mouse input, keyboard input, or hotkeys. UI mods can use it to intercept and clear a click or key press, allowing the mod’s interface to consume the input before the base game reacts to it. See the modding guide for details and limitations. Nothing changes for players without mods. [/p][/*][/list]
+
+######## 2026-07-20 | Update 0.10.1 with many fixes | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1838407329266151
+[p]This update adds candlestick charts, improves balance, and fixes a long list of issues with saves, marriage events, contacts, mini-games, and more.[/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/96b4da93c82d73b506cd5eaaf46534d8c5492b2f.png"][/img][/p][h2]New & Balance Changes[/h2][list][*][p]Added candlestick charts to the stock market. You can switch between chart types using the button in the top-right corner of the company window.[/p][/*][*][p]Rebalanced company sectors. The Financial sector is no longer the obvious best option, and companies in other sectors are now more competitive.[/p][/*][*][p]The 1 trillion loan now requires Financial Success level 5.[/p][/*][*][p]NPC companies now pay dividends more consistently. Previously, their dividend payout ratio could drop all the way to zero.[/p][/*][/list][h2]Fixes[/h2][list][*][p]The “+” button in Salary management now always increases the selected salary as intended.[/p][/*][*][p]Manual save slots no longer get stuck at 10/10 after deleting a save. Existing affected slots will repair themselves automatically.[/p][/*][*][p]Investment Center projects no longer disappear after loading a save.[/p][/*][*][p]Autosave slot descriptions no longer show the wrong amount of money if you quit the game while it is saving.[/p][/*][*][p]The number of shares won in poker no longer decreases overnight.[/p][/*][*][p]Blackjack should no longer freeze in certain situations.[/p][/*][*][p]Pointless stock sale offers will no longer appear in very late-game, high-wealth saves.[/p][/*][*][p]Typing the letter “Z” during character creation no longer acts as the Back button.[/p][/*][*][p]A hired Loyal Bro now appears in the Salary management menu.[/p][/*][*][p]No more birthday parties at the bar while you are on vacation.[/p][/*][*][p]Contact actions now apply only to the active contact instead of every open contact window.[/p][/*][*][p]Gifts now always go to the character whose window is currently active.[/p][/*][*][p]The Charity Fund screen no longer remains open in the Arcade after accepting an invitation by phone.[/p][/*][*][p]The Hoshimari pause screen now shows the correct exit hint: the button must be held down.[/p][/*][*][p]Fixed a crash when opening a Shareholders’ Meeting for a company with no directors.[/p][/*][*][p]Fixed a crash when opening the karaoke song selection with an empty song list.[/p][/*][*][p]Board seats gained through marriage no longer disappear the next day. Marrying into a CEO’s family now grants actual board trust instead of only a formal seat.[/p][/*][*][p]Marriage events no longer trigger while the player is unavailable — in the hospital, in jail, or on vacation.[/p][/*][*][p]Fixed marriage events causing two walks to overlap or sending the player into the city twice.[/p][/*][*][p]Starting with the CEO background is now much more viable. Your company begins with departments and staff, and a larger IPO attracts more applicants during the first few weeks. Previously, this start would almost always get you fired.[/p][/*][*][p]Lottery prizes now respect the Luck setting: with No Luck, you cannot win, while Small Luck gives smaller prizes.[/p][/*][*][p]Fixed birthday gifts sometimes not being awarded at all. You can also no longer claim the gift repeatedly by leaving and re-entering the bar on the same day.[/p][/*][/list][h2]Localization[/h2][list][*][p]Updated the Korean localization.[/p][/*][/list]
+
+######## 2026-06-30 | Hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165562051
+Fewer game crashes
+
+######## 2026-06-30 | Update 0.10: Family Ties | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165561109
+[p]A major new update (DEFINITELY the last one before the full release of version 1.0) – you can now enter into a marriage of convenience, meet your friends’ relatives, and evade corporate tax through charitable donations.[/p][previewyoutube="5D40DZmzkyA;full"][/previewyoutube][h3]Family Connections[/h3][list][*][p]Relationships between characters: city residents now have lives of their own — families and friends. Every person may have a spouse, parents, children, and co-worker friends.[/p][/*][*][p]Once you become close enough to a character, you can view their social circle: spouse, parents, children, and friends. Click on a portrait to jump directly to that person.[/p][/*][*][p]A friend you spend time with may introduce you to one of their relatives or close friends, giving you a new contact and a friendship bonus.[/p][/*][*][p][b]Marriage![/b] You can now get married in two ways: receive an arranged marriage proposal ([i]Omiai[/i]) from a CEO or board member offering their son or daughter, or propose directly to one of your close contacts.[/p][/*][*][p][b]Wedding Ceremonies:[/b] Choose a wedding budget ranging from modest to extravagant. More expensive weddings grant additional reputation and opportunities to meet influential guests. After the wedding, your spouse's family becomes available as contacts.[/p][/*][*][p]If your father-in-law or mother-in-law runs a company or serves on its board, you may receive a board seat and a share of company stock.[/p][/*][*][p][b]Family Bonus:[/b] It is now easier to acquire companies run by relatives or friends of your spouse.[/p][/*][*][p]Close friends who run companies may invite you to join their board of directors.[/p][/*][*][p]Your spouse may invite you out on weekends and occasionally pull you away from work during the week. Neglecting the relationship can eventually lead to divorce and division of assets.[/p][h3][b]Please note:[/b] You cannot propose to [b]Amy[/b] or [b]Sae[/b] yet. Their romance storylines will be more complex and are planned for Version 1.0.[/h3][/*][/list][h3]Difficulty Settings & Menu Updates[/h3][list][*][p]New difficulty options: investment success rates and economic factors such as taxes, fees, and commissions can now be adjusted.[/p][/*][*][p]Hovering over a difficulty setting now displays a short explanation.[/p][/*][*][p]Menu panels no longer slide off-screen on ultrawide displays during transitions.[/p][/*][*][p]Under-the-hood menu system improvements make it easier to add new content in future updates.[/p][/*][/list][h3]Company Management[/h3][list][*][p]Character Traits are no longer revealed immediately. You can discover them through rumors, personal conversations, or employee training.[/p][/*][*][p]Companies now have to pay taxes as well.[/p][/*][*][p]Players can now donate money from company reserve funds to charity, slightly reducing their taxable income.[/p][/*][*][p]Players can transfer company reserve funds into their own charitable foundation.[/p][/*][*][p]Several new random events related to charity have been added.[/p][/*][/list][h3]Quality of Life Improvements[/h3][list][*][p]Some windows can now be moved around, multiple windows can be opened at once, and you can switch between them. This is the first step toward a more classic desktop OS-style interface.[/p][/*][*][p]Character dialogue windows now allow you to click a portrait to view detailed information about that character.[/p][/*][*][p]The vehicle list now supports column sorting, and the car you currently drive always appears first.[/p][/*][*][p]The property list now places your current residence at the top.[/p][/*][*][p]The game now warns you before switching to a less comfortable vehicle.[/p][/*][*][p]Improved gamepad and keyboard controls.[/p][/*][/list][h3]Fixes & Optimization[/h3][list][*][p]Real estate calculations have been optimized. The game should now experience far fewer daily slowdowns when you own large amounts of property, and click-related stutters have been eliminated.[/p][/*][*][p]Various fixes for save files, company bankruptcies, and mini-games.[/p][/*][*][p]A second connected gamepad with stick drift will no longer hijack controls.[/p][/*][*][p]Fixed incorrect gamepad slot input detection in the calendar and character screens.[/p][/*][*][p]Fixed several game crashes.[/p][/*][*][p]Fixed a rare freeze/crash that could occur while playing poker.[/p][/*][*][p]Fixed Steam Workshop mod installation: previously only the first subfolder of a mod was being copied.[/p][/*][*][p]Fixed a crash when opening vehicles or properties added by mods.[/p][/*][*][p]The [c]bar_draw[/c] mod hook now works correctly.[/p][/*][*][p]Added [c]mod_unregister_func[/c]; the modding guide has been updated to match the current code.[/p][/*][/list]
+
+######## 2026-05-25 | Update 0.9.2 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1833334318578016
+[p][img src="{STEAM_CLAN_IMAGE}/39729459/04d995deb832e03c685bd4770c9ac11c8ab0ea05.png"][/img][/p][list][*][p]New wealth overview window - easily see what makes up your fortune: company shares, car collection, real estate, and more.[/p][/*][*][p]Bank deposits are now included in your total fortune.[/p][/*][*][p]Minor under-the-hood improvements to market reactions to make them feel a bit more realistic without going overboard.[/p][/*][*][p]Closing a short position now correctly deducts money based on the current market price.[/p][/*][*][p]Closing shorts no longer consumes shares from your long positions.[/p][/*][*][p]You can now separately track the money earned from short selling and your current debt, making it easier to judge when it’s profitable to close positions.[/p][/*][*][p]Friends with higher friendship levels now provide genuinely better bonuses for investment projects.[/p][/*][*][p]Salaries no longer crash overnight when the market falls - they now adjust gradually over several weeks.[/p][/*][*][p]Stock charts now properly refresh after every trade (sometimes they failed to update before).[/p][/*][*][p]Insider tips will no longer target already-bankrupt companies.[/p][/*][*][p]Save slots can now be sorted either by number or by date. Some players may find numbered sorting more convenient.[/p][/*][*][p]Old horse names will no longer incorrectly appear in the betting interface.[/p][/*][*][p]Newly created companies now receive easier board objectives during their first year.[/p][/*][*][p]Investments now have slightly lower average success chances — they were previously too easy.[/p][/*][*][p]Fixed a bug where the player’s ownership percentage could suddenly drop under certain conditions.[/p][/*][*][p]Fixed several Japanese text inconsistencies related to the word “temple.”[/p][/*][*][p]Fixed a bug where some popup windows could not be closed with the Escape key.[/p][/*][*][p]Fixed many other bugs and crashes.[/p][/*][/list][p][b]New modding features:[/b][/p][list][*][p]Support for adding custom Cars / Houses / Art.[/p][/*][*][p]New modding functions: [c]before_game_save[/c], [c]save_data[/c], and [c]load_data[/c] — allowing mods to store custom data inside save files.[/p][/*][*][p]New helper functions: [c]mods_is_enabled[/c], [c]mods_get_metadata[/c], and [c]mods_list_active[/c] — making it easier to manage compatibility and interaction between multiple mods.[/p][/*][*][p]New event hooks: [c]on_stock_buy[/c], [c]on_stock_sell[/c], [c]on_company_create[/c], [c]on_company_liquidate[/c], [c]on_human_hire[/c], [c]on_human_fire[/c], and [c]on_day_end[/c].[/p][/*][/list][p]For more details, see the [c]modding_guide.txt[/c] file in the game folder.[/p]
+
+######## 2026-04-25 | Workshop hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1830797770238802
+- The Workshop should now be working as before, and the old sprite links should work.
+- Portuguese translation updated
+- Fixed some other crashes
+
+
+
+######## 2026-04-23 | Hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1830797770232729
+- The counter for the company's reverse stock split is now working
+- Fixed an error "invalid date conversion"
+- Fixed some inaccuracies in the descriptions
+
+######## 2026-04-20 | Update 0.9.1: New save system and more | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1830163047266951
+[p][/p][list][*][p]Save system reworked - each save slot is now tied to a specific game run/character. Inside each slot, you can have up to 10 manual saves, 10 autosaves, and 5 recent quick saves, all within that single playthrough.[/p][/*][*][p]Loan interest rates now change dynamically based on the in-game economic situation.[/p][/*][*][p]Company balance adjustments: companies now tend to generate lower income relative to their size.[/p][/*][*][p]Company income is now calculated daily instead of monthly. You can view daily income in the “Statistics” tab. However, accumulated funds are still distributed and transferred to reserves once per month.[/p][/*][*][p]Firing employees can now reduce internal approval, especially if the person is a board member.[/p][/*][*][p]Mass salary increases or large bonus payouts may also negatively affect board approval.[/p][/*][*][p]More events can now impact your reputation within the company, such as employees leaving your firm.[/p][/*][*][p]Notifications now appear in the corner of the screen when your approval rating changes.[/p][/*][*][p]New biography “Golden Boy” added - unlocked if you’ve previously become the top player in Tokyo. It grants 5 million yen for a faster start in new runs.[/p][/*][*][p]Larger bank loans are now available depending on your financial reputation level.[/p][/*][*][p]Amy’s outfits are now permanently unlocked across all save files and new games.[/p][/*][*][p]You can now enable weekly or monthly autosave in the settings.[/p][/*][*][p]Yakuza harassment has been reduced -  they appear less often and will eventually stop bothering you after a year or two.[/p][/*][*][p]Several new random events added.[/p][/*][*][p]New time-limited events now appear in city locations -  if you see an exclamation mark over a building, visiting it will trigger a special event.[/p][/*][*][p]The Talent Program from the charity foundation will no longer change your employees’ traits without your consent.[/p][/*][/list][p][b]Bug Fixes:[/b][/p][list][*][p]Fixed an issue where stock prices could drop too drastically after a company acquisition.[/p][/*][*][p]Fixed a bug where some goods prices or the yen exchange rate could go below zero.[/p][/*][*][p]Fixed an issue where the purchase multiplier button could break after being used in the commodities tab.[/p][/*][*][p]Fixed incorrect descriptions of bank interest rates at certain financial reputation levels.[/p][/*][*][p]Fixed incorrect friendship bonus descriptions for Amy (levels were mismatched with months).[/p][/*][*][p]Fixed a bug in loan expense calculations -  profits now correctly account for interest only.[/p][/*][*][p]Fixed incorrect payout calculations when a company goes bankrupt.[/p][/*][*][p]Fixed visual issues with building sprites in the news window.[/p][/*][*][p]Fixed an issue with Amy’s prestige-related task detection.[/p][/*][*][p]Fixed many other minor bugs and crashes (hopefully).[/p][/*][/list]
+
+######## 2026-03-20 | Another hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1827626365757256
+- Fixed a crash that occurred when using an item
+- Fixed an issue where the game failed to save the friendship level with Sae to the save file
+- Updated the Chinese localization
+
+######## 2026-03-20 | Texas hold 'em hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1827626365756138
+Sorry
+
+[img]https://media1.tenor.com/m/XnGK5CaQTt4AAAAd/ah-eto-bleh-anime.gif[/img]
+
+######## 2026-03-19 | Update 0.9: New Character, Blackjack, Advanced Horse Racing | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1827626365754624
+[previewyoutube=C4vaBeoGopo;full][/previewyoutube]
+[list][*][p]A new character, Sae, is now available at the bar. She works as a bartender — you can chat with her, get horse racing tips, build friendship, and play blackjack for special rewards. Friendship doesn’t provide gameplay bonuses yet, but this will be added in future updates.[/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/eda250ee735834e9aa401652107c75fb36c76f2d.png"][/img][/p][/*][*][p]Horse racing has been expanded: seasons are now implemented, more horses are available (generated at the start of a save), each with unique traits that can be discovered in the bar and elsewhere.[/p][/*][*][p]When you learn a hint about a horse, its trait becomes revealed to you.[/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/8f2cd653426753858a8d6b618e6006c3f8ae6bb6.png"][/img][/p][/*][*][p]You can now review results of recent races to make more informed bets.[/p][/*][*][p]Weather system added - including a weekly forecast. Weather affects horse races, track conditions, and can even cause major disruptions that temporarily shut down the stock market.[/p][/*][*][p]Sae and Amy can now give you advice on horse racing.[/p][/*][*][p]Inventory is now viewable - in addition to fishing bait, you can see all your gifts and special items.[/p][/*][*][p]You can now quickly buy large batches of stocks (1000+ shares) on the market, if you have enough funds.[/p][/*][*][p]Various UI fixes related to fishing.[/p][/*][/list]
+
+######## 2026-02-02 | Working on the game: small patches | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1823191198611476
+[p]Over the past month, I’ve been pushing a lot of small updates with various fixes. They might not be very noticeable, but the game should be more stable overall now. I’m also actively working on the Story Mode and hope to release the full version of the game with it this summer (I hope).[/p][p]Here are some things that were corrected yesterday and today:[/p][list][*][p]The Steam Workshop mod uploader is now working properly, so you can try uploading mods again.[/p][/*][*][p]Music no longer stops when leaving menus or saving the game.[/p][/*][*][p]Fixed an issue where first and last names were displayed in the wrong order in some messages.[/p][/*][*][p]Fixed an issue where the character Kobashi Tetsuya’s name was displayed incorrectly in some languages, along with a few other minor bugs related to him.[/p][/*][*][p]Fixed a bug that caused a black screen after interacting with the Yakuza.[/p][/*][/list][p][/p][p][/p]
+
+######## 2026-01-09 | Various situations that could cause game crashes have been fixed. For example, i | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1821288646581584
+[p]Various situations that could cause game crashes have been fixed. For example, if the game was left in sleep mode on a PC.[/p][p]Also, the “buy all properties” button should no longer sometimes display “empty” broken properties.[/p]
+
+######## 2025-12-22 | 0.8.2 – Christmas Update! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1819386365102134
+[list][*][p]A new Christmas outfit for Amy has been added! To see it, you’ll need to own a company, have a certain level of friendship with Amy, and reach Christmas in-game.[/p][/*][*][p]You can now choose Amy’s default outfit from among the unlocked costumes.[/p][/*][*][p]A festive new Christmas song has been added to karaoke![/p][/*][*][p]Three new Christmas-themed claw machine toys are available during December.[/p][/*][*][p]At the board meeting, the board now assigns you tasks for the upcoming year. Completing these improves your company’s performance and your reputation.[/p][/*][/list]
+
+######## 2025-12-16 | Bug fixes | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1818752592134576
+- Fixed a bug with opening the event menu when pressing the “H” button in the speech mini-game.
+- Fixed a bug that caused some localization strings, including names, to return only English versions.
+
+Sorry for the delay, I've been without power for the last three days after the russian attack on my city. Everything will be fine now!
+
+######## 2025-12-09 | Update 0.8.1: Mod Support & Steam Workshop and more | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1818118366186573
+[list][*][p][b]Mod Support & Steam Workshop![/b]
+You can now create and install mods through the Steam Workshop.[/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/a3abef458041dab61a25a0cc735041c87c5ca8c2.png"][/img]
+Check out the modding guide here:  [url="https://stonks.jp/mod"]https://stonks.jp/mod[/url][/p][/*][*][p]Try out a few of my [url="https://steamcommunity.com/sharedfiles/filedetails/?edit=true&id=3620977266"]sample mods[/url] and explore how they’re built![/p][/*][/list][p]If you own STONKS-9800 on Steam, you’ll find a [b]mod_uploader[/b] folder in your game files — it includes a tool to upload your own creations.[/p][list][*][p][b]Message History: [/b]You can now review recent messages and your past choices. Super useful if you accidentally skipped something.
+Click on chibi-Amy (or press [b]H[/b]) to open it.[/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/b131595a61cdfe8f2a3f9983333a253e28961f13.png"][/img][/p][/*][*][p]In the game settings, you can now filter out certain types of notifications — such as minor news or property events. Great for late-game.
+(No, you still can’t mute messages from Mom.)[/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/1466631a0bbcbcfc24f7ea4f31d2d25affa49304.png"][/img][/p][/*][*][p]You can now be taken to court for misusing charity foundation funds. Be careful with that money![/p][/*][*][p]Fixed a bug with the slider controls.[/p][/*][*][p]Fixed an issue where deposits weren’t being returned (sorry about that).[/p][/*][*][p]Fixed a bug where you could bypass trading limits on the stock market (yep, that one’s on me).[/p][/*][*][p]Various other small bug fixes.[/p][/*][/list]
+
+######## 2025-11-26 | 🏆 Help Us Win a Steam Award! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1817483467032805
+[p]Dear players,[/p][p]Those who step into the world of [i]STONKs-9800[/i]and rise above the rest are never “ordinary players.”[/p][p]You understand the pulse of the market, read the flow of capital, remain calm in volatility, and make[/p][p]decisions in chaos—[/p][p][/p][p][i]STONKs-9800[/i] will not stop where it is today.[/p][p]We will continue rapid iteration based on community feedback,[/p][p]refining art, gameplay, and performance,[/p][p]reworking old systems and introducing new mechanics,[/p][p]delivering an even deeper financial narrative experience.[/p][p][/p][p]📈 Today, we sincerely invite you to [b]nominate [i]Tokyo Stock God[/i] for the Steam Awards![/b][/p][p]Be it a word of recognition, a suggestion, or a review—[/p][p]every voice is energy that drives the game forward.[/p][p][/p][p]Thank you for walking alongside us.[/p][p]Let the pride of investors shine upon this year’s Steam Awards.[/p]
+
+######## 2025-11-22 | Pachinko hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1816849002017064
+[p]Pachinko will no longer steal your money if you sell all the balls together.[/p][p]Also fixed a bug with the contact window in the city.[/p]
+
+######## 2025-11-21 | 《STONKS-9800: Stock Market Simulator》 will be exhibiting at WePlay Expo 2025 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1816849002013329
+[p]Dear Players,[/p][p]We want to thank you for your continued interest and support. We are thrilled to confirm that:[/p][p]STONKS-9800: Stock Market Simulator will be exhibiting at WePlay Expo 2025.[/p][p]We will be showcasing the game with an on-site demo, allowing players to experience the newest gameplay features and content firsthand. We invite everyone to visit our booth and share your feedback with us.[/p][p]📍 Exhibition Info[/p][p]Event: WePlay Expo 2025[/p][p]Date: November 22 – November 23, 2025 (CST)[/p][p]Venue: Shanghai World Expo Exhibition and Convention Center, Hall H3[/p][p]Thank you for your ongoing encouragement.[/p][p]We look forward to meeting you all at WePlay![/p]
+
+######## 2025-11-20 | Update 0.8.11: Afterfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1816849002009246
+[list][*][p]Rebalanced the charity foundation: sponsors now donate more money, and PR events cost more PR points.[/p][/*][*][p]You can now run multiple PR events at once — handy if you’ve stockpiled a lot of PR points.[/p][/*][*][p]Added a new [b]Trust[/b] parameter for your foundation — it increases when money is used properly and decreases if funds just sit unused or mysteriously disappear. Higher trust attracts more sponsors and volunteers.[/p][/*][*][p]You’re now more likely to encounter a mysterious stranger offering to help you siphon money from the foundation.[/p][/*][*][p]The money flow in the foundation is now visually easier to understand.[/p][/*][*][p]More tooltips and guidance have been added for managing the foundation.[/p][/*][*][p]Rebalanced art objects — they’re no longer guaranteed to increase in value.[/p][/*][*][p]Updated the Brazilian Portuguese localization.[/p][/*][*][p]The art market now has the correct icon.[/p][/*][*][p]Fixed a bug where company statistics were displayed incorrectly.[/p][/*][/list]
+
+######## 2025-11-15 | Small hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1816307528966184
+[p]- You can now change your car if it breaks down[/p][p]- Short trading has been fixed and is now a bit easier to understand[/p]
+
+######## 2025-11-14 | Big Update 0.8: Charity Foundation, Art, and Prestige | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1816307528956815
+[p]Hey everyone!
+New big update is here — a mix of things I promised, and a few extras that snuck in along the way. Thanks again for all your support and ideas — this project has grown a lot thanks to you![/p][p][/p][previewyoutube="I11n6Iui-ug;full"][/previewyoutube][h2][b]What’s new:[/b][/h2][list][*][p]You can now [b]open your own charity foundation[/b]! It’ll collect donations and support good causes... or help you quietly lower your taxes and move money around. Depends on how you want to play it.[/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/6dcec4a083e7907f3b694b573cf0193629b19707.png"][/img][/p][/*][*][p]There's now an [b]art market[/b], where you can invest in paintings and sculptures. Some of them can gain a lot of value over time — or not. It's a gamble![/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/b73ed6f4eebf177128800a900158d1a9d6b25b20.png"][/img][/p][/*][*][p]New [b]Prestige stat[/b] that tracks your overall status — from real estate to art to stocks. Right now it’s mostly for achievements, but I’ll be using it more in future updates.[/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/0dd46342880e1f8249c73e39442a46d82d769505.png"][/img][/p][/*][*][p]A [b]new pachinko machine[/b] has been added — good luck![/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/745f0db19643ad1c7e7200872747331e01b9da0f.png"][/img][/p][/*][*][p]New setting: you can now choose to [b]auto-stop time[/b] at the start of weekdays, weekends, or every day.[/p][/*][*][p]Stock market days now [b]end based on your total influence[/b] in a company (not just how many shares you bought). Should help a lot with big companies.[/p][/*][*][p]Also, the [b]money display system[/b] was updated — now supports amounts way bigger than a trillion.[/p][/*][/list][h2][b]Company management:[/b][/h2][list][*][p]Expense sliders are now easier to use.[/p][/*][*][p]Projects now give your company [b]more reserve cash[/b].[/p][/*][*][p]Added a [b]Stats tab[/b] to help you track company progress over time — and prep for future features.[/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/9b2d3bc3e3d23a4e2443a7b3a70cb0c952029a64.png"][/img][/p][/*][/list][h2][b]Fixes & tweaks:[/b][/h2][list][*][p]The “invite to shareholder meeting” checkbox now works again.[/p][/*][*][p]Red X case in the UFO machine is now counted properly.[/p][/*][*][p]UFO machine sound now respects your volume settings (sorry if it was loud before 😅).[/p][/*][*][p]Tons of smaller fixes — including some missing localization lines that are now back.[/p][/*][/list][hr][/hr][p]That’s it for now! Some stuff I originally planned for 0.8 still needs time, but I’m aiming to finish it all by the end of the year — including [b]mod support[/b], [b]a real tutorial[/b], and [b]tasks from your board of directors[/b].[/p][p]Thanks again for sticking with me — I’ll keep building![/p]
+
+######## 2025-09-27 | Update 0.7.1 – QoL, Company Buyouts, and Balance Changes | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1811772772309969
+[p]A smaller patch this time, mostly focused on community-requested features and general improvements. Thanks to everyone for your feedback and support![/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/e979143cfd16e99303d295cdc13cf18398e33f12.png"][/img][/p][p][b]Company Management:[/b][/p][list][*][p]Mergers and full buyouts are now separate actions with their own dedicated menu[/p][/*][*][p]New salary adjustment panel for your employees[/p][/*][*][p]Department view now shows icons for required character traits[/p][/*][*][p]If you run a large industrial company, you might now see your own brand cars on the market[/p][/*][*][p]If your company exceeds the staff limit, Amy will automatically fire the weakest employees to stay within the cap[/p][/*][/list][p][b]Friendship & Contacts:[/b][/p][list][*][p]New achievement + fixed some achievement icons for Steam[/p][/*][*][p]If friendship is 40 or more, you can now invite a character to hang out downtown (not just the bar)[/p][/*][*][p]Close friends are now more likely to call you instead of random contacts[/p][/*][*][p]You can now ask friends about the company they work at; these tips may also appear randomly in the bar[/p][/*][*][p]Some rare events now give fewer new contacts[/p][/*][/list][p][b]QoL Improvements:[/b][/p][list][*][p]You can now switch between text input fields using Tab (without weird character bugs)[/p][/*][*][p]When playing with a gamepad, a virtual keyboard now appears when selecting a text input[/p][/*][*][p]"Back" and "Continue" buttons now have hotkeys during character creation[/p][/*][*][p]Your car’s condition is now displayed as a percentage on the Home screen[/p][/*][*][p]Scrollbars are more visible for long messages, with improved controls and a tooltip[/p][/*][/list][p][b]Stock Market:[/b][/p][list][*][p]New bulk buy option: x500 shares at once[/p][/*][*][p]Market won’t react as strongly to small trades anymore, making it harder to artificially inflate stock prices[/p][/*][*][p]Time is no longer spent when adjusting (but not confirming) a stock order[/p][/*][/list][p][b]Balance Changes:[/b][/p][list][*][p]Karaoke is now judged by performance percentage instead of points, making it easier to win[/p][/*][*][p]Building upgrades are slightly more expensive, but max-quality buildings are a bit cheaper overall[/p][/*][*][p]Pachinko ball physics are now a bit more random[/p][/*][*][p]Trying some improvements to AI behavior in poker[/p][/*][/list][p][b]Fixes:[/b][/p][list][*][p]Fixed UI glitches in the fishing mini-game[/p][/*][*][p]Fixed bug where you could scroll other sections during character creation[/p][/*][*][p]Fixed issue where closing a contact screen during a phone call would freeze the sound[/p][/*][*][p]Fixed a bug where the day wouldn’t end after visiting certain locations (like the arcade or karaoke), which could result in your car’s condition going into negative values[/p][/*][/list][p][img src="{STEAM_CLAN_IMAGE}/39729459/4380bc8b9f43a08c8a66acd839de21d878884861.png"][/img][/p]
+
+######## 2025-08-24 | Less car crashes | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1808601382540890
+Less car crashes
+
+######## 2025-08-21 | Small quality-of-life update | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1808601382456577
+- The chart now remembers your settings (excluded companies).
+- Your company staff can now also be sorted by experience level.
+
+######## 2025-08-21 | And more hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1808601382443512
+- Now the place in the influence ranking will be indicated correctly in Chinese.
+- Fixed crash when playing in Japanese, where one line of text was missing
+- Fixed a crash in the car menu
+- Fixed a possible crash when pausing karaoke
+
+######## 2025-08-20 | Another hotfix 👀 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1808601382423592
+Yakuza no longer blinks with Amy’s eyes (wait, what?)
+
+######## 2025-08-20 | Hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1808601382414714
+Fixed error "DoAdd : undefined value" in Real Estate menu.
+
+######## 2025-08-18 | Update 0.7 – Time with Amy | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1808061939470130
+[p]Karaoke nights, real estate upgrades, market improvements, and new ways to spend time with Amy — update 0.7 brings a bit of everything (and a lot of fixes too).[/p][p][/p][previewyoutube="wcOKOjNyrPY;full"][/previewyoutube][list][*][p]New Karaoke mini-game[/p][/*][*][p]Properties now have a condition stat you’ll need to maintain[/p][/*][*][p]Added property sorting[/p][/*][*][p]You can now bulk invest in commercial real estate and upgrade their condition by district[/p][/*][*][p]Commodity prices now influence sector growth[/p][/*][*][p]New random events related to real estate[/p][/*][*][p]Building your friendship with Amy now gives new bonuses[/p][/*][*][p]Amy can now analyze companies or entire sectors, give random tips, and more[/p][/*][*][p]Amy might invite you to go downtown with her[/p][/*][*][p]New wardrobe menu where you can view all of Amy’s unlocked outfits[/p][/*][/list][p][b]Fixes & Tweaks:[/b][/p][list][*][p]Poker bugs fixed[/p][/*][*][p]Employees won’t ask to join if your team is already full[/p][/*][*][p]Stock splits now take short positions into account properly[/p][/*][*][p]Fixed bugs with company graphs not displaying or resetting filters[/p][/*][*][p]Many other small fixes and improvements[/p][/*][/list]
+
+######## 2025-08-15 | Four New Announcements | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1808061939355506
+My name is Ternox, and I’m an indie developer. Recently, I’ve also become an indie publisher of small games — mostly visual novels — as I run the Ukrainian Visual Novel Jam and look for interesting projects that could use some help with promotion.
+
+[img]https://clan.akamai.steamstatic.com/images/25363761/88a36b136b3516cbf8ce55cf6edc23fcdccd6fbb.jpg[/img]
+
+Together with other developers, we’ve prepared four game announcements you can already add to your wishlist.
+
+[h1]Valkyrie Iteration: Mecha Pilot Raising Pocket Simulator[/h1]
+[b]Developer[/b]: TERNOX
+[b]Art[/b]: Lumeish
+https://www.youtube.com/watch?v=E6PSbDWXbXM
+Valkyrie Iteration is a mini raising sim where you train Lana to battle mysterious phantoms — beings from another dimension tearing apart the fabric of reality.
+
+To face this threat, humanity created Valkyries — giant combat mechs with souls of their own. These living machines have instincts and personalities, accepting only pilots capable of forming a deep emotional bond with them.
+
+Plan Lana’s days, choose which stats to train, and hope she can make it to the finale without defeat.
+
+https://store.steampowered.com/app/3466240
+
+[h1]Manic Pixie Dreamgirls[/h1]
+[b]Developer[/b]: Kajan Collaboration
+https://www.youtube.com/watch?v=QNpjwkGZYVU
+A team of friends is creating a nostalgic visual novel inspired by early 2000s anime. Manic Pixie Dream Girls tells the story of half-fae students who enter their classmates’ dreams, influence their subconscious, and battle nightmares.
+
+The style blends influences from Persona, Madoka Magica, and Tumblr-era aesthetics. Key moments present three choices, one of which always leads to a bad ending. Several artists and writers work on the project with the goal of recreating the vibe of eerie, old-school anime.
+
+The visual novel was one of the winners of Ukrainian Visual Novel Jam #5 and is now being prepared for full release on Steam. You can already support the developers by adding it to your wishlist.
+
+https://store.steampowered.com/app/3828970
+
+[h1]Born for the Light ~Wavelength Radiant Collapse~[/h1]
+[b]Developer[/b]: qDrot
+https://www.youtube.com/watch?v=VPv7onYDmVs
+
+Solo developer qDrot is working on Born for the Light ~Wavelength Radiant Collapse~.
+
+According to the developer, the project defies conventional expectations, exploring themes of religious trauma and illusions through the eyes of the protagonist.
+
+The story unfolds in a world where children live high above the earth, inside a giant Tree, believing that one day they will fly to a distant Kingdom. The narrative leaves many questions unanswered, inviting players to search for meaning themselves.
+
+https://store.steampowered.com/app/3776830/
+
+[h1]Desktop Akari ~my cute companion~[/h1]
+[b]Developer[/b]: TERNOX
+[b]Art[/b]: Phantom__651
+https://www.youtube.com/watch?v=DH0RvraByjs
+Remember “desktop companions” from the 2000s — when a little character would walk around your screen, sit on window edges, or perch on the Start bar? I decided to bring that idea back, but turn it into a full-fledged game — a quirky mix of idle game, raising sim, virtual friend, and even a touch of dating sim.
+
+The main heroine is Akari from my visual novel PockeDate!, now ready to live right on your desktop. You’ll manage her schedule, give her tasks, help her study, socialize, and build her singing career, while also taking care of her mood and rest.
+
+Desktop Akari will run over everything you do, not in a separate window, so she’ll always be there. Release is planned for early next year.
+
+https://store.steampowered.com/app/3702590
+
+######## 2025-08-11 | Update for MacOs and Ubuntu versions | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1807332909701564
+Fixed issue with Chinese fonts.
+
+######## 2025-08-05 | Small localization update | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1806698490856592
+Updates to Chinese localization and bugs in Chinese and Japanese.
+
+######## 2025-07-14 | Updated Roadmap and 2 years in Early Access | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1805065414336631
+[p]I honestly didn’t expect development to take this long, but thanks to your support and ideas, the game has grown far beyond what I originally planned - and there’s still more to come.[/p][p]The next big update (v0.7) is coming this August. After that, I’ll keep adding features and preparing for the full release.[/p][p]The final version will have 4 new characters with full sprites (like Amy), each with their own stories. There’ll be a bigger plot around conspiracy theories and control over Japan’s economy, with multiple endings based on your relationships - yes, you’ll be able to build bonds with 5 different characters.[/p][p]Support will continue after launch, though probably not as frequently. I’m also considering a small price increase - it’s $10 now. What do you think is a fair price?[/p][p]Thanks for playing - and enjoy the roadmap! And sorry for the delays.[/p][p][img src="{STEAM_CLAN_IMAGE}/39729459/c57d1c71afa9de9557f1825baf74f38fd9ea9927.png"][/img][/p]
+
+######## 2025-07-03 | 2023's true GOTY has had its name and assets jacked by 'some kind of crypto scam,' while bootlickers assure the dev it's actually great publicity | https://steamstore-a.akamaihd.net/news/externalpost/PC Gamer/1803527891734433
+<img src="https://cdn.mos.cms.futurecdn.net/YtgGf6SJnhG3qJv9E4HSCP.jpg"/><br><br>
+                Chances are that, unless you happened to read my <a href="https://www.pcgamer.com/anime-finance-sim-stonks-9800-is-the-best-game-you-didnt-play-this-year/">personal GOTY pick from 2023</a> or just have generally excellent taste in videogames, you're not too familiar with <a href="https://www.pcgamer.com/uk/stonks-9800/">Stonks-9800</a> (which you can find on <a href="https://store.steampowered.com/app/1539140/STONKS9800_Stock_Market_Simulator/" target="_blank">Steam</a>). That's a shame, because the early access stock-trading sim set in the salad days of '80s Japan is an absolute banger—oozing style and with a delicious platter of gameplay loops that will keep your eyes fixed on its line graphs for days, weeks, months at a time...
+                <a href="https://www.pcgamer.com/games/sim/2023s-true-goty-has-had-its-entire-style-jacked-by-some-kind-of-crypto-scam-while-bootlickers-assure-the-dev-its-actually-great-publicity/?utm_source=steam&utm_medium=referral" target="_blank">Read more.</a>
+
+######## 2025-06-02 | Small patch | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1800991756441917
+- In poker, players who have discarded their cards are now faded out.
+- Fixed calculation of the number of free shares on the exchange
+- Fixed a bug where players could buy more than 100% of a company's shares at the bar.
+- Some corrections to the calculation of pair combinations in poker.
+- Some fixes for possible game crashes.
+
+######## 2025-05-31 | Crash hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1800991756360387
+Sorry
+
+######## 2025-05-28 | Another hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1800991756275901
+Every day I try to make a few patches and fix the game, but this time it's the biggest fix, so I'm posting it here.
+- You can now buy more commodities per day.
+- The "Gambler" biography now grants instant access to secret poker at the start.
+- Fixed FPS drop in the resume menu.
+- Fixed potential poker bugs after removing players from the table.
+- Fixed a bug where phantom companies could appear on the stock exchange.
+- Fixed a crash when selecting the "Corporate friend" biography.
+
+######## 2025-05-26 | Update 0.6.2: Investment Improvements | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1800357164532655
+- A new difficulty parameter called "Luck" has been added — if things feel too easy, try again on realistic difficulty and forget about lotteries, expensive gifts from friends, and other freebies.
+- Investment projects can now be improved using your contacts — up to three of them will offer suggestions on how to make the project better.
+- Investment projects can now come from companies listed on the stock market — the outcome will affect their share price and income.
+- Investment projects are now tied to a specific business sector — their results may influence the entire sector.
+- Company sectors have been revised — there are now 8 instead of 11 (some were merged).
+- If you have an old save file (before version 6.1), you can now optionally create your profile and choose a name, appearance, birthday, and biography elements (though not all perks will be available).
+- Companies can now perform stock splits — if the share price becomes too low or too high, they may multiply or divide all shares. The value of one share changes, but the total value does not.
+- There’s now a 33% chance that instead of going bankrupt, a company will do a stock split to stay listed longer.
+- The average share purchase price is now calculated more accurately (using the moving average method).
+- When selling stocks, you’ll now pay tax only on the profit — the difference between your average purchase price and the selling price.
+- Car accidents now happen slightly less often.
+- Fires will also occur a bit less frequently.
+- The Financial Services Agency now does its job a little better.
+- The "Fortune Teller" biography now has a slightly lower chance of predicting a bad future.
+- Some buttons now support hotkeys.
+- Updated Chinese translation by Stevezxc.
+- Fixed a bug that miscalculated the income required for the "Successful Leader" milestone.
+- Fixed a bunch of minor bugs.
+
+######## 2025-05-03 | Small patch | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1798454487668272
+- Horses can no longer have betting odds lower than 1.1.
+- The game no longer crashes when giving money to your best bro.
+- Crash report sending is working again.
+- Some fixes to yen exchange rate calculations.
+- "Go Out" locations can no longer be clicked while a dialogue window is active.
+- Fixed real estate generation bug where business towers appeared tiny and cost very little.
+- Updated Brazilian Portuguese localization file (thanks to the tireless efforts of fan Fabio Ekler).
+
+######## 2025-04-29 | New Major Update 0.6 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1797820624624901
+[previewyoutube=8MI1FaN78Ug;full][/previewyoutube]
+
+This update brings a lot of new features and improvements as I continue moving the game closer to full release. Here's what's new:
+[h3]Character Creation System[/h3][list][*]You can now create your character at the start: set your [b]name, birthday, appearance[/b], and choose up to [b]three biography elements[/b].[/*][*][b]Biography elements[/b] work as perks, giving bonuses or penalties during the game. Some become available only after unlocking certain [b]milestones[/b].[/*][*][b]CEO Mode[/b] is now one of the biography options, unlocked after successfully creating your own company at least once.[/*][/list]
+[img]{STEAM_CLAN_IMAGE}/39729459/435f92c8c5f965ea1dac58ee5de510a7bfa0890e.png[/img]
+[h3]New Investment Options[/h3][list][*]Added trading in [b]gold, silver, oil, and metals[/b].[/*][*]Commodities are more stable than stocks, making them ideal for long-term wealth storage.[/*][*]New [b]news events[/b] related to commodity prices.[/*][*]New [b]news events[/b] related to [b]yen currency fluctuations[/b].[/*][/list][h3]Expanded Real Estate System[/h3][list][*]Properties are now divided into [b]districts[/b], which affect their prices.[/*][*][b]Commercial real estate[/b] added — more expensive but offering greater profits.[/*][*]You can now [b]sort properties[/b] by district and [b]buy all available properties[/b] with one click.[/*][/list][h3]New City Activities[/h3][list][*]Players who own a car can now [b]drive to the city center[/b] for weekend relaxation.[/*][*][b]Horse racetrack[/b] added to the city map as a new leisure location.[/*][/list][h3]Takeover System Changes[/h3][list][*]If you already hold a [b]majority stake[/b] in a company, it [b]cannot refuse[/b] your buyout offer.[/*][*]Larger stakes [b]increase your chances[/b] of a successful acquisition.[/*][/list][h3]Other Improvements[/h3][list][*]It is now easier to [b]place larger bets[/b] at the horse racetrack.[/*][*][b]Unemployed friends[/b] are now available during weekdays.[/*][*]Improved [b]gamepad controls[/b].[/*][*]Added [b]new milestones[/b].[/*][/list][h3]Bug Fixes[/h3][list][*]Fixed winner calculation in [b]Poker[/b].[/*][*]Fixed the company management menu not opening with the "7" key.[/*][*]Fixed a bug where [b]short selling[/b] required more reputation than displayed.[/*][*]Fixed news events appearing for [b]companies not listed[/b] on the exchange.[/*][*]Corrected the display of the [b]autumn equinox[/b] (previously shown in spring).[/*][/list][h3]Balance Adjustments[/h3][list][*]New companies now [b]appear more frequently[/b].[/*][*]Company [b]profits now have a stronger effect[/b] on stock prices.[/*][*]Companies [b]grow less frequently[/b] into unrealistically massive corporations.[/*][*]Added a new event where [b]large unprofitable companies[/b] are forced to [b]lay off employees and downsize[/b] over time.[/*][/list]
+As you can see, the promised [b]commercial real estate[/b] feature has been implemented earlier than planned.
+During development, priorities shifted slightly, so I will soon publish an updated roadmap and a separate post about it.
+In short: [b]the game is getting close to full release[/b].
+I plan one more major update during [b]summer[/b], after which I will start preparing for the [b]full release with Story Mode[/b].
+
+Thank you for your support!
+
+######## 2025-04-02 | PC-9800 Renaissance Bundle! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1795917897302161
+Dive into nostalgia with two indie gems inspired by the iconic PC-98 era. Experience gripping sci-fi storytelling in Stories from Sol: The Gun-Dog, and navigate the retro-futuristic stock market thrills of STONKS-9800. Classic pixel visuals, era-accurate retro vibes - welcome back to the golden age of PC gaming!
+
+
+https://store.steampowered.com/bundle/51712/PC9800_Renaissance/
+
+######## 2025-01-20 | Update 0.5.0.21 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1789039014474471
+[list]
+[*] Fixed a bug where stock prices could change incorrectly after selling shares.
+[*] Fixed a balance issue that allowed players to reduce staff salaries without significant consequences.
+[*] Workers can now quit immediately after the player lowers their salary.
+[*] Fixed a crash in the investment center when the number of investment options was too large.
+[*] Fixed incorrect text display in the Income and Expense Ledger.
+[*] The Income and Expense Ledger now retains only the last 1,000 events, as an excessive number of entries overloaded the system, caused long save load times, and had little practical value.
+[/list]
+
+######## 2025-01-16 | Hotfix for crash "ds_map_find_value argument 1 invalid reference to (ds_map)..." | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1789039014342801
+Yay!
+
+######## 2025-01-14 | Another small bugfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1788311419188459
+[list]
+[*] Improved overall game optimization for smoother performance.
+[*] Fixed display issue with long messages in certain scenarios.
+[*] Resolved several minor bugs for a better gameplay experience.
+[/list]
+
+######## 2025-01-13 | Another small patch: Let's play in 4:3! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1788311419128020
+[list]
+[*] You can now resize the game window however you like!
+[*] The game is better optimized for different aspect ratios, so it now looks great on 4:3 screens as well as ultrawide monitors!
+[*] Fixed a bug causing tooltips to display incorrectly.
+[*] Fixed an issue where the intro cutscene couldn't be skipped with a gamepad (or on Steam Deck).
+[*] Plus, a bunch of minor bug fixes.
+[/list]
+
+[img]{STEAM_CLAN_IMAGE}/39729459/f05e482e658b47a70c24fd923c92156a8f6ab9a7.gif[/img]
+[img]{STEAM_CLAN_IMAGE}/39729459/a315fee4984c1c7bcf50f336b84f1c25c746b5f9.png[/img]
+[img]{STEAM_CLAN_IMAGE}/39729459/ef80df64424836f69feabd865affa4975544c1cb.png[/img]
+[img]{STEAM_CLAN_IMAGE}/39729459/43b5aad6997c3594496731b366306eac43c6f755.png[/img]
+[img]{STEAM_CLAN_IMAGE}/39729459/c111b56ba9ee145251ac4a4e71f04111293e8d44.png[/img]
+[img]{STEAM_CLAN_IMAGE}/39729459/aae0007edfb5ac34126466055ab9998e1dc1f556.png[/img]
+[img]{STEAM_CLAN_IMAGE}/39729459/0e581e83b9d0d8686b95cf576b589e7032b38408.png[/img]
+
+
+######## 2025-01-09 | Mini update (0.5.0.13) | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1788311419013274
+Deposit interest is now calculated correctly.
+I also fixed some minor bugs and improved game stability.
+
+######## 2025-01-03 | Minor bug fixes 0.5.0.10 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1787858252756857
+- The game will no longer crash if your company name contains certain characters;
+- The game will no longer crash on old saves if you buy a special car;
+- Other stability improvements.
+
+######## 2024-12-30 | Hotfix is here | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1786573930971311
+Fixed serious problems with game crashes after in-game 2003 and other bugs.
+
+######## 2024-12-29 | STONKS-9800: Update 0.5 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1786573930951186
+Finally fixed a claw machine!
+
+[h2]New Features:[/h2]
+
+[list]
+[*] New Mini-Game: "UFO Cosmic Claw" – a claw machine arcade game where you can collect various items.
+[*] Item Gifting: Send collected items to your friends via mail.
+[*] Calendar System: Keep track of shareholder meetings, holidays, and planned events, including court hearings.
+[*] New Random Event: Companies can forecast their revenue to impress investors.
+[*] Additional Random Events: A few more surprises to keep things interesting.
+[*] Investment Center: Build an investment center to manage multiple projects simultaneously.
+[*] Bar Gossip: Friends in the bar occasionally share rumors about various companies.
+[*] Temple Donations: You can now choose the size of your donation at the temple.
+[*] Reputation Perks: Reputation levels now grant new advantages, detailed in the "Profile" tab. These include (but are not limited to):
+[*] High public reputation increases the chance of being invited to spend time with directors and board members.
+[*] Speeches by highly reputable players have a stronger impact on the company.
+[*] The ethics level affects the speed of friendship growth with Amy.
+[*] Temple donations can reduce stress and boost happiness.
+[*] Friendships won't drop below a certain level if you have a high networking stat.
+[*] High networking helps you make friends faster.
+[*] High market reputation lets you buy more shares during IPOs and on the stock exchange, and reduces stock purchase fees.
+[*] Bank terms are now clearly displayed based on your financial reputation level.
+[/list]
+
+[h2]Improvements:[/h2]
+
+[list]
+[*] Gamepad Support: Hoshisama is now controllable with the gamepad stick.
+[*] Popup Navigation: Interacting with buttons in popups is now easier using a gamepad.
+[*] Expense Tracking: Hover over your total funds at the top of the screen to see recent expenses and income in all menus.
+[*] Balance Visibility: Easily identify which transactions affect your balance.
+[/list]
+
+[h2]Balance Adjustments:[/h2]
+
+[list]
+[*] Yakuza services are now cheaper.
+[*] Achievements now grant slightly fewer reputation points.
+[/list]
+
+
+[h2]Other Enhancements:[/h2]
+
+[list]
+[*] Text Display: Certain parts of messages are now highlighted with different colors for better readability. Text appears in a more user-friendly manner.
+[*] Home Screen Updates: Slight rearrangement of elements. Chibi Amy now reminds you about holidays and upcoming events.
+[*] Improved Animations: Popup animations have been refined for a smoother experience.
+[*] Holiday Greetings: Amy will now personally greet you on all holidays.
+[*] Sound Effects: Added sound effects for character dialogues and for spending or earning money.
+[/list]
+
+[h2]Fixes:[/h2]
+
+[list]
+[*] Fixed overlapping sounds when casting the fishing rod during fishing.
+[*] Fixing all sorts of small bugs
+[/list]
+
+[previewyoutube=olztb84qd84;full][/previewyoutube]
+
+######## 2024-11-27 | PockeDate is OUT NOW~ | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1784506358986548
+Your Pocket-Sized Dating Simulator! Every launch brings a new date with unique dialogues! Spend endless hours with your adorable, love-struck virtual girlfriend.
+
+【Official Original Song MV】 PockeDate!
+https://youtu.be/Ogsmi-vAk7Q
+
+
+Play it for free:
+https://store.steampowered.com/app/3107350
+
+[img]https://clan.fastly.steamstatic.com/images/25363761/b2fb54f8c264f5e47039d70769c2c28ec9f951cb.png[/img]
+
+######## 2024-09-24 | Small hotfix 0.4.4.1 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/6341720536521648724
+[list]
+[*] Prevented Self-Purchase Offers: It’s no longer possible to send a purchase offer to your own company (lol).
+[*] Improved Checkbox Clarity: It’s now easier to see whether a checkbox is enabled or not.
+[*] Updated Chinese Fan Translation: The fan translation in Chinese has been updated to the latest version.
+[*] Crash Fix on Company Screen: Fixed a crash that occurred on the company screen when using Japanese and Korean languages.
+[/list]
+
+######## 2024-09-20 | Update 0.4.4 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/6341720536507539619
+[h1]Changelog[/h1][h2]Fishing[/h2][list][*][b]Fishing Lures:[/b] You can now purchase lures that have various effects.[/*][*][b]Easier Fishing:[/b] Catching fish is slightly easier—they gradually move towards the hook and do not break away as quickly.[/*][/list][h2]General Improvements[/h2][list][*][b]Tax Preview:[/b] The main screen now displays an approximate amount of taxes you'll need to pay at the end of the month, based on your income and tax rate.[/*][*][b]Cursor Indicator:[/b] The cursor now shows an additional indicator when hovering over items that have tooltips.[/*][*][b]Debt Payment Info:[/b] Hovering over your debt on the main screen now reveals the amount due for this month.[/*][*][b]Interface Text Corrections:[/b] Made visual corrections to interface text in various languages.[/*][*][b]Rental Income Preview:[/b] Before purchasing a house, the expected monthly rental income is now displayed.[/*][*][b]Insufficient Funds Highlight:[/b] House prices are displayed in red if you don't have enough money to buy them.[/*][/list][h2]Balance[/h2][list][*][b]Adjusted Rent Calculation:[/b] Changed the method for calculating rental income from houses.[/*][/list][h2]For CEOs[/h2][list][*][b]Manual Investments and Share Issuance:[/b] You can now attract new investments and issue shares manually.[/*][*][b]Company Valuation Display:[/b] If you lack sufficient reserves to buy a company, the minimum estimated value is now displayed.[/*][/list][h2]Translations[/h2][list][*][b]Fan Translation Credit:[/b] You can now specify the author of a fan translation in the ini file.[/*][*][b]New Chinese Translation:[/b] Added the first fan translation in Chinese by [b]stevez[/b].[/*][/list][h2]Bug Fixes[/h2][list][*][b]Palette Display Fix:[/b] Fixed a bug where an incorrect palette was displayed after saving the game.[/*][/list]
+
+######## 2024-08-19 | PockeDate! - Pocket Dating Simulator | Official Teaser | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/6909171012610820917
+[img]https://clan.akamai.steamstatic.com/images/25363761/3d112e9525eed4cb694ac027562700749424dee6.png[/img]
+
+Meet Akari – your virtual sweetheart, head over heels for you. But be careful not to let her down! You wouldn't want to make her sad, would you?
+
+https://store.steampowered.com/app/3107350/PockeDate__Pocket_Dating_Simulator/
+
+PockeDate! – Your Pocket-Sized Dating Simulator! Every launch brings a new date with unique dialogues! Spend endless hours with your adorable, love-struck virtual girlfriend.
+
+The game will be released this year and will be available for free.
+
+https://youtu.be/I-A7JbvvDPk
+
+######## 2024-08-13 | New minor update with bug fixes (0.4.3.11) | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5963414363408684639
+[list]
+[*] New companies entering the market now have a lower chance of being successful and expensive;
+[*] Company project multiplier won’t change to x1 after level 6;
+[*] The top-100 Tokyo businessmen ranking now considers the player's reputation and investments in stocks or real estate more, and cash holdings less;
+[*] Companies will now issue new shares a bit less frequently;
+[*] Players can no longer attend IPOs with less than the minimum amount;
+[*] Fixed a bug where the player’s stake gradually diluted even if they refused to issue new shares;
+[*] Fixed a bug that sometimes caused the game to crash when leveling up a project;
+[*] Fixed a bug where the fisherman's hook disappeared in the water after viewing the collection;
+[*] Fixed a bug where the QTE circle kept shaking indefinitely after a wrong button press;
+[*] Fixed a bug where the pachinko machine required twice the money than stated;
+[*] Numerous minor fixes thanks to your feedback, making the game run more smoothly.
+[/list]
+
+######## 2024-07-28 | Small update 0.4.3.9 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5963413094358789274
+
+[list]
+[*] The game will no longer crash when exiting to the main menu from the bar or the stock market.
+[*] Still trying to fix the poker issues.
+[*] You can no longer manage your company via hotkeys while on vacation.
+[*] Dividend yield now displays correctly on the portfolio page.
+[*] Improved the instructions for creating fan translations and added new customization features, making it more user-friendly for Asian languages.
+[*] Tweaked the colors of some card suits for better readability.
+[/list]
+
+
+
+
+
+
+
+######## 2024-07-17 | Celebrating one year of Early Access! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5969041959961925261
+Hi everyone!
+
+It's been a year since I launched [b]STONKS-9800: Stock Market Simulator[/b] in Early Access, and I'm deeply grateful to everyone who's joined me on this journey to improve the game. Just so you know, TERNOX isn't a company. It's just me, working solo, occasionally outsourcing some graphics to bring our ideas to life. This has become my biggest project, and honestly, it's been quite a ride keeping up with it.
+
+Over the past year, STONKS-9800 has expanded massively:
+
+[list]
+[*] Enhanced company management and a CEO mode
+[*] The ability to interact with everyone you know
+[*] Golf, an arcade hall with a shoot'em up game and gachapon, poker, fishing
+[*] Yakuza events, financial regulations, and much more
+[*] The game even got a Korean translation!
+[/list]
+
+[previewyoutube=8Yv3hHMvxLs;full]https://youtu.be/8Yv3hHMvxLs[/previewyoutube]
+
+I'm incredibly thankful for all the player feedback which has helped make the game more user-friendly and enjoyable.
+
+[h2]What's next?[/h2]
+
+I underestimated the scope of the updates. I hoped to be ready for a full release after a year, but we're not there yet. In fact, this year won't see the full release either, and I'm falling behind on my update schedule again.
+
+So, I'm updating the roadmap once more.
+
+[img]{STEAM_CLAN_IMAGE}/39729459/9f61b1805a069d4793ff9f01684d5bd779a33952.jpg[/img]
+
+[b]Already in Update 0.4[/b]:
+
+[list]
+[*] New mini-games including golf, arcade games, and fishing
+[*] Direct interactions with the Yakuza and through employees
+[*] A city map that allows travel to various new locations like parks and temples
+[*] Companies can now go bankrupt, merge, or be acquired
+[*] Random event mode, annual business rankings, and plenty of smaller updates and news
+[/list]
+
+[b]I'll continue to improve stability and add minor enhancements in 0.4, but I also want to share my plans for the major 0.5 update.[/b]
+
+[h3]Expect in 0.3:[/h2]
+
+[list]
+[*] A rhythm-based karaoke mini-game featuring my own tracks styled after retro PC-98 sounds
+[*] Claw machine mini-game, allowing you to win toys for Amy and others
+[*] Enhanced competition among companies in the same sector, giving you a clear view of your rivals
+[*] The option to start a charity or research fund to utilize the endless billions if you're particularly successful
+[/list]
+
+Future plans (not necessarily in 0.5) include a more comprehensive dating simulator.
+
+In [b]Version 0.6[/b], I plan to introduce commercial real estate, which will offer higher profits but at a higher cost. This update will be dedicated to that expansion.
+
+Afterwards, I'll focus on the [b]story mode[/b], which will be the foundation for the [b]full release from Early Access[/b]. The full release might be a bit pricier, and will feature new characters to compete against or befriend.
+
+I appreciate your patience as timelines can be tricky. Thanks again for your support. I hope you enjoy the game as much as I enjoy making it.
+
+If you're not ready to play in Early Access, I understand. Please consider adding the game to your wishlist and waiting for the full release.
+
+######## 2024-07-16 | Small update 0.4.3.8 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/6000566704284348505
+- New achievements on Steam;
+- Updated poker hand calculations;
+- Now the numpad also work for switching between tabs; 
+- Small changes to the comfort calculation, the indicator also no longer changes instantly, but still changes quickly every day;
+- Fixed the calculation of the dividend yield on the company window;
+- Fixed a bug that caused extremely comfortable individual houses to have a half-star comfort rating (they were actually very comfortable);
+- Fixed a bug where the last company on the portfolio page was sometimes not displayed;
+- Fixed a bug where the main menu of the game could be blocked by the city map;
+- Some fixes to the calculation of the correctness of poker combinations;
+- Various other fixes aimed at improving the stability of the game.
+
+
+
+######## 2024-07-05 | STONKS-9800 Update 0.4.3: Fishing, Poker and more! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5842939267336422097
+[previewyoutube=hAbeWs-SioM;full][/previewyoutube]
+
+[h2]New:[/h2]
+
+[list]
+[*] New Mini-Game: Fishing on Vacation
+[*] New Mini-Game: Secret Poker (Texas Hold'em)
+[*] Direct dealings with the Yakuza: you can order them to take out rivals, shake up certain financial sectors, and even buy your way out of their wrath at any moment.
+[*] New Vacation Outfit for Amy
+[*] You can change the color palette of the interface, with additional color sets and the option to create custom palettes by editing the file "data/palette.png"
+[/list]
+
+[h2]Quality of life:[/h2]
+
+[list]
+[*] You can now adjust the daily expense size by clicking directly on the scale, not just the + or - buttons.
+[*] The right mouse button now functions as Escape in most menus (making it more convenient to play one-handed).
+[*] News about changes in high-ranking positions will now display the portrait and information of the individuals.
+[*] Stock price charts now show more consistent numerical values.
+[*] You can now navigate the "Advisor" tab and "Milestones" menu using arrow keys on the keyboard or gamepad, and the Escape button returns to the previous screen.
+
+These changes are part of my gradual effort to make the game fully operable using only the keyboard (which will also improve gamepad controls) as well as only the mouse.
+[/list]
+
+[h2]Fixes and Other:[/h2]
+
+[list]
+[*] Added crash notification system: if the game crashes, you will be prompted to send me a report (currently works only on Windows).
+[*] You can no longer purchase real estate or cars while on vacation.
+[*] You can no longer buy suspicious companies.
+[*] Fixed a bug where a new company going public (IPO) had incorrect data from another bankrupt company (e.g., you were already in debt with short stocks).
+[*] Fixed a bug that could cause the game to crash when exiting to the main menu.
+[*] Fixed a bug where characters had two first names instead of a first name and a last name.
+[*] Fixed an issue where you could start the next day during the Board of Directors meeting by pressing Enter.
+[*] Fixed a bug where the name of an illegal company could repeat.
+[*] Fixed a bug where the player could instantly lose the CEO position after engaging in illegal business.
+[*] Amy no longer leaves with each new dialogue line.
+[*] Players who have been waiting a long time for company responses can finally send new purchase offers (after some time).
+[/list]
+
+######## 2024-04-06 | Small update | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5756237364315372115
+- From now on, a player will be dismissed from the position of CEO and the board of directors of all companies when he goes to prison;
+- Going to jail has a stronger impact on reputation;
+- The average value of a stock in the portfolio is now reset to 0 if the player has sold all shares, 
+- Fixing visual glitches on MacOS on scrollable messages;
+- Fixing a bug that caused companies to become NaN (HOPEFULLY);
+- Other bug fixes,
+- Probably new bugs.
+
+######## 2024-03-22 | Update 0.4.2.5 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5686430301722042982
+- Now companies will go bankrupt or merge a little less often;
+- Companies will not merge with a player's company without a request;
+- An illegal company will no longer participate in new events that appeared with the last update;
+- The amount of the yakuza payout is limited;
+- Fixed a bug that caused the player to have too many people on the board of directors when merging companies;
+- Fixed a bug with a game crash;
+- Improved Japanese translation of the new text;
+- Other minor bug fixes.
+
+
+
+
+######## 2024-03-20 | Hotfix 0.4.2.4 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5686430301715315408
+- Changes in employees' salary requirements will now be smoother;
+- Fixed a bug with a huge decrease in the percentage of ownership in a company after a merger;
+- Fixed a critical bug with NaN after issuing shares;
+- Fixed a bug that could cause some achievements to carry over from another game session;
+- Fixed a bug where a man in a bar offering illegal business would not appear.
+
+######## 2024-03-19 | Update 0.4.2.2: Mergers and bankruptcy of companies | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/7309977427453557482
+
+
+- If a company is struggling, it can now go bankrupt;
+- Companies can buy each other;
+- The player's company can buy other companies;
+- When starting a new game, the player will now be guaranteed to know the board of directors of a company already in the game;
+- Companies will now be less likely to issue new shares;
+- Rebalancing of stock prices;
+- Gamepad controls have been slightly improved;
+- Fixed some button labels in the Hoshimari mini-game;
+- Fixed a bug with the game crashing when switching pages in the Portfolio;
+- Fixed a bug with golf music;
+- Fixed a bug with changing days during shareholder meetings.
+
+######## 2024-03-07 | Update 0.4.2: macOS version, company management improvements and golf | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5679673637653152607
+Finally, the game has a native version for macOS! It should work on Apple devices with Apple Silicon and Intel processors, the minimum OS version is macOS High Sierra 10.13.
+
+[b]New in the patch:[/b]
+- MacOS version;
+- Updates of the company management interface;
+- Unemployed workers now work on "projects" in the company that bring additional reserves, research points, and increase the experience and characteristics of employees;
+- New mini-game - golf;
+- New achievements in the game;
+- Changes in the speech mini-game: lines are highlighted in different colors, a missed shot is no longer considered a mistake, only one shot at a time;
+- The replenishment indicator and expenses from the company's balance now have text animation;
+- A bunch of small fixes in the Ukrainian translation;
+
+- Fixed a bug that caused financial reputation to be deducted more often than necessary;
+- Fixed a bug with incorrect display of the cost of the Advanced Marketing Campaign;
+- Fixed a bug where the monthly salary of a player as a director or board member was not taken into account in the "Total" column;
+- Fixed a bunch of other minor bugs;
+
+######## 2024-02-01 | Update with Korean localization and Random Mode | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5582843074942037173
+If you're tired of getting the economic crisis of the early 90s every time in the game (which corresponds to real events), you can now choose a random event mode when creating a new game - the Japanese economy will experience both ups and downs in random order.  Have time to react to market fluctuations in time!
+
+
+New:
+- Korean translation has been added to the game;
+- The ability to choose a historical or random set of events when creating a new game;
+- A new collection of toy dogs;
+- Contacts will pick up the phone a little more often;
+- The stock exchange now has an icon next to company names that shows the type of activity of the company;
+- The city now changes depending on the time of year;
+- The main screen now has a special inscription if the player is on vacation;
+- The algorithm for calculating monthly financial reputation charges has been changed;
+- The upward arrow will now mark the Profile and Advisor tabs when there are important events related to Amy;
+- Yoshiro's services have become more expensive;
+- Prices for various random events related to the player's company have been reduced;
+- A bit of additional code to make it easier for you to collect toy collections;
+- Many new milestones in the game;
+
+Company management:
+- In the list of employees, department heads will be marked with a different color;
+- Employees of your company will now have the correct position information in their profile;
+- Viewing candidates is no longer available if all resumes have already been viewed;
+- When employees ask for a salary increase, their current salary and the desired salary will be visible;
+
+
+Bugs:
+- Fixed a bug with getting the Asset Ascension achievement;
+- Fixed an erroneous message from Amy at the beginning of the new game "Now you can trade on the stock exchange again!";
+- Fixed several other minor bugs;
+
+
+######## 2024-01-18 | A small hotfix | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5510784213098781404
+- Now you can switch between contacts from the company page (view director to board of directors);
+- Fixed a bug where the last company on the second page of the stock exchange was not displayed;
+- Fixed a bug where the game crashed due to a message from a yakuza;
+
+
+######## 2024-01-18 | Quality of Life Update - 0.4.0.2 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5510784213095977001
+A small update with quality of life features!
+
+- The possibility to easily switch to the next and previous contact is now available;
+- Now when you hover over a contact's profile picture, you will get additional information about them;
+- You can also now learn more about a contact by hovering over it in a dialog box;
+- Contacts' knack are now visible in the department menu;
+- Improvements to Japanese localization;
+- Faces of chibi portraits now match the full portrait;
+- You can no longer leave your own company in CEO mode (only if you are kicked out);
+- After resigning as CEO, you are subject to a one-year restriction period during which you cannot create a new company;
+- Large messages are now typed faster;
+- Yakuza will now be more often offering to pay off;
+- The bank will no longer be so quick and aggressive in taking away your property;
+- Fixed calculations for the size of your own company (in money amount);
+- Fixed a bug with lifetime blocking of trading on the stock exchange;
+- Fixed a game crash if a player has a nickname with certain characters;
+
+
+######## 2024-01-14 | Hotfix after 0.4 updater | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/6300039510130602599
+
+- Fixed the issue with the game crash [u]"Variable Index [1] out of range [1] - -1.mycar"[/u]
+- Fixed incorrect display of tooltips in Japanese
+
+Work of fan localizations has been improved:
+- Now the game does not crash if there are blank lines in the translation, but displays English lines.
+- Font in fan translations doesn't break every time you launch it.
+
+
+
+######## 2024-01-13 | STONKS-9800: 0.4 Update - The Beginning of Entertainment | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/6300039510127623106
+This update is just the beginning of a series of updates with fun and more!
+
+[h2]New features:[/h2]
+
+- At the end of each year, the financial publication will create a selection of the best companies of the year and the top most influential people of the year, which the player can get to: both wealth and reputation are taken into account;
+- New opportunity to go to the arcade and play a Shoot'em'up game and collect gachapon toys (more games will be added later);
+- A few new events in the bar;
+- Your friends can invite you to go for a walk in the city, and then you can choose where you want to go;
+- A map with possible places for entertainment (will be greatly expanded);
+- The ability to go to the temple and park with friends;
+- New very rare real estate offers with discounts with new events;
+- A player can be expelled from the company's board of directors if his reputation in the company is very low;
+- New possible event for the company director;
+- Yakuza now require regular payments for their services;
+- Yakuza now provide more services;
+- Some employees with a yakuza connection can provide "special services" if the player also has a yakuza connection;
+- You can now become an enemy of the Yakuza and they will make your life miserable;
+- If a player is in a high position in a company, their actions in the market regarding this company become more influential and can cause new events and news;
+- More different news;
+- Companies will now issue new shares, and the player, if he owns a large stake, will give his consent to this. Without issuing new shares, companies will hit a ceiling at some point;
+- New achievements.
+
+[h2]Amenities:[/h2]
+
+- Improved Japanese translation;
+- The game now has partial support for Steam Input, which means the buttons are displayed correctly for different gamepads (Xbox, Dualshock, Dualsense, Pro Controller). However, the correct display of buttons is not guaranteed when changing configurations in Steam settings;
+- Gamepad controls: the ability to exit various menus by pressing the [B] button, as well as to scroll through various lists using the D-pad, for example, in the list of real estate, cars, jobs, etc.
+- The portfolio menu can now be found on the stock exchange, and you can now see the dividend yield of companies there;
+- The portfolio now has a guide to "?", as well as an explanation of each column;
+- The speech mini-game has been slightly redesigned to make it easier to understand what you need to do;
+- The sound of the phone ringing is now quieter;
+- Pop-up notifications can now appear several at a time to make it easier to deal with them; 
+
+[h2]Balance:[/h2]
+
+- Selling and buying large portions of your company's shares instantly affects your company's reputation and makes news;
+- Penalties for market manipulation are now more severe;
+- The daily growth of R&D points in a company has been reduced under certain conditions;
+- Donations no longer give as much public reputation growth;
+
+[h2]Bug fixes:[/h2]
+
+- Fixed a bug with calculating the efficiency of the main department in your own company;
+- Now you will not see the connections of a potential employee with the Yakuza if you do not have any connections with them;
+- Fixed a bug that prevented the field of activity chosen by the player from being taken into account when creating a company;
+- Fixed a bug that prevented clicking on company names on the second page of the portfolio;
+- Fixed a bug with an incorrect message for the player as the head of the company;
+- Receiving insider information now lowers ethics instead of raising it;
+- Fixed a bug that sometimes miscalculated the player's wealth in terms of houses and cars.
+- The game no longer crashes if you exclude all companies on the chart;
+- Fixed a bug that prevented special achievements for CEO mode from being credited if the game was loaded (unfortunately, it will only work in new games);
+- Fixed a bunch of other minor bugs.
+
+
+######## 2023-12-29 | Anime finance sim Stonks-9800 is the best game you didn't play this year | https://steamstore-a.akamaihd.net/news/externalpost/PC Gamer/5410576585159258709
+<img src="https://cdn.mos.cms.futurecdn.net/sxSohaPEAK788JQSU4Q4TZ.jpg"/><br><br>
+                In another world, I&apos;m <a href="https://www.youtube.com/watch?v=sLAan2iZs_Y" target="_blank">Michael Douglas standing on a beach</a>, barking monologues into a phone you could knock out a horse with. My life revolves around blue chips, bulls, and bears, and when the cholesterol in my arteries hardens and kills me&#x2014;bursting like the blood-fattened parasite I am&#x2014;they will bury me in my suspenders. In another world...
+                <a href="https://www.pcgamer.com/anime-finance-sim-stonks-9800-is-the-best-game-you-didnt-play-this-year?utm_source=steam&utm_medium=referral" target="_blank">Read more.</a>
+
+######## 2023-11-21 | Nominate STONKS-9800 for outstanding visual style! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5382426458970686084
+I know it won't work, but let's try!
+
+https://store.steampowered.com/app/1539140/STONKS9800_Stock_Market_Simulator
+
+[img]{STEAM_CLAN_IMAGE}/39729459/7598d5a67b92a9dbbb34eddd230a398f75b17f4d.png[/img]
+
+######## 2023-11-10 | STONKS-9800: Stock Market Simulator now officially is verified on Steam Deck! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5302486387999727522
+The game is fully compatible with Steam Deck, officially approved by Valve.
+
+[img]{STEAM_CLAN_IMAGE}/39729459/41693dcecad3e9a64881b64334c7521643ada905.png[/img]
+
+######## 2023-11-04 | Small update 0.3.0.4 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5288974951212167145
+- Added the ability to massively increase employee salaries;
+- Fixed a bug with the game crashing during the event with the "disappearance" of the "mysterious company";
+- The event when a strange fellow sits down with you no longer occurs repeatedly after his offer has already been accepted once;
+- Fixed a bug that caused the event of a fire in the apartment to be mistakenly indicated as "you are bankrupt and your apartment has been taken away";
+- Fixed a bug that caused the list of apartments and cars to disappear;
+- Fixed a bug where clicking on the Company tab sometimes did not work the first time.
+
+######## 2023-11-03 | Updated roadmap and plans for the future | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5288974951210823971
+I understand that many of you might be disappointed with the new timelines, but this is a necessary step to allow me to work on the game at a somewhat reasonable pace and still have free time for other projects.
+
+However, you won't have to wait 3-4 months for each update – I will now be rolling out updates gradually so that you're not left without new content for extended periods. The next major planned update, "0.4 Entertainment," will begin to roll out in December, possibly even a bit earlier.
+
+For instance, from the upcoming content, you'll get more vacation events (and a new mini-game!) as well as increased interactions with the Yakuza, including in the context of company management. You will receive all this without waiting for me to complete everything planned for version 0.4, so don't be surprised if the subsequent 0.4 update doesn't bring as much content.
+
+This approach will also help me better monitor the game's balance and address bugs more progressively.
+
+[h2]About 0.3 update[/h2]
+
+Regarding the 0.3 update, I might have overestimated my capabilities and ended up creating content that perhaps should have been released later. This particular mode feels like a standalone DLC (which I'm not planning to make yet, as I want to complete the full version of the game first). However, I believe it will be a pleasant surprise for those who start playing now and, at some stage, discover another game within the game.
+
+Moving forward, I'll focus on the game's main theme – the stock market. And also on Emi. Emi will receive more content and costumes, which is something I personally want.
+Thank you for sticking with me! Thanks to your feedback, the game is improving, so please continue to share your thoughts.
+
+[h1]Updated Roadmap[/h1]
+
+[img]{STEAM_CLAN_IMAGE}/39729459/d8038b597302507daa5daf62c4aff80f235f11f4.png[/img]
+
+######## 2023-11-03 | Hotfixes and improvements after update 0.3 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5288974951208393638
+I am actively working on updating it with improvements after patch 0.3.
+
+
+[h2]Version 0.3.0.3:[/h2]
+- The ability to choose the level of free shares restriction at the start has been added. That is, on the easy difficulty, you can again purchase all 100% of the shares without restrictions;
+- The ability to disable invitations to the board of directors of a particular company;
+- Employees of the departments in your company are no longer strangers to you (friendship with them increases above zero);
+- Friendship is also increased when hiring;
+- Secret information from Yoshiro will now be more expensive if the player has more money;
+- Characters now answer the phone more often on weekends;
+- Fixed a bug with incorrect button signatures in one event;
+- Fixed a bug where the sound when raising the friendship level with Amy could play longer than necessary;
+- Fixed a bug with glitchy display of the game after firing an employee from the employee list screen;
+- Fixed a bug that caused the R&D scale to always be at the bottom;
+- Fixed a game crash when offering a job to a character;
+- Fixed a bug with the bar crash;
+- Now you will still receive income while on vacation.
+
+
+[b]It was also updated earlier (after 0.3):[/b]
+- Improved display of Japanese text;
+- Time now stops when viewing resumes;
+- Fixed a bug with old employees in new company departments;
+- Fixed bug with "100252";
+- Fixed a bug with the game crashing after pressing the Escape button in some dialogs;
+- And a few other small fixes.
+
+
+######## 2023-11-01 | Update 0.3: Company management | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5288974951203719404
+Finally, the long-awaited update! I'm sorry for the delay, but I'll be revising the roadmap in a few days, so stay tuned.
+
+[h2]Company Management:[/h2]
+- Ability to create your own company;
+- A new mode in which the player immediately creates their own small company;
+- The ability to view a list of all key employees in the company;
+- Ability to build and develop company departments and assign key employees to them;
+- Now there are pop-up notifications when replenishing or spending money from the company reserves;
+- Significantly reworked the balance of company characteristics and income calculation formulas;
+- Ability to send employees on vacation, train them, and much more;
+- Ability to hold calming meetings for investors;
+- Now, the player can be fired from the position of CEO if they are not performing well and do not have a controlling stake in the company;
+- The player can be offered to resign from the position of CEO if they have a controlling stake in the company and are managing it poorly;
+- The player's company can now go bankrupt if it has a negative balance for a long time;
+- If a player as a CEO does not attend meetings, it negatively affects the outcomes;
+- Employees can now request salary increases or vacations;
+- Random acquaintances can now ask to work for your company;
+- New random events for the company manager.
+
+[h2]Companies:[/h2]
+
+- New companies are now going public (IPO), allowing the player to immediately buy a certain amount of shares at a favorable price (or not, because who knows what will happen to the company);
+- Now, the results of shareholders' meetings affect the stock price;
+- New events have appeared at shareholder meetings.
+
+[h2]Contacts:[/h2]
+- Ability to sort contacts by various indicators (not just by friendship);
+- All contacts can now have a penchant for a certain business (useful for managing a company);
+- More professions in contacts;
+- New phrases for contacts when the player communicates with them as their boss;
+- Increased the maximum possible number of shares that can be offered in personal deals;
+- Some changes in character generation;
+- New characteristics - thoroughness and experience;
+- Your company's employees also have energy and job satisfaction indicators;
+- Each contact now has brief information about their personality or hobbies (may not be true in old save files);
+- Now, improving or worsening relations with a board member or CEO affects the reputation in their company.
+
+[h2]Convenience:[/h2]
+- Added the ability to skip the intro (but only after the first viewing, so you'll have to watch it once). For this, hold the Esc key or B on the gamepad;
+- Added the ability to speed up horse races;
+- The bottom panel is now dimmed when inactive;
+- Improved cursor control from the gamepad (it slows down slightly over active objects);
+- Added a trillion mark for corresponding large sums.
+
+[h2]Technical:[/h2]
+- Traditionally improved Japanese translation;
+- Added a 1280x720 resolution setting (want to get the green checkmark for Steam Deck);
+- The game on Steam Deck should automatically select the best resolution (hopefully);
+- Now, the initial money is not considered in the achievements "Cash Catcher" and "Dragon's Hoard";
+- New achievements.
+
+[h2]Fixes:[/h2]
+- Characters now keep their noses, instead of changing them every time a save is loaded;
+- Fixed a bug where contact images appeared in the wrong messages;
+- Fixed the display of friendship level with Emi (to make it neat and even);
+- Fixed a bug with incorrect interview results display;
+- Fixed a bug that could cause the game to freeze when exiting;
+- Fixed an error where the list of contact professions was limited to a certain list over time;
+- Fixed a bug where the day started over after exiting the system menu;
+- Fixed several bugs that caused the game to crash;
+- Fixed a bug where events of the day replayed when reloading the game;
+- Optimization improvements (hopefully).
+
+
+
+
+
+
+
+######## 2023-09-30 | Important Announcement Regarding the 0.3 Game Update | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5220291886495106223
+Hello everyone!
+
+Apologies are in order. It looks like I bit off more than I could chew this time around. Who knew that rest isn’t just a suggestion, but a necessity? Shocking, right?
+
+So here’s the deal: I dropped the ball and patch 0.3 is going to need a bit more TLC before it’s ready to roll out. But don’t worry, I’ll be sharing more screenshots in the next few days – so keep your eyes on [url=https://twitter.com/Taimumari]Twitter[/url] and [url=https://discord.com/invite/cR49SHktjW/]Discord[/url].
+
+Now, for a quick refresher: this patch is all about breathing life into your entrepreneurial spirit. You’ll get to build your company from the ground up, handpick your team, assign roles, and watch your empire expand. And for those of you who are as impatient as I am, you can jump straight into the action with a ready-to-go company (it’ll be a modest start, but hey, Rome wasn’t built in a day).
+
+[img]{STEAM_CLAN_IMAGE}/39729459/75ed96655f428facec491da0d01c46de653f296f.jpg[/img]
+
+I can't thank you enough for your patience and understanding. I’m considering a tweak in the roadmap to ensure I deliver nothing but top-notch updates without the delay. Every promise made will be a promise kept, that’s a guarantee.
+
+Catch you soon!
+
+######## 2023-09-11 | Patch with bug fixes 0.2.1 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5159491482921626299
+- Friends can no longer have more than 100 friendship levels;
+- More readable rate display in the "2 Courses" menu;
+- Reduced the required reputation level for unlocking short trades;
+- Allows you to delete save files;
+- Fixed a bug that caused the chart to not update on days when a player was working part-time;
+- Fixed a bug with the game crashing when investing in Future Tech;
+- Fixed a bug that caused mailstones for friends to be counted incorrectly;
+- Fixed a bug that could cause the game to crash after certain events;
+- Fixed a bug that prevented you from participating in a shareholder meeting in the hospital.
+
+######## 2023-08-27 | Update 0.2: Improved trading | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5141475722338398869
+Finally, the first major update. It is dedicated to more convenient trading and communication with contacts.
+
+[h1]New features:[/h1]
+- Added income and expense book;
+- Added the ability to conveniently view your own portfolio, where you can easily track the most profitable companies for you;
+- You can now call, communicate, and invite your contacts to a bar on weekends;
+- You can now see the picture of the contact communicating with you;
+- 4 new music tracks in the game;
+- Your contacts with a good friendship level can now offer exclusive deals at the bar;
+- New random events;
+- Two modes of time passing speed;
+- The possibility to go on a vacation on your own once every three months;
+- In vacation, Amy now talks about vacation, not work;
+- New achievements;
+- Some more secret stuff.
+
+
+[h1]Changes in the exchange:[/h1]
+- In the stock exchange, when you hover over "+" or "-", you can now see the price of the stock at which you last bought it;
+- Restrictions on trading on the stock exchange have been introduced: you won't be able to buy 100% of the shares of all companies as easily as you want, because not all of their owners want to sell them;
+- Now your purchase of shares has a more active impact on their price and the market as a whole;
+- Two new difficulty settings: the speed of time on the stock exchange and the presence of the FSA (State Financial Regulator)
+- FSA: If you quickly sell and buy shares on the stock exchange, shaking up the market, the FSA may issue you a warning or sue you.
+
+Note: some of these changes will not be visible in old saves. Start a new game on Normal or higher.
+
+[h1]Quality of life:[/h1]
+- Improved ability to create fan localizations ([url=https://steamcommunity.com/app/1539140/discussions/0/3825299103407013922/]read more here[/url]);
+- Ability to make a lower game speed;
+- Shareholder meetings are now held no more than once a week;
+- Removed decimal numbers from money amounts;
+- A small rebalancing;
+- It is now impossible to click Options during some events and while dialogs are present;
+- The boss now automatically gets behind the wheel of a newly bought car if there was no car before;
+- The speed of increasing or decreasing the bet on horse racing has been increased;
+- The chance of an investment offer from Future Tech has been increased;
+- You can now produce much more pachinko balls at a time;
+- The speech mini-game now works on the G H J buttons, as a unified solution for different keyboards. (Z X C will also continue to work);
+- Friendship level changes are now visible in the notification;
+- Japanese localization has been improved (but it may not be the best in the new timeline, this is temporary);
+
+[h1]Bugs:[/h1]
+- There are new bugs;
+
+[h1]Bug fixes:[/h1]
+- Fixed a bug where predictions in the bar could appear only once in the entire game;
+- Fixed a bug that could cause companies that have already been liquidated to appear in events;
+- Fixed a bug that caused the shares of all companies to drop dramatically for no reason;
+- A bunch of other minor bugs have been fixed.
+
+
+######## 2023-07-27 | Update 0.1.5 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5124584686244164634
+Another small update for the game. Next I will be working on version 0.2 with improved trading, so it will take longer.
+
+- Added a few events related to the presence or absence of a car;
+- Amy can now invite you to go for a walk on weekends;
+- The chart is no longer updated on weekends;
+- On the stock exchange, the share purchase multiplier no longer changes the displayed share price;
+- Fixed a bug with identical names of different companies;
+- Yakuza will no longer offer you a partnership after the second refusal;
+- Small rebalancing of company indicators.
+
+
+######## 2023-07-25 | Update 0.1.4 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5124584051985979871
+[b]Improvements:[/b]
+- Improvements for chart: you can hover over the company name to highlight its series of metrics, and you can hide the metrics of certain companies;
+[img]{STEAM_CLAN_IMAGE}/39729459/0b2c5a9896f5d37ec570af9e2c53f54ded480ba0.gif[/img]
+- Added new professions for people (only works in the new game);
+
+
+[b]Fixes:[/b]
+- Companies that have been liquidated will no longer leave an empty space on the stock exchange and will no longer appear as NaN in the graph;
+- A bunch of fixes to the behavior of people moving to different companies;
+- People will no longer work for liquidated companies;
+- In pachinko, you can now control the direction of the ball on the A and D keys;
+- Fixing bugs related to an illegal company and its exit from the market;
+- Fixed a game crash on Steam Deck;
+- Fixed Amy's incorrect phrase when the player is in jail;
+- Fixed a bunch of errors in the chart;
+- Fixed incorrect strings in the name of professions (only works in the new game)
+- The player is now displayed correctly in the board of directors of companies;
+- Fixes various other minor bugs and issues;
+- Correction of typos in the text, improvement of Japanese localization.
+
+######## 2023-07-21 | Update 0.1.3 | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5124584051971848200
+[b]New features:[/b]
+- A borderless full-screen mode has been added;
+- In the stock exchange, shares are now bought and sold faster by holding the left mouse button longer;
+- New contacts in the list are now marked as "New" until you hover over them;
+- You can now leave the CEO position or add your own funds to the company's reserves;
+- More different professions have been added to contacts (will work in the new game);
+
+[b]Bugs:[/b]
+- Fixed overlapping notifications in the bar or on a walk;
+- Fixed a bug with the company menu overlay on entertainment screens;
+- Fixed the sprite of your house on the main screen;
+- Fixed excessive notification after a birthday in the bar;
+- First and last names have been swapped to match Japanese spelling;
+- Fixed a bug where owning shares in the same company can deduct ethics points;
+- Fixed a bug when the research was freezing forever;
+- Fixed a bug when the status of a research was not saved;
+- A little work on the CRT filter to make its last levels more comfortable for reading;
+- Fixed a bug where the player became a director of several (often random) companies;
+- Fixed a bug that caused a random person to become a director of a company instead of a member of the board of directors;
+- Fixing various other minor bugs;
+- Correction of errors in the text, partial improvement of Japanese localization.
+
+######## 2023-07-20 | I'm in love with this '80s Japan-themed stock-trading sim that sent me to prison for insider trading | https://steamstore-a.akamaihd.net/news/externalpost/PC Gamer/5124584051970554628
+<img src="https://cdn.mos.cms.futurecdn.net/iJodyzfREv3FdqRQTWiSy5.jpg"/><br><br>
+                I am <em>good</em> at this. All my investments&#x2014;fruitfully diversified across construction, telecoms, finance&#x2014;are trending upwards. My contacts are a rarefied mix of the Japanese business world, a medley of glad-handing CEOs, shareholders and other people who seem to have a lot of money despite doing very little at all. The world is kind, my future is bright. I am living. I am thriving. I am going to prison for insider trading. Wait. What?..
+                <a href="https://www.pcgamer.com/im-in-love-with-this-80s-japan-themed-stock-trading-sim-that-sent-me-to-prison-for-insider-trading?utm_source=steam&utm_medium=referral" target="_blank">Read more.</a>
+
+######## 2023-07-19 | STONKS-9800 Early Access Roadmap | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5124584051967454666
+This is something I had planned for the game, but haven't realized yet. Maybe I'll figure out something else thanks to your feedback!
+
+
+[img]{STEAM_CLAN_IMAGE}/39729459/69ebb24f940af20e2ee8c9eee3f356b978f9de29.png[/img]
+
+In addition, the game is always subject to minor updates, and the game has already been updated about 10 times since its release, and each time it was a different little fix.
+
+Thank you all!
+
+Also come to my [url=https://discord.com/invite/cR49SHktjW/]Discord server[/url]!
+
+######## 2023-07-17 | STONKS-9800 OUT NOW in Early Access! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/6079346804887027322
+🍙Simulator of an 80s Japanese stock market businessman.
+🍡Chill, catch a retro vibe and watch your profits grow!
+
+https://store.steampowered.com/app/1539140/STONKS9800_Stock_Market_Simulator/
+
+######## 2023-06-12 | STONKS-9800 сoming out in Early Access on July 17! | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5129083846353863708
+[img]https://clan.akamai.steamstatic.com/images/25363761/2d317992bf1217c5579d09328dca2938bb04cb4a.jpg[/img]
+
+🍙Simulator of an 80s Japanese stock market businessman.
+🍡Chill, catch a retro vibe and watch your profits grow!
+
+[h1]New trailer:[/h1]
+https://www.youtube.com/watch?v=z47QO_eFWCU
+
+https://store.steampowered.com/app/1539140/STONKS9800_Stock_Market_Simulator/
+
+
+
+######## 2023-05-31 | STONKS-9800 devlog #2: Reputation | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5151601211220771870
+Hello, fellow traders!
+
+Today I want to tell you about an important thing: the reputation system in the game.
+In STONKS-9800, your reputation isn't some fancy metric. It's like your shadow in the game, showing how well you're doing across a whole bunch of things that make up the life of a businessman. 
+
+[img]{STEAM_CLAN_IMAGE}/39729459/b12df74fdfd82447c0b1581bac660ba7cb53c847.png[/img]
+
+Here's the structure of the criteria that form your reputation:
+
+1. [b]Public Image[/b]: This is all about how you are perceived by the general public and the media. It will rise when you maintain a clean and scandal-free image. It's all about PR here.
+
+2. [b]Financial Success[/b]: As the saying goes, money talks. Your financial prowess, captured by your total net worth, annual profit, and asset growth, speaks volumes about your business acumen.
+
+3. [b]Ethical Conduct[/b]: Here's where your moral compass comes into play. Collaborating with the Yakuza and engaging in illicit activities can offer short-term gains, but will negatively impact this score.
+
+4. [b]Networking[/b]: This isn't just about whom you know, but how you maintain these relationships. Attend social events, make the right friends, and your networking reputation will soar.
+
+5. [b]Market Knowledge[/b]: Are you on top of the latest trends? Do you have a knack for predicting market shifts? Prove it, and watch your market knowledge reputation grow.
+
+6. [b]Philanthropy[/b]: Generous donations and charity work boost your philanthropy reputation. After all, a businessman's role isn't limited to just making profits.
+
+7. [b]Innovation[/b]: Pour money into developing and promoting novel technologies or revolutionary ideas. Taking the lead in innovation always makes a mark.
+
+8. [b]Overall Reputation[/b]: The ultimate reflection of your standing in the business world, this is the sum total of all the above facets.
+
+Each of these dimensions will not only influence how the world perceives you but also unlock new gameplay possibilities. A solid reputation might attract exclusive deals, special events, and unique opportunities, while a questionable reputation might incite public backlash or even attract government scrutiny.
+
+Stay tuned for more updates!
+
+######## 2023-03-27 | STONKS-9800 devlog #1: Amy | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5143713753743615241
+Hello! It's Ternox.
+
+I've decided to start a devlog of STONKS-9800 as I'm getting closer to releasing the game in Early Access. The devlog will continue as long as the game is updated, even after release. I'm excited to share my progress with everyone and give some insight into the development process. 
+
+Well, you probably already know what the game is about, right? Maybe you've even played the demo and noticed that Amy plays the role of a player's assistant. And I decided to expand her role a bit. But I should warn you that the game is still primarily a fun stock market simulator, so don't expect it to become a fully formed visual novel.
+
+[h2]So, first devlog about Amy. Who is she?[/h2]
+
+[img]{STEAM_CLAN_IMAGE}/39729459/5877045cb8bc766c4e41fc6a1f481cc78462373c.png[/img]
+
+Amy is a complex character with a range of emotions and experiences, which I wanted to reflect in her dialogues. She's a hard worker and takes her job seriously, but also has a playful and mischievous side to her personality. I wanted to make sure that her conversations with the player were not only informative and task-oriented, but also had some humor and lightheartedness to them.
+
+[img]{STEAM_CLAN_IMAGE}/39729459/e8b833f8baee1738ff772d38d4cd1fec32351247.png[/img]
+
+To achieve this, I came up with a variety of dialogues that reflect different aspects of Amy's personality. For example, I created dialogues where Amy tells stories from her childhood, shares personal and intimate details from her life, and even gets a little bit tipsy and acts silly with the player while on a walk.
+
+I wanted to create a character that would not only guide players through the game but also provide an engaging and memorable experience. 
+
+[img]{STEAM_CLAN_IMAGE}/39729459/c53636bc9ab28d6cae4ae762be1f9d489b2e5348.png[/img]
+
+I also made sure to incorporate cultural references to Japan in the 80s, where the game takes place, to really immerse the player in the setting and make the dialogues feel more authentic. These references range from famous Japanese works to local customs and traditions.
+
+In addition to crafting her personality and dialogues, I also designed a storyline connected to Amy that runs throughout the game, offering different endings based on the player's decisions and interactions with her.
+
+[img]{STEAM_CLAN_IMAGE}/39729459/9a43f1e79cf9d77f499240d3da01696707cb866f.png[/img]
+
+This storyline adds a layer of depth and emotional investment to the game, as players will be able to see how their actions impact Amy's life and the development of their relationship. As they progress through the game, players will encounter various events and situations that challenge their bond with Amy and require them to make crucial choices that will ultimately determine the outcome of her story.
+But I'll talk about the storylines some other time.
+
+Thank you for your attention, and please add the game to your wishlist! I hope to provide you with an Early Access release date very soon!
+https://store.steampowered.com/app/1539140/STONKS9800_Stock_Market_Simulator/
+
+######## 2022-12-17 | Early Access? | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5623338145756117553
+I was thinking... how would you feel about me releasing STONKS-9800 in early access in the near future?
+
+I have a lot of minor work to do and I realize that I really need players who will share their experiences so that I can improve the game, as I did with the release the demo.
+
+I wasn't planning on releasing the game in early access, but I feel that as a solo developer I need more feedback and it will help and motivate me to develop more actively.
+
+And the simulator genre requires a lot of things that I can't keep track of.
+
+So, what do you think about it?
+
+[b][url=https://steamcommunity.com/app/1539140/discussions/0/5704402939710409522/]Discussion[/url][/b]
+
+######## 2022-03-23 | What happened? | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/4258723269505638619
+STONKS-9800 was almost ready, but unfortunately, there was a war in my country. Russian troops attacked Ukraine on February 24, and so far it is very difficult for me to develop any games.
+
+I'm fine now, but I'm morally exhausted. I hope to return to the development of the game in the near future, as there is currently no active hostilities in my city.
+
+Sorry again for the delay.
+
+Glory to Ukraine!
+
+######## 2022-03-15 | Ukrainian Indie Games Bundle | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/5631194088574363785
+[img]https://cdn.akamai.steamstatic.com/steamcommunity/public/images/clans/25363761/8b66bbca719fd4b061d998976298e6f5603efcf0.png[/img]
+
+11 games from 11 Ukrainian developers with Ukrainian localization
+
+Money from the sale will help the Ukrainian Armed Forces, relatives and friends of the developers in these difficult times.
+
+[h1][b][url=https://store.steampowered.com/bundle/25237/Ukrainian_Indie_Games_Bundle/]Ukrainian Indie Games Bundle [/url][/b][/h1]
+
+######## 2021-11-15 | Live the economy of 1980s Japan in STONKS-9800 | https://steamstore-a.akamaihd.net/news/externalpost/PC Gamer/4971406207531177238
+<img src="https://cdn.mos.cms.futurecdn.net/YtgGf6SJnhG3qJv9E4HSCP.jpg"/><br><br>
+                Upcoming simulator STONKS-9800 is going to use vaporwave, colors, a retro aesthetic, and a nice anime lady to transport you back in time: To the wild 1980s and &apos;90s of the apocalyptic Japanese stock market bubble. In this fusion of interactive fiction and stock market simulation you&apos;ll ride out the chaos and try to get as rich as you can in the process...
+                <a href="https://www.pcgamer.com/live-the-economy-of-1980s-japan-in-stonks-9800?utm_source=steam&utm_medium=referral" target="_blank">Read more.</a>
+
+######## 2021-11-14 | STONKS-9800: Stock Market Simulator #MIXNEXT 2021 New Trailer | https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/4971406207527544765
+[previewyoutube=bxR4Zo5Nmb0;full][/previewyoutube]
+

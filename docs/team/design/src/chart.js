@@ -1,0 +1,15 @@
+function rng(seed){let s=seed>>>0;return()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return s/4294967296}}
+function gauss(r){let u=0,v=0;while(!u)u=r();while(!v)v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+function series(seed,n,start,vol,drift){const r=rng(seed);let p=start;const out=[];for(let i=0;i<n;i++){const o=p;let c=o*(1+drift+vol*gauss(r));if(i==Math.floor(n*.62))c=o*1.045;const h=Math.max(o,c)*(1+Math.abs(gauss(r))*vol*.6);const l=Math.min(o,c)*(1-Math.abs(gauss(r))*vol*.6);out.push({o,h,l,c,v:.4+r()*.6+(i==Math.floor(n*.62)?1.2:0)});p=c}return out}
+function candles(el,{seed,n,start,vol,drift,w,h,volH=56,pad=48,grid=true,last=true,endAt=null}){
+  let d=series(seed,n,start,vol,drift);if(endAt){const f=endAt/d[n-1].c;d=d.map(k=>({o:k.o*f,h:k.h*f,l:k.l*f,c:k.c*f,v:k.v}))}const hi=Math.max(...d.map(x=>x.h)),lo=Math.min(...d.map(x=>x.l));
+  const ch=h-volH-14;const y=v=>8+(hi-v)/(hi-lo)*(ch-16);const cw=(w-pad)/n;let s=`<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">`;
+  if(grid){for(let i=0;i<5;i++){const v=lo+(hi-lo)*i/4,yy=y(v);s+=`<line x1="0" x2="${w-pad}" y1="${yy}" y2="${yy}" stroke="#1A1E25"/><text x="${w-pad+8}" y="${yy+4}" fill="#5F656E" font-family="JetBrains Mono" font-size="10.5">${v.toFixed(2)}</text>`}}
+  d.forEach((k,i)=>{const x=i*cw+cw/2,up=k.c>=k.o,col=up?'#3FD1B0':'#FF6B5A';const bw=Math.max(1.5,cw*.62);
+    s+=`<line x1="${x}" x2="${x}" y1="${y(k.h)}" y2="${y(k.l)}" stroke="${col}" stroke-width="1" opacity=".9"/>`;
+    s+=`<rect x="${x-bw/2}" y="${y(Math.max(k.o,k.c))}" width="${bw}" height="${Math.max(1,Math.abs(y(k.o)-y(k.c)))}" fill="${up?col:col}" ${up?'':'opacity=".95"'} rx="1"/>`;
+    const vh=k.v/2.2*volH;s+=`<rect x="${x-bw/2}" y="${h-vh}" width="${bw}" height="${vh}" fill="${col}" opacity=".22"/>`});
+  if(last){const lc=d[n-1].c,yy=y(lc);s+=`<line x1="0" x2="${w-pad}" y1="${yy}" y2="${yy}" stroke="#C9A45C" stroke-dasharray="2 4" opacity=".8"/><rect x="${w-pad+2}" y="${yy-9}" width="${pad-4}" height="18" rx="4" fill="#C9A45C"/><text x="${w-pad+7}" y="${yy+4}" fill="#16120A" font-family="JetBrains Mono" font-size="10.5" font-weight="600">${lc.toFixed(2)}</text>`}
+  s+='</svg>';el.innerHTML=s;return d}
+function spark(el,{seed,n=40,w=80,h=24,up=true}){const r=rng(seed);let p=50,pts=[];for(let i=0;i<n;i++){p+=gauss(r)*1.6+(up?.25:-.25);pts.push(p)}const hi=Math.max(...pts),lo=Math.min(...pts);const path=pts.map((v,i)=>`${i?'L':'M'}${(i/(n-1)*w).toFixed(1)},${(2+(hi-v)/(hi-lo)*(h-4)).toFixed(1)}`).join('');const c=up?'#3FD1B0':'#FF6B5A';el.innerHTML=`<svg width="${w}" height="${h}"><path d="${path}" fill="none" stroke="${c}" stroke-width="1.4"/></svg>`}
+function ring(el,{size=28,frac=.62}){const r=size/2-2.5,c=2*Math.PI*r;el.innerHTML=`<svg width="${size}" height="${size}"><circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="#262B33" stroke-width="2" fill="none"/><circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="#C9A45C" stroke-width="2" fill="none" stroke-dasharray="${c*frac} ${c}" stroke-linecap="round" transform="rotate(-90 ${size/2} ${size/2})"/></svg>`}

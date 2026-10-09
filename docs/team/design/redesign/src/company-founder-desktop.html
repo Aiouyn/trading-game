@@ -1,0 +1,141 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="quay.css"><link rel="stylesheet" href="os.css"><link rel="stylesheet" href="company.css">
+<script src="palettes.js"></script><script src="glyphs.js"></script><script src="wallpaper.js"></script><script src="shell.js"></script>
+<style>
+body{width:1440px;height:900px}
+.rail{width:156px}
+.shr{grid-template-columns:140px 1fr 44px}
+.btn{white-space:nowrap}
+.tbl td,.tbl th{white-space:nowrap}
+.lgd{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-left:14px}.lgd i{width:14px;height:2px;background:var(--muted)}.lgd i.ds{background:repeating-linear-gradient(90deg,var(--muted) 0 3px,transparent 3px 6px)}
+.item{padding:10px 16px 11px}
+.item.top .hl{font-size:18px}
+</style></head><body>
+<div id="wall"></div><div id="strip"></div>
+
+<!-- Company: Overview -->
+<div class="win active" style="left:14px;top:46px;width:944px;height:794px" data-testid="win-company">
+  <div class="tb"><span class="gl" data-g="company"></span><span class="nm">Company</span><span class="sub">Lantern Roasting Co. · Overview</span><span id="c1"></span></div>
+  <div class="cwin">
+    <div class="rail" data-testid="company-rail">
+      <div class="co"><div class="lg">L</div><div><div class="t">Lantern</div><div class="s">Seed · Private</div></div></div>
+      <a class="on">Overview</a><a>Products</a><a>R&amp;D</a><a>People</a><a>Operations</a><a>Marketing</a><a>Finance</a><a>Filings <i class="pub"></i></a><a>Listing</a>
+      <div class="foot"><span style="display:inline-flex;align-items:center;gap:6px"><i class="dot" style="background:var(--info);width:5px;height:5px"></i>Others see a yearly registry entry, in bands.</span><br>No trading window until Late tier.</div>
+    </div>
+    <div class="cmain">
+      <div class="vhead">
+        <div><h1>Lantern Roasting Co.</h1><div class="meta">Seed · Private company · Founded Day 36 · Cooper Lane, Port Avalon</div></div>
+        <div class="toggle" data-testid="company-view-toggle"><div class="on">Founder view</div><div>What the market sees</div></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="label">Cash</div><div class="v">$182,400<small>.00</small></div><div class="s">Company account</div></div>
+        <div class="kpi"><div class="label">Runway</div><div class="v">14 weeks</div><div class="s">At <span class="mono">12,580.00</span> a week</div></div>
+        <div class="kpi"><div class="label">Revenue this week</div><div class="v mono muted">0.00</div><div class="s">Costs <span class="mono loss">−12,580.00</span></div></div>
+        <div class="kpi"><div class="label">Next close</div><div class="v">Day 42</div><div class="s">Decisions apply then</div></div>
+      </div>
+      <div style="display:flex;gap:14px;flex:1;min-height:0">
+        <div style="flex:1;display:flex;flex-direction:column;gap:14px;min-width:0">
+          <div class="card dec" style="flex:1" data-testid="company-decision">
+          <div class="chd"><span class="label" style="color:var(--acc-hi)">Decision · due at the Day 42 close</span><span class="r priv">Private</span></div>
+          <h3>How much goes into the House Blend quality project?</h3>
+          <div class="muted" style="font-size:12.5px;line-height:1.5;margin-top:6px">Quality decides when it can ship and how it competes. More budget raises the odds and the gain, but each extra dollar adds a little less.</div>
+          <div class="srow" style="margin-top:14px"><span>Project budget per week</span><span><span class="faint" style="font-size:11.5px;margin-right:8px">was <span class="mono" style="font-size:11.5px;color:var(--faint)">4,000.00</span></span><span class="mono">8,000.00</span></span></div>
+          <div class="slider"><div class="tr"></div><div class="fl" style="width:53.3%"></div><div class="was" style="left:26.7%"></div><div class="kn" style="left:53.3%"></div></div>
+          <div class="srow" style="font-size:10.5px"><span class="mono faint" style="font-size:10.5px;color:var(--faint)">0</span><span class="mono" style="font-size:10.5px;color:var(--faint)">15,000</span></div>
+          <div style="margin-top:8px">
+            <div class="kv2"><span>Success odds</span><span class="mono">70–80% <span class="faint">(was 55–65%)</span></span></div>
+            <div class="kv2"><span>Quality if it works</span><span class="mono">+3 / +5 / +7</span></div>
+            <div class="kv2"><span>Runway after</span><span class="mono">14 → 11 weeks</span></div>
+          </div>
+          <div class="lag" style="margin-top:8px"><span data-g="clock"></span><span>Takes 20 game days with one R&amp;D lead. Quality moves on the day the project completes, about Day 62, not before.</span></div>
+          <div class="btns" style="margin-top:14px"><div class="btn pri">Confirm for Day 42 close <kbd>Enter</kbd></div><div class="btn gh">Keep 4,000</div><span class="faint" style="font-size:11.5px;margin-left:auto">You can change it until then.</span></div>
+        </div>
+          <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div class="chd"><span class="label">Cash runway</span><span class="r priv">Private</span></div>
+          <div id="burn" style="flex:1"></div>
+          <div style="display:flex;align-items:center;margin-top:6px"><span class="lgd" style="margin-left:0"><i style="background:var(--acc)"></i>With 8,000 · zero by D119</span><span class="lgd"><i class="ds"></i>As now · zero by D139</span><span class="faint" style="font-size:11px;margin-left:auto">Costs only, no sales</span></div>
+        </div>
+        </div>
+        <div style="width:250px;flex:none;display:flex;flex-direction:column;gap:14px">
+          <div class="card"  data-testid="company-checklist">
+          <div class="chd"><span class="label">First week</span><span class="r mono faint" style="font-size:11px">2 of 5</span></div>
+          <div class="check done"><span class="bx" data-g="tick"></span><span class="tx">Register the company</span><span class="d">D36</span></div>
+          <div class="check done"><span class="bx" data-g="tick"></span><span class="tx">Hire an R&amp;D lead</span><span class="d">D37</span></div>
+          <div class="check now"><span class="bx"></span><span class="tx">Set the R&amp;D budget</span><span class="d" style="color:var(--acc)">due D42</span></div>
+          <div class="check"><span class="bx"></span><span class="tx">Pick a price band</span></div>
+          <div class="check"><span class="bx"></span><span class="tx">Sign a bean supplier</span></div>
+          <div class="faint" style="font-size:11px;margin-top:8px;line-height:1.45">A guide, not a gate. Skipping a step locks nothing.</div>
+        </div>
+          <div class="card" style="display:flex;flex-direction:column;gap:10px">
+          <div class="chd" style="margin-bottom:0"><span class="label">Team</span><span class="r mono faint" style="font-size:11px">2 people</span></div>
+          <div style="display:flex;gap:10px;align-items:center"><span class="av">You</span><div><div style="font-size:12.5px">You</div><div class="faint" style="font-size:11px">Founder · unpaid</div></div></div>
+          <div style="display:flex;gap:10px;align-items:center"><span class="av">MO</span><div><div style="font-size:12.5px">Mira Okafor</div><div class="faint" style="font-size:11px">R&amp;D lead · <span class="mono">1,000.00</span>/wk</div></div></div>
+          <div class="faint" style="font-size:11px">Room for 2 more on the lease.</div>
+        </div>
+          <div class="empty" style="flex:1;display:flex;flex-direction:column;justify-content:center">
+          <div class="serif" style="font-size:20px;color:var(--fg)">No sales yet.</div>
+          <div style="margin-top:6px">House Blend ships once quality reaches 55. Until then the roaster is all cost and the runway is the number to watch.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Company: Products (second instance) -->
+<div class="win" style="left:968px;top:46px;width:458px;height:478px" data-testid="win-company-2">
+  <div class="tb"><span class="gl" data-g="company"></span><span class="nm">Company</span><span class="sub">Products · R&amp;D</span><span id="c2"></span></div>
+  <div class="cmain" style="padding:16px 18px;gap:13px">
+    <div style="display:flex;align-items:center;gap:10px"><span class="serif" style="font-size:24px">House Blend</span><span class="chip">In development</span><span class="priv" style="margin-left:auto">Private</span></div>
+    <div class="faint" style="font-size:11.5px;margin-top:-8px">Mid-range bagged coffee · Port Avalon · planned <span class="mono">14.00</span> a bag</div>
+    <div>
+      <div class="srow" style="margin-bottom:7px"><span>Quality</span><span><span class="mono">49</span> <span class="faint" style="font-size:11px">/ 100</span></span></div>
+      <div class="bar" style="height:8px"><i style="width:49%"></i><span class="hatch" style="left:49%;width:7%"></span><span style="position:absolute;left:55%;top:-2px;bottom:-2px;width:1.5px;background:var(--fg)"></span></div>
+      <div class="srow" style="margin-top:6px;font-size:11px"><span><i style="display:inline-block;width:14px;height:6px;margin-right:5px;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--acc) 55%,transparent) 0 2px,transparent 2px 5px)"></i>Project: +3 to +7 if it works, about D62</span><span>Ready to ship at <span class="mono" style="font-size:11px">55</span></span></div>
+    </div>
+    <div class="hr"></div>
+    <div>
+      <div class="chd" style="margin-bottom:9px"><span class="label">Competitors · mid-range bagged</span><span class="r publ"><i class="dot" style="background:var(--info);width:4px;height:4px"></i>Public</span></div>
+      <table class="tbl" style="margin-top:-2px">
+        <tr><th>Company</th><th>Product</th><th>Price</th><th>Revenue, last Q</th></tr>
+        <tr><td>Kettle &amp; Crane</td><td class="txt" style="font-family:var(--sans);font-size:11.5px;color:var(--muted)">Crane Classic</td><td>13.50</td><td>41.2M</td></tr>
+        <tr><td>Avalon Bean Co.</td><td style="font-family:var(--sans);font-size:11.5px;color:var(--muted)">Harbour Roast</td><td>12.90</td><td>29.8M</td></tr>
+        <tr><td>Mole Street Roasters</td><td style="font-family:var(--sans);font-size:11.5px;color:var(--muted)">Mole No. 3</td><td>15.20</td><td>22.6M</td></tr>
+      </table>
+      <div class="faint" style="font-size:11px;margin-top:8px">Names, prices and filed revenue only. Your own share appears once you sell.</div>
+    </div>
+    <div class="hr"></div>
+    <div><div class="chd" style="margin-bottom:6px"><span class="label">Pipeline</span><span class="r priv">Private</span></div>
+      <div style="display:flex;align-items:center;font-size:12.5px"><span class="muted">Harbour Dark · premium</span><span class="faint" style="margin-left:auto;font-size:11.5px">Idea · needs a free R&amp;D slot</span></div></div>
+  </div>
+</div>
+
+<!-- Wire -->
+<div class="win" style="left:968px;top:534px;width:458px;height:306px" data-testid="win-wire">
+  <div class="tb"><span class="gl" data-g="wire"></span><span class="nm">Wire</span><span class="sub">Port Avalon</span><span id="c3"></span></div>
+  <div class="item top"><div class="meta"><span class="dot" style="background:var(--acc)"></span>D36 · 10:00<span class="chip">Your company</span></div><div class="hl">Lantern Roasting Co. registers on Cooper Lane: private, 1–10 staff</div></div>
+  <div class="item"><div class="meta"><span class="dot" style="background:var(--info)"></span>D40 · 16:00<span class="chip">Filing</span></div><div class="hl">Kettle &amp; Crane files Q1: revenue $41.2M, net income $3.9M</div></div>
+  <div class="item"><div class="meta"><span class="dot" style="background:var(--muted)"></span>D39 · 09:00<span class="chip">Commodities</span></div><div class="hl">Green coffee prices up 3.1% on the week</div></div>
+</div>
+
+<div id="shelf"></div>
+<script>
+G.clock='<circle cx="12" cy="12" r="8.25"/><path d="M12 7.5V12l3 2"/>';
+G.tick='<path d="m5 12.5 4.5 4.5L19 7.5"/>';
+const P=applyPalette('ink-brass');
+wall.innerHTML=wallpaper('ink-brass',1440,900,P,.79);
+strip.outerHTML=osStrip({day:'Day 41 · 09:10',nw:'$431,206.40',pct:'+0.12%'});
+shelf.outerHTML=osShelf({running:{company:'on',wire:'run'},locked:['research']});
+['c1','c2','c3'].forEach(id=>document.getElementById(id).outerHTML=winCtl());
+document.querySelectorAll('[data-g]').forEach(e=>{const g=e.dataset.g; e.innerHTML=glyph(g,g==='tick'?11:15,g==='tick'?2:1.5)});
+// burn line: 182.4k at D41 down to 0 near D139 (illustrative), axis days
+(function(){const el=document.getElementById('burn');const w=el.clientWidth,h=el.clientHeight;const x=d=>8+(d-41)/(140-41)*(w-50),y=v=>8+(1-v/190000)*(h-26);
+ let s=`<svg width="${w}" height="${h}">`;[0,95000,190000].forEach(v=>{s+=`<line x1="8" x2="${w-42}" y1="${y(v)}" y2="${y(v)}" stroke="${P.grid}"/><text x="${w-36}" y="${y(v)+3.5}" fill="${P.faint}" font-family="JetBrains Mono" font-size="9.5">${v?(v/1000)+'k':'0'}</text>`});
+ s+=`<path d="M${x(41)} ${y(182400)} L${x(42)} ${y(180600)} L${x(139)} ${y(0)}" fill="none" stroke="${P.muted}" stroke-width="1.4" stroke-dasharray="3 3"/>`;
+ s+=`<path d="M${x(41)} ${y(182400)} L${x(42)} ${y(180600)} L${x(119)} ${y(0)}" fill="none" stroke="${P.acc}" stroke-width="1.5"/>`;
+ s+=`<circle cx="${x(41)}" cy="${y(182400)}" r="3" fill="${P.acc}"/>`;
+ [41,70,100,139].forEach(d=>s+=`<text x="${x(d)-8}" y="${h-4}" fill="${P.faint}" font-family="JetBrains Mono" font-size="9.5">D${d}</text>`);
+  el.innerHTML=s+'</svg>';})();
+</script>
+<style>.av{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--win2);display:grid;place-items:center;font-size:10px;font-weight:600;color:var(--muted);flex:none}</style>
+</body></html>

@@ -1,0 +1,22 @@
+body{width:390px;height:844px;background:var(--bg0)}
+.sb{position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;padding:0 22px;font-family:var(--mono);font-size:13px;z-index:3;background:var(--bg0)}
+.sb .qm{color:var(--acc);margin-right:8px;width:26px;height:26px;display:grid;place-items:center;margin-left:-5px}
+.sb .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+.ab{position:absolute;top:44px;left:0;right:0;height:44px;display:flex;align-items:center;padding:0 12px;gap:6px;z-index:3;background:var(--bg0)}
+.ab .bk{width:32px;height:32px;display:grid;place-items:center;color:var(--muted);transform:scaleX(-1)}
+.ab .t{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.ab .t .g{color:var(--acc)}
+.ab .act{margin-left:auto}
+.tabs{position:absolute;top:88px;left:0;right:0;height:42px;display:flex;gap:6px;padding:4px 16px 0;overflow:hidden;border-bottom:1px solid var(--line);z-index:3;background:var(--bg0)}
+.tabs div{flex:none;height:30px;padding:0 12px;border-radius:15px;display:flex;align-items:center;font-size:12.5px;color:var(--muted);border:1px solid transparent;gap:6px}
+.tabs div.on{background:var(--win2);border-color:var(--line);color:var(--fg)}
+.tabs::after{content:"";position:absolute;right:0;top:0;bottom:0;width:48px;background:linear-gradient(90deg,transparent,var(--bg0))}
+.body{position:absolute;top:131px;left:0;right:0;bottom:0;padding:14px 16px 40px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+.fade{position:absolute;left:0;right:0;bottom:0;height:56px;background:linear-gradient(180deg,transparent,var(--bg0) 70%);z-index:4}
+.edge{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);color:var(--faint);z-index:5}
+.card{padding:13px 14px}
+.mtoggle{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;height:30px}
+.mtoggle div{flex:1;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)}
+.mtoggle div.on{background:var(--win2);color:var(--fg);box-shadow:inset 0 -1.5px 0 var(--acc)}
+.btn.full{width:100%;justify-content:center;height:42px;font-size:13.5px}
+.body>*{flex:none}

@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8">
+<script src="palettes.js"></script><script src="glyphs.js"></script>
+<style>
+:root{--serif:"Instrument Serif",Georgia,serif;--sans:"Inter",sans-serif;--mono:"JetBrains Mono",monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:1680px;height:1000px;background:#0B0D10;color:#ECE9E2;font-family:var(--sans);-webkit-font-smoothing:antialiased;padding:34px 40px}
+header{display:flex;align-items:baseline;gap:14px;color:#C9A45C}
+header h1{font-family:var(--serif);font-weight:400;font-size:34px;color:#ECE9E2}
+header .s{font-size:13px;color:#9AA0A8;margin-left:6px}
+header .r{margin-left:auto;font-family:var(--mono);font-size:11px;color:#7E848E}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:28px 40px;margin-top:24px}
+.cell .hd{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.cell .nm{font-family:var(--serif);font-size:24px}
+.cell .ln{font-size:12.5px;color:#9AA0A8}
+.sw{display:flex;gap:3px;margin-left:auto}
+.sw i{width:16px;height:16px;border-radius:4px;border:1px solid rgba(255,255,255,.12)}
+.imgs{display:flex;gap:14px;align-items:flex-start}
+.imgs img{display:block;border-radius:8px;border:1px solid #262B33}
+.d{width:600px;height:375px}.p{height:375px;width:173.3px}
+.tag{font-family:var(--mono);font-size:10px;color:#7E848E;margin-top:6px;display:flex;justify-content:space-between;width:787px}
+</style></head><body>
+<header><span id="mk"></span><h1>Quay · four palettes</h1><span class="s">Desktop 1440 × 900 and phone 390 × 844, all at R2 Owner, Day 38 · 11:20</span><span class="r">velvet-desktop-os.md</span></header>
+<div class="grid" id="g"></div>
+<script>
+mk.innerHTML=glyph('quay',28,1.6);
+g.innerHTML=Object.entries(PALETTES).map(([k,p],i)=>`<div class="cell"><div class="hd"><span style="font-family:var(--mono);font-size:11px;color:#7E848E">0${i+1}</span><span class="nm">${p.name}</span><span class="ln">${p.line1}${i===0?' Baseline.':''}</span>
+<span class="sw">${[p.bg0,p.win,p.fg,p.acc,p.gain,p.loss].map(c=>`<i style="background:${c}"></i>`).join('')}</span></div>
+<div class="imgs"><img class="d" src="../${k}-desktop.png"><img class="p" src="../${k}-phone.png"></div></div>`).join('');
+</script></body></html>

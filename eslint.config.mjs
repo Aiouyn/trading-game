@@ -19,7 +19,22 @@ const eslintConfig = defineConfig([
     "coverage/**",
     "sim-out/**",
     ".next-*/**",
+    // the Grok team canon (specs, mocks, staging engine) is reference material
+    "docs/team/**",
+    "world-data/**",
+    "tour-out/**",
   ]),
+  {
+    // every user-facing string goes through t() (src/i18n); a warning until every screen is migrated
+    files: ["src/components/**/*.tsx"],
+    rules: {
+      "react/jsx-no-literals": ["warn", {
+        noStrings: true,
+        ignoreProps: true,
+        allowedStrings: ["·", "—", "–", "/", "×", "%", "$", "+", ":", "(", ")", "★", "✕", "…", "|", "#", "@", ",", "."],
+      }],
+    },
+  },
 ]);
 
 export default eslintConfig;

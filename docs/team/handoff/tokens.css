@@ -1,0 +1,293 @@
+/*
+ * Design tokens v2: Ink & Brass + Quay shell. Owner: Velvet.
+ * Specs: docs/DESIGN.md (tokens, type) and specs/velvet-desktop-os.md (Quay shell, palettes).
+ * Import from src/app/globals.css right after `@import "tailwindcss";`
+ *   @import "../styles/tokens.css";
+ * Fonts come from next/font in layout.tsx as --font-instrument-serif,
+ * --font-inter and --font-jetbrains-mono (see DESIGN.md §3).
+ *
+ * Palettes: Ink & Brass is the default (:root). Broadsheet, Phosphor and Riviera
+ * override the SAME token names in [data-palette="…"] blocks at the end of this file.
+ * Forge only sets data-palette on <html> (absent or "ink-brass" = default).
+ * Components never branch on palette; they read tokens. Never hard-code hex in components.
+ * The "brass" names are the accent role in every palette (oxblood, amber, coral elsewhere).
+ * v1 names and Ink & Brass values are unchanged.
+ */
+
+@theme {
+  /* Surfaces: ink, darkest to lightest */
+  --color-ink-0: #0b0d10; /* app background */
+  --color-ink-1: #12151a; /* cards, panels */
+  --color-ink-2: #1a1e25; /* raised rows, hover, hairlines on ink-0 */
+  --color-ink-3: #262b33; /* borders, inputs, selected tabs */
+
+  /* Text */
+  --color-fg: #ece9e2;          /* primary text, 15:1 on ink-1 */
+  --color-fg-muted: #9aa0a8;    /* secondary text, 6.9:1 */
+  --color-fg-faint: #7e848e;    /* labels and captions, 4.9:1 on ink-1 (AA) */
+  --color-fg-disabled: #5f656e; /* disabled and decoration only, never body text */
+
+  /* Brass: wealth, rank, primary action. Use sparingly. */
+  --color-brass: #c9a45c;
+  --color-brass-hi: #e6cb8f;
+  --color-brass-lo: #b08a45;
+  --color-on-brass: #16120a;    /* text on brass buttons, 7.9:1 */
+
+  /* Market semantics */
+  --color-gain: #3fd1b0;
+  --color-loss: #ff6b5a;
+  --color-warn: #f2b33d;
+  --color-info: #6ea8fe;
+
+  /* Quay shell surfaces (v2) */
+  --color-chrome: #0e1014;      /* status strip, shelf, phone bottom row */
+  --color-grid: #1a1e25;        /* chart grid lines */
+
+  /* Shadow sub-palette: Lab and Security Ops only */
+  --color-steel: #7c8a99;
+  --color-signal: #e5484d;      /* only for a defense-AI flag and Lockdown */
+
+  /* Type scale (size / line-height) */
+  --text-micro: 10.5px;  --text-micro--line-height: 14px;  --text-micro--letter-spacing: 0.14em;
+  --text-caption: 11.5px; --text-caption--line-height: 16px;
+  --text-small: 12.5px;  --text-small--line-height: 18px;
+  --text-body: 14px;     --text-body--line-height: 20px;
+  --text-title: 22px;    --text-title--line-height: 28px;   /* serif section titles */
+  --text-price: 30px;    --text-price--line-height: 36px;   /* mono hero price */
+  --text-hero: 40px;     --text-hero--line-height: 44px;    /* serif net worth, desktop */
+  --text-hero-lg: 48px;  --text-hero-lg--line-height: 50px; /* serif net worth, phone */
+
+  /* Radius */
+  --radius-chip: 999px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-window: 10px;  /* Quay windows (Phosphor: 6px) */
+  --radius-sheet: 20px;   /* phone bottom sheets, home widget */
+
+  /* Elevation (dark UI: borders do most of the work) */
+  --shadow-brass: 0 1px 0 rgb(255 255 255 / 0.35) inset, 0 8px 24px rgb(201 164 92 / 0.18);
+  --shadow-sheet: 0 -12px 40px rgb(0 0 0 / 0.5);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --animate-flash-gain: flash-gain 420ms var(--ease-out);
+  --animate-flash-loss: flash-loss 420ms var(--ease-out);
+  --animate-tick: tick-ring 5000ms linear infinite;
+  --animate-shimmer: brass-shimmer 2400ms var(--ease-in-out);
+
+  @keyframes flash-gain { from { background-color: color-mix(in srgb, var(--color-gain) 28%, transparent); } to { background-color: transparent; } }
+  @keyframes flash-loss { from { background-color: color-mix(in srgb, var(--color-loss) 28%, transparent); } to { background-color: transparent; } }
+  @keyframes tick-ring  { from { stroke-dashoffset: var(--ring-length, 88); } to { stroke-dashoffset: 0; } }
+  @keyframes brass-shimmer { 0% { background-position: -150% 0; } 100% { background-position: 250% 0; } }
+}
+
+/* Fonts are runtime variables from next/font, so they must be inline. */
+@theme inline {
+  --font-serif: var(--font-instrument-serif), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+:root {
+  color-scheme: dark;
+  /* Durations for JS-driven motion (number roll, sheets, charts) */
+  --dur-fast: 120ms;     /* hover, press, toggles */
+  --dur-base: 220ms;     /* sheets, tabs, row inserts */
+  --dur-slow: 420ms;     /* price flash, rank-up beats, settle */
+  --dur-ambient: 2400ms; /* brass shimmer, idle glows */
+  --dur-tick: 5000ms;    /* one market tick; the tick ring */
+  /* Layout */
+  --rail-w: 72px;
+  --side-w: 344px;
+  --topbar-h: 76px;
+  --tabbar-h: 84px;
+  --focus-ring: 0 0 0 2px var(--color-ink-0), 0 0 0 4px var(--color-brass-hi);
+
+  /* ---- Quay shell (v2), see specs/velvet-desktop-os.md ---- */
+  /* Status strip */
+  --os-strip-h: 34px;
+  --os-strip-h-focus: 24px;
+  --os-strip-bg: color-mix(in srgb, var(--color-chrome) 94%, transparent);
+  --os-strip-border: var(--color-ink-3);
+  /* Shelf */
+  --os-shelf-h: 52px;
+  --os-shelf-bg: var(--color-chrome);
+  --os-shelf-tile: 40px;
+  --os-shelf-tile-radius: 9px;
+  --os-shelf-brush: repeating-linear-gradient(90deg, rgb(255 255 255 / 0.035) 0 1px, transparent 1px 3px); /* R2 aluminum */
+  --os-shelf-highlight: linear-gradient(180deg, rgb(255 255 255 / 0.05), transparent 60%);
+  /* Windows */
+  --os-window-bg: var(--color-ink-1);
+  --os-window-border: var(--color-ink-3);
+  --os-window-radius: var(--radius-window);
+  --os-window-shadow: 0 18px 40px rgb(0 0 0 / 0.45), 0 2px 6px rgb(0 0 0 / 0.35);
+  --os-titlebar-h: 32px;
+  --os-titlebar-h-focus: 22px;
+  --os-title-font: var(--font-inter), system-ui, sans-serif;
+  --os-title-size: 12.5px;
+  --os-title-weight: 600;
+  --os-title-transform: none;
+  --os-title-tracking: 0;
+  --os-label-font: var(--font-inter), system-ui, sans-serif; /* .label family */
+  --os-active-hairline: 1.5px;
+  --os-gutter: 8px;
+  --os-gutter-focus: 1px;
+  --os-snap-preview-border: var(--color-brass);
+  --os-snap-preview-fill: color-mix(in srgb, var(--color-brass) 6%, transparent);
+  /* Wallpaper: Forge renders the art; these are its colour hooks */
+  --os-wallpaper-ground: var(--color-ink-0);
+  --os-wallpaper-ink: var(--color-brass);  /* line-art colour */
+  --os-wallpaper-ink-opacity: 0.22;
+  /* Toasts, launcher */
+  --os-toast-w: 332px;
+  --os-toast-gap: 10px;
+  --os-launcher-w: 640px;
+  /* Accent (primary) button hooks, used by .btn-brass */
+  --btn-accent-bg: linear-gradient(180deg, var(--color-brass-hi) 0%, var(--color-brass) 55%, var(--color-brass-lo) 100%);
+  --btn-accent-shadow: var(--shadow-brass);
+  /* Wire lead headline */
+  --os-lead-headline-font: var(--font-instrument-serif), Georgia, serif;
+  --os-lead-headline-size: 20px;
+  --os-lead-headline-weight: 400;
+  /* Phone */
+  --phone-status-h: 44px;
+  --phone-icon: 60px;
+  --phone-icon-radius: 16px;
+  --phone-row-radius: 24px;
+  --phone-sheet-bg: var(--color-ink-1);
+  --phone-scrim: rgb(0 0 0 / 0.55);
+}
+
+@layer base {
+  html { background: var(--color-ink-0); }
+  body {
+    background: var(--color-ink-0);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+  ::selection { background: color-mix(in srgb, var(--color-brass) 35%, transparent); color: var(--color-fg); }
+}
+
+@layer utilities {
+  /* Every number on screen: prices, quantities, P&L, clocks */
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero; }
+  .label { font-size: var(--text-micro); letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-fg-faint); font-weight: 500; }
+  .btn-brass {
+    background: var(--btn-accent-bg);
+    color: var(--color-on-brass); font-weight: 600; border-radius: var(--radius-md); box-shadow: var(--btn-accent-shadow);
+    transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+  }
+  .btn-brass:hover { filter: brightness(1.06); }
+  .btn-brass:active { transform: translateY(1px) scale(0.99); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms; --dur-ambient: 0ms; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* ======================================================================
+ * Palettes (v2). Same token names, different values. Ink & Brass = :root.
+ * Values match the palette tables in specs/velvet-desktop-os.md,
+ * including the contrast fixes (Broadsheet warn #9a6100, fg-faint #67625a).
+ * Unlayered on purpose so they win over Tailwind's @layer theme.
+ * ==================================================================== */
+
+[data-palette="broadsheet"] {
+  color-scheme: light;
+  --color-ink-0: #f2ede3;
+  --color-ink-1: #ffffff;
+  --color-ink-2: #f6f2ea;
+  --color-ink-3: #d9d0bf;
+  --color-chrome: #e8e1d3;
+  --color-grid: #eee8dc;
+  --color-fg: #1b1a17;
+  --color-fg-muted: #5e5a52;
+  --color-fg-faint: #67625a;
+  --color-fg-disabled: #a39c8f;
+  --color-brass: #8c2f2b;
+  --color-brass-hi: #a8443e;
+  --color-brass-lo: #6e2320;
+  --color-on-brass: #ffffff;
+  --color-gain: #1f7a5a;
+  --color-loss: #b3261e;
+  --color-warn: #9a6100;
+  --color-info: #2f5e9e;
+  --shadow-brass: none;
+  --shadow-sheet: 0 -12px 40px rgb(60 45 20 / 0.16);
+  --os-window-shadow: 0 14px 34px rgb(60 45 20 / 0.14), 0 1px 3px rgb(60 45 20 / 0.12);
+  --os-shelf-brush: repeating-linear-gradient(90deg, rgb(0 0 0 / 0.03) 0 1px, transparent 1px 3px);
+  --os-shelf-highlight: linear-gradient(180deg, rgb(255 255 255 / 0.6), transparent 60%);
+  --os-wallpaper-ink: var(--color-fg);  /* halftone engraving */
+  --os-wallpaper-ink-opacity: 0.17;
+  --btn-accent-bg: var(--color-brass);  /* flat accent button */
+  --btn-accent-shadow: none;
+  --os-lead-headline-size: 22px;
+  --phone-scrim: rgb(27 26 23 / 0.35);
+}
+
+[data-palette="phosphor"] {
+  color-scheme: dark;
+  --color-ink-0: #070908;
+  --color-ink-1: #0d110f;
+  --color-ink-2: #141a17;
+  --color-ink-3: #1f2723;
+  --color-chrome: #090c0b;
+  --color-grid: #141a17;
+  --color-fg: #d8f3e6;
+  --color-fg-muted: #93aa9e;
+  --color-fg-faint: #7a9085;
+  --color-fg-disabled: #4a5a52;
+  --color-brass: #ffb23f;
+  --color-brass-hi: #ffc86e;
+  --color-brass-lo: #d9922a;
+  --color-on-brass: #1a1206;
+  --color-gain: #5ce1e6;
+  --color-loss: #ff5c8a;
+  --color-warn: #f5d547;
+  --color-info: #8ab4ff;
+  --shadow-brass: 0 1px 0 rgb(255 255 255 / 0.3) inset;
+  --os-window-shadow: 0 18px 40px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4);
+  --radius-window: 6px;
+  --os-title-font: var(--font-jetbrains-mono), ui-monospace, monospace;  /* mono caps titles */
+  --os-title-size: 11px;
+  --os-title-transform: uppercase;
+  --os-title-tracking: 0.08em;
+  --os-label-font: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --os-wallpaper-ink-opacity: 0.09;  /* contour lines over a 48px grid in ink-3 */
+  --os-lead-headline-font: var(--font-inter), system-ui, sans-serif;
+  --os-lead-headline-size: 16.5px;
+  --os-lead-headline-weight: 600;
+}
+
+[data-palette="riviera"] {
+  color-scheme: dark;
+  --color-ink-0: #0e1a2b;
+  --color-ink-1: #142338;
+  --color-ink-2: #1c2e47;
+  --color-ink-3: #2a3f5e;
+  --color-chrome: #0f1c2e;
+  --color-grid: #1c2e47;
+  --color-fg: #f4ecdd;
+  --color-fg-muted: #aeb6c2;
+  --color-fg-faint: #929cab;
+  --color-fg-disabled: #5d6c82;
+  --color-brass: #e8836b;
+  --color-brass-hi: #f2a48f;
+  --color-brass-lo: #c96a53;
+  --color-on-brass: #1a0f0b;
+  --color-gain: #7fd4b5;
+  --color-loss: #f06c5f;
+  --color-warn: #f2c14e;
+  --color-info: #8fb8e8;
+  --shadow-brass: 0 1px 0 rgb(255 255 255 / 0.3) inset, 0 8px 24px rgb(232 131 107 / 0.16);
+  --os-window-shadow: 0 18px 40px rgb(4 10 20 / 0.5), 0 2px 6px rgb(4 10 20 / 0.35);
+  --os-wallpaper-ink: var(--color-brass);  /* poster art uses its own fills; this is for accents */
+  --os-wallpaper-ink-opacity: 0.9;
+}

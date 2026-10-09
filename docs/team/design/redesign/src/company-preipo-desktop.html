@@ -1,0 +1,135 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="quay.css"><link rel="stylesheet" href="os.css"><link rel="stylesheet" href="company.css">
+<script src="palettes.js"></script><script src="glyphs.js"></script><script src="wallpaper.js"></script><script src="shell.js"></script>
+<style>
+body{width:1440px;height:900px}
+.rail{width:156px}
+.btn{white-space:nowrap}
+.cmp td{height:27px}
+.cmp td:nth-child(2){color:var(--fg)}
+.cmp th:nth-child(2),.cmp th:nth-child(3){text-align:right}
+.cmp td.txt{font-family:var(--sans);font-size:11.5px;color:var(--muted)}
+.cmp td.pubv{color:var(--fg)}
+.cmp tr.pv td:first-child::after{content:"Private";margin-left:7px;font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dis);border:1px solid var(--line);border-radius:3px;padding:0 4px;vertical-align:1px}
+</style></head><body>
+<div id="wall"></div><div id="strip"></div>
+
+<!-- Company: Listing -->
+<div class="win active" style="left:14px;top:46px;width:806px;height:794px" data-testid="win-company">
+  <div class="tb"><span class="gl" data-g="company"></span><span class="nm">Company</span><span class="sub">Lantern Roasting Co. · Listing</span><span id="c1"></span></div>
+  <div class="cwin">
+    <div class="rail">
+      <div class="co"><div class="lg">L</div><div><div class="t">Lantern</div><div class="s">Late · Private</div></div></div>
+      <a>Overview</a><a>Products</a><a>R&amp;D</a><a>People</a><a>Operations</a><a>Marketing</a><a>Finance</a><a>Filings <i class="pub"></i></a><a class="on">Listing</a>
+      <div class="foot"><span style="display:inline-flex;align-items:center;gap:6px"><i class="dot" style="background:var(--info);width:5px;height:5px"></i>Filings is what others see.</span><br>Everything else is private to you.</div>
+    </div>
+    <div class="cmain">
+      <div class="vhead">
+        <div><h1>Path to listing</h1><div class="meta">Lantern Roasting Co. · Late tier since Day 381 · 84 staff</div></div>
+        <div class="toggle"><div class="on">Founder view</div><div>What the market sees</div></div>
+      </div>
+      <div class="card" style="padding:16px 12px 12px" data-testid="company-ladder">
+        <div class="ladder">
+          <div class="step done"><div class="o"></div>Seed</div>
+          <div class="step done"><div class="o"></div>Growth</div>
+          <div class="step cur"><div class="o"></div>Late</div>
+          <div class="step"><div class="o"></div>IPO-eligible</div>
+          <div class="step"><div class="o"></div>Listed</div>
+        </div>
+      </div>
+      <div class="card" data-testid="company-listing-reqs">
+        <div class="chd" style="margin-bottom:4px"><span class="label">IPO-eligible · requirements</span><span class="r mono" style="font-size:11.5px;color:var(--muted)">4 of 6 met</span></div>
+        <div class="req no"><span class="st"></span>Engine equity value of $50M or more<span class="v">$46.8M · next read D507</span></div>
+        <div class="req ok"><span class="st" data-g="tick"></span>At least 3 filed quarters<span class="v">7 filed</span></div>
+        <div class="req ok"><span class="st" data-g="tick"></span>Founder at Operator rank or higher<span class="v">R3 Operator</span></div>
+        <div class="req ok"><span class="st" data-g="tick"></span>No serious conviction in 8 weeks<span class="v">Clean</span></div>
+        <div class="req ok"><span class="st" data-g="tick"></span>Loan covenants clean<span class="v">1.4× debt / 6.1× cover</span></div>
+        <div class="req no"><span class="st"></span>Float plan between 15% and 49%<span class="v">Not set</span></div>
+      </div>
+      <div style="display:flex;gap:14px;flex:1;min-height:0">
+        <div class="card" style="flex:1" data-testid="company-captable">
+          <div class="chd"><span class="label">Cap table</span><span class="r priv">Private</span></div>
+          <div class="capbar"><i style="flex:72;background:var(--acc)"></i><i style="flex:14;background:var(--info);opacity:.85"></i><i style="flex:10;background:var(--muted);opacity:.7"></i><i style="flex:4;background:var(--dis)"></i></div>
+          <div class="leg" style="margin-top:12px">
+            <i style="background:var(--acc)"></i><span style="color:var(--fg)">You, founder</span><span class="mono">72.0%</span>
+            <i style="background:var(--info)"></i><span>Northmole Ventures · Series A</span><span class="mono">14.0%</span>
+            <i style="background:var(--muted)"></i><span>Harbour Angels · seed</span><span class="mono">10.0%</span>
+            <i style="background:var(--dis)"></i><span>Staff option pool</span><span class="mono">4.0%</span>
+          </div>
+          <div class="hr" style="margin:12px 0 10px"></div>
+          <div class="kv2"><span>You after a 25% float</span><span class="mono">54.0%</span></div>
+          <div class="faint" style="font-size:11px;line-height:1.45">Above 51%, so control stays with you. Your stake counts toward net worth at 0.85 × engine value until listing.</div>
+        </div>
+        <div class="card" style="flex:1;display:flex;flex-direction:column" data-testid="company-ipo-prep">
+          <div class="chd"><span class="label">IPO prep</span><span class="r priv">Private</span></div>
+          <div class="srow"><span>Float · new shares only</span><span class="mono">25%</span></div>
+          <div class="slider"><div class="tr"></div><div class="fl" style="width:29.4%;left:0"></div><div class="kn" style="left:29.4%"></div></div>
+          <div class="srow" style="font-size:10.5px"><span class="mono" style="font-size:10.5px;color:var(--faint)">15%</span><span class="mono" style="font-size:10.5px;color:var(--faint)">49%</span></div>
+          <div style="margin-top:6px">
+            <div class="kv2"><span>IPO price</span><span class="mono">0.9 × engine value</span></div>
+            <div class="kv2"><span>Raised for the company</span><span class="mono">≈ 11.3M at $50M</span></div>
+            <div class="kv2"><span>Underwriting fee</span><span class="mono">5%</span></div>
+            <div class="kv2" data-testid="company-ipo-no-cashout"><span style="color:var(--fg)">You cash out at the IPO</span><span class="mono" style="color:var(--fg)">nothing</span></div>
+            <div class="kv2"><span>Your shares locked</span><span class="mono">168 game days</span></div>
+          </div>
+          <div class="faint" style="font-size:10.5px;line-height:1.4;margin:6px 0 8px">Price is set at the eligibility filing and shown a day ahead. You can't buy in the IPO.</div>
+          <div class="btn gh" style="margin-top:auto;justify-content:center;color:var(--muted)">Request listing · after 6 of 6</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Company: Filings -->
+<div class="win" style="left:830px;top:46px;width:596px;height:794px" data-testid="win-company-2">
+  <div class="tb"><span class="gl" data-g="company"></span><span class="nm">Company</span><span class="sub">Filings · Q8</span><span id="c2"></span></div>
+  <div class="cmain" style="padding:16px 18px;gap:12px" data-testid="company-filing-compare">
+    <div style="display:flex;align-items:center;gap:10px"><span class="serif" style="font-size:24px">Q8 filing</span><span class="chip acc">Closes D504 · files D507</span></div>
+    <table class="tbl cmp">
+      <tr><th></th><th>Your books</th><th><span class="publ" style="font-size:8.5px"><i class="dot" style="background:var(--info);width:4px;height:4px"></i>Market sees on D507</span></th></tr>
+      <tr><td>Revenue</td><td>9,412,600.00</td><td class="pubv">9,412,600.00</td></tr>
+      <tr><td>Net income</td><td class="gain">+1,186,300.00</td><td class="gain">+1,186,300.00</td></tr>
+      <tr><td>Operating cash flow</td><td>1,402,900.00</td><td class="pubv">1,402,900.00</td></tr>
+      <tr><td>Cash · total debt</td><td>6.82M · 3.50M</td><td class="pubv">6.82M · 3.50M <span class="faint" style="font-size:10px">filed D507</span></td></tr>
+      <tr><td>Headcount</td><td>84</td><td class="pubv">51–200</td></tr>
+      <tr class="pv"><td>Margin by product</td><td class="txt">Blend 44 · Dark 52 · Cans 23%</td><td class="nf">Not filed</td></tr>
+      <tr class="pv"><td>R&amp;D split</td><td class="txt">Pods 48 · Dark 30 · Blend 22%</td><td class="nf">Not filed</td></tr>
+      <tr class="pv"><td>Marketing spend</td><td>412,000.00</td><td class="nf">Not filed</td></tr>
+      <tr class="pv"><td>Pipeline</td><td class="txt">Lantern Pods · about D530</td><td class="nf">Not filed</td></tr>
+    </table>
+    <div class="faint" style="font-size:11px;margin-top:-4px">Preview. Numbers freeze at the D504 close; nobody else sees them until D507.</div>
+    <div>
+      <div class="chd" style="margin-bottom:8px"><span class="label">Weekly signals · from listing</span><span class="r publ"><i class="dot" style="background:var(--info);width:4px;height:4px"></i>Public every 5 days</span></div>
+      <div class="sig" data-testid="company-weekly-signals">
+        <div><div class="label">Bookings</div><div class="v mono" style="font-size:12px">40k–50k</div><div class="s">units this week</div></div>
+        <div><div class="label">Run-rate</div><div class="v mono" style="font-size:12px">35M–40M</div><div class="s">revenue a year</div></div>
+        <div><div class="label">Net hires</div><div class="v">Up</div><div class="s">this week</div></div>
+        <div><div class="label">Utilization</div><div class="v mono" style="font-size:12px">85–100%</div><div class="s">capacity</div></div>
+      </div>
+      <div class="faint" style="font-size:11px;margin-top:7px">What would print once listed. Funds follow these, so filing day is rarely a big surprise.</div>
+    </div>
+    <div class="card" style="padding:12px 14px" data-testid="company-trading-window">
+      <div class="chd" style="margin-bottom:6px"><span class="label">Your trading window</span><span class="chip" style="margin-left:8px;color:var(--fg)" data-testid="company-window-state">Closed until Day 509</span><span class="r mono faint" style="font-size:11px">Open D509–D528</span></div>
+      <div class="faint" style="font-size:11px;margin-bottom:2px">Covered for you and accounts you control:</div>
+      <ul class="bl">
+        <li class="na"><i class="x"></i>Lantern stock and its options or futures · from listing</li>
+        <li><i class="x"></i>The sector fund PACF and anything built on it</li>
+        <li><i class="x"></i>Any index fund where Lantern is 5% or more</li>
+      </ul>
+      <div class="faint" style="font-size:11px;margin:5px 0 2px">Always open: broad index funds under 5%, such as GXI. Outside the window, only a committed trading plan trades. Plans: none.</div>
+      <div class="muted" style="font-size:11.5px;line-height:1.45;margin-top:6px">Unusual profits in a stock just before its filing raise the odds of an insider-trading investigation through the courts. It is never automatic or certain.</div>
+    </div>
+  </div>
+</div>
+
+<div id="shelf"></div>
+<script>
+G.tick='<path d="m5 12.5 4.5 4.5L19 7.5"/>';
+const P=applyPalette('ink-brass');
+wall.innerHTML=wallpaper('ink-brass',1440,900,P,.79);
+strip.outerHTML=osStrip({rel:'3',day:'Day 500 · 14:40',rank:'R3 · Operator',nw:'$31,906,220.12',pct:'+0.41%'});
+shelf.outerHTML=osShelf({running:{company:'on',wire:'run',broker:'run'},ws:3,wsOn:2,layout:'Company layout'});
+['c1','c2'].forEach(id=>document.getElementById(id).outerHTML=winCtl());
+document.querySelectorAll('[data-g]').forEach(e=>{const g=e.dataset.g; e.innerHTML=glyph(g,g==='tick'?10:15,g==='tick'?2.2:1.5)});
+</script>
+</body></html>

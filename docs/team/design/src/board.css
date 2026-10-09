@@ -1,0 +1,18 @@
+:root{--text-3:#7E848E;--fg-dis:#5F656E}
+body{overflow:visible;padding:40px;width:auto;height:auto}
+.board{display:flex;gap:32px}
+.cap{font-size:13px;color:var(--text-2);margin-bottom:12px;font-family:var(--mono)}
+.ph{width:390px;height:844px;position:relative;overflow:hidden;background:var(--ink-0);border:1px solid var(--ink-3);border-radius:28px}
+.sb{height:44px;display:flex;justify-content:space-between;align-items:center;padding:0 26px;font-size:14px;font-weight:600}
+.pad{padding:0 20px}
+.row{display:flex;justify-content:space-between;align-items:center}
+.dimlayer{position:absolute;inset:0;background:rgba(11,13,16,.72)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--ink-1);border-top:1px solid var(--ink-3);border-radius:20px 20px 0 0;padding:14px 22px 30px}
+.grab{width:36px;height:4px;border-radius:2px;background:var(--ink-3);margin:0 auto 14px}
+.btn{height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600}
+.btn-ghost{color:var(--text-2);border:1px solid var(--ink-3)}
+.small{font-size:12.5px}.cap2{font-size:11.5px}
+.tk{font-weight:600;font-size:14px}
+.mark{width:36px;height:36px;border-radius:9px;background:var(--ink-2);display:grid;place-items:center;flex:none}
+.bar4{height:4px;border-radius:2px;display:flex;overflow:hidden;gap:2px}
+.keycap{font-family:var(--mono)}
