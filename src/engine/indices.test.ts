@@ -73,13 +73,15 @@ describe('index divisor and level', () => {
   });
 
   it('a review with no change to membership leaves every price bit-identical and writes no index state', () => {
-    // no listings and no delistings: every stock is already in GX, GXT and AV50 where its sector or region says so
+    // no listings and no delistings: every stock is already in GX, GXT and AV50 where its sector or region says so.
+    // Two 70-day runs of 24 ticks take about 1.5 s alone but reach the 5 s default under the full suite's load (measured
+    // 2026-10-10: timed out at 5 s on two runs), so the limit is explicit. The assertion is unchanged.
     const on = stepMany(world(true, false), 70 * TPD).state;
     const off = stepMany(world(false, false), 70 * TPD).state;
     expect(on.indices).toBeUndefined();
     expect(on.reshuffle).toBeUndefined();
     expect(on.assets.map((a) => a.lnP)).toEqual(off.assets.map((a) => a.lnP));
-  });
+  }, 60_000);
 
   it('the level is continuous across a reconstitution (joins and a delisted name leaving)', () => {
     let s = world(true);
@@ -144,6 +146,15 @@ describe('index divisor and level', () => {
     const row = (day: number) => ecologyLog(s).find((d) => d.day === day)?.assets.find((a) => a.id === NEW_TECH);
     const onDay = row(REVIEW)!;
     expect(onDay.desired.pension).toBeGreaterThan(0);
+    // on the effective day the quarter pull is off (day 63 mod 63 = 0) and the name held no pension weight before, so the
+    // pension's whole order is the reshuffle: reshuffleK (1) ADV per equal-weight unit. Measured 2026-10-10 in this world
+    // (NEWT and NEWE both listed, so both join GX): 0.2645 ADV. A world with NEWT alone gives 0.2629.
+    expect(onDay.desired.pension).toBeCloseTo(s.reshuffle!.eq[NEW_TECH]!, 12);
+    expect(onDay.desired.pension).toBeCloseTo(0.2645, 3);
+    // the day before (not yet in the index) and the day after (no pull until the next quarter's last days) carry no pension order
+    expect(row(REVIEW - 1)!.desired.pension).toBe(0);
+    s = stepMany(s, 2 * TPD).state;
+    expect(ecologyLog(s).find((d) => d.day === REVIEW + 2)?.assets.find((a) => a.id === NEW_TECH)!.desired.pension).toBe(0);
     // the reshuffle moves weight: the new name buys, the rest of the index sells a little, and the weights net to zero
     const eq = s.reshuffle!.eq;
     expect(eq[NEW_TECH]).toBeGreaterThan(0);

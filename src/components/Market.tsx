@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { earningsInfo, indexLevel, optionQuote, parseContract, portfolio, sectorName, REGIONS, type AssetClass, type WorldState } from '@/engine';
+import { earningsInfo, indexLevel, indexMembers, optionQuote, parseContract, portfolio, sectorName, REGIONS, type AssetClass, type WorldState } from '@/engine';
 import { consensusLabel, earningsGrade, gradeVerdict } from '@/content/news';
 import { licenseFor, LICENSES, rankIndex } from '@/content/lifestyle';
 import { dayOpen, RANGES, sparkline, type RangeId } from '@/game/history';
@@ -23,7 +23,8 @@ export function seriesInfo(world: WorldState, id: string, rankId: string): Serie
     const p = indexLevel(world, id);
     const o = dayOpen(h, id) ?? p;
     const idx = CONFIG.indices.find((i) => i.id === id)!;
-    return { id, name: idx.name, sector: 'index', cls: 'index', tradable: false, locked: false, price: p, change: p - o, changePct: o ? p / o - 1 : 0, halted: false, blurb: `${idx.members.length} members, weighted by market value.` };
+    // members as of the last index review (indexMembers), not the config's list: the count changes at a reconstitution
+    return { id, name: idx.name, sector: 'index', cls: 'index', tradable: false, locked: false, price: p, change: p - o, changePct: o ? p / o - 1 : 0, halted: false, blurb: `${indexMembers(world, idx).length} members, weighted by market value.` };
   }
   const i = CONFIG.assets.findIndex((a) => a.id === id);
   const def = CONFIG.assets[i]!;
@@ -131,7 +132,7 @@ export function AssetPanel() {
     return (
       <Card className="p-4" data-testid="asset-panel">
         <h3 className="font-serif text-title">{idx.name}</h3>
-        <p className="mt-1 text-small text-fg-muted">An index of {idx.members.length} names, weighted by market value. Indices can’t be traded directly; buy the members or a bond fund.</p>
+        <p className="mt-1 text-small text-fg-muted">An index of {indexMembers(world, idx).length} names, weighted by market value. Indices can’t be traded directly; buy the members or a bond fund.</p>
       </Card>
     );
   }

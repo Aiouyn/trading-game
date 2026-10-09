@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createWorld, quote, shockValue, stepMany } from './sim';
 import { universeConfig } from './universe';
 import { openAccount, setAccountPermissions } from './trading';
-import { ecologyLog } from './ecology';
+import { DEFAULT_ECOLOGY, ecologyLog } from './ecology';
 import type { StepEvent, WorldConfig, WorldState } from './types';
 
 const TPD = 24;
@@ -103,6 +103,24 @@ describe('short squeeze', () => {
     const sq = squeezed.events.find((e) => e.type === 'squeeze')!;
     const day = Math.floor((sq.tick - 1) / TPD);
     expect(squeezed.headlines[day]!).toBeGreaterThan(plain.headlines[day]!);
+  });
+
+  it('feeds itself: the next day retail buys more of the stock, by the headline it adds', () => {
+    const sq = squeezed.events.find((e) => e.type === 'squeeze')!;
+    const day = Math.floor((sq.tick - 1) / TPD);
+    const next = (s: WorldState) => {
+      const row = ecologyLog(s).find((x) => x.day === day + 1)?.assets.find((a) => a.id === STOCK);
+      if (!row) throw new Error('no ecology log row for the day after the squeeze');
+      return row;
+    };
+    const withSq = next(squeezed.state).desired.retail;
+    const without = next(plain.state).desired.retail;
+    expect(withSq).toBeGreaterThan(without);
+    // retail reads the headline a day late: the gap is retailHeadline times the headline gap on the squeeze day
+    // (measured 2026-10-10: retail -0.066 against -0.109 ADV on game day 7, a gap of 0.0425 ADV). No capacity cut
+    // applies on that day, so the gap is exact.
+    const gap = squeezed.headlines[day]! - plain.headlines[day]!;
+    expect(withSq - without).toBeCloseTo(DEFAULT_ECOLOGY.retailHeadline * gap, 9);
   });
 
   it('names the asset and never an account in the event', () => {
