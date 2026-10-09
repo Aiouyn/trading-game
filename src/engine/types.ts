@@ -594,6 +594,11 @@ export interface EcoAssetState {
   pensionAnchor: number;
   /** the player's signed flow today, ADV */
   own: number;
+  /**
+   * Gross flow today per trading account (ADV), for the Players fold. Server-side only: the log keeps the count and
+   * the largest share, never the ids. Reset at each close. Absent on older saves (then no players are counted).
+   */
+  ownBy?: Record<string, number>;
   /** retail stream eco:retail:<id> */
   rng: RngState;
 }
@@ -604,6 +609,8 @@ export interface EcoLogAsset {
   lnV: number;
   /** desired orders after the capacity cut, ADV (own = the player's fills) */
   desired: Record<EcoPool | 'own', number>;
+  /** the day's player bucket: distinct accounts that traded the asset and the largest one's share of its gross flow */
+  players?: { accounts: number; maxShare: number };
   net: number;
   /** gross shadow volume, ADV (sum of |orders|) */
   gross: number;

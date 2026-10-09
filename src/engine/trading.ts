@@ -15,7 +15,7 @@
  * bid/ask (see options.ts) and settle in cash at expiry.
  */
 import { DEFAULT_TRADING } from './config';
-import { ecologyWeight } from './ecology';
+import { ecologyWeight, PUBLIC_MAX_TRADER_SHARE, PUBLIC_MIN_TRADERS } from './ecology';
 import { optionQuote, optionsValue, parseContract } from './options';
 import type {
   Account, AssetDef, CrowdHold, DayTraded, Fill, FillEstimate, MarginConfig, Order, OrderRequest, PortfolioView, PositionView,
@@ -162,10 +162,6 @@ export function crowdHoldings(state: WorldState): Record<string, CrowdHold> {
   return crowd;
 }
 
-/** Public short interest is shown only when the shorts are spread: at least this many holders, none above the cap. */
-export const PUBLIC_SI_MIN_HOLDERS = 5;
-export const PUBLIC_SI_MAX_HOLDER_SHARE = 0.4;
-
 /**
  * Public aggregate short interest per stock: units held short across all accounts, as a share of shares outstanding.
  * 0 when nobody is short; null (withheld) when the shorts are concentrated (fewer than 5 holders, or one holder above
@@ -189,7 +185,7 @@ export function publicShortInterest(state: WorldState): Record<string, number | 
     if (def.assetClass !== 'stock' || !def.sharesOutstanding) continue;
     const c = per[def.id];
     if (!c) { out[def.id] = 0; continue; }
-    const spread = c.holders >= PUBLIC_SI_MIN_HOLDERS && c.max <= PUBLIC_SI_MAX_HOLDER_SHARE * c.total;
+    const spread = c.holders >= PUBLIC_MIN_TRADERS && c.max <= PUBLIC_MAX_TRADER_SHARE * c.total;
     out[def.id] = spread ? Math.round((c.total / def.sharesOutstanding) * 1e4) / 1e4 : null;
   }
   return out;
