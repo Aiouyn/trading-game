@@ -18,6 +18,7 @@ import { Rng, seedStream } from './rng';
 import { jumpCompensator } from './drift';
 import { tradingRegime } from './worldEvents';
 import { initRivals, rivalsClose, rivalsDay } from './rivals';
+import { indexMembers, policyWeights } from './indices';
 import type {
   EcoAssetState, EcoCause, EcoLogAsset, EcoLogDay, EcologyConfig, EcologyState, EcoPool, RegimeId, WorldConfig, WorldState,
 } from './types';
@@ -48,6 +49,7 @@ export const DEFAULT_ECOLOGY: EcologyConfig = {
   pensionK: 1,
   pensionDays: 3,
   quarterDays: 63,
+  reshuffleK: 1,
   sizes: { value: 15, trend: 1, retail: 4.5, pension: 7.5 },
   halfLives: { value: 20, trend: 21, retail: 10, pension: 63 },
 };
@@ -133,9 +135,17 @@ export interface EcoDayInput {
   h: number[];
   /** sum of today's jumps (the news that printed today), log size */
   jump: number[];
+  /** each index's members, in config order, once the index review has run (absent = the config's members) */
+  members?: string[][];
+  /** the pension pool's reshuffle on an index-review effective day: equal-weight units by asset id (indices.ts) */
+  reshuffle?: Record<string, number>;
+  /** 1 for an asset whose short squeeze fired today (squeeze on only), per asset, config order */
+  squeeze?: number[];
 }
 
 export function ecoDayInput(state: WorldState, day: number): EcoDayInput {
+  const cfg = state.config;
+  const squeezes = cfg.squeeze !== undefined;
   return {
     day,
     tick: state.tick,
@@ -144,6 +154,9 @@ export function ecoDayInput(state: WorldState, day: number): EcoDayInput {
     lnV: state.assets.map((a) => a.lnV),
     h: state.assets.map((a) => a.h),
     jump: state.assets.map((a) => a.dayJump),
+    ...(state.indices ? { members: cfg.indices.map((ix) => indexMembers(state, ix)) } : {}),
+    ...(state.reshuffle && state.reshuffle.day === day ? { reshuffle: state.reshuffle.eq } : {}),
+    ...(squeezes ? { squeeze: state.assets.map((a) => (a.coverTally && a.coverTally.day === day && a.coverTally.fired ? 1 : 0)) } : {}),
   };
 }
 
@@ -207,26 +220,6 @@ function playerBucket(by: Record<string, number> | undefined): { accounts: numbe
 const sgn = (x: number) => (x > 0 ? 1 : x < 0 ? -1 : 0);
 const clamp = (x: number, lo: number, hi: number) => (x < lo ? lo : x > hi ? hi : x);
 
-/** policy weights for the pension pool: cap weights at t = 0 of the first index each asset belongs to */
-function pensionWeights(cfg: WorldConfig): { index: number[]; w: number[] } {
-  const index = cfg.assets.map(() => -1);
-  const w = cfg.assets.map(() => 0);
-  cfg.indices.forEach((idx, k) => {
-    let tot = 0;
-    const caps = idx.members.map((id) => {
-      const d = cfg.assets.find((a) => a.id === id);
-      const c = d ? (d.sharesOutstanding ?? 1) * d.initialPrice : 0;
-      tot += c;
-      return c;
-    });
-    idx.members.forEach((id, j) => {
-      const i = cfg.assets.findIndex((a) => a.id === id);
-      if (i >= 0 && index[i] === -1 && tot > 0) { index[i] = k; w[i] = caps[j]! / tot; }
-    });
-  });
-  return { index, w };
-}
-
 /**
  * One shadow close. Pure: returns the next ecology state (log included). Called by step() on the last
  * tick of each game day when config.ecology.mode is 'shadow'; also usable to replay recorded inputs.
@@ -255,7 +248,8 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
   // pension: drift of each index member since the last quarter-end, relative to its index
   const qDay = input.day % ec.quarterDays;
   const pensionLive = qDay >= ec.quarterDays - ec.pensionDays;
-  const { index: pIdx, w: pW } = pensionWeights(cfg);
+  // policy weights follow the index membership in force today (indices.ts): the config's until a review has run
+  const { index: pIdx, w: pW } = policyWeights(cfg, input.members ?? cfg.indices.map((ix) => ix.members));
   const idxDrift: number[] = cfg.indices.map(() => 0);
   if (pensionLive) {
     eco.assets.forEach((e, i) => {
@@ -326,6 +320,9 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     q.retail = ec.retailNoise * rng.normal() + ec.retailHeadline * e.headline;
     // pension: in the last days of a quarter, pull back toward the policy (index) weight
     if (pensionLive && pIdx[i]! >= 0) q.pension = -ec.pensionK * ((last - e.pensionAnchor) - idxDrift[pIdx[i]!]!);
+    // index review, effective day: the pension pool trades toward the new policy weight (ADV per equal-weight unit)
+    const rsUnits = input.reshuffle?.[def.id] ?? 0;
+    if (rsUnits !== 0) q.pension += ec.reshuffleK * rsUnits;
     // capacity: a pool already loaded on that side gets 1 / (1 + capacity · |position|)
     const p0 = e.pos;
     if (q.value !== 0 && sgn(q.value) === sgn(p0.value)) q.value /= 1 + (ec.capacity * Math.abs(p0.value)) / ec.sizes.value;
@@ -361,7 +358,9 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     const pos = { value: p0.value * dV + q.value, trend: p0.trend * dT + q.trend, retail: p0.retail * dR + q.retail, pension: p0.pension * dP + q.pension };
     const closes = c.slice(c.length >= 64 ? c.length - 63 : 0);
     closes.push(lnS);
-    const headline = clamp(e.headline * headDecay + sgn(input.jump[i]!), -1, 1);
+    // a squeeze reads as a headline too: +1 on the day it fires, like a jump up (retail reads it the next day)
+    const sq = input.squeeze?.[i] ?? 0;
+    const headline = clamp(e.headline * headDecay + sgn(input.jump[i]!) + (sq !== 0 ? sq : 0), -1, 1);
     const pensionAnchor = qDay === ec.quarterDays - 1 ? lnS : e.pensionAnchor;
 
     assets[i] = scaleOn

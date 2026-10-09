@@ -187,7 +187,7 @@ export interface Property {
 export interface WireItem {
   id: string;
   tick: number;
-  kind: 'macro' | 'rates' | 'move' | 'earnings' | 'preview' | 'rumor' | 'halt' | 'reopen' | 'biz' | 'purchase' | 'milestone' | 'filing' | 'court' | 'security' | 'alliance' | 'chapter' | 'liquidation' | 'world' | 'listing';
+  kind: 'macro' | 'rates' | 'move' | 'earnings' | 'preview' | 'rumor' | 'halt' | 'reopen' | 'biz' | 'purchase' | 'milestone' | 'filing' | 'court' | 'security' | 'alliance' | 'chapter' | 'liquidation' | 'world' | 'listing' | 'index' | 'squeeze';
   tag: string;
   text: string;
   tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';

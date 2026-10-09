@@ -434,10 +434,10 @@ export const GAME_ASSETS: AssetDef[] = [
 const stockIds = (pred: (a: AssetDef) => boolean) => GAME_ASSETS.filter((a) => a.assetClass === 'stock' && pred(a)).map((a) => a.id);
 
 export const GAME_INDICES: IndexDef[] = [
-  { id: 'GX', name: 'GX Composite', base: 1000, members: stockIds(() => true) },
-  { id: 'GXT', name: 'GX Technology', base: 1000, members: stockIds((a) => a.sector === 'tech' || a.sector === 'semis') },
-  { id: 'AV50', name: 'Avalon Leaders', base: 1000, members: stockIds((a) => a.region === 'avalon') },
-  { id: 'CRX', name: 'Crypto Index', base: 1000, members: GAME_ASSETS.filter((a) => a.assetClass === 'crypto').map((a) => a.id) },
+  { id: 'GX', name: 'GX Composite', base: 1000, members: stockIds(() => true), rule: { assetClass: 'stock' } },
+  { id: 'GXT', name: 'GX Technology', base: 1000, members: stockIds((a) => a.sector === 'tech' || a.sector === 'semis'), rule: { assetClass: 'stock', sectors: ['tech', 'semis'] } },
+  { id: 'AV50', name: 'Avalon Leaders', base: 1000, members: stockIds((a) => a.region === 'avalon'), rule: { assetClass: 'stock', regions: ['avalon'] } },
+  { id: 'CRX', name: 'Crypto Index', base: 1000, members: GAME_ASSETS.filter((a) => a.assetClass === 'crypto').map((a) => a.id), rule: { assetClass: 'crypto' } },
 ];
 
 /** The biggest names get listed options (Derivatives license). */
@@ -489,6 +489,10 @@ export function universeConfig(overrides: Partial<WorldConfig> = {}): WorldConfi
     rivals: DEFAULT_RIVALS,
     // the evolving universe: NPC IPOs, bankruptcies, cash mergers and spin-offs (listings.ts)
     listings: {},
+    // quarterly index review (indices.ts): seasoned listings join GX and their sector or region index, delisted names leave
+    indexReview: {},
+    // short squeezes (trading.ts): a day's forced covering of 20% of ADV or more is a squeeze, and feeds the retail headline
+    squeeze: {},
     options: { ...DEFAULT_OPTIONS, underlyings: OPTION_UNDERLYINGS },
     margin: DEFAULT_MARGIN,
     ...overrides,

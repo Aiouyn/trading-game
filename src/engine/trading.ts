@@ -19,7 +19,7 @@ import { ecologyWeight, PUBLIC_MAX_TRADER_SHARE, PUBLIC_MIN_TRADERS } from './ec
 import { optionQuote, optionsValue, parseContract } from './options';
 import type {
   Account, AssetDef, CrowdHold, DayTraded, Fill, FillEstimate, MarginConfig, Order, OrderRequest, PortfolioView, PositionView,
-  Side, StepEvent, TickTraded, TradingConfig, WorldState,
+  Side, SqueezeConfig, StepEvent, TickTraded, TradingConfig, WorldConfig, WorldState,
 } from './types';
 
 const EPS = 1e-9;
@@ -39,6 +39,14 @@ export function tradingConfig(state: WorldState): TradingConfig {
 
 export function marginConfig(state: WorldState): MarginConfig {
   return state.config.margin ?? DEFAULT_MARGIN;
+}
+
+/** Squeeze threshold: a day's forced short covering of this share of ADV (or more) is a squeeze. */
+export const DEFAULT_SQUEEZE: SqueezeConfig = { adv: 0.2 };
+
+/** Resolved squeeze config, or null when squeezes are off (no tally, no event, no headline). */
+export function squeezeConfig(cfg: WorldConfig): SqueezeConfig | null {
+  return cfg.squeeze ? { adv: cfg.squeeze.adv ?? DEFAULT_SQUEEZE.adv } : null;
 }
 
 /** id → config index, cached per asset list */
@@ -189,6 +197,21 @@ export function publicShortInterest(state: WorldState): Record<string, number | 
     out[def.id] = spread ? Math.round((c.total / def.sharesOutstanding) * 1e4) / 1e4 : null;
   }
   return out;
+}
+
+/**
+ * A forced buy-in of shorts (squeeze on): add the covering to the asset's tally for the day. The first time the day's
+ * covering reaches squeeze.adv × ADV, one 'squeeze' event names the asset (never an account). Mutates s.assets[i].
+ */
+function recordCover(s: WorldState, i: number, notional: number, tick: number, sq: SqueezeConfig, events: StepEvent[]): void {
+  const day = tallyDay(s);
+  const a = s.assets[i]!;
+  const t = a.coverTally && a.coverTally.day === day ? a.coverTally : { day, notional: 0, fired: false };
+  const adv = s.config.assets[i]!.advNotional ?? 1e9;
+  const total = t.notional + notional;
+  const fire = !t.fired && total >= sq.adv * adv;
+  s.assets[i] = { ...a, coverTally: { day, notional: total, fired: t.fired || fire } };
+  if (fire) events.push({ type: 'squeeze', tick, assetId: s.config.assets[i]!.id, cover: total / adv });
 }
 
 /** Mark price of asset i for a long (dir 1) or short (dir −1) position: mid, held at the guard's anchor during a pump or dump. */
@@ -924,6 +947,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
 
   // ---- margin calls and liquidation, then mark: peak and drawdown on liquidation value ----
   const mc = marginConfig(s);
+  const squeeze = squeezeConfig(s.config);
   const marks: string[] = [];
   for (const id of accountIds) {
     let a = s.accounts[id]!;
@@ -954,6 +978,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           fills.push({ orderId: forcedOrder.id, playerId: id, assetId, side, qty: q, price, fee, tick });
           events.push({ type: 'liquidation', tick, playerId: id, assetId, qty: q, price });
           printTape(i, side, q, price, p0);
+          if (side === 'buy' && squeeze) recordCover(s, i, q * price, tick, squeeze, events);
           gross = grossExposure(s, a);
           eq = equityOf(s, a);
         }

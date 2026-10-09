@@ -12,6 +12,8 @@ export type { ExplainRow, MoveExplain, DepthByPool } from './ecology';
 export { depthByPool } from './ecology';
 export { DEFAULT_RIVALS, RIVAL_CAP_ADV, rivalEquity, rivalLeaderboard } from './rivals';
 export { DEFAULT_LISTINGS, listingsConfig, listingsDay } from './listings';
+export { DEFAULT_INDEX_REVIEW, indexReviewConfig, indexMembers, indexDivisor } from './indices';
+export { DEFAULT_SQUEEZE, squeezeConfig } from './trading';
 export type { ListingKind, ListingsConfig } from './listings';
 export { settleAsset } from './trading';
 export type { RivalRow } from './rivals';
