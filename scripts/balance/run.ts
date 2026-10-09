@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createWorld, stepMany, indexLevel, defaultConfig, universeConfig, expectedVol, openAccount, placeOrder, portfolio } from "../../src/engine";
-import type { WorldState } from "../../src/engine";
+import type { AssetDef, WorldState } from "../../src/engine";
 import { phase0Bands, check } from "./bands";
 
 function arg(name: string, fallback: string) {
@@ -39,7 +39,14 @@ type SeedResult = {
   seed: string; volRatio: Record<string, number>; gxCagr: number; invalid: number; sawContraction: boolean;
   bh: number; random: number; momentum: number; finalHash: string; msPerTick: number;
   fee: { bh: number; random: number; momentum: number; contrarian: number; momentumFees: number };
+  /** assets appended by listings (IPOs, spin-offs) and assets delisted (bankruptcy, merger, spin-off parent), by the end */
+  listed: number; delisted: number;
 };
+
+// The engine appends assets at runtime (listings.ts), so every strategy follows the CURRENT asset list. Assets are
+// addressed by their index in state.assets, which only grows. A strategy may pick a stock on decision day d only if
+// it is not delisted by then and has a price on d and on d - look (so a late listing waits out its first month).
+// With no listings this is the whole starting stock list, so the no-listing numbers are unchanged.
 
 // Fee-aware strategies (engine task #2 order API): each strategy trades in its OWN same-seed world,
 // because fills move prices (permanent impact) and would contaminate a shared world.
@@ -47,14 +54,31 @@ type SeedResult = {
 // sell everything, step 1 tick, buy floor(0.97 * cash / price), step 1 tick. Buy-and-hold buys an
 // equal-weight stock basket once on day 63. Result = equity multiple over the same window for all three.
 const START_CASH = 5000, PID = "tape";
-function feeAware(seed: string, cfg: ReturnType<typeof defaultConfig>, days: number, stockIdx: number[], kind: "bh" | "random" | "momentum" | "contrarian") {
+function feeAware(seed: string, cfg: ReturnType<typeof defaultConfig>, days: number, kind: "bh" | "random" | "momentum" | "contrarian") {
   const month = 21, look = 63;
   const lastStart = look + Math.floor((days - month - look) / month) * month;
   const end = lastStart + month;
   const rand = mulberry32(hash(`${seed}::tape-random`));
   let s: WorldState = openAccount(createWorld(seed, cfg), PID, START_CASH);
-  const closes: number[][] = cfg.assets.map(() => []);
-  const rec = () => s.assets.forEach((a, i) => closes[i]!.push(Math.exp(a.lnP)));
+  // price by record (record k = the world after k days), NaN before an asset is listed
+  const closes: number[][] = [];
+  let recs = 0;
+  const rec = () => {
+    s.assets.forEach((a, i) => {
+      const c = (closes[i] ??= []);
+      while (c.length < recs) c.push(NaN);
+      c.push(Math.exp(a.lnP));
+    });
+    recs++;
+  };
+  const pool = (d: number): number[] => {
+    const out: number[] = [];
+    s.config.assets.forEach((def, i) => {
+      if (def.assetClass !== "stock" || def.delisted) return;
+      if (Number.isFinite(closes[i]?.[d]) && Number.isFinite(closes[i]?.[d - look])) out.push(i);
+    });
+    return out;
+  };
   const order = (assetId: string, side: "buy" | "sell", qty: number) => { if (qty > 0) s = placeOrder(s, { playerId: PID, assetId, side, type: "market", qty }).state; };
   const px = (i: number) => Math.exp(s.assets[i]!.lnP);
   rec();
@@ -66,13 +90,16 @@ function feeAware(seed: string, cfg: ReturnType<typeof defaultConfig>, days: num
       for (const [id, p] of Object.entries(s.accounts[PID]!.positions)) order(id, "sell", p.qty);
       s = stepMany(s, 1).state; used++;
       const cash = s.accounts[PID]!.cash;
-      if (kind === "bh") {
-        for (const i of stockIdx) order(cfg.assets[i]!.id, "buy", Math.floor((0.97 * cash) / stockIdx.length / px(i)));
-      } else {
-        let pick = stockIdx[0]!;
-        if (kind === "random") pick = stockIdx[Math.floor(rand() * stockIdx.length)]!;
-        else { const sgn = kind === "momentum" ? 1 : -1; let best = -Infinity; for (const i of stockIdx) { const tr = sgn * (closes[i]![d]! / closes[i]![d - look]!); if (tr > best) { best = tr; pick = i; } } }
-        order(cfg.assets[pick]!.id, "buy", Math.floor((0.97 * cash) / px(pick)));
+      const names = pool(d);
+      if (names.length) {
+        if (kind === "bh") {
+          for (const i of names) order(s.config.assets[i]!.id, "buy", Math.floor((0.97 * cash) / names.length / px(i)));
+        } else {
+          let pick = names[0]!;
+          if (kind === "random") pick = names[Math.floor(rand() * names.length)]!;
+          else { const sgn = kind === "momentum" ? 1 : -1; let best = -Infinity; for (const i of names) { const tr = sgn * (closes[i]![d]! / closes[i]![d - look]!); if (tr > best) { best = tr; pick = i; } } }
+          order(s.config.assets[pick]!.id, "buy", Math.floor((0.97 * cash) / px(pick)));
+        }
       }
       s = stepMany(s, 1).state; used++;
     }
@@ -85,51 +112,77 @@ function feeAware(seed: string, cfg: ReturnType<typeof defaultConfig>, days: num
 function runSeed(seed: string): SeedResult {
   const cfg = configFor(tpd);
   const days = Math.round(years * cfg.daysPerYear);
-  const ids = cfg.assets.map((a) => a.id);
-  const stockIdx = cfg.assets.map((a, i) => (a.assetClass === "stock" ? i : -1)).filter((i) => i >= 0);
-  const closes: number[][] = ids.map(() => []);
+  const closes: number[][] = [];   // by asset index; record k = the world after k days; NaN before listing
+  const firstRec: number[] = [];   // record at which the asset was first seen
+  const delistRec: number[] = [];  // record at which the asset was first seen delisted (Infinity if never)
+  const defs: AssetDef[] = [];     // latest definition per asset
   const gx: number[] = [];
   let invalid = 0;
   let sawContraction = false;
+  let rec = 0;
 
   let state: WorldState = createWorld(seed, cfg);
   const record = () => {
     state.assets.forEach((a, i) => {
+      const def = state.config.assets[i]!;
       const p = Math.exp(a.lnP);
-      const def = cfg.assets[i]!;
       if (!Number.isFinite(p) || !Number.isFinite(a.lnV) || p < def.floor * (1 - 1e-9) || a.h < 0.25 - 1e-12 || a.h > 9 + 1e-12) invalid++;
+      if (!closes[i]) { closes[i] = new Array<number>(rec).fill(NaN); firstRec[i] = rec; delistRec[i] = Infinity; }
       closes[i]!.push(p);
+      defs[i] = def;
+      if (def.delisted && delistRec[i] === Infinity) delistRec[i] = rec;
     });
     const g = indexLevel(state, "GX");
     if (!Number.isFinite(g)) invalid++;
     gx.push(g);
     if (state.regime === "contraction") sawContraction = true;
+    rec++;
   };
   record();
   const t0 = performance.now();
   for (let d = 0; d < days; d++) { state = stepMany(state, tpd).state; record(); }
   const msPerTick = (performance.now() - t0) / state.tick;
 
+  // Vol ratio only for assets listed from the start and never delisted. A late-listed name has a short history, and a
+  // delisted one has a frozen price (zero vol) after its settlement, so neither would give a meaningful band.
   const volRatio: Record<string, number> = {};
-  ids.forEach((id, i) => { volRatio[id] = (sd(logRets(closes[i]!)) * Math.sqrt(cfg.daysPerYear)) / expectedVol(cfg.assets[i]!); });
+  closes.forEach((c, i) => {
+    if (firstRec[i] !== 0 || delistRec[i] !== Infinity) return;
+    volRatio[defs[i]!.id] = (sd(logRets(c)) * Math.sqrt(cfg.daysPerYear)) / expectedVol(defs[i]!);
+  });
   const gxCagr = Math.pow(gx[gx.length - 1]! / gx[0]!, 1 / years) - 1;
 
   // Strategies on stocks, monthly (21 game days) holding periods, no fees (Phase 0 has no order book).
+  // A name delisted while held is valued at its frozen price from then on.
   const month = 21, look = 63;
+  // Stocks a monthly strategy may hold on day d (see the note at the top).
+  const pool = (d: number): number[] => {
+    const out: number[] = [];
+    for (let i = 0; i < closes.length; i++) {
+      if (defs[i]!.assetClass !== "stock" || delistRec[i]! <= d) continue;
+      if (Number.isFinite(closes[i]![d]) && Number.isFinite(closes[i]![d - look])) out.push(i);
+    }
+    return out;
+  };
   const rand = mulberry32(hash(`${seed}::tape-random`));
   let random = 1, momentum = 1, bh = 1;
   for (let d = look; d + month <= days; d += month) {
     const r = (i: number) => closes[i]![d + month]! / closes[i]![d]!;
-    random *= r(stockIdx[Math.floor(rand() * stockIdx.length)]!);
-    let best = stockIdx[0]!, bestRet = -Infinity;
-    for (const i of stockIdx) { const tr = closes[i]![d]! / closes[i]![d - look]!; if (tr > bestRet) { bestRet = tr; best = i; } }
-    momentum *= r(best);
+    const names = pool(d);
+    if (names.length) {
+      random *= r(names[Math.floor(rand() * names.length)]!);
+      let best = names[0]!, bestRet = -Infinity;
+      for (const i of names) { const tr = closes[i]![d]! / closes[i]![d - look]!; if (tr > bestRet) { bestRet = tr; best = i; } }
+      momentum *= r(best);
+    }
     bh *= gx[d + month]! / gx[d]!;
   }
   const finalHash = String(hash(JSON.stringify(state)));
-  const fb = feeAware(seed, cfg, days, stockIdx, "bh"), fr = feeAware(seed, cfg, days, stockIdx, "random"), fm = feeAware(seed, cfg, days, stockIdx, "momentum"), fc = feeAware(seed, cfg, days, stockIdx, "contrarian");
+  const fb = feeAware(seed, cfg, days, "bh"), fr = feeAware(seed, cfg, days, "random"), fm = feeAware(seed, cfg, days, "momentum"), fc = feeAware(seed, cfg, days, "contrarian");
   const fee = { bh: fb.multiple, random: fr.multiple, momentum: fm.multiple, contrarian: fc.multiple, momentumFees: fm.fees };
-  return { seed, volRatio, gxCagr, invalid, sawContraction, bh, random, momentum, finalHash, msPerTick, fee };
+  const listed = state.config.assets.length - cfg.assets.length;
+  const delisted = state.config.assets.filter((a) => a.delisted).length;
+  return { seed, volRatio, gxCagr, invalid, sawContraction, bh, random, momentum, finalHash, msPerTick, fee, listed, delisted };
 }
 
 function main() {
@@ -143,7 +196,9 @@ function main() {
   const wall = performance.now() - t0;
 
   const stats: Record<string, number> = {};
-  for (const id of ids) stats[`vol_ratio_median:${id}`] = median(results.map((r) => r.volRatio[id]!));
+  // vol-ratio bands: a starting asset gets one when some seed kept it listed for the whole run (median over those seeds)
+  const volIds = ids.filter((id) => results.some((r) => r.volRatio[id] !== undefined));
+  for (const id of volIds) stats[`vol_ratio_median:${id}`] = median(results.filter((r) => r.volRatio[id] !== undefined).map((r) => r.volRatio[id]!));
   stats.gx_cagr_median = median(results.map((r) => r.gxCagr));
   stats.invalid_values = results.reduce((a, r) => a + r.invalid, 0);
   stats.contraction_seed_share = results.filter((r) => r.sawContraction).length / results.length;
@@ -164,9 +219,12 @@ function main() {
   stats.info_fee_median_multiple_random = median(results.map((r) => r.fee.random));
   stats.info_fee_median_multiple_momentum = median(results.map((r) => r.fee.momentum));
   stats.info_momentum_median_fees_usd = median(results.map((r) => r.fee.momentumFees));
+  stats.info_listed_assets_mean = mean(results.map((r) => r.listed));
+  stats.info_delisted_assets_mean = mean(results.map((r) => r.delisted));
+  stats.info_seeds_with_listings_share = results.filter((r) => r.listed + r.delisted > 0).length / results.length;
   stats.determinism_mismatch = repeat.finalHash === results[0]!.finalHash ? 0 : 1;
 
-  const checked = check(phase0Bands(ids), stats);
+  const checked = check(phase0Bands(volIds), stats);
   mkdirSync(out, { recursive: true });
   writeFileSync(path.join(out, "summary.json"), JSON.stringify({ seeds: nSeeds, years, ticksPerDay: tpd, stats, results: checked, perSeed: results }, null, 2));
 
@@ -176,6 +234,8 @@ function main() {
     console.log(`${r.pass ? "PASS" : "FAIL"}  ${r.id.padEnd(30)} ${v.padStart(8)}   [${r.min}, ${r.max}]`);
   }
   const fails = checked.filter((r) => !r.pass).length;
+  const skipped = ids.filter((id) => !volIds.includes(id));
+  if (skipped.length) console.log(`info  vol-ratio bands skipped (not listed the whole run in any seed): ${skipped.join(", ")}`);
   for (const [k, v] of Object.entries(stats)) if (k.startsWith("info_")) console.log(`info  ${k.padEnd(40)} ${v.toFixed(3)}`);
   console.log(fails ? `balance: ${fails} band(s) FAILED` : "balance: all bands PASS");
   if (fails) process.exitCode = 1;

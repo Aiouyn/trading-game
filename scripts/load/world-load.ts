@@ -13,7 +13,9 @@ import type { GameState } from '../../src/world/types';
 const N = Number(process.argv[2] ?? 4000);
 const TICKS = Number(process.argv[3] ?? 120);
 const g: GameState = createGame('load', { warmupDays: 1 });
-const stocks = g.market.config.assets.filter((a) => a.assetClass === 'stock').map((a) => a.id);
+/** stocks listed now: listings add assets during the run, and a delisted one rejects orders */
+const liveStocks = () => g.market.config.assets.filter((a) => a.assetClass === 'stock' && !a.delisted).map((a) => a.id);
+let stocks = liveStocks();
 const t1 = BUSINESSES.filter((b) => b.tier === 1);
 
 let t0 = performance.now();
@@ -33,6 +35,7 @@ console.log(`setup ${N} players: ${((performance.now() - t0) / 1000).toFixed(1)}
 const step: number[] = [];
 const views: number[] = [];
 for (let t = 0; t < TICKS; t++) {
+  stocks = liveStocks();
   // a slice of players acts every tick, like a busy world
   for (let k = 0; k < Math.ceil(N / 50); k++) {
     const i = (t * 97 + k * 31) % N;

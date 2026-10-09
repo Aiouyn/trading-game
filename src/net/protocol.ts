@@ -35,7 +35,6 @@ export type ServerMsg =
   | {
     t: 'welcome';
     playerId: string;
-    seed: string;
     tickMs: number;
     frame: MarketFrame;
     me: PlayerView;

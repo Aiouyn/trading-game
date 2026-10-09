@@ -1,5 +1,5 @@
 import { indexLevel, portfolio, universeConfig } from '../src/engine';
-import { createHistory, record, lastTicks, type History } from '../src/game/history';
+import { createHistory, ensureSeries, ensureVolume, record, lastTicks, type History } from '../src/game/history';
 import { applyCommand, createGame, stepGame } from '../src/world/game';
 import { BOARD_EVERY } from '../src/world/core';
 import type { Command, CommandResult, GameState, StepOutput } from '../src/world/types';
@@ -85,6 +85,7 @@ export class WorldHost {
     return createHistory(ids.all, 720, ids.volume);
   }
 
+  /** The starting universe. Assets listed later (IPOs, spin-offs) get their series in recordTick. */
   private seriesIds(_g: GameState | null): { all: string[]; volume: string[] } {
     const c = universeConfig();
     const assets = c.assets.map((a) => a.id);
@@ -97,6 +98,11 @@ export class WorldHost {
     const p: Record<string, number> = {};
     const cum: Record<string, number> = {};
     g.market.config.assets.forEach((d, i) => {
+      // the engine appends listings at runtime: a new asset gets its price and volume series the tick it appears
+      if (!this.history.series[d.id]) {
+        ensureSeries(this.history, [d.id]);
+        ensureVolume(this.history, [d.id]);
+      }
       p[d.id] = Math.exp(g.market.assets[i]!.lnP);
       cum[d.id] = g.market.assets[i]!.cumVolume ?? 0;
     });

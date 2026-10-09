@@ -146,7 +146,7 @@ wss.on('connection', (ws) => {
         host.command(acct.id, { type: 'presence', online: true });
         const shared = publicCache();
         const dir = shared.topJson ?? JSON.stringify(directoryFor(host.g, shared.all, shared.top, acct.id));
-        ws.send(`{"t":"welcome","playerId":${JSON.stringify(acct.id)},"seed":${JSON.stringify(host.g.seed)},"tickMs":${TICK_MS},"frame":${shared.frameJson},"me":${JSON.stringify(playerView(host.g, acct.id))},"pub":${shared.pubJson},"directory":${dir},"chat":${JSON.stringify(chatFor(host.g, acct.id))},"serverTime":${Date.now()}}`);
+        ws.send(`{"t":"welcome","playerId":${JSON.stringify(acct.id)},"tickMs":${TICK_MS},"frame":${shared.frameJson},"me":${JSON.stringify(playerView(host.g, acct.id))},"pub":${shared.pubJson},"directory":${dir},"chat":${JSON.stringify(chatFor(host.g, acct.id))},"serverTime":${Date.now()}}`);
         return;
       }
       case 'cmd': {
