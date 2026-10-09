@@ -440,6 +440,8 @@ export function universeConfig(overrides: Partial<WorldConfig> = {}): WorldConfi
     jumpPermanent: 1,
     jumpImmediate: 0.7,
     jumpCompensation: true,
+    // alt-peak guard (Quant's C5): one-sided crowd flow > 25% ADV in a day or 50% ADV over 5 days freezes peak marks
+    markGuard: { thr: 0.25, K: 0.5 },
     haltThreshold: 0.15,
     haltTicks: 120,
     initialRegime: 'expansion',

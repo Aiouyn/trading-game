@@ -17,8 +17,8 @@
 import { DEFAULT_TRADING } from './config';
 import { optionQuote, optionsValue, parseContract } from './options';
 import type {
-  Account, AssetDef, Fill, FillEstimate, MarginConfig, Order, OrderRequest, PortfolioView, PositionView,
-  Side, StepEvent, TradingConfig, WorldState,
+  Account, AssetDef, CrowdHold, DayTraded, Fill, FillEstimate, MarginConfig, Order, OrderRequest, PortfolioView, PositionView,
+  Side, StepEvent, TickTraded, TradingConfig, WorldState,
 } from './types';
 
 const EPS = 1e-9;
@@ -82,6 +82,180 @@ function execPrice(state: WorldState, i: number, side: Side, qty: number): { pri
   const p = mid(state, i);
   const imp = impact(state, i, qty * p);
   return { price: p * (1 + sign(side) * (halfSpread(state, i) + imp)), imp };
+}
+
+// ---------------------------------------------------------------- shared impact tallies (engine-staging, Ledger 2026-10-09)
+
+/**
+ * Permanent price move of a fill, in log price. The notional ALL accounts already traded today on this asset
+ * and side (AssetState.dayTraded) is `before`; the fill adds `notional`. The move is sign · log1p(f(before + notional) − f(before))
+ * with f(n) = permanentImpactShare · impact(n), so a day's clips (or alts) add up to what one order of the same total would do.
+ */
+export function permanentMove(state: WorldState, i: number, side: Side, before: number, notional: number): number {
+  const share = tradingConfig(state).permanentImpactShare;
+  const f = (n: number) => share * impact(state, i, n);
+  return sign(side) * Math.log1p(f(before + notional) - f(before));
+}
+
+/** The asset's shared tally for game day `today`: absent or stamped with another day = nothing traded yet. */
+export function tallyToday(t: DayTraded | undefined, today: number): DayTraded {
+  return t && t.day === today ? t : { day: today, buy: 0, sell: 0 };
+}
+
+/** The asset's shared tally for this tick: absent or stamped with another tick = nothing filled yet, at the current mid. */
+export function tallyTick(t: TickTraded | undefined, tick: number, lnP: number): TickTraded {
+  return t && t.tick === tick ? t : { tick, lnMid: lnP, buy: 0, sell: 0 };
+}
+
+/**
+ * Temporary impact per unit of a fill of `x` notional when `before` notional was already filled this tick on this
+ * asset and side, across all accounts: (C(before + x) − C(before)) / x with C(n) = n · impact(n). Splitting a tick's
+ * total into any number of fills adds up to C(total). With nothing before it is exactly impact(x).
+ */
+export function marginalImpact(state: WorldState, i: number, before: number, x: number): number {
+  if (!(before > 0)) return impact(state, i, x);
+  if (!(x > 0)) return impact(state, i, before);
+  return ((before + x) * impact(state, i, before + x) - before * impact(state, i, before)) / x;
+}
+
+/** game day (0-based) a tick's fills belong to */
+export function tallyDay(state: WorldState): number {
+  return Math.floor((state.tick - 1) / state.config.ticksPerDay);
+}
+
+/** Print a fill on the tape: volume, the shared day tally and its permanent move. Mutates `assets` at i. */
+function printFill(state: WorldState, assets: WorldState['assets'], i: number, side: Side, q: number, price: number, atMid?: number): void {
+  const a = assets[i]!;
+  const traded = tallyToday(a.dayTraded, tallyDay(state));
+  const notional = q * price;
+  const move = permanentMove(state, i, side, traded[side], notional);
+  const next = {
+    ...a,
+    dayTraded: { ...traded, [side]: traded[side] + notional },
+    lnP: a.lnP + move,
+    volume: (a.volume ?? 0) + q,
+    notional: (a.notional ?? 0) + notional,
+    dayVolume: (a.dayVolume ?? 0) + q,
+    dayNotional: (a.dayNotional ?? 0) + notional,
+    cumVolume: (a.cumVolume ?? 0) + q,
+  };
+  if (atMid !== undefined) {
+    const tt = tallyTick(a.tickTraded, state.tick, a.lnP);
+    next.tickTraded = { ...tt, [side]: tt[side] + atMid };
+  }
+  assets[i] = next;
+}
+
+// ---------------------------------------------------------------- liquidation marks (engine-staging crowd exit + C5 guard)
+
+/** Every account's long and short units per asset. Pure; O(positions). */
+export function crowdHoldings(state: WorldState): Record<string, CrowdHold> {
+  const crowd: Record<string, CrowdHold> = {};
+  for (const acct of Object.values(state.accounts)) {
+    for (const [assetId, pos] of Object.entries(acct.positions)) {
+      const c = crowd[assetId] ?? (crowd[assetId] = { long: 0, short: 0 });
+      if (pos.qty > 0) c.long += pos.qty;
+      else c.short -= pos.qty;
+    }
+  }
+  return crowd;
+}
+
+/** Mark price of asset i for a long (dir 1) or short (dir −1) position: mid, held at the guard's anchor during a pump or dump. */
+export function guardedMark(state: WorldState, i: number, dir: 1 | -1): number {
+  const m = mid(state, i);
+  const g = state.assets[i]!.markGuard;
+  if (!g || g.dir !== dir || tallyDay(state) > g.untilDay) return m;
+  const anchor = Math.exp(g.lnAnchor);
+  return dir === 1 ? Math.min(m, anchor) : Math.max(m, anchor);
+}
+
+const FLOW_DAYS = 5;
+
+/**
+ * Rule C5 (Quant's alt-peak recommendation, Ledger's bar: honest p95 haircut ≤ 3%, slow 5-day pump closed).
+ * 1-day rule: today's net crowd flow (shared day tally) beyond thr × ADV: anchor = today's open (the previous close).
+ * Rolling rule: the last 5 days' net flow beyond K × ADV: anchor = the open of the window's first day.
+ * Either keeps the guard live through tomorrow. An episode keeps its anchor unless an earlier window fires; a flip
+ * in direction starts a new episode. Mutates s.assets (the caller owns the copy).
+ */
+function updateMarkGuards(s: WorldState): void {
+  const mg = s.config.markGuard;
+  if (!mg) return;
+  const day = tallyDay(s);
+  for (let i = 0; i < s.assets.length; i++) {
+    let a = s.assets[i]!;
+    const t = a.dayTraded;
+    const adv = s.config.assets[i]!.advNotional ?? 1e9;
+    const todayNet = t && t.day === day ? (t.buy - t.sell) / adv : 0;
+    let sum = 0;
+    let winOpen = a.lnOpen;
+    const f = a.markFlow;
+    if (f || todayNet !== 0) {
+      let net: number[], lnOpen: number[];
+      if (!f) {
+        net = new Array<number>(FLOW_DAYS).fill(0); lnOpen = new Array<number>(FLOW_DAYS).fill(a.lnOpen);
+      } else if (f.day !== day) {
+        const k = Math.min(FLOW_DAYS, day - f.day);
+        net = [...f.net.slice(k), ...new Array<number>(k).fill(0)];
+        lnOpen = [...f.lnOpen.slice(k), ...new Array<number>(k).fill(a.lnOpen)];
+      } else { net = f.net; lnOpen = f.lnOpen; }
+      if (!f || f.day !== day || net[FLOW_DAYS - 1] !== todayNet || lnOpen[FLOW_DAYS - 1] !== a.lnOpen) {
+        if (net === f?.net) { net = net.slice(); lnOpen = lnOpen.slice(); }
+        net[FLOW_DAYS - 1] = todayNet; lnOpen[FLOW_DAYS - 1] = a.lnOpen;
+        if (net.every((x) => x === 0)) { const { markFlow: _drop, ...rest } = a; void _drop; a = rest; }
+        else a = { ...a, markFlow: { day, net, lnOpen } };
+        s.assets[i] = a;
+      }
+      const m = a.markFlow;
+      if (m) { for (const x of m.net) sum += x; winOpen = m.lnOpen[0]!; }
+    }
+    const dir: 0 | 1 | -1 = todayNet > mg.thr || sum > mg.K ? 1 : todayNet < -mg.thr || sum < -mg.K ? -1 : 0;
+    if (dir === 0) continue;
+    const roll = dir * sum > mg.K;
+    const cDay = roll ? day - (FLOW_DAYS - 1) : day;
+    const cAnchor = roll ? winOpen : a.lnOpen;
+    const g = a.markGuard;
+    const keep = g !== undefined && day <= g.untilDay && g.dir === dir && g.anchorDay <= cDay;
+    const next = keep ? { ...g, untilDay: day + 1 } : { lnAnchor: cAnchor, anchorDay: cDay, untilDay: day + 1, dir };
+    if (g && g.lnAnchor === next.lnAnchor && g.anchorDay === next.anchorDay && g.untilDay === next.untilDay && g.dir === next.dir) continue;
+    s.assets[i] = { ...a, markGuard: next };
+  }
+}
+
+/**
+ * Cash + each position's pro-rata share of a CROWD exit: every same-side holding in that asset (all accounts) closed
+ * together at the (guarded) mid, paying half spread and square-root impact on the crowd's whole quantity, then the
+ * account's own fee. Every holder of an asset gets the same exit price per unit, so holdings split across alts mark
+ * no higher than one account holding the total, and an alt's buy adds its full quantity to the exit. With one holder
+ * this is exactly estimateFill on the whole position. Options at their mark.
+ */
+function liquidationOf(state: WorldState, acct: Account, crowd: Record<string, CrowdHold> = state.crowd ?? crowdHoldings(state)): number {
+  let eq = acct.cash;
+  for (const [assetId, pos] of Object.entries(acct.positions)) {
+    const i = assetIndex(state, assetId);
+    if (i < 0 || pos.qty === 0) continue;
+    const def = state.config.assets[i]!;
+    const long = pos.qty > 0;
+    const c = crowd[assetId];
+    const q = Math.max(Math.abs(pos.qty), (long ? c?.long : c?.short) ?? 0);
+    const p = guardedMark(state, i, long ? 1 : -1);
+    const cost = halfSpread(state, i) + impact(state, i, q * p);
+    const price = long ? p * (1 - cost) : p * (1 + cost);
+    eq += pos.qty * price - commission(state, def, Math.abs(pos.qty) * price);
+  }
+  if (acct.options) eq += optionsValue(state, acct.options);
+  return eq;
+}
+
+/**
+ * Liquidation value of an account (see liquidationOf). This is the net worth used for peak equity, drawdown, rank
+ * and licences, so neither your own buys nor an alt's can lift your peak. Displayed P&L stays mark-to-market.
+ */
+export function liquidationEquity(state: WorldState, playerId: string): number {
+  const acct = state.accounts[playerId];
+  if (!acct) throw new Error(`no account ${playerId}`);
+  return liquidationOf(state, acct);
 }
 
 export function commission(state: WorldState, def: AssetDef, notional: number): number {
@@ -451,6 +625,15 @@ export function tradeOption(state: WorldState, playerId: string, contractId: str
   const q = optionQuote(state, c);
   if (q.expired) return { state, error: 'contract has expired' };
   const fee = cfg.feePerContract * qty;
+  // the dealer on the other side hedges the contract's delta in the underlying: that flow joins the asset's
+  // shared day tally like any fill, so options can't move (or dodge moving) a stock more cheaply than shares
+  const hedge = (st: WorldState): WorldState => {
+    const units = q.delta * cfg.multiplier * qty * (side === 'buy' ? 1 : -1);
+    if (!(Math.abs(units) > EPS)) return st;
+    const assets = st.assets.slice();
+    printFill(st, assets, i, units > 0 ? 'buy' : 'sell', Math.abs(units), mid(st, i));
+    return { ...st, assets };
+  };
   const acct: Account = { ...acct0, options: { ...(acct0.options ?? {}) } };
   const held = acct.options![contractId];
   if (side === 'buy') {
@@ -460,7 +643,7 @@ export function tradeOption(state: WorldState, playerId: string, contractId: str
     const n = (held?.qty ?? 0) + qty;
     acct.options![contractId] = { qty: n, avgCost: ((held?.qty ?? 0) * (held?.avgCost ?? 0) + total / cfg.multiplier) / n };
     acct.feesPaid += fee;
-    return { state: { ...state, accounts: { ...state.accounts, [playerId]: acct } }, fill: { contractId, side, qty, price: q.ask, fee, total } };
+    return { state: hedge({ ...state, accounts: { ...state.accounts, [playerId]: acct } }), fill: { contractId, side, qty, price: q.ask, fee, total } };
   }
   if (!held || held.qty < qty) return { state, error: 'you hold fewer contracts' };
   const proceeds = q.bid * cfg.multiplier * qty - fee;
@@ -469,7 +652,7 @@ export function tradeOption(state: WorldState, playerId: string, contractId: str
   acct.feesPaid += fee;
   if (held.qty === qty) delete acct.options![contractId];
   else acct.options![contractId] = { ...held, qty: held.qty - qty };
-  return { state: { ...state, accounts: { ...state.accounts, [playerId]: acct } }, fill: { contractId, side, qty, price: q.bid, fee, total: proceeds } };
+  return { state: hedge({ ...state, accounts: { ...state.accounts, [playerId]: acct } }), fill: { contractId, side, qty, price: q.bid, fee, total: proceeds } };
 }
 
 // ---------------------------------------------------------------- clearing (called by step)
@@ -491,18 +674,16 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
   const tpd = state.config.ticksPerDay;
   const s: WorldState = { ...state, orders: state.orders.slice(), assets: state.assets.slice(), accounts: { ...state.accounts } };
 
-  const printTape = (i: number, side: Side, q: number, price: number, imp: number) => {
-    const a = s.assets[i]!;
-    s.assets[i] = {
-      ...a,
-      // permanent share of impact moves the price; the pull to value decays it
-      lnP: a.lnP + Math.log1p(sign(side) * t.permanentImpactShare * imp),
-      volume: (a.volume ?? 0) + q,
-      notional: (a.notional ?? 0) + q * price,
-      dayVolume: (a.dayVolume ?? 0) + q,
-      dayNotional: (a.dayNotional ?? 0) + q * price,
-      cumVolume: (a.cumVolume ?? 0) + q,
-    };
+  // permanent share of impact moves the price (the pull to value decays it), charged on the asset's shared day
+  // tally across every account, so splitting into clips or across accounts doesn't multiply or dodge it
+  const printTape = (i: number, side: Side, q: number, price: number, p0: number) => printFill(s, s.assets, i, side, q, price, q * p0);
+  // every fill this tick prices off the tick's pre-trade mid; temporary impact is charged on what ALL accounts
+  // already filled this tick on that side (a lone order prices exactly as before)
+  const tickPrice = (i: number, side: Side, q: number) => {
+    const tt = tallyTick(s.assets[i]!.tickTraded, tick, s.assets[i]!.lnP);
+    const p0 = Math.exp(tt.lnMid);
+    const imp = marginalImpact(s, i, tt[side], q * p0);
+    return { price: p0 * (1 + sign(side) * (halfSpread(s, i) + imp)), p0 };
   };
 
   if (hasOpen) {
@@ -539,8 +720,11 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       const margin = isMarginAccount(acct0);
       const held = acct0.positions[o.assetId]?.qty ?? 0;
 
+      // the maxAdvPerTick cap is shared too: what other accounts filled this tick on this side counts against it
+      const tt = tallyTick(s.assets[i]!.tickTraded, tick, s.assets[i]!.lnP);
+      const capUnits = (t.maxAdvPerTick * (def.advNotional ?? 1e9) - tt[o.side]) / Math.exp(tt.lnMid);
+      if (!(capUnits > EPS) || roundQty(def, capUnits) <= EPS) continue; // this tick's shared cap is used up: wait
       let q = o.qty - o.filledQty;
-      const capUnits = (t.maxAdvPerTick * (def.advNotional ?? 1e9)) / p;
       q = roundQty(def, Math.min(q, capUnits));
       if (o.reduceOnly) {
         const can = held !== 0 && Math.sign(held) !== sign(o.side) ? Math.abs(held) : 0;
@@ -554,7 +738,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         continue;
       }
 
-      let { price, imp } = execPrice(s, i, o.side, q);
+      let { price, p0 } = tickPrice(i, o.side, q);
       if (o.type === 'limit' || o.type === 'stop_limit') {
         if (o.side === 'buy' ? price > o.limitPrice! : price < o.limitPrice!) continue; // not marketable yet
       }
@@ -570,7 +754,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           s.orders[k] = { ...o, status: o.filledQty > 0 ? 'cancelled' : 'rejected', rejectReason: 'insufficient cash', closedTick: tick };
           continue;
         }
-        ({ price, imp } = execPrice(s, i, o.side, q));
+        ({ price, p0 } = tickPrice(i, o.side, q));
         fee = commission(s, def, q * price);
         if (q * price + fee > acct0.cash + EPS) {
           s.orders[k] = { ...o, status: o.filledQty > 0 ? 'cancelled' : 'rejected', rejectReason: 'insufficient cash', closedTick: tick };
@@ -595,7 +779,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         ...(!done && shrunk ? { rejectReason: 'insufficient cash' } : {}),
       };
       fills.push({ orderId: o.id, playerId: o.playerId, assetId: o.assetId, side: o.side, qty: q, price, fee, tick });
-      printTape(i, o.side, q, price, imp);
+      printTape(i, o.side, q, price, p0);
 
       // one-cancels-other: a fill on a bracket leg cancels its sibling
       if (o.ocoGroup) {
@@ -681,8 +865,9 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
     }
   }
 
-  // ---- margin calls and liquidation, then mark to market ----
+  // ---- margin calls and liquidation, then mark: peak and drawdown on liquidation value ----
   const mc = marginConfig(s);
+  const marks: string[] = [];
   for (const id of accountIds) {
     let a = s.accounts[id]!;
     if (isMarginAccount(a)) {
@@ -701,7 +886,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           const pos = a.positions[assetId]!;
           const side: Side = pos.qty > 0 ? 'sell' : 'buy';
           const q = Math.abs(pos.qty);
-          const { price, imp } = execPrice(s, i, side, q);
+          const { price, p0 } = tickPrice(i, side, q);
           const fee = commission(s, s.config.assets[i]!, q * price);
           book(a, assetId, side, q, price, fee);
           s.orderSeq++;
@@ -711,7 +896,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           s.orders.push(forcedOrder);
           fills.push({ orderId: forcedOrder.id, playerId: id, assetId, side, qty: q, price, fee, tick });
           events.push({ type: 'liquidation', tick, playerId: id, assetId, qty: q, price });
-          printTape(i, side, q, price, imp);
+          printTape(i, side, q, price, p0);
           gross = grossExposure(s, a);
           eq = equityOf(s, a);
         }
@@ -731,14 +916,23 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         delete a.marginCallTick;
       }
     }
-    const eq = equityOf(s, a);
-    const peak = Math.max(a.peakEquity, eq);
-    const dd = peak > 0 ? eq / peak - 1 : 0;
+    s.accounts[id] = a;
+    marks.push(id);
+  }
+  updateMarkGuards(s);
+  // the crowd after this tick's fills and liquidations: every account's exit is priced on it until the next tick
+  s.crowd = crowdHoldings(s);
+  for (const id of marks) {
+    const a = s.accounts[id]!;
+    const liq = Object.keys(a.positions).length || a.options ? liquidationOf(s, a, s.crowd) : a.cash;
+    const peak = Math.max(a.peakEquity, liq);
+    const dd = peak > 0 ? liq / peak - 1 : 0;
+    if (peak === a.peakEquity && dd >= a.maxDrawdown && !newDay) continue;
     s.accounts[id] = {
       ...a,
       peakEquity: peak,
       maxDrawdown: Math.min(a.maxDrawdown, dd),
-      dayStartEquity: newDay ? eq : a.dayStartEquity,
+      dayStartEquity: newDay ? equityOf(s, a) : a.dayStartEquity,
     };
   }
   if (archiving(s) && s.orders.some((o) => o.status !== 'open')) {
@@ -774,7 +968,8 @@ export function portfolio(state: WorldState, playerId: string): PortfolioView {
       };
     });
   const unrealizedPnl = positions.reduce((x, p) => x + p.unrealizedPnl, 0);
-  const peak = Math.max(acct.peakEquity, equity);
+  const liq = liquidationOf(state, acct);
+  const peak = Math.max(acct.peakEquity, liq);
   return {
     playerId,
     cash: acct.cash,
@@ -787,7 +982,8 @@ export function portfolio(state: WorldState, playerId: string): PortfolioView {
     dayPnl: equity - acct.dayStartEquity,
     feesPaid: acct.feesPaid,
     peakEquity: peak,
-    drawdown: peak > 0 ? equity / peak - 1 : 0,
-    maxDrawdown: Math.min(acct.maxDrawdown, peak > 0 ? equity / peak - 1 : 0),
+    liquidationEquity: liq,
+    drawdown: peak > 0 ? liq / peak - 1 : 0,
+    maxDrawdown: Math.min(acct.maxDrawdown, peak > 0 ? liq / peak - 1 : 0),
   };
 }

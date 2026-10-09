@@ -59,7 +59,7 @@ export function join(g: GameState, id: string, handleIn: string, countryIn: stri
   const p = createPlayer(g, id, handle, country);
   credit(g, id, ONBOARDING_GRANT, 'onboarding grant');
   refreshNetWorth(g, p);
-  p.netWorthPeak = Math.max(p.netWorthPeak, p.netWorth);
+  p.netWorthPeak = Math.max(p.netWorthPeak, p.markNetWorth ?? p.netWorth);
   pickRival(g, p);
   notify(g, out, id, { kind: 'system', tone: 'brass', text: `Welcome to Port Avalon, ${handle}. Your broker added a $${ONBOARDING_GRANT} sign-up bonus. Rent is due Friday.` });
   pushWire(g, out, { kind: 'milestone', tag: 'New', tone: 'info', playerId: id, text: `${handle} opens an account in Port Avalon` });

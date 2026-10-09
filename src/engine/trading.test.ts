@@ -242,14 +242,16 @@ describe('order lifecycle', () => {
 });
 
 describe('portfolio math', () => {
-  it('tracks peak equity, drawdown and max drawdown', () => {
+  it('tracks peak equity, drawdown and max drawdown on liquidation value', () => {
     let s = step(place(world(), { qty: 40 }).state).state; // ~$4,000 in STK
     s = step(setPrice(s, 'STK', 120)).state;
-    const peak = portfolio(s, 'p1').equity;
+    const at = portfolio(s, 'p1');
+    const peak = at.liquidationEquity;
+    expect(peak).toBeLessThan(at.equity); // the exit pays spread, impact and the fee
     s = step(setPrice(s, 'STK', 60)).state;
     let p = portfolio(s, 'p1');
     expect(p.peakEquity).toBeCloseTo(peak, 6);
-    expect(p.drawdown).toBeCloseTo(p.equity / peak - 1, 9);
+    expect(p.drawdown).toBeCloseTo(p.liquidationEquity / peak - 1, 9);
     expect(p.drawdown).toBeLessThan(-0.3);
     s = step(setPrice(s, 'STK', 100)).state;
     p = portfolio(s, 'p1');

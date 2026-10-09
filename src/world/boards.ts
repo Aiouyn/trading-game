@@ -24,7 +24,7 @@ function top(rows: BoardRow[]): BoardRow[] {
  */
 export function computeBoards(g: GameState): void {
   const ps = Object.values(g.players);
-  const all = ps.map((p) => row(p, p.netWorth)).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+  const all = ps.map((p) => row(p, p.markNetWorth ?? p.netWorth)).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
   const nwRank: Record<string, number> = {};
   all.forEach((r, i) => { nwRank[r.id] = i + 1; });
   const country: Record<string, BoardRow[]> = {};

@@ -8,6 +8,7 @@ export {
   openAccount, placeOrder, cancelOrder, modifyOrder, estimateFill, openOrders, orderHistory, portfolio,
   halfSpread, impact, commission, tradingConfig, marginConfig, buyingPower, grossExposure, equityOf,
   isMarginAccount, setAccountPermissions, adjustCash, tradeOption, assetIndex, DEFAULT_MARGIN,
+  liquidationEquity, crowdHoldings, guardedMark, permanentMove, marginalImpact, tallyToday, tallyTick, tallyDay,
 } from './trading';
 export type { OptionTradeResult } from './trading';
 export { DEFAULT_CATALYSTS, earningsInfo, earningsCalendar, dayOfTick } from './catalysts';

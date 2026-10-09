@@ -1,4 +1,4 @@
-import { CITIES, districtAssetId } from '@/engine';
+import { CITIES, districtAssetId, liquidationEquity } from '@/engine';
 import {
   BIZ_BY_ID, BIZ_EVENTS, BIZ_SECTOR_BY_ID, MAX_UPGRADE, TIERS, UPGRADES, upgradeCost, type UpgradeAxis,
 } from '@/content/businesses';
@@ -438,10 +438,14 @@ export function buyNote(g: GameState, pid: string, assetId: string, aiMcs = 0): 
 // ================================================================ net worth bookkeeping
 
 export function refreshNetWorth(g: GameState, p: Player): number {
-  const nw = netWorthBreakdown(g, p.id).total;
-  p.netWorth = nw;
-  if (nw > p.netWorthPeak) p.netWorthPeak = nw;
-  return nw;
+  const b = netWorthBreakdown(g, p.id);
+  p.netWorth = b.total;
+  // markets at the crowd-exit price: your own or an alt's buying can't lift the peak that rank keys off
+  const acct = g.market.accounts[p.id];
+  const mark = acct && (Object.keys(acct.positions).length || acct.options) ? b.total - (b.cash + b.markets) + liquidationEquity(g.market, p.id) : b.total;
+  p.markNetWorth = mark;
+  if (mark > p.netWorthPeak) p.netWorthPeak = mark;
+  return b.total;
 }
 
 export { today, districtAssetId };

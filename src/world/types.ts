@@ -53,9 +53,12 @@ export interface Player {
   /** NPC persona id, when this player is a bot */
   npc?: string;
   bio: string;
-  /** highest net worth ever reached; rank keys off it and is never lost */
+  /** highest exit-value net worth ever reached (markNetWorth); rank keys off it and is never lost */
   netWorthPeak: number;
+  /** displayed net worth: markets mark-to-market */
   netWorth: number;
+  /** net worth with markets at their crowd-exit liquidation value (alt-pump proof); peak, rank and boards use it */
+  markNetWorth?: number;
   rankId: string;
   licenseId: string;
   prestige: number;

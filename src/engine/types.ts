@@ -153,6 +153,12 @@ export interface WorldConfig {
   options?: OptionsConfig;
   /** margin, shorting and liquidation; defaults to DEFAULT_MARGIN */
   margin?: MarginConfig;
+  /**
+   * Alt-peak guard (Quant's rule C5): when today's net crowd flow on an asset passes thr × ADV, or the last 5 game
+   * days' net flow passes K × ADV, peak / rank marks stop at the close before the flow began, through the next day.
+   * Off when absent.
+   */
+  markGuard?: { thr: number; K: number };
   regimes: Record<RegimeId, RegimeDef>;
   assets: AssetDef[];
   indices: IndexDef[];
@@ -190,6 +196,26 @@ export interface AssetState {
   cumVolume: number;
   /** attention after news, jumps and halts: extra volume multiplier that decays */
   heat: number;
+  /**
+   * Notional ALL accounts traded TODAY on this asset, per side (shared permanent-impact tally, Ledger 2026-10-09):
+   * the day's permanent move is charged on the running total, so N accounts or 720 clips move the price like one
+   * order of the same total. Absent, or stamped with an earlier day = nothing traded yet today.
+   */
+  dayTraded?: DayTraded;
+  /**
+   * Notional (at the tick's pre-trade mid) ALL accounts already filled THIS tick on this asset, per side, plus that
+   * mid. Temporary impact and the maxAdvPerTick cap are charged on it, so splitting inside one tick costs what one
+   * order would. Absent, or stamped with another tick = nothing filled yet this tick.
+   */
+  tickTraded?: TickTraded;
+  /**
+   * Alt-peak mark guard (config.markGuard): after a day (or a rolling 5 days) of one-sided crowd flow, peak / rank /
+   * licence marks value longs at min(mid, anchor) (dir 1, buy pump) or shorts at max(mid, anchor) (dir −1, dump),
+   * anchor = the close before the flow began. Live through untilDay. Absent when no guard is on.
+   */
+  markGuard?: { lnAnchor: number; anchorDay: number; untilDay: number; dir: 1 | -1 };
+  /** the last 5 game days' net crowd flow / ADV and each day's open (index 4 = `day`); absent once all 5 are flat */
+  markFlow?: { day: number; net: number[]; lnOpen: number[] };
   // ---- catalysts (stocks only, when config.catalysts is set; all optional so old saves load) ----
   /** earnings stream ('earnings:<id>'); separate so catalysts never shift the price stream */
   erng?: RngState;
@@ -439,6 +465,14 @@ export interface WorldState {
   regionRng?: Record<string, RngState>;
   /** interest rates and macro, present when config.rates is set */
   rates?: RatesState;
+  /** every account's long and short units per asset, recomputed at each tick's mark (crowd-exit liquidation marks) */
+  crowd?: Record<string, CrowdHold>;
+}
+
+export interface CrowdHold {
+  long: number;
+  /** units short, as a positive number */
+  short: number;
 }
 
 export interface Quote {
@@ -458,6 +492,23 @@ export interface Quote {
   cumVolume: number;
   /** average daily volume in units at the current price (advNotional / price), the same ADV impact uses */
   adv: number;
+}
+
+export interface TickTraded {
+  /** tick these totals belong to */
+  tick: number;
+  /** ln mid before the tick's first fill on this asset; every fill this tick prices off it */
+  lnMid: number;
+  /** notional at that mid, per side */
+  buy: number;
+  sell: number;
+}
+
+export interface DayTraded {
+  /** game day (0-based) these totals belong to */
+  day: number;
+  buy: number;
+  sell: number;
 }
 
 export type StepEvent =
@@ -522,6 +573,8 @@ export interface PortfolioView {
   dayPnl: number;
   feesPaid: number;
   peakEquity: number;
+  /** cash + positions at their share of a crowd exit (spread, impact on everyone's units, fee); peaks use this */
+  liquidationEquity: number;
   /** current drop from peak, as a fraction ≤ 0 */
   drawdown: number;
   /** worst drawdown so far, as a fraction ≤ 0 */
