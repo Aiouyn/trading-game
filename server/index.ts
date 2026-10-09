@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
 import { WorldHost } from './host';
-import { chatFor, directory, marketFrame, playerView, publicState } from '../src/world/view';
+import { chatFor, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
 import { validHandle, COUNTRIES } from '../src/world/players';
 import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type ServerMsg } from '../src/net/protocol';
 import type { ChatMessage } from '../src/world/types';
@@ -20,6 +20,8 @@ const TICK_MS = Number(process.env.TICK_MS ?? 5000);
 const WARMUP_DAYS = Number(process.env.WARMUP_DAYS ?? 63);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const MAX_MSG = 16 * 1024;
+/** new accounts per IP per hour (raise it for load tests) */
+const REGISTER_LIMIT = Number(process.env.REGISTER_LIMIT ?? 20);
 
 const log = (m: string) => console.log(`[world ${new Date().toISOString()}] ${m}`);
 const store = new Store(DATA_DIR);
@@ -57,7 +59,7 @@ const registrations = new Map<string, number[]>();
 function allowRegister(ip: string): boolean {
   const now = Date.now();
   const arr = (registrations.get(ip) ?? []).filter((t) => now - t < 3600_000);
-  if (arr.length >= 20) return false;
+  if (arr.length >= REGISTER_LIMIT) return false;
   arr.push(now);
   registrations.set(ip, arr);
   return true;
@@ -142,11 +144,9 @@ wss.on('connection', (ws) => {
         if (!acct || !host.g.players[acct.id]) return send(ws, { t: 'error', message: 'auth' });
         c.pid = acct.id;
         host.command(acct.id, { type: 'presence', online: true });
-        send(ws, {
-          t: 'welcome', playerId: acct.id, seed: host.g.seed, tickMs: TICK_MS, frame: marketFrame(host.g, true),
-          me: playerView(host.g, acct.id)!, pub: publicState(host.g), directory: directory(host.g), chat: chatFor(host.g, acct.id),
-          serverTime: Date.now(),
-        });
+        const shared = publicCache();
+        const dir = shared.topJson ?? JSON.stringify(directoryFor(host.g, shared.all, shared.top, acct.id));
+        ws.send(`{"t":"welcome","playerId":${JSON.stringify(acct.id)},"seed":${JSON.stringify(host.g.seed)},"tickMs":${TICK_MS},"frame":${shared.frameJson},"me":${JSON.stringify(playerView(host.g, acct.id))},"pub":${shared.pubJson},"directory":${dir},"chat":${JSON.stringify(chatFor(host.g, acct.id))},"serverTime":${Date.now()}}`);
         return;
       }
       case 'cmd': {
@@ -179,6 +179,20 @@ wss.on('connection', (ws) => {
   });
 });
 
+/** Public state, directory and the full market frame, built at most once per tick and shared by every welcome. */
+let pubCache: { tick: number; pubJson: string; all: ReturnType<typeof directory>; top: ReturnType<typeof directory>; topJson: string | null; frameJson: string } | null = null;
+function publicCache() {
+  if (!pubCache || pubCache.tick !== host.g.market.tick) {
+    const all = directory(host.g);
+    const top = topDirectory(all);
+    pubCache = {
+      tick: host.g.market.tick, pubJson: JSON.stringify(publicState(host.g)), all, top,
+      topJson: all.length <= top.length ? JSON.stringify(top) : null, frameJson: JSON.stringify(marketFrame(host.g, true)),
+    };
+  }
+  return pubCache;
+}
+
 function canSee(pid: string, channel: string): boolean {
   const p = host.g.players[pid];
   if (!p) return false;
@@ -190,23 +204,28 @@ function canSee(pid: string, channel: string): boolean {
 }
 
 host.onTick((out, publicTick) => {
-  const frame = marketFrame(host.g, publicTick);
-  const pub = publicTick ? publicState(host.g) : undefined;
-  const dir = publicTick ? directory(host.g) : undefined;
+  // shared parts are serialized once per tick, not once per socket
+  const frameJson = JSON.stringify(marketFrame(host.g, publicTick));
+  const wireJson = JSON.stringify(out.wire);
+  const rankJson = JSON.stringify(out.rankUps);
+  const pubJson = publicTick ? JSON.stringify(publicState(host.g)) : null;
+  const all = publicTick ? directory(host.g) : null;
+  const top = all ? topDirectory(all) : null;
+  const topJson = top && all!.length <= top.length ? JSON.stringify(top) : null;
   const chat = out.chat as (ChatMessage & { channel?: string })[];
+  const now = Date.now();
   for (const c of conns) {
-    if (!c.pid) continue;
+    if (!c.pid || c.ws.readyState !== c.ws.OPEN) continue;
     const me = playerView(host.g, c.pid);
     if (!me) continue;
-    send(c.ws, {
-      t: 'tick', frame, me, wire: out.wire, inbox: out.inbox[c.pid] ?? [],
-      chat: chat.filter((m) => canSee(c.pid!, m.channel ?? 'world')).map((m) => ({ ...m, channel: m.channel ?? 'world' })),
-      rankUps: out.rankUps, ...(pub ? { pub, directory: dir } : {}), serverTime: Date.now(),
-    });
+    const myChat = chat.filter((m) => canSee(c.pid!, m.channel ?? 'world')).map((m) => ({ ...m, channel: m.channel ?? 'world' }));
+    let extra = '';
+    if (pubJson) extra = `,"pub":${pubJson},"directory":${topJson ?? JSON.stringify(directoryFor(host.g, all!, top!, c.pid))}`;
+    c.ws.send(`{"t":"tick","frame":${frameJson},"me":${JSON.stringify(me)},"wire":${wireJson},"inbox":${JSON.stringify(out.inbox[c.pid] ?? [])},"chat":${JSON.stringify(myChat)},"rankUps":${rankJson}${extra},"serverTime":${now}}`);
   }
 });
 
-http.listen(PORT, () => log(`listening on :${PORT} (tick ${TICK_MS} ms, data ${DATA_DIR})`));
+http.listen(PORT, undefined, 4096, () => log(`listening on :${PORT} (tick ${TICK_MS} ms, data ${DATA_DIR})`));
 host.start();
 
 const shutdown = () => {

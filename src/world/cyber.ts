@@ -1,7 +1,7 @@
 import { rankIndex } from '@/content/lifestyle';
 import { mcsTier } from '@/content/research';
 import {
-  TPD, cashOf, clamp, debit, drawFrom, keyedRng, notify, pushWire,
+  TPD, cashOf, clamp, debit, drawFrom, keyedRng, notify, ownerIndex, pushWire, touch,
 } from './core';
 import { bestModel, labFor } from './lab';
 import type {
@@ -88,11 +88,12 @@ function newEntry(g: GameState, ownerId: string, rng: { uniform(): number }, hos
     firstSeenTick: t, lastHandshakeTick: t, load, tag: null, flagged: false, ...(hostile ? { hostile } : {}),
   };
   g.cyber.entries[id] = e;
+  touch(g);
   return e;
 }
 
 export function entriesOf(g: GameState, pid: string): ConnectionEntry[] {
-  return Object.values(g.cyber.entries).filter((e) => e.ownerId === pid);
+  return (ownerIndex(g).entries.get(pid) ?? []).slice();
 }
 
 /** Keep each Security-unlocked account's legit list at its tier's typical size. */
@@ -107,7 +108,7 @@ function ensureLegit(g: GameState, pid: string, rng: { uniform(): number }): voi
 
 /** Give a player who just unlocked Security their normal list of legit connections. */
 export function seedConnections(g: GameState, pid: string): void {
-  if (entriesOf(g, pid).length) return;
+  if (ownerIndex(g).entries.has(pid)) return;
   const { rng, save } = drawFrom(g, 'cyber');
   ensureLegit(g, pid, rng);
   save();
@@ -167,6 +168,7 @@ export function disconnect(g: GameState, pid: string, entryId: string, out: Step
   if (cashOf(g, pid) < cost) return { ok: false, error: 'not enough cash' };
   debit(g, pid, cost, 'security');
   delete g.cyber.entries[entryId];
+  touch(g);
   if (e.hostile) endSession(g, e, true, out);
   else notify(g, out, pid, { kind: 'security', tone: 'info', text: `Disconnected ${e.codename}. It was a legit ${e.kind}; its partner contract ends.` });
   return { ok: true, data: { hostile: !!e.hostile } };
@@ -178,6 +180,7 @@ export function lockdown(g: GameState, pid: string, out: StepOutput | null): Com
   let reconnects = 0;
   for (const e of entriesOf(g, pid)) {
     delete g.cyber.entries[e.id];
+    touch(g);
     if (e.hostile) endSession(g, e, true, out);
     else reconnects++;
   }
@@ -271,7 +274,8 @@ export function plantSession(g: GameState, pid: string, victimId: string, streng
 export function cyberDay(g: GameState, out: StepOutput): void {
   const tick = g.market.tick;
   const { rng, save } = drawFrom(g, 'cyber');
-  const securityPlayers = Object.values(g.players).filter((p) => rankIndex(p.rankId) >= rankIndex(SECURITY_RANK) || entriesOf(g, p.id).length);
+  const withEntries = ownerIndex(g).entries;
+  const securityPlayers = Object.values(g.players).filter((p) => rankIndex(p.rankId) >= rankIndex(SECURITY_RANK) || withEntries.has(p.id));
   for (const p of securityPlayers) {
     ensureLegit(g, p.id, rng);
     const tier = defenseTier(g, p.id);
@@ -279,7 +283,7 @@ export function cyberDay(g: GameState, out: StepOutput): void {
     const churn = LEGIT_CHURN[tier]! / 24;
     if (rng.chance(Math.min(1, churn))) {
       const legit = entriesOf(g, p.id).filter((e) => !e.hostile && e.tag !== 'trusted');
-      if (legit.length) delete g.cyber.entries[legit[Math.floor(rng.uniform() * legit.length)]!.id];
+      if (legit.length) { delete g.cyber.entries[legit[Math.floor(rng.uniform() * legit.length)]!.id]; touch(g); }
       newEntry(g, p.id, rng);
     }
     for (const e of entriesOf(g, p.id)) {
@@ -295,6 +299,7 @@ export function cyberDay(g: GameState, out: StepOutput): void {
       if (rng.chance(st.clue * 6)) addClue(g, p.id, rng, true, e.id);
       if (tick - e.firstSeenTick > 7 * 24 * TPD) {
         delete g.cyber.entries[e.id];
+        touch(g);
         endSession(g, e, false, out);
       }
     }

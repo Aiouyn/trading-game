@@ -1,8 +1,8 @@
-import { openAccount, setAccountPermissions, type Fill } from '@/engine';
+import { type Fill } from '@/engine';
 import { ACHIEVEMENTS, CONTRACTS, emptyStats, type PlayerStats } from '@/content/progression';
 import { RANKS, licenseFor, rankFor, rankIndex } from '@/content/lifestyle';
 import {
-  ONBOARDING_GRANT, TPD, clamp, credit, gx, keyedRng, notify, playerBusinesses, playerProperties, priceOf, pushWire, sanitize, today,
+  ONBOARDING_GRANT, TPD, clamp, credit, findOrder, gx, keyedRng, notify, playerBusinesses, playerProperties, priceOf, pushWire, sanitize, today,
 } from './core';
 import { playerBizSectors, refreshNetWorth } from './assets';
 import { computeBoards } from './boards';
@@ -29,7 +29,10 @@ export function validHandle(h: string): string | null {
 
 export function createPlayer(g: GameState, id: string, handle: string, country: string, opts: { npc?: string; bio?: string; cash?: number } = {}): Player {
   const cash = opts.cash ?? g.market.config.trading?.startingCash ?? 5000;
-  g.market = openAccount(g.market, id, cash);
+  if (g.market.accounts[id]) throw new Error(`account ${id} already exists`);
+  g.market.accounts[id] = {
+    playerId: id, cash, startingCash: cash, positions: {}, realizedPnl: 0, feesPaid: 0, peakEquity: cash, maxDrawdown: 0, dayStartEquity: cash,
+  };
   const nw = cash;
   const p: Player = {
     id, handle, country, joinedTick: g.market.tick, lastSeenTick: g.market.tick, online: !opts.npc, bio: opts.bio ?? '',
@@ -60,8 +63,20 @@ export function join(g: GameState, id: string, handleIn: string, countryIn: stri
   pickRival(g, p);
   notify(g, out, id, { kind: 'system', tone: 'brass', text: `Welcome to Port Avalon, ${handle}. Your broker added a $${ONBOARDING_GRANT} sign-up bonus. Rent is due Friday.` });
   pushWire(g, out, { kind: 'milestone', tag: 'New', tone: 'info', playerId: id, text: `${handle} opens an account in Port Avalon` });
-  computeBoards(g);
+  if (Object.keys(g.players).length < 500) computeBoards(g); // big worlds refresh boards on their own schedule
   return ok({ id });
+}
+
+/** Everyone's rival at once: sort by net worth, each player's rival is the next one up. O(N log N). */
+export function pickRivals(g: GameState): void {
+  const sorted = Object.values(g.players).sort((a, b) => a.netWorth - b.netWorth || a.id.localeCompare(b.id));
+  for (let i = 0; i < sorted.length; i++) {
+    const p = sorted[i]!;
+    if (p.npc) continue;
+    let j = i + 1;
+    while (j < sorted.length && sorted[j]!.netWorth <= p.netWorth) j++;
+    p.rivalId = sorted[j]?.id ?? null;
+  }
 }
 
 /** The rival is the closest player above you (an NPC early on), refreshed with the boards. */
@@ -82,7 +97,11 @@ export function applyRank(g: GameState, p: Player, out: StepOutput | null, silen
   p.rankId = r.id;
   const lic = licenseFor(r.id);
   p.licenseId = lic.id;
-  g.market = setAccountPermissions(g.market, p.id, { maxLeverage: lic.maxLeverage, canShort: lic.canShort, canOptions: lic.canOptions });
+  // in place: the world owns its market copy (the pure helper would copy every account)
+  const acct = g.market.accounts[p.id];
+  if (acct && (acct.maxLeverage !== lic.maxLeverage || acct.canShort !== lic.canShort || acct.canOptions !== lic.canOptions)) {
+    g.market.accounts[p.id] = { ...acct, maxLeverage: lic.maxLeverage, canShort: lic.canShort, canOptions: lic.canOptions };
+  }
   if (rankIndex(r.id) >= 3) seedConnections(g, p.id);
   if (silent || prev === r.id) return;
   out?.rankUps.push({ playerId: p.id, rankId: r.id });
@@ -235,7 +254,7 @@ export function tradeStats(g: GameState, fills: Fill[], realizedBefore: Record<s
       p.stats.worstTrade = Math.min(p.stats.worstTrade, delta);
     }
     for (const f of fs) {
-      const o = g.market.orders.find((x) => x.id === f.orderId);
+      const o = findOrder(g, pid, f.orderId);
       if (o && (o.type === 'stop' || o.type === 'trailing' || o.type === 'stop_limit')) p.stats.stopsTriggered++;
       notify(g, out, pid, {
         kind: 'fill', tone: f.side === 'buy' ? 'gain' : 'loss',

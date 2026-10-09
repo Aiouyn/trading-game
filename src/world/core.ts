@@ -151,11 +151,10 @@ export function netWorthBreakdown(g: GameState, playerId: string): NetWorthBreak
   const cash = acct?.cash ?? 0;
   const equity = acct ? equityOf(g.market, acct) : 0;
   let businesses = 0;
-  for (const b of Object.values(g.businesses)) if (b.ownerId === playerId) businesses += bizValue(b);
+  for (const b of playerBusinesses(g, playerId)) businesses += bizValue(b);
   let property = 0;
   let mortgages = 0;
-  for (const p of Object.values(g.properties)) {
-    if (p.ownerId !== playerId) continue;
+  for (const p of playerProperties(g, playerId)) {
     property += propValue(g, p);
     mortgages += p.mortgage;
   }
@@ -186,12 +185,76 @@ export function bizDef(b: Business) {
   return BIZ_BY_ID.get(b.defId)!;
 }
 
+// ---------------------------------------------------------------- owner indexes
+
+/**
+ * Owner indexes for businesses, properties and security connections, rebuilt only when one of
+ * those collections changes (every mutation calls touch). Keeps per-player lookups O(1) at
+ * thousands of players. The cache lives outside the state, so snapshots never carry it.
+ */
+const versions = new WeakMap<object, number>();
+interface OwnerIndex { ver: number; biz: Map<string, Business[]>; props: Map<string, Property[]>; entries: Map<string, import('./types').ConnectionEntry[]> }
+const indexes = new WeakMap<object, OwnerIndex>();
+
+export function touch(g: GameState): void {
+  versions.set(g, (versions.get(g) ?? 0) + 1);
+}
+
+function group<T extends { ownerId: string }>(xs: Iterable<T>): Map<string, T[]> {
+  const m = new Map<string, T[]>();
+  for (const x of xs) {
+    const arr = m.get(x.ownerId);
+    if (arr) arr.push(x); else m.set(x.ownerId, [x]);
+  }
+  return m;
+}
+
+export function ownerIndex(g: GameState): OwnerIndex {
+  const ver = versions.get(g) ?? 0;
+  let ix = indexes.get(g);
+  if (!ix || ix.ver !== ver) {
+    ix = { ver, biz: group(Object.values(g.businesses)), props: group(Object.values(g.properties)), entries: group(Object.values(g.cyber.entries)) };
+    indexes.set(g, ix);
+  }
+  return ix;
+}
+
+const EMPTY: never[] = [];
+
+/** Open orders grouped by player, cached per market state (the market object changes every tick). */
+const openIdx = new WeakMap<object, Map<string, import('@/engine').Order[]>>();
+export function openOrdersOf(g: GameState, playerId: string): import('@/engine').Order[] {
+  let m = openIdx.get(g.market);
+  if (!m) {
+    m = new Map();
+    for (const o of g.market.orders) {
+      if (o.status !== 'open') continue;
+      const arr = m.get(o.playerId);
+      if (arr) arr.push(o); else m.set(o.playerId, [o]);
+    }
+    openIdx.set(g.market, m);
+  }
+  return m.get(playerId) ?? EMPTY;
+}
+
+/** A player's orders: recent history (closed) then open, oldest first. */
+export function ordersOf(g: GameState, playerId: string, limit = 120): import('@/engine').Order[] {
+  const closed = g.market.closedOrders?.[playerId] ?? g.market.orders.filter((o) => o.playerId === playerId && o.status !== 'open');
+  return [...closed.slice(-limit), ...openOrdersOf(g, playerId)];
+}
+
+export function findOrder(g: GameState, playerId: string, orderId: string): import('@/engine').Order | undefined {
+  const hist = g.market.closedOrders?.[playerId];
+  if (hist) for (let k = hist.length - 1; k >= 0 && k >= hist.length - 50; k--) if (hist[k]!.id === orderId) return hist[k];
+  return g.market.orders.find((o) => o.id === orderId);
+}
+
 export function playerBusinesses(g: GameState, playerId: string): Business[] {
-  return Object.values(g.businesses).filter((b) => b.ownerId === playerId);
+  return ownerIndex(g).biz.get(playerId) ?? EMPTY;
 }
 
 export function playerProperties(g: GameState, playerId: string): Property[] {
-  return Object.values(g.properties).filter((p) => p.ownerId === playerId);
+  return ownerIndex(g).props.get(playerId) ?? EMPTY;
 }
 
 export function clamp(x: number, lo: number, hi: number): number {

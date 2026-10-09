@@ -6,7 +6,7 @@ import {
   LIFE_BY_ID, PROPERTY_TYPE_BY_ID, TIER_VALUE_MULT, prestigeOf, rankIndex, resaleValue,
 } from '@/content/lifestyle';
 import {
-  TPD, bizDef, bump, cashOf, clamp, credit, debit, districtIndex, districtTier, drawFrom, keyedRng, netWorthBreakdown,
+  TPD, bizDef, bump, cashOf, touch, clamp, credit, debit, districtIndex, districtTier, drawFrom, keyedRng, netWorthBreakdown,
   notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
 } from './core';
 import type { Business, CommandResult, GameState, Player, Property, StepOutput } from './types';
@@ -50,8 +50,9 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
     levels, event: null, incomePerDay: def.income, share: 0, earned: 0,
   };
   g.businesses[id] = b;
+  touch(g);
   p.stats.bizBought++;
-  recomputeShares(g);
+  markShares(g);
   if (def.tier >= 3) pushWire(g, out, { kind: 'biz', tag: 'Deal', tone: 'brass', text: `${p.handle} buys ${def.name} in ${cityName(cityId)}`, playerId: pid });
   return ok({ id });
 }
@@ -68,7 +69,7 @@ export function upgradeBusiness(g: GameState, pid: string, bizId: string, axis: 
   b.invested += cost;
   b.levels[axis] = lvl + 1;
   g.players[pid]!.stats.bizUpgrades++;
-  recomputeShares(g);
+  markShares(g);
   return ok({ level: lvl + 1, cost });
 }
 
@@ -80,8 +81,9 @@ export function sellBusiness(g: GameState, pid: string, bizId: string, out: Step
   // the 30% haircut is destroyed money
   g.economy.sinks['business sale haircut'] = (g.economy.sinks['business sale haircut'] ?? 0) + (b.invested - price);
   delete g.businesses[bizId];
+  touch(g);
   g.players[pid]!.stats.bizSold++;
-  recomputeShares(g);
+  markShares(g);
   notify(g, out, pid, { kind: 'biz', tone: 'info', text: `Sold ${b.name} for $${price.toLocaleString('en-US')}` });
   return ok({ price });
 }
@@ -109,7 +111,13 @@ export function appeal(b: Business): number {
  * (mass grows with the number of player businesses in it), so crowding a pool lowers everyone's
  * share, and marketing and location win share from rivals (bible 01: logit market share).
  */
+const dirty = new WeakSet<object>();
+/** Mark market shares stale (a business was bought, sold or upgraded); the next tick recomputes. */
+export function markShares(g: GameState): void { dirty.add(g); }
+export function sharesDirty(g: GameState): boolean { return dirty.has(g); }
+
 export function recomputeShares(g: GameState): void {
+  dirty.delete(g);
   const pools = new Map<string, Business[]>();
   for (const b of Object.values(g.businesses)) {
     const key = `${b.cityId}:${bizDef(b).sector}`;
@@ -234,6 +242,7 @@ export function buyProperty(g: GameState, pid: string, cityId: string, districtI
     id, ownerId: pid, cityId, districtId, typeId, baseValue: price, baseIndex: districtIndex(g, cityId, districtId),
     improvement: 1, mortgage, mortgageRate: mortgageRate(g), boughtTick: g.market.tick, paid: price, rentEarned: 0,
   };
+  touch(g);
   p.stats.propsBought++;
   if (price >= 5_000_000) pushWire(g, out, { kind: 'purchase', tag: 'Property', tone: 'brass', text: `${p.handle} buys a ${t.name.toLowerCase()} in ${dist.name}, ${city.name}`, playerId: pid });
   return ok({ id, price, mortgage });
@@ -251,6 +260,7 @@ export function sellProperty(g: GameState, pid: string, propId: string): Command
   const p = g.players[pid]!;
   if (p.homePropId === propId) p.homePropId = null;
   delete g.properties[propId];
+  touch(g);
   return ok({ net });
 }
 

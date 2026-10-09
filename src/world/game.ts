@@ -4,15 +4,15 @@ import {
 } from '@/engine';
 import { licenseFor } from '@/content/lifestyle';
 import {
-  BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, credit, debit, drawFrom, newOutput, notify, sanitize,
+  BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, credit, debit, drawFrom, findOrder, newOutput, notify, sanitize,
 } from './core';
 import {
   accrueBusinesses, businessEvents, buyBusiness, buyItem, buyNote, buyProperty, lifestyleDay, propertyDay, recomputeShares,
-  refreshNetWorth, renameBusiness, renovateProperty, repayMortgage, sellBusiness, sellItem, sellProperty, setHome, upgradeBusiness,
+  refreshNetWorth, renameBusiness, sharesDirty, renovateProperty, repayMortgage, sellBusiness, sellItem, sellProperty, setHome, upgradeBusiness,
 } from './assets';
 import { newsFromEvents, filings } from './news';
 import {
-  addAlert, applyRank, checkAchievements, checkAlerts, claimContract, join, pickRival, rollContracts, tradeStats,
+  addAlert, applyRank, checkAchievements, checkAlerts, claimContract, join, pickRivals, rollContracts, tradeStats,
   updateContracts, updateProfile,
 } from './players';
 import {
@@ -99,8 +99,11 @@ export function stepGame(g: GameState): StepOutput {
   newsFromEvents(g, r.events, out);
   for (const f of r.fills) out.fills.push({ playerId: f.playerId, assetId: f.assetId, side: f.side, qty: f.qty, price: f.price, fee: f.fee, orderId: f.orderId });
   tradeStats(g, r.fills, realizedBefore, out);
-  for (const o of g.market.orders) {
-    if (o.closedTick !== tick || o.status === 'filled' || !ordersBefore.has(o.id)) continue;
+  const stillOpen = new Set(g.market.orders.filter((o) => o.status === 'open').map((o) => o.id));
+  for (const before of ordersBefore.values()) {
+    if (stillOpen.has(before.id)) continue;
+    const o = findOrder(g, before.playerId, before.id);
+    if (!o || o.closedTick !== tick || o.status === 'filled') continue;
     if (o.status === 'cancelled' && !o.rejectReason) continue;
     out.closed.push(o);
     const what = `${o.side === 'buy' ? 'Buy' : 'Sell'} ${o.qty} ${o.assetId}`;
@@ -110,8 +113,8 @@ export function stepGame(g: GameState): StepOutput {
     });
   }
 
+  if (tick % SHARE_EVERY === 0 || sharesDirty(g)) recomputeShares(g);
   accrueBusinesses(g, tick % CREDIT_EVERY === 0, out);
-  if (tick % SHARE_EVERY === 0) recomputeShares(g);
   labTick(g, out, newDay);
   courtTick(g, out);
 
@@ -142,10 +145,8 @@ export function stepGame(g: GameState): StepOutput {
   }
   if (tick % BOARD_EVERY === 0) {
     computeBoards(g);
-    for (const p of Object.values(g.players)) {
-      checkAchievements(g, p, out);
-      if (!p.npc) pickRival(g, p);
-    }
+    for (const p of Object.values(g.players)) checkAchievements(g, p, out);
+    pickRivals(g);
   }
   npcTick(g, (gg, pid, cmd) => applyCommand(gg, pid, cmd, out));
   chapterCheck(g, out);

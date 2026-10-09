@@ -1,7 +1,7 @@
 import { universeConfig, type Account, type AssetState, type Order, type RatesState, type RegimeId, type WorldConfig, type WorldState } from '@/engine';
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { contractProgress } from './players';
-import { TPD, netWorthBreakdown, playerBusinesses, playerProperties, propValue, type NetWorthBreakdown } from './core';
+import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, propValue, type NetWorthBreakdown } from './core';
 import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
 import { defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
 import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
@@ -29,14 +29,19 @@ export interface MarketFrame {
   rates: Pick<RatesState, 'policy' | 'y2' | 'y10' | 'y30' | 'expectedMove' | 'nextMeeting' | 'nextRelease' | 'releaseKind'> | null;
 }
 
+const r2 = (x: number) => Math.round(x * 100) / 100;
+const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
+const r7 = (x: number) => Math.round(x * 1e7) / 1e7;
+
 export function marketFrame(g: GameState, withEarnings = false): MarketFrame {
   const m = g.market;
   const frame: MarketFrame = {
     tick: m.tick,
     regime: m.regime,
+    // rounded to what the client needs: prices to 1e-7 in log space (≈ 0.00001%), volumes to units
     assets: m.assets.map((a) => [
-      a.lnP, a.h, a.haltUntil, a.lnOpen, a.volume ?? 0, a.dayVolume ?? 0, a.cumVolume ?? 0,
-      a.nextEarnings ?? -1, a.consensus ?? 0, a.rumor ?? 0,
+      r7(a.lnP), r4(a.h), a.haltUntil, r7(a.lnOpen), r2(a.volume ?? 0), r2(a.dayVolume ?? 0), r2(a.cumVolume ?? 0),
+      a.nextEarnings ?? -1, r4(a.consensus ?? 0), a.rumor ?? 0,
     ]),
     rates: m.rates ? {
       policy: m.rates.policy, y2: m.rates.y2, y10: m.rates.y10, y30: m.rates.y30, expectedMove: m.rates.expectedMove,
@@ -122,7 +127,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
   return {
     player: { ...rest, inboxUnread: inbox.filter((n) => !n.read).length },
     account: g.market.accounts[pid] ?? null,
-    orders: g.market.orders.filter((o) => o.playerId === pid).slice(-120),
+    orders: ordersOf(g, pid),
     netWorth: netWorthBreakdown(g, pid),
     rank: {
       id: p.rankId, name: RANKS[rIdx]!.name,
@@ -173,6 +178,28 @@ export interface DirectoryRow {
   properties: number;
   lifestyle: string[];
   joinedTick: number;
+}
+
+/**
+ * The directory a client gets: the top `limit` players by net worth plus everyone relevant to
+ * this player (rival, alliance, deals, cases, DM partners). Keeps big worlds cheap to sync.
+ */
+export function directoryFor(g: GameState, all: DirectoryRow[], top: DirectoryRow[], pid: string): DirectoryRow[] {
+  const p = g.players[pid];
+  if (!p || all.length <= top.length) return all;
+  const want = new Set<string>([pid]);
+  if (p.rivalId) want.add(p.rivalId);
+  if (p.allianceId) for (const m of Object.keys(g.alliances[p.allianceId]?.members ?? {})) want.add(m);
+  for (const d of Object.values(g.deals)) if (d.fromId === pid || d.toId === pid) { want.add(d.fromId); want.add(d.toId); }
+  for (const c of Object.values(g.court.cases)) if (c.plaintiffId === pid || c.defendantId === pid) { want.add(c.plaintiffId); want.add(c.defendantId); }
+  for (const ch of Object.keys(g.chat)) if (ch.startsWith('dm:') && ch.includes(pid)) for (const x of ch.split(':').slice(1)) want.add(x);
+  const inTop = new Set(top.map((r) => r.id));
+  const extra = all.filter((r) => want.has(r.id) && !inTop.has(r.id));
+  return extra.length ? [...top, ...extra] : top;
+}
+
+export function topDirectory(all: DirectoryRow[], limit = 500): DirectoryRow[] {
+  return all.length <= limit ? all : all.slice().sort((a, b) => b.netWorth - a.netWorth).slice(0, limit);
 }
 
 export function directory(g: GameState): DirectoryRow[] {

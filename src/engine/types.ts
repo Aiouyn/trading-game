@@ -82,8 +82,10 @@ export interface TradingConfig {
   permanentImpactShare: number;
   /** max fill per order per tick, as a multiple of daily volume; the rest stays open */
   maxAdvPerTick: number;
-  /** closed orders kept in state for history (oldest pruned first) */
+  /** closed orders kept in state for history (oldest pruned first); per player when archiving */
   closedOrdersKept: number;
+  /** move closed orders out of the live book into per-player history (large worlds) */
+  archiveClosed?: boolean;
 }
 
 export interface RegimeDef {
@@ -425,6 +427,8 @@ export interface WorldState {
   orders: Order[];
   orderSeq: number;
   config: WorldConfig;
+  /** closed orders by player, oldest first (when config.trading.archiveClosed) */
+  closedOrders?: Record<string, Order[]>;
   /** region factor streams ('region:<r>'), present when any asset loads on a region */
   regionRng?: Record<string, RngState>;
   /** interest rates and macro, present when config.rates is set */

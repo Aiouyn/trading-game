@@ -439,7 +439,7 @@ export function universeConfig(overrides: Partial<WorldConfig> = {}): WorldConfi
     haltThreshold: 0.15,
     haltTicks: 120,
     initialRegime: 'expansion',
-    trading: DEFAULT_TRADING,
+    trading: { ...DEFAULT_TRADING, archiveClosed: true, closedOrdersKept: 150 },
     volume: DEFAULT_VOLUME,
     regimes: DEFAULT_REGIMES,
     assets: GAME_ASSETS,

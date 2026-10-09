@@ -110,8 +110,10 @@ describe('businesses', () => {
     expect(cmd(g, 'u1', { type: 'biz.buy', defId: t2.id, cityId: 'avalon' }).ok).toBe(false);
     const cart = BUSINESSES.find((b) => b.tier === 1 && b.sector === 'food' && b.cost <= 2000)!;
     cmd(g, 'u1', { type: 'biz.buy', defId: cart.id, cityId: 'avalon' });
+    run(g, 1);
     const share1 = Object.values(g.businesses)[0]!.share;
     cmd(g, 'u1', { type: 'biz.buy', defId: cart.id, cityId: 'avalon' });
+    run(g, 1);
     const share2 = Object.values(g.businesses)[0]!.share;
     expect(share2).toBeLessThan(share1);
   });
@@ -332,7 +334,7 @@ describe('client mirror', () => {
     const m = mirrorWorld(universeConfig(), frame, { id: 'u1', account: g.market.accounts.u1!, orders: [] });
     const a = estimateFill(m, { assetId: 'HLCN', side: 'buy', qty: 3 });
     const b = estimateFill(g.market, { assetId: 'HLCN', side: 'buy', qty: 3 });
-    expect(a.total).toBeCloseTo(b.total, 6);
+    expect(a.total).toBeCloseTo(b.total, 2); // the frame is rounded; previews agree to the cent
     expect(m.assets[0]!.lnV).toBe(m.assets[0]!.lnP);
   });
 });

@@ -308,12 +308,33 @@ function newOrder(state: WorldState, seq: number, req: OrderRequest, reason: str
   };
 }
 
+function archiving(state: WorldState): boolean {
+  return !!tradingConfig(state).archiveClosed;
+}
+
+/** Append closed orders to their players' history (copy-on-write per touched player), capped. */
+function toHistory(state: WorldState, closed: Order[]): Record<string, Order[]> {
+  const keep = tradingConfig(state).closedOrdersKept;
+  const hist = { ...(state.closedOrders ?? {}) };
+  const touched = new Set<string>();
+  for (const o of closed) {
+    if (!touched.has(o.playerId)) { hist[o.playerId] = (hist[o.playerId] ?? []).slice(); touched.add(o.playerId); }
+    hist[o.playerId]!.push(o);
+  }
+  for (const pid of touched) if (hist[pid]!.length > keep) hist[pid] = hist[pid]!.slice(-keep);
+  return hist;
+}
+
 export function placeOrder(state: WorldState, req: OrderRequest): { state: WorldState; order: Order } {
   const seq = state.orderSeq + 1;
   const reason = validate(state, req);
   const i = assetIndex(state, req.assetId);
   const extra: Partial<Order> = req.type === 'trailing' && i >= 0 ? { trailRef: mid(state, i) } : {};
   const order = newOrder(state, seq, req, reason, extra);
+  if (archiving(state)) {
+    if (reason) return { state: { ...state, orderSeq: seq, closedOrders: toHistory(state, [order]) }, order };
+    return { state: { ...state, orderSeq: seq, orders: [...state.orders, order] }, order };
+  }
   return { state: { ...state, orderSeq: seq, orders: prune(state, [...state.orders, order]) }, order };
 }
 
@@ -323,8 +344,12 @@ export function cancelOrder(state: WorldState, playerId: string, orderId: string
   const o = state.orders[idx]!;
   if (o.playerId !== playerId) throw new Error(`order ${orderId} belongs to another player`);
   if (o.status !== 'open') return state;
+  const closed: Order = { ...o, status: 'cancelled', closedTick: state.tick };
+  if (archiving(state)) {
+    return { ...state, orders: state.orders.filter((x) => x.id !== orderId), closedOrders: toHistory(state, [closed]) };
+  }
   const orders = state.orders.slice();
-  orders[idx] = { ...o, status: 'cancelled', closedTick: state.tick };
+  orders[idx] = closed;
   return { ...state, orders };
 }
 
@@ -352,7 +377,8 @@ export function openOrders(state: WorldState, playerId: string): Order[] {
 }
 
 export function orderHistory(state: WorldState, playerId: string): Order[] {
-  return state.orders.filter((o) => o.playerId === playerId);
+  const open = state.orders.filter((o) => o.playerId === playerId);
+  return state.closedOrders?.[playerId] ? [...state.closedOrders[playerId]!, ...open] : open;
 }
 
 function prune(state: WorldState, orders: Order[]): Order[] {
@@ -593,7 +619,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       }
     }
     for (const x of spawned) s.orders.push(x);
-    s.orders = prune(s, s.orders);
+    if (!archiving(s)) s.orders = prune(s, s.orders);
   }
 
   // ---- daily finance (rates on): cash interest, margin interest, dividends, borrow fees ----
@@ -714,6 +740,11 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       maxDrawdown: Math.min(a.maxDrawdown, dd),
       dayStartEquity: newDay ? eq : a.dayStartEquity,
     };
+  }
+  if (archiving(s) && s.orders.some((o) => o.status !== 'open')) {
+    const closed = s.orders.filter((o) => o.status !== 'open');
+    s.orders = s.orders.filter((o) => o.status === 'open');
+    s.closedOrders = toHistory(s, closed);
   }
   return { state: s, fills, events };
 }
