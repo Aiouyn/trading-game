@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
-import { TPD, bizDef, bizValue, bump, cashOf, credit } from './core';
+import { TPD, bizDef, bizValue, bump, cashOf, credit, today } from './core';
 import { recomputeShares } from './assets';
 import { migrateShops, shopsDay, wellRunCommands } from './shops';
 import { seedNpcs } from './npc';
@@ -81,6 +81,25 @@ describe('shop levers and refusal codes', () => {
     expect(isCrew(1.75)).toBe(false); // above the crew cap
     expect(isCrew(0.6)).toBe(false);
     expect(isCrew(Number.NaN)).toBe(false);
+  });
+
+  it('a save with crew above the cap keeps its staff only up to the cap on the day step, with or without a manager', () => {
+    const g = game();
+    const id = tycoon(g);
+    const b = g.businesses[id]!;
+    b.shop.crew = 2; // what a save from before the cap can hold (the lever itself refuses it)
+    shopsDay(g, null);
+    expect(b.shop.crew).toBe(SHOP.crew.max);
+    // a just-under-cap crew is not touched by the clamp
+    b.shop.crew = 1.25;
+    shopsDay(g, null);
+    expect(b.shop.crew).toBe(1.25);
+    // a manager's autopilot floor (1.25 at 1 star, 1.5 at 2) cannot hold a crew above the cap either
+    b.shop.crew = 2;
+    b.shop.managerStars = 2;
+    b.shop.managerDay = today(g);
+    shopsDay(g, null);
+    expect(b.shop.crew).toBe(SHOP.crew.max);
   });
 
   it('crew caps the demand served: a shop short of crew earns less, one that has it earns the full demand', () => {

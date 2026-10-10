@@ -18,7 +18,7 @@ Conflict resolutions in `p4/a4`:
 - `core.ts`: net worth carries both `companies` (A3) and `funds` (A4) in the breakdown and in the total.
 - `game.ts`: the day runs `companyDay` and then `fundsDay`. Both command families are routed.
 - `types.ts`: `GameState` has both optional fields (`companies`, `funds`), and the command union has both sets.
-- `court.ts`: the victim's share of a fine stays `creditExternal` (the p3/c2 rule). The VCF advance on a fund verdict uses `credit` into the fund account. A fund account is not a player, so `shiftBaselines` does nothing on it. The advance therefore raises the fund's NAV, and so the manager's funds claim (section 4.3, open item 5).
+- `court.ts`: the victim's share of a fine stays `creditExternal` (the p3/c2 rule). The VCF advance on a fund verdict was first credited into the fund account, which raised the fund's NAV and so the manager's funds claim. Stage B moved it to the non-manager investors (section 4.4).
 
 ## 2. A1: managed shops (`p4/a1`, commit `4b77962`)
 
@@ -74,16 +74,16 @@ The gate is `npm run balance:shops` (`scripts/balance/shop-gates.ts`). It runs `
 
 The measure changed too. Payback is now the fractional game day the cumulative line crosses the cost, not the whole day. At T1 (10 days) one whole day is 10% of the gate. The tables in 2.1 and 2.2 are whole days; stage A on the same seeds gave well-run 1.10, 1.00, 1.00, 0.96, 0.97, 0.97, excellent 0.65 to 0.45 and neglected 3.30 to 4.19 (whole days).
 
-Final table (20 seeds, 40 game days, fractional days, median; ratio to the ladder in brackets):
+Final table, regenerated from HEAD (`f3d03f3` code, 20 seeds, 40 game days, fractional days, median; ratio to the ladder in brackets):
 
 | Style | T1 (10) | T2 (15) | T3 (30) | T4 (50) | T5 (80) | T6 (120) | Gate |
 |---|---|---|---|---|---|---|---|
-| Well-run (average) | 10.9 (1.09) | 15.5 (1.03) | 31.6 (1.05) | 53.7 (1.07) | 83.1 (1.04) | 128.5 (1.07) | 0.9 to 1.1: pass |
-| Excellent | 7.7 (0.77) | 10.8 (0.72) | 22.0 (0.73) | 36.3 (0.73) | 60.7 (0.76) | 87.7 (0.73) | 0.7 to 0.8: pass |
-| Neglected (once a real day, sets nothing) | 25.8 (2.58) | 32.0 (2.13) | 75.1 (2.50) | 132.2 (2.64) | 219.5 (2.74) | 337.3 (2.81) | 2 to 3: pass |
-| Casual (reference) | 11.4 (1.14) | 28.7 (1.91) | 60.3 (2.01) | 108.7 (2.17) | 182.3 (2.28) | 280.3 (2.34) | not gated |
-| Idle (reference) | 13.9 (1.39) | 19.9 (1.32) | 41.8 (1.39) | 69.2 (1.38) | 111.1 (1.39) | 167.6 (1.40) | not gated |
-| Managed (reference) | 13.1 (1.31) | 18.9 (1.26) | 42.5 (1.42) | 71.8 (1.44) | 116.2 (1.45) | 178.8 (1.49) | not gated |
+| Well-run (average) | 10.9 (1.09) | 15.5 (1.03) | 31.5 (1.05) | 53.2 (1.06) | 84.0 (1.05) | 125.5 (1.05) | 0.9 to 1.1: pass |
+| Excellent | 7.7 (0.77) | 10.8 (0.72) | 22.3 (0.74) | 36.9 (0.74) | 58.1 (0.73) | 87.6 (0.73) | 0.7 to 0.8: pass |
+| Neglected (once a real day, sets nothing) | 25.8 (2.58) | 32.0 (2.13) | 75.1 (2.50) | 134.1 (2.68) | 220.8 (2.76) | 336.5 (2.80) | 2 to 3: pass |
+| Casual (reference) | 11.4 (1.14) | 28.8 (1.92) | 60.8 (2.03) | 107.7 (2.15) | 180.8 (2.26) | 282.8 (2.36) | not gated |
+| Idle (reference) | 13.9 (1.39) | 19.9 (1.32) | 41.6 (1.39) | 69.2 (1.38) | 111.1 (1.39) | 167.6 (1.40) | not gated |
+| Managed (reference) | 13.1 (1.31) | 18.9 (1.26) | 43.1 (1.44) | 72.0 (1.44) | 115.4 (1.44) | 176.3 (1.47) | not gated |
 
 Causes found in stage A:
 - Excellent was too strong. At the crew cap (2.0) a busy pool saturates, so the net per game day was about 1.9 to 2.0 times the well-run target against 1.05. The cost stack was light: marketing 0.1 per level, quality 0.05 per level, manager 0.05 per star. Tier 1 is not saturated, so the cap made the high tiers faster than T1, and no single cost lever could fix both.
@@ -102,13 +102,19 @@ Changes (`src/content/shops.ts`, unless noted):
 | `manager.costPerStar` | 0.05 | 0.08 | a 3-star manager costs more (`managed` moves to about 1.3 to 1.5 as a result) |
 | `reviews.start` | 1.0 | 1.2 | a new shop opens near the well-run target (its effect alone is not isolated) |
 
-Code: `shopsDay` clamps a crew above the cap (a save from before the cap keeps its staff only up to it); `scripts/balance/wealth.ts` takes the excellent crew from `SHOP.crew`; payback is fractional. The offline ramp (S4), the 25% floor, the manager's 16 days, the net-worth valuation and the crew floors are unchanged. No state schema changed, and no randomness was added, so replays are exact and old saves load.
+Code: `shopsDay` clamps a crew above the cap (a save from before the cap keeps its staff only up to it); `scripts/balance/wealth.ts` takes the excellent crew from `SHOP.crew`; payback is fractional. The offline ramp (S4), the 25% floor, the manager's 16 days, the net-worth valuation and the crew floors are unchanged. No state schema changed, and no randomness was added, so replays are exact and old saves load. The band logic is in `scripts/balance/shop-gates-rules.ts`, unit-tested by `scripts/balance/shop-gates.test.ts` (vitest). The clamp is tested in `src/world/shops.test.ts`. This repo has no CI config, so the probe gate (about 3.5 minutes on 20 seeds) stays the manual `npm run balance:shops`.
 
-Open with the gates: the excellent band is narrow by design (the tiers spread about 0.05 around 0.75). The managed row (reference, not gated) no longer meets S3's "managed reaches the well-run payback": it is about 1.3 to 1.5 against 1.0. That is the cost of the manager and quality levers that hold excellent on the band. Lead to decide whether managed should be lowered by its own star cost. The stabilizer band (risk 7) has not been rechecked after the new sinks.
+Verified at HEAD: the table reproduces from raw probe rows. Four cells differed from the commit message (average T4 and T6, excellent T3 and T4, neglected T4); this table is the reference, and the commit message is not amended.
+
+Whole-day check (the same rows, each payback rounded up to a whole game day): average T1 is 1.10 and excellent T1 is 0.80, both on the inclusive band edge; every other gated cell is inside its band. The gates pass on either measure, but the two T1 cells are edges, not margins. The gate uses fractional days (the metric change above).
+
+Managed (reference, not gated) is about 1.3 to 1.5 against S3's "managed reaches the well-run payback" (about 1.0). Measured cause: the manager's star cost is one part, and the S4 ramp is the rest. With the manager's star cost set to 0 (a temporary edit, four seeds, reverted and not committed), managed is 1.00 to 1.19 by tier. The rest is structural: a once-a-real-day owner is away 23 game days in 24, so a manager's 16 full days and then the ramp average about 0.875 of full income (a rough cycle estimate). S3's target cannot hold with S4's shape and once-a-real-day presence. This needs a lead ruling (open item 8). Stage B changes nothing for it.
+
+Stabilizer (risk 7), rechecked: three seeds, 40 game days each, NPC competition present (a throwaway script, not committed). The sink multiplier was 1.000 on every day of all three runs. Supply growth was negative in the first days (shops being bought) and below 1.5% a game day after day 6 in seed 1, under the 4% target. Shop costs were 20 to 23% of all sinks. The new sinks only lower wealth growth, so they cannot engage the stabilizer. Not checked: the five-year `run.ts` economy.
 
 ### 2.3 A1 open items
 
-- No UI for the levers (stage C). Until then new shops sit at the neglect defaults (crew 0.55).
+- No UI for the levers (stage C). Until then new shops sit at the neglect defaults (crew 0.75, from stage B; 0.55 at stage A).
 - The economy stabilizer band has not been rechecked after the new sinks (`shops.md` risk 7).
 - The overdraft notice is English text. It needs an i18n key with the inbox work (stage C).
 - Morale is derived from crew load only. Manager stars change only the review bonus and the offline window.
@@ -222,9 +228,10 @@ Other interpretations in `6c63fb3` (one real hour is 720 ticks, one game day; li
 ## 6. Open items
 
 1. **Shops gates.** Resolved in stage B (2.2a): all three gated styles hold on every tier at 20 seeds (`npm run balance:shops`). Still open: the ladder against a flat lock (Mathis, `shops.md` 6.2), and the managed row, which is above S3's well-run payback (lead).
-2. **Shops economy.** The stabilizer band has not been rechecked after the new sinks (`shops.md` risk 7). Owner: Ledger.
+2. **Shops economy.** The stabilizer was rechecked on three 40-day seeds in stage B (2.2a) and never engaged. A five-year `run.ts` check is still open. Owner: Ledger.
 3. **Company freeze.** The G22 reading is recorded in code. The spec is still NOT FROZEN. Owner: Ledger.
 4. **Company engine wiring.** A2 wires filings and signals into the engine (`companyPrintShare`, G21) and binds the sector shock to `sectorRng`.
 5. **VCF advance and the manager's day figures.** Resolved in stage B: the advance goes to the investors, not the fund, and sits outside their day and arrival figures (4.4). Owner: lead to confirm the day-figure part.
 6. **Lever UI, refusal copy and the funds UI.** Stage C.
 7. **Insider seam.** `insiderId` is not set by the company module yet.
+8. **Managed against S3 (lead decision).** Managed sits at 1.3 to 1.5 against S3's about 1.0. The manager's star cost is one part and the S4 ramp against once-a-real-day presence is the rest (2.2a). Options: restate S3 as an ungated reference; extend the manager's full-income window to 24 days (an S4 change); or lower the star cost and re-hold excellent with another lever. Owner: lead.
