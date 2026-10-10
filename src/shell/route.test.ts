@@ -38,9 +38,8 @@ describe('route round trip', () => {
     }
   });
 
-  it('round-trips every app id as its own path (research needs its file, see below)', () => {
+  it('round-trips every app id as its own path (a research file has its own path, see below)', () => {
     for (const id of APP_IDS) {
-      if (id === 'research') continue;
       const r = parseRoute(`/${id}`);
       expect(r, id).toMatchObject({ app: id });
       expect(formatRoute(r as ShellRoute)).toBe(`/${id}`);
@@ -113,9 +112,9 @@ describe('route parsing', () => {
     expect(formatRoute(r as ShellRoute)).toBe('/broker/HLCN?e2e&seed=3&t=HLCN');
   });
 
-  it('treats a research route without a file as notFound, the same for every unknown file (P2-116)', () => {
-    expect(parseRoute('/research')).toEqual({ notFound: true });
-    expect(parseRoute('/research?e2e')).toEqual({ notFound: true });
+  it('opens the Research Desk for a bare research route, and treats a malformed file id as notFound (P2-116)', () => {
+    expect(parseRoute('/research')).toMatchObject({ app: 'research' });
+    expect(parseRoute('/research?e2e')).toMatchObject({ app: 'research' });
     expect(parseRoute('/research?file=bad%20id')).toEqual({ notFound: true });
   });
 

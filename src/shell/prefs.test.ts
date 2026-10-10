@@ -237,10 +237,12 @@ describe('shell validation (corrupt payloads)', () => {
     expect(s.wins.some((w) => w.id === `research-${file56}`)).toBe(false);
   });
 
-  it('drops a research window that has no file id', () => {
+  it('keeps the Research Desk window (no file id), and drops a second one with the same id', () => {
     const raw = base();
-    raw.wins.push({ id: 'research', app: 'research', ws: 0, rect: { x: 0, y: 0, w: 500, h: 400 }, slot: null, state: 'open', filled: false, props: {} });
-    expect(check('fileless research', raw).wins.some((w) => w.app === 'research')).toBe(false);
+    const desk = { id: 'research', app: 'research', ws: 0, rect: { x: 0, y: 0, w: 500, h: 400 }, slot: null, state: 'open', filled: false, props: {} };
+    raw.wins.push(desk, { ...desk });
+    const wins = check('desk research', raw).wins.filter((w) => w.app === 'research');
+    expect(wins.map((w) => w.id)).toEqual(['research']);
   });
 
   it('moves a window off a workspace the rank no longer has and clamps activeWs', () => {

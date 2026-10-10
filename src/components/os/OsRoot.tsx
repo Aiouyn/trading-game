@@ -40,6 +40,7 @@ import {
   closeLauncher,
   currentBand,
   dispatchWm,
+  loadMotion,
   loadPalette,
   notify,
   openApp,
@@ -203,6 +204,7 @@ export function OsRoot() {
     html.dataset.testid = 'os-root';
     html.classList.add('os-root');
     loadPalette();
+    loadMotion();
     return () => {
       html.classList.remove('os-root', 'focus-mode', 'os-compact', 'os-narrow');
       for (const c of Array.from(html.classList)) if (RANK_CLASS.test(c)) html.classList.remove(c);

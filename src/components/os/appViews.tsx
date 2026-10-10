@@ -11,10 +11,6 @@ import { WireView } from '@/components/Wire';
 import { CalendarView } from '@/components/Calendar';
 import type { Size } from '@/shell/geometry';
 import type { Win } from '@/shell/wm';
-import { About } from './About';
-import { PalettePicker } from './PalettePicker';
-import { ShortcutList } from './ShortcutList';
-
 const MessagesView = dynamic(() => import('@/components/Messages').then((m) => m.MessagesView), { ssr: false });
 const BusinessesApp = dynamic(() => import('@/components/apps/businesses/BusinessesApp').then((m) => m.BusinessesApp), { ssr: false });
 const BoutiqueApp = dynamic(() => import('@/components/apps/boutique/BoutiqueApp').then((m) => m.BoutiqueApp), { ssr: false });
@@ -22,7 +18,11 @@ const BankApp = dynamic(() => import('@/components/apps/bank/BankApp').then((m) 
 const LabApp = dynamic(() => import('@/components/apps/ailab/LabApp').then((m) => m.LabApp), { ssr: false });
 const SecurityApp = dynamic(() => import('@/components/apps/security/SecurityApp').then((m) => m.SecurityApp), { ssr: false });
 const LegalApp = dynamic(() => import('@/components/apps/legal/LegalApp').then((m) => m.LegalApp), { ssr: false });
-const ProfileView = dynamic(() => import('@/components/Profile').then((m) => m.ProfileView), { ssr: false });
+// Settings, Learn, Research Desk and Company are their own apps (Phase 2 step 3). Their code loads on first open.
+const SettingsView = dynamic(() => import('./SettingsView').then((m) => m.SettingsView), { ssr: false });
+const LearnApp = dynamic(() => import('./LearnApp').then((m) => m.LearnApp), { ssr: false });
+const ResearchDesk = dynamic(() => import('./ResearchDesk').then((m) => m.ResearchDesk), { ssr: false });
+const CompanyApp = dynamic(() => import('./CompanyApp').then((m) => m.CompanyApp), { ssr: false });
 
 /** A window's content. `size` is the window's current size, which the Broker lays itself out by. */
 export function AppBody({ win, size }: { win: Win; size: Size }) {
@@ -50,14 +50,13 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
     case 'legal':
       return <div className="os-body"><LegalApp /></div>;
     case 'settings':
-      if (win.props.view === 'about') return <About />;
-      return (
-        <div className="os-body">
-          <PalettePicker />
-          <ShortcutList />
-          <ProfileView />
-        </div>
-      );
+      return <SettingsView view={win.props.view} />;
+    case 'learn':
+      return <LearnApp />;
+    case 'research':
+      return <ResearchDesk />;
+    case 'company':
+      return <CompanyApp />;
     default:
       return <Stub />;
   }

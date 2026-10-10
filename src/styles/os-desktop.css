@@ -38,7 +38,8 @@
 
 /* Shared-edge handles between tiled windows (P2-025). Transparent until hovered; above the windows. */
 @layer components {
-  .os-root .os-split { z-index: 6; }
+  /* Under the windows (z 2 and 3), so a floating window such as Settings is never cut by a split handle. */
+  .os-root .os-split { z-index: 1; }
   .os-root .os-split.v { cursor: ew-resize; }
   .os-root .os-split.h { cursor: ns-resize; }
   .os-root .os-split:hover { background: color-mix(in srgb, var(--color-brass) 28%, transparent); }
