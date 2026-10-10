@@ -65,7 +65,7 @@ describe('keyboard bindings (section I)', () => {
   });
 
   it('Alt N opens a new Broker', () => {
-    expect(keyIntent(key('KeyN', { alt: true }), env())).toEqual({ kind: 'wm', action: { type: 'open', app: 'broker' } });
+    expect(keyIntent(key('KeyN', { alt: true }), env())).toEqual({ kind: 'wm', action: { type: 'open', app: 'broker', fresh: true } });
   });
 
   it('Alt W closes the focused window and does nothing with no focus', () => {
@@ -118,13 +118,10 @@ describe('keyboard bindings (section I)', () => {
     expect(keyIntent(key('Comma', { shift: true }), env())).toEqual({ kind: 'help' });
   });
 
-  it('cycleTarget walks the open windows on the workspace, bottom first going forward', () => {
-    const win = (id: string, ws = 0, state: 'open' | 'collapsed' = 'open') =>
-      ({ id, app: 'wire', ws, state, rect: { x: 0, y: 0, w: 1, h: 1 }, slot: null, filled: false, props: {} }) as const;
-    const wins = [win('a'), win('b'), win('c'), win('x', 1), win('d', 0, 'collapsed')];
-    expect(cycleTarget(wins, 0, false)).toBe('a');
-    expect(cycleTarget(wins, 0, true)).toBe('b');
-    expect(cycleTarget([win('a')], 0, false)).toBeNull();
-    expect(cycleTarget(wins, 2, false)).toBeNull();
+  it('cycleTarget walks the windows on screen, bottom first going forward and back one step going back', () => {
+    expect(cycleTarget(['a', 'b', 'c'], false)).toBe('a');
+    expect(cycleTarget(['a', 'b', 'c'], true)).toBe('b');
+    expect(cycleTarget(['a'], false)).toBeNull();
+    expect(cycleTarget([], true)).toBeNull();
   });
 });

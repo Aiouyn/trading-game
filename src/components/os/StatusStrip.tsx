@@ -48,7 +48,7 @@ export function StatusStrip() {
       </button>
       <div className="os-mid">
         <span className="os-clock" data-testid="os-clock">{clockLabel(frame?.tick ?? 0, 720)}</span>
-        <span className="os-soft os-market flex items-center gap-1.5 text-caption text-fg-muted">
+        <span className="os-soft os-market items-center gap-1.5 text-caption text-fg-muted">
           <span className={`os-dot ${ready ? 'bg-gain' : 'bg-warn'}`} aria-hidden />
           {ready ? t('shell.market.open') : t('shell.market.reconnect')}
         </span>

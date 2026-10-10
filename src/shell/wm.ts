@@ -592,10 +592,16 @@ function openAction(state: ShellState, app: AppId, rawProps: unknown, ctx: WmCtx
   const r = acquire(state, app, props, 'user', false, fresh);
   if (!r.ok) return fail(r.reason);
   let s: ShellState = { ...state, wins: r.wins };
-  // Opening a new window exits focus mode on the workspace it lands on (DECISIONS "Behaviour gaps").
+  // Opening a window exits focus mode on the workspace it lands on (DECISIONS "Behaviour gaps"): a new window,
+  // or a collapsed one restored to the screen. Focusing a window already on screen keeps focus mode.
+  const before = state.wins.find((w) => w.id === r.id);
+  const restored = before !== undefined && before.state === 'collapsed';
   if (r.created) {
     s = exitFocus(s, state.activeWs);
     if (app === 'broker') s = placeAlone(s, r.id);
+  } else if (restored) {
+    const landing = s.wins.find((w) => w.id === r.id);
+    if (landing !== undefined) s = exitFocus(s, landing.ws);
   }
   return ok(focusId(s, r.id));
 }

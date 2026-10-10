@@ -157,6 +157,15 @@ describe('shell validation (corrupt payloads)', () => {
     }
   });
 
+  it('falls back to the Trade layout when a window entry is damaged (unknown app, more than four Brokers)', () => {
+    const unknown = base();
+    unknown.wins.push({ id: 'zz', app: 'nope', ws: 0, rect: { x: 0, y: 0, w: 1, h: 1 }, slot: null, state: 'open', filled: false, props: {} });
+    expect(validateShell(unknown, ctx, VP, 'HLCN')).toEqual(initialShell(VP, ctx, 'HLCN'));
+    const many = base();
+    for (let i = 0; i < 6; i++) many.wins.push({ id: `broker-x${i}`, app: 'broker', ws: 0, rect: { x: 0, y: 0, w: 500, h: 500 }, slot: null, state: 'open', filled: false, props: { ticker: `T${i}` } });
+    expect(validateShell(many, ctx, VP, 'HLCN')).toEqual(initialShell(VP, ctx, 'HLCN'));
+  });
+
   it('survives twelve hostile payloads, each keeping the invariants', () => {
     const payloads: Array<[string, (s: any) => void]> = [
       ['bad type on rect', (s) => (s.wins[0].rect = 'big')],
@@ -226,23 +235,31 @@ describe('shell validation (corrupt payloads)', () => {
     expect(loadShell(kv, 'save-x', ctx2, VP, 'HLCN').focusWs).toEqual([0, 1]);
   });
 
-  it('keeps a research file of 55 characters (its window id is 64) and drops a 56-character one', () => {
+  it('keeps a research file of 55 characters (its window id is 64)', () => {
     const file55 = 'a'.repeat(55);
-    const file56 = 'a'.repeat(56);
     const raw = base();
     raw.wins.push({ id: `research-${file55}`, app: 'research', ws: 0, rect: { x: 0, y: 0, w: 500, h: 400 }, slot: null, state: 'open', filled: false, props: { fileId: file55 } });
-    raw.wins.push({ id: `research-${file56}`, app: 'research', ws: 0, rect: { x: 0, y: 0, w: 500, h: 400 }, slot: null, state: 'open', filled: false, props: { fileId: file56 } });
     const s = check('file id length', raw);
     expect(s.wins.some((w) => w.id === `research-${file55}`)).toBe(true);
-    expect(s.wins.some((w) => w.id === `research-${file56}`)).toBe(false);
   });
 
-  it('keeps the Research Desk window (no file id), and drops a second one with the same id', () => {
+  it('a 56-character research file id is a damaged entry, so the whole shell gives the Trade layout', () => {
+    const file56 = 'a'.repeat(56);
+    const raw = base();
+    raw.wins.push({ id: `research-${file56}`, app: 'research', ws: 0, rect: { x: 0, y: 0, w: 500, h: 400 }, slot: null, state: 'open', filled: false, props: { fileId: file56 } });
+    const s = check('file id too long', raw);
+    expect(s).toEqual(initialShell(VP, ctx, 'HLCN'));
+  });
+
+  it('keeps the Research Desk window (no file id), and a repeated id gives the Trade layout', () => {
     const raw = base();
     const desk = { id: 'research', app: 'research', ws: 0, rect: { x: 0, y: 0, w: 500, h: 400 }, slot: null, state: 'open', filled: false, props: {} };
-    raw.wins.push(desk, { ...desk });
-    const wins = check('desk research', raw).wins.filter((w) => w.app === 'research');
-    expect(wins.map((w) => w.id)).toEqual(['research']);
+    raw.wins.push(desk);
+    expect(check('desk research', raw).wins.filter((w) => w.app === 'research').map((w) => w.id)).toEqual(['research']);
+    const dup = base();
+    dup.wins.push(desk);
+    dup.wins.push({ ...desk });
+    expect(check('desk research twice', dup)).toEqual(initialShell(VP, ctx, 'HLCN'));
   });
 
   it('moves a window off a workspace the rank no longer has and clamps activeWs', () => {

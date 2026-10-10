@@ -21,17 +21,60 @@ import { phoneCloseApp, phoneGoHome, phoneOpen, setRecentOpen, usePhone } from '
 /** The swipe distance that reveals Close (V:170). */
 const REVEAL_PX = 72;
 
+/** Live subscriptions the sheet holds right now: 1 while it is open, 0 when closed (C-22). Read by the e2e hooks only. */
+let liveSubscriptions = 0;
+
+export function recentLiveSubscriptions(): number {
+  return liveSubscriptions;
+}
+
+/** What the live lines read, copied out of the stores when one of them moves. */
+interface LiveFacts {
+  tick: number;
+  me: unknown;
+  world: unknown;
+  wire: unknown;
+  drafts: unknown;
+}
+
+function readLive(): LiveFacts {
+  const g = useGame.getState();
+  return { tick: g.frame?.tick ?? 0, me: g.me, world: g.world, wire: g.wire, drafts: useDrafts.getState().tickers };
+}
+
+/**
+ * One store subscription for the whole sheet. It is made when the sheet mounts (it mounts only while the sheet
+ * is open) and released when it unmounts, so the market, the Wire and the drafts reach the sheet only while it
+ * is on screen (P2-159, C-22). The sheet re-renders only when a value a live line reads has changed.
+ */
+function useLiveFacts(): LiveFacts {
+  const [facts, setFacts] = useState<LiveFacts>(readLive);
+  useEffect(() => {
+    liveSubscriptions += 1;
+    const sync = (): void => setFacts(readLive());
+    const offGame = useGame.subscribe((s, prev) => {
+      if (s.frame?.tick !== prev.frame?.tick || s.me !== prev.me || s.world !== prev.world || s.wire !== prev.wire) sync();
+    });
+    const offDrafts = useDrafts.subscribe((s, prev) => {
+      if (s.tickers !== prev.tickers) sync();
+    });
+    // A change made between the first render and this subscription is caught here.
+    sync();
+    return () => {
+      offGame();
+      offDrafts();
+      liveSubscriptions -= 1;
+    };
+  }, []);
+  return facts;
+}
+
 export function PhoneRecents() {
   const stack = usePhone((s) => s.stack);
   const current = usePhone((s) => s.current);
   const closedOnce = usePhone((s) => s.closedOnce);
-  // The live lines are read here, so the sheet re-renders as the market and the Wire move. This component
-  // mounts only while the sheet is open, so these subscriptions exist only then (C-22).
-  const tick = useGame((s) => s.frame?.tick ?? 0);
-  const me = useGame((s) => s.me);
-  const world = useGame((s) => s.world);
-  const wire = useGame((s) => s.wire);
-  const drafts = useDrafts((s) => s.tickers);
+  // The sheet re-renders as the live facts move; the rows read the stores for their own lines.
+  useLiveFacts();
   const close = (): void => setRecentOpen(false);
 
   useEffect(() => {
@@ -53,13 +96,7 @@ export function PhoneRecents() {
         </div>
         {stack.length === 0 && <p className="os-empty">{t('shell.recent.empty')}</p>}
         {stack.map((e, i) => (
-          <RecentRow
-            key={e.app}
-            entry={e}
-            current={e.app === current}
-            last={i === stack.length - 1}
-            live={[tick, me, world, wire, drafts]}
-          />
+          <RecentRow key={e.app} entry={e} current={e.app === current} last={i === stack.length - 1} />
         ))}
         <button type="button" className="os-home-btn" data-testid="recents-home" onClick={() => { close(); phoneGoHome(); }}>
           <Glyph name="quay" size={18} />
@@ -70,7 +107,7 @@ export function PhoneRecents() {
   );
 }
 
-function RecentRow({ entry, current, last }: { entry: PhoneEntry; current: boolean; last: boolean; live: unknown[] }) {
+function RecentRow({ entry, current, last }: { entry: PhoneEntry; current: boolean; last: boolean }) {
   const app = entry.app;
   const label = t(APPS[app].titleKey);
   const [dx, setDx] = useState(0);

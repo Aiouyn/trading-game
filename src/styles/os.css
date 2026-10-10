@@ -240,6 +240,8 @@
   .os-root.focus-mode .os-soft { display: none; }
   /* Compact (768-1199): the field is narrower and the market words go, so the clock is never covered (P2-057). */
   .os-root.os-compact .os-launch { width: 200px; }
+  /* The market words are a flex row; their display is set here, not by a utility, so the compact rule can hide them. */
+  .os-root .os-market { display: inline-flex; }
   .os-root.os-compact .os-market { display: none; }
   .os-root.os-narrow .os-launch { width: auto; padding: 0 8px; }
   .os-root.os-narrow .os-launch-text { display: none; }

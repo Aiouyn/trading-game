@@ -9,6 +9,9 @@
 import { useGame } from '@/game/store';
 import { worldHttpUrl } from '@/net/client';
 import { backdateIdle } from './idle';
+import { recentLiveSubscriptions } from './PhoneRecents';
+import { useShell } from './shellStore';
+import { focusedId, project } from '@/shell/wm';
 
 export interface E2eHooks {
   /** Grants cash to the player through the server's admin route. Returns true when the server took it. */
@@ -25,6 +28,17 @@ export interface E2eHooks {
   charts: () => { id: string; testId: string }[];
   /** Frame times since the last call, then reset: count, p95 and max in ms. */
   frames: () => { n: number; p95: number; max: number };
+  /** Live store subscriptions the phone's Recent sheet holds: 1 while it is open, 0 when closed (C-22). */
+  recentSubscriptions: () => number;
+  /** The shell's windows as the reducer holds them, read only: focus, the windows on screen (bottom first) and each window. */
+  windows: () => ShellWindows;
+}
+
+export interface ShellWindows {
+  focused: string | null;
+  /** The windows the layout shows on the active workspace, bottom first (project().order). */
+  order: string[];
+  wins: { id: string; app: string; ws: number; state: string; slot: unknown; filled: boolean }[];
 }
 
 export interface TgHooks {
@@ -109,6 +123,15 @@ const e2eHooks: E2eHooks = {
       testId: el.dataset.testid ?? '',
     })),
   frames: frameStats,
+  recentSubscriptions: recentLiveSubscriptions,
+  windows: () => {
+    const sh = useShell.getState().shell;
+    return {
+      focused: focusedId(sh),
+      order: project(sh).order,
+      wins: sh.wins.map((w) => ({ id: w.id, app: w.app, ws: w.ws, state: w.state, slot: w.slot, filled: w.filled })),
+    };
+  },
 };
 
 /**

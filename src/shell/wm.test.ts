@@ -472,6 +472,18 @@ describe('workspaces', () => {
     expect(s.focusRestore).toBeNull();
   });
 
+  it('keeps focus mode when a window already on screen is focused, and leaves it when a collapsed one is restored', () => {
+    let s = go(fresh(VP_1920), { type: 'focusMode', on: true });
+    s = go(s, { type: 'open', app: 'portfolio' });
+    expect(s.focusWs).toEqual([0]);
+    expect(focusedId(s)).toBe('portfolio');
+    s = go(s, { type: 'collapse', id: 'portfolio' });
+    s = go(s, { type: 'open', app: 'portfolio' });
+    expect(s.focusWs).toEqual([]);
+    expect(s.focusRestore).toBeNull();
+    expect(focusedId(s)).toBe('portfolio');
+  });
+
   it('focus mode is per workspace: a switch keeps each workspace its own mode', () => {
     let s = go(fresh(VP_1920, R2), { type: 'focusMode', on: true }, R2);
     s = go(s, { type: 'switchWs', ws: 1 }, R2);

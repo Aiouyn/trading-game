@@ -9,7 +9,7 @@
  */
 
 import type { AppId } from './apps';
-import type { CycleDir, Win, WmAction } from './wm';
+import type { CycleDir, WmAction } from './wm';
 
 export interface KeyEvt {
   /** event.code, for example "KeyK", "Digit1", "ArrowLeft", "Period". */
@@ -63,14 +63,13 @@ export const SHORTCUTS: readonly { id: string; keys: string }[] = [
 ];
 
 /**
- * The window the cycle key focuses next: the bottom-most open window on the workspace going
- * forward (it rises to the top, so the next press reaches the next one), the one under the top
- * going back. Null when there are fewer than two windows to move between.
+ * The window the cycle key focuses next, among the windows on screen (bottom first, as project() orders
+ * them): the bottom-most going forward (it rises to the top, so the next press reaches the next one), the one under
+ * the top going back. A window the layout hides is never a target. Null when fewer than two are on screen.
  */
-export function cycleTarget(wins: readonly Win[], activeWs: number, back: boolean): string | null {
-  const open = wins.filter((w) => w.ws === activeWs && w.state === 'open').map((w) => w.id);
-  if (open.length < 2) return null;
-  return back ? open[open.length - 2]! : open[0]!;
+export function cycleTarget(visible: readonly string[], back: boolean): string | null {
+  if (visible.length < 2) return null;
+  return back ? visible[visible.length - 2]! : visible[0]!;
 }
 
 /**
@@ -104,7 +103,8 @@ export function keyIntent(e: KeyEvt, env: KeyEnv): KeyIntent | null {
       const app = env.shelf[Number(digit[1]) - 1];
       return app === undefined ? null : { kind: 'wm', action: { type: 'open', app } };
     }
-    if (e.code === 'KeyN') return { kind: 'wm', action: { type: 'open', app: 'broker' } };
+    // Alt N is a new Broker window, even when one already shows the selected ticker (Velvet: a second Broker opens with Alt N).
+    if (e.code === 'KeyN') return { kind: 'wm', action: { type: 'open', app: 'broker', fresh: true } };
     // Alt W closes the focused window: Ctrl W is reserved for the browser (C-17, Alt W is the V1 path).
     if (e.code === 'KeyW' && focused !== null) return { kind: 'wm', action: { type: 'close', id: focused } };
     return null;

@@ -34,13 +34,15 @@ export interface WindowFrameProps {
   /** The projected rect, relative to the work area (what the shell shows now). */
   rect: Rect;
   active: boolean;
+  /** Stacking order: the frame's z-index. Raising a window changes this, never the DOM order. */
+  z: number;
   /** The layout mode. Halves (1000-1199 px) snap to the sides and the top; free placement and resize need full (C-26). */
   mode: LayoutMode;
   wa: Size;
   gutter: number;
 }
 
-export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrameProps) {
+export function WindowFrame({ win, rect, active, z, mode, wa, gutter }: WindowFrameProps) {
   const def = APPS[win.app];
   const frameRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -170,7 +172,7 @@ export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrame
         data-testid={`win-${win.id}`}
         data-app={win.app}
         tabIndex={-1}
-        style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h }}
+        style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h, zIndex: z }}
         onPointerDown={focusWin}
       >
         <div className="os-tb" onPointerDown={onTitleDown} data-testid={`win-${win.id}-title`}>
