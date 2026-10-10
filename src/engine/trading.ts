@@ -17,6 +17,11 @@
 import { DEFAULT_TRADING } from './config';
 import { ecologyWeight, PUBLIC_MAX_TRADER_SHARE, PUBLIC_MIN_TRADERS } from './ecology';
 import { optionQuote, optionsValue, parseContract, underlyingDelisted } from './options';
+import {
+  closingWarning, companyRulesOf, gateOn, lockedQty, programFill, programRelease, restrictionsOf, sessionDay, sessionDayAt, windowOn,
+  type Gate, type TradingRestrictions,
+} from './restrictions';
+import { dayOfTick } from './catalysts';
 import type {
   Account, AssetDef, CrowdHold, DayTraded, Fill, FillEstimate, MarginConfig, Order, OrderRequest, PortfolioView, PositionView,
   Side, SqueezeConfig, StepEvent, TickTraded, TradingConfig, WorldConfig, WorldState,
@@ -405,6 +410,29 @@ export function equityOf(state: WorldState, acct: Account): number {
   return eq;
 }
 
+/** Shares of one asset an account has locked on a day (plan escrow and price holds). Zero with no restrictions. */
+function lockedIn(state: WorldState, playerId: string, assetId: string, day: number): number {
+  return state.restrictions ? lockedQty(restrictionsOf(state), playerId, assetId, day) : 0;
+}
+
+/**
+ * Equity that counts as margin collateral. Locked shares (plan escrow and price holds, v1.4) add nothing: they cannot be
+ * pledged, and a margin call or liquidation cannot sell them. A long contributes only its unlocked shares. With no
+ * restrictions this is equityOf exactly.
+ */
+export function collateralEquityOf(state: WorldState, acct: Account, day: number): number {
+  const eq = equityOf(state, acct);
+  if (!state.restrictions) return eq;
+  let locked = 0;
+  for (const [assetId, pos] of Object.entries(acct.positions)) {
+    if (pos.qty <= 0) continue;
+    const q = Math.min(lockedIn(state, acct.playerId, assetId, day), pos.qty);
+    const i = assetIndex(state, assetId);
+    if (q > 0 && i >= 0) locked += q * mid(state, i);
+  }
+  return eq - locked;
+}
+
 /**
  * The mid price at which the engine's margin rule (equity below the liquidation ratio of gross exposure, marked on mid,
  * marginConfig) would liquidate this account on one asset, every other holding held at its mark. The same arithmetic as the
@@ -421,10 +449,12 @@ export function liquidationPrice(state: WorldState, playerId: string, assetId: s
   if (!isMarginAccount(acct)) return null;
   const L = marginConfig(state).liquidation;
   const here = mid(state, i);
-  const eqOther = equityOf(state, acct) - pos.qty * here;
+  // locked shares add no collateral (collateralEquityOf), so a long's collateral slope is its unlocked part
+  const lockedHere = pos.qty > 0 ? Math.min(lockedIn(state, playerId, assetId, sessionDay(state)), pos.qty) : 0;
+  const eqOther = collateralEquityOf(state, acct, sessionDay(state)) - (pos.qty - lockedHere) * here;
   const grossOther = grossExposure(state, acct) - Math.abs(pos.qty) * here;
-  // x* solves eqOther + qty*x = L * (|qty|*x + grossOther); a long's slope is (1 - L)|qty|, a short's is -(1 + L)|qty|
-  const slope = pos.qty > 0 ? (1 - L) * Math.abs(pos.qty) : -(1 + L) * Math.abs(pos.qty);
+  // x* solves eqOther + (qty - locked)*x = L * (|qty|*x + grossOther); a long's slope is (1 - L)|qty| - locked, a short's -(1 + L)|qty|
+  const slope = pos.qty > 0 ? (1 - L) * Math.abs(pos.qty) - lockedHere : -(1 + L) * Math.abs(pos.qty);
   const x = (L * grossOther - eqOther) / slope;
   return Number.isFinite(x) && x > 0 ? x : null;
 }
@@ -483,8 +513,9 @@ function reservedExposure(state: WorldState, playerId: string): number {
 
 function reservedQty(state: WorldState, playerId: string, assetId: string): number {
   let r = 0;
+  // a program's open sell is already counted in its escrow (locked shares), so it is not reserved twice
   for (const o of state.orders) {
-    if (o.status === 'open' && o.playerId === playerId && o.assetId === assetId && o.side === 'sell' && !o.reduceOnly) r += o.qty - o.filledQty;
+    if (o.status === 'open' && o.playerId === playerId && o.assetId === assetId && o.side === 'sell' && !o.reduceOnly && o.program === undefined) r += o.qty - o.filledQty;
   }
   return r;
 }
@@ -497,7 +528,7 @@ export function buyingPower(state: WorldState, playerId: string): number {
   const acct = state.accounts[playerId];
   if (!acct) return 0;
   if (!isMarginAccount(acct)) return Math.max(0, acct.cash - reservedCash(state, playerId));
-  const eq = equityOf(state, acct);
+  const eq = collateralEquityOf(state, acct, sessionDay(state));
   return Math.max(0, eq * (acct.maxLeverage ?? 1) - grossExposure(state, acct) - reservedExposure(state, playerId));
 }
 
@@ -527,9 +558,22 @@ function validate(state: WorldState, req: OrderRequest): string | null {
     if (!ok) return 'take-profit must be on the profit side of the stop-loss';
   }
   const held = acct.positions[req.assetId]?.qty ?? 0;
+  // company programs (restrictions.ts): a plan sells only out of its own escrow and can never buy; other sells may use
+  // only the shares not locked by a plan
+  const r = restrictionsOf(state);
+  const prog = req.program !== undefined ? r.programs[req.program] : undefined;
+  if (req.program !== undefined) {
+    if (!prog || prog.assetId !== req.assetId || prog.playerId !== req.playerId) return 'unknown program';
+    if (prog.kind === 'plan') {
+      if (req.side !== 'sell') return 'planSellOnly';
+      return req.qty > prog.escrow + EPS ? 'insufficient position' : null;
+    }
+  }
+  const locked = state.restrictions ? lockedQty(r, req.playerId, req.assetId, sessionDay(state)) : 0;
   if (req.reduceOnly) {
     if (held === 0 || Math.sign(held) === sign(req.side)) return 'nothing to reduce';
     if (req.qty > Math.abs(held) + EPS) return 'more than the position';
+    if (req.side === 'sell' && held > 0 && req.qty > Math.max(0, held - locked) + EPS) return 'insufficient position';
     return null;
   }
 
@@ -538,21 +582,30 @@ function validate(state: WorldState, req: OrderRequest): string | null {
       const px = reservePrice(state, i, req, req.qty);
       const need = req.qty * px + commission(state, def, req.qty * px);
       if (need > acct.cash - reservedCash(state, req.playerId) + EPS) return 'insufficient cash';
-    } else if (req.qty > held - reservedQty(state, req.playerId, req.assetId) + EPS) {
-      return 'insufficient position';
+    } else if (req.qty > held - reservedQty(state, req.playerId, req.assetId) - locked + EPS) {
+      // locked shares are the stacking rule's limit (position plus same-side open orders may not exceed what is free)
+      return locked > 0 ? 'stacking' : 'insufficient position';
     }
     return null;
   }
 
   // margin account
-  if (req.side === 'sell' && !acct.canShort && req.qty > held - reservedQty(state, req.playerId, req.assetId) + EPS) {
-    return 'insufficient position';
+  if (req.side === 'sell' && !acct.canShort && req.qty > held - reservedQty(state, req.playerId, req.assetId) - locked + EPS) {
+    return locked > 0 ? 'stacking' : 'insufficient position';
   }
   const px = reservePrice(state, i, req, req.qty) || mid(state, i);
   const after = held + sign(req.side) * req.qty;
   const addExposure = Math.max(0, Math.abs(after) - Math.abs(held)) * px;
   if (addExposure > buyingPower(state, req.playerId) + EPS) return 'insufficient buying power';
   return null;
+}
+
+/** The window or lockup refusal for a placement, if any (restrictions.ts). Absent restrictions = no refusal. */
+function placementGate(state: WorldState, req: OrderRequest): Gate | null {
+  if (!state.restrictions) return null;
+  const r = restrictionsOf(state);
+  const kind = req.program !== undefined ? r.programs[req.program]?.kind : undefined;
+  return gateOn(r, sessionDay(state), req.playerId, req.assetId, req.side, kind);
 }
 
 function newOrder(state: WorldState, seq: number, req: OrderRequest, reason: string | null, extra: Partial<Order> = {}): Order {
@@ -564,6 +617,7 @@ function newOrder(state: WorldState, seq: number, req: OrderRequest, reason: str
     ...(req.takeProfit !== undefined ? { takeProfit: req.takeProfit } : {}),
     ...(req.stopLoss !== undefined ? { stopLoss: req.stopLoss } : {}),
     ...(req.reduceOnly ? { reduceOnly: true } : {}),
+    ...(req.program !== undefined ? { program: req.program } : {}),
     tif: req.tif ?? 'gtc',
     id: `${req.playerId}-${seq}`,
     status: reason ? 'rejected' : 'open',
@@ -594,32 +648,79 @@ function toHistory(state: WorldState, closed: Order[]): Record<string, Order[]> 
   return hist;
 }
 
-export function placeOrder(state: WorldState, req: OrderRequest): { state: WorldState; order: Order } {
-  const seq = state.orderSeq + 1;
-  const reason = validate(state, req);
-  const i = assetIndex(state, req.assetId);
-  const extra: Partial<Order> = req.type === 'trailing' && i >= 0 ? { trailRef: mid(state, i) } : {};
-  const order = newOrder(state, seq, req, reason, extra);
-  if (archiving(state)) {
-    if (reason) return { state: { ...state, orderSeq: seq, closedOrders: toHistory(state, [order]) }, order };
-    return { state: { ...state, orderSeq: seq, orders: [...state.orders, order] }, order };
-  }
-  return { state: { ...state, orderSeq: seq, orders: prune(state, [...state.orders, order]) }, order };
+/**
+ * Place an order. `warning` is set on an accepted covered order in the last open days of its window (windowClosing,
+ * restrictions.ts): the order stands, the warning is for the caller to show.
+ */
+export function placeOrder(state: WorldState, req: OrderRequest): { state: WorldState; order: Order; warning?: { code: 'windowClosing'; closesDay: number } } {
+  return placeOrderImpl(state, req, false);
 }
 
-export function cancelOrder(state: WorldState, playerId: string, orderId: string): WorldState {
+/**
+ * The engine's own program orders only (programs.ts): a plan's sell out of its escrow, or a buyback's buy. A program id on
+ * any other route is refused, so no order can use a plan's window exception or its escrow without the plan's terms.
+ */
+export function placeProgramOrder(state: WorldState, req: OrderRequest): { state: WorldState; order: Order; warning?: { code: 'windowClosing'; closesDay: number } } {
+  return placeOrderImpl(state, req, true);
+}
+
+function placeOrderImpl(state: WorldState, req: OrderRequest, fromProgram: boolean): { state: WorldState; order: Order; warning?: { code: 'windowClosing'; closesDay: number } } {
+  const seq = state.orderSeq + 1;
+  const gate = placementGate(state, req);
+  // a plan never buys, on any route: a buy that names a plan is planSellOnly; any other program id is reserved
+  const named = req.program !== undefined ? restrictionsOf(state).programs[req.program] : undefined;
+  const reserved = req.program !== undefined && !fromProgram;
+  const reason = reserved
+    ? (named?.kind === 'plan' && req.side === 'buy' ? 'planSellOnly' : 'programOrderReserved')
+    : gate ? gate.code : validate(state, req);
+  const i = assetIndex(state, req.assetId);
+  const extra: Partial<Order> = {
+    ...(req.type === 'trailing' && i >= 0 ? { trailRef: mid(state, i) } : {}),
+    ...(gate?.untilDay !== undefined ? { rejectUntil: gate.untilDay } : {}),
+  };
+  const order = newOrder(state, seq, req, reason, extra);
+  const w = !reason && state.restrictions && req.program === undefined
+    ? closingWarning(restrictionsOf(state), sessionDay(state), req.playerId, req.assetId, companyRulesOf(state).windowClosingDays)
+    : undefined;
+  const warning = w ? { warning: w } : {};
+  if (archiving(state)) {
+    if (reason) return { state: { ...state, orderSeq: seq, closedOrders: toHistory(state, [order]) }, order };
+    return { state: { ...state, orderSeq: seq, orders: [...state.orders, order] }, order, ...warning };
+  }
+  return { state: { ...state, orderSeq: seq, orders: prune(state, [...state.orders, order]) }, order, ...warning };
+}
+
+/** The reject code for changing a program's order: a plan's is planImmutable (v1.4), a buyback's is buybackImmutable (§5.2). */
+function programImmutable(state: WorldState, o: Order): 'planImmutable' | 'buybackImmutable' | undefined {
+  if (o.program === undefined) return undefined;
+  return restrictionsOf(state).programs[o.program]?.kind === 'buyback' ? 'buybackImmutable' : 'planImmutable';
+}
+
+/**
+ * Cancel an open order. A program's order (a plan's or a buyback's) is part of a committed program and cannot be
+ * cancelled: the result carries its stable code and changes nothing. Any other closed order is returned unchanged.
+ */
+export function cancelOrderResult(
+  state: WorldState, playerId: string, orderId: string,
+): { state: WorldState; error?: 'planImmutable' | 'buybackImmutable' } {
   const idx = state.orders.findIndex((o) => o.id === orderId);
   if (idx < 0) throw new Error(`unknown order ${orderId}`);
   const o = state.orders[idx]!;
   if (o.playerId !== playerId) throw new Error(`order ${orderId} belongs to another player`);
-  if (o.status !== 'open') return state;
+  const immutable = programImmutable(state, o);
+  if (immutable) return { state, error: immutable };
+  if (o.status !== 'open') return { state };
   const closed: Order = { ...o, status: 'cancelled', closedTick: state.tick };
   if (archiving(state)) {
-    return { ...state, orders: state.orders.filter((x) => x.id !== orderId), closedOrders: toHistory(state, [closed]) };
+    return { state: { ...state, orders: state.orders.filter((x) => x.id !== orderId), closedOrders: toHistory(state, [closed]) } };
   }
   const orders = state.orders.slice();
   orders[idx] = closed;
-  return { ...state, orders };
+  return { state: { ...state, orders } };
+}
+
+export function cancelOrder(state: WorldState, playerId: string, orderId: string): WorldState {
+  return cancelOrderResult(state, playerId, orderId).state;
 }
 
 /** Change the quantity or prices of an open order (it keeps its place in the queue). */
@@ -631,10 +732,12 @@ export function modifyOrder(
   const o = state.orders[idx]!;
   if (o.playerId !== playerId) return { state, error: 'not your order' };
   if (o.status !== 'open') return { state, error: 'order is closed' };
+  const immutable = programImmutable(state, o);
+  if (immutable) return { state, error: immutable };
   if (patch.qty !== undefined && patch.qty < o.filledQty + EPS) return { state, error: 'below the filled quantity' };
   const next: Order = { ...o, ...patch };
   const without = { ...state, orders: state.orders.filter((x) => x.id !== orderId) };
-  const err = validate(without, { ...next, qty: next.qty - next.filledQty });
+  const err = placementGate(without, next)?.code ?? validate(without, { ...next, qty: next.qty - next.filledQty });
   if (err) return { state, error: err };
   const orders = state.orders.slice();
   orders[idx] = next;
@@ -766,6 +869,13 @@ export function tradeOption(state: WorldState, playerId: string, contractId: str
   if (!c || !cfg.underlyings.includes(c.underlying)) return { state, error: 'unknown contract' };
   const i = assetIndex(state, c.underlying);
   if (underlyingDelisted(state, c.underlying)) return { state, error: `${c.underlying} is delisted: its options no longer trade` };
+  // company stock has no listed options (v1.7: a company's lnV moves only on prints, so there is nothing to hedge)
+  if (state.config.assets[i]!.valueSource === 'company') return { state, error: 'no listed options on company stock' };
+  // the window binds every §6.5 instrument: options on a covered company's stock are refused while it is closed
+  if (state.restrictions) {
+    const w = windowOn(restrictionsOf(state), c.underlying, playerId, sessionDay(state));
+    if (!w.open) return { state, error: 'closedWindow' };
+  }
   if (state.assets[i]!.haltUntil !== -1) return { state, error: 'underlying is halted' };
   const q = optionQuote(state, c);
   if (q.expired) return { state, error: 'contract has expired' };
@@ -798,6 +908,21 @@ export function tradeOption(state: WorldState, playerId: string, contractId: str
   if (held.qty === qty) delete acct.options![contractId];
   else acct.options![contractId] = { ...held, qty: held.qty - qty };
   return { state: hedge({ ...state, accounts: { ...state.accounts, [playerId]: acct } }), fill: { contractId, side, qty, price: q.bid, fee, total: proceeds } };
+}
+
+/**
+ * A plan order's day is over with `rem` shares unsold. The reason is the order's own check, not the mid: a halt; `price`
+ * when its last limit check failed (the fill price after the spread was below the minimum, so the floor, not the book,
+ * held it: a price hold); otherwise `volume` (the book or the ADV cap). Returns the restrictions after the release.
+ */
+function expireProgramOrder(s: WorldState, o: Order, tick: number, events: StepEvent[]): TradingRestrictions | undefined {
+  const r = restrictionsOf(s);
+  const p = o.program !== undefined ? r.programs[o.program] : undefined;
+  const rem = o.qty - o.filledQty;
+  if (!p || p.kind !== 'plan' || !(rem > EPS)) return s.restrictions;
+  const i = assetIndex(s, o.assetId);
+  const reason = s.assets[i]!.haltUntil !== -1 ? 'halt' : o.priceMissed ? 'price' : 'volume';
+  return programRelease(r, p.id, rem, reason, sessionDayAt(o.placedTick, s.config.ticksPerDay), tick, events);
 }
 
 // ---------------------------------------------------------------- clearing (called by step)
@@ -833,12 +958,14 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
 
   if (hasOpen) {
     const spawned: Order[] = [];
+    const dayNow = dayOfTick(tick, tpd);
     for (let k = 0; k < s.orders.length; k++) {
       let o = s.orders[k]!;
       if (o.status !== 'open') continue;
 
       if (newDay && o.tif === 'day' && Math.floor(o.placedTick / tpd) < Math.floor((tick - 1) / tpd)) {
         s.orders[k] = { ...o, status: 'expired', closedTick: tick };
+        if (o.program !== undefined && s.restrictions) s.restrictions = expireProgramOrder(s, o, tick, events);
         continue;
       }
       const i = assetIndex(s, o.assetId);
@@ -865,6 +992,18 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       const margin = isMarginAccount(acct0);
       const held = acct0.positions[o.assetId]?.qty ?? 0;
 
+      // windows and lockups hold at the fill too: an open covered order is cancelled when its window shuts (v1.7)
+      const r0 = s.restrictions ? restrictionsOf(s) : undefined;
+      const prog = r0 !== undefined && o.program !== undefined ? r0.programs[o.program] : undefined;
+      const gate = r0 ? gateOn(r0, dayNow, o.playerId, o.assetId, o.side, prog?.kind) : null;
+      if (gate) {
+        s.orders[k] = { ...o, status: 'cancelled', rejectReason: gate.code, ...(gate.untilDay !== undefined ? { rejectUntil: gate.untilDay } : {}), closedTick: tick };
+        events.push({ type: 'restricted', tick, playerId: o.playerId, assetId: o.assetId, code: gate.code, ...(gate.untilDay !== undefined ? { untilDay: gate.untilDay } : {}) });
+        continue;
+      }
+      // shares locked by a plan are not sellable outside it (escrow)
+      const locked = r0 ? lockedQty(r0, o.playerId, o.assetId, dayNow) : 0;
+
       // the maxAdvPerTick cap is shared too: what other accounts filled this tick on this side counts against it
       const tt = tallyTick(s.assets[i]!.tickTraded, tick, s.assets[i]!.lnP);
       const capUnits = (t.maxAdvPerTick * (def.advNotional ?? 1e9) - tt[o.side]) / Math.exp(tt.lnMid);
@@ -872,20 +1011,31 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       let q = o.qty - o.filledQty;
       q = roundQty(def, Math.min(q, capUnits));
       if (o.reduceOnly) {
-        const can = held !== 0 && Math.sign(held) !== sign(o.side) ? Math.abs(held) : 0;
+        const can = held !== 0 && Math.sign(held) !== sign(o.side) ? (held > 0 ? Math.max(0, held - locked) : Math.abs(held)) : 0;
         if (can <= EPS) { s.orders[k] = { ...o, status: 'cancelled', rejectReason: 'position closed', closedTick: tick }; continue; }
         q = Math.min(q, can);
-      } else if (o.side === 'sell' && !(margin && acct0.canShort)) {
-        q = Math.min(q, Math.max(0, held));
+      } else if (prog?.kind === 'plan') {
+        // a plan sells out of its escrow, and never more than the account still holds (held is checked on every fill)
+        q = Math.min(q, prog.escrow, Math.max(0, held));
+      } else if (o.side === 'sell' && (locked > 0 || !(margin && acct0.canShort))) {
+        q = Math.min(q, Math.max(0, held - locked));
       }
       if (q <= EPS) {
         if (o.side === 'sell') s.orders[k] = { ...o, status: 'cancelled', rejectReason: 'insufficient position', closedTick: tick };
+        // a plan order that cannot sell its day releases the escrow for it (or the escrow would stay locked for good)
+        if (prog?.kind === 'plan' && s.restrictions) {
+          s.restrictions = programRelease(restrictionsOf(s), prog.id, o.qty - o.filledQty, 'volume', sessionDayAt(o.placedTick, tpd), tick, events);
+        }
         continue;
       }
 
       let { price, p0 } = tickPrice(i, o.side, q);
       if (o.type === 'limit' || o.type === 'stop_limit') {
-        if (o.side === 'buy' ? price > o.limitPrice! : price < o.limitPrice!) continue; // not marketable yet
+        if (o.side === 'buy' ? price > o.limitPrice! : price < o.limitPrice!) {
+          // a plan records that its last price check failed: an unsold remainder then becomes a price hold, not a volume skip
+          if (prog?.kind === 'plan' && !o.priceMissed) s.orders[k] = { ...o, priceMissed: true };
+          continue; // not marketable yet
+        }
       }
       let fee = commission(s, def, q * price);
 
@@ -922,9 +1072,12 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         status: done ? 'filled' : shrunk ? 'cancelled' : 'open',
         ...(done || shrunk ? { closedTick: tick } : {}),
         ...(!done && shrunk ? { rejectReason: 'insufficient cash' } : {}),
+        // the fill passed the limit, so the last price check is now a pass
+        ...(prog?.kind === 'plan' ? { priceMissed: false } : {}),
       };
       fills.push({ orderId: o.id, playerId: o.playerId, assetId: o.assetId, side: o.side, qty: q, price, fee, tick, mid: p0 });
       printTape(i, o.side, q, price, p0);
+      if (prog?.kind === 'plan' && s.restrictions) s.restrictions = programFill(restrictionsOf(s), prog.id, q, sessionDayAt(o.placedTick, tpd), tick, events);
 
       // one-cancels-other: a fill on a bracket leg cancels its sibling
       if (o.ocoGroup) {
@@ -1014,12 +1167,13 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
   // ---- margin calls and liquidation, then mark: peak and drawdown on liquidation value ----
   const mc = marginConfig(s);
   const squeeze = squeezeConfig(s.config);
+  const liqDay = dayOfTick(tick, tpd);
   const marks: string[] = [];
   for (const id of accountIds) {
     let a = s.accounts[id]!;
     if (isMarginAccount(a)) {
       let gross = grossExposure(s, a);
-      let eq = equityOf(s, a);
+      let eq = collateralEquityOf(s, a, liqDay);
       if (gross > 0 && eq / gross < mc.liquidation) {
         a = { ...a, positions: { ...a.positions } };
         // close the largest positions first until the account is back above maintenance
@@ -1032,7 +1186,10 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           if (s.assets[i]!.haltUntil !== -1) continue;
           const pos = a.positions[assetId]!;
           const side: Side = pos.qty > 0 ? 'sell' : 'buy';
-          const q = Math.abs(pos.qty);
+          // plan escrow and price holds are never sold by a liquidation (v1.4): a long sells only its unlocked shares
+          const locked = side === 'sell' ? lockedIn(s, id, assetId, liqDay) : 0;
+          const q = side === 'sell' ? Math.max(0, pos.qty - locked) : Math.abs(pos.qty);
+          if (locked > 0 && q <= EPS) continue;
           const { price, p0 } = tickPrice(i, side, q);
           const fee = commission(s, s.config.assets[i]!, q * price);
           book(a, assetId, side, q, price, fee);
@@ -1046,12 +1203,13 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           printTape(i, side, q, price, p0);
           if (side === 'buy' && squeeze) recordCover(s, i, q * price, tick, squeeze, events);
           gross = grossExposure(s, a);
-          eq = equityOf(s, a);
+          eq = collateralEquityOf(s, a, liqDay);
         }
-        // cancel the account's open non-reducing orders after a liquidation
+        // cancel the account's open non-reducing orders after a liquidation; a program's order is not cancelled (its
+        // plan or buyback is committed, and a plan keeps its escrow for its days)
         for (let m = 0; m < s.orders.length; m++) {
           const x = s.orders[m]!;
-          if (x.playerId === id && x.status === 'open' && !x.reduceOnly) s.orders[m] = { ...x, status: 'cancelled', rejectReason: 'margin liquidation', closedTick: tick };
+          if (x.playerId === id && x.status === 'open' && !x.reduceOnly && x.program === undefined) s.orders[m] = { ...x, status: 'cancelled', rejectReason: 'margin liquidation', closedTick: tick };
         }
       }
       if (gross > 0 && eq / gross < mc.maintenance) {

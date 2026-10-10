@@ -92,6 +92,20 @@ export const COMPANY = {
   gaPenalty: 0.03,
   /** plant levels: cost C0 * 0.10 * 1.18^n, 10 gd to build, multiplier 1 + 0.25 per level (§4, a tunable) */
   plant: { c0: 100_000, costFactor: 0.10, costGrowth: 1.18, buildDays: 10, multPerLevel: 0.25 },
+  /**
+   * Trading rules the engine enforces (WorldConfig.companyRules; restrictions.ts, programs.ts, companyAssets.ts): the
+   * plan lead, the price hold, the plan floor cap, live plans, the window-closing warning, the buyback cap and the tender
+   * floor (v1.7 §5.1, §5.2, §6.1, §9.2; G12 for the floor and the hold).
+   */
+  trading: {
+    planLeadDays: 63,
+    priceHoldDays: 63,
+    planFloorMaxRatio: 0.8,
+    planLiveLimit: 2,
+    windowClosingDays: 5,
+    buybackFloatPerDay: 0.01,
+    tenderFloorRatio: 1.2,
+  },
   /** headcount caps by tier (§4, §5). Listed companies are unbounded (Infinity). */
   headcountCap: { seed: 25, growth: 250, late: 2_500 } as Record<CompanyTierId, number>,
   /** products allowed per tier (§5). Seed 2; the others are not gated in A3. */

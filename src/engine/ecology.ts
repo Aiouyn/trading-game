@@ -432,7 +432,9 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     // own line, whose non-jump diffusive innovation is scaled. drift = the day's deterministic lnV drift, exactly as
     // step() adds it (h and regime are fixed within a day), so ΔlnV − drift − jp·jump is the summed diffusive shock.
     let lnVe = lnV;
-    if (scaleOn && e.lnV !== undefined) {
+    // a company stock's value line is the live lnV (its moves are prints, not a diffusive shock to scale)
+    const coShare = def.valueSource === 'company' ? (def.companyPrintShare ?? 1) : undefined;
+    if (scaleOn && e.lnV !== undefined && coShare === undefined) {
       const sig = def.vol * rg.volMult * Math.sqrt(h);
       const mu = def.drift + def.cycleBeta * rg.equityDrift - (cfg.jumpCompensation ? jumpCompensator(def, jp) : 0);
       const drift = (mu - 0.5 * (cfg.permanentShare * sig) ** 2) / cfg.daysPerYear;
@@ -444,9 +446,11 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     // of the day's jump prints at ratePrint (default = newsPrint, so the default run is unchanged). A residual here is
     // a return the value pool trades the next day, i.e. 1-day momentum (V1-PHASE1 F2): earnings and other idiosyncratic
     // news print in full at the close, and the post-earnings drift that is meant to follow is catalysts.ts's own term.
-    const newsPrint = rp === iota ? iota * input.jump[i]! : iota * (input.jump[i]! - rate[i]!) + rp * rate[i]!;
+    // a company print prints its own share (G21: full), so the close and the live price agree; it has no value-pool gap
+    const newsPrint = coShare !== undefined ? coShare * input.jump[i]!
+      : rp === iota ? iota * input.jump[i]! : iota * (input.jump[i]! - rate[i]!) + rp * rate[i]!;
     // quotes reprice a share of the day's non-jump value move at once (public information, no trade needed)
-    const valuePrint = vpK && e.lnV !== undefined ? vpK * (lnV - e.lnV - jp * input.jump[i]!) : 0;
+    const valuePrint = vpK && e.lnV !== undefined && coShare === undefined ? vpK * (lnV - e.lnV - jp * input.jump[i]!) : 0;
     // the maker works off part of yesterday's skew and inventory before today's flow
     const makerDecay = -ec.makerUnwind * e.skew;
     let core = e.core + newsPrint + valuePrint + shockAmt;

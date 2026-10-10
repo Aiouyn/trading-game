@@ -12,10 +12,17 @@ import {
   worldEventStepEvent, worldEventsConfig, worldEventsDay,
 } from './worldEvents';
 import type {
-  AssetDef, AssetState, Fill, LnVParts, Quote, SeasonalDef, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
+  AssetDef, AssetState, DayBar, Fill, LnVParts, Quote, SeasonalDef, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
 } from './types';
 
 const LN2 = Math.log(2);
+
+/** Company stocks keep the last 30 closed days (VWAP30, companyAssets.ts). */
+const BARS_KEPT = 30;
+
+function pushBar(bars: DayBar[] | undefined, bar: DayBar): DayBar[] {
+  return [...(bars ?? []), bar].slice(-BARS_KEPT);
+}
 
 /** A day's lnV split, all zero: the start of a day's accumulator (a day start, or a new world's first day). */
 function zeroLnVParts(): LnVParts {
@@ -214,9 +221,13 @@ function advance(state: WorldState): StepResult {
     if (def.delisted) { assets[i] = { ...prev, volume: 0, notional: 0 }; continue; } // delisted: frozen price, no flow
     const rng = new Rng(prev.rng);
     const a: AssetState = { ...prev };
+    // a company stock (valueSource 'company'): its lnV moves only through prints, never through a diffusive shock, jumps,
+    // catalysts, rate or world-event value moves (quant-company-building v1.7). Every other asset takes the code below unchanged.
+    const co = def.valueSource === 'company';
 
     // day boundary: GARCH(1,1) update on the day's standardized return, reset the open
     if (newDay) {
+      if (co) a.bars = pushBar(prev.bars, { c: Math.exp(prev.lnP), n: prev.dayNotional ?? 0, u: prev.dayVolume ?? 0 });
       // GARCH reads the day's diffusive innovation only: the sum of the per-tick shocks (dayDiff, booked below). It is
       // not the day's close-to-close return, which also holds the value pull toward lnV, the news that prints or drifts
       // in over the half-life, post-earnings drift and (full ecology) the closing auction. Each of those is a function
@@ -244,6 +255,9 @@ function advance(state: WorldState): StepResult {
       if (eco && a.dayLnV) a.dayLnV = { ...a.dayLnV, shock: (a.dayLnV.shock ?? 0) + a.pendingValueShock };
       a.pendingValueShock = 0;
     }
+    // a company print (printCompanyValue) lands on the first tick after it was filed: news, in value and in price
+    const coPrint = co ? (prev.pendingPrint ?? 0) : 0;
+    if (co && prev.pendingPrint) a.pendingPrint = 0;
 
     // diffusive shock: factors + fat-tailed idiosyncratic noise
     const sigma = def.vol * rg.volMult * Math.sqrt(a.h);
@@ -258,7 +272,7 @@ function advance(state: WorldState): StepResult {
     // compound Poisson jumps, Kou double exponential in log space
     let jump = 0;
     const lambda = def.jumpsPerYear * rg.jumpMult * dt * evJumpMult;
-    if (rng.chance(lambda)) {
+    if (!co && rng.chance(lambda)) {
       const up = rng.chance(clamp(def.jumpUpProb + rg.jumpUpShift, 0.05, 0.95));
       jump = up ? rng.exponential(def.jumpUpMean) : -rng.exponential(def.jumpDownMean);
       a.dayJump += jump;
@@ -268,7 +282,7 @@ function advance(state: WorldState): StepResult {
     // catalysts (own stream): earnings gap before the open, then post-earnings drift
     let catalyst = 0;
     let earn = 0;
-    if (cfg.catalysts && def.assetClass === 'stock') {
+    if (cfg.catalysts && def.assetClass === 'stock' && !co) {
       if (newDay || prev.nextEarnings === undefined) {
         const day = Math.floor(state.tick / cfg.ticksPerDay);
         const out = catalystDay(a, def, cfg.catalysts, state.seed, day, tick, cfg.ticksPerDay);
@@ -280,28 +294,36 @@ function advance(state: WorldState): StepResult {
     // rates: yield repricing and policy/data surprises, once a day (all news, so value moves too). Like catalysts, the
     // shock is booked in dayJump in every mode, so GARCH reads the diffusive return only (a bond's rate move is not
     // a volatility regime). In full ecology the pools also read it as news, like earnings.
-    if (rateShocks && rateShocks[i]) {
+    if (rateShocks && rateShocks[i] && !co) {
       catalyst += rateShocks[i]!;
       a.dayJump += rateShocks[i]!;
       a.dayRate = (a.dayRate ?? 0) + rateShocks[i]!;
     }
+    // the company print is news: it joins the day's jumps (the ecology close reads them), its value share at once
+    if (coPrint) a.dayJump += coPrint;
+    // the share of a company print that the price takes at once (1 = full, G21); the rest, if any, is a gap the pull closes
+    const coPx = co ? (def.companyPrintShare ?? 1) * coPrint : 0;
 
     // world events: the active event's planned move (and a bubble's hidden give-back) is news to value and price, like a
-    // catalyst; the flash crash is the exception (price takes the drop, value only the part not given back)
+    // catalyst; the flash crash is the exception (price takes the drop, value only the part not given back). A company
+    // stock's value takes no event move: its price does.
     const wm = worldEventMove(worldEvents, def.id, tick);
+    const wmValue = co ? 0 : wm.value;
     if (wm.price !== 0) { a.dayJump += wm.price; evMoves[def.id] = wm.price; }
     if (eco) a.dayEvent = (a.dayEvent ?? 0) + wm.price;
 
-    // fundamental value: drift + the permanent share of news (catalysts are all news)
-    const perm = cfg.permanentShare;
+    // fundamental value: drift + the permanent share of news (catalysts are all news). A company stock has no diffusive
+    // value (perm 0) and no drift in value: only its prints move lnV.
+    const perm = co ? 0 : cfg.permanentShare;
     // momentum fix: jumps can be fully permanent but print only partly at once (news underreaction);
     // the compensator keeps jumps from changing the expected return. Missing fields = the legacy model.
-    const jp = cfg.jumpPermanent ?? perm;
+    const jp = cfg.jumpPermanent ?? cfg.permanentShare;
     const mu = def.drift + def.cycleBeta * rg.equityDrift + carryOf(def, rates) - (cfg.jumpCompensation ? jumpCompensator(def, jp) : 0)
       + (def.seasonal ? seasonalDrift(def.seasonal, tick, cfg.ticksPerDay, cfg.daysPerYear) : 0);
+    const muV = co ? 0 : mu;
     const diff = sigma * sqrtDt * shock;
     a.dayDiff = (a.dayDiff ?? 0) + diff; // the day's diffusive innovation (GARCH input, see the day boundary above)
-    a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + lnVScale * perm * diff + jp * jump + catalyst + wm.value;
+    a.lnV = prev.lnV + (muV - 0.5 * (perm * sigma) ** 2) * dt + lnVScale * perm * diff + jp * jump + catalyst + wmValue + coPrint;
     if (eco) {
       // the same increment, split by source (LnVParts): the six parts sum to the a.lnV change above, tick by tick. The
       // regime's equity drift is the market's, so it sits in market; the asset's own drift (alpha, carry, seasonal, the
@@ -309,14 +331,14 @@ function advance(state: WorldState): StepResult {
       // (dayLnV absent, not a day start) stays unsplit: its accumulator would start mid-day and miss the pre-load part.
       const base = a.dayLnV ?? (state.tick % cfg.ticksPerDay === 0 ? zeroLnVParts() : undefined);
       const k = lnVScale * perm * sigma * sqrtDt;
-      const betaDrift = def.cycleBeta * rg.equityDrift * dt;
+      const betaDrift = co ? 0 : def.cycleBeta * rg.equityDrift * dt;
       if (base) a.dayLnV = {
-        drift: base.drift + (mu - def.cycleBeta * rg.equityDrift - 0.5 * (perm * sigma) ** 2) * dt,
+        drift: base.drift + (co ? 0 : (mu - def.cycleBeta * rg.equityDrift - 0.5 * (perm * sigma) ** 2) * dt),
         market: base.market + betaDrift + k * (def.wMarket * rg.marketLoadMult * zMarket + def.wCrypto * zCrypto),
         sector: base.sector + k * (def.wSector * (zSector[def.sector] ?? 0) + (def.wRegion ? def.wRegion * (zRegion[def.region ?? ''] ?? 0) : 0)),
         idio: base.idio + k * idioLoading(def) * rg.idioMult * eps,
-        news: base.news + jp * jump + catalyst,
-        event: base.event + wm.value,
+        news: base.news + jp * jump + catalyst + coPrint,
+        event: base.event + wmValue,
         ...(base.shock !== undefined ? { shock: base.shock } : {}),
       };
     }
@@ -328,7 +350,9 @@ function advance(state: WorldState): StepResult {
     // stationary bias of about -0.3 in log for SYN (110% vol, 120-day half-life), which put its |lnP - lnV| p95 at 0.84 > ln 2.
     // The term below cancels it, so x is a zero-mean OU, and the price's long-run log drift is still the value's.
     const itoCentre = 0.5 * sigma * sigma * (1 - perm * perm);
-    const r = (mu - 0.5 * sigma * sigma + itoCentre) * dt + kappa * (a.lnV - prev.lnP) * dt + diff + jumpPrint * jump + catalyst + wm.price;
+    // a company's pull is toward the value it held before this tick's print: the print's share goes in at once (coPx)
+    const pullV = co ? prev.lnV : a.lnV;
+    const r = (mu - 0.5 * sigma * sigma + itoCentre) * dt + kappa * (pullV - prev.lnP) * dt + diff + jumpPrint * jump + catalyst + wm.price + coPx;
 
     a.rng = rng.state();
     const halted = prev.haltUntil !== -1;

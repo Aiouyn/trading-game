@@ -1,6 +1,7 @@
 import type { RngState } from './rng';
 import type { WorldEventKind, WorldEventsConfig, WorldEventsState } from './worldEvents';
 import type { ListingsConfig } from './listings';
+import type { CompanyRules, TradingRestrictions } from './restrictions';
 
 export type AssetClass = 'stock' | 'crypto' | 'commodity' | 'forex' | 'bond' | 'realestate';
 
@@ -72,6 +73,20 @@ export interface AssetDef {
   dividendYield?: number;
   /** annual stock-borrow fee for shorts; default by class */
   borrowFee?: number;
+  /**
+   * A company stock (quant-company-building v1.7): its lnV moves only through prints (printCompanyValue), never through
+   * a diffusive value shock, jumps, catalysts or options. Absent = an ordinary asset, byte for byte as before.
+   */
+  valueSource?: 'company';
+  /** the share of a company print that moves the price at once, and the ecology close (1 = full print, G21). Absent = 1. */
+  companyPrintShare?: number;
+}
+
+/** One closed game day of a company stock: the close, the day's traded value and units (VWAP30 for the takeover floor). */
+export interface DayBar {
+  c: number;
+  n: number;
+  u: number;
 }
 
 export interface FeeSchedule {
@@ -195,6 +210,8 @@ export interface WorldConfig {
   volume?: VolumeConfig;
   /** earnings, previews, rumors and post-earnings drift; off when absent */
   catalysts?: CatalystConfig;
+  /** company trading rules (plan lead, price hold, window warning, buyback cap, tender floor); the defaults are content's COMPANY.trading */
+  companyRules?: Partial<CompanyRules>;
   /** interest rates, inflation, growth and the central bank; off when absent */
   rates?: RatesConfig;
   /** listed options; off when absent */
@@ -265,6 +282,10 @@ export interface AssetState {
   dayShock?: number;
   /** a test shockValue's lnV move not yet booked in today's split (booked at the next tick, after the day's reset). Absent = 0. */
   pendingValueShock?: number;
+  /** a company print (ln value) waiting for the next tick (printCompanyValue, companyAssets.ts). Absent = 0. */
+  pendingPrint?: number;
+  /** company stocks only: the last 30 closed days, oldest first (VWAP30 for the takeover floor). Absent on others. */
+  bars?: DayBar[];
   /** the part of dayJump that is world-event price moves, summed per tick. Ecology-on only. */
   dayEvent?: number;
   /** log return accumulated while halted; applied in the reopening auction */
@@ -464,6 +485,8 @@ export interface OrderRequest {
   stopLoss?: number;
   /** only ever reduces an existing position (bracket children, close buttons) */
   reduceOnly?: boolean;
+  /** a company program's order (restrictions.ts): a plan's sell out of its escrow, or a buyback's buy */
+  program?: string;
 }
 
 export interface Order extends OrderRequest {
@@ -483,6 +506,10 @@ export interface Order extends OrderRequest {
   ocoGroup?: string;
   /** set by the engine when it closes a position for the player (margin liquidation) */
   forced?: boolean;
+  /** a refused restriction (closedWindow, lockup): the game day it lifts, when the schedule has one */
+  rejectUntil?: number;
+  /** a plan order: its last limit check failed on price (after the spread), so an unsold remainder is a price hold */
+  priceMissed?: boolean;
 }
 
 export interface Fill {
@@ -568,6 +595,8 @@ export interface WorldState {
   ecology?: EcologyState;
   /** shared world events; present once a world with events on has stepped a day. Server-only (the app gets worldEventView). */
   worldEvents?: WorldEventsState;
+  /** company trading windows, lockups and programs (restrictions.ts); absent until a company world sets one */
+  restrictions?: TradingRestrictions;
   /** listings stream and sequence (evolving universe); present once a listing day has rolled */
   listings?: { rng: RngState; seq: number };
   /** index membership and divisors, present once a review has run or been announced (indices.ts) */
@@ -885,7 +914,13 @@ export type StepEvent =
   | { type: 'liquidation'; tick: number; playerId: string; assetId: string; qty: number; price: number }
   | { type: 'option_expiry'; tick: number; playerId: string; contractId: string; qty: number; payout: number; reason?: 'delisting' }
   /** a dividend credited at the day boundary (rates on): the cash paid to one holder in one asset; negative for a short */
-  | { type: 'dividend'; tick: number; playerId: string; assetId: string; amount: number };
+  | { type: 'dividend'; tick: number; playerId: string; assetId: string; amount: number }
+  /** a covered or locked order refused, or cancelled at the fill: a closed window (untilDay = the next open day) or a lockup */
+  | { type: 'restricted'; tick: number; playerId: string; assetId: string; code: 'closedWindow' | 'lockup'; untilDay?: number }
+  /** a plan day that did not sell all of its quantity: price (the floor), volume (the ADV cap) or halt; qty is the shortfall */
+  | { type: 'planSkipped'; tick: number; programId: string; playerId: string; assetId: string; reason: 'volume' | 'price' | 'halt'; qty: number }
+  /** a plan ended: completed (its last day ran), terminated (delisting or default) or tender */
+  | { type: 'planEnded'; tick: number; programId: string; playerId: string; assetId: string; reason: 'completed' | 'terminated' | 'tender' };
 
 export interface StepResult {
   state: WorldState;
