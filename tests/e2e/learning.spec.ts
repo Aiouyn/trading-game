@@ -13,9 +13,14 @@ test('a closed trade lands in the journal as a row, with its replay and its free
   await page.getByTestId('order-submit').click();
   await goTo(page, 'portfolio');
   await expect(page.getByTestId('position-HLCN')).toBeVisible({ timeout: 15_000 });
-  await dismissCloseCard(page);
-  await page.getByTestId('close-HLCN').click();
-  await page.getByTestId('close-HLCN-yes').click();
+  // the day-close card waits behind the pending buy and can open after a dismiss found nothing, covering the close button:
+  // clear it and retry the short clicks until the confirm goes through (the confirm swaps close-HLCN for close-HLCN-yes)
+  await expect(async () => {
+    await dismissCloseCard(page);
+    const yes = page.getByTestId('close-HLCN-yes');
+    if (!(await yes.isVisible())) await page.getByTestId('close-HLCN').click({ timeout: 2_000 });
+    await yes.click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
   await expect(page.getByTestId('position-HLCN')).toHaveCount(0, { timeout: 15_000 });
   // a fill toast over the Portfolio tabs (the phone drops them from the top) blocks the click while the pointer rests on it: wait for it to go
   await expect(page.getByTestId('os-toasts')).toBeEmpty({ timeout: 15_000 });
