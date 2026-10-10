@@ -584,10 +584,12 @@ export type EcoPool = 'value' | 'trend' | 'retail' | 'pension';
 export type EcoCause = 'value' | 'trend' | 'retail' | 'pension' | 'maker' | 'news' | 'event' | 'own';
 
 /**
- * One asset's day change in ln value, by source; the parts sum to the day's change in lnV exactly. drift is the
- * deterministic part (cycle, equity drift, carry, seasonal, the asset's alpha). market and sector are the factor shocks
- * (market and crypto; sector and region). idio is the company's own shock. news is the jumps, catalysts and rate shocks.
- * event is the world-event value move. The diffusive parts carry lnVScale and the permanent share, as the value does.
+ * One asset's day change in ln value, by source; the parts sum to the day's change in lnV exactly, on any day that has
+ * a split (a day that began before a save with no split has none). drift is the asset's own deterministic part (alpha,
+ * carry, seasonal, the jump compensator and the variance drag). market is the factor shock (market and crypto) plus the
+ * regime's equity drift, scaled by the asset's cycle beta. sector is the sector and region shock. idio is the company's
+ * own shock. news is the jumps, catalysts and rate shocks. event is the world-event value move. The diffusive parts
+ * carry lnVScale and the permanent share, as the value does.
  */
 export interface LnVParts {
   drift: number;
@@ -722,7 +724,7 @@ export interface EcoLogAsset {
   lnV: number;
   /** desired orders after the capacity cut, ADV (own = the human accounts' fills, npc = the NPC accounts' fills) */
   desired: Record<EcoPool | 'own' | 'npc', number>;
-  /** the day's lnV change by source (absent on logs written before the factor split) */
+  /** the day's lnV change by source (absent on logs written before the factor split, or on a day that was only partly seen) */
   lnVParts?: LnVParts;
   /** the day's player bucket: distinct accounts that traded the asset and the largest one's share of its gross flow */
   players?: { accounts: number; maxShare: number };

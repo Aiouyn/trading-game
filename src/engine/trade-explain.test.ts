@@ -62,6 +62,11 @@ describe('explainTrade: the rows of a closed round trip', () => {
     expect(() => explainTrade(s, 'p0', 'rt1', ledgerOf(trip({ openTick: 30, closeTick: 10 })))).toThrow(/closes before it opens/);
   });
 
+  it('the spec call (state, playerId, roundTripId) is valid before the ledger lands: it throws for every trip', () => {
+    const s = world('trade-noledger', 5);
+    expect(() => explainTrade(s, 'p0', 'rt1')).toThrow(/no closed round trip rt1/);
+  });
+
   it('a ledger whose figures do not add up is caught, not explained away', () => {
     const s = world('trade-bad', 5);
     expect(() => explainTrade(s, 'p0', 'rt1', ledgerOf(trip({ realizedPnl: 999 })))).toThrow(/rows sum to/);

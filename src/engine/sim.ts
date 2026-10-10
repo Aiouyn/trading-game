@@ -12,10 +12,15 @@ import {
   worldEventStepEvent, worldEventsConfig, worldEventsDay,
 } from './worldEvents';
 import type {
-  AssetDef, AssetState, Fill, Quote, SeasonalDef, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
+  AssetDef, AssetState, Fill, LnVParts, Quote, SeasonalDef, RegimeId, StepEvent, StepResult, WorldConfig, WorldState,
 } from './types';
 
 const LN2 = Math.log(2);
+
+/** A day's lnV split, all zero: the start of a day's accumulator (a day start, or a new world's first day). */
+function zeroLnVParts(): LnVParts {
+  return { drift: 0, market: 0, sector: 0, idio: 0, news: 0, event: 0 };
+}
 
 /** Create a fresh world. Same seed + same config => identical world forever. */
 export function createWorld(seed: string, config: WorldConfig = defaultConfig()): WorldState {
@@ -230,7 +235,7 @@ function advance(state: WorldState): StepResult {
       a.dayRate = 0;
       a.dayDiff = 0;
       if (eco) {
-        a.dayLnV = { drift: 0, market: 0, sector: 0, idio: 0, news: 0, event: 0 };
+        a.dayLnV = zeroLnVParts();
         a.dayEvent = 0;
       }
     }
@@ -293,12 +298,16 @@ function advance(state: WorldState): StepResult {
     a.dayDiff = (a.dayDiff ?? 0) + diff; // the day's diffusive innovation (GARCH input, see the day boundary above)
     a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + lnVScale * perm * diff + jp * jump + catalyst + wm.value;
     if (eco) {
-      // the same increment, split by source (LnVParts): the six parts sum to the a.lnV change above, tick by tick
-      const base = a.dayLnV ?? { drift: 0, market: 0, sector: 0, idio: 0, news: 0, event: 0 };
+      // the same increment, split by source (LnVParts): the six parts sum to the a.lnV change above, tick by tick. The
+      // regime's equity drift is the market's, so it sits in market; the asset's own drift (alpha, carry, seasonal, the
+      // jump compensator and the convexity term) sits in drift. A day that began before a save with no split was loaded
+      // (dayLnV absent, not a day start) stays unsplit: its accumulator would start mid-day and miss the pre-load part.
+      const base = a.dayLnV ?? (state.tick % cfg.ticksPerDay === 0 ? zeroLnVParts() : undefined);
       const k = lnVScale * perm * sigma * sqrtDt;
-      a.dayLnV = {
-        drift: base.drift + (mu - 0.5 * (perm * sigma) ** 2) * dt,
-        market: base.market + k * (def.wMarket * rg.marketLoadMult * zMarket + def.wCrypto * zCrypto),
+      const betaDrift = def.cycleBeta * rg.equityDrift * dt;
+      if (base) a.dayLnV = {
+        drift: base.drift + (mu - def.cycleBeta * rg.equityDrift - 0.5 * (perm * sigma) ** 2) * dt,
+        market: base.market + betaDrift + k * (def.wMarket * rg.marketLoadMult * zMarket + def.wCrypto * zCrypto),
         sector: base.sector + k * (def.wSector * (zSector[def.sector] ?? 0) + (def.wRegion ? def.wRegion * (zRegion[def.region ?? ''] ?? 0) : 0)),
         idio: base.idio + k * idioLoading(def) * rg.idioMult * eps,
         news: base.news + jp * jump + catalyst,

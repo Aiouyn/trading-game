@@ -1,4 +1,4 @@
-import { publicShortInterest } from '../src/engine';
+import { depthFrame, publicShortInterest, type DepthFrame } from '../src/engine';
 import { SHORT_INTEREST_EVERY } from '../src/world/core';
 import type { GameState } from '../src/world/types';
 import { configSeq, marketFrame, type MarketFrame } from '../src/world/view';
@@ -25,6 +25,33 @@ export class ShortInterestWire {
 /** The current figure for a welcome: always present, so a new connection never waits for the next change. */
 export function welcomeShortInterest(g: GameState): Record<string, number | null> {
   return publicShortInterest(g.market);
+}
+
+/**
+ * The order depth of the latest closed day, per asset (engine depthFrame), on the tick stream (H8). The server computes it
+ * once per game day: frame() is cached by that day, and due() sends it on the tick that closed a new day. A client never
+ * reads the ecology log itself, since its mirror holds only this viewer's account.
+ */
+export class DepthWire {
+  private cache: DepthFrame | null = null;
+  private sentDay: number | null = null;
+
+  /** The depth frame for the latest closed day (cached per day), or null before the first close. */
+  frame(g: GameState): DepthFrame | null {
+    const log = g.market.ecology?.log;
+    const last = log?.[log.length - 1];
+    if (!last) return null;
+    if (this.cache?.day !== last.day) this.cache = depthFrame(g.market);
+    return this.cache;
+  }
+
+  /** This tick's frame: only on the tick that closed a new day (a day's depth never changes after its close). */
+  due(g: GameState): DepthFrame | null {
+    const f = this.frame(g);
+    if (!f || f.day === this.sentDay) return null;
+    this.sentDay = f.day;
+    return f;
+  }
 }
 
 /**

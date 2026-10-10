@@ -4,7 +4,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
 import { WorldHost } from './host';
 import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
-import { ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
+import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
 import { validHandle, COUNTRIES } from '../src/world/players';
 import { freshWorldSeed } from '../src/world/seed';
 import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type ServerMsg } from '../src/net/protocol';
@@ -34,6 +34,8 @@ host.boot();
 const listWire = new ListWire(host.g);
 /** the public short interest on the tick stream: slow cadence, sent on change (see server/wire.ts) */
 const shortInterest = new ShortInterestWire();
+/** the order depth of the latest closed day, on the tick that closed it and in every welcome (see server/wire.ts DepthWire) */
+const depthWire = new DepthWire();
 
 interface Conn { ws: WebSocket; pid: string | null; budget: number; last: number }
 const conns = new Set<Conn>();
@@ -202,10 +204,11 @@ function publicCache() {
   if (!pubCache || pubCache.tick !== host.g.market.tick || pubCache.cfgSeq !== configSeq(host.g)) {
     const all = directory(host.g);
     const top = topDirectory(all);
+    const depth = depthWire.frame(host.g);
     pubCache = {
       tick: host.g.market.tick, cfgSeq: configSeq(host.g), pubJson: JSON.stringify(publicState(host.g)), all, top,
       topJson: all.length <= top.length ? JSON.stringify(top) : null,
-      frameJson: JSON.stringify({ ...marketFrame(host.g, true), shortInterest: welcomeShortInterest(host.g) }),
+      frameJson: JSON.stringify({ ...marketFrame(host.g, true), shortInterest: welcomeShortInterest(host.g), ...(depth ? { depth } : {}) }),
     };
   }
   return pubCache;
@@ -227,7 +230,8 @@ host.onTick((out, publicTick) => {
   // shared parts are serialized once per tick, not once per socket
   const frame = listWire.tickFrame(host.g, publicTick);
   const si = shortInterest.due(host.g);
-  const frameJson = JSON.stringify(si ? { ...frame, shortInterest: si } : frame);
+  const dep = depthWire.due(host.g);
+  const frameJson = JSON.stringify({ ...frame, ...(si ? { shortInterest: si } : {}), ...(dep ? { depth: dep } : {}) });
   const wireJson = JSON.stringify(out.wire);
   const rankJson = JSON.stringify(out.rankUps);
   const pubJson = publicTick ? JSON.stringify(publicState(host.g)) : null;

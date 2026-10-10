@@ -219,8 +219,11 @@ export interface EcoDayInput {
   reshuffle?: Record<string, number>;
   /** 1 for an asset whose short squeeze fired today (squeeze on only), per asset, config order */
   squeeze?: number[];
-  /** the day's lnV change by source, per asset (AssetState.dayLnV); absent = zeros */
-  lnVParts?: LnVParts[];
+  /**
+   * the day's lnV change by source, per asset (AssetState.dayLnV). An entry is absent for an asset whose day was only
+   * partly seen (a save loaded mid-day, from before the split): its value cause then shows as Company noise.
+   */
+  lnVParts?: (LnVParts | undefined)[];
   /** the day's world-event price move, log size, per asset (AssetState.dayEvent); absent = 0. Printed as Event, not News. */
   event?: number[];
 }
@@ -240,7 +243,7 @@ export function ecoDayInput(state: WorldState, day: number): EcoDayInput {
     ...(state.indices ? { members: cfg.indices.map((ix) => indexMembers(state, ix)) } : {}),
     ...(state.reshuffle && state.reshuffle.day === day ? { reshuffle: state.reshuffle.eq } : {}),
     ...(squeezes ? { squeeze: state.assets.map((a) => (a.coverTally && a.coverTally.day === day && a.coverTally.fired ? 1 : 0)) } : {}),
-    lnVParts: state.assets.map((a) => a.dayLnV ?? NO_LNV),
+    lnVParts: state.assets.map((a) => a.dayLnV),
     event: state.assets.map((a) => a.dayEvent ?? 0),
   };
 }
@@ -533,7 +536,7 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
       id: e.id, lnS, lnV,
       desired: { value: q.value, trend: q.trend, retail: q.retail, pension: q.pension, own: human, npc },
       players: playerBucket(e.ownBy),
-      lnVParts: input.lnVParts?.[i] ?? NO_LNV,
+      lnVParts: input.lnVParts?.[i],
       net,
       gross: Math.abs(q.value) + Math.abs(q.trend) + Math.abs(q.retail) + Math.abs(q.pension) + Math.abs(own),
       depth, inv, cause,
@@ -629,8 +632,10 @@ export function dayRows(a: EcoArchiveAsset, solo: boolean): DayRows {
   const parts: Record<ExplainRow, number> = { market: 0, sector: 0, news: 0, event: 0, company: 0, flow: 0, players: 0, you: 0 };
   // the value pool trades the value line, so its cause is the day's lnV change: split it by source, exactly (impactShares).
   // Without a split (a save from before it, or a day with no change in lnV), the value cause is company noise.
+  // Market is the factor shock and the regime's equity drift. Company noise is the idiosyncratic shock and the asset's own
+  // drift (alpha, carry, seasonal): company drift is not a market move, so it does not show as Market (D-1).
   const lv = a.lnVParts;
-  const comps = lv ? [lv.drift + lv.market, lv.sector, lv.idio, lv.news, lv.event] : null;
+  const comps = lv ? [lv.market, lv.sector, lv.drift + lv.idio, lv.news, lv.event] : null;
   const split = comps !== null && comps.some((x) => x !== 0) ? impactShares(c.value, comps) : null;
   if (split) {
     parts.market += split[0]!;
@@ -682,6 +687,28 @@ export function depthByPool(state: WorldState, assetId: string, day: number): De
     assetId, day, depth: a.depth,
     desired: { value: a.desired.value, trend: a.desired.trend, retail, pension: a.desired.pension },
   };
+}
+
+/** The depth of the latest closed day for every asset that has a row that day: what the server sends the Broker (H8). */
+export interface DepthFrame {
+  day: number;
+  assets: Record<string, Omit<DepthByPool, 'assetId' | 'day'>>;
+}
+
+/**
+ * The latest closed day's depth for every asset, by pool type (depthByPool, so the same fold). Null before the first close.
+ * An asset listed after that close has no row and is left out. Computed on the server: a client never reads the log.
+ */
+export function depthFrame(state: WorldState): DepthFrame | null {
+  const log = ecologyLog(state);
+  const last = log[log.length - 1];
+  if (!last) return null;
+  const assets: DepthFrame['assets'] = {};
+  for (const row of last.assets) {
+    const d = depthByPool(state, row.id, last.day);
+    assets[row.id] = { depth: d.depth, desired: d.desired };
+  }
+  return { day: last.day, assets };
 }
 
 /**

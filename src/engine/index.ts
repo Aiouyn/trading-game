@@ -8,8 +8,8 @@ export type { WorldEventKind, WorldEventView, WorldEventsConfig, WorldEventsStat
 export { jumpCompensator } from './drift';
 export { newsPricedIn, newsBand, bandOf } from './news';
 export { DEFAULT_ECOLOGY, ECO_POOLS, closePrint, ratePrintOf, impactShares, ecologyConfig, ecologyLog, ecologyOn, ecologyWeight, explainMove, PUBLIC_MIN_TRADERS, PUBLIC_MAX_TRADER_SHARE } from './ecology';
-export type { ExplainRow, MoveExplain, DepthByPool } from './ecology';
-export { depthByPool, EXPLAIN_ROWS, FLOW_POOLS, dayRows, ecoArchive, legacyArchive, playersShown, humanAccountCount, NO_LNV } from './ecology';
+export type { ExplainRow, MoveExplain, DepthByPool, DepthFrame } from './ecology';
+export { depthByPool, depthFrame, EXPLAIN_ROWS, FLOW_POOLS, dayRows, ecoArchive, legacyArchive, playersShown, humanAccountCount, NO_LNV } from './ecology';
 export type { FlowPool, DayRows } from './ecology';
 export { explainTrade, gameDayOfTick, TRADE_REALIZED_TOLERANCE } from './trade-explain';
 export type { TradeExplain, TradeRow } from './trade-explain';

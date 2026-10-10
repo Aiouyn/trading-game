@@ -5,14 +5,14 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Command } from '../src/world/types';
 
+/** The blobs key for the world's seed (Store.worldSeed). */
+export const WORLD_SEED_KEY = 'world-seed';
+
 /**
  * Persistence (bible 02 §12, scaled to one machine): accounts, world snapshots, the command log
  * since the last snapshot, and the chart history. A restart loads the newest snapshot and
  * replays the logged commands, so nothing a player did is lost.
  */
-/** The blobs key for the world's seed (Store.worldSeed). */
-export const WORLD_SEED_KEY = 'world-seed';
-
 export class Store {
   readonly db: DatabaseSync;
 
