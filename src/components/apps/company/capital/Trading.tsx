@@ -7,8 +7,15 @@ import { useState } from 'react';
 import { t } from '@/i18n';
 import { money, price, qty } from '@/game/format';
 import { Button, NumberField } from '@/components/ui';
-import type { CapitalView } from '@/world/company/capital';
+import { buybackFit, buybackRoomOver, type CapitalView } from '@/world/company/capital';
 import { HoldButton, Line, Note, Panel, PublChip, RefusalBox, numOf, useAct, type Refusal } from './shared';
+
+/** A plan's end reason as copy; a reason with no copy reads as the generic end, never as a raw key. */
+function endReason(reason: string): string {
+  const k = `company.capital.end.${reason}`;
+  const s = t(k);
+  return s === k ? t('company.capital.end.unknown') : s;
+}
 
 export function WindowPanel({ cap }: { cap: CapitalView }) {
   const w = cap.window;
@@ -115,13 +122,21 @@ export function PlansPanel({ cap }: { cap: CapitalView }) {
             {r.priceHold > 0 && r.holdUntil !== null && (
               <Note testId="company-plan-locked-until">{t('company.capital.plan.lockedUntil', { qty: qty(r.priceHold), day: r.holdUntil })}</Note>
             )}
-            {r.ended && <Note>{t('company.capital.plan.ended', { day: r.ended.day, reason: t(`company.capital.end.${r.ended.reason}`) })}</Note>}
-            <p className="flex items-center gap-2 text-caption text-fg-muted" data-testid="company-plan-public">
-              <PublChip />
-              {t('company.capital.plan.publicRow', { from: r.fromDay, to: r.toDay })}
-            </p>
+            {r.ended && <Note>{t('company.capital.plan.ended', { day: r.ended.day, reason: endReason(r.ended.reason) })}</Note>}
           </div>
         ))}
+      </div>
+      {/* the market's rows come from the public view only: days and end reason, never a minimum price or a size */}
+      <div className="flex flex-col gap-2 border-t border-ink-2 pt-3" data-testid="company-plan-public-section">
+        <p className="flex items-center gap-2 text-caption text-fg-muted"><PublChip />{t('company.capital.plan.publicHead')}</p>
+        <ul className="flex flex-col gap-1 text-caption text-fg-muted" data-testid="company-plan-public-rows">
+          {p.publicRows.map((r, i) => (
+            <li key={`${r.fromDay}-${r.toDay}-${i}`} data-testid="company-plan-public">
+              {t('company.capital.plan.publicRow', { from: r.fromDay, to: r.toDay })}
+              {r.ended && <span className="ml-2">{t('company.capital.plan.ended', { day: r.ended.day, reason: endReason(r.ended.reason) })}</span>}
+            </li>
+          ))}
+        </ul>
       </div>
       {p.skips.length > 0 && (
         <ul className="flex flex-col gap-1 text-caption text-fg-muted" data-testid="company-plan-skips">
@@ -144,7 +159,9 @@ export function BuybackPanel({ cap }: { cap: CapitalView }) {
   const fromDay = numOf(from);
   const toDay = numOf(to);
   const sz = numOf(size);
-  const ready = b.filesToday && Number.isInteger(sz) && sz > 0 && Number.isInteger(fromDay) && Number.isInteger(toDay);
+  // the fit against the daily cap, read from the world's rule (capital.ts buybackFit); the engine still decides at filing
+  const fit = buybackFit(b, sz, fromDay, toDay);
+  const ready = b.filesToday && fit !== null && fit.fits;
   return (
     <Panel
       testId="company-buybacks"
@@ -167,6 +184,16 @@ export function BuybackPanel({ cap }: { cap: CapitalView }) {
           <NumberField value={from} onChange={setFrom} label={t('company.capital.buyback.from')} min={0} step={1} testId="company-buyback-from" />
           <NumberField value={to} onChange={setTo} label={t('company.capital.buyback.to')} min={0} step={1} testId="company-buyback-to" />
         </div>
+      )}
+      {b.listed && (
+        <Line
+          k={t('company.capital.buyback.room')}
+          v={fit === null ? qty(buybackRoomOver(b, fromDay, toDay)) : t('company.capital.buyback.roomFit', { room: qty(fit.room), perDay: qty(fit.perDay) })}
+          testId="company-buyback-room"
+        />
+      )}
+      {b.listed && fit !== null && !fit.fits && (
+        <RefusalBox refusal={{ code: 'buybackTooLarge', maxPerDay: fit.room }} testId="company-buyback-over" />
       )}
       {b.listed && (
         <Button

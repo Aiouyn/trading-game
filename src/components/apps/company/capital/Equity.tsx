@@ -70,6 +70,7 @@ export function RoundPanel({ cap }: { cap: CapitalView }) {
             options={[{ value: 'no', label: t('company.capital.round.vote.no') }, { value: 'yes', label: t('company.capital.round.vote.yes') }]}
           />
           <Note>{t('company.capital.round.voteRule', { share: Math.round(r.voteShare * 100) })}</Note>
+          <Note testId="company-round-votes">{t('company.capital.round.votes', { founder: qty(cap.voting.founderShares), npc: qty(cap.voting.npcShares) })}</Note>
           <Button
             variant="brass"
             disabled={!ok || act.busy}
@@ -80,7 +81,7 @@ export function RoundPanel({ cap }: { cap: CapitalView }) {
           </Button>
         </>
       )}
-      {act.refusal && <RefusalBox refusal={act.refusal} />}
+      {act.refusal && <RefusalBox refusal={act.refusal} testId="company-round-error" />}
     </Panel>
   );
 }
@@ -91,10 +92,13 @@ export function IpoPanel({ cap }: { cap: CapitalView }) {
   const [floor, setFloor] = useState(Math.round(ipo.floatMin * 100));
   const preview = ipo.previews.find((p) => Math.round(p.floatPct * 100) === floor);
   const pctFloor = (x: number) => Math.round(x * 100);
+  // each eligibility rule of ipo.ts ipoEligibility, in its order; the refusal names the first one that fails
   const requirements: { key: string; text: string }[] = [
     { key: 'quarters', text: t('company.capital.ipo.req.quarters', { filed: ipo.filedQuarters, min: ipo.minFiledQuarters }) },
     { key: 'value', text: t('company.capital.ipo.req.value', { value: money(ipo.filedV), min: money(ipo.minValue) }) },
     { key: 'rank', text: t('company.capital.ipo.req.rank', { rank: ipo.minRank }) },
+    { key: 'conviction', text: t('company.capital.ipo.req.conviction', { days: ipo.convictionDays }) },
+    { key: 'covenant', text: t('company.capital.ipo.req.covenant') },
   ];
   return (
     <Panel
@@ -112,10 +116,22 @@ export function IpoPanel({ cap }: { cap: CapitalView }) {
           {requirements.map((q) => <li key={q.key} className="text-fg-muted">{q.text}</li>)}
         </ul>
       )}
+      <div className="flex flex-col gap-1 rounded-md border border-ink-3 px-3 py-2 text-small" data-testid="company-ipo-alloc">
+        <p className="text-fg-muted">{t('company.capital.ipo.alloc.title')}</p>
+        <ul className="flex list-disc flex-col gap-1 pl-5 text-caption text-fg-muted">
+          <li>{t('company.capital.ipo.alloc.cap', { pct: pctFloor(ipo.allocCapOfFloat), cap: qty(ipo.book?.cap ?? preview?.cap ?? 0) })}</li>
+          <li>{t('company.capital.ipo.alloc.prorata')}</li>
+          {ipo.cashLimited && <li>{t('company.capital.ipo.alloc.cash')}</li>}
+          <li>{t('company.capital.ipo.alloc.age', { days: ipo.minAccountAgeDays })}</li>
+          <li>{t('company.capital.ipo.alloc.owner')}</li>
+        </ul>
+      </div>
       {ipo.book && (
         <div className="flex flex-col gap-1 rounded-md border border-brass/40 px-3 py-2 text-small" data-testid="company-ipo-book">
           <Line k={t('company.capital.ipo.bookPrice')} v={price(ipo.book.price)} />
           <Line k={t('company.capital.ipo.bookShares')} v={qty(ipo.book.ipoShares)} />
+          <Line k={t('company.capital.ipo.bookCap')} v={qty(ipo.book.cap)} testId="company-ipo-book-cap" />
+          <Line k={t('company.capital.ipo.myOrder')} v={qty(ipo.book.myOrder)} testId="company-ipo-my-order" />
           <Line k={t('company.capital.ipo.listDay')} v={t('company.capital.day', { day: ipo.book.listDay })} />
         </div>
       )}
@@ -139,6 +155,7 @@ export function IpoPanel({ cap }: { cap: CapitalView }) {
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-small" data-testid="company-ipo-preview">
               <Line k={t('company.capital.ipo.price')} v={price(preview.price)} />
               <Line k={t('company.capital.ipo.newShares')} v={qty(preview.ipoShares)} />
+              <Line k={t('company.capital.ipo.previewCap')} v={qty(preview.cap)} testId="company-ipo-preview-cap" />
               <Line k={t('company.capital.ipo.proceeds')} v={money(preview.proceeds)} />
               <Line k={t('company.capital.ipo.fee')} v={money(preview.fee)} />
             </div>

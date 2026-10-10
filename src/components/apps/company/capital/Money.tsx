@@ -54,10 +54,20 @@ export function DebtPanel({ cap }: { cap: CapitalView }) {
         <p className="text-small font-medium text-fg">{t('company.capital.debt.borrow')}</p>
         {d.refusal && <RefusalBox refusal={d.refusal as Refusal} testId="company-borrow-refusal" />}
         <NumberField value={amount} onChange={setAmount} label={t('company.capital.debt.amount')} suffix="$" min={0} step={1000} testId="company-loan-amount" />
-        {amountValid && (
-          <div className="flex flex-col gap-1 rounded-md border border-ink-3 px-3 py-2 text-small" data-testid="company-guarantee-amount">
+        {guaranteed && amountValid && (
+          <div className="flex flex-col gap-1 rounded-md border border-warn/50 px-3 py-2 text-small" data-testid="company-guarantee-amount">
             <p className="text-fg">{t('company.capital.debt.consequence', { company: cap.name, amount: money(n) })}</p>
             <p className="text-fg-muted">{t('company.capital.debt.consequenceMove')}</p>
+          </div>
+        )}
+        {guaranteed && !amountValid && (
+          <div className="rounded-md border border-ink-3 px-3 py-2 text-small" data-testid="company-guarantee-ask">
+            <p className="text-fg-muted">{t('company.capital.debt.consequenceAsk', { company: cap.name })}</p>
+          </div>
+        )}
+        {!guaranteed && (
+          <div className="flex flex-col gap-1 rounded-md border border-ink-3 px-3 py-2 text-small" data-testid="company-no-guarantee">
+            <p className="text-fg">{t('company.capital.debt.consequenceNone', { company: cap.name })}</p>
           </div>
         )}
         <Segmented<'without' | 'with'>
@@ -104,24 +114,33 @@ export function DividendPanel({ cap }: { cap: CapitalView }) {
   const [perShare, setPerShare] = useState('');
   const v = numOf(perShare);
   const amountOk = Number.isFinite(v) && v > 0;
+  // the world's ceiling: the amount may not pass it (the engine still refuses at the boundary)
+  const overCeiling = amountOk && v > dv.maxPerShare;
   return (
     <Panel testId="company-dividends" title={t('company.capital.div.title')} sub={t('company.capital.div.sub')} chip="public">
       <ul className="flex flex-col gap-1 text-small" data-testid="company-div-rules">
         {dv.checks.map((c) => (
           <li key={c.rule} className="flex items-center justify-between gap-3" data-testid={`company-div-rule-${c.rule}`}>
             <span className="text-fg-muted">{t(`company.capital.div.rule.${c.rule}`)}</span>
-            <span className={c.ok ? 'text-gain' : 'text-warn'}>{t(c.ok ? 'company.capital.div.ok' : 'company.capital.div.no')}</span>
+            <span className={c.ok ? 'text-gain' : 'text-warn'}>
+              {t(c.ok ? 'company.capital.div.ok' : 'company.capital.div.no')}
+              {c.ok && c.maxPerShare !== null && (
+                <span className="ml-2 text-fg-faint" data-testid={`company-div-max-${c.rule}`}>{t('company.capital.div.upTo', { max: price(c.maxPerShare) })}</span>
+              )}
+            </span>
           </li>
         ))}
       </ul>
       <Line k={t('company.capital.div.retained')} v={money(dv.retainedEarnings)} />
       <Line k={t('company.capital.div.cashNeeded')} v={money(dv.cashCoverNeeded)} />
       <Line k={t('company.capital.div.fcf')} v={money(dv.fcfTtm)} />
+      <Line k={t('company.capital.div.maxLabel')} v={dv.maxPerShare > 0 ? price(dv.maxPerShare) : t('company.capital.div.closed')} testId="company-div-max" />
       {dv.distress && <Note testId="company-div-distress">{t('company.capital.div.distress')}</Note>}
       <NumberField value={perShare} onChange={setPerShare} label={t('company.capital.div.perShare')} suffix="$" min={0} step="any" testId="company-div-amount" />
+      {overCeiling && <Note testId="company-div-over">{t('company.capital.div.over', { max: price(dv.maxPerShare) })}</Note>}
       <Button
         variant="brass"
-        disabled={!amountOk || act.busy}
+        disabled={!amountOk || overCeiling || dv.maxPerShare <= 0 || act.busy}
         onClick={() => act.run({ type: 'company.dividend', companyId: cap.companyId, perShare: v }, t('company.capital.div.declared'))}
         testId="company-div-declare"
       >
@@ -137,17 +156,35 @@ export function TakeoverPanel({ cap }: { cap: CapitalView }) {
   const act = useAct();
   return (
     <Panel testId="company-takeover" title={t('company.capital.take.title')} sub={t('company.capital.take.sub')} chip="private">
-      <Segmented<'yes' | 'no'>
+      {/* an unanswered stance is shown as neither option (no default is recorded as a refusal) */}
+      <Segmented<'yes' | 'no' | 'unset'>
         label={t('company.capital.take.stance')}
-        value={tk.stance ?? 'no'}
-        onChange={(v) => { void act.run({ type: 'company.act', companyId: cap.companyId, action: { kind: 'takeoverStance', stance: v } }, t('company.capital.take.saved')); }}
+        value={tk.stance ?? 'unset'}
+        onChange={(v) => { if (v !== 'unset') void act.run({ type: 'company.act', companyId: cap.companyId, action: { kind: 'takeoverStance', stance: v } }, t('company.capital.take.saved')); }}
         options={[
           { value: 'no', label: t('company.capital.take.no'), testId: 'company-stance-no' },
           { value: 'yes', label: t('company.capital.take.yes'), testId: 'company-stance-yes' },
         ]}
       />
+      {tk.stance === null && <Note testId="company-stance-unset">{t('company.capital.take.unset')}</Note>}
       <Line k={t('company.capital.take.floor')} v={tk.floor === null ? t('company.capital.take.noVolume') : price(tk.floor)} testId="company-take-floor" />
       <Line k={t('company.capital.take.share')} v={pct(tk.share)} testId="company-take-share" />
+      <div className="flex flex-col gap-1 rounded-md border border-ink-3 px-3 py-2 text-small" data-testid="company-take-board">
+        <p className="text-fg-muted">{t('company.capital.take.boardHead')}</p>
+        {tk.board === null ? (
+          <p className="text-fg-faint">{t('company.capital.take.boardNone')}</p>
+        ) : (
+          <>
+            <Line k={t('company.capital.take.boardYes')} v={qty(tk.board.yes)} testId="company-take-yes" />
+            <Line k={t('company.capital.take.boardNo')} v={qty(tk.board.no)} testId="company-take-no" />
+            <p className={tk.board.passed ? 'text-gain' : 'text-warn'} data-testid="company-take-board-result">
+              {t(tk.board.passed ? 'company.capital.take.boardPass' : 'company.capital.take.boardFail')}
+            </p>
+          </>
+        )}
+        {tk.fairPerShare !== null && <Note testId="company-take-npc">{t('company.capital.take.npcRule', { fair: price(tk.fairPerShare) })}</Note>}
+        <Note>{t('company.capital.take.boardVotes', { founder: qty(cap.voting.founderShares) })}</Note>
+      </div>
       <Note>{t('company.capital.take.antitrust', { limit: Math.round(tk.antitrustLimit * 100) })}</Note>
       <Note>{t('company.capital.take.rule')}</Note>
       {act.refusal && <RefusalBox refusal={act.refusal} testId="company-take-error" />}

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../game';
 import { today } from '../core';
-import { capitalViewOf } from './capital';
-import { BUYER_A, FOUNDER, founded, listedWorld } from './b1fixture';
-import type { IpoBook } from './types';
+import { buybackFit, buybackRoomOver, capitalViewOf, type BuybacksView } from './capital';
+import { BUYER_A, FOUNDER, advanceTo, founded, listedWorld } from './b1fixture';
+import type { IpoBook, Payout } from './types';
 
 // The founder's capital view (B3): the numbers the Capital tab shows, built from the world and the engine. Owner only.
 
@@ -89,5 +89,57 @@ describe('capital view of a listed company', () => {
     const { g } = listedWorld('cap-json');
     const v = capitalViewOf(g, FOUNDER)!;
     expect(JSON.parse(JSON.stringify(v))).toEqual(v);
+  });
+
+  it('the IPO previews carry each buyer cap (5% of the new shares, floored)', () => {
+    const { g } = founded('cap-preview-cap');
+    const v = capitalViewOf(g, FOUNDER)!;
+    const p = v.ipo.previews.find((x) => Math.round(x.floatPct * 100) === 20)!;
+    expect(p.cap).toBe(Math.floor(0.05 * p.ipoShares));
+    expect(v.ipo.allocCapOfFloat).toBe(0.05);
+  });
+
+  it('dividends: the filings gate comes first and no amount is allowed before a filing', () => {
+    const { g } = founded('cap-div');
+    const v = capitalViewOf(g, FOUNDER)!;
+    expect(v.dividends.checks.map((c) => c.rule)).toEqual(['filings', 'covenant', 'retained', 'cash', 'fcf']);
+    expect(v.dividends.checks[0]!.ok).toBe(false);
+    expect(v.dividends.maxPerShare).toBe(0);
+  });
+
+  it('the failure record looks back from the default day, not from today', () => {
+    const { g } = founded('cap-lookback');
+    advanceTo(g, 130);
+    const c = Object.values(g.companies!.companies)[0]!;
+    const pay = (id: string, day: number) => ({
+      id, day, toPlayerId: FOUNDER, amount: 10, covered: 10, kind: 'salary', termsDay: day, flagged: false, insider: false,
+    }) as unknown as Payout;
+    // the default on day 100: 37 is the first day in the lookback (100 - 63), 36 is outside it, and 99 is inside
+    c.bankrupt = { day: 100, recovery: 0, paid: 0, shortfall: 0, clawed: 0 };
+    c.payouts = [pay('p36', 36), pay('p37', 37), pay('p99', 99), pay('p100', 100)];
+    const v = capitalViewOf(g, FOUNDER)!;
+    expect(v.failure.payouts.map((p) => p.id)).toEqual(['p37', 'p99']);
+  });
+});
+
+describe('buyback room and fit', () => {
+  const base = {
+    listed: true, filingDay: 5, filesToday: true, perDayCap: 100, reservePerShare: null, covenantOk: true, leverage: 0,
+    leverageAfterMax: 2.5, programs: [], cash: 0, refusal: null,
+  };
+  it('the room on a span is the cap less the most loaded day of that span', () => {
+    const b = { ...base, committedByDay: [{ day: 10, qty: 30 }, { day: 12, qty: 80 }] } as unknown as BuybacksView;
+    expect(buybackRoomOver(b, 0, 9)).toBe(100);
+    expect(buybackRoomOver(b, 10, 11)).toBe(70);
+    expect(buybackRoomOver(b, 10, 12)).toBe(20);
+    expect(buybackRoomOver(b, 13, 20)).toBe(100);
+  });
+
+  it('a size fits when its per-day amount is within the room, and a misfit is named with both numbers', () => {
+    const b = { ...base, committedByDay: [{ day: 10, qty: 80 }] } as unknown as BuybacksView;
+    expect(buybackFit(b, 40, 10, 11)).toEqual({ perDay: 20, room: 20, fits: true });
+    expect(buybackFit(b, 42, 10, 11)).toEqual({ perDay: 21, room: 20, fits: false });
+    expect(buybackFit(b, 5, 10, 11)).toBeNull();
+    expect(buybackFit(b, 40, 12, 11)).toBeNull();
   });
 });

@@ -13,13 +13,14 @@ import { companyRulesOf, lockedQty, livePlans, restrictionsOf } from '@/engine';
 import { priceOf, today } from '../core';
 import type { GameState } from '../types';
 import type { Company, CompanyReject, CovenantStatus, Payout } from './types';
-import { founderKeyOf, ipoEligibility, poolIdOf, treasuryIdOf } from './ipo';
+import { allianceSetOf, founderKeyOf, ipoEligibility, poolIdOf, treasuryIdOf } from './ipo';
 import { annualEbitdaOf, BANK_POOL, totalDebt, ttmOf } from './debt';
 import { nextOpenDay, windowAt } from './insiders';
 import { privateValue } from './company';
 import { marketShareOf } from './takeover';
 import { publicCompanyView, type CompanyPublic } from './views';
 import { buybackReserve, leverageAfter } from './programs';
+import { boardVote } from './governance';
 
 export type CapTableKind = 'founder' | 'investor' | 'float' | 'treasury' | 'book' | 'other';
 
@@ -52,6 +53,8 @@ export interface IpoPreview {
   sharesPost: number;
   proceeds: number;
   fee: number;
+  /** the most of this float one buyer can take (5% of the new shares, floored) */
+  cap: number;
 }
 
 export interface IpoView {
@@ -69,14 +72,17 @@ export interface IpoView {
   minAccountAgeDays: number;
   lockupDays: number;
   underwritingFee: number;
+  /** a buyer's order is cut to what its cash covers at the book price */
+  cashLimited: boolean;
   /** the price preview at each float step (15% to 49%, one point apart): the slider reads these, never computes them */
   previews: IpoPreview[];
   book: {
     requestDay: number; listDay: number; floatPct: number; price: number; ipoShares: number; sharesPost: number;
-    myOrder: number; cap: number;
+    myOrder: number; cap: number; ownerSet: boolean;
   } | null;
   lockupUntil: number | null;
   founderShares: number;
+  convictionDays: number;
 }
 
 export interface WindowView {
@@ -136,6 +142,8 @@ export interface BuybacksView {
   filingDay: number | null;
   filesToday: boolean;
   perDayCap: number;
+  /** the shares already committed on each day by the filed programs (the cap is shared by every program on a day) */
+  committedByDay: { day: number; qty: number }[];
   reservePerShare: number | null;
   covenantOk: boolean;
   leverage: number | null;
@@ -178,7 +186,10 @@ export interface DebtView {
 }
 
 export interface DividendsView {
-  checks: { rule: 'covenant' | 'retained' | 'cash' | 'fcf'; ok: boolean }[];
+  /** the rules in the engine's order; maxPerShare is the most a declaration may be under that rule alone (null when the rule is not about an amount) */
+  checks: { rule: 'filings' | 'covenant' | 'retained' | 'cash' | 'fcf'; ok: boolean; maxPerShare: number | null }[];
+  /** the most a dividend per share may be today under every amount rule together (0 while a gate is closed) */
+  maxPerShare: number;
   retainedEarnings: number;
   cashCoverNeeded: number;
   fcfTtm: number;
@@ -196,6 +207,10 @@ export interface TakeoverView {
   vwap30: number | null;
   floorRatio: number;
   floor: number | null;
+  /** the board's vote on a bid at the tender floor (the lowest bid that can settle): yes and no in shares, and whether it passes */
+  board: { yes: number; no: number; passed: boolean } | null;
+  /** NPC investors approve a bid at or above this value per share and reject below it (governance.boardVote) */
+  fairPerShare: number | null;
 }
 
 export interface PayoutRow {
@@ -229,6 +244,8 @@ export interface CapitalView {
   bankrupt: boolean;
   cash: number;
   shares: number;
+  /** the board's voting weight: the founder's register stake and the NPC pools' shares (governance.boardVote) */
+  voting: { founderShares: number; npcShares: number };
   roles: Record<CompanyRole, number>;
   capTable: CapTableRow[];
   rounds: RoundView;
@@ -302,7 +319,10 @@ function capitalOf(g: GameState, c: Company, pid: string): CapitalView {
     const sharesPost = shares + ipoShares;
     const price1 = ((1 - COMPANY.ipo.discount) * c.filedV) / sharesPost;
     const proceeds = ipoShares * price1;
-    previews.push({ floatPct, price: price1, ipoShares, sharesPost, proceeds, fee: proceeds * COMPANY.ipo.underwritingFee });
+    previews.push({
+      floatPct, price: price1, ipoShares, sharesPost, proceeds, fee: proceeds * COMPANY.ipo.underwritingFee,
+      cap: Math.floor(COMPANY.ipo.allocCapOfFloat * ipoShares),
+    });
   }
   const founderShares = c.listed ? (g.market.accounts[pid]?.positions[c.listed.assetId]?.qty ?? 0) : 0;
   const ipo: IpoView = {
@@ -320,6 +340,7 @@ function capitalOf(g: GameState, c: Company, pid: string): CapitalView {
     minAccountAgeDays: COMPANY.ipo.minAccountAgeDays,
     lockupDays: COMPANY.ipo.lockupDays,
     underwritingFee: COMPANY.ipo.underwritingFee,
+    cashLimited: true,
     previews,
     book: c.ipo ? {
       requestDay: c.ipo.requestDay,
@@ -330,8 +351,10 @@ function capitalOf(g: GameState, c: Company, pid: string): CapitalView {
       sharesPost: c.ipo.sharesPost,
       myOrder: c.ipo.orders[pid] ?? 0,
       cap: Math.floor(COMPANY.ipo.allocCapOfFloat * c.ipo.ipoShares),
+      ownerSet: allianceSetOf(g, c).includes(pid),
     } : null,
     lockupUntil: c.listed ? c.listed.ipoDay + COMPANY.ipo.lockupDays : null,
+    convictionDays: COMPANY.ipo.convictionDays,
     founderShares,
   };
 
@@ -413,11 +436,18 @@ function capitalOf(g: GameState, c: Company, pid: string): CapitalView {
         ? { code: 'buybackCovenant', covenant: c.covenant.status }
         : null;
   const levAfter = leverageAfter(c, 0);
+  const committed = new Map<number, number>();
+  for (const b of c.buybacks) {
+    const n = b.toDay - b.fromDay + 1;
+    if (!(n > 0)) continue;
+    for (let d = b.fromDay; d <= b.toDay; d++) committed.set(d, (committed.get(d) ?? 0) + b.size / n);
+  }
   const buybacks: BuybacksView = {
     listed: c.listed !== null,
     filingDay,
     filesToday: bbRefusal === null,
     perDayCap,
+    committedByDay: [...committed.entries()].sort(([a], [b]) => a - b).map(([d, qty]) => ({ day: d, qty })),
     reservePerShare,
     covenantOk: c.covenant.status === 'ok',
     leverage: Number.isFinite(levAfter) ? levAfter : null,
@@ -470,13 +500,21 @@ function capitalOf(g: GameState, c: Company, pid: string): CapitalView {
   const dailyCost = last ? (last.cogs + last.opex) / COMPANY.quarterDays : 0;
   const payableShares = c.shares - (c.listed && c.treasuryId ? (g.market.accounts[treasuryIdOf(c.id)]?.positions[c.listed.assetId]?.qty ?? 0) : 0);
   const fcf = ttmOf(c).fcf;
+  // the largest value per share each amount rule allows: the payable register times it is the engine's test (payouts.ts)
+  const perShareCap = (room: number) => (payableShares > 0 ? Math.max(0, room / payableShares) : 0);
+  const retainedMax = perShareCap(c.retained);
+  const cashMax = perShareCap(cash - COMPANY.dividends.cashCoverDays * dailyCost);
+  const fcfMax = perShareCap(fcf);
+  const gatesOk = c.filings.length > 0 && c.covenant.status === 'ok';
   const dividends: DividendsView = {
     checks: [
-      { rule: 'covenant', ok: c.covenant.status === 'ok' },
-      { rule: 'retained', ok: c.retained > 0 },
-      { rule: 'cash', ok: cash >= COMPANY.dividends.cashCoverDays * dailyCost },
-      { rule: 'fcf', ok: fcf > 0 },
+      { rule: 'filings', ok: c.filings.length > 0, maxPerShare: null },
+      { rule: 'covenant', ok: c.covenant.status === 'ok', maxPerShare: null },
+      { rule: 'retained', ok: retainedMax > 0, maxPerShare: retainedMax },
+      { rule: 'cash', ok: cashMax > 0, maxPerShare: cashMax },
+      { rule: 'fcf', ok: fcf > 0, maxPerShare: fcfMax },
     ],
+    maxPerShare: gatesOk ? Math.min(retainedMax, cashMax, fcfMax) : 0,
     retainedEarnings: c.retained,
     cashCoverNeeded: COMPANY.dividends.cashCoverDays * dailyCost,
     fcfTtm: fcf,
@@ -490,6 +528,11 @@ function capitalOf(g: GameState, c: Company, pid: string): CapitalView {
   const last30 = bars.slice(-30);
   const units = last30.reduce((x, b) => x + b.u, 0);
   const vwap30 = units > 0 ? last30.reduce((x, b) => x + b.c * b.u, 0) / units : null;
+  const floor = vwap30 === null ? null : COMPANY.takeover.floorRatio * vwap30;
+  const fairPerShare = c.shares > 0 ? privateValue(c, day) / c.shares : null;
+  const atFloor = floor === null || fairPerShare === null || !c.listed
+    ? null
+    : boardVote(c, { founderVote: c.founderStance ?? 'no', price: floor, fairPerShare, npcRule: 'price' });
   const takeover: TakeoverView = {
     listed: c.listed !== null,
     stance: c.founderStance ?? null,
@@ -497,11 +540,15 @@ function capitalOf(g: GameState, c: Company, pid: string): CapitalView {
     antitrustLimit: COMPANY.npc.antitrustShare,
     vwap30,
     floorRatio: COMPANY.takeover.floorRatio,
-    floor: vwap30 === null ? null : COMPANY.takeover.floorRatio * vwap30,
+    floor,
+    board: atFloor ? { yes: atFloor.yes, no: atFloor.no, passed: atFloor.passed } : null,
+    fairPerShare,
   };
 
   // failure: the insolvency count, the bankruptcy record, the personal debt and guarantees, and the payments in the lookback
   const lookback = COMPANY.failure.clawbackLookbackDays;
+  // the engine's clawback looks back from the default day (failure.ts clawback), so the record does too
+  const anchor = c.bankrupt ? c.bankrupt.day : day;
   const failure: FailureView = {
     insolventDays: c.insolventDays ?? 0,
     distress: c.distress,
@@ -511,7 +558,7 @@ function capitalOf(g: GameState, c: Company, pid: string): CapitalView {
     guaranteeExposure: loans.filter((l) => l.guaranteed).reduce((x, l) => x + l.guaranteedAmount, 0),
     lookbackDays: lookback,
     safeHarbourDays: COMPANY.failure.safeHarbourDays,
-    payouts: (c.payouts ?? []).filter((p) => p.day >= day - lookback).slice(-20).map((p) => ({
+    payouts: (c.payouts ?? []).filter((p) => p.day >= anchor - lookback && p.day < anchor).slice(-20).map((p) => ({
       id: p.id, day: p.day, amount: p.amount, covered: p.covered, kind: p.kind, insider: p.insider, flagged: p.flagged,
     })),
   };
@@ -525,6 +572,10 @@ function capitalOf(g: GameState, c: Company, pid: string): CapitalView {
     bankrupt: !!c.bankrupt,
     cash,
     shares: sharesAll,
+    voting: {
+      founderShares: c.capTable[founderKeyOf(c.ownerId)] ?? 0,
+      npcShares: Object.entries(c.capTable).filter(([k]) => !!w.investors[k] && k !== founderKeyOf(c.ownerId)).reduce((x, [, sh]) => x + sh, 0),
+    },
     roles: { ops: c.staff.ops.total, sales: c.staff.sales.total, rd: c.staff.rd.total, ga: c.staff.ga.total },
     capTable,
     rounds,
@@ -549,4 +600,30 @@ function capKind(key: string, c: Company, w: NonNullable<GameState['companies']>
   if (key.startsWith('npc:book:')) return 'book';
   if (w.investors[key] || key === poolIdOf(c.id)) return 'investor';
   return 'other';
+}
+
+/**
+ * The room a buyback over fromDay..toDay has left: the cap less what the filed programs already take on the most loaded day of
+ * that span (the engine's rule, programs.ts addBuyback). The form reads it; the engine still decides.
+ */
+export function buybackRoomOver(b: BuybacksView, fromDay: number, toDay: number): number {
+  if (!Number.isInteger(fromDay) || !Number.isInteger(toDay) || toDay < fromDay) return b.perDayCap;
+  let room = b.perDayCap;
+  for (const { day, qty } of b.committedByDay) {
+    if (day >= fromDay && day <= toDay) room = Math.min(room, b.perDayCap - qty);
+  }
+  return Math.max(0, room);
+}
+
+/**
+ * The buyback form's fit: the per-day amount a size over fromDay..toDay costs, the room those days have left, and whether it
+ * fits. Null when the span is not a span (the engine refuses the spec then). The form disables filing on a misfit.
+ */
+export function buybackFit(b: BuybacksView, size: number, fromDay: number, toDay: number): { perDay: number; room: number; fits: boolean } | null {
+  if (!Number.isInteger(size) || size <= 0 || !Number.isInteger(fromDay) || !Number.isInteger(toDay) || toDay < fromDay) return null;
+  const n = toDay - fromDay + 1;
+  if (size % n !== 0) return null;
+  const perDay = size / n;
+  const room = buybackRoomOver(b, fromDay, toDay);
+  return { perDay, room, fits: perDay <= room };
 }
