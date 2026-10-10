@@ -164,7 +164,8 @@ export function shopsDay(g: GameState, out: StepOutput | null): void {
       s.quality = Math.max(s.quality, ap.qualityFloor);
       if (s.price > ap.priceCap) s.price = ap.priceCap;
     }
-    s.crew = attrition(s.crew, (tick - s.lastAttendedTick) / TPD, managed);
+    // a save from before the crew cap keeps its staff only up to the cap (the lever refuses anything above it)
+    s.crew = Math.min(SHOP.crew.max, attrition(s.crew, (tick - s.lastAttendedTick) / TPD, managed));
     const maintainedNow = s.maintained || managed;
     s.condition = maintainedNow ? SHOP.maintenance.condition : Math.max(0, s.condition - SHOP.maintenance.decayPerDay);
     const k = dailyCosts(target, s, maintainedNow, managerPrepaid(s.managerStars, s.managerDay, day));

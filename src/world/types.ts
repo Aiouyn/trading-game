@@ -500,7 +500,7 @@ export interface CourtCase {
   harm?: number;
   gain?: number;
   fundId?: string;
-  /** fund abuse: the Victim Compensation Fund's advance to the fund, against the unpaid award */
+  /** fund abuse: the Victim Compensation Fund's advance, paid to the non-manager investors (never into the fund), against the unpaid award */
   vcfAdvance?: number;
   evidence: number;
   /** filing bar: civil 40, tribunal 55, criminal 70 */

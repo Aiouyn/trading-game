@@ -8,6 +8,7 @@ import { shockPrice } from '@/engine/sim';
 import type { Command, GameState } from '../types';
 import { applyFundCommand, fundsDay, fundsFills, publicFunds, emptyFunds } from './index';
 import { insiderOrFloat } from './trade';
+import { advanceToInvestors } from './flows';
 import type { Fill } from '@/engine';
 import { fundById, fundClaimsOf, navOf, navPerUnitOf, unitsOf } from './state';
 import type { Fund, FundFees, FundMandate, FundRefusal } from './types';
@@ -753,11 +754,15 @@ describe('the manager’s stake, the S5 fine and the victim fund', () => {
     expect(c.fine).toBeCloseTo(0.35 * 10_000, 6);
   });
 
-  it('advances 50% of the unpaid award from the victim fund into the fund when the stake and cash cannot pay it all', () => {
+  it('advances 50% of the unpaid award from the victim fund straight to the investors, pro rata to their units, when the stake and cash cannot pay it all', () => {
     const g = world('f-vcf');
     const f = openFund(g);
     const s = stockId(g);
-    invest(g, f, 'i2', 100_000);
+    // both deposits settle at the same close, so i1 holds three times i2's units (each stays under 25% of its own NW)
+    credit(g, 'i1', 500_000, 'test');
+    expect(cmd(g, 'i2', { type: 'fund.deposit', fundId: f.id, amount: 50_000 }).ok).toBe(true);
+    expect(cmd(g, 'i1', { type: 'fund.deposit', fundId: f.id, amount: 150_000 }).ok).toBe(true);
+    days(g, 1);
     for (let k = 0; k < 2; k++) {
       expect(cmd(g, 'm', { type: 'order.place', order: { assetId: s, side: 'buy', type: 'market', qty: 1 } }).ok).toBe(true);
       ticks(g, 1);
@@ -769,14 +774,39 @@ describe('the manager’s stake, the S5 fine and the victim fund', () => {
     c.evidence = 400;
     c.harm = 1_000_000; // an award the stake cannot cover
     g.market.accounts.m = { ...g.market.accounts.m!, cash: 0 }; // and no cash above the floor
-    const fundCash0 = g.market.accounts[f.accountId]!.cash;
+    const cash0 = { i1: g.market.accounts.i1!.cash, i2: g.market.accounts.i2!.cash };
     days(g, 2);
     expect(c.status).toBe('won');
     const owed = FUND_RULES.s5.restitutionX * 1_000_000 + FUND_RULES.s5.disgorgePct * (c.gain ?? 0);
     expect(c.damages!).toBeLessThan(owed);
     expect(c.vcfAdvance!).toBeCloseTo(FUND_RULES.s5.vcfAdvancePct * (owed - c.damages!), 0);
     expect(c.vcfAdvance!).toBeGreaterThan(0);
-    // the advance is credited to the fund at once
-    expect(g.market.accounts[f.accountId]!.cash).toBeGreaterThan(fundCash0 + c.vcfAdvance! * 0.9);
+    // the advance is paid to the investors at once, pro rata to their units (i1 holds three times i2's)
+    const gain1 = g.market.accounts.i1!.cash - cash0.i1;
+    const gain2 = g.market.accounts.i2!.cash - cash0.i2;
+    expect(gain1 + gain2).toBeCloseTo(c.vcfAdvance!, 4);
+    expect(gain1 / gain2).toBeCloseTo(3, 4);
+  });
+
+  it('pays the advance to non-manager holders only, and the manager’s claim and the fund’s cash do not move', () => {
+    const g = world('f-vcf-claim');
+    const f = openFund(g);
+    invest(g, f, 'i2', 100_000);
+    const claim0 = fundClaimsOf(g, 'm');
+    const fundCash0 = g.market.accounts[f.accountId]!.cash;
+    const nav0 = navOf(g, f);
+    const i2Cash0 = g.market.accounts.i2!.cash;
+    const mCash0 = g.market.accounts.m!.cash;
+    const out = newOutput();
+    expect(advanceToInvestors(g, f, 50_000, out)).toBeCloseTo(50_000, 6);
+    expect(g.market.accounts.i2!.cash - i2Cash0).toBeCloseTo(50_000, 6);
+    expect(g.market.accounts.m!.cash).toBe(mCash0);
+    expect(g.market.accounts[f.accountId]!.cash).toBe(fundCash0);
+    expect(navOf(g, f)).toBe(nav0);
+    expect(fundClaimsOf(g, 'm')).toBe(claim0);
+    // nobody but the manager holds units: nothing is paid and nothing moves
+    const solo = world('f-vcf-solo');
+    const fs = openFund(solo);
+    expect(advanceToInvestors(solo, fs, 50_000, newOutput())).toBe(0);
   });
 });

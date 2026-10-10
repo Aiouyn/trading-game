@@ -1,6 +1,6 @@
-import { TPD, cashOf, credit, creditExternal, debit, keyedRng, notify, pushWire, transfer } from './core';
+import { TPD, cashOf, creditExternal, debit, keyedRng, notify, pushWire, transfer } from './core';
 import { FUND_RULES, FUND_TIME } from '@/content/funds';
-import { cancelStake } from './funds/flows';
+import { advanceToInvestors, cancelStake } from './funds/flows';
 import { emptyFunds, fundById } from './funds/state';
 import { startWindDown } from './funds/risk';
 import { say } from './say';
@@ -170,8 +170,9 @@ export function courtTick(g: GameState, out: StepOutput): void {
  * The S5 verdict on a fund abuse (ROADMAP 2.2, 03 §9.6 and §9.9). The fine is 8% of net worth, floor $100k, at most 35% of net
  * worth. The award is 100% disgorgement of the manager's gain on the flagged trades, plus restitution of 1.5x the harm to the
  * fund. The manager's stake pays first (its units are cancelled up to the award, which raises the other holders' share of NAV),
- * then cash down to the court floor. What is still unpaid gets an advance of 50% from the Victim Compensation Fund, credited to
- * the fund at once (the recovery from garnishment is not modelled yet). The manager is banned from opening a fund for 8 real
+ * then cash down to the court floor. What is still unpaid gets an advance of 50% from the Victim Compensation Fund, paid
+ * straight to the non-manager investors pro rata to their units at the verdict, never into the fund, so the manager's claim
+ * is unchanged by it (the recovery from garnishment is not modelled yet). The manager is banned from opening a fund for 8 real
  * weeks, and the convicted fund winds down.
  */
 function fundVerdict(g: GameState, c: CourtCase, out: StepOutput | null, df: Player): void {
@@ -189,8 +190,7 @@ function fundVerdict(g: GameState, c: CourtCase, out: StepOutput | null, df: Pla
     const room = Math.max(0, cashOf(g, c.defendantId) - FLOOR);
     const cash = Math.min(owed - paid, room);
     if (cash > 0) { transfer(g, c.defendantId, f.accountId, cash); paid += cash; }
-    advance = Math.max(0, s5.vcfAdvancePct * (owed - paid));
-    if (advance > 0) credit(g, f.accountId, advance, 'victim fund');
+    advance = advanceToInvestors(g, f, Math.max(0, s5.vcfAdvancePct * (owed - paid)), out);
   }
   g.funds ??= emptyFunds();
   g.funds.convicted[c.defendantId] = g.market.tick;

@@ -1,11 +1,11 @@
 import { placeOrder, type WorldState } from '@/engine';
 import { FUND_RULES, FUND_TIME } from '@/content/funds';
-import { cashOf, transfer } from '../core';
+import { cashOf, creditExternal, transfer } from '../core';
 import { say } from '../say';
 import { usd } from '../text/template';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { depositRefusal, redeemRefusal } from './rules';
-import { navOf, navPerUnitOf, requestSeq, unitsOf } from './state';
+import { navOf, navPerUnitOf, requestSeq, unitsHeld, unitsOf } from './state';
 import type { Fund } from './types';
 
 /**
@@ -164,6 +164,33 @@ export function cancelStake(g: GameState, f: Fund, value: number): number {
   f.holders[f.managerId] = held - u;
   if (f.holders[f.managerId]! <= 1e-12) delete f.holders[f.managerId];
   return u * px;
+}
+
+/**
+ * The Victim Compensation Fund's advance on a verdict (S5) goes straight to the investors who held units when the verdict
+ * came, pro rata to those units (reserved units count: they are still the investors' until they pay out). It never enters
+ * the fund, so the fund's equity and NAV do not move and the manager's claim is unchanged by it: he never benefits from the
+ * restitution of his own misconduct. It is compensation, not income, so it stays out of the day and arrival figures
+ * (creditExternal, the same rule as the victim's share of a fine). Returns the amount paid; with no other holder, nothing is paid.
+ */
+export function advanceToInvestors(g: GameState, f: Fund, amount: number, out: StepOutput | null): number {
+  if (!(amount > 0)) return 0;
+  const units = new Map<string, number>();
+  for (const pid of new Set([...Object.keys(f.holders), ...Object.keys(f.reserved)])) {
+    if (pid === f.managerId) continue;
+    const u = unitsHeld(f, pid);
+    if (u > 0) units.set(pid, u);
+  }
+  const total = [...units.values()].reduce((s, u) => s + u, 0);
+  if (!(total > 0)) return 0;
+  let paid = 0;
+  for (const [pid, u] of units) {
+    const share = amount * (u / total);
+    creditExternal(g, pid, share, 'victim fund');
+    paid += share;
+    say(g, out, pid, 'fund', 'gain', { key: 'funds.vcf.paid', vars: { fund: f.name, amount: usd(share) } });
+  }
+  return paid;
 }
 
 /** The notice and the notify helper, for the court and risk paths (one line to every holder). */

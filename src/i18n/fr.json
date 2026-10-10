@@ -1717,6 +1717,7 @@
   "funds.case.opened.holder": "Une action en justice pour front-running est ouverte au nom des porteurs de {fund}.",
   "funds.court.opened": "Une affaire d'abus de fonds est ouverte contre vous. L'audience est dans {days} jours de jeu.",
   "funds.verdict.won": "Vous avez gagné contre {player}. {restored} retournent dans le fonds, et l'amende est de {fine}.",
+  "funds.vcf.paid": "Le Fonds d'indemnisation des victimes vous avance {amount} sur votre part de l'indemnité due par {fund}, le reste étant recherché.",
   "funds.verdict.lost": "Le jugement vous est défavorable. {restored} retournent dans le fonds, la mise du gérant d'abord, et l'amende est de {fine}. Vous êtes interdit de gestion de fonds pendant 8 semaines réelles.",
   "funds.refusal.fundNoFund": "Aucun fonds de ce nom. Il a peut-être été fermé.",
   "funds.refusal.fundNotManager": "Seul le gérant peut faire cela. Les investisseurs peuvent déposer et racheter.",
