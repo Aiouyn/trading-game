@@ -137,10 +137,14 @@ test('L3 and L4: no frame a rival or another player receives carries a position,
     // requester's own equity and benchmark series (protocol.ts): B's own data, not a leak to B. Every other key is checked.
     const leaks = framesB.flatMap((f) => privateKeysIn(ownFrameView(f)));
     expect(leaks).toEqual([]);
-    // the viewer's own player id is B's; A's id is never in a frame B receives unless it is inside a public record
+    // the viewer's own player id is B's; A's id is never in a frame B receives unless it is inside a public record.
+    // The public directory (every player's row, protocol.ts `directory`) and the public state (`pub`) are such records:
+    // the world attaches them to some ticks only, so they are left out of the search, and every other part of a tick is checked.
     const aId = (framesA.find((f) => (f as { t?: string }).t === 'welcome') as { playerId?: string } | undefined)?.playerId;
     expect(aId, 'A received a welcome').toBeTruthy();
-    const aIdHits = framesB.filter((f) => (f as { t?: string }).t !== 'welcome' && JSON.stringify(f).includes(`"${aId}"`));
+    const publicRecords = new Set(['pub', 'directory']);
+    const withoutPublic = (f: unknown) => Object.fromEntries(Object.entries(f as object).filter(([k]) => !publicRecords.has(k)));
+    const aIdHits = framesB.filter((f) => (f as { t?: string }).t !== 'welcome' && JSON.stringify(withoutPublic(f)).includes(`"${aId}"`));
     expect(aIdHits.map((f) => (f as { t?: string }).t)).toEqual([]);
     expect(errorsB).toEqual([]);
   } finally {
