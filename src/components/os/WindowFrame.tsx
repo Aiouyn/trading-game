@@ -14,9 +14,19 @@ import { APP_GLYPH } from './appMap';
 import { AppBody } from './appViews';
 import { Glyph } from './glyphs';
 import { type Edge, type SnapTarget, resizeRect, snapFits, snapTargetAt, targetRect } from './windowMath';
-import { closeWindow, dispatchWm, useCloseAsk, useFocusHint } from './shellStore';
+import { WIN_OPEN_MS, closeWindow, dispatchWm, useCloseAsk, useFocusHint } from './shellStore';
 
 const EDGES: readonly Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+
+/** Window ids already drawn this session. Only a first draw opens with the open animation (P2-215), so a
+ *  workspace switch does not replay it. OsRoot drops an id once its window is gone (pruneDrawn). */
+const drawn = new Set<string>();
+
+/** Forgets the drawn state of windows that no longer exist, so a reopened window animates again. */
+export function pruneDrawn(liveIds: readonly string[]): void {
+  const live = new Set(liveIds);
+  for (const id of [...drawn]) if (!live.has(id)) drawn.delete(id);
+}
 
 export interface WindowFrameProps {
   win: Win;
@@ -35,6 +45,11 @@ export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrame
   const titleId = `win-title-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
   const [live, setLive] = useState<Rect | null>(null);
   const [target, setTarget] = useState<SnapTarget | null>(null);
+  // Read once at mount (the state initializer does not write, so StrictMode's second call agrees with the first).
+  const [opening, setOpening] = useState(() => !drawn.has(win.id));
+  useEffect(() => {
+    drawn.add(win.id);
+  }, [win.id]);
   const askId = useCloseAsk((s) => s.id);
   const confirm = askId === win.id;
   const free = mode === 'full';
@@ -43,6 +58,12 @@ export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrame
   const name = t(def.titleKey);
   const sub = win.app === 'broker' ? win.props.ticker : win.app === 'research' ? win.props.fileId : undefined;
   const hint = useFocusHint((s) => s.id);
+
+  useEffect(() => {
+    if (!opening) return;
+    const h = window.setTimeout(() => setOpening(false), WIN_OPEN_MS);
+    return () => window.clearTimeout(h);
+  }, [opening]);
 
   // A keyboard, shelf or launcher open moves DOM focus into the window it opened (P2-235).
   useEffect(() => {
@@ -140,7 +161,7 @@ export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrame
       {preview}
       <div
         ref={frameRef}
-        className={`os-win${active ? ' active' : ''}`}
+        className={`os-win${active ? ' active' : ''}${opening ? ' opening' : ''}`}
         role="dialog"
         aria-labelledby={titleId}
         data-testid={`win-${win.id}`}

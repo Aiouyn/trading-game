@@ -37,6 +37,20 @@ test.describe('keyboard, launcher and layouts', () => {
     await expect(page.getByTestId('os-shelf').locator('button.os-tile.run')).toHaveCount(before);
   });
 
+  test('Shift+Enter on a ticker row opens that ticker in a new Broker (P2-078)', async ({ page }) => {
+    await register(page);
+    await settle(page);
+    const brokers = page.locator('[data-app="broker"]');
+    const before = await brokers.count();
+    await page.keyboard.press('Control+KeyK');
+    await expect(page.getByTestId('os-launcher-input')).toBeFocused();
+    // Hovering a row makes it the highlighted one, as the arrow keys would.
+    await page.getByTestId('os-launcher-result-ticker-1').hover();
+    await page.keyboard.press('Shift+Enter');
+    await expect(page.getByTestId('os-launcher')).toHaveCount(0);
+    await expect(brokers).toHaveCount(before + 1);
+  });
+
   test('Alt Backquote moves the focus through the open windows', async ({ page }) => {
     await register(page);
     await settle(page);

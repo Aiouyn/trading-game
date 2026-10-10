@@ -11,7 +11,8 @@ import { APPS, type AppId, type WinProps } from '@/shell/apps';
 import { makeWmCtx } from '@/shell/ctx';
 import { type KeyValueStore, loadShell, saveShell, updatePrefs } from '@/shell/prefs';
 import { createShellStore } from '@/shell/store';
-import { type ShellState, type WmAction, type WmReason, type WmResult, focusedId, initialShell, normalize } from '@/shell/wm';
+import type { Rect } from '@/shell/geometry';
+import { type ShellState, type WmAction, type WmReason, type WmResult, focusedId, initialShell, normalize, project } from '@/shell/wm';
 import { DEFAULT_PALETTE, type PaletteSlug, applyPalette, isPaletteSlug, readPalette } from './palette';
 
 const INIT_VP = { w: 1440, h: 900 };
@@ -85,6 +86,21 @@ export function bindShell(id: string, rank: string, vp: { w: number; h: number }
 export function syncViewport(): void {
   useShell.getState().dispatch({ type: 'viewport', w: window.innerWidth, h: window.innerHeight }, { settled: false });
 }
+
+/** Window motion (P2-215): open 220 ms, close 120 ms. Reduced motion zeroes the CSS animation (P2-220). */
+export const WIN_OPEN_MS = 220;
+export const WIN_CLOSE_MS = 120;
+
+/** A closed window kept on screen for the close animation. It is drawn as a frame only, never with its app body. */
+export interface Ghost {
+  key: string;
+  id: string;
+  app: AppId;
+  ws: number;
+  rect: Rect;
+}
+export const useGhosts = create<{ list: Ghost[] }>(() => ({ list: [] }));
+let ghostSeq = 0;
 
 /** Shows a short message in the toast column. */
 export function notify(text: string, tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass' = 'info'): void {
@@ -177,7 +193,7 @@ export function runCommand(cmd: 'trade' | 'review' | 'research' | 'focus' | 'new
     return;
   }
   if (cmd === 'new-broker') {
-    openApp('broker', { ticker }, { focus: true });
+    openApp('broker', { ticker }, { focus: true, fresh: true });
     return;
   }
   applyNamedLayout(cmd, ticker);
@@ -188,9 +204,17 @@ export function runCommand(cmd: 'trade' | 'review' | 'research' | 'focus' | 'new
  * and the close goes through only when the player answers yes (P2-030). The order is never touched.
  */
 export function closeWindow(id: string, force = false): void {
+  const before = useShell.getState().shell;
   const r = dispatchWm({ type: 'close', id, force });
   if (r.ok) {
     if (useCloseAsk.getState().id === id) useCloseAsk.setState({ id: null });
+    const w = before.wins.find((x) => x.id === id);
+    const rect = project(before).rects[id];
+    if (w !== undefined && rect !== undefined) {
+      const key = `${id}-${++ghostSeq}`;
+      useGhosts.setState((s) => ({ list: [...s.list, { key, id, app: w.app, ws: w.ws, rect }] }));
+      window.setTimeout(() => useGhosts.setState((s) => ({ list: s.list.filter((g) => g.key !== key) })), WIN_CLOSE_MS);
+    }
     return;
   }
   if (r.reason === 'confirm') useCloseAsk.setState({ id });
@@ -199,6 +223,8 @@ export function closeWindow(id: string, force = false): void {
 export interface OpenOpts {
   /** Move DOM focus into the window once it is on screen. Keyboard, shelf and launcher opens do; a screen call does not. */
   focus?: boolean;
+  /** A Broker always opens a new window, even when one already shows the ticker (P2-078, New Broker). */
+  fresh?: boolean;
 }
 
 /** Opens an app, or focuses the window that holds it. A refusal shows a toast, never a silent no-op. */
@@ -213,7 +239,7 @@ export function openApp(app: AppId, props: WinProps = {}, opts: OpenOpts = {}): 
     notify(t('shell.ticker.unknown', { ticker: props.ticker }), 'warn');
     p = { ticker: useGame.getState().selected };
   }
-  const r = dispatchWm({ type: 'open', app, props: p });
+  const r = dispatchWm({ type: 'open', app, props: p, fresh: opts.fresh === true });
   if (!r.ok) {
     const text = refusalText(r.reason);
     if (text) notify(text, 'warn');

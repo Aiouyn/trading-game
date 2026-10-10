@@ -2,6 +2,8 @@
 
 import { create } from 'zustand';
 import { type KeyValueStore, migrateLegacy, readPrefs as readPrefsFrom, updatePrefs } from '@/shell/prefs';
+import { createHolds } from '@/shell/holds';
+import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky } from '@/shell/toasts';
 import { universeConfig, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
 import type { HistoryPayload, NwHistoryPayload, ServerMsg } from '@/net/protocol';
@@ -92,6 +94,10 @@ export interface GameStore {
   setChat: (open: boolean) => void;
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: string) => void;
+  dismissToasts: (ids: readonly string[]) => void;
+  /** A pointer or keyboard hold on a toast (P2-086). Each pause needs its own resume. */
+  pauseToast: (id: string) => void;
+  resumeToast: (id: string) => void;
   closeRankUp: () => void;
   closeDigest: () => void;
   presetTicket: (p: Omit<NonNullable<GameStore['ticketPreset']>, 'nonce'>) => void;
@@ -101,6 +107,25 @@ export interface GameStore {
 
 let client: WorldClient | null = null;
 let toastSeq = 0;
+
+/**
+ * The toast hold timers (P2-086). The store owns them, so a notice expires on time even when it sits
+ * behind three newer ones and never reaches the screen. Sticky notices (warnings, margin calls) get none.
+ */
+const toastHolds = createHolds(
+  { now: () => Date.now(), set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
+  (id) => useGame.setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+);
+
+/** Adds toasts to the queue, starts their holds, and drops the oldest past the queue cap. */
+function queueToasts(incoming: readonly Toast[]): void {
+  if (incoming.length === 0) return;
+  const all = [...useGame.getState().toasts, ...incoming];
+  const keep = all.slice(-TOAST_QUEUE_MAX);
+  for (const t of all.slice(0, all.length - keep.length)) toastHolds.cancel(t.id);
+  for (const t of incoming) if (keep.includes(t) && !isSticky(t)) toastHolds.start(t.id, TOAST_HOLD_MS);
+  useGame.setState({ toasts: keep });
+}
 
 function freshHistory(config: WorldConfig): History {
   const assets = config.assets.map((a) => a.id);
@@ -186,11 +211,11 @@ export const useGame = create<GameStore>((set, get) => {
           frame: msg.frame, world: absorbed.world, me: msg.me, lastTickAt: Date.now(), historyRev: get().historyRev + 1,
           wire: msg.wire.length ? [...[...msg.wire].reverse(), ...get().wire].slice(0, WIRE_KEEP) : get().wire,
           ...(msg.pub ? { pub: msg.pub } : {}), ...(msg.directory ? { directory: msg.directory } : {}),
-          ...(toasts.length ? { toasts: [...get().toasts, ...toasts].slice(-5) } : {}),
           ...(msg.chat.length ? { chat, chatUnread: get().chatOpen ? 0 : unread } : {}),
           ...(mine ? { rankUp: mine.rankId } : {}),
           ...(msg.inbox.some((n) => n.kind === 'fill') ? { tradeSheetOpen: false } : {}),
         });
+        queueToasts(toasts);
         if (absorbed.behind) resync();
         const nw = get().nw;
         if (nw && msg.frame.tick % nw.every === 0) {
@@ -356,8 +381,14 @@ export const useGame = create<GameStore>((set, get) => {
       if (inboxOpen && (get().me?.player.inboxUnread ?? 0) > 0) void get().act({ type: 'inbox.read' }, { silent: true });
     },
     setChat(chatOpen) { set({ chatOpen, ...(chatOpen ? { chatUnread: 0 } : {}) }); },
-    toast(t) { set({ toasts: [...get().toasts, { ...t, id: `t${++toastSeq}` }].slice(-5) }); },
-    dismissToast(id) { set({ toasts: get().toasts.filter((t) => t.id !== id) }); },
+    toast(t) { queueToasts([{ ...t, id: `t${++toastSeq}` }]); },
+    dismissToast(id) { get().dismissToasts([id]); },
+    dismissToasts(ids) {
+      for (const id of ids) toastHolds.cancel(id);
+      set({ toasts: get().toasts.filter((t) => !ids.includes(t.id)) });
+    },
+    pauseToast(id) { toastHolds.pause(id); },
+    resumeToast(id) { toastHolds.resume(id); },
     closeRankUp() { set({ rankUp: null }); },
     closeDigest() {
       set({ digestOpen: false });

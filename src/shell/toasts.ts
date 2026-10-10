@@ -9,6 +9,8 @@
 import type { Rect, Size } from './geometry';
 
 export const TOAST_MAX = 3;
+/** The queue keeps this many notices, so a long run of sticky warnings cannot grow without bound. Only three draw. */
+export const TOAST_QUEUE_MAX = 12;
 export const TOAST_HOLD_MS = 4000;
 /** Column geometry from V:143: 332 px wide, 14 px from the right, 10 px under the strip. */
 export const TOAST_W = 332;

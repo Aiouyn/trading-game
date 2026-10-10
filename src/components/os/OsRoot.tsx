@@ -13,6 +13,7 @@ import { cycleTarget, keyIntent } from '@/shell/keys';
 import { BP_HALVES, SHELF_H, STRIP_H, STRIP_H_FOCUS, layoutMode, slotFrac, viewportClass } from '@/shell/geometry';
 import { toastSide, visibleToasts } from '@/shell/toasts';
 import { focusedId, isFocused, project } from '@/shell/wm';
+import { APPS } from '@/shell/apps';
 import { SCREEN_APP } from './appMap';
 import { Wallpaper } from './DesktopWallpaper';
 import { type Rank, rankClass } from './hardware';
@@ -23,7 +24,7 @@ import { parseLocation, routeUrl, type UrlBase } from './routing';
 import { Shelf } from './Shelf';
 import { SplitHandles } from './SplitHandles';
 import { StatusStrip } from './StatusStrip';
-import { WindowFrame } from './WindowFrame';
+import { WindowFrame, pruneDrawn } from './WindowFrame';
 import { sharedEdges, type Tile } from './windowMath';
 import {
   bindShell,
@@ -38,6 +39,7 @@ import {
   useBinding,
   useCloseAsk,
   useFocusHint,
+  useGhosts,
   useLauncher,
   useLayoutMenu,
   useShell,
@@ -145,6 +147,7 @@ function startTicker(): string {
 
 export function OsRoot() {
   const shell = useShell((s) => s.shell);
+  const ghosts = useGhosts((s) => s.list);
   const status = useGame((s) => s.status);
   const playerId = useGame((s) => s.playerId);
   const rankId = useGame((s) => s.me?.rank.id ?? null);
@@ -239,6 +242,11 @@ export function OsRoot() {
     if (g.selected !== focusTicker) g.select(focusTicker);
   }, [bound, focus, focusTicker]);
 
+  // Drawn state follows the windows that exist, so a reopened window gets its open animation (P2-215).
+  useEffect(() => {
+    pruneDrawn(shell.wins.map((w) => w.id));
+  }, [shell.wins]);
+
   useEffect(() => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -276,6 +284,22 @@ export function OsRoot() {
               />
             );
           })}
+        {ghosts
+          .filter((g) => g.ws === shell.activeWs)
+          .map((g) => (
+            // A closed window fades out for 120 ms (P2-215). It is a frame with its title only: no app body, no input.
+            <div
+              key={g.key}
+              className="os-win closing"
+              aria-hidden
+              data-testid="os-closing"
+              style={{ position: 'absolute', left: g.rect.x, top: g.rect.y, width: g.rect.w, height: g.rect.h, pointerEvents: 'none' }}
+            >
+              <div className="os-tb">
+                <span className="os-tb-nm">{t(APPS[g.app].titleKey)}</span>
+              </div>
+            </div>
+          ))}
         {bound && <SplitHandles edges={edges} wa={proj.wa} />}
       </div>
       <Shelf />

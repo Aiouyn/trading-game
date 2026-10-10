@@ -157,7 +157,8 @@ export type WmResult = { ok: true; state: ShellState } | { ok: false; reason: Wm
 export type CycleDir = 'left' | 'right' | 'up' | 'down';
 
 export type WmAction =
-  | { type: 'open'; app: AppId; props?: unknown }
+  /** fresh: a Broker opens a new window even when one already shows this ticker (launcher Shift+Enter, New Broker). */
+  | { type: 'open'; app: AppId; props?: unknown; fresh?: boolean }
   | { type: 'focus'; id: string }
   | { type: 'close'; id: string; force?: boolean }
   | { type: 'collapse'; id: string }
@@ -395,7 +396,7 @@ function nextBrokerId(wins: Win[]): string {
  *           A new single window is refused when the app already has its maximum (1, or 2 for
  *           Portfolio).
  */
-function acquire(state: ShellState, app: AppId, props: WinProps, role: 'user' | 'layout', second: boolean): Acq {
+function acquire(state: ShellState, app: AppId, props: WinProps, role: 'user' | 'layout', second: boolean, fresh = false): Acq {
   const wins = state.wins.slice();
   if (second) {
     if (app !== 'portfolio') return failAcq('bad-props');
@@ -409,7 +410,7 @@ function acquire(state: ShellState, app: AppId, props: WinProps, role: 'user' | 
   }
 
   if (app === 'broker') {
-    if (props.ticker !== undefined) {
+    if (props.ticker !== undefined && !fresh) {
       const hit = wins.find((w) => w.app === 'broker' && w.props.ticker === props.ticker);
       if (hit) return { ok: true, wins, id: hit.id, created: false };
     }
@@ -551,13 +552,13 @@ export function normalize(state: ShellState, ctx: WmCtx): ShellState {
 
 // ---------------------------------------------------------------- actions
 
-function openAction(state: ShellState, app: AppId, rawProps: unknown, ctx: WmCtx): WmResult {
+function openAction(state: ShellState, app: AppId, rawProps: unknown, ctx: WmCtx, fresh = false): WmResult {
   if (!isAppId(app)) return fail('bad-props');
   if (!APPS[app].available) return fail('unavailable');
   if (!ctx.unlocked(app)) return fail('locked');
   const props = cleanProps(app, rawProps);
   if (props === null) return fail('bad-props');
-  const r = acquire(state, app, props, 'user', false);
+  const r = acquire(state, app, props, 'user', false, fresh);
   if (!r.ok) return fail(r.reason);
   let s: ShellState = { ...state, wins: r.wins };
   // Opening a new window exits focus mode on the workspace it lands on (DECISIONS "Behaviour gaps").
@@ -738,7 +739,7 @@ function reorderAction(state: ShellState, order: AppId[]): WmResult {
 export function reduce(state: ShellState, action: WmAction, ctx: WmCtx): WmResult {
   switch (action.type) {
     case 'open':
-      return openAction(state, action.app, action.props, ctx);
+      return openAction(state, action.app, action.props, ctx, action.fresh === true);
 
     case 'focus':
     case 'restore': {

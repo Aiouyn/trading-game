@@ -194,12 +194,7 @@ export function TradeSheet() {
 export function Toasts({ phone = false }: { phone?: boolean }) {
   const toasts = useGame((s) => s.toasts);
   const dismiss = useGame((s) => s.dismissToast);
-  useEffect(() => {
-    if (toasts.length === 0) return;
-    const id = toasts[0]!.id;
-    const t = setTimeout(() => dismiss(id), 4500);
-    return () => clearTimeout(t);
-  }, [toasts, dismiss]);
+  // The store owns the hold timers (src/shell/holds.ts), so this column only draws and dismisses on click.
   return (
     <div aria-live="polite" className={`pointer-events-none fixed z-[60] flex flex-col gap-2 ${phone ? 'inset-x-4 bottom-[calc(var(--tabbar-h)+76px)]' : 'bottom-12 right-6 w-96 items-end'}`}>
       {toasts.map((t) => (

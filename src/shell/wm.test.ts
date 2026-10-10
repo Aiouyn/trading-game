@@ -157,6 +157,16 @@ describe('open', () => {
     expect(focusedId(s)).toBe('broker-1');
   });
 
+  it('a fresh open makes a new Broker for a ticker that already has one (launcher Shift+Enter, New Broker)', () => {
+    let s = fresh();
+    s = go(s, { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
+    expect(brokers(s)).toHaveLength(1);
+    s = go(s, { type: 'open', app: 'broker', props: { ticker: 'HLCN' }, fresh: true });
+    expect(brokers(s)).toHaveLength(2);
+    expect(brokers(s).map((w) => w.props.ticker)).toEqual(['HLCN', 'HLCN']);
+    expect(focusedId(s)).toBe('broker-2');
+  });
+
   it('opens one window per Research file and focuses it on a second open', () => {
     let s = fresh();
     s = go(s, { type: 'open', app: 'research', props: { fileId: 'f1' } });

@@ -115,14 +115,16 @@ function LauncherPanel() {
     if (curId !== null) document.getElementById(curId)?.scrollIntoView?.({ block: 'nearest' });
   }, [curId]);
 
-  const run = (item: LauncherItem): void => {
-    // The window that opens takes focus, so the launcher does not hand focus back to the strip.
-    closeLauncher(false);
+  // Closing returns focus to where it was (P2-235). A window the row opens then takes focus on mount, so
+  // the final focus is right for rows that open a window and for command rows that open none.
+  const run = (item: LauncherItem, newBroker = false): void => {
+    closeLauncher();
     const a = item.action;
     if (a.type === 'app') {
       openApp(a.app, a.app === 'broker' ? { ticker: selected } : {}, { focus: true });
     } else if (a.type === 'ticker') {
-      openApp('broker', { ticker: a.ticker }, { focus: true });
+      // Shift+Enter opens the ticker in a new Broker (P2-078); plain Enter focuses the one that shows it.
+      openApp('broker', { ticker: a.ticker }, { focus: true, fresh: newBroker });
     } else if (a.type === 'command') {
       runCommand(a.cmd, selected);
     } else {
@@ -147,7 +149,7 @@ function LauncherPanel() {
     }
     if (e.code === 'Enter' || e.code === 'NumpadEnter') {
       e.preventDefault();
-      if (cur !== undefined) run(cur);
+      if (cur !== undefined) run(cur, e.shiftKey && cur.kind === 'ticker');
     }
   };
 
