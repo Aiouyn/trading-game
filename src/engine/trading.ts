@@ -767,6 +767,30 @@ function prune(state: WorldState, orders: Order[]): Order[] {
 // ---------------------------------------------------------------- booking
 
 /**
+ * The NPC book of a company stock (AssetDef.supplyAccount). Its fills are the other side of every fill on that asset: the
+ * book holds the float, so a buy can only take shares the book holds (X11). Undefined for an asset with no book (every
+ * other stock: NPC liquidity, as before). Null when the asset names a book the state does not hold: that market has no
+ * float, so nothing fills (never the unbounded NPC liquidity, which would create shares, X11).
+ */
+function supplyOf(s: WorldState, assetId: string): string | null | undefined {
+  const id = s.config.assets[assetIndex(s, assetId)]?.supplyAccount;
+  if (id === undefined) return undefined;
+  return s.accounts[id] ? id : null;
+}
+
+/**
+ * The other side of a fill on a company stock: the book takes the opposite side at the fill price and receives the
+ * commission. The trader's side has already been booked. Money moves between the two accounts and nowhere else.
+ */
+function routeToSupply(s: WorldState, supplyId: string, assetId: string, side: Side, q: number, price: number, fee: number): void {
+  const b = s.accounts[supplyId]!;
+  const acct: Account = { ...b, positions: { ...b.positions } };
+  book(acct, assetId, side === 'buy' ? 'sell' : 'buy', q, price, 0);
+  acct.cash += fee;
+  s.accounts[supplyId] = acct;
+}
+
+/**
  * Book a fill of q units at `price` (fee extra) into an account, handling longs, shorts and
  * flips. Mutates `acct` (a working copy with its own positions map). Returns realized P&L.
  */
@@ -1057,6 +1081,15 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         continue;
       }
 
+      // a company stock's fills run against its NPC book only: a book the state does not hold means no float, so nothing fills;
+      // a buy takes only the float the book holds (the book cannot sell shares that do not exist, X11)
+      const supplyId = supplyOf(s, o.assetId);
+      if (supplyId === null) continue;
+      if (supplyId !== undefined && o.side === 'buy') {
+        q = roundQty(def, Math.min(q, Math.max(0, s.accounts[supplyId]!.positions[o.assetId]?.qty ?? 0)));
+        if (q <= EPS) continue; // no float to take this tick: the order waits (a sell brings shares back to the book)
+      }
+
       let { price, p0 } = tickPrice(i, o.side, q);
       if (o.type === 'limit' || o.type === 'stop_limit') {
         if (o.side === 'buy' ? price > o.limitPrice! : price < o.limitPrice!) {
@@ -1088,6 +1121,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       const acct: Account = { ...acct0, positions: { ...acct0.positions } };
       book(acct, o.assetId, o.side, q, price, fee);
       s.accounts[o.playerId] = acct;
+      if (supplyId !== undefined) routeToSupply(s, supplyId, o.assetId, o.side, q, price, fee);
 
       const filledQty = o.filledQty + q;
       const done = filledQty >= o.qty - Math.max(EPS, o.qty * 1e-12);
@@ -1219,9 +1253,13 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           const locked = side === 'sell' ? lockedIn(s, id, assetId, liqDay) : 0;
           const q = side === 'sell' ? Math.max(0, pos.qty - locked) : Math.abs(pos.qty);
           if (locked > 0 && q <= EPS) continue;
+          // a company stock with no book in the state has no counterparty to take the shares: the liquidation waits (X11)
+          const liqSupply = supplyOf(s, assetId);
+          if (liqSupply === null) continue;
           const { price, p0 } = tickPrice(i, side, q);
           const fee = commission(s, s.config.assets[i]!, q * price);
           book(a, assetId, side, q, price, fee);
+          if (liqSupply !== undefined) routeToSupply(s, liqSupply, assetId, side, q, price, fee);
           s.orderSeq++;
           const forcedOrder = newOrder(s, s.orderSeq, { playerId: id, assetId, side, type: 'market', qty: q }, null, {
             status: 'filled', filledQty: q, avgFillPrice: price, feesPaid: fee, closedTick: tick, forced: true,

@@ -77,6 +77,12 @@ export type CompanyEvent =
   | { kind: 'bankrupt'; companyId: string; day: number; listed: boolean; shortfall: number; recovery: number }
   | { kind: 'ceo'; companyId: string; day: number; holder: Holder };
 
+/**
+ * The largest money amount the company layer accepts (X3, company-tests.md section 5, invariant 18): the ledger holds integer
+ * cents, exact only below 2^53 cents, so $90 trillion is the bound. A larger capital or round is refused, never run.
+ */
+export const MAX_MONEY = 2 ** 53 / 100;
+
 const QTD_ZERO = {
   revenue: 0, cogs: 0, opex: 0, da: 0, ocf: 0, capex: 0, units: 0, matCogs: 0, overtime: 0, rdSpend: 0, marketing: 0,
   interest: 0, dividends: 0, relatedRevenue: 0,
@@ -120,6 +126,7 @@ export function foundCompany(
   const F = COMPANY.founding;
   if (rankIndex(env.rankOf(playerId)) < rankIndex(F.minRank)) return { ok: false, reject: { code: 'notRank', minRank: F.minRank } };
   if (!(Number.isFinite(args.capital) && args.capital >= F.minEquity)) return { ok: false, reject: { code: 'capitalTooLow', minCapital: F.minEquity } };
+  if (args.capital > MAX_MONEY) return { ok: false, reject: { code: 'moneyTooLarge', max: MAX_MONEY } };
   if (!SECTORS[args.sector]) return { ok: false, reject: { code: 'unknownAction' } };
   for (const c of Object.values(w.companies)) if (c.ownerId === playerId) return { ok: false, reject: { code: 'alreadyFounded' } };
   const cash = env.money.cash(playerId);
@@ -325,6 +332,7 @@ export function privateValue(c: Company, day: number): number {
  */
 function raiseRound(w: CompanyWorld, c: Company, env: CompanyEnv, amount: number, founderVote: 'yes' | 'no'): Outcome<Record<string, unknown>> {
   if (!(Number.isFinite(amount) && amount > 0)) return { ok: false, reject: { code: 'negativeAmount' } };
+  if (amount > MAX_MONEY) return { ok: false, reject: { code: 'moneyTooLarge', max: MAX_MONEY } };
   // private rounds are pre-listing and NPC-only (§5): a listed company's register is the engine's, and an open IPO book
   // has its share count already fixed (its shares are pooled at listing)
   if (c.listed) return { ok: false, reject: { code: 'roundAfterListing' } };

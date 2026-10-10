@@ -10,6 +10,8 @@ import type { CompanyRole, CompanySector, CompanyTierId, InvestorKind } from '@/
 export type CompanyReject =
   | { code: 'notRank'; minRank: string }
   | { code: 'capitalTooLow'; minCapital: number }
+  /** an amount above the money bound: the ledger holds integer cents below 2^53 (X3), so a larger sum is refused, not run */
+  | { code: 'moneyTooLarge'; max: number }
   | { code: 'alreadyFounded' }
   | { code: 'insufficientFunds'; shortfall: number }
   | { code: 'unknownCompany' }
