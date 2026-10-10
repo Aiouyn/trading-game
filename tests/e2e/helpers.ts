@@ -31,9 +31,15 @@ export async function grant(handle: string, amount: number): Promise<void> {
   expect(r.status).toBe(200);
 }
 
-/** Open a screen from the rail (desktop) or tab bar / More sheet (phone). */
+/** The desktop shelf tile that opens each old screen (each screen is a window now, Phase 2 step 1). */
+const SCREEN_TILE: Record<string, string> = {
+  market: 'broker', portfolio: 'portfolio', empire: 'businesses', estate: 'boutique', lab: 'ailab',
+  security: 'security', court: 'legal', social: 'messages', wire: 'wire', profile: 'settings',
+};
+
+/** Open a screen from the shelf (desktop) or tab bar / More sheet (phone). */
 export async function goTo(page: Page, screen: string): Promise<void> {
-  if (!isPhone(page)) { await page.getByTestId(`nav-${screen}`).click(); return; }
+  if (!isPhone(page)) { await page.getByTestId(`shelf-app-${SCREEN_TILE[screen] ?? screen}`).click(); return; }
   if (['market', 'portfolio', 'empire', 'estate'].includes(screen)) { await page.getByTestId(`tab-${screen}`).click(); return; }
   await page.getByTestId('tab-more').click();
   await page.getByTestId(`more-${screen}`).click();

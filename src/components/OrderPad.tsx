@@ -29,18 +29,23 @@ function num(s: string): number {
   return Number.isFinite(v) ? v : 0;
 }
 
-export function OrderPad() {
-  const selected = useGame((s) => s.selected);
+/**
+ * The ticket for a ticker. A Broker passes its own ticker. A ticket preset (the stop explainer) fills
+ * only the ticket on the game's selected ticker, so two Brokers on other tickers stay clean.
+ */
+export function OrderPad({ ticker }: { ticker?: string } = {}) {
+  const globalSelected = useGame((s) => s.selected);
   const preset = useGame((s) => s.ticketPreset);
+  const selected = ticker ?? globalSelected;
+  const here = ticker === undefined || ticker === globalSelected ? preset : null;
   // a new asset or a new preset starts a fresh ticket
-  return <Ticket key={`${selected}-${preset?.nonce ?? 0}`} preset={preset} />;
+  return <Ticket key={`${selected}-${here?.nonce ?? 0}`} preset={here} selected={selected} />;
 }
 
-function Ticket({ preset }: { preset: ReturnType<typeof useGame.getState>['ticketPreset'] }) {
+function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getState>['ticketPreset']; selected: string }) {
   const world = useGame((s) => s.world);
   const me = useGame((s) => s.me);
   const playerId = useGame((s) => s.playerId);
-  const selected = useGame((s) => s.selected);
   const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const setSheet = useGame((s) => s.setTradeSheet);

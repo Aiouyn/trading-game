@@ -7,10 +7,10 @@
 // (data-testid, rank class, focus and compact classes, data-palette) so the CSS keys on <html>.
 import { useEffect, useRef } from 'react';
 import { t } from '@/i18n';
-import { useGame, type Screen } from '@/game/store';
+import { knownSeries, useGame } from '@/game/store';
 import { rankOrdinal } from '@/shell/ctx';
 import { keyIntent } from '@/shell/keys';
-import { SHELF_H, STRIP_H, STRIP_H_FOCUS, layoutMode, viewportClass } from '@/shell/geometry';
+import { SHELF_H, STRIP_H, STRIP_H_FOCUS, layoutMode, slotFrac, viewportClass } from '@/shell/geometry';
 import { focusedId, isFocused, project } from '@/shell/wm';
 import { SCREEN_APP } from './appMap';
 import { Wallpaper } from './DesktopWallpaper';
@@ -19,9 +19,23 @@ import { OsToasts } from './OsToasts';
 import { RankHardware } from './RankHardware';
 import { parseLocation, routeUrl, type UrlBase } from './routing';
 import { Shelf } from './Shelf';
+import { SplitHandles } from './SplitHandles';
 import { StatusStrip } from './StatusStrip';
 import { WindowFrame } from './WindowFrame';
-import { bindShell, dispatchWm, loadPalette, notify, openApp, syncViewport, useBinding, useShell, usePalette } from './shellStore';
+import { sharedEdges, type Tile } from './windowMath';
+import {
+  bindShell,
+  closeWindow,
+  dispatchWm,
+  loadPalette,
+  notify,
+  openApp,
+  syncViewport,
+  useBinding,
+  useCloseAsk,
+  useShell,
+  usePalette,
+} from './shellStore';
 
 /** The query flags and aliases read at the first load. The URL is written from these (DECISIONS "Routing"). */
 let urlBase: UrlBase = { flags: {} };
@@ -44,7 +58,7 @@ function openFromUrl(): void {
   openApp(route.app, route.view !== undefined ? { ...route.props, view: route.view } : route.props);
 }
 
-/** Desktop keys (P2-100..P2-104). Only window intents run here; Escape and the launcher come later. */
+/** Desktop keys (P2-100..P2-104). Window intents run here; Escape dismisses a prompt, then the top toast. */
 function onKey(e: KeyboardEvent): void {
   const target = e.target as HTMLElement | null;
   const textField =
@@ -54,23 +68,49 @@ function onKey(e: KeyboardEvent): void {
     { code: e.code, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey },
     { focused: focusedId(st.shell), shelf: st.shell.shelf, activeWs: st.shell.activeWs, workspaces: st.ctx.workspaces, textField },
   );
-  if (intent === null || intent.kind !== 'wm') return;
-  e.preventDefault();
-  if (intent.action.type === 'open') {
-    openApp(intent.action.app, intent.action.app === 'broker' ? { ticker: useGame.getState().selected } : {});
+  if (intent === null) return;
+  if (intent.kind === 'escape') {
+    if (useCloseAsk.getState().id !== null) {
+      e.preventDefault();
+      useCloseAsk.setState({ id: null });
+      return;
+    }
+    const top = useGame.getState().toasts[0];
+    if (top !== undefined) {
+      e.preventDefault();
+      useGame.getState().dismissToast(top.id);
+    }
     return;
   }
-  dispatchWm(intent.action);
+  if (intent.kind !== 'wm') return;
+  e.preventDefault();
+  const action = intent.action;
+  if (action.type === 'open') {
+    openApp(action.app, action.app === 'broker' ? { ticker: useGame.getState().selected } : {});
+    return;
+  }
+  if (action.type === 'close') {
+    closeWindow(action.id);
+    return;
+  }
+  dispatchWm(action);
 }
 
 const RANK_CLASS = /^shell-r\d$/;
+
+/** The selection the desktop starts on: the saved ticker when this universe lists it, else the first asset. */
+function startTicker(): string {
+  const g = useGame.getState();
+  if (knownSeries(g.config, g.selected)) return g.selected;
+  return g.config.assets[0]?.id ?? g.selected;
+}
 
 export function OsRoot() {
   const shell = useShell((s) => s.shell);
   const status = useGame((s) => s.status);
   const playerId = useGame((s) => s.playerId);
   const rankId = useGame((s) => s.me?.rank.id ?? null);
-  const screen = useGame((s) => s.screen);
+  const screenNonce = useGame((s) => s.screenNonce);
   const presetNonce = useGame((s) => s.ticketPreset?.nonce ?? 0);
   const palette = usePalette((s) => s.palette);
   const bound = useBinding((s) => s.saveId !== null);
@@ -80,7 +120,7 @@ export function OsRoot() {
   const compact = viewportClass(shell.vp.w) === 'compact';
   const rankNum = rankOrdinal(rankId ?? 'R0');
   const proj = project(shell);
-  const free = layoutMode(shell.vp.w) === 'full';
+  const mode = layoutMode(shell.vp.w);
   const focusWin = shell.wins.find((w) => w.id === focus);
   const focusTicker = focusWin?.app === 'broker' ? focusWin.props.ticker : undefined;
 
@@ -111,10 +151,13 @@ export function OsRoot() {
     return () => window.removeEventListener('resize', syncViewport);
   }, []);
 
-  // Bind to the save once the game is ready. A rank change re-normalizes the shell (P2-029).
+  // Bind to the save once the game is ready. A rank change re-normalizes the shell (P2-029). A stale or
+  // unknown saved ticker is replaced before anything reads it (the chart crashed on one before).
   useEffect(() => {
     if (status !== 'ready' || playerId === null || rankId === null) return;
-    bindShell(playerId, rankId, { w: window.innerWidth, h: window.innerHeight }, useGame.getState().selected);
+    const ticker = startTicker();
+    if (useGame.getState().selected !== ticker) useGame.getState().select(ticker);
+    bindShell(playerId, rankId, { w: window.innerWidth, h: window.innerHeight }, ticker);
     if (!urlHandled) {
       urlHandled = true;
       openFromUrl();
@@ -129,14 +172,16 @@ export function OsRoot() {
     if (url !== cur) window.history.replaceState(window.history.state, '', url);
   }, [bound, shell]);
 
-  // A screen change from an old call site (setScreen in Overlays, Wire, Security...) opens its window.
-  const prevScreen = useRef<Screen>(screen);
+  // Every screen call from an old call site (setScreen in Overlays, Wire, Security...) opens its window.
+  // It counts calls, not screen changes, so a second call to the same screen opens the window again.
+  const prevNav = useRef(screenNonce);
   useEffect(() => {
-    if (prevScreen.current === screen) return;
-    prevScreen.current = screen;
+    if (prevNav.current === screenNonce) return;
+    prevNav.current = screenNonce;
     if (!bound) return;
-    openApp(SCREEN_APP[screen], screen === 'market' ? { ticker: useGame.getState().selected } : {});
-  }, [screen, bound]);
+    const g = useGame.getState();
+    openApp(SCREEN_APP[g.screen], g.screen === 'market' ? { ticker: g.selected } : {});
+  }, [screenNonce, bound]);
 
   // A ticket preset (the stop explainer, a note) opens or focuses the Broker (C-24).
   const prevNonce = useRef(presetNonce);
@@ -160,6 +205,11 @@ export function OsRoot() {
 
   const stripH = focusMode ? STRIP_H_FOCUS : STRIP_H;
   const shelfH = focusMode ? 0 : SHELF_H;
+  // Shared edges exist only in the full mode (the reducer refuses a split below it).
+  const tiles: Tile[] = shell.wins.flatMap((w) =>
+    w.id in proj.rects && !w.filled && w.slot !== null ? [{ id: w.id, f: slotFrac(w.slot) }] : [],
+  );
+  const edges = mode === 'full' ? sharedEdges(tiles) : [];
   return (
     <div className="os-desktop" data-testid="os-desktop" data-layout="os">
       <Wallpaper slug={palette} idPrefix="desk" />
@@ -176,12 +226,13 @@ export function OsRoot() {
                 win={w}
                 rect={r}
                 active={w.id === focus}
-                free={free}
+                mode={mode}
                 wa={proj.wa}
                 gutter={proj.gutter}
               />
             );
           })}
+        {bound && <SplitHandles edges={edges} wa={proj.wa} />}
       </div>
       <Shelf />
       <OsToasts />

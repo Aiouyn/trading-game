@@ -89,7 +89,8 @@ describe('app registry', () => {
 
   it('recognises app ids only', () => {
     expect(isAppId('broker')).toBe(true);
-    expect(isAppId('ailab')).toBe(false);
+    expect(isAppId('ailab')).toBe(true);
+    expect(isAppId('lab')).toBe(false);
     expect(isAppId('__proto__')).toBe(false);
     expect(isAppId(3)).toBe(false);
   });

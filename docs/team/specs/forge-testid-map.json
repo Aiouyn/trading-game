@@ -1,0 +1,14 @@
+{
+  "nav-market": "shelf-app-broker",
+  "nav-portfolio": "shelf-app-portfolio",
+  "nav-empire": "shelf-app-businesses",
+  "nav-estate": "shelf-app-boutique",
+  "nav-lab": "shelf-app-ailab",
+  "nav-security": "shelf-app-security",
+  "nav-court": "shelf-app-legal",
+  "nav-social": "shelf-app-messages",
+  "nav-wire": "shelf-app-wire",
+  "nav-profile": "shelf-app-settings",
+  "nav-chat": "os-chat",
+  "net-worth": "os-networth"
+}

@@ -16,7 +16,7 @@ const canonical = [
   '/businesses',
   '/company',
   '/boutique',
-  '/lab',
+  '/ailab',
   '/security',
   '/legal',
   '/bank',
@@ -78,7 +78,7 @@ describe('route parsing', () => {
   });
 
   it('returns notFound for an unknown app, a bad view, a bad ticker or extra segments', () => {
-    for (const bad of ['/nope', '/portfolio/bogus', '/settings/nope', '/broker/bad%20x', '/broker/HLCN/extra', '/wire/x', '/ailab']) {
+    for (const bad of ['/nope', '/portfolio/bogus', '/settings/nope', '/broker/bad%20x', '/broker/HLCN/extra', '/wire/x', '/lab']) {
       expect(parseRoute(bad), bad).toEqual({ notFound: true });
     }
   });

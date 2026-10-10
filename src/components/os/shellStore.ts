@@ -6,7 +6,7 @@
 
 import { create } from 'zustand';
 import { t } from '@/i18n';
-import { useGame } from '@/game/store';
+import { knownSeries, useGame } from '@/game/store';
 import { APPS, type AppId, type WinProps } from '@/shell/apps';
 import { makeWmCtx } from '@/shell/ctx';
 import { type KeyValueStore, loadShell, saveShell, updatePrefs } from '@/shell/prefs';
@@ -99,13 +99,35 @@ const REFUSAL_TEXT: Partial<Record<WmReason, () => string>> = {
   unavailable: () => t('shell.comingLater'),
 };
 
+/** The window id whose close prompt is showing (P2-030). Shared, so the button and Alt W ask the same way. */
+export const useCloseAsk = create<{ id: string | null }>(() => ({ id: null }));
+
+/**
+ * Closes a window. A Broker with a pending order returns "confirm": the window shows the prompt
+ * and the close goes through only when the player answers yes (P2-030). The order is never touched.
+ */
+export function closeWindow(id: string, force = false): void {
+  const r = dispatchWm({ type: 'close', id, force });
+  if (r.ok) {
+    if (useCloseAsk.getState().id === id) useCloseAsk.setState({ id: null });
+    return;
+  }
+  if (r.reason === 'confirm') useCloseAsk.setState({ id });
+}
+
 /** Opens an app, or focuses the window that holds it. A refusal shows a toast, never a silent no-op. */
 export function openApp(app: AppId, props: WinProps = {}): void {
   if (!APPS[app].available) {
     notify(t('shell.comingLater'));
     return;
   }
-  const r = dispatchWm({ type: 'open', app, props });
+  let p = props;
+  // A ticker that is not in this universe never reaches a chart (P2-117): the Broker opens on the current one.
+  if (app === 'broker' && props.ticker !== undefined && !knownSeries(useGame.getState().config, props.ticker)) {
+    notify(t('shell.ticker.unknown', { ticker: props.ticker }), 'warn');
+    p = { ticker: useGame.getState().selected };
+  }
+  const r = dispatchWm({ type: 'open', app, props: p });
   if (!r.ok) {
     const text = REFUSAL_TEXT[r.reason];
     if (text) notify(text(), 'warn');

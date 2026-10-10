@@ -1,19 +1,20 @@
 'use client';
 
-// One window (P2-011..P2-037): title bar with collapse, fill and close; a drag that follows the
-// pointer live through a transform and commits the snap or the free rect on release (C-07); edge
-// resize with the minimum sizes (P2-031, P2-032); the close prompt when a Broker has an order pending
-// (P2-030). Every change goes through the reducer, so the window rules live in one place.
+// One window (P2-011..P2-037): title bar with collapse, fill and close; a drag that snaps in the halves
+// and full modes (V:39, C-07), follows the pointer live only in the full mode and commits the snap or
+// the free rect on release; edge resize with the minimum sizes (P2-031, P2-032); the close prompt when a
+// Broker has an order pending (P2-030). Every change goes through the reducer, so the window rules live
+// in one place.
 import { type PointerEvent as ReactPointerEvent, useId, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { APPS } from '@/shell/apps';
-import type { Rect, Size } from '@/shell/geometry';
+import type { LayoutMode, Rect, Size } from '@/shell/geometry';
 import type { Win } from '@/shell/wm';
 import { APP_GLYPH } from './appMap';
 import { AppBody } from './appViews';
 import { Glyph } from './glyphs';
-import { type Edge, type SnapTarget, resizeRect, snapTargetAt, targetRect } from './windowMath';
-import { dispatchWm } from './shellStore';
+import { type Edge, type SnapTarget, resizeRect, snapFits, snapTargetAt, targetRect } from './windowMath';
+import { closeWindow, dispatchWm, useCloseAsk } from './shellStore';
 
 const EDGES: readonly Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
 
@@ -22,19 +23,22 @@ export interface WindowFrameProps {
   /** The projected rect, relative to the work area (what the shell shows now). */
   rect: Rect;
   active: boolean;
-  /** Free placement is allowed only in the full layout mode (C-26: user snaps are refused below it). */
-  free: boolean;
+  /** The layout mode. Halves (1000-1199 px) snap to the sides and the top; free placement and resize need full (C-26). */
+  mode: LayoutMode;
   wa: Size;
   gutter: number;
 }
 
-export function WindowFrame({ win, rect, active, free, wa, gutter }: WindowFrameProps) {
+export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrameProps) {
   const def = APPS[win.app];
   const frameRef = useRef<HTMLDivElement>(null);
   const titleId = `win-title-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
   const [live, setLive] = useState<Rect | null>(null);
   const [target, setTarget] = useState<SnapTarget | null>(null);
-  const [confirm, setConfirm] = useState(false);
+  const askId = useCloseAsk((s) => s.id);
+  const confirm = askId === win.id;
+  const free = mode === 'full';
+  const snapping = mode === 'full' || mode === 'halves';
   const shown = live ?? rect;
   const name = t(def.titleKey);
   const sub = win.app === 'broker' ? win.props.ticker : win.app === 'research' ? win.props.fileId : undefined;
@@ -48,7 +52,7 @@ export function WindowFrame({ win, rect, active, free, wa, gutter }: WindowFrame
     focusWin();
     const frame = frameRef.current;
     const box = frame?.parentElement?.getBoundingClientRect();
-    if (!free || !frame || !box) return;
+    if (!snapping || !frame || !box) return;
     const sx = e.clientX;
     const sy = e.clientY;
     let dx = 0;
@@ -57,8 +61,10 @@ export function WindowFrame({ win, rect, active, free, wa, gutter }: WindowFrame
     const move = (ev: PointerEvent): void => {
       dx = ev.clientX - sx;
       dy = ev.clientY - sy;
-      frame.style.transform = `translate(${dx}px, ${dy}px)`;
-      const next = snapTargetAt(ev.clientX - box.left, ev.clientY - box.top, box.width, box.height);
+      if (free) frame.style.transform = `translate(${dx}px, ${dy}px)`;
+      // A snap the app cannot fit (the Broker in a 403 px quarter) is not offered: no preview, and release moves freely.
+      const raw = snapTargetAt(ev.clientX - box.left, ev.clientY - box.top, box.width, box.height, mode);
+      const next = raw !== null && snapFits(raw, def, wa, gutter) ? raw : null;
       if (next !== cur) {
         cur = next;
         setTarget(next);
@@ -75,7 +81,7 @@ export function WindowFrame({ win, rect, active, free, wa, gutter }: WindowFrame
         } else {
           dispatchWm({ type: 'snap', id: win.id, slot: cur });
         }
-      } else if (Math.abs(dx) + Math.abs(dy) > 1) {
+      } else if (free && Math.abs(dx) + Math.abs(dy) > 1) {
         dispatchWm({ type: 'move', id: win.id, rect: { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h } });
       }
     };
@@ -106,15 +112,11 @@ export function WindowFrame({ win, rect, active, free, wa, gutter }: WindowFrame
     window.addEventListener('pointerup', up);
   };
 
-  const close = (): void => {
-    const r = dispatchWm({ type: 'close', id: win.id });
-    if (!r.ok && r.reason === 'confirm') setConfirm(true);
-  };
+  const close = (): void => closeWindow(win.id);
 
-  const closeAnyway = (): void => {
-    setConfirm(false);
-    dispatchWm({ type: 'close', id: win.id, force: true });
-  };
+  const closeAnyway = (): void => closeWindow(win.id, true);
+
+  const keepOpen = (): void => useCloseAsk.setState({ id: null });
 
   const preview = target !== null && (
     <div
@@ -182,7 +184,7 @@ export function WindowFrame({ win, rect, active, free, wa, gutter }: WindowFrame
               <button type="button" className="os-tool" onClick={closeAnyway} data-testid={`win-${win.id}-confirm-yes`}>
                 {t('shell.close.yes')}
               </button>
-              <button type="button" className="os-tool" onClick={() => setConfirm(false)}>
+              <button type="button" className="os-tool" onClick={keepOpen}>
                 {t('shell.close.no')}
               </button>
             </div>

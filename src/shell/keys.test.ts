@@ -68,6 +68,11 @@ describe('keyboard bindings (section I)', () => {
     expect(keyIntent(key('KeyN', { alt: true }), env())).toEqual({ kind: 'wm', action: { type: 'open', app: 'broker' } });
   });
 
+  it('Alt W closes the focused window and does nothing with no focus', () => {
+    expect(keyIntent(key('KeyW', { alt: true }), env())).toEqual({ kind: 'wm', action: { type: 'close', id: 'broker-1' } });
+    expect(keyIntent(key('KeyW', { alt: true }), env({ focused: null }))).toBeNull();
+  });
+
   it('binds nothing a browser tab or the OS owns (P2-103, C-17)', () => {
     const never: KeyEvt[] = [
       key('KeyD', { alt: true }),

@@ -41,14 +41,15 @@ const ARROW_DIR: Readonly<Record<string, CycleDir>> = {
 };
 
 /** The read-only shortcut list for Settings (P2-106 remapping is Phase 8). Order is display order. */
+// Ctrl K is absent until the launcher ships (Phase 2 step 2): the list shows only live bindings.
 export const SHORTCUTS: readonly { id: string; keys: string }[] = [
-  { id: 'launcher', keys: 'Ctrl K' },
   { id: 'focus-mode', keys: 'Ctrl .' },
   { id: 'collapse', keys: 'Ctrl M' },
   { id: 'snap', keys: 'Ctrl Shift Arrow' },
   { id: 'workspace', keys: 'Ctrl Alt Left / Right' },
   { id: 'shelf-open', keys: 'Alt 1..9' },
   { id: 'new-broker', keys: 'Alt N' },
+  { id: 'close', keys: 'Alt W' },
   { id: 'escape', keys: 'Esc' },
 ];
 
@@ -80,6 +81,8 @@ export function keyIntent(e: KeyEvt, env: KeyEnv): KeyIntent | null {
       return app === undefined ? null : { kind: 'wm', action: { type: 'open', app } };
     }
     if (e.code === 'KeyN') return { kind: 'wm', action: { type: 'open', app: 'broker' } };
+    // Alt W closes the focused window: Ctrl W is reserved for the browser (C-17, Alt W is the V1 path).
+    if (e.code === 'KeyW' && focused !== null) return { kind: 'wm', action: { type: 'close', id: focused } };
     return null;
   }
 

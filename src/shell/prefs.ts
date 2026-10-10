@@ -109,6 +109,12 @@ function sanitizeChart(x: unknown): ChartPrefs {
     out.indicators = x.indicators
       .filter((s): s is string => typeof s === 'string' && s.length <= 32)
       .slice(0, 16);
+  } else if (isObj(x.indicators)) {
+    // The old tycoon.prefs stored `{ id: true | false }` (the legacy writePrefs). Keep the ones switched on.
+    const legacy = x.indicators;
+    out.indicators = Object.keys(legacy)
+      .filter((k) => k.length <= 32 && legacy[k] === true)
+      .slice(0, 16);
   }
   if (typeof x.range === 'string' && x.range.length <= 16) out.range = x.range;
   if (typeof x.chartMode === 'string' && x.chartMode.length <= 16) out.chartMode = x.chartMode;

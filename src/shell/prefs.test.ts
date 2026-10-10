@@ -287,6 +287,13 @@ describe('legacy migration', () => {
     expect(kv.getItem(LEGACY_PREFS_KEY)).toBeNull();
   });
 
+  it('keeps the indicators of the old object form, which the old writePrefs stored', () => {
+    const kv = new MemKV();
+    kv.setItem(LEGACY_PREFS_KEY, JSON.stringify({ indicators: { ma: true, rsi: false, bb: true }, range: '1D', chartMode: 'line', selected: 'HLCN' }));
+    migrateLegacy(kv);
+    expect(readPrefs(kv).chart).toEqual({ indicators: ['ma', 'bb'], range: '1D', chartMode: 'line' });
+  });
+
   it('is a no-op the second time, and tolerates a corrupt old prefs value', () => {
     const kv = new MemKV();
     kv.setItem(LEGACY_PREFS_KEY, '{oops');

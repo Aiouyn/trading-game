@@ -16,7 +16,7 @@ test('cold open renders with the design system applied', async ({ page }) => {
 test('core loop: join, first trade capped at 20%, fill, and everything survives a reload', async ({ page }) => {
   const errors = watchErrors(page);
   await register(page);
-  await expect(page.getByTestId('net-worth')).toContainText('$5,250');
+  await expect(page.getByTestId(isPhone(page) ? 'net-worth' : 'os-networth')).toContainText('$5,250');
   if (isPhone(page)) await page.getByTestId('open-trade').click();
   await expect(page.getByTestId('first-trade-cap')).toBeVisible();
   await page.getByTestId('order-qty').fill('20');

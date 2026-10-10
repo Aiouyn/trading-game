@@ -25,7 +25,7 @@ test('every screen opens without errors or horizontal overflow', async ({ page }
 test('chat: a message shows up for its sender', async ({ page }) => {
   await register(page);
   if (isPhone(page)) { await page.getByTestId('tab-more').click(); await page.getByTestId('more-chat').click(); }
-  else await page.getByTestId('nav-chat').click();
+  else await page.getByTestId('os-chat').click();
   await page.getByTestId('chat-input').fill('hello from e2e');
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('chat-panel')).toContainText('hello from e2e');

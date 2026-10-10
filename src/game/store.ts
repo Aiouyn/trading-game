@@ -52,6 +52,8 @@ export interface GameStore {
   nw: { samples: number[]; lastTick: number; every: number; daily: { day: number; value: number }[] } | null;
   toasts: Toast[];
   screen: Screen;
+  /** Counts every setScreen call, so the desktop opens the window even when the screen is unchanged. */
+  screenNonce: number;
   selected: string;
   range: RangeId;
   chartMode: 'candles' | 'line';
@@ -239,6 +241,7 @@ export const useGame = create<GameStore>((set, get) => {
     nw: null,
     toasts: [],
     screen: 'market',
+    screenNonce: 0,
     selected: 'HLCN',
     range: '1D',
     chartMode: 'candles',
@@ -326,11 +329,13 @@ export const useGame = create<GameStore>((set, get) => {
     },
 
     select(selected) {
+      // An unknown name never reaches the charts (the desktop crashed on one before this guard).
+      if (!knownSeries(get().config, selected)) return;
       set({ selected });
       void get().ensureHistory(selected);
       writePrefs(get());
     },
-    setScreen(screen) { set({ screen, tradeSheetOpen: false, moreOpen: false }); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); },
+    setScreen(screen) { set({ screen, screenNonce: get().screenNonce + 1, tradeSheetOpen: false, moreOpen: false }); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); },
     setRange(range) { set({ range }); writePrefs(get()); },
     setChartMode(chartMode) { set({ chartMode }); writePrefs(get()); },
     toggleIndicator(id) { set({ indicators: { ...get().indicators, [id]: !get().indicators[id] } }); writePrefs(get()); },
@@ -363,6 +368,11 @@ export const PLAYER_FALLBACK = 'me';
 export function assetDefOf(id: string) {
   return useGame.getState().config.assets.find((a) => a.id === id);
 }
+/** Whether a name is a chart series of this universe: a listed or delisted asset, or an index. */
+export function knownSeries(config: WorldConfig, id: string): boolean {
+  return config.assets.some((a) => a.id === id) || config.indices.some((i) => i.id === id);
+}
+
 export function isIndex(id: string) {
   return useGame.getState().config.indices.some((i) => i.id === id);
 }

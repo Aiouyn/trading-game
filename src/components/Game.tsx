@@ -1,23 +1,27 @@
 'use client';
 
 import { useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useGame, type Screen } from '@/game/store';
 import { useIsPhone } from '@/game/useMedia';
-import { CourtView } from './Court';
-import { EmpireView } from './Empire';
-import { EstateView } from './Estate';
 import { PhoneHeader } from './Header';
-import { LabView } from './Lab';
 import { AssetPanel, ChartCard, OpenOrders, Positions, TickerStrip } from './Market';
 import { ChatDrawer, InboxDrawer, MoreSheet, TabBar, Toasts, TradeSheet } from './Shell';
 import { Coach, ConnectionBanner, DigestModal, RankUpOverlay } from './Overlays';
 import { PortfolioView } from './Portfolio';
-import { ProfileView } from './Profile';
-import { SecurityView } from './Security';
-import { ProfileModal, SocialView } from './Social';
+import { ProfileModal } from './Social';
 import { WireView } from './Wire';
 import { OsRoot } from './os/OsRoot';
 import { Loading, Welcome } from './Welcome';
+
+// The phone's heavier screens load on first open, so the desktop root does not ship their code (P2-244).
+const CourtView = dynamic(() => import('./Court').then((m) => m.CourtView), { ssr: false });
+const EmpireView = dynamic(() => import('./Empire').then((m) => m.EmpireView), { ssr: false });
+const EstateView = dynamic(() => import('./Estate').then((m) => m.EstateView), { ssr: false });
+const LabView = dynamic(() => import('./Lab').then((m) => m.LabView), { ssr: false });
+const SecurityView = dynamic(() => import('./Security').then((m) => m.SecurityView), { ssr: false });
+const ProfileView = dynamic(() => import('./Profile').then((m) => m.ProfileView), { ssr: false });
+const SocialView = dynamic(() => import('./Social').then((m) => m.SocialView), { ssr: false });
 
 declare global {
   interface Window {

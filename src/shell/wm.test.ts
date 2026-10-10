@@ -170,7 +170,7 @@ describe('open', () => {
   it('refuses a locked app and leaves the state alone (layouts, links and hand edits too)', () => {
     const s = fresh();
     refused(s, { type: 'open', app: 'research', props: { fileId: 'f1' } }, 'locked', R2);
-    refused(s, { type: 'open', app: 'lab' }, 'locked', R1);
+    refused(s, { type: 'open', app: 'ailab' }, 'locked', R1);
     refused(s, { type: 'open', app: 'company' }, 'locked', R1);
     expect(s.wins.some((w) => w.app === 'research')).toBe(false);
   });
@@ -184,15 +184,15 @@ describe('open', () => {
     const s = fresh();
     refused(s, { type: 'open', app: 'broker', props: { ticker: 'bad ticker!!' } }, 'bad-props');
     refused(s, { type: 'open', app: 'wire', props: { ticker: 'HLCN' } }, 'bad-props');
-    refused(s, { type: 'open', app: 'ailab' as AppId }, 'bad-props');
+    refused(s, { type: 'open', app: 'lab' as AppId }, 'bad-props');
   });
 
   it('opens an app that is unlocked and places it on the active workspace, focused', () => {
-    const s = go(fresh(), { type: 'open', app: 'lab' });
-    const w = s.wins.find((x) => x.app === 'lab')!;
+    const s = go(fresh(), { type: 'open', app: 'ailab' });
+    const w = s.wins.find((x) => x.app === 'ailab')!;
     expect(w.ws).toBe(0);
     expect(w.slot).toBeNull();
-    expect(focusedId(s)).toBe('lab');
+    expect(focusedId(s)).toBe('ailab');
   });
 });
 
@@ -388,7 +388,7 @@ describe('workspaces', () => {
 
   it('exits focus mode on the workspace a new window lands on', () => {
     let s = go(fresh(VP_1920), { type: 'focusMode', on: true });
-    s = go(s, { type: 'open', app: 'lab' });
+    s = go(s, { type: 'open', app: 'ailab' });
     expect(s.focusWs).toEqual([]);
     expect(s.focusRestore).toBeNull();
   });
@@ -419,7 +419,7 @@ describe('workspaces', () => {
     const base = go(fresh(VP_1920, R2), { type: 'open', app: 'calendar' }, R2);
     let s = go(base, { type: 'focusMode', on: true }, R2);
     s = go(s, { type: 'switchWs', ws: 1 }, R2);
-    s = go(s, { type: 'open', app: 'lab' }, R2);
+    s = go(s, { type: 'open', app: 'ailab' }, R2);
     s = go(s, { type: 'focusMode', on: true }, R2);
     s = go(s, { type: 'switchWs', ws: 0 }, R2);
     s = go(s, { type: 'focusMode', on: false }, R2);

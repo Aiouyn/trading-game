@@ -2,7 +2,8 @@
 
 // Status strip (P2-050..P2-052, 34 px): the Quay mark and release, the clock and market state, then
 // the rank chip, net worth with today's change, and the notification bell. The launcher field comes
-// with Phase 2 step 2. The strip only reads the game store; it never changes a value.
+// with Phase 2 step 2. The chat button opens the chat drawer, the desktop's only route to it (step 1).
+// The strip only reads the game store, and the two buttons only open a drawer.
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
 import { clockLabel } from '@/game/clock';
@@ -16,6 +17,8 @@ export function StatusStrip() {
   const frame = useGame((s) => s.frame);
   const status = useGame((s) => s.status);
   const setInbox = useGame((s) => s.setInbox);
+  const setChat = useGame((s) => s.setChat);
+  const chatUnread = useGame((s) => s.chatUnread);
   const rankId = me?.rank.id ?? 'R0';
   const nw = me?.netWorth.total ?? 0;
   const dayStart = me?.player.dayStart.netWorth ?? nw;
@@ -42,6 +45,17 @@ export function StatusStrip() {
         <span className="os-nw" data-testid="os-networth">
           {money(nw)} <span className={toneText[tone(today)]}>{signedPct(todayPct)}</span>
         </span>
+        <button
+          type="button"
+          className="os-bell"
+          data-testid="os-chat"
+          aria-label={chatUnread > 0 ? t('shell.chat.unread', { n: chatUnread }) : t('shell.chat')}
+          title={t('shell.chat')}
+          onClick={() => setChat(true)}
+        >
+          <Glyph name="messages" size={18} />
+          {chatUnread > 0 && <span className="os-bell-dot" aria-hidden />}
+        </button>
         <button
           type="button"
           className="os-bell"

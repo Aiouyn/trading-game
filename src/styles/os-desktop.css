@@ -35,3 +35,11 @@
 @container (max-width: 640px) {
   .os-root .os-body-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Shared-edge handles between tiled windows (P2-025). Transparent until hovered; above the windows. */
+@layer components {
+  .os-root .os-split { z-index: 6; }
+  .os-root .os-split.v { cursor: ew-resize; }
+  .os-root .os-split.h { cursor: ns-resize; }
+  .os-root .os-split:hover { background: color-mix(in srgb, var(--color-brass) 28%, transparent); }
+}
