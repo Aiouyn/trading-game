@@ -12,6 +12,7 @@ import { goalsView } from './learn';
 import { textProvider } from './text';
 import type { DailyClose, LedgerFill, PlanState, RoundTrip } from './ledger-types';
 import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, propValue, today, type NetWorthBreakdown } from './core';
+import { shopViews, type ShopView } from './shopView';
 import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
 import { defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
 import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
@@ -172,6 +173,8 @@ export interface PlayerView {
   arrival: { cash: number; change: number; changePct: number; external: number };
   rank: { id: string; name: string; next: { id: string; name: string; threshold: number } | null; progress: number };
   businesses: Business[];
+  /** the owner's shop management, one per business in the same order (stage C, DECISIONS S2) */
+  shops: ShopView[];
   properties: (Property & { value: number })[];
   contracts: ContractView[];
   inbox: InboxItem[];
@@ -230,6 +233,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
       progress: next ? Math.min(1, Math.max(0, (p.netWorth - floor) / (next.threshold - floor))) : 1,
     },
     businesses: playerBusinesses(g, pid),
+    shops: shopViews(g, playerBusinesses(g, pid), pid),
     properties: playerProperties(g, pid).map((x) => ({ ...x, value: propValue(g, x) })),
     contracts: p.contracts.map((c) => ({ ...c, ...(() => { const pr = contractProgress(g, p, c.defId); return { progress: pr.value, target: pr.target }; })() })),
     inbox: inbox.slice(0, 60),

@@ -6,8 +6,8 @@ export const E2E_ADMIN = "e2e-admin";
 
 /** The shell specs (tests/e2e/shell) run on every desktop viewport; the older specs stay on desktop and phone. */
 const SHELL_SPECS = /[\/]shell[\/].*\.spec\.ts$/;
-/** The day-close specs (a game day's advance in the shared world): see the close-card projects below. */
-const CLOSE_SPECS = /closeCard\.spec\.ts$/;
+/** The day-advance specs (a game day's advance in the shared world): see the close-card projects below. The shop levers settle on the next game day, so shops.spec.ts crosses one too. */
+const CLOSE_SPECS = /(closeCard|shops)\.spec\.ts$/;
 const chromium = { browserName: "chromium" as const };
 
 /**
