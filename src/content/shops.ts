@@ -69,12 +69,24 @@ export const SHOP = {
     maxStars: 3,
     /** salary per star per game day */
     costPerStar: 0.05,
-    /** hiring pays this many days of salary up front; nothing is refunded on fire */
+    /**
+     * hiring pays this many days of salary up front (a real prepayment: the next `prepayDays` game days are not
+     * charged the daily salary again); nothing is refunded on fire
+     */
     prepayDays: 7,
     /** the earliest game days after hiring that the manager can be fired */
     minTenureDays: 1,
     /** reviews target lift per star */
     reviewsPerStar: 0.05,
+    /**
+     * Autopilot within the manager's skill (S2), by stars 1 to 3: the crew and quality floors it holds on each
+     * game day, and the highest price it lets stand (above it, the price is brought back to the cap).
+     */
+    autopilot: {
+      crewFloor: [0.75, 1, 1.25],
+      qualityFloor: [0, 1, 2],
+      priceCap: [1.05, 1.1, 1.2],
+    },
   },
   reviews: {
     min: 0.3,

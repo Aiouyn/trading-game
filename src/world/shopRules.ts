@@ -82,16 +82,35 @@ export function queueShare(demand: number, served: number): number {
   return demand > 0 ? Math.max(0, (demand - served) / demand) : 0;
 }
 
-/** Operating costs for one game day, in money, given the well-run net target of the business (`roi x cost`). */
-export function dailyCosts(target: number, s: ShopState, maintainedNow: boolean): { wages: number; opex: number; marketing: number; quality: number; maintenance: number; manager: number } {
+/**
+ * What a manager's autopilot holds for its star count (S2): the crew and quality floors and the price cap.
+ * Zero stars means no autopilot (the floors are 0, the cap is unbounded).
+ */
+export function autopilotFor(stars: number): { crewFloor: number; qualityFloor: number; priceCap: number } {
+  if (stars < 1) return { crewFloor: 0, qualityFloor: 0, priceCap: Infinity };
+  const a = SHOP.manager.autopilot;
+  const i = Math.min(a.crewFloor.length, Math.max(1, Math.floor(stars))) - 1;
+  return { crewFloor: a.crewFloor[i]!, qualityFloor: a.qualityFloor[i]!, priceCap: a.priceCap[i]! };
+}
+
+/**
+ * Operating costs for one game day, in money, given the well-run net target of the business (`roi x cost`).
+ * `managerPaid` is true on the game days a manager's salary was prepaid at hire (S5): those days cost nothing more.
+ */
+export function dailyCosts(target: number, s: ShopState, maintainedNow: boolean, managerPaid = false): { wages: number; opex: number; marketing: number; quality: number; maintenance: number; manager: number } {
   return {
     wages: SHOP.crew.wagePerUnit * s.crew * target,
     opex: SHOP.opexPerDay * target,
     marketing: SHOP.marketing.costPerLevel * s.marketing * target,
     quality: SHOP.quality.costPerLevel * s.quality * target,
     maintenance: maintainedNow ? SHOP.maintenance.costPerDay * target : 0,
-    manager: SHOP.manager.costPerStar * s.managerStars * target,
+    manager: managerPaid ? 0 : SHOP.manager.costPerStar * s.managerStars * target,
   };
+}
+
+/** Whether a game day is inside a manager's prepaid window: the `prepayDays` boundaries after the hire. */
+export function managerPrepaid(managerStars: number, managerDay: number, day: number): boolean {
+  return managerStars > 0 && day - managerDay <= SHOP.manager.prepayDays;
 }
 
 /** Whether a number is one of the allowed levels for a stepped lever. */

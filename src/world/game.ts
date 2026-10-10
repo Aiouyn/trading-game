@@ -7,7 +7,7 @@ import {
 } from './core';
 import {
   accrueBusinesses, businessEvents, buyBusiness, buyItem, buyNote, buyProperty, lifestyleDay, propertyDay, recomputeShares,
-  refreshNetWorth, renameBusiness, sharesDirty, renovateProperty, repayMortgage, sellBusiness, sellItem, sellProperty, setHome, upgradeBusiness,
+  refreshNetWorth, renameBusiness, renovateProperty, repayMortgage, sellBusiness, sellItem, sellProperty, setHome, upgradeBusiness,
 } from './assets';
 import { shopCommand, shopsDay } from './shops';
 import { newsFromEvents, filings } from './news';
@@ -129,7 +129,7 @@ export function stepGame(g: GameState): StepOutput {
     });
   }
 
-  if (tick % SHARE_EVERY === 0 || sharesDirty(g)) recomputeShares(g);
+  if (tick % SHARE_EVERY === 0) recomputeShares(g);
   accrueBusinesses(g, tick % CREDIT_EVERY === 0, out);
   labTick(g, out, newDay);
   courtTick(g, out);

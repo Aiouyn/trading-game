@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
-import { TPD, bizValue, cashOf } from './core';
+import { TPD, bizDef, bizValue, bump, cashOf, credit } from './core';
 import { recomputeShares } from './assets';
-import { migrateShops, shopsDay } from './shops';
+import { migrateShops, shopsDay, wellRunCommands } from './shops';
+import { seedNpcs } from './npc';
 import {
-  attrition, dailyCosts, isCrew, moraleTarget, offlineRate, purchaseShop, queueShare, reviewsTarget, shopValue, trailingNet,
-  valuedIncome, wellRunShop,
+  attrition, autopilotFor, dailyCosts, isCrew, moraleTarget, offlineRate, purchaseShop, queueShare, reviewsTarget, shopValue,
+  trailingNet, valuedIncome, wellRunShop,
 } from './shopRules';
 import { SHOP, SHOP_REFUSAL } from '@/content/shops';
 import { BUSINESSES, RETIRED_UPGRADES, UPGRADES } from '@/content/businesses';
+import { NPCS } from '@/content/progression';
 import type { Business, Command, GameState } from './types';
 
 function game(seed = 'shops'): GameState {
@@ -318,13 +320,128 @@ describe('determinism', () => {
     expect(play('same')).toBe(play('same'));
   }, 60_000);
 
-  it('a manager stops the attrition drift on crew', () => {
+  it('a manager stops the attrition drift on crew, and its autopilot lifts crew to the floor of its skill', () => {
     const g = game();
     const id = tycoon(g);
     cmd(g, 'u1', { type: 'biz.manager.hire', bizId: id, stars: 2 });
     const b = g.businesses[id]!;
     b.shop.lastAttendedTick = g.market.tick - 30 * TPD;
     shopsDay(g, null);
-    expect(b.shop.crew).toBe(SHOP.crew.purchase);
+    expect(b.shop.crew).toBe(autopilotFor(2).crewFloor);
+    expect(b.shop.crew).toBeGreaterThanOrEqual(SHOP.crew.purchase);
   });
+});
+
+/** Sum of the shop operating sinks booked so far. */
+function shopSinks(g: GameState): number {
+  return Object.entries(g.economy.sinks).filter(([k]) => k.startsWith('shop ')).reduce((s, [, v]) => s + v, 0);
+}
+
+describe('NPC shops, the manager autopilot and the costs (S2, S5)', () => {
+  it('NPC shops are run by their persona and never drift; an unattended player shop does', () => {
+    const g = createGame('npc-shops', { warmupDays: 1, npcs: false });
+    seedNpcs(g);
+    const npc = NPCS[0]!.id;
+    credit(g, npc, 1e6, 'test');
+    const def = BUSINESSES.find((b) => b.tier === 1)!;
+    const r = applyCommand(g, npc, { type: 'biz.buy', defId: def.id, cityId: 'avalon' });
+    expect(r.ok).toBe(true);
+    const npcBiz = (r.data as { id: string }).id;
+    for (const c of wellRunCommands(npcBiz)) applyCommand(g, npc, c);
+    const mine = tycoon(g);
+    for (let d = 0; d < 40; d++) {
+      g.market.tick += TPD;
+      shopsDay(g, null);
+    }
+    expect(g.businesses[npcBiz]!.shop.crew).toBe(SHOP.crew.wellRun);
+    expect(g.businesses[mine]!.shop.crew).toBeLessThan(SHOP.crew.purchase);
+  });
+
+  it('a manager is prepaid for a week: those game days are not charged the salary again, the next one is', () => {
+    const g = game();
+    const id = tycoon(g);
+    const b = g.businesses[id]!;
+    const r = cmd(g, 'u1', { type: 'biz.manager.hire', bizId: id, stars: 1 });
+    const prepay = (r.data as { prepaid: number }).prepaid;
+    const salary = SHOP.manager.costPerStar * bizDef(b).income;
+    expect(g.economy.sinks['shop manager']).toBeCloseTo(prepay, 9);
+    for (let d = 1; d <= SHOP.manager.prepayDays; d++) {
+      g.market.tick += TPD;
+      shopsDay(g, null);
+    }
+    expect(g.economy.sinks['shop manager']).toBeCloseTo(prepay, 9);
+    g.market.tick += TPD;
+    shopsDay(g, null);
+    expect(g.economy.sinks['shop manager']).toBeCloseTo(prepay + salary, 9);
+  });
+
+  it('the autopilot holds crew and quality floors and caps the price at the level of its skill', () => {
+    const g = game();
+    const id = tycoon(g);
+    cmd(g, 'u1', { type: 'biz.manager.hire', bizId: id, stars: 2 });
+    cmd(g, 'u1', { type: 'biz.price', bizId: id, price: 1.2 });
+    g.market.tick += TPD;
+    shopsDay(g, null);
+    const s = g.businesses[id]!.shop;
+    expect(s.crew).toBe(autopilotFor(2).crewFloor);
+    expect(s.quality).toBe(autopilotFor(2).qualityFloor);
+    expect(s.price).toBe(autopilotFor(2).priceCap);
+    expect(autopilotFor(3).crewFloor).toBeGreaterThan(autopilotFor(1).crewFloor);
+    expect(autopilotFor(0).crewFloor).toBe(0);
+  });
+
+  it('running costs can take cash below zero, and the owner is told', () => {
+    const g = game();
+    const id = tycoon(g);
+    cmd(g, 'u1', { type: 'biz.maintain', bizId: id, on: true });
+    bump(g, 'u1', -(cashOf(g, 'u1') - 1));
+    shopsDay(g, null);
+    expect(cashOf(g, 'u1')).toBeLessThan(0);
+    expect(g.players.u1!.inbox[0]?.text).toMatch(/below zero/);
+  });
+
+  it('money is conserved: cash moves only by the income credited and the shop sinks', () => {
+    const g = game();
+    const id = tycoon(g);
+    cmd(g, 'u1', { type: 'biz.manager.hire', bizId: id, stars: 2 });
+    cmd(g, 'u1', { type: 'biz.crew', bizId: id, crew: 1.5 });
+    cmd(g, 'u1', { type: 'biz.quality', bizId: id, level: 2 });
+    cmd(g, 'u1', { type: 'biz.marketing', bizId: id, level: 1 });
+    // the engine books cash interest on the account itself (not through the economy ledger), so it is counted here
+    const net = () => (g.market.accounts.u1?.interestEarned ?? 0) - (g.market.accounts.u1?.interestPaid ?? 0);
+    const cash0 = cashOf(g, 'u1');
+    const int0 = net();
+    const inc0 = g.economy.faucets['business income'] ?? 0;
+    const sinks0 = shopSinks(g);
+    run(g, 3 * TPD + 7);
+    const cashDelta = cashOf(g, 'u1') - cash0;
+    const incomeDelta = (g.economy.faucets['business income'] ?? 0) - inc0;
+    const costDelta = shopSinks(g) - sinks0;
+    const interestDelta = net() - int0;
+    expect(incomeDelta).toBeGreaterThan(0);
+    expect(costDelta).toBeGreaterThan(0);
+    expect(cashDelta).toBeCloseTo(incomeDelta + interestDelta - costDelta, 4);
+  }, 60_000);
+
+  it('a snapshot taken mid-day, right after a lever command, restores to the same incomes and state', () => {
+    const g = game();
+    const id = tycoon(g);
+    run(g, 3);
+    if ((g.market.tick - 1) % TPD === 0) stepGame(g);
+    expect((g.market.tick - 1) % TPD).not.toBe(0);
+    cmd(g, 'u1', { type: 'biz.crew', bizId: id, crew: 0.5 });
+    const copy = JSON.parse(JSON.stringify(g)) as GameState;
+    expect(copy.businesses[id]!.incomePerDay).toBe(g.businesses[id]!.incomePerDay);
+    stepGame(g);
+    stepGame(copy);
+    expect(copy.businesses[id]!.incomePerDay).toBe(g.businesses[id]!.incomePerDay);
+    expect(copy.businesses[id]!.shop.queue).toBe(g.businesses[id]!.shop.queue);
+    for (let k = 0; k < 40; k++) {
+      cmd(g, 'u1', { type: 'biz.marketing', bizId: id, level: k % 4 });
+      cmd(copy, 'u1', { type: 'biz.marketing', bizId: id, level: k % 4 });
+      stepGame(g);
+      stepGame(copy);
+    }
+    expect(hash(copy)).toBe(hash(g));
+  }, 60_000);
 });

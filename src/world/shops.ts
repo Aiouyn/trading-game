@@ -5,10 +5,10 @@
  */
 import { SHOP, SHOP_REFUSAL } from '@/content/shops';
 import type { UpgradeAxis } from '@/content/businesses';
-import { debit, bizDef, cashOf, clamp, today, TPD } from './core';
+import { debit, bizDef, cashOf, clamp, notify, today, TPD } from './core';
 import { markShares, recomputeShares } from './assets';
 import {
-  attrition, dailyCosts, isCrew, isLevel, moraleTarget, reviewsTarget, wellRunShop,
+  attrition, autopilotFor, dailyCosts, isCrew, isLevel, managerPrepaid, moraleTarget, reviewsTarget, wellRunShop,
 } from './shopRules';
 import type { Business, CommandResult, Command, GameState, StepOutput } from './types';
 
@@ -147,21 +147,35 @@ const SINKS = {
  * toward their targets; the day's net income joins the trailing window that values the shop (S5).
  */
 export function shopsDay(g: GameState, out: StepOutput | null): void {
-  void out;
   const tick = g.market.tick;
+  const day = today(g);
   for (const b of Object.values(g.businesses)) {
     const s = b.shop;
     const target = bizDef(b).income;
+    const owner = g.players[b.ownerId];
+    // NPC shops are run by their persona every day: they are the competition the player meets, so they never drift (S6)
+    if (owner?.npc) s.lastAttendedTick = tick;
     if (s.pendingPrice !== null) { s.price = s.pendingPrice; s.pendingPrice = null; }
     const managed = s.managerStars > 0;
+    // a manager's autopilot holds the crew, quality and price within its skill (S2); the owner sets the rest
+    if (managed) {
+      const ap = autopilotFor(s.managerStars);
+      s.crew = Math.max(s.crew, ap.crewFloor);
+      s.quality = Math.max(s.quality, ap.qualityFloor);
+      if (s.price > ap.priceCap) s.price = ap.priceCap;
+    }
     s.crew = attrition(s.crew, (tick - s.lastAttendedTick) / TPD, managed);
     const maintainedNow = s.maintained || managed;
     s.condition = maintainedNow ? SHOP.maintenance.condition : Math.max(0, s.condition - SHOP.maintenance.decayPerDay);
-    const k = dailyCosts(target, s, maintainedNow);
+    const k = dailyCosts(target, s, maintainedNow, managerPrepaid(s.managerStars, s.managerDay, day));
     let total = 0;
     for (const line of Object.keys(SINKS) as (keyof typeof SINKS)[]) {
       const amt = k[line];
       if (amt > 0) { debit(g, b.ownerId, amt, SINKS[line]); total += amt; }
+    }
+    // costs are obligations, paid even when cash runs out (as property upkeep is); the owner is told (S5)
+    if (total > 0 && owner && !owner.npc && cashOf(g, b.ownerId) < 0) {
+      notify(g, out, b.ownerId, { kind: 'biz', tone: 'loss', text: `${b.name}'s running costs took your cash below zero. Sell a shop or move cash in to clear it.` });
     }
     s.costs += total;
     s.morale += SHOP.morale.inertia * (moraleTarget(s.demand, s.crew) - s.morale);

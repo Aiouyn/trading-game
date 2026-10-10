@@ -149,7 +149,7 @@ function bot(seed: string, days: number, style: Style): void {
       lastDayActed = gameDay;
       const pres = presence(style, gameDay);
       if (p.online !== pres.online) applyCommand(g, 'bot', { type: 'presence', online: pres.online });
-      if (pres.online) buyGreedy(g);
+      if (pres.online) buyGreedy(g, style);
       if (pres.checkIn) for (const b of Object.values(g.businesses)) if (b.ownerId === 'bot') for (const c of setupFor(style, b.id)) applyCommand(g, 'bot', c);
       if (ranks[p.rankId] === undefined) ranks[p.rankId] = gameDay;
     }
@@ -161,7 +161,7 @@ function bot(seed: string, days: number, style: Style): void {
 }
 
 /** Buy the best net income per dollar the cash and rank allow, within each tier's slot cap (up to four a check-in). */
-function buyGreedy(g: GameState): void {
+function buyGreedy(g: GameState, style: Style): void {
   const p = g.players.bot!;
   const r = rankIndex(p.rankId);
   for (let k = 0; k < 4; k++) {
@@ -170,7 +170,11 @@ function buyGreedy(g: GameState): void {
     const count = (tier: number) => mine.filter((b) => bizDef(b).tier === tier).length;
     const best = BUSINESSES.filter((d) => d.cost <= cash && rankIndex(TIERS[d.tier - 1]!.rank) <= r && count(d.tier) < TIERS[d.tier - 1]!.max)
       .sort((a, b) => b.income / b.cost - a.income / a.cost || a.id.localeCompare(b.id))[0];
-    if (!best || !applyCommand(g, 'bot', { type: 'biz.buy', defId: best.id, cityId: CITIES[0]! }).ok) return;
+    if (!best) return;
+    const r2 = applyCommand(g, 'bot', { type: 'biz.buy', defId: best.id, cityId: CITIES[0]! });
+    if (!r2.ok) return;
+    // the managed style hires a 2-star manager at purchase (S3); the others run without one
+    if (style === 'managed') applyCommand(g, 'bot', { type: 'biz.manager.hire', bizId: (r2.data as { id: string }).id, stars: 2 });
   }
 }
 

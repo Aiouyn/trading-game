@@ -119,13 +119,13 @@ export function appeal(b: Business): number {
  * (mass grows with the number of player businesses in it), so crowding a pool lowers everyone's
  * share, and marketing and location win share from rivals (bible 01: logit market share).
  */
-const dirty = new WeakSet<object>();
-/** Mark market shares stale (a business was bought, sold or upgraded); the next tick recomputes. */
-export function markShares(g: GameState): void { dirty.add(g); }
-export function sharesDirty(g: GameState): boolean { return dirty.has(g); }
+/**
+ * A business or lever changed: recompute the shares now, inside the command. Nothing is left pending outside the
+ * state, so a snapshot taken mid-day restores to the same incomes as the live game (no dirty flag to lose).
+ */
+export function markShares(g: GameState): void { recomputeShares(g); }
 
 export function recomputeShares(g: GameState): void {
-  dirty.delete(g);
   const pools = new Map<string, Business[]>();
   for (const b of Object.values(g.businesses)) {
     const key = `${b.cityId}:${bizDef(b).sector}`;
