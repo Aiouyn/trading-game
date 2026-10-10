@@ -836,14 +836,23 @@ function tallyStreet(acct: Account, delta: number): void {
 /**
  * Close every account's position in one asset at a settlement price, with no fee: a bankruptcy's recovery, a cash
  * merger's premium, or a spin-off's carve-out. Open orders in the asset are cancelled. Pure.
+ *
+ * An asset with no company book (no supplyAccount) settles against the Street, which is not an account: each holder's cash
+ * change is the Street's flow, and it is kept in `streetCash` (O-3 review). Money is not created here; the sum of the holders'
+ * cash changes equals the sum of the Street tallies. A company stock settles against its book, and the tender moves the cash
+ * between the bidder and the holders, so it is not tallied here.
  */
 export function settleAsset(state: WorldState, assetId: string, price: number): WorldState {
+  const def = state.config.assets.find((a) => a.id === assetId);
+  const street = def !== undefined && def.supplyAccount === undefined;
   const accounts: Record<string, Account> = { ...state.accounts };
   for (const [id, acct] of Object.entries(state.accounts)) {
     const pos = acct.positions[assetId];
     if (!pos) continue;
     const copy: Account = { ...acct, positions: { ...acct.positions } };
     book(copy, assetId, pos.qty > 0 ? 'sell' : 'buy', Math.abs(pos.qty), price, 0);
+    // the account's cash change is pos.qty x price for a long sale and for a short cover alike (a short's cover is negative)
+    if (street) tallyStreet(copy, pos.qty * price);
     accounts[id] = copy;
   }
   const orders = state.orders.map((o) => (o.assetId === assetId && o.status === 'open'

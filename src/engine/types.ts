@@ -579,8 +579,9 @@ export interface Account {
   borrowPaid?: number;
   /**
    * Net cash this account exchanged with the Street, which has no account counterparty: fills of an asset with no
-   * supplyAccount (its commission included, so it is the Street's sink counted once), option premia (commission included)
-   * and option expiry or delisting payouts. Signed as the account's cash: a buy is negative, a sell positive (O-3).
+   * supplyAccount (its commission included, so it is the Street's sink counted once), option premia (commission included),
+   * option expiry or delisting payouts, and the settlement of such an asset (a bankruptcy, a cash merger or a delisting).
+   * Signed as the account's cash: a buy is negative, a sell positive (O-3).
    */
   streetCash?: number;
   /** tick a margin call went out (cleared when the account recovers) */

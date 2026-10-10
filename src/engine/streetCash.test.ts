@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { createWorld, stepMany } from './sim';
 import { DEFAULT_REGIMES, defaultConfig, normalizeLoadings } from './config';
 import { DEFAULT_OPTIONS, listedExpiries, optionChain } from './options';
-import { placeOrder, portfolio, setAccountPermissions, tradeOption, openAccount } from './trading';
+import { delistAsset } from './listings';
+import { placeOrder, portfolio, setAccountPermissions, settleAsset, tradeOption, openAccount } from './trading';
 import type { AssetDef, Fill, RegimeDef, RegimeId, WorldState } from './types';
 
 /**
@@ -91,5 +92,42 @@ describe('the Street tally on an ordinary stock (O-3)', () => {
     expect(payouts).toBeGreaterThan(0);
     expect(r.state.accounts.p1!.streetCash! - premiumTally).toBeCloseTo(payouts, 6);
     expect(portfolio(r.state, 'p1').cash).toBeGreaterThan(0);
+  });
+
+  it('a settlement of an ordinary stock (a bankruptcy or a cash merger) is the Street tally: each holder cash change, long or short', () => {
+    let s = setAccountPermissions(world(), 'p1', {});
+    s = openAccount(s, 'p2', 10000);
+    s = setAccountPermissions(s, 'p2', { canShort: true });
+    s = { ...s, accounts: { ...s.accounts,
+      p1: { ...s.accounts.p1!, positions: { STK: { qty: 100, avgCost: 100, realizedPnl: 0 } } },
+      p2: { ...s.accounts.p2!, positions: { STK: { qty: -50, avgCost: 100, realizedPnl: 0 } } },
+    } };
+    const cash0 = { p1: s.accounts.p1!.cash, p2: s.accounts.p2!.cash };
+    const settled = settleAsset(s, 'STK', 80);
+    // a long is paid the price, a short pays to cover it: the cash changes are qty x price, and the Street tally is the same
+    expect(settled.accounts.p1!.cash - cash0.p1).toBeCloseTo(8_000, 6);
+    expect(settled.accounts.p2!.cash - cash0.p2).toBeCloseTo(-4_000, 6);
+    expect(settled.accounts.p1!.streetCash).toBeCloseTo(8_000, 6);
+    expect(settled.accounts.p2!.streetCash).toBeCloseTo(-4_000, 6);
+    expect(settled.accounts.p1!.positions.STK).toBeUndefined();
+    expect(settled.accounts.p2!.positions.STK).toBeUndefined();
+  });
+
+  it('a delisting of an ordinary stock books the holders against the Street, to the cent (no supplier account)', () => {
+    let s = setAccountPermissions(world(), 'p1', {});
+    s = { ...s, accounts: { ...s.accounts, p1: { ...s.accounts.p1!, positions: { STK: { qty: 40, avgCost: 100, realizedPnl: 0 } } } } };
+    const cash0 = s.accounts.p1!.cash;
+    const d = delistAsset(s, 0, 55, s.tick);
+    expect(d.state.accounts.p1!.cash - cash0).toBeCloseTo(40 * 55, 6);
+    expect(d.state.accounts.p1!.streetCash).toBeCloseTo(40 * 55, 6);
+  });
+
+  it('a settlement of a company stock (an asset with a supplier account) is not a Street flow', () => {
+    let s = setAccountPermissions(world(), 'p1', {});
+    s = { ...s, config: { ...s.config, assets: s.config.assets.map((a) => (a.id === 'STK' ? { ...a, supplyAccount: 'book:x' } : a)) } };
+    s = { ...s, accounts: { ...s.accounts, p1: { ...s.accounts.p1!, positions: { STK: { qty: 10, avgCost: 100, realizedPnl: 0 } } } } };
+    const settled = settleAsset(s, 'STK', 50);
+    expect(settled.accounts.p1!.cash - s.accounts.p1!.cash).toBeCloseTo(500, 6);
+    expect(settled.accounts.p1!.streetCash).toBeUndefined();
   });
 });
