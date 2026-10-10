@@ -203,6 +203,11 @@ export interface AssetState {
   haltedToday: boolean;
   /** sum of today's jump log sizes; excluded from the GARCH input so jumps don't feed vol clustering */
   dayJump: number;
+  /**
+   * sum of today's per-tick diffusive shocks (sigma · sqrt(dt) · shock, no jumps, no pull, no drift). GARCH standardizes
+   * this, not the close-to-close return, so E[z^2 | h] = h for every asset. Absent (undefined) = 0 at the first tick.
+   */
+  dayDiff?: number;
   /** log return accumulated while halted; applied in the reopening auction */
   pending: number;
   rng: RngState;

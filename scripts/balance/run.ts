@@ -5,7 +5,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createWorld, stepMany, indexLevel, defaultConfig, universeConfig, expectedVol, openAccount, placeOrder, portfolio } from "../../src/engine";
+import { createWorld, stepMany, indexLevel, defaultConfig, universeConfig, expectedVol, closePrint, openAccount, placeOrder, portfolio } from "../../src/engine";
 import type { AssetDef, WorldState } from "../../src/engine";
 import { phase0Bands, check, UNIVERSE_VOL_BANDS } from "./bands";
 
@@ -161,7 +161,7 @@ function runSeed(seed: string): SeedResult {
   closes.forEach((c, i) => {
     if (firstRec[i] !== 0 || delistRec[i] !== Infinity) return;
     if (universe) aliveShare[defs[i]!.id] = aliveRets(c, defs[i]!.floor).length / logRets(c).length;
-    volRatio[defs[i]!.id] = (sd(logRets(c)) * Math.sqrt(cfg.daysPerYear)) / expectedVol(defs[i]!);
+    volRatio[defs[i]!.id] = (sd(logRets(c)) * Math.sqrt(cfg.daysPerYear)) / expectedVol(defs[i]!, undefined, closePrint(cfg));
   });
   const gxCagr = Math.pow(gx[gx.length - 1]! / gx[0]!, 1 / years) - 1;
 

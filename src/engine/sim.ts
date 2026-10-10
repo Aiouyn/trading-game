@@ -1,5 +1,5 @@
 import { Rng, seedStream } from './rng';
-import { DEFAULT_VOLUME, defaultConfig, idioLoading } from './config';
+import { DEFAULT_VOLUME, defaultConfig, idioLoading, regimeShockSd } from './config';
 import { clearOrders, tallyToday } from './trading';
 import { addOwnFlow, ECO_POOLS, ecoDayInput, ecologyDay, ecologyOn, ecologyWeight, FULL_MODE_DEFAULTS, initEcology, reanchorEcology } from './ecology';
 import { catalystDay, peadDrift } from './catalysts';
@@ -100,6 +100,8 @@ function advance(state: WorldState): StepResult {
   const dt = 1 / (cfg.ticksPerDay * cfg.daysPerYear);
   const sqrtDt = Math.sqrt(dt);
   const dayDt = 1 / cfg.daysPerYear;
+  // share of a jump the price prints on the tick it lands (the rest drifts in through the value pull)
+  const jumpPrint = cfg.jumpImmediate ?? 1;
   const macro = new Rng(state.macroRng);
 
   let regime: RegimeId = state.regime;
@@ -152,7 +154,8 @@ function advance(state: WorldState): StepResult {
   }
   // GARCH standardizes yesterday's return by yesterday's regime vol, so a regime switch
   // alone never inflates h (otherwise alpha * volMult^2 + beta > 1 in crises and h explodes)
-  const prevVolMult = cfg.regimes[tradingRegime(state.worldEvents, state.tick, state.regime)].volMult;
+  const prevRegimeDef = cfg.regimes[tradingRegime(state.worldEvents, state.tick, state.regime)]!;
+  const prevVolMult = prevRegimeDef.volMult;
 
   // ---- common factor shocks (fixed draw order: market, crypto, then sectors sorted) ----
   const zMarket = macro.normal();
@@ -195,13 +198,22 @@ function advance(state: WorldState): StepResult {
 
     // day boundary: GARCH(1,1) update on the day's standardized return, reset the open
     if (newDay) {
-      const dayRet = prev.lnP - prev.lnOpen - prev.dayJump;
-      const z = dayRet / (def.vol * prevVolMult * Math.sqrt(dayDt));
+      // GARCH reads the day's diffusive innovation only: the sum of the per-tick shocks (dayDiff, booked below). It is
+      // not the day's close-to-close return, which also holds the value pull toward lnV, the news that prints or drifts
+      // in over the half-life, post-earnings drift and (full ecology) the closing auction. Each of those is a function
+      // of the price path, not of the shock, so it biased E[z^2] / E[h] (measured, V1-PHASE1 F1): a 0.5-day stablecoin
+      // carried the unprinted part of each depeg into the input (c 26 on AUSD) and pinned h at its cap.
+      // Standardized by the regime's full conditional sd (volMult and the loading split, regimeShockSd), so for any
+      // asset E[z^2 | h] = h exactly and the GARCH mean is E[h] = 1: E[h] = (1 - alpha - beta) / (1 - beta - alpha c), c = 1.
+      // a zero-vol asset has no diffusive innovation to standardize: z = 0 (not 0/0), so h decays toward 1
+      const sdDay = def.vol * prevVolMult * regimeShockSd(def, prevRegimeDef) * Math.sqrt(dayDt);
+      const z = sdDay > 0 ? (prev.dayDiff ?? 0) / sdDay : 0;
       const omega = 1 - cfg.garchAlpha - cfg.garchBeta;
       a.h = clamp(omega + cfg.garchAlpha * z * z + cfg.garchBeta * prev.h, cfg.garchMin, cfg.garchMax);
       a.lnOpen = prev.lnP;
       a.haltedToday = false;
       a.dayJump = 0;
+      a.dayDiff = 0;
     }
 
     // diffusive shock: factors + fat-tailed idiosyncratic noise
@@ -257,11 +269,12 @@ function advance(state: WorldState): StepResult {
     const mu = def.drift + def.cycleBeta * rg.equityDrift + carryOf(def, rates) - (cfg.jumpCompensation ? jumpCompensator(def, jp) : 0)
       + (def.seasonal ? seasonalDrift(def.seasonal, tick, cfg.ticksPerDay, cfg.daysPerYear) : 0);
     const diff = sigma * sqrtDt * shock;
+    a.dayDiff = (a.dayDiff ?? 0) + diff; // the day's diffusive innovation (GARCH input, see the day boundary above)
     a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + lnVScale * perm * diff + jp * jump + catalyst + wm.value;
 
     // market price: same drift, pull toward V, full shock and jump
     const kappa = LN2 / (def.halfLifeDays / cfg.daysPerYear);
-    const r = (mu - 0.5 * sigma * sigma) * dt + kappa * (a.lnV - prev.lnP) * dt + diff + (cfg.jumpImmediate ?? 1) * jump + catalyst + wm.price;
+    const r = (mu - 0.5 * sigma * sigma) * dt + kappa * (a.lnV - prev.lnP) * dt + diff + jumpPrint * jump + catalyst + wm.price;
 
     a.rng = rng.state();
     const halted = prev.haltUntil !== -1;

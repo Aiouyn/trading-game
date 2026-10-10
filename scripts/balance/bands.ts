@@ -9,7 +9,7 @@ const Q = "Quant Phase 0 proposal (adopted by Ledger)";
 /** A class-specific vol band (universe only). `why` is the mechanism that moves the ratio, written next to the number. */
 export type VolBand = { min: number; max: number; why: string };
 
-const STABLE_WHY = "stablecoin pulled back to $1 within half a day (halfLifeDays 0.5): shocks and depeg jumps mostly revert before the next close, so close-to-close vol keeps only part of the jump variance that expectedVol counts in full";
+const STABLE_WHY = "stablecoin pulled back to $1 within half a day (halfLifeDays 0.5). Measured on the GARCH fix (V1-PHASE1 F13, OPEN, Ledger): realized / expected 0.52 at 24 ticks (20 seeds) and 0.31 at 720 ticks (4 seeds), so the close prints well below the 0.5 that closePrint assumes in full ecology. The old band (0.6-0.9) was fitted to a GARCH artifact (h pinned at its cap by the unprinted depeg, measured 0.79); it is kept, and it FAILS, until Ledger sets a band at 720 ticks";
 
 /**
  * Meme floor pinning. A price that bleeds to its 1e-7 floor is pinned there, and a pinned day has zero return, so the
@@ -29,14 +29,17 @@ function floorPinned(alive: number): VolBand {
  * unchanged: run.ts passes this table only with --universe. Each entry names the mechanism, so a reader can see why the
  * band is lower than the Phase 0 0.85, rather than a number widened to pass.
  *
- * Not banded here, so they stay FAIL on the universe run until their mechanism is isolated: commodities NGAS, LITH, COFF;
- * forex NHK, MRE, KYN; biotech GNOM, NRVA (all 0.81-0.85 on 20 seeds). A 4-seed check with the ecology off did not move
- * NGAS, COFF or the forex pairs back to 1, so the closing pools (ecology.ts) are not the cause. A band here with no mechanism
- * would be a number widened to pass.
+ * F1 (calibration closure): commodities NGAS, LITH, COFF, forex NHK, MRE, KYN and biotech GNOM, NRVA were 0.81-0.85 on 20
+ * seeds with no band. Measured causes (V1-PHASE1 F1): (1) GARCH read the close-to-close day return, which holds the value
+ * pull, news and (full ecology) the auction: E[z^2]/E[h] for NRVA was 1.27 with ecology off and 0.95 with it (8 seeds).
+ * The GARCH now reads only the diffusive shocks (AssetState.dayDiff), so E[z^2 | h] = h by construction (measured c 0.95-1.03
+ * for 13 names). (2) GARCH standardized by volMult alone, so idio-heavy names had E[h] 0.86-0.95 (regimeShockSd adds the
+ * loading split). (3) expectedVol counted the full jump, but the close prints closePrint (ecology). The eight F1 names pass
+ * the general 0.85-1.4 band now (20 seeds, medians 0.92-1.11). FLUX passes it too (median 0.976), so its old class band is
+ * gone. AUSD does not: see STABLE_WHY.
  */
 export const UNIVERSE_VOL_BANDS: Record<string, VolBand> = {
-  AUSD: { min: 0.25, max: 0.45, why: STABLE_WHY },
-  FLUX: { min: 0.4, max: 0.6, why: STABLE_WHY },
+  AUSD: { min: 0.6, max: 0.9, why: STABLE_WHY },
   BONK: floorPinned(0.2),
   FROG: floorPinned(0.296),
   MOON: floorPinned(0.442),

@@ -131,14 +131,52 @@ Command: `npx tsx scripts/load/world-load.ts 4000 120`. Output: `scratchpad/load
 Gate: tick p99 under 2,500 ms: PASS. The script prints p99 for the tick total only; p50 and p95 of the total are not in the output.
 Not run in this pass: `scripts/load/socket-load.mjs` (4,000 live WebSocket clients). Last measured in b402371, before the Phase 1 engine work.
 
+### 3k. Calibration closure (F1, F2, F11, F12; branch p1/calib)
+Engine changes: `sim.ts` GARCH input is `dayDiff`, the sum of each tick's diffusive shock (replaces `lnP - lnOpen - dayJump`, and the `dayGap` bookkeeping of 754f3ab). Standardized by `regimeShockSd` (volMult times the loading split). `ecology.ts` `closePrint` is the blend `(1 - w) x jumpImmediate + w x newsPrint`. The bare path changes (GARCH input and loading split), so it is pinned by a golden test (`calibration.test.ts`, fingerprint fa2ca82e, 400 days, seed golden-bare).
+
+Measured decomposition, universe, 8 seeds x 5 game years, tpd 24, world events on (`c` = mean z^2 / mean h; 1 = GARCH unbiased; scratch diagnostic, not committed):
+
+| Name | c, 9dede3e HEAD (full) | c, now (full) | E[h], HEAD | E[h], now | realized/expected, 20 seeds now |
+|---|---|---|---|---|---|
+| NGAS | 1.024 | 1.000 | 0.946 | 1.042 | 0.967 |
+| LITH | 0.999 | 0.990 | 0.895 | 0.975 | 0.958 |
+| COFF | 1.029 | 1.000 | 0.919 | 0.998 | 0.951 |
+| NHK | 1.004 | 0.968 | 0.907 | 0.920 | 0.924 |
+| MRE | 1.039 | 1.029 | 1.013 | 1.103 | 1.011 |
+| KYN | 0.987 | 0.968 | 0.855 | 0.914 | 0.980 |
+| GNOM | 1.037 | 0.989 | 0.921 | 0.988 | 1.111 |
+| NRVA | 1.059 | 0.997 | 0.933 | 1.014 | 1.090 |
+| AUSD | 30.4 | 0.954 | 3.700 | 0.862 | 0.520 (FAIL, F13) |
+| FLUX | 395 | 0.989 | 5.826 | 1.003 | 0.976 |
+| SYN | 1.029 | 1.000 | 1.001 | 1.036 | 1.062 |
+
+Ecology off, 8 seeds, HEAD vs 754f3ab vs now: NRVA c 1.265 (HEAD) and 1.165 (754f3ab, dayGap residual), now 1.00 by construction. AUSD c 2.07 (HEAD) and 3.01 (754f3ab, pinned h), now 1.00 by construction. The eco-off ratio is rms over seeds, not the median band statistic.
+
+| Measure | 9dede3e (HEAD) | 754f3ab | p1/calib (now) |
+|---|---|---|---|
+| Universe vol bands, 20 seeds, tpd 24, F1 names | 0.811 to 0.847 (FAIL) | 0.924 to 1.011 (PASS) | 0.924 to 1.111 (PASS) |
+| Universe, all 183 vol bands, 20 seeds | 8 FAIL | 0 FAIL | 1 FAIL: AUSD 0.520 vs [0.6, 0.9] (F13) |
+| Bare vol bands, 20 seeds | all PASS | all PASS | all PASS (0.96 to 1.13) |
+| Bare vol bands, 60 seeds | all PASS | all PASS | all 17 PASS |
+| Bare bh_beats_momentum_share, 60 seeds | 0.933 FAIL | 0.933 FAIL | 0.950 FAIL (F15, pre-existing) |
+| value_gap_p95 median, 60 seeds | 0.0479 | 0.0485 | 0.048638 (PASS; baseline 0.0486) |
+| value_gap_p95_max, 60 seeds | 0.624 | 0.862 FAIL | 0.842 FAIL (F14) |
+| Universe gates, 720 ticks, 4 seeds | 4 of 7 PASS | 5 of 7 | 4 of 7 PASS (IC1 FAIL, IC63 FAIL, vol ratio FAIL on AUSD only) |
+| Universe gates, 24 ticks, 4 seeds | (not in record) | (not in record) | 5 of 7 PASS (dailyAc 0.0425 PASS; IC1 FAIL; IC63 0.0136 PASS) |
+| Crowd, 100 x $250k, 60 seeds, bare, full ecology | not run | 0.383 vs 0.517 (reviewer rerun) | 0.383 vs 0.550 PASS; $25M single 0.400 PASS; $250k NOT EVALUATED (no crowded period) |
+| Crowd, 100 x $250k, 60 seeds, bare, live | not run | not run | 0.317 vs 0.483 PASS; $25M single 0.300 PASS; $250k NOT EVALUATED |
+| Bare gates, 720 ticks, 8 seeds | 6 of 7 PASS | 7 of 7 | not rerun (see F2) |
+
+Notes: the calib-commit crowd numbers came from a reviewer rerun (`--price-path full`, 60 seeds, 0.383 vs 0.517); with the GARCH change the uncrowded beat moved to 0.550, so both are reported. `scripts/ecology/crowd-hunt.ts` supports only `value_gap` and `mom63`, so the stacked-signal row is not run. The learnability row and the fingerprint row were not rerun in this pass.
+
 ## 4. Known failures and open decisions
 
 Owners are proposed by domain: Quant (engine and calibration), Ledger (gate scope, pricing and spec decisions), Tape (hunts, measurement), Forge (integration, ports, load). The lead assigns them.
 
 | ID | Item | Measured root cause | Proposed owner | Status |
 |---|---|---|---|---|
-| F1 | Vol bands FAIL on 8 universe assets at 20 seeds: NGAS, LITH, COFF (0.844 to 0.846), NHK, MRE, KYN (0.813 to 0.847), GNOM, NRVA (0.811, 0.834) | Not isolated. An ecology-off check on 4 seeds did not move NGAS, COFF or the forex pairs to 1, so the closing pools are not the cause. | Quant | Open |
-| F2 | Universe ecology gates at tpd 24: daily autocorr 0.052, 1-day rank IC 0.014 (both FAIL); vol ratio 0.388 to 3.187 at 8 seeds | Calibration was done at 720 ticks a day; the universe runs at 24. The bond and stablecoin fixes (149bcec) were checked on vol bands only. The autocorr and rank IC rows were not re-measured. | Quant | Open |
+| F1 | Vol bands FAIL on 8 universe assets at 20 seeds, 0.811 to 0.847 (NGAS, LITH, COFF, NHK, MRE, KYN, GNOM, NRVA), with ecology off too | **Fixed in the model (p1/calib), measured per component (3k).** (1) GARCH read the close-to-close day return, which holds the value pull, news and (full ecology) the auction; E[z^2]/E[h] was 1.27 for NRVA with ecology off. Now GARCH reads the diffusive shocks only (`dayDiff`), so E[z^2 given h] = h by construction (measured 0.95 to 1.03 for 13 names). (2) GARCH standardized by volMult only, so idio-heavy names had E[h] 0.86 to 0.95; `regimeShockSd` adds the loading split. (3) expectedVol counted the full jump; the close prints `closePrint`. 20 seeds now: the eight names 0.924 to 1.111 (PASS). | Quant | Fixed; side effects F13, F14 |
+| F2 | Universe ecology gates: daily autocorr, 1-day rank IC, 63-day rank IC | **Open.** At 720 ticks, 4 seeds: daily autocorr 0.035 PASS; 1-day IC 0.0153 FAIL (band -0.05 to 0); 63-day IC 0.0457 FAIL (band 0 to 0.04); vol ratio FAIL only on AUSD (F13). At 24 ticks, 4 seeds: daily autocorr 0.0425 PASS (was 0.052 at HEAD), 1-day IC 0.0145 FAIL, 63-day IC 0.0136 PASS. **Tick sensitivity:** the 63-day IC is tick sensitive (0.014 at 24, 0.046 at 720; s.e. 0.002 and 0.007), so the earlier "tick-insensitive" claim holds for the 1-day IC only. Cause of the IC signs not found; fadeK 0.3 still not adopted (universe bh_beats_contrarian 0.95, 20 seeds). | Quant | Open (1-day and 63-day IC) |
 | F3 | Hale beat share 83% against 70% | Equal-weight 3-stock baskets, rebalanced on this schedule, beat GX buy-and-hold on 85% of seeds at random (control in 1317d60). The failure is basket construction against a cap-weighted benchmark, not the value read. | Ledger with Quant (spec decision on basket rule or benchmark) | Open; lead decided to record, not change |
 | F4 | Vetch median x0.186 (below 0.4) | Top-3 crypto basket bleeds with the memecoins. | Quant (quant-npc-funds spec) | Open |
 | F5 | AURH full-ecology peak ratio 2.74 on tape-10 (band 0.75 to 1.5, 20 seeds) | Not analysed. The game-path gate covers tape-01 to tape-05 only. | Ledger (gate scope), Quant | Open |
@@ -147,9 +185,11 @@ Owners are proposed by domain: Quant (engine and calibration), Ledger (gate scop
 | F8 | Close response to own flow not bounded by the shared tally | Ecology close is Y x sigma(h) x sqrt(own ADV) / depth, with own flow not damped by capacity; depth floor 0.4. FROG day 137: +5.88 log, own flow 5.83, vol state h 6.4. | Quant | Open |
 | F9 | Rank below the 5e10 threshold not measured | At huge sizes rank is top tier from the start, so it is not fooled there. | Tape | Open |
 | F10 | Realize-to-flat depends on the sell schedule | Only the even daily split (3 ADV per tick cap) was measured. | Tape | Open |
-| F11 | value_gap_p95 baseline is self-referential | Needs the first PC 60-seed median, which the branch does not have. | Tape | Open |
-| F12 | Learnability and crowd-hunt rows not evaluated | Crowded beat share at $5k; stacked at most 0.70 and fingerprint; N=50 crowd at $250k. Gate tables are 8 seeds, not the 60-seed release gate. | Ledger, Tape | Open |
-| F13 | Band changes for stablecoins and meme coins (149bcec) | The bands follow the mechanism (half-life reversion, floor pinning) and were not measured before the change. | Ledger (review) | Open |
+| F11 | value_gap_p95 baseline is self-referential | **Fixed.** Baseline 0.0486 (exact 0.048638): the 60-seed median on the current engine (`hunts.ts --seeds 60`, hunts-summary.json). The 20-seed value and the 0.0485 of 754f3ab are superseded. | Tape | Fixed |
+| F12 | Learnability and crowd-hunt rows not evaluated | **Crowd gate done, both paths, bare catalog, 60 seeds, 100 x $250k.** Full ecology: crowded beat 0.383 vs uncrowded 0.550 (PASS: < 0.55 and <= 0.50); $25M single 0.400 vs 0.550 (PASS); $250k single NOT EVALUATED (no crowded period). Live: 0.317 vs 0.483 (PASS); $25M 0.300 (PASS); $250k NOT EVALUATED. Stacked row: not run, `crowd-hunt.ts` supports only `value_gap` and `mom63`. Learnability and fingerprint rows not rerun in this pass. | Ledger, Tape | Crowd done; stacked unsupported |
+| F13 | Band changes for stablecoins and meme coins (149bcec, 754f3ab) | **Open, Ledger decision.** AUSD: realized/expected 0.520 at 24 ticks (20 seeds) and 0.312 at 720 ticks (4 seeds). The 0.79 that 754f3ab recorded came from the pinned-h artifact (h at its cap for 13% of days), which is gone. The band [0.6, 0.9] is kept and FAILS; no new band is proposed, because the value depends on the tick rate. FLUX: general band passes (0.976 at 20 seeds, median); its class band is removed. Floor-pinned meme bands unchanged. | Ledger (review) | Open (AUSD FAIL) |
+| F14 | value_gap_p95_max (X2, never above ln 2) FAILS on the bare engine at 60 seeds: 0.842 (SYN tape-04); 0.702 (SYN tape-20); 0.624 at HEAD | **Open, Ledger decision; blocks merge.** Median SYN p95 0.392 (HEAD) to 0.451 now; the regimeShockSd fix moved SYN's realized vol to its target (ratio 1.062 at 20 seeds; 0.93 to 1.01 at HEAD). The tail belongs to a 110%-vol token with 12 jumps a year. Not widened. Options for Ledger: accept the tail for SYN, or change SYN's spec (half-life, jumps). | Ledger (decision), Quant | Open |
+| F15 | Bare bh_beats_momentum_share (band 0.1 to 0.9) | **Pre-existing, unchanged in kind.** 0.950 at 60 seeds on this engine (0.933 at HEAD and 754f3ab); 0.900 at 20 seeds, which is why the 20-seed run passes. | Tape, Ledger | Open (pre-existing) |
 
 Claimed fixed in db480a0, not re-reviewed in this pass: the hunts review items (reproducibility, peak wording, sign-flip counts, self-impact gate disclosure, 60-seed run). The a400727 numbers that the review could not reproduce are replaced by the db480a0 table.
 
