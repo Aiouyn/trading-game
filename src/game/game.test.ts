@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { createWorld, defaultConfig, openAccount, placeOrder, step } from '@/engine';
 import { clockLabel, clockParts, dayIndex } from './clock';
 import { compactMoney, money, price, signedChange, signedMoney, signedPct } from './format';
 import { candles, createHistory, dayOpen, ensureVolume, record, sparkline } from './history';
