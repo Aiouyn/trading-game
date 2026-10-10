@@ -115,12 +115,15 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   const roundQ = (x: number) => (whole ? Math.floor(x) : Math.floor(x * 1e4) / 1e4);
   const shorting = side === 'sell' && qtyN > Math.max(0, held) + 1e-9;
 
+  // the cap's percent and the rank that lifts it come from the same constant the server reads (SIMPLE_MODE), never typed here
+  const firstCapVars = { pct: Math.round(SIMPLE_MODE.capFraction * 100), rank: t('rank.' + SIMPLE_MODE.untilRank) };
+
   // Every refusal says why (the ticket never just greys out): the first failing rule wins.
   let invalid: Refusal | null = null;
   if (locked) invalid = { key: 'broker.refuse.license', vars: { tier: t(def.assetClass === 'stock' || def.assetClass === 'crypto' ? 'broker.tier.retail' : 'broker.tier.pro') } };
   else if (qtyN <= 0) invalid = null;
   else if (whole && !Number.isInteger(qtyN)) invalid = { key: 'broker.refuse.whole' };
-  else if (side === 'buy' && simpleCap && qtyN * mid > capCash + 1e-6) invalid = { key: 'broker.firstCap' };
+  else if (side === 'buy' && simpleCap && qtyN * mid > capCash + 1e-6) invalid = { key: 'broker.firstCap', vars: firstCapVars };
   else if (side === 'buy' && !margin && total > acct.cash + 1e-6) invalid = { key: 'broker.refuse.cash', vars: { total: money(total), cash: money(acct.cash) } };
   else if (side === 'buy' && margin && notional > bp + Math.max(0, -held) * refPrice + 1e-6) invalid = { key: 'broker.refuse.bp', vars: { need: money(notional), bp: money(bp) } };
   else if (shorting && !acct.canShort) invalid = held > 0 ? { key: 'broker.refuse.fewer' } : { key: 'broker.refuse.short' };
@@ -214,7 +217,7 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
                 </button>
               ))}
             </div>
-            {simpleCap && side === 'buy' && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap')}</p>}
+            {simpleCap && side === 'buy' && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap', firstCapVars)}</p>}
 
             {(type === 'limit' || type === 'stop_limit') && <NumberField className="mt-2" label={t('order.limit')} value={limit} onChange={setLimit} suffix="$" testId="order-limit" />}
             {(type === 'stop' || type === 'stop_limit') && <NumberField className="mt-2" label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />}

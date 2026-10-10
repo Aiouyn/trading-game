@@ -68,10 +68,12 @@ variable wins, so tests and e2e worlds pass their own seeds. The live seed is ne
 These rulings were made by the lead while the three Phase 3 slices (A1 privacy and explain, A2 ledger and learning, A3 client
 sandbox) were merged into v1. Each is pinned by a test named in brackets.
 
-- **R1 (H6): the folded Players flow is not isolated by public data.** On a folded day the depth's Retail already holds the
-  folded player flow (depthByPool). Separating it needs the Retail pool's own noise draws, which come from the server-only
-  world seed (P5). A one-dimensional solve on public data (depth, explainMove, the public day frames) therefore leaves an error
-  comparable to the Retail noise scale, and the own flow is not recovered. [src/engine/fold-solve.test.ts]
+- **R1 (H6), narrowed: one naive public-data attacker does not recover the folded Players flow.** On a folded day the depth's
+  Retail already holds the folded player flow (depthByPool). The tested attacker solves own = Retail minus the mean of the
+  prior public Retail readings, and its error is on the scale of the Retail noise, so the own flow is not recovered by that
+  solve. This ruling covers that attacker only. It does not claim that no public-data solve can isolate the folded flow, and
+  the source of the Retail noise draws (the server-only world seed, P5) is design, not something the test asserts.
+  [src/engine/fold-solve.test.ts]
 - **R2: drift attribution.** Company alpha, carry and seasonal drift belong to Company noise. The regime's equity drift
   (cycleBeta x equityDrift) is a market move and belongs to Market. [src/engine/regime-drift.test.ts, src/engine/explain-split.test.ts]
 - **R3: explainTrade's ledger.** The optional fourth argument of explainTrade (the trade ledger reader) is accepted. The world

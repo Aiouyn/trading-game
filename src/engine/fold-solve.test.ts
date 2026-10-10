@@ -6,11 +6,12 @@ import { openAccount, placeOrder } from './trading';
 import type { WorldState } from './types';
 
 /**
- * R1 (H6): the folded Players flow cannot be isolated from public data. On a folded day the depth's Retail figure already
- * holds the folded player flow, and separating it needs the Retail pool's own noise draws, which come from the server-only
- * world seed (P5). This test plays the attacker: it sees only depthByPool, explainMove and the public day frames (never the
- * seed, never the ecology log's own-flow field) and tries the one-dimensional solve own = Retail - baseline, where the
- * baseline is the mean of the public Retail readings so far. The ecology log is read only to score the attacker.
+ * R1 (H6), narrowed: one naive public-data attacker does not recover the folded Players flow. On a folded day the depth's
+ * Retail figure already holds the folded player flow. This test plays one attacker: it sees only depthByPool, explainMove
+ * and the public day frames (never the world seed, never the ecology log's own-flow field) and tries the one-dimensional
+ * solve own = Retail - baseline, where the baseline is the mean of the public Retail readings so far. The ecology log is read
+ * only to score the attacker. It refutes this attacker and no other: a stronger public-data solve is not ruled out here, and
+ * that the Retail noise draws come from the server-only seed (P5) is not asserted by this test.
  */
 
 const TPD = 24;
@@ -60,7 +61,7 @@ function sd(xs: number[]): number {
   return Math.sqrt(mean(xs.map((x) => (x - m) ** 2)));
 }
 
-describe('R1: the folded lone-account flow is not recovered from public data', () => {
+describe('R1: the one-dimensional public solve does not recover the folded lone-account flow', () => {
   it('the one-dimensional solve on public Retail leaves an error on the scale of the Retail noise, not the own flow', () => {
     const s = lonelyFold('fold-solve');
     // public: the depth's Retail on each closed day (folded, so it already holds p0's flow), and the window's cause rows

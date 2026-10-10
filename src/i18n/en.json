@@ -259,7 +259,7 @@
   "broker.earnings.explain": "Reports move the stock by the size of the surprise. After a big report, the move tends to keep drifting for a few days.",
   "broker.earningsBadge": "◆ Earnings {when}",
   "broker.fee": "Fee {rate}",
-  "broker.firstCap": "Simple mode caps a buy at 20% of cash until Hustler.",
+  "broker.firstCap": "Simple mode caps a buy at {pct}% of cash until {rank}.",
   "broker.fund.adv": "Daily volume",
   "broker.fund.cap": "Market value",
   "broker.fund.dividend": "Dividend",

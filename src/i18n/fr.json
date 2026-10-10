@@ -259,7 +259,7 @@
   "broker.earnings.explain": "Les résultats font bouger le titre selon l’ampleur de la surprise. Après un gros résultat, le mouvement tend à se prolonger quelques jours.",
   "broker.earningsBadge": "◆ Résultats {when}",
   "broker.fee": "Frais {rate}",
-  "broker.firstCap": "Le mode simple limite un achat à 20 % des liquidités jusqu’à Hustler.",
+  "broker.firstCap": "Le mode simple limite un achat à {pct} % des liquidités jusqu’à {rank}.",
   "broker.fund.adv": "Volume quotidien",
   "broker.fund.cap": "Capitalisation",
   "broker.fund.dividend": "Dividende",

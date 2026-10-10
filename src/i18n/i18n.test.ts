@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest';
 import en from './en.json';
 import fr from './fr.json';
 import { translate } from './index';
+import { RANKS } from '@/content/lifestyle';
 
 describe('i18n', () => {
+  it('the English rank names are the RANKS table the server reads, so a rename cannot desync the strings', () => {
+    for (const r of RANKS) expect((en as Record<string, string>)[`rank.${r.id}`]).toBe(r.name);
+  });
+
   it('interpolates variables and picks plural forms', () => {
     expect(translate('en', 'common.shares', { count: 1 })).toBe('1 share');
     expect(translate('en', 'common.shares', { count: 3 })).toBe('3 shares');

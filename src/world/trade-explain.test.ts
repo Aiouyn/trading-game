@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Rng, ecoArchive, gameDayOfTick, seedStream, TRADE_REALIZED_TOLERANCE, type Side } from '@/engine';
+import { Rng, gameDayOfTick, seedStream, TRADE_REALIZED_TOLERANCE, type Side } from '@/engine';
 import { applyCommand, createGame, stepGame } from './game';
 import { TPD, credit } from './core';
 import { explainTradeFor, ledgerOf } from './ledger';
@@ -88,9 +88,17 @@ describe('explainTradeFor: a trip from the trade ledger', () => {
     }
     const trips = ledgerOf(g, 'u1')!.trips;
     expect(trips.length).toBeGreaterThan(5);
-    for (const t of trips.filter((x) => x.explainable)) {
+    const explainable = trips.filter((x) => x.explainable);
+    expect(explainable.length).toBeGreaterThan(0);
+    for (const t of explainable) {
       expect(Math.abs(t.realizedPnl - (t.midPnl + t.slippagePnl - t.feesPaid))).toBeLessThanOrEqual(TRADE_REALIZED_TOLERANCE);
     }
+    // the last explainable trip of the random run, on its closed day, explains to its ledger realized P&L
+    const last = explainable.at(-1)!;
+    runPastDay(g, gameDayOfTick(last.closeTick, TPD));
+    const ex = explainTradeFor(g, 'u1', last.id);
+    expect(ex.roundTripId).toBe(last.id);
+    expect(Math.abs(ex.total - last.realizedPnl)).toBeLessThanOrEqual(TRADE_REALIZED_TOLERANCE);
     // a trip whose entry predates the ledger: the ledger is dropped and rebuilt over an open position
     const h = game('explain-prior');
     join(h, 'u2', 300_000);
@@ -103,7 +111,5 @@ describe('explainTradeFor: a trip from the trade ledger', () => {
     const pre = ledgerOf(h, 'u2')!.trips.at(-1)!;
     expect(pre.explainable).toBe(false);
     expect(() => explainTradeFor(h, 'u2', pre.id)).toThrow(/cannot be explained/);
-    // the archive covers the game's closed days, so a ledger trip of a closed day is explainable from it
-    expect(ecoArchive(g.market).length).toBeGreaterThan(0);
   });
 });
