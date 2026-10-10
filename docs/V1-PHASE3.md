@@ -128,7 +128,7 @@ Summary of the Phase 3 lead decisions, by ID. "On v1" gives the commit where the
 | `npm run build` | PASS (Next.js 16.4.0, Turbopack). |
 | `npm run e2e` (with `E2E_BUILD_CMD="npx next build --webpack"`, ports 3211 and 8801) | PASS. 495 tests: 192 passed, 0 failed, 303 skipped (exit 0, 4.1 min). The skips are by design: each spec skips in the projects it does not cover (desktop-only specs on phone, phone-only on desktop, shell specs per viewport). |
 
-Explicit 60 s timeouts (`timeout: 60_000` or `}, 60_000)`), now redundant with the suite-wide 60 s but harmless. The count is 56 lines in 19 test files:
+Explicit 60 s timeouts (`timeout: 60_000` or `}, 60_000)`), now redundant with the suite-wide 60 s but harmless. The count is 56 per-test lines in 19 test files under `src/` and `scripts/` (the roots vitest runs; re-counted at `ee80574`, where the stage B merges added none). Two more forms are not in the count. A suite-level `vi.setConfig({ testTimeout: 60_000 })` in `src/world/funds/funds.test.ts` (from A4, `6c63fb3`, already on v1 at `3d43d22`) gives that whole file a 60 s timeout. The table above does not list it. The `docs/team/engine-staging/` copies carry five more explicit timeouts, but vitest does not run them:
 
 | File | Count |
 |---|---|

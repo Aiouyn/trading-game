@@ -1,7 +1,7 @@
 # V1 Phase 4: status
 
-Scope: Phase 4 of the V1 plan (companies, managed shops, player-run funds), as set in the Phase 4 decisions file (`DECISIONS.md` sections 1 to 3) and `ROADMAP.md` 2.2. Only stage A is on v1 so far.
-Branch: `v1`. Status date: 2026-10-10. Measured at `3d43d22` (v1 after the last stage A merge). This file was committed after that.
+Scope: Phase 4 of the V1 plan (companies, managed shops, player-run funds), as set in the Phase 4 decisions file (`DECISIONS.md` sections 1 to 3) and `ROADMAP.md` 2.2. Stage A (world layer) and stage B (the company engine hooks and the tuning) are on v1.
+Branch: `v1`. Status date: 2026-10-10. Stage A was measured at `3d43d22`. Stage B and the checks in section 5.1 were measured at `ee80574` (v1 after the `p4/a2` and `p4/tune` merges). This file was committed after that.
 Status words as in `docs/V1-PHASE1.md` and `docs/V1-PHASE3.md`: **Done**, **Partial**, **Not built**, **Deferred**, **Decided**.
 
 ## 1. Stage A merged
@@ -19,6 +19,15 @@ Conflict resolutions in `p4/a4`:
 - `game.ts`: the day runs `companyDay` and then `fundsDay`. Both command families are routed.
 - `types.ts`: `GameState` has both optional fields (`companies`, `funds`), and the command union has both sets.
 - `court.ts`: the victim's share of a fine stays `creditExternal` (the p3/c2 rule). The VCF advance on a fund verdict was first credited into the fund account, which raised the fund's NAV and so the manager's funds claim. Stage B moved it to the non-manager investors (section 4.4).
+
+### 1.1 Stage B merged
+
+Stage B is two branches: the company engine hooks (`p4/a2`, section 3a) and the tuning of the managed-shop gates (`p4/tune`, section 2.2a). Both merged `--no-ff` into v1 with no conflicts. Neither branch had uncommitted work in its worktree at merge time.
+
+| Branch | Head merged | Merge commit | Notes |
+|---|---|---|---|
+| `p4/a2` company engine hooks | `f6ed59c` | `3dfbc2a` | Clean merge. Two commits: `3fcd667` (hooks) and `f6ed59c` (review fixes). |
+| `p4/tune` shop gates | `f634f01` | `ee80574` | Clean merge. Two commits on top of `f3d03f3`: the shop gates and the funds VCF advance, then the gate logic under vitest and the crew clamp test. |
 
 ## 2. A1: managed shops (`p4/a1`, commit `4b77962`)
 
@@ -161,6 +170,33 @@ Tech, D0 790, 252 game days, 24 seeds: 1.902% of capital per game day (target 1.
 - Known proposals, not in the spec: PE_s and EVS_s are flat; the cost-project gain, the NPC price floor, the plant C0 and multiplier, overtime at 1.5 x Ops wage per unit, and the NPC investor pool sizes.
 - The sector shock is a world stream, not the engine's `sectorRng`. A2 should bind them (SPEC:197).
 - Out of stage A: debt, covenants, dividends, buybacks, IPO, plans, windows, CEO, takeover, antitrust, executives, board, franchising, supply deals and the lint boundary (B or C).
+
+### 3a. A2: company engine hooks (`p4/a2`, commits `3fcd667` and `f6ed59c`)
+
+The engine enforces six generic hooks for player companies. The world layer decides the numbers (DECISIONS C2, hooks 1 to 6). Rule numbers live in `src/content/company.ts` (`COMPANY.trading`) and reach the engine through `WorldConfig.companyRules`. `DEFAULT_COMPANY_RULES` equals them (a test pins this). Saves stay plain JSON, and every new field is optional, so old saves load.
+
+| Hook | Where | What it does |
+|---|---|---|
+| 1. Value source | `AssetDef.valueSource` `'company'` (`companyPrintShare`, default 1), `src/engine/types.ts` | A company's value moves only through `printCompanyValue`, on the next tick. The value takes the full print. The price takes `companyPrintShare` at once. The ecology close prints it through the value pool, like news. No diffusive value shock, drift, jumps, catalysts, world-event value moves or options (`tradeOption` refuses). The price still diffuses and is pulled to value. |
+| 2. IPO and delisting | `listCompanyStock` appends the asset at the IPO price (`appendAsset`); delisting goes through `delistAsset` | A delisting ends live plans as `terminated`. |
+| 3. Windows and lockups | `src/engine/restrictions.ts` | Covered accounts trade only on their open days. `placeOrder` refuses `closedWindow` (with `rejectUntil`, the next open day) and `lockup`. A covered order accepted in the last 5 open days carries `windowClosing`. Open covered orders are cancelled at the first tick of a closed day (a `restricted` event). Options on a covered underlying are refused in closed windows. Plans skip the window, not the lockup. |
+| 4. Sell-only plans | `src/engine/programs.ts` | `commitPlan` refuses `planSellOnly`, `planFloorTooHigh`, `planLimit`, `planInLockup`, `planTooSoon`, `planUnfunded`, `planBanned`, `planExists` and `planBadSpec`. `editPlan` and `cancelPlan` always refuse `planImmutable`. Escrow is the locked shares. A plan sells out of escrow only, as a limit at `minPrice`. A price skip is held to end day + 63, and a halt or a volume release ends the hold. Events `planSkipped` and `planEnded`. Manual sells over the free shares are refused (`stacking`). Program ids are accepted only from the engine's own runner (`placeProgramOrder`). A buy that names a plan is `planSellOnly`, and any other program route is `programOrderReserved`. |
+| 5. Buybacks | `src/engine/programs.ts` | `addBuyback` refuses `buybackTooLarge` (more than 1% of float a day) and `closedWindow` (any day outside the treasury window, with `untilDay`). `programsDay` buys the fixed daily quantity through the same checks. |
+| 6. Takeover tender | `src/engine/companyAssets.ts` | `tenderOffer` refuses `tenderBelowFloor` (1.2 x VWAP30, or the mid if there is no volume yet) and `tenderUnfunded`. Otherwise every holder (long, short and locked) settles at one price through `settleAsset` and `delistAsset`. The bidder pays exactly the settled total, and plans end as `tender`. VWAP30 is the sum of close x units over the sum of units, for the last 30 closed days (`AssetState.bars`, company stocks only). |
+
+Review fixes (`f6ed59c`):
+- Buybacks: the 1%-of-float cap is a sum over every buyback in the asset, per game day. A program filed against a float other than the asset's is refused (`buybackBadSpec`). `buybackTooLarge` reports the headroom.
+- Margin and escrow: a liquidation sells only unlocked shares, so escrow and price holds are never sold. Margin collateral excludes locked shares (`collateralEquityOf`, used by the margin call, the liquidation, `buyingPower` and `liquidationPrice`). A liquidation does not cancel program orders. Plan fills are clamped to what the account holds, and a plan order that cannot sell releases its escrow. A plan day refused at placement now releases its escrow, so a plan can end.
+- Forced trades in a closed window (margin liquidation, squeeze buy-in) are a documented exception, not scoped in. Refusing them would leave a covered account under-margined. The exception is in `restrictions.ts` and pinned by a test.
+- Tender: a bidder is required (`tenderNoBidder`, a new reject code). With no bidder nothing settles and nobody is credited.
+- Price hold: a plan order records whether its last limit check failed on price (`priceMissed`). An unsold remainder is a price hold when that check failed.
+- `cancelOrderResult` returns `planImmutable` (plan) or `buybackImmutable` (buyback) for any cancel attempt. `cancelOrder` keeps its behavior. `modifyOrder` returns `buybackImmutable` for buybacks.
+
+Tests: `src/engine/companyHooks.test.ts`, 41 tests (31 for the hooks, 10 for the review fixes). Bare-engine identity holds: the sha256 of two seeded runs (one with `gameConfig`, one with ecology full) is unchanged by the branch, at `61f445d2...` and `e80f9cd0...`.
+
+Open items for A2:
+- Lead: should lockup shares also be untouchable in a margin call? Today a margin liquidation never sells escrow or price holds, but it can sell lockup shares through the closed-window exception above. The question is open.
+- Not in this stage: the world wiring (IPO book, founder grants, filing-day window and plan calls), the margin and lockup interaction for plan accounts (company accounts are cash accounts), the 2%-of-shares-a-day founder cap (`planSkipped` with `cap` is not emitted), the stacking cap on same-side open orders beyond escrow, and the refusal copy.
 
 ## 4. A4: player-run funds (`p4/a4`, commits `6c63fb3` and `d4ca8f6`)
 
