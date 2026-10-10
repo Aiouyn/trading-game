@@ -5,7 +5,7 @@ import { LICENSES, rankIndex } from '@/content/lifestyle';
 import { sparkline } from '@/game/history';
 import { price, pct, qty, signedMoney, signedPct, tone, toneText, money } from '@/game/format';
 import { assetDefOf, useGame } from '@/game/store';
-import { isDelisted } from '@/game/universe';
+import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
 import { Button, Card, CardHeader, ConfirmButton, Flash, LockGlyph, Sparkline, Td, Th } from './ui';
 
@@ -119,7 +119,7 @@ function OptionRows({ rows, world, config, onClose }: { rows: [string, { qty: nu
         const c = parseContract(id)!;
         const q = optionQuote(world, c);
         const pnl = (q.bid - pos.avgCost) * 100 * pos.qty;
-        const dead = isDelisted(config, c.underlying);
+        const dead = isUntradable(config, c.underlying);
         return (
           <li key={id} className="flex flex-wrap items-center justify-between gap-2 text-small" data-testid={`option-${id}`}>
             <span className="num">
@@ -130,7 +130,7 @@ function OptionRows({ rows, world, config, onClose }: { rows: [string, { qty: nu
             <span className="num text-fg-muted">{t('holdings.bid', { p: price(q.bid), d: q.daysLeft.toFixed(1) })}</span>
             <span className={`num ${toneText[tone(pnl)]}`}>{signedMoney(pnl)}</span>
             {dead
-              ? <span className="text-caption text-loss" data-testid={`option-delisted-${id}`}>{t('holdings.optionDelisted', { ticker: c.underlying })}</span>
+              ? <span className="text-caption text-loss" data-testid={`option-delisted-${id}`}>{t(isDelisted(config, c.underlying) ? 'holdings.optionDelisted' : 'holdings.optionUntradable', { ticker: c.underlying })}</span>
               : <Button size="sm" onClick={() => onClose(id, pos.qty)}>{t('common.sell')}</Button>}
           </li>
         );

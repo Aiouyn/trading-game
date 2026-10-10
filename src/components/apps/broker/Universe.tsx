@@ -78,6 +78,8 @@ export function Universe({ ticker, onPick }: { ticker: string; onPick: (id: stri
         </div>
       </div>
       {ids.length === 0 && tab === 'watch' && !q && <p className="px-4 py-4 text-small text-fg-faint" data-testid="watch-empty">{t('broker.watch.empty')}</p>}
+      {ids.length === 0 && q.trim() !== '' && <p className="px-4 py-4 text-small text-fg-faint" data-testid="search-none">{t('broker.search.none')}</p>}
+      {ids.length === 0 && tab !== 'watch' && q.trim() === '' && <p className="px-4 py-4 text-small text-fg-faint" data-testid="tab-none">{t('broker.tab.none')}</p>}
       <ul className="mt-1 min-h-0 flex-1 overflow-y-auto">
         {ids.map((id) => {
           const info = seriesInfo(world, id, me.player.rankId);
@@ -90,7 +92,8 @@ export function Universe({ ticker, onPick }: { ticker: string; onPick: (id: stri
                   <div className="flex items-center gap-1.5">
                     <span className="num text-small font-semibold text-fg">{id}</span>
                     {info.locked && <LockGlyph size={12} />}
-                    {info.cls !== 'index' && !info.tradable && <span className="text-micro text-loss" data-testid={`delisted-${id}`}>{t('broker.delisted')}</span>}
+                    {info.cls !== 'index' && info.delisted && <span className="text-micro text-loss" data-testid={`delisted-${id}`}>{t('broker.delisted')}</span>}
+                    {info.cls !== 'index' && !info.tradable && !info.delisted && <span className="text-micro text-fg-faint" data-testid={`untradable-${id}`}>{t('broker.notTradable')}</span>}
                   </div>
                   <div className="truncate text-caption text-fg-faint">{info.cls === 'index' ? `${info.name} · ${info.blurb}` : info.name}</div>
                 </div>
@@ -106,7 +109,7 @@ export function Universe({ ticker, onPick }: { ticker: string; onPick: (id: stri
                   aria-label={inWatch ? t('broker.watch.remove', { ticker: id }) : t('broker.watch.add', { ticker: id })}
                   title={inWatch ? t('broker.watch.removeTitle') : t('broker.watch.addTitle')}
                   onClick={() => act({ type: 'watch.set', assetIds: inWatch ? watch.filter((x) => x !== id) : [...watch, id] }, { silent: true })}
-                  className={`mr-2 h-8 w-8 shrink-0 rounded-md text-caption ${inWatch ? 'text-brass' : 'text-fg-disabled opacity-0 group-hover:opacity-100'}`}
+                  className={`mr-2 h-8 w-8 shrink-0 rounded-md text-caption ${inWatch ? 'text-brass' : 'text-fg-disabled md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100'}`}
                 >★</button>
               )}
             </li>

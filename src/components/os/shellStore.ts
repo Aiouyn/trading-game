@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import { t } from '@/i18n';
 import { knownSeries, useGame } from '@/game/store';
-import { APPS, type AppId, type WinProps } from '@/shell/apps';
+import { APPS, MAX_BROKERS, type AppId, type WinProps } from '@/shell/apps';
 import { makeWmCtx } from '@/shell/ctx';
 import { type KeyValueStore, loadShell, saveShell, updatePrefs } from '@/shell/prefs';
 import { createShellStore } from '@/shell/store';
@@ -239,12 +239,18 @@ export function openApp(app: AppId, props: WinProps = {}, opts: OpenOpts = {}): 
     notify(t('shell.ticker.unknown', { ticker: props.ticker }), 'warn');
     p = { ticker: useGame.getState().selected };
   }
+  // At the Broker cap a plain open of a new ticker hands the least-recently-focused Broker that ticker. That
+  // window is not the one the player is in, so the change is announced.
+  const brokers = useShell.getState().shell.wins.filter((w) => w.app === 'broker');
+  const retargets = app === 'broker' && opts.fresh !== true && p.ticker !== undefined
+    && brokers.length >= MAX_BROKERS && !brokers.some((w) => w.props.ticker === p.ticker);
   const r = dispatchWm({ type: 'open', app, props: p, fresh: opts.fresh === true });
   if (!r.ok) {
-    const text = refusalText(r.reason);
+    const text = app === 'broker' && r.reason === 'instance' ? t('broker.cap', { n: MAX_BROKERS }) : refusalText(r.reason);
     if (text) notify(text, 'warn');
     return;
   }
+  if (retargets) notify(t('broker.cap.retarget', { n: MAX_BROKERS, ticker: p.ticker! }), 'info');
   const id = focusedId(r.state);
   const w = r.state.wins.find((x) => x.id === id);
   if (w !== undefined) noteRecent({ app: w.app, ticker: w.props.ticker });

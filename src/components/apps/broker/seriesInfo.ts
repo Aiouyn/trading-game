@@ -4,10 +4,15 @@ import { indexLevel, indexMembers, type AssetClass, type WorldState } from '@/en
 import { licenseFor } from '@/content/lifestyle';
 import { dayOpen } from '@/game/history';
 import { isIndex, useGame } from '@/game/store';
+import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
 
 export interface SeriesInfo {
-  id: string; name: string; sector: string; cls: AssetClass | 'index'; tradable: boolean; locked: boolean;
+  id: string; name: string; sector: string; cls: AssetClass | 'index'; locked: boolean;
+  /** can be traded now: false for a delisted name and for a priced name off the order book (listed:false) */
+  tradable: boolean;
+  /** delisted by a settlement (def.delisted): the Delisted chip; false for a listed:false name, which is Not tradable */
+  delisted: boolean;
   price: number; change: number; changePct: number; halted: boolean; blurb: string; region?: string;
 }
 
@@ -19,7 +24,7 @@ export function seriesInfo(world: WorldState, id: string, rankId: string): Serie
     const idx = useGame.getState().config.indices.find((i) => i.id === id)!;
     // members as of the last index review (indexMembers), not the config's list: the count changes at a reconstitution
     return {
-      id, name: idx.name, sector: 'index', cls: 'index', tradable: false, locked: false, price: p, change: p - o,
+      id, name: idx.name, sector: 'index', cls: 'index', tradable: false, delisted: false, locked: false, price: p, change: p - o,
       changePct: o ? p / o - 1 : 0, halted: false, blurb: t('broker.index.members', { n: indexMembers(world, idx).length }),
     };
   }
@@ -31,7 +36,8 @@ export function seriesInfo(world: WorldState, id: string, rankId: string): Serie
   const o = Math.exp(a.lnOpen);
   const lic = licenseFor(rankId);
   return {
-    id, name: def.name, sector: def.sector, cls: def.assetClass, tradable: def.listed !== false, locked: !lic.classes.includes(def.assetClass),
+    id, name: def.name, sector: def.sector, cls: def.assetClass, tradable: !isUntradable(config, id), delisted: isDelisted(config, id),
+    locked: !lic.classes.includes(def.assetClass),
     price: p, change: p - o, changePct: p / o - 1, halted: a.haltUntil !== -1 && a.haltUntil > world.tick, blurb: def.blurb ?? '', region: def.region,
   };
 }

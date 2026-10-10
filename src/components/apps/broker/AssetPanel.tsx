@@ -5,7 +5,7 @@ import { consensusLabel, earningsGrade } from '@/content/news';
 import { rankIndex } from '@/content/lifestyle';
 import { compactMoney, money, price, signedPct } from '@/game/format';
 import { assetDefOf, isIndex, useGame } from '@/game/store';
-import { isDelisted } from '@/game/universe';
+import { isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
 import { openApp } from '@/components/os/shellStore';
 import { Button, Card, LockGlyph } from '@/components/ui';
@@ -50,13 +50,18 @@ export function AssetPanel({ ticker, onOptions, chainOpen }: { ticker: string; o
   const note = me.player.notes[ticker];
   const rIdx = rankIndex(me.player.rankId);
   const cap = def.sharesOutstanding ? def.sharesOutstanding * px : null;
-  // a delisted name's options no longer trade: no chain button (held contracts show without a close control)
-  const optionsListed = config.options?.underlyings.includes(ticker) && !isDelisted(config, ticker);
+  // a name that no longer trades has no options either: no chain button (held contracts show without a close control)
+  const optionsListed = config.options?.underlyings.includes(ticker) && !isUntradable(config, ticker);
   const canOptions = !!me.account?.canOptions;
   const band = e?.last ? pricedInBand(config, world, ticker, e.last.day) : null;
+  const untradable = isUntradable(config, ticker);
   return (
     <Card className="p-4" data-testid="asset-panel">
-      {def.listed === false && <p className="mb-2 text-small text-loss" data-testid="delisted-note">{t('broker.delisted.note')}</p>}
+      {untradable && (
+        <p className="mb-2 text-small text-loss" data-testid={def.delisted ? 'delisted-note' : 'untradable-note'}>
+          {t(def.delisted ? 'broker.delisted.note' : 'broker.notTradable.note')}
+        </p>
+      )}
       <p className="text-small text-fg-muted">{def.blurb}</p>
       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-small sm:grid-cols-3">
         {cap && <Mini k={t('broker.fund.cap')} v={compactMoney(cap)} />}
@@ -121,7 +126,7 @@ export function AssetPanel({ ticker, onOptions, chainOpen }: { ticker: string; o
         <div className="mt-3 rounded-md border border-brass/40 bg-brass/[0.05] p-3" data-testid="note">
           <div className="flex items-center justify-between">
             <span className="label text-brass">{note.desk}</span>
-            <span className="num text-caption text-fg-faint">{t('broker.noteAge', { days: Math.max(0, Math.round((world.tick - note.tick) / 720)) })}</span>
+            <span className="num text-caption text-fg-faint">{t('broker.noteAge', { days: Math.max(0, Math.round((world.tick - note.tick) / world.config.ticksPerDay)) })}</span>
           </div>
           <p className="mt-1 text-small text-fg">
             <span className={note.rating.includes('buy') ? 'text-gain' : note.rating.includes('ell') ? 'text-loss' : 'text-fg-muted'}>{note.rating}</span>.{' '}

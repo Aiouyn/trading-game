@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { listedExpiries, optionChain } from '@/engine';
 import { money, price } from '@/game/format';
 import { useGame } from '@/game/store';
-import { isDelisted } from '@/game/universe';
+import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
 import { Button, NumberField, Segmented, Td, Th } from '@/components/ui';
 
@@ -22,15 +22,19 @@ export function OptionChain({ underlying }: { underlying: string }) {
   const exps = listedExpiries(world);
   const [exp, setExp] = useState(exps[0] ?? 0);
   const [n, setN] = useState('1');
-  if (isDelisted(config, underlying)) {
-    return <p className="text-small text-loss" data-testid="chain-delisted">{t('broker.chain.delisted', { ticker: underlying })}</p>;
+  if (isUntradable(config, underlying)) {
+    return isDelisted(config, underlying)
+      ? <p className="text-small text-loss" data-testid="chain-delisted">{t('broker.chain.delisted', { ticker: underlying })}</p>
+      : <p className="text-small text-fg-muted" data-testid="chain-untradable">{t('broker.chain.untradable', { ticker: underlying })}</p>;
   }
+  // no listed expiry: say so instead of an empty table (optionChain needs an expiry day to read)
+  if (exps.length === 0) return <p className="text-small text-fg-muted" data-testid="chain-none">{t('broker.chain.none')}</p>;
   const chain = optionChain(world, underlying, exp);
   const i = world.config.assets.findIndex((a) => a.id === underlying);
   const spot = Math.exp(world.assets[i]!.lnP);
   const contracts = Math.max(1, Math.floor(Number(n) || 1));
   const buy = (id: string, label: string) => act({ type: 'option.trade', contractId: id, side: 'buy', qty: contracts }, { success: t('broker.chain.bought', { n: contracts, label }) });
-  const today = Math.ceil(world.tick / 720);
+  const today = Math.ceil(world.tick / world.config.ticksPerDay);
   return (
     <div data-testid="option-chain">
       <p className="text-small text-fg-muted">{t('broker.chain.intro', { ticker: underlying })}</p>

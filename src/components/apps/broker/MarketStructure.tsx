@@ -1,10 +1,12 @@
 'use client';
 
 import { useMemo } from 'react';
-import { depthByPool, ecologyLog, publicShortInterest } from '@/engine';
+import { publicShortInterest } from '@/engine';
 import { tone, toneText } from '@/game/format';
 import { useGame } from '@/game/store';
+import { isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
+import { latestDepth } from './depth';
 
 const POOLS = ['value', 'trend', 'retail', 'pension'] as const;
 
@@ -40,18 +42,19 @@ export function ShortInterestRow({ ticker }: { ticker: string }) {
  */
 export function DepthByPool({ ticker }: { ticker: string }) {
   const world = useGame((s) => s.world)!;
-  const log = ecologyLog(world);
-  const last = log.at(-1);
-  const isAsset = world.config.assets.some((a) => a.id === ticker);
-  if (!last || !isAsset) return <p className="text-caption text-fg-faint" data-testid="depth-none">{t('broker.depth.none')}</p>;
-  const d = depthByPool(world, ticker, last.day);
+  const config = useGame((s) => s.config);
+  // the newest closed day that holds this name (a listing that postdates the last close has none yet)
+  const d = useMemo(() => latestDepth(world, ticker), [world, ticker]);
+  // a name that does not trade has no book to show: no depth and no flows, only the reason (a delisted name's log is frozen)
+  if (isUntradable(config, ticker)) return <p className="text-caption text-fg-faint" data-testid="depth-untradable">{t('broker.depth.untradable')}</p>;
+  if (!d) return <p className="text-caption text-fg-faint" data-testid="depth-none">{t('broker.depth.none')}</p>;
   return (
     <div data-testid="depth-by-pool">
       <div className="flex justify-between gap-2 py-0.5 text-small">
         <span className="text-fg-faint">{t('broker.depth.factor')}</span>
         <span className="num text-fg-muted" data-testid="depth-factor">{d.depth.toFixed(2)}</span>
       </div>
-      <p className="text-caption text-fg-faint">{t('broker.depth.day', { day: last.day + 1 })} · {t('broker.depth.explain')}</p>
+      <p className="text-caption text-fg-faint">{t('broker.depth.day', { day: d.day + 1 })} · {t('broker.depth.explain')}</p>
       <ul className="mt-1.5 flex flex-col gap-0.5">
         {POOLS.map((k) => {
           const v = d.desired[k];

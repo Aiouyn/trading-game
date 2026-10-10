@@ -43,7 +43,8 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
             <Chip>{info.cls === 'index' ? t('broker.index') : sectorName(info.sector)}</Chip>
             {region && <Chip title={region.name}>{region.flag}</Chip>}
             {info.halted && <Chip className="border-warn/60 text-warn">{t('broker.halted')}</Chip>}
-            {info.cls !== 'index' && !info.tradable && <Chip className="border-loss/60 text-loss">{t('broker.delisted')}</Chip>}
+            {info.delisted && <Chip className="border-loss/60 text-loss">{t('broker.delisted')}</Chip>}
+            {info.cls !== 'index' && !info.tradable && !info.delisted && <Chip title={t('broker.notTradable.note')}>{t('broker.notTradable')}</Chip>}
             {info.locked && <Chip className="border-steel/60 text-steel"><LockGlyph size={12} /> {t('broker.proLicense')}</Chip>}
           </div>
           <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
