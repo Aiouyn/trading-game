@@ -6,11 +6,12 @@ import { RANKS, rankIndex } from '@/content/lifestyle';
 import { contractProgress } from './players';
 import { ghostReport, ghostSeries, type GhostReport } from './ghosts';
 import { tradesOf } from './ledger';
+import { deskFileSummaries, deskWindow } from './desk';
 import { calendarFor, type CalendarItem } from './calendar';
 import { goalsView } from './learn';
 import { textProvider } from './text';
 import type { DailyClose, LedgerFill, PlanState, RoundTrip } from './ledger-types';
-import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, propValue, type NetWorthBreakdown } from './core';
+import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, propValue, today, type NetWorthBreakdown } from './core';
 import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
 import { defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
 import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
@@ -194,6 +195,8 @@ export interface PlayerView {
     plans: PlanState | null;
     calendar: CalendarItem[];
     goals: ReturnType<typeof goalsView>;
+    /** the Research Desk's window (the first archived day, the last closed day, today) and the saved files' summaries */
+    desk: { firstDay: number; lastClosed: number | null; today: number; files: { no: number; assetId: string; from: number; to: number; move: number }[] };
   };
 }
 
@@ -255,6 +258,7 @@ function tradingView(g: GameState, pid: string): PlayerView['trading'] {
     fills: fills.slice(-VIEW_FILLS), trips: trips.slice(-VIEW_FILLS), benchmark: ghostReport(g, pid), series: ghostSeries(g, pid, VIEW_SERIES),
     closes: (L?.closes ?? []).slice(0, VIEW_CLOSES).map((c) => ({ ...c, lines: textProvider.dailyClose(c) })), plans: L?.plans ?? null,
     calendar: calendarFor(g, pid), goals: goalsView(g.players[pid]!),
+    desk: { ...deskWindow(g), today: today(g), files: deskFileSummaries(g, pid).slice(0, 40) },
   };
 }
 

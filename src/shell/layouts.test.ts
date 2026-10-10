@@ -72,7 +72,7 @@ describe('built-in layouts: feasibility fallback', () => {
   });
 
   it('Review at 1440x900 is two halves: Portfolio left and Wire right, until the journal view is built', () => {
-    const p = planLayout('review', VP_1440, all);
+    const p = planLayout('review', VP_1440, all, { views: [] });
     expect(p.variant).toBe('thirds');
     expect(shape(p)).toEqual(['wire:R2', 'portfolio:L2']);
     expect(p.placements.some((x) => x.second)).toBe(false);

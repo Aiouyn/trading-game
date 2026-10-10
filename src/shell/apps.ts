@@ -102,7 +102,7 @@ export const APPS: Readonly<Record<AppId, AppDef>> = {
  * The Portfolio journal ships in Phase 3 (velvet-trade-journal-replay.md); until it is listed, Review
  * opens Portfolio and Wire, and no second Portfolio is ever created.
  */
-export const READY_VIEWS: readonly string[] = [];
+export const READY_VIEWS: readonly string[] = ['journal', 'analyst'];
 
 /** Whether an app's second window (`secondInstance`, Review only) can open: its view is built. */
 export function secondWindowReady(app: AppId, ready: readonly string[] = READY_VIEWS): boolean {

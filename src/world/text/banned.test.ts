@@ -14,6 +14,9 @@ function sample(s: string): Msg['vars'] {
   return vars;
 }
 
+/** The player-facing world text families: the daily close, work, goals, the journal and the Research Desk. */
+const WORLD_PREFIXES = ['dayclose.', 'work.', 'goal.', 'journal.', 'desk.', 'why.', 'analyst.'];
+
 describe('banned words in the world text', () => {
   it('flags whole words only, in any case', () => {
     expect(bannedIn('You should buy now.')).toEqual(expect.arrayContaining(['should', 'buy']));
@@ -25,9 +28,11 @@ describe('banned words in the world text', () => {
   });
 
   it('every world template (daily close, work, goals) is clean in English and French', () => {
-    const keys = Object.keys(en).filter((k) => k.startsWith('dayclose.') || k.startsWith('work.') || k.startsWith('goal.'));
+    const keys = Object.keys(en).filter((k) => WORLD_PREFIXES.some((p) => k.startsWith(p)));
     expect(keys.filter((k) => k.startsWith('dayclose.')).length).toBeGreaterThan(15);
     expect(keys.filter((k) => k.startsWith('work.')).length).toBeGreaterThan(15);
+    expect(keys.filter((k) => k.startsWith('desk.')).length).toBeGreaterThan(20);
+    expect(keys.filter((k) => k.startsWith('journal.')).length).toBeGreaterThan(20);
     for (const k of keys) {
       for (const locale of ['en', 'fr'] as const) {
         const dict: Record<string, string> = locale === 'en' ? (en as Record<string, string>) : (fr as Record<string, string>);
@@ -68,7 +73,7 @@ describe('banned words in the world text', () => {
   });
 
   it('every English world key has a French twin with the same slots', () => {
-    const enKeys = Object.keys(en).filter((k) => k.startsWith('dayclose.') || k.startsWith('work.') || k.startsWith('goal.'));
+    const enKeys = Object.keys(en).filter((k) => WORLD_PREFIXES.some((p) => k.startsWith(p)));
     for (const k of enKeys) {
       expect(k in fr, `fr missing ${k}`).toBe(true);
     }

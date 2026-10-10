@@ -1,5 +1,6 @@
 import type { NewsBand, Side } from '@/engine';
 import type { Msg } from '@/i18n';
+import type { ExplainRow, FlowPool } from '@/engine';
 import type { FillReason, RoundTrip } from '@/engine/ledger-types';
 
 /** The round trip and the fill reason are defined once, in the engine (the explain reads the same type). */
@@ -171,6 +172,50 @@ export interface FlowTotals {
   borrowPaid: number;
 }
 
+/** One waterfall row of a desk dossier: a part of the move, as a fraction (the parts sum to the move). */
+export interface DeskRow {
+  row: ExplainRow;
+  value: number;
+}
+
+/** One pool's share of the window's flow: its net flow as a signed share of the gross flow (-1 to 1). */
+export interface DeskPool {
+  pool: FlowPool;
+  share: number;
+}
+
+/**
+ * A Research Desk dossier (velvet-research-desk.md): one asset over a closed window, built from explainMove. The rows sum to
+ * the move. No player is named anywhere in it: the flow is by pool type, and the player rows are aggregates.
+ */
+export interface DeskDossier {
+  no: number;
+  assetId: string;
+  /** the closed window explained: clamped to the first archived day and the last closed day */
+  from: number;
+  to: number;
+  /** the move over the window as a fraction, and the GX move over the same window (null when not recorded) */
+  move: number;
+  gx: number | null;
+  rows: DeskRow[];
+  flow: DeskPool[];
+  /** past-tense memo lines (descriptors, rendered in the viewer's language) */
+  memo: Msg[];
+  headlines: { day: number; text: string }[];
+  /** the window's daily closes, plus the close before it (the chart strip) */
+  bars: { day: number; px: number }[];
+}
+
+/** A saved query: the dossier is kept, so Files stays readable after the desk locks. */
+export interface DeskFile {
+  no: number;
+  assetId: string;
+  from: number;
+  to: number;
+  move: number;
+  dossier: DeskDossier;
+}
+
 /** Everything the ledger keeps for one human player. */
 export interface PlayerLedger {
   playerId: string;
@@ -193,4 +238,7 @@ export interface PlayerLedger {
   days: Record<number, DayRecord>;
   /** the closing cards, newest first, stored as facts (their lines are rendered when the view is built) */
   closes: StoredClose[];
+  /** Research Desk files, newest first (kept while the desk is locked); `deskSeq` numbers them */
+  deskFiles?: DeskFile[];
+  deskSeq?: number;
 }

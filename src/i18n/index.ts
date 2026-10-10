@@ -38,7 +38,21 @@ function lookup(locale: Locale, key: string): string | undefined {
   return DICTS[locale][key];
 }
 
-export function translate(locale: Locale, key: string, vars?: Record<string, string | number>): string {
+/**
+ * A variable that starts with "@" names another key (e.g. {part: "@journal.part.market"}): it is translated in the same
+ * locale first, so a sentence built on the server reads in the viewer's language.
+ */
+export function resolveRefs(locale: Locale, vars?: Record<string, string | number>): Record<string, string | number> | undefined {
+  if (!vars) return vars;
+  const out: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    out[k] = typeof v === 'string' && v.startsWith('@') ? translate(locale, v.slice(1)) : v;
+  }
+  return out;
+}
+
+export function translate(locale: Locale, key: string, rawVars?: Record<string, string | number>): string {
+  const vars = resolveRefs(locale, rawVars);
   if (vars && typeof vars.count === 'number') {
     const form = vars.count === 1 ? `${key}_one` : `${key}_other`;
     const p = lookup(locale, form) ?? lookup('en', form);

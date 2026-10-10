@@ -30,6 +30,8 @@ import { shockPrice } from '@/engine/sim';
 import { ensureLedger, ledgerTick, recordOptionTrade } from './ledger';
 import { closeDay, recordDayClose } from './close';
 import { hireAnalyst, fireAnalyst, resumeDesk, unlockDesk, workDay } from './work';
+import { deskFileOf, deskQuery } from './desk';
+import { tripDetail } from './journal';
 import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick, setDrip, startBlock } from './plans';
 import { checkGoals, completeLesson, setGoalsOptIn } from './learn';
 import { orderError } from './orders';
@@ -321,6 +323,9 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'analyst.fire': return fireAnalyst(g, p, out);
     case 'desk.unlock': return unlockDesk(g, p, out);
     case 'desk.resume': return resumeDesk(g, p, out);
+    case 'desk.query': return deskQuery(g, p, cmd.assetId, cmd.from, cmd.to);
+    case 'desk.file': return deskFileOf(g, p, cmd.no);
+    case 'journal.detail': return tripDetail(g, p, cmd.tripId);
     case 'lesson.complete': return completeLesson(p, cmd.lessonId);
     case 'goals.optIn': return setGoalsOptIn(p, cmd.on);
     case 'recurring.add': return addRecurring(g, p, cmd.assetId, cmd.dollars, cmd.everyDays);

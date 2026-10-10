@@ -52,10 +52,10 @@ describe('app registry', () => {
     expect(MAX_CUSTOM_LAYOUTS).toBe(5);
   });
 
-  it('opens the second Portfolio only when its journal view is built (none are built yet)', () => {
-    expect(READY_VIEWS).toEqual([]);
-    expect(secondWindowReady('portfolio')).toBe(false);
-    expect(secondWindowReady('portfolio', ['journal'])).toBe(true);
+  it('opens the second Portfolio only when its journal view is built (the journal and analyst views are built in Phase 3)', () => {
+    expect(READY_VIEWS).toEqual(['journal', 'analyst']);
+    expect(secondWindowReady('portfolio')).toBe(true);
+    expect(secondWindowReady('portfolio', [])).toBe(false);
     expect(secondWindowReady('portfolio', ['analyst'])).toBe(false);
     expect(secondWindowReady('wire')).toBe(false);
   });
