@@ -1,53 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { portfolio } from '@/engine';
-import { RANKS } from '@/content/lifestyle';
-import { compactMoney, money, price, signedMoney, signedPct, tone, toneText } from '@/game/format';
+import { money, price, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { assetDefOf, useGame } from '@/game/store';
-import { BrassChip, Button, Card, Modal, Progress } from './ui';
-
-/** DESIGN §6c: the rank-up ceremony. Waits for a calm moment, skippable after a second. */
-export function RankUpOverlay() {
-  const rankUp = useGame((s) => s.rankUp);
-  if (!rankUp) return null;
-  return <Ceremony key={rankUp} rankUp={rankUp} />;
-}
-
-function Ceremony({ rankUp }: { rankUp: string }) {
-  const close = useGame((s) => s.closeRankUp);
-  const nw = useGame((s) => s.me?.netWorth.total ?? 0);
-  const [stage, setStage] = useState(0);
-  useEffect(() => {
-    const ts = [600, 1400, 2600, 4200].map((ms, i) => setTimeout(() => setStage(i + 1), ms));
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    window.addEventListener('keydown', onKey);
-    return () => { ts.forEach(clearTimeout); window.removeEventListener('keydown', onKey); };
-  }, [close]);
-  const idx = RANKS.findIndex((r) => r.id === rankUp);
-  const r = RANKS[idx]!;
-  const next = RANKS[idx + 1];
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink-0/90 p-6" role="dialog" aria-modal="true" aria-label="Rank up" data-testid="rankup-overlay" onClick={() => stage >= 1 && close()}>
-      <div className="flex max-w-xl flex-col items-center text-center" onClick={(e) => e.stopPropagation()}>
-        <div className="label text-brass">Rank up</div>
-        <div className={`mt-3 font-serif text-[56px] leading-none text-fg transition-all duration-[var(--dur-slow)] md:text-[72px] ${stage >= 2 ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'}`}>{r.name}</div>
-        <div className={`mt-4 flex items-center gap-3 transition-opacity duration-[var(--dur-slow)] ${stage >= 2 ? 'opacity-100' : 'opacity-0'}`}>
-          <BrassChip>{r.id} · {r.name}</BrassChip>
-          <span className="num text-small text-fg-muted">{money(nw)}</span>
-        </div>
-        <div className="mt-6 grid w-full gap-2 sm:grid-cols-3">
-          {[`New shell: ${r.shell}`, ...r.unlocks.slice(0, 1), next ? `Next: ${next.name} at ${compactMoney(next.threshold)}` : 'The top of the world'].map((t, i) => (
-            <Card key={t} className={`p-3 text-small transition-all duration-[var(--dur-base)] ${stage >= 3 ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'}`} style={{ transitionDelay: `${i * 120}ms` }}>{t}</Card>
-          ))}
-        </div>
-        {r.unlocks.length > 1 && stage >= 3 && <p className="mt-3 text-caption text-fg-faint">Also unlocked: {r.unlocks.slice(1).join(' · ')}</p>}
-        <Button variant="brass" size="lg" className={`mt-8 transition-opacity ${stage >= 4 ? 'opacity-100' : 'opacity-0'}`} onClick={close} testId="rankup-skip">Keep going</Button>
-      </div>
-    </div>
-  );
-}
+import { Button, Card, Modal, Progress } from './ui';
+import { usePhone } from './os/phoneStore';
 
 /** While You Were Away (bible core loop step 6). */
 export function DigestModal() {
@@ -95,6 +54,8 @@ export function Coach() {
   const [hidden, setHidden] = useState<number | null>(null);
   const screen = useGame((s) => s.screen) as string;
   const sheetOpen = useGame((s) => s.tradeSheetOpen);
+  // The Recent sheet on the phone sits over everything but the status bar: the tip waits for it to close.
+  const recentOpen = usePhone((s) => s.recentOpen);
   const step = me?.player.onboarding.step ?? 0;
   const done = me?.player.onboarding.done || me?.player.onboarding.skipped;
   const trades = me?.player.stats.trades ?? 0;
@@ -133,7 +94,7 @@ export function Coach() {
       action: { label: 'Got it', run: () => { void advance(4, { done: true }); } },
     };
   }
-  if (!card || hidden === card.key || sheetOpen || !['market', 'portfolio', 'empire'].includes(screen)) return null;
+  if (!card || hidden === card.key || sheetOpen || recentOpen || !['market', 'portfolio', 'empire'].includes(screen)) return null;
   return (
     <div className="pointer-events-none fixed inset-x-4 bottom-[calc(var(--tabbar-h)+84px)] z-30 flex justify-center md:inset-x-auto md:bottom-14 md:left-[calc(var(--rail-w)+24px)] md:justify-start" data-testid="coach">
       <Card className="pointer-events-auto w-full max-w-md border-brass/50 p-4 shadow-sheet">

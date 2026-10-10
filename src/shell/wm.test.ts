@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { APPS, APP_IDS, type AppId } from './apps';
 import { makeWmCtx } from './ctx';
+import { planLayout } from './layouts';
 import { type Rect, slotRect, workArea, SLOT_NAMES, type SlotName } from './geometry';
 import {
   type ShellState,
@@ -157,6 +158,16 @@ describe('open', () => {
     expect(focusedId(s)).toBe('broker-1');
   });
 
+  it('a fresh open makes a new Broker for a ticker that already has one (launcher Shift+Enter, New Broker)', () => {
+    let s = fresh();
+    s = go(s, { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
+    expect(brokers(s)).toHaveLength(1);
+    s = go(s, { type: 'open', app: 'broker', props: { ticker: 'HLCN' }, fresh: true });
+    expect(brokers(s)).toHaveLength(2);
+    expect(brokers(s).map((w) => w.props.ticker)).toEqual(['HLCN', 'HLCN']);
+    expect(focusedId(s)).toBe('broker-2');
+  });
+
   it('opens one window per Research file and focuses it on a second open', () => {
     let s = fresh();
     s = go(s, { type: 'open', app: 'research', props: { fileId: 'f1' } });
@@ -170,7 +181,7 @@ describe('open', () => {
   it('refuses a locked app and leaves the state alone (layouts, links and hand edits too)', () => {
     const s = fresh();
     refused(s, { type: 'open', app: 'research', props: { fileId: 'f1' } }, 'locked', R2);
-    refused(s, { type: 'open', app: 'lab' }, 'locked', R1);
+    refused(s, { type: 'open', app: 'ailab' }, 'locked', R1);
     refused(s, { type: 'open', app: 'company' }, 'locked', R1);
     expect(s.wins.some((w) => w.app === 'research')).toBe(false);
   });
@@ -184,15 +195,15 @@ describe('open', () => {
     const s = fresh();
     refused(s, { type: 'open', app: 'broker', props: { ticker: 'bad ticker!!' } }, 'bad-props');
     refused(s, { type: 'open', app: 'wire', props: { ticker: 'HLCN' } }, 'bad-props');
-    refused(s, { type: 'open', app: 'ailab' as AppId }, 'bad-props');
+    refused(s, { type: 'open', app: 'lab' as AppId }, 'bad-props');
   });
 
   it('opens an app that is unlocked and places it on the active workspace, focused', () => {
-    const s = go(fresh(), { type: 'open', app: 'lab' });
-    const w = s.wins.find((x) => x.app === 'lab')!;
+    const s = go(fresh(), { type: 'open', app: 'ailab' });
+    const w = s.wins.find((x) => x.app === 'ailab')!;
     expect(w.ws).toBe(0);
     expect(w.slot).toBeNull();
-    expect(focusedId(s)).toBe('lab');
+    expect(focusedId(s)).toBe('ailab');
   });
 });
 
@@ -388,7 +399,7 @@ describe('workspaces', () => {
 
   it('exits focus mode on the workspace a new window lands on', () => {
     let s = go(fresh(VP_1920), { type: 'focusMode', on: true });
-    s = go(s, { type: 'open', app: 'lab' });
+    s = go(s, { type: 'open', app: 'ailab' });
     expect(s.focusWs).toEqual([]);
     expect(s.focusRestore).toBeNull();
   });
@@ -419,7 +430,7 @@ describe('workspaces', () => {
     const base = go(fresh(VP_1920, R2), { type: 'open', app: 'calendar' }, R2);
     let s = go(base, { type: 'focusMode', on: true }, R2);
     s = go(s, { type: 'switchWs', ws: 1 }, R2);
-    s = go(s, { type: 'open', app: 'lab' }, R2);
+    s = go(s, { type: 'open', app: 'ailab' }, R2);
     s = go(s, { type: 'focusMode', on: true }, R2);
     s = go(s, { type: 'switchWs', ws: 0 }, R2);
     s = go(s, { type: 'focusMode', on: false }, R2);
@@ -563,26 +574,43 @@ describe('named layouts', () => {
     expect(focusedId(s)).toBe(open[0]!.id);
   });
 
-  it('applies Review after the Portfolio was closed: a plain Portfolio on the left and the journal window on the right', () => {
-    let s = go(fresh(VP_1920), { type: 'close', id: 'portfolio' });
-    s = go(s, { type: 'applyLayout', name: 'review' });
-    const pf = s.wins.find((w) => w.id === 'portfolio')!;
-    const j = s.wins.find((w) => w.id === 'portfolio-2')!;
-    expect(s.wins.filter((w) => w.app === 'portfolio')).toHaveLength(2);
-    expect(pf.slot).toBe('L2');
-    expect(pf.props).toEqual({});
-    expect(j.slot).toBe('R2');
-    expect(j.props).toEqual({ view: 'journal' });
+  it('applies Review as Portfolio on the left and Wire on the right, with no second Portfolio until the journal view is built', () => {
+    const s = go(fresh(VP_1920), { type: 'applyLayout', name: 'review' });
+    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id)).toEqual(['portfolio']);
+    expect(s.wins.find((w) => w.id === 'portfolio')!.slot).toBe('L2');
+    expect(s.wins.find((w) => w.app === 'wire')!.slot).toBe('R2');
+    expect(s.wins.some((w) => w.id === 'portfolio-2')).toBe(false);
     expect(focusedId(s)).toBe('portfolio');
   });
 
-  it('a user open of Portfolio focuses the journal window when it is the only Portfolio', () => {
+  it('applies Review after the Portfolio was closed: a plain Portfolio on the left and Wire on the right', () => {
+    let s = go(fresh(VP_1920), { type: 'close', id: 'portfolio' });
+    s = go(s, { type: 'applyLayout', name: 'review' });
+    const pf = s.wins.find((w) => w.id === 'portfolio')!;
+    expect(pf.slot).toBe('L2');
+    expect(pf.props).toEqual({});
+    expect(s.wins.find((w) => w.app === 'wire')!.slot).toBe('R2');
+    expect(focusedId(s)).toBe('portfolio');
+  });
+
+  it('refuses a second Portfolio window while its journal view is not built, even when a plan asks for one', () => {
+    // A plan built as if the journal existed: the reducer still opens no second Portfolio (apps.ts READY_VIEWS).
+    const journalPlan: WmCtx = {
+      ...R3,
+      plan: (name, vp, opts) => planLayout(name, vp, R3.unlocked, { ...opts, views: ['journal'] }).placements,
+    };
+    const s = go(fresh(VP_1920), { type: 'applyLayout', name: 'review' }, journalPlan);
+    expect(s.wins.filter((w) => w.app === 'portfolio')).toHaveLength(1);
+    expect(s.wins.some((w) => w.id === 'portfolio-2')).toBe(false);
+  });
+
+  it('a user open of Portfolio never creates a journal window while the view is not built', () => {
     let s = go(fresh(VP_1920), { type: 'close', id: 'portfolio' });
     s = go(s, { type: 'applyLayout', name: 'review' });
     s = go(s, { type: 'close', id: 'portfolio' });
     s = go(s, { type: 'open', app: 'portfolio' });
-    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id)).toEqual(['portfolio-2']);
-    expect(focusedId(s)).toBe('portfolio-2');
+    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id)).toEqual(['portfolio']);
+    expect(focusedId(s)).toBe('portfolio');
   });
 
   it('applies the Research layout with the open Research file, and without one skips the slot', () => {

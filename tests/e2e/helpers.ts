@@ -31,12 +31,28 @@ export async function grant(handle: string, amount: number): Promise<void> {
   expect(r.status).toBe(200);
 }
 
-/** Open a screen from the rail (desktop) or tab bar / More sheet (phone). */
+/** The desktop shelf tile that opens each old screen (each screen is a window now, Phase 2 step 1). */
+const SCREEN_TILE: Record<string, string> = {
+  market: 'broker', portfolio: 'portfolio', empire: 'businesses', estate: 'boutique', lab: 'ailab',
+  security: 'security', court: 'legal', social: 'messages', wire: 'wire', profile: 'settings',
+};
+
+/**
+ * Open a screen: a shelf tile on the desktop; on the phone, Home (a tap on the Quay mark) and then the
+ * app's home tile (P2-142, P2-143). Home tiles keep the app id, so the same name works on both.
+ */
 export async function goTo(page: Page, screen: string): Promise<void> {
-  if (!isPhone(page)) { await page.getByTestId(`nav-${screen}`).click(); return; }
-  if (['market', 'portfolio', 'empire', 'estate'].includes(screen)) { await page.getByTestId(`tab-${screen}`).click(); return; }
-  await page.getByTestId('tab-more').click();
-  await page.getByTestId(`more-${screen}`).click();
+  const app = SCREEN_TILE[screen] ?? screen;
+  if (!isPhone(page)) { await page.getByTestId(`shelf-app-${app}`).click(); return; }
+  await page.getByTestId('phone-quay').click();
+  await page.getByTestId(`home-app-${app}`).click();
+}
+
+/** Ends the ceremony on the phone or the desktop: waits for the OS update, then skips it (C-31). */
+export async function skipRankUp(page: Page): Promise<void> {
+  await expect(page.getByTestId('os-update')).toBeVisible({ timeout: 25_000 });
+  await page.getByTestId('os-update-skip').click({ timeout: 5_000 });
+  await expect(page.getByTestId('os-update')).toHaveCount(0);
 }
 
 export async function noHorizontalOverflow(page: Page): Promise<void> {

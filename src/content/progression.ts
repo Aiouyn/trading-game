@@ -67,6 +67,11 @@ export interface AchievementDef {
 
 const A = (id: string, name: string, text: string, tier: AchievementDef['tier'], check: AchievementDef['check']): AchievementDef => ({ id, name, text, tier, check });
 
+/** The public Wire names an unlock only when it is rare: the legend tier. Firsts in the world are named too (world/players.ts). */
+export function isRareAchievement(a: AchievementDef): boolean {
+  return a.tier === 'legend';
+}
+
 export const ACHIEVEMENTS: AchievementDef[] = [
   A('first-trade', 'Opening Bell', 'Make your first trade.', 'bronze', (c) => c.stats.trades >= 1),
   A('first-win', 'In the Green', 'Close a trade at a profit.', 'bronze', (c) => c.stats.winningTrades >= 1),

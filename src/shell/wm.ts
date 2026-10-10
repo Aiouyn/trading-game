@@ -25,6 +25,7 @@ import {
   cleanProps,
   isAppId,
   isBuiltinLayout,
+  secondWindowReady,
 } from './apps';
 import {
   FULL_FRAC,
@@ -157,7 +158,8 @@ export type WmResult = { ok: true; state: ShellState } | { ok: false; reason: Wm
 export type CycleDir = 'left' | 'right' | 'up' | 'down';
 
 export type WmAction =
-  | { type: 'open'; app: AppId; props?: unknown }
+  /** fresh: a Broker opens a new window even when one already shows this ticker (launcher Shift+Enter, New Broker). */
+  | { type: 'open'; app: AppId; props?: unknown; fresh?: boolean }
   | { type: 'focus'; id: string }
   | { type: 'close'; id: string; force?: boolean }
   | { type: 'collapse'; id: string }
@@ -388,17 +390,19 @@ function nextBrokerId(wins: Win[]): string {
  *   Broker: same ticker focuses that Broker. Otherwise a new one (up to 4). At the cap the
  *           least-recently-focused Broker (bottom-most) takes the ticker. No ticker: no change.
  *   Research: one window per file id. A file id is required.
- *   Second Portfolio (Review only): id portfolio-2, at most two Portfolio windows.
+ *   Second Portfolio (Review only, and only once its journal view is built: apps.ts READY_VIEWS):
+ *           id portfolio-2, at most two Portfolio windows.
  *   Single: the window whose id is the app id. A user open also accepts any window of the app
  *           (a Review journal), so the shelf focuses the one Portfolio that is there. A layout
  *           always names the window by id, so Review never picks up the journal window by mistake.
  *           A new single window is refused when the app already has its maximum (1, or 2 for
  *           Portfolio).
  */
-function acquire(state: ShellState, app: AppId, props: WinProps, role: 'user' | 'layout', second: boolean): Acq {
+function acquire(state: ShellState, app: AppId, props: WinProps, role: 'user' | 'layout', second: boolean, fresh = false): Acq {
   const wins = state.wins.slice();
   if (second) {
-    if (app !== 'portfolio') return failAcq('bad-props');
+    // Refused until the view it names is built (apps.ts READY_VIEWS): no journal window before Phase 3.
+    if (app !== 'portfolio' || !secondWindowReady(app)) return failAcq('bad-props');
     const id = 'portfolio-2';
     if (wins.some((w) => w.id === id)) return { ok: true, wins, id, created: false };
     if (wins.filter((w) => w.app === 'portfolio').length >= (APPS.portfolio.secondInstance?.max ?? 1)) {
@@ -409,7 +413,7 @@ function acquire(state: ShellState, app: AppId, props: WinProps, role: 'user' | 
   }
 
   if (app === 'broker') {
-    if (props.ticker !== undefined) {
+    if (props.ticker !== undefined && !fresh) {
       const hit = wins.find((w) => w.app === 'broker' && w.props.ticker === props.ticker);
       if (hit) return { ok: true, wins, id: hit.id, created: false };
     }
@@ -551,13 +555,13 @@ export function normalize(state: ShellState, ctx: WmCtx): ShellState {
 
 // ---------------------------------------------------------------- actions
 
-function openAction(state: ShellState, app: AppId, rawProps: unknown, ctx: WmCtx): WmResult {
+function openAction(state: ShellState, app: AppId, rawProps: unknown, ctx: WmCtx, fresh = false): WmResult {
   if (!isAppId(app)) return fail('bad-props');
   if (!APPS[app].available) return fail('unavailable');
   if (!ctx.unlocked(app)) return fail('locked');
   const props = cleanProps(app, rawProps);
   if (props === null) return fail('bad-props');
-  const r = acquire(state, app, props, 'user', false);
+  const r = acquire(state, app, props, 'user', false, fresh);
   if (!r.ok) return fail(r.reason);
   let s: ShellState = { ...state, wins: r.wins };
   // Opening a new window exits focus mode on the workspace it lands on (DECISIONS "Behaviour gaps").
@@ -738,7 +742,7 @@ function reorderAction(state: ShellState, order: AppId[]): WmResult {
 export function reduce(state: ShellState, action: WmAction, ctx: WmCtx): WmResult {
   switch (action.type) {
     case 'open':
-      return openAction(state, action.app, action.props, ctx);
+      return openAction(state, action.app, action.props, ctx, action.fresh === true);
 
     case 'focus':
     case 'restore': {

@@ -1,5 +1,5 @@
 import { type Fill } from '@/engine';
-import { ACHIEVEMENTS, CONTRACTS, emptyStats, type PlayerStats } from '@/content/progression';
+import { ACHIEVEMENTS, CONTRACTS, emptyStats, isRareAchievement, type PlayerStats } from '@/content/progression';
 import { RANKS, licenseFor, rankFor, rankIndex } from '@/content/lifestyle';
 import {
   ONBOARDING_GRANT, TPD, clamp, credit, findOrder, gx, keyedRng, notify, playerBusinesses, playerProperties, priceOf, pushWire, sanitize, today,
@@ -62,7 +62,7 @@ export function join(g: GameState, id: string, handleIn: string, countryIn: stri
   p.netWorthPeak = Math.max(p.netWorthPeak, p.markNetWorth ?? p.netWorth);
   pickRival(g, p);
   notify(g, out, id, { kind: 'system', tone: 'brass', text: `Welcome to Port Avalon, ${handle}. Your broker added a $${ONBOARDING_GRANT} sign-up bonus. Rent is due Friday.` });
-  pushWire(g, out, { kind: 'milestone', tag: 'New', tone: 'info', playerId: id, text: `${handle} opens an account in Port Avalon` });
+  // No account-opening story on the public Wire: every guest account would make one (the player sees the welcome).
   if (Object.keys(g.players).length < 500) computeBoards(g); // big worlds refresh boards on their own schedule
   return ok({ id });
 }
@@ -106,7 +106,8 @@ export function applyRank(g: GameState, p: Player, out: StepOutput | null, silen
   if (silent || prev === r.id) return;
   out?.rankUps.push({ playerId: p.id, rankId: r.id });
   notify(g, out, p.id, { kind: 'rank', tone: 'brass', text: `Rank up: you are now ${r.name}. ${r.unlocks.join(' · ')}.` });
-  if (!p.npc || rankIndex(r.id) >= 3) pushWire(g, out, { kind: 'milestone', tag: 'Milestone', tone: 'brass', playerId: p.id, text: `${p.handle} reaches ${r.name}` });
+  // The public Wire names rank milestones from R3 up only; lower ranks are the player's own news.
+  if (rankIndex(r.id) >= 3) pushWire(g, out, { kind: 'milestone', tag: 'Milestone', tone: 'brass', playerId: p.id, text: `${p.handle} reaches ${r.name}` });
 }
 
 export function rankName(id: string): string {
@@ -133,8 +134,14 @@ export function checkAchievements(g: GameState, p: Player, out: StepOutput | nul
     if (!a.check(ctx)) continue;
     p.achievements[a.id] = g.market.tick;
     notify(g, out, p.id, { kind: 'achievement', tone: 'brass', text: `Achievement unlocked: ${a.name}. ${a.text}` });
-    if ((a.tier === 'gold' || a.tier === 'legend') && !p.npc) {
-      pushWire(g, out, { kind: 'milestone', tag: 'Achievement', tone: 'brass', playerId: p.id, text: `${p.handle} unlocks ${a.name}` });
+    if (p.npc) continue;
+    g.firstUnlocks ??= {};
+    const first = g.firstUnlocks[a.id] === undefined;
+    if (first) g.firstUnlocks[a.id] = p.handle;
+    // Public only when rare or the first in the world. Common unlocks stay in the player's own inbox.
+    if (first || isRareAchievement(a)) {
+      const text = first && !isRareAchievement(a) ? `${p.handle} unlocks ${a.name}, the first in Port Avalon` : `${p.handle} unlocks ${a.name}`;
+      pushWire(g, out, { kind: 'milestone', tag: 'Achievement', tone: 'brass', playerId: p.id, text });
     }
   }
 }

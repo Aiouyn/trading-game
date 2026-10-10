@@ -27,6 +27,8 @@ export interface GameState {
   /** player-to-player contracts (loans, transfers, revenue shares) */
   deals: Record<string, Deal>;
   dealSeq: number;
+  /** achievement id -> the first player handle to unlock it (the public Wire names firsts). Absent in old saves. */
+  firstUnlocks?: Record<string, string>;
   /** leaderboards, recomputed every BOARD_EVERY ticks */
   boards: Boards;
   /** collectibles index (limited/unique lifestyle resale), 1 = par */
@@ -479,7 +481,9 @@ export type Command =
   | { type: 'donate'; amount: number; cause: string }
   | { type: 'admin.advance'; ticks: number }
   /** dev and tests only: the server refuses admin.* from clients */
-  | { type: 'admin.grant'; amount: number };
+  | { type: 'admin.grant'; amount: number }
+  /** dev and tests only: a test price shock (shockPrice: lnP moves, the value does not) */
+  | { type: 'admin.shock'; assetId: string; pct: number };
 
 export interface CommandResult {
   ok: boolean;

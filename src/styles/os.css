@@ -226,15 +226,23 @@
   .os-root .os-toast-t2 { margin-top: 4px; font-size: 13.5px; }
   .os-root .os-toast-t3 { margin-top: 2px; font-size: var(--text-caption); color: var(--color-fg-muted); }
   .os-root .os-toast-x { margin-left: auto; color: var(--color-fg-faint); }
+  /* Toast column at the top left, when a Broker sits under the right column (P2-088). */
+  .os-root .os-toasts.left { left: 14px; right: auto; }
+  /* A warning and a margin call carry a 2 px warn edge (P2-090). */
+  .os-root .os-toast[data-tone="warn"] { border-left: 2px solid var(--color-warn); }
+  .os-root .os-toast-body { display: flex; flex-direction: column; min-width: 0; }
 
-  /* ---------- Focus mode (strip 24, titlebar 22, no shelf or wallpaper). Compact: launcher shrinks. ---------- */
+  /* ---------- Focus mode (strip 24, titlebar 22, no shelf or wallpaper). Narrow: launcher keeps glyph and Ctrl K. ---------- */
   .os-root.focus-mode .os-strip { height: var(--os-strip-h-focus); }
   .os-root.focus-mode .os-tb { height: var(--os-titlebar-h-focus); }
   .os-root.focus-mode .os-shelf,
   .os-root.focus-mode .os-wallpaper { display: none; }
-  .os-root.os-compact .os-launch { width: 28px; justify-content: center; padding: 0; }
-  .os-root.os-compact .os-launch-text,
-  .os-root.os-compact .os-kbd { display: none; }
+  .os-root.focus-mode .os-soft { display: none; }
+  /* Compact (768-1199): the field is narrower and the market words go, so the clock is never covered (P2-057). */
+  .os-root.os-compact .os-launch { width: 200px; }
+  .os-root.os-compact .os-market { display: none; }
+  .os-root.os-narrow .os-launch { width: auto; padding: 0 8px; }
+  .os-root.os-narrow .os-launch-text { display: none; }
 
   /* ---------- Shared primitives inside windows ---------- */
   /* glyph base (the mock's global .g, scoped here) and the mirrored back chevron */

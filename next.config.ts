@@ -7,6 +7,10 @@ const root = path.resolve(__dirname);
 const nextConfig: NextConfig = {
   turbopack: { root },
   outputFileTracingRoot: root,
+  // The credits moved into the Settings window (P2-119). Server mode, so a redirect is enough.
+  async redirects() {
+    return [{ source: "/credits", destination: "/settings/about", permanent: false }];
+  },
 };
 
 export default nextConfig;

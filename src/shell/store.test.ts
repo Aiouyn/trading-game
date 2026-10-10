@@ -10,9 +10,9 @@ describe('shell store', () => {
   it('applies an accepted action and reports it as settled', () => {
     const settled: ShellState[] = [];
     const store = createShellStore({ shell: shell0(), ctx }, { onSettled: (s) => settled.push(s) });
-    const r = store.getState().dispatch({ type: 'open', app: 'lab' });
+    const r = store.getState().dispatch({ type: 'open', app: 'ailab' });
     expect(r.ok).toBe(true);
-    expect(focusedId(store.getState().shell)).toBe('lab');
+    expect(focusedId(store.getState().shell)).toBe('ailab');
     expect(settled).toHaveLength(1);
   });
 

@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { buyingPower, commission, estimateFill, type OrderType, type Side } from '@/engine';
 import { licenseFor } from '@/content/lifestyle';
 import { money, price, qty as fmtQty } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { isDelisted } from '@/game/universe';
+import { getDraft, setDraft } from './os/drafts';
 import { Button, Card, KV, LockGlyph, NumberField, Segmented } from './ui';
 
 const TYPE_OPTS: { value: OrderType; label: string; testId: string }[] = [
@@ -29,24 +30,31 @@ function num(s: string): number {
   return Number.isFinite(v) ? v : 0;
 }
 
-export function OrderPad() {
-  const selected = useGame((s) => s.selected);
+/**
+ * The ticket for a ticker. A Broker passes its own ticker. A ticket preset (the stop explainer) fills
+ * only the ticket on the game's selected ticker, so two Brokers on other tickers stay clean.
+ */
+export function OrderPad({ ticker }: { ticker?: string } = {}) {
+  const globalSelected = useGame((s) => s.selected);
   const preset = useGame((s) => s.ticketPreset);
+  const selected = ticker ?? globalSelected;
+  const here = ticker === undefined || ticker === globalSelected ? preset : null;
   // a new asset or a new preset starts a fresh ticket
-  return <Ticket key={`${selected}-${preset?.nonce ?? 0}`} preset={preset} />;
+  return <Ticket key={`${selected}-${here?.nonce ?? 0}`} preset={here} selected={selected} />;
 }
 
-function Ticket({ preset }: { preset: ReturnType<typeof useGame.getState>['ticketPreset'] }) {
+function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getState>['ticketPreset']; selected: string }) {
   const world = useGame((s) => s.world);
   const me = useGame((s) => s.me);
   const playerId = useGame((s) => s.playerId);
-  const selected = useGame((s) => s.selected);
   const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const setSheet = useGame((s) => s.setTradeSheet);
-  const [side, setSide] = useState<Side>(preset?.side ?? 'buy');
+  // A ticket reopened after its window or phone app closed restores what was typed. A preset still wins (P2-161).
+  const saved = getDraft(selected);
+  const [side, setSide] = useState<Side>(preset?.side ?? saved?.side ?? 'buy');
   const [type, setType] = useState<OrderType>(preset?.type ?? 'market');
-  const [q, setQ] = useState(preset?.qty !== undefined ? String(preset.qty) : '');
+  const [q, setQ] = useState(preset?.qty !== undefined ? String(preset.qty) : (saved?.q ?? ''));
   const [limit, setLimit] = useState(preset?.limitPrice !== undefined ? preset.limitPrice.toFixed(2) : '');
   const [stop, setStop] = useState(preset?.stopPrice !== undefined ? preset.stopPrice.toFixed(2) : '');
   const [trail, setTrail] = useState('5');
@@ -54,6 +62,11 @@ function Ticket({ preset }: { preset: ReturnType<typeof useGame.getState>['ticke
   const [bracket, setBracket] = useState(false);
   const [tp, setTp] = useState('');
   const [sl, setSl] = useState('');
+  // Unsent input is a session draft for this ticker (P2-160, P2-161): it stays when the ticket unmounts, and Recent
+  // shows its dot. It is never sent from there. An empty quantity (a sent order clears it) leaves no draft.
+  useEffect(() => {
+    setDraft(selected, { side, q });
+  }, [selected, side, q]);
 
 
   const ctx = useMemo(() => {

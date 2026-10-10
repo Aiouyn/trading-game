@@ -1,6 +1,9 @@
 'use client';
 
 import { create } from 'zustand';
+import { type KeyValueStore, migrateLegacy, readPrefs as readPrefsFrom, updatePrefs } from '@/shell/prefs';
+import { createHolds } from '@/shell/holds';
+import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky } from '@/shell/toasts';
 import { universeConfig, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
 import type { HistoryPayload, NwHistoryPayload, ServerMsg } from '@/net/protocol';
@@ -16,6 +19,10 @@ export interface Toast {
   id: string;
   tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';
   text: string;
+  /** What the notice is, for focus mode and the sticky rules (src/shell/toasts.ts). */
+  kind?: 'fill' | 'margin' | 'world' | 'other';
+  /** The app a click opens (a shell app id), when the notice has one. */
+  app?: string;
 }
 
 export const WIRE_KEEP = 300;
@@ -51,6 +58,8 @@ export interface GameStore {
   nw: { samples: number[]; lastTick: number; every: number; daily: { day: number; value: number }[] } | null;
   toasts: Toast[];
   screen: Screen;
+  /** Counts every setScreen call, so the desktop opens the window even when the screen is unchanged. */
+  screenNonce: number;
   selected: string;
   range: RangeId;
   chartMode: 'candles' | 'line';
@@ -60,6 +69,8 @@ export interface GameStore {
   inboxOpen: boolean;
   chatOpen: boolean;
   rankUp: string | null;
+  /** The rank the player held before rankUp (the ceremony's "Also" ranks run between the two). */
+  rankUpFrom: string | null;
   digestOpen: boolean;
   /** a prefilled ticket (from the stop-loss explainer, a note, the option chain…) */
   ticketPreset: { side: 'buy' | 'sell'; type: 'market' | 'limit' | 'stop' | 'stop_limit' | 'trailing'; qty?: number; stopPrice?: number; limitPrice?: number; nonce: number } | null;
@@ -85,6 +96,10 @@ export interface GameStore {
   setChat: (open: boolean) => void;
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: string) => void;
+  dismissToasts: (ids: readonly string[]) => void;
+  /** A pointer or keyboard hold on a toast (P2-086). Each pause needs its own resume. */
+  pauseToast: (id: string) => void;
+  resumeToast: (id: string) => void;
   closeRankUp: () => void;
   closeDigest: () => void;
   presetTicket: (p: Omit<NonNullable<GameStore['ticketPreset']>, 'nonce'>) => void;
@@ -95,17 +110,53 @@ export interface GameStore {
 let client: WorldClient | null = null;
 let toastSeq = 0;
 
+/**
+ * The toast hold timers (P2-086). The store owns them, so a notice expires on time even when it sits
+ * behind three newer ones and never reaches the screen. Sticky notices (warnings, margin calls) get none.
+ */
+const toastHolds = createHolds(
+  { now: () => Date.now(), set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
+  (id) => useGame.setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+);
+
+/** Adds toasts to the queue, starts their holds, and drops the oldest past the queue cap. */
+function queueToasts(incoming: readonly Toast[]): void {
+  if (incoming.length === 0) return;
+  const all = [...useGame.getState().toasts, ...incoming];
+  const keep = all.slice(-TOAST_QUEUE_MAX);
+  for (const t of all.slice(0, all.length - keep.length)) toastHolds.cancel(t.id);
+  for (const t of incoming) if (keep.includes(t) && !isSticky(t)) toastHolds.start(t.id, TOAST_HOLD_MS);
+  useGame.setState({ toasts: keep });
+}
+
 function freshHistory(config: WorldConfig): History {
   const assets = config.assets.map((a) => a.id);
   return createHistory([...config.indices.map((i) => i.id), ...assets], config.ticksPerDay, assets);
 }
 
+/** localStorage as a KeyValueStore, or null when storage is blocked (private mode). */
+function prefsStore(): KeyValueStore | null {
+  try { return window.localStorage; } catch { return null; }
+}
+
+/** Chart prefs live in tg-prefs (DECISIONS "Local storage"); the legacy tycoon.prefs key is migrated on boot. */
 function readPrefs(): Partial<Pick<GameStore, 'indicators' | 'range' | 'chartMode' | 'selected'>> {
-  try { return JSON.parse(window.localStorage.getItem('tycoon.prefs') ?? '{}'); } catch { return {}; }
+  const kv = prefsStore();
+  if (!kv) return {};
+  const p = readPrefsFrom(kv);
+  const out: Partial<Pick<GameStore, 'indicators' | 'range' | 'chartMode' | 'selected'>> = {};
+  if (p.chart.indicators) out.indicators = Object.fromEntries(p.chart.indicators.map((id) => [id, true])) as GameStore['indicators'];
+  if (p.chart.range) out.range = p.chart.range as RangeId;
+  if (p.chart.chartMode === 'candles' || p.chart.chartMode === 'line') out.chartMode = p.chart.chartMode;
+  if (p.lastTicker) out.selected = p.lastTicker;
+  return out;
 }
 
 function writePrefs(s: GameStore): void {
-  try { window.localStorage.setItem('tycoon.prefs', JSON.stringify({ indicators: s.indicators, range: s.range, chartMode: s.chartMode, selected: s.selected })); } catch { /* ignore */ }
+  const kv = prefsStore();
+  if (!kv) return;
+  const indicators = Object.keys(s.indicators).filter((id) => s.indicators[id as IndicatorId]);
+  updatePrefs(kv, (p) => ({ ...p, lastTicker: s.selected, chart: { indicators, range: s.range, chartMode: s.chartMode } }));
 }
 
 export const useGame = create<GameStore>((set, get) => {
@@ -141,7 +192,13 @@ export const useGame = create<GameStore>((set, get) => {
         // rank-ups can come from a tick or from a command (a sale, a grant): compare ranks
         const prevRank = get().me?.rank.id;
         const mine = prevRank && msg.me.rank.id > prevRank ? { rankId: msg.me.rank.id } : msg.rankUps.find((r) => r.playerId === get().playerId);
-        const toasts = msg.inbox.filter((n) => TOAST_KINDS.has(n.kind)).map((n) => ({ id: `t${++toastSeq}`, tone: n.tone, text: n.text }));
+        const toasts = msg.inbox.filter((n) => TOAST_KINDS.has(n.kind)).map((n) => ({
+          id: `t${++toastSeq}`,
+          tone: n.tone,
+          text: n.text,
+          kind: n.kind === 'fill' ? 'fill' as const : n.kind === 'margin' ? 'margin' as const : 'other' as const,
+          app: n.kind === 'fill' ? 'broker' : undefined,
+        }));
         const chat = { ...get().chat };
         let unread = get().chatUnread;
         for (const m of msg.chat) {
@@ -156,11 +213,11 @@ export const useGame = create<GameStore>((set, get) => {
           frame: msg.frame, world: absorbed.world, me: msg.me, lastTickAt: Date.now(), historyRev: get().historyRev + 1,
           wire: msg.wire.length ? [...[...msg.wire].reverse(), ...get().wire].slice(0, WIRE_KEEP) : get().wire,
           ...(msg.pub ? { pub: msg.pub } : {}), ...(msg.directory ? { directory: msg.directory } : {}),
-          ...(toasts.length ? { toasts: [...get().toasts, ...toasts].slice(-5) } : {}),
           ...(msg.chat.length ? { chat, chatUnread: get().chatOpen ? 0 : unread } : {}),
-          ...(mine ? { rankUp: mine.rankId } : {}),
+          ...(mine ? { rankUp: mine.rankId, rankUpFrom: get().me?.rank.id ?? null } : {}),
           ...(msg.inbox.some((n) => n.kind === 'fill') ? { tradeSheetOpen: false } : {}),
         });
+        queueToasts(toasts);
         if (absorbed.behind) resync();
         const nw = get().nw;
         if (nw && msg.frame.tick % nw.every === 0) {
@@ -181,7 +238,7 @@ export const useGame = create<GameStore>((set, get) => {
         break;
       }
       case 'ack':
-        if (msg.me && get().me && msg.me.rank.id > get().me!.rank.id) set({ rankUp: msg.me.rank.id });
+        if (msg.me && get().me && msg.me.rank.id > get().me!.rank.id) set({ rankUp: msg.me.rank.id, rankUpFrom: get().me!.rank.id });
         if (msg.me) set({ me: msg.me, world: get().frame ? mirrorWorld(get().config, get().frame!, mirrorMe(get().playerId, msg.me), get().world ?? undefined) : get().world });
         break;
       default:
@@ -221,6 +278,7 @@ export const useGame = create<GameStore>((set, get) => {
     nw: null,
     toasts: [],
     screen: 'market',
+    screenNonce: 0,
     selected: 'HLCN',
     range: '1D',
     chartMode: 'candles',
@@ -230,6 +288,7 @@ export const useGame = create<GameStore>((set, get) => {
     inboxOpen: false,
     chatOpen: false,
     rankUp: null,
+    rankUpFrom: null,
     digestOpen: false,
     ticketPreset: null,
     profileId: null,
@@ -237,6 +296,8 @@ export const useGame = create<GameStore>((set, get) => {
 
     boot() {
       if (get().status !== 'boot') return;
+      const kv = prefsStore();
+      if (kv) migrateLegacy(kv);
       const prefs = readPrefs();
       set({ ...prefs });
       const token = getToken();
@@ -306,11 +367,13 @@ export const useGame = create<GameStore>((set, get) => {
     },
 
     select(selected) {
+      // An unknown name never reaches the charts (the desktop crashed on one before this guard).
+      if (!knownSeries(get().config, selected)) return;
       set({ selected });
       void get().ensureHistory(selected);
       writePrefs(get());
     },
-    setScreen(screen) { set({ screen, tradeSheetOpen: false, moreOpen: false }); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); },
+    setScreen(screen) { set({ screen, screenNonce: get().screenNonce + 1, tradeSheetOpen: false, moreOpen: false }); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); },
     setRange(range) { set({ range }); writePrefs(get()); },
     setChartMode(chartMode) { set({ chartMode }); writePrefs(get()); },
     toggleIndicator(id) { set({ indicators: { ...get().indicators, [id]: !get().indicators[id] } }); writePrefs(get()); },
@@ -321,8 +384,14 @@ export const useGame = create<GameStore>((set, get) => {
       if (inboxOpen && (get().me?.player.inboxUnread ?? 0) > 0) void get().act({ type: 'inbox.read' }, { silent: true });
     },
     setChat(chatOpen) { set({ chatOpen, ...(chatOpen ? { chatUnread: 0 } : {}) }); },
-    toast(t) { set({ toasts: [...get().toasts, { ...t, id: `t${++toastSeq}` }].slice(-5) }); },
-    dismissToast(id) { set({ toasts: get().toasts.filter((t) => t.id !== id) }); },
+    toast(t) { queueToasts([{ ...t, id: `t${++toastSeq}` }]); },
+    dismissToast(id) { get().dismissToasts([id]); },
+    dismissToasts(ids) {
+      for (const id of ids) toastHolds.cancel(id);
+      set({ toasts: get().toasts.filter((t) => !ids.includes(t.id)) });
+    },
+    pauseToast(id) { toastHolds.pause(id); },
+    resumeToast(id) { toastHolds.resume(id); },
     closeRankUp() { set({ rankUp: null }); },
     closeDigest() {
       set({ digestOpen: false });
@@ -343,6 +412,11 @@ export const PLAYER_FALLBACK = 'me';
 export function assetDefOf(id: string) {
   return useGame.getState().config.assets.find((a) => a.id === id);
 }
+/** Whether a name is a chart series of this universe: a listed or delisted asset, or an index. */
+export function knownSeries(config: WorldConfig, id: string): boolean {
+  return config.assets.some((a) => a.id === id) || config.indices.some((i) => i.id === id);
+}
+
 export function isIndex(id: string) {
   return useGame.getState().config.indices.some((i) => i.id === id);
 }

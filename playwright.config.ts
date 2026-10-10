@@ -22,12 +22,13 @@ export default defineConfig({
     {
       command: `node -e "require('fs').rmSync('test-results/world-e2e',{recursive:true,force:true})" && npx tsx server/index.ts`,
       url: `http://localhost:${WORLD_PORT}/health`,
-      env: { PORT: String(WORLD_PORT), DATA_DIR: "test-results/world-e2e", TICK_MS: "1000", WARMUP_DAYS: "3", ADMIN_TOKEN: E2E_ADMIN },
+      env: { PORT: String(WORLD_PORT), DATA_DIR: "test-results/world-e2e", TICK_MS: "1000", WARMUP_DAYS: "3", ADMIN_TOKEN: E2E_ADMIN, REGISTER_LIMIT: "500" },
       reuseExistingServer: false,
       timeout: 120_000,
     },
     {
-      command: `npm run build && npx next start -p ${PORT}`,
+      // E2E_BUILD_CMD swaps the build (e.g. "npx next build --webpack" where Turbopack cannot run); the default is unchanged.
+      command: `${process.env.E2E_BUILD_CMD ?? "npm run build"} && npx next start -p ${PORT}`,
       url: `http://localhost:${PORT}`,
       env: { NEXT_PUBLIC_WORLD_URL: `http://localhost:${WORLD_PORT}` },
       reuseExistingServer: false,

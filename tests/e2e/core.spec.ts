@@ -16,8 +16,9 @@ test('cold open renders with the design system applied', async ({ page }) => {
 test('core loop: join, first trade capped at 20%, fill, and everything survives a reload', async ({ page }) => {
   const errors = watchErrors(page);
   await register(page);
-  await expect(page.getByTestId('net-worth')).toContainText('$5,250');
-  if (isPhone(page)) await page.getByTestId('open-trade').click();
+  await expect(page.getByTestId('os-networth')).toContainText('$5,250');
+  // The Broker is the first window on the desktop and the first app on the phone (home-app-broker).
+  if (isPhone(page)) await page.getByTestId('home-app-broker').click();
   await expect(page.getByTestId('first-trade-cap')).toBeVisible();
   await page.getByTestId('order-qty').fill('20');
   await expect(page.getByTestId('order-invalid')).toContainText('20%');
@@ -25,11 +26,16 @@ test('core loop: join, first trade capped at 20%, fill, and everything survives 
   await page.getByTestId('order-qty').fill('2');
   await page.getByTestId('order-submit').click();
   // 1-second ticks in e2e: the market order fills on the next tick
-  await expect(page.getByTestId('position-HLCN')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('position-HLCN')).toBeVisible({ timeout: 10_000 }).catch(async () => {
+    // On the phone the positions live in the Portfolio app, not under the ticket.
+    await goTo(page, 'portfolio');
+    await expect(page.getByTestId('position-HLCN')).toBeVisible({ timeout: 10_000 });
+  });
   await skipTips(page);
   await proof(page, 'after-fill');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-game', 'ready', { timeout: 30_000 });
+  if (isPhone(page)) await goTo(page, 'portfolio');
   await expect(page.getByTestId('position-HLCN')).toBeVisible();
   await noHorizontalOverflow(page);
   expect(errors).toEqual([]);

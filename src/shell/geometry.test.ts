@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { APPS } from './apps';
 import {
   GUTTER,
+  brokerView,
   GUTTER_FOCUS,
   SHELF_H,
   STRIP_H,
@@ -157,5 +158,14 @@ describe('min-size checks and nearest slot', () => {
     expect(nearestSlot(nearLeft, wa, GUTTER, APPS.broker, 'full')).toBe('L2');
     expect(nearestSlot(nearLeft, wa, GUTTER, { minW: 5000, minH: 5000 }, 'full')).toBeNull();
     expect(nearestSlot(nearLeft, workArea(VP_1000, false), GUTTER, APPS.portfolio, 'halves')).toBeNull();
+  });
+});
+
+
+describe('Broker layout breakpoints (V:41, C-37)', () => {
+  it('narrow below 720 wide, short below 560 tall', () => {
+    expect(brokerView({ w: 480, h: 420 })).toEqual({ narrow: true, short: true });
+    expect(brokerView({ w: 720, h: 560 })).toEqual({ narrow: false, short: false });
+    expect(brokerView({ w: 900, h: 559 })).toEqual({ narrow: false, short: true });
   });
 });

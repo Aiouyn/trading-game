@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AppId } from './apps';
-import { type KeyEnv, type KeyEvt, SHORTCUTS, keyIntent } from './keys';
+import { type KeyEnv, type KeyEvt, SHORTCUTS, cycleTarget, keyIntent } from './keys';
 
 const SHELF: AppId[] = ['broker', 'portfolio', 'wire', 'messages', 'calendar'];
 
@@ -68,6 +68,11 @@ describe('keyboard bindings (section I)', () => {
     expect(keyIntent(key('KeyN', { alt: true }), env())).toEqual({ kind: 'wm', action: { type: 'open', app: 'broker' } });
   });
 
+  it('Alt W closes the focused window and does nothing with no focus', () => {
+    expect(keyIntent(key('KeyW', { alt: true }), env())).toEqual({ kind: 'wm', action: { type: 'close', id: 'broker-1' } });
+    expect(keyIntent(key('KeyW', { alt: true }), env({ focused: null }))).toBeNull();
+  });
+
   it('binds nothing a browser tab or the OS owns (P2-103, C-17)', () => {
     const never: KeyEvt[] = [
       key('KeyD', { alt: true }),
@@ -97,5 +102,29 @@ describe('keyboard bindings (section I)', () => {
     const ids = SHORTCUTS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(SHORTCUTS.map((s) => s.keys)).toContain('Ctrl Shift Arrow');
+    expect(SHORTCUTS.map((s) => s.keys)).toContain('Ctrl K');
+  });
+
+  it('Alt Backquote cycles windows, Shift reverses (the tab fallback, P2-102)', () => {
+    expect(keyIntent(key('Backquote', { alt: true }), env())).toEqual({ kind: 'cycle', back: false });
+    expect(keyIntent(key('Backquote', { alt: true, shift: true }), env())).toEqual({ kind: 'cycle', back: true });
+    expect(keyIntent(key('Backquote', { alt: true }), env({ textField: true }))).toBeNull();
+  });
+
+  it('Shift Slash opens the keyboard list, and a plain Slash does nothing', () => {
+    expect(keyIntent(key('Slash', { shift: true }), env())).toEqual({ kind: 'help' });
+    expect(keyIntent(key('Slash'), env())).toBeNull();
+    // AZERTY puts the question mark on the Comma key with Shift.
+    expect(keyIntent(key('Comma', { shift: true }), env())).toEqual({ kind: 'help' });
+  });
+
+  it('cycleTarget walks the open windows on the workspace, bottom first going forward', () => {
+    const win = (id: string, ws = 0, state: 'open' | 'collapsed' = 'open') =>
+      ({ id, app: 'wire', ws, state, rect: { x: 0, y: 0, w: 1, h: 1 }, slot: null, filled: false, props: {} }) as const;
+    const wins = [win('a'), win('b'), win('c'), win('x', 1), win('d', 0, 'collapsed')];
+    expect(cycleTarget(wins, 0, false)).toBe('a');
+    expect(cycleTarget(wins, 0, true)).toBe('b');
+    expect(cycleTarget([win('a')], 0, false)).toBeNull();
+    expect(cycleTarget(wins, 2, false)).toBeNull();
   });
 });

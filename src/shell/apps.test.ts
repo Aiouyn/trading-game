@@ -8,11 +8,13 @@ import {
   MAX_BROKERS,
   MAX_CUSTOM_LAYOUTS,
   MAX_FILE_ID,
+  READY_VIEWS,
   SHELF_ORDER,
   cleanProps,
   isAppId,
   isBuiltinLayout,
   normalizeTicker,
+  secondWindowReady,
 } from './apps';
 import { RANK_ORDER } from './ctx';
 
@@ -48,6 +50,14 @@ describe('app registry', () => {
   it('allows a second Portfolio only through Review, with the journal view, capped at two', () => {
     expect(APPS.portfolio.secondInstance).toEqual({ layout: 'review', view: 'journal', max: 2 });
     expect(MAX_CUSTOM_LAYOUTS).toBe(5);
+  });
+
+  it('opens the second Portfolio only when its journal view is built (none are built yet)', () => {
+    expect(READY_VIEWS).toEqual([]);
+    expect(secondWindowReady('portfolio')).toBe(false);
+    expect(secondWindowReady('portfolio', ['journal'])).toBe(true);
+    expect(secondWindowReady('portfolio', ['analyst'])).toBe(false);
+    expect(secondWindowReady('wire')).toBe(false);
   });
 
   it('keeps unlock ranks as data, Company hidden until R2 and Research at R3', () => {
@@ -89,7 +99,8 @@ describe('app registry', () => {
 
   it('recognises app ids only', () => {
     expect(isAppId('broker')).toBe(true);
-    expect(isAppId('ailab')).toBe(false);
+    expect(isAppId('ailab')).toBe(true);
+    expect(isAppId('lab')).toBe(false);
     expect(isAppId('__proto__')).toBe(false);
     expect(isAppId(3)).toBe(false);
   });

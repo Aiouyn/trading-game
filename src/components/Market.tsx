@@ -42,12 +42,14 @@ export function seriesInfo(world: WorldState, id: string, rankId: string): Serie
 
 const RANGE_OPTS = RANGES.map((r) => ({ value: r, label: r, testId: `range-${r}` }));
 
-export function ChartCard({ phone = false }: { phone?: boolean }) {
+/** A window passes its own ticker; the old screens pass nothing and read the game's selection. */
+export function ChartCard({ phone = false, ticker }: { phone?: boolean; ticker?: string }) {
   const world = useGame((s) => s.world)!;
   useGame((s) => s.historyRev);
   useGame((s) => s.config);
   const rankId = useGame((s) => s.me?.player.rankId ?? 'R0');
-  const selected = useGame((s) => s.selected);
+  const globalSelected = useGame((s) => s.selected);
+  const selected = ticker ?? globalSelected;
   const range = useGame((s) => s.range);
   const setRange = useGame((s) => s.setRange);
   const mode = useGame((s) => s.chartMode);
@@ -125,10 +127,11 @@ export function EarningsBadge({ assetId }: { assetId: string }) {
 }
 
 /** Everything about the selected asset: fundamentals, simplified earnings, analyst note, options. */
-export function AssetPanel() {
+export function AssetPanel({ ticker }: { ticker?: string } = {}) {
   const world = useGame((s) => s.world)!;
   const me = useGame((s) => s.me)!;
-  const selected = useGame((s) => s.selected);
+  const globalSelected = useGame((s) => s.selected);
+  const selected = ticker ?? globalSelected;
   const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const [chain, setChain] = useState(false);
@@ -226,12 +229,15 @@ function Mini({ k, v }: { k: string; v: string }) {
 type UniverseTab = 'watch' | 'stock' | 'crypto' | 'commodity' | 'forex' | 'bond' | 'index';
 
 /** Watchlist plus the full universe, searchable by name, ticker or sector. */
-export function Watchlist() {
+/** The watchlist picker. A Broker passes `ticker` (its own) and `onPick` (open that ticker); the old screens use the game's selection. */
+export function Watchlist({ ticker, onPick }: { ticker?: string; onPick?: (id: string) => void } = {}) {
   const world = useGame((s) => s.world)!;
   const me = useGame((s) => s.me)!;
   useGame((s) => s.historyRev);
-  const selected = useGame((s) => s.selected);
+  const globalSelected = useGame((s) => s.selected);
+  const selected = ticker ?? globalSelected;
   const select = useGame((s) => s.select);
+  const pick = onPick ?? select;
   const act = useGame((s) => s.act);
   const config = useGame((s) => s.config);
   const [tab, setTab] = useState<UniverseTab>('watch');
@@ -272,7 +278,7 @@ export function Watchlist() {
           const inWatch = watch.includes(id);
           return (
             <li key={id} className={`group flex items-center ${on ? 'bg-ink-2 shadow-[inset_2px_0_0_var(--color-brass)]' : 'hover:bg-ink-2'}`}>
-              <button type="button" onClick={() => select(id)} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left" data-testid={`watch-${id}`}>
+              <button type="button" onClick={() => pick(id)} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left" data-testid={`watch-${id}`}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="num text-small font-semibold text-fg">{id}</span>

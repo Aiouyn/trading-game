@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
 import { TPD, cashOf, credit, netWorthBreakdown } from './core';
 import { refreshNetWorth } from './assets';
-import { applyRank } from './players';
+import { applyRank, checkAchievements } from './players';
 import { marketFrame, mirrorWorld, playerView } from './view';
 import { BUSINESSES } from '@/content/businesses';
 import { estimateFill, universeConfig } from '@/engine';
@@ -348,5 +348,67 @@ describe('npc rivals', () => {
     const npcTrades = Object.values(g.players).filter((p) => p.npc).reduce((s, p) => s + p.stats.trades + p.stats.bizBought, 0);
     expect(npcTrades).toBeGreaterThan(10);
     expect(g.boards.netWorth.length).toBeGreaterThan(10);
+  });
+});
+
+describe('the public Wire stays about the world, not every account', () => {
+  const publicText = (g: GameState): string[] => g.wire.map((w) => w.text);
+
+  it('a new account posts no account-opening story to the public Wire', () => {
+    const g = game('no-opening');
+    cmd(g, 'u1', { type: 'join', handle: 'quiet', country: 'AV' });
+    expect(publicText(g).some((t) => t.includes('opens an account'))).toBe(false);
+    expect(g.wire.some((w) => w.tag === 'New')).toBe(false);
+    // The player still gets the welcome in their own inbox.
+    expect(g.players.u1!.inbox.some((i) => i.text.startsWith('Welcome to Port Avalon'))).toBe(true);
+  });
+
+  it('a common achievement is the player news only, after the first in the world', () => {
+    const g = game('common-ach');
+    cmd(g, 'u1', { type: 'join', handle: 'first', country: 'AV' });
+    cmd(g, 'u2', { type: 'join', handle: 'second', country: 'AV' });
+    const achievements = (): string[] => g.wire.filter((w) => w.tag === 'Achievement' && w.text.includes('Opening Bell')).map((w) => w.text);
+    g.players.u1!.stats.trades = 1;
+    checkAchievements(g, g.players.u1!, null);
+    // u1 is the first to open Opening Bell: named once, as the first in Port Avalon.
+    expect(achievements()).toEqual(['first unlocks Opening Bell, the first in Port Avalon']);
+    expect(g.firstUnlocks?.['first-trade']).toBe('first');
+    g.players.u2!.stats.trades = 1;
+    checkAchievements(g, g.players.u2!, null);
+    // u2 has the same common unlock: it stays in u2's own inbox, not the public Wire.
+    expect(achievements()).toHaveLength(1);
+    expect(g.players.u2!.inbox.some((i) => i.text.includes('Opening Bell'))).toBe(true);
+  });
+
+  it('a rare (legend) achievement is named on the public Wire every time', () => {
+    const g = game('rare-ach');
+    cmd(g, 'u1', { type: 'join', handle: 'titan', country: 'AV' });
+    cmd(g, 'u2', { type: 'join', handle: 'titan2', country: 'AV' });
+    g.players.u1!.rankId = 'R5';
+    checkAchievements(g, g.players.u1!, null);
+    g.players.u2!.rankId = 'R5';
+    checkAchievements(g, g.players.u2!, null);
+    const rare = g.wire.filter((w) => w.tag === 'Achievement' && w.text.includes('Titan'));
+    expect(rare.map((w) => w.text)).toEqual(['titan2 unlocks Titan', 'titan unlocks Titan']);
+  });
+
+  it('a human rank-up posts to the public Wire only from R3 up', () => {
+    const g = game('rank-noise');
+    cmd(g, 'u1', { type: 'join', handle: 'climber', country: 'AV' });
+    boost(g, 'u1', 30_000);
+    expect(g.players.u1!.rankId).toBe('R1');
+    expect(g.wire.some((w) => w.text.includes('reaches'))).toBe(false);
+    expect(g.players.u1!.inbox.some((i) => i.text.startsWith('Rank up: you are now Hustler'))).toBe(true);
+    boost(g, 'u1', 6_000_000);
+    expect(g.players.u1!.rankId).toBe('R3');
+    expect(g.wire.some((w) => w.text === 'climber reaches Operator')).toBe(true);
+  });
+
+  it('NPC achievements never reach the public Wire', () => {
+    const g = game('npc-ach', true);
+    const npc = Object.values(g.players).find((p) => p.npc)!;
+    npc.stats.trades = 1;
+    checkAchievements(g, npc, null);
+    expect(g.wire.some((w) => w.tag === 'Achievement')).toBe(false);
   });
 });

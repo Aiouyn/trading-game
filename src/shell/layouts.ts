@@ -12,7 +12,7 @@
  * skipped the same way. wm.ts never imports this module: ctx.ts wires `planLayout` into WmCtx.
  */
 
-import { APPS, type AppId, type BuiltinLayout, type WinProps, isBuiltinLayout } from './apps';
+import { APPS, type AppId, type BuiltinLayout, type WinProps, READY_VIEWS, isBuiltinLayout, secondWindowReady } from './apps';
 import {
   BP_HALVES,
   type Rect,
@@ -33,6 +33,8 @@ export type { BuiltinLayout };
 export interface PlanOpts {
   ticker?: string;
   fileId?: string;
+  /** The built views (apps.ts READY_VIEWS). Tests pass a longer list to check the journal rule. */
+  views?: readonly string[];
 }
 
 export interface Placement {
@@ -72,15 +74,11 @@ interface Entry {
   second?: boolean;
 }
 
-const DEFS: Readonly<Record<BuiltinLayout, readonly Entry[]>> = {
+const DEFS: Readonly<Record<Exclude<BuiltinLayout, 'review'>, readonly Entry[]>> = {
   trade: [
     { app: 'wire', slot: 'R3T' },
     { app: 'portfolio', slot: 'R3B' },
     { app: 'broker', slot: 'L23', main: true, ticker: true },
-  ],
-  review: [
-    { app: 'portfolio', slot: 'L2', main: true },
-    { app: 'portfolio', slot: 'R2', view: 'journal', second: true },
   ],
   research: [
     { app: 'research', slot: 'L23', main: true, file: true },
@@ -88,6 +86,24 @@ const DEFS: Readonly<Record<BuiltinLayout, readonly Entry[]>> = {
     { app: 'wire', slot: 'R3B' },
   ],
 };
+
+/** Review before the journal view exists: Portfolio on the left, Wire on the right. */
+const REVIEW_WIRE: readonly Entry[] = [
+  { app: 'portfolio', slot: 'L2', main: true },
+  { app: 'wire', slot: 'R2' },
+];
+
+/** Review once the journal view is built: a second Portfolio (the journal) on the right (C-27). */
+const REVIEW_JOURNAL: readonly Entry[] = [
+  { app: 'portfolio', slot: 'L2', main: true },
+  { app: 'portfolio', slot: 'R2', view: 'journal', second: true },
+];
+
+/** The entries of a layout. Review's second Portfolio appears only when the journal view is ready. */
+function entriesFor(name: BuiltinLayout, views: readonly string[]): readonly Entry[] {
+  if (name === 'review') return secondWindowReady('portfolio', views) ? REVIEW_JOURNAL : REVIEW_WIRE;
+  return DEFS[name];
+}
 
 interface Cur {
   app: AppId;
@@ -105,7 +121,7 @@ interface Cur {
  * reducer; applyLayout refuses below 1200 (V:42), but the plan is useful at any width.
  */
 export function planLayout(name: BuiltinLayout, vp: Size, unlocked: Unlocked, opts: PlanOpts = {}): LayoutPlan {
-  const defs = DEFS[name];
+  const defs = entriesFor(name, opts.views ?? READY_VIEWS);
   const kept: Cur[] = [];
   const dropped: Cur[] = [];
   defs.forEach((e, i) => {

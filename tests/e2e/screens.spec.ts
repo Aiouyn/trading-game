@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { goTo, grant, isPhone, noHorizontalOverflow, proof, register, skipTips, watchErrors } from './helpers';
+import { goTo, grant, isPhone, noHorizontalOverflow, proof, register, skipRankUp, skipTips, watchErrors } from './helpers';
 
 const SCREENS: [string, string][] = [
   ['portfolio', 'portfolio-view'], ['empire', 'empire-view'], ['estate', 'estate-view'], ['lab', 'lab-view'],
@@ -10,8 +10,7 @@ test('every screen opens without errors or horizontal overflow', async ({ page }
   const errors = watchErrors(page);
   const handle = await register(page);
   await grant(handle, 8_000_000); // unlock the Lab and Security so their real screens render
-  await expect(page.getByTestId('rankup-overlay')).toBeVisible({ timeout: 10_000 });
-  await page.getByTestId('rankup-skip').click({ timeout: 10_000 });
+  await skipRankUp(page);
   await skipTips(page);
   for (const [screen, id] of SCREENS) {
     await goTo(page, screen);
@@ -24,8 +23,9 @@ test('every screen opens without errors or horizontal overflow', async ({ page }
 
 test('chat: a message shows up for its sender', async ({ page }) => {
   await register(page);
-  if (isPhone(page)) { await page.getByTestId('tab-more').click(); await page.getByTestId('more-chat').click(); }
-  else await page.getByTestId('nav-chat').click();
+  // The desktop opens the chat drawer from the strip; on the phone the chat is the Messages app's tab.
+  if (isPhone(page)) { await goTo(page, 'social'); await page.getByTestId('tab-chat').click(); }
+  else await page.getByTestId('os-chat').click();
   await page.getByTestId('chat-input').fill('hello from e2e');
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('chat-panel')).toContainText('hello from e2e');
@@ -35,7 +35,7 @@ test('late game: options and the AI lab work after reaching Operator', async ({ 
   test.skip(isPhone(page), 'desktop flow');
   const handle = await register(page);
   await grant(handle, 8_000_000);
-  await page.getByTestId('rankup-skip').click({ timeout: 15_000 });
+  await skipRankUp(page);
   await skipTips(page);
   await page.getByTestId('open-chain').click();
   await expect(page.getByTestId('option-chain')).toBeVisible();
