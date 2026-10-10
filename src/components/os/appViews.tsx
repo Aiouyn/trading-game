@@ -22,7 +22,7 @@ const LegalApp = dynamic(() => import('@/components/apps/legal/LegalApp').then((
 const SettingsView = dynamic(() => import('./SettingsView').then((m) => m.SettingsView), { ssr: false });
 const LearnApp = dynamic(() => import('./LearnApp').then((m) => m.LearnApp), { ssr: false });
 const ResearchDesk = dynamic(() => import('./ResearchDesk').then((m) => m.ResearchDesk), { ssr: false });
-const CompanyApp = dynamic(() => import('./CompanyApp').then((m) => m.CompanyApp), { ssr: false });
+const CompanyApp = dynamic(() => import('@/components/apps/company/CompanyApp').then((m) => m.CompanyApp), { ssr: false });
 
 /** A window's content. `size` is the window's current size, which the Broker lays itself out by. */
 export function AppBody({ win, size }: { win: Win; size: Size }) {
@@ -56,7 +56,7 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
     case 'research':
       return <ResearchDesk />;
     case 'company':
-      return <CompanyApp />;
+      return <div className="os-body"><CompanyApp view={win.props.view} /></div>;
     default:
       return <Stub />;
   }

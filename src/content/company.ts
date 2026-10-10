@@ -120,6 +120,8 @@ export const COMPANY = {
     gain: 0.20,
     kDecay: 0.8,
     zSpread: 0.25,
+    /** the display mark a product must reach to read "ready to ship" (the screen threshold, velvet-company-app 14) */
+    readyMark: 55,
     /** band shown before launch: p +- 5 points (X15, CB-024) */
     pBand: 0.05,
     /** the cost project gain on unit cost efficiency (a proposal: same form as quality, half size) */

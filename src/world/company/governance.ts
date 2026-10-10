@@ -67,6 +67,11 @@ export function hireExec(
   return { ok: true, value: { role: args.role, salary } };
 }
 
+/** The severance on a salary: 21 gd of salary. The screens read it from the view before a firing is confirmed. */
+export function severanceOf(salary: number): number {
+  return salary * COMPANY.governance.exec.severanceDays;
+}
+
 /**
  * Lets an executive go: refused before the minimum term ends (`execTerm`). Severance is 21 gd of salary, a sink when the
  * executive is an NPC, and a transfer to the player's account when the holder is a player.
@@ -79,7 +84,7 @@ export function fireExec(
   const ex = c.execs?.[role];
   if (!ex) return { ok: false, reject: { code: 'execNotFound', role } };
   if (env.day < ex.termEnd) return { ok: false, reject: { code: 'execTerm', untilDay: ex.termEnd } };
-  const sev = ex.salary * COMPANY.governance.exec.severanceDays;
+  const sev = severanceOf(ex.salary);
   if (ex.holder.kind === 'player') {
     post(w, c, env.day, 'severance', -sev, true);
     env.money.give?.(ex.holder.playerId, sev);

@@ -6,8 +6,10 @@ export {
   companyAction, companyTick, emptyCompanyWorld, foundCompany, privateValue, revenuePerDay,
 } from './company';
 export type { CompanyAction, CompanyEnv, CompanyEvent, Outcome } from './company';
-export { publicCompanyView, founderCompanyView } from './views';
+export { publicCompanyView, founderCompanyView, ownCompanyView } from './views';
 export type { CompanyPublic, CompanyFounderView } from './views';
+export { operationsView } from './operations';
+export type { OperationsView, CompanyLimits, ExecutiveView } from './operations';
 export { tierFor, quarterTax, reversal, statementsHash, buildStatements, filingOf } from './filings';
 export { vEngine, lnPerShare, sensCB, backlogLift, surprise, surpriseDenominator } from './valuation';
 export type { ValuationInputs } from './valuation';

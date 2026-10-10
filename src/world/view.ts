@@ -9,6 +9,7 @@ import { tradesOf } from './ledger';
 import { deskFileSummaries, deskWindow } from './desk';
 import { calendarFor, type CalendarItem } from './calendar';
 import { goalsView } from './learn';
+import { ownCompanyView, type CompanyFounderView } from './company/views';
 import { textProvider } from './text';
 import type { DailyClose, LedgerFill, PlanState, RoundTrip } from './ledger-types';
 import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, propValue, today, type NetWorthBreakdown } from './core';
@@ -172,6 +173,8 @@ export interface PlayerView {
   arrival: { cash: number; change: number; changePct: number; external: number };
   rank: { id: string; name: string; next: { id: string; name: string; threshold: number } | null; progress: number };
   businesses: Business[];
+  /** the company this player founded (its founder view: private, for this player only); absent before a company exists */
+  company?: CompanyFounderView | null;
   properties: (Property & { value: number })[];
   contracts: ContractView[];
   inbox: InboxItem[];
@@ -230,6 +233,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
       progress: next ? Math.min(1, Math.max(0, (p.netWorth - floor) / (next.threshold - floor))) : 1,
     },
     businesses: playerBusinesses(g, pid),
+    company: ownCompanyView(g.companies, pid, today(g)),
     properties: playerProperties(g, pid).map((x) => ({ ...x, value: propValue(g, x) })),
     contracts: p.contracts.map((c) => ({ ...c, ...(() => { const pr = contractProgress(g, p, c.defId); return { progress: pr.value, target: pr.target }; })() })),
     inbox: inbox.slice(0, 60),
