@@ -366,7 +366,7 @@ export function propertyDay(g: GameState, out: StepOutput): void {
 
 // ================================================================ lifestyle
 
-export function buyItem(g: GameState, pid: string, itemId: string, out: StepOutput | null): CommandResult {
+export function buyItem(g: GameState, pid: string, itemId: string): CommandResult {
   const p = g.players[pid]!;
   const item = LIFE_BY_ID.get(itemId);
   if (!item) return fail('unknown item');
@@ -383,9 +383,8 @@ export function buyItem(g: GameState, pid: string, itemId: string, out: StepOutp
   refreshPrestige(g, p);
   // luxury spending feeds Velour Maison (bible decision 11): a small nudge to its value
   nudgeAsset(g, 'VLMS', 0.0004 * Math.log10(1 + item.price / 1e5));
-  if (item.price >= 250_000 || item.cls === 'unique') {
-    pushWire(g, out, { kind: 'purchase', tag: 'Purchase', tone: 'brass', text: `${p.handle} buys ${item.name.toLowerCase().startsWith('a') ? '' : 'a '}${item.name}`, playerId: pid });
-  }
+  // no Wire line for a lifestyle purchase: the Wire carries business and property purchases only (docs/V1-PRIVACY.md section 1).
+  // The item shows on the buyer's own profile, the public holdings list (section 1, item 3).
   return ok();
 }
 

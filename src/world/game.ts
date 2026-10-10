@@ -259,7 +259,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'prop.renovate': return renovateProperty(g, pid, cmd.propId);
     case 'prop.home': return setHome(g, pid, cmd.propId);
     case 'prop.repay': return repayMortgage(g, pid, cmd.propId, cmd.amount);
-    case 'life.buy': return held ? fail('your assets are held by the court') : buyItem(g, pid, cmd.itemId, out);
+    case 'life.buy': return held ? fail('your assets are held by the court') : buyItem(g, pid, cmd.itemId);
     case 'life.sell': return held ? fail('your assets are held by the court') : sellItem(g, pid, cmd.uid);
     case 'note.buy': {
       const lab = g.lab[pid];

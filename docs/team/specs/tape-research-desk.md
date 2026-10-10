@@ -108,3 +108,38 @@ Proof path: `/workspace/trading-game/proof/research-desk/` (box) then PC when la
 - Desk query UI below R3.
 
 **Not Tape's call:** analyst / desk prices (Quant vs R3 income curve), Junior vs Senior feature split (Velvet/Ledger). Tape only checks the guards above.
+
+---
+
+## Status (Phase 3 gates, branch p3/c1)
+
+Each applies-now hunt has a test named with its id. Where a spec row and the engine differ, the ruling is noted here.
+
+| Hunt | Where | Status |
+|---|---|---|
+| explain_move_rejects_open_day, explain_move_rejects_future_from | src/engine/research-desk.hunts.test.ts (20 seeds) | PASS |
+| explain_move_clamps_window | engine lower bound: same file. Upper bound: the desk picker clamps (D-12), src/world/research-desk.hunts.test.ts. Row [29] says the engine clamps the end; the engine rejects it (D-12), so the spec row is read as the picker's clamp | PASS (ruling) |
+| desk_picker_blocks_today | tests/e2e/research-desk-hunts.spec.ts | PASS |
+| desk_chart_no_future_axis | src/world/research-desk.hunts.test.ts (its own test name: 5 seeds, closed-day windows and open-day windows, no bar on or after the open day) | PASS (no DOM screenshot taken) |
+| explain_trade_closed_only | src/world/research-desk.hunts.test.ts | PASS |
+| no_forecast_copy | src/world/research-desk.hunts.test.ts, every desk, journal, research, dayclose, work and lesson key in en and fr. buy and sell are the order form's words and lesson instructions, so they are not banned words. The advice built on them is banned by ADVICE_PATTERNS_EN / _FR (src/world/text/banned.ts), checked on every key | PASS (ruling) |
+| memo_past_tense | src/world/research-desk.hunts.test.ts: the memo sentences, the journal lines, and a sweep of every French desk memo, journal line and dayclose key (fr: "vient" changed to "est venu"; "vous devancez" changed to "vous avez devancé") | PASS |
+| flow_pool_types_only | src/engine and src/world hunt files. Pool key is `maker` in the engine (not `mm`) | PASS (key name amended) |
+| npc_funds_folded, solo_you_row, online_players_threshold, day_level_fold_before_sum | src/engine/research-desk.hunts.test.ts (24 personas, rivals on) | PASS |
+| dom_no_trader_names | tests/e2e/research-desk-hunts.spec.ts (desk and analyst DOM) | PASS |
+| window_diff_no_isolate, window_diff_no_names | src/engine/research-desk.hunts.test.ts (20 seeds, depth subtraction included) | PASS |
+| explain_trade_parts_sum (500 round trips, 20 seeds) | src/world/research-desk.hunts.test.ts (real trips through the ledger) | PASS |
+| explain_move_parts_sum | src/engine/research-desk.hunts.test.ts and the dossier rows in src/world/research-desk.hunts.test.ts | PASS |
+| test_shock_labeled | src/engine/research-desk.hunts.test.ts (shockPrice and shockValue print the Test shock row; the memo names it) | PASS |
+| event_window_no_end_leak | src/engine/research-desk.hunts.test.ts (key set, no duration or end field) | PASS |
+| ui_no_own_arithmetic | tests/e2e/research-desk-hunts.spec.ts (desk total equals the API total, string for string) | PASS |
+| analyst_week_ahead_no_refund | src/world/research-desk.hunts.test.ts; the confirm copy is checked in tests/e2e/learning.spec.ts | PASS |
+| analyst_unpaid_leaves | src/world/research-desk.hunts.test.ts. E2E not run: the e2e world has no route that drains spendable cash | PASS (unit) |
+| restricted_cash_blocks_hire | src/world/research-desk.hunts.test.ts. E2E not run: no route holds ad or fresh-start cash | PASS (unit) |
+| desk_below_r3_absent | tests/e2e/research-desk-hunts.spec.ts (no query control in the DOM) | PASS |
+| desk_upkeep_miss | src/world/research-desk.hunts.test.ts (locks, files readable, one note). E2E not run, as above | PASS (unit) |
+| desk_rank_loss_keeps_files | D-13: the rank never drops, so there is no rank-loss lock. Recorded as it.skip with the reason in src/world/research-desk.hunts.test.ts | N/A (D-13) |
+| fold_solve (R1, stronger attacker) | src/engine/fold-lsq.test.ts; blur 2 ADV (ecology.foldBlur); measured in docs/V1-PRIVACY.md section 7. Corr 0.02 to 0.42 at 0.05 to 1 ADV. The attacker is not yet complete (no nested explain parts, Wire or short interest) | PASS for this attacker, attacker incomplete |
+| L3, L4 | tests/e2e/no-leak.spec.ts (every frame type and a private-key list; an nw-history reply's `ghosts` is the requester's own series and is exempt) | PASS, desktop and phone |
+| L1, L2, L5 | tests/e2e/no-leak.spec.ts (desktop; the phone project skips them with a written reason, the same storage, network and export code) | PASS, desktop |
+| L6 | no tournament or autopsy code in src (skipped with that reason in the spec) | N/A |

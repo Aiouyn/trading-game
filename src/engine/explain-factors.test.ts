@@ -18,7 +18,7 @@ function run(seed: string, days: number, traders: string[] = [], tpd = TPD, cfg:
   return s;
 }
 
-const ZERO_CAUSE: Record<EcoCause, number> = { value: 0, trend: 0, retail: 0, pension: 0, maker: 0, news: 0, event: 0, own: 0 };
+const ZERO_CAUSE: Record<EcoCause, number> = { value: 0, trend: 0, retail: 0, pension: 0, maker: 0, news: 0, event: 0, own: 0, shock: 0 };
 const NO_PARTS: LnVParts = { drift: 0, market: 0, sector: 0, idio: 0, news: 0, event: 0 };
 
 function day(cause: Partial<Record<EcoCause, number>>, parts?: Partial<LnVParts>, players?: { accounts: number; maxShare: number }): EcoArchiveAsset {

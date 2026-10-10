@@ -258,6 +258,13 @@ export interface AssetState {
    * ecology is on, reset at the day boundary, read at the close (ecologyDay) and archived per asset. Absent = zeros.
    */
   dayLnV?: LnVParts;
+  /**
+   * Test shocks (shockPrice, test-only, never in the app): the price move it made since the last close, in log units. The
+   * close reads it into the Test shock row (tape-research-desk.md section 3) and clears it. Absent = 0.
+   */
+  dayShock?: number;
+  /** a test shockValue's lnV move not yet booked in today's split (booked at the next tick, after the day's reset). Absent = 0. */
+  pendingValueShock?: number;
   /** the part of dayJump that is world-event price moves, summed per tick. Ecology-on only. */
   dayEvent?: number;
   /** log return accumulated while halted; applied in the reopening auction */
@@ -583,7 +590,7 @@ export interface CrowdHold {
 export type EcologyMode = 'off' | 'shadow' | 'hybrid' | 'full';
 export type EcoPool = 'value' | 'trend' | 'retail' | 'pension';
 /** terms of the daily cause vector, in log return; they sum to the shadow close-to-close move */
-export type EcoCause = 'value' | 'trend' | 'retail' | 'pension' | 'maker' | 'news' | 'event' | 'own';
+export type EcoCause = 'value' | 'trend' | 'retail' | 'pension' | 'maker' | 'news' | 'event' | 'own' | 'shock';
 
 /**
  * One asset's day change in ln value, by source; the parts sum to the day's change in lnV exactly, on any day that has
@@ -600,6 +607,8 @@ export interface LnVParts {
   idio: number;
   news: number;
   event: number;
+  /** a test shockValue's move in the value line (test-only); absent on saves from before it = 0 */
+  shock?: number;
 }
 
 export interface EcologyConfig {
@@ -668,6 +677,12 @@ export interface EcologyConfig {
   /** retail: N(0,1) · retailNoise + retailHeadline · (decayed sign of past headlines), in ADV */
   retailNoise: number;
   retailHeadline: number;
+  /**
+   * R1 blur (Tape, measured): on a folded day with a human trade, the public Retail figure (depth and the explain row) carries
+   * a server-only draw of this sd, in ADV. The price does not change: the day's impact is split over the blurred flows, which
+   * always sum to the same impact. 0 turns it off.
+   */
+  foldBlur?: number;
   headlineHalfLifeDays: number;
   /** pension: in the last pensionDays of every quarter, trades pensionK · (drift from policy weight) per day, in ADV per unit log drift */
   pensionK: number;
@@ -730,6 +745,8 @@ export interface EcoLogAsset {
   lnVParts?: LnVParts;
   /** the day's player bucket: distinct accounts that traded the asset and the largest one's share of its gross flow */
   players?: { accounts: number; maxShare: number };
+  /** the R1 blur draw on this day (ADV), set only on a day with a human trade (ecology.foldBlur) */
+  blur?: number;
   net: number;
   /** gross shadow volume, ADV (sum of |orders|) */
   gross: number;
@@ -759,6 +776,8 @@ export interface EcoArchiveAsset {
   lnS: number;
   lnV: number;
   cause: Record<EcoCause, number>;
+  /** the same day's cause split over the R1-blurred Retail flow: the attribution a folded day shows (absent without a human trade) */
+  foldCause?: Record<EcoCause, number>;
   lnVParts?: LnVParts;
   players?: { accounts: number; maxShare: number };
 }

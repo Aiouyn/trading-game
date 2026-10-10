@@ -80,7 +80,7 @@ describe('full ecology: the pools set the close (closing auction)', () => {
     expect(log.length).toBe(DEFAULT_ECOLOGY.logDays);
     for (let k = 1; k < log.length; k++) {
       log[k]!.assets.forEach((a, i) => {
-        expect(Object.keys(a.cause).sort()).toEqual(['event', 'maker', 'news', 'own', 'pension', 'retail', 'trend', 'value']);
+        expect(Object.keys(a.cause).sort()).toEqual(['event', 'maker', 'news', 'own', 'pension', 'retail', 'shock', 'trend', 'value']);
         const sum = Object.values(a.cause).reduce((x, y) => x + y, 0);
         expect(sum).toBeCloseTo(a.lnS - log[k - 1]!.assets[i]!.lnS, 12);
         expect(a.depth).toBeGreaterThanOrEqual(DEFAULT_ECOLOGY.depthMin);

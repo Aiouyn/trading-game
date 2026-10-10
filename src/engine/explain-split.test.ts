@@ -69,7 +69,7 @@ describe('the lnV split (D-1): the parts sum to the day lnV change wherever a sp
 });
 
 describe('the factor rows (D-1): company drift is not a market move', () => {
-  const zeroCause = { value: 0.02, trend: 0, retail: 0, pension: 0, own: 0, maker: 0, news: 0, event: 0 };
+  const zeroCause = { value: 0.02, trend: 0, retail: 0, pension: 0, own: 0, maker: 0, news: 0, event: 0, shock: 0 };
   const base = { id: ASSET, lnS: 0, lnV: 0, cause: zeroCause, players: { accounts: 0, maxShare: 0 } };
 
   it('drift alone is Company noise, never Market', () => {

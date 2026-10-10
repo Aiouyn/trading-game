@@ -20,6 +20,10 @@ These are deeds and registries, not market positions:
 - Trading style: the player's order types, timing, size, or any label derived from them.
 - Bots and NPC personas: their flow never appears as a player's, and no NPC surface shows another account's positions.
 - A player's own flow inside any public figure, except the pool it folds into (section 3).
+- Short positions, in any filing. A filing is a long stake of 0.5% or more (section 1, item 1). A short above that size is a
+  market position and never prints on the Wire (tests: src/world/no-reveal.hunts.test.ts).
+- Lifestyle purchases on the Wire. The Wire carries business and property purchases only (section 1, item 2). The item
+  shows on the buyer's own profile (section 1, item 3).
 
 ## 2a. Rulings (decided by the lead, see section 7)
 
@@ -37,6 +41,8 @@ These are deeds and registries, not market positions:
 - **Solo.** When exactly one human account exists, its flow is "You" on every day (and never Players).
 - **Order depth (Broker).** Pool types only: the depth factor and each pool's desired flow for the latest closed day. Its Retail
   figure follows the same fold as the explain row (P2): NPC flow always, a folded player's own flow only on a folded day.
+  On such a folded day with a human trade, both figures carry the R1 blur (section 7): a server-only draw, sd 2 ADV
+  (`ecology.foldBlur`), added to the Retail figure. The price does not change; only the attribution does.
   The server sends it once per closed day (server/wire.ts DepthWire); the client never computes it.
 - **Short interest.** The server computes it (engine publicShortInterest, with the 5-holder and 40% rule) and sends it on a slow
   cadence, only when it changed. The client never computes it from its own mirror (P3).
@@ -62,18 +68,40 @@ variable wins, so tests and e2e worlds pass their own seeds. The live seed is ne
 | short interest on the wire | Server-computed, sent on change only | src/game/short-interest-wire.test.ts |
 | depth on the wire | Server-computed per closed day, pool types only | src/game/depth-wire.test.ts |
 | this list | Sections 1 to 5 are present in this document | src/world/privacy-doc.test.ts |
+| window_diff_no_isolate (20 seeds) | adjacent-window differences and depth subtraction never show Players flow on a folded day | src/engine/research-desk.hunts.test.ts |
+| fold_solve (R1, measured) | a least-squares attacker on every public signal, 4 flow sizes, 20 seeds: corr at or under 0.5 at 0.05, 0.25, 0.5 and 1 ADV a day (blur 2 ADV) | src/engine/fold-lsq.test.ts |
+| flow_pool_types_only, npc_funds_folded, solo_you_row, online_players_threshold, day_level_fold_before_sum | the fold rules of section 3, with the 24 personas and rivals present | src/engine/research-desk.hunts.test.ts |
+| no-reveal at the Wire | a short is never filed; a lifestyle purchase prints no line | src/world/no-reveal.hunts.test.ts |
+| L1 to L4 (end to end) | storage keys, origins, and every broadcast frame to another client | tests/e2e/no-leak.spec.ts |
+
+L5 is implemented in tests/e2e/no-leak.spec.ts: a run-file export (practice Files tab, `run-export`) makes exactly one download,
+changes no browser storage, and sends no request to a third party. L6 is not applicable in this release: there is no tournament
+or autopsy code in src (the spec's L6 applies once one exists), so it is skipped with that reason in the same file.
 
 ## 7. Lead rulings (Phase 3 integration)
 
 These rulings were made by the lead while the three Phase 3 slices (A1 privacy and explain, A2 ledger and learning, A3 client
 sandbox) were merged into v1. Each is pinned by a test named in brackets.
 
-- **R1 (H6), narrowed: one naive public-data attacker does not recover the folded Players flow.** On a folded day the depth's
-  Retail already holds the folded player flow (depthByPool). The tested attacker solves own = Retail minus the mean of the
-  prior public Retail readings, and its error is on the scale of the Retail noise, so the own flow is not recovered by that
-  solve. This ruling covers that attacker only. It does not claim that no public-data solve can isolate the folded flow, and
-  the source of the Retail noise draws (the server-only world seed, P5) is design, not something the test asserts.
-  [src/engine/fold-solve.test.ts]
+- **R1 (H6), measured and ruled by the lead: the fold blur is 2 ADV, and the privacy guarantee covers lone-account flows of about 1 ADV a day per asset or less.** On a folded day the public Retail figure (depth and the explain row) holds the folded player flow next to the pool and NPC noise (sd 0.22 ADV). A least-squares attacker (src/engine/fold-lsq.test.ts) sees every public signal: depthByPool on each closed day, the explain parts and folded flags, and the public value, trend and pension flows. It regresses the Retail figure on those pool flows and takes the residual as its estimate. Measured over 20 seeds (random-sign flows; pooled correlation of the attacker's estimate with the truth; the gate is at or under 0.5):
+
+  | Blur (sd, ADV) | 0.05 ADV a day | 0.25 ADV a day | 0.5 ADV a day | 1 ADV a day |
+  |---|---|---|---|---|
+  | 0 (no blur) | 0.21 | 0.71 | 0.87 | 0.92 |
+  | 1 (the previous default) | 0.05 | 0.22 | 0.43 | 0.66 |
+  | 2 (ruled; `ecology.foldBlur` = 2) | 0.02 | 0.11 | 0.24 | 0.42 |
+
+  The gate holds at every size tested with the 2 ADV blur. The 1 ADV blur did not hold at 1 ADV. Ruling, by the lead:
+  (a) keep `ecology.foldBlur` = 2; the blur is a server-only draw on a human trade day, and the price does not change, only the attribution (test: the close is identical with the blur off and on);
+  (b) the privacy guarantee's scope is flows below about 1 ADV a day per asset, where the attacker's correlation is under 0.5;
+  (c) larger flows leave unavoidable public footprints in the day's volume and price, as in a real market, and are out of this guarantee's scope;
+  (d) the noisier Retail row on folded days (a 2 ADV spread, visible in the Flow by type row) is accepted.
+  Residual, stated plainly: by extrapolation (not measured), a lone flow of about 1.2 ADV a day or more would be recovered above correlation 0.5, which is the case (c) covers. The per-day cap (maxAdvPerTick, 3 ADV) means a 3 ADV flow is not hidden. The attacker is not yet complete: it does not use explainMove's nested-window parts, the Wire, or public short interest (see the header of src/engine/fold-lsq.test.ts). Those signals are open for a later pass.
+  [src/engine/fold-lsq.test.ts, src/engine/research-desk.hunts.test.ts (the blur keeps prices)]
+- **D-13 (desk rank loss): not applicable.** Rank never drops, so there is no rank-loss lock to test. The Research Desk locks
+  only when its upkeep lapses (desk_upkeep_miss), and its files stay readable then. [src/world/research-desk.hunts.test.ts]
+- **Test shock (tape-research-desk.md section 3).** shockPrice and shockValue are test-only. Their move prints in the close and
+  is labeled "Test shock" (a row, and the memo says so). It is never given a story. [src/engine/research-desk.hunts.test.ts]
 - **R2: drift attribution.** Company alpha, carry and seasonal drift belong to Company noise. The regime's equity drift
   (cycleBeta x equityDrift) is a market move and belongs to Market. [src/engine/regime-drift.test.ts, src/engine/explain-split.test.ts]
 - **R3: explainTrade's ledger.** The optional fourth argument of explainTrade (the trade ledger reader) is accepted. The world

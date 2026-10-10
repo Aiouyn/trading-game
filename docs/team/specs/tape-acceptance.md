@@ -145,7 +145,7 @@ Run on every session-length spec via `assertNoLeak(page)` (conventions §6), plu
 | # | Steps | Assert |
 |---|---|---|
 | L1 | Normal session: `/?seed=tape-leak&fresh&intro=off`, 5 trades, `advance` 10 game days, open Portfolio, journal, daily close history. **No Export click** | IndexedDB holds only `trading-game/saves`; no value carries the run-file header; `localStorage` holds only the allowlisted keys `tg-prefs` (shell layout, palette, language, cosmetic) and `tg-token` (the session), nothing else; `sessionStorage` has only `tg-replay-intro` if any. No replay blob anywhere |
-| L2 | Same session | Zero requests to any origin except the app's own. Nothing is posted anywhere |
+| L2 | Same session | Zero requests to any origin except the app's own and the world server (the world port on the same host: the client's one second origin, docs/V1-PRIVACY.md section 4). Nothing is posted anywhere. Automated in tests/e2e/no-leak.spec.ts |
 | L3 | Rivals active (after M12) | Portfolio, Wire and the Rivals board show **no** rival positions or trades: rivals appear only as name + equity on the leaderboard. A rival's holding can appear only as a legal filing item (docs/V1-PRIVACY.md section 1), when that system exists. Each public record allowed there is listed in `docs/V1-PRIVACY.md` section 1 and asserted by `src/world/privacy-doc.test.ts` |
 | L4 | Rivals active | No rival or NPC surface shows the **player's** positions, trades, style or ghost percentile. Public records are only the list in `docs/V1-PRIVACY.md` section 1 (filings of 0.5% or more, Wire purchases, profile holdings); anything else on a public surface fails L3 or L4 |
 | L5 | After `run-export` | Exactly one file download; still nothing in storage beyond the save; still no network request |
