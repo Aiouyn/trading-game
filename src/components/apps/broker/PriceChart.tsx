@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import {
   AreaSeries, CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, createChart,
-  type IChartApi, type ISeriesApi, type Time, type UTCTimestamp,
+  type IChartApi, type IPriceLine, type ISeriesApi, type Time, type UTCTimestamp,
 } from 'lightweight-charts';
 import { useGame } from '@/game/store';
 import { barTimeLabel, candles, rangeSpec, type Bar, type RangeId } from '@/game/history';
@@ -57,7 +57,7 @@ const VOLUME_MARGINS = { top: 0.8, bottom: 0.02 };
 
 type LineKey = 'sma20' | 'sma50' | 'ema12' | 'bbU' | 'bbL' | 'vwap' | 'rsi';
 
-export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, testId = 'price-chart', series, studies = true }: {
+export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, marks }: {
   assetId: string;
   range?: RangeId;
   mode?: 'candles' | 'line' | 'area';
@@ -65,6 +65,8 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
   /** chart an explicit series instead of the history (net worth) */
   series?: { time: number; value: number }[];
   studies?: boolean;
+  /** horizontal lines at a price (the liquidation line), drawn on every series so each chart style shows them */
+  marks?: { price: number; title: string }[];
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -73,6 +75,7 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
   const areaS = useRef<ISeriesApi<'Area'> | null>(null);
   const volS = useRef<ISeriesApi<'Histogram'> | null>(null);
   const lines = useRef<Partial<Record<LineKey, ISeriesApi<'Line'>>>>({});
+  const markLines = useRef<{ s: ISeriesApi<'Candlestick' | 'Line' | 'Area'>; l: IPriceLine }[]>([]);
   const pal = useRef<Palette | null>(null);
   const volColors = useRef({ up: '', down: '' });
   const last = useRef({ key: '', len: 0 });
@@ -223,6 +226,21 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
     }
     last.current.len = bars.length;
   }, [assetId, range, rev, loaded, series, testId, indicators]);
+
+  // The marks are redrawn when their text or prices change (keyed by value, so a caller need not memoize them). The palette
+  // loss colour reads the chart host.
+  const markKey = (marks ?? []).map((m) => `${m.price}|${m.title}`).join(';');
+  useEffect(() => {
+    for (const { s, l } of markLines.current) s.removePriceLine(l);
+    markLines.current = [];
+    const color = pal.current?.loss ?? '#c44';
+    for (const m of marks ?? []) {
+      for (const s of [candleS.current, lineS.current, areaS.current]) {
+        if (!s) continue;
+        markLines.current.push({ s, l: s.createPriceLine({ price: m.price, color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: m.title }) });
+      }
+    }
+  }, [markKey]); // eslint-disable-line react-hooks/exhaustive-deps -- the key stands for `marks`, which the caller may rebuild each render
 
   return <div ref={host} className="h-full w-full" data-testid={testId} data-chart-id={assetId} />;
 }

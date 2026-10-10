@@ -56,3 +56,6 @@ export const CALENDAR_DAYS = 2;
 
 /** Closing card: the most recent closed days kept per player's record. */
 export const CLOSE_STORIES = 4;
+
+/** Keyboard trading (M10): with the quick-Enter setting on, one Enter sends an order whose cost is under this share of cash. */
+export const QUICK_ENTER = { maxCashFraction: 0.1 };

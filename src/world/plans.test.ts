@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
 import { credit, cashOf } from './core';
 import { refreshNetWorth } from './assets';
@@ -8,6 +8,9 @@ import { cancelBlock, startBlock } from './plans';
 import type { GameState, Command } from './types';
 
 const TPD = 720;
+
+// Each case warms a live world (63 game days) and runs it through ticks: under a full parallel run that outgrows the 5 s default.
+vi.setConfig({ testTimeout: 30_000 });
 
 function cmd(g: GameState, pid: string, c: Command) {
   return applyCommand(g, pid, c);

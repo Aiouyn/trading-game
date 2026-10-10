@@ -7,7 +7,36 @@ import { price, pct, qty, signedMoney, signedPct, tone, toneText, money } from '
 import { assetDefOf, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
+import type { FillReason } from '@/engine/ledger-types';
+import type { LedgerFill } from '@/world/ledger-types';
 import { Button, Card, CardHeader, ConfirmButton, Flash, LockGlyph, Sparkline, Td, Th } from './ui';
+
+/** The reason label for a fill (M13): what put the units on the books. */
+export function reasonLabel(r: FillReason): string {
+  return t(`holdings.reason.${r}`);
+}
+
+/** The last fill's reason for each asset, from the owner's fills (chronological, so the last one wins). */
+export function lastReasonByAsset(fills: readonly LedgerFill[]): Map<string, FillReason> {
+  const out = new Map<string, FillReason>();
+  for (const f of fills) out.set(f.assetId, f.reason);
+  return out;
+}
+
+/** DRIP on or off for one position (Phase 3 section 3): the server keeps it, so it survives a reload. */
+export function DripToggle({ assetId }: { assetId: string }) {
+  const on = useGame((s) => s.me?.trading?.plans?.drip.includes(assetId) ?? false);
+  const act = useGame((s) => s.act);
+  return (
+    <button
+      type="button" aria-pressed={on} title={t('holdings.dripTitle')} data-testid={`drip-${assetId}`}
+      onClick={() => void act({ type: 'drip.set', assetId, on: !on }, { success: t(on ? 'holdings.dripOff' : 'holdings.dripOn', { ticker: assetId }) })}
+      className={`rounded-chip border px-2 py-0.5 text-micro ${on ? 'border-brass/60 bg-brass/10 text-brass-hi' : 'border-ink-3 text-fg-faint hover:text-fg-muted'}`}
+    >
+      {t('holdings.drip')}
+    </button>
+  );
+}
 
 /**
  * The holdings the Portfolio and the Broker show: positions with their cash line, held options, the order
@@ -24,6 +53,8 @@ export function Positions({ phone = false }: { phone?: boolean }) {
   if (!me.account) return null;
   const pf = portfolio(world, playerId);
   const h = useGame.getState().history;
+  const reasons = lastReasonByAsset(me.trading?.fills ?? []);
+  const lastFill = (assetId: string) => (reasons.has(assetId) ? t('holdings.lastFill', { reason: reasonLabel(reasons.get(assetId)!) }) : null);
   return (
     <Card data-testid="positions">
       <CardHeader
@@ -39,15 +70,17 @@ export function Positions({ phone = false }: { phone?: boolean }) {
       ) : phone ? (
         <ul>
           {pf.positions.map((p) => (
-            <li key={p.assetId} className="flex items-center gap-3 border-t border-ink-2 px-4 py-3" data-testid={`position-${p.assetId}`}>
+            <li key={p.assetId} className="flex flex-wrap items-center gap-3 border-t border-ink-2 px-4 py-3" data-testid={`position-${p.assetId}`}>
               <button type="button" onClick={() => select(p.assetId)} className="min-w-0 flex-1 text-left">
                 <div className="num text-small font-semibold">{p.assetId} {p.qty < 0 && <span className="text-loss">{t('holdings.short')}</span>}</div>
                 <div className="num text-caption text-fg-faint">{qty(p.qty)} @ {price(p.avgCost)}</div>
+                {lastFill(p.assetId) && <div className="text-caption text-fg-faint" data-testid={`position-reason-${p.assetId}`}>{lastFill(p.assetId)}</div>}
               </button>
               <div className="text-right">
                 <div className="num text-small">{money(p.marketValue)}</div>
                 <div className={`num text-caption ${toneText[tone(p.unrealizedPnl)]}`}>{signedMoney(p.unrealizedPnl)} {signedPct(p.unrealizedPct)}</div>
               </div>
+              <DripToggle assetId={p.assetId} />
             </li>
           ))}
         </ul>
@@ -57,7 +90,7 @@ export function Positions({ phone = false }: { phone?: boolean }) {
             <thead>
               <tr>
                 <Th>{t('holdings.col.asset')}</Th><Th right>{t('holdings.col.qty')}</Th><Th right>{t('holdings.col.avg')}</Th><Th right>{t('holdings.col.last')}</Th>
-                <Th right>{t('holdings.col.value')}</Th><Th right>{t('holdings.col.pnl')}</Th><Th right>{t('holdings.col.weight')}</Th><Th right>{t('holdings.col.fiveDay')}</Th><Th />
+                <Th right>{t('holdings.col.value')}</Th><Th right>{t('holdings.col.pnl')}</Th><Th right>{t('holdings.col.weight')}</Th><Th right>{t('holdings.col.fiveDay')}</Th><Th>{t('holdings.col.drip')}</Th><Th />
               </tr>
             </thead>
             <tbody>
@@ -67,6 +100,7 @@ export function Positions({ phone = false }: { phone?: boolean }) {
                     <button type="button" onClick={() => select(p.assetId)} className="text-left">
                       <div className="num font-semibold">{p.assetId}{p.qty < 0 && <span className="ml-1.5 text-micro text-loss">{t('holdings.short').toUpperCase()}</span>}</div>
                       <div className="text-caption text-fg-faint">{assetDefOf(p.assetId)?.name}</div>
+                      {lastFill(p.assetId) && <div className="text-caption text-fg-faint" data-testid={`position-reason-${p.assetId}`}>{lastFill(p.assetId)}</div>}
                     </button>
                   </Td>
                   <Td right num>{qty(p.qty)}</Td>
@@ -76,6 +110,7 @@ export function Positions({ phone = false }: { phone?: boolean }) {
                   <Td right num className={toneText[tone(p.unrealizedPnl)]}>{signedMoney(p.unrealizedPnl)}<div className="text-caption">{signedPct(p.unrealizedPct)}</div></Td>
                   <Td right num>{pct(p.weight)}</Td>
                   <Td right><Sparkline data={sparkline(h, p.assetId, 5)} /></Td>
+                  <Td><DripToggle assetId={p.assetId} /></Td>
                   <Td right>
                     <ConfirmButton
                       confirm={t('holdings.close')}

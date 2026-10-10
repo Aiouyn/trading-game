@@ -19,7 +19,7 @@ export { DEFAULT_LISTINGS, listingsConfig, listingsDay } from './listings';
 export { DEFAULT_INDEX_REVIEW, indexReviewConfig, indexMembers, indexDivisor } from './indices';
 export { DEFAULT_SQUEEZE, squeezeConfig } from './trading';
 export type { ListingKind, ListingsConfig } from './listings';
-export { settleAsset } from './trading';
+export { settleAsset, liquidationPrice } from './trading';
 export type { RivalRow } from './rivals';
 export type { NewsBand, NewsKind } from './news';
 export {
