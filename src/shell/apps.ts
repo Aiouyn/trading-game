@@ -1,0 +1,161 @@
+/**
+ * Quay app registry (F:25-26, V:82-98, DECISIONS C-38). Static data only: no React, no DOM,
+ * no engine imports. Each app states what it requires; the unlock predicate that reads the
+ * earned rank lives in ctx.ts.
+ */
+
+export const APP_IDS = [
+  'broker', 'portfolio', 'wire', 'calendar', 'messages', 'businesses', 'company', 'boutique', 'lab',
+  'security', 'legal', 'bank', 'research', 'exchange', 'launchpad', 'learn', 'settings',
+] as const;
+
+export type AppId = (typeof APP_IDS)[number];
+
+/** Rank ids as used by src/content/lifestyle.ts (RANKS). */
+export type RankId = 'R0' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5' | 'R6';
+
+/** Props a window carries. Tickers and file ids are the only game-side values a window may hold. */
+export interface WinProps {
+  ticker?: string;
+  fileId?: string;
+  view?: string;
+}
+
+export type InstanceRule =
+  | { kind: 'single' }
+  | { kind: 'per-ticker'; max: number }
+  | { kind: 'per-file' };
+
+export interface AppDef {
+  id: AppId;
+  /** i18n key for the app name (en.json / fr.json). */
+  titleKey: string;
+  minW: number;
+  minH: number;
+  instances: InstanceRule;
+  /** A second window of this app, allowed only through a named layout (C-27: Review's journal). */
+  secondInstance: { layout: 'review'; view: string; max: number } | null;
+  /** Views a route may name after the app (`/portfolio/journal`). */
+  views: readonly string[];
+  /** Rank that unlocks the app. null means open from the start. */
+  minRank: RankId | null;
+  /** No tile before unlock (Company, V:96). Otherwise the tile is drawn locked. */
+  hideWhenLocked: boolean;
+  /** false until the phase that ships the app (C-38): no tile, a deep link shows "Coming later". */
+  available: boolean;
+}
+
+/** Budgets from V:55 and F:98: Broker 480x420, Wire 360x280, Portfolio 520x220, the rest 420x300. */
+const app = (
+  id: AppId,
+  minW: number,
+  minH: number,
+  extra: Partial<Omit<AppDef, 'id' | 'titleKey' | 'minW' | 'minH'>> = {},
+): AppDef => ({
+  id,
+  titleKey: `shell.app.${id}`,
+  minW,
+  minH,
+  instances: { kind: 'single' },
+  secondInstance: null,
+  views: [],
+  minRank: null,
+  hideWhenLocked: false,
+  available: true,
+  ...extra,
+});
+
+export const APPS: Readonly<Record<AppId, AppDef>> = {
+  broker: app('broker', 480, 420, { instances: { kind: 'per-ticker', max: 4 } }),
+  portfolio: app('portfolio', 520, 220, {
+    views: ['journal', 'analyst'],
+    secondInstance: { layout: 'review', view: 'journal', max: 2 },
+  }),
+  wire: app('wire', 360, 280),
+  calendar: app('calendar', 420, 300),
+  messages: app('messages', 420, 300),
+  businesses: app('businesses', 420, 300),
+  company: app('company', 420, 300, { minRank: 'R2', hideWhenLocked: true }),
+  boutique: app('boutique', 420, 300),
+  lab: app('lab', 420, 300, { minRank: 'R2' }),
+  security: app('security', 420, 300, { minRank: 'R3' }),
+  legal: app('legal', 420, 300),
+  bank: app('bank', 420, 300),
+  research: app('research', 420, 300, { instances: { kind: 'per-file' }, minRank: 'R3' }),
+  exchange: app('exchange', 420, 300, { available: false }),
+  launchpad: app('launchpad', 420, 300, { available: false }),
+  learn: app('learn', 420, 300),
+  settings: app('settings', 420, 300, { views: ['about'] }),
+};
+
+/** Default shelf order (V:82): trading group first, Broker pinned first. Hidden apps are absent. */
+export const SHELF_ORDER: readonly AppId[] = [
+  'broker', 'portfolio', 'wire', 'messages', 'calendar', 'businesses', 'lab', 'research', 'bank',
+  'legal', 'security', 'boutique', 'learn', 'settings', 'company',
+];
+
+export const MAX_BROKERS = 4;
+export const MAX_CUSTOM_LAYOUTS = 5;
+/** Layout name length limits (custom layouts only). */
+export const MAX_LAYOUT_NAME = 24;
+
+/** Built-in layouts (V:70-76). Their plans live in layouts.ts; the reducer only receives them. */
+export const BUILTIN_LAYOUTS = ['trade', 'review', 'research'] as const;
+export type BuiltinLayout = (typeof BUILTIN_LAYOUTS)[number];
+
+export function isBuiltinLayout(name: string): name is BuiltinLayout {
+  return (BUILTIN_LAYOUTS as readonly string[]).includes(name);
+}
+
+export function isAppId(x: unknown): x is AppId {
+  return typeof x === 'string' && (APP_IDS as readonly string[]).includes(x);
+}
+
+const TICKER_RE = /^[A-Z0-9][A-Z0-9.-]{0,11}$/;
+/**
+ * A research window id is `research-<fileId>`. Stored ids are capped at 64 characters (prefs
+ * ID_RE), so the file id is at most 64 - 9 = 55 characters.
+ */
+export const MAX_FILE_ID = 55;
+const FILE_ID_RE = new RegExp(`^[A-Za-z0-9_-]{1,${MAX_FILE_ID}}$`);
+
+/** Upper-cases and checks a ticker. Returns null when it is not a ticker shape. */
+export function normalizeTicker(raw: string): string | null {
+  const t = raw.trim().toUpperCase();
+  return TICKER_RE.test(t) ? t : null;
+}
+
+/** Checks a research file id. Returns null when it is not a file id shape. */
+export function normalizeFileId(raw: string): string | null {
+  return FILE_ID_RE.test(raw) ? raw : null;
+}
+
+/**
+ * Cleans window props for an app. Returns null when a prop is present but malformed or names a
+ * view the app does not have. Unknown keys are dropped (route and save parsers ignore extras, T:98).
+ */
+export function cleanProps(id: AppId, raw: unknown): WinProps | null {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== 'object') return null;
+  const src = raw as Record<string, unknown>;
+  const out: WinProps = {};
+  if (src.ticker !== undefined) {
+    if (typeof src.ticker !== 'string') return null;
+    const t = normalizeTicker(src.ticker);
+    if (t === null) return null;
+    out.ticker = t;
+  }
+  if (src.fileId !== undefined) {
+    if (typeof src.fileId !== 'string') return null;
+    const f = normalizeFileId(src.fileId);
+    if (f === null) return null;
+    out.fileId = f;
+  }
+  if (src.view !== undefined) {
+    if (typeof src.view !== 'string' || !APPS[id].views.includes(src.view)) return null;
+    out.view = src.view;
+  }
+  if (out.ticker !== undefined && id !== 'broker') return null;
+  if (out.fileId !== undefined && id !== 'research') return null;
+  return out;
+}

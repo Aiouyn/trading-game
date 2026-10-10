@@ -61,5 +61,22 @@
   "news.band.early": "Early: mostly still to come",
   "news.band.mid": "Mid: drifting in",
   "news.band.late": "Late: nearly priced in",
-  "news.band.done": "Priced in"
+  "news.band.done": "Priced in",
+  "shell.app.broker": "Broker",
+  "shell.app.portfolio": "Portfolio",
+  "shell.app.wire": "Wire",
+  "shell.app.calendar": "Calendar",
+  "shell.app.messages": "Messages",
+  "shell.app.businesses": "Businesses",
+  "shell.app.company": "Company",
+  "shell.app.boutique": "Boutique",
+  "shell.app.lab": "AI Lab",
+  "shell.app.security": "Security",
+  "shell.app.legal": "Legal & Court",
+  "shell.app.bank": "Bank & Credit",
+  "shell.app.research": "Research Desk",
+  "shell.app.exchange": "Exchange",
+  "shell.app.launchpad": "Launchpad",
+  "shell.app.learn": "Learn",
+  "shell.app.settings": "Settings"
 }
