@@ -19,12 +19,12 @@ function LanguagePicker() {
     <section className="flex flex-col gap-2" aria-labelledby="language-picker-title" data-testid="settings-language">
       <h3 id="language-picker-title" className="os-label">{t('settings.language')}</h3>
       <p className="text-caption text-fg-faint">{t('settings.language.hint')}</p>
-      <div className="grid gap-2 sm:grid-cols-2" role="group" aria-labelledby="language-picker-title">
+      <div className="os-choices" role="group" aria-labelledby="language-picker-title">
         {LOCALES.map((l) => (
           <button
             key={l.id}
             type="button"
-            className={`os-tool min-h-11 py-2 ${locale === l.id ? 'text-brass' : ''}`}
+            className={`os-choice ${locale === l.id ? 'text-brass' : ''}`}
             aria-pressed={locale === l.id}
             data-testid={`settings-lang-${l.id}`}
             onClick={() => setLocale(l.id)}

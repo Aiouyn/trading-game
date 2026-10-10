@@ -43,6 +43,7 @@ import {
   isSlotName,
   layoutMode,
   nearestSlot,
+  openRect,
   sideOfFrac,
   slotAllowedInMode,
   slotFrac,
@@ -251,9 +252,10 @@ export function project(state: ShellState): Projection {
   if (mode === 'single') {
     rects[on[on.length - 1]!.id] = fracToRect(FULL_FRAC, wa, g);
   } else if (mode === 'halves') {
-    const topFilled = [...on].reverse().find((w) => w.filled);
-    if (topFilled) {
-      rects[topFilled.id] = fracToRect(FULL_FRAC, wa, g);
+    // The top-most window decides: a filled top window fills, so a window opened on top is always shown.
+    const top = on[on.length - 1]!;
+    if (top.filled) {
+      rects[top.id] = fracToRect(FULL_FRAC, wa, g);
     } else {
       const pick: Partial<Record<'L' | 'R', Win>> = {};
       for (const w of [...on].reverse()) {
@@ -353,28 +355,44 @@ function focusId(state: ShellState, id: string): ShellState {
 type Acq = { ok: true; wins: Win[]; id: string; created: boolean } | { ok: false; reason: WmReason };
 const failAcq = (reason: WmReason): Acq => ({ ok: false, reason });
 
+/**
+ * A new window's free rect (Velvet window rules): the app's preferred size, centred for the first
+ * open window on the workspace and cascaded by 24 px for the next ones. Counts open windows only, so
+ * a collapsed window does not push the next one along.
+ */
 function newWin(state: ShellState, id: string, app: AppId, props: WinProps): Win {
   const wa = workArea(state.vp, false);
-  const def = APPS[app];
-  const w = Math.min(wa.w, Math.max(def.minW, Math.round(wa.w * 0.6)));
-  const h = Math.min(wa.h, Math.max(def.minH, Math.round(wa.h * 0.7)));
-  const step = state.wins.filter((x) => x.ws === state.activeWs).length % 5;
-  const off = step * 24;
+  const open = state.wins.filter((x) => x.ws === state.activeWs && x.state === 'open').length;
   return {
     id,
     app,
     ws: state.activeWs,
-    rect: {
-      x: Math.min(off, Math.max(0, wa.w - w)),
-      y: Math.min(off, Math.max(0, wa.h - h)),
-      w,
-      h,
-    },
+    rect: openRect(APPS[app], wa, open),
     slot: null,
     state: 'open',
     filled: false,
     props,
   };
+}
+
+/**
+ * The Broker opened alone on an empty workspace (defect A): the left two thirds in the full mode, or
+ * filled below 1200 px. Any other open window on the workspace leaves the new one as a free window.
+ * A slot the Broker cannot fit is refused, and the free rect stays.
+ */
+function placeAlone(state: ShellState, id: string): ShellState {
+  const alone = !state.wins.some((w) => w.id !== id && w.ws === state.activeWs && w.state === 'open');
+  if (!alone) return state;
+  const mode = layoutMode(state.vp.w);
+  if (mode === 'full') {
+    const wa = workArea(state.vp, false);
+    if (!fitsMin(APPS.broker, fracToRect(SLOT_FRAC.L23, wa, gutterFor(false)))) return state;
+    return { ...state, wins: patchWin(state.wins, id, { slot: 'L23', filled: false }) };
+  }
+  if (mode === 'halves' || mode === 'single') {
+    return { ...state, wins: patchWin(state.wins, id, { filled: true }) };
+  }
+  return state;
 }
 
 function nextBrokerId(wins: Win[]): string {
@@ -574,8 +592,17 @@ function openAction(state: ShellState, app: AppId, rawProps: unknown, ctx: WmCtx
   const r = acquire(state, app, props, 'user', false, fresh);
   if (!r.ok) return fail(r.reason);
   let s: ShellState = { ...state, wins: r.wins };
-  // Opening a new window exits focus mode on the workspace it lands on (DECISIONS "Behaviour gaps").
-  if (r.created) s = exitFocus(s, state.activeWs);
+  // Opening a window exits focus mode on the workspace it lands on (DECISIONS "Behaviour gaps"): a new window,
+  // or a collapsed one restored to the screen. Focusing a window already on screen keeps focus mode.
+  const before = state.wins.find((w) => w.id === r.id);
+  const restored = before !== undefined && before.state === 'collapsed';
+  if (r.created) {
+    s = exitFocus(s, state.activeWs);
+    if (app === 'broker') s = placeAlone(s, r.id);
+  } else if (restored) {
+    const landing = s.wins.find((w) => w.id === r.id);
+    if (landing !== undefined) s = exitFocus(s, landing.ws);
+  }
   return ok(focusId(s, r.id));
 }
 

@@ -23,6 +23,8 @@ test('every screen opens without errors or horizontal overflow', async ({ page }
 
 test('chat: a message shows up for its sender', async ({ page }) => {
   await register(page);
+  // A tip toast can land over the bottom-right of the desk, where the Messages window's composer now opens (centred).
+  await skipTips(page);
   // The desktop opens the chat drawer from the strip; on the phone the chat is the Messages app's tab.
   if (isPhone(page)) { await goTo(page, 'social'); await page.getByTestId('tab-chat').click(); }
   else await page.getByTestId('os-chat').click();

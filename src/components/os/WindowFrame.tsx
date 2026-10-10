@@ -14,6 +14,7 @@ import { APP_GLYPH } from './appMap';
 import { AppBody } from './appViews';
 import { Glyph } from './glyphs';
 import { type Edge, type SnapTarget, resizeRect, snapFits, snapTargetAt, targetRect } from './windowMath';
+import { useMoreBelow } from './scrollMore';
 import { WIN_OPEN_MS, closeWindow, dispatchWm, useCloseAsk, useFocusHint } from './shellStore';
 
 const EDGES: readonly Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
@@ -33,15 +34,19 @@ export interface WindowFrameProps {
   /** The projected rect, relative to the work area (what the shell shows now). */
   rect: Rect;
   active: boolean;
+  /** Stacking order: the frame's z-index. Raising a window changes this, never the DOM order. */
+  z: number;
   /** The layout mode. Halves (1000-1199 px) snap to the sides and the top; free placement and resize need full (C-26). */
   mode: LayoutMode;
   wa: Size;
   gutter: number;
 }
 
-export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrameProps) {
+export function WindowFrame({ win, rect, active, z, mode, wa, gutter }: WindowFrameProps) {
   const def = APPS[win.app];
   const frameRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useMoreBelow(frameRef, bodyRef);
   const titleId = `win-title-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
   const [live, setLive] = useState<Rect | null>(null);
   const [target, setTarget] = useState<SnapTarget | null>(null);
@@ -167,7 +172,7 @@ export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrame
         data-testid={`win-${win.id}`}
         data-app={win.app}
         tabIndex={-1}
-        style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h }}
+        style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h, zIndex: z }}
         onPointerDown={focusWin}
       >
         <div className="os-tb" onPointerDown={onTitleDown} data-testid={`win-${win.id}-title`}>
@@ -220,7 +225,7 @@ export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrame
             </div>
           </div>
         )}
-        <div className="os-win-body">
+        <div className="os-win-body" ref={bodyRef}>
           <AppBody win={win} size={{ w: shown.w, h: shown.h }} />
         </div>
         {free && EDGES.map((e) => (

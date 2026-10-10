@@ -43,6 +43,11 @@ export interface AppDef {
   hideWhenLocked: boolean;
   /** false until the phase that ships the app (C-38): no tile, a deep link shows "Coming later". */
   available: boolean;
+  /**
+   * Preferred size on first open, as fractions of the work area (geometry.ts openRect). Clamped to the
+   * work area and to the minimum; the Broker alone on a workspace snaps instead (wm.ts placeAlone).
+   */
+  pref: { w: number; h: number };
 }
 
 /** Budgets from V:55 and F:98: Broker 480x420, Wire 360x280, Portfolio 520x220, the rest 420x300. */
@@ -62,30 +67,34 @@ const app = (
   minRank: null,
   hideWhenLocked: false,
   available: true,
+  pref: { w: 0.5, h: 0.66 },
   ...extra,
 });
 
 export const APPS: Readonly<Record<AppId, AppDef>> = {
-  broker: app('broker', 480, 420, { instances: { kind: 'per-ticker', max: 4 } }),
+  // Preferred sizes (fractions of the work area). The Broker is the large window (two thirds wide);
+  // Wire and Portfolio are the trading side panels; Settings, Learn and Messages are medium.
+  broker: app('broker', 480, 420, { instances: { kind: 'per-ticker', max: 4 }, pref: { w: 2 / 3, h: 0.92 } }),
   portfolio: app('portfolio', 520, 220, {
     views: ['journal', 'analyst'],
     secondInstance: { layout: 'review', view: 'journal', max: 2 },
+    pref: { w: 0.5, h: 0.6 },
   }),
-  wire: app('wire', 360, 280),
+  wire: app('wire', 360, 280, { pref: { w: 0.36, h: 0.7 } }),
   calendar: app('calendar', 420, 300),
   messages: app('messages', 420, 300, { views: ['inbox', 'chat', 'social'] }),
   businesses: app('businesses', 420, 300),
   company: app('company', 420, 300, { minRank: 'R2', hideWhenLocked: true }),
   boutique: app('boutique', 420, 300),
-  ailab: app('ailab', 420, 300, { minRank: 'R2' }),
+  ailab: app('ailab', 420, 300, { minRank: 'R2', pref: { w: 0.5, h: 0.7 } }),
   security: app('security', 420, 300, { minRank: 'R3' }),
   legal: app('legal', 420, 300),
   bank: app('bank', 420, 300),
-  research: app('research', 420, 300, { instances: { kind: 'per-file' }, minRank: 'R3' }),
+  research: app('research', 420, 300, { instances: { kind: 'per-file' }, minRank: 'R3', pref: { w: 0.6, h: 0.8 } }),
   exchange: app('exchange', 420, 300, { available: false }),
   launchpad: app('launchpad', 420, 300, { available: false }),
-  learn: app('learn', 420, 300),
-  settings: app('settings', 420, 300, { views: ['about'] }),
+  learn: app('learn', 420, 300, { pref: { w: 0.45, h: 0.66 } }),
+  settings: app('settings', 420, 300, { views: ['about'], pref: { w: 0.5, h: 0.72 } }),
 };
 
 /**

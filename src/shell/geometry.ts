@@ -148,6 +148,26 @@ export function fitsMin(def: Pick<AppDef, 'minW' | 'minH'>, rect: Rect): boolean
   return rect.w >= def.minW && rect.h >= def.minH;
 }
 
+/** Offset of each cascaded window on a workspace (defect A, Velvet window rules). */
+export const CASCADE_STEP = 24;
+/** The cascade wraps after this many steps, so a crowded workspace never drifts off screen. */
+export const CASCADE_WRAP = 5;
+
+/**
+ * Default free rect for a window opened on a workspace that already has `openCount` open windows.
+ * Size: the app's preferred fraction of the work area, at least its minimum and at most the work area.
+ * Position: centred for the first window (openCount 0); each next window is offset by CASCADE_STEP,
+ * wrapping after CASCADE_WRAP steps. The rect is clamped inside the work area, so it is never off screen.
+ */
+export function openRect(def: Pick<AppDef, 'minW' | 'minH' | 'pref'>, wa: Size, openCount: number): Rect {
+  const w = Math.min(wa.w, Math.max(def.minW, Math.round(wa.w * def.pref.w)));
+  const h = Math.min(wa.h, Math.max(def.minH, Math.round(wa.h * def.pref.h)));
+  const off = (Math.max(0, openCount) % CASCADE_WRAP) * CASCADE_STEP;
+  const cx = Math.round((wa.w - w) / 2) + off;
+  const cy = Math.round((wa.h - h) / 2) + off;
+  return clampRect({ x: cx, y: cy, w, h }, wa);
+}
+
 /** Side of a fractional rect: left when its centre is left of the middle. */
 export function sideOfFrac(f: FracRect): 'L' | 'R' {
   return (f.x0 + f.x1) / 2 < 0.5 ? 'L' : 'R';

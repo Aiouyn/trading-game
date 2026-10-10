@@ -74,3 +74,41 @@
   /* A narrow Broker stacks the ticket and the asset panel under the chart (C-37). */
   .os-root .os-body-row.os-body-stack { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Scroll affordance (defect B): a thin scrollbar tinted with the palette accent, and a subtle fade over the
+   bottom edge while more content lies below (WindowFrame sets data-more-below; components/os/scrollMore.ts).
+   The window body is the scroller (.os-body); the frame clips to its radius. */
+@layer components {
+  .os-root .os-body {
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--color-brass) 50%, transparent) transparent;
+  }
+  .os-root .os-body::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+  .os-root .os-body::-webkit-scrollbar-track { background: transparent; }
+  .os-root .os-body::-webkit-scrollbar-thumb { border-radius: 3px; background: color-mix(in srgb, var(--color-brass) 50%, transparent); }
+  .os-root .os-win[data-more-below]::after {
+    content: ""; position: absolute; left: 1px; right: 1px; bottom: 1px; z-index: 1; height: 28px; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--os-window-bg));
+    border-radius: 0 0 calc(var(--os-window-radius) - 1px) calc(var(--os-window-radius) - 1px);
+  }
+
+  /* Settings choice cards (defect C): the height follows the text, the auto-fit columns follow the width of
+     the grid itself (so a 420 px window gets one column), and the text wraps inside the card. */
+  .os-root .os-choices { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .os-root .os-choice {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; min-width: 0;
+    height: auto; min-height: 44px; padding: 8px 12px; text-align: left; white-space: normal;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-ink-1) 70%, transparent);
+    color: var(--color-fg-muted); font-size: var(--text-small);
+  }
+  .os-root .os-choice[aria-pressed="true"] { border-color: var(--color-brass); }
+  .os-root .os-choice > span { display: block; max-width: 100%; overflow-wrap: anywhere; }
+}
+
+/* Two columns of choice cards once the window is wide enough for two readable cards (the window body is
+   the container, os-desktop above). A narrower window and the phone keep one column. */
+@container (min-width: 480px) {
+  .os-root .os-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

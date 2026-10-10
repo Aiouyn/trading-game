@@ -143,7 +143,8 @@ function onKey(e: KeyboardEvent): void {
     return;
   }
   if (intent.kind === 'cycle') {
-    const id = cycleTarget(st.shell.wins, st.shell.activeWs, intent.back);
+    // The cycle walks the windows on screen (a halves or single layout hides the rest).
+    const id = cycleTarget(project(st.shell).order, intent.back);
     if (id === null) return;
     e.preventDefault();
     dispatchWm({ type: 'focus', id });
@@ -154,7 +155,7 @@ function onKey(e: KeyboardEvent): void {
   e.preventDefault();
   const action = intent.action;
   if (action.type === 'open') {
-    openApp(action.app, action.app === 'broker' ? { ticker: useGame.getState().selected } : {}, { focus: true });
+    openApp(action.app, action.app === 'broker' ? { ticker: useGame.getState().selected } : {}, { focus: true, fresh: action.fresh === true });
     return;
   }
   if (action.type === 'close') {
@@ -322,21 +323,26 @@ export function OsRoot() {
       <EventBannerStrip />
       <div className="os-workspace" style={{ position: 'absolute', left: 0, right: 0, top: stripH + band, bottom: shelfH }}>
         {bound &&
-          shell.wins.map((w) => {
-            const r = proj.rects[w.id];
-            if (r === undefined) return null;
-            return (
-              <WindowFrame
-                key={w.id}
-                win={w}
-                rect={r}
-                active={w.id === focus}
-                mode={mode}
-                wa={proj.wa}
-                gutter={proj.gutter}
-              />
-            );
-          })}
+          // The DOM order follows the window ids, not the z-order: raising a window moves its frame's stacking
+          // (z-index), never its node. A node moved by a focus click would swallow the click on its own control.
+          [...shell.wins]
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+            .map((w) => {
+              const r = proj.rects[w.id];
+              if (r === undefined) return null;
+              return (
+                <WindowFrame
+                  key={w.id}
+                  win={w}
+                  rect={r}
+                  active={w.id === focus}
+                  z={2 + shell.wins.indexOf(w)}
+                  mode={mode}
+                  wa={proj.wa}
+                  gutter={proj.gutter}
+                />
+              );
+            })}
         {ghosts
           .filter((g) => g.ws === shell.activeWs)
           .map((g) => (

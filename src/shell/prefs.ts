@@ -11,6 +11,7 @@
 
 import {
   APPS,
+  MAX_BROKERS,
   MAX_LAYOUT_NAME,
   SHELF_ORDER,
   type AppId,
@@ -321,6 +322,14 @@ function parseFocusRestore(raw: unknown, wins: Win[]): Record<string, Snapshot> 
 export function validateShell(raw: unknown, ctx: WmCtx, vp: Size, ticker?: string): ShellState {
   if (!isObj(raw) || raw.v !== 1 || !Array.isArray(raw.wins)) return initialShell(vp, ctx, ticker);
   const wins = parseWins(raw.wins);
+  // A window entry that does not parse, a repeated id, or more Brokers than the cap means the record was damaged or
+  // edited by hand. Such a shell gives the Trade layout (P2-127); the game data is never touched. A locked window
+  // is different: it parses, and normalize drops it alone (P2-126).
+  const brokers = wins.filter((w) => w.app === 'broker').length;
+  const ids = new Set(wins.map((w) => w.id)).size;
+  if (raw.wins.length > MAX_WINS || wins.length !== raw.wins.length || ids !== wins.length || brokers > MAX_BROKERS) {
+    return initialShell(vp, ctx, ticker);
+  }
   const shell: ShellState = {
     v: 1,
     wins,

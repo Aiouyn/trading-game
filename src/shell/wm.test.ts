@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { APPS, APP_IDS, type AppId } from './apps';
 import { makeWmCtx } from './ctx';
 import { planLayout } from './layouts';
-import { type Rect, slotRect, workArea, SLOT_NAMES, type SlotName } from './geometry';
+import { type Rect, openRect, slotRect, workArea, SLOT_NAMES, type SlotName } from './geometry';
 import {
   type ShellState,
   type WmAction,
@@ -216,7 +216,64 @@ describe('open', () => {
     expect(w.slot).toBeNull();
     expect(focusedId(s)).toBe('ailab');
   });
+
+  it('opens the Broker alone on an empty 1440 x 900 workspace on the left two thirds (defect A)', () => {
+    const s = go(emptyShell(VP_1440), { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
+    const b = s.wins.find((w) => w.app === 'broker')!;
+    expect(b.slot).toBe('L23');
+    expect(b.filled).toBe(false);
+    expect(project(s).rects[b.id]).toEqual(slotRect('L23', VP_1440, false));
+  });
+
+  it('fills the Broker opened alone below 1200 px instead of snapping it', () => {
+    for (const vp of [VP_1000, { w: 1100, h: 800 }]) {
+      const s = go(emptyShell(vp), { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
+      const b = s.wins.find((w) => w.app === 'broker')!;
+      expect(b.filled, `filled at ${vp.w}`).toBe(true);
+      expect(b.slot).toBeNull();
+    }
+  });
+
+  it('centres the first other window and cascades the next by 24 px (defect A)', () => {
+    const wa = workArea(VP_1440, false);
+    let s = go(emptyShell(VP_1440), { type: 'open', app: 'settings' });
+    const first = s.wins.find((w) => w.app === 'settings')!.rect;
+    expect(first).toEqual(openRect(APPS.settings, wa, 0));
+    expect(first.x).toBe(Math.round((wa.w - first.w) / 2));
+    s = go(s, { type: 'open', app: 'wire' });
+    expect(s.wins.find((w) => w.app === 'wire')!.rect).toEqual(openRect(APPS.wire, wa, 1));
+    s = go(s, { type: 'open', app: 'learn' });
+    expect(s.wins.find((w) => w.app === 'learn')!.rect).toEqual(openRect(APPS.learn, wa, 2));
+  });
+
+  it('does not snap a Broker that opens beside another window; it is a free window', () => {
+    let s = go(emptyShell(VP_1440), { type: 'open', app: 'wire' });
+    s = go(s, { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
+    const b = s.wins.find((w) => w.app === 'broker')!;
+    expect(b.slot).toBeNull();
+    expect(b.rect).toEqual(openRect(APPS.broker, workArea(VP_1440, false), 1));
+  });
+
+  it('keeps the first Broker snap when a later Broker opens on the same workspace', () => {
+    let s = go(emptyShell(VP_1440), { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
+    s = go(s, { type: 'open', app: 'broker', props: { ticker: 'BRNT' }, fresh: true });
+    expect(s.wins.find((w) => w.id === 'broker-1')!.slot).toBe('L23');
+    expect(s.wins.find((w) => w.id === 'broker-2')!.slot).toBeNull();
+  });
+
+  it('keeps a window opened on top visible in halves, even when a filled window is below it', () => {
+    let s = go(emptyShell(VP_1000), { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
+    s = go(s, { type: 'open', app: 'wire' });
+    const p = project(s);
+    expect(Object.keys(p.rects)).toContain('wire');
+    expect(p.rects.wire).toEqual(slotRect('R2', VP_1000, false));
+  });
 });
+
+/** An empty shell at a viewport: no windows, the Trade layout dropped. */
+function emptyShell(vp: { w: number; h: number }): ShellState {
+  return deepFreeze({ ...initialShell(vp, R3, 'HLCN'), wins: [] });
+}
 
 // ---------------------------------------------------------------- close, collapse, restore
 
@@ -413,6 +470,18 @@ describe('workspaces', () => {
     s = go(s, { type: 'open', app: 'ailab' });
     expect(s.focusWs).toEqual([]);
     expect(s.focusRestore).toBeNull();
+  });
+
+  it('keeps focus mode when a window already on screen is focused, and leaves it when a collapsed one is restored', () => {
+    let s = go(fresh(VP_1920), { type: 'focusMode', on: true });
+    s = go(s, { type: 'open', app: 'portfolio' });
+    expect(s.focusWs).toEqual([0]);
+    expect(focusedId(s)).toBe('portfolio');
+    s = go(s, { type: 'collapse', id: 'portfolio' });
+    s = go(s, { type: 'open', app: 'portfolio' });
+    expect(s.focusWs).toEqual([]);
+    expect(s.focusRestore).toBeNull();
+    expect(focusedId(s)).toBe('portfolio');
   });
 
   it('focus mode is per workspace: a switch keeps each workspace its own mode', () => {

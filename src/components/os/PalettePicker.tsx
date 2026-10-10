@@ -13,14 +13,14 @@ export function PalettePicker() {
     <section className="flex flex-col gap-2" aria-labelledby="palette-picker-title" data-testid="palette-picker">
       <h3 id="palette-picker-title" className="os-label">{t('settings.palette')}</h3>
       <p className="text-caption text-fg-faint">{t('settings.palette.hint')}</p>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="os-choices">
         {PALETTE_SLUGS.map((slug: PaletteSlug) => (
           <button
             key={slug}
             type="button"
             aria-pressed={current === slug}
             onClick={() => setPalette(slug)}
-            className={`os-tool flex-col items-start gap-0.5 py-2 text-left ${current === slug ? 'text-brass' : ''}`}
+            className={`os-choice ${current === slug ? 'text-brass' : ''}`}
           >
             <span className="text-body text-fg">{t(PALETTE_KEYS[slug].name)}</span>
             <span className="text-caption text-fg-muted">{t(PALETTE_KEYS[slug].line)}</span>
