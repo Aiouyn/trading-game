@@ -1,4 +1,6 @@
+import { dayOfTick } from './catalysts';
 import { Rng, seedStream } from './rng';
+import { endProgramsOn, restrictionsOf } from './restrictions';
 import { settleAsset, settleOptionsOn } from './trading';
 import type {
   AssetDef, AssetState, EcoAssetState, RivalState, StepEvent, WorldConfig, WorldState,
@@ -133,11 +135,17 @@ function settleRivals(state: WorldState, assetId: string, price: number): WorldS
  */
 export function delistAsset(state: WorldState, i: number, price: number, tick: number = state.tick): { state: WorldState; events: StepEvent[] } {
   const def = state.config.assets[i]!;
-  let next = settleAsset(state, def.id, price);
+  // a company's live plans end with the listing (their escrow is released with the settlement, restrictions.ts)
+  const planEvents: StepEvent[] = [];
+  let next = state;
+  if (state.restrictions) {
+    next = { ...state, restrictions: endProgramsOn(restrictionsOf(state), def.id, 'terminated', dayOfTick(tick, state.config.ticksPerDay), tick, planEvents) };
+  }
+  next = settleAsset(next, def.id, price);
   next = settleRivals(next, def.id, price);
   const options = settleOptionsOn(next, def.id, price, tick);
   next = replaceDef(options.state, i, { ...def, listed: false, delisted: true });
-  return { state: next, events: options.events };
+  return { state: next, events: [...planEvents, ...options.events] };
 }
 
 /** Delist one asset (see delistAsset); the option settlement events are not returned here. */
