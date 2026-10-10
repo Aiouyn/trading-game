@@ -11,6 +11,10 @@ import type { Side, StepEvent, WorldState } from './types';
  * - Lockups: sells of an asset by one account are refused before `untilDay` (`lockup`). Buys are not restricted.
  * - Programs: sell-only plans with escrow (the locked shares), and company buybacks. A plan's shares stay locked from
  *   commit until they are sold, released, or price-held (until the plan's end day + 63). Plans never buy.
+ * - Exception, forced trades: a margin liquidation and a short squeeze buy-in are the broker's trades, not the account's
+ *   choice, and they are not refused by a window or a lockup (a covered margin account can be sold out in a closed
+ *   window when its price moves against it). Plan escrow is the one thing a liquidation never sells. Margin collateral
+ *   excludes the locked shares. Decision for the lead: whether lockup shares should also be untouchable in a margin call.
  *
  * The world supplies the rules (who is covered, which days are open, the plan terms, the buyback program); the engine
  * enforces them on every route into placeOrder and the fill loop.
@@ -78,6 +82,8 @@ export interface Program {
   escrow: number;
   /** plans: shares skipped on price, locked until holdUntil */
   priceHold: number;
+  /** buybacks: the float the program was filed against; every buyback in one asset must carry the same float */
+  floatShares?: number;
   /** plans: how many game days after the last day a price hold lasts (the rule in force at commit) */
   holdDays?: number;
   holdUntil?: number;

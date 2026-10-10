@@ -13,7 +13,10 @@ import {
 } from './companyAssets';
 import { addBuyback, cancelPlan, commitPlan, editPlan, programsDay } from './programs';
 import { lockedQty, restrictionsOf, setLockup, setWindow } from './restrictions';
-import { cancelOrder, modifyOrder, openAccount, placeOrder, setAccountPermissions, tradeOption } from './trading';
+import {
+  adjustCash, cancelOrder, cancelOrderResult, estimateFill, liquidationPrice, modifyOrder, openAccount, placeOrder,
+  setAccountPermissions, tradeOption,
+} from './trading';
 import type { AssetDef, Fill, RegimeDef, RegimeId, StepEvent, WorldState } from './types';
 
 const TPD = 10;
@@ -511,5 +514,151 @@ describe('the trading rules: content is the source, the engine defaults match it
     expect(commitPlan(withAcct, plan).reject?.code).toBe('planTooSoon');
     const relaxed = { ...withAcct, config: { ...withAcct.config, companyRules: { planLeadDays: 10 } } };
     expect(commitPlan(relaxed, plan).reject).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------- review fixes (A2 reviewer, 3fcd667)
+
+describe('review: buybacks are capped per asset and day, summed over programs', () => {
+  function treasuryFor(): WorldState {
+    let s = world([coStock('CO'), flat('STK')]);
+    s = openAccount(s, 'T', 1e6);
+    return { ...s, restrictions: setWindow(restrictionsOf(s), 'CO', { covered: ['T'], open: [[5, 20]] }) };
+  }
+
+  it('two programs of 10 on one day on a 1000-share float: the second is refused, and only the first buys', () => {
+    const base = treasuryFor();
+    const first = addBuyback(base, { id: 'bb1', playerId: 'T', assetId: 'CO', qtyPerDay: 10, days: [5], floatShares: 1000 });
+    expect(first.reject).toBeUndefined();
+    const second = addBuyback(first.state, { id: 'bb2', playerId: 'T', assetId: 'CO', qtyPerDay: 10, days: [5], floatShares: 1000 });
+    expect(second.reject).toEqual({ code: 'buybackTooLarge', maxPerDay: 0 });
+    let s = programsDay(atDay(first.state, 5)).state;
+    s = runAll(s, TPD).state;
+    expect(heldOf(s, 'T', 'CO')).toBe(10);
+  });
+
+  it('the headroom is what the other programs leave on each day; a day with none has the full cap', () => {
+    const six = addBuyback(treasuryFor(), { id: 'bb3', playerId: 'T', assetId: 'CO', qtyPerDay: 6, days: [5, 6], floatShares: 1000 }).state;
+    expect(addBuyback(six, { id: 'bb4', playerId: 'T', assetId: 'CO', qtyPerDay: 5, days: [6], floatShares: 1000 }).reject)
+      .toEqual({ code: 'buybackTooLarge', maxPerDay: 4 });
+    expect(addBuyback(six, { id: 'bb5', playerId: 'T', assetId: 'CO', qtyPerDay: 4, days: [5, 6], floatShares: 1000 }).reject).toBeUndefined();
+    expect(addBuyback(six, { id: 'bb6', playerId: 'T', assetId: 'CO', qtyPerDay: 10, days: [7], floatShares: 1000 }).reject).toBeUndefined();
+  });
+
+  it('one float per asset: a program filed against a different float base is refused', () => {
+    const six = addBuyback(treasuryFor(), { id: 'bb3', playerId: 'T', assetId: 'CO', qtyPerDay: 6, days: [5], floatShares: 1000 }).state;
+    expect(addBuyback(six, { id: 'bb7', playerId: 'T', assetId: 'CO', qtyPerDay: 1, days: [7], floatShares: 1e6 }).reject)
+      .toEqual({ code: 'buybackBadSpec' });
+  });
+
+  it('cancelOrderResult names buybackImmutable for a buyback order and planImmutable for a plan order; nothing changes', () => {
+    const filed = addBuyback(treasuryFor(), { id: 'bb', playerId: 'T', assetId: 'CO', qtyPerDay: 10, days: [5], floatShares: 1000 }).state;
+    const s = programsDay(atDay(filed, 5)).state;
+    const bb = s.orders.find((o) => o.program === 'bb')!;
+    expect(cancelOrderResult(s, 'T', bb.id)).toEqual({ state: s, error: 'buybackImmutable' });
+    expect(cancelOrder(s, 'T', bb.id)).toBe(s);
+    let p = openAccount(world([coStock('CO'), flat('STK')]), 'p1');
+    p = grantLockedShares(p, 'p1', 'CO', 100, 100, 0);
+    p = commitPlan(p, { id: 'pl1', playerId: 'p1', assetId: 'CO', side: 'sell', qtyPerDay: 10, days: [70], minPrice: 50 }).state;
+    p = programsDay(atDay(p, 70)).state;
+    const po = p.orders.find((o) => o.program === 'pl1')!;
+    expect(cancelOrderResult(p, 'p1', po.id)).toEqual({ state: p, error: 'planImmutable' });
+  });
+});
+
+describe('review: a plan\'s escrow is never sold by a liquidation, and locked shares add no margin collateral', () => {
+  /** a margin account: 100 shares at 100, cash -5000, and a plan of 10 a day on days 70 and 71 (escrow 20) */
+  function marginWithPlan(): WorldState {
+    let s = openAccount(world([coStock('CO'), flat('STK')]), 'p1', 0);
+    s = adjustCash(s, 'p1', -5000);
+    s = setAccountPermissions(s, 'p1', { maxLeverage: 2 });
+    s = grantLockedShares(s, 'p1', 'CO', 100, 100, 0);
+    return commitPlan(s, { id: 'pl1', playerId: 'p1', assetId: 'CO', side: 'sell', qtyPerDay: 10, days: [70, 71], minPrice: 50 }).state;
+  }
+  const setPrice = (s: WorldState, p: number): WorldState => ({
+    ...s, assets: s.assets.map((a) => (a.id === 'CO' ? { ...a, lnP: Math.log(p), lnOpen: Math.log(p) } : a)),
+  });
+
+  it('the liquidation line counts only unlocked shares as collateral; with no plan the same account breaks at 62.5', () => {
+    // with 20 locked: collateral = -5000 + 80x and gross = 100x, so liquidation at 0.2 is at 60x = 5000
+    expect(liquidationPrice(marginWithPlan(), 'p1', 'CO')).toBeCloseTo(5000 / 60, 6);
+    let n = openAccount(world([coStock('CO')]), 'p1', 0);
+    n = adjustCash(n, 'p1', -5000);
+    n = setAccountPermissions(n, 'p1', { maxLeverage: 2 });
+    n = grantLockedShares(n, 'p1', 'CO', 100, 100, 0);
+    expect(liquidationPrice(n, 'p1', 'CO')).toBeCloseTo(62.5, 6);
+  });
+
+  it('a margin liquidation sells only the unlocked shares; the escrow is kept, the plan sells it once, and nothing goes short', () => {
+    const r = runAll(setPrice(marginWithPlan(), 80), 1);
+    expect(r.events).toContainEqual(expect.objectContaining({ type: 'liquidation', playerId: 'p1', assetId: 'CO', qty: 80 }));
+    expect(heldOf(r.state, 'p1', 'CO')).toBe(20);
+    expect(restrictionsOf(r.state).programs.pl1!.escrow).toBe(20);
+    let s = run(programsDay(atDay(r.state, 70)).state, 1);
+    expect(heldOf(s, 'p1', 'CO')).toBe(10);
+    s = run(programsDay(atDay(s, 71)).state, 1);
+    expect(heldOf(s, 'p1', 'CO')).toBe(0);
+    expect(restrictionsOf(s).programs.pl1!.ended?.reason).toBe('completed');
+    expect(restrictionsOf(s).programs.pl1!.escrow).toBe(0);
+  });
+
+  it('a covered margin account can be liquidated in a closed window: a broker trade is not refused (documented exception)', () => {
+    let s = marginWithPlan();
+    s = { ...s, restrictions: setWindow(restrictionsOf(s), 'CO', { covered: ['p1'], open: [[5, 20]] }) };
+    s = atDay(s, 3); // the window is closed on day 3
+    const r = runAll(setPrice(s, 40), 1);
+    expect(r.events).toContainEqual(expect.objectContaining({ type: 'liquidation', playerId: 'p1', assetId: 'CO' }));
+  });
+});
+
+describe('review: a plan\'s price hold follows its own limit check, not the mid', () => {
+  it('a limit missed after the spread is a price hold, though the mid is above the minimum', () => {
+    let s = openAccount(world([coStock('CO', { spreadBps: 4000 }), flat('STK')]), 'p1');
+    s = grantLockedShares(s, 'p1', 'CO', 100, 100, 0);
+    s = commitPlan(s, { id: 'pl1', playerId: 'p1', assetId: 'CO', side: 'sell', qtyPerDay: 10, days: [70, 71, 72], minPrice: 80 }).state;
+    s = atDay(s, 70);
+    s = { ...s, assets: s.assets.map((a) => (a.id === 'CO' ? { ...a, lnP: Math.log(85), lnOpen: Math.log(85) } : a)) };
+    // the precondition: the mid (85) clears the minimum (80), the sell after the spread does not
+    expect(estimateFill(s, { assetId: 'CO', side: 'sell', qty: 10 }).price).toBeLessThan(80);
+    let state = programsDay(s).state;
+    const events: StepEvent[] = [];
+    for (let k = 0; k < 3 * TPD && restrictionsOf(state).programs.pl1!.priceHold === 0; k++) {
+      const r = stepMany(state, 1);
+      state = r.state;
+      events.push(...r.events);
+    }
+    const p = restrictionsOf(state).programs.pl1!;
+    expect(p.priceHold).toBe(10);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'planSkipped', reason: 'price', qty: 10 }));
+    // the held 10 and the 20 still in escrow for days 71 and 72 are locked at the end day + 63
+    expect(lockedQty(restrictionsOf(state), 'p1', 'CO', 72 + 63)).toBe(30);
+  });
+});
+
+describe('review: a plan day refused at placement releases its escrow', () => {
+  it('a lockup set after commit refuses the day; the escrow is released, so the plan carries on and can end', () => {
+    let s = openAccount(world([coStock('CO'), flat('STK')]), 'p1');
+    s = grantLockedShares(s, 'p1', 'CO', 100, 100, 0);
+    s = commitPlan(s, { id: 'pl1', playerId: 'p1', assetId: 'CO', side: 'sell', qtyPerDay: 10, days: [70, 71, 72], minPrice: 50 }).state;
+    s = { ...s, restrictions: setLockup(restrictionsOf(s), 'CO', 'p1', 71) };
+    const out = programsDay(atDay(s, 70));
+    expect(out.events).toContainEqual(expect.objectContaining({ type: 'restricted', code: 'lockup' }));
+    expect(restrictionsOf(out.state).programs.pl1!.escrow).toBe(20);
+    const next = run(programsDay(atDay(out.state, 71)).state, 1);
+    expect(heldOf(next, 'p1', 'CO')).toBe(90);
+    expect(restrictionsOf(next).programs.pl1!.escrow).toBe(10);
+  });
+});
+
+describe('review: a tender needs a bidder', () => {
+  it('a tender with no bidder account is refused with tenderNoBidder and changes nothing', () => {
+    let s = openAccount(world([coStock('CO'), flat('STK')]), 'p1');
+    s = grantLockedShares(s, 'p1', 'CO', 10, 100, 0);
+    const cash0 = cashOf(s, 'p1');
+    const r = tenderOffer(s, 'CO', 125, '');
+    expect(r.reject).toEqual({ code: 'tenderNoBidder' });
+    expect(r.state).toBe(s);
+    expect(cashOf(r.state, 'p1')).toBe(cash0); // nobody is credited for a settlement nobody pays for
+    expect(tenderOffer(s, 'CO', 125, 'nobody').reject).toEqual({ code: 'tenderNoBidder' });
   });
 });

@@ -23,7 +23,7 @@ export { settleAsset, liquidationPrice } from './trading';
 export type { RivalRow } from './rivals';
 export type { NewsBand, NewsKind } from './news';
 export {
-  openAccount, placeOrder, cancelOrder, modifyOrder, estimateFill, openOrders, orderHistory, portfolio,
+  openAccount, placeOrder, cancelOrder, cancelOrderResult, modifyOrder, estimateFill, openOrders, orderHistory, portfolio,
   halfSpread, impact, commission, tradingConfig, marginConfig, buyingPower, grossExposure, equityOf,
   isMarginAccount, setAccountPermissions, adjustCash, tradeOption, assetIndex, DEFAULT_MARGIN,
   liquidationEquity, crowdHoldings, publicShortInterest, guardedMark, permanentMove, marginalImpact, tallyToday, tallyTick, tallyDay,

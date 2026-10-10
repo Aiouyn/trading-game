@@ -74,21 +74,25 @@ export function vwap30(state: WorldState, assetId: string): number | null {
 
 export type TenderReject =
   | { code: 'tenderNotCompany' }
+  | { code: 'tenderNoBidder' }
   | { code: 'tenderBelowFloor'; floor: number }
   | { code: 'tenderUnfunded'; shortfall: number };
 
 /**
  * Takeover tender (hook 6): every holder, long, short or locked, is settled at one price (settleAsset, through the
  * delisting path), and the company is delisted. The bidder pays exactly what is settled, so cash is conserved across
- * all accounts. The price must clear the floor of 1.2 x VWAP30 (the mid if there is no volume yet). The world decides
- * acceptance (board vote) before it calls this.
+ * all accounts. A tender with no bidder account is refused (tenderNoBidder): nothing would pay for the settlement. The
+ * price must clear the floor of 1.2 x VWAP30 (the mid if there is no volume yet). The world decides acceptance (board
+ * vote) before it calls this.
  */
 export function tenderOffer(
-  state: WorldState, assetId: string, price: number, bidderId?: string,
+  state: WorldState, assetId: string, price: number, bidderId: string,
 ): { state: WorldState; events: StepEvent[]; reject?: TenderReject } {
   const i = indexOf(state, assetId);
   const def = state.config.assets[i]!;
   if (def.valueSource !== 'company' || def.delisted) return { state, events: [], reject: { code: 'tenderNotCompany' } };
+  const bidder = bidderId ? state.accounts[bidderId] : undefined;
+  if (!bidder) return { state, events: [], reject: { code: 'tenderNoBidder' } };
   const base = vwap30(state, assetId) ?? Math.exp(state.assets[i]!.lnP);
   const floor = companyRulesOf(state).tenderFloorRatio * base;
   if (!(price >= floor) || !Number.isFinite(price)) return { state, events: [], reject: { code: 'tenderBelowFloor', floor } };
@@ -99,14 +103,10 @@ export function tenderOffer(
     const pos = acct.positions[assetId];
     if (pos) total += pos.qty * price;
   }
-  if (bidderId !== undefined) {
-    const bidder = state.accounts[bidderId];
-    if (!bidder) throw new Error(`tenderOffer: no bidder account ${bidderId}`);
-    // cash after the settlement itself (the bidder may hold shares too) must not go negative
-    const own = bidder.positions[assetId]?.qty ?? 0;
-    const after = bidder.cash + own * price - total;
-    if (after < 0) return { state, events: [], reject: { code: 'tenderUnfunded', shortfall: -after } };
-  }
+  // cash after the settlement itself (the bidder may hold shares too) must not go negative
+  const own = bidder.positions[assetId]?.qty ?? 0;
+  const after = bidder.cash + own * price - total;
+  if (after < 0) return { state, events: [], reject: { code: 'tenderUnfunded', shortfall: -after } };
 
   const events: StepEvent[] = [];
   let next: WorldState = state;
@@ -117,11 +117,10 @@ export function tenderOffer(
   const delisted = delistAsset(next, i, price, state.tick);
   next = delisted.state;
   events.push(...delisted.events);
-  if (bidderId !== undefined) {
-    const bidder: Account = { ...next.accounts[bidderId]!, positions: { ...next.accounts[bidderId]!.positions } };
-    bidder.cash -= total;
-    next = { ...next, accounts: { ...next.accounts, [bidderId]: bidder } };
-  }
+  // the bidder pays exactly the sum the holders are settled, so the settlement nets to zero across all accounts
+  const paid: Account = { ...next.accounts[bidderId]!, positions: { ...next.accounts[bidderId]!.positions } };
+  paid.cash -= total;
+  next = { ...next, accounts: { ...next.accounts, [bidderId]: paid } };
   events.push({ type: 'listing', tick: state.tick, kind: 'merger', assetId, price });
   return { state: next, events };
 }

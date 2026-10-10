@@ -122,8 +122,13 @@ export function programsDay(s: WorldState): { state: WorldState; events: StepEve
       };
       const res = placeProgramOrder(state, req);
       state = { ...res.state, restrictions: markPlaced(restrictionsOf(res.state), id, day) };
-      if (res.order.status === 'rejected' && (res.order.rejectReason === 'closedWindow' || res.order.rejectReason === 'lockup')) {
-        events.push({ type: 'restricted', tick: state.tick, playerId: p.playerId, assetId: p.assetId, code: res.order.rejectReason });
+      if (res.order.status === 'rejected') {
+        if (res.order.rejectReason === 'closedWindow' || res.order.rejectReason === 'lockup') {
+          events.push({ type: 'restricted', tick: state.tick, playerId: p.playerId, assetId: p.assetId, code: res.order.rejectReason });
+        }
+        // a refused plan day (a lockup set after commit) releases its escrow, or the plan could never end. No closed-list
+        // skip reason fits a restriction; it is released as a volume skip (never a breach, never a price hold).
+        state = { ...state, restrictions: programRelease(restrictionsOf(state), id, qty, 'volume', day, state.tick, events) };
       }
       continue;
     }
@@ -172,15 +177,24 @@ export function addBuyback(s: WorldState, spec: BuybackSpec): { state: WorldStat
     && spec.floatShares > 0;
   if (i < 0 || !acct || !shaped) return { state: s, reject: { code: 'buybackBadSpec' } };
   if (r.programs[spec.id]) return { state: s, reject: { code: 'planExists' } };
-  const maxPerDay = rules.buybackFloatPerDay * spec.floatShares;
-  if (spec.qtyPerDay > maxPerDay) return { state: s, reject: { code: 'buybackTooLarge', maxPerDay } };
+  // the cap is one share of the asset's float a game day, summed over every buyback filed in that asset (v1.7 §5.2):
+  // filing several programs on one day cannot exceed it. One float per asset, so a program cannot change the base.
+  const filed = Object.values(r.programs).filter((p) => p.kind === 'buyback' && p.assetId === spec.assetId);
+  if (filed.some((p) => p.floatShares !== spec.floatShares)) return { state: s, reject: { code: 'buybackBadSpec' } };
+  const cap = rules.buybackFloatPerDay * spec.floatShares;
+  let headroom = Infinity;
+  for (const d of days) {
+    const committed = filed.reduce((x, p) => (p.days.includes(d) ? x + p.qtyPerDay : x), 0);
+    headroom = Math.min(headroom, cap - committed);
+  }
+  if (spec.qtyPerDay > headroom) return { state: s, reject: { code: 'buybackTooLarge', maxPerDay: Math.max(0, headroom) } };
   for (const d of days) {
     const w = windowOn(r, spec.assetId, spec.playerId, d);
     if (!w.open) return { state: s, reject: { code: 'closedWindow', ...(w.opensDay !== undefined ? { untilDay: w.opensDay } : {}) } };
   }
   const program: Program = {
     id: spec.id, kind: 'buyback', playerId: spec.playerId, assetId: spec.assetId, qtyPerDay: spec.qtyPerDay, days: days.slice(),
-    committedDay: sessionDay(s), escrow: 0, priceHold: 0,
+    committedDay: sessionDay(s), escrow: 0, priceHold: 0, floatShares: spec.floatShares,
   };
   return { state: { ...s, restrictions: withProgram(r, program) } };
 }

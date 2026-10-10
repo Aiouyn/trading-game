@@ -508,6 +508,8 @@ export interface Order extends OrderRequest {
   forced?: boolean;
   /** a refused restriction (closedWindow, lockup): the game day it lifts, when the schedule has one */
   rejectUntil?: number;
+  /** a plan order: its last limit check failed on price (after the spread), so an unsold remainder is a price hold */
+  priceMissed?: boolean;
 }
 
 export interface Fill {
