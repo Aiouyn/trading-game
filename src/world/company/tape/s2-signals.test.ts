@@ -3,7 +3,8 @@
  * re-targeted to Quant v1.7). Test names carry the Tape id. Seed sweeps and the rho legs run in scripts/balance/company-tape.ts.
  */
 import { describe, expect, it } from 'vitest';
-import { advanceTo, companyOf, founded, listedWorld } from '../b1fixture';
+import { applyCommand } from '../../game';
+import { advanceTo, companyOf, FOUNDER, founded, listedWorld } from '../b1fixture';
 import { publicCompanyView } from '../views';
 import { biasCorrect } from '../signals';
 
@@ -68,12 +69,15 @@ describe('Tape s2: signals, backlog and faking (unit rows)', () => {
     expect(JSON.stringify(publicCompanyView(c, day))).toBe(before);
   });
 
-  it('no_hidden_strategy_leak: the public view does not change with the founder cash or the order book', () => {
-    const { g } = listedWorld('leak-1');
+  it('no_hidden_strategy_leak: the public view does not change with the founder cash or a resting founder order (window open)', () => {
+    const { g, assetId } = listedWorld('leak-1');
     const c = companyOf(g);
-    const before = JSON.stringify(publicCompanyView(c, 230));
-    c.orders.push({ ...c.orders[0]!, qty: 1 } as never);
-    expect(JSON.stringify(publicCompanyView(c, 230))).toBe(before);
+    advanceTo(g, 205); // F = 192, so the window is open 194..213
+    const before = JSON.stringify(publicCompanyView(c, 205));
+    const placed = applyCommand(g, FOUNDER, { type: 'order.place', order: { assetId, side: 'buy', type: 'limit', limitPrice: 0.0001, qty: 10, tif: 'gtc' } });
+    expect(placed.ok, 'the founder rests an order in the open window').toBe(true);
+    c.cash = c.cash + 987_654; // private founder cash
+    expect(JSON.stringify(publicCompanyView(c, 205))).toBe(before);
   });
 
   it.skip('consensus_alpha1: SKIPPED (needs the bias-corrected report chain; the consensus cases are in company.test.ts)', () => {});

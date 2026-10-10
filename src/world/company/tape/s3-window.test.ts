@@ -46,7 +46,8 @@ describe('Tape s3: trading window (F+2 to F+21, covered list)', () => {
     const { g, c, assetId } = listedWorld('win-f');
     advanceTo(g, 100);
     expect(windowAt(c, 100).open).toBe(false);
-    if (rosterOf(g, c).includes(BUYER_A)) return; // covered by holding (then this row does not apply to A)
+    // precondition: BUYER_A is not on the covered roster in this fixture (no holding, no link), so the row applies
+    expect(rosterOf(g, c)).not.toContain(BUYER_A);
     expect(applyCommand(g, BUYER_A, { type: 'order.place', order: farBid(assetId) }).ok).toBe(true);
   });
 
@@ -62,6 +63,10 @@ describe('Tape s3: trading window (F+2 to F+21, covered list)', () => {
     advanceTo(g, 100);
     const r = applyCommand(g, FOUNDER, { type: 'order.place', order: { ...farBid(assetId), qty: 5 } });
     expect(r.ok).toBe(false);
+    // the refusal is the window, not the price or the size (the same order is accepted on an open day)
+    expect(r.error).toBe('closedWindow');
+    advanceTo(g, 135); // F = 129, the window is open 131..150
+    expect(applyCommand(g, FOUNDER, { type: 'order.place', order: { ...farBid(assetId), qty: 5 } }).ok).toBe(true);
   });
 
   it('inst_list_stored: the public covered instrument matches the listed asset; the roster holds the founder', () => {

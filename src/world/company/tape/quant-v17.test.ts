@@ -3,7 +3,7 @@
  * Test names carry the Tape id. Rows that need a seeded market or filing sweep are in scripts/balance/company-tape.ts.
  */
 import { describe, expect, it } from 'vitest';
-import { advanceTo, companyOf, listedWorld } from '../b1fixture';
+import { advanceTo, listedWorld } from '../b1fixture';
 import { reversal } from '../filings';
 
 type Resolved = Parameters<typeof reversal>[0][number];
@@ -38,13 +38,14 @@ describe('Quant v1.7: allowance on actual cancellations (G17)', () => {
 });
 
 describe('Quant v1.7: player stocks print in full (G21, unit part)', () => {
-  it('company_print_full_npc_untouched (unit): the listed player stock prints share 1 (the binding ecology gate is in the script)', () => {
-    const { g, c, assetId } = listedWorld('print-1');
+  it('company_print_full_npc_untouched (unit): the listed player stock is a company-valued asset with companyPrintShare exactly 1', () => {
+    const { g, assetId } = listedWorld('print-1');
     advanceTo(g, 230);
-    expect(companyOf(g).listed?.assetId).toBe(assetId);
-    const asset = (g.market as unknown as { assets: Record<string, { companyPrintShare?: number }> }).assets?.[assetId];
-    expect(asset?.companyPrintShare ?? 1).toBe(1);
-    expect(c.listed).not.toBeNull();
+    const def = g.market.config.assets.find((a) => a.id === assetId);
+    expect(def, 'the listed asset is in the engine config').toBeDefined();
+    expect(def!.valueSource).toBe('company');
+    // set explicitly by the listing (ipo.ts listingDef), not defaulted: an absent field fails here
+    expect(def!.companyPrintShare).toBe(1);
   });
 });
 

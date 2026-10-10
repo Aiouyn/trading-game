@@ -56,15 +56,23 @@ describe('Tape s6/s7: IPO and pay rules (unit rows)', () => {
     expect(applyCommand(g, BUYER_A, { type: 'company.ipoOrder', companyId: c.id, shares: 100 }).ok).toBe(true);
   });
 
-  it('salary_cap_exact: max($50/gd, 1% of TTM revenue / 252); the floor binds below $126k TTM revenue', () => {
+  it('salary_cap_exact: max($50/gd, 1% of TTM revenue / 252); the $50 floor binds below TTM revenue of $1.26M, not $126k', () => {
     const withTtm = (ttm: number) => {
       const q = { revenue: ttm / 4 };
       return salaryCapPerDay({ closed: [q, q, q, q] } as unknown as Company);
     };
-    expect(withTtm(1_000_000)).toBe(COMPANY.failure.salaryCapFloor); // 1% of $1M / 252 = $39.68, below the $50 floor
-    expect(withTtm(0)).toBe(COMPANY.failure.salaryCapFloor);
-    expect(withTtm(126_000)).toBeCloseTo(COMPANY.failure.salaryCapFloor, 9);
-    expect(withTtm(10_000_000)).toBeCloseTo((0.01 * 10_000_000) / 252, 9);
+    const floor = COMPANY.failure.salaryCapFloor;
+    const share = COMPANY.failure.salaryCapRevenueShare;
+    // the floor binds while share x TTM / 252 < floor, i.e. below TTM = floor x 252 / share = $1,260,000
+    expect(floor * 252 / share).toBeCloseTo(1_260_000, 6);
+    expect(withTtm(1_000_000)).toBe(floor); // 1% of $1M / 252 = $39.68, below the floor
+    expect(withTtm(0)).toBe(floor);
+    expect(withTtm(1_259_999)).toBe(floor);
+    expect(withTtm(1_260_000)).toBeCloseTo(floor, 9); // the exact boundary: 1% of $1.26M / 252 = $50.00
+    // above the boundary the cap is the formula, exact to the cent: $1,260,252 gives $50.01
+    expect(withTtm(1_260_252)).toBeCloseTo(50.01, 9);
+    expect(Math.abs(withTtm(1_285_200) - (share * 1_285_200) / 252)).toBeLessThan(0.005);
+    expect(withTtm(10_000_000)).toBeCloseTo((share * 10_000_000) / 252, 9);
   });
 
   it.skip('ipo_primary_only [WAIT: the proceeds-to-treasury cash identity is in the money-flow invariants, not a unit row here]', () => {});

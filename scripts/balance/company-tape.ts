@@ -1,9 +1,9 @@
 // Tape company checks at harness scale (owner: Tape). The seed-sweep rows of tape-company-building.md that run on the
 // company world layer (src/world/company), each reported PASS or FAIL over many seeds. The unit form of every row is in
 // src/world/company/tape/*.test.ts; this script repeats the statistical ones over more seeds.
-// Not run here (recorded as not run, not as pass): the bot P&L bands (cap_carry_edge, signal_postprint_drift,
-// alt_prefiling_edge, rho_*), the G15/G18/G20 modelled rows (overflow_not_booked, hiring_full_print, revenue_noise_quarterly),
-// the engine gate company_print_full_npc_untouched and rho_engine. Those need the v1.7 harnesses and engine-staging.
+// Run here: co_determinism, co_ledger_balances, private_no_signals, signal_cadence, window_boundaries, plan_min_lead,
+// ipo_float_bounds, signal_bias_correct (8 rows). Not run here: the list printed at the end under NOT RUN. Those need
+// the v1.7 harnesses (not in this repo) or engine-staging, and are never reported as PASS.
 // Usage: npx tsx scripts/balance/company-tape.ts [--seeds 20] [--draws 100000]
 
 import { applyCommand } from '../../src/world/game';
@@ -182,6 +182,14 @@ for (const row of rows) {
     console.log(`FAIL ${row.id} seeds=${SEEDS} failing=${fails.length} first: ${fails[0]}`);
   }
 }
-console.log(`NOT RUN here: cap_carry_edge, signal_postprint_drift, alt_prefiling_edge, rho_residual, rho_engine, overflow_not_booked, hiring_full_print, revenue_noise_quarterly, company_print_full_npc_untouched`);
+// Every statistical row this script does not run, so the output never reads as complete. The bot P&L bands and the
+// modelled G15/G18/G20 rows need the v1.7 harnesses (not in this repo); the engine gates need engine-staging.
+const NOT_RUN = [
+  'cap_carry_edge', 'signal_postprint_drift', 'alt_prefiling_edge', 'reanchor_public_edge', 'signal_joint_v15',
+  'signal_noise_reversion', 'rho_residual', 'rho_ev_robust', 'rho_by_spread', 'rho_engine',
+  'overflow_not_booked', 'hiring_full_print', 'revenue_noise_quarterly', 'filing_tick_order',
+  'company_print_full_npc_untouched', 'honest_cancel_no_charge', 'signal_fake_ev', 'backlog_repay_outside_covered',
+];
+console.log(`NOT RUN here (${NOT_RUN.length}; their status is in the Tape suites and wait-register): ${NOT_RUN.join(', ')}`);
 console.log(failed === 0 ? 'ALL RUN CHECKS PASS' : `${failed} CHECK(S) FAILED`);
 process.exit(failed === 0 ? 0 : 1);
