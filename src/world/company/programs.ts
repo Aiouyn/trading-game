@@ -66,7 +66,7 @@ export function buybackReserve(size: number, price: number): number {
  */
 export function leverageAfter(c: Company, extraOutflow: number): number {
   const last = c.filings[c.filings.length - 1];
-  const netDebt = (last ? last.balance.debt - last.balance.cash : 0) + extraOutflow;
+  const netDebt = (last ? last.balance.debt - (last.balance.cash - (last.relatedCash ?? 0)) - (last.balance.loansOut ?? 0) : 0) + extraOutflow;
   if (netDebt <= 0) return 0;
   const ebitda = annualEbitdaOf(c);
   return ebitda > 0 ? netDebt / ebitda : Number.POSITIVE_INFINITY;

@@ -11,6 +11,7 @@ import { COMPANY, SECTORS } from '@/content/company';
 import { Rng } from '@/engine';
 import { backlogLift, clippedGrowth, lnPerShare, sensCB, vEngine, type ValuationInputs } from './valuation';
 import { totalHeads } from './staff';
+import { execMult } from './governance';
 import type { Company, FilingPublic, NoiseDraw, Order, WeeklySignal } from './types';
 
 /** Bias correction for a lognormal band centre: E[centre] = true * exp(sigma^2 / 2) (§6.2). */
@@ -79,7 +80,8 @@ export function filedInputs(c: Company, dCB: number): ValuationInputs {
   const prior4 = c.filings.length >= 8 ? ttmFiled(c.filings.slice(0, c.filings.length - 4), 4) : null;
   const growth = prior4 && prior4.rev > 0 && ttm8.count === 8 ? past.rev / prior4.rev - 1 : 0;
   const last = c.filings[c.filings.length - 1];
-  const netDebt = last ? last.balance.debt - last.balance.cash : 0;
+  // related-party cash is not part of net debt (N1): a related trade moves no value
+  const netDebt = last ? last.balance.debt - (last.balance.cash - (last.relatedCash ?? 0)) - (last.balance.loansOut ?? 0) : 0;
   return {
     revU: past.rev * scale,
     eStar: n > 0 ? Math.min(past.ni * scale, past.ocfMinusDa * scale) : 0,
@@ -232,5 +234,5 @@ export function openBook(orders: Order[]): { backlog: number; contribution: numb
 
 /** The sector's cancel rate c_s for a company (§2). */
 export function cancelRateOf(c: Company): number {
-  return SECTORS[c.sector].cancelRate;
+  return SECTORS[c.sector].cancelRate * execMult(c, 'cancel');
 }

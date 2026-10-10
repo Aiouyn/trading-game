@@ -10,7 +10,8 @@
 import { COMPANY } from '@/content/company';
 import { notify, today } from '../core';
 import type { GameState, StepOutput } from '../types';
-import { post } from './company';
+import { post } from './books';
+import { loanBook } from './contracts';
 import type { Company, CompanyReject, CovenantStatus, Debt, FilingPublic } from './types';
 
 /** The NPC bank pool: lends from its cash, takes interest and principal back (transfers only). */
@@ -146,7 +147,9 @@ export function debtDay(g: GameState, c: Company, day: number, out: StepOutput |
 export function covenantAtFiling(g: GameState, c: Company, day: number, out: StepOutput | null): void {
   const last = c.filings[c.filings.length - 1];
   if (!last) return;
-  const breach = covenantBreachOf(c, last.balance.debt, last.balance.cash);
+  // the cash side of net debt: related-party cash is out, and the loans to players count as cash (N1, B2)
+  const cash = last.balance.cash - (last.relatedCash ?? 0) + (last.balance.loansOut ?? 0);
+  const breach = covenantBreachOf(c, last.balance.debt, cash);
   // a cure that is already running keeps its deadline: a filing in breach does not restart it
   const until = c.covenant.status === 'cure' ? c.covenant.cureUntilDay : day + COMPANY.debt.cureDays;
   setCovenant(g, c, breach ? 'cure' : 'ok', breach ? until : null, out, !!breach);
@@ -155,8 +158,9 @@ export function covenantAtFiling(g: GameState, c: Company, day: number, out: Ste
 /** Daily: a cure is re-tested on the live balance; the end of a cure still in breach is a default. */
 function covenantDay(g: GameState, c: Company, day: number, out: StepOutput | null): void {
   if (c.covenant.status !== 'cure') return;
-  const debt = totalDebt(c);
-  const live = covenantBreachOf(c, debt, c.cash);
+  const lb = loanBook(c);
+  const debt = totalDebt(c) + lb.debt;
+  const live = covenantBreachOf(c, debt, c.cash - (c.relatedCash ?? 0) + lb.loansOut);
   if (!live) {
     setCovenant(g, c, 'ok', null, out, false);
   } else if (c.covenant.cureUntilDay !== null && day >= c.covenant.cureUntilDay) {

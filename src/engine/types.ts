@@ -918,7 +918,7 @@ export type StepEvent =
   /** a dividend credited at the day boundary (rates on): the cash paid to one holder in one asset; negative for a short */
   | { type: 'dividend'; tick: number; playerId: string; assetId: string; amount: number }
   /** a covered or locked order refused, or cancelled at the fill: a closed window (untilDay = the next open day) or a lockup */
-  | { type: 'restricted'; tick: number; playerId: string; assetId: string; code: 'closedWindow' | 'lockup'; untilDay?: number }
+  | { type: 'restricted'; tick: number; playerId: string; assetId: string; code: 'closedWindow' | 'lockup' | 'ceoExitFreeze'; untilDay?: number }
   /** a plan day that did not sell all of its quantity: price (the floor), volume (the ADV cap) or halt; qty is the shortfall */
   | { type: 'planSkipped'; tick: number; programId: string; playerId: string; assetId: string; reason: 'volume' | 'price' | 'cap' | 'halt'; qty: number }
   /** a plan ended: completed (its last day ran), terminated (delisting or default) or tender */

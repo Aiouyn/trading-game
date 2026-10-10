@@ -10,6 +10,7 @@ import { headcountBand, ttmFiled } from './signals';
 import { projectBand, qualityScore } from './rd';
 import type { Company, CompanyWorld, CovenantStatus, FilingPublic, WeeklySignal } from './types';
 import { debtBand, totalDebt } from './debt';
+import { loanBook } from './contracts';
 import { windowAt } from './insiders';
 
 export interface CompanyPublic {
@@ -80,7 +81,7 @@ export function publicCompanyView(c: Company, day: number): CompanyPublic {
     products: c.products.map((p) => ({ name: p.name, segment: 'mid', price: p.price })),
     // until the first filing the band is the founding headcount's band (the founding seats are public)
     headcountBand: last ? last.headcountBand : headcountBand(FOUNDING_HEADS),
-    debt: { totalBand: debtBand(totalDebt(c)), rating: 'NR', covenant: c.covenant.status },
+    debt: { totalBand: debtBand(totalDebt(c) + loanBook(c).debt), rating: 'NR', covenant: c.covenant.status },
     filings: late ? c.filings.slice(-13) : [],
     signals: c.listed ? c.signals.slice(-COMPANY.signals.keep) : [],
     credibility: COMPANY.valuation.cInit,

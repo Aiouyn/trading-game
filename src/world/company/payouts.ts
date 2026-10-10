@@ -10,7 +10,7 @@
 import { COMPANY } from '@/content/company';
 import { notify, bump, today } from '../core';
 import type { GameState, StepOutput } from '../types';
-import { post } from './company';
+import { post } from './books';
 import { founderKeyOf, poolIdOf, treasuryIdOf } from './ipo';
 import { ttmOf } from './debt';
 import type { Company, CompanyReject } from './types';

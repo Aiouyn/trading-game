@@ -75,7 +75,43 @@ export type CompanyReject =
   | { code: 'repayBadAmount' }
   // B1: dividends (payouts.ts)
   | { code: 'dividendNotPermitted' }
-  | { code: 'dividendBadAmount' };
+  | { code: 'dividendBadAmount' }
+  | B2Reject;
+
+/**
+ * B2 refusals (governance, failure, franchising, supply, takeovers). Each code has en and fr copy in three parts (C4). The
+ * engine's own code `ceoExitFreeze` is copied here too, since it reaches the screen through the same copy keys.
+ */
+export type B2Reject =
+  | { code: 'notController' }
+  | { code: 'companyBankrupt' }
+  | { code: 'ceoChangePending'; untilDay: number }
+  | { code: 'exCeoCooling'; untilDay: number }
+  | { code: 'ceoExitFreeze'; untilDay: number }
+  | { code: 'execFilled'; role: ExecRole }
+  | { code: 'execNotFound'; role: ExecRole }
+  | { code: 'execTerm'; untilDay: number }
+  | { code: 'execSalaryCap'; cap: number }
+  | { code: 'guaranteeTooHigh'; max: number }
+  | { code: 'boardRejected'; yes: number; no: number }
+  | { code: 'franchiseRate'; min: number /* percent */; max: number /* percent */ }
+  | { code: 'franchiseCap'; cap: number }
+  | { code: 'franchiseNoProduct' }
+  | { code: 'supplyPriceOutOfBand'; min: number; max: number }
+  | { code: 'supplySelf' }
+  | { code: 'takeoverNotListed' }
+  | { code: 'takeoverNoBidder' }
+  | { code: 'takeoverBelowFloor'; floor: number }
+  | { code: 'takeoverUnfunded'; shortfall: number }
+  | { code: 'takeoverSelfDeal' }
+  | { code: 'antitrustBlock'; share: number /* percent */ }
+  | { code: 'contractPriceOutOfBand'; min: number; max: number }
+  | { code: 'contractNotFound' }
+  | { code: 'notParty' }
+  | { code: 'loanBalance'; balance: number }
+  | { code: 'guaranteeLocked' }
+  | { code: 'loanTooSmall'; min: number }
+  | { code: 'takeoverNoFloor' };
 
 export type CompanyRejectCode = CompanyReject['code'];
 
@@ -278,6 +314,12 @@ export interface Statements {
   /** the material part of the unit cost (materials / units) and the commodity index at the close: G23 moves the material part by the index */
   matUnit: number;
   inputIndex: number;
+  /** related-party revenue in the quarter (reported apart from revenue, N1; absent before B2) */
+  relatedRevenue?: number;
+  /** the cumulative related-party cash at the close (kept out of net debt, N1) */
+  relatedCash?: number;
+  /** loans out to players (receivables) at the close (B2); the debt at the close is bank debt plus loans in from players */
+  loansOut?: number;
   /** headcount at the close */
   heads: number;
   /** units shipped in the quarter and the gross margin used by the valuation (TTM) */
@@ -294,7 +336,9 @@ export interface FilingPublic {
   filedDay: number;
   hash: string;
   income: { revUnrelated: number; relatedPartyIncome: number; cogs: number; opex: number; ebitda: number; netIncome: number; niAdj: number; interest: number };
-  balance: { cash: number; receivables: number; inventory: number; ppe: number; debt: number; equity: number; retainedEarnings: number };
+  balance: { cash: number; receivables: number; inventory: number; ppe: number; debt: number; equity: number; retainedEarnings: number; loansOut?: number };
+  /** the cumulative related-party cash at the close: net debt for the valuation leaves it out (N1) */
+  relatedCash?: number;
   /** capex_maint: plant D&A as the maintenance proxy (section 6.4), used by E* = min(NI_adj, OCF - capex_maint) */
   cashFlow: { ocf: number; capex: number; capexMaint: number; fcf: number; dividends: number; buybacks: number };
   headcountBand: string;
@@ -415,6 +459,8 @@ export interface Company {
     marketing: number;
     interest: number;
     dividends: number;
+    /** revenue from related-party supply (excluded from revUnrelated, N1) */
+    relatedRevenue?: number;
   };
   closed: Statements[];
   filings: FilingPublic[];
@@ -466,6 +512,8 @@ export interface Company {
   /** B1: the treasury engine account (created at listing) */
   treasuryId: string | null;
   rng: { rd: RngState; sig: RngState; npc: RngState };
+  /** the controller's standing answer to a takeover bid (spec 9.2): set by the founder only; absent means no (B2) */
+  founderStance?: 'yes' | 'no';
   /** founder goals (C4): reached-day per goal id */
   goalsDone: Record<string, number>;
   /** distress flag (private): cash below zero, set on the day it happens */
@@ -474,6 +522,105 @@ export interface Company {
   distressPublic: boolean;
   ledger: Ledger[];
   ledgerTotals: Record<string, number>;
+  /* ---- B2 (optional: a company from before B2 has none of these) ---- */
+  /** the company's CEO (absent = the founder) and the controller's pending change, with the freeze that follows it */
+  ceo?: Holder;
+  ceoChange?: { announcedDay: number; effectiveDay: number; successor: Holder; exPlayerId: string } | null;
+  ceoFreeze?: { playerId: string; untilDay: number } | null;
+  exCeo?: { playerId: string; untilDay: number } | null;
+  execs?: Partial<Record<ExecRole, Executive>>;
+  guarantee?: { playerId: string; amount: number } | null;
+  licences?: Licence[];
+  supplyDeals?: SupplyDeal[];
+  /** contracts with player accounts: contractor fees, loans in and loans out (B2, spec 5.3) */
+  contracts?: ContractDeal[];
+  contractSeq?: number;
+  /** covered payments to player accounts, kept for the clawback lookback (CB-044) */
+  payouts?: Payout[];
+  payoutSeq?: number;
+  /** consecutive game days with negative cash (the default trigger) */
+  insolventDays?: number;
+  /** the liquidator's money held for this company's creditors (the estate), and the bankruptcy record */
+  estate?: number;
+  /** cumulative net cash from related-party trade (in less out): kept out of net debt, so related trade is value-neutral (N1) */
+  relatedCash?: number;
+  bankrupt?: { day: number; recovery: number; paid: number; shortfall: number; clawed: number } | null;
+}
+
+/** Who holds a seat or a stake: an NPC, or a player by id. */
+export type Holder = { kind: 'npc' } | { kind: 'player'; playerId: string };
+
+export type ExecRole = 'CEO' | 'CFO' | 'COO' | 'CTO';
+export type ExecTrait = 'Operator' | 'Visionary' | 'Cost-cutter' | 'Rainmaker' | 'Steady';
+
+export interface Executive {
+  role: ExecRole;
+  trait: ExecTrait;
+  holder: Holder;
+  hiredDay: number;
+  /** the minimum term ends on this day (a fire is refused before it) */
+  termEnd: number;
+  /** $ per gd */
+  salary: number;
+}
+
+/** A franchise licence to an NPC operator: the royalty is a rate on the operator's revenue per gd (fixed at signing). */
+export interface Licence {
+  id: string;
+  rate: number;
+  revenuePerDay: number;
+  signedDay: number;
+}
+
+/** A supply deal between two companies at the market reference (related when both have the same owner). */
+export interface SupplyDeal {
+  id: string;
+  sellerId: string;
+  buyerId: string;
+  unitsPerDay: number;
+  price: number;
+  related: boolean;
+  signedDay: number;
+  /** the payee was an insider when the deal was signed (spec 5.3: insider at signing or on the payment's day) */
+  insiderAtSigning?: boolean;
+}
+
+/**
+ * A contract with a player account (B2, spec 5.3). `contractor`: the company pays the payee `perDay` until `endDay`.
+ * `loanIn`: the payee (a player) lent `principal` to the company, repaid in `perDay` instalments until `balance` is zero.
+ * `loanOut`: the company lent `principal` to the payee, who repays `balance` down to zero. Each keeps the insider status it
+ * had at signing, which is one of the two insider tests (the other is the status on the payment's day).
+ */
+export interface ContractDeal {
+  id: string;
+  kind: 'contractor' | 'loanIn' | 'loanOut';
+  payeeId: string;
+  perDay: number;
+  principal: number;
+  balance: number;
+  signedDay: number;
+  endDay: number;
+  insiderAtSigning: boolean;
+  closed: boolean;
+}
+
+/**
+ * A covered payment (CB-044): a company paid a player account. `covered` is the part a clawback can reach (the excess for
+ * a salary); `termsDay` is when the terms were signed (safe harbour, CB-045); `flagged` marks an early, extra or above-band
+ * payment (never safe), and `insider` is true when the payee was an insider at signing or on the day.
+ */
+export interface Payout {
+  id: string;
+  day: number;
+  toPlayerId: string;
+  /** a company recipient (a supply deal's seller): the clawback takes from that company's books, then its owner (B2) */
+  toCompanyId?: string;
+  amount: number;
+  covered: number;
+  kind: 'salary' | 'related' | 'repayment' | 'contractor' | 'dividend' | 'loan';
+  termsDay: number;
+  flagged: boolean;
+  insider: boolean;
 }
 
 export interface InvestorPool {
@@ -498,4 +645,15 @@ export interface CompanyWorld {
   flows: CompanyFlows;
   /** the cash the founders put in at founding (the in-world transfers are checked against this) */
   founded: number;
+  /* ---- B2 (optional) ---- */
+  /** clearing-house personal debt of players whose clawback could not be collected (CB-046) */
+  personalDebt?: Record<string, number>;
+  /** the takeover watch: per company, per account, the first short day and the first big sell day (T0, spec 9.2) */
+  watch?: Record<string, Record<string, { firstShort?: number; bigSell?: number; lastQty: number }>>;
+  /** the owner-set groups: a linked account maps to the group of its owner (owners.ts, spec 6.1) */
+  linked?: Record<string, string>;
+  /** surveillance points per player (the insider backstop, spec 6.2) */
+  insider?: Record<string, { points: number; reasons: string[]; companyId?: string }>;
+  /** the daily close and volume of each listed company, kept for the pre-attack floor (spec 9.2): 130 days */
+  tape?: Record<string, { day: number; c: number; u: number }[]>;
 }

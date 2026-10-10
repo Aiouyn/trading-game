@@ -126,6 +126,20 @@ export function tenderOffer(
 }
 
 /**
+ * Bankruptcy (B2, spec 5.3): equity goes to zero. Every holder, long or short, is settled at zero through the delisting
+ * path (the plans end with it), so the holders lose their positions and a short is paid to cover at zero.
+ */
+export function failCompanyStock(state: WorldState, assetId: string): { state: WorldState; events: StepEvent[] } {
+  if (!state.config.assets.some((a) => a.id === assetId)) return { state, events: [] };
+  const i = indexOf(state, assetId);
+  const def = state.config.assets[i]!;
+  if (def.valueSource !== 'company' || def.delisted) return { state, events: [] };
+  const settled = settleAsset(state, assetId, 0);
+  const delisted = delistAsset(settled, i, 0, state.tick);
+  return { state: delisted.state, events: delisted.events };
+}
+
+/**
  * Founder and allocation shares (hook 3, lockup): a long position granted at `avgCost` with its sells refused before
  * `untilDay`. Cash does not move here: the world moves it (an IPO allocation is paid by the buyer, the founder's private
  * equity is not cash). Adds to any existing long.

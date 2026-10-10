@@ -341,6 +341,82 @@ export const COMPANY = {
     /** a plan's minimum sell price is set in the engine (commit-day close, 0.8 cap) */
     planLimit: 2,
   },
+  /**
+   * Founder goal rewards (B2, C4): cash paid into the company when a goal is reached, booked as world money (a faucet).
+   * A proposal: small enough that the goals are a starting path, not a second income.
+   */
+  goalRewards: { firstHire: 2_000, firstRevenue: 5_000, breakEven: 10_000, firstRound: 5_000 } as Record<'firstHire' | 'firstRevenue' | 'breakEven' | 'firstRound', number>,
+  /**
+   * Governance (B2, spec 9.1 for the CEO; C4 for executives and the board). CEO: a public notice of 10 gd, a freeze of 21 gd
+   * after it, and a 252 gd cooling before the ex-CEO can return. Executives: salary per gd by role (a proposal), a minimum
+   * term, and severance in days of salary. Each trait moves one coefficient by its size (5 to 10%; the signs are the
+   * effect): Operator capacity, Visionary R&D effort, Cost-cutter wages, Rainmaker demand, Steady NPC cancellations.
+   */
+  governance: {
+    ceo: { noticeDays: 10, exitFreezeDays: 21, cooldownDays: 252 },
+    exec: {
+      salary: { CEO: 400, CFO: 300, COO: 300, CTO: 300 } as Record<'CEO' | 'CFO' | 'COO' | 'CTO', number>,
+      termDays: 63,
+      severanceDays: 21,
+      traits: {
+        Operator: { key: 'capacity', size: 0.08 },
+        Visionary: { key: 'rd', size: 0.10 },
+        'Cost-cutter': { key: 'wages', size: -0.06 },
+        Rainmaker: { key: 'demand', size: 0.07 },
+        Steady: { key: 'cancel', size: -0.05 },
+      } as Record<'Operator' | 'Visionary' | 'Cost-cutter' | 'Rainmaker' | 'Steady', { key: 'capacity' | 'rd' | 'wages' | 'demand' | 'cancel'; size: number }>,
+    },
+    /** a dilutive round above this share of the post-round shares needs a board vote (C4) */
+    dilutionVoteShare: 0.20,
+    /** a personal guarantee of company debt may not exceed this share of the founder's net worth at signing */
+    guaranteeMaxShare: 0.5,
+  },
+  /**
+   * Failure and clawbacks (B2, spec 5.3 and 9): default after this many consecutive game days of negative cash. The
+   * lookback is 63 gd (inclusive at 63), and terms signed 64 gd or more before the default are safe for ordinary
+   * contracts. Recovery is the liquidator's realization rate on book assets, clamped to 20% to 60% (per sector, a proposal).
+   * Clawbacks leave the first recipient at least the court floor. Salaries above max(50 $/gd, 1% of TTM revenue / 252) are
+   * covered for the excess only.
+   */
+  failure: {
+    defaultDays: 21,
+    clawbackLookbackDays: 63,
+    safeHarbourDays: 64,
+    recovery: { tech: 0.35, health: 0.45, staples: 0.40, discretionary: 0.30, industrials: 0.50, security: 0.40 } as Record<CompanySector, number>,
+    recoveryMin: 0.20,
+    recoveryMax: 0.60,
+    floor: 5_000,
+    salaryCapFloor: 50,
+    salaryCapRevenueShare: 0.01,
+    /** surveillance points (the insider backstop): a related-party price outside the band, a closed-window attempt, a plan abuse */
+    insiderPoints: { relatedOutOfBand: 30, windowAttempt: 15, planAbuse: 20 },
+    /** the backstop opens a case with these odds per point of evidence, capped at 60% per case (spec 6.2) */
+    insiderOddsPerPoint: 0.01,
+    insiderOddsCap: 0.6,
+    /** the evidence a case needs before the backstop can act (the civil bar) */
+    insiderBar: 40,
+    /** an account holding at least this share of the company's shares is an insider (spec 5.3) */
+    insiderStake: 0.10,
+  },
+  /**
+   * Contracts with player accounts (B2, spec 5.3 covered payments, 6.3): a contractor's fee and a loan from a player each
+   * run for `termDays`. A loan is repaid in equal daily amounts over the term. `marketPerDay` is the market day rate of a
+   * contractor (a proposal: the band of supply.band applies to it, spec 6.3). `minLoan` is the smallest loan (a proposal).
+   */
+  contract: { termDays: 126, marketPerDay: 300, minLoan: 1_000 },
+  /** Franchising (B2, C4): a licence to an NPC operator for a 4 to 8% royalty on its revenue; at most 3 per sector. */
+  franchise: {
+    rateMin: 0.04,
+    rateMax: 0.08,
+    capPerSector: 3,
+    /** the operator's sales as a share of the brand's own revenue per gd, at least the floor (proposals) */
+    operatorShare: 0.5,
+    operatorFloorPerDay: 1_000,
+  },
+  /** Supply deals (B2, C4 and spec 6.3): priced within this band of the market reference, or blocked with surveillance */
+  supply: { band: 0.10, maxUnitsPerDay: 500 },
+  /** Takeovers (B2, spec 9.2): T0 is 63 gd before the announcement at the latest; the floor is VWAP over 30 closed gd ending T0 - 1 */
+  takeover: { preAttackDays: 63, vwapDays: 30, floorRatio: 1.2, bigSellShare: 0.005 },
 } as const;
 
 /** Money-conservation sizes for the NPC investor pools, kept in the content so the world seeds them */

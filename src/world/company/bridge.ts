@@ -8,12 +8,16 @@
  * place the day's plan and buyback orders. A plan order placed on F's open therefore fills after the re-anchor print.
  */
 
-import { priceOf } from '../core';
+import { bizDef, priceOf } from '../core';
 import { bump, cashOf, notify, today } from '../core';
+import { sellBusiness } from '../assets';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import type { Fill, StepEvent } from '@/engine';
-import { printCompanyValue, programsDay, restrictionsOf, sellCapOf, setSellCap } from '@/engine';
+import { failCompanyStock, printCompanyValue, programsDay, restrictionsOf, sellCapOf, setFreeze, setSellCap } from '@/engine';
 import { companyAction, companyTick, foundCompany, emptyCompanyWorld, type CompanyAction, type CompanyEnv, type CompanyEvent } from './company';
+import { bid, marketShareOf, observeStakes, recordTape } from './takeover';
+import { ownerSetOf, syncAllianceLinks } from './owners';
+import { insiderBackstop } from './backstop';
 import type { CompanyReject } from './types';
 import { COMPANY, type CompanySector } from '@/content/company';
 import { addWindowRange, listedDay, nextOpenDay, recordFounderFills, syncWindow } from './insiders';
@@ -23,11 +27,20 @@ import { applyProgramEvents, cancelPlanFor, commitPlanFor, fileBuyback } from '.
 import { declareDividend } from './payouts';
 import { migrateCompany } from './migrate';
 
+/** The owner links of the company world follow the alliances (V1, owners.ts): read before any owner-set rule runs. */
+function syncLinks(g: GameState): void {
+  if (!g.companies) return;
+  const allianceOf: Record<string, string | null> = {};
+  for (const [id, p] of Object.entries(g.players)) allianceOf[id] = p.allianceId;
+  syncAllianceLinks(g.companies, allianceOf);
+}
+
 /**
  * Every company record gets the B1 fields if its save predates them (migrate.ts). Cheap: a loop over the companies. A listed
  * company from before the sell cap (set at listing in B1) gets its founder's cap here, once.
  */
 function migrateAll(g: GameState): void {
+  syncLinks(g);
   for (const c of Object.values(g.companies?.companies ?? {})) {
     migrateCompany(c);
     if (c.listed && sellCapOf(restrictionsOf(g.market), c.listed.assetId, c.ownerId) === undefined) {
@@ -46,10 +59,24 @@ export function companyEnvOf(g: GameState): CompanyEnv {
     regime: g.market.regime,
     oilLog: Number.isFinite(oil) ? oil : 0,
     rankOf: (pid) => g.players[pid]?.rankId ?? 'R0',
+    /** the share of a listed company's stock the player holds (insider test, spec 5.3); a private company has none */
+    stakeOf: (pid, companyId) => {
+      const c = g.companies?.companies[companyId];
+      if (!c?.listed || c.shares <= 0) return 0;
+      return Math.max(0, g.market.accounts[pid]?.positions[c.listed.assetId]?.qty ?? 0) / c.shares;
+    },
     money: {
       cash: (pid) => cashOf(g, pid),
       // founding and rounds are transfers between real parties, booked like any other non-trading cash move
       take: (pid, amount) => bump(g, pid, -amount),
+      give: (pid, amount) => bump(g, pid, amount),
+      // a clawback that is short sells one T1 business at its sale price (spec 5.3): the proceeds go to the player's cash
+      sellT1: (pid) => {
+        const biz = Object.values(g.businesses).filter((b) => b.ownerId === pid && bizDef(b).tier === 1).sort((a, b) => a.id.localeCompare(b.id))[0];
+        if (!biz) return 0;
+        const r = sellBusiness(g, pid, biz.id, null);
+        return r.ok ? Number((r.data as { price?: number } | undefined)?.price ?? 0) : 0;
+      },
     },
   };
 }
@@ -76,6 +103,10 @@ export function companyNotes(g: GameState, out: StepOutput | null, events: Compa
       notify(g, out, c.ownerId, { kind: 'system', tone: 'gain', text: `${c.name}: goal reached (${e.goal}).`, msg: { key: `company.goal.${e.goal}`, vars: { name: c.name } } });
     } else if (e.kind === 'distress') {
       notify(g, out, c.ownerId, { kind: 'system', tone: 'warn', text: `${c.name}: cash is below zero.`, msg: { key: 'company.note.distress', vars: { name: c.name } } });
+    } else if (e.kind === 'bankrupt') {
+      notify(g, out, c.ownerId, { kind: 'system', tone: 'loss', text: `${c.name} is bankrupt.`, msg: { key: 'company.note.bankrupt', vars: { name: c.name } } });
+    } else if (e.kind === 'ceo') {
+      notify(g, out, c.ownerId, { kind: 'system', tone: 'info', text: `${c.name}: the CEO change is in effect.`, msg: { key: 'company.note.ceo', vars: { name: c.name } } });
     } else if (e.kind === 'backlogRepay') {
       notify(g, out, c.ownerId, { kind: 'system', tone: 'warn', text: `${c.name}: backlog repayment ${Math.round(e.repayment)}.`, msg: { key: 'company.note.repay', vars: { name: c.name, amount: Math.round(e.repayment) } } });
     }
@@ -89,6 +120,13 @@ export function companyDay(g: GameState, out: StepOutput | null): void {
   const day = today(g);
   const events = companyTick(g.companies, companyEnvOf(g), day);
   companyNotes(g, out, events);
+  // a company that went bankrupt this day leaves the market: its stock fails with it (B2, failure.ts)
+  for (const e of events) {
+    if (e.kind !== 'bankrupt' || !e.listed) continue;
+    const c = g.companies.companies[e.companyId]!;
+    if (c.listed) g.market = failCompanyStock(g.market, c.listed.assetId).state;
+    c.listed = null;
+  }
   const ids = Object.keys(g.companies.companies).sort();
   // 1. the filings (a new window, covenants) and the prints of the listed stocks (signals and the re-anchor, G21)
   for (const e of events) {
@@ -117,6 +155,18 @@ export function companyDay(g: GameState, out: StepOutput | null): void {
   const pr = programsDay(g.market);
   g.market = pr.state;
   applyProgramEvents(g, pr.events);
+  // 5. the takeover watch (T0, spec 9.2) and the daily tape (the pre-attack floor): the engine's last bar is the day just closed
+  for (const c of Object.values(g.companies.companies)) {
+    if (!c.listed) continue;
+    const qty: Record<string, number> = {};
+    for (const [pid, acct] of Object.entries(g.market.accounts)) qty[pid] = acct.positions[c.listed.assetId]?.qty ?? 0;
+    observeStakes(g.companies, c, qty, c.listed.floatShares, day);
+    const bars = g.market.assets.find((a) => a.id === c.listed!.assetId)?.bars ?? [];
+    const last = bars[bars.length - 1];
+    if (last) recordTape(g.companies, c, day - 1, last.c, last.u);
+  }
+  // 6. the insider backstop (B2): the insider's forced sales and the squeeze settle at the close
+  insiderBackstop(g, out);
 }
 
 /** Every tick: the founder's trades in the stock (filed the next day) and the programs' events (a plan's end or a skip). */
@@ -160,7 +210,9 @@ function fail(reject: CompanyReject): CommandResult {
  * The two commands: found a company and act on one. Refusals return the reject code and its copy keys in `data`. The
  * company world is created only by a successful found, so a refused command never changes a world without companies.
  */
-export function companyCommand(g: GameState, pid: string, cmd: { type: 'company.found'; name: string; sector: CompanySector; cityId: string; capital: number } | { type: 'company.act'; companyId: string; action: CompanyAction }, out: StepOutput | null): CommandResult {
+export function companyCommand(g: GameState, pid: string, cmd: { type: 'company.found'; name: string; sector: CompanySector; cityId: string; capital: number } | { type: 'company.act'; companyId: string; action: CompanyAction } | { type: 'company.bid'; companyId: string; price: number }, out: StepOutput | null): CommandResult {
+  syncLinks(g);
+  if (cmd.type === 'company.bid') return companyBid(g, pid, cmd);
   if (cmd.type === 'company.found') {
     const w = g.companies ?? emptyCompanyWorld(g.seed);
     const r = foundCompany(w, companyEnvOf(g), pid, { name: cmd.name, sector: cmd.sector, cityId: cmd.cityId, capital: cmd.capital });
@@ -171,7 +223,36 @@ export function companyCommand(g: GameState, pid: string, cmd: { type: 'company.
   }
   if (!g.companies) return fail({ code: 'unknownCompany' });
   const r = companyAction(g.companies, companyEnvOf(g), pid, cmd.companyId, cmd.action);
-  return r.ok ? { ok: true, data: r.value } : fail(r.reject);
+  if (!r.ok) return fail(r.reject);
+  // a CEO change freezes the departing CEO's whole covered set (the owner set: alts and alliance mates, spec 6.1 and 9.1)
+  if (cmd.action.kind === 'changeCEO') {
+    const until = Number(r.value.freezeUntil);
+    let restr = restrictionsOf(g.market);
+    for (const acct of ownerSetOf(g.companies, pid)) restr = setFreeze(restr, acct, until);
+    g.market = { ...g.market, restrictions: restr };
+  }
+  return { ok: true, data: r.value };
+}
+
+/**
+ * A takeover bid on a listed company (spec 9.2): the bidder is the player's own account, and the antitrust share is the
+ * bidder's company in the same sector, if it has one. The target's founder votes with the stance the founder set (never the
+ * bidder's word), and the bidder's owner set is the self-dealing guard.
+ */
+function companyBid(g: GameState, pid: string, cmd: { companyId: string; price: number }): CommandResult {
+  if (!g.companies) return fail({ code: 'unknownCompany' });
+  const target = g.companies.companies[cmd.companyId];
+  if (!target) return fail({ code: 'unknownCompany' });
+  const own = Object.values(g.companies.companies).find((c) => c.ownerId === pid && !c.bankrupt);
+  const r = bid(g.companies, g.market, today(g), {
+    companyId: cmd.companyId, bidderId: pid,
+    bidder: { kind: 'player', playerId: pid, sector: own?.sector ?? target.sector, share: own ? marketShareOf(own) : 0 },
+    price: cmd.price, covered: ownerSetOf(g.companies, pid),
+  });
+  if (!r.ok) return fail(r.reject);
+  g.market = r.engine;
+  notify(g, null, pid, { kind: 'system', tone: 'brass', text: `Your bid for ${target.name} was accepted.`, msg: { key: 'company.note.bidAccepted', vars: { name: target.name } } });
+  return { ok: true, data: { floor: r.floor, t0: r.t0 } };
 }
 
 /** The B1 commands: the IPO, plans, buybacks, loans, repayments and dividends. Each refusal is the company's copy code. */

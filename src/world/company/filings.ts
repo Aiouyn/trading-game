@@ -7,6 +7,7 @@
 import { COMPANY, type CompanyTierId } from '@/content/company';
 import { sha256Hex } from './hash';
 import { headcountBand, ttmFiled } from './signals';
+import { loanBook } from './contracts';
 import { totalHeads } from './staff';
 import type { Company, FilingPublic, Resolved, Statements } from './types';
 
@@ -59,12 +60,18 @@ export function buildStatements(c: Company, closeDay: number, quarter: number, t
   // the pre-tax result takes the quarter's interest (B1); the tax is already computed on it
   const ni = ebit - q.interest - tax;
   const bl = openBookTotals(c);
+  const lb = loanBook(c);
   const retained = c.retained + ni;
-  const debt = c.debts.reduce((x, d) => x + d.principal, 0);
+  // the debt at the close: bank debt (B1) and the loans in from players (B2); loans out are a receivable
+  const bank = c.debts.reduce((x, d) => x + d.principal, 0);
   return {
     quarter,
     periodCloseDay: closeDay,
     revenue: q.revenue,
+    relatedRevenue: q.relatedRevenue ?? 0,
+    relatedCash: c.relatedCash ?? 0,
+    debt: bank + lb.debt,
+    loansOut: lb.loansOut,
     cogs: q.cogs,
     opex: q.opex,
     ebitda,
@@ -92,7 +99,6 @@ export function buildStatements(c: Company, closeDay: number, quarter: number, t
     heads: totalHeads(c),
     grossMargin: q.revenue > 0 ? (q.revenue - q.cogs) / q.revenue : 0,
     interest: q.interest,
-    debt,
     dividends: q.dividends,
   };
 }
@@ -156,7 +162,7 @@ export function filingOf(s: Statements, hash: string, filedDay: number, reversal
     hash,
     income: {
       revUnrelated: s.revenue,
-      relatedPartyIncome: 0,
+      relatedPartyIncome: s.relatedRevenue ?? 0,
       cogs: s.cogs,
       opex: s.opex,
       ebitda: s.ebitda,
@@ -164,6 +170,7 @@ export function filingOf(s: Statements, hash: string, filedDay: number, reversal
       niAdj: s.niAdj,
       interest: s.interest,
     },
+    relatedCash: s.relatedCash ?? 0,
     balance: {
       cash: s.cash,
       receivables: s.receivables,
@@ -172,6 +179,7 @@ export function filingOf(s: Statements, hash: string, filedDay: number, reversal
       debt: s.debt,
       equity: s.equity,
       retainedEarnings: s.retained,
+      loansOut: s.loansOut ?? 0,
     },
     cashFlow: { ocf: s.ocf, capex: s.capex, capexMaint: s.da, fcf: s.fcf, dividends: s.dividends, buybacks: 0 },
     headcountBand: headcountBand(heads),

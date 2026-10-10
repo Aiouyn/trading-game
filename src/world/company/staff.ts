@@ -5,6 +5,7 @@
  */
 
 import { COMPANY, type CompanyRole, type CompanyTierId } from '@/content/company';
+import { execMult } from './governance';
 import type { CompanyReject } from './types';
 import type { Company, HirePipeline, Staff } from './types';
 
@@ -59,11 +60,12 @@ export function settleRamps(s: Staff, day: number): void {
 
 /** Wages per gd of the seated heads, by role (the wage table of §4). */
 export function wagesPerDay(c: Company): Record<CompanyRole, number> {
+  const m = execMult(c, 'wages');
   return {
-    ops: c.staff.ops.total * COMPANY.wages.ops,
-    sales: c.staff.sales.total * COMPANY.wages.sales,
-    rd: c.staff.rd.total * COMPANY.wages.rd,
-    ga: c.staff.ga.total * COMPANY.wages.ga,
+    ops: c.staff.ops.total * COMPANY.wages.ops * m,
+    sales: c.staff.sales.total * COMPANY.wages.sales * m,
+    rd: c.staff.rd.total * COMPANY.wages.rd * m,
+    ga: c.staff.ga.total * COMPANY.wages.ga * m,
   };
 }
 

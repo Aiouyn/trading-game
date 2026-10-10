@@ -20,7 +20,7 @@ import { grantLockedShares, listCompanyStock, openAccount, restrictionsOf, setSe
 import { TPD, notify, pushWire, today } from '../core';
 import type { GameState, StepOutput } from '../types';
 import { linked } from '../funds/state';
-import { post } from './company';
+import { post } from './books';
 import { syncWindow } from './insiders';
 import type { Company, CompanyReject, IpoBook } from './types';
 
@@ -50,7 +50,7 @@ export function ipoEligibility(g: GameState, c: Company, playerId: string): Comp
 }
 
 /** The accounts a founder controls or is linked to (the owner set and alliance mates, §6.1): they cannot buy in the book. */
-export function ownerSetOf(g: GameState, c: Company): string[] {
+export function allianceSetOf(g: GameState, c: Company): string[] {
   return Object.keys(g.players).filter((pid) => linked(g, c.ownerId, pid)).sort();
 }
 
@@ -176,7 +176,7 @@ export function listIpo(g: GameState, c: Company, out: StepOutput | null): void 
   const w = g.companies!;
   const day = today(g);
   const assetId = `CO${c.id.replace(/\D/g, '')}`;
-  const excluded = new Set(ownerSetOf(g, c));
+  const excluded = new Set(allianceSetOf(g, c));
   for (const id of Object.keys(ipo.orders)) {
     const p = g.players[id];
     if (p && g.market.tick - p.joinedTick < COMPANY.ipo.minAccountAgeDays * TPD) excluded.add(id);

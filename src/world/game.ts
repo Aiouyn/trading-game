@@ -373,6 +373,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'company.repay':
     case 'company.dividend':
       return companyFinanceCommand(g, pid, cmd as CompanyFinanceCommand, out);
+    case 'company.bid': return companyCommand(g, pid, cmd, out);
     case 'fund.create':
     case 'fund.mandate':
     case 'fund.trade':

@@ -11,6 +11,7 @@
 import { COMPANY, SECTORS } from '@/content/company';
 import type { RegimeId } from '@/engine/types';
 import { Rng, seedStream } from '@/engine';
+import { execMult } from './governance';
 import type { Company, Npc, Product } from './types';
 import { gaFactor, productiveHeads } from './economics';
 
@@ -18,7 +19,7 @@ import { gaFactor, productiveHeads } from './economics';
 export function demandPerDay(c: Company, sectorLevel: number, regime: RegimeId | string): number {
   const beta = SECTORS[c.sector].cycleBeta;
   const regimeMult = (COMPANY.demand.regimeMult as Record<string, number>)[regime] ?? 1;
-  return c.d0 * Math.exp(COMPANY.demand.kappaD * (sectorLevel - c.sectorBase)) * Math.pow(regimeMult, beta);
+  return c.d0 * Math.exp(COMPANY.demand.kappaD * (sectorLevel - c.sectorBase)) * Math.pow(regimeMult, beta) * execMult(c, 'demand');
 }
 
 /**
