@@ -5,7 +5,7 @@
 // Enter runs the row, Escape closes it. It never places an order: a ticker row opens a Broker, and only
 // the Broker's own Enter sends one (P2-079). It mounts only while open, so it does not follow the tick.
 import { type KeyboardEvent, useEffect, useMemo, useRef } from 'react';
-import { seriesInfo } from '@/components/Market';
+import { seriesInfo } from '@/components/apps/broker/seriesInfo';
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
 import { price, signedPct, tone, toneText } from '@/game/format';

@@ -150,6 +150,17 @@ describe('open', () => {
     expect(focusedId(s)).toBe(lru.id);
   });
 
+  it('refuses a fresh Broker at the cap and leaves every other window alone', () => {
+    let s = fresh();
+    for (const t of ['AAA', 'BBB', 'CCC']) s = go(s, { type: 'open', app: 'broker', props: { ticker: t } });
+    expect(brokers(s)).toHaveLength(4);
+    const before = JSON.stringify(s.wins);
+    const r = reduce(s, { type: 'open', app: 'broker', props: { ticker: 'BRNT' }, fresh: true }, R3);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe('instance');
+    expect(JSON.stringify(s.wins)).toBe(before);
+  });
+
   it('focuses the existing Broker when the ticker already has one (C-12)', () => {
     let s = fresh();
     s = go(s, { type: 'open', app: 'broker', props: { ticker: 'AAA' } });

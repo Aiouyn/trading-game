@@ -387,8 +387,10 @@ function nextBrokerId(wins: Win[]): string {
 /**
  * Finds or creates the window an app and its props name. Does not focus or switch workspace;
  * callers do that. Rules (F:55, C-12, C-02, C-27):
- *   Broker: same ticker focuses that Broker. Otherwise a new one (up to 4). At the cap the
- *           least-recently-focused Broker (bottom-most) takes the ticker. No ticker: no change.
+ *   Broker: same ticker focuses that Broker. Otherwise a new one (up to 4). At the cap a fresh
+ *           open (New Broker, Shift+Enter) is refused, so no other window changes. A plain open at
+ *           the cap lets the least-recently-focused Broker (bottom-most) take the ticker. No ticker:
+ *           no change.
  *   Research: one window per file id. A file id is required.
  *   Second Portfolio (Review only, and only once its journal view is built: apps.ts READY_VIEWS):
  *           id portfolio-2, at most two Portfolio windows.
@@ -423,6 +425,8 @@ function acquire(state: ShellState, app: AppId, props: WinProps, role: 'user' | 
       wins.push(newWin(state, id, 'broker', props));
       return { ok: true, wins, id, created: true };
     }
+    // A fresh window never retargets another one: the user asked for a new window, so the cap refuses it.
+    if (fresh) return failAcq('instance');
     const lru = brokers[0]!;
     if (props.ticker !== undefined) {
       const i = wins.findIndex((w) => w.id === lru.id);

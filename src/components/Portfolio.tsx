@@ -7,8 +7,8 @@ import { compactMoney, money, pct, price, qty, signedMoney, signedPct, tone, ton
 import { clockLabel } from '@/game/clock';
 import { assetDefOf, useGame } from '@/game/store';
 import { NetWorth } from './Header';
-import { Positions } from './Market';
-import { PriceChart } from './PriceChart';
+import { Positions } from './Holdings';
+import { PriceChart } from './apps/broker/PriceChart';
 import { Card, CardHeader, KV, Segmented, Stat, Td, Th } from './ui';
 
 const CLASS_COLOR: Record<string, string> = {

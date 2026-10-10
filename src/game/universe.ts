@@ -67,9 +67,17 @@ export function absorbFrame(cur: Universe, history: History, prevWorld: WorldSta
   return { universe: { config, cfgSeq: u.cfgSeq }, world, behind: u.behind };
 }
 
-/** A name the universe lists and then delisted: it keeps its slot and price but no longer trades. */
+/** A name delisted by a bankruptcy, merger or spin-off settlement: it keeps its slot and frozen price and no longer trades. */
 export function isDelisted(config: WorldConfig, id: string): boolean {
-  return config.assets.some((a) => a.id === id && a.listed === false);
+  return config.assets.some((a) => a.id === id && a.delisted === true);
+}
+
+/**
+ * A name that cannot be traded: delisted, or priced but off the order book (listed:false, e.g. the property district
+ * indices). The engine refuses both (trading.ts "not tradable", options.ts), so the UI uses this for the refusal.
+ */
+export function isUntradable(config: WorldConfig, id: string): boolean {
+  return config.assets.some((a) => a.id === id && (a.listed === false || a.delisted === true));
 }
 
 /**
@@ -79,10 +87,18 @@ export function isDelisted(config: WorldConfig, id: string): boolean {
  * can be delisted later).
  */
 export function delistedRefusal(config: WorldConfig, cmd: Command): string | null {
-  if (cmd.type === 'order.place' && isDelisted(config, cmd.order.assetId)) return `${cmd.order.assetId} is delisted and no longer trades`;
+  if (cmd.type === 'order.place' && isUntradable(config, cmd.order.assetId)) {
+    return isDelisted(config, cmd.order.assetId)
+      ? `${cmd.order.assetId} is delisted and no longer trades`
+      : `${cmd.order.assetId} is not tradable: it is priced but not on the order book`;
+  }
   if (cmd.type === 'option.trade') {
     const underlying = parseContract(cmd.contractId)?.underlying;
-    if (underlying && isDelisted(config, underlying)) return `${underlying} is delisted: its options no longer trade`;
+    if (underlying && isUntradable(config, underlying)) {
+      return isDelisted(config, underlying)
+        ? `${underlying} is delisted: its options no longer trade`
+        : `${underlying} is not tradable, so its options do not trade`;
+    }
   }
   return null;
 }
