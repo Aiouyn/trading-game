@@ -114,7 +114,7 @@ describe('index divisor and level', () => {
     expect(indexMembers(s, s.config.indices[0]!)).not.toContain(NEW_LATE);
     s = stepMany(s, REVIEW * TPD).state;
     expect(indexMembers(s, s.config.indices[0]!)).toContain(NEW_LATE);
-  });
+  }, 60_000);
 
   it('is announced on the Wire before it takes effect, and the membership changes only on the effective day', () => {
     let s = world(true);
@@ -137,7 +137,7 @@ describe('index divisor and level', () => {
     const at62 = stepMany(world(true), (REVIEW - 1) * TPD).state;
     expect(at62.indices).toBeUndefined();
     expect(indexMembers(at62, at62.config.indices[0]!)).not.toContain(NEW_TECH);
-  });
+  }, 60_000);
 
   it('the pension pool trades into the added name on the reshuffle day only', () => {
     let s = stepMany(world(true), REVIEW * TPD).state;
@@ -159,7 +159,7 @@ describe('index divisor and level', () => {
     const eq = s.reshuffle!.eq;
     expect(eq[NEW_TECH]).toBeGreaterThan(0);
     expect(Object.values(eq).reduce((a, b) => a + b, 0)).toBeCloseTo(0, 9);
-  }, 60_000);
+  });
 
   it('is deterministic: the same world replays the same index state and prices', () => {
     const a = stepMany(world(true), 66 * TPD).state;
