@@ -14,6 +14,7 @@ import { APP_GLYPH } from './appMap';
 import { AppBody } from './appViews';
 import { Glyph } from './glyphs';
 import { type Edge, type SnapTarget, resizeRect, snapFits, snapTargetAt, targetRect } from './windowMath';
+import { useMoreBelow } from './scrollMore';
 import { WIN_OPEN_MS, closeWindow, dispatchWm, useCloseAsk, useFocusHint } from './shellStore';
 
 const EDGES: readonly Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
@@ -42,6 +43,8 @@ export interface WindowFrameProps {
 export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrameProps) {
   const def = APPS[win.app];
   const frameRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useMoreBelow(frameRef, bodyRef);
   const titleId = `win-title-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
   const [live, setLive] = useState<Rect | null>(null);
   const [target, setTarget] = useState<SnapTarget | null>(null);
@@ -220,7 +223,7 @@ export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrame
             </div>
           </div>
         )}
-        <div className="os-win-body">
+        <div className="os-win-body" ref={bodyRef}>
           <AppBody win={win} size={{ w: shown.w, h: shown.h }} />
         </div>
         {free && EDGES.map((e) => (

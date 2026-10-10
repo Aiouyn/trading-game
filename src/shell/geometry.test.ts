@@ -12,6 +12,8 @@ import {
   fracToRect,
   layoutMode,
   nearestSlot,
+  openRect,
+  CASCADE_STEP,
   slotAllowedInMode,
   slotRect,
   viewportClass,
@@ -167,5 +169,55 @@ describe('Broker layout breakpoints (V:41, C-37)', () => {
     expect(brokerView({ w: 480, h: 420 })).toEqual({ narrow: true, short: true });
     expect(brokerView({ w: 720, h: 560 })).toEqual({ narrow: false, short: false });
     expect(brokerView({ w: 900, h: 559 })).toEqual({ narrow: false, short: true });
+  });
+});
+
+describe('default open rect (defect A, Velvet window rules)', () => {
+  it('sizes a window to its preferred fraction of the work area at 1440 x 900', () => {
+    const wa = workArea(VP_1440, false);
+    // The Broker is two thirds wide, the medium apps half, Wire 36%.
+    expect(openRect(APPS.broker, wa, 0)).toMatchObject({ w: Math.round(wa.w * 2 / 3) });
+    expect(openRect(APPS.settings, wa, 0)).toMatchObject({ w: 720, h: Math.round(wa.h * 0.72) });
+    expect(openRect(APPS.wire, wa, 0).w).toBe(Math.round(wa.w * 0.36));
+  });
+
+  it('centres the first window in the work area', () => {
+    const wa = workArea(VP_1440, false);
+    const r = openRect(APPS.settings, wa, 0);
+    expect(r.x).toBe(Math.round((wa.w - r.w) / 2));
+    expect(r.y).toBe(Math.round((wa.h - r.h) / 2));
+  });
+
+  it('cascades each next window by 24 px from the centre, wrapping after five steps', () => {
+    const wa = workArea(VP_1440, false);
+    const first = openRect(APPS.settings, wa, 0);
+    expect(openRect(APPS.settings, wa, 1)).toEqual({ ...first, x: first.x + CASCADE_STEP, y: first.y + CASCADE_STEP });
+    expect(openRect(APPS.settings, wa, 2)).toEqual({ ...first, x: first.x + 2 * CASCADE_STEP, y: first.y + 2 * CASCADE_STEP });
+    expect(openRect(APPS.settings, wa, 5)).toEqual(first);
+  });
+
+  it('never leaves the work area, at any size or cascade step', () => {
+    for (const vp of [VP_1440, VP_1920, VP_1000, { w: 900, h: 800 }, { w: 1200, h: 600 }]) {
+      const wa = workArea(vp, false);
+      for (const id of Object.keys(APPS) as (keyof typeof APPS)[]) {
+        for (let n = 0; n < 12; n++) {
+          const r = openRect(APPS[id], wa, n);
+          const where = `${id} step ${n}`;
+          expect(r.x, where).toBeGreaterThanOrEqual(0);
+          expect(r.y, where).toBeGreaterThanOrEqual(0);
+          expect(r.x + r.w, where).toBeLessThanOrEqual(wa.w);
+          expect(r.y + r.h, where).toBeLessThanOrEqual(wa.h);
+        }
+      }
+    }
+  });
+
+  it('keeps every default window at or above its app minimum, and inside a small work area', () => {
+    const wa = workArea(VP_1000, false);
+    for (const id of Object.keys(APPS) as (keyof typeof APPS)[]) {
+      expect(fitsMin(APPS[id], openRect(APPS[id], wa, 0)), id).toBe(true);
+    }
+    // A work area smaller than the minimum is the limit: the window takes the whole area.
+    expect(openRect({ minW: 5000, minH: 5000, pref: { w: 0.5, h: 0.5 } }, wa, 0)).toEqual({ x: 0, y: 0, w: wa.w, h: wa.h });
   });
 });
