@@ -1,26 +1,29 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import { ChatPanel } from './Chat';
+import { SocialView } from './Social';
 import { TONE_BAR } from './Shell';
 
-type Tab = 'inbox' | 'chat';
+type Tab = 'inbox' | 'chat' | 'social';
+const TABS: Tab[] = ['inbox', 'chat', 'social'];
 
 /**
- * Messages, one app with two tabs (velvet-desktop-os.md, app 4; DECISIONS C-13): the inbox (private notices:
- * fills, margin calls, court, security) and the chat. The chat tab is open while it shows: the store's chat
- * flag clears the unread count then. The strip's chat button and a profile's Message button set that flag, and
- * this app switches to the chat tab.
+ * Messages, one app (velvet-desktop-os.md, app 4; DECISIONS C-13): the inbox (private notices: fills, margin
+ * calls, court, security), the chat, and the Social tab (contacts, deals, alliances, rivals: the old Social
+ * screen, so its deals, alliances and profiles stay reachable). The chat tab is open while it shows: the store's
+ * chat flag clears the unread count then. The strip's chat button and a profile's Message button set that flag,
+ * and this app switches to the chat tab.
  */
 export function MessagesView({ view }: { view?: string }) {
   const chatOpen = useGame((s) => s.chatOpen);
   const dmTarget = useGame((s) => s.dmTarget);
   const unread = useGame((s) => s.me?.player.inboxUnread ?? 0);
   const chatUnread = useGame((s) => s.chatUnread);
-  const [tab, setTab] = useState<Tab>(view === 'chat' ? 'chat' : 'inbox');
+  const [tab, setTab] = useState<Tab>(view === 'chat' || view === 'social' ? view : 'inbox');
   // The chat flag wins: the strip and a profile raise it, and the tab follows it without an effect.
   const active: Tab = chatOpen ? 'chat' : tab;
 
@@ -28,7 +31,18 @@ export function MessagesView({ view }: { view?: string }) {
     useGame.getState().setChat(active === 'chat');
   }, [active]);
 
-  useEffect(() => () => useGame.getState().setChat(false), []);
+  // Leaving Messages clears the chat flag, so the chat stops counting unread. StrictMode runs an unmount cleanup
+  // and mounts again at once: the check runs after that remount, so only a real close clears the flag.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      window.setTimeout(() => {
+        if (!mounted.current) useGame.getState().setChat(false);
+      }, 0);
+    };
+  }, []);
 
   // Showing the inbox reads it (the bell's list does the same when it opens).
   useEffect(() => {
@@ -40,33 +54,33 @@ export function MessagesView({ view }: { view?: string }) {
     useGame.getState().setChat(next === 'chat');
   };
 
+  const badge = (id: Tab) => {
+    if (id === 'inbox' && unread > 0 && active !== 'inbox') return <span className="num ml-2 text-caption text-brass">{unread}</span>;
+    if (id === 'chat' && chatUnread > 0 && active !== 'chat') return <span className="num ml-2 text-caption text-brass">{chatUnread}</span>;
+    return null;
+  };
+
   return (
     <div className="os-body flex h-full min-h-0 flex-col gap-2" data-testid="social-view">
       <div role="tablist" className="flex gap-1 border-b border-ink-2">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active === 'inbox'}
-          data-testid="tab-inbox"
-          onClick={() => show('inbox')}
-          className={`px-3 py-2 text-small ${active === 'inbox' ? 'border-b-2 border-brass text-fg' : 'text-fg-muted hover:text-fg'}`}
-        >
-          {t('messages.tab.inbox')}
-          {unread > 0 && active !== 'inbox' && <span className="num ml-2 text-caption text-brass">{unread}</span>}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active === 'chat'}
-          data-testid="tab-chat"
-          onClick={() => show('chat')}
-          className={`px-3 py-2 text-small ${active === 'chat' ? 'border-b-2 border-brass text-fg' : 'text-fg-muted hover:text-fg'}`}
-        >
-          {t('messages.tab.chat')}
-          {chatUnread > 0 && active !== 'chat' && <span className="num ml-2 text-caption text-brass">{chatUnread}</span>}
-        </button>
+        {TABS.map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={active === id}
+            data-testid={`tab-${id}`}
+            onClick={() => show(id)}
+            className={`px-3 py-2 text-small ${active === id ? 'border-b-2 border-brass text-fg' : 'text-fg-muted hover:text-fg'}`}
+          >
+            {t(`messages.tab.${id}`)}
+            {badge(id)}
+          </button>
+        ))}
       </div>
-      {active === 'inbox' ? <InboxList /> : <div className="min-h-0 flex-1"><ChatPanel key={dmTarget ?? 'world'} /></div>}
+      {active === 'inbox' && <InboxList />}
+      {active === 'chat' && <div className="min-h-0 flex-1"><ChatPanel key={dmTarget ?? 'world'} /></div>}
+      {active === 'social' && <div className="min-h-0 flex-1 overflow-y-auto"><SocialView /></div>}
     </div>
   );
 }

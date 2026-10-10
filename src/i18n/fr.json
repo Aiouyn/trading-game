@@ -241,6 +241,7 @@
   "calendar.earnings.none": "Aucun résultat prévu.",
   "messages.tab.inbox": "Boîte de réception",
   "messages.tab.chat": "Discussion",
+  "messages.tab.social": "Réseau",
   "inbox.empty": "Rien pour l’instant.",
   "inbox.kind.fill": "Exécution",
   "inbox.kind.order": "Ordre",

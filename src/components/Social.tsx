@@ -36,8 +36,9 @@ const BOARDS: { id: BoardId; fmt: (v: number) => string }[] = [
 ];
 
 /**
- * The leaderboards, players, alliances, deals and Hall of Fame of the old Social screen. The shell's Messages
- * app shows the inbox and the chat only (DECISIONS: two tabs), so nothing mounts this yet.
+ * The leaderboards, players, alliances, deals and Hall of Fame of the old Social screen. The Messages app mounts
+ * it on its Social tab (velvet-desktop-os.md, Messages: contacts, offers, rivals), so deals, alliances and the
+ * profile modal stay reachable from the shell.
  */
 export function SocialView() {
   const [tab, setTab] = useState<'boards' | 'players' | 'alliances' | 'deals' | 'hall'>('boards');

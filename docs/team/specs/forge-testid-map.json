@@ -54,6 +54,7 @@
     "calendar-earnings-<assetId>": "earnings row",
     "tab-inbox": "Messages inbox tab",
     "tab-chat": "Messages chat tab (kept from the phone tests)",
+    "tab-social": "Messages social tab (contacts, deals, alliances, rivals: the old Social screen)",
     "inbox-item": "inbox notice row",
     "bell-panel": "status-strip bell panel (last 50 notices)",
     "bell-close": "bell panel close",

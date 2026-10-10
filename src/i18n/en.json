@@ -241,6 +241,7 @@
   "calendar.earnings.none": "No reports scheduled.",
   "messages.tab.inbox": "Inbox",
   "messages.tab.chat": "Chat",
+  "messages.tab.social": "Social",
   "inbox.empty": "Nothing yet.",
   "inbox.kind.fill": "Fill",
   "inbox.kind.order": "Order",
