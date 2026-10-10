@@ -35,15 +35,20 @@ export async function grant(handle: string, amount: number): Promise<void> {
  * Clears the sheets that can cover an app while the world runs: While You Were Away (after a reload that follows time
  * away, which another spec's admin advance can cause in the shared e2e world) and the daily close card (velvet-daily-close.md).
  * A card that is not there costs nothing.
+ *
+ * The first-session coach is re-derived from the live world on every tick, so it can vanish between the visibility
+ * check and the click. A click that finds nothing to press is not an error here: the loop re-checks what is on screen,
+ * and the short click timeout stops a vanished card from holding the test for the full 60 seconds.
  */
 export async function clearSheets(page: Page): Promise<void> {
+  const quick = { timeout: 2_000 };
   for (let i = 0; i < 4; i++) {
     const tips = page.getByTestId('coach').getByText('Skip tips');
     const back = page.getByText('Back to the desktop');
     const done = page.getByTestId('close-done');
-    if (await tips.isVisible().catch(() => false)) await tips.click();
-    else if (await back.isVisible().catch(() => false)) await back.click();
-    else if (await done.isVisible().catch(() => false)) await done.click();
+    if (await tips.isVisible().catch(() => false)) await tips.click(quick).catch(() => undefined);
+    else if (await back.isVisible().catch(() => false)) await back.click(quick).catch(() => undefined);
+    else if (await done.isVisible().catch(() => false)) await done.click(quick).catch(() => undefined);
     else return;
   }
 }
