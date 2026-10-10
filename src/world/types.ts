@@ -4,6 +4,9 @@ import type { PlayerStats } from '@/content/progression';
 import type { Msg } from '@/i18n';
 import type { AnalystTier } from '@/content/learning';
 import type { DayClose, PlayerLedger } from './ledger-types';
+import type { CompanyWorld } from './company/types';
+import type { CompanyAction } from './company/company';
+import type { CompanySector } from '@/content/company';
 
 /**
  * The persistent multiplayer world (bible Part II): one market engine plus everything players
@@ -50,6 +53,8 @@ export interface GameState {
   ledgers?: Record<string, PlayerLedger>;
   /** the closing record of each game day (GX level and every asset's close), newest kept 400 days */
   dayCloses?: Record<number, DayClose>;
+  /** the company world (stage A3). Absent in old saves and in worlds with no company: those behave as before. */
+  companies?: CompanyWorld;
 }
 
 export interface Player {
@@ -539,6 +544,8 @@ export type Command =
   | { type: 'drip.set'; assetId: string; on: boolean }
   | { type: 'block.start'; assetId: string; side: Side; qty: number; slices: number }
   | { type: 'block.cancel'; planId: string }
+  | { type: 'company.found'; name: string; sector: CompanySector; cityId: string; capital: number }
+  | { type: 'company.act'; companyId: string; action: CompanyAction }
   | { type: 'admin.advance'; ticks: number }
   /** dev and tests only: the server refuses admin.* from clients */
   | { type: 'admin.grant'; amount: number }
