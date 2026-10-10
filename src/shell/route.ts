@@ -123,8 +123,9 @@ export function parseRoute(input: string): RouteResult {
       if (props.fileId === undefined) props.fileId = c.fileId;
     }
   }
-  // A research route needs its file (the same answer for an unknown file, P2-116).
-  if (app === 'research' && props.fileId === undefined) return { notFound: true };
+  // A malformed file alias is not a file id: notFound, the same answer as any unknown link (P2-116).
+  // A bare /research opens the Research Desk; a file id opens that file's window.
+  if (app === 'research' && q.has('file') && alias.file === undefined) return { notFound: true };
 
   const out: ShellRoute = { app, props, flags };
   if (view !== undefined) out.view = view;

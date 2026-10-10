@@ -14,9 +14,6 @@ import { PortfolioView } from '@/components/Portfolio';
 import { WireView, Calendar } from '@/components/Wire';
 import { type Size, brokerView } from '@/shell/geometry';
 import type { Win } from '@/shell/wm';
-import { About } from './About';
-import { PalettePicker } from './PalettePicker';
-import { ShortcutList } from './ShortcutList';
 import { openApp } from './shellStore';
 
 const SocialView = dynamic(() => import('@/components/Social').then((m) => m.SocialView), { ssr: false });
@@ -25,7 +22,11 @@ const EstateView = dynamic(() => import('@/components/Estate').then((m) => m.Est
 const LabView = dynamic(() => import('@/components/Lab').then((m) => m.LabView), { ssr: false });
 const SecurityView = dynamic(() => import('@/components/Security').then((m) => m.SecurityView), { ssr: false });
 const CourtView = dynamic(() => import('@/components/Court').then((m) => m.CourtView), { ssr: false });
-const ProfileView = dynamic(() => import('@/components/Profile').then((m) => m.ProfileView), { ssr: false });
+// Settings, Learn, Research Desk and Company are their own apps (Phase 2 step 3). Their code loads on first open.
+const SettingsView = dynamic(() => import('./SettingsView').then((m) => m.SettingsView), { ssr: false });
+const LearnApp = dynamic(() => import('./LearnApp').then((m) => m.LearnApp), { ssr: false });
+const ResearchDesk = dynamic(() => import('./ResearchDesk').then((m) => m.ResearchDesk), { ssr: false });
+const CompanyApp = dynamic(() => import('./CompanyApp').then((m) => m.CompanyApp), { ssr: false });
 
 /** A window's content. `size` is the window's current size, which the Broker lays itself out by. */
 export function AppBody({ win, size }: { win: Win; size: Size }) {
@@ -51,14 +52,13 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
     case 'legal':
       return <div className="os-body"><CourtView /></div>;
     case 'settings':
-      if (win.props.view === 'about') return <About />;
-      return (
-        <div className="os-body">
-          <PalettePicker />
-          <ShortcutList />
-          <ProfileView />
-        </div>
-      );
+      return <SettingsView view={win.props.view} />;
+    case 'learn':
+      return <LearnApp />;
+    case 'research':
+      return <ResearchDesk />;
+    case 'company':
+      return <CompanyApp />;
     default:
       return <Stub />;
   }

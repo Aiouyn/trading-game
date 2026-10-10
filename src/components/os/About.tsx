@@ -17,8 +17,8 @@ export function About() {
     void useGame.getState().act({ type: 'onboarding', step: 0, done: false, skipped: false });
   };
   return (
-    <div className="os-body" data-testid="credits">
-      <h2 className="font-serif text-title text-fg">{t('shell.credits')}</h2>
+    <section id="settings-about" className="flex flex-col gap-3" data-testid="credits" aria-labelledby="settings-about-title">
+      <h2 id="settings-about-title" className="font-serif text-title text-fg">{t('shell.credits')}</h2>
       <p className="text-small text-fg-muted">
         {t('shell.credits.body')}
       </p>
@@ -38,6 +38,6 @@ export function About() {
           {t('shell.about.replay')}
         </button>
       </div>
-    </div>
+    </section>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useGame } from '@/game/store';
+import { initLocale, useLocale } from '@/i18n';
 import { ChatDrawer, InboxDrawer } from './Shell';
 import { Coach, ConnectionBanner, DigestModal } from './Overlays';
 import { ProfileModal } from './Social';
@@ -11,7 +12,11 @@ import { Loading, Welcome } from './Welcome';
 
 function useBoot() {
   const status = useGame((s) => s.status);
-  useEffect(() => { useGame.getState().boot(); }, []);
+  useEffect(() => {
+    // The saved language (tg-prefs) is read once on the client, before the save loads.
+    initLocale();
+    useGame.getState().boot();
+  }, []);
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.game = status === 'ready' ? 'ready' : status;
@@ -26,6 +31,8 @@ function useBoot() {
 export function Game() {
   const status = useBoot();
   const hasMe = useGame((s) => !!s.me && !!s.world);
+  // t() is not reactive: subscribing here re-renders the whole tree when the language changes (Settings).
+  useLocale((s) => s.locale);
 
   if (status === 'welcome') return <Welcome />;
   if (!hasMe) return <Loading />;

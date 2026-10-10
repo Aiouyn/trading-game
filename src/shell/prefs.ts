@@ -57,6 +57,8 @@ export interface TgPrefs {
   palette: Palette;
   /** null means the player has not chosen; the OS decides. */
   reducedTransparency: boolean | null;
+  /** Settings > Reduce motion. null means the player has not chosen; the system setting still applies. */
+  reducedMotion: boolean | null;
   /** Action id to key code, for the remappable bindings (P2-106). */
   keys: Record<string, string>;
   chart: ChartPrefs;
@@ -70,6 +72,7 @@ export function defaultPrefs(): TgPrefs {
     v: PREFS_VERSION,
     palette: 'ink-brass',
     reducedTransparency: null,
+    reducedMotion: null,
     keys: {},
     chart: {},
     lastTicker: null,
@@ -126,6 +129,7 @@ function sanitizePrefs(raw: Record<string, unknown> | null): TgPrefs {
   if (raw === null) return d;
   const palette = (PALETTES as readonly unknown[]).includes(raw.palette) ? (raw.palette as Palette) : d.palette;
   const reducedTransparency = typeof raw.reducedTransparency === 'boolean' ? raw.reducedTransparency : null;
+  const reducedMotion = typeof raw.reducedMotion === 'boolean' ? raw.reducedMotion : null;
   const keys: Record<string, string> = {};
   if (isObj(raw.keys)) {
     for (const k of Object.keys(raw.keys).slice(0, 64)) {
@@ -144,6 +148,7 @@ function sanitizePrefs(raw: Record<string, unknown> | null): TgPrefs {
     v: PREFS_VERSION,
     palette,
     reducedTransparency,
+    reducedMotion,
     keys,
     chart: sanitizeChart(raw.chart),
     lastTicker,

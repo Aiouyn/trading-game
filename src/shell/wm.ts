@@ -432,7 +432,14 @@ function acquire(state: ShellState, app: AppId, props: WinProps, role: 'user' | 
   }
 
   if (app === 'research') {
-    if (props.fileId === undefined) return failAcq('bad-props');
+    // The Research Desk itself is one window (Velvet: "one window per app, except ... Research Desk files").
+    // Each file it opens is its own window, one per file id.
+    if (props.fileId === undefined) {
+      const desk = wins.find((w) => w.app === 'research' && w.props.fileId === undefined);
+      if (desk !== undefined) return { ok: true, wins, id: desk.id, created: false };
+      wins.push(newWin(state, 'research', 'research', props));
+      return { ok: true, wins, id: 'research', created: true };
+    }
     const hit = wins.find((w) => w.app === 'research' && w.props.fileId === props.fileId);
     if (hit) return { ok: true, wins, id: hit.id, created: false };
     const id = `research-${props.fileId}`;
@@ -517,8 +524,8 @@ export function initialShell(vp: Size, ctx: WmCtx, ticker?: string): ShellState 
 }
 
 /**
- * Invariants on a state read from a save (F:67, P2-126): unknown, locked or fileless apps are
- * dropped, Brokers are capped at 4, ids are unique, windows on a removed workspace move to 0,
+ * Invariants on a state read from a save (F:67, P2-126): unknown or locked apps are dropped,
+ * Brokers are capped at 4, ids are unique, windows on a removed workspace move to 0,
  * activeWs and focusWs are in range, and layouts are capped. Pure; the caller checked the shapes.
  */
 export function normalize(state: ShellState, ctx: WmCtx): ShellState {
@@ -528,7 +535,6 @@ export function normalize(state: ShellState, ctx: WmCtx): ShellState {
   for (const w of state.wins) {
     if (seen.has(w.id)) continue;
     if (!APPS[w.app].available || !ctx.unlocked(w.app)) continue;
-    if (w.app === 'research' && w.props.fileId === undefined) continue;
     if (w.app === 'broker') {
       if (brokers >= MAX_BROKERS) continue;
       brokers++;

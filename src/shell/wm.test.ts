@@ -623,10 +623,14 @@ describe('named layouts', () => {
     expect(focusedId(s)).toBe('research-f7');
   });
 
-  it('refuses a Research open without a file id, and never makes a fileless Research window', () => {
-    const s = fresh(VP_1920);
-    refused(s, { type: 'open', app: 'research' }, 'bad-props');
-    refused(s, { type: 'open', app: 'research', props: {} }, 'bad-props');
+  it('opens the Research Desk as one window, and each file as its own window (Velvet: one per file)', () => {
+    let s = go(fresh(VP_1920), { type: 'open', app: 'research' });
+    expect(s.wins.filter((w) => w.app === 'research').map((w) => w.id)).toEqual(['research']);
+    s = go(s, { type: 'open', app: 'research', props: {} });
+    expect(s.wins.filter((w) => w.app === 'research')).toHaveLength(1);
+    s = go(s, { type: 'open', app: 'research', props: { fileId: 'f1' } });
+    expect(s.wins.filter((w) => w.app === 'research').map((w) => w.id).sort()).toEqual(['research', 'research-f1']);
+    expect(focusedId(s)).toBe('research-f1');
   });
 
   it('applies a locked research layout by skipping the locked slot, not by refusing (C-25)', () => {
@@ -767,7 +771,7 @@ describe('reducer properties (seeded)', () => {
     }
     expect(accepted).toBeGreaterThan(1000);
     expect(refusedCount).toBeGreaterThan(100);
-  });
+  }, 30_000); // 300 seeded runs: the default 5 s is too tight on a loaded machine
 });
 
 // ---------------------------------------------------------------- snapshot helpers

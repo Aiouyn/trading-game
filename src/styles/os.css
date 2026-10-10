@@ -378,4 +378,45 @@
      * animation: none would stay on screen over the desktop. */
     .os-root .os-boot { display: none; }
   }
+
+  /* Settings > Reduce motion on this device: the same result as the system setting (P2-220). */
+  .os-root[data-motion="reduce"] {
+    --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms; --dur-ambient: 0ms;
+  }
+  .os-root[data-motion="reduce"] *,
+  .os-root[data-motion="reduce"] *::before,
+  .os-root[data-motion="reduce"] *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important;
+  }
+  .os-root[data-motion="reduce"] .os-win.opening,
+  .os-root[data-motion="reduce"] .os-win.closing,
+  .os-root[data-motion="reduce"] .os-toast,
+  .os-root[data-motion="reduce"] .os-launcher {
+    animation: none;
+  }
+  .os-root[data-motion="reduce"] .os-boot { display: none; }
+
+  /* Desktop sheets (the digest and the coach): a panel over the desktop, not a page overlay. The strip
+   * and the shelf stay in view and the windows stay usable (P2-069). On the phone it is a bottom sheet. */
+  .os-root .os-prompt {
+    position: fixed; z-index: 20; right: 16px; bottom: calc(var(--os-shelf-h) + 12px);
+    width: min(360px, calc(100vw - 32px)); max-height: min(60dvh, 520px); overflow: auto;
+    display: flex; flex-direction: column; gap: 12px; padding: 14px 16px;
+    background: var(--os-window-bg); border: 1px solid var(--os-window-border);
+    border-radius: var(--os-window-radius); box-shadow: var(--shadow-sheet);
+  }
+  .os-root .os-sheet-head { display: flex; align-items: center; gap: 12px; }
+  .os-root .os-sheet-head h2 { flex: 1; min-width: 0; }
+  .os-root .os-sheet-x {
+    flex: none; height: 32px; width: 32px; border-radius: var(--radius-sm); color: var(--color-fg-muted);
+  }
+  .os-root .os-sheet-x:hover { background: var(--color-ink-2); color: var(--color-fg); }
+  .os-root .os-sheet-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  @media (max-width: 767px) {
+    .os-root .os-prompt {
+      left: 0; right: 0; bottom: 0; width: auto; max-height: 70dvh;
+      border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    }
+  }
 }

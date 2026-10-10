@@ -9,7 +9,7 @@ import { t } from '@/i18n';
 import { knownSeries, useGame } from '@/game/store';
 import { APPS, type AppId, type WinProps } from '@/shell/apps';
 import { makeWmCtx } from '@/shell/ctx';
-import { type KeyValueStore, loadShell, saveShell, updatePrefs } from '@/shell/prefs';
+import { type KeyValueStore, loadShell, readPrefs, saveShell, updatePrefs } from '@/shell/prefs';
 import { createShellStore } from '@/shell/store';
 import type { Rect } from '@/shell/geometry';
 import { type ShellState, type WmAction, type WmReason, type WmResult, focusedId, initialShell, normalize, project } from '@/shell/wm';
@@ -288,4 +288,36 @@ export function loadPalette(): void {
   const p = readPalette();
   applyPalette(p, document.documentElement);
   usePalette.setState({ palette: p });
+}
+
+// ---------------------------------------------------------------- motion
+
+interface MotionStore {
+  /** The device choice (Settings > Reduce motion). null means the system setting decides. */
+  reduced: boolean | null;
+  setReduced: (v: boolean) => void;
+}
+
+/** Writes the choice onto <html>. Only an explicit "on" is marked; the system query covers the rest (P2-220). */
+function applyMotion(reduced: boolean | null): void {
+  const html = document.documentElement;
+  if (reduced === true) html.dataset.motion = 'reduce';
+  else delete html.dataset.motion;
+}
+
+/** Reduce motion on this device. A change is saved to tg-prefs and applies at once, with no reload. */
+export const useMotion = create<MotionStore>((set) => ({
+  reduced: null,
+  setReduced(v) {
+    updatePrefs(browserKv(), (p) => ({ ...p, reducedMotion: v }));
+    applyMotion(v);
+    set({ reduced: v });
+  },
+}));
+
+/** Reads the saved motion choice onto <html>. Called once when the shell mounts. */
+export function loadMotion(): void {
+  const v = readPrefs(browserKv()).reducedMotion;
+  applyMotion(v);
+  useMotion.setState({ reduced: v });
 }
