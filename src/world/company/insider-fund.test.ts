@@ -4,6 +4,7 @@ import { credit, priceOf, today, TPD } from '../core';
 import { advanceTo, BUYER_A, FOUNDER, listedWorld } from './b1fixture';
 import { rosterOf, windowAt } from './insiders';
 import { fundById } from '../funds/state';
+import { marketFrame } from '../view';
 import type { FundFees, FundMandate } from '../funds/types';
 import type { GameState } from '../types';
 
@@ -90,5 +91,15 @@ describe('a fund the founder manages stays inside the insider rules on the found
     expect(rosterOf(g, c)).not.toContain(f.accountId);
     const r = applyCommand(g, BUYER_A, { type: 'fund.trade', fundId: f.id, assetId, side: 'buy', qty: 1 });
     expect(r.ok).toBe(true);
+  });
+});
+
+describe('the insider is not revealed to clients (no-reveal)', () => {
+  it('the defs a client reads carry the stock without its insider, and the server keeps the insider for the funds check', () => {
+    const { g, assetId } = listedWorld('insider-hidden');
+    const shown = marketFrame(g, false, true).defs!.find((a) => a.id === assetId)!;
+    expect(shown).toBeDefined();
+    expect(Object.keys(shown)).not.toContain('insiderId');
+    expect(g.market.config.assets.find((a) => a.id === assetId)!.insiderId).toBe(FOUNDER);
   });
 });

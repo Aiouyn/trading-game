@@ -1,7 +1,7 @@
 import { depthFrame, publicShortInterest, type DepthFrame } from '../src/engine';
 import { SHORT_INTEREST_EVERY } from '../src/world/core';
 import type { GameState } from '../src/world/types';
-import { configSeq, marketFrame, type MarketFrame } from '../src/world/view';
+import { configSeq, marketFrame, publicDefs, type MarketFrame } from '../src/world/view';
 
 /**
  * The public short interest, on the tick stream. The server computes it (the client never sees other accounts' positions,
@@ -80,7 +80,7 @@ export class ListWire {
   /** The full asset list as JSON (the welcome's defs), cached per list version. */
   defsJson(g: GameState): string {
     const seq = configSeq(g);
-    if (!this.defs || this.defs.seq !== seq) this.defs = { seq, json: JSON.stringify(g.market.config.assets) };
+    if (!this.defs || this.defs.seq !== seq) this.defs = { seq, json: JSON.stringify(publicDefs(g.market.config.assets)) };
     return this.defs.json;
   }
 }
