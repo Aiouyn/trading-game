@@ -9,7 +9,7 @@
  */
 
 import type { AppId } from './apps';
-import type { CycleDir, WmAction } from './wm';
+import type { CycleDir, Win, WmAction } from './wm';
 
 export interface KeyEvt {
   /** event.code, for example "KeyK", "Digit1", "ArrowLeft", "Period". */
@@ -31,7 +31,14 @@ export interface KeyEnv {
   textField: boolean;
 }
 
-export type KeyIntent = { kind: 'wm'; action: WmAction } | { kind: 'launcher' } | { kind: 'escape' };
+export type KeyIntent =
+  | { kind: 'wm'; action: WmAction }
+  | { kind: 'launcher' }
+  | { kind: 'escape' }
+  /** Alt+` cycles the windows on the active workspace (P2-102 tab fallback); Shift reverses. */
+  | { kind: 'cycle'; back: boolean }
+  /** Shift with the question-mark key opens the keyboard list in Settings. */
+  | { kind: 'help' };
 
 const ARROW_DIR: Readonly<Record<string, CycleDir>> = {
   ArrowLeft: 'left',
@@ -41,8 +48,8 @@ const ARROW_DIR: Readonly<Record<string, CycleDir>> = {
 };
 
 /** The read-only shortcut list for Settings (P2-106 remapping is Phase 8). Order is display order. */
-// Ctrl K is absent until the launcher ships (Phase 2 step 2): the list shows only live bindings.
 export const SHORTCUTS: readonly { id: string; keys: string }[] = [
+  { id: 'launcher', keys: 'Ctrl K' },
   { id: 'focus-mode', keys: 'Ctrl .' },
   { id: 'collapse', keys: 'Ctrl M' },
   { id: 'snap', keys: 'Ctrl Shift Arrow' },
@@ -50,8 +57,21 @@ export const SHORTCUTS: readonly { id: string; keys: string }[] = [
   { id: 'shelf-open', keys: 'Alt 1..9' },
   { id: 'new-broker', keys: 'Alt N' },
   { id: 'close', keys: 'Alt W' },
+  { id: 'cycle', keys: 'Alt `' },
+  { id: 'help', keys: '?' },
   { id: 'escape', keys: 'Esc' },
 ];
+
+/**
+ * The window the cycle key focuses next: the bottom-most open window on the workspace going
+ * forward (it rises to the top, so the next press reaches the next one), the one under the top
+ * going back. Null when there are fewer than two windows to move between.
+ */
+export function cycleTarget(wins: readonly Win[], activeWs: number, back: boolean): string | null {
+  const open = wins.filter((w) => w.ws === activeWs && w.state === 'open').map((w) => w.id);
+  if (open.length < 2) return null;
+  return back ? open[open.length - 2]! : open[0]!;
+}
 
 /**
  * The intent for a key event, or null when nothing is bound. Escape is bound everywhere; every
@@ -66,6 +86,10 @@ export function keyIntent(e: KeyEvt, env: KeyEnv): KeyIntent | null {
   if (env.textField) return null;
 
   const focused = env.focused;
+
+  if (e.code === 'Backquote' && e.alt && !e.ctrl) return { kind: 'cycle', back: e.shift };
+  // The question mark is Shift+Slash on QWERTY and Shift+Comma on AZERTY, so both codes open the list.
+  if ((e.code === 'Slash' || e.code === 'Comma') && e.shift && !e.ctrl && !e.alt) return { kind: 'help' };
 
   if (mods(true, false, false)) {
     if (e.code === 'KeyK') return { kind: 'launcher' };

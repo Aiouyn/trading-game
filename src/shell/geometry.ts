@@ -19,6 +19,13 @@ export const BP_HALVES = 1000;
 export const BP_FULL = 1200;
 /** Broker below this width uses the narrow layout (V:41). It is presentation only. */
 export const BROKER_NARROW_W = 720;
+/** Broker shorter than this shows the Chart / Ticket toggle instead of both panes (V:41, C-37). */
+export const BROKER_SHORT_H = 560;
+
+/** How a Broker window of this size lays out. Presentation only; the reducer never reads it. */
+export function brokerView(size: Size): { narrow: boolean; short: boolean } {
+  return { narrow: size.w < BROKER_NARROW_W, short: size.h < BROKER_SHORT_H };
+}
 
 export interface Size {
   w: number;

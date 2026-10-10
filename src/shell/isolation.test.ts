@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 
 const SHELL_DIR = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(SHELL_DIR, '..');
-const PURE_ENTRY = ['apps', 'geometry', 'wm', 'layouts', 'route', 'keys'];
+const PURE_ENTRY = ['apps', 'geometry', 'wm', 'layouts', 'route', 'keys', 'launcher', 'toasts'];
 /**
  * Which shell modules each pure module may import, type-only imports included (DECISIONS "Module
  * purity": wm.ts imports only apps.ts and geometry.ts; built-in layout plans reach wm through
@@ -26,6 +26,8 @@ const IMPORT_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
   layouts: ['apps', 'geometry'],
   route: ['apps'],
   keys: ['apps', 'wm'],
+  launcher: ['apps'],
+  toasts: ['apps', 'geometry'],
 };
 const FORBIDDEN_PACKAGES = ['react', 'react-dom', 'next', 'zustand'];
 const FORBIDDEN_SEGMENTS = ['engine', 'world', 'game', 'content', 'components', 'app', 'net', 'server'];

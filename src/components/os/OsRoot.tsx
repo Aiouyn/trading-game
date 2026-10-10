@@ -9,12 +9,14 @@ import { useEffect, useRef } from 'react';
 import { t } from '@/i18n';
 import { knownSeries, useGame } from '@/game/store';
 import { rankOrdinal } from '@/shell/ctx';
-import { keyIntent } from '@/shell/keys';
-import { SHELF_H, STRIP_H, STRIP_H_FOCUS, layoutMode, slotFrac, viewportClass } from '@/shell/geometry';
+import { cycleTarget, keyIntent } from '@/shell/keys';
+import { BP_HALVES, SHELF_H, STRIP_H, STRIP_H_FOCUS, layoutMode, slotFrac, viewportClass } from '@/shell/geometry';
+import { toastSide, visibleToasts } from '@/shell/toasts';
 import { focusedId, isFocused, project } from '@/shell/wm';
 import { SCREEN_APP } from './appMap';
 import { Wallpaper } from './DesktopWallpaper';
 import { type Rank, rankClass } from './hardware';
+import { Launcher } from './Launcher';
 import { OsToasts } from './OsToasts';
 import { RankHardware } from './RankHardware';
 import { parseLocation, routeUrl, type UrlBase } from './routing';
@@ -26,13 +28,18 @@ import { sharedEdges, type Tile } from './windowMath';
 import {
   bindShell,
   closeWindow,
+  closeLauncher,
   dispatchWm,
   loadPalette,
   notify,
   openApp,
+  openLauncher,
   syncViewport,
   useBinding,
   useCloseAsk,
+  useFocusHint,
+  useLauncher,
+  useLayoutMenu,
   useShell,
   usePalette,
 } from './shellStore';
@@ -58,7 +65,10 @@ function openFromUrl(): void {
   openApp(route.app, route.view !== undefined ? { ...route.props, view: route.view } : route.props);
 }
 
-/** Desktop keys (P2-100..P2-104). Window intents run here; Escape dismisses a prompt, then the top toast. */
+/**
+ * Desktop keys (P2-100..P2-104, P2-102). Window intents run here. Escape closes the topmost thing that is
+ * open, in this order: the launcher, the layout menu, the close prompt, then the first toast on screen.
+ */
 function onKey(e: KeyboardEvent): void {
   const target = e.target as HTMLElement | null;
   const textField =
@@ -70,23 +80,51 @@ function onKey(e: KeyboardEvent): void {
   );
   if (intent === null) return;
   if (intent.kind === 'escape') {
+    if (useLauncher.getState().open) {
+      e.preventDefault();
+      closeLauncher();
+      return;
+    }
+    if (useLayoutMenu.getState().open) {
+      e.preventDefault();
+      useLayoutMenu.setState({ open: false });
+      return;
+    }
     if (useCloseAsk.getState().id !== null) {
       e.preventDefault();
       useCloseAsk.setState({ id: null });
       return;
     }
-    const top = useGame.getState().toasts[0];
+    const top = visibleToasts(useGame.getState().toasts, isFocused(st.shell))[0];
     if (top !== undefined) {
       e.preventDefault();
       useGame.getState().dismissToast(top.id);
     }
     return;
   }
+  if (intent.kind === 'launcher') {
+    e.preventDefault();
+    if (useBinding.getState().saveId !== null) openLauncher();
+    return;
+  }
+  if (intent.kind === 'help') {
+    e.preventDefault();
+    openApp('settings', {}, { focus: true });
+    return;
+  }
+  if (intent.kind === 'cycle') {
+    const id = cycleTarget(st.shell.wins, st.shell.activeWs, intent.back);
+    if (id === null) return;
+    e.preventDefault();
+    dispatchWm({ type: 'focus', id });
+    useFocusHint.setState({ id });
+    return;
+  }
   if (intent.kind !== 'wm') return;
   e.preventDefault();
   const action = intent.action;
   if (action.type === 'open') {
-    openApp(action.app, action.app === 'broker' ? { ticker: useGame.getState().selected } : {});
+    openApp(action.app, action.app === 'broker' ? { ticker: useGame.getState().selected } : {}, { focus: true });
     return;
   }
   if (action.type === 'close') {
@@ -123,6 +161,7 @@ export function OsRoot() {
   const mode = layoutMode(shell.vp.w);
   const focusWin = shell.wins.find((w) => w.id === focus);
   const focusTicker = focusWin?.app === 'broker' ? focusWin.props.ticker : undefined;
+  const narrow = shell.vp.w < BP_HALVES;
 
   // The root markers on <html>, and the saved palette before the first paint of this mount.
   useEffect(() => {
@@ -131,7 +170,7 @@ export function OsRoot() {
     html.classList.add('os-root');
     loadPalette();
     return () => {
-      html.classList.remove('os-root', 'focus-mode', 'os-compact');
+      html.classList.remove('os-root', 'focus-mode', 'os-compact', 'os-narrow');
       for (const c of Array.from(html.classList)) if (RANK_CLASS.test(c)) html.classList.remove(c);
       delete html.dataset.testid;
     };
@@ -141,9 +180,11 @@ export function OsRoot() {
     const html = document.documentElement;
     html.classList.toggle('focus-mode', focusMode);
     html.classList.toggle('os-compact', compact);
+    // Below 1000 px the launcher field keeps only its glyph and Ctrl K (P2-057).
+    html.classList.toggle('os-narrow', narrow);
     for (const c of Array.from(html.classList)) if (RANK_CLASS.test(c)) html.classList.remove(c);
     html.classList.add(rankClass(rankNum as Rank));
-  }, [focusMode, compact, rankNum]);
+  }, [focusMode, compact, narrow, rankNum]);
 
   useEffect(() => {
     syncViewport();
@@ -205,6 +246,9 @@ export function OsRoot() {
 
   const stripH = focusMode ? STRIP_H_FOCUS : STRIP_H;
   const shelfH = focusMode ? 0 : SHELF_H;
+  // The toast column moves to the top left when a Broker sits under it (P2-088).
+  const brokerRect = focusWin?.app === 'broker' && focus !== null ? (proj.rects[focus] ?? null) : null;
+  const toastCol = toastSide(shell.vp, brokerRect, stripH);
   // Shared edges exist only in the full mode (the reducer refuses a split below it).
   const tiles: Tile[] = shell.wins.flatMap((w) =>
     w.id in proj.rects && !w.filled && w.slot !== null ? [{ id: w.id, f: slotFrac(w.slot) }] : [],
@@ -235,7 +279,8 @@ export function OsRoot() {
         {bound && <SplitHandles edges={edges} wa={proj.wa} />}
       </div>
       <Shelf />
-      <OsToasts />
+      {bound && <Launcher />}
+      <OsToasts focusMode={focusMode} side={toastCol} />
     </div>
   );
 }

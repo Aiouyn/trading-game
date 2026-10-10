@@ -61,7 +61,7 @@ test.describe('desktop shell', () => {
     await settle(page);
     await page.getByTestId('shelf-app-settings').click();
     await expect(page.getByTestId('settings-keys')).toContainText('Alt W');
-    await expect(page.getByTestId('settings-keys')).not.toContainText('Ctrl K');
+    await expect(page.getByTestId('settings-keys')).toContainText('Ctrl K');
     await page.evaluate(() => window.__tg?.state().setScreen('profile'));
     await expect(page.getByTestId('win-settings')).toBeVisible();
     await noHorizontalOverflow(page);

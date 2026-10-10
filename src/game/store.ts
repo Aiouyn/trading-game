@@ -17,6 +17,10 @@ export interface Toast {
   id: string;
   tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';
   text: string;
+  /** What the notice is, for focus mode and the sticky rules (src/shell/toasts.ts). */
+  kind?: 'fill' | 'margin' | 'world' | 'other';
+  /** The app a click opens (a shell app id), when the notice has one. */
+  app?: string;
 }
 
 export const WIRE_KEEP = 300;
@@ -161,7 +165,13 @@ export const useGame = create<GameStore>((set, get) => {
         // rank-ups can come from a tick or from a command (a sale, a grant): compare ranks
         const prevRank = get().me?.rank.id;
         const mine = prevRank && msg.me.rank.id > prevRank ? { rankId: msg.me.rank.id } : msg.rankUps.find((r) => r.playerId === get().playerId);
-        const toasts = msg.inbox.filter((n) => TOAST_KINDS.has(n.kind)).map((n) => ({ id: `t${++toastSeq}`, tone: n.tone, text: n.text }));
+        const toasts = msg.inbox.filter((n) => TOAST_KINDS.has(n.kind)).map((n) => ({
+          id: `t${++toastSeq}`,
+          tone: n.tone,
+          text: n.text,
+          kind: n.kind === 'fill' ? 'fill' as const : n.kind === 'margin' ? 'margin' as const : 'other' as const,
+          app: n.kind === 'fill' ? 'broker' : undefined,
+        }));
         const chat = { ...get().chat };
         let unread = get().chatUnread;
         for (const m of msg.chat) {

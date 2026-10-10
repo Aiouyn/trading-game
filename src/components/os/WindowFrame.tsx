@@ -5,7 +5,7 @@
 // the free rect on release; edge resize with the minimum sizes (P2-031, P2-032); the close prompt when a
 // Broker has an order pending (P2-030). Every change goes through the reducer, so the window rules live
 // in one place.
-import { type PointerEvent as ReactPointerEvent, useId, useRef, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, useEffect, useId, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { APPS } from '@/shell/apps';
 import type { LayoutMode, Rect, Size } from '@/shell/geometry';
@@ -14,7 +14,7 @@ import { APP_GLYPH } from './appMap';
 import { AppBody } from './appViews';
 import { Glyph } from './glyphs';
 import { type Edge, type SnapTarget, resizeRect, snapFits, snapTargetAt, targetRect } from './windowMath';
-import { closeWindow, dispatchWm, useCloseAsk } from './shellStore';
+import { closeWindow, dispatchWm, useCloseAsk, useFocusHint } from './shellStore';
 
 const EDGES: readonly Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
 
@@ -42,6 +42,14 @@ export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrame
   const shown = live ?? rect;
   const name = t(def.titleKey);
   const sub = win.app === 'broker' ? win.props.ticker : win.app === 'research' ? win.props.fileId : undefined;
+  const hint = useFocusHint((s) => s.id);
+
+  // A keyboard, shelf or launcher open moves DOM focus into the window it opened (P2-235).
+  useEffect(() => {
+    if (hint !== win.id || !active) return;
+    frameRef.current?.focus({ preventScroll: true });
+    useFocusHint.setState({ id: null });
+  }, [hint, active, win.id]);
 
   const focusWin = (): void => {
     if (!active) dispatchWm({ type: 'focus', id: win.id });
@@ -137,6 +145,7 @@ export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrame
         aria-labelledby={titleId}
         data-testid={`win-${win.id}`}
         data-app={win.app}
+        tabIndex={-1}
         style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h }}
         onPointerDown={focusWin}
       >
@@ -191,7 +200,7 @@ export function WindowFrame({ win, rect, active, mode, wa, gutter }: WindowFrame
           </div>
         )}
         <div className="os-win-body">
-          <AppBody win={win} />
+          <AppBody win={win} size={{ w: shown.w, h: shown.h }} />
         </div>
         {free && EDGES.map((e) => (
           <div

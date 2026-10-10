@@ -11,7 +11,7 @@ import { APPS, type AppId, type WinProps } from '@/shell/apps';
 import { makeWmCtx } from '@/shell/ctx';
 import { type KeyValueStore, loadShell, saveShell, updatePrefs } from '@/shell/prefs';
 import { createShellStore } from '@/shell/store';
-import { type ShellState, type WmAction, type WmReason, type WmResult, initialShell, normalize } from '@/shell/wm';
+import { type ShellState, type WmAction, type WmReason, type WmResult, focusedId, initialShell, normalize } from '@/shell/wm';
 import { DEFAULT_PALETTE, type PaletteSlug, applyPalette, isPaletteSlug, readPalette } from './palette';
 
 const INIT_VP = { w: 1440, h: 900 };
@@ -70,6 +70,8 @@ export function bindShell(id: string, rank: string, vp: { w: number; h: number }
   if (!sameSave) {
     store.setCtx(ctx);
     store.replace(loadShell(browserKv(), id, ctx, vp, ticker));
+    // Recent is this save's own and this session's only: never another save's (T:101).
+    useRecent.setState({ items: [] });
     return;
   }
   if (!sameRank) {
@@ -97,10 +99,89 @@ export function dispatchWm(action: WmAction, settled = true): WmResult {
 const REFUSAL_TEXT: Partial<Record<WmReason, () => string>> = {
   locked: () => t('shell.locked'),
   unavailable: () => t('shell.comingLater'),
+  mode: () => t('shell.refuse.mode'),
+  instance: () => t('shell.refuse.instance'),
+  'too-small': () => t('shell.refuse.small'),
+  'layout-cap': () => t('shell.refuse.cap'),
+  empty: () => t('shell.refuse.empty'),
+  'no-layout': () => t('shell.refuse.noLayout'),
+  'bad-name': () => t('shell.refuse.name'),
+  reserved: () => t('shell.refuse.reserved'),
 };
+
+/** The words a refused action shows, or null when the refusal is silent by design. */
+export function refusalText(reason: WmReason): string | null {
+  const f = REFUSAL_TEXT[reason];
+  return f ? f() : null;
+}
 
 /** The window id whose close prompt is showing (P2-030). Shared, so the button and Alt W ask the same way. */
 export const useCloseAsk = create<{ id: string | null }>(() => ({ id: null }));
+
+/** The window a keyboard or launcher open should focus once it is on screen (the frame takes DOM focus). */
+export const useFocusHint = create<{ id: string | null }>(() => ({ id: null }));
+
+/** Apps and tickers opened this session, most recent first. Session memory only: never in a save. */
+export interface RecentRef {
+  app: AppId;
+  ticker?: string;
+}
+export const useRecent = create<{ items: RecentRef[] }>(() => ({ items: [] }));
+const RECENT_MAX = 6;
+
+function noteRecent(ref: RecentRef): void {
+  const rest = useRecent.getState().items.filter((x) => !(x.app === ref.app && x.ticker === ref.ticker));
+  useRecent.setState({ items: [ref, ...rest].slice(0, RECENT_MAX) });
+}
+
+/** The launcher panel: open, its query and the highlighted row (P2-075). */
+export const useLauncher = create<{ open: boolean; query: string; active: number }>(() => ({
+  open: false,
+  query: '',
+  active: 0,
+}));
+
+/** The element that had focus before the launcher opened. Closing returns focus there (P2-235). */
+let launcherReturn: Element | null = null;
+
+export function openLauncher(): void {
+  if (useLauncher.getState().open) return;
+  launcherReturn = typeof document === 'undefined' ? null : document.activeElement;
+  useLauncher.setState({ open: true, query: '', active: 0 });
+}
+
+/** Closes the launcher. `restore` false when the close is followed by opening a window that takes focus. */
+export function closeLauncher(restore = true): void {
+  const back = launcherReturn;
+  launcherReturn = null;
+  useLauncher.setState({ open: false, query: '', active: 0 });
+  if (restore && back instanceof HTMLElement && back.isConnected) back.focus({ preventScroll: true });
+}
+
+/** The shelf's layout menu (Trade, Review, Research, saved layouts, save). */
+export const useLayoutMenu = create<{ open: boolean }>(() => ({ open: false }));
+
+/** Applies a built-in layout on the active workspace. A refusal says why; a layout never orders anything. */
+export function applyNamedLayout(name: 'trade' | 'review' | 'research' | string, ticker: string): void {
+  const r = dispatchWm({ type: 'applyLayout', name, ticker });
+  if (!r.ok) {
+    const text = refusalText(r.reason);
+    if (text) notify(text, 'warn');
+  }
+}
+
+/** Runs a launcher command (P2-077). Pause and speed need a clock control the world does not have yet. */
+export function runCommand(cmd: 'trade' | 'review' | 'research' | 'focus' | 'new-broker', ticker: string): void {
+  if (cmd === 'focus') {
+    dispatchWm({ type: 'toggleFocusMode' });
+    return;
+  }
+  if (cmd === 'new-broker') {
+    openApp('broker', { ticker }, { focus: true });
+    return;
+  }
+  applyNamedLayout(cmd, ticker);
+}
 
 /**
  * Closes a window. A Broker with a pending order returns "confirm": the window shows the prompt
@@ -115,8 +196,13 @@ export function closeWindow(id: string, force = false): void {
   if (r.reason === 'confirm') useCloseAsk.setState({ id });
 }
 
+export interface OpenOpts {
+  /** Move DOM focus into the window once it is on screen. Keyboard, shelf and launcher opens do; a screen call does not. */
+  focus?: boolean;
+}
+
 /** Opens an app, or focuses the window that holds it. A refusal shows a toast, never a silent no-op. */
-export function openApp(app: AppId, props: WinProps = {}): void {
+export function openApp(app: AppId, props: WinProps = {}, opts: OpenOpts = {}): void {
   if (!APPS[app].available) {
     notify(t('shell.comingLater'));
     return;
@@ -129,9 +215,28 @@ export function openApp(app: AppId, props: WinProps = {}): void {
   }
   const r = dispatchWm({ type: 'open', app, props: p });
   if (!r.ok) {
-    const text = REFUSAL_TEXT[r.reason];
-    if (text) notify(text(), 'warn');
+    const text = refusalText(r.reason);
+    if (text) notify(text, 'warn');
+    return;
   }
+  const id = focusedId(r.state);
+  const w = r.state.wins.find((x) => x.id === id);
+  if (w !== undefined) noteRecent({ app: w.app, ticker: w.props.ticker });
+  if (opts.focus) useFocusHint.setState({ id: id ?? null });
+}
+
+/**
+ * Focuses the top-most window of an app that is open, or opens one. A notice's click uses this, so a
+ * fill focuses the Broker that holds it rather than opening another.
+ */
+export function focusOrOpen(app: AppId): void {
+  const w = [...useShell.getState().shell.wins].reverse().find((x) => x.app === app);
+  if (w !== undefined) {
+    dispatchWm({ type: 'focus', id: w.id });
+    useFocusHint.setState({ id: w.id });
+    return;
+  }
+  openApp(app, app === 'broker' ? { ticker: useGame.getState().selected } : {}, { focus: true });
 }
 
 // ---------------------------------------------------------------- palette
