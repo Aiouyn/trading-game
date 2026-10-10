@@ -94,6 +94,17 @@ export function idioLoading(a: AssetDef): number {
 }
 
 /**
+ * Standard deviation of the unit-variance shock in a regime (sim.ts): market and idio loadings are scaled by the
+ * regime's marketLoadMult and idioMult, the sector, crypto and region loadings are not. The day's diffusive variance is
+ * def.vol^2 * volMult^2 * h * shockSd^2 * dt, so this is the piece of a regime's vol that volMult alone leaves out.
+ */
+export function regimeShockSd(a: AssetDef, g: RegimeDef): number {
+  const wR = a.wRegion ?? 0;
+  const v = (a.wMarket * g.marketLoadMult) ** 2 + a.wSector ** 2 + a.wCrypto ** 2 + wR ** 2 + (idioLoading(a) * g.idioMult) ** 2;
+  return Math.sqrt(v);
+}
+
+/**
  * Phase 0 starter universe: the 12 example companies of 01 §3.1 (one per sector),
  * 3 crypto, gold and oil, and the GX index. Fictional names only.
  * Market caps in $; prices in $.

@@ -131,14 +131,32 @@ Command: `npx tsx scripts/load/world-load.ts 4000 120`. Output: `scratchpad/load
 Gate: tick p99 under 2,500 ms: PASS. The script prints p99 for the tick total only; p50 and p95 of the total are not in the output.
 Not run in this pass: `scripts/load/socket-load.mjs` (4,000 live WebSocket clients). Last measured in b402371, before the Phase 1 engine work.
 
+### 3k. Calibration closure (F1, F2, F11, F12; branch p1/calib)
+Engine changes, all in the GARCH input and the expectation, none in the price path. Bare catalog (jumpImmediate 1, no catalysts) changes only through the regime loading split.
+- `sim.ts` `dayGap`: the GARCH day return now excludes the unprinted part of each jump and the post-earnings drift. Bare: no effect (jumpImmediate 1).
+- `sim.ts` + `config.ts` `regimeShockSd`: GARCH standardizes by volMult times the regime's full shock sd (marketLoadMult, idioMult). Bare: this is the one change to bare dynamics.
+- `ecology.ts` `closePrint` and `expectedVol(def, undefined, print)`: the close-to-close target counts the printed share of jumps. Bare: 1, unchanged.
+- Test: `src/engine/calibration.test.ts` (5 tests; a jump-only asset realizes 0.49 of its jump variance live, the printed share squared).
+
+| Measure | HEAD | p1/calib |
+|---|---|---|
+| Universe vol bands, 20 seeds, tpd 24 (8 F1 names) | 0.811 to 0.847 (FAIL) | 0.924 to 1.011 (PASS) |
+| Universe, all bands, 20 seeds | 8 FAIL | all PASS (AUSD class band now 0.6 to 0.9, F13) |
+| Bare vol bands, 60 seeds | all PASS | all PASS (per-asset medians move by up to 0.08, both ways) |
+| Bare bh_beats_momentum_share, 60 seeds | 0.933 FAIL | 0.933 FAIL (F15, pre-existing) |
+| Bare value_gap_p95 median / max, 60 seeds | 0.0479 / 0.623 | 0.0485 / 0.862 FAIL (F14) |
+| Universe gates, 720 ticks, 4 seeds | 4 of 7 PASS | 5 of 7 PASS (vol ratio now PASS; 1-day and 63-day IC FAIL, F2) |
+| Bare gates, 720 ticks, 8 seeds | 6 of 7 PASS (GOLD vol 0.843) | 7 of 7 PASS (GARCH h mean 1.005, was 1.085) |
+| Crowd gate, 100 x $250k bots, 60 seeds, bare live | not run | crowded beat 0.367 vs uncrowded 0.433: PASS (F12) |
+
 ## 4. Known failures and open decisions
 
 Owners are proposed by domain: Quant (engine and calibration), Ledger (gate scope, pricing and spec decisions), Tape (hunts, measurement), Forge (integration, ports, load). The lead assigns them.
 
 | ID | Item | Measured root cause | Proposed owner | Status |
 |---|---|---|---|---|
-| F1 | Vol bands FAIL on 8 universe assets at 20 seeds: NGAS, LITH, COFF (0.844 to 0.846), NHK, MRE, KYN (0.813 to 0.847), GNOM, NRVA (0.811, 0.834) | Not isolated. An ecology-off check on 4 seeds did not move NGAS, COFF or the forex pairs to 1, so the closing pools are not the cause. | Quant | Open |
-| F2 | Universe ecology gates at tpd 24: daily autocorr 0.052, 1-day rank IC 0.014 (both FAIL); vol ratio 0.388 to 3.187 at 8 seeds | Calibration was done at 720 ticks a day; the universe runs at 24. The bond and stablecoin fixes (149bcec) were checked on vol bands only. The autocorr and rank IC rows were not re-measured. | Quant | Open |
+| F1 | Vol bands FAIL on 8 universe assets at 20 seeds: NGAS, LITH, COFF (0.844 to 0.846), NHK, MRE, KYN (0.813 to 0.847), GNOM, NRVA (0.811, 0.834) | **Fixed in the model (p1/calib).** Three mechanisms, each measured in isolation. (1) GARCH input carried the unprinted 30% of each jump (dayGap); with alpha+beta 0.98 that moves E[h] to 1.3 to 1.5 on jump-heavy names. (2) GARCH standardized by volMult only, not the loading split (regimeShockSd); idio-heavy names had E[h] 0.8 to 0.9. (3) expectedVol counted the full jump; the close prints jumpImmediate 0.7 live and newsPrint 0.5 in full ecology (closePrint). Jump-only isolation test: realized/expected 0.49 live. 20 seeds now (final run): all eight in [0.92, 1.01] (NHK 0.924 lowest, MRE 1.011 highest). | Quant | Fixed; side effect F14 |
+| F2 | Universe ecology gates at tpd 24: daily autocorr 0.052, 1-day rank IC 0.014 (both FAIL); vol ratio 0.388 to 3.187 at 8 seeds | Measured at 720 ticks, 4 seeds (eco-01..04). Autocorr is tick-sensitive: 0.036 at 720 (PASS) against 0.052 at 24. Vol ratio is fixed (F1): all in band, median 1.055. Still FAIL at 720: 1-day rank IC +0.015 (band -0.05 to 0) and 63-day rank IC +0.045 (band 0 to 0.04). Both are tick-insensitive (same sign and size at 24 and 720). fadeK 0.3 brings the 1-day IC to -0.011 but takes universe bh_beats_contrarian to 0.95 (FAIL, 20 seeds), so it is not adopted. The 63-day cause is not measured (hypothesis: universe half-lives 30-60 days against 20 in the bare catalog). Bare catalog at 720, 8 seeds: 7 of 7 PASS (was 6 of 7; GOLD vol ratio 0.843). | Quant | Open (1-day IC and 63-day IC) |
 | F3 | Hale beat share 83% against 70% | Equal-weight 3-stock baskets, rebalanced on this schedule, beat GX buy-and-hold on 85% of seeds at random (control in 1317d60). The failure is basket construction against a cap-weighted benchmark, not the value read. | Ledger with Quant (spec decision on basket rule or benchmark) | Open; lead decided to record, not change |
 | F4 | Vetch median x0.186 (below 0.4) | Top-3 crypto basket bleeds with the memecoins. | Quant (quant-npc-funds spec) | Open |
 | F5 | AURH full-ecology peak ratio 2.74 on tape-10 (band 0.75 to 1.5, 20 seeds) | Not analysed. The game-path gate covers tape-01 to tape-05 only. | Ledger (gate scope), Quant | Open |
@@ -147,9 +165,11 @@ Owners are proposed by domain: Quant (engine and calibration), Ledger (gate scop
 | F8 | Close response to own flow not bounded by the shared tally | Ecology close is Y x sigma(h) x sqrt(own ADV) / depth, with own flow not damped by capacity; depth floor 0.4. FROG day 137: +5.88 log, own flow 5.83, vol state h 6.4. | Quant | Open |
 | F9 | Rank below the 5e10 threshold not measured | At huge sizes rank is top tier from the start, so it is not fooled there. | Tape | Open |
 | F10 | Realize-to-flat depends on the sell schedule | Only the even daily split (3 ADV per tick cap) was measured. | Tape | Open |
-| F11 | value_gap_p95 baseline is self-referential | Needs the first PC 60-seed median, which the branch does not have. | Tape | Open |
-| F12 | Learnability and crowd-hunt rows not evaluated | Crowded beat share at $5k; stacked at most 0.70 and fingerprint; N=50 crowd at $250k. Gate tables are 8 seeds, not the 60-seed release gate. | Ledger, Tape | Open |
-| F13 | Band changes for stablecoins and meme coins (149bcec) | The bands follow the mechanism (half-life reversion, floor pinning) and were not measured before the change. | Ledger (review) | Open |
+| F11 | value_gap_p95 baseline is self-referential | **Done (p1/calib).** Baseline is the 60-seed median on the calibrated engine: 0.0485 (was 0.0484 from 20 seeds). The HEAD engine gives 0.0479. | Tape | Fixed |
+| F12 | Learnability and crowd-hunt rows not evaluated | **Crowd gate run, 60 seeds, bare catalog, live.** 100 x $250k bots: crowded periods on 45% of seeds, crowded beat 0.367 against uncrowded 0.433: PASS (< 0.55 and <= uncrowded - 0.05). Single $25M: 0.367 against 0.450: PASS. Single $250k: no crowded period, NOT EVALUATED. Stacked row: crowd-hunt.ts has no stacked-signal mode, not run. Learnability and fingerprint rows not run in this pass. | Ledger, Tape | Partly done |
+| F13 | Band changes for stablecoins and meme coins (149bcec) | The bands follow the mechanism (half-life reversion, floor pinning) and were not measured before the change. **Changed in p1/calib (Ledger review):** AUSD band 0.25 to 0.45 becomes 0.6 to 0.9 (measured 0.80, 20 seeds: the depeg close prints about 0.4 of a jump, against 0.5 assumed by closePrint). FLUX class band removed: under closePrint it is 1.02, inside the general band. Floor-pinned memes unchanged. | Ledger (review) | Open (review) |
+| F14 | value_gap_p95_max (X2, never above ln 2) now FAILS on the bare engine at 60 seeds: 0.862 (SYN, tape-04); HEAD 0.623 | Caused by F1 fix (regimeShockSd). SYN has wCrypto 0.6, which is not regime-scaled, so (by the GARCH identity, not measured per asset) E[h] moves toward 1, its realized vol from 0.98 to 1.03 of expectedVol, and its value-gap p95 median from 0.387 to 0.452 (60 seeds). Two of 60 SYN seeds are above ln 2. Not widened. Options for Ledger: accept the tail for a 110% vol asset, or change SYN's half-life or spec. | Ledger (decision), Quant | Open |
+| F15 | Bare bh_beats_momentum_share 0.933 at 60 seeds (band 0.1 to 0.9) | Already FAILS at HEAD (0.933 at 60 seeds; 0.900 at 20 seeds, which is why the 20-seed run passed). Unchanged by this pass. | Tape, Ledger | Open (pre-existing) |
 
 Claimed fixed in db480a0, not re-reviewed in this pass: the hunts review items (reproducibility, peak wording, sign-flip counts, self-impact gate disclosure, 60-seed run). The a400727 numbers that the review could not reproduce are replaced by the db480a0 table.
 

@@ -103,6 +103,16 @@ export function ecologyOn(cfg: WorldConfig): boolean {
 }
 
 /**
+ * The share of a news jump that prints in the day's close, which is what a close-to-close vol band measures. In full
+ * ecology the closing auction sets the close, and it prints newsPrint of the day's news (ecologyDay); the live path's
+ * jumpImmediate does not reach the close. Otherwise the close is the live price, which prints jumpImmediate at once.
+ * expectedVol(def, regime, closePrint(cfg)) is the daily target; 1 in the bare engine (no print rule).
+ */
+export function closePrint(cfg: WorldConfig): number {
+  return ecologyWeight(cfg) === 1 ? ecologyConfig(cfg).newsPrint ?? 1 : cfg.jumpImmediate ?? 1;
+}
+
+/**
  * Hybrid: move the ecology onto the day's actual (blended) closes, so tomorrow the pools, value gap and momentum
  * read the price that printed. Shifts each asset's core (the maker's skew is kept), replaces today's close in the
  * history, and moves a pension anchor set today. Pure.

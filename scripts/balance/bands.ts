@@ -9,7 +9,7 @@ const Q = "Quant Phase 0 proposal (adopted by Ledger)";
 /** A class-specific vol band (universe only). `why` is the mechanism that moves the ratio, written next to the number. */
 export type VolBand = { min: number; max: number; why: string };
 
-const STABLE_WHY = "stablecoin pulled back to $1 within half a day (halfLifeDays 0.5): shocks and depeg jumps mostly revert before the next close, so close-to-close vol keeps only part of the jump variance that expectedVol counts in full";
+const STABLE_WHY = "stablecoin pulled back to $1 within half a day (halfLifeDays 0.5): a depeg jump mostly reverts before the close, so the close prints about 0.4 of the jump, below the 0.5 that closePrint assumes for full ecology (measured 20 seeds: 0.79 x expectedVol). Ledger review (F13)";
 
 /**
  * Meme floor pinning. A price that bleeds to its 1e-7 floor is pinned there, and a pinned day has zero return, so the
@@ -29,14 +29,15 @@ function floorPinned(alive: number): VolBand {
  * unchanged: run.ts passes this table only with --universe. Each entry names the mechanism, so a reader can see why the
  * band is lower than the Phase 0 0.85, rather than a number widened to pass.
  *
- * Not banded here, so they stay FAIL on the universe run until their mechanism is isolated: commodities NGAS, LITH, COFF;
- * forex NHK, MRE, KYN; biotech GNOM, NRVA (all 0.81-0.85 on 20 seeds). A 4-seed check with the ecology off did not move
- * NGAS, COFF or the forex pairs back to 1, so the closing pools (ecology.ts) are not the cause. A band here with no mechanism
- * would be a number widened to pass.
+ * F1 (calibration closure): commodities NGAS, LITH, COFF, forex NHK, MRE, KYN and biotech GNOM, NRVA were 0.81-0.85 on 20
+ * seeds with no band. Their shortfall is two engine mechanisms, now fixed in the model, not in the band: (1) a jump prints
+ * jumpImmediate at once and the close prints newsPrint (ecology), so expectedVol(def, undefined, closePrint(cfg)) counts
+ * that share, not the full jump; (2) GARCH's day return carried the unprinted part of each jump (dayGap), which pushed the
+ * GARCH mean h to 0.8 or 1.5, and standardized by volMult alone (regimeShockSd adds the loading split). Those names pass the
+ * general 0.85-1.4 band now. FLUX also passes it (1.02), so its old 0.4-0.6 band is gone. AUSD does not: see STABLE_WHY.
  */
 export const UNIVERSE_VOL_BANDS: Record<string, VolBand> = {
-  AUSD: { min: 0.25, max: 0.45, why: STABLE_WHY },
-  FLUX: { min: 0.4, max: 0.6, why: STABLE_WHY },
+  AUSD: { min: 0.6, max: 0.9, why: STABLE_WHY },
   BONK: floorPinned(0.2),
   FROG: floorPinned(0.296),
   MOON: floorPinned(0.442),

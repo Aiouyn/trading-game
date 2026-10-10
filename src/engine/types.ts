@@ -203,6 +203,12 @@ export interface AssetState {
   haltedToday: boolean;
   /** sum of today's jump log sizes; excluded from the GARCH input so jumps don't feed vol clustering */
   dayJump: number;
+  /**
+   * today's news that is not in dayJump but is not diffusion either: the part of each jump that did not print at once
+   * ((1 - jumpImmediate) x jump) less the post-earnings drift printed. GARCH reads lnP - lnOpen - dayJump + dayGap. Absent
+   * (undefined) = 0, so the bare engine (jumpImmediate 1, no catalysts) keeps its state shape.
+   */
+  dayGap?: number;
   /** log return accumulated while halted; applied in the reopening auction */
   pending: number;
   rng: RngState;

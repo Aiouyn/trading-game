@@ -38,7 +38,9 @@
  *            (pool orders, ADV units) as INFO, not a gate. The live column (report --live-ref, or a shadow dir's own live
  *            lnP) carries the dayNotional gate for the shadow run.
  *   volRatio Tape's vol ratio, sd(daily log returns) · sqrt(daysPerYear) / expectedVol, median over seeds per asset; every
- *            asset in [0.85, 1.4] (scripts/balance/bands.ts). Assets delisted in any seed are left out (Tape's rule).
+ *            asset in [0.85, 1.4], or in its universe class band from scripts/balance/bands.ts (UNIVERSE_VOL_BANDS, the
+ *            same table run.ts uses). expectedVol uses the close's print share (closePrint) for the gate closes, and the
+ *            jumpImmediate share for the live reference. Assets delisted in any seed are left out (Tape's rule).
  * Info: GARCH h (live engine) mean and max; ecology gross flow per asset-day.
  *
  * Universe runs use only the starting asset list, and only assets alive for the whole run (not delisted).
@@ -48,9 +50,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { createWorld, expectedVol, step } from '../../src/engine/index';
 import type { EcologyConfig, WorldConfig } from '../../src/engine/index';
-import { ecoDayInput, ecologyDay, initEcology } from '../../src/engine/ecology';
+import { ecoDayInput, ecologyConfig, ecologyDay, initEcology } from '../../src/engine/ecology';
 import type { EcoDayInput } from '../../src/engine/ecology';
 import { arg, corr, diffs, ecologyOverrides, hasFlag, mean, median, numArg, sem, spearman, worldConfig } from './common';
+import { UNIVERSE_VOL_BANDS } from '../balance/bands';
 
 const cmd = process.argv[2] ?? 'report';
 
@@ -67,7 +70,10 @@ interface SeedRun {
   /** stock asset, and alive (not delisted at any day end) */
   stock: boolean[];
   alive: boolean[];
+  /** expectedVol for the gate closes (full closes, shadow lnS): the close prints the ecology's newsPrint share of a jump */
   expVol: number[];
+  /** expectedVol for the live reference (shadow dir's live lnP): the live path prints jumpImmediate at once */
+  expVolLive: number[];
   /** printed close per asset: lnP at each day end (full) or the shadow close lnS (shadow). Index 0 is the start. */
   closes: number[][];
   /** shadow only: the live lnP at each day end (the live reference) */
@@ -116,9 +122,11 @@ function runSeed(seed: string, mode: 'full' | 'shadow', universe: boolean, tpd: 
     if (isShadow) inputs.push(ecoDayInput(s, d));
   }
   const stock = cfg.assets.map((a) => a.assetClass === 'stock');
-  const expVol = cfg.assets.map((a) => expectedVol(a));
+  // the gate closes print the ecology's newsPrint share of each jump; the live reference prints jumpImmediate (closePrint)
+  const expVol = cfg.assets.map((a) => expectedVol(a, undefined, ecologyConfig(cfg).newsPrint ?? 1));
+  const expVolLive = cfg.assets.map((a) => expectedVol(a, undefined, cfg.jumpImmediate ?? 1));
   return {
-    mode, seed, universe, tpd, days, daysPerYear: cfg.daysPerYear, set, ids, stock, alive, expVol, closes, live, dayNotional, gross,
+    mode, seed, universe, tpd, days, daysPerYear: cfg.daysPerYear, set, ids, stock, alive, expVol, expVolLive, closes, live, dayNotional, gross,
     hMean: hSum / hN, hMax, ...(isShadow ? { inputs } : {}), ms: performance.now() - t0,
   };
 }
@@ -193,6 +201,11 @@ const BANDS: Record<BandKey, { label: string; text: string; ok: (v: number) => b
   volCorr: { label: 'corr(|r_t|, traded value) (volume)', text: 'in (0.3, 0.6]', ok: (v) => v > 0.3 && v <= 0.6 },
 };
 const VOL_BAND: [number, number] = [0.85, 1.4];
+/** the vol-ratio band of one asset: the universe's class band where bands.ts has one (the same table run.ts uses), else [0.85, 1.4] */
+const volBandOf = (id: string, universe: boolean): [number, number] => {
+  const b = universe ? UNIVERSE_VOL_BANDS[id] : undefined;
+  return b ? [b.min, b.max] : VOL_BAND;
+};
 
 // ---------------------------------------------------------------- report
 
@@ -236,16 +249,18 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
   const vrs = runs.map((r) => volRatios(r.closes, r.alive, r.expVol, r.daysPerYear));
   const assetVol = r0.ids.map((_, i) => median(vrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))));
   const listed = assetVol.map((v, i) => ({ id: r0.ids[i]!, v })).filter((x) => Number.isFinite(x.v));
-  const outside = listed.filter((x) => x.v < VOL_BAND[0] || x.v > VOL_BAND[1]);
+  const inBand = (x: { id: string; v: number }) => { const [lo, hi] = volBandOf(x.id, r0.universe); return x.v >= lo && x.v <= hi; };
+  const outside = listed.filter((x) => !inBand(x));
   let liveVr: string | undefined, liveVrPass: boolean | undefined;
   if (liveRuns) {
-    const lvrs = liveRuns.map((r, k) => volRatios(liveCloses(r, k), r.alive, r.expVol, r.daysPerYear));
-    const lv = r0.ids.map((_, i) => median(lvrs.map((v) => v[i]!).filter((x) => Number.isFinite(x)))).filter((x) => Number.isFinite(x));
+    const lvrs = liveRuns.map((r, k) => volRatios(liveCloses(r, k), r.alive, r.expVolLive, r.daysPerYear));
+    const lvAll = r0.ids.map((id, i) => ({ id, v: median(lvrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))) })).filter((x) => Number.isFinite(x.v));
+    const lv = lvAll.map((x) => x.v);
     liveVr = `min ${Math.min(...lv).toFixed(3)} med ${median(lv).toFixed(3)} max ${Math.max(...lv).toFixed(3)}`;
-    liveVrPass = lv.every((x) => x >= VOL_BAND[0] && x <= VOL_BAND[1]);
+    liveVrPass = lvAll.every(inBand);
   }
   rows.push({
-    label: `vol ratio per asset, median over seeds (${listed.length} assets)`, text: 'every asset in [0.85, 1.4]',
+    label: `vol ratio per asset, median over seeds (${listed.length} assets)`, text: r0.universe ? 'in band (class bands)' : 'every asset in [0.85, 1.4]',
     value: `${Math.min(...listed.map((x) => x.v)).toFixed(3)}..${Math.max(...listed.map((x) => x.v)).toFixed(3)} med ${median(listed.map((x) => x.v)).toFixed(3)}`,
     pass: outside.length === 0,
     ...(liveVr ? { live: liveVr, livePass: liveVrPass } : {}),
@@ -258,7 +273,7 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
     const lres = row.livePass === undefined ? '' : row.livePass ? 'PASS' : 'FAIL';
     out.push(`${row.label.padEnd(56)}${row.value.padStart(24)}  ${res}${row.text.padEnd(30)}${row.live !== undefined ? row.live.padStart(24) : ''}${lres ? '  ' + lres : ''}`);
   }
-  if (outside.length) out.push(`vol ratio outside [0.85, 1.4]: ${outside.length} assets: ${outside.map((x) => `${x.id} ${x.v.toFixed(3)}`).join(', ')}`);
+  if (outside.length) out.push(`vol ratio outside its band: ${outside.length} assets: ${outside.map((x) => `${x.id} ${x.v.toFixed(3)} [${volBandOf(x.id, r0.universe).join(', ')}]`).join(', ')}`);
   out.push(`info: GARCH h (live engine) mean ${mean(runs.map((r) => r.hMean)).toFixed(4)}, max ${Math.max(...runs.map((r) => r.hMax)).toFixed(4)}`);
   out.push(`info: ecology gross flow ${mean(runs.map((r) => mean(r.gross.flat()))).toFixed(4)} ADV per asset-day (log only; quote().volume is not gated)`);
   const gated = rows.filter((x) => x.pass !== null);
