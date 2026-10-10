@@ -30,7 +30,7 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
     case 'broker':
       return <BrokerApp ticker={win.props.ticker} size={size} />;
     case 'portfolio':
-      return <div className="os-body"><PortfolioView /></div>;
+      return <div className="os-body"><PortfolioView view={win.props.view} /></div>;
     case 'wire':
       return <WireView />;
     case 'calendar':

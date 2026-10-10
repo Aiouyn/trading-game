@@ -57,7 +57,8 @@ test('the Research Desk is locked below Operator, then opens with an empty Files
   await goTo(page, 'research');
   await expect(page.getByTestId('research')).toBeVisible();
   await expect(page.getByTestId('research-files-empty')).toBeVisible();
-  await expect(page.getByTestId('research-note')).toContainText('later release');
+  await expect(page.getByTestId('desk-unlock')).toBeVisible();
+  await expect(page.getByTestId('research-note')).toContainText('kept as a file');
   await expect(page.getByTestId('research-locked')).toHaveCount(0);
 });
 

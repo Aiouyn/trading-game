@@ -12,6 +12,8 @@ import { Positions } from './Holdings';
 import { type ChartOverlay, PriceChart } from './apps/broker/PriceChart';
 import { ClosesCard, LuckCard } from './PortfolioLuck';
 import { Card, CardHeader, KV, Segmented, Stat, Td, Th } from './ui';
+import { JournalView } from './apps/journal/JournalView';
+import { AnalystView } from './apps/analyst/AnalystView';
 
 const CLASS_COLOR: Record<string, string> = {
   cash: 'bg-ink-3', stock: 'bg-brass', crypto: 'bg-steel', commodity: 'bg-brass-lo', forex: 'bg-info', bond: 'bg-gain', options: 'bg-warn',
@@ -28,7 +30,41 @@ const TPD = 720;
 
 type NwRange = '1D' | '1W' | 'ALL';
 
-export function PortfolioView({ phone = false }: { phone?: boolean }) {
+export type PortfolioTab = 'portfolio' | 'journal' | 'analyst';
+
+const tabOf = (view?: string): PortfolioTab => (view === 'journal' || view === 'analyst' ? view : 'portfolio');
+
+/**
+ * The Portfolio window (Phase 3): the positions and net worth, the trade journal and the analyst. The window's view names the
+ * tab it opens on (the Review layout's second Portfolio is the journal); the segmented control switches within it.
+ */
+export function PortfolioView({ phone = false, view }: { phone?: boolean; view?: string }) {
+  const [tab, setTab] = useState<PortfolioTab>(tabOf(view));
+  // a new view for the open window switches its tab (the previous view is kept in state, so this runs during render)
+  const [seenView, setSeenView] = useState(view);
+  if (view !== seenView) {
+    setSeenView(view);
+    if (view !== undefined) setTab(tabOf(view));
+  }
+  return (
+    <div className="flex flex-col gap-4" data-testid="portfolio-window">
+      <Segmented<PortfolioTab>
+        label={t('app.portfolio')}
+        size="sm"
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: 'portfolio', label: t('portfolio.tab.portfolio'), testId: 'portfolio-tab-portfolio' },
+          { value: 'journal', label: t('portfolio.tab.journal'), testId: 'portfolio-tab-journal' },
+          { value: 'analyst', label: t('portfolio.tab.analyst'), testId: 'portfolio-tab-analyst' },
+        ]}
+      />
+      {tab === 'journal' ? <JournalView onHire={() => setTab('analyst')} /> : tab === 'analyst' ? <AnalystView /> : <PortfolioPositions phone={phone} />}
+    </div>
+  );
+}
+
+function PortfolioPositions({ phone = false }: { phone?: boolean }) {
   const me = useGame((s) => s.me)!;
   const world = useGame((s) => s.world)!;
   const playerId = useGame((s) => s.playerId)!;

@@ -586,11 +586,12 @@ export function ecologyLog(state: WorldState): EcoLogDay[] {
 }
 
 /**
- * The rows of a move's explanation (D-1, why the price moved): the factor split of the value line (market, sector, company
- * noise), the news and event prints, the flow pools, and the player rows. Never a name.
+ * The rows of a move's explanation (D-1, why the price moved), in the order the screens show them: the factor split of the
+ * value line (market, sector), the news and event prints, the flow pools, the player rows, then company noise (the
+ * idiosyncratic part). Fees and slippage come after these in the trade explanation. Never a name.
  */
-export type ExplainRow = 'market' | 'sector' | 'news' | 'event' | 'company' | 'flow' | 'players' | 'you';
-export const EXPLAIN_ROWS: readonly ExplainRow[] = ['market', 'sector', 'news', 'event', 'company', 'flow', 'players', 'you'] as const;
+export type ExplainRow = 'market' | 'sector' | 'news' | 'event' | 'flow' | 'players' | 'you' | 'company';
+export const EXPLAIN_ROWS: readonly ExplainRow[] = ['market', 'sector', 'news', 'event', 'flow', 'players', 'you', 'company'] as const;
 /** The pools inside the Flow row (flow pool detail, desk-flow-<pool>). Retail includes a folded player's own flow. */
 export type FlowPool = 'trend' | 'retail' | 'pension' | 'maker';
 export const FLOW_POOLS: readonly FlowPool[] = ['trend', 'retail', 'pension', 'maker'] as const;

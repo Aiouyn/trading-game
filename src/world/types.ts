@@ -523,6 +523,12 @@ export type Command =
   | { type: 'analyst.fire' }
   | { type: 'desk.unlock' }
   | { type: 'desk.resume' }
+  /** a Research Desk query: an asset over a closed window (clamped to closed days); the result is the dossier */
+  | { type: 'desk.query'; assetId: string; from: number; to: number }
+  /** one of the player's saved desk files (readable while the desk is locked) */
+  | { type: 'desk.file'; no: number }
+  /** the journal detail of one of the player's closed trades (read-only) */
+  | { type: 'journal.detail'; tripId: string }
   | { type: 'lesson.complete'; lessonId: string }
   | { type: 'goals.optIn'; on: boolean }
   | { type: 'recurring.add'; assetId: string; dollars: number; everyDays: number }

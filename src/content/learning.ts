@@ -13,7 +13,7 @@ export const ANALYST_TIERS: Record<AnalystTier, { weeklyCost: number; minRank: s
 };
 
 /** Research Desk: unlocked once at Operator, then paid a game week ahead. */
-export const DESK = { minRank: 'R3', unlockCost: 50_000, weeklyUpkeep: 5_000 };
+export const DESK = { minRank: 'R3', unlockCost: 50_000, weeklyUpkeep: 5_000, filesKeep: 40 };
 
 /** A game week, in game days: the period for analyst salary, desk upkeep and recurring buys' default cadence. */
 export const WEEK_DAYS = 7;
@@ -50,6 +50,9 @@ export const GOAL_LADDER: { id: string; nw?: number; profit?: true; positions?: 
   { id: 'goal-hold3', positions: 3 },
   { id: 'goal-nw250k', nw: 250_000 },
 ];
+
+/** The journal's replay: the window pads the holding time by this share on each side (velvet-trade-journal-replay.md). */
+export const JOURNAL = { replayPad: 0.2, listRows: 50 };
 
 /** Always-busy calendar: the horizon in game days. */
 export const CALENDAR_DAYS = 2;
