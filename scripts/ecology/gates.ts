@@ -2,6 +2,8 @@
  * Ecology gates (specs/quant-market-ecology.md, calibration table), ported from engine-staging to the v1 engine.
  *
  *   npx tsx scripts/ecology/gates.ts full   [--universe] [--seeds 8] [--tpd 720] [--days 1260] [--set k=v ...] [--out DIR] [--txt FILE]
+ *       (diagnostics: --first K runs seeds K.. so a release run can be split over processes; --drop k1,k2 removes top-level
+ *        layers of the config; --world a.b=v sets a nested config field, e.g. catalysts.peadShare=0)
  *   npx tsx scripts/ecology/gates.ts shadow [--universe] [--seeds 8] [--tpd 720] [--days 1260] [--set k=v ...] [--out DIR] [--txt FILE]
  *   npx tsx scripts/ecology/gates.ts report --dir DIR [--live-ref SHADOW_DIR] [--check-replay] [--txt FILE]
  *   npx tsx scripts/ecology/gates.ts replay --dir SHADOW_DIR [--set k=v ...] [--txt FILE]      (tuning only)
@@ -37,7 +39,7 @@
  *            the live path writes. So the FULL column gates dayNotional, and the SHADOW column shows the shadow gross flow
  *            (pool orders, ADV units) as INFO, not a gate. The live column (report --live-ref, or a shadow dir's own live
  *            lnP) carries the dayNotional gate for the shadow run.
- *   volRatio Tape's vol ratio, sd(daily log returns) · sqrt(daysPerYear) / expectedVol, median over seeds per asset; every
+ *   volRatio Tape's vol ratio, sd(daily log returns) · sqrt(daysPerYear) / expectedVol, RMS over seeds per asset; every
  *            asset in [0.85, 1.4], or in its universe class band from scripts/balance/bands.ts (UNIVERSE_VOL_BANDS, the
  *            same table run.ts uses). expectedVol uses the close's print share (closePrint) for the gate closes, and the
  *            jumpImmediate share for the live reference. Assets delisted in any seed are left out (Tape's rule).
@@ -94,6 +96,16 @@ interface SeedRun {
 function runSeed(seed: string, mode: 'full' | 'shadow', universe: boolean, tpd: number, days: number, set: Partial<EcologyConfig>): SeedRun {
   const eco: Partial<EcologyConfig> = mode === 'full' ? { mode: 'full', weight: 1, logDays: 1, ...set } : { mode: 'shadow', logDays: 1, ...set };
   const cfg: WorldConfig = worldConfig(universe, tpd, eco);
+  // --drop k1,k2 switches off top-level layers of the config (diagnostic: which layer makes a gate fail)
+  for (const k of arg('drop', '').split(',').filter(Boolean)) delete (cfg as unknown as Record<string, unknown>)[k];
+  // --world a.b=v (repeatable via ';'): sets a nested WorldConfig field (diagnostic, e.g. catalysts.peadShare=0)
+  for (const kv of arg('world', '').split(';').filter(Boolean)) {
+    const [k, v] = kv.split('=');
+    const keys = k!.split('.');
+    let t = cfg as unknown as Record<string, unknown>;
+    for (const kk of keys.slice(0, -1)) t = t[kk] as Record<string, unknown>;
+    t[keys[keys.length - 1]!] = Number(v);
+  }
   const ids = cfg.assets.map((a) => a.id);
   const n = ids.length;
   let s = createWorld(seed, cfg);
@@ -180,6 +192,12 @@ function volCorr(closes: number[][], flow: number[][], alive: boolean[]): number
   return mean(idx.map((i) => corr(diffs(closes[i]!).map(Math.abs), flow[i]!.slice(0, closes[i]!.length - 1))));
 }
 
+/**
+ * RMS over seeds (V1-PHASE1 F13): sqrt of the mean of the squared per-seed ratios, i.e. mean realized variance over expectedVol squared.
+ * The median is biased low for a rare-jump asset: AUSD (0.25 jumps a year) has runs with no jump (ratio ~0.15) and runs with one (~1.7).
+ */
+const rmsOf = (x: readonly number[]): number => Math.sqrt(x.reduce((a, b) => a + b * b, 0) / Math.max(1, x.length));
+
 /** Tape's vol ratio for every asset of one run (NaN for a delisted asset) */
 function volRatios(closes: number[][], alive: boolean[], expVol: number[], dpy: number): number[] {
   return closes.map((c, i) => {
@@ -201,6 +219,8 @@ const BANDS: Record<BandKey, { label: string; text: string; ok: (v: number) => b
   volCorr: { label: 'corr(|r_t|, traded value) (volume)', text: 'in (0.3, 0.6]', ok: (v) => v > 0.3 && v <= 0.6 },
 };
 const VOL_BAND: [number, number] = [0.85, 1.4];
+/** rare-jump and stablecoin names whose vol ratio gets a standard error in the report (V1-PHASE1 F13) */
+const VOL_SE_IDS: readonly string[] = ['AUSD', 'FLUX', 'DATA', 'AV10', 'AV30', 'IGCB'];
 /** the vol-ratio band of one asset: the universe's class band where bands.ts has one (the same table run.ts uses), else [0.85, 1.4] */
 const volBandOf = (id: string, universe: boolean): [number, number] => {
   const b = universe ? UNIVERSE_VOL_BANDS[id] : undefined;
@@ -247,20 +267,36 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
 
   // vol ratio: median over seeds for each asset, and every asset inside the band
   const vrs = runs.map((r) => volRatios(r.closes, r.alive, r.expVol, r.daysPerYear));
-  const assetVol = r0.ids.map((_, i) => median(vrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))));
+  const assetVol = r0.ids.map((_, i) => rmsOf(vrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))));
   const listed = assetVol.map((v, i) => ({ id: r0.ids[i]!, v })).filter((x) => Number.isFinite(x.v));
   const inBand = (x: { id: string; v: number }) => { const [lo, hi] = volBandOf(x.id, r0.universe); return x.v >= lo && x.v <= hi; };
-  const outside = listed.filter((x) => !inBand(x));
+  // V1-PHASE1 F13: the verdict uses the estimate's standard error. An asset FAILS only when its estimate ± 2 s.e. lies wholly
+  // outside its band; when the interval straddles a band edge it is UNDECIDED at this seed count (listed, not a pass).
+  // Band edges are not moved. Rare-jump names (FLUX, AUSD) need ~300 seeds to settle; at 8 seeds the interval is wide.
+  const seOf = (i: number) => {
+    const xs = vrs.map((v) => v[i]!).filter((y) => Number.isFinite(y)).map((y) => y * y);
+    const m = mean(xs), sdv = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / Math.max(1, xs.length - 1));
+    return sdv / Math.sqrt(xs.length) / (2 * Math.sqrt(m));
+  };
+  const verdict = listed.map((x) => {
+    const [lo, hi] = volBandOf(x.id, r0.universe);
+    const se = seOf(r0.ids.indexOf(x.id));
+    const fail = x.v + 2 * se < lo || x.v - 2 * se > hi;
+    const sure = x.v - 2 * se >= lo && x.v + 2 * se <= hi;
+    return { ...x, se, fail, undecided: !fail && !sure };
+  });
+  const outside = verdict.filter((x) => x.fail);
+  const undecided = verdict.filter((x) => x.undecided);
   let liveVr: string | undefined, liveVrPass: boolean | undefined;
   if (liveRuns) {
     const lvrs = liveRuns.map((r, k) => volRatios(liveCloses(r, k), r.alive, r.expVolLive, r.daysPerYear));
-    const lvAll = r0.ids.map((id, i) => ({ id, v: median(lvrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))) })).filter((x) => Number.isFinite(x.v));
+    const lvAll = r0.ids.map((id, i) => ({ id, v: rmsOf(lvrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))) })).filter((x) => Number.isFinite(x.v));
     const lv = lvAll.map((x) => x.v);
     liveVr = `min ${Math.min(...lv).toFixed(3)} med ${median(lv).toFixed(3)} max ${Math.max(...lv).toFixed(3)}`;
     liveVrPass = lvAll.every(inBand);
   }
   rows.push({
-    label: `vol ratio per asset, median over seeds (${listed.length} assets)`, text: r0.universe ? 'in band (class bands)' : 'every asset in [0.85, 1.4]',
+    label: `vol ratio per asset, RMS over seeds (${listed.length} assets)`, text: r0.universe ? 'in band (class bands), 2 s.e.' : 'every asset in [0.85, 1.4], 2 s.e.',
     value: `${Math.min(...listed.map((x) => x.v)).toFixed(3)}..${Math.max(...listed.map((x) => x.v)).toFixed(3)} med ${median(listed.map((x) => x.v)).toFixed(3)}`,
     pass: outside.length === 0,
     ...(liveVr ? { live: liveVr, livePass: liveVrPass } : {}),
@@ -273,11 +309,26 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
     const lres = row.livePass === undefined ? '' : row.livePass ? 'PASS' : 'FAIL';
     out.push(`${row.label.padEnd(56)}${row.value.padStart(24)}  ${res}${row.text.padEnd(30)}${row.live !== undefined ? row.live.padStart(24) : ''}${lres ? '  ' + lres : ''}`);
   }
-  if (outside.length) out.push(`vol ratio outside its band: ${outside.length} assets: ${outside.map((x) => `${x.id} ${x.v.toFixed(3)} [${volBandOf(x.id, r0.universe).join(', ')}]`).join(', ')}`);
+  if (outside.length) out.push(`vol ratio FAILS (estimate ± 2 s.e. wholly outside its band): ${outside.map((x) => `${x.id} ${x.v.toFixed(3)} ± ${x.se.toFixed(3)} [${volBandOf(x.id, r0.universe).join(', ')}]`).join(', ')}`);
+  if (undecided.length) out.push(`vol ratio UNDECIDED at ${runs.length} seeds (2 s.e. straddles a band edge; not a pass): ${undecided.map((x) => `${x.id} ${x.v.toFixed(3)} ± ${x.se.toFixed(3)} [${volBandOf(x.id, r0.universe).join(', ')}]`).join(', ')}`);
   out.push(`info: GARCH h (live engine) mean ${mean(runs.map((r) => r.hMean)).toFixed(4)}, max ${Math.max(...runs.map((r) => r.hMax)).toFixed(4)}`);
+  // V1-PHASE1 F13: the RMS over seeds of a rare-jump asset is a noisy estimate at a few seeds. Its standard error
+  // (delta method on the mean squared ratio, se(RMS) = se(mean x^2) / (2 RMS), x = per-seed ratio) is shown for the rare-jump
+  // names and for any asset outside its band, so a verdict at 8 seeds is not read as settled.
+  const seDetail = listed.filter((x) => VOL_SE_IDS.includes(x.id) || !inBand(x));
+  if (seDetail.length) {
+    const cells = seDetail.map((x) => {
+      const i = r0.ids.indexOf(x.id);
+      const xs = vrs.map((v) => v[i]!).filter((y) => Number.isFinite(y)).map((y) => y * y);
+      const m = mean(xs), sdv = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / Math.max(1, xs.length - 1));
+      const se = sdv / Math.sqrt(xs.length) / (2 * Math.sqrt(m));
+      return `${x.id} ${x.v.toFixed(3)} ± ${se.toFixed(3)}`;
+    });
+    out.push(`vol ratio RMS ± s.e. (${runs.length} seeds): ${cells.join(', ')}`);
+  }
   out.push(`info: ecology gross flow ${mean(runs.map((r) => mean(r.gross.flat()))).toFixed(4)} ADV per asset-day (log only; quote().volume is not gated)`);
   const gated = rows.filter((x) => x.pass !== null);
-  out.push(`gates ${col}: ${gated.filter((x) => x.pass).length}/${gated.length} PASS${rows.some((x) => x.pass === null) ? ' (volCorr INFO: see live column)' : ''}`);
+  out.push(`gates ${col}: ${gated.filter((x) => x.pass).length}/${gated.length} PASS${rows.some((x) => x.pass === null) ? ' (volCorr INFO: see live column)' : ''}${undecided.length ? `; ${undecided.length} vol asset(s) undecided at ${runs.length} seeds` : ''}`);
   if (liveRuns) {
     const lg = rows.filter((x) => x.livePass !== undefined);
     out.push(`gates live: ${lg.filter((x) => x.livePass).length}/${lg.length} PASS`);
@@ -312,7 +363,9 @@ if (cmd === 'full' || cmd === 'shadow') {
   const set = ecologyOverrides();
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
-  for (let k = 1; k <= seeds; k++) {
+  // --first K runs seeds K..K+seeds-1, so independent processes can split a release run (merge the dirs with report)
+  const first = numArg('first', 1);
+  for (let k = first; k < first + seeds; k++) {
     const seed = `${prefix}${String(k).padStart(2, '0')}`;
     const r = runSeed(seed, cmd, universe, tpd, days, set);
     writeFileSync(path.join(out, `${seed}.json`), JSON.stringify(r));

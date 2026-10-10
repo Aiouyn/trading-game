@@ -43,7 +43,8 @@ describe('close print share (F1: jumps print partly at once)', () => {
 
   it('closePrint is the live jumpImmediate off the ecology, the newsPrint share in full mode, 1 in the bare engine', () => {
     expect(closePrint(defaultConfig())).toBe(1);
-    expect(closePrint(universeConfig())).toBe(0.5);
+    // universe.ts: the closing auction prints the day's news in full (newsPrint 1, V1-PHASE1 F2)
+    expect(closePrint(universeConfig())).toBe(1);
     expect(ecologyWeight(universeConfig())).toBe(1);
     expect(closePrint(universeConfig({ ecology: undefined }))).toBe(0.7);
   });
@@ -135,7 +136,8 @@ describe('closePrint blend (F1 review: the hybrid close is part live, part aucti
  * Bare-engine golden. The bare path (defaultConfig, 17 assets, seed golden-bare, 400 game days at 24 ticks) is pinned to a
  * fingerprint of lnP, h and lnV. Calibration changes move it on purpose (the GARCH input, regimeShockSd); a change that
  * moves it without a matching measured reason is a regression. Update the constant only with the measured reason in the
- * commit body. Fingerprint at the dayDiff GARCH input (V1-PHASE1 F1): fa2ca82e.
+ * commit body. Fingerprint at the dayDiff GARCH input (V1-PHASE1 F1): fa2ca82e; re-pinned to 461b6a16 for the Ito centring of the
+ * price transient (sim.ts, V1-PHASE1 F14: the price drift gains 0.5 sigma^2 (1 - perm^2), so lnP - lnV is a zero-mean OU).
  */
 describe('bare engine golden (pins the bare price path)', () => {
   it('400 game days of defaultConfig at seed golden-bare reproduce the fingerprint', () => {
@@ -145,6 +147,6 @@ describe('bare engine golden (pins the bare price path)', () => {
     let h = 2166136261;
     const sig = s.assets.map((a) => `${a.id}:${a.lnP.toFixed(12)}:${a.h.toFixed(12)}:${a.lnV.toFixed(12)}`).join('|');
     for (const c of sig) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
-    expect((h >>> 0).toString(16).padStart(8, '0')).toBe('fa2ca82e');
+    expect((h >>> 0).toString(16).padStart(8, '0')).toBe('461b6a16');
   });
 });

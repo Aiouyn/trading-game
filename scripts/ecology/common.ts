@@ -46,8 +46,9 @@ export const MOMENTUM_FIX = { permanentShare: 0.9, jumpPermanent: 1, jumpImmedia
  * defaults to ecology full.
  */
 export function worldConfig(universe: boolean, tpd: number, ecology: Partial<EcologyConfig>): WorldConfig {
+  // the universe's own ecology settings (universe.ts: newsPrint, ratePrint) stay unless the run overrides them
   return universe
-    ? universeConfig({ ticksPerDay: tpd, ecology })
+    ? universeConfig({ ticksPerDay: tpd, ecology: { ...universeConfig().ecology, ...ecology } })
     : defaultConfig({ ticksPerDay: tpd, ...MOMENTUM_FIX, ecology });
 }
 
