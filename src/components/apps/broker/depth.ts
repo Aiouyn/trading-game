@@ -1,18 +1,21 @@
-// The Broker's order depth read (engine depthByPool) as a pure selector, so the rule is tested without React.
-import { depthByPool, ecologyLog, type DepthByPool, type WorldState } from '@/engine';
+// The Broker's order depth row as a pure selector over the server's depth frame (H8), so the rule is tested without React.
+// The client never reads the ecology log: its mirror holds only this viewer's account, so a read there is empty (or wrong).
+import type { DepthFrame } from '@/engine';
+
+export interface DepthRow {
+  /** the closed game day the row is for */
+  day: number;
+  depth: number;
+  desired: DepthFrame['assets'][string]['desired'];
+}
 
 /**
- * The newest closed day whose log row holds this asset, read through depthByPool. A listing that postdates the
- * last close has no row yet, and an asset with no ecology has no log at all: both give null, never a throw (the
- * engine throws for a day or asset the log does not hold, so the row is found first).
+ * The newest closed day's depth for one name, from the server's frame. Null before the first close, for a listing that
+ * postdates that close (it has no row yet), and for an unknown name: never a throw.
  */
-export function latestDepth(world: WorldState, assetId: string): DepthByPool | null {
-  const idx = world.config.assets.findIndex((a) => a.id === assetId);
-  if (idx < 0) return null;
-  const log = ecologyLog(world);
-  for (let k = log.length - 1; k >= 0; k--) {
-    const row = log[k]!;
-    if (row.assets[idx] !== undefined) return depthByPool(world, assetId, row.day);
-  }
-  return null;
+export function depthRow(frame: DepthFrame | null | undefined, assetId: string): DepthRow | null {
+  if (!frame) return null;
+  const a = frame.assets[assetId];
+  if (!a) return null;
+  return { day: frame.day, depth: a.depth, desired: a.desired };
 }

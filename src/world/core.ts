@@ -10,6 +10,11 @@ export const CREDIT_EVERY = 12;
 export const SHARE_EVERY = 60;
 export const BOARD_EVERY = 60;
 export const NW_EVERY = 12;
+/**
+ * The public short interest is computed and sent at this cadence, and only when the figure changed (never per tick for
+ * every stock). 12 ticks is one real minute.
+ */
+export const SHORT_INTEREST_EVERY = 12;
 /** full offline earnings for this long after leaving (12 real hours), then the offline rate */
 export const OFFLINE_GRACE = 12 * 720;
 export const WIRE_KEEP = 400;

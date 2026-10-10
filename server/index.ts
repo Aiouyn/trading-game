@@ -4,19 +4,19 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
 import { WorldHost } from './host';
 import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
-import { ListWire, welcomeJson } from './wire';
+import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
 import { validHandle, COUNTRIES } from '../src/world/players';
+import { freshWorldSeed } from '../src/world/seed';
 import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type ServerMsg } from '../src/net/protocol';
 import type { ChatMessage } from '../src/world/types';
 
 /**
  * The world server: one persistent world, a 5-second tick, a WebSocket per player.
- *   PORT (8787) · DATA_DIR (./world-data) · SEED (avalon) · TICK_MS (5000) · WARMUP_DAYS (63)
+ *   PORT (8787) · DATA_DIR (./world-data) · SEED (random at first boot, then kept in the database) · TICK_MS (5000) · WARMUP_DAYS (63)
  *   ADMIN_TOKEN (enables POST /api/admin/advance for dev and tests)
  */
 const PORT = Number(process.env.PORT ?? DEFAULT_WORLD_PORT);
 const DATA_DIR = process.env.DATA_DIR ?? './world-data';
-const SEED = process.env.SEED ?? 'avalon';
 const TICK_MS = Number(process.env.TICK_MS ?? 5000);
 const WARMUP_DAYS = Number(process.env.WARMUP_DAYS ?? 63);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
@@ -26,10 +26,16 @@ const REGISTER_LIMIT = Number(process.env.REGISTER_LIMIT ?? 20);
 
 const log = (m: string) => console.log(`[world ${new Date().toISOString()}] ${m}`);
 const store = new Store(DATA_DIR);
+/** an explicit SEED (tests, e2e, a dev world) wins; otherwise the live world keeps the random seed drawn at its first boot */
+const SEED = process.env.SEED ?? store.worldSeed(freshWorldSeed);
 const host = new WorldHost(store, { seed: SEED, tickMs: TICK_MS, warmupDays: WARMUP_DAYS, snapshotEvery: 60, log });
 host.boot();
 /** the asset list wire: the version the tick stream last sent, and the cached defs (see server/wire.ts) */
 const listWire = new ListWire(host.g);
+/** the public short interest on the tick stream: slow cadence, sent on change (see server/wire.ts) */
+const shortInterest = new ShortInterestWire();
+/** the order depth of the latest closed day, on the tick that closed it and in every welcome (see server/wire.ts DepthWire) */
+const depthWire = new DepthWire();
 
 interface Conn { ws: WebSocket; pid: string | null; budget: number; last: number }
 const conns = new Set<Conn>();
@@ -198,9 +204,11 @@ function publicCache() {
   if (!pubCache || pubCache.tick !== host.g.market.tick || pubCache.cfgSeq !== configSeq(host.g)) {
     const all = directory(host.g);
     const top = topDirectory(all);
+    const depth = depthWire.frame(host.g);
     pubCache = {
       tick: host.g.market.tick, cfgSeq: configSeq(host.g), pubJson: JSON.stringify(publicState(host.g)), all, top,
-      topJson: all.length <= top.length ? JSON.stringify(top) : null, frameJson: JSON.stringify(marketFrame(host.g, true)),
+      topJson: all.length <= top.length ? JSON.stringify(top) : null,
+      frameJson: JSON.stringify({ ...marketFrame(host.g, true), shortInterest: welcomeShortInterest(host.g), ...(depth ? { depth } : {}) }),
     };
   }
   return pubCache;
@@ -220,7 +228,10 @@ host.onTick((out, publicTick) => {
   // the asset list moves on an IPO, a delisting or a spin-off: the frame of that tick carries it once. Clients connected
   // since then got it in their welcome, so a normal tick carries only the small cfgSeq.
   // shared parts are serialized once per tick, not once per socket
-  const frameJson = JSON.stringify(listWire.tickFrame(host.g, publicTick));
+  const frame = listWire.tickFrame(host.g, publicTick);
+  const si = shortInterest.due(host.g);
+  const dep = depthWire.due(host.g);
+  const frameJson = JSON.stringify({ ...frame, ...(si ? { shortInterest: si } : {}), ...(dep ? { depth: dep } : {}) });
   const wireJson = JSON.stringify(out.wire);
   const rankJson = JSON.stringify(out.rankUps);
   const pubJson = publicTick ? JSON.stringify(publicState(host.g)) : null;

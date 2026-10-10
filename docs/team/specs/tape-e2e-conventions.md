@@ -59,6 +59,6 @@ Nothing may automatically leak a player's strategy, style or holdings. Reveals a
 - Exploit and mirror bots live in `scripts/balance/` or `tests/e2e/` only. They are test code, not game UI, and must never be described as a public view of anyone's book.
 - Shared **no-leak helper** `assertNoLeak(page)` used at the end of every session-length spec:
   1. IndexedDB: list databases with `indexedDB.databases()`. Allowed: `trading-game` with store `saves` only. Fail on any other database or object store, or on any value carrying a run-file marker (Quant's format header: engine version + config hash + ordered intents) outside an Export.
-  2. `localStorage`: must be empty. `sessionStorage`: only the allowlisted key `tg-replay-intro` (the "Replay intro" flag, not a trade replay).
+  2. `localStorage`: only the allowlisted keys `tg-prefs` (shell layout, palette, language, cosmetic) and `tg-token` (the session); any other key fails. `sessionStorage`: only the allowlisted key `tg-replay-intro` (the "Replay intro" flag, not a trade replay).
   3. No network request to any origin other than the app's own during the session (`page.on('request')`).
   4. Portfolio, Wire and Rivals render no other agent's positions: no `position-*` row whose owner isn't the player, and no Wire item that names a rival's holding unless it is a legal filing item.

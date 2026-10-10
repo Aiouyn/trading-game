@@ -1,12 +1,11 @@
 'use client';
 
 import { useMemo } from 'react';
-import { publicShortInterest } from '@/engine';
 import { tone, toneText } from '@/game/format';
 import { useGame } from '@/game/store';
 import { isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
-import { latestDepth } from './depth';
+import { depthRow } from './depth';
 
 const POOLS = ['value', 'trend', 'retail', 'pension'] as const;
 
@@ -16,12 +15,12 @@ const POOLS = ['value', 'trend', 'retail', 'pension'] as const;
  * concentrated the engine withholds the figure (null), and the row says why in one line.
  */
 export function ShortInterestRow({ ticker }: { ticker: string }) {
-  const world = useGame((s) => s.world)!;
+  // the server computes the figure (it sees every account; this client sees only its own), and sends it on change
+  const si = useGame((s) => s.shortInterest);
   const config = useGame((s) => s.config);
-  const si = useMemo(() => publicShortInterest(world), [world]);
   const def = config.assets.find((a) => a.id === ticker);
   if (!def || def.assetClass !== 'stock' || !def.sharesOutstanding) return null;
-  const v = si[ticker];
+  const v = si?.[ticker];
   return (
     <div data-testid="short-interest">
       <div className="flex justify-between gap-2 py-0.5 text-small">
@@ -41,10 +40,11 @@ export function ShortInterestRow({ ticker }: { ticker: string }) {
  * volume, before the market cleared it. Pool types only; no trader or account is named.
  */
 export function DepthByPool({ ticker }: { ticker: string }) {
-  const world = useGame((s) => s.world)!;
+  // the server's depth frame for the newest closed day (store.depth, H8): the client never reads the ecology log itself
+  const frame = useGame((s) => s.depth);
   const config = useGame((s) => s.config);
   // the newest closed day that holds this name (a listing that postdates the last close has none yet)
-  const d = useMemo(() => latestDepth(world, ticker), [world, ticker]);
+  const d = useMemo(() => depthRow(frame, ticker), [frame, ticker]);
   // a name that does not trade has no book to show: no depth and no flows, only the reason (a delisted name's log is frozen)
   if (isUntradable(config, ticker)) return <p className="text-caption text-fg-faint" data-testid="depth-untradable">{t('broker.depth.untradable')}</p>;
   if (!d) return <p className="text-caption text-fg-faint" data-testid="depth-none">{t('broker.depth.none')}</p>;

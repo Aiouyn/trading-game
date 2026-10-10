@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, stepMany } from './sim';
 import { universeConfig } from './universe';
-import { depthByPool, explainMove } from './ecology';
+import { depthByPool, ecologyLog, explainMove, playersShown } from './ecology';
 import { openAccount, placeOrder } from './trading';
 import type { WorldState } from './types';
 
 const TPD = 24;
 const ASSET = 'OSTV';
-const ALLOWED = new Set(['value', 'trend', 'retail', 'pension', 'maker', 'news', 'you', 'players']);
+const ALLOWED = new Set(['market', 'sector', 'news', 'event', 'company', 'flow', 'players', 'you']);
 
 /** Opens the given accounts, then for each of `days` game days every account buys `qty` of ASSET at the open. */
 function trade(players: string[], days: number, qty = 5): WorldState {
@@ -111,5 +111,85 @@ describe('explainMove', () => {
     expect(three.foldedDays).toContain(2);
     // the implied day 2 Players flow is exactly zero: the lone account never reached the Players row
     expect((three.parts.players ?? 0) - (two.parts.players ?? 0)).toBe(0);
+  });
+});
+
+/**
+ * window_diff_no_isolate (Tape research-desk hunt, P2): the harness. For 20 seeds, every adjacent closed pair (from, to) and
+ * (from, to + 1), and three assets, the day-diff of the Players row is the only player flow a viewer can read from explain,
+ * and the depth Retail figure is the only other public player figure. Checked against the log:
+ *  - a non-zero Players diff for day d needs that day to show Players (5+ human accounts, none above 40%);
+ *  - the depth Retail figure on day d carries the player's own flow exactly when the day folds, and never when it shows,
+ *    so subtracting depth from explain reveals nothing a fold does not already show.
+ */
+describe('window_diff_no_isolate (harness, 20 seeds, P2)', () => {
+  const HTPD = 8;
+  const HDAYS = 6;
+  const HUMANS = ['h0', 'h1', 'h2', 'h3', 'h4'];
+  const SEEDS = Array.from({ length: 20 }, (_, i) => `window-diff-${i}`);
+  /** enough cash that every order fills: the harness tests the fold, not the cash limit */
+  const HCASH = 1e7;
+
+  /** An NPC persona's account, as the world opens it (createPlayer): the same account with the npc flag set. */
+  function openNpc(s: WorldState, id: string): WorldState {
+    const o = openAccount(s, id, HCASH);
+    return { ...o, accounts: { ...o.accounts, [id]: { ...o.accounts[id]!, npc: true } } };
+  }
+
+  /** Which accounts trade on a day, and how much: varied by seed and day, so both shown and folded days occur. */
+  function schedule(i: number, d: number): { id: string; qty: number }[] {
+    const ids = [...HUMANS, 'n0'];
+    const k = 1 + ((i + 2 * d) % 6);
+    const out: { id: string; qty: number }[] = [];
+    for (let j = 0; j < k; j++) out.push({ id: ids[(j + i + d) % ids.length]!, qty: 1 + ((i * 7 + d * 3 + j * 11) % 40) });
+    return out;
+  }
+
+  function harness(i: number): { s: WorldState; assets: string[] } {
+    let s = createWorld(SEEDS[i]!, universeConfig({ ticksPerDay: HTPD }));
+    const assets = s.config.assets.filter((a) => a.assetClass === 'stock' && a.listed !== false && !a.delisted).slice(0, 3).map((a) => a.id);
+    for (const id of HUMANS) s = openAccount(s, id, HCASH);
+    s = openNpc(s, 'n0');
+    for (let d = 0; d < HDAYS; d++) {
+      for (const { id, qty } of schedule(i, d)) {
+        for (const asset of assets) s = placeOrder(s, { playerId: id, assetId: asset, side: 'buy', type: 'market', qty }).state;
+      }
+      s = stepMany(s, HTPD).state;
+    }
+    return { s, assets };
+  }
+
+  it('a Players diff is attributed only to a day that shows Players, and depth reveals own flow only on a folded day', () => {
+    let shownDays = 0;
+    let foldedDays = 0;
+    for (let i = 0; i < SEEDS.length; i++) {
+      const { s, assets } = harness(i);
+      const last = ecologyLog(s).at(-1)!.day;
+      for (const asset of assets) {
+        for (let from = 0; from < last; from++) {
+          for (let to = from; to < last; to++) {
+            const d = to + 1;
+            const a = explainMove(s, asset, from, to);
+            const b = explainMove(s, asset, from, d);
+            const impliedPlayers = (b.parts.players ?? 0) - (a.parts.players ?? 0);
+            const row = ecologyLog(s).find((x) => x.day === d)!.assets.find((x) => x.id === asset)!;
+            const shown = playersShown(row.players);
+            if (shown) shownDays++;
+            else foldedDays++;
+            // the Players diff needs a day that shows Players
+            if (impliedPlayers !== 0) expect(shown, `seed ${i} ${asset} day ${d}`).toBe(true);
+            // a folded day has no Players flow at all
+            if (!shown) expect(impliedPlayers, `seed ${i} ${asset} day ${d}`).toBe(0);
+            // depth Retail = NPC-and-pool Retail, plus the human's own flow on a folded day only
+            const dep = depthByPool(s, asset, d);
+            const base = row.desired.retail + (row.desired.npc ?? 0);
+            expect(dep.desired.retail - base).toBeCloseTo(shown ? 0 : row.desired.own, 12);
+          }
+        }
+      }
+    }
+    // the harness must exercise both sides of the rule, or it proves nothing
+    expect(shownDays).toBeGreaterThan(0);
+    expect(foldedDays).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,6 @@
 import {
   indexLevel, indexMembers, worldEventView, type Account, type AssetDef, type AssetState, type Order, type RatesState, type RegimeId,
-  type WorldConfig, type WorldEventView, type WorldState,
+  type WorldConfig, type WorldEventView, type WorldState, type DepthFrame,
 } from '@/engine';
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { contractProgress } from './players';
@@ -74,6 +74,16 @@ export interface MarketFrame {
   rates: Pick<RatesState, 'policy' | 'y2' | 'y10' | 'y30' | 'expectedMove' | 'nextMeeting' | 'nextRelease' | 'releaseKind'> | null;
   /** the shared world event now (announced or live), as the app may see it: never its end tick or planned moves */
   worldEvent: WorldEventFrame | null;
+  /**
+   * public short interest per stock (engine publicShortInterest, computed on the server): sent in every welcome and on the
+   * slow-cadence ticks where it changed (server/wire.ts ShortInterestWire). Absent on other ticks.
+   */
+  shortInterest?: Record<string, number | null>;
+  /**
+   * the latest closed day's order depth per asset, by pool type (engine depthFrame, computed on the server): sent in every
+   * welcome and on the tick that closed a new day (server/wire.ts DepthWire). Absent on other ticks and before the first close.
+   */
+  depth?: DepthFrame;
 }
 
 const r2 = (x: number) => Math.round(x * 100) / 100;

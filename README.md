@@ -15,7 +15,7 @@ Open http://localhost:3000, press **Start**, pick a handle. Other players on you
 
 Separately: `npm run world` (world server only) and `npm run dev` (web app only). The world lives in `./world-data` (SQLite); delete that folder for a brand-new world.
 
-World server settings (environment variables): `PORT` (8787), `DATA_DIR` (`./world-data`), `SEED` (`avalon`), `TICK_MS` (5000 = one game day per real hour), `WARMUP_DAYS` (63 days of history before the world opens), `ADMIN_TOKEN` (enables the dev-only `/api/admin/grant` and `/api/admin/advance`). The web app finds the world on the same host, port 8787; override with `NEXT_PUBLIC_WORLD_URL`.
+World server settings (environment variables): `PORT` (8787), `DATA_DIR` (`./world-data`), `SEED` (unset: a random seed drawn at the world's first boot and kept in `world.db`; set it to pin a world), `TICK_MS` (5000 = one game day per real hour), `WARMUP_DAYS` (63 days of history before the world opens), `ADMIN_TOKEN` (enables the dev-only `/api/admin/grant` and `/api/admin/advance`). The web app finds the world on the same host, port 8787; override with `NEXT_PUBLIC_WORLD_URL`.
 
 ## Checks
 

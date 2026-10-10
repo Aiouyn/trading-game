@@ -1,8 +1,10 @@
 import { indexLevel, portfolio, universeConfig } from '../src/engine';
 import { createHistory, ensureSeries, ensureVolume, record, lastTicks, type History } from '../src/game/history';
 import { applyCommand, createGame, stepGame } from '../src/world/game';
+import { flagNpcAccounts } from '../src/world/players';
 import { BOARD_EVERY } from '../src/world/core';
 import type { Command, CommandResult, GameState, StepOutput } from '../src/world/types';
+import type { EcoArchiveDay } from '../src/engine';
 import type { HistoryPayload, NwHistoryPayload } from '../src/net/protocol';
 import type { Store } from './db';
 
@@ -33,6 +35,8 @@ export class WorldHost {
   private nextAt = 0;
   private listeners: ((out: StepOutput, publicTick: boolean) => void)[] = [];
   private ticksSinceSnapshot = 0;
+  /** the last game day whose explain archive row is in the store (the archive is written day by day, not in snapshots) */
+  private archivedThrough = -Infinity;
 
   constructor(private store: Store, private opts: HostOptions) {}
 
@@ -40,11 +44,26 @@ export class WorldHost {
     this.opts.log?.(msg);
   }
 
+  /**
+   * The explain archive is read back from its own rows, up to the snapshot's close: a later row is a day the replay below
+   * re-derives (the rows are idempotent, so a crash between the two writes cannot duplicate a day).
+   */
+  private loadArchive(): void {
+    const eco = this.g.market.ecology;
+    if (!eco) return;
+    const days = this.store.loadArchiveDays().map((j) => JSON.parse(j) as EcoArchiveDay).filter((d) => d.day <= eco.day);
+    if (days.length === 0) return;
+    this.g.market.ecology = { ...eco, archive: days };
+    this.archivedThrough = days[days.length - 1]!.day;
+  }
+
   /** Load the world from disk, or create it (with warmup history) on first start. */
   boot(): void {
     const snap = this.store.latestSnapshot();
     if (snap) {
       this.g = JSON.parse(snap.data) as GameState;
+      flagNpcAccounts(this.g); // saves from before the account flag (P1)
+      this.loadArchive();
       const h = this.store.getBlob('history');
       this.history = h ? (JSON.parse(h) as History) : this.freshHistory();
       const nw = this.store.getBlob('nw');
@@ -65,7 +84,7 @@ export class WorldHost {
       this.log(`world loaded at tick ${this.g.market.tick} (${Object.keys(this.g.players).length} players, replayed ${cmds.length} commands)`);
     } else {
       this.log(`creating world "${this.opts.seed}" with ${this.opts.warmupDays} days of history…`);
-      const ids = this.seriesIds(null);
+      const ids = this.seriesIds();
       this.history = createHistory(ids.all, 720, ids.volume);
       this.g = createGame(this.opts.seed, {
         warmupDays: this.opts.warmupDays,
@@ -81,12 +100,12 @@ export class WorldHost {
   }
 
   private freshHistory(): History {
-    const ids = this.seriesIds(this.g);
+    const ids = this.seriesIds();
     return createHistory(ids.all, 720, ids.volume);
   }
 
   /** The starting universe. Assets listed later (IPOs, spin-offs) get their series in recordTick. */
-  private seriesIds(_g: GameState | null): { all: string[]; volume: string[] } {
+  private seriesIds(): { all: string[]; volume: string[] } {
     const c = universeConfig();
     const assets = c.assets.map((a) => a.id);
     return { all: [...c.indices.map((i) => i.id), ...assets], volume: assets };
@@ -171,7 +190,17 @@ export class WorldHost {
   }
 
   snapshot(): void {
-    this.store.saveSnapshot(this.g.market.tick, JSON.stringify(this.g));
+    const eco = this.g.market.ecology;
+    let state: GameState = this.g;
+    if (eco?.archive) {
+      const fresh = eco.archive.filter((d) => d.day > this.archivedThrough);
+      if (fresh.length) {
+        this.store.saveArchiveDays(fresh.map((d) => ({ day: d.day, json: JSON.stringify(d) })), eco.archive[0]!.day);
+        this.archivedThrough = fresh[fresh.length - 1]!.day;
+      }
+      state = { ...this.g, market: { ...this.g.market, ecology: { ...eco, archive: undefined } } };
+    }
+    this.store.saveSnapshot(this.g.market.tick, JSON.stringify(state));
     this.store.setBlob('history', JSON.stringify(this.history));
     this.store.setBlob('nw', JSON.stringify(this.nw));
     this.ticksSinceSnapshot = 0;
