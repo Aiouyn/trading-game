@@ -1,0 +1,37 @@
+/*
+ * Window body and handles for the Quay desktop (P2-032, P2-030, P2-045). Scoped under .os-root like
+ * os.css, in the components layer so app Tailwind utilities win. Phase 2 step 1 additions only.
+ */
+@layer components {
+  /* Window content: fills the body, scrolls inside the window, never the page. */
+  .os-root .os-win-body { container-type: inline-size; }
+  .os-root .os-body {
+    flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 12px;
+  }
+  .os-root .os-body-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+
+  /* Edge handles for resize (8 px grab zone, corners 10 px). Cursors follow the edge. */
+  .os-root .os-rz { position: absolute; z-index: 4; }
+  .os-root .os-rz-n, .os-root .os-rz-s { left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
+  .os-root .os-rz-n { top: 0; }
+  .os-root .os-rz-s { bottom: 0; }
+  .os-root .os-rz-e, .os-root .os-rz-w { top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
+  .os-root .os-rz-e { right: 0; }
+  .os-root .os-rz-w { left: 0; }
+  .os-root .os-rz-ne, .os-root .os-rz-nw, .os-root .os-rz-se, .os-root .os-rz-sw { width: 10px; height: 10px; }
+  .os-root .os-rz-ne { top: 0; right: 0; cursor: nesw-resize; }
+  .os-root .os-rz-sw { bottom: 0; left: 0; cursor: nesw-resize; }
+  .os-root .os-rz-nw { top: 0; left: 0; cursor: nwse-resize; }
+  .os-root .os-rz-se { bottom: 0; right: 0; cursor: nwse-resize; }
+
+  /* The close prompt for a Broker with an order pending (P2-030). Sits under the title bar. */
+  .os-root .os-confirm {
+    display: flex; flex-direction: column; gap: 10px; padding: 10px 12px;
+    background: var(--color-ink-2); border-bottom: 1px solid var(--os-window-border);
+  }
+}
+
+/* A narrow window stacks the Broker's ticket and asset panel (P2-046). */
+@container (max-width: 640px) {
+  .os-root .os-body-row { grid-template-columns: minmax(0, 1fr); }
+}

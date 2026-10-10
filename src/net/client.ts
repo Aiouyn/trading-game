@@ -6,7 +6,7 @@ import type { PlayerView } from '@/world/view';
 
 export interface Ack { ok: boolean; error?: string; data?: unknown; me?: PlayerView }
 
-const TOKEN_KEY = 'tycoon.token';
+const TOKEN_KEY = 'tg-token'; // migrated from tycoon.token on boot (shell/prefs migrateLegacy)
 
 /** The world server lives next to the web app (same host, its own port), unless configured. */
 export function worldHttpUrl(): string {

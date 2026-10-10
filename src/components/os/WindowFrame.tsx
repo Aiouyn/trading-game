@@ -1,0 +1,206 @@
+'use client';
+
+// One window (P2-011..P2-037): title bar with collapse, fill and close; a drag that follows the
+// pointer live through a transform and commits the snap or the free rect on release (C-07); edge
+// resize with the minimum sizes (P2-031, P2-032); the close prompt when a Broker has an order pending
+// (P2-030). Every change goes through the reducer, so the window rules live in one place.
+import { type PointerEvent as ReactPointerEvent, useId, useRef, useState } from 'react';
+import { t } from '@/i18n';
+import { APPS } from '@/shell/apps';
+import type { Rect, Size } from '@/shell/geometry';
+import type { Win } from '@/shell/wm';
+import { APP_GLYPH } from './appMap';
+import { AppBody } from './appViews';
+import { Glyph } from './glyphs';
+import { type Edge, type SnapTarget, resizeRect, snapTargetAt, targetRect } from './windowMath';
+import { dispatchWm } from './shellStore';
+
+const EDGES: readonly Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+
+export interface WindowFrameProps {
+  win: Win;
+  /** The projected rect, relative to the work area (what the shell shows now). */
+  rect: Rect;
+  active: boolean;
+  /** Free placement is allowed only in the full layout mode (C-26: user snaps are refused below it). */
+  free: boolean;
+  wa: Size;
+  gutter: number;
+}
+
+export function WindowFrame({ win, rect, active, free, wa, gutter }: WindowFrameProps) {
+  const def = APPS[win.app];
+  const frameRef = useRef<HTMLDivElement>(null);
+  const titleId = `win-title-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
+  const [live, setLive] = useState<Rect | null>(null);
+  const [target, setTarget] = useState<SnapTarget | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const shown = live ?? rect;
+  const name = t(def.titleKey);
+  const sub = win.app === 'broker' ? win.props.ticker : win.app === 'research' ? win.props.fileId : undefined;
+
+  const focusWin = (): void => {
+    if (!active) dispatchWm({ type: 'focus', id: win.id });
+  };
+
+  const onTitleDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
+    focusWin();
+    const frame = frameRef.current;
+    const box = frame?.parentElement?.getBoundingClientRect();
+    if (!free || !frame || !box) return;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let dx = 0;
+    let dy = 0;
+    let cur: SnapTarget | null = null;
+    const move = (ev: PointerEvent): void => {
+      dx = ev.clientX - sx;
+      dy = ev.clientY - sy;
+      frame.style.transform = `translate(${dx}px, ${dy}px)`;
+      const next = snapTargetAt(ev.clientX - box.left, ev.clientY - box.top, box.width, box.height);
+      if (next !== cur) {
+        cur = next;
+        setTarget(next);
+      }
+    };
+    const up = (): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      frame.style.transform = '';
+      setTarget(null);
+      if (cur !== null) {
+        if (cur === 'fill') {
+          if (!win.filled) dispatchWm({ type: 'fill', id: win.id });
+        } else {
+          dispatchWm({ type: 'snap', id: win.id, slot: cur });
+        }
+      } else if (Math.abs(dx) + Math.abs(dy) > 1) {
+        dispatchWm({ type: 'move', id: win.id, rect: { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h } });
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const startResize = (e: ReactPointerEvent<HTMLDivElement>, edge: Edge): void => {
+    if (!free || e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    focusWin();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let latest = rect;
+    const move = (ev: PointerEvent): void => {
+      latest = resizeRect(rect, edge, ev.clientX - sx, ev.clientY - sy, def, wa);
+      setLive(latest);
+    };
+    const up = (): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setLive(null);
+      const changed = latest.x !== rect.x || latest.y !== rect.y || latest.w !== rect.w || latest.h !== rect.h;
+      if (changed) dispatchWm({ type: 'resize', id: win.id, rect: latest });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const close = (): void => {
+    const r = dispatchWm({ type: 'close', id: win.id });
+    if (!r.ok && r.reason === 'confirm') setConfirm(true);
+  };
+
+  const closeAnyway = (): void => {
+    setConfirm(false);
+    dispatchWm({ type: 'close', id: win.id, force: true });
+  };
+
+  const preview = target !== null && (
+    <div
+      className="os-snap"
+      data-testid="snap-preview"
+      aria-hidden
+      style={{ ...targetRect(target, wa, gutter), position: 'absolute' }}
+    />
+  );
+
+  return (
+    <>
+      {preview}
+      <div
+        ref={frameRef}
+        className={`os-win${active ? ' active' : ''}`}
+        role="dialog"
+        aria-labelledby={titleId}
+        data-testid={`win-${win.id}`}
+        data-app={win.app}
+        style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h }}
+        onPointerDown={focusWin}
+      >
+        <div className="os-tb" onPointerDown={onTitleDown} data-testid={`win-${win.id}-title`}>
+          <span className="os-tb-gl"><Glyph name={APP_GLYPH[win.app]} size={15} /></span>
+          <span id={titleId} className="os-tb-nm">{name}</span>
+          {sub !== undefined && <span className="os-tb-sub">{sub}</span>}
+          <span className="os-ctl">
+            <button
+              type="button"
+              className="os-ctl-btn"
+              aria-label={t('shell.win.collapse')}
+              title={t('shell.win.collapse')}
+              data-testid={`win-${win.id}-collapse`}
+              onClick={() => dispatchWm({ type: 'collapse', id: win.id })}
+            >
+              <Glyph name="collapse" size={12} />
+            </button>
+            <button
+              type="button"
+              className="os-ctl-btn"
+              aria-label={t('shell.win.fill')}
+              title={t('shell.win.fill')}
+              data-testid={`win-${win.id}-fill`}
+              onClick={() => dispatchWm({ type: 'fill', id: win.id })}
+            >
+              <Glyph name="fill" size={12} />
+            </button>
+            <button
+              type="button"
+              className="os-ctl-btn"
+              aria-label={t('shell.win.close')}
+              title={t('shell.win.close')}
+              data-testid={`win-${win.id}-close`}
+              onClick={close}
+            >
+              <Glyph name="close" size={12} />
+            </button>
+          </span>
+        </div>
+        {confirm && (
+          <div className="os-confirm" role="alertdialog" aria-label={name} data-testid={`win-${win.id}-confirm`}>
+            <p className="text-small text-fg">{t('shell.close.confirm', { ticker: win.props.ticker ?? '' })}</p>
+            <div className="flex gap-2">
+              <button type="button" className="os-tool" onClick={closeAnyway} data-testid={`win-${win.id}-confirm-yes`}>
+                {t('shell.close.yes')}
+              </button>
+              <button type="button" className="os-tool" onClick={() => setConfirm(false)}>
+                {t('shell.close.no')}
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="os-win-body">
+          <AppBody win={win} />
+        </div>
+        {free && EDGES.map((e) => (
+          <div
+            key={e}
+            className={`os-rz os-rz-${e}`}
+            data-testid={`win-${win.id}-resize-${e}`}
+            aria-hidden
+            onPointerDown={(ev) => startResize(ev, e)}
+          />
+        ))}
+      </div>
+    </>
+  );
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import { type KeyValueStore, migrateLegacy, readPrefs as readPrefsFrom, updatePrefs } from '@/shell/prefs';
 import { universeConfig, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
 import type { HistoryPayload, NwHistoryPayload, ServerMsg } from '@/net/protocol';
@@ -100,12 +101,29 @@ function freshHistory(config: WorldConfig): History {
   return createHistory([...config.indices.map((i) => i.id), ...assets], config.ticksPerDay, assets);
 }
 
+/** localStorage as a KeyValueStore, or null when storage is blocked (private mode). */
+function prefsStore(): KeyValueStore | null {
+  try { return window.localStorage; } catch { return null; }
+}
+
+/** Chart prefs live in tg-prefs (DECISIONS "Local storage"); the legacy tycoon.prefs key is migrated on boot. */
 function readPrefs(): Partial<Pick<GameStore, 'indicators' | 'range' | 'chartMode' | 'selected'>> {
-  try { return JSON.parse(window.localStorage.getItem('tycoon.prefs') ?? '{}'); } catch { return {}; }
+  const kv = prefsStore();
+  if (!kv) return {};
+  const p = readPrefsFrom(kv);
+  const out: Partial<Pick<GameStore, 'indicators' | 'range' | 'chartMode' | 'selected'>> = {};
+  if (p.chart.indicators) out.indicators = Object.fromEntries(p.chart.indicators.map((id) => [id, true])) as GameStore['indicators'];
+  if (p.chart.range) out.range = p.chart.range as RangeId;
+  if (p.chart.chartMode === 'candles' || p.chart.chartMode === 'line') out.chartMode = p.chart.chartMode;
+  if (p.lastTicker) out.selected = p.lastTicker;
+  return out;
 }
 
 function writePrefs(s: GameStore): void {
-  try { window.localStorage.setItem('tycoon.prefs', JSON.stringify({ indicators: s.indicators, range: s.range, chartMode: s.chartMode, selected: s.selected })); } catch { /* ignore */ }
+  const kv = prefsStore();
+  if (!kv) return;
+  const indicators = Object.keys(s.indicators).filter((id) => s.indicators[id as IndicatorId]);
+  updatePrefs(kv, (p) => ({ ...p, lastTicker: s.selected, chart: { indicators, range: s.range, chartMode: s.chartMode } }));
 }
 
 export const useGame = create<GameStore>((set, get) => {
@@ -237,6 +255,8 @@ export const useGame = create<GameStore>((set, get) => {
 
     boot() {
       if (get().status !== 'boot') return;
+      const kv = prefsStore();
+      if (kv) migrateLegacy(kv);
       const prefs = readPrefs();
       set({ ...prefs });
       const token = getToken();
