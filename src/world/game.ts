@@ -2,7 +2,6 @@ import {
   cancelOrder, createWorld, modifyOrder, placeOrder, seedStream, step, tradeOption, universeConfig,
   type WorldConfig,
 } from '@/engine';
-import { licenseFor } from '@/content/lifestyle';
 import {
   BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, credit, debit, drawFrom, findOrder, newOutput, notify, sanitize,
 } from './core';
@@ -28,6 +27,12 @@ import { cyberDay, disconnect, emptyCyber, lockdown, manualScan, plantSession, s
 import { acceptSettlement, courtTick, fileCase, offerSettlement } from './court';
 import { npcTick, seedNpcs } from './npc';
 import { shockPrice } from '@/engine/sim';
+import { ensureLedger, ledgerTick, recordOptionTrade } from './ledger';
+import { closeDay, recordDayClose } from './close';
+import { hireAnalyst, fireAnalyst, resumeDesk, unlockDesk, workDay } from './work';
+import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick, setDrip, startBlock } from './plans';
+import { checkGoals, completeLesson, setGoalsOptIn } from './learn';
+import { orderError } from './orders';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
 
 export interface CreateOptions {
@@ -59,6 +64,8 @@ export function createGame(seed: string, opts: CreateOptions = {}): GameState {
     deals: {},
     dealSeq: 0,
     boards: emptyBoards(),
+    ledgers: {},
+    dayCloses: {},
     collectibles: 1,
     economy: { faucets: {}, sinks: {}, moneyIndex: 1, stabilizer: { integral: 0, sinkMult: 1, lastSupply: 0 } },
     chapter: { number: 1, startTick: 0, endTick: CHAPTER_TICKS },
@@ -77,6 +84,8 @@ export function createGame(seed: string, opts: CreateOptions = {}): GameState {
     g.market = r.state;
     const out = newOutput();
     newsFromEvents(g, r.events, out);
+    // the day records start here, so the benchmark's momentum lookback has its closes from the first real day
+    if (g.market.tick % g.market.config.ticksPerDay === 0) recordDayClose(g, Math.floor((g.market.tick - 1) / g.market.config.ticksPerDay), g.market.tick);
     opts.onWarmupTick?.(g);
   }
   g.chapter = { number: 1, startTick: g.market.tick, endTick: g.market.tick + CHAPTER_TICKS };
@@ -91,6 +100,8 @@ export function stepGame(g: GameState): StepOutput {
   const realizedBefore: Record<string, number> = {};
   for (const [id, a] of Object.entries(g.market.accounts)) realizedBefore[id] = a.realizedPnl;
   const ordersBefore = new Map(g.market.orders.filter((o) => o.status === 'open').map((o) => [o.id, o]));
+  // every human has a ledger before the tick, so its mirror starts from the account the engine is about to change
+  for (const p of Object.values(g.players)) if (!p.npc) ensureLedger(g, p.id);
 
   const r = step(g.market);
   g.market = r.state;
@@ -99,6 +110,7 @@ export function stepGame(g: GameState): StepOutput {
 
   newsFromEvents(g, r.events, out);
   for (const f of r.fills) out.fills.push({ playerId: f.playerId, assetId: f.assetId, side: f.side, qty: f.qty, price: f.price, fee: f.fee, orderId: f.orderId });
+  ledgerTick(g, r.events, r.fills);
   tradeStats(g, r.fills, realizedBefore, out);
   const stillOpen = new Set(g.market.orders.filter((o) => o.status === 'open').map((o) => o.id));
   for (const before of ordersBefore.values()) {
@@ -131,6 +143,10 @@ export function stepGame(g: GameState): StepOutput {
     g.collectibles = Math.max(0.6, Math.min(2.5, g.collectibles * Math.exp(0.0004 + 0.006 * rng.normal())));
     save();
     for (const p of Object.values(g.players)) if (!p.npc) rollContracts(g, p);
+    // the analyst and desk dues, recurring buys, and DRIP on the day's dividends (orders fill at the next tick)
+    workDay(g, out);
+    planDay(g, out);
+    dripDay(g, out);
   }
 
   if (tick % NW_EVERY === 0 || newDay) {
@@ -140,6 +156,7 @@ export function stepGame(g: GameState): StepOutput {
       if (!p.npc) {
         checkAlerts(g, p, out);
         updateContracts(g, p, out);
+        checkGoals(g, p, out);
       }
       filings(g, p.id, out);
     }
@@ -149,8 +166,11 @@ export function stepGame(g: GameState): StepOutput {
     for (const p of Object.values(g.players)) checkAchievements(g, p, out);
     pickRivals(g);
   }
+  planTick(g, out);
   npcTick(g, (gg, pid, cmd) => applyCommand(gg, pid, cmd, out));
   chapterCheck(g, out);
+  // the close: after the net worth refresh of this tick, so the card and the ghosts read the day's final marks
+  if (tick % TPD === 0) closeDay(g, out);
   return out;
 }
 
@@ -186,17 +206,9 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     }
     case 'order.place': {
       const o = cmd.order;
-      const def = g.market.config.assets.find((a) => a.id === o.assetId);
-      if (!def) return fail('unknown asset');
-      const lic = licenseFor(p.rankId);
-      if (!lic.classes.includes(def.assetClass)) return fail(`${def.name} needs the Pro license (Owner, $250k)`);
-      if (held && o.side === 'buy') return fail('your assets are held by the court');
-      // Simple mode: the very first buy is capped at 20% of cash (bible 04 onboarding)
-      if (!p.npc && o.side === 'buy' && p.stats.trades === 0 && !p.onboarding.skipped) {
-        const i = g.market.config.assets.findIndex((a) => a.id === o.assetId);
-        const px = Math.exp(g.market.assets[i]!.lnP);
-        if (o.qty * px > cashOf(g, pid) * 0.2 + 1e-6) return fail('first trade is capped at 20% of cash');
-      }
+      // the license, the court hold and simple mode's cap until Hustler (orders.ts), even when onboarding was skipped
+      const err = orderError(g, p, o);
+      if (err) return fail(err);
       const r = placeOrder(g.market, { ...o, playerId: pid });
       g.market = r.state;
       if (r.order.status === 'rejected') return { ok: false, error: r.order.rejectReason ?? 'rejected', data: r.order };
@@ -231,7 +243,9 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
       if (r.error) return fail(r.error);
       g.market = r.state;
       p.stats.trades++;
-      if (cmd.side === 'sell' && (g.market.accounts[pid]!.realizedPnl - before) > 0) { p.stats.optionsWon++; p.stats.winningTrades++; }
+      const realized = (g.market.accounts[pid]?.realizedPnl ?? 0) - before;
+      if (cmd.side === 'sell' && realized > 0) { p.stats.optionsWon++; p.stats.winningTrades++; }
+      if (r.fill) recordOptionTrade(g, pid, cmd.contractId, cmd.side, cmd.qty, r.fill.price, r.fill.fee, realized, g.market.tick);
       return { ok: true, data: r.fill };
     }
     case 'biz.buy': return buyBusiness(g, pid, cmd.defId, cmd.cityId, cmd.name, out);
@@ -303,6 +317,17 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
       notify(g, out, pid, { kind: 'system', tone: 'brass', text: `You gave $${Math.round(amt).toLocaleString('en-US')} to ${sanitize(cmd.cause, 40) || 'charity'}. Reputation up.` });
       return { ok: true };
     }
+    case 'analyst.hire': return hireAnalyst(g, p, cmd.tier, out);
+    case 'analyst.fire': return fireAnalyst(g, p, out);
+    case 'desk.unlock': return unlockDesk(g, p, out);
+    case 'desk.resume': return resumeDesk(g, p, out);
+    case 'lesson.complete': return completeLesson(p, cmd.lessonId);
+    case 'goals.optIn': return setGoalsOptIn(p, cmd.on);
+    case 'recurring.add': return addRecurring(g, p, cmd.assetId, cmd.dollars, cmd.everyDays);
+    case 'recurring.cancel': return cancelRecurring(g, p, cmd.planId);
+    case 'drip.set': return setDrip(g, p, cmd.assetId, cmd.on);
+    case 'block.start': return startBlock(g, p, cmd.assetId, cmd.side, cmd.qty, cmd.slices);
+    case 'block.cancel': return cancelBlock(g, p, cmd.planId);
     case 'admin.advance': return fail('admin only');
     case 'admin.grant': {
       credit(g, pid, cmd.amount, 'admin');

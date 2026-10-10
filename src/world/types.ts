@@ -1,6 +1,9 @@
 import type { Order, OrderRequest, RngState, Side, WorldState } from '@/engine';
 import type { UpgradeAxis } from '@/content/businesses';
 import type { PlayerStats } from '@/content/progression';
+import type { Msg } from '@/i18n';
+import type { AnalystTier } from '@/content/learning';
+import type { DayClose, PlayerLedger } from './ledger-types';
 
 /**
  * The persistent multiplayer world (bible Part II): one market engine plus everything players
@@ -43,6 +46,10 @@ export interface GameState {
   cyber: CyberState;
   court: CourtState;
   rng: { biz: RngState; npc: RngState; world: RngState; cyber: RngState; court: RngState; lab: RngState };
+  /** per human player: trade ledger, ghosts, plans and day records (Phase 3). Absent in older saves; created on join. */
+  ledgers?: Record<string, PlayerLedger>;
+  /** the closing record of each game day (GX level and every asset's close), newest kept 400 days */
+  dayCloses?: Record<number, DayClose>;
 }
 
 export interface Player {
@@ -103,6 +110,16 @@ export interface Player {
   filings: Record<string, number>;
   /** net worth when the digest was last opened */
   digestNetWorth: number;
+  /** cash that cannot pay for analysts or desk upkeep (ad grants, fresh start) */
+  restrictedCash?: number;
+  /** hired analyst (one at a time), null or absent when none */
+  analyst?: { tier: AnalystTier; hiredDay: number; paidThroughDay: number } | null;
+  /** Research Desk: unlocked once at Operator; lapsed when upkeep is not covered (files are kept) */
+  desk?: { unlockedDay: number; paidThroughDay: number; lapsed: boolean } | null;
+  /** Learn: lesson ids completed, server-side */
+  lessons?: string[];
+  /** goal ladder: opt-in (off by default) and the rungs done, with the tick each was done */
+  goals?: { optIn: boolean; done: Record<string, number> };
 }
 
 export interface OwnedItem {
@@ -134,8 +151,10 @@ export interface AnalystNote {
 export interface InboxItem {
   id: string;
   tick: number;
-  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system';
+  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan';
   text: string;
+  /** the same line as a message descriptor (en.json / fr.json key), rendered in the viewer's language */
+  msg?: Msg;
   tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';
   read?: boolean;
 }
@@ -497,6 +516,17 @@ export type Command =
   | { type: 'court.settle'; caseId: string; amount: number }
   | { type: 'court.acceptSettlement'; caseId: string }
   | { type: 'donate'; amount: number; cause: string }
+  | { type: 'analyst.hire'; tier: AnalystTier }
+  | { type: 'analyst.fire' }
+  | { type: 'desk.unlock' }
+  | { type: 'desk.resume' }
+  | { type: 'lesson.complete'; lessonId: string }
+  | { type: 'goals.optIn'; on: boolean }
+  | { type: 'recurring.add'; assetId: string; dollars: number; everyDays: number }
+  | { type: 'recurring.cancel'; planId: string }
+  | { type: 'drip.set'; assetId: string; on: boolean }
+  | { type: 'block.start'; assetId: string; side: Side; qty: number; slices: number }
+  | { type: 'block.cancel'; planId: string }
   | { type: 'admin.advance'; ticks: number }
   /** dev and tests only: the server refuses admin.* from clients */
   | { type: 'admin.grant'; amount: number }

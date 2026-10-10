@@ -61,7 +61,12 @@ export function cashOf(g: GameState, playerId: string): number {
  * Move non-trading cash in or out of a player's account, booked as a faucet (money created
  * by the world) or a sink (money destroyed). Transfers between players use `transfer` instead.
  */
-/** In-place cash move (the world owns its market copy); shifts the trading baseline like adjustCash. */
+/**
+ * In-place cash move (the world owns its market copy). Like the engine's adjustCash, it shifts the trading baseline
+ * (startingCash), and with it the ledger's start cash and the benchmark ghosts' cash. Ruling (Phase 3 D-4, recorded in the
+ * A2 commit): every non-trading cash move shifts the ghosts too, so the benchmark measures trading only. That covers
+ * grants, business income and purchases, property, rent, analyst salary and desk upkeep. Trading moves nothing here.
+ */
 export function bump(g: GameState, playerId: string, delta: number): void {
   const a = g.market.accounts[playerId];
   if (!a) return;
@@ -69,6 +74,15 @@ export function bump(g: GameState, playerId: string, delta: number): void {
     ...a, cash: a.cash + delta, startingCash: a.startingCash + delta,
     peakEquity: Math.max(0, a.peakEquity + delta), dayStartEquity: a.dayStartEquity + delta,
   };
+  const L = g.ledgers?.[playerId];
+  if (!L) return;
+  L.startCash += delta;
+  for (const gp of [L.ghosts?.basket, L.ghosts?.random, L.ghosts?.momentum]) if (gp) gp.cash += delta;
+}
+
+/** Cash a player can spend on analysts, desk upkeep and plans: cash less restricted cash (ad grants, fresh start). */
+export function spendableCash(g: GameState, playerId: string): number {
+  return cashOf(g, playerId) - (g.players[playerId]?.restrictedCash ?? 0);
 }
 
 export function credit(g: GameState, playerId: string, amount: number, source: string): void {

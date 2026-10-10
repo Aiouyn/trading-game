@@ -4,6 +4,12 @@ import {
 } from '@/engine';
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { contractProgress } from './players';
+import { ghostReport, ghostSeries, type GhostReport } from './ghosts';
+import { tradesOf } from './ledger';
+import { calendarFor, type CalendarItem } from './calendar';
+import { goalsView } from './learn';
+import { textProvider } from './text';
+import type { DailyClose, LedgerFill, PlanState, RoundTrip } from './ledger-types';
 import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, propValue, type NetWorthBreakdown } from './core';
 import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
 import { defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
@@ -178,6 +184,17 @@ export interface PlayerView {
   noteCost: number;
   mortgageRate: number;
   digest: { since: number; items: InboxItem[]; netWorthThen: number } | null;
+  /** the owner's own trading record: fills, round trips, the benchmark, the closes, the plans, the calendar (private) */
+  trading: {
+    fills: LedgerFill[];
+    trips: RoundTrip[];
+    benchmark: GhostReport | null;
+    series: { day: number; player: number; basket: number; random: number; momentum: number }[];
+    closes: DailyClose[];
+    plans: PlanState | null;
+    calendar: CalendarItem[];
+    goals: ReturnType<typeof goalsView>;
+  };
 }
 
 export function playerView(g: GameState, pid: string): PlayerView | null {
@@ -221,6 +238,23 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
     noteCost: noteCost(g, pid),
     mortgageRate: mortgageRate(g),
     digest: away.length ? { since: p.digestSeenTick, items: away, netWorthThen: p.digestNetWorth } : null,
+    trading: tradingView(g, pid),
+  };
+}
+
+/** The owner's trading record is sent with every tick, so the view carries recent slices only (the full ledger stays on the server). */
+const VIEW_FILLS = 50;
+const VIEW_SERIES = 60;
+const VIEW_CLOSES = 5;
+
+/** The owner's trading record, sliced for the view. */
+function tradingView(g: GameState, pid: string): PlayerView['trading'] {
+  const { fills, trips } = tradesOf(g, pid);
+  const L = g.ledgers?.[pid];
+  return {
+    fills: fills.slice(-VIEW_FILLS), trips: trips.slice(-VIEW_FILLS), benchmark: ghostReport(g, pid), series: ghostSeries(g, pid, VIEW_SERIES),
+    closes: (L?.closes ?? []).slice(0, VIEW_CLOSES).map((c) => ({ ...c, lines: textProvider.dailyClose(c) })), plans: L?.plans ?? null,
+    calendar: calendarFor(g, pid), goals: goalsView(g.players[pid]!),
   };
 }
 

@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { buyingPower, commission, estimateFill, tradingConfig, type OrderType, type Side } from '@/engine';
-import { licenseFor } from '@/content/lifestyle';
+import { licenseFor, rankIndex } from '@/content/lifestyle';
+import { SIMPLE_MODE } from '@/content/learning';
 import { money, price, qty as fmtQty } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
@@ -104,7 +105,9 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   const total = side === 'buy' ? notional + fee : notional - fee;
   const bp = buyingPower(world, playerId);
   const margin = (acct.maxLeverage ?? 1) > 1 || !!acct.canShort;
-  const capCash = firstTrade ? acct.cash * 0.2 : Infinity;
+  // the server's rule (orders.ts): every buy below R1 is capped, not only the first trade
+  const simpleCap = rankIndex(me.player.rankId) < rankIndex(SIMPLE_MODE.untilRank);
+  const capCash = simpleCap ? acct.cash * SIMPLE_MODE.capFraction : Infinity;
   const budget = side === 'buy' ? Math.min(margin ? bp : acct.cash, capCash) : 0;
   const maxQty = side === 'buy'
     ? Math.max(0, (budget - (def.assetClass === 'crypto' ? 0 : 1)) / (est.price * 1.002))
@@ -117,7 +120,7 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   if (locked) invalid = { key: 'broker.refuse.license', vars: { tier: t(def.assetClass === 'stock' || def.assetClass === 'crypto' ? 'broker.tier.retail' : 'broker.tier.pro') } };
   else if (qtyN <= 0) invalid = null;
   else if (whole && !Number.isInteger(qtyN)) invalid = { key: 'broker.refuse.whole' };
-  else if (side === 'buy' && firstTrade && notional > capCash + 1e-6) invalid = { key: 'broker.firstCap' };
+  else if (side === 'buy' && simpleCap && qtyN * mid > capCash + 1e-6) invalid = { key: 'broker.firstCap' };
   else if (side === 'buy' && !margin && total > acct.cash + 1e-6) invalid = { key: 'broker.refuse.cash', vars: { total: money(total), cash: money(acct.cash) } };
   else if (side === 'buy' && margin && notional > bp + Math.max(0, -held) * refPrice + 1e-6) invalid = { key: 'broker.refuse.bp', vars: { need: money(notional), bp: money(bp) } };
   else if (shorting && !acct.canShort) invalid = held > 0 ? { key: 'broker.refuse.fewer' } : { key: 'broker.refuse.short' };
@@ -207,11 +210,11 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
                   className="h-9 rounded-md border border-ink-3 text-caption text-fg-muted hover:border-brass/50 hover:text-fg"
                   data-testid={`chip-${f === 1 ? 'Max' : Math.round(f * 100)}`}
                 >
-                  {f === 1 ? (firstTrade && side === 'buy' ? t('broker.max20') : t('broker.max')) : t('broker.pct', { p: Math.round(f * 100) })}
+                  {f === 1 ? (simpleCap && side === 'buy' ? t('broker.max20') : t('broker.max')) : t('broker.pct', { p: Math.round(f * 100) })}
                 </button>
               ))}
             </div>
-            {firstTrade && side === 'buy' && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap')}</p>}
+            {simpleCap && side === 'buy' && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap')}</p>}
 
             {(type === 'limit' || type === 'stop_limit') && <NumberField className="mt-2" label={t('order.limit')} value={limit} onChange={setLimit} suffix="$" testId="order-limit" />}
             {(type === 'stop' || type === 'stop_limit') && <NumberField className="mt-2" label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />}
