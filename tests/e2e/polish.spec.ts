@@ -51,6 +51,16 @@ test('the status strip and the phone widget show the same day change after a gra
   expect(pctToken(await todayRow.textContent())).toBe(pctBefore);
   await noHorizontalOverflow(page);
   await shot(page, 'strip-after-grant');
+
+  // "since you arrived" starts from the cash the player arrived with, not from the grant: the grant is left out of the change
+  const arrival = await page.evaluate(() => window.__tg!.state().me!.arrival);
+  expect(arrival.external).toBeGreaterThan(4_999);
+  const start = arrival.cash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  await goTo(page, 'portfolio');
+  await expect(page.getByTestId('networth-total')).toContainText(`since you arrived with $${start}`);
+  await expect(page.getByTestId('networth-total')).toContainText('(0.00%)');
+  await page.getByTestId('networth-chart-note').scrollIntoViewIfNeeded();
+  await shot(page, 'portfolio-after-grant');
   expect(errors).toEqual([]);
 });
 
@@ -84,12 +94,14 @@ test('a short position shows its liquidation line on the chart, or says where th
 
   await clearSheets(page);
   await goTo(page, 'broker');
-  const note = page.getByTestId('liquidation-note').or(page.getByTestId('liquidation-off'));
-  await expect(note.first()).toBeVisible({ timeout: 25_000 });
+  // a short of 50 at this rank puts the margin line far above the price (thousands of percent), so it is off the chart on every
+  // seed the e2e world uses: the note must say so, and the on-chart note must not show
   const off = page.getByTestId('liquidation-off');
-  if (await off.count()) {
-    await expect(off).toHaveText(/Liquidation line at \$[\d,.]+, [\d,]+% (above|below) the price, off this chart/);
-  }
+  await expect(off).toBeVisible({ timeout: 25_000 });
+  await expect(off).toHaveText(/Liquidation line at \$[\d,.]+, [\d,]+% above the price, off this chart/);
+  await expect(page.getByTestId('liquidation-note')).toHaveCount(0);
+  // the note sits under the chart; bring it into the shot so the picture shows the line and what it means
+  await off.scrollIntoViewIfNeeded();
   await shot(page, 'broker-liquidation');
   expect(errors).toEqual([]);
 });
@@ -127,9 +139,16 @@ test('settings switch the game to French, and the shell and the settings speak i
     await expect(page.getByTestId('os-strip')).toContainText('Marché ouvert');
   }
   await shot(page, 'settings-french');
+  // a few strings from the portfolio in French: the arrival line and the chart note (both say what the figures leave out)
+  await goTo(page, 'portfolio');
+  await expect(page.getByTestId('networth-total')).toContainText('depuis votre arrivée');
+  await expect(page.getByTestId('networth-chart-note')).toContainText('La courbe exclut les dons, virements et prêts');
   // back to English so the rest of the run is not in French
+  await goTo(page, 'profile');
   await page.getByTestId('settings-lang-en').click();
   await expect(page.getByTestId('settings-language')).toContainText('Language');
+  await goTo(page, 'portfolio');
+  await expect(page.getByTestId('networth-total')).toContainText('since you arrived');
   expect(errors).toEqual([]);
 });
 

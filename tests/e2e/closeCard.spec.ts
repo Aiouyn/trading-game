@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { goTo, isPhone, noHorizontalOverflow, proof, register, skipTips, watchErrors } from './helpers';
+import { goTo, grant, isPhone, noHorizontalOverflow, proof, register, skipRankUp, skipTips, watchErrors } from './helpers';
 
 // THE PORT AVALON CLOSE (velvet-daily-close.md, Phase 3 B1): a game day's close opens the card for an online player, its
 // numbers are the server's, Done remembers the day on the server, and the closes list keeps it.
@@ -130,5 +130,45 @@ test('the luck card says where you stand in plain words, and its label stays on 
   await noHorizontalOverflow(page);
   await standing.evaluate((el) => el.closest('[data-testid="luck-skill"]')?.scrollIntoView({ block: 'start' }));
   await shot(page, 'portfolio-luck');
+  expect(errors).toEqual([]);
+});
+
+test('the journal waterfall shows GX over the trade\'s days next to its parts', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = watchErrors(page);
+  await page.addInitScript(() => { window.__tgE2eAdmin = 'e2e-admin'; });
+  const handle = await register(page);
+  await skipTips(page);
+  // a Junior analyst (the parts need one), then a round trip inside today: both fills are on the same game day
+  await grant(handle, 30_000);
+  await skipRankUp(page);
+  await goTo(page, 'portfolio');
+  await page.getByTestId('portfolio-tab-analyst').click();
+  await page.getByTestId('analyst-tier-junior').click();
+  await page.getByTestId('analyst-hire').click();
+  await page.getByTestId('analyst-hire-confirm').click();
+  await expect(page.getByTestId('analyst-status')).toContainText('Junior analyst');
+  await act(page, { type: 'order.place', order: { assetId: 'HLCN', side: 'buy', type: 'market', qty: 3 } });
+  // a market order fills at the next tick: the buy has to fill before the sell can close it
+  await page.evaluate(() => window.__tg!.advance(2));
+  await act(page, { type: 'order.place', order: { assetId: 'HLCN', side: 'sell', type: 'market', qty: 3 } });
+
+  // the trade's day has to close before the journal can explain it: advance past the next day boundary
+  const tick = await page.evaluate(() => window.__tg!.state().frame?.tick ?? 0);
+  const next = (Math.floor(tick / 720) + 1) * 720;
+  await page.evaluate((n) => window.__tg!.advance(n), next - tick);
+
+  await goTo(page, 'portfolio');
+  await expect(page.getByTestId('os-toasts')).toBeEmpty({ timeout: 15_000 });
+  await page.getByTestId('portfolio-tab-journal').click();
+  const row = page.locator('[data-testid^="journal-row-"]').first();
+  await expect(row).toBeVisible({ timeout: 25_000 });
+  await row.click();
+  await expect(page.getByTestId('explain-line')).toBeVisible({ timeout: 25_000 });
+  // GX is given as a percent over the same days as the waterfall, and the waterfall carries its Market note when it has a Market row
+  await expect(page.getByTestId('journal-gx')).toContainText(/^GX [+−-]?\d+\.\d{2}% over the same days$/);
+  await expect(page.getByTestId('why-waterfall')).toBeVisible();
+  await page.getByTestId('journal-gx').evaluate((el) => el.closest('[data-testid="journal-detail"]')?.scrollIntoView({ block: 'start' }));
+  await shot(page, 'journal-gx');
   expect(errors).toEqual([]);
 });

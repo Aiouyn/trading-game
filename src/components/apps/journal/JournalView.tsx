@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { JOURNAL } from '@/content/learning';
-import { signedMoney, toneText, tone } from '@/game/format';
+import { signedMoney, signedPct, toneText, tone } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t, tm } from '@/i18n';
 import { Button, Card } from '@/components/ui';
@@ -178,6 +178,8 @@ function TradeDetail({ trip, detail, tpd, onHire }: { trip: RoundTrip; detail: J
       {detail?.analyst && detail.rows ? (
         <Card className="flex flex-col gap-3 p-4">
           <h3 className="font-serif text-title text-fg">{t('journal.why')}</h3>
+          {/* the waterfall is in dollars, so GX is given as its percent move over the same days (the desk's line) */}
+          {detail.gx !== null && <p className="num text-small text-fg-muted" data-testid="journal-gx">{t('desk.gx', { pct: signedPct(detail.gx) })}</p>}
           <Waterfall
             rows={waterfall}
             total={detail.total ?? trip.realizedPnl}

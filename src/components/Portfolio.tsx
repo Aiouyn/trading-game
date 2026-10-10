@@ -159,6 +159,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
             ? <PriceChart assetId="NW" series={series} mode="area" testId="networth-chart" studies={false} overlays={overlays} />
             : <div className="flex h-full items-center justify-center text-small text-fg-faint" data-testid="networth-chart">{t('portfolio.building')}</div>}
         </div>
+        <p className="mt-2 text-caption text-fg-faint" data-testid="networth-chart-note">{t('portfolio.nwChartNote')}</p>
       </Card>
 
       <div className={`grid gap-4 ${phone ? '' : 'lg:grid-cols-2'}`}>

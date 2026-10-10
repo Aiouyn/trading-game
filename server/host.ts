@@ -134,12 +134,15 @@ export class WorldHost {
       for (const pl of Object.values(g.players)) {
         if (pl.npc) continue;
         const s = (this.nw[pl.id] ??= { samples: [], lastTick: g.market.tick, daily: [] });
-        s.samples.push(pl.netWorth);
+        // the line is trading and income only: the grants, transfers and loans received so far are taken out, so a grant
+        // draws no jump (the same basis as the day and arrival figures; each point keeps the basis of its own tick)
+        const trading = pl.netWorth - (pl.externalCash ?? 0);
+        s.samples.push(trading);
         if (s.samples.length > NW_RING) s.samples.splice(0, s.samples.length - NW_RING);
         s.lastTick = g.market.tick;
         const last = s.daily[s.daily.length - 1];
-        if (last && last.day === day) last.value = pl.netWorth;
-        else s.daily.push({ day, value: pl.netWorth });
+        if (last && last.day === day) last.value = trading;
+        else s.daily.push({ day, value: trading });
         if (s.daily.length > 400) s.daily.shift();
       }
     }

@@ -1580,6 +1580,7 @@
   "ghost.toggle.hint": "Repères tracés sur ce graphique, visibles par vous seul.",
   "portfolio.nwRange": "Plage de valeur nette",
   "portfolio.sinceArrival": "{delta} ({pct}) depuis votre arrivée avec {start}. Négociation et revenus seulement : versements reçus et virements exclus.",
+  "portfolio.nwChartNote": "La courbe exclut les dons, virements et prêts : elle ne montre que la négociation et les revenus.",
   "portfolio.building": "L'historique de votre valeur nette se construit au fil du marché.",
   "portfolio.markets": "Marchés (positions + options)",
   "portfolio.property": "Immobilier",

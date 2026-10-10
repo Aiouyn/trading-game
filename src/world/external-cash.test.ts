@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { credit, transfer } from './core';
+import { credit, creditExternal, transfer } from './core';
 import { applyCommand, createGame, stepGame } from './game';
 import { dayClose } from './close';
 import { playerView } from './view';
@@ -63,6 +63,26 @@ describe('external cash leaves the day and arrival figures alone', () => {
     while (g.market.tick < 2 * 720) stepGame(g);
     const card = dayClose(g, 'u1', 1)!;
     expect(card.nwChange).toBeCloseTo(0, 6);
+  });
+
+  it('the arrival base stays the cash the player arrived with; the grant is reported apart', () => {
+    const g = joined('external-arrival-base', ['u1']);
+    const before = playerView(g, 'u1')!.arrival;
+    applyCommand(g, 'u1', { type: 'admin.grant', amount: 5000 });
+    const a = playerView(g, 'u1')!.arrival;
+    expect(a.cash).toBeCloseTo(before.cash, 6);
+    expect(a.external).toBeCloseTo(before.external + 5000, 6);
+    expect(a.change).toBeCloseTo(0, 6);
+    expect(a.changePct).toBeCloseTo(0, 6);
+  });
+
+  it("a victim's share of a court fine is a payment from another player, not a gain", () => {
+    const g = joined('external-victim', ['u1']);
+    const before = figures(g, 'u1');
+    creditExternal(g, 'u1', 1_000, 'victim fund');
+    expect(figures(g, 'u1').total).toBeCloseTo(before.total + 1_000, 6);
+    expect(figures(g, 'u1').today).toBeCloseTo(before.today, 6);
+    expect(figures(g, 'u1').arrival).toBeCloseTo(before.arrival, 6);
   });
 
   it('income still moves the day change', () => {

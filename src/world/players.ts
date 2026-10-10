@@ -2,7 +2,7 @@ import { type Fill } from '@/engine';
 import { ACHIEVEMENTS, CONTRACTS, emptyStats, isRareAchievement, type PlayerStats } from '@/content/progression';
 import { RANKS, licenseFor, rankFor, rankIndex } from '@/content/lifestyle';
 import {
-  ONBOARDING_GRANT, TPD, clamp, credit, creditExternal, findOrder, gx, keyedRng, notify, playerBusinesses, playerProperties, priceOf, pushWire, sanitize, today,
+  ONBOARDING_GRANT, TPD, clamp, creditExternal, findOrder, gx, keyedRng, notify, playerBusinesses, playerProperties, priceOf, pushWire, sanitize, today,
 } from './core';
 import { playerBizSectors, refreshNetWorth } from './assets';
 import { computeBoards } from './boards';
@@ -206,7 +206,8 @@ export function claimContract(g: GameState, p: Player, contractId: string): Comm
   if (!c.done) return fail('not done yet');
   if (c.claimed) return fail('already claimed');
   c.claimed = true;
-  credit(g, p.id, c.reward, 'contracts');
+  // a contract reward is a cash grant from the game, not trading or income, so the day and arrival figures leave it out
+  creditExternal(g, p.id, c.reward, 'contracts');
   p.stats.contractsDone++;
   return ok({ reward: c.reward });
 }
