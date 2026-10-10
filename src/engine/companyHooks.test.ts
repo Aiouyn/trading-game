@@ -57,7 +57,11 @@ const cashOf = (s: WorldState, id: string) => s.accounts[id]!.cash;
 const heldOf = (s: WorldState, pid: string, id: string) => s.accounts[pid]?.positions[id]?.qty ?? 0;
 /** the session at day d: the state whose next tick opens day d */
 const atDay = (s: WorldState, d: number) => run(s, d * TPD - s.tick);
-const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x)).digest('hex');
+/**
+ * The digest of a state. `streetCash` (O-3, the Street's running tally on an ordinary stock's fills) was added after these
+ * digests were taken: it is bookkeeping, not dynamics, so it is dropped here and the digests still pin everything else.
+ */
+const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x, (k, v) => (k === 'streetCash' ? undefined : v))).digest('hex');
 
 describe('bare engine is unchanged', () => {
   it('a world with no company stocks and no restrictions steps to the same state as before the company hooks', () => {
@@ -74,6 +78,8 @@ describe('bare engine is unchanged', () => {
     let e = openAccount(createWorld('bare-2', eco), 'p1');
     e = placeOrder(e, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: 5 }).state;
     e = stepMany(e, 720 * 2).state;
+    // the trades were Street fills (an ordinary stock), so the Street tally is set: the digest below ignores it, not the trades
+    expect(s.accounts.p1!.streetCash).toBeDefined();
     expect(sha(s)).toBe('61f445d2d39954626952ba005b7059361efe4a5ef931a94d8b4ba15de7311726');
     expect(sha(e)).toBe('e80f9cd00f42cbc14f9af5d55817999b6dc7146e0e194d2c3ea2eea9e5d0846d');
   });

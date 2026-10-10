@@ -572,6 +572,12 @@ export interface Account {
   interestEarned?: number;
   dividends?: number;
   borrowPaid?: number;
+  /**
+   * Net cash this account exchanged with the Street, which has no account counterparty: fills of an asset with no
+   * supplyAccount (its commission included, so it is the Street's sink counted once), option premia (commission included)
+   * and option expiry or delisting payouts. Signed as the account's cash: a buy is negative, a sell positive (O-3).
+   */
+  streetCash?: number;
   /** tick a margin call went out (cleared when the account recovers) */
   marginCallTick?: number;
   /** an NPC persona's account: its flow clears as Retail and never counts toward Players or You (P1). Absent = a human. */
