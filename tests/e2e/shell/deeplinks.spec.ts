@@ -23,6 +23,7 @@ const APP_PATHS: { path: string; id: string }[] = [
   { path: 'settings', id: 'settings' },
   { path: 'settings/about', id: 'settings' },
   { path: 'company', id: 'company' },
+  { path: 'exchange', id: 'exchange' },
   { path: 'research/tape-file-2', id: 'research-tape-file-2' },
 ];
 

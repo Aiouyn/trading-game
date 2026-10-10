@@ -200,7 +200,8 @@ export function Stat({ label, value, sub, className = '', testId }: { label: Rea
   return (
     <div className={`min-w-0 ${className}`} data-testid={testId}>
       <div className="label">{label}</div>
-      <div className="num mt-1 truncate text-body text-fg">{value}</div>
+      {/* A figure never truncates: it wraps at a space, and only breaks inside a word when the column is narrower than the word */}
+      <div className="num mt-1 break-words text-body text-fg">{value}</div>
       {sub && <div className="num mt-0.5 text-caption text-fg-faint">{sub}</div>}
     </div>
   );

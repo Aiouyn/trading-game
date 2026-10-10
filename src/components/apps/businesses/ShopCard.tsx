@@ -69,8 +69,8 @@ export function ShopCard({ v }: { v: ShopView }) {
       <div className="grid grid-cols-2 gap-x-6 gap-y-3 @md:grid-cols-4">
         <Stat label={t('biz.payback')} value={v.payback.days === null ? '—' : t('biz.paybackValue', { n: fx(v.payback.days, 1) })} testId={`shop-${id}-payback`} />
         <Stat label={t('shop.line.revenue')} value={money(v.daily.revenue)} testId={`shop-${id}-revenue`} />
-        <Stat label={t('shop.label.reviews')} value={`${fx(v.stars, 1)} / 5`} testId={`shop-${id}-stars`} />
-        <Stat label={t('shop.label.morale')} value={pct(v.morale)} testId={`shop-${id}-morale`} />
+        <Stat label={t('shop.label.reviews')} value={<span className="whitespace-nowrap">{t('shop.label.starsValue', { stars: fx(v.stars, 1) })}</span>} testId={`shop-${id}-stars`} />
+        <Stat label={t('shop.label.morale')} value={<span className="whitespace-nowrap">{pct(v.morale)}</span>} testId={`shop-${id}-morale`} />
       </div>
       <div className="flex flex-col gap-1 text-caption text-fg-muted">
         <p data-testid={`shop-${id}-payback-note`}>{v.payback.days === null ? t('shop.payback.none') : t('shop.payback', { days: fx(v.payback.days, 1) })}</p>

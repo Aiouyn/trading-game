@@ -188,4 +188,11 @@ test('the shops tab fits the minimum window without a sideways scroll', async ({
   });
   expect(overflow).toBeLessThanOrEqual(1);
   await expect(page.getByTestId('shops-view')).toBeVisible();
+  // a figure is never cut off: the stat values wrap, they do not truncate with an ellipsis
+  const id = await shopId(page);
+  const clipped = await page.evaluate((sid) => ['payback', 'revenue', 'stars', 'morale'].map((k) => {
+    const v = document.querySelector(`[data-testid="shop-${sid}-${k}"] .num`) as HTMLElement | null;
+    return { k, bad: !v || v.scrollWidth > v.clientWidth + 1 || (v.textContent ?? '').includes('…') };
+  }).filter((c) => c.bad).map((c) => c.k), id);
+  expect(clipped).toEqual([]);
 });
