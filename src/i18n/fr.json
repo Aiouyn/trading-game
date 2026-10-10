@@ -1680,6 +1680,12 @@
   "company.refusal.roundDilutionCap.what": "Ce tour diluerait trop le fondateur.",
   "company.refusal.roundDilutionCap.why": "Un tour privé ne peut céder qu'un quart de l'entreprise après le tour.",
   "company.refusal.roundDilutionCap.do": "Levez au maximum {maxAmount}.",
+  "company.refusal.roundAfterListing.what": "L'entreprise est déjà cotée, elle ne peut donc pas recevoir de tour privé.",
+  "company.refusal.roundAfterListing.why": "Les tours privés concernent les entreprises avant leur cotation. Les actions d'une entreprise cotée se négocient en bourse.",
+  "company.refusal.roundAfterListing.do": "Levez plutôt des fonds sur le marché, par un rachat, un dividende ou un nouveau dépôt.",
+  "company.refusal.roundDuringIpo.what": "Le carnet d'introduction est ouvert, aucun tour privé ne peut être levé maintenant.",
+  "company.refusal.roundDuringIpo.why": "Le nombre d'actions est figé pendant que le carnet est ouvert, et les nouvelles actions ne correspondraient pas au carnet.",
+  "company.refusal.roundDuringIpo.do": "Attendez la cotation, puis réessayez si vous avez encore besoin d'un tour.",
   "company.refusal.investorCash.what": "Les investisseurs n'ont plus autant de liquidités.",
   "company.refusal.investorCash.why": "Leur enveloppe ne dispose plus que de {available}.",
   "company.refusal.investorCash.do": "Levez un montant plus petit, ou attendez le tour suivant.",
@@ -1879,5 +1885,6 @@
   "company.note.covenantCure": "{name} : une clause est en infraction. Remettez-la en ordre avant le jour {day}.",
   "company.note.covenantCured": "{name} : la clause est remise en ordre.",
   "company.note.covenantDefault": "{name} : la clause est en défaut.",
-  "company.note.windowClosing": "{name} : la fenêtre de trading se ferme après le jour {closesDay}. Elle rouvre le jour {reopensDay}."
+  "company.note.windowClosing": "{name} : la fenêtre de trading se ferme après le jour {closesDay}. Elle rouvre le jour {reopensDay}.",
+  "company.note.windowClosed": "{name} : la fenêtre de trading s'est fermée, {count} ordres annulés. Elle rouvre le jour {reopensDay}."
 }

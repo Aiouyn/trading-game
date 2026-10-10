@@ -7,12 +7,16 @@
  * (grantLockedShares), and the NPC pools' shares follow the same lockup.
  *
  * Money: buyers pay the company, a transfer between real parties. The NPC book's shares are paid as a booked faucet (the
- * world creates that money), so the conservation test counts it. No account is credited for the shares themselves.
+ * world creates that money), so the conservation test counts it. No account is credited for the shares themselves. The
+ * underwriting fee (5% of the gross proceeds, §5.1) is a sink: it leaves the company's books and is counted as one.
+ *
+ * The founder's daily sell cap (2% of the shares outstanding a game day, §5.1, §6.1) is set in the engine at listing, for
+ * the founder's account; the engine enforces it on window sells and plan fills together.
  */
 
 import { COMPANY } from '@/content/company';
 import { rankIndex } from '@/content/lifestyle';
-import { grantLockedShares, listCompanyStock, openAccount, type AssetDef, type WorldState } from '@/engine';
+import { grantLockedShares, listCompanyStock, openAccount, restrictionsOf, setSellCap, type AssetDef, type WorldState } from '@/engine';
 import { TPD, notify, pushWire, today } from '../core';
 import type { GameState, StepOutput } from '../types';
 import { linked } from '../funds/state';
@@ -190,6 +194,7 @@ export function listIpo(g: GameState, c: Company, out: StepOutput | null): void 
   const bookId = npcBookIdOf(assetId);
   for (const id of [treasuryId, poolId, bookId]) if (!s.accounts[id]) s = openAccount(s, id, 0);
   s = listCompanyStock(s, def, P, c.filedV / ipo.sharesPost);
+  s = { ...s, restrictions: setSellCap(restrictionsOf(s), assetId, c.ownerId, Math.floor(COMPANY.insiders.sellCapPct * ipo.sharesPost)) };
 
   const lockUntil = day + COMPANY.ipo.lockupDays;
   const founderQty = c.capTable[founderKeyOf(c.ownerId)] ?? 0;
@@ -210,9 +215,11 @@ export function listIpo(g: GameState, c: Company, out: StepOutput | null): void 
   }
   g.market = s;
 
-  // the company receives the buyers' money (a transfer) and the NPC book's shares (a booked faucet)
+  // the company receives the buyers' money (a transfer) and the NPC book's shares (a booked faucet), less the underwriting
+  // fee on that gross (a sink, booked as one)
   post(w, c, day, 'ipo', buyerCash, true);
   post(w, c, day, 'ipo', npcShares * P);
+  post(w, c, day, 'underwriting', -COMPANY.ipo.underwritingFee * ipo.ipoShares * P);
 
   c.listed = { assetId, ipoDay: day, sharesOut: ipo.sharesPost, floatShares: ipo.ipoShares, floatCap: ipo.ipoShares * P };
   c.shares = ipo.sharesPost;

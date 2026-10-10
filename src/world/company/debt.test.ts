@@ -93,9 +93,10 @@ describe('covenants at filing (3.5x leverage, 2.0x interest cover, a 21 gd cure)
     const { g, c } = listedWorld('cov-cure');
     // the loan is drawn before the next close (day 252), so the filing on day 255 tests it
     c.tier = 'growth';
-    // a loan well above 3.5x the TTM EBITDA, with the proceeds spent: net debt is positive and breaches at the filing
-    loan(g, c.id, 4_500_000);
-    c.cash = 1_000;
+    // a loan well above 3.5x the TTM EBITDA, with the proceeds spent: net debt is positive and breaches at the filing.
+    // The cash covers the daily interest (a missed payment is a default, §5), so the breach is the only trigger here.
+    loan(g, c.id, 9_000_000);
+    c.cash = 1_000_000;
     advanceTo(g, 255);
     expect(c.covenant.status).toBe('cure');
     expect(c.covenant.cureUntilDay).toBe(255 + COMPANY.debt.cureDays);
@@ -106,7 +107,7 @@ describe('covenants at filing (3.5x leverage, 2.0x interest cover, a 21 gd cure)
     expect(loan(g, c.id, 10_000).error).toBe('loanCovenant');
     c.cash = 1e7;
     const debtId = c.debts[0]!.id;
-    applyCommand(g, FOUNDER, { type: 'company.repay', companyId: c.id, debtId, amount: 4_500_000 });
+    applyCommand(g, FOUNDER, { type: 'company.repay', companyId: c.id, debtId, amount: 9_000_000 });
     advanceTo(g, 256);
     expect(c.covenant.status).toBe('ok');
   });
@@ -114,8 +115,8 @@ describe('covenants at filing (3.5x leverage, 2.0x interest cover, a 21 gd cure)
   it('moves to default when the cure ends still in breach, and the default is not cleared by a later day', () => {
     const { g, c } = listedWorld('cov-default');
     c.tier = 'growth';
-    loan(g, c.id, 4_500_000);
-    c.cash = 1_000;
+    loan(g, c.id, 9_000_000);
+    c.cash = 1_000_000;
     advanceTo(g, 255);
     expect(c.covenant.status).toBe('cure');
     advanceTo(g, 255 + COMPANY.debt.cureDays);

@@ -1680,6 +1680,12 @@
   "company.refusal.roundDilutionCap.what": "That round would dilute the founder too far.",
   "company.refusal.roundDilutionCap.why": "A private round can sell at most a quarter of the company after the round.",
   "company.refusal.roundDilutionCap.do": "Raise at most {maxAmount}.",
+  "company.refusal.roundAfterListing.what": "The company is already listed, so it cannot take a private round.",
+  "company.refusal.roundAfterListing.why": "Private rounds are for companies before their listing. A listed company's shares trade on the exchange.",
+  "company.refusal.roundAfterListing.do": "Raise capital from the market instead, through a buyback, a dividend or a new filing.",
+  "company.refusal.roundDuringIpo.what": "The IPO book is open, so no private round can be raised now.",
+  "company.refusal.roundDuringIpo.why": "The share count is fixed while the book is open, and the new shares would not match the book.",
+  "company.refusal.roundDuringIpo.do": "Wait until the company lists, then try again if you still need a round.",
   "company.refusal.investorCash.what": "The investors do not have that much cash left.",
   "company.refusal.investorCash.why": "Their pool has {available} left.",
   "company.refusal.investorCash.do": "Raise a smaller amount, or wait for the next round.",
@@ -1879,5 +1885,6 @@
   "company.note.covenantCure": "{name}: a covenant is in breach. Cure it by day {day}.",
   "company.note.covenantCured": "{name}: the covenant is cured.",
   "company.note.covenantDefault": "{name}: the covenant is in default.",
-  "company.note.windowClosing": "{name}: the trading window closes after day {closesDay}. It reopens on day {reopensDay}."
+  "company.note.windowClosing": "{name}: the trading window closes after day {closesDay}. It reopens on day {reopensDay}.",
+  "company.note.windowClosed": "{name}: the trading window closed, {count} orders cancelled. It reopens on day {reopensDay}."
 }

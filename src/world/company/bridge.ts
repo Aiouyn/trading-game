@@ -12,20 +12,29 @@ import { priceOf } from '../core';
 import { bump, cashOf, notify, today } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import type { Fill, StepEvent } from '@/engine';
-import { printCompanyValue, programsDay } from '@/engine';
+import { printCompanyValue, programsDay, restrictionsOf, sellCapOf, setSellCap } from '@/engine';
 import { companyAction, companyTick, foundCompany, emptyCompanyWorld, type CompanyAction, type CompanyEnv, type CompanyEvent } from './company';
 import type { CompanyReject } from './types';
-import type { CompanySector } from '@/content/company';
-import { addWindowRange, listedDay, recordFounderFills, syncWindow } from './insiders';
+import { COMPANY, type CompanySector } from '@/content/company';
+import { addWindowRange, listedDay, nextOpenDay, recordFounderFills, syncWindow } from './insiders';
 import { listIpo, orderIpo, requestIpo } from './ipo';
 import { covenantAtFiling, debtDay, drawLoan, repayLoan } from './debt';
 import { applyProgramEvents, cancelPlanFor, commitPlanFor, fileBuyback } from './programs';
 import { declareDividend } from './payouts';
 import { migrateCompany } from './migrate';
 
-/** Every company record gets the B1 fields if its save predates them (migrate.ts). Cheap: a loop over the companies. */
+/**
+ * Every company record gets the B1 fields if its save predates them (migrate.ts). Cheap: a loop over the companies. A listed
+ * company from before the sell cap (set at listing in B1) gets its founder's cap here, once.
+ */
 function migrateAll(g: GameState): void {
-  for (const c of Object.values(g.companies?.companies ?? {})) migrateCompany(c);
+  for (const c of Object.values(g.companies?.companies ?? {})) {
+    migrateCompany(c);
+    if (c.listed && sellCapOf(restrictionsOf(g.market), c.listed.assetId, c.ownerId) === undefined) {
+      const perDay = Math.floor(COMPANY.insiders.sellCapPct * c.listed.sharesOut);
+      g.market = { ...g.market, restrictions: setSellCap(restrictionsOf(g.market), c.listed.assetId, c.ownerId, perDay) };
+    }
+  }
 }
 
 /** The environment for the company core, read from the world at the current tick. */
@@ -116,6 +125,31 @@ export function companyStep(g: GameState, fills: Fill[], events: StepEvent[]): v
   migrateAll(g);
   recordFounderFills(g, fills);
   applyProgramEvents(g, events);
+  windowCloseLines(g, events);
+}
+
+/**
+ * The founder's Wire line when the window shuts on the open orders the founder still holds (§6.1, Ledger Q7): how many
+ * were cancelled and when the window reopens. Only the founder sees it; nothing is public. One line per company per tick.
+ */
+function windowCloseLines(g: GameState, events: StepEvent[]): void {
+  const w = g.companies!;
+  const day = today(g);
+  const counts = new Map<string, number>();
+  for (const ev of events) {
+    if (ev.type !== 'restricted' || ev.code !== 'closedWindow') continue;
+    for (const c of Object.values(w.companies)) {
+      if (c.listed && c.listed.assetId === ev.assetId && c.ownerId === ev.playerId) counts.set(c.id, (counts.get(c.id) ?? 0) + 1);
+    }
+  }
+  for (const [id, n] of counts) {
+    const c = w.companies[id]!;
+    const reopensDay = nextOpenDay(c, day);
+    notify(g, null, c.ownerId, {
+      kind: 'system', tone: 'warn', text: `${c.name}: trading window closed, ${n} orders cancelled.`,
+      msg: { key: 'company.note.windowClosed', vars: { name: c.name, count: n, reopensDay } },
+    });
+  }
 }
 
 function fail(reject: CompanyReject): CommandResult {

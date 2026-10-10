@@ -290,6 +290,10 @@ export function privateValue(c: Company, day: number): number {
  */
 function raiseRound(w: CompanyWorld, c: Company, env: CompanyEnv, amount: number): Outcome<Record<string, unknown>> {
   if (!(Number.isFinite(amount) && amount > 0)) return { ok: false, reject: { code: 'negativeAmount' } };
+  // private rounds are pre-listing and NPC-only (§5): a listed company's register is the engine's, and an open IPO book
+  // has its share count already fixed (its shares are pooled at listing)
+  if (c.listed) return { ok: false, reject: { code: 'roundAfterListing' } };
+  if (c.ipo) return { ok: false, reject: { code: 'roundDuringIpo' } };
   const poolId = c.tier === 'seed' ? 'npc:seed' : 'npc:series';
   const pool = w.investors[poolId]!;
   const v = privateValue(c, env.day);

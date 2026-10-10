@@ -42,7 +42,7 @@ export {
 export type { RegionDef, SectorDef, CityDef } from './universe';
 export {
   DEFAULT_COMPANY_RULES, companyRulesOf,
-  closingWarning, gateOn, lockedQty, livePlans, restrictionsOf, sessionDay, setLockup, setWindow, windowOn,
+  addSold, closingWarning, gateOn, lockedQty, livePlans, restrictionsOf, sellCapOf, sessionDay, setLockup, setSellCap, setWindow, soldOn, windowOn,
 } from './restrictions';
 export type { CompanyRules, Gate, PlanEndReason, PlanSkipReason, Program, ProgramKind, TradingRestrictions, WindowRule, WindowState } from './restrictions';
 export { addBuyback, cancelPlan, commitPlan, editPlan, programsDay } from './programs';

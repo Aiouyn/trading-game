@@ -67,7 +67,7 @@ export interface CompanyFounderView extends CompanyPublic {
  * at a filing (the tier, the registry, the headcount band, the distress flag, the statements), at a signal (listed
  * companies), or at a price or product change that the market sees. Nothing reads the unfiled quarter or the live cash.
  */
-export function publicCompanyView(c: Company, day: number = c.foundedDay): CompanyPublic {
+export function publicCompanyView(c: Company, day: number): CompanyPublic {
   const last = c.filings[c.filings.length - 1];
   const late = c.tier === 'late' || c.listed !== null;
   const pub: CompanyPublic = {

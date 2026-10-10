@@ -15,7 +15,7 @@ import { notify, priceOf, pushWire, today } from '../core';
 import type { GameState, StepOutput } from '../types';
 import { moveTreasury, syncWindow } from './insiders';
 import { treasuryIdOf } from './ipo';
-import { ttmOf } from './debt';
+import { annualEbitdaOf } from './debt';
 import type { Company, CompanyReject } from './types';
 
 export interface PlanTerms {
@@ -60,12 +60,15 @@ export function buybackReserve(size: number, price: number): number {
   return size * price * COMPANY.debt.buybackReserve;
 }
 
-/** Net debt over TTM EBITDA on the filed numbers, with an extra cash outflow (the buyback reserve). Infinite when EBITDA <= 0. */
+/**
+ * Net debt over annualized EBITDA on the filed numbers, with an extra cash outflow (the buyback reserve). Infinite when
+ * EBITDA <= 0.
+ */
 export function leverageAfter(c: Company, extraOutflow: number): number {
   const last = c.filings[c.filings.length - 1];
   const netDebt = (last ? last.balance.debt - last.balance.cash : 0) + extraOutflow;
   if (netDebt <= 0) return 0;
-  const { ebitda } = ttmOf(c);
+  const ebitda = annualEbitdaOf(c);
   return ebitda > 0 ? netDebt / ebitda : Number.POSITIVE_INFINITY;
 }
 

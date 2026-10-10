@@ -299,20 +299,20 @@ describe('the no-leak rule (spec 6.4, CB-084)', () => {
     const id = found(h);
     advance(h, 1, 80);
     const c = h.w.companies[id]!;
-    const before = JSON.stringify([publicCompanyView(c), filedInputs(c, 0)]);
+    const before = JSON.stringify([publicCompanyView(c, c.foundedDay), filedInputs(c, 0)]);
     c.products[0]!.q *= 3;
     c.products[0]!.marketing = 999;
     c.eff = 0.3;
     c.projects.push({ id: 'x', kind: 'quality', productId: c.products[0]!.id, spend: 1, spendPerDay: 1, days: 10, paidDays: 0, startDay: 80, endDay: 90, success: true, z: 1, pShown: 0.5, sRef: 20_000, kUsed: 0, gates: [] });
     c.npcs.push({ id: 'n-extra', lnQ: 2, price: 1, marketing: 9, negQuarters: 0 });
-    expect(JSON.stringify([publicCompanyView(c), filedInputs(c, 0)])).toBe(before);
+    expect(JSON.stringify([publicCompanyView(c, c.foundedDay), filedInputs(c, 0)])).toBe(before);
   });
 
   it('the public view carries no private field, and only the founder may read the founder view', () => {
     const h = harness('view');
     const id = found(h);
     advance(h, 1, 5);
-    const pub = publicCompanyView(h.w.companies[id]!);
+    const pub = publicCompanyView(h.w.companies[id]!, h.w.companies[id]!.foundedDay);
     const keys = Object.keys(pub);
     for (const k of ['cash', 'projects', 'staff', 'capTable', 'npcs', 'orders', 'eff']) expect(keys).not.toContain(k);
     expect(() => founderCompanyView(h.w, 'someone', id, 5)).toThrow(/not the founder/);

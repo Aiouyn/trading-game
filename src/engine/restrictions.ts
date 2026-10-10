@@ -62,7 +62,7 @@ export interface WindowRule {
 }
 
 export type ProgramKind = 'plan' | 'buyback';
-export type PlanSkipReason = 'volume' | 'price' | 'halt';
+export type PlanSkipReason = 'volume' | 'price' | 'cap' | 'halt';
 export type PlanEndReason = 'completed' | 'terminated' | 'tender';
 
 export interface Program {
@@ -102,12 +102,41 @@ export interface TradingRestrictions {
   programs: Record<string, Program>;
   /** planBanned fail-safe (v1.4 G11): account id to the last game day its new plans are refused (no v1 path) */
   bans?: Record<string, number>;
+  /**
+   * The sell cap (v1.7 §5.1, §6.1): the most shares a capped account may sell in an asset on one game day, window sells and
+   * plan fills combined. By asset id, then account id. Set by the world at listing for the founder.
+   */
+  sellCaps?: Record<string, Record<string, number>>;
+  /** shares sold by capped accounts, keyed `assetId|playerId`: the game day of the tally and the quantity sold that day */
+  sold?: Record<string, { day: number; qty: number }>;
 }
 
 export const NO_RESTRICTIONS: TradingRestrictions = Object.freeze({ windows: {}, lockups: {}, programs: {} }) as TradingRestrictions;
 
 export function restrictionsOf(s: WorldState): TradingRestrictions {
   return s.restrictions ?? NO_RESTRICTIONS;
+}
+
+/** Sets an account's daily sell cap in an asset (shares a game day). The world sets it at listing. */
+export function setSellCap(r: TradingRestrictions, assetId: string, playerId: string, perDay: number): TradingRestrictions {
+  return { ...r, sellCaps: { ...(r.sellCaps ?? {}), [assetId]: { ...(r.sellCaps?.[assetId] ?? {}), [playerId]: perDay } } };
+}
+
+/** The daily sell cap of an account in an asset, or undefined when the account is not capped. */
+export function sellCapOf(r: TradingRestrictions, assetId: string, playerId: string): number | undefined {
+  return r.sellCaps?.[assetId]?.[playerId];
+}
+
+/** Shares an account has sold in an asset on a day (the tally of capped accounts only). */
+export function soldOn(r: TradingRestrictions, assetId: string, playerId: string, day: number): number {
+  const t = r.sold?.[`${assetId}|${playerId}`];
+  return t && t.day === day ? t.qty : 0;
+}
+
+/** Adds a fill to the day's sell tally of a capped account. */
+export function addSold(r: TradingRestrictions, assetId: string, playerId: string, day: number, qty: number): TradingRestrictions {
+  const key = `${assetId}|${playerId}`;
+  return { ...r, sold: { ...(r.sold ?? {}), [key]: { day, qty: soldOn(r, assetId, playerId, day) + qty } } };
 }
 
 /**

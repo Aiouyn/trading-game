@@ -23,6 +23,8 @@ export type CompanyReject =
   | { code: 'priceOutOfBand'; min: number; max: number }
   | { code: 'negativeAmount' }
   | { code: 'roundDilutionCap'; maxAmount: number }
+  | { code: 'roundAfterListing' }
+  | { code: 'roundDuringIpo' }
   | { code: 'investorCash'; available: number }
   | { code: 'noValuation' }
   | { code: 'plantBuilding'; untilDay: number }

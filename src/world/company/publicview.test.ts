@@ -55,15 +55,15 @@ describe('the public view moves only at a filing (spec 6.4, 11)', () => {
     advance(h, 1, 64); // closed at 63, filed at 66
     const c = h.w.companies[id]!;
     expect(c.closed.length).toBe(1);
-    expect(publicCompanyView(c).registry!.revenueBand).toBeNull();
+    expect(publicCompanyView(c, c.foundedDay).registry!.revenueBand).toBeNull();
     advance(h, 65, 66);
     expect(c.filings.length).toBe(1);
     const rev = c.filings[0]!.income.revUnrelated;
-    const band = publicCompanyView(c).registry!.revenueBand!;
+    const band = publicCompanyView(c, c.foundedDay).registry!.revenueBand!;
     expect(band[0]).toBeCloseTo(rev * 0.9, 6);
     expect(band[1]).toBeCloseTo(rev * 1.1, 6);
     advance(h, 67, 100);
-    expect(publicCompanyView(c).registry!.revenueBand).toEqual(band);
+    expect(publicCompanyView(c, c.foundedDay).registry!.revenueBand).toEqual(band);
   });
 
   it('the public headcount band and distress flag do not show unfiled hires or distress', () => {
@@ -73,12 +73,12 @@ describe('the public view moves only at a filing (spec 6.4, 11)', () => {
     expect(companyAction(h.w, h.env, 'founder', id, { kind: 'hire', role: 'ops', n: 10 }).ok).toBe(true);
     advance(h, 1, 10);
     expect(Object.values(c.staff).reduce((s, x) => s + x.total, 0)).toBe(20);
-    expect(publicCompanyView(c).headcountBand).toBe('1-10');
+    expect(publicCompanyView(c, c.foundedDay).headcountBand).toBe('1-10');
     c.distress = true;
-    expect(publicCompanyView(c).distressFlag).toBe(false);
+    expect(publicCompanyView(c, c.foundedDay).distressFlag).toBe(false);
     advance(h, 11, 66);
-    expect(publicCompanyView(c).headcountBand).toBe(c.filings[0]!.headcountBand);
-    expect(publicCompanyView(c).distressFlag).toBe(c.filings[0]!.balance.cash < 0);
+    expect(publicCompanyView(c, c.foundedDay).headcountBand).toBe(c.filings[0]!.headcountBand);
+    expect(publicCompanyView(c, c.foundedDay).distressFlag).toBe(c.filings[0]!.balance.cash < 0);
   });
 });
 

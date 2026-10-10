@@ -32,12 +32,22 @@ export function ttmOf(c: Company): { ebitda: number; interest: number; fcf: numb
   return { ebitda, interest, fcf, count: last.length };
 }
 
+/**
+ * TTM EBITDA annualized to four quarters: the covenant reads net debt over annualized EBITDA (§5). With fewer than four
+ * filings the TTM sum scales by 4 over the count, so a young company is not tested at half its earnings.
+ */
+export function annualEbitdaOf(c: Company): number {
+  const t = ttmOf(c);
+  return t.count > 0 ? t.ebitda * (COMPANY.yearDays / COMPANY.quarterDays / t.count) : 0;
+}
+
 /** The covenant breach, if any, of a debt and cash position against the TTM filed numbers ('earnings', 'leverage', 'cover'). */
 export function covenantBreachOf(c: Company, debt: number, cash: number): 'earnings' | 'leverage' | 'cover' | null {
   if (debt <= 0) return null;
   const netDebt = debt - cash;
   if (netDebt <= 0) return null;
-  const { ebitda, interest } = ttmOf(c);
+  const { interest } = ttmOf(c);
+  const ebitda = annualEbitdaOf(c);
   if (ebitda <= 0) return 'earnings';
   if (netDebt / ebitda > COMPANY.debt.maxLeverage) return 'leverage';
   if (interest > 0 && ebitda / interest < COMPANY.debt.minInterestCover) return 'cover';
@@ -104,19 +114,30 @@ export function repayLoan(
 }
 
 /**
- * The day's debt flows: interest on every loan (a transfer to the bank pool, a cost of the quarter below EBIT), then the
- * covenant cure: a company in cure is tested again on its live numbers, cured when the breach clears, and in default when
- * the cure ends in breach. Default is a status here; the bankruptcy is a later step.
+ * The day's debt flows: interest on every loan (a transfer to the bank pool, a cost of the quarter below EBIT). A covenant
+ * in cure adds its rate (+0.05%/gd). A day's interest the company's cash cannot cover is a missed payment, a default at once.
+ * (Interest accrues daily here, so cash below zero with a facility drawn always misses that day's payment; the five-day
+ * grace of §5 is therefore not a separate rule in B1. Flagged for Ledger.) Then the covenant cure: a company in cure is tested
+ * again on its live numbers, cured when the breach clears, and in default when the cure ends in breach. Default is a status
+ * here; the bankruptcy is a later step (B2).
  */
 export function debtDay(g: GameState, c: Company, day: number, out: StepOutput | null): void {
   const pool = g.companies!.investors[BANK_POOL];
-  for (const d of c.debts) {
-    const interest = d.principal * d.ratePerDay;
-    if (interest <= 0 || !pool) continue;
-    post(g.companies!, c, day, 'interest', -interest, true);
-    pool.cash += interest;
-    c.qtd.interest += interest;
-    c.qtd.ocf -= interest;
+  const cure = c.covenant.status === 'cure';
+  const due = c.debts.reduce((x, d) => x + d.principal * (d.ratePerDay + (cure ? COMPANY.debt.cureRatePerDay : 0)), 0);
+  if (due > 0 && pool) {
+    if (c.cash < due) {
+      setCovenant(g, c, 'default', day, out, true);
+      return;
+    }
+    for (const d of c.debts) {
+      const interest = d.principal * (d.ratePerDay + (cure ? COMPANY.debt.cureRatePerDay : 0));
+      if (interest <= 0) continue;
+      post(g.companies!, c, day, 'interest', -interest, true);
+      pool.cash += interest;
+      c.qtd.interest += interest;
+      c.qtd.ocf -= interest;
+    }
   }
   covenantDay(g, c, day, out);
 }

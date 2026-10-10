@@ -24,6 +24,7 @@ const CODES: CompanyReject['code'][] = [
   'notRank', 'capitalTooLow', 'alreadyFounded', 'insufficientFunds', 'unknownCompany', 'notFounder', 'headcountCap',
   'notEnoughStaff', 'noRdStaff', 'projectBusy', 'productCap', 'unknownProduct', 'priceOutOfBand', 'negativeAmount',
   'roundDilutionCap', 'investorCash', 'plantBuilding', 'unknownAction', 'noValuation', 'marketingCap', 'noLaunchCredit',
+  'roundAfterListing', 'roundDuringIpo',
 ];
 
 function world(seed: string): GameState {

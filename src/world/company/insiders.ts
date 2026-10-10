@@ -43,6 +43,18 @@ export function addWindowRange(c: Company, filedDay: number): void {
   if (c.windowRanges.length > 16) c.windowRanges.splice(0, c.windowRanges.length - 16);
 }
 
+/**
+ * The next day the window opens after `day`: the scheduled range's start when one is known, else a quarter after the last
+ * filing's window (F + 63 + F+2, the next filing's window). The founder's line and the public schedule both read it.
+ */
+export function nextOpenDay(c: Company, day: number): number {
+  const known = windowAt(c, day).opensDay;
+  if (known !== undefined) return known;
+  const last = c.windowRanges[c.windowRanges.length - 1];
+  const lastFiling = last ? last[1] - COMPANY.insiders.windowCloseDay : day;
+  return lastFiling + COMPANY.quarterDays + COMPANY.insiders.windowOpenDay;
+}
+
 /** Whether the window is open on a day, and when it shuts or next opens (the public schedule and the founder's card). */
 export function windowAt(c: Company, day: number): { open: boolean; closesDay?: number; opensDay?: number } {
   for (const [a, b] of c.windowRanges) if (day >= a && day <= b) return { open: true, closesDay: b };
@@ -101,8 +113,7 @@ export function listedDay(g: GameState, c: Company, day: number, out: StepOutput
   for (const [, b] of c.windowRanges) {
     if (day === b - (COMPANY.trading.windowClosingDays - 1)) {
       // the next window is the next filing's: a quarter after this filing, its window opens two days later
-      const filing = b - COMPANY.insiders.windowCloseDay;
-      const next = windowAt(c, b + 1).opensDay ?? filing + COMPANY.quarterDays + COMPANY.insiders.windowOpenDay;
+      const next = nextOpenDay(c, b + 1);
       notify(g, out, c.ownerId, { kind: 'system', tone: 'warn', text: `${c.name}: the trading window closes after day ${b}. It reopens on day ${next}.`, msg: { key: 'company.note.windowClosing', vars: { name: c.name, closesDay: b, reopensDay: next } } });
     }
   }

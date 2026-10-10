@@ -296,6 +296,8 @@ export const COMPANY = {
     /** the sector peer's vol times (1 + 0.5 * max(0, 1 - floatCap / $500M)) */
     volSmallCapSlope: 0.5,
     volSmallCapRef: 500_000_000,
+    /** the underwriting fee on the gross IPO proceeds (the float at the IPO price): a sink, paid out of the company's receipts (§5.1) */
+    underwritingFee: 0.05,
   },
   /** owner and insider rules (§6.1, §5.1, §9.1): the insider roster, the trading window and the owner's sell cap */
   insiders: {
@@ -323,6 +325,8 @@ export const COMPANY = {
     loanMinTier: 'growth',
     /** a buyback reserves this share above the current price, so the market buys can clear */
     buybackReserve: 1.10,
+    /** a covenant breach in cure adds this rate to the daily rate while the cure is open (§5, +0.05%/gd) */
+    cureRatePerDay: 0.0005,
   },
   /** dividends (§5.3): retained earnings, cash for 21 gd of costs, covenants and TTM FCF */
   dividends: {

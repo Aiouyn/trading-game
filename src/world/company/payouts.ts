@@ -11,7 +11,7 @@ import { COMPANY } from '@/content/company';
 import { notify, bump, today } from '../core';
 import type { GameState, StepOutput } from '../types';
 import { post } from './company';
-import { founderKeyOf, treasuryIdOf } from './ipo';
+import { founderKeyOf, poolIdOf, treasuryIdOf } from './ipo';
 import { ttmOf } from './debt';
 import type { Company, CompanyReject } from './types';
 
@@ -34,6 +34,31 @@ export function dividendRule(g: GameState, c: Company, perShare: number): 'filin
   const fcf = ttmOf(c).fcf;
   if (!(fcf > 0) || total > fcf) return 'fcf';
   return null;
+}
+
+/** The NPC investors that hold a listed company's pool shares, in key order (the founder, the float and the book are not). */
+function poolHolders(c: Company, g: GameState): string[] {
+  const w = g.companies!;
+  return Object.keys(c.capTable)
+    .filter((k) => k !== founderKeyOf(c.ownerId) && !k.startsWith('float:') && w.investors[k] && (c.capTable[k] ?? 0) > 0)
+    .sort();
+}
+
+/**
+ * The NPC pools' shares of a listed company sit in one engine account (the pool). Their dividend belongs to the investors
+ * in the cap table, pro rata to their shares, so it is paid to each investor's own cash and the pool keeps no cash of its
+ * own. The last investor takes the rounding remainder, so the pool's payment is paid out in full.
+ */
+function payPool(g: GameState, c: Company, pay: number): void {
+  const w = g.companies!;
+  const holders = poolHolders(c, g);
+  const total = holders.reduce((x, k) => x + c.capTable[k]!, 0);
+  let left = pay;
+  holders.forEach((k, idx) => {
+    const part = idx === holders.length - 1 ? left : (pay * c.capTable[k]!) / total;
+    left -= part;
+    w.investors[k]!.cash += part;
+  });
 }
 
 /** Declare a dividend per share. Refused with dividendNotPermitted when a rule fails (nothing changes). */
@@ -59,12 +84,14 @@ export function declareDividend(
   } else {
     const assetId = c.listed.assetId;
     const tid = treasuryIdOf(c.id);
+    const pid = poolIdOf(c.id);
     for (const id of Object.keys(g.market.accounts).sort()) {
       if (id === tid) continue;
       const q = g.market.accounts[id]?.positions[assetId]?.qty ?? 0;
       if (q <= 0) continue;
       const pay = q * perShare;
       if (g.players[id]) bump(g, id, pay);
+      else if (id === pid && poolHolders(c, g).length > 0) payPool(g, c, pay);
       else {
         const a = g.market.accounts[id]!;
         g.market = { ...g.market, accounts: { ...g.market.accounts, [id]: { ...a, cash: a.cash + pay } } };
