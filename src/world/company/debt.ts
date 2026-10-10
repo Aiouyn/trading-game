@@ -115,32 +115,95 @@ export function repayLoan(
 }
 
 /**
- * The day's debt flows: interest on every loan (a transfer to the bank pool, a cost of the quarter below EBIT). A covenant
- * in cure adds its rate (+0.05%/gd). A day's interest the company's cash cannot cover is a missed payment, a default at once.
- * (Interest accrues daily here, so cash below zero with a facility drawn always misses that day's payment; the five-day
- * grace of §5 is therefore not a separate rule in B1. Flagged for Ledger.) Then the covenant cure: a company in cure is tested
- * again on its live numbers, cured when the breach clears, and in default when the cure ends in breach. Default is a status
- * here; the bankruptcy is a later step (B2).
+ * The day's debt flows (B1; the spec's five-day rule, O-7 ruling). Interest accrues daily on each loan (a transfer to the bank
+ * pool, a cost of the quarter below EBIT), and a covenant in cure adds its rate (+0.05%/gd).
+ *
+ * Outside a liquidity cure the day's interest is paid from cash, which may take cash below zero. Cash below zero with a
+ * facility drawn opens a liquidity cure: five game days, with a founder notice. During the cure the owed interest is not paid:
+ * it builds up as arrears, which accrue at the facility rate, and no money moves. The cure ends early when the cash covers
+ * everything owed (the arrears and the day's interest), and the bank is paid then. A cure still open on its fifth day is a
+ * default, and the covenant is not tested again. With no facility drawn any more, an open cure ends.
+ *
+ * Then the covenant cure: a company in cure is tested again on its live numbers, cured when the breach clears, and in default
+ * when the cure ends in breach. Default is a status here; the bankruptcy is a later step (B2).
  */
 export function debtDay(g: GameState, c: Company, day: number, out: StepOutput | null): void {
   const pool = g.companies!.investors[BANK_POOL];
-  const cure = c.covenant.status === 'cure';
-  const due = c.debts.reduce((x, d) => x + d.principal * (d.ratePerDay + (cure ? COMPANY.debt.cureRatePerDay : 0)), 0);
-  if (due > 0 && pool) {
-    if (c.cash < due) {
-      setCovenant(g, c, 'default', day, out, true);
-      return;
-    }
-    for (const d of c.debts) {
-      const interest = d.principal * (d.ratePerDay + (cure ? COMPANY.debt.cureRatePerDay : 0));
-      if (interest <= 0) continue;
-      post(g.companies!, c, day, 'interest', -interest, true);
-      pool.cash += interest;
-      c.qtd.interest += interest;
-      c.qtd.ocf -= interest;
+  if (c.debts.length === 0) {
+    if (liquidityCureOpen(c)) endLiquidityCure(g, c, out);
+  } else if (pool) {
+    const cure = c.covenant.status === 'cure';
+    const rateOf = (d: Debt) => d.ratePerDay + (cure ? COMPANY.debt.cureRatePerDay : 0);
+    const interest = c.debts.map((d) => d.principal * rateOf(d));
+    if (!liquidityCureOpen(c)) {
+      c.debts.forEach((d, i) => payBank(g, c, day, pool, interest[i]!));
+      if (c.cash < 0) openLiquidityCure(g, c, day, out);
+    } else {
+      // the arrears carry the facility rate, then the day's interest is added: all of it is owed
+      const owed = c.debts.map((d, i) => (d.arrears ?? 0) * (1 + rateOf(d)) + interest[i]!);
+      if (c.cash >= owed.reduce((x, v) => x + v, 0)) {
+        c.debts.forEach((d, i) => {
+          payBank(g, c, day, pool, owed[i]!);
+          d.arrears = 0;
+        });
+        endLiquidityCure(g, c, out);
+      } else {
+        // the missed payment is arrears, and no money moves
+        c.debts.forEach((d, i) => { d.arrears = owed[i]!; });
+        if (day >= c.liquidityCureUntilDay!) {
+          liquidityDefault(g, c, day, out);
+          return;
+        }
+      }
     }
   }
   covenantDay(g, c, day, out);
+}
+
+function liquidityCureOpen(c: Company): boolean {
+  return (c.liquidityCureUntilDay ?? null) !== null;
+}
+
+/** A payment of interest or arrears to the bank pool: a transfer, booked as the company's interest. */
+function payBank(g: GameState, c: Company, day: number, pool: { cash: number }, amount: number): void {
+  if (amount <= 0) return;
+  post(g.companies!, c, day, 'interest', -amount, true);
+  pool.cash += amount;
+  c.qtd.interest += amount;
+  c.qtd.ocf -= amount;
+}
+
+/** Cash below zero with a facility drawn: the five-day cure opens, and the founder is told what, why and what to do. */
+function openLiquidityCure(g: GameState, c: Company, day: number, out: StepOutput | null): void {
+  const until = day + COMPANY.debt.liquidityCureDays;
+  c.liquidityCureUntilDay = until;
+  notify(g, out, c.ownerId, {
+    kind: 'system', tone: 'warn',
+    text: `${c.name} has cash below zero with a bank loan drawn. The bank cannot be paid from negative cash, so the interest builds up as arrears. Put cash into ${c.name} by day ${until}, or the loan goes into default.`,
+    msg: { key: 'company.note.liquidityCure', vars: { name: c.name, day: until } },
+  });
+}
+
+/** The cure ends: cured when the cash covers what is owed, or because no facility is left. */
+function endLiquidityCure(g: GameState, c: Company, out: StepOutput | null): void {
+  c.liquidityCureUntilDay = null;
+  notify(g, out, c.ownerId, {
+    kind: 'system', tone: 'gain',
+    text: `${c.name}: the cash covers the bank again, and the loan is current.`,
+    msg: { key: 'company.note.liquidityCured', vars: { name: c.name } },
+  });
+}
+
+/** The cure is still open on its fifth day: the company is in default (the status is set here; the bankruptcy is B2). */
+function liquidityDefault(g: GameState, c: Company, day: number, out: StepOutput | null): void {
+  if (c.covenant.status === 'default') return;
+  c.covenant = { status: 'default', cureUntilDay: null };
+  c.liquidityCureUntilDay = null;
+  notify(g, out, c.ownerId, {
+    kind: 'system', tone: 'loss',
+    text: `${c.name}: the bank loan is in default. Cash did not cover the interest by day ${day}.`,
+    msg: { key: 'company.note.liquidityDefault', vars: { name: c.name, day } },
+  });
 }
 
 /** The covenant at a filing: a new breach opens the cure, a cleared one clears it, and a default stays a default. */

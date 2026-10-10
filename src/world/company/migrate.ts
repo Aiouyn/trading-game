@@ -14,6 +14,7 @@ export function migrateCompany(c: Company): void {
   if (c.debtSeq === undefined) c.debtSeq = 0;
   if (c.covenant === undefined) c.covenant = { status: 'ok', cureUntilDay: null };
   if (c.lastDebtDrawDay === undefined) c.lastDebtDrawDay = -1;
+  if (c.liquidityCureUntilDay === undefined) c.liquidityCureUntilDay = null;
   if (c.divDistress === undefined) c.divDistress = false;
   if (c.windowRanges === undefined) c.windowRanges = [];
   if (c.lastFilingDay === undefined) c.lastFilingDay = c.filings.length > 0 ? c.filings[c.filings.length - 1]!.filedDay : -1;

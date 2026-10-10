@@ -155,16 +155,72 @@ describe('the covenant cure, the missed payment and the default', () => {
     expect(bank.cash - before).toBeCloseTo(9_000_000 * (COMPANY.debt.ratePerDay + COMPANY.debt.cureRatePerDay), 6);
   });
 
-  it('a day whose interest the company cannot pay is a missed payment: default at once, and no money moves', () => {
-    const { g, c } = listedWorld('missed');
+  /** A listed company with a 9M bank loan drawn and its cash set to `cash`: the interest is 4,500 a game day. */
+  function drawn(seed: string, cash: number) {
+    const { g, c } = listedWorld(seed);
     c.tier = 'growth';
     applyCommand(g, FOUNDER, { type: 'company.loan', companyId: c.id, amount: 9_000_000 });
-    c.cash = 100;
-    const bank = g.companies!.investors[BANK_POOL]!;
+    c.cash = cash;
+    return { g, c, bank: g.companies!.investors[BANK_POOL]! };
+  }
+
+  it('cash below zero with a loan drawn opens a five-day cure, with a founder notice; the day interest is still paid', () => {
+    const { g, c, bank } = drawn('liq-open', 100);
     const bankBefore = bank.cash;
     advanceTo(g, today(g) + 1);
+    const opened = today(g);
+    expect(c.liquidityCureUntilDay).toBe(opened + COMPANY.debt.liquidityCureDays);
+    expect(c.liquidityCureUntilDay! - opened).toBe(5);
+    expect(c.cash).toBeLessThan(0);
+    expect(bank.cash - bankBefore).toBeCloseTo(4_500, 6);
+    expect(c.covenant.status).not.toBe('default');
+    const note = g.players[FOUNDER]!.inbox.find((i) => i.msg?.key === 'company.note.liquidityCure');
+    expect(note?.msg?.vars).toEqual({ name: c.name, day: opened + 5 });
+  });
+
+  it('a cure that is not cured is a default on its fifth day, and not before', () => {
+    // the founder does nothing: the company stays short of what the bank is owed, every day of the cure
+    const { g, c } = drawn('liq-default', -1_000_000);
+    advanceTo(g, today(g) + 1);
+    expect(c.liquidityCureUntilDay).not.toBeNull();
+    const until = c.liquidityCureUntilDay!;
+    advanceTo(g, until - 1);
+    expect(c.covenant.status).not.toBe('default');
+    expect(c.liquidityCureUntilDay).toBe(until);
+    advanceTo(g, until);
     expect(c.covenant.status).toBe('default');
-    expect(bank.cash).toBe(bankBefore);
+    expect(g.players[FOUNDER]!.inbox.some((i) => i.msg?.key === 'company.note.liquidityDefault')).toBe(true);
+  });
+
+  it('interest missed in the cure accrues as arrears at the facility rate, and no money moves to the bank', () => {
+    const { g, c, bank } = drawn('liq-arrears', -1_000_000);
+    advanceTo(g, today(g) + 1);
+    const bankAfterOpen = bank.cash;
+    const r = COMPANY.debt.ratePerDay;
+    const I = 9_000_000 * r;
+    // the day after opening: the day's interest is missed, so it is the arrears
+    advanceTo(g, today(g) + 1);
+    expect(c.debts[0]!.arrears).toBeCloseTo(I, 6);
+    // the next day: the arrears accrue at the facility rate, and today's interest is added
+    advanceTo(g, today(g) + 1);
+    expect(c.debts[0]!.arrears).toBeCloseTo(I * (1 + r) + I, 6);
+    expect(bank.cash).toBe(bankAfterOpen);
+  });
+
+  it('a cure is ended early when the cash covers what is owed: the bank is paid, the arrears clear, the cure closes', () => {
+    const { g, c, bank } = drawn('liq-cured', -1_000_000);
+    advanceTo(g, today(g) + 1);
+    advanceTo(g, today(g) + 1);
+    expect(c.liquidityCureUntilDay).not.toBeNull();
+    const owed = c.debts[0]!.arrears! * (1 + COMPANY.debt.ratePerDay) + 9_000_000 * COMPANY.debt.ratePerDay;
+    c.cash = owed + 1_000_000;
+    const bankBefore = bank.cash;
+    advanceTo(g, today(g) + 1);
+    expect(c.liquidityCureUntilDay).toBeNull();
+    expect(c.debts[0]!.arrears).toBe(0);
+    expect(bank.cash - bankBefore).toBeCloseTo(owed, 4);
+    expect(c.covenant.status).not.toBe('default');
+    expect(g.players[FOUNDER]!.inbox.some((i) => i.msg?.key === 'company.note.liquidityCured')).toBe(true);
   });
 });
 
