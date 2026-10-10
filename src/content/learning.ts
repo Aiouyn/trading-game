@@ -54,5 +54,8 @@ export const GOAL_LADDER: { id: string; nw?: number; profit?: true; positions?: 
 /** Always-busy calendar: the horizon in game days. */
 export const CALENDAR_DAYS = 2;
 
+/** Weekly challenge: the ISO weeks a player's record keeps as claimed attempts (older weeks are dropped). */
+export const CHALLENGE_WEEKS_KEPT = 60;
+
 /** Closing card: the most recent closed days kept per player's record. */
 export const CLOSE_STORIES = 4;

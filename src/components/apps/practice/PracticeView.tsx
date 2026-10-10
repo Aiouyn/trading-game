@@ -9,17 +9,22 @@ import { planFor, type SandboxSpec } from '@/sandbox/sandbox';
 import { SCENARIOS, scenarioById, scenarioNoteVars } from '@/sandbox/scenarios';
 import { Button, Card, Tabs } from '@/components/ui';
 import { money, signedPct } from '@/game/format';
+import { useGame } from '@/game/store';
 import { PracticeBanner, PracticeDesk } from './SandboxDesk';
 import { sandboxErrorCode, sandboxRpc, type OpenedSandbox } from './sandboxRpc';
 
 /**
  * The Practice tab of the Learn app: a practice account, the six scenario seeds, the weekly challenge (local board) and
- * run files. One run is open at a time, on top of the tabs, and every run is paper money in its own sandbox. Nothing
- * here reads or writes the live store, the server or the net layer.
+ * run files. One run is open at a time, on top of the tabs, and every run is paper money in its own sandbox. A run never
+ * reads or writes the live store. The one thing that reaches the server is the weekly challenge's claim: before its run
+ * opens, the week's attempt is recorded on the player's record (challenge.claim), so a reload cannot reopen it. The
+ * claim changes nothing in the live market or net worth.
  */
 
 type Tab = 'account' | 'scenarios' | 'challenge' | 'files';
 type RunKind = 'practice' | 'scenario' | 'challenge' | 'imported';
+/** why a gate refused a run: the week's attempt is used, or the record could not be written */
+type GateCode = 'used' | 'failed';
 
 interface Run {
   sb: OpenedSandbox;
@@ -59,11 +64,22 @@ export function PracticeView() {
     if (prev && prev.sb.id !== next?.sb.id) void sandboxRpc.close(prev.sb.id);
   }
 
-  /** Open a new run from a spec. Returns null when it opened, or the sandbox's error code (the reason is in the notice). */
-  async function start(spec: SandboxSpec, kind: RunKind): Promise<string | null> {
+  /**
+   * Open a new run from a spec. Returns null when it opened, or the error code (the reason is in the notice). A gate, when
+   * given, runs after the sandbox is made and before it is shown; if it refuses, the run is closed again.
+   */
+  async function start(spec: SandboxSpec, kind: RunKind, gate?: () => Promise<GateCode | null>): Promise<string | null> {
     setBusy(true);
     try {
       const sb = await sandboxRpc.create(spec);
+      if (gate) {
+        const refused = await gate();
+        if (refused) {
+          void sandboxRpc.close(sb.id);
+          setNotice(t(refused === 'used' ? 'challenge.used' : 'practice.error.generic'));
+          return refused;
+        }
+      }
       const assets = await sandboxRpc.assets(sb.id);
       replaceRun({ sb, kind, assets });
       setNotice(null);
@@ -171,9 +187,14 @@ function runLabel(run: Run): string {
 }
 
 /** The weekly challenge: one scored attempt per ISO week, on a local board (board.ts). */
-function ChallengeTab({ busy, start, boardRev }: { busy: boolean; start: (spec: SandboxSpec, kind: RunKind) => Promise<string | null>; boardRev: number }) {
+function ChallengeTab({ busy, start, boardRev }: { busy: boolean; start: (spec: SandboxSpec, kind: RunKind, gate?: () => Promise<GateCode | null>) => Promise<string | null>; boardRev: number }) {
+  const act = useGame((s) => s.act);
+  const claimedWeeks = useGame((s) => s.me?.trading.challengeWeeks);
   const [weekKey] = useState(() => isoWeekKey(new Date()));
-  const [used, setUsed] = useState(false);
+  // the attempt is on the player's record, so it is used from the record: a reload or a new tab cannot reopen it. The
+  // local flag only covers a run opened in this view before the record is read back.
+  const [openedHere, setOpenedHere] = useState(false);
+  const used = openedHere || !!claimedWeeks?.includes(weekKey);
   const [board, setBoard] = useState<BoardEntry[]>([]);
   const plan = planFor({ kind: 'challenge', weekKey });
   const scenario = plan.scenarioId ? scenarioById(plan.scenarioId) : undefined;
@@ -186,9 +207,14 @@ function ChallengeTab({ busy, start, boardRev }: { busy: boolean; start: (spec: 
   }, [weekKey, boardRev]);
 
   async function open() {
-    // the week's attempt is claimed when the run opens (board.ts), so a started run also uses it up
-    const code = await start({ kind: 'challenge', weekKey }, 'challenge');
-    if (code === null || code === 'already-attempted') setUsed(true);
+    // the week's attempt is recorded on the player's record before the run is shown; the sandbox's own claim (board.ts)
+    // stops a second run in this page too
+    const code = await start({ kind: 'challenge', weekKey }, 'challenge', async () => {
+      const ack = await act({ type: 'challenge.claim', weekKey }, { silent: true });
+      if (ack.ok) return null;
+      return /already/.test(ack.error ?? '') ? 'used' : 'failed';
+    });
+    if (code === null || code === 'already-attempted' || code === 'used') setOpenedHere(true);
   }
 
   return (

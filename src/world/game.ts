@@ -31,7 +31,7 @@ import { ensureLedger, ledgerTick, recordOptionTrade } from './ledger';
 import { closeDay, recordDayClose } from './close';
 import { hireAnalyst, fireAnalyst, resumeDesk, unlockDesk, workDay } from './work';
 import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick, setDrip, startBlock } from './plans';
-import { checkGoals, completeLesson, setGoalsOptIn } from './learn';
+import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
 import { orderError } from './orders';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
 
@@ -323,6 +323,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'desk.resume': return resumeDesk(g, p, out);
     case 'lesson.complete': return completeLesson(p, cmd.lessonId);
     case 'goals.optIn': return setGoalsOptIn(p, cmd.on);
+    case 'challenge.claim': return claimChallenge(p, cmd.weekKey);
     case 'recurring.add': return addRecurring(g, p, cmd.assetId, cmd.dollars, cmd.everyDays);
     case 'recurring.cancel': return cancelRecurring(g, p, cmd.planId);
     case 'drip.set': return setDrip(g, p, cmd.assetId, cmd.on);

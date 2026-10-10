@@ -1,6 +1,6 @@
 /**
  * The ten two-minute lessons (Phase 3, section 4). Each lesson is a short read plus one interactive check that runs in
- * the client sandbox (src/sandbox/lessons.ts decides whether the check passed). Pure data: no React, no engine.
+ * the client sandbox (src/components/apps/practice/lessonCheck.ts decides whether the check passed). Pure data: no React, no engine.
  *
  * The copy lives in en.json and fr.json under learn.lesson.<id>.title, .read, .task and .done. The ids match
  * LESSON_IDS in learning.ts (a test checks it).

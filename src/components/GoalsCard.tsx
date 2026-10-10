@@ -1,7 +1,5 @@
 'use client';
 
-import { portfolio } from '@/engine';
-import { GOAL_LADDER } from '@/content/learning';
 import { money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
@@ -9,37 +7,26 @@ import { Card, Progress } from './ui';
 
 /**
  * The goal ladder (Phase 3, section 4): an optional card, off by default. It shows only when the player has opted in
- * in Settings, and it is hidden entirely otherwise. Each rung is checked on the server; this card only reads the
- * player's own record and portfolio to draw the bars. A goal pays nothing and gates no rule.
+ * in Settings, and it is hidden entirely otherwise. Progress, done and the next rung all come from the server's view
+ * (learn.ts goalsView), read from the same basis the checks use, so the bars never disagree with a done rung. A goal
+ * pays nothing and gates no rule.
  *
  * `compact` is the phone's form: one strip under the home widget, showing the next goal. The desktop form is the full
  * ladder at the top of Portfolio.
  */
 export function GoalsCard({ compact = false }: { compact?: boolean }) {
-  const me = useGame((s) => s.me);
-  const world = useGame((s) => s.world);
-  const playerId = useGame((s) => s.playerId);
-  const goals = me?.trading.goals;
-  if (!me || !goals?.optIn || !world || !playerId) return null;
+  const goals = useGame((s) => s.me?.trading.goals);
+  if (!goals?.optIn) return null;
 
-  const held = portfolio(world, playerId).positions.filter((p) => Math.abs(p.qty) > 1e-9).length;
-  const nw = me.netWorth.total;
-  const rungs = GOAL_LADDER.map((rung) => {
-    const row = goals.rungs.find((r) => r.id === rung.id);
-    const done = !!row?.done;
-    let progress = done ? 1 : 0;
+  const rungs = goals.rungs.map((r) => {
     let detail = '';
-    if (rung.nw !== undefined) {
-      progress = Math.min(1, Math.max(0, nw / rung.nw));
-      detail = `${money(Math.min(nw, rung.nw))} / ${money(rung.nw)}`;
-    } else if (rung.positions !== undefined) {
-      progress = Math.min(1, held / rung.positions);
-      detail = `${Math.min(held, rung.positions)} / ${rung.positions}`;
+    if (r.target !== null && r.value !== null) {
+      detail = r.unit === 'money' ? `${money(r.value)} / ${money(r.target)}` : `${r.value} / ${r.target}`;
     }
-    return { id: rung.id, done, progress, detail };
+    return { id: r.id, done: r.done, progress: r.progress, detail };
   });
   const doneCount = rungs.filter((r) => r.done).length;
-  const next = rungs.find((r) => !r.done) ?? null;
+  const next = rungs.find((r) => r.id === goals.next) ?? null;
 
   if (compact) {
     return (

@@ -111,7 +111,8 @@ describe('lesson checks in the client sandbox', () => {
     expect(lessonPassed(def, probe(sb, asset, acts, 0))).toBe(true);
   });
 
-  it('8 dividends and DRIP: a holding kept for five game days', () => {
+  // explicit timeout: five game days of steps in a fresh sandbox took about 5.6 s in the full run (the default is 5 s)
+  it('8 dividends and DRIP: a holding kept for five game days', { timeout: 30_000 }, () => {
     const def = lessonById('8')!;
     const { sb, asset, acts } = open(def);
     const start = holdingSetup(sb, asset, acts);

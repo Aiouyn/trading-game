@@ -194,6 +194,8 @@ export interface PlayerView {
     plans: PlanState | null;
     calendar: CalendarItem[];
     goals: ReturnType<typeof goalsView>;
+    /** ISO weeks this player has used their weekly challenge attempt (durable) */
+    challengeWeeks: string[];
   };
 }
 
@@ -254,7 +256,7 @@ function tradingView(g: GameState, pid: string): PlayerView['trading'] {
   return {
     fills: fills.slice(-VIEW_FILLS), trips: trips.slice(-VIEW_FILLS), benchmark: ghostReport(g, pid), series: ghostSeries(g, pid, VIEW_SERIES),
     closes: (L?.closes ?? []).slice(0, VIEW_CLOSES).map((c) => ({ ...c, lines: textProvider.dailyClose(c) })), plans: L?.plans ?? null,
-    calendar: calendarFor(g, pid), goals: goalsView(g.players[pid]!),
+    calendar: calendarFor(g, pid), goals: goalsView(g, g.players[pid]!), challengeWeeks: g.players[pid]!.challengeWeeks ?? [],
   };
 }
 
