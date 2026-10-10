@@ -1,7 +1,13 @@
 import { DEFAULT_CATALYSTS } from './catalysts';
+import { DEFAULT_RATES } from './rates';
 import { regimeTimeShares } from './regimeShares';
-import { RATE_YIELD_DAILY_VAR } from './ratevar';
-import type { AssetDef, IndexDef, RegimeDef, RegimeId, TradingConfig, VolumeConfig, WorldConfig } from './types';
+import {
+  RATE_VAR_SEED, RATE_VAR_YEARS, RATE_YIELD_DAILY_VAR, RATE_YIELD_VARIANCE_RATIO, YIELD_HORIZONS, simulateYieldVariance,
+  type YieldVarByRegime, type YieldVarianceRatio,
+} from './ratevar';
+import type {
+  AssetDef, CatalystConfig, IndexDef, RatesConfig, RegimeDef, RegimeId, TradingConfig, VolumeConfig, WorldConfig, YieldKey,
+} from './types';
 
 /** 01 §5.3. Lengths: Expansion 1.5–3 game yrs, the others 0.5–1 yr (252 trading days per year). */
 export const DEFAULT_REGIMES: Record<RegimeId, RegimeDef> = {
@@ -97,46 +103,145 @@ export function ratePassThrough(print: number): number {
   return print * print + (1 - print) * (1 - print);
 }
 
+/** What expectedVol reads from a world config besides the asset. A key that is present with null or undefined turns that term off. */
+export interface ExpectedVolWorld {
+  rates?: RatesConfig | null;
+  catalysts?: CatalystConfig | null;
+  /** the horizon in game days the vol is for (options: days to expiry). Default 1, the daily band. */
+  horizonDays?: number;
+}
+
+interface YieldTables { variance: YieldVarByRegime; ratio: YieldVarianceRatio }
+const DEFAULT_YIELD_TABLES: YieldTables = { variance: RATE_YIELD_DAILY_VAR, ratio: RATE_YIELD_VARIANCE_RATIO };
+
+/** The yield tables for a rates config and regime table: the generated constants for the defaults, else a memoized simulation. */
+const yieldCache = new WeakMap<RatesConfig, WeakMap<Record<RegimeId, RegimeDef>, YieldTables>>();
+function yieldTables(rates: RatesConfig, regimes: Record<RegimeId, RegimeDef>): YieldTables {
+  if (rates === DEFAULT_RATES && regimes === DEFAULT_REGIMES) return DEFAULT_YIELD_TABLES;
+  let byRegimes = yieldCache.get(rates);
+  if (!byRegimes) { byRegimes = new WeakMap(); yieldCache.set(rates, byRegimes); }
+  let t = byRegimes.get(regimes);
+  if (!t) {
+    const sim = simulateYieldVariance(rates, regimes, RATE_VAR_YEARS, RATE_VAR_SEED);
+    t = { variance: sim.variance, ratio: sim.ratio };
+    byRegimes.set(regimes, t);
+  }
+  return t;
+}
+
 /**
- * Expected total annualized volatility of an asset: diffusion, compound Poisson jumps, and the rates layer's shock for an
- * asset with a rates exposure (a duration and a yieldKey: bonds and property). Kou jumps with exponential sizes of mean η
- * have E[J²] = 2η², so
- *   expectedVol² = (vol · volMult)² + λ · jumpMult · E_p[J²] · jumpPrint² + D² · σ²_yield · 252 · ratePassThrough(ratePrint)
- * σ²_yield is the daily variance of the yield the asset is keyed to (ratevar.ts, generated from DEFAULT_RATES and the regime
- * chain). With a regime, every term is that regime's: its volMult, jumpMult and jump up-shift, and its yield variance. Without
- * one, the jump and yield terms are the time average over the default regimes (regimeShares.ts), and the diffusion uses
- * volMult 1 as before (V1-PHASE1 F13 measures it; the diffusion mix is not in this expectation).
- * GARCH has long-run mean h = 1, so it does not change the expectation.
+ * Variance ratio of a yield's change over `days` (ratevar.ts): log-linear between the table's horizons, 1 at one day, flat past
+ * the last horizon. The rate term of a horizon vol is the daily variance times this ratio.
+ */
+export function yieldVarianceRatio(ratio: YieldVarianceRatio, key: YieldKey, days: number): number {
+  const v = ratio[key];
+  const last = YIELD_HORIZONS.length - 1;
+  if (!(days > YIELD_HORIZONS[0]!)) return v[0]!;
+  if (days >= YIELD_HORIZONS[last]!) return v[last]!;
+  let i = 0;
+  while (YIELD_HORIZONS[i + 1]! < days) i++;
+  const h0 = YIELD_HORIZONS[i]!, h1 = YIELD_HORIZONS[i + 1]!;
+  const t = (Math.log(days) - Math.log(h0)) / (Math.log(h1) - Math.log(h0));
+  return v[i]! + t * (v[i + 1]! - v[i]!);
+}
+
+/**
+ * E[s²] of the analyst surprise (catalysts.ts): s = ρ c/σ + sqrt(1 − ρ²) N, c = clamp(σ N1, −1, 1), so c/σ = clamp(N1, ±1/σ).
+ * The clamped moment is a quadrature over N1 (fixed grid, so the same config always gives the same number).
+ */
+function surpriseSecondMoment(cat: CatalystConfig): number {
+  const k = 1 / cat.consensusSd;
+  const n = 2000, lo = -10, hi = 10, h = (hi - lo) / n;
+  let acc = 0, wsum = 0;
+  for (let i = 0; i <= n; i++) {
+    const x = lo + i * h;
+    const w = (i === 0 || i === n ? 1 : i % 2 ? 4 : 2) * Math.exp(-x * x / 2);
+    const cl = Math.max(-k, Math.min(k, x));
+    acc += w * cl * cl;
+    wsum += w;
+  }
+  return cat.rho * cat.rho * (acc / wsum) + (1 - cat.rho * cat.rho);
+}
+
+/**
+ * Annualized variance of the earnings gap (catalysts.ts): one report a everyDays, the day's jump J = moveScale (vol/0.3) s, and
+ * the post-earnings drift adds peadShare x J spread over peadDays days, so a report's sum of squared daily moves is
+ * J² (1 + peadShare² / peadDays). Only stocks report.
+ */
+function earningsVar(a: AssetDef, cat: CatalystConfig): number {
+  const j2 = (cat.moveScale * (a.vol / 0.3)) ** 2 * surpriseSecondMoment(cat);
+  return (DAYS_PER_YEAR / cat.everyDays) * j2 * (1 + (cat.peadShare * cat.peadShare) / cat.peadDays);
+}
+
+/**
+ * Expected total annualized volatility of an asset (the model's own prediction of its daily close-to-close return vol):
+ *   expectedVol² = D_diff + λ · jumpMult · E_p[J²] · jumpPrint² + earnings + D² · σ²_yield · 252 · ratePassThrough(ratePrint)
+ * with the terms below. Each one is taken from the code that generates it, so it is a prediction, not a fit:
+ * - diffusion (sim.ts): (vol · volMult · shockSd)², where shockSd is regimeShockSd (the regime's loading split, sim.ts). With a
+ *   regime, that regime's values. Without one, the time average over the default regimes (regimeShares.ts), so E[volMult²] is
+ *   1.18 on the defaults, not 1.
+ * - jumps (sim.ts, Kou exponential sizes of mean η, E[J²] = 2η²): with a regime, that regime's jumpMult and jump up-shift.
+ *   Without one, the time average over the regimes.
+ * - earnings (catalysts.ts), stocks only, when `world.catalysts` is on: see earningsVar.
+ * - rates (rates.ts, ratevar.ts): an asset with duration and yieldKey (bonds, property) adds D² x the daily yield variance of
+ *   its key x 252 x the print pass-through. The yield table is the rates config's own (the generated constant for DEFAULT_RATES,
+ *   a memoized simulation otherwise); with no rates layer (`world.rates` null) the term is 0.
+ * Not in the expectation: flash crashes (about 1.3 a year, -8% on stocks, about 1 to 2% of stock vol), crisis weeks (about 4%
+ * of days trade as contraction, about 1% of vol), crash and bubble drifts (spread over 10 to 40 days, negligible per day), and
+ * the ecology's own dynamics: the value pull that shortens daily moves and the momentum and trend pools that lengthen them
+ * over a horizon. Those two are the residuals the vol bands measure (bands.ts, V1-PHASE1 section 3o).
  *
- * jumpPrint and ratePrint are the shares that print in the close, for the daily-return vol that the bands measure
- * (closePrint, ratePrintOf in ecology.ts). They default to 1: an option's horizon vol is the full variance, since a
- * move that prints late still reaches the price. `regimes` is the config's regime table for the no-regime time average
- * (default: the default regimes, which the game and the balance bands use).
+ * horizonDays (default 1) is the horizon the vol is for: the rate term is multiplied by the yield variance ratio at that
+ * horizon (ratevar.ts, RATE_YIELD_VARIANCE_RATIO). Options use their days to expiry; the daily bands use 1.
+ *
+ * jumpPrint and ratePrint are the shares that print in the close, for the daily-return vol the bands measure (closePrint,
+ * ratePrintOf in ecology.ts). They default to 1: an option's vol is the full variance, since a move that prints late still
+ * reaches the price. `regimes` is the config's regime table (default: the default regimes, which the bands use).
+ * GARCH has long-run mean h = 1, so it does not change the expectation.
  */
 export function expectedVol(
   a: AssetDef, regime?: RegimeDef, jumpPrint = 1, ratePrint = jumpPrint, regimes: Record<RegimeId, RegimeDef> = DEFAULT_REGIMES,
+  world: ExpectedVolWorld = { rates: DEFAULT_RATES, catalysts: null },
 ): number {
-  const volMult = regime?.volMult ?? 1;
-  let jumpVar: number;
+  const shares = regimes === DEFAULT_REGIMES ? DEFAULT_REGIME_SHARES : regimeTimeShares(regimes);
+  const ids = Object.keys(regimes) as RegimeId[];
+  let diffVar: number, jumpVar: number;
   if (regime) {
+    diffVar = (a.vol * regime.volMult * regimeShockSd(a, regime)) ** 2;
     jumpVar = a.jumpsPerYear * regime.jumpMult * jumpSecondMoment(a, regime.jumpUpShift ?? 0);
   } else {
-    const shares = regimes === DEFAULT_REGIMES ? DEFAULT_REGIME_SHARES : regimeTimeShares(regimes);
+    diffVar = 0;
     jumpVar = 0;
-    for (const id of Object.keys(regimes) as RegimeId[]) {
+    for (const id of ids) {
       const g = regimes[id];
+      diffVar += shares[id] * (a.vol * g.volMult * regimeShockSd(a, g)) ** 2;
       jumpVar += shares[id] * a.jumpsPerYear * g.jumpMult * jumpSecondMoment(a, g.jumpUpShift ?? 0);
     }
   }
   let rateVar = 0;
-  if (a.duration && a.yieldKey) {
-    const byRegime = regime ? RATE_YIELD_DAILY_VAR[regime.id] : undefined;
-    const shares = regimes === DEFAULT_REGIMES ? DEFAULT_REGIME_SHARES : regimeTimeShares(regimes);
-    const daily = byRegime ? byRegime[a.yieldKey] : (Object.keys(shares) as RegimeId[]).reduce(
-      (acc, id) => acc + shares[id] * RATE_YIELD_DAILY_VAR[id][a.yieldKey!], 0);
-    rateVar = a.duration ** 2 * daily * DAYS_PER_YEAR * ratePassThrough(ratePrint);
+  const rates = 'rates' in world ? world.rates : DEFAULT_RATES;
+  if (a.duration && a.yieldKey && rates) {
+    const { variance: table, ratio } = yieldTables(rates, regimes);
+    const daily = regime ? table[regime.id]?.[a.yieldKey] ?? 0 : ids.reduce((acc, id) => acc + shares[id] * table[id][a.yieldKey!], 0);
+    const horizon = yieldVarianceRatio(ratio, a.yieldKey, world.horizonDays ?? 1);
+    rateVar = a.duration ** 2 * daily * DAYS_PER_YEAR * ratePassThrough(ratePrint) * horizon;
   }
-  return Math.sqrt((a.vol * volMult) ** 2 + jumpVar * jumpPrint ** 2 + rateVar);
+  const cat = 'catalysts' in world ? world.catalysts : null;
+  const earnVar = cat && a.assetClass === 'stock' ? earningsVar(a, cat) : 0;
+  return Math.sqrt(diffVar + jumpVar * jumpPrint ** 2 + earnVar * jumpPrint ** 2 + rateVar);
+}
+
+/**
+ * expectedVol for an asset in a world config: that config's regime table, rates layer and catalysts. A config without rates or
+ * catalysts gets no rate or earnings term (the keys are passed explicitly, so a dropped layer is not priced in).
+ */
+export function expectedVolOf(
+  a: AssetDef, cfg: Pick<WorldConfig, 'regimes' | 'rates' | 'catalysts'>, regime?: RegimeDef, jumpPrint = 1, ratePrint = jumpPrint,
+  horizonDays = 1,
+): number {
+  return expectedVol(a, regime, jumpPrint, ratePrint, cfg.regimes ?? DEFAULT_REGIMES, {
+    rates: cfg.rates ?? null, catalysts: cfg.catalysts ?? null, horizonDays,
+  });
 }
 
 export function idioLoading(a: AssetDef): number {

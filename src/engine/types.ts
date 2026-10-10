@@ -606,7 +606,8 @@ export interface EcologyConfig {
   /**
    * share of the day's rates-layer move (yield repricing and policy or data surprises, AssetState.dayRate) that prints in
    * the close. Absent = newsPrint's default (0.5). Kept apart from newsPrint so the rate-driven bond vol that Tape
-   * calibrated (universe.ts, AV10 and AV30 vol ratios 1.17 and 1.19) stays where it was: its expectedVol has no rate term.
+   * calibrated stays where it was. The rate term of expectedVol is taken at the close's print pass-through (ratePrintOf), so the
+   * print share that bond vol is measured at is the one expectedVol uses; the option horizon uses the full move (print 1).
    */
   ratePrint?: number;
   /**

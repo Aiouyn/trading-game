@@ -1,4 +1,5 @@
 // Seeded balance harness (owner: Tape).
+// Tick rate: the release verdicts are at 720 ticks a game day (V1-PHASE1 F19). The default here is 24 (a fast smoke run, labelled SMOKE RUN).
 // Usage: npx tsx scripts/balance/run.ts [--seeds 20] [--years 5] [--tpd 24] [--out balance-out]
 // Runs the engine headless across many seeds, aggregates stats, checks them against bands.ts.
 // Exit code 1 if any band fails, so it can gate a release. Same args => same output.
@@ -8,7 +9,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createWorld, stepMany, indexLevel, defaultConfig, universeConfig, expectedVol, closePrint, ratePrintOf, openAccount, placeOrder, portfolio } from "../../src/engine";
+import { createWorld, stepMany, indexLevel, defaultConfig, universeConfig, expectedVolOf, closePrint, ratePrintOf, openAccount, placeOrder, portfolio } from "../../src/engine";
 import type { AssetDef, WorldState } from "../../src/engine";
 import { phase0Bands, check, UNIVERSE_VOL_BANDS } from "./bands";
 
@@ -170,7 +171,7 @@ function runSeed(seed: string): SeedResult {
     if (firstRec[i] !== 0 || delistRec[i] !== Infinity) return;
     if (onlyAssets && !onlyAssets.has(defs[i]!.id)) return;
     if (universe) aliveShare[defs[i]!.id] = aliveRets(c, defs[i]!.floor).length / logRets(c).length;
-    volRatio[defs[i]!.id] = (sd(logRets(c)) * Math.sqrt(cfg.daysPerYear)) / expectedVol(defs[i]!, undefined, closePrint(cfg), ratePrintOf(cfg), cfg.regimes);
+    volRatio[defs[i]!.id] = (sd(logRets(c)) * Math.sqrt(cfg.daysPerYear)) / expectedVolOf(defs[i]!, cfg, undefined, closePrint(cfg), ratePrintOf(cfg));
   });
   const gxCagr = Math.pow(gx[gx.length - 1]! / gx[0]!, 1 / years) - 1;
   if (volOnly) return { ...volOnlyResult(), volRatio, aliveShare, gxCagr, invalid, sawContraction, msPerTick: (performance.now() - t0) / state.tick };
@@ -265,6 +266,7 @@ function main() {
   mkdirSync(out, { recursive: true });
   writeFileSync(path.join(out, "summary.json"), JSON.stringify({ seeds: nSeeds, years, ticksPerDay: tpd, stats, results: checked, perSeed: results }, null, 2));
 
+  if (tpd !== 720) console.log(`SMOKE RUN at ticksPerDay ${tpd}: the release gates are judged at 720 ticks a game day (V1-PHASE1 F19, gates.ts). The verdicts below are provisional at this rate; the 24-tick volCorr is 0.642 against 0.546 at 720.`);
   console.log(`balance: ${nSeeds} seeds x ${years} game years, ticksPerDay=${tpd}, wall ${(wall / 1000).toFixed(1)} s, ${mean(results.map((r) => r.msPerTick * 1000)).toFixed(1)} us/tick`);
   for (const r of checked) {
     const v = r.value === undefined ? "n/a" : Number.isInteger(r.value) ? String(r.value) : r.value.toFixed(3);

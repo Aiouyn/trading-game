@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_REGIMES, DEFAULT_REGIME_SHARES, expectedVol, ratePassThrough } from './config';
+import { DEFAULT_REGIMES, DEFAULT_REGIME_SHARES, expectedVol, ratePassThrough, regimeShockSd } from './config';
 import { DEFAULT_RATES } from './rates';
 import { regimeTimeShares } from './regimeShares';
-import { RATE_VAR_SEED, RATE_VAR_YEARS, RATE_YIELD_DAILY_VAR, simulateYieldVariance } from './ratevar';
+import { RATE_VAR_SEED, RATE_VAR_YEARS, RATE_YIELD_DAILY_VAR, RATE_YIELD_VARIANCE_RATIO, simulateYieldVariance } from './ratevar';
 import { universeConfig } from './universe';
 import type { AssetDef, RegimeId } from './types';
 
@@ -24,12 +24,16 @@ describe('regimeTimeShares', () => {
 
 describe('rate-shock table (ratevar.ts)', () => {
   it('is the rates layer simulated at the generated length and seed (regenerate: scripts/balance/rate-var.ts)', () => {
-    const { variance } = simulateYieldVariance(DEFAULT_RATES, DEFAULT_REGIMES, RATE_VAR_YEARS, RATE_VAR_SEED);
+    const { variance, ratio } = simulateYieldVariance(DEFAULT_RATES, DEFAULT_REGIMES, RATE_VAR_YEARS, RATE_VAR_SEED);
     for (const id of RGS) {
       for (const k of ['y2', 'y10', 'y30'] as const) {
         const want = RATE_YIELD_DAILY_VAR[id][k];
         expect(Math.abs(variance[id][k] - want) / want).toBeLessThan(1e-9);
       }
+    }
+    // the variance-ratio table (horizons YIELD_HORIZONS) is the same run's ratio
+    for (const k of ['y2', 'y10', 'y30'] as const) {
+      ratio[k].forEach((v, i) => expect(Math.abs(v - RATE_YIELD_VARIANCE_RATIO[k][i]!) / v).toBeLessThan(1e-9));
     }
   }, 30000);
 
@@ -63,12 +67,13 @@ describe('expectedVol rate term (V1-PHASE1 F13)', () => {
 
   it('uses the regime table when a regime is given (its yield variance, its jump multiplier)', () => {
     const r = DEFAULT_REGIMES.contraction;
-    const want = Math.sqrt((av10.vol * r.volMult) ** 2 + 8.5 ** 2 * RATE_YIELD_DAILY_VAR.contraction.y10 * 252);
+    const want = Math.sqrt((av10.vol * r.volMult * regimeShockSd(av10, r)) ** 2 + 8.5 ** 2 * RATE_YIELD_DAILY_VAR.contraction.y10 * 252);
     expect(expectedVol(av10, r)).toBeCloseTo(want, 14);
   });
 
   it('leaves a stock with no duration unchanged by the rate table', () => {
     const stock = { ...av10, duration: undefined, yieldKey: undefined, jumpsPerYear: 0 } as AssetDef;
-    expect(expectedVol(stock, undefined, 1, 0.5)).toBeCloseTo(stock.vol, 14);
+    const mix = (Object.keys(DEFAULT_REGIMES) as RegimeId[]).reduce((acc, id) => acc + DEFAULT_REGIME_SHARES[id] * (stock.vol * DEFAULT_REGIMES[id].volMult * regimeShockSd(stock, DEFAULT_REGIMES[id])) ** 2, 0);
+    expect(expectedVol(stock, undefined, 1, 0.5) ** 2).toBeCloseTo(mix, 14);
   });
 });

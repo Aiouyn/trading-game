@@ -116,7 +116,7 @@ The reference run uses seed `alpha` and 5 game years, at about 17 µs per tick f
   - GARCH spikes after a big day and decays.
   - The circuit breaker halts, freezes, reopens with the gap, and fires at most once per day.
 
-Statistical tests use 24 ticks per day for speed. Calibration is per game year, so the results carry over to 720.
+Statistical tests use 24 ticks per day for speed. Calibration is per game year. Release gates (scripts/ecology/gates.ts) run at 720 ticks, the game's real rate: a 24-tick run is a smoke run and lists its known divergences (universe volCorr 0.642 at 24 ticks, 0.546 at 720). The 24-tick numbers do not carry over to 720 without a check.
 
 ## Expected volatility (balance target)
 

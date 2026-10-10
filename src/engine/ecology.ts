@@ -31,15 +31,47 @@ const POOL_CAPACITY = 3;
 /** The pension pool trades in the last PENSION_DAYS of each 63-day quarter. */
 const PENSION_DAYS = 3;
 
+/** The pension pool's position half-life and the quarter, in days: one quarter is one half-life, so a position keeps half a quarter later. */
+const PENSION_HALF_LIFE = 63;
+const QUARTER_DAYS = 63;
+
 /**
- * The pension pool's per-day cap (V1-PHASE1 F16, derived in round 5 from the pool's own parameters, not picked). The damping
- * halves a pool's orders at position size / capacity (7.5 / 3 = 2.5 ADV): that is the pool's capacity knee. The pension pool
- * trades in pensionDays (3) equal daily parts, and a position's half-life is 63 days (it barely decays over 3 days), so a daily cap
- * of (size / capacity) / pensionDays keeps a window's position inside the knee: 2.5 / 3 = 0.83 ADV a day. A looser cap (2.5 ADV,
- * sizes / pensionDays) was measured in round 5: the largest idle-day pension push rose from 0.096 to 0.277 log at $1e12
- * (scripts/balance/huge-money.ts), so the knee is the bound used. Before round 5 the cap was 1 ADV, picked without a derivation.
+ * The pension pool's capacity knee: the damping (ecologyDay) divides a pool's order by 1 + capacity |pos| / size, so its
+ * orders halve at |pos| = size / capacity = 2.5 ADV.
  */
-export const PENSION_MAX_ADV = POOL_SIZES.pension / POOL_CAPACITY / PENSION_DAYS;
+export const PENSION_KNEE_ADV = POOL_SIZES.pension / POOL_CAPACITY;
+
+/**
+ * The largest per-day order cap whose position, over consecutive quarters, never rises above the knee (V1-PHASE1 F16).
+ * The pool runs the same daily update as ecologyDay: pos = pos x d + order, with order = cap / (1 + capacity |pos| / size) on the
+ * last PENSION_DAYS days of each quarter (the cap is hit every trading day, the worst case) and 0 otherwise, d = 0.5^(1/63).
+ * The position is monotone from zero, so its peak is its steady state. The peak rises with the cap, so bisection on the cap
+ * finds the largest one whose peak is at or below the knee. Derived from the pool's own parameters, not picked: the round-5
+ * value sizes / capacity / pensionDays (0.833) ignored the decay between quarters and the damping as the position grows, and
+ * the peak it gives is 2.83 ADV, above the knee.
+ */
+export function pensionCapAtKnee(): number {
+  const d = Math.pow(0.5, 1 / PENSION_HALF_LIFE);
+  const peakFor = (cap: number): number => {
+    let pos = 0, peak = 0;
+    for (let q = 0; q < 80; q++) {
+      for (let day = 0; day < QUARTER_DAYS; day++) {
+        const order = (day >= QUARTER_DAYS - PENSION_DAYS ? cap : 0) / (1 + (POOL_CAPACITY * Math.abs(pos)) / POOL_SIZES.pension);
+        pos = pos * d + order;
+        peak = Math.max(peak, Math.abs(pos));
+      }
+    }
+    return peak;
+  };
+  let lo = 0, hi = 2;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (peakFor(mid) <= PENSION_KNEE_ADV) lo = mid; else hi = mid;
+  }
+  return lo;
+}
+
+export const PENSION_MAX_ADV = pensionCapAtKnee();
 
 export const DEFAULT_ECOLOGY: EcologyConfig = {
   mode: 'off',
@@ -66,10 +98,10 @@ export const DEFAULT_ECOLOGY: EcologyConfig = {
   pensionK: 1,
   pensionMaxAdv: PENSION_MAX_ADV,
   pensionDays: PENSION_DAYS,
-  quarterDays: 63,
+  quarterDays: QUARTER_DAYS,
   reshuffleK: 1,
   sizes: { ...POOL_SIZES },
-  halfLives: { value: 20, trend: 21, retail: 10, pension: 63 },
+  halfLives: { value: 20, trend: 21, retail: 10, pension: PENSION_HALF_LIFE },
 };
 
 /** The only hybrid weights a save may carry (spec migration: 25%, then full). */
@@ -273,18 +305,25 @@ const clamp = (x: number, lo: number, hi: number) => (x < lo ? lo : x > hi ? hi 
 export const IMPACT_NET_SHARE = 0.25;
 
 /**
- * Split the day's impact I over the signed flows (ADV) that make the net, for explainMove. The parts sum to I exactly.
- * Normal days (|net| >= IMPACT_NET_SHARE x gross): part_x = I x / net, so a pool that pushed with the move gets a share of
- * the sign of its flow, and a pool that traded against it a negative one; |part| <= I / IMPACT_NET_SHARE.
- * Cancelling days: part_x = I |x| / gross, in the move's direction, so every part is at most |I|. A day with no flow has
- * no impact and every part is 0.
+ * Split the day's impact I over the signed flows (ADV) that make the net, for explainMove. The parts sum to I exactly, and
+ * every part has the sign of its own flow (a pool that sold has a negative part, whichever way the move went).
+ *
+ * Let G be the gross flow and D the denominator: the net when |net| >= IMPACT_NET_SHARE x G, else the same-sign floor
+ * IMPACT_NET_SHARE x G (positive when the net is zero). The part of flow x is
+ *   part_x = I (x / D + r |x| / G),   r = 1 - net / D,
+ * so the parts sum to I (sum x / D = net / D, sum |x| / G = 1). On normal days r = 0 and part_x = I x / net. Below the
+ * floor r rises from 0 to 1 as the net goes to zero, and the residual I r is shared by gross flow. Both branches meet at
+ * |net| = IMPACT_NET_SHARE x G, so the split is continuous in the flows. Bounds: |part| <= 4 |I| on normal days and
+ * <= 5 |I| on cancelling days. A day with no flow has no impact and every part is 0.
  */
 export function impactShares(I: number, flows: readonly number[]): number[] {
   let net = 0, gross = 0;
   for (const x of flows) { net += x; gross += Math.abs(x); }
   if (gross === 0) return flows.map(() => 0);
-  if (Math.abs(net) >= IMPACT_NET_SHARE * gross) return flows.map((x) => (I * x) / net);
-  return flows.map((x) => (I * Math.abs(x)) / gross);
+  const floor = IMPACT_NET_SHARE * gross;
+  const D = Math.abs(net) >= floor ? net : net < 0 ? -floor : floor;
+  const r = 1 - net / D;
+  return flows.map((x) => I * (x / D + (r * Math.abs(x)) / gross));
 }
 
 /**

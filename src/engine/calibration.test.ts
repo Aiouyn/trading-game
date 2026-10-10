@@ -39,8 +39,10 @@ describe('close print share (F1: jumps print partly at once)', () => {
     // diffusion 0.04. Jump variance: 6 · E[J²] = 6 · (0.5 · 2 · 0.01 + 0.5 · 2 · 0.01) = 0.12 in an expansion, and with no regime
     // the intensity is the time average of jumpMult over the default regimes (regimeShares.ts): 0.12 · Σ share · jumpMult.
     const mixJump = 0.12 * (Object.keys(DEFAULT_REGIMES) as RegimeId[]).reduce((acc, id) => acc + DEFAULT_REGIME_SHARES[id] * DEFAULT_REGIMES[id].jumpMult, 0);
-    expect(full).toBeCloseTo(Math.sqrt(0.04 + mixJump), 12);
-    expect(printed).toBeCloseTo(Math.sqrt(0.04 + 0.25 * mixJump), 12);
+    // the diffusion term is the regime mix of (volMult x shockSd)² (a loading split with no idio share is the same as volMult alone)
+    const diff = (Object.keys(DEFAULT_REGIMES) as RegimeId[]).reduce((acc, id) => acc + DEFAULT_REGIME_SHARES[id] * (a.vol * DEFAULT_REGIMES[id].volMult * regimeShockSd(a, DEFAULT_REGIMES[id])) ** 2, 0);
+    expect(full).toBeCloseTo(Math.sqrt(diff + mixJump), 12);
+    expect(printed).toBeCloseTo(Math.sqrt(diff + 0.25 * mixJump), 12);
   });
 
   it('closePrint is the live jumpImmediate off the ecology, the newsPrint share in full mode, 1 in the bare engine', () => {

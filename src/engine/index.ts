@@ -1,7 +1,7 @@
 export * from './types';
 export { Rng, seedStream } from './rng';
 export type { RngState } from './rng';
-export { defaultConfig, gameConfig, DEFAULT_TRADING, DEFAULT_VOLUME, DEFAULT_ASSETS, DEFAULT_INDICES, DEFAULT_REGIMES, DEFAULT_REGIME_SHARES, expectedVol, ratePassThrough, idioLoading, normalizeLoadings } from './config';
+export { defaultConfig, gameConfig, DEFAULT_TRADING, DEFAULT_VOLUME, DEFAULT_ASSETS, DEFAULT_INDICES, DEFAULT_REGIMES, DEFAULT_REGIME_SHARES, expectedVol, expectedVolOf, yieldVarianceRatio, ratePassThrough, idioLoading, normalizeLoadings } from './config';
 export { createWorld, step, stepMany, quote, prices, volumes, indexLevel, gameDay } from './sim';
 export { DEFAULT_WORLD_EVENTS, worldEventView, worldEventAftermath } from './worldEvents';
 export type { WorldEventKind, WorldEventView, WorldEventsConfig, WorldEventsState } from './worldEvents';

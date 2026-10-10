@@ -53,7 +53,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createWorld, expectedVol, step } from '../../src/engine/index';
+import { createWorld, expectedVolOf, step } from '../../src/engine/index';
 import type { EcologyConfig, WorldConfig } from '../../src/engine/index';
 import { ecoDayInput, ecologyConfig, ecologyDay, initEcology } from '../../src/engine/ecology';
 import type { EcoDayInput } from '../../src/engine/ecology';
@@ -153,8 +153,8 @@ function runSeed(seed: string, mode: 'full' | 'shadow', universe: boolean, tpd: 
   const stock = cfg.assets.map((a) => a.assetClass === 'stock');
   // the gate closes print the ecology's newsPrint share of each jump; the live reference prints jumpImmediate (closePrint)
   const ec = ecologyConfig(cfg);
-  const expVol = cfg.assets.map((a) => expectedVol(a, undefined, ec.newsPrint ?? 1, ec.ratePrint ?? 1, cfg.regimes));
-  const expVolLive = cfg.assets.map((a) => expectedVol(a, undefined, cfg.jumpImmediate ?? 1, cfg.jumpImmediate ?? 1, cfg.regimes));
+  const expVol = cfg.assets.map((a) => expectedVolOf(a, cfg, undefined, ec.newsPrint ?? 1, ec.ratePrint ?? 1));
+  const expVolLive = cfg.assets.map((a) => expectedVolOf(a, cfg, undefined, cfg.jumpImmediate ?? 1, cfg.jumpImmediate ?? 1));
   return {
     mode, seed, universe, tpd, days, daysPerYear: cfg.daysPerYear, set, ids, stock, alive, expVol, expVolLive, closes, live, dayNotional, gross,
     hMean: hSum / hN, hMax, ...(isShadow ? { inputs } : {}), ms: performance.now() - t0,
@@ -318,7 +318,7 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
     liveVrPass = lvAll.every(inBand);
   }
   rows.push({
-    label: `vol ratio per asset, RMS over seeds (${listed.length} assets)`, text: r0.universe ? 'in band (class bands), 2 s.e.' : 'every asset in [0.85, 1.4], 2 s.e.',
+    label: `vol ratio per asset, RMS over seeds (${listed.length} assets)`, text: r0.universe ? 'none wholly outside its band (class bands), 2 s.e.' : 'none wholly outside [0.85, 1.4], 2 s.e.',
     value: `${Math.min(...listed.map((x) => x.v)).toFixed(3)}..${Math.max(...listed.map((x) => x.v)).toFixed(3)} med ${median(listed.map((x) => x.v)).toFixed(3)}`,
     pass: outside.length === 0,
     ...(liveVr ? { live: liveVr, livePass: liveVrPass } : {}),

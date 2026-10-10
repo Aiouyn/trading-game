@@ -11,7 +11,7 @@ import { createWorld, step } from '../../src/engine/sim';
 import { universeConfig } from '../../src/engine/universe';
 import { estimateFill, liquidationEquity, openAccount, permanentMove, placeOrder, portfolio } from '../../src/engine/trading';
 import { freeCash, freeQty, mean, median, realizeToFlat } from '../../src/engine/hunt-helpers';
-import { depthByPool, explainMove } from '../../src/engine/ecology';
+import { depthByPool, ecologyConfig, explainMove, PENSION_KNEE_ADV } from '../../src/engine/ecology';
 import { rankFor } from '../../src/content/lifestyle';
 import type { WorldConfig, WorldState } from '../../src/engine/types';
 
@@ -27,7 +27,7 @@ const TPD = Number(arg('tpd', '24'));
 const DAYS = 252;
 const PID = 'huge';
 const ROTATION = ['FROG', 'HLCN', 'SYN']; // the same rotation as huge.test.ts
-// --pensionMax X sets the pension pool's per-day cap (ecology.pensionMaxAdv; default 1, the shipped value). The log keeps the
+// --pensionMax X sets the pension pool's per-day cap (ecology.pensionMaxAdv; default: the shipped cap, derived in ecology.ts). The log keeps the
 // whole year so the pension cause can be scanned on every day (see pensionScan).
 const cfg0 = universeConfig({ ticksPerDay: TPD });
 const pensionMax = arg('pensionMax', '');
@@ -164,6 +164,27 @@ function runCounterfactual(): Record<string, number>[] {
  * the largest pension buy and sell in ADV, the day of each, and the FROG log move that day. Also the largest desired
  * pension flow before the cap, so the cap's effect is visible (desire = pool's own order, cap applied after).
  */
+/**
+ * The pension pool's FROG position over the year, rebuilt from its own orders with the engine's update (ecologyDay: pos = pos x d
+ * + order, the order after the cap and the damping, which is what the log's desired.pension holds). Reports the peak against the
+ * capacity knee (size / capacity = 2.5 ADV) and the position at each quarter end (V1-PHASE1 F16: the cap must keep the peak at or
+ * below the knee over consecutive quarters).
+ */
+function pensionPosition(s: WorldState, fi: number): void {
+  const ec = ecologyConfig(cfg);
+  const d = Math.pow(0.5, 1 / ec.halfLives.pension);
+  let pos = 0, peak = 0, peakDay = -1;
+  const quarterEnds: string[] = [];
+  for (const day of s.ecology?.log ?? []) {
+    const a = day.assets[fi];
+    if (!a) continue;
+    pos = pos * d + a.desired.pension;
+    if (Math.abs(pos) > Math.abs(peak)) { peak = pos; peakDay = day.day; }
+    if (day.day % ec.quarterDays === ec.quarterDays - 1) quarterEnds.push(fx(pos));
+  }
+  console.log(`pension position, FROG, rebuilt from the orders: peak ${fx(peak)} ADV on day ${peakDay + 1} (knee ${fx(PENSION_KNEE_ADV)} ADV, cap ${fx(ec.pensionMaxAdv)} ADV a day); at quarter ends ${quarterEnds.join(', ')}`);
+}
+
 function pensionScan(s: WorldState): void {
   const fi = idx(s, 'FROG');
   let up = { v: 0, day: -1, pc: 0 }, dn = { v: 0, day: -1, pc: 0 }, nz = 0, sumAbs = 0, pcSum = 0;
@@ -192,6 +213,7 @@ function pensionScan(s: WorldState): void {
     if (p < iDn.v) iDn = { v: p, day: day.day, pc: a.cause.pension };
     if (Math.abs(a.cause.pension) > Math.abs(iMax.pc)) iMax = { pc: a.cause.pension, day: day.day };
   }
+  pensionPosition(s, fi);
   console.log(`pension, account-idle FROG days (no FROG order that day): pension orders on ${iNz} days, sum of pension log moves ${fx(iSum)}; largest buy ${fx(iUp.v)} ADV on day ${iUp.day + 1} (log ${fx(iUp.pc)}); largest sell ${fx(iDn.v)} ADV on day ${iDn.day + 1} (log ${fx(iDn.pc)}); largest |pension log move| ${fx(iMax.pc)} on day ${iMax.day + 1}`);
 }
 
