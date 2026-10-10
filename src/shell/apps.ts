@@ -88,6 +88,19 @@ export const APPS: Readonly<Record<AppId, AppDef>> = {
   settings: app('settings', 420, 300, { views: ['about'] }),
 };
 
+/**
+ * Views whose screen is built. A layout or a deep link may name a view only when it is listed here.
+ * The Portfolio journal ships in Phase 3 (velvet-trade-journal-replay.md); until it is listed, Review
+ * opens Portfolio and Wire, and no second Portfolio is ever created.
+ */
+export const READY_VIEWS: readonly string[] = [];
+
+/** Whether an app's second window (`secondInstance`, Review only) can open: its view is built. */
+export function secondWindowReady(app: AppId, ready: readonly string[] = READY_VIEWS): boolean {
+  const s = APPS[app].secondInstance;
+  return s !== null && ready.includes(s.view);
+}
+
 /** Default shelf order (V:82): trading group first, Broker pinned first. Hidden apps are absent. */
 export const SHELF_ORDER: readonly AppId[] = [
   'broker', 'portfolio', 'wire', 'messages', 'calendar', 'businesses', 'ailab', 'research', 'bank',

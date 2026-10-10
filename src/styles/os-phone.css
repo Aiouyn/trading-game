@@ -134,6 +134,10 @@
     background: linear-gradient(180deg, var(--os-walnut-top), var(--os-walnut-bottom));
     box-shadow: inset 0 1px 0 var(--os-walnut-inlay);
   }
+  /* The R0 sticker moves off the bottom row (its phone place is free space above the row, velvet-desktop-os.md).
+   * It is drawn under every interactive layer and takes no pointer events (RankHardware, .os-hardware). */
+  .os-root .os-phone .os-hw-sticker { left: 16px; bottom: 138px; }
+
   .os-root.shell-r5 .os-phone-hw-skyline {
     position: fixed; left: 0; right: 0; bottom: 0; height: 40%; z-index: 0; pointer-events: none;
     background: linear-gradient(0deg, color-mix(in srgb, var(--color-brass-hi) 10%, transparent), transparent);
@@ -179,7 +183,10 @@
     display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--radius-md); color: var(--color-fg);
   }
   .os-root .os-phone-title { font-size: 15px; font-weight: 600; color: var(--color-fg); }
-  .os-root .os-phone-app > .os-body { padding-bottom: 56px; }
+  /* The home indicator (.os-home-edge, bottom 9 px, about 30 px tall) sits in a reserved band at the foot of
+   * every full-screen app, so no control is ever under it. The band is padding, so the app body scrolls
+   * above it and the wallpaper never shows through the app. */
+  .os-root .os-phone-app { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
 
   /* Recent rows: the tap target fills the row, the swipe moves the row over the Close control (V:168-170). */
   .os-root .os-rw-tap {

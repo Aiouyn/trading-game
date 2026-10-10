@@ -71,8 +71,16 @@ describe('built-in layouts: feasibility fallback', () => {
     expect(p.placements.every((x) => x.app !== 'research')).toBe(true);
   });
 
-  it('Review at 1440x900 is two halves: Portfolio left and the journal Portfolio (second instance) right', () => {
+  it('Review at 1440x900 is two halves: Portfolio left and Wire right, until the journal view is built', () => {
     const p = planLayout('review', VP_1440, all);
+    expect(p.variant).toBe('thirds');
+    expect(shape(p)).toEqual(['wire:R2', 'portfolio:L2']);
+    expect(p.placements.some((x) => x.second)).toBe(false);
+    expect(p.placements[0]!.props).toEqual({});
+  });
+
+  it('Review with the journal view built is Portfolio left and the journal Portfolio (second instance) right', () => {
+    const p = planLayout('review', VP_1440, all, { views: ['journal'] });
     expect(p.variant).toBe('thirds');
     expect(shape(p)).toEqual(['portfolio#2:R2', 'portfolio:L2']);
     expect(p.placements[0]!.props).toEqual({ view: 'journal' });

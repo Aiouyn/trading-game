@@ -25,6 +25,7 @@ import {
   cleanProps,
   isAppId,
   isBuiltinLayout,
+  secondWindowReady,
 } from './apps';
 import {
   FULL_FRAC,
@@ -389,7 +390,8 @@ function nextBrokerId(wins: Win[]): string {
  *   Broker: same ticker focuses that Broker. Otherwise a new one (up to 4). At the cap the
  *           least-recently-focused Broker (bottom-most) takes the ticker. No ticker: no change.
  *   Research: one window per file id. A file id is required.
- *   Second Portfolio (Review only): id portfolio-2, at most two Portfolio windows.
+ *   Second Portfolio (Review only, and only once its journal view is built: apps.ts READY_VIEWS):
+ *           id portfolio-2, at most two Portfolio windows.
  *   Single: the window whose id is the app id. A user open also accepts any window of the app
  *           (a Review journal), so the shelf focuses the one Portfolio that is there. A layout
  *           always names the window by id, so Review never picks up the journal window by mistake.
@@ -399,7 +401,8 @@ function nextBrokerId(wins: Win[]): string {
 function acquire(state: ShellState, app: AppId, props: WinProps, role: 'user' | 'layout', second: boolean, fresh = false): Acq {
   const wins = state.wins.slice();
   if (second) {
-    if (app !== 'portfolio') return failAcq('bad-props');
+    // Refused until the view it names is built (apps.ts READY_VIEWS): no journal window before Phase 3.
+    if (app !== 'portfolio' || !secondWindowReady(app)) return failAcq('bad-props');
     const id = 'portfolio-2';
     if (wins.some((w) => w.id === id)) return { ok: true, wins, id, created: false };
     if (wins.filter((w) => w.app === 'portfolio').length >= (APPS.portfolio.secondInstance?.max ?? 1)) {

@@ -27,6 +27,8 @@ export interface GameState {
   /** player-to-player contracts (loans, transfers, revenue shares) */
   deals: Record<string, Deal>;
   dealSeq: number;
+  /** achievement id -> the first player handle to unlock it (the public Wire names firsts). Absent in old saves. */
+  firstUnlocks?: Record<string, string>;
   /** leaderboards, recomputed every BOARD_EVERY ticks */
   boards: Boards;
   /** collectibles index (limited/unique lifestyle resale), 1 = par */
