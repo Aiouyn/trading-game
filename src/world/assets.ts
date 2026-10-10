@@ -1,14 +1,16 @@
 import { CITIES, districtAssetId, liquidationEquity } from '@/engine';
 import {
-  BIZ_BY_ID, BIZ_EVENTS, BIZ_SECTOR_BY_ID, MAX_UPGRADE, TIERS, UPGRADES, upgradeCost, type UpgradeAxis,
+  BIZ_BY_ID, BIZ_EVENTS, BIZ_SECTOR_BY_ID, MAX_UPGRADE, RETIRED_UPGRADES, TIERS, UPGRADES, upgradeCost, type UpgradeAxis,
 } from '@/content/businesses';
 import {
   LIFE_BY_ID, PROPERTY_TYPE_BY_ID, TIER_VALUE_MULT, prestigeOf, rankIndex, resaleValue,
 } from '@/content/lifestyle';
+import { SHOP } from '@/content/shops';
 import {
   TPD, bizDef, bump, cashOf, touch, clamp, credit, debit, districtIndex, districtTier, drawFrom, keyedRng, netWorthBreakdown,
   notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
 } from './core';
+import { offlineRate, purchaseShop, queueShare } from './shopRules';
 import type { Business, CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -45,9 +47,10 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
   g.bizSeq++;
   const id = `b${g.bizSeq}`;
   const levels = { staff: 0, marketing: 0, equipment: 0, location: 0, automation: 0, research: 0 } as Record<UpgradeAxis, number>;
+  const shop = purchaseShop(g.market.tick);
   const b: Business = {
     id, defId, ownerId: pid, cityId, name: sanitize(name || def.name, 40), boughtTick: g.market.tick, invested: def.cost,
-    levels, event: null, incomePerDay: def.income, share: 0, earned: 0,
+    levels, event: null, incomePerDay: SHOP.revenueMult * def.income * Math.min(1, shop.crew), share: 0, earned: 0, shop,
   };
   g.businesses[id] = b;
   touch(g);
@@ -60,6 +63,7 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
 export function upgradeBusiness(g: GameState, pid: string, bizId: string, axis: UpgradeAxis): CommandResult {
   const b = g.businesses[bizId];
   if (!b || b.ownerId !== pid) return fail('not your business');
+  if (RETIRED_UPGRADES.includes(axis)) return fail('biz.axis.retired');
   if (!UPGRADES.some((u) => u.id === axis)) return fail('unknown upgrade');
   const lvl = b.levels[axis];
   if (lvl >= MAX_UPGRADE) return fail('already at the top level');
@@ -101,9 +105,13 @@ export function cityName(id: string): string {
   return CITIES.find((c) => c.id === id)?.name ?? id;
 }
 
-/** Appeal drives market share inside a city-sector pool (logit). */
+/**
+ * Appeal drives market share inside a city-sector pool (logit). Marketing is the owner's spend level
+ * (a flow, not a one-off upgrade); location stays a permanent upgrade. There is no tier term: a higher
+ * tier earns its payback ladder through its roi alone (S1, the lone-pool ladder).
+ */
 export function appeal(b: Business): number {
-  return 0.25 * b.levels.marketing + 0.2 * b.levels.location + 0.05 * b.levels.staff + 0.1 * (bizDef(b).tier - 1);
+  return SHOP.marketing.appealPerLevel * b.shop.marketing + 0.2 * b.levels.location;
 }
 
 /**
@@ -143,28 +151,39 @@ export function recomputeShares(g: GameState): void {
       const share = Math.exp(appeal(b)) / sum;
       const shareFactor = clamp(share * (M + 1), 0.35, 1.8);
       const L = b.levels;
-      const mult = (1 + 0.08 * L.staff) * (1 + 0.07 * L.equipment) * (1 + 0.05 * L.location) * (1 + 0.06 * L.research);
+      const s = b.shop;
+      const mult = (1 + 0.07 * L.equipment) * (1 + 0.05 * L.location) * (1 + 0.06 * L.research);
       const cycle = 1 + 0.25 * sec.cyclicality * regimeScore;
       const mine = owned.get(b.ownerId)!;
       let synergy = (mine.get(def.sector) ?? 0) >= 3 ? 1.1 : 1;
-      for (const [s] of mine) {
-        if (FEEDS.get(s)?.has(def.sector)) { synergy *= 1.05; break; }
+      for (const [sec2] of mine) {
+        if (FEEDS.get(sec2)?.has(def.sector)) { synergy *= 1.05; break; }
       }
       const ev = b.event && b.event.untilTick > g.market.tick ? b.event.mult : 1;
+      // demand falls with price (elastic) and with reviews; the crew caps how much of it is served
+      const demand = shareFactor * Math.pow(s.price, -SHOP.elasticity) * s.reviews * cycle * ev * (CITY_DEMAND[b.cityId] ?? 1);
+      const served = Math.min(demand, s.crew);
+      s.demand = demand;
+      s.queue = queueShare(demand, served);
+      const condition = s.condition < SHOP.condition.lowBelow ? SHOP.condition.lowRevenue : 1;
       b.share = share;
-      b.incomePerDay = def.income * mult * cycle * synergy * ev * shareFactor * (CITY_DEMAND[b.cityId] ?? 1);
+      b.incomePerDay = SHOP.revenueMult * def.income * served * s.price * (1 + SHOP.quality.revenuePerLevel * s.quality) * mult * synergy * condition;
     }
   }
 }
 
-/** Accrue business income each tick; credit it to cash every few ticks. Offline earnings slow down. */
+/**
+ * Accrue business income each tick; credit it to cash every few ticks. Away from the game, a shop keeps
+ * full income for 8 game days (16 with a manager), then ramps down to 25% (S4). Automation sets the
+ * floor after that, so it no longer buys 100% forever.
+ */
 export function accrueBusinesses(g: GameState, credit_: boolean, out: StepOutput): void {
   const tick = g.market.tick;
   for (const b of Object.values(g.businesses)) {
     const p = g.players[b.ownerId];
     if (!p) continue;
     let rate = 1;
-    if (!p.online && !p.npc && tick - p.lastSeenTick > 12 * TPD) rate = Math.min(1, 0.25 + 0.15 * b.levels.automation);
+    if (!p.online && !p.npc) rate = offlineRate((tick - p.lastSeenTick) / TPD, b.shop.managerStars, b.levels.automation);
     const inc = (b.incomePerDay * rate) / TPD;
     b.earned += inc;
     p.pendingIncome += inc;
@@ -189,10 +208,14 @@ export function businessEvents(g: GameState, out: StepOutput): void {
   for (const id of ids) {
     const b = g.businesses[id]!;
     if (b.event && b.event.untilTick <= tick) b.event = null;
-    if (b.event || !rng.chance(0.06)) continue;
-    let u = rng.uniform() * total;
+    if (b.event || !rng.chance(SHOP.incidents.chance)) continue;
+    // a run-down shop (low condition or reviews) draws bad events more often (S2): neglect has a second channel
+    const weak = b.shop.condition < SHOP.incidents.weakCondition || b.shop.reviews < SHOP.incidents.weakReviews;
+    const wOf = (e: (typeof BIZ_EVENTS)[number]) => e.weight * (weak && !e.good ? SHOP.incidents.weakBadMult : 1);
+    const totalB = weak ? BIZ_EVENTS.reduce((s, e) => s + wOf(e), 0) : total;
+    let u = rng.uniform() * totalB;
     let ev = BIZ_EVENTS[0]!;
-    for (const e of BIZ_EVENTS) { u -= e.weight; if (u <= 0) { ev = e; break; } }
+    for (const e of BIZ_EVENTS) { u -= wOf(e); if (u <= 0) { ev = e; break; } }
     if (ev.mechanical && rng.chance(0.15 * b.levels.equipment)) continue; // good equipment prevents it
     b.event = { id: ev.id, mult: ev.mult, untilTick: tick + ev.days * TPD };
     notify(g, out, b.ownerId, {

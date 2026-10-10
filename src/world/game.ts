@@ -9,6 +9,7 @@ import {
   accrueBusinesses, businessEvents, buyBusiness, buyItem, buyNote, buyProperty, lifestyleDay, propertyDay, recomputeShares,
   refreshNetWorth, renameBusiness, sharesDirty, renovateProperty, repayMortgage, sellBusiness, sellItem, sellProperty, setHome, upgradeBusiness,
 } from './assets';
+import { shopCommand, shopsDay } from './shops';
 import { newsFromEvents, filings } from './news';
 import {
   addAlert, applyRank, checkAchievements, checkAlerts, claimContract, join, pickRivals, rollContracts, tradeStats,
@@ -135,6 +136,7 @@ export function stepGame(g: GameState): StepOutput {
 
   if (newDay) {
     businessEvents(g, out);
+    shopsDay(g, out);
     propertyDay(g, out);
     lifestyleDay(g);
     dealsDay(g, out);
@@ -254,6 +256,13 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'biz.upgrade': return upgradeBusiness(g, pid, cmd.bizId, cmd.axis);
     case 'biz.sell': return held ? fail('your assets are held by the court') : sellBusiness(g, pid, cmd.bizId, out);
     case 'biz.rename': return renameBusiness(g, pid, cmd.bizId, cmd.name);
+    case 'biz.crew':
+    case 'biz.price':
+    case 'biz.quality':
+    case 'biz.marketing':
+    case 'biz.maintain':
+    case 'biz.manager.hire':
+    case 'biz.manager.fire': return shopCommand(g, pid, cmd) ?? fail('unknown command');
     case 'prop.buy': return buyProperty(g, pid, cmd.cityId, cmd.districtId, cmd.typeId, cmd.ltv, out);
     case 'prop.sell': return held ? fail('your assets are held by the court') : sellProperty(g, pid, cmd.propId);
     case 'prop.renovate': return renovateProperty(g, pid, cmd.propId);

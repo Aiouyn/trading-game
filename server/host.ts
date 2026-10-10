@@ -4,6 +4,7 @@ import { LEDGER } from '../src/content/learning';
 import { ghostSeries } from '../src/world/ghosts';
 import { applyCommand, createGame, stepGame } from '../src/world/game';
 import { flagNpcAccounts } from '../src/world/players';
+import { migrateShops } from '../src/world/shops';
 import { BOARD_EVERY } from '../src/world/core';
 import type { Command, CommandResult, GameState, StepOutput } from '../src/world/types';
 import type { EcoArchiveDay } from '../src/engine';
@@ -65,6 +66,7 @@ export class WorldHost {
     if (snap) {
       this.g = JSON.parse(snap.data) as GameState;
       flagNpcAccounts(this.g); // saves from before the account flag (P1)
+      migrateShops(this.g); // saves from before the shop levers (Phase 4 A1): well-run defaults, before the replay
       this.loadArchive();
       const h = this.store.getBlob('history');
       this.history = h ? (JSON.parse(h) as History) : this.freshHistory();

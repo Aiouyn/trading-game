@@ -189,6 +189,48 @@ export interface Business {
   /** market share in its city-sector pool, 0..1 */
   share: number;
   earned: number;
+  /** the owner's management: crew, price, quality, marketing, maintenance, manager (Phase 4 A1) */
+  shop: ShopState;
+}
+
+/** Management state of one shop. Owner-only detail: the public view shows counts, not these. */
+export interface ShopState {
+  /** working capacity in base-demand units (0.5 to 2, step 0.25) */
+  crew: number;
+  /** price multiplier in effect */
+  price: number;
+  /** a price set on a game day takes effect at the next game day boundary */
+  pendingPrice: number | null;
+  /** game day of the last price change (-1 never) */
+  priceDay: number;
+  /** quality level 0 to 3 */
+  quality: number;
+  /** marketing spend level 0 to 3 */
+  marketing: number;
+  /** a maintained shop holds its condition at 100 for a small daily fee */
+  maintained: boolean;
+  /** 0 to 100; decays unless maintained; below 50 halves revenue */
+  condition: number;
+  /** owner-visible rolling review score, 0.3 to 1.6 (start 1.0) */
+  reviews: number;
+  /** 0 to 1, moves with load on crew */
+  morale: number;
+  /** share of demand lost to the queue on the last game day, 0 to 1 */
+  queue: number;
+  /** demand index on the last recompute */
+  demand: number;
+  /** manager stars 0 (none) to 3; the manager keeps the shop on autopilot within its skill */
+  managerStars: number;
+  /** game day the manager was hired (-1 none) */
+  managerDay: number;
+  /** tick of the last owner command on this shop (attrition counts from here) */
+  lastAttendedTick: number;
+  /** `earned` at the last game day boundary */
+  earnedMark: number;
+  /** operating costs paid to date (wages, opex, marketing, quality, maintenance, manager) */
+  costs: number;
+  /** trailing daily net income (earned less costs), up to the last 7 game days */
+  net: number[];
 }
 
 export interface Property {
@@ -473,6 +515,13 @@ export type Command =
   | { type: 'biz.upgrade'; bizId: string; axis: UpgradeAxis }
   | { type: 'biz.sell'; bizId: string }
   | { type: 'biz.rename'; bizId: string; name: string }
+  | { type: 'biz.crew'; bizId: string; crew: number }
+  | { type: 'biz.price'; bizId: string; price: number }
+  | { type: 'biz.quality'; bizId: string; level: number }
+  | { type: 'biz.marketing'; bizId: string; level: number }
+  | { type: 'biz.maintain'; bizId: string; on: boolean }
+  | { type: 'biz.manager.hire'; bizId: string; stars: number }
+  | { type: 'biz.manager.fire'; bizId: string }
   | { type: 'prop.buy'; cityId: string; districtId: string; typeId: string; ltv: number }
   | { type: 'prop.sell'; propId: string }
   | { type: 'prop.renovate'; propId: string }

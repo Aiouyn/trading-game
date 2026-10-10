@@ -1,4 +1,4 @@
-import { CHAPTER_TICKS, notify, playerBusinesses, playerProperties, propValue, pushWire } from './core';
+import { bizValuedIncome, CHAPTER_TICKS, notify, playerBusinesses, playerProperties, propValue, pushWire } from './core';
 import type { BoardRow, Boards, GameState, Player, StepOutput } from './types';
 
 const TOP = 100;
@@ -33,7 +33,7 @@ export function computeBoards(g: GameState): void {
     const arr = (country[c] ??= []);
     if (arr.length < TOP) arr.push(r);
   }
-  const tycoon = ps.map((p) => row(p, playerBusinesses(g, p.id).reduce((s, b) => s + b.incomePerDay, 0)));
+  const tycoon = ps.map((p) => row(p, playerBusinesses(g, p.id).reduce((s, b) => s + bizValuedIncome(b), 0)));
   const landlord = ps.map((p) => row(p, playerProperties(g, p.id).reduce((s, x) => s + propValue(g, x), 0)));
   const trader = ps.map((p) => row(p, g.market.accounts[p.id]?.realizedPnl ?? 0));
   const alliance: BoardRow[] = Object.values(g.alliances).map((a) => ({

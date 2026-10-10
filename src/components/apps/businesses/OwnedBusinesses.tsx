@@ -71,7 +71,7 @@ function BizCard({ b }: { b: Business }) {
                   {Array.from({ length: MAX_UPGRADE }, (_, k) => <span key={k} className={`h-1.5 w-1.5 rounded-full ${k < lvl ? 'bg-brass' : 'bg-ink-3'}`} />)}
                 </span>
               </div>
-              <p className="mt-0.5 text-caption text-fg-faint">{u.effect}</p>
+              <p className="mt-0.5 text-caption text-fg-faint">{t(u.effectKey)}</p>
               <Button size="sm" className="mt-2 w-full" disabled={maxed || cash < cost} onClick={() => act({ type: 'biz.upgrade', bizId: b.id, axis: u.id })} testId={`upgrade-${b.id}-${u.id}`}>
                 {maxed ? t('biz.maxed') : compactMoney(cost)}
               </Button>
