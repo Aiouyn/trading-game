@@ -76,9 +76,17 @@ export function fitHalfLife(r: number[], tDays: number[]): number {
  * Shock the listed assets' prices by −30% at tick 0 (the value line does not move), then return each asset's gap
  * lnP − lnV as a fraction of its start, every tick, for `horizonDays` game days. Result[k] is the series for ids[k].
  */
-export function shockedGaps(cfg: WorldConfig, seed: string, ids: string[], horizonDays: number): number[][] {
+export function shockedGaps(cfg: WorldConfig, seed: string, ids: string[], horizonDays: number, opts: { diffusive?: boolean } = {}): number[][] {
   let s: WorldState = createWorld(seed, cfg);
-  for (const id of ids) s = shockPrice(s, id, -0.3);
+  for (const id of ids) {
+    s = shockPrice(s, id, -0.3);
+    // diffusive: the same -30% also books as today's diffusive innovation (the GARCH input), i.e. a move with news or
+    // flow behind it that the vol model sees. Without it the GARCH reads a price-only move as nothing (see valuegap.test.ts)
+    if (opts.diffusive) {
+      const i = s.config.assets.findIndex((a) => a.id === id);
+      s = { ...s, assets: s.assets.map((a, k) => (k === i ? { ...a, dayDiff: -0.3 } : a)) };
+    }
+  }
   const idx = ids.map((id) => s.config.assets.findIndex((a) => a.id === id));
   const g0 = idx.map((i) => s.assets[i]!.lnP - s.assets[i]!.lnV);
   const series: number[][] = ids.map(() => []);

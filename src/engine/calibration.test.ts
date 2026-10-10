@@ -3,7 +3,7 @@ import { createWorld, stepMany } from './sim';
 import { DEFAULT_REGIMES, defaultConfig, expectedVol, idioLoading, normalizeLoadings, regimeShockSd } from './config';
 import { closePrint, ecologyWeight } from './ecology';
 import { universeConfig } from './universe';
-import type { AssetDef, RegimeDef, RegimeId, WorldState } from './types';
+import type { AssetDef, RegimeDef, RegimeId, WorldConfig, WorldState } from './types';
 
 /**
  * Calibration closure (V1 Phase 1, F1). Each test isolates one component of the close-to-close vol that the vol-ratio
@@ -62,8 +62,9 @@ describe('close print share (F1: jumps print partly at once)', () => {
     expect(realized / expected).toBeLessThan(1.2);
   });
 
-  it('the GARCH input removes the unprinted part of a jump: a jump-only asset keeps h near 1', () => {
-    // Before dayGap, each jump left a -30% residual in the GARCH day return, and h ran to its cap (9) with vol 1e-6.
+  it('the GARCH input has no jump term: a jump-only asset keeps h near 1', () => {
+    // The GARCH reads dayDiff (diffusive shocks only). Before that, each jump's unprinted 30% was a residual in the day
+    // return and h ran to its cap (9) with vol 1e-6. Here the diffusion is 1e-6, so h must stay at the mean of 1.
     const a = stock('JG', { vol: 1e-6, jumpsPerYear: 200, jumpUpMean: 0.02, jumpDownMean: 0.02, halfLifeDays: 1e6 });
     const cfg = defaultConfig({ ticksPerDay: 24, assets: [a], indices: [], regimes: frozenRegimes(), jumpImmediate: 0.7, catalysts: undefined });
     let s: WorldState = createWorld('garch-gap', cfg);
@@ -81,5 +82,69 @@ describe('regime shock sd (F1: GARCH standardizes by the full regime sd)', () =>
     const expected = Math.sqrt((0.15 * c.marketLoadMult) ** 2 + 0.5 ** 2 + (idioLoading(a) * c.idioMult) ** 2);
     expect(regimeShockSd(a, c)).toBeCloseTo(expected, 12);
     expect(regimeShockSd(a, c)).toBeLessThan(1);
+  });
+});
+
+describe('GARCH identity (F1: the input is the diffusive innovation, so E[z^2 | h] = h)', () => {
+  /**
+   * c = mean(z^2) / mean(h) over game days, z = dayDiff / (vol · volMult · regimeShockSd · sqrt(dt)). dayDiff holds the
+   * day's per-tick diffusive shocks, read at the day's close (the next day's first tick resets it). GARCH's mean is
+   * E[h] = (1 - a - b) / (1 - b - a c), so c = 1 gives E[h] = 1. Before the input change, a 0.5-day stablecoin read c = 26
+   * and a 60-day biotech read c = 1.16 (live close-to-close residuals, not diffusion).
+   */
+  function garchC(a: AssetDef, days: number, extra: Partial<WorldConfig> = {}, ticksPerDay = 12): number {
+    const cfg = defaultConfig({ ticksPerDay, assets: [a], indices: [], ...extra });
+    let s: WorldState = createWorld(`garch-c-${a.id}`, cfg);
+    const z2: number[] = [];
+    const hs: number[] = [];
+    for (let d = 0; d < days; d++) {
+      s = stepMany(s, ticksPerDay).state;
+      const rg = cfg.regimes[s.regime]!;
+      const z = s.assets[0]!.dayDiff! / (a.vol * rg.volMult * regimeShockSd(a, rg) * Math.sqrt(1 / cfg.daysPerYear));
+      z2.push(z * z);
+      hs.push(s.assets[0]!.h);
+    }
+    return mean(z2) / mean(hs);
+  }
+
+  it('a fast-reverting, jump-heavy asset (0.5-day half-life, 12 jumps a year, 70% printed) is unbiased', () => {
+    const a = stock('FR', {
+      vol: 0.3, halfLifeDays: 0.5, jumpsPerYear: 12, jumpUpMean: 0.05, jumpDownMean: 0.08,
+    });
+    const c = garchC(a, 1500, { jumpImmediate: 0.7, permanentShare: 0.9, jumpPermanent: 1 });
+    expect(c).toBeGreaterThan(0.9);
+    expect(c).toBeLessThan(1.1);
+  });
+
+  it('an idio-heavy asset across the default regimes (contraction idio 0.6) is unbiased', () => {
+    const a = stock('ID', { vol: 0.5, wMarket: 0.15, wSector: 0.5, jumpsPerYear: 6 });
+    const c = garchC(a, 1500);
+    expect(c).toBeGreaterThan(0.9);
+    expect(c).toBeLessThan(1.1);
+  });
+});
+
+describe('closePrint blend (F1 review: the hybrid close is part live, part auction)', () => {
+  it('the print share is the same blend as the close: (1 - w) x jumpImmediate + w x newsPrint', () => {
+    expect(closePrint(universeConfig({ ecology: { mode: 'hybrid', weight: 0.25 } }))).toBeCloseTo(0.75 * 0.7 + 0.25 * 0.5, 12);
+    expect(closePrint(universeConfig({ ecology: { mode: 'full', weight: 1 } }))).toBe(0.5);
+  });
+});
+
+/**
+ * Bare-engine golden. The bare path (defaultConfig, 17 assets, seed golden-bare, 400 game days at 24 ticks) is pinned to a
+ * fingerprint of lnP, h and lnV. Calibration changes move it on purpose (the GARCH input, regimeShockSd); a change that
+ * moves it without a matching measured reason is a regression. Update the constant only with the measured reason in the
+ * commit body. Fingerprint at the dayDiff GARCH input (V1-PHASE1 F1): fa2ca82e.
+ */
+describe('bare engine golden (pins the bare price path)', () => {
+  it('400 game days of defaultConfig at seed golden-bare reproduce the fingerprint', () => {
+    const cfg = defaultConfig({ ticksPerDay: 24 });
+    let s: WorldState = createWorld('golden-bare', cfg);
+    s = stepMany(s, 24 * 400).state;
+    let h = 2166136261;
+    const sig = s.assets.map((a) => `${a.id}:${a.lnP.toFixed(12)}:${a.h.toFixed(12)}:${a.lnV.toFixed(12)}`).join('|');
+    for (const c of sig) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+    expect((h >>> 0).toString(16).padStart(8, '0')).toBe('fa2ca82e');
   });
 });

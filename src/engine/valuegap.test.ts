@@ -27,10 +27,13 @@ describe("X2 value gap: a price shock decays back to value at the asset's own ha
     expect(medDays).toBeLessThanOrEqual(126);
   });
 
-  it('value_gap_halflife (universe, full ecology, tape-01, HLCN/OSTV/SYN): the fitted half-life is a few days, the gap is near zero by day 10, and any overshoot past value is bounded', { timeout: 60_000 }, () => {
+  it('value_gap_halflife (universe, full ecology, tape-01, HLCN/OSTV/SYN, diffusive shock): the fitted half-life is a few days, the gap is near zero by day 10, and any overshoot past value is bounded', { timeout: 60_000 }, () => {
+    // The -30% is also a diffusive innovation (see shockedGaps). Mechanism for the strict bounds: a diffusive move drives
+    // the GARCH h to its cap, and the ecology's flows scale with volatility, so the gap closes in about 2 days. Measured
+    // 754f3ab: HLCN 2.12, OSTV 2.04 days; this commit with the same diffusive shock: the same numbers (tape-01).
     const cfg = universeConfig({ ticksPerDay: TPD });
     const ids = ['HLCN', 'OSTV', 'SYN'];
-    const series = shockedGaps(cfg, 'tape-01', ids, 10);
+    const series = shockedGaps(cfg, 'tape-01', ids, 10, { diffusive: true });
     const rows = ids.map((id, k) => {
       const r = series[k]!.slice(0, 10 * TPD);
       const td = r.map((_, j) => (j + 1) / TPD);
@@ -48,6 +51,28 @@ describe("X2 value gap: a price shock decays back to value at the asset's own ha
       // settles), so the fit above is a summary, not a monotone decay. The bound: never past value by more than the shock.
       expect(x.minRatio).toBeGreaterThanOrEqual(-1);
     }
+  });
+
+  it('value_gap_halflife (universe, full ecology, tape-01, HLCN/OSTV/SYN, price-only shock): the gap closes at least as fast as the asset\'s own half-life', { timeout: 60_000 }, () => {
+    // A price move with no news or flow behind it books no diffusive innovation, so GARCH h stays near 1 and the pools
+    // close the gap at their own pace. The pools' half-lives are 10 to 63 days (ecology.ts DEFAULT_ECOLOGY), so the
+    // fitted half-life is not expected to be a few days. Measured this commit (tape-01): HLCN 9.9 days (def 30), OSTV 9.0,
+    // SYN 1.2 (def 120). The bound: the gap closes at least as fast as the asset's own half-life (fitted half-life <=
+    // def.halfLifeDays, day-10 residual <= 0.5^(10 / def.halfLifeDays)).
+    const cfg = universeConfig({ ticksPerDay: TPD });
+    const ids = ['HLCN', 'OSTV', 'SYN'];
+    const series = shockedGaps(cfg, 'tape-01', ids, 10);
+    ids.forEach((id, k) => {
+      const def = cfg.assets.find((a) => a.id === id)!;
+      const r = series[k]!.slice(0, 10 * TPD);
+      const td = r.map((_, j) => (j + 1) / TPD);
+      const h = fitHalfLife(r, td);
+      const d10 = series[k]![10 * TPD - 1]!;
+      console.log(`value_gap_halflife price-only ${id}: h=${h.toFixed(2)}d (def ${def.halfLifeDays}), day-10 residual ${d10.toFixed(3)} (own-half-life bound ${Math.pow(0.5, 10 / def.halfLifeDays!).toFixed(3)})`);
+      expect(h).toBeLessThanOrEqual(def.halfLifeDays!);
+      expect(d10).toBeLessThanOrEqual(Math.pow(0.5, 10 / def.halfLifeDays!));
+      expect(Math.min(...r)).toBeGreaterThanOrEqual(-1);
+    });
   });
 });
 

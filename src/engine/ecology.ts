@@ -103,13 +103,16 @@ export function ecologyOn(cfg: WorldConfig): boolean {
 }
 
 /**
- * The share of a news jump that prints in the day's close, which is what a close-to-close vol band measures. In full
- * ecology the closing auction sets the close, and it prints newsPrint of the day's news (ecologyDay); the live path's
- * jumpImmediate does not reach the close. Otherwise the close is the live price, which prints jumpImmediate at once.
- * expectedVol(def, regime, closePrint(cfg)) is the daily target; 1 in the bare engine (no print rule).
+ * The share of a news jump that prints in the day's close, which is what a close-to-close vol band measures. The close
+ * is the blend (1 - w) x live + w x auction (sim.ts ecologyStep), so the print share is the same blend: the live price
+ * prints jumpImmediate at once, the closing auction prints newsPrint of the day's news (ecologyDay). w = 0 (off, shadow)
+ * gives jumpImmediate, w = 1 (full) gives newsPrint. expectedVol(def, regime, closePrint(cfg)) is the daily target; 1 in
+ * the bare engine (no print rule).
  */
 export function closePrint(cfg: WorldConfig): number {
-  return ecologyWeight(cfg) === 1 ? ecologyConfig(cfg).newsPrint ?? 1 : cfg.jumpImmediate ?? 1;
+  const w = ecologyWeight(cfg);
+  const live = cfg.jumpImmediate ?? 1;
+  return w === 0 ? live : (1 - w) * live + w * (ecologyConfig(cfg).newsPrint ?? 1);
 }
 
 /**

@@ -36,13 +36,13 @@ const TPD_GAP = 24; // value-gap reads, earnings and news_drift: 24 ticks a game
 const TPD_TRADE = 720; // trade tests: the real tick, 720 ticks a game day (see exploits.test.ts)
 
 /**
- * Baseline for the value_gap_p95 median: 0.0485, the 60-seed median of this harness (--seeds 60, defaultConfig, 5 game
- * years, 24 ticks a day, 17 assets) on the calibrated engine (p1/calib, F1: GARCH dayGap and regimeShockSd). It replaces
- * the 20-seed value 0.0484, which was self-referential (F11). The spec asks for "baseline + 50%" from the first PC run;
- * this is still a regression guard on this branch's own 60-seed median, not an independent check. Re-measure with
- * --seeds 60 whenever the bare engine's price path changes.
+ * Baseline for the value_gap_p95 median: 0.0486 (exact 0.048638), the 60-seed median of this harness (--seeds 60,
+ * defaultConfig, 5 game years, 24 ticks a day, 17 assets) on the engine with the diffusive GARCH input (dayDiff) and
+ * regimeShockSd (p1/calib, F1). It replaces the 20-seed value, which was self-referential (F11). The spec asks for
+ * "baseline + 50%" from the first PC run; this is still a regression guard on this branch's own 60-seed median, not an
+ * independent check. Re-measure with --seeds 60 whenever the bare engine's price path changes.
  */
-const VALUE_GAP_P95_BASELINE = 0.0485;
+const VALUE_GAP_P95_BASELINE = 0.0486;
 
 type Band = { id: string; label: string; value: number; min: number; max: number; strict: boolean; pass: boolean };
 const bands: Band[] = [];

@@ -226,17 +226,28 @@ describe('regimes', () => {
 });
 
 describe('GARCH', () => {
-  it('a big day raises h, calm days decay it toward 1', () => {
+  it('a big diffusive day raises h, calm days decay it toward 1', () => {
     const a = testStock('G', 'g', { vol: 0.2 });
     const cfg = defaultConfig({ ...FAST, assets: [a], indices: [], regimes: frozenRegimes() });
     let s = stepMany(createWorld('garch', cfg), cfg.ticksPerDay - 1).state;
-    // inject a 10% down day (≈ 8 daily sd) right before the close
-    s = { ...s, assets: [{ ...s.assets[0]!, lnP: s.assets[0]!.lnOpen - 0.1 }] };
+    // inject a 10% down day (≈ 8 daily sd) right before the close, as a diffusive shock (the GARCH input is dayDiff)
+    s = { ...s, assets: [{ ...s.assets[0]!, dayDiff: -0.1 }] };
     s = stepMany(s, 2).state; // crosses the day boundary
     const hAfter = s.assets[0]!.h;
     expect(hAfter).toBeGreaterThan(4);
     s = stepMany(s, 100 * cfg.ticksPerDay).state;
     expect(s.assets[0]!.h).toBeLessThan(2);
+  });
+
+  it('a price move that is not a diffusive shock (a jump, a pull, news) leaves h alone', () => {
+    // the GARCH reads dayDiff only, so a 10% move in lnP with no shock behind it must not raise h (F1: the old input
+    // read lnP - lnOpen - dayJump and this kind of move, and a fast-reverting name's residual, pinned h at its cap)
+    const a = testStock('N', 'n', { vol: 0.2 });
+    const cfg = defaultConfig({ ...FAST, assets: [a], indices: [], regimes: frozenRegimes() });
+    let s = stepMany(createWorld('garch-news', cfg), cfg.ticksPerDay - 1).state;
+    s = { ...s, assets: [{ ...s.assets[0]!, lnP: s.assets[0]!.lnOpen - 0.1 }] };
+    s = stepMany(s, 2).state;
+    expect(s.assets[0]!.h).toBeLessThan(1.5);
   });
 });
 

@@ -198,21 +198,22 @@ function advance(state: WorldState): StepResult {
 
     // day boundary: GARCH(1,1) update on the day's standardized return, reset the open
     if (newDay) {
-      // diffusive day return: the day's move less the news that is not diffusion (dayJump), plus the part of that news
-      // that did not print at once (dayGap). Without dayGap a jump that prints 70% left a -30% residual here. The GARCH
-      // mean is E[h] = (1 - alpha - beta) / (1 - beta - alpha c), c = E[z^2] / E[h], and alpha + beta = 0.98, so a 9%
-      // excess in c (NRVA, 6 jumps a year) took E[h] to about 1.5.
-      const dayRet = prev.lnP - prev.lnOpen - prev.dayJump + (prev.dayGap ?? 0);
-      // standardize by the regime's full conditional sd: volMult, and the loading split (marketLoadMult, idioMult), which
-      // moves a stock's variance in a contraction (0.6 idio) and a commodity's or forex pair's alike. Without the loading
-      // split E[z^2] / E[h] is about 0.95 for idio-heavy assets and the GARCH mean drifts to 0.8.
-      const z = dayRet / (def.vol * prevVolMult * regimeShockSd(def, prevRegimeDef) * Math.sqrt(dayDt));
+      // GARCH reads the day's diffusive innovation only: the sum of the per-tick shocks (dayDiff, booked below). It is
+      // not the day's close-to-close return, which also holds the value pull toward lnV, the news that prints or drifts
+      // in over the half-life, post-earnings drift and (full ecology) the closing auction. Each of those is a function
+      // of the price path, not of the shock, so it biased E[z^2] / E[h] (measured, V1-PHASE1 F1): a 0.5-day stablecoin
+      // carried the unprinted part of each depeg into the input (c 26 on AUSD) and pinned h at its cap.
+      // Standardized by the regime's full conditional sd (volMult and the loading split, regimeShockSd), so for any
+      // asset E[z^2 | h] = h exactly and the GARCH mean is E[h] = 1: E[h] = (1 - alpha - beta) / (1 - beta - alpha c), c = 1.
+      // a zero-vol asset has no diffusive innovation to standardize: z = 0 (not 0/0), so h decays toward 1
+      const sdDay = def.vol * prevVolMult * regimeShockSd(def, prevRegimeDef) * Math.sqrt(dayDt);
+      const z = sdDay > 0 ? (prev.dayDiff ?? 0) / sdDay : 0;
       const omega = 1 - cfg.garchAlpha - cfg.garchBeta;
       a.h = clamp(omega + cfg.garchAlpha * z * z + cfg.garchBeta * prev.h, cfg.garchMin, cfg.garchMax);
       a.lnOpen = prev.lnP;
       a.haltedToday = false;
       a.dayJump = 0;
-      if (prev.dayGap !== undefined) a.dayGap = 0;
+      a.dayDiff = 0;
     }
 
     // diffusive shock: factors + fat-tailed idiosyncratic noise
@@ -232,8 +233,6 @@ function advance(state: WorldState): StepResult {
       const up = rng.chance(clamp(def.jumpUpProb + rg.jumpUpShift, 0.05, 0.95));
       jump = up ? rng.exponential(def.jumpUpMean) : -rng.exponential(def.jumpDownMean);
       a.dayJump += jump;
-      // the price prints jumpImmediate of the jump now; the rest is pulled in over the half-life (not diffusion)
-      if (jumpPrint < 1) a.dayGap = (a.dayGap ?? 0) + (1 - jumpPrint) * jump;
       events.push({ type: 'jump', tick, assetId: def.id, logSize: jump });
     }
 
@@ -247,10 +246,7 @@ function advance(state: WorldState): StepResult {
         if (out.jump !== 0) { catalyst += out.jump; earn = out.jump; a.dayJump += out.jump; }
         for (const e of out.events) events.push(e);
       }
-      const pead = peadDrift(a, tick);
-      catalyst += pead;
-      // post-earnings drift prints in the price but is news, not diffusion: keep it out of the GARCH input
-      if (pead !== 0) a.dayGap = (a.dayGap ?? 0) - pead;
+      catalyst += peadDrift(a, tick);
     }
     // rates: yield repricing and policy/data surprises, once a day (all news, so value moves too). Like catalysts, the
     // shock is booked in dayJump in every mode, so GARCH reads the diffusive return only (a bond's rate move is not
@@ -273,6 +269,7 @@ function advance(state: WorldState): StepResult {
     const mu = def.drift + def.cycleBeta * rg.equityDrift + carryOf(def, rates) - (cfg.jumpCompensation ? jumpCompensator(def, jp) : 0)
       + (def.seasonal ? seasonalDrift(def.seasonal, tick, cfg.ticksPerDay, cfg.daysPerYear) : 0);
     const diff = sigma * sqrtDt * shock;
+    a.dayDiff = (a.dayDiff ?? 0) + diff; // the day's diffusive innovation (GARCH input, see the day boundary above)
     a.lnV = prev.lnV + (mu - 0.5 * (perm * sigma) ** 2) * dt + lnVScale * perm * diff + jp * jump + catalyst + wm.value;
 
     // market price: same drift, pull toward V, full shock and jump

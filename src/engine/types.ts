@@ -204,11 +204,10 @@ export interface AssetState {
   /** sum of today's jump log sizes; excluded from the GARCH input so jumps don't feed vol clustering */
   dayJump: number;
   /**
-   * today's news that is not in dayJump but is not diffusion either: the part of each jump that did not print at once
-   * ((1 - jumpImmediate) x jump) less the post-earnings drift printed. GARCH reads lnP - lnOpen - dayJump + dayGap. Absent
-   * (undefined) = 0, so the bare engine (jumpImmediate 1, no catalysts) keeps its state shape.
+   * sum of today's per-tick diffusive shocks (sigma · sqrt(dt) · shock, no jumps, no pull, no drift). GARCH standardizes
+   * this, not the close-to-close return, so E[z^2 | h] = h for every asset. Absent (undefined) = 0 at the first tick.
    */
-  dayGap?: number;
+  dayDiff?: number;
   /** log return accumulated while halted; applied in the reopening auction */
   pending: number;
   rng: RngState;
