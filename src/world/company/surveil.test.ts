@@ -81,4 +81,15 @@ describe('the insider backstop scores window and plan abuse (O-15)', () => {
     expect(points(g, FOUNDER) - before).toBe(COMPANY.failure.insiderPoints.planAbuse);
     expect(reasonsOf(g, FOUNDER)).toContain('plan change refused');
   });
+
+  it('an outsider who sends company.planCancel on another company is refused notFounder and scores nothing (O-15 review)', () => {
+    const { g, c } = listedWorld('surv-plan-outsider');
+    const r = applyCommand(g, BUYER_A, { type: 'company.planCancel', companyId: c.id, planId: 'missing' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('notFounder');
+    expect(g.companies!.insider?.[BUYER_A]).toBeUndefined();
+    expect(points(g, BUYER_A)).toBe(0);
+    // the listed stock's insider is untouched too
+    expect(g.companies!.insider?.[FOUNDER]?.points ?? 0).toBe(0);
+  });
 });

@@ -278,9 +278,14 @@ export function companyFinanceCommand(g: GameState, pid: string, cmd: CompanyFin
     case 'company.ipoOrder': r = orderIpo(g, pid, c, cmd.shares); break;
     case 'company.plan': r = commitPlanFor(g, pid, c, { qtyPerDay: cmd.qtyPerDay, days: cmd.days, minSellPrice: cmd.minSellPrice }, out); break;
     case 'company.planCancel':
+      // only the founder runs the company's plans: another player's cancel is refused, and scores nothing (O-15 review)
+      if (c.ownerId !== pid) {
+        r = { ok: false, reject: { code: 'notFounder' } };
+        break;
+      }
       r = cancelPlanFor(g);
-      // a committed plan cannot be cancelled: the attempt is plan abuse (O-15)
-      if (c.listed) scorePlanAbuse(g, pid, c.listed.assetId);
+      // a committed plan cannot be cancelled: the founder's attempt is plan abuse (O-15), scored when the plan is refused
+      if (!r.ok && r.reject.code === 'planImmutable' && c.listed) scorePlanAbuse(g, pid, c.listed.assetId);
       break;
     case 'company.buyback': r = fileBuyback(g, pid, c, { size: cmd.size, fromDay: cmd.fromDay, toDay: cmd.toDay }, out); break;
     case 'company.loan': r = drawLoan(g, pid, c, { amount: cmd.amount, guarantee: !!cmd.guarantee, acknowledged: !!cmd.acknowledged }, out); break;
