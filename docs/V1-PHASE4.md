@@ -1,8 +1,194 @@
 # V1 Phase 4: status
 
-Scope: Phase 4 of the V1 plan (companies, managed shops, player-run funds), as set in the Phase 4 decisions file (`DECISIONS.md` sections 1 to 3) and `ROADMAP.md` 2.2. Stage A (world layer) and stage B (the company engine hooks and the tuning) are on v1.
-Branch: `v1`. Status date: 2026-10-10. Stage A was measured at `3d43d22`. Stage B and the checks in section 5.1 were measured at `ee80574` (v1 after the `p4/a2` and `p4/tune` merges). This file was committed after that.
+Scope: Phase 4 of the V1 plan (shops and companies, player-run funds), as set in `~/.claude/plans/expressive-sprouting-aurora.md` (Phase 4), the Phase 4 lead decisions file (`p4/DECISIONS.md`, sections 1 to 4) and `docs/team/vision/ROADMAP.md` 2.2.
+Branch: `v1` in `.claude/worktrees/tycoon`. Status date: 2026-10-10.
 Status words as in `docs/V1-PHASE1.md` and `docs/V1-PHASE3.md`: **Done**, **Partial**, **Not built**, **Deferred**, **Decided**.
+
+The sections below are the full Phase 4 status. Section 0 is the summary and is current. Sections 1 to 9 are the detail written branch by branch during the phase; section 9 is updated for the merge of `p4/ops`. Section 10 records the merge of `p4/d1` and `p4/d2` and the gate run on the merged `v1`.
+
+## 0. Phase 4 status (current, after the `p4/d1` and `p4/d2` merge)
+
+### 0.1 Branches
+
+| Branch | Head | Merged to v1 | Status |
+|---|---|---|---|
+| `p4/a1` managed shops | `4b77962` | `0ad43e2` | Merged (section 2) |
+| `p4/a3` company world core | `b09fe01` | `5a23eba` | Merged (section 3) |
+| `p4/a4` player-run funds (world) | `d4ca8f6` | `3d43d22` | Merged (section 4) |
+| `p4/a2` company engine hooks | `f6ed59c` | `3dfbc2a` | Merged (section 3a) |
+| `p4/tune` shop gates, VCF advance | `f634f01` | `ee80574` | Merged (sections 2.2a, 4.4) |
+| `p4/b1` market path | `4d70686` | `583f573` | Merged (section 7) |
+| `p4/b2` governance and failure | `dbe40ad` | `f981061` | Merged (section 8) |
+| `p4/ops` company operations half | `83dc4d9` | `a8ff5b9` | Merged (section 9) |
+| `p4/cap` company Capital tab | `c731500` | `0daa58a` | Merged (this table; no section of its own) |
+| `p4/biz` businesses shop management | `ae481aa` | `8665762` | Merged (this table; no section of its own) |
+| `p4/d1` Tape company checks as Vitest | `3972eea` | `908c615` | Merged in this pass (section 10); **partial** |
+| `p4/d2` exploit suites X1 to X15 | `e5486b7` | `c04504b` | Merged in this pass (section 10); **partial** |
+| `p4/ex` Exchange app, player stocks and funds UI | `636d9a1` | **not merged** | **Skipped.** The `p4-ex` worktree has uncommitted work (`M docs/V1-PHASE4.md`), so per the merge rule the branch was not merged. See open item O-1. |
+
+Each merge was `--no-ff`. The `p4/d1` and `p4/d2` merges had no conflicts. Neither branch had uncommitted work at merge time (`p4-d1` and `p4-d2` were clean; `p4-ex` was not).
+
+### 0.2 Plan items
+
+Plan Phase 4 items, as written in `expressive-sprouting-aurora.md`, with the status at this merge.
+
+| Plan item | Status | Commits | Notes |
+|---|---|---|---|
+| Shops: the 156-business catalog becomes managed shops (engine and world) | **Done** | `3b7ab6c`, `4b77962` (merge `0ad43e2`) | Levers, offline ramp, value guards (S4, S5). |
+| Shops: management levers in the Businesses app (crew, price, quality, maintenance, marketing, manager, morale) | **Done** | `ae481aa` (merge `8665762`) | Refusals inline with three-part copy. Overdraft notice is an i18n key (closes A1 open item). |
+| Shops: visible reviews, queues and morale | **Done** | `ae481aa` | Rolling star reviews, queue, served versus demand, morale. |
+| Shops: payback gates (well run 9 to 11 gd, excellent 7 to 8, neglected 20 to 30, every tier, 20 seeds) | **Done** | `f3d03f3`, `f634f01` (merge `ee80574`) | Gate: `npm run balance:shops`. |
+| Shops: re-tune with `scripts/balance/wealth.ts` management variants | **Partial** | `f3d03f3`, `f634f01` | `wealth.ts` has the three styles and presence patterns. The five-year `run.ts` economy check is open (O-6). The managed row sits above S3's payback (O-8). |
+| Company world core: sectors, demand and logit share, R&D (quality, patents, pharma gates), hiring caps, tiers Seed, Growth, Late | **Done** | `943f7c6`, `b09fe01` (merge `5a23eba`) | |
+| Company engine hooks: value source (`companyPrintShare` = 1 on player stocks), IPO through `appendAsset`, window enforcement (`closedWindow`, `windowClosing`), sell-only plans with escrow, buybacks, takeover tender | **Done** | `3fcd667`, `f6ed59c` (merge `3dfbc2a`) | Sector shock is still a world stream, not `sectorRng` (O-12). |
+| Private rounds | **Done** | `0ed0dcb`, `4d70686` (merge `583f573`); `f0aa5af`, `c731500` (merge `0daa58a`) | Refused after listing and during the IPO, with copy. |
+| Quarterly filings and weekly signals into the value pool | **Done** | `943f7c6`, `3fcd667` | Tape rows for signals and filings pass at 20 seeds (section 10.2). |
+| IPO at 0.9 x V, float 15 to 49%, 168 gd lockup, at most 5% of float per buyer | **Done** | `0ed0dcb`, `4d70686`, `f0aa5af` | Rule suites `s7` (d1). Underwriting fee base is open (O-4). |
+| Trading window F+2 to F+21 | **Done** | `3fcd667`, `0ed0dcb` | Tape `window_boundaries` and `closed_window_bypass` pass in suites. |
+| Plans (sell-only, escrow, every reject code) and buybacks | **Done** | `3fcd667`, `f6ed59c`, `0ed0dcb` | Tape `s4` suites. Plan surveillance points are not wired (O-15). |
+| Covenants and guarantees, consequence shown first | **Done** | `0ed0dcb` (debt), `c731500` (guarantee gate) | Capital tab shows the consequence before the control. |
+| Bankruptcy, limited liability, 63 gd clawbacks | **Done** | `b730107`, `dbe40ad`, `3972eea` | `3972eea` fixed a dividend that was never a covered payout. |
+| CEO change and freeze | **Partial** | `b730107` (A+10, freeze A..A+31, 252 gd cooling) | The CEO-change action has no UI, only notices (O-16). |
+| Takeover tender floor 1.2 x VWAP30 | **Done** | `b730107`, `dbe40ad` | Floor read from the daily company tape. |
+| Antitrust refusal above 60% sector share | **Done** | `b730107` | |
+| Insider backstop through the court (`insider` case kind) | **Partial** | `b730107` (`backstop.ts`) | The case works. Window and plan surveillance points are not called yet (O-15), and the company side does not set `insiderId` (O-14). |
+| Exploit map X1 to X15 as tests | **Partial** | `e5486b7` (merge `c04504b`) | X1 to X15 are named suites. The bot and pump rows (X1, X2, X6, X8, X10 parts) are `it.todo` in `blocked.test.ts`. X3, X5, X11 were fixed. |
+| Exploit map N1 to N17 as tests | **Partial** | `b730107`, `dbe40ad`, `e5486b7`, `75ca35b` | N2, N10 and N16 are not named in any test. |
+| G22 settled with the passing reading, documented | **Done** | `943f7c6` (C1, section 3.1) | Rho checks stay blocked on G22 (O-2). |
+| Founder template with reachable first goals | **Done** | `b4b349e`, `83dc4d9` | Founding at R2, first-goals card, five-step checklist. |
+| "What the market sees" toggle | **Done** | `b4b349e`, `83dc4d9` | Renders `CompanyPublic` only (`marketOf`). |
+| Inline explanation on every refusal code | **Done** | `b4b349e`, `b730107`, `c731500`, `f0aa5af` | Copy in en and fr, three parts. Not audited code by code in this pass. |
+| Executives with traits, board votes, franchising | **Done** | `b730107` (`governance.ts`, `franchise.ts`), `b4b349e` (UI) | NPC pools vote by the fair-value rule. |
+| Supply deals at arm's length; related-party revenue never counts | **Done** | `b730107` (`supply.ts`), `75ca35b` (s5 suites) | |
+| Company app per `velvet-company-app.md` (corrected to Quant v1.7) | **Done** | `b4b349e`, `83dc4d9` (ops); `f0aa5af` (Capital tab) | Spec now at v1.5 (the plan says v1.4). |
+| Capital tab (cap table, private round, IPO, window, plans, buybacks, debt, dividends, takeover, failure) | **Done** | `f0aa5af`, `c731500` (merge `0daa58a`) | Owner-only view `capital`. |
+| `CompanyFounderView` lint-confined to the Company app | **Done** | `b4b349e`, `83dc4d9` | `boundary.test.ts` (TS compiler API). |
+| Company Overview, R&D, People, Deals and Notices | **Partial** | `b4b349e`, `83dc4d9` | Overview decision applies at once, with no next-day staging (O-17). The Filings view is not built. |
+| Player-run funds (world): custody, mandate, fees, gates, surveillance, S5 penalties | **Done** | `6c63fb3`, `d4ca8f6` (merge `3d43d22`); `f3d03f3` (VCF advance) | Property test over sequences (section 4.3). |
+| Funds UI (in the Exchange app) and the fund board (net return, Sharpe, $1M minimum) | **Not built** | none on `v1` | Lives in `p4/ex`, which is not merged (O-1). |
+| Exchange app for player stocks | **Not built** | none on `v1` | `p4/ex` not merged. Exchange is hidden on `v1` (`347c4d2`, C-38). |
+| Tape company checks as Vitest suites (Quant v1.7) | **Partial** | `d4bf1ce`, `75ca35b`, `3972eea` (merge `908c615`) | 8 statistical rows pass at 20 seeds. 18 rows are NOT RUN (section 10.2). |
+| Gates: exploit map and money-flow invariants and zero-sum | **Partial** | `e5486b7` (merge `c04504b`) | Zero-sum has a KNOWN DEFECT (O-3). |
+| Gates: balance (`balance:shops`) | **Done** | `ee80574` | |
+| Gates: ecology gates, socket load (4,000 clients), play-by-hand on desktop and phone, screenshot tour | **Not run** | none | Listed in the plan's Verification section. Not run in this pass (O-19). |
+
+Launchpad is Phase 5 and is not in scope here.
+
+### 0.3 Lead rulings (all recorded)
+
+Each ruling is listed once with where it is recorded.
+
+**Shops** (`p4/DECISIONS.md`, section 1)
+- S1. Management drives payback. Payback is about 10 gd when well run, 7 to 8 when excellent, 20 to 30 when neglected. Tier ladder 10/15/30/50/80/120 for well-run play. (Mathis's locked decision.)
+- S2. Levers: crew, price level, quality, maintenance, marketing, manager (1 to 3 stars), morale. Feedback: star reviews, queue, morale.
+- S3. One game day is one real hour. A once-a-real-day player with a manager and sane settings reaches the well-run payback.
+- S4. Offline: full income for 8 gd, ramp to 25% by day 16. A manager extends full income to 16 gd. Automation no longer gives 100% forever.
+- S5. Exploit guard: value uses a trailing 7-gd average of steady-state income, capped by the tier's fair multiple. Hires have a minimum term or a severance. Price changes take effect at the next game day, at most once a day.
+- S6. Calibrate with NPC presence. Gate: well run 9 to 11 gd, excellent 7 to 8, neglected 20 to 30, every tier, 20 seeds.
+
+**Company building** (`p4/DECISIONS.md`, section 2)
+- C1. G22 is settled with the passing reading (unit-scale F_s, no unobserved working-capital or cost surprises). Recorded in section 3.1.
+- C2. Architecture: company state in `src/world/company/*`; generic engine hooks; player stocks get no catalyst earnings and no options.
+- C3. Implement CB-001 to CB-113 with v1.7 numbers (the list is in section 0.2).
+- C4. Minimal designs for CB-114 to CB-120: executives, board votes, franchising, supply deals, founder template, and three-part refusal copy for every code.
+- C5. The Velvet app spec is corrected to v1.7 (clawback box, public plan rows without the minimum price, Late-tier index clause, insider filing instruments, IPO can't-buy rule).
+- C6. `CompanyFounderView` is imported only from the Company app, enforced by a compiler-API test.
+
+**Player-run funds** (`p4/DECISIONS.md`, section 3; ROADMAP 2.2)
+- Fees: management 2% or less a year, performance 20% or less above a high-water mark crystallized each game quarter, custody sink 0.25%. No per-trade fee.
+- Deposits and redemptions settle at the next day-close NAV. Redemption gate 20% a day. Early exit fee 1%, paid into the fund within 2 real days. Investor limit 25% of the investor's own NW. Investor accounts at least 7 real days old and not linked to the manager.
+- Safeguards 1 to 6: custody (no manager withdrawal except its own share and crystallized fees); mandate with leverage 1.5x or less, positions 20% of NAV or less, 24 real hours of notice to change; no related-party trading and a 5% cap with filing for insider assets; a front-running check; absent-manager freeze after 72 real hours, wind-down after 14 days; drawdown breaker at -30% from the high-water mark within one game week.
+- S5 penalties go through the court. The manager's stake is first-loss for restitution. Acceptance: a property test over 10,000 random action sequences shows a manager never withdraws investor money.
+
+**Stage A and B rulings** (sections 1, 4.4)
+- The victim's share of a fine stays `creditExternal` (the p3/c2 rule).
+- Ruling B (stage B): the VCF advance goes to non-manager investors, not into the fund (`advanceToInvestors`). The fund's cash and NAV do not move.
+
+**Market path and governance** (section 8.3; from the B1 and B2 review)
+1. Unallocated IPO float is a booked faucet, outside capital, like the NPC investor pools. Accepted.
+2. Owner links use alliances only in V1. The collusion graph is not in `src`; it belongs to the anti-cheat work in Phases 6 and 9. Known limitation recorded (see O-5).
+3. Forced liquidation and squeeze buy-ins inside a closed window are allowed. Escrowed shares add no collateral (`collateralEquityOf`).
+4. Extra reject codes accepted: `tenderNoBidder`, `buybackBadSpec`, `roundAfterListing`, `roundDuringIpo`.
+
+**Operations half** (section 9)
+- NPC rival shares stay private. The rivals table shows names and prices only.
+- The import boundary allows exactly the Company app, `world/company/views.ts`, `world/company/index.ts`, `world/view.ts` (the transport of the owner's own view, a lead ruling) and world tests.
+- The founding capital input is `company-found-capital`.
+
+**Exchange visibility**
+- C-38: Exchange stays hidden on `v1` until `p4/ex` lands (commit `347c4d2`). The ops merge had unhidden it. No separate ruling file was found; the commit cites C-38.
+
+**Deviations declared for lead or Ledger sign-off** (section 7.3). Status at this merge:
+1. Founder sell cap covers the founder account only. Open for sign-off (O-7).
+2. Unallocated float is a booked faucet. Accepted by ruling 1.
+3. Underwriting fee base is the gross float value. Open (O-4).
+4. Alts and collusion graph. Open, owner Ledger (O-5).
+5. Derivatives on the founder's stock are not filed. The engine refuses options on company stocks, so no founder derivative can trade in v1. Revisit when listed options exist (O-18).
+6. Default triggers are stricter than the spec's five-day rule. Ledger to confirm (O-7).
+7. Pool sale proceeds stay in the pool account. Money is conserved, but the investors' sale proceeds are misattributed. Owner Quant (O-9).
+
+### 0.4 Gates
+
+**Gates on the merged `v1` in this pass** (after `p4/d1` and `p4/d2`, merge `c04504b`):
+
+| Command | Result |
+|---|---|
+| `npx next typegen` | exit 0 |
+| `npx tsc --noEmit` | exit 0 |
+| `npx vitest run --maxWorkers=4` | 171 files passed, 2 skipped. 1704 tests passed, 2 expected fail, 70 skipped, 21 todo (1797). 201.9 s |
+| `npx eslint src scripts server` | 0 errors, 15 warnings (the pre-existing `react/jsx-no-literals` in `Welcome.tsx` and unused vars in `game.test.ts`) |
+| `npm run build` (Turbopack) | PASS |
+| `npm run e2e -- --workers=2` | see section 10.3 |
+| i18n key parity (en and fr) | 2575 keys each, equal sets |
+
+**Gates recorded on `p4/d1` alone** (`p4-d1` worktree, head `3972eea`):
+
+| Command | Result |
+|---|---|
+| `npx vitest run --maxWorkers=4` | 155 files passed, 1 skipped. 1599 tests passed, 115 skipped (the wait register) |
+| `scripts/balance/company-tape.ts` at 20 seeds | 8 rows PASS: `co_determinism`, `co_ledger_balances`, `private_no_signals`, `signal_cadence`, `window_boundaries`, `plan_min_lead`, `ipo_float_bounds`, `signal_bias_correct`. 18 rows NOT RUN. Exit 0. |
+| `npx next typegen`, `npx tsc --noEmit` | exit 0 (`75ca35b` message) |
+| `npx eslint --max-warnings 0` on touched files | exit 0 (`75ca35b` message) |
+
+**Gates recorded on `p4/d2` alone** (`p4-d2` worktree, head `e5486b7`):
+
+| Command | Result |
+|---|---|
+| `npx vitest run --maxWorkers=4` | 153 files passed, 1 skipped. 1584 tests passed, 1 skipped, 21 todo (`d2-full-vitest`, 22:56). A later full run gave 1587 passed, 2 expected fail, 1 skipped, 21 todo. |
+| `npx next typegen` | exit 0 |
+| `npx tsc --noEmit` | no output in the log |
+| `npx eslint` | no output in the log for the company work |
+
+The `p4/d2` tsc and eslint logs record no errors. They are not counted as recorded exit codes. The merged `v1` run in this pass is the gate for both branches.
+
+### 0.5 Open items
+
+Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merge decisions.
+
+| ID | Item | Owner |
+|---|---|---|
+| O-1 | `p4/ex` skipped: the `p4-ex` worktree has uncommitted `docs/V1-PHASE4.md` work. Commit or discard it there, then merge `p4/ex` (the Exchange app, player-stock and fund UI). Until then Exchange is hidden on `v1`. | Forge (commit or discard in `p4-ex`), lead (merge) |
+| O-2 | Rho checks (`rho_residual`, `rho_ev_robust`, `rho_by_spread`, `rho_engine`, `alt_prefiling_edge`, `signal_joint_v15`) are blocked. G22 is settled but the engine never computes the residual surprise `s` (`valuation.ts` has no caller), so rho cannot be measured. Also `engine-staging` is not merged. | Quant (residual `s`, probe), Forge (wire the caller) |
+| O-3 | **Zero-sum defect (KNOWN DEFECT).** An ordinary stock has no counterparty account. A buy takes its notional and commission out of the world, and a sell mints its notional. Pinned as `it.fails` in `zerosum.test.ts`. Not fixed. | Ledger (ruling pending), Forge (fix) |
+| O-4 | Underwriting fee base is the gross float value, including the NPC book's share. Spec 5.1 does not name the base. | Ledger (sign-off) |
+| O-5 | Collusion graph for alt accounts is not in `src`. Only alliances define owner links (ruling 2). A founder-controlled account outside an alliance can subscribe to an IPO and trade outside the window. | Ledger (spec), Forge (anti-cheat, Phases 6 and 9) |
+| O-6 | Five-year `run.ts` economy check for shops is still open. The stabilizer was rechecked on three 40-day seeds and never engaged. | Ledger |
+| O-7 | Sign-off on B1 deviations 1 (sell cap scope) and 6 (default triggers stricter than spec 5). | Ledger |
+| O-8 | Managed sits at 1.3 to 1.5 against S3's about 1.0. Options: restate S3 as an ungated reference; extend the full-income window to 24 days (an S4 change); or lower the star cost and re-hold excellent. | Lead |
+| O-9 | Pool sale proceeds are misattributed to the pool account (B1 deviation 7). | Quant |
+| O-10 | Company spec is still NOT FROZEN (G22 reading recorded in code). | Ledger |
+| O-11 | Tape rows not built or not run: the bot harnesses (`cap_carry_edge`, `signal_postprint_drift`, `company_print_full_npc_untouched`, X6, X8, X10 rows), the E-UI rows (no Playwright specs for them), and the ABSENT features (credibility EWMA, other income, consolidation, `self_match`, forward cap, eslint canary, AD_GRANT cash). | Tape (rows), Quant (features), Velvet (E-UI) |
+| O-12 | The sector shock is a world stream, not the engine's `sectorRng` (`sim.ts` owns `sectorRng`). Binding is not done. | Forge, Quant |
+| O-13 | VCF advance: lead to confirm the manager's day-figure part (section 4.4). | Lead |
+| O-14 | `insiderId` is not set on company assets (the company module does not set it; `funds/trade.ts` reads it). The insider seam is incomplete. | Forge |
+| O-15 | Surveillance points from window abuse and plan abuse are not called by the company module (B2 gap: "for B1 to call"). | Forge |
+| O-16 | CEO-change action has no UI (only notices). NPC acquirer bids are an API, not scheduled. NPC CEO policy, dividends and covenants are not modelled in B2 (dividends and covenants exist in B1). | Forge (UI), Quant (NPC policy) |
+| O-17 | Company Overview: the decision applies at once through `startProject` (Velvet asks for next-day-close staging, which the engine does not have). The "was" tick on the slider, the launch of next-gen products (credits not carried in the founder view), and the Filings view are not built. | Forge (engine staging and launch), Velvet (copy and Filings view) |
+| O-18 | Derivatives on the founder's company stock are not filed (B1 deviation 5). Revisit when listed options on company stocks exist. | Forge |
+| O-19 | Plan verification not run in this pass: `scripts/ecology/gates.ts full`, `scripts/load/socket-load.mjs` (4,000 clients, tick p99 under 2.5 s), play-by-hand on desktop and phone in English and French, and the screenshot tour. | Lead |
+| O-21 | Pre-existing lint warnings: 15 (`react/jsx-no-literals` in `Welcome.tsx`, unused vars in `game.test.ts`). Zero errors. | Velvet (copy keys), Forge (unused vars) |
+
+The Phase 4 items above that are **Partial** or **Not built** are the ones that block closing the phase. Items O-1, O-3 and O-19 are the largest.
 
 ## 1. Stage A merged
 
@@ -372,7 +558,7 @@ The close-card re-check ran through a temporary Playwright config outside the re
 ## 9. Company app, operations half (`p4/ops`)
 
 Scope: the Company app shell (`src/components/apps/company/`) and the founder's operations views, per Velvet's spec
-(`docs/team/specs/velvet-company-app.md` v1.5, corrected to Quant v1.7). Branch `p4/ops`, not yet merged to `v1`.
+(`docs/team/specs/velvet-company-app.md` v1.5, corrected to Quant v1.7). Branch `p4/ops`, merged to `v1` at `a8ff5b9` (commits `b4b349e`, `83dc4d9`).
 
 What is in:
 - Shell: a rail of views (`company-rail`, a tab row on the phone), the "What the market sees" toggle (`company-view-toggle`),
@@ -390,7 +576,7 @@ What is in:
   re-export of `CompanyFounderView`, `founderCompanyView` or `ownCompanyView` outside `src/world/**` and the Company app.
   The world layer builds the view for its owner (`PlayerView.company`); no screen outside the Company app names it.
 - `CapitalTab.tsx` is a placeholder with the agreed props `{ companyId: string }` for the capital work.
-- Exchange is visible now (no hidden flag, no "Coming later" link toast). Its window shows the stub until the Exchange work lands.
+- Exchange was made visible in this branch. Commit `347c4d2` hid it again (C-38) because `p4/ex` was not merged; see 0.3.
   Launchpad stays hidden until Phase 5.
 
 Fix pass on the review (same branch):
@@ -408,10 +594,49 @@ Fix pass on the review (same branch):
   app, `world/company/views.ts`, `world/company/index.ts`, `world/view.ts` (the transport of the owner's own view, a lead ruling)
   and world tests; `boundary.test.ts` also catches namespace access, `typeof`, star and dynamic imports.
 - The founding capital input is `company-found-capital` (it collided with the Capital tab root `company-capital`).
-- Exchange stays visible as the brief asks; its window is the generic stub until p4-ex lands (C-38 is superseded by the
-  brief; a lead ruling is needed if C-38 should hold).
+- Exchange: the brief asked for it visible, but C-38 holds instead (hidden until p4-ex lands, commit `347c4d2`, see 0.3).
 
 Still open: the Overview decision is applied at once through the engine's `startProject` (Velvet asks for the next-day-close
 staging, which the engine does not have yet); the "was" tick on the slider; the CEO change action (only the notices); the
 launch of next-gen products (the founder view does not carry the launch credits yet); the capital tab (loans, dividends,
 buybacks, the IPO, the trading plan) and the Filings view.
+
+## 10. Merge of `p4/d1` and `p4/d2` into v1, gates, and the e2e fix
+
+### 10.1 Merges
+
+- `908c615`: `p4/d1` (heads `d4bf1ce`, `75ca35b`, `3972eea`) merged `--no-ff`. No conflicts. Brings `scripts/balance/company-tape.ts`, the suites in `src/world/company/tape/`, `wait-register.test.ts`, and the dividend clawback fix in `3972eea` (a dividend paid to a player is now a covered payout, so the 63-gd clawback can reach it).
+- `c04504b`: `p4/d2` (head `e5486b7`) merged `--no-ff`. No conflicts. Brings the X-series suites, the invariants property test, the zero-sum test, and three fixes with regression tests: X3 (a capital or round above `MAX_MONEY` is refused), X5 (a short holder owes the dividend on its short), X11 (company stock fills run against the NPC book, and a missing book fills nothing).
+- `p4/ex` not merged. Its worktree `p4-ex` has uncommitted `docs/V1-PHASE4.md` work, so the branch was skipped under the merge rule. Its six committed commits (head `636d9a1`) stay on the branch. See O-1.
+- Neither merged branch had uncommitted work at merge time.
+
+### 10.2 Tape company checks (`p4/d1`)
+
+Script run at 20 seeds (`scripts/balance/company-tape.ts`, the `p4-d1` run, head `3972eea`): 8 rows PASS, exit 0. The rows that pass are `co_determinism`, `co_ledger_balances`, `private_no_signals`, `signal_cadence`, `window_boundaries`, `plan_min_lead`, `ipo_float_bounds`, `signal_bias_correct`.
+
+The script does not run 18 rows (it prints them as NOT RUN): `cap_carry_edge`, `signal_postprint_drift`, `alt_prefiling_edge`, `reanchor_public_edge`, `signal_joint_v15`, `signal_noise_reversion`, `rho_residual`, `rho_ev_robust`, `rho_by_spread`, `rho_engine`, `overflow_not_booked`, `hiring_full_print`, `revenue_noise_quarterly`, `filing_tick_order`, `company_print_full_npc_untouched`, `honest_cancel_no_charge`, `signal_fake_ev`, `backlog_repay_outside_covered`. Each of these names appears in a Vitest suite under `src/world/company/tape/`, or in `blocked.test.ts`. Rows that cannot run are skipped and tagged in `wait-register.test.ts`. Tags: WAIT-INSTR, WAIT-DEFERRED, WAIT-PENDING, BLK-G22, BLK-LEDGER, ABSENT, E-UI, EN, B-HARNESS, U-TODO, L-TODO, N/A. A skipped row is not counted as a pass.
+
+Tape found and fixed one defect: the dividend clawback (`3972eea`). Quant v1.7 corrections recorded in `75ca35b`: the G21 unit check reads `companyPrintShare` and requires it to be exactly 1; the salary cap floor of $50 binds below $1.26M TTM revenue (not $126k).
+
+Vitest at the `p4-d1` head: 155 files passed, 1 skipped, 1599 tests passed, 115 skipped (the wait register). `npx next typegen` and `npx tsc --noEmit` exit 0. `eslint --max-warnings 0` on the touched files exit 0.
+
+### 10.3 Exploit suites (`p4/d2`)
+
+- X-series suites `X1` to `X15` run here, with their ids in the test names. The rows that need bots or pump probes are `it.todo` in `src/world/company/exploits/blocked.test.ts`, with the reason for each: X1, X2 (parts), X6, X8 and X10 (bot harness absent, or deferred to M30), `rho_*` and `alt_prefiling_edge` (G22 and probe absent), `cap_carry_edge` (bot harness absent; the trade-count guard in `trade-guard.ts` is unit-tested and applied to no bot yet), `signal_postprint_drift` and `company_print_full_npc_untouched` (engine-staging not merged).
+- `invariants.property.test.ts`: seeded random company sequences (2000 runs of 30 steps, 50 exact replays). Checks invariants 1, 2, 3, 4, 6, 18, 19 and 23 directly. Invariant 1 covers company stock only. Invariants 5, 14 and 22 have no passing check (5 is `it.todo` as `agm_sign_test`, with no AGM in v1).
+- `zerosum.test.ts`: per-day world zero-sum for a listed company, to the cent. **KNOWN DEFECT, not fixed:** an ordinary stock has no counterparty account, so a buy takes its notional and commission out of the world and a sell mints its notional. Pinned as `it.fails` and as an exclusion for buy and sell. Ledger ruling pending (O-3).
+- `d2` gate logs: vitest 153 files passed, 1 skipped (1584 tests passed at 22:56; a later full run gave 1587 passed, 2 expected fail, 1 skipped, 21 todo). `npx next typegen` exit 0.
+
+### 10.4 Gates on the merged v1 and the e2e fix
+
+Gate table for the merged v1 is in section 0.4. The e2e run needed one fix.
+
+- **E2E run 1** (`npm run e2e -- --workers=2`, `test-results` cleaned first): 210 passed, 1 failed, 303 skipped, 3 did not run (11.0 min). The failure is `tests/e2e/shops.spec.ts`, "a lever shows at once, a price waits for the next game day, and a second price change that day is refused", on the `close-card-phone` project. A game day ended during the test on its own, and the day-close card (`close-card`) opened over the Shops tab. The tab click waited 60 s for the card to leave. The 3 "did not run" are the close-card specs, which depend on the phone project.
+- **Fix** (test side; no product change): `dismissCloseCard(page)` is called before the `tab-shops` click in that test. The helper was already in `tests/e2e/helpers.ts` and the import already in `shops.spec.ts`, from `b670616`. Commit: see the git log for `test(e2e): clear the day-close card before the Shops tab click`.
+- **E2E run 2** (after the fix, `test-results` cleaned first): 213 passed, 304 skipped, 0 failed, 0 did not run, exit 0 (9.9 min). The skipped entries are project-gated (`onlyIn` in `tests/e2e/shell/support.ts`), as in earlier phases. 213 + 304 = 517, the full Playwright count.
+
+The gate for this pass is the run 2 result.
+
+### 10.5 What this pass did not check
+
+Plan verification items not run here: `scripts/ecology/gates.ts full`, `scripts/load/socket-load.mjs`, play-by-hand on desktop and phone in English and French, and the screenshot tour. These are O-19 in section 0.5.
