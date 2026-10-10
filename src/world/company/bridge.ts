@@ -1,15 +1,32 @@
 /**
- * The bridge between the company core and the world (game.ts): the environment the core reads, the two commands, the
- * day step with its founder notes, and the refusal copy keys. The core stays pure; this file touches GameState.
+ * The bridge between the company core and the world (game.ts): the environment the core reads, the commands, the day step with
+ * its founder notes, and the refusal copy keys. The core stays pure; this file touches GameState.
+ *
+ * The day's order (B1, G19): the company core runs first (its filing publishes and re-anchors, then the day's operations and
+ * the quarter close and signals). Then the filings are read (covenants, the window), the prints go to the engine (a company
+ * print on a listed stock), the due IPOs list, the listed companies sync their windows, the debt accrues, and the programs
+ * place the day's plan and buyback orders. A plan order placed on F's open therefore fills after the re-anchor print.
  */
 
 import { priceOf } from '../core';
 import { bump, cashOf, notify, today } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
-import { companyAction, companyTick, foundCompany, emptyCompanyWorld, type CompanyEnv, type CompanyEvent } from './company';
+import type { Fill, StepEvent } from '@/engine';
+import { printCompanyValue, programsDay } from '@/engine';
+import { companyAction, companyTick, foundCompany, emptyCompanyWorld, type CompanyAction, type CompanyEnv, type CompanyEvent } from './company';
 import type { CompanyReject } from './types';
-import type { CompanyAction } from './company';
 import type { CompanySector } from '@/content/company';
+import { addWindowRange, listedDay, recordFounderFills, syncWindow } from './insiders';
+import { listIpo, orderIpo, requestIpo } from './ipo';
+import { covenantAtFiling, debtDay, drawLoan, repayLoan } from './debt';
+import { applyProgramEvents, cancelPlanFor, commitPlanFor, fileBuyback } from './programs';
+import { declareDividend } from './payouts';
+import { migrateCompany } from './migrate';
+
+/** Every company record gets the B1 fields if its save predates them (migrate.ts). Cheap: a loop over the companies. */
+function migrateAll(g: GameState): void {
+  for (const c of Object.values(g.companies?.companies ?? {})) migrateCompany(c);
+}
 
 /** The environment for the company core, read from the world at the current tick. */
 export function companyEnvOf(g: GameState): CompanyEnv {
@@ -59,8 +76,46 @@ export function companyNotes(g: GameState, out: StepOutput | null, events: Compa
 /** The day step: runs only when a company world exists, so worlds without companies are untouched. */
 export function companyDay(g: GameState, out: StepOutput | null): void {
   if (!g.companies) return;
-  const events = companyTick(g.companies, companyEnvOf(g), today(g));
+  migrateAll(g);
+  const day = today(g);
+  const events = companyTick(g.companies, companyEnvOf(g), day);
   companyNotes(g, out, events);
+  const ids = Object.keys(g.companies.companies).sort();
+  // 1. the filings (a new window, covenants) and the prints of the listed stocks (signals and the re-anchor, G21)
+  for (const e of events) {
+    const c = g.companies.companies[e.companyId];
+    if (!c) continue;
+    if (e.kind === 'filed') {
+      addWindowRange(c, day);
+      syncWindow(g, c);
+      covenantAtFiling(g, c, day, out);
+    } else if ((e.kind === 'signal' || e.kind === 'reanchor') && c.listed) {
+      g.market = printCompanyValue(g.market, c.listed.assetId, e.dLnV);
+    }
+  }
+  // 2. the IPOs due today list through the engine
+  for (const id of ids) {
+    const c = g.companies.companies[id]!;
+    if (c.ipo && !c.listed && day === c.ipo.listDay) listIpo(g, c, out);
+  }
+  // 3. the listed companies: ADV, the window roster, the window warnings, the treasury sweep; every company: the debt
+  for (const id of Object.keys(g.companies.companies).sort()) {
+    const c = g.companies.companies[id]!;
+    if (day >= c.foundedDay) debtDay(g, c, day, out);
+    if (c.listed) listedDay(g, c, day, out);
+  }
+  // 4. the programs: the plans and buybacks due today are placed (they fill on the next tick)
+  const pr = programsDay(g.market);
+  g.market = pr.state;
+  applyProgramEvents(g, pr.events);
+}
+
+/** Every tick: the founder's trades in the stock (filed the next day) and the programs' events (a plan's end or a skip). */
+export function companyStep(g: GameState, fills: Fill[], events: StepEvent[]): void {
+  if (!g.companies) return;
+  migrateAll(g);
+  recordFounderFills(g, fills);
+  applyProgramEvents(g, events);
 }
 
 function fail(reject: CompanyReject): CommandResult {
@@ -82,5 +137,27 @@ export function companyCommand(g: GameState, pid: string, cmd: { type: 'company.
   }
   if (!g.companies) return fail({ code: 'unknownCompany' });
   const r = companyAction(g.companies, companyEnvOf(g), pid, cmd.companyId, cmd.action);
+  return r.ok ? { ok: true, data: r.value } : fail(r.reject);
+}
+
+/** The B1 commands: the IPO, plans, buybacks, loans, repayments and dividends. Each refusal is the company's copy code. */
+export type CompanyFinanceCommand = Extract<import('../types').Command, { type: 'company.ipo' | 'company.ipoOrder' | 'company.plan' | 'company.planCancel' | 'company.buyback' | 'company.loan' | 'company.repay' | 'company.dividend' }>;
+
+export function companyFinanceCommand(g: GameState, pid: string, cmd: CompanyFinanceCommand, out: StepOutput | null): CommandResult {
+  if (!g.companies) return fail({ code: 'unknownCompany' });
+  migrateAll(g);
+  const c = g.companies.companies[cmd.companyId];
+  if (!c) return fail({ code: 'unknownCompany' });
+  let r: { ok: true; value: Record<string, unknown> } | { ok: false; reject: CompanyReject };
+  switch (cmd.type) {
+    case 'company.ipo': r = requestIpo(g, pid, c, cmd.floatPct, out); break;
+    case 'company.ipoOrder': r = orderIpo(g, pid, c, cmd.shares); break;
+    case 'company.plan': r = commitPlanFor(g, pid, c, { qtyPerDay: cmd.qtyPerDay, days: cmd.days, minSellPrice: cmd.minSellPrice }, out); break;
+    case 'company.planCancel': r = cancelPlanFor(g); break;
+    case 'company.buyback': r = fileBuyback(g, pid, c, { size: cmd.size, fromDay: cmd.fromDay, toDay: cmd.toDay }, out); break;
+    case 'company.loan': r = drawLoan(g, pid, c, { amount: cmd.amount, guarantee: !!cmd.guarantee, acknowledged: !!cmd.acknowledged }, out); break;
+    case 'company.repay': r = repayLoan(g, pid, c, cmd.debtId, cmd.amount); break;
+    case 'company.dividend': r = declareDividend(g, pid, c, cmd.perShare, out); break;
+  }
   return r.ok ? { ok: true, data: r.value } : fail(r.reject);
 }

@@ -189,7 +189,7 @@ describe('one V_engine for the private mark (spec 5)', () => {
     const h = harness('pv');
     const id = found(h);
     const c = h.w.companies[id]!;
-    c.qtd = { startDay: 0, revenue: 100_000, cogs: 20_000, opex: 10_000, da: 0, ocf: 60_000, capex: 0, units: 1000, matCogs: 10_000, overtime: 0, rdSpend: 0, marketing: 0 };
+    c.qtd = { startDay: 0, revenue: 100_000, cogs: 20_000, opex: 10_000, da: 0, ocf: 60_000, capex: 0, units: 1000, matCogs: 10_000, overtime: 0, rdSpend: 0, marketing: 0, interest: 0, dividends: 0 };
     const x = privateInputs(c, 30);
     expect(x.eStar).toBeGreaterThan(0);
     const v = COMPANY.valuation;

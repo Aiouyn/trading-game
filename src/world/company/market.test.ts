@@ -13,11 +13,11 @@ function company(over: Partial<Company> = {}): Company {
     retained: 0, lossCarry: 0, shares: 1, capTable: {}, staff, hires: [], plantLevel: 0, plantBuildUntil: null, plantCapex: 0,
     ppe: 0, products: [], eff: 0, projects: [], projSeq: 0, frontierLn: 0, npcs: [], npcSeq: 0, sectorBase: 0, oilBase: 0,
     d0: 800, orders: [], orderSeq: 0, resolved: [], ar: 0, inv: 0, ap: 0,
-    qtd: { startDay: 0, revenue: 0, cogs: 0, opex: 0, da: 0, ocf: 0, capex: 0, units: 0, matCogs: 0, overtime: 0, rdSpend: 0, marketing: 0 },
+    qtd: { startDay: 0, revenue: 0, cogs: 0, opex: 0, da: 0, ocf: 0, capex: 0, units: 0, matCogs: 0, overtime: 0, rdSpend: 0, marketing: 0, interest: 0, dividends: 0 },
     closed: [], filings: [], pendingFile: null, filingCount: 0, signals: [], noise: null, consensus: null, cbFiled: 0,
     lastUtil: 0, headsAtSignal: 0, signalSeq: 0, lastSens: 0, lastFair: 0, sigLog: [], revenueTotal: 0, listed: null,
     rng: { rd: seedStream('s', 'rd'), sig: seedStream('s', 'sig'), npc: seedStream('s', 'npc') },
-    goalsDone: {}, distress: false, distressPublic: false, indexLast: 1, launchCredits: [], ledger: [], ledgerTotals: {}, ...over,
+    goalsDone: {}, distress: false, distressPublic: false, indexLast: 1, launchCredits: [], ledger: [], ledgerTotals: {}, ipo: null, filedV: 0, filedLnV: 0, debts: [], debtSeq: 0, covenant: { status: 'ok', cureUntilDay: null }, lastDebtDrawDay: -1, divDistress: false, windowRanges: [], lastFilingDay: -1, insiderTrades: [], planRows: [], planSkips: [], planSeq: 0, buybacks: [], buybackSeq: 0, treasuryId: null, ...over,
   };
   return c;
 }

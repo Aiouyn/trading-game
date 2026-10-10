@@ -40,7 +40,7 @@ function advance(h: Harness, from: number, to: number): CompanyEvent[] {
 function filing(rev: number, unitCost: number, matUnit: number, inputIndex: number): FilingPublic {
   return {
     quarter: 1, periodCloseDay: 63, filedDay: 66, hash: '',
-    income: { revUnrelated: rev, relatedPartyIncome: 0, cogs: rev * 0.65, opex: 0, ebitda: 0, netIncome: 10, niAdj: 10 },
+    income: { revUnrelated: rev, relatedPartyIncome: 0, cogs: rev * 0.65, opex: 0, ebitda: 0, netIncome: 10, niAdj: 10, interest: 0 },
     balance: { cash: 500, receivables: 0, inventory: 0, ppe: 0, debt: 0, equity: 0, retainedEarnings: 0 },
     cashFlow: { ocf: 10, capex: 0, capexMaint: 0, fcf: 10, dividends: 0, buybacks: 0 }, headcountBand: '1-10',
     backlog: 0, backlogContribution: 0, unitCost, matUnit, inputIndex,
