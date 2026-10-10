@@ -5,7 +5,7 @@ import { portfolio, type AssetClass } from '@/engine';
 import { PROPERTY_TYPE_BY_ID } from '@/content/lifestyle';
 import { compactMoney, money, pct, price, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { clockLabel } from '@/game/clock';
-import { CONFIG, assetDefOf, useGame } from '@/game/store';
+import { assetDefOf, useGame } from '@/game/store';
 import { NetWorth } from './Header';
 import { Positions } from './Market';
 import { PriceChart } from './PriceChart';
@@ -27,6 +27,7 @@ export function PortfolioView({ phone = false }: { phone?: boolean }) {
   const world = useGame((s) => s.world)!;
   const playerId = useGame((s) => s.playerId)!;
   const nw = useGame((s) => s.nw);
+  const config = useGame((s) => s.config);
   const loadNw = useGame((s) => s.loadNw);
   useGame((s) => s.historyRev);
   const [range, setRange] = useState<NwRange>('1W');
@@ -150,7 +151,7 @@ export function PortfolioView({ phone = false }: { phone?: boolean }) {
           </div>
         )}
       </Card>
-      <p className="text-center text-caption text-fg-faint">Universe: {CONFIG.assets.filter((a) => a.listed !== false).length} tradable assets · {compactMoney(b.total)} net worth</p>
+      <p className="text-center text-caption text-fg-faint">Universe: {config.assets.filter((a) => a.listed !== false).length} tradable assets · {compactMoney(b.total)} net worth</p>
     </div>
   );
 }

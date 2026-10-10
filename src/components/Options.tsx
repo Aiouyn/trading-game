@@ -5,6 +5,7 @@ import { listedExpiries, optionChain } from '@/engine';
 import { money, price } from '@/game/format';
 
 import { useGame } from '@/game/store';
+import { isDelisted } from '@/game/universe';
 import { Button, NumberField, Segmented, Td, Th } from './ui';
 
 const prem = (v: number) => v.toFixed(2);
@@ -16,10 +17,14 @@ const prem = (v: number) => v.toFixed(2);
  */
 export function OptionChain({ underlying }: { underlying: string }) {
   const world = useGame((s) => s.world)!;
+  const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const exps = listedExpiries(world);
   const [exp, setExp] = useState(exps[0] ?? 0);
   const [n, setN] = useState('1');
+  if (isDelisted(config, underlying)) {
+    return <p className="text-small text-loss" data-testid="chain-delisted">{underlying} is delisted: its options no longer trade.</p>;
+  }
   const chain = optionChain(world, underlying, exp);
   const i = world.config.assets.findIndex((a) => a.id === underlying);
   const spot = Math.exp(world.assets[i]!.lnP);

@@ -7,7 +7,7 @@ import {
   type LifeCategory,
 } from '@/content/lifestyle';
 import { compactMoney, money, signedPct } from '@/game/format';
-import { CONFIG, useGame } from '@/game/store';
+import { useGame } from '@/game/store';
 import { BrassChip, Button, Card, Chip, ConfirmButton, LockGlyph, Select, Stat, Tabs } from './ui';
 
 export function EstateView() {
@@ -43,7 +43,7 @@ export function EstateView() {
 }
 
 function districtIndexOf(world: ReturnType<typeof useGame.getState>['world'], cityId: string, districtId: string): number {
-  const i = CONFIG.assets.findIndex((a) => a.id === districtAssetId(cityId, districtId));
+  const i = useGame.getState().config.assets.findIndex((a) => a.id === districtAssetId(cityId, districtId));
   return i < 0 || !world ? 100 : Math.exp(world.assets[i]!.lnP);
 }
 

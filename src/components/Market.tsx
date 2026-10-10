@@ -1,13 +1,14 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { earningsInfo, indexLevel, indexMembers, optionQuote, parseContract, portfolio, sectorName, REGIONS, type AssetClass, type WorldState } from '@/engine';
+import { earningsInfo, indexLevel, indexMembers, optionQuote, parseContract, portfolio, sectorName, REGIONS, type AssetClass, type WorldConfig, type WorldState } from '@/engine';
 import { consensusLabel, earningsGrade, gradeVerdict } from '@/content/news';
 import { licenseFor, LICENSES, rankIndex } from '@/content/lifestyle';
 import { dayOpen, RANGES, sparkline, type RangeId } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
 import { compactMoney, money, pct, price, qty, signedChange, signedMoney, signedPct, tone, toneText } from '@/game/format';
-import { CONFIG, INDEX_IDS, assetDefOf, isIndex, useGame } from '@/game/store';
+import { assetDefOf, isIndex, useGame } from '@/game/store';
+import { isDelisted } from '@/game/universe';
 import { PriceChart } from './PriceChart';
 import { OptionChain } from './Options';
 import { Button, Card, CardHeader, Chip, ConfirmButton, Flash, LockGlyph, Modal, Segmented, Sparkline, Td, Th, TextField } from './ui';
@@ -22,12 +23,13 @@ export function seriesInfo(world: WorldState, id: string, rankId: string): Serie
   if (isIndex(id)) {
     const p = indexLevel(world, id);
     const o = dayOpen(h, id) ?? p;
-    const idx = CONFIG.indices.find((i) => i.id === id)!;
+    const idx = useGame.getState().config.indices.find((i) => i.id === id)!;
     // members as of the last index review (indexMembers), not the config's list: the count changes at a reconstitution
     return { id, name: idx.name, sector: 'index', cls: 'index', tradable: false, locked: false, price: p, change: p - o, changePct: o ? p / o - 1 : 0, halted: false, blurb: `${indexMembers(world, idx).length} members, weighted by market value.` };
   }
-  const i = CONFIG.assets.findIndex((a) => a.id === id);
-  const def = CONFIG.assets[i]!;
+  const config = useGame.getState().config;
+  const i = config.assets.findIndex((a) => a.id === id);
+  const def = config.assets[i]!;
   const a = world.assets[i]!;
   const p = Math.exp(a.lnP);
   const o = Math.exp(a.lnOpen);
@@ -43,6 +45,7 @@ const RANGE_OPTS = RANGES.map((r) => ({ value: r, label: r, testId: `range-${r}`
 export function ChartCard({ phone = false }: { phone?: boolean }) {
   const world = useGame((s) => s.world)!;
   useGame((s) => s.historyRev);
+  useGame((s) => s.config);
   const rankId = useGame((s) => s.me?.player.rankId ?? 'R0');
   const selected = useGame((s) => s.selected);
   const range = useGame((s) => s.range);
@@ -66,6 +69,7 @@ export function ChartCard({ phone = false }: { phone?: boolean }) {
             <Chip>{info.cls === 'index' ? 'Index' : sectorName(info.sector)}</Chip>
             {region && <Chip title={region.name}>{region.flag}</Chip>}
             {info.halted && <Chip className="border-warn/60 text-warn">Halted</Chip>}
+            {info.cls !== 'index' && !info.tradable && <Chip className="border-loss/60 text-loss">Delisted</Chip>}
             {info.locked && <Chip className="border-steel/60 text-steel"><LockGlyph size={12} /> Pro license</Chip>}
           </div>
           <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
@@ -125,10 +129,11 @@ export function AssetPanel() {
   const world = useGame((s) => s.world)!;
   const me = useGame((s) => s.me)!;
   const selected = useGame((s) => s.selected);
+  const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const [chain, setChain] = useState(false);
   if (isIndex(selected)) {
-    const idx = CONFIG.indices.find((i) => i.id === selected)!;
+    const idx = config.indices.find((i) => i.id === selected)!;
     return (
       <Card className="p-4" data-testid="asset-panel">
         <h3 className="font-serif text-title">{idx.name}</h3>
@@ -137,17 +142,19 @@ export function AssetPanel() {
     );
   }
   const def = assetDefOf(selected)!;
-  const i = CONFIG.assets.findIndex((a) => a.id === selected);
+  const i = config.assets.findIndex((a) => a.id === selected);
   const a = world.assets[i]!;
   const px = Math.exp(a.lnP);
   const e = earningsInfo(world, selected);
   const note = me.player.notes[selected];
   const rIdx = rankIndex(me.player.rankId);
   const cap = def.sharesOutstanding ? def.sharesOutstanding * px : null;
-  const optionsListed = CONFIG.options?.underlyings.includes(selected);
+  // a delisted name's options no longer trade: no chain button (held contracts show without a close control)
+  const optionsListed = config.options?.underlyings.includes(selected) && !isDelisted(config, selected);
   const canOptions = !!me.account?.canOptions;
   return (
     <Card className="p-4" data-testid="asset-panel">
+      {def.listed === false && <p className="mb-2 text-small text-loss" data-testid="delisted-note">Delisted: this name no longer trades. Its last price stays on the chart.</p>}
       <p className="text-small text-fg-muted">{def.blurb}</p>
       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-small sm:grid-cols-3">
         {cap && <Mini k="Market value" v={compactMoney(cap)} />}
@@ -226,21 +233,23 @@ export function Watchlist() {
   const selected = useGame((s) => s.selected);
   const select = useGame((s) => s.select);
   const act = useGame((s) => s.act);
+  const config = useGame((s) => s.config);
   const [tab, setTab] = useState<UniverseTab>('watch');
   const [q, setQ] = useState('');
   const watch = me.player.watchlist;
   const ids = useMemo(() => {
-    const all = [...INDEX_IDS, ...CONFIG.assets.filter((a) => a.listed !== false).map((a) => a.id)];
-    let list = tab === 'watch' ? watch : tab === 'index' ? INDEX_IDS : CONFIG.assets.filter((a) => a.assetClass === tab && a.listed !== false).map((a) => a.id);
+    const indexIds = config.indices.map((i) => i.id);
+    const all = [...indexIds, ...config.assets.filter((a) => a.listed !== false).map((a) => a.id)];
+    let list = tab === 'watch' ? watch : tab === 'index' ? indexIds : config.assets.filter((a) => a.assetClass === tab && a.listed !== false).map((a) => a.id);
     if (q.trim()) {
       const s = q.trim().toLowerCase();
       list = all.filter((id) => {
-        const d = assetDefOf(id);
+        const d = config.assets.find((a) => a.id === id);
         return id.toLowerCase().includes(s) || d?.name.toLowerCase().includes(s) || (d && sectorName(d.sector).toLowerCase().includes(s));
       });
     }
     return list;
-  }, [tab, q, watch]);
+  }, [tab, q, watch, config]);
   const h = useGame.getState().history;
   return (
     <Card className="flex min-h-0 flex-col" data-testid="watchlist">
@@ -268,6 +277,7 @@ export function Watchlist() {
                   <div className="flex items-center gap-1.5">
                     <span className="num text-small font-semibold text-fg">{id}</span>
                     {info.locked && <LockGlyph size={12} />}
+                    {info.cls !== 'index' && !info.tradable && <span className="text-micro text-loss">Delisted</span>}
                   </div>
                   <div className="truncate text-caption text-fg-faint">{info.name}</div>
                 </div>
@@ -369,30 +379,35 @@ export function Positions({ phone = false }: { phone?: boolean }) {
 function OptionPositions() {
   const me = useGame((s) => s.me)!;
   const world = useGame((s) => s.world)!;
+  const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const opts = Object.entries(me.account?.options ?? {});
   if (!opts.length) return null;
   return (
     <div className="border-t border-ink-2 px-4 py-3">
       <div className="label mb-2">Options</div>
-      <OptionRows rows={opts} world={world} onClose={(id, n) => act({ type: 'option.trade', contractId: id, side: 'sell', qty: n }, { success: 'Option sold' })} />
+      <OptionRows rows={opts} world={world} config={config} onClose={(id, n) => act({ type: 'option.trade', contractId: id, side: 'sell', qty: n }, { success: 'Option sold' })} />
     </div>
   );
 }
 
-function OptionRows({ rows, world, onClose }: { rows: [string, { qty: number; avgCost: number }][]; world: WorldState; onClose: (id: string, n: number) => void }) {
+/** Held contracts. On a delisted underlying they stay visible (they are still owned) but carry no close control. */
+function OptionRows({ rows, world, config, onClose }: { rows: [string, { qty: number; avgCost: number }][]; world: WorldState; config: WorldConfig; onClose: (id: string, n: number) => void }) {
   return (
     <ul className="flex flex-col gap-2">
       {rows.map(([id, pos]) => {
         const c = parseContract(id)!;
         const q = optionQuote(world, c);
         const pnl = (q.bid - pos.avgCost) * 100 * pos.qty;
+        const dead = isDelisted(config, c.underlying);
         return (
           <li key={id} className="flex flex-wrap items-center justify-between gap-2 text-small" data-testid={`option-${id}`}>
             <span className="num">{c.underlying} {c.strike} {c.kind === 'call' ? 'Call' : 'Put'} · day {c.expiryDay + 1} · ×{pos.qty}</span>
             <span className="num text-fg-muted">bid {price(q.bid)} · {q.daysLeft.toFixed(1)} days left</span>
             <span className={`num ${toneText[tone(pnl)]}`}>{signedMoney(pnl)}</span>
-            <Button size="sm" onClick={() => onClose(id, pos.qty)}>Sell</Button>
+            {dead
+              ? <span className="text-caption text-loss" data-testid={`option-delisted-${id}`}>{c.underlying} delisted: no trading</span>
+              : <Button size="sm" onClick={() => onClose(id, pos.qty)}>Sell</Button>}
           </li>
         );
       })}

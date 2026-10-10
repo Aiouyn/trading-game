@@ -3,7 +3,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
 import { WorldHost } from './host';
-import { chatFor, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
+import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
+import { ListWire, welcomeJson } from './wire';
 import { validHandle, COUNTRIES } from '../src/world/players';
 import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type ServerMsg } from '../src/net/protocol';
 import type { ChatMessage } from '../src/world/types';
@@ -27,6 +28,8 @@ const log = (m: string) => console.log(`[world ${new Date().toISOString()}] ${m}
 const store = new Store(DATA_DIR);
 const host = new WorldHost(store, { seed: SEED, tickMs: TICK_MS, warmupDays: WARMUP_DAYS, snapshotEvery: 60, log });
 host.boot();
+/** the asset list wire: the version the tick stream last sent, and the cached defs (see server/wire.ts) */
+const listWire = new ListWire(host.g);
 
 interface Conn { ws: WebSocket; pid: string | null; budget: number; last: number }
 const conns = new Set<Conn>();
@@ -146,7 +149,11 @@ wss.on('connection', (ws) => {
         host.command(acct.id, { type: 'presence', online: true });
         const shared = publicCache();
         const dir = shared.topJson ?? JSON.stringify(directoryFor(host.g, shared.all, shared.top, acct.id));
-        ws.send(`{"t":"welcome","playerId":${JSON.stringify(acct.id)},"tickMs":${TICK_MS},"frame":${shared.frameJson},"me":${JSON.stringify(playerView(host.g, acct.id))},"pub":${shared.pubJson},"directory":${dir},"chat":${JSON.stringify(chatFor(host.g, acct.id))},"serverTime":${Date.now()}}`);
+        ws.send(welcomeJson({
+          playerId: acct.id, tickMs: TICK_MS, frameJson: shared.frameJson, defsJson: listWire.defsJson(host.g),
+          meJson: JSON.stringify(playerView(host.g, acct.id)), pubJson: shared.pubJson, directoryJson: dir,
+          chatJson: JSON.stringify(chatFor(host.g, acct.id)), serverTime: Date.now(),
+        }));
         return;
       }
       case 'cmd': {
@@ -180,13 +187,14 @@ wss.on('connection', (ws) => {
 });
 
 /** Public state, directory and the full market frame, built at most once per tick and shared by every welcome. */
-let pubCache: { tick: number; pubJson: string; all: ReturnType<typeof directory>; top: ReturnType<typeof directory>; topJson: string | null; frameJson: string } | null = null;
+let pubCache: { tick: number; cfgSeq: number; pubJson: string; all: ReturnType<typeof directory>; top: ReturnType<typeof directory>; topJson: string | null; frameJson: string } | null = null;
 function publicCache() {
-  if (!pubCache || pubCache.tick !== host.g.market.tick) {
+  // keyed by the asset list version too, so a welcome's frame and defs always describe the same list
+  if (!pubCache || pubCache.tick !== host.g.market.tick || pubCache.cfgSeq !== configSeq(host.g)) {
     const all = directory(host.g);
     const top = topDirectory(all);
     pubCache = {
-      tick: host.g.market.tick, pubJson: JSON.stringify(publicState(host.g)), all, top,
+      tick: host.g.market.tick, cfgSeq: configSeq(host.g), pubJson: JSON.stringify(publicState(host.g)), all, top,
       topJson: all.length <= top.length ? JSON.stringify(top) : null, frameJson: JSON.stringify(marketFrame(host.g, true)),
     };
   }
@@ -204,8 +212,10 @@ function canSee(pid: string, channel: string): boolean {
 }
 
 host.onTick((out, publicTick) => {
+  // the asset list moves on an IPO, a delisting or a spin-off: the frame of that tick carries it once. Clients connected
+  // since then got it in their welcome, so a normal tick carries only the small cfgSeq.
   // shared parts are serialized once per tick, not once per socket
-  const frameJson = JSON.stringify(marketFrame(host.g, publicTick));
+  const frameJson = JSON.stringify(listWire.tickFrame(host.g, publicTick));
   const wireJson = JSON.stringify(out.wire);
   const rankJson = JSON.stringify(out.rankUps);
   const pubJson = publicTick ? JSON.stringify(publicState(host.g)) : null;
