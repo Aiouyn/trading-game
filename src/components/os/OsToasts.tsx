@@ -62,6 +62,11 @@ function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
     toast.kind === 'fill' ? t('shell.toast.fill') : toast.kind === 'margin' ? t('shell.toast.margin') : toast.kind === 'world' ? t('shell.toast.world') : undefined;
   const urgent = toast.kind === 'fill' || toast.kind === 'world';
   const sticky = isSticky(toast);
+  // A fill is news about an order, not an error: a neutral check, and the buy or sell colour on the text only. Errors keep the red X.
+  const fill = toast.kind === 'fill';
+  const iconName: GlyphName = fill ? 'check' : (ICON[toast.tone] ?? 'bell');
+  const iconColor = fill ? 'var(--color-fg-muted)' : toast.tone === 'loss' ? 'var(--color-loss)' : undefined;
+  const textTone = fill ? (toast.tone === 'gain' ? 'text-gain' : toast.tone === 'loss' ? 'text-loss' : 'text-fg') : 'text-fg';
 
   const open = (): void => {
     if (toast.app !== undefined && isAppId(toast.app)) focusOrOpen(toast.app);
@@ -90,12 +95,12 @@ function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
       onFocus={() => hold(focused, true)}
       onBlur={() => hold(focused, false)}
     >
-      <span className="os-toast-ic" style={{ color: toast.tone === 'loss' ? 'var(--color-loss)' : undefined }} aria-hidden>
-        <Glyph name={ICON[toast.tone] ?? 'bell'} size={14} />
+      <span className="os-toast-ic" style={{ color: iconColor }} aria-hidden>
+        <Glyph name={iconName} size={14} />
       </span>
       <span className="os-toast-body">
         {label !== undefined && <span className="os-toast-t1 os-label">{label}</span>}
-        <span className="os-toast-t2 text-fg">{toast.text}</span>
+        <span className={`os-toast-t2 ${textTone}`}>{toast.text}</span>
       </span>
     </button>
   );

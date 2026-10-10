@@ -255,9 +255,12 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
 const VIEW_FILLS = 50;
 const VIEW_CLOSES = 10;
 
-/** The arrival comparison: the net worth against the engine's starting cash (the percentage comes from here, not the UI). */
+/**
+ * The arrival comparison: the net worth against the cash the player arrived with, the engine's starting cash plus the
+ * grants, transfers and loans since (externalCash), so the change is trading and income only (the percentage comes from here).
+ */
 function arrivalView(g: GameState, pid: string): PlayerView['arrival'] {
-  const cash = tradingConfig(g.market).startingCash;
+  const cash = tradingConfig(g.market).startingCash + (g.players[pid]?.externalCash ?? 0);
   const total = netWorthBreakdown(g, pid).total;
   return { cash, change: total - cash, changePct: changeOf(total, cash) };
 }

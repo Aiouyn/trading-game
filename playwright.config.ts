@@ -26,7 +26,8 @@ export default defineConfig({
   outputDir: "test-results",
   reporter: [["list"], ["html", { open: "never" }]],
   timeout: 60_000,
-  use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure", screenshot: "only-on-failure" },
+  // The browser locale is pinned so the English assertions never depend on the machine; the French smoke test switches the game's language itself.
+  use: { baseURL: `http://localhost:${PORT}`, locale: "en-US", trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [
     { name: "desktop", testIgnore: CLOSE_SPECS, use: { ...chromium, viewport: { width: 1440, height: 900 } } },
     { name: "desktop-1920", testMatch: SHELL_SPECS, use: { ...chromium, viewport: { width: 1920, height: 1080 } } },

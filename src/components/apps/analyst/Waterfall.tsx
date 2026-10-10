@@ -14,13 +14,15 @@ export interface WaterfallRow {
  * then the total. The values and the total come from the server (explainTrade or explainMove), so the screen only places
  * them: the bars are drawn from the same numbers, and the total is shown as the server sent it.
  */
-export function Waterfall({ rows, total, totalLabel, format, testId, totalTestId = 'why-total' }: {
+export function Waterfall({ rows, total, totalLabel, format, testId, totalTestId = 'why-total', note }: {
   rows: WaterfallRow[];
   total: number;
   totalLabel: string;
   format: (x: number) => string;
   testId: string;
   totalTestId?: string;
+  /** one line under the waterfall, for a row whose meaning is not obvious (the Market row) */
+  note?: string;
 }) {
   // the running total before and after each part, to place each bar (drawing only: nothing here is shown as a number)
   const ends: number[] = [];
@@ -58,6 +60,7 @@ export function Waterfall({ rows, total, totalLabel, format, testId, totalTestId
         <span className="num text-right font-semibold text-fg" data-testid={totalTestId}>{format(total)}</span>
       </div>
       {rows.length === 0 && <p className="text-small text-fg-faint">{t('journal.line.flat')}</p>}
+      {note && rows.length > 0 && <p className="text-caption text-fg-faint" data-testid={`${testId}-note`}>{note}</p>}
     </div>
   );
 }

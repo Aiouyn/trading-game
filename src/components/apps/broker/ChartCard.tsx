@@ -3,9 +3,10 @@
 import { earningsInfo, liquidationPrice, REGIONS, sectorName } from '@/engine';
 import { RANGES, type RangeId } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
-import { price, signedChange, signedPct, tone, toneText } from '@/game/format';
+import { money, price, signedChange, signedPct, tone, toneText } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { t } from '@/i18n';
+import { useState } from 'react';
 import { Card, Chip, Flash, LockGlyph, Segmented } from '@/components/ui';
 import { PriceChart } from './PriceChart';
 import { seriesInfo } from './seriesInfo';
@@ -33,6 +34,8 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   // the engine's own margin trigger for a held margin or short position (null when none applies): the chart draws it
   const liq = !isIndex(info.id) && world && playerId ? liquidationPrice(world, playerId, info.id) : null;
   const marks = liq === null ? [] : [{ price: liq, title: t('broker.liquidation') }];
+  // the side the line sits off the visible range, or null when it is drawn on the chart
+  const [offSide, setOffSide] = useState<'above' | 'below' | null>(null);
   const day = useGame.getState().history.series[ticker]?.daily.at(-1);
   const toneCls = toneText[tone(info.change)];
   const ranges = narrow ? RANGE_OPTS.filter((r) => r.value !== '1Q') : RANGE_OPTS;
@@ -87,11 +90,22 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
         ))}
       </div>
       <div className="mt-3 h-[min(46vh,420px)] min-h-64">
-        <PriceChart assetId={info.id} marks={marks} />
+        <PriceChart assetId={info.id} marks={marks} onMarkOff={setOffSide} />
       </div>
-      {liq !== null && <p className="mt-2 text-caption text-fg-faint" data-testid="liquidation-note">{t('broker.liquidationNote', { price: price(liq) })}</p>}
+      {liq !== null && offSide !== null && (
+        <p className="mt-2 text-caption text-fg-faint" data-testid="liquidation-off">
+          {t(offSide === 'above' ? 'broker.liquidationOff.above' : 'broker.liquidationOff.below', { price: money(liq), pct: distancePct(liq, info.price) })}
+        </p>
+      )}
+      {liq !== null && offSide === null && <p className="mt-2 text-caption text-fg-faint" data-testid="liquidation-note">{t('broker.liquidationNote', { price: price(liq) })}</p>}
     </Card>
   );
+}
+
+/** How far a price sits from the current price, as a whole percent of the current price (27900 for 280 times it). */
+export function distancePct(level: number, now: number): string {
+  if (!(now > 0)) return '';
+  return `${Math.round(Math.abs(level / now - 1) * 100).toLocaleString('en-US')}%`;
 }
 
 export function compactNum(n: number): string {

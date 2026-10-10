@@ -1,6 +1,6 @@
 import { rankIndex } from '@/content/lifestyle';
 import {
-  CHAT_KEEP, TPD, cashOf, debit, notify, pushWire, sanitize, today, transfer,
+  CHAT_KEEP, TPD, cashOf, debit, notify, pushWire, sanitize, shiftBaselines, today, transfer,
 } from './core';
 import type { ChatMessage, CommandResult, Deal, GameState, Player, StepOutput } from './types';
 
@@ -178,6 +178,7 @@ export function respondDeal(g: GameState, p: Player, dealId: string, accept: boo
     const tax = d.amount * TRANSFER_TAX;
     transfer(g, d.fromId, d.toId, d.amount - tax);
     debit(g, d.fromId, tax, 'transfer tax');
+    shiftBaselines(g, d.fromId, -tax);
     d.status = 'repaid';
     notify(g, out, d.fromId, { kind: 'deal', tone: 'info', text: `${p.handle} accepted your transfer.` });
     return ok();

@@ -65,7 +65,7 @@ export interface ChartOverlay {
   points: { time: number; value: number }[];
 }
 
-export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks }: {
+export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff }: {
   assetId: string;
   range?: RangeId;
   mode?: 'candles' | 'line' | 'area';
@@ -77,6 +77,8 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
   overlays?: ChartOverlay[];
   /** horizontal lines at a price (the liquidation line), drawn on every series so each chart style shows them */
   marks?: { price: number; title: string }[];
+  /** reports the side the first mark sits off the visible price range (null when it is on the chart); the caller says so */
+  onMarkOff?: (side: 'above' | 'below' | null) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -90,6 +92,7 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
   const pal = useRef<Palette | null>(null);
   const volColors = useRef({ up: '', down: '' });
   const last = useRef({ key: '', len: 0 });
+  const probe = useRef<() => void>(() => {});
 
   const storeRange = useGame((s) => s.range);
   const storeMode = useGame((s) => s.chartMode);
@@ -127,7 +130,11 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
     volS.current = c.addSeries(HistogramSeries, { priceScaleId: 'volume', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
     c.priceScale('volume').applyOptions({ scaleMargins: VOLUME_MARGINS, visible: false });
     chart.current = c;
+    // a zoom or scroll changes the visible price range, so the mark is checked again
+    const onRange = () => probe.current();
+    c.timeScale().subscribeVisibleLogicalRangeChange(onRange);
     return () => {
+      c.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
       c.remove();
       chart.current = null;
       candleS.current = null; lineS.current = null; areaS.current = null; volS.current = null;
@@ -276,6 +283,22 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
       }
     }
   }, [markKey]); // eslint-disable-line react-hooks/exhaustive-deps -- the key stands for `marks`, which the caller may rebuild each render
+
+  // The mark is checked after every render (the data effects above run first): where it sits on the visible series, above or
+  // below the pane, or on the chart. A mark with no series yet is on no side.
+  useEffect(() => {
+    probe.current = () => {
+      if (!onMarkOff) return;
+      const c = chart.current;
+      const price = marks?.[0]?.price;
+      const s = mode === 'candles' ? candleS.current : mode === 'line' ? lineS.current : areaS.current;
+      if (price === undefined || !c || !s) { onMarkOff(null); return; }
+      const y = s.priceToCoordinate(price);
+      const h = c.paneSize().height;
+      onMarkOff(y === null ? null : y < 0 ? 'above' : y > h ? 'below' : null);
+    };
+    probe.current();
+  });
 
   return <div ref={host} className="h-full w-full" data-testid={testId} data-chart-id={assetId} />;
 }

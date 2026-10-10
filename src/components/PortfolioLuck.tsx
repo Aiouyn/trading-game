@@ -9,7 +9,14 @@ import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Card, CardHeader, Stat } from './ui';
 
-/** Luck or skill: the player's equity against the three ghosts at the last close, the percentile and the plain explanation. */
+/** The player's place among the three ghosts in plain words (no bare numbers): "Behind all three ghosts so far", "Ahead of 2 of 3 ghosts". */
+export function standing(beaten: number): string {
+  if (beaten <= 0) return t('luck.standing.none');
+  if (beaten >= 3) return t('luck.standing.all');
+  return t('luck.standing.some', { beaten });
+}
+
+/** Luck or skill: the player's equity against the three ghosts at the last close, the standing and the plain explanation. */
 export function LuckCard() {
   const me = useGame((s) => s.me)!;
   const b = me.trading.benchmark;
@@ -23,9 +30,8 @@ export function LuckCard() {
           <p className="text-caption text-fg-faint">{t('luck.asOf', { n: b.day + 1 })}</p>
           <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
             <Stat
-              label={t('luck.percentileLabel')}
-              value={b.noTrades || b.percentile === null ? t('luck.noTrades') : <span data-testid="ghost-percentile-value">{b.percentile}</span>}
-              sub={b.noTrades ? undefined : t('luck.percentile', { beaten: b.beaten })}
+              label={<span className="whitespace-nowrap">{t('luck.percentileLabel')}</span>}
+              value={b.noTrades || b.percentile === null ? t('luck.noTrades') : <span className="block whitespace-normal" data-testid="ghost-percentile-value">{standing(b.beaten)}</span>}
               testId="ghost-percentile"
             />
           </div>

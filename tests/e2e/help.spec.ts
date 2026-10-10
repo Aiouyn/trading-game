@@ -45,6 +45,8 @@ test('a lesson completes on the server and stays done after a reload', async ({ 
   await page.getByTestId('learn-lesson-check').click();
   await expect(page.getByTestId('learn-lesson-passed')).toBeVisible();
   await proof(page, 'help-lesson-passed');
+  // the pass shows at once, and the completion is sent to the server: the reload waits until the server holds it
+  await expect.poll(() => page.evaluate(() => (window.__tg!.state().me?.player.lessons ?? []).length), { timeout: 15_000 }).toBeGreaterThan(0);
 
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-game', 'ready', { timeout: 30_000 });

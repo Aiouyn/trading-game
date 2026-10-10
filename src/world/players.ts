@@ -2,7 +2,7 @@ import { type Fill } from '@/engine';
 import { ACHIEVEMENTS, CONTRACTS, emptyStats, isRareAchievement, type PlayerStats } from '@/content/progression';
 import { RANKS, licenseFor, rankFor, rankIndex } from '@/content/lifestyle';
 import {
-  ONBOARDING_GRANT, TPD, clamp, credit, findOrder, gx, keyedRng, notify, playerBusinesses, playerProperties, priceOf, pushWire, sanitize, today,
+  ONBOARDING_GRANT, TPD, clamp, credit, creditExternal, findOrder, gx, keyedRng, notify, playerBusinesses, playerProperties, priceOf, pushWire, sanitize, today,
 } from './core';
 import { playerBizSectors, refreshNetWorth } from './assets';
 import { computeBoards } from './boards';
@@ -59,7 +59,7 @@ export function join(g: GameState, id: string, handleIn: string, countryIn: stri
   if (Object.values(g.players).some((p) => p.handle.toLowerCase() === handle.toLowerCase())) return fail('handle taken');
   const country = COUNTRIES.some((c) => c.code === countryIn) ? countryIn : 'XX';
   const p = createPlayer(g, id, handle, country);
-  credit(g, id, ONBOARDING_GRANT, 'onboarding grant');
+  creditExternal(g, id, ONBOARDING_GRANT, 'onboarding grant');
   refreshNetWorth(g, p);
   p.netWorthPeak = Math.max(p.netWorthPeak, p.markNetWorth ?? p.netWorth);
   // the trade ledger and the benchmark start here, from the cash the player actually has after the sign-up grant

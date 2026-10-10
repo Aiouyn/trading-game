@@ -242,7 +242,7 @@ function PhoneWidget() {
         {nw < 0 ? '−' : ''}${whole}<small>{cents}</small>
       </span>
       <span className="flex items-center justify-between gap-3">
-        <span className={`num mt-1 text-small ${toneText[tone(today)]}`}>{signedMoney(today)} {signedPct(todayPct)}</span>
+        <span className={`num mt-1 text-small ${toneText[tone(today)]}`} title={t('shell.nw.today')}>{signedMoney(today)} {signedPct(todayPct)}</span>
         <Sparkline values={samples ?? []} />
       </span>
       <span className="os-prog block">

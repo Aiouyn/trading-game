@@ -97,10 +97,32 @@ export function debit(g: GameState, playerId: string, amount: number, sink: stri
   g.economy.sinks[sink] = (g.economy.sinks[sink] ?? 0) + amount;
 }
 
+/**
+ * Moves the day, digest and arrival baselines by a cash move from outside trading and income (a grant, a transfer, a loan or
+ * its tax). The day change (dayStart.netWorth), the "while you were away" change (digestNetWorth) and "since you arrived"
+ * (startingCash + externalCash) then read trading and income only.
+ */
+export function shiftBaselines(g: GameState, playerId: string, delta: number): void {
+  const p = g.players[playerId];
+  if (!p || !Number.isFinite(delta) || delta === 0) return;
+  p.dayStart = { ...p.dayStart, netWorth: p.dayStart.netWorth + delta };
+  p.digestNetWorth += delta;
+  p.externalCash = (p.externalCash ?? 0) + delta;
+}
+
+/** A grant from outside trading (sign-up or admin): credited, and the baselines follow it. */
+export function creditExternal(g: GameState, playerId: string, amount: number, source: string): void {
+  if (!(amount > 0)) return;
+  credit(g, playerId, amount, source);
+  shiftBaselines(g, playerId, amount);
+}
+
 export function transfer(g: GameState, fromId: string, toId: string, amount: number): void {
   if (!(amount > 0)) return;
   bump(g, fromId, -amount);
   bump(g, toId, amount);
+  shiftBaselines(g, fromId, -amount);
+  shiftBaselines(g, toId, amount);
 }
 
 /** A stream for one-off deterministic draws keyed by context (does not advance shared streams). */

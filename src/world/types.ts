@@ -112,6 +112,11 @@ export interface Player {
   digestNetWorth: number;
   /** cash that cannot pay for analysts or desk upkeep (ad grants, fresh start) */
   restrictedCash?: number;
+  /**
+   * Cumulative cash from outside trading and income (sign-up and admin grants, transfers and loans, both sides). The day
+   * baseline and the arrival baseline move with it (core.ts shiftBaselines), so both show trading and income only.
+   */
+  externalCash?: number;
   /** hired analyst (one at a time), null or absent when none */
   analyst?: { tier: AnalystTier; hiredDay: number; paidThroughDay: number } | null;
   /** Research Desk: unlocked once at Operator; lapsed when upkeep is not covered (files are kept) */
