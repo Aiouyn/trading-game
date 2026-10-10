@@ -67,15 +67,15 @@ export function ShopCard({ v }: { v: ShopView }) {
       </div>
 
       {/*
-        A figure never splits or truncates: each one is a nowrap span, and the grid steps down to one column before a
-        cell is too narrow for the longest figure (14px mono, about 8.4 px a digit: "$154,321.00" is about 92 px). Two
-        columns from 22rem, four from 40rem (each cell then keeps about 134 px).
+        A figure never splits or truncates (Stat `figure`: one line). The grid steps down to one column before a cell is
+        too narrow for the longest figure (14px mono, about 8.4 px a digit: "$154,321.00" is about 92 px). Two columns
+        from 22rem, four from 40rem (each cell then keeps about 134 px).
       */}
       <div className="grid grid-cols-1 gap-x-6 gap-y-3 @[22rem]:grid-cols-2 @[40rem]:grid-cols-4">
-        <Stat label={t('biz.payback')} value={<span className="whitespace-nowrap">{v.payback.days === null ? '—' : t('biz.paybackValue', { n: fx(v.payback.days, 1) })}</span>} testId={`shop-${id}-payback`} />
-        <Stat label={t('shop.line.revenue')} value={<span className="whitespace-nowrap">{money(v.daily.revenue)}</span>} testId={`shop-${id}-revenue`} />
-        <Stat label={t('shop.label.reviews')} value={<span className="whitespace-nowrap">{t('shop.label.starsValue', { stars: fx(v.stars, 1) })}</span>} testId={`shop-${id}-stars`} />
-        <Stat label={t('shop.label.morale')} value={<span className="whitespace-nowrap">{pct(v.morale)}</span>} testId={`shop-${id}-morale`} />
+        <Stat figure label={t('biz.payback')} value={v.payback.days === null ? '—' : t('biz.paybackValue', { n: fx(v.payback.days, 1) })} testId={`shop-${id}-payback`} />
+        <Stat figure label={t('shop.line.revenue')} value={money(v.daily.revenue)} testId={`shop-${id}-revenue`} />
+        <Stat figure label={t('shop.label.reviews')} value={t('shop.label.starsValue', { stars: fx(v.stars, 1) })} testId={`shop-${id}-stars`} />
+        <Stat figure label={t('shop.label.morale')} value={pct(v.morale)} testId={`shop-${id}-morale`} />
       </div>
       <div className="flex flex-col gap-1 text-caption text-fg-muted">
         <p data-testid={`shop-${id}-payback-note`}>{v.payback.days === null ? t('shop.payback.none') : t('shop.payback', { days: fx(v.payback.days, 1) })}</p>

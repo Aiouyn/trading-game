@@ -62,7 +62,7 @@ function FundCard({ f, active, onSelect }: { f: ExchangeFund; active: boolean; o
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Fact label={t('exchange.fund.nav')} value={unitNav(f.navPerUnit)} testId={`exchange-fund-nav-${f.id}`} />
-        <Fact label={t('exchange.fund.aum', { bucket: t(bucket.key, bucket.vars) })} value={t(bucket.key, bucket.vars)} />
+        <Fact prose label={t('exchange.fund.aum', { bucket: t(bucket.key, bucket.vars) })} value={t(bucket.key, bucket.vars)} />
       </div>
       <Sparkline data={f.navHistory.map((h) => h.navPerUnit)} width={240} height={28} className="w-full" />
       <p className="text-caption text-fg-faint">{t('exchange.fund.fees', { mgmt: pct(f.fees.mgmt), perf: pct(f.fees.perf) })}</p>

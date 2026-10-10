@@ -196,12 +196,16 @@ export function Progress({ value, className = '', tone: t = 'brass', label }: { 
   );
 }
 
-export function Stat({ label, value, sub, className = '', testId }: { label: ReactNode; value: ReactNode; sub?: ReactNode; className?: string; testId?: string }) {
+/**
+ * A labelled figure. By default the value truncates in its box (the app-wide look). A `figure` never splits or truncates:
+ * it stays on one line, and the caller's grid gives the cell room for it. Use `figure` for any number a player must read
+ * whole (money, prices, counts), as the Exchange and the Businesses shop cards do.
+ */
+export function Stat({ label, value, sub, className = '', testId, figure = false }: { label: ReactNode; value: ReactNode; sub?: ReactNode; className?: string; testId?: string; figure?: boolean }) {
   return (
     <div className={`min-w-0 ${className}`} data-testid={testId}>
       <div className="label">{label}</div>
-      {/* A figure never truncates: it wraps at a space, and only breaks inside a word when the column is narrower than the word */}
-      <div className="num mt-1 break-words text-body text-fg">{value}</div>
+      <div className={`num mt-1 text-body text-fg ${figure ? 'whitespace-nowrap' : 'truncate'}`}>{value}</div>
       {sub && <div className="num mt-0.5 text-caption text-fg-faint">{sub}</div>}
     </div>
   );

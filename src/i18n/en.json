@@ -2713,6 +2713,7 @@
   "company.capital.plan.floorMax": "At most {max}, which is 80% of the last close. Days below it are skipped.",
   "company.capital.plan.lockEnds": "The lockup ends on Day {day}.",
   "company.capital.plan.cantChange": "Can't be changed or cancelled once committed.",
+  "company.capital.plan.committed": "Plan committed. It can't be changed or cancelled.",
   "company.capital.plan.filedNextDay": "Trades in your stock and its options or futures are filed publicly the next day.",
   "company.capital.plan.commit": "Hold to commit plan",
   "company.capital.plan.commitHint": "Let go to stop. Nothing commits until the hold completes.",

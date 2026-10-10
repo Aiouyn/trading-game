@@ -83,8 +83,9 @@ function replaceDef(state: WorldState, i: number, def: AssetDef): WorldState {
 /**
  * Every change to the asset list moves the list version (`listings.seq`), which the client's config follows: the frame
  * of the tick that moves it carries the defs (view.ts configSeq). A company's IPO and a delisting settled through a
- * company reach the list through here, not through listingsDay, so they bump it too. listingsDay assigns its own seq
- * at the end of the day, which overrides any bump made in between. The rng starts where listingsDay would start it,
+ * company reach the list through here, not through listingsDay, so they bump it too. listingsDay computes its own seq
+ * from the seq it starts the day with (plus one when a listing kind rolls) and writes that at the end, so a day that
+ * lists a company moves the version once, not twice. The rng starts where listingsDay would start it,
  * so the NPC listings roll exactly as before.
  */
 function bumpListVersion(state: WorldState): WorldState {

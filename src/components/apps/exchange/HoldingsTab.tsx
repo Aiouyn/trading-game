@@ -37,7 +37,7 @@ export function HoldingsTab({ holdings, ticksPerDay, onOpen }: {
               {t('exchange.holding.open')}
             </Button>
           </div>
-          <div className="grid grid-cols-2 gap-3 @md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 @xl:grid-cols-4">
             <Fact label={t('exchange.holding.value')} value={money(h.value)} testId={`exchange-holding-value-${h.fundId}`} />
             <Fact label={t('exchange.holding.units')} value={qty(h.units)} />
             <Fact label={t('exchange.holding.reserved')} value={qty(h.reserved)} />

@@ -2713,6 +2713,7 @@
   "company.capital.plan.floorMax": "Au plus {max}, soit 80 % du dernier cours. Les jours en dessous sont ignorés.",
   "company.capital.plan.lockEnds": "Le blocage prend fin le jour {day}.",
   "company.capital.plan.cantChange": "Impossible à modifier ni à annuler une fois engagé.",
+  "company.capital.plan.committed": "Plan engagé. Impossible à modifier ni à annuler.",
   "company.capital.plan.filedNextDay": "Vos transactions sur votre action et ses options ou contrats à terme sont déclarées publiquement le jour suivant.",
   "company.capital.plan.commit": "Maintenir pour engager le plan",
   "company.capital.plan.commitHint": "Relâchez pour arrêter. Rien ne s'engage tant que la pression n'est pas complète.",

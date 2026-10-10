@@ -25,12 +25,15 @@ export function PublicChip() {
   );
 }
 
-/** A labelled figure in a card: a caption over a mono value. */
-export function Fact({ label, value, testId }: { label: ReactNode; value: ReactNode; testId?: string }) {
+/**
+ * A labelled figure in a card: a caption over a mono value. A figure stays on one line and is never cut (the card grid
+ * gives each cell room for it). A `prose` value (a band or a bucket word) wraps at spaces instead.
+ */
+export function Fact({ label, value, testId, prose = false }: { label: ReactNode; value: ReactNode; testId?: string; prose?: boolean }) {
   return (
     <div className="min-w-0" data-testid={testId}>
       <div className="label">{label}</div>
-      <div className="num mt-0.5 truncate text-small text-fg">{value}</div>
+      <div className={`num mt-0.5 text-small text-fg ${prose ? 'break-words' : 'whitespace-nowrap'}`}>{value}</div>
     </div>
   );
 }

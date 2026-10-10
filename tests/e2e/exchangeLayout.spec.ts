@@ -29,6 +29,17 @@ test('the exchange fits its minimum window on every tab, with no figure split ac
       return { text: el.textContent ?? '', lines };
     }).filter((x) => x.lines > 1).map((x) => x.text));
     expect(split, `${tab} tab split figures`).toEqual([]);
+    // every figure on the tab (every .num, not only the stat row) is whole: no ellipsis, nothing cut at the box edge.
+    // Prose values (`Fact prose`) may wrap at spaces, but must still fit their box.
+    const clipped = await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid="exchange-view"] .num')).map((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        text: el.textContent ?? '',
+        ellipsis: cs.textOverflow === 'ellipsis',
+        cut: el.scrollWidth > el.clientWidth + 1,
+      };
+    }).filter((x) => x.ellipsis || x.cut).map((x) => x.text));
+    expect(clipped, `${tab} tab clipped figures`).toEqual([]);
   }
   expect(errors).toEqual([]);
 });

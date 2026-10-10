@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import en from './en.json';
 import fr from './fr.json';
@@ -26,4 +29,25 @@ describe('i18n', () => {
       expect(vars(v), `variables differ for ${k}`).toBe(vars((en as Record<string, string>)[k]!));
     }
   });
+
+  it('every literal t() key in the source exists in English and French', () => {
+    const used = new Set<string>();
+    for (const f of sourceFiles(fileURLToPath(new URL('..', import.meta.url)))) {
+      for (const m of readFileSync(f, 'utf8').matchAll(/\bt\(\s*'([a-z]\w*(?:\.\w+)+)'/g)) used.add(m[1]!);
+    }
+    expect(used.size).toBeGreaterThan(500);
+    // a plural key is stored as `key_one` / `key_other` (or `_many` in French), so any of those counts
+    const has = (dict: Record<string, string>, k: string) => k in dict || Object.keys(dict).some((d) => d.startsWith(`${k}_`));
+    const missing = [...used].filter((k) => !has(en as Record<string, string>, k) || !has(fr as Record<string, string>, k)).sort();
+    expect(missing).toEqual([]);
+  });
 });
+
+/** Every .ts and .tsx file under a folder, tests excluded. */
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) return sourceFiles(p);
+    return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [p] : [];
+  });
+}

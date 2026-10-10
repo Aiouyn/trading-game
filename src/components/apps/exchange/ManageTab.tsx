@@ -129,7 +129,7 @@ function Console({ m, rules }: { m: ManagedFund; rules: FundRules }) {
           </div>
         </div>
         <Notices m={m} rules={rules} />
-        <div className="grid grid-cols-2 gap-3 @md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 @xl:grid-cols-4">
           <Fact label={t('exchange.manage.stat.nav')} value={money(m.nav)} testId="exchange-stat-nav" />
           <Fact label={t('exchange.manage.stat.navPerUnit')} value={unitNav(m.navPerUnit)} testId="exchange-stat-navperunit" />
           <Fact label={t('exchange.manage.stat.cash')} value={money(m.cash)} />

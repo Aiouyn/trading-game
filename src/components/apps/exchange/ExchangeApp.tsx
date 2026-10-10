@@ -33,11 +33,11 @@ export function ExchangeApp() {
             <h1 className="font-serif text-hero text-fg">{t('exchange.title')}</h1>
             <p className="text-small text-fg-muted">{t('exchange.intro')}</p>
           </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-2 @md:grid-cols-4">
-            <Stat label={t('exchange.stat.stocks')} value={x.stocks.length} testId="exchange-stat-stocks" />
-            <Stat label={t('exchange.stat.ipos')} value={x.ipos.length} testId="exchange-stat-ipos" />
-            <Stat label={t('exchange.stat.funds')} value={x.funds.length} testId="exchange-stat-funds" />
-            <Stat label={t('exchange.stat.mine')} value={money(x.holdingsValue)} testId="exchange-stat-mine" />
+          <div className="grid grid-cols-2 gap-x-8 gap-y-2 @xl:grid-cols-4">
+            <Stat figure label={t('exchange.stat.stocks')} value={x.stocks.length} testId="exchange-stat-stocks" />
+            <Stat figure label={t('exchange.stat.ipos')} value={x.ipos.length} testId="exchange-stat-ipos" />
+            <Stat figure label={t('exchange.stat.funds')} value={x.funds.length} testId="exchange-stat-funds" />
+            <Stat figure label={t('exchange.stat.mine')} value={money(x.holdingsValue)} testId="exchange-stat-mine" />
           </div>
         </div>
       </Card>

@@ -63,7 +63,7 @@ function StockCard({ s }: { s: ListedStock }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 @md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 @xl:grid-cols-4">
         <Fact label={t('exchange.stock.headcount', { band: v.headcountBand })} value={v.headcountBand} testId={`exchange-headcount-${s.ticker}`} />
         <Fact
           label={t('exchange.stock.debt', { band: v.debt.totalBand, status: t(covenantKey(v.debt.covenant)) })}
@@ -71,7 +71,7 @@ function StockCard({ s }: { s: ListedStock }) {
           testId={`exchange-debt-${s.ticker}`}
         />
         {v.revenueBand && <Fact label={t('exchange.stock.revenue')} value={band(v.revenueBand)} testId={`exchange-revenue-${s.ticker}`} />}
-        <Fact label={t('exchange.stock.tier')} value={t(tierKey(v.tier, !!v.listed))} />
+        <Fact prose label={t('exchange.stock.tier')} value={t(tierKey(v.tier, !!v.listed))} />
       </div>
 
       <Section title={t('exchange.stock.windowTitle')} public testId={`exchange-window-${s.ticker}`}>

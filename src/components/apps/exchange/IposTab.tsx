@@ -67,7 +67,7 @@ function IpoCard({ row }: { row: IpoRow }) {
         <PublicChip />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 @md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 @xl:grid-cols-4">
         <Fact label={t('exchange.ipo.price')} value={price(row.price)} testId={`exchange-ipo-price-${row.companyId}`} />
         <Fact label={t('exchange.ipo.float')} value={pct(row.floatPct)} />
         <Fact label={t('exchange.ipo.shares')} value={qty(row.ipoShares)} />
