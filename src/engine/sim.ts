@@ -5,6 +5,7 @@ import { addOwnFlow, ECO_POOLS, ecoDayInput, ecologyDay, ecologyOn, ecologyWeigh
 import { catalystDay, peadDrift } from './catalysts';
 import { carryOf, initRates, ratesDay } from './rates';
 import { listingsConfig, listingsDay } from './listings';
+import { indexMembers, indexReviewConfig, indicesDay } from './indices';
 import { jumpCompensator } from './drift';
 import {
   initWorldEvents, tradingRegime, worldEventAccrue, worldEventIntraday, worldEventJumpMult, worldEventMove,
@@ -87,10 +88,23 @@ function sectorKeys(config: WorldConfig): string[] {
  */
 export function step(input: WorldState): StepResult {
   const lc = listingsConfig(input.config);
-  const boundary = lc !== null && input.tick > 0 && input.tick % input.config.ticksPerDay === 0;
-  const listed = boundary ? listingsDay(input, input.tick + 1) : null;
-  const r = advance(listed ? listed.state : input);
-  return listed && listed.events.length ? { ...r, events: [...listed.events, ...r.events] } : r;
+  const rc = indexReviewConfig(input.config);
+  const boundary = (lc !== null || rc !== null) && input.tick > 0 && input.tick % input.config.ticksPerDay === 0;
+  let s = input;
+  const pre: StepEvent[] = [];
+  if (boundary && lc !== null) {
+    const listed = listingsDay(s, input.tick + 1);
+    s = listed.state;
+    pre.push(...listed.events);
+  }
+  // the index review runs after the day's listings, so a day's new listing is seen by that day's review
+  if (boundary && rc !== null) {
+    const rev = indicesDay(s, input.tick + 1);
+    s = rev.state;
+    pre.push(...rev.events);
+  }
+  const r = advance(s);
+  return pre.length ? { ...r, events: [...pre, ...r.events] } : r;
 }
 
 function advance(state: WorldState): StepResult {
@@ -485,12 +499,16 @@ export function prices(state: WorldState): Record<string, number> {
   return out;
 }
 
-/** Cap-weighted index level (members' market cap relative to t = 0, times base). */
+/**
+ * Cap-weighted index level: base · Σ(shares · price) / divisor. Before any review the divisor is the members' cap at
+ * t = 0 (the config's), so the level is base times the cap relative to t = 0. A review sets a new divisor (indices.ts)
+ * so the level does not jump when the membership changes.
+ */
 export function indexLevel(state: WorldState, indexId: string): number {
   const idx = state.config.indices.find((x) => x.id === indexId);
   if (!idx) throw new Error(`unknown index ${indexId}`);
   let cap = 0, cap0 = 0;
-  for (const id of idx.members) {
+  for (const id of indexMembers(state, idx)) {
     const i = state.config.assets.findIndex((a) => a.id === id);
     const def: AssetDef | undefined = state.config.assets[i];
     if (!def) throw new Error(`index ${indexId}: unknown member ${id}`);
@@ -498,7 +516,8 @@ export function indexLevel(state: WorldState, indexId: string): number {
     cap += sh * Math.exp(state.assets[i]!.lnP);
     cap0 += sh * def.initialPrice;
   }
-  return (idx.base * cap) / cap0;
+  const divisor = state.indices?.[indexId]?.divisor ?? cap0;
+  return (idx.base * cap) / divisor;
 }
 
 /** Game day number (0-based) for the current tick. */

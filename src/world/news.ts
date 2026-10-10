@@ -115,6 +115,28 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
         pushWire(g, out, { kind: 'liquidation', tag: 'Margin', tone: 'loss', assetId: e.assetId, text: `Forced selling: a leveraged trader is liquidated in ${e.assetId}` });
         break;
       }
+      case 'index': {
+        const nm = g.market.config.indices.find((x) => x.id === e.indexId)?.name ?? e.indexId;
+        const names = (ids: string[]) => ids.map((id) => defOf(g, id)?.name ?? id).join(', ');
+        const moves = [e.adds.length ? `joins ${names(e.adds)}` : '', e.removes.length ? `leaves ${names(e.removes)}` : ''].filter(Boolean).join('; ');
+        if (e.phase === 'announced') {
+          const tpd = g.market.config.ticksPerDay;
+          const away = Math.max(1, e.day - Math.floor((e.tick - 1) / tpd));
+          pushWire(g, out, { kind: 'index', tag: 'Index', tone: 'info', text: `${nm} reviews its members in ${away} day${away === 1 ? '' : 's'}: ${moves}` });
+        } else {
+          pushWire(g, out, { kind: 'index', tag: 'Index', tone: 'info', text: `${nm} reconstitutes today: ${moves}. Pension funds rebalance into the new weights` });
+        }
+        break;
+      }
+      case 'squeeze': {
+        const d = defOf(g, e.assetId);
+        if (!d) break;
+        pushWire(g, out, {
+          kind: 'squeeze', tag: 'Squeeze', tone: 'warn', assetId: e.assetId,
+          text: `Short squeeze in ${d.name}: forced buying to cover shorts reached ${(e.cover * 100).toFixed(0)}% of a day's volume`,
+        });
+        break;
+      }
       case 'option_expiry':
         notify(g, out, e.playerId, { kind: 'fill', tone: e.payout > 0 ? 'gain' : 'loss', text: e.payout > 0 ? `Option ${e.contractId.replace(/\|/g, ' ')} expired in the money: +$${Math.round(e.payout).toLocaleString('en-US')}` : `Option ${e.contractId.replace(/\|/g, ' ')} expired worthless` });
         break;

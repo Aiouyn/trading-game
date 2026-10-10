@@ -199,6 +199,8 @@ export function listingsDay(state: WorldState, tick: number): { state: WorldStat
   const seq = (state.listings?.seq ?? 0) + (kind ? 1 : 0);
   let next: WorldState = { ...state, listings: { rng: rng.state(), seq } };
   if (!kind) return { state: next, events: [] };
+  // the game day this listing begins: tick is the first tick of the day (index reviews count seasoning from it)
+  const listedDay = Math.floor((tick - 1) / next.config.ticksPerDay);
 
   const pool = eligibleStocks(next);
   if (pool.length === 0) return { state: next, events: [] };
@@ -208,7 +210,7 @@ export function listingsDay(state: WorldState, tick: number): { state: WorldStat
   if (kind === 'ipo') {
     const t = next.config.assets[pick()]!;
     const price = 15 + rng.uniform() * 75;
-    const def = newStock(next, rng, t, price);
+    const def = { ...newStock(next, rng, t, price), listedDay };
     next = appendAsset(next, def);
     events.push({ type: 'listing', tick, kind: 'ipo', assetId: def.id, price });
   } else if (kind === 'bankruptcy') {
@@ -230,7 +232,7 @@ export function listingsDay(state: WorldState, tick: number): { state: WorldStat
     const i = pick();
     const parent = next.config.assets[i]!;
     const cPrice = 15 + rng.uniform() * 45;
-    const child = newStock(next, rng, parent, cPrice);
+    const child = { ...newStock(next, rng, parent, cPrice), listedDay };
     next = spinOff(next, i, child);
     events.push({ type: 'listing', tick, kind: 'spinoff', assetId: parent.id, otherId: child.id, price: cPrice });
   }

@@ -56,6 +56,8 @@ export interface AssetDef {
   listed?: boolean;
   /** delisted by a bankruptcy, merger or spin-off settlement: no trading, price frozen, out of the indices and pools */
   delisted?: boolean;
+  /** game day (0-based) an evolving-universe listing began; absent = listed at the start (seasoned for index reviews) */
+  listedDay?: number;
   /** one-line flavor text for the UI */
   blurb?: string;
   /** a yearly cycle in value (commodities); absent = none */
@@ -120,12 +122,46 @@ export interface SeasonalDef {
   peakDay: number;
 }
 
+/**
+ * Membership rule for the quarterly review (indices.ts): a listed asset of this class, in these sectors and/or regions,
+ * that has been listed at least `everyDays` joins. Absent = the index takes no additions (delisted names still leave).
+ */
+export interface IndexRule {
+  assetClass: AssetClass;
+  sectors?: string[];
+  regions?: string[];
+}
+
 export interface IndexDef {
   id: string;
   name: string;
   /** asset ids; cap-weighted by sharesOutstanding */
   members: string[];
   base: number;
+  /** who may join at a quarterly review; absent = no additions */
+  rule?: IndexRule;
+}
+
+/** Quarterly index review (indices.ts): when it runs, and how far ahead the change is announced. Off when absent. */
+export interface IndexReviewConfig {
+  /** game days between reviews (63 = quarterly); a review takes effect at the open of day k * everyDays */
+  everyDays: number;
+  /** game days of notice on the Wire before a review takes effect */
+  announceDays: number;
+}
+
+/** Live state of one index once a review has run (absent = the config's members with the config's divisor). */
+export interface IndexState {
+  /** current members, in config order */
+  members: string[];
+  /** level = base · Σ(shares · price) / divisor. Reset at each reconstitution so the level does not jump. */
+  divisor: number;
+}
+
+/** Squeeze (trading.ts): forced buy-ins of shorts in one asset, in one day, as a share of ADV. Off when absent. */
+export interface SqueezeConfig {
+  /** forced short covering in a day, as a share of the asset's ADV, that counts as a squeeze */
+  adv: number;
 }
 
 export interface WorldConfig {
@@ -163,6 +199,10 @@ export interface WorldConfig {
   rates?: RatesConfig;
   /** listed options; off when absent */
   options?: OptionsConfig;
+  /** quarterly index review (indices.ts); off when absent */
+  indexReview?: Partial<IndexReviewConfig>;
+  /** short squeezes (trading.ts): forced covering past a share of ADV; off when absent */
+  squeeze?: Partial<SqueezeConfig>;
   /** margin, shorting and liquidation; defaults to DEFAULT_MARGIN */
   margin?: MarginConfig;
   /**
@@ -245,6 +285,11 @@ export interface AssetState {
   markGuard?: { lnAnchor: number; anchorDay: number; untilDay: number; dir: 1 | -1 };
   /** the last 5 game days' net crowd flow / ADV and each day's open (index 4 = `day`); absent once all 5 are flat */
   markFlow?: { day: number; net: number[]; lnOpen: number[] };
+  /**
+   * Forced buy-ins of shorts today (squeeze on only): notional covered, and whether the squeeze fired (the event is
+   * sent once a day). Stamped with the game day; absent or another day = nothing covered yet today.
+   */
+  coverTally?: { day: number; notional: number; fired: boolean };
   // ---- catalysts (stocks only, when config.catalysts is set; all optional so old saves load) ----
   /** earnings stream ('earnings:<id>'); separate so catalysts never shift the price stream */
   erng?: RngState;
@@ -502,6 +547,13 @@ export interface WorldState {
   worldEvents?: WorldEventsState;
   /** listings stream and sequence (evolving universe); present once a listing day has rolled */
   listings?: { rng: RngState; seq: number };
+  /** index membership and divisors, present once a review has run or been announced (indices.ts) */
+  indices?: Record<string, IndexState>;
+  /**
+   * The pension pool's reshuffle flow on the effective day of a review: per asset, equal-weight units of index change
+   * (weight change × members). Read by the ecology close on that day only (ecoDayInput).
+   */
+  reshuffle?: { day: number; eq: Record<string, number> };
 }
 
 export interface CrowdHold {
@@ -582,6 +634,11 @@ export interface EcologyConfig {
   /** pool sizes in ADV-days (capacity scale) and position half-lives in game days (positions age out to long holders) */
   sizes: Record<EcoPool, number>;
   halfLives: Record<EcoPool, number>;
+  /**
+   * index reviews: on the effective day the pension pool trades reshuffleK ADV per equal-weight unit of index change
+   * (an added name buys, the rest of the index sells a little). Before the capacity cut, like every pool.
+   */
+  reshuffleK: number;
 }
 
 export interface EcoAssetState {
@@ -717,6 +774,10 @@ export type StepEvent =
   | { type: 'jump'; tick: number; assetId: string; logSize: number }
   /** the closing auction (ecology on): the pools' clearing price replaced the live last price; move per asset, fraction */
   | { type: 'auction'; tick: number; moves: Record<string, number> }
+  /** a quarterly index review: announced (notice given) or effective (membership changed); adds and removes are asset ids */
+  | { type: 'index'; tick: number; phase: 'announced' | 'effective'; indexId: string; day: number; adds: string[]; removes: string[] }
+  /** a short squeeze: forced buy-ins of shorts in one asset passed the squeeze share of ADV (cover, fraction of ADV); no account */
+  | { type: 'squeeze'; tick: number; assetId: string; cover: number }
   | { type: 'halt'; tick: number; assetId: string; move: number }
   | { type: 'reopen'; tick: number; assetId: string; gap: number }
   /** analysts publish their lean for an upcoming report */
