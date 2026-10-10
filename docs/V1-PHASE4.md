@@ -331,3 +331,40 @@ Disk: C: had 4.43 GB free before the `--workers=1` run, 3.8 GB at its lowest, an
 | `npx tsc --noEmit` | exit 0 |
 | `npx vitest run --maxWorkers=4` | 129 files, 1386 tests pass, 1 skipped |
 | `npx eslint --max-warnings 0` (touched files) | exit 0 |
+
+## 8. Merge of `p4/b1` (market path) and `p4/b2` (governance and failure) into v1
+
+### 8.1 Merges
+
+- `583f573`: `p4/b1` merged with `--no-ff`. No conflicts.
+- `f981061`: `p4/b2` merged with `--no-ff`. Nine files conflicted (`src/content/company.ts`, `src/engine/index.ts`, `src/engine/restrictions.ts`, `src/world/company/{bridge,company,filings,types}.ts`, `src/world/game.ts`, `src/world/types.ts`). Both intents are kept: the union of commands, reject codes and copy, with `en.json` and `fr.json` key sets equal.
+- `eb98e74`: the closed-trade journal e2e test dismisses the day-close card before its clicks (phone). No assertion changed.
+
+### 8.2 Integration decisions
+
+1. **Filed debt.** `balance.debt` is bank debt (B1) plus loans in from players (B2). `loansOut` is a receivable. Net debt everywhere (the private mark, the filed signals, buyback leverage, the covenant at filing and live) is `debt - (cash - relatedCash) - loansOut`. The public debt band includes loans in.
+2. **Company books.** `post` lives in `books.ts` (B2). The B1 modules import it from there.
+3. **Owner links are the alliances (ruling 2).** `syncAllianceLinks` rebuilds the world's `linked` map from the players' alliances on every company command and day step. A member who leaves an alliance leaves the owner set. B1's IPO exclusion, `allianceSetOf`, uses the same rule. The B2 test that linked an alt by hand now uses an alliance, since the sync is the V1 rule.
+4. **Day step order.** B1 runs first (filings, IPO listing, debt, listed days, programs). B2 runs the bankruptcy delisting before the filings, then the takeover watch and the tape, then the insider backstop last.
+5. **Listed records** carry `floatCap` (B1). The B2 fixtures set it.
+
+### 8.3 Lead rulings (recorded)
+
+1. **Unallocated IPO float is a booked faucet.** The float the NPC underwriter buys in an undersubscribed IPO is booked outside capital, like the NPC investor pools. Accepted. This is the B1 deviation 2 in 7.3.
+2. **Owner links use alliances only in V1.** The collusion graph for alt accounts is not in `src`. It belongs to the anti-cheat work in the security phases (Phase 6 and 9). **Known limitation:** a founder-controlled account outside an alliance is not in the owner set. The IPO book, the insider window and the backstop treat it as an outside account, so it can subscribe to an IPO and trade the stock outside the window. This is the B1 deviation 4 in 7.3.
+3. **Forced liquidation and squeeze buy-ins inside a closed window are allowed.** The insider does not choose them. Escrowed shares are excluded from collateral (`collateralEquityOf` in `trading.ts`: locked shares add no collateral).
+4. **Extra reject codes accepted:** `tenderNoBidder`, `buybackBadSpec`, `roundAfterListing`, `roundDuringIpo`. `tenderNoBidder` is the engine's code for a tender with no bidder account. The world maps it to `takeoverNoBidder` for the screen. The other three have en and fr copy.
+
+### 8.4 Checks at the merge
+
+| Command | Result |
+|---|---|
+| `npx next typegen` | exit 0 |
+| `npx tsc --noEmit` | exit 0 |
+| `npx vitest run --maxWorkers=4` | 137 files, 1477 tests pass, 1 skipped (after the CEO-freeze test moved its alt into an alliance) |
+| `npx eslint src scripts server` | 0 errors, 15 warnings (the same pre-existing `react/jsx-no-literals` and unused-var warnings) |
+| `npm run build` (Turbopack) | PASS |
+| `npm run e2e -- --workers=2` | First full run: 184 passed, 303 skipped, 2 failed, 6 blocked. The 2 failures were the learning test on desktop and phone, fixed in `eb98e74` and the follow-up helper. The 6 blocked were the three `close-card` specs on the `close-card` and `close-card-phone` projects, which depend on `phone`. |
+| `npm run e2e` re-checks | `learning.spec.ts`: 8 of 8 pass. The close-card projects, run with the dependency edge kept: 6 of 6 pass. Total: 192 passed, 303 skipped, 0 failed. |
+
+The close-card re-check ran through a temporary Playwright config outside the repo (the full suite's dependency projects otherwise run too). It was removed and is not committed.
