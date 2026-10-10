@@ -87,7 +87,7 @@ export function buyGpus(g: GameState, pid: string, tierId: string, qty: number):
 export function reserveCompute(g: GameState, pid: string, perDay: number, days: number): CommandResult {
   const e = gate(g, pid); if (e) return fail(e);
   if (!(perDay > 0 && days >= 1 && days <= 63)) return fail('reserve 1 to 63 days');
-  const cost = perDay * days * 2.0 * (priceOf(g, 'CMPT') / 120);
+  const cost = reserveCost(perDay, days, spotPflopPrice(g));
   if (cashOf(g, pid) < cost) return fail('not enough cash');
   debit(g, pid, cost, 'compute');
   labFor(g, pid).reserved = { perDay, untilTick: g.market.tick + Math.round(days) * TPD };
@@ -145,6 +145,41 @@ export function hireResearchers(g: GameState, pid: string, qty: number): Command
   return ok();
 }
 
+export interface TrainingPlan {
+  /** PFLOP-days bought with the budget at spot. */
+  spot: number;
+  /** Game days the run takes. */
+  days: number;
+  /** Total compute: spot plus owned and reserved PFLOP-days over the run. */
+  pflop: number;
+  /** Data the run consumes. */
+  dqu: number;
+  expectedMcs: number;
+  failOdds: number;
+}
+
+/**
+ * What a training run would do with this budget. startTraining uses it, and the AI Lab shows the same
+ * numbers before the player commits, so a preview cannot drift from the run. Reads only; it changes nothing.
+ */
+export function trainingPlan(lab: LabState, budget: number, careful: boolean, spotPrice: number, tick: number): TrainingPlan {
+  const spot = budget / spotPrice;
+  let days = 1 + 0.5 * Math.log10(1 + spot);
+  if (careful) days *= 1.5;
+  if (lab.research.includes('distributed')) days *= 0.7;
+  const reserved = lab.reserved && lab.reserved.untilTick > tick ? lab.reserved.perDay : 0;
+  const pflop = spot + (ownedPflopPerDay(lab) + reserved) * days;
+  const dqu = Math.min(lab.data, pflop * 1.5);
+  const expectedMcs = mcsFor(lab, pflop, dqu, careful);
+  const failOdds = Math.max(0.02, (careful ? 0.06 : 0.18) - 0.01 * lab.researchers);
+  return { spot, days, pflop, dqu, expectedMcs, failOdds };
+}
+
+/** Cash a compute reserve costs for perDay PFLOP-days a day over days, at the spot price. */
+export function reserveCost(perDay: number, days: number, spotPrice: number): number {
+  return perDay * days * 2.0 * (spotPrice / 1.2);
+}
+
 export function startTraining(g: GameState, pid: string, kind: Model['kind'], nameIn: string, budget: number, careful: boolean): CommandResult {
   const e = gate(g, pid); if (e) return fail(e);
   const lab = labFor(g, pid);
@@ -156,16 +191,9 @@ export function startTraining(g: GameState, pid: string, kind: Model['kind'], na
   if (cashOf(g, pid) < budget) return fail('not enough cash');
   if (budget === 0 && ownedPflopPerDay(lab) === 0) return fail('you need a budget or your own GPUs');
   debit(g, pid, budget, 'compute');
-  const spot = budget / spotPflopPrice(g);
-  let days = 1 + 0.5 * Math.log10(1 + spot);
-  if (careful) days *= 1.5;
-  if (lab.research.includes('distributed')) days *= 0.7;
-  const reserved = lab.reserved && lab.reserved.untilTick > g.market.tick ? lab.reserved.perDay : 0;
-  const pflop = spot + (ownedPflopPerDay(lab) + reserved) * days;
-  const dqu = Math.min(lab.data, pflop * 1.5);
+  const plan = trainingPlan(lab, budget, careful, spotPflopPrice(g), g.market.tick);
+  const { pflop, dqu, days, expectedMcs, failOdds } = plan;
   lab.data -= dqu;
-  const expectedMcs = mcsFor(lab, pflop, dqu, careful);
-  const failOdds = Math.max(0.02, (careful ? 0.06 : 0.18) - 0.01 * lab.researchers);
   const name = (nameIn || `${kind} model`).replace(/[\u0000-\u001f]/g, '').slice(0, 32);
   lab.training = { kind, name, budget, pflopDays: pflop, dqu, careful, startTick: g.market.tick, doneTick: g.market.tick + Math.round(days * TPD), expectedMcs, failOdds };
   return ok({ expectedMcs, failOdds, days });

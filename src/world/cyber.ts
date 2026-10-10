@@ -18,6 +18,8 @@ import type {
  */
 
 export const SECURITY_RANK = 'R3';
+/** A deep scan may run once per six game days. */
+export const SCAN_COOLDOWN_TICKS = 6 * TPD;
 
 export const STRENGTHS: Record<SessionStrength, { bias: number; drain: number; k: number; clue: number; m: number; evidence: number; label: string }> = {
   whisper: { bias: 0.5, drain: 0.02, k: 0.02, clue: 0.03, m: 0.6, evidence: 20, label: 'Whisper' },
@@ -120,12 +122,28 @@ export function setBudget(g: GameState, pid: string, budget: number): CommandRes
   return { ok: true };
 }
 
+/** Ticks until a deep scan may run again (0 when it may run now or never ran). The Security app reads this. */
+export function scanCooldownLeft(lastScanTick: number, nowTick: number): number {
+  if (!(lastScanTick > 0)) return 0;
+  return Math.max(0, SCAN_COOLDOWN_TICKS - (nowTick - lastScanTick));
+}
+
+/** Cash a deep scan costs. */
+export function deepScanCost(netWorth: number): number {
+  return 5000 + 0.0001 * netWorth;
+}
+
+/** Cash a cut costs: free for a flagged connection, otherwise a small fee capped at $250k. */
+export function disconnectCost(flagged: boolean, netWorth: number): number {
+  return flagged ? 0 : Math.min(250_000, 1000 + 0.0002 * netWorth);
+}
+
 export function manualScan(g: GameState, pid: string, out: StepOutput | null): CommandResult {
   const p = g.players[pid]!;
   if (rankIndex(p.rankId) < rankIndex(SECURITY_RANK)) return { ok: false, error: 'Security Ops unlock at Operator' };
   const d = defenseOf(g, pid);
-  if (g.market.tick - d.lastScanTick < 6 * TPD && d.lastScanTick > 0) return { ok: false, error: 'deep scan cooling down' };
-  const cost = 5000 + 0.0001 * p.netWorth;
+  if (scanCooldownLeft(d.lastScanTick, g.market.tick) > 0) return { ok: false, error: 'deep scan cooling down' };
+  const cost = deepScanCost(p.netWorth);
   if (cashOf(g, pid) < cost) return { ok: false, error: 'not enough cash' };
   debit(g, pid, cost, 'security');
   d.lastScanTick = g.market.tick;
@@ -164,7 +182,7 @@ export function disconnect(g: GameState, pid: string, entryId: string, out: Step
   const e = g.cyber.entries[entryId];
   if (!e || e.ownerId !== pid) return { ok: false, error: 'unknown connection' };
   const p = g.players[pid]!;
-  const cost = e.flagged ? 0 : Math.min(250_000, 1000 + 0.0002 * p.netWorth);
+  const cost = disconnectCost(e.flagged, p.netWorth);
   if (cashOf(g, pid) < cost) return { ok: false, error: 'not enough cash' };
   debit(g, pid, cost, 'security');
   delete g.cyber.entries[entryId];

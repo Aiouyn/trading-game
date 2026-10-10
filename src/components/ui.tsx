@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from 'react';
 import { money, signedMoney, signedPct, tone, toneText } from '@/game/format';
+import { t } from '@/i18n';
 
 /** Background flash when a value changes; motion explains the change (DESIGN.md §6). */
 export function Flash({ value, children, className = '' }: { value: number; children: ReactNode; className?: string }) {
@@ -25,7 +26,7 @@ export function TickRing({ tick, ms, paused = false, size = 30, label }: { tick:
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label ?? (paused ? 'Disconnected' : 'Next tick')} className="shrink-0" data-testid="tick-ring">
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label ?? (paused ? t('time.disconnected') : t('time.nextTick'))} className="shrink-0" data-testid="tick-ring">
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" className="stroke-ink-3" strokeWidth={stroke} />
       {!paused && (
         <circle
@@ -132,7 +133,7 @@ export function BrassChip({ children, className = '' }: { children: ReactNode; c
 /** Steel padlock, used for anything a license or rank has not opened yet. */
 export function LockGlyph({ size = 22 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 22 22" aria-label="Locked" role="img" className="shrink-0 fill-steel">
+    <svg width={size} height={size} viewBox="0 0 22 22" aria-label={t('common.locked')} role="img" className="shrink-0 fill-steel">
       <path d="M7 9V7a4 4 0 0 1 8 0v2h1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h1Zm2 0h4V7a2 2 0 0 0-4 0v2Z" />
     </svg>
   );
@@ -305,7 +306,7 @@ export function Modal({ open, onClose, title, children, wide = false, testId }: 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
-      <button type="button" aria-label="Close" className="absolute inset-0 bg-ink-0/75" onClick={onClose} />
+      <button type="button" aria-label={t('common.close')} className="absolute inset-0 bg-ink-0/75" onClick={onClose} />
       <div
         ref={ref}
         tabIndex={-1}
@@ -316,7 +317,7 @@ export function Modal({ open, onClose, title, children, wide = false, testId }: 
       >
         <div className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-ink-2 bg-ink-1 px-5 py-4">
           <h2 className="font-serif text-title text-fg">{title}</h2>
-          <button type="button" onClick={onClose} className="h-9 w-9 rounded-md text-fg-muted hover:bg-ink-2 hover:text-fg" aria-label="Close">✕</button>
+          <button type="button" onClick={onClose} className="h-9 w-9 rounded-md text-fg-muted hover:bg-ink-2 hover:text-fg" aria-label={t('common.close')}>✕</button>
         </div>
         <div className="p-5">{children}</div>
       </div>
@@ -340,7 +341,7 @@ export function Locked({ what, need, progress }: { what: ReactNode; need: ReactN
       <LockGlyph size={32} />
       <p className="font-serif text-title text-fg">{what}</p>
       <p className="text-small text-fg-muted">{need}</p>
-      {progress !== undefined && <Progress value={progress} className="w-56" label="Progress to unlock" />}
+      {progress !== undefined && <Progress value={progress} className="w-56" label={t('common.progressToUnlock')} />}
     </Card>
   );
 }
@@ -386,7 +387,7 @@ export function ConfirmButton({ children, confirm, onConfirm, variant = 'outline
     return (
       <span className="inline-flex items-center gap-1">
         <Button size={size} variant="danger" onClick={async () => { setAsk(false); await onConfirm(); }} testId={testId ? `${testId}-yes` : undefined}>{confirm}</Button>
-        <Button size={size} variant="ghost" onClick={() => setAsk(false)}>Cancel</Button>
+        <Button size={size} variant="ghost" onClick={() => setAsk(false)}>{t('common.cancel')}</Button>
       </span>
     );
   }
@@ -395,9 +396,9 @@ export function ConfirmButton({ children, confirm, onConfirm, variant = 'outline
 
 /** Countdown in game time from ticks. */
 export function ticksLabel(ticks: number, tpd = 720): string {
-  if (ticks <= 0) return 'now';
+  if (ticks <= 0) return t('time.now');
   const days = ticks / tpd;
-  if (days >= 1) return `${days.toFixed(days >= 10 ? 0 : 1)} game days`;
+  if (days >= 1) return t('time.days', { n: days.toFixed(days >= 10 ? 0 : 1) });
   const min = Math.round((ticks * 5) / 60);
-  return min >= 60 ? `${(min / 60).toFixed(1)} h` : `${Math.max(1, min)} min`;
+  return min >= 60 ? t('time.hours', { n: (min / 60).toFixed(1) }) : t('time.minutes', { n: Math.max(1, min) });
 }

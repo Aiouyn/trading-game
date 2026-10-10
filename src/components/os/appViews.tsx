@@ -20,11 +20,12 @@ import { ShortcutList } from './ShortcutList';
 import { openApp } from './shellStore';
 
 const SocialView = dynamic(() => import('@/components/Social').then((m) => m.SocialView), { ssr: false });
-const EmpireView = dynamic(() => import('@/components/Empire').then((m) => m.EmpireView), { ssr: false });
-const EstateView = dynamic(() => import('@/components/Estate').then((m) => m.EstateView), { ssr: false });
-const LabView = dynamic(() => import('@/components/Lab').then((m) => m.LabView), { ssr: false });
-const SecurityView = dynamic(() => import('@/components/Security').then((m) => m.SecurityView), { ssr: false });
-const CourtView = dynamic(() => import('@/components/Court').then((m) => m.CourtView), { ssr: false });
+const BusinessesApp = dynamic(() => import('@/components/apps/businesses/BusinessesApp').then((m) => m.BusinessesApp), { ssr: false });
+const BoutiqueApp = dynamic(() => import('@/components/apps/boutique/BoutiqueApp').then((m) => m.BoutiqueApp), { ssr: false });
+const BankApp = dynamic(() => import('@/components/apps/bank/BankApp').then((m) => m.BankApp), { ssr: false });
+const LabApp = dynamic(() => import('@/components/apps/ailab/LabApp').then((m) => m.LabApp), { ssr: false });
+const SecurityApp = dynamic(() => import('@/components/apps/security/SecurityApp').then((m) => m.SecurityApp), { ssr: false });
+const LegalApp = dynamic(() => import('@/components/apps/legal/LegalApp').then((m) => m.LegalApp), { ssr: false });
 const ProfileView = dynamic(() => import('@/components/Profile').then((m) => m.ProfileView), { ssr: false });
 
 /** A window's content. `size` is the window's current size, which the Broker lays itself out by. */
@@ -41,15 +42,17 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
     case 'messages':
       return <div className="os-body"><SocialView /></div>;
     case 'businesses':
-      return <div className="os-body"><EmpireView /></div>;
+      return <div className="os-body"><BusinessesApp /></div>;
     case 'boutique':
-      return <div className="os-body"><EstateView /></div>;
+      return <div className="os-body"><BoutiqueApp /></div>;
+    case 'bank':
+      return <div className="os-body"><BankApp /></div>;
     case 'ailab':
-      return <div className="os-body"><LabView /></div>;
+      return <div className="os-body"><LabApp /></div>;
     case 'security':
-      return <div className="os-body"><SecurityView /></div>;
+      return <div className="os-body"><SecurityApp /></div>;
     case 'legal':
-      return <div className="os-body"><CourtView /></div>;
+      return <div className="os-body"><LegalApp /></div>;
     case 'settings':
       if (win.props.view === 'about') return <About />;
       return (
