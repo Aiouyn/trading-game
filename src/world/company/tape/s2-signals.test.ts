@@ -1,6 +1,6 @@
 /**
  * Tape section 2 (informed trading, signals, backlog, faking), the rows that are unit-level in v1.7 (tape-company-building.md
- * re-targeted to Quant v1.7). Test names carry the Tape id. Seed sweeps and the rho legs run in scripts/balance/company-tape.ts.
+ * re-targeted to Quant v1.7). Test names carry the Tape id. Seed sweeps run in scripts/balance/company-tape.ts (signal_bias_correct, signal_cadence); the rho legs are BLK (wait-register).
  */
 import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../../game';
@@ -80,5 +80,5 @@ describe('Tape s2: signals, backlog and faking (unit rows)', () => {
     expect(JSON.stringify(publicCompanyView(c, 205))).toBe(before);
   });
 
-  it.skip('consensus_alpha1: SKIPPED (needs the bias-corrected report chain; the consensus cases are in company.test.ts)', () => {});
+  it.skip('[N/A] consensus_alpha1: the consensus cases are in src/world/company/company.test.ts, not repeated here', () => {});
 });

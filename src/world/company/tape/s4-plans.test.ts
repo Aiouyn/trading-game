@@ -93,6 +93,5 @@ describe('Tape s4: plans and buybacks (unit rows)', () => {
     expect(applyCommand(g, FOUNDER, { type: 'company.buyback', companyId: c.id, size: 1200, fromDay: F + 30, toDay: F + 40 }).ok).toBe(false);
   });
 
-  it.skip('plan_sell_only [WAIT: the company plan API takes no side; sell-only holds by construction, UI copy is in the E-layer]', () => {});
   it.skip('plan_exact_fill (filing-day case) [WAIT-INSTR: needs the G19 filing-day fill order in the balance harness]', () => {});
 });

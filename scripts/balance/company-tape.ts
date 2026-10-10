@@ -1,13 +1,15 @@
 // Tape company checks at harness scale (owner: Tape). The seed-sweep rows of tape-company-building.md that run on the
 // company world layer (src/world/company), each reported PASS or FAIL over many seeds. The unit form of every row is in
 // src/world/company/tape/*.test.ts; this script repeats the statistical ones over more seeds.
-// Run here: co_determinism, co_ledger_balances, private_no_signals, signal_cadence, window_boundaries, plan_min_lead,
-// ipo_float_bounds, signal_bias_correct (8 rows). Not run here: the list printed at the end under NOT RUN. Those need
-// the v1.7 harnesses (not in this repo) or engine-staging, and are never reported as PASS.
+// Run here (10 rows): co_determinism, co_ledger_balances, private_no_signals, signal_cadence, window_boundaries,
+// plan_min_lead, ipo_float_bounds, window_closing_every_window, inv_no_money_from_nothing, signal_bias_correct.
+// Not run here: the list printed at the end under NOT RUN. Those need the v1.7 bot harnesses (not in this repo), engine
+// staging (the binding gate), or the residual surprise s (rho), which the engine does not compute yet. They are never
+// reported as PASS.
 // Usage: npx tsx scripts/balance/company-tape.ts [--seeds 20] [--draws 100000]
 
 import { applyCommand } from '../../src/world/game';
-import { advanceTo, companyOf, FOUNDER, founded, listedWorld, THREE_FILINGS_DAY } from '../../src/world/company/b1fixture';
+import { advanceTo, companyOf, FOUNDER, founded, listedWorld, THREE_FILINGS_DAY, totalMoney } from '../../src/world/company/b1fixture';
 import { biasCorrect } from '../../src/world/company/signals';
 import { publicCompanyView } from '../../src/world/company/views';
 import { windowAt } from '../../src/world/company/insiders';
@@ -150,6 +152,38 @@ const rows: Row[] = [
       if (!ask(0.15, 'at-lo')) return '15% refused';
       if (!ask(0.49, 'at-hi')) return '49% refused';
       return ask(0.4901, 'hi') ? '49.01% accepted' : null;
+    },
+  },
+  {
+    // every closed window over eight quarters of a listed company is warned once, on F+17 (tape section 6.1, B)
+    id: 'window_closing_every_window',
+    run: (seed) => {
+      const { g, c } = listedWorld(seed);
+      const end = THREE_FILINGS_DAY + 8 * 63;
+      advanceTo(g, end);
+      const warned = new Set<number>();
+      for (const n of g.players[FOUNDER]!.inbox) {
+        if (n.msg?.key !== 'company.note.windowClosing') continue;
+        const closes = (n.msg.vars as { closesDay?: number }).closesDay;
+        if (closes !== undefined) {
+          if (warned.has(closes)) return `window ${closes} warned twice`;
+          warned.add(closes);
+        }
+      }
+      const due = c.windowRanges.map(([, b]) => b).filter((b) => b - 4 >= 201 && b - 4 <= end);
+      for (const b of due) if (!warned.has(b)) return `window closing ${b} was not warned`;
+      return due.length >= 8 ? null : `only ${due.length} windows in ${end} days`;
+    },
+  },
+  {
+    // money is conserved over eight quarters of a listed company, with the IPO, the filings and the bank in the run (B)
+    id: 'inv_no_money_from_nothing',
+    run: (seed) => {
+      const { g } = listedWorld(seed);
+      const booked = () => totalMoney(g) + g.companies!.flows.sink - g.companies!.flows.faucet;
+      const before = booked();
+      advanceTo(g, THREE_FILINGS_DAY + 8 * 63);
+      return Math.abs(booked() - before) < 1e-3 ? null : `drift ${(booked() - before).toExponential(3)}`;
     },
   },
   {

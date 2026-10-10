@@ -1,6 +1,6 @@
 /**
  * Quant v1.7 rows (NEW, and the G17 and G21 unit parts), tape-company-building.md section 3.13 and the v1.7 re-target.
- * Test names carry the Tape id. Rows that need a seeded market or filing sweep are in scripts/balance/company-tape.ts.
+ * Test names carry the Tape id. Rows that need a seeded market or filing sweep are in scripts/balance/company-tape.ts (10 of them) or are not run (wait-register.test.ts).
  */
 import { describe, expect, it } from 'vitest';
 import { advanceTo, listedWorld } from '../b1fixture';
@@ -49,14 +49,14 @@ describe('Quant v1.7: player stocks print in full (G21, unit part)', () => {
   });
 });
 
-describe('Quant v1.7: rows run in the balance script or the engine gate (recorded here as skipped)', () => {
-  it.skip('overflow_not_booked [SCRIPT: demand above capacity x 1.15 gives 0 units; needs the demand sweep, scripts/balance/company-tape.ts]', () => {});
-  it.skip('filing_tick_order [SCRIPT: F open tick order (re-anchor, backlogRepay, plan fills); needs a filing-day sim]', () => {});
-  it.skip('revenue_noise_quarterly [SCRIPT: one eps per component per quarter, lag-aware bot mean net <= 0 (modelled -1.370%)]', () => {});
-  it.skip('hiring_full_print [SCRIPT: hiring moves -0.5% to -4% print in full, carry 0, zero trades for the cap bots]', () => {});
+describe('Quant v1.7: rows not run in this build (recorded as skipped; none is a pass)', () => {
+  it.skip('overflow_not_booked [B-HARNESS: the demand sweep at utilization 0.85/0.95/1.05 is not in scripts/balance/company-tape.ts; no v1.7 harness in this repo]', () => {});
+  it.skip('filing_tick_order [B-HARNESS: F open tick order (re-anchor, backlogRepay, plan fills) needs a filing-day sim; not run]', () => {});
+  it.skip('revenue_noise_quarterly [B-HARNESS: one eps per component per quarter; the lag-aware bot is not in this repo; modelled -1.370% is Quant\'s number, not measured here]', () => {});
+  it.skip('hiring_full_print [B-HARNESS: hiring moves print in full, carry 0; the cap bots are not in this repo]', () => {});
   it.skip('company_print_full_npc_untouched (binding) [EN: engine-staging gate, fingerprint c5dd6665...dfab35c; not in this worktree]', () => {});
-  it.skip('rho_engine [BLK-G22 PASSING READING: 200 seeds x 6 sectors x 7 filings; scripts/balance/company-tape.ts]', () => {});
+  it.skip('rho_engine [BLK-G22: the residual surprise s is not computed by the engine (valuation.surprise has no caller); probe absent]', () => {});
   it.skip('repay_derivative_delta [WAIT-INSTR: Quant 6.5 derivatives not built]', () => {});
-  it.skip('one_list_price [PROPOSED: the repricing cost of shipped units is not in the -30% row; Ledger decision D3 open]', () => {});
-  it.skip('consensus_converges_defn [PROPOSED: convergence under once-per-quarter noise, decision D2 open]', () => {});
+  it.skip('one_list_price [BLK-LEDGER: the repricing cost of shipped units is not in the -30% row; Ledger decision D3 open]', () => {});
+  it.skip('consensus_converges_defn [BLK-LEDGER: convergence under once-per-quarter noise, decision D2 open]', () => {});
 });

@@ -1,8 +1,8 @@
 /**
  * Tape section 0 and the v1.7 foundation rows (tape-company-building.md, re-targeted to Quant v1.7). Each test name
  * carries the Tape check id. Layer: U (unit), with L (static) where the check is about the source text. Rows that need a
- * seed sweep or the engine run are in the balance script (scripts/balance/company-tape.ts). Rows with no runnable form in
- * this build are recorded as skipped in wait-register.test.ts, not as passes.
+ * seed sweep are in scripts/balance/company-tape.ts (10 rows; the rest are in wait-register.test.ts). Rows with no runnable
+ * form in this build are recorded as skipped there, not as passes.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

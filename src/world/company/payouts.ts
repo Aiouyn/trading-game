@@ -11,6 +11,8 @@ import { COMPANY } from '@/content/company';
 import { notify, bump, today } from '../core';
 import type { GameState, StepOutput } from '../types';
 import { post } from './books';
+import { insiderByStake } from './contracts';
+import { recordPayout } from './failure';
 import { founderKeyOf, poolIdOf, treasuryIdOf } from './ipo';
 import { ttmOf } from './debt';
 import type { Company, CompanyReject } from './types';
@@ -75,11 +77,18 @@ export function declareDividend(
   post(w, c, day, 'dividend', -total, true);
   c.retained -= total;
   c.qtd.dividends += total;
+  // a dividend paid to a player is a covered payment (spec 5.3): the clawback can reach it for 63 gd, with its insider flag
+  const covered = (pid: string, pay: number, stake: number) => recordPayout(c, {
+    day, toPlayerId: pid, amount: pay, covered: pay, kind: 'dividend', termsDay: day, flagged: false,
+    insider: insiderByStake(w, c, pid, stake),
+  });
   if (!c.listed) {
     for (const [holder, shares] of Object.entries(c.capTable)) {
       const pay = shares * perShare;
-      if (holder === founderKeyOf(c.ownerId)) bump(g, playerId, pay);
-      else if (w.investors[holder]) w.investors[holder]!.cash += pay;
+      if (holder === founderKeyOf(c.ownerId)) {
+        bump(g, playerId, pay);
+        covered(playerId, pay, shares / c.shares);
+      } else if (w.investors[holder]) w.investors[holder]!.cash += pay;
     }
   } else {
     const assetId = c.listed.assetId;
@@ -90,9 +99,12 @@ export function declareDividend(
       const q = g.market.accounts[id]?.positions[assetId]?.qty ?? 0;
       if (q <= 0) continue;
       const pay = q * perShare;
-      if (g.players[id]) bump(g, id, pay);
-      else if (id === pid && poolHolders(c, g).length > 0) payPool(g, c, pay);
-      else {
+      if (g.players[id]) {
+        bump(g, id, pay);
+        covered(id, pay, q / c.shares);
+      } else if (id === pid && poolHolders(c, g).length > 0) {
+        payPool(g, c, pay);
+      } else {
         const a = g.market.accounts[id]!;
         g.market = { ...g.market, accounts: { ...g.market.accounts, [id]: { ...a, cash: a.cash + pay } } };
       }

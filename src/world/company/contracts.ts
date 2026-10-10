@@ -19,9 +19,14 @@ import type { CompanyReject, CompanyWorld, Company, ContractDeal } from './types
 /** Whether `pid` is an insider of the company now (spec 5.3): the owner set (founder, alts, alliance), the CEO, or a holder of
  * at least `insiderStake` of the shares (the bridge reads the listed stock; a private company has no such holder). */
 export function insiderNow(w: CompanyWorld, c: Company, pid: string, env: CompanyEnv): boolean {
+  return insiderByStake(w, c, pid, env.stakeOf?.(pid, c.id) ?? 0);
+}
+
+/** The insider test with the holder's share of the company already read (spec 5.3): the owner set, the CEO, or a stake. */
+export function insiderByStake(w: CompanyWorld, c: Company, pid: string, stake: number): boolean {
   if (ownerSetOf(w, c.ownerId).includes(pid)) return true;
   if (c.ceo?.kind === 'player' && c.ceo.playerId === pid) return true;
-  return (env.stakeOf?.(pid, c.id) ?? 0) >= COMPANY.failure.insiderStake;
+  return stake >= COMPANY.failure.insiderStake;
 }
 
 /** The net debt pieces of the contracts: debt to players (loans in) and receivables from players (loans out). */

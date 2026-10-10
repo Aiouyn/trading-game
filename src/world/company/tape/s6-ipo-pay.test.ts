@@ -75,7 +75,5 @@ describe('Tape s6/s7: IPO and pay rules (unit rows)', () => {
     expect(withTtm(10_000_000)).toBeCloseTo((share * 10_000_000) / 252, 9);
   });
 
-  it.skip('ipo_primary_only [WAIT: the proceeds-to-treasury cash identity is in the money-flow invariants, not a unit row here]', () => {});
-  it.skip('ipo_lockup [WAIT: sell path at listing+167/168 across the window; covered by ipo.test.ts lockup cases]', () => {});
   it.skip('ipo_short_open [WAIT-INSTR: shorting needs the Quant 6.5 instruments, not built]', () => {});
 });
