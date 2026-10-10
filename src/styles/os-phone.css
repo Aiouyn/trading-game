@@ -1,0 +1,132 @@
+/*
+ * Quay phone home and Recent sheet (under 768 px). Port of the style block in docs/team/design/redesign/src/phone.html,
+ * in the same os- namespace and scoped under .os-root. Sizes and radii come from --phone-* tokens and the shared scale.
+ * Recent (velvet-desktop-os.md 159-175): a plain list, no thumbnails, bottom sheet, grab handle, scrim.
+ */
+@layer components {
+  /* ---------- Status bar (44 px): Quay mark, clock, market dot and compact net worth ---------- */
+  .os-root .os-phone-status {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; gap: 8px; height: var(--phone-status-h); padding: 0 22px;
+    font-family: var(--font-mono); font-size: 13px;
+  }
+  .os-root .os-phone-qm {
+    display: grid; place-items: center; width: 26px; height: 26px; margin: 0 8px 0 -5px;
+    border-radius: var(--radius-sm); color: var(--color-brass);
+  }
+  .os-root .os-phone-qm.on { background: color-mix(in srgb, var(--color-brass) 16%, transparent); }
+  .os-root .os-phone-r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+  /* ---------- Home widget: net worth card ---------- */
+  .os-root .os-widget {
+    position: fixed; top: calc(var(--phone-status-h) + 10px); left: 16px; right: 16px;
+    padding: 16px 18px; border-radius: var(--radius-sheet);
+    background: color-mix(in srgb, var(--color-ink-1) 94%, transparent);
+    border: 1px solid var(--color-ink-3); box-shadow: var(--os-window-shadow);
+  }
+  .os-root .os-widget-top { display: flex; align-items: center; }
+  .os-root .os-widget-big {
+    margin-top: 8px; font-family: var(--font-serif); font-size: 44px; line-height: 1; letter-spacing: -0.005em;
+  }
+  .os-root .os-widget-big small { font-size: 28px; color: var(--color-fg-muted); }
+  .os-root .os-prog { height: 3px; margin-top: 12px; overflow: hidden; border-radius: 2px; background: var(--color-ink-3); }
+  .os-root .os-prog-bar { display: block; height: 100%; background: var(--color-brass); }
+
+  /* ---------- Home grid (4 across) and the bottom row ---------- */
+  .os-root .os-home-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); row-gap: 20px; column-gap: 0;
+    padding: 0 14px;
+  }
+  .os-root .os-app { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .os-root .os-app-ic {
+    position: relative; display: grid; place-items: center; width: var(--phone-icon); height: var(--phone-icon);
+    border-radius: var(--phone-icon-radius); background: var(--color-ink-1); border: 1px solid var(--color-ink-3);
+    color: var(--color-brass); box-shadow: var(--phone-icon-shadow);
+  }
+  .os-root .os-app-nm {
+    font-size: var(--text-caption); color: var(--color-fg); white-space: nowrap; text-shadow: var(--phone-label-shadow);
+  }
+  .os-root .os-app.locked .os-app-ic {
+    color: var(--color-fg-disabled); background: color-mix(in srgb, var(--color-ink-1) 80%, transparent);
+  }
+  .os-root .os-app.locked .os-app-nm { color: var(--color-fg-muted); }
+  .os-root .os-app-tag {
+    position: absolute; top: -5px; right: -5px; padding: 1px 4px; border-radius: 5px;
+    background: var(--color-ink-2); border: 1px solid var(--color-ink-3); color: var(--color-fg-muted);
+    font-family: var(--font-mono); font-size: 9px;
+  }
+  .os-root .os-app-badge {
+    position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%;
+    background: var(--color-brass); border: 2px solid var(--color-ink-1);
+  }
+  .os-root .os-home-row {
+    position: fixed; left: 14px; right: 14px; bottom: 34px; height: 92px;
+    display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; padding-top: 2px;
+    border-radius: var(--phone-row-radius); border: 1px solid var(--color-ink-3);
+    background: color-mix(in srgb, var(--color-chrome) 88%, transparent);
+  }
+  .os-root .os-home-edge {
+    position: fixed; bottom: 9px; left: 50%; z-index: 10; transform: translateX(-50%);
+    color: var(--color-fg-faint); opacity: 0.9;
+  }
+
+  /* ---------- Recent sheet ---------- */
+  .os-root .os-scrim {
+    position: fixed; inset: 0; z-index: 8; background: var(--phone-scrim);
+  }
+  .os-root .os-sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 9;
+    padding: 0 16px 40px; background: var(--phone-sheet-bg);
+    border-top: 1px solid var(--color-ink-3); border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+    box-shadow: var(--shadow-sheet);
+    animation: os-sheet-in var(--dur-base) var(--ease-out);
+  }
+  .os-root .os-grab { width: 36px; height: 4px; margin: 9px auto 6px; border-radius: 2px; background: var(--phone-grab); }
+  .os-root .os-sh-top { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px; }
+  .os-root .os-sh-hint { margin-left: auto; font-size: var(--text-caption); color: var(--color-fg-faint); }
+  .os-root .os-rw-wrap { position: relative; overflow: hidden; border-bottom: 1px solid var(--color-ink-3); }
+  .os-root .os-rw-wrap.last { border-bottom: 0; }
+  .os-root .os-rw {
+    position: relative; display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 4px;
+    background: var(--color-ink-1); transition: transform var(--dur-fast) var(--ease-out);
+  }
+  .os-root .os-rw.swiped { transform: translateX(-72px); }
+  .os-root .os-rw-close {
+    position: absolute; top: 0; right: 0; bottom: 0; display: grid; place-items: center; width: 72px;
+    font-size: var(--text-small); font-weight: 600; color: var(--color-loss);
+    background: color-mix(in srgb, var(--color-loss) 12%, var(--color-ink-1));
+  }
+  .os-root .os-rt {
+    position: relative; display: grid; place-items: center; flex: none; width: 36px; height: 36px;
+    border-radius: var(--radius-md); background: var(--color-ink-2); border: 1px solid var(--color-ink-3);
+    color: var(--color-brass);
+  }
+  .os-root .os-adot {
+    position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--color-brass); border: 2px solid var(--color-ink-1);
+  }
+  .os-root .os-rx { flex: 1; min-width: 0; }
+  .os-root .os-rn { font-size: var(--text-body); font-weight: 600; }
+  .os-root .os-rl {
+    margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-fg-muted);
+  }
+  .os-root .os-rtime { font-family: var(--font-mono); font-size: var(--text-micro); color: var(--color-fg-faint); }
+  .os-root .os-home-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; margin-top: 12px;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-md);
+    font-size: 13.5px; font-weight: 500; color: var(--color-fg);
+  }
+  .os-root .os-home-btn .g { color: var(--color-brass); }
+  .os-root .os-empty { margin-top: 12px; font-size: var(--text-body); color: var(--color-fg-muted); }
+
+  @keyframes os-sheet-in {
+    from { transform: translateY(100%); }
+    to { transform: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .os-root .os-sheet { animation: none; }
+    .os-root .os-rw { transition: none; }
+  }
+}
