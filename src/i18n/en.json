@@ -1193,5 +1193,17 @@
   "learn.lesson.7.title": "Shorting a stock",
   "learn.lesson.8.title": "Dividends and DRIP",
   "learn.lesson.9.title": "Round trips and your average cost",
-  "learn.lesson.10.title": "Reading the daily close"
+  "learn.lesson.10.title": "Reading the daily close",
+  "sandbox.scenario.contraction-week.title": "Contraction week",
+  "sandbox.scenario.contraction-week.note": "A falling market. Gold holds up.",
+  "sandbox.scenario.overheating.title": "Overheating",
+  "sandbox.scenario.overheating.note": "A hot market that can roll over.",
+  "sandbox.scenario.flash.title": "Flash crash",
+  "sandbox.scenario.flash.note": "A flash crash on day {day}.",
+  "sandbox.scenario.earnings-heavy.title": "Earnings season",
+  "sandbox.scenario.earnings-heavy.note": "At least {count} stocks report in the first {days} days.",
+  "sandbox.scenario.quiet.title": "Quiet market",
+  "sandbox.scenario.quiet.note": "No index day moves more than {percent}%.",
+  "sandbox.scenario.crypto-winter.title": "Crypto winter",
+  "sandbox.scenario.crypto-winter.note": "Crypto falls while stocks are mixed."
 }
