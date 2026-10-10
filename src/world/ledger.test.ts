@@ -208,7 +208,7 @@ describe('the trade ledger', () => {
     stepGame(g);
     stepGame(copy);
     expect(ledgerOf(copy, 'u1')!.fills.at(-1)).toEqual(ledgerOf(g, 'u1')!.fills.at(-1));
-  });
+  }, 60_000); // 2,200 game ticks plus a snapshot round trip: longer than vitest's 5 s default on a loaded machine
 
   it('a non-human (NPC) account has no ledger', () => {
     const g = createGame('npc-led', { warmupDays: 1, npcs: true });

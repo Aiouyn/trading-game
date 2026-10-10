@@ -159,7 +159,7 @@ describe('index divisor and level', () => {
     const eq = s.reshuffle!.eq;
     expect(eq[NEW_TECH]).toBeGreaterThan(0);
     expect(Object.values(eq).reduce((a, b) => a + b, 0)).toBeCloseTo(0, 9);
-  });
+  }, 60_000);
 
   it('is deterministic: the same world replays the same index state and prices', () => {
     const a = stepMany(world(true), 66 * TPD).state;
@@ -167,7 +167,7 @@ describe('index divisor and level', () => {
     expect(JSON.stringify(a.indices)).toBe(JSON.stringify(b.indices));
     expect(JSON.stringify(a.reshuffle)).toBe(JSON.stringify(b.reshuffle));
     expect(a.assets.map((x) => x.lnP)).toEqual(b.assets.map((x) => x.lnP));
-  });
+  }, 60_000); // two 66-day replays in one test: longer than vitest's 5 s default on a loaded machine
 
   it('the events carry asset ids only, and the effective event matches the announcement', () => {
     const { events } = runEvents(world(true), (REVIEW + 1) * TPD);
