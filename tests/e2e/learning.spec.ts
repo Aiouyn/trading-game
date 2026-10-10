@@ -8,9 +8,10 @@ import { goTo, grant, isPhone, noHorizontalOverflow, register, skipRankUp, skipT
  */
 async function dismissCloseCard(page: Page): Promise<void> {
   const card = page.getByTestId('close-card');
-  await expect(card.or(page.getByTestId('portfolio-tab-journal')).or(page.getByTestId('close-HLCN'))).toBeVisible({ timeout: 15_000 });
-  if (await card.isVisible()) await page.getByTestId('close-done').click();
-  await expect(card).toHaveCount(0, { timeout: 15_000 });
+  await expect(async () => {
+    if (await card.isVisible()) await page.getByTestId('close-done').click({ timeout: 2_000 });
+    await expect(card).toHaveCount(0, { timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
 }
 
 // The learning loop (Phase 3, velvet-trade-journal-replay.md and velvet-research-desk.md): the journal, the analyst and the
