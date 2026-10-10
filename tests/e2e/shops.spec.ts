@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { goTo, isPhone, noHorizontalOverflow, proof, register, skipTips, watchErrors } from './helpers';
+import { dismissCloseCard, goTo, isPhone, noHorizontalOverflow, proof, register, skipTips, watchErrors } from './helpers';
 
 // The Shops tab of the Businesses app (Phase 4 stage C, DECISIONS S2). A lever shows at once; a price waits for the
 // next game day, so these tests cross a day boundary with the admin advance (one game day is 720 ticks, and the
@@ -22,11 +22,15 @@ async function shopNumbers(page: import('@playwright/test').Page, id: string) {
   }, id);
 }
 
-/** Advances the world to the next game day's first tick (the day step runs on tick 721, 1441, ...). */
+/**
+ * Advances the world to the next game day's first tick (the day step runs on tick 721, 1441, ...). The day-close card
+ * opens over the Shops tab when the day ends, so the card is cleared before the caller clicks anything.
+ */
 async function nextGameDay(page: import('@playwright/test').Page): Promise<void> {
   const tick = await page.evaluate(() => window.__tg!.state().frame?.tick ?? 0);
   const next = (Math.floor((tick - 1) / 720) + 1) * 720 + 1;
   await page.evaluate((n) => window.__tg!.advance(n), next - tick);
+  await dismissCloseCard(page, 5_000);
 }
 
 async function buyFoodCart(page: import('@playwright/test').Page): Promise<string> {
