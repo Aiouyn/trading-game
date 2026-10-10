@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CEREMONY_IDLE_MS, ceremonyBeat, ceremonyMayStart } from './ceremony';
+import { alsoRanks, CEREMONY_IDLE_MS, ceremonyBeat, ceremonyMayStart } from './ceremony';
 
 // The OS-update beats (velvet-desktop-os.md, P2-200, P2-201, P2-206).
 describe('OS-update ceremony', () => {
@@ -9,9 +9,19 @@ describe('OS-update ceremony', () => {
     expect(ceremonyBeat(600).dim).toBe(0.85);
     expect(ceremonyBeat(599).installing).toBe(false);
     expect(ceremonyBeat(600).installing).toBe(true);
+    // INSTALLING ends at 1400 ms, when the rank name rises (P2-200), not at 2600 ms.
+    expect(ceremonyBeat(1399).installing).toBe(true);
+    expect(ceremonyBeat(1400).installing).toBe(false);
     expect(ceremonyBeat(1000).progress).toBeCloseTo(0.5, 5);
     expect(ceremonyBeat(1400).progress).toBe(1);
     expect(ceremonyBeat(2600).installing).toBe(false);
+
+    // Multi-rank updates name the ranks they also passed (P2-204).
+    expect(alsoRanks(null, 'R3')).toEqual([]);
+    expect(alsoRanks('R2', 'R3')).toEqual([]);
+    expect(alsoRanks('R0', 'R3')).toEqual(['R1', 'R2']);
+    expect(alsoRanks('R1', 'R6')).toEqual(['R2', 'R3', 'R4', 'R5']);
+    expect(alsoRanks('R4', 'R2')).toEqual([]);
   });
 
   it('the rank name shows from 1400 ms, the three cards from 2600 ms, Keep going from 4200 ms', () => {

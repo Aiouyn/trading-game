@@ -274,7 +274,7 @@ export function OsRoot() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  if (phone) return <PhoneDesk />;
+  if (phone) return <PhoneDesk rank={rankNum as Rank} />;
   const stripH = focusMode ? STRIP_H_FOCUS : STRIP_H;
   const shelfH = focusMode ? 0 : SHELF_H;
   // The toast column moves to the top left when a Broker sits under it (P2-088).

@@ -34,5 +34,8 @@
   "more-credits": null,
   "phone-header": null,
   "phone-main": null,
-  "trade-fade": null
+  "trade-fade": null,
+  "toast": "os-toast-<n>",
+  "more-sheet": null,
+  "inbox-button": "os-bell"
 }

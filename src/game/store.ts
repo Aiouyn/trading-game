@@ -69,6 +69,8 @@ export interface GameStore {
   inboxOpen: boolean;
   chatOpen: boolean;
   rankUp: string | null;
+  /** The rank the player held before rankUp (the ceremony's "Also" ranks run between the two). */
+  rankUpFrom: string | null;
   digestOpen: boolean;
   /** a prefilled ticket (from the stop-loss explainer, a note, the option chain…) */
   ticketPreset: { side: 'buy' | 'sell'; type: 'market' | 'limit' | 'stop' | 'stop_limit' | 'trailing'; qty?: number; stopPrice?: number; limitPrice?: number; nonce: number } | null;
@@ -212,7 +214,7 @@ export const useGame = create<GameStore>((set, get) => {
           wire: msg.wire.length ? [...[...msg.wire].reverse(), ...get().wire].slice(0, WIRE_KEEP) : get().wire,
           ...(msg.pub ? { pub: msg.pub } : {}), ...(msg.directory ? { directory: msg.directory } : {}),
           ...(msg.chat.length ? { chat, chatUnread: get().chatOpen ? 0 : unread } : {}),
-          ...(mine ? { rankUp: mine.rankId } : {}),
+          ...(mine ? { rankUp: mine.rankId, rankUpFrom: get().me?.rank.id ?? null } : {}),
           ...(msg.inbox.some((n) => n.kind === 'fill') ? { tradeSheetOpen: false } : {}),
         });
         queueToasts(toasts);
@@ -236,7 +238,7 @@ export const useGame = create<GameStore>((set, get) => {
         break;
       }
       case 'ack':
-        if (msg.me && get().me && msg.me.rank.id > get().me!.rank.id) set({ rankUp: msg.me.rank.id });
+        if (msg.me && get().me && msg.me.rank.id > get().me!.rank.id) set({ rankUp: msg.me.rank.id, rankUpFrom: get().me!.rank.id });
         if (msg.me) set({ me: msg.me, world: get().frame ? mirrorWorld(get().config, get().frame!, mirrorMe(get().playerId, msg.me), get().world ?? undefined) : get().world });
         break;
       default:
@@ -286,6 +288,7 @@ export const useGame = create<GameStore>((set, get) => {
     inboxOpen: false,
     chatOpen: false,
     rankUp: null,
+    rankUpFrom: null,
     digestOpen: false,
     ticketPreset: null,
     profileId: null,

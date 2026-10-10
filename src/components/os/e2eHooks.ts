@@ -5,6 +5,7 @@
 // it is undefined, and nothing feature-detects around that (P2-250). The world server owns the clock and the
 // prices, so the writes go through the server's admin routes with the admin token the test puts on the page
 // (window.__tgE2eAdmin, set by tests/e2e/helpers.ts through addInitScript). Without that token they do nothing.
+// The shock is the server's admin.shock command (the engine's shockPrice), so a replayed world keeps it.
 import { useGame } from '@/game/store';
 import { worldHttpUrl } from '@/net/client';
 import { backdateIdle } from './idle';
@@ -14,8 +15,8 @@ export interface E2eHooks {
   grantCash: (n: number) => Promise<boolean>;
   /** Moves the player's cash to n through the admin grant (the difference is granted or taken). */
   setCash: (n: number) => Promise<boolean>;
-  /** Prices move on the world server, so the shock hook has no client path in V1 (open item). It throws. */
-  shock: (id: string, pct: number) => never;
+  /** Moves an asset's price (not its value) by pct on the world server, through the admin route. Returns true when it took. Throws on pct <= -1 or a non-finite pct. */
+  shock: (id: string, pct: number) => Promise<boolean>;
   /** Sets the rank-up idle clock to ten seconds ago. Changes no rule (a pending order still blocks). */
   idle: () => void;
   /** A deep copy of the player's orders, read only. */
@@ -93,8 +94,12 @@ const e2eHooks: E2eHooks = {
     const cash = useGame.getState().me?.account?.cash ?? 0;
     return grant(n - cash);
   },
-  shock: (id) => {
-    throw new Error(`shock(${id}): prices move on the world server, which has no client hook in V1`);
+  shock: async (id, pct) => {
+    if (!Number.isFinite(pct) || pct <= -1) throw new Error(`shock(${id}): pct must be a finite number above -1`);
+    const r = await adminPost('/api/admin/shock', { assetId: id, pct });
+    if (r === null || !r.ok) return false;
+    const j = (await r.json()) as { ok?: boolean };
+    return j.ok === true;
   },
   idle: () => backdateIdle(10_000),
   orders: () => structuredClone(useGame.getState().me?.orders ?? []),

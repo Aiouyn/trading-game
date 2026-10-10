@@ -157,8 +157,8 @@ function RecentRow({ entry, current, last }: { entry: PhoneEntry; current: boole
 
 /** A Broker with an unsent ticket gets a dot on its row (P2-160). */
 function DraftDot({ ticker }: { ticker: string }) {
-  const draft = useDrafts((s) => s.tickers[ticker] === true);
-  return draft ? <span className="os-adot" aria-label={t('shell.recent.draft')} /> : null;
+  const draft = useDrafts((s) => !!s.tickers[ticker]);
+  return draft ? <span className="os-adot" data-testid="recents-draft-broker" aria-label={t('shell.recent.draft')} /> : null;
 }
 
 /** The one live line per app (P2-159). Other apps show one fact about themselves. */
@@ -178,7 +178,7 @@ function brokerLine(ticker: string): string {
   const st = useGame.getState();
   if (st.world === null || !knownSeries(st.config, ticker)) return ticker;
   const p = seriesInfo(st.world, ticker, st.me?.rank.id ?? 'R0').price;
-  const draft = useDrafts.getState().tickers[ticker] === true;
+  const draft = !!useDrafts.getState().tickers[ticker];
   return draft
     ? t('shell.recent.broker', { ticker, price: price(p) })
     : t('shell.recent.brokerQuiet', { ticker, price: price(p) });

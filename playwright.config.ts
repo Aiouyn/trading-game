@@ -27,7 +27,8 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: `npm run build && npx next start -p ${PORT}`,
+      // E2E_BUILD_CMD swaps the build (e.g. "npx next build --webpack" where Turbopack cannot run); the default is unchanged.
+      command: `${process.env.E2E_BUILD_CMD ?? "npm run build"} && npx next start -p ${PORT}`,
       url: `http://localhost:${PORT}`,
       env: { NEXT_PUBLIC_WORLD_URL: `http://localhost:${WORLD_PORT}` },
       reuseExistingServer: false,

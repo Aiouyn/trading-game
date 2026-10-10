@@ -5,28 +5,29 @@
 // It waits for no pending order, 10 s idle and no world takeover (P2-201), and never plays over another
 // full-screen moment (P2-209). It is skippable after one second by a tap or Esc (C-31). Reduced motion shows
 // the last beat at once (P2-206). Only the player's own rank-up plays it (P2-207): the store's rankUp is theirs.
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
 import { compactMoney, money } from '@/game/format';
 import { RANKS } from '@/content/lifestyle';
-import { ceremonyBeat, ceremonyMayStart } from '@/shell/ceremony';
+import { alsoRanks, ceremonyBeat, ceremonyMayStart } from '@/shell/ceremony';
 import { rankOrdinal } from '@/shell/ctx';
 import { idleMs, listenActivity } from './idle';
 
 /** The ceremony for the player's own rank-up. The listener for idle time runs whenever the shell is up. */
 export function OsUpdate() {
   const rankUp = useGame((s) => s.rankUp);
+  const from = useGame((s) => s.rankUpFrom);
   useEffect(() => listenActivity(), []);
   if (rankUp === null) return null;
-  return <Ceremony key={rankUp} rankId={rankUp} />;
+  return <Ceremony key={rankUp} rankId={rankUp} from={from} />;
 }
 
 function reducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-function Ceremony({ rankId }: { rankId: string }) {
+function Ceremony({ rankId, from }: { rankId: string; from: string | null }) {
   const pending = useGame((s) => (s.me?.orders ?? []).some((o) => o.status === 'open'));
   const nw = useGame((s) => s.me?.netWorth.total ?? 0);
   const [reduced] = useState(reducedMotion);
@@ -70,8 +71,13 @@ function Ceremony({ rankId }: { rankId: string }) {
   const idx = rankOrdinal(rankId);
   const next = RANKS[idx + 1];
   const close = () => useGame.getState().closeRankUp();
-  const cards = [
-    t(`ceremony.hw.${rankId}`),
+  // A multi-rank update names the ranks it also passed on card 1, in fg-muted (P2-204).
+  const also = alsoRanks(from, rankId).map((id) => RANKS.find((x) => x.id === id)?.name ?? id);
+  const cards: ReactNode[] = [
+    <>
+      {t(`ceremony.hw.${rankId}`)}
+      {also.length > 0 && <span className="mt-2 block text-fg-muted">{t('ceremony.also', { rank: also.join(' · ') })}</span>}
+    </>,
     r.unlocks[0] ?? '',
     next ? t('ceremony.next', { name: next.name, amount: compactMoney(next.threshold) }) : t('ceremony.top'),
   ];

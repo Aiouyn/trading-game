@@ -27,6 +27,7 @@ import {
 import { cyberDay, disconnect, emptyCyber, lockdown, manualScan, plantSession, setBudget, tagEntry } from './cyber';
 import { acceptSettlement, courtTick, fileCase, offerSettlement } from './court';
 import { npcTick, seedNpcs } from './npc';
+import { shockPrice } from '@/engine/sim';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
 
 export interface CreateOptions {
@@ -156,8 +157,22 @@ export function stepGame(g: GameState): StepOutput {
 const fail = (error: string): CommandResult => ({ ok: false, error });
 
 /** Apply one player command at the current tick. Mutates `g`. Deterministic. */
+/**
+ * The e2e price shock (tape-e2e-conventions.md section 3). Only the admin route sends it (the server refuses
+ * admin.* from clients). A refused move is a failed result, not a throw.
+ */
+function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
+  try {
+    g.market.assets = shockPrice(g.market, assetId, pct).assets;
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
   if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out);
+  if (cmd.type === 'admin.shock') return adminShock(g, cmd.assetId, cmd.pct);
   const p = g.players[pid];
   if (!p) return fail('join the world first');
   if (!p.npc) p.lastSeenTick = g.market.tick;

@@ -113,6 +113,11 @@ const http = createServer(async (req, res) => {
       if (!p) return json(res, 404, { ok: false });
       return json(res, 200, host.command(p.id, { type: 'admin.grant', amount: Number(b.amount) || 0 }));
     }
+    if (req.method === 'POST' && url.pathname === '/api/admin/shock') {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      return json(res, 200, host.command('admin', { type: 'admin.shock', assetId: String(b.assetId ?? ''), pct: Number(b.pct) }));
+    }
     if (req.method === 'POST' && url.pathname === '/api/admin/advance') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const n = Math.max(1, Math.min(20_000, Number(url.searchParams.get('n') ?? 1)));

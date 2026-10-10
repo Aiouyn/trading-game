@@ -15,6 +15,8 @@ import { phoneCanOpen } from '@/shell/phone';
 import type { Win } from '@/shell/wm';
 import { AppBody } from './appViews';
 import { Wallpaper } from './DesktopWallpaper';
+import type { Rank } from './hardware';
+import { RankHardware } from './RankHardware';
 import { APP_GLYPH } from './appMap';
 import { Glyph } from './glyphs';
 import { OsToasts } from './OsToasts';
@@ -43,7 +45,8 @@ function homeProps(app: AppId): { ticker?: string } {
   return app === 'broker' ? { ticker: useGame.getState().selected } : {};
 }
 
-export function PhoneDesk() {
+/** The phone desktop. The rank hardware (the R0 bezel, crack and sticker) is drawn here too (P2-193). */
+export function PhoneDesk({ rank }: { rank: Rank }) {
   const palette = usePalette((s) => s.palette);
   const current = usePhone((s) => s.current);
 
@@ -56,6 +59,7 @@ export function PhoneDesk() {
   return (
     <div className="os-desktop os-phone" data-testid="os-phone" data-layout="phone" data-current={current ?? 'home'}>
       <Wallpaper slug={palette} idPrefix="phone" />
+      <RankHardware rank={rank} />
       <div className="os-phone-hw-skyline" aria-hidden />
       <div className="os-phone-hw-horizon" aria-hidden />
       <PhoneStatus />

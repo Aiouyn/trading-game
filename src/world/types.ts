@@ -479,7 +479,9 @@ export type Command =
   | { type: 'donate'; amount: number; cause: string }
   | { type: 'admin.advance'; ticks: number }
   /** dev and tests only: the server refuses admin.* from clients */
-  | { type: 'admin.grant'; amount: number };
+  | { type: 'admin.grant'; amount: number }
+  /** dev and tests only: a test price shock (shockPrice: lnP moves, the value does not) */
+  | { type: 'admin.shock'; assetId: string; pct: number };
 
 export interface CommandResult {
   ok: boolean;

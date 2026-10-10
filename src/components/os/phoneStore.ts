@@ -30,6 +30,8 @@ export function isPhoneViewport(): boolean {
 /** What a history entry carries: the app and its props, or null for home. */
 interface PhoneHistory {
   tgPhone: { app: AppId; props: WinProps } | null;
+  /** In-app entries below this one. A push adds one; the first entry of the tab (a deep link) has none. */
+  depth?: number;
 }
 
 /** The current URL with the query flags kept (?e2e, ?seed, ?fresh...), plus the path's own ticker or file. */
@@ -43,7 +45,9 @@ function urlFor(path: string): string {
 
 function writeHistory(app: AppId | null, props: WinProps, push: boolean): void {
   if (typeof window === 'undefined') return;
-  const state: PhoneHistory = { tgPhone: app === null ? null : { app, props } };
+  // A push adds an entry above the current one; a replace keeps the depth the entry already has (P2-114).
+  const depth = ((window.history.state as PhoneHistory | null)?.depth ?? 0) + (push ? 1 : 0);
+  const state: PhoneHistory = { tgPhone: app === null ? null : { app, props }, depth };
   const url = urlFor(app === null ? '/' : phonePath(app, props));
   if (push) window.history.pushState(state, '', url);
   else window.history.replaceState(state, '', url);
@@ -81,7 +85,10 @@ export function phoneGoHome(): void {
 /** The app bar's chevron and Android Back: one step back through the history (P2-114). */
 export function phoneBack(): void {
   if (typeof window === 'undefined') return;
-  if (window.history.state && (window.history.state as PhoneHistory).tgPhone) window.history.back();
+  const st = window.history.state as PhoneHistory | null;
+  // Back steps only to an in-app entry below this one. The first entry of the tab (a deep link) has none, so the
+  // chevron goes home in place and never navigates the tab out of the app (P2-114).
+  if (st?.tgPhone && (st.depth ?? 0) > 0) window.history.back();
   else phoneGoHome();
 }
 

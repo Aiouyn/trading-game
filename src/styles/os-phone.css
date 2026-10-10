@@ -121,14 +121,8 @@
   .os-root .os-empty { margin-top: 12px; font-size: var(--text-body); color: var(--color-fg-muted); }
 
   /* ---------- Phone rank hardware (velvet-desktop-os.md 186-190, Phone column). Cosmetic only. ----------
-   * Hooks: .os-phone-status (R0 crack), .os-home-row (R2+ panel, R4+ walnut edge), and the wallpaper
+   * Hooks: .os-home-row (R2+ panel, R4+ walnut edge), and the wallpaper
    * layers .os-phone-hw-skyline (R5) and .os-phone-hw-horizon (R6), placed by the phone home in stage 2. */
-  .os-root.shell-r0 .os-phone-status::after {
-    content: ""; position: absolute; top: 0; left: 0; width: 34px; height: 56px; pointer-events: none;
-    background: var(--os-crack);
-    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 56'%3E%3Cpath d='M0 0L16 12L10 22L26 34L20 44L34 56' fill='none' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
-    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 56'%3E%3Cpath d='M0 0L16 12L10 22L26 34L20 44L34 56' fill='none' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
-  }
   /* R2 and R3: brushed-aluminium bottom-row panel, as the shelf */
   .os-root:is(.shell-r2, .shell-r3) .os-home-row {
     background: var(--os-shelf-brush), var(--os-shelf-highlight), var(--color-chrome);

@@ -37,7 +37,7 @@ export function ceremonyBeat(ms: number, reduced = false): CeremonyBeat {
   const installProgress = t < CEREMONY_DIM_MS ? 0 : Math.min(1, (t - CEREMONY_DIM_MS) / (CEREMONY_INSTALL_END_MS - CEREMONY_DIM_MS));
   return {
     dim: t >= CEREMONY_DIM_MS ? 0.85 : (0.85 * t) / CEREMONY_DIM_MS,
-    installing: t >= CEREMONY_DIM_MS && t < CEREMONY_RANK_END_MS,
+    installing: t >= CEREMONY_DIM_MS && t < CEREMONY_INSTALL_END_MS,
     progress: installProgress,
     rankShown: t >= CEREMONY_INSTALL_END_MS,
     cards: t >= CEREMONY_RANK_END_MS ? 3 : 0,
@@ -45,6 +45,17 @@ export function ceremonyBeat(ms: number, reduced = false): CeremonyBeat {
     skippable: t >= CEREMONY_SKIP_AFTER_MS,
     done: t >= CEREMONY_CARDS_END_MS,
   };
+}
+
+/**
+ * The ranks a multi-rank update also passed (P2-204): the ids strictly between `from` and `to`, in order. The
+ * ceremony plays `to` (the highest); card 1 names these as "Also". Ids are R0..R6; a missing or equal `from` gives none.
+ */
+export function alsoRanks(from: string | null, to: string): string[] {
+  const f = from === null ? NaN : Number(from.slice(1));
+  const t = Number(to.slice(1));
+  if (!Number.isFinite(f) || !Number.isFinite(t) || t - f < 2) return [];
+  return Array.from({ length: t - f - 1 }, (_, k) => `R${f + 1 + k}`);
 }
 
 /** What blocks the ceremony from starting now. Every flag is read by the caller at each check. */
