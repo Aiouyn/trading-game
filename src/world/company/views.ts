@@ -4,7 +4,7 @@
  * rule that keeps it inside the Company app is a C-stage item.
  */
 
-import { COMPANY, type CompanyRole, type CompanySector, type CompanyTierId } from '@/content/company';
+import { COMPANY, PHARMA_GATES, type CompanyRole, type CompanySector, type CompanyTierId } from '@/content/company';
 import { gaFactor, plantCost, productiveHeads, unitCostToday } from './economics';
 import { headcountBand, ttmFiled } from './signals';
 import { projectBand, qualityScore } from './rd';
@@ -55,8 +55,14 @@ export interface CompanyFounderView extends CompanyPublic, OperationsView {
   productsPrivate: {
     id: string; name: string; price: number; quality: number; qualityScore: number; unitCost: number; share: number;
     marketing: number; generation: number; brand: number;
+    /** the patents still in force: the day each ends and the gain it protects, in quality-score points */
+    patents: { until: number; points: number }[];
   }[];
-  projects: { id: string; kind: string; spend: number; endDay: number; pBand: [number, number]; dqBand: [number, number, number]; gainPoints: [number, number, number] }[];
+  projects: {
+    id: string; kind: string; spend: number; endDay: number; pBand: [number, number]; dqBand: [number, number, number]; gainPoints: [number, number, number];
+    /** pharma only: the odds of each of the three gates (all must pass); empty for the other sectors */
+    gateOdds: number[];
+  }[];
   capTable: { holder: string; shares: number }[];
   ledgerToday: { reason: string; amount: number; day: number }[];
   loans: never[];
@@ -152,6 +158,8 @@ export function founderCompanyView(w: CompanyWorld, playerId: string, companyId:
       marketing: p.marketing,
       generation: p.generation,
       brand: p.brand,
+      // the patents in force: a patent pauses NPC imitation of its gain until `until` (rd.ts)
+      patents: p.patents.filter((pt) => pt.until > day).map((pt) => ({ until: pt.until, points: COMPANY.qualityScale.slope * pt.lnGain })),
     })),
     projects: c.projects.map((p) => {
       // the band is read from the frozen S_ref and k of the project (the same ones the gain uses)
@@ -165,6 +173,8 @@ export function founderCompanyView(w: CompanyWorld, playerId: string, companyId:
         dqBand: [band.dqBear, band.dqBase, band.dqBull] as [number, number, number],
         // the same gains in quality-score points (the score is 30 ln q, so a gain in ln is slope times the gain)
         gainPoints: [band.dqBear, band.dqBase, band.dqBull].map((x) => COMPANY.qualityScale.slope * x) as [number, number, number],
+        // the realised gates stay hidden until the project ends: the founder sees the odds of each gate only
+        gateOdds: c.sector === 'health' ? [...PHARMA_GATES.odds] : [],
       };
     }),
     ...operationsView(w, c, day),

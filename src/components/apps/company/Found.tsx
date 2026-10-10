@@ -78,7 +78,7 @@ export function Found() {
           </label>
           <div className="flex flex-col gap-1">
             <span className="label">{t('company.ui.found.capital')}</span>
-            <NumberField value={capital} onChange={setCapital} min={COMPANY.founding.minEquity} testId="company-capital" label="$" />
+            <NumberField value={capital} onChange={setCapital} min={COMPANY.founding.minEquity} testId="company-found-capital" label="$" />
             <span className="text-caption text-fg-faint">{t('company.ui.found.minCapital', { min: money(COMPANY.founding.minEquity) })}</span>
           </div>
         </div>

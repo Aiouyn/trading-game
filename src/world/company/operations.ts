@@ -6,8 +6,23 @@
  */
 
 import { COMPANY, type CompanyRole, type CompanySector, type CompanyTierId } from '@/content/company';
+import { gaFactor } from './economics';
+import { severanceOf } from './governance';
+import { decisionCard, type DecisionCard } from './preview';
 import { headcountCap, wagesPerDay } from './staff';
 import type { Company, CompanyWorld, ExecRole, ExecTrait, Holder } from './types';
+
+/** The G&A span line (CB-035, §4): one G&A head supports `span` others; a missing one costs `gaPenalty` of every output. */
+export interface GaSpanView {
+  span: number;
+  gaHeads: number;
+  /** the other heads (ops, sales and R&D) the G&A team must cover */
+  others: number;
+  /** the G&A heads the span needs for those others */
+  needed: number;
+  /** the output factor of today (1 when the span is covered) */
+  factor: number;
+}
 
 /** The limits the forms and the copy show. The engine enforces the same numbers (companyAction and the franchise rules). */
 export interface CompanyLimits {
@@ -32,6 +47,8 @@ export interface ExecutiveView {
   salary: number;
   hiredDay: number;
   termEnd: number;
+  /** the severance a firing pays (21 gd of salary); a firing before `termEnd` is refused */
+  severance: number;
 }
 
 export interface OperationsView {
@@ -50,6 +67,10 @@ export interface OperationsView {
   /** the other companies a supply deal can name: id, name and sector (public registration data) */
   suppliers: { id: string; name: string; sector: CompanySector }[];
   limits: CompanyLimits;
+  /** the G&A span line of the People tab */
+  gaSpan: GaSpanView;
+  /** the decision card of the Overview (a quality project at three spend levels) and its runway chart; null without R&D effort */
+  decision: DecisionCard | null;
   /** seated heads across the four roles */
   heads: number;
   /** the daily payroll (wages and executive salaries) and the days of cash it covers, null when there is no payroll */
@@ -70,13 +91,24 @@ export function operationsView(w: CompanyWorld, c: Company, day: number): Operat
   let execPay = 0;
   for (const role of EXEC_ROLES) {
     const e = c.execs?.[role];
-    execs[role] = e ? { role, trait: e.trait, holder: e.holder, salary: e.salary, hiredDay: e.hiredDay, termEnd: e.termEnd } : null;
+    execs[role] = e
+      ? { role, trait: e.trait, holder: e.holder, salary: e.salary, hiredDay: e.hiredDay, termEnd: e.termEnd, severance: severanceOf(e.salary) }
+      : null;
     if (e) execPay += e.salary;
   }
   const wages = wagesPerDay(c);
   const payroll = wages.ops + wages.sales + wages.rd + wages.ga + execPay;
   const band = COMPANY.demand.priceRef * COMPANY.demand.priceBand;
+  const others = c.staff.ops.total + c.staff.sales.total + c.staff.rd.total;
   return {
+    gaSpan: {
+      span: COMPANY.gaSpan,
+      gaHeads: c.staff.ga.total,
+      others,
+      needed: Math.ceil(others / COMPANY.gaSpan),
+      factor: gaFactor(c.staff),
+    },
+    decision: decisionCard(c, day, payroll),
     execs,
     ceoChange: c.ceoChange ? { announcedDay: c.ceoChange.announcedDay, effectiveDay: c.ceoChange.effectiveDay } : null,
     ceoFreeze: c.ceoFreeze && c.ceoFreeze.untilDay > day ? { untilDay: c.ceoFreeze.untilDay } : null,

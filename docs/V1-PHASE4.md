@@ -393,6 +393,25 @@ What is in:
 - Exchange is visible now (no hidden flag, no "Coming later" link toast). Its window shows the stub until the Exchange work lands.
   Launchpad stays hidden until Phase 5.
 
-Not in this half (open): the runway chart and the checklist on Overview; the patents and pharma gates on R&D; the G&A span line
-on People; the CEO change action (only the notices); the launch of next-gen products (the founder view does not carry the
-launch credits yet); the capital tab (loans, dividends, buybacks, the IPO, the trading plan) and the Filings view.
+Fix pass on the review (same branch):
+- Overview: the decision card (the first product's quality project at three S_ref levels, with odds, gain, runway before and
+  after, and the clock line), the runway chart (payroll-only cash as now, against the chosen decision), and the five-step
+  checklist (a guide, folded to one line when done). The numbers come from `src/world/company/preview.ts` (pure).
+- R&D: the odds of each pharma gate, the patents in force (`product.patents`, active only), and a second start is sent to the
+  engine and refused as `projectBusy` (the button is no longer disabled).
+- People: the G&A span line (`gaSpan`), and an executive's severance (`severanceOf`, 21 gd of salary) shown before the firing,
+  which asks a second click (`ConfirmButton`).
+- Market side: every `CompanyPublic` field has its section (registry, listed, balance, filings, signals, insider trades,
+  buybacks, plan skips and ends, distress, covenant, credibility).
+- Rulings: NPC rival shares stay private (Velvet: the public competitors table is all a founder can know about rivals; the
+  per-product share is private). The rivals table shows names and prices. The import boundary now allows exactly the Company
+  app, `world/company/views.ts`, `world/company/index.ts`, `world/view.ts` (the transport of the owner's own view, a lead ruling)
+  and world tests; `boundary.test.ts` also catches namespace access, `typeof`, star and dynamic imports.
+- The founding capital input is `company-found-capital` (it collided with the Capital tab root `company-capital`).
+- Exchange stays visible as the brief asks; its window is the generic stub until p4-ex lands (C-38 is superseded by the
+  brief; a lead ruling is needed if C-38 should hold).
+
+Still open: the Overview decision is applied at once through the engine's `startProject` (Velvet asks for the next-day-close
+staging, which the engine does not have yet); the "was" tick on the slider; the CEO change action (only the notices); the
+launch of next-gen products (the founder view does not carry the launch credits yet); the capital tab (loans, dividends,
+buybacks, the IPO, the trading plan) and the Filings view.

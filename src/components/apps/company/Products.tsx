@@ -57,6 +57,7 @@ export function Products({ co }: { co: CompanyFounderView }) {
             </tbody>
           </table>
         )}
+        <p className="mt-3 text-caption text-fg-faint" data-testid="company-rivals-note">{t('company.ui.rivals.note')}</p>
       </Section>
     </div>
   );

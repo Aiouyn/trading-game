@@ -1,13 +1,14 @@
 'use client';
 
-// People (Velvet 5 and C4): headcount by role with the caps, hiring and letting go, and the four executive seats with
-// their trait, salary and term. Hires take 3 game days to fill; the engine refuses a hire the cash cannot cover.
+// People (Velvet 5 and C4): headcount by role with the caps, the G&A span line, hiring and letting go, and the four
+// executive seats with their trait, salary, term and severance. Hires take 3 game days to fill; the engine refuses a hire
+// the cash cannot cover. A firing of an executive names its severance and asks for a second click.
 import { useState } from 'react';
 import { COMPANY } from '@/content/company';
-import { money } from '@/game/format';
+import { money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, NumberField, Select, Td, Th } from '@/components/ui';
+import { Button, ConfirmButton, NumberField, Select, Td, Th } from '@/components/ui';
 import type { CompanyFounderView } from '@/world/company/views';
 import type { ExecutiveView } from '@/world/company/operations';
 import type { CompanyRole } from '@/content/company';
@@ -39,6 +40,7 @@ function Staff({ co }: { co: CompanyFounderView }) {
     setBusy(false);
     setRefusal(refusalOf(ack));
   };
+  const span = co.gaSpan;
   return (
     <Section
       title={t('company.ui.team.title')}
@@ -49,6 +51,13 @@ function Staff({ co }: { co: CompanyFounderView }) {
         {co.limits.headcountCap === null ? t('company.ui.team.noCap') : t('company.ui.team.cap', { cap: co.limits.headcountCap })}
         {' · '}
         {t('company.ui.team.count')} <span className="num">{co.heads}</span>
+      </p>
+      <p className="mb-3 text-caption text-fg-muted" data-testid="company-ga-span">
+        {t('company.ui.ga.line', { span: span.span, gaHeads: span.gaHeads, others: span.others, needed: span.needed })}
+        {' '}
+        {span.factor < 1
+          ? t('company.ui.ga.short', { factor: pct(span.factor) })
+          : t('company.ui.ga.covered')}
       </p>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[420px] text-left">
@@ -135,7 +144,22 @@ function ExecSeat({ role, exec, companyId }: { role: ExecRole; exec: ExecutiveVi
         )}
       </div>
       {exec ? (
-        <Button size="sm" className="mt-2" disabled={busy} onClick={remove} testId={`company-exec-fire-${role}`}>{t('company.ui.exec.fire')}</Button>
+        <div className="mt-2 flex flex-col gap-2">
+          <p className="text-caption text-fg-faint" data-testid={`company-exec-severance-${role}`}>
+            {t('company.ui.exec.severance', { amount: money(exec.severance), day: exec.termEnd })}
+          </p>
+          <div>
+            <ConfirmButton
+              size="sm"
+              disabled={busy}
+              confirm={t('company.ui.exec.fireConfirm', { amount: money(exec.severance) })}
+              onConfirm={remove}
+              testId={`company-exec-fire-${role}`}
+            >
+              {t('company.ui.exec.fire')}
+            </ConfirmButton>
+          </div>
+        </div>
       ) : (
         <div className="mt-2 grid gap-2 @md:grid-cols-[1fr_1fr_auto] @md:items-end">
           <Select<ExecTrait>
