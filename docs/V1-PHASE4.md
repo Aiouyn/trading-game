@@ -261,6 +261,27 @@ Other interpretations in `6c63fb3` (one real hour is 720 ticks, one game day; li
 | `npm run build` (Turbopack) | PASS |
 | `npm run e2e` (with `E2E_BUILD_CMD="npx next build --webpack"`) | PASS. 495 tests: 192 passed, 0 failed, 303 skipped (by project, as in Phase 3). |
 
+### 5.1 Checks at `ee80574` (re-measured on `f4a208c`, which changes docs only)
+
+The section 5 table above is the stage A measurement at `3d43d22`. The checks below are the stage B gates at `ee80574`. The code is the same at `f4a208c`, because that commit touches only docs.
+
+| Command | Result |
+|---|---|
+| `npx vitest run --maxWorkers=4` | 122 files, 1308 passed, 1 skipped (re-run 2026-10-10) |
+| `npx playwright test --workers=1` (`E2E_PORT=3211 E2E_WORLD_PORT=8801 E2E_BUILD_CMD="npx next build --webpack"`) | Exit 1. 495 tests: 185 passed, 1 failed, 303 skipped (by project), 6 did not run (the close-card projects, which depend on the failed phone project). 15.9 min. The failure is in the phone project, see below. |
+| `npx playwright test --workers=2` (run 2 of the stage B gate) | 192 passed, 0 failed, 303 skipped (13.2 min). This is the only full green run at `ee80574`. |
+| `npx playwright test` with the default workers (8 on this host) | 83 passed, 77 failed, 58 skipped, 277 did not run. This run is not a gate: see the classification below. |
+
+The one `--workers=1` failure: `tests/e2e/learning.spec.ts:7` on the phone project ("a closed trade lands in the journal as a row"). The Portfolio close button `close-HLCN` was covered by the day-close card (`data-testid="close-card"`, "THE PORT AVALON CLOSE", day 5). The test does not dismiss the card, so the click waited 60 s. The card opens when a game day closes during a test. This is a test-side gap, not a load flake, and it is not fixed here.
+
+Classification of the default-workers run (the "load flakes" label in f4a208c is not a diagnosis):
+- The run has 77 failed entries: 18 desktop, 12 desktop-1000, 10 desktop-1920, 12 desktop-900, 25 phone. f4a208c named eight desktop failures; the log has 77.
+- The error lines in that run: 61 `worker process exited unexpectedly (code=3221225794)`, 9 `ENOSPC: no space left on device`, and 6 waits for `html[data-game=ready]` that timed out after 30 s (desktop and desktop-1920). Only the ENOSPC lines have a stated cause. The worker exits and the ready timeouts are not diagnosed.
+- Matched against the `--workers=1` run, the 77 entries split into 35 passed, 41 skipped by design, and 1 failed (the phone learning test above). The 41 are project-gated: the shell specs call `onlyIn(...)` (`tests/e2e/shell/support.ts`), so a viewport they do not list is skipped, not run. Those entries are not evidence of a failure in that project.
+- All eight tests named in f4a208c pass at `--workers=1` on the desktop project: screens "chat", research-desk "dom_no_trader_names", learning "at Operator the desk opens for a fee", shell focus "the state is kept per save", shell keys "AZERTY", shell deeplinks "@route_every_app", no-leak "L3 and L4", and ceremony "a drag in progress holds the ceremony back".
+
+Disk: C: had 4.43 GB free before the `--workers=1` run, 3.8 GB at its lowest, and 4.4 GB after it. A reading of about 0.25 GB, which f4a208c's review mentions, is not in any log in this repo. Playwright writes `test-results/` (traces and screenshots on failure) and `playwright-report/`. Both are gitignored, and both still hold the artifacts of the runs above.
+
 ## 6. Open items
 
 1. **Shops gates.** Resolved in stage B (2.2a): all three gated styles hold on every tier at 20 seeds (`npm run balance:shops`). Still open: the ladder against a flat lock (Mathis, `shops.md` 6.2), and the managed row, which is above S3's well-run payback (lead).
