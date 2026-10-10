@@ -48,6 +48,8 @@ test('a lever shows at once, a price waits for the next game day, and a second p
   await skipTips(page);
   const id = await buyFoodCart(page);
 
+  // a day can end on its own during the test and open the close card over the tabs: clear it before the tab click
+  await dismissCloseCard(page);
   await page.getByTestId('tab-shops').click();
   const card = page.getByTestId(`shop-${id}`);
   await expect(card).toBeVisible();
