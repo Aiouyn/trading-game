@@ -368,3 +368,33 @@ Disk: C: had 4.43 GB free before the `--workers=1` run, 3.8 GB at its lowest, an
 | `npm run e2e` re-checks | `learning.spec.ts`: 8 of 8 pass. The close-card projects, run with the dependency edge kept: 6 of 6 pass. Total: 192 passed, 303 skipped, 0 failed. |
 
 The close-card re-check ran through a temporary Playwright config outside the repo (the full suite's dependency projects otherwise run too). It was removed and is not committed.
+
+## 9. The Exchange app (`p4/ex`)
+
+The Quay app `exchange` is visible from Phase 4 (`src/shell/apps.ts`: `available: true`, on the shelf after Portfolio). Launchpad stays hidden until Phase 5. A deep link to `/exchange` opens the window (no "Coming later" notice).
+
+### 9.1 What is in
+
+- **Player stocks** (`StocksTab.tsx`): every listed player company, from `publicCompanyView` only (`CompanyPublic`). Each row shows the window state, the trailing filed revenue band (late companies), the last five weekly signals, the last four filings with their income, balance and cash-flow lines, the founder's filed trades, the sell plans and their skips (day and reason; no minimum price), buyback programs, the takeover line and the backstop note. Trade opens the Broker on the ticker.
+- **IPO books** (`IposTab.tsx`): the books open today, with price, float, shares offered, the 5% cap per buyer, and the listing day. Subscribe sends `company.ipoOrder`. The form refuses an order above the viewer's room under the cap (`exchange.ipo.overCap`, three parts) before anything is sent, and shows the room left. A blocked account sees the owner-set or the 7-game-day reason in three parts (`company.refusal.*`). The book's other orders are never shown: the view carries only the viewer's own subscription.
+- **Player-run funds** (`FundsTab.tsx`): the open funds (`publicFunds`), with mandate, fees, NAV history, AUM bucket and public filings. The investor list and other holders' units are never in the view. Invest (`fund.deposit`) and redeem (`fund.redeem`) show the early-exit fee and the 25% limit before the player sends, and refusals inline in three parts (`funds.refusal.<code>.what/why/do`).
+- **Trading as the fund** (`src/components/apps/broker/OrderTicket.tsx`): a manager's Broker ticket has a "Trade as" selector (me or the fund). In fund mode the ticket checks the fund's cash, position and mandate class, sends `fund.trade` through the fund account (market or limit only), and shows a fund refusal inline in three parts. The selector is absent for everyone else.
+- **Holdings** (`HoldingsTab.tsx`): the viewer's own units, what waits for a redemption, what is owed, the early-exit window, and any front-running case.
+- **Manager console** (`ManageTab.tsx`): open a fund (`fund.create`, Operator rank, 14 game days, $250k stake, mandate and fees), then the console of the fund: notices (freeze with the wind-down day, breaker, a pending mandate with its remaining time, a front-running case, a verdict), the NAV, the cash and positions, the stake floor and AUM cap, fees accrued and crystallized, a trade ticket through the fund account (`fund.trade`, market or limit, inside the mandate), and the mandate change (`fund.mandate`, 24 real hours of notice).
+
+### 9.2 Views and copy
+
+- `src/world/exchange/view.ts` builds `ExchangeView`, carried in `PlayerView.exchange`. Every number is computed here; the screens format them. Tests: `src/world/exchange/view.test.ts` (13 cases: the public-only shape, the IPO exclusions and room under the cap, holdings, the console and its filing days, the mandate notice, the fee and day helpers).
+- Copy: `src/components/apps/exchange/copy.ts`, tested by `copy.test.ts` (every key a helper can return exists in en and fr). The 28 fund refusals moved from one line to `.what / .why / .do` in en and fr, and `funds.test.ts` checks the three parts.
+- All strings use `exchange.*` keys (en and fr, same key set). `react/jsx-no-literals` is clean on the touched files.
+
+### 9.3 Deviations (for lead or Quant)
+
+1. **Consensus is not shown.** Quant v1.7 §11 `CompanyPublic` has no consensus field (the NPC consensus is an engine estimate). The Exchange shows the public signals instead.
+2. **The IPO 5% cap is enforced in the form, not in the world.** `company.ipoOrder` accepts an order above the cap and `allocateIpo` cuts it at allocation (N8, `ipo.test.ts` "ipo-cap"). The Exchange refuses it before sending, so a player never meets the silent cut. A direct command over the cap is still accepted by the world. Owner: Quant to decide whether the world should refuse it too.
+3. **Takeover status has no public field.** `CompanyPublic` carries no takeover state, and a tender settles in one step, so the Exchange says so ("Takeover bids settle in one step: no offer stays open to watch."). A public history of tenders would need a view field. Owner: Quant (view) and Forge.
+4. **Velvet spec corrected to Quant v1.7** (`docs/team/specs/velvet-company-app.md` v1.5, DECISIONS C5): the clawback box, the public plan row without the minimum price, the Late-tier index clause, the insider filing instrument, and the IPO can't-buy rule.
+
+### 9.4 e2e
+
+`tests/e2e/exchangeFunds.spec.ts` runs two flows: the manager's fund create and, from the Broker, a market buy through the fund account (the "Trade as" selector); and an investor's flow where a manager opens a fund, an investor (registered first, aged 7 real days by the admin advance) deposits, sees the holding, redeems (the early-exit notice shows), and is paid at the next day close. The spec matches the time-advancing pattern, so `playwright.config.ts` runs it in the close-card projects (`CLOSE_SPECS` now also matches `exchangeFunds.spec.ts`).

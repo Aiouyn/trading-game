@@ -120,7 +120,7 @@ describe('initial shell', () => {
   it('keeps the table shelf order with Broker first and no hidden apps', () => {
     const s = fresh();
     expect(s.shelf[0]).toBe('broker');
-    expect(s.shelf).not.toContain('exchange');
+    expect(s.shelf).toContain('exchange');
     expect(s.shelf).not.toContain('launchpad');
   });
 });
@@ -197,7 +197,6 @@ describe('open', () => {
   });
 
   it('refuses the hidden apps as unavailable (C-38)', () => {
-    refused(fresh(), { type: 'open', app: 'exchange' }, 'unavailable');
     refused(fresh(), { type: 'open', app: 'launchpad' }, 'unavailable');
   });
 

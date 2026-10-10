@@ -23,6 +23,8 @@ const SettingsView = dynamic(() => import('./SettingsView').then((m) => m.Settin
 const LearnApp = dynamic(() => import('./LearnApp').then((m) => m.LearnApp), { ssr: false });
 const ResearchDesk = dynamic(() => import('./ResearchDesk').then((m) => m.ResearchDesk), { ssr: false });
 const CompanyApp = dynamic(() => import('./CompanyApp').then((m) => m.CompanyApp), { ssr: false });
+// The Exchange (Phase 4): listed player stocks, IPO books and player-run funds. Its code loads on first open.
+const ExchangeApp = dynamic(() => import('@/components/apps/exchange/ExchangeApp').then((m) => m.ExchangeApp), { ssr: false });
 
 /** A window's content. `size` is the window's current size, which the Broker lays itself out by. */
 export function AppBody({ win, size }: { win: Win; size: Size }) {
@@ -57,6 +59,8 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
       return <ResearchDesk />;
     case 'company':
       return <CompanyApp />;
+    case 'exchange':
+      return <ExchangeApp />;
     default:
       return <Stub />;
   }

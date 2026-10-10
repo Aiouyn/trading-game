@@ -15,6 +15,7 @@ import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, p
 import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
 import { defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
 import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
+import { exchangeView, type ExchangeView } from './exchange/view';
 import type {
   Alliance, BoardRow, Boards, Business, ChatMessage, ConnectionEntry, CourtCase, CyberOp, Deal, GameState, InboxItem,
   LabState, Player, Property, WireItem,
@@ -206,6 +207,8 @@ export interface PlayerView {
     /** ISO weeks this player has used their weekly challenge attempt (durable) */
     challengeWeeks: string[];
   };
+  /** the Exchange app: listed player stocks, open IPO books, player-run funds, the viewer's fund holdings and the manager console */
+  exchange: ExchangeView;
 }
 
 export function playerView(g: GameState, pid: string): PlayerView | null {
@@ -251,6 +254,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
     mortgageRate: mortgageRate(g),
     digest: away.length ? { since: p.digestSeenTick, items: away, netWorthThen: p.digestNetWorth } : null,
     trading: tradingView(g, pid),
+    exchange: exchangeView(g, pid),
   };
 }
 

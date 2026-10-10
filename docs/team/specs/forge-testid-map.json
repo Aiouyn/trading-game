@@ -170,5 +170,8 @@
     "calendar-busy": "count line for the two game days ahead",
     "calendar-next": "the two game days ahead list",
     "calendar-item-<i>": "one dated item in the list"
+  },
+  "exchange-app-p4": {
+    "note": "Phase 4 Exchange (Forge, p4/ex). Velvet names no Exchange ids, so nothing is renamed. Forge-named ids: exchange-view, exchange-stocks, exchange-stock-<ticker>, exchange-trade-<ticker> (opens the Broker), exchange-ipos, exchange-ipo-<companyId> with exchange-ipo-overcap-<id> and exchange-ipo-room-<id>, exchange-funds, exchange-fund-card-<id>, exchange-invest, exchange-redeem, exchange-console (manager), exchange-trade, exchange-mandate. Broker fund selector: order-account, account-me, account-fund, account-fund-note, order-fund-refusal. The Public chip keeps Velvet id publ-chip."
   }
 }

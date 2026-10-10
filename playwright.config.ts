@@ -6,8 +6,11 @@ export const E2E_ADMIN = "e2e-admin";
 
 /** The shell specs (tests/e2e/shell) run on every desktop viewport; the older specs stay on desktop and phone. */
 const SHELL_SPECS = /[\/]shell[\/].*\.spec\.ts$/;
-/** The day-close specs (a game day's advance in the shared world): see the close-card projects below. */
-const CLOSE_SPECS = /closeCard\.spec\.ts$/;
+/**
+ * The time-advancing specs (a game day's advance, or a fund's waiting periods, in the shared world): see the close-card
+ * projects below. The fund flow (exchangeFunds.spec.ts) advances the world past the account-age rules (7 real days).
+ */
+const CLOSE_SPECS = /(closeCard|exchangeFunds)\.spec\.ts$/;
 const chromium = { browserName: "chromium" as const };
 
 /**

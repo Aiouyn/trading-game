@@ -553,10 +553,12 @@ describe('refusal copy and the French', () => {
     'fundInsiderCap', 'fundSelfMatch', 'fundOrderRejected', 'fundDeposit', 'fundInvestorAge', 'fundInvestorLink',
     'fundInvestorLimit', 'fundStakeLow', 'fundAumCap', 'fundRedeem', 'fundMandateInvalid', 'fundTradeInvalid',
   ];
-  it('every refusal code has a line in English and in French', () => {
+  it('every refusal code has its three parts (what, why, do) in English and in French', () => {
     for (const c of codes) {
-      expect((en as Record<string, string>)[`funds.refusal.${c}`], c).toBeTruthy();
-      expect((fr as Record<string, string>)[`funds.refusal.${c}`], c).toBeTruthy();
+      for (const part of ['what', 'why', 'do']) {
+        expect((en as Record<string, string>)[`funds.refusal.${c}.${part}`], `${c}.${part}`).toBeTruthy();
+        expect((fr as Record<string, string>)[`funds.refusal.${c}.${part}`], `${c}.${part}`).toBeTruthy();
+      }
     }
   });
   it('every fund message key exists in both languages', () => {

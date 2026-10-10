@@ -29,6 +29,8 @@ export interface CompanyPublic {
   filings: FilingPublic[];
   /** Seed and Growth: the banded registry, which moves only at a filing (no statement is public) */
   registry?: { tier: CompanyTierId; headcountBand: string; revenueBand: [number, number] | null };
+  /** Late and listed companies: the band of the revenue they have filed over their last four quarters (null before the first filing). */
+  revenueBand?: [number, number] | null;
   /** listed only, the last 13 */
   signals: WeeklySignal[];
   credibility: number;
@@ -99,6 +101,11 @@ export function publicCompanyView(c: Company, day: number): CompanyPublic {
     pub.listed = { assetId: c.listed.assetId, ipoDay: c.listed.ipoDay, sharesOut: c.listed.sharesOut, floatShares: c.listed.floatShares };
   }
   if (last) pub.cashDebt = { cash: last.balance.cash, totalDebt: last.balance.debt, filedDay: last.filedDay };
+  if (late) {
+    // the same band as the registry's, over the filed quarters (up to four): it moves only at a filing
+    const filed = c.filings.length > 0 ? ttmFiled(c.filings, 4).rev : null;
+    pub.revenueBand = filed === null ? null : [filed * 0.9, filed * 1.1];
+  }
   if (!late) {
     // the band is a band of the filed TTM revenue: it is null until the first filing and moves only at a filing
     const filed = c.filings.length > 0 ? ttmFiled(c.filings, 4).rev : null;
