@@ -1,19 +1,19 @@
 # V1 Phase 1: Market 2.0, status
 
 Scope: Phase 1, items 1 to 7, of `C:/Users/Mathis/.claude/plans/expressive-sprouting-aurora.md`.
-Branch: `v1`. Date of this status: 2026-10-10, after the closing round. Measured at HEAD `0e7c9f3` unless a section says otherwise.
+Branch: `v1`. Date of this status: 2026-10-10, after the closing round and round 3. Measured at HEAD `0e7c9f3` unless a section says otherwise. Round 3 (`0524edf`, branch `p1/r3`) is merged no-ff as `182c036` and recorded in section 3l. The branch tip `0e9b771` (round 4) is merged too; its results are in its commit body and are not recorded in this file.
 Status words: **Done** (built and tested), **Partial** (built, with named gaps), **Not built** (no code found on v1), **Deferred** (moved to a later phase on purpose), **Fixed** (a measured failure now passes), **Decided** (lead decision recorded, with the reason), **Open** (no decision yet).
 
 ## 1. State at this commit
 
-Merges (no-ff) in the closing round: `813c754` (p1/impact), `1146d5e` (p1/calib, with its follow-up `ba2e950` on v1 first), `0e7c9f3` (p1/market). Earlier merges are in section 8.
+Merges (no-ff) in the closing round: `813c754` (p1/impact), `1146d5e` (p1/calib, with its follow-up `ba2e950` on v1 first), `0e7c9f3` (p1/market). Round 3: `182c036` (p1/r3, tip `0e9b771`). Earlier merges are in section 8.
 
 | Check | Result |
 |---|---|
 | `npx next typegen` | exit 0 |
 | `npx tsc --noEmit` | exit 0 |
-| `npx vitest run` | 29 files, 281 tests, all pass |
-| `npx eslint src scripts` | 0 errors, 398 warnings (mostly `react/jsx-no-literals`, unused vars) |
+| `npx vitest run` | 48 files, 621 tests, all pass (at `182c036`, after the round 3 merge; was 29 files, 281 tests) |
+| `npx eslint src scripts` | 0 errors, 398 warnings at the closing round (mostly `react/jsx-no-literals`, unused vars); not re-run after round 3 |
 | Load gate, 4,000 players, 120 ticks | tick total p99 188 ms against a 2,500 ms gate: PASS (section 3j, measured before this round, not re-run) |
 
 Universe at HEAD (`universeConfig()`): 183 assets, ecology in full mode, three rival funds.
@@ -41,7 +41,7 @@ Cost note: the universe balance run took 317.8 us per tick against 31.4 us for t
 | 4 | News priced-in bands (`news.ts`) | Done | 6dbfc1d (earnings timing from `catalysts.ts`, a24e507) | Early / Mid / Late / Priced-in chips on move and earnings stories, in en and fr. The share is never shown. Rate shocks enter `dayJump` in every mode (149bcec). |
 | 5 | Ecology (`ecology.ts`, `signals.ts`, cause vector, scripts) | Partial | 7fb620c, 1a0f2ee, b61e134, 149bcec, 754f3ab, b298fe4, 1146d5e, d3b806d, 5e463df, 813c754 | Done: full mode on the game universe; six pools clear a square-root closing auction; account fills enter as the own-flow term (capped per day, F8); cause vector log; `signals.ts` ported; `scripts/ecology/{gates,learnability,crowd-hunt}.ts` ported in-process. Rate and catalyst shocks go to `dayJump`. GARCH reads the diffusive innovation (calibration, F1 fixed). True `lnV` stays server-only. Not done: the regenerated fingerprint fixture. v1 has no committed fixture, staging's `fingerprint.ts` was dropped, and `ecology.test.ts` checks flag-off against shadow instead. Not checked: that worlds without player companies keep the fingerprint, and that the client shows the public value line (`publicValueLine`, 1317d60). |
 | 6 | Market content | Done, two sub-items moved to Phase 6 | c4d02d6, 34b9d06, bf9d1cd, 1317d60, 13e2414, ec7f973, e7dfa6e, 1a0f2ee, 89bc84c | See the sub-table below. |
-| 7 | Gates | Partial | 51a942c, a400727, db480a0, b61e134, 149bcec, 430453b, 9233638, 754f3ab, b298fe4, 1146d5e | 11 of 14 staging test files ported under their names. 3 retired on purpose (`hybrid`, `rollout`, `sim-mode`, 51a942c): they test a migration path V1 does not have. Tape hunts X1 to X3 are suites. Ecology gate scripts are ported. Load gate passes. Failing bands are in section 4 (F2, F3, F4, F5, F13, F14, F15). |
+| 7 | Gates | Partial | 51a942c, a400727, db480a0, b61e134, 149bcec, 430453b, 9233638, 754f3ab, b298fe4, 1146d5e | 11 of 14 staging test files ported under their names. 3 retired on purpose (`hybrid`, `rollout`, `sim-mode`, 51a942c): they test a migration path V1 does not have. Tape hunts X1 to X3 are suites. Ecology gate scripts are ported. Load gate passes. Failing bands are in section 4 (F2, F3, F4, F5, F13, F15, F18); F14 fixed in round 3. |
 
 ### Item 6 detail
 
@@ -117,7 +117,7 @@ Lead decision: keep the rivals as they are. They are pool slices and cannot move
 | `max_strategy_beats_bh_share` | 0.250 | 0.500 | [0, 0.7] |
 | `determinism_mismatch` | 0 | 0 | [0, 0] |
 
-The AUSD band is [0.6, 0.9] (stablecoin band with the 0.5-day half-life). It FAILS at 0.520 (F13). Meme-coin bands (FROG 0.582 [0.44, 1.4], BONK 0.499 [0.36, 1.4]) PASS with their floor-pinning bands.
+The AUSD band is [0.6, 0.9] (stablecoin band with the 0.5-day half-life). It FAILED at 0.520 (F13); round 3 removed the class band and switched the statistic to RMS over seeds (section 3l), so AUSD passes at 0.986. Meme-coin bands (FROG 0.582 [0.44, 1.4], BONK 0.499 [0.36, 1.4]) PASS with their floor-pinning bands.
 
 Earlier band history (149bcec): bond vol ratios AV2Y 1.167, AV10 1.165, AV30 1.187, IGCB 1.196, HYLD 1.032, all PASS. AV10 and AV30 def.vol 5.5% and 11.5% (was 4% and 7%); government funds have no jump term. AUSD and FLUX get a 0.5-day half-life; meme coins BONK, FROG, MOON, HAMR, CATZ, WOOF, GIGA get a floor-pinning band (min 0.8 x sqrt(median alive share)). Rejected in review: newsPrint 0.7 for the universe (unmeasured, reverted to 0.5).
 
@@ -225,6 +225,41 @@ Ecology off, 8 seeds, HEAD vs 754f3ab vs now: NRVA c 1.265 (HEAD) and 1.165 (754
 
 Notes: the crowd numbers came from a calibration-round reviewer rerun (`--price-path full`, 60 seeds). With the GARCH change the uncrowded beat moved to 0.550, so both are reported. `scripts/ecology/crowd-hunt.ts` supports only `value_gap` and `mom63`, so the stacked-signal row is not run.
 
+### 3l. Round 3 (`0524edf`, branch `p1/r3`, merged `182c036`)
+
+Changes, each with its mechanism:
+- X2 (F14): `sim.ts` adds the Ito centring term to the price drift. Golden fingerprint re-pinned fa2ca82e to 461b6a16. The `impact-tally` exact float check is now relative 1e-14 (one ulp apart after the price path moved).
+- Pension (F16): the drift-driven pension order is capped at `pensionMaxAdv` = 1 ADV a day. FROG is in CRX (every crypto name); sign unchanged, so it sells above the anchor.
+- Vol statistic (F13): gates and `run.ts` take the RMS over seeds. The AUSD class band [0.6, 0.9] is removed.
+- Tooling: `scripts/ecology/gates.ts` gains `--first`, `--drop`, `--world` (diagnostics, documented in its header). `calibration.test.ts` golden re-pinned.
+
+Before / after (8 seeds, `gates.ts`; 20 seeds, `run.ts`):
+
+| Gate | Before | After |
+|---|---|---|
+| Universe 24: IC1 / IC63 / dAC | 0.0161 FAIL / 0.0205 / 0.0428 | 0.0161 FAIL / 0.0204 / 0.0428 |
+| Universe 24: vol (median before, RMS after) | FLUX 0.849, DATA 0.846 FAIL | RMS 0.539 to 1.254; FLUX 0.767 FAIL (8 seeds; 20 seeds 1.33) |
+| Universe 24 gates | 5/7 | 5/7 |
+| Universe 720: IC1 / IC63 | 0.0157 FAIL / 0.0456 FAIL | same |
+| Universe 720 gates | 4/7 (AUSD 0.527, FLUX 0.734) | 5/7 (RMS 0.648 to 1.221, median 1.061) |
+| Bare 720: IC1 / IC63 / vol | -0.0034 / 0.0245 / 0.891 to 1.135 | -0.0034 / 0.0245 / RMS 0.907 to 1.135 |
+| Bare 720 gates | 7/7 | 7/7 |
+| Hunts 60: value_gap_p95_max | 0.8417 FAIL | 0.4492 PASS |
+| Hunts 60: value_gap_p95 median | 0.0486 | 0.0476 (PASS, guard 0.0729) |
+| Hunts 60 | 15/16 | 16/16 PASS (news_drift 0.517, earnings IC 0.1788) |
+| `run.ts` universe 20 x 5y, tpd 24 | AUSD 0.520 FAIL | all PASS (AUSD 0.986, FLUX 1.326, AV10 1.267) |
+| `run.ts` bare 20 x 5y, tpd 24 | all PASS | all PASS |
+| Huge money $1e12, tape-01, tpd 24 | largest up +0.750 (pension 0); pension desire to 7.3 ADV | +0.750 (pension 0); desire capped at 1 ADV |
+
+Pension (huge money, $1e12, tape-01): before round 3 the drift-driven pension desire reached 7.3 ADV at one quarter-end (d250); after, the desire is capped at 1 ADV a day. The pool trades only in the last 3 days of each 63-day quarter, toward the policy weight, so its sign runs against the move. On the largest FROG up day (+0.750 log in the round 3 run) pension is 0, so a pump cannot draw pension buying. The whale check is reproduced by `scripts/balance/huge-money.ts`.
+
+Not fixed in round 3:
+- IC1 (F2). Ablation, universe, 24 ticks, 8 seeds (IC1 baseline 0.0161 ± 0.0033): no catalysts 0.0001; no PEAD 0.0094; no news at close (`newsPrint 1`) -0.0087; `newsPrint 0.8` -0.0021 (bond AV30 vol ratio 1.46 breaks the band); `valueMaxAdv 12` -0.0097 at 24 ticks and -0.0093 at 720 (breaks the valuegap "closed by day 10" check at 0.34 > 0.25, and the squeeze; reverted to 4); no trend 0.0234; no retail headline 0.0096; no rates, events, rivals, listings, squeeze or pension: unchanged. Mechanism: earnings news prints half at the close; the rest is traded the next day by the value pool (capped at 4 ADV on 1.6% of asset-days). Needs a Ledger decision (bond expectedVol ignores rate vol; see F13).
+- 63-day IC at 720 ticks 0.0456 (band [0, 0.04]) FAIL before and after (F18).
+- The task's +1.65 log day with +1.50 from pension did not reproduce (F17).
+
+Checks (round 3 record): `next typegen` 0; `tsc` 0; eslint 0 errors on touched files; vitest 48 files, 621 tests pass. Re-run at `182c036` (the merge): `next typegen` exit 0, `tsc --noEmit` exit 0, `vitest run` 48 files, 621 tests pass. No integration fix was needed.
+
 ## 4. Known failures and open decisions
 
 Owners are proposed by domain: Quant (engine and calibration), Ledger (gate scope, pricing and spec decisions), Tape (hunts, measurement), Forge (integration, ports, load). The lead assigns them.
@@ -232,7 +267,7 @@ Owners are proposed by domain: Quant (engine and calibration), Ledger (gate scop
 | ID | Item | Measured root cause | Proposed owner | Status |
 |---|---|---|---|---|
 | F1 | Vol bands FAIL on 8 universe assets at 20 seeds, 0.811 to 0.847 | **Fixed** in the model (p1/calib, 1146d5e; section 3k). (1) GARCH read the close-to-close day return, which holds the value pull, news and (full ecology) the auction. Now GARCH reads the diffusive shocks only (`dayDiff`). (2) GARCH standardized by volMult only; `regimeShockSd` adds the loading split. (3) expectedVol counted the full jump; the close prints `closePrint`. Measured this round at 20 seeds, tpd 24: the eight names 0.924 to 1.111, all PASS. | Quant | Fixed (side effects F13, F14) |
-| F2 | Universe ecology gates: 1-day rank IC, 63-day rank IC | **Open.** This round, universe, tpd 24, 8 seeds: 1-day IC 0.0161 ±0.0033 FAIL (band [-0.05, 0]; the sign is positive); 63-day IC 0.0205 PASS; daily autocorr 0.043 PASS. Bare, tpd 720, 8 seeds: 1-day IC -0.0034 PASS, 63-day IC 0.0245 PASS. So the 1-day IC failure appears on the universe path only. Earlier, at 720 ticks and 4 seeds, the universe 1-day IC was 0.0153 FAIL. Root cause of the universe IC sign not found. fadeK 0.3 still not adopted (universe bh_beats_contrarian 0.900 this round, 20 seeds). **Next step:** universe, tpd 720, 8 seeds, to separate tick rate from universe composition. | Quant | Open |
+| F2 | Universe ecology gates: 1-day rank IC, 63-day rank IC | **Open. Mechanism found in round 3, not fixed there.** Universe, tpd 24, 8 seeds: 1-day IC 0.0161 ±0.0033 FAIL (band [-0.05, 0]; the sign is positive), unchanged by round 3 (0.0161 FAIL); 63-day IC 0.0204 PASS; dAC 0.0428 PASS. Mechanism: the closing auction printed half of a day's news (`newsPrint 0.5`), so half the intraday move was pulled back at the close and the other half sat in lnV; the value pool traded it the next day (capped at 4 ADV on 1.6% of asset-days), a 1-day continuation. The ablation in section 3l: without catalysts the IC is 0.0001, without PEAD 0.0094, and printing news in full at the close flips it to -0.0087. Needs a Ledger decision: bond expectedVol ignores rate vol, so a print change moves bond vols (F13). | Quant, Ledger | Open (mechanism found; decision pending) |
 | F3 | Hale beat share 88% against 70% (was 83%) | **Decided (lead), recorded.** Equal-weight 3-stock baskets, rebalanced on this schedule, beat GX buy-and-hold on 85% of seeds at random (control in 1317d60). The failure is basket construction against a cap-weighted benchmark, a market-model property, not the value read. Rivals stay pool slices. The band still FAILS and is recorded for the Phase 6 rivals board. | Ledger with Quant | Decided; band FAIL recorded |
 | F4 | Vetch median x0.260 (was x0.186), below 0.4 | **Decided (lead), recorded.** The top-3 crypto basket bleeds with the memecoins; this is by design. The band still FAILS and is recorded for the Phase 6 rivals board. | Quant (quant-npc-funds spec) | Decided; band FAIL recorded |
 | F5 | AURH full-ecology peak ratio 2.74 on tape-10 (band 0.75 to 1.5, 20 seeds) | **Open.** Partly addressed: the whale self-impact bound (d3b806d, merged in 813c754). This round's 60-seed hunts: intraday peak ratio SYN 0.949 to 1.040, AURH 0.981 to 1.003, 0 of 60 outside 0.75 to 1.5. The tape-10 full-ecology case was not re-run. **Next step:** re-run tape-10, full ecology, 20 seeds. | Ledger (gate scope), Quant | Open |
@@ -243,9 +278,12 @@ Owners are proposed by domain: Quant (engine and calibration), Ledger (gate scop
 | F10 | Realize-to-flat depends on the sell schedule | Only the even daily split (3 ADV per tick cap) was measured. The realize window in `huge.test.ts` moved to 200 days (ba2e950) after the calibration merge. | Tape | Open |
 | F11 | value_gap_p95 baseline is self-referential | **Partly.** Baseline 0.0486 (exact 0.048638) is the 60-seed median on the current engine (`hunts.ts --seeds 60`), and this round's 60-seed run gives 0.0486, PASS. Reason it is not Fixed: `hunts.ts` still says the band is a regression guard on this branch's own 60-seed median, not an independent check. | Tape | Partly |
 | F12 | Learnability and crowd-hunt rows not evaluated | **Partly done.** Crowd gate (1146d5e, bare catalog, 60 seeds, 100 x $250k): full ecology crowded beat 0.383 vs uncrowded 0.550 PASS; $25M single 0.400 PASS; $250k single NOT EVALUATED (no crowded period). Live: 0.317 vs 0.483 PASS; $25M 0.300 PASS; $250k NOT EVALUATED. Learnability this round (20 seeds, $5k): beat share 0.500, median edge +0.0029, regime split PASS; crowded NOT EVALUATED at $5k. Stacked row not run (`crowd-hunt.ts` supports only `value_gap` and `mom63`). Fingerprint row not run. | Ledger, Tape | Open for stacked and fingerprint rows |
-| F13 | Band for stablecoins and meme coins; AUSD FAILS | **Open, Ledger decision.** This round (universe, 20 seeds, tpd 24): AUSD 0.520 FAIL against [0.6, 0.9] (0.312 at 720 ticks, 4 seeds, earlier). The 0.79 that 754f3ab recorded came from the pinned-h artifact, which is gone. The band is kept and FAILS; no new band is proposed, because the value depends on the tick rate. FLUX passes the balance band (0.976), but the gates script still applies a class band [0.85, 1.4] that flags FLUX 0.849 and DATA 0.846 (8 seeds, tpd 24). The two checks disagree on FLUX; the class band must be aligned or removed. **Next step:** Ledger decides the AUSD band and the gates class bands. | Ledger (review) | Open (AUSD FAIL; gates class band) |
-| F14 | value_gap_p95_max (X2, never above ln 2) FAILS on the bare engine at 60 seeds | **Open, Ledger decision; blocks merge.** This round: 0.8417 (0.842 in the calibration round; 0.624 at HEAD before calibration). Median SYN p95 0.392 (HEAD) to 0.451 now. The regimeShockSd fix moved SYN's realized vol to its target (ratio 1.062 at 20 seeds). The tail belongs to a 110%-vol token with 12 jumps a year. Not widened. Options for Ledger: accept the tail for SYN, or change SYN's spec (half-life, jumps). | Ledger (decision), Quant | Open |
+| F13 | Band for stablecoins and meme coins; AUSD FAILS | **Partly fixed in round 3 (section 3l).** The vol statistic is now RMS over seeds (the median was biased low for rare-jump assets), and the AUSD class band [0.6, 0.9] is removed. Measured: universe 20 seeds x 5 years, tpd 24 (`run.ts`): AUSD 0.986, FLUX 1.326, AV10 1.267, all PASS (was AUSD 0.520 FAIL). Still open: the gates script at 8 seeds, tpd 24 gives FLUX 0.767 FAIL under RMS (1.33 at 20 seeds), so the 8-seed gate and the 20-seed balance run disagree on FLUX; the seed count drives it. Bond expectedVol ignores rate vol (section 3l). **Next step:** Ledger decides whether the gate band applies below 20 seeds. | Ledger (review) | Partly fixed; FLUX 8-seed gate open |
+| F14 | value_gap_p95_max (X2, never above ln 2) FAILS on the bare engine at 60 seeds | **Fixed in round 3 (section 3l).** Cause: the price drifts at mu - s^2/2 and the value at mu - (perm s)^2/2, so the gap lnP - lnV settled at a mean of -0.25 to -0.38 for SYN (110% vol, 120-day half-life). Fix: `sim.ts` adds the Ito centring term to the price drift; the price's long-run log drift is still the value's. Measured: hunts, bare catalog, 60 seeds: value_gap_p95_max 0.8417 FAIL to 0.4492 PASS (<= ln 2); value_gap_p95 median 0.0476 (guard 0.0729). Golden fingerprint re-pinned fa2ca82e to 461b6a16. | Quant | Fixed (round 3) |
 | F15 | Bare bh_beats_momentum_share (band 0.1 to 0.9) | **Pre-existing.** 0.950 at 60 seeds at the calibration round (0.933 at HEAD and 754f3ab). This round, 20 seeds: 0.900 PASS, on the band edge. The 20-seed run passes because of seed count, not a change in the signal. | Tape, Ledger | Open (pre-existing) |
+| F16 | Pension pool drift-driven order unbounded (whale check) | **Fixed in round 3 (section 3l).** Before: pension desire 7.3 ADV at one quarter-end (d250), with a 0.445 log move on a day the account did not trade; the drift was not spread over the window. Now capped at `pensionMaxAdv` = 1 ADV a day. Measured, huge money $1e12, tape-01, tpd 24: desire capped at 1 ADV; largest up day +0.750 log with pension 0, the same before and after. The 1 ADV cap is a first pick, not derived. | Tape, Ledger | Fixed (cap is a first pick) |
+| F17 | Claimed +1.65 log FROG day with +1.50 from pension | **Not reproduced (round 3).** Largest FROG day is +0.75 log (own flow 0.82, pension 0), at 24 and 720 ticks. The 720-tick whale table is not a useful gate: the whale loses about 99.8% to fees and impact (181k orders). **Next step:** Tape to look at the whale table. | Tape | Not reproduced; open for Tape |
+| F18 | 63-day rank IC at 720 ticks FAILS on the universe and on baseline | **Open, not touched in round 3.** Universe, 720 ticks: 63-day IC 0.0456 FAIL (band [0, 0.04]); the same value before round 3 (0.0456), so round 3 did not move it. Band is not changed. | Ledger, Quant | Open |
 
 Claimed fixed in db480a0, not re-reviewed in this pass: the hunts review items (reproducibility, peak wording, sign-flip counts, self-impact gate disclosure, 60-seed run). The db480a0 X3 table is still the record; it predates the F7 floor.
 
@@ -260,6 +298,8 @@ Open point outside F1 to F15: the pension pool cannot sell delisted names (secti
 - The alt-peak guard is implemented in the form of e5d7ea4 (section 2, item 3).
 - Insider tips from crime and the 24 NPC personas' trading as pool slices are moved to Phase 6 by lead decision (section 6).
 - The game-path self-impact gate is the intraday peak ratio, not the close ratio (F6).
+- Round 3: the vol-ratio statistic in the gates and `run.ts` is the RMS over seeds, not the median (F13). The AUSD class band is removed.
+- Round 3: the pension pool's drift-driven order is capped at 1 ADV a day (`pensionMaxAdv`, F16). The cap is a first pick.
 
 ## 6. Items from Phase 1 with no code
 
@@ -282,6 +322,7 @@ Open point outside F1 to F15: the pension pool cannot sell delisted names (secti
 
 ## 8. Commits
 
+- Round 3 merge into `v1` (no-ff): `182c036` (p1/r3, from `95ea380` and `0524edf`; branch tip `0e9b771`, round 4, merged but not recorded here).
 - Branch merges into `v1` (no-ff), in order: `813c754` (p1/impact, from `9dede3e` and `5e463df`), `1146d5e` (p1/calib, from `813c754` and `b298fe4`), `0e7c9f3` (p1/market, from `ba2e950` and `89bc84c`). Also earlier: `c7491f3` (p1/gates), `178601a` (p1/rivals), `5b194eb` (p1/bonds), `a4b021e` (p1/hunts).
 - Closing-round commits on `v1`: `ba2e950` (huge-money realize window 200 days after the calibration merge).
 - Branch heads merged: `d3b806d` and `5e463df` (impact), `754f3ab` and `b298fe4` (calib), `89bc84c` (market), `b61e134` (gates), `1317d60` (rivals), `149bcec` (bonds), `db480a0` (hunts, on top of `a400727`).
