@@ -1,18 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
-import { goTo, grant, isPhone, noHorizontalOverflow, register, skipRankUp, skipTips, watchErrors } from './helpers';
-
-/**
- * The day-close card (velvet-daily-close.md) opens over the screen when a game day ends, and on the phone it covers the
- * Portfolio tabs. If it is up, Done closes it; either way the caller goes on only once the card has left the screen.
- */
-async function dismissCloseCard(page: Page): Promise<void> {
-  const card = page.getByTestId('close-card');
-  await expect(async () => {
-    if (await card.isVisible()) await page.getByTestId('close-done').click({ timeout: 2_000 });
-    await expect(card).toHaveCount(0, { timeout: 2_000 });
-  }).toPass({ timeout: 15_000 });
-}
+import { dismissCloseCard, goTo, grant, isPhone, noHorizontalOverflow, register, skipRankUp, skipTips, watchErrors } from './helpers';
 
 // The learning loop (Phase 3, velvet-trade-journal-replay.md and velvet-research-desk.md): the journal, the analyst and the
 // Research Desk, through the real screens.

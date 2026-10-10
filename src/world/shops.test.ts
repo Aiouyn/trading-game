@@ -420,6 +420,49 @@ describe('NPC shops, the manager autopilot and the costs (S2, S5)', () => {
     expect(g.players.u1!.inbox[0]?.text).toMatch(/below zero/);
   });
 
+  it('the overdraft notice is sent once, when the costs first take cash below zero, and its copy is a message key', () => {
+    const g = game();
+    const id = tycoon(g);
+    cmd(g, 'u1', { type: 'biz.maintain', bizId: id, on: true });
+    bump(g, 'u1', -(cashOf(g, 'u1') - 1));
+    shopsDay(g, null);
+    const notes = () => g.players.u1!.inbox.filter((n) => n.msg?.key === 'shop.overdraft.inbox');
+    expect(notes()).toHaveLength(1);
+    expect(notes()[0]!.msg!.vars).toEqual({ name: g.businesses[id]!.name });
+    // the costs keep coming out while cash stays negative, and the owner is not told again each day
+    shopsDay(g, null);
+    shopsDay(g, null);
+    expect(cashOf(g, 'u1')).toBeLessThan(0);
+    expect(notes()).toHaveLength(1);
+  });
+
+  it('a hired manager keeps maintenance on: turning it off is refused and the stored setting is kept', () => {
+    const g = game();
+    const id = tycoon(g);
+    expect(cmd(g, 'u1', { type: 'biz.manager.hire', bizId: id, stars: 1 }).ok).toBe(true);
+    expect(cmd(g, 'u1', { type: 'biz.maintain', bizId: id, on: false }).error).toBe(SHOP_REFUSAL.maintainManaged);
+    expect(g.businesses[id]!.shop.maintained).toBe(false);
+    // turning it on is already true under the manager, and is kept for after the manager leaves
+    expect(cmd(g, 'u1', { type: 'biz.maintain', bizId: id, on: true }).ok).toBe(true);
+    expect(g.businesses[id]!.shop.maintained).toBe(true);
+  });
+
+  it('on the same state, demand follows price to the minus elasticity and revenue follows the served demand', () => {
+    const g = game();
+    const id = tycoon(g);
+    const b = g.businesses[id]!;
+    recomputeShares(g);
+    const demand1 = b.shop.demand;
+    const income1 = b.incomePerDay;
+    b.shop.price = 1.2;
+    recomputeShares(g);
+    expect(b.shop.demand / demand1).toBeCloseTo(Math.pow(1.2, -SHOP.elasticity), 9);
+    // revenue is the crew-capped demand times the price: the crew serves what it can, the rest is turned away
+    const served1 = Math.min(demand1, b.shop.crew);
+    const served2 = Math.min(b.shop.demand, b.shop.crew);
+    expect(b.incomePerDay / income1).toBeCloseTo((served2 * 1.2) / served1, 9);
+  });
+
   it('money is conserved: cash moves only by the income credited and the shop sinks', () => {
     const g = game();
     const id = tycoon(g);

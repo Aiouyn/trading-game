@@ -84,7 +84,7 @@ export const APPS: Readonly<Record<AppId, AppDef>> = {
   calendar: app('calendar', 420, 300),
   messages: app('messages', 420, 300, { views: ['inbox', 'chat', 'social'] }),
   businesses: app('businesses', 420, 300),
-  company: app('company', 420, 300, { minRank: 'R2', hideWhenLocked: true }),
+  company: app('company', 420, 300, { views: ['overview', 'products', 'rd', 'people', 'deals', 'capital', 'public'], minRank: 'R2', hideWhenLocked: true }),
   boutique: app('boutique', 420, 300),
   ailab: app('ailab', 420, 300, { minRank: 'R2', pref: { w: 0.5, h: 0.7 } }),
   security: app('security', 420, 300, { minRank: 'R3' }),

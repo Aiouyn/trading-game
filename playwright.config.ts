@@ -8,9 +8,10 @@ export const E2E_ADMIN = "e2e-admin";
 const SHELL_SPECS = /[\/]shell[\/].*\.spec\.ts$/;
 /**
  * The time-advancing specs (a game day's advance, or a fund's waiting periods, in the shared world): see the close-card
- * projects below. The fund flow (exchangeFunds.spec.ts) advances the world past the account-age rules (7 real days).
+ * projects below. The shop levers settle on the next game day (shops.spec.ts), and the fund flow (exchangeFunds.spec.ts)
+ * advances the world past the account-age rules (7 real days).
  */
-const CLOSE_SPECS = /(closeCard|exchangeFunds)\.spec\.ts$/;
+const CLOSE_SPECS = /(closeCard|shops|exchangeFunds)\.spec\.ts$/;
 const chromium = { browserName: "chromium" as const };
 
 /**

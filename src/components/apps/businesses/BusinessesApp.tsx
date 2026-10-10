@@ -12,8 +12,9 @@ import { Card, Stat, Tabs } from '@/components/ui';
 import { Catalog } from './Catalog';
 import { OwnedBusinesses } from './OwnedBusinesses';
 import { PropertyMarket, OwnedProperty } from './Property';
+import { ShopsTab } from './Shops';
 
-type Tab = 'owned' | 'buy' | 'property' | 'homes';
+type Tab = 'owned' | 'shops' | 'buy' | 'property' | 'homes';
 
 export function BusinessesApp() {
   const me = useGame((s) => s.me)!;
@@ -41,6 +42,7 @@ export function BusinessesApp() {
       <Tabs<Tab>
         tabs={[
           { id: 'owned', label: t('biz.tab.owned'), badge: me.businesses.length },
+          { id: 'shops', label: t('biz.tab.shops') },
           { id: 'buy', label: t('biz.tab.buy') },
           { id: 'property', label: t('biz.tab.property') },
           { id: 'homes', label: t('biz.tab.homes'), badge: me.properties.length },
@@ -49,6 +51,7 @@ export function BusinessesApp() {
         onChange={setTab}
       />
       {tab === 'owned' && <OwnedBusinesses />}
+      {tab === 'shops' && <ShopsTab />}
       {tab === 'buy' && <Catalog onBought={() => setTab('owned')} />}
       {tab === 'property' && <PropertyMarket />}
       {tab === 'homes' && <OwnedProperty />}

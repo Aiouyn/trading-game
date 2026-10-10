@@ -369,7 +369,54 @@ Disk: C: had 4.43 GB free before the `--workers=1` run, 3.8 GB at its lowest, an
 
 The close-card re-check ran through a temporary Playwright config outside the repo (the full suite's dependency projects otherwise run too). It was removed and is not committed.
 
-## 9. The Exchange app (`p4/ex`)
+## 9. Company app, operations half (`p4/ops`)
+
+Scope: the Company app shell (`src/components/apps/company/`) and the founder's operations views, per Velvet's spec
+(`docs/team/specs/velvet-company-app.md` v1.5, corrected to Quant v1.7). Branch `p4/ops`, not yet merged to `v1`.
+
+What is in:
+- Shell: a rail of views (`company-rail`, a tab row on the phone), the "What the market sees" toggle (`company-view-toggle`),
+  and the founding flow until the player has a company. The market side renders `CompanyPublic` only (`marketOf` in
+  `model.ts`; the key table is checked against the type by `satisfies`).
+- Founding (C4 template): name, sector, city and starting capital, at R2. The first-goals card reads `goalsDone`.
+- Products and demand: price inside the engine's band, marketing, quality against the ready mark, share, the public rivals.
+- R&D: running projects with the frozen odds (plus or minus 5 points) and the gain in quality-score points (bear, base, bull).
+  One project at a time. Starting a project shows the frozen band only after it starts, not as a preview.
+- People: headcount by role with the cap, hire and let go, and the four executive seats (trait, holder, salary, term).
+- Deals: franchising (4 to 8% royalty, at most three per sector) and supply deals with a registered company.
+- Notices: CEO change, freeze, cooling-off, distress, bankruptcy and the personal guarantee amount.
+- Every refusal is inline with its code (`company-refusal`, `data-code`), copy from `company.refusal.<code>.{what,why,do}`.
+- Import boundary (C6): `src/components/apps/company/boundary.test.ts` (TypeScript compiler API) fails on any named import or
+  re-export of `CompanyFounderView`, `founderCompanyView` or `ownCompanyView` outside `src/world/**` and the Company app.
+  The world layer builds the view for its owner (`PlayerView.company`); no screen outside the Company app names it.
+- `CapitalTab.tsx` is a placeholder with the agreed props `{ companyId: string }` for the capital work.
+- Exchange is visible now (no hidden flag, no "Coming later" link toast). Its window shows the stub until the Exchange work lands.
+  Launchpad stays hidden until Phase 5.
+
+Fix pass on the review (same branch):
+- Overview: the decision card (the first product's quality project at three S_ref levels, with odds, gain, runway before and
+  after, and the clock line), the runway chart (payroll-only cash as now, against the chosen decision), and the five-step
+  checklist (a guide, folded to one line when done). The numbers come from `src/world/company/preview.ts` (pure).
+- R&D: the odds of each pharma gate, the patents in force (`product.patents`, active only), and a second start is sent to the
+  engine and refused as `projectBusy` (the button is no longer disabled).
+- People: the G&A span line (`gaSpan`), and an executive's severance (`severanceOf`, 21 gd of salary) shown before the firing,
+  which asks a second click (`ConfirmButton`).
+- Market side: every `CompanyPublic` field has its section (registry, listed, balance, filings, signals, insider trades,
+  buybacks, plan skips and ends, distress, covenant, credibility).
+- Rulings: NPC rival shares stay private (Velvet: the public competitors table is all a founder can know about rivals; the
+  per-product share is private). The rivals table shows names and prices. The import boundary now allows exactly the Company
+  app, `world/company/views.ts`, `world/company/index.ts`, `world/view.ts` (the transport of the owner's own view, a lead ruling)
+  and world tests; `boundary.test.ts` also catches namespace access, `typeof`, star and dynamic imports.
+- The founding capital input is `company-found-capital` (it collided with the Capital tab root `company-capital`).
+- Exchange stays visible as the brief asks; its window is the generic stub until p4-ex lands (C-38 is superseded by the
+  brief; a lead ruling is needed if C-38 should hold).
+
+Still open: the Overview decision is applied at once through the engine's `startProject` (Velvet asks for the next-day-close
+staging, which the engine does not have yet); the "was" tick on the slider; the CEO change action (only the notices); the
+launch of next-gen products (the founder view does not carry the launch credits yet); the capital tab (loans, dividends,
+buybacks, the IPO, the trading plan) and the Filings view.
+
+## 10. The Exchange app (`p4/ex`)
 
 The Quay app `exchange` is visible from Phase 4 (`src/shell/apps.ts`: `available: true`, on the shelf after Portfolio). Launchpad stays hidden until Phase 5. A deep link to `/exchange` opens the window (no "Coming later" notice).
 

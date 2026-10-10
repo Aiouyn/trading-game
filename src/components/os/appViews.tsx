@@ -22,7 +22,7 @@ const LegalApp = dynamic(() => import('@/components/apps/legal/LegalApp').then((
 const SettingsView = dynamic(() => import('./SettingsView').then((m) => m.SettingsView), { ssr: false });
 const LearnApp = dynamic(() => import('./LearnApp').then((m) => m.LearnApp), { ssr: false });
 const ResearchDesk = dynamic(() => import('./ResearchDesk').then((m) => m.ResearchDesk), { ssr: false });
-const CompanyApp = dynamic(() => import('./CompanyApp').then((m) => m.CompanyApp), { ssr: false });
+const CompanyApp = dynamic(() => import('@/components/apps/company/CompanyApp').then((m) => m.CompanyApp), { ssr: false });
 // The Exchange (Phase 4): listed player stocks, IPO books and player-run funds. Its code loads on first open.
 const ExchangeApp = dynamic(() => import('@/components/apps/exchange/ExchangeApp').then((m) => m.ExchangeApp), { ssr: false });
 
@@ -58,7 +58,7 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
     case 'research':
       return <ResearchDesk />;
     case 'company':
-      return <CompanyApp />;
+      return <div className="os-body"><CompanyApp view={win.props.view} /></div>;
     case 'exchange':
       return <ExchangeApp />;
     default:

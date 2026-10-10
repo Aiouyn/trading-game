@@ -92,3 +92,17 @@ export async function skipTips(page: Page): Promise<void> {
   const skip = page.getByTestId('coach').getByText('Skip tips');
   if (await skip.isVisible().catch(() => false)) await skip.click();
 }
+
+/**
+ * The day-close card (velvet-daily-close.md) opens over the screen when a game day ends, and on the phone it covers the
+ * tabs. If it is up, Done closes it; either way the caller goes on only once the card has left the screen. With
+ * `appearWithin`, the helper first waits that long for the card to show (it opens a moment after the day step).
+ */
+export async function dismissCloseCard(page: Page, appearWithin = 0): Promise<void> {
+  const card = page.getByTestId('close-card');
+  if (appearWithin) await card.waitFor({ state: 'visible', timeout: appearWithin }).catch(() => {});
+  await expect(async () => {
+    if (await card.isVisible()) await page.getByTestId('close-done').click({ timeout: 2_000 });
+    await expect(card).toHaveCount(0, { timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
+}

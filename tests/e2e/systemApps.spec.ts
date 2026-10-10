@@ -64,7 +64,7 @@ test('the Research Desk is locked below Operator, then opens with an empty Files
   await expect(page.getByTestId('research-locked')).toHaveCount(0);
 });
 
-test('Company has no tile before Owner, and an honest empty state from Owner', async ({ page }) => {
+test('Company has no tile before Owner, and the founding flow from Owner', async ({ page }) => {
   test.skip(isPhone(page), 'the desktop shelf shows the tile; the phone grid is checked in phone.spec');
   const handle = await register(page);
   await skipTips(page);
@@ -72,7 +72,7 @@ test('Company has no tile before Owner, and an honest empty state from Owner', a
   await grant(handle, 8_000_000);
   await skipRankUp(page);
   await goTo(page, 'company');
-  await expect(page.getByTestId('company-empty')).toBeVisible();
+  await expect(page.getByTestId('company-found')).toBeVisible();
 });
 
 test('a deep link to Exchange opens the Exchange window (Phase 4)', async ({ page }) => {

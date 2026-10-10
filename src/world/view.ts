@@ -9,9 +9,12 @@ import { tradesOf } from './ledger';
 import { deskFileSummaries, deskWindow } from './desk';
 import { calendarFor, type CalendarItem } from './calendar';
 import { goalsView } from './learn';
+import { ownCompanyView, type CompanyFounderView } from './company/views';
 import { textProvider } from './text';
+import { capitalViewOf, type CapitalView } from './company/capital';
 import type { DailyClose, LedgerFill, PlanState, RoundTrip } from './ledger-types';
 import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, propValue, today, type NetWorthBreakdown } from './core';
+import { shopViews, type ShopView } from './shopView';
 import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
 import { defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
 import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
@@ -173,6 +176,10 @@ export interface PlayerView {
   arrival: { cash: number; change: number; changePct: number; external: number };
   rank: { id: string; name: string; next: { id: string; name: string; threshold: number } | null; progress: number };
   businesses: Business[];
+  /** the company this player founded (its founder view: private, for this player only); absent before a company exists */
+  company?: CompanyFounderView | null;
+  /** the owner's shop management, one per business in the same order (stage C, DECISIONS S2) */
+  shops: ShopView[];
   properties: (Property & { value: number })[];
   contracts: ContractView[];
   inbox: InboxItem[];
@@ -191,6 +198,8 @@ export interface PlayerView {
   noteCost: number;
   mortgageRate: number;
   digest: { since: number; items: InboxItem[]; netWorthThen: number } | null;
+  /** the founder's capital view of the company they own (Phase 4 B3): null when they own none. Private to the owner. */
+  capital: CapitalView | null;
   /** the owner's own trading record: fills, round trips, the benchmark, the closes, the plans, the calendar (private) */
   trading: {
     fills: LedgerFill[];
@@ -233,6 +242,8 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
       progress: next ? Math.min(1, Math.max(0, (p.netWorth - floor) / (next.threshold - floor))) : 1,
     },
     businesses: playerBusinesses(g, pid),
+    company: ownCompanyView(g.companies, pid, today(g)),
+    shops: shopViews(g, playerBusinesses(g, pid), pid),
     properties: playerProperties(g, pid).map((x) => ({ ...x, value: propValue(g, x) })),
     contracts: p.contracts.map((c) => ({ ...c, ...(() => { const pr = contractProgress(g, p, c.defId); return { progress: pr.value, target: pr.target }; })() })),
     inbox: inbox.slice(0, 60),
@@ -255,6 +266,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
     digest: away.length ? { since: p.digestSeenTick, items: away, netWorthThen: p.digestNetWorth } : null,
     trading: tradingView(g, pid),
     exchange: exchangeView(g, pid),
+    capital: capitalViewOf(g, pid),
   };
 }
 

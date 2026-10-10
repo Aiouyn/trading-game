@@ -8,7 +8,7 @@ import type { UpgradeAxis } from '@/content/businesses';
 import { debit, bizDef, cashOf, clamp, notify, today, TPD } from './core';
 import { markShares, recomputeShares } from './assets';
 import {
-  attrition, autopilotFor, dailyCosts, isCrew, isLevel, managerPrepaid, moraleTarget, reviewsTarget, wellRunShop,
+  attrition, autopilotFor, dailyCosts, isCrew, isLevel, managerPrepaid, managerPrepayCost, moraleTarget, reviewsTarget, wellRunShop,
 } from './shopRules';
 import type { Business, CommandResult, Command, GameState, StepOutput } from './types';
 
@@ -76,6 +76,9 @@ export function setMaintained(g: GameState, pid: string, bizId: string, on: bool
   const b = ownBiz(g, pid, bizId);
   if (typeof b === 'string') return refuse(b);
   if (typeof on !== 'boolean') return refuse(SHOP_REFUSAL.maintainFlag);
+  // a hired manager keeps maintenance on (S2): it is charged and holds condition whatever the stored setting says,
+  // so turning it off would change nothing and is refused; turning it on is already true, and is kept for after the manager
+  if (b.shop.managerStars > 0 && !on) return refuse(SHOP_REFUSAL.maintainManaged);
   b.shop.maintained = on;
   attend(g, b);
   return ok({ on });
@@ -88,7 +91,7 @@ export function hireManager(g: GameState, pid: string, bizId: string, stars: num
   if (!Number.isInteger(stars) || stars < 1 || stars > SHOP.manager.maxStars) return refuse(SHOP_REFUSAL.managerStars);
   if (b.shop.managerStars > 0) return refuse(SHOP_REFUSAL.managerPresent);
   const target = bizDef(b).income;
-  const prepay = SHOP.manager.prepayDays * SHOP.manager.costPerStar * stars * target;
+  const prepay = managerPrepayCost(stars, target);
   if (cashOf(g, pid) < prepay) return refuse(SHOP_REFUSAL.cash);
   debit(g, pid, prepay, 'shop manager');
   b.shop.costs += prepay;
@@ -170,13 +173,20 @@ export function shopsDay(g: GameState, out: StepOutput | null): void {
     s.condition = maintainedNow ? SHOP.maintenance.condition : Math.max(0, s.condition - SHOP.maintenance.decayPerDay);
     const k = dailyCosts(target, s, maintainedNow, managerPrepaid(s.managerStars, s.managerDay, day));
     let total = 0;
+    const cashBefore = cashOf(g, b.ownerId);
     for (const line of Object.keys(SINKS) as (keyof typeof SINKS)[]) {
       const amt = k[line];
       if (amt > 0) { debit(g, b.ownerId, amt, SINKS[line]); total += amt; }
     }
-    // costs are obligations, paid even when cash runs out (as property upkeep is); the owner is told (S5)
-    if (total > 0 && owner && !owner.npc && cashOf(g, b.ownerId) < 0) {
-      notify(g, out, b.ownerId, { kind: 'biz', tone: 'loss', text: `${b.name}'s running costs took your cash below zero. Sell a shop or move cash in to clear it.` });
+    // costs are obligations, paid even when cash runs out (as property upkeep is). The owner is told once, on the
+    // costs that take cash from zero or above to below zero; the Shops tab keeps the notice up while cash stays negative.
+    if (total > 0 && owner && !owner.npc && cashBefore >= 0 && cashOf(g, b.ownerId) < 0) {
+      notify(g, out, b.ownerId, {
+        kind: 'biz',
+        tone: 'loss',
+        text: `${b.name}'s running costs took your cash below zero. Sell a shop or move cash in to clear it.`,
+        msg: { key: 'shop.overdraft.inbox', vars: { name: b.name } },
+      });
     }
     s.costs += total;
     s.morale += SHOP.morale.inertia * (moraleTarget(s.demand, s.crew) - s.morale);
