@@ -1,0 +1,373 @@
+/*
+ * Quay desktop chrome (P2-215..P2-237). Port of docs/team/design/redesign/src/os.css and quay.css,
+ * renamed into the os- namespace and scoped under .os-root (on <html>). Generic names from the mock
+ * (.label, .chip, .card, table, th, td, .g, .dot ...) are not used here, so the game UI is unaffected.
+ * Every colour and radius comes from a token in tokens.css. Lives in the components layer, so
+ * Tailwind utilities win where both apply.
+ *
+ * Rank classes on .os-root: shell-r0 .. shell-r6. Focus: focus-mode. Compact (768-1199 px): os-compact.
+ */
+@layer components {
+  /* ---------- Desktop container, wallpaper, hardware ---------- */
+  .os-root .os-desktop { position: fixed; inset: 0; overflow: hidden; }
+  .os-root .os-wallpaper { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+  .os-root .os-wallpaper svg { display: block; width: 100%; height: 100%; }
+  .os-root .os-hardware { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+
+  .os-root .os-bezel { position: fixed; inset: 0; z-index: 7; pointer-events: none; border: 0 solid var(--os-bezel-color); }
+  .os-root .os-bezel-r0 { border-width: var(--os-bezel-r0); }
+  .os-root .os-bezel-r1 { border-width: var(--os-bezel-r1); }
+
+  .os-root .os-crack {
+    position: fixed; top: 0; right: 0; width: 120px; height: 120px;
+    pointer-events: none; fill: none; stroke: var(--os-crack); stroke-width: 1; vector-effect: non-scaling-stroke;
+  }
+
+  .os-root .os-hw { position: fixed; pointer-events: none; }
+  .os-root .os-hw-sticker {
+    left: 24px; bottom: calc(var(--os-shelf-h) + 12px); transform: rotate(-2deg);
+    padding: 4px 8px; border: 1px solid var(--color-ink-3); border-radius: var(--radius-sm);
+    background: var(--color-ink-1); color: var(--color-fg-disabled);
+    font-family: var(--os-label-font); font-size: var(--text-micro); letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .os-root .os-hw-walnut {
+    left: 0; right: 0; bottom: 0; height: 4px;
+    background: linear-gradient(180deg, var(--os-walnut-top), var(--os-walnut-bottom));
+    box-shadow: inset 0 1px 0 var(--os-walnut-inlay);
+  }
+  .os-root .os-hw-skyline {
+    left: 0; right: 0; bottom: var(--os-shelf-h); height: 30%;
+    background: linear-gradient(0deg, color-mix(in srgb, var(--color-brass-hi) 10%, transparent), transparent);
+  }
+  .os-root .os-hw-horizon {
+    left: 0; right: 0; top: 70%; height: 1px;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-brass) 30%, transparent), transparent);
+  }
+  /* R4+ walnut sits under the shelf, so the shelf stands 4 px higher */
+  .os-root:is(.shell-r4, .shell-r5, .shell-r6) .os-shelf { bottom: 4px; }
+
+  /* Boot before the save loads: R0 900 ms, R1 500 ms (P2-192). Click-through once it fades. */
+  .os-root .os-boot {
+    position: fixed; inset: 0; z-index: 20; pointer-events: none; background: var(--color-ink-0);
+    animation: os-boot-out var(--os-boot-ms, 0ms) var(--ease-out) forwards;
+  }
+  .os-root.shell-r0 { --os-boot-ms: var(--os-boot-r0); }
+  .os-root.shell-r1 { --os-boot-ms: var(--os-boot-r1); }
+
+  /* ---------- Status strip (34 px; 24 px in focus) ---------- */
+  .os-root .os-strip {
+    position: fixed; left: 0; right: 0; top: 0; z-index: 5;
+    height: var(--os-strip-h); display: flex; align-items: center; gap: 14px; padding: 0 12px 0 14px;
+    background: var(--os-strip-bg); border-bottom: 1px solid var(--os-strip-border);
+  }
+  .os-root .os-brand { display: flex; align-items: center; gap: 8px; color: var(--color-brass); }
+  .os-root .os-wm {
+    font-family: var(--font-serif); font-size: 20px; font-weight: 400; letter-spacing: 0.01em;
+    color: var(--color-fg); margin-top: -1px;
+  }
+  .os-root .os-rel { font-family: var(--font-mono); font-size: var(--text-micro); color: var(--color-fg-faint); }
+  .os-root .os-launch {
+    display: flex; align-items: center; gap: 8px; height: 24px; width: 312px; padding: 0 6px 0 9px;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-sm); background: var(--color-ink-1);
+    color: var(--color-fg-faint); font-size: var(--text-small);
+  }
+  .os-root .os-launch-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .os-root .os-mid {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .os-root .os-clock { font-family: var(--font-mono); font-size: var(--text-small); color: var(--color-fg); }
+  .os-root .os-seg {
+    display: flex; height: 24px; overflow: hidden;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-sm);
+  }
+  .os-root .os-seg-item {
+    display: grid; place-items: center; padding: 0 9px;
+    font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-fg-muted);
+    border-right: 1px solid var(--color-ink-3);
+  }
+  .os-root .os-seg-item:last-child { border-right: 0; }
+  .os-root .os-seg-item.on {
+    background: var(--color-ink-2); color: var(--color-fg); box-shadow: inset 0 -1.5px 0 var(--color-brass);
+  }
+  .os-root .os-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .os-root .os-nw { font-family: var(--font-mono); font-size: var(--text-small); }
+  .os-root .os-bell { position: relative; color: var(--color-fg-muted); }
+  .os-root .os-bell-dot {
+    position: absolute; right: 0; top: 1px; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--color-brass);
+  }
+
+  /* ---------- Shelf (52 px). R2+ is brushed aluminium. ---------- */
+  .os-root .os-shelf {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+    height: var(--os-shelf-h); display: flex; align-items: center; gap: 4px; padding: 0 12px;
+    background: var(--os-shelf-bg); border-top: 1px solid var(--color-ink-3);
+  }
+  .os-root:is(.shell-r2, .shell-r3, .shell-r4, .shell-r5, .shell-r6) .os-shelf { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06); }
+  .os-root:is(.shell-r2, .shell-r3, .shell-r4, .shell-r5, .shell-r6) .os-shelf::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: var(--os-shelf-brush), var(--os-shelf-highlight);
+  }
+  .os-root .os-tile {
+    position: relative; display: grid; place-items: center; width: var(--os-shelf-tile); height: var(--os-shelf-tile);
+    border-radius: var(--os-shelf-tile-radius); color: var(--color-fg-muted);
+  }
+  .os-root .os-tile.run { color: var(--color-fg); }
+  .os-root .os-tile.on {
+    background: var(--color-ink-2); color: var(--color-brass); box-shadow: inset 0 0 0 1px var(--color-ink-3);
+  }
+  .os-root .os-tile.locked { color: var(--color-fg-disabled); }
+  .os-root .os-tile-dot {
+    position: absolute; bottom: 2px; left: 50%; width: 4px; height: 4px; margin-left: -2px;
+    border-radius: 50%; background: var(--color-fg-muted);
+  }
+  .os-root .os-tile.on .os-tile-dot { width: 12px; height: 2px; margin-left: -6px; bottom: 3px; border-radius: var(--radius-chip); background: var(--color-brass); }
+  .os-root .os-sep { width: 1px; height: 24px; margin: 0 8px; background: var(--color-ink-3); }
+  .os-root .os-tools { position: relative; margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .os-root .os-tool {
+    display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; white-space: nowrap;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-ink-1) 70%, transparent);
+    color: var(--color-fg-muted); font-size: var(--text-small);
+  }
+  .os-root .os-ws { display: flex; align-items: center; gap: 5px; padding-left: 4px; }
+  .os-root .os-ws-box {
+    display: grid; place-items: center; width: 30px; height: 20px;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: var(--text-micro); color: var(--color-fg-faint);
+  }
+  .os-root .os-ws-box.on { border-color: var(--color-brass); color: var(--color-brass); }
+  /* R3 three-screen rig: hairline bezel on each workspace box (velvet-desktop-os.md 185) */
+  .os-root.shell-r3 .os-ws-box:not(.on) { border-color: var(--os-ws-bezel); box-shadow: inset 0 0 0 1px var(--color-chrome); }
+
+  /* R5 glass: strip and shelf at 86% with a blur. Reduced transparency falls back to R4 (below). */
+  .os-root.shell-r5 .os-strip,
+  .os-root.shell-r5 .os-shelf { background: var(--os-strip-bg-r5); backdrop-filter: blur(var(--os-glass-blur)); }
+  /* R6: calmest chrome. No shelf divider, no window shadow, accent softened to brass-lo on chrome. */
+  .os-root.shell-r6 .os-shelf { border-top-color: transparent; }
+  .os-root.shell-r6 .os-sep { display: none; }
+  .os-root.shell-r6 .os-win { box-shadow: none; }
+  .os-root.shell-r6 .os-strip .os-brand,
+  .os-root.shell-r6 .os-tile.on { color: var(--color-brass-lo); }
+
+  /* ---------- Windows (frame, titlebar, snap preview) ---------- */
+  .os-root .os-win {
+    position: absolute; z-index: 2; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--os-window-bg); border: 1px solid var(--os-window-border);
+    border-radius: var(--os-window-radius); box-shadow: var(--os-window-shadow);
+  }
+  .os-root .os-win.active { z-index: 3; }
+  .os-root .os-win.opening { animation: os-win-open var(--dur-base) var(--ease-out); transform-origin: var(--os-origin, 50% 100%); }
+  .os-root .os-win.closing { animation: os-win-close var(--dur-fast) var(--ease-out) forwards; }
+  .os-root .os-tb {
+    position: relative; display: flex; flex: none; align-items: center; gap: 8px;
+    height: var(--os-titlebar-h); padding: 0 6px 0 11px; border-bottom: 1px solid var(--os-window-border);
+  }
+  .os-root .os-win.active .os-tb::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: var(--os-active-hairline); background: var(--color-brass);
+  }
+  .os-root .os-tb-nm {
+    font-family: var(--os-title-font); font-size: var(--os-title-size); font-weight: var(--os-title-weight);
+    text-transform: var(--os-title-transform); letter-spacing: var(--os-title-tracking); color: var(--color-fg);
+  }
+  .os-root .os-win:not(.active) .os-tb-nm { color: var(--color-fg-muted); font-weight: 500; }
+  .os-root .os-tb-sub { margin-left: 4px; font-size: var(--text-caption); color: var(--color-fg-faint); }
+  .os-root .os-tb-gl { color: var(--color-brass); }
+  .os-root .os-win:not(.active) .os-tb-gl { color: var(--color-fg-faint); }
+  .os-root .os-ctl { margin-left: auto; display: flex; gap: 2px; color: var(--color-fg-faint); }
+  .os-root .os-ctl-btn { display: grid; place-items: center; width: 26px; height: 22px; border-radius: var(--radius-sm); }
+  .os-root .os-win-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .os-root .os-snap {
+    position: fixed; z-index: 4; pointer-events: none;
+    border: 1px solid var(--os-snap-preview-border); background: var(--os-snap-preview-fill);
+    border-radius: var(--os-window-radius);
+  }
+
+  /* ---------- Launcher (640 px, 12 px under the strip) ---------- */
+  .os-root .os-launcher {
+    position: fixed; top: calc(var(--os-strip-h) + 12px); left: 50%; z-index: 7;
+    width: var(--os-launcher-w); max-width: calc(100vw - 32px); overflow: hidden;
+    transform: translateX(-50%);
+    background: var(--color-ink-1); border: 1px solid var(--color-ink-3); border-radius: var(--radius-md);
+    box-shadow: var(--os-window-shadow);
+    animation: os-launcher-in var(--dur-base) var(--ease-out);
+  }
+  .os-root .os-launcher-input {
+    width: 100%; height: 44px; padding: 0 16px; border: 0; border-bottom: 1px solid var(--color-ink-3);
+    background: transparent; color: var(--color-fg); font: inherit; font-size: var(--text-body);
+  }
+  .os-root .os-launcher-input::placeholder { color: var(--color-fg-faint); }
+  .os-root .os-launcher-list { max-height: 360px; overflow: auto; padding: 6px; }
+  .os-root .os-launcher-group { padding: 8px 10px 4px; }
+  .os-root .os-launcher-row {
+    display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px;
+    border-radius: var(--radius-sm); color: var(--color-fg-muted); font-size: var(--text-body);
+  }
+  .os-root .os-launcher-row[aria-selected="true"] { background: var(--color-ink-2); color: var(--color-fg); }
+  .os-root .os-launcher-price { margin-left: auto; font-family: var(--font-mono); color: var(--color-fg); }
+
+  /* ---------- Toasts (top-right, 10 px under the strip, max 3 stacked) ---------- */
+  .os-root .os-toasts {
+    position: fixed; top: calc(var(--os-strip-h) + var(--os-toast-gap)); right: 14px; z-index: 6;
+    display: flex; flex-direction: column; gap: var(--os-toast-gap); width: var(--os-toast-w); pointer-events: none;
+  }
+  .os-root .os-toast {
+    display: flex; gap: 11px; padding: 11px 12px 12px 14px; pointer-events: auto;
+    background: var(--os-window-bg); border: 1px solid var(--os-window-border);
+    border-radius: var(--os-window-radius); box-shadow: var(--os-window-shadow);
+    animation: os-toast-in var(--dur-base) var(--ease-out);
+  }
+  .os-root .os-toast-ic {
+    display: grid; place-items: center; flex: none; width: 28px; height: 28px; margin-top: 1px;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-sm); color: var(--color-gain);
+  }
+  .os-root .os-toast-t1 { display: flex; align-items: center; gap: 8px; }
+  .os-root .os-toast-t2 { margin-top: 4px; font-size: 13.5px; }
+  .os-root .os-toast-t3 { margin-top: 2px; font-size: var(--text-caption); color: var(--color-fg-muted); }
+  .os-root .os-toast-x { margin-left: auto; color: var(--color-fg-faint); }
+
+  /* ---------- Focus mode (strip 24, titlebar 22, no shelf or wallpaper). Compact: launcher shrinks. ---------- */
+  .os-root.focus-mode .os-strip { height: var(--os-strip-h-focus); }
+  .os-root.focus-mode .os-tb { height: var(--os-titlebar-h-focus); }
+  .os-root.focus-mode .os-shelf,
+  .os-root.focus-mode .os-wallpaper { display: none; }
+  .os-root.os-compact .os-launch { width: 28px; justify-content: center; padding: 0; }
+  .os-root.os-compact .os-launch-text,
+  .os-root.os-compact .os-kbd { display: none; }
+
+  /* ---------- Shared primitives inside windows ---------- */
+  /* glyph base (the mock's global .g, scoped here) and the mirrored back chevron */
+  .os-root .g { display: block; flex: none; }
+  .os-root .os-glyph-mirror { transform: scaleX(-1); }
+  .os-root .os-label {
+    font-family: var(--os-label-font); font-size: var(--text-micro); font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-fg-faint);
+  }
+  .os-root .os-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .os-root .os-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; }
+  .os-root .os-kbd {
+    display: inline-block; padding: 0 4px; line-height: 15px;
+    font-family: var(--font-mono); font-size: var(--text-micro); color: var(--color-fg-muted);
+    background: var(--color-ink-2); border: 1px solid var(--color-ink-3); border-bottom-width: 1.5px;
+    border-radius: var(--radius-sm);
+  }
+  .os-root .os-chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; white-space: nowrap;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-chip);
+    font-size: var(--text-caption); color: var(--color-fg-muted);
+  }
+  .os-root .os-chip-acc {
+    color: var(--color-brass-hi); background: color-mix(in srgb, var(--color-brass) 8%, transparent);
+    border-color: color-mix(in srgb, var(--color-brass) 50%, transparent);
+  }
+  .os-root .os-tabs { display: flex; gap: 2px; }
+  .os-root .os-tab {
+    padding: 4px 9px; border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-fg-muted);
+  }
+  .os-root .os-tab.on { background: var(--color-ink-2); color: var(--color-fg); box-shadow: inset 0 0 0 1px var(--color-ink-3); }
+  .os-root .os-field {
+    display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-md); background: var(--color-ink-2);
+  }
+  .os-root .os-field.focus {
+    border-color: var(--color-brass);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brass) 16%, transparent);
+  }
+  .os-root .os-field-k { width: 62px; font-size: var(--text-caption); color: var(--color-fg-faint); }
+  .os-root .os-field-v { flex: 1; text-align: right; font-family: var(--font-mono); font-size: var(--text-body); }
+  .os-root .os-kv {
+    display: flex; justify-content: space-between; font-size: var(--text-small); line-height: 22px; color: var(--color-fg-muted);
+  }
+  .os-root .os-kv-v { font-family: var(--font-mono); color: var(--color-fg); }
+  .os-root .os-hr { height: 1px; background: var(--color-ink-3); }
+  /* primary action: the accent button tokens (gradient on dark, flat on Broadsheet) */
+  .os-root .os-cta {
+    display: flex; align-items: center; justify-content: center; gap: 10px; height: 42px;
+    border-radius: var(--radius-md); background: var(--btn-accent-bg); box-shadow: var(--btn-accent-shadow);
+    color: var(--color-on-brass); font-size: var(--text-body); font-weight: 600;
+  }
+  .os-root .os-hints {
+    display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: auto;
+    font-size: var(--text-caption); color: var(--color-fg-faint);
+  }
+  .os-root .os-bs {
+    display: grid; grid-template-columns: 1fr 1fr; height: 34px; overflow: hidden;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-md);
+  }
+  .os-root .os-bs-side { display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: var(--color-fg-muted); }
+  .os-root .os-bs-side.buy {
+    background: color-mix(in srgb, var(--color-gain) 14%, transparent); color: var(--color-gain);
+    box-shadow: inset 0 -2px 0 var(--color-gain);
+  }
+  .os-root .os-item { padding: 10px 16px 11px; border-bottom: 1px solid var(--color-ink-3); }
+  .os-root .os-item-meta {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: var(--text-micro); color: var(--color-fg-faint);
+  }
+  .os-root .os-item-hl { margin-top: 4px; font-size: 13.5px; line-height: 1.35; color: var(--color-fg); }
+  /* Wire lead headline: serif in Ink & Brass, Inter 600 in Phosphor, 22 px in Broadsheet. Tokens do it. */
+  .os-root .os-item.top { padding-bottom: 13px; }
+  .os-root .os-item.top .os-item-hl {
+    margin-top: 6px; font-family: var(--os-lead-headline-font); font-size: var(--os-lead-headline-size);
+    font-weight: var(--os-lead-headline-weight); line-height: 1.15;
+  }
+  .os-root .os-table { width: 100%; border-collapse: collapse; }
+  .os-root .os-th {
+    padding: 7px 12px 5px; text-align: right; border-bottom: 1px solid var(--color-ink-3);
+    font-size: var(--text-micro); font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-fg-faint);
+  }
+  .os-root .os-td {
+    height: 26px; padding: 0 12px; text-align: right; font-family: var(--font-mono); font-size: var(--text-small);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-ink-3) 60%, transparent);
+  }
+  .os-root .os-th:first-child,
+  .os-root .os-td:first-child { text-align: left; padding-left: 16px; }
+  .os-root .os-td:first-child { font-family: var(--font-sans); }
+  .os-root .os-tr.sel .os-td { background: color-mix(in srgb, var(--color-brass) 6%, transparent); }
+
+  /* ---------- Motion (P2-215, P2-220). Durations are tokens; reduced motion zeroes them. ---------- */
+  @keyframes os-win-open {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes os-win-close {
+    to { opacity: 0; transform: scale(0.98); }
+  }
+  @keyframes os-toast-in {
+    from { opacity: 0; transform: translateX(8px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes os-launcher-in {
+    from { opacity: 0; transform: translate(-50%, -4px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
+  @keyframes os-boot-out {
+    0%, 60% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* Glass and transparency (P2-186): reduced transparency is R4 with solid chrome and no backdrop filter. */
+  @media (prefers-reduced-transparency: reduce) {
+    .os-root .os-strip,
+    .os-root .os-shelf,
+    .os-root.shell-r5 .os-strip,
+    .os-root.shell-r5 .os-shelf {
+      background: var(--color-chrome);
+      backdrop-filter: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .os-root .os-win.opening,
+    .os-root .os-win.closing,
+    .os-root .os-toast,
+    .os-root .os-launcher {
+      animation: none;
+    }
+    /* No fade under reduced motion, so the boot cover is removed outright. An opaque cover with
+     * animation: none would stay on screen over the desktop. */
+    .os-root .os-boot { display: none; }
+  }
+}
