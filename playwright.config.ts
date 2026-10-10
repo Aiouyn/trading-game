@@ -22,7 +22,8 @@ export default defineConfig({
     {
       command: `node -e "require('fs').rmSync('test-results/world-e2e',{recursive:true,force:true})" && npx tsx server/index.ts`,
       url: `http://localhost:${WORLD_PORT}/health`,
-      env: { PORT: String(WORLD_PORT), DATA_DIR: "test-results/world-e2e", TICK_MS: "1000", WARMUP_DAYS: "3", ADMIN_TOKEN: E2E_ADMIN, REGISTER_LIMIT: "500" },
+      // SEED: the e2e world's own seed (the live world draws a random one at first boot)
+      env: { PORT: String(WORLD_PORT), DATA_DIR: "test-results/world-e2e", SEED: "avalon", TICK_MS: "1000", WARMUP_DAYS: "3", ADMIN_TOKEN: E2E_ADMIN, REGISTER_LIMIT: "500" },
       reuseExistingServer: false,
       timeout: 120_000,
     },

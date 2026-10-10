@@ -20,7 +20,8 @@ import { tradingRegime } from './worldEvents';
 import { initRivals, rivalsClose, rivalsDay } from './rivals';
 import { indexMembers, policyWeights } from './indices';
 import type {
-  EcoAssetState, EcoCause, EcoLogAsset, EcoLogDay, EcologyConfig, EcologyState, EcoPool, RegimeId, WorldConfig, WorldState,
+  Account, EcoArchiveAsset, EcoArchiveDay, EcoAssetState, EcoCause, EcoLogAsset, EcoLogDay, EcologyConfig, EcologyState, EcoPool,
+  Fill, LnVParts, RegimeId, WorldConfig, WorldState,
 } from './types';
 
 export const ECO_POOLS: readonly EcoPool[] = ['value', 'trend', 'retail', 'pension'] as const;
@@ -76,6 +77,7 @@ export const PENSION_MAX_ADV = pensionCapAtKnee();
 export const DEFAULT_ECOLOGY: EcologyConfig = {
   mode: 'off',
   logDays: 21,
+  archiveDays: 252,
   capacity: POOL_CAPACITY,
   permanentShare: 0.6,
   makerUnwind: 0.5,
@@ -217,6 +219,10 @@ export interface EcoDayInput {
   reshuffle?: Record<string, number>;
   /** 1 for an asset whose short squeeze fired today (squeeze on only), per asset, config order */
   squeeze?: number[];
+  /** the day's lnV change by source, per asset (AssetState.dayLnV); absent = zeros */
+  lnVParts?: LnVParts[];
+  /** the day's world-event price move, log size, per asset (AssetState.dayEvent); absent = 0. Printed as Event, not News. */
+  event?: number[];
 }
 
 export function ecoDayInput(state: WorldState, day: number): EcoDayInput {
@@ -234,8 +240,13 @@ export function ecoDayInput(state: WorldState, day: number): EcoDayInput {
     ...(state.indices ? { members: cfg.indices.map((ix) => indexMembers(state, ix)) } : {}),
     ...(state.reshuffle && state.reshuffle.day === day ? { reshuffle: state.reshuffle.eq } : {}),
     ...(squeezes ? { squeeze: state.assets.map((a) => (a.coverTally && a.coverTally.day === day && a.coverTally.fired ? 1 : 0)) } : {}),
+    lnVParts: state.assets.map((a) => a.dayLnV ?? NO_LNV),
+    event: state.assets.map((a) => a.dayEvent ?? 0),
   };
 }
+
+/** The zero lnV split (a shared value: never mutate it). */
+export const NO_LNV: LnVParts = Object.freeze({ drift: 0, market: 0, sector: 0, idio: 0, news: 0, event: 0 });
 
 function zeroPools(): Record<EcoPool, number> {
   return { value: 0, trend: 0, retail: 0, pension: 0 };
@@ -265,8 +276,15 @@ export function initEcology(state: WorldState): EcologyState {
 export const PUBLIC_MIN_TRADERS = 5;
 export const PUBLIC_MAX_TRADER_SHARE = 0.4;
 
-/** Add the player's fills to today's own flow (signed, ADV), and to each account's gross flow for the Players rule. Pure. */
-export function addOwnFlow(eco: EcologyState, cfg: WorldConfig, fills: { playerId: string; assetId: string; side: 'buy' | 'sell'; qty: number; price: number }[]): EcologyState {
+/**
+ * Add the day's fills to the ecology's own flow (signed, ADV). `own` takes every fill, human and NPC, since the clamp acts on
+ * that total. NPC accounts (accounts[id].npc) go to npcOwn only: they never reach the Players bucket (ownBy), and they clear
+ * as Retail flow (P1). With no accounts given, every fill is human. Pure.
+ */
+export function addOwnFlow(
+  eco: EcologyState, cfg: WorldConfig, fills: Pick<Fill, 'playerId' | 'assetId' | 'side' | 'qty' | 'price'>[],
+  accounts?: Record<string, Pick<Account, 'npc'>>,
+): EcologyState {
   if (fills.length === 0) return eco;
   const assets = eco.assets.slice();
   for (const f of fills) {
@@ -274,11 +292,24 @@ export function addOwnFlow(eco: EcologyState, cfg: WorldConfig, fills: { playerI
     if (i < 0 || !assets[i]) continue;
     const adv = cfg.assets[i]!.advNotional ?? 1e9;
     const gross = (f.qty * f.price) / adv;
-    const by = { ...(assets[i]!.ownBy ?? {}) };
-    by[f.playerId] = (by[f.playerId] ?? 0) + gross;
-    assets[i] = { ...assets[i]!, own: assets[i]!.own + (f.side === 'buy' ? 1 : -1) * gross, ownBy: by };
+    const signed = (f.side === 'buy' ? 1 : -1) * gross;
+    const cur = assets[i]!;
+    if (accounts?.[f.playerId]?.npc) {
+      assets[i] = { ...cur, own: cur.own + signed, npcOwn: (cur.npcOwn ?? 0) + signed };
+    } else {
+      const by = { ...(cur.ownBy ?? {}) };
+      by[f.playerId] = (by[f.playerId] ?? 0) + gross;
+      assets[i] = { ...cur, own: cur.own + signed, ownBy: by };
+    }
   }
   return { ...eco, assets };
+}
+
+/** Human accounts only: NPC personas are accounts too, but a public rule never counts them (P1, D-15). */
+export function humanAccountCount(accounts: Record<string, Pick<Account, 'npc'>>): number {
+  let n = 0;
+  for (const k in accounts) if (!accounts[k]!.npc) n++;
+  return n;
 }
 
 /** The day's player bucket for the log: distinct accounts and the largest one's share of gross flow. */
@@ -378,8 +409,8 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
       // a delisted name has no pool flow: its book stays frozen and the log records zeros for it
       assets[i] = e;
       logAssets[i] = {
-        id: e.id, lnS: e.lnS, lnV: input.lnV[i]!, desired: { value: 0, trend: 0, retail: 0, pension: 0, own: 0 }, net: 0, gross: 0,
-        depth: 1, inv: e.inv, cause: { value: 0, trend: 0, retail: 0, pension: 0, own: 0, maker: 0, news: 0 },
+        id: e.id, lnS: e.lnS, lnV: input.lnV[i]!, desired: { value: 0, trend: 0, retail: 0, pension: 0, own: 0, npc: 0 }, net: 0, gross: 0,
+        depth: 1, inv: e.inv, cause: { value: 0, trend: 0, retail: 0, pension: 0, own: 0, maker: 0, news: 0, event: 0 },
       };
       continue;
     }
@@ -459,6 +490,9 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     // on FROG (+5.88 log in one day). e.own itself is left alone: the Players rule reads ownBy.
     const ownCap = (cfg.trading ?? DEFAULT_TRADING).maxAdvPerTick;
     const own = clamp(e.own, -ownCap, ownCap);
+    // the NPC accounts' share of the clamped total, pro rata: the same total clears, so prices do not move (P1)
+    const npc = e.own !== 0 ? (e.npcOwn ?? 0) * (own / e.own) : 0;
+    const human = own - npc;
     const net = q.value + q.trend + q.retail + q.pension + own;
     const I = (sgn(net) * Y * s * Math.sqrt(Math.abs(net))) / depth;
     core += ec.permanentShare * I;
@@ -470,15 +504,19 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     if (lnS < lnFloor) { floorAdj = lnFloor - lnS; core += floorAdj; lnS = lnFloor; }
 
     const cause = {} as Record<EcoCause, number>;
-    // the impact I splits over the five flows, exactly (impactShares); a near-zero net no longer blows up one row
-    const parts = impactShares(I, [q.value, q.trend, q.retail, q.pension, own]);
+    // the impact I splits over the six flows, exactly (impactShares); a near-zero net no longer blows up one row. The NPC
+    // share is a Retail flow (its part is added to retail below), so the Players and You rows never see it.
+    const parts = impactShares(I, [q.value, q.trend, q.retail, q.pension, human, npc]);
     cause.value = parts[0]! + valuePrint;
     cause.trend = parts[1]!;
-    cause.retail = parts[2]!;
+    cause.retail = parts[2]! + parts[5]!;
     cause.pension = parts[3]!;
     cause.own = parts[4]!;
     cause.maker = makerDecay + 0; // + 0: no -0 in the save (JSON writes it as 0, so a reloaded save would differ under Object.is)
-    cause.news = newsPrint + floorAdj;
+    // the world-event move prints as Event (D-18), the rest of the news print as News; the two sum to the same print
+    const eventPrint = iota * (input.event?.[i] ?? 0);
+    cause.news = newsPrint - eventPrint + floorAdj;
+    cause.event = eventPrint + 0;
 
     const pos = { value: p0.value * dV + q.value, trend: p0.trend * dT + q.trend, retail: p0.retail * dR + q.retail, pension: p0.pension * dP + q.pension };
     const closes = c.slice(c.length >= 64 ? c.length - 63 : 0);
@@ -489,12 +527,13 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     const pensionAnchor = qDay === ec.quarterDays - 1 ? lnS : e.pensionAnchor;
 
     assets[i] = scaleOn
-      ? { id: e.id, lnS, lnV, lnVe, core, skew, inv, pos, closes, headline, pensionAnchor, own: 0, ownBy: {}, rng: rng.state() }
-      : { id: e.id, lnS, lnV, core, skew, inv, pos, closes, headline, pensionAnchor, own: 0, ownBy: {}, rng: rng.state() };
+      ? { id: e.id, lnS, lnV, lnVe, core, skew, inv, pos, closes, headline, pensionAnchor, own: 0, npcOwn: 0, ownBy: {}, rng: rng.state() }
+      : { id: e.id, lnS, lnV, core, skew, inv, pos, closes, headline, pensionAnchor, own: 0, npcOwn: 0, ownBy: {}, rng: rng.state() };
     logAssets[i] = {
       id: e.id, lnS, lnV,
-      desired: { value: q.value, trend: q.trend, retail: q.retail, pension: q.pension, own },
+      desired: { value: q.value, trend: q.trend, retail: q.retail, pension: q.pension, own: human, npc },
       players: playerBucket(e.ownBy),
+      lnVParts: input.lnVParts?.[i] ?? NO_LNV,
       net,
       gross: Math.abs(q.value) + Math.abs(q.trend) + Math.abs(q.retail) + Math.abs(q.pension) + Math.abs(own),
       depth, inv, cause,
@@ -503,8 +542,32 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
   const entry: EcoLogDay = { day: input.day, tick: input.tick, regime: input.regime, assets: logAssets };
   const keep = Math.max(0, Math.floor(ec.logDays));
   const log = keep > 0 ? [...eco.log, entry].slice(-keep) : [];
+  // the explain archive (D-16): the same closed day in compact form, kept longer than the detailed log
+  const keepArchive = Math.max(0, Math.floor(ec.archiveDays));
+  const archiveDay: EcoArchiveDay = {
+    day: input.day,
+    assets: logAssets.map((la) => ({ id: la.id, lnS: la.lnS, lnV: la.lnV, cause: la.cause, lnVParts: la.lnVParts, players: la.players })),
+  };
+  const archive = keepArchive > 0 ? [...(eco.archive ?? legacyArchive(eco.log)), archiveDay].slice(-keepArchive) : [];
   const rivals = rivalPlan ? rivalsClose(cfg, rivalPlan, qValue, qTrend, assets.map((a) => a.lnS)) : undefined;
-  return { day: input.day, assets, log, ...(rivals ? { rivals } : {}) };
+  return { day: input.day, assets, log, archive, ...(rivals ? { rivals } : {}) };
+}
+
+/**
+ * The explain archive for a state: state.ecology.archive, or on a save from before it, the detailed log in archive form (its
+ * days have no lnV split, so their value cause is shown as Company noise, and no Event part). Oldest first.
+ */
+export function ecoArchive(state: WorldState): EcoArchiveDay[] {
+  const eco = state.ecology;
+  if (!eco) return [];
+  return eco.archive ?? legacyArchive(eco.log);
+}
+
+export function legacyArchive(log: EcoLogDay[]): EcoArchiveDay[] {
+  return log.map((d) => ({
+    day: d.day,
+    assets: d.assets.map((a): EcoArchiveAsset => ({ id: a.id, lnS: a.lnS, lnV: a.lnV, cause: a.cause, players: a.players })),
+  }));
 }
 
 /** Shadow close per asset (price, not log). Empty when the ecology never ran. */
@@ -519,22 +582,77 @@ export function ecologyLog(state: WorldState): EcoLogDay[] {
   return state.ecology?.log ?? [];
 }
 
-/** The rows of a move's explanation: pool types, the news print, and the player rows (never a name). */
-export type ExplainRow = 'value' | 'trend' | 'retail' | 'pension' | 'maker' | 'news' | 'you' | 'players';
+/**
+ * The rows of a move's explanation (D-1, why the price moved): the factor split of the value line (market, sector, company
+ * noise), the news and event prints, the flow pools, and the player rows. Never a name.
+ */
+export type ExplainRow = 'market' | 'sector' | 'news' | 'event' | 'company' | 'flow' | 'players' | 'you';
+export const EXPLAIN_ROWS: readonly ExplainRow[] = ['market', 'sector', 'news', 'event', 'company', 'flow', 'players', 'you'] as const;
+/** The pools inside the Flow row (flow pool detail, desk-flow-<pool>). Retail includes a folded player's own flow. */
+export type FlowPool = 'trend' | 'retail' | 'pension' | 'maker';
+export const FLOW_POOLS: readonly FlowPool[] = ['trend', 'retail', 'pension', 'maker'] as const;
 
 export interface MoveExplain {
   assetId: string;
-  /** the closed window actually explained, clamped to the listing and the last closed day */
+  /** the closed window actually explained, clamped to the first archived day and the last closed day */
   from: number;
   to: number;
   /** the move as a log change: the sum of the parts exactly */
   totalLog: number;
   /** the same move as a fraction */
   total: number;
-  /** log move per row, rows with no flow omitted */
+  /** log move per row, rows with no move omitted */
   parts: Partial<Record<ExplainRow, number>>;
+  /** the Flow row by pool, pools with no flow omitted; sums to parts.flow */
+  flow: Partial<Record<FlowPool, number>>;
   /** days whose player flow failed the Players rule and went to Retail */
   foldedDays: number[];
+}
+
+/** The Players rule for one day's bucket (human accounts only, D-15): the day shows Players, or its flow folds to Retail. */
+export function playersShown(p: { accounts: number; maxShare: number } | undefined): boolean {
+  return p !== undefined && p.accounts >= PUBLIC_MIN_TRADERS && p.maxShare <= PUBLIC_MAX_TRADER_SHARE;
+}
+
+/** One closed day's rows for one asset, in log units, and the Flow pools. Pure; the parts sum to the day's cause total. */
+export interface DayRows {
+  parts: Record<ExplainRow, number>;
+  flow: Record<FlowPool, number>;
+  /** the player's own flow folded into Retail on this day */
+  folded: boolean;
+  /** the sum of the cause vector: the day's close-to-close move */
+  total: number;
+}
+
+export function dayRows(a: EcoArchiveAsset, solo: boolean): DayRows {
+  const c = a.cause;
+  const parts: Record<ExplainRow, number> = { market: 0, sector: 0, news: 0, event: 0, company: 0, flow: 0, players: 0, you: 0 };
+  // the value pool trades the value line, so its cause is the day's lnV change: split it by source, exactly (impactShares).
+  // Without a split (a save from before it, or a day with no change in lnV), the value cause is company noise.
+  const lv = a.lnVParts;
+  const comps = lv ? [lv.drift + lv.market, lv.sector, lv.idio, lv.news, lv.event] : null;
+  const split = comps !== null && comps.some((x) => x !== 0) ? impactShares(c.value, comps) : null;
+  if (split) {
+    parts.market += split[0]!;
+    parts.sector += split[1]!;
+    parts.company += split[2]!;
+    parts.news += split[3]!;
+    parts.event += split[4]!;
+  } else parts.company += c.value;
+  parts.news += c.news;
+  parts.event += c.event ?? 0;
+  const flow: Record<FlowPool, number> = { trend: c.trend, retail: c.retail, pension: c.pension, maker: c.maker };
+  // the player bucket, decided per day: solo is always You; otherwise Players only past the public rule, else Retail
+  let folded = false;
+  if (solo) parts.you += c.own;
+  else if (playersShown(a.players)) parts.players += c.own;
+  else {
+    flow.retail += c.own;
+    folded = c.own !== 0;
+  }
+  parts.flow = flow.trend + flow.retail + flow.pension + flow.maker;
+  const total = c.value + c.news + (c.event ?? 0) + c.trend + c.retail + c.pension + c.maker + c.own;
+  return { parts, flow, folded, total };
 }
 
 /** A closed day's book for one asset: the depth factor and each trader pool's desired flow, in ADV. Pool types only. */
@@ -547,7 +665,8 @@ export interface DepthByPool {
 
 /**
  * Order depth on a closed day, by pool type. Closed days only: a day the log does not hold (the open session, or
- * before the listing) throws. The player's own flow is not in this view; it appears only through explainMove.
+ * before the listing) throws. Retail follows the same fold as explainMove (P2): a folded player's own flow is inside it,
+ * and on a day the Players row shows, no player flow is.
  */
 export function depthByPool(state: WorldState, assetId: string, day: number): DepthByPool {
   const idx = state.config.assets.findIndex((a) => a.id === assetId);
@@ -555,64 +674,52 @@ export function depthByPool(state: WorldState, assetId: string, day: number): De
   const entry = ecologyLog(state).find((d) => d.day === day);
   if (!entry) throw new Error(`depthByPool: day ${day} is not a closed day`);
   const a = entry.assets[idx]!;
+  // the Retail figure follows explainMove's fold exactly (P2): NPC flow always, and the player's own flow only on a day
+  // that folded. On a day the Players row shows, the player flow is not in Retail; on a solo day it is You, not Retail.
+  const folded = !(humanAccountCount(state.accounts) === 1) && !playersShown(a.players);
+  const retail = a.desired.retail + (a.desired.npc ?? 0) + (folded ? a.desired.own : 0);
   return {
     assetId, day, depth: a.depth,
-    desired: { value: a.desired.value, trend: a.desired.trend, retail: a.desired.retail, pension: a.desired.pension },
+    desired: { value: a.desired.value, trend: a.desired.trend, retail, pension: a.desired.pension },
   };
 }
 
 /**
- * Why an asset moved between two closed days, from the cause vector the pools wrote each close. Closed days only:
- * a window that reaches the open session, or any day after the last close, throws. The window is clamped to the first
- * logged day. Each day's player flow is decided on that day alone (Players or Retail) before the window is summed, so
- * subtracting two overlapping windows cannot isolate one account's flow.
- *
- * Not yet in: the market and sector split (the engine does not log its factor shocks); they arrive with the research
- * desk. The parts here are the pools, the news print and the player rows, and they sum to the total.
+ * Why an asset moved between two closed days (D-1), from the cause vector and the lnV split the pools wrote each close.
+ * It reads the explain archive (252 game days, D-16), so a window can reach well past the 21-day detailed log. Closed
+ * days only: a window that reaches the open session, or any day after the last close, throws. The window is clamped to
+ * the first archived day. Each day's player flow is decided on that day alone (Players or Retail) before the window is
+ * summed, so subtracting two overlapping windows cannot isolate one account's flow. The parts sum to the total exactly.
  */
 export function explainMove(state: WorldState, assetId: string, fromDay: number, toDay: number): MoveExplain {
   const cfg = state.config;
-  const log = ecologyLog(state);
-  if (log.length === 0) throw new Error('explainMove: no closed days yet');
-  const lastClosed = log[log.length - 1]!.day;
+  const arc = ecoArchive(state);
+  if (arc.length === 0) throw new Error('explainMove: no closed days yet');
+  const lastClosed = arc[arc.length - 1]!.day;
   if (fromDay > toDay) throw new Error(`explainMove: fromDay ${fromDay} is after toDay ${toDay}`);
   if (toDay > lastClosed) throw new Error(`explainMove: day ${toDay} is open or not closed (last closed day ${lastClosed})`);
   if (fromDay > lastClosed) throw new Error(`explainMove: fromDay ${fromDay} is after the last closed day ${lastClosed}`);
   const idx = cfg.assets.findIndex((a) => a.id === assetId);
   if (idx < 0) throw new Error(`explainMove: unknown asset ${assetId}`);
 
-  const from = Math.max(fromDay, log[0]!.day);
-  const soloYou = Object.keys(state.accounts).length === 1;
+  const from = Math.max(fromDay, arc[0]!.day);
+  const solo = humanAccountCount(state.accounts) === 1;
   const parts: Partial<Record<ExplainRow, number>> = {};
+  const flow: Partial<Record<FlowPool, number>> = {};
   const foldedDays: number[] = [];
-  const add = (k: ExplainRow, v: number) => { if (v !== 0) parts[k] = (parts[k] ?? 0) + v; };
   let totalLog = 0;
   let days = 0;
-  for (const day of log) {
+  for (const day of arc) {
     if (day.day < from || day.day > toDay) continue;
     const a = day.assets[idx];
     if (!a) continue;
     days++;
-    const c = a.cause;
-    add('value', c.value);
-    add('trend', c.trend);
-    add('retail', c.retail);
-    add('pension', c.pension);
-    add('maker', c.maker);
-    add('news', c.news);
-    // the player bucket, decided per day: solo is always "You"; online it is "Players" only past the public rule
-    if (soloYou) add('you', c.own);
-    else {
-      const p = a.players;
-      const shown = p !== undefined && p.accounts >= PUBLIC_MIN_TRADERS && p.maxShare <= PUBLIC_MAX_TRADER_SHARE;
-      if (shown) add('players', c.own);
-      else {
-        add('retail', c.own);
-        if (c.own !== 0) foldedDays.push(day.day);
-      }
-    }
-    totalLog += c.value + c.trend + c.retail + c.pension + c.maker + c.news + c.own;
+    const r = dayRows(a, solo);
+    for (const k of EXPLAIN_ROWS) if (r.parts[k] !== 0) parts[k] = (parts[k] ?? 0) + r.parts[k];
+    for (const k of FLOW_POOLS) if (r.flow[k] !== 0) flow[k] = (flow[k] ?? 0) + r.flow[k];
+    if (r.folded) foldedDays.push(day.day);
+    totalLog += r.total;
   }
   if (days === 0) throw new Error(`explainMove: no closed days for ${assetId} between ${fromDay} and ${toDay}`);
-  return { assetId, from, to: toDay, totalLog, total: Math.expm1(totalLog), parts, foldedDays };
+  return { assetId, from, to: toDay, totalLog, total: Math.expm1(totalLog), parts, flow, foldedDays };
 }

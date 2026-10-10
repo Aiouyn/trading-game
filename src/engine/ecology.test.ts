@@ -28,7 +28,11 @@ function run(cfg: WorldConfig, seed: string, days: number, trade?: (s: WorldStat
   return { s, events };
 }
 
-const strip = (s: WorldState) => ({ ...s, ecology: undefined, config: undefined });
+// the ecology's own per-day bookkeeping on each asset (dayLnV, dayEvent) is not a live value: strip it with the ecology
+const strip = (s: WorldState) => ({
+  ...s, ecology: undefined, config: undefined,
+  assets: s.assets.map((a) => { const b = { ...a }; delete b.dayLnV; delete b.dayEvent; return b; }),
+});
 
 describe('ecology modes', () => {
   it('weight: full = 1, hybrid 0.25 or 1, anything else (made-up weights, unknown modes) = 0', () => {
@@ -76,7 +80,7 @@ describe('full ecology: the pools set the close (closing auction)', () => {
     expect(log.length).toBe(DEFAULT_ECOLOGY.logDays);
     for (let k = 1; k < log.length; k++) {
       log[k]!.assets.forEach((a, i) => {
-        expect(Object.keys(a.cause).sort()).toEqual(['maker', 'news', 'own', 'pension', 'retail', 'trend', 'value']);
+        expect(Object.keys(a.cause).sort()).toEqual(['event', 'maker', 'news', 'own', 'pension', 'retail', 'trend', 'value']);
         const sum = Object.values(a.cause).reduce((x, y) => x + y, 0);
         expect(sum).toBeCloseTo(a.lnS - log[k - 1]!.assets[i]!.lnS, 12);
         expect(a.depth).toBeGreaterThanOrEqual(DEFAULT_ECOLOGY.depthMin);

@@ -10,6 +10,9 @@ import type { Command } from '../src/world/types';
  * since the last snapshot, and the chart history. A restart loads the newest snapshot and
  * replays the logged commands, so nothing a player did is lost.
  */
+/** The blobs key for the world's seed (Store.worldSeed). */
+export const WORLD_SEED_KEY = 'world-seed';
+
 export class Store {
   readonly db: DatabaseSync;
 
@@ -124,6 +127,42 @@ export class Store {
 
   getBlob(key: string): string | null {
     return (this.db.prepare('SELECT data FROM blobs WHERE key = ?').get(key) as { data: string } | undefined)?.data ?? null;
+  }
+
+  /**
+   * The world's seed, kept only here: the one stored at first boot, else a fresh one (drawn by `fresh`) stored now. A
+   * world that already has a snapshot keeps the seed it was created with, whatever this returns.
+   */
+  worldSeed(fresh: () => string): string {
+    const stored = this.getBlob(WORLD_SEED_KEY);
+    if (stored) return stored;
+    const seed = fresh();
+    this.setBlob(WORLD_SEED_KEY, seed);
+    return seed;
+  }
+
+  /**
+   * The explain archive, one row per game day (EcoArchiveDay as JSON). Written once per day, never rewritten, and kept out of
+   * the snapshots (it is most of a save). Rows older than `keepFromDay` are dropped; a day already stored is replaced.
+   */
+  saveArchiveDays(days: { day: number; json: string }[], keepFromDay: number): void {
+    this.db.exec('CREATE TABLE IF NOT EXISTS eco_archive (day INTEGER PRIMARY KEY, data TEXT NOT NULL)');
+    this.db.exec('BEGIN');
+    try {
+      const put = this.db.prepare('INSERT OR REPLACE INTO eco_archive (day, data) VALUES (?, ?)');
+      for (const d of days) put.run(d.day, d.json);
+      this.db.prepare('DELETE FROM eco_archive WHERE day < ?').run(keepFromDay);
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
+  /** Every stored archive day as JSON, oldest first. */
+  loadArchiveDays(): string[] {
+    this.db.exec('CREATE TABLE IF NOT EXISTS eco_archive (day INTEGER PRIMARY KEY, data TEXT NOT NULL)');
+    return (this.db.prepare('SELECT data FROM eco_archive ORDER BY day ASC').all() as { data: string }[]).map((r) => r.data);
   }
 
   close(): void {

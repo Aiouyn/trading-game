@@ -74,6 +74,11 @@ export interface MarketFrame {
   rates: Pick<RatesState, 'policy' | 'y2' | 'y10' | 'y30' | 'expectedMove' | 'nextMeeting' | 'nextRelease' | 'releaseKind'> | null;
   /** the shared world event now (announced or live), as the app may see it: never its end tick or planned moves */
   worldEvent: WorldEventFrame | null;
+  /**
+   * public short interest per stock (engine publicShortInterest, computed on the server): sent in every welcome and on the
+   * slow-cadence ticks where it changed (server/wire.ts ShortInterestWire). Absent on other ticks.
+   */
+  shortInterest?: Record<string, number | null>;
 }
 
 const r2 = (x: number) => Math.round(x * 100) / 100;

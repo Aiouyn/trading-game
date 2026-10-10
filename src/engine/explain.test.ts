@@ -7,7 +7,7 @@ import type { WorldState } from './types';
 
 const TPD = 24;
 const ASSET = 'OSTV';
-const ALLOWED = new Set(['value', 'trend', 'retail', 'pension', 'maker', 'news', 'you', 'players']);
+const ALLOWED = new Set(['market', 'sector', 'news', 'event', 'company', 'flow', 'players', 'you']);
 
 /** Opens the given accounts, then for each of `days` game days every account buys `qty` of ASSET at the open. */
 function trade(players: string[], days: number, qty = 5): WorldState {

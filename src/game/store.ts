@@ -40,6 +40,8 @@ export interface GameStore {
   /** wall-clock time the latest tick arrived (drives the tick ring) */
   lastTickAt: number;
   frame: MarketFrame | null;
+  /** the public short interest per stock, from the server (MarketFrame.shortInterest; null until the first welcome) */
+  shortInterest: Record<string, number | null> | null;
   /** client-side engine mirror for previews (estimateFill, buyingPower, optionChain…) */
   world: WorldState | null;
   /** the live universe: the server's asset list (listings and delistings included) */
@@ -179,6 +181,7 @@ export const useGame = create<GameStore>((set, get) => {
         // one set: the universe, its history and the frame never show up apart
         set({
           status: 'ready', playerId: msg.playerId, tickMs: msg.tickMs, lastTickAt: Date.now(), frame: msg.frame, world: r.world, me: msg.me,
+          shortInterest: msg.frame.shortInterest ?? null,
           config, cfgSeq: msg.frame.cfgSeq, history: h, loaded: {},
           pub: msg.pub, directory: msg.directory, chat: msg.chat, wire: msg.pub.wire, historyRev: get().historyRev + 1,
           digestOpen: !!msg.me.digest && msg.me.digest.items.length > 0,
@@ -211,6 +214,7 @@ export const useGame = create<GameStore>((set, get) => {
         set({
           config: absorbed.universe.config, cfgSeq: absorbed.universe.cfgSeq,
           frame: msg.frame, world: absorbed.world, me: msg.me, lastTickAt: Date.now(), historyRev: get().historyRev + 1,
+          ...(msg.frame.shortInterest ? { shortInterest: msg.frame.shortInterest } : {}),
           wire: msg.wire.length ? [...[...msg.wire].reverse(), ...get().wire].slice(0, WIRE_KEEP) : get().wire,
           ...(msg.pub ? { pub: msg.pub } : {}), ...(msg.directory ? { directory: msg.directory } : {}),
           ...(msg.chat.length ? { chat, chatUnread: get().chatOpen ? 0 : unread } : {}),
@@ -263,6 +267,7 @@ export const useGame = create<GameStore>((set, get) => {
     tickMs: 5000,
     lastTickAt: 0,
     frame: null,
+    shortInterest: null,
     world: null,
     config: BASE_CONFIG,
     cfgSeq: 0,
@@ -333,7 +338,7 @@ export const useGame = create<GameStore>((set, get) => {
       client?.close();
       client = null;
       setToken(null);
-      set({ status: 'welcome', me: null, playerId: null, frame: null, world: null });
+      set({ status: 'welcome', me: null, playerId: null, frame: null, world: null, shortInterest: null });
     },
 
     async act(cmd, opts) {

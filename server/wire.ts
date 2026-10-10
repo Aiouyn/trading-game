@@ -1,5 +1,31 @@
+import { publicShortInterest } from '../src/engine';
+import { SHORT_INTEREST_EVERY } from '../src/world/core';
 import type { GameState } from '../src/world/types';
 import { configSeq, marketFrame, type MarketFrame } from '../src/world/view';
+
+/**
+ * The public short interest, on the tick stream. The server computes it (the client never sees other accounts' positions,
+ * so it cannot), at a slow cadence, and sends it only when the figure changed: a tick's frame carries it on the due
+ * ticks that moved, and a welcome always carries the current figure (welcomeFrame). Never per tick, for every stock.
+ */
+export class ShortInterestWire {
+  private sent: string | null = null;
+
+  /** The figure to put in this tick's frame, or null when this tick is not due or nothing changed. Call once per tick. */
+  due(g: GameState): Record<string, number | null> | null {
+    if (g.market.tick % SHORT_INTEREST_EVERY !== 0) return null;
+    const si = publicShortInterest(g.market);
+    const json = JSON.stringify(si);
+    if (json === this.sent) return null;
+    this.sent = json;
+    return si;
+  }
+}
+
+/** The current figure for a welcome: always present, so a new connection never waits for the next change. */
+export function welcomeShortInterest(g: GameState): Record<string, number | null> {
+  return publicShortInterest(g.market);
+}
 
 /**
  * The wire rules for the asset list. The engine appends assets (IPOs, spin-off children) and delists names in place

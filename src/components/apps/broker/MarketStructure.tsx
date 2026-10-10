@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo } from 'react';
-import { publicShortInterest } from '@/engine';
 import { tone, toneText } from '@/game/format';
 import { useGame } from '@/game/store';
 import { isUntradable } from '@/game/universe';
@@ -16,12 +15,12 @@ const POOLS = ['value', 'trend', 'retail', 'pension'] as const;
  * concentrated the engine withholds the figure (null), and the row says why in one line.
  */
 export function ShortInterestRow({ ticker }: { ticker: string }) {
-  const world = useGame((s) => s.world)!;
+  // the server computes the figure (it sees every account; this client sees only its own), and sends it on change
+  const si = useGame((s) => s.shortInterest);
   const config = useGame((s) => s.config);
-  const si = useMemo(() => publicShortInterest(world), [world]);
   const def = config.assets.find((a) => a.id === ticker);
   if (!def || def.assetClass !== 'stock' || !def.sharesOutstanding) return null;
-  const v = si[ticker];
+  const v = si?.[ticker];
   return (
     <div data-testid="short-interest">
       <div className="flex justify-between gap-2 py-0.5 text-small">

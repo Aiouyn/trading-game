@@ -32,6 +32,7 @@ export function createPlayer(g: GameState, id: string, handle: string, country: 
   if (g.market.accounts[id]) throw new Error(`account ${id} already exists`);
   g.market.accounts[id] = {
     playerId: id, cash, startingCash: cash, positions: {}, realizedPnl: 0, feesPaid: 0, peakEquity: cash, maxDrawdown: 0, dayStartEquity: cash,
+    ...(opts.npc ? { npc: true } : {}),
   };
   const nw = cash;
   const p: Player = {
@@ -284,4 +285,15 @@ export function updateProfile(g: GameState, p: Player, patch: { bio?: string; co
   if (patch.mostWantedOptIn !== undefined) p.mostWantedOptIn = !!patch.mostWantedOptIn;
   void g;
   return ok();
+}
+
+/**
+ * Flags each NPC persona's engine account (Account.npc), so a save written before the flag keeps NPC flow out of the
+ * public Players rule and out of You (P1). Idempotent; changes no price.
+ */
+export function flagNpcAccounts(g: GameState): void {
+  for (const p of Object.values(g.players)) {
+    const acct = g.market.accounts[p.id];
+    if (p.npc && acct && !acct.npc) acct.npc = true;
+  }
 }

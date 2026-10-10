@@ -253,6 +253,13 @@ export interface AssetState {
    * this, not the close-to-close return, so E[z^2 | h] = h for every asset. Absent (undefined) = 0 at the first tick.
    */
   dayDiff?: number;
+  /**
+   * today's lnV change split by source (the parts sum to the day's change in lnV). Accumulated per tick only while the
+   * ecology is on, reset at the day boundary, read at the close (ecologyDay) and archived per asset. Absent = zeros.
+   */
+  dayLnV?: LnVParts;
+  /** the part of dayJump that is world-event price moves, summed per tick. Ecology-on only. */
+  dayEvent?: number;
   /** log return accumulated while halted; applied in the reopening auction */
   pending: number;
   rng: RngState;
@@ -522,6 +529,8 @@ export interface Account {
   borrowPaid?: number;
   /** tick a margin call went out (cleared when the account recovers) */
   marginCallTick?: number;
+  /** an NPC persona's account: its flow clears as Retail and never counts toward Players or You (P1). Absent = a human. */
+  npc?: boolean;
 }
 
 export interface WorldState {
@@ -572,7 +581,22 @@ export interface CrowdHold {
 export type EcologyMode = 'off' | 'shadow' | 'hybrid' | 'full';
 export type EcoPool = 'value' | 'trend' | 'retail' | 'pension';
 /** terms of the daily cause vector, in log return; they sum to the shadow close-to-close move */
-export type EcoCause = 'value' | 'trend' | 'retail' | 'pension' | 'maker' | 'news' | 'own';
+export type EcoCause = 'value' | 'trend' | 'retail' | 'pension' | 'maker' | 'news' | 'event' | 'own';
+
+/**
+ * One asset's day change in ln value, by source; the parts sum to the day's change in lnV exactly. drift is the
+ * deterministic part (cycle, equity drift, carry, seasonal, the asset's alpha). market and sector are the factor shocks
+ * (market and crypto; sector and region). idio is the company's own shock. news is the jumps, catalysts and rate shocks.
+ * event is the world-event value move. The diffusive parts carry lnVScale and the permanent share, as the value does.
+ */
+export interface LnVParts {
+  drift: number;
+  market: number;
+  sector: number;
+  idio: number;
+  news: number;
+  event: number;
+}
 
 export interface EcologyConfig {
   /**
@@ -586,6 +610,8 @@ export interface EcologyConfig {
   weight?: number;
   /** game days of per-asset detail kept in state.ecology.log */
   logDays: number;
+  /** game days of compact archive records (cause, lnV parts, close, players) kept for explainMove and explainTrade */
+  archiveDays: number;
   /** capacity cut on a pool adding to its own side: 1 / (1 + capacity · |position / size|) */
   capacity: number;
   /** share of the clearing impact that stays in the price; the rest is the maker's skew and unwinds */
@@ -677,8 +703,10 @@ export interface EcoAssetState {
   headline: number;
   /** pension anchor: lnS at the last quarter-end rebalance */
   pensionAnchor: number;
-  /** the player's signed flow today, ADV */
+  /** the player's signed flow today, ADV: human and NPC accounts together (the clamp acts on this total) */
   own: number;
+  /** the NPC accounts' part of own, ADV (signed). It clears in the Retail row, never as Players or You. */
+  npcOwn?: number;
   /**
    * Gross flow today per trading account (ADV), for the Players fold. Server-side only: the log keeps the count and
    * the largest share, never the ids. Reset at each close. Absent on older saves (then no players are counted).
@@ -692,8 +720,10 @@ export interface EcoLogAsset {
   id: string;
   lnS: number;
   lnV: number;
-  /** desired orders after the capacity cut, ADV (own = the player's fills) */
-  desired: Record<EcoPool | 'own', number>;
+  /** desired orders after the capacity cut, ADV (own = the human accounts' fills, npc = the NPC accounts' fills) */
+  desired: Record<EcoPool | 'own' | 'npc', number>;
+  /** the day's lnV change by source (absent on logs written before the factor split) */
+  lnVParts?: LnVParts;
   /** the day's player bucket: distinct accounts that traded the asset and the largest one's share of its gross flow */
   players?: { accounts: number; maxShare: number };
   net: number;
@@ -716,11 +746,31 @@ export interface EcoLogDay {
   assets: EcoLogAsset[];
 }
 
+/**
+ * One asset's compact closed-day record for the explain archive (D-16): the close, the cause vector, the lnV change by
+ * source and the Players bucket. Far smaller than the detailed log, and kept for EcologyConfig.archiveDays days.
+ */
+export interface EcoArchiveAsset {
+  id: string;
+  lnS: number;
+  lnV: number;
+  cause: Record<EcoCause, number>;
+  lnVParts?: LnVParts;
+  players?: { accounts: number; maxShare: number };
+}
+
+export interface EcoArchiveDay {
+  day: number;
+  assets: EcoArchiveAsset[];
+}
+
 export interface EcologyState {
   /** game day of the last shadow close */
   day: number;
   assets: EcoAssetState[];
   log: EcoLogDay[];
+  /** the explain archive, oldest first. Absent on saves from before it: the detailed log stands in (ecoArchive). */
+  archive?: EcoArchiveDay[];
   /** NPC rival funds (their trades are slices of the pools, rivals.ts); absent when none are configured */
   rivals?: RivalState[];
 }
