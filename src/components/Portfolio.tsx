@@ -6,19 +6,25 @@ import { PROPERTY_TYPE_BY_ID } from '@/content/lifestyle';
 import { compactMoney, money, pct, price, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { assetDefOf, useGame } from '@/game/store';
+import { t } from '@/i18n';
 import { NetWorth } from './Header';
 import { Positions } from './Holdings';
-import { PriceChart } from './apps/broker/PriceChart';
+import { type ChartOverlay, PriceChart } from './apps/broker/PriceChart';
+import { ClosesCard, LuckCard } from './PortfolioLuck';
 import { Card, CardHeader, KV, Segmented, Stat, Td, Th } from './ui';
 
 const CLASS_COLOR: Record<string, string> = {
   cash: 'bg-ink-3', stock: 'bg-brass', crypto: 'bg-steel', commodity: 'bg-brass-lo', forex: 'bg-info', bond: 'bg-gain', options: 'bg-warn',
   businesses: 'bg-brass-hi', property: 'bg-fg-muted', lifestyle: 'bg-loss', lab: 'bg-info',
 };
-const CLASS_LABEL: Record<string, string> = {
-  cash: 'Cash', stock: 'Stocks', crypto: 'Crypto', commodity: 'Commodities', forex: 'Currencies', bond: 'Bonds', options: 'Options',
-  businesses: 'Businesses', property: 'Property (equity)', lifestyle: 'Lifestyle', lab: 'AI hardware',
+const CLASS_LABEL_KEY: Record<string, string> = {
+  cash: 'common.cash', stock: 'portfolio.class.stock', crypto: 'portfolio.class.crypto', commodity: 'portfolio.class.commodity',
+  forex: 'portfolio.class.forex', bond: 'portfolio.class.bond', options: 'portfolio.class.options', businesses: 'portfolio.businesses',
+  property: 'portfolio.class.property', lifestyle: 'portfolio.class.lifestyle', lab: 'portfolio.aiHardware',
 };
+
+/** A game day in ticks (the chart's daily points sit at day * TPD + 1, as the daily net worth series does). */
+const TPD = 720;
 
 type NwRange = '1D' | '1W' | 'ALL';
 
@@ -31,17 +37,36 @@ export function PortfolioView({ phone = false }: { phone?: boolean }) {
   const loadNw = useGame((s) => s.loadNw);
   useGame((s) => s.historyRev);
   const [range, setRange] = useState<NwRange>('1W');
-  useEffect(() => { void loadNw(); }, [loadNw]);
+  const [ghostsOn, setGhostsOn] = useState(true);
+  // the history (and the ghost lines in it) is reread each time a new close lands while the window is open
+  const latestClose = me.trading.closes[0]?.day ?? -1;
+  useEffect(() => { void loadNw(); }, [loadNw, latestClose]);
 
   const pf = portfolio(world, playerId);
   const b = me.netWorth;
   const series = useMemo(() => {
     if (!nw) return [];
-    if (range === 'ALL') return nw.daily.map((d) => ({ time: d.day * 720 + 1, value: d.value }));
+    if (range === 'ALL') return nw.daily.map((d) => ({ time: d.day * TPD + 1, value: d.value }));
     const n = range === '1D' ? 60 : nw.samples.length;
     const s = nw.samples.slice(-n);
     return s.map((v, k) => ({ time: nw.lastTick - (s.length - 1 - k) * nw.every, value: v }));
   }, [nw, range, nw?.samples.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The ghosts and the player's own trading equity, drawn over the net worth line (private: the owner's ledger, every kept
+  // closed day). They are priced on the same daily closes, so the lines compare with each other, not with the net worth above.
+  const fromTime = series[0]?.time ?? 0;
+  const overlays = useMemo<ChartOverlay[]>(() => {
+    if (!ghostsOn) return [];
+    const ghostDays = nw?.ghosts ?? [];
+    const pts = (pick: (s: (typeof ghostDays)[number]) => number) =>
+      ghostDays.map((s) => ({ time: s.day * TPD + 1, value: pick(s) })).filter((x) => x.time >= fromTime);
+    return [
+      { id: 'player', color: 'line', points: pts((s) => s.player) },
+      { id: 'basket', color: 'steel', dashed: true, points: pts((s) => s.basket) },
+      { id: 'random', color: 'info', dashed: true, points: pts((s) => s.random) },
+      { id: 'momentum', color: 'warn', dashed: true, points: pts((s) => s.momentum) },
+    ];
+  }, [ghostsOn, nw, fromTime]);
 
   // allocation by bucket
   const byClass = new Map<string, number>();
@@ -66,80 +91,100 @@ export function PortfolioView({ phone = false }: { phone?: boolean }) {
       <Card className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="label">Net worth</div>
+            <div className="label">{t('common.netWorth')}</div>
             <NetWorth value={b.total} />
-            <div className={`num mt-1 text-small ${toneText[tone(b.total - 5000)]}`} data-testid="networth-total">{signedMoney(b.total - 5000)} ({signedPct(b.total / 5000 - 1)}) since you arrived with $5,000</div>
+            <div className={`num mt-1 text-small ${toneText[tone(me.arrival.change)]}`} data-testid="networth-total">
+              {t('portfolio.sinceArrival', { delta: signedMoney(me.arrival.change), pct: signedPct(me.arrival.changePct), start: money(me.arrival.cash) })}
+            </div>
           </div>
-          <Segmented label="Net worth range" size="sm" value={range} onChange={(v) => setRange(v as NwRange)}
-            options={[{ value: '1D', label: '1D', testId: 'nw-range-1D' }, { value: '1W', label: '1W', testId: 'nw-range-1W' }, { value: 'ALL', label: 'All', testId: 'nw-range-ALL' }]} />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              aria-pressed={ghostsOn}
+              data-testid="ghost-toggle"
+              title={t('ghost.toggle.hint')}
+              onClick={() => setGhostsOn(!ghostsOn)}
+              className={`shrink-0 rounded-chip border px-3 py-1 text-caption ${ghostsOn ? 'border-brass/60 text-brass-hi' : 'border-ink-3 text-fg-muted'}`}
+            >
+              {t('ghost.toggle')}
+            </button>
+            <Segmented label={t('portfolio.nwRange')} size="sm" value={range} onChange={(v) => setRange(v as NwRange)}
+              options={[{ value: '1D', label: '1D', testId: 'nw-range-1D' }, { value: '1W', label: '1W', testId: 'nw-range-1W' }, { value: 'ALL', label: 'All', testId: 'nw-range-ALL' }]} />
+          </div>
         </div>
         <div className={phone ? 'mt-3 h-48' : 'mt-3 h-64'}>
-          {series.length > 1 ? <PriceChart assetId="NW" series={series} mode="area" testId="networth-chart" studies={false} /> : <div className="flex h-full items-center justify-center text-small text-fg-faint" data-testid="networth-chart">Your net worth history builds as the market ticks.</div>}
+          {series.length > 1
+            ? <PriceChart assetId="NW" series={series} mode="area" testId="networth-chart" studies={false} overlays={overlays} />
+            : <div className="flex h-full items-center justify-center text-small text-fg-faint" data-testid="networth-chart">{t('portfolio.building')}</div>}
         </div>
       </Card>
 
       <div className={`grid gap-4 ${phone ? '' : 'lg:grid-cols-2'}`}>
         <Card className="p-4">
-          <h3 className="font-serif text-title">Balance sheet</h3>
+          <h3 className="font-serif text-title">{t('portfolio.balance')}</h3>
           <div className="mt-2">
-            <KV k="Cash" v={money(b.cash)} />
-            <KV k="Markets (positions + options)" v={money(b.markets)} />
-            <KV k="Businesses" v={money(b.businesses)} />
-            <KV k="Property" v={money(b.property)} />
-            <KV k="Mortgages" v={<span className="text-loss">{money(-b.mortgages)}</span>} />
-            <KV k="Lifestyle (resale)" v={money(b.lifestyle)} />
-            <KV k="AI hardware" v={money(b.lab)} />
-            <KV k={<span className="font-semibold text-fg">Net worth</span>} v={<span className="font-semibold">{money(b.total)}</span>} className="border-t border-ink-2 pt-2" />
+            <KV k={t('common.cash')} v={money(b.cash)} />
+            <KV k={t('portfolio.markets')} v={money(b.markets)} />
+            <KV k={t('portfolio.businesses')} v={money(b.businesses)} />
+            <KV k={t('portfolio.property')} v={money(b.property)} />
+            <KV k={t('portfolio.mortgages')} v={<span className="text-loss">{money(-b.mortgages)}</span>} />
+            <KV k={t('portfolio.lifestyle')} v={money(b.lifestyle)} />
+            <KV k={t('portfolio.aiHardware')} v={money(b.lab)} />
+            <KV k={<span className="font-semibold text-fg">{t('common.netWorth')}</span>} v={<span className="font-semibold">{money(b.total)}</span>} className="border-t border-ink-2 pt-2" />
           </div>
-          <div className="mt-4 flex h-2 overflow-hidden rounded-chip" aria-label="Allocation">
-            {slices.map(([k, v]) => <span key={k} className={CLASS_COLOR[k] ?? 'bg-ink-3'} style={{ width: `${(v / total) * 100}%` }} title={`${CLASS_LABEL[k]} ${pct(v / total)}`} />)}
+          <div className="mt-4 flex h-2 overflow-hidden rounded-chip" aria-label={t('portfolio.allocation')}>
+            {slices.map(([k, v]) => <span key={k} className={CLASS_COLOR[k] ?? 'bg-ink-3'} style={{ width: `${(v / total) * 100}%` }} title={`${t(CLASS_LABEL_KEY[k] ?? k)} ${pct(v / total)}`} />)}
           </div>
           <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-caption">
             {slices.map(([k, v]) => (
               <li key={k} className="flex items-center gap-2" data-testid={`alloc-${k}`}>
                 <span className={`h-2 w-2 rounded-full ${CLASS_COLOR[k]}`} aria-hidden />
-                <span className="text-fg-muted">{CLASS_LABEL[k]}</span>
+                <span className="text-fg-muted">{t(CLASS_LABEL_KEY[k] ?? k)}</span>
                 <span className="num ml-auto text-fg">{pct(v / total)}</span>
               </li>
             ))}
           </ul>
         </Card>
         <Card className="p-4">
-          <h3 className="font-serif text-title">Income per game day</h3>
+          <h3 className="font-serif text-title">{t('portfolio.income')}</h3>
           <div className="mt-2">
-            <KV k="Businesses" v={<span className="text-gain">{signedMoney(incomeDay)}</span>} />
-            <KV k="Rent" v={<span className="text-gain">{signedMoney(rentDay)}</span>} />
-            <KV k="Mortgage interest" v={<span className="text-loss">{signedMoney(-mortgageDay)}</span>} />
-            <KV k={<span className="font-semibold text-fg">Passive income</span>} v={<span className="font-semibold">{signedMoney(incomeDay + rentDay - mortgageDay)}</span>} className="border-t border-ink-2 pt-2" />
+            <KV k={t('portfolio.businesses')} v={<span className="text-gain">{signedMoney(incomeDay)}</span>} />
+            <KV k={t('portfolio.rent')} v={<span className="text-gain">{signedMoney(rentDay)}</span>} />
+            <KV k={t('portfolio.mortgageInterest')} v={<span className="text-loss">{signedMoney(-mortgageDay)}</span>} />
+            <KV k={<span className="font-semibold text-fg">{t('portfolio.passive')}</span>} v={<span className="font-semibold">{signedMoney(incomeDay + rentDay - mortgageDay)}</span>} className="border-t border-ink-2 pt-2" />
           </div>
-          <h3 className="mt-5 font-serif text-title">Trading</h3>
+          <h3 className="mt-5 font-serif text-title">{t('portfolio.trading')}</h3>
           <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
-            <Stat label="Realized" value={<span className={toneText[tone(pf.realizedPnl)]}>{signedMoney(pf.realizedPnl)}</span>} testId="stat-realized" />
-            <Stat label="Unrealized" value={<span className={toneText[tone(pf.unrealizedPnl)]}>{signedMoney(pf.unrealizedPnl)}</span>} testId="stat-unrealized" />
-            <Stat label="Fees paid" value={money(pf.feesPaid)} testId="stat-fees" />
-            <Stat label="Dividends" value={money(me.account?.dividends ?? 0)} />
-            <Stat label="Interest" value={signedMoney((me.account?.interestEarned ?? 0) - (me.account?.interestPaid ?? 0))} />
-            <Stat label="Max drawdown" value={<span className={pf.maxDrawdown < 0 ? 'text-loss' : 'text-fg-muted'}>{signedPct(pf.maxDrawdown)}</span>} testId="stat-maxdd" />
-            <Stat label="Win rate" value={me.player.stats.trades ? pct(me.player.stats.winningTrades / Math.max(1, me.player.stats.trades)) : '—'} />
-            <Stat label="Best trade" value={signedMoney(me.player.stats.bestTrade)} />
-            <Stat label="Worst trade" value={<span className="text-loss">{signedMoney(me.player.stats.worstTrade)}</span>} />
+            <Stat label={t('portfolio.realized')} value={<span className={toneText[tone(pf.realizedPnl)]}>{signedMoney(pf.realizedPnl)}</span>} testId="stat-realized" />
+            <Stat label={t('portfolio.unrealized')} value={<span className={toneText[tone(pf.unrealizedPnl)]}>{signedMoney(pf.unrealizedPnl)}</span>} testId="stat-unrealized" />
+            <Stat label={t('portfolio.fees')} value={money(pf.feesPaid)} testId="stat-fees" />
+            <Stat label={t('portfolio.dividends')} value={money(me.account?.dividends ?? 0)} />
+            <Stat label={t('portfolio.interest')} value={signedMoney((me.account?.interestEarned ?? 0) - (me.account?.interestPaid ?? 0))} />
+            <Stat label={t('portfolio.maxDrawdown')} value={<span className={pf.maxDrawdown < 0 ? 'text-loss' : 'text-fg-muted'}>{signedPct(pf.maxDrawdown)}</span>} testId="stat-maxdd" />
+            <Stat label={t('portfolio.winRate')} value={me.player.stats.trades ? pct(me.player.stats.winningTrades / Math.max(1, me.player.stats.trades)) : '—'} />
+            <Stat label={t('portfolio.bestTrade')} value={signedMoney(me.player.stats.bestTrade)} />
+            <Stat label={t('portfolio.worstTrade')} value={<span className="text-loss">{signedMoney(me.player.stats.worstTrade)}</span>} />
           </div>
         </Card>
       </div>
 
+      <LuckCard />
+
       <Positions phone={phone} />
 
+      <ClosesCard />
+
       <Card data-testid="order-history">
-        <CardHeader title="Order history" sub={`Last ${closed.length} closed orders`} />
-        {closed.length === 0 ? <p className="px-4 pb-6 text-small text-fg-faint">Nothing yet.</p> : (
+        <CardHeader title={t('portfolio.orders')} sub={t('portfolio.ordersSub', { n: closed.length })} />
+        {closed.length === 0 ? <p className="px-4 pb-6 text-small text-fg-faint">{t('portfolio.nothing')}</p> : (
           <div className="overflow-x-auto">
             <table className="w-full text-small">
-              <thead><tr><Th>Time</Th><Th>Order</Th><Th right>Filled</Th><Th right>Avg price</Th><Th right>Fees</Th><Th>Status</Th></tr></thead>
+              <thead><tr><Th>{t('portfolio.col.time')}</Th><Th>{t('portfolio.col.order')}</Th><Th right>{t('portfolio.col.filled')}</Th><Th right>{t('portfolio.col.avgPrice')}</Th><Th right>{t('portfolio.col.fees')}</Th><Th>{t('portfolio.col.status')}</Th></tr></thead>
               <tbody>
                 {closed.map((o) => (
                   <tr key={o.id} className="border-t border-ink-2" data-testid={`order-row-${o.id}`}>
                     <Td num className="text-fg-faint">{clockLabel(o.closedTick ?? o.placedTick, 720)}</Td>
-                    <Td><span className={o.side === 'buy' ? 'text-gain' : 'text-loss'}>{o.side === 'buy' ? 'Buy' : 'Sell'}</span> {qty(o.qty)} {o.assetId} <span className="text-fg-faint">{o.type}{o.forced ? ' · liquidation' : ''}</span></Td>
+                    <Td><span className={o.side === 'buy' ? 'text-gain' : 'text-loss'}>{o.side === 'buy' ? t('common.buy') : t('common.sell')}</span> {qty(o.qty)} {o.assetId} <span className="text-fg-faint">{o.type}{o.forced ? ` · ${t('portfolio.liquidation')}` : ''}</span></Td>
                     <Td right num>{qty(o.filledQty)}</Td>
                     <Td right num>{o.filledQty ? price(o.avgFillPrice) : '—'}</Td>
                     <Td right num>{money(o.feesPaid)}</Td>
@@ -151,7 +196,7 @@ export function PortfolioView({ phone = false }: { phone?: boolean }) {
           </div>
         )}
       </Card>
-      <p className="text-center text-caption text-fg-faint">Universe: {config.assets.filter((a) => a.listed !== false).length} tradable assets · {compactMoney(b.total)} net worth</p>
+      <p className="text-center text-caption text-fg-faint">{t('portfolio.universe', { count: config.assets.filter((a) => a.listed !== false).length, worth: compactMoney(b.total) })}</p>
     </div>
   );
 }

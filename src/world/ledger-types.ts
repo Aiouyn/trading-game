@@ -128,6 +128,8 @@ export type StoredClose = Omit<DailyClose, 'lines'>;
 
 export interface DailyClose {
   day: number;
+  /** the player was offline at this close: the card waits in Messages and does not pop up on connect (D-7, the lead's ruling) */
+  offline: boolean;
   nwOpen: number;
   nwClose: number;
   nwChange: number;
@@ -193,4 +195,6 @@ export interface PlayerLedger {
   days: Record<number, DayRecord>;
   /** the closing cards, newest first, stored as facts (their lines are rendered when the view is built) */
   closes: StoredClose[];
+  /** the latest game day whose close card the player has dismissed (or that the digest replaced); absent until one is */
+  closeSeenDay?: number;
 }

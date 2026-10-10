@@ -56,3 +56,6 @@ export const CALENDAR_DAYS = 2;
 
 /** Closing card: the most recent closed days kept per player's record. */
 export const CLOSE_STORIES = 4;
+
+/** A day's net worth change under this many dollars is "flat": the card's headline and the Copy summary read the same rule. */
+export const CLOSE_FLAT_USD = 1;

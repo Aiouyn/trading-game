@@ -20,11 +20,11 @@ const FILTERS: { id: string; kinds: WireItem['kind'][] | null }[] = [
   { id: 'law', kinds: ['court', 'security'] },
 ];
 
-const BAND_CLASS: Record<NewsBand, string> = {
+/** The chips a headline can carry. A finished story (done) carries none (D-8): the chip never says "done". */
+const BAND_CLASS: Record<Exclude<NewsBand, 'done'>, string> = {
   early: 'border-brass/60 text-brass-hi',
   mid: 'border-info/50 text-info',
   late: 'border-ink-3 text-fg-muted',
-  done: 'border-ink-3 text-fg-faint',
 };
 
 /**
@@ -58,6 +58,7 @@ export function WireView() {
       <ul>
         {items.map((w) => {
           const band = w.news && w.assetId ? newsBand(config, w.assetId, w.news, now - w.tick) : null;
+          const chip = band !== null && band !== 'done' ? band : null;
           return (
             <li key={w.id} className="flex gap-3 border-t border-ink-2 py-2.5" data-testid="wire-row">
               <span className="num w-20 shrink-0 text-caption text-fg-faint">{clockLabel(w.tick, 720)}</span>
@@ -75,9 +76,9 @@ export function WireView() {
                 ) : (
                   <span className="text-small text-fg">{w.text}</span>
                 )}
-                {band !== null && (
-                  <span className="ml-2 align-middle" data-testid={`news-band-${band}`}>
-                    <Chip className={BAND_CLASS[band]}>{t(`news.band.${band}`)}</Chip>
+                {chip !== null && (
+                  <span className="ml-2 align-middle" data-testid={`news-band-${chip}`}>
+                    <Chip className={BAND_CLASS[chip]}>{t(`news.band.${chip}`)}</Chip>
                   </span>
                 )}
               </div>

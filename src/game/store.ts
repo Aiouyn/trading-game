@@ -59,7 +59,7 @@ export interface GameStore {
   history: History;
   historyRev: number;
   loaded: Record<string, true>;
-  nw: { samples: number[]; lastTick: number; every: number; daily: { day: number; value: number }[] } | null;
+  nw: { samples: number[]; lastTick: number; every: number; daily: { day: number; value: number }[]; ghosts: NwHistoryPayload['ghosts'] } | null;
   toasts: Toast[];
   screen: Screen;
   /** Counts every setScreen call, so the desktop opens the window even when the screen is unchanged. */
@@ -76,6 +76,10 @@ export interface GameStore {
   /** The rank the player held before rankUp (the ceremony's "Also" ranks run between the two). */
   rankUpFrom: string | null;
   digestOpen: boolean;
+  /** The close card the player asked for (from Messages or the closes list), by game day; null when none is asked for. */
+  closeOpen: number | null;
+  /** The latest close card dismissed this session (the server's closeSeenDay catches up on the ack). -1 before any. */
+  closeDismissed: number;
   /** a prefilled ticket (from the stop-loss explainer, a note, the option chain…) */
   ticketPreset: { side: 'buy' | 'sell'; type: 'market' | 'limit' | 'stop' | 'stop_limit' | 'trailing'; qty?: number; stopPrice?: number; limitPrice?: number; nonce: number } | null;
   profileId: string | null;
@@ -106,6 +110,9 @@ export interface GameStore {
   resumeToast: (id: string) => void;
   closeRankUp: () => void;
   closeDigest: () => void;
+  openClose: (day: number | null) => void;
+  /** Dismisses a close card: it stays in the closes list and the server remembers it was seen. */
+  dismissClose: (day: number) => void;
   presetTicket: (p: Omit<NonNullable<GameStore['ticketPreset']>, 'nonce'>) => void;
   openProfile: (id: string | null) => void;
   openDm: (channel: string) => void;
@@ -225,6 +232,8 @@ export const useGame = create<GameStore>((set, get) => {
           ...(msg.inbox.some((n) => n.kind === 'fill') ? { tradeSheetOpen: false } : {}),
         });
         queueToasts(toasts);
+        // a dismissed close the server has not confirmed is sent again (a command sent while the socket reconnects is lost)
+        if (get().closeDismissed > (msg.me.trading.closeSeenDay ?? -1)) void get().act({ type: 'close.seen', day: get().closeDismissed }, { silent: true });
         if (absorbed.behind) resync();
         const nw = get().nw;
         if (nw && msg.frame.tick % nw.every === 0) {
@@ -299,6 +308,8 @@ export const useGame = create<GameStore>((set, get) => {
     rankUp: null,
     rankUpFrom: null,
     digestOpen: false,
+    closeOpen: null,
+    closeDismissed: -1,
     ticketPreset: null,
     profileId: null,
     dmTarget: null,
@@ -405,6 +416,14 @@ export const useGame = create<GameStore>((set, get) => {
     closeDigest() {
       set({ digestOpen: false });
       void get().act({ type: 'digest.seen' }, { silent: true });
+      // While You Were Away replaces the close card of the days it covers: the latest one counts as seen
+      const latest = get().me?.trading.closes[0]?.day;
+      if (latest !== undefined) get().dismissClose(latest);
+    },
+    openClose(closeOpen) { set({ closeOpen }); },
+    dismissClose(day) {
+      set({ closeOpen: null, closeDismissed: Math.max(get().closeDismissed, day) });
+      void get().act({ type: 'close.seen', day }, { silent: true });
     },
     presetTicket(p) { set({ ticketPreset: { ...p, nonce: Date.now() }, screen: 'market', tradeSheetOpen: true }); },
     openProfile(profileId) { set({ profileId }); },

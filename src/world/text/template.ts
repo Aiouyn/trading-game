@@ -2,6 +2,7 @@ import en from '@/i18n/en.json';
 import fr from '@/i18n/fr.json';
 import { sectorName } from '@/engine';
 import type { Locale, Msg } from '@/i18n';
+import { closeMove } from '../close-move';
 import type { TextProvider } from './index';
 
 /**
@@ -34,17 +35,16 @@ export function absPct(x: number): string {
   return `${Math.abs(x * 100).toFixed(2)}%`;
 }
 
-const FLAT = 0.005;
-
 export const templateTextProvider: TextProvider = {
   dailyClose(c) {
     const out: Msg[] = [{ key: 'dayclose.title' }];
     const change = c.nwChange;
-    if (Math.abs(change) < FLAT) {
+    const move = closeMove(change);
+    if (move === 'flat') {
       out.push({ key: 'dayclose.nw.flat', vars: { now: usd(c.nwClose) } });
     } else {
       out.push({
-        key: change > 0 ? 'dayclose.nw.up' : 'dayclose.nw.down',
+        key: `dayclose.nw.${move}`,
         vars: { change: usd(Math.abs(change)), pct: absPct(c.nwChangePct), now: usd(c.nwClose) },
       });
     }

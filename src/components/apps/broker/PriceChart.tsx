@@ -57,7 +57,15 @@ const VOLUME_MARGINS = { top: 0.8, bottom: 0.02 };
 
 type LineKey = 'sma20' | 'sma50' | 'ema12' | 'bbU' | 'bbL' | 'vwap' | 'rsi';
 
-export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, testId = 'price-chart', series, studies = true }: {
+/** A thin extra line drawn over an explicit series (the net worth chart's benchmark ghosts). Colors are the token names of PROBE. */
+export interface ChartOverlay {
+  id: string;
+  color: 'line' | 'steel' | 'info' | 'warn' | 'brass';
+  dashed?: boolean;
+  points: { time: number; value: number }[];
+}
+
+export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays }: {
   assetId: string;
   range?: RangeId;
   mode?: 'candles' | 'line' | 'area';
@@ -65,6 +73,8 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
   /** chart an explicit series instead of the history (net worth) */
   series?: { time: number; value: number }[];
   studies?: boolean;
+  /** extra lines over an explicit series; only the ones listed are drawn */
+  overlays?: ChartOverlay[];
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -73,6 +83,7 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
   const areaS = useRef<ISeriesApi<'Area'> | null>(null);
   const volS = useRef<ISeriesApi<'Histogram'> | null>(null);
   const lines = useRef<Partial<Record<LineKey, ISeriesApi<'Line'>>>>({});
+  const overlayS = useRef<Record<string, ISeriesApi<'Line'>>>({});
   const pal = useRef<Palette | null>(null);
   const volColors = useRef({ up: '', down: '' });
   const last = useRef({ key: '', len: 0 });
@@ -118,9 +129,32 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
       chart.current = null;
       candleS.current = null; lineS.current = null; areaS.current = null; volS.current = null;
       lines.current = {};
+      overlayS.current = {};
       last.current = { key: '', len: 0 };
     };
   }, []);
+
+  // the overlay lines come and go with the list they are given; each one's points replace its last set
+  useEffect(() => {
+    const c = chart.current;
+    const p = pal.current;
+    if (!c || !p) return;
+    const want = new Map((overlays ?? []).map((o) => [o.id, o] as const));
+    for (const id of Object.keys(overlayS.current)) {
+      if (!want.has(id)) { c.removeSeries(overlayS.current[id]!); delete overlayS.current[id]; }
+    }
+    for (const o of want.values()) {
+      let s = overlayS.current[o.id];
+      if (!s) {
+        s = c.addSeries(LineSeries, {
+          color: p[o.color], lineWidth: 1, lineStyle: o.dashed ? LineStyle.Dashed : LineStyle.Solid,
+          lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+        });
+        overlayS.current[o.id] = s;
+      }
+      s.setData(o.points.map((x) => ({ time: toTime(x.time), value: x.value })));
+    }
+  }, [overlays]);
 
   useEffect(() => {
     const daily = rangeSpec(range, 720).bucket === 'daily';

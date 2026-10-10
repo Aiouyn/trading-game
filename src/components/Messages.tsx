@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { t } from '@/i18n';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { t, tm, useLocale } from '@/i18n';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import { ChatPanel } from './Chat';
@@ -85,9 +85,17 @@ export function MessagesView({ view }: { view?: string }) {
   );
 }
 
-/** The inbox, newest first. Each notice keeps its tone bar, its time and its kind. */
+/**
+ * The inbox, newest first. Each notice keeps its tone bar, its time and its kind. A daily close notice (for a player who
+ * was offline at the close) rereads in the viewer's language and opens its card.
+ */
 export function InboxList() {
   const inbox = useGame((s) => s.me?.inbox ?? []);
+  const openClose = useGame((s) => s.openClose);
+  // a notice opens its card only while the card is still in the player's closes list (the view keeps the latest ones)
+  const closes = useGame((s) => s.me?.trading.closes);
+  const closeDays = useMemo(() => new Set((closes ?? []).map((c) => c.day)), [closes]);
+  useLocale((s) => s.locale);
   const items = inbox.slice().reverse();
   return (
     <ul className="min-h-0 flex-1 overflow-y-auto" data-testid="inbox">
@@ -95,8 +103,13 @@ export function InboxList() {
         <li key={n.id} className="flex gap-3 border-t border-ink-2 py-2.5" data-testid="inbox-item">
           <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${TONE_BAR[n.tone]}`} aria-hidden />
           <div className="min-w-0">
-            <p className="text-small text-fg">{n.text}</p>
+            <p className="text-small text-fg">{tm(n.msg, n.text)}</p>
             <p className="num mt-0.5 text-caption text-fg-faint">{clockLabel(n.tick, 720)} · {t(`inbox.kind.${n.kind}`)}</p>
+            {n.kind === 'close' && n.day !== undefined && closeDays.has(n.day) && (
+              <button type="button" className="mt-1 text-caption text-brass hover:underline" data-testid="inbox-close-open" onClick={() => openClose(n.day ?? null)}>
+                {t('close.open')}
+              </button>
+            )}
           </div>
         </li>
       ))}

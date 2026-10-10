@@ -111,7 +111,7 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
   const beaten = beatenCount(cur.equity, ghosts);
   const noTrades = !hasTrades(g, playerId);
   const base: Omit<DailyClose, 'lines'> = {
-    day, nwOpen, nwClose: cur.nw, nwChange, nwChangePct, best, worst, gx: { pct: gxPct }, sectors, stories, event,
+    day, offline: !g.players[playerId]?.online, nwOpen, nwClose: cur.nw, nwChange, nwChangePct, best, worst, gx: { pct: gxPct }, sectors, stories, event,
     ghosts: {
       player: cur.equity, basket: ghosts.basket, random: ghosts.random, momentum: ghosts.momentum, beaten,
       percentile: noTrades ? null : percentileOf(beaten),
@@ -152,7 +152,8 @@ export function closeDay(g: GameState, out: StepOutput | null): void {
   for (const [pid, L] of ledgers) {
     const rec = dayRecord(g, L, pid, day);
     if (rec) L.days[day] = rec;
-    for (const k of Object.keys(L.days)) if (Number(k) < day - 1) delete L.days[Number(k)];
+    // kept for the ghost lines on the net worth chart (the view shows the last 60 closed days)
+    for (const k of Object.keys(L.days)) if (Number(k) < day - LEDGER.dayCloseKeep) delete L.days[Number(k)];
   }
   for (const [pid, L] of ledgers) {
     const card = dayClose(g, pid, day);
@@ -165,7 +166,7 @@ export function closeDay(g: GameState, out: StepOutput | null): void {
     if (!p.online) {
       const vars = { day: day + 1, now: card.nwClose.toFixed(2), change: card.nwChange.toFixed(2) };
       const msg: Msg = { key: 'dayclose.inbox', vars };
-      notify(g, out, pid, { kind: 'close', tone: card.nwChange >= 0 ? 'gain' : 'loss', text: textProvider.render(msg, 'en'), msg });
+      notify(g, out, pid, { kind: 'close', tone: card.nwChange >= 0 ? 'gain' : 'loss', text: textProvider.render(msg, 'en'), msg, day });
     }
   }
 }

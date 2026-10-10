@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { initLocale, useLocale } from '@/i18n';
+import { CloseCard } from './CloseCard';
 import { Coach, ConnectionBanner, DigestModal } from './Overlays';
 import { ProfileModal } from './Social';
 import { OsRoot } from './os/OsRoot';
@@ -41,6 +42,7 @@ export function Game() {
       <OsRoot />
       <OsUpdate />
       <DigestModal />
+      <CloseCard />
       <ProfileModal />
       <ConnectionBanner />
       <Coach />

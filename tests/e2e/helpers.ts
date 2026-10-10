@@ -31,6 +31,23 @@ export async function grant(handle: string, amount: number): Promise<void> {
   expect(r.status).toBe(200);
 }
 
+/**
+ * Clears the sheets that can cover an app while the world runs: While You Were Away (after a reload that follows time
+ * away, which another spec's admin advance can cause in the shared e2e world) and the daily close card (velvet-daily-close.md).
+ * A card that is not there costs nothing.
+ */
+export async function clearSheets(page: Page): Promise<void> {
+  for (let i = 0; i < 4; i++) {
+    const tips = page.getByTestId('coach').getByText('Skip tips');
+    const back = page.getByText('Back to the desktop');
+    const done = page.getByTestId('close-done');
+    if (await tips.isVisible().catch(() => false)) await tips.click();
+    else if (await back.isVisible().catch(() => false)) await back.click();
+    else if (await done.isVisible().catch(() => false)) await done.click();
+    else return;
+  }
+}
+
 /** The desktop shelf tile that opens each old screen (each screen is a window now, Phase 2 step 1). */
 const SCREEN_TILE: Record<string, string> = {
   market: 'broker', portfolio: 'portfolio', empire: 'businesses', estate: 'boutique', lab: 'ailab',
@@ -43,6 +60,7 @@ const SCREEN_TILE: Record<string, string> = {
  */
 export async function goTo(page: Page, screen: string): Promise<void> {
   const app = SCREEN_TILE[screen] ?? screen;
+  await clearSheets(page);
   if (!isPhone(page)) { await page.getByTestId(`shelf-app-${app}`).click(); return; }
   await page.getByTestId('phone-quay').click();
   await page.getByTestId(`home-app-${app}`).click();
