@@ -8,7 +8,7 @@ import { compactMoney, money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { api, getToken } from '@/net/client';
 import { COUNTRIES } from '@/world/players';
-import { LicenseLadder } from './Market';
+import { LicenseLadder } from './Holdings';
 import { BrassChip, Button, Card, CardHeader, Progress, Select, TextField } from './ui';
 
 const TIER_CLS = { bronze: 'border-brass-lo/50 text-brass-lo', silver: 'border-fg-muted/50 text-fg-muted', gold: 'border-brass/60 text-brass-hi', legend: 'border-brass-hi text-brass-hi' } as const;

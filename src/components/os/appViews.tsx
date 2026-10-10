@@ -1,23 +1,18 @@
 'use client';
 
-// What each app shows inside its window (Phase 2 step 1: the old screens, moved into windows). The
-// screens keep their own content; Phase 2 step 3 splits them into proper apps. The Broker, Portfolio and
-// Wire are loaded with the desktop. The other screens load on first open (P2-244), so the desktop root
-// does not ship their code. Apps with no content yet show a stub (C-38).
+// What each app shows inside its window. The Broker (apps/broker), Portfolio and Wire are loaded with the
+// desktop; the other screens load on first open (P2-244), so the desktop root does not ship their code.
+// Apps with no content yet show a stub (C-38).
 import dynamic from 'next/dynamic';
-import { useState } from 'react';
 import { t } from '@/i18n';
-import { knownSeries, useGame } from '@/game/store';
-import { AssetPanel, ChartCard, Watchlist } from '@/components/Market';
-import { OrderPad } from '@/components/OrderPad';
+import { BrokerApp } from '@/components/apps/broker/BrokerApp';
 import { PortfolioView } from '@/components/Portfolio';
 import { WireView, Calendar } from '@/components/Wire';
-import { type Size, brokerView } from '@/shell/geometry';
+import type { Size } from '@/shell/geometry';
 import type { Win } from '@/shell/wm';
 import { About } from './About';
 import { PalettePicker } from './PalettePicker';
 import { ShortcutList } from './ShortcutList';
-import { openApp } from './shellStore';
 
 const SocialView = dynamic(() => import('@/components/Social').then((m) => m.SocialView), { ssr: false });
 const EmpireView = dynamic(() => import('@/components/Empire').then((m) => m.EmpireView), { ssr: false });
@@ -31,7 +26,7 @@ const ProfileView = dynamic(() => import('@/components/Profile').then((m) => m.P
 export function AppBody({ win, size }: { win: Win; size: Size }) {
   switch (win.app) {
     case 'broker':
-      return <BrokerBody ticker={win.props.ticker} size={size} />;
+      return <BrokerApp ticker={win.props.ticker} size={size} />;
     case 'portfolio':
       return <div className="os-body"><PortfolioView /></div>;
     case 'wire':
@@ -62,71 +57,6 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
     default:
       return <Stub />;
   }
-}
-
-/**
- * A Broker shows its own ticker (P2-117). The chart, ticket, asset panel and watchlist all read it, so
- * two Brokers on different tickers show different markets. An unknown ticker shows a note, never a chart.
- */
-function BrokerBody({ ticker, size }: { ticker?: string; size: Size }) {
-  const selected = useGame((s) => s.selected);
-  const config = useGame((s) => s.config);
-  const [pane, setPane] = useState<'chart' | 'ticket'>('chart');
-  const name = ticker ?? selected;
-  if (!knownSeries(config, name)) {
-    return (
-      <div className="os-body">
-        <p className="text-small text-fg-muted" data-testid="broker-unknown">{t('shell.ticker.unknown', { ticker: name })}</p>
-      </div>
-    );
-  }
-  // Under 560 px tall the chart and the ticket take turns behind a toggle; under 720 px wide the ticket
-  // stacks under the chart (V:41, C-37). Both are presentation: the order pad is the same either way.
-  const view = brokerView(size);
-  if (view.short) {
-    return (
-      <div className="os-body" data-testid="broker-short">
-        <div className="os-seg" role="group" aria-label={t('shell.broker.view')}>
-          <button
-            type="button"
-            className="os-tool"
-            aria-pressed={pane === 'chart'}
-            data-testid="broker-pane-chart"
-            onClick={() => setPane('chart')}
-          >
-            {t('shell.broker.chart')}
-          </button>
-          <button
-            type="button"
-            className="os-tool"
-            aria-pressed={pane === 'ticket'}
-            data-testid="broker-pane-ticket"
-            onClick={() => setPane('ticket')}
-          >
-            {t('shell.broker.ticket')}
-          </button>
-        </div>
-        {pane === 'chart' ? (
-          <ChartCard ticker={name} />
-        ) : (
-          <>
-            <OrderPad ticker={name} />
-            <AssetPanel ticker={name} />
-          </>
-        )}
-      </div>
-    );
-  }
-  return (
-    <div className="os-body">
-      <ChartCard ticker={name} />
-      <div className={`os-body-row${view.narrow ? ' os-body-stack' : ''}`}>
-        <OrderPad ticker={name} />
-        <AssetPanel ticker={name} />
-      </div>
-      <Watchlist ticker={name} onPick={(id) => openApp('broker', { ticker: id }, { focus: true })} />
-    </div>
-  );
 }
 
 /** Placeholder for an app whose content lands in a later phase. */

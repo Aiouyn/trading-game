@@ -11,7 +11,7 @@ import { knownSeries, useGame } from '@/game/store';
 import { clockParts } from '@/game/clock';
 import { money, price, signedPct } from '@/game/format';
 import { APPS, type AppId } from '@/shell/apps';
-import { seriesInfo } from '@/components/Market';
+import { seriesInfo } from '@/components/apps/broker/seriesInfo';
 import { APP_GLYPH } from './appMap';
 import { Glyph } from './glyphs';
 import { useDrafts } from './drafts';
