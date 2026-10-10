@@ -4,8 +4,9 @@ import { ADMIN, WORLD, clearSheets, grant, noHorizontalOverflow, register, skipT
 
 // The Exchange's player funds, end to end: a manager opens a fund (Operator rank, a 14 game day old account, a $250k
 // stake), an investor (7 real days old) deposits, sees the holding, redeems (the early-exit notice shows), and is paid at
-// the next day close. It advances the shared world past the account-age rules, so it runs with the time-advancing specs
-// (playwright.config.ts, the close-card projects), after every other project.
+// the next day close. The account-age rules (7 real days for an investor, 14 game days for a manager) are met by backdating
+// the accounts (admin.age), not by advancing the world: a 7 real day advance is about 120,000 ticks. The day closes still
+// advance the shared world, so it runs with the time-advancing specs (playwright.config.ts, the close-card projects).
 
 const TPD = 720;
 const REAL_DAY = 24 * TPD;
@@ -14,6 +15,14 @@ const REAL_DAY = 24 * TPD;
 async function dismissRankUp(page: Page): Promise<void> {
   const skip = page.getByTestId('os-update-skip');
   await skip.click({ timeout: 8_000 }).catch(() => undefined);
+}
+
+/** Backdates a player's account by `ticks` (the test seam for the account-age rules). */
+async function age(handle: string, ticks: number): Promise<void> {
+  const r = await fetch(`${WORLD}/api/admin/age`, {
+    method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, ticks }),
+  });
+  expect(r.status).toBe(200);
 }
 
 /** Advances the world by `ticks`, in the admin route's chunks (at most 20,000 per call). */
@@ -38,7 +47,8 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   const mgr = await register(page, 'exm');
   await grant(mgr, 6_000_000);
   await grant(inv, 1_000_000);
-  await advance(7 * REAL_DAY + 1);
+  await age(mgr, 14 * TPD + 1);
+  await age(inv, 7 * REAL_DAY + 1);
 
   // the manager opens the fund: the stake is the default ($250k), the fee and the mandate are the defaults
   await page.goto('/exchange');
@@ -74,6 +84,7 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
 
   // the deposit settles at the next day close: after two game days the investor holds units at NAV
   await advance(2 * TPD);
+  await clearSheets(invPage);
   await invPage.getByTestId('tab-mine').click();
   await expect(invPage.getByTestId('exchange-holdings')).toBeVisible();
   await expect(invPage.getByTestId(/^exchange-holding-value-/).first()).toContainText(/\$(49|50),\d{3}\.\d{2}/);
@@ -88,12 +99,14 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
 
   // the redemption pays at the next day close: the holding falls to the units left
   await advance(2 * TPD);
+  await clearSheets(invPage);
   await invPage.getByTestId('tab-mine').click();
   await expect(invPage.getByTestId(/^exchange-holding-value-/).first()).toContainText(/\$(29|30),\d{3}\.\d{2}/);
 
   // the manager's console shows the fund as it now stands
   await page.goto('/exchange');
   await expect(page.getByTestId('exchange-view')).toBeVisible({ timeout: 30_000 });
+  await clearSheets(page);
   await page.getByTestId('tab-manage').click();
   await expect(page.getByTestId('exchange-console')).toBeVisible();
   await expect(page.getByTestId('exchange-stat-stake')).toBeVisible();
@@ -103,13 +116,14 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   await page.goto('/broker?e2e&intro=off');
   await clearSheets(page);
   await skipTips(page);
-  await expect(page.getByTestId('order-account')).toBeVisible({ timeout: 30_000 });
-  await page.getByTestId('account-fund').click();
-  await expect(page.getByTestId('account-fund-note')).toBeVisible();
-  await page.getByTestId('order-qty').fill('1');
-  await page.getByTestId('order-submit').click();
+  // the deep link opens a second Broker window beside the one restored from the last visit: the newest one is last
+  await expect(page.getByTestId('order-account').last()).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId('account-fund').last().click();
+  await expect(page.getByTestId('account-fund-note').last()).toBeVisible();
+  await page.getByTestId('order-qty').last().fill('1');
+  await page.getByTestId('order-submit').last().click();
   await expect(page.getByTestId('order-fund-refusal')).toHaveCount(0);
-  await expect(page.getByTestId('order-qty')).toHaveValue('', { timeout: 20_000 });
+  await expect(page.getByTestId('order-qty').last()).toHaveValue('', { timeout: 20_000 });
   await noHorizontalOverflow(page);
 
   expect(errors).toEqual([]);

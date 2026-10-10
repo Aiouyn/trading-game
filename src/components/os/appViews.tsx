@@ -60,7 +60,7 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
     case 'company':
       return <div className="os-body"><CompanyApp view={win.props.view} /></div>;
     case 'exchange':
-      return <ExchangeApp />;
+      return <div className="os-body"><ExchangeApp /></div>;
     default:
       return <Stub />;
   }

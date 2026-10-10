@@ -205,6 +205,12 @@ function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
 export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
   if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out);
   if (cmd.type === 'admin.shock') return adminShock(g, cmd.assetId, cmd.pct);
+  if (cmd.type === 'admin.age') {
+    const target = g.players[cmd.playerId];
+    if (!target) return fail('unknown player');
+    target.joinedTick -= Math.max(0, cmd.ticks);
+    return { ok: true };
+  }
   const p = g.players[pid];
   if (!p) return fail('join the world first');
   if (!p.npc) p.lastSeenTick = g.market.tick;

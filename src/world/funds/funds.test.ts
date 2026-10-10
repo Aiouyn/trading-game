@@ -812,3 +812,14 @@ describe('the manager’s stake, the S5 fine and the victim fund', () => {
     expect(advanceToInvestors(solo, fs, 50_000, newOutput())).toBe(0);
   });
 });
+
+describe('admin.age (the test seam for the account-age rules)', () => {
+  it('backdates a player join by the ticks given, and refuses an unknown player', () => {
+    const g = createGame('age-seed', { warmupDays: 0, npcs: false });
+    expect(applyCommand(g, 'm', { type: 'join', handle: 'age_one', country: 'AV' }).ok).toBe(true);
+    const before = g.players.m!.joinedTick;
+    expect(applyCommand(g, 'admin', { type: 'admin.age', playerId: 'm', ticks: 5_000 }).ok).toBe(true);
+    expect(g.players.m!.joinedTick).toBe(before - 5_000);
+    expect(applyCommand(g, 'admin', { type: 'admin.age', playerId: 'nobody', ticks: 1 }).ok).toBe(false);
+  });
+});
