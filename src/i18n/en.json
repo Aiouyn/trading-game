@@ -1136,5 +1136,17 @@
   "learn.term.shelf.name": "Shelf",
   "learn.term.shelf.def": "The bar at the bottom of the desktop with your apps. Locked apps stay greyed out until their rank.",
   "learn.term.launcher.name": "Launcher",
-  "learn.term.launcher.def": "Ctrl K opens a search for apps, tickers and commands."
+  "learn.term.launcher.def": "Ctrl K opens a search for apps, tickers and commands.",
+  "sandbox.scenario.contraction-week.title": "Contraction week",
+  "sandbox.scenario.contraction-week.note": "A falling market. Gold holds up.",
+  "sandbox.scenario.overheating.title": "Overheating",
+  "sandbox.scenario.overheating.note": "A hot market that can roll over.",
+  "sandbox.scenario.flash.title": "Flash crash",
+  "sandbox.scenario.flash.note": "A flash crash on the second day.",
+  "sandbox.scenario.earnings-heavy.title": "Earnings season",
+  "sandbox.scenario.earnings-heavy.note": "At least four stocks report in the first ten days.",
+  "sandbox.scenario.quiet.title": "Quiet market",
+  "sandbox.scenario.quiet.note": "No index day moves more than three percent.",
+  "sandbox.scenario.crypto-winter.title": "Crypto winter",
+  "sandbox.scenario.crypto-winter.note": "Crypto falls while stocks are mixed."
 }

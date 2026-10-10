@@ -1136,5 +1136,17 @@
   "learn.term.shelf.name": "Barre",
   "learn.term.shelf.def": "La barre en bas du bureau avec vos applications. Les applications verrouillées restent grisées jusqu’à leur rang.",
   "learn.term.launcher.name": "Lanceur",
-  "learn.term.launcher.def": "Ctrl K ouvre une recherche d’applications, de tickers et de commandes."
+  "learn.term.launcher.def": "Ctrl K ouvre une recherche d’applications, de tickers et de commandes.",
+  "sandbox.scenario.contraction-week.title": "Semaine de contraction",
+  "sandbox.scenario.contraction-week.note": "Un marché en baisse. L'or tient.",
+  "sandbox.scenario.overheating.title": "Surchauffe",
+  "sandbox.scenario.overheating.note": "Un marché brûlant qui peut se retourner.",
+  "sandbox.scenario.flash.title": "Krach éclair",
+  "sandbox.scenario.flash.note": "Un krach éclair le deuxième jour.",
+  "sandbox.scenario.earnings-heavy.title": "Saison des résultats",
+  "sandbox.scenario.earnings-heavy.note": "Au moins quatre actions publient leurs résultats dans les dix premiers jours.",
+  "sandbox.scenario.quiet.title": "Marché calme",
+  "sandbox.scenario.quiet.note": "Aucune séance de l'indice ne bouge de plus de trois pour cent.",
+  "sandbox.scenario.crypto-winter.title": "Hiver crypto",
+  "sandbox.scenario.crypto-winter.note": "La crypto baisse, les actions sont partagées."
 }
