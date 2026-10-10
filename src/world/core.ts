@@ -4,6 +4,7 @@ import { LIFE_BY_ID, PROPERTY_TYPE_BY_ID, resaleValue } from '@/content/lifestyl
 import { CITIES, districtAssetId } from '@/engine';
 import { shopValue, valuedIncome } from './shopRules';
 import type { Business, GameState, InboxItem, Player, Property, StepOutput, WireItem } from './types';
+import { companyNetWorth } from './company/networth';
 
 /** Timing (ticks; 720 ticks = one game day = one real hour). */
 export const TPD = 720;
@@ -193,6 +194,8 @@ export interface NetWorthBreakdown {
   mortgages: number;
   lifestyle: number;
   lab: number;
+  /** private companies the player founded, at 0.85 x V x ownership (spec 5.1) */
+  companies: number;
   total: number;
 }
 
@@ -211,8 +214,9 @@ export function netWorthBreakdown(g: GameState, playerId: string): NetWorthBreak
   }
   const lifestyle = pl ? lifestyleValue(g, pl) : 0;
   const lab = labValue(g, playerId);
-  const total = equity + businesses + property - mortgages + lifestyle + lab;
-  return { cash, markets: equity - cash, businesses, property, mortgages, lifestyle, lab, total };
+  const companies = companyNetWorth(g.companies, playerId, today(g));
+  const total = equity + businesses + property - mortgages + lifestyle + lab + companies;
+  return { cash, markets: equity - cash, businesses, property, mortgages, lifestyle, lab, companies, total };
 }
 
 /** Owned GPUs keep 60% of their price as resale value. */

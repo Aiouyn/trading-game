@@ -1,0 +1,255 @@
+/**
+ * Company building: every tunable number of quant-company-building v1.7 (Phase 4, stage A3). The world code in
+ * src/world/company/* reads these and holds no numbers of its own.
+ *
+ * Units: gd = game day (1 real hour). A quarter is 63 gd, a game year 252 gd, a game week 5 gd. $ are in-game dollars.
+ *
+ * Settled readings (Ledger rulings and lead decisions, Phase 4):
+ * - G22 passing reading (DECISIONS C1): F_s is the unit-variance sector shock (sum of z*sqrt(dt)), and there are no
+ *   unobserved working-capital or cost surprises. Under this reading the engine's rho probe passes (median 0.1012,
+ *   p90 0.1824). The F_s scale is `sectorShockScale` below; the world layer draws it per sector.
+ * - Ledger rulings G15-G23 (spec v1.7 changelog) are all implemented; each knob that they name is marked.
+ *
+ * Proposals and gaps (numbers the spec does not give, flagged for Ledger and Tape, not settled):
+ * - PE_s(macro) and EVS_s are referenced to "01 section 3.1" but have no values in v1.7: `valuation` uses one flat PE and
+ *   one flat EVS, and the macro term is 1.
+ * - Cost-efficiency gain from Cost projects, the pharma spend factor and the NPC price-cut floor are not in the spec.
+ * - Round size is capped at 25% of post-money (spec); the NPC investor pool sizes are sandbox values.
+ */
+
+import type { RegimeId } from '@/engine/types';
+
+export type CompanySector = 'tech' | 'health' | 'staples' | 'discretionary' | 'industrials' | 'security';
+export type CompanyRole = 'ops' | 'sales' | 'rd' | 'ga';
+export type CompanyTierId = 'seed' | 'growth' | 'late';
+
+/** One sector row of §2 (market table) and §3 (R&D), with the engine's stock cycle beta for the sector. */
+export interface SectorEcon {
+  id: CompanySector;
+  /** engine id of the matching stock sector (the spec's first column) */
+  label: string;
+  /** gross margin at the reference load, §2 table */
+  grossMargin: number;
+  /** NPC cancellation rate c_s, deterministic per order (v1.6, tunable for Tape) */
+  cancelRate: number;
+  /** R&D success scale p_s, §3 (pharma uses its gate odds instead) */
+  pSuccess: number;
+  /** T0_s, base R&D duration in gd at n_RD = n_req (pharma runs 3 gates of 20 gd) */
+  rdDays: number;
+  /** frontier drift delta_s per gd, §3 */
+  frontierDrift: number;
+  /** cycle beta from the engine's stock values (staples 0.3, discretionary 1.5 per §2) */
+  cycleBeta: number;
+  /** §1 input index: 'oil_sqrt' (industrials), 'oil_food' (staples), or none */
+  inputIndex: 'oil_sqrt' | 'oil_food' | 'none';
+  /** pharma and industrial successes grant a 252 gd patent (§3) */
+  patents: boolean;
+}
+
+export const SECTORS: Record<CompanySector, SectorEcon> = {
+  tech: { id: 'tech', label: 'software', grossMargin: 0.80, cancelRate: 0.02, pSuccess: 0.80, rdDays: 15, frontierDrift: 0.0010, cycleBeta: 1.3, inputIndex: 'none', patents: false },
+  health: { id: 'health', label: 'pharma', grossMargin: 0.70, cancelRate: 0.04, pSuccess: 0.29, rdDays: 60, frontierDrift: 0.0002, cycleBeta: 0.4, inputIndex: 'none', patents: true },
+  staples: { id: 'staples', label: 'food', grossMargin: 0.35, cancelRate: 0.03, pSuccess: 0.85, rdDays: 10, frontierDrift: 0.0002, cycleBeta: 0.3, inputIndex: 'oil_food', patents: false },
+  discretionary: { id: 'discretionary', label: 'consumer goods', grossMargin: 0.45, cancelRate: 0.05, pSuccess: 0.75, rdDays: 15, frontierDrift: 0.0005, cycleBeta: 1.5, inputIndex: 'none', patents: false },
+  industrials: { id: 'industrials', label: 'industrial', grossMargin: 0.25, cancelRate: 0.06, pSuccess: 0.70, rdDays: 25, frontierDrift: 0.0003, cycleBeta: 1.1, inputIndex: 'oil_sqrt', patents: true },
+  security: { id: 'security', label: 'security services', grossMargin: 0.40, cancelRate: 0.03, pSuccess: 0.80, rdDays: 10, frontierDrift: 0.0005, cycleBeta: 0.2, inputIndex: 'none', patents: false },
+};
+
+/** Pharma gate odds (§3): three gates of 20 gd each, p = 0.65 * 0.55 * 0.80 = 0.286 (spec: about 0.29 overall). */
+export const PHARMA_GATES = { odds: [0.65, 0.55, 0.80], gateDays: 20 } as const;
+
+export const COMPANY = {
+  /** calendar (§0 units) */
+  quarterDays: 63,
+  yearDays: 252,
+  weekDays: 5,
+  /** filing day F = period close + 3 gd (§6.1) */
+  filingLagDays: 3,
+  /** plant and product depreciation: straight line (§1, §4) */
+  depreciationDays: 504,
+  /** tax (§1) */
+  taxRate: 0.20,
+  /** working capital in days (§1) */
+  dso: 10,
+  dio: 15,
+  dpo: 12,
+  /** the reference "$ per gd" wages (§4) and hiring/ramp timing */
+  wages: { ops: 120, sales: 150, rd: 200, ga: 140 } as Record<CompanyRole, number>,
+  rampDays: { ops: 5, sales: 10, rd: 21, ga: 5 } as Record<CompanyRole, number>,
+  /** a seat takes 3 gd to fill; severance is 21 gd of wages (§4) */
+  hireFillDays: 3,
+  severanceDays: 21,
+  /** a hire needs cash for this many gd of its wages (a proposal: payroll itself is mandatory and may take cash below zero) */
+  hireRunwayDays: 5,
+  /** capacity: 60 units/gd per productive Ops head times the plant multiplier (§4) */
+  unitsPerOpsHead: 60,
+  /** orders are booked and shipped up to 115% of capacity (§2 overtime ceiling, G15 booking test) */
+  overloadCap: 1.15,
+  /** overtime cost per unit above capacity: 1.5 x the Ops wage per unit (1.5 * 120 / 60 = 3.0 $) */
+  overtimeMult: 1.5,
+  /** G&A: each G&A head supports 12 others; each missing one costs 3% of output (§4) */
+  gaSpan: 12,
+  gaPenalty: 0.03,
+  /** plant levels: cost C0 * 0.10 * 1.18^n, 10 gd to build, multiplier 1 + 0.25 per level (§4, a tunable) */
+  plant: { c0: 100_000, costFactor: 0.10, costGrowth: 1.18, buildDays: 10, multPerLevel: 0.25 },
+  /** headcount caps by tier (§4, §5). Listed companies are unbounded (Infinity). */
+  headcountCap: { seed: 25, growth: 250, late: 2_500 } as Record<CompanyTierId, number>,
+  /** products allowed per tier (§5). Seed 2; the others are not gated in A3. */
+  productCap: { seed: 2, growth: 6, late: 12 } as Record<CompanyTierId, number>,
+  /** one R&D project at a time per company (A3 simplification, documented in the world code) */
+  rdProjectsAtOnce: 1,
+  /** R&D (§3) */
+  rd: {
+    nReq: 2,
+    sRefDays: 20,
+    sRefMin: 20_000,
+    gain: 0.20,
+    kDecay: 0.8,
+    zSpread: 0.25,
+    /** band shown before launch: p +- 5 points (X15, CB-024) */
+    pBand: 0.05,
+    /** the cost project gain on unit cost efficiency (a proposal: same form as quality, half size) */
+    costGain: 0.10,
+    costEffCap: 0.5,
+    /** NPC quality closes half of its gap to the leader every 126 gd (§3) */
+    imitationHalfLife: 126,
+    /** patent length in gd (§3): pauses imitation of the gain */
+    patentDays: 252,
+  },
+  /** quality display (§3, CB-025): qualityScore = clamp(round(80 + 30 * ln(q / Q_f)), 0, 100) */
+  qualityScale: { base: 80, slope: 30 },
+  /** demand and share (§2) */
+  demand: {
+    kappaD: 0.5,
+    /** regime multipliers on demand (§2) */
+    regimeMult: { expansion: 1.0, overheating: 1.04, recovery: 0.97, contraction: 0.90 } as Record<RegimeId, number>,
+    /** logit coefficients a, b, c, d and the no-purchase utility u_0 (§2) */
+    a: 1.0, b: 0.35, c: 2.0, d: 0.5, u0: 0,
+    /** reference price and marketing (per gd): the reference company's list price is $50 (§1) */
+    priceRef: 50,
+    marketingRef: 1_000,
+    /** price band +- 30% of priceRef (§2) */
+    priceBand: 0.30,
+    /** marketing per product per gd is capped (a proposal: 10 x marketingRef); it is paid only from cash on hand */
+    marketingMax: 10_000,
+    /** distribution: a base level plus 0.1 * ln(1 + sales heads) (§4); levels 1..5 come with Expansion (not in A3) */
+    distBase: 1,
+    distSalesWeight: 0.1,
+    /** brand: -0.02 per stockout day, recovering at 0.01 per gd (§4) */
+    brandStockout: 0.02,
+    brandRecover: 0.01,
+    /**
+     * The demand scale D0 per market (sector), calibrated so the reference Seed company ($150k, 10 heads, one product at
+     * $50) earns about the Seed yield of 1.90%/gd of capital (section 7). Measured with scripts/balance/company-calibrate.ts
+     * at 16-24 seeds, 252 gd, by linear interpolation between 600 and 1200 (industrials and staples: wider). The spread
+     * across sectors is the margin structure: a high-margin sector needs less volume for the same yield.
+     */
+    d0BySector: { tech: 790, health: 1000, staples: 1750, discretionary: 1340, industrials: 2100, security: 1600 } as Record<CompanySector, number>,
+    /**
+     * F_s moves by z * sqrt(dt) per gd with dt = 1/252 year (the engine's sum of z sqrt(dt), unit variance per game year:
+     * G22 unit reading). Quarterly sd of ln demand is then kappaD * sqrt(63/252) = 0.25.
+     */
+    sectorShockScale: 1 / Math.sqrt(252),
+  },
+  /** NPC competitors (§2): 3-5 per market, weekly reaction, quarterly entry and exit */
+  npc: {
+    minCount: 3,
+    maxCount: 5,
+    /** reaction when the player's share is above 25%: price cut up to 8% per week, marketing +20% */
+    reactShare: 0.25,
+    reactPriceCut: 0.08,
+    reactMarketing: 0.20,
+    /** NPC prices never fall below 70% of priceRef (a proposal: the spec's +-30% bound) */
+    priceFloor: 0.70,
+    /** exit after 2 quarters of negative margin (§2) */
+    exitQuarters: 2,
+    /** entry per quarter 0.25 * max(0, sector margin - 10%) / 10%, capped at 0.6 (§2) */
+    entryBase: 0.25,
+    entryMarginFloor: 0.10,
+    entryMarginStep: 0.10,
+    entryCap: 0.6,
+    /** the NPC population cap (a sandbox bound; the spec does not give one) */
+    maxNpcs: 8,
+    /** antitrust: share above 60% for 2 quarters triggers a review (§2; the mechanic lives in B) */
+    antitrustShare: 0.60,
+    antitrustQuarters: 2,
+    /** NPC seeded quality spread (ln) and marketing (per gd) */
+    qualitySpread: 0.15,
+    marketingBase: 600,
+  },
+  /** signals (§6.2) */
+  signals: {
+    /** noise sd: backlog 0.04, shipped revenue 0.02, drawn once per filing (G20) */
+    sigBacklog: 0.04,
+    sigRevenue: 0.02,
+    /** band half widths: shipped revenue QTD +-5%, backlog and CB +-10%, run rate +-5% */
+    bandRevenue: 0.05,
+    bandBacklog: 0.10,
+    bandRunRate: 0.05,
+    /** the weekly cap (dormant after G18): 1.5% per signal, 2.5% one-signal hold (§6.2) */
+    forwardCap: 0.015,
+    holdCap: 0.025,
+    /** weekly signals are kept per company */
+    keep: 13,
+  },
+  /** utilization bands (signal text): < 60, 60-85, 85-100, > 100% (§6.2) */
+  utilBands: [0.60, 0.85, 1.00],
+  /** headcount bands (§6.2) */
+  headcountBands: [10, 50, 200, 1_000, 5_000] as const,
+  /** consensus and valuation (§5, §6.4) */
+  valuation: {
+    /** P/E and EV/sales (proposals, see the file header) */
+    pe: 14,
+    evs: 2.0,
+    gamma: 0.5,
+    /** w_b, the backlog weight (0.5; the 0.25 contingency is named below, not the default) */
+    wb: 0.5,
+    wbFallback: 0.25,
+    /** m clipped to [0.10, 0.90]; g clipped to [-50%, +100%] */
+    mClip: [0.10, 0.90] as const,
+    gClip: [-0.5, 1.0] as const,
+    /** C: guidance credibility starts at 0.5 and the multiplier is 0.85 + 0.15 C (§5) */
+    cInit: 0.5,
+    cBase: 0.85,
+    cSlope: 0.15,
+    /** a private mark annualizes the quarter's run rate only after this many gd of trading (a proposal; see privateInputs) */
+    privateMarkDays: 21,
+  },
+  /** private rounds (§5, X12, N9): NPC investors only, at 0.70 * V_engine, at most 25% of post-money */
+  rounds: {
+    priceFactor: 0.70,
+    maxPostMoneyShare: 0.25,
+    /** the seed round (Seed tier) and the series round (Growth and Late) are the two investor types */
+    investorCash: { seed: 5_000_000, series: 50_000_000 } as Record<'seed' | 'series', number>,
+  },
+  /** the private mark of a company counted in its owner's net worth (spec 5.1): 0.85 x V x ownership */
+  netWorth: { privateHaircut: 0.85 },
+  /** founding (§5 Seed tier; C4 founder template): R2 owner, at least $100k of founder equity */
+  founding: {
+    minRank: 'R2',
+    minEquity: 100_000,
+    capital: 150_000,
+    /** founder shares at founding (ownership is shares; the founder holds all of them until a round) */
+    founderShares: 1_000_000,
+    /** founder template: 5 Ops, 2 Sales, 2 R&D, 1 G&A (§1 reference Seed company) */
+    heads: { ops: 5, sales: 2, rd: 2, ga: 1 } as Record<CompanyRole, number>,
+    /** one product at $50, quality 1 (Q_f starts at 1) */
+    productPrice: 50,
+    productName: 'Flagship',
+    sector: 'tech' as CompanySector,
+  },
+  /** tier entry rules, on the company's frozen quarterly statements (§5, see the Seed/Growth note in the world code) */
+  tiers: {
+    growth: { revenueLast2: 1_000_000 },
+    late: { revenueLast4: 15_000_000, profitableOfLast4: 2 },
+  },
+  /** the first goals of the founder template (C4): reachable, each with a threshold */
+  goals: {
+    firstRevenue: 5_000,
+    firstRoundAmount: 25_000,
+  },
+} as const;
+
+/** Money-conservation sizes for the NPC investor pools, kept in the content so the world seeds them */
+export const INVESTOR_KINDS = ['seed', 'series'] as const;
+export type InvestorKind = (typeof INVESTOR_KINDS)[number];

@@ -173,6 +173,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
             <KV k={t('portfolio.mortgages')} v={<span className="text-loss">{money(-b.mortgages)}</span>} />
             <KV k={t('portfolio.lifestyle')} v={money(b.lifestyle)} />
             <KV k={t('portfolio.aiHardware')} v={money(b.lab)} />
+            {b.companies !== 0 && <KV k={t('portfolio.companies')} v={money(b.companies)} />}
             <KV k={<span className="font-semibold text-fg">{t('common.netWorth')}</span>} v={<span className="font-semibold">{money(b.total)}</span>} className="border-t border-ink-2 pt-2" />
           </div>
           <div className="mt-4 flex h-2 overflow-hidden rounded-chip" aria-label={t('portfolio.allocation')}>

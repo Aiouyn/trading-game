@@ -36,6 +36,7 @@ import { tripDetail } from './journal';
 import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick, setDrip, startBlock } from './plans';
 import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
 import { orderError } from './orders';
+import { companyCommand, companyDay } from './company/bridge';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
 
 export interface CreateOptions {
@@ -151,6 +152,7 @@ export function stepGame(g: GameState): StepOutput {
     workDay(g, out);
     planDay(g, out);
     dripDay(g, out, r.events);
+    companyDay(g, out);
   }
 
   if (tick % NW_EVERY === 0 || newDay) {
@@ -349,6 +351,8 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'drip.set': return setDrip(g, p, cmd.assetId, cmd.on);
     case 'block.start': return startBlock(g, p, cmd.assetId, cmd.side, cmd.qty, cmd.slices);
     case 'block.cancel': return cancelBlock(g, p, cmd.planId);
+    case 'company.found': return companyCommand(g, pid, cmd, out);
+    case 'company.act': return companyCommand(g, pid, cmd, out);
     case 'admin.advance': return fail('admin only');
     case 'admin.grant': {
       creditExternal(g, pid, cmd.amount, 'admin');
