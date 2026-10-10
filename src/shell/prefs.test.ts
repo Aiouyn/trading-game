@@ -168,7 +168,7 @@ describe('shell validation (corrupt payloads)', () => {
       ['bad custom slot', (s) => (s.wins[0].slot = { custom: { x0: 0.9, y0: 0, x1: 0.1, y1: 1 } })],
       ['garbage slot name', (s) => (s.wins[0].slot = 'ZZ')],
       ['shelf garbage', (s) => (s.shelf = [1, 'nope', 'exchange', 'broker', 'broker'])],
-      ['focus restore garbage', (s) => { s.focusMode = true; s.focusRestore = { 'broker-1': 'x', constructor: 3 }; }],
+      ['focus restore garbage', (s) => { s.focusWs = [0, 'x', -1, 99]; s.focusRestore = { 'broker-1': 'x', constructor: 3 }; }],
       ['five MB string in look', (s) => (s.look = 'x'.repeat(5 * 1024 * 1024))],
     ];
     for (const [name, mutate] of payloads) {
@@ -195,14 +195,52 @@ describe('shell validation (corrupt payloads)', () => {
     expect(s.layouts.map((l) => l.name)).toEqual(['mine']);
   });
 
-  it('keeps a valid focus snapshot only while focus mode is on', () => {
+  it('keeps a valid focus snapshot only while its workspace is in focus mode', () => {
     const raw = base();
-    raw.focusMode = true;
-    raw.focusRestore = { 'broker-1': { rect: { x: 1, y: 2, w: 500, h: 500 }, slot: 'L2', filled: false } };
+    raw.focusWs = [0];
+    raw.focusRestore = { 'broker-1': { ws: 0, rect: { x: 1, y: 2, w: 500, h: 500 }, slot: 'L2', filled: false } };
     const s = check('focus', raw);
-    expect(s.focusRestore).toEqual({ 'broker-1': { rect: { x: 1, y: 2, w: 500, h: 500 }, slot: 'L2', filled: false } });
-    raw.focusMode = false;
-    expect(check('focus off', raw).focusRestore).toBeNull();
+    expect(s.focusWs).toEqual([0]);
+    expect(s.focusRestore).toEqual({ 'broker-1': { ws: 0, rect: { x: 1, y: 2, w: 500, h: 500 }, slot: 'L2', filled: false } });
+    raw.focusWs = [];
+    const off = check('focus off', raw);
+    expect(off.focusWs).toEqual([]);
+    expect(off.focusRestore).toBeNull();
+  });
+
+  it('drops a snapshot whose window is gone or whose ws is not in focus', () => {
+    const raw = base();
+    raw.focusWs = [0];
+    raw.focusRestore = {
+      'broker-1': { ws: 1, rect: { x: 1, y: 2, w: 500, h: 500 }, slot: null, filled: false },
+      'ghost-9': { ws: 0, rect: { x: 1, y: 2, w: 500, h: 500 }, slot: null, filled: false },
+    };
+    expect(check('stale snapshot', raw).focusRestore).toBeNull();
+  });
+
+  it('keeps focus per workspace through a save and a load', () => {
+    const kv = new MemKV();
+    const ctx2 = makeWmCtx('R2');
+    const shell: ShellState = { ...initialShell(VP, ctx2, 'HLCN'), focusWs: [0, 1], activeWs: 1, focusRestore: null };
+    saveShell(kv, 'save-x', shell);
+    expect(loadShell(kv, 'save-x', ctx2, VP, 'HLCN').focusWs).toEqual([0, 1]);
+  });
+
+  it('keeps a research file of 55 characters (its window id is 64) and drops a 56-character one', () => {
+    const file55 = 'a'.repeat(55);
+    const file56 = 'a'.repeat(56);
+    const raw = base();
+    raw.wins.push({ id: `research-${file55}`, app: 'research', ws: 0, rect: { x: 0, y: 0, w: 500, h: 400 }, slot: null, state: 'open', filled: false, props: { fileId: file55 } });
+    raw.wins.push({ id: `research-${file56}`, app: 'research', ws: 0, rect: { x: 0, y: 0, w: 500, h: 400 }, slot: null, state: 'open', filled: false, props: { fileId: file56 } });
+    const s = check('file id length', raw);
+    expect(s.wins.some((w) => w.id === `research-${file55}`)).toBe(true);
+    expect(s.wins.some((w) => w.id === `research-${file56}`)).toBe(false);
+  });
+
+  it('drops a research window that has no file id', () => {
+    const raw = base();
+    raw.wins.push({ id: 'research', app: 'research', ws: 0, rect: { x: 0, y: 0, w: 500, h: 400 }, slot: null, state: 'open', filled: false, props: {} });
+    expect(check('fileless research', raw).wins.some((w) => w.app === 'research')).toBe(false);
   });
 
   it('moves a window off a workspace the rank no longer has and clamps activeWs', () => {

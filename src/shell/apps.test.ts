@@ -1,7 +1,19 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { APPS, APP_IDS, MAX_BROKERS, MAX_CUSTOM_LAYOUTS, SHELF_ORDER, cleanProps, isAppId, normalizeTicker } from './apps';
+import {
+  APPS,
+  APP_IDS,
+  BUILTIN_LAYOUTS,
+  MAX_BROKERS,
+  MAX_CUSTOM_LAYOUTS,
+  MAX_FILE_ID,
+  SHELF_ORDER,
+  cleanProps,
+  isAppId,
+  isBuiltinLayout,
+  normalizeTicker,
+} from './apps';
 import { RANK_ORDER } from './ctx';
 
 const i18n = (name: 'en' | 'fr'): Record<string, string> =>
@@ -99,5 +111,20 @@ describe('props', () => {
     expect(cleanProps('research', { fileId: 'f-1_a' })).toEqual({ fileId: 'f-1_a' });
     expect(cleanProps('research', { fileId: 'a/b' })).toBeNull();
     expect(cleanProps('broker', 'HLCN')).toBeNull();
+  });
+});
+
+describe('file ids and built-in names', () => {
+  it('caps a file id at 55 characters, so research-<fileId> fits the 64-character window id', () => {
+    expect(MAX_FILE_ID).toBe(55);
+    expect(cleanProps('research', { fileId: 'a'.repeat(55) })).toEqual({ fileId: 'a'.repeat(55) });
+    expect(cleanProps('research', { fileId: 'a'.repeat(56) })).toBeNull();
+    expect(`research-${'a'.repeat(MAX_FILE_ID)}`.length).toBe(64);
+  });
+
+  it('names the three built-in layouts and nothing else', () => {
+    expect(BUILTIN_LAYOUTS).toEqual(['trade', 'review', 'research']);
+    expect(isBuiltinLayout('Trade'.toLowerCase())).toBe(true);
+    expect(isBuiltinLayout('mine')).toBe(false);
   });
 });

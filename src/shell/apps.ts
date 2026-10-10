@@ -99,12 +99,25 @@ export const MAX_CUSTOM_LAYOUTS = 5;
 /** Layout name length limits (custom layouts only). */
 export const MAX_LAYOUT_NAME = 24;
 
+/** Built-in layouts (V:70-76). Their plans live in layouts.ts; the reducer only receives them. */
+export const BUILTIN_LAYOUTS = ['trade', 'review', 'research'] as const;
+export type BuiltinLayout = (typeof BUILTIN_LAYOUTS)[number];
+
+export function isBuiltinLayout(name: string): name is BuiltinLayout {
+  return (BUILTIN_LAYOUTS as readonly string[]).includes(name);
+}
+
 export function isAppId(x: unknown): x is AppId {
   return typeof x === 'string' && (APP_IDS as readonly string[]).includes(x);
 }
 
 const TICKER_RE = /^[A-Z0-9][A-Z0-9.-]{0,11}$/;
-const FILE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+/**
+ * A research window id is `research-<fileId>`. Stored ids are capped at 64 characters (prefs
+ * ID_RE), so the file id is at most 64 - 9 = 55 characters.
+ */
+export const MAX_FILE_ID = 55;
+const FILE_ID_RE = new RegExp(`^[A-Za-z0-9_-]{1,${MAX_FILE_ID}}$`);
 
 /** Upper-cases and checks a ticker. Returns null when it is not a ticker shape. */
 export function normalizeTicker(raw: string): string | null {

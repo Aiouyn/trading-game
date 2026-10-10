@@ -8,9 +8,11 @@
  *   filled  the main window alone, filled to the work area
  *
  * Locked apps are skipped (C-25) and the Broker takes the freed space of a locked main window.
+ * The Research entry needs a file id (a window cannot open without one); without it the entry is
+ * skipped the same way. wm.ts never imports this module: ctx.ts wires `planLayout` into WmCtx.
  */
 
-import { APPS, type AppId, type WinProps } from './apps';
+import { APPS, type AppId, type BuiltinLayout, type WinProps, isBuiltinLayout } from './apps';
 import {
   BP_HALVES,
   type Rect,
@@ -24,12 +26,13 @@ import {
   slotRect,
 } from './geometry';
 
-export type BuiltinLayout = 'trade' | 'review' | 'research';
+export { isBuiltinLayout };
+export type { BuiltinLayout };
 
-export const BUILTIN_LAYOUTS: readonly BuiltinLayout[] = ['trade', 'review', 'research'];
-
-export function isBuiltinLayout(name: string): name is BuiltinLayout {
-  return (BUILTIN_LAYOUTS as readonly string[]).includes(name);
+/** What a plan needs besides the viewport: the Broker's ticker and the Research file (if any). */
+export interface PlanOpts {
+  ticker?: string;
+  fileId?: string;
 }
 
 export interface Placement {
@@ -63,6 +66,8 @@ interface Entry {
   main?: boolean;
   /** Takes the ticker passed to planLayout. */
   ticker?: boolean;
+  /** Needs a Research file: taken from planLayout's fileId. Without one the entry is skipped. */
+  file?: boolean;
   view?: string;
   second?: boolean;
 }
@@ -78,7 +83,7 @@ const DEFS: Readonly<Record<BuiltinLayout, readonly Entry[]>> = {
     { app: 'portfolio', slot: 'R2', view: 'journal', second: true },
   ],
   research: [
-    { app: 'research', slot: 'L23', main: true },
+    { app: 'research', slot: 'L23', main: true, file: true },
     { app: 'broker', slot: 'R3T', ticker: true },
     { app: 'wire', slot: 'R3B' },
   ],
@@ -89,6 +94,7 @@ interface Cur {
   slot: SlotName;
   main: boolean;
   ticker: boolean;
+  file: boolean;
   view?: string;
   second: boolean;
   i: number;
@@ -98,12 +104,7 @@ interface Cur {
  * Plans a built-in layout for a viewport. Pure. It does not check the layout mode for the
  * reducer; applyLayout refuses below 1200 (V:42), but the plan is useful at any width.
  */
-export function planLayout(
-  name: BuiltinLayout,
-  vp: Size,
-  unlocked: Unlocked,
-  opts: { ticker?: string } = {},
-): LayoutPlan {
+export function planLayout(name: BuiltinLayout, vp: Size, unlocked: Unlocked, opts: PlanOpts = {}): LayoutPlan {
   const defs = DEFS[name];
   const kept: Cur[] = [];
   const dropped: Cur[] = [];
@@ -113,11 +114,13 @@ export function planLayout(
       slot: e.slot,
       main: e.main === true,
       ticker: e.ticker === true,
+      file: e.file === true,
       view: e.view,
       second: e.second === true,
       i,
     };
-    (unlocked(e.app) ? kept : dropped).push(c);
+    const usable = unlocked(e.app) && (!c.file || opts.fileId !== undefined);
+    (usable ? kept : dropped).push(c);
   });
 
   if (kept.length === 0) {
@@ -140,6 +143,7 @@ export function planLayout(
   const propsOf = (c: Cur): WinProps => {
     const p: WinProps = {};
     if (c.ticker && opts.ticker !== undefined) p.ticker = opts.ticker;
+    if (c.file && opts.fileId !== undefined) p.fileId = opts.fileId;
     if (c.view !== undefined) p.view = c.view;
     return p;
   };

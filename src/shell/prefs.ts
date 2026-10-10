@@ -9,9 +9,18 @@
  * The store is passed in (KeyValueStore), so this module runs in tests and in the browser.
  */
 
-import { APPS, MAX_LAYOUT_NAME, SHELF_ORDER, type AppId, type WinProps, cleanProps, isAppId, normalizeTicker } from './apps';
+import {
+  APPS,
+  MAX_LAYOUT_NAME,
+  SHELF_ORDER,
+  type AppId,
+  type WinProps,
+  cleanProps,
+  isAppId,
+  isBuiltinLayout,
+  normalizeTicker,
+} from './apps';
 import { type Rect, type Size, type Slot, isSlotName } from './geometry';
-import { isBuiltinLayout } from './layouts';
 import { type LayoutEntry, type SavedLayout, type ShellState, type Snapshot, type Win, type WmCtx, initialShell, normalize } from './wm';
 
 export const PREFS_KEY = 'tg-prefs';
@@ -272,6 +281,13 @@ function parseShelf(raw: unknown): AppId[] {
   return ['broker', ...shelf.filter((a) => a !== 'broker')];
 }
 
+function parseFocusWs(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const out = new Set<number>();
+  for (const ws of raw.slice(0, 16)) if (Number.isInteger(ws) && (ws as number) >= 0) out.add(ws as number);
+  return [...out].sort((a, b) => a - b);
+}
+
 function parseFocusRestore(raw: unknown, wins: Win[]): Record<string, Snapshot> | null {
   if (!isObj(raw)) return null;
   const out: Record<string, Snapshot> = {};
@@ -280,8 +296,8 @@ function parseFocusRestore(raw: unknown, wins: Win[]): Record<string, Snapshot> 
     if (!ID_RE.test(id) || !ids.has(id) || !isObj(raw[id])) continue;
     const s = raw[id] as Record<string, unknown>;
     const rect = parseRect(s.rect);
-    if (rect === null) continue;
-    out[id] = { rect, slot: parseSlot(s.slot), filled: s.filled === true };
+    if (rect === null || !Number.isInteger(s.ws)) continue;
+    out[id] = { ws: s.ws as number, rect, slot: parseSlot(s.slot), filled: s.filled === true };
   }
   return Object.keys(out).length > 0 ? out : null;
 }
@@ -298,13 +314,12 @@ export function validateShell(raw: unknown, ctx: WmCtx, vp: Size, ticker?: strin
     v: 1,
     wins,
     activeWs: Number.isInteger(raw.activeWs) ? (raw.activeWs as number) : 0,
-    focusMode: raw.focusMode === true,
-    focusRestore: null,
+    focusWs: parseFocusWs(raw.focusWs),
+    focusRestore: parseFocusRestore(raw.focusRestore, wins),
     layouts: parseLayouts(raw.layouts),
     shelf: parseShelf(raw.shelf),
     vp: { w: vp.w, h: vp.h },
   };
-  shell.focusRestore = shell.focusMode ? parseFocusRestore(raw.focusRestore, wins) : null;
   if (typeof raw.look === 'string' && raw.look.length <= 32) shell.look = raw.look;
   return normalize(shell, ctx);
 }

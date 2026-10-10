@@ -9,9 +9,11 @@
  *   /<app>                  any other app id
  *   /credits                redirect to /settings/about
  *
- * Flags kept on every route: ?world ?e2e ?seed ?fresh ?intro. The legacy ?t and ?file are read
- * as aliases of the path segments (they are never written). Nothing else is read or written, so
- * a link carries no holdings, orders or player data (T:98).
+ * Flags kept on every route: ?world ?e2e ?seed ?fresh ?intro. The query aliases ?t and ?file
+ * are read when the path does not name the value. On output they are kept only while they agree
+ * with the route's own ticker or file (DECISIONS "Routing": preserved across URL updates; a stale
+ * alias after the window changed its ticker is dropped). Nothing else is read or written, so a
+ * link carries no holdings, orders or player data (T:98).
  */
 
 import { APPS, type AppId, type WinProps, cleanProps, isAppId } from './apps';
@@ -30,6 +32,8 @@ export interface ShellRoute {
   view?: string;
   props: WinProps;
   flags: RouteFlags;
+  /** The query aliases as read (?t, ?file). Kept on output only while they match `props`. */
+  alias?: { t?: string; file?: string };
 }
 
 export type RouteResult = ShellRoute | { notFound: true } | { redirect: string };
@@ -103,18 +107,28 @@ export function parseRoute(input: string): RouteResult {
     }
   }
 
-  // Legacy query aliases, used only when the path does not already name the value.
-  if (app === 'broker' && props.ticker === undefined && q.has('t')) {
+  // Query aliases. The path wins; a query value fills in only when the path does not name one.
+  const alias: { t?: string; file?: string } = {};
+  if (app === 'broker' && q.has('t')) {
     const c = cleanProps(app, { ticker: q.get('t') });
-    if (c !== null && c.ticker !== undefined) props.ticker = c.ticker;
+    if (c !== null && c.ticker !== undefined) {
+      alias.t = c.ticker;
+      if (props.ticker === undefined) props.ticker = c.ticker;
+    }
   }
-  if (app === 'research' && props.fileId === undefined && q.has('file')) {
+  if (app === 'research' && q.has('file')) {
     const c = cleanProps(app, { fileId: q.get('file') });
-    if (c !== null && c.fileId !== undefined) props.fileId = c.fileId;
+    if (c !== null && c.fileId !== undefined) {
+      alias.file = c.fileId;
+      if (props.fileId === undefined) props.fileId = c.fileId;
+    }
   }
+  // A research route needs its file (the same answer for an unknown file, P2-116).
+  if (app === 'research' && props.fileId === undefined) return { notFound: true };
 
   const out: ShellRoute = { app, props, flags };
   if (view !== undefined) out.view = view;
+  if (alias.t !== undefined || alias.file !== undefined) out.alias = alias;
   return out;
 }
 
@@ -128,6 +142,16 @@ function flagQuery(f: RouteFlags): string {
   return parts.join('&');
 }
 
+/** The alias query parts that still agree with the route's props (DECISIONS "Routing"). */
+function aliasQuery(r: ShellRoute): string[] {
+  const parts: string[] = [];
+  if (r.app === 'broker' && r.alias?.t !== undefined && r.alias.t === r.props.ticker) parts.push(`t=${r.alias.t}`);
+  if (r.app === 'research' && r.alias?.file !== undefined && r.alias.file === r.props.fileId) {
+    parts.push(`file=${encodeURIComponent(r.alias.file)}`);
+  }
+  return parts;
+}
+
 /** The canonical path and query for a route. The inverse of parseRoute for canonical input. */
 export function formatRoute(r: ShellRoute): string {
   let path = '/';
@@ -137,6 +161,6 @@ export function formatRoute(r: ShellRoute): string {
     else if (r.app === 'research' && r.props.fileId !== undefined) path += `/${encodeURIComponent(r.props.fileId)}`;
     else if (r.view !== undefined) path += `/${r.view}`;
   }
-  const query = flagQuery(r.flags);
+  const query = [flagQuery(r.flags), ...aliasQuery(r)].filter((x) => x !== '').join('&');
   return query === '' ? path : `${path}?${query}`;
 }

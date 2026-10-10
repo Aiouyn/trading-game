@@ -6,6 +6,7 @@
 
 import { RANKS } from '../content/lifestyle';
 import { APPS, type AppId } from './apps';
+import { planLayout } from './layouts';
 import type { WmCtx } from './wm';
 
 /** Rank ids in order, from src/content/lifestyle.ts (R0 Broke ... R6 Dynasty). */
@@ -35,14 +36,19 @@ export function workspaceCount(rank: string): number {
   return 1;
 }
 
-/** Builds the reducer context for an earned rank. */
+/**
+ * Builds the reducer context for an earned rank. The built-in layout planner is wired here, so
+ * wm.ts never imports layouts.ts (DECISIONS "Module purity").
+ */
 export function makeWmCtx(
   rank: string,
   hasPendingOrder: (ticker: string) => boolean = () => false,
 ): WmCtx {
+  const unlocked = (app: AppId): boolean => isAppUnlocked(app, rank);
   return {
-    unlocked: (app) => isAppUnlocked(app, rank),
+    unlocked,
     workspaces: workspaceCount(rank),
     hasPendingOrder,
+    plan: (name, vp, opts) => planLayout(name, vp, unlocked, opts).placements,
   };
 }

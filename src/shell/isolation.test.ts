@@ -13,7 +13,20 @@ import { describe, expect, it } from 'vitest';
 
 const SHELL_DIR = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(SHELL_DIR, '..');
-const PURE_ENTRY = ['apps', 'geometry', 'wm', 'layouts', 'route'];
+const PURE_ENTRY = ['apps', 'geometry', 'wm', 'layouts', 'route', 'keys'];
+/**
+ * Which shell modules each pure module may import, type-only imports included (DECISIONS "Module
+ * purity": wm.ts imports only apps.ts and geometry.ts; built-in layout plans reach wm through
+ * ctx.ts, never by import).
+ */
+const IMPORT_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+  apps: [],
+  geometry: ['apps'],
+  wm: ['apps', 'geometry'],
+  layouts: ['apps', 'geometry'],
+  route: ['apps'],
+  keys: ['apps', 'wm'],
+};
 const FORBIDDEN_PACKAGES = ['react', 'react-dom', 'next', 'zustand'];
 const FORBIDDEN_SEGMENTS = ['engine', 'world', 'game', 'content', 'components', 'app', 'net', 'server'];
 const FORBIDDEN_GLOBALS = ['window', 'document', 'localStorage', 'sessionStorage', 'navigator', 'performance', 'Date'];
@@ -122,12 +135,36 @@ describe('shell module isolation', () => {
     expect(violations).toEqual([]);
   });
 
-  it('the walk really covers the pure modules and what they import (wm reaches layouts and geometry)', () => {
+  it('the walk really covers the pure modules and what they import', () => {
     const { reached } = graphViolations();
-    expect(reached).toEqual(expect.arrayContaining(['apps.ts', 'geometry.ts', 'layouts.ts', 'route.ts', 'wm.ts']));
+    expect(reached).toEqual(expect.arrayContaining(['apps.ts', 'geometry.ts', 'layouts.ts', 'route.ts', 'wm.ts', 'keys.ts']));
     expect(reached).not.toContain('ctx.ts');
     expect(reached).not.toContain('prefs.ts');
     expect(reached).not.toContain('store.ts');
+  });
+
+  it('every pure module imports only its allowed shell modules, type-only imports included', () => {
+    const offenders: string[] = [];
+    for (const mod of Object.keys(IMPORT_ALLOWLIST)) {
+      const file = join(SHELL_DIR, `${mod}.ts`);
+      const { imports } = importsFromText(file, readFileSync(file, 'utf8'));
+      for (const imp of imports) {
+        if (imp.spec === null) {
+          offenders.push(`${mod}: non-literal import`);
+          continue;
+        }
+        const target = imp.spec.startsWith('./') ? imp.spec.slice(2) : null;
+        if (target === null || !IMPORT_ALLOWLIST[mod]!.includes(target)) offenders.push(`${mod}: ${imp.spec}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('the allowlist check catches wm importing layouts, even as a type', () => {
+    const src = "import type { Placement } from './layouts';\nimport { x } from './ctx';";
+    const { imports } = importsFromText('wm.ts', src);
+    const bad = imports.map((i) => i.spec).filter((spec) => spec !== null && !IMPORT_ALLOWLIST.wm!.includes(spec.slice(2)));
+    expect(bad).toEqual(['./layouts', './ctx']);
   });
 
   it('the detector flags every import form it is meant to catch', () => {

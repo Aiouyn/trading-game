@@ -8,6 +8,7 @@ import {
   type WmCtx,
   focusedId,
   initialShell,
+  isFocused,
   normalize,
   project,
   reduce,
@@ -68,9 +69,10 @@ function assertInvariants(s: ShellState, ctx: WmCtx): void {
   }
   expect(s.layouts.length).toBeLessThanOrEqual(5);
   expect(s.shelf[0]).toBe('broker');
-  // focus is the top-most open window on the active workspace
-  const top = [...s.wins].reverse().find((w) => w.ws === s.activeWs && w.state === 'open');
-  expect(focusedId(s)).toBe(top ? top.id : null);
+  // focus mode: sorted, unique, in range; every snapshot belongs to a workspace in focus mode
+  expect(s.focusWs, 'focusWs sorted').toEqual([...new Set(s.focusWs)].sort((a, b) => a - b));
+  for (const ws of s.focusWs) expect(ws, 'focusWs in range').toBeLessThan(ctx.workspaces);
+  for (const snap of Object.values(s.focusRestore ?? {})) expect(s.focusWs, 'snapshot ws').toContain(snap.ws);
   // nothing shown is outside the work area
   const p = project(s);
   for (const id of Object.keys(p.rects)) {
@@ -107,7 +109,7 @@ describe('initial shell', () => {
     expect(focusedId(s)).toBe('broker-1');
     expect(s.wins.find((w) => w.app === 'broker')!.props).toEqual({ ticker: 'HLCN' });
     expect(s.activeWs).toBe(0);
-    expect(s.focusMode).toBe(false);
+    expect(s.focusWs).toEqual([]);
   });
 
   it('uses the thirds at 1920 x 1080', () => {
@@ -384,13 +386,54 @@ describe('workspaces', () => {
     refused(s, { type: 'moveToWs', id: 'research-f9', ws: 1 }, 'locked', R0);
   });
 
-  it('exits focus mode on a new window and on a workspace switch', () => {
+  it('exits focus mode on the workspace a new window lands on', () => {
     let s = go(fresh(VP_1920), { type: 'focusMode', on: true });
     s = go(s, { type: 'open', app: 'lab' });
-    expect(s.focusMode).toBe(false);
-    s = go(fresh(VP_1920), { type: 'focusMode', on: true });
-    s = go(s, { type: 'switchWs', ws: 1 });
-    expect(s.focusMode).toBe(false);
+    expect(s.focusWs).toEqual([]);
+    expect(s.focusRestore).toBeNull();
+  });
+
+  it('focus mode is per workspace: a switch keeps each workspace its own mode', () => {
+    let s = go(fresh(VP_1920, R2), { type: 'focusMode', on: true }, R2);
+    s = go(s, { type: 'switchWs', ws: 1 }, R2);
+    expect(s.focusWs).toEqual([0]);
+    expect(isFocused(s)).toBe(false);
+    s = go(s, { type: 'focusMode', on: true }, R2);
+    expect(s.focusWs).toEqual([0, 1]);
+    s = go(s, { type: 'switchWs', ws: 0 }, R2);
+    expect(isFocused(s)).toBe(true);
+    s = go(s, { type: 'focusMode', on: false }, R2);
+    expect(s.focusWs).toEqual([1]);
+  });
+
+  it('opening a window on one workspace leaves the other workspace in focus mode', () => {
+    let s = go(fresh(VP_1920, R2), { type: 'focusMode', on: true }, R2);
+    s = go(s, { type: 'switchWs', ws: 1 }, R2);
+    s = go(s, { type: 'focusMode', on: true }, R2);
+    s = go(s, { type: 'open', app: 'calendar' }, R2);
+    expect(s.focusWs).toEqual([0]);
+    expect(s.wins.find((w) => w.app === 'calendar')!.ws).toBe(1);
+  });
+
+  it('leaving focus on one workspace restores its windows and not the other workspace', () => {
+    const base = go(fresh(VP_1920, R2), { type: 'open', app: 'calendar' }, R2);
+    let s = go(base, { type: 'focusMode', on: true }, R2);
+    s = go(s, { type: 'switchWs', ws: 1 }, R2);
+    s = go(s, { type: 'open', app: 'lab' }, R2);
+    s = go(s, { type: 'focusMode', on: true }, R2);
+    s = go(s, { type: 'switchWs', ws: 0 }, R2);
+    s = go(s, { type: 'focusMode', on: false }, R2);
+    expect(s.focusWs).toEqual([1]);
+    const back = (ws: ShellState['wins']) => ws.filter((w) => w.ws === 0).map((w) => [w.id, w.rect, w.slot, w.filled]);
+    expect(back(s.wins)).toEqual(back(base.wins));
+    expect(s.focusRestore && Object.values(s.focusRestore).every((x) => x.ws === 1)).toBe(true);
+  });
+
+  it('refuses a move into or out of a workspace in focus mode, and a close drops its snapshot', () => {
+    let s = go(fresh(VP_1920, R2), { type: 'focusMode', on: true }, R2);
+    refused(s, { type: 'moveToWs', id: 'wire', ws: 1 }, 'mode', R2);
+    s = go(s, { type: 'close', id: 'wire', force: true }, R2);
+    expect(s.focusRestore && 'wire' in s.focusRestore).toBe(false);
   });
 });
 
@@ -497,6 +540,67 @@ describe('named layouts', () => {
     refused(fresh(VP_1920), { type: 'applyLayout', name: 'mine' }, 'no-layout');
   });
 
+  it('applies Trade without a ticker: the existing Broker is kept, not duplicated or blanked', () => {
+    let s = go(fresh(VP_1920), { type: 'applyLayout', name: 'trade' });
+    expect(brokers(s)).toHaveLength(1);
+    expect(brokers(s)[0]!.props).toEqual({ ticker: 'HLCN' });
+    s = go(s, { type: 'applyLayout', name: 'trade' });
+    expect(brokers(s)).toHaveLength(1);
+    expect(brokers(s)[0]!.props).toEqual({ ticker: 'HLCN' });
+    expect(brokers(s)[0]!.state).toBe('open');
+  });
+
+  it('at the Broker cap, a Trade without a ticker keeps every ticker and does not collapse a Broker', () => {
+    let s = fresh(VP_1920);
+    for (const t of ['AAA', 'BBB', 'CCC']) s = go(s, { type: 'open', app: 'broker', props: { ticker: t } });
+    const before = brokers(s).map((w) => [w.id, w.props.ticker]).sort();
+    s = go(s, { type: 'applyLayout', name: 'trade' });
+    expect(brokers(s)).toHaveLength(4);
+    expect(brokers(s).map((w) => [w.id, w.props.ticker]).sort()).toEqual(before);
+    // The layout's Broker is the top-most one on this workspace; the others go to the shelf.
+    const open = brokers(s).filter((w) => w.state === 'open');
+    expect(open).toHaveLength(1);
+    expect(focusedId(s)).toBe(open[0]!.id);
+  });
+
+  it('applies Review after the Portfolio was closed: a plain Portfolio on the left and the journal window on the right', () => {
+    let s = go(fresh(VP_1920), { type: 'close', id: 'portfolio' });
+    s = go(s, { type: 'applyLayout', name: 'review' });
+    const pf = s.wins.find((w) => w.id === 'portfolio')!;
+    const j = s.wins.find((w) => w.id === 'portfolio-2')!;
+    expect(s.wins.filter((w) => w.app === 'portfolio')).toHaveLength(2);
+    expect(pf.slot).toBe('L2');
+    expect(pf.props).toEqual({});
+    expect(j.slot).toBe('R2');
+    expect(j.props).toEqual({ view: 'journal' });
+    expect(focusedId(s)).toBe('portfolio');
+  });
+
+  it('a user open of Portfolio focuses the journal window when it is the only Portfolio', () => {
+    let s = go(fresh(VP_1920), { type: 'close', id: 'portfolio' });
+    s = go(s, { type: 'applyLayout', name: 'review' });
+    s = go(s, { type: 'close', id: 'portfolio' });
+    s = go(s, { type: 'open', app: 'portfolio' });
+    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id)).toEqual(['portfolio-2']);
+    expect(focusedId(s)).toBe('portfolio-2');
+  });
+
+  it('applies the Research layout with the open Research file, and without one skips the slot', () => {
+    const none = go(fresh(VP_1920), { type: 'applyLayout', name: 'research' });
+    expect(none.wins.some((w) => w.app === 'research')).toBe(false);
+    expect(none.wins.find((w) => w.app === 'broker')!.slot).toBe('L23');
+    let s = go(fresh(VP_1920), { type: 'open', app: 'research', props: { fileId: 'f7' } });
+    s = go(s, { type: 'applyLayout', name: 'research' });
+    expect(s.wins.find((w) => w.app === 'research')).toMatchObject({ id: 'research-f7', slot: 'L23', props: { fileId: 'f7' } });
+    expect(focusedId(s)).toBe('research-f7');
+  });
+
+  it('refuses a Research open without a file id, and never makes a fileless Research window', () => {
+    const s = fresh(VP_1920);
+    refused(s, { type: 'open', app: 'research' }, 'bad-props');
+    refused(s, { type: 'open', app: 'research', props: {} }, 'bad-props');
+  });
+
   it('applies a locked research layout by skipping the locked slot, not by refusing (C-25)', () => {
     const s = fresh(VP_1920, R0);
     const after = go(s, { type: 'applyLayout', name: 'research', ticker: 'BRNT' }, R0);
@@ -536,6 +640,25 @@ describe('reducer properties (seeded)', () => {
   const APP_POOL = APP_IDS.filter((a) => APPS[a].available);
   const SLOTS = SLOT_NAMES;
 
+  /** The window an accepted action raises to the top, or null. */
+  function raisedBy(action: WmAction): string | null {
+    switch (action.type) {
+      case 'focus':
+      case 'restore':
+      case 'fill':
+      case 'snap':
+      case 'snapCycle':
+      case 'unsnap':
+      case 'move':
+      case 'resize':
+        return action.id;
+      case 'splitEdge':
+        return action.a;
+      default:
+        return null;
+    }
+  }
+
   function randomAction(rnd: () => number, s: ShellState): WmAction {
     const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
     const ids = s.wins.map((w) => w.id);
@@ -569,7 +692,7 @@ describe('reducer properties (seeded)', () => {
     if (roll < 0.76) return { type: 'moveToWs', id, ws: Math.floor(rnd() * 3) };
     if (roll < 0.79) return { type: 'focusMode', on: rnd() < 0.5 };
     if (roll < 0.83) return { type: 'viewport', ...pick(VPS) };
-    if (roll < 0.87) return { type: 'applyLayout', name: pick(['trade', 'review', 'research']), ticker: 'HLCN' };
+    if (roll < 0.87) return { type: 'applyLayout', name: pick(['trade', 'review', 'research']), ticker: rnd() < 0.5 ? undefined : 'HLCN' };
     if (roll < 0.9) return { type: 'saveLayout', name: pick(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']) };
     if (roll < 0.95) {
       const pair = s.wins.length >= 2 ? [s.wins[0]!.id, s.wins[1]!.id] : [id, id];
@@ -598,8 +721,19 @@ describe('reducer properties (seeded)', () => {
         accepted++;
         s = deepFreeze(r.state);
         assertInvariants(s, ctx);
-        if (action.type === 'focus' && s.wins.some((w) => w.id === action.id && w.ws === s.activeWs && w.state === 'open')) {
-          expect(focusedId(s)).toBe(action.id);
+        // What each accepted action must leave on top, read from the action itself rather than
+        // from the rule in focusedId: a window the action raised is focused when it is open on the
+        // active workspace; a collapsed or closed window is no longer focused.
+        const raised = raisedBy(action);
+        if (raised !== null) {
+          const w = s.wins.find((x) => x.id === raised);
+          if (w && w.state === 'open' && w.ws === s.activeWs) expect(focusedId(s), action.type).toBe(raised);
+        }
+        if (action.type === 'collapse' || action.type === 'close') {
+          expect(focusedId(s), action.type).not.toBe(action.id);
+        }
+        if (action.type === 'open' && !['broker', 'research', 'portfolio'].includes(action.app)) {
+          expect(focusedId(s), 'open').toBe(action.app);
         }
       }
     }

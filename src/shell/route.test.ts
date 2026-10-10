@@ -20,7 +20,6 @@ const canonical = [
   '/security',
   '/legal',
   '/bank',
-  '/research',
   '/research/abc-123_x',
   '/exchange',
   '/launchpad',
@@ -39,8 +38,9 @@ describe('route round trip', () => {
     }
   });
 
-  it('round-trips every app id as its own path', () => {
+  it('round-trips every app id as its own path (research needs its file, see below)', () => {
     for (const id of APP_IDS) {
+      if (id === 'research') continue;
       const r = parseRoute(`/${id}`);
       expect(r, id).toMatchObject({ app: id });
       expect(formatRoute(r as ShellRoute)).toBe(`/${id}`);
@@ -91,12 +91,32 @@ describe('route parsing', () => {
     expect(parseRoute('/credits')).toEqual({ redirect: '/settings/about' });
   });
 
-  it('reads the legacy ?t and ?file aliases and writes the path form', () => {
+  it('reads the legacy ?t and ?file aliases and writes the path, keeping the alias while it agrees', () => {
     const b = parseRoute('/broker?t=hlcn');
     expect(b).toMatchObject({ app: 'broker', props: { ticker: 'HLCN' } });
-    expect(formatRoute(b as ShellRoute)).toBe('/broker/HLCN');
+    expect(formatRoute(b as ShellRoute)).toBe('/broker/HLCN?t=HLCN');
     const r = parseRoute('/research?file=abc');
-    expect(formatRoute(r as ShellRoute)).toBe('/research/abc');
+    expect(r).toMatchObject({ app: 'research', props: { fileId: 'abc' } });
+    expect(formatRoute(r as ShellRoute)).toBe('/research/abc?file=abc');
+  });
+
+  it('prefers the path over a disagreeing alias, and drops the stale alias on output', () => {
+    const r = parseRoute('/broker/BRNT?t=HLCN');
+    expect(r).toMatchObject({ props: { ticker: 'BRNT' } });
+    expect(formatRoute(r as ShellRoute)).toBe('/broker/BRNT');
+    const moved = { ...(parseRoute('/broker/HLCN?t=HLCN') as ShellRoute), props: { ticker: 'AAA' } };
+    expect(formatRoute(moved)).toBe('/broker/AAA');
+  });
+
+  it('keeps ?t and ?file alongside the flags, flags first', () => {
+    const r = parseRoute('/broker/HLCN?t=HLCN&e2e&seed=3');
+    expect(formatRoute(r as ShellRoute)).toBe('/broker/HLCN?e2e&seed=3&t=HLCN');
+  });
+
+  it('treats a research route without a file as notFound, the same for every unknown file (P2-116)', () => {
+    expect(parseRoute('/research')).toEqual({ notFound: true });
+    expect(parseRoute('/research?e2e')).toEqual({ notFound: true });
+    expect(parseRoute('/research?file=bad%20id')).toEqual({ notFound: true });
   });
 
   it('ignores extra params, so a link cannot carry quantity, price or side', () => {

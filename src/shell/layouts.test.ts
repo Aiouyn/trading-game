@@ -43,13 +43,14 @@ describe('built-in layouts: feasibility fallback', () => {
   });
 
   it('Research at 1920x1080 keeps the thirds: Research 2/3 left, Broker and Wire on the right', () => {
-    const p = planLayout('research', VP_1920, all, { ticker: 'BRNT' });
+    const p = planLayout('research', VP_1920, all, { ticker: 'BRNT', fileId: 'f1' });
+    expect(p.placements.find((x) => x.app === 'research')!.props).toEqual({ fileId: 'f1' });
     expect(p.variant).toBe('thirds');
     expect(shape(p)).toEqual(['broker:R3T', 'wire:R3B', 'research:L23']);
   });
 
   it('Research at 1440x900: Broker cannot fit the 468 px right third, so the Broker shows full-height on the right and Wire is tabbed away', () => {
-    const p = planLayout('research', VP_1440, all, { ticker: 'BRNT' });
+    const p = planLayout('research', VP_1440, all, { ticker: 'BRNT', fileId: 'f1' });
     expect(p.variant).toBe('halves');
     expect(shape(p)).toEqual(['broker:R2', 'research:L2']);
     expect(p.skipped).toEqual(['wire']);
@@ -60,6 +61,14 @@ describe('built-in layouts: feasibility fallback', () => {
     expect(p.variant).toBe('thirds');
     expect(shape(p)).toEqual(['wire:R3B', 'broker:L23']);
     expect(p.skipped).toEqual(['research']);
+  });
+
+  it('Research without a file is skipped and the Broker takes its slot (no fileless Research window)', () => {
+    const p = planLayout('research', VP_1920, all, { ticker: 'BRNT' });
+    expect(p.variant).toBe('thirds');
+    expect(shape(p)).toEqual(['wire:R3B', 'broker:L23']);
+    expect(p.skipped).toEqual(['research']);
+    expect(p.placements.every((x) => x.app !== 'research')).toBe(true);
   });
 
   it('Review at 1440x900 is two halves: Portfolio left and the journal Portfolio (second instance) right', () => {

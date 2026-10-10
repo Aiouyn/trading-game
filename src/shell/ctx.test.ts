@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { RANKS } from '../content/lifestyle';
 import { APPS, type AppId } from './apps';
 import { RANK_ORDER, isAppUnlocked, makeWmCtx, rankOrdinal, workspaceCount } from './ctx';
+import { planLayout } from './layouts';
 
 describe('ctx: rank gate', () => {
   it('uses the rank ids from the lifestyle content, R0 to R6', () => {
@@ -57,5 +58,21 @@ describe('ctx: workspaces from earned rank (C-03)', () => {
     expect(workspaceCount('R3')).toBe(3);
     expect(workspaceCount('R6')).toBe(3);
     expect(workspaceCount('nope')).toBe(1);
+  });
+});
+
+describe('ctx: the built-in layout planner is wired from the rank', () => {
+  it('plans Trade through the layouts module with the rank gate applied', () => {
+    const vp = { w: 1920, h: 1080 };
+    const r0 = makeWmCtx('R0');
+    expect(r0.plan('trade', vp, { ticker: 'HLCN' }).map((p) => p.app)).toEqual(['wire', 'portfolio', 'broker']);
+    expect(r0.plan('research', vp, { ticker: 'HLCN', fileId: 'f1' }).map((p) => p.app)).toEqual(['wire', 'broker']);
+    expect(makeWmCtx('R3').plan('research', vp, { ticker: 'HLCN', fileId: 'f1' }).map((p) => p.app)).toEqual(['broker', 'wire', 'research']);
+  });
+
+  it('gives the same placements as the layouts module', () => {
+    const vp = { w: 1440, h: 900 };
+    const all = (): boolean => true;
+    expect(makeWmCtx('R3').plan('trade', vp, { ticker: 'HLCN' })).toEqual(planLayout('trade', vp, all, { ticker: 'HLCN' }).placements);
   });
 });
