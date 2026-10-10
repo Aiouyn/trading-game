@@ -95,13 +95,16 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
       }
       case 'world': {
         if (e.phase === 'announced') {
-          for (const p of e.precursors ?? []) pushWire(g, out, { kind: 'world', tag: 'Markets', tone: 'warn', text: p });
+          for (const p of e.precursors ?? []) pushWire(g, out, { kind: 'world', tag: 'Markets', tone: 'warn', text: p, ev: { type: 'world', id: e.id, phase: 'announced', kind: e.kind } });
         } else if (e.phase === 'start') {
-          pushWire(g, out, { kind: 'world', tag: worldLabel(e.kind), tone: worldTone(e.kind), text: e.headline });
+          pushWire(g, out, { kind: 'world', tag: worldLabel(e.kind), tone: worldTone(e.kind), text: e.headline, ev: { type: 'world', id: e.id, phase: 'start', kind: e.kind } });
         } else {
           const lasted = e.kind === 'flash' ? '' : ` · lasted ${e.lastedDays} day${e.lastedDays === 1 ? '' : 's'}`;
           const gx = e.gxMove !== undefined ? ` · GX ${pctText(e.gxMove)}` : '';
-          pushWire(g, out, { kind: 'world', tag: worldLabel(e.kind), tone: 'info', text: `${worldLabel(e.kind)} ended${lasted}${gx}` });
+          pushWire(g, out, {
+            kind: 'world', tag: worldLabel(e.kind), tone: 'info', text: `${worldLabel(e.kind)} ended${lasted}${gx}`,
+            ev: { type: 'world', id: e.id, phase: 'end', kind: e.kind, lastedDays: e.lastedDays, gxMove: e.gxMove },
+          });
         }
         break;
       }
@@ -122,9 +125,15 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
         if (e.phase === 'announced') {
           const tpd = g.market.config.ticksPerDay;
           const away = Math.max(1, e.day - Math.floor((e.tick - 1) / tpd));
-          pushWire(g, out, { kind: 'index', tag: 'Index', tone: 'info', text: `${nm} reviews its members in ${away} day${away === 1 ? '' : 's'}: ${moves}` });
+          pushWire(g, out, {
+            kind: 'index', tag: 'Index', tone: 'info', text: `${nm} reviews its members in ${away} day${away === 1 ? '' : 's'}: ${moves}`,
+            ev: { type: 'index', id: `${e.indexId}:${e.day}`, phase: 'announced', indexId: e.indexId, day: e.day, adds: e.adds, removes: e.removes },
+          });
         } else {
-          pushWire(g, out, { kind: 'index', tag: 'Index', tone: 'info', text: `${nm} reconstitutes today: ${moves}. Pension funds rebalance into the new weights` });
+          pushWire(g, out, {
+            kind: 'index', tag: 'Index', tone: 'info', text: `${nm} reconstitutes today: ${moves}. Pension funds rebalance into the new weights`,
+            ev: { type: 'index', id: `${e.indexId}:${e.day}`, phase: 'effective', indexId: e.indexId, day: e.day, adds: e.adds, removes: e.removes },
+          });
         }
         break;
       }

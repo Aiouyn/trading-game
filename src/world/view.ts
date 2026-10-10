@@ -1,6 +1,6 @@
 import {
-  worldEventView, type Account, type AssetDef, type AssetState, type Order, type RatesState, type RegimeId, type WorldConfig,
-  type WorldEventView, type WorldState,
+  indexLevel, indexMembers, worldEventView, type Account, type AssetDef, type AssetState, type Order, type RatesState, type RegimeId,
+  type WorldConfig, type WorldEventView, type WorldState,
 } from '@/engine';
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { contractProgress } from './players';
@@ -23,6 +23,43 @@ import type {
 /** Per asset, in config order: [lnP, h, haltUntil, lnOpen, volume, dayVolume, cumVolume, nextEarnings, consensus, rumor] */
 export type AssetFrame = [number, number, number, number, number, number, number, number, number, number];
 
+/** A copy of an object without the named keys (the view never sends the hidden fields). */
+function without<T extends object, K extends keyof T>(o: T, keys: readonly K[]): Omit<T, K> {
+  const out: Partial<T> = { ...o };
+  for (const k of keys) delete out[k];
+  return out as Omit<T, K>;
+}
+
+/**
+ * The shared world event as the app may see it: worldEventView plus two market facts. `gxSince` is the GX
+ * move since the event began (a level ratio, null before the GX index exists or while only announced).
+ * `gxToday` is the GX move against today's open, the same members and weights. Neither reveals the end.
+ */
+export type WorldEventFrame = WorldEventView & { gxSince: number | null; gxToday: number | null };
+
+/** The GX move since the event began and today. Reads the engine's own index level, so it matches the Wire. */
+function worldEventFrame(m: WorldState): WorldEventFrame | null {
+  const ev = worldEventView(m);
+  if (!ev) return null;
+  const idx = m.config.indices.find((x) => x.id === 'GX');
+  if (!idx) return { ...ev, gxSince: null, gxToday: null };
+  const active = m.worldEvents?.active;
+  const gxSince = ev.phase === 'live' && active?.gxStart ? indexLevel(m, 'GX') / active.gxStart - 1 : null;
+  let now = 0;
+  let open = 0;
+  for (const id of indexMembers(m, idx)) {
+    const i = m.config.assets.findIndex((a) => a.id === id);
+    const def = m.config.assets[i];
+    const st = m.assets[i];
+    if (!def || !st) continue;
+    const sh = def.sharesOutstanding ?? 1;
+    now += sh * Math.exp(st.lnP);
+    open += sh * Math.exp(st.lnOpen);
+  }
+  const gxToday = open > 0 ? now / open - 1 : null;
+  return { ...ev, gxSince, gxToday };
+}
+
 export interface MarketFrame {
   tick: number;
   regime: RegimeId;
@@ -36,7 +73,7 @@ export interface MarketFrame {
   lastEarnings?: Record<string, { day: number; surprise: number; move: number }>;
   rates: Pick<RatesState, 'policy' | 'y2' | 'y10' | 'y30' | 'expectedMove' | 'nextMeeting' | 'nextRelease' | 'releaseKind'> | null;
   /** the shared world event now (announced or live), as the app may see it: never its end tick or planned moves */
-  worldEvent: WorldEventView | null;
+  worldEvent: WorldEventFrame | null;
 }
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -67,7 +104,7 @@ export function marketFrame(g: GameState, withEarnings = false, withDefs = false
       policy: m.rates.policy, y2: m.rates.y2, y10: m.rates.y10, y30: m.rates.y30, expectedMove: m.rates.expectedMove,
       nextMeeting: m.rates.nextMeeting, nextRelease: m.rates.nextRelease, releaseKind: m.rates.releaseKind,
     } : null,
-    worldEvent: worldEventView(m),
+    worldEvent: worldEventFrame(m),
   };
   if (withEarnings) {
     frame.lastEarnings = {};
@@ -160,8 +197,8 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
     lab: lab ? { ...lab, a: algorithmA(lab), pflopPerDay: ownedPflopPerDay(lab), spotPrice: spotPflopPrice(g), dataPrice: dataPrice(g) } : null,
     security: {
       tier: defenseTier(g, pid), dp: defensePoints(g, pid), budget: d.budget, lastScanTick: d.lastScanTick, lockdownUntil: d.lockdownUntil, shieldUntil: d.shieldUntil,
-      entries: entriesOf(g, pid).map(({ hostile: _h, ...e }) => e),
-      clues: g.cyber.clues.filter((c) => c.ownerId === pid).slice(-40).map(({ real: _r, ownerId: _o, ...c }) => c),
+      entries: entriesOf(g, pid).map((e) => without(e, ['hostile'])),
+      clues: g.cyber.clues.filter((c) => c.ownerId === pid).slice(-40).map((c) => without(c, ['real', 'ownerId'])),
       myOps: g.cyber.ops.filter((o) => o.attackerId === pid).slice(0, 30),
       evidence: Object.entries(g.cyber.evidence).filter(([k]) => k.endsWith(`>${pid}`)).map(([k, v]) => ({ against: k.split('>')[0]!, points: v })),
       liveSessions: Object.values(g.cyber.entries).filter((e) => e.hostile?.attackerId === pid).map((e) => ({
