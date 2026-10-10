@@ -163,32 +163,61 @@ The `p4/d2` tsc and eslint logs record no errors. They are not counted as record
 
 ### 0.5 Open items
 
-Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merge decisions.
+Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merge decisions. The last column is the outcome after the `p4/fix` pass (section 0.6): **Closed** (with its commit), **Ruled** (a lead ruling; the item is decided, the work is named), **Deferred** (to the phase named), or **Open** (not in this pass).
 
-| ID | Item | Owner |
-|---|---|---|
-| O-1 | Closed: `p4/ex` merged into `v1` (section 11). | done |
-| O-2 | Rho checks (`rho_residual`, `rho_ev_robust`, `rho_by_spread`, `rho_engine`, `alt_prefiling_edge`, `signal_joint_v15`) are blocked. G22 is settled but the engine never computes the residual surprise `s` (`valuation.ts` has no caller), so rho cannot be measured. Also `engine-staging` is not merged. | Quant (residual `s`, probe), Forge (wire the caller) |
-| O-3 | **Zero-sum defect (KNOWN DEFECT).** An ordinary stock has no counterparty account. A buy takes its notional and commission out of the world, and a sell mints its notional. Pinned as `it.fails` in `zerosum.test.ts`. Not fixed. | Ledger (ruling pending), Forge (fix) |
-| O-4 | Underwriting fee base is the gross float value, including the NPC book's share. Spec 5.1 does not name the base. | Ledger (sign-off) |
-| O-5 | Collusion graph for alt accounts is not in `src`. Only alliances define owner links (ruling 2). A founder-controlled account outside an alliance can subscribe to an IPO and trade outside the window. | Ledger (spec), Forge (anti-cheat, Phases 6 and 9) |
-| O-6 | Five-year `run.ts` economy check for shops is still open. The stabilizer was rechecked on three 40-day seeds and never engaged. | Ledger |
-| O-7 | Sign-off on B1 deviations 1 (sell cap scope) and 6 (default triggers stricter than spec 5). | Ledger |
-| O-8 | Managed sits at 1.3 to 1.5 against S3's about 1.0. Options: restate S3 as an ungated reference; extend the full-income window to 24 days (an S4 change); or lower the star cost and re-hold excellent. | Lead |
-| O-9 | Pool sale proceeds are misattributed to the pool account (B1 deviation 7). | Quant |
-| O-10 | Company spec is still NOT FROZEN (G22 reading recorded in code). | Ledger |
-| O-11 | Tape rows not built or not run: the bot harnesses (`cap_carry_edge`, `signal_postprint_drift`, `company_print_full_npc_untouched`, X6, X8, X10 rows), the E-UI rows (no Playwright specs for them), and the ABSENT features (credibility EWMA, other income, consolidation, `self_match`, forward cap, eslint canary, AD_GRANT cash). | Tape (rows), Quant (features), Velvet (E-UI) |
-| O-12 | The sector shock is a world stream, not the engine's `sectorRng` (`sim.ts` owns `sectorRng`). Binding is not done. | Forge, Quant |
-| O-13 | VCF advance: lead to confirm the manager's day-figure part (section 4.4). | Lead |
-| O-14 | `insiderId` is not set on company assets (the company module does not set it; `funds/trade.ts` reads it). The insider seam is incomplete. | Forge |
-| O-15 | Surveillance points from window abuse and plan abuse are not called by the company module (B2 gap: "for B1 to call"). | Forge |
-| O-16 | CEO-change action has no UI (only notices). NPC acquirer bids are an API, not scheduled. NPC CEO policy, dividends and covenants are not modelled in B2 (dividends and covenants exist in B1). | Forge (UI), Quant (NPC policy) |
-| O-17 | Company Overview: the decision applies at once through `startProject` (Velvet asks for next-day-close staging, which the engine does not have). The "was" tick on the slider, the launch of next-gen products (credits not carried in the founder view), and the Filings view are not built. | Forge (engine staging and launch), Velvet (copy and Filings view) |
-| O-18 | Derivatives on the founder's company stock are not filed (B1 deviation 5). Revisit when listed options on company stocks exist. | Forge |
-| O-19 | Plan verification not run in this pass: `scripts/ecology/gates.ts full`, `scripts/load/socket-load.mjs` (4,000 clients, tick p99 under 2.5 s), play-by-hand on desktop and phone in English and French, and the screenshot tour. | Lead |
-| O-21 | Pre-existing lint warnings: 15 (`react/jsx-no-literals` in `Welcome.tsx`, unused vars in `game.test.ts`). Zero errors. | Velvet (copy keys), Forge (unused vars) |
+| ID | Item | Owner | Outcome (`p4/fix`) |
+|---|---|---|---|
+| O-1 | `p4/ex` merged into `v1` (section 11). | done | Closed |
+| O-2 | Rho checks (`rho_residual`, `rho_ev_robust`, `rho_by_spread`, `rho_engine`, `alt_prefiling_edge`, `signal_joint_v15`) are blocked. G22 is settled but the engine never computes the residual surprise `s` (`valuation.ts` has no caller), so rho cannot be measured. Also `engine-staging` is not merged. | Quant (residual `s`, probe), Forge (wire the caller) | Deferred to Phase 9 calibration (lead ruling) |
+| O-3 | Zero-sum on ordinary stocks. An ordinary stock has no company book, so its fills run against the Street, which is not an account, and the trader's cash had no booked other side. | Ledger (ruling), Forge (fix) | **Closed, `0001db1`.** Ruling: the Street is exogenous by design and its flow is booked. `Account.streetCash` holds the Street's net cash on fills of an asset with no `supplyAccount`, option premia and option expiry or delisting payouts, commission included once. `engineTallyOf` includes it, so the world identity closes to the cent. The `it.fails` pin is now a passing check, and the exclusion is a check that the Street tally equals the trader flow. Prices and fingerprints do not move: the bare-engine digests drop only the new field. |
+| O-4 | Underwriting fee base is the gross float value, including the NPC book's share. Spec 5.1 does not name the base. | Ledger (sign-off) | Ruled: ACCEPTED (lead ruling; section 0.6) |
+| O-5 | Collusion graph for alt accounts is not in `src`. Only alliances define owner links (ruling 2). A founder-controlled account outside an alliance can subscribe to an IPO and trade outside the window. | Ledger (spec), Forge (anti-cheat, Phases 6 and 9) | Deferred to Phase 6 (AI tournament bots and the anti-cheat work). The known limitation stands until then. |
+| O-6 | Five-year `run.ts` economy check for shops is still open. The stabilizer was rechecked on three 40-day seeds and never engaged. | Ledger | Open |
+| O-7 | Sign-off on B1 deviations 1 (sell cap scope) and 6 (default triggers stricter than spec 5). | Ledger | **Ruled and closed in part, `1cdb4b1`.** (a) Deviation 1 ACCEPTED for V1: the founder sell cap covers the founder account only, and extends to owner-linked accounts when the collusion graph lands (Phase 6). (b) Deviation 6 REJECTED: the stricter immediate default is gone. The spec's five-game-day cure is implemented: cash below zero with a facility drawn opens a 5-gd cure with a founder notice (en and fr); interest missed in the cure accrues as arrears at the facility rate; default on day 5 only if not cured; a cure is ended early when cash covers what is owed. |
+| O-8 | Managed sits at 1.3 to 1.5 against S3's about 1.0. Options: restate S3 as an ungated reference; extend the full-income window to 24 days (an S4 change); or lower the star cost and re-hold excellent. | Lead | Open (lead; not in this pass) |
+| O-9 | Pool sale proceeds are misattributed to the pool account (B1 deviation 7). | Quant | **Closed, `41426b9`.** `sweepPoolCash` moves the pool account's cash to the investor pools, pro rata to their cap-table shares, on every tick (the dividend rule). The pool keeps no cash, and money is conserved. |
+| O-10 | Company spec is still NOT FROZEN (G22 reading recorded in code). | Ledger | Ruled: the company spec is FROZEN at v1.7, with the G22 passing reading (lead ruling; section 0.6) |
+| O-11 | Tape rows not built or not run: the bot harnesses (`cap_carry_edge`, `signal_postprint_drift`, `company_print_full_npc_untouched`, X6, X8, X10 rows), the E-UI rows (no Playwright specs for them), and the ABSENT features (credibility EWMA, other income, consolidation, `self_match`, forward cap, eslint canary, AD_GRANT cash). | Tape (rows), Quant (features), Velvet (E-UI) | Deferred to Phase 6 for the bot-harness rows (AI tournament bots, lead ruling). The E-UI rows and the absent features stay open under their owners. |
+| O-12 | The sector shock is a world stream, not the engine's `sectorRng` (`sim.ts` owns `sectorRng`). Binding is not done. | Forge, Quant | Deferred to Phase 9 calibration (lead ruling) |
+| O-13 | VCF advance: lead to confirm the manager's day-figure part (section 4.4). | Lead | Ruled: CONFIRMED (lead ruling; section 0.6) |
+| O-14 | `insiderId` is not set on company assets (the company module does not set it; `funds/trade.ts` reads it). The insider seam is incomplete. | Forge | **Closed, `4515603`.** The founder is named as the stock's insider when it lists (`AssetDef.insiderId`, set in `listingDef`, and migrated onto a listed save that predates it). The founder's fund is capped at 5% of NAV in the stock and files it. Its account is in the company's window roster, so it cannot trade the stock while the window is shut. |
+| O-15 | Surveillance points from window abuse and plan abuse are not called by the company module (B2 gap: "for B1 to call"). | Forge | **Closed, `0f1bcf3`.** An order or fund trade refused as `closedWindow` scores 15 points (`windowAttempt`) against the player who made it, and an attempt to cancel or change a committed plan (refused `planImmutable`, including `company.planCancel`) scores 20 (`planAbuse`). Both go through `scoreWindowAttempt` and `scorePlanAbuse` in `backstop.ts`, and they count only on a listed company's stock. |
+| O-16 | CEO-change action has no UI (only notices). NPC acquirer bids are an API, not scheduled. NPC CEO policy, dividends and covenants are not modelled in B2 (dividends and covenants exist in B1). | Forge (UI), Quant (NPC policy) | Open (not in this pass) |
+| O-17 | Company Overview: the decision applies at once through `startProject` (Velvet asks for next-day-close staging, which the engine does not have). The "was" tick on the slider, the launch of next-gen products (credits not carried in the founder view), and the Filings view are not built. | Forge (engine staging and launch), Velvet (copy and Filings view) | Open (not in this pass) |
+| O-18 | Derivatives on the founder's company stock are not filed (B1 deviation 5). Revisit when listed options on company stocks exist. | Forge | Deferred until listed options on company stocks exist (lead ruling). The engine still refuses them. |
+| O-19 | Plan verification not run in this pass: `scripts/ecology/gates.ts full`, `scripts/load/socket-load.mjs` (4,000 clients, tick p99 under 2.5 s), play-by-hand on desktop and phone in English and French, and the screenshot tour. | Lead | Open (lead; not in this pass) |
+| O-21 | Pre-existing lint warnings: 15 (`react/jsx-no-literals` in `Welcome.tsx`, unused vars in `game.test.ts`). Zero errors. | Velvet (copy keys), Forge (unused vars) | **Closed, `f597d11`.** The cold open and loading copy read from i18n keys in en and fr, and the unused imports are gone. `npx eslint src scripts server --max-warnings 0` passes. |
 
-The Phase 4 items above that are **Partial** or **Not built** are the ones that block closing the phase. Items O-1, O-3 and O-19 are the largest.
+The Phase 4 items above that are **Partial** or **Not built** are the ones that block closing the phase. Items O-1, O-3 and O-19 are the largest. After `p4/fix`, O-3 is closed and O-19 is the largest item left.
+
+### 0.6 Lead rulings and the `p4/fix` pass
+
+**Lead rulings recorded here** (the rulings decide the items above; the work, where there is any, is named in the table):
+
+1. **O-3 (zero-sum).** Ordinary (NPC-market) stocks and other non-company assets trade against the Street by design. The Street is exogenous, not money from nothing, and its flow is booked (`streetCash`, section 0.5).
+2. **O-4.** ACCEPTED: the underwriting fee base is the gross float value.
+3. **O-7 (a).** The founder sell cap scope (the founder account only) is ACCEPTED for V1. It extends to owner-linked accounts when the collusion graph lands (Phase 6).
+4. **O-7 (b).** The stricter immediate default (B1 deviation 6) is REJECTED. The spec's five-game-day cure is implemented (section 0.5).
+5. **O-9.** The pool's sale proceeds belong to its investors, pro rata to their stakes (B1 deviation 7 closed).
+6. **O-10.** The company spec is FROZEN at v1.7, with the G22 passing reading.
+7. **O-13.** CONFIRMED: the VCF advance is restitution. It sits outside the investors' day and arrival figures, and it shows as its own line.
+8. **O-2 and O-12** are deferred to Phase 9 calibration.
+9. **O-5 and O-11** (the bot-harness rows) are deferred to Phase 6 (AI tournament bots).
+10. **O-18** is deferred until listed options on company stocks exist.
+
+**Gates for `p4/fix`** (worktree `p4-fix`, branch `p4/fix`, on the commits above; all run after the item's commit and again at the end of the pass):
+
+| Command | Result |
+|---|---|
+| `npx next typegen` | exit 0 |
+| `npx tsc --noEmit` | exit 0 |
+| `npx vitest run --maxWorkers=3` | 177 files passed, 2 skipped. 1751 tests passed, 70 skipped, 21 todo (1842). |
+| `npx eslint src scripts server --max-warnings 0` | exit 0 (0 errors, 0 warnings) |
+| `npx eslint` on each touched file | exit 0 |
+
+New tests in the pass: `src/engine/streetCash.test.ts` (4), `src/world/company/insider-fund.test.ts` (5), `src/world/company/surveil.test.ts` (4), the zero-sum rows in `zerosum.test.ts` (ordinary stock closes to the cent, and the Street tally equals the trader flow), the O-9 pool-sale test and the five-day cure tests in `b1review.test.ts` (the immediate-default test is replaced, not kept).
+
+Not done in this pass: O-6, O-8, O-16, O-17 and O-19 (outside the lead's list). The settlement path `settleAsset` (bankruptcy, cash merger and spin-off settlements) is not booked into `streetCash`: it is a corporate-action settlement, not a fill, and the zero-sum tests do not reach it. The collusion graph (O-5) is not built, so the founder sell cap still covers the founder account only.
 
 ## 1. Stage A merged
 
