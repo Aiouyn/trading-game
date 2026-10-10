@@ -68,6 +68,44 @@ Rank timing (bot, 4 seeds, 40 game days): R1 (Hustler, 20k net worth) reached by
 
 The literal lock "every tier 9 to 11" would need a 600M megaproject to earn about 60M a day to pay back in 10 days. The ladder-relative gate is kept. Whether to lock to a flat band or keep the ladder is still open (`shops.md` 6.2, Mathis).
 
+### 2.2a Stage B tuning (`p4/tune`): the gates hold
+
+The gate is `npm run balance:shops` (`scripts/balance/shop-gates.ts`). It runs `scripts/balance/wealth.ts probe` on 20 seeds, in parallel processes, with NPC competition present, and exits 1 when a gate is out of band. Bands are the ruling in 2.2 (ratio of the median payback to the ladder value).
+
+The measure changed too. Payback is now the fractional game day the cumulative line crosses the cost, not the whole day. At T1 (10 days) one whole day is 10% of the gate. The tables in 2.1 and 2.2 are whole days; stage A on the same seeds gave well-run 1.10, 1.00, 1.00, 0.96, 0.97, 0.97, excellent 0.65 to 0.45 and neglected 3.30 to 4.19 (whole days).
+
+Final table (20 seeds, 40 game days, fractional days, median; ratio to the ladder in brackets):
+
+| Style | T1 (10) | T2 (15) | T3 (30) | T4 (50) | T5 (80) | T6 (120) | Gate |
+|---|---|---|---|---|---|---|---|
+| Well-run (average) | 10.9 (1.09) | 15.5 (1.03) | 31.6 (1.05) | 53.7 (1.07) | 83.1 (1.04) | 128.5 (1.07) | 0.9 to 1.1: pass |
+| Excellent | 7.7 (0.77) | 10.8 (0.72) | 22.0 (0.73) | 36.3 (0.73) | 60.7 (0.76) | 87.7 (0.73) | 0.7 to 0.8: pass |
+| Neglected (once a real day, sets nothing) | 25.8 (2.58) | 32.0 (2.13) | 75.1 (2.50) | 132.2 (2.64) | 219.5 (2.74) | 337.3 (2.81) | 2 to 3: pass |
+| Casual (reference) | 11.4 (1.14) | 28.7 (1.91) | 60.3 (2.01) | 108.7 (2.17) | 182.3 (2.28) | 280.3 (2.34) | not gated |
+| Idle (reference) | 13.9 (1.39) | 19.9 (1.32) | 41.8 (1.39) | 69.2 (1.38) | 111.1 (1.39) | 167.6 (1.40) | not gated |
+| Managed (reference) | 13.1 (1.31) | 18.9 (1.26) | 42.5 (1.42) | 71.8 (1.44) | 116.2 (1.45) | 178.8 (1.49) | not gated |
+
+Causes found in stage A:
+- Excellent was too strong. At the crew cap (2.0) a busy pool saturates, so the net per game day was about 1.9 to 2.0 times the well-run target against 1.05. The cost stack was light: marketing 0.1 per level, quality 0.05 per level, manager 0.05 per star. Tier 1 is not saturated, so the cap made the high tiers faster than T1, and no single cost lever could fix both.
+- Neglected was too weak. Its income is capped by crew (the crew drifts to 0.5 and nothing else pays). Its 0.67 offline factor over a real-day cycle and the opex then left a net of about 0.22 target per game day. The S4 offline shape was not touched.
+
+Changes (`src/content/shops.ts`, unless noted):
+
+| Constant | Stage A | Stage B | Why |
+|---|---|---|---|
+| `crew.max` | 2.0 | 1.5 | the crew cap saturates the excellent style, which holds it on the band at every tier |
+| `crew.purchase` | 0.55 | 0.75 | a new shop keeps most of its staff while unattended (a valid crew step now) |
+| `crew.attritionRate` | 0.03 | 0.01 | staff drift slowly: a slow leak, not a walk-out |
+| `quality.costPerLevel` | 0.05 | 0.14 | excellent (level 3) carries the cost of its quality |
+| `marketing.costPerLevel` | 0.10 | 0.13 | excellent (level 2) carries the cost of its marketing |
+| `marketing.appealPerLevel` | 0.25 | 0.26 | small demand lift (kept; its effect on the gated numbers is small) |
+| `manager.costPerStar` | 0.05 | 0.08 | a 3-star manager costs more (`managed` moves to about 1.3 to 1.5 as a result) |
+| `reviews.start` | 1.0 | 1.2 | a new shop opens near the well-run target (its effect alone is not isolated) |
+
+Code: `shopsDay` clamps a crew above the cap (a save from before the cap keeps its staff only up to it); `scripts/balance/wealth.ts` takes the excellent crew from `SHOP.crew`; payback is fractional. The offline ramp (S4), the 25% floor, the manager's 16 days, the net-worth valuation and the crew floors are unchanged. No state schema changed, and no randomness was added, so replays are exact and old saves load.
+
+Open with the gates: the excellent band is narrow by design (the tiers spread about 0.05 around 0.75). The managed row (reference, not gated) no longer meets S3's "managed reaches the well-run payback": it is about 1.3 to 1.5 against 1.0. That is the cost of the manager and quality levers that hold excellent on the band. Lead to decide whether managed should be lowered by its own star cost. The stabilizer band (risk 7) has not been rechecked after the new sinks.
+
 ### 2.3 A1 open items
 
 - No UI for the levers (stage C). Until then new shops sit at the neglect defaults (crew 0.55).
@@ -133,7 +171,7 @@ Tech, D0 790, 252 game days, 24 seeds: 1.902% of capital per game day (target 1.
 - Front-running: a fund fill within a game day of a personal fill of the manager, same asset and side, adds evidence and the harm. At the civil bar a court case opens.
 - Absent manager: no command for 72 real hours freezes trading and opens redemptions. Frozen for 14 game days, then the fund winds down at market.
 - Breaker: NAV per unit 30% below the last game week's high freezes new trades for one game day.
-- S5 verdict: fine = min(35% of NW, max($100k, 8% of NW)). Award = 100% disgorgement of the gain plus 1.5x harm, paid from the manager's stake first, then cash down to the court floor. The unpaid balance gets a 50% VCF advance. Eight-week ban from opening a fund. The convicted fund winds down.
+- S5 verdict: fine = min(35% of NW, max($100k, 8% of NW)). Award = 100% disgorgement of the gain plus 1.5x harm, paid from the manager's stake first, then cash down to the court floor. The unpaid balance gets a 50% VCF advance, paid to the non-manager investors pro rata to units (4.4). Eight-week ban from opening a fund. The convicted fund winds down.
 - Public view: name, mandate, fees, NAV history, filings, AUM bucket and manager handle. No investor list and no holder units.
 
 ### 4.2 Review fixes (`d4ca8f6`)
@@ -161,13 +199,13 @@ Unit tests (`src/world/funds/funds.test.ts`): 46 tests, one or more per rule.
 
 Interpretations confirmed by the lead:
 - The stake floor applies only while other holders (or a deposit) are in the fund. A sole manager may take the stake to zero.
-- The VCF advance is credited to the fund at once. Recovery from garnishment and the 10% VCF share of each fine are not modelled.
+- The VCF advance is paid to the non-manager investors, pro rata to their units at the verdict (stage B, lead ruling B). Recovery from garnishment and the 10% VCF share of each fine are not modelled.
 
 Other interpretations in `6c63fb3` (one real hour is 720 ticks, one game day; linked accounts are the same player or an alliance mate; the breaker reads the week's high) are as written there and are not listed as confirmed.
 
 ### 4.4 A4 open items
 
-- The advance raises the fund's NAV, so the manager's funds claim rises with it. The victim's share of a fine stays out of the day and arrival figures (p3/c2). Whether the VCF advance should do the same is for the lead to decide (open item 5).
+- Resolved in stage B (`p4/tune`, lead ruling B). The advance no longer enters the fund: `advanceToInvestors` (`src/world/funds/flows.ts`, called from `fundVerdict` in `src/world/court.ts`) credits each non-manager holder, reserved units included, pro rata to units at the verdict. The fund's cash and NAV do not move, so the manager's claim is unchanged. The payment goes through `creditExternal` (the rule for the victim's share of a fine), so it stays out of the day and arrival figures, and each investor gets a `funds.vcf.paid` notice (en and fr). Tests: the split is pro rata (1:3), and a unit test checks that the fund's cash, NAV and the manager's claim do not move.
 - Not in stage A: the fund UI (the UI must translate `funds.refusal.*`, and personal-order refusals return a code), the company insider seam (`insiderId` is set by nothing yet), the fund board (net return, Sharpe, $1M minimum), and engine-wide cash conservation. The conservation check is exact for transfer-only commands only, because fees, interest and dividends are booked inside `step` with no ledger.
 
 ## 5. Checks at `3d43d22`
@@ -183,10 +221,10 @@ Other interpretations in `6c63fb3` (one real hour is 720 ticks, one game day; li
 
 ## 6. Open items
 
-1. **Shops gates.** Excellent misses at every tier (0.45 to 0.6x), and neglected misses at every tier (3.3 to 4.2x). Stage B tunes both. The ladder against a flat lock is open (Mathis, `shops.md` 6.2).
+1. **Shops gates.** Resolved in stage B (2.2a): all three gated styles hold on every tier at 20 seeds (`npm run balance:shops`). Still open: the ladder against a flat lock (Mathis, `shops.md` 6.2), and the managed row, which is above S3's well-run payback (lead).
 2. **Shops economy.** The stabilizer band has not been rechecked after the new sinks (`shops.md` risk 7). Owner: Ledger.
 3. **Company freeze.** The G22 reading is recorded in code. The spec is still NOT FROZEN. Owner: Ledger.
 4. **Company engine wiring.** A2 wires filings and signals into the engine (`companyPrintShare`, G21) and binds the sector shock to `sectorRng`.
-5. **VCF advance and the manager's day figures.** Decide whether a fund-verdict advance sits outside the day and arrival figures. Owner: lead.
+5. **VCF advance and the manager's day figures.** Resolved in stage B: the advance goes to the investors, not the fund, and sits outside their day and arrival figures (4.4). Owner: lead to confirm the day-figure part.
 6. **Lever UI, refusal copy and the funds UI.** Stage C.
 7. **Insider seam.** `insiderId` is not set by the company module yet.

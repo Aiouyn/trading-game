@@ -76,8 +76,9 @@ describe('shop levers and refusal codes', () => {
 
   it('accepts only steps of the crew lever', () => {
     expect(isCrew(0.5)).toBe(true);
-    expect(isCrew(1.75)).toBe(true);
-    expect(isCrew(2)).toBe(true);
+    expect(isCrew(1.25)).toBe(true);
+    expect(isCrew(SHOP.crew.max)).toBe(true);
+    expect(isCrew(1.75)).toBe(false); // above the crew cap
     expect(isCrew(0.6)).toBe(false);
     expect(isCrew(Number.NaN)).toBe(false);
   });

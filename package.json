@@ -13,6 +13,7 @@
     "sim": "tsx scripts/sim.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "balance": "tsx scripts/balance/run.ts",
+    "balance:shops": "tsx scripts/balance/shop-gates.ts",
     "world": "tsx server/index.ts",
     "dev:all": "node scripts/dev-all.mjs"
   },

@@ -9,17 +9,22 @@ export const SHOP = {
   /** Crew: working capacity in units of base demand. The owner's wage bill scales with it. */
   crew: {
     min: 0.5,
-    max: 2,
+    /** the crew cap: a busy shop saturates here, which holds the excellent style on its ladder band (docs/V1-PHASE4.md 2.3) */
+    max: 1.5,
     step: 0.25,
-    /** what a new purchase starts with: deliberately low, so setting up staffing is an action */
-    purchase: 0.55,
+    /**
+     * what a new purchase starts with: three quarters of a crew. A shop left alone runs on it and loses staff only
+     * slowly (`attritionRate`), so neglect costs money over weeks, not on day one.
+     */
+    purchase: 0.75,
     /** what well-run play looks like (the migration default for existing saves, and NPC shops) */
     wellRun: 1,
     /** wages per unit of crew per game day (share of the well-run net target) */
     wagePerUnit: 0.3,
     /** a shop unattended this many game days loses crew, drifting toward `floor` */
     attritionAfterDays: 8,
-    attritionRate: 0.03,
+    /** share of the gap to `floor` closed per unattended game day (a slow leak: staff drift, they do not walk out) */
+    attritionRate: 0.01,
     floor: 0.5,
   },
   /** Price multipliers the owner may choose (one change per game day, effective the next day). */
@@ -30,7 +35,7 @@ export const SHOP = {
   /**
    * Gross revenue at baseline demand, per game day, as a multiple of the well-run net target (`roi x cost`).
    * Well run (crew 1, price 1, quality 1, maintained) that nets about 1.05 x target after wages, opex and upkeep,
-   * so payback is 1/roi game days; neglected (crew 0.55, no upkeep) pays back in about 20 days.
+   * so payback is 1/roi game days; neglected (crew 0.75 drifting slowly, no upkeep) pays back in about 25 days.
    */
   revenueMult: 1.45,
   /** Operating expenses (rent, utilities) per game day, all shops. */
@@ -40,16 +45,16 @@ export const SHOP = {
     /** revenue lift per level */
     revenuePerLevel: 0.05,
     /** spend per level per game day */
-    costPerLevel: 0.05,
+    costPerLevel: 0.14,
     /** reviews target lift per level */
     reviewsPerLevel: 0.1,
   },
   marketing: {
     max: 3,
     /** logit appeal per level (share) */
-    appealPerLevel: 0.25,
+    appealPerLevel: 0.26,
     /** spend per level per game day */
-    costPerLevel: 0.1,
+    costPerLevel: 0.13,
   },
   /** A maintained shop pays this per game day and holds its condition at 100 (amortised upkeep). */
   maintenance: {
@@ -68,7 +73,7 @@ export const SHOP = {
   manager: {
     maxStars: 3,
     /** salary per star per game day */
-    costPerStar: 0.05,
+    costPerStar: 0.08,
     /**
      * hiring pays this many days of salary up front (a real prepayment: the next `prepayDays` game days are not
      * charged the daily salary again); nothing is refunded on fire
@@ -91,7 +96,8 @@ export const SHOP = {
   reviews: {
     min: 0.3,
     max: 1.6,
-    start: 1,
+    /** a new shop opens near the well-run target, so the first weeks are not a ramp (the ramp is a larger share of a T1 payback) */
+    start: 1.2,
     /** share of the gap to the target closed per game day */
     inertia: 0.1,
     /** queue penalty: target falls by this times the share of demand lost to queues */

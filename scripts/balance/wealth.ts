@@ -24,6 +24,7 @@ import { BIZ_SECTORS, BUSINESSES, TIERS } from '../../src/content/businesses';
 import { applyCommand, createGame, stepGame } from '../../src/world/game';
 import { rankIndex } from '../../src/content/lifestyle';
 import { TPD, bizDef, bizValuedIncome, cashOf, credit, netWorthBreakdown } from '../../src/world/core';
+import { SHOP } from '../../src/content/shops';
 import { wellRunCommands } from '../../src/world/shops';
 import type { Command, GameState } from '../../src/world/types';
 
@@ -37,7 +38,7 @@ function setupFor(style: Style, bizId: string, demand = 1): Command[] {
   // managed: the well-run settings, kept by a 2-star manager (hired once at purchase)
   if (style === 'excellent') {
     // the owner reads demand and staffs to it (crew in steps of 0.25, within 0.5 to 2)
-    const crew = Math.min(2, Math.max(0.5, Math.ceil(demand * 4) / 4));
+    const crew = Math.min(SHOP.crew.max, Math.max(SHOP.crew.min, Math.ceil(demand * 4) / 4));
     return [
       { type: 'biz.crew', bizId, crew },
       { type: 'biz.price', bizId, price: 1.05 },
@@ -125,7 +126,10 @@ function probe(seed: string, days: number): void {
     const rivalsEnd = Object.values(g.businesses).filter((b) => b.ownerId !== pr.pid && b.cityId === pr.city && sectorOf(b.defId) === pr.sector).length;
     const lastDay = pr.cum.length - 1;
     const rate = lastDay > 10 ? (pr.cum[lastDay]! - pr.cum[10]!) / (lastDay - 10) : 0;
-    const projected = payDay >= 0 ? payDay + 1 : rate > 0 ? lastDay + 1 + (pr.invested - pr.cum[lastDay]!) / rate : Infinity;
+    // payback in game days, to the fraction of the day the cumulative line crosses the cost (cum[k] is the total after k + 1 days)
+    const prev = payDay > 0 ? pr.cum[payDay - 1]! : 0;
+    const frac = payDay >= 0 ? (pr.invested - prev) / (pr.cum[payDay]! - prev) : 0;
+    const projected = payDay >= 0 ? payDay + frac : rate > 0 ? lastDay + 1 + (pr.invested - pr.cum[lastDay]!) / rate : Infinity;
     console.log(JSON.stringify({
       mode: 'probe', seed, style: pr.style, tier: pr.tier, sector: pr.sector, city: pr.city, rivals: pr.rivals, rivalsEnd,
       payback: Number(projected.toFixed(2)), simulated: payDay >= 0, netPerDay: Number((rate / pr.invested).toFixed(4)),

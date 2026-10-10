@@ -6,7 +6,7 @@
 import { SHOP } from '@/content/shops';
 import type { ShopState } from './types';
 
-/** The settings a brand-new purchase starts with: neglect-band defaults (crew 0.55, nothing else set). */
+/** The settings a brand-new purchase starts with: the purchase crew, and nothing else set. */
 export function purchaseShop(tick: number): ShopState {
   return {
     crew: SHOP.crew.purchase, price: SHOP.priceDefault, pendingPrice: null, priceDay: -1,
