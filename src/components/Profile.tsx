@@ -40,7 +40,7 @@ export function ProfileView() {
         </div>
       </Card>
 
-      <Card data-testid="goals-card">
+      <Card data-testid="contracts-card">
         <CardHeader title={t('profile.contracts')} sub={t('profile.contracts.sub')} />
         <ul>
           {me.contracts.map((c) => (

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import en from '@/i18n/en.json';
 import fr from '@/i18n/fr.json';
-import { GLOSSARY_IDS, LESSON_SLOTS } from './glossary';
+import { LESSONS } from '@/content/lessons';
+import { GLOSSARY_IDS } from './glossary';
 
 const EN = en as Record<string, string>;
 const FR = fr as Record<string, string>;
@@ -22,12 +23,14 @@ describe('Learn glossary', () => {
     }
   });
 
-  it('gives every lesson slot a title in both languages, and the Phase 3 wait line', () => {
-    expect(LESSON_SLOTS.length).toBe(4);
-    for (const s of LESSON_SLOTS) {
-      expect(EN[s.title]).toBeTruthy();
-      expect(FR[s.title]).toBeTruthy();
+  it('gives every lesson a title, a read, a task and a done line in both languages', () => {
+    expect(LESSONS.length).toBe(10);
+    for (const l of LESSONS) {
+      for (const suffix of ['title', 'read', 'task', 'done']) {
+        const key = `learn.lesson.${l.id}.${suffix}`;
+        expect(EN[key], `missing en ${key}`).toBeTruthy();
+        expect(FR[key], `missing fr ${key}`).toBeTruthy();
+      }
     }
-    expect(EN['learn.soon']).toBe('Coming in a later release');
   });
 });

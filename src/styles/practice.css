@@ -1,0 +1,23 @@
+/*
+ * Practice (Phase 3, trading-tools section 10). Paper money looks different from the live game: a brass dashed frame and
+ * a faint stripe on every practice surface, and a banner that says "not your real money". Every colour is a token.
+ */
+.practice-tint {
+  background-color: color-mix(in srgb, var(--color-brass) 6%, var(--color-ink-1));
+  background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-brass) 9%, transparent) 0 6px, transparent 6px 14px);
+  border: 1px dashed color-mix(in srgb, var(--color-brass) 45%, transparent);
+}
+
+.practice-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-brass) 55%, transparent);
+  background: color-mix(in srgb, var(--color-brass) 16%, var(--color-ink-0));
+  color: var(--color-brass-hi);
+  font-size: var(--text-small);
+  line-height: var(--text-small--line-height);
+}

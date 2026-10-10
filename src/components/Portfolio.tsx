@@ -6,6 +6,8 @@ import { PROPERTY_TYPE_BY_ID } from '@/content/lifestyle';
 import { compactMoney, money, pct, price, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { assetDefOf, useGame } from '@/game/store';
+import { t } from '@/i18n';
+import { GoalsCard } from './GoalsCard';
 import { NetWorth } from './Header';
 import { Positions } from './Holdings';
 import { PriceChart } from './apps/broker/PriceChart';
@@ -63,24 +65,25 @@ export function PortfolioView({ phone = false }: { phone?: boolean }) {
 
   return (
     <div className="flex flex-col gap-4" data-testid="portfolio-view">
+      {!phone && <GoalsCard />}
       <Card className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="label">Net worth</div>
+            <div className="label">{t('common.netWorth')}</div>
             <NetWorth value={b.total} />
-            <div className={`num mt-1 text-small ${toneText[tone(b.total - 5000)]}`} data-testid="networth-total">{signedMoney(b.total - 5000)} ({signedPct(b.total / 5000 - 1)}) since you arrived with $5,000</div>
+            <div className={`num mt-1 text-small ${toneText[tone(b.total - 5000)]}`} data-testid="networth-total">{signedMoney(b.total - 5000)} ({signedPct(b.total / 5000 - 1)}) {t('portfolio.since')}</div>
           </div>
           <Segmented label="Net worth range" size="sm" value={range} onChange={(v) => setRange(v as NwRange)}
             options={[{ value: '1D', label: '1D', testId: 'nw-range-1D' }, { value: '1W', label: '1W', testId: 'nw-range-1W' }, { value: 'ALL', label: 'All', testId: 'nw-range-ALL' }]} />
         </div>
         <div className={phone ? 'mt-3 h-48' : 'mt-3 h-64'}>
-          {series.length > 1 ? <PriceChart assetId="NW" series={series} mode="area" testId="networth-chart" studies={false} /> : <div className="flex h-full items-center justify-center text-small text-fg-faint" data-testid="networth-chart">Your net worth history builds as the market ticks.</div>}
+          {series.length > 1 ? <PriceChart assetId="NW" series={series} mode="area" testId="networth-chart" studies={false} /> : <div className="flex h-full items-center justify-center text-small text-fg-faint" data-testid="networth-chart">{t('portfolio.nw.empty')}</div>}
         </div>
       </Card>
 
       <div className={`grid gap-4 ${phone ? '' : 'lg:grid-cols-2'}`}>
         <Card className="p-4">
-          <h3 className="font-serif text-title">Balance sheet</h3>
+          <h3 className="font-serif text-title">{t('portfolio.balance')}</h3>
           <div className="mt-2">
             <KV k="Cash" v={money(b.cash)} />
             <KV k="Markets (positions + options)" v={money(b.markets)} />
@@ -89,7 +92,7 @@ export function PortfolioView({ phone = false }: { phone?: boolean }) {
             <KV k="Mortgages" v={<span className="text-loss">{money(-b.mortgages)}</span>} />
             <KV k="Lifestyle (resale)" v={money(b.lifestyle)} />
             <KV k="AI hardware" v={money(b.lab)} />
-            <KV k={<span className="font-semibold text-fg">Net worth</span>} v={<span className="font-semibold">{money(b.total)}</span>} className="border-t border-ink-2 pt-2" />
+            <KV k={<span className="font-semibold text-fg">{t('common.netWorth')}</span>} v={<span className="font-semibold">{money(b.total)}</span>} className="border-t border-ink-2 pt-2" />
           </div>
           <div className="mt-4 flex h-2 overflow-hidden rounded-chip" aria-label="Allocation">
             {slices.map(([k, v]) => <span key={k} className={CLASS_COLOR[k] ?? 'bg-ink-3'} style={{ width: `${(v / total) * 100}%` }} title={`${CLASS_LABEL[k]} ${pct(v / total)}`} />)}
@@ -105,14 +108,14 @@ export function PortfolioView({ phone = false }: { phone?: boolean }) {
           </ul>
         </Card>
         <Card className="p-4">
-          <h3 className="font-serif text-title">Income per game day</h3>
+          <h3 className="font-serif text-title">{t('portfolio.income')}</h3>
           <div className="mt-2">
             <KV k="Businesses" v={<span className="text-gain">{signedMoney(incomeDay)}</span>} />
             <KV k="Rent" v={<span className="text-gain">{signedMoney(rentDay)}</span>} />
             <KV k="Mortgage interest" v={<span className="text-loss">{signedMoney(-mortgageDay)}</span>} />
-            <KV k={<span className="font-semibold text-fg">Passive income</span>} v={<span className="font-semibold">{signedMoney(incomeDay + rentDay - mortgageDay)}</span>} className="border-t border-ink-2 pt-2" />
+            <KV k={<span className="font-semibold text-fg">{t('portfolio.passive')}</span>} v={<span className="font-semibold">{signedMoney(incomeDay + rentDay - mortgageDay)}</span>} className="border-t border-ink-2 pt-2" />
           </div>
-          <h3 className="mt-5 font-serif text-title">Trading</h3>
+          <h3 className="mt-5 font-serif text-title">{t('portfolio.trading')}</h3>
           <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
             <Stat label="Realized" value={<span className={toneText[tone(pf.realizedPnl)]}>{signedMoney(pf.realizedPnl)}</span>} testId="stat-realized" />
             <Stat label="Unrealized" value={<span className={toneText[tone(pf.unrealizedPnl)]}>{signedMoney(pf.unrealizedPnl)}</span>} testId="stat-unrealized" />
@@ -131,10 +134,10 @@ export function PortfolioView({ phone = false }: { phone?: boolean }) {
 
       <Card data-testid="order-history">
         <CardHeader title="Order history" sub={`Last ${closed.length} closed orders`} />
-        {closed.length === 0 ? <p className="px-4 pb-6 text-small text-fg-faint">Nothing yet.</p> : (
+        {closed.length === 0 ? <p className="px-4 pb-6 text-small text-fg-faint">{t('portfolio.nothing')}</p> : (
           <div className="overflow-x-auto">
             <table className="w-full text-small">
-              <thead><tr><Th>Time</Th><Th>Order</Th><Th right>Filled</Th><Th right>Avg price</Th><Th right>Fees</Th><Th>Status</Th></tr></thead>
+              <thead><tr><Th>{t('portfolio.col.time')}</Th><Th>{t('portfolio.col.order')}</Th><Th right>{t('portfolio.col.filled')}</Th><Th right>{t('portfolio.col.avg')}</Th><Th right>{t('portfolio.col.fees')}</Th><Th>{t('portfolio.col.status')}</Th></tr></thead>
               <tbody>
                 {closed.map((o) => (
                   <tr key={o.id} className="border-t border-ink-2" data-testid={`order-row-${o.id}`}>
@@ -151,7 +154,7 @@ export function PortfolioView({ phone = false }: { phone?: boolean }) {
           </div>
         )}
       </Card>
-      <p className="text-center text-caption text-fg-faint">Universe: {config.assets.filter((a) => a.listed !== false).length} tradable assets · {compactMoney(b.total)} net worth</p>
+      <p className="text-center text-caption text-fg-faint">{t('portfolio.universe', { count: config.assets.filter((a) => a.listed !== false).length, amount: compactMoney(b.total) })}</p>
     </div>
   );
 }
