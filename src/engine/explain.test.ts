@@ -7,7 +7,7 @@ import type { WorldState } from './types';
 
 const TPD = 24;
 const ASSET = 'OSTV';
-const ALLOWED = new Set(['market', 'sector', 'news', 'event', 'company', 'flow', 'players', 'you']);
+const ALLOWED = new Set(['market', 'sector', 'news', 'event', 'shock', 'company', 'flow', 'players', 'you']);
 
 /** Opens the given accounts, then for each of `days` game days every account buys `qty` of ASSET at the open. */
 function trade(players: string[], days: number, qty = 5): WorldState {
@@ -183,7 +183,7 @@ describe('window_diff_no_isolate (harness, 20 seeds, P2)', () => {
             // depth Retail = NPC-and-pool Retail, plus the human's own flow on a folded day only
             const dep = depthByPool(s, asset, d);
             const base = row.desired.retail + (row.desired.npc ?? 0);
-            expect(dep.desired.retail - base).toBeCloseTo(shown ? 0 : row.desired.own, 12);
+            expect(dep.desired.retail - base).toBeCloseTo(shown ? 0 : row.desired.own + (row.blur ?? 0), 12);
           }
         }
       }

@@ -175,7 +175,9 @@ export function filings(g: GameState, playerId: string, out: StepOutput): void {
   for (const [assetId, pos] of Object.entries(acct.positions)) {
     const def = defOf(g, assetId);
     if (!def || def.assetClass !== 'stock' || !def.sharesOutstanding) continue;
-    const frac = Math.abs(pos.qty) / def.sharesOutstanding;
+    // a long stake of 0.5% or more is a legal filing (docs/V1-PRIVACY.md section 1). A short is a market position and is never
+    // filed on the Wire (section 2): its level is not counted, so a short never prints a stake or a level.
+    const frac = pos.qty > 0 ? pos.qty / def.sharesOutstanding : 0;
     let level = 0;
     for (const l of FILING_LEVELS) if (frac >= l) level = l;
     const prev = p.filings[assetId] ?? 0;
@@ -183,7 +185,7 @@ export function filings(g: GameState, playerId: string, out: StepOutput): void {
       p.filings[assetId] = level;
       pushWire(g, out, {
         kind: 'filing', tag: 'Filing', tone: 'brass', assetId, playerId,
-        text: `${p.handle} discloses a ${pos.qty < 0 ? 'short' : ''}${pos.qty < 0 ? ' position of' : 'stake of'} ${(level * 100).toFixed(1)}% in ${def.name}`,
+        text: `${p.handle} discloses a stake of ${(level * 100).toFixed(1)}% in ${def.name}`,
       });
     } else if (level < prev) {
       p.filings[assetId] = level;

@@ -86,7 +86,8 @@ describe("depthByPool follows explainMove's fold (P2)", () => {
         const d = row.day;
         const a = row.assets[idx]!;
         const folded = explainMove(s, ASSET, d, d).foldedDays.includes(d);
-        const want = a.desired.retail + (a.desired.npc ?? 0) + (folded ? a.desired.own : 0);
+        // a folded day with a human trade also carries the R1 blur draw (ecology.foldBlur), which is public
+        const want = a.desired.retail + (a.desired.npc ?? 0) + (folded ? a.desired.own + (a.blur ?? 0) : 0);
         expect(depthByPool(s, ASSET, d).desired.retail).toBeCloseTo(want, 14);
       }
     });
@@ -109,7 +110,7 @@ describe("depthByPool follows explainMove's fold (P2)", () => {
     }
     const idx = s.config.assets.findIndex((a) => a.id === ASSET);
     const row = ecologyLog(s).find((r) => r.day === 2)!;
-    expect(depthByPool(s, ASSET, 2).desired.retail).toBeCloseTo(row.assets[idx]!.desired.retail + row.assets[idx]!.desired.own, 14);
+    expect(depthByPool(s, ASSET, 2).desired.retail).toBeCloseTo(row.assets[idx]!.desired.retail + row.assets[idx]!.desired.own + (row.assets[idx]!.blur ?? 0), 14);
     expect(explainMove(s, ASSET, 2, 2).foldedDays).toEqual([2]);
     expect(explainMove(s, ASSET, 2, 2).parts.players).toBeUndefined();
   });

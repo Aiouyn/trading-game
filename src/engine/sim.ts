@@ -239,6 +239,11 @@ function advance(state: WorldState): StepResult {
         a.dayEvent = 0;
       }
     }
+    // a test shockValue made since the last tick joins today's lnV split as its own source, once (after the day's reset)
+    if (a.pendingValueShock) {
+      if (eco && a.dayLnV) a.dayLnV = { ...a.dayLnV, shock: (a.dayLnV.shock ?? 0) + a.pendingValueShock };
+      a.pendingValueShock = 0;
+    }
 
     // diffusive shock: factors + fat-tailed idiosyncratic noise
     const sigma = def.vol * rg.volMult * Math.sqrt(a.h);
@@ -312,6 +317,7 @@ function advance(state: WorldState): StepResult {
         idio: base.idio + k * idioLoading(def) * rg.idioMult * eps,
         news: base.news + jp * jump + catalyst,
         event: base.event + wm.value,
+        ...(base.shock !== undefined ? { shock: base.shock } : {}),
       };
     }
 
@@ -417,7 +423,8 @@ function ecologyStep(cleared: WorldState, tick: number, events: StepEvent[], fil
   if (tick % cfg.ticksPerDay !== 0) return { state: { ...cleared, ecology: eco }, events, fills };
   const w = ecologyWeight(cfg);
   eco = ecologyDay(cfg, eco, ecoDayInput(cleared, day), { setsClose: w > 0, full: w === 1 });
-  if (w === 0) return { state: { ...cleared, ecology: eco }, events, fills };
+  // the test shocks of the day are read by ecologyDay above and cleared here (the ecology is off, so they print nowhere)
+  if (w === 0) return { state: { ...cleared, assets: cleared.assets.map((a) => (a.dayShock ? { ...a, dayShock: 0 } : a)), ecology: eco }, events, fills };
   const poolDay = eco.log.length && eco.log[eco.log.length - 1]!.day === day ? eco.log[eco.log.length - 1]! : null;
   const lnClose = cleared.assets.map((a, i) => {
     if (w === 1) return eco.assets[i]!.lnS;
@@ -426,7 +433,7 @@ function ecologyStep(cleared: WorldState, tick: number, events: StepEvent[], fil
   });
   const assets = cleared.assets.map((a, i) => {
     const c = lnClose[i]!;
-    const next: AssetState = { ...a, lnP: c, lnOpen: a.lnOpen + (c - a.lnP), pending: 0 };
+    const next: AssetState = { ...a, lnP: c, lnOpen: a.lnOpen + (c - a.lnP), pending: 0, dayShock: 0 };
     if (poolDay) {
       const adv = cfg.assets[i]!.advNotional ?? 1e9;
       const d = poolDay.assets[i]!.desired;
@@ -505,7 +512,9 @@ export function shockPrice(state: WorldState, assetId: string, pct: number): Wor
   const def = state.config.assets[i]!;
   const assets = state.assets.slice();
   const a = assets[i]!;
-  assets[i] = { ...a, lnP: Math.max(a.lnP + Math.log1p(pct), Math.log(def.floor)) };
+  const lnP = Math.max(a.lnP + Math.log1p(pct), Math.log(def.floor));
+  // the move is also the day's Test shock: the close prints it and labels it, so a window that holds it explains it (no story)
+  assets[i] = { ...a, lnP, dayShock: (a.dayShock ?? 0) + (lnP - a.lnP) };
   return { ...state, assets };
 }
 
@@ -516,7 +525,10 @@ export function shockValue(state: WorldState, assetId: string, pct: number): Wor
   if (!Number.isFinite(pct) || pct <= -1) throw new Error('shockValue: pct must be a finite number above -1');
   const assets = state.assets.slice();
   const a = assets[i]!;
-  assets[i] = { ...a, lnV: a.lnV + Math.log1p(pct) };
+  const d = Math.log1p(pct);
+  // the value line's move is the day's Test shock too: it joins the day's lnV split as its own source (LnVParts.shock)
+  // booked into today's split at the next tick (sim.ts step), so a shock made between two days lands in the day it moves
+  assets[i] = { ...a, lnV: a.lnV + d, pendingValueShock: (a.pendingValueShock ?? 0) + d };
   return { ...state, assets };
 }
 
