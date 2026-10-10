@@ -177,6 +177,22 @@ function pensionScan(s: WorldState): void {
     if (p < dn.v) dn = { v: p, day: day.day, pc: a.cause.pension };
   }
   console.log(`pension (FROG, whole year): days with a pension order ${nz}, sum of |order| ${fx(sumAbs)} ADV, sum of pension log moves ${fx(pcSum)}; largest buy ${fx(up.v)} ADV on day ${up.day + 1} (pension log move ${fx(up.pc)}); largest sell ${fx(dn.v)} ADV on day ${dn.day + 1} (pension log move ${fx(dn.pc)})`);
+  // idle days: the rotation (runYear) trades FROG on days 0-1, 6-7, 12-13, ... (the pair floor(d/2) % 3 == 0), so the other days
+  // the account placed no FROG order. The round 3 whale check's +0.445 log pension push was on an idle day (day 250).
+  const idle = (day: number) => ROTATION[Math.floor(day / 2) % ROTATION.length] !== 'FROG';
+  let iUp = { v: 0, day: -1, pc: 0 }, iDn = { v: 0, day: -1, pc: 0 }, iMax = { pc: 0, day: -1 }, iNz = 0, iSum = 0;
+  for (const day of s.ecology?.log ?? []) {
+    if (!idle(day.day)) continue;
+    const a = day.assets[fi];
+    if (!a) continue;
+    const p = a.desired.pension;
+    if (p !== 0) iNz++;
+    iSum += a.cause.pension;
+    if (p > iUp.v) iUp = { v: p, day: day.day, pc: a.cause.pension };
+    if (p < iDn.v) iDn = { v: p, day: day.day, pc: a.cause.pension };
+    if (Math.abs(a.cause.pension) > Math.abs(iMax.pc)) iMax = { pc: a.cause.pension, day: day.day };
+  }
+  console.log(`pension, account-idle FROG days (no FROG order that day): pension orders on ${iNz} days, sum of pension log moves ${fx(iSum)}; largest buy ${fx(iUp.v)} ADV on day ${iUp.day + 1} (log ${fx(iUp.pc)}); largest sell ${fx(iDn.v)} ADV on day ${iDn.day + 1} (log ${fx(iDn.pc)}); largest |pension log move| ${fx(iMax.pc)} on day ${iMax.day + 1}`);
 }
 
 function report(cash: number): void {

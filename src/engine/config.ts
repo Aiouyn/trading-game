@@ -1,4 +1,6 @@
 import { DEFAULT_CATALYSTS } from './catalysts';
+import { regimeTimeShares } from './regimeShares';
+import { RATE_YIELD_DAILY_VAR } from './ratevar';
 import type { AssetDef, IndexDef, RegimeDef, RegimeId, TradingConfig, VolumeConfig, WorldConfig } from './types';
 
 /** 01 §5.3. Lengths: Expansion 1.5–3 game yrs, the others 0.5–1 yr (252 trading days per year). */
@@ -74,19 +76,67 @@ export function normalizeLoadings(a: AssetDef): AssetDef {
   };
 }
 
+/** Long-run share of game days in each default regime (regimeShares.ts): the weights of the no-regime expectation. */
+export const DEFAULT_REGIME_SHARES = regimeTimeShares(DEFAULT_REGIMES);
+
+/** Trading days in a year, the calendar the rates layer's daily variance is annualized on (defaultConfig). */
+const DAYS_PER_YEAR = 252;
+
+/** E[J²] of one jump of a (Kou, exponential sizes of mean η: E[J²] = 2η²), with up-probability p in the regime. */
+function jumpSecondMoment(a: AssetDef, shift: number): number {
+  const p = Math.min(0.95, Math.max(0.05, a.jumpUpProb + shift));
+  return p * 2 * a.jumpUpMean ** 2 + (1 - p) * 2 * a.jumpDownMean ** 2;
+}
+
 /**
- * Expected total annualized volatility of an asset: diffusion plus compound Poisson jumps.
- * Kou jumps with exponential sizes of mean η have E[J²] = 2η², so
- *   expectedVol² = (vol · volMult)² + λ · jumpMult · (p · 2ηUp² + (1 − p) · 2ηDown²)
- * GARCH has long-run mean h = 1, so it does not change the expectation.
- * Without a regime this is the neutral calibration target that balance bands compare against.
+ * The share of a day's rate move that is in the close-to-close return, given the share that prints at the close (ratePrint).
+ * The rest of the move sits in lnV and the value pool trades it the next day (ecology.ts), so the day's return is
+ * printPrint · move_t + (1 − printPrint) · move_(t−1): its variance is (print² + (1 − print)²) x the move's variance.
  */
-export function expectedVol(a: AssetDef, regime?: RegimeDef, jumpPrint = 1): number {
+export function ratePassThrough(print: number): number {
+  return print * print + (1 - print) * (1 - print);
+}
+
+/**
+ * Expected total annualized volatility of an asset: diffusion, compound Poisson jumps, and the rates layer's shock for an
+ * asset with a rates exposure (a duration and a yieldKey: bonds and property). Kou jumps with exponential sizes of mean η
+ * have E[J²] = 2η², so
+ *   expectedVol² = (vol · volMult)² + λ · jumpMult · E_p[J²] · jumpPrint² + D² · σ²_yield · 252 · ratePassThrough(ratePrint)
+ * σ²_yield is the daily variance of the yield the asset is keyed to (ratevar.ts, generated from DEFAULT_RATES and the regime
+ * chain). With a regime, every term is that regime's: its volMult, jumpMult and jump up-shift, and its yield variance. Without
+ * one, the jump and yield terms are the time average over the default regimes (regimeShares.ts), and the diffusion uses
+ * volMult 1 as before (V1-PHASE1 F13 measures it; the diffusion mix is not in this expectation).
+ * GARCH has long-run mean h = 1, so it does not change the expectation.
+ *
+ * jumpPrint and ratePrint are the shares that print in the close, for the daily-return vol that the bands measure
+ * (closePrint, ratePrintOf in ecology.ts). They default to 1: an option's horizon vol is the full variance, since a
+ * move that prints late still reaches the price. `regimes` is the config's regime table for the no-regime time average
+ * (default: the default regimes, which the game and the balance bands use).
+ */
+export function expectedVol(
+  a: AssetDef, regime?: RegimeDef, jumpPrint = 1, ratePrint = jumpPrint, regimes: Record<RegimeId, RegimeDef> = DEFAULT_REGIMES,
+): number {
   const volMult = regime?.volMult ?? 1;
-  const jumpMult = regime?.jumpMult ?? 1;
-  const p = Math.min(0.95, Math.max(0.05, a.jumpUpProb + (regime?.jumpUpShift ?? 0)));
-  const ej2 = p * 2 * a.jumpUpMean ** 2 + (1 - p) * 2 * a.jumpDownMean ** 2;
-  return Math.sqrt((a.vol * volMult) ** 2 + a.jumpsPerYear * jumpMult * ej2 * jumpPrint ** 2);
+  let jumpVar: number;
+  if (regime) {
+    jumpVar = a.jumpsPerYear * regime.jumpMult * jumpSecondMoment(a, regime.jumpUpShift ?? 0);
+  } else {
+    const shares = regimes === DEFAULT_REGIMES ? DEFAULT_REGIME_SHARES : regimeTimeShares(regimes);
+    jumpVar = 0;
+    for (const id of Object.keys(regimes) as RegimeId[]) {
+      const g = regimes[id];
+      jumpVar += shares[id] * a.jumpsPerYear * g.jumpMult * jumpSecondMoment(a, g.jumpUpShift ?? 0);
+    }
+  }
+  let rateVar = 0;
+  if (a.duration && a.yieldKey) {
+    const byRegime = regime ? RATE_YIELD_DAILY_VAR[regime.id] : undefined;
+    const shares = regimes === DEFAULT_REGIMES ? DEFAULT_REGIME_SHARES : regimeTimeShares(regimes);
+    const daily = byRegime ? byRegime[a.yieldKey] : (Object.keys(shares) as RegimeId[]).reduce(
+      (acc, id) => acc + shares[id] * RATE_YIELD_DAILY_VAR[id][a.yieldKey!], 0);
+    rateVar = a.duration ** 2 * daily * DAYS_PER_YEAR * ratePassThrough(ratePrint);
+  }
+  return Math.sqrt((a.vol * volMult) ** 2 + jumpVar * jumpPrint ** 2 + rateVar);
 }
 
 export function idioLoading(a: AssetDef): number {

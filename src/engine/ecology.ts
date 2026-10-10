@@ -25,10 +25,26 @@ import type {
 
 export const ECO_POOLS: readonly EcoPool[] = ['value', 'trend', 'retail', 'pension'] as const;
 
+/** Pool capacity sizes, in ADV-days, and the capacity damping coefficient (ecologyDay: a pool adding to its side is cut to 1 / (1 + capacity · |pos| / size)). */
+const POOL_SIZES = { value: 15, trend: 1, retail: 4.5, pension: 7.5 } as const;
+const POOL_CAPACITY = 3;
+/** The pension pool trades in the last PENSION_DAYS of each 63-day quarter. */
+const PENSION_DAYS = 3;
+
+/**
+ * The pension pool's per-day cap (V1-PHASE1 F16, derived in round 5 from the pool's own parameters, not picked). The damping
+ * halves a pool's orders at position size / capacity (7.5 / 3 = 2.5 ADV): that is the pool's capacity knee. The pension pool
+ * trades in pensionDays (3) equal daily parts, and a position's half-life is 63 days (it barely decays over 3 days), so a daily cap
+ * of (size / capacity) / pensionDays keeps a window's position inside the knee: 2.5 / 3 = 0.83 ADV a day. A looser cap (2.5 ADV,
+ * sizes / pensionDays) was measured in round 5: the largest idle-day pension push rose from 0.096 to 0.277 log at $1e12
+ * (scripts/balance/huge-money.ts), so the knee is the bound used. Before round 5 the cap was 1 ADV, picked without a derivation.
+ */
+export const PENSION_MAX_ADV = POOL_SIZES.pension / POOL_CAPACITY / PENSION_DAYS;
+
 export const DEFAULT_ECOLOGY: EcologyConfig = {
   mode: 'off',
   logDays: 21,
-  capacity: 3,
+  capacity: POOL_CAPACITY,
   permanentShare: 0.6,
   makerUnwind: 0.5,
   makerSize: 2,
@@ -48,11 +64,11 @@ export const DEFAULT_ECOLOGY: EcologyConfig = {
   retailHeadline: 0.1,
   headlineHalfLifeDays: 5,
   pensionK: 1,
-  pensionMaxAdv: 1,
-  pensionDays: 3,
+  pensionMaxAdv: PENSION_MAX_ADV,
+  pensionDays: PENSION_DAYS,
   quarterDays: 63,
   reshuffleK: 1,
-  sizes: { value: 15, trend: 1, retail: 4.5, pension: 7.5 },
+  sizes: { ...POOL_SIZES },
   halfLives: { value: 20, trend: 21, retail: 10, pension: 63 },
 };
 
@@ -117,6 +133,17 @@ export function closePrint(cfg: WorldConfig): number {
   const w = ecologyWeight(cfg);
   const live = cfg.jumpImmediate ?? 1;
   return w === 0 ? live : (1 - w) * live + w * (ecologyConfig(cfg).newsPrint ?? 1);
+}
+
+/**
+ * The rate analogue of closePrint: the share of the rates layer's move (AssetState.dayRate) that prints in the close. The
+ * live path prints it at jumpImmediate; the ecology's close at ratePrint (ecologyDay's rp). Used with expectedVol's rate term
+ * (config.ts, ratePassThrough). The ecology's ratePrint always resolves (DEFAULT_ECOLOGY sets 0.5).
+ */
+export function ratePrintOf(cfg: WorldConfig): number {
+  const w = ecologyWeight(cfg);
+  const live = cfg.jumpImmediate ?? 1;
+  return w === 0 ? live : (1 - w) * live + w * (ecologyConfig(cfg).ratePrint ?? 1);
 }
 
 /**
@@ -237,6 +264,28 @@ function playerBucket(by: Record<string, number> | undefined): { accounts: numbe
 
 const sgn = (x: number) => (x > 0 ? 1 : x < 0 ? -1 : 0);
 const clamp = (x: number, lo: number, hi: number) => (x < lo ? lo : x > hi ? hi : x);
+
+/**
+ * Below this ratio of |net| to gross flow the day's flows mostly cancel, and the proportional split I x / net is no longer
+ * bounded: I = sgn(net) Y s sqrt|net| / depth, so I / net grows like 1 / sqrt|net| (a pension share of 73.9 was seen on a
+ * day whose net flow was near zero).
+ */
+export const IMPACT_NET_SHARE = 0.25;
+
+/**
+ * Split the day's impact I over the signed flows (ADV) that make the net, for explainMove. The parts sum to I exactly.
+ * Normal days (|net| >= IMPACT_NET_SHARE x gross): part_x = I x / net, so a pool that pushed with the move gets a share of
+ * the sign of its flow, and a pool that traded against it a negative one; |part| <= I / IMPACT_NET_SHARE.
+ * Cancelling days: part_x = I |x| / gross, in the move's direction, so every part is at most |I|. A day with no flow has
+ * no impact and every part is 0.
+ */
+export function impactShares(I: number, flows: readonly number[]): number[] {
+  let net = 0, gross = 0;
+  for (const x of flows) { net += x; gross += Math.abs(x); }
+  if (gross === 0) return flows.map(() => 0);
+  if (Math.abs(net) >= IMPACT_NET_SHARE * gross) return flows.map((x) => (I * x) / net);
+  return flows.map((x) => (I * Math.abs(x)) / gross);
+}
 
 /**
  * One shadow close. Pure: returns the next ecology state (log included). Called by step() on the last
@@ -382,12 +431,13 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     if (lnS < lnFloor) { floorAdj = lnFloor - lnS; core += floorAdj; lnS = lnFloor; }
 
     const cause = {} as Record<EcoCause, number>;
-    const share = (x: number) => (net !== 0 ? (I * x) / net : 0);
-    cause.value = share(q.value) + valuePrint;
-    cause.trend = share(q.trend);
-    cause.retail = share(q.retail);
-    cause.pension = share(q.pension);
-    cause.own = share(own);
+    // the impact I splits over the five flows, exactly (impactShares); a near-zero net no longer blows up one row
+    const parts = impactShares(I, [q.value, q.trend, q.retail, q.pension, own]);
+    cause.value = parts[0]! + valuePrint;
+    cause.trend = parts[1]!;
+    cause.retail = parts[2]!;
+    cause.pension = parts[3]!;
+    cause.own = parts[4]!;
     cause.maker = makerDecay + 0; // + 0: no -0 in the save (JSON writes it as 0, so a reloaded save would differ under Object.is)
     cause.news = newsPrint + floorAdj;
 

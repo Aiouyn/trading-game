@@ -36,6 +36,14 @@ function floorPinned(alive: number): VolBand {
  * loading split). (3) expectedVol counted the full jump, but the close prints closePrint (ecology). The eight F1 names pass
  * the general 0.85-1.4 band now (20 seeds, medians 0.92-1.11). FLUX passes it too (median 0.976), so its old class band is
  * gone. AUSD passes it too, on the RMS across seeds (V1-PHASE1 F13), so it has no class band of its own.
+ *
+ * Round 5 (V1-PHASE1 round 5): expectedVol is the model's honest prediction. Its jump term is the time average of the regime
+ * jump intensity over the default regimes (regimeShares.ts), not the expansion value; a rates-exposed asset (duration and
+ * yieldKey: bonds, property) adds D² x the daily yield variance the rates layer produces (ratevar.ts) x the close's print
+ * pass-through (ratePrintOf). Those two terms were the gap the bond and rare-jump bands had been absorbing. No class band
+ * was removed by round 5 that existed only for them: the floor-pinned meme bands above keep their own mechanism (the price
+ * floor), and nothing else in this table was there for the jump or rate gap. The general 0.85 to 1.4 band still applies to
+ * every other asset.
  */
 export const UNIVERSE_VOL_BANDS: Record<string, VolBand> = {
   BONK: floorPinned(0.2),
