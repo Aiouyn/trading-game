@@ -39,6 +39,7 @@ import { applyFundCommand, crossRefusal, fundsBeforeStep, fundsDay, fundsFills, 
 import { orderError } from './orders';
 import { companyCommand, companyDay, companyFinanceCommand, companyStep, type CompanyFinanceCommand } from './company/bridge';
 import { adminIpoReady } from './company/ipo';
+import { scorePlanAbuse, scoreWindowAttempt } from './company/backstop';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
 
 export interface CreateOptions {
@@ -231,7 +232,11 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
       if (err) return fail(err);
       const r = placeOrder(g.market, { ...o, playerId: pid });
       g.market = r.state;
-      if (r.order.status === 'rejected') return { ok: false, error: r.order.rejectReason ?? 'rejected', data: r.order };
+      if (r.order.status === 'rejected') {
+        // an insider's order refused by the window is a closed-window attempt (O-15)
+        if (r.order.rejectReason === 'closedWindow') scoreWindowAttempt(g, pid, o.assetId);
+        return { ok: false, error: r.order.rejectReason ?? 'rejected', data: r.order };
+      }
       return { ok: true, data: r.order };
     }
     case 'order.cancel': {
@@ -239,16 +244,24 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
       if (!o || o.playerId !== pid) return fail('not your order');
       // the engine's cancel route reports a program order's refusal (planImmutable, buybackImmutable) to the player (B1)
       const res = cancelOrderResult(g.market, pid, cmd.orderId);
-      if (res.error) return fail(res.error);
+      if (res.error) {
+        // a committed plan cannot be cancelled: the attempt is plan abuse (O-15)
+        if (res.error === 'planImmutable') scorePlanAbuse(g, pid, o.assetId);
+        return fail(res.error);
+      }
       g.market = res.state;
       return { ok: true };
     }
     case 'order.modify': {
+      const mo = g.market.orders.find((x) => x.id === cmd.orderId);
       const r = modifyOrder(g.market, pid, cmd.orderId, {
         ...(cmd.qty !== undefined ? { qty: cmd.qty } : {}), ...(cmd.limitPrice !== undefined ? { limitPrice: cmd.limitPrice } : {}),
         ...(cmd.stopPrice !== undefined ? { stopPrice: cmd.stopPrice } : {}), ...(cmd.trailPct !== undefined ? { trailPct: cmd.trailPct } : {}),
       });
-      if (r.error) return fail(r.error);
+      if (r.error) {
+        if (r.error === 'planImmutable' && mo) scorePlanAbuse(g, pid, mo.assetId);
+        return fail(r.error);
+      }
       g.market = r.state;
       return { ok: true };
     }
@@ -382,9 +395,14 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'company.dividend':
       return companyFinanceCommand(g, pid, cmd as CompanyFinanceCommand, out);
     case 'company.bid': return companyCommand(g, pid, cmd, out);
+    case 'fund.trade': {
+      const r = applyFundCommand(g, pid, cmd as FundCommand, out);
+      // a fund refused by the window is a closed-window attempt by its manager, when the manager is an insider (O-15)
+      if (!r.ok && (r.data as { reason?: string } | undefined)?.reason === 'closedWindow') scoreWindowAttempt(g, pid, (cmd as { assetId: string }).assetId);
+      return r;
+    }
     case 'fund.create':
     case 'fund.mandate':
-    case 'fund.trade':
     case 'fund.deposit':
     case 'fund.redeem':
       return applyFundCommand(g, pid, cmd as FundCommand, out);

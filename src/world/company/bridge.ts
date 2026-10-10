@@ -17,7 +17,7 @@ import { failCompanyStock, printCompanyValue, programsDay, restrictionsOf, sellC
 import { companyAction, companyTick, foundCompany, emptyCompanyWorld, type CompanyAction, type CompanyEnv, type CompanyEvent } from './company';
 import { bid, marketShareOf, observeStakes, recordTape } from './takeover';
 import { ownerSetOf, syncAllianceLinks } from './owners';
-import { insiderBackstop } from './backstop';
+import { insiderBackstop, scorePlanAbuse } from './backstop';
 import type { CompanyReject } from './types';
 import { COMPANY, type CompanySector } from '@/content/company';
 import { addWindowRange, listedDay, nextOpenDay, recordFounderFills, syncWindow } from './insiders';
@@ -277,7 +277,11 @@ export function companyFinanceCommand(g: GameState, pid: string, cmd: CompanyFin
     case 'company.ipo': r = requestIpo(g, pid, c, cmd.floatPct, out); break;
     case 'company.ipoOrder': r = orderIpo(g, pid, c, cmd.shares); break;
     case 'company.plan': r = commitPlanFor(g, pid, c, { qtyPerDay: cmd.qtyPerDay, days: cmd.days, minSellPrice: cmd.minSellPrice }, out); break;
-    case 'company.planCancel': r = cancelPlanFor(g); break;
+    case 'company.planCancel':
+      r = cancelPlanFor(g);
+      // a committed plan cannot be cancelled: the attempt is plan abuse (O-15)
+      if (c.listed) scorePlanAbuse(g, pid, c.listed.assetId);
+      break;
     case 'company.buyback': r = fileBuyback(g, pid, c, { size: cmd.size, fromDay: cmd.fromDay, toDay: cmd.toDay }, out); break;
     case 'company.loan': r = drawLoan(g, pid, c, { amount: cmd.amount, guarantee: !!cmd.guarantee, acknowledged: !!cmd.acknowledged }, out); break;
     case 'company.repay': r = repayLoan(g, pid, c, cmd.debtId, cmd.amount); break;

@@ -2,6 +2,7 @@ import { COMPANY } from '@/content/company';
 import { keyedRng, today } from '../core';
 import { openCase } from '../court';
 import { ownerSetOf } from './owners';
+import { addSurveillance } from './failure';
 import type { GameState, StepOutput } from '../types';
 
 /**
@@ -11,6 +12,31 @@ import type { GameState, StepOutput } from '../types';
  * is the largest non-insider long holder of the company's stock: the victim who traded against the insider. The verdict
  * follows the court's evidence bar and penalties (court.ts), so the backstop only files a case.
  */
+
+/**
+ * Surveillance points for an insider's abuse of the window or of a plan (O-15: B2 exposed the refusals, and the company module
+ * scores them). A closed-window attempt is an order the engine refused with closedWindow. Only a covered account is refused, so
+ * an outsider never scores. A plan abuse is an attempt to cancel or change a committed plan, which the engine refuses
+ * (planImmutable). Both score the player who made the attempt (a fund's manager, for a fund), on the listed company whose stock
+ * it was. A stock with no listed company scores nothing.
+ */
+function scoreAbuse(g: GameState, playerId: string, assetId: string, points: number, reason: string): void {
+  const w = g.companies;
+  if (!w || !g.players[playerId]) return;
+  const c = Object.values(w.companies).find((x) => x.listed?.assetId === assetId);
+  if (!c) return;
+  addSurveillance(w, playerId, c.id, points, reason);
+}
+
+/** A closed-window attempt on a listed stock: the window points (spec 6.2). */
+export function scoreWindowAttempt(g: GameState, playerId: string, assetId: string): void {
+  scoreAbuse(g, playerId, assetId, COMPANY.failure.insiderPoints.windowAttempt, 'closed-window attempt');
+}
+
+/** An attempt to cancel or change a committed plan on a listed stock: the plan-abuse points (spec 6.2). */
+export function scorePlanAbuse(g: GameState, playerId: string, assetId: string): void {
+  scoreAbuse(g, playerId, assetId, COMPANY.failure.insiderPoints.planAbuse, 'plan change refused');
+}
 
 /**
  * The victim: the largest long position in the listed stock of the company among the accounts outside the insider's owner
