@@ -63,6 +63,25 @@ function payPool(g: GameState, c: Company, pay: number): void {
   });
 }
 
+/**
+ * The NPC pool's own cash goes to its investors (O-9, B1 deviation 7). The pool account holds the pool's shares, and its fills
+ * move its cash: a scheduled sale's proceeds come in, and any purchase goes out. Those belong to the investors in the cap
+ * table, pro rata to their shares, as the dividend does, so the pool keeps no cash. Called on every tick (companyStep): a pool
+ * with no cash does nothing, and a pool with no investor holding shares keeps its cash. Money is conserved: the pool's cash
+ * moves to the investor pools, and nothing is made or lost.
+ */
+export function sweepPoolCash(g: GameState): void {
+  const w = g.companies;
+  if (!w) return;
+  for (const c of Object.values(w.companies).sort((x, y) => x.id.localeCompare(y.id))) {
+    const pid = poolIdOf(c.id);
+    const a = g.market.accounts[pid];
+    if (!a || a.cash === 0 || poolHolders(c, g).length === 0) continue;
+    payPool(g, c, a.cash);
+    g.market = { ...g.market, accounts: { ...g.market.accounts, [pid]: { ...a, cash: 0 } } };
+  }
+}
+
 /** Declare a dividend per share. Refused with dividendNotPermitted when a rule fails (nothing changes). */
 export function declareDividend(
   g: GameState, playerId: string, c: Company, perShare: number, out: StepOutput | null,

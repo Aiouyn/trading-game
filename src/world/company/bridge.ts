@@ -24,7 +24,7 @@ import { addWindowRange, listedDay, nextOpenDay, recordFounderFills, syncWindow 
 import { listIpo, orderIpo, requestIpo } from './ipo';
 import { covenantAtFiling, debtDay, drawLoan, repayLoan } from './debt';
 import { applyProgramEvents, cancelPlanFor, commitPlanFor, fileBuyback } from './programs';
-import { declareDividend } from './payouts';
+import { declareDividend, sweepPoolCash } from './payouts';
 import { migrateCompany } from './migrate';
 
 /** The owner links of the company world follow the alliances (V1, owners.ts): read before any owner-set rule runs. */
@@ -176,6 +176,8 @@ export function companyStep(g: GameState, fills: Fill[], events: StepEvent[]): v
   if (!g.companies) return;
   migrateAll(g);
   recordFounderFills(g, fills);
+  // a pool's sale proceeds (and any purchase) are its investors', pro rata (O-9)
+  sweepPoolCash(g);
   applyProgramEvents(g, events);
   windowCloseLines(g, events);
 }

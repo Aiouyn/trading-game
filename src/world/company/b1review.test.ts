@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COMPANY } from '@/content/company';
-import { restrictionsOf, sellCapOf, soldOn } from '@/engine';
+import { placeOrder, restrictionsOf, sellCapOf, soldOn } from '@/engine';
 import { applyCommand, stepGame } from '../game';
 import { TPD, today } from '../core';
 import type { GameState } from '../types';
@@ -192,5 +192,42 @@ describe('a listed save from before the sell cap gets it on its next day', () =>
     advanceTo(g, today(g) + 1);
     expect(sellCapOf(restrictionsOf(g.market), assetId, FOUNDER)).toBe(Math.floor(COMPANY.insiders.sellCapPct * c.listed!.sharesOut));
     expect(sellCapOf(restrictionsOf(g.market), assetId, BUYER_A)).toBeUndefined();
+  });
+});
+
+describe("the NPC pool's sale proceeds go to its investors (O-9, B1 deviation 7)", () => {
+  it('a sale by the pool credits the investors pro rata to their shares, and the pool keeps no cash', () => {
+    const { g, c, assetId } = listedWithInvestor('pool-sale');
+    // the pool shares are locked for 168 game days from the listing: sell after the lockup lifts
+    advanceTo(g, today(g) + 170);
+    const pid = poolIdOf(c.id);
+    expect(g.market.accounts[pid]!.positions[assetId]?.qty ?? 0).toBeGreaterThan(0);
+    const holders = Object.keys(c.capTable).filter((k) => !!g.companies!.investors[k] && (c.capTable[k] ?? 0) > 0);
+    expect(holders.length).toBeGreaterThan(0);
+    const totalShares = holders.reduce((x, k) => x + c.capTable[k]!, 0);
+    const invBefore = Object.fromEntries(holders.map((k) => [k, g.companies!.investors[k]!.cash]));
+    const totalBefore = totalMoney(g);
+
+    g.market = placeOrder(g.market, { playerId: pid, assetId, side: 'sell', type: 'market', qty: 500 }).state;
+    // the sale fills over the day's ticks (the stock's volume cap per tick); stop short of the next game day, so no daily
+    // finance runs and the money total moves only by the sale
+    const poolFills: ReturnType<typeof stepGame>['fills'] = [];
+    for (let k = 0; k < TPD - 2; k++) poolFills.push(...stepGame(g).fills.filter((f) => f.playerId === pid));
+    expect(poolFills.length).toBeGreaterThan(0);
+    expect(poolFills.reduce((x, f) => x + f.qty, 0)).toBe(500);
+    // the pool's cash from its fills: a sale's proceeds, less the commission (which the book receives)
+    const proceeds = poolFills.reduce((t, f) => t + (f.side === 'sell' ? f.qty * f.price - f.fee : -(f.qty * f.price + f.fee)), 0);
+    expect(proceeds).toBeGreaterThan(0);
+
+    // the pool keeps none of it, and the investors have it, each pro rata to its shares in the cap table
+    expect(g.market.accounts[pid]!.cash).toBeCloseTo(0, 6);
+    for (const k of holders) {
+      const gain = g.companies!.investors[k]!.cash - invBefore[k]!;
+      expect(gain, `investor ${k}`).toBeCloseTo((proceeds * c.capTable[k]!) / totalShares, 6);
+    }
+    const paid = holders.reduce((x, k) => x + (g.companies!.investors[k]!.cash - invBefore[k]!), 0);
+    expect(paid).toBeCloseTo(proceeds, 6);
+    // money is conserved: the pool's proceeds moved to the investors, the commission to the book
+    expect(totalMoney(g)).toBeCloseTo(totalBefore, 6);
   });
 });
