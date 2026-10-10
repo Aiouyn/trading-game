@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { COMPANY } from '@/content/company';
 import { companyAction, companyTick, emptyCompanyWorld, foundCompany, type CompanyEnv } from './company';
-import { announceCeoChange, boardVote, ceoDay, ceoFreezeOn, controllerOf, execMult, fireExec, hireExec, setGuarantee } from './governance';
+import { announceCeoChange, boardVote, ceoDay, ceoFreezeOn, controllerOf, execDay, execMult, fireExec, hireExec, setGuarantee } from './governance';
+import { linkOwner } from './owners';
 import { salaryCapPerDay } from './failure';
 import type { Company, CompanyWorld } from './types';
 
@@ -106,7 +107,8 @@ describe('control and executive traits (C4)', () => {
     const pay = c.payouts?.at(-1);
     expect(pay?.kind).toBe('salary');
     expect(pay?.covered).toBeCloseTo(100, 6);
-    expect(pay?.insider).toBe(true);
+    // a stranger who is not in the founder's owner set and holds no shares is no insider (spec 5.3)
+    expect(pay?.insider).toBe(false);
     // the salary is a transfer from the company to the player: the money identity still holds to the cent
     expect(identity(h)).toBeCloseTo(id0, 6);
   });
@@ -118,7 +120,9 @@ describe('the CEO change and its freeze (spec 9.1, X7)', () => {
     const c = found(h);
     h.env.day = 40;
     expect(announceCeoChange(c, h.env, 'rival', { kind: 'npc' })).toEqual({ ok: false, reject: { code: 'notController' } });
-    expect(announceCeoChange(c, h.env, 'founder', { kind: 'npc' })).toEqual({ ok: true, value: { effectiveDay: 50, freezeUntil: 71 } });
+    expect(announceCeoChange(c, h.env, 'founder', { kind: 'npc' })).toEqual({
+      ok: true, value: { effectiveDay: 50, freezeUntil: 71, board: { yes: COMPANY.founding.founderShares, no: 0 } },
+    });
     expect(announceCeoChange(c, h.env, 'founder', { kind: 'npc' })).toEqual({ ok: false, reject: { code: 'ceoChangePending', untilDay: 50 } });
     expect(ceoFreezeOn(c, 'founder', 40)).toBe(71);
     expect(ceoFreezeOn(c, 'founder', 71)).toBeNull();
@@ -147,7 +151,7 @@ describe('the CEO change and its freeze (spec 9.1, X7)', () => {
     const c = found(h);
     h.env.day = 5;
     const r = companyAction(h.w, h.env, 'founder', c.id, { kind: 'changeCEO', successor: { kind: 'npc' } });
-    expect(r).toEqual({ ok: true, value: { effectiveDay: 15, freezeUntil: 36 } });
+    expect(r).toEqual({ ok: true, value: { effectiveDay: 15, freezeUntil: 36, board: { yes: COMPANY.founding.founderShares, no: 0 } } });
   });
 });
 
@@ -219,5 +223,53 @@ describe('founder goals and their rewards (C4)', () => {
     expect(c.ledgerTotals.goalReward).toBe(paid);
     expect(paid).toBeGreaterThanOrEqual(COMPANY.goalRewards.firstHire);
     expect(identity(h)).toBeCloseTo(id0, 6);
+  });
+});
+
+describe('B2 review: the P&L of executives, the guarantee lock and the founder-only takeover stance', () => {
+  it('an executive salary is a cost of the period (the P&L and the OCF), so it reaches net income and E*', () => {
+    const h = harness();
+    const c = found(h);
+    c.execs = { CFO: { role: 'CFO', trait: 'Steady', holder: { kind: 'npc' }, hiredDay: 0, termEnd: 0, salary: 300 } };
+    const opex0 = c.qtd.opex;
+    const ocf0 = c.qtd.ocf;
+    execDay(h.w, c, h.env, 1);
+    expect(c.qtd.opex - opex0).toBe(300);
+    expect(c.qtd.ocf - ocf0).toBe(-300);
+  });
+
+  it('a severance is a cost of the period too, whoever is paid', () => {
+    const h = harness();
+    const c = found(h);
+    c.execs = { COO: { role: 'COO', trait: 'Steady', holder: { kind: 'npc' }, hiredDay: 0, termEnd: 0, salary: 300 } };
+    const opex0 = c.qtd.opex;
+    expect(fireExec(h.w, c, h.env, 'founder', 'COO')).toEqual({ ok: true, value: { severance: 300 * COMPANY.governance.exec.severanceDays } });
+    expect(c.qtd.opex - opex0).toBe(300 * COMPANY.governance.exec.severanceDays);
+  });
+
+  it('N5 exploit: the guarantee cannot be cut while the company is short of the sum it covers or in distress', () => {
+    const h = harness();
+    const c = found(h);
+    expect(setGuarantee(c, h.env, 'founder', 100_000).ok).toBe(true);
+    c.cash = 10_000;
+    expect(setGuarantee(c, h.env, 'founder', 0)).toEqual({ ok: false, reject: { code: 'guaranteeLocked' } });
+    // raising it is always open, and a distressed company cannot cut it either
+    expect(setGuarantee(c, h.env, 'founder', 120_000).ok).toBe(true);
+    c.cash = -1;
+    expect(setGuarantee(c, h.env, 'founder', 0)).toEqual({ ok: false, reject: { code: 'guaranteeLocked' } });
+    c.cash = 150_000;
+    expect(setGuarantee(c, h.env, 'founder', 0).ok).toBe(true);
+    expect(c.guarantee).toBeNull();
+  });
+
+  it('X8: the target founder sets the takeover stance; an alt of the founder or anyone else cannot', () => {
+    const h = harness();
+    const c = found(h);
+    linkOwner(h.w, 'alt', 'founder');
+    expect(companyAction(h.w, h.env, 'alt', c.id, { kind: 'takeoverStance', stance: 'yes' })).toEqual({ ok: false, reject: { code: 'notFounder' } });
+    expect(companyAction(h.w, h.env, 'rival', c.id, { kind: 'takeoverStance', stance: 'yes' })).toEqual({ ok: false, reject: { code: 'notFounder' } });
+    expect(c.founderStance).toBeUndefined();
+    expect(companyAction(h.w, h.env, 'founder', c.id, { kind: 'takeoverStance', stance: 'yes' }).ok).toBe(true);
+    expect(c.founderStance).toBe('yes');
   });
 });

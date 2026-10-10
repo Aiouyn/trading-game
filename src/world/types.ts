@@ -610,7 +610,7 @@ export type Command =
   | { type: 'block.cancel'; planId: string }
   | { type: 'company.found'; name: string; sector: CompanySector; cityId: string; capital: number }
   | { type: 'company.act'; companyId: string; action: CompanyAction }
-  | { type: 'company.bid'; companyId: string; price: number; founderVote?: 'yes' | 'no' }
+  | { type: 'company.bid'; companyId: string; price: number }
   /** player-run funds (funds/index.ts): the manager opens a fund with a stake, changes its mandate, and trades it */
   | { type: 'fund.create'; name: string; mandate: FundMandate; fees: FundFees; stake: number }
   | { type: 'fund.mandate'; fundId: string; mandate: FundMandate }

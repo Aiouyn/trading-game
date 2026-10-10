@@ -1,6 +1,7 @@
 import { COMPANY } from '@/content/company';
 import { keyedRng, today } from '../core';
 import { openCase } from '../court';
+import { ownerSetOf } from './owners';
 import type { GameState, StepOutput } from '../types';
 
 /**
@@ -11,14 +12,19 @@ import type { GameState, StepOutput } from '../types';
  * follows the court's evidence bar and penalties (court.ts), so the backstop only files a case.
  */
 
-/** The victim: the non-insider player with the largest long position in the listed stock of the company (none: no case). */
+/**
+ * The victim: the largest long position in the listed stock of the company among the accounts outside the insider's owner
+ * set (the insider, its alts and its alliance mates are never the plaintiff, spec 6.2). None: no case.
+ */
 function victimOf(g: GameState, companyId: string, insiderId: string): string | null {
-  const assetId = g.companies?.companies[companyId]?.listed?.assetId;
+  const w = g.companies!;
+  const assetId = w.companies[companyId]?.listed?.assetId;
   if (!assetId) return null;
+  const insiders = new Set(ownerSetOf(w, insiderId));
   let best: string | null = null;
   let bestQty = 0;
   for (const pid of Object.keys(g.market.accounts).sort()) {
-    if (pid === insiderId) continue;
+    if (insiders.has(pid)) continue;
     const p = g.players[pid];
     if (!p || p.npc) continue;
     const q = g.market.accounts[pid]!.positions[assetId]?.qty ?? 0;

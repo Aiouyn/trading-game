@@ -8,7 +8,8 @@ const B2_CODES: B2Reject['code'][] = [
   'notController', 'companyBankrupt', 'ceoChangePending', 'exCeoCooling', 'ceoExitFreeze', 'execFilled', 'execNotFound',
   'execTerm', 'execSalaryCap', 'guaranteeTooHigh', 'boardRejected', 'franchiseRate', 'franchiseCap', 'franchiseNoProduct',
   'supplyPriceOutOfBand', 'supplySelf', 'takeoverNotListed', 'takeoverNoBidder', 'takeoverBelowFloor', 'takeoverUnfunded',
-  'takeoverSelfDeal', 'antitrustBlock',
+  'takeoverSelfDeal', 'antitrustBlock', 'contractPriceOutOfBand', 'contractNotFound', 'notParty', 'loanBalance', 'loanTooSmall',
+  'guaranteeLocked', 'takeoverNoFloor',
 ];
 
 describe('B2 refusal copy (C4): three parts in en and fr', () => {

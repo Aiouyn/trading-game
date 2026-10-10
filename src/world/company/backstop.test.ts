@@ -5,6 +5,7 @@ import { courtTick } from '../court';
 import { companyDay } from './bridge';
 import { insiderBackstop } from './backstop';
 import { addSurveillance } from './failure';
+import { linkOwner } from './owners';
 import { COMPANY } from '@/content/company';
 import type { GameState } from '../types';
 
@@ -103,14 +104,37 @@ describe('the insider backstop (spec 6.2, the court insider case)', () => {
 });
 
 describe('the bridge: the CEO freeze, the bid route and the bankruptcy delisting', () => {
-  it('a CEO change freezes the departing CEO in the engine, and only that account', () => {
+  it('a CEO change freezes the departing CEO and every account of its owner set (spec 9.1), and no other', () => {
     const { g, companyId } = world('bridge-freeze');
+    // an alt of the founder (linked) and an unrelated account
+    linkOwner(g.companies!, 'alt', 'm');
     atDay(g, 5);
     const r = applyCommand(g, 'm', { type: 'company.act', companyId, action: { kind: 'changeCEO', successor: { kind: 'npc' } } });
     expect(r.ok).toBe(true);
     // announced on day 5, effective on day 15, and the departing CEO is frozen to day 5 + 10 + 21
     expect(g.market.restrictions?.freezes?.m).toBe(36);
+    expect(g.market.restrictions?.freezes?.alt).toBe(36);
     expect(g.market.restrictions?.freezes?.v).toBeUndefined();
+  });
+
+  it('a linked alt that holds the largest long is never the plaintiff: the victim is outside the insider owner set', () => {
+    const { g, assetId, companyId } = world('backstop-alt');
+    // the alt is a player of the founder's owner set, and it holds more of the stock than the real victim
+    const alt = applyCommand(g, 'a', { type: 'join', handle: 'alt_one', country: 'AV' });
+    expect(alt.ok).toBe(true);
+    g.players.a!.joinedTick = -1000 * TPD;
+    g.players.a!.lastSeenTick = 1;
+    g.market.accounts.a!.positions[assetId] = { qty: 900, avgCost: 10, realizedPnl: 0 };
+    linkOwner(g.companies!, 'a', 'm');
+    addSurveillance(g.companies!, 'm', companyId, 80, 'related supply priced out of band');
+    let c: GameState['court']['cases'][string] | undefined;
+    for (let d = 2; d < 80 && !c; d++) {
+      atDay(g, d);
+      insiderBackstop(g, newOutput());
+      c = Object.values(g.court.cases)[0];
+    }
+    expect(c).toBeDefined();
+    expect(c!.plaintiffId).toBe('v');
   });
 
   it('a bid on a company that is not listed returns the structured refusal (code and copy keys)', () => {
@@ -122,6 +146,17 @@ describe('the bridge: the CEO freeze, the bid route and the bankruptcy delisting
       expect(r.error).toBe('takeoverNotListed');
       expect(r.data).toEqual({ code: 'takeoverNotListed' });
     }
+  });
+
+  it('the daily tape keeps the engine bar of the day that just closed, once per day (the pre-attack floor reads it)', () => {
+    const { g, assetId, companyId } = world('bridge-tape');
+    const idx = g.market.assets.findIndex((a) => a.id === assetId);
+    g.market.assets[idx] = { ...g.market.assets[idx]!, bars: [{ c: 7, n: 0, u: 300 }] };
+    atDay(g, 5);
+    companyDay(g, newOutput());
+    expect(g.companies!.tape?.[companyId]).toEqual([{ day: 4, c: 7, u: 300 }]);
+    companyDay(g, newOutput());
+    expect(g.companies!.tape?.[companyId]).toHaveLength(1);
   });
 
   it('a default on a listed company delists its stock through the engine and closes its book', () => {

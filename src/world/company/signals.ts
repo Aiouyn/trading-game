@@ -81,7 +81,7 @@ export function filedInputs(c: Company, dCB: number): ValuationInputs {
   const growth = prior4 && prior4.rev > 0 && ttm8.count === 8 ? past.rev / prior4.rev - 1 : 0;
   const last = c.filings[c.filings.length - 1];
   // related-party cash is not part of net debt (N1): a related trade moves no value
-  const netDebt = last ? last.balance.debt - (last.balance.cash - (last.relatedCash ?? 0)) : 0;
+  const netDebt = last ? last.balance.debt - (last.balance.cash - (last.relatedCash ?? 0)) - (last.balance.loansOut ?? 0) : 0;
   return {
     revU: past.rev * scale,
     eStar: n > 0 ? Math.min(past.ni * scale, past.ocfMinusDa * scale) : 0,

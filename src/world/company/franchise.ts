@@ -41,5 +41,6 @@ export function licenceDay(w: CompanyWorld, c: Company, day: number): void {
     const royalty = lic.rate * lic.revenuePerDay;
     post(w, c, day, 'royalty', royalty);
     c.qtd.revenue += royalty;
+    c.qtd.ocf += royalty;
   }
 }

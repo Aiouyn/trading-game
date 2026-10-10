@@ -316,7 +316,15 @@ export const COMPANY = {
     insiderOddsCap: 0.6,
     /** the evidence a case needs before the backstop can act (the civil bar) */
     insiderBar: 40,
+    /** an account holding at least this share of the company's shares is an insider (spec 5.3) */
+    insiderStake: 0.10,
   },
+  /**
+   * Contracts with player accounts (B2, spec 5.3 covered payments, 6.3): a contractor's fee and a loan from a player each
+   * run for `termDays`. A loan is repaid in equal daily amounts over the term. `marketPerDay` is the market day rate of a
+   * contractor (a proposal: the band of supply.band applies to it, spec 6.3). `minLoan` is the smallest loan (a proposal).
+   */
+  contract: { termDays: 126, marketPerDay: 300, minLoan: 1_000 },
   /** Franchising (B2, C4): a licence to an NPC operator for a 4 to 8% royalty on its revenue; at most 3 per sector. */
   franchise: {
     rateMin: 0.04,

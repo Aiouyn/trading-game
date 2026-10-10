@@ -7,6 +7,7 @@
 import { COMPANY, type CompanyTierId } from '@/content/company';
 import { sha256Hex } from './hash';
 import { headcountBand, ttmFiled } from './signals';
+import { loanBook } from './contracts';
 import { totalHeads } from './staff';
 import type { Company, FilingPublic, Resolved, Statements } from './types';
 
@@ -58,6 +59,7 @@ export function buildStatements(c: Company, closeDay: number, quarter: number, t
   const ebit = ebitda - q.da;
   const ni = ebit - tax;
   const bl = openBookTotals(c);
+  const lb = loanBook(c);
   const retained = c.retained + ni;
   return {
     quarter,
@@ -65,6 +67,8 @@ export function buildStatements(c: Company, closeDay: number, quarter: number, t
     revenue: q.revenue,
     relatedRevenue: q.relatedRevenue ?? 0,
     relatedCash: c.relatedCash ?? 0,
+    debt: lb.debt,
+    loansOut: lb.loansOut,
     cogs: q.cogs,
     opex: q.opex,
     ebitda,
@@ -166,9 +170,10 @@ export function filingOf(s: Statements, hash: string, filedDay: number, reversal
       receivables: s.receivables,
       inventory: s.inventory,
       ppe: s.ppe,
-      debt: 0,
+      debt: s.debt ?? 0,
       equity: s.equity,
       retainedEarnings: s.retained,
+      loansOut: s.loansOut ?? 0,
     },
     cashFlow: { ocf: s.ocf, capex: s.capex, capexMaint: s.da, fcf: s.fcf, dividends: 0, buybacks: 0 },
     headcountBand: headcountBand(heads),

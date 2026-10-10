@@ -97,7 +97,7 @@ describe('supply deals at the market reference (C4, spec 6.3, N1)', () => {
     expect(openSupply(h.w, buyer, h.env, 'founder', { sellerId: seller.id, unitsPerDay: 0, price: 50 }).ok).toBe(false);
   });
 
-  it('a deal moves money between the two books as a transfer, and an unfunded buyer pays nothing that day', () => {
+  it('a deal moves money between the two books as a transfer; the buyer books the cost, the seller books other income', () => {
     const h = harness();
     const buyer = found(h, 'founder');
     const seller = found(h, 'stranger');
@@ -106,16 +106,35 @@ describe('supply deals at the market reference (C4, spec 6.3, N1)', () => {
     const b0 = buyer.cash;
     const s0 = seller.cash;
     const rev0 = seller.qtd.revenue;
-    supplyDay(h.w, buyer, 5);
+    const cogs0 = buyer.qtd.cogs;
+    const ocf0 = buyer.qtd.ocf;
+    supplyDay(h.w, buyer, h.env, 5);
     expect(buyer.cash - b0).toBe(-500);
     expect(seller.cash - s0).toBe(500);
-    expect(seller.qtd.revenue - rev0).toBe(500);
-    expect(seller.qtd.relatedRevenue ?? 0).toBe(0);
+    // the buyer's payment is a cost of the period (COGS and OCF): the filed net income sees it
+    expect(buyer.qtd.cogs - cogs0).toBe(500);
+    expect(buyer.qtd.ocf - ocf0).toBe(-500);
+    // the seller's income from a player-owned buyer is other income, out of Rev_u (Q11)
+    expect(seller.qtd.revenue - rev0).toBe(0);
+    expect(seller.qtd.relatedRevenue).toBe(500);
     expect(identity(h)).toBeCloseTo(id0, 9);
     buyer.cash = 10;
     const s1 = seller.cash;
-    supplyDay(h.w, buyer, 6);
+    supplyDay(h.w, buyer, h.env, 6);
     expect(seller.cash).toBe(s1);
+  });
+
+  it('the buyer records every supply payment in its own covered log, with the seller as the recipient', () => {
+    const h = harness();
+    const buyer = found(h, 'founder');
+    const seller = found(h, 'rival');
+    linkOwner(h.w, 'rival', 'founder');
+    expect(openSupply(h.w, buyer, h.env, 'founder', { sellerId: seller.id, unitsPerDay: 10, price: 50 }).ok).toBe(true);
+    supplyDay(h.w, buyer, h.env, 5);
+    expect(buyer.payouts).toHaveLength(1);
+    expect(buyer.payouts![0]).toMatchObject({ kind: 'related', toPlayerId: 'rival', toCompanyId: seller.id, covered: 500, insider: true });
+    // the seller's log holds nothing: the default of the seller cannot claw the buyer's payment from the owner
+    expect(seller.payouts ?? []).toHaveLength(0);
   });
 
   it('N1: related revenue is never revenue for the valuation: a twin run with and without the related supply is identical', () => {
@@ -144,6 +163,26 @@ describe('supply deals at the market reference (C4, spec 6.3, N1)', () => {
     // the money of the three players is conserved: the related supply only moved cash between two books of one group
     expect(identity(with_)).toBeCloseTo(15_000_000, 3);
     expect(ownerSetOf(with_.w, 'rival')).toEqual(['founder', 'rival']);
+  });
+
+  it('N1 exploit: a related supply cannot inflate the buyer valuation, its cost is booked (the buyer is worth less, never more)', () => {
+    const with_ = harness('n1-buyer');
+    const bA = found(with_, 'founder');
+    const sA = found(with_, 'rival');
+    linkOwner(with_.w, 'rival', 'founder');
+    expect(openSupply(with_.w, bA, with_.env, 'founder', { sellerId: sA.id, unitsPerDay: 20, price: 55 }).ok).toBe(true);
+    run(with_, 0, 70);
+
+    const without = harness('n1-buyer');
+    const bB = found(without, 'founder');
+    found(without, 'rival');
+    linkOwner(without.w, 'rival', 'founder');
+    run(without, 0, 70);
+
+    expect(bA.filings.length).toBeGreaterThan(0);
+    // the filed net income of the buyer is lower by the supply cost, and so is its private value
+    expect(bA.filings[0]!.income.netIncome).toBeLessThan(bB.filings[0]!.income.netIncome);
+    expect(privateValue(bA, 70)).toBeLessThanOrEqual(privateValue(bB, 70) + 1e-6);
   });
 });
 

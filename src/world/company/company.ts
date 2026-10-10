@@ -15,6 +15,7 @@ import { announceCeoChange, boardVote, ceoDay, execDay, fireExec, hireExec, setG
 import { bankrupt, insolvencyStep } from './failure';
 import { grantLicence, licenceDay } from './franchise';
 import { openSupply, supplyDay } from './supply';
+import { contractDay, lendToCompany, lendToPlayer, loanBook, prepayLoan, repayLoanOut, signContractor } from './contracts';
 
 export type CompanyAction =
   | { kind: 'hire'; role: CompanyRole; n: number }
@@ -31,7 +32,14 @@ export type CompanyAction =
   | { kind: 'changeCEO'; successor: Holder }
   | { kind: 'guarantee'; amount: number }
   | { kind: 'licence'; rate: number }
-  | { kind: 'supply'; sellerId: string; unitsPerDay: number; price: number };
+  | { kind: 'supply'; sellerId: string; unitsPerDay: number; price: number }
+  | { kind: 'takeoverStance'; stance: 'yes' | 'no' }
+  | { kind: 'contract'; payeeId: string; perDay: number }
+  | { kind: 'lendOut'; payeeId: string; amount: number }
+  | { kind: 'prepayLoan'; contractId: string; amount: number }
+  /* the lender's and the borrower's own acts (not the controller's): a loan in, and a repayment of a loan out */
+  | { kind: 'lend'; amount: number }
+  | { kind: 'repayLoan'; contractId: string; amount: number };
 
 /** What the core needs from the world: the seed, the day, the market's regime, oil, the founder's rank and cash. */
 export interface CompanyEnv {
@@ -41,12 +49,16 @@ export interface CompanyEnv {
   /** ln P_OIL (absolute); the input index uses its move since founding */
   oilLog: number;
   rankOf(playerId: string): string;
+  /** the share of a listed company's shares a player holds (0 for a private company): the insider test (spec 5.3) */
+  stakeOf?(playerId: string, companyId: string): number;
   money: {
     cash(playerId: string): number;
     /** moves cash out of a player's account into a company (a transfer, not a sink) */
     take(playerId: string, amount: number): void;
-    /** pays a player's account (an executive's salary or severance, B2); a transfer, not a faucet */
+    /** pays a player's account (an executive's salary or severance, a contractor's fee, B2); a transfer, not a faucet */
     give?(playerId: string, amount: number): void;
+    /** sells one of the player's T1 businesses for a clawback that is short (B2, spec 5.3); returns the price, 0 if none */
+    sellT1?(playerId: string): number;
   };
 }
 
@@ -156,6 +168,9 @@ export function companyAction(
 ): Outcome<Record<string, unknown>> {
   const c = w.companies[companyId];
   if (!c) return { ok: false, reject: { code: 'unknownCompany' } };
+  // a lender lends to the company, and a borrower repays it: these are the other party's acts, not the controller's
+  if (action.kind === 'lend') return lendToCompany(w, c, env, playerId, action.amount);
+  if (action.kind === 'repayLoan') return repayLoanOut(w, c, env, playerId, action);
   if (c.ownerId !== playerId) return { ok: false, reject: { code: 'notFounder' } };
   if (c.bankrupt) return { ok: false, reject: { code: 'companyBankrupt' } };
   const day = env.day;
@@ -241,6 +256,13 @@ export function companyAction(
     case 'guarantee': return setGuarantee(c, env, playerId, action.amount);
     case 'licence': return grantLicence(w, c, env, playerId, action.rate);
     case 'supply': return openSupply(w, c, env, playerId, { sellerId: action.sellerId, unitsPerDay: action.unitsPerDay, price: action.price });
+    case 'takeoverStance': {
+      c.founderStance = action.stance;
+      return { ok: true, value: { stance: action.stance } };
+    }
+    case 'contract': return signContractor(w, c, env, playerId, { payeeId: action.payeeId, perDay: action.perDay });
+    case 'lendOut': return lendToPlayer(w, c, env, playerId, { payeeId: action.payeeId, amount: action.amount });
+    case 'prepayLoan': return prepayLoan(w, c, env, playerId, { contractId: action.contractId, amount: action.amount });
   }
   return { ok: false, reject: { code: 'unknownAction' } };
 }
@@ -259,10 +281,12 @@ export function privateInputs(c: Company, day: number): ValuationInputs {
   const q = c.qtd;
   const elapsed = day - q.startDay;
   const quarters = COMPANY.yearDays / COMPANY.quarterDays;
+  const lb = loanBook(c);
   const base = {
     growth: 0,
     credibility: COMPANY.valuation.cInit,
-    netDebt: -(c.cash - (c.relatedCash ?? 0)),
+    // net debt: the loans from players and the cash, with the related cash out (N1) and the loans to players as receivables
+    netDebt: lb.debt - (c.cash - (c.relatedCash ?? 0)) - lb.loansOut,
     dCB: 0,
   };
   if (elapsed >= COMPANY.valuation.privateMarkDays) {
@@ -615,7 +639,8 @@ export function companyTick(w: CompanyWorld, env: CompanyEnv, day: number): Comp
       operateDay(w, c, env, day - 1);
       execDay(w, c, env, day - 1);
       licenceDay(w, c, day - 1);
-      supplyDay(w, c, day - 1);
+      supplyDay(w, c, env, day - 1);
+      contractDay(w, c, env, day - 1);
       updateDistress(c, day - 1, events);
       if (insolvencyStep(c)) {
         const r = bankrupt(w, c, env, day - 1);

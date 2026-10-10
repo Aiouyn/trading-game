@@ -5,7 +5,7 @@ import {
   type AssetDef, type WorldState,
 } from '@/engine';
 import { foundCompany, emptyCompanyWorld, type CompanyEnv } from './company';
-import { bid, marketShareOf, observeStakes, t0Of, tenderFloor, type BidArgs } from './takeover';
+import { bid, marketShareOf, observeStakes, preAttackFloor, preAttackVwap, recordTape, t0Of, type BidArgs } from './takeover';
 import type { Company, CompanyWorld } from './types';
 
 const TPD = 10;
@@ -43,13 +43,17 @@ function setup(): Setup {
   target.capTable = { 'founder:founder': 100 };
   target.shares = 100;
   target.listed = { assetId: 'CO', ipoDay: 0, sharesOut: 100, floatShares: 50 };
+  // the founder's standing answer is yes (the founder's own vote; a bidder cannot set it)
+  target.founderStance = 'yes';
+  // a quiet pre-attack history: $1 a share on 1,000 shares a day, every day up to the announcement
+  for (let d = 0; d < 100; d++) recordTape(w, target, d, 1, 100);
   return { eng, w, env, target };
 }
 
 function args(over: Partial<BidArgs> = {}): BidArgs {
   return {
     companyId: 'co1', bidderId: 'bidder', bidder: { kind: 'player', playerId: 'bidder', sector: 'staples', share: 0 },
-    price: 1.5, founderVote: 'yes', covered: ['bidder'], ...over,
+    price: 1.5, covered: ['bidder'], ...over,
   };
 }
 
@@ -60,13 +64,13 @@ function totalCash(eng: WorldState): number {
 describe('takeover pre-attack T0 and the floor (spec 9.2, X8)', () => {
   it('T0 is the earliest of 63 gd before the announcement, the first net short and the first big sell', () => {
     const { w, target } = setup();
-    expect(t0Of(w, target, 'bidder', 100)).toBe(37);
+    expect(t0Of(w, target, ['bidder'], 100)).toBe(37);
     w.watch = { [target.id]: { bidder: { lastQty: 0, firstShort: 60, bigSell: 45 } } };
-    expect(t0Of(w, target, 'bidder', 100)).toBe(37);
+    expect(t0Of(w, target, ['bidder'], 100)).toBe(37);
     w.watch[target.id]!.bidder = { lastQty: 0, firstShort: 30, bigSell: 45 };
-    expect(t0Of(w, target, 'bidder', 100)).toBe(30);
+    expect(t0Of(w, target, ['bidder'], 100)).toBe(30);
     w.watch[target.id]!.bidder = { lastQty: 0, firstShort: 60, bigSell: 20 };
-    expect(t0Of(w, target, 'bidder', 100)).toBe(20);
+    expect(t0Of(w, target, ['bidder'], 100)).toBe(20);
   });
 
   it('the watch records the first net short and a sell of over 0.5% of float in one day', () => {
@@ -85,15 +89,40 @@ describe('takeover pre-attack T0 and the floor (spec 9.2, X8)', () => {
     expect(w.watch![target.id]!.bidder!.bigSell).toBe(15);
   });
 
-  it('the floor is 1.2 x VWAP30 ending on T0 - 1, not on the latest close', () => {
-    const { eng } = setup();
-    const i = eng.config.assets.findIndex((a) => a.id === 'CO');
-    // 40 closed days: $10 on days 0 to 34 (the window ending on T0 - 1 = 34), $100 after
-    const bars = Array.from({ length: 40 }, (_, d) => ({ c: d <= 34 ? 10 : 100, n: 0, u: 100 }));
-    const withBars: WorldState = { ...eng, assets: eng.assets.map((a, k) => (k === i ? { ...a, bars } : a)) };
-    expect(tenderFloor(withBars, 'CO', 35, 40)).toBeCloseTo(12, 9);
-    // the same window on T0 = 40 is the last 30 days, which include the $100 days
-    expect(tenderFloor(withBars, 'CO', 40, 40)).toBeGreaterThan(12);
+  it('the floor is 1.2 x VWAP30 over the days ending on T0 - 1, not the latest close', () => {
+    const { w, target } = setup();
+    // a fresh history: $10 on days 0 to 34, $100 on days 35 to 80
+    w.tape = { [target.id]: Array.from({ length: 81 }, (_, d) => ({ day: d, c: d <= 34 ? 10 : 100, u: 100 })) };
+    expect(preAttackVwap(w, target, 35)).toBeCloseTo(10, 9);
+    expect(preAttackFloor(w, target, 35)).toBeCloseTo(12, 9);
+    // the same 30 days on T0 = 40 include the $100 days, so the floor is higher
+    expect(preAttackFloor(w, target, 40)!).toBeGreaterThan(12);
+  });
+
+  it('a long pressure on the price (more than 30 gd of shorting) does not lower the floor: it stays at the pre-attack price', () => {
+    const { w, target } = setup();
+    // $10 on days 0 to 59 (the pre-attack window of T0 = 60 is days 30 to 59), then the price is pushed to $0.50 for 60 days
+    w.tape = { [target.id]: Array.from({ length: 121 }, (_, d) => ({ day: d, c: d < 60 ? 10 : 0.5, u: 100 })) };
+    expect(preAttackFloor(w, target, 60)).toBeCloseTo(12, 9);
+    // a bid after the pressure is still floored at the pre-attack price, and a bid at the depressed price is refused
+    const eng = setup().eng;
+    const r = bid(w, eng, 120, args({ price: 1 }));
+    expect(r).toEqual({ ok: false, reject: { code: 'takeoverBelowFloor', floor: expect.closeTo(12, 6) } });
+  });
+
+  it('with no pre-attack trading there is no floor, and the bid is refused rather than floored at a later price', () => {
+    const { eng, w, target } = setup();
+    w.tape = { [target.id]: [{ day: 90, c: 0.5, u: 100 }] };
+    expect(preAttackFloor(w, target, 37)).toBeNull();
+    expect(bid(w, eng, 100, args({ price: 100 }))).toEqual({ ok: false, reject: { code: 'takeoverNoFloor' } });
+  });
+
+  it('T0 counts the whole owner set: a linked account that shorts first moves T0 for the bid', () => {
+    const { w, target } = setup();
+    w.linked = { alt: 'bidder' };
+    w.watch = { [target.id]: { alt: { lastQty: -5, firstShort: 20, bigSell: undefined } } };
+    expect(t0Of(w, target, ['bidder'], 100)).toBe(37);
+    expect(t0Of(w, target, ['bidder', 'alt'], 100)).toBe(20);
   });
 });
 
@@ -121,11 +150,21 @@ describe('takeover bids (spec 9.2, DECISIONS C4)', () => {
 
   it('the price must clear the floor from T0, and the board must approve it', () => {
     const { eng, w, target } = setup();
-    const floor = tenderFloor(eng, 'CO', t0Of(w, target, 'bidder', 100), 100);
+    const floor = preAttackFloor(w, target, t0Of(w, target, ['bidder'], 100))!;
     expect(bid(w, eng, 100, args({ price: floor - 0.01 }))).toEqual({ ok: false, reject: { code: 'takeoverBelowFloor', floor } });
-    expect(bid(w, eng, 100, args({ price: floor + 0.01, founderVote: 'no' }))).toEqual({
+    // the founder's standing answer is no: the board rejects a bid above the floor (a bidder cannot cast the founder's vote)
+    target.founderStance = 'no';
+    expect(bid(w, eng, 100, args({ price: floor + 0.01 }))).toEqual({
       ok: false, reject: { code: 'boardRejected', yes: 0, no: 100 },
     });
+  });
+
+  it('the founder decides the vote, not the bidder: a bid carries no founder vote at all', () => {
+    const { eng, w, target } = setup();
+    target.founderStance = 'no';
+    const r = bid(w, eng, 100, { ...args(), founderVote: 'yes' } as unknown as BidArgs);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reject.code).toBe('boardRejected');
   });
 
   it('an unfunded bidder cannot pay the whole tender', () => {

@@ -8,10 +8,16 @@ import type { CompanyReject, CompanyWorld, Company } from './types';
  * Takeovers (spec 9.2, X8, N13, DECISIONS C4). A bid is an all-holder tender at one price, settled by the engine
  * (companyAssets.tenderOffer). This file holds what the engine does not: the pre-attack start T0 and the floor that follows
  * from it, the antitrust refusal above 60% of the sector, the self-dealing guard, and the target board's vote (share-weighted;
- * NPC pools approve iff the price is at or above fair value per share). An accepted bid moves the company to the bidder.
+ * NPC pools approve iff the price is at or above fair value per share). The founder's own vote is the target's standing
+ * stance, which only the founder sets (`company.act` takeoverStance); a bidder cannot cast it. An accepted bid moves the
+ * company to the bidder.
  *
- * Gaps (stated, not hidden): T0 counts the bidder's own account only, not its linked accounts (the owner set is not in the
- * company world); the engine's floor is still checked on the current VWAP30 as well, so the stricter of the two applies.
+ * The floor is 1.2 x the company's VWAP over the 30 closed game days ending on T0 - 1, read from the company's own daily
+ * history (`CompanyWorld.tape`), not from the engine's bar buffer (which keeps 30 bars and would not reach T0 in play). The
+ * engine checks its own floor on the current VWAP30 too, so the stricter of the two applies. T0 counts every account of the
+ * bidder's owner set (spec 9.2).
+ *
+ * Gap (stated): NPC acquirers bid through this API only; no NPC acquirer makes a scheduled bid in v1.
  */
 
 export interface Bidder {
@@ -29,9 +35,7 @@ export interface BidArgs {
   bidderId: string;
   bidder: Bidder;
   price: number;
-  /** the controlling vote of the target's founder (the board's share-weighted vote, C4) */
-  founderVote: 'yes' | 'no';
-  /** every player id in the bidder's owner set (the bidder, its alts and alliance mates): the self-dealing guard */
+  /** every player id in the bidder's owner set (the bidder, its alts and alliance mates): the self-dealing guard and T0 */
   covered: string[];
 }
 
@@ -63,42 +67,59 @@ export function observeStakes(w: CompanyWorld, c: Company, qtyByAccount: Record<
   }
 }
 
-/** T0 (spec 9.2): the earliest of the bidder's first net short, its first big sell, and 63 gd before the announcement. */
-export function t0Of(w: CompanyWorld, c: Company, bidderId: string, announceDay: number): number {
-  const rec = w.watch?.[c.id]?.[bidderId];
+/**
+ * Appends the company's close and volume of one game day to its history (the pre-attack floor reads it). Called once a day
+ * for each listed company, with the day that just closed.
+ */
+export function recordTape(w: CompanyWorld, c: Company, day: number, close: number, units: number): void {
+  w.tape ??= {};
+  const h = (w.tape[c.id] ??= []);
+  if (h.length > 0 && h[h.length - 1]!.day >= day) return;
+  h.push({ day, c: close, u: units });
+  if (h.length > 1000) h.splice(0, h.length - 1000);
+}
+
+/**
+ * T0 (spec 9.2): the earliest of 63 gd before the announcement, and, over the accounts of the bidder's owner set, the first
+ * day one is net short in the target and the first day one sells more than 0.5% of float in a day.
+ */
+export function t0Of(w: CompanyWorld, c: Company, accounts: string[], announceDay: number): number {
   const candidates = [announceDay - COMPANY.takeover.preAttackDays];
-  if (rec?.firstShort !== undefined) candidates.push(rec.firstShort);
-  if (rec?.bigSell !== undefined) candidates.push(rec.bigSell);
+  for (const acct of accounts) {
+    const rec = w.watch?.[c.id]?.[acct];
+    if (rec?.firstShort !== undefined) candidates.push(rec.firstShort);
+    if (rec?.bigSell !== undefined) candidates.push(rec.bigSell);
+  }
   return Math.min(...candidates);
 }
 
 /**
- * The floor: 1.2 x the target's VWAP over the 30 closed game days ending on T0 - 1 (spec 9.2). The engine keeps the last
- * BARS_KEPT closes without a day index, so day T0 - 1 is found by counting back from the latest close (the close of
- * `day` - 1). With no volume in that window, the floor uses the price at T0 - 1 (the last price the engine holds).
+ * The pre-attack VWAP: sum(close x units) / sum(units) over the closed game days in [T0 - 30, T0 - 1], from the company's
+ * history. Null when the company traded in none of those days (no pre-attack price to set a floor from).
  */
-export function tenderFloor(eng: WorldState, assetId: string, t0: number, day: number): number {
-  const i = eng.config.assets.findIndex((a) => a.id === assetId);
-  const st = eng.assets[i]!;
-  const bars = st.bars ?? [];
-  const end = bars.length - 1 - (day - t0);
+export function preAttackVwap(w: CompanyWorld, c: Company, t0: number): number | null {
+  const lo = t0 - COMPANY.takeover.vwapDays;
   let num = 0;
   let units = 0;
-  if (end >= 0) {
-    for (const b of bars.slice(Math.max(0, end - COMPANY.takeover.vwapDays + 1), end + 1)) {
-      num += b.c * b.u;
-      units += b.u;
-    }
+  for (const b of w.tape?.[c.id] ?? []) {
+    if (b.day < lo || b.day >= t0) continue;
+    num += b.c * b.u;
+    units += b.u;
   }
-  const vw = units > 0 ? num / units : Math.exp(st.lnP);
-  return COMPANY.takeover.floorRatio * vw;
+  return units > 0 ? num / units : null;
+}
+
+/** The floor of a bid from T0 (spec 9.2): 1.2 x the pre-attack VWAP, or null when there is no pre-attack trading. */
+export function preAttackFloor(w: CompanyWorld, c: Company, t0: number): number | null {
+  const vw = preAttackVwap(w, c, t0);
+  return vw === null ? null : COMPANY.takeover.floorRatio * vw;
 }
 
 /**
  * Bids for a listed company. Refusals, in order: not a listed company, a bankrupt one, a self-dealing bidder, no bidder
- * account, antitrust (the combined share of the sector above 60% when the bidder is in the same sector), the floor, the
- * board's vote, and the engine's settlement (unfunded). Accepted, the company moves to the bidder: the stock is delisted and
- * the company's capital belongs to the bidder (a player) or to the NPC acquirer's account.
+ * account, antitrust (the combined share of the sector above 60% when the bidder is in the same sector), no pre-attack
+ * trading, the floor, the board's vote, and the engine's settlement (unfunded). Accepted, the company moves to the bidder:
+ * the stock is delisted and the company's capital belongs to the bidder (a player) or to the NPC acquirer's account.
  */
 export function bid(w: CompanyWorld, eng: WorldState, day: number, a: BidArgs): BidResult {
   const c = w.companies[a.companyId];
@@ -112,12 +133,13 @@ export function bid(w: CompanyWorld, eng: WorldState, day: number, a: BidArgs): 
   const combined = a.bidder.sector === c.sector ? a.bidder.share + targetShare : 0;
   if (combined > COMPANY.npc.antitrustShare) return { ok: false, reject: { code: 'antitrustBlock', share: Math.round(combined * 100) } };
 
-  const t0 = t0Of(w, c, a.bidderId, day);
-  const floor = tenderFloor(eng, c.listed.assetId, t0, day);
+  const t0 = t0Of(w, c, [a.bidderId, ...a.covered], day);
+  const floor = preAttackFloor(w, c, t0);
+  if (floor === null) return { ok: false, reject: { code: 'takeoverNoFloor' } };
   if (!(a.price >= floor)) return { ok: false, reject: { code: 'takeoverBelowFloor', floor } };
 
   const fairPerShare = privateValue(c, day) / c.shares;
-  const vote = boardVote(c, { founderVote: a.founderVote, price: a.price, fairPerShare, npcRule: 'price' });
+  const vote = boardVote(c, { founderVote: c.founderStance ?? 'no', price: a.price, fairPerShare, npcRule: 'price' });
   if (!vote.passed) return { ok: false, reject: { code: 'boardRejected', yes: vote.yes, no: vote.no } };
 
   const r = tenderOffer(eng, c.listed.assetId, a.price, a.bidderId);
@@ -133,6 +155,7 @@ export function bid(w: CompanyWorld, eng: WorldState, day: number, a: BidArgs): 
   c.ownerId = a.bidder.kind === 'player' ? (a.bidder.playerId ?? a.bidderId) : `npc:acq:${a.bidderId}`;
   c.capTable = { [holder]: c.shares };
   c.listed = null;
+  c.founderStance = undefined;
   if (w.watch) delete w.watch[c.id];
   return { ok: true, world: w, engine: r.state, events: r.events, floor, t0 };
 }

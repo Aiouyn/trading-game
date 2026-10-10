@@ -1,16 +1,19 @@
 import { COMPANY } from '@/content/company';
 import { post } from './books';
+import { insiderNow } from './contracts';
 import { addSurveillance, recordPayout } from './failure';
 import { ownerGroup } from './owners';
 import type { CompanyEnv, Outcome } from './company';
 import type { Company, CompanyWorld, SupplyDeal } from './types';
 
 /**
- * Supply deals (DECISIONS C4, spec 6.3, N1). A buyer company takes units from a seller company each game day at a price
- * inside the band of the market reference (+-10%). A deal between companies of one owner set is related: its revenue
- * never counts in the seller's reported revenue (`relatedRevenue` is filed as related-party income, and it stays out of the
- * valuation's Rev_u), and the seller's owner is the first recipient of a covered payment. A price outside the band is
- * refused for a related deal, and adds surveillance points (spec 6.3). Money moves between the two books as a transfer.
+ * Supply deals (DECISIONS C4, spec 6.3, N1, Q11). A buyer company takes units from a seller company each game day at a price
+ * inside the band of the market reference (+-10%). Every supply deal has a player-owned buyer, so the seller's income is
+ * other income: it is filed apart (`relatedRevenue`) and stays out of Rev_u, NI_adj and the valuation. The buyer books the
+ * payment as a cost (COGS, and OCF), since costs paid to related parties count (the conservative side). The buyer's payment
+ * is a covered payment of the buyer's own log, so a default by the buyer claws it back from the seller (spec 5.3). A deal
+ * inside one owner set is related: only its cash is kept out of net debt (N1). A price outside the band is refused for a
+ * related deal, and adds surveillance points (spec 6.3). Money moves between the two books as a transfer.
  */
 
 /** The market reference price per unit for a supply contract (the list price the sector's buyers pay). */
@@ -42,6 +45,7 @@ export function openSupply(
   const deal: SupplyDeal = {
     id: `${buyer.id}:sup${(buyer.supplyDeals?.length ?? 0) + 1}`, sellerId: seller.id, buyerId: buyer.id,
     unitsPerDay: args.unitsPerDay, price: args.price, related, signedDay: env.day,
+    insiderAtSigning: insiderNow(w, buyer, seller.ownerId, env),
   };
   buyer.supplyDeals = [...(buyer.supplyDeals ?? []), deal];
   return { ok: true, value: { id: deal.id, related } };
@@ -51,7 +55,7 @@ export function openSupply(
  * The day's supply flows for one buyer. A deal is paid only when the buyer has the cash for it (no partial day, no credit):
  * a short buyer's day is skipped. The seller books the revenue, reported apart when the deal is related.
  */
-export function supplyDay(w: CompanyWorld, buyer: Company, day: number): void {
+export function supplyDay(w: CompanyWorld, buyer: Company, env: CompanyEnv, day: number): void {
   if (buyer.bankrupt) return;
   for (const deal of buyer.supplyDeals ?? []) {
     const seller = w.companies[deal.sellerId];
@@ -59,17 +63,18 @@ export function supplyDay(w: CompanyWorld, buyer: Company, day: number): void {
     const amount = deal.unitsPerDay * deal.price;
     if (buyer.cash < amount) continue;
     post(w, buyer, day, 'supplyCost', -amount, true);
+    buyer.qtd.cogs += amount;
+    buyer.qtd.ocf -= amount;
     post(w, seller, day, 'supplyRevenue', amount, true);
+    seller.qtd.relatedRevenue = (seller.qtd.relatedRevenue ?? 0) + amount;
     if (deal.related) {
       seller.relatedCash = (seller.relatedCash ?? 0) + amount;
       buyer.relatedCash = (buyer.relatedCash ?? 0) - amount;
-      seller.qtd.relatedRevenue = (seller.qtd.relatedRevenue ?? 0) + amount;
-      recordPayout(seller, {
-        day, toPlayerId: seller.ownerId, amount, covered: amount, kind: 'related',
-        termsDay: deal.signedDay, flagged: false, insider: true,
-      });
-    } else {
-      seller.qtd.revenue += amount;
     }
+    recordPayout(buyer, {
+      day, toPlayerId: seller.ownerId, toCompanyId: seller.id, amount, covered: amount,
+      kind: deal.related ? 'related' : 'contractor', termsDay: deal.signedDay, flagged: false,
+      insider: (deal.insiderAtSigning ?? false) || insiderNow(w, buyer, seller.ownerId, env),
+    });
   }
 }
