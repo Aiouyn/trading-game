@@ -49,7 +49,9 @@ describe('the daily close card (D-7)', () => {
       const card = dayClose(g, 'u1', 1)!;
       const p = g.players.u1!;
       expect(Math.abs(card.nwClose - p.markNetWorth!)).toBeLessThan(0.005);
-      expect(Math.abs(card.nwChange - (card.nwClose - card.nwOpen))).toBeLessThan(1e-9);
+      // the change against the stored day records, not the card's own fields
+      const days = g.ledgers!.u1!.days;
+      expect(card.nwChange).toBeCloseTo(days[1]!.nw - days[0]!.nw, 9);
       expect(card.nwOpen).toBeCloseTo(g.ledgers!.u1!.days[0]!.nw, 9);
     }
   });

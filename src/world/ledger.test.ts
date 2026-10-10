@@ -5,7 +5,8 @@ import { assetIndex } from '@/engine/trading';
 import { applyCommand, createGame, stepGame } from './game';
 import { credit } from './core';
 import { refreshNetWorth } from './assets';
-import { bookStock, expireOption, ledgerOf, recordOptionTrade, reasonFor, settleHolders, tradesOf } from './ledger';
+import { bookStock, expireOption, ledgerOf, ledgerTick, priceEquity, recordOptionTrade, reasonFor, settleHolders, tradesOf } from './ledger';
+import { equityOf } from '@/engine';
 import { applyRank } from './players';
 import { FILL_REASONS } from './ledger-types';
 import type { GameState, Command } from './types';
@@ -225,3 +226,50 @@ describe('the trade ledger', () => {
     expect(reasonFor(g, 'u1', 'o3', false)).toBe('order');
   });
 });
+
+describe('ledger hygiene and the benchmark basis', () => {
+  it('a world tag is dropped once its order is no longer open, even when the order never fills', () => {
+    const g = game('tag-prune');
+    join(g, 'u1', 0);
+    const L = ledgerOf(g, 'u1')!;
+    L.plans.tags['open-order'] = 'recurring_buy';
+    L.plans.tags['cancelled-order'] = 'block_slice';
+    g.market.orders.push({
+      id: 'open-order', playerId: 'u1', assetId: 'HLCN', side: 'buy', type: 'limit', qty: 1, limitPrice: 1, tif: 'gtc',
+      status: 'open', placedTick: g.market.tick, triggered: false, filledQty: 0, avgFillPrice: 0, feesPaid: 0,
+    } as never);
+    g.market.orders.push({
+      id: 'cancelled-order', playerId: 'u1', assetId: 'HLCN', side: 'buy', type: 'market', qty: 1, tif: 'gtc',
+      status: 'cancelled', placedTick: g.market.tick, closedTick: g.market.tick, triggered: false, filledQty: 0, avgFillPrice: 0, feesPaid: 0,
+    } as never);
+    ledgerTick(g, [], []);
+    expect(L.plans.tags).toEqual({ 'open-order': 'recurring_buy' });
+  });
+
+  it('the benchmark equity leaves out dividends, cash interest and borrow fees made after join, and keeps trading fees', () => {
+    const g = game('price-equity');
+    join(g, 'u1', 0);
+    const L = ledgerOf(g, 'u1')!;
+    const acct = g.market.accounts.u1!;
+    const plain = equityOf(g.market, acct);
+    expect(priceEquity(g, 'u1', L)).toBeCloseTo(plain, 9);
+    acct.dividends = (acct.dividends ?? 0) + 120;
+    acct.interestEarned = (acct.interestEarned ?? 0) + 30;
+    acct.interestPaid = (acct.interestPaid ?? 0) + 10;
+    acct.borrowPaid = (acct.borrowPaid ?? 0) + 5;
+    expect(priceEquity(g, 'u1', L)).toBeCloseTo(plain - 120 - 30 + 10 + 5, 9);
+    acct.feesPaid += 7; // trading fees stay in: a cost of the trade, as the ghosts' costless design implies
+    expect(priceEquity(g, 'u1', L)).toBeCloseTo(plain - 120 - 30 + 10 + 5, 9);
+  });
+
+  it('a non-trading cash move moves the ledger start cash with the baseline, as adjustCash does', () => {
+    const g = game('start-cash');
+    join(g, 'u1', 0);
+    const L = ledgerOf(g, 'u1')!;
+    const before = L.startCash;
+    credit(g, 'u1', 1000, 'test');
+    expect(L.startCash).toBeCloseTo(before + 1000, 9);
+    expect(g.market.accounts.u1!.startingCash).toBeCloseTo(before + 1000, 9);
+  });
+});
+

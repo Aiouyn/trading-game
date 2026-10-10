@@ -96,6 +96,8 @@ export interface BlockPlan {
   remaining: number;
   slicesLeft: number;
   slices: number;
+  /** extra slices spent on an unfilled remainder (capped at BLOCK.maxRetries) */
+  retries: number;
   nextTick: number;
   lastOrderId: string | null;
   /** expected cash in (sell) or out (buy) from estimateFill on one slice, times the slices */
@@ -111,7 +113,7 @@ export interface PlanState {
   /** dividend cash not yet spent on whole shares, per asset (DRIP buys whole shares once a share is covered) */
   carry: Record<string, number>;
   blocks: BlockPlan[];
-  /** reason tag for orders the world placed, keyed by order id (cleared when the order closes) */
+  /** reason tag for orders the world placed, keyed by order id (dropped when the order is no longer open) */
   tags: Record<string, FillReason>;
 }
 
@@ -135,7 +137,7 @@ export interface DayRecord {
   day: number;
   /** liquidation-value net worth at this close (the rank metric) */
   nw: number;
-  /** mark-to-market equity at this close: cash plus positions at closes (the same basis as the ghosts) */
+  /** price-only equity at this close: cash plus positions at closes, without dividends, interest and borrow fees (the ghosts' basis) */
   equity: number;
   /** signed quantity per asset at this close: the next day's open */
   qty: Record<string, number>;
@@ -183,10 +185,20 @@ export interface DayClose {
   px: Record<string, number>;
 }
 
+/** The engine's running non-price flows on an account (dividends, interest, borrow fees), as they stood at a point. */
+export interface FlowTotals {
+  dividends: number;
+  interestEarned: number;
+  interestPaid: number;
+  borrowPaid: number;
+}
+
 /** Everything the ledger keeps for one human player. */
 export interface PlayerLedger {
-  /** the cash at join (after the sign-up grant): the basis the ghosts start from */
+  /** the cash at join (after the sign-up grant), moved with the trading baseline: the basis the ghosts start from */
   startCash: number;
+  /** the account's non-price flow totals at join: the benchmark equity counts only the flows made after this */
+  flows0: FlowTotals;
   startDay: number;
   seq: number;
   fills: LedgerFill[];

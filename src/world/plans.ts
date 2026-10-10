@@ -1,7 +1,7 @@
 import { estimateFill, type Side } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { BLOCK, DRIP, RECURRING } from '@/content/learning';
-import { cashOf, priceOf, spendableCash, today } from './core';
+import { cashOf, findOrder, priceOf, spendableCash, today } from './core';
 import { ensureLedger } from './ledger';
 import { placeChecked } from './orders';
 import { say } from './say';
@@ -102,7 +102,7 @@ export function startBlock(g: GameState, p: Player, assetId: string, side: Side,
   const expectedTotal = est.total * slices;
   L.plans.seq++;
   const plan: BlockPlan = {
-    id: `b${L.plans.seq}`, assetId, side, remaining: total, slicesLeft: slices, slices, nextTick: g.market.tick + 1,
+    id: `b${L.plans.seq}`, assetId, side, remaining: total, slicesLeft: slices, slices, retries: 0, nextTick: g.market.tick + 1,
     lastOrderId: null, expectedTotal, startedTick: g.market.tick,
   };
   L.plans.blocks.push(plan);
@@ -132,17 +132,32 @@ export function planTick(g: GameState, out: StepOutput | null): void {
   }
 }
 
+/**
+ * One block's step. Accounting is by fill: when a slice closes, what it actually traded (its filled quantity, which the
+ * engine may cut short or cancel) comes off the block, and the rest is traded by the next slice. A block whose slices run
+ * out with units left gets up to BLOCK.maxRetries extra slices, then stops with one line saying how much is unfilled.
+ */
 function blockStep(g: GameState, p: Player, L: PlayerLedger, b: BlockPlan, out: StepOutput | null): void {
   const tick = g.market.tick;
-  if (b.lastOrderId && orderOpen(g, b.lastOrderId)) return; // the last slice is still working
-  if (b.slicesLeft <= 0 || b.remaining <= 0) {
+  if (b.lastOrderId) {
+    if (orderOpen(g, b.lastOrderId)) return; // the last slice is still working
+    const o = findOrder(g, p.id, b.lastOrderId);
+    b.remaining = Math.max(0, b.remaining - (o?.filledQty ?? 0));
+    b.lastOrderId = null;
+  }
+  const finish = (key: string, vars: Record<string, string | number>) => {
     L.plans.blocks = L.plans.blocks.filter((x) => x.id !== b.id);
-    say(g, out, p.id, 'plan', 'info', { key: 'work.block.done', vars: { asset: b.assetId } });
-    return;
+    say(g, out, p.id, 'plan', b.remaining > 0 ? 'warn' : 'info', { key, vars: { asset: b.assetId, ...vars } });
+  };
+  if (b.remaining <= 0) return finish('work.block.done', {});
+  if (b.slicesLeft <= 0) {
+    if (b.retries >= BLOCK.maxRetries) return finish('work.block.partial', { unfilled: b.remaining });
+    b.retries++;
+    b.slicesLeft = 1;
   }
   if (tick < b.nextTick) return;
-  const qty = b.slicesLeft === 1 ? b.remaining : roundUnits(g, b.assetId, b.remaining / b.slicesLeft);
-  if (!(qty > 0)) { b.nextTick = tick + 1; return; }
+  const share = b.slicesLeft === 1 ? b.remaining : roundUnits(g, b.assetId, b.remaining / b.slicesLeft);
+  const qty = share > 0 ? Math.min(share, b.remaining) : b.remaining;
   const r = placeChecked(g, p, { assetId: b.assetId, side: b.side, type: 'market', qty }, 'block_slice');
   if (!r.ok) {
     L.plans.blocks = L.plans.blocks.filter((x) => x.id !== b.id);
@@ -152,7 +167,6 @@ function blockStep(g: GameState, p: Player, L: PlayerLedger, b: BlockPlan, out: 
   const o = r.data as { id: string };
   b.lastOrderId = o.id;
   b.slicesLeft--;
-  b.remaining -= qty;
   b.nextTick = tick + 1;
 }
 

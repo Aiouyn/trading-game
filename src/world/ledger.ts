@@ -3,7 +3,7 @@ import { equityOf } from '@/engine';
 import { LEDGER } from '@/content/learning';
 import { findOrder, today } from './core';
 import type {
-  FillReason, LedgerFill, OpenTrip, PlanState, PlayerLedger, PosMirror, RoundTrip,
+  FillReason, FlowTotals, LedgerFill, OpenTrip, PlanState, PlayerLedger, PosMirror, RoundTrip,
 } from './ledger-types';
 import type { GameState } from './types';
 
@@ -55,6 +55,30 @@ export function ledgerOf(g: GameState, pid: string): PlayerLedger | undefined {
   return g.ledgers?.[pid];
 }
 
+const NO_FLOWS: FlowTotals = { dividends: 0, interestEarned: 0, interestPaid: 0, borrowPaid: 0 };
+
+function flowsOf(acct: { dividends?: number; interestEarned?: number; interestPaid?: number; borrowPaid?: number }): FlowTotals {
+  return {
+    dividends: acct.dividends ?? 0, interestEarned: acct.interestEarned ?? 0,
+    interestPaid: acct.interestPaid ?? 0, borrowPaid: acct.borrowPaid ?? 0,
+  };
+}
+
+/**
+ * The benchmark's equity: cash plus positions at the closes, with the non-price flows since join taken out (dividends,
+ * cash interest, margin interest and borrow fees). The ghosts are price-only, so the comparison is like for like. Trading
+ * fees stay in: the ghosts are costless by design, and a player's costs are part of what they are measured on.
+ */
+export function priceEquity(g: GameState, pid: string, L: PlayerLedger): number {
+  const acct = g.market.accounts[pid];
+  if (!acct) return 0;
+  const now = flowsOf(acct);
+  const f0 = L.flows0 ?? NO_FLOWS;
+  const nonPrice = (now.dividends - f0.dividends) + (now.interestEarned - f0.interestEarned)
+    - (now.interestPaid - f0.interestPaid) - (now.borrowPaid - f0.borrowPaid);
+  return equityOf(g.market, acct) - nonPrice;
+}
+
 /** The ledger for a human player, created on first need (join, or the first tick of an older save). Null for NPCs. */
 export function ensureLedger(g: GameState, pid: string): PlayerLedger | null {
   const p = g.players[pid];
@@ -65,12 +89,14 @@ export function ensureLedger(g: GameState, pid: string): PlayerLedger | null {
   if (have) return have;
   const d = today(g);
   const L: PlayerLedger = {
-    startCash: acct.startingCash, startDay: d, seq: 0, fills: [], trips: [], open: {},
+    startCash: acct.startingCash, flows0: flowsOf(acct), startDay: d, seq: 0, fills: [], trips: [], open: {},
     pos: mirrorOf(acct.positions), opt: mirrorOf(acct.options ?? {}), plans: emptyPlans(), ghosts: null, days: {}, closes: [],
   };
   // the open record of the first day: the net worth and equity the player started with
-  const eq = equityOf(g.market, acct);
-  L.days[d - 1] = { day: d - 1, nw: p.markNetWorth ?? p.netWorth, equity: eq, qty: {}, ghosts: { basket: acct.cash, random: acct.cash, momentum: acct.cash } };
+  L.days[d - 1] = {
+    day: d - 1, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty: {},
+    ghosts: { basket: acct.cash, random: acct.cash, momentum: acct.cash },
+  };
   g.ledgers[pid] = L;
   return L;
 }
@@ -207,13 +233,20 @@ export function ledgerTick(g: GameState, events: StepEvent[], fills: Fill[]): vo
       realized: r.realized, reason: reasonFor(g, f.playerId, f.orderId, liquidated.has(`${f.playerId}|${f.assetId}`)),
       orderId: f.orderId, qtyBefore: pos.qty, avgBefore: pos.avgCost,
     });
-    if (L.plans.tags[f.orderId] && !isOpen(g, f.orderId)) delete L.plans.tags[f.orderId];
   }
+  pruneTags(g);
   reconcileAll(g);
 }
 
-function isOpen(g: GameState, orderId: string): boolean {
-  return g.market.orders.some((o) => o.id === orderId && o.status === 'open');
+/**
+ * A world tag is dropped once its order is no longer open: a filled order has already been booked above, and a cancelled
+ * or rejected one never fills, so its tag would otherwise stay forever. Runs after the tick's fills.
+ */
+function pruneTags(g: GameState): void {
+  const tagged = Object.values(g.ledgers ?? {}).filter((L) => Object.keys(L.plans.tags).length > 0);
+  if (!tagged.length) return;
+  const open = new Set(g.market.orders.filter((o) => o.status === 'open').map((o) => o.id));
+  for (const L of tagged) for (const id of Object.keys(L.plans.tags)) if (!open.has(id)) delete L.plans.tags[id];
 }
 
 /** A delisting settles every holder in cash at the settlement price, with no fee (engine settleAsset). */

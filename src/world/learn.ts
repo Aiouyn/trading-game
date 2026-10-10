@@ -28,7 +28,8 @@ export function setGoalsOptIn(p: Player, on: boolean): CommandResult {
 
 /** Whether a rung's condition holds now (server-side, from the player's record and ledger). */
 function rungMet(g: GameState, p: Player, rung: (typeof GOAL_LADDER)[number]): boolean {
-  if (rung.nw !== undefined) return p.netWorth >= rung.nw;
+  // the same basis as the rank (markNetWorth, refreshed just before this check), so a goal never ticks ahead of a rank-up
+  if (rung.nw !== undefined) return (p.markNetWorth ?? p.netWorth) >= rung.nw;
   if (rung.profit) {
     const L = ensureLedger(g, p.id);
     return !!L?.trips.some((t) => t.realizedPnl > 0);

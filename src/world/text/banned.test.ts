@@ -4,6 +4,8 @@ import fr from '@/i18n/fr.json';
 import { bannedIn, BANNED_WORDS } from './banned';
 import { templateTextProvider, renderMsg } from './template';
 import type { Msg } from '@/i18n';
+import { createGame, stepGame } from '../game';
+import type { GameState } from '../types';
 
 /** A value for every {slot} in a sentence, so each template renders to a full sentence. */
 function sample(s: string): Msg['vars'] {
@@ -22,9 +24,10 @@ describe('banned words in the world text', () => {
     expect(BANNED_WORDS.length).toBeGreaterThan(10);
   });
 
-  it('every daily-close template is clean in English and French', () => {
-    const keys = Object.keys(en).filter((k) => k.startsWith('dayclose.'));
-    expect(keys.length).toBeGreaterThan(15);
+  it('every world template (daily close, work, goals) is clean in English and French', () => {
+    const keys = Object.keys(en).filter((k) => k.startsWith('dayclose.') || k.startsWith('work.') || k.startsWith('goal.'));
+    expect(keys.filter((k) => k.startsWith('dayclose.')).length).toBeGreaterThan(15);
+    expect(keys.filter((k) => k.startsWith('work.')).length).toBeGreaterThan(15);
     for (const k of keys) {
       for (const locale of ['en', 'fr'] as const) {
         const dict: Record<string, string> = locale === 'en' ? (en as Record<string, string>) : (fr as Record<string, string>);
@@ -51,7 +54,20 @@ describe('banned words in the world text', () => {
     expect(renderMsg(lines[1]!, 'fr')).toMatch(/valeur nette/);
   });
 
-  it('every English daily-close key has a French twin with the same slots', () => {
+  it('the story headlines the close embeds are clean (every wire headline of a short run, two seeds)', { timeout: 60_000 }, () => {
+    const heads = new Set<string>();
+    for (const seed of ['banned-a', 'banned-b']) {
+      const g: GameState = createGame(seed, { warmupDays: 1, npcs: true });
+      for (let k = 0; k < 3 * 720; k++) {
+        stepGame(g);
+        for (const w of g.wire) if (w.news) heads.add(w.text);
+      }
+    }
+    expect(heads.size).toBeGreaterThan(5);
+    for (const h of heads) expect(bannedIn(h), h).toEqual([]);
+  });
+
+  it('every English world key has a French twin with the same slots', () => {
     const enKeys = Object.keys(en).filter((k) => k.startsWith('dayclose.') || k.startsWith('work.') || k.startsWith('goal.'));
     for (const k of enKeys) {
       expect(k in fr, `fr missing ${k}`).toBe(true);

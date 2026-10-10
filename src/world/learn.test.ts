@@ -96,3 +96,19 @@ describe('the goal ladder (opt-in, checked on the server)', () => {
     expect(v.next).toBe('goal-profit');
   });
 });
+
+describe('the goal ladder basis', () => {
+  it('a net worth rung reads the rank basis (liquidation mark), not the mid mark', () => {
+    const g = joined('goal-basis');
+    expect(cmd(g, 'u1', { type: 'goals.optIn', on: true }).ok).toBe(true);
+    const p = me(g);
+    p.netWorth = 25_000; // the mid mark is above $20k, the liquidation mark (the rank's basis) is not
+    p.markNetWorth = 10_000;
+    checkGoals(g, p, null);
+    expect(p.goals!.done['goal-nw20k']).toBeUndefined();
+    p.markNetWorth = 20_000;
+    checkGoals(g, p, null);
+    expect(p.goals!.done['goal-nw20k']).toBeDefined();
+  });
+});
+

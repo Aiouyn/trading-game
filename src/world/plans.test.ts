@@ -178,3 +178,42 @@ describe('cash that a plan cannot touch', () => {
     expect(reasons(g, 'u1')).not.toContain('recurring_buy');
   });
 });
+
+describe('block accounting follows the fills (a slice the engine cuts short leaves the rest to the next slice)', () => {
+  /** Close the block's last slice as the engine would leave it: `filled` units traded, the rest cancelled. */
+  function closeLastSlice(g: GameState, filled: number) {
+    const id = ledgerOf(g, 'u1')!.plans.blocks[0]!.lastOrderId!;
+    const o = g.market.orders.find((x) => x.id === id)!;
+    Object.assign(o, { status: 'cancelled', filledQty: filled, closedTick: g.market.tick, rejectReason: 'insufficient cash' });
+  }
+
+  it('a partial slice comes off the block by what it filled, and the next slices trade the rest', () => {
+    const g = joined('plan-block-part');
+    boost(g, 'u1', 100_000_000);
+    expect(cmd(g, 'u1', { type: 'block.start', assetId: 'HLCN', side: 'buy', qty: 8, slices: 4 }).ok).toBe(true);
+    stepGame(g); // slice 1 (2 units) is placed
+    closeLastSlice(g, 1); // the engine traded 1 unit of it and cancelled the rest
+    stepGame(g);
+    expect(ledgerOf(g, 'u1')!.plans.blocks[0]!.remaining).toBe(7);
+    runTo(g, g.market.tick + 30);
+    const slices = tradesOf(g, 'u1').fills.filter((f) => f.reason === 'block_slice');
+    // only real fills are booked: the 7 units the rest of the block traded, never the 8 it was given
+    expect(slices.reduce((s, f) => s + f.qty, 0)).toBe(7);
+    expect(ledgerOf(g, 'u1')!.plans.blocks.length).toBe(0);
+    expect(g.players.u1!.inbox.some((n) => n.msg?.key === 'work.block.done')).toBe(true);
+  });
+
+  it('a slice that fills nothing is retried, and the block stops with its unfilled units after the retries', () => {
+    const g = joined('plan-block-none');
+    boost(g, 'u1', 100_000_000);
+    expect(cmd(g, 'u1', { type: 'block.start', assetId: 'HLCN', side: 'buy', qty: 4, slices: 2 }).ok).toBe(true);
+    for (let k = 0; k < 40 && ledgerOf(g, 'u1')!.plans.blocks.length; k++) {
+      if (ledgerOf(g, 'u1')!.plans.blocks[0]!.lastOrderId) closeLastSlice(g, 0);
+      stepGame(g);
+    }
+    expect(ledgerOf(g, 'u1')!.plans.blocks.length).toBe(0);
+    const partial = g.players.u1!.inbox.find((n) => n.msg?.key === 'work.block.partial');
+    expect(partial?.msg?.vars?.unfilled).toBe(4);
+    expect(tradesOf(g, 'u1').fills.filter((f) => f.reason === 'block_slice').length).toBe(0);
+  });
+});

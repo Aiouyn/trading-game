@@ -35,7 +35,7 @@ export const RECURRING = { maxPlans: 5, minDollars: 10, minEveryDays: 1, maxEver
 
 /** DRIP and block trades. A block is a TWAP over `slices` ticks, at the institutional license (R4). */
 export const DRIP = { maxPositions: 40 };
-export const BLOCK = { minRank: 'R4', minSlices: 2, maxSlices: 48 };
+export const BLOCK = { minRank: 'R4', minSlices: 2, maxSlices: 48, maxRetries: 3 };
 
 /** The ten two-minute lessons (ids match the learn.lesson.<id>.title keys in en.json and fr.json). */
 export const LESSON_IDS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'] as const;
