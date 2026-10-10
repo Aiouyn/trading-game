@@ -73,9 +73,10 @@ export function isDelisted(config: WorldConfig, id: string): boolean {
 }
 
 /**
- * The reason a command must not be sent because its name is delisted, or null. The engine does not refuse these (a
- * delisted name keeps a frozen price), so the client refuses them before sending: orders in the name, and options
- * written on it (a listed option's underlying can be delisted later).
+ * The reason a command must not be sent because its name is delisted, or null. The engine refuses these too (placeOrder
+ * refuses a delisted name, tradeOption refuses an option on one), so this check gives the client's message before the
+ * send; it is not the only guard. Covers orders in the name, and options written on it (a listed option's underlying
+ * can be delisted later).
  */
 export function delistedRefusal(config: WorldConfig, cmd: Command): string | null {
   if (cmd.type === 'order.place' && isDelisted(config, cmd.order.assetId)) return `${cmd.order.assetId} is delisted and no longer trades`;
