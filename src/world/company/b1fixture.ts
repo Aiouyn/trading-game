@@ -16,8 +16,8 @@ export const BUYER_A = 'a';
 export const BUYER_B = 'b';
 export const YOUNG = 'y';
 
-/** A world with one founded company, the founder at R2, old buyers, and a young account. Tick 1 is day 0. */
-export function founded(seed: string): { g: GameState; c: Company } {
+/** The world before the company is founded: the four accounts, the founder at R2, old buyers and a young account. Tick 1 is day 0. */
+export function unfounded(seed: string): GameState {
   const g = createGame(seed, { warmupDays: 0, npcs: false });
   for (const [id, handle] of [[FOUNDER, 'founder_one'], [BUYER_A, 'buyer_a'], [BUYER_B, 'buyer_b'], [YOUNG, 'young_one']] as const) {
     const r = applyCommand(g, id, { type: 'join', handle, country: 'AV' });
@@ -31,6 +31,12 @@ export function founded(seed: string): { g: GameState; c: Company } {
   credit(g, BUYER_A, 5_000_000, 'test');
   credit(g, BUYER_B, 5_000_000, 'test');
   credit(g, YOUNG, 5_000_000, 'test');
+  return g;
+}
+
+/** A world with one founded company, the founder at R2, old buyers, and a young account. Tick 1 is day 0. */
+export function founded(seed: string): { g: GameState; c: Company } {
+  const g = unfounded(seed);
   const r = applyCommand(g, FOUNDER, { type: 'company.found', name: 'Acme', sector: 'tech', cityId: 'av', capital: COMPANY.founding.capital });
   if (!r.ok) throw new Error(r.error);
   const c = Object.values(g.companies!.companies)[0]!;

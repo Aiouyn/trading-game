@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { COMPANY } from '@/content/company';
 import { companyTick, emptyCompanyWorld, foundCompany, type CompanyEnv } from './company';
 import { addSurveillance, bankrupt, clawback, insolvencyStep, recordPayout, salaryCapPerDay } from './failure';
-import type { Company, CompanyWorld, Payout, Statements } from './types';
+import { BANK_POOL } from './debt';
+import type { Company, CompanyWorld, Debt, Payout, Statements } from './types';
 
 interface Harness { w: CompanyWorld; env: CompanyEnv; money: Record<string, number> }
 
@@ -254,5 +255,58 @@ describe('the surveillance points (spec 6.2)', () => {
     expect(h.w.insider?.founder?.points).toBe(45);
     expect(h.w.insider?.founder?.companyId).toBe(c.id);
     expect(h.w.insider?.founder?.reasons).toHaveLength(2);
+  });
+});
+
+/** A bank loan on the company's books (the bank lent it earlier; the test sets the book, not the money). */
+function bankLoan(over: Partial<Debt> & { principal: number }): Debt {
+  return { id: 'co1:d0', ratePerDay: COMPANY.debt.ratePerDay, drawnDay: 0, guarantor: null, guaranteedAmount: 0, ...over };
+}
+
+describe('bank loans and guarantees in the default (B1 debt, B2 waterfall)', () => {
+  it('the bank is a creditor: it is paid pro rata from the estate, and the unpaid principal is written off', () => {
+    const h = harness();
+    const c = found(h);
+    const bank = h.w.investors[BANK_POOL]!;
+    c.debts.push(bankLoan({ principal: 1_000_000 }));
+    c.cash = -100_000;
+    c.ppe = 1_000_000; // realized at the tech recovery rate: 0.35 x 1M = 350k into the estate
+    const bank0 = bank.cash;
+    const founder0 = h.money.founder!;
+    const id0 = identity(h);
+    const r = bankrupt(h.w, c, h.env, 10);
+    // claims 1.1M (the overdraft 100k and the bank 1M) against 350k: each is paid 350k / 1.1M of its claim
+    expect(bank.cash - bank0).toBeCloseTo(1_000_000 * (350_000 / 1_100_000), 4);
+    expect(r.shortfall).toBeCloseTo(750_000, 4);
+    expect(c.debts).toEqual([]);
+    expect(h.money.founder).toBe(founder0);
+    expect(identity(h)).toBeCloseTo(id0, 6);
+  });
+
+  it('a guaranteed bank loan is called on default, for what the bank is still owed after the pro-rata payment', () => {
+    const h = harness();
+    const c = found(h);
+    c.cash = -100_000;
+    c.ppe = 1_000_000;
+    c.debts.push(bankLoan({ principal: 1_000_000, guarantor: 'founder', guaranteedAmount: 1_000_000 }));
+    const founder0 = h.money.founder!;
+    const id0 = identity(h);
+    bankrupt(h.w, c, h.env, 10);
+    // the first payment leaves 1M x (1 - 350k / 1.1M) owed to the bank; the founder's guarantee covers that residual
+    expect(founder0 - h.money.founder!).toBeCloseTo(1_000_000 * (1 - 350_000 / 1_100_000), 4);
+    expect(h.w.personalDebt?.founder).toBeUndefined();
+    expect(c.debts).toEqual([]);
+    expect(identity(h)).toBeCloseTo(id0, 6);
+  });
+
+  it('a guaranteed bank loan the founder cannot pay above the floor leaves the rest as personal debt', () => {
+    const h = harness('bank-g2', 5_000_000);
+    const c = found(h);
+    h.money.founder = 300_000;
+    c.cash = -100_000;
+    c.debts.push(bankLoan({ principal: 1_000_000, guarantor: 'founder', guaranteedAmount: 1_000_000 }));
+    bankrupt(h.w, c, h.env, 10);
+    expect(h.money.founder).toBe(COMPANY.failure.floor);
+    expect(h.w.personalDebt?.founder).toBeCloseTo(1_000_000 - (300_000 - COMPANY.failure.floor), 4);
   });
 });

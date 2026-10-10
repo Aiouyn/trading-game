@@ -148,6 +148,8 @@ export function companyDay(g: GameState, out: StepOutput | null): void {
   // 3. the listed companies: ADV, the window roster, the window warnings, the treasury sweep; every company: the debt
   for (const id of Object.keys(g.companies.companies).sort()) {
     const c = g.companies.companies[id]!;
+    // a bankrupt company is closed: it accrues no interest and runs no covenant (its debts were settled by the default)
+    if (c.bankrupt) continue;
     if (day >= c.foundedDay) debtDay(g, c, day, out);
     if (c.listed) listedDay(g, c, day, out);
   }

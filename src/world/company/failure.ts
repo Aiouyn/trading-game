@@ -1,5 +1,6 @@
 import { COMPANY } from '@/content/company';
 import { post } from './books';
+import { BANK_POOL } from './debt';
 import type { Company, CompanyWorld, Payout } from './types';
 
 /**
@@ -159,12 +160,14 @@ function loansIn(c: Company) {
  * The default (spec 5.3). The waterfall, in order:
  * 1. the company's own cash goes to its estate; non-cash assets are realized at the sector's recovery rate, clamped to
  *    20-60% (the liquidator's money, a faucet);
- * 2. clawbacks reach the creditors' shortfall (the overdraft, the payables and the loans from players);
+ * 2. clawbacks reach the creditors' shortfall (the overdraft, the payables, the loans from players and the bank loans);
  * 3. the creditors are paid pro rata from the estate (payables to outside suppliers are a sink; the overdraft is an
- *    internal settlement; the loans are paid to their lenders);
- * 4. the founder's guarantee is called, up to its amount and above the court floor; the rest of it is personal debt;
- * 5. the creditors are paid again from the estate; what is still unpaid is written off, and the leftover (equity's share,
- *    which is zero) goes to the liquidator.
+ *    internal settlement; the loans from players are paid to their lenders; the bank loans are paid to the bank pool);
+ * 4. the founder's guarantees are called (the company-level one, then each guaranteed bank loan, up to what is still owed on
+ *    it), each up to its amount and above the court floor; what a guarantor cannot pay is personal debt;
+ * 5. the creditors are paid again from the estate; what is still unpaid is written off (the payables, the loans and the bank
+ *    principal are closed), and the leftover estate is booked as a sink: it is the liquidator's share, which leaves the world
+ *    (equity is wiped out, so nothing is returned to it).
  * Equity is wiped out: the holders' positions are settled by the bridge through the engine's delisting.
  */
 export function bankrupt(w: CompanyWorld, c: Company, env: FailureMoney, day: number): BankruptcyResult {
@@ -184,33 +187,22 @@ export function bankrupt(w: CompanyWorld, c: Company, env: FailureMoney, day: nu
   c.inv = 0;
   c.ppe = 0;
 
-  const claims0 = c.ap + Math.max(0, -c.cash) + loansIn(c).reduce((s, k) => s + k.balance, 0);
+  const claims0 = c.ap + Math.max(0, -c.cash) + loansIn(c).reduce((s, k) => s + k.balance, 0) + bankOwed(c);
   const clawed = clawback(w, c, env, day, Math.max(0, claims0 - c.estate));
   let paid = payCreditors(w, c, env);
 
   const shortfall1 = Math.max(0, claims0 - paid);
-  const g = c.guarantee;
-  if (g && shortfall1 > 0) {
-    const want = Math.min(shortfall1, g.amount);
-    const got = Math.min(want, Math.max(0, env.money.cash(g.playerId) - F.floor));
-    if (got > 0) {
-      env.money.take(g.playerId, got);
-      c.estate += got;
-    }
-    if (want - got > 0) {
-      w.personalDebt ??= {};
-      w.personalDebt[g.playerId] = (w.personalDebt[g.playerId] ?? 0) + (want - got);
-    }
-    paid += payCreditors(w, c, env);
-  }
+  if (shortfall1 > 0 && callGuarantees(w, c, env, shortfall1) > 0) paid += payCreditors(w, c, env);
 
-  // what is still owed is written off: the payables are gone, the loans from players are closed, and the unpaid overdraft
-  // stays as the dead company's negative cash. The loans to players are collected above (or written off with the estate)
+  // what is still owed is written off: the payables are gone, the loans from players are closed, the bank principal is
+  // closed, and the unpaid overdraft stays as the dead company's negative cash. The loans to players are collected above
+  // (or written off with the estate)
   c.ap = 0;
   for (const k of c.contracts ?? []) {
     if (k.kind === 'loanIn') { k.balance = 0; k.closed = true; }
     if (k.kind === 'loanOut') { k.balance = 0; k.closed = true; }
   }
+  c.debts = [];
   const leftover = c.estate;
   if (leftover > 0) w.flows.sink += leftover;
   c.estate = 0;
@@ -219,16 +211,60 @@ export function bankrupt(w: CompanyWorld, c: Company, env: FailureMoney, day: nu
   return { recovery, paid, shortfall, clawed };
 }
 
+/** The principal the company still owes the NPC bank pool (B1, debt.ts); the bank is a creditor of the default. */
+function bankOwed(c: Company): number {
+  return c.debts.reduce((s, d) => s + d.principal, 0);
+}
+
+/**
+ * Calls the founder's personal guarantees on the company's debts (spec 5.3 step 4; debt.ts): the company-level guarantee first,
+ * then each guaranteed bank loan, up to the principal still owed on it after the pro-rata payment. Every call is capped by the
+ * shortfall still open and taken above the court floor; what a guarantor cannot pay is personal debt. Returns the amount that
+ * reached the estate.
+ */
+function callGuarantees(w: CompanyWorld, c: Company, env: FailureMoney, shortfall: number): number {
+  const F = COMPANY.failure;
+  const calls: { playerId: string; amount: number }[] = [];
+  if (c.guarantee) calls.push({ playerId: c.guarantee.playerId, amount: c.guarantee.amount });
+  for (const d of c.debts) {
+    if (d.guarantor && d.guaranteedAmount > 0 && d.principal > 0) {
+      calls.push({ playerId: d.guarantor, amount: Math.min(d.guaranteedAmount, d.principal) });
+    }
+  }
+  let open = shortfall;
+  let reached = 0;
+  for (const call of calls) {
+    const want = Math.min(open, call.amount);
+    if (want <= 0) continue;
+    open -= want;
+    const got = Math.min(want, Math.max(0, env.money.cash(call.playerId) - F.floor));
+    if (got > 0) {
+      env.money.take(call.playerId, got);
+      c.estate = (c.estate ?? 0) + got;
+      reached += got;
+    }
+    if (want - got > 0) {
+      w.personalDebt ??= {};
+      w.personalDebt[call.playerId] = (w.personalDebt[call.playerId] ?? 0) + (want - got);
+    }
+  }
+  return reached;
+}
+
 /**
  * Pays the company's creditors pro rata from its estate: the overdraft (an internal settlement, so the company's cash moves
- * toward zero), the payables (paid to outside suppliers, a sink) and the loans from players (paid to the lenders, a
- * transfer). With no way to pay a player (no `give`), the loans are left as claims. Returns the amount paid.
+ * toward zero), the payables (paid to outside suppliers, a sink), the loans from players (paid to the lenders, a transfer) and
+ * the bank loans (paid to the bank pool, a transfer). With no way to pay a player (no `give`), the loans are left as claims.
+ * Returns the amount paid.
  */
 function payCreditors(w: CompanyWorld, c: Company, env: FailureMoney): number {
   const od = Math.max(0, -c.cash);
   const loans = env.money.give ? loansIn(c) : [];
   const debt = loans.reduce((s, k) => s + k.balance, 0);
-  const claims = c.ap + od + debt;
+  const bank = w.investors[BANK_POOL];
+  const bankDebts = bank ? c.debts.filter((d) => d.principal > 0) : [];
+  const bankClaims = bankDebts.reduce((s, d) => s + d.principal, 0);
+  const claims = c.ap + od + debt + bankClaims;
   if (claims <= 0 || (c.estate ?? 0) <= 0) return 0;
   const f = Math.min(1, (c.estate ?? 0) / claims);
   const payOd = od * f;
@@ -250,5 +286,16 @@ function payCreditors(w: CompanyWorld, c: Company, env: FailureMoney): number {
     env.money.give!(k.payeeId, pay);
     paidDebt += pay;
   }
-  return payOd + payAp + paidDebt;
+  let paidBank = 0;
+  if (bank) {
+    for (const d of bankDebts) {
+      const pay = d.principal * f;
+      if (pay <= 0) continue;
+      d.principal -= pay;
+      c.estate = (c.estate ?? 0) - pay;
+      bank.cash += pay;
+      paidBank += pay;
+    }
+  }
+  return payOd + payAp + paidDebt + paidBank;
 }
