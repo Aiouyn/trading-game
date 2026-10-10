@@ -1,0 +1,48 @@
+/**
+ * Shell context (DECISIONS C-09, C-03, P2-003). The only shell module that reads rank data.
+ * It turns the earned rank into the facts the pure reducer needs: which apps are unlocked and
+ * how many workspaces exist. The reducer never reads the shell look or the store.
+ */
+
+import { RANKS } from '../content/lifestyle';
+import { APPS, type AppId } from './apps';
+import type { WmCtx } from './wm';
+
+/** Rank ids in order, from src/content/lifestyle.ts (R0 Broke ... R6 Dynasty). */
+export const RANK_ORDER: readonly string[] = RANKS.map((r) => r.id);
+
+/** Index of a rank id, or 0 for an unknown id (a hand-edited save earns the least). */
+export function rankOrdinal(rank: string): number {
+  const i = RANK_ORDER.indexOf(rank);
+  return i < 0 ? 0 : i;
+}
+
+/** The rank gate for an app: the app's minRank must be reached. Hidden apps are not handled here. */
+export function isAppUnlocked(app: AppId, rank: string): boolean {
+  const need = APPS[app].minRank;
+  if (need === null) return true;
+  return rankOrdinal(rank) >= rankOrdinal(need);
+}
+
+/**
+ * Workspaces from the earned rank (F:60, V:79, DECISIONS C-03): R0 and R1 have one, R2 has two,
+ * R3 and up have three. The rank's look never changes this.
+ */
+export function workspaceCount(rank: string): number {
+  const i = rankOrdinal(rank);
+  if (i >= 3) return 3;
+  if (i >= 2) return 2;
+  return 1;
+}
+
+/** Builds the reducer context for an earned rank. */
+export function makeWmCtx(
+  rank: string,
+  hasPendingOrder: (ticker: string) => boolean = () => false,
+): WmCtx {
+  return {
+    unlocked: (app) => isAppUnlocked(app, rank),
+    workspaces: workspaceCount(rank),
+    hasPendingOrder,
+  };
+}

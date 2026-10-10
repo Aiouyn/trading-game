@@ -61,5 +61,22 @@
   "news.band.early": "Tôt : l’essentiel reste à venir",
   "news.band.mid": "En cours : le mouvement s’installe",
   "news.band.late": "Tard : presque intégré",
-  "news.band.done": "Intégré au prix"
+  "news.band.done": "Intégré au prix",
+  "shell.app.broker": "Courtage",
+  "shell.app.portfolio": "Portefeuille",
+  "shell.app.wire": "Fil d’actualité",
+  "shell.app.calendar": "Agenda",
+  "shell.app.messages": "Messagerie",
+  "shell.app.businesses": "Entreprises",
+  "shell.app.company": "Société",
+  "shell.app.boutique": "Boutique",
+  "shell.app.lab": "Laboratoire IA",
+  "shell.app.security": "Sécurité",
+  "shell.app.legal": "Juridique et tribunal",
+  "shell.app.bank": "Banque et crédit",
+  "shell.app.research": "Bureau d’études",
+  "shell.app.exchange": "Bourse",
+  "shell.app.launchpad": "Lancement",
+  "shell.app.learn": "Apprendre",
+  "shell.app.settings": "Réglages"
 }

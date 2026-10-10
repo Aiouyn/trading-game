@@ -1,0 +1,161 @@
+import { describe, expect, it } from 'vitest';
+import { APPS } from './apps';
+import {
+  GUTTER,
+  GUTTER_FOCUS,
+  SHELF_H,
+  STRIP_H,
+  STRIP_H_FOCUS,
+  clampRect,
+  fitsMin,
+  fracToRect,
+  layoutMode,
+  nearestSlot,
+  slotAllowedInMode,
+  slotRect,
+  viewportClass,
+  workArea,
+  gutterFor,
+  SLOT_FRAC,
+} from './geometry';
+
+const VP_1440 = { w: 1440, h: 900 };
+const VP_1000 = { w: 1000, h: 800 };
+const VP_1920 = { w: 1920, h: 1080 };
+
+describe('viewport classes and layout modes', () => {
+  it('splits phone, compact and desktop at 768 and 1200', () => {
+    expect(viewportClass(390)).toBe('phone');
+    expect(viewportClass(767)).toBe('phone');
+    expect(viewportClass(768)).toBe('compact');
+    expect(viewportClass(1199)).toBe('compact');
+    expect(viewportClass(1200)).toBe('desktop');
+  });
+
+  it('gives single below 1000, halves from 1000, full from 1200', () => {
+    expect(layoutMode(767)).toBe('phone');
+    expect(layoutMode(768)).toBe('single');
+    expect(layoutMode(999)).toBe('single');
+    expect(layoutMode(1000)).toBe('halves');
+    expect(layoutMode(1199)).toBe('halves');
+    expect(layoutMode(1200)).toBe('full');
+  });
+
+  it('allows only halves below 1200 and everything at 1200', () => {
+    expect(slotAllowedInMode('L2', 'halves')).toBe(true);
+    expect(slotAllowedInMode('R2', 'halves')).toBe(true);
+    expect(slotAllowedInMode('L3', 'halves')).toBe(false);
+    expect(slotAllowedInMode('TL', 'single')).toBe(false);
+    expect(slotAllowedInMode('R3T', 'full')).toBe(true);
+  });
+});
+
+describe('work area and gutters', () => {
+  it('is the viewport minus the strip and shelf (34 and 52 px)', () => {
+    expect(workArea(VP_1440, false)).toEqual({ w: 1440, h: 900 - STRIP_H - SHELF_H });
+    expect(workArea(VP_1920, false)).toEqual({ w: 1920, h: 1080 - STRIP_H - SHELF_H });
+  });
+
+  it('shrinks the strip to 24 px and drops the shelf in focus mode', () => {
+    expect(workArea(VP_1440, true)).toEqual({ w: 1440, h: 900 - STRIP_H_FOCUS });
+    expect(gutterFor(false)).toBe(GUTTER);
+    expect(gutterFor(true)).toBe(GUTTER_FOCUS);
+    expect(GUTTER).toBe(8);
+  });
+});
+
+describe('slot rects', () => {
+  it('keeps an 8 px margin at the outer edges and an 8 px gap between neighbours', () => {
+    const wa = workArea(VP_1440, false);
+    const l2 = slotRect('L2', VP_1440, false);
+    const r2 = slotRect('R2', VP_1440, false);
+    expect(l2.x).toBe(GUTTER);
+    expect(l2.y).toBe(GUTTER);
+    expect(r2.x + r2.w).toBe(wa.w - GUTTER);
+    expect(r2.x - (l2.x + l2.w)).toBe(GUTTER);
+    expect(l2.y + l2.h).toBe(wa.h - GUTTER);
+  });
+
+  it('places every slot within 1 px of its ideal fraction at 1440x900 and 1920x1080', () => {
+    for (const vp of [VP_1440, VP_1920]) {
+      const wa = workArea(vp, false);
+      for (const name of Object.keys(SLOT_FRAC) as (keyof typeof SLOT_FRAC)[]) {
+        const f = SLOT_FRAC[name];
+        const r = slotRect(name, vp, false);
+        const idealX0 = f.x0 === 0 ? GUTTER : f.x0 * wa.w + GUTTER / 2;
+        const idealX1 = f.x1 === 1 ? wa.w - GUTTER : f.x1 * wa.w - GUTTER / 2;
+        const idealY0 = f.y0 === 0 ? GUTTER : f.y0 * wa.h + GUTTER / 2;
+        const idealY1 = f.y1 === 1 ? wa.h - GUTTER : f.y1 * wa.h - GUTTER / 2;
+        expect(Math.abs(r.x - idealX0), `${name} x0 ${vp.w}`).toBeLessThanOrEqual(1);
+        expect(Math.abs(r.x + r.w - idealX1), `${name} x1 ${vp.w}`).toBeLessThanOrEqual(1);
+        expect(Math.abs(r.y - idealY0), `${name} y0 ${vp.w}`).toBeLessThanOrEqual(1);
+        expect(Math.abs(r.y + r.h - idealY1), `${name} y1 ${vp.w}`).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('gives exact thirds at 1920: Broker 2/3 left, right third at 1280 + 4', () => {
+    const l23 = slotRect('L23', VP_1920, false);
+    const r3 = slotRect('R3', VP_1920, false);
+    expect(l23.w).toBe(1280 - 4 - GUTTER);
+    expect(r3.x).toBe(1280 + 4);
+    expect(r3.x + r3.w).toBe(1920 - GUTTER);
+  });
+
+  it('stacks R3T above R3B with one gutter between them', () => {
+    const top = slotRect('R3T', VP_1440, false);
+    const bottom = slotRect('R3B', VP_1440, false);
+    expect(bottom.y - (top.y + top.h)).toBe(GUTTER);
+    expect(top.x).toBe(bottom.x);
+    expect(top.w).toBe(bottom.w);
+  });
+
+  it('uses a 1 px gutter in focus mode', () => {
+    const l2 = slotRect('L2', VP_1000, true);
+    const r2 = slotRect('R2', VP_1000, true);
+    expect(r2.x - (l2.x + l2.w)).toBe(GUTTER_FOCUS);
+    expect(l2.x).toBe(GUTTER_FOCUS);
+  });
+
+  it('computes halves at 1000x800 with a 488 px half and 8 px gap', () => {
+    const l2 = slotRect('L2', VP_1000, false);
+    const r2 = slotRect('R2', VP_1000, false);
+    expect(l2.w).toBe(488);
+    expect(r2.w).toBe(488);
+    expect(r2.x - (l2.x + l2.w)).toBe(GUTTER);
+  });
+
+  it('keeps a fractional rect inside the work area', () => {
+    const r = fracToRect({ x0: 0.1, y0: 0.2, x1: 0.9, y1: 0.8 }, { w: 500, h: 500 }, GUTTER);
+    expect(r.x).toBeGreaterThanOrEqual(0);
+    expect(r.x + r.w).toBeLessThanOrEqual(500);
+    expect(r.y + r.h).toBeLessThanOrEqual(500);
+  });
+});
+
+describe('min-size checks and nearest slot', () => {
+  it('refuses the Broker in a right third at 1440 (468 px < 480), and the Portfolio in one at 1440 (< 520)', () => {
+    expect(fitsMin(APPS.broker, slotRect('R3T', VP_1440, false))).toBe(false);
+    expect(fitsMin(APPS.portfolio, slotRect('R3B', VP_1440, false))).toBe(false);
+    expect(fitsMin(APPS.portfolio, slotRect('R3B', VP_1920, false))).toBe(true);
+  });
+
+  it('refuses the Portfolio in a half at 1000 (488 px < 520)', () => {
+    expect(fitsMin(APPS.portfolio, slotRect('R2', VP_1000, false))).toBe(false);
+    expect(fitsMin(APPS.broker, slotRect('L2', VP_1000, false))).toBe(true);
+  });
+
+  it('clamps a rect into the work area without changing its size', () => {
+    const wa = { w: 1000, h: 700 };
+    expect(clampRect({ x: 900, y: -20, w: 300, h: 200 }, wa)).toEqual({ x: 700, y: 0, w: 300, h: 200 });
+    expect(clampRect({ x: 10, y: 10, w: 400, h: 300 }, wa)).toEqual({ x: 10, y: 10, w: 400, h: 300 });
+  });
+
+  it('finds the nearest allowed slot that fits, or none', () => {
+    const wa = workArea(VP_1920, false);
+    const nearLeft = { x: 8, y: 8, w: 940, h: 978 };
+    expect(nearestSlot(nearLeft, wa, GUTTER, APPS.broker, 'full')).toBe('L2');
+    expect(nearestSlot(nearLeft, wa, GUTTER, { minW: 5000, minH: 5000 }, 'full')).toBeNull();
+    expect(nearestSlot(nearLeft, workArea(VP_1000, false), GUTTER, APPS.portfolio, 'halves')).toBeNull();
+  });
+});
