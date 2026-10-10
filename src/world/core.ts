@@ -64,6 +64,15 @@ export function bump(g: GameState, playerId: string, delta: number): void {
     ...a, cash: a.cash + delta, startingCash: a.startingCash + delta,
     peakEquity: Math.max(0, a.peakEquity + delta), dayStartEquity: a.dayStartEquity + delta,
   };
+  // the benchmark ghosts shift with the trading baseline (startingCash), so a grant or a non-trading cash move never
+  // changes the comparison by itself (quant-ghosts.md: "adjustCash grants shift ghosts by the same amount")
+  const gb = g.ledgers?.[playerId]?.ghosts;
+  if (gb) for (const gp of [gb.basket, gb.random, gb.momentum]) gp.cash += delta;
+}
+
+/** Cash a player can spend on analysts, desk upkeep and plans: cash less restricted cash (ad grants, fresh start). */
+export function spendableCash(g: GameState, playerId: string): number {
+  return cashOf(g, playerId) - (g.players[playerId]?.restrictedCash ?? 0);
 }
 
 export function credit(g: GameState, playerId: string, amount: number, source: string): void {

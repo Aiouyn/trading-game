@@ -7,6 +7,7 @@ import {
 import { playerBizSectors, refreshNetWorth } from './assets';
 import { computeBoards } from './boards';
 import { seedConnections } from './cyber';
+import { ensureLedger } from './ledger';
 import type { CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -60,6 +61,8 @@ export function join(g: GameState, id: string, handleIn: string, countryIn: stri
   credit(g, id, ONBOARDING_GRANT, 'onboarding grant');
   refreshNetWorth(g, p);
   p.netWorthPeak = Math.max(p.netWorthPeak, p.markNetWorth ?? p.netWorth);
+  // the trade ledger and the benchmark start here, from the cash the player actually has after the sign-up grant
+  ensureLedger(g, id);
   pickRival(g, p);
   notify(g, out, id, { kind: 'system', tone: 'brass', text: `Welcome to Port Avalon, ${handle}. Your broker added a $${ONBOARDING_GRANT} sign-up bonus. Rent is due Friday.` });
   // No account-opening story on the public Wire: every guest account would make one (the player sees the welcome).
