@@ -72,11 +72,11 @@ describe('app registry', () => {
     }
   });
 
-  it('hides Exchange and Launchpad until their phases ship (C-38)', () => {
-    expect(APPS.exchange.available).toBe(false);
+  it('shows Exchange now and hides Launchpad until Phase 5 (C-38)', () => {
+    expect(APPS.exchange.available).toBe(true);
     expect(APPS.launchpad.available).toBe(false);
     for (const id of APP_IDS) {
-      if (id !== 'exchange' && id !== 'launchpad') expect(APPS[id].available, id).toBe(true);
+      if (id !== 'launchpad') expect(APPS[id].available, id).toBe(true);
     }
   });
 

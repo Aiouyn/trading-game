@@ -368,3 +368,31 @@ Disk: C: had 4.43 GB free before the `--workers=1` run, 3.8 GB at its lowest, an
 | `npm run e2e` re-checks | `learning.spec.ts`: 8 of 8 pass. The close-card projects, run with the dependency edge kept: 6 of 6 pass. Total: 192 passed, 303 skipped, 0 failed. |
 
 The close-card re-check ran through a temporary Playwright config outside the repo (the full suite's dependency projects otherwise run too). It was removed and is not committed.
+
+## 9. Company app, operations half (`p4/ops`)
+
+Scope: the Company app shell (`src/components/apps/company/`) and the founder's operations views, per Velvet's spec
+(`docs/team/specs/velvet-company-app.md` v1.5, corrected to Quant v1.7). Branch `p4/ops`, not yet merged to `v1`.
+
+What is in:
+- Shell: a rail of views (`company-rail`, a tab row on the phone), the "What the market sees" toggle (`company-view-toggle`),
+  and the founding flow until the player has a company. The market side renders `CompanyPublic` only (`marketOf` in
+  `model.ts`; the key table is checked against the type by `satisfies`).
+- Founding (C4 template): name, sector, city and starting capital, at R2. The first-goals card reads `goalsDone`.
+- Products and demand: price inside the engine's band, marketing, quality against the ready mark, share, the public rivals.
+- R&D: running projects with the frozen odds (plus or minus 5 points) and the gain in quality-score points (bear, base, bull).
+  One project at a time. Starting a project shows the frozen band only after it starts, not as a preview.
+- People: headcount by role with the cap, hire and let go, and the four executive seats (trait, holder, salary, term).
+- Deals: franchising (4 to 8% royalty, at most three per sector) and supply deals with a registered company.
+- Notices: CEO change, freeze, cooling-off, distress, bankruptcy and the personal guarantee amount.
+- Every refusal is inline with its code (`company-refusal`, `data-code`), copy from `company.refusal.<code>.{what,why,do}`.
+- Import boundary (C6): `src/components/apps/company/boundary.test.ts` (TypeScript compiler API) fails on any named import or
+  re-export of `CompanyFounderView`, `founderCompanyView` or `ownCompanyView` outside `src/world/**` and the Company app.
+  The world layer builds the view for its owner (`PlayerView.company`); no screen outside the Company app names it.
+- `CapitalTab.tsx` is a placeholder with the agreed props `{ companyId: string }` for the capital work.
+- Exchange is visible now (no hidden flag, no "Coming later" link toast). Its window shows the stub until the Exchange work lands.
+  Launchpad stays hidden until Phase 5.
+
+Not in this half (open): the runway chart and the checklist on Overview; the patents and pharma gates on R&D; the G&A span line
+on People; the CEO change action (only the notices); the launch of next-gen products (the founder view does not carry the
+launch credits yet); the capital tab (loans, dividends, buybacks, the IPO, the trading plan) and the Filings view.

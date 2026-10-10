@@ -84,14 +84,14 @@ export const APPS: Readonly<Record<AppId, AppDef>> = {
   calendar: app('calendar', 420, 300),
   messages: app('messages', 420, 300, { views: ['inbox', 'chat', 'social'] }),
   businesses: app('businesses', 420, 300),
-  company: app('company', 420, 300, { minRank: 'R2', hideWhenLocked: true }),
+  company: app('company', 420, 300, { views: ['overview', 'products', 'rd', 'people', 'deals', 'capital', 'public'], minRank: 'R2', hideWhenLocked: true }),
   boutique: app('boutique', 420, 300),
   ailab: app('ailab', 420, 300, { minRank: 'R2', pref: { w: 0.5, h: 0.7 } }),
   security: app('security', 420, 300, { minRank: 'R3' }),
   legal: app('legal', 420, 300),
   bank: app('bank', 420, 300),
   research: app('research', 420, 300, { instances: { kind: 'per-file' }, minRank: 'R3', pref: { w: 0.6, h: 0.8 } }),
-  exchange: app('exchange', 420, 300, { available: false }),
+  exchange: app('exchange', 420, 300),
   launchpad: app('launchpad', 420, 300, { available: false }),
   learn: app('learn', 420, 300, { pref: { w: 0.45, h: 0.66 } }),
   settings: app('settings', 420, 300, { views: ['about'], pref: { w: 0.5, h: 0.72 } }),
@@ -112,7 +112,7 @@ export function secondWindowReady(app: AppId, ready: readonly string[] = READY_V
 
 /** Default shelf order (V:82): trading group first, Broker pinned first. Hidden apps are absent. */
 export const SHELF_ORDER: readonly AppId[] = [
-  'broker', 'portfolio', 'wire', 'messages', 'calendar', 'businesses', 'ailab', 'research', 'bank',
+  'broker', 'portfolio', 'exchange', 'wire', 'messages', 'calendar', 'businesses', 'ailab', 'research', 'bank',
   'legal', 'security', 'boutique', 'learn', 'settings', 'company',
 ];
 

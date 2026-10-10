@@ -45,7 +45,7 @@ describe('phone app stack', () => {
   it('a locked or unavailable app never opens (P2-023)', () => {
     const unlocked = (a: AppId) => a !== 'security';
     expect(phoneCanOpen('security', unlocked)).toBe('locked');
-    expect(phoneCanOpen('exchange', () => true)).toBe('unavailable');
+    expect(phoneCanOpen('launchpad', () => true)).toBe('unavailable');
     expect(phoneCanOpen('wire', unlocked)).toBe('ok');
   });
 

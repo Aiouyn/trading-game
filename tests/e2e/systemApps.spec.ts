@@ -64,7 +64,7 @@ test('the Research Desk is locked below Operator, then opens with an empty Files
   await expect(page.getByTestId('research-locked')).toHaveCount(0);
 });
 
-test('Company has no tile before Owner, and an honest empty state from Owner', async ({ page }) => {
+test('Company has no tile before Owner, and the founding flow from Owner', async ({ page }) => {
   test.skip(isPhone(page), 'the desktop shelf shows the tile; the phone grid is checked in phone.spec');
   const handle = await register(page);
   await skipTips(page);
@@ -72,14 +72,15 @@ test('Company has no tile before Owner, and an honest empty state from Owner', a
   await grant(handle, 8_000_000);
   await skipRankUp(page);
   await goTo(page, 'company');
-  await expect(page.getByTestId('company-empty')).toBeVisible();
+  await expect(page.getByTestId('company-found')).toBeVisible();
 });
 
-test('a deep link to Exchange lands on the desktop with a Coming later notice', async ({ page }) => {
+test('a deep link to Exchange opens its window now (no Coming later notice)', async ({ page }) => {
   await register(page);
   await skipTips(page);
   await page.goto('/exchange');
   await expect(page.locator('html')).toHaveAttribute('data-game', 'ready', { timeout: 30_000 });
-  await expect(page.getByText('Coming later.')).toBeVisible();
-  await expect(page.getByTestId('win-exchange')).toHaveCount(0);
+  await expect(page.getByText('Coming later.')).toHaveCount(0);
+  // the desktop opens Exchange in a window; the phone opens it full screen (no window id there)
+  if (!isPhone(page)) await expect(page.getByTestId('win-exchange')).toBeVisible();
 });

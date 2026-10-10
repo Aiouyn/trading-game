@@ -12,6 +12,7 @@ import type { Company, CompanyWorld, CovenantStatus, FilingPublic, WeeklySignal 
 import { debtBand, totalDebt } from './debt';
 import { loanBook } from './contracts';
 import { windowAt } from './insiders';
+import { operationsView, type OperationsView } from './operations';
 
 export interface CompanyPublic {
   id: string;
@@ -45,7 +46,7 @@ export interface CompanyPublic {
   window?: { open: boolean; opensDay?: number; closesDay?: number; covered: string[] };
 }
 
-export interface CompanyFounderView extends CompanyPublic {
+export interface CompanyFounderView extends CompanyPublic, OperationsView {
   cash: number;
   quarterToDate: { revenue: number; cogs: number; opex: number; units: number };
   staff: Record<CompanyRole, { heads: number; productive: number; wagePerDay: number }>;
@@ -55,7 +56,7 @@ export interface CompanyFounderView extends CompanyPublic {
     id: string; name: string; price: number; quality: number; qualityScore: number; unitCost: number; share: number;
     marketing: number; generation: number; brand: number;
   }[];
-  projects: { id: string; kind: string; spend: number; endDay: number; pBand: [number, number]; dqBand: [number, number, number] }[];
+  projects: { id: string; kind: string; spend: number; endDay: number; pBand: [number, number]; dqBand: [number, number, number]; gainPoints: [number, number, number] }[];
   capTable: { holder: string; shares: number }[];
   ledgerToday: { reason: string; amount: number; day: number }[];
   loans: never[];
@@ -162,12 +163,25 @@ export function founderCompanyView(w: CompanyWorld, playerId: string, companyId:
         endDay: p.endDay,
         pBand: [band.pLow, band.pHigh] as [number, number],
         dqBand: [band.dqBear, band.dqBase, band.dqBull] as [number, number, number],
+        // the same gains in quality-score points (the score is 30 ln q, so a gain in ln is slope times the gain)
+        gainPoints: [band.dqBear, band.dqBase, band.dqBull].map((x) => COMPANY.qualityScale.slope * x) as [number, number, number],
       };
     }),
+    ...operationsView(w, c, day),
     capTable: Object.entries(c.capTable).map(([holder, shares]) => ({ holder, shares })),
     ledgerToday: c.ledger.filter((l) => l.day === day - 1 || l.day === day).map((l) => ({ reason: l.reason, amount: l.amount, day: l.day })),
     loans: [],
     relatedParty: [],
     plansPrivate: [],
   };
+}
+
+/**
+ * The company a player founded, for that player's own screens (one company per founder). Null when the player has none.
+ * The world's transport (`playerView`) calls this, and only ever for the player it names.
+ */
+export function ownCompanyView(w: CompanyWorld | undefined, playerId: string, day: number): CompanyFounderView | null {
+  if (!w) return null;
+  const c = Object.values(w.companies).find((x) => x.ownerId === playerId);
+  return c ? founderCompanyView(w, playerId, c.id, day) : null;
 }
