@@ -29,6 +29,8 @@ export interface NwHistoryPayload {
   every: number;
   /** daily closes */
   daily: { day: number; value: number }[];
+  /** the owner's equity and the three benchmark ghosts at each kept closed day, oldest first (private to the owner) */
+  ghosts: { day: number; player: number; basket: number; random: number; momentum: number }[];
 }
 
 /** Messages from the world server to the browser. */

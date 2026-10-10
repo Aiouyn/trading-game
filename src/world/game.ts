@@ -278,6 +278,12 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'profile': return updateProfile(g, p, cmd);
     case 'inbox.read': for (const n of p.inbox) n.read = true; return { ok: true };
     case 'digest.seen': p.digestSeenTick = g.market.tick; p.digestNetWorth = p.netWorth; return { ok: true };
+    case 'close.seen': {
+      // the latest closed day the player has dismissed: it only moves forward, and only to a whole game day
+      const L = ensureLedger(g, pid);
+      if (L && Number.isInteger(cmd.day) && cmd.day >= 0) L.closeSeenDay = Math.max(L.closeSeenDay ?? -1, cmd.day);
+      return { ok: true };
+    }
     case 'chat.send': return postChat(g, p, cmd.channel, cmd.text, out);
     case 'alliance.create': return createAlliance(g, p, cmd.name, cmd.tag, cmd.motto, out);
     case 'alliance.join': return joinAlliance(g, p, cmd.allianceId, out);

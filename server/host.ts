@@ -1,5 +1,7 @@
 import { indexLevel, portfolio, universeConfig } from '../src/engine';
 import { createHistory, ensureSeries, ensureVolume, record, lastTicks, type History } from '../src/game/history';
+import { LEDGER } from '../src/content/learning';
+import { ghostSeries } from '../src/world/ghosts';
 import { applyCommand, createGame, stepGame } from '../src/world/game';
 import { flagNpcAccounts } from '../src/world/players';
 import { BOARD_EVERY } from '../src/world/core';
@@ -225,7 +227,8 @@ export class WorldHost {
 
   nwHistoryFor(pid: string): NwHistoryPayload {
     const s = this.nw[pid] ?? { samples: [], lastTick: this.g.market.tick, daily: [] };
-    return { samples: s.samples, lastTick: s.lastTick, every: NW_EVERY, daily: s.daily };
+    // the ghost lines span every closed day the ledger keeps, so the chart's "All" range is drawn in full
+    return { samples: s.samples, lastTick: s.lastTick, every: NW_EVERY, daily: s.daily, ghosts: ghostSeries(this.g, pid, LEDGER.dayCloseKeep) };
   }
 
   equityOf(pid: string): number {

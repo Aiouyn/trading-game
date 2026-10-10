@@ -155,6 +155,8 @@ export interface InboxItem {
   text: string;
   /** the same line as a message descriptor (en.json / fr.json key), rendered in the viewer's language */
   msg?: Msg;
+  /** the closed game day a 'close' notice is about (its card opens from the notice) */
+  day?: number;
   tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';
   read?: boolean;
 }
@@ -485,6 +487,7 @@ export type Command =
   | { type: 'profile'; bio?: string; country?: string; title?: string; mostWantedOptIn?: boolean }
   | { type: 'inbox.read' }
   | { type: 'digest.seen' }
+  | { type: 'close.seen'; day: number }
   | { type: 'chat.send'; channel: string; text: string }
   | { type: 'alliance.create'; name: string; tag: string; motto: string }
   | { type: 'alliance.join'; allianceId: string }

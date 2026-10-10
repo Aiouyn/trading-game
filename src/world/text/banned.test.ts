@@ -25,7 +25,8 @@ describe('banned words in the world text', () => {
   });
 
   it('every world template (daily close, work, goals) is clean in English and French', () => {
-    const keys = Object.keys(en).filter((k) => k.startsWith('dayclose.') || k.startsWith('work.') || k.startsWith('goal.'));
+    // the card's own copy (close.*), the luck or skill panel (luck.*) and the ghost labels are held to the same voice
+    const keys = Object.keys(en).filter((k) => ['dayclose.', 'work.', 'goal.', 'close.', 'luck.', 'ghost.'].some((p) => k.startsWith(p)));
     expect(keys.filter((k) => k.startsWith('dayclose.')).length).toBeGreaterThan(15);
     expect(keys.filter((k) => k.startsWith('work.')).length).toBeGreaterThan(15);
     for (const k of keys) {
@@ -39,7 +40,7 @@ describe('banned words in the world text', () => {
 
   it('the provider output for a full card is clean in both languages', () => {
     const card = {
-      day: 4, nwOpen: 5000, nwClose: 5100, nwChange: 100, nwChangePct: 0.02,
+      day: 4, offline: false, nwOpen: 5000, nwClose: 5100, nwChange: 100, nwChangePct: 0.02,
       best: { assetId: 'HLCN', pct: 0.03, usd: 60 }, worst: { assetId: 'ORBT', pct: -0.01, usd: -10 },
       gx: { pct: 0.004 }, sectors: { best: { sector: 'tech', pct: 0.01 }, worst: { sector: 'energy', pct: -0.02 } },
       stories: [{ assetId: 'WHEA', headline: 'Wheat climbs', band: 'early' as const }, { assetId: 'MOON', headline: 'Moon rallies', band: 'late' as const }],

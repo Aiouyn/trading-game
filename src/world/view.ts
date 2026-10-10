@@ -1,10 +1,10 @@
 import {
   indexLevel, indexMembers, worldEventView, type Account, type AssetDef, type AssetState, type Order, type RatesState, type RegimeId,
-  type WorldConfig, type WorldEventView, type WorldState, type DepthFrame,
+  type WorldConfig, type WorldEventView, type WorldState, type DepthFrame, tradingConfig,
 } from '@/engine';
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { contractProgress } from './players';
-import { ghostReport, ghostSeries, type GhostReport } from './ghosts';
+import { changeOf, ghostReport, type GhostReport } from './ghosts';
 import { tradesOf } from './ledger';
 import { calendarFor, type CalendarItem } from './calendar';
 import { goalsView } from './learn';
@@ -164,6 +164,8 @@ export interface PlayerView {
   account: Account | null;
   orders: Order[];
   netWorth: NetWorthBreakdown;
+  /** the net worth the player arrived with (the engine's starting cash) and the change since then */
+  arrival: { cash: number; change: number; changePct: number };
   rank: { id: string; name: string; next: { id: string; name: string; threshold: number } | null; progress: number };
   businesses: Business[];
   properties: (Property & { value: number })[];
@@ -189,8 +191,9 @@ export interface PlayerView {
     fills: LedgerFill[];
     trips: RoundTrip[];
     benchmark: GhostReport | null;
-    series: { day: number; player: number; basket: number; random: number; momentum: number }[];
     closes: DailyClose[];
+    /** the latest closed day whose card the player dismissed (null before the first dismissal) */
+    closeSeenDay: number | null;
     plans: PlanState | null;
     calendar: CalendarItem[];
     goals: ReturnType<typeof goalsView>;
@@ -212,6 +215,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
     account: g.market.accounts[pid] ?? null,
     orders: ordersOf(g, pid),
     netWorth: netWorthBreakdown(g, pid),
+    arrival: arrivalView(g, pid),
     rank: {
       id: p.rankId, name: RANKS[rIdx]!.name,
       next: next ? { id: next.id, name: next.name, threshold: next.threshold } : null,
@@ -244,16 +248,23 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
 
 /** The owner's trading record is sent with every tick, so the view carries recent slices only (the full ledger stays on the server). */
 const VIEW_FILLS = 50;
-const VIEW_SERIES = 60;
-const VIEW_CLOSES = 5;
+const VIEW_CLOSES = 10;
+
+/** The arrival comparison: the net worth against the engine's starting cash (the percentage comes from here, not the UI). */
+function arrivalView(g: GameState, pid: string): PlayerView['arrival'] {
+  const cash = tradingConfig(g.market).startingCash;
+  const total = netWorthBreakdown(g, pid).total;
+  return { cash, change: total - cash, changePct: changeOf(total, cash) };
+}
 
 /** The owner's trading record, sliced for the view. */
 function tradingView(g: GameState, pid: string): PlayerView['trading'] {
   const { fills, trips } = tradesOf(g, pid);
   const L = g.ledgers?.[pid];
   return {
-    fills: fills.slice(-VIEW_FILLS), trips: trips.slice(-VIEW_FILLS), benchmark: ghostReport(g, pid), series: ghostSeries(g, pid, VIEW_SERIES),
-    closes: (L?.closes ?? []).slice(0, VIEW_CLOSES).map((c) => ({ ...c, lines: textProvider.dailyClose(c) })), plans: L?.plans ?? null,
+    fills: fills.slice(-VIEW_FILLS), trips: trips.slice(-VIEW_FILLS), benchmark: ghostReport(g, pid),
+    closes: (L?.closes ?? []).slice(0, VIEW_CLOSES).map((c) => ({ ...c, lines: textProvider.dailyClose(c) })), closeSeenDay: L?.closeSeenDay ?? null,
+    plans: L?.plans ?? null,
     calendar: calendarFor(g, pid), goals: goalsView(g.players[pid]!),
   };
 }

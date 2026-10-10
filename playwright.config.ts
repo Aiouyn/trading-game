@@ -6,6 +6,8 @@ export const E2E_ADMIN = "e2e-admin";
 
 /** The shell specs (tests/e2e/shell) run on every desktop viewport; the older specs stay on desktop and phone. */
 const SHELL_SPECS = /[\/]shell[\/].*\.spec\.ts$/;
+/** The day-close specs (a game day's advance in the shared world): see the close-card projects below. */
+const CLOSE_SPECS = /closeCard\.spec\.ts$/;
 const chromium = { browserName: "chromium" as const };
 
 /**
@@ -26,11 +28,14 @@ export default defineConfig({
   timeout: 60_000,
   use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [
-    { name: "desktop", use: { ...chromium, viewport: { width: 1440, height: 900 } } },
+    { name: "desktop", testIgnore: CLOSE_SPECS, use: { ...chromium, viewport: { width: 1440, height: 900 } } },
     { name: "desktop-1920", testMatch: SHELL_SPECS, use: { ...chromium, viewport: { width: 1920, height: 1080 } } },
     { name: "desktop-1000", testMatch: SHELL_SPECS, use: { ...chromium, viewport: { width: 1000, height: 800 } } },
     { name: "desktop-900", testMatch: SHELL_SPECS, use: { ...chromium, viewport: { width: 900, height: 800 } } },
-    { name: "phone", use: { ...chromium, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
+    { name: "phone", testIgnore: CLOSE_SPECS, use: { ...chromium, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
+    // The day-close specs advance the shared e2e world by a game day, so they run after every other project, one at a time.
+    { name: "close-card", testMatch: CLOSE_SPECS, dependencies: ["desktop", "desktop-1920", "desktop-1000", "desktop-900", "phone"], use: { ...chromium, viewport: { width: 1440, height: 900 } } },
+    { name: "close-card-phone", testMatch: CLOSE_SPECS, dependencies: ["close-card"], use: { ...chromium, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
   ],
   webServer: [
     {

@@ -9,6 +9,7 @@ import { useIsPhone } from '@/game/useMedia';
 import { t } from '@/i18n';
 import { OsSheet } from './os/OsSheet';
 import { usePhone } from './os/phoneStore';
+import { useCloseCardShowing } from './CloseCard';
 import { Button, Progress } from './ui';
 
 /**
@@ -61,6 +62,8 @@ export function Coach() {
   const preset = useGame((s) => s.presetTicket);
   const act = useGame((s) => s.act);
   const [hidden, setHidden] = useState<number | null>(null);
+  // A close card is a sheet too: the tip waits behind it (one sheet at a time, the card first).
+  const closeUp = useCloseCardShowing();
   // The Recent sheet on the phone sits over everything but the status bar: the tip waits for it to close.
   const recentOpen = usePhone((s) => s.recentOpen);
   // The tip waits while a trade ticket is open (the old gate). On the phone it shows only over the three apps
@@ -109,7 +112,7 @@ export function Coach() {
       action: { label: t('coach.gotIt'), run: () => { void advance(4, { done: true }); } },
     };
   }
-  if (!card || hidden === card.key || recentOpen || sheetOpen || (phone && !COACH_PHONE_APPS.has(phoneApp ?? ''))) return null;
+  if (!card || hidden === card.key || recentOpen || sheetOpen || closeUp || (phone && !COACH_PHONE_APPS.has(phoneApp ?? ''))) return null;
   const c = card;
   return (
     <OsSheet title={c.title} testId="coach" onClose={() => setHidden(c.key)}>

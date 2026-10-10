@@ -29,6 +29,13 @@ export interface GhostReport {
   percentile: number | null;
   noTrades: boolean;
   startCash: number;
+  /** each equity's change since the start cash, as a fraction (0.05 is +5%), so the UI never does the arithmetic */
+  change: { player: number; basket: number; random: number; momentum: number };
+}
+
+/** A value's change against the start cash, as a fraction (0 with no start cash). */
+export function changeOf(value: number, startCash: number): number {
+  return startCash > 0 ? value / startCash - 1 : 0;
 }
 
 function fresh(cash: number): GhostPortfolio {
@@ -192,11 +199,18 @@ export function ghostReport(g: GameState, pid: string): GhostReport | null {
   return {
     day, player: rec.equity, basket: rec.ghosts.basket, random: rec.ghosts.random, momentum: rec.ghosts.momentum,
     beaten, percentile: noTrades ? null : percentileOf(beaten), noTrades, startCash: L.startCash,
+    change: {
+      player: changeOf(rec.equity, L.startCash), basket: changeOf(rec.ghosts.basket, L.startCash),
+      random: changeOf(rec.ghosts.random, L.startCash), momentum: changeOf(rec.ghosts.momentum, L.startCash),
+    },
   };
 }
 
-/** The ghosts and the player's equity for the last `n` closed days, oldest first (for the chart line). */
-export function ghostSeries(g: GameState, pid: string, n: number): { day: number; player: number; basket: number; random: number; momentum: number }[] {
+/** One closed day's equity and the three ghosts, the points of the chart lines. */
+export interface GhostPoint { day: number; player: number; basket: number; random: number; momentum: number }
+
+/** The ghosts and the player's equity for the last `n` closed days, oldest first (for the chart lines). */
+export function ghostSeries(g: GameState, pid: string, n: number): GhostPoint[] {
   const L = ledgerOf(g, pid);
   if (!L) return [];
   return Object.keys(L.days).map(Number).filter((d) => d >= L.startDay).sort((a, b) => a - b).slice(-n).map((d) => {
