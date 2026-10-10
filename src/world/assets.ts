@@ -9,7 +9,7 @@ import {
   TPD, bizDef, bump, cashOf, touch, clamp, credit, debit, districtIndex, districtTier, drawFrom, keyedRng, netWorthBreakdown,
   notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
 } from './core';
-import type { Business, CommandResult, GameState, Player, Property, StepOutput } from './types';
+import type { Business, CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
 const fail = (error: string): CommandResult => ({ ok: false, error });
@@ -76,7 +76,7 @@ export function upgradeBusiness(g: GameState, pid: string, bizId: string, axis: 
 export function sellBusiness(g: GameState, pid: string, bizId: string, out: StepOutput | null): CommandResult {
   const b = g.businesses[bizId];
   if (!b || b.ownerId !== pid) return fail('not your business');
-  const price = Math.round(0.7 * b.invested);
+  const price = businessSalePrice(b.invested);
   bump(g, pid, price);
   // the 30% haircut is destroyed money
   g.economy.sinks['business sale haircut'] = (g.economy.sinks['business sale haircut'] ?? 0) + (b.invested - price);
@@ -205,11 +205,52 @@ export function businessEvents(g: GameState, out: StepOutput): void {
 
 // ================================================================ property
 
+/** A business sells for this share of what was put into it; the rest is a sink. */
+export const BUSINESS_SALE_FRAC = 0.7;
+
+export function businessSalePrice(invested: number): number {
+  return Math.round(BUSINESS_SALE_FRAC * invested);
+}
+
+/** Lowest rank that may take a mortgage, and the loan-to-value cap once it can. */
+export const MORTGAGE_RANK = 'R1';
+export const MAX_LTV = 0.7;
+
+export function maxLtvFor(rankId: string): number {
+  return rankIndex(rankId) >= rankIndex(MORTGAGE_RANK) ? MAX_LTV : 0;
+}
+
+/** Fee on buying and selling a property (a share of its value). */
+export const PROPERTY_FEE = 0.02;
+/** A renovation step costs this share of the property's value. */
+export const RENOVATE_FRAC = 0.12;
+
+/** List price from a type's base value, its district tier and the district index (100 = par). */
+export function priceAt(value: number, tier: keyof typeof TIER_VALUE_MULT, index: number): number {
+  return Math.round(value * TIER_VALUE_MULT[tier] * (index / 100));
+}
+
 export function propertyPrice(g: GameState, cityId: string, districtId: string, typeId: string): number {
   const t = PROPERTY_TYPE_BY_ID.get(typeId);
   if (!t) return NaN;
   const tier = districtTier(cityId, districtId);
-  return Math.round(t.value * TIER_VALUE_MULT[tier] * (districtIndex(g, cityId, districtId) / 100));
+  return priceAt(t.value, tier, districtIndex(g, cityId, districtId));
+}
+
+/** Cash needed up front to buy: the price less the mortgage, plus the fee. */
+export function propertyDeposit(price: number, ltv: number): number {
+  const mortgage = Math.round(price * ltv);
+  return price - mortgage + price * PROPERTY_FEE;
+}
+
+/** Cash a sale nets: the value less the fee and the mortgage still owed. */
+export function propertySaleNet(value: number, mortgage: number): number {
+  return value - value * PROPERTY_FEE - mortgage;
+}
+
+/** Cost of one renovation step. */
+export function renovateCost(value: number): number {
+  return value * RENOVATE_FRAC;
 }
 
 export function mortgageRate(g: GameState): number {
@@ -226,13 +267,13 @@ export function buyProperty(g: GameState, pid: string, cityId: string, districtI
   if (!cityUnlocked(p, cityId)) return fail('that city is locked at your rank');
   if (rankIndex(p.rankId) < rankIndex(t.rank)) return fail('unlocks at a higher rank');
   if (p.heldUntil > g.market.tick) return fail('your assets are held by the court');
-  const maxLtv = rankIndex(p.rankId) >= 1 ? 0.7 : 0;
+  const maxLtv = maxLtvFor(p.rankId);
   const l = clamp(ltv || 0, 0, maxLtv);
   if (ltv > maxLtv + 1e-9) return fail(maxLtv ? 'loan-to-value is capped at 70%' : 'mortgages unlock at Hustler');
   const price = propertyPrice(g, cityId, districtId, typeId);
-  const fees = price * 0.02;
+  const fees = price * PROPERTY_FEE;
   const mortgage = Math.round(price * l);
-  const cashNeeded = price - mortgage + fees;
+  const cashNeeded = propertyDeposit(price, l);
   if (cashOf(g, pid) < cashNeeded) return fail('not enough cash for the deposit and fees');
   bump(g, pid, -(price - mortgage)); // converted into property, not destroyed
   debit(g, pid, fees, 'transaction fees');
@@ -252,8 +293,8 @@ export function sellProperty(g: GameState, pid: string, propId: string): Command
   const pr = g.properties[propId];
   if (!pr || pr.ownerId !== pid) return fail('not your property');
   const v = propValue(g, pr);
-  const fees = v * 0.02;
-  const net = v - fees - pr.mortgage;
+  const fees = v * PROPERTY_FEE;
+  const net = propertySaleNet(v, pr.mortgage);
   // proceeds: the property converts back to cash; the fee is a sink
   bump(g, pid, v - pr.mortgage);
   debit(g, pid, fees, 'transaction fees');
@@ -268,7 +309,7 @@ export function renovateProperty(g: GameState, pid: string, propId: string): Com
   const pr = g.properties[propId];
   if (!pr || pr.ownerId !== pid) return fail('not your property');
   if (pr.improvement >= 1.5) return fail('fully renovated');
-  const cost = propValue(g, pr) * 0.12;
+  const cost = renovateCost(propValue(g, pr));
   if (cashOf(g, pid) < cost) return fail('not enough cash');
   debit(g, pid, cost, 'renovations');
   pr.improvement = Math.min(1.52, pr.improvement * 1.15);

@@ -142,14 +142,17 @@ export function allianceKick(g: GameState, p: Player, target: string): CommandRe
 /** Anti-alt rule (bible 02 anti-cheat): transfers are capped and taxed. */
 export const TRANSFER_TAX = 0.05;
 
+/** Lowest rank that may offer or receive a deal (loan or transfer). The Bank app gates its form on this too. */
+export const DEALS_RANK = 'R1';
+
 export function offerDeal(g: GameState, p: Player, kind: Deal['kind'], toId: string, amount: number, rate: number, termDays: number, note: string, out: StepOutput | null): CommandResult {
   const to = g.players[toId];
   if (!to || toId === p.id) return fail('pick another player');
   if (kind !== 'loan' && kind !== 'transfer') return fail('unsupported deal');
   if (!(amount >= 100)) return fail('at least $100');
-  if (rankIndex(p.rankId) < 1) return fail('deals unlock at Hustler');
+  if (rankIndex(p.rankId) < rankIndex(DEALS_RANK)) return fail('deals unlock at Hustler');
   if (kind === 'transfer') {
-    if (rankIndex(to.rankId) < 1) return fail('the receiver must be Hustler or above');
+    if (rankIndex(to.rankId) < rankIndex(DEALS_RANK)) return fail('the receiver must be Hustler or above');
     if (amount > p.netWorth * 0.1) return fail('transfers are capped at 10% of your net worth');
   }
   if (kind === 'loan') {

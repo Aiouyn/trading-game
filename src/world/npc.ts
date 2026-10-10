@@ -3,7 +3,7 @@ import { BUSINESSES, TIERS } from '@/content/businesses';
 import { LIFE_ITEMS, PROPERTY_TYPES, rankIndex } from '@/content/lifestyle';
 import { CITIES } from '@/engine';
 import { cashOf, drawFrom, playerBusinesses } from './core';
-import { cityUnlocked, propertyPrice } from './assets';
+import { cityUnlocked, maxLtvFor, propertyPrice } from './assets';
 import { createPlayer } from './players';
 import type { Command, CommandResult, GameState, Player } from './types';
 
@@ -142,7 +142,7 @@ export function npcTick(g: GameState, apply: Apply): void {
           const types = PROPERTY_TYPES.filter((t) => t.tiers.includes(d.tier) && rankIndex(p.rankId) >= rankIndex(t.rank) && !t.home)
             .filter((t) => propertyPrice(g, c.id, d.id, t.id) * 0.32 < cash);
           const t = types.sort((a, b) => b.value - a.value)[0];
-          if (t) apply(g, p.id, { type: 'prop.buy', cityId: c.id, districtId: d.id, typeId: t.id, ltv: rankIndex(p.rankId) >= 1 ? 0.7 : 0 });
+          if (t) apply(g, p.id, { type: 'prop.buy', cityId: c.id, districtId: d.id, typeId: t.id, ltv: maxLtvFor(p.rankId) });
         }
         if (playerBusinesses(g, p.id).length < 2) buyBestBusiness(g, p, apply);
         break;
