@@ -37,12 +37,22 @@ const SCREEN_TILE: Record<string, string> = {
   security: 'security', court: 'legal', social: 'messages', wire: 'wire', profile: 'settings',
 };
 
-/** Open a screen from the shelf (desktop) or tab bar / More sheet (phone). */
+/**
+ * Open a screen: a shelf tile on the desktop; on the phone, Home (a tap on the Quay mark) and then the
+ * app's home tile (P2-142, P2-143). Home tiles keep the app id, so the same name works on both.
+ */
 export async function goTo(page: Page, screen: string): Promise<void> {
-  if (!isPhone(page)) { await page.getByTestId(`shelf-app-${SCREEN_TILE[screen] ?? screen}`).click(); return; }
-  if (['market', 'portfolio', 'empire', 'estate'].includes(screen)) { await page.getByTestId(`tab-${screen}`).click(); return; }
-  await page.getByTestId('tab-more').click();
-  await page.getByTestId(`more-${screen}`).click();
+  const app = SCREEN_TILE[screen] ?? screen;
+  if (!isPhone(page)) { await page.getByTestId(`shelf-app-${app}`).click(); return; }
+  await page.getByTestId('phone-quay').click();
+  await page.getByTestId(`home-app-${app}`).click();
+}
+
+/** Ends the ceremony on the phone or the desktop: waits for the OS update, then skips it (C-31). */
+export async function skipRankUp(page: Page): Promise<void> {
+  await expect(page.getByTestId('os-update')).toBeVisible({ timeout: 25_000 });
+  await page.getByTestId('os-update-skip').click({ timeout: 5_000 });
+  await expect(page.getByTestId('os-update')).toHaveCount(0);
 }
 
 export async function noHorizontalOverflow(page: Page): Promise<void> {

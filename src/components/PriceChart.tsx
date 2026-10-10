@@ -224,7 +224,7 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
     last.current.len = bars.length;
   }, [assetId, range, rev, loaded, series, testId, indicators]);
 
-  return <div ref={host} className="h-full w-full" data-testid={testId} />;
+  return <div ref={host} className="h-full w-full" data-testid={testId} data-chart-id={assetId} />;
 }
 
 export type { IndicatorId };

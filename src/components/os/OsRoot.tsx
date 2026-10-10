@@ -9,18 +9,22 @@ import { useEffect, useRef } from 'react';
 import { t } from '@/i18n';
 import { knownSeries, useGame } from '@/game/store';
 import { rankOrdinal } from '@/shell/ctx';
+import { useIsPhone } from '@/game/useMedia';
 import { cycleTarget, keyIntent } from '@/shell/keys';
 import { BP_HALVES, SHELF_H, STRIP_H, STRIP_H_FOCUS, layoutMode, slotFrac, viewportClass } from '@/shell/geometry';
 import { toastSide, visibleToasts } from '@/shell/toasts';
 import { focusedId, isFocused, project } from '@/shell/wm';
 import { APPS } from '@/shell/apps';
 import { SCREEN_APP } from './appMap';
+import { installTestHooks } from './e2eHooks';
 import { Wallpaper } from './DesktopWallpaper';
 import { type Rank, rankClass } from './hardware';
 import { Launcher } from './Launcher';
 import { OsToasts } from './OsToasts';
 import { RankHardware } from './RankHardware';
 import { parseLocation, routeUrl, type UrlBase } from './routing';
+import { PhoneDesk } from './PhoneDesk';
+import { isPhoneViewport, phoneGoHome, phoneOpen } from './phoneStore';
 import { Shelf } from './Shelf';
 import { SplitHandles } from './SplitHandles';
 import { StatusStrip } from './StatusStrip';
@@ -63,8 +67,20 @@ function openFromUrl(): void {
     notify(t('shell.notFound'), 'warn');
     return;
   }
-  if (route.app === null) return;
-  openApp(route.app, route.view !== undefined ? { ...route.props, view: route.view } : route.props);
+  if (route.app === null) {
+    if (isPhoneViewport()) phoneGoHome();
+    return;
+  }
+  const props = route.view !== undefined ? { ...route.props, view: route.view } : route.props;
+  // On the phone the link opens the app's own history entry, without adding one (P2-113, P2-114).
+  if (isPhoneViewport()) phoneOpen(route.app, props, false);
+  else openApp(route.app, props);
+}
+
+/** Opens an app from a screen call or a ticket preset: the phone shows it full screen, the desktop opens a window. */
+function openFromShell(app: Parameters<typeof openApp>[0], props: Parameters<typeof openApp>[1]): void {
+  if (isPhoneViewport()) phoneOpen(app, props);
+  else openApp(app, props);
 }
 
 /**
@@ -72,6 +88,8 @@ function openFromUrl(): void {
  * open, in this order: the launcher, the layout menu, the close prompt, then the first toast on screen.
  */
 function onKey(e: KeyboardEvent): void {
+  // The window keys belong to the desktop. The phone has its own Escape (the Recent sheet).
+  if (isPhoneViewport()) return;
   const target = e.target as HTMLElement | null;
   const textField =
     !!target && (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT');
@@ -165,6 +183,7 @@ export function OsRoot() {
   const focusWin = shell.wins.find((w) => w.id === focus);
   const focusTicker = focusWin?.app === 'broker' ? focusWin.props.ticker : undefined;
   const narrow = shell.vp.w < BP_HALVES;
+  const phone = useIsPhone();
 
   // The root markers on <html>, and the saved palette before the first paint of this mount.
   useEffect(() => {
@@ -195,6 +214,9 @@ export function OsRoot() {
     return () => window.removeEventListener('resize', syncViewport);
   }, []);
 
+  // window.__tg: the always-present hooks, and the ?e2e set under the flag (tape-e2e-conventions.md).
+  useEffect(() => installTestHooks(), []);
+
   // Bind to the save once the game is ready. A rank change re-normalizes the shell (P2-029). A stale or
   // unknown saved ticker is replaced before anything reads it (the chart crashed on one before).
   useEffect(() => {
@@ -210,7 +232,7 @@ export function OsRoot() {
 
   // The URL follows the focused window with replaceState, so history is not spammed (P2-113).
   useEffect(() => {
-    if (!bound) return;
+    if (!bound || isPhoneViewport()) return;
     const url = routeUrl(useShell.getState().shell, urlBase);
     const cur = window.location.pathname + window.location.search;
     if (url !== cur) window.history.replaceState(window.history.state, '', url);
@@ -224,7 +246,7 @@ export function OsRoot() {
     prevNav.current = screenNonce;
     if (!bound) return;
     const g = useGame.getState();
-    openApp(SCREEN_APP[g.screen], g.screen === 'market' ? { ticker: g.selected } : {});
+    openFromShell(SCREEN_APP[g.screen], g.screen === 'market' ? { ticker: g.selected } : {});
   }, [screenNonce, bound]);
 
   // A ticket preset (the stop explainer, a note) opens or focuses the Broker (C-24).
@@ -232,7 +254,7 @@ export function OsRoot() {
   useEffect(() => {
     if (prevNonce.current === presetNonce) return;
     prevNonce.current = presetNonce;
-    if (bound && presetNonce !== 0) openApp('broker', { ticker: useGame.getState().selected });
+    if (bound && presetNonce !== 0) openFromShell('broker', { ticker: useGame.getState().selected });
   }, [presetNonce, bound]);
 
   // A focused Broker shows its ticker in the game's selection.
@@ -252,6 +274,7 @@ export function OsRoot() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  if (phone) return <PhoneDesk />;
   const stripH = focusMode ? STRIP_H_FOCUS : STRIP_H;
   const shelfH = focusMode ? 0 : SHELF_H;
   // The toast column moves to the top left when a Broker sits under it (P2-088).

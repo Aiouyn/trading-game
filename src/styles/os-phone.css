@@ -159,3 +159,45 @@
     .os-root .os-rw { transition: none; }
   }
 }
+
+/* Phone desktop wiring (Phase 2 step 3): the home screen frame, full-screen apps, the Recent rows and the
+ * controls that are buttons in the DOM (their resets keep them looking like the mock). Scoped under .os-root. */
+@layer components {
+  .os-root .os-home { position: absolute; inset: 0; }
+  .os-root .os-home .os-home-grid { position: absolute; top: calc(var(--phone-status-h) + 214px); left: 0; right: 0; }
+
+  .os-root .os-phone-qm { background: transparent; border: 0; padding: 0; cursor: pointer; }
+  .os-root .os-widget { display: block; font: inherit; color: inherit; cursor: pointer; }
+  .os-root .os-app { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+  .os-root .os-home-edge { background: none; border: 0; padding: 0; cursor: pointer; }
+  .os-root .os-scrim { border: 0; padding: 0; cursor: default; }
+
+  /* Full-screen app: a 44 px app bar under the status bar, the body fills the rest (P2-147). */
+  .os-root .os-phone-app {
+    position: absolute; top: var(--phone-status-h); bottom: 0; left: 0; right: 0; z-index: 2;
+    display: flex; flex-direction: column; background: var(--color-ink-0);
+  }
+  .os-root .os-phone-bar {
+    display: flex; align-items: center; gap: 4px; flex: none; height: 44px; padding: 0 6px;
+    border-bottom: 1px solid var(--color-ink-2);
+  }
+  .os-root .os-phone-back {
+    display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--radius-md); color: var(--color-fg);
+  }
+  .os-root .os-phone-title { font-size: 15px; font-weight: 600; color: var(--color-fg); }
+  .os-root .os-phone-app > .os-body { padding-bottom: 56px; }
+
+  /* Recent rows: the tap target fills the row, the swipe moves the row over the Close control (V:168-170). */
+  .os-root .os-rw-tap {
+    display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; height: 100%; padding: 0 4px;
+    background: transparent; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .os-root .os-rw-tap .os-rx { flex: 1; min-width: 0; }
+  .os-root .os-rw-tap .os-rt { flex: none; }
+  /* The row slides over Close, so the row paints above it and takes the swipe (P2-163). */
+  .os-root .os-rw { z-index: 1; }
+  .os-root .os-rw-close { cursor: pointer; }
+
+  /* One notice at a time under the status bar on the phone (P2-095). */
+  .os-root .os-toasts.phone { top: calc(var(--phone-status-h) + 6px); left: 14px; right: 14px; width: auto; }
+}

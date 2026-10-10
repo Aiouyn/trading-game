@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { buyingPower, commission, estimateFill, type OrderType, type Side } from '@/engine';
 import { licenseFor } from '@/content/lifestyle';
 import { money, price, qty as fmtQty } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { isDelisted } from '@/game/universe';
+import { setDraft } from './os/drafts';
 import { Button, Card, KV, LockGlyph, NumberField, Segmented } from './ui';
 
 const TYPE_OPTS: { value: OrderType; label: string; testId: string }[] = [
@@ -59,6 +60,11 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   const [bracket, setBracket] = useState(false);
   const [tp, setTp] = useState('');
   const [sl, setSl] = useState('');
+  // Unsent input is a session draft for this ticker (P2-160): Recent shows its dot. It is never sent from there.
+  useEffect(() => {
+    setDraft(selected, q.trim() !== '');
+    return () => setDraft(selected, false);
+  }, [selected, q]);
 
 
   const ctx = useMemo(() => {

@@ -111,36 +111,6 @@ export function TopBar() {
   );
 }
 
-export function PhoneHeader() {
-  const { me, nw, today, todayPct } = useHeaderData();
-  const setInbox = useGame((s) => s.setInbox);
-  if (!me) return null;
-  const r = me.rank;
-  const unread = me.player.inboxUnread;
-  return (
-    <header className="relative px-4 pt-4" data-testid="phone-header">
-      {r.id === 'R0' && <Crack phone />}
-      <div className="flex items-center justify-between gap-2">
-        <BrassChip>{r.id} · {r.name}</BrassChip>
-        <div className="flex items-center gap-2">
-          <Clock size={22} />
-          <button type="button" onClick={() => setInbox(true)} className="relative h-10 w-10 rounded-md text-fg-muted" aria-label={`Inbox, ${unread} unread`} data-testid="inbox-button">
-            <span className="flex justify-center"><Icon name="bell" /></span>
-            {unread > 0 && <span className="num absolute top-1 right-1 rounded-chip bg-brass px-1 text-[9px] text-on-brass">{unread}</span>}
-          </button>
-        </div>
-      </div>
-      <div className="mt-4 label">Net worth</div>
-      <NetWorth value={nw} size="hero-lg" />
-      <div className={`num mt-1 text-small ${toneText[tone(today)]}`}><span className="label mr-2 text-fg-faint">Today</span>{signedMoney(today)} {signedPct(todayPct)}</div>
-      <div className="mt-3 flex items-center gap-3">
-        <Progress value={r.progress} className="flex-1" label="Rank progress" />
-        {r.next && <span className="num shrink-0 text-caption text-fg-faint">{compactMoney(nw)} / {compactMoney(r.next.threshold)} to {r.next.name}</span>}
-      </div>
-    </header>
-  );
-}
-
 /** The R0 hairline crack (DESIGN §6d). */
 function Crack({ phone = false }: { phone?: boolean }) {
   return (

@@ -17,10 +17,11 @@ import { focusOrOpen } from './shellStore';
 
 const ICON: Record<string, GlyphName> = { gain: 'check', loss: 'close', warn: 'bell', info: 'bell', brass: 'bell' };
 
-export function OsToasts({ focusMode, side }: { focusMode: boolean; side: 'right' | 'left' }) {
+export function OsToasts({ focusMode, side, phone = false }: { focusMode: boolean; side: 'right' | 'left'; phone?: boolean }) {
   const toasts = useGame((s) => s.toasts);
   const dismissMany = useGame((s) => s.dismissToasts);
-  const shown = visibleToasts(toasts, focusMode);
+  // On the phone one notice at a time drops from the status bar (P2-095).
+  const shown = visibleToasts(toasts, focusMode).slice(0, phone ? 1 : undefined);
 
   useEffect(() => {
     if (!focusMode) return;
@@ -29,7 +30,7 @@ export function OsToasts({ focusMode, side }: { focusMode: boolean; side: 'right
   }, [focusMode, toasts, dismissMany]);
 
   return (
-    <div className={`os-toasts${side === 'left' ? ' left' : ''}`} aria-live="polite" data-testid="os-toasts">
+    <div className={`os-toasts${side === 'left' && !phone ? ' left' : ''}${phone ? ' phone' : ''}`} aria-live="polite" data-testid="os-toasts">
       {shown.map((x, i) => (
         <OsToast key={x.id} toast={x} n={i + 1} />
       ))}
