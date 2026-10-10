@@ -62,6 +62,11 @@ const atDay = (s: WorldState, d: number) => run(s, d * TPD - s.tick);
  * digests were taken: it is bookkeeping, not dynamics, so it is dropped here and the digests still pin everything else.
  */
 const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x, (k, v) => (k === 'streetCash' ? undefined : v))).digest('hex');
+/**
+ * The Street tally on every account, pinned on its own (O-3 review): the digests above drop it, so this is what catches a
+ * regression in the Street side of a fill or a settlement.
+ */
+const streetSha = (s: WorldState) => sha(Object.entries(s.accounts).sort(([x], [y]) => x.localeCompare(y)).map(([id, a]) => [id, a.streetCash ?? 0]));
 
 describe('bare engine is unchanged', () => {
   it('a world with no company stocks and no restrictions steps to the same state as before the company hooks', () => {
@@ -82,6 +87,10 @@ describe('bare engine is unchanged', () => {
     expect(s.accounts.p1!.streetCash).toBeDefined();
     expect(sha(s)).toBe('61f445d2d39954626952ba005b7059361efe4a5ef931a94d8b4ba15de7311726');
     expect(sha(e)).toBe('e80f9cd00f42cbc14f9af5d55817999b6dc7146e0e194d2c3ea2eea9e5d0846d');
+    // the Street tally of those trades, pinned on its own (the digests above ignore it)
+    expect(s.accounts.p1!.streetCash).not.toBe(0);
+    expect(streetSha(s)).toBe('8878a8d3aa53ea71a4ea4868a63a2893323f01f10c7aeaabf41d4c2a4f2b34ec');
+    expect(streetSha(e)).toBe('e6f00313b539f1a87b186b14be0380f715faa525fa99a37a225d848b28d60d12');
   });
 });
 
