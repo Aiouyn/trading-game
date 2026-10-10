@@ -43,7 +43,8 @@ describe('close print share (F1: jumps print partly at once)', () => {
 
   it('closePrint is the live jumpImmediate off the ecology, the newsPrint share in full mode, 1 in the bare engine', () => {
     expect(closePrint(defaultConfig())).toBe(1);
-    expect(closePrint(universeConfig())).toBe(0.5);
+    // universe.ts: the closing auction prints the day's news in full (newsPrint 1, V1-PHASE1 F2)
+    expect(closePrint(universeConfig())).toBe(1);
     expect(ecologyWeight(universeConfig())).toBe(1);
     expect(closePrint(universeConfig({ ecology: undefined }))).toBe(0.7);
   });

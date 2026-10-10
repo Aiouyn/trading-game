@@ -7,7 +7,11 @@ import type { StepEvent, WorldConfig, WorldState } from './types';
 
 const TPD = 24;
 const STOCK = 'OSTV';
-const SEED = 'squeeze-test';
+// The seed is the scenario's price path. With the closing auction printing news in full and the GARCH 0.12 / 0.86 universe
+// (V1-PHASE1 r3), 'squeeze-test' fires on game day 7, the last day of this test, where the plain headline is already
+// saturated at +1 by an unrelated up move, so the headline check cannot separate the two runs. 'squeeze-test-f' fires on
+// day 6 with the plain headline at -0.574 and the squeezed one at +0.426, and day 7 exists for the next-day check.
+const SEED = 'squeeze-test-f';
 const NO_LISTINGS = { odds: { ipo: 0, bankruptcy: 0, merger: 0, spinoff: 0 } };
 /**
  * the crowded book: five margin accounts, each short 15% of the stock's ADV, with half their short notional as collateral.
@@ -116,11 +120,14 @@ describe('short squeeze', () => {
     const withSq = next(squeezed.state).desired.retail;
     const without = next(plain.state).desired.retail;
     expect(withSq).toBeGreaterThan(without);
-    // retail reads the headline a day late: the gap is retailHeadline times the headline gap on the squeeze day
-    // (measured 2026-10-10: retail -0.066 against -0.109 ADV on game day 7, a gap of 0.0425 ADV). No capacity cut
-    // applies on that day, so the gap is exact.
+    // retail reads the headline a day late: the headline adds retailHeadline times the headline gap on the squeeze day.
+    // The retail pool's capacity cut (ecology.ts: a pool already loaded on that side trades less) divides that term when
+    // retail holds a position of the same sign, so on this path the gap is an upper bound, not exact: the cut only
+    // shrinks it. (The noise stream is shared by both runs, so the difference is the headline term less the cut.)
     const gap = squeezed.headlines[day]! - plain.headlines[day]!;
-    expect(withSq - without).toBeCloseTo(DEFAULT_ECOLOGY.retailHeadline * gap, 9);
+    expect(gap).toBeGreaterThan(0);
+    expect(withSq - without).toBeGreaterThan(0);
+    expect(withSq - without).toBeLessThanOrEqual(DEFAULT_ECOLOGY.retailHeadline * gap + 1e-9);
   });
 
   it('names the asset and never an account in the event', () => {

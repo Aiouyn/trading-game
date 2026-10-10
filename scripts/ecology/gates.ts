@@ -219,6 +219,8 @@ const BANDS: Record<BandKey, { label: string; text: string; ok: (v: number) => b
   volCorr: { label: 'corr(|r_t|, traded value) (volume)', text: 'in (0.3, 0.6]', ok: (v) => v > 0.3 && v <= 0.6 },
 };
 const VOL_BAND: [number, number] = [0.85, 1.4];
+/** rare-jump and stablecoin names whose vol ratio gets a standard error in the report (V1-PHASE1 F13) */
+const VOL_SE_IDS: readonly string[] = ['AUSD', 'FLUX', 'DATA', 'AV10', 'AV30', 'IGCB'];
 /** the vol-ratio band of one asset: the universe's class band where bands.ts has one (the same table run.ts uses), else [0.85, 1.4] */
 const volBandOf = (id: string, universe: boolean): [number, number] => {
   const b = universe ? UNIVERSE_VOL_BANDS[id] : undefined;
@@ -268,7 +270,23 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
   const assetVol = r0.ids.map((_, i) => rmsOf(vrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))));
   const listed = assetVol.map((v, i) => ({ id: r0.ids[i]!, v })).filter((x) => Number.isFinite(x.v));
   const inBand = (x: { id: string; v: number }) => { const [lo, hi] = volBandOf(x.id, r0.universe); return x.v >= lo && x.v <= hi; };
-  const outside = listed.filter((x) => !inBand(x));
+  // V1-PHASE1 F13: the verdict uses the estimate's standard error. An asset FAILS only when its estimate ± 2 s.e. lies wholly
+  // outside its band; when the interval straddles a band edge it is UNDECIDED at this seed count (listed, not a pass).
+  // Band edges are not moved. Rare-jump names (FLUX, AUSD) need ~300 seeds to settle; at 8 seeds the interval is wide.
+  const seOf = (i: number) => {
+    const xs = vrs.map((v) => v[i]!).filter((y) => Number.isFinite(y)).map((y) => y * y);
+    const m = mean(xs), sdv = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / Math.max(1, xs.length - 1));
+    return sdv / Math.sqrt(xs.length) / (2 * Math.sqrt(m));
+  };
+  const verdict = listed.map((x) => {
+    const [lo, hi] = volBandOf(x.id, r0.universe);
+    const se = seOf(r0.ids.indexOf(x.id));
+    const fail = x.v + 2 * se < lo || x.v - 2 * se > hi;
+    const sure = x.v - 2 * se >= lo && x.v + 2 * se <= hi;
+    return { ...x, se, fail, undecided: !fail && !sure };
+  });
+  const outside = verdict.filter((x) => x.fail);
+  const undecided = verdict.filter((x) => x.undecided);
   let liveVr: string | undefined, liveVrPass: boolean | undefined;
   if (liveRuns) {
     const lvrs = liveRuns.map((r, k) => volRatios(liveCloses(r, k), r.alive, r.expVolLive, r.daysPerYear));
@@ -278,7 +296,7 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
     liveVrPass = lvAll.every(inBand);
   }
   rows.push({
-    label: `vol ratio per asset, RMS over seeds (${listed.length} assets)`, text: r0.universe ? 'in band (class bands)' : 'every asset in [0.85, 1.4]',
+    label: `vol ratio per asset, RMS over seeds (${listed.length} assets)`, text: r0.universe ? 'in band (class bands), 2 s.e.' : 'every asset in [0.85, 1.4], 2 s.e.',
     value: `${Math.min(...listed.map((x) => x.v)).toFixed(3)}..${Math.max(...listed.map((x) => x.v)).toFixed(3)} med ${median(listed.map((x) => x.v)).toFixed(3)}`,
     pass: outside.length === 0,
     ...(liveVr ? { live: liveVr, livePass: liveVrPass } : {}),
@@ -291,11 +309,26 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
     const lres = row.livePass === undefined ? '' : row.livePass ? 'PASS' : 'FAIL';
     out.push(`${row.label.padEnd(56)}${row.value.padStart(24)}  ${res}${row.text.padEnd(30)}${row.live !== undefined ? row.live.padStart(24) : ''}${lres ? '  ' + lres : ''}`);
   }
-  if (outside.length) out.push(`vol ratio outside its band: ${outside.length} assets: ${outside.map((x) => `${x.id} ${x.v.toFixed(3)} [${volBandOf(x.id, r0.universe).join(', ')}]`).join(', ')}`);
+  if (outside.length) out.push(`vol ratio FAILS (estimate ± 2 s.e. wholly outside its band): ${outside.map((x) => `${x.id} ${x.v.toFixed(3)} ± ${x.se.toFixed(3)} [${volBandOf(x.id, r0.universe).join(', ')}]`).join(', ')}`);
+  if (undecided.length) out.push(`vol ratio UNDECIDED at ${runs.length} seeds (2 s.e. straddles a band edge; not a pass): ${undecided.map((x) => `${x.id} ${x.v.toFixed(3)} ± ${x.se.toFixed(3)} [${volBandOf(x.id, r0.universe).join(', ')}]`).join(', ')}`);
   out.push(`info: GARCH h (live engine) mean ${mean(runs.map((r) => r.hMean)).toFixed(4)}, max ${Math.max(...runs.map((r) => r.hMax)).toFixed(4)}`);
+  // V1-PHASE1 F13: the RMS over seeds of a rare-jump asset is a noisy estimate at a few seeds. Its standard error
+  // (delta method on the mean squared ratio, se(RMS) = se(mean x^2) / (2 RMS), x = per-seed ratio) is shown for the rare-jump
+  // names and for any asset outside its band, so a verdict at 8 seeds is not read as settled.
+  const seDetail = listed.filter((x) => VOL_SE_IDS.includes(x.id) || !inBand(x));
+  if (seDetail.length) {
+    const cells = seDetail.map((x) => {
+      const i = r0.ids.indexOf(x.id);
+      const xs = vrs.map((v) => v[i]!).filter((y) => Number.isFinite(y)).map((y) => y * y);
+      const m = mean(xs), sdv = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / Math.max(1, xs.length - 1));
+      const se = sdv / Math.sqrt(xs.length) / (2 * Math.sqrt(m));
+      return `${x.id} ${x.v.toFixed(3)} ± ${se.toFixed(3)}`;
+    });
+    out.push(`vol ratio RMS ± s.e. (${runs.length} seeds): ${cells.join(', ')}`);
+  }
   out.push(`info: ecology gross flow ${mean(runs.map((r) => mean(r.gross.flat()))).toFixed(4)} ADV per asset-day (log only; quote().volume is not gated)`);
   const gated = rows.filter((x) => x.pass !== null);
-  out.push(`gates ${col}: ${gated.filter((x) => x.pass).length}/${gated.length} PASS${rows.some((x) => x.pass === null) ? ' (volCorr INFO: see live column)' : ''}`);
+  out.push(`gates ${col}: ${gated.filter((x) => x.pass).length}/${gated.length} PASS${rows.some((x) => x.pass === null) ? ' (volCorr INFO: see live column)' : ''}${undecided.length ? `; ${undecided.length} vol asset(s) undecided at ${runs.length} seeds` : ''}`);
   if (liveRuns) {
     const lg = rows.filter((x) => x.livePass !== undefined);
     out.push(`gates live: ${lg.filter((x) => x.livePass).length}/${lg.length} PASS`);

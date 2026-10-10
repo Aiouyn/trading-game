@@ -39,6 +39,7 @@ export const DEFAULT_ECOLOGY: EcologyConfig = {
   valueMaxAdv: 4,
   valueGapCap: 0,
   newsPrint: 0.5,
+  ratePrint: 0.5,
   valuePrint: 0,
   valueVolScale: 1,
   trendK: 0.5,
@@ -149,6 +150,8 @@ export interface EcoDayInput {
   h: number[];
   /** sum of today's jumps (the news that printed today), log size */
   jump: number[];
+  /** the part of jump that is the rates layer's move (AssetState.dayRate), printed at ratePrint; absent = 0 */
+  rate?: number[];
   /** each index's members, in config order, once the index review has run (absent = the config's members) */
   members?: string[][];
   /** the pension pool's reshuffle on an index-review effective day: equal-weight units by asset id (indices.ts) */
@@ -168,6 +171,7 @@ export function ecoDayInput(state: WorldState, day: number): EcoDayInput {
     lnV: state.assets.map((a) => a.lnV),
     h: state.assets.map((a) => a.h),
     jump: state.assets.map((a) => a.dayJump),
+    rate: state.assets.map((a) => a.dayRate ?? 0),
     ...(state.indices ? { members: cfg.indices.map((ix) => indexMembers(state, ix)) } : {}),
     ...(state.reshuffle && state.reshuffle.day === day ? { reshuffle: state.reshuffle.eq } : {}),
     ...(squeezes ? { squeeze: state.assets.map((a) => (a.coverTally && a.coverTally.day === day && a.coverTally.fired ? 1 : 0)) } : {}),
@@ -250,6 +254,8 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
   const Y = (cfg.trading ?? DEFAULT_TRADING).impactY;
   const rg = cfg.regimes[input.regime];
   const iota = ec.newsPrint ?? cfg.jumpImmediate ?? 1;
+  const rp = ec.ratePrint ?? iota;
+  const rate = input.rate ?? input.jump.map(() => 0);
   const jp = cfg.jumpPermanent ?? cfg.permanentShare;
   const vpK = opts.full === true ? (cfg.ecology?.valuePrint ?? FULL_MODE_DEFAULTS.valuePrint) : ec.valuePrint;
   const scaleOn = opts.setsClose === true && ec.valueVolScale !== undefined && ec.valueVolScale !== 1;
@@ -304,8 +310,11 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
       lnVe = (e.lnVe ?? e.lnV) + drift + jumpPart + ec.valueVolScale! * (lnV - e.lnV - drift - jumpPart);
     }
 
-    // news prints its immediate share; the rest of the move in value is a gap the pools trade
-    const newsPrint = iota * input.jump[i]!;
+    // news prints its immediate share; the rest of the move in value is a gap the pools trade. The rates layer's part
+    // of the day's jump prints at ratePrint (default = newsPrint, so the default run is unchanged). A residual here is
+    // a return the value pool trades the next day, i.e. 1-day momentum (V1-PHASE1 F2): earnings and other idiosyncratic
+    // news print in full at the close, and the post-earnings drift that is meant to follow is catalysts.ts's own term.
+    const newsPrint = rp === iota ? iota * input.jump[i]! : iota * (input.jump[i]! - rate[i]!) + rp * rate[i]!;
     // quotes reprice a share of the day's non-jump value move at once (public information, no trade needed)
     const valuePrint = vpK && e.lnV !== undefined ? vpK * (lnV - e.lnV - jp * input.jump[i]!) : 0;
     // the maker works off part of yesterday's skew and inventory before today's flow

@@ -227,6 +227,7 @@ function advance(state: WorldState): StepResult {
       a.lnOpen = prev.lnP;
       a.haltedToday = false;
       a.dayJump = 0;
+      a.dayRate = 0;
       a.dayDiff = 0;
     }
 
@@ -268,6 +269,7 @@ function advance(state: WorldState): StepResult {
     if (rateShocks && rateShocks[i]) {
       catalyst += rateShocks[i]!;
       a.dayJump += rateShocks[i]!;
+      a.dayRate = (a.dayRate ?? 0) + rateShocks[i]!;
     }
 
     // world events: the active event's planned move (and a bubble's hidden give-back) is news to value and price, like a

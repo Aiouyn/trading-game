@@ -458,8 +458,11 @@ export function universeConfig(overrides: Partial<WorldConfig> = {}): WorldConfi
   return {
     ticksPerDay: 720,
     daysPerYear: 252,
-    garchAlpha: 0.08,
-    garchBeta: 0.9,
+    // GARCH 0.12 / 0.86 (persistence 0.98, as the bare engine's 0.08 / 0.9): with the close now printing the day's news in
+    // full, the news residual no longer supplies the vol clustering. corr(|r_t|, |r_t-1|) was 0.142 at 0.08 (FAIL) and
+    // 0.194 at 0.12 (8 seeds, tpd 24). The bare catalog keeps 0.08 / 0.9 (defaultConfig).
+    garchAlpha: 0.12,
+    garchBeta: 0.86,
     garchMin: 0.25,
     garchMax: 9,
     studentNu: 4,
@@ -471,7 +474,10 @@ export function universeConfig(overrides: Partial<WorldConfig> = {}): WorldConfi
     // alt-peak guard (Quant's C5): one-sided crowd flow > 25% ADV in a day or 50% ADV over 5 days freezes peak marks
     markGuard: { thr: 0.25, K: 0.5 },
     // market ecology, full: six trader pools set every game day's close (the closing auction); Quant/Tape gates passed 2026-10-09
-    ecology: { mode: 'full', weight: 1 },
+    // newsPrint 1: the closing auction prints a day's idiosyncratic news in full (earnings, jumps, world events). At 0.5
+    // the other half was a return the value pool traded the next day: 1-day momentum, IC1 +0.016 (V1-PHASE1 F2). Rates
+    // keep their 0.5 print (ratePrint, the default), so the bond vol Tape calibrated does not move.
+    ecology: { mode: 'full', weight: 1, newsPrint: 1, ratePrint: 0.5 },
     haltThreshold: 0.15,
     haltTicks: 120,
     initialRegime: 'expansion',

@@ -13,7 +13,7 @@ import { estimateFill, liquidationEquity, openAccount, permanentMove, placeOrder
 import { freeCash, freeQty, mean, median, realizeToFlat } from '../../src/engine/hunt-helpers';
 import { depthByPool, explainMove } from '../../src/engine/ecology';
 import { rankFor } from '../../src/content/lifestyle';
-import type { WorldState } from '../../src/engine/types';
+import type { WorldConfig, WorldState } from '../../src/engine/types';
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -23,11 +23,15 @@ function arg(name: string, fallback: string): string {
 const seed = arg('seed', 'tape-01');
 const cashes = arg('cash', '1e12,1e15').split(',').map(Number);
 const FLAT_DAYS = Number(arg('flatDays', '200'));
-const TPD = 24;
+const TPD = Number(arg('tpd', '24'));
 const DAYS = 252;
 const PID = 'huge';
 const ROTATION = ['FROG', 'HLCN', 'SYN']; // the same rotation as huge.test.ts
-const cfg = universeConfig({ ticksPerDay: TPD });
+// --pensionMax X sets the pension pool's per-day cap (ecology.pensionMaxAdv; default 1, the shipped value). The log keeps the
+// whole year so the pension cause can be scanned on every day (see pensionScan).
+const cfg0 = universeConfig({ ticksPerDay: TPD });
+const pensionMax = arg('pensionMax', '');
+const cfg: WorldConfig = { ...cfg0, ecology: { ...cfg0.ecology, logDays: DAYS + 5, ...(pensionMax ? { pensionMaxAdv: Number(pensionMax) } : {}) } };
 
 const idx = (s: WorldState, id: string) => s.config.assets.findIndex((a) => a.id === id);
 const lnMove = (s: WorldState, id: string) => s.assets[idx(s, id)]!.lnP - Math.log(s.config.assets[idx(s, id)]!.initialPrice);
@@ -155,6 +159,26 @@ function runCounterfactual(): Record<string, number>[] {
 }
 
 
+/**
+ * The pension pool's close on FROG over the year, from the ecology log (every closed day, as logDays keeps the year):
+ * the largest pension buy and sell in ADV, the day of each, and the FROG log move that day. Also the largest desired
+ * pension flow before the cap, so the cap's effect is visible (desire = pool's own order, cap applied after).
+ */
+function pensionScan(s: WorldState): void {
+  const fi = idx(s, 'FROG');
+  let up = { v: 0, day: -1, pc: 0 }, dn = { v: 0, day: -1, pc: 0 }, nz = 0, sumAbs = 0, pcSum = 0;
+  for (const day of s.ecology?.log ?? []) {
+    const a = day.assets[fi];
+    if (!a) continue;
+    const p = a.desired.pension;
+    if (p !== 0) { nz++; sumAbs += Math.abs(p); }
+    pcSum += a.cause.pension;
+    if (p > up.v) up = { v: p, day: day.day, pc: a.cause.pension };
+    if (p < dn.v) dn = { v: p, day: day.day, pc: a.cause.pension };
+  }
+  console.log(`pension (FROG, whole year): days with a pension order ${nz}, sum of |order| ${fx(sumAbs)} ADV, sum of pension log moves ${fx(pcSum)}; largest buy ${fx(up.v)} ADV on day ${up.day + 1} (pension log move ${fx(up.pc)}); largest sell ${fx(dn.v)} ADV on day ${dn.day + 1} (pension log move ${fx(dn.pc)})`);
+}
+
 function report(cash: number): void {
   console.log(`\n== $${cash.toExponential(0)} cash, ${seed}, universe, ${TPD} ticks a game day, ${DAYS} game days ==`);
   const t0 = performance.now();
@@ -177,6 +201,7 @@ function report(cash: number): void {
   }
   console.log(`largest |lnP - ln P0| over the year: ${r.maxAbs.toFixed(2)} at ${r.maxAt}`);
 
+  pensionScan(s);
   // permanent-impact bound against the realized push (FROG, the most-pushed asset)
   const s0 = createWorld(seed, cfg);
   console.log(`push: bound at the start state for 72 ADV a day: ${ROTATION.map((id) => `${id} ${fx(permanentMove(s0, idx(s0, id), 'buy', 0, 72 * advOf(s0, id)))}`).join(', ')} (log)`);

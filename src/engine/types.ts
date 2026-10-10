@@ -244,6 +244,11 @@ export interface AssetState {
   /** sum of today's jump log sizes; excluded from the GARCH input so jumps don't feed vol clustering */
   dayJump: number;
   /**
+   * the part of dayJump that is the rates layer's yield and surprise moves (rates.ts), summed the same way. The closing
+   * auction prints it at the rates share (EcologyConfig.ratePrint), not the news share. Absent (undefined) = 0.
+   */
+  dayRate?: number;
+  /**
    * sum of today's per-tick diffusive shocks (sigma · sqrt(dt) · shock, no jumps, no pull, no drift). GARCH standardizes
    * this, not the close-to-close return, so E[z^2 | h] = h for every asset. Absent (undefined) = 0 at the first tick.
    */
@@ -598,6 +603,12 @@ export interface EcologyConfig {
   valueMaxAdv: number;
   /** share of a jump (news) that prints in the shadow at once; the rest is a gap the pools trade. Absent = the live jumpImmediate */
   newsPrint?: number;
+  /**
+   * share of the day's rates-layer move (yield repricing and policy or data surprises, AssetState.dayRate) that prints in
+   * the close. Absent = newsPrint's default (0.5). Kept apart from newsPrint so the rate-driven bond vol that Tape
+   * calibrated (universe.ts, AV10 and AV30 vol ratios 1.17 and 1.19) stays where it was: its expectedVol has no rate term.
+   */
+  ratePrint?: number;
   /**
    * share of the day's non-jump value move (factor and idiosyncratic diffusion, drift) that quotes reprice at once,
    * before any pool trades; the rest is a gap the value pool trades like any other. Absent = 0 (shipping: off; it
