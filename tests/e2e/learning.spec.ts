@@ -25,6 +25,9 @@ test('a closed trade lands in the journal as a row, with its replay and its free
   await row.click();
   await expect(page.getByTestId('journal-detail')).toBeVisible();
   await expect(page.getByTestId('replay-chart').or(page.getByText('No price history for this trade.'))).toBeVisible();
+  // the free sentence: either the pending line or the explained one, never empty and never a raw key or placeholder
+  await expect(page.getByTestId('explain-line')).not.toBeEmpty();
+  await expect(page.getByTestId('explain-line')).not.toContainText(/[{}@]/);
   await page.getByTestId('journal-back').click();
   await noHorizontalOverflow(page);
   expect(errors).toEqual([]);

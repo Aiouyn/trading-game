@@ -188,7 +188,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
           </div>
         )}
       </Card>
-      <p className="text-center text-caption text-fg-faint">{t('portfolio.universe', { count: config.assets.filter((a) => a.listed !== false).length, money: compactMoney(b.total) })}</p>
+      <p className="text-center text-caption text-fg-faint">{t('portfolio.universe', { assets: config.assets.filter((a) => a.listed !== false).length, money: compactMoney(b.total) })}</p>
     </div>
   );
 }

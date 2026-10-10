@@ -140,6 +140,11 @@ describe('the journal: a closed trade explained', () => {
     const pending = cmd(g, 'u1', { type: 'journal.detail', tripId: trip.id });
     expect(pending.ok).toBe(true);
     expect((pending.data as { line: { key: string } }).line.key).toBe('journal.line.pending');
+    // the exit sits on the still-open day: the replay has no exit (no marker, no shading), and the series ends at the last close
+    const pendingReplay = (pending.data as { replay: { exitDay: number | null; series: { day: number }[] } | null }).replay;
+    expect(pendingReplay).not.toBeNull();
+    expect(pendingReplay!.exitDay).toBeNull();
+    expect(pendingReplay!.series.at(-1)!.day).toBeLessThanOrEqual(deskWindow(g).lastClosed!);
     runPastDay(g, gameDayOfTick(trip.closeTick, TPD));
     const r = cmd(g, 'u1', { type: 'journal.detail', tripId: trip.id });
     const d = r.data as { line: { key: string }; analyst: string | null; rows: unknown; total: number | null; replay: { series: { day: number; px: number }[] } | null };
@@ -150,7 +155,12 @@ describe('the journal: a closed trade explained', () => {
     expect(d.replay!.series.length).toBeGreaterThan(0);
     // hired analyst: the parts sum to the explain total, which is the ledger's realized P&L
     g.players['u1']!.analyst = { tier: 'junior', hiredDay: 0, paidThroughDay: 99 };
-    const withParts = cmd(g, 'u1', { type: 'journal.detail', tripId: trip.id }).data as { rows: { value: number }[]; total: number };
+    const withParts = cmd(g, 'u1', { type: 'journal.detail', tripId: trip.id }).data as { rows: { row: string; value: number }[]; total: number };
+    // the rows come in the screen order: the engine's explanation rows, then fees
+    const order = [...EXPLAIN_ROWS, 'fees'] as string[];
+    const at = withParts.rows.map((x) => order.indexOf(x.row));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect(at).toEqual([...at].sort((a, b) => a - b));
     const sum = withParts.rows.reduce((s, x) => s + x.value, 0);
     expect(Math.abs(sum - withParts.total)).toBeLessThanOrEqual(TRADE_REALIZED_TOLERANCE);
     expect(Math.abs(withParts.total - trip.realizedPnl)).toBeLessThanOrEqual(TRADE_REALIZED_TOLERANCE);

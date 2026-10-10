@@ -30,7 +30,9 @@ export function Replay({ replay, pins = [] }: { replay: JournalReplay; pins?: Re
   const series = replay.series;
   const n = series.length;
   const entryIdx = Math.max(0, series.findIndex((p) => p.day >= replay.entryDay));
-  const exitIdx = Math.max(entryIdx, series.reduce((k, p, i) => (p.day <= replay.exitDay ? i : k), entryIdx));
+  // a pending exit (the trade closed on the still-open day) has no exit on the chart: play runs to the last closed day
+  const exitDay = replay.exitDay;
+  const exitIdx = exitDay === null ? n - 1 : Math.max(entryIdx, series.reduce((k, p, i) => (p.day <= exitDay ? i : k), entryIdx));
   const [pos, setPos] = useState(n - 1);
   const [playing, setPlaying] = useState(false);
 
@@ -53,7 +55,7 @@ export function Replay({ replay, pins = [] }: { replay: JournalReplay; pins?: Re
   }, [playing, entryIdx, exitIdx]);
 
   const days = [...series.map((p) => p.day), ...replay.held.map((p) => p.day)];
-  const prices = [...series.map((p) => p.px), ...replay.held.map((p) => p.px), replay.avgEntry, replay.avgExit];
+  const prices = [...series.map((p) => p.px), ...replay.held.map((p) => p.px), replay.avgEntry, ...(exitDay === null ? [] : [replay.avgExit])];
   const d0 = Math.min(...days);
   const d1 = Math.max(...days);
   const p0 = Math.min(...prices);
@@ -65,7 +67,7 @@ export function Replay({ replay, pins = [] }: { replay: JournalReplay; pins?: Re
   const pts = (rows: { day: number; px: number }[]) => rows.map((r) => `${x(r.day).toFixed(1)},${y(r.px).toFixed(1)}`).join(' ');
 
   const shown = series.slice(0, Math.max(1, pos + 1));
-  const exitShown = pos >= exitIdx;
+  const exitShown = exitDay !== null && pos >= exitIdx;
   const entryShown = pos >= entryIdx;
   const ex = series[exitIdx] ?? series[n - 1]!;
   const en = series[entryIdx] ?? series[0]!;
@@ -89,11 +91,13 @@ export function Replay({ replay, pins = [] }: { replay: JournalReplay; pins?: Re
         aria-label={t('journal.replay')}
         data-testid="replay-chart"
       >
-        {/* the held window, shaded */}
-        <rect x={x(replay.entryDay)} y={PAD.t} width={Math.max(1, x(replay.exitDay) - x(replay.entryDay))} height={H - PAD.t - PAD.b} className="fill-brass" fillOpacity={0.06} />
+        {/* the held window, shaded (once the exit is known) */}
+        {exitDay !== null && (
+          <rect x={x(replay.entryDay)} y={PAD.t} width={Math.max(1, x(exitDay) - x(replay.entryDay))} height={H - PAD.t - PAD.b} className="fill-brass" fillOpacity={0.06} />
+        )}
         {/* the average cost between entry and exit */}
         {entryShown && (
-          <line x1={x(replay.entryDay)} x2={x(replay.exitDay)} y1={y(replay.avgEntry)} y2={y(replay.avgEntry)} className="stroke-fg-faint" strokeDasharray="4 4" strokeWidth={1} />
+          <line x1={x(replay.entryDay)} x2={x(exitDay ?? d1)} y1={y(replay.avgEntry)} y2={y(replay.avgEntry)} className="stroke-fg-faint" strokeDasharray="4 4" strokeWidth={1} />
         )}
         {/* the price path, drawn up to the position */}
         <polyline points={pts(shown)} fill="none" className="stroke-fg" strokeWidth={1.5} strokeLinejoin="round" />
@@ -110,8 +114,8 @@ export function Replay({ replay, pins = [] }: { replay: JournalReplay; pins?: Re
         {entryShown && (
           <polygon points={`${x(replay.entryDay)},${y(replay.avgEntry) - 7} ${x(replay.entryDay) - 5},${y(replay.avgEntry) + 3} ${x(replay.entryDay) + 5},${y(replay.avgEntry) + 3}`} className="fill-brass" data-testid="replay-entry" />
         )}
-        {exitShown && (
-          <polygon points={`${x(replay.exitDay)},${y(replay.avgExit) + 7} ${x(replay.exitDay) - 5},${y(replay.avgExit) - 3} ${x(replay.exitDay) + 5},${y(replay.avgExit) - 3}`} className="fill-brass" data-testid="replay-exit" />
+        {exitShown && exitDay !== null && (
+          <polygon points={`${x(exitDay)},${y(replay.avgExit) + 7} ${x(exitDay) - 5},${y(replay.avgExit) - 3} ${x(exitDay) + 5},${y(replay.avgExit) - 3}`} className="fill-brass" data-testid="replay-exit" />
         )}
         <text x={PAD.l} y={H - 6} className="fill-fg-faint" fontSize={11}>{dayStart}</text>
         <text x={W - PAD.r} y={H - 6} textAnchor="end" className="fill-fg-faint" fontSize={11}>{dayEnd}</text>

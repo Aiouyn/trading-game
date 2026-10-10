@@ -7,7 +7,7 @@ import { useGame } from '@/game/store';
 import { t, tm } from '@/i18n';
 import { Button, Card } from '@/components/ui';
 import type { JournalDetail, JournalRow } from '@/world/journal';
-import type { RoundTrip } from '@/engine';
+import { EXPLAIN_ROWS, type RoundTrip } from '@/engine';
 import { Waterfall, type WaterfallRow } from '../analyst/Waterfall';
 import { Replay } from './Replay';
 
@@ -15,11 +15,12 @@ import { Replay } from './Replay';
  * The journal (velvet-trade-journal-replay.md): the closed round trips, newest first. A row shows the trade, its realized P&L
  * and the one line from the engine's explanation; with an analyst, a thin bar split by part size. A tap opens the detail:
  * the replay, the sentence, and (with an analyst) the waterfall, Senior's headlines and flow by pool. Nothing here is a
- * number the screen adds up: the rows and totals come from the server.
+ * number the screen adds up: the rows and totals come from the server, already in the screen order (EXPLAIN_ROWS, then fees).
  */
 
 const EVEN_BELOW = 1;
-const WHY_ROW_ORDER = ['market', 'sector', 'news', 'event', 'company', 'flow', 'players', 'you', 'fees'] as const;
+/** the waterfall's rows the screen can label (the server's order: the engine's explanation rows, then fees) */
+const WHY_ROW_ORDER: readonly string[] = [...EXPLAIN_ROWS, 'fees'];
 
 /** A cache key for one trade's detail: it changes when the closed days or the analyst change (the line and the parts depend on them). */
 function detailKey(id: string, version: string): string {
@@ -142,7 +143,7 @@ function TradeDetail({ trip, detail, tpd, onHire }: { trip: RoundTrip; detail: J
   const closedBy = t('journal.closedBy', { reason: `@journal.reason.${trip.closeReason}` });
   const sold = t('journal.sold', { day: closeDay });
   const waterfall: WaterfallRow[] = detail?.rows
-    ? detail.rows.filter((r) => WHY_ROW_ORDER.includes(r.row as (typeof WHY_ROW_ORDER)[number])).map((r) => ({
+    ? detail.rows.filter((r) => WHY_ROW_ORDER.includes(r.row)).map((r) => ({
       key: r.row, label: t(`why.${r.row}`), value: r.value,
     }))
     : [];

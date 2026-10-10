@@ -30,7 +30,8 @@ export interface JournalReplay {
   /** the closes after the exit, to the last closed day: the "If held" continuation */
   held: { day: number; px: number }[];
   entryDay: number;
-  exitDay: number;
+  /** the exit day, or null while the exit is on the still-open day (the chart draws no exit then: no marker, no shading) */
+  exitDay: number | null;
   avgEntry: number;
   avgExit: number;
   qty: number;
@@ -87,8 +88,9 @@ function replayOf(g: GameState, trip: RoundTrip, openDay: number, closeDay: numb
   const side = trip.side;
   const last = px(lastClosed);
   const sign = side === 'long' ? 1 : -1;
-  const ifHeld = closeDay <= lastClosed && last !== undefined ? sign * trip.qty * (last - avgExit) : null;
-  return { series, held, entryDay: openDay, exitDay: closeDay, avgEntry, avgExit, qty: trip.qty, side, ifHeld };
+  const exited = closeDay <= lastClosed;
+  const ifHeld = exited && last !== undefined ? sign * trip.qty * (last - avgExit) : null;
+  return { series, held, entryDay: openDay, exitDay: exited ? closeDay : null, avgEntry, avgExit, qty: trip.qty, side, ifHeld };
 }
 
 /** A closed trade's journal detail for its owner. Unknown or open trades are refused; a trade with no breakdown still answers. */
