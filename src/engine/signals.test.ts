@@ -51,11 +51,11 @@ describe('learnability signal helpers', () => {
 
   it('signed flow and crowding vs advNotional, by direction, strictly above 10%', () => {
     const fills: Fill[] = [
-      { orderId: 'a', playerId: 'p', assetId: 'X', side: 'buy', qty: 10, price: 100, fee: 1, tick: 5 },
-      { orderId: 'b', playerId: 'p', assetId: 'X', side: 'sell', qty: 2, price: 100, fee: 1, tick: 9 },
-      { orderId: 'c', playerId: 'q', assetId: 'X', side: 'buy', qty: 99, price: 100, fee: 1, tick: 6 },
-      { orderId: 'd', playerId: 'p', assetId: 'Y', side: 'buy', qty: 99, price: 100, fee: 1, tick: 6 },
-      { orderId: 'e', playerId: 'p', assetId: 'X', side: 'buy', qty: 50, price: 100, fee: 1, tick: 20 },
+      { orderId: 'a', playerId: 'p', assetId: 'X', side: 'buy', qty: 10, price: 100, fee: 1, tick: 5, mid: 100 },
+      { orderId: 'b', playerId: 'p', assetId: 'X', side: 'sell', qty: 2, price: 100, fee: 1, tick: 9, mid: 100 },
+      { orderId: 'c', playerId: 'q', assetId: 'X', side: 'buy', qty: 99, price: 100, fee: 1, tick: 6, mid: 100 },
+      { orderId: 'd', playerId: 'p', assetId: 'Y', side: 'buy', qty: 99, price: 100, fee: 1, tick: 6, mid: 100 },
+      { orderId: 'e', playerId: 'p', assetId: 'X', side: 'buy', qty: 50, price: 100, fee: 1, tick: 20, mid: 100 },
     ];
     expect(signedFlow(fills, 'p', 'X', 0, 20)).toBe(800);
     expect(signedFlow(fills, 'p', 'X', 6, 21)).toBe(4800);

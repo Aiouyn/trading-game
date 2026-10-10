@@ -28,7 +28,7 @@ export function gameDayOfTick(tick: number, ticksPerDay: number): number {
   return Math.floor((tick - 1) / ticksPerDay);
 }
 
-/** Until the trade ledger is on the state (A2), no trip is known: every explainTrade call throws for a missing trip. */
+/** With no ledger supplied, no trip is known: every explainTrade call throws for a missing trip. The world passes its own (R3). */
 const NO_LEDGER: TradeLedgerReader = { roundTrip: () => undefined };
 
 /**
@@ -36,11 +36,13 @@ const NO_LEDGER: TradeLedgerReader = { roundTrip: () => undefined };
  * to each row's share of the window's move (impactShares: exact, sign-following). A window with no move at all leaves the
  * whole mid P&L in Company noise. Fees and slippage are the ledger's figures, so the rows sum to the ledger's realized P&L
  * (midPnl + slippagePnl - feesPaid), which is checked. Throws for a trip whose window is open or not archived.
- * The ledger is the optional fourth argument until A2 puts the ledger on the state (it reads closed trips only).
+ * The ledger is the optional fourth argument (R3): the world layer supplies its trade ledger (explainTradeFor), and it reads
+ * closed trips only.
  */
 export function explainTrade(state: WorldState, playerId: string, roundTripId: string, ledger: TradeLedgerReader = NO_LEDGER): TradeExplain {
   const trip = ledger.roundTrip(playerId, roundTripId);
   if (!trip) throw new Error(`explainTrade: no closed round trip ${roundTripId} for ${playerId}`);
+  if (!trip.explainable) throw new Error(`explainTrade: ${roundTripId} cannot be explained from the books (entry before the ledger, or an option trip)`);
   if (trip.closeTick < trip.openTick) throw new Error(`explainTrade: ${roundTripId} closes before it opens`);
   const tpd = state.config.ticksPerDay;
   const openDay = gameDayOfTick(trip.openTick, tpd);

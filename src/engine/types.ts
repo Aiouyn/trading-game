@@ -487,6 +487,8 @@ export interface Fill {
   price: number;
   fee: number;
   tick: number;
+  /** the asset's pre-trade mid this tick (the price the fill is measured against for the explain's slippage) */
+  mid: number;
 }
 
 export interface Position {

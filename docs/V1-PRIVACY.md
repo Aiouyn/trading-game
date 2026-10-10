@@ -21,12 +21,13 @@ These are deeds and registries, not market positions:
 - Bots and NPC personas: their flow never appears as a player's, and no NPC surface shows another account's positions.
 - A player's own flow inside any public figure, except the pool it folds into (section 3).
 
-## 2a. Open rulings (not decided by the lead; the code may still show these until the ruling lands)
+## 2a. Rulings (decided by the lead, see section 7)
 
-- Realized P&L per player on the Trader board (src/world/boards.ts): performance, not style; ruling needed.
-- Filings from NPC personas (src/world/news.ts filings, called outside the NPC guard): the NPC guard is open.
-- Squeeze size on the Wire (src/world/news.ts squeeze line): a size can isolate one account; the holder rule is open.
-- Alliance treasuries and court suits on the Wire: named members and the claim kind; ruling needed.
+- Realized P&L boards (src/world/boards.ts, the Trader board): public by design. They show outcomes, never holdings (R4).
+- NPC persona filings (src/world/news.ts filings, called for every account): the same 0.5% rule as players (R4).
+- Squeeze size on the Wire (src/world/news.ts squeeze line): the aggregate cover share of the day's volume only, never a holder (R4).
+- Court cases on the Wire: public records (R4).
+- **Still open:** alliance treasuries on the Wire (named members and the claim kind). Not covered by R4; ruling needed.
 
 ## 3. Public market figures (the fold)
 
@@ -61,3 +62,27 @@ variable wins, so tests and e2e worlds pass their own seeds. The live seed is ne
 | short interest on the wire | Server-computed, sent on change only | src/game/short-interest-wire.test.ts |
 | depth on the wire | Server-computed per closed day, pool types only | src/game/depth-wire.test.ts |
 | this list | Sections 1 to 5 are present in this document | src/world/privacy-doc.test.ts |
+
+## 7. Lead rulings (Phase 3 integration)
+
+These rulings were made by the lead while the three Phase 3 slices (A1 privacy and explain, A2 ledger and learning, A3 client
+sandbox) were merged into v1. Each is pinned by a test named in brackets.
+
+- **R1 (H6): the folded Players flow is not isolated by public data.** On a folded day the depth's Retail already holds the
+  folded player flow (depthByPool). Separating it needs the Retail pool's own noise draws, which come from the server-only
+  world seed (P5). A one-dimensional solve on public data (depth, explainMove, the public day frames) therefore leaves an error
+  comparable to the Retail noise scale, and the own flow is not recovered. [src/engine/fold-solve.test.ts]
+- **R2: drift attribution.** Company alpha, carry and seasonal drift belong to Company noise. The regime's equity drift
+  (cycleBeta x equityDrift) is a market move and belongs to Market. [src/engine/regime-drift.test.ts, src/engine/explain-split.test.ts]
+- **R3: explainTrade's ledger.** The optional fourth argument of explainTrade (the trade ledger reader) is accepted. The world
+  layer supplies the real ledger through explainTradeFor(g, playerId, roundTripId). The round trip type is defined once, in
+  src/engine/ledger-types.ts, and the world re-exports it. [src/world/trade-explain.test.ts]
+- **R4: the public boards and the filing rules.** Public boards, including realized P&L boards, show outcomes and not holdings,
+  and are public by design (the bible boards). NPC filings follow the same 0.5% rule as players. Squeeze stories carry only the
+  aggregate size. Court cases are public records. All four are allowed. Alliance treasuries are not covered by this ruling.
+
+Explain identity on the books: for a closed stock round trip, realized = midPnl + slippagePnl - feesPaid. Each fill carries its
+pre-trade mid (engine Fill.mid), and each fill is split pro rata between the trip it closes and the trip it opens on a flip. A trip
+whose entry predates the ledger, and an option trip, are not explainable (RoundTrip.explainable is false) and explainTrade refuses
+them. [src/world/trade-explain.test.ts]
+

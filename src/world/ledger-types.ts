@@ -1,21 +1,14 @@
 import type { NewsBand, Side } from '@/engine';
 import type { Msg } from '@/i18n';
+import type { FillReason, RoundTrip } from '@/engine/ledger-types';
+
+/** The round trip and the fill reason are defined once, in the engine (the explain reads the same type). */
+export type { FillReason, RoundTrip } from '@/engine/ledger-types';
 
 /**
  * Trade ledger and learning records (Phase 3, D-3 to D-7). Plain data: the world owns these in GameState and they ride in
  * the snapshot. Nothing here is a secret of another player: the ledger, the cards and the ghosts are private to their owner.
  */
-
-/** Why a fill happened (M13). Ledger rows carry exactly one. */
-export type FillReason =
-  | 'order'
-  | 'stop'
-  | 'liquidation'
-  | 'settlement'
-  | 'option_expiry'
-  | 'dividend_reinvest'
-  | 'recurring_buy'
-  | 'block_slice';
 
 export const FILL_REASONS: readonly FillReason[] = [
   'order', 'stop', 'liquidation', 'settlement', 'option_expiry', 'dividend_reinvest', 'recurring_buy', 'block_slice',
@@ -38,26 +31,7 @@ export interface LedgerFill {
   realizedPnl: number;
 }
 
-/** A closed round trip: a position going from zero to nonzero and back (a flip closes one and opens the next). */
-export interface RoundTrip {
-  id: string;
-  assetId: string;
-  kind: 'stock' | 'option';
-  side: 'long' | 'short';
-  openedTick: number;
-  closedTick: number;
-  /** units bought into the trip (contracts for options) */
-  qty: number;
-  /** average entry and exit price per unit */
-  avgEntry: number;
-  avgExit: number;
-  realizedPnl: number;
-  fees: number;
-  fills: number;
-  closeReason: FillReason;
-}
-
-/** An open trip: the running totals until it closes. */
+/** An open trip: the running totals until it closes (the fields of RoundTrip, before the close). */
 export interface OpenTrip {
   id: string;
   assetId: string;
@@ -69,8 +43,12 @@ export interface OpenTrip {
   exitQty: number;
   exitNotional: number;
   realizedPnl: number;
-  fees: number;
+  midPnl: number;
+  slippagePnl: number;
+  feesPaid: number;
   fills: number;
+  /** false once the trip's entry predates the ledger, or for an option trip (see RoundTrip.explainable) */
+  explainable: boolean;
 }
 
 /** A position mirror: signed qty and average cost, as the engine books them. */
@@ -195,6 +173,7 @@ export interface FlowTotals {
 
 /** Everything the ledger keeps for one human player. */
 export interface PlayerLedger {
+  playerId: string;
   /** the cash at join (after the sign-up grant), moved with the trading baseline: the basis the ghosts start from */
   startCash: number;
   /** the account's non-price flow totals at join: the benchmark equity counts only the flows made after this */

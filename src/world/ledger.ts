@@ -2,8 +2,9 @@ import type { Fill, Side, StepEvent } from '@/engine';
 import { equityOf } from '@/engine';
 import { LEDGER } from '@/content/learning';
 import { findOrder, today } from './core';
+import { explainTrade, type RoundTrip, type TradeExplain, type TradeLedgerReader } from '@/engine';
 import type {
-  FillReason, FlowTotals, LedgerFill, OpenTrip, PlanState, PlayerLedger, PosMirror, RoundTrip,
+  FillReason, FlowTotals, LedgerFill, OpenTrip, PlanState, PlayerLedger, PosMirror,
 } from './ledger-types';
 import type { GameState } from './types';
 
@@ -89,7 +90,7 @@ export function ensureLedger(g: GameState, pid: string): PlayerLedger | null {
   if (have) return have;
   const d = today(g);
   const L: PlayerLedger = {
-    startCash: acct.startingCash, flows0: flowsOf(acct), startDay: d, seq: 0, fills: [], trips: [], open: {},
+    playerId: pid, startCash: acct.startingCash, flows0: flowsOf(acct), startDay: d, seq: 0, fills: [], trips: [], open: {},
     pos: mirrorOf(acct.positions), opt: mirrorOf(acct.options ?? {}), plans: emptyPlans(), ghosts: null, days: {}, closes: [],
   };
   // the open record of the first day: the net worth and equity the player started with
@@ -106,19 +107,29 @@ function pushCapped<T>(xs: T[], x: T, keep: number): void {
   if (xs.length > keep) xs.splice(0, xs.length - keep);
 }
 
-/** Start the open trip for a key (the asset, or the option contract) and store it under that key. */
-function openTrip(L: PlayerLedger, key: string, id: string, assetId: string, kind: 'stock' | 'option', side: 'long' | 'short', tick: number): OpenTrip {
-  const t: OpenTrip = { id, assetId, kind, side, openedTick: tick, openQty: 0, entryNotional: 0, exitQty: 0, exitNotional: 0, realizedPnl: 0, fees: 0, fills: 0 };
+/**
+ * Start the open trip for a key (the asset, or the option contract) and store it under that key. A trip is explainable when
+ * its entry is on the books: a stock trip that opened in the ledger (not one that predates it, and not an option).
+ */
+function openTrip(
+  L: PlayerLedger, key: string, id: string, assetId: string, kind: 'stock' | 'option', side: 'long' | 'short', tick: number, explainable: boolean,
+): OpenTrip {
+  const t: OpenTrip = {
+    id, assetId, kind, side, openedTick: tick, openQty: 0, entryNotional: 0, exitQty: 0, exitNotional: 0, realizedPnl: 0,
+    midPnl: 0, slippagePnl: 0, feesPaid: 0, fills: 0, explainable,
+  };
   L.open[key] = t;
   return t;
 }
 
 function closeTrip(L: PlayerLedger, key: string, t: OpenTrip, tick: number, reason: FillReason): void {
   const rt: RoundTrip = {
-    id: t.id, assetId: t.assetId, kind: t.kind, side: t.side, openedTick: t.openedTick, closedTick: tick, qty: t.openQty,
+    id: t.id, playerId: L.playerId, assetId: t.assetId, kind: t.kind, side: t.side, openTick: t.openedTick, closeTick: tick,
+    qty: t.openQty,
     avgEntry: t.openQty > 0 ? t.entryNotional / t.openQty : 0,
     avgExit: t.exitQty > 0 ? t.exitNotional / t.exitQty : 0,
-    realizedPnl: t.realizedPnl, fees: t.fees, fills: t.fills, closeReason: reason,
+    realizedPnl: t.realizedPnl, midPnl: t.midPnl, slippagePnl: t.slippagePnl, feesPaid: t.feesPaid,
+    fills: t.fills, closeReason: reason, explainable: t.explainable,
   };
   pushCapped(L.trips, rt, LEDGER.tripsKeep);
   delete L.open[key];
@@ -132,6 +143,8 @@ interface TradeRec {
   side: Side;
   qty: number;
   price: number;
+  /** the pre-trade mid the fill is measured against (for an option fill, its own price: no slippage is split out) */
+  mid: number;
   fee: number;
   realized: number;
   reason: FillReason;
@@ -139,6 +152,17 @@ interface TradeRec {
   /** signed position before this fill, and its average cost (for a trip that opened before the ledger did) */
   qtyBefore: number;
   avgBefore: number;
+}
+
+/**
+ * Add x units of a fill to a trip: its share of the fill's mid P&L, slippage and fee (pro rata by units). Summed over a closed
+ * trip, these are its cash flows, so midPnl + slippagePnl - feesPaid is its realized P&L (the explain's identity).
+ */
+function addShare(t: OpenTrip, r: TradeRec, x: number): void {
+  const sign = r.side === 'buy' ? 1 : -1;
+  t.midPnl += -sign * r.mid * x;
+  t.slippagePnl += -sign * (r.price - r.mid) * x;
+  t.feesPaid += r.fee * (x / r.qty);
 }
 
 /** Books one trade: the fill row, and the round trip it belongs to (adds, reductions, closes and flips). */
@@ -153,29 +177,30 @@ function recordTrade(L: PlayerLedger, r: TradeRec): void {
   };
   pushCapped(L.fills, row, LEDGER.fillsKeep);
 
+  const explainable = r.kind === 'stock';
   let trip = L.open[r.key];
   if (Q0 === 0 || Math.sign(Q0) === s) {
     // opening or adding to the position
-    if (!trip) trip = openTrip(L, r.key, `t${L.seq}`, r.assetId, r.kind, s > 0 ? 'long' : 'short', r.tick);
+    if (!trip) trip = openTrip(L, r.key, `t${L.seq}`, r.assetId, r.kind, s > 0 ? 'long' : 'short', r.tick, explainable);
     trip.openQty += r.qty;
     trip.entryNotional += r.qty * r.price;
-    trip.fees += r.fee;
     trip.fills++;
+    addShare(trip, r, r.qty);
     return;
   }
   // reducing, closing or flipping: the part that closes the old side is the exit
   const closeQ = Math.min(r.qty, Math.abs(Q0));
   if (!trip) {
-    // the position predates the ledger: start its trip at its average cost
-    trip = openTrip(L, r.key, `t${L.seq}`, r.assetId, r.kind, Q0 > 0 ? 'long' : 'short', r.tick);
+    // the position predates the ledger: start its trip at its average cost; its earlier cash flows are not on the books
+    trip = openTrip(L, r.key, `t${L.seq}`, r.assetId, r.kind, Q0 > 0 ? 'long' : 'short', r.tick, false);
     trip.openQty = Math.abs(Q0);
     trip.entryNotional = Math.abs(Q0) * r.avgBefore;
   }
   trip.exitQty += closeQ;
   trip.exitNotional += closeQ * r.price;
   trip.realizedPnl += r.realized;
-  trip.fees += r.fee;
   trip.fills++;
+  addShare(trip, r, closeQ);
   if (Math.abs(Q1) <= EPS) {
     closeTrip(L, r.key, trip, r.tick, r.reason);
     return;
@@ -184,10 +209,11 @@ function recordTrade(L: PlayerLedger, r: TradeRec): void {
     // a flip: close the old side, open the new one with the rest of the fill
     closeTrip(L, r.key, trip, r.tick, r.reason);
     const rest = r.qty - closeQ;
-    const nt = openTrip(L, r.key, `t${L.seq}b`, r.assetId, r.kind, Q1 > 0 ? 'long' : 'short', r.tick);
+    const nt = openTrip(L, r.key, `t${L.seq}b`, r.assetId, r.kind, Q1 > 0 ? 'long' : 'short', r.tick, explainable);
     nt.openQty = rest;
     nt.entryNotional = rest * r.price;
     nt.fills = 1;
+    addShare(nt, r, rest);
     return;
   }
   L.open[r.key] = trip;
@@ -229,7 +255,7 @@ export function ledgerTick(g: GameState, events: StepEvent[], fills: Fill[]): vo
     const r = bookStock(pos, f.side, f.qty, f.price, f.fee);
     if (r.pos.qty === 0) delete L.pos[f.assetId]; else L.pos[f.assetId] = r.pos;
     recordTrade(L, {
-      key: f.assetId, kind: 'stock', assetId: f.assetId, tick: f.tick, side: f.side, qty: f.qty, price: f.price, fee: f.fee,
+      key: f.assetId, kind: 'stock', assetId: f.assetId, tick: f.tick, side: f.side, qty: f.qty, price: f.price, mid: f.mid, fee: f.fee,
       realized: r.realized, reason: reasonFor(g, f.playerId, f.orderId, liquidated.has(`${f.playerId}|${f.assetId}`)),
       orderId: f.orderId, qtyBefore: pos.qty, avgBefore: pos.avgCost,
     });
@@ -258,7 +284,7 @@ export function settleHolders(g: GameState, assetId: string, price: number, tick
     const r = bookStock(pos, side, Math.abs(pos.qty), price, 0);
     delete L.pos[assetId];
     recordTrade(L, {
-      key: assetId, kind: 'stock', assetId, tick, side, qty: Math.abs(pos.qty), price, fee: 0, realized: r.realized,
+      key: assetId, kind: 'stock', assetId, tick, side, qty: Math.abs(pos.qty), price, mid: price, fee: 0, realized: r.realized,
       reason: 'settlement', orderId: null, qtyBefore: pos.qty, avgBefore: pos.avgCost,
     });
   }
@@ -274,7 +300,7 @@ export function expireOption(g: GameState, pid: string, contractId: string, qty:
   const price = qty !== 0 ? payout / (mult * qty) : 0;
   delete L.opt[contractId];
   recordTrade(L, {
-    key: `opt:${contractId}`, kind: 'option', assetId: contractId, tick, side: 'sell', qty, price, fee: 0, realized,
+    key: `opt:${contractId}`, kind: 'option', assetId: contractId, tick, side: 'sell', qty, price, mid: price, fee: 0, realized,
     reason: 'option_expiry', orderId: null, qtyBefore: pos.qty, avgBefore: pos.avgCost,
   });
 }
@@ -291,7 +317,7 @@ export function recordOptionTrade(
   const acct = g.market.accounts[pid];
   const pos = L.opt[contractId] ?? { qty: 0, avgCost: 0 };
   recordTrade(L, {
-    key: `opt:${contractId}`, kind: 'option', assetId: contractId, tick, side, qty, price, fee, realized,
+    key: `opt:${contractId}`, kind: 'option', assetId: contractId, tick, side, qty, price, mid: price, fee, realized,
     reason: 'order', orderId: null, qtyBefore: pos.qty, avgBefore: pos.avgCost,
   });
   const now = acct?.options?.[contractId];
@@ -321,3 +347,16 @@ export function hasTrades(g: GameState, pid: string): boolean {
   return (ledgerOf(g, pid)?.fills.length ?? 0) > 0;
 }
 
+
+/** The closed round trips of the ledger, as the engine's explain reads them (closed trips only; the list keeps the newest). */
+export function tradeReader(g: GameState): TradeLedgerReader {
+  return { roundTrip: (pid, id) => ledgerOf(g, pid)?.trips.find((t) => t.id === id) };
+}
+
+/**
+ * Why a closed round trip made or lost what it did (explainTrade, on the ledger's own trip). The rows sum to the trip's
+ * realized P&L within a cent, or the explain throws. The world layer supplies the ledger (R3).
+ */
+export function explainTradeFor(g: GameState, playerId: string, roundTripId: string): TradeExplain {
+  return explainTrade(g.market, playerId, roundTripId, tradeReader(g));
+}

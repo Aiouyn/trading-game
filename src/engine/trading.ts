@@ -899,7 +899,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         ...(done || shrunk ? { closedTick: tick } : {}),
         ...(!done && shrunk ? { rejectReason: 'insufficient cash' } : {}),
       };
-      fills.push({ orderId: o.id, playerId: o.playerId, assetId: o.assetId, side: o.side, qty: q, price, fee, tick });
+      fills.push({ orderId: o.id, playerId: o.playerId, assetId: o.assetId, side: o.side, qty: q, price, fee, tick, mid: p0 });
       printTape(i, o.side, q, price, p0);
 
       // one-cancels-other: a fill on a bracket leg cancels its sibling
@@ -1016,7 +1016,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
             status: 'filled', filledQty: q, avgFillPrice: price, feesPaid: fee, closedTick: tick, forced: true,
           });
           s.orders.push(forcedOrder);
-          fills.push({ orderId: forcedOrder.id, playerId: id, assetId, side, qty: q, price, fee, tick });
+          fills.push({ orderId: forcedOrder.id, playerId: id, assetId, side, qty: q, price, fee, tick, mid: p0 });
           events.push({ type: 'liquidation', tick, playerId: id, assetId, qty: q, price });
           printTape(i, side, q, price, p0);
           if (side === 'buy' && squeeze) recordCover(s, i, q * price, tick, squeeze, events);

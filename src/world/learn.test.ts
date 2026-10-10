@@ -78,8 +78,8 @@ describe('the goal ladder (opt-in, checked on the server)', () => {
     cmd(g, 'u1', { type: 'goals.optIn', on: true });
     const L = ledgerOf(g, 'u1')!;
     const rt: RoundTrip = {
-      id: 't1', assetId: 'HLCN', kind: 'stock', side: 'long', openedTick: 1, closedTick: 2, qty: 1, avgEntry: 10, avgExit: 11,
-      realizedPnl: 0.5, fees: 0.1, fills: 2, closeReason: 'order',
+      id: 't1', playerId: 'u1', assetId: 'HLCN', kind: 'stock', side: 'long', openTick: 1, closeTick: 2, qty: 1, avgEntry: 10,
+      avgExit: 11, realizedPnl: 0.5, midPnl: 0.6, slippagePnl: 0, feesPaid: 0.1, fills: 2, closeReason: 'order', explainable: true,
     };
     L.trips.push(rt);
     expect(checkGoals(g, me(g), null)).toContain('goal-profit');

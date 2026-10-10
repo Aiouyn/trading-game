@@ -169,7 +169,7 @@ describe('the trade ledger', () => {
     const led = ledgerOf(g, 'u1')!;
     const cid = 'AVBK|40|call|100';
     led.opt[cid] = { qty: 2, avgCost: 5 };
-    led.open[`opt:${cid}`] = { id: 't1', assetId: cid, kind: 'option', side: 'long', openedTick: 1, openQty: 2, entryNotional: 10, exitQty: 0, exitNotional: 0, realizedPnl: 0, fees: 0, fills: 1 };
+    led.open[`opt:${cid}`] = { id: 't1', assetId: cid, kind: 'option', side: 'long', openedTick: 1, openQty: 2, entryNotional: 10, exitQty: 0, exitNotional: 0, realizedPnl: 0, midPnl: 0, slippagePnl: 0, feesPaid: 0, fills: 1, explainable: false };
     expireOption(g, 'u1', cid, 2, 1200, g.market.tick, 100);
     const row = tradesOf(g, 'u1').fills.at(-1)!;
     expect(row.reason).toBe('option_expiry');

@@ -17,8 +17,9 @@ function ledgerOf(...trips: RoundTrip[]): TradeLedgerReader {
 /** A closed trip whose figures are consistent: realized = mid + slippage - fees (unless the test sets realized). */
 function trip(over: Partial<RoundTrip> = {}): RoundTrip {
   const base: RoundTrip = {
-    id: 'rt1', playerId: 'p0', assetId: ASSET, side: 'long', qty: 10, openTick: 1, closeTick: 2 * TPD + 3,
-    realizedPnl: 0, midPnl: 123.45, slippagePnl: -2.1, feesPaid: 1.3,
+    id: 'rt1', playerId: 'p0', assetId: ASSET, kind: 'stock', side: 'long', qty: 10, openTick: 1, closeTick: 2 * TPD + 3,
+    avgEntry: 10, avgExit: 12, realizedPnl: 0, midPnl: 123.45, slippagePnl: -2.1, feesPaid: 1.3, fills: 2, closeReason: 'order',
+    explainable: true,
   };
   const t = { ...base, ...over };
   return { ...t, realizedPnl: over.realizedPnl ?? t.midPnl + t.slippagePnl - t.feesPaid };
