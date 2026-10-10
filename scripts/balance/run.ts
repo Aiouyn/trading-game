@@ -211,7 +211,10 @@ function main() {
   const stats: Record<string, number> = {};
   // vol-ratio bands: a starting asset gets one when some seed kept it listed for the whole run (median over those seeds)
   const volIds = ids.filter((id) => results.some((r) => r.volRatio[id] !== undefined));
-  for (const id of volIds) stats[`vol_ratio_median:${id}`] = median(results.filter((r) => r.volRatio[id] !== undefined).map((r) => r.volRatio[id]!));
+  // RMS across seeds (V1-PHASE1 F13): a rare-jump asset (AUSD, 0.25 jumps a year) has runs with no jump at all (ratio ~0.15) and runs with
+  // one (ratio ~1.7), so the median sits in the no-jump shoulder (AUSD 0.52 at 720 ticks while the RMS is 0.96). The RMS is the ratio of
+  // mean realized variance to expectedVol squared, which is what expectedVol says.
+  for (const id of volIds) { const xs = results.filter((r) => r.volRatio[id] !== undefined).map((r) => r.volRatio[id]!); stats[`vol_ratio_rms:${id}`] = Math.sqrt(xs.reduce((a, x) => a + x * x, 0) / Math.max(1, xs.length)); }
   stats.gx_cagr_median = median(results.map((r) => r.gxCagr));
   // universe: share of days a vol-ratio asset is above its floor, median over seeds (info; see aliveRets)
   const pinned = universe ? volIds.filter((id) => median(results.filter((r) => r.aliveShare[id] !== undefined).map((r) => r.aliveShare[id]!)) < 0.9) : [];

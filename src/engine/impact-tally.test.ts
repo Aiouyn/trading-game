@@ -173,7 +173,9 @@ describe('shared per-tick temporary impact', () => {
     const i = idx(r.state, 'OSTV');
     const pre = step({ ...s, orders: [] }).state; // same tick, no fill
     const m = Math.exp(pre.assets[i]!.lnP);
-    expect(r.fills[0]!.price).toBe(m * (1 + halfSpread(pre, i) + impact(pre, i, 3000 * m)));
+    // to rounding: the fill and the test's formula associate the same terms in a different order (1 ulp apart after F14)
+    const want = m * (1 + halfSpread(pre, i) + impact(pre, i, 3000 * m));
+    expect(Math.abs(r.fills[0]!.price - want) / want).toBeLessThan(1e-14);
     expect(marginalImpact(pre, i, 0, 3000 * m)).toBe(impact(pre, i, 3000 * m));
   });
 

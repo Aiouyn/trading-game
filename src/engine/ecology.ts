@@ -47,6 +47,7 @@ export const DEFAULT_ECOLOGY: EcologyConfig = {
   retailHeadline: 0.1,
   headlineHalfLifeDays: 5,
   pensionK: 1,
+  pensionMaxAdv: 1,
   pensionDays: 3,
   quarterDays: 63,
   reshuffleK: 1,
@@ -332,7 +333,13 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     const rng = new Rng(e.rng);
     q.retail = ec.retailNoise * rng.normal() + ec.retailHeadline * e.headline;
     // pension: in the last days of a quarter, pull back toward the policy (index) weight
-    if (pensionLive && pIdx[i]! >= 0) q.pension = -ec.pensionK * ((last - e.pensionAnchor) - idxDrift[pIdx[i]!]!);
+    // capped at pensionMaxAdv a day (Phase 1 whale check, scripts/balance/huge-money.ts): the drift term has no bound of its own, so a single account's pump
+    // (or crash) since the quarter's anchor drove the pool to 7 ADV a day, which cleared at +0.45 log on an account-idle
+    // day. A passive pool trades a bounded rebalance a day, and the sign stays policy-relative (sell above the anchor).
+    if (pensionLive && pIdx[i]! >= 0) {
+      const want = -ec.pensionK * ((last - e.pensionAnchor) - idxDrift[pIdx[i]!]!);
+      q.pension = clamp(want, -ec.pensionMaxAdv, ec.pensionMaxAdv);
+    }
     // index review, effective day: the pension pool trades toward the new policy weight (ADV per equal-weight unit)
     const rsUnits = input.reshuffle?.[def.id] ?? 0;
     if (rsUnits !== 0) q.pension += ec.reshuffleK * rsUnits;

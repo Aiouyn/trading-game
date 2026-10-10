@@ -629,6 +629,8 @@ export interface EcologyConfig {
   headlineHalfLifeDays: number;
   /** pension: in the last pensionDays of every quarter, trades pensionK · (drift from policy weight) per day, in ADV per unit log drift */
   pensionK: number;
+  /** cap on the pension pool's drift-driven order, ADV a day (either side): a passive pool's rebalance is bounded (Phase 1 whale check) */
+  pensionMaxAdv: number;
   pensionDays: number;
   quarterDays: number;
   /** pool sizes in ADV-days (capacity scale) and position half-lives in game days (positions age out to long holders) */

@@ -288,7 +288,12 @@ function advance(state: WorldState): StepResult {
 
     // market price: same drift, pull toward V, full shock and jump
     const kappa = LN2 / (def.halfLifeDays / cfg.daysPerYear);
-    const r = (mu - 0.5 * sigma * sigma) * dt + kappa * (a.lnV - prev.lnP) * dt + diff + jumpPrint * jump + catalyst + wm.price;
+    // Ito centring of the transient (V1-PHASE1 F14). The price drifts at mu - sigma^2/2 and the value at mu - (perm sigma)^2/2,
+    // so the gap x = lnP - lnV had a drift of -sigma^2 (1 - perm^2)/2 that the pull kappa only offsets at -that/kappa: a
+    // stationary bias of about -0.3 in log for SYN (110% vol, 120-day half-life), which put its |lnP - lnV| p95 at 0.84 > ln 2.
+    // The term below cancels it, so x is a zero-mean OU, and the price's long-run log drift is still the value's.
+    const itoCentre = 0.5 * sigma * sigma * (1 - perm * perm);
+    const r = (mu - 0.5 * sigma * sigma + itoCentre) * dt + kappa * (a.lnV - prev.lnP) * dt + diff + jumpPrint * jump + catalyst + wm.price;
 
     a.rng = rng.state();
     const halted = prev.haltUntil !== -1;

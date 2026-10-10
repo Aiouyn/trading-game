@@ -9,7 +9,6 @@ const Q = "Quant Phase 0 proposal (adopted by Ledger)";
 /** A class-specific vol band (universe only). `why` is the mechanism that moves the ratio, written next to the number. */
 export type VolBand = { min: number; max: number; why: string };
 
-const STABLE_WHY = "stablecoin pulled back to $1 within half a day (halfLifeDays 0.5). Measured on the GARCH fix (V1-PHASE1 F13, OPEN, Ledger): realized / expected 0.52 at 24 ticks (20 seeds) and 0.31 at 720 ticks (4 seeds), so the close prints well below the 0.5 that closePrint assumes in full ecology. The old band (0.6-0.9) was fitted to a GARCH artifact (h pinned at its cap by the unprinted depeg, measured 0.79); it is kept, and it FAILS, until Ledger sets a band at 720 ticks";
 
 /**
  * Meme floor pinning. A price that bleeds to its 1e-7 floor is pinned there, and a pinned day has zero return, so the
@@ -36,10 +35,9 @@ function floorPinned(alive: number): VolBand {
  * for 13 names). (2) GARCH standardized by volMult alone, so idio-heavy names had E[h] 0.86-0.95 (regimeShockSd adds the
  * loading split). (3) expectedVol counted the full jump, but the close prints closePrint (ecology). The eight F1 names pass
  * the general 0.85-1.4 band now (20 seeds, medians 0.92-1.11). FLUX passes it too (median 0.976), so its old class band is
- * gone. AUSD does not: see STABLE_WHY.
+ * gone. AUSD passes it too, on the RMS across seeds (V1-PHASE1 F13), so it has no class band of its own.
  */
 export const UNIVERSE_VOL_BANDS: Record<string, VolBand> = {
-  AUSD: { min: 0.6, max: 0.9, why: STABLE_WHY },
   BONK: floorPinned(0.2),
   FROG: floorPinned(0.296),
   MOON: floorPinned(0.442),
@@ -54,8 +52,8 @@ export function phase0Bands(assetIds: string[], overrides: Record<string, VolBan
     ...assetIds.map((id) => {
       const o = overrides[id];
       return {
-        id: `vol_ratio_median:${id}`,
-        label: o ? `${id} realized vol / expectedVol(def), class band: ${o.why}` : `${id} realized vol / expectedVol(def) (diffusive + jumps), median across seeds`,
+        id: `vol_ratio_rms:${id}`,
+        label: o ? `${id} realized vol / expectedVol(def), class band: ${o.why}` : `${id} realized vol / expectedVol(def) (diffusive + jumps), RMS across seeds`,
         min: o?.min ?? 0.85,
         max: o?.max ?? 1.4,
         source: o ? "Tape, universe class band (see bands.ts UNIVERSE_VOL_BANDS)" : Q,

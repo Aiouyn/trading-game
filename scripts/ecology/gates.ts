@@ -2,6 +2,8 @@
  * Ecology gates (specs/quant-market-ecology.md, calibration table), ported from engine-staging to the v1 engine.
  *
  *   npx tsx scripts/ecology/gates.ts full   [--universe] [--seeds 8] [--tpd 720] [--days 1260] [--set k=v ...] [--out DIR] [--txt FILE]
+ *       (diagnostics: --first K runs seeds K.. so a release run can be split over processes; --drop k1,k2 removes top-level
+ *        layers of the config; --world a.b=v sets a nested config field, e.g. catalysts.peadShare=0)
  *   npx tsx scripts/ecology/gates.ts shadow [--universe] [--seeds 8] [--tpd 720] [--days 1260] [--set k=v ...] [--out DIR] [--txt FILE]
  *   npx tsx scripts/ecology/gates.ts report --dir DIR [--live-ref SHADOW_DIR] [--check-replay] [--txt FILE]
  *   npx tsx scripts/ecology/gates.ts replay --dir SHADOW_DIR [--set k=v ...] [--txt FILE]      (tuning only)
@@ -37,7 +39,7 @@
  *            the live path writes. So the FULL column gates dayNotional, and the SHADOW column shows the shadow gross flow
  *            (pool orders, ADV units) as INFO, not a gate. The live column (report --live-ref, or a shadow dir's own live
  *            lnP) carries the dayNotional gate for the shadow run.
- *   volRatio Tape's vol ratio, sd(daily log returns) · sqrt(daysPerYear) / expectedVol, median over seeds per asset; every
+ *   volRatio Tape's vol ratio, sd(daily log returns) · sqrt(daysPerYear) / expectedVol, RMS over seeds per asset; every
  *            asset in [0.85, 1.4], or in its universe class band from scripts/balance/bands.ts (UNIVERSE_VOL_BANDS, the
  *            same table run.ts uses). expectedVol uses the close's print share (closePrint) for the gate closes, and the
  *            jumpImmediate share for the live reference. Assets delisted in any seed are left out (Tape's rule).
@@ -94,6 +96,16 @@ interface SeedRun {
 function runSeed(seed: string, mode: 'full' | 'shadow', universe: boolean, tpd: number, days: number, set: Partial<EcologyConfig>): SeedRun {
   const eco: Partial<EcologyConfig> = mode === 'full' ? { mode: 'full', weight: 1, logDays: 1, ...set } : { mode: 'shadow', logDays: 1, ...set };
   const cfg: WorldConfig = worldConfig(universe, tpd, eco);
+  // --drop k1,k2 switches off top-level layers of the config (diagnostic: which layer makes a gate fail)
+  for (const k of arg('drop', '').split(',').filter(Boolean)) delete (cfg as unknown as Record<string, unknown>)[k];
+  // --world a.b=v (repeatable via ';'): sets a nested WorldConfig field (diagnostic, e.g. catalysts.peadShare=0)
+  for (const kv of arg('world', '').split(';').filter(Boolean)) {
+    const [k, v] = kv.split('=');
+    const keys = k!.split('.');
+    let t = cfg as unknown as Record<string, unknown>;
+    for (const kk of keys.slice(0, -1)) t = t[kk] as Record<string, unknown>;
+    t[keys[keys.length - 1]!] = Number(v);
+  }
   const ids = cfg.assets.map((a) => a.id);
   const n = ids.length;
   let s = createWorld(seed, cfg);
@@ -180,6 +192,12 @@ function volCorr(closes: number[][], flow: number[][], alive: boolean[]): number
   return mean(idx.map((i) => corr(diffs(closes[i]!).map(Math.abs), flow[i]!.slice(0, closes[i]!.length - 1))));
 }
 
+/**
+ * RMS over seeds (V1-PHASE1 F13): sqrt of the mean of the squared per-seed ratios, i.e. mean realized variance over expectedVol squared.
+ * The median is biased low for a rare-jump asset: AUSD (0.25 jumps a year) has runs with no jump (ratio ~0.15) and runs with one (~1.7).
+ */
+const rmsOf = (x: readonly number[]): number => Math.sqrt(x.reduce((a, b) => a + b * b, 0) / Math.max(1, x.length));
+
 /** Tape's vol ratio for every asset of one run (NaN for a delisted asset) */
 function volRatios(closes: number[][], alive: boolean[], expVol: number[], dpy: number): number[] {
   return closes.map((c, i) => {
@@ -247,20 +265,20 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
 
   // vol ratio: median over seeds for each asset, and every asset inside the band
   const vrs = runs.map((r) => volRatios(r.closes, r.alive, r.expVol, r.daysPerYear));
-  const assetVol = r0.ids.map((_, i) => median(vrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))));
+  const assetVol = r0.ids.map((_, i) => rmsOf(vrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))));
   const listed = assetVol.map((v, i) => ({ id: r0.ids[i]!, v })).filter((x) => Number.isFinite(x.v));
   const inBand = (x: { id: string; v: number }) => { const [lo, hi] = volBandOf(x.id, r0.universe); return x.v >= lo && x.v <= hi; };
   const outside = listed.filter((x) => !inBand(x));
   let liveVr: string | undefined, liveVrPass: boolean | undefined;
   if (liveRuns) {
     const lvrs = liveRuns.map((r, k) => volRatios(liveCloses(r, k), r.alive, r.expVolLive, r.daysPerYear));
-    const lvAll = r0.ids.map((id, i) => ({ id, v: median(lvrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))) })).filter((x) => Number.isFinite(x.v));
+    const lvAll = r0.ids.map((id, i) => ({ id, v: rmsOf(lvrs.map((v) => v[i]!).filter((x) => Number.isFinite(x))) })).filter((x) => Number.isFinite(x.v));
     const lv = lvAll.map((x) => x.v);
     liveVr = `min ${Math.min(...lv).toFixed(3)} med ${median(lv).toFixed(3)} max ${Math.max(...lv).toFixed(3)}`;
     liveVrPass = lvAll.every(inBand);
   }
   rows.push({
-    label: `vol ratio per asset, median over seeds (${listed.length} assets)`, text: r0.universe ? 'in band (class bands)' : 'every asset in [0.85, 1.4]',
+    label: `vol ratio per asset, RMS over seeds (${listed.length} assets)`, text: r0.universe ? 'in band (class bands)' : 'every asset in [0.85, 1.4]',
     value: `${Math.min(...listed.map((x) => x.v)).toFixed(3)}..${Math.max(...listed.map((x) => x.v)).toFixed(3)} med ${median(listed.map((x) => x.v)).toFixed(3)}`,
     pass: outside.length === 0,
     ...(liveVr ? { live: liveVr, livePass: liveVrPass } : {}),
@@ -312,7 +330,9 @@ if (cmd === 'full' || cmd === 'shadow') {
   const set = ecologyOverrides();
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
-  for (let k = 1; k <= seeds; k++) {
+  // --first K runs seeds K..K+seeds-1, so independent processes can split a release run (merge the dirs with report)
+  const first = numArg('first', 1);
+  for (let k = first; k < first + seeds; k++) {
     const seed = `${prefix}${String(k).padStart(2, '0')}`;
     const r = runSeed(seed, cmd, universe, tpd, days, set);
     writeFileSync(path.join(out, `${seed}.json`), JSON.stringify(r));
