@@ -157,6 +157,8 @@ export const SHOP_REFUSAL = {
   priceOncePerDay: 'biz.price.once-a-day',
   levelRange: 'biz.level.range',
   maintainFlag: 'biz.maintain.flag',
+  /** a manager keeps maintenance on (S2 autopilot): the owner cannot turn it off while the manager is hired */
+  maintainManaged: 'biz.maintain.managed',
   managerPresent: 'biz.manager.present',
   managerNone: 'biz.manager.none',
   managerStars: 'biz.manager.stars',

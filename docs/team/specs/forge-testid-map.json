@@ -218,5 +218,28 @@
     "company-view-founder / company-view-market": "The two options of the view toggle (Velvet id company-view-toggle kept)",
     "company-kpi-cash / company-kpi-runway / company-kpi-revenue / company-kpi-close": "Velvet ids, kept",
     "company-locked": "Founding gate below Owner rank"
+  },
+  "$new_ids_phase4_biz": {
+    "tab-shops": "Businesses app: the Shops tab (management)",
+    "shops-view": "Shops tab root",
+    "shops-empty": "Shops tab with no shops",
+    "shops-overdraft": "overdraft notice (cash below zero)",
+    "shops-bulk": "bulk settings panel",
+    "shops-bulk-sector": "bulk: sector (all or one sector)",
+    "shops-bulk-crew | shops-bulk-price | shops-bulk-quality | shops-bulk-marketing | shops-bulk-maintained": "bulk: one select per lever (keep, or the value)",
+    "shops-bulk-apply": "bulk: apply to the shops in scope",
+    "shops-bulk-done": "bulk: applied to N of M shops",
+    "shops-bulk-result": "bulk result block",
+    "shops-bulk-refusal-<code>": "bulk: refusal copy for one code",
+    "shop-<id>": "one shop card",
+    "shop-<id>-net | -payback | -revenue | -stars | -morale | -payback-note | -served | -queue | -condition | -touched": "shop card figures",
+    "shop-<id>-refusal": "the refused change, three-part copy inline",
+    "shop-<id>-crew-<value> | shop-<id>-price-<value> | shop-<id>-quality-<n> | shop-<id>-marketing-<n>": "lever segments (radio, aria-checked)",
+    "shop-<id>-maintain-on | shop-<id>-maintain-off": "maintenance segments (off is disabled under a manager)",
+    "shop-<id>-maintain-managed": "maintenance line while a manager keeps it on",
+    "shop-<id>-price-now | -price-pending | -price-locked | -price-capped": "price state lines (capped: above the manager's cap)",
+    "shop-<id>-manager | shop-<id>-hire-<stars> | shop-<id>-fire | shop-<id>-fire-yes | shop-<id>-tenure": "manager hire, let go (confirm), tenure line",
+    "shop-<id>-day | shop-<id>-line-<key> | shop-<id>-line-net": "per game day money lines",
+    "shop-<id>-offline | shop-<id>-wellrun": "away window and well-run line"
   }
 }

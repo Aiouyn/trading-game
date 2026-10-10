@@ -10,7 +10,7 @@ import {
   TPD, bizDef, bump, cashOf, touch, clamp, credit, debit, districtIndex, districtTier, drawFrom, keyedRng, netWorthBreakdown,
   notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
 } from './core';
-import { offlineRate, purchaseShop, queueShare } from './shopRules';
+import { offlineRate, purchaseShop, queueShare, servedOf } from './shopRules';
 import type { Business, CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -162,7 +162,7 @@ export function recomputeShares(g: GameState): void {
       const ev = b.event && b.event.untilTick > g.market.tick ? b.event.mult : 1;
       // demand falls with price (elastic) and with reviews; the crew caps how much of it is served
       const demand = shareFactor * Math.pow(s.price, -SHOP.elasticity) * s.reviews * cycle * ev * (CITY_DEMAND[b.cityId] ?? 1);
-      const served = Math.min(demand, s.crew);
+      const served = servedOf(demand, s.crew);
       s.demand = demand;
       s.queue = queueShare(demand, served);
       const condition = s.condition < SHOP.condition.lowBelow ? SHOP.condition.lowRevenue : 1;

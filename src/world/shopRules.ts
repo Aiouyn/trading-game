@@ -133,3 +133,43 @@ export function attrition(crew: number, unattendedDays: number, hasManager: bool
   if (hasManager || unattendedDays <= a.attritionAfterDays) return crew;
   return Math.max(a.floor, crew + (a.floor - crew) * a.attritionRate);
 }
+
+/** Served demand: the crew caps what the market buys (the rest joins the queue and is lost). */
+export function servedOf(demand: number, crew: number): number {
+  return Math.min(demand, crew);
+}
+
+/** Salary prepaid when a manager of `stars` is hired on a shop whose well-run target is `target` (S5). */
+export function managerPrepayCost(stars: number, target: number): number {
+  return SHOP.manager.prepayDays * SHOP.manager.costPerStar * stars * target;
+}
+
+/**
+ * Prepaid salary a fire forfeits (S5 severance): the salary for the days the hire still covers after `day`,
+ * which nothing refunds. Zero once the prepaid window has passed.
+ */
+export function managerForfeit(stars: number, target: number, managerDay: number, day: number): number {
+  if (stars < 1) return 0;
+  const left = Math.max(0, SHOP.manager.prepayDays - (day - managerDay));
+  return left * SHOP.manager.costPerStar * stars * target;
+}
+
+/** The first game day a manager may be let go (a hire has a minimum term, S5). */
+export function managerFireOpenDay(managerDay: number): number {
+  return managerDay + SHOP.manager.minTenureDays;
+}
+
+/** The rolling review score on the 1 to 5 star scale (the reviews range maps linearly onto it, one decimal). */
+export function reviewStars(reviews: number): number {
+  const r = SHOP.reviews;
+  const x = 1 + (4 * (reviews - r.min)) / (r.max - r.min);
+  return Math.round(Math.min(5, Math.max(1, x)) * 10) / 10;
+}
+
+/** The crew sizes the lever offers, in steps from the minimum to the cap. */
+export function crewSteps(): number[] {
+  const c = SHOP.crew;
+  const out: number[] = [];
+  for (let k = 0; c.min + k * c.step <= c.max + 1e-9; k++) out.push(Math.round((c.min + k * c.step) * 1000) / 1000);
+  return out;
+}
