@@ -495,7 +495,8 @@ export interface CourtCase {
   id: string;
   plaintiffId: string;
   defendantId: string;
-  kind: 'cyber intrusion' | 'model theft' | 'loan default' | 'contract breach' | 'fund abuse';
+  /** insider: opened by the backstop on surveillance points (spec 6.2); the victim is a holder of the stock */
+  kind: 'cyber intrusion' | 'model theft' | 'loan default' | 'contract breach' | 'fund abuse' | 'insider';
   /** fund abuse: the harm to the fund (the fund's loss against the manager's personal price), the manager's gain on the flagged trades (disgorged), and the fund it concerns */
   harm?: number;
   gain?: number;
@@ -609,6 +610,7 @@ export type Command =
   | { type: 'block.cancel'; planId: string }
   | { type: 'company.found'; name: string; sector: CompanySector; cityId: string; capital: number }
   | { type: 'company.act'; companyId: string; action: CompanyAction }
+  | { type: 'company.bid'; companyId: string; price: number; founderVote?: 'yes' | 'no' }
   /** player-run funds (funds/index.ts): the manager opens a fund with a stake, changes its mandate, and trades it */
   | { type: 'fund.create'; name: string; mandate: FundMandate; fees: FundFees; stake: number }
   | { type: 'fund.mandate'; fundId: string; mandate: FundMandate }

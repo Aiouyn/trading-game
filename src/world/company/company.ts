@@ -9,7 +9,12 @@ import { completeProject, frontierStep, startProject } from './rd';
 import { ROLES, emptyStaff, fireHeads, headcountCap, landHires, queueHire, totalHeads, wagesPerDay, pendingHeads } from './staff';
 import { vEngine, lnPerShare, type ValuationInputs } from './valuation';
 import { filedInputs } from './signals';
-import type { CompanyReject, CompanyWorld, Company, InvestorPool, Order, Product, ProjectKind, Resolved, Statements } from './types';
+import type { CompanyReject, CompanyWorld, Company, ExecRole, ExecTrait, Holder, InvestorPool, Order, Product, ProjectKind, Resolved, Statements } from './types';
+import { post } from './books';
+import { announceCeoChange, boardVote, ceoDay, execDay, fireExec, hireExec, setGuarantee } from './governance';
+import { bankrupt, insolvencyStep } from './failure';
+import { grantLicence, licenceDay } from './franchise';
+import { openSupply, supplyDay } from './supply';
 
 export type CompanyAction =
   | { kind: 'hire'; role: CompanyRole; n: number }
@@ -19,7 +24,14 @@ export type CompanyAction =
   | { kind: 'startProject'; projectKind: ProjectKind; productId: string; spend: number }
   | { kind: 'buildPlant' }
   | { kind: 'launchProduct'; name: string; price: number }
-  | { kind: 'raiseRound'; amount: number };
+  | { kind: 'raiseRound'; amount: number; founderVote?: 'yes' | 'no' }
+  /* B2: governance, franchising and supply (the controller or the owner acts; refusals are structured) */
+  | { kind: 'hireExec'; role: ExecRole; trait: ExecTrait; holder: Holder }
+  | { kind: 'fireExec'; role: ExecRole }
+  | { kind: 'changeCEO'; successor: Holder }
+  | { kind: 'guarantee'; amount: number }
+  | { kind: 'licence'; rate: number }
+  | { kind: 'supply'; sellerId: string; unitsPerDay: number; price: number };
 
 /** What the core needs from the world: the seed, the day, the market's regime, oil, the founder's rank and cash. */
 export interface CompanyEnv {
@@ -33,6 +45,8 @@ export interface CompanyEnv {
     cash(playerId: string): number;
     /** moves cash out of a player's account into a company (a transfer, not a sink) */
     take(playerId: string, amount: number): void;
+    /** pays a player's account (an executive's salary or severance, B2); a transfer, not a faucet */
+    give?(playerId: string, amount: number): void;
   };
 }
 
@@ -46,10 +60,12 @@ export type CompanyEvent =
   | { kind: 'tier'; companyId: string; tier: CompanyTierId; day: number }
   | { kind: 'goal'; companyId: string; goal: string; day: number }
   | { kind: 'distress'; companyId: string; day: number }
-  | { kind: 'backlogRepay'; companyId: string; day: number; excessLift: number; repayment: number };
+  | { kind: 'backlogRepay'; companyId: string; day: number; excessLift: number; repayment: number }
+  | { kind: 'bankrupt'; companyId: string; day: number; listed: boolean; shortfall: number; recovery: number }
+  | { kind: 'ceo'; companyId: string; day: number; holder: Holder };
 
 const QTD_ZERO = {
-  revenue: 0, cogs: 0, opex: 0, da: 0, ocf: 0, capex: 0, units: 0, matCogs: 0, overtime: 0, rdSpend: 0, marketing: 0,
+  revenue: 0, cogs: 0, opex: 0, da: 0, ocf: 0, capex: 0, units: 0, matCogs: 0, overtime: 0, rdSpend: 0, marketing: 0, relatedRevenue: 0,
 } as const;
 
 function emptyQtd(startDay: number): Company['qtd'] {
@@ -75,19 +91,6 @@ export function emptyCompanyWorld(seed: string): CompanyWorld {
     seeded += COMPANY.rounds.investorCash[kind];
   }
   return { companies: {}, seq: 0, investors, sectors, flows: { faucet: seeded, sink: 0 }, founded: 0 };
-}
-
-/** Cash in or out of a company's own books. `transfer` moves money between real parties and is not a faucet or sink. */
-function post(w: CompanyWorld, c: Company, day: number, reason: string, amount: number, transfer = false): void {
-  if (amount === 0) return;
-  c.cash += amount;
-  if (!transfer) {
-    if (amount > 0) w.flows.faucet += amount;
-    else w.flows.sink += -amount;
-  }
-  c.ledger.push({ day, reason, amount });
-  if (c.ledger.length > 200) c.ledger.splice(0, c.ledger.length - 200);
-  c.ledgerTotals[reason] = (c.ledgerTotals[reason] ?? 0) + amount;
 }
 
 /** Whether the company is listed: signals and the listing-only caps apply (the listing is an A2/B step). */
@@ -154,6 +157,7 @@ export function companyAction(
   const c = w.companies[companyId];
   if (!c) return { ok: false, reject: { code: 'unknownCompany' } };
   if (c.ownerId !== playerId) return { ok: false, reject: { code: 'notFounder' } };
+  if (c.bankrupt) return { ok: false, reject: { code: 'companyBankrupt' } };
   const day = env.day;
   const cap = isListed(c) ? Infinity : headcountCap(c.tier);
   const band = { min: COMPANY.demand.priceRef * (1 - COMPANY.demand.priceBand), max: COMPANY.demand.priceRef * (1 + COMPANY.demand.priceBand) };
@@ -230,7 +234,13 @@ export function companyAction(
       c.products.push(product);
       return { ok: true, value: { productId: id } };
     }
-    case 'raiseRound': return raiseRound(w, c, env, action.amount);
+    case 'raiseRound': return raiseRound(w, c, env, action.amount, action.founderVote ?? 'no');
+    case 'hireExec': return hireExec(c, env, playerId, action);
+    case 'fireExec': return fireExec(w, c, env, playerId, action.role);
+    case 'changeCEO': return announceCeoChange(c, env, playerId, action.successor);
+    case 'guarantee': return setGuarantee(c, env, playerId, action.amount);
+    case 'licence': return grantLicence(w, c, env, playerId, action.rate);
+    case 'supply': return openSupply(w, c, env, playerId, { sellerId: action.sellerId, unitsPerDay: action.unitsPerDay, price: action.price });
   }
   return { ok: false, reject: { code: 'unknownAction' } };
 }
@@ -252,7 +262,7 @@ export function privateInputs(c: Company, day: number): ValuationInputs {
   const base = {
     growth: 0,
     credibility: COMPANY.valuation.cInit,
-    netDebt: -c.cash,
+    netDebt: -(c.cash - (c.relatedCash ?? 0)),
     dCB: 0,
   };
   if (elapsed >= COMPANY.valuation.privateMarkDays) {
@@ -284,7 +294,7 @@ export function privateValue(c: Company, day: number): number {
  * A private round (§5, X12, N9): NPC investors only, at 0.70 * V_engine per share, at most 25% of post-money. The pool
  * is chosen by tier (seed round for Seed, series round for Growth and Late); the investor's cash moves to the company.
  */
-function raiseRound(w: CompanyWorld, c: Company, env: CompanyEnv, amount: number): Outcome<Record<string, unknown>> {
+function raiseRound(w: CompanyWorld, c: Company, env: CompanyEnv, amount: number, founderVote: 'yes' | 'no'): Outcome<Record<string, unknown>> {
   if (!(Number.isFinite(amount) && amount > 0)) return { ok: false, reject: { code: 'negativeAmount' } };
   const poolId = c.tier === 'seed' ? 'npc:seed' : 'npc:series';
   const pool = w.investors[poolId]!;
@@ -296,6 +306,10 @@ function raiseRound(w: CompanyWorld, c: Company, env: CompanyEnv, amount: number
   if (share > COMPANY.rounds.maxPostMoneyShare) {
     const maxN = (COMPANY.rounds.maxPostMoneyShare / (1 - COMPANY.rounds.maxPostMoneyShare)) * c.shares;
     return { ok: false, reject: { code: 'roundDilutionCap', maxAmount: maxN * price } };
+  }
+  if (share > COMPANY.governance.dilutionVoteShare) {
+    const vote = boardVote(c, { founderVote, price, fairPerShare: v / c.shares, npcRule: 'price' });
+    if (!vote.passed) return { ok: false, reject: { code: 'boardRejected', yes: vote.yes, no: vote.no } };
   }
   if (pool.cash < amount) return { ok: false, reject: { code: 'investorCash', available: pool.cash } };
   pool.cash -= amount;
@@ -560,12 +574,14 @@ function signalDay(c: Company, day: number, env: CompanyEnv, events: CompanyEven
 }
 
 /** The goals of the founder template (C4): first hire, first revenue, break-even, first private round. */
-function checkGoals(c: Company, day: number, events: CompanyEvent[]): void {
+function checkGoals(w: CompanyWorld, c: Company, day: number, events: CompanyEvent[]): void {
   const g = COMPANY.goals;
   const grant = (id: string, ok: boolean) => {
     if (ok && c.goalsDone[id] === undefined) {
       c.goalsDone[id] = day;
       events.push({ kind: 'goal', companyId: c.id, goal: id, day });
+      const reward = (COMPANY.goalRewards as Record<string, number>)[id] ?? 0;
+      if (reward > 0) post(w, c, day, 'goalReward', reward);
     }
   };
   grant('firstHire', totalHeads(c) > COMPANY.founding.heads.ops + COMPANY.founding.heads.sales + COMPANY.founding.heads.rd + COMPANY.founding.heads.ga);
@@ -591,10 +607,21 @@ export function companyTick(w: CompanyWorld, env: CompanyEnv, day: number): Comp
   const ids = Object.keys(w.companies).sort();
   for (const id of ids) {
     const c = w.companies[id]!;
+    if (c.bankrupt) continue;
+    const ceoNow = ceoDay(c, day);
+    if (ceoNow) events.push({ kind: 'ceo', companyId: c.id, day, holder: ceoNow });
     if (day > 0 && c.pendingFile && day === c.pendingFile.filingDay) fileQuarter(c, day, events);
     if (day - 1 >= c.foundedDay) {
       operateDay(w, c, env, day - 1);
+      execDay(w, c, env, day - 1);
+      licenceDay(w, c, day - 1);
+      supplyDay(w, c, day - 1);
       updateDistress(c, day - 1, events);
+      if (insolvencyStep(c)) {
+        const r = bankrupt(w, c, env, day - 1);
+        events.push({ kind: 'bankrupt', companyId: c.id, day, listed: c.listed !== null, shortfall: r.shortfall, recovery: r.recovery });
+        continue;
+      }
     }
     if (day > 0 && day % COMPANY.quarterDays === 0 && day - 1 >= c.foundedDay) closeQuarter(w, c, day, events);
     if (day % COMPANY.weekDays === 0 || day % COMPANY.quarterDays === 0) {
@@ -609,7 +636,7 @@ export function companyTick(w: CompanyWorld, env: CompanyEnv, day: number): Comp
       npcQuarterly(c, r, day);
       c.rng.npc = r.state();
     }
-    checkGoals(c, day, events);
+    checkGoals(w, c, day, events);
   }
   return events;
 }

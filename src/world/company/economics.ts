@@ -4,6 +4,7 @@
  */
 
 import { COMPANY, SECTORS, type CompanySector } from '@/content/company';
+import { execMult } from './governance';
 import type { Company, Staff } from './types';
 
 /** Ops wage per unit at full productive load: 120 per gd over 60 units per gd (the overload cost base, §2). */
@@ -64,7 +65,7 @@ export function productiveHeads(s: Staff, day: number): number {
 
 /** R&D effort in productive heads after the G&A span factor (§4: every role's output, R&D speed included). */
 export function rdEffort(c: Company, day: number): number {
-  return productiveHeads(c.staff.rd, day) * gaFactor(c.staff);
+  return productiveHeads(c.staff.rd, day) * gaFactor(c.staff) * execMult(c, 'rd');
 }
 
 /**
@@ -78,7 +79,7 @@ export function unitCostToday(c: Company): number {
 
 /** Productive capacity in units per gd (§4): Ops heads * 60 * plant multiplier * G&A factor. */
 export function capacityPerDay(c: Company, day: number): number {
-  return productiveHeads(c.staff.ops, day) * COMPANY.unitsPerOpsHead * plantMult(c.plantLevel) * gaFactor(c.staff);
+  return productiveHeads(c.staff.ops, day) * COMPANY.unitsPerOpsHead * plantMult(c.plantLevel) * gaFactor(c.staff) * execMult(c, 'capacity');
 }
 
 /** The overload ceiling per gd (§2): 115% of capacity. */

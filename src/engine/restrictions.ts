@@ -102,6 +102,8 @@ export interface TradingRestrictions {
   programs: Record<string, Program>;
   /** planBanned fail-safe (v1.4 G11): account id to the last game day its new plans are refused (no v1 path) */
   bans?: Record<string, number>;
+  /** CEO exit freezes (B2, spec 9.1): account id to the first game day it may trade again; plans are not frozen */
+  freezes?: Record<string, number>;
 }
 
 export const NO_RESTRICTIONS: TradingRestrictions = Object.freeze({ windows: {}, lockups: {}, programs: {} }) as TradingRestrictions;
@@ -141,7 +143,7 @@ export function windowOn(r: TradingRestrictions, assetId: string, playerId: stri
 }
 
 export interface Gate {
-  code: 'closedWindow' | 'lockup';
+  code: 'closedWindow' | 'lockup' | 'ceoExitFreeze';
   untilDay?: number;
 }
 
@@ -151,6 +153,8 @@ export interface Gate {
  */
 export function gateOn(r: TradingRestrictions, day: number, playerId: string, assetId: string, side: Side, kind?: ProgramKind): Gate | null {
   if (kind !== 'plan') {
+    const frozen = r.freezes?.[playerId];
+    if (frozen !== undefined && day < frozen) return { code: 'ceoExitFreeze', untilDay: frozen };
     const w = windowOn(r, assetId, playerId, day);
     if (!w.open) return { code: 'closedWindow', ...(w.opensDay !== undefined ? { untilDay: w.opensDay } : {}) };
   }
@@ -246,6 +250,12 @@ export function setWindow(r: TradingRestrictions, assetId: string, rule: WindowR
 export function setLockup(r: TradingRestrictions, assetId: string, playerId: string, untilDay: number): TradingRestrictions {
   const prev = r.lockups[assetId]?.[playerId] ?? -Infinity;
   return { ...r, lockups: { ...r.lockups, [assetId]: { ...(r.lockups[assetId] ?? {}), [playerId]: Math.max(prev, untilDay) } } };
+}
+
+/** Freezes an account's trading (not its plans) until the given game day, the later of the old and new day (B2, spec 9.1). */
+export function setFreeze(r: TradingRestrictions, playerId: string, untilDay: number): TradingRestrictions {
+  const prev = r.freezes?.[playerId] ?? -Infinity;
+  return { ...r, freezes: { ...(r.freezes ?? {}), [playerId]: Math.max(prev, untilDay) } };
 }
 
 export function withProgram(r: TradingRestrictions, p: Program): TradingRestrictions {

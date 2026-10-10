@@ -360,6 +360,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'block.cancel': return cancelBlock(g, p, cmd.planId);
     case 'company.found': return companyCommand(g, pid, cmd, out);
     case 'company.act': return companyCommand(g, pid, cmd, out);
+    case 'company.bid': return companyCommand(g, pid, cmd, out);
     case 'fund.create':
     case 'fund.mandate':
     case 'fund.trade':

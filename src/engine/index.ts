@@ -42,11 +42,11 @@ export {
 export type { RegionDef, SectorDef, CityDef } from './universe';
 export {
   DEFAULT_COMPANY_RULES, companyRulesOf,
-  closingWarning, gateOn, lockedQty, livePlans, restrictionsOf, sessionDay, setLockup, setWindow, windowOn,
+  closingWarning, gateOn, lockedQty, livePlans, restrictionsOf, sessionDay, setFreeze, setLockup, setWindow, windowOn,
 } from './restrictions';
 export type { CompanyRules, Gate, PlanEndReason, PlanSkipReason, Program, ProgramKind, TradingRestrictions, WindowRule, WindowState } from './restrictions';
 export { addBuyback, cancelPlan, commitPlan, editPlan, programsDay } from './programs';
 export type { BuybackReject, BuybackSpec, PlanReject, PlanSpec } from './programs';
-export { VWAP_DAYS, grantLockedShares, listCompanyStock, printCompanyValue, tenderOffer, vwap30 } from './companyAssets';
+export { VWAP_DAYS, failCompanyStock, grantLockedShares, listCompanyStock, printCompanyValue, tenderOffer, vwap30 } from './companyAssets';
 export type { TenderReject } from './companyAssets';
 export type { DayBar } from './types';
