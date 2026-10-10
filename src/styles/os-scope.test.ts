@@ -66,3 +66,37 @@ describe('shell CSS is namespaced under .os-root (no generic names leak into the
     }
   });
 });
+
+describe('shell radii sit on the token scale (6 / 10 / 14 / 20 / 999)', () => {
+  // velvet-desktop-os.md 150-151 fixes two values off the scale: phone icons 16 and the bottom row 24.
+  const SCALE = new Set(['6px', '10px', '14px', '20px', '999px']);
+  const SPEC_FIXED = new Set(['16px', '24px']);
+  const TOKENS = readFileSync(new URL('./tokens.css', import.meta.url), 'utf8');
+
+  it('every *radius* token in tokens.css is on the scale or spec-fixed', () => {
+    const bad: string[] = [];
+    for (const m of TOKENS.matchAll(/(--[\w-]*radius[\w-]*)\s*:\s*([^;]+);/g)) {
+      const v = m[2]!.trim();
+      if (v.startsWith('var(') || v === '50%') continue;
+      if (!SCALE.has(v) && !SPEC_FIXED.has(v)) bad.push(`${m[1]}: ${v}`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('no border-radius in the shell CSS uses a raw px literal (only tokens, 0 or 50%)', () => {
+    for (const file of FILES) {
+      const css = readFileSync(new URL(file, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+      const raw = [...css.matchAll(/border-radius:\s*([^;}]+)/g)].map((m) => m[1]!.trim()).filter((v) => /\d+px/.test(v));
+      expect(raw, file).toEqual([]);
+    }
+  });
+});
+
+describe('reduced motion removes the boot cover instead of leaving it on screen', () => {
+  it('os.css hides .os-boot under prefers-reduced-motion', () => {
+    const css = readFileSync(new URL('os.css', import.meta.url), 'utf8');
+    const media = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(media).toMatch(/\.os-root \.os-boot \{\s*display: none;\s*\}/);
+    expect(media).not.toMatch(/\.os-boot[^{]*\{\s*animation: none/);
+  });
+});

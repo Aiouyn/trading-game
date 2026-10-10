@@ -36,9 +36,9 @@ const THEME = decls(block('@theme'));
 const ROOT = decls(block(':root'));
 const PALETTE: Record<ArtSlug | 'ink-brass', Record<string, string>> = {
   'ink-brass': { ...THEME },
-  broadsheet: { ...THEME, ...decls(block('[data-palette="broadsheet"]')) },
-  phosphor: { ...THEME, ...decls(block('[data-palette="phosphor"]')) },
-  riviera: { ...THEME, ...decls(block('[data-palette="riviera"]')) },
+  broadsheet: { ...THEME, ...decls(block('html[data-palette="broadsheet"]')) },
+  phosphor: { ...THEME, ...decls(block('html[data-palette="phosphor"]')) },
+  riviera: { ...THEME, ...decls(block('html[data-palette="riviera"]')) },
 };
 
 function hex(v: string | undefined): string {
@@ -84,9 +84,9 @@ describe('tokens.css v2', () => {
 
   it('sets color-scheme per palette (Broadsheet light, the rest dark)', () => {
     const scheme = (sel: string) => block(sel).match(/color-scheme:\s*(\w+)/)?.[1];
-    expect(scheme('[data-palette="broadsheet"]')).toBe('light');
+    expect(scheme('html[data-palette="broadsheet"]')).toBe('light');
     for (const p of ['phosphor', 'riviera'] as const) {
-      expect(scheme(`[data-palette="${p}"]`)).toBe('dark');
+      expect(scheme(`html[data-palette="${p}"]`)).toBe('dark');
     }
   });
 
@@ -137,26 +137,26 @@ describe('every var(--x) in src resolves', () => {
 });
 
 describe('contrast (C-20, WCAG on win / win2 / chrome)', () => {
-  // Measured minimums for body text. The two entries below are the exceptions in velvet-desktop-os.md
-  // 249-256. Each carries its measured value so any regression fails the test. Velvet owns the fix.
+  // Floors per velvet-desktop-os.md 249-256: body text 4.5:1, gain and loss text 3:1 (the spec's own bar
+  // for market colours). The one KNOWN entry is the Ink & Brass fg-faint exception the spec names
+  // (4.4:1 on win2), with its measured value so any regression fails the test. Velvet owns the fix.
   const SURFACES = ['--color-ink-1', '--color-ink-2', '--color-chrome'] as const;
   const TEXT = ['--color-fg', '--color-fg-muted', '--color-fg-faint', '--color-gain', '--color-loss'] as const;
+  const MARKET = new Set<string>(['--color-gain', '--color-loss']);
   const KNOWN: Record<string, number> = {
     // Ink & Brass faint text on win2 measures 4.44:1 (C-20). Faint text is banned on hover rows.
     'ink-brass|--color-fg-faint|--color-ink-2': 4.44,
-    // Broadsheet gain numbers on the chrome strip measure 4.05:1: open item for Velvet (table gives 4.0).
-    'broadsheet|--color-gain|--color-chrome': 4.04,
   };
 
   for (const slug of ['ink-brass', 'broadsheet', 'phosphor', 'riviera'] as const) {
-    it(`${slug}: body text is at least 4.5:1 except the listed exceptions`, () => {
+    it(`${slug}: body text 4.5:1, gain and loss 3:1, except the listed exception`, () => {
       const t = PALETTE[slug];
       const failures: string[] = [];
       for (const s of SURFACES) {
         for (const f of TEXT) {
           const r = contrast(hex(t[f]), hex(t[s]));
           const key = `${slug}|${f}|${s}`;
-          const floor = KNOWN[key] ?? 4.5;
+          const floor = KNOWN[key] ?? (MARKET.has(f) ? 3 : 4.5);
           if (r < floor) failures.push(`${key} ${r.toFixed(3)}`);
         }
       }
@@ -164,9 +164,14 @@ describe('contrast (C-20, WCAG on win / win2 / chrome)', () => {
     });
   }
 
-  it('records the known exceptions with their measured values', () => {
+  it('records the known exception with its measured value', () => {
     const faint = contrast(hex(PALETTE['ink-brass']['--color-fg-faint']), hex(PALETTE['ink-brass']['--color-ink-2']));
     expect(faint).toBeGreaterThanOrEqual(4.44);
     expect(faint).toBeLessThan(4.5);
+  });
+
+  it('holds Broadsheet gain on chrome at the spec 3:1 bar (measures 4.04:1, no waiver needed)', () => {
+    const gain = contrast(hex(PALETTE.broadsheet['--color-gain']), hex(PALETTE.broadsheet['--color-chrome']));
+    expect(gain).toBeGreaterThanOrEqual(3);
   });
 });

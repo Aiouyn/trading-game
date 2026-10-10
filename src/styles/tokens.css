@@ -7,7 +7,7 @@
  * --font-inter and --font-jetbrains-mono (see DESIGN.md §3).
  *
  * Palettes: Ink & Brass is the default (:root). Broadsheet, Phosphor and Riviera
- * override the SAME token names in [data-palette="…"] blocks at the end of this file.
+ * override the SAME token names in html[data-palette="…"] blocks at the end of this file.
  * Forge only sets data-palette on <html> (absent or "ink-brass" = default).
  * Components never branch on palette; they read tokens. Never hard-code hex in components.
  * The "brass" names are the accent role in every palette (oxblood, amber, coral elsewhere).
@@ -115,7 +115,7 @@
   --os-shelf-h: 52px;
   --os-shelf-bg: var(--color-chrome);
   --os-shelf-tile: 40px;
-  --os-shelf-tile-radius: 9px;
+  --os-shelf-tile-radius: var(--radius-md);
   --os-shelf-brush: repeating-linear-gradient(90deg, rgb(255 255 255 / 0.035) 0 1px, transparent 1px 3px); /* R2 aluminum */
   --os-shelf-highlight: linear-gradient(180deg, rgb(255 255 255 / 0.05), transparent 60%);
   /* Windows */
@@ -154,6 +154,7 @@
   /* Phone */
   --phone-status-h: 44px;
   --phone-icon: 60px;
+  /* Spec-fixed, off the radius scale on purpose: velvet-desktop-os.md 150-151 gives icons 16 and the bottom row 24 */
   --phone-icon-radius: 16px;
   --phone-row-radius: 24px;
   --phone-sheet-bg: var(--color-ink-1);
@@ -174,6 +175,7 @@
   --os-glass-blur: 12px;          /* R5 only; off under reduced transparency */
   --os-boot-r0: 900ms;            /* boot before the save loads (P2-192) */
   --os-boot-r1: 500ms;
+  --os-ws-bezel: color-mix(in srgb, var(--color-fg-disabled) 60%, transparent);  /* R3 hairline bezel on workspace boxes */
   --os-ceremony-dim: color-mix(in srgb, var(--color-ink-0) 85%, transparent);  /* OS update, P2-200 */
   --os-art-line-high: var(--color-fg-disabled);  /* high contrast: line steps up (P2-187) */
 }
@@ -224,7 +226,7 @@ html[data-contrast="high"] {
  * Unlayered on purpose so they win over Tailwind's @layer theme.
  * ==================================================================== */
 
-[data-palette="broadsheet"] {
+html[data-palette="broadsheet"] {
   color-scheme: light;
   --color-ink-0: #f2ede3;
   --color-ink-1: #ffffff;
@@ -260,7 +262,7 @@ html[data-contrast="high"] {
   --phone-label-shadow: none;
 }
 
-[data-palette="phosphor"] {
+html[data-palette="phosphor"] {
   color-scheme: dark;
   --color-ink-0: #070908;
   --color-ink-1: #0d110f;
@@ -294,7 +296,7 @@ html[data-contrast="high"] {
   --os-lead-headline-weight: 600;
 }
 
-[data-palette="riviera"] {
+html[data-palette="riviera"] {
   color-scheme: dark;
   --color-ink-0: #0e1a2b;
   --color-ink-1: #142338;
