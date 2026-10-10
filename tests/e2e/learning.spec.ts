@@ -1,5 +1,17 @@
 import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { goTo, grant, isPhone, noHorizontalOverflow, register, skipRankUp, skipTips, watchErrors } from './helpers';
+
+/**
+ * The day-close card (velvet-daily-close.md) opens over the screen when a game day ends, and on the phone it covers the
+ * Portfolio tabs. If it is up, Done closes it; either way the caller goes on only once the card has left the screen.
+ */
+async function dismissCloseCard(page: Page): Promise<void> {
+  const card = page.getByTestId('close-card');
+  await expect(card.or(page.getByTestId('portfolio-tab-journal')).or(page.getByTestId('close-HLCN'))).toBeVisible({ timeout: 15_000 });
+  if (await card.isVisible()) await page.getByTestId('close-done').click();
+  await expect(card).toHaveCount(0, { timeout: 15_000 });
+}
 
 // The learning loop (Phase 3, velvet-trade-journal-replay.md and velvet-research-desk.md): the journal, the analyst and the
 // Research Desk, through the real screens.
@@ -13,11 +25,13 @@ test('a closed trade lands in the journal as a row, with its replay and its free
   await page.getByTestId('order-submit').click();
   await goTo(page, 'portfolio');
   await expect(page.getByTestId('position-HLCN')).toBeVisible({ timeout: 15_000 });
+  await dismissCloseCard(page);
   await page.getByTestId('close-HLCN').click();
   await page.getByTestId('close-HLCN-yes').click();
   await expect(page.getByTestId('position-HLCN')).toHaveCount(0, { timeout: 15_000 });
   // a fill toast over the Portfolio tabs (the phone drops them from the top) blocks the click while the pointer rests on it: wait for it to go
   await expect(page.getByTestId('os-toasts')).toBeEmpty({ timeout: 15_000 });
+  await dismissCloseCard(page);
   await page.getByTestId('portfolio-tab-journal').click();
   await expect(page.getByTestId('journal')).toBeVisible();
   const row = page.locator('[data-testid^="journal-row-"]').first();
