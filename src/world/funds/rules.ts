@@ -82,11 +82,27 @@ export function depositRefusal(g: GameState, f: Fund, pid: string, amount: numbe
   return null;
 }
 
-/** Who may ask to redeem: the fund is open, frozen, or winding (not closed), and the units are the holder's own. */
-export function redeemRefusal(f: Fund, pid: string, units: number): FundRefusal | null {
+/** Whether anyone other than the manager has units, or a deposit, in the fund: the investors the stake floor protects. */
+export function investorsIn(f: Fund): boolean {
+  const others = (m: Record<string, number>) => Object.entries(m).some(([pid, u]) => pid !== f.managerId && u > 1e-9);
+  return others(f.holders) || others(f.reserved) || f.requests.some((r) => r.kind === 'deposit' && r.investorId !== f.managerId);
+}
+
+/**
+ * Who may ask to redeem: the fund is open, frozen, or winding (not closed), and the units are the holder's own. The manager's
+ * own stake is held at the floor while investors are in (ROADMAP 2.2: at least 10% of AUM and $250k at all times): a
+ * manager's redemption that would leave less is refused. Once he is the only holder, the stake may go to zero.
+ */
+export function redeemRefusal(g: GameState, f: Fund, pid: string, units: number): FundRefusal | null {
   if (f.status === 'closed') return 'fundClosed';
   if (!Number.isFinite(units) || units <= 0) return 'fundRedeem';
   if ((f.holders[pid] ?? 0) + 1e-9 < units) return 'fundRedeem';
+  if (pid === f.managerId && (f.status === 'open' || f.status === 'frozen') && investorsIn(f)) {
+    const px = navPerUnitOf(g, f);
+    const aum = aumAfter(g, f, -units * px);
+    const stake = (unitsHeld(f, pid) - units) * px;
+    if (stake < Math.max(FUND_RULES.stakeMinPct * aum, FUND_RULES.managerMinStake) - 1e-6) return 'fundStakeLow';
+  }
   return null;
 }
 

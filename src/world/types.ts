@@ -444,9 +444,12 @@ export interface CourtCase {
   plaintiffId: string;
   defendantId: string;
   kind: 'cyber intrusion' | 'model theft' | 'loan default' | 'contract breach' | 'fund abuse';
-  /** fund abuse: the harm to the fund (the fund's loss against the manager's personal price) and the fund it concerns */
+  /** fund abuse: the harm to the fund (the fund's loss against the manager's personal price), the manager's gain on the flagged trades (disgorged), and the fund it concerns */
   harm?: number;
+  gain?: number;
   fundId?: string;
+  /** fund abuse: the Victim Compensation Fund's advance to the fund, against the unpaid award */
+  vcfAdvance?: number;
   evidence: number;
   /** filing bar: civil 40, tribunal 55, criminal 70 */
   bar: number;

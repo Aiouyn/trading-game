@@ -105,6 +105,10 @@ export interface Fund {
   /** the manager's personal fills in the last game day, for the front-running check */
   managerFills: ManagerFill[];
   filings: FundFiling[];
+  /** the manager's own orders in this fund (order id to placement tick): only their fills are discretionary, for surveillance */
+  managerOrders: Record<string, number>;
+  /** the manager's gain on the flagged front-running trades (disgorged at the S5 verdict) */
+  gain: number;
   /** the open court case over front-running, or null */
   caseId: string | null;
   /** front-running evidence points and the harm (the fund's loss against the manager's personal price) */

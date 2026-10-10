@@ -34,7 +34,7 @@ import { deskFileOf, deskQuery } from './desk';
 import { tripDetail } from './journal';
 import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick, setDrip, startBlock } from './plans';
 import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
-import { applyFundCommand, fundsDay, fundsFills, type FundCommand } from './funds';
+import { applyFundCommand, crossRefusal, fundsBeforeStep, fundsDay, fundsFills, type FundCommand } from './funds';
 import { orderError } from './orders';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
 
@@ -106,6 +106,8 @@ export function stepGame(g: GameState): StepOutput {
   // every human has a ledger before the tick, so its mirror starts from the account the engine is about to change
   for (const p of Object.values(g.players)) if (!p.npc) ensureLedger(g, p.id);
 
+  // a fund order that an alliance change has put opposite a linked order is cancelled before the engine can match them
+  fundsBeforeStep(g, out);
   const r = step(g.market);
   g.market = r.state;
   const tick = g.market.tick;
@@ -237,6 +239,8 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'position.close': {
       const q = g.market.accounts[pid]?.positions[cmd.assetId]?.qty ?? 0;
       if (!q) return fail('no position');
+      const refused = crossRefusal(g, pid, cmd.assetId, q > 0 ? 'sell' : 'buy', { fund: false });
+      if (refused) return fail(refused);
       const r = placeOrder(g.market, { playerId: pid, assetId: cmd.assetId, side: q > 0 ? 'sell' : 'buy', type: 'market', qty: Math.abs(q), reduceOnly: true });
       g.market = r.state;
       return r.order.status === 'rejected' ? fail(r.order.rejectReason ?? 'rejected') : { ok: true, data: r.order };

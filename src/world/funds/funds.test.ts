@@ -6,7 +6,9 @@ import { courtTick } from '../court';
 import { FUND_RULES, FUND_TICKS_PER_DAY, FUND_TIME } from '@/content/funds';
 import { shockPrice } from '@/engine/sim';
 import type { Command, GameState } from '../types';
-import { applyFundCommand, fundsDay, publicFunds, emptyFunds } from './index';
+import { applyFundCommand, fundsDay, fundsFills, publicFunds, emptyFunds } from './index';
+import { insiderOrFloat } from './trade';
+import type { Fill } from '@/engine';
 import { fundById, fundClaimsOf, navOf, navPerUnitOf, unitsOf } from './state';
 import type { Fund, FundFees, FundMandate, FundRefusal } from './types';
 import en from '@/i18n/en.json';
@@ -484,10 +486,15 @@ describe('front-running surveillance and the S5 verdict', () => {
     c.evidence = 400;
     const stake0 = f.holders.m!;
     const cashM0 = cashOf(g, 'm');
-    const restitution = FUND_RULES.s5.restitutionX * f.harm;
+    // the award: 1.5x the harm, and 100% of the manager's gain on the flagged trades (disgorgement)
+    const owed = FUND_RULES.s5.restitutionX * f.harm + FUND_RULES.s5.disgorgePct * f.gain;
+    expect(f.gain).toBeGreaterThan(0);
+    expect(c.gain).toBeCloseTo(f.gain, 6);
     days(g, 2);
     expect(c.status).toBe('won');
-    expect(c.damages).toBeCloseTo(restitution, 1);
+    // the stake covers the award, so nothing is left unpaid and the victim fund advances nothing
+    expect(c.damages).toBeCloseTo(owed, 1);
+    expect(c.vcfAdvance ?? 0).toBe(0);
     expect(f.holders.m ?? 0).toBeLessThan(stake0);
     expect(stake0 - (f.holders.m ?? 0)).toBeGreaterThan(0);
     expect(cashOf(g, 'm')).toBeLessThan(cashM0);
@@ -578,5 +585,198 @@ describe('the fund trades and cash sit in their own account', () => {
     fundById(g, f.id)!.status = 'closed';
     expect(errOf(g, 'i1', { type: 'fund.deposit', fundId: f.id, amount: 1000 })).toBe('fundClosed');
     expect(navPerUnitOf(g, f)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('the caps count the queued orders, not only the filled ones', () => {
+  it('two buys of 19% of NAV placed in one tick cannot reach 38% in one asset', () => {
+    const g = world('f-pending-cap');
+    const f = openFund(g);
+    const s = stockId(g);
+    const qty = Math.floor((0.19 * STAKE) / priceOf(g, s));
+    expect(cmd(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty }).ok).toBe(true);
+    expect(errOf(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty })).toBe('fundPosition');
+    ticks(g, 1); // filled: the position is still capped
+    expect(errOf(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty })).toBe('fundPosition');
+  });
+
+  it('counts the open buys in gross exposure: the eighth 19% stock in one tick is past 1.5x', () => {
+    const g = world('f-pending-lev');
+    const f = openFund(g, { mandate: { classes: ['stock'], maxLeverage: 1.5, maxPositionPct: 0.2 } });
+    const names: string[] = [];
+    let refused: string | undefined;
+    for (let k = 0; k < 9 && !refused; k++) {
+      const s = stockId(g, names);
+      const r = cmd(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty: Math.floor((0.19 * STAKE) / priceOf(g, s)) });
+      if (r.ok) names.push(s);
+      else refused = r.error;
+    }
+    expect(names.length).toBe(7);
+    expect(refused).toBe('fundLeverage');
+  });
+
+  it('a sell cannot exceed the position less the sells already queued', () => {
+    const g = world('f-pending-sell');
+    const f = openFund(g);
+    const s = stockId(g);
+    expect(cmd(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty: 10 }).ok).toBe(true);
+    ticks(g, 1);
+    expect(g.market.accounts[f.accountId]!.positions[s]?.qty).toBe(10);
+    expect(cmd(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'sell', qty: 6 }).ok).toBe(true);
+    expect(errOf(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'sell', qty: 6 })).toBe('fundOrderRejected');
+  });
+});
+
+describe('related party: the fund and the linked accounts', () => {
+  it('refuses a personal order that would match the fund’s resting order, and a linked account’s too', () => {
+    const g = world('f-entry-guard');
+    const f = openFund(g);
+    const s = stockId(g);
+    // the fund rests a buy far below the market: it stays open (gtc)
+    const low = priceOf(g, s) * 0.01;
+    expect(cmd(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty: 1, orderType: 'limit', limitPrice: low }).ok).toBe(true);
+    expect(errOf(g, 'm', { type: 'order.place', order: { assetId: s, side: 'sell', type: 'limit', qty: 1, limitPrice: low } })).toBe('fundSelfMatch');
+    // an alliance mate is linked to the manager: the same refusal; an unlinked player is not refused by this rule
+    g.players.m!.allianceId = 'AL4';
+    g.players.x!.allianceId = 'AL4';
+    expect(errOf(g, 'x', { type: 'order.place', order: { assetId: s, side: 'sell', type: 'limit', qty: 1, limitPrice: low } })).toBe('fundSelfMatch');
+    expect(errOf(g, 'i1', { type: 'order.place', order: { assetId: s, side: 'sell', type: 'limit', qty: 1, limitPrice: low } })).not.toBe('fundSelfMatch');
+  });
+
+  it('refuses the manager closing his own long position against the fund’s resting buy (a close is a sell)', () => {
+    const g = world('f-close-guard');
+    const f = openFund(g);
+    const s = stockId(g);
+    expect(cmd(g, 'm', { type: 'order.place', order: { assetId: s, side: 'buy', type: 'market', qty: 1 } }).ok).toBe(true);
+    ticks(g, 1);
+    expect(cmd(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty: 1, orderType: 'limit', limitPrice: priceOf(g, s) * 0.01 }).ok).toBe(true);
+    expect(errOf(g, 'm', { type: 'position.close', assetId: s })).toBe('fundSelfMatch');
+  });
+
+  it('a fund order that an alliance change puts opposite a linked order is cancelled before the step can match them', () => {
+    const g = world('f-linked-later');
+    const f = openFund(g);
+    const s = stockId(g);
+    // the manager holds one share; the fund rests a sell far above the market; x (not yet linked) rests a buy far below
+    expect(cmd(g, 'm', { type: 'order.place', order: { assetId: s, side: 'buy', type: 'market', qty: 1 } }).ok).toBe(true);
+    ticks(g, 1);
+    expect(cmd(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty: 1 }).ok).toBe(true);
+    ticks(g, 1);
+    const high = priceOf(g, s) * 100;
+    expect(cmd(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'sell', qty: 1, orderType: 'limit', limitPrice: high }).ok).toBe(true);
+    expect(cmd(g, 'x', { type: 'order.place', order: { assetId: s, side: 'buy', type: 'limit', qty: 1, limitPrice: priceOf(g, s) * 0.01 } }).ok).toBe(true);
+    // x and the manager become alliance mates: the fund's sell now stands opposite a linked order
+    g.players.m!.allianceId = 'AL5';
+    g.players.x!.allianceId = 'AL5';
+    ticks(g, 1);
+    // the fund's sell is no longer open (cancelled before the step: it left the open book, and the manager is told)
+    expect(g.market.orders.some((o) => o.playerId === f.accountId && o.side === 'sell' && o.status === 'open')).toBe(false);
+    expect((g.market.closedOrders?.[f.accountId] ?? []).some((o) => o.side === 'sell' && o.status === 'cancelled')).toBe(true);
+    expect(g.market.accounts[f.accountId]!.positions[s]?.qty ?? 0).toBe(1); // the sell never filled
+    expect(g.market.accounts.m!.positions[s]?.qty ?? 0).toBe(1);
+  });
+});
+
+describe('surveillance counts only the manager’s own fund trades', () => {
+  it('a forced sale (a redemption or the wind-down) after the manager’s own sale adds no evidence', () => {
+    const g = world('f-surveil-forced');
+    const f = openFund(g);
+    const s = stockId(g);
+    const fill = (over: Partial<Fill>): Fill => ({
+      orderId: 'x', playerId: 'm', assetId: s, side: 'sell', qty: 1, price: 100, fee: 0, tick: g.market.tick, mid: 100, ...over,
+    });
+    fundsFills(g, [fill({ playerId: 'm', orderId: 'personal' })], null);
+    fundsFills(g, [fill({ playerId: f.accountId, orderId: 'forced', price: 90 })], null);
+    expect(f.evidence).toBe(0);
+    expect(f.caseId).toBeNull();
+    // the same fill, when the manager placed the order, is a flagged fund trade
+    f.managerOrders['disc'] = g.market.tick;
+    fundsFills(g, [fill({ playerId: f.accountId, orderId: 'disc', price: 90 })], null);
+    expect(f.evidence).toBe(FUND_RULES.frontRunEvidence);
+    expect(f.gain).toBeCloseTo(10, 6);
+  });
+});
+
+describe('the manager’s stake, the S5 fine and the victim fund', () => {
+  it('refuses a manager redemption that leaves the stake below 10% of AUM or $250k while investors are in', () => {
+    const g = world('f-stake-floor');
+    const f = openFund(g);
+    invest(g, f, 'i2', 100_000); // AUM about 400k: the floor is max(40k, 250k) = 250k
+    const px = navPerUnitOf(g, f);
+    expect(errOf(g, 'm', { type: 'fund.redeem', fundId: f.id, units: Math.ceil(60_000 / px) })).toBe('fundStakeLow');
+    expect(errOf(g, 'm', { type: 'fund.redeem', fundId: f.id, units: Math.floor(40_000 / px) })).toBeUndefined();
+  });
+
+  it('lets the manager take his stake to zero once he is the only holder', () => {
+    const g = world('f-stake-alone');
+    const f = openFund(g);
+    expect(errOf(g, 'm', { type: 'fund.redeem', fundId: f.id, units: f.holders.m! })).toBeUndefined();
+  });
+
+  it('measures the 1% filing against the float, not all shares outstanding', () => {
+    const g = world('f-float');
+    const f = openFund(g);
+    const s = stockId(g);
+    expect(cmd(g, 'm', { type: 'order.place', order: { assetId: s, side: 'buy', type: 'market', qty: 1 } }).ok).toBe(true);
+    ticks(g, 1);
+    g.market = {
+      ...g.market,
+      config: { ...g.market.config, assets: g.market.config.assets.map((a) => (a.id === s ? { ...a, sharesOutstanding: 1_000, floatShares: 100 } : a)) },
+    };
+    expect(insiderOrFloat(g, f, s)).toBe(true); // 1 of a 100-share float is 1%
+    g.market = {
+      ...g.market,
+      config: { ...g.market.config, assets: g.market.config.assets.map((a) => (a.id === s ? { ...a, floatShares: undefined } : a)) },
+    };
+    expect(insiderOrFloat(g, f, s)).toBe(false); // 1 of 1,000 shares is 0.1%
+  });
+
+  it('fines 8% of net worth with a floor of $100k and a cap of 35% of net worth, with no headroom term', () => {
+    const g = world('f-fine');
+    const f = openFund(g, { mandate: { ...MANDATE, classes: ['stock'] } });
+    const s = stockId(g);
+    invest(g, f, 'i2', 100_000);
+    for (let k = 0; k < 2; k++) {
+      expect(cmd(g, 'm', { type: 'order.place', order: { assetId: s, side: 'buy', type: 'market', qty: 1 } }).ok).toBe(true);
+      ticks(g, 1);
+      g.market = shockPrice(g.market, s, 0.05);
+      expect(cmd(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty: 1 }).ok).toBe(true);
+      ticks(g, 1);
+    }
+    const c = Object.values(g.court.cases).find((x) => x.kind === 'fund abuse')!;
+    expect(c).toBeDefined();
+    c.evidence = 400;
+    // a small net worth: 35% of it is below the $100k floor; the old headroom term (half of what is above $5k) was 2,500
+    g.players.m!.netWorth = 10_000;
+    days(g, 2);
+    expect(c.status).toBe('won');
+    expect(c.fine).toBeCloseTo(0.35 * 10_000, 6);
+  });
+
+  it('advances 50% of the unpaid award from the victim fund into the fund when the stake and cash cannot pay it all', () => {
+    const g = world('f-vcf');
+    const f = openFund(g);
+    const s = stockId(g);
+    invest(g, f, 'i2', 100_000);
+    for (let k = 0; k < 2; k++) {
+      expect(cmd(g, 'm', { type: 'order.place', order: { assetId: s, side: 'buy', type: 'market', qty: 1 } }).ok).toBe(true);
+      ticks(g, 1);
+      g.market = shockPrice(g.market, s, 0.05);
+      expect(cmd(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty: 1 }).ok).toBe(true);
+      ticks(g, 1);
+    }
+    const c = Object.values(g.court.cases).find((x) => x.kind === 'fund abuse')!;
+    c.evidence = 400;
+    c.harm = 1_000_000; // an award the stake cannot cover
+    g.market.accounts.m = { ...g.market.accounts.m!, cash: 0 }; // and no cash above the floor
+    const fundCash0 = g.market.accounts[f.accountId]!.cash;
+    days(g, 2);
+    expect(c.status).toBe('won');
+    const owed = FUND_RULES.s5.restitutionX * 1_000_000 + FUND_RULES.s5.disgorgePct * (c.gain ?? 0);
+    expect(c.damages!).toBeLessThan(owed);
+    expect(c.vcfAdvance!).toBeCloseTo(FUND_RULES.s5.vcfAdvancePct * (owed - c.damages!), 0);
+    expect(c.vcfAdvance!).toBeGreaterThan(0);
+    // the advance is credited to the fund at once
+    expect(g.market.accounts[f.accountId]!.cash).toBeGreaterThan(fundCash0 + c.vcfAdvance! * 0.9);
   });
 });

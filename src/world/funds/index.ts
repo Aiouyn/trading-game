@@ -14,6 +14,7 @@ import { fundById } from './state';
  */
 
 export { fundsFills } from './surveil';
+export { crossRefusal, fundsBeforeStep, pendingOf } from './guard';
 export { publicFund, publicFunds, aumBucketOf } from './view';
 export { emptyFunds, fundClaimsOf, fundsOf } from './state';
 export { FUND_ACCOUNT_PREFIX } from './state';

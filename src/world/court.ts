@@ -50,7 +50,7 @@ function evidenceFor(g: GameState, plaintiffId: string, defendantId: string, kin
  */
 export function openCase(
   g: GameState, plaintiffId: string, defendantId: string, kind: CourtCase['kind'], evidence: number, out: StepOutput | null,
-  extra: { harm?: number; fundId?: string } = {},
+  extra: { harm?: number; gain?: number; fundId?: string } = {},
 ): CourtCase {
   g.court.seq++;
   const id = `case${g.court.seq}`;
@@ -58,7 +58,8 @@ export function openCase(
   const c: CourtCase = {
     id, plaintiffId, defendantId, kind, evidence, bar, counselPlaintiff: 0, counselDefendant: 0,
     filedTick: g.market.tick, hearingTick: g.market.tick + HEARING_DAYS * TPD, status: 'filed', damages: 0, fine: 0,
-    ...(extra.harm !== undefined ? { harm: extra.harm } : {}), ...(extra.fundId ? { fundId: extra.fundId } : {}),
+    ...(extra.harm !== undefined ? { harm: extra.harm } : {}), ...(extra.gain !== undefined ? { gain: extra.gain } : {}),
+    ...(extra.fundId ? { fundId: extra.fundId } : {}),
   };
   g.court.cases[id] = c;
   say(g, out, defendantId, 'court', 'warn', { key: 'funds.court.opened', vars: { days: HEARING_DAYS } });
@@ -164,37 +165,41 @@ export function courtTick(g: GameState, out: StepOutput): void {
 }
 
 /**
- * The S5 verdict on a fund abuse (ROADMAP 2.2): a fine of 8% of net worth (floor $100k, at most 35% of NW and half the room
- * above the court floor), then restitution of 1.5x the harm to the fund. The manager's stake pays first: its units are
- * cancelled up to the sum, which raises the other holders' share of NAV. Cash pays what the stake does not cover, down to the
- * floor. The manager is banned from opening a fund for 8 real weeks, and the convicted fund winds down.
+ * The S5 verdict on a fund abuse (ROADMAP 2.2, 03 §9.6 and §9.9). The fine is 8% of net worth, floor $100k, at most 35% of net
+ * worth. The award is 100% disgorgement of the manager's gain on the flagged trades, plus restitution of 1.5x the harm to the
+ * fund. The manager's stake pays first (its units are cancelled up to the award, which raises the other holders' share of NAV),
+ * then cash down to the court floor. What is still unpaid gets an advance of 50% from the Victim Compensation Fund, credited to
+ * the fund at once (the recovery from garnishment is not modelled yet). The manager is banned from opening a fund for 8 real
+ * weeks, and the convicted fund winds down.
  */
 function fundVerdict(g: GameState, c: CourtCase, out: StepOutput | null, df: Player): void {
   const pl = g.players[c.plaintiffId]!;
   const s5 = FUND_RULES.s5;
   const nw = df.netWorth;
-  const headroom = Math.max(0, nw - FLOOR);
-  const fine = Math.max(0, Math.min(headroom * 0.5, s5.capPct * nw, Math.max(s5.floor, nw * s5.pct)));
+  const fine = Math.max(0, Math.min(s5.capPct * nw, Math.max(s5.floor, nw * s5.pct)));
   debit(g, c.defendantId, fine, 'fines');
-  credit(g, c.plaintiffId, fine * 0.1, 'victim fund');
-  const owed = s5.restitutionX * (c.harm ?? 0);
-  let restored = 0;
+  const owed = s5.disgorgePct * (c.gain ?? 0) + s5.restitutionX * (c.harm ?? 0);
+  let paid = 0;
+  let advance = 0;
   const f = c.fundId ? fundById(g, c.fundId) : undefined;
   if (f) {
-    restored = cancelStake(g, f, owed);
+    paid = cancelStake(g, f, owed);
     const room = Math.max(0, cashOf(g, c.defendantId) - FLOOR);
-    const cash = Math.min(owed - restored, room);
-    if (cash > 0) { transfer(g, c.defendantId, f.accountId, cash); restored += cash; }
+    const cash = Math.min(owed - paid, room);
+    if (cash > 0) { transfer(g, c.defendantId, f.accountId, cash); paid += cash; }
+    advance = Math.max(0, s5.vcfAdvancePct * (owed - paid));
+    if (advance > 0) credit(g, f.accountId, advance, 'victim fund');
   }
   g.funds ??= emptyFunds();
   g.funds.convicted[c.defendantId] = g.market.tick;
   g.funds.bans[c.defendantId] = g.market.tick + FUND_TIME.eightWeeksTicks;
-  c.damages = restored;
+  c.damages = paid;
   c.fine = fine;
+  c.vcfAdvance = advance;
   df.reputation -= 5;
   df.notoriety += 2;
   if (f) startWindDown(g, f, out);
-  say(g, out, c.plaintiffId, 'court', 'gain', { key: 'funds.verdict.won', vars: { player: df.handle, restored: usd(restored), fine: usd(fine) } });
-  say(g, out, c.defendantId, 'court', 'loss', { key: 'funds.verdict.lost', vars: { player: pl.handle, restored: usd(restored), fine: usd(fine) } });
-  c.verdictText = `Restored ${usd(restored)} to the fund and a ${usd(fine)} fine.`;
+  say(g, out, c.plaintiffId, 'court', 'gain', { key: 'funds.verdict.won', vars: { player: df.handle, restored: usd(paid), fine: usd(fine) } });
+  say(g, out, c.defendantId, 'court', 'loss', { key: 'funds.verdict.lost', vars: { player: pl.handle, restored: usd(paid), fine: usd(fine) } });
+  c.verdictText = `Restored ${usd(paid)} to the fund and a ${usd(fine)} fine.`;
 }

@@ -2,6 +2,7 @@ import { placeOrder, type OrderRequest } from '@/engine';
 import { RANKS, licenseFor, rankIndex } from '@/content/lifestyle';
 import { SIMPLE_MODE } from '@/content/learning';
 import { cashOf, priceOf } from './core';
+import { crossRefusal } from './funds/guard';
 import { tagOrder } from './ledger';
 import type { FillReason } from './ledger-types';
 import type { CommandResult, GameState, Player } from './types';
@@ -15,6 +16,9 @@ const fail = (error: string): CommandResult => ({ ok: false, error });
 export function orderError(g: GameState, p: Player, req: Omit<OrderRequest, 'playerId'>): string | null {
   const def = g.market.config.assets.find((a) => a.id === req.assetId);
   if (!def) return 'unknown asset';
+  // a personal order may not match a fund's open order that belongs to the player or a linked account (funds/guard.ts)
+  const cross = crossRefusal(g, p.id, req.assetId, req.side, { fund: false });
+  if (cross) return cross;
   const lic = licenseFor(p.rankId);
   if (!lic.classes.includes(def.assetClass)) return `${def.name} needs the Pro license (Owner, $250k)`;
   if (p.heldUntil > g.market.tick && req.side === 'buy') return 'your assets are held by the court';

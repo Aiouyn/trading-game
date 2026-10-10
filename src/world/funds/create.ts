@@ -42,7 +42,7 @@ export function createFund(
     holders: { [p.id]: a.stake }, reserved: {}, payable: {}, feeAccrued: 0, feePayable: 0, hwm: 1, navPerUnit: 1,
     requests: [], reqSeq: 0, depositedTick: { [p.id]: g.market.tick }, breakerUntil: -1,
     navHist: [{ day: today(g), navPerUnit: 1, aum: a.stake }], lastDay: today(g), managerFills: [], filings: [],
-    caseId: null, evidence: 0, harm: 0, managerReceived: 0, managerEntitled: 0, credited: {}, paidOut: {},
+    managerOrders: {}, gain: 0, caseId: null, evidence: 0, harm: 0, managerReceived: 0, managerEntitled: 0, credited: {}, paidOut: {},
   };
   fs.funds[id] = f;
   say(g, out, p.id, 'fund', 'brass', { key: 'funds.created', vars: { fund: name, stake: usd(a.stake) } });

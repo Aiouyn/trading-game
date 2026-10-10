@@ -33,7 +33,7 @@ export function requestDeposit(g: GameState, pid: string, f: Fund, amount: numbe
 }
 
 export function requestRedeem(g: GameState, pid: string, f: Fund, units: number, out: StepOutput | null): CommandResult {
-  const err = redeemRefusal(f, pid, units);
+  const err = redeemRefusal(g, f, pid, units);
   if (err) return fail(err);
   f.holders[pid] = (f.holders[pid] ?? 0) - units;
   if (f.holders[pid]! <= 1e-12) delete f.holders[pid];

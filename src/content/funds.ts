@@ -84,10 +84,16 @@ export const FUND_RULES = {
   frontRunEvidence: 20,
   /** the civil bar a fund-abuse case must meet (court.ts) */
   civilBar: 40,
-  /** S5 penalties (ROADMAP 2.2): fine 8% of NW (floor $100k), at most 35% of NW; restitution 1.5x the harm, from the stake first */
-  s5: { pct: 0.08, floor: 100_000, capPct: 0.35, restitutionX: 1.5 },
+  /**
+   * S5 penalties (ROADMAP 2.2, 03 §9.6 and §9.9): fine 8% of NW (floor $100k, at most 35% of NW); disgorgement 100% of the
+   * manager's gain on the flagged trades; restitution 1.5x the harm (both from the stake first, then cash down to the floor);
+   * the Victim Compensation Fund advances 50% of what is still unpaid, at once, to the fund.
+   */
+  s5: { pct: 0.08, floor: 100_000, capPct: 0.35, restitutionX: 1.5, disgorgePct: 1, vcfAdvancePct: 0.5 },
   /** the most NAV history points the public view keeps (one per game day) */
   navHistoryKeep: 400,
   /** the most recent manager fills kept for surveillance (one game day covers them: the array is pruned by tick) */
   managerFillsKeep: 400,
+  /** the most recent orders of the manager's own kept for the front-running check (the oldest drop first) */
+  managerOrdersKeep: 400,
 };

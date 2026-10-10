@@ -41,6 +41,20 @@ export function linked(g: GameState, a: string, b: string): boolean {
   return !!pa?.allianceId && pa.allianceId === pb?.allianceId;
 }
 
+/** A fund's custody account (the engine account the manager trades). */
+export function isFundAccount(accountId: string): boolean {
+  return accountId.startsWith(FUND_ACCOUNT_PREFIX);
+}
+
+/**
+ * The player who controls an account: a fund's manager for a fund account, the player himself otherwise. Linked checks use
+ * the controller, so a fund counts as the manager's account and an alliance mate's fund as an alliance mate's.
+ */
+export function controllerOf(g: GameState, accountId: string): string {
+  if (!isFundAccount(accountId)) return accountId;
+  return fundByAccount(g, accountId)?.managerId ?? accountId;
+}
+
 export function fundEquity(world: WorldState, f: Fund): number {
   const acct = world.accounts[f.accountId];
   return acct ? equityOf(world, acct) : 0;
