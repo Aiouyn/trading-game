@@ -66,11 +66,16 @@ export function ShopCard({ v }: { v: ShopView }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-x-6 gap-y-3 @md:grid-cols-4">
-        <Stat label={t('biz.payback')} value={v.payback.days === null ? '—' : t('biz.paybackValue', { n: fx(v.payback.days, 1) })} testId={`shop-${id}-payback`} />
-        <Stat label={t('shop.line.revenue')} value={money(v.daily.revenue)} testId={`shop-${id}-revenue`} />
-        <Stat label={t('shop.label.reviews')} value={`${fx(v.stars, 1)} / 5`} testId={`shop-${id}-stars`} />
-        <Stat label={t('shop.label.morale')} value={pct(v.morale)} testId={`shop-${id}-morale`} />
+      {/*
+        A figure never splits or truncates (Stat `figure`: one line). The grid steps down to one column before a cell is
+        too narrow for the longest figure (14px mono, about 8.4 px a digit: "$154,321.00" is about 92 px). Two columns
+        from 22rem, four from 40rem (each cell then keeps about 134 px).
+      */}
+      <div className="grid grid-cols-1 gap-x-6 gap-y-3 @[22rem]:grid-cols-2 @[40rem]:grid-cols-4">
+        <Stat figure label={t('biz.payback')} value={v.payback.days === null ? '—' : t('biz.paybackValue', { n: fx(v.payback.days, 1) })} testId={`shop-${id}-payback`} />
+        <Stat figure label={t('shop.line.revenue')} value={money(v.daily.revenue)} testId={`shop-${id}-revenue`} />
+        <Stat figure label={t('shop.label.reviews')} value={t('shop.label.starsValue', { stars: fx(v.stars, 1) })} testId={`shop-${id}-stars`} />
+        <Stat figure label={t('shop.label.morale')} value={pct(v.morale)} testId={`shop-${id}-morale`} />
       </div>
       <div className="flex flex-col gap-1 text-caption text-fg-muted">
         <p data-testid={`shop-${id}-payback-note`}>{v.payback.days === null ? t('shop.payback.none') : t('shop.payback', { days: fx(v.payback.days, 1) })}</p>
@@ -189,7 +194,7 @@ export function ShopCard({ v }: { v: ShopView }) {
 
       <section data-testid={`shop-${id}-day`} className="flex flex-col gap-2">
         <h3 className="label">{t('shop.day.title')}</h3>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-small @md:grid-cols-4">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-small @[22rem]:grid-cols-2 @[40rem]:grid-cols-4">
           {lines.map((ln) => (
             <Line key={ln.key} label={ln.label} testId={`shop-${id}-line-${ln.key}`}>{money(ln.value)}</Line>
           ))}
@@ -229,7 +234,7 @@ function Line({ label, children, testId, strong = false, tone }: { label: string
   return (
     <div className="flex items-baseline justify-between gap-2 border-t border-ink-2 pt-1" data-testid={testId}>
       <dt className={strong ? 'font-medium text-fg' : 'text-fg-muted'}>{label}</dt>
-      <dd className={`num ${strong ? 'font-medium' : ''} ${color}`}>{children}</dd>
+      <dd className={`num whitespace-nowrap ${strong ? 'font-medium' : ''} ${color}`}>{children}</dd>
     </div>
   );
 }

@@ -17,7 +17,7 @@ export function isCompanyView(x: unknown): x is CompanyViewId {
 /** Every key of CompanyPublic. `satisfies` makes a missing or extra key a compile error. */
 const PUBLIC_KEYS = {
   id: true, name: true, sector: true, foundedDay: true, tier: true, listed: true, cities: true, products: true,
-  headcountBand: true, debt: true, cashDebt: true, filings: true, registry: true, signals: true, credibility: true,
+  headcountBand: true, debt: true, cashDebt: true, filings: true, registry: true, revenueBand: true, signals: true, credibility: true,
   insiderTrades: true, distressFlag: true, buybackPrograms: true, plans: true, planSkips: true, window: true,
 } satisfies Record<keyof CompanyPublic, true>;
 

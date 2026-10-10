@@ -553,10 +553,12 @@ describe('refusal copy and the French', () => {
     'fundInsiderCap', 'fundSelfMatch', 'fundOrderRejected', 'fundDeposit', 'fundInvestorAge', 'fundInvestorLink',
     'fundInvestorLimit', 'fundStakeLow', 'fundAumCap', 'fundRedeem', 'fundMandateInvalid', 'fundTradeInvalid',
   ];
-  it('every refusal code has a line in English and in French', () => {
+  it('every refusal code has its three parts (what, why, do) in English and in French', () => {
     for (const c of codes) {
-      expect((en as Record<string, string>)[`funds.refusal.${c}`], c).toBeTruthy();
-      expect((fr as Record<string, string>)[`funds.refusal.${c}`], c).toBeTruthy();
+      for (const part of ['what', 'why', 'do']) {
+        expect((en as Record<string, string>)[`funds.refusal.${c}.${part}`], `${c}.${part}`).toBeTruthy();
+        expect((fr as Record<string, string>)[`funds.refusal.${c}.${part}`], `${c}.${part}`).toBeTruthy();
+      }
     }
   });
   it('every fund message key exists in both languages', () => {
@@ -808,5 +810,16 @@ describe('the manager’s stake, the S5 fine and the victim fund', () => {
     const solo = world('f-vcf-solo');
     const fs = openFund(solo);
     expect(advanceToInvestors(solo, fs, 50_000, newOutput())).toBe(0);
+  });
+});
+
+describe('admin.age (the test seam for the account-age rules)', () => {
+  it('backdates a player join by the ticks given, and refuses an unknown player', () => {
+    const g = createGame('age-seed', { warmupDays: 0, npcs: false });
+    expect(applyCommand(g, 'm', { type: 'join', handle: 'age_one', country: 'AV' }).ok).toBe(true);
+    const before = g.players.m!.joinedTick;
+    expect(applyCommand(g, 'admin', { type: 'admin.age', playerId: 'm', ticks: 5_000 }).ok).toBe(true);
+    expect(g.players.m!.joinedTick).toBe(before - 5_000);
+    expect(applyCommand(g, 'admin', { type: 'admin.age', playerId: 'nobody', ticks: 1 }).ok).toBe(false);
   });
 });

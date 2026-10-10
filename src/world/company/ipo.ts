@@ -18,11 +18,12 @@ import { COMPANY } from '@/content/company';
 import { rankIndex } from '@/content/lifestyle';
 import { grantLockedShares, listCompanyStock, openAccount, restrictionsOf, setSellCap, type AssetDef, type WorldState } from '@/engine';
 import { TPD, notify, pushWire, today } from '../core';
-import type { GameState, StepOutput } from '../types';
+import type { CommandResult, GameState, StepOutput } from '../types';
 import { linked } from '../funds/state';
 import { post } from './books';
 import { syncWindow } from './insiders';
-import type { Company, CompanyReject, IpoBook } from './types';
+import { headcountBand } from './signals';
+import type { Company, CompanyReject, FilingPublic, IpoBook } from './types';
 
 export const treasuryIdOf = (companyId: string): string => `co:${companyId}:treasury`;
 export const poolIdOf = (companyId: string): string => `co:${companyId}:pool`;
@@ -95,6 +96,42 @@ export function orderIpo(g: GameState, playerId: string, c: Company, shares: num
   if (!Number.isInteger(shares) || shares <= 0) return { ok: false, reject: { code: 'ipoBadShares' } };
   c.ipo.orders[playerId] = (c.ipo.orders[playerId] ?? 0) + shares;
   return { ok: true, value: { requested: c.ipo.orders[playerId], cap: Math.floor(COMPANY.ipo.allocCapOfFloat * c.ipo.ipoShares) } };
+}
+
+/**
+ * Test seam (dev and tests only, through the server's admin route, like admin.age): a founder's unlisted company meets the
+ * two filed-history rules of the IPO without the years of filings they stand for. The filed quarters are padded to the
+ * minimum, each new record one quarter after the last (a zero record when the company has not filed yet), and the filed
+ * value is raised to the minimum. Every other rule, the request, the book and the listing stay the world's own. The
+ * command is deterministic, so a replayed log rebuilds the same world.
+ */
+export function adminIpoReady(g: GameState, playerId: string): CommandResult {
+  const c = g.companies ? Object.values(g.companies.companies).find((x) => x.ownerId === playerId && !x.listed && !x.ipo) : undefined;
+  if (!c) return { ok: false, error: 'no unlisted company without an IPO book for this player' };
+  const day = today(g);
+  while (c.filings.length < COMPANY.ipo.minFiledQuarters) {
+    const n = c.filings.length;
+    const last = c.filings[n - 1];
+    const base: FilingPublic = last ?? {
+      quarter: 0,
+      periodCloseDay: day,
+      filedDay: day,
+      hash: `seam-${c.id}-0`,
+      income: { revUnrelated: 0, relatedPartyIncome: 0, cogs: 0, opex: 0, ebitda: 0, netIncome: 0, niAdj: 0, interest: 0 },
+      balance: { cash: c.cash, receivables: 0, inventory: 0, ppe: c.ppe, debt: 0, equity: c.paidIn + c.retained, retainedEarnings: c.retained },
+      cashFlow: { ocf: 0, capex: 0, capexMaint: 0, fcf: 0, dividends: 0, buybacks: 0 },
+      headcountBand: headcountBand(1),
+      backlog: 0,
+      backlogContribution: 0,
+      unitCost: 0,
+      matUnit: 0,
+      inputIndex: 0,
+      backlogReversal: { nonConversion: 0, baseRate: 0, excessLift: 0, repayment: 0 },
+    };
+    c.filings.push({ ...base, quarter: last ? base.quarter + 1 : 0, hash: `seam-${c.id}-${n}` });
+  }
+  c.filedV = Math.max(c.filedV, COMPANY.ipo.minValue);
+  return { ok: true };
 }
 
 /**

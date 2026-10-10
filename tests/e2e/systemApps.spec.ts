@@ -75,11 +75,11 @@ test('Company has no tile before Owner, and the founding flow from Owner', async
   await expect(page.getByTestId('company-found')).toBeVisible();
 });
 
-test('a deep link to Exchange lands on the desktop with a Coming later notice', async ({ page }) => {
+test('a deep link to Exchange opens the Exchange window (Phase 4)', async ({ page }) => {
   await register(page);
   await skipTips(page);
   await page.goto('/exchange');
   await expect(page.locator('html')).toHaveAttribute('data-game', 'ready', { timeout: 30_000 });
-  await expect(page.getByText('Coming later.')).toBeVisible();
-  await expect(page.getByTestId('win-exchange')).toHaveCount(0);
+  // the desktop opens a window (win-exchange), the phone a full-screen app: the Exchange screen is on both
+  await expect(page.getByTestId('exchange-view')).toBeVisible({ timeout: 15_000 });
 });

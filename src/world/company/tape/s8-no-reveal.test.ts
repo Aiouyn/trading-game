@@ -47,6 +47,7 @@ describe('Tape s8: no-reveal, lint and links', () => {
       id: true, name: true, sector: true, foundedDay: true, tier: true, listed: true, cities: true, products: true,
       headcountBand: true, debt: true, cashDebt: true, filings: true, registry: true, signals: true, credibility: true,
       insiderTrades: true, distressFlag: true, buybackPrograms: true, plans: true, planSkips: true, window: true,
+      revenueBand: true, // Late tier: a band of the filed TTM revenue, moves only at a filing (p4/ex)
     };
     const keys = Object.keys(publicCompanyView(c, 230));
     expect(keys.length).toBeGreaterThan(10);

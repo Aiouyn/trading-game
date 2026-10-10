@@ -24,7 +24,7 @@ The sections below are the full Phase 4 status. Section 0 is the summary and is 
 | `p4/biz` businesses shop management | `ae481aa` | `8665762` | Merged (this table; no section of its own) |
 | `p4/d1` Tape company checks as Vitest | `3972eea` | `908c615` | Merged in this pass (section 10); **partial** |
 | `p4/d2` exploit suites X1 to X15 | `e5486b7` | `c04504b` | Merged in this pass (section 10); **partial** |
-| `p4/ex` Exchange app, player stocks and funds UI | `636d9a1` | **not merged** | **Skipped.** The `p4-ex` worktree has uncommitted work (`M docs/V1-PHASE4.md`), so per the merge rule the branch was not merged. See open item O-1. |
+| `p4/ex` Exchange app, player stocks and funds UI | `6de3ac3` | merged | The pending doc change was committed in `p4-ex` (`6de3ac3`), then the branch was merged `--no-ff`. One doc conflict (both sides appended a section; the Exchange section is now 11). `s8-no-reveal` allowlist gained `revenueBand` (filed-only band). See section 11. |
 
 Each merge was `--no-ff`. The `p4/d1` and `p4/d2` merges had no conflicts. Neither branch had uncommitted work at merge time (`p4-d1` and `p4-d2` were clean; `p4-ex` was not).
 
@@ -65,8 +65,8 @@ Plan Phase 4 items, as written in `expressive-sprouting-aurora.md`, with the sta
 | `CompanyFounderView` lint-confined to the Company app | **Done** | `b4b349e`, `83dc4d9` | `boundary.test.ts` (TS compiler API). |
 | Company Overview, R&D, People, Deals and Notices | **Partial** | `b4b349e`, `83dc4d9` | Overview decision applies at once, with no next-day staging (O-17). The Filings view is not built. |
 | Player-run funds (world): custody, mandate, fees, gates, surveillance, S5 penalties | **Done** | `6c63fb3`, `d4ca8f6` (merge `3d43d22`); `f3d03f3` (VCF advance) | Property test over sequences (section 4.3). |
-| Funds UI (in the Exchange app) and the fund board (net return, Sharpe, $1M minimum) | **Not built** | none on `v1` | Lives in `p4/ex`, which is not merged (O-1). |
-| Exchange app for player stocks | **Not built** | none on `v1` | `p4/ex` not merged. Exchange is hidden on `v1` (`347c4d2`, C-38). |
+| Funds UI (in the Exchange app) and the fund board (net return, Sharpe, $1M minimum) | **Done** | `p4/ex` merge | Section 11. |
+| Exchange app for player stocks | **Done** | `p4/ex` merge | Visible on the shelf after Portfolio. Section 11. |
 | Tape company checks as Vitest suites (Quant v1.7) | **Partial** | `d4bf1ce`, `75ca35b`, `3972eea` (merge `908c615`) | 8 statistical rows pass at 20 seeds. 18 rows are NOT RUN (section 10.2). |
 | Gates: exploit map and money-flow invariants and zero-sum | **Partial** | `e5486b7` (merge `c04504b`) | Zero-sum has a KNOWN DEFECT (O-3). |
 | Gates: balance (`balance:shops`) | **Done** | `ee80574` | |
@@ -167,7 +167,7 @@ Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merg
 
 | ID | Item | Owner |
 |---|---|---|
-| O-1 | `p4/ex` skipped: the `p4-ex` worktree has uncommitted `docs/V1-PHASE4.md` work. Commit or discard it there, then merge `p4/ex` (the Exchange app, player-stock and fund UI). Until then Exchange is hidden on `v1`. | Forge (commit or discard in `p4-ex`), lead (merge) |
+| O-1 | Closed: `p4/ex` merged into `v1` (section 11). | done |
 | O-2 | Rho checks (`rho_residual`, `rho_ev_robust`, `rho_by_spread`, `rho_engine`, `alt_prefiling_edge`, `signal_joint_v15`) are blocked. G22 is settled but the engine never computes the residual surprise `s` (`valuation.ts` has no caller), so rho cannot be measured. Also `engine-staging` is not merged. | Quant (residual `s`, probe), Forge (wire the caller) |
 | O-3 | **Zero-sum defect (KNOWN DEFECT).** An ordinary stock has no counterparty account. A buy takes its notional and commission out of the world, and a sell mints its notional. Pinned as `it.fails` in `zerosum.test.ts`. Not fixed. | Ledger (ruling pending), Forge (fix) |
 | O-4 | Underwriting fee base is the gross float value, including the NPC book's share. Spec 5.1 does not name the base. | Ledger (sign-off) |
@@ -640,3 +640,56 @@ The gate for this pass is the run 2 result.
 ### 10.5 What this pass did not check
 
 Plan verification items not run here: `scripts/ecology/gates.ts full`, `scripts/load/socket-load.mjs`, play-by-hand on desktop and phone in English and French, and the screenshot tour. These are O-19 in section 0.5.
+
+## 11. The Exchange app (`p4/ex`)
+
+The Quay app `exchange` is visible from Phase 4 (`src/shell/apps.ts`: `available: true`, on the shelf after Portfolio). Launchpad stays hidden until Phase 5. A deep link to `/exchange` opens the window (no "Coming later" notice).
+
+### 11.1 What is in
+
+- **Player stocks** (`StocksTab.tsx`): every listed player company, from `publicCompanyView` only (`CompanyPublic`). Each row shows the window state, the trailing filed revenue band (late companies), the last five weekly signals, the last four filings with their income, balance and cash-flow lines, the founder's filed trades, the sell plans and their skips (day and reason; no minimum price), buyback programs, the takeover line and the backstop note. Trade opens the Broker on the ticker.
+- **IPO books** (`IposTab.tsx`): the books open today, with price, float, shares offered, the 5% cap per buyer, and the listing day. Subscribe sends `company.ipoOrder`. The form refuses an order above the viewer's room under the cap (`exchange.ipo.overCap`, three parts) before anything is sent, and shows the room left. A blocked account sees the owner-set or the 7-game-day reason in three parts (`company.refusal.*`). The book's other orders are never shown: the view carries only the viewer's own subscription.
+- **Player-run funds** (`FundsTab.tsx`): the open funds (`publicFunds`), with mandate, fees, NAV history, AUM bucket and public filings. The investor list and other holders' units are never in the view. Invest (`fund.deposit`) and redeem (`fund.redeem`) show the early-exit fee and the 25% limit before the player sends, and refusals inline in three parts (`funds.refusal.<code>.what/why/do`).
+- **Trading as the fund** (`src/components/apps/broker/OrderTicket.tsx`): a manager's Broker ticket has a "Trade as" selector (me or the fund). In fund mode the ticket checks the fund's cash, position and mandate class, sends `fund.trade` through the fund account (market or limit only), and shows a fund refusal inline in three parts. The selector is absent for everyone else.
+- **Holdings** (`HoldingsTab.tsx`): the viewer's own units, what waits for a redemption, what is owed, the early-exit window, and any front-running case.
+- **Manager console** (`ManageTab.tsx`): open a fund (`fund.create`, Operator rank, 14 game days, $250k stake, mandate and fees), then the console of the fund: notices (freeze with the wind-down day, breaker, a pending mandate with its remaining time, a front-running case, a verdict), the NAV, the cash and positions, the stake floor and AUM cap, fees accrued and crystallized, a trade ticket through the fund account (`fund.trade`, market or limit, inside the mandate), and the mandate change (`fund.mandate`, 24 real hours of notice).
+
+### 11.2 Views and copy
+
+- `src/world/exchange/view.ts` builds `ExchangeView`, carried in `PlayerView.exchange`. Every number is computed here; the screens format them. Tests: `src/world/exchange/view.test.ts` (13 cases: the public-only shape, the IPO exclusions and room under the cap, holdings, the console and its filing days, the mandate notice, the fee and day helpers).
+- Copy: `src/components/apps/exchange/copy.ts`, tested by `copy.test.ts` (every key a helper can return exists in en and fr). The 28 fund refusals moved from one line to `.what / .why / .do` in en and fr, and `funds.test.ts` checks the three parts.
+- All strings use `exchange.*` keys (en and fr, same key set). `react/jsx-no-literals` is clean on the touched files.
+
+### 11.3 Deviations (for lead or Quant)
+
+1. **Consensus is not shown.** Quant v1.7 §11 `CompanyPublic` has no consensus field (the NPC consensus is an engine estimate). The Exchange shows the public signals instead.
+2. **The IPO 5% cap is enforced in the form, not in the world.** `company.ipoOrder` accepts an order above the cap and `allocateIpo` cuts it at allocation (N8, `ipo.test.ts` "ipo-cap"). The Exchange refuses it before sending, so a player never meets the silent cut. A direct command over the cap is still accepted by the world. Owner: Quant to decide whether the world should refuse it too.
+3. **Takeover status has no public field.** `CompanyPublic` carries no takeover state, and a tender settles in one step, so the Exchange says so ("Takeover bids settle in one step: no offer stays open to watch."). A public history of tenders would need a view field. Owner: Quant (view) and Forge.
+4. **Velvet spec corrected to Quant v1.7** (`docs/team/specs/velvet-company-app.md` v1.5, DECISIONS C5): the clawback box, the public plan row without the minimum price, the Late-tier index clause, the insider filing instrument, and the IPO can't-buy rule.
+
+### 11.4 e2e
+
+`tests/e2e/exchangeFunds.spec.ts` runs two flows: the manager's fund create and, from the Broker, a market buy through the fund account (the "Trade as" selector); and an investor's flow where a manager opens a fund, an investor (registered first, aged 7 real days by the admin advance) deposits, sees the holding, redeems (the early-exit notice shows), and is paid at the next day close. The spec matches the time-advancing pattern, so `playwright.config.ts` runs it in the close-card projects (`CLOSE_SPECS` now also matches `exchangeFunds.spec.ts`).
+
+`tests/e2e/exchangeIpo.spec.ts` covers the IPO path: a founder requests an IPO on the Capital tab, an investor sees the book, a subscription above the 5% room is refused in the form before it is sent, a subscription within the cap is sent and shown as the viewer's own order, and after a game day the allocation is in the investor's account and the company is in the Stocks tab. The founder's filed history is set by the admin seam `admin.ipoReady` (`POST /api/admin/ipo-ready`, `makeIpoReady` in `helpers.ts`): three padded filed quarters and a filed value at the $50M minimum. Every other IPO rule, the request, the book and the listing are the world's own. The seam is tested in `src/world/company/ipo.test.ts`. The filed history cannot be reached by advancing the world in a test run (three quarters are about 190 game days).
+
+`tests/e2e/exchangeLayout.spec.ts` checks the Exchange at its declared minimum window (420 x 300) on every tab: no sideways scroll, no stat figure split across lines, and every `.num` in the view (not only the stats) free of ellipsis and of overflow past its box. The manager's console in `exchangeFunds.spec.ts` is checked at the same size.
+
+### 11.5 Shop figures and the daily-close cost
+
+- Figures never truncate. `Stat` (`ui.tsx`) keeps the app-wide `truncate` for the other apps, as in v1; a new `figure` prop makes the value one unbreakable line. The Exchange's stat row and its `Fact` cells use the same rule (`Fact` is nowrap by default; `prose` wraps at spaces for the band and bucket words), and the Exchange's four-column grids start at `@xl` so each cell holds a long figure. The Businesses shop card (`ShopCard.tsx`) passes `figure` to its four stats and steps its grid down to one column before a cell is too narrow (two columns from 22rem, four from 40rem). `shops.spec.ts` asserts one line per figure (the text's client rects) and no overflow, at the minimum window and in the window the player opens. Other apps' stats still truncate with an ellipsis (v1 behaviour, not changed here).
+- The per-view cost. `playerView` was slow and grew with the number of game days played, up to ten (the daily-close lines). The cause was `usd()` in `src/world/text/template.ts`, which called `toLocaleString` (about 28 us a call) about fifty times per view. The Exchange is not the cause: `exchangeView` measured 0.006 to 0.08 ms per player with and without a listing. The formatter is now cached (about 1.2 us a call, the same text, pinned by `template.test.ts`). A view costs 0.2 to 0.4 ms at ticks 2.9k to 23k, flat after the tenth day. With a listed company, a 20k-tick advance measured 0.3 ms a tick in the step and 0.4 to 0.7 ms a view.
+- The cause predates the Exchange (`usd` came in with p3 a2, `65ac2bd`). The 108 ms a tick in the earlier probe was not reproduced: the probe world had no listing, and the step plus the views came to well under 2 ms a tick here.
+
+### 11.6 E2E build note
+
+The default E2E build (`npm run build`, Turbopack) fails in a git worktree with "Symlink node_modules could not be resolved", because `node_modules` is a junction there. Run the specs with `E2E_BUILD_CMD="npx next build --webpack"`. This is a worktree setup issue, not a code defect.
+
+### 11.7 A company listing reaches the client's config
+
+The IPO e2e found a real bug, present on this branch since the company engine hooks (A2): a company's listing did not move the list version (`market.listings.seq`), so a client never received the new asset's definition. The client's config then had one asset fewer than the frame, the mirror truncated the frame to the config, and a holding in the new stock read past the end of the mirror's asset array (`priceAt` threw, and the shell showed "This page couldn't load"). The fix is in the engine: `appendAsset` and `replaceDef` (a delisting) bump `listings.seq` through `bumpListVersion` (`src/engine/listings.ts`). `listingsDay` assigns its own sequence at the end of the day, so the NPC listings roll and their version are unchanged. The regression test is `src/world/company/ipo.test.ts` ("the list version follows a company listing"): the version moves, the frame of that tick carries the defs, and a client mirror has every asset.
+
+### 11.8 E2E run order and registrations
+
+- The time-advancing specs (closeCard, shops, exchangeFunds, exchangeIpo) now run one at a time: `playwright.config.ts` chains them, each project depending on the one before (desktop, then phone). With `--workers=2`, one project ran two of them in parallel, and their day advances collided in the shared world.
+- The e2e world's `REGISTER_LIMIT` is 2,000 accounts per IP per hour (it was 500). The full suite registers more than 500 from localhost in one run, and the register then stalled on the welcome screen. A failed desktop project also stops its dependent close projects from running, so one stall hid three of them.

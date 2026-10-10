@@ -106,3 +106,59 @@ export async function dismissCloseCard(page: Page, appearWithin = 0): Promise<vo
     await expect(card).toHaveCount(0, { timeout: 2_000 });
   }).toPass({ timeout: 15_000 });
 }
+
+/** Backdates a player's account by `ticks` (the admin seam for the account-age rules, admin.age). */
+export async function ageAccount(handle: string, ticks: number): Promise<void> {
+  const r = await fetch(`${WORLD}/api/admin/age`, {
+    method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, ticks }),
+  });
+  expect(r.status).toBe(200);
+}
+
+/** Advances the shared world by `ticks`, in the admin route's chunks (at most 20,000 per call). Only for the close-card specs. */
+export async function advanceWorld(ticks: number): Promise<void> {
+  let left = ticks;
+  while (left > 0) {
+    const n = Math.min(20_000, left);
+    const r = await fetch(`${WORLD}/api/admin/advance?n=${n}`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}` } });
+    expect(r.status).toBe(200);
+    left -= n;
+  }
+}
+
+/**
+ * Gives a founder's unlisted company the filed history the IPO rules read (three filed quarters, a filed value at the
+ * minimum). The request, the book and the listing stay real. See admin.ipoReady in src/world/company/ipo.ts.
+ */
+export async function makeIpoReady(handle: string): Promise<void> {
+  const r = await fetch(`${WORLD}/api/admin/ipo-ready`, {
+    method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle }),
+  });
+  expect(r.status).toBe(200);
+  expect((await r.json()).ok).toBe(true);
+}
+
+/**
+ * Drags an app window's south-east corner far up and left, so the window stops at its declared minimum (src/shell/apps.ts),
+ * and returns its box. Desktop only: a phone app is full screen.
+ */
+export async function shrinkWindowToMinimum(page: Page, app: string): Promise<{ width: number; height: number }> {
+  const handle = page.getByTestId(`win-${app}-resize-se`);
+  const box = await handle.boundingBox();
+  if (!box) throw new Error(`no resize handle for the ${app} window`);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 900, box.y - 900, { steps: 12 });
+  await page.mouse.up();
+  const size = await page.getByTestId(`win-${app}`).boundingBox();
+  if (!size) throw new Error(`no ${app} window`);
+  return { width: size.width, height: size.height };
+}
+
+/** Columns of an app window's body that run past its box (0 when the body fits sideways). */
+export async function bodySidewaysOverflow(page: Page, app: string): Promise<number> {
+  return page.getByTestId(`win-${app}`).evaluate((el) => {
+    const body = el.querySelector('.os-win-body');
+    return body ? body.scrollWidth - body.clientWidth : 0;
+  });
+}

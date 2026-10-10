@@ -38,6 +38,7 @@ import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './lea
 import { applyFundCommand, crossRefusal, fundsBeforeStep, fundsDay, fundsFills, type FundCommand } from './funds';
 import { orderError } from './orders';
 import { companyCommand, companyDay, companyFinanceCommand, companyStep, type CompanyFinanceCommand } from './company/bridge';
+import { adminIpoReady } from './company/ipo';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
 
 export interface CreateOptions {
@@ -205,6 +206,13 @@ function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
 export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
   if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out);
   if (cmd.type === 'admin.shock') return adminShock(g, cmd.assetId, cmd.pct);
+  if (cmd.type === 'admin.age') {
+    const target = g.players[cmd.playerId];
+    if (!target) return fail('unknown player');
+    target.joinedTick -= Math.max(0, cmd.ticks);
+    return { ok: true };
+  }
+  if (cmd.type === 'admin.ipoReady') return adminIpoReady(g, cmd.playerId);
   const p = g.players[pid];
   if (!p) return fail('join the world first');
   if (!p.npc) p.lastSeenTick = g.market.tick;

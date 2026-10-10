@@ -23,6 +23,7 @@ const APP_PATHS: { path: string; id: string }[] = [
   { path: 'settings', id: 'settings' },
   { path: 'settings/about', id: 'settings' },
   { path: 'company', id: 'company' },
+  { path: 'exchange', id: 'exchange' },
   { path: 'research/tape-file-2', id: 'research-tape-file-2' },
 ];
 
@@ -56,10 +57,10 @@ test.describe('deep links', () => {
     await expect(page.getByTestId('shelf-app-company')).toHaveCount(0);
   });
 
-  test('@route_hidden_apps Exchange and Launchpad are not on the shelf, and a link to either lands on the desktop with a notice', async ({ page }) => {
+  test('@route_hidden_apps Launchpad is not on the shelf, and a link to it lands on the desktop with a notice', async ({ page }) => {
     onlyIn('desktop');
     await boot(page);
-    for (const id of ['exchange', 'launchpad'] as const) {
+    for (const id of ['launchpad'] as const) {
       expect(APPS[id as AppId].available).toBe(false);
       await expect(page.getByTestId(`shelf-app-${id}`)).toHaveCount(0);
       await gotoShell(page, `/${id}`);

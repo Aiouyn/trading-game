@@ -630,7 +630,11 @@ export type Command =
   /** dev and tests only: the server refuses admin.* from clients */
   | { type: 'admin.grant'; amount: number }
   /** dev and tests only: a test price shock (shockPrice: lnP moves, the value does not) */
-  | { type: 'admin.shock'; assetId: string; pct: number };
+  | { type: 'admin.shock'; assetId: string; pct: number }
+  /** dev and tests only: backdates a player's join by `ticks` (the account-age rules, without a long advance) */
+  | { type: 'admin.age'; playerId: string; ticks: number }
+  /** dev and tests only: a founder's company has the filed quarters and filed value the IPO rules read (adminIpoReady) */
+  | { type: 'admin.ipoReady'; playerId: string };
 
 export interface CommandResult {
   ok: boolean;

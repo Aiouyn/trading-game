@@ -11,6 +11,8 @@ import { t } from '@/i18n';
 import { getDraft, setDraft } from '@/components/os/drafts';
 import { isPhoneViewport } from '@/components/os/phoneStore';
 import { Button, Card, KV, LockGlyph, NumberField, Segmented } from '@/components/ui';
+import { RefusalBox } from '@/components/apps/exchange/Shared';
+import { type RefusalCopy, refusalCopy, rejectVars } from '@/components/apps/exchange/copy';
 import { quickEnterAllowed, tradeKeyIntent } from './tradeKeys';
 
 const TYPE_OPTS: { value: OrderType; key: string; testId: string }[] = [
@@ -70,6 +72,12 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   const [bracket, setBracket] = useState(false);
   const [tp, setTp] = useState('');
   const [sl, setSl] = useState('');
+  // A manager may trade through the account of his own fund (the selector shows only then). Fund trades are market or
+  // limit, through the fund's own account: the world enforces the mandate and the fund's refusals show inline.
+  const managed = me?.exchange.managed ?? null;
+  const [account, setAccount] = useState<'me' | 'fund'>('me');
+  const [fundRefusal, setFundRefusal] = useState<RefusalCopy | null>(null);
+  const fundMode = !!managed && account === 'fund';
   // The confirm line belongs to one order: it holds that order's signature, so any edit clears it without an effect.
   const [confirm, setConfirm] = useState<string | null>(null);
   const signature = [side, type, q, limit, stop, trail, tif, bracket, tp, sl].join('|');
@@ -90,12 +98,16 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
 
   const ready = !!(world && me && playerId && ctx);
   const lic = ready ? licenseFor(me!.player.rankId) : null;
-  const locked = ready && lic ? !lic.classes.includes(ctx!.def.assetClass) : false;
+  const locked = !fundMode && ready && lic ? !lic.classes.includes(ctx!.def.assetClass) : false;
   const acct = me?.account ?? null;
-  const held = acct?.positions[selected]?.qty ?? 0;
+  // the fund's own cash and position, when the ticket trades through the fund
+  const cashNow = fundMode && managed ? managed.cash : (acct?.cash ?? 0);
+  const held = fundMode && managed ? (managed.positions.find((p) => p.assetId === selected)?.qty ?? 0) : (acct?.positions[selected]?.qty ?? 0);
+  const outside = fundMode && !!ctx && !!managed && !managed.mandate.classes.includes(ctx.def.assetClass);
   const whole = ctx?.def.assetClass === 'stock';
   const firstTrade = !!me && me.player.stats.trades === 0 && !me.player.onboarding.skipped;
-  const simple = firstTrade;
+  const simple = firstTrade && !fundMode;
+  const typeOpts = fundMode ? TYPE_OPTS.filter((o) => o.value === 'market' || o.value === 'limit') : TYPE_OPTS;
   const qtyN = num(q);
   const est = world && ctx ? estimateFill(world, { assetId: selected, side, qty: Math.max(qtyN, whole ? 1 : 0.0001) }) : null;
   const refPrice = est ? (type === 'limit' || type === 'stop_limit' ? num(limit) || est.price : type === 'stop' ? num(stop) || est.price : est.price) : 0;
@@ -103,16 +115,16 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   const fee = world && ctx ? commission(world, ctx.def, notional) : 0;
   const total = side === 'buy' ? notional + fee : notional - fee;
   const bp = world && playerId ? buyingPower(world, playerId) : 0;
-  const margin = !!acct && ((acct.maxLeverage ?? 1) > 1 || !!acct.canShort);
+  const margin = !fundMode && !!acct && ((acct.maxLeverage ?? 1) > 1 || !!acct.canShort);
   // the server's rule (orders.ts): every buy below R1 is capped, not only the first trade
-  const simpleCap = !!me && rankIndex(me.player.rankId) < rankIndex(SIMPLE_MODE.untilRank);
+  const simpleCap = !fundMode && !!me && rankIndex(me.player.rankId) < rankIndex(SIMPLE_MODE.untilRank);
   const capCash = acct && simpleCap ? acct.cash * SIMPLE_MODE.capFraction : Infinity;
-  const budget = side === 'buy' ? Math.min(margin ? bp : acct?.cash ?? 0, capCash) : 0;
+  const budget = side === 'buy' ? Math.min(margin ? bp : cashNow, capCash) : 0;
   const maxQty = !est ? 0 : side === 'buy'
     ? Math.max(0, (budget - (ctx?.def.assetClass === 'crypto' ? 0 : 1)) / (est.price * 1.002))
     : held > 0 ? held : acct?.canShort ? bp / est.price : 0;
   const roundQ = (x: number) => (whole ? Math.floor(x) : Math.floor(x * 1e4) / 1e4);
-  const shorting = side === 'sell' && qtyN > Math.max(0, held) + 1e-9;
+  const shorting = !fundMode && side === 'sell' && qtyN > Math.max(0, held) + 1e-9;
 
   // the cap's percent and the rank that lifts it come from the same constant the server reads (SIMPLE_MODE), never typed here
   const firstCapVars = { pct: Math.round(SIMPLE_MODE.capFraction * 100), rank: t('rank.' + SIMPLE_MODE.untilRank) };
@@ -120,6 +132,13 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   // Every refusal says why (the ticket never just greys out): the first failing rule wins.
   let invalid: Refusal | null = null;
   if (!ctx || !acct || !est) invalid = null;
+  else if (fundMode) {
+    // the mandate and the fund's cash and limits are the world's to refuse (the refusal shows after the send)
+    if (outside) invalid = { key: 'broker.fund.outside', vars: { name: managed!.name } };
+    else if (qtyN <= 0) invalid = null;
+    else if (whole && !Number.isInteger(qtyN)) invalid = { key: 'broker.refuse.whole' };
+    else if (type === 'limit' && num(limit) <= 0) invalid = { key: 'broker.refuse.limit' };
+  }
   else if (locked) invalid = { key: 'broker.refuse.license', vars: { tier: t(ctx.def.assetClass === 'stock' || ctx.def.assetClass === 'crypto' ? 'broker.tier.retail' : 'broker.tier.pro') } };
   else if (qtyN <= 0) invalid = null;
   else if (whole && !Number.isInteger(qtyN)) invalid = { key: 'broker.refuse.whole' };
@@ -142,7 +161,22 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
 
   const submit = async () => {
     setConfirm(null);
+    setFundRefusal(null);
     if (isUntradable(config, selected)) return; // a delisted or off-book name is refused before anything is sent
+    if (fundMode && managed) {
+      const fr = await act({
+        type: 'fund.trade', fundId: managed.id, assetId: selected, side, qty: qtyN,
+        orderType: type === 'limit' ? 'limit' : 'market',
+        ...(type === 'limit' ? { limitPrice: num(limit) } : {}),
+      }, { silent: true });
+      if (fr.ok) {
+        setQ('');
+        useGame.getState().toast({ tone: 'info', text: t('broker.fund.sent', { fund: managed.name, label: actionLabel }) });
+      } else {
+        setFundRefusal(refusalCopy('funds.refusal', fr.error ?? '', rejectVars(fr.data)));
+      }
+      return;
+    }
     const order = {
       assetId: selected, side, type, qty: qtyN, tif,
       ...(type === 'limit' || type === 'stop_limit' ? { limitPrice: num(limit) } : {}),
@@ -245,6 +279,24 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
           {held !== 0 && <span className="num text-fg-faint">{t('broker.youHold', { qty: fmtQty(held) })}</span>}
         </div>
 
+        {managed && (
+          <div className="mt-3 flex flex-col gap-1" data-testid="order-account">
+            <Segmented
+              label={t('broker.account.label')} size="sm" className="w-full" value={account}
+              onChange={(v) => {
+                const next = v as 'me' | 'fund';
+                setAccount(next);
+                if (next === 'fund' && type !== 'market' && type !== 'limit') setType('market');
+              }}
+              options={[
+                { value: 'me', label: t('broker.account.me'), testId: 'account-me' },
+                { value: 'fund', label: t('broker.account.fund', { name: managed.name }), testId: 'account-fund' },
+              ]}
+            />
+            {fundMode && <p className="text-caption text-fg-muted" data-testid="account-fund-note">{t('broker.account.note', { name: managed.name })}</p>}
+          </div>
+        )}
+
         {locked ? (
           <div className="mt-4 flex items-center gap-3 rounded-md border border-ink-3 p-3" data-testid="locked-ticket">
             <LockGlyph />
@@ -256,13 +308,13 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
               label={t('broker.side')} className="mt-3 w-full" value={side} onChange={(v) => setSide(v as Side)}
               options={[
                 { value: 'buy', label: held < 0 ? t('broker.buyCover') : t('common.buy'), testId: 'side-buy' },
-                { value: 'sell', label: held > 0 || !acct.canShort ? t('common.sell') : t('broker.sellShort'), testId: 'side-sell' },
+                { value: 'sell', label: fundMode || held > 0 || !acct.canShort ? t('common.sell') : t('broker.sellShort'), testId: 'side-sell' },
               ]}
             />
             {!simple && (
               <Segmented
                 label={t('broker.orderType')} size="sm" className="mt-2 w-full" value={type} onChange={(v) => setType(v as OrderType)}
-                options={TYPE_OPTS.map((o) => ({ value: o.value, label: t(o.key), testId: o.testId }))}
+                options={typeOpts.map((o) => ({ value: o.value, label: t(o.key), testId: o.testId }))}
               />
             )}
             <p className="mt-1.5 text-caption text-fg-faint">{t(`broker.help.${type}`)}</p>
@@ -285,7 +337,7 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
             {(type === 'stop' || type === 'stop_limit') && <NumberField className="mt-2" label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />}
             {type === 'trailing' && <NumberField className="mt-2" label={t('broker.trail')} value={trail} onChange={setTrail} suffix="%" testId="order-trail" />}
 
-            {!simple && (
+            {!simple && !fundMode && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Segmented
                   label={t('broker.tif')} size="sm" value={tif} onChange={(v) => setTif(v as 'gtc' | 'day')}
@@ -322,12 +374,13 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
               <KV k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
               <KV
                 k={margin ? t('broker.buyingPower') : t('broker.cashAfter')}
-                v={<span className="text-fg-muted">{money(margin ? bp - (side === 'buy' || shorting ? notional : 0) : acct.cash - (side === 'buy' ? total : -total))}</span>}
+                v={<span className="text-fg-muted">{money(margin ? bp - (side === 'buy' || shorting ? notional : 0) : cashNow - (side === 'buy' ? total : -total))}</span>}
               />
               {shorting && <p className="mt-1 text-caption text-warn">{t('broker.shortWarn')}</p>}
               {margin && side === 'buy' && notional > acct.cash && <p className="mt-1 text-caption text-warn">{t('broker.marginWarn')}</p>}
             </div>
             {invalid && <p className="mt-2 text-caption text-warn" data-testid="order-invalid">{t(invalid.key, invalid.vars)}</p>}
+            {fundRefusal && <RefusalBox copy={fundRefusal} testId="order-fund-refusal" />}
             {halted && <p className="mt-2 text-caption text-warn">{t('broker.haltedNote')}</p>}
             {confirming && (
               <p className="mt-3 text-small text-fg" role="status" data-testid="order-confirm">{t('broker.confirm', { label: actionLabel, total: money(total) })}</p>
