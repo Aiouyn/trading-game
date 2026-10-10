@@ -11,9 +11,10 @@ import { APPS, MAX_BROKERS, type AppId, type WinProps } from '@/shell/apps';
 import { makeWmCtx } from '@/shell/ctx';
 import { type KeyValueStore, loadShell, saveShell, updatePrefs } from '@/shell/prefs';
 import { createShellStore } from '@/shell/store';
-import type { Rect } from '@/shell/geometry';
+import { BP_PHONE, type Rect } from '@/shell/geometry';
 import { type ShellState, type WmAction, type WmReason, type WmResult, focusedId, initialShell, normalize, project } from '@/shell/wm';
 import { DEFAULT_PALETTE, type PaletteSlug, applyPalette, isPaletteSlug, readPalette } from './palette';
+import { bannerBand, selectEventBanner } from './eventSelect';
 
 const INIT_VP = { w: 1440, h: 900 };
 
@@ -82,9 +83,19 @@ export function bindShell(id: string, rank: string, vp: { w: number; h: number }
   }
 }
 
+/**
+ * The strip the world event banner takes under the status strip right now (0 when none). The windows lay out
+ * above it, so the viewport the shell sees is the window height less this band (velvet-world-events.md section 3).
+ */
+export function currentBand(): number {
+  const g = useGame.getState();
+  const banner = selectEventBanner(g.frame?.worldEvent ?? null, g.wire, g.frame?.tick ?? 0, g.world?.config.ticksPerDay ?? 720);
+  return bannerBand(banner, window.innerWidth, BP_PHONE);
+}
+
 /** Keeps the shell's viewport in step with the window size. Not persisted (P2-125). */
 export function syncViewport(): void {
-  useShell.getState().dispatch({ type: 'viewport', w: window.innerWidth, h: window.innerHeight }, { settled: false });
+  useShell.getState().dispatch({ type: 'viewport', w: window.innerWidth, h: window.innerHeight - currentBand() }, { settled: false });
 }
 
 /** Window motion (P2-215): open 220 ms, close 120 ms. Reduced motion zeroes the CSS animation (P2-220). */

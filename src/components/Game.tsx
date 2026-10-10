@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react';
 import { useGame } from '@/game/store';
-import { ChatDrawer, InboxDrawer } from './Shell';
 import { Coach, ConnectionBanner, DigestModal } from './Overlays';
 import { ProfileModal } from './Social';
 import { OsRoot } from './os/OsRoot';
@@ -35,8 +34,6 @@ export function Game() {
       <OsRoot />
       <OsUpdate />
       <DigestModal />
-      <InboxDrawer />
-      <ChatDrawer />
       <ProfileModal />
       <ConnectionBanner />
       <Coach />

@@ -20,6 +20,7 @@ import { RankHardware } from './RankHardware';
 import { APP_GLYPH } from './appMap';
 import { Glyph } from './glyphs';
 import { OsToasts } from './OsToasts';
+import { EventBannerStrip, EventPanel, useBannerOn } from './EventBanner';
 import { PhoneRecents } from './PhoneRecents';
 import { onPhonePop, phoneBack, phoneGoHome, phoneOpen, setRecentOpen, usePhone } from './phoneStore';
 import { usePalette, useShell } from './shellStore';
@@ -49,6 +50,8 @@ function homeProps(app: AppId): { ticker?: string } {
 export function PhoneDesk({ rank }: { rank: Rank }) {
   const palette = usePalette((s) => s.palette);
   const current = usePhone((s) => s.current);
+  // The world event strip sits under the phone bar; the home and the apps move down under it.
+  const bannerOn = useBannerOn();
 
   // Browser Back and Forward show the app their history entry names (P2-114).
   useEffect(() => {
@@ -57,16 +60,18 @@ export function PhoneDesk({ rank }: { rank: Rank }) {
   }, []);
 
   return (
-    <div className="os-desktop os-phone" data-testid="os-phone" data-layout="phone" data-current={current ?? 'home'}>
+    <div className={`os-desktop os-phone${bannerOn ? ' os-event-on' : ''}`} data-testid="os-phone" data-layout="phone" data-current={current ?? 'home'}>
       <Wallpaper slug={palette} idPrefix="phone" />
       <RankHardware rank={rank} />
       <div className="os-phone-hw-skyline" aria-hidden />
       <div className="os-phone-hw-horizon" aria-hidden />
       <PhoneStatus />
+      <EventBannerStrip />
       {current === null && <PhoneHome />}
       <PhoneApps />
       <PhoneEdge />
       <RecentSheetGate />
+      <EventPanel />
       <OsToasts focusMode={false} side="right" phone />
     </div>
   );

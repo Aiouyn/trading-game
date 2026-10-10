@@ -73,7 +73,7 @@ export const APPS: Readonly<Record<AppId, AppDef>> = {
   }),
   wire: app('wire', 360, 280),
   calendar: app('calendar', 420, 300),
-  messages: app('messages', 420, 300),
+  messages: app('messages', 420, 300, { views: ['inbox', 'chat', 'social'] }),
   businesses: app('businesses', 420, 300),
   company: app('company', 420, 300, { minRank: 'R2', hideWhenLocked: true }),
   boutique: app('boutique', 420, 300),

@@ -7,14 +7,15 @@ import dynamic from 'next/dynamic';
 import { t } from '@/i18n';
 import { BrokerApp } from '@/components/apps/broker/BrokerApp';
 import { PortfolioView } from '@/components/Portfolio';
-import { WireView, Calendar } from '@/components/Wire';
+import { WireView } from '@/components/Wire';
+import { CalendarView } from '@/components/Calendar';
 import type { Size } from '@/shell/geometry';
 import type { Win } from '@/shell/wm';
 import { About } from './About';
 import { PalettePicker } from './PalettePicker';
 import { ShortcutList } from './ShortcutList';
 
-const SocialView = dynamic(() => import('@/components/Social').then((m) => m.SocialView), { ssr: false });
+const MessagesView = dynamic(() => import('@/components/Messages').then((m) => m.MessagesView), { ssr: false });
 const EmpireView = dynamic(() => import('@/components/Empire').then((m) => m.EmpireView), { ssr: false });
 const EstateView = dynamic(() => import('@/components/Estate').then((m) => m.EstateView), { ssr: false });
 const LabView = dynamic(() => import('@/components/Lab').then((m) => m.LabView), { ssr: false });
@@ -30,11 +31,11 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
     case 'portfolio':
       return <div className="os-body"><PortfolioView /></div>;
     case 'wire':
-      return <div className="os-body"><WireView /></div>;
+      return <WireView />;
     case 'calendar':
-      return <div className="os-body"><Calendar /></div>;
+      return <CalendarView />;
     case 'messages':
-      return <div className="os-body"><SocialView /></div>;
+      return <MessagesView view={win.props.view} />;
     case 'businesses':
       return <div className="os-body"><EmpireView /></div>;
     case 'boutique':

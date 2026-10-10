@@ -197,6 +197,24 @@ export interface WireItem {
   playerId?: string;
   /** a news move whose drift is still running: the Wire shows its priced-in band (newsBand), never the share */
   news?: 'jump' | 'earnings';
+  /** structured facts behind a world-event or index-review story, for the Calendar and the event banner (the text is the story) */
+  ev?: WireEvent;
+}
+
+/** A world event (id, kind, phase) or an index review (index id, effective day, members it adds and removes). */
+export interface WireEvent {
+  type: 'world' | 'index';
+  id: string;
+  phase: 'announced' | 'start' | 'end' | 'effective';
+  kind?: 'crash' | 'bubble' | 'crisis' | 'flash';
+  /** world end only: game days it lasted, and the GX move since it began */
+  lastedDays?: number;
+  gxMove?: number;
+  /** index only */
+  indexId?: string;
+  day?: number;
+  adds?: string[];
+  removes?: string[];
 }
 
 export interface ChatMessage {

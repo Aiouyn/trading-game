@@ -11,7 +11,7 @@ import { knownSeries, useGame } from '@/game/store';
 import { rankOrdinal } from '@/shell/ctx';
 import { useIsPhone } from '@/game/useMedia';
 import { cycleTarget, keyIntent } from '@/shell/keys';
-import { BP_HALVES, SHELF_H, STRIP_H, STRIP_H_FOCUS, layoutMode, slotFrac, viewportClass } from '@/shell/geometry';
+import { BP_HALVES, BP_PHONE, SHELF_H, STRIP_H, STRIP_H_FOCUS, layoutMode, slotFrac, viewportClass } from '@/shell/geometry';
 import { toastSide, visibleToasts } from '@/shell/toasts';
 import { focusedId, isFocused, project } from '@/shell/wm';
 import { APPS } from '@/shell/apps';
@@ -19,12 +19,16 @@ import { SCREEN_APP } from './appMap';
 import { installTestHooks } from './e2eHooks';
 import { Wallpaper } from './DesktopWallpaper';
 import { type Rank, rankClass } from './hardware';
+import { BellPanel } from './BellPanel';
+import { EventBannerStrip, EventPanel, useBannerOn, useEventPanel } from './EventBanner';
+import { EVENT_BAND_H } from './eventSelect';
 import { Launcher } from './Launcher';
 import { OsToasts } from './OsToasts';
+import { openFromShell } from './openApp';
 import { RankHardware } from './RankHardware';
 import { parseLocation, routeUrl, type UrlBase } from './routing';
 import { PhoneDesk } from './PhoneDesk';
-import { isPhoneViewport, phoneGoHome, phoneOpen } from './phoneStore';
+import { isPhoneViewport, phoneGoHome, phoneOpen, usePhone } from './phoneStore';
 import { Shelf } from './Shelf';
 import { SplitHandles } from './SplitHandles';
 import { StatusStrip } from './StatusStrip';
@@ -34,6 +38,7 @@ import {
   bindShell,
   closeWindow,
   closeLauncher,
+  currentBand,
   dispatchWm,
   loadPalette,
   notify,
@@ -77,12 +82,6 @@ function openFromUrl(): void {
   else openApp(route.app, props);
 }
 
-/** Opens an app from a screen call or a ticket preset: the phone shows it full screen, the desktop opens a window. */
-function openFromShell(app: Parameters<typeof openApp>[0], props: Parameters<typeof openApp>[1]): void {
-  if (isPhoneViewport()) phoneOpen(app, props);
-  else openApp(app, props);
-}
-
 /**
  * Desktop keys (P2-100..P2-104, P2-102). Window intents run here. Escape closes the topmost thing that is
  * open, in this order: the launcher, the layout menu, the close prompt, then the first toast on screen.
@@ -113,6 +112,16 @@ function onKey(e: KeyboardEvent): void {
     if (useCloseAsk.getState().id !== null) {
       e.preventDefault();
       useCloseAsk.setState({ id: null });
+      return;
+    }
+    if (useEventPanel.getState().open) {
+      e.preventDefault();
+      useEventPanel.setState({ open: false });
+      return;
+    }
+    if (useGame.getState().inboxOpen) {
+      e.preventDefault();
+      useGame.getState().setInbox(false);
       return;
     }
     const top = visibleToasts(useGame.getState().toasts, isFocused(st.shell))[0];
@@ -173,6 +182,9 @@ export function OsRoot() {
   const presetNonce = useGame((s) => s.ticketPreset?.nonce ?? 0);
   const palette = usePalette((s) => s.palette);
   const bound = useBinding((s) => s.saveId !== null);
+  const chatOpen = useGame((s) => s.chatOpen);
+  // The world event strip takes its band under the status strip (desktop only): the windows lay out above it.
+  const bannerOn = useBannerOn();
 
   const focus = focusedId(shell);
   const focusMode = isFocused(shell);
@@ -214,6 +226,19 @@ export function OsRoot() {
     return () => window.removeEventListener('resize', syncViewport);
   }, []);
 
+  // The banner appearing or going re-lays the windows above or below its band (no-op on the phone).
+  useEffect(() => {
+    if (bound) syncViewport();
+  }, [bannerOn, bound]);
+
+  // The chat button and a profile's Message button raise chatOpen; the Messages app opens on its chat tab.
+  // Messages already on screen switches to its chat tab by itself, so only a closed Messages opens here.
+  useEffect(() => {
+    if (!chatOpen || !bound) return;
+    const onScreen = isPhoneViewport() ? usePhone.getState().current === 'messages' : useShell.getState().shell.wins.some((w) => w.app === 'messages');
+    if (!onScreen) openFromShell('messages', { view: 'chat' }, { focus: true });
+  }, [chatOpen, bound]);
+
   // window.__tg: the always-present hooks, and the ?e2e set under the flag (tape-e2e-conventions.md).
   useEffect(() => installTestHooks(), []);
 
@@ -223,7 +248,7 @@ export function OsRoot() {
     if (status !== 'ready' || playerId === null || rankId === null) return;
     const ticker = startTicker();
     if (useGame.getState().selected !== ticker) useGame.getState().select(ticker);
-    bindShell(playerId, rankId, { w: window.innerWidth, h: window.innerHeight }, ticker);
+    bindShell(playerId, rankId, { w: window.innerWidth, h: window.innerHeight - currentBand() }, ticker);
     if (!urlHandled) {
       urlHandled = true;
       openFromUrl();
@@ -277,6 +302,8 @@ export function OsRoot() {
   if (phone) return <PhoneDesk rank={rankNum as Rank} />;
   const stripH = focusMode ? STRIP_H_FOCUS : STRIP_H;
   const shelfH = focusMode ? 0 : SHELF_H;
+  // The event band sits under the status strip and pushes the workspace down by the same 34 px (desktop only).
+  const band = bannerOn && shell.vp.w >= BP_PHONE ? EVENT_BAND_H : 0;
   // The toast column moves to the top left when a Broker sits under it (P2-088).
   const brokerRect = focusWin?.app === 'broker' && focus !== null ? (proj.rects[focus] ?? null) : null;
   const toastCol = toastSide(shell.vp, brokerRect, stripH);
@@ -290,7 +317,8 @@ export function OsRoot() {
       <Wallpaper slug={palette} idPrefix="desk" />
       <RankHardware rank={rankNum as Rank} />
       <StatusStrip />
-      <div className="os-workspace" style={{ position: 'absolute', left: 0, right: 0, top: stripH, bottom: shelfH }}>
+      <EventBannerStrip />
+      <div className="os-workspace" style={{ position: 'absolute', left: 0, right: 0, top: stripH + band, bottom: shelfH }}>
         {bound &&
           shell.wins.map((w) => {
             const r = proj.rects[w.id];
@@ -327,6 +355,8 @@ export function OsRoot() {
       </div>
       <Shelf />
       {bound && <Launcher />}
+      {bound && <BellPanel />}
+      {bound && <EventPanel />}
       <OsToasts focusMode={focusMode} side={toastCol} />
     </div>
   );

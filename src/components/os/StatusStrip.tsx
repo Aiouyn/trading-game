@@ -18,6 +18,7 @@ export function StatusStrip() {
   const frame = useGame((s) => s.frame);
   const status = useGame((s) => s.status);
   const setInbox = useGame((s) => s.setInbox);
+  const inboxOpen = useGame((s) => s.inboxOpen);
   const setChat = useGame((s) => s.setChat);
   const chatUnread = useGame((s) => s.chatUnread);
   const rankId = me?.rank.id ?? 'R0';
@@ -65,7 +66,11 @@ export function StatusStrip() {
           data-testid="os-chat"
           aria-label={chatUnread > 0 ? t('shell.chat.unread', { n: chatUnread }) : t('shell.chat')}
           title={t('shell.chat')}
-          onClick={() => setChat(true)}
+          onClick={() => {
+            // The chat is Messages' second tab: opening it focuses Messages there (the OsRoot follows chatOpen too).
+            setChat(true);
+            openApp('messages', { view: 'chat' }, { focus: true });
+          }}
         >
           <Glyph name="messages" size={18} />
           {chatUnread > 0 && <span className="os-bell-dot" aria-hidden />}
@@ -75,7 +80,9 @@ export function StatusStrip() {
           className="os-bell os-soft"
           data-testid="os-bell"
           aria-label={unread > 0 ? t('shell.bell', { n: unread }) : t('shell.bell.none')}
-          onClick={() => setInbox(true)}
+          aria-expanded={inboxOpen}
+          aria-haspopup="dialog"
+          onClick={() => setInbox(!inboxOpen)}
         >
           <Glyph name="bell" size={18} />
           {unread > 0 && <span className="os-bell-dot" aria-hidden />}
