@@ -60,9 +60,9 @@ function runwayText(days: number | null): string {
 const LEVEL_IDS: PreviewLevel[] = ['low', 'mid', 'high'];
 
 /**
- * The decision card (Velvet 4 and 2): how much goes into the first product's quality project. The three levels are the
- * engine's own preview (S_ref multiples); the confirm starts that project with the chosen spend, through the same command
- * the R&D tab uses, and every refusal is shown inline.
+ * The decision card (Velvet 4 and 2, O-17): how much goes into the first product's quality project. The three levels are the
+ * engine's own preview (S_ref multiples). Confirming stages the decision: it starts at the close of the day it is confirmed,
+ * and it can be replaced or cancelled until then. The "was" tick marks the level whose spend is in force now.
  */
 function DecisionCard({ co }: { co: CompanyFounderView }) {
   const act = useGame((s) => s.act);
@@ -79,12 +79,25 @@ function DecisionCard({ co }: { co: CompanyFounderView }) {
   }
   const chosen: DecisionLevel = card.levels.find((l) => l.key === level) ?? card.levels[1]!;
   const product = co.productsPrivate.find((p) => p.id === card.productId);
+  const inForce = card.spendInForce;
   const confirm = async () => {
     if (busy) return;
     setBusy(true);
-    const ack = await act({ type: 'company.act', companyId: co.id, action: { kind: 'startProject', projectKind: 'quality', productId: card.productId, spend: chosen.spend } }, { silent: true });
+    const ack = await act({ type: 'company.act', companyId: co.id, action: { kind: 'stageProject', projectKind: 'quality', productId: card.productId, spend: chosen.spend } }, { silent: true });
     setBusy(false);
     setRefusal(refusalOf(ack));
+  };
+  const cancel = async () => {
+    if (busy) return;
+    setBusy(true);
+    const ack = await act({ type: 'company.act', companyId: co.id, action: { kind: 'cancelStaged' } }, { silent: true });
+    setBusy(false);
+    setRefusal(refusalOf(ack));
+  };
+  const levelLabel = (id: PreviewLevel): string => {
+    const base = t(`company.ui.decision.level.${id}`);
+    const spend = card.levels.find((l) => l.key === id)?.spend;
+    return inForce !== null && spend === inForce ? `${base} · ${t('company.ui.decision.wasTick')}` : base;
   };
   return (
     <Section title={t('company.ui.decision.title', { product: card.productName })} chip={<PrivateChip />} testId="company-decision">
@@ -94,8 +107,11 @@ function DecisionCard({ co }: { co: CompanyFounderView }) {
             label={t('company.ui.decision.level')}
             value={level}
             onChange={setLevel}
-            options={LEVEL_IDS.map((id) => ({ value: id, label: t(`company.ui.decision.level.${id}`), testId: `company-decision-level-${id}` }))}
+            options={LEVEL_IDS.map((id) => ({ value: id, label: levelLabel(id), testId: `company-decision-level-${id}` }))}
           />
+          <p className="text-caption text-fg-muted" data-testid="company-decision-was">
+            {inForce !== null ? t('company.ui.decision.was', { amount: money(inForce) }) : t('company.ui.decision.noneInForce')}
+          </p>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2" data-testid="company-decision-figures">
             <Figure label={t('company.ui.decision.spend')} value={money(chosen.spend)} testId="company-decision-spend" />
             <Figure label={t('company.ui.decision.odds')} value={t('company.ui.decision.oddsRange', { low: pct(chosen.pLow), high: pct(chosen.pHigh) })} testId="company-decision-odds" />
@@ -107,11 +123,22 @@ function DecisionCard({ co }: { co: CompanyFounderView }) {
           </p>
         </div>
         <div className="flex flex-col justify-between gap-3">
-          <p className="text-caption text-fg-faint">{t('company.ui.decision.note')}</p>
+          <div className="flex flex-col gap-3">
+            <p className="text-caption text-fg-faint">{t('company.ui.decision.note')}</p>
+            <p className="text-small text-fg" data-testid="company-decision-applies">{t('company.ui.decision.appliesAtClose', { day: co.day })}</p>
+            {co.staged ? (
+              <div className="flex flex-col gap-2 rounded-md border border-info/40 px-3 py-2" data-testid="company-decision-staged">
+                <p className="num text-small text-fg">{t('company.ui.decision.staged', { amount: money(co.staged.spend) })}</p>
+                <div>
+                  <Button size="sm" disabled={busy} onClick={cancel} testId="company-decision-cancel">{t('company.ui.decision.cancel')}</Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
           <div className="flex flex-col gap-2">
             <RefusalNote refusal={refusal} />
             <div className="flex justify-end">
-              <Button variant="brass" disabled={busy} onClick={confirm} testId="company-decision-confirm">{t('company.ui.decision.confirm')}</Button>
+              <Button variant="brass" disabled={busy} onClick={confirm} testId="company-decision-confirm">{t('company.ui.decision.confirm', { day: co.day })}</Button>
             </div>
           </div>
         </div>

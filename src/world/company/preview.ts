@@ -45,6 +45,8 @@ export interface DecisionCard {
   /** cash on each of the next days with payroll only (the "as now" line) */
   cashNow: number[];
   levels: DecisionLevel[];
+  /** O-17: the quality spend in force for this product (the "was" tick), or null before any quality project */
+  spendInForce: number | null;
 }
 
 /**
@@ -82,5 +84,6 @@ export function decisionCard(c: Company, day: number, payrollPerDay: number): De
     endDay: day + days,
     cashNow,
     levels,
+    spendInForce: c.inForce?.[product.id] ?? null,
   };
 }

@@ -5,11 +5,11 @@
 // force, which pause NPC copying of a gain; and a form to start one. One project at a time: a second start is sent to the
 // engine, which refuses it (projectBusy), and the refusal is shown inline.
 import { useState } from 'react';
-import { PHARMA_GATES } from '@/content/company';
+import { COMPANY, PHARMA_GATES } from '@/content/company';
 import { money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, NumberField, Select } from '@/components/ui';
+import { Button, NumberField, Select, TextField } from '@/components/ui';
 import type { CompanyFounderView } from '@/world/company/views';
 import type { ProjectKind } from '@/world/company/types';
 import { PrivateChip, RefusalNote, Section } from './Shared';
@@ -88,6 +88,7 @@ export function RnD({ co }: { co: CompanyFounderView }) {
         )}
         <p className="mt-3 text-caption text-fg-faint">{t('company.ui.rd.patentsNote')}</p>
       </Section>
+      <Launch co={co} />
       <Section title={t('company.ui.rd.start')} testId="company-rd-start">
         <div className="grid gap-3 @md:grid-cols-3">
           <Select<ProjectKind>
@@ -119,5 +120,58 @@ export function RnD({ co }: { co: CompanyFounderView }) {
         </div>
       </Section>
     </div>
+  );
+}
+
+/**
+ * The next-gen launch (O-17): a next-gen success waits as a launch credit. The first credit shows its quality score against
+ * the ready mark; at or above it, the founder names the product and sets its price, and the engine launches it (its
+ * refusals are shown inline). Below the mark there is no launch form, only the score.
+ */
+function Launch({ co }: { co: CompanyFounderView }) {
+  const act = useGame((s) => s.act);
+  const credit = co.launchCredits[0];
+  const [name, setName] = useState<string | null>(null);
+  const [price, setPrice] = useState(String(COMPANY.demand.priceRef));
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
+  const [busy, setBusy] = useState(false);
+  const amount = numberOrNull(price);
+  const label = name ?? (credit ? t('company.ui.launch.defaultName', { generation: credit.generation }) : '');
+  const launch = async () => {
+    if (busy || amount === null || label.trim() === '') return;
+    setBusy(true);
+    const ack = await act({ type: 'company.act', companyId: co.id, action: { kind: 'launchProduct', name: label.trim(), price: amount } }, { silent: true });
+    setBusy(false);
+    setRefusal(refusalOf(ack));
+    if (ack.ok) setName(null);
+  };
+  const mark = co.limits.qualityReady;
+  return (
+    <Section title={t('company.ui.launch.title')} chip={<PrivateChip />} testId="company-launch">
+      {!credit ? (
+        <p className="text-small text-fg-muted" data-testid="company-launch-none">{t('company.ui.launch.none')}</p>
+      ) : credit.ready ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-small text-fg" data-testid="company-launch-ready">{t('company.ui.launch.ready', { score: credit.score, mark })}</p>
+          {co.launchCredits.length > 1 ? (
+            <p className="text-caption text-fg-faint">{t('company.ui.launch.queue', { count: co.launchCredits.length - 1 })}</p>
+          ) : null}
+          <div className="grid gap-3 @md:grid-cols-[2fr_1fr]">
+            <TextField value={label} onChange={setName} maxLength={40} testId="company-launch-name" label={t('company.ui.launch.name')} />
+            <NumberField value={price} onChange={setPrice} min={1} step={1} testId="company-launch-price" label={t('company.ui.launch.price')} className="h-11" />
+          </div>
+          <RefusalNote refusal={refusal} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-caption text-fg-faint">{t('company.ui.launch.note')}</span>
+            <Button variant="brass" disabled={busy || amount === null || label.trim() === ''} onClick={launch} testId="company-launch-submit">{t('company.ui.launch.submit')}</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <p className="text-small text-fg-muted" data-testid="company-launch-not-ready">{t('company.ui.launch.notReady', { score: credit.score, mark })}</p>
+          <RefusalNote refusal={refusal} />
+        </div>
+      )}
+    </Section>
   );
 }

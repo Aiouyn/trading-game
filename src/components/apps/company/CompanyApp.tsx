@@ -14,6 +14,7 @@ import { RnD } from './RnD';
 import { People } from './People';
 import { Deals } from './Deals';
 import { CapitalTab } from './CapitalTab';
+import { Filings } from './Filings';
 import { PublicPanel } from './PublicPanel';
 import type { CompanyFounderView } from '@/world/company/views';
 import { VIEWS, isCompanyView, marketOf, type CompanyViewId } from './model';
@@ -76,5 +77,6 @@ function Body({ mode, tab, co }: { mode: Mode; tab: CompanyViewId; co: CompanyFo
     case 'people': return <People co={co} />;
     case 'deals': return <Deals co={co} />;
     case 'capital': return <CapitalTab companyId={co.id} />;
+    case 'filings': return <Filings co={co} />;
   }
 }

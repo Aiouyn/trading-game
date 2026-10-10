@@ -182,8 +182,8 @@ Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merg
 | O-13 | VCF advance: lead to confirm the manager's day-figure part (section 4.4). | Lead |
 | O-14 | `insiderId` is not set on company assets (the company module does not set it; `funds/trade.ts` reads it). The insider seam is incomplete. | Forge |
 | O-15 | Surveillance points from window abuse and plan abuse are not called by the company module (B2 gap: "for B1 to call"). | Forge |
-| O-16 | CEO-change action has no UI (only notices). NPC acquirer bids are an API, not scheduled. NPC CEO policy, dividends and covenants are not modelled in B2 (dividends and covenants exist in B1). | Forge (UI), Quant (NPC policy) |
-| O-17 | Company Overview: the decision applies at once through `startProject` (Velvet asks for next-day-close staging, which the engine does not have). The "was" tick on the slider, the launch of next-gen products (credits not carried in the founder view), and the Filings view are not built. | Forge (engine staging and launch), Velvet (copy and Filings view) |
+| O-16 | Built in `p4/ui2` (section 12): the CEO change has its screen, with the days before confirming. Still open: NPC acquirer bids are an API, not scheduled. NPC CEO policy, dividends and covenants are not modelled in B2 (dividends and covenants exist in B1). | Quant (NPC policy) |
+| O-17 | Built in `p4/ui2` (section 12): next-day-close staging of the Overview decision, the "was" tick, the next-gen launch and the Filings tab. Open for Velvet: copy sign-off on the new strings (en and fr). | Velvet (copy sign-off) |
 | O-18 | Derivatives on the founder's company stock are not filed (B1 deviation 5). Revisit when listed options on company stocks exist. | Forge |
 | O-19 | Plan verification not run in this pass: `scripts/ecology/gates.ts full`, `scripts/load/socket-load.mjs` (4,000 clients, tick p99 under 2.5 s), play-by-hand on desktop and phone in English and French, and the screenshot tour. | Lead |
 | O-21 | Pre-existing lint warnings: 15 (`react/jsx-no-literals` in `Welcome.tsx`, unused vars in `game.test.ts`). Zero errors. | Velvet (copy keys), Forge (unused vars) |
@@ -693,3 +693,29 @@ The IPO e2e found a real bug, present on this branch since the company engine ho
 
 - The time-advancing specs (closeCard, shops, exchangeFunds, exchangeIpo) now run one at a time: `playwright.config.ts` chains them, each project depending on the one before (desktop, then phone). With `--workers=2`, one project ran two of them in parallel, and their day advances collided in the shared world.
 - The e2e world's `REGISTER_LIMIT` is 2,000 accounts per IP per hour (it was 500). The full suite registers more than 500 from localhost in one run, and the register then stalled on the welcome screen. A failed desktop project also stops its dependent close projects from running, so one stall hid three of them.
+
+## 12. Company app, O-16 and O-17 (`p4/ui2`)
+
+Scope: the four items of O-17 and O-16 (section 0.5): the Overview decision staged for the next close, the "was" tick, the next-gen launch, the Filings tab, and the CEO change. Velvet's spec is `docs/team/specs/velvet-company-app.md` (section 5 for staging).
+
+What is in:
+- **Staging (O-17).** Actions `stageProject` and `cancelStaged` (`company.ts`). A stage is checked at once with the start checks (`unknownProduct`, `negativeAmount`, `noRdStaff`, `projectBusy`, `insufficientFunds`). It is kept as `Company.staged` (one decision: a second confirm the same day replaces it). The close applies it in `companyTick`, before the company's day step of the closing day, through the same start function as the R&D tab. A refusal at the close drops it, and the event `staged` (status `dropped`, with the code) becomes a founder note. The R&D tab's start stays immediate. The fields are optional, so an old save loads with nothing staged.
+- **"Was" tick.** `Company.inForce` holds the quality spend last started or applied per product. The Overview marks the level whose spend is in force ("Mid · was") and reads "Was $X", or "Nothing in force yet".
+- **Lines.** "Applies at the close of Day N. You can change it until then." and the staged value with a cancel action. The confirm reads "Confirm for the Day N close".
+- **Launch (O-17).** The founder view carries `launchCredits` (generation, quality score, ready). The R&D tab shows the first credit: at the ready mark (score 55 or more) it opens the launch form (name, price). Below it, the score and the mark only. The refusals are the engine's existing ones (`noLaunchCredit`, `productCap`, `priceOutOfBand`), copied in three parts. The ready mark is a screen threshold. The engine does not gate the launch on it, because the tape guard `quality_score_display_only` forbids reading the displayed score in `company.ts`.
+- **Filings (O-17).** A `filings` tab for the founder: each filed quarter (newest first) with its income, balance sheet and cash flow lines, its filed day and its period close, and the next filing day (`nextFilingDay`: the public schedule, the next close plus the filing lag, never the unfiled quarter). Seed and Growth see the registry line and no statements. Figures are stacked `Stat` figures (the `figure` prop), so none truncates or splits at 390. The Exchange's filing rows are inline JSX in `StocksTab.tsx`, not a component, so they are not reused here (a refactor, not done).
+- **CEO change (O-16).** A CEO section on People. Before the founder confirms, it shows the days: the announcement today, the change effective ten game days later, the freeze of the departing CEO's accounts to the end of the exit freeze (A..A+31), and the ex-CEO's cooling (252 game days from the effective day). The successor is an outside executive (an NPC). The engine accepts a player holder too, and the UI does not offer it. A confirm is a second click. The refusals are the engine's existing ones (`ceoChangePending`, `exCeoCooling`, `boardRejected`, `notController`, `companyBankrupt`).
+- Copy: 65 new keys, the same set in en and fr. The Overview confirm key changed its value (it now carries the day).
+
+Checks (this pass, worktree `p4-ui2`):
+- `src/world/company/staging.test.ts` (new): 11 tests for staging (replace, cancel, drop at the close, apply before the day step), the launch credit, the next filing day and the CEO plan.
+- `src/components/apps/company/Filings.test.tsx` (new): 3 render tests (the empty Filings, two filed quarters with 34 whole figures, the launch states).
+- `company.spec.ts`: the busy-project test is rewritten for staging (the R&D start, then the Overview refusal at once). New: staging, the next-gen launch, Filings and CEO flows.
+- `companyUi2.spec.ts` (new): fit at the minimum window and at 390 (no sideways scroll, no truncated or split figure in the new blocks). Screenshots of each new block, en and fr, desktop and phone, when `P4UI2_SHOTS` is set.
+- Gates: `npx tsc --noEmit` exit 0 (after `npx next typegen`); the full `vitest` run passes (1746 passed, 2 expected fail); `eslint` on the touched files, 0 errors. E2E: `company.spec.ts` and `companyUi2.spec.ts` on both projects, 24 passed (on ports 3212 and 8809, because another session held 3200 and 8797).
+- Screenshots: 16 PNGs in the scratchpad `shots-p4ui2` (`en` and `fr`, `desktop` and `phone`; the staged decision, the next-gen launch, the Filings list and the CEO change, each shot on its own).
+
+Not done, and why:
+- The Filings view is not shown with a filed quarter in e2e: a quarter needs game days to pass, and the shared e2e world does not advance in this spec. The component test covers the filed view with a constructed filing.
+- The staged decision is not shown applied in e2e (it applies at a real close). The engine test covers the close, and the e2e covers the stage and cancel.
+- A ready next-gen launch is not in e2e (it needs a next-gen success). The component test covers the ready and waiting states.

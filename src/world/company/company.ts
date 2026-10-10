@@ -24,6 +24,9 @@ export type CompanyAction =
   | { kind: 'setPrice'; productId: string; price: number }
   | { kind: 'setMarketing'; productId: string; amount: number }
   | { kind: 'startProject'; projectKind: ProjectKind; productId: string; spend: number }
+  /** O-17: an Overview decision, applied at the close of the day it is confirmed (replaced if confirmed again that day) */
+  | { kind: 'stageProject'; projectKind: ProjectKind; productId: string; spend: number }
+  | { kind: 'cancelStaged' }
   | { kind: 'buildPlant' }
   | { kind: 'launchProduct'; name: string; price: number }
   | { kind: 'raiseRound'; amount: number; founderVote?: 'yes' | 'no' }
@@ -75,7 +78,9 @@ export type CompanyEvent =
   | { kind: 'distress'; companyId: string; day: number }
   | { kind: 'backlogRepay'; companyId: string; day: number; excessLift: number; repayment: number }
   | { kind: 'bankrupt'; companyId: string; day: number; listed: boolean; shortfall: number; recovery: number }
-  | { kind: 'ceo'; companyId: string; day: number; holder: Holder };
+  | { kind: 'ceo'; companyId: string; day: number; holder: Holder }
+  /** O-17: a staged decision reached its close: applied, or dropped with the refusal's code */
+  | { kind: 'staged'; companyId: string; day: number; status: 'applied' | 'dropped'; productId: string; spend: number; code?: string };
 
 /**
  * The largest money amount the company layer accepts (X3, company-tests.md section 5, invariant 18): the ledger holds integer
@@ -174,6 +179,47 @@ export function revenuePerDay(c: Company, day: number): number {
   return c.qtd.revenue / elapsed;
 }
 
+/** The refusal of a project start on `day`, or null when it may start (the checks every start makes, in order). */
+function startRefusal(c: Company, day: number, productId: string, spend: number): CompanyReject | null {
+  if (!c.products.find((x) => x.id === productId)) return { code: 'unknownProduct' };
+  if (!(Number.isFinite(spend) && spend > 0)) return { code: 'negativeAmount' };
+  if (rdEffort(c, day) <= 0) return { code: 'noRdStaff' };
+  if (c.projects.length >= COMPANY.rdProjectsAtOnce) return { code: 'projectBusy' };
+  if (c.cash < spend) return { code: 'insufficientFunds', shortfall: spend - c.cash };
+  return null;
+}
+
+/**
+ * Starts a project on `day`: the R&D tab's start, and the close of a staged decision (O-17). The outcome is drawn from the
+ * company's rd stream. A quality project sets the spend in force for its product (the Overview's "was" tick).
+ */
+function startProjectOn(c: Company, day: number, projectKind: ProjectKind, productId: string, spend: number): Outcome<Record<string, unknown>> {
+  const refused = startRefusal(c, day, productId, spend);
+  if (refused) return { ok: false, reject: refused };
+  const p = c.products.find((x) => x.id === productId)!;
+  const productiveRd = rdEffort(c, day);
+  const r = new Rng(c.rng.rd);
+  const project = startProject(c, r, projectKind, p, spend, day, revenuePerDay(c, day), productiveRd);
+  c.rng.rd = r.state();
+  c.projects.push(project);
+  if (projectKind === 'quality') c.inForce = { ...(c.inForce ?? {}), [productId]: spend };
+  return { ok: true, value: { projectId: project.id, endDay: project.endDay, pShown: project.pShown } };
+}
+
+/**
+ * The close of a staged decision (O-17): it is applied before the company's day step of `closeDay`, so its first funded day
+ * is that day. A refusal at the close drops it, and the founder is told by the event.
+ */
+function applyStaged(c: Company, closeDay: number, events: CompanyEvent[]): void {
+  const s = c.staged;
+  if (!s) return;
+  c.staged = null;
+  const r = startProjectOn(c, closeDay, s.projectKind, s.productId, s.spend);
+  const base = { companyId: c.id, day: closeDay, productId: s.productId, spend: s.spend };
+  if (r.ok) events.push({ kind: 'staged', ...base, status: 'applied' });
+  else events.push({ kind: 'staged', ...base, status: 'dropped', code: r.reject.code });
+}
+
 /** The player's actions on a company they founded. Refusals are structured, never thrown. */
 export function companyAction(
   w: CompanyWorld, env: CompanyEnv, playerId: string, companyId: string, action: CompanyAction,
@@ -222,19 +268,18 @@ export function companyAction(
       p.marketing = action.amount;
       return { ok: true, value: { marketing: p.marketing } };
     }
-    case 'startProject': {
-      const p = c.products.find((x) => x.id === action.productId);
-      if (!p) return { ok: false, reject: { code: 'unknownProduct' } };
-      if (!(Number.isFinite(action.spend) && action.spend > 0)) return { ok: false, reject: { code: 'negativeAmount' } };
-      const productiveRd = rdEffort(c, day);
-      if (productiveRd <= 0) return { ok: false, reject: { code: 'noRdStaff' } };
-      if (c.projects.length >= COMPANY.rdProjectsAtOnce) return { ok: false, reject: { code: 'projectBusy' } };
-      if (c.cash < action.spend) return { ok: false, reject: { code: 'insufficientFunds', shortfall: action.spend - c.cash } };
-      const r = new Rng(c.rng.rd);
-      const project = startProject(c, r, action.projectKind, p, action.spend, day, revenuePerDay(c, day), productiveRd);
-      c.rng.rd = r.state();
-      c.projects.push(project);
-      return { ok: true, value: { projectId: project.id, endDay: project.endDay, pShown: project.pShown } };
+    case 'startProject': return startProjectOn(c, day, action.projectKind, action.productId, action.spend);
+    case 'stageProject': {
+      // the checks a start makes now, so the founder is refused at once; the close checks again (applyStaged)
+      const refused = startRefusal(c, day, action.productId, action.spend);
+      if (refused) return { ok: false, reject: refused };
+      c.staged = { closeDay: day, projectKind: action.projectKind, productId: action.productId, spend: action.spend };
+      return { ok: true, value: { closeDay: day, spend: action.spend } };
+    }
+    case 'cancelStaged': {
+      if (!c.staged) return { ok: false, reject: { code: 'nothingStaged' } };
+      c.staged = null;
+      return { ok: true, value: {} };
     }
     case 'buildPlant': {
       if (c.plantBuildUntil !== null) return { ok: false, reject: { code: 'plantBuilding', untilDay: c.plantBuildUntil } };
@@ -659,6 +704,8 @@ export function companyTick(w: CompanyWorld, env: CompanyEnv, day: number): Comp
     if (ceoNow) events.push({ kind: 'ceo', companyId: c.id, day, holder: ceoNow });
     if (day > 0 && c.pendingFile && day === c.pendingFile.filingDay) fileQuarter(c, day, events);
     if (day - 1 >= c.foundedDay) {
+      // O-17: a decision confirmed on day - 1 is applied at its close, before that day's operations
+      applyStaged(c, day - 1, events);
       operateDay(w, c, env, day - 1);
       execDay(w, c, env, day - 1);
       licenceDay(w, c, day - 1);

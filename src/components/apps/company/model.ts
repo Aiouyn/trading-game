@@ -7,7 +7,7 @@
 import type { Ack } from '@/net/client';
 import type { CompanyFounderView, CompanyPublic } from '@/world/company/views';
 
-export const VIEWS = ['overview', 'products', 'rd', 'people', 'deals', 'capital', 'public'] as const;
+export const VIEWS = ['overview', 'products', 'rd', 'people', 'deals', 'capital', 'filings', 'public'] as const;
 export type CompanyViewId = (typeof VIEWS)[number];
 
 export function isCompanyView(x: unknown): x is CompanyViewId {
