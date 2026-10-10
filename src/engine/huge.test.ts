@@ -160,9 +160,12 @@ describe('X3 huge money: a game year at $1e12 and $1e15 stays finite and balance
       // liquidation equity is finite on every tick, not only at year end
       expect(r.nonFiniteLiq).toBe(0);
       expect(r.belowCash).toBe(0);
-      // the peak liquidation mark is backed by proceeds: selling down from the tick it peaked (realize to flat, 100 days
+      // the peak liquidation mark is backed by proceeds: selling down from the tick it peaked (realize to flat, 200 days
       // at most) returns at least 95% of it. The mid mark is not: it is orders of magnitude above what sells return.
-      const rz = realizeToFlat(r.peakState, PID, 100);
+      // 200 days, not 100: on the calibrated path (V1-PHASE1 F1, merged with F8) the $1e15 peak takes 137 days to flatten,
+      // and HLCN is halted until 5 days after the peak; before the calibration the same peak flattened in 73 days. The
+      // 95% proceeds bound is the claim, and it holds on the day flat is reached.
+      const rz = realizeToFlat(r.peakState, PID, 200);
       console.log(`huge_money_peak $${cash.toExponential(0)}: liquidation peak ${r.peakLiq.toExponential(4)} at tick ${r.peakState.tick}; realize to flat from there: flat day ${rz.flatDay}, cash ${rz.cash.toExponential(4)} (${(rz.cash / r.peakLiq).toFixed(4)} of the peak)`);
       expect(rz.flatDay).toBeGreaterThan(0);
       expect(rz.cash).toBeGreaterThanOrEqual(0.95 * r.peakLiq);
