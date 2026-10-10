@@ -8,7 +8,9 @@ import { COMPANY, type CompanyRole, type CompanySector, type CompanyTierId } fro
 import { gaFactor, plantCost, productiveHeads, unitCostToday } from './economics';
 import { headcountBand, ttmFiled } from './signals';
 import { projectBand, qualityScore } from './rd';
-import type { Company, CompanyWorld, FilingPublic, WeeklySignal } from './types';
+import type { Company, CompanyWorld, CovenantStatus, FilingPublic, WeeklySignal } from './types';
+import { debtBand, totalDebt } from './debt';
+import { windowAt } from './insiders';
 
 export interface CompanyPublic {
   id: string;
@@ -20,7 +22,7 @@ export interface CompanyPublic {
   cities: string[];
   products: { name: string; segment: 'mid'; price: number }[];
   headcountBand: string;
-  debt: { totalBand: string; rating: 'NR'; covenant: 'ok' };
+  debt: { totalBand: string; rating: 'NR'; covenant: CovenantStatus };
   cashDebt?: { cash: number; totalDebt: number; filedDay: number };
   /** Late and listed companies: their quarterly filings. Seed and Growth: nothing quarterly (the registry below). */
   filings: FilingPublic[];
@@ -29,11 +31,17 @@ export interface CompanyPublic {
   /** listed only, the last 13 */
   signals: WeeklySignal[];
   credibility: number;
-  insiderTrades: never[];
+  /** B1: the founder's trades, filed the next day (filedDay is the day it became public; only filed ones appear) */
+  insiderTrades: { day: number; filedDay: number; side: 'buy' | 'sell'; qty: number; instrument: 'stock' }[];
   distressFlag: boolean;
-  buybackPrograms: never[];
-  plans: never[];
-  planSkips: never[];
+  /** B1: the buyback programs (filed on F + 1): size and days only */
+  buybackPrograms: { size: number; fromDay: number; toDay: number }[];
+  /** B1: "a plan exists" with its start and end days; the minimum price, the size and the day list never leave the engine */
+  plans: { fromDay: number; toDay: number; ended?: { day: number; reason: string } }[];
+  /** B1: the plan skips, by day and reason only */
+  planSkips: { day: number; reason: string }[];
+  /** B1: the trading window of a listed company (absent for a private one): open, its schedule and the covered instrument */
+  window?: { open: boolean; opensDay?: number; closesDay?: number; covered: string[] };
 }
 
 export interface CompanyFounderView extends CompanyPublic {
@@ -59,7 +67,7 @@ export interface CompanyFounderView extends CompanyPublic {
  * at a filing (the tier, the registry, the headcount band, the distress flag, the statements), at a signal (listed
  * companies), or at a price or product change that the market sees. Nothing reads the unfiled quarter or the live cash.
  */
-export function publicCompanyView(c: Company): CompanyPublic {
+export function publicCompanyView(c: Company, day: number): CompanyPublic {
   const last = c.filings[c.filings.length - 1];
   const late = c.tier === 'late' || c.listed !== null;
   const pub: CompanyPublic = {
@@ -72,16 +80,20 @@ export function publicCompanyView(c: Company): CompanyPublic {
     products: c.products.map((p) => ({ name: p.name, segment: 'mid', price: p.price })),
     // until the first filing the band is the founding headcount's band (the founding seats are public)
     headcountBand: last ? last.headcountBand : headcountBand(FOUNDING_HEADS),
-    debt: { totalBand: '0', rating: 'NR', covenant: 'ok' },
+    debt: { totalBand: debtBand(totalDebt(c)), rating: 'NR', covenant: c.covenant.status },
     filings: late ? c.filings.slice(-13) : [],
     signals: c.listed ? c.signals.slice(-COMPANY.signals.keep) : [],
     credibility: COMPANY.valuation.cInit,
-    insiderTrades: [],
-    distressFlag: c.distressPublic,
-    buybackPrograms: [],
-    plans: [],
-    planSkips: [],
+    insiderTrades: c.insiderTrades.filter((t) => t.filedDay <= day).map((t) => ({ day: t.day, filedDay: t.filedDay, side: t.side, qty: t.qty, instrument: t.instrument })),
+    distressFlag: c.distressPublic || c.divDistress,
+    buybackPrograms: c.buybacks.map((b) => ({ size: b.size, fromDay: b.fromDay, toDay: b.toDay })),
+    plans: c.planRows.map((r) => ({ fromDay: r.fromDay, toDay: r.toDay, ...(r.ended ? { ended: { day: r.ended.day, reason: r.ended.reason } } : {}) })),
+    planSkips: c.planSkips.map((s) => ({ day: s.day, reason: s.reason })),
   };
+  if (c.listed) {
+    const w = windowAt(c, day);
+    pub.window = { open: w.open, ...(w.opensDay !== undefined ? { opensDay: w.opensDay } : {}), ...(w.closesDay !== undefined ? { closesDay: w.closesDay } : {}), covered: [c.listed.assetId] };
+  }
   if (c.listed) {
     pub.listed = { assetId: c.listed.assetId, ipoDay: c.listed.ipoDay, sharesOut: c.listed.sharesOut, floatShares: c.listed.floatShares };
   }
@@ -102,7 +114,7 @@ export function founderCompanyView(w: CompanyWorld, playerId: string, companyId:
   const c = w.companies[companyId];
   if (!c) throw new Error(`unknown company ${companyId}`);
   if (c.ownerId !== playerId) throw new Error('not the founder of this company');
-  const base = publicCompanyView(c);
+  const base = publicCompanyView(c, day);
   const staff = {} as CompanyFounderView['staff'];
   for (const r of ['ops', 'sales', 'rd', 'ga'] as CompanyRole[]) {
     staff[r] = {

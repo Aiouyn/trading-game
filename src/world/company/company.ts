@@ -50,6 +50,7 @@ export type CompanyEvent =
 
 const QTD_ZERO = {
   revenue: 0, cogs: 0, opex: 0, da: 0, ocf: 0, capex: 0, units: 0, matCogs: 0, overtime: 0, rdSpend: 0, marketing: 0,
+  interest: 0, dividends: 0,
 } as const;
 
 function emptyQtd(startDay: number): Company['qtd'] {
@@ -78,7 +79,7 @@ export function emptyCompanyWorld(seed: string): CompanyWorld {
 }
 
 /** Cash in or out of a company's own books. `transfer` moves money between real parties and is not a faucet or sink. */
-function post(w: CompanyWorld, c: Company, day: number, reason: string, amount: number, transfer = false): void {
+export function post(w: CompanyWorld, c: Company, day: number, reason: string, amount: number, transfer = false): void {
   if (amount === 0) return;
   c.cash += amount;
   if (!transfer) {
@@ -129,6 +130,9 @@ export function foundCompany(
     signalSeq: 0, lastSens: 0, lastFair: 0, sigLog: [], revenueTotal: 0, listed: null,
     rng: { rd: rngOf(env.seed, `co:${id}:rd`), sig: rngOf(env.seed, `co:${id}:sig`), npc: rngOf(env.seed, `co:npc:${id}`) },
     goalsDone: {}, distress: false, distressPublic: false, ledger: [], ledgerTotals: {},
+    ipo: null, filedV: 0, filedLnV: 0, debts: [], debtSeq: 0, covenant: { status: 'ok', cureUntilDay: null },
+    lastDebtDrawDay: -1, divDistress: false, windowRanges: [], lastFilingDay: -1, insiderTrades: [], planRows: [],
+    planSkips: [], planSeq: 0, buybacks: [], buybackSeq: 0, treasuryId: null,
   };
   const npcRng = new Rng(c.rng.npc);
   const count = COMPANY.npc.minCount + Math.floor(npcRng.uniform() * (COMPANY.npc.maxCount - COMPANY.npc.minCount + 1));
@@ -286,6 +290,10 @@ export function privateValue(c: Company, day: number): number {
  */
 function raiseRound(w: CompanyWorld, c: Company, env: CompanyEnv, amount: number): Outcome<Record<string, unknown>> {
   if (!(Number.isFinite(amount) && amount > 0)) return { ok: false, reject: { code: 'negativeAmount' } };
+  // private rounds are pre-listing and NPC-only (§5): a listed company's register is the engine's, and an open IPO book
+  // has its share count already fixed (its shares are pooled at listing)
+  if (c.listed) return { ok: false, reject: { code: 'roundAfterListing' } };
+  if (c.ipo) return { ok: false, reject: { code: 'roundDuringIpo' } };
   const poolId = c.tier === 'seed' ? 'npc:seed' : 'npc:series';
   const pool = w.investors[poolId]!;
   const v = privateValue(c, env.day);
@@ -482,7 +490,8 @@ function updateDistress(c: Company, day: number, events: CompanyEvent[]): void {
 /** The quarter close (§6.1): tax is paid, the statements are frozen and hashed, and the filing is set for close + 3. */
 function closeQuarter(w: CompanyWorld, c: Company, closeDay: number, events: CompanyEvent[]): void {
   const quarter = closeDay / COMPANY.quarterDays;
-  const ebit = c.qtd.revenue - c.qtd.cogs - c.qtd.opex - c.qtd.da;
+  // tax is on the pre-tax result: EBIT less the quarter's interest (B1)
+  const ebit = c.qtd.revenue - c.qtd.cogs - c.qtd.opex - c.qtd.da - c.qtd.interest;
   const t = quarterTax(ebit, c.lossCarry);
   post(w, c, closeDay, 'tax', -t.tax);
   c.qtd.ocf -= t.tax;
@@ -520,6 +529,9 @@ function fileQuarter(c: Company, day: number, events: CompanyEvent[]): void {
   c.resolved = [];
   c.pendingFile = null;
   c.distressPublic = pf.statements.cash < 0;
+  // B1: the filing clears a dividend distress flag, and records the fair value the IPO prices off
+  c.divDistress = false;
+  c.lastFilingDay = day;
   const tier = tierFor(c.closed);
   if (tier !== c.tier) {
     c.tier = tier;
@@ -532,6 +544,8 @@ function fileQuarter(c: Company, day: number, events: CompanyEvent[]): void {
   c.consensus = {
     revQtd: 0, backlog: pf.statements.backlog, backlogContribution: pf.statements.backlogContribution, v, lnV: lnFiled,
   };
+  c.filedV = v;
+  c.filedLnV = lnFiled;
   events.push({ kind: 'filed', companyId: c.id, quarter: pf.statements.quarter, day });
   events.push({ kind: 'reanchor', companyId: c.id, day, dLnV: lnFiled - prevLn });
   if (rev.repayment > 0) events.push({ kind: 'backlogRepay', companyId: c.id, day, excessLift: rev.excessLift, repayment: rev.repayment });

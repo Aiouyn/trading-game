@@ -23,12 +23,59 @@ export type CompanyReject =
   | { code: 'priceOutOfBand'; min: number; max: number }
   | { code: 'negativeAmount' }
   | { code: 'roundDilutionCap'; maxAmount: number }
+  | { code: 'roundAfterListing' }
+  | { code: 'roundDuringIpo' }
   | { code: 'investorCash'; available: number }
   | { code: 'noValuation' }
   | { code: 'plantBuilding'; untilDay: number }
   | { code: 'marketingCap'; cap: number }
   | { code: 'noLaunchCredit' }
-  | { code: 'unknownAction' };
+  | { code: 'unknownAction' }
+  // B1: IPO (ipo.ts)
+  | { code: 'ipoFilings' }
+  | { code: 'ipoValue' }
+  | { code: 'ipoRank' }
+  | { code: 'ipoConviction' }
+  | { code: 'ipoCovenant' }
+  | { code: 'ipoFloatOutOfBand'; min: number; max: number }
+  | { code: 'ipoAlreadyRequested' }
+  | { code: 'ipoBookClosed' }
+  | { code: 'ipoOwnerSet' }
+  | { code: 'ipoAccountTooYoung'; minDays: number }
+  | { code: 'ipoBadShares' }
+  | { code: 'alreadyListed' }
+  // B1: trading programs (programs.ts): the engine's plan and buyback refusals, copied into the company's codes
+  | { code: 'planSellOnly' }
+  | { code: 'planFloorTooHigh'; maxFloor: number }
+  | { code: 'planLimit' }
+  | { code: 'planInLockup' }
+  | { code: 'planTooSoon'; earliestDay: number }
+  | { code: 'planUnfunded'; shortfall: number }
+  | { code: 'planBanned'; untilDay: number }
+  | { code: 'planImmutable' }
+  | { code: 'planBadSpec' }
+  | { code: 'planExists' }
+  | { code: 'planOverCap'; maxPerDay: number }
+  | { code: 'planNotListed' }
+  | { code: 'buybackBadSpec' }
+  | { code: 'buybackTooLarge'; maxPerDay: number }
+  | { code: 'buybackNotFilingDay'; filingDay: number }
+  | { code: 'buybackClosedWindow'; untilDay?: number }
+  | { code: 'buybackImmutable' }
+  | { code: 'buybackCovenant'; covenant: string }
+  | { code: 'buybackLeverage'; maxLeverage: number }
+  | { code: 'buybackCash'; shortfall: number }
+  // B1: debt, covenants and guarantees (debt.ts)
+  | { code: 'loanTier'; minTier: string }
+  | { code: 'loanCovenant'; covenant: string }
+  | { code: 'loanBadAmount' }
+  | { code: 'loanBankCash'; available: number }
+  | { code: 'guaranteeNotAcknowledged'; personalDebt: number }
+  | { code: 'repayUnknownDebt' }
+  | { code: 'repayBadAmount' }
+  // B1: dividends (payouts.ts)
+  | { code: 'dividendNotPermitted' }
+  | { code: 'dividendBadAmount' };
 
 export type CompanyRejectCode = CompanyReject['code'];
 
@@ -138,6 +185,58 @@ export interface Resolved {
   reportedSig: number;
 }
 
+export type CovenantStatus = 'ok' | 'cure' | 'default';
+
+/** B1: a bank loan to the company (bullet, repaid at will). A guaranteed loan carries the guarantor and the lower rate. */
+export interface Debt {
+  id: string;
+  principal: number;
+  ratePerDay: number;
+  drawnDay: number;
+  guarantor: string | null;
+  /** the personal debt the guarantor owes if the company defaults (called on default, Ledger §12 #8) */
+  guaranteedAmount: number;
+}
+
+/** B1: an IPO book: request on day D, the subscriptions of day D, allocation and listing at the start of D + 1. */
+export interface IpoBook {
+  requestDay: number;
+  listDay: number;
+  floatPct: number;
+  /** the price per share, fixed at the request from the latest filed V_engine (0.9 x V / shares after the IPO) */
+  price: number;
+  /** the primary shares sold in the IPO, and the shares outstanding after it */
+  ipoShares: number;
+  sharesPost: number;
+  /** subscriptions by account id, in shares (summed when an account orders twice) */
+  orders: Record<string, number>;
+}
+
+/** B1: a founder trade as the public filing shows it (filed on the next day, side, size and day only). */
+export interface InsiderTradeRow {
+  day: number;
+  filedDay: number;
+  side: 'buy' | 'sell';
+  qty: number;
+  instrument: 'stock';
+}
+
+/** B1: the public plan row: "a plan exists" with its start and end day, and its end reason once it has one. */
+export interface PlanRow {
+  id: string;
+  fromDay: number;
+  toDay: number;
+  ended?: { day: number; reason: string };
+}
+
+/** B1: a buyback program as filed: size in shares and its first and last day (public, filed on F + 1). */
+export interface BuybackRow {
+  id: string;
+  size: number;
+  fromDay: number;
+  toDay: number;
+}
+
 export interface Ledger {
   day: number;
   reason: string;
@@ -183,6 +282,10 @@ export interface Statements {
   heads: number;
   /** units shipped in the quarter and the gross margin used by the valuation (TTM) */
   grossMargin: number;
+  /** B1: interest expense of the quarter (below EBIT), the debt at the close, and dividends paid in it */
+  interest: number;
+  debt: number;
+  dividends: number;
 }
 
 export interface FilingPublic {
@@ -190,7 +293,7 @@ export interface FilingPublic {
   periodCloseDay: number;
   filedDay: number;
   hash: string;
-  income: { revUnrelated: number; relatedPartyIncome: number; cogs: number; opex: number; ebitda: number; netIncome: number; niAdj: number };
+  income: { revUnrelated: number; relatedPartyIncome: number; cogs: number; opex: number; ebitda: number; netIncome: number; niAdj: number; interest: number };
   balance: { cash: number; receivables: number; inventory: number; ppe: number; debt: number; equity: number; retainedEarnings: number };
   /** capex_maint: plant D&A as the maintenance proxy (section 6.4), used by E* = min(NI_adj, OCF - capex_maint) */
   cashFlow: { ocf: number; capex: number; capexMaint: number; fcf: number; dividends: number; buybacks: number };
@@ -243,6 +346,8 @@ export interface Listed {
   ipoDay: number;
   sharesOut: number;
   floatShares: number;
+  /** the float market cap at listing (price x float): the ADV and spread of the listing are set from it (B1, §5.1) */
+  floatCap: number;
 }
 
 export interface Company {
@@ -308,6 +413,8 @@ export interface Company {
     overtime: number;
     rdSpend: number;
     marketing: number;
+    interest: number;
+    dividends: number;
   };
   closed: Statements[];
   filings: FilingPublic[];
@@ -334,6 +441,30 @@ export interface Company {
   revenueTotal: number;
   /** listing is an A2/B step; here only so the public view and the signal path can read it */
   listed: Listed | null;
+  /** B1: the IPO book, set by a request and cleared at listing (null when none is open) */
+  ipo: IpoBook | null;
+  /** B1: the filed fair value and its ln per share at the latest filing (the IPO prices off these) */
+  filedV: number;
+  filedLnV: number;
+  /** B1: bank debt, the covenant status, and the day of the last draw (a dividend in the same quarter raises the flag) */
+  debts: Debt[];
+  debtSeq: number;
+  covenant: { status: CovenantStatus; cureUntilDay: number | null };
+  lastDebtDrawDay: number;
+  /** B1: the dividend distress flag, set by a permitted dividend drawn with a net debt increase, cleared at the next filing */
+  divDistress: boolean;
+  /** B1: the trading windows (inclusive game-day ranges from F+2 to F+21 of each filing) and the last filing day */
+  windowRanges: [number, number][];
+  lastFilingDay: number;
+  /** B1: the founder insider trades (filed the next day), the public plan rows and skips, the buyback programs */
+  insiderTrades: InsiderTradeRow[];
+  planRows: PlanRow[];
+  planSkips: { day: number; reason: string }[];
+  planSeq: number;
+  buybacks: BuybackRow[];
+  buybackSeq: number;
+  /** B1: the treasury engine account (created at listing) */
+  treasuryId: string | null;
   rng: { rd: RngState; sig: RngState; npc: RngState };
   /** founder goals (C4): reached-day per goal id */
   goalsDone: Record<string, number>;

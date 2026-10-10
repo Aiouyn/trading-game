@@ -234,7 +234,7 @@ export const COMPANY = {
     priceFactor: 0.70,
     maxPostMoneyShare: 0.25,
     /** the seed round (Seed tier) and the series round (Growth and Late) are the two investor types */
-    investorCash: { seed: 5_000_000, series: 50_000_000 } as Record<'seed' | 'series', number>,
+    investorCash: { seed: 5_000_000, series: 50_000_000, bank: 20_000_000 } as Record<InvestorKind, number>,
   },
   /** the private mark of a company counted in its owner's net worth (spec 5.1): 0.85 x V x ownership */
   netWorth: { privateHaircut: 0.85 },
@@ -262,8 +262,87 @@ export const COMPANY = {
     firstRevenue: 5_000,
     firstRoundAmount: 25_000,
   },
+  /** IPO (B1, quant v1.7 section 5.1, decided by Ledger §12 #2, #3, #9, Q16, Q19): price at 0.9 x V_engine, float 15-49% */
+  ipo: {
+    /** P_IPO = (1 - discount) * V_engine / shares_post */
+    discount: 0.10,
+    floatMin: 0.15,
+    floatMax: 0.49,
+    /** a buyer takes at most this share of the float (N8) */
+    allocCapOfFloat: 0.05,
+    /** accounts younger than this many game days are not allocated (N8) */
+    minAccountAgeDays: 7,
+    /** founder shares are locked this long from listing (§5.1) */
+    lockupDays: 168,
+    /** filed quarters before an IPO can be requested (§5) */
+    minFiledQuarters: 3,
+    /** engine equity value floor (§5) */
+    minValue: 50_000_000,
+    /** the owner's rank floor (Ledger §12 #2: R3+) */
+    minRank: 'R3',
+    /** a conviction within this many game days blocks the IPO (no S4+ conviction in 8 weeks) */
+    convictionDays: 56,
+    /** the book is one game day: request on day D, list at the start of D + 1 (§5.1, shown 1 gd ahead) */
+    bookDays: 1,
+    /** ADV at listing is 0.8% of the float market cap, decaying to 0.4% (half-life 21 gd) */
+    advAtListing: 0.008,
+    advFloor: 0.004,
+    advHalfLifeDays: 21,
+    /** spread = clamp(25 + 2000 / sqrt(floatCap / $1M), 25, 200) bps */
+    spreadBase: 25,
+    spreadScale: 2000,
+    spreadMin: 25,
+    spreadMax: 200,
+    /** the sector peer's vol times (1 + 0.5 * max(0, 1 - floatCap / $500M)) */
+    volSmallCapSlope: 0.5,
+    volSmallCapRef: 500_000_000,
+    /** the underwriting fee on the gross IPO proceeds (the float at the IPO price): a sink, paid out of the company's receipts (§5.1) */
+    underwritingFee: 0.05,
+  },
+  /** owner and insider rules (§6.1, §5.1, §9.1): the insider roster, the trading window and the owner's sell cap */
+  insiders: {
+    /** an account holding at least this share of the shares outstanding is an insider (§6.1) */
+    holderPct: 0.10,
+    /** the window opens on F + windowOpenDay and closes after F + windowCloseDay (Ledger Q2) */
+    windowOpenDay: 2,
+    windowCloseDay: 21,
+    /** the founder's sell cap: 2% of shares outstanding a game day after the lockup (§5.1, documented as a commit-time check) */
+    sellCapPct: 0.02,
+  },
+  /** debt, covenants and guarantees (B1, §5 Growth and Late tiers, §5.3 covenants, §5 buyback leverage, Ledger §12 #8, #12) */
+  debt: {
+    /** bank rate per game day on principal (about 12.6% a game year); priced relative to company yields (Ledger §12 #12) */
+    ratePerDay: 0.0005,
+    /** a personal guarantee lowers the rate to 75% of r_debt (Ledger §12 #8) */
+    guaranteedFactor: 0.75,
+    /** covenants (quant v1.7 knobs): net debt / TTM EBITDA at most 3.5x, EBITDA / TTM interest at least 2.0x, 21 gd cure */
+    maxLeverage: 3.5,
+    minInterestCover: 2.0,
+    cureDays: 21,
+    /** buybacks: net debt / EBITDA after the buyback at most 2.5x (§5.2) */
+    buybackMaxLeverage: 2.5,
+    /** the tier a loan needs: revolver from Growth, term loans from Late (§5) */
+    loanMinTier: 'growth',
+    /** a buyback reserves this share above the current price, so the market buys can clear */
+    buybackReserve: 1.10,
+    /** a covenant breach in cure adds this rate to the daily rate while the cure is open (§5, +0.05%/gd) */
+    cureRatePerDay: 0.0005,
+  },
+  /** dividends (§5.3): retained earnings, cash for 21 gd of costs, covenants and TTM FCF */
+  dividends: {
+    cashCoverDays: 21,
+  },
+  /** trading programs (B1, §5.2, §6.1): buyback filing day and the plan limits the engine enforces */
+  programs: {
+    /** buybacks file only on F + 1 (Ledger v1.3, Q24) */
+    buybackFilingOffset: 1,
+    /** a buyback's shares a game day cap: 1% of float (ROADMAP §2.1, §5.2) */
+    buybackFloatPerDay: 0.01,
+    /** a plan's minimum sell price is set in the engine (commit-day close, 0.8 cap) */
+    planLimit: 2,
+  },
 } as const;
 
 /** Money-conservation sizes for the NPC investor pools, kept in the content so the world seeds them */
-export const INVESTOR_KINDS = ['seed', 'series'] as const;
+export const INVESTOR_KINDS = ['seed', 'series', 'bank'] as const;
 export type InvestorKind = (typeof INVESTOR_KINDS)[number];

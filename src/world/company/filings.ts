@@ -56,9 +56,11 @@ export function buildStatements(c: Company, closeDay: number, quarter: number, t
   const q = c.qtd;
   const ebitda = q.revenue - q.cogs - q.opex;
   const ebit = ebitda - q.da;
-  const ni = ebit - tax;
+  // the pre-tax result takes the quarter's interest (B1); the tax is already computed on it
+  const ni = ebit - q.interest - tax;
   const bl = openBookTotals(c);
   const retained = c.retained + ni;
+  const debt = c.debts.reduce((x, d) => x + d.principal, 0);
   return {
     quarter,
     periodCloseDay: closeDay,
@@ -89,6 +91,9 @@ export function buildStatements(c: Company, closeDay: number, quarter: number, t
     inputIndex: c.indexLast,
     heads: totalHeads(c),
     grossMargin: q.revenue > 0 ? (q.revenue - q.cogs) / q.revenue : 0,
+    interest: q.interest,
+    debt,
+    dividends: q.dividends,
   };
 }
 
@@ -157,17 +162,18 @@ export function filingOf(s: Statements, hash: string, filedDay: number, reversal
       ebitda: s.ebitda,
       netIncome: s.netIncome,
       niAdj: s.niAdj,
+      interest: s.interest,
     },
     balance: {
       cash: s.cash,
       receivables: s.receivables,
       inventory: s.inventory,
       ppe: s.ppe,
-      debt: 0,
+      debt: s.debt,
       equity: s.equity,
       retainedEarnings: s.retained,
     },
-    cashFlow: { ocf: s.ocf, capex: s.capex, capexMaint: s.da, fcf: s.fcf, dividends: 0, buybacks: 0 },
+    cashFlow: { ocf: s.ocf, capex: s.capex, capexMaint: s.da, fcf: s.fcf, dividends: s.dividends, buybacks: 0 },
     headcountBand: headcountBand(heads),
     backlog: s.backlog,
     backlogContribution: s.backlogContribution,

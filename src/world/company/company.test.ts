@@ -74,7 +74,8 @@ describe('founding (C4 founder template, spec 5)', () => {
     expect(totalMoney(h)).toBeCloseTo(before, 6);
     // the only faucet is the investor pools' seed cash, booked when the world was created
     expect(h.w.flows.sink).toBe(0);
-    expect(h.w.flows.faucet).toBe(COMPANY.rounds.investorCash.seed + COMPANY.rounds.investorCash.series);
+    // the seeded pools are the seed, series and (B1) bank cash
+    expect(h.w.flows.faucet).toBe(COMPANY.rounds.investorCash.seed + COMPANY.rounds.investorCash.series + COMPANY.rounds.investorCash.bank);
   });
 
   it('the founder template: one product at $50, 10 heads (5 Ops, 2 Sales, 2 R&D, 1 G&A), 1 city', () => {
@@ -258,7 +259,7 @@ describe('weekly signals and the consensus (spec 6.2, G20)', () => {
     const evs = advance(h, 1, 20);
     expect(evs.filter((e) => e.kind === 'signal')).toHaveLength(0);
     const c = h.w.companies[id]!;
-    c.listed = { assetId: 'AST', ipoDay: 20, sharesOut: c.shares, floatShares: c.shares * 0.2 };
+    c.listed = { assetId: 'AST', ipoDay: 20, sharesOut: c.shares, floatShares: c.shares * 0.2, floatCap: 1 };
     const later = advance(h, 21, 65);
     const sigs = later.filter((e) => e.kind === 'signal');
     expect(sigs.length).toBeGreaterThan(8);
@@ -271,7 +272,7 @@ describe('weekly signals and the consensus (spec 6.2, G20)', () => {
     const id = found(h);
     const c = h.w.companies[id]!;
     advance(h, 1, 10);
-    c.listed = { assetId: 'AST', ipoDay: 10, sharesOut: c.shares, floatShares: 1 };
+    c.listed = { assetId: 'AST', ipoDay: 10, sharesOut: c.shares, floatShares: 1, floatCap: 1 };
     advance(h, 11, 40);
     const n1 = JSON.stringify(c.noise);
     advance(h, 41, 60);
@@ -283,7 +284,7 @@ describe('weekly signals and the consensus (spec 6.2, G20)', () => {
     const id = found(h);
     const c = h.w.companies[id]!;
     advance(h, 1, 12);
-    c.listed = { assetId: 'AST', ipoDay: 12, sharesOut: c.shares, floatShares: 1 };
+    c.listed = { assetId: 'AST', ipoDay: 12, sharesOut: c.shares, floatShares: 1, floatCap: 1 };
     const evs = advance(h, 13, 25);
     const sig = evs.find((e) => e.kind === 'signal');
     expect(sig).toBeDefined();
@@ -298,20 +299,20 @@ describe('the no-leak rule (spec 6.4, CB-084)', () => {
     const id = found(h);
     advance(h, 1, 80);
     const c = h.w.companies[id]!;
-    const before = JSON.stringify([publicCompanyView(c), filedInputs(c, 0)]);
+    const before = JSON.stringify([publicCompanyView(c, c.foundedDay), filedInputs(c, 0)]);
     c.products[0]!.q *= 3;
     c.products[0]!.marketing = 999;
     c.eff = 0.3;
     c.projects.push({ id: 'x', kind: 'quality', productId: c.products[0]!.id, spend: 1, spendPerDay: 1, days: 10, paidDays: 0, startDay: 80, endDay: 90, success: true, z: 1, pShown: 0.5, sRef: 20_000, kUsed: 0, gates: [] });
     c.npcs.push({ id: 'n-extra', lnQ: 2, price: 1, marketing: 9, negQuarters: 0 });
-    expect(JSON.stringify([publicCompanyView(c), filedInputs(c, 0)])).toBe(before);
+    expect(JSON.stringify([publicCompanyView(c, c.foundedDay), filedInputs(c, 0)])).toBe(before);
   });
 
   it('the public view carries no private field, and only the founder may read the founder view', () => {
     const h = harness('view');
     const id = found(h);
     advance(h, 1, 5);
-    const pub = publicCompanyView(h.w.companies[id]!);
+    const pub = publicCompanyView(h.w.companies[id]!, h.w.companies[id]!.foundedDay);
     const keys = Object.keys(pub);
     for (const k of ['cash', 'projects', 'staff', 'capTable', 'npcs', 'orders', 'eff']) expect(keys).not.toContain(k);
     expect(() => founderCompanyView(h.w, 'someone', id, 5)).toThrow(/not the founder/);
@@ -363,6 +364,7 @@ describe('rounds (spec 5, X12, N9)', () => {
 
 describe('tiers and goals (spec 5, C4)', () => {
   const quarter = (rev: number, ni: number, ocf = 1): Statements => ({
+    interest: 0, debt: 0, dividends: 0,
     quarter: 1, periodCloseDay: 63, revenue: rev, cogs: 0, opex: 0, ebitda: 0, da: 0, ebit: 0, tax: 0, netIncome: ni, niAdj: ni,
     ocf, capex: 0, fcf: ocf, cash: 0, receivables: 0, inventory: 0, payables: 0, ppe: 0, equity: 0, retained: 0, backlog: 0,
     backlogContribution: 0, unitsShipped: 0, unitCost: 0, matUnit: 0, inputIndex: 1, heads: 0, grossMargin: 0,
@@ -435,7 +437,7 @@ describe('filed fields (spec 6.4)', () => {
   it('the filed valuation inputs use the last four filings, annualized, and the filed net debt', () => {
     const f = (rev: number, cash: number): FilingPublic => ({
       quarter: 1, periodCloseDay: 63, filedDay: 66, hash: '',
-      income: { revUnrelated: rev, relatedPartyIncome: 0, cogs: rev * 0.5, opex: 0, ebitda: 0, netIncome: 10, niAdj: 10 },
+      income: { revUnrelated: rev, relatedPartyIncome: 0, cogs: rev * 0.5, opex: 0, ebitda: 0, netIncome: 10, niAdj: 10, interest: 0 },
       balance: { cash, receivables: 0, inventory: 0, ppe: 0, debt: 100, equity: 0, retainedEarnings: 0 },
       cashFlow: { ocf: 10, capex: 0, capexMaint: 0, fcf: 10, dividends: 0, buybacks: 0 }, headcountBand: '1-10',
       backlog: 0, backlogContribution: 0, unitCost: 1, matUnit: 0.5, inputIndex: 1, backlogReversal: { nonConversion: 0, baseRate: 0, excessLift: 0, repayment: 0 },

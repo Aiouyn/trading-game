@@ -11,10 +11,20 @@ import type { GameState } from '../types';
 // The company world runs through the same command log and day step as the rest of the world.
 // Each case warms a live world, so it can take a few seconds under a full parallel run.
 vi.setConfig({ testTimeout: 30_000 });
+/** B1 refusals (IPO, plans, buybacks, loans, dividends): the same copy rule as the founder's codes. */
+const B1_CODES: CompanyReject['code'][] = [
+  'ipoFilings', 'ipoValue', 'ipoRank', 'ipoConviction', 'ipoCovenant', 'ipoFloatOutOfBand', 'ipoAlreadyRequested', 'ipoBookClosed',
+  'ipoOwnerSet', 'ipoAccountTooYoung', 'ipoBadShares', 'alreadyListed', 'planSellOnly', 'planFloorTooHigh', 'planLimit', 'planInLockup',
+  'planTooSoon', 'planUnfunded', 'planBanned', 'planImmutable', 'planBadSpec', 'planExists', 'planOverCap', 'planNotListed',
+  'buybackBadSpec', 'buybackTooLarge', 'buybackNotFilingDay', 'buybackClosedWindow', 'buybackImmutable', 'buybackCovenant',
+  'buybackLeverage', 'buybackCash', 'loanTier', 'loanCovenant', 'loanBadAmount', 'loanBankCash', 'guaranteeNotAcknowledged',
+  'repayUnknownDebt', 'repayBadAmount', 'dividendNotPermitted', 'dividendBadAmount',
+];
 const CODES: CompanyReject['code'][] = [
   'notRank', 'capitalTooLow', 'alreadyFounded', 'insufficientFunds', 'unknownCompany', 'notFounder', 'headcountCap',
   'notEnoughStaff', 'noRdStaff', 'projectBusy', 'productCap', 'unknownProduct', 'priceOutOfBand', 'negativeAmount',
   'roundDilutionCap', 'investorCash', 'plantBuilding', 'unknownAction', 'noValuation', 'marketingCap', 'noLaunchCredit',
+  'roundAfterListing', 'roundDuringIpo',
 ];
 
 function world(seed: string): GameState {
@@ -71,7 +81,7 @@ describe('the company commands through the world', () => {
 describe('copy coverage (refusals, notes and goals in English and French)', () => {
   it('every reject code has what, why and do in both languages, with the same variables', () => {
     const vars = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',');
-    for (const code of CODES) {
+    for (const code of [...CODES, ...B1_CODES]) {
       for (const part of ['what', 'why', 'do']) {
         const key = `company.refusal.${code}.${part}`;
         const e = (en as Record<string, string>)[key];

@@ -292,3 +292,42 @@ Disk: C: had 4.43 GB free before the `--workers=1` run, 3.8 GB at its lowest, an
 6. **Lever UI, refusal copy and the funds UI.** Stage C.
 7. **Insider seam.** `insiderId` is not set by the company module yet.
 8. **Managed against S3 (lead decision).** Managed sits at 1.3 to 1.5 against S3's about 1.0. The manager's star cost is one part and the S4 ramp against once-a-real-day presence is the rest (2.2a). Options: restate S3 as an ungated reference; extend the manager's full-income window to 24 days (an S4 change); or lower the star cost and re-hold excellent with another lever. Owner: lead.
+
+## 7. B1: market path (`p4/b1`)
+
+### 7.1 What is in
+
+- IPO (`ipo.ts`): eligibility by tier and rank, the one-day book, the price at 0.9 x filed V, float 15 to 49%, at most 5% of the float per buyer with pro rata, the founder's and pool shares locked 168 gd, listing through `listCompanyStock`.
+- Insiders (`insiders.ts`): roster, window F+2..F+21 per filing, the windowClosing warning at F+17, and the founder's next-day filing of stock trades.
+- Programs (`programs.ts`): sell-only plans and buybacks as world commands on the engine's programs. The cancel route reports `planImmutable` and `buybackImmutable` through `cancelOrderResult`.
+- Debt, covenants and guarantees (`debt.ts`), dividends (`payouts.ts`), and the public view (`views.ts`, no plan minimum price, no plan size).
+
+### 7.2 Review fixes (`p4/b1`, the commit after `0ed0dcb`)
+
+- **Founder sell cap (HIGH).** The engine tracks one cap per capped account and asset (`sellCaps`, `sold` in `restrictions.ts`). The fill loop in `trading.ts` clips window sells and plan fills to one room a game day. A plan sells first: the open plan quantity is reserved against the other sells. A plan day above the room is a `cap` skip (`planSkipped` reason `cap`), never a price hold. The world sets the cap at listing (2% of shares outstanding, founder only) and sets it once for older listed saves. Tests: `src/engine/sellCap.test.ts` and `src/world/company/b1review.test.ts`.
+- **Private rounds (HIGH).** `raiseRound` refuses `roundAfterListing` and `roundDuringIpo`, with en and fr copy. Tests cover both, and that no shares move.
+- **Underwriting fee (MEDIUM).** 5% of the gross float value is booked as a sink (`underwriting` line, `COMPANY.ipo.underwritingFee`). The total moves by the booked faucet less the sink.
+- **NPC pool dividend (MEDIUM).** A dividend on the pool's shares is paid to the NPC investors in the cap table, pro rata to their shares. The pool keeps no cash of its own. Money is conserved.
+- **Leverage (MEDIUM).** Covenant and buyback leverage use EBITDA annualized to four quarters (`annualEbitdaOf`). The dividend's FCF test stays TTM.
+- **Cure rate and default (MEDIUM).** While a cure is open, the bank rate adds 0.05% a game day. A day's interest the cash cannot cover is a missed payment, so the company defaults and no money moves.
+- **View day (LOW).** `publicCompanyView` requires `day`. Every caller passes it.
+- **Founder window-close line (LOW).** On the close, the founder gets one line: how many orders were cancelled and the day the window reopens (`nextOpenDay`). Nothing is public.
+
+### 7.3 Declared deviations and rulings (for lead or Ledger sign-off)
+
+1. **Sell cap scope.** The cap covers the founder account only, not alts or the treasury. Forced liquidations (margin, squeeze) are broker trades and are not capped. The commit-time check is unchanged.
+2. **Unallocated float is a booked faucet.** The NPC book pays for shares it takes up in an undersubscribed IPO as a booked faucet (`post(..., 'ipo', npcShares * P)`), as the B1 brief sets it. Undersubscription can therefore book faucet money up to the unallocated float's value. Sign-off needed, or the book pays from its own cash.
+3. **Underwriting fee base.** The 5% fee applies to the gross float value, including the NPC book's share. Spec 5.1 does not name the base.
+4. **Alts and the collusion graph (open).** `ownerSetOf`, the roster and the IPO exclusion use `linked()`, which is same-alliance only. No collusion graph exists in `src`. A founder-controlled account outside an alliance can subscribe to the IPO, and the window does not cover it. Spec 5.1 and 6.1 require the graph. Owner: Ledger.
+5. **Derivatives on the founder's stock are not filed.** The engine refuses options on company stocks (`tradeOption`, hook 1), so no founder derivative trade can happen in v1. The filing for them is not wired. Revisit when listed options on company stocks exist.
+6. **Default triggers.** Interest accrues daily, so cash below zero with a facility drawn always misses that day's interest. That default fires at once. The spec's five-day cash rule (§5) is therefore not a separate rule in B1, and it is stricter than the spec. Ledger to confirm.
+7. **Pool sales proceeds (open).** When the NPC pool sells on its schedule, the proceeds stay in the pool account. Only dividends reach the investors. Money is conserved, but the investors' sale proceeds are misattributed. Owner: Quant.
+
+### 7.4 Checks at the B1 review commit
+
+| Command | Result |
+|---|---|
+| `npx next typegen` | exit 0 |
+| `npx tsc --noEmit` | exit 0 |
+| `npx vitest run --maxWorkers=4` | 129 files, 1386 tests pass, 1 skipped |
+| `npx eslint --max-warnings 0` (touched files) | exit 0 |

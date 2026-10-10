@@ -13,4 +13,10 @@ export { vEngine, lnPerShare, sensCB, backlogLift, surprise, surpriseDenominator
 export type { ValuationInputs } from './valuation';
 export { materialPerUnit, inputIndex, capacityPerDay, plantCost, plantMult, gaFactor } from './economics';
 export { sha256Hex } from './hash';
+export { ipoEligibility, requestIpo, orderIpo, listIpo, allocateIpo, ownerSetOf, treasuryIdOf, poolIdOf, npcBookIdOf } from './ipo';
+export { rosterOf, syncWindow, windowAt, recordFounderFills } from './insiders';
+export { commitPlanFor, cancelPlanFor, fileBuyback, applyProgramEvents } from './programs';
+export { drawLoan, repayLoan, debtDay, covenantAtFiling, covenantBreachOf, ttmOf } from './debt';
+export { declareDividend, dividendRule } from './payouts';
+export { companyFinanceCommand, companyStep, type CompanyFinanceCommand } from './bridge';
 export type * from './types';

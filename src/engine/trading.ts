@@ -18,8 +18,8 @@ import { DEFAULT_TRADING } from './config';
 import { ecologyWeight, PUBLIC_MAX_TRADER_SHARE, PUBLIC_MIN_TRADERS } from './ecology';
 import { optionQuote, optionsValue, parseContract, underlyingDelisted } from './options';
 import {
-  closingWarning, companyRulesOf, gateOn, lockedQty, programFill, programRelease, restrictionsOf, sessionDay, sessionDayAt, windowOn,
-  type Gate, type TradingRestrictions,
+  addSold, closingWarning, companyRulesOf, gateOn, lockedQty, programFill, programRelease, restrictionsOf, sellCapOf, sessionDay,
+  sessionDayAt, soldOn, windowOn, type Gate, type TradingRestrictions,
 } from './restrictions';
 import { dayOfTick } from './catalysts';
 import type {
@@ -921,8 +921,19 @@ function expireProgramOrder(s: WorldState, o: Order, tick: number, events: StepE
   const rem = o.qty - o.filledQty;
   if (!p || p.kind !== 'plan' || !(rem > EPS)) return s.restrictions;
   const i = assetIndex(s, o.assetId);
-  const reason = s.assets[i]!.haltUntil !== -1 ? 'halt' : o.priceMissed ? 'price' : 'volume';
+  const reason = s.assets[i]!.haltUntil !== -1 ? 'halt' : o.priceMissed ? 'price' : o.capMissed ? 'cap' : 'volume';
   return programRelease(r, p.id, rem, reason, sessionDayAt(o.placedTick, s.config.ticksPerDay), tick, events);
+}
+
+/** Open plan orders' unfilled quantity in one asset for one account: the room the founder's cap keeps for the plans. */
+function openPlanQty(s: WorldState, playerId: string, assetId: string): number {
+  const r = restrictionsOf(s);
+  let q = 0;
+  for (const o of s.orders) {
+    if (o.status !== 'open' || o.playerId !== playerId || o.assetId !== assetId || o.program === undefined) continue;
+    if (r.programs[o.program]?.kind === 'plan') q += o.qty - o.filledQty;
+  }
+  return q;
 }
 
 // ---------------------------------------------------------------- clearing (called by step)
@@ -1020,11 +1031,28 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       } else if (o.side === 'sell' && (locked > 0 || !(margin && acct0.canShort))) {
         q = Math.min(q, Math.max(0, held - locked));
       }
+      // the founder's daily sell cap (v1.7 §5.1, §6.1): window sells and plan fills share one room a game day. A plan sells
+      // first (its room is the cap less today's sales); any other sell leaves room for the plans still open today.
+      let capBound = false;
+      const cap = o.side === 'sell' && r0 !== undefined ? sellCapOf(r0, o.assetId, o.playerId) : undefined;
+      if (cap !== undefined && r0 !== undefined) {
+        const reserved = prog?.kind === 'plan' ? 0 : openPlanQty(s, o.playerId, o.assetId);
+        const room = Math.max(0, cap - soldOn(r0, o.assetId, o.playerId, dayNow) - reserved);
+        if (q > room + EPS) {
+          q = roundQty(def, room);
+          capBound = true;
+          if (prog?.kind === 'plan') o = { ...o, capMissed: true };
+        }
+      }
       if (q <= EPS) {
-        if (o.side === 'sell') s.orders[k] = { ...o, status: 'cancelled', rejectReason: 'insufficient position', closedTick: tick };
+        // a sell held back by the founder's day cap waits for the next day; a plan's remainder is a cap skip (below)
+        if (capBound && prog?.kind !== 'plan') continue;
+        if (o.side === 'sell') {
+          s.orders[k] = { ...o, status: 'cancelled', rejectReason: capBound ? 'sellCap' : 'insufficient position', closedTick: tick };
+        }
         // a plan order that cannot sell its day releases the escrow for it (or the escrow would stay locked for good)
         if (prog?.kind === 'plan' && s.restrictions) {
-          s.restrictions = programRelease(restrictionsOf(s), prog.id, o.qty - o.filledQty, 'volume', sessionDayAt(o.placedTick, tpd), tick, events);
+          s.restrictions = programRelease(restrictionsOf(s), prog.id, o.qty - o.filledQty, capBound ? 'cap' : 'volume', sessionDayAt(o.placedTick, tpd), tick, events);
         }
         continue;
       }
@@ -1077,6 +1105,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       };
       fills.push({ orderId: o.id, playerId: o.playerId, assetId: o.assetId, side: o.side, qty: q, price, fee, tick, mid: p0 });
       printTape(i, o.side, q, price, p0);
+      if (cap !== undefined) s.restrictions = addSold(restrictionsOf(s), o.assetId, o.playerId, dayNow, q);
       if (prog?.kind === 'plan' && s.restrictions) s.restrictions = programFill(restrictionsOf(s), prog.id, q, sessionDayAt(o.placedTick, tpd), tick, events);
 
       // one-cancels-other: a fill on a bracket leg cancels its sibling

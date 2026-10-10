@@ -510,6 +510,8 @@ export interface Order extends OrderRequest {
   rejectUntil?: number;
   /** a plan order: its last limit check failed on price (after the spread), so an unsold remainder is a price hold */
   priceMissed?: boolean;
+  /** a plan order: the founder's daily sell cap clipped it (its unsold remainder is a cap skip) */
+  capMissed?: boolean;
 }
 
 export interface Fill {
@@ -918,7 +920,7 @@ export type StepEvent =
   /** a covered or locked order refused, or cancelled at the fill: a closed window (untilDay = the next open day) or a lockup */
   | { type: 'restricted'; tick: number; playerId: string; assetId: string; code: 'closedWindow' | 'lockup'; untilDay?: number }
   /** a plan day that did not sell all of its quantity: price (the floor), volume (the ADV cap) or halt; qty is the shortfall */
-  | { type: 'planSkipped'; tick: number; programId: string; playerId: string; assetId: string; reason: 'volume' | 'price' | 'halt'; qty: number }
+  | { type: 'planSkipped'; tick: number; programId: string; playerId: string; assetId: string; reason: 'volume' | 'price' | 'cap' | 'halt'; qty: number }
   /** a plan ended: completed (its last day ran), terminated (delisting or default) or tender */
   | { type: 'planEnded'; tick: number; programId: string; playerId: string; assetId: string; reason: 'completed' | 'terminated' | 'tender' };
 

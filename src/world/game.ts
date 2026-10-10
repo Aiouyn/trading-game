@@ -1,5 +1,5 @@
 import {
-  cancelOrder, createWorld, modifyOrder, placeOrder, seedStream, step, tradeOption, universeConfig,
+  cancelOrderResult, createWorld, modifyOrder, placeOrder, seedStream, step, tradeOption, universeConfig,
   type WorldConfig,
 } from '@/engine';
 import {
@@ -37,7 +37,7 @@ import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick,
 import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
 import { applyFundCommand, crossRefusal, fundsBeforeStep, fundsDay, fundsFills, type FundCommand } from './funds';
 import { orderError } from './orders';
-import { companyCommand, companyDay } from './company/bridge';
+import { companyCommand, companyDay, companyFinanceCommand, companyStep, type CompanyFinanceCommand } from './company/bridge';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
 
 export interface CreateOptions {
@@ -119,6 +119,7 @@ export function stepGame(g: GameState): StepOutput {
   for (const f of r.fills) out.fills.push({ playerId: f.playerId, assetId: f.assetId, side: f.side, qty: f.qty, price: f.price, fee: f.fee, orderId: f.orderId });
   ledgerTick(g, r.events, r.fills);
   fundsFills(g, r.fills, out);
+  companyStep(g, r.fills, r.events);
   tradeStats(g, r.fills, realizedBefore, out);
   const stillOpen = new Set(g.market.orders.filter((o) => o.status === 'open').map((o) => o.id));
   for (const before of ordersBefore.values()) {
@@ -228,7 +229,10 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'order.cancel': {
       const o = g.market.orders.find((x) => x.id === cmd.orderId);
       if (!o || o.playerId !== pid) return fail('not your order');
-      g.market = cancelOrder(g.market, pid, cmd.orderId);
+      // the engine's cancel route reports a program order's refusal (planImmutable, buybackImmutable) to the player (B1)
+      const res = cancelOrderResult(g.market, pid, cmd.orderId);
+      if (res.error) return fail(res.error);
+      g.market = res.state;
       return { ok: true };
     }
     case 'order.modify': {
@@ -360,6 +364,15 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'block.cancel': return cancelBlock(g, p, cmd.planId);
     case 'company.found': return companyCommand(g, pid, cmd, out);
     case 'company.act': return companyCommand(g, pid, cmd, out);
+    case 'company.ipo':
+    case 'company.ipoOrder':
+    case 'company.plan':
+    case 'company.planCancel':
+    case 'company.buyback':
+    case 'company.loan':
+    case 'company.repay':
+    case 'company.dividend':
+      return companyFinanceCommand(g, pid, cmd as CompanyFinanceCommand, out);
     case 'fund.create':
     case 'fund.mandate':
     case 'fund.trade':

@@ -609,6 +609,15 @@ export type Command =
   | { type: 'block.cancel'; planId: string }
   | { type: 'company.found'; name: string; sector: CompanySector; cityId: string; capital: number }
   | { type: 'company.act'; companyId: string; action: CompanyAction }
+  /** B1 (company/bridge.ts): the IPO book, its subscriptions, sell-only plans, buybacks, loans, repayments and dividends */
+  | { type: 'company.ipo'; companyId: string; floatPct: number }
+  | { type: 'company.ipoOrder'; companyId: string; shares: number }
+  | { type: 'company.plan'; companyId: string; qtyPerDay: number; days: number[]; minSellPrice: number }
+  | { type: 'company.planCancel'; companyId: string; planId: string }
+  | { type: 'company.buyback'; companyId: string; size: number; fromDay: number; toDay: number }
+  | { type: 'company.loan'; companyId: string; amount: number; guarantee?: boolean; acknowledged?: boolean }
+  | { type: 'company.repay'; companyId: string; debtId: string; amount: number }
+  | { type: 'company.dividend'; companyId: string; perShare: number }
   /** player-run funds (funds/index.ts): the manager opens a fund with a stake, changes its mandate, and trades it */
   | { type: 'fund.create'; name: string; mandate: FundMandate; fees: FundFees; stake: number }
   | { type: 'fund.mandate'; fundId: string; mandate: FundMandate }
