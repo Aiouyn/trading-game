@@ -34,6 +34,7 @@ import { deskFileOf, deskQuery } from './desk';
 import { tripDetail } from './journal';
 import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick, setDrip, startBlock } from './plans';
 import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
+import { applyFundCommand, fundsDay, fundsFills, type FundCommand } from './funds';
 import { orderError } from './orders';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
 
@@ -113,6 +114,7 @@ export function stepGame(g: GameState): StepOutput {
   newsFromEvents(g, r.events, out);
   for (const f of r.fills) out.fills.push({ playerId: f.playerId, assetId: f.assetId, side: f.side, qty: f.qty, price: f.price, fee: f.fee, orderId: f.orderId });
   ledgerTick(g, r.events, r.fills);
+  fundsFills(g, r.fills, out);
   tradeStats(g, r.fills, realizedBefore, out);
   const stillOpen = new Set(g.market.orders.filter((o) => o.status === 'open').map((o) => o.id));
   for (const before of ordersBefore.values()) {
@@ -149,6 +151,7 @@ export function stepGame(g: GameState): StepOutput {
     workDay(g, out);
     planDay(g, out);
     dripDay(g, out, r.events);
+    fundsDay(g, out);
   }
 
   if (tick % NW_EVERY === 0 || newDay) {
@@ -340,6 +343,12 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'drip.set': return setDrip(g, p, cmd.assetId, cmd.on);
     case 'block.start': return startBlock(g, p, cmd.assetId, cmd.side, cmd.qty, cmd.slices);
     case 'block.cancel': return cancelBlock(g, p, cmd.planId);
+    case 'fund.create':
+    case 'fund.mandate':
+    case 'fund.trade':
+    case 'fund.deposit':
+    case 'fund.redeem':
+      return applyFundCommand(g, pid, cmd as FundCommand, out);
     case 'admin.advance': return fail('admin only');
     case 'admin.grant': {
       credit(g, pid, cmd.amount, 'admin');
