@@ -12,9 +12,11 @@ import { clipDay, median } from './hunt-helpers';
  * $72M ADV, the smallest-ADV stock) is checked too, in whole shares.
  *
  * Tape (hunts v1): the ratio and peak checks run on tape-01..tape-20 on defaultConfig (the bare engine), on
- * tape-01..tape-05 on universeConfig with ecology off (the bare impact law), and on tape-01..tape-05 on universeConfig
- * with full ecology (the game path). The full-ecology gate is the intraday peak lift, not the close: the closing auction
- * reverts part of the impact, so the one-day close lift is noisy, and the close ratio is logged as info only.
+ * tape-01..tape-05 on universeConfig with ecology off (the bare impact law), and on tape-01..tape-20 on universeConfig
+ * with full ecology (the game path). The full-ecology gate is the intraday peak lift, not the close, as Ledger decided;
+ * the close ratio is logged as info. Phase 1 F5/F6: the AURH tape-10 peak ratio was 2.74 because the ecology book was
+ * anchored AFTER the first tick's fills (sim.ts ecologyStep): a one-clip day anchored on its own tick-1 impact, the value
+ * pool sold it back at the close, and the many-clip day did not. Anchored before the fills, the 20-seed ratios are all in band.
  */
 const NOTIONAL = 1e6;
 const cfg = defaultConfig(); // the real 720 ticks per game day
@@ -68,17 +70,17 @@ describe('self impact: clips cost the same permanent impact as one order', () =>
   }
 
   // The game path (universe, full ecology). The gate is the intraday peak lift ratio, two-sided per seed: the largest lnP
-  // move the day reaches, before the closing auction can revert it. The close lift is not gated here. Under full ecology
-  // the auction sets the close and the one-clip close lift is near zero on some seeds, so a close ratio of two small
-  // numbers swings widely: on 20 seeds the one-clip close lift is <= 0 in 3 of 20 SYN and 4 of 20 AURH runs (hunts.ts
-  // info lines selfimpact_close1_nonpositive). The gate covers tape-01..05 only: on 20 seeds the AURH peak ratio is
-  // 0.83 to 2.74 (tape-10 is 2.74, outside the band; hunts.ts info lines selfimpact_peak_ratio_*), an open item for Ledger.
-  // The close ratio is printed for the record. Ledger's 0.997 sign-off used the close and is not reproduced by this gate.
+  // move the day reaches, before the closing auction can revert it. Under full ecology the auction sets the close, so the
+  // close ratio of two small one-day lifts is noisy and is logged as info only. 20 seeds. Before the F5/F6 fix (the ecology
+  // book anchored after tick 1's fills) the AURH peak ratio was 0.83 to 2.74 (tape-10 2.74) and the one-clip close lift was
+  // <= 0 on 3 of 20 SYN and 4 of 20 AURH seeds. After it, the 20-seed peak ratios are 0.967 to 1.010 (SYN) and 0.982 to 0.999
+  // (AURH), the close ratio median is 0.997 (Ledger's 0.997 sign-off), and the one-clip close lift is positive on all 20.
+  // No legitimate tail was found, so the band is the same (0.75, 1.5] on every seed, not a percentile band.
   for (const id of ['SYN', 'AURH']) {
-    it(`self_impact_peak_ratio (${id}, universeConfig 720 ticks, full ecology, tape-01..05): intraday peak lift ratio in (0.75, 1.5]`, { timeout: 60_000 }, () => {
+    it(`self_impact_peak_ratio (${id}, universeConfig 720 ticks, full ecology, tape-01..20): intraday peak lift ratio in (0.75, 1.5]`, { timeout: 180_000 }, () => {
       const peakRatios: number[] = [];
       const closeRatios: number[] = [];
-      for (const seed of UNI_SEEDS) {
+      for (const seed of SEEDS) {
         const one = dayLift(id, 1, uniCfg, seed);
         const many = dayLift(id, 720, uniCfg, seed);
         expect(one.peak).toBeGreaterThan(0);
@@ -88,7 +90,7 @@ describe('self impact: clips cost the same permanent impact as one order', () =>
         expect(ratio).toBeLessThanOrEqual(1.5);
         expect(ratio).toBeGreaterThan(0.75);
       }
-      console.log(`self_impact_peak_ratio ${id} universe full-ecology 5 seeds: peak ratio median ${median(peakRatios).toFixed(4)}, per seed ${peakRatios.map((x) => x.toFixed(3)).join(' ')}; info close-lift ratio median ${median(closeRatios).toFixed(4)}, per seed ${closeRatios.map((x) => x.toFixed(3)).join(' ')}`);
+      console.log(`self_impact_peak_ratio ${id} universe full-ecology 20 seeds: peak ratio median ${median(peakRatios).toFixed(4)}, per seed ${peakRatios.map((x) => x.toFixed(3)).join(' ')}; info close-lift ratio median ${median(closeRatios).toFixed(4)}, per seed ${closeRatios.map((x) => x.toFixed(3)).join(' ')}`);
     });
   }
 
@@ -225,5 +227,28 @@ describe('shockValue (test-only)', () => {
     expect(() => shockValue(s0, 'HLCN', -1)).toThrow();
     expect(() => shockValue(s0, 'HLCN', Number.NaN)).toThrow();
     expect(() => shockPrice(s0, 'NOPE', 0.1)).toThrow();
+  });
+});
+
+/**
+ * F5/F6 root cause (AURH tape-10, peak ratio 2.74). A fresh ecology book is created on the first tick, and it was anchored on
+ * the state AFTER that tick's fills. A player's tick-1 impact then became the day's value anchor: the value pool sold it
+ * back at the close, so a one-clip day closed below its intraday peak and a 720-clip day did not. The anchor is now the
+ * priced state before the fills, so the same tick-1 buy leaves the book where it is in a world with nobody trading.
+ */
+describe('ecology anchor: a fresh book is set before the first tick\'s fills', () => {
+  it('a tick-1 buy does not move the new book\'s core or close; its flow still enters as own flow', () => {
+    const c = universeConfig({ ticksPerDay: 720 });
+    const i = c.assets.findIndex((a) => a.id === 'AURH');
+    const px = c.assets[i]!.initialPrice;
+    const nobody = openAccount(createWorld('anchor', c), 'p1', 3e6);
+    const buyer = placeOrder(nobody, { playerId: 'p1', assetId: 'AURH', side: 'buy', type: 'market', qty: Math.floor(1e6 / px) }).state;
+    const a = step(buyer);
+    const b = step(nobody);
+    expect(a.fills.length).toBeGreaterThan(0);
+    expect(a.state.ecology!.assets[i]!.core).toBe(b.state.ecology!.assets[i]!.core);
+    expect(a.state.ecology!.assets[i]!.lnS).toBe(b.state.ecology!.assets[i]!.lnS);
+    expect(a.state.ecology!.assets[i]!.own).toBeGreaterThan(0);
+    expect(b.state.ecology!.assets[i]!.own).toBe(0);
   });
 });

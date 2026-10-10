@@ -3,7 +3,7 @@ import { createWorld, step, stepMany } from './sim';
 import { defaultConfig } from './config';
 import { universeConfig } from './universe';
 import { openAccount, placeOrder } from './trading';
-import { DEFAULT_ECOLOGY, ecologyLog, ecologyWeight } from './ecology';
+import { DEFAULT_ECOLOGY, ecoDayInput, ecologyDay, ecologyLog, ecologyWeight, initEcology } from './ecology';
 import type { StepEvent, WorldConfig, WorldState } from './types';
 
 /**
@@ -137,5 +137,44 @@ describe('full ecology: the pools set the close (closing auction)', () => {
     const one = close(1) - q, ten = close(10) - q;
     expect(one).toBeGreaterThan(0);
     expect(Math.abs(ten / one - 1)).toBeLessThanOrEqual(0.01);
+  });
+});
+
+/**
+ * F8 (Phase 1 huge money): the player's own flow enters the close capped at maxAdvPerTick (3 x ADV), in either direction
+ * (ecology.ts ecologyDay). Uncapped, own flow of 50 ADV moved FROG's close like a 50 ADV pool (+5.88 log in one day). Capped,
+ * anything above 3 ADV moves the close, the book and the inventory exactly as 3 ADV does. Below the cap own flow enters in full.
+ */
+describe('F8 own-flow cap at the close', () => {
+  const c = universeConfig({ ticksPerDay: 24 });
+  const w = createWorld('f8-cap', c);
+  const i = c.assets.findIndex((a) => a.id === 'FROG');
+  const eco0 = initEcology(w);
+  const input = ecoDayInput(w, 0);
+  const closeWith = (own: number) => {
+    const eco = { ...eco0, assets: eco0.assets.map((a, k) => (k === i ? { ...a, own } : a)) };
+    return ecologyDay(c, eco, input, { setsClose: true, full: true }).assets[i]!;
+  };
+
+  it('own buying above the cap closes, books and inventories exactly as the cap does', () => {
+    const cap = closeWith(3);
+    const big = closeWith(50);
+    expect(big.lnS).toBe(cap.lnS);
+    expect(big.core).toBe(cap.core);
+    expect(big.skew).toBe(cap.skew);
+    expect(big.inv).toBe(cap.inv);
+  });
+
+  it('own selling above the cap is capped the same way, in the other direction', () => {
+    const cap = closeWith(-3);
+    const big = closeWith(-50);
+    expect(big.lnS).toBe(cap.lnS);
+    expect(big.inv).toBe(cap.inv);
+  });
+
+  it('below the cap own flow is not clipped, and the cap is not a no-op (3 ADV moves the close)', () => {
+    expect(closeWith(2).lnS).not.toBe(closeWith(3).lnS);
+    expect(closeWith(3).lnS).not.toBe(closeWith(0).lnS);
+    expect(closeWith(-2).lnS).not.toBe(closeWith(-3).lnS);
   });
 });

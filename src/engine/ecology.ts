@@ -337,7 +337,14 @@ export function ecologyDay(cfg: WorldConfig, eco: EcologyState, input: EcoDayInp
     qTrend[i] = q.trend;
 
     // ---- clear against the maker ----
-    const own = e.own;
+    // F8 (Phase 1 huge money): the player's own flow enters the close capped at the trading layer's shared cap,
+    // maxAdvPerTick (3 x ADV), in either direction, as ONE day's total. The trading layer applies that number per TICK
+    // (trading.ts clearOrders, shared tally tickTraded); this close clears once a day, so the cap here is per day. The
+    // per-tick reading times ticksPerDay (72 ADV a day at 24 ticks) would not bind on FROG's 5.83 ADV day, so it cannot
+    // bound F8; the per-day reading is the lead's F8 decision, and the per-tick reading is still open for the lead to confirm. Uncapped, own flow reached 5.83 ADV
+    // on FROG (+5.88 log in one day). e.own itself is left alone: the Players rule reads ownBy.
+    const ownCap = (cfg.trading ?? DEFAULT_TRADING).maxAdvPerTick;
+    const own = clamp(e.own, -ownCap, ownCap);
     const net = q.value + q.trend + q.retail + q.pension + own;
     const I = (sgn(net) * Y * s * Math.sqrt(Math.abs(net))) / depth;
     core += ec.permanentShare * I;

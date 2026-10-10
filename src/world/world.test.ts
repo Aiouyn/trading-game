@@ -230,7 +230,9 @@ describe('AI lab', () => {
 });
 
 describe('security and court', () => {
-  it('a planted session is invisible to the victim, copies over time, and cutting it yields evidence that wins in court', () => {
+  // explicit timeout: this test runs a full session replay and took 5.9 s when the 20-seed hunts ran alongside it (the
+  // default is 5 s). It passes in 1.3 s unloaded; the assertions are unchanged.
+  it('a planted session is invisible to the victim, copies over time, and cutting it yields evidence that wins in court', { timeout: 60_000 }, () => {
     const g = game('sec');
     cmd(g, 'att', { type: 'join', handle: 'attacker', country: 'AV' });
     cmd(g, 'vic', { type: 'join', handle: 'victim', country: 'AV' });
