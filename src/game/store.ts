@@ -69,6 +69,9 @@ export interface GameStore {
   chartMode: 'candles' | 'line';
   indicators: Partial<Record<IndicatorId, boolean>>;
   tradeSheetOpen: boolean;
+  /** Trading: a single Enter sends an order under 10% of cash (tg-prefs quickEnter). */
+  quickEnter: boolean;
+  setQuickEnter: (on: boolean) => void;
   moreOpen: boolean;
   inboxOpen: boolean;
   chatOpen: boolean;
@@ -161,6 +164,12 @@ function readPrefs(): Partial<Pick<GameStore, 'indicators' | 'range' | 'chartMod
   if (p.chart.chartMode === 'candles' || p.chart.chartMode === 'line') out.chartMode = p.chart.chartMode;
   if (p.lastTicker) out.selected = p.lastTicker;
   return out;
+}
+
+/** The quick-Enter setting from tg-prefs (off until the player turns it on). */
+function readQuickEnter(): boolean {
+  const kv = prefsStore();
+  return kv ? readPrefsFrom(kv).quickEnter === true : false;
 }
 
 function writePrefs(s: GameStore): void {
@@ -302,6 +311,7 @@ export const useGame = create<GameStore>((set, get) => {
     chartMode: 'candles',
     indicators: {},
     tradeSheetOpen: false,
+    quickEnter: readQuickEnter(),
     moreOpen: false,
     inboxOpen: false,
     chatOpen: false,
@@ -398,6 +408,11 @@ export const useGame = create<GameStore>((set, get) => {
     setChartMode(chartMode) { set({ chartMode }); writePrefs(get()); },
     toggleIndicator(id) { set({ indicators: { ...get().indicators, [id]: !get().indicators[id] } }); writePrefs(get()); },
     setTradeSheet(tradeSheetOpen) { set({ tradeSheetOpen }); },
+    setQuickEnter(on) {
+      set({ quickEnter: on });
+      const kv = prefsStore();
+      if (kv) updatePrefs(kv, (p) => ({ ...p, quickEnter: on }));
+    },
     setMore(moreOpen) { set({ moreOpen }); },
     setInbox(inboxOpen) {
       set({ inboxOpen });

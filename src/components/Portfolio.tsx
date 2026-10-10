@@ -7,8 +7,9 @@ import { compactMoney, money, pct, price, qty, signedMoney, signedPct, tone, ton
 import { clockLabel } from '@/game/clock';
 import { assetDefOf, useGame } from '@/game/store';
 import { t } from '@/i18n';
+import type { FillReason } from '@/engine/ledger-types';
 import { NetWorth } from './Header';
-import { Positions } from './Holdings';
+import { Positions, reasonLabel } from './Holdings';
 import { type ChartOverlay, PriceChart } from './apps/broker/PriceChart';
 import { ClosesCard, LuckCard } from './PortfolioLuck';
 import { Card, CardHeader, KV, Segmented, Stat, Td, Th } from './ui';
@@ -121,6 +122,9 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
   const rentDay = me.properties.filter((p) => p.id !== me.player.homePropId).reduce((s, p) => s + (p.value * (PROPERTY_TYPE_BY_ID.get(p.typeId)?.rentYield ?? 0)) / 252, 0);
   const mortgageDay = me.properties.reduce((s, p) => s + (p.mortgage * p.mortgageRate) / 252, 0);
   const closed = me.orders.filter((o) => o.status !== 'open').slice(-50).reverse();
+  // the reason each order's first fill carried (M13): settlements and expiries have no order id, so they are not listed here
+  const reasonByOrder = new Map<string, FillReason>();
+  for (const f of me.trading?.fills ?? []) if (f.orderId !== null && !reasonByOrder.has(f.orderId)) reasonByOrder.set(f.orderId, f.reason);
 
   return (
     <div className="flex flex-col gap-4" data-testid="portfolio-view">
@@ -215,18 +219,25 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
         {closed.length === 0 ? <p className="px-4 pb-6 text-small text-fg-faint">{t('portfolio.nothing')}</p> : (
           <div className="overflow-x-auto">
             <table className="w-full text-small">
-              <thead><tr><Th>{t('portfolio.col.time')}</Th><Th>{t('portfolio.col.order')}</Th><Th right>{t('portfolio.col.filled')}</Th><Th right>{t('portfolio.col.avgPrice')}</Th><Th right>{t('portfolio.col.fees')}</Th><Th>{t('portfolio.col.status')}</Th></tr></thead>
+              <thead><tr><Th>{t('portfolio.col.time')}</Th><Th>{t('portfolio.col.order')}</Th><Th right>{t('portfolio.col.filled')}</Th><Th right>{t('portfolio.col.avgPrice')}</Th><Th right>{t('portfolio.col.fees')}</Th><Th>{t('portfolio.col.reason')}</Th><Th>{t('portfolio.col.status')}</Th></tr></thead>
               <tbody>
-                {closed.map((o) => (
-                  <tr key={o.id} className="border-t border-ink-2" data-testid={`order-row-${o.id}`}>
-                    <Td num className="text-fg-faint">{clockLabel(o.closedTick ?? o.placedTick, 720)}</Td>
-                    <Td><span className={o.side === 'buy' ? 'text-gain' : 'text-loss'}>{o.side === 'buy' ? t('common.buy') : t('common.sell')}</span> {qty(o.qty)} {o.assetId} <span className="text-fg-faint">{o.type}{o.forced ? ` · ${t('portfolio.liquidation')}` : ''}</span></Td>
-                    <Td right num>{qty(o.filledQty)}</Td>
-                    <Td right num>{o.filledQty ? price(o.avgFillPrice) : '—'}</Td>
-                    <Td right num>{money(o.feesPaid)}</Td>
-                    <Td className="text-fg-muted">{o.status}{o.rejectReason ? ` · ${o.rejectReason}` : ''}</Td>
-                  </tr>
-                ))}
+                {closed.map((o) => {
+                  const reason = reasonByOrder.get(o.id);
+                  return (
+                    <tr key={o.id} className="border-t border-ink-2" data-testid={`order-row-${o.id}`}>
+                      <Td num className="text-fg-faint">{clockLabel(o.closedTick ?? o.placedTick, 720)}</Td>
+                      <Td>
+                        <span className={o.side === 'buy' ? 'text-gain' : 'text-loss'}>{o.side === 'buy' ? t('common.buy') : t('common.sell')}</span> {qty(o.qty)} {o.assetId}{' '}
+                        <span className="text-fg-faint">{t(`order.${o.type}`)}{o.forced ? ` · ${t('portfolio.liquidation')}` : ''}</span>
+                      </Td>
+                      <Td right num>{qty(o.filledQty)}</Td>
+                      <Td right num>{o.filledQty ? price(o.avgFillPrice) : '—'}</Td>
+                      <Td right num>{money(o.feesPaid)}</Td>
+                      <Td className="text-fg-muted"><span data-testid={`order-reason-${o.id}`}>{reason ? reasonLabel(reason) : '—'}</span></Td>
+                      <Td className="text-fg-muted">{o.status}{o.rejectReason ? ` · ${o.rejectReason}` : ''}</Td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

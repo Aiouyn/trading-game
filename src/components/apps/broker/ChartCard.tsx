@@ -1,6 +1,6 @@
 'use client';
 
-import { earningsInfo, REGIONS, sectorName } from '@/engine';
+import { earningsInfo, liquidationPrice, REGIONS, sectorName } from '@/engine';
 import { RANGES, type RangeId } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
 import { price, signedChange, signedPct, tone, toneText } from '@/game/format';
@@ -28,7 +28,11 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const setMode = useGame((s) => s.setChartMode);
   const indicators = useGame((s) => s.indicators);
   const toggle = useGame((s) => s.toggleIndicator);
+  const playerId = useGame((s) => s.playerId);
   const info = seriesInfo(world, ticker, rankId);
+  // the engine's own margin trigger for a held margin or short position (null when none applies): the chart draws it
+  const liq = !isIndex(info.id) && world && playerId ? liquidationPrice(world, playerId, info.id) : null;
+  const marks = liq === null ? [] : [{ price: liq, title: t('broker.liquidation') }];
   const day = useGame.getState().history.series[ticker]?.daily.at(-1);
   const toneCls = toneText[tone(info.change)];
   const ranges = narrow ? RANGE_OPTS.filter((r) => r.value !== '1Q') : RANGE_OPTS;
@@ -83,8 +87,9 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
         ))}
       </div>
       <div className="mt-3 h-[min(46vh,420px)] min-h-64">
-        <PriceChart assetId={info.id} />
+        <PriceChart assetId={info.id} marks={marks} />
       </div>
+      {liq !== null && <p className="mt-2 text-caption text-fg-faint" data-testid="liquidation-note">{t('broker.liquidationNote', { price: price(liq) })}</p>}
     </Card>
   );
 }

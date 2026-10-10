@@ -1,6 +1,6 @@
-import { estimateFill, type Side } from '@/engine';
+import { estimateFill, type Side, type StepEvent } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
-import { BLOCK, DRIP, RECURRING } from '@/content/learning';
+import { BLOCK, DRIP, RECURRING, SIMPLE_MODE } from '@/content/learning';
 import { cashOf, findOrder, priceOf, spendableCash, today } from './core';
 import { ensureLedger } from './ledger';
 import { placeChecked } from './orders';
@@ -17,6 +17,27 @@ import type { CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
 const fail = (error: string): CommandResult => ({ ok: false, error });
+
+/** The simple-mode cap in whole percent, for the plan lines that name it (the same constant the gate reads). */
+const CAP_PCT = Math.round(SIMPLE_MODE.capFraction * 100);
+
+/**
+ * Why a plan's order was refused, as the suffix of its message key (en.json and fr.json hold one line per reason). The gate
+ * and the engine refuse in English; this maps their text to a reason so the viewer's language renders the line. A buy is
+ * never refused for position, and anything unknown is 'refused'.
+ */
+export type Refusal = 'cash' | 'cap' | 'court' | 'license' | 'delisted' | 'position' | 'refused';
+
+export function refusal(error: string | undefined): Refusal {
+  const e = error ?? '';
+  if (e.startsWith('Simple mode caps')) return 'cap';
+  if (e.includes('held by the court')) return 'court';
+  if (e.includes('needs the Pro license')) return 'license';
+  if (e === 'insufficient cash') return 'cash';
+  if (e === 'insufficient position') return 'position';
+  if (e === 'delisted') return 'delisted';
+  return 'refused';
+}
 
 function tradable(g: GameState, assetId: string): boolean {
   const def = g.market.config.assets.find((a) => a.id === assetId);
@@ -161,7 +182,7 @@ function blockStep(g: GameState, p: Player, L: PlayerLedger, b: BlockPlan, out: 
   const r = placeChecked(g, p, { assetId: b.assetId, side: b.side, type: 'market', qty }, 'block_slice');
   if (!r.ok) {
     L.plans.blocks = L.plans.blocks.filter((x) => x.id !== b.id);
-    say(g, out, p.id, 'plan', 'warn', { key: 'work.block.stopped', vars: { asset: b.assetId, reason: r.error ?? '' } });
+    say(g, out, p.id, 'plan', 'warn', { key: `work.block.stopped.${refusal(r.error)}`, vars: { asset: b.assetId, cap: CAP_PCT } });
     return;
   }
   const o = r.data as { id: string };
@@ -184,45 +205,49 @@ export function planDay(g: GameState, out: StepOutput | null): void {
       r.nextDay = d + r.everyDays;
       const qty = unitsFor(g, r.assetId, r.dollars);
       if (!(qty > 0)) {
-        say(g, out, pid, 'plan', 'warn', { key: 'work.recurring.skipped', vars: { asset: r.assetId, reason: 'below one unit' } });
+        say(g, out, pid, 'plan', 'warn', { key: 'work.recurring.skipped.unit', vars: { asset: r.assetId } });
         continue;
       }
       const est = estimateFill(g.market, { assetId: r.assetId, side: 'buy', qty });
       if (est.total > spendableCash(g, pid)) {
-        say(g, out, pid, 'plan', 'warn', { key: 'work.recurring.skipped', vars: { asset: r.assetId, reason: 'not enough cash' } });
+        say(g, out, pid, 'plan', 'warn', { key: 'work.recurring.skipped.cash', vars: { asset: r.assetId } });
         continue;
       }
       const placed = placeChecked(g, p, { assetId: r.assetId, side: 'buy', type: 'market', qty }, 'recurring_buy');
-      if (!placed.ok) say(g, out, pid, 'plan', 'warn', { key: 'work.recurring.skipped', vars: { asset: r.assetId, reason: placed.error ?? '' } });
+      if (!placed.ok) say(g, out, pid, 'plan', 'warn', { key: `work.recurring.skipped.${refusal(placed.error)}`, vars: { asset: r.assetId, cap: CAP_PCT } });
     }
   }
 }
 
 /**
- * DRIP: the dividend this day (the engine credits it on the day's first tick, when the config pays dividends) buys the same
- * asset at the next tick. Called on the day boundary after the step. The amount is the engine's own formula on the
- * position's value.
+ * DRIP: the dividend this day buys the same asset at the next tick. The amount is the engine's own credit: clearOrders
+ * emits one `dividend` event per holder and asset on the day's boundary, and those events come in here. A dividend the
+ * cash cannot yet buy a unit of is carried to the next day.
  */
-export function dripDay(g: GameState, out: StepOutput | null): void {
-  if (!g.market.config.rates) return;
-  const dpy = g.market.config.daysPerYear;
+export function dripDay(g: GameState, out: StepOutput | null, events: StepEvent[]): void {
+  const paid = new Map<string, number>();
+  for (const e of events) {
+    if (e.type !== 'dividend' || e.amount <= 0) continue;
+    const k = `${e.playerId}\u0000${e.assetId}`;
+    paid.set(k, (paid.get(k) ?? 0) + e.amount);
+  }
   for (const [pid, L] of Object.entries(g.ledgers ?? {})) {
     if (!L.plans.drip.length) continue;
     const p = g.players[pid];
     const acct = g.market.accounts[pid];
     if (!p || p.npc || !acct) continue;
     for (const assetId of [...L.plans.drip]) {
-      const def = g.market.config.assets.find((a) => a.id === assetId);
       const pos = acct.positions[assetId];
-      if (!def?.dividendYield || !pos || !(pos.qty > 0)) continue;
-      const amount = (pos.qty * priceOf(g, assetId) * def.dividendYield) / dpy;
-      const carry = (L.plans.carry[assetId] ?? 0) + amount;
+      if (!pos || !(pos.qty > 0)) continue;
+      const carry = (L.plans.carry[assetId] ?? 0) + (paid.get(`${pid}\u0000${assetId}`) ?? 0);
+      if (!(carry > 0)) continue;
       const qty = unitsFor(g, assetId, Math.min(carry, cashOf(g, pid)));
       if (!(qty > 0)) { L.plans.carry[assetId] = carry; continue; }
       const placed = placeChecked(g, p, { assetId, side: 'buy', type: 'market', qty }, 'dividend_reinvest');
       if (!placed.ok) { L.plans.carry[assetId] = carry; continue; }
-      L.plans.carry[assetId] = Math.max(0, carry - qty * priceOf(g, assetId));
-      say(g, out, pid, 'plan', 'info', { key: 'work.drip.bought', vars: { asset: assetId, qty, amount: usd(amount) } });
+      const cost = qty * priceOf(g, assetId); // the buy is priced at the next tick; this is the day's mark, for the line only
+      L.plans.carry[assetId] = Math.max(0, carry - cost);
+      say(g, out, pid, 'plan', 'info', { key: 'work.drip.bought', vars: { asset: assetId, qty, amount: usd(cost) } });
     }
   }
 }

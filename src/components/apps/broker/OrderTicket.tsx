@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { buyingPower, commission, estimateFill, tradingConfig, type OrderType, type Side } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
-import { SIMPLE_MODE } from '@/content/learning';
+import { QUICK_ENTER, SIMPLE_MODE } from '@/content/learning';
 import { money, price, qty as fmtQty } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
 import { getDraft, setDraft } from '@/components/os/drafts';
+import { isPhoneViewport } from '@/components/os/phoneStore';
 import { Button, Card, KV, LockGlyph, NumberField, Segmented } from '@/components/ui';
+import { quickEnterAllowed, tradeKeyIntent } from './tradeKeys';
 
 const TYPE_OPTS: { value: OrderType; key: string; testId: string }[] = [
   { value: 'market', key: 'order.market', testId: 'type-market' },
@@ -25,6 +27,12 @@ interface Refusal { key: string; vars?: Record<string, string | number> }
 function num(s: string): number {
   const v = Number(s);
   return Number.isFinite(v) ? v : 0;
+}
+
+/** Native controls keep their own Enter (a button clicks, a checkbox toggles), so the ticket leaves that Enter alone. */
+function nativeEnter(el: HTMLElement | null): boolean {
+  if (!el) return false;
+  return el.tagName === 'BUTTON' || el.tagName === 'A' || (el instanceof HTMLInputElement && el.type === 'checkbox');
 }
 
 /**
@@ -47,6 +55,9 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
   const setSheet = useGame((s) => s.setTradeSheet);
+  const quick = useGame((s) => s.quickEnter);
+  const setQuick = useGame((s) => s.setQuickEnter);
+  const rootRef = useRef<HTMLDivElement>(null);
   // A ticket reopened after its window or phone app closed restores what was typed. A preset still wins (P2-161).
   const saved = getDraft(selected);
   const [side, setSide] = useState<Side>(preset?.side ?? saved?.side ?? 'buy');
@@ -59,6 +70,9 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   const [bracket, setBracket] = useState(false);
   const [tp, setTp] = useState('');
   const [sl, setSl] = useState('');
+  // The confirm line belongs to one order: it holds that order's signature, so any edit clears it without an effect.
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const signature = [side, type, q, limit, stop, trail, tif, bracket, tp, sl].join('|');
   // Unsent input is a session draft for this ticker (P2-160, P2-161): it stays when the ticket unmounts, and Recent
   // shows its dot. It is never sent from there. An empty quantity (a sent order clears it) leaves no draft.
   useEffect(() => {
@@ -74,44 +88,29 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
     return { def, mid: Math.exp(a.lnP), halted: a.haltUntil !== -1 && a.haltUntil > world.tick };
   }, [world, me, playerId, selected, config]);
 
-  if (!world || !me || !playerId) return null;
-  if (!ctx) {
-    const delisted = isDelisted(config, selected);
-    const untradable = !isIndex(selected) && isUntradable(config, selected);
-    return (
-      <Card className="p-4" data-testid="order-pad">
-        <h2 className="font-serif text-title">{t('broker.trade')}</h2>
-        {delisted
-          ? <p className="mt-2 text-small text-loss" data-testid="order-delisted">{t('broker.delistedTicket', { ticker: selected })}</p>
-          : untradable
-            ? <p className="mt-2 text-small text-fg-muted" data-testid="order-untradable">{t('broker.notTradable.ticket', { ticker: selected })}</p>
-            : <p className="mt-2 text-small text-fg-muted">{t('broker.indexNoTrade')}</p>}
-      </Card>
-    );
-  }
-  const { def, mid, halted } = ctx;
-  const lic = licenseFor(me.player.rankId);
-  const locked = !lic.classes.includes(def.assetClass);
-  const acct = me.account!;
-  const held = acct.positions[selected]?.qty ?? 0;
-  const whole = def.assetClass === 'stock';
-  const firstTrade = me.player.stats.trades === 0 && !me.player.onboarding.skipped;
+  const ready = !!(world && me && playerId && ctx);
+  const lic = ready ? licenseFor(me!.player.rankId) : null;
+  const locked = ready && lic ? !lic.classes.includes(ctx!.def.assetClass) : false;
+  const acct = me?.account ?? null;
+  const held = acct?.positions[selected]?.qty ?? 0;
+  const whole = ctx?.def.assetClass === 'stock';
+  const firstTrade = !!me && me.player.stats.trades === 0 && !me.player.onboarding.skipped;
   const simple = firstTrade;
   const qtyN = num(q);
-  const est = estimateFill(world, { assetId: selected, side, qty: Math.max(qtyN, whole ? 1 : 0.0001) });
-  const refPrice = type === 'limit' || type === 'stop_limit' ? num(limit) || est.price : type === 'stop' ? num(stop) || est.price : est.price;
+  const est = world && ctx ? estimateFill(world, { assetId: selected, side, qty: Math.max(qtyN, whole ? 1 : 0.0001) }) : null;
+  const refPrice = est ? (type === 'limit' || type === 'stop_limit' ? num(limit) || est.price : type === 'stop' ? num(stop) || est.price : est.price) : 0;
   const notional = qtyN * refPrice;
-  const fee = commission(world, def, notional);
+  const fee = world && ctx ? commission(world, ctx.def, notional) : 0;
   const total = side === 'buy' ? notional + fee : notional - fee;
-  const bp = buyingPower(world, playerId);
-  const margin = (acct.maxLeverage ?? 1) > 1 || !!acct.canShort;
+  const bp = world && playerId ? buyingPower(world, playerId) : 0;
+  const margin = !!acct && ((acct.maxLeverage ?? 1) > 1 || !!acct.canShort);
   // the server's rule (orders.ts): every buy below R1 is capped, not only the first trade
-  const simpleCap = rankIndex(me.player.rankId) < rankIndex(SIMPLE_MODE.untilRank);
-  const capCash = simpleCap ? acct.cash * SIMPLE_MODE.capFraction : Infinity;
-  const budget = side === 'buy' ? Math.min(margin ? bp : acct.cash, capCash) : 0;
-  const maxQty = side === 'buy'
-    ? Math.max(0, (budget - (def.assetClass === 'crypto' ? 0 : 1)) / (est.price * 1.002))
-    : held > 0 ? held : acct.canShort ? bp / est.price : 0;
+  const simpleCap = !!me && rankIndex(me.player.rankId) < rankIndex(SIMPLE_MODE.untilRank);
+  const capCash = acct && simpleCap ? acct.cash * SIMPLE_MODE.capFraction : Infinity;
+  const budget = side === 'buy' ? Math.min(margin ? bp : acct?.cash ?? 0, capCash) : 0;
+  const maxQty = !est ? 0 : side === 'buy'
+    ? Math.max(0, (budget - (ctx?.def.assetClass === 'crypto' ? 0 : 1)) / (est.price * 1.002))
+    : held > 0 ? held : acct?.canShort ? bp / est.price : 0;
   const roundQ = (x: number) => (whole ? Math.floor(x) : Math.floor(x * 1e4) / 1e4);
   const shorting = side === 'sell' && qtyN > Math.max(0, held) + 1e-9;
 
@@ -120,10 +119,11 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
 
   // Every refusal says why (the ticket never just greys out): the first failing rule wins.
   let invalid: Refusal | null = null;
-  if (locked) invalid = { key: 'broker.refuse.license', vars: { tier: t(def.assetClass === 'stock' || def.assetClass === 'crypto' ? 'broker.tier.retail' : 'broker.tier.pro') } };
+  if (!ctx || !acct || !est) invalid = null;
+  else if (locked) invalid = { key: 'broker.refuse.license', vars: { tier: t(ctx.def.assetClass === 'stock' || ctx.def.assetClass === 'crypto' ? 'broker.tier.retail' : 'broker.tier.pro') } };
   else if (qtyN <= 0) invalid = null;
   else if (whole && !Number.isInteger(qtyN)) invalid = { key: 'broker.refuse.whole' };
-  else if (side === 'buy' && simpleCap && qtyN * mid > capCash + 1e-6) invalid = { key: 'broker.firstCap', vars: firstCapVars };
+  else if (side === 'buy' && simpleCap && qtyN * ctx.mid > capCash + 1e-6) invalid = { key: 'broker.firstCap', vars: firstCapVars };
   else if (side === 'buy' && !margin && total > acct.cash + 1e-6) invalid = { key: 'broker.refuse.cash', vars: { total: money(total), cash: money(acct.cash) } };
   else if (side === 'buy' && margin && notional > bp + Math.max(0, -held) * refPrice + 1e-6) invalid = { key: 'broker.refuse.bp', vars: { need: money(notional), bp: money(bp) } };
   else if (shorting && !acct.canShort) invalid = held > 0 ? { key: 'broker.refuse.fewer' } : { key: 'broker.refuse.short' };
@@ -134,12 +134,14 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   else if (bracket && (side === 'buy' ? num(tp) <= num(sl) : num(tp) >= num(sl))) invalid = { key: 'broker.refuse.bracketSide' };
 
   const canSubmit = !invalid && qtyN > 0;
+  const confirming = canSubmit && confirm === signature;
   const verb = side === 'buy'
     ? (held < 0 ? t('broker.verb.cover') : t('broker.verb.buy'))
     : shorting ? t('broker.verb.short') : t('broker.verb.sell');
   const actionLabel = t('broker.action', { verb, qty: qtyN > 0 ? fmtQty(qtyN) : '', ticker: selected }).replace(/\s+/g, ' ').trim();
 
   const submit = async () => {
+    setConfirm(null);
     if (isUntradable(config, selected)) return; // a delisted or off-book name is refused before anything is sent
     const order = {
       assetId: selected, side, type, qty: qtyN, tif,
@@ -159,19 +161,79 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
     }
   };
 
+  // Keyboard trading (M10): B and S set the side, 1 to 4 the order type, slash finds an asset, and Enter asks for the
+  // confirm line; a second Enter sends it (one Enter does, under the quick-Enter setting, for a small order). Escape
+  // cancels the confirm. Only the focused desktop window reacts, and a typed key in a field stays typed. The listener is
+  // registered on every render, so it always sees this render's order.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!ready || e.ctrlKey || e.metaKey || e.altKey || isPhoneViewport()) return;
+      const win = rootRef.current?.closest('.os-win');
+      if (!win?.classList.contains('active')) return;
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      const typing = !!el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+      const intent = tradeKeyIntent(e.code, typing);
+      if (!intent) return;
+      // Enter and Escape are shared keys: in a text field outside this ticket (the asset search, say) they belong to that field
+      const inTicket = !!el && !!rootRef.current?.contains(el);
+      if (typing && !inTicket && (intent.kind === 'enter' || intent.kind === 'cancel')) return;
+      // Shift is the shell's (Shift with the question mark opens the key list), so only Enter and Escape read it
+      if (e.shiftKey && intent.kind !== 'enter' && intent.kind !== 'cancel') return;
+      let handled = false;
+      if (intent.kind === 'enter') {
+        if (nativeEnter(el) || !canSubmit) return;
+        handled = true;
+        if (confirm === signature || (quick && quickEnterAllowed(notional, acct?.cash ?? 0))) void submit();
+        else setConfirm(signature);
+      } else if (intent.kind === 'cancel') {
+        if (confirm !== signature) return;
+        handled = true;
+        setConfirm(null);
+      } else if (intent.kind === 'side') {
+        handled = true;
+        setSide(intent.side);
+      } else if (intent.kind === 'type') {
+        if (simple) return; // the type picker is hidden on a first trade
+        handled = true;
+        setType(intent.type);
+      } else if (intent.kind === 'ticker') {
+        const search = win.querySelector<HTMLInputElement>('[data-testid="asset-search"]');
+        if (!search) return;
+        handled = true;
+        search.focus();
+      }
+      if (handled) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
+
+  if (!world || !me || !playerId) return null;
+  if (!ctx || !lic || !acct) {
+    const delisted = isDelisted(config, selected);
+    const untradable = !isIndex(selected) && isUntradable(config, selected);
+    return (
+      <Card className="p-4" data-testid="order-pad">
+        <h2 className="font-serif text-title">{t('broker.trade')}</h2>
+        {delisted
+          ? <p className="mt-2 text-small text-loss" data-testid="order-delisted">{t('broker.delistedTicket', { ticker: selected })}</p>
+          : untradable
+            ? <p className="mt-2 text-small text-fg-muted" data-testid="order-untradable">{t('broker.notTradable.ticket', { ticker: selected })}</p>
+            : <p className="mt-2 text-small text-fg-muted">{t('broker.indexNoTrade')}</p>}
+      </Card>
+    );
+  }
+  const { def, mid, halted } = ctx;
+
   // the rate the engine charges this class (trading config), so the ticket never shows a stale fee
   const feeTable = tradingConfig(world).fees;
   const fees = `${((feeTable[def.assetClass] ?? feeTable.stock).rate * 100).toFixed(2)}%`;
-  // Enter in a ticket field sends the order (P2-105), the same as the button; the button stays the only click path
-  const onEnter = (e: KeyboardEvent<HTMLDivElement>) => {
-    const el = e.target;
-    if (e.key !== 'Enter' || !(el instanceof HTMLInputElement) || el.type === 'checkbox') return;
-    e.preventDefault();
-    if (canSubmit) void submit();
-  };
   return (
     <Card className="p-4" data-testid="order-pad">
-      <div onKeyDown={onEnter}>
+      <div ref={rootRef}>
         <div className="flex items-baseline justify-between">
           <h2 className="font-serif text-title">{t('broker.trade')}</h2>
           <span className="text-caption text-fg-faint">
@@ -213,7 +275,7 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
                   className="h-9 rounded-md border border-ink-3 text-caption text-fg-muted hover:border-brass/50 hover:text-fg"
                   data-testid={`chip-${f === 1 ? 'Max' : Math.round(f * 100)}`}
                 >
-                  {f === 1 ? (simpleCap && side === 'buy' ? t('broker.max20') : t('broker.max')) : t('broker.pct', { p: Math.round(f * 100) })}
+                  {f === 1 ? (simpleCap && side === 'buy' ? t('broker.maxCap', { pct: firstCapVars.pct }) : t('broker.max')) : t('broker.pct', { p: Math.round(f * 100) })}
                 </button>
               ))}
             </div>
@@ -236,8 +298,8 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
                       setBracket(e.target.checked);
                       if (e.target.checked && !tp) {
                         const up = side === 'buy' ? 1 : -1;
-                        setTp((est.price * (1 + up * 0.08)).toFixed(2));
-                        setSl((est.price * (1 - up * 0.04)).toFixed(2));
+                        setTp((est!.price * (1 + up * 0.08)).toFixed(2));
+                        setSl((est!.price * (1 - up * 0.04)).toFixed(2));
                       }
                     }}
                   />
@@ -253,10 +315,10 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
             )}
 
             <div className="mt-4 border-t border-ink-2 pt-3">
-              <KV k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(est.price)} />
+              <KV k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(est!.price)} />
               <KV k={t('broker.notional')} v={money(notional)} />
               <KV k={t('broker.fee', { rate: fees })} v={money(fee)} />
-              <KV k={t('broker.slippage')} v={t('broker.bp', { v: est.slippageBps.toFixed(1) })} />
+              <KV k={t('broker.slippage')} v={t('broker.bp', { v: est!.slippageBps.toFixed(1) })} />
               <KV k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
               <KV
                 k={margin ? t('broker.buyingPower') : t('broker.cashAfter')}
@@ -267,8 +329,15 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
             </div>
             {invalid && <p className="mt-2 text-caption text-warn" data-testid="order-invalid">{t(invalid.key, invalid.vars)}</p>}
             {halted && <p className="mt-2 text-caption text-warn">{t('broker.haltedNote')}</p>}
+            {confirming && (
+              <p className="mt-3 text-small text-fg" role="status" data-testid="order-confirm">{t('broker.confirm', { label: actionLabel, total: money(total) })}</p>
+            )}
             <Button variant="brass" size="lg" className="mt-3 w-full" disabled={!canSubmit} onClick={submit} testId="order-submit">{actionLabel}</Button>
             <p className="mt-2 text-center text-caption text-fg-faint" data-testid="honest-note">{t('order.honest')}</p>
+            <label className="mt-2 flex items-center gap-2 text-caption text-fg-muted">
+              <input type="checkbox" checked={quick} onChange={(e) => setQuick(e.target.checked)} data-testid="quick-enter" />
+              {t('broker.quickEnter', { pct: Math.round(QUICK_ENTER.maxCashFraction * 100) })}
+            </label>
           </>
         )}
       </div>

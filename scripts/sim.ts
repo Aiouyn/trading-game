@@ -39,7 +39,7 @@ const regimeByDay: string[] = [];
 /** per asset and day d: traded value / advNotional (NaN on a day it did not trade), and whether a jump or reopen happened */
 const dayVol: Record<string, number[]> = {};
 const newsDay: Record<string, boolean[]> = {};
-const counts: Record<StepEvent['type'], number> = { regime: 0, jump: 0, auction: 0, halt: 0, reopen: 0, preview: 0, rumor: 0, earnings: 0, rates: 0, macro: 0, world: 0, listing: 0, index: 0, squeeze: 0, margin_call: 0, liquidation: 0, option_expiry: 0 };
+const counts: Record<StepEvent['type'], number> = { regime: 0, jump: 0, auction: 0, halt: 0, reopen: 0, preview: 0, rumor: 0, earnings: 0, rates: 0, macro: 0, world: 0, listing: 0, index: 0, squeeze: 0, margin_call: 0, liquidation: 0, option_expiry: 0, dividend: 0 };
 
 let state = createWorld(seed, cfg);
 /** records taken so far: the record being written is index k */

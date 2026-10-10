@@ -405,6 +405,30 @@ export function equityOf(state: WorldState, acct: Account): number {
   return eq;
 }
 
+/**
+ * The mid price at which the engine's margin rule (equity below the liquidation ratio of gross exposure, marked on mid,
+ * marginConfig) would liquidate this account on one asset, every other holding held at its mark. The same arithmetic as the
+ * trigger in clearOrders: equity(x) = eqOther + qty * x, gross(x) = |qty| * x + grossOther, and the line is where
+ * equity(x) = liquidation * gross(x). Null when there is no position, or no positive price triggers it (a long that
+ * cannot reach the ratio at any price, for instance).
+ */
+export function liquidationPrice(state: WorldState, playerId: string, assetId: string): number | null {
+  const acct = state.accounts[playerId];
+  const i = assetIndex(state, assetId);
+  const pos = acct?.positions[assetId];
+  if (!acct || !pos || i < 0 || pos.qty === 0) return null;
+  // only margin accounts are liquidated (clearOrders); a cash account has no line even with a negative balance
+  if (!isMarginAccount(acct)) return null;
+  const L = marginConfig(state).liquidation;
+  const here = mid(state, i);
+  const eqOther = equityOf(state, acct) - pos.qty * here;
+  const grossOther = grossExposure(state, acct) - Math.abs(pos.qty) * here;
+  // x* solves eqOther + qty*x = L * (|qty|*x + grossOther); a long's slope is (1 - L)|qty|, a short's is -(1 + L)|qty|
+  const slope = pos.qty > 0 ? (1 - L) * Math.abs(pos.qty) : -(1 + L) * Math.abs(pos.qty);
+  const x = (L * grossOther - eqOther) / slope;
+  return Number.isFinite(x) && x > 0 ? x : null;
+}
+
 // ---------------------------------------------------------------- orders
 
 /** Live preview for the trade ticket: what this order would cost if it filled at the current price. */
@@ -953,6 +977,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           const d = (value * def.dividendYield) / dpy; // shorts pay the dividend
           a.cash += d;
           a.dividends = (a.dividends ?? 0) + d;
+          events.push({ type: 'dividend', tick, playerId: id, assetId, amount: d });
         }
         if (pos.qty < 0) {
           const fee = (-value * (def.borrowFee ?? mc.borrowFee[def.assetClass] ?? 0.01)) / dpy;

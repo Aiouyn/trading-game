@@ -63,6 +63,8 @@ export interface TgPrefs {
   /** Action id to key code, for the remappable bindings (P2-106). */
   keys: Record<string, string>;
   chart: ChartPrefs;
+  /** Trading: Enter sends an order under 10% of cash at once (the ticket asks for a second Enter otherwise). */
+  quickEnter: boolean;
   lastTicker: string | null;
   /** Shell state per save id, as read. Validate with `loadShell` before use. */
   shells: Record<string, unknown>;
@@ -76,6 +78,7 @@ export function defaultPrefs(): TgPrefs {
     reducedMotion: null,
     keys: {},
     chart: {},
+    quickEnter: false,
     lastTicker: null,
     shells: {},
   };
@@ -152,6 +155,7 @@ function sanitizePrefs(raw: Record<string, unknown> | null): TgPrefs {
     reducedMotion,
     keys,
     chart: sanitizeChart(raw.chart),
+    quickEnter: raw.quickEnter === true,
     lastTicker,
     shells,
   };

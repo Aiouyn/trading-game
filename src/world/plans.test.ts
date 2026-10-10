@@ -1,13 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
 import { credit, cashOf } from './core';
 import { refreshNetWorth } from './assets';
 import { applyRank } from './players';
 import { ledgerOf, tradesOf } from './ledger';
-import { cancelBlock, startBlock } from './plans';
+import { cancelBlock, refusal, startBlock } from './plans';
+import en from '@/i18n/en.json';
+import fr from '@/i18n/fr.json';
 import type { GameState, Command } from './types';
 
 const TPD = 720;
+
+// Each case warms a live world (63 game days) and runs it through ticks: under a full parallel run that outgrows the 5 s default.
+vi.setConfig({ testTimeout: 30_000 });
 
 function cmd(g: GameState, pid: string, c: Command) {
   return applyCommand(g, pid, c);
@@ -62,9 +67,9 @@ describe('recurring buys', () => {
     cmd(g, 'u1', { type: 'recurring.add', assetId: 'HLCN', dollars: 300, everyDays: 1 });
     setCash(g, 'u1', 50);
     runTo(g, 2 * TPD + 1);
-    const notes = g.players.u1!.inbox.filter((n) => n.msg?.key === 'work.recurring.skipped');
+    const notes = g.players.u1!.inbox.filter((n) => n.msg?.key.startsWith('work.recurring.skipped'));
     expect(notes.length).toBe(1);
-    expect(notes[0]!.msg!.vars!.reason).toBe('not enough cash');
+    expect(notes[0]!.msg!.key).toBe('work.recurring.skipped.cash');
     expect(ledgerOf(g, 'u1')!.plans.recurring.length).toBe(1);
     expect(reasons(g, 'u1')).not.toContain('recurring_buy');
   });
@@ -100,6 +105,23 @@ describe('DRIP', () => {
     const row = tradesOf(g, 'u1').fills.find((f) => f.reason === 'dividend_reinvest')!;
     expect(row.assetId).toBe(def.id);
     expect(row.side).toBe('buy');
+  });
+
+  it('carries exactly the dividend the engine credits that day (no re-derived amount)', () => {
+    const g = joined('plan-drip-exact');
+    boost(g, 'u1', 20_000);
+    const def = g.market.config.assets.find((a) => a.assetClass === 'stock' && (a.dividendYield ?? 0) > 0.02 && a.listed !== false)!;
+    cmd(g, 'u1', { type: 'order.place', order: { assetId: def.id, side: 'buy', type: 'market', qty: 2 } });
+    stepGame(g);
+    cmd(g, 'u1', { type: 'drip.set', assetId: def.id, on: true });
+    runTo(g, TPD * 2);
+    const before = g.market.accounts.u1!.dividends ?? 0;
+    const carry0 = ledgerOf(g, 'u1')!.plans.carry[def.id] ?? 0;
+    stepGame(g); // the day boundary credits the dividend, and DRIP runs on the same step
+    const credited = (g.market.accounts.u1!.dividends ?? 0) - before;
+    const carried = (ledgerOf(g, 'u1')!.plans.carry[def.id] ?? 0) - carry0;
+    expect(credited).toBeGreaterThan(0);
+    expect(carried).toBeCloseTo(credited, 9);
   });
 
   it('a dividend on a small holding is carried, not spent on a fraction of a share', () => {
@@ -174,7 +196,7 @@ describe('cash that a plan cannot touch', () => {
     cmd(g, 'u1', { type: 'recurring.add', assetId: 'HLCN', dollars: 300, everyDays: 1 });
     g.players.u1!.restrictedCash = cashOf(g, 'u1') - 100;
     runTo(g, 2 * TPD + 1);
-    expect(g.players.u1!.inbox.some((n) => n.msg?.key === 'work.recurring.skipped')).toBe(true);
+    expect(g.players.u1!.inbox.some((n) => n.msg?.key.startsWith('work.recurring.skipped'))).toBe(true);
     expect(reasons(g, 'u1')).not.toContain('recurring_buy');
   });
 });
@@ -215,5 +237,33 @@ describe('block accounting follows the fills (a slice the engine cuts short leav
     const partial = g.players.u1!.inbox.find((n) => n.msg?.key === 'work.block.partial');
     expect(partial?.msg?.vars?.unfilled).toBe(4);
     expect(tradesOf(g, 'u1').fills.filter((f) => f.reason === 'block_slice').length).toBe(0);
+  });
+});
+
+describe('plan refusal reasons (each reason has its own line in both languages)', () => {
+  it('maps every known refusal to a reason, and anything else to the generic one', () => {
+    expect(refusal('Simple mode caps a buy at 20% of cash until Hustler.')).toBe('cap');
+    expect(refusal('your assets are held by the court')).toBe('court');
+    expect(refusal('Owner needs the Pro license (Owner, $250k)')).toBe('license');
+    expect(refusal('insufficient cash')).toBe('cash');
+    expect(refusal('insufficient position')).toBe('position');
+    expect(refusal('delisted')).toBe('delisted');
+    expect(refusal(undefined)).toBe('refused');
+    expect(refusal('unknown asset')).toBe('refused');
+    expect(refusal('something the engine never says')).toBe('refused');
+  });
+
+  it('has copy in en and fr for every reason on both plan lines', () => {
+    const shared = ['cash', 'cap', 'court', 'license', 'delisted', 'refused'];
+    const keys = [
+      ...shared.map((r) => `work.recurring.skipped.${r}`),
+      ...shared.map((r) => `work.block.stopped.${r}`),
+      'work.recurring.skipped.unit',
+      'work.block.stopped.position',
+    ];
+    for (const k of keys) {
+      expect(en[k as keyof typeof en], `en ${k}`).toBeTruthy();
+      expect(fr[k as keyof typeof fr], `fr ${k}`).toBeTruthy();
+    }
   });
 });

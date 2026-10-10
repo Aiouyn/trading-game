@@ -62,3 +62,5 @@ export const CLOSE_STORIES = 4;
 
 /** A day's net worth change under this many dollars is "flat": the card's headline and the Copy summary read the same rule. */
 export const CLOSE_FLAT_USD = 1;
+/** Keyboard trading (M10): with the quick-Enter setting on, one Enter sends an order whose cost is under this share of cash. */
+export const QUICK_ENTER = { maxCashFraction: 0.1 };
