@@ -11,7 +11,7 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createWorld, step, indexLevel, defaultConfig, universeConfig, expectedVol, estimateFill } from '../src/engine';
+import { createWorld, step, indexLevel, defaultConfig, universeConfig, expectedVolOf, estimateFill } from '../src/engine';
 import type { AssetDef, StepEvent } from '../src/engine';
 
 function arg(name: string, fallback: string): string {
@@ -120,7 +120,7 @@ const rows = ['GX', ...ids].map((id) => {
     end: xs[xs.length - 1]!,
     cagr: Math.pow(xs[xs.length - 1]! / xs[0]!, 1 / yrs) - 1,
     vol: sd(r) * Math.sqrt(cfg.daysPerYear),
-    targetVol: def ? expectedVol(def) : null,
+    targetVol: def ? expectedVolOf(def, cfg) : null,
     maxDrawdown: maxDD(xs),
     corrGX: id === 'GX' ? 1 : corr(r, gxRets.slice(from, to)),
   };

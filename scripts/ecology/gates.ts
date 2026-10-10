@@ -2,6 +2,9 @@
  * Ecology gates (specs/quant-market-ecology.md, calibration table), ported from engine-staging to the v1 engine.
  *
  *   npx tsx scripts/ecology/gates.ts full   [--universe] [--seeds 8] [--tpd 720] [--days 1260] [--set k=v ...] [--out DIR] [--txt FILE]
+ *       RELEASE GATES run at --tpd 720 (the game's real 720 ticks per game day), bare and universe alike. The default is 720.
+ *       A run at any other tick rate is a SMOKE run (not a release gate): it prints its tick rate and the known 24-vs-720
+ *       divergences (KNOWN_SMOKE_DIVERGENCES), and the one gate that diverges there is INFO, not a pass or a fail.
  *       (diagnostics: --first K runs seeds K.. so a release run can be split over processes; --drop k1,k2 removes top-level
  *        layers of the config; --world a.b=v sets a nested config field, e.g. catalysts.peadShare=0)
  *   npx tsx scripts/ecology/gates.ts shadow [--universe] [--seeds 8] [--tpd 720] [--days 1260] [--set k=v ...] [--out DIR] [--txt FILE]
@@ -9,9 +12,9 @@
  *   npx tsx scripts/ecology/gates.ts replay --dir SHADOW_DIR [--set k=v ...] [--txt FILE]      (tuning only)
  *
  * Configs. Default: the bare 17-asset catalog (defaultConfig plus the momentum-fix fields). --universe: universeConfig
- * (183 assets, world events, rivals, listings). Seeds are eco-01 ... eco-NN (--seed-prefix). Defaults are quick; the
- * release gate is 60 seeds (--seeds 60, tape-ecology-hunts.md). A universe seed at 720 ticks/day takes about 5 minutes,
- * so --universe defaults to 24 ticks/day; pass --tpd 720 for the calibrated run. Output dirs default to the OS temp dir.
+ * (183 assets, world events, rivals, listings). Seeds are eco-01 ... eco-NN (--seed-prefix). The release gate is 720 ticks
+ * a game day for both configs (V1-PHASE1 round 5). A universe seed at 720 ticks/day takes about 5 minutes; 8 seeds is the
+ * quick release run, 60 the full one (--seeds 60). --tpd 24 is a smoke run only. Output dirs default to the OS temp dir.
  *
  * Modes.
  *   full:   config.ecology = { mode: 'full', weight: 1 }. The ecology sets every game-day close (the closing auction),
@@ -50,7 +53,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createWorld, expectedVol, step } from '../../src/engine/index';
+import { createWorld, expectedVolOf, step } from '../../src/engine/index';
 import type { EcologyConfig, WorldConfig } from '../../src/engine/index';
 import { ecoDayInput, ecologyConfig, ecologyDay, initEcology } from '../../src/engine/ecology';
 import type { EcoDayInput } from '../../src/engine/ecology';
@@ -58,6 +61,20 @@ import { arg, corr, diffs, ecologyOverrides, hasFlag, mean, median, numArg, sem,
 import { UNIVERSE_VOL_BANDS } from '../balance/bands';
 
 const cmd = process.argv[2] ?? 'report';
+
+/** The game's tick rate (5 s ticks, one game day per real hour). Release gates run here; any other rate is a smoke run. */
+const RELEASE_TPD = 720;
+
+/**
+ * Smoke-run divergences from 720 ticks (V1-PHASE1 round 4, universe, 8 seeds unless noted). Listed, not gated: a smoke run at
+ * tpd 24 is for speed, and these keys are INFO there. Only volCorr fails at 24 (its band is (0.3, 0.6]). The others are shown to
+ * make the size of the tick-rate effect visible; they stay gated at any tick rate.
+ */
+const KNOWN_SMOKE_DIVERGENCES: Partial<Record<BandKey, string>> = {
+  volCorr: 'corr(|r_t|, traded value): 0.642 at 24 ticks, 0.546 at 720 (PASS). A tick-rate effect in the traded-value series; open for Ledger, not tuned',
+};
+/** Keys INFO at a smoke tick rate (their divergence is the listed one). */
+const smokeInfo = (tpd: number, k: BandKey) => tpd !== RELEASE_TPD && k in KNOWN_SMOKE_DIVERGENCES;
 
 interface SeedRun {
   mode: 'full' | 'shadow';
@@ -135,8 +152,9 @@ function runSeed(seed: string, mode: 'full' | 'shadow', universe: boolean, tpd: 
   }
   const stock = cfg.assets.map((a) => a.assetClass === 'stock');
   // the gate closes print the ecology's newsPrint share of each jump; the live reference prints jumpImmediate (closePrint)
-  const expVol = cfg.assets.map((a) => expectedVol(a, undefined, ecologyConfig(cfg).newsPrint ?? 1));
-  const expVolLive = cfg.assets.map((a) => expectedVol(a, undefined, cfg.jumpImmediate ?? 1));
+  const ec = ecologyConfig(cfg);
+  const expVol = cfg.assets.map((a) => expectedVolOf(a, cfg, undefined, ec.newsPrint ?? 1, ec.ratePrint ?? 1));
+  const expVolLive = cfg.assets.map((a) => expectedVolOf(a, cfg, undefined, cfg.jumpImmediate ?? 1, cfg.jumpImmediate ?? 1));
   return {
     mode, seed, universe, tpd, days, daysPerYear: cfg.daysPerYear, set, ids, stock, alive, expVol, expVolLive, closes, live, dayNotional, gross,
     hMean: hSum / hN, hMax, ...(isShadow ? { inputs } : {}), ms: performance.now() - t0,
@@ -245,6 +263,10 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
   const out: string[] = [];
   const nStocks = r0.stock.filter((x, i) => x && r0.alive[i]).length;
   out.push(`${label}: ${n} seeds (${runs[0]!.seed}..${runs[n - 1]!.seed}), ${r0.days} game days, ${r0.ids.length} assets (${r0.universe ? 'universe' : 'bare catalog'}), ticksPerDay=${r0.tpd}, ICs on ${nStocks} stocks; mean over seeds ± 1 s.e.${Object.keys(r0.set).length ? `; DIAGNOSTIC overrides ${JSON.stringify(r0.set)}` : ''}`);
+  if (r0.tpd !== RELEASE_TPD) {
+    out.push(`SMOKE RUN at ticksPerDay=${r0.tpd}, not a release gate (release is 720). Known divergences from 720, listed and not gated:`);
+    for (const k of BAND_KEYS) if (smokeInfo(r0.tpd, k)) out.push(`  ${KNOWN_SMOKE_DIVERGENCES[k]}`);
+  }
 
   const per = runs.map((r) => marketGates(r.closes, r.alive, r.stock));
   const perVol = runs.map((r) => volCorr(r.closes, isFull ? r.dayNotional : r.gross, r.alive));
@@ -258,9 +280,9 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
     const lvs = k === 'volCorr' ? liveVol : livePer?.map((g) => g[k]);
     const lv = lvs ? mean(lvs) : undefined;
     rows.push({
-      label: BANDS[k].label + (k === 'volCorr' && !isFull ? ' [shadow gross: INFO]' : ''), text: BANDS[k].text,
+      label: BANDS[k].label + (k === 'volCorr' && !isFull ? ' [shadow gross: INFO]' : '') + (smokeInfo(r0.tpd, k) ? ` [${r0.tpd}-tick smoke: INFO]` : ''), text: BANDS[k].text,
       value: `${v.toFixed(4)} ±${Number.isFinite(sem(xs)) ? sem(xs).toFixed(4) : 'n/a'}`,
-      pass: k === 'volCorr' && !isFull ? null : BANDS[k].ok(v),
+      pass: (k === 'volCorr' && !isFull) || smokeInfo(r0.tpd, k) ? null : BANDS[k].ok(v),
       ...(lv !== undefined ? { live: `${lv.toFixed(4)}`, livePass: BANDS[k].ok(lv) } : {}),
     });
   }
@@ -296,7 +318,7 @@ function summarize(runs: SeedRun[], label: string, ref?: SeedRun[]): string[] {
     liveVrPass = lvAll.every(inBand);
   }
   rows.push({
-    label: `vol ratio per asset, RMS over seeds (${listed.length} assets)`, text: r0.universe ? 'in band (class bands), 2 s.e.' : 'every asset in [0.85, 1.4], 2 s.e.',
+    label: `vol ratio per asset, RMS over seeds (${listed.length} assets)`, text: r0.universe ? 'none wholly outside its band (class bands), 2 s.e.' : 'none wholly outside [0.85, 1.4], 2 s.e.',
     value: `${Math.min(...listed.map((x) => x.v)).toFixed(3)}..${Math.max(...listed.map((x) => x.v)).toFixed(3)} med ${median(listed.map((x) => x.v)).toFixed(3)}`,
     pass: outside.length === 0,
     ...(liveVr ? { live: liveVr, livePass: liveVrPass } : {}),
@@ -355,7 +377,7 @@ function defaultOut(mode: string, universe: boolean): string {
 
 if (cmd === 'full' || cmd === 'shadow') {
   const universe = hasFlag('universe');
-  const tpd = numArg('tpd', universe ? 24 : 720);
+  const tpd = numArg('tpd', RELEASE_TPD);
   const days = numArg('days', 1260);
   const seeds = numArg('seeds', 8);
   const prefix = arg('seed-prefix', 'eco-');

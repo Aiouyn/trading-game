@@ -335,8 +335,9 @@ function forexDef([id, name, region, price, vol, blurb]: (typeof FOREX)[number])
  * def.vol: that is why AV10 and AV30 have vol ratios above 1 in bands.ts.
  * Government funds have no jump term (jumpsPerYear 0). A separate jump would double count the rate path, which the rates
  * layer already moves on each meeting and release. Credit funds keep their jumps: spread gaps and defaults.
- * def.vol for AV10 and AV30 is 5.5% and 11.5% (it was 4% and 7%). Their expectedVol is now def.vol alone; with the old jump
- * term it was 5.3% and 7.8%. Measured on 20 seeds, realized vol is 1.17 (AV10) and 1.19 (AV30) times expectedVol (bands.ts).
+ * def.vol for AV10 and AV30 is 5.5% and 11.5% (it was 4% and 7%). Their expectedVol is def.vol with the regime mix (expectedVolOf,
+ * config.ts) and the rate term from the rates layer's yield variance (ratevar.ts), so it is the model's own prediction; the
+ * daily vol ratio is 0.95 to 0.99 for the five bond funds at 20 seeds, 24 ticks (V1-PHASE1 round 6, section 3o).
  */
 const BONDS: AssetDef[] = [
   ['AV2Y', 'Avalon 2-Year Note Fund', 'y2', 1.9, 0.015, 0, 0, 0, 'Short government bonds: barely moves, pays the 2-year yield.'],

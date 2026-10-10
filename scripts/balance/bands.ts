@@ -1,4 +1,6 @@
-// Balance target bands (owner: Tape). Each band is a release gate checked over N seeds.
+// Balance target bands (owner: Tape). Each band is a release gate checked over N seeds. The release tick rate is 720 ticks a
+// game day (V1-PHASE1 F19, gates.ts): run.ts defaults to 24 ticks, a fast smoke run that prints SMOKE RUN, so the 24-tick
+// verdicts here are provisional. The vol-ratio verdicts at 720 use the 2 s.e. rule of gates.ts (FAIL only when wholly outside).
 // Phase 0 bands: Quant's proposal, adopted by Ledger 2026-10-07. Adversarial bands (vision 03 §16) arrive in Phase 3.
 // Bands are design targets; the values checked against them are always measured by run.ts.
 
@@ -36,6 +38,19 @@ function floorPinned(alive: number): VolBand {
  * loading split). (3) expectedVol counted the full jump, but the close prints closePrint (ecology). The eight F1 names pass
  * the general 0.85-1.4 band now (20 seeds, medians 0.92-1.11). FLUX passes it too (median 0.976), so its old class band is
  * gone. AUSD passes it too, on the RMS across seeds (V1-PHASE1 F13), so it has no class band of its own.
+ *
+ * Round 6 (V1-PHASE1 round 6): expectedVol adds the diffusion regime mix (vol x volMult x regimeShockSd, time-averaged), the
+ * earnings gap of stocks (catalysts.ts) and, for option horizons, the rate variance ratio. Realized vol moved down with it: at 20
+ * seeds, 24 ticks, the universe's lowest non-meme names are NHK 0.867, SOLN 0.876, AUSD 0.880, NHOL 0.897 (all PASS), and every
+ * one of the 183 bands passes. No band was added or removed in round 6: the floor-pinned meme bands are the only class bands.
+ *
+ * Round 5 (V1-PHASE1 round 5): expectedVol is the model's honest prediction. Its jump term is the time average of the regime
+ * jump intensity over the default regimes (regimeShares.ts), not the expansion value; a rates-exposed asset (duration and
+ * yieldKey: bonds, property) adds D² x the daily yield variance the rates layer produces (ratevar.ts) x the close's print
+ * pass-through (ratePrintOf). Those two terms were the gap the bond and rare-jump bands had been absorbing. No class band
+ * was removed by round 5 that existed only for them: the floor-pinned meme bands above keep their own mechanism (the price
+ * floor), and nothing else in this table was there for the jump or rate gap. The general 0.85 to 1.4 band still applies to
+ * every other asset.
  */
 export const UNIVERSE_VOL_BANDS: Record<string, VolBand> = {
   BONK: floorPinned(0.2),

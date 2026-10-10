@@ -1,4 +1,4 @@
-import { expectedVol } from './config';
+import { expectedVolOf } from "./config";
 import type { OptionsConfig, WorldState } from './types';
 
 /**
@@ -100,7 +100,7 @@ export function optionQuote(state: WorldState, c: OptionContract): OptionQuote {
   const expiryTick = (c.expiryDay + 1) * tpd;
   const ticksLeft = Math.max(0, expiryTick - state.tick);
   const T = ticksLeft / (tpd * state.config.daysPerYear);
-  const vol = expectedVol(def, state.config.regimes[state.regime]) * Math.sqrt(a.h);
+  const vol = expectedVolOf(def, state.config, state.config.regimes[state.regime], 1, 1, Math.max(1, ticksLeft / tpd)) * Math.sqrt(a.h);
   const { price, delta } = blackScholes(c.kind, S, c.strike, T, riskFree(state), vol);
   const hs = Math.max(cfg?.minHalfSpread ?? 0.01, price * (cfg?.halfSpread ?? 0.03));
   const intrinsic = c.kind === 'call' ? Math.max(0, S - c.strike) : Math.max(0, c.strike - S);

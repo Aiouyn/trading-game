@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, stepMany } from './sim';
-import { DEFAULT_REGIMES, defaultConfig, expectedVol, idioLoading, normalizeLoadings, regimeShockSd } from './config';
+import { DEFAULT_REGIMES, DEFAULT_REGIME_SHARES, defaultConfig, expectedVol, idioLoading, normalizeLoadings, regimeShockSd } from './config';
 import { closePrint, ecologyWeight } from './ecology';
 import { universeConfig } from './universe';
 import type { AssetDef, RegimeDef, RegimeId, WorldConfig, WorldState } from './types';
@@ -36,9 +36,13 @@ describe('close print share (F1: jumps print partly at once)', () => {
     const a = stock('J', { vol: 0.2, jumpsPerYear: 6, jumpUpMean: 0.1, jumpDownMean: 0.1 });
     const full = expectedVol(a);
     const printed = expectedVol(a, undefined, 0.5);
-    // jump variance: 6 · (0.5 · 2 · 0.01 + 0.5 · 2 · 0.01) = 0.12; diffusion 0.04
-    expect(full).toBeCloseTo(Math.sqrt(0.04 + 0.12), 12);
-    expect(printed).toBeCloseTo(Math.sqrt(0.04 + 0.25 * 0.12), 12);
+    // diffusion 0.04. Jump variance: 6 · E[J²] = 6 · (0.5 · 2 · 0.01 + 0.5 · 2 · 0.01) = 0.12 in an expansion, and with no regime
+    // the intensity is the time average of jumpMult over the default regimes (regimeShares.ts): 0.12 · Σ share · jumpMult.
+    const mixJump = 0.12 * (Object.keys(DEFAULT_REGIMES) as RegimeId[]).reduce((acc, id) => acc + DEFAULT_REGIME_SHARES[id] * DEFAULT_REGIMES[id].jumpMult, 0);
+    // the diffusion term is the regime mix of (volMult x shockSd)² (a loading split with no idio share is the same as volMult alone)
+    const diff = (Object.keys(DEFAULT_REGIMES) as RegimeId[]).reduce((acc, id) => acc + DEFAULT_REGIME_SHARES[id] * (a.vol * DEFAULT_REGIMES[id].volMult * regimeShockSd(a, DEFAULT_REGIMES[id])) ** 2, 0);
+    expect(full).toBeCloseTo(Math.sqrt(diff + mixJump), 12);
+    expect(printed).toBeCloseTo(Math.sqrt(diff + 0.25 * mixJump), 12);
   });
 
   it('closePrint is the live jumpImmediate off the ecology, the newsPrint share in full mode, 1 in the bare engine', () => {

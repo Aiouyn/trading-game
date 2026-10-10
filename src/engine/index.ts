@@ -1,13 +1,13 @@
 export * from './types';
 export { Rng, seedStream } from './rng';
 export type { RngState } from './rng';
-export { defaultConfig, gameConfig, DEFAULT_TRADING, DEFAULT_VOLUME, DEFAULT_ASSETS, DEFAULT_INDICES, DEFAULT_REGIMES, expectedVol, idioLoading, normalizeLoadings } from './config';
+export { defaultConfig, gameConfig, DEFAULT_TRADING, DEFAULT_VOLUME, DEFAULT_ASSETS, DEFAULT_INDICES, DEFAULT_REGIMES, DEFAULT_REGIME_SHARES, expectedVol, expectedVolOf, yieldVarianceRatio, ratePassThrough, idioLoading, normalizeLoadings } from './config';
 export { createWorld, step, stepMany, quote, prices, volumes, indexLevel, gameDay } from './sim';
 export { DEFAULT_WORLD_EVENTS, worldEventView, worldEventAftermath } from './worldEvents';
 export type { WorldEventKind, WorldEventView, WorldEventsConfig, WorldEventsState } from './worldEvents';
 export { jumpCompensator } from './drift';
 export { newsPricedIn, newsBand, bandOf } from './news';
-export { DEFAULT_ECOLOGY, ECO_POOLS, closePrint, ecologyConfig, ecologyLog, ecologyOn, ecologyWeight, explainMove, PUBLIC_MIN_TRADERS, PUBLIC_MAX_TRADER_SHARE } from './ecology';
+export { DEFAULT_ECOLOGY, ECO_POOLS, closePrint, ratePrintOf, impactShares, ecologyConfig, ecologyLog, ecologyOn, ecologyWeight, explainMove, PUBLIC_MIN_TRADERS, PUBLIC_MAX_TRADER_SHARE } from './ecology';
 export type { ExplainRow, MoveExplain, DepthByPool } from './ecology';
 export { depthByPool } from './ecology';
 export { DEFAULT_RIVALS, RIVAL_CAP_ADV, rivalEquity, rivalLeaderboard } from './rivals';

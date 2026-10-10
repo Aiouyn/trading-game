@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, indexLevel, prices, quote, step, stepMany } from './sim';
-import { DEFAULT_ASSETS, DEFAULT_REGIMES, defaultConfig, expectedVol, normalizeLoadings } from './config';
+import { DEFAULT_ASSETS, DEFAULT_REGIMES, DEFAULT_REGIME_SHARES, defaultConfig, expectedVol, normalizeLoadings, regimeShockSd } from './config';
 import type { AssetDef, RegimeDef, RegimeId, WorldConfig, WorldState } from './types';
 
 /** Coarse clock for statistical tests: 24 ticks per game day. Calibration is per game year, so results carry over. */
@@ -276,15 +276,29 @@ describe('circuit breaker', () => {
   });
 });
 
+/** Diffusive variance of the daily shock with no regime: vol² x the time average of (volMult x shockSd)² (sim.ts: vol x volMult x shockSd). */
+const diffusionMix = (a: AssetDef) => (Object.keys(DEFAULT_REGIMES) as RegimeId[]).reduce(
+  (acc, id) => acc + DEFAULT_REGIME_SHARES[id] * (a.vol * DEFAULT_REGIMES[id].volMult * regimeShockSd(a, DEFAULT_REGIMES[id])) ** 2, 0);
+
 describe('expectedVol', () => {
-  it('equals vol when there are no jumps', () => {
-    expect(expectedVol(testStock('E', 'e', { vol: 0.3, jumpsPerYear: 0 }))).toBeCloseTo(0.3, 12);
+  it('equals the diffusion mix when there are no jumps', () => {
+    const e = testStock('E', 'e', { vol: 0.3, jumpsPerYear: 0 });
+    expect(expectedVol(e) ** 2).toBeCloseTo(diffusionMix(e), 14);
+    // the regime mix lifts the time-average vol above vol on the defaults (E[volMult²] = 1.18 for the loadings, not 1)
+    expect(expectedVol(e)).toBeGreaterThan(0.3 * 0.99);
   });
 
-  it('matches the closed form for Lumen Pharma (~65%)', () => {
+  it('matches the closed form for Lumen Pharma (~65%), with the jump term averaged over the regime mix', () => {
     const lmnp = DEFAULT_ASSETS.find((a) => a.id === 'LMNP')!;
-    // 0.38² + 6 · (0.5 · 2 · 0.12² + 0.5 · 2 · 0.18²) = 0.1444 + 0.2808
-    expect(expectedVol(lmnp)).toBeCloseTo(Math.sqrt(0.1444 + 0.2808), 12);
+    // 0.38² + 6 · Σ_regime share · jumpMult · (p · 2 · 0.12² + (1 − p) · 2 · 0.18²), p = 0.5 + the regime's up-shift.
+    // The expansion-only value was 0.38² + 6 · (0.5 · 2 · 0.12² + 0.5 · 2 · 0.18²) = 0.1444 + 0.2808: the regime mix is above it.
+    let jump = 0;
+    for (const [id, g] of Object.entries(DEFAULT_REGIMES)) {
+      const p = Math.min(0.95, Math.max(0.05, lmnp.jumpUpProb + g.jumpUpShift));
+      jump += DEFAULT_REGIME_SHARES[id as keyof typeof DEFAULT_REGIME_SHARES] * 6 * g.jumpMult * (p * 2 * 0.12 ** 2 + (1 - p) * 2 * 0.18 ** 2);
+    }
+    expect(jump).toBeGreaterThan(0.2808);
+    expect(expectedVol(lmnp) ** 2).toBeCloseTo(diffusionMix(lmnp) + jump, 12);
   });
 
   it('scales with regime vol and jump multipliers', () => {
@@ -297,7 +311,8 @@ describe('expectedVol', () => {
     const cfg = defaultConfig({ ...FAST, assets: [a], indices: [], regimes: frozenRegimes() });
     const { closes } = dailyCloses(createWorld('ev', cfg), 252 * 15);
     const realized = sd(diffs(closes.JV!)) * Math.sqrt(252);
-    expect(realized / expectedVol(a)).toBeGreaterThan(0.85);
-    expect(realized / expectedVol(a)).toBeLessThan(1.15);
+    // the world runs frozen regimes (jumpMult 1), so the no-regime expectation is taken over the same table
+    expect(realized / expectedVol(a, undefined, 1, 1, frozenRegimes())).toBeGreaterThan(0.85);
+    expect(realized / expectedVol(a, undefined, 1, 1, frozenRegimes())).toBeLessThan(1.15);
   });
 });

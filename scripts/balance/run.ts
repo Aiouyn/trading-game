@@ -1,11 +1,15 @@
 // Seeded balance harness (owner: Tape).
+// Tick rate: the release verdicts are at 720 ticks a game day (V1-PHASE1 F19). The default here is 24 (a fast smoke run, labelled SMOKE RUN).
 // Usage: npx tsx scripts/balance/run.ts [--seeds 20] [--years 5] [--tpd 24] [--out balance-out]
 // Runs the engine headless across many seeds, aggregates stats, checks them against bands.ts.
 // Exit code 1 if any band fails, so it can gate a release. Same args => same output.
+// --assets A,B (with --universe) runs only the vol-ratio bands of those assets (no strategies, no determinism run): the
+// cheap verdict for a rare-jump name at many seeds. --first K starts the seed numbering at tape-K, so a run splits over
+// processes (each with its own --out). The RMS over seeds prints with its standard error (V1-PHASE1 F13).
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createWorld, stepMany, indexLevel, defaultConfig, universeConfig, expectedVol, closePrint, openAccount, placeOrder, portfolio } from "../../src/engine";
+import { createWorld, stepMany, indexLevel, defaultConfig, universeConfig, expectedVolOf, closePrint, ratePrintOf, openAccount, placeOrder, portfolio } from "../../src/engine";
 import type { AssetDef, WorldState } from "../../src/engine";
 import { phase0Bands, check, UNIVERSE_VOL_BANDS } from "./bands";
 
@@ -25,6 +29,10 @@ const nSeeds = Number(arg("seeds", "20"));
 const years = Number(arg("years", "5"));
 const tpd = Number(arg("tpd", "24"));
 const out = arg("out", "balance-out");
+const firstSeed = Number(arg("first", "1"));
+/** --assets: the vol-ratio verdict for these assets only (volOnly skips the strategies and the determinism run) */
+const onlyAssets: Set<string> | null = process.argv.includes("--assets") ? new Set(arg("assets", "").split(",").filter(Boolean)) : null;
+const volOnly = onlyAssets !== null;
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 const sd = (xs: number[]) => { const m = mean(xs); return Math.sqrt(mean(xs.map((x) => (x - m) ** 2))); };
@@ -122,6 +130,7 @@ function feeAware(seed: string, cfg: ReturnType<typeof defaultConfig>, days: num
 
 function runSeed(seed: string): SeedResult {
   const cfg = configFor(tpd);
+  const volOnlyResult = (): SeedResult => ({ seed, volRatio: {}, aliveShare: {}, gxCagr: 0, invalid: 0, sawContraction: false, bh: 0, random: 0, momentum: 0, finalHash: "", msPerTick: 0, fee: { bh: 0, random: 0, momentum: 0, contrarian: 0, momentumFees: 0 }, listed: 0, delisted: 0 });
   const days = Math.round(years * cfg.daysPerYear);
   const closes: number[][] = [];   // by asset index; record k = the world after k days; NaN before listing
   const firstRec: number[] = [];   // record at which the asset was first seen
@@ -160,10 +169,12 @@ function runSeed(seed: string): SeedResult {
   const aliveShare: Record<string, number> = {};
   closes.forEach((c, i) => {
     if (firstRec[i] !== 0 || delistRec[i] !== Infinity) return;
+    if (onlyAssets && !onlyAssets.has(defs[i]!.id)) return;
     if (universe) aliveShare[defs[i]!.id] = aliveRets(c, defs[i]!.floor).length / logRets(c).length;
-    volRatio[defs[i]!.id] = (sd(logRets(c)) * Math.sqrt(cfg.daysPerYear)) / expectedVol(defs[i]!, undefined, closePrint(cfg));
+    volRatio[defs[i]!.id] = (sd(logRets(c)) * Math.sqrt(cfg.daysPerYear)) / expectedVolOf(defs[i]!, cfg, undefined, closePrint(cfg), ratePrintOf(cfg));
   });
   const gxCagr = Math.pow(gx[gx.length - 1]! / gx[0]!, 1 / years) - 1;
+  if (volOnly) return { ...volOnlyResult(), volRatio, aliveShare, gxCagr, invalid, sawContraction, msPerTick: (performance.now() - t0) / state.tick };
 
   // Strategies on stocks, monthly (21 game days) holding periods, no fees (Phase 0 has no order book).
   // A name delisted while held is valued at its frozen price from then on.
@@ -201,11 +212,11 @@ function runSeed(seed: string): SeedResult {
 function main() {
   const cfg = configFor(tpd);
   const ids = cfg.assets.map((a) => a.id);
-  const seeds = Array.from({ length: nSeeds }, (_, i) => `tape-${String(i + 1).padStart(2, "0")}`);
+  const seeds = Array.from({ length: nSeeds }, (_, i) => `tape-${String(i + firstSeed).padStart(2, "0")}`);
 
   const t0 = performance.now();
   const results = seeds.map(runSeed);
-  const repeat = runSeed(seeds[0]!);
+  const repeat = volOnly ? results[0]! : runSeed(seeds[0]!);
   const wall = performance.now() - t0;
 
   const stats: Record<string, number> = {};
@@ -242,10 +253,20 @@ function main() {
   stats.info_seeds_with_listings_share = results.filter((r) => r.listed + r.delisted > 0).length / results.length;
   stats.determinism_mismatch = repeat.finalHash === results[0]!.finalHash ? 0 : 1;
 
-  const checked = check(phase0Bands(volIds, universe ? UNIVERSE_VOL_BANDS : {}), stats);
+  // standard error of each RMS (delta method on the mean squared ratio, se = se(mean x²) / (2 RMS)): the verdict of a rare-jump
+  // name at a few seeds is not settled without it
+  const se: Record<string, number> = {};
+  for (const id of volIds) {
+    const xs = results.filter((r) => r.volRatio[id] !== undefined).map((r) => r.volRatio[id]! ** 2);
+    const m = mean(xs), sdv = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / Math.max(1, xs.length - 1));
+    se[id] = sdv / Math.sqrt(xs.length) / (2 * Math.sqrt(m));
+  }
+  const allBands = check(phase0Bands(volIds, universe ? UNIVERSE_VOL_BANDS : {}), stats);
+  const checked = volOnly ? allBands.filter((b) => b.id.startsWith("vol_ratio_rms:")) : allBands;
   mkdirSync(out, { recursive: true });
   writeFileSync(path.join(out, "summary.json"), JSON.stringify({ seeds: nSeeds, years, ticksPerDay: tpd, stats, results: checked, perSeed: results }, null, 2));
 
+  if (tpd !== 720) console.log(`SMOKE RUN at ticksPerDay ${tpd}: the release gates are judged at 720 ticks a game day (V1-PHASE1 F19, gates.ts). The verdicts below are provisional at this rate; the 24-tick volCorr is 0.642 against 0.546 at 720.`);
   console.log(`balance: ${nSeeds} seeds x ${years} game years, ticksPerDay=${tpd}, wall ${(wall / 1000).toFixed(1)} s, ${mean(results.map((r) => r.msPerTick * 1000)).toFixed(1)} us/tick`);
   for (const r of checked) {
     const v = r.value === undefined ? "n/a" : Number.isInteger(r.value) ? String(r.value) : r.value.toFixed(3);
@@ -253,8 +274,9 @@ function main() {
   }
   const fails = checked.filter((r) => !r.pass).length;
   const skipped = ids.filter((id) => !volIds.includes(id));
-  if (skipped.length) console.log(`info  vol-ratio bands skipped (not listed the whole run in any seed): ${skipped.join(", ")}`);
-  for (const [k, v] of Object.entries(stats)) if (k.startsWith("info_")) console.log(`info  ${k.padEnd(40)} ${v.toFixed(3)}`);
+  if (skipped.length && !volOnly) console.log(`info  vol-ratio bands skipped (not listed the whole run in any seed): ${skipped.join(", ")}`);
+  if (!volOnly) for (const [k, v] of Object.entries(stats)) if (k.startsWith("info_")) console.log(`info  ${k.padEnd(40)} ${v.toFixed(3)}`);
+  if (volOnly) for (const id of volIds) console.log(`info  ${id.padEnd(30)} RMS ${stats[`vol_ratio_rms:${id}`]!.toFixed(3)} ± ${se[id]!.toFixed(3)} (${nSeeds} seeds, ticksPerDay ${tpd})`);
   for (const id of pinned) console.log(`info  floor-pinned, vol ratio on alive days only: ${id} (median alive share ${median(results.filter((r) => r.aliveShare[id] !== undefined).map((r) => r.aliveShare[id]!)).toFixed(3)})`);
   console.log(fails ? `balance: ${fails} band(s) FAILED` : "balance: all bands PASS");
   if (fails) process.exitCode = 1;
