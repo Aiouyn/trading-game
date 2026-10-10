@@ -88,7 +88,9 @@ export function declareDividend(
     for (const id of Object.keys(g.market.accounts).sort()) {
       if (id === tid) continue;
       const q = g.market.accounts[id]?.positions[assetId]?.qty ?? 0;
-      if (q <= 0) continue;
+      // a short holder owes the dividend on the shares it is short (a negative holding pays a negative amount), so the
+      // payments add up to the declared total exactly: no dividend is paid on shares that do not exist (X5, X11)
+      if (q === 0) continue;
       const pay = q * perShare;
       if (g.players[id]) bump(g, id, pay);
       else if (id === pid && poolHolders(c, g).length > 0) payPool(g, c, pay);

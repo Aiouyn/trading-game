@@ -80,6 +80,13 @@ export interface AssetDef {
   valueSource?: 'company';
   /** the share of a company print that moves the price at once, and the ecology close (1 = full print, G21). Absent = 1. */
   companyPrintShare?: number;
+  /**
+   * A company stock's other side: the NPC book account that holds its unsold float. Every fill against NPC liquidity on this
+   * asset is then a transfer with that account: a buy draws on the float the book holds (it cannot buy shares that do not
+   * exist), a sell adds to it, and the book pays for what it takes and earns the commission. So the holdings always sum to
+   * the shares out (X11, company-tests.md section 5). Absent = NPC liquidity, as for every other asset.
+   */
+  supplyAccount?: string;
 }
 
 /** One closed game day of a company stock: the close, the day's traded value and units (VWAP30 for the takeover floor). */
