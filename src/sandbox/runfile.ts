@@ -70,7 +70,8 @@ export function serializeRun(run: RunFile): string {
  * the same digest. Throws a SandboxError with a stable code on any problem.
  */
 export function importRun(text: string): Sandbox {
-  if (typeof text !== 'string' || byteLength(text) > SANDBOX.maxRunBytes) throw new SandboxError('run-too-large');
+  if (typeof text !== 'string') throw new SandboxError('bad-run', 'text');
+  if (byteLength(text) > SANDBOX.maxRunBytes) throw new SandboxError('run-too-large');
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);

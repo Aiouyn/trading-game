@@ -59,7 +59,7 @@ describe('sandbox: determinism and the practice account', () => {
       const sb = Sandbox.create({ kind: 'practice', id: 'det' });
       sb.step(TICKS_PER_DAY);
       sb.act({ type: 'place', order: { assetId: 'GOLD', side: 'buy', type: 'market', qty: 1 } });
-      sb.step(2 * TICKS_PER_DAY);
+      sb.advance(2 * TICKS_PER_DAY);
       return sb;
     };
     const a = run();
@@ -107,7 +107,7 @@ describe('sandbox: determinism and the practice account', () => {
 
   it('orders are refused once a scenario has finished', () => {
     const sb = Sandbox.create({ kind: 'scenario', scenarioId: 'flash' });
-    sb.step(100 * TICKS_PER_DAY);
+    sb.advance(100 * TICKS_PER_DAY);
     const r = sb.act({ type: 'place', order: { assetId: 'GOLD', side: 'buy', type: 'market', qty: 1 } });
     expect(r).toEqual({ ok: false, reason: 'run-complete', orderId: null });
     expect(sb.commands.length).toBe(0);
@@ -116,11 +116,38 @@ describe('sandbox: determinism and the practice account', () => {
   it('a scenario stops at its last tick', () => {
     const sb = Sandbox.create({ kind: 'scenario', scenarioId: 'flash' });
     expect(sb.targetTicks).toBe(5 * TICKS_PER_DAY);
-    sb.step(100 * TICKS_PER_DAY);
+    expect(sb.limitTicks).toBe(5 * TICKS_PER_DAY);
+    sb.advance(100 * TICKS_PER_DAY);
     expect(sb.tick).toBe(5 * TICKS_PER_DAY);
     expect(sb.complete).toBe(true);
     expect(sb.view().complete).toBe(true);
+    expect(sb.view().limitTicks).toBe(5 * TICKS_PER_DAY);
   }, 60_000);
+
+  it('one call steps at most one game day; a longer step is refused before the engine runs', () => {
+    const sb = Sandbox.create({ kind: 'practice', id: 'capped' });
+    expect(errorOf(() => sb.step(TICKS_PER_DAY + 1))).toBe('bad-ticks');
+    expect(errorOf(() => sb.step(1e9))).toBe('bad-ticks');
+    expect(errorOf(() => sb.step(0))).toBe('bad-ticks');
+    expect(sb.tick).toBe(0);
+    expect(sb.step(TICKS_PER_DAY).tick).toBe(TICKS_PER_DAY);
+  }, 60_000);
+
+  it('open practice stops at the run cap, so every practice run can be exported', () => {
+    const sb = Sandbox.create({ kind: 'practice', id: 'cap' });
+    expect(sb.targetTicks).toBeNull();
+    expect(sb.limitTicks).toBe(SANDBOX.maxRunDays * TICKS_PER_DAY);
+    expect(sb.advance((SANDBOX.maxRunDays + 5) * TICKS_PER_DAY)).toBe(SANDBOX.maxRunDays * TICKS_PER_DAY);
+    expect(sb.complete).toBe(true);
+    expect(sb.act({ type: 'place', order: { assetId: 'GOLD', side: 'buy', type: 'market', qty: 1 } }).reason).toBe('run-complete');
+    expect(sb.step(TICKS_PER_DAY).tick).toBe(SANDBOX.maxRunDays * TICKS_PER_DAY);
+  }, 120_000);
+
+  it('advance refuses a negative or fractional count', () => {
+    const sb = Sandbox.create({ kind: 'practice', id: 'adv' });
+    expect(errorOf(() => sb.advance(-1))).toBe('bad-ticks');
+    expect(errorOf(() => sb.advance(1.5))).toBe('bad-ticks');
+  });
 });
 
 describe('sandbox: command validation', () => {

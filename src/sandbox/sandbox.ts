@@ -14,7 +14,8 @@ export const PRACTICE_ID = 'practice';
 
 export type SandboxErrorCode =
   | 'bad-spec' | 'bad-id' | 'unknown-scenario' | 'bad-command' | 'bad-ticks' | 'bad-version' | 'bad-run'
-  | 'run-too-large' | 'run-too-long' | 'digest-mismatch' | 'replay-rejected' | 'not-ranked' | 'not-complete';
+  | 'run-too-large' | 'run-too-long' | 'digest-mismatch' | 'replay-rejected' | 'not-ranked' | 'not-complete'
+  | 'already-attempted' | 'internal' | 'worker-failed' | 'disposed';
 
 /** a sandbox failure with a stable code (the UI maps codes to copy; codes are never shown raw) */
 export class SandboxError extends Error {
@@ -47,6 +48,8 @@ export interface SandboxView {
   tick: number;
   day: number;
   targetTicks: number | null;
+  /** the tick the run stops at: its target, or the run cap for open practice */
+  limitTicks: number;
   complete: boolean;
   startingCash: number;
   equity: number;
@@ -103,6 +106,8 @@ export function planFor(spec: SandboxSpec): SandboxPlan {
   }
   if (spec.kind === 'challenge') {
     if (!WEEK_KEY.test(spec.weekKey)) throw new SandboxError('bad-spec', 'week key');
+    // DECISIONS section 3: the week seed is the ISO week plus the public salt. The scenario supplies only the opening
+    // regime and the length, so its headline condition is not re-checked on the challenge market.
     const s = SCENARIOS[weekNumberOf(spec.weekKey) % SCENARIOS.length]!;
     return { kind: 'challenge', seed: challengeSeed(spec.weekKey), initialRegime: s.startRegime, cash: SANDBOX.scenarioCash, scenarioId: s.id, weekKey: spec.weekKey, days: s.days };
   }
@@ -163,8 +168,13 @@ export class Sandbox {
     return this.plan.days === null ? null : this.plan.days * this.state.config.ticksPerDay;
   }
 
+  /** the tick the run stops at: its target, or the run cap for open practice (so every run can be exported) */
+  get limitTicks(): number {
+    return this.targetTicks ?? SANDBOX.maxRunDays * this.ticksPerDay;
+  }
+
   get complete(): boolean {
-    return this.targetTicks !== null && this.state.tick >= this.targetTicks;
+    return this.state.tick >= this.limitTicks;
   }
 
   /** The commands applied so far, in order, each with the tick it was applied at. */
@@ -173,13 +183,15 @@ export class Sandbox {
   }
 
   /**
-   * Advance the market. Scenarios and challenges stop at their last tick. Pure engine steps; the account's fills
-   * and the public announcements come back.
+   * Advance the market by at most one call's worth (SANDBOX.maxStepDays game days; more is refused, so one call never
+   * holds the worker). A run stops at its limit tick. Pure engine steps; the account's fills and the public
+   * announcements come back.
    */
   step(ticks: number): StepResult {
-    if (!Number.isInteger(ticks) || ticks < 1) throw new SandboxError('bad-ticks');
-    const cap = this.targetTicks === null ? ticks : Math.max(0, this.targetTicks - this.state.tick);
-    const n = Math.min(ticks, cap);
+    if (!Number.isInteger(ticks) || ticks < 1 || ticks > SANDBOX.maxStepDays * this.ticksPerDay) {
+      throw new SandboxError('bad-ticks');
+    }
+    const n = Math.min(ticks, Math.max(0, this.limitTicks - this.state.tick));
     const fills: Fill[] = [];
     const announcements: StepEvent[] = [];
     for (let k = 0; k < n; k++) {
@@ -189,6 +201,19 @@ export class Sandbox {
       for (const e of r.events) if (PUBLIC_EVENTS.has(e.type)) announcements.push(e);
     }
     return { tick: this.state.tick, fills, announcements };
+  }
+
+  /** Step through as many calls as it takes to reach `ticks` more ticks (or the limit). Returns the tick reached. */
+  advance(ticks: number): number {
+    if (!Number.isInteger(ticks) || ticks < 0) throw new SandboxError('bad-ticks');
+    const chunk = SANDBOX.maxStepDays * this.ticksPerDay;
+    let left = ticks;
+    while (left > 0 && !this.complete) {
+      const n = Math.min(left, chunk);
+      this.step(n);
+      left -= n;
+    }
+    return this.tick;
   }
 
   /**
@@ -224,6 +249,7 @@ export class Sandbox {
       tick: this.state.tick,
       day: Math.floor(this.state.tick / this.state.config.ticksPerDay),
       targetTicks: this.targetTicks,
+      limitTicks: this.limitTicks,
       complete: this.complete,
       startingCash: acct.startingCash,
       equity,

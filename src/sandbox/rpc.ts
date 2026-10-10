@@ -1,6 +1,6 @@
 import { ChallengeBoard } from './board';
 import { exportRun, importRun, serializeRun } from './runfile';
-import { Sandbox, SandboxError, onlyKeys, plainObject, type SandboxSpec } from './sandbox';
+import { Sandbox, SandboxError, onlyKeys, plainObject, type SandboxErrorCode, type SandboxSpec } from './sandbox';
 
 /**
  * The sandbox's request surface: one dispatch function over plain data. The worker and the in-page fallback both
@@ -17,7 +17,7 @@ export function createRegistry(): Registry {
 }
 
 /** A stable code for any failure (a SandboxError keeps its code; anything else is 'internal'). */
-export function errorCode(e: unknown): string {
+export function errorCode(e: unknown): SandboxErrorCode {
   return e instanceof SandboxError ? e.code : 'internal';
 }
 
@@ -25,7 +25,10 @@ export function dispatch(reg: Registry, raw: unknown): unknown {
   const o = plainObject(raw, 'bad-spec');
   switch (o.op) {
     case 'create': {
-      const sb = Sandbox.create(parseSpec(o.spec));
+      const spec = parseSpec(o.spec);
+      const sb = Sandbox.create(spec);
+      // a live challenge run takes the week's one attempt when it is created (board.ts)
+      if (spec.kind === 'challenge') reg.board.claim(sb);
       return register(reg, sb);
     }
     case 'import': {

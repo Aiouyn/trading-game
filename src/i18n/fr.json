@@ -1142,11 +1142,11 @@
   "sandbox.scenario.overheating.title": "Surchauffe",
   "sandbox.scenario.overheating.note": "Un marché brûlant qui peut se retourner.",
   "sandbox.scenario.flash.title": "Krach éclair",
-  "sandbox.scenario.flash.note": "Un krach éclair le deuxième jour.",
+  "sandbox.scenario.flash.note": "Un krach éclair le jour {day}.",
   "sandbox.scenario.earnings-heavy.title": "Saison des résultats",
-  "sandbox.scenario.earnings-heavy.note": "Au moins quatre actions publient leurs résultats dans les dix premiers jours.",
+  "sandbox.scenario.earnings-heavy.note": "Au moins {count} actions publient leurs résultats dans les {days} premiers jours.",
   "sandbox.scenario.quiet.title": "Marché calme",
-  "sandbox.scenario.quiet.note": "Aucune séance de l'indice ne bouge de plus de trois pour cent.",
+  "sandbox.scenario.quiet.note": "Aucune séance de l'indice ne bouge de plus de {percent} %.",
   "sandbox.scenario.crypto-winter.title": "Hiver crypto",
   "sandbox.scenario.crypto-winter.note": "La crypto baisse, les actions sont partagées."
 }

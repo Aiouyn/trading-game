@@ -20,8 +20,10 @@ export const SANDBOX = {
   maxRunBytes: 512 * 1024,
   /** a run file with more commands than this is refused */
   maxRunCommands: 5000,
-  /** the longest run a file may hold, in game days (a 30-day challenge is the cap) */
+  /** the longest run a file may hold, in game days (a 30-day challenge is the cap). Open practice stops here too, so a practice run always exports. */
   maxRunDays: 30,
+  /** one call to step() advances at most this many game days, so the worker answers between calls (about 0.15 s a day here) */
+  maxStepDays: 1,
   /** order bounds accepted from the UI or a run file: quantity, prices, trailing distance */
   minOrderQty: 1e-9,
   maxOrderQty: 1e12,
@@ -30,7 +32,7 @@ export const SANDBOX = {
   maxTrailPct: 0.999,
   minTrailPct: 1e-6,
   maxTakeProfitOrStop: 1e12,
-  /** the local weekly board keeps this many entries per week */
+  /** the most rows the local weekly board returns (a week holds at most one scored attempt; see board.ts) */
   boardSize: 20,
   /** public salt for the weekly seed. Not secret: it only stops the week's seed from being the live world's seed */
   challengeSalt: 'tg-weekly-v1',

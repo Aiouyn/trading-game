@@ -17,9 +17,17 @@ export interface Scenario {
 }
 
 /**
- * The seeds below are the first hits of a search over sbx:scenario:<id>:s<n> (n counted up from 1), with the
- * conditions in scenarioHolds. scenarios.test.ts re-runs each one, so a seed or rule change that breaks a condition
- * fails that test.
+ * The seeds below are the first hits of `npx tsx scripts/sandbox/search-scenarios.ts <id> <hits> <max>` over
+ * sbx:scenario:<id>:s<n> (n counted up from 1), with the conditions in scenarioHolds. scenarios.test.ts re-runs each
+ * one, so a seed or rule change that breaks a condition fails that test.
+ *
+ * Two conditions read differently from the spec table (quant-scenario-seeds.md):
+ * - flash: the spec says the event is forced on day 2. A forced start needs a second world config, and the spec
+ *   forbids a second code path ("No second code path"). So the seed is searched for a flash that goes live on day 2
+ *   by itself. scenarioHolds checks that it does.
+ * - quiet: the spec says "no jump larger than 3%". Read per stock, that cannot hold: a 21-day run on the quiet seed
+ *   has 55 jump events and 37 of them exceed 3%. The check reads the index day close instead (no index day moves
+ *   more than 3%), the reading the seed can meet.
  */
 export const SCENARIOS: Scenario[] = [
   { id: 'contraction-week', seed: 'sbx:scenario:contraction-week:s3', title: 'sandbox.scenario.contraction-week.title', days: 21, startRegime: 'contraction', note: 'sandbox.scenario.contraction-week.note' },
@@ -86,18 +94,36 @@ export function scenarioHolds(s: Scenario, r: ScenarioRecord): boolean {
       // a hot market that can roll over: a real run-up, then a real fall from the peak
       return runUp(r.gx) >= R.overheatRunUp && maxDrawdown(r.gx) >= R.overheatDrawdown;
     case 'flash': {
-      // a flash crash goes live during the forced day (the second day)
+      // a flash crash goes live on the flash day (the second day)
       const lo = r.ticksPerDay * R.flashDay;
       return r.flashStarts.some((t) => t >= lo && t < lo + r.ticksPerDay);
     }
     case 'earnings-heavy':
       return r.earningsStocks >= R.earningsMin;
     case 'quiet':
-      // no index day close moves more than the limit
+      // no index day close moves more than the limit (see the note at the top of this file for why not per stock)
       return r.gx.every((g, k) => k === 0 || Math.abs(g / r.gx[k - 1]! - 1) <= R.quietMaxDailyMove);
     case 'crypto-winter':
       // crypto down, stocks mixed
       return last(r.crx) < r.crx[0]! && r.stockUpShare >= R.mixedLow && r.stockUpShare <= R.mixedHigh;
+  }
+}
+
+/**
+ * The numbers a scenario's note quotes, read from SCENARIO_RULES so the copy follows a rule change. The note key takes
+ * these as its variables: t(s.note, scenarioNoteVars(s)).
+ */
+export function scenarioNoteVars(s: Scenario): Record<string, number> {
+  const R = SCENARIO_RULES;
+  switch (s.id) {
+    case 'flash':
+      return { day: R.flashDay + 1 };
+    case 'earnings-heavy':
+      return { count: R.earningsMin, days: R.earningsWindowDays };
+    case 'quiet':
+      return { percent: Math.round(R.quietMaxDailyMove * 100) };
+    default:
+      return {};
   }
 }
 

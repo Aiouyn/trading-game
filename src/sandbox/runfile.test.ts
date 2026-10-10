@@ -52,7 +52,7 @@ describe('run files: export and import', () => {
 
   it('a scenario run exports and imports from a partial run', () => {
     const sb = Sandbox.create({ kind: 'scenario', scenarioId: 'flash' });
-    sb.step(TICKS_PER_DAY * 2);
+    sb.advance(TICKS_PER_DAY * 2);
     const text = serializeRun(exportRun(sb));
     const back = importRun(text);
     expect(back.plan.kind).toBe('scenario');
@@ -60,10 +60,12 @@ describe('run files: export and import', () => {
     expect(back.digest()).toBe(sb.digest());
   }, 60_000);
 
-  it('a run longer than the cap is not exported', () => {
+  it('an open practice run that runs past the cap stops at the cap and still exports', () => {
     const sb = Sandbox.create({ kind: 'practice', id: 'long' });
-    sb.step((SANDBOX.maxRunDays + 1) * TICKS_PER_DAY);
-    expect(errorOf(() => exportRun(sb))).toBe('run-too-long');
+    sb.advance((SANDBOX.maxRunDays + 1) * TICKS_PER_DAY);
+    expect(sb.tick).toBe(SANDBOX.maxRunDays * TICKS_PER_DAY);
+    const text = serializeRun(exportRun(sb));
+    expect(importRun(text).tick).toBe(SANDBOX.maxRunDays * TICKS_PER_DAY);
   }, 120_000);
 });
 
@@ -102,12 +104,36 @@ describe('run files: import refuses what it cannot check', () => {
     expect(errorOf(() => importRun(edit(text, (o) => { o.sandboxSeed = 'sbx:practice:other'; })))).toBe('digest-mismatch');
   }, 60_000);
 
-  it('a scenario header must name the table seed; a challenge header must name its week seed', () => {
+  it('a scenario header must name the table seed', () => {
     const sb = Sandbox.create({ kind: 'scenario', scenarioId: 'quiet' });
     const text = serializeRun(exportRun(sb));
     expect(errorOf(() => importRun(edit(text, (o) => { o.sandboxSeed = 'sbx:scenario:quiet:s999'; })))).toBe('bad-run');
     expect(errorOf(() => importRun(edit(text, (o) => { o.startingCash = 1e9; })))).toBe('bad-run');
     expect(errorOf(() => importRun(edit(text, (o) => { o.initialRegime = 'overheating'; })))).toBe('bad-run');
+    expect(errorOf(() => importRun(edit(text, (o) => { o.weekKey = '2026-W41'; })))).toBe('bad-run');
+  });
+
+  it('a challenge header must name its week seed, its week and its scenario', () => {
+    const sb = Sandbox.create({ kind: 'challenge', weekKey: '2026-W41' });
+    sb.step(TICKS_PER_DAY);
+    const text = serializeRun(exportRun(sb));
+    expect(importRun(text).plan.kind).toBe('challenge');
+    expect(errorOf(() => importRun(edit(text, (o) => { o.weekKey = null; })))).toBe('bad-run');
+    expect(errorOf(() => importRun(edit(text, (o) => { o.weekKey = '2026-W42'; })))).toBe('bad-run');
+    expect(errorOf(() => importRun(edit(text, (o) => { o.sandboxSeed = 'sbx:challenge:2026-W41:other-salt'; })))).toBe('bad-run');
+    expect(errorOf(() => importRun(edit(text, (o) => { o.scenarioId = 'quiet'; })))).toBe('bad-run');
+    expect(errorOf(() => importRun(edit(text, (o) => { o.scenarioId = null; })))).toBe('bad-run');
+  }, 120_000);
+
+  it('a challenge header that names a week is not a scenario header', () => {
+    const sb = Sandbox.create({ kind: 'challenge', weekKey: '2026-W41' });
+    const text = serializeRun(exportRun(sb));
+    expect(errorOf(() => importRun(edit(text, (o) => { o.kind = 'scenario'; })))).toBe('bad-run');
+  }, 60_000);
+
+  it('input that is not text is a bad run, not a size problem', () => {
+    expect(errorOf(() => importRun(42 as unknown as string))).toBe('bad-run');
+    expect(errorOf(() => importRun(null as unknown as string))).toBe('bad-run');
   });
 
   it('a player cannot raise the paper cash', () => {

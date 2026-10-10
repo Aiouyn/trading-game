@@ -4,7 +4,8 @@ import fr from '@/i18n/fr.json';
 import { SANDBOX } from './config';
 import { recordScenario } from './record';
 import { Sandbox } from './sandbox';
-import { SCENARIOS, gxReturn, scenarioHolds, type Scenario, type ScenarioRecord } from './scenarios';
+import { SCENARIOS, gxReturn, scenarioHolds, scenarioNoteVars, type Scenario, type ScenarioRecord } from './scenarios';
+import { SCENARIO_RULES } from './config';
 
 /** one fresh run per scenario, shared by the tests below (each run is about two seconds of engine time) */
 const runs = new Map<string, ScenarioRecord>();
@@ -67,5 +68,20 @@ describe('scenario text is translated', () => {
         expect(key in fr, `fr ${key}`).toBe(true);
       }
     }
+  });
+
+  it('every number a note quotes comes from the rules, in both languages', () => {
+    const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!).sort();
+    for (const s of SCENARIOS) {
+      const vars = scenarioNoteVars(s);
+      const enText = (en as Record<string, string>)[s.note]!;
+      const frText = (fr as Record<string, string>)[s.note]!;
+      expect(placeholders(enText), `en ${s.id}`).toEqual(Object.keys(vars).sort());
+      expect(placeholders(frText), `fr ${s.id}`).toEqual(Object.keys(vars).sort());
+    }
+    // the quoted values are the rule values, so a tuned rule changes the copy with it
+    expect(scenarioNoteVars(SCENARIOS.find((s) => s.id === 'quiet')!).percent).toBe(Math.round(SCENARIO_RULES.quietMaxDailyMove * 100));
+    expect(scenarioNoteVars(SCENARIOS.find((s) => s.id === 'earnings-heavy')!)).toEqual({ count: SCENARIO_RULES.earningsMin, days: SCENARIO_RULES.earningsWindowDays });
+    expect(scenarioNoteVars(SCENARIOS.find((s) => s.id === 'flash')!).day).toBe(SCENARIO_RULES.flashDay + 1);
   });
 });
