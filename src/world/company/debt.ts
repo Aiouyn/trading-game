@@ -96,7 +96,11 @@ export function drawLoan(
   return { ok: true, value: { debtId: debt.id, ratePerDay: rate, personalDebtIfDefault: debt.guaranteedAmount } };
 }
 
-/** Repays part or all of a loan from company cash (transfers only). */
+/**
+ * Repays part or all of a loan from company cash (transfers only). The missed payments (arrears) are owed first: they are
+ * paid to the bank before the principal, and the cash must cover both, so a loan is never closed with arrears open (O-7
+ * review). The arrears are the interest the cure did not pay, so the bank receives them in full.
+ */
 export function repayLoan(
   g: GameState, playerId: string, c: Company, debtId: string, amount: number,
 ): { ok: true; value: Record<string, unknown> } | { ok: false; reject: CompanyReject } {
@@ -105,13 +109,20 @@ export function repayLoan(
   if (!d) return { ok: false, reject: { code: 'repayUnknownDebt' } };
   if (!(Number.isFinite(amount) && amount > 0)) return { ok: false, reject: { code: 'repayBadAmount' } };
   const pay = Math.min(amount, d.principal);
-  if (c.cash < pay) return { ok: false, reject: { code: 'insufficientFunds', shortfall: pay - c.cash } };
+  const arrears = d.arrears ?? 0;
+  const due = arrears + pay;
+  if (c.cash < due) return { ok: false, reject: { code: 'insufficientFunds', shortfall: due - c.cash } };
   const day = today(g);
+  const pool = g.companies!.investors[BANK_POOL]!;
+  if (arrears > 0) {
+    payBank(g, c, day, pool, arrears);
+    d.arrears = 0;
+  }
   post(g.companies!, c, day, 'repay', -pay, true);
-  g.companies!.investors[BANK_POOL]!.cash += pay;
+  pool.cash += pay;
   d.principal -= pay;
   if (d.principal <= 1e-9) c.debts = c.debts.filter((x) => x.id !== debtId);
-  return { ok: true, value: { remaining: Math.max(0, d.principal), paid: pay } };
+  return { ok: true, value: { remaining: Math.max(0, d.principal), paid: pay, arrearsPaid: arrears } };
 }
 
 /**
@@ -120,9 +131,13 @@ export function repayLoan(
  *
  * Outside a liquidity cure the day's interest is paid from cash, which may take cash below zero. Cash below zero with a
  * facility drawn opens a liquidity cure: five game days, with a founder notice. During the cure the owed interest is not paid:
- * it builds up as arrears, which accrue at the facility rate, and no money moves. The cure ends early when the cash covers
- * everything owed (the arrears and the day's interest), and the bank is paid then. A cure still open on its fifth day is a
- * default, and the covenant is not tested again. With no facility drawn any more, an open cure ends.
+ * it builds up as arrears, which accrue at the facility rate (not the covenant cure's surcharge), and no money moves. The cure
+ * ends early when the cash covers everything owed (the arrears and the day's interest), and the bank is paid then. A cure still
+ * open on its fifth day is a default. With no facility drawn any more, an open cure ends.
+ *
+ * After a default (O-7 review) no cure reopens: the day's interest and the arrears are owed as before, paid when the cash
+ * covers them and otherwise accrued as arrears at the facility rate, with no money moved and no new notice. The default
+ * stays until the bankruptcy (B2).
  *
  * Then the covenant cure: a company in cure is tested again on its live numbers, cured when the breach clears, and in default
  * when the cure ends in breach. Default is a status here; the bankruptcy is a later step (B2).
@@ -133,24 +148,25 @@ export function debtDay(g: GameState, c: Company, day: number, out: StepOutput |
     if (liquidityCureOpen(c)) endLiquidityCure(g, c, out);
   } else if (pool) {
     const cure = c.covenant.status === 'cure';
+    const defaulted = c.covenant.status === 'default';
     const rateOf = (d: Debt) => d.ratePerDay + (cure ? COMPANY.debt.cureRatePerDay : 0);
     const interest = c.debts.map((d) => d.principal * rateOf(d));
-    if (!liquidityCureOpen(c)) {
+    if (!liquidityCureOpen(c) && !defaulted) {
       c.debts.forEach((d, i) => payBank(g, c, day, pool, interest[i]!));
       if (c.cash < 0) openLiquidityCure(g, c, day, out);
     } else {
       // the arrears carry the facility rate, then the day's interest is added: all of it is owed
-      const owed = c.debts.map((d, i) => (d.arrears ?? 0) * (1 + rateOf(d)) + interest[i]!);
+      const owed = c.debts.map((d, i) => (d.arrears ?? 0) * (1 + d.ratePerDay) + interest[i]!);
       if (c.cash >= owed.reduce((x, v) => x + v, 0)) {
         c.debts.forEach((d, i) => {
           payBank(g, c, day, pool, owed[i]!);
           d.arrears = 0;
         });
-        endLiquidityCure(g, c, out);
+        if (liquidityCureOpen(c)) endLiquidityCure(g, c, out);
       } else {
         // the missed payment is arrears, and no money moves
         c.debts.forEach((d, i) => { d.arrears = owed[i]!; });
-        if (day >= c.liquidityCureUntilDay!) {
+        if (liquidityCureOpen(c) && day >= c.liquidityCureUntilDay!) {
           liquidityDefault(g, c, day, out);
           return;
         }
@@ -235,6 +251,8 @@ function setCovenant(g: GameState, c: Company, status: CovenantStatus, cureUntil
   const prev = c.covenant.status;
   if (prev === 'default') return;
   c.covenant = { status, cureUntilDay };
+  // a covenant default ends an open liquidity cure: the company is in default, so no cure window is left to run (O-7 review)
+  if (status === 'default') c.liquidityCureUntilDay = null;
   if (status === prev) return;
   if (status === 'cure' && breach) {
     notify(g, out, c.ownerId, { kind: 'system', tone: 'warn', text: `${c.name}: a covenant is in breach. Cure it by day ${cureUntilDay}.`, msg: { key: 'company.note.covenantCure', vars: { name: c.name, day: cureUntilDay ?? 0 } } });

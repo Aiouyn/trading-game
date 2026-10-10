@@ -207,6 +207,76 @@ describe('the covenant cure, the missed payment and the default', () => {
     expect(bank.cash).toBe(bankAfterOpen);
   });
 
+  it('arrears accrue at the facility rate even in a covenant cure: the surcharge is on the day interest only', () => {
+    const { g, c } = drawn('liq-cure-rate', -1_000_000);
+    c.covenant = { status: 'cure', cureUntilDay: today(g) + 999 };
+    advanceTo(g, today(g) + 1);
+    expect(c.liquidityCureUntilDay).not.toBeNull();
+    const s = COMPANY.debt.cureRatePerDay;
+    const r = COMPANY.debt.ratePerDay;
+    const I = 9_000_000 * (r + s);
+    advanceTo(g, today(g) + 1);
+    expect(c.covenant.status).toBe('cure');
+    expect(c.debts[0]!.arrears).toBeCloseTo(I, 6);
+    advanceTo(g, today(g) + 1);
+    expect(c.covenant.status).toBe('cure');
+    // the arrears grow at the facility rate r, and the day's interest carries the cure rate r + s
+    expect(c.debts[0]!.arrears).toBeCloseTo(I * (1 + r) + I, 6);
+  });
+
+  it('the arrears are owed before the principal: a full repayment needs the cash for both, and the bank gets both', () => {
+    const { g, c, bank } = drawn('liq-repay', -1_000_000);
+    advanceTo(g, today(g) + 1);
+    advanceTo(g, today(g) + 1);
+    const arrears = c.debts[0]!.arrears!;
+    expect(arrears).toBeCloseTo(4_500, 6);
+    const debtId = c.debts[0]!.id;
+    // the cash covers the principal but not the arrears on top: refused, and nothing moves
+    c.cash = 9_000_000;
+    const refused = applyCommand(g, FOUNDER, { type: 'company.repay', companyId: c.id, debtId, amount: 9_000_000 });
+    expect(refused.error).toBe('insufficientFunds');
+    expect(c.debts[0]!.principal).toBe(9_000_000);
+    expect(c.debts[0]!.arrears).toBeCloseTo(arrears, 6);
+    // with the arrears covered too, the repayment closes the loan and the bank receives both
+    c.cash = 9_000_000 + arrears + 1_000;
+    const bankBefore = bank.cash;
+    const ok = applyCommand(g, FOUNDER, { type: 'company.repay', companyId: c.id, debtId, amount: 9_000_000 });
+    expect(ok.ok).toBe(true);
+    expect(bank.cash - bankBefore).toBeCloseTo(9_000_000 + arrears, 6);
+    expect(c.debts).toHaveLength(0);
+  });
+
+  it('after a default no cure reopens: the company is not given a second window, and the arrears build with no money moved', () => {
+    const { g, c, bank } = drawn('liq-post-default', -1_000_000);
+    advanceTo(g, today(g) + 1);
+    const until = c.liquidityCureUntilDay!;
+    advanceTo(g, until);
+    expect(c.covenant.status).toBe('default');
+    expect(c.liquidityCureUntilDay).toBeNull();
+    const notesAtDefault = g.players[FOUNDER]!.inbox.filter((i) => i.msg?.key === 'company.note.liquidityCure').length;
+    const bankAtDefault = bank.cash;
+    const arrearsAtDefault = c.debts[0]!.arrears!;
+    advanceTo(g, until + 2);
+    expect(c.covenant.status).toBe('default');
+    expect(c.liquidityCureUntilDay).toBeNull();
+    expect(g.players[FOUNDER]!.inbox.filter((i) => i.msg?.key === 'company.note.liquidityCure').length).toBe(notesAtDefault);
+    expect(bank.cash).toBe(bankAtDefault);
+    expect(c.debts[0]!.arrears!).toBeGreaterThan(arrearsAtDefault);
+  });
+
+  it('a covenant default ends an open liquidity cure: the company is in default, with no window left to run', () => {
+    const { g, c } = drawn('liq-cov-default', -1_000_000);
+    advanceTo(g, today(g) + 1);
+    expect(c.liquidityCureUntilDay).not.toBeNull();
+    c.covenant = { status: 'cure', cureUntilDay: today(g) };
+    advanceTo(g, today(g) + 1);
+    expect(c.covenant.status).toBe('default');
+    expect(c.liquidityCureUntilDay).toBeNull();
+    advanceTo(g, today(g) + 6);
+    expect(c.covenant.status).toBe('default');
+    expect(c.liquidityCureUntilDay).toBeNull();
+  });
+
   it('a cure is ended early when the cash covers what is owed: the bank is paid, the arrears clear, the cure closes', () => {
     const { g, c, bank } = drawn('liq-cured', -1_000_000);
     advanceTo(g, today(g) + 1);
