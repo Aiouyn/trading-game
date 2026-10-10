@@ -211,6 +211,7 @@ describe('ranks, contracts and notes', () => {
 });
 
 describe('AI lab', () => {
+  // explicit timeout: the training run steps five game days and took 6.3 s in the full suite (the default is 5 s)
   it('research, then a training run produces a model with an MCS', { timeout: 30_000 }, () => {
     const g = game();
     cmd(g, 'u1', { type: 'join', handle: 'labrat', country: 'AV' });

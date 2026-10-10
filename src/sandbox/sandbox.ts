@@ -50,6 +50,8 @@ export interface SandboxView {
   targetTicks: number | null;
   /** the tick the run stops at: its target, or the run cap for open practice */
   limitTicks: number;
+  /** game ticks in one game day in this world (the UI steps one day at a time) */
+  ticksPerDay: number;
   complete: boolean;
   startingCash: number;
   equity: number;
@@ -250,6 +252,7 @@ export class Sandbox {
       day: Math.floor(this.state.tick / this.state.config.ticksPerDay),
       targetTicks: this.targetTicks,
       limitTicks: this.limitTicks,
+      ticksPerDay: this.ticksPerDay,
       complete: this.complete,
       startingCash: acct.startingCash,
       equity,

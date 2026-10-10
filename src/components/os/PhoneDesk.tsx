@@ -14,6 +14,7 @@ import { APPS, type AppId, type WinProps, SHELF_ORDER } from '@/shell/apps';
 import { phoneCanOpen } from '@/shell/phone';
 import type { Win } from '@/shell/wm';
 import { AppBody } from './appViews';
+import { GoalsCard } from '@/components/GoalsCard';
 import { Wallpaper } from './DesktopWallpaper';
 import type { Rank } from './hardware';
 import { RankHardware } from './RankHardware';
@@ -160,14 +161,16 @@ function PhoneEdge() {
 /** The home screen: the net-worth widget, the app grid and the fixed bottom row (P2-141..P2-144). */
 function PhoneHome() {
   const unlocked = useShell((s) => s.ctx.unlocked);
+  const goalsOn = useGame((s) => !!s.me?.trading.goals.optIn);
   const grid = SHELF_ORDER.filter((a) => {
     if (BOTTOM_ROW.includes(a) || !APPS[a].available) return false;
     if (APPS[a].hideWhenLocked && !unlocked(a)) return false;
     return true;
   });
   return (
-    <section className="os-home" data-testid="home" aria-label={t('shell.phone.homeScreen')}>
+    <section className={`os-home${goalsOn ? ' os-home-goals' : ''}`} data-testid="home" aria-label={t('shell.phone.homeScreen')}>
       <PhoneWidget />
+      <GoalsCard compact />
       <div className="os-home-grid" role="list" aria-label={t('shell.phone.appsGrid')}>
         {grid.map((a) => (
           <div role="listitem" key={a}>

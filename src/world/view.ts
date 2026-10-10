@@ -200,6 +200,8 @@ export interface PlayerView {
     goals: ReturnType<typeof goalsView>;
     /** the Research Desk's window (the first archived day, the last closed day, today) and the saved files' summaries */
     desk: { firstDay: number; lastClosed: number | null; today: number; files: { no: number; assetId: string; from: number; to: number; move: number }[] };
+    /** ISO weeks this player has used their weekly challenge attempt (durable) */
+    challengeWeeks: string[];
   };
 }
 
@@ -268,7 +270,7 @@ function tradingView(g: GameState, pid: string): PlayerView['trading'] {
     fills: fills.slice(-VIEW_FILLS), trips: trips.slice(-VIEW_FILLS), benchmark: ghostReport(g, pid),
     closes: (L?.closes ?? []).slice(0, VIEW_CLOSES).map((c) => ({ ...c, lines: textProvider.dailyClose(c) })), closeSeenDay: L?.closeSeenDay ?? null,
     plans: L?.plans ?? null,
-    calendar: calendarFor(g, pid), goals: goalsView(g.players[pid]!),
+    calendar: calendarFor(g, pid), goals: goalsView(g, g.players[pid]!), challengeWeeks: g.players[pid]!.challengeWeeks ?? [],
     desk: { ...deskWindow(g), today: today(g), files: deskFileSummaries(g, pid).slice(0, 40) },
   };
 }

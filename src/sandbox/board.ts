@@ -9,8 +9,9 @@ import { SandboxError, type Sandbox } from './sandbox';
  * deterministic market and keep the best. Only the claimed run that played to its last tick can be submitted.
  * Practice, scenario and imported runs are never ranked.
  *
- * The claim lives in this board, so it lasts for this page session. A reload starts a new board; durable enforcement
- * needs a stored record, which V1 leaves to a later decision (the board is local by design).
+ * The claim here lasts for this page session. Across reloads the week's attempt is kept on the player's server record
+ * (challenge.claim in src/world/learn.ts), which the Practice tab takes before it opens the run. The board itself is local
+ * by design.
  */
 export interface BoardEntry {
   weekKey: string;

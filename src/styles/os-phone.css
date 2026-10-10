@@ -163,6 +163,13 @@
 @layer components {
   .os-root .os-home { position: absolute; inset: 0; }
   .os-root .os-home .os-home-grid { position: absolute; top: calc(var(--phone-status-h) + 214px); left: 0; right: 0; }
+  /* Goal ladder on the phone (Phase 3): one strip under the widget; the app grid moves down to make room only when it shows. */
+  .os-root .os-goals-strip {
+    position: fixed; top: calc(var(--phone-status-h) + 178px); left: 16px; right: 16px; z-index: 1;
+    padding: 10px 14px; border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-ink-1) 94%, transparent); border: 1px solid var(--color-ink-3);
+  }
+  .os-root .os-home.os-home-goals .os-home-grid { top: calc(var(--phone-status-h) + 254px); }
 
   .os-root .os-phone-qm { background: transparent; border: 0; padding: 0; cursor: pointer; }
   .os-root .os-widget { display: block; font: inherit; color: inherit; cursor: pointer; }

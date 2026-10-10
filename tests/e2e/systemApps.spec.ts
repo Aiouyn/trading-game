@@ -3,13 +3,15 @@ import { goTo, grant, isPhone, register, skipRankUp, skipTips, watchErrors } fro
 
 // The system apps (Phase 2 step 3): Settings, Learn, Research Desk, Company, and the hidden Exchange and Launchpad.
 
-test('Learn searches the glossary in place and shows the lesson slots as coming later', async ({ page }) => {
+test('Learn lists the ten lessons and searches the glossary in place', async ({ page }) => {
   const errors = watchErrors(page);
   await register(page);
   await skipTips(page);
   await goTo(page, 'learn');
   await expect(page.getByTestId('learn')).toBeVisible();
-  await expect(page.getByTestId('learn-lessons')).toContainText('Coming in a later release');
+  await expect(page.getByTestId('learn-lessons')).toContainText('Your first market order');
+  await expect(page.getByTestId('learn-lesson-10')).toBeVisible();
+  await page.getByTestId('tab-glossary').click();
   await page.getByTestId('learn-search').fill('margin');
   await expect(page.getByTestId('learn-term-margin')).toBeVisible();
   await expect(page.getByTestId('learn-term-broker')).toHaveCount(0);

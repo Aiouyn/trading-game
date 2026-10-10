@@ -46,6 +46,8 @@ export function dispatch(reg: Registry, raw: unknown): unknown {
       return get(reg, o.id).view();
     case 'market':
       return get(reg, o.id).market();
+    case 'assets':
+      return get(reg, o.id).listAssets();
     case 'export':
       return { text: serializeRun(exportRun(get(reg, o.id))) };
     case 'submit':

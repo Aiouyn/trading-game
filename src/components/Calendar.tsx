@@ -8,6 +8,9 @@ import type { WireItem } from '@/world/types';
 import { openFromShell } from './os/openApp';
 import { Chip } from './ui';
 
+/** A shared empty list, so a selector that has no calendar returns the same value each time. */
+const NO_ITEMS: never[] = [];
+
 /** Index reviews still ahead: the announced items whose effective day is today or later, earliest first. */
 function upcomingReviews(wire: readonly WireItem[], today: number): WireItem[] {
   const seen = new Set<string>();
@@ -26,6 +29,7 @@ export function CalendarView() {
   const world = useGame((s) => s.world);
   const frame = useGame((s) => s.frame);
   const wire = useGame((s) => s.wire);
+  const next = useGame((s) => s.me?.trading.calendar) ?? NO_ITEMS;
   if (!world || !frame) return null;
   const tpd = world.config.ticksPerDay;
   const today = frame.tick <= 0 ? 0 : Math.floor((frame.tick - 1) / tpd);
@@ -36,6 +40,17 @@ export function CalendarView() {
   return (
     <div className="os-body" data-testid="calendar-view">
       <p className="text-caption text-fg-faint">{t('calendar.sub')}</p>
+
+      <div className="label pt-3">{t('calendar.section.next')}</div>
+      <p className="text-caption text-fg-faint" data-testid="calendar-busy">{t('calendar.busy', { n: next.length })}</p>
+      <ul data-testid="calendar-next">
+        {next.map((c, i) => (
+          <li key={`${c.day}-${c.kind}-${c.assetId ?? ''}-${i}`} className="flex items-baseline justify-between gap-3 border-t border-ink-2 py-2 text-small" data-testid={`calendar-item-${i}`}>
+            <span className="min-w-0 text-fg">{t(c.msg.key, c.msg.vars)}</span>
+            <span className="num shrink-0 text-caption text-fg-muted">{c.offset === 0 ? t('calendar.day.today') : t('calendar.day.tomorrow')}</span>
+          </li>
+        ))}
+      </ul>
 
       <div className="label pt-3">{t('calendar.section.macro')}</div>
       {r && (

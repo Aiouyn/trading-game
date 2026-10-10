@@ -120,6 +120,8 @@ export interface Player {
   lessons?: string[];
   /** goal ladder: opt-in (off by default) and the rungs done, with the tick each was done */
   goals?: { optIn: boolean; done: Record<string, number> };
+  /** weekly challenge: the ISO weeks this player has used their one attempt (the attempt is claimed here, durably) */
+  challengeWeeks?: string[];
 }
 
 export interface OwnedItem {
@@ -531,6 +533,7 @@ export type Command =
   | { type: 'journal.detail'; tripId: string }
   | { type: 'lesson.complete'; lessonId: string }
   | { type: 'goals.optIn'; on: boolean }
+  | { type: 'challenge.claim'; weekKey: string }
   | { type: 'recurring.add'; assetId: string; dollars: number; everyDays: number }
   | { type: 'recurring.cancel'; planId: string }
   | { type: 'drip.set'; assetId: string; on: boolean }

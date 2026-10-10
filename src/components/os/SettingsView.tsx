@@ -4,7 +4,9 @@
 // tg-prefs), and reduce motion. Then the read-only keys list, the profile and the account (moved from the
 // old Profile screen), and About with the credits and the intro replay. The view 'about' shows About alone,
 // and /credits lands there (P2-119).
+import { useState } from 'react';
 import { LOCALES, t, useLocale } from '@/i18n';
+import { useGame } from '@/game/store';
 import { AccountView, ProfileView } from '@/components/Profile';
 import { About } from './About';
 import { PalettePicker } from './PalettePicker';
@@ -60,6 +62,35 @@ function MotionToggle() {
   );
 }
 
+/** Settings > Goals. Off by default. Turning it on shows the goal ladder on Portfolio and under the home widget; it is a server setting on the player's record. */
+function GoalsToggle() {
+  const ready = useGame((s) => !!s.me);
+  const on = useGame((s) => !!s.me?.trading.goals.optIn);
+  const act = useGame((s) => s.act);
+  // the box shows the learner's choice at once; the server's answer then takes over (and a refusal puts it back)
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const checked = choice ?? on;
+  return (
+    <section className="flex flex-col gap-2" data-testid="settings-goals">
+      <label className="flex min-h-11 items-center gap-2 text-small text-fg">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={!ready}
+          data-testid="settings-goals-toggle"
+          onChange={(e) => {
+            const next = e.target.checked;
+            setChoice(next);
+            void act({ type: 'goals.optIn', on: next }, { silent: true }).then(() => setChoice(null));
+          }}
+        />
+        {t('settings.goals')}
+      </label>
+      <p className="text-caption text-fg-faint">{t('settings.goals.hint')}</p>
+    </section>
+  );
+}
+
 export function SettingsView({ view }: { view?: string }) {
   if (view === 'about') {
     return (
@@ -73,6 +104,7 @@ export function SettingsView({ view }: { view?: string }) {
       <PalettePicker />
       <LanguagePicker />
       <MotionToggle />
+      <GoalsToggle />
       <ShortcutList />
       <ProfileView />
       <AccountView />
