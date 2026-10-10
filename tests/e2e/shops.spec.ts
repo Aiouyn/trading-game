@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { dismissCloseCard, goTo, isPhone, noHorizontalOverflow, proof, register, skipTips, watchErrors } from './helpers';
 
 // The Shops tab of the Businesses app (Phase 4 stage C, DECISIONS S2). A lever shows at once; a price waits for the
@@ -188,11 +188,42 @@ test('the shops tab fits the minimum window without a sideways scroll', async ({
   });
   expect(overflow).toBeLessThanOrEqual(1);
   await expect(page.getByTestId('shops-view')).toBeVisible();
-  // a figure is never cut off: the stat values wrap, they do not truncate with an ellipsis
-  const id = await shopId(page);
-  const clipped = await page.evaluate((sid) => ['payback', 'revenue', 'stars', 'morale'].map((k) => {
-    const v = document.querySelector(`[data-testid="shop-${sid}-${k}"] .num`) as HTMLElement | null;
-    return { k, bad: !v || v.scrollWidth > v.clientWidth + 1 || (v.textContent ?? '').includes('…') };
-  }).filter((c) => c.bad).map((c) => c.k), id);
-  expect(clipped).toEqual([]);
+  // a figure is never cut off or split: each stat value and each day line is one line of text inside its own box
+  await expectFiguresOnOneLine(page, await shopId(page));
 });
+
+// The same figures in the window the player opens (the default size, or the phone): a shop's figures are one line each.
+test('shop figures stay on one line in the window the player opens', async ({ page }) => {
+  await register(page);
+  await skipTips(page);
+  await buyFoodCart(page);
+  await page.getByTestId('tab-shops').click();
+  await expectFiguresOnOneLine(page, await shopId(page));
+  await noHorizontalOverflow(page);
+});
+
+/**
+ * Every shop figure sits on one line and inside its box: the stat values and the day lines. The line count comes from the
+ * text's client rects (one distinct top per line), so a figure split across two lines fails here, and a figure wider than
+ * its cell overflows its box (scrollWidth). An ellipsis would also fail.
+ */
+async function expectFiguresOnOneLine(page: Page, sid: string): Promise<void> {
+  const figures = await page.evaluate((id) => {
+    const measure = (el: Element) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const tops = new Set(Array.from(range.getClientRects()).map((r) => Math.round(r.top)));
+      const box = el as HTMLElement;
+      return { text: (el.textContent ?? '').trim(), lines: tops.size, overflow: box.scrollWidth - box.clientWidth };
+    };
+    const stats = ['payback', 'revenue', 'stars', 'morale'].map((k) => {
+      const v = document.querySelector(`[data-testid="shop-${id}-${k}"] .num`);
+      return { k, ...(v ? measure(v) : { text: '', lines: 0, overflow: 1 }) };
+    });
+    const days = Array.from(document.querySelectorAll(`[data-testid="shop-${id}-day"] dd`)).map((dd) => ({ k: dd.textContent ?? '', ...measure(dd) }));
+    return [...stats, ...days];
+  }, sid);
+  expect(figures.length).toBeGreaterThan(4);
+  const bad = figures.filter((f) => f.lines !== 1 || f.overflow > 1 || f.text.includes('…') || f.text === '');
+  expect(bad.map((f) => `${f.k || f.text}: ${f.lines} lines, overflow ${f.overflow}`)).toEqual([]);
+}

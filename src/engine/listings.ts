@@ -70,14 +70,26 @@ export function appendAsset(state: WorldState, def: AssetDef): WorldState {
   const ecology = state.ecology
     ? { ...state.ecology, assets: [...state.ecology.assets, newEcoAsset(state.seed, def, a.lnP)] }
     : undefined;
-  return { ...state, config, assets: [...state.assets, a], ...(ecology ? { ecology } : {}) };
+  return bumpListVersion({ ...state, config, assets: [...state.assets, a], ...(ecology ? { ecology } : {}) });
 }
 
 /** Replace one asset's definition in config (same index, so the arrays stay aligned). */
 function replaceDef(state: WorldState, i: number, def: AssetDef): WorldState {
   const assets = state.config.assets.slice();
   assets[i] = def;
-  return { ...state, config: { ...state.config, assets } };
+  return bumpListVersion({ ...state, config: { ...state.config, assets } });
+}
+
+/**
+ * Every change to the asset list moves the list version (`listings.seq`), which the client's config follows: the frame
+ * of the tick that moves it carries the defs (view.ts configSeq). A company's IPO and a delisting settled through a
+ * company reach the list through here, not through listingsDay, so they bump it too. listingsDay assigns its own seq
+ * at the end of the day, which overrides any bump made in between. The rng starts where listingsDay would start it,
+ * so the NPC listings roll exactly as before.
+ */
+function bumpListVersion(state: WorldState): WorldState {
+  const rng = state.listings?.rng ?? seedStream(state.seed, 'macro:listings');
+  return { ...state, listings: { rng, seq: (state.listings?.seq ?? 0) + 1 } };
 }
 
 /** Pick a name and a unique ticker for a new fictional company. Names never match a real firm by design. */

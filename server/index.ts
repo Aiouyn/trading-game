@@ -126,6 +126,13 @@ const http = createServer(async (req, res) => {
       if (!p) return json(res, 404, { ok: false });
       return json(res, 200, host.command(p.id, { type: 'admin.age', playerId: p.id, ticks: Number(b.ticks) || 0 }));
     }
+    if (req.method === 'POST' && url.pathname === '/api/admin/ipo-ready') {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      const p = Object.values(host.g.players).find((x) => x.handle.toLowerCase() === String(b.handle ?? '').toLowerCase());
+      if (!p) return json(res, 404, { ok: false });
+      return json(res, 200, host.command(p.id, { type: 'admin.ipoReady', playerId: p.id }));
+    }
     if (req.method === 'POST' && url.pathname === '/api/admin/shock') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const b = await body(req);

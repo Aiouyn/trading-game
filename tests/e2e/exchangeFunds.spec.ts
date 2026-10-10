@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { ADMIN, WORLD, clearSheets, grant, noHorizontalOverflow, register, skipTips, watchErrors } from './helpers';
+import { advanceWorld, ageAccount, bodySidewaysOverflow, clearSheets, grant, isPhone, noHorizontalOverflow, register, shrinkWindowToMinimum, skipTips, watchErrors } from './helpers';
 
 // The Exchange's player funds, end to end: a manager opens a fund (Operator rank, a 14 game day old account, a $250k
 // stake), an investor (7 real days old) deposits, sees the holding, redeems (the early-exit notice shows), and is paid at
@@ -17,25 +17,6 @@ async function dismissRankUp(page: Page): Promise<void> {
   await skip.click({ timeout: 8_000 }).catch(() => undefined);
 }
 
-/** Backdates a player's account by `ticks` (the test seam for the account-age rules). */
-async function age(handle: string, ticks: number): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/age`, {
-    method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, ticks }),
-  });
-  expect(r.status).toBe(200);
-}
-
-/** Advances the world by `ticks`, in the admin route's chunks (at most 20,000 per call). */
-async function advance(ticks: number): Promise<void> {
-  let left = ticks;
-  while (left > 0) {
-    const n = Math.min(20_000, left);
-    const r = await fetch(`${WORLD}/api/admin/advance?n=${n}`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}` } });
-    expect(r.status).toBe(200);
-    left -= n;
-  }
-}
-
 test('a manager opens a fund; an investor deposits, sees the holding, redeems and is paid', async ({ page, browser }) => {
   test.setTimeout(420_000);
   const errors = watchErrors(page);
@@ -47,8 +28,8 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   const mgr = await register(page, 'exm');
   await grant(mgr, 6_000_000);
   await grant(inv, 1_000_000);
-  await age(mgr, 14 * TPD + 1);
-  await age(inv, 7 * REAL_DAY + 1);
+  await ageAccount(mgr, 14 * TPD + 1);
+  await ageAccount(inv, 7 * REAL_DAY + 1);
 
   // the manager opens the fund: the stake is the default ($250k), the fee and the mandate are the defaults
   await page.goto('/exchange');
@@ -83,7 +64,7 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   await expect(invPage.getByTestId('exchange-invest-sent')).toBeVisible({ timeout: 20_000 });
 
   // the deposit settles at the next day close: after two game days the investor holds units at NAV
-  await advance(2 * TPD);
+  await advanceWorld(2 * TPD);
   await clearSheets(invPage);
   await invPage.getByTestId('tab-mine').click();
   await expect(invPage.getByTestId('exchange-holdings')).toBeVisible();
@@ -98,7 +79,7 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   await expect(invPage.getByTestId('exchange-redeem-sent')).toBeVisible({ timeout: 20_000 });
 
   // the redemption pays at the next day close: the holding falls to the units left
-  await advance(2 * TPD);
+  await advanceWorld(2 * TPD);
   await clearSheets(invPage);
   await invPage.getByTestId('tab-mine').click();
   await expect(invPage.getByTestId(/^exchange-holding-value-/).first()).toContainText(/\$(29|30),\d{3}\.\d{2}/);
@@ -110,6 +91,12 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   await page.getByTestId('tab-manage').click();
   await expect(page.getByTestId('exchange-console')).toBeVisible();
   await expect(page.getByTestId('exchange-stat-stake')).toBeVisible();
+  // the console at the Exchange's minimum window (420 x 300): it fits sideways, the figures and the ticket included
+  if (!isPhone(page)) {
+    await shrinkWindowToMinimum(page, 'exchange');
+    await expect(page.getByTestId('exchange-console')).toBeVisible();
+    expect(await bodySidewaysOverflow(page, 'exchange')).toBeLessThanOrEqual(1);
+  }
 
   // the manager trades through the fund's own account from the Broker: the selector shows only to a manager, and the
   // ticket's fund mode sends the trade through the fund (the selected ticker's first unit, a market buy)

@@ -445,3 +445,26 @@ The Quay app `exchange` is visible from Phase 4 (`src/shell/apps.ts`: `available
 ### 9.4 e2e
 
 `tests/e2e/exchangeFunds.spec.ts` runs two flows: the manager's fund create and, from the Broker, a market buy through the fund account (the "Trade as" selector); and an investor's flow where a manager opens a fund, an investor (registered first, aged 7 real days by the admin advance) deposits, sees the holding, redeems (the early-exit notice shows), and is paid at the next day close. The spec matches the time-advancing pattern, so `playwright.config.ts` runs it in the close-card projects (`CLOSE_SPECS` now also matches `exchangeFunds.spec.ts`).
+
+`tests/e2e/exchangeIpo.spec.ts` covers the IPO path: a founder requests an IPO on the Capital tab, an investor sees the book, a subscription above the 5% room is refused in the form before it is sent, a subscription within the cap is sent and shown as the viewer's own order, and after a game day the allocation is in the investor's account and the company is in the Stocks tab. The founder's filed history is set by the admin seam `admin.ipoReady` (`POST /api/admin/ipo-ready`, `makeIpoReady` in `helpers.ts`): three padded filed quarters and a filed value at the $50M minimum. Every other IPO rule, the request, the book and the listing are the world's own. The seam is tested in `src/world/company/ipo.test.ts`. The filed history cannot be reached by advancing the world in a test run (three quarters are about 190 game days).
+
+`tests/e2e/exchangeLayout.spec.ts` checks the Exchange at its declared minimum window (420 x 300) on every tab: no sideways scroll, and no stat figure split across lines. The manager's console in `exchangeFunds.spec.ts` is checked at the same size.
+
+### 9.5 Shop figures and the daily-close cost
+
+- The Businesses shop card (`ShopCard.tsx`) wraps each figure in a nowrap span and steps the grid down to one column before a cell is too narrow (two columns from 22rem, four from 40rem). `Stat` keeps its `break-words` for text; the figures no longer depend on it. `shops.spec.ts` asserts one line per figure (the text's client rects) and no overflow, at the minimum window and in the window the player opens.
+- The per-view cost. `playerView` was slow and grew with the number of game days played, up to ten (the daily-close lines). The cause was `usd()` in `src/world/text/template.ts`, which called `toLocaleString` (about 28 us a call) about fifty times per view. The Exchange is not the cause: `exchangeView` measured 0.006 to 0.08 ms per player with and without a listing. The formatter is now cached (about 1.2 us a call, the same text, pinned by `template.test.ts`). A view costs 0.2 to 0.4 ms at ticks 2.9k to 23k, flat after the tenth day. With a listed company, a 20k-tick advance measured 0.3 ms a tick in the step and 0.4 to 0.7 ms a view.
+- The cause predates the Exchange (`usd` came in with p3 a2, `65ac2bd`). The 108 ms a tick in the earlier probe was not reproduced: the probe world had no listing, and the step plus the views came to well under 2 ms a tick here.
+
+### 9.6 E2E build note
+
+The default E2E build (`npm run build`, Turbopack) fails in a git worktree with "Symlink node_modules could not be resolved", because `node_modules` is a junction there. Run the specs with `E2E_BUILD_CMD="npx next build --webpack"`. This is a worktree setup issue, not a code defect.
+
+### 9.7 A company listing reaches the client's config
+
+The IPO e2e found a real bug, present on this branch since the company engine hooks (A2): a company's listing did not move the list version (`market.listings.seq`), so a client never received the new asset's definition. The client's config then had one asset fewer than the frame, the mirror truncated the frame to the config, and a holding in the new stock read past the end of the mirror's asset array (`priceAt` threw, and the shell showed "This page couldn't load"). The fix is in the engine: `appendAsset` and `replaceDef` (a delisting) bump `listings.seq` through `bumpListVersion` (`src/engine/listings.ts`). `listingsDay` assigns its own sequence at the end of the day, so the NPC listings roll and their version are unchanged. The regression test is `src/world/company/ipo.test.ts` ("the list version follows a company listing"): the version moves, the frame of that tick carries the defs, and a client mirror has every asset.
+
+### 9.8 E2E run order and registrations
+
+- The time-advancing specs (closeCard, shops, exchangeFunds, exchangeIpo) now run one at a time: `playwright.config.ts` chains them, each project depending on the one before (desktop, then phone). With `--workers=2`, one project ran two of them in parallel, and their day advances collided in the shared world.
+- The e2e world's `REGISTER_LIMIT` is 2,000 accounts per IP per hour (it was 500). The full suite registers more than 500 from localhost in one run, and the register then stalled on the welcome screen. A failed desktop project also stops its dependent close projects from running, so one stall hid three of them.

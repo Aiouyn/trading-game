@@ -6,6 +6,7 @@ import { TPD, today } from '../core';
 import type { GameState } from '../types';
 import { advanceTo, BUYER_A, BUYER_B, companyOf, FOUNDER, founded, THREE_FILINGS_DAY, totalMoney, YOUNG } from './b1fixture';
 import { allocateIpo, listIpo, orderIpo } from './ipo';
+import { configSeq, marketFrame, mirrorWorld } from '../view';
 import type { IpoBook } from './types';
 
 // The IPO (quant v1.7 section 5.1): eligibility, the book, the allocation, the listing through the engine and the lockup.
@@ -225,5 +226,52 @@ describe('a listing the day is not due does nothing', () => {
     listIpo(g, c, null);
     expect(c.listed).toBeNull();
     expect(orderIpo(g, BUYER_A, c, 5).ok).toBe(false);
+  });
+});
+
+describe('admin.ipoReady (the e2e seam for the filed history)', () => {
+  it('pads the filed quarters and raises the filed value, so the founder can request an IPO; the request stays the world\'s own', () => {
+    const { g, c } = founded('ipo-seam');
+    expect(c.filings.length).toBe(0);
+    expect(req(g, 0.2).error).toBe('ipoFilings');
+    expect(applyCommand(g, FOUNDER, { type: 'admin.ipoReady', playerId: FOUNDER }).ok).toBe(true);
+    expect(c.filings.length).toBeGreaterThanOrEqual(COMPANY.ipo.minFiledQuarters);
+    expect(new Set(c.filings.map((f) => f.hash)).size).toBe(c.filings.length);
+    expect(c.filings.map((f) => f.quarter)).toEqual(c.filings.map((_, i) => i));
+    expect(c.filedV).toBeGreaterThanOrEqual(COMPANY.ipo.minValue);
+    // the rank is still the world's: an Owner is refused on rank, not on the seam
+    expect(req(g, 0.2).error).toBe('ipoRank');
+    g.players[FOUNDER]!.rankId = 'R3';
+    expect(req(g, 0.2).ok).toBe(true);
+  });
+
+  it('refuses a player with no unlisted company, and an already listed company', () => {
+    const { g } = founded('ipo-seam-none');
+    expect(applyCommand(g, BUYER_A, { type: 'admin.ipoReady', playerId: BUYER_A }).ok).toBe(false);
+    applyCommand(g, FOUNDER, { type: 'admin.ipoReady', playerId: FOUNDER });
+    g.players[FOUNDER]!.rankId = 'R3';
+    expect(req(g, 0.2).ok).toBe(true);
+    // a second seam on a company whose book is open is refused: the seam only prepares a company that has no book yet
+    expect(applyCommand(g, FOUNDER, { type: 'admin.ipoReady', playerId: FOUNDER }).ok).toBe(false);
+  });
+});
+
+describe('the list version follows a company listing (the client config must see the new asset)', () => {
+  it('a listing moves configSeq, and the frame of that tick carries the defs so a client mirror has every asset', () => {
+    const { g, c } = eligible('list-version');
+    const before = configSeq(g);
+    const assetsBefore = g.market.config.assets.length;
+    applyCommand(g, FOUNDER, { type: 'company.ipo', companyId: c.id, floatPct: 0.2 });
+    applyCommand(g, BUYER_A, { type: 'company.ipoOrder', companyId: c.id, shares: 10_000 });
+    advanceTo(g, (c.ipo as IpoBook).listDay);
+    expect(c.listed).not.toBeNull();
+    expect(g.market.config.assets.length).toBe(assetsBefore + 1);
+    expect(configSeq(g)).toBeGreaterThan(before);
+    const frame = marketFrame(g, false, true);
+    expect(frame.cfgSeq).toBe(configSeq(g));
+    expect(frame.defs?.length).toBe(g.market.config.assets.length);
+    // the client mirror keeps every asset the frame carries, so a holding in the new stock prices
+    const mirror = mirrorWorld(g.market.config, frame, { id: BUYER_A, account: g.market.accounts[BUYER_A] ?? null, orders: [] });
+    expect(mirror.assets.length).toBe(g.market.config.assets.length);
   });
 });
