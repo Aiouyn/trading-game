@@ -44,8 +44,9 @@ function totalMoney(h: Harness): number {
   return t;
 }
 
+/** The money the world holds at the start is the founder's cash; the investor pools are booked as a faucet at creation. */
 function initialTotal(h: Harness): number {
-  return h.initialMoney + Object.values(h.w.investors).reduce((s, p) => s + (COMPANY.rounds.investorCash[p.kind]), 0);
+  return h.initialMoney;
 }
 
 describe('founding (C4 founder template, spec 5)', () => {
@@ -71,7 +72,9 @@ describe('founding (C4 founder template, spec 5)', () => {
     expect(h.money.founder).toBe(2_000_000 - COMPANY.founding.capital);
     expect(h.w.companies[id]!.cash).toBe(COMPANY.founding.capital);
     expect(totalMoney(h)).toBeCloseTo(before, 6);
-    expect(h.w.flows).toEqual({ faucet: 0, sink: 0 });
+    // the only faucet is the investor pools' seed cash, booked when the world was created
+    expect(h.w.flows.sink).toBe(0);
+    expect(h.w.flows.faucet).toBe(COMPANY.rounds.investorCash.seed + COMPANY.rounds.investorCash.series);
   });
 
   it('the founder template: one product at $50, 10 heads (5 Ops, 2 Sales, 2 R&D, 1 G&A), 1 city', () => {
@@ -101,7 +104,8 @@ describe('money conservation and the cash ledger (spec 1, CB-003, CB-110)', () =
     const script: Record<number, () => void> = {};
     for (const [d, a] of Object.entries(actions)) script[Number(d)] = () => { companyAction(h.w, h.env, 'founder', id, a); };
     const start = totalMoney(h);
-    expect(start).toBeCloseTo(initialTotal(h), 6);
+    // the identity holds from the start: total money moves only by the booked faucets and sinks
+    expect(start - initialTotal(h)).toBeCloseTo(h.w.flows.faucet - h.w.flows.sink, 6);
     advance(h, 1, 300, script);
     const w = h.w;
     const net = w.flows.faucet - w.flows.sink;
@@ -298,7 +302,7 @@ describe('the no-leak rule (spec 6.4, CB-084)', () => {
     c.products[0]!.q *= 3;
     c.products[0]!.marketing = 999;
     c.eff = 0.3;
-    c.projects.push({ id: 'x', kind: 'quality', productId: c.products[0]!.id, spend: 1, spendPerDay: 1, startDay: 80, endDay: 90, success: true, z: 1, pShown: 0.5, gates: [] });
+    c.projects.push({ id: 'x', kind: 'quality', productId: c.products[0]!.id, spend: 1, spendPerDay: 1, days: 10, paidDays: 0, startDay: 80, endDay: 90, success: true, z: 1, pShown: 0.5, sRef: 20_000, kUsed: 0, gates: [] });
     c.npcs.push({ id: 'n-extra', lnQ: 2, price: 1, marketing: 9, negQuarters: 0 });
     expect(JSON.stringify([publicCompanyView(c), filedInputs(c, 0)])).toBe(before);
   });
@@ -321,8 +325,8 @@ describe('the no-leak rule (spec 6.4, CB-084)', () => {
     found(h);
     advance(h, 1, 20);
     const c = Object.values(h.w.companies)[0]!;
-    const a = consensusInputs(c, 1000, 500, 20, 50);
-    const b = consensusInputs(c, 1000, 500, 20, 50);
+    const a = consensusInputs(c, 1000, 500, 20, 50, 1);
+    const b = consensusInputs(c, 1000, 500, 20, 50, 1);
     expect(a).toEqual(b);
   });
 });
@@ -361,7 +365,7 @@ describe('tiers and goals (spec 5, C4)', () => {
   const quarter = (rev: number, ni: number, ocf = 1): Statements => ({
     quarter: 1, periodCloseDay: 63, revenue: rev, cogs: 0, opex: 0, ebitda: 0, da: 0, ebit: 0, tax: 0, netIncome: ni, niAdj: ni,
     ocf, capex: 0, fcf: ocf, cash: 0, receivables: 0, inventory: 0, payables: 0, ppe: 0, equity: 0, retained: 0, backlog: 0,
-    backlogContribution: 0, unitsShipped: 0, unitCost: 0, heads: 0, grossMargin: 0,
+    backlogContribution: 0, unitsShipped: 0, unitCost: 0, matUnit: 0, inputIndex: 1, heads: 0, grossMargin: 0,
   });
 
   it('Seed, Growth and Late entry rules on the frozen statements, with Late and Growth able to drop', () => {
@@ -434,7 +438,7 @@ describe('filed fields (spec 6.4)', () => {
       income: { revUnrelated: rev, relatedPartyIncome: 0, cogs: rev * 0.5, opex: 0, ebitda: 0, netIncome: 10, niAdj: 10 },
       balance: { cash, receivables: 0, inventory: 0, ppe: 0, debt: 100, equity: 0, retainedEarnings: 0 },
       cashFlow: { ocf: 10, capex: 0, capexMaint: 0, fcf: 10, dividends: 0, buybacks: 0 }, headcountBand: '1-10',
-      backlog: 0, backlogContribution: 0, unitCost: 1, backlogReversal: { nonConversion: 0, baseRate: 0, excessLift: 0, repayment: 0 },
+      backlog: 0, backlogContribution: 0, unitCost: 1, matUnit: 0.5, inputIndex: 1, backlogReversal: { nonConversion: 0, baseRate: 0, excessLift: 0, repayment: 0 },
     });
     const h = harness('fi2');
     const id = found(h);

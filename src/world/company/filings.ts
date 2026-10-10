@@ -85,6 +85,8 @@ export function buildStatements(c: Company, closeDay: number, quarter: number, t
     backlogContribution: bl.contribution,
     unitsShipped: q.units,
     unitCost: q.units > 0 ? q.cogs / q.units : 0,
+    matUnit: q.units > 0 ? q.matCogs / q.units : 0,
+    inputIndex: c.indexLast,
     heads: totalHeads(c),
     grossMargin: q.revenue > 0 ? (q.revenue - q.cogs) / q.revenue : 0,
   };
@@ -170,6 +172,8 @@ export function filingOf(s: Statements, hash: string, filedDay: number, reversal
     backlog: s.backlog,
     backlogContribution: s.backlogContribution,
     unitCost: s.unitCost,
+    matUnit: s.matUnit,
+    inputIndex: s.inputIndex,
     backlogReversal: reversalLine,
   };
 }

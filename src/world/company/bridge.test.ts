@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import en from '@/i18n/en.json';
 import fr from '@/i18n/fr.json';
 import { applyCommand, createGame, stepGame } from '../game';
-import { credit } from '../core';
+import { credit, netWorthBreakdown } from '../core';
 import { newOutput } from '../core';
 import type { CompanyReject } from './types';
 import { companyDay, refusalKeys } from './bridge';
@@ -14,7 +14,7 @@ vi.setConfig({ testTimeout: 30_000 });
 const CODES: CompanyReject['code'][] = [
   'notRank', 'capitalTooLow', 'alreadyFounded', 'insufficientFunds', 'unknownCompany', 'notFounder', 'headcountCap',
   'notEnoughStaff', 'noRdStaff', 'projectBusy', 'productCap', 'unknownProduct', 'priceOutOfBand', 'negativeAmount',
-  'roundDilutionCap', 'investorCash', 'plantBuilding', 'unknownAction', 'noValuation',
+  'roundDilutionCap', 'investorCash', 'plantBuilding', 'unknownAction', 'noValuation', 'marketingCap', 'noLaunchCredit',
 ];
 
 function world(seed: string): GameState {
@@ -87,5 +87,32 @@ describe('copy coverage (refusals, notes and goals in English and French)', () =
     for (const k of ['company.note.founded', 'company.note.filed', 'company.note.tier.seed', 'company.note.tier.growth', 'company.note.tier.late', 'company.note.distress', 'company.note.repay', 'company.goal.firstHire', 'company.goal.firstRevenue', 'company.goal.breakEven', 'company.goal.firstRound']) {
       expect((fr as Record<string, string>)[k], k).toBeTruthy();
     }
+  });
+});
+
+describe('review fixes: the world exists only after a founding (spec 5, C2)', () => {
+  it('a refused command never creates a company world, and a failed founding leaves none behind', () => {
+    const g = world('bridge-5');
+    const act = applyCommand(g, 'u1', { type: 'company.act', companyId: 'co9', action: { kind: 'hire', role: 'ops', n: 1 } });
+    expect(act.ok).toBe(false);
+    expect(act.error).toBe('unknownCompany');
+    expect(g.companies).toBeUndefined();
+    const poor = applyCommand(g, 'u1', { type: 'company.found', name: 'Tiny', sector: 'tech', cityId: 'av', capital: 1_000 });
+    expect(poor.ok).toBe(false);
+    expect(g.companies).toBeUndefined();
+    for (let k = 0; k < 3; k++) stepGame(g);
+    expect(g.companies).toBeUndefined();
+  });
+
+  it('net worth counts a founded private company at 0.85 x V x ownership, so founding costs only the haircut', () => {
+    const g = world('bridge-6');
+    const before = netWorthBreakdown(g, 'u1');
+    expect(before.companies).toBe(0);
+    const f = applyCommand(g, 'u1', { type: 'company.found', name: 'Acme', sector: 'tech', cityId: 'av', capital: 150_000 });
+    expect(f.ok).toBe(true);
+    const after = netWorthBreakdown(g, 'u1');
+    // V of a company whose only asset is its cash is the cash itself; the founder owns every share at founding
+    expect(after.companies).toBeCloseTo(0.85 * 150_000, 4);
+    expect(after.cash).toBeCloseTo(before.cash - 150_000, 4);
   });
 });

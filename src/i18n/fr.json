@@ -1586,6 +1586,7 @@
   "portfolio.mortgages": "Hypothèques",
   "portfolio.lifestyle": "Style de vie (revente)",
   "portfolio.aiHardware": "Matériel IA",
+  "portfolio.companies": "Entreprises privées (à 85 % de la valeur)",
   "portfolio.businesses": "Entreprises",
   "portfolio.rent": "Loyers",
   "portfolio.mortgageInterest": "Intérêts hypothécaires",
@@ -1677,5 +1678,11 @@
   "company.refusal.unknownAction.do": "Actualisez l'écran et réessayez.",
   "company.refusal.noValuation.what": "L'entreprise n'a pas encore de valeur.",
   "company.refusal.noValuation.why": "Un tour privé demande une valorisation, et l'entreprise n'a pas encore de ventes.",
-  "company.refusal.noValuation.do": "Réalisez une première vente, puis réessayez."
+  "company.refusal.noValuation.do": "Réalisez une première vente, puis réessayez.",
+  "company.refusal.marketingCap.what": "Ce budget marketing dépasse le plafond.",
+  "company.refusal.marketingCap.why": "Le marketing est plafonné par produit et par jour de jeu pour qu'aucune entreprise n'achète sa part de marché.",
+  "company.refusal.marketingCap.do": "Fixez un budget de {cap} ou moins.",
+  "company.refusal.noLaunchCredit.what": "Aucun nouveau produit n'est prêt à être lancé.",
+  "company.refusal.noLaunchCredit.why": "Un nouveau produit demande un projet de nouvelle génération réussi et pas encore lancé.",
+  "company.refusal.noLaunchCredit.do": "Lancez un projet de nouvelle génération et attendez son succès."
 }

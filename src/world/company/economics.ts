@@ -62,6 +62,20 @@ export function productiveHeads(s: Staff, day: number): number {
   return Math.max(0, s.total - ramping);
 }
 
+/** R&D effort in productive heads after the G&A span factor (§4: every role's output, R&D speed included). */
+export function rdEffort(c: Company, day: number): number {
+  return productiveHeads(c.staff.rd, day) * gaFactor(c.staff);
+}
+
+/**
+ * The unit cost of the day (§1): mat * input_index * (1 - eff) + overtime, with the overtime of 1.5 Ops wages per unit on
+ * a day above 100% utilization. This is the same rule the orders use for their variable cost, so the founder view and
+ * the bookings agree.
+ */
+export function unitCostToday(c: Company): number {
+  return materialPerUnit(c.sector) * c.indexLast * (1 - c.eff) + (c.lastUtil > 1 ? overtimePerUnit() : 0);
+}
+
 /** Productive capacity in units per gd (§4): Ops heads * 60 * plant multiplier * G&A factor. */
 export function capacityPerDay(c: Company, day: number): number {
   return productiveHeads(c.staff.ops, day) * COMPANY.unitsPerOpsHead * plantMult(c.plantLevel) * gaFactor(c.staff);

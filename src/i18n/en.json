@@ -1586,6 +1586,7 @@
   "portfolio.mortgages": "Mortgages",
   "portfolio.lifestyle": "Lifestyle (resale)",
   "portfolio.aiHardware": "AI hardware",
+  "portfolio.companies": "Private companies (at 85% of value)",
   "portfolio.businesses": "Businesses",
   "portfolio.rent": "Rent",
   "portfolio.mortgageInterest": "Mortgage interest",
@@ -1677,5 +1678,11 @@
   "company.refusal.unknownAction.do": "Refresh the screen and try again.",
   "company.refusal.noValuation.what": "The company has no value yet.",
   "company.refusal.noValuation.why": "A private round needs a valuation, and the company has no sales yet.",
-  "company.refusal.noValuation.do": "Make a first sale, then try again."
+  "company.refusal.noValuation.do": "Make a first sale, then try again.",
+  "company.refusal.marketingCap.what": "That marketing budget is above the cap.",
+  "company.refusal.marketingCap.why": "Marketing is capped per product per game day so that no company can buy its share.",
+  "company.refusal.marketingCap.do": "Set a budget of {cap} or less.",
+  "company.refusal.noLaunchCredit.what": "No new product is ready to launch.",
+  "company.refusal.noLaunchCredit.why": "A new product needs a next-gen project that has succeeded and has not been launched yet.",
+  "company.refusal.noLaunchCredit.do": "Start a next-gen project and wait for it to succeed."
 }

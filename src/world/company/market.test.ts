@@ -17,7 +17,7 @@ function company(over: Partial<Company> = {}): Company {
     closed: [], filings: [], pendingFile: null, filingCount: 0, signals: [], noise: null, consensus: null, cbFiled: 0,
     lastUtil: 0, headsAtSignal: 0, signalSeq: 0, lastSens: 0, lastFair: 0, sigLog: [], revenueTotal: 0, listed: null,
     rng: { rd: seedStream('s', 'rd'), sig: seedStream('s', 'sig'), npc: seedStream('s', 'npc') },
-    goalsDone: {}, distress: false, ledger: [], ledgerTotals: {}, ...over,
+    goalsDone: {}, distress: false, distressPublic: false, indexLast: 1, launchCredits: [], ledger: [], ledgerTotals: {}, ...over,
   };
   return c;
 }

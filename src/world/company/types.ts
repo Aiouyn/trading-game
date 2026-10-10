@@ -26,6 +26,8 @@ export type CompanyReject =
   | { code: 'investorCash'; available: number }
   | { code: 'noValuation' }
   | { code: 'plantBuilding'; untilDay: number }
+  | { code: 'marketingCap'; cap: number }
+  | { code: 'noLaunchCredit' }
   | { code: 'unknownAction' };
 
 export type CompanyRejectCode = CompanyReject['code'];
@@ -56,10 +58,14 @@ export interface Project {
   id: string;
   kind: ProjectKind;
   productId: string;
-  /** total spend and per-gd spend over the duration (§3) */
+  /** total spend and per-gd spend over the funded duration (§3) */
   spend: number;
   spendPerDay: number;
+  /** funded gd needed (T) and funded gd so far; a day without cash for the spend is not counted (no spend, no progress) */
+  days: number;
+  paidDays: number;
   startDay: number;
+  /** nominal end day: the start plus `days`, pushed back by one for each unfunded day */
   endDay: number;
   /** the outcome is drawn at start from the company's rd stream (§3, N11) */
   success: boolean;
@@ -67,8 +73,18 @@ export interface Project {
   z: number;
   /** the shown band at launch: p and dq at bear/base/bull */
   pShown: number;
+  /** S_ref frozen at project start (20 gd of the product's revenue at start, $20k floor): the odds and the gain use it */
+  sRef: number;
+  /** the diminishing-returns count used for the gain, frozen at start (0 for a next-gen project) */
+  kUsed: number;
   /** the realised pharma gates (three booleans) when kind is quality on pharma, else [] */
   gates: boolean[];
+}
+
+/** A next-gen success is a right to launch a new product of that generation; a launch uses one (§3, next-gen economics). */
+export interface LaunchCredit {
+  q: number;
+  generation: number;
 }
 
 export interface Staff {
@@ -160,6 +176,9 @@ export interface Statements {
   unitsShipped: number;
   /** filed unit cost: COGS / units shipped (G23) */
   unitCost: number;
+  /** the material part of the unit cost (materials / units) and the commodity index at the close: G23 moves the material part by the index */
+  matUnit: number;
+  inputIndex: number;
   /** headcount at the close */
   heads: number;
   /** units shipped in the quarter and the gross margin used by the valuation (TTM) */
@@ -179,6 +198,9 @@ export interface FilingPublic {
   backlog: number;
   backlogContribution: number;
   unitCost: number;
+  /** the material part of the filed unit cost, and the commodity index at the close (G23 moves the material part) */
+  matUnit: number;
+  inputIndex: number;
   backlogReversal: { nonConversion: number; baseRate: number; excessLift: number; repayment: number };
 }
 
@@ -252,6 +274,10 @@ export interface Company {
   eff: number;
   projects: Project[];
   projSeq: number;
+  /** the input index at the last game day (for the day's unit cost and the consensus margin) */
+  indexLast: number;
+  /** next-gen successes not yet launched as a product */
+  launchCredits: LaunchCredit[];
   /** the company's own market: its frontier, its NPC rivals and the sector shock level at founding */
   frontierLn: number;
   npcs: Npc[];
@@ -311,8 +337,10 @@ export interface Company {
   rng: { rd: RngState; sig: RngState; npc: RngState };
   /** founder goals (C4): reached-day per goal id */
   goalsDone: Record<string, number>;
-  /** distress flag: cash below zero at the last close */
+  /** distress flag (private): cash below zero, set on the day it happens */
   distress: boolean;
+  /** the public distress flag: cash below zero in the last filed balance (spec 5, 11; it is a dividend trigger in B) */
+  distressPublic: boolean;
   ledger: Ledger[];
   ledgerTotals: Record<string, number>;
 }

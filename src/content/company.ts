@@ -79,6 +79,8 @@ export const COMPANY = {
   /** a seat takes 3 gd to fill; severance is 21 gd of wages (§4) */
   hireFillDays: 3,
   severanceDays: 21,
+  /** a hire needs cash for this many gd of its wages (a proposal: payroll itself is mandatory and may take cash below zero) */
+  hireRunwayDays: 5,
   /** capacity: 60 units/gd per productive Ops head times the plant multiplier (§4) */
   unitsPerOpsHead: 60,
   /** orders are booked and shipped up to 115% of capacity (§2 overtime ceiling, G15 booking test) */
@@ -128,6 +130,8 @@ export const COMPANY = {
     marketingRef: 1_000,
     /** price band +- 30% of priceRef (§2) */
     priceBand: 0.30,
+    /** marketing per product per gd is capped (a proposal: 10 x marketingRef); it is paid only from cash on hand */
+    marketingMax: 10_000,
     /** distribution: a base level plus 0.1 * ln(1 + sales heads) (§4); levels 1..5 come with Expansion (not in A3) */
     distBase: 1,
     distSalesWeight: 0.1,
@@ -208,6 +212,8 @@ export const COMPANY = {
     cInit: 0.5,
     cBase: 0.85,
     cSlope: 0.15,
+    /** a private mark annualizes the quarter's run rate only after this many gd of trading (a proposal; see privateInputs) */
+    privateMarkDays: 21,
   },
   /** private rounds (§5, X12, N9): NPC investors only, at 0.70 * V_engine, at most 25% of post-money */
   rounds: {
@@ -216,6 +222,8 @@ export const COMPANY = {
     /** the seed round (Seed tier) and the series round (Growth and Late) are the two investor types */
     investorCash: { seed: 5_000_000, series: 50_000_000 } as Record<'seed' | 'series', number>,
   },
+  /** the private mark of a company counted in its owner's net worth (spec 5.1): 0.85 x V x ownership */
+  netWorth: { privateHaircut: 0.85 },
   /** founding (§5 Seed tier; C4 founder template): R2 owner, at least $100k of founder equity */
   founding: {
     minRank: 'R2',

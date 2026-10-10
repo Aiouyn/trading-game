@@ -12,7 +12,7 @@ import { COMPANY, SECTORS } from '@/content/company';
 import type { RegimeId } from '@/engine/types';
 import { Rng, seedStream } from '@/engine';
 import type { Company, Npc, Product } from './types';
-import { productiveHeads } from './economics';
+import { gaFactor, productiveHeads } from './economics';
 
 /** Total demand in units per gd (§2). */
 export function demandPerDay(c: Company, sectorLevel: number, regime: RegimeId | string): number {
@@ -21,16 +21,20 @@ export function demandPerDay(c: Company, sectorLevel: number, regime: RegimeId |
   return c.d0 * Math.exp(COMPANY.demand.kappaD * (sectorLevel - c.sectorBase)) * Math.pow(regimeMult, beta);
 }
 
-/** Distribution level dist_j = base + 0.1 * ln(1 + sales heads) (§4). */
+/**
+ * Distribution level dist_j = base + 0.1 * ln(1 + productive sales heads) (§4). The G&A span factor scales the sales
+ * output too (§4: every role's output), so a short-staffed G&A function also thins distribution.
+ */
 export function distributionLevel(c: Company, day: number): number {
-  return COMPANY.demand.distBase + COMPANY.demand.distSalesWeight * Math.log(1 + productiveHeads(c.staff.sales, day));
+  const sales = productiveHeads(c.staff.sales, day) * gaFactor(c.staff);
+  return COMPANY.demand.distBase + COMPANY.demand.distSalesWeight * Math.log(1 + sales);
 }
 
 /** Logit utility of a player product (§2). */
-export function productUtility(p: Product, frontier: number, dist: number): number {
+export function productUtility(p: Product, frontier: number, dist: number, marketing: number = p.marketing): number {
   const d = COMPANY.demand;
   return d.a * Math.log(p.q / frontier)
-    + d.b * Math.log(1 + p.marketing / d.marketingRef)
+    + d.b * Math.log(1 + marketing / d.marketingRef)
     - d.c * Math.log(p.price / d.priceRef)
     + d.d * Math.log(dist)
     + p.brand;
@@ -55,13 +59,14 @@ export interface Shares {
 
 /**
  * The logit shares (§2) with the outside option u_0 = 0 in the denominator. Exponentials are shifted by the largest
- * utility so the sum never overflows (the shares are unchanged by the shift).
+ * utility so the sum never overflows (the shares are unchanged by the shift). Marketing counts only on a day it is
+ * funded (`marketingFunded`, decided from the cash on hand before the day's flows): an unfunded day has no marketing.
  */
-export function shares(c: Company, day: number): Shares {
+export function shares(c: Company, day: number, marketingFunded = true): Shares {
   const frontier = Math.exp(c.frontierLn);
   const dist = distributionLevel(c, day);
   const entries: { key: string; kind: 'p' | 'n'; u: number }[] = [];
-  for (const p of c.products) entries.push({ key: p.id, kind: 'p', u: productUtility(p, frontier, dist) });
+  for (const p of c.products) entries.push({ key: p.id, kind: 'p', u: productUtility(p, frontier, dist, marketingFunded ? p.marketing : 0) });
   for (const n of c.npcs) entries.push({ key: n.id, kind: 'n', u: npcUtility(n, frontier) });
   const u0 = COMPANY.demand.u0;
   const top = Math.max(u0, ...entries.map((e) => e.u));

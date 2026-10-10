@@ -67,16 +67,20 @@ function fail(reject: CompanyReject): CommandResult {
   return { ok: false, error: reject.code, data: reject };
 }
 
-/** The two commands: found a company and act on one. Refusals return the reject code and its copy keys in `data`. */
+/**
+ * The two commands: found a company and act on one. Refusals return the reject code and its copy keys in `data`. The
+ * company world is created only by a successful found, so a refused command never changes a world without companies.
+ */
 export function companyCommand(g: GameState, pid: string, cmd: { type: 'company.found'; name: string; sector: CompanySector; cityId: string; capital: number } | { type: 'company.act'; companyId: string; action: CompanyAction }, out: StepOutput | null): CommandResult {
-  if (!g.companies) g.companies = emptyCompanyWorld(g.seed);
-  const env = companyEnvOf(g);
   if (cmd.type === 'company.found') {
-    const r = foundCompany(g.companies, env, pid, { name: cmd.name, sector: cmd.sector, cityId: cmd.cityId, capital: cmd.capital });
+    const w = g.companies ?? emptyCompanyWorld(g.seed);
+    const r = foundCompany(w, companyEnvOf(g), pid, { name: cmd.name, sector: cmd.sector, cityId: cmd.cityId, capital: cmd.capital });
     if (!r.ok) return fail(r.reject);
+    g.companies = w;
     notify(g, out, pid, { kind: 'system', tone: 'brass', text: `${cmd.name} is founded.`, msg: { key: 'company.note.founded', vars: { name: cmd.name } } });
     return { ok: true, data: r.value };
   }
-  const r = companyAction(g.companies, env, pid, cmd.companyId, cmd.action);
+  if (!g.companies) return fail({ code: 'unknownCompany' });
+  const r = companyAction(g.companies, companyEnvOf(g), pid, cmd.companyId, cmd.action);
   return r.ok ? { ok: true, data: r.value } : fail(r.reject);
 }

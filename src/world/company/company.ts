@@ -4,12 +4,13 @@ import { Rng, seedStream, type RngState } from '@/engine';
 import { cancelRateOf, openBook, publishSignal } from './signals';
 import { buildStatements, filingOf, quarterTax, reversal, statementsHash, tierFor } from './filings';
 import { imitateDaily, demandPerDay, npcQuarterly, npcWeeklyReaction, seedNpcs, shares as marketShares } from './market';
-import { capacityPerDay, depreciationPerDay, materialUnitCost, overtimePerUnit, plantCost, shipCeiling } from './economics';
+import { capacityPerDay, depreciationPerDay, inputIndex, materialUnitCost, overtimePerUnit, plantCost, rdEffort, shipCeiling } from './economics';
 import { completeProject, frontierStep, startProject } from './rd';
 import { ROLES, emptyStaff, fireHeads, headcountCap, landHires, queueHire, totalHeads, wagesPerDay, pendingHeads } from './staff';
 import { vEngine, lnPerShare, type ValuationInputs } from './valuation';
 import { filedInputs } from './signals';
 import type { CompanyReject, CompanyWorld, Company, InvestorPool, Order, Product, ProjectKind, Resolved, Statements } from './types';
+
 export type CompanyAction =
   | { kind: 'hire'; role: CompanyRole; n: number }
   | { kind: 'fire'; role: CompanyRole; n: number }
@@ -59,16 +60,21 @@ function rngOf(seed: string, key: string): RngState {
   return seedStream(seed, key);
 }
 
-/** A fresh company world: the NPC investor pools and the sector shock streams (G22 unit reading), at level 0. */
+/**
+ * A fresh company world: the NPC investor pools and the sector shock streams (G22 unit reading), at level 0. The pools'
+ * cash is money the world creates at its start, so it is booked as a faucet (the conservation identity counts it).
+ */
 export function emptyCompanyWorld(seed: string): CompanyWorld {
   const sectors = {} as CompanyWorld['sectors'];
   for (const s of Object.keys(SECTORS) as CompanySector[]) sectors[s] = { level: 0, rng: rngOf(seed, `co:sector:${s}`) };
   const investors: Record<string, InvestorPool> = {};
+  let seeded = 0;
   for (const kind of INVESTOR_KINDS) {
     const id = `npc:${kind}`;
     investors[id] = { id, kind, cash: COMPANY.rounds.investorCash[kind] };
+    seeded += COMPANY.rounds.investorCash[kind];
   }
-  return { companies: {}, seq: 0, investors, sectors, flows: { faucet: 0, sink: 0 }, founded: 0 };
+  return { companies: {}, seq: 0, investors, sectors, flows: { faucet: seeded, sink: 0 }, founded: 0 };
 }
 
 /** Cash in or out of a company's own books. `transfer` moves money between real parties and is not a faucet or sink. */
@@ -96,7 +102,7 @@ export function foundCompany(
 ): Outcome<{ id: string }> {
   const F = COMPANY.founding;
   if (rankIndex(env.rankOf(playerId)) < rankIndex(F.minRank)) return { ok: false, reject: { code: 'notRank', minRank: F.minRank } };
-  if (!(args.capital >= F.minEquity)) return { ok: false, reject: { code: 'capitalTooLow', minCapital: F.minEquity } };
+  if (!(Number.isFinite(args.capital) && args.capital >= F.minEquity)) return { ok: false, reject: { code: 'capitalTooLow', minCapital: F.minEquity } };
   if (!SECTORS[args.sector]) return { ok: false, reject: { code: 'unknownAction' } };
   for (const c of Object.values(w.companies)) if (c.ownerId === playerId) return { ok: false, reject: { code: 'alreadyFounded' } };
   const cash = env.money.cash(playerId);
@@ -116,12 +122,13 @@ export function foundCompany(
     products: [{ id: productId, name: F.productName, q: 1, generation: 1, k: 0, price: F.productPrice, marketing: 0, brand: 0, patents: [], lastShare: 0 }],
     eff: 0, projects: [], projSeq: 0, frontierLn: 0, npcs: [], npcSeq: 0,
     sectorBase: w.sectors[args.sector].level, oilBase: env.oilLog, d0: COMPANY.demand.d0BySector[args.sector],
+    indexLast: inputIndex(args.sector, 0), launchCredits: [],
     orders: [], orderSeq: 0, resolved: [], ar: 0, inv: 0, ap: 0,
     qtd: emptyQtd(env.day), closed: [], filings: [], pendingFile: null, filingCount: 0,
     signals: [], noise: null, consensus: null, cbFiled: 0, lastUtil: 0, headsAtSignal: F.heads.ops + F.heads.sales + F.heads.rd + F.heads.ga,
     signalSeq: 0, lastSens: 0, lastFair: 0, sigLog: [], revenueTotal: 0, listed: null,
     rng: { rd: rngOf(env.seed, `co:${id}:rd`), sig: rngOf(env.seed, `co:${id}:sig`), npc: rngOf(env.seed, `co:npc:${id}`) },
-    goalsDone: {}, distress: false, ledger: [], ledgerTotals: {},
+    goalsDone: {}, distress: false, distressPublic: false, ledger: [], ledgerTotals: {},
   };
   const npcRng = new Rng(c.rng.npc);
   const count = COMPANY.npc.minCount + Math.floor(npcRng.uniform() * (COMPANY.npc.maxCount - COMPANY.npc.minCount + 1));
@@ -140,10 +147,6 @@ export function revenuePerDay(c: Company, day: number): number {
   return c.qtd.revenue / elapsed;
 }
 
-function activeRd(c: Company, day: number): number {
-  return c.projects.filter((p) => p.startDay <= day && day < p.endDay).length;
-}
-
 /** The player's actions on a company they founded. Refusals are structured, never thrown. */
 export function companyAction(
   w: CompanyWorld, env: CompanyEnv, playerId: string, companyId: string, action: CompanyAction,
@@ -153,8 +156,14 @@ export function companyAction(
   if (c.ownerId !== playerId) return { ok: false, reject: { code: 'notFounder' } };
   const day = env.day;
   const cap = isListed(c) ? Infinity : headcountCap(c.tier);
+  const band = { min: COMPANY.demand.priceRef * (1 - COMPANY.demand.priceBand), max: COMPANY.demand.priceRef * (1 + COMPANY.demand.priceBand) };
   switch (action.kind) {
     case 'hire': {
+      // a hire needs cash for its first wage days: payroll is paid whether or not the company can afford it
+      const need = action.n * COMPANY.wages[action.role] * COMPANY.hireRunwayDays;
+      if (Number.isInteger(action.n) && action.n > 0 && c.cash < need) {
+        return { ok: false, reject: { code: 'insufficientFunds', shortfall: need - c.cash } };
+      }
       const r = queueHire(c, action.role, action.n, day, cap);
       return r ? { ok: false, reject: r } : { ok: true, value: { pending: pendingHeads(c) } };
     }
@@ -167,27 +176,28 @@ export function companyAction(
     case 'setPrice': {
       const p = c.products.find((x) => x.id === action.productId);
       if (!p) return { ok: false, reject: { code: 'unknownProduct' } };
-      const min = COMPANY.demand.priceRef * (1 - COMPANY.demand.priceBand);
-      const max = COMPANY.demand.priceRef * (1 + COMPANY.demand.priceBand);
-      if (!(action.price >= min && action.price <= max)) return { ok: false, reject: { code: 'priceOutOfBand', min, max } };
+      if (!(action.price >= band.min && action.price <= band.max)) return { ok: false, reject: { code: 'priceOutOfBand', min: band.min, max: band.max } };
       p.price = action.price;
       return { ok: true, value: { price: p.price } };
     }
     case 'setMarketing': {
       const p = c.products.find((x) => x.id === action.productId);
       if (!p) return { ok: false, reject: { code: 'unknownProduct' } };
-      if (!(action.amount >= 0)) return { ok: false, reject: { code: 'negativeAmount' } };
+      if (!(Number.isFinite(action.amount) && action.amount >= 0)) return { ok: false, reject: { code: 'negativeAmount' } };
+      if (action.amount > COMPANY.demand.marketingMax) return { ok: false, reject: { code: 'marketingCap', cap: COMPANY.demand.marketingMax } };
+      // marketing is paid per gd from the opening cash, so the total of all products' settings must be on hand
+      const total = c.products.reduce((s, x) => s + (x.id === p.id ? action.amount : x.marketing), 0);
+      if (total > 0 && c.cash < total) return { ok: false, reject: { code: 'insufficientFunds', shortfall: total - c.cash } };
       p.marketing = action.amount;
       return { ok: true, value: { marketing: p.marketing } };
     }
     case 'startProject': {
       const p = c.products.find((x) => x.id === action.productId);
       if (!p) return { ok: false, reject: { code: 'unknownProduct' } };
-      if (!(action.spend > 0)) return { ok: false, reject: { code: 'negativeAmount' } };
-      const rd = c.staff.rd;
-      const productiveRd = Math.max(0, rd.total - rd.ramping.filter((r) => r.readyDay > day).reduce((s, r) => s + r.n, 0));
+      if (!(Number.isFinite(action.spend) && action.spend > 0)) return { ok: false, reject: { code: 'negativeAmount' } };
+      const productiveRd = rdEffort(c, day);
       if (productiveRd <= 0) return { ok: false, reject: { code: 'noRdStaff' } };
-      if (activeRd(c, day) >= COMPANY.rdProjectsAtOnce) return { ok: false, reject: { code: 'projectBusy' } };
+      if (c.projects.length >= COMPANY.rdProjectsAtOnce) return { ok: false, reject: { code: 'projectBusy' } };
       if (c.cash < action.spend) return { ok: false, reject: { code: 'insufficientFunds', shortfall: action.spend - c.cash } };
       const r = new Rng(c.rng.rd);
       const project = startProject(c, r, action.projectKind, p, action.spend, day, revenuePerDay(c, day), productiveRd);
@@ -208,12 +218,13 @@ export function companyAction(
     }
     case 'launchProduct': {
       if (c.products.length >= COMPANY.productCap[c.tier]) return { ok: false, reject: { code: 'productCap', cap: COMPANY.productCap[c.tier] } };
-      const min = COMPANY.demand.priceRef * (1 - COMPANY.demand.priceBand);
-      const max = COMPANY.demand.priceRef * (1 + COMPANY.demand.priceBand);
-      if (!(action.price >= min && action.price <= max)) return { ok: false, reject: { code: 'priceOutOfBand', min, max } };
+      if (!(action.price >= band.min && action.price <= band.max)) return { ok: false, reject: { code: 'priceOutOfBand', min: band.min, max: band.max } };
+      // a new product needs a next-gen success it has not yet used: its quality is the one that project bought
+      const credit = c.launchCredits.shift();
+      if (!credit) return { ok: false, reject: { code: 'noLaunchCredit' } };
       const id = `${c.id}:p${c.products.length}`;
       const product: Product = {
-        id, name: action.name.slice(0, 40), q: Math.exp(c.frontierLn), generation: 1, k: 0, price: action.price,
+        id, name: action.name.slice(0, 40), q: credit.q, generation: credit.generation, k: 0, price: action.price,
         marketing: 0, brand: 0, patents: [], lastShare: 0,
       };
       c.products.push(product);
@@ -225,23 +236,48 @@ export function companyAction(
 }
 
 /**
- * The private valuation of a company that is not yet filed: the filed value when there are filings, and otherwise the
- * annualized run rate of the quarter so far (the run-rate basis of a private mark, §5).
+ * The valuation inputs of a company's private mark (§5, one V_engine everywhere). The basis, in order:
+ * - after the first filing, the filed inputs (the same ones the filing uses);
+ * - once the quarter so far has COMPANY.valuation.privateMarkDays of trading, its run rate, annualized;
+ * - before that, the last closed quarter's statements, annualized (a quarter closed but not yet filed is still private);
+ * - with no sales basis yet, no revenue or earnings: the mark is the cash.
+ * The net debt is always the live cash for a company without a filed balance. A short window is never annualized on its
+ * own: one day's sales times 252 would mark a young company at many times its cash (and net worth ranks on the peak).
  */
-export function privateValue(c: Company, day: number): number {
-  if (c.filings.length > 0) return vEngine(filedInputs(c, 0));
-  const elapsed = Math.max(1, day - c.qtd.startDay);
-  const k = COMPANY.yearDays / elapsed;
-  const x: ValuationInputs = {
-    revU: c.qtd.revenue * k,
-    eStar: 0,
+export function privateInputs(c: Company, day: number): ValuationInputs {
+  if (c.filings.length > 0) return filedInputs(c, 0);
+  const q = c.qtd;
+  const elapsed = day - q.startDay;
+  const quarters = COMPANY.yearDays / COMPANY.quarterDays;
+  const base = {
     growth: 0,
     credibility: COMPANY.valuation.cInit,
     netDebt: -c.cash,
     dCB: 0,
-    margin: SECTORS[c.sector].grossMargin,
   };
-  return vEngine(x);
+  if (elapsed >= COMPANY.valuation.privateMarkDays) {
+    const k = COMPANY.yearDays / elapsed;
+    const ebit = q.revenue - q.cogs - q.opex - q.da;
+    // approximate net income of the run rate: the tax rate on positive EBIT (the filed NI uses the carryforward)
+    const ni = ebit > 0 ? ebit * (1 - COMPANY.taxRate) : ebit;
+    const margin = q.revenue > 0 ? (q.revenue - q.cogs) / q.revenue : SECTORS[c.sector].grossMargin;
+    return { ...base, revU: q.revenue * k, eStar: Math.min(ni, q.ocf - q.da) * k, margin };
+  }
+  const last = c.closed[c.closed.length - 1];
+  if (last) {
+    return {
+      ...base,
+      revU: last.revenue * quarters,
+      eStar: Math.min(last.netIncome, last.ocf - last.da) * quarters,
+      margin: last.grossMargin,
+    };
+  }
+  return { ...base, revU: 0, eStar: 0, margin: SECTORS[c.sector].grossMargin };
+}
+
+/** The private value of a company: V_engine on its private inputs, floored at zero (§5). */
+export function privateValue(c: Company, day: number): number {
+  return vEngine(privateInputs(c, day));
 }
 
 /**
@@ -249,7 +285,7 @@ export function privateValue(c: Company, day: number): number {
  * is chosen by tier (seed round for Seed, series round for Growth and Late); the investor's cash moves to the company.
  */
 function raiseRound(w: CompanyWorld, c: Company, env: CompanyEnv, amount: number): Outcome<Record<string, unknown>> {
-  if (!(amount > 0)) return { ok: false, reject: { code: 'negativeAmount' } };
+  if (!(Number.isFinite(amount) && amount > 0)) return { ok: false, reject: { code: 'negativeAmount' } };
   const poolId = c.tier === 'seed' ? 'npc:seed' : 'npc:series';
   const pool = w.investors[poolId]!;
   const v = privateValue(c, env.day);
@@ -271,6 +307,26 @@ function raiseRound(w: CompanyWorld, c: Company, env: CompanyEnv, amount: number
   return { ok: true, value: { shares: n, price, postMoneyShare: share } };
 }
 
+/**
+ * The discretionary spend the opening cash covers today. R&D projects are paid first (in the order they started), then
+ * marketing, both from the cash held at the start of the day. Mandatory costs (sales, materials, payroll, overtime and
+ * tax) are always paid, so cash can dip below zero only through them, which is the distress state. A day that is not
+ * funded spends nothing on that item: an R&D project does not progress (its nominal end moves back one day), and
+ * marketing has no effect on the day's shares.
+ */
+function discretionaryFunding(c: Company): { rdFunded: Set<string>; marketingFunded: boolean } {
+  let budget = c.cash;
+  const rdFunded = new Set<string>();
+  for (const p of c.projects) {
+    if (budget >= p.spendPerDay) {
+      budget -= p.spendPerDay;
+      rdFunded.add(p.id);
+    }
+  }
+  const marketingTotal = c.products.reduce((s, p) => s + p.marketing, 0);
+  return { rdFunded, marketingFunded: marketingTotal <= 0 || budget >= marketingTotal };
+}
+
 /** The daily operations of one company for game day `day` (after the day's ops, costs and cash are booked). */
 function operateDay(w: CompanyWorld, c: Company, env: CompanyEnv, day: number): void {
   // 1. staff and plant: hires land, a finished plant level comes on line
@@ -283,19 +339,17 @@ function operateDay(w: CompanyWorld, c: Company, env: CompanyEnv, day: number): 
   frontierStep(c);
   imitateDaily(c, day);
 
-  // 3. demand and capacity
+  // 3. demand, capacity and the day's funded discretionary spend
   const oilMove = env.oilLog - c.oilBase;
+  c.indexLast = inputIndex(c.sector, oilMove);
   const matUnit = materialUnitCost(c, oilMove);
   const cap = capacityPerDay(c, day);
   const ceiling = shipCeiling(cap);
   const sectorLevel = w.sectors[c.sector].level;
   const demand = demandPerDay(c, sectorLevel, env.regime);
-  const sh = marketShares(c, day);
-  let maxShare = 0;
-  for (const p of c.products) {
-    p.lastShare = sh.products[p.id] ?? 0;
-    maxShare = Math.max(maxShare, p.lastShare);
-  }
+  const funded = discretionaryFunding(c);
+  const sh = marketShares(c, day, funded.marketingFunded);
+  for (const p of c.products) p.lastShare = sh.products[p.id] ?? 0;
 
   // 4. booking within capacity (G15): FIFO behind the open book, through the 63-gd ship-by day at 115% of capacity
   const open = openBook(c.orders);
@@ -336,7 +390,8 @@ function operateDay(w: CompanyWorld, c: Company, env: CompanyEnv, day: number): 
   const matCost = shippedUnits * matUnit;
   c.lastUtil = cap > 0 ? shippedUnits / cap : 0;
 
-  // 6. resolution: a fully shipped order, or one past its ship-by day (the rest is company non-conversion)
+  // 6. resolution: a fully shipped order, or one past its ship-by day (the rest is company non-conversion). The resolved
+  // list is kept whole until the next filing, so the excess lift is computed over every order resolved in the quarter.
   const keep: Order[] = [];
   for (const o of c.orders) {
     const effective = o.qty - o.npcCut;
@@ -346,7 +401,6 @@ function operateDay(w: CompanyWorld, c: Company, env: CompanyEnv, day: number): 
     } else keep.push(o);
   }
   c.orders = keep;
-  if (c.resolved.length > 200) c.resolved.splice(0, c.resolved.length - 200);
 
   // 7. brand: a stockout day costs 0.02, and the brand recovers at 0.01 per gd (§4)
   for (const p of c.products) {
@@ -358,10 +412,6 @@ function operateDay(w: CompanyWorld, c: Company, env: CompanyEnv, day: number): 
   // 8. costs and cash: working capital from the day's sales and materials (DSO, DIO, DPO)
   const wages = wagesPerDay(c);
   const wagesAll = wages.ops + wages.sales + wages.rd + wages.ga;
-  let rdSpend = 0;
-  for (const p of c.projects) if (p.startDay <= day && day < p.endDay) rdSpend += p.spendPerDay;
-  let marketing = 0;
-  for (const p of c.products) marketing += p.marketing;
   const arNew = COMPANY.dso * revenue;
   const invNew = COMPANY.dio * matCost;
   const apNew = COMPANY.dpo * matCost;
@@ -371,19 +421,31 @@ function operateDay(w: CompanyWorld, c: Company, env: CompanyEnv, day: number): 
   c.ar = arNew;
   c.inv = invNew;
   c.ap = apNew;
-  const flows = {
+  const mandatory: Record<string, number> = {
     sales: revenue - dAR,
     materials: -(matCost + dInv - dAP),
     payroll: -wagesAll,
     overtime: -overtimeCost,
-    marketing: -marketing,
-    rd: -rdSpend,
   };
   let ocf = 0;
-  for (const [reason, amount] of Object.entries(flows)) {
+  for (const [reason, amount] of Object.entries(mandatory)) {
     post(w, c, day, reason, amount);
     ocf += amount;
   }
+  // discretionary: only the funded R&D days and the funded marketing are paid
+  let rdSpend = 0;
+  for (const p of c.projects) {
+    if (funded.rdFunded.has(p.id)) {
+      rdSpend += p.spendPerDay;
+      p.paidDays += 1;
+    } else {
+      p.endDay += 1;
+    }
+  }
+  const marketing = funded.marketingFunded ? c.products.reduce((s, p) => s + p.marketing, 0) : 0;
+  post(w, c, day, 'rd', -rdSpend);
+  post(w, c, day, 'marketing', -marketing);
+  ocf += -rdSpend - marketing;
   const dep = Math.min(c.ppe, depreciationPerDay(c.plantCapex));
   c.ppe -= dep;
 
@@ -401,12 +463,20 @@ function operateDay(w: CompanyWorld, c: Company, env: CompanyEnv, day: number): 
   q.matCogs += matCost;
   c.revenueTotal += revenue;
 
-  // 10. projects that finish on the day's end start to count from the next day
+  // 10. a project with all its funded days completes at the day's end and counts from the next day
   for (const p of c.projects.slice()) {
-    if (day + 1 < p.endDay) continue;
-    completeProject(c, p, day, revenuePerDay(c, day));
+    if (p.paidDays < p.days) continue;
+    completeProject(c, p, day);
     c.projects = c.projects.filter((x) => x.id !== p.id);
   }
+}
+
+/** The distress state (private): cash below zero, set the day it happens and cleared when cash is back at zero or above. */
+function updateDistress(c: Company, day: number, events: CompanyEvent[]): void {
+  if (c.cash < 0 && !c.distress) {
+    c.distress = true;
+    events.push({ kind: 'distress', companyId: c.id, day });
+  } else if (c.cash >= 0) c.distress = false;
 }
 
 /** The quarter close (§6.1): tax is paid, the statements are frozen and hashed, and the filing is set for close + 3. */
@@ -424,13 +494,12 @@ function closeQuarter(w: CompanyWorld, c: Company, closeDay: number, events: Com
   c.pendingFile = { statements, hash: statementsHash(statements), filingDay: closeDay + COMPANY.filingLagDays };
   c.qtd = emptyQtd(closeDay);
   events.push({ kind: 'closed', companyId: c.id, quarter, day: closeDay });
-  if (c.cash < 0 && !c.distress) {
-    c.distress = true;
-    events.push({ kind: 'distress', companyId: c.id, day: closeDay });
-  } else if (c.cash >= 0) c.distress = false;
 }
 
-/** The filing (§6.1, CB-075): publish the frozen statements, check their hash, re-anchor lnV, and settle the reversal. */
+/**
+ * The filing (§6.1, CB-075): publish the frozen statements, check their hash, re-anchor lnV, and settle the reversal. The
+ * tier and the public distress flag move here, on the filed statements: nothing public changes at the close itself.
+ */
 function fileQuarter(c: Company, day: number, events: CompanyEvent[]): void {
   const pf = c.pendingFile;
   if (!pf) return;
@@ -450,6 +519,12 @@ function fileQuarter(c: Company, day: number, events: CompanyEvent[]): void {
   c.cbFiled = pf.statements.backlogContribution;
   c.resolved = [];
   c.pendingFile = null;
+  c.distressPublic = pf.statements.cash < 0;
+  const tier = tierFor(c.closed);
+  if (tier !== c.tier) {
+    c.tier = tier;
+    events.push({ kind: 'tier', companyId: c.id, tier, day });
+  }
   const x = filedInputs(c, c.cbFiled - prevCB);
   const v = vEngine(x);
   const lnFiled = lnPerShare(v, c.shares);
@@ -463,7 +538,7 @@ function fileQuarter(c: Company, day: number, events: CompanyEvent[]): void {
 }
 
 /** The day's weekly signal for a listed company, at the open tick (section 6.2). */
-function signalDay(c: Company, day: number, events: CompanyEvent[]): void {
+function signalDay(c: Company, day: number, env: CompanyEnv, events: CompanyEvent[]): void {
   if (!isListed(c)) return;
   const elapsed = Math.max(1, day - c.qtd.startDay);
   const open = openBook(c.orders);
@@ -478,6 +553,7 @@ function signalDay(c: Company, day: number, events: CompanyEvent[]): void {
     utilization: c.lastUtil,
     elapsed,
     priceAvg,
+    indexNow: inputIndex(c.sector, env.oilLog - c.oilBase),
   });
   c.rng.sig = rng.state();
   events.push({ kind: 'signal', companyId: c.id, day, dLnV, backlogLift: signal.backlogLift });
@@ -501,8 +577,8 @@ function checkGoals(c: Company, day: number, events: CompanyEvent[]): void {
 
 /**
  * The day-boundary step of the company world (called once per game day, at the open). Order (G19): the filing of the
- * day runs first, then the day's operations, then the quarter close and the signal, then the NPC weekly reaction and
- * the quarterly entry and exit, then the goals. Sector shocks are drawn first, once per day per sector.
+ * day runs first, then the day's operations and the distress check, then the quarter close and the signal, then the NPC
+ * weekly reaction and the quarterly entry and exit, then the goals. Sector shocks are drawn first, once per day per sector.
  */
 export function companyTick(w: CompanyWorld, env: CompanyEnv, day: number): CompanyEvent[] {
   const events: CompanyEvent[] = [];
@@ -516,10 +592,13 @@ export function companyTick(w: CompanyWorld, env: CompanyEnv, day: number): Comp
   for (const id of ids) {
     const c = w.companies[id]!;
     if (day > 0 && c.pendingFile && day === c.pendingFile.filingDay) fileQuarter(c, day, events);
-    if (day - 1 >= c.foundedDay) operateDay(w, c, env, day - 1);
+    if (day - 1 >= c.foundedDay) {
+      operateDay(w, c, env, day - 1);
+      updateDistress(c, day - 1, events);
+    }
     if (day > 0 && day % COMPANY.quarterDays === 0 && day - 1 >= c.foundedDay) closeQuarter(w, c, day, events);
     if (day % COMPANY.weekDays === 0 || day % COMPANY.quarterDays === 0) {
-      if (day - 1 >= c.foundedDay) signalDay(c, day, events);
+      if (day - 1 >= c.foundedDay) signalDay(c, day, env, events);
     }
     if (day % COMPANY.weekDays === 0) {
       const maxShare = Math.max(0, ...c.products.map((p) => p.lastShare));
@@ -529,11 +608,6 @@ export function companyTick(w: CompanyWorld, env: CompanyEnv, day: number): Comp
       const r = new Rng(c.rng.npc);
       npcQuarterly(c, r, day);
       c.rng.npc = r.state();
-      const tier = tierFor(c.closed);
-      if (tier !== c.tier) {
-        c.tier = tier;
-        events.push({ kind: 'tier', companyId: c.id, tier, day });
-      }
     }
     checkGoals(c, day, events);
   }

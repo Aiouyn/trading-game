@@ -92,11 +92,21 @@ export function filedInputs(c: Company, dCB: number): ValuationInputs {
 }
 
 /**
+ * The unit cost the public can see now (G23): the last filed unit cost, with its material part moved by the public
+ * commodity index since the filed close. The overtime and the Ops wages stay at their filed level.
+ */
+export function consensusUnitCost(last: FilingPublic, indexNow: number): number {
+  const ratio = last.inputIndex > 0 ? indexNow / last.inputIndex : 1;
+  return last.unitCost + last.matUnit * (ratio - 1);
+}
+
+/**
  * The consensus inputs (section 6.2, G23) from the consensus estimates only: the last three filed quarters plus the
  * current quarter projected from the consensus of shipped revenue. Units are estimated as revenue over the public price
- * and the consensus margin is the filed unit cost times that price (G23).
+ * and the consensus margin is the consensus unit cost (the filed unit cost with the material part moved by the public
+ * commodity index) times that price (G23).
  */
-export function consensusInputs(c: Company, revQtdCons: number, cbCons: number, elapsed: number, priceAvg: number): ValuationInputs {
+export function consensusInputs(c: Company, revQtdCons: number, cbCons: number, elapsed: number, priceAvg: number, indexNow: number): ValuationInputs {
   const past = ttmFiled(c.filings, 3);
   const quarters = past.count + 1;
   const qRev = revQtdCons * (COMPANY.quarterDays / Math.max(1, elapsed));
@@ -107,7 +117,7 @@ export function consensusInputs(c: Company, revQtdCons: number, cbCons: number, 
   let qGp = 0;
   if (last && priceAvg > 0) {
     const unitsEst = qRev / priceAvg;
-    const gpEst = unitsEst * (priceAvg - last.unitCost);
+    const gpEst = unitsEst * (priceAvg - consensusUnitCost(last, indexNow));
     qGp = gpEst;
     const gpFiled = last.income.revUnrelated - last.income.cogs;
     eStar = base.eStar + 4 * (gpEst - gpFiled);
@@ -135,6 +145,8 @@ export interface SignalInputs {
   /** days elapsed in the quarter and the public price average (for the consensus projection) */
   elapsed: number;
   priceAvg: number;
+  /** the public commodity index now (the input index of the sector at today's oil move) */
+  indexNow: number;
 }
 
 /**
@@ -161,7 +173,7 @@ export function publishSignal(a: SignalInputs): { signal: WeeklySignal; dLnV: nu
   const bkCons = biasCorrect(bkCenter, COMPANY.signals.sigBacklog);
   const prev = c.consensus;
   const cbPrev = prev ? prev.backlogContribution : c.cbFiled;
-  const inputs = consensusInputs(c, revCons, cbCons, a.elapsed, a.priceAvg);
+  const inputs = consensusInputs(c, revCons, cbCons, a.elapsed, a.priceAvg, a.indexNow);
   const dNow = cbCons - c.cbFiled;
   const dPrev = cbPrev - c.cbFiled;
   const vNow = vEngine({ ...inputs, dCB: dNow });

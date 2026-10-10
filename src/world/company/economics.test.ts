@@ -3,6 +3,8 @@ import { COMPANY, SECTORS } from '@/content/company';
 import { capacityPerDay, gaFactor, inputIndex, materialPerUnit, overtimePerUnit, plantCost, plantMult, productiveHeads, shipCeiling } from './economics';
 import { landHires, fireHeads, queueHire, emptyStaff, headcountCap } from './staff';
 import { qualityScore, projectDays, startProject, completeProject, successOdds, qualityGain, frontierStep, projectBand, sRef } from './rd';
+import { distributionLevel } from './market';
+import { rdEffort } from './economics';
 import { Rng, seedStream } from '@/engine';
 import type { Company, Product, Staff } from './types';
 
@@ -18,7 +20,7 @@ function company(over: Partial<Company> = {}): Company {
     closed: [], filings: [], pendingFile: null, filingCount: 0, signals: [], noise: null, consensus: null, cbFiled: 0,
     lastUtil: 0, headsAtSignal: 0, signalSeq: 0, lastSens: 0, lastFair: 0, sigLog: [], revenueTotal: 0, listed: null,
     rng: { rd: seedStream('s', 'rd'), sig: seedStream('s', 'sig'), npc: seedStream('s', 'npc') },
-    goalsDone: {}, distress: false, ledger: [], ledgerTotals: {}, ...over,
+    goalsDone: {}, distress: false, distressPublic: false, indexLast: 1, launchCredits: [], ledger: [], ledgerTotals: {}, ...over,
   };
 }
 
@@ -96,21 +98,22 @@ describe('R&D (spec 3, CB-021..CB-028)', () => {
   });
 
   it('success odds: p_s (1 - e^(-S/S_ref)); pharma uses its gate product (about 0.29)', () => {
-    const p = successOdds('tech', 20_000, 0);
+    // S_ref is the frozen reference on the project: 20 gd of revenue, here the $20k floor
+    const p = successOdds('tech', 20_000, sRef(0));
     expect(p).toBeCloseTo(0.8 * (1 - Math.exp(-1)), 9);
-    expect(successOdds('health', 1, 0)).toBeCloseTo(0.65 * 0.55 * 0.8, 9);
+    expect(successOdds('health', 1, sRef(0))).toBeCloseTo(0.65 * 0.55 * 0.8, 9);
   });
 
   it('the quality gain is at most 0.25 ln (7.5 score points) for one maximal success, and k reduces it by 0.8^k', () => {
-    const big = qualityGain(1e9, 0, 0, 1);
+    const big = qualityGain(1e9, sRef(0), 0, 1);
     expect(big).toBeLessThanOrEqual(0.25 + 1e-9);
-    expect(qualityGain(1e9, 0, 2, 0)).toBeCloseTo(0.2 * 0.64, 6);
+    expect(qualityGain(1e9, sRef(0), 2, 0)).toBeCloseTo(0.2 * 0.64, 6);
     expect(qualityScore(1, 1)).toBe(80);
     expect(qualityScore(Math.exp(Math.log(2) * -1), 1)).toBe(59);
   });
 
   it('the band shown before launch brackets the odds by 5 points and the gain by its z extremes', () => {
-    const b = projectBand('tech', product(), 40_000, 0);
+    const b = projectBand('tech', 40_000, sRef(0), 0);
     expect(b.pHigh - b.pLow).toBeCloseTo(0.10, 9);
     expect(b.dqBear).toBeLessThan(b.dqBase);
     expect(b.dqBase).toBeLessThan(b.dqBull);
@@ -130,12 +133,12 @@ describe('R&D (spec 3, CB-021..CB-028)', () => {
 
   it('a successful tech project raises q on completion; a successful pharma project grants a 252 gd patent', () => {
     const c = company({ products: [product()], sector: 'tech' });
-    const p = { id: 'x', kind: 'quality' as const, productId: 'p0', spend: 40_000, spendPerDay: 1, startDay: 0, endDay: 15, success: true, z: 0, pShown: 1, gates: [] };
-    completeProject(c, p, 15, 0);
+    const p = { id: 'x', kind: 'quality' as const, productId: 'p0', spend: 40_000, spendPerDay: 1, days: 15, paidDays: 15, startDay: 0, endDay: 15, success: true, z: 0, pShown: 1, sRef: sRef(0), kUsed: 0, gates: [] };
+    completeProject(c, p, 15);
     expect(c.products[0]!.q).toBeGreaterThan(1);
     expect(c.products[0]!.patents).toHaveLength(0);
     const h = company({ products: [product()], sector: 'health' });
-    completeProject(h, { ...p, productId: 'p0' }, 15, 0);
+    completeProject(h, { ...p, productId: 'p0' }, 15);
     expect(h.products[0]!.patents).toEqual([{ until: 15 + 252, lnGain: expect.any(Number) }]);
   });
 
@@ -148,6 +151,21 @@ describe('R&D (spec 3, CB-021..CB-028)', () => {
   it('sRef is 20 gd of the product revenue with a $20k floor', () => {
     expect(sRef(0)).toBe(20_000);
     expect(sRef(5_000)).toBe(100_000);
+  });
+});
+
+describe('G&A span scales every role, not only capacity (spec 4)', () => {
+  it('a G&A shortfall thins sales distribution and slows R&D too', () => {
+    const full = company({ products: [product()] });
+    full.staff.ga.total = 3;
+    const short = company({ products: [product()] });
+    short.staff.ga.total = 0;
+    // 9 other heads need one G&A head; with none, every role's output is at 1 - 0.03
+    expect(gaFactor(short.staff)).toBeCloseTo(0.97, 9);
+    expect(gaFactor(full.staff)).toBe(1);
+    expect(distributionLevel(short, 0)).toBeLessThan(distributionLevel(full, 0));
+    expect(rdEffort(short, 0)).toBeCloseTo(2 * 0.97, 9);
+    expect(rdEffort(full, 0)).toBeCloseTo(2, 9);
   });
 });
 
