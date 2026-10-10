@@ -146,7 +146,7 @@ export function stepGame(g: GameState): StepOutput {
     // the analyst and desk dues, recurring buys, and DRIP on the day's dividends (orders fill at the next tick)
     workDay(g, out);
     planDay(g, out);
-    dripDay(g, out);
+    dripDay(g, out, r.events);
   }
 
   if (tick % NW_EVERY === 0 || newDay) {

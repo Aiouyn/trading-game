@@ -864,7 +864,9 @@ export type StepEvent =
   | { type: 'listing'; tick: number; kind: 'ipo' | 'bankruptcy' | 'merger' | 'spinoff'; assetId: string; otherId?: string; price: number }
   | { type: 'margin_call'; tick: number; playerId: string; equity: number; required: number }
   | { type: 'liquidation'; tick: number; playerId: string; assetId: string; qty: number; price: number }
-  | { type: 'option_expiry'; tick: number; playerId: string; contractId: string; qty: number; payout: number; reason?: 'delisting' };
+  | { type: 'option_expiry'; tick: number; playerId: string; contractId: string; qty: number; payout: number; reason?: 'delisting' }
+  /** a dividend credited at the day boundary (rates on): the cash paid to one holder in one asset; negative for a short */
+  | { type: 'dividend'; tick: number; playerId: string; assetId: string; amount: number };
 
 export interface StepResult {
   state: WorldState;

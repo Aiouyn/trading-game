@@ -417,6 +417,8 @@ export function liquidationPrice(state: WorldState, playerId: string, assetId: s
   const i = assetIndex(state, assetId);
   const pos = acct?.positions[assetId];
   if (!acct || !pos || i < 0 || pos.qty === 0) return null;
+  // only margin accounts are liquidated (clearOrders); a cash account has no line even with a negative balance
+  if (!isMarginAccount(acct)) return null;
   const L = marginConfig(state).liquidation;
   const here = mid(state, i);
   const eqOther = equityOf(state, acct) - pos.qty * here;
@@ -975,6 +977,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           const d = (value * def.dividendYield) / dpy; // shorts pay the dividend
           a.cash += d;
           a.dividends = (a.dividends ?? 0) + d;
+          events.push({ type: 'dividend', tick, playerId: id, assetId, amount: d });
         }
         if (pos.qty < 0) {
           const fee = (-value * (def.borrowFee ?? mc.borrowFee[def.assetClass] ?? 0.01)) / dpy;

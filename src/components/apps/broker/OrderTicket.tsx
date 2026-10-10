@@ -174,6 +174,9 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
       const typing = !!el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
       const intent = tradeKeyIntent(e.code, typing);
       if (!intent) return;
+      // Enter and Escape are shared keys: in a text field outside this ticket (the asset search, say) they belong to that field
+      const inTicket = !!el && !!rootRef.current?.contains(el);
+      if (typing && !inTicket && (intent.kind === 'enter' || intent.kind === 'cancel')) return;
       // Shift is the shell's (Shift with the question mark opens the key list), so only Enter and Escape read it
       if (e.shiftKey && intent.kind !== 'enter' && intent.kind !== 'cancel') return;
       let handled = false;
@@ -272,7 +275,7 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
                   className="h-9 rounded-md border border-ink-3 text-caption text-fg-muted hover:border-brass/50 hover:text-fg"
                   data-testid={`chip-${f === 1 ? 'Max' : Math.round(f * 100)}`}
                 >
-                  {f === 1 ? (simpleCap && side === 'buy' ? t('broker.max20') : t('broker.max')) : t('broker.pct', { p: Math.round(f * 100) })}
+                  {f === 1 ? (simpleCap && side === 'buy' ? t('broker.maxCap', { pct: firstCapVars.pct }) : t('broker.max')) : t('broker.pct', { p: Math.round(f * 100) })}
                 </button>
               ))}
             </div>

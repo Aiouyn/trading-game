@@ -58,6 +58,19 @@ test.describe('keyboard trading, recurring buys and DRIP (Phase 3 B3)', () => {
     expect(errors).toEqual([]);
   });
 
+  test('Enter in the asset search belongs to the search: it arms no confirm and sends nothing', async ({ page }) => {
+    const handle = await register(page, 'ksearch');
+    await grant(handle, 50_000);
+    await goTo(page, 'market');
+    const before = await orderCount(page);
+    await page.getByTestId('order-qty').fill('1');
+    await page.getByTestId('asset-search').first().click();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('order-confirm')).toHaveCount(0);
+    expect(await orderCount(page)).toBe(before);
+  });
+
   test('digits typed into the quantity field stay in the field and place nothing', async ({ page }) => {
     await register(page, 'kt');
     await goTo(page, 'market');

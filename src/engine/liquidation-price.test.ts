@@ -61,4 +61,14 @@ describe('liquidation price (the chart line)', () => {
     const cashLong = holding(base, 'cash', stock, q, 10 * P0 * q);
     expect(liquidationPrice(cashLong, 'cash', stock)).toBeNull();
   });
+
+  it('is null for a non-margin account, even with a negative balance the engine never liquidates', () => {
+    // a plain account (no leverage, no shorting): clearOrders skips it, so the chart must draw no line
+    let s = openAccount(base, 'plain', 0);
+    const acct = s.accounts['plain']!;
+    s = { ...s, accounts: { ...s.accounts, plain: { ...acct, cash: -0.5 * P0 * q, positions: { [stock]: { qty: q, avgCost: 0, realizedPnl: 0 } } } } };
+    expect(liquidationPrice(s, 'plain', stock)).toBeNull();
+    const short = { ...s, accounts: { ...s.accounts, plain: { ...s.accounts['plain']!, positions: { [stock]: { qty: -q, avgCost: 0, realizedPnl: 0 } } } } };
+    expect(liquidationPrice(short, 'plain', stock)).toBeNull();
+  });
 });
