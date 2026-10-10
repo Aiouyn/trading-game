@@ -2,6 +2,7 @@ import { equityOf, indexLevel, Rng, seedStream, type RngState } from '@/engine';
 import { BIZ_BY_ID } from '@/content/businesses';
 import { LIFE_BY_ID, PROPERTY_TYPE_BY_ID, resaleValue } from '@/content/lifestyle';
 import { CITIES, districtAssetId } from '@/engine';
+import { shopValue, valuedIncome } from './shopRules';
 import type { Business, GameState, InboxItem, Player, Property, StepOutput, WireItem } from './types';
 
 /** Timing (ticks; 720 ticks = one game day = one real hour). */
@@ -146,8 +147,17 @@ export function gx(g: GameState): number {
 
 // ---------------------------------------------------------------- valuation
 
+/**
+ * Net worth value of a shop: cash put in plus a multiple of its trailing 7-day net income, capped at the
+ * fair multiple of the well-run target (S5). A price or incident spike cannot lift net worth for good.
+ */
 export function bizValue(b: Business): number {
-  return 0.6 * b.invested + 6 * b.incomePerDay;
+  return shopValue(b.invested, b.shop.net, bizDef(b).income);
+}
+
+/** The income a shop is valued on (trailing and capped): what the Tycoon board ranks by. */
+export function bizValuedIncome(b: Business): number {
+  return valuedIncome(b.shop.net, bizDef(b).income);
 }
 
 export function districtTier(cityId: string, districtId: string): 'working' | 'mid' | 'prime' | 'trophy' {

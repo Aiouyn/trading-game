@@ -95,8 +95,8 @@ describe('businesses', () => {
     const earned = cashOf(g, 'u1') - cash0;
     expect(earned).toBeGreaterThan(cart.income * 0.3);
     expect(earned).toBeLessThan(cart.income * 3);
-    expect(cmd(g, 'u1', { type: 'biz.upgrade', bizId: id, axis: 'staff' }).ok).toBe(true);
-    expect(g.businesses[id]!.levels.staff).toBe(1);
+    expect(cmd(g, 'u1', { type: 'biz.upgrade', bizId: id, axis: 'equipment' }).ok).toBe(true);
+    expect(g.businesses[id]!.levels.equipment).toBe(1);
     const inv = g.businesses[id]!.invested;
     const before = cashOf(g, 'u1');
     expect(cmd(g, 'u1', { type: 'biz.sell', bizId: id }).ok).toBe(true);

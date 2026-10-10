@@ -4,6 +4,7 @@ import { LIFE_ITEMS, PROPERTY_TYPES, rankIndex } from '@/content/lifestyle';
 import { CITIES } from '@/engine';
 import { cashOf, drawFrom, playerBusinesses } from './core';
 import { cityUnlocked, maxLtvFor, propertyPrice } from './assets';
+import { wellRunCommands } from './shops';
 import { createPlayer } from './players';
 import type { Command, CommandResult, GameState, Player } from './types';
 
@@ -172,13 +173,15 @@ function buyBestBusiness(g: GameState, p: Player, apply: Apply): void {
   if (!def) return;
   const cities = CITIES.filter((c) => cityUnlocked(p, c.id));
   const city = cities[(g.market.tick / 240 + p.id.length) % cities.length | 0] ?? cities[0]!;
-  apply(g, p.id, { type: 'biz.buy', defId: def.id, cityId: city.id });
+  const bought = apply(g, p.id, { type: 'biz.buy', defId: def.id, cityId: city.id });
+  // NPC shops run the well-run settings from the start (they are the competition the player shops meet)
+  if (bought.ok) for (const c of wellRunCommands((bought.data as { id: string }).id)) apply(g, p.id, c);
 }
 
 function upgradeSomething(g: GameState, p: Player, apply: Apply, u: number): void {
   const mine = playerBusinesses(g, p.id);
   if (!mine.length) return;
   const b = mine[Math.floor(u * mine.length)]!;
-  const axes = ['staff', 'marketing', 'equipment', 'location', 'automation', 'research'] as const;
+  const axes = ['equipment', 'location', 'automation', 'research'] as const;
   apply(g, p.id, { type: 'biz.upgrade', bizId: b.id, axis: axes[Math.floor(u * 97) % axes.length]! });
 }

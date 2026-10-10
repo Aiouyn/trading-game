@@ -42,7 +42,10 @@ export interface TierDef {
   name: string;
   /** typical cost in $ */
   cost: number;
-  /** income per game day as a fraction of cost at baseline (payback ≈ 1 / roi game days) */
+  /**
+   * NET income per game day as a fraction of cost when well run (payback ≈ 1 / roi game days). Shops
+   * (src/content/shops.ts) turn this into revenue, wages and opex; the lone-pool ladder is 10/15/30/50/80/120.
+   */
   roi: number;
   /** rank id needed to buy */
   rank: string;
@@ -286,24 +289,30 @@ function roundNice(x: number): number {
 export const BIZ_BY_ID = new Map(BUSINESSES.map((b) => [b.id, b]));
 export const BIZ_SECTOR_BY_ID = new Map(BIZ_SECTORS.map((s) => [s.id, s]));
 
-/** The six upgrade axes (bible 01): each has 5 levels. */
+/**
+ * The six upgrade axes of the old model (bible 01). Staff and marketing are retired in Phase 4 (A1):
+ * crew, quality and the marketing lever replace them, and existing levels move to those levers on migration.
+ */
 export type UpgradeAxis = 'staff' | 'marketing' | 'equipment' | 'location' | 'automation' | 'research';
 
 export interface UpgradeDef {
   id: UpgradeAxis;
   name: string;
-  effect: string;
+  /** the effect line, as an i18n key (en.json / fr.json) */
+  effectKey: string;
   blurb: string;
 }
 
+/** The upgrades still for sale, each with 5 levels. */
 export const UPGRADES: UpgradeDef[] = [
-  { id: 'staff', name: 'Staff', effect: "+8% income per level", blurb: 'Hire better people and pay them more.' },
-  { id: 'marketing', name: 'Marketing', effect: '+0.25 appeal per level (more market share)', blurb: 'Win customers from competitors in the same city.' },
-  { id: 'equipment', name: 'Equipment', effect: "+7% income, fewer breakdowns", blurb: 'New machines break less and do more.' },
-  { id: 'location', name: 'Location', effect: "+0.2 appeal and +5% income per level", blurb: 'Move closer to the foot traffic.' },
-  { id: 'automation', name: 'Automation', effect: '+15% offline earnings per level', blurb: 'Keeps earning while you are away.' },
-  { id: 'research', name: 'R&D', effect: "+6% income and +25% data per level", blurb: 'New products and the data they produce.' },
+  { id: 'equipment', name: 'Equipment', effectKey: 'biz.upgrade.equipment.effect', blurb: 'New machines break less and do more.' },
+  { id: 'location', name: 'Location', effectKey: 'biz.upgrade.location.effect', blurb: 'Move closer to the foot traffic.' },
+  { id: 'automation', name: 'Automation', effectKey: 'biz.upgrade.automation.effect', blurb: 'Keeps earning while you are away.' },
+  { id: 'research', name: 'R&D', effectKey: 'biz.upgrade.research.effect', blurb: 'New products and the data they produce.' },
 ];
+
+/** Axes no longer for sale; a business that held levels keeps them in its record only. */
+export const RETIRED_UPGRADES: UpgradeAxis[] = ['staff', 'marketing'];
 
 export const MAX_UPGRADE = 5;
 
