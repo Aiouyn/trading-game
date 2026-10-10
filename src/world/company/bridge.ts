@@ -43,6 +43,11 @@ function migrateAll(g: GameState): void {
   syncLinks(g);
   for (const c of Object.values(g.companies?.companies ?? {})) {
     migrateCompany(c);
+    // a listed save from before the insider was named on the stock (O-14): the founder is its insider
+    if (c.listed && g.market.config.assets.some((a) => a.id === c.listed!.assetId && a.insiderId === undefined)) {
+      const assets = g.market.config.assets.map((a) => (a.id === c.listed!.assetId && a.insiderId === undefined ? { ...a, insiderId: c.ownerId } : a));
+      g.market = { ...g.market, config: { ...g.market.config, assets } };
+    }
     if (c.listed && sellCapOf(restrictionsOf(g.market), c.listed.assetId, c.ownerId) === undefined) {
       const perDay = Math.floor(COMPANY.insiders.sellCapPct * c.listed.sharesOut);
       g.market = { ...g.market, restrictions: setSellCap(restrictionsOf(g.market), c.listed.assetId, c.ownerId, perDay) };

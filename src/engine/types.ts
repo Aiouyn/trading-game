@@ -87,6 +87,11 @@ export interface AssetDef {
    * the shares out (X11, company-tests.md section 5). Absent = NPC liquidity, as for every other asset.
    */
   supplyAccount?: string;
+  /**
+   * A company stock's insider: the player who runs the company (its founder). The funds' insider test reads it: a fund the
+   * insider manages is capped at 5% of NAV in the stock, and files it (O-14). Absent = no insider (every other stock).
+   */
+  insiderId?: string;
 }
 
 /** One closed game day of a company stock: the close, the day's traded value and units (VWAP30 for the takeover floor). */

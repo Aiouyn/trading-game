@@ -201,6 +201,8 @@ export function listingDef(s: WorldState, c: Company, ipo: IpoBook, assetId: str
     companyPrintShare: 1,
     // the other side of every fill is the NPC book, which holds the float (X11): a buy takes only shares the book holds
     supplyAccount: npcBookIdOf(assetId),
+    // the founder is the stock's insider: the funds' insider cap and filing read it (O-14)
+    insiderId: c.ownerId,
     blurb: `${c.name}, a company listed on the exchange.`,
   };
 }
