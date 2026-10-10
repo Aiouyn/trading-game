@@ -3,7 +3,7 @@ import {
   type WorldConfig,
 } from '@/engine';
 import {
-  BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, credit, debit, drawFrom, findOrder, newOutput, notify, sanitize,
+  BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, creditExternal, debit, drawFrom, findOrder, newOutput, notify, sanitize,
 } from './core';
 import {
   accrueBusinesses, businessEvents, buyBusiness, buyItem, buyNote, buyProperty, lifestyleDay, propertyDay, recomputeShares,
@@ -342,7 +342,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'block.cancel': return cancelBlock(g, p, cmd.planId);
     case 'admin.advance': return fail('admin only');
     case 'admin.grant': {
-      credit(g, pid, cmd.amount, 'admin');
+      creditExternal(g, pid, cmd.amount, 'admin');
       refreshNetWorth(g, p);
       applyRank(g, p, out);
       return { ok: true };

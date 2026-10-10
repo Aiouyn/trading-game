@@ -57,7 +57,7 @@ export function StatusStrip() {
         <button type="button" className="os-chip os-soft" data-testid="os-rank" onClick={() => openApp('settings', {}, { focus: true })}>
           {rankId} · {t(`rank.${rankId}`)}
         </button>
-        <span className="os-nw" data-testid="os-networth">
+        <span className="os-nw" data-testid="os-networth" title={t('shell.nw.today')}>
           {money(nw)} <span className={toneText[tone(today)]}>{signedPct(todayPct)}</span>
         </span>
         <button

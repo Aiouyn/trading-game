@@ -1,4 +1,4 @@
-import { TPD, cashOf, credit, debit, keyedRng, notify, pushWire, transfer } from './core';
+import { TPD, cashOf, creditExternal, debit, keyedRng, notify, pushWire, transfer } from './core';
 import type { CommandResult, CourtCase, GameState, StepOutput } from './types';
 
 /**
@@ -120,9 +120,11 @@ export function courtTick(g: GameState, out: StepOutput): void {
     damages = Math.max(0, damages);
     // the court collects from cash; the account may go negative and is then a margin loan
     transfer(g, c.defendantId, c.plaintiffId, damages);
-    // 85% destroyed, 5% to the whistleblower fund (also out of circulation), 10% to the victim
+    // 85% destroyed, 5% to the whistleblower fund (also out of circulation), 10% to the victim. The fine is a cost to the
+    // defendant, the same as legal fees, so it stays in their day and arrival figures. The victim's share is a payment from
+    // another player, so it is kept out of theirs, the same as damages.
     debit(g, c.defendantId, fine, 'fines');
-    credit(g, c.plaintiffId, fine * 0.1, 'victim fund');
+    creditExternal(g, c.plaintiffId, fine * 0.1, 'victim fund');
     c.damages = damages;
     c.fine = fine;
     df.reputation -= 5;

@@ -134,7 +134,7 @@ The fastest way to trade.
 ## Notifications
 | Kind | Look | Sticks? |
 |---|---|---|
-| Fill | Toast with a check glyph in `gain` inside a 28 px framed square. Label "ORDER FILLED · BROKER", a mono time, then "Sold 120 BRNT at 61.30" with "Limit · fee $7.36" in `fg-muted` | 4 s |
+| Fill | Toast with a neutral check glyph in `fg-muted` inside a 28 px framed square (a fill is news about an order, not an error; the buy or sell colour sits on the text only). Label "ORDER FILLED · BROKER", a mono time, then "Sold 120 BRNT at 61.30" with "Limit · fee $7.36" in `fg-muted`. Errors keep the red X | 4 s |
 | Margin / warn | `warn` glyph and a 1 px `warn` left edge | until read |
 | World event (Storm) | Toast with the engine headline; the banner sits at the top of Wire | 4 s |
 | World event (Major) | **System overlay** over the whole desktop, strip and shelf included, using the `velvet-world-events.md` takeover timing and rules (waits for no pending order, at most 10 s; skippable after 1 s) | — |

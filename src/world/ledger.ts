@@ -96,7 +96,7 @@ export function ensureLedger(g: GameState, pid: string): PlayerLedger | null {
   // the open record of the first day: the net worth and equity the player started with
   L.days[d - 1] = {
     day: d - 1, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty: {},
-    ghosts: { basket: acct.cash, random: acct.cash, momentum: acct.cash },
+    ghosts: { basket: acct.cash, random: acct.cash, momentum: acct.cash }, ext: p.externalCash ?? 0,
   };
   g.ledgers[pid] = L;
   return L;

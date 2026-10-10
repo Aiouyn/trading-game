@@ -43,6 +43,7 @@ export function Dossier({ d, upkeepDay }: { d: DeskDossier; upkeepDay?: number }
           format={signedPct}
           testId="desk-waterfall"
           totalTestId="desk-total"
+          note={rows.some((r) => r.key === 'market') ? t('why.market.note') : undefined}
         />
       </section>
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { JOURNAL } from '@/content/learning';
-import { signedMoney, toneText, tone } from '@/game/format';
+import { signedMoney, signedPct, toneText, tone } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t, tm } from '@/i18n';
 import { Button, Card } from '@/components/ui';
@@ -35,6 +35,9 @@ export function JournalView({ onHire }: { onHire: () => void }) {
   // the details are cached by trade and version (state, so a resolved fetch re-renders the list)
   const [details, setDetails] = useState<Record<string, JournalDetail>>({});
   const seen = useRef(new Set<string>());
+  // a failed detail is asked for again after a second, up to five times (a dropped request would otherwise wait for the next trade)
+  const [retry, setRetry] = useState(0);
+  const tries = useRef(new Map<string, number>());
 
   const trips = useMemo(() => me.trading.trips.slice().reverse().slice(0, JOURNAL.listRows), [me.trading.trips]);
   const version = `${me.trading.desk.lastClosed ?? 'none'}|${me.player.analyst?.tier ?? 'none'}`;
@@ -47,10 +50,17 @@ export function JournalView({ onHire }: { onHire: () => void }) {
       seen.current.add(key);
       void act({ type: 'journal.detail', tripId: trip.id }, { silent: true }).then((r) => {
         if (r.ok && r.data) setDetails((prev) => ({ ...prev, [key]: r.data as JournalDetail }));
-        else seen.current.delete(key);
+        else {
+          const n = (tries.current.get(key) ?? 0) + 1;
+          tries.current.set(key, n);
+          if (n <= 5) {
+            seen.current.delete(key);
+            setTimeout(() => setRetry((x) => x + 1), 1000);
+          }
+        }
       });
     }
-  }, [trips, version, act]);
+  }, [trips, version, act, retry]);
 
   if (openId !== null) {
     const trip = me.trading.trips.find((x) => x.id === openId);
@@ -168,12 +178,15 @@ function TradeDetail({ trip, detail, tpd, onHire }: { trip: RoundTrip; detail: J
       {detail?.analyst && detail.rows ? (
         <Card className="flex flex-col gap-3 p-4">
           <h3 className="font-serif text-title text-fg">{t('journal.why')}</h3>
+          {/* the waterfall is in dollars, so GX is given as its percent move over the same days (the desk's line) */}
+          {detail.gx !== null && <p className="num text-small text-fg-muted" data-testid="journal-gx">{t('desk.gx', { pct: signedPct(detail.gx) })}</p>}
           <Waterfall
             rows={waterfall}
             total={detail.total ?? trip.realizedPnl}
             totalLabel={t('why.total')}
             format={signedMoney}
             testId="why-waterfall"
+            note={waterfall.some((r) => r.key === 'market') ? t('why.market.note') : undefined}
           />
           {detail.analyst === 'senior' && detail.flow && (
             <div className="flex flex-col gap-1" data-testid="why-flow">

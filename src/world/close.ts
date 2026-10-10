@@ -50,8 +50,11 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
   const cfg = g.market.config;
   const closeTick = dc.tick;
 
+  // the card counts trading and income: the grants, transfers and loans that came in during the day are taken out
   const nwOpen = prev?.nw ?? cur.nw;
-  const nwChange = cur.nw - nwOpen;
+  // a record saved before `ext` existed has no baseline to subtract from, so its day counts as before
+  const extDay = prev && cur.ext !== undefined && prev.ext !== undefined ? cur.ext - prev.ext : 0;
+  const nwChange = cur.nw - nwOpen - extDay;
   const nwChangePct = nwOpen > 0 ? nwChange / nwOpen : 0;
 
   // best and worst positions: the quantity held at the open (the previous close), and the day's price change on it
@@ -131,7 +134,7 @@ function dayRecord(g: GameState, L: PlayerLedger, pid: string, day: number): Day
   if (!p || !acct) return null;
   const qty: Record<string, number> = {};
   for (const [id, pos] of Object.entries(acct.positions)) if (pos.qty !== 0) qty[id] = pos.qty;
-  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day) };
+  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0 };
 }
 
 /**

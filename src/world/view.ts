@@ -165,8 +165,11 @@ export interface PlayerView {
   account: Account | null;
   orders: Order[];
   netWorth: NetWorthBreakdown;
-  /** the net worth the player arrived with (the engine's starting cash) and the change since then */
-  arrival: { cash: number; change: number; changePct: number };
+  /**
+   * The cash the player arrived with (the engine's starting cash), the change since then (trading and income only), and the
+   * cumulative external cash the change leaves out (grants, transfers, loans, court payments to the victim fund).
+   */
+  arrival: { cash: number; change: number; changePct: number; external: number };
   rank: { id: string; name: string; next: { id: string; name: string; threshold: number } | null; progress: number };
   businesses: Business[];
   properties: (Property & { value: number })[];
@@ -255,11 +258,16 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
 const VIEW_FILLS = 50;
 const VIEW_CLOSES = 10;
 
-/** The arrival comparison: the net worth against the engine's starting cash (the percentage comes from here, not the UI). */
+/**
+ * The arrival comparison: the cash the player arrived with (the engine's starting cash) against the net worth less the
+ * grants, transfers and loans received since (externalCash), so the change is trading and income only. The percentage
+ * comes from here.
+ */
 function arrivalView(g: GameState, pid: string): PlayerView['arrival'] {
   const cash = tradingConfig(g.market).startingCash;
-  const total = netWorthBreakdown(g, pid).total;
-  return { cash, change: total - cash, changePct: changeOf(total, cash) };
+  const external = g.players[pid]?.externalCash ?? 0;
+  const total = netWorthBreakdown(g, pid).total - external;
+  return { cash, change: total - cash, changePct: changeOf(total, cash), external };
 }
 
 /** The owner's trading record, sliced for the view. */

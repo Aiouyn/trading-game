@@ -62,6 +62,8 @@ export interface JournalDetail {
   /** Senior only: the asset's headlines over the holding window */
   headlines: { day: number; text: string }[] | null;
   replay: JournalReplay | null;
+  /** GX's move over the holding window (from the close before the open to the close), the same days the waterfall explains; null before the closes exist */
+  gx: number | null;
 }
 
 /** The replay from the daily closes: the holding window padded by the replay share, and the continuation to the last close. */
@@ -139,5 +141,14 @@ export function tripDetail(g: GameState, p: Player, tripId: string): CommandResu
     realized: trip.realizedPnl,
     line, analyst: tier, rows, total, flow, headlines, avgEntry: trip.avgEntry, avgExit: trip.avgExit,
     replay: w.lastClosed === null ? null : replayOf(g, trip, openDay, closeDay, w.lastClosed),
+    gx: gxMoveOver(g, openDay, closeDay),
   } satisfies JournalDetail);
+}
+
+/** GX over the days a trade was held, measured the way the desk measures its window (the close before the first day to the last). */
+function gxMoveOver(g: GameState, fromDay: number, toDay: number): number | null {
+  const gx = (d: number): number | undefined => g.dayCloses?.[d]?.gx;
+  const base = gx(fromDay - 1) ?? gx(fromDay);
+  const end = gx(toDay);
+  return base !== undefined && end !== undefined && base > 0 ? end / base - 1 : null;
 }

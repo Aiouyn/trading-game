@@ -121,6 +121,8 @@ export interface DayRecord {
   /** signed quantity per asset at this close: the next day's open */
   qty: Record<string, number>;
   ghosts: { basket: number; random: number; momentum: number };
+  /** the player's cumulative external cash at this close (grants, transfers, loans; see core.ts shiftBaselines): a day's change leaves out what came in */
+  ext?: number;
 }
 
 /** The daily close card (velvet-daily-close.md): the day's facts, and the lines rendered from them by the text provider. */
