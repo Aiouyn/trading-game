@@ -5,6 +5,7 @@ import { BOT_CADENCE, DATA_SOURCES, RESEARCH_BY_ID, mcsTier } from '@/content/re
 import {
   GPU_TIERS, TPD, cashOf, clamp, credit, debit, keyedRng, notify, playerBusinesses, priceOf, today,
 } from './core';
+import { crossRefusal } from './funds/guard';
 import type { CommandResult, GameState, LabState, Model, StepOutput, TradingBot } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -355,6 +356,8 @@ function runBot(g: GameState, pid: string, bot: TradingBot, m: Model, out: StepO
       req = { assetId, side: 'sell', type: 'market', qty: held };
     }
     if (!req) continue;
+    // a lab order is a personal order: it may not match a fund's open order that the player or a linked account controls
+    if (crossRefusal(g, pid, req.assetId, req.side, { fund: false })) continue;
     const r = placeOrder(g.market, { ...req, playerId: pid });
     if (r.order.status === 'open') {
       g.market = r.state;

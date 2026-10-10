@@ -5,6 +5,7 @@ import { CITIES, districtAssetId } from '@/engine';
 import { shopValue, valuedIncome } from './shopRules';
 import type { Business, GameState, InboxItem, Player, Property, StepOutput, WireItem } from './types';
 import { companyNetWorth } from './company/networth';
+import { fundClaimsOf } from './funds/state';
 
 /** Timing (ticks; 720 ticks = one game day = one real hour). */
 export const TPD = 720;
@@ -196,6 +197,8 @@ export interface NetWorthBreakdown {
   lab: number;
   /** private companies the player founded, at 0.85 x V x ownership (spec 5.1) */
   companies: number;
+  /** what the player holds in player-run funds (units at NAV, deposits and payouts owed, a manager's fees) */
+  funds: number;
   total: number;
 }
 
@@ -215,8 +218,9 @@ export function netWorthBreakdown(g: GameState, playerId: string): NetWorthBreak
   const lifestyle = pl ? lifestyleValue(g, pl) : 0;
   const lab = labValue(g, playerId);
   const companies = companyNetWorth(g.companies, playerId, today(g));
-  const total = equity + businesses + property - mortgages + lifestyle + lab + companies;
-  return { cash, markets: equity - cash, businesses, property, mortgages, lifestyle, lab, companies, total };
+  const funds = fundClaimsOf(g, playerId);
+  const total = equity + businesses + property - mortgages + lifestyle + lab + companies + funds;
+  return { cash, markets: equity - cash, businesses, property, mortgages, lifestyle, lab, companies, funds, total };
 }
 
 /** Owned GPUs keep 60% of their price as resale value. */

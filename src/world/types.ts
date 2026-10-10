@@ -7,6 +7,7 @@ import type { DayClose, PlayerLedger } from './ledger-types';
 import type { CompanyWorld } from './company/types';
 import type { CompanyAction } from './company/company';
 import type { CompanySector } from '@/content/company';
+import type { FundFees, FundMandate, FundsState } from './funds/types';
 
 /**
  * The persistent multiplayer world (bible Part II): one market engine plus everything players
@@ -55,6 +56,8 @@ export interface GameState {
   dayCloses?: Record<number, DayClose>;
   /** the company world (stage A3). Absent in old saves and in worlds with no company: those behave as before. */
   companies?: CompanyWorld;
+  /** player-run funds (ROADMAP 2.2). Absent in older saves; created on the first fund. */
+  funds?: FundsState;
 }
 
 export interface Player {
@@ -163,7 +166,7 @@ export interface AnalystNote {
 export interface InboxItem {
   id: string;
   tick: number;
-  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan';
+  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan' | 'fund';
   text: string;
   /** the same line as a message descriptor (en.json / fr.json key), rendered in the viewer's language */
   msg?: Msg;
@@ -492,7 +495,13 @@ export interface CourtCase {
   id: string;
   plaintiffId: string;
   defendantId: string;
-  kind: 'cyber intrusion' | 'model theft' | 'loan default' | 'contract breach';
+  kind: 'cyber intrusion' | 'model theft' | 'loan default' | 'contract breach' | 'fund abuse';
+  /** fund abuse: the harm to the fund (the fund's loss against the manager's personal price), the manager's gain on the flagged trades (disgorged), and the fund it concerns */
+  harm?: number;
+  gain?: number;
+  fundId?: string;
+  /** fund abuse: the Victim Compensation Fund's advance to the fund, against the unpaid award */
+  vcfAdvance?: number;
   evidence: number;
   /** filing bar: civil 40, tribunal 55, criminal 70 */
   bar: number;
@@ -600,6 +609,12 @@ export type Command =
   | { type: 'block.cancel'; planId: string }
   | { type: 'company.found'; name: string; sector: CompanySector; cityId: string; capital: number }
   | { type: 'company.act'; companyId: string; action: CompanyAction }
+  /** player-run funds (funds/index.ts): the manager opens a fund with a stake, changes its mandate, and trades it */
+  | { type: 'fund.create'; name: string; mandate: FundMandate; fees: FundFees; stake: number }
+  | { type: 'fund.mandate'; fundId: string; mandate: FundMandate }
+  | { type: 'fund.trade'; fundId: string; assetId: string; side: Side; qty: number; orderType?: 'market' | 'limit'; limitPrice?: number }
+  | { type: 'fund.deposit'; fundId: string; amount: number }
+  | { type: 'fund.redeem'; fundId: string; units: number }
   | { type: 'admin.advance'; ticks: number }
   /** dev and tests only: the server refuses admin.* from clients */
   | { type: 'admin.grant'; amount: number }

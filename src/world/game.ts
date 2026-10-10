@@ -35,6 +35,7 @@ import { deskFileOf, deskQuery } from './desk';
 import { tripDetail } from './journal';
 import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick, setDrip, startBlock } from './plans';
 import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
+import { applyFundCommand, crossRefusal, fundsBeforeStep, fundsDay, fundsFills, type FundCommand } from './funds';
 import { orderError } from './orders';
 import { companyCommand, companyDay } from './company/bridge';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
@@ -107,6 +108,8 @@ export function stepGame(g: GameState): StepOutput {
   // every human has a ledger before the tick, so its mirror starts from the account the engine is about to change
   for (const p of Object.values(g.players)) if (!p.npc) ensureLedger(g, p.id);
 
+  // a fund order that an alliance change has put opposite a linked order is cancelled before the engine can match them
+  fundsBeforeStep(g, out);
   const r = step(g.market);
   g.market = r.state;
   const tick = g.market.tick;
@@ -115,6 +118,7 @@ export function stepGame(g: GameState): StepOutput {
   newsFromEvents(g, r.events, out);
   for (const f of r.fills) out.fills.push({ playerId: f.playerId, assetId: f.assetId, side: f.side, qty: f.qty, price: f.price, fee: f.fee, orderId: f.orderId });
   ledgerTick(g, r.events, r.fills);
+  fundsFills(g, r.fills, out);
   tradeStats(g, r.fills, realizedBefore, out);
   const stillOpen = new Set(g.market.orders.filter((o) => o.status === 'open').map((o) => o.id));
   for (const before of ordersBefore.values()) {
@@ -153,6 +157,7 @@ export function stepGame(g: GameState): StepOutput {
     planDay(g, out);
     dripDay(g, out, r.events);
     companyDay(g, out);
+    fundsDay(g, out);
   }
 
   if (tick % NW_EVERY === 0 || newDay) {
@@ -238,6 +243,8 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'position.close': {
       const q = g.market.accounts[pid]?.positions[cmd.assetId]?.qty ?? 0;
       if (!q) return fail('no position');
+      const refused = crossRefusal(g, pid, cmd.assetId, q > 0 ? 'sell' : 'buy', { fund: false });
+      if (refused) return fail(refused);
       const r = placeOrder(g.market, { playerId: pid, assetId: cmd.assetId, side: q > 0 ? 'sell' : 'buy', type: 'market', qty: Math.abs(q), reduceOnly: true });
       g.market = r.state;
       return r.order.status === 'rejected' ? fail(r.order.rejectReason ?? 'rejected') : { ok: true, data: r.order };
@@ -353,6 +360,12 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'block.cancel': return cancelBlock(g, p, cmd.planId);
     case 'company.found': return companyCommand(g, pid, cmd, out);
     case 'company.act': return companyCommand(g, pid, cmd, out);
+    case 'fund.create':
+    case 'fund.mandate':
+    case 'fund.trade':
+    case 'fund.deposit':
+    case 'fund.redeem':
+      return applyFundCommand(g, pid, cmd as FundCommand, out);
     case 'admin.advance': return fail('admin only');
     case 'admin.grant': {
       creditExternal(g, pid, cmd.amount, 'admin');
