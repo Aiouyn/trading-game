@@ -28,15 +28,20 @@ async function foundCompany(page: Page, name: string): Promise<void> {
   await expect(page.getByTestId('company-overview')).toBeVisible();
 }
 
-/** The money figures under a scope that are cut by their box or split over two lines (empty when every figure fits). */
+/**
+ * The figures under a scope that are cut by their box or split over two lines (empty when every figure fits). A text leaf
+ * is cut when it overflows its own box (an ellipsis is a cut too, so none is allowed here); a figure (a dd) must stay on
+ * one line, whatever its length, so a runway range or a three-number gain cannot wrap or break across its column.
+ */
 async function badFigures(page: Page, scope: string): Promise<string[]> {
   return page.getByTestId(scope).evaluate((root) => {
     const bad: string[] = [];
     for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
-      if (el.children.length > 0) continue;
+      if (el.children.length > 0 || el.clientWidth === 0) continue;
       const text = (el.textContent ?? '').trim();
-      if (!text || text.length > 18 || /[A-Za-z]/.test(text)) continue;
+      if (!text) continue;
       if (el.scrollWidth > el.clientWidth + 1) bad.push(`cut:${text}`);
+      if (el.tagName !== 'DD') continue;
       const range = document.createRange();
       range.selectNodeContents(el);
       const tops = new Set(Array.from(range.getClientRects()).map((r) => Math.round(r.top)));
@@ -143,7 +148,8 @@ for (const lang of ['en', 'fr'] as const) {
 }
 
 // The day label in French (e): the top bar (desktop) and the phone's status clock say "Jour" and "J", never "Day" or "D".
-test('the top bar and the phone clock show the day in French (Jour, J), not Day or D', async ({ page }) => {
+// P4FINAL_SHOTS, when set, also writes the French top bar (or the phone's home screen) to that folder as a PNG.
+test('the top bar and the phone clock show the day in French (Jour, J), not Day or D', async ({ page }, info) => {
   await playerAtOwner(page);
   await goTo(page, 'profile');
   await page.getByTestId('settings-lang-fr').click();
@@ -152,7 +158,19 @@ test('the top bar and the phone clock show the day in French (Jour, J), not Day 
     // the status clock is on the phone's home screen (the Quay mark goes there)
     await page.getByTestId('phone-quay').click();
     await expect(page.getByTestId('phone-clock')).toHaveText(/^J\d+ · \d\d:\d\d$/);
+    if (process.env.P4FINAL_SHOTS) {
+      mkdirSync(process.env.P4FINAL_SHOTS, { recursive: true });
+      await page.screenshot({ path: `${process.env.P4FINAL_SHOTS}/fr-${info.project.name}-topbar.png` });
+    }
   } else {
     await expect(page.getByTestId('os-clock')).toHaveText(/^Jour \d+ · \d\d:\d\d$/);
+    if (process.env.P4FINAL_SHOTS) {
+      mkdirSync(process.env.P4FINAL_SHOTS, { recursive: true });
+      const bar = await page.getByTestId('os-clock').evaluate((el) => {
+        const r = (el.closest('header') ?? el.parentElement!).getBoundingClientRect();
+        return { x: r.left, y: r.top, width: r.width, height: r.height };
+      });
+      await page.screenshot({ path: `${process.env.P4FINAL_SHOTS}/fr-${info.project.name}-topbar.png`, clip: bar });
+    }
   }
 });

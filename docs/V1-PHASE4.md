@@ -174,8 +174,8 @@ Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merg
 | O-5 | Collusion graph for alt accounts is not in `src`. Only alliances define owner links (ruling 2). A founder-controlled account outside an alliance can subscribe to an IPO and trade outside the window. | Ledger (spec), Forge (anti-cheat, Phases 6 and 9) |
 | O-6 | **Ruled (section 0.6), built in `p4/ui2`:** the stabilizer's target is 1.0% a game day on a 7-gd trailing average (`boards.ts`); the five-year check (3 seeds x 5 years) is in section 2.2b. The old 4% target never engaged. | Ledger (ruled by lead) |
 | O-7 | Sign-off on B1 deviations 1 (sell cap scope) and 6 (default triggers stricter than spec 5). | Ledger |
-| O-8 | Managed sits at 1.3 to 1.5 against S3's about 1.0. **Accepted by the lead (section 0.6): the crew floor change to 1.08.** Not found in the `p4/ui2` tree; the change is recorded here and its code is not in this branch. | Lead (accepted) |
-| O-9 | Pool sale proceeds are misattributed to the pool account (B1 deviation 7). **Accepted by the lead (section 0.6): the pool interest delta.** Not found in the `p4/ui2` tree; recorded here, code not in this branch. | Quant (accepted) |
+| O-8 | Managed sits at 1.3 to 1.5 against S3's about 1.0. **Accepted by the lead (section 0.6): the crew floor change to 1.08.** Not in the `p4/ui2` tree: the code is on `v1` (`ea5103d`), and `p4/ui2` does not contain `ea5103d`. Landing it needs `v1` merged into this branch (section 0.6). Lead decision, not made here. | Lead (accepted; merge decision open) |
+| O-9 | Pool sale proceeds are misattributed to the pool account (B1 deviation 7). **Accepted by the lead (section 0.6): the pool interest delta.** Not in the `p4/ui2` tree: the code is on `v1` (`41426b9`), which `p4/ui2` does not contain. Same merge decision as O-8. | Quant (accepted; merge decision open) |
 | O-22 | **Ruled (section 0.6), built in `p4/ui2`:** rival books are Street-side (NPC) money. A delisting that settles rival units books the cash to the Street tally (`street` event, `bookStreet` in `world/ledger.ts`), and the zero-sum row in `zerosum.test.ts` closes to the cent with the rival books counted. | Forge (done) |
 | O-10 | Company spec is still NOT FROZEN (G22 reading recorded in code). | Ledger |
 | O-11 | Tape rows not built or not run: the bot harnesses (`cap_carry_edge`, `signal_postprint_drift`, `company_print_full_npc_untouched`, X6, X8, X10 rows), the E-UI rows (no Playwright specs for them), and the ABSENT features (credibility EWMA, other income, consolidation, `self_match`, forward cap, eslint canary, AD_GRANT cash). | Tape (rows), Quant (features), Velvet (E-UI) |
@@ -199,7 +199,7 @@ Each ruling is listed once with where it is built. The lead ruled these on the o
 - **O-20 (ready mark is advice).** The engine keeps launching any credit: `launchProduct` still refuses only `noLaunchCredit`, `productCap` and `priceOutOfBand`, and nothing reads the mark there. The R&D Launch form is always available. Below the mark (quality under `company.rd.readyMark`) it shows the three-part warning (what: "Quality 42. The mark is 55."; why: "A launch now ships a weaker product."; do: run a project first, or confirm) and a checkbox the founder must tick before the launch is sent. Built in `src/components/apps/company/RnD.tsx` (`Launch`). Copy: `company.ui.launch.belowMark.what|why|do` and `company.ui.launch.acceptBelow` (en and fr). Velvet's copy sign-off on these is still open (O-17).
 - **O-22 (rival books are Street-side money).** A delisting that settles a rival's units pays the rival book in cash. `settleRivals` (`src/engine/listings.ts`) now returns a `street` event with that cash (`reason: 'rivalSettlement'`). `ledgerTick` (`src/world/ledger.ts`) books it as an economy faucet, `STREET_TALLY` ("street: rival settlements"), the way any non-account counterparty is booked. The rival cash is counted as money in the zero-sum row. The row is in `src/world/company/exploits/zerosum.test.ts` ("O-22"): it delists an ordinary stock that a rival holds (no account does) and closes the money identity to the cent. Worlds with no rival units in a delisted name emit no event, so their books do not change.
 - **O-6 (stabilizer target).** The 4% a game day target was far too loose: the stabilizer never engaged. It is now 1.0% a game day (`STABILIZER_TARGET`), measured as the average daily growth over the trailing 7 game days (`STABILIZER_WINDOW`, the supply seven days back is the base). The PI mechanism, the `sinkMult` cap (1.6) and the integral clamp are kept. `stabilizer.hist` is a new optional field (the last seven supplies); an old save loads with it empty, and the controller starts once a full window exists. Built in `src/world/boards.ts` and `src/world/types.ts`. The five-year check (3 seeds, 5 years, `scripts/balance/economy.ts`) is in section 2.2b.
-- **O-8 (crew floor change, 1.08) and O-9 (pool interest delta).** Accepted by the lead. This worktree has neither change: no crew floor at 1.08 in `src/content/shops.ts` and no pool interest delta in the company or pool code. The acceptance is recorded here; the code is not in `p4/ui2` and must land on the branch that owns it.
+- **O-8 (crew floor change, 1.08) and O-9 (pool interest delta).** Accepted by the lead. This worktree has neither change. Both are on `v1`: O-8 in `ea5103d` (`src/content/shops.ts`, `scripts/balance/wealth.ts`, `scripts/balance/shop-gates-rules.ts`) and O-9 in `41426b9` (`src/world/company/bridge.ts`, `src/world/company/payouts.ts`). `v1` has 17 commits that `p4/ui2` does not have (including `p4/fix` and `p4/tune2`), so the two changes cannot be taken without merging `v1`. A test merge (`git merge-tree`, nothing written) conflicts in six files: `docs/V1-PHASE4.md`, `scripts/balance/economy.ts` (both sides add the file), `src/game/game.test.ts`, `src/i18n/en.json`, `src/i18n/fr.json` and `src/world/game.ts`. `v1` also books the Street side of ordinary-stock fills (`0001db1`, `02f3666`, the O-3 fix), which touches the same Street tally as O-22 here, so the merged zero-sum rows must be run together. **Lead decision:** merge `v1` into `p4/ui2` (then re-run the gates and the five-year check, since the crew floor changes the sinks), or hold this branch as it is and merge it later. This pass made neither change and re-ran no check against the O-8 or O-9 code.
 
 ## 1. Stage A merged
 
@@ -348,8 +348,9 @@ Net worth by rank at day 1,825 (24 players, NPCs included; ranks past 24 show th
 
 What this says, and what it does not:
 - **At 1.0% the stabilizer is nearly idle on these seeds.** It engaged on 5 game days of 1,825 on seed 1 (the multiplier peaked at 1.002), and not at all on seeds 2 and 3. The supply grows at about 0.19% a game day on average, under a fifth of the 1.0% target. The 4% target never engaged, and 1.0% engages only on the rare windows that run hot. The ruling's target is kept as set. Whether the target should be tighter (a rate near the observed 0.2% would engage here) is a lead decision; it is not tested in this pass.
-- The only faucet is business income, so the money supply is set by the NPC businesses. The sinks are the businesses' own upgrades and the shops' costs (about 38% of the flow).
-- The run used one process at a time after a duplicate launch: the first attempt ran seed 1 twice in parallel (the same seed, the same output); the duplicate chain was stopped before seeds 2 and 3 ran. `summary.jsonl` has one line per seed.
+- Business income is the faucet that matters: it is the whole of the top faucet on each seed. The rent and street rival-settlement faucets are each under 0.05% of the flow (the summary rounds them to 0; the street faucet is booked on seed 1 only). The sinks are the businesses' own upgrades and the shops' costs (about 38% of the flow).
+- The stabilizer is not working as a control on these seeds. The lead must choose: tighten the target toward the observed 0.19% a game day, or accept the stabilizer as a dormant guard. This pass did not change the target.
+- Provenance (checked from the run logs, `scratchpad/economy`): seed 1 was started twice, in two chains that both finished with exit 0 (`progress.log` has two `DONE economy-1 0` lines). It was not stopped. Seeds 2 and 3 ran once, in a second chain (`progress2.log`). `summary.jsonl` has exactly one line per seed, and the seed-1 line is the one recorded above. A clean rerun of seed 1 alone (this pass, one process, `scratchpad/econ-recheck`) reproduces that line and the day CSV byte for byte; only the wall-clock `seconds` differs (1,007 s in the rerun, 1,720 s in the first run, which shared the machine). The seed-1 figures above are therefore a single reproducible result.
 
 ### 2.3 A1 open items
 
@@ -776,6 +777,14 @@ Lead screenshot fixes (a) to (e):
 - **(d)** The decision card: the gain is "3.9 / 5.2 / 6.5" with the caption "bear / base / bull" (fr "pessimiste / central / optimiste"); odds are whole percents ("64% to 74%"); runway is "104 → 76 days" (fr "104 → 76 jours"), with the plain pair when a side has no payroll.
 - **(e)** Day labels go through i18n: `clock.day` ("Day 4", fr "Jour 4") and `clock.dayShort` ("D4", fr "J4") in `src/game/clock.ts` (the top bar and the Wire rows), `src/game/history.ts` (the chart axis), `PhoneDesk.tsx` (the phone status clock) and `PhoneRecents.tsx`. Checks: `src/game/game.test.ts` (the fr labels, and back to en) and `companyUi2.spec.ts` ("the top bar and the phone clock show the day in French").
 
+Second review (the reviewer's items 6 to 10), in this pass:
+- **Revenue for listed companies (item 6).** `views.ts` sets `late` for a listed company as well as a late tier (`c.listed !== null`), so a listed company always carries the revenue field, `null` before its first filing. The Stocks card now shows the revenue line for any listed company (`v.listed || v.revenueBand !== undefined`), with "None filed yet" for `null`. Test: `publicview.test.ts` ("a listed company carries the revenue field").
+- **Staged-drop shortfall (item 9).** The note's `shortfall` is a money string ("$80,000.00", `usdWhole` in `bridge.ts`), not a bare integer. The event keeps its number.
+- **French apostrophes (item 10).** The typographic apostrophe (U+2019) in `exchange.stock.window.closedNoDay` and the six `company.note.stagedDropped.*` keys (en and fr key sets unchanged).
+- **Overflow at phone width (item 8).** `companyUi2.spec.ts` `badFigures` now checks every text leaf for a cut (overflow without an ellipsis, leaves with a box) and every figure (`dd`) for a split or wrap, whatever its length, so the runway "104 → 76 days" is covered.
+- **French top bar shot (item 7).** `companyUi2.spec.ts` writes `fr-<project>-topbar.png` (desktop: the top bar; phone: the home screen with the status clock) when `P4FINAL_SHOTS` is set.
+- **Hard-coded day labels (lead item e).** A grep of `src/components`, `src/shell`, `src/game` and `src/world` for "Day " and `D${` finds none left; the Wire rows use `clockLabel`, so they go through `clock.day` and `clock.dayShort`.
+
 Checks in this pass: `npx next typegen` and `npx tsc --noEmit` exit 0; the full `vitest run --maxWorkers=3` passes (see the gates in section 12.2); `eslint` on the touched files, 0 errors (the 5 warnings are the pre-existing unused imports in `game.test.ts`); the full `playwright` suite with the shots on (`P4UI2_SHOTS` and `P4FINAL_SHOTS` at `shots-p4final`).
 
 ### 12.2 Gates and checks (`p4/ui2`, the commit after `2769a7a`)
@@ -799,3 +808,32 @@ Not done, and why:
 - **NPC rival trades** are not booked as they run, only the settlement at a delisting (O-22 as ruled).
 - **The below-mark launch is not sent in e2e** (no next-gen success in the shared world): the checkbox and the warning are checked by the component test and the shot, not by a launch.
 - **Tape rows and the play-by-hand pass** (O-19) are not run in this pass.
+
+### 12.3 Second review: gates, e2e and what is still open (`p4/ui2`)
+
+Gates on the tree of this commit (after the reviewer's items 6 to 10 were fixed):
+
+| Command | Result |
+|---|---|
+| `npx next typegen` and `npx tsc --noEmit` | exit 0 |
+| `npx vitest run --maxWorkers=3` (full, log in `scratchpad/vitest-ui2-full.log`) | 177 files passed, 2 skipped. 1757 tests passed, 2 expected fail, 70 skipped, 21 todo (1850). One test more than 12.2: the listed-company revenue field. |
+| `npx eslint` on the touched files (`StocksTab.tsx`, `bridge.ts`, `publicview.test.ts`, `companyUi2.spec.ts`) | exit 0 |
+| `npx next build --webpack` | exit 0 |
+| `npx playwright test company.spec.ts companyUi2.spec.ts --workers=2` (shots on) | 34 passed |
+| `npx playwright test --workers=2` (full, shots on, `P4UI2_SHOTS` and `P4FINAL_SHOTS` at `shots-p4final`) | 241 passed, 304 skipped, exit 0 |
+
+Reviewer's items, and what this commit did:
+1. **O-8 (crew floor) not in the branch.** Not fixed here. Section 0.5 and 0.6 give the commits, the six conflicting files and the overlap with O-22. Lead decision: merge `v1` into `p4/ui2`, or merge later.
+2. **O-9 (pool interest delta).** Same as 1 (`41426b9` on `v1`).
+3. **Stabilizer idle.** Recorded in 2.2b as a lead decision; the target is not changed here.
+4. **"The only faucet is business income."** Corrected in 2.2b.
+5. **Seed 1 run twice.** Checked from the logs and by a clean rerun (2.2b): the summary and the day CSV are reproduced exactly. The first wording ("stopped") was wrong and is corrected.
+6. **Revenue for listed non-late companies.** `views.ts` already gives a listed company the revenue field (`late` includes `c.listed !== null`), so the line was not missing for listed companies. The card now shows the line for any listed company, and `publicview.test.ts` pins the `null` before the first filing.
+7. **French top bar shot.** `fr-desktop-topbar.png` shows "Jour 4 · 10:44"; `fr-phone-topbar.png` shows "J4 · 11:55". The French phone home screen shows app labels that run into each other ("Bureau d'études", "Banque et crédit", "Juridique et tribunal") at 390 px. Not fixed here (a layout change for the phone grid); open for Velvet.
+8. **Overflow at 390 px.** The fit check now covers every text leaf for a cut and every figure for a wrap; the runway "104 → 76 days" passes. `en-phone-decision-staged.png` shows the decision card within its box.
+9. **Shortfall copy.** The note's shortfall is a money string ("$80,000.00").
+10. **Straight apostrophes in fr.** The typographic apostrophe is used in `exchange.stock.window.closedNoDay` and the six `company.note.stagedDropped.*` keys. Other older fr keys still use straight apostrophes (372 lines with a straight apostrophe against 292 with a typographic one in `fr.json`); a copy pass is for Velvet.
+11. (No change: the rival settlement and the zero-sum row were read as correct.)
+12. **Still open:** Velvet's copy sign-off (O-17 and the O-20 warning), the O-19 tape rows and the play-by-hand pass, and the phone label collision above.
+
+Not done, and why: the O-8 and O-9 code (needs the `v1` merge decision above); the below-mark launch is still not sent in e2e (no next-gen success in the shared world; the warning and the checkbox are covered by the component test and the shot).

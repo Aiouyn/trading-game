@@ -66,6 +66,16 @@ describe('the public view moves only at a filing (spec 6.4, 11)', () => {
     expect(publicCompanyView(c, c.foundedDay).registry!.revenueBand).toEqual(band);
   });
 
+  it('a listed company carries the revenue field (null until its first filing), so the Exchange shows "None filed yet"', () => {
+    const h = harness('listed-rev');
+    const id = found(h);
+    const c = h.w.companies[id]!;
+    c.listed = { assetId: `${id}:stock`, ipoDay: c.foundedDay, sharesOut: 1000, floatShares: 300 } as unknown as NonNullable<typeof c.listed>;
+    const v = publicCompanyView(c, c.foundedDay);
+    expect(v.listed).toBeDefined();
+    expect(v.revenueBand).toBeNull();
+  });
+
   it('the public headcount band and distress flag do not show unfiled hires or distress', () => {
     const h = harness('pub');
     const id = found(h);

@@ -95,6 +95,13 @@ export function stagedDropCopy(code: string | undefined): string {
   return (STAGED_DROP_CODES as readonly string[]).includes(code ?? '') ? code! : 'other';
 }
 
+const USD = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** A sum as the screen writes money ($80,000.00), so a note reads "short $80,000.00", never a bare integer. */
+function usdWhole(n: number): string {
+  return `$${USD.format(Math.abs(n))}`;
+}
+
 /** The founder notes for the day's events (private to the owner; the public Wire is a later step). */
 export function companyNotes(g: GameState, out: StepOutput | null, events: CompanyEvent[]): void {
   const w = g.companies!;
@@ -119,7 +126,7 @@ export function companyNotes(g: GameState, out: StepOutput | null, events: Compa
       const applied = e.status === 'applied';
       const key = applied ? 'company.note.stagedApplied' : `company.note.stagedDropped.${stagedDropCopy(e.code)}`;
       const text = applied ? `${c.name}: the staged project started at the close of day ${e.day}.` : `${c.name}: the staged project did not start at the close of day ${e.day} (${e.code ?? 'refused'}).`;
-      const vars = { name: c.name, day: e.day, amount: Math.round(e.spend), shortfall: Math.round(e.shortfall ?? 0) };
+      const vars = { name: c.name, day: e.day, amount: Math.round(e.spend), shortfall: usdWhole(e.shortfall ?? 0) };
       notify(g, out, c.ownerId, { kind: 'system', tone: applied ? 'info' : 'warn', text, msg: { key, vars } });
     } else if (e.kind === 'backlogRepay') {
       notify(g, out, c.ownerId, { kind: 'system', tone: 'warn', text: `${c.name}: backlog repayment ${Math.round(e.repayment)}.`, msg: { key: 'company.note.repay', vars: { name: c.name, amount: Math.round(e.repayment) } } });

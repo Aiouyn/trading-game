@@ -79,7 +79,7 @@ function StockCard({ s }: { s: ListedStock }) {
         <Fact label={t('exchange.stock.headcount', { band: v.headcountBand })} value={v.headcountBand} testId={`exchange-headcount-${s.ticker}`} />
         <Fact label={t('exchange.stock.debt')} value={debtText(v.debt.totalBand)} testId={`exchange-debt-${s.ticker}`} />
         <Fact label={t('exchange.stock.covenant')} value={t(covenantKey(v.debt.covenant))} testId={`exchange-covenant-${s.ticker}`} />
-        {v.revenueBand !== undefined && <Fact label={t('exchange.stock.revenue')} value={revenueText(v.revenueBand)} testId={`exchange-revenue-${s.ticker}`} />}
+        {(v.listed || v.revenueBand !== undefined) && <Fact label={t('exchange.stock.revenue')} value={revenueText(v.revenueBand ?? null)} testId={`exchange-revenue-${s.ticker}`} />}
         <Fact prose label={t('exchange.stock.tier')} value={t(tierKey(v.tier, !!v.listed))} />
       </div>
 
