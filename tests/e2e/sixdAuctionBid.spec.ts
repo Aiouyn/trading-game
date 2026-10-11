@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
-import { goTo, grant, isPhone, noHorizontalOverflow, openAuctions, register, skipTips, watchErrors } from './helpers';
+import { goTo, grant, isPhone, noHorizontalOverflow, openAuctions, register, skipRankUp, skipTips, watchErrors } from './helpers';
 
 // An auction bid on an open lot (6D.2), in the Boutique's Auctions tab. The admin seam opens the week's lots with 22 ticks to run
 // (the e2e world ticks each second), so a first bid lands inside the last 2 real minutes and extends the lot by 24 ticks. The
@@ -15,7 +15,8 @@ type Lot = { key: string; itemId: string; status: string; endTick: number; minim
 
 async function shot(page: Page, name: string): Promise<void> {
   mkdirSync(SHOTS, { recursive: true });
-  await page.screenshot({ path: `${SHOTS}/${isPhone(page) ? 'phone' : 'window'}-${name}.png` });
+  const device = isPhone(page) ? 'phone' : `window${page.viewportSize()?.width ?? 0}`;
+  await page.screenshot({ path: `${SHOTS}/${device}-${name}.png` });
 }
 
 /** The week's lots in the order the world lists them, read from the page's own state. */
@@ -24,10 +25,15 @@ function lots(page: Page): Promise<Lot[]> {
 }
 
 test('an auction bid on an open lot: the refusal below the minimum, the anti-snipe extension, and a raise in French', async ({ page }) => {
+  // the bid flow runs at the minimum desktop window (900 x 800) on the desktop project, and at the phone size on the phone
+  test.setTimeout(180_000);
+  if (!isPhone(page)) await page.setViewportSize({ width: 900, height: 800 });
   const errors = watchErrors(page);
   const handle = await register(page, 'sxb');
   await skipTips(page);
   await grant(handle, 3_000_000_000);
+  // the grant lifts the bidder in rank: the rank-up ceremony covers the shell until it is skipped
+  await skipRankUp(page);
   await goTo(page, 'estate');
   await page.getByTestId('tab-auctions').click();
   await expect(page.getByTestId('auctions-panel')).toBeVisible();
