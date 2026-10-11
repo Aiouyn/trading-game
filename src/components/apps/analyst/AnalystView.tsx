@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ANALYST_TIERS, type AnalystTier } from '@/content/learning';
-import { rankIndex } from '@/content/lifestyle';
+import { RANKS, rankIndex } from '@/content/lifestyle';
 import { money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
@@ -54,13 +54,18 @@ export function AnalystView() {
 
   return (
     <section className="flex flex-col gap-4" data-testid="analyst">
-      <header className="flex flex-col gap-1">
-        <span className="label">{t('analyst.title')}</span>
-        <h2 className="font-serif text-title text-fg">{t('analyst.lede')}</h2>
-        <p className="text-small text-fg-faint">{t('analyst.sub')}</p>
+      <header className="flex flex-col gap-0.5">
+        <p className="label">{t('analyst.title')}</p>
+        <p className="text-small text-fg-muted">{t('analyst.sub')}</p>
       </header>
       {locked && (
-        <p className="text-small text-fg-muted" data-testid="analyst-locked">{t('analyst.locked', { rank: t(`rank.${ANALYST_TIERS.junior.minRank}`) })}</p>
+        <p className="rounded-md border border-ink-3 bg-ink-1 p-3 text-small text-fg-muted" data-testid="analyst-locked">
+          {t('analyst.locked', {
+            rank: t(`rank.${ANALYST_TIERS.junior.minRank}`),
+            threshold: money(RANKS.find((r) => r.id === ANALYST_TIERS.junior.minRank)?.threshold ?? 0),
+            now: money(me.netWorth.total),
+          })}
+        </p>
       )}
       <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t('analyst.title')}>
         {TIERS.map((tier) => {

@@ -1200,7 +1200,7 @@
   "analyst.let.confirm": "Let go of your analyst",
   "analyst.let.note": "No refund for the week already paid.",
   "analyst.none": "No analyst is hired.",
-  "analyst.locked": "Analysts open at {rank}.",
+  "analyst.locked": "Analysts open at {rank}, when net worth reaches {threshold}. You are at {now}.",
   "portfolio.tab.portfolio": "Portfolio",
   "portfolio.tab.journal": "Journal",
   "portfolio.tab.analyst": "Analyst",

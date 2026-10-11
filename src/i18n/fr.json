@@ -1200,7 +1200,7 @@
   "analyst.let.confirm": "Congédier votre analyste",
   "analyst.let.note": "Aucun remboursement de la semaine déjà payée.",
   "analyst.none": "Aucun analyste engagé.",
-  "analyst.locked": "Les analystes s’ouvrent au rang {rank}.",
+  "analyst.locked": "Les analystes s’ouvrent au rang {rank}, à une valeur nette de {threshold}. Vous êtes à {now}.",
   "portfolio.tab.portfolio": "Portefeuille",
   "portfolio.tab.journal": "Journal",
   "portfolio.tab.analyst": "Analyste",
