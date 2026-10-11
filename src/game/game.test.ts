@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { useLocale } from '@/i18n';
 import { clockLabel, clockParts, dayIndex } from './clock';
 import { compactMoney, money, price, signedChange, signedMoney, signedPct } from './format';
-import { candles, createHistory, dayOpen, ensureVolume, record, sparkline } from './history';
+import { barTimeLabel, candles, createHistory, dayOpen, ensureVolume, record, sparkline } from './history';
 
 const M = '\u2212';
 
@@ -30,6 +31,21 @@ describe('clock', () => {
     expect(clockLabel(721, 720)).toBe('Day 2 \u00b7 09:30');
     expect(dayIndex(720, 720)).toBe(0);
     expect(dayIndex(721, 720)).toBe(1);
+  });
+
+  it('the French top bar and the short labels say Jour and J, never the English Day or D (e)', () => {
+    const fr = useLocale.getState();
+    fr.setLocale('fr');
+    try {
+      expect(clockLabel(0, 720)).toBe('Jour 1 · 09:30');
+      expect(clockLabel(721, 720)).toBe('Jour 2 · 09:30');
+      expect(barTimeLabel(721, 720, true)).toBe('Jour 2');
+      expect(barTimeLabel(721, 720, false)).toBe('J2 09:30');
+    } finally {
+      fr.setLocale('en');
+    }
+    expect(clockLabel(0, 720)).toBe('Day 1 · 09:30');
+    expect(barTimeLabel(721, 720, false)).toBe('D2 09:30');
   });
 });
 

@@ -32,6 +32,7 @@ export type CompanyReject =
   | { code: 'plantBuilding'; untilDay: number }
   | { code: 'marketingCap'; cap: number }
   | { code: 'noLaunchCredit' }
+  | { code: 'nothingStaged' }
   | { code: 'unknownAction' }
   // B1: IPO (ipo.ts)
   | { code: 'ipoFilings' }
@@ -170,6 +171,18 @@ export interface Project {
 export interface LaunchCredit {
   q: number;
   generation: number;
+}
+
+/**
+ * A staged R&D decision (O-17): an Overview decision the founder confirmed on `closeDay`. It is applied at that day's close,
+ * before the company's day step, and replaced if the founder stages again the same day. The engine checks it again at the
+ * close: a refusal then drops it, and the founder is told.
+ */
+export interface StagedDecision {
+  closeDay: number;
+  projectKind: ProjectKind;
+  productId: string;
+  spend: number;
 }
 
 export interface Staff {
@@ -431,6 +444,11 @@ export interface Company {
   indexLast: number;
   /** next-gen successes not yet launched as a product */
   launchCredits: LaunchCredit[];
+  /* ---- O-17 (optional: a company from before it has none of these) ---- */
+  /** the Overview decision staged for the next close (null when none) */
+  staged?: StagedDecision | null;
+  /** the spend of the quality project last started or applied, per product (the "was" tick on the Overview slider) */
+  inForce?: Record<string, number>;
   /** the company's own market: its frontier, its NPC rivals and the sector shock level at founding */
   frontierLn: number;
   npcs: Npc[];

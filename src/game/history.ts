@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { clockParts, dayIndex } from './clock';
 
 /**
@@ -238,5 +239,5 @@ export function sparkline(h: History, id: string, days: number, points = 48): nu
 /** Axis and crosshair label for a bar time. */
 export function barTimeLabel(tick: number, ticksPerDay: number, daily: boolean): string {
   const c = clockParts(tick, ticksPerDay);
-  return daily ? `Day ${c.day}` : `D${c.day} ${c.hhmm}`;
+  return daily ? t('clock.day', { day: c.day }) : `${t('clock.dayShort', { day: c.day })} ${c.hhmm}`;
 }

@@ -248,5 +248,5 @@ function businessesLine(): string {
 function timeLabel(tick: number): string {
   const now = clockParts(useGame.getState().frame?.tick ?? 0, 720);
   const then = clockParts(tick, 720);
-  return then.day === now.day ? then.hhmm : `D${then.day}`;
+  return then.day === now.day ? then.hhmm : t('clock.dayShort', { day: then.day });
 }

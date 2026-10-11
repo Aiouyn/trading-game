@@ -40,6 +40,7 @@ import { orderError } from './orders';
 import { companyCommand, companyDay, companyFinanceCommand, companyStep, type CompanyFinanceCommand } from './company/bridge';
 import { adminIpoReady } from './company/ipo';
 import { scorePlanAbuse, scoreWindowAttempt } from './company/backstop';
+import { adminFiledLate, adminLaunchCredit } from './company/seams';
 import type { Command, CommandResult, GameState, StepOutput } from './types';
 
 export interface CreateOptions {
@@ -214,6 +215,8 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     return { ok: true };
   }
   if (cmd.type === 'admin.ipoReady') return adminIpoReady(g, cmd.playerId);
+  if (cmd.type === 'admin.filedLate') return adminFiledLate(g, cmd.playerId);
+  if (cmd.type === 'admin.launchCredit') return adminLaunchCredit(g, cmd.playerId, cmd.score);
   const p = g.players[pid];
   if (!p) return fail('join the world first');
   if (!p.npc) p.lastSeenTick = g.market.tick;

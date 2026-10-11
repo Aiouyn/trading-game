@@ -22,6 +22,7 @@ export function People({ co }: { co: CompanyFounderView }) {
     <div className="flex flex-col gap-4" data-testid="company-people">
       <Staff co={co} />
       <Executives co={co} />
+      <CeoChange co={co} />
     </div>
   );
 }
@@ -184,5 +185,65 @@ function ExecSeat({ role, exec, companyId }: { role: ExecRole; exec: ExecutiveVi
       <p className="mt-2 text-caption text-fg-faint">{t('company.ui.exec.traitHint', { size: Math.round(Math.abs(COMPANY.governance.exec.traits[trait].size) * 100) })}</p>
       <div className="mt-2"><RefusalNote refusal={refusal} /></div>
     </li>
+  );
+}
+
+/**
+ * The CEO change (O-16, spec 9.1): the founder announces an outside successor. The days are shown before the founder
+ * confirms: the notice (the change takes effect ten game days after the announcement), the freeze of the departing CEO's
+ * accounts (to the end of the exit freeze), and the ex-CEO's cooling (252 game days from the effective day). A second change
+ * while one is announced, and an ex-CEO still cooling, are refused inline.
+ */
+function CeoChange({ co }: { co: CompanyFounderView }) {
+  const act = useGame((s) => s.act);
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
+  const [busy, setBusy] = useState(false);
+  const plan = co.ceoPlan;
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true);
+    const ack = await act({ type: 'company.act', companyId: co.id, action: { kind: 'changeCEO', successor: { kind: 'npc' } } }, { silent: true });
+    setBusy(false);
+    setRefusal(refusalOf(ack));
+  };
+  const holder = plan.ceoHolder === 'npc'
+    ? t('company.ui.ceo.holder.npc')
+    : plan.ceoHolder === 'player' ? t('company.ui.ceo.holder.player') : t('company.ui.ceo.holder.founder');
+  const pending = co.ceoPending;
+  if (pending) {
+    // an announced change: its recorded days, the seat that stays filled until the effective day, and no second change
+    const successor = pending.successor === 'player' ? t('company.ui.ceo.holder.player') : t('company.ui.ceo.holder.npc');
+    return (
+      <Section title={t('company.ui.ceo.title')} testId="company-ceo">
+        <p className="text-small text-fg" data-testid="company-ceo-now">{t('company.ui.ceo.now', { holder })}</p>
+        <p className="mt-3 text-small text-fg" data-testid="company-ceo-pending">{t('company.ui.ceo.pending', { effective: pending.effectiveDay })}</p>
+        <ul className="mt-2 flex flex-col gap-2 text-caption text-fg-muted" data-testid="company-ceo-plan">
+          <li data-testid="company-ceo-announce">{t('company.ui.ceo.announced', { day: pending.announcedDay, effective: pending.effectiveDay })}</li>
+          <li data-testid="company-ceo-successor">{t('company.ui.ceo.successorIs', { successor })}</li>
+          <li data-testid="company-ceo-freeze">{t('company.ui.ceo.freeze', { day: pending.announcedDay, until: pending.freezeUntil })}</li>
+          <li data-testid="company-ceo-cooling">{t('company.ui.ceo.cooling', { days: plan.cooldownDays, until: pending.cooldownUntil })}</li>
+        </ul>
+        <p className="mt-3 text-caption text-fg-faint" data-testid="company-ceo-pending-note">{t('company.ui.ceo.pendingNote')}</p>
+      </Section>
+    );
+  }
+  return (
+    <Section title={t('company.ui.ceo.title')} testId="company-ceo">
+      <p className="text-small text-fg" data-testid="company-ceo-now">{t('company.ui.ceo.now', { holder })}</p>
+      <ul className="mt-3 flex flex-col gap-2 text-caption text-fg-muted" data-testid="company-ceo-plan">
+        <li data-testid="company-ceo-announce">{t('company.ui.ceo.announce', { day: plan.announcedDay, effective: plan.effectiveDay })}</li>
+        <li data-testid="company-ceo-freeze">{t('company.ui.ceo.freeze', { day: plan.announcedDay, until: plan.freezeUntil })}</li>
+        <li data-testid="company-ceo-cooling">{t('company.ui.ceo.cooling', { days: plan.cooldownDays, until: plan.cooldownUntil })}</li>
+      </ul>
+      <p className="mt-3 text-caption text-fg-faint">{t('company.ui.ceo.successor')}</p>
+      <div className="mt-3 flex flex-col gap-2">
+        <RefusalNote refusal={refusal} />
+        <div className="flex justify-end">
+          <ConfirmButton size="sm" disabled={busy} confirm={t('company.ui.ceo.confirm', { effective: plan.effectiveDay })} onConfirm={submit} testId="company-ceo-submit">
+            {t('company.ui.ceo.submit')}
+          </ConfirmButton>
+        </div>
+      </div>
+    </Section>
   );
 }

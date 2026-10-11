@@ -371,7 +371,13 @@ export interface EconomyState {
   /** money supply index (1 at world start); the Net Worth Index divides by it */
   moneyIndex: number;
   /** stabilizer: a PI controller nudges sink rates when money grows too fast */
-  stabilizer: { integral: number; sinkMult: number; lastSupply: number };
+  stabilizer: {
+    integral: number;
+    sinkMult: number;
+    lastSupply: number;
+    /** the last supplies, oldest first (ruling O-6: the 7-day window); optional, so an old save loads */
+    hist?: number[];
+  };
 }
 
 // ---- AI Lab (bible 05) ----
@@ -634,7 +640,11 @@ export type Command =
   /** dev and tests only: backdates a player's join by `ticks` (the account-age rules, without a long advance) */
   | { type: 'admin.age'; playerId: string; ticks: number }
   /** dev and tests only: a founder's company has the filed quarters and filed value the IPO rules read (adminIpoReady) */
-  | { type: 'admin.ipoReady'; playerId: string };
+  | { type: 'admin.ipoReady'; playerId: string }
+  /** dev and tests only: a founder's company is late-tier with two filed quarters (adminFiledLate, the Filings tab) */
+  | { type: 'admin.filedLate'; playerId: string }
+  /** dev and tests only: a next-gen launch credit at a quality score (adminLaunchCredit, the R&D launch block) */
+  | { type: 'admin.launchCredit'; playerId: string; score: number };
 
 export interface CommandResult {
   ok: boolean;

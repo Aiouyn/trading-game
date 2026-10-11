@@ -6,7 +6,7 @@
 // number comes from the founder view; the screen only formats it and draws the lines.
 import { useState } from 'react';
 import { COMPANY } from '@/content/company';
-import { compactMoney, money, pct } from '@/game/format';
+import { compactMoney, money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Button, Segmented, Stat } from '@/components/ui';
@@ -57,12 +57,23 @@ function runwayText(days: number | null): string {
   return days === null ? t('company.ui.kpi.noPayroll') : t('company.ui.kpi.runwayDays', { days: Math.floor(days) });
 }
 
+/** The runway before and after the decision: "104 → 76 days", or the plain pair when a side has no payroll to count. */
+function runwayChange(before: number | null, after: number | null): string {
+  if (before === null || after === null) return t('company.ui.decision.runwayPlain', { before: runwayText(before), after: runwayText(after) });
+  return t('company.ui.decision.runwayChange', { before: Math.floor(before), after: Math.floor(after) });
+}
+
+/** An odds bound as a whole percent ("64%"): the engine's band is wider than two decimals, so the screen rounds it. */
+function wholePct(fraction: number): string {
+  return `${Math.round(fraction * 100)}%`;
+}
+
 const LEVEL_IDS: PreviewLevel[] = ['low', 'mid', 'high'];
 
 /**
- * The decision card (Velvet 4 and 2): how much goes into the first product's quality project. The three levels are the
- * engine's own preview (S_ref multiples); the confirm starts that project with the chosen spend, through the same command
- * the R&D tab uses, and every refusal is shown inline.
+ * The decision card (Velvet 4 and 2, O-17): how much goes into the first product's quality project. The three levels are the
+ * engine's own preview (S_ref multiples). Confirming stages the decision: it starts at the close of the day it is confirmed,
+ * and it can be replaced or cancelled until then. The "was" tick marks the level whose spend is in force now.
  */
 function DecisionCard({ co }: { co: CompanyFounderView }) {
   const act = useGame((s) => s.act);
@@ -79,39 +90,71 @@ function DecisionCard({ co }: { co: CompanyFounderView }) {
   }
   const chosen: DecisionLevel = card.levels.find((l) => l.key === level) ?? card.levels[1]!;
   const product = co.productsPrivate.find((p) => p.id === card.productId);
+  const inForce = card.spendInForce;
   const confirm = async () => {
     if (busy) return;
     setBusy(true);
-    const ack = await act({ type: 'company.act', companyId: co.id, action: { kind: 'startProject', projectKind: 'quality', productId: card.productId, spend: chosen.spend } }, { silent: true });
+    const ack = await act({ type: 'company.act', companyId: co.id, action: { kind: 'stageProject', projectKind: 'quality', productId: card.productId, spend: chosen.spend } }, { silent: true });
     setBusy(false);
     setRefusal(refusalOf(ack));
   };
+  const cancel = async () => {
+    if (busy) return;
+    setBusy(true);
+    const ack = await act({ type: 'company.act', companyId: co.id, action: { kind: 'cancelStaged' } }, { silent: true });
+    setBusy(false);
+    setRefusal(refusalOf(ack));
+  };
+  const levelLabel = (id: PreviewLevel): string => {
+    const base = t(`company.ui.decision.level.${id}`);
+    const spend = card.levels.find((l) => l.key === id)?.spend;
+    return inForce !== null && spend === inForce ? `${base} · ${t('company.ui.decision.wasTick')}` : base;
+  };
   return (
     <Section title={t('company.ui.decision.title', { product: card.productName })} chip={<PrivateChip />} testId="company-decision">
-      <div className="grid gap-4 @2xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-4 @2xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-3">
           <Segmented<PreviewLevel>
             label={t('company.ui.decision.level')}
             value={level}
             onChange={setLevel}
-            options={LEVEL_IDS.map((id) => ({ value: id, label: t(`company.ui.decision.level.${id}`), testId: `company-decision-level-${id}` }))}
+            options={LEVEL_IDS.map((id) => ({ value: id, label: levelLabel(id), testId: `company-decision-level-${id}` }))}
           />
+          <p className="text-caption text-fg-muted" data-testid="company-decision-was">
+            {inForce !== null ? t('company.ui.decision.was', { amount: money(inForce) }) : t('company.ui.decision.noneInForce')}
+          </p>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2" data-testid="company-decision-figures">
             <Figure label={t('company.ui.decision.spend')} value={money(chosen.spend)} testId="company-decision-spend" />
-            <Figure label={t('company.ui.decision.odds')} value={t('company.ui.decision.oddsRange', { low: pct(chosen.pLow), high: pct(chosen.pHigh) })} testId="company-decision-odds" />
-            <Figure label={t('company.ui.rd.gainLabel')} value={t('company.ui.rd.gain', { bear: chosen.gainPoints[0].toFixed(1), base: chosen.gainPoints[1].toFixed(1), bull: chosen.gainPoints[2].toFixed(1) })} testId="company-decision-gain" />
-            <Figure label={t('company.ui.decision.runway')} value={t('company.ui.decision.runwayChange', { before: runwayText(co.runwayDays), after: runwayText(chosen.runwayAfter) })} testId="company-decision-runway" />
+            <Figure label={t('company.ui.decision.odds')} value={t('company.ui.decision.oddsRange', { low: wholePct(chosen.pLow), high: wholePct(chosen.pHigh) })} testId="company-decision-odds" />
+            <Figure
+              label={t('company.ui.rd.gainLabel')}
+              value={t('company.ui.decision.gainValues', { bear: chosen.gainPoints[0].toFixed(1), base: chosen.gainPoints[1].toFixed(1), bull: chosen.gainPoints[2].toFixed(1) })}
+              note={t('company.ui.decision.gainCaption')}
+              testId="company-decision-gain"
+            />
+            <Figure label={t('company.ui.decision.runway')} value={runwayChange(co.runwayDays, chosen.runwayAfter)} testId="company-decision-runway" />
           </dl>
           <p className="text-caption text-fg-muted" data-testid="company-decision-clock">
             {t('company.ui.decision.clock', { days: card.days, day: card.endDay, mark: co.limits.qualityReady, score: Math.round(product?.qualityScore ?? 0) })}
           </p>
         </div>
         <div className="flex flex-col justify-between gap-3">
-          <p className="text-caption text-fg-faint">{t('company.ui.decision.note')}</p>
+          <div className="flex flex-col gap-3">
+            <p className="text-caption text-fg-faint">{t('company.ui.decision.note')}</p>
+            <p className="text-small text-fg" data-testid="company-decision-applies">{t('company.ui.decision.appliesAtClose', { day: co.day })}</p>
+            {co.staged ? (
+              <div className="flex flex-col gap-2 rounded-md border border-info/40 px-3 py-2" data-testid="company-decision-staged">
+                <p className="num text-small text-fg">{t('company.ui.decision.staged', { amount: money(co.staged.spend) })}</p>
+                <div>
+                  <Button size="sm" disabled={busy} onClick={cancel} testId="company-decision-cancel">{t('company.ui.decision.cancel')}</Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
           <div className="flex flex-col gap-2">
             <RefusalNote refusal={refusal} />
             <div className="flex justify-end">
-              <Button variant="brass" disabled={busy} onClick={confirm} testId="company-decision-confirm">{t('company.ui.decision.confirm')}</Button>
+              <Button variant="brass" disabled={busy} onClick={confirm} testId="company-decision-confirm">{t('company.ui.decision.confirm', { day: co.day })}</Button>
             </div>
           </div>
         </div>
@@ -120,11 +163,13 @@ function DecisionCard({ co }: { co: CompanyFounderView }) {
   );
 }
 
-function Figure({ label, value, testId }: { label: string; value: string; testId: string }) {
+function Figure({ label, value, note, testId }: { label: string; value: string; note?: string; testId: string }) {
   return (
     <div className="flex min-w-0 flex-col" data-testid={testId}>
       <dt className="text-caption text-fg-faint">{label}</dt>
-      <dd className="num text-small text-fg">{value}</dd>
+      {/* a figure stays on one line (the gain is three numbers, the runway a range): the column is made wide enough for it */}
+      <dd className="num whitespace-nowrap text-small text-fg">{value}</dd>
+      {note ? <dd className="text-caption text-fg-faint">{note}</dd> : null}
     </div>
   );
 }

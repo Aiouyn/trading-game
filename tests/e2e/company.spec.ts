@@ -62,24 +62,67 @@ test('a price outside the band is refused inline with its code, and a price insi
   await expect(page.getByTestId('company-refusal')).toHaveCount(0);
 });
 
-test('a second R&D project is refused as busy on both the overview and the R&D tab', async ({ page }) => {
+test('a second R&D project is refused as busy on both the R&D tab and the overview (the overview stages, and refuses at once)', async ({ page }) => {
   await playerAtOwner(page);
   await foundCompany(page, 'Project Co.');
-  await page.getByTestId('company-decision-level-high').click();
-  await expect(page.getByTestId('company-decision-spend')).toContainText('40,000');
-  await page.getByTestId('company-decision-confirm').click();
-  await expect(page.getByTestId('company-decision-clock')).toBeVisible();
+  // the R&D tab starts a project at once
   await page.getByTestId('company-tab-rd').click();
+  await page.getByTestId('company-rd-spend').fill('50000');
+  await page.getByTestId('company-rd-submit').click();
   await expect(page.getByTestId('company-rd-projects').locator('li').first()).toBeVisible();
   await expect(page.getByTestId('company-project-odds').first()).toContainText('%');
   // the R&D tab's own form sends the second start, and the engine refuses it
   await page.getByTestId('company-rd-spend').fill('50000');
   await page.getByTestId('company-rd-submit').click();
   await expect(page.getByTestId('company-refusal')).toHaveAttribute('data-code', 'projectBusy');
-  // and the overview's decision card does the same
+  // the overview's decision card is refused the same way at once: nothing is staged
   await page.getByTestId('company-tab-overview').click();
   await page.getByTestId('company-decision-confirm').click();
   await expect(page.getByTestId('company-refusal')).toHaveAttribute('data-code', 'projectBusy');
+  await expect(page.getByTestId('company-decision-staged')).toHaveCount(0);
+});
+
+test('an Overview decision is staged for the close: it shows what applies and when, and can be cancelled before the close', async ({ page }) => {
+  await playerAtOwner(page);
+  await foundCompany(page, 'Stage Co.');
+  await expect(page.getByTestId('company-decision-was')).toContainText('Nothing in force yet');
+  await page.getByTestId('company-decision-level-high').click();
+  await page.getByTestId('company-decision-confirm').click();
+  await expect(page.getByTestId('company-decision-staged')).toContainText('Staged for the close');
+  await expect(page.getByTestId('company-decision-applies')).toContainText('Applies at the close of Day');
+  // nothing has started yet: the R&D tab has no project
+  await page.getByTestId('company-tab-rd').click();
+  await expect(page.getByTestId('company-rd-projects').locator('li')).toHaveCount(0);
+  await page.getByTestId('company-tab-overview').click();
+  await page.getByTestId('company-decision-cancel').click();
+  await expect(page.getByTestId('company-decision-staged')).toHaveCount(0);
+  if (isPhone(page)) await noHorizontalOverflow(page);
+});
+
+test('the next-gen launch waits on R&D with no credit, the Filings tab shows the next filing day, and the CEO change shows its days before it is announced', async ({ page }) => {
+  const errors = watchErrors(page);
+  await playerAtOwner(page);
+  await foundCompany(page, 'Next Co.');
+  await page.getByTestId('company-tab-rd').click();
+  await expect(page.getByTestId('company-launch-none')).toBeVisible();
+  await page.getByTestId('company-tab-filings').click();
+  // a Seed company files no quarter: no next filing day, the registry line instead
+  await expect(page.getByTestId('company-filings-next')).toHaveCount(0);
+  await expect(page.getByTestId('company-filings-registry')).toBeVisible();
+  await expect(page.getByTestId('company-filings-none')).toBeVisible();
+  await page.getByTestId('company-tab-people').click();
+  await expect(page.getByTestId('company-ceo-announce')).toContainText('Announced today');
+  await expect(page.getByTestId('company-ceo-freeze')).toBeVisible();
+  await expect(page.getByTestId('company-ceo-cooling')).toContainText('252');
+  await page.getByTestId('company-ceo-submit').click();
+  await page.getByTestId('company-ceo-submit-yes').click();
+  await expect(page.getByTestId('company-refusal')).toHaveCount(0);
+  // once announced, the recorded days and the pending state show, and no second confirm is offered
+  await expect(page.getByTestId('company-ceo-pending')).toBeVisible();
+  await expect(page.getByTestId('company-ceo-announce')).toContainText('Announced on Day');
+  await expect(page.getByTestId('company-ceo-submit')).toHaveCount(0);
+  if (isPhone(page)) await noHorizontalOverflow(page);
+  expect(errors).toEqual([]);
 });
 
 test('a pharma company shows the odds of its three gates, and the patents in force', async ({ page }) => {

@@ -36,7 +36,7 @@ const EDGE_H = 40;
 /** The status bar's clock: the day and the time, "D4 · 09:44" (V:148). */
 export function shortClock(tick: number): string {
   const c = clockParts(tick, 720);
-  return `D${c.day} · ${c.hhmm}`;
+  return `${t('clock.dayShort', { day: c.day })} · ${c.hhmm}`;
 }
 
 /** A tap or long press on the Quay mark is at least this long for Recent (P2-140). */
