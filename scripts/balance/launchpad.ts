@@ -17,13 +17,14 @@ import { Rng, seedStream, indexLevel } from '../../src/engine';
 import { applyCommand, createGame, stepGame } from '../../src/world/game';
 import { cashOf, credit, netWorthBreakdown, TPD } from '../../src/world/core';
 import { bookedNet, engineTallyOf, netWorldMoney } from '../../src/world/company/exploits/sequences';
-import { LP, NPC } from '../../src/world/launchpad/constants';
-import { curveProgress, quoteSell, spotAt } from '../../src/world/launchpad/curve';
+import { LP, LP_K, NPC } from '../../src/world/launchpad/constants';
+import { curveProgress, feeSplit, quoteSell, spotAt } from '../../src/world/launchpad/curve';
 import { buzzOf } from '../../src/world/launchpad/demand';
 import { sellCurve } from '../../src/world/launchpad/trade';
-import type { Command, CommandResult, GameState } from '../../src/world/types';
+import type { Command, CommandResult, GameState, StepOutput } from '../../src/world/types';
 import type { LpToken } from '../../src/world/launchpad/types';
-import { mean, oneSided95, pnlPerDollar, strategyPasses } from './launchpad-stat';
+import { openSellQty } from '../../src/world/launchpad/graduate';
+import { KINDS, START_CASH, printedOf, summarize, type Kind, type WorldResult, type WorldStats } from './launchpad-summary';
 
 function arg(name: string, fallback: string) {
   const i = process.argv.indexOf(`--${name}`);
@@ -39,7 +40,6 @@ const outPath = arg('out', 'balance-out/launchpad.json');
 // tuning (lead-launchpad.md L6.3): the --npc JSON overrides the L6 constants of NPC for this run only; the summary records them
 const npcOverride = JSON.parse(arg('npc', '{}')) as Partial<typeof NPC>;
 Object.assign(NPC, npcOverride);
-const START_CASH = 20_000;
 const DECIDE_EVERY = 60;
 /** the viral chaser's trigger: a buzz rise of this much within one tick, or a day-volume rise of this much within one tick */
 const CHASE_BUZZ = 0.25;
@@ -53,10 +53,7 @@ const POST_HOLD_TICKS = 120;
 const FLOOR_STAKE = 500;
 const FLOOR_NEAR = 1.1;
 
-const GATED = ['creatorDump', 'sniper', 'flipper', 'buzzPumper', 'retail', 'viralChaser', 'pumpSeller', 'postGradBuyer', 'frontRunner', 'floorSprayer'] as const;
-type Gated = (typeof GATED)[number];
 /** a world with no bot: the pure NPC world of the seed (the shape, the NPC net and the idle control are read here) */
-type Kind = Gated | 'none';
 const BOT_ID: Record<Kind, string> = {
   creatorDump: 'bot_creator', sniper: 'bot_sniper', flipper: 'bot_flipper', buzzPumper: 'bot_buzz', retail: 'bot_retail',
   viralChaser: 'bot_chaser', pumpSeller: 'bot_pump', postGradBuyer: 'bot_postgrad', frontRunner: 'bot_front', floorSprayer: 'bot_floor',
@@ -65,8 +62,12 @@ const BOT_ID: Record<Kind, string> = {
 /** the bots that act every tick; the others act on the decision cadence */
 const TICK_KINDS: ReadonlySet<Kind> = new Set<Kind>(['viralChaser', 'postGradBuyer', 'frontRunner']);
 
-/** a bot's Launchpad ledger in one world: the cash its commands moved, the cash it put in, and the creator fees its own commands earned */
-interface Ledger { cash: number; out: number; fees: number }
+/**
+ * A bot's Launchpad ledger in one world: the cash its commands moved (cash), the engine fills of its orders that settled inside the
+ * world's steps (engine: a buy is negative, a sell positive, net of the fee; the engine's settlement is cash -= side * qty * price + fee),
+ * the cash it put in (out: command outflows and the cost of its engine buys), and the creator fees its own commands earned (fees).
+ */
+interface Ledger { cash: number; out: number; fees: number; engine: number }
 
 interface BotState {
   launched: boolean;
@@ -115,19 +116,46 @@ function feesOf(g: GameState, id: string): number {
 
 /** runs a bot's Launchpad action and books its cash flow, its outflow and its own creator fees into the bot's ledger */
 function tallied<T>(ctx: Ctx, fn: () => T): T {
-  const { g, id, led, kind } = ctx;
+  const { g, id, led } = ctx;
   const c0 = cashOf(g, id);
-  const f0 = kind === 'creatorDump' ? feesOf(g, id) : 0;
+  const f0 = feesOf(g, id);
   const r = fn();
   const d = cashOf(g, id) - c0;
   led.cash += d;
   if (d < 0) led.out -= d;
-  if (kind === 'creatorDump') led.fees += feesOf(g, id) - f0;
+  led.fees += feesOf(g, id) - f0;
   return r;
 }
 
 function act(ctx: Ctx, cmd: Command): CommandResult {
   return tallied(ctx, () => applyCommand(ctx.g, ctx.id, cmd));
+}
+
+/**
+ * One world step, with the bot's engine fills booked. An engine order (a market sell of a graduated position, a copy buy) is queued by
+ * the command and settles in the step that matches it, so its cash moves here, not in tallied(). Every fill of the bot is one line of
+ * the ledger, at the engine's settlement (fee included); a fill the engine refused moves no cash and is not a fill.
+ */
+function stepBot(ctx: Ctx): StepOutput {
+  const out = stepGame(ctx.g);
+  for (const f of out.fills) {
+    if (f.playerId !== ctx.id) continue;
+    const gross = f.qty * f.price;
+    if (f.side === 'buy') {
+      ctx.led.engine -= gross + f.fee;
+      ctx.led.out += gross + f.fee;
+    } else {
+      ctx.led.engine += gross - f.fee;
+    }
+  }
+  return out;
+}
+
+/** the non-price cash of an engine account (dividends, interest earned less paid, borrow fees): cash that is not a trade's P&L */
+function nonPriceOf(g: GameState, pid: string): number {
+  const a = g.market.accounts[pid];
+  if (!a) return 0;
+  return (a.dividends ?? 0) + (a.interestEarned ?? 0) - (a.interestPaid ?? 0) - (a.borrowPaid ?? 0);
 }
 
 /** the engine position of a bot in a token (zero when it has none) */
@@ -371,42 +399,64 @@ function tickDecide(ctx: Ctx): void {
 /**
  * The horizon liquidation (L8.3): what the bot still holds is sold at the end of the run, so its P&L is realised. Curve holdings sell
  * to the curve at the liquidation quote (no slippage limit: the bot is valued at what it would get out), and graduated positions go
- * through the book in up to three market sells. Whatever the book still cannot take is reported, not valued.
+ * through the book in up to three market sells. A position the venue will not take is VALUED, not left (v1.3 review):
+ *   - a graduated position the book still cannot take (the book's cash is the bound, trading.ts) is marked at the engine price less the
+ *     curve's exit fee;
+ *   - a curve holding the curve will not take in one sell (quoteSell refuses y + tokens above Y0: the creator's allocation sits outside
+ *     the curve's reserve) is sold for what the curve can take (Y0 - y), and the rest is marked at the curve's own formula from the
+ *     reserve left, less the exit fee (the slippage of selling it all at once, as the curve prices it).
+ * Each mark is added to the P&L and counted in marked. The mark is on the high side of what a holder could realise, so a mark can make
+ * a bot fail, never let it pass: it errs toward failing the gate. leftover is what could not be valued at all; a mark always can, so it
+ * is zero by construction, and it still fails the bot if a future change breaks that.
  */
-function liquidate(ctx: Ctx): number {
+function liquidate(ctx: Ctx): { leftover: number; marked: number; mark: number } {
   const { g, id } = ctx;
-  let leftover = 0;
-  for (const t of Object.values(g.launchpad?.tokens ?? {})) {
-    if (t.status === 'graduated') {
-      for (let k = 0; k < 3; k++) {
-        const pos = enginePos(g, id, t.ticker);
-        if (pos <= 0) break;
-        act(ctx, { type: 'order.place', order: { assetId: t.ticker, side: 'sell', type: 'market', qty: pos } } as Command);
-      }
-      leftover += enginePos(g, id, t.ticker) > 0 ? 1 : 0;
-      continue;
+  const leftover = 0;
+  let marked = 0;
+  let mark = 0;
+  // the graduated positions first: each try queues a market sell of what is still held (less its open sells) and one world step settles
+  // the book's fills; up to three tries. Every step is booked by stepBot, so the proceeds are the bot's cash
+  const graduated = Object.values(g.launchpad?.tokens ?? {}).filter((t) => t.status === 'graduated');
+  for (let k = 0; k < 3; k++) {
+    let queued = false;
+    for (const t of graduated) {
+      const pos = enginePos(g, id, t.ticker) - openSellQty(g, id, t.ticker);
+      if (pos <= 0) continue;
+      act(ctx, { type: 'order.place', order: { assetId: t.ticker, side: 'sell', type: 'market', qty: pos } } as Command);
+      queued = true;
     }
-    const have = t.bal[id] ?? 0;
-    if (have > 0) {
-      const r = tallied(ctx, () => sellCurve(g, id, t.ticker, have, 1, null));
-      // a curve holding the curve would not take (a refused sell) is a position left unvalued, like a graduated one
-      if (!r.ok || (t.bal[id] ?? 0) > 0) leftover++;
+    if (!queued) break;
+    stepBot(ctx);
+  }
+  for (const t of graduated) {
+    const rest = enginePos(g, id, t.ticker);
+    if (rest > 0) {
+      const idx = g.market.config.assets.findIndex((a) => a.id === t.ticker);
+      mark += rest * Math.exp(g.market.assets[idx]!.lnP) * (1 - LP.FEE_RATE);
+      marked++;
     }
   }
-  return leftover;
-}
-
-interface WorldStats {
-  launches: number;
-  cohortLaunches: number;
-  deadWithin7: number;
-  deadWithin7Early: number;
-  graduated: number;
-  tenX: number;
-  npcLife: number;
-  npcLifeN: number;
-  allLaunches: number;
-  npcNet: number;
+  // the curve holdings: the curve's own fills are commands, so no world step runs here
+  for (const t of Object.values(g.launchpad?.tokens ?? {})) {
+    if (t.status === 'graduated') continue;
+    const have = t.bal[id] ?? 0;
+    if (have <= 0) continue;
+    tallied(ctx, () => sellCurve(g, id, t.ticker, have, 1, null));
+    let rest = t.bal[id] ?? 0;
+    const room = Math.min(rest, LP.Y0 - t.y);
+    if (rest > 0 && room > 0) {
+      tallied(ctx, () => sellCurve(g, id, t.ticker, room, 1, null));
+      rest = t.bal[id] ?? 0;
+    }
+    if (rest > 0) {
+      // the curve's formula from the reserve now (no Y0 bound: a valuation, not a fill), less the exit fee, in whole cents as a sale pays
+      const gross = LP_K / t.y - LP_K / (t.y + rest);
+      const grossCents = Math.floor(gross * 100 + 1e-9);
+      mark += (grossCents - feeSplit(grossCents).fee) / 100;
+      marked++;
+    }
+  }
+  return { leftover, marked, mark };
 }
 
 /** The L6 shape and the NPC life of one world (read before the horizon liquidation, so the bot's own sales do not move it). */
@@ -447,28 +497,16 @@ function worldStats(g: GameState, tenXSeen: Record<string, boolean>): WorldStats
   };
 }
 
-interface WorldResult {
-  seed: string;
-  kind: Kind;
-  /** the bot's Launchpad P&L (its cash flows, horizon liquidation included) and the cash it put in */
-  pnl: number;
-  deployed: number;
-  /** the GX buy-and-hold over the horizon (reported beside, not the benchmark) */
-  gx: number;
-  residualMax: number;
-  idleDrift: number;
-  leftover: number;
-  stats: WorldStats;
-}
-
 /** One world: the seed's NPC launches, plus the one bot (or none). Identical NPC draws across kinds of a seed (paired seeds). */
 function runWorld(seed: string, kind: Kind): WorldResult {
   const g = newWorld(seed, kind);
   const startTick = g.market.tick;
   const id = BOT_ID[kind];
-  const ctx: Ctx = { g, id, kind, st: newState(), rng: new Rng(seedStream(seed, `bot:${id}`)), startTick, led: { cash: 0, out: 0, fees: 0 } };
+  const ctx: Ctx = { g, id, kind, st: newState(), rng: new Rng(seedStream(seed, `bot:${id}`)), startTick, led: { cash: 0, out: 0, fees: 0, engine: 0 } };
   const nw0 = netWorthBreakdown(g, id).total;
-  const cash0 = g.market.accounts[id]?.cash ?? 0;
+  const cash0 = cashOf(g, id);
+  const nonPrice0 = nonPriceOf(g, id);
+  const fees0 = feesOf(g, id);
   const gx0 = indexLevel(g.market, 'GX');
   // the 10x check (L8): a graduated token reaches ten times its graduation price within 30 game days of graduating; sampled every tick
   const tenXSeen: Record<string, boolean> = {};
@@ -479,7 +517,7 @@ function runWorld(seed: string, kind: Kind): WorldResult {
   const totalTicks = days * TPD;
   for (let k = 0; k < totalTicks; k++) {
     if (k % DECIDE_EVERY === 0 && kind !== 'none' && !TICK_KINDS.has(kind)) decide(ctx);
-    stepGame(g);
+    stepBot(ctx);
     if (kind !== 'none' && TICK_KINDS.has(kind)) tickDecide(ctx);
     for (const t of Object.values(g.launchpad?.tokens ?? {})) {
       if (t.status !== 'graduated' || t.gradTick === undefined || !(t.gradPrice ?? 0) || tenXSeen[t.ticker]) continue;
@@ -503,87 +541,52 @@ function runWorld(seed: string, kind: Kind): WorldResult {
   const gx = gx1 / gx0 - 1;
   let idleDrift = 0;
   let leftover = 0;
+  let marked = 0;
+  let mark = 0;
   if (kind === 'none') {
     // the idle control (L8.1): an account that never trades moves only with its cash
     const nw1 = netWorthBreakdown(g, id).total;
-    idleDrift = nw1 - nw0 - ((g.market.accounts[id]?.cash ?? 0) - cash0);
+    idleDrift = nw1 - nw0 - (cashOf(g, id) - cash0);
   } else {
-    leftover = liquidate(ctx);
+    const liq = liquidate(ctx);
+    leftover = liq.leftover;
+    marked = liq.marked;
+    mark = liq.mark;
   }
-  const pnl = ctx.led.cash + (kind === 'creatorDump' ? feesOf(g, id) - ctx.led.fees : 0);
+  // the bot's Launchpad P&L (L8.3): its cash change over the run, less the non-price cash the engine credits a cash account (interest,
+  // dividends, borrow fees: not a trade), plus the marks of what it still holds. The ledger check (review item 9): the cash change must
+  // equal what its commands moved, its engine fills in the steps, the creator fees its own tokens paid it in the steps, and the non-price
+  // cash. Any other passive credit or debit is unledgered, and the gate fails on it
+  const cashChange = cashOf(g, id) - cash0;
+  const nonPrice = nonPriceOf(g, id) - nonPrice0;
+  const unledgered = cashChange - nonPrice - ctx.led.cash - ctx.led.engine - (feesOf(g, id) - fees0 - ctx.led.fees);
+  const pnl = cashChange - nonPrice + mark;
   // the money identity after the liquidation (the bot's sales are real trades)
   const mEnd = netWorldMoney(g);
   const bkEnd = bookedNet(g);
   const etEnd = engineTallyOf(g);
   residualMax = Math.max(residualMax, Math.abs((mEnd - money) - (bkEnd - booked) - (etEnd - tally)));
-  return { seed, kind, pnl, deployed: ctx.led.out, gx, residualMax, idleDrift, leftover, stats };
+  return { seed, kind, pnl, deployed: ctx.led.out, gx, residualMax, idleDrift, leftover, marked, unledgered, stats };
+}
+
+function summarizeNow(complete: boolean) {
+  return summarize({ prefix, seeds: seeds.length, days, complete, per, NPC });
 }
 
 const seeds = Array.from({ length: nSeeds }, (_, i) => `${prefix}-${String(firstSeed + i).padStart(2, '0')}`);
 const per: WorldResult[] = [];
 
-function summarize(complete: boolean) {
-  const byKind = (k: Kind) => per.filter((r) => r.kind === k);
-  const strategies = Object.fromEntries(GATED.map((k) => {
-    const rs = byKind(k);
-    const ratios = rs.map((r) => pnlPerDollar(r.pnl, r.deployed));
-    const bound = oneSided95(ratios);
-    // v1.2 review item 2: a position the book could not take is unvalued in the P&L, so any leftover fails the bot (no bias toward a pass)
-    const leftover = rs.reduce((a, r) => a + r.leftover, 0);
-    return [k, {
-      seeds: rs.length,
-      meanPnlPerDollar: mean(ratios),
-      oneSided95: bound,
-      pass: strategyPasses(ratios, leftover),
-      meanPnl: mean(rs.map((r) => r.pnl)),
-      meanDeployed: mean(rs.map((r) => r.deployed)),
-      meanReturnOnStart: mean(rs.map((r) => r.pnl / START_CASH)),
-      gxMean: mean(rs.map((r) => r.gx)),
-      leftover,
-      worldShape: {
-        dead7dFromDay3: rs.reduce((a, r) => a + r.stats.deadWithin7, 0) / Math.max(1, rs.reduce((a, r) => a + r.stats.cohortLaunches, 0)),
-        graduationRate: rs.reduce((a, r) => a + r.stats.graduated, 0) / Math.max(1, rs.reduce((a, r) => a + r.stats.launches, 0)),
-      },
-    }];
-  }));
-  const none = byKind('none');
-  const totalLaunches = none.reduce((a, r) => a + r.stats.launches, 0);
-  const cohortTotal = none.reduce((a, r) => a + r.stats.cohortLaunches, 0);
-  const dead7 = none.reduce((a, r) => a + r.stats.deadWithin7, 0) / Math.max(1, cohortTotal);
-  const dead7Early = none.reduce((a, r) => a + r.stats.deadWithin7Early, 0) / Math.max(1, totalLaunches - cohortTotal);
-  const grad = none.reduce((a, r) => a + r.stats.graduated, 0) / Math.max(1, totalLaunches);
-  const tenX = none.reduce((a, r) => a + r.stats.tenX, 0) / Math.max(1, totalLaunches);
-  const residual = Math.max(0, ...per.map((r) => r.residualMax));
-  const idleZeroOk = none.every((r) => Math.abs(r.idleDrift) < 1e-9);
-  const npcNetPerToken = none.reduce((a, r) => a + r.stats.npcLife, 0) / Math.max(1, none.reduce((a, r) => a + r.stats.npcLifeN, 0));
-  const npcNetBooked = none.reduce((a, r) => a + r.stats.npcNet, 0) / Math.max(1, none.reduce((a, r) => a + r.stats.allLaunches, 0));
-  const npcOk = npcNetPerToken <= 0;
-  const shape = {
-    deadWithin7dFromDay3: dead7, deadWithin7dDay0to2Reported: dead7Early, graduationRate: grad, tenXRate: tenX,
-    deadOk: dead7 >= 0.7, gradOk: grad >= 0.01 && grad <= 0.05, tenXOk: tenX <= 0.005,
-    idleZeroOk, npcNetPerToken, npcNetBookedPerToken: npcNetBooked, npcOk, launchesObserved: totalLaunches,
-  };
-  const botsOk = GATED.every((k) => strategies[k]!.pass);
-  const gate = complete && botsOk && shape.deadOk && shape.gradOk && shape.tenXOk && residual < 0.005 && idleZeroOk && npcOk;
-  return { prefix, seeds: seeds.length, seedsDone: new Set(per.map((r) => r.seed)).size, complete, days, gxMean: mean(none.map((r) => r.gx)), strategies, shape, residualMax: residual, gate, NPC, perWorld: per };
-}
-
 for (const s of seeds) {
-  for (const kind of ['none', ...GATED] as Kind[]) {
+  for (const kind of KINDS) {
     per.push(runWorld(s, kind));
   }
   console.error(`seed ${s} done`);
   // a partial summary after each seed, so a long run that stops still leaves its numbers (complete: false until the last seed)
   mkdirSync(path.dirname(outPath), { recursive: true });
-  writeFileSync(outPath, JSON.stringify(summarize(false), null, 2));
+  writeFileSync(outPath, JSON.stringify(summarizeNow(false), null, 2));
 }
 
-const summary = summarize(true);
+const summary = summarizeNow(true);
 writeFileSync(outPath, JSON.stringify(summary, null, 2));
-const printed = {
-  prefix, seeds: seeds.length, days, launches: summary.shape.launchesObserved, gxMean: summary.gxMean,
-  strategies: Object.fromEntries(GATED.map((k) => [k, { meanPnlPerDollar: summary.strategies[k]!.meanPnlPerDollar, oneSided95: summary.strategies[k]!.oneSided95, leftover: summary.strategies[k]!.leftover, pass: summary.strategies[k]!.pass }])),
-  shape: summary.shape, residualMax: summary.residualMax, gate: summary.gate,
-};
-console.log(JSON.stringify(printed, null, 2));
+console.log(JSON.stringify(printedOf(summary), null, 2));
 process.exit(summary.gate ? 0 : 1);
