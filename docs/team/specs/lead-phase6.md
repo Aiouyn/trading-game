@@ -63,3 +63,26 @@ scope, numbers that are missing, and the order of work. 1 gd = 1 real hour. The 
   review, repair, merge `--no-ff`, screenshot tour reviewed by the lead, status doc `docs/V1-PHASE6.md`.
 - Every new copy key in en and fr. Every refusal in three parts. No-reveal everywhere. Every new faucet and sink booked so the
   world money identity still closes to the cent.
+
+## Rulings after the 6C harness (lead)
+
+The 20-seed ECA harness missed three gates: blind rumor-following earns +0.55% a trader-season (gate <= 0), tip trading earns
+1.89x honest at 14x variance (band 0.8 to 1.2x at 2 to 4x), and the tribunal convicts 5 of 5 (band 40 to 65%). Rulings:
+
+- **R-6C-1 Rumors are partly priced in at publication.** When a rumor is published, the market moves at once by
+  priceIn x E[move | rumor], where E[move | rumor] = (2p - 1) x the typical surprise for that asset (p = the rumor accuracy,
+  55%), through the same priced-in path as news bands (Phase 1 P1.4). Tune priceIn (0.3 to 0.8) so blind following is <= 0
+  after fees. Reading the rumor's source track record (M16 v2) may keep an edge: that is skill, not a leak.
+- **R-6C-2 The insider penalty scales with the gain, not with net worth.** On an ECA insider conviction: disgorge 100% of the
+  gain (FIFO lots, not today's price: closes the 6C open item on disgorgement) plus a fine of k x gain (k tunable 1 to 3),
+  floor $1,000, capped by the S5 net-worth cap. The S5 35%-of-net-worth scale stays for the other offences. Small books are no
+  longer wiped by one conviction, which is what made the variance band infeasible.
+- **R-6C-3 Detection rises with size.** The tip-trade surveillance points scale with the position's size relative to the
+  account's own median trade size (a 1x trade scores the base, a 10x trade about 3x the base, log-shaped). Tune the base and
+  the inquiry threshold with k so that tip EV lands in 0.8 to 1.2x honest at 2 to 4x variance.
+- **R-6C-4 The tribunal is uncertain.** At the tribunal, the conviction probability is a logistic in (evidence - bar) with the
+  counsel term of M30 (+-0.75 logit for the defence and the regulator), not a hard bar. Tune its slope so that cases reaching
+  the tribunal convict 40 to 65%, while wrongful convictions stay under 3% of honest accounts (an honest account almost never
+  reaches the tribunal).
+- **R-6C-5 Sizes.** The harness runs 50 seeds x 60 gd for the confirmation (20 to tune), with arms: honest, lucky, tip at 2%,
+  4% and 6% of net worth per trade, blind rumor follower, rumor reader.
