@@ -112,12 +112,12 @@ export const NPC = {
   /** profit taking: the share of the cohort's tokens sold per tick for each 100% the price is above the cohort's cost */
   PROFIT_PER_TICK: 0.02,
   /** the time share: the cohort sells this share of its tokens per tick regardless of price (it never sells what it does not hold) */
-  TIME_SELL_PER_TICK: 0.00002,
+  TIME_SELL_PER_TICK: 0.5,
   /** viral shocks: expected shocks per token per game day, and the size of one (a Pareto tail with this exponent). L6.6: the tail
    *  exponent is at least TAIL_ALPHA_MIN (2.2), so a shock has a finite mean and variance */
   VIRAL_PER_DAY: 0.05,
-  VIRAL_SCALE: 0.2,
-  VIRAL_ALPHA: 2.5,
+  VIRAL_SCALE: 12,
+  VIRAL_ALPHA: 2.2,
   /** the buzz at launch: a heavy-tailed draw with this scale and tail exponent (most launches start low, a few start high). L6.6: the
    *  exponent is at least TAIL_ALPHA_MIN */
   BASE0: 0.008,
