@@ -2,6 +2,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
+import { textConfigFromEnv } from './text/config';
+import { TextEnricher } from './text/enricher';
+import { enrichItemOf } from './text/facts';
 import { WorldHost } from './host';
 import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
 import { lpPageOf } from '../src/world/launchpad/view';
@@ -48,6 +51,8 @@ const tournamentJob = new TournamentJob(
 const shortInterest = new ShortInterestWire();
 /** the order depth of the latest closed day, on the tick that closed it and in every welcome (see server/wire.ts DepthWire) */
 const depthWire = new DepthWire();
+/** the model text slot (server/text): off unless TEXT_PROVIDER=claude and ANTHROPIC_API_KEY are set; its overlay is presentation only */
+const textEnricher = new TextEnricher(textConfigFromEnv(), store);
 
 interface Conn { ws: WebSocket; pid: string | null; budget: number; last: number }
 const conns = new Set<Conn>();
@@ -199,6 +204,11 @@ const http = createServer(async (req, res) => {
       const ticksLeft = b.ticksLeft === undefined ? undefined : Number(b.ticksLeft);
       return json(res, 200, host.command('admin', { type: 'admin.auctionOpen', ...(week !== undefined ? { week } : {}), ...(ticksLeft !== undefined ? { ticksLeft } : {}) }));
     }
+    if (req.method === 'GET' && url.pathname === '/api/admin/text') {
+      // the model text readout: calls, cache hits, rejects by reason, spend today and the cap (admin token only)
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      return json(res, 200, { ok: true, ...textEnricher.readout() });
+    }
     if (req.method === 'POST' && url.pathname === '/api/admin/advance') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const n = Math.max(1, Math.min(20_000, Number(url.searchParams.get('n') ?? 1)));
@@ -239,6 +249,7 @@ wss.on('connection', (ws) => {
           playerId: acct.id, tickMs: TICK_MS, frameJson: shared.frameJson, defsJson: listWire.defsJson(host.g),
           meJson: JSON.stringify(playerView(host.g, acct.id)), pubJson: shared.pubJson, directoryJson: dir,
           chatJson: JSON.stringify(chatFor(host.g, acct.id)), serverTime: Date.now(),
+          ...(textEnricher.enabled ? { textOverlayJson: JSON.stringify(textEnricher.overlay()) } : {}),
         }));
         return;
       }
@@ -334,6 +345,15 @@ host.onTick((out, publicTick) => {
   const top = all ? topDirectory(all) : null;
   const topJson = top && all!.length <= top.length ? JSON.stringify(top) : null;
   const chat = out.chat as (ChatMessage & { channel?: string })[];
+  // the model text slot: this tick's new items are offered (never inside the step), and the overlay lines that landed since the last tick go out
+  if (textEnricher.enabled) {
+    for (const w of out.wire) {
+      const item = enrichItemOf(w);
+      if (item) textEnricher.offer(item);
+    }
+  }
+  const overlayDelta = textEnricher.enabled ? textEnricher.drain() : null;
+  const overlayPart = overlayDelta ? `,"textOverlay":${JSON.stringify(overlayDelta)}` : '';
   const now = Date.now();
   for (const c of conns) {
     if (!c.pid || c.ws.readyState !== c.ws.OPEN) continue;
@@ -342,7 +362,7 @@ host.onTick((out, publicTick) => {
     const myChat = chat.filter((m) => canSee(c.pid!, m.channel ?? 'world')).map((m) => ({ ...m, channel: m.channel ?? 'world' }));
     let extra = '';
     if (pubJson) extra = `,"pub":${pubJson},"directory":${topJson ?? JSON.stringify(directoryFor(host.g, all!, top!, c.pid))}`;
-    c.ws.send(`{"t":"tick","frame":${frameJson},"me":${JSON.stringify(me)},"wire":${wireJson},"inbox":${JSON.stringify(out.inbox[c.pid] ?? [])},"chat":${JSON.stringify(myChat)},"rankUps":${rankJson}${extra},"serverTime":${now}}`);
+    c.ws.send(`{"t":"tick","frame":${frameJson},"me":${JSON.stringify(me)},"wire":${wireJson},"inbox":${JSON.stringify(out.inbox[c.pid] ?? [])},"chat":${JSON.stringify(myChat)},"rankUps":${rankJson}${extra}${overlayPart},"serverTime":${now}}`);
   }
 });
 

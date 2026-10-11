@@ -45,6 +45,12 @@ export interface NwHistoryPayload {
   ghosts: { day: number; player: number; basket: number; random: number; momentum: number }[];
 }
 
+/**
+ * The model text overlay (server/text): the item id to its line in each language. Presentation only: it never enters the
+ * world state, a snapshot or the command log, and a client shows it in place of the template line when present.
+ */
+export type TextOverlayMap = Record<string, { en: string; fr: string }>;
+
 /** Messages from the world server to the browser. */
 export type ServerMsg =
   | {
@@ -59,6 +65,8 @@ export type ServerMsg =
     directory: DirectoryRow[];
     chat: Record<string, ChatMessage[]>;
     serverTime: number;
+    /** the model text overlay, all lines kept (absent when the text slot is off) */
+    textOverlay?: TextOverlayMap;
   }
   | {
     t: 'tick';
@@ -72,6 +80,8 @@ export type ServerMsg =
     pub?: PublicState;
     directory?: DirectoryRow[];
     serverTime: number;
+    /** the overlay lines that landed since the last tick (absent when none did) */
+    textOverlay?: TextOverlayMap;
   }
   | { t: 'ack'; id: number; ok: boolean; error?: string; data?: unknown; me?: PlayerView }
   | { t: 'history'; id: number; data: HistoryPayload | null }
