@@ -61,7 +61,11 @@ test('a creator launches a token: it is in New, and in Holdings with the allocat
 
   await page.getByTestId('tab-new').click();
   await expect(page.getByTestId(`lp-row-${ticker}`)).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId(`lp-progress-${ticker}`)).toContainText('0.00%');
+  // the launch's own buzz and the NPC sniper are bought at once (L6.4, sniperEnter): the bar is a small share of the curve, not zero
+  const bar = (await page.getByTestId(`lp-progress-${ticker}`).textContent()) ?? '';
+  const share = Number(bar.match(/([\d.]+)%/)?.[1]);
+  expect(share).toBeGreaterThan(0);
+  expect(share).toBeLessThan(5);
 
   await page.getByTestId('tab-holdings').click();
   await expect(page.getByTestId(`lp-hold-${ticker}`)).toBeVisible();
