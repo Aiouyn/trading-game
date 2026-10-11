@@ -1,6 +1,6 @@
 # V1 Phase 6: status
 
-Scope: Phase 6 as set in `docs/team/specs/lead-phase6.md` (binding). This file holds section 6A (World events and rivals) and section 6B (Comeback and money). The other tracks (6C, 6D) add their own sections when they land.
+Scope: Phase 6 as set in `docs/team/specs/lead-phase6.md` (binding). This file holds sections 6A (World events and rivals), 6B (Comeback and money), 6C (Security, law and anti-cheat) and 6D (Competitions and lifestyle), in that order.
 Branch: `p6/a`, worktree `.claude/worktrees/p6-a`, from `v1` at `ae573f2`. Status date: 2026-10-11. Second pass: the adversarial review of `d69ade0` (16 findings), repaired in `b4ebe14`, `efaad30`, `afed1b8` and the commit that adds this text.
 Status words as in `docs/V1-PHASE5.md`: **Done**, **Partial**, **Not built**, **Deferred**, **Decided**.
 
