@@ -201,3 +201,47 @@ test.describe('Broker chart lines and ticket (specs 1.3, 1.4)', () => {
     });
   }
 });
+
+test.describe('the side rules and the chart menu on the desktop (review of f91086f)', () => {
+  test('the ticket refuses a take-profit or stop-loss on the wrong side of the price, under its field', async ({ page }) => {
+    onlyIn('desktop');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await boot(page);
+    await expect(page.getByTestId('broker-terminal')).toBeVisible();
+    // the mid is read off the chart's price, so the values sit on the wrong side of it whatever the ticker
+    const mid = Number((await page.getByTestId('chart-price').textContent())!.replace(/[^0-9.]/g, ''));
+    expect(mid).toBeGreaterThan(0);
+    await page.getByTestId('order-qty').fill('1');
+    // a long take-profit below the price would fill at once: refused under the field, and the CTA says why
+    await page.getByTestId('order-tp').fill((mid * 0.5).toFixed(2));
+    await expect(page.getByTestId('order-tp-refusal')).toContainText('must be above');
+    await expect(page.getByTestId('order-submit')).toBeDisabled();
+    await expect(page.getByTestId('order-submit')).toHaveText('Take-profit on the wrong side of the price');
+    // a long stop-loss above the price would fire at once
+    await page.getByTestId('order-tp').fill((mid * 3).toFixed(2));
+    await expect(page.getByTestId('order-tp-refusal')).toHaveCount(0);
+    await page.getByTestId('order-sl').fill((mid * 2).toFixed(2));
+    await expect(page.getByTestId('order-sl-refusal')).toContainText('must be below');
+    await expect(page.getByTestId('order-submit')).toHaveText('Stop-loss on the wrong side of the price');
+    // a valid pair (take-profit above, stop-loss below) lifts the refusal
+    await page.getByTestId('order-sl').fill((mid * 0.5).toFixed(2));
+    await expect(page.getByTestId('order-sl-refusal')).toHaveCount(0);
+    await expect(page.getByTestId('order-submit')).toBeEnabled();
+  });
+
+  test('a chart menu pick fills the ticket on the desktop and raises no trade sheet', async ({ page }) => {
+    onlyIn('desktop');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await boot(page);
+    const chart = page.getByTestId('price-chart');
+    const cb = await rect(chart);
+    await chart.click({ button: 'right', position: { x: cb.width / 2, y: cb.height * 0.8 } });
+    await page.getByTestId('menu-buyLimit').click();
+    await expect(page.getByTestId('order-type')).toHaveValue('limit');
+    // the desktop terminal never draws the sheet, so the flag must stay clear (CloseCard and the event takeover wait on it)
+    const open = await page.evaluate(() => (window as unknown as { __tg: { state: () => { tradeSheetOpen: boolean } } }).__tg.state().tradeSheetOpen);
+    expect(open).toBe(false);
+    await expect(page.getByTestId('trade-sheet')).toHaveCount(0);
+    await expect(page.getByTestId('broker-terminal')).toBeVisible();
+  });
+});
