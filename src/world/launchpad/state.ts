@@ -1,10 +1,10 @@
+import { isLinkedAccount } from '../collusion';
 import { openAccount, seedStream, type RngState } from '@/engine';
 import { TPD, cashOf, pushWire } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { textProvider } from '../text';
 import { curveAccountId, tokenStream } from './constants';
 import type { LaunchpadState, LpLot, LpToken } from './types';
-import { linked } from '../funds/state';
 import type { Msg } from '@/i18n';
 
 /** The state, created on first use. Worlds that never launch have none, so their fingerprints do not change. */
@@ -92,9 +92,9 @@ export function openCurve(g: GameState, ticker: string): void {
   if (!g.market.accounts[id]) g.market = openAccount(g.market, id, 0);
 }
 
-/** The owner-linked accounts of a creator: the creator and their alliance members (the 10% cap counts them, L3). */
+/** The owner-linked accounts of a creator: the owner group (alliances, devices, gifts and mirrored trades, collusion.ts). The 10% cap counts them (L3). */
 export function isCreatorLinked(g: GameState, creatorId: string, pid: string): boolean {
-  return linked(g, creatorId, pid);
+  return isLinkedAccount(g, creatorId, pid);
 }
 
 /**

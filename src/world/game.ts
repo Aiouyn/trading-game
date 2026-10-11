@@ -3,7 +3,7 @@ import {
   type WorldConfig,
 } from '@/engine';
 import {
-  BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, creditExternal, debit, drawFrom, findOrder, newOutput, notify, sanitize,
+  BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, creditExternal, debit, drawFrom, findOrder, newOutput, notify, priceOf, sanitize,
 } from './core';
 import {
   accrueBusinesses, businessEvents, buyBusiness, buyItem, buyNote, buyProperty, lifestyleDay, propertyDay, recomputeShares,
@@ -27,6 +27,9 @@ import {
 import { cyberDay, deployHoneypot, disconnect, emptyCyber, lockdown, manualScan, plantSession, setBudget, tagEntry } from './cyber';
 import { attackFund, rivalCrewDay } from './rivalCrews';
 import { acceptSettlement, courtTick, fileCase, offerSettlement } from './court';
+import { addEcaPoints, ecaDay, ecaEvents, ecaFills } from './eca';
+import { flagTipTrade, noteNotional, tipsDay } from './tips';
+import { noteFills } from './collusion';
 import { npcTick, seedNpcs } from './npc';
 import { shockPrice } from '@/engine/sim';
 import { ensureLedger, ledgerTick, recordOptionTrade } from './ledger';
@@ -129,6 +132,10 @@ export function stepGame(g: GameState): StepOutput {
   for (const f of r.fills) out.fills.push({ playerId: f.playerId, assetId: f.assetId, side: f.side, qty: f.qty, price: f.price, fee: f.fee, orderId: f.orderId });
   ledgerTick(g, r.events, r.fills);
   fundsFills(g, r.fills, out);
+  // the collusion graph (fills only feed the mirror score), then the ECA's pre-announcement window (eca.ts)
+  noteFills(g, r.fills);
+  ecaFills(g, r.fills);
+  ecaEvents(g, r.events);
   lpFills(g, r.fills, out);
   companyStep(g, r.fills, r.events);
   tradeStats(g, r.fills, realizedBefore, out);
@@ -170,6 +177,9 @@ export function stepGame(g: GameState): StepOutput {
     dripDay(g, out, r.events);
     companyDay(g, out);
     fundsDay(g, out);
+    // insider tips arrive once the report's surprise is locked; then the regulator's day close (M16 v2)
+    tipsDay(g, out);
+    ecaDay(g, out);
   }
 
   if (tick % NW_EVERY === 0 || newDay) {
@@ -263,6 +273,9 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
         if (r.order.rejectReason === 'closedWindow') scoreWindowAttempt(g, pid, o.assetId);
         return { ok: false, error: r.order.rejectReason ?? 'rejected', data: r.order };
       }
+      // a trade on an insider tip is flagged when placed (M16 v1); every accepted order feeds the size factor's median (tips.ts)
+      addEcaPoints(g, pid, o.assetId, flagTipTrade(g, pid, o.assetId, o.side, o.qty, g.market.tick));
+      noteNotional(g, pid, o.qty * priceOf(g, o.assetId));
       return { ok: true, data: r.order };
     }
     case 'order.cancel': {

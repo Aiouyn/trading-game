@@ -1,3 +1,4 @@
+import { recordGift } from './collusion';
 import { rankIndex } from '@/content/lifestyle';
 import {
   CHAT_KEEP, TPD, cashOf, debit, notify, pushWire, sanitize, shiftBaselines, today, transfer,
@@ -177,6 +178,7 @@ export function respondDeal(g: GameState, p: Player, dealId: string, accept: boo
   if (d.kind === 'transfer') {
     const tax = d.amount * TRANSFER_TAX;
     transfer(g, d.fromId, d.toId, d.amount - tax);
+    recordGift(g, d.fromId, d.toId);
     debit(g, d.fromId, tax, 'transfer tax');
     shiftBaselines(g, d.fromId, -tax);
     d.status = 'repaid';

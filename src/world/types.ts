@@ -5,6 +5,9 @@ import type { Msg } from '@/i18n';
 import type { AnalystTier } from '@/content/learning';
 import type { DayClose, PlayerLedger } from './ledger-types';
 import type { CompanyWorld } from './company/types';
+import type { TipState } from './tips';
+import type { EcaState } from './eca';
+import type { CollusionState } from './collusion';
 import type { CompanyAction } from './company/company';
 import type { CompanySector } from '@/content/company';
 import type { FundFees, FundMandate, FundsState } from './funds/types';
@@ -61,6 +64,12 @@ export interface GameState {
   funds?: FundsState;
   /** the Launchpad (player-created memecoins, lead-launchpad.md). Absent until the first launch; worlds without one keep every fingerprint. */
   launchpad?: LaunchpadState;
+  /** insider tips from crime (M16 v1, tips.ts). Absent until the first tip; worlds without one keep every fingerprint. */
+  tips?: TipState;
+  /** the market regulator (M16 v2, eca.ts). Absent until a score or a pattern exists. */
+  eca?: EcaState;
+  /** the collusion graph inputs (collusion.ts): devices (hashed), gifts, mirror matches. Absent until one is recorded. */
+  collusion?: CollusionState;
 }
 
 export interface Player {
@@ -171,7 +180,7 @@ export interface AnalystNote {
 export interface InboxItem {
   id: string;
   tick: number;
-  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan' | 'fund';
+  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan' | 'fund' | 'tip';
   text: string;
   /** the same line as a message descriptor (en.json / fr.json key), rendered in the viewer's language */
   msg?: Msg;
