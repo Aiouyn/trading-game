@@ -5,7 +5,7 @@
 // here. UX stage 2: the close is no longer a sheet over the desktop. CloseAnnouncer raises one non-blocking toast (a
 // click opens the Wire), the notification center keeps it, and the Wire shows the latest close at its top (CloseBrief).
 // The announcement waits behind the digest, a rank-up, the trade ticket, the event panel and any pending order.
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { sectorName } from '@/engine';
 import { money, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { useGame, type GameStore } from '@/game/store';
@@ -61,22 +61,38 @@ export function closeSummary(c: DailyClose): string {
 export function CloseAnnouncer() {
   const eventOpen = useEventPanel((s) => s.open);
   const card = useGame((s) => shownClose(s, eventOpen));
+  const askedDay = useGame((s) => s.closeOpen);
   const toast = useGame((s) => s.toast);
   const dismiss = useGame((s) => s.dismissClose);
+  const announced = useRef<number | null>(null);
+  const askedSeen = useRef<number | null>(null);
   useLocale((s) => s.locale);
   useEffect(() => {
     if (!card) return;
-    const asked = useGame.getState().closeOpen === card.day;
-    if (asked) focusOrOpen('wire');
-    else toast({ tone: 'brass', kind: 'close', text: headline(card), app: 'wire' });
+    // A close the player asked for opens the Wire once, and stays the one the Wire shows (closeOpen).
+    if (askedDay === card.day) {
+      if (askedSeen.current !== card.day) {
+        askedSeen.current = card.day;
+        focusOrOpen('wire');
+      }
+      return;
+    }
+    askedSeen.current = null;
+    if (announced.current === card.day) return;
+    announced.current = card.day;
+    toast({ tone: 'brass', kind: 'close', text: headline(card), app: 'wire' });
     dismiss(card.day);
-  }, [card, toast, dismiss]);
+  }, [card, askedDay, toast, dismiss]);
   return null;
 }
 
 /** The latest close as a block at the top of the Wire (UX stage 2): the same card, with no sheet and no Done button. */
 export function CloseBrief() {
-  const card = useGame((s) => s.me?.trading.closes[0] ?? null);
+  // The close the player asked for (closeOpen) stays on top; otherwise the latest close.
+  const card = useGame((s) => {
+    const closes = s.me?.trading.closes ?? [];
+    return closes.find((c) => c.day === s.closeOpen) ?? closes[0] ?? null;
+  });
   useLocale((s) => s.locale);
   if (!card) return null;
   return (

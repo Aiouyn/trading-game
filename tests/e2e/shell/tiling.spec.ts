@@ -22,18 +22,30 @@ async function allBoxes(page: Page): Promise<Rect[]> {
   return out;
 }
 
-test.describe('tiling and toasts (stage 2)', () => {
+/**
+ * The tiles are checked in News (workspace 1): it is open at every rank and holds no Broker, so the windows tile from empty.
+ * Trade is the terminal (side panels), checked below.
+ */
+async function goNews(page: Page): Promise<void> {
+  await page.getByTestId('ws-1').click();
+  await expect(page.getByTestId('ws-1')).toHaveAttribute('aria-selected', 'true');
+  await expect(frame(page, 'wire')).toBeVisible();
+  await settle(page);
+}
+
+test.describe('tiling, side panels and toasts (stage 2)', () => {
   test.skip(({ isMobile }) => isMobile, 'desktop windows');
 
-  test('@tile_two a second window tiles into the halves: the older on the left, the new on the right', async ({ page }) => {
+  test('@tile_two a second window in News tiles into the halves: the older on the left, the new on the right', async ({ page }) => {
     onlyIn('desktop', 'desktop-1920');
     const vp = viewport(page);
     watchErrors(page);
     await boot(page);
-    await openFromShelf(page, 'wire');
+    await goNews(page);
+    await openFromShelf(page, 'portfolio');
     await settle(page);
-    expectRect(await box(page, 'broker-1'), slotBox('L2', vp));
-    expectRect(await box(page, 'wire'), slotBox('R2', vp));
+    expectRect(await box(page, 'wire'), slotBox('L2', vp));
+    expectRect(await box(page, 'portfolio'), slotBox('R2', vp));
   });
 
   test('@tile_three three windows tile as one large window and two stacked on the right', async ({ page }) => {
@@ -41,12 +53,13 @@ test.describe('tiling and toasts (stage 2)', () => {
     const vp = viewport(page);
     watchErrors(page);
     await boot(page);
-    await openFromShelf(page, 'wire');
+    await goNews(page);
     await openFromShelf(page, 'portfolio');
+    await openFromShelf(page, 'calendar');
     await settle(page);
-    expectRect(await box(page, 'broker-1'), slotBox('L23', vp));
-    expectRect(await box(page, 'wire'), slotBox('R3T', vp));
-    expectRect(await box(page, 'portfolio'), slotBox('R3B', vp));
+    expectRect(await box(page, 'wire'), slotBox('L23', vp));
+    expectRect(await box(page, 'portfolio'), slotBox('R3T', vp));
+    expectRect(await box(page, 'calendar'), slotBox('R3B', vp));
   });
 
   test('@tile_four four windows tile as a grid of quarters', async ({ page }) => {
@@ -54,9 +67,10 @@ test.describe('tiling and toasts (stage 2)', () => {
     const vp = viewport(page);
     watchErrors(page);
     await boot(page);
-    await openFromShelf(page, 'wire');
+    await goNews(page);
     await openFromShelf(page, 'portfolio');
-    await newBroker(page);
+    await openFromShelf(page, 'calendar');
+    await openFromShelf(page, 'settings');
     await settle(page);
     const rects = await allBoxes(page);
     expect(rects).toHaveLength(4);
@@ -64,6 +78,45 @@ test.describe('tiling and toasts (stage 2)', () => {
       const want = slotBox(slot, vp);
       expect(rects.some((r) => Math.abs(r.x - want.x) < 2 && Math.abs(r.y - want.y) < 2 && Math.abs(r.w - want.w) < 2), slot).toBe(true);
     }
+  });
+
+  test('@tile_reflow closing one of three tiled windows reflows the other two into the halves', async ({ page }) => {
+    onlyIn('desktop-1920');
+    const vp = viewport(page);
+    watchErrors(page);
+    await boot(page);
+    await goNews(page);
+    await openFromShelf(page, 'portfolio');
+    await openFromShelf(page, 'calendar');
+    await settle(page);
+    // the calendar is focused (it opened last): Alt W closes it
+    await page.keyboard.press('Alt+KeyW');
+    await expect(frame(page, 'calendar')).toHaveCount(0);
+    await settle(page);
+    expectRect(await box(page, 'wire'), slotBox('L2', vp));
+    expectRect(await box(page, 'portfolio'), slotBox('R2', vp));
+  });
+
+  test('@side_panel on Trade an app opened from the shelf is a right panel beside the chart, and the Broker keeps the left two thirds', async ({ page }) => {
+    onlyIn('desktop', 'desktop-1920');
+    const vp = viewport(page);
+    watchErrors(page);
+    await boot(page);
+    await openFromShelf(page, 'wire');
+    await settle(page);
+    expectRect(await box(page, 'broker-1'), slotBox('L23', vp));
+    expectRect(await box(page, 'wire'), slotBox('R3', vp));
+  });
+
+  test('@tile_new_broker a second Broker on Trade retiles the Broker pair into halves', async ({ page }) => {
+    onlyIn('desktop-1920');
+    const vp = viewport(page);
+    watchErrors(page);
+    await boot(page);
+    await newBroker(page);
+    await settle(page);
+    expectRect(await box(page, 'broker-1'), slotBox('L2', vp));
+    expectRect(await box(page, 'broker-2'), slotBox('R2', vp));
   });
 
   test('@toast_corner toasts stay off the ticket, show at most three, and the overflow opens the bell', async ({ page }) => {

@@ -10,6 +10,8 @@ async function playerAtOwner(page: Page): Promise<string> {
   await skipTips(page);
   await grant(handle, 8_000_000);
   await skipRankUp(page);
+  // the desk's Trade workspace opens an app as a side panel (UX stage 2); the Company app is checked in News, where it is a half
+  if (!isPhone(page)) await page.getByTestId('ws-1').click();
   await goTo(page, 'company');
   return handle;
 }

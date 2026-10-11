@@ -43,12 +43,8 @@ export async function grant(handle: string, amount: number): Promise<void> {
 export async function clearSheets(page: Page): Promise<void> {
   const quick = { timeout: 2_000 };
   for (let i = 0; i < 4; i++) {
-    const tips = page.getByTestId('coach').getByText('Skip tips');
     const back = page.getByText('Back to the desktop');
-    const done = page.getByTestId('close-done');
-    if (await tips.isVisible().catch(() => false)) await tips.click(quick).catch(() => undefined);
-    else if (await back.isVisible().catch(() => false)) await back.click(quick).catch(() => undefined);
-    else if (await done.isVisible().catch(() => false)) await done.click(quick).catch(() => undefined);
+    if (await back.isVisible().catch(() => false)) await back.click(quick).catch(() => undefined);
     else return;
   }
 }
@@ -88,23 +84,19 @@ export async function proof(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: `test-results/proof/${project}-${name}.png` });
 }
 
+/** The coach tips are toasts now (UX stage 2): they never cover the desktop, so there is nothing to skip. Kept as a no-op for the specs. */
 export async function skipTips(page: Page): Promise<void> {
-  const skip = page.getByTestId('coach').getByText('Skip tips');
-  if (await skip.isVisible().catch(() => false)) await skip.click();
+  void page;
 }
 
 /**
- * The day-close card (velvet-daily-close.md) opens over the screen when a game day ends, and on the phone it covers the
- * tabs. If it is up, Done closes it; either way the caller goes on only once the card has left the screen. With
- * `appearWithin`, the helper first waits that long for the card to show (it opens a moment after the day step).
+ * The day close (velvet-daily-close.md) is a toast now (UX stage 2): it never covers the screen, so there is nothing to
+ * close. The helper waits for the close toast when `appearWithin` asks for it, and otherwise returns at once. The toast
+ * leaves by itself after its hold; a spec that needs the card opens the Wire.
  */
 export async function dismissCloseCard(page: Page, appearWithin = 0): Promise<void> {
-  const card = page.getByTestId('close-card');
-  if (appearWithin) await card.waitFor({ state: 'visible', timeout: appearWithin }).catch(() => {});
-  await expect(async () => {
-    if (await card.isVisible()) await page.getByTestId('close-done').click({ timeout: 2_000 });
-    await expect(card).toHaveCount(0, { timeout: 2_000 });
-  }).toPass({ timeout: 15_000 });
+  if (!appearWithin) return;
+  await page.locator('[data-testid^="os-toast-"][data-kind="close"]').first().waitFor({ state: 'visible', timeout: appearWithin }).catch(() => {});
 }
 
 /** Backdates a player's account by `ticks` (the admin seam for the account-age rules, admin.age). */

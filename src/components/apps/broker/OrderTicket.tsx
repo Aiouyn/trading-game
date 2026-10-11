@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { assetIndex, buyingPower, commission, estimateFill, halfSpread, marginConfig, marginRuleApplies, mayShort, tradingConfig, type OrderType, type Side } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { QUICK_ENTER, SIMPLE_MODE } from '@/content/learning';
@@ -30,6 +30,17 @@ const TYPE_OPTS: { value: OrderType; key: string; testId: string }[] = [
 type Unit = 'shares' | 'usd';
 
 /** Native controls keep their own Enter (a button clicks, a checkbox toggles), so the ticket leaves that Enter alone. */
+/** A summary line: the dense ticket packs them two to a row (caption type, one line each); the full ticket keeps KV. */
+function SumRow({ dense, k, v, className = '' }: { dense: boolean; k: ReactNode; v: ReactNode; className?: string }) {
+  if (!dense) return <KV className={className} k={k} v={v} />;
+  return (
+    <div className={`flex items-baseline justify-between gap-2 text-caption leading-4 ${className}`}>
+      <span className="text-fg-muted">{k}</span>
+      <span className="num text-right text-fg">{v}</span>
+    </div>
+  );
+}
+
 function nativeEnter(el: HTMLElement | null): boolean {
   if (!el) return false;
   return el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'SELECT' || (el instanceof HTMLInputElement && el.type === 'checkbox');
@@ -331,8 +342,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
         <p className="mt-3 text-small text-fg" role="status" data-testid="order-confirm">{t('broker.confirm', { label: actionLabel, total: money(total) })}</p>
       )}
       <Button variant="brass" size={dense ? 'md' : 'lg'} className={`w-full ${dense ? 'mt-2' : 'mt-3'}`} disabled={!canSubmit} onClick={submit} testId="order-submit">{ctaLabel}</Button>
-      <p className="mt-2 text-center text-caption text-fg-faint" data-testid="honest-note">{t('order.honest')}</p>
-      <label className="mt-2 flex items-center gap-2 text-caption text-fg-muted">
+      <p className={`${dense ? 'mt-1' : 'mt-2'} text-center text-caption text-fg-faint`} data-testid="honest-note">{t('order.honest')}</p>
+      <label className={`${dense ? 'mt-1' : 'mt-2'} flex items-center gap-2 text-caption text-fg-muted`}>
         <input type="checkbox" checked={quick} onChange={(e) => setQuick(e.target.checked)} data-testid="quick-enter" />
         {t('broker.quickEnter', { pct: Math.round(QUICK_ENTER.maxCashFraction * 100) })}
       </label>
@@ -344,7 +355,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
     return msg ? <p className="mt-1 text-caption text-warn" data-testid={field === 'qty' ? 'order-invalid' : `order-${field}-refusal`}>{msg}</p> : null;
   };
   return (
-    <Card className={dense ? 'flex min-h-0 flex-1 flex-col p-3' : 'p-4'} data-testid="order-pad">
+    <Card className={dense ? 'flex min-h-0 flex-1 flex-col p-2' : 'p-4'} data-testid="order-pad">
       <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex items-baseline justify-between">
@@ -353,7 +364,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
               {margin ? t('broker.licenseMargin', { name: lic.name, lev: acct.maxLeverage ?? 1 }) : t('broker.license', { name: lic.name })}
             </span>
           </div>
-          <div className="mt-1 flex items-baseline justify-between text-caption">
+          <div className={`${dense ? 'mt-0.5' : 'mt-1'} flex items-baseline justify-between text-caption`}>
             <span className="num text-fg-muted">{t('broker.mid', { ticker: selected, price: price(ctx.mid) })}</span>
             {held !== 0 && <span className="num text-fg-faint">{t('broker.youHold', { qty: fmtQty(held) })}</span>}
           </div>
@@ -384,46 +395,53 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
           ) : (
             <>
               {/* Long and Short are the two tabs (spec 1.4): Short is a sell to open, and it is offered from the first trade */}
-              <Segmented
-                label={t('broker.side')} className="mt-3 w-full" value={side} onChange={(v) => setSide(v as Side)}
-                options={[
-                  { value: 'buy', label: fundMode ? t('common.buy') : t('broker.side.long'), testId: 'side-buy' },
-                  { value: 'sell', label: fundMode ? t('common.sell') : t('broker.side.short'), testId: 'side-sell' },
-                ]}
-              />
-              {showType && (
-                <label className="mt-2 flex flex-col gap-1">
-                  <span className="text-caption text-fg-muted">{t('broker.orderType')}</span>
-                  <select
-                    value={type} onChange={(e) => setType(e.target.value as OrderType)} data-testid="order-type"
-                    className="h-9 rounded-md border border-ink-3 bg-ink-0 px-2 text-small text-fg outline-none focus:border-brass/60"
-                  >
-                    {typeOpts.map((o) => <option key={o.value} value={o.value} data-testid={o.testId}>{t(o.key)}</option>)}
-                  </select>
-                </label>
-              )}
-              <p className="mt-1.5 text-caption text-fg-faint" data-testid="order-type-help">{t(`broker.help.${type}`)}</p>
+              {/* Dense (the desktop terminal, the phone sheet): the side tabs and the order type share a row, and the size row holds the unit
+                  next to the quantity, so the TP and SL fields and the Good-till row fit a 720 px screen without scrolling (UX 1.4). */}
+              <div className={dense ? 'mt-1.5 flex items-center gap-2' : undefined}>
+                <Segmented
+                  label={t('broker.side')} size={dense ? 'sm' : 'md'} className={dense ? 'min-w-0 flex-1' : 'mt-3 w-full'} value={side} onChange={(v) => setSide(v as Side)}
+                  options={[
+                    { value: 'buy', label: fundMode ? t('common.buy') : t('broker.side.long'), testId: 'side-buy' },
+                    { value: 'sell', label: fundMode ? t('common.sell') : t('broker.side.short'), testId: 'side-sell' },
+                  ]}
+                />
+                {showType && (
+                  <label className={dense ? 'shrink-0' : 'mt-2 flex flex-col gap-1'}>
+                    {!dense && <span className="text-caption text-fg-muted">{t('broker.orderType')}</span>}
+                    <select
+                      value={type} onChange={(e) => setType(e.target.value as OrderType)} data-testid="order-type"
+                      aria-label={t('broker.orderType')}
+                      className={`rounded-md border border-ink-3 bg-ink-0 px-2 text-small text-fg outline-none focus:border-brass/60 ${dense ? 'h-8 w-36' : 'h-9'}`}
+                    >
+                      {typeOpts.map((o) => <option key={o.value} value={o.value} data-testid={o.testId}>{t(o.key)}</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
+              <p className={`${dense ? 'mt-0' : 'mt-1.5'} text-caption text-fg-faint`} data-testid="order-type-help">{t(`broker.help.${type}`)}</p>
 
-              <Segmented
-                label={t('broker.unit.label')} size="sm" className="mt-3 w-full" value={unit} onChange={(v) => setUnit(v as Unit)}
-                options={[
-                  { value: 'shares', label: whole ? t('broker.unit.shares') : t('broker.unit.units'), testId: 'unit-shares' },
-                  { value: 'usd', label: t('broker.unit.dollars'), testId: 'unit-usd' },
-                ]}
-              />
-              <NumberField
-                className="mt-2" label={t('broker.quantity')} value={q} onChange={setQ}
-                suffix={unit === 'usd' ? '$' : whole ? t('broker.unit.shares') : t('broker.unit.units')} step={unit === 'usd' ? 'any' : whole ? 1 : 'any'} testId="order-qty"
-              />
+              <div className={dense ? 'mt-1 flex items-end gap-2' : undefined}>
+                <NumberField
+                  className={dense ? 'min-w-0 flex-1' : 'mt-2'} label={t('broker.quantity')} value={q} onChange={setQ}
+                  suffix={unit === 'usd' ? '$' : whole ? t('broker.unit.shares') : t('broker.unit.units')} step={unit === 'usd' ? 'any' : whole ? 1 : 'any'} testId="order-qty"
+                />
+                <Segmented
+                  label={t('broker.unit.label')} size="sm" className={dense ? 'shrink-0' : 'mt-3 w-full'} value={unit} onChange={(v) => setUnit(v as Unit)}
+                  options={[
+                    { value: 'shares', label: whole ? t('broker.unit.shares') : t('broker.unit.units'), testId: 'unit-shares' },
+                    { value: 'usd', label: t('broker.unit.dollars'), testId: 'unit-usd' },
+                  ]}
+                />
+              </div>
               {unit === 'usd' && qtyN > 0 && <p className="mt-1 text-caption text-fg-faint" data-testid="order-usd-shares">{t('broker.approxShares', { qty: fmtQty(qtyN) })}</p>}
               {tooSmall && <p className="mt-1 text-caption text-warn" data-testid="order-too-small">{t('broker.refuse.tooSmall')}</p>}
               {under('qty')}
-              <div className="mt-2 grid grid-cols-4 gap-2">
+              <div className={`${dense ? 'mt-0.5' : 'mt-2'} grid grid-cols-4 gap-2`}>
                 {[0.1, 0.25, 0.5, 1].map((f) => (
                   <button
                     key={f} type="button"
                     onClick={() => setQ(unit === 'usd' ? String(Math.floor(maxQty * f * d.price * 100) / 100) : String(roundQ(maxQty * f)))}
-                    className="h-9 rounded-md border border-ink-3 text-caption text-fg-muted hover:border-brass/50 hover:text-fg"
+                    className={`${dense ? 'h-7' : 'h-9'} rounded-md border border-ink-3 text-caption text-fg-muted hover:border-brass/50 hover:text-fg`}
                     data-testid={`chip-${f === 1 ? 'Max' : Math.round(f * 100)}`}
                   >
                     {f === 1 ? (simpleCap && side === 'buy' ? t('broker.maxCap', { pct: firstCapVars.pct }) : t('broker.max')) : t('broker.pct', { p: Math.round(f * 100) })}
@@ -432,36 +450,65 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
               </div>
               {simpleCap && (side === 'buy' || shorting) && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap', firstCapVars)}</p>}
 
-              {(type === 'limit' || type === 'stop_limit') && (
-                <>
-                  <NumberField className="mt-2" label={t('order.limit')} value={limit} onChange={setLimit} suffix="$" testId="order-limit" />
-                  {under('limit')}
-                  {showWarn && (type === 'limit' || type === 'stop_limit') && !at('limit') && <p className="mt-1 text-caption text-fg-muted" data-testid="order-warn">{showWarn}</p>}
-                </>
-              )}
-              {(type === 'stop' || type === 'stop_limit') && (
-                <>
-                  <NumberField className="mt-2" label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />
-                  {under('stop')}
-                </>
-              )}
-              {type === 'trailing' && (
-                <>
-                  <NumberField className="mt-2" label={t('broker.trail')} value={trail} onChange={setTrail} suffix="%" testId="order-trail" />
-                  {under('trail')}
-                </>
-              )}
-
-              {!simple && !fundMode && (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <Segmented
-                    label={t('broker.tif')} size="sm" value={tif} onChange={(v) => setTif(v as 'gtc' | 'day')}
-                    options={[{ value: 'gtc', label: t('broker.gtc') }, { value: 'day', label: t('broker.day') }]}
-                  />
+              {/* Dense (the desktop terminal): the price field of the order type shares a row with Good till, so the TP and SL
+                  fields and the summary fit a 720 px screen without scrolling (UX 1.4). The full ticket keeps the stacked fields. */}
+              {dense && type !== 'market' ? (
+                <div className={`mt-2 grid items-end gap-2 ${type === 'stop_limit' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                  {(type === 'stop' || type === 'stop_limit') && (
+                    <div>
+                      <NumberField label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />
+                      {under('stop')}
+                    </div>
+                  )}
+                  {(type === 'limit' || type === 'stop_limit') && (
+                    <div>
+                      <NumberField label={t('order.limit')} value={limit} onChange={setLimit} suffix="$" testId="order-limit" />
+                      {under('limit')}
+                    </div>
+                  )}
+                  {type === 'trailing' && (
+                    <div>
+                      <NumberField label={t('broker.trail')} value={trail} onChange={setTrail} suffix="%" testId="order-trail" />
+                      {under('trail')}
+                    </div>
+                  )}
+                  {!simple && !fundMode && (
+                    <Segmented label={t('broker.tif')} size="sm" className="w-full" value={tif} onChange={(v) => setTif(v as 'gtc' | 'day')} options={[{ value: 'gtc', label: t('broker.gtc') }, { value: 'day', label: t('broker.day') }]} />
+                  )}
                 </div>
+              ) : (
+                <>
+                  {(type === 'limit' || type === 'stop_limit') && (
+                    <>
+                      <NumberField className="mt-2" label={t('order.limit')} value={limit} onChange={setLimit} suffix="$" testId="order-limit" />
+                      {under('limit')}
+                      {showWarn && !at('limit') && <p className="mt-1 text-caption text-fg-muted" data-testid="order-warn">{showWarn}</p>}
+                    </>
+                  )}
+                  {(type === 'stop' || type === 'stop_limit') && (
+                    <>
+                      <NumberField className="mt-2" label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />
+                      {under('stop')}
+                    </>
+                  )}
+                  {type === 'trailing' && (
+                    <>
+                      <NumberField className="mt-2" label={t('broker.trail')} value={trail} onChange={setTrail} suffix="%" testId="order-trail" />
+                      {under('trail')}
+                    </>
+                  )}
+                  {!simple && !fundMode && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Segmented
+                        label={t('broker.tif')} size="sm" value={tif} onChange={(v) => setTif(v as 'gtc' | 'day')}
+                        options={[{ value: 'gtc', label: t('broker.gtc') }, { value: 'day', label: t('broker.day') }]}
+                      />
+                    </div>
+                  )}
+                </>
               )}
               {!fundMode && (
-                <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className={dense ? "mt-1 grid grid-cols-2 gap-2" : "mt-2 grid grid-cols-2 gap-2"}>
                   <div>
                     <NumberField label={t('broker.takeProfit')} value={tp} onChange={setTp} testId="order-tp" />
                     {tpMove && <p className="mt-1 text-caption text-gain" data-testid="order-tp-move">{t('broker.bracket.move', { usd: signedMoney(tpMove.usd), pct: signedPct(tpMove.pct) })}</p>}
@@ -475,19 +522,21 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                 </div>
               )}
 
-              <div className="mt-4 border-t border-ink-2 pt-3" data-testid="order-summary">
-                <KV className="!py-0" k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(d.price)} />
-                <KV className="!py-0" k={t('broker.notional')} v={money(notional)} />
-                <KV className="!py-0" k={feeText} v={money(fee)} />
-                <KV className="!py-0" k={t('broker.spread')} v={<span data-testid="order-spread">{spreadText}</span>} />
-                <KV className="!py-0" k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
-                <KV className="!py-0" k={t('broker.roundTrip')} v={<span data-testid="order-roundtrip">{money(summary.roundTrip)}</span>} />
-                <KV className="!py-0" k={t('broker.breakEven')} v={<span data-testid="order-breakeven">{price(summary.breakEven)}</span>} />
-                <KV
-                  k={t('broker.cashAfter')}
+              <div className={dense ? 'mt-1 border-t border-ink-2 pt-0.5' : 'mt-4 border-t border-ink-2 pt-3'} data-testid="order-summary">
+                <div className={dense ? 'grid grid-cols-2 gap-x-4' : undefined}>
+                <SumRow dense={dense} k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(d.price)} />
+                <SumRow dense={dense} k={t('broker.notional')} v={money(notional)} />
+                <SumRow dense={dense} k={feeText} v={money(fee)} />
+                <SumRow dense={dense} k={t('broker.spread')} v={<span data-testid="order-spread">{spreadText}</span>} />
+                <SumRow dense={dense} k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
+                <SumRow dense={dense} k={t('broker.roundTrip')} v={<span data-testid="order-roundtrip">{money(summary.roundTrip)}</span>} />
+                <SumRow dense={dense} k={t('broker.breakEven')} v={<span data-testid="order-breakeven">{price(summary.breakEven)}</span>} />
+                <SumRow
+                  dense={dense} k={t('broker.cashAfter')}
                   v={<span className="text-fg-muted" data-testid="order-cash-after">{money(cashAfter)}</span>}
                 />
-                <KV className="!py-0" k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
+                <SumRow dense={dense} className="col-span-2" k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
+                </div>
                 {shorting && (
                   <div className="mt-1 grid gap-1" data-testid="order-short-terms">
                     <KV className="!py-0" k={t('broker.collateral')} v={<span className="text-fg-muted" data-testid="order-collateral">{money(shortCollateral)}</span>} />

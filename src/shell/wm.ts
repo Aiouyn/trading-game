@@ -953,7 +953,10 @@ export function reduce(state: ShellState, action: WmAction, ctx: WmCtx): WmResul
       const taken = state.wins.some((w) => w.app === app);
       if (app === null || !empty || taken || !ctx.unlocked(app)) return ok(next);
       const opened = openAction(next, app, {}, ctx);
-      return opened.ok ? opened : ok(next);
+      if (!opened.ok) return ok(next);
+      // News and Portfolio open their app maximized, as Trade opens the Broker maximized: the workspace is the app's own desk.
+      if (app === 'wire' || app === 'portfolio') return ok({ ...opened.state, wins: patchWin(opened.state.wins, app, { filled: true }) });
+      return opened;
     }
 
     case 'moveToWs': {

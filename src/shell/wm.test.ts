@@ -710,30 +710,29 @@ describe('named layouts', () => {
     expect(focusedId(s)).toBe(open[0]!.id);
   });
 
-  it('applies Review as Portfolio on the left and the journal Portfolio on the right, now the journal view is built', () => {
+  it('applies Review as one Portfolio on the left and the Wire on the right, even with the journal view built (UX stage 2)', () => {
     const s = go(fresh(VP_1920), { type: 'applyLayout', name: 'review' });
-    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id).sort()).toEqual(['portfolio', 'portfolio-2']);
+    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id)).toEqual(['portfolio']);
     expect(s.wins.find((w) => w.id === 'portfolio')!.slot).toBe('L2');
-    expect(s.wins.find((w) => w.id === 'portfolio-2')!.props).toEqual({ view: 'journal' });
-    expect(focusedId(s)).toBe('portfolio');
+    expect(s.wins.find((w) => w.app === 'wire')!.slot).toBe('R2');
+    expect(s.wins.some((w) => w.id === 'portfolio-2')).toBe(false);
   });
 
-  it('applies Review after the Portfolio was closed: a plain Portfolio on the left and the journal on the right', () => {
+  it('applies Review after the Portfolio was closed: a plain Portfolio on the left and the Wire on the right', () => {
     let s = go(fresh(VP_1920), { type: 'close', id: 'portfolio' });
     s = go(s, { type: 'applyLayout', name: 'review' });
     const pf = s.wins.find((w) => w.id === 'portfolio')!;
     expect(pf.slot).toBe('L2');
     expect(pf.props).toEqual({});
-    expect(s.wins.find((w) => w.id === 'portfolio-2')!.props).toEqual({ view: 'journal' });
-    expect(focusedId(s)).toBe('portfolio');
+    expect(s.wins.some((w) => w.id === 'portfolio-2')).toBe(false);
   });
 
-  it('a user open of Portfolio focuses the one Portfolio window there is, the journal included (the shelf never opens a third)', () => {
+  it('a user open of Portfolio opens the one Portfolio window again after Review closed it (the shelf never opens a second)', () => {
     let s = go(fresh(VP_1920), { type: 'applyLayout', name: 'review' });
     s = go(s, { type: 'close', id: 'portfolio' });
     s = go(s, { type: 'open', app: 'portfolio' });
-    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id)).toEqual(['portfolio-2']);
-    expect(focusedId(s)).toBe('portfolio-2');
+    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id)).toEqual(['portfolio']);
+    expect(focusedId(s)).toBe('portfolio');
   });
 
   it('applies the Research layout with the open Research file, and without one skips the slot', () => {

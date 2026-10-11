@@ -79,12 +79,11 @@ describe('built-in layouts: feasibility fallback', () => {
     expect(p.placements[0]!.props).toEqual({});
   });
 
-  it('Review with the journal view built is Portfolio left and the journal Portfolio (second instance) right', () => {
+  it('Review is one Portfolio and the Wire even with the journal view built (UX stage 2)', () => {
     const p = planLayout('review', VP_1440, all, { views: ['journal'] });
     expect(p.variant).toBe('thirds');
-    expect(shape(p)).toEqual(['portfolio#2:R2', 'portfolio:L2']);
-    expect(p.placements[0]!.props).toEqual({ view: 'journal' });
-    expect(p.placements[1]!.props).toEqual({});
+    expect(shape(p)).toEqual(['wire:R2', 'portfolio:L2']);
+    expect(p.placements.some((x) => x.second)).toBe(false);
   });
 
   it('Review at 1000x800 cannot fit two Portfolios in halves, so it falls back to Portfolio filled', () => {

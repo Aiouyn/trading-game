@@ -66,15 +66,17 @@
     color: var(--color-fg); margin-top: -1px;
   }
   .os-root .os-rel { font-family: var(--font-mono); font-size: var(--text-micro); color: var(--color-fg-faint); }
+  .os-root .os-strip > * { flex-shrink: 0; white-space: nowrap; }
   .os-root .os-launch {
-    display: flex; align-items: center; gap: 8px; height: 24px; width: 312px; padding: 0 6px 0 9px;
+    display: flex; align-items: center; gap: 8px; height: 24px; width: 240px; padding: 0 6px 0 9px;
     border: 1px solid var(--color-ink-3); border-radius: var(--radius-sm); background: var(--color-ink-1);
     color: var(--color-fg-faint); font-size: var(--text-small);
   }
   .os-root .os-launch-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The clock and market state sit in the flow after the workspace tabs (UX stage 2): an absolutely centred clock
+     overlapped the tabs once the strip held four of them. */
   .os-root .os-mid {
-    position: absolute; left: 50%; transform: translateX(-50%);
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: 14px; margin-left: auto;
   }
   .os-root .os-clock { font-family: var(--font-mono); font-size: var(--text-small); color: var(--color-fg); }
   .os-root .os-seg {
@@ -90,7 +92,7 @@
   .os-root .os-seg-item.on {
     background: var(--color-ink-2); color: var(--color-fg); box-shadow: inset 0 -1.5px 0 var(--color-brass);
   }
-  .os-root .os-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .os-root .os-right { display: flex; align-items: center; gap: 14px; }
   .os-root .os-nw { font-family: var(--font-mono); font-size: var(--text-small); display: flex; align-items: baseline; gap: 6px; color: var(--color-fg); }
   /* Cash and net worth in the strip: labelled figures (the label in caption type, the value in mono). */
   .os-root .os-figs { position: relative; display: flex; align-items: center; gap: 14px; }
@@ -434,6 +436,19 @@
   }
   .os-root .os-sheet-x:hover { background: var(--color-ink-2); color: var(--color-fg); }
   .os-root .os-sheet-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  /* Stage 2: the top bar holds four workspace tabs. Below 1500 px the release and the market words give way (the dot stays),
+     below 1200 px the launcher narrows, and below 1100 px the cash figure goes too (net worth and the bell stay in view). */
+  @media (max-width: 1499px) {
+    .os-root .os-rel,
+    .os-root .os-market-text { display: none; }
+  }
+  @media (max-width: 1199px) {
+    .os-root .os-launch { width: 200px; }
+  }
+  @media (max-width: 1099px) {
+    .os-root .os-fig[data-testid="os-cash"] { display: none; }
+    .os-root .os-launch { width: 160px; }
+  }
   @media (max-width: 767px) {
     .os-root .os-prompt {
       left: 0; right: 0; bottom: 0; width: auto; max-height: 70dvh;
