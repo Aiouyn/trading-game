@@ -7,6 +7,7 @@ import { dismissCloseCard, goTo, isPhone, register, skipTips, watchErrors } from
 /** The top bar's net worth as a number (the "$5,507.85" figure, cents included). */
 async function topBarNetWorth(page: import('@playwright/test').Page): Promise<number> {
   const text = (await page.getByTestId('os-networth').locator('.num').first().textContent()) ?? '';
+  // (the desktop top bar only; the phone checks above)
   return Number(text.replace(/[$,\s]/g, ''));
 }
 
@@ -17,12 +18,17 @@ test('the net worth line ends at the top bar figure, and the change since arriva
   await goTo(page, 'portfolio');
   const series = page.getByTestId('networth-series');
   await expect(series).toBeVisible({ timeout: 25_000 });
-  // the line is sampled every few ticks and the header is live: the last point is the live figure, so the two match
-  await expect.poll(async () => {
-    const last = Number(await series.getAttribute('data-last-value'));
-    const bar = await topBarNetWorth(page);
-    return Math.abs(last - bar) < 0.005;
-  }, { timeout: 15_000 }).toBe(true);
+  // the line is sampled every few ticks and the header is live: the last point is the live figure, so the two match.
+  // The phone's top bar is compact ("$5.3k"), so there the figure is only checked to be shown, not to the cent.
+  if (isPhone(page)) {
+    await expect(page.getByTestId('os-phone-networth')).toContainText('$');
+  } else {
+    await expect.poll(async () => {
+      const last = Number(await series.getAttribute('data-last-value'));
+      const bar = await topBarNetWorth(page);
+      return Math.abs(last - bar) < 0.005;
+    }, { timeout: 15_000 }).toBe(true);
+  }
   // the $250 onboarding grant is in the figure and in the line alike, and is named apart from trading
   await expect(page.getByTestId('arrival-grants')).toBeVisible();
   for (const id of ['arrival-trading', 'arrival-valuation', 'arrival-income', 'arrival-grants']) {
