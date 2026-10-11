@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import {
   AreaSeries, CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, PriceScaleMode, createChart,
   type AutoscaleInfoProvider, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type LineData, type MouseEventParams,
@@ -11,6 +11,8 @@ import { axisTimeLabel, barTimeLabel, barsFor, rangeIsIntraday, type Bar, type C
 import { INDICATORS, bollinger, ema, latestValues, rsi, sma, vwap, type IndicatorId } from '@/game/indicators';
 import { price as fmtPrice, signedPct } from '@/game/format';
 import { t } from '@/i18n';
+import { type ChartLevel, type PriceScale, priceOfY, roundPrice, yOfPrice } from './chartLevels';
+import { LevelLayer } from './LevelLayer';
 
 /**
  * Colors come from the design tokens at runtime: a hidden probe uses the token classes and we
@@ -92,7 +94,21 @@ interface LegendRow { id: IndicatorId; label: string; value: string }
 /** The crosshair readout: the candle (or line value) under the pointer and its change against the range's first open. */
 interface Readout { time: number; o?: number; h?: number; l?: number; c: number; change: number }
 
-export function PriceChart({ assetId, range: rangeOverride, interval: intervalOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand, percent = false }: {
+/** Two placements are the same when every line sits on the same row (a re-render that moves nothing does not re-render the lines). */
+function sameRows(a: Record<string, number | null>, b: Record<string, number | null>): boolean {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => a[k] === b[k]);
+}
+
+/** The menu's three picks, in the order they are listed (the labels are the copy's keys, so the i18n check finds them). */
+const MENU_PICKS: { kind: 'buyLimit' | 'sellStop' | 'alert'; key: string }[] = [
+  { kind: 'buyLimit', key: 'broker.menu.buyLimit' },
+  { kind: 'sellStop', key: 'broker.menu.sellStop' },
+  { kind: 'alert', key: 'broker.menu.alert' },
+];
+
+export function PriceChart({ assetId, range: rangeOverride, interval: intervalOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand, percent = false, levels, onLevelCommit, onLevelCancel, onLevelAction, onMenuPick }: {
   assetId: string;
   range?: ChartRange;
   interval?: Interval;
@@ -112,6 +128,13 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   eventBand?: { sinceTick: number; kind: 'crash' | 'bubble' | 'crisis' | 'flash'; label: string };
   /** the price axis shows percent from the first visible value (spec 1.2, the optional % axis) */
   percent?: boolean;
+  /** the position and order lines (spec 1.3): drawn over the chart, dragged and cancelled from their pills */
+  levels?: ChartLevel[];
+  onLevelCommit?: (level: ChartLevel, price: number) => void;
+  onLevelCancel?: (level: ChartLevel) => void;
+  onLevelAction?: (level: ChartLevel, key: 'addTp' | 'addSl') => void;
+  /** the chart menu (right-click or Alt+click at a price): the pick and the price it was made at */
+  onMenuPick?: (kind: 'buyLimit' | 'sellStop' | 'alert', price: number) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -143,6 +166,11 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   const [band, setBand] = useState<{ left: number; width: number } | null>(null);
   const [readout, setReadout] = useState<Readout | null>(null);
   const [legend, setLegend] = useState<LegendRow[]>([]);
+  // the level lines' pixel rows, the price axis's width and the plot height: re-read after every render and on zoom or resize
+  const [placed, setPlaced] = useState<{ y: Record<string, number | null>; axisW: number; h: number }>({ y: {}, axisW: 0, h: 0 });
+  // the chart menu, opened at a price by a right-click or an Alt+click; its position is inside the chart
+  const [menu, setMenu] = useState<{ x: number; y: number; price: number } | null>(null);
+  const levelsRef = useRef<ChartLevel[]>([]);
   const bandFrom = eventBand?.sinceTick ?? null;
   const daily = interval === '1D' || !rangeIsIntraday(range);
   const tpd = useGame((s) => s.history.ticksPerDay);
@@ -196,7 +224,11 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     // a zoom or scroll changes the visible price range, so the mark is checked again
     const onRange = () => probe.current();
     c.timeScale().subscribeVisibleLogicalRangeChange(onRange);
+    // a resize moves every row, so the lines are placed again
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => probe.current());
+    ro?.observe(el);
     return () => {
+      ro?.disconnect();
       c.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
       c.remove();
       chart.current = null;
@@ -378,8 +410,36 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
 
   // The mark is checked after every render (the data effects above run first): where it sits on the visible series, above or
   // below the pane, or on the chart. A mark with no series yet is on no side.
+  // the series the chart draws now (the price scale of the level lines and the menu follows it)
+  const activeSeries = () => (mode === 'candles' ? candleS.current : mode === 'line' ? lineS.current : areaS.current);
+  const scaleOf = (s: { priceToCoordinate: (p: number) => number | null; coordinateToPrice: (y: number) => number | null }): PriceScale => ({
+    priceToY: (p) => s.priceToCoordinate(p),
+    yToPrice: (y) => s.coordinateToPrice(y),
+  });
+  /** the price under a pixel row of the chart, rounded to the tick; null off the scale */
+  const toPrice = (y: number): number | null => {
+    const s = activeSeries();
+    return s ? priceOfY(scaleOf(s), y) : null;
+  };
+  // each line's row, the axis width and the plot height: set only when one of them moved
+  const placeOverlay = () => {
+    const c = chart.current;
+    const s = activeSeries();
+    if (!c || !s) return;
+    const scale = scaleOf(s);
+    const y: Record<string, number | null> = {};
+    for (const l of levelsRef.current) y[l.id] = yOfPrice(scale, l.price);
+    const axisW = Math.round(c.priceScale('right').width());
+    const h = c.paneSize().height;
+    setPlaced((prev) => (sameRows(prev.y, y) && prev.axisW === axisW && prev.h === h ? prev : { y, axisW, h }));
+  };
+
+  // The mark is checked after every render (the data effects above run first): where it sits on the visible series, above or
+  // below the pane, or on the chart. A mark with no series yet is on no side. The level lines are placed at the same time.
   useEffect(() => {
+    levelsRef.current = levels ?? [];
     probe.current = () => {
+      placeOverlay();
       if (!onMarkOff) return;
       const c = chart.current;
       const price = marks?.[0]?.price;
@@ -392,10 +452,35 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     probe.current();
   });
 
+  // the chart menu: a right-click or an Alt+click on the chart opens it at the price under the pointer
+  const openMenu = (e: MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!onMenuPick || !host.current) return;
+    const r = host.current.getBoundingClientRect();
+    const yy = e.clientY - r.top;
+    const p = toPrice(yy);
+    if (p === null) return;
+    // the menu (about 224 by 140 px) opens inside the chart: it is moved left or up when the pointer is near the edge
+    const x = Math.max(0, Math.min(e.clientX - r.left, r.width - 232));
+    const y = Math.max(0, Math.min(yy, r.height - 140));
+    setMenu({ x, y, price: p });
+  };
+  // Escape closes the menu
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menu]);
+
   const showOverlay = studies && series === undefined;
   return (
     <div className="relative h-full w-full">
-      <div ref={host} className="h-full w-full" data-testid={testId} data-chart-id={assetId} />
+      <div
+        ref={host} className="h-full w-full" data-testid={testId} data-chart-id={assetId}
+        onContextMenu={onMenuPick ? openMenu : undefined}
+        onClick={onMenuPick ? (e) => { if (e.altKey) openMenu(e); } : undefined}
+      />
       {showOverlay && (
         <div className="pointer-events-none absolute left-2 top-2 z-[3] flex max-w-[calc(100%-5rem)] flex-col gap-1">
           {readout && (
@@ -430,6 +515,39 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
         <div className="os-event-band" data-testid="event-band" data-kind={eventBand.kind} style={{ left: band.left, width: band.width }} aria-hidden>
           <span className="os-event-band-label">{eventBand.label}</span>
         </div>
+      )}
+      {showOverlay && levels && levels.length > 0 && (
+        <LevelLayer
+          placed={levels.map((l) => ({ level: l, y: placed.y[l.id] ?? null }))}
+          axisW={placed.axisW}
+          height={placed.h}
+          toPrice={toPrice}
+          onCommit={(l, p) => onLevelCommit?.(l, p)}
+          onCancel={(l) => onLevelCancel?.(l)}
+          onAction={(l, k) => onLevelAction?.(l, k)}
+        />
+      )}
+      {menu && onMenuPick && (
+        <>
+          <div className="fixed inset-0 z-[5]" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} aria-hidden />
+          <ul
+            role="menu" aria-label={t('broker.menu.label')} data-testid="chart-menu"
+            className="absolute z-[6] w-56 rounded-md border border-ink-3 bg-ink-1 p-1 shadow-lg"
+            style={{ left: menu.x, top: menu.y }}
+          >
+            {MENU_PICKS.map((p) => (
+              <li key={p.kind} role="none">
+                <button
+                  type="button" role="menuitem" data-testid={`menu-${p.kind}`}
+                  onClick={() => { const at = roundPrice(menu.price); setMenu(null); onMenuPick(p.kind, at); }}
+                  className="w-full rounded-sm px-2 py-1.5 text-left text-small text-fg-muted hover:bg-ink-2 hover:text-fg"
+                >
+                  {t(p.key, { price: fmtPrice(roundPrice(menu.price)) })}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );

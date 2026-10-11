@@ -1,16 +1,37 @@
 'use client';
 
-import { earningsInfo, liquidationPrice, REGIONS, sectorName } from '@/engine';
+import { earningsInfo, estimateFill, liquidationPrice, REGIONS, sectorName, type OrderType, type Side } from '@/engine';
 import { CHART_RANGES, INTERVALS, candleRealSeconds, intervalsFor, type ChartRange, type Interval } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
-import { money, price, signedChange, signedPct, tone, toneText } from '@/game/format';
+import { money, price, qty as fmtQty, signedChange, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { type MouseEvent, useState } from 'react';
+import { type MouseEvent, useEffect, useState } from 'react';
 import { Chip, Flash, LockGlyph, Segmented } from '@/components/ui';
 import { PriceChart } from './PriceChart';
 import { kindLabel } from '@/components/os/eventText';
 import { seriesInfo } from './seriesInfo';
+import { alertDir, alertFired, buildLevels, defaultExitPrice, type ChartLevel, type LevelFormat } from './chartLevels';
+import { useAlerts } from './alerts';
+
+/** The order type's copy key (the chart's working-order lines name their type). */
+const ORDER_LABEL: Record<OrderType, string> = {
+  market: 'order.market', limit: 'order.limit', stop: 'order.stop', stop_limit: 'order.stop_limit', trailing: 'order.trailing',
+};
+
+/** The text of the chart's lines (spec 1.3): the pills of the average line, the take-profit and stop-loss, orders and alerts. */
+function levelFormat(): LevelFormat {
+  return {
+    avg: (p, usd, pct) => t('broker.level.avg', { price: price(p), usd: signedMoney(usd), pct: signedPct(pct) }),
+    exit: (k, p, usd, pct) => t(k === 'tp' ? 'broker.level.tp' : 'broker.level.sl', { price: price(p), usd: signedMoney(usd), pct: signedPct(pct) }),
+    order: (side, type, p, q) => t('broker.level.order', {
+      side: t(side === 'buy' ? 'common.buy' : 'common.sell'), type: t(ORDER_LABEL[type]), price: price(p), qty: fmtQty(q),
+    }),
+    alert: (p) => t('broker.level.alert', { price: price(p) }),
+    addTp: t('broker.level.addTp'),
+    addSl: t('broker.level.addSl'),
+  };
+}
 
 /** The real time a candle takes, as the caption and the tooltip say it: seconds under a minute, minutes after. */
 export function realTimeText(seconds: number): string {
@@ -44,6 +65,72 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   // the engine's own margin trigger for a held margin or short position (null when none applies): the chart draws it
   const liq = !isIndex(info.id) && world && playerId ? liquidationPrice(world, playerId, info.id) : null;
   const marks = liq === null ? [] : [{ price: liq, title: t('broker.liquidation') }];
+  // The position and orders on this ticker (spec 1.3): the average line, the legs, the working orders and the alerts. The
+  // selectors read stored arrays and objects as they are, so the lines rebuild only when the account changes.
+  const orders = useGame((s) => s.me?.orders);
+  const pos = useGame((s) => s.me?.account?.positions[info.id]);
+  const alerts = useAlerts((s) => s.alerts);
+  const act = useGame((s) => s.act);
+  const heldQty = pos?.qty ?? 0;
+  // the cash the closing order would move now (a sell's proceeds, or a cover's cost), so the average line's P&L is what closing books
+  const closeTotal = world && heldQty !== 0 && !isIndex(info.id) ? estimateFill(world, { assetId: info.id, side: heldQty > 0 ? 'sell' : 'buy', qty: Math.abs(heldQty) }).total : 0;
+  const levels = buildLevels({
+    qty: heldQty, avgCost: pos?.avgCost ?? 0, closeTotal,
+    orders: (orders ?? []).filter((o) => o.assetId === info.id && o.status === 'open'),
+    alerts: alerts.filter((a) => a.assetId === info.id).map((a) => ({ id: a.id, price: a.price, dir: a.dir })),
+    fmt: levelFormat(),
+  });
+  // Dragging a working order's line modifies that order: a stop moves its stop price, any other order its limit (spec 1.3).
+  const commitLevel = async (l: ChartLevel, p: number) => {
+    if (!l.orderId) return;
+    const o = (orders ?? []).find((x) => x.id === l.orderId);
+    if (!o) return;
+    const patch = o.type === 'stop' || o.type === 'stop_limit' ? { stopPrice: p } : { limitPrice: p };
+    const r = await act({ type: 'order.modify', orderId: o.id, ...patch });
+    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.moved', { price: price(p) }) });
+  };
+  const cancelLevel = async (l: ChartLevel) => {
+    if (l.alertId) { useAlerts.getState().remove(l.alertId); return; }
+    if (!l.orderId) return;
+    const r = await act({ type: 'order.cancel', orderId: l.orderId });
+    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.cancelled') });
+  };
+  // +TP and +SL place the leg the position lacks, reduce-only, at the default distance; the line then drags like any other
+  const addLeg = async (_l: ChartLevel, key: 'addTp' | 'addSl') => {
+    if (!pos || pos.qty === 0) return;
+    const kind = key === 'addTp' ? 'tp' : 'sl';
+    const p = defaultExitPrice(kind, pos.qty, pos.avgCost);
+    const type: OrderType = kind === 'tp' ? 'limit' : 'stop';
+    const side: Side = pos.qty > 0 ? 'sell' : 'buy';
+    const r = await act({
+      type: 'order.place',
+      order: { assetId: info.id, side, type, qty: Math.abs(pos.qty), reduceOnly: true, tif: 'gtc', ...(kind === 'tp' ? { limitPrice: p } : { stopPrice: p }) },
+    });
+    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.placed', { price: price(p) }) });
+  };
+  // The chart menu: a buy limit or sell stop fills the ticket at that price for the player to send (it never sends itself);
+  // an alert is a price the viewer is told about (alerts.ts).
+  const menuPick = (kind: 'buyLimit' | 'sellStop' | 'alert', p: number) => {
+    if (kind === 'alert') {
+      useAlerts.getState().add({ assetId: info.id, price: p, dir: alertDir(p, info.price) });
+      useGame.getState().toast({ tone: 'info', text: t('broker.alert.set', { ticker: info.id, price: price(p) }) });
+      return;
+    }
+    const g = useGame.getState();
+    if (g.selected !== info.id) g.select(info.id);
+    useGame.getState().presetTicket(kind === 'buyLimit'
+      ? { side: 'buy', type: 'limit', limitPrice: p }
+      : { side: 'sell', type: 'stop', stopPrice: p });
+  };
+  // an alert that the mid crossed fires once: it is removed here, so a second Broker on the ticker does not repeat it
+  useEffect(() => {
+    const st = useAlerts.getState();
+    for (const a of st.alerts) {
+      if (a.assetId !== info.id || !alertFired(a, info.price)) continue;
+      st.remove(a.id);
+      useGame.getState().toast({ tone: 'info', text: t('broker.alert.fired', { ticker: a.assetId, price: price(a.price) }) });
+    }
+  }, [info.price, info.id]);
   // the side the line sits off the visible range, or null when it is drawn on the chart
   const [offSide, setOffSide] = useState<'above' | 'below' | null>(null);
   const [percent, setPercent] = useState(false);
@@ -143,7 +230,11 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
         </div>
       )}
       <div className="relative min-h-0 flex-1 px-1 pb-1">
-        <PriceChart assetId={info.id} marks={marks} onMarkOff={setOffSide} eventBand={eventBand} percent={percent} />
+        <PriceChart
+          assetId={info.id} marks={marks} onMarkOff={setOffSide} eventBand={eventBand} percent={percent}
+          levels={levels} onLevelCommit={commitLevel} onLevelCancel={cancelLevel} onLevelAction={addLeg}
+          onMenuPick={isIndex(info.id) ? undefined : menuPick}
+        />
       </div>
       {liq !== null && offSide !== null && (
         <p className="px-3 pb-1 text-caption text-fg-faint" data-testid="liquidation-off">
