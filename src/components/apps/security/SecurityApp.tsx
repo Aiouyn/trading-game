@@ -14,6 +14,7 @@ import { t } from '@/i18n';
 import { isAppUnlocked } from '@/shell/ctx';
 import { openApp } from '@/components/os/shellStore';
 import { AppLocked } from '@/components/apps/AppLocked';
+import { InsuranceCard } from '@/components/apps/sixd/InsuranceCard';
 import { Button, Card, CardHeader, Chip, ConfirmButton, NumberField, Progress, Select, Stat, Tabs, ticksLabel } from '@/components/ui';
 
 const STRENGTHS: SessionStrength[] = ['whisper', 'tap', 'siphon'];
@@ -32,6 +33,7 @@ export function SecurityApp() {
   }
   return (
     <div className="flex flex-col gap-4" data-testid="security-view">
+      <InsuranceCard />
       <Tabs<Tab> tabs={[{ id: 'connections', label: t('security.tab.connections') }, { id: 'ops', label: t('security.tab.ops'), badge: me.security.liveSessions.length }]} value={tab} onChange={setTab} />
       {tab === 'connections' ? <Connections /> : <Operations />}
     </div>

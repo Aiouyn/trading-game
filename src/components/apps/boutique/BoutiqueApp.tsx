@@ -9,8 +9,10 @@ import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { isAppUnlocked } from '@/shell/ctx';
 import { Button, Card, Chip, ConfirmButton, Stat, Tabs } from '@/components/ui';
+import { AuctionsPanel } from '@/components/apps/sixd/AuctionsPanel';
+import { StreakCard } from '@/components/apps/sixd/StreakCard';
 
-type Tab = 'shop' | 'collection';
+type Tab = 'shop' | 'collection' | 'auctions';
 
 export function BoutiqueApp() {
   const me = useGame((s) => s.me)!;
@@ -32,15 +34,17 @@ export function BoutiqueApp() {
           </div>
         </div>
       </Card>
+      <StreakCard />
       <Tabs<Tab>
         tabs={[
           { id: 'shop', label: t('boutique.tab.shop') },
           { id: 'collection', label: t('boutique.tab.collection'), badge: me.player.lifestyle.length },
+          { id: 'auctions', label: t('sixd.auc.tab') },
         ]}
         value={tab}
         onChange={setTab}
       />
-      {tab === 'shop' ? <Shop /> : <Collection />}
+      {tab === 'auctions' ? <AuctionsPanel /> : tab === 'shop' ? <Shop /> : <Collection />}
     </div>
   );
 }

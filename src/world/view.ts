@@ -21,6 +21,7 @@ import { decoyCodename, defenseOf, defensePoints, defenseTier, entriesOf } from 
 import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
 import { exchangeView, type ExchangeView } from './exchange/view';
 import { launchpadView, type LaunchpadView } from './launchpad/view';
+import { sixdView, type SixdView } from './sixd';
 import type {
   Alliance, BoardRow, Boards, Business, ChatMessage, ConnectionEntry, CourtCase, CyberOp, Deal, GameState, InboxItem,
   LabState, Player, Property, WireItem,
@@ -240,6 +241,8 @@ export interface PlayerView {
   exchange: ExchangeView;
   /** the Launchpad app (lead-launchpad.md L7): the feeds, token pages, the viewer's holdings and the creator console */
   launchpad: LaunchpadView;
+  /** the 6D surfaces: insurance, streak, this week's auction lots, the tournament board, the stress test and the home room (sixd.ts) */
+  sixd: SixdView | null;
 }
 
 export function playerView(g: GameState, pid: string): PlayerView | null {
@@ -297,6 +300,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
     trading: tradingView(g, pid),
     exchange: exchangeView(g, pid),
     launchpad: launchpadView(g, pid),
+    sixd: sixdView(g, pid),
     capital: capitalViewOf(g, pid),
   };
 }
