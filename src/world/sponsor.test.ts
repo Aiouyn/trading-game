@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
-import { cashOf, credit, RESTRICT_TICKS, restrictedNow, TPD, spendableCash, REAL_DAY } from './core';
+import { cashOf, credit, RESTRICT_TICKS, realDayOf, restrictedNow, spendableCash, REAL_DAY, TPD } from './core';
 import { refreshNetWorth } from './assets';
 import { applyRank } from './players';
-import { SPONSOR, adsUsedToday, profileKeyOf } from './sponsor';
+import { SPONSOR, adsUsedToday, profileKeyOf, sponsorDayStart } from './sponsor';
 import { bookedNet, engineTallyOf, netWorldMoney } from './company/exploits/sequences';
 import type { GameState, Command } from './types';
 
@@ -25,7 +25,8 @@ function eligible(seed: string, pid = 'u1'): GameState {
   g.market.accounts[pid] = { ...acct, cash: 600, startingCash: 600, peakEquity: 600, dayStartEquity: 600 };
   refreshNetWorth(g, p);
   applyRank(g, p, null, true);
-  p.dayStart = { ...p.dayStart, cash: 600, netWorth: p.netWorth };
+  // the start of the real day: under the line in cash and net worth (the snapshot the offer reads)
+  p.adDay = { day: realDayOf(g), cash: 600, netWorth: p.netWorth };
   return g;
 }
 
@@ -37,8 +38,26 @@ describe('sponsor breaks: the offer', () => {
   it('is not offered to an account with a day-start cash at or above $1,000', () => {
     const g = eligible('sp-offer-1');
     const p = g.players.u1!;
-    p.dayStart = { ...p.dayStart, cash: 5600 };
+    p.adDay = { day: realDayOf(g), cash: 5600, netWorth: 5600 };
     expect(cmd(g, 'u1', { type: 'ad.start' })).toEqual({ ok: false, error: 'adNotOffered' });
+  });
+
+  it('is not offered when the net worth at the day start was $1,000 or more, even with little cash', () => {
+    const g = eligible('sp-offer-3');
+    const p = g.players.u1!;
+    p.adDay = { day: realDayOf(g), cash: 600, netWorth: 1_000_000 };
+    expect(cmd(g, 'u1', { type: 'ad.start' })).toEqual({ ok: false, error: 'adNotOffered' });
+  });
+
+  it('a snapshot from an earlier real day is not used: the day-start values are taken again at the real-day roll', () => {
+    const g = eligible('sp-offer-4');
+    const p = g.players.u1!;
+    p.adDay = { day: realDayOf(g) - 1, cash: 9000, netWorth: 9000 };
+    // the stale snapshot falls back to the live values, which are under the line here
+    expect(cmd(g, 'u1', { type: 'ad.start' }).ok).toBe(true);
+    g.market = { ...g.market, tick: g.market.tick + REAL_DAY };
+    sponsorDayStart(g);
+    expect(p.adDay).toEqual({ day: realDayOf(g), cash: cashOf(g, 'u1'), netWorth: p.netWorth });
   });
 
   it('is read at the day start: a player who was under the line at the day start keeps the offer as the net worth passes it', () => {
@@ -98,16 +117,21 @@ describe('sponsor breaks: the card', () => {
   it('pays at most 10 breaks a game day per profile, and the count resets with the day', () => {
     const g = eligible('sp-cap-1');
     for (let k = 0; k < SPONSOR.dailyCap; k++) {
-      g.players.u1!.dayStart = { ...g.players.u1!.dayStart, cash: 600 };
       const id = (cmd(g, 'u1', { type: 'ad.start' }).data as { id: string }).id;
       tick3(g);
       expect(cmd(g, 'u1', { type: 'ad.finish', id, skip: false }).ok).toBe(true);
     }
     expect(adsUsedToday(g, 'u1')).toBe(SPONSOR.dailyCap);
     expect(cmd(g, 'u1', { type: 'ad.start' }).error).toBe('adCap');
-    // the next game day opens the count again (the day-start cash is still under the line)
+    // a game day later the count is the same real day: still capped
     g.market = { ...g.market, tick: g.market.tick + TPD };
-    g.players.u1!.dayStart = { ...g.players.u1!.dayStart, day: 999, cash: 600 };
+    expect(cmd(g, 'u1', { type: 'ad.start' }).error).toBe('adCap');
+    // the next real day opens the count again, with a fresh day-start snapshot under the line
+    g.market = { ...g.market, tick: g.market.tick + REAL_DAY };
+    g.market.accounts.u1 = { ...g.market.accounts.u1!, cash: 600, startingCash: 600, peakEquity: 600, dayStartEquity: 600 };
+    refreshNetWorth(g, g.players.u1!);
+    sponsorDayStart(g);
+    expect(adsUsedToday(g, 'u1')).toBe(0);
     expect(cmd(g, 'u1', { type: 'ad.start' }).ok).toBe(true);
   });
 
@@ -122,11 +146,11 @@ describe('sponsor breaks: the card', () => {
     g.players.u1!.allianceId = 'a1';
     p2.allianceId = 'a1';
     expect(profileKeyOf(g, 'u2')).toBe('u1');
-    g.sponsor = { counts: { u1: { day: Math.floor((g.market.tick - 1) / TPD), n: SPONSOR.dailyCap } }, pending: {}, seq: 0 };
+    g.sponsor = { counts: { u1: { day: realDayOf(g), n: SPONSOR.dailyCap } }, pending: {}, seq: 0 };
     g.players.u2!.joinedTick -= 2 * REAL_DAY;
     g.market.accounts.u2 = { ...g.market.accounts.u2!, cash: 600, startingCash: 600 };
     refreshNetWorth(g, p2);
-    p2.dayStart = { ...p2.dayStart, cash: 600 };
+    p2.adDay = { day: realDayOf(g), cash: 600, netWorth: 600 };
     expect(cmd(g, 'u2', { type: 'ad.start' }).error).toBe('adCap');
   });
 });

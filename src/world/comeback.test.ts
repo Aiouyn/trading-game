@@ -177,12 +177,13 @@ describe('bust and the floor', () => {
     expect(comebackView(g, 'u1')!.bust).not.toBeNull();
     // the first bust may start a fresh start
     expect(cmd(g, 'u1', { type: 'comeback.confirm', perk: 'lessons' }).ok).toBe(true);
-    expect(cashOf(g, 'u1')).toBe(COMEBACK.freshCash);
-    // a second bust inside 8 weeks: blocked, discharged to zero, and the floor is the ad path and contracts
+    // the debt is written off out of the window's $5,000, and the fresh start pays the rest: the account opens at 5000 less the debt
+    expect(cashOf(g, 'u1')).toBe(COMEBACK.freshCash - 500);
+    // a second bust inside 8 weeks: blocked, no write-off (the window's fresh money is spent); ad cash and income repay it
     debit(g, 'u1', cashOf(g, 'u1') + 300, 'test sink');
     comebackRefresh(g, null);
     expect(p.comeback!.bust).toEqual({ tick: g.market.tick, blocked: true });
-    expect(cashOf(g, 'u1')).toBe(0);
+    expect(cashOf(g, 'u1')).toBe(-300);
     expect(comebackView(g, 'u1')!.bust).toBeNull();
     expect(netWorldMoney(g) - m0).toBeCloseTo(bookedNet(g) + engineTallyOf(g) - b0, 6);
   });

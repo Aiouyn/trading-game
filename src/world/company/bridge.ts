@@ -9,7 +9,7 @@
  */
 
 import { bizDef, priceOf } from '../core';
-import { bump, cashOf, notify, today } from '../core';
+import { bump, notify, spendableCash, today } from '../core';
 import { sellBusiness } from '../assets';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import type { Fill, StepEvent } from '@/engine';
@@ -71,7 +71,7 @@ export function companyEnvOf(g: GameState): CompanyEnv {
       return Math.max(0, g.market.accounts[pid]?.positions[c.listed.assetId]?.qty ?? 0) / c.shares;
     },
     money: {
-      cash: (pid) => cashOf(g, pid),
+      cash: (pid) => spendableCash(g, pid),
       // founding and rounds are transfers between real parties, booked like any other non-trading cash move
       take: (pid, amount) => bump(g, pid, -amount),
       give: (pid, amount) => bump(g, pid, amount),

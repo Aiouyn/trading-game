@@ -104,8 +104,10 @@ export interface Player {
   contracts: ActiveContract[];
   contractsDay: number;
   /** snapshot used by contracts and day summaries */
-  /** cash at the start of the game day (the sponsor-break offer reads it); absent in older saves */
+  /** the game day's snapshot (the day change, the contracts). Its cash is informational; the ad offer reads adDay. */
   dayStart: { day: number; netWorth: number; gx: number; stats: PlayerStats; cash?: number };
+  /** the ad offer's snapshot of the real day: cash and net worth at its start (velvet-rewarded-ads.md); absent in older saves */
+  adDay?: { day: number; cash: number; netWorth: number };
   chapterStartNetWorth: number;
   watchlist: string[];
   alerts: PriceAlert[];
@@ -176,6 +178,8 @@ export interface ComebackState {
   voucher?: boolean;
   /** leverage is capped at 1x until this tick (7 real days after a fresh start) */
   leverageUntil?: number;
+  /** margin and borrowing are blocked until this tick (14 real days after a fresh start, ROADMAP 2.6) */
+  marginBlockUntil?: number;
   /** the low-cash card is hidden until this tick (a dismissal lasts a real day) */
   dismissedUntil?: number;
   /** the chapter that closed last: its peak, end value and the three largest realized losses */

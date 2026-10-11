@@ -2,7 +2,7 @@ import { type Fill } from '@/engine';
 import { ACHIEVEMENTS, CONTRACTS, emptyStats, isRareAchievement, type PlayerStats } from '@/content/progression';
 import { RANKS, licenseFor, rankFor, rankIndex } from '@/content/lifestyle';
 import {
-  ONBOARDING_GRANT, TPD, cashOf, clamp, creditExternal, findOrder, gx, keyedRng, notify, playerBusinesses, playerProperties, priceOf, pushWire, sanitize, today,
+  ONBOARDING_GRANT, TPD, clamp, creditExternal, findOrder, gx, keyedRng, notify, playerBusinesses, playerProperties, priceOf, pushWire, sanitize, today,
 } from './core';
 import { playerBizSectors, refreshNetWorth } from './assets';
 import { computeBoards } from './boards';
@@ -166,7 +166,7 @@ export function rollContracts(g: GameState, p: Player): void {
   if (p.contractsDay === d) return;
   if (p.online && p.contractsDay >= 0) p.stats.daysActive++;
   p.contractsDay = d;
-  p.dayStart = { day: d, netWorth: p.netWorth, gx: gx(g), stats: { ...p.stats }, cash: cashOf(g, p.id) };
+  p.dayStart = { day: d, netWorth: p.netWorth, gx: gx(g), stats: { ...p.stats } };
   const rIdx = rankIndex(p.rankId);
   const pool = CONTRACTS.filter((c) => c.minRank <= rIdx);
   const rng = keyedRng(g, `contracts:${p.id}:${d}`);

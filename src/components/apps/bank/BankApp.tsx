@@ -13,6 +13,7 @@ import { DEALS_RANK } from '@/world/social';
 import type { Command, Deal } from '@/world/types';
 import { t } from '@/i18n';
 import { Button, Card, CardHeader, NumberField, Stat, TextField, ticksLabel } from '@/components/ui';
+import { RestrictedNote } from '@/components/comeback/LowCashCard';
 
 const TPD = 720;
 
@@ -49,6 +50,7 @@ export function BankApp() {
         </div>
       </Card>
 
+      <RestrictedNote />
       <div className="grid gap-4 @3xl:grid-cols-2 [&>*]:min-w-0">
         <Card className="p-4" data-testid="bank-margin">
           <CardHeader title={t('bank.margin.title')} sub={t('bank.margin.sub')} />

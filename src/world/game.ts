@@ -37,8 +37,8 @@ import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick,
 import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
 import { applyFundCommand, crossRefusal, fundsBeforeStep, fundsDay, fundsFills, type FundCommand } from './funds';
 import { orderError } from './orders';
-import { comebackCommand, comebackRefresh, comebackTick } from './comeback';
-import { adOptionRefusal, adOrderRefusal, finishBreak, pruneAdLots, startBreak } from './sponsor';
+import { comebackCommand, comebackMarginRefusal, comebackRefresh, comebackTick } from './comeback';
+import { adOptionRefusal, adOrderRefusal, finishBreak, pruneAdLots, sponsorDayStart, startBreak } from './sponsor';
 import { lessonsRebateOf } from './perks';
 import { launchpadCommand, lockedEngineSell, lpFills, lpTick, refuse as lpRefuse, ensureLaunchpad, vestingSweep } from './launchpad';
 import { companyCommand, companyDay, companyFinanceCommand, companyStep, type CompanyFinanceCommand } from './company/bridge';
@@ -193,6 +193,8 @@ export function stepGame(g: GameState): StepOutput {
       filings(g, p.id, out);
     }
     comebackRefresh(g, out);
+    // the real-day snapshot of cash for the sponsor offer (a no-op inside a real day that already has one)
+    if (newDay) sponsorDayStart(g);
   }
   if (tick % BOARD_EVERY === 0) {
     computeBoards(g);
@@ -257,6 +259,9 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
       // ad cash cannot be margin: a buy past the cash, or a short (velvet-rewarded-ads.md, ROADMAP C5)
       const adErr = adOrderRefusal(g, pid, { ...o, playerId: pid });
       if (adErr) return fail(adErr);
+      // a fresh start blocks margin for 14 real days (ROADMAP 2.6): a buy past the cash and a short are refused
+      const marginErr = comebackMarginRefusal(g, pid, { ...o, playerId: pid });
+      if (marginErr) return fail(marginErr);
       // a creator's vesting-locked allocation cannot be sold after graduation (L5)
       if (o.side === 'sell' && lockedEngineSell(g, pid, o.assetId, o.qty)) return lpRefuse('lockedEngine', { ticker: o.assetId });
       const r = placeOrder(g.market, { ...o, playerId: pid });

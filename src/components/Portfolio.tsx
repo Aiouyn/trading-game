@@ -12,6 +12,7 @@ import { NetWorth } from './Header';
 import { Positions, reasonLabel } from './Holdings';
 import { type ChartOverlay, PriceChart } from './apps/broker/PriceChart';
 import { GoalsCard } from './GoalsCard';
+import { LowCashCard } from './comeback/LowCashCard';
 import { ClosesCard, LuckCard } from './PortfolioLuck';
 import { Card, CardHeader, KV, Segmented, Stat, Td, Th } from './ui';
 import { JournalView } from './apps/journal/JournalView';
@@ -129,6 +130,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
 
   return (
     <div className="flex flex-col gap-4" data-testid="portfolio-view">
+      <LowCashCard />
       {!phone && <GoalsCard />}
       <Card className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-4">

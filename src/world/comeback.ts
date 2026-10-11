@@ -1,38 +1,53 @@
-import { cancelOrderResult, equityOf, placeOrder, tradeOption, type Account } from '@/engine';
+import { cancelOrderResult, equityOf, placeOrder, tradeOption, type Account, type OrderRequest } from '@/engine';
+import { LIFE_BY_ID } from '@/content/lifestyle';
 import {
-  CHAPTER_TICKS, REAL_DAY, REAL_WEEK, RESTRICT_TICKS, cashOf, creditExternal, debit, credit, notify, playerBusinesses, playerProperties,
+  CHAPTER_TICKS, REAL_DAY, REAL_WEEK, RESTRICT_TICKS, cashOf, creditExternal, debit, notify, playerBusinesses, playerProperties,
   restrictedNow,
 } from './core';
 import { refreshNetWorth, sellBusiness, sellProperty } from './assets';
 import { applyRank } from './players';
 import { tradesOf } from './ledger';
-import { adRefusal, adsUsedToday, SPONSOR } from './sponsor';
+import { adRefusal, adsUsedToday, overdraws, SPONSOR } from './sponsor';
+import { fundsOf } from './funds/state';
+import { tripDetail } from './journal';
+import { requestRedeem } from './funds/flows';
+import { startWindDown } from './funds/risk';
 import type { CommandResult, ComebackPerk, ComebackState, GameState, Player, StepOutput } from './types';
 
 /**
  * The comeback (velvet-bankruptcy.md, ROADMAP 2.6, lead-phase6.md 6B). A player under $1,000 of net worth, or one whose account
  * was closed by the clearing house (equity below zero), can start a new chapter: the positions are sold, the businesses and
- * property are sold at the usual terms, the cash is swept (a booked sink), and the account opens with $5,000 of fresh-start
- * cash, held 72 real hours. The rank, the shell, titles, cosmetics, licenses and research stay. One fresh start is allowed
- * every 8 real weeks. A second bust inside that window is not a dead end: the negative cash is discharged to zero (a booked
- * faucet) and the player keeps trading, earns contracts and can take the ad path.
+ * property are sold at the usual terms, the lab's models and compute and the managed funds are closed, the Limited and Unique
+ * lifestyle items go, the cash is swept (a booked sink), and the account opens with fresh money, held 72 real hours. The rank,
+ * the shell, titles, cosmetics, licenses and research stay. One fresh start is allowed every 8 real weeks.
+ *
+ * The $5,000 is the whole fresh-money allowance of the 8-week window (ROADMAP 2.6, anti-farming 6): a debt the clearing house
+ * writes off at the reset (`bust discharge`) comes out of that $5,000, and the fresh start pays the rest. So the account opens at
+ * $5,000 less any debt, and no window can create more than $5,000. A second bust inside the window gets no fresh money and no
+ * write-off: it keeps its debt, and its income and ad cash repay it (never a dead end). Margin is blocked for 14 real days after
+ * a fresh start; leverage is capped at 1x for 7.
  *
  * Perks (pick one, non-cash): Old contacts (one T1 business at 50% off), Lessons learned (half the trading fees for 7 real
- * days), Second wind (business income x1.25 for 7 real days). Leverage is capped at 1x for 7 real days after a fresh start.
- * Reputation -10. The fresh start is a booked faucet (`fresh start`, at most $5,000), the sweep a booked sink (`chapter close`).
+ * days), Second wind (business income x1.25 for 7 real days). Reputation -10. The fresh start is a booked faucet (`fresh start`),
+ * the write-off a booked faucet (`bust discharge`), the sweep a booked sink (`chapter close`).
  */
 
 export const COMEBACK = {
   /** the low-cash line: the card shows under it, and a fresh start needs it */
   lowCash: 1000,
+  /** the fresh money of one 8-week window: the fresh start, and any write-off, come out of it */
   freshCash: 5000,
   /** a fresh start at most once per 8 real weeks (the chapter length) */
   cooldownTicks: CHAPTER_TICKS,
   /** the perk windows and the leverage cap: 7 real days each */
   perkTicks: REAL_WEEK,
   leverageTicks: REAL_WEEK,
+  /** margin blocked for 14 real days after a fresh start (ROADMAP 2.6: margin and NPC loans) */
+  marginBlockTicks: 2 * REAL_WEEK,
   /** a dismissed card stays hidden for a real day */
   dismissTicks: REAL_DAY,
+  /** a close that has not flattened the book within a real day is abandoned: the card returns and the player may try again */
+  closeTimeoutTicks: REAL_DAY,
   /** the reputation hit of a fresh start */
   reputationHit: -10,
   /** the ad-cash lot a fresh start opens, the same window as ads */
@@ -82,6 +97,16 @@ export function confirmRefusal(g: GameState, p: Player, perk: ComebackPerk): str
   return null;
 }
 
+/**
+ * The margin block (14 real days after a fresh start): a buy past the cash and a short are refused. Reduce-only orders pass.
+ * Shared with the order gate in game.ts.
+ */
+export function comebackMarginRefusal(g: GameState, pid: string, req: OrderRequest): string | null {
+  const until = g.players[pid]?.comeback?.marginBlockUntil ?? 0;
+  if (until <= g.market.tick) return null;
+  return overdraws(g, pid, req) ? 'comebackMarginBlock' : null;
+}
+
 /** The player's commands: the fresh start (held to confirm in the app) and the card's dismissal. */
 export function comebackCommand(g: GameState, pid: string, cmd: { type: 'comeback.confirm'; perk: ComebackPerk } | { type: 'comeback.dismiss' }, out: StepOutput | null): CommandResult {
   const p = g.players[pid];
@@ -94,6 +119,9 @@ export function comebackCommand(g: GameState, pid: string, cmd: { type: 'comebac
   if (why) return { ok: false, error: why };
   const c = ensureComeback(p);
   c.closing = { tick: g.market.tick, perk: cmd.perk, forced: !!c.bust, netWorth: p.netWorth };
+  // the lab stops its bots while the book is sold down (a bot would otherwise keep ordering through the close)
+  const lab = g.lab[pid];
+  if (lab) g.lab[pid] = { ...lab, bots: [] };
   closeStep(g, p, out);
   return { ok: true, data: { perk: cmd.perk } };
 }
@@ -101,7 +129,7 @@ export function comebackCommand(g: GameState, pid: string, cmd: { type: 'comebac
 /**
  * The per-NW-refresh pass (every 12 ticks, after the net worth refresh): tracks the chapter peak of players with a comeback
  * record, detects a forced close (equity below zero, and the cooldown decides whether a fresh start is offered), and lifts the
- * leverage cap when its window ends.
+ * leverage cap when its window ends. A blocked bust keeps its debt (no write-off, see the header).
  */
 export function comebackRefresh(g: GameState, out: StepOutput | null): void {
   const tick = g.market.tick;
@@ -122,9 +150,6 @@ export function comebackRefresh(g: GameState, out: StepOutput | null): void {
     const blocked = cooldownLeft(g, p) > 0;
     cc.bust = { tick, blocked };
     if (blocked) {
-      // the floor: the negative cash is written off (a booked faucet) so the account is never a dead end
-      const cash = cashOf(g, p.id);
-      if (cash < 0) credit(g, p.id, -cash, 'bust discharge');
       notify(g, out, p.id, { kind: 'system', tone: 'warn', text: 'The clearing house closed your account. You still have contracts, businesses and ad cash. A fresh start opens again after 8 weeks.', msg: { key: 'comeback.bust.blocked' } });
     } else {
       notify(g, out, p.id, { kind: 'system', tone: 'warn', text: 'The account was closed by the clearing house. Your chapter is ready to close.', msg: { key: 'comeback.bust.forced' } });
@@ -132,10 +157,18 @@ export function comebackRefresh(g: GameState, out: StepOutput | null): void {
   }
 }
 
-/** Every tick: the closing players sell down and are reset once they are flat. */
+/** Every tick: the closing players sell down and are reset once they are flat; a close that stalls is abandoned. */
 export function comebackTick(g: GameState, out: StepOutput | null): void {
   for (const p of Object.values(g.players)) {
-    if (p.npc || !p.comeback?.closing) continue;
+    const c = p.comeback;
+    if (p.npc || !c?.closing) continue;
+    if (g.market.tick - c.closing.tick >= COMEBACK.closeTimeoutTicks) {
+      // a halted or illiquid position never fills: the close is abandoned (nothing is forced), the card returns, and the
+      // player may try again; the orders already cancelled stay cancelled
+      delete c.closing;
+      notify(g, out, p.id, { kind: 'system', tone: 'warn', text: 'The positions did not sell in a real day, so the chapter stays open. Try again when the market is liquid.', msg: { key: 'comeback.closeStalled' } });
+      continue;
+    }
     closeStep(g, p, out);
   }
 }
@@ -166,7 +199,10 @@ function closeStep(g: GameState, p: Player, out: StepOutput | null): void {
   if (flat) finishFreshStart(g, p, out);
 }
 
-/** The reset: the businesses and property sell, the cash is swept, and the account opens with $5,000 of fresh-start cash. */
+/**
+ * The reset: the businesses, property, lab models and compute, managed funds and the Limited and Unique lifestyle items go;
+ * the cash is swept; the fresh money of the window opens the account.
+ */
 function finishFreshStart(g: GameState, p: Player, out: StepOutput | null): void {
   const c = p.comeback!;
   const cl = c.closing!;
@@ -180,29 +216,55 @@ function finishFreshStart(g: GameState, p: Player, out: StepOutput | null): void
   c.last = { chapter: c.chapter, startTick: c.chapterStartTick, endTick: tick, peak: Math.max(c.peak, p.netWorth), end: p.netWorth, losses: trips };
   for (const b of [...playerBusinesses(g, p.id)]) sellBusiness(g, p.id, b.id, out);
   for (const pr of [...playerProperties(g, p.id)]) sellProperty(g, p.id, pr.id);
+  resetLab(g, p.id);
+  closeFunds(g, p.id, out);
+  // the Limited and Unique items go (velvet-bankruptcy.md): their 15% haircut is swept with the rest of the cash, so no cash moves here
+  p.lifestyle = p.lifestyle.filter((o) => { const cls = LIFE_BY_ID.get(o.itemId)?.cls; return cls !== 'limited' && cls !== 'unique'; });
   const cash = cashOf(g, p.id);
   if (cash > 0) debit(g, p.id, cash, 'chapter close');
-  else if (cash < 0) credit(g, p.id, -cash, 'bust discharge');
-  creditExternal(g, p.id, COMEBACK.freshCash, 'fresh start');
-  p.adLots = [{ amount: COMEBACK.freshCash, untilTick: tick + COMEBACK.lotTicks, kind: 'start' }];
+  // the fresh money of the window is $5,000 in total: a write-off of the debt comes out of it, and the fresh start pays the rest
+  const discharge = cash < 0 ? Math.min(-cash, COMEBACK.freshCash) : 0;
+  if (discharge > 0) creditExternal(g, p.id, discharge, 'bust discharge');
+  const fresh = COMEBACK.freshCash - discharge;
+  if (fresh > 0) creditExternal(g, p.id, fresh, 'fresh start');
+  p.adLots = fresh > 0 ? [{ amount: fresh, untilTick: tick + COMEBACK.lotTicks, kind: 'start' }] : [];
   p.reputation += COMEBACK.reputationHit;
   c.freshTick = tick;
   c.chapter += 1;
   c.chapterStartTick = tick;
-  c.peak = COMEBACK.freshCash;
+  c.peak = Math.max(0, fresh);
   if (cl.perk === 'contacts') c.voucher = true;
   else c.perk = { id: cl.perk, untilTick: tick + COMEBACK.perkTicks };
   c.leverageUntil = tick + COMEBACK.leverageTicks;
+  c.marginBlockUntil = tick + COMEBACK.marginBlockTicks;
   delete c.closing;
   delete c.bust;
   delete c.dismissedUntil;
   refreshNetWorth(g, p);
   // the leverage cap is set by the rank's license (applyRank reads leverageUntil), so the account follows it at once
   applyRank(g, p, out, true);
+  const opened = Math.round(cashOf(g, p.id) * 100) / 100;
   notify(g, out, p.id, {
-    kind: 'system', tone: 'brass', text: `Chapter ${c.chapter} begins with $${COMEBACK.freshCash.toLocaleString('en-US')}. Your rank, titles and cosmetics stay.`,
-    msg: { key: 'comeback.newChapter', vars: { chapter: c.chapter, amount: COMEBACK.freshCash } },
+    kind: 'system', tone: 'brass', text: `Chapter ${c.chapter} begins with $${opened.toLocaleString('en-US', { maximumFractionDigits: 2 })}. Your rank, titles and cosmetics stay.`,
+    msg: { key: 'comeback.newChapter', vars: { chapter: c.chapter, amount: opened } },
   });
+}
+
+/** The lab's models, compute, data, bots and research staff go; the completed research nodes stay (knowledge, not assets). */
+function resetLab(g: GameState, pid: string): void {
+  const lab = g.lab[pid];
+  if (!lab) return;
+  g.lab[pid] = { ...lab, gpus: {}, reserved: null, data: 0, dataSynth: 0, models: [], training: null, researchers: 0, bots: [], researching: null };
+}
+
+/** The managed funds wind down; the units the player holds in other funds are redeemed where the fund's rules allow it. */
+function closeFunds(g: GameState, pid: string, out: StepOutput | null): void {
+  const funds = fundsOf(g);
+  for (const f of Object.values(funds.funds)) {
+    if (f.managerId === pid && f.status !== 'winding' && f.status !== 'closed') startWindDown(g, f, out);
+    const units = f.holders[pid] ?? 0;
+    if (f.managerId !== pid && units > 0) requestRedeem(g, pid, f, units, out);
+  }
 }
 
 /** The view of the comeback for the owner: the card, the chapter screen and the ad offer. */
@@ -212,7 +274,7 @@ export interface ComebackView {
   peak: number;
   netWorth: number;
   low: boolean;
-  /** the card shows (low cash, not dismissed, not closing) */
+  /** the card shows (net worth under the line, not dismissed, not closing) */
   card: boolean;
   freshAvailable: boolean;
   cooldownLeft: number;
@@ -223,10 +285,12 @@ export interface ComebackView {
   perk: { id: ComebackPerk; untilTick: number } | null;
   voucher: boolean;
   leverageUntil: number | null;
+  marginBlockUntil: number | null;
   /** the three largest realized losses of the chapter so far (the screen's "What happened") */
-  losses: { id: string; assetId: string; pnl: number }[];
+  losses: { id: string; assetId: string; pnl: number; line: { key: string; vars?: Record<string, string | number> } | null }[];
   last: ComebackState['last'] | null;
-  restricted: { amount: number; until: number | null };
+  /** the restricted cash: its amount, the release tick of the earliest lot, and the lot kind shown on the pill (START when a fresh start is held) */
+  restricted: { amount: number; until: number | null; kind: 'ad' | 'start' };
   ad: {
     offered: boolean;
     refusal: string | null;
@@ -249,19 +313,19 @@ export function comebackView(g: GameState, pid: string): ComebackView | null {
     .filter((t) => t.closeTick >= (c?.chapterStartTick ?? p.joinedTick) && t.realizedPnl < 0)
     .sort((a, b) => a.realizedPnl - b.realizedPnl)
     .slice(0, 3)
-    .map((t) => ({ id: t.id, assetId: t.assetId, pnl: t.realizedPnl }));
+    .map((t) => ({ id: t.id, assetId: t.assetId, pnl: t.realizedPnl, line: tripLine(g, p, t.id) }));
   const lots = (p.adLots ?? []).filter((l) => l.untilTick > tick);
   const until = lots.length ? Math.min(...lots.map((l) => l.untilTick)) : null;
   const hasBiz = playerBusinesses(g, pid).length > 0;
   const ad = adView(g, pid);
-  const adOffered = ad.offered;
   return {
     chapter,
     chapterStartTick: c?.chapterStartTick ?? p.joinedTick,
     peak: c ? Math.max(c.peak, p.netWorth) : Math.max(p.netWorthPeak, p.netWorth),
     netWorth: p.netWorth,
     low,
-    card: (low || adOffered) && !c?.closing && (c?.dismissedUntil ?? 0) <= tick,
+    // the card shows under the line, or while a sponsor offer is open for the day (the lead's day-start ruling)
+    card: (low || ad.offered) && !c?.closing && (c?.dismissedUntil ?? 0) <= tick,
     freshAvailable: cool === 0 && !c?.closing && (low || !!c?.bust),
     cooldownLeft: cool,
     closing: c?.closing ? { forced: c.closing.forced, perk: c.closing.perk } : null,
@@ -270,11 +334,22 @@ export function comebackView(g: GameState, pid: string): ComebackView | null {
     perk: c?.perk ?? null,
     voucher: !!c?.voucher,
     leverageUntil: c?.leverageUntil ?? null,
+    marginBlockUntil: c?.marginBlockUntil && c.marginBlockUntil > tick ? c.marginBlockUntil : null,
     losses,
     last: c?.last ?? null,
-    restricted: { amount: restrictedNow(g, pid), until },
+    restricted: { amount: restrictedNow(g, pid), until, kind: lots.some((l) => l.kind === 'start') ? 'start' : 'ad' },
     ad,
   };
+}
+
+/**
+ * The net worth the boards rank a player by (velvet-bankruptcy.md acceptance): the live net worth, or the End of the chapter
+ * that closed last when that is higher, so a fresh start does not drop the row. The closed chapter's End stands.
+ */
+export function boardNetWorth(p: Player): number {
+  const live = p.markNetWorth ?? p.netWorth;
+  const end = p.comeback?.last?.end;
+  return end !== undefined && end > live ? end : live;
 }
 
 /** The sponsor offer for the owner (the card's row and the break): the rules are the sponsor module's. */
@@ -289,4 +364,12 @@ function adView(g: GameState, pid: string): ComebackView['ad'] {
     reward: SPONSOR.reward,
     pending: pending ? { id: pending.id, brand: pending.brand, startTick: pending.startTick } : null,
   };
+}
+
+/** The journal's one-line sentence for a closed round trip (velvet: the chapter screen explains each loss); null when none. */
+function tripLine(g: GameState, p: Player, id: string): { key: string; vars?: Record<string, string | number> } | null {
+  const r = tripDetail(g, p, id);
+  if (!r.ok) return null;
+  const line = (r.data as { line?: { key: string; vars?: Record<string, string | number> } } | undefined)?.line;
+  return line ?? null;
 }

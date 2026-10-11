@@ -1,4 +1,4 @@
-import { TPD, cashOf, creditExternal, debit, keyedRng, notify, pushWire, transfer } from './core';
+import { TPD, cashOf, spendableCash, creditExternal, debit, keyedRng, notify, pushWire, transfer } from './core';
 import { FUND_RULES, FUND_TIME } from '@/content/funds';
 import { advanceToInvestors, cancelStake } from './funds/flows';
 import { emptyFunds, fundById } from './funds/state';
@@ -89,7 +89,7 @@ export function fileCase(g: GameState, pid: string, defendantId: string, kind: C
 export function offerSettlement(g: GameState, pid: string, caseId: string, amount: number, out: StepOutput | null): CommandResult {
   const c = g.court.cases[caseId];
   if (!c || c.defendantId !== pid || c.status !== 'filed') return { ok: false, error: 'no open case against you' };
-  if (!(amount > 0) || cashOf(g, pid) < amount) return { ok: false, error: 'enter an amount you can pay' };
+  if (!(amount > 0) || spendableCash(g, pid) < amount) return { ok: false, error: 'enter an amount you can pay' };
   c.settlementOffer = amount;
   notify(g, out, c.plaintiffId, { kind: 'court', tone: 'info', text: `${g.players[pid]!.handle} offers $${Math.round(amount).toLocaleString('en-US')} to settle.` });
   return { ok: true };
@@ -98,7 +98,7 @@ export function offerSettlement(g: GameState, pid: string, caseId: string, amoun
 export function acceptSettlement(g: GameState, pid: string, caseId: string, out: StepOutput | null): CommandResult {
   const c = g.court.cases[caseId];
   if (!c || c.plaintiffId !== pid || c.status !== 'filed' || !c.settlementOffer) return { ok: false, error: 'no settlement on the table' };
-  const amt = Math.min(c.settlementOffer, cashOf(g, c.defendantId));
+  const amt = Math.max(0, Math.min(c.settlementOffer, spendableCash(g, c.defendantId)));
   transfer(g, c.defendantId, c.plaintiffId, amt);
   c.status = 'settled';
   c.damages = amt;
@@ -183,7 +183,7 @@ function fundVerdict(g: GameState, c: CourtCase, out: StepOutput | null, df: Pla
   const f = c.fundId ? fundById(g, c.fundId) : undefined;
   if (f) {
     paid = cancelStake(g, f, owed);
-    const room = Math.max(0, cashOf(g, c.defendantId) - FLOOR);
+    const room = Math.max(0, spendableCash(g, c.defendantId) - FLOOR);
     const cash = Math.min(owed - paid, room);
     if (cash > 0) { transfer(g, c.defendantId, f.accountId, cash); paid += cash; }
     advance = advanceToInvestors(g, f, Math.max(0, s5.vcfAdvancePct * (owed - paid)), out);

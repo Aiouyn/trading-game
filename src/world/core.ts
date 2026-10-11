@@ -34,6 +34,12 @@ export function today(g: GameState): number {
   return t <= 0 ? 0 : Math.floor((t - 1) / TPD);
 }
 
+/** The real day (24 game hours) a tick falls in: the window of the sponsor cap and of the ad offer's day-start snapshot. */
+export function realDayOf(g: GameState): number {
+  const t = g.market.tick;
+  return t <= 0 ? 0 : Math.floor((t - 1) / (24 * TPD));
+}
+
 export function newOutput(): StepOutput {
   return { wire: [], inbox: {}, fills: [], closed: [], chat: [], rankUps: [] };
 }
@@ -101,9 +107,12 @@ export function restrictedOf(p: { adLots?: { amount: number; untilTick: number }
   return r;
 }
 
-/** The restricted cash a player holds now (see restrictedOf). */
+/**
+ * The restricted cash a player holds now (see restrictedOf), never more than the cash in the account: a lot spent on a trade
+ * takes its restriction with it, so the restricted amount is min(lots, cash), never negative.
+ */
 export function restrictedNow(g: GameState, playerId: string): number {
-  return restrictedOf(g.players[playerId], g.market.tick);
+  return Math.max(0, Math.min(restrictedOf(g.players[playerId], g.market.tick), cashOf(g, playerId)));
 }
 
 /** Cash a player can spend on analysts, desk upkeep, plans, funds and transfers: cash less restricted cash (ad and fresh-start cash). */
