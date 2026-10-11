@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  AreaSeries, CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, createChart,
-  type IChartApi, type IPriceLine, type ISeriesApi, type Time, type UTCTimestamp,
+  AreaSeries, CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, PriceScaleMode, createChart,
+  type AutoscaleInfoProvider, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type LineData, type MouseEventParams,
+  type Time, type UTCTimestamp,
 } from 'lightweight-charts';
 import { useGame } from '@/game/store';
-import { barTimeLabel, candles, rangeSpec, type Bar, type RangeId } from '@/game/history';
-import { bollinger, ema, rsi, sma, vwap, type IndicatorId } from '@/game/indicators';
-import { price as fmtPrice } from '@/game/format';
+import { axisTimeLabel, barTimeLabel, barsFor, rangeIsIntraday, type Bar, type ChartRange, type Interval } from '@/game/history';
+import { INDICATORS, bollinger, ema, latestValues, rsi, sma, vwap, type IndicatorId } from '@/game/indicators';
+import { price as fmtPrice, signedPct } from '@/game/format';
+import { t } from '@/i18n';
 
 /**
  * Colors come from the design tokens at runtime: a hidden probe uses the token classes and we
@@ -55,6 +57,25 @@ function withAlpha(color: string, alpha: number): string {
 const PRICE_MARGINS = { top: 0.08, bottom: 0.26 };
 const VOLUME_MARGINS = { top: 0.8, bottom: 0.02 };
 
+/**
+ * The narrowest price range the plot shows, as a share of the price (spec 1.2): a 0.1% wiggle never fills the plot, so the
+ * axis spans at least half a percent either side of the middle. The percent axis is exempt (it is already relative).
+ */
+export const MIN_SPAN_SHARE = 0.005;
+
+/** The autoscale rule for a price series: widen a too-narrow visible range about its middle. */
+export function spanFloor(percent: { current: boolean }): AutoscaleInfoProvider {
+  return (base) => {
+    const res = base();
+    if (!res || !res.priceRange || percent.current) return res;
+    const { minValue, maxValue } = res.priceRange;
+    const mid = (minValue + maxValue) / 2;
+    const floor = Math.abs(mid) * MIN_SPAN_SHARE;
+    if (maxValue - minValue >= floor) return res;
+    return { ...res, priceRange: { minValue: mid - floor / 2, maxValue: mid + floor / 2 } };
+  };
+}
+
 type LineKey = 'sma20' | 'sma50' | 'ema12' | 'bbU' | 'bbL' | 'vwap' | 'rsi';
 
 /** A thin extra line drawn over an explicit series (the net worth chart's benchmark ghosts). Colors are the token names of PROBE. */
@@ -65,13 +86,21 @@ export interface ChartOverlay {
   points: { time: number; value: number }[];
 }
 
-export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand }: {
+/** One line of the chart legend: an active indicator and its latest value. */
+interface LegendRow { id: IndicatorId; label: string; value: string }
+
+/** The crosshair readout: the candle (or line value) under the pointer and its change against the range's first open. */
+interface Readout { time: number; o?: number; h?: number; l?: number; c: number; change: number }
+
+export function PriceChart({ assetId, range: rangeOverride, interval: intervalOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand, percent = false }: {
   assetId: string;
-  range?: RangeId;
+  range?: ChartRange;
+  interval?: Interval;
   mode?: 'candles' | 'line' | 'area';
   testId?: string;
   /** chart an explicit series instead of the history (net worth) */
   series?: { time: number; value: number }[];
+  /** the studies and their legend: on for the Broker chart, off for an explicit series */
   studies?: boolean;
   /** extra lines over an explicit series; only the ones listed are drawn */
   overlays?: ChartOverlay[];
@@ -81,6 +110,8 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
   onMarkOff?: (side: 'above' | 'below' | null) => void;
   /** a live world event: its window is shaded from the onset to now (velvet-world-events.md section 4); never its end */
   eventBand?: { sinceTick: number; kind: 'crash' | 'bubble' | 'crisis' | 'flash'; label: string };
+  /** the price axis shows percent from the first visible value (spec 1.2, the optional % axis) */
+  percent?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -95,16 +126,28 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
   const volColors = useRef({ up: '', down: '' });
   const last = useRef({ key: '', len: 0 });
   const probe = useRef<() => void>(() => {});
+  const percentRef = useRef(percent);
+  // the first open of the loaded bars: the crosshair's change is measured from it
+  const baseOpen = useRef(0);
 
   const storeRange = useGame((s) => s.range);
+  const storeInterval = useGame((s) => s.interval);
   const storeMode = useGame((s) => s.chartMode);
   const indicators = useGame((s) => s.indicators);
+  const toggle = useGame((s) => s.toggleIndicator);
   const range = rangeOverride ?? storeRange;
+  const interval = intervalOverride ?? storeInterval;
   const mode = modeOverride ?? storeMode;
   const rev = useGame((s) => s.historyRev);
   const loaded = useGame((s) => !!s.loaded[assetId]);
   const [band, setBand] = useState<{ left: number; width: number } | null>(null);
+  const [readout, setReadout] = useState<Readout | null>(null);
+  const [legend, setLegend] = useState<LegendRow[]>([]);
   const bandFrom = eventBand?.sinceTick ?? null;
+  const daily = interval === '1D' || !rangeIsIntraday(range);
+  const tpd = useGame((s) => s.history.ticksPerDay);
+  // the percent flag reaches the autoscale rule after commit (a ref is not written during render)
+  useEffect(() => { percentRef.current = percent; }, [percent]);
 
   // the event window: from the first bar at or after the onset to the right edge; it follows zoom and scroll
   useEffect(() => {
@@ -112,14 +155,14 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
     const el = host.current;
     if (bandFrom === null || !c || !el) { setBand(null); return; }
     const place = () => {
-      const first = candles(useGame.getState().history, assetId, range).find((b) => b.time >= bandFrom);
+      const first = barsFor(useGame.getState().history, assetId, interval, range).find((b) => b.time >= bandFrom);
       const x = first ? c.timeScale().timeToCoordinate(toTime(first.time)) : null;
       setBand(x === null ? null : { left: Math.max(0, x), width: Math.max(0, el.clientWidth - Math.max(0, x)) });
     };
     place();
     c.timeScale().subscribeVisibleLogicalRangeChange(place);
     return () => c.timeScale().unsubscribeVisibleLogicalRangeChange(place);
-  }, [bandFrom, rev, range, loaded, assetId, mode]);
+  }, [bandFrom, rev, range, interval, loaded, assetId, mode]);
 
   useEffect(() => {
     const el = host.current;
@@ -137,13 +180,14 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
       localization: { priceFormatter: (v: number) => fmtPrice(v) },
       handleScale: { axisPressedMouseMove: false },
     });
+    const floor = spanFloor(percentRef);
     candleS.current = c.addSeries(CandlestickSeries, {
       upColor: p.gain, downColor: p.loss, wickUpColor: p.gain, wickDownColor: p.loss, borderVisible: false,
-      priceLineColor: p.brass, priceLineStyle: LineStyle.Dotted, priceLineWidth: 1,
+      priceLineColor: p.brass, priceLineStyle: LineStyle.Dotted, priceLineWidth: 1, autoscaleInfoProvider: floor,
     });
-    lineS.current = c.addSeries(LineSeries, { color: p.line, lineWidth: 2, priceLineColor: p.brass, priceLineStyle: LineStyle.Dotted, priceLineWidth: 1, visible: false });
+    lineS.current = c.addSeries(LineSeries, { color: p.line, lineWidth: 2, priceLineColor: p.brass, priceLineStyle: LineStyle.Dotted, priceLineWidth: 1, visible: false, autoscaleInfoProvider: floor });
     areaS.current = c.addSeries(AreaSeries, {
-      lineColor: p.brass, lineWidth: 2, topColor: withAlpha(p.brass, 0.16), bottomColor: withAlpha(p.brass, 0), priceLineColor: p.brass, priceLineStyle: LineStyle.Dotted, visible: false,
+      lineColor: p.brass, lineWidth: 2, topColor: withAlpha(p.brass, 0.16), bottomColor: withAlpha(p.brass, 0), priceLineColor: p.brass, priceLineStyle: LineStyle.Dotted, visible: false, autoscaleInfoProvider: floor,
     });
     volColors.current = { up: withAlpha(p.gain, 0.32), down: withAlpha(p.loss, 0.32) };
     volS.current = c.addSeries(HistogramSeries, { priceScaleId: 'volume', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
@@ -163,6 +207,31 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
       last.current = { key: '', len: 0 };
     };
   }, []);
+
+  // the percent axis: the scale shows change from the first visible value, and the labels carry a %
+  useEffect(() => {
+    const c = chart.current;
+    if (!c) return;
+    c.priceScale('right').applyOptions({ mode: percent ? PriceScaleMode.Percentage : PriceScaleMode.Normal });
+    c.applyOptions({ localization: { priceFormatter: (v: number) => (percent ? `${v.toFixed(2)}%` : fmtPrice(v)) } });
+    probe.current();
+  }, [percent]);
+
+  // the crosshair readout: the candle under the pointer, and its change against the range's first open
+  useEffect(() => {
+    const c = chart.current;
+    if (!c) return;
+    const onMove = (p: MouseEventParams<Time>) => {
+      const s = mode === 'candles' ? candleS.current : mode === 'line' ? lineS.current : areaS.current;
+      const d = p.time !== undefined && p.point && s ? p.seriesData.get(s as ISeriesApi<'Candlestick'>) : undefined;
+      if (!d || baseOpen.current <= 0) { setReadout(null); return; }
+      const bar = d as Partial<CandlestickData<Time>> & Partial<LineData<Time>>;
+      const cl = bar.close ?? bar.value ?? 0;
+      setReadout({ time: Number(p.time), o: bar.open, h: bar.high, l: bar.low, c: cl, change: cl / baseOpen.current - 1 });
+    };
+    c.subscribeCrosshairMove(onMove);
+    return () => c.unsubscribeCrosshairMove(onMove);
+  }, [mode]);
 
   // the overlay lines come and go with the list they are given; each one's points replace its last set
   useEffect(() => {
@@ -186,14 +255,13 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
     }
   }, [overlays]);
 
+  // the axis labels follow the range: the clock on a day, the game day and clock on a week, the game day on the longer ranges
   useEffect(() => {
-    const daily = rangeSpec(range, 720).bucket === 'daily';
-    const fmt = (t: Time) => barTimeLabel(Number(t), 720, daily);
     chart.current?.applyOptions({
-      timeScale: { tickMarkFormatter: (t: Time) => (daily ? fmt(t) : barTimeLabel(Number(t), 720, false).split(' ')[1]!) },
-      localization: { timeFormatter: fmt },
+      timeScale: { tickMarkFormatter: (t: Time) => axisTimeLabel(Number(t), tpd, range, daily) },
+      localization: { timeFormatter: (t: Time) => barTimeLabel(Number(t), tpd, daily) },
     });
-  }, [range]);
+  }, [range, interval, daily, tpd]);
 
   useEffect(() => {
     candleS.current?.applyOptions({ visible: mode === 'candles' });
@@ -247,19 +315,20 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
       return;
     }
     const h = useGame.getState().history;
-    const bars: Bar[] = candles(h, assetId, range);
+    const bars: Bar[] = barsFor(h, assetId, interval, range);
     if (bars.length === 0) return;
+    baseOpen.current = bars[0]!.open;
     const vs = volS.current;
     const hasVolume = bars[bars.length - 1]!.volume !== undefined;
     const volPoint = (b: Bar) => ({ time: toTime(b.time), value: b.volume ?? 0, color: b.close >= b.open ? volColors.current.up : volColors.current.down });
-    const key = `${assetId}|${range}|${loaded}`;
+    const key = `${assetId}|${interval}|${range}|${loaded}`;
     const studyData = (): Partial<Record<LineKey, number[]>> => {
       const d: Partial<Record<LineKey, number[]>> = {};
       if (lines.current.sma20) d.sma20 = sma(bars, 20);
       if (lines.current.sma50) d.sma50 = sma(bars, 50);
       if (lines.current.ema12) d.ema12 = ema(bars, 12);
       if (lines.current.bbU) { const b = bollinger(bars); d.bbU = b.upper; d.bbL = b.lower; }
-      if (lines.current.vwap) d.vwap = vwap(bars, 720);
+      if (lines.current.vwap) d.vwap = vwap(bars, h.ticksPerDay);
       if (lines.current.rsi) d.rsi = rsi(bars);
       return d;
     };
@@ -274,19 +343,23 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
       }
       chart.current?.timeScale().fitContent();
       last.current = { key, len: bars.length };
-      return;
+    } else {
+      const lb = bars[bars.length - 1]!;
+      cs.update({ ...lb, time: toTime(lb.time) });
+      ls.update({ time: toTime(lb.time), value: lb.close });
+      as.update({ time: toTime(lb.time), value: lb.close });
+      if (hasVolume) vs?.update(volPoint(lb));
+      for (const [k, vals] of Object.entries(studyData()) as [LineKey, number[]][]) {
+        const v = vals[vals.length - 1];
+        if (Number.isFinite(v)) lines.current[k]?.update({ time: toTime(lb.time), value: v! });
+      }
+      last.current.len = bars.length;
     }
-    const lb = bars[bars.length - 1]!;
-    cs.update({ ...lb, time: toTime(lb.time) });
-    ls.update({ time: toTime(lb.time), value: lb.close });
-    as.update({ time: toTime(lb.time), value: lb.close });
-    if (hasVolume) vs?.update(volPoint(lb));
-    for (const [k, vals] of Object.entries(studyData()) as [LineKey, number[]][]) {
-      const v = vals[vals.length - 1];
-      if (Number.isFinite(v)) lines.current[k]?.update({ time: toTime(lb.time), value: v! });
-    }
-    last.current.len = bars.length;
-  }, [assetId, range, rev, loaded, series, testId, indicators]);
+    // the legend shows the latest value of each active indicator
+    const ids = (Object.keys(indicators) as IndicatorId[]).filter((id) => indicators[id] && studies);
+    const vals = latestValues(bars, ids, h.ticksPerDay);
+    setLegend(ids.map((id) => ({ id, label: INDICATORS.find((i) => i.id === id)?.label ?? id, value: legendText(id, vals[id]) })));
+  }, [assetId, interval, range, rev, loaded, series, testId, indicators, studies]);
 
   // The marks are redrawn when their text or prices change (keyed by value, so a caller need not memoize them). The palette
   // loss colour reads the chart host.
@@ -319,9 +392,40 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
     probe.current();
   });
 
+  const showOverlay = studies && series === undefined;
   return (
     <div className="relative h-full w-full">
       <div ref={host} className="h-full w-full" data-testid={testId} data-chart-id={assetId} />
+      {showOverlay && (
+        <div className="pointer-events-none absolute left-2 top-2 z-[3] flex max-w-[calc(100%-5rem)] flex-col gap-1">
+          {readout && (
+            <div className="num text-micro text-fg-muted" data-testid="chart-readout">
+              <span className="text-fg-faint">{barTimeLabel(readout.time, tpd, daily)}</span>
+              {readout.o !== undefined && readout.h !== undefined && readout.l !== undefined && (
+                <span className="ml-2">{t('broker.ohlc.open')} {fmtPrice(readout.o)} {t('broker.ohlc.high')} {fmtPrice(readout.h)} {t('broker.ohlc.low')} {fmtPrice(readout.l)}</span>
+              )}
+              <span className="ml-2 text-fg">{t('broker.ohlc.close')} {fmtPrice(readout.c)}</span>
+              <span className={`ml-2 ${readout.change >= 0 ? 'text-gain' : 'text-loss'}`} data-testid="chart-readout-change">{signedPct(readout.change)}</span>
+            </div>
+          )}
+          {legend.length > 0 && (
+            <ul className="flex flex-wrap gap-1" data-testid="chart-legend" aria-label={t('broker.legend')}>
+              {legend.map((row) => (
+                <li key={row.id} className="pointer-events-auto flex items-center gap-1 rounded-chip border border-ink-3 bg-ink-1/80 py-0.5 pl-2 pr-0.5 text-micro text-fg-muted" data-testid={`legend-${row.id}`}>
+                  <span>{row.label}</span>
+                  <span className="num text-fg">{row.value}</span>
+                  <button
+                    type="button" aria-label={t('broker.legend.remove', { name: row.label })} title={t('broker.legend.remove', { name: row.label })}
+                    onClick={() => toggle(row.id)} className="px-1 text-fg-faint hover:text-fg" data-testid={`legend-remove-${row.id}`}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {band && eventBand && (
         <div className="os-event-band" data-testid="event-band" data-kind={eventBand.kind} style={{ left: band.left, width: band.width }} aria-hidden>
           <span className="os-event-band-label">{eventBand.label}</span>
@@ -329,6 +433,14 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
       )}
     </div>
   );
+}
+
+/** The text a legend row shows for an indicator's latest value. */
+function legendText(id: IndicatorId, v: number[] | undefined): string {
+  if (!v || v.length === 0) return '–';
+  if (id === 'bb') return `${fmtPrice(v[0]!)} / ${fmtPrice(v[1] ?? v[0]!)}`;
+  if (id === 'rsi') return v[0]!.toFixed(1);
+  return fmtPrice(v[0]!);
 }
 
 export type { IndicatorId };

@@ -11,7 +11,7 @@ import type { HistoryPayload, NwHistoryPayload, ServerMsg } from '@/net/protocol
 import type { LpPage } from '@/world/launchpad/view';
 import { mirrorWorld, type DirectoryRow, type MarketFrame, type PlayerView, type PublicState } from '@/world/view';
 import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
-import { createHistory, loadSeries, type History, type RangeId } from './history';
+import { CHART_RANGES, INTERVALS, createHistory, loadSeries, rangeIsIntraday, type ChartRange, type History, type Interval } from './history';
 import type { IndicatorId } from './indicators';
 import { absorbFrame, delistedRefusal, type MirrorMe } from './universe';
 
@@ -67,7 +67,8 @@ export interface GameStore {
   /** Counts every setScreen call, so the desktop opens the window even when the screen is unchanged. */
   screenNonce: number;
   selected: string;
-  range: RangeId;
+  range: ChartRange;
+  interval: Interval;
   chartMode: 'candles' | 'line';
   indicators: Partial<Record<IndicatorId, boolean>>;
   tradeSheetOpen: boolean;
@@ -102,7 +103,8 @@ export interface GameStore {
   loadLpPage: (ticker: string) => Promise<LpPage | null>;
   select: (assetId: string) => void;
   setScreen: (s: Screen) => void;
-  setRange: (r: RangeId) => void;
+  setRange: (r: ChartRange) => void;
+  setInterval: (i: Interval) => void;
   setChartMode: (m: 'candles' | 'line') => void;
   toggleIndicator: (id: IndicatorId) => void;
   setTradeSheet: (open: boolean) => void;
@@ -158,13 +160,14 @@ function prefsStore(): KeyValueStore | null {
 }
 
 /** Chart prefs live in tg-prefs (DECISIONS "Local storage"); the legacy tycoon.prefs key is migrated on boot. */
-function readPrefs(): Partial<Pick<GameStore, 'indicators' | 'range' | 'chartMode' | 'selected'>> {
+function readPrefs(): Partial<Pick<GameStore, 'indicators' | 'range' | 'interval' | 'chartMode' | 'selected'>> {
   const kv = prefsStore();
   if (!kv) return {};
   const p = readPrefsFrom(kv);
-  const out: Partial<Pick<GameStore, 'indicators' | 'range' | 'chartMode' | 'selected'>> = {};
+  const out: Partial<Pick<GameStore, 'indicators' | 'range' | 'interval' | 'chartMode' | 'selected'>> = {};
   if (p.chart.indicators) out.indicators = Object.fromEntries(p.chart.indicators.map((id) => [id, true])) as GameStore['indicators'];
-  if (p.chart.range) out.range = p.chart.range as RangeId;
+  if ((CHART_RANGES as readonly string[]).includes(p.chart.range ?? "")) out.range = p.chart.range as ChartRange;
+  if ((INTERVALS as readonly string[]).includes(p.chart.interval ?? "")) out.interval = p.chart.interval as Interval;
   if (p.chart.chartMode === 'candles' || p.chart.chartMode === 'line') out.chartMode = p.chart.chartMode;
   if (p.lastTicker) out.selected = p.lastTicker;
   return out;
@@ -180,7 +183,7 @@ function writePrefs(s: GameStore): void {
   const kv = prefsStore();
   if (!kv) return;
   const indicators = Object.keys(s.indicators).filter((id) => s.indicators[id as IndicatorId]);
-  updatePrefs(kv, (p) => ({ ...p, lastTicker: s.selected, chart: { indicators, range: s.range, chartMode: s.chartMode } }));
+  updatePrefs(kv, (p) => ({ ...p, lastTicker: s.selected, chart: { indicators, range: s.range, interval: s.interval, chartMode: s.chartMode } }));
 }
 
 export const useGame = create<GameStore>((set, get) => {
@@ -313,6 +316,7 @@ export const useGame = create<GameStore>((set, get) => {
     screenNonce: 0,
     selected: 'HLCN',
     range: '1D',
+    interval: '5m',
     chartMode: 'candles',
     indicators: {},
     tradeSheetOpen: false,
@@ -414,7 +418,9 @@ export const useGame = create<GameStore>((set, get) => {
       writePrefs(get());
     },
     setScreen(screen) { set({ screen, screenNonce: get().screenNonce + 1, tradeSheetOpen: false, moreOpen: false }); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); },
-    setRange(range) { set({ range }); writePrefs(get()); },
+    // a daily range draws the daily bar, so the interval moves to 1D there (an intraday one is kept on the tick ring)
+    setRange(range) { set({ range, interval: rangeIsIntraday(range) ? get().interval : "1D" }); writePrefs(get()); },
+    setInterval(interval) { set({ interval }); writePrefs(get()); },
     setChartMode(chartMode) { set({ chartMode }); writePrefs(get()); },
     toggleIndicator(id) { set({ indicators: { ...get().indicators, [id]: !get().indicators[id] } }); writePrefs(get()); },
     setTradeSheet(tradeSheetOpen) { set({ tradeSheetOpen }); },

@@ -90,3 +90,26 @@ export const INDICATORS: { id: IndicatorId; label: string; hint: string }[] = [
   { id: 'vwap', label: 'VWAP', hint: 'Average price weighted by volume, resets daily' },
   { id: 'rsi', label: 'RSI', hint: 'Momentum from 0 to 100: above 70 stretched, below 30 washed out' },
 ];
+
+/**
+ * The latest value of each indicator over a bar list, for the chart legend (formatted by the caller). Only the ids given
+ * are computed. A bar list too short for an indicator gives no value for it.
+ */
+export function latestValues(bars: Bar[], ids: IndicatorId[], ticksPerDay: number): Partial<Record<IndicatorId, number[]>> {
+  const out: Partial<Record<IndicatorId, number[]>> = {};
+  const last = (xs: number[]) => {
+    const v = xs[xs.length - 1];
+    return v !== undefined && Number.isFinite(v) ? [v] : [];
+  };
+  for (const id of ids) {
+    if (id === 'sma20') out.sma20 = last(sma(bars, 20));
+    else if (id === 'sma50') out.sma50 = last(sma(bars, 50));
+    else if (id === 'ema12') out.ema12 = last(ema(bars, 12));
+    else if (id === 'bb') {
+      const b = bollinger(bars);
+      out.bb = [...last(b.upper), ...last(b.lower)];
+    } else if (id === 'vwap') out.vwap = last(vwap(bars, ticksPerDay));
+    else if (id === 'rsi') out.rsi = last(rsi(bars));
+  }
+  return out;
+}

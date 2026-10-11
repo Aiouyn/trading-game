@@ -17,7 +17,7 @@ import {
   updatePrefs,
   validateShell,
 } from './prefs';
-import { type ShellState, initialShell, focusedId } from './wm';
+import { type ShellState, firstRunShell, initialShell, focusedId } from './wm';
 
 class MemKV implements KeyValueStore {
   data = new Map<string, string>();
@@ -114,9 +114,16 @@ describe('shell per save', () => {
     expect(loadShell(kv, 'save-b', ctx, VP).wins.find((w) => w.app === 'broker')!.props).toEqual({ ticker: 'BRNT' });
   });
 
-  it('gives the Trade layout for a save without a shell', () => {
+  it('gives the first-run desktop for a save without a shell: the Broker alone, maximized', () => {
     const kv = new MemKV();
-    expect(loadShell(kv, 'never-saved', ctx, VP, 'HLCN')).toEqual(initialShell(VP, ctx, 'HLCN'));
+    const s = loadShell(kv, 'never-saved', ctx, VP, 'HLCN');
+    expect(s).toEqual(firstRunShell(VP, ctx, 'HLCN'));
+    expect(s.wins.map((w) => w.app)).toEqual(['broker']);
+    expect(s.wins[0]).toMatchObject({ filled: true, props: { ticker: 'HLCN' } });
+  });
+
+  it('keeps the Trade layout as the fallback for a corrupt shell', () => {
+    expect(initialShell(VP, ctx, 'HLCN').wins.map((w) => w.app).sort()).toEqual(['broker', 'portfolio', 'wire']);
   });
 
   it('only ever uses the two allowed keys', () => {

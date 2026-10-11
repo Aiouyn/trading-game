@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { watchErrors } from '../helpers';
+import { skipTips, watchErrors } from '../helpers';
 import { DESKTOPS, WIDE, box, boot, brokerCount, dispatchKey, expectRect, frame, gotoShell, launcher, newBroker, onlyIn, orders, reachRank, slotBox, viewport, windowIds, toastText } from './support';
 
 /** Waits until no window animation runs: a snap, a layout or an open has landed (tape: reduced motion is instant). */
@@ -103,11 +103,17 @@ test.describe('window rules', () => {
   test('@wm_close_pending_broker closing a Broker with a pending order asks first, and the order survives', async ({ page }) => {
     onlyIn('desktop');
     await boot(page);
+    // the first trade is a market buy: the order-type picker shows once a trade is done (the first trade is simple mode)
+    await page.getByTestId('order-qty').fill('1');
+    await page.getByTestId('order-submit').click();
+    await expect(page.getByTestId('type-limit')).toBeVisible({ timeout: 20_000 });
+    await skipTips(page);
+    const before = (JSON.parse(await orders(page)) as unknown[]).length;
     await page.getByTestId('type-limit').click();
     await page.getByTestId('order-qty').fill('1');
     await page.getByTestId('order-limit').fill('1');
     await page.getByTestId('order-submit').click();
-    await expect.poll(async () => JSON.parse(await orders(page)) as unknown[]).toHaveLength(1);
+    await expect.poll(async () => (JSON.parse(await orders(page)) as unknown[]).length).toBe(before + 1);
     const placed = await orders(page);
     await page.getByTestId('win-broker-1-close').click();
     await expect(page.getByTestId('win-broker-1-confirm')).toBeVisible();
