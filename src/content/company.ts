@@ -321,6 +321,8 @@ export const COMPANY = {
     maxLeverage: 3.5,
     minInterestCover: 2.0,
     cureDays: 21,
+    /** a liquidity cure: cash below zero with a facility drawn, for five game days, then default if not cured (spec §5; O-7) */
+    liquidityCureDays: 5,
     /** buybacks: net debt / EBITDA after the buyback at most 2.5x (§5.2) */
     buybackMaxLeverage: 2.5,
     /** the tier a loan needs: revolver from Growth, term loans from Late (§5) */

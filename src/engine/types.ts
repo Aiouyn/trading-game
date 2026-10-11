@@ -87,6 +87,11 @@ export interface AssetDef {
    * the shares out (X11, company-tests.md section 5). Absent = NPC liquidity, as for every other asset.
    */
   supplyAccount?: string;
+  /**
+   * A company stock's insider: the player who runs the company (its founder). The funds' insider test reads it: a fund the
+   * insider manages is capped at 5% of NAV in the stock, and files it (O-14). Absent = no insider (every other stock).
+   */
+  insiderId?: string;
 }
 
 /** One closed game day of a company stock: the close, the day's traded value and units (VWAP30 for the takeover floor). */
@@ -572,6 +577,13 @@ export interface Account {
   interestEarned?: number;
   dividends?: number;
   borrowPaid?: number;
+  /**
+   * Net cash this account exchanged with the Street, which has no account counterparty: fills of an asset with no
+   * supplyAccount (its commission included, so it is the Street's sink counted once), option premia (commission included),
+   * option expiry or delisting payouts, and the settlement of such an asset (a bankruptcy, a cash merger or a delisting).
+   * Signed as the account's cash: a buy is negative, a sell positive (O-3).
+   */
+  streetCash?: number;
   /** tick a margin call went out (cleared when the account recovers) */
   marginCallTick?: number;
   /** an NPC persona's account: its flow clears as Retail and never counts toward Players or You (P1). Absent = a human. */

@@ -825,16 +825,34 @@ function book(acct: Account, assetId: string, side: Side, q: number, price: numb
 }
 
 /**
+ * Record a cash flow with the Street on an account's running total (`streetCash`, O-3). The Street has no account, so this
+ * is the only place its side of a flow is kept: a fill or payout with no counterparty account calls it with the cash the
+ * account gained (positive) or paid (negative). Money is not created here; the world's identity reads the tally.
+ */
+function tallyStreet(acct: Account, delta: number): void {
+  acct.streetCash = (acct.streetCash ?? 0) + delta;
+}
+
+/**
  * Close every account's position in one asset at a settlement price, with no fee: a bankruptcy's recovery, a cash
  * merger's premium, or a spin-off's carve-out. Open orders in the asset are cancelled. Pure.
+ *
+ * An asset with no company book (no supplyAccount) settles against the Street, which is not an account: each holder's cash
+ * change is the Street's flow, and it is kept in `streetCash` (O-3 review). Money is not created here; the sum of the holders'
+ * cash changes equals the sum of the Street tallies. A company stock settles against its book, and the tender moves the cash
+ * between the bidder and the holders, so it is not tallied here.
  */
 export function settleAsset(state: WorldState, assetId: string, price: number): WorldState {
+  const def = state.config.assets.find((a) => a.id === assetId);
+  const street = def !== undefined && def.supplyAccount === undefined;
   const accounts: Record<string, Account> = { ...state.accounts };
   for (const [id, acct] of Object.entries(state.accounts)) {
     const pos = acct.positions[assetId];
     if (!pos) continue;
     const copy: Account = { ...acct, positions: { ...acct.positions } };
     book(copy, assetId, pos.qty > 0 ? 'sell' : 'buy', Math.abs(pos.qty), price, 0);
+    // the account's cash change is pos.qty x price for a long sale and for a short cover alike (a short's cover is negative)
+    if (street) tallyStreet(copy, pos.qty * price);
     accounts[id] = copy;
   }
   const orders = state.orders.map((o) => (o.assetId === assetId && o.status === 'open'
@@ -864,6 +882,7 @@ export function settleOptionsOn(
       const payout = intrinsic * mult * pos.qty;
       copy ??= { ...acct, options: { ...acct.options } };
       copy.cash += payout;
+      tallyStreet(copy, payout);
       copy.realizedPnl += payout - pos.avgCost * mult * pos.qty;
       delete copy.options![cid];
       events.push({ type: 'option_expiry', tick, playerId: id, contractId: cid, qty: pos.qty, payout, reason: 'delisting' });
@@ -919,6 +938,7 @@ export function tradeOption(state: WorldState, playerId: string, contractId: str
     const total = q.ask * cfg.multiplier * qty + fee;
     if (total > acct.cash + EPS) return { state, error: 'insufficient cash' };
     acct.cash -= total;
+    tallyStreet(acct, -total); // the dealer is the Street: the premium, commission included (O-3)
     const n = (held?.qty ?? 0) + qty;
     acct.options![contractId] = { qty: n, avgCost: ((held?.qty ?? 0) * (held?.avgCost ?? 0) + total / cfg.multiplier) / n };
     acct.feesPaid += fee;
@@ -927,6 +947,7 @@ export function tradeOption(state: WorldState, playerId: string, contractId: str
   if (!held || held.qty < qty) return { state, error: 'you hold fewer contracts' };
   const proceeds = q.bid * cfg.multiplier * qty - fee;
   acct.cash += proceeds;
+  tallyStreet(acct, proceeds); // the dealer is the Street: the premium received, commission out (O-3)
   acct.realizedPnl += proceeds - held.avgCost * cfg.multiplier * qty;
   acct.feesPaid += fee;
   if (held.qty === qty) delete acct.options![contractId];
@@ -1120,6 +1141,8 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
 
       const acct: Account = { ...acct0, positions: { ...acct0.positions } };
       book(acct, o.assetId, o.side, q, price, fee);
+      // an asset with no company book fills against the Street: the trader's cash is the Street's flow (O-3)
+      if (supplyId === undefined) tallyStreet(acct, -(sign(o.side) * q * price + fee));
       s.accounts[o.playerId] = acct;
       if (supplyId !== undefined) routeToSupply(s, supplyId, o.assetId, o.side, q, price, fee);
 
@@ -1219,6 +1242,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         const intrinsic = c.kind === 'call' ? Math.max(0, S - c.strike) : Math.max(0, c.strike - S);
         const payout = intrinsic * mult * pos.qty;
         a.cash += payout;
+        tallyStreet(a, payout); // the expiry is settled by the Street (O-3)
         a.realizedPnl += payout - pos.avgCost * mult * pos.qty;
         delete a.options[cid];
         events.push({ type: 'option_expiry', tick, playerId: id, contractId: cid, qty: pos.qty, payout });
@@ -1259,6 +1283,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           const { price, p0 } = tickPrice(i, side, q);
           const fee = commission(s, s.config.assets[i]!, q * price);
           book(a, assetId, side, q, price, fee);
+          if (liqSupply === undefined) tallyStreet(a, -(sign(side) * q * price + fee)); // a forced fill with the Street (O-3)
           if (liqSupply !== undefined) routeToSupply(s, liqSupply, assetId, side, q, price, fee);
           s.orderSeq++;
           const forcedOrder = newOrder(s, s.orderSeq, { playerId: id, assetId, side, type: 'market', qty: q }, null, {

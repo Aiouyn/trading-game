@@ -17,14 +17,14 @@ import { failCompanyStock, printCompanyValue, programsDay, restrictionsOf, sellC
 import { companyAction, companyTick, foundCompany, emptyCompanyWorld, type CompanyAction, type CompanyEnv, type CompanyEvent } from './company';
 import { bid, marketShareOf, observeStakes, recordTape } from './takeover';
 import { ownerSetOf, syncAllianceLinks } from './owners';
-import { insiderBackstop } from './backstop';
+import { insiderBackstop, scorePlanAbuse } from './backstop';
 import type { CompanyReject } from './types';
 import { COMPANY, type CompanySector } from '@/content/company';
 import { addWindowRange, listedDay, nextOpenDay, recordFounderFills, syncWindow } from './insiders';
 import { listIpo, orderIpo, requestIpo } from './ipo';
 import { covenantAtFiling, debtDay, drawLoan, repayLoan } from './debt';
 import { applyProgramEvents, cancelPlanFor, commitPlanFor, fileBuyback } from './programs';
-import { declareDividend } from './payouts';
+import { declareDividend, sweepPoolCash } from './payouts';
 import { migrateCompany } from './migrate';
 
 /** The owner links of the company world follow the alliances (V1, owners.ts): read before any owner-set rule runs. */
@@ -43,6 +43,11 @@ function migrateAll(g: GameState): void {
   syncLinks(g);
   for (const c of Object.values(g.companies?.companies ?? {})) {
     migrateCompany(c);
+    // a listed save from before the insider was named on the stock (O-14): the founder is its insider
+    if (c.listed && g.market.config.assets.some((a) => a.id === c.listed!.assetId && a.insiderId === undefined)) {
+      const assets = g.market.config.assets.map((a) => (a.id === c.listed!.assetId && a.insiderId === undefined ? { ...a, insiderId: c.ownerId } : a));
+      g.market = { ...g.market, config: { ...g.market.config, assets } };
+    }
     if (c.listed && sellCapOf(restrictionsOf(g.market), c.listed.assetId, c.ownerId) === undefined) {
       const perDay = Math.floor(COMPANY.insiders.sellCapPct * c.listed.sharesOut);
       g.market = { ...g.market, restrictions: setSellCap(restrictionsOf(g.market), c.listed.assetId, c.ownerId, perDay) };
@@ -176,6 +181,8 @@ export function companyStep(g: GameState, fills: Fill[], events: StepEvent[]): v
   if (!g.companies) return;
   migrateAll(g);
   recordFounderFills(g, fills);
+  // a pool's sale proceeds (and any purchase) are its investors', pro rata (O-9)
+  sweepPoolCash(g);
   applyProgramEvents(g, events);
   windowCloseLines(g, events);
 }
@@ -270,7 +277,16 @@ export function companyFinanceCommand(g: GameState, pid: string, cmd: CompanyFin
     case 'company.ipo': r = requestIpo(g, pid, c, cmd.floatPct, out); break;
     case 'company.ipoOrder': r = orderIpo(g, pid, c, cmd.shares); break;
     case 'company.plan': r = commitPlanFor(g, pid, c, { qtyPerDay: cmd.qtyPerDay, days: cmd.days, minSellPrice: cmd.minSellPrice }, out); break;
-    case 'company.planCancel': r = cancelPlanFor(g); break;
+    case 'company.planCancel':
+      // only the founder runs the company's plans: another player's cancel is refused, and scores nothing (O-15 review)
+      if (c.ownerId !== pid) {
+        r = { ok: false, reject: { code: 'notFounder' } };
+        break;
+      }
+      r = cancelPlanFor(g);
+      // a committed plan cannot be cancelled: the founder's attempt is plan abuse (O-15), scored when the plan is refused
+      if (!r.ok && r.reject.code === 'planImmutable' && c.listed) scorePlanAbuse(g, pid, c.listed.assetId);
+      break;
     case 'company.buyback': r = fileBuyback(g, pid, c, { size: cmd.size, fromDay: cmd.fromDay, toDay: cmd.toDay }, out); break;
     case 'company.loan': r = drawLoan(g, pid, c, { amount: cmd.amount, guarantee: !!cmd.guarantee, acknowledged: !!cmd.acknowledged }, out); break;
     case 'company.repay': r = repayLoan(g, pid, c, cmd.debtId, cmd.amount); break;

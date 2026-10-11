@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useT } from '@/i18n';
 import { useGame } from '@/game/store';
 import { COUNTRIES } from '@/world/players';
 import { Button, Select, TextField } from './ui';
@@ -11,6 +12,7 @@ import { Button, Select, TextField } from './ui';
  * in with a handle and password.
  */
 export function Welcome() {
+  const t = useT();
   const register = useGame((s) => s.register);
   const login = useGame((s) => s.login);
   const [mode, setMode] = useState<'cold' | 'new' | 'login'>('cold');
@@ -37,33 +39,33 @@ export function Welcome() {
             <path d="M158 2 L120 30 L126 44 L92 70 L98 82 L60 110" fill="none" className="stroke-fg-disabled" strokeWidth="1" />
             <path d="M126 44 L146 52" fill="none" className="stroke-fg-disabled" strokeWidth="0.8" />
           </svg>
-          <div className="num text-center text-caption text-fg-faint">09:30 · Port Avalon</div>
-          <div className="mt-8 text-center label">Balance</div>
-          <div className="text-center font-serif text-hero-lg text-fg">$5,000<span className="text-[65%] text-fg-muted">.00</span></div>
-          <p className="mt-2 text-center text-small text-fg-muted">Rent due Friday.</p>
+          <div className="num text-center text-caption text-fg-faint">{t('welcome.clock')}</div>
+          <div className="mt-8 text-center label">{t('welcome.balance')}</div>
+          <div className="text-center font-serif text-hero-lg text-fg">{t('welcome.amount')}<span className="text-[65%] text-fg-muted">{t('welcome.cents')}</span></div>
+          <p className="mt-2 text-center text-small text-fg-muted">{t('welcome.rentDue')}</p>
           {mode === 'cold' && (
             <div className="mt-10 flex flex-col items-center gap-3">
-              <Button variant="brass" size="lg" className="w-full" onClick={() => setMode('new')} testId="onboarding-start">Start</Button>
-              <button type="button" className="text-small text-fg-muted underline hover:text-fg" onClick={() => setMode('login')} data-testid="onboarding-skip">I’ve played before</button>
+              <Button variant="brass" size="lg" className="w-full" onClick={() => setMode('new')} testId="onboarding-start">{t('welcome.start')}</Button>
+              <button type="button" className="text-small text-fg-muted underline hover:text-fg" onClick={() => setMode('login')} data-testid="onboarding-skip">{t('welcome.played')}</button>
             </div>
           )}
           {mode !== 'cold' && (
             <form className="mt-8 flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); void go(); }}>
-              <TextField value={handle} onChange={setHandle} placeholder="Your handle" maxLength={18} autoFocus testId="handle" label="Handle" />
+              <TextField value={handle} onChange={setHandle} placeholder={t('welcome.handlePlaceholder')} maxLength={18} autoFocus testId="handle" label={t('welcome.handle')} />
               {mode === 'new' ? (
-                <Select label="Country" value={country} onChange={setCountry} options={COUNTRIES.map((c) => ({ value: c.code, label: c.name }))} testId="country" />
+                <Select label={t('welcome.country')} value={country} onChange={setCountry} options={COUNTRIES.map((c) => ({ value: c.code, label: c.name }))} testId="country" />
               ) : (
-                <TextField type="password" value={pw} onChange={setPw} placeholder="Password" testId="password" label="Password" />
+                <TextField type="password" value={pw} onChange={setPw} placeholder={t('welcome.password')} testId="password" label={t('welcome.password')} />
               )}
               {err && <p className="text-caption text-warn" data-testid="auth-error">{err}</p>}
-              <Button variant="brass" size="lg" type="submit" className="mt-2 w-full" busy={busy} testId="enter-world">{mode === 'new' ? 'Enter Port Avalon' : 'Sign in'}</Button>
+              <Button variant="brass" size="lg" type="submit" className="mt-2 w-full" busy={busy} testId="enter-world">{mode === 'new' ? t('welcome.enter') : t('welcome.signIn')}</Button>
               <button type="button" className="mt-1 text-caption text-fg-faint hover:text-fg-muted" onClick={() => { setMode(mode === 'new' ? 'login' : 'new'); setErr(null); }}>
-                {mode === 'new' ? 'I have an account' : 'New here? Start fresh'}
+                {mode === 'new' ? t('welcome.haveAccount') : t('welcome.newHere')}
               </button>
             </form>
           )}
         </div>
-        <p className="mt-6 text-center text-caption text-fg-faint">A multiplayer finance game. Fictional markets and companies, no real money.</p>
+        <p className="mt-6 text-center text-caption text-fg-faint">{t('welcome.tagline')}</p>
       </div>
     </main>
   );
@@ -85,12 +87,13 @@ function Skyline() {
   );
 }
 
-export function Loading({ text = 'Connecting to Port Avalon' }: { text?: string }) {
+export function Loading({ text }: { text?: string }) {
+  const t = useT();
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center" data-testid="loading">
-      <h1 className="font-serif text-hero text-fg">{text}</h1>
+      <h1 className="font-serif text-hero text-fg">{text ?? t('loading.connecting')}</h1>
       <div className="h-1 w-48 overflow-hidden rounded-chip bg-ink-3"><div className="h-full w-1/3 animate-[slide_1.2s_ease-in-out_infinite] bg-brass" /></div>
-      <p className="max-w-sm text-small text-fg-muted">If this takes long, make sure the world server is running: <span className="num">npm run world</span></p>
+      <p className="max-w-sm text-small text-fg-muted">{t('loading.slow')} <span className="num">{t('loading.command')}</span></p>
     </main>
   );
 }

@@ -234,6 +234,8 @@ export interface Debt {
   guarantor: string | null;
   /** the personal debt the guarantor owes if the company defaults (called on default, Ledger §12 #8) */
   guaranteedAmount: number;
+  /** O-7: interest missed during a liquidity cure, owed to the bank and accruing at this facility's rate. Absent = none. */
+  arrears?: number;
 }
 
 /** B1: an IPO book: request on day D, the subscriptions of day D, allocation and listing at the start of D + 1. */
@@ -498,6 +500,8 @@ export interface Company {
   debts: Debt[];
   debtSeq: number;
   covenant: { status: CovenantStatus; cureUntilDay: number | null };
+  /** O-7: the day a liquidity cure ends (cash below zero with a facility drawn), or null. Absent in older saves (read as null). */
+  liquidityCureUntilDay?: number | null;
   lastDebtDrawDay: number;
   /** B1: the dividend distress flag, set by a permitted dividend drawn with a net debt increase, cleared at the next filing */
   divDistress: boolean;

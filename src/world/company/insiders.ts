@@ -10,7 +10,7 @@ import { COMPANY } from '@/content/company';
 import { restrictionsOf, setWindow, type WorldState } from '@/engine';
 import { notify, today } from '../core';
 import type { GameState, StepOutput } from '../types';
-import { linked } from '../funds/state';
+import { fundsOf, linked } from '../funds/state';
 import { treasuryIdOf } from './ipo';
 import type { Company, InsiderTradeRow } from './types';
 
@@ -19,6 +19,8 @@ export function rosterOf(g: GameState, c: Company): string[] {
   const ids = new Set<string>([c.ownerId]);
   if (c.treasuryId) ids.add(c.treasuryId);
   for (const pid of Object.keys(g.players)) if (!g.players[pid]!.npc && linked(g, c.ownerId, pid)) ids.add(pid);
+  // a fund that the owner (or a linked player) manages trades the stock inside the same window (O-14)
+  for (const f of Object.values(fundsOf(g).funds)) if (linked(g, c.ownerId, f.managerId)) ids.add(f.accountId);
   if (c.listed) {
     const need = COMPANY.insiders.holderPct * c.listed.sharesOut;
     for (const [id, a] of Object.entries(g.market.accounts)) {

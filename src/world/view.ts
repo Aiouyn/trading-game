@@ -109,13 +109,26 @@ export function configSeq(g: GameState): number {
   return g.market.listings?.seq ?? 0;
 }
 
+/**
+ * The asset defs a client may read. A company stock's `insiderId` is the founder's player id, a link the public company view
+ * hides (no-reveal): the server keeps it for the funds' insider check and the defs carry the stock without it.
+ */
+export function publicDefs(assets: AssetDef[]): AssetDef[] {
+  return assets.map((a) => {
+    if (a.insiderId === undefined) return a;
+    const { insiderId: _insider, ...rest } = a;
+    void _insider;
+    return rest;
+  });
+}
+
 export function marketFrame(g: GameState, withEarnings = false, withDefs = false): MarketFrame {
   const m = g.market;
   const frame: MarketFrame = {
     tick: m.tick,
     regime: m.regime,
     cfgSeq: configSeq(g),
-    ...(withDefs ? { defs: m.config.assets } : {}),
+    ...(withDefs ? { defs: publicDefs(m.config.assets) } : {}),
     // rounded to what the client needs: prices to 1e-7 in log space (≈ 0.00001%), volumes to units
     assets: m.assets.map((a) => [
       r7(a.lnP), r4(a.h), a.haltUntil, r7(a.lnOpen), r2(a.volume ?? 0), r2(a.dayVolume ?? 0), r2(a.cumVolume ?? 0),
