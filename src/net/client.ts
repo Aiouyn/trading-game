@@ -27,11 +27,19 @@ export function deviceId(): string {
   }
 }
 
+/** The world port the server rendered for this page (layout.tsx, TG_WORLD_PORT), when the app runs with a non-default world port. */
+function renderedWorldPort(): string | null {
+  const v = (window as unknown as { __TG_WORLD_PORT__?: unknown }).__TG_WORLD_PORT__;
+  return typeof v === 'number' || typeof v === 'string' ? String(v) : null;
+}
+
 export function worldHttpUrl(): string {
   const env = process.env.NEXT_PUBLIC_WORLD_URL;
   if (env) return env.replace(/\/$/, '');
   if (typeof window === 'undefined') return `http://localhost:${DEFAULT_WORLD_PORT}`;
-  const port = new URLSearchParams(window.location.search).get('world') ?? String(DEFAULT_WORLD_PORT);
+  // ?world= wins (a dev override), then the port the server rendered, then the default. The host is the page's own, so a phone
+  // that opened the web app by its LAN address talks to the world on that same machine.
+  const port = new URLSearchParams(window.location.search).get('world') ?? renderedWorldPort() ?? String(DEFAULT_WORLD_PORT);
   return `${window.location.protocol}//${window.location.hostname}:${port}`;
 }
 
