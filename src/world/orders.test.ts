@@ -4,7 +4,7 @@ import { credit } from './core';
 import { refreshNetWorth } from './assets';
 import { NW_EVERY } from './core';
 import { applyRank } from './players';
-import { orderError } from './orders';
+import { capBaseOf, orderError } from './orders';
 import type { GameState, Command } from './types';
 
 function cmd(g: GameState, pid: string, c: Command) {
@@ -74,6 +74,22 @@ describe('simple mode: the 20% cap until Hustler', () => {
     stepGame(g);
     expect(g.market.accounts.u1!.positions.HLCN!.qty).toBe(5);
     expect(g.market.accounts.u1!.cash / 5250).toBeGreaterThan(0.8);
+  });
+
+  it('a short does not raise the cap: its proceeds are owed back, so the cap base is cash less what the shorts owe', () => {
+    // a short of 5 HLCN at about 177 puts about $887 into cash; the cap base stays the cash before the short
+    expect(capBaseOf(5250 + 887, { HLCN: { qty: -5, avgCost: 177.2, realizedPnl: 0 } })).toBeCloseTo(5250 + 887 - 5 * 177.2, 6);
+    expect(capBaseOf(100, { HLCN: { qty: 5, avgCost: 177.2, realizedPnl: 0 } })).toBe(100);
+    expect(capBaseOf(10, { HLCN: { qty: -5, avgCost: 177.2, realizedPnl: 0 } })).toBe(0);
+    const g = world('simple-short-base', true);
+    expect(cmd(g, 'u1', { type: 'order.place', order: { ...FIVE, side: 'sell' } }).ok).toBe(true);
+    stepGame(g);
+    const acct = g.market.accounts.u1!;
+    // the cap base is the starting cash (less the fee), not the cash the short added
+    expect(Math.abs(capBaseOf(acct.cash, acct.positions) - acct.startingCash)).toBeLessThan(5);
+    expect(acct.cash).toBeGreaterThan(acct.startingCash + 800);
+    // six more shares open about $1,060 of short, past 20% of the starting cash (about $1,050) but under 20% of the cash with proceeds
+    expect(orderError(g, g.players.u1!, { ...FIVE, qty: 6, side: 'sell' })).toMatch(/20%/);
   });
 
   it('a short counts against the same cap as a buy, and a short that fits is accepted at R0', () => {

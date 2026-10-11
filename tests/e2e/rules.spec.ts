@@ -2,6 +2,14 @@ import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { clearSheets, goTo, isPhone, register, skipTips, watchErrors } from './helpers';
 
+/** The four palettes in Settings, by the names their picker buttons carry (palette.spec.ts). */
+const PALETTES = [
+  { slug: 'ink-brass', button: 'Ink & Brass' },
+  { slug: 'broadsheet', button: 'Broadsheet' },
+  { slug: 'phosphor', button: 'Phosphor' },
+  { slug: 'riviera', button: 'Riviera' },
+] as const;
+
 // Stage 1 rules (docs/UX-REDESIGN.md 1.5): the top bar's labelled Cash and Net worth with the click-through breakdown, the
 // fill notice in the toast, and shorting from R0 (cash-secured at 1x, its collateral and borrow fee on the ticket).
 // Screenshots go to RULES_SHOTS as rules-<desk1440|phone390>-<state>.png.
@@ -86,5 +94,47 @@ test('a new player can short from R0: the ticket shows the collateral held and t
   await page.getByTestId('order-submit').click();
   await expect.poll(async () => page.evaluate(() => window.__tg!.state().me!.account?.positions.HLCN?.qty ?? 0), { timeout: 15_000 }).toBe(-5);
   await shot(page, 'short-open');
+  expect(errors).toEqual([]);
+});
+
+// The desktop Trade ticket fits the screen with its quantity and CTA on screen, without scrolling (principle 1, spec 1.1).
+for (const [w, h] of [[1280, 720], [1440, 900]] as const) {
+  test(`the Trade ticket at ${w}x${h}: the quantity and the Buy/Sell button are on screen, the terms below them`, async ({ page }) => {
+    test.skip(isPhone(page), 'the desktop terminal ticket');
+    const errors = watchErrors(page);
+    await page.setViewportSize({ width: w, height: h });
+    await register(page);
+    await skipTips(page);
+    await goTo(page, 'market');
+    await expect(page.getByTestId('order-pad')).toBeVisible();
+    await page.getByTestId('side-sell').click();
+    await page.getByTestId('order-qty').fill('5');
+    await expect(page.getByTestId('order-qty')).toBeInViewport();
+    await expect(page.getByTestId('order-submit')).toBeInViewport();
+    mkdirSync(SHOTS, { recursive: true });
+    await page.screenshot({ path: `${SHOTS}/rules-${w}x${h}-ticket.png` });
+    expect(errors).toEqual([]);
+  });
+}
+
+// Every palette reads the top bar's figures, the breakdown and the ticket (the four palettes, spec "every item done").
+test('the top bar breakdown and the Trade ticket read in each of the four palettes', async ({ page }) => {
+  test.skip(isPhone(page), 'the palette check is a desktop screenshot set');
+  const errors = watchErrors(page);
+  await register(page);
+  await skipTips(page);
+  for (const { slug, button } of PALETTES) {
+    await goTo(page, 'profile');
+    await page.getByTestId('palette-picker').getByRole('button', { name: button }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-palette', slug);
+    await goTo(page, 'market');
+    await expect(page.getByTestId('order-pad')).toBeVisible();
+    await page.getByTestId('os-networth').click();
+    await expect(page.getByTestId('nw-breakdown')).toBeVisible();
+    await page.screenshot({ path: `${SHOTS}/rules-desk1440-palette-${slug}-breakdown.png` });
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('nw-breakdown')).toHaveCount(0);
+    await page.getByTestId('order-pad').screenshot({ path: `${SHOTS}/rules-desk1440-palette-${slug}-ticket.png` });
+  }
   expect(errors).toEqual([]);
 });

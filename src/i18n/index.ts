@@ -38,15 +38,31 @@ function lookup(locale: Locale, key: string): string | undefined {
   return DICTS[locale][key];
 }
 
+const NUMBER_LOCALE: Record<Locale, string> = { en: 'en-US', fr: 'fr-FR' };
+
+/**
+ * A number token "#n:<value>,<min>,<max>" is formatted in the viewer's locale (decimal comma in French): the server builds
+ * the message with the number itself, so the same descriptor reads right in either language.
+ */
+export function formatNumberToken(locale: Locale, token: string): string {
+  const [value = '', min = '0', max = '2'] = token.slice(3).split(',');
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return n.toLocaleString(NUMBER_LOCALE[locale], { minimumFractionDigits: Number(min), maximumFractionDigits: Number(max) });
+}
+
 /**
  * A variable that starts with "@" names another key (e.g. {part: "@journal.part.market"}): it is translated in the same
- * locale first, so a sentence built on the server reads in the viewer's language.
+ * locale first, so a sentence built on the server reads in the viewer's language. A "#n:" token is a number in that locale.
  */
 export function resolveRefs(locale: Locale, vars?: Record<string, string | number>): Record<string, string | number> | undefined {
   if (!vars) return vars;
   const out: Record<string, string | number> = {};
   for (const [k, v] of Object.entries(vars)) {
-    out[k] = typeof v === 'string' && v.startsWith('@') ? translate(locale, v.slice(1)) : v;
+    if (typeof v !== 'string') out[k] = v;
+    else if (v.startsWith('@')) out[k] = translate(locale, v.slice(1));
+    else if (v.startsWith('#n:')) out[k] = formatNumberToken(locale, v);
+    else out[k] = v;
   }
   return out;
 }

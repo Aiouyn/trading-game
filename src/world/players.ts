@@ -303,21 +303,28 @@ export function tradeStats(g: GameState, fills: Fill[], realizedBefore: Record<s
  */
 export function fillNotice(f: Fill, before: number, forced: boolean): Omit<InboxItem, 'id' | 'tick'> {
   const verb = f.side === 'buy' ? (before < 0 ? 'covered' : 'bought') : before > 0 ? 'sold' : 'shorted';
-  const qty = String(+f.qty.toFixed(4));
-  const price = f.price.toLocaleString('en-US', { maximumFractionDigits: f.price < 1 ? 6 : 2 });
+  // the numbers travel as "#n:" tokens: the viewer's locale formats them (fr: 177,22 and 887,10 $), the text fallback stays en-US
+  const qty = +f.qty.toFixed(4);
+  const price = +f.price.toFixed(f.price < 1 ? 6 : 2);
   const notional = f.qty * f.price;
-  const money2 = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const sale = f.side === 'sell';
   const amountLabel = sale ? 'proceeds' : 'cost';
-  const amount = money2(sale ? notional - f.fee : notional + f.fee);
-  const fee = money2(f.fee);
+  const amountN = sale ? notional - f.fee : notional + f.fee;
+  const feeN = f.fee;
   const key = forced ? `fill.forced.${f.side === 'buy' ? 'covered' : 'sold'}` : `fill.${verb}`;
   const word = forced ? verb : `${verb[0]!.toUpperCase()}${verb.slice(1)}`;
-  const head = `${forced ? 'Liquidated: ' : ''}${word} ${qty} ${f.assetId} at ${price}`;
+  const en = (n: number, min: number, max: number) => n.toLocaleString('en-US', { minimumFractionDigits: min, maximumFractionDigits: max });
+  const head = `${forced ? 'Liquidated: ' : ''}${word} ${en(qty, 0, 4)} ${f.assetId} at ${en(price, 0, f.price < 1 ? 6 : 2)}`;
   return {
     kind: 'fill', tone: f.side === 'buy' ? 'gain' : 'loss',
-    text: `${head} · ${amountLabel} $${amount} · fee $${fee}`,
-    msg: { key, vars: { qty, asset: f.assetId, price, amount, fee } },
+    text: `${head} · ${amountLabel} $${en(amountN, 2, 2)} · fee $${en(feeN, 2, 2)}`,
+    msg: {
+      key,
+      vars: {
+        qty: `#n:${qty},0,4`, asset: f.assetId, price: `#n:${price},0,${f.price < 1 ? 6 : 2}`,
+        amount: `#n:${amountN},2,2`, fee: `#n:${feeN},2,2`,
+      },
+    },
   };
 }
 

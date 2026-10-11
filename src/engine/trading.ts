@@ -614,6 +614,8 @@ function validate(state: WorldState, req: OrderRequest): string | null {
 
   // margin account
   if (req.side === 'sell' && !mayShort(state, acct, req.assetId) && req.qty > held - reservedQty(state, req.playerId, req.assetId) - locked + EPS) {
+    // a short the account may not open (a covered insider, cash-secured at 1x) has its own reason: it is not a missing holding
+    if (acct.canShort) return 'covered short';
     return locked > 0 ? 'stacking' : 'insufficient position';
   }
   const px = reservePrice(state, i, req, req.qty) || mid(state, i);

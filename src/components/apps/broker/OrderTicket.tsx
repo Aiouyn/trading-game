@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buyingPower, commission, estimateFill, marginConfig, marginRuleApplies, tradingConfig, type OrderType, type Side } from '@/engine';
+import { buyingPower, commission, estimateFill, marginConfig, marginRuleApplies, mayShort, tradingConfig, type OrderType, type Side } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { QUICK_ENTER, SIMPLE_MODE } from '@/content/learning';
 import { money, price, qty as fmtQty } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
-import { openingNotionalOf } from '@/world/orders';
+import { capBaseOf, openingNotionalOf } from '@/world/orders';
 import { t } from '@/i18n';
 import { getDraft, setDraft } from '@/components/os/drafts';
 import { isPhoneViewport } from '@/components/os/phoneStore';
@@ -120,11 +120,14 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const margin = !fundMode && !!acct && marginRuleApplies(acct);
   // the server's rule (orders.ts): every buy below R1 is capped, not only the first trade
   const simpleCap = !fundMode && !!me && rankIndex(me.player.rankId) < rankIndex(SIMPLE_MODE.untilRank);
-  const capCash = acct && simpleCap ? acct.cash * SIMPLE_MODE.capFraction : Infinity;
+  // the cap is a share of cash the short proceeds do not inflate (orders.ts capBaseOf, the same rule the server reads)
+  const capCash = acct && simpleCap ? capBaseOf(acct.cash, acct.positions) * SIMPLE_MODE.capFraction : Infinity;
+  // a short the rules allow this account (a covered insider on a cash-secured account may not short its own company)
+  const shortOk = !!world && !!acct && mayShort(world, acct, selected);
   const budget = side === 'buy' ? Math.min(margin ? bp : cashNow, capCash) : 0;
   const maxQty = !est ? 0 : side === 'buy'
     ? Math.max(0, (budget - (ctx?.def.assetClass === 'crypto' ? 0 : 1)) / (est.price * 1.002))
-    : held > 0 ? held : acct?.canShort ? bp / est.price : 0;
+    : held > 0 ? held : shortOk ? bp / est.price : 0;
   const roundQ = (x: number) => (whole ? Math.floor(x) : Math.floor(x * 1e4) / 1e4);
   const shorting = !fundMode && side === 'sell' && qtyN > Math.max(0, held) + 1e-9;
   // the notional this order opens: a buy's shares, or a sell's shares past the holding (a short), at the reference price
@@ -132,7 +135,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const openingNotional = opening * refPrice;
   // a short is secured by its full notional on top of the proceeds (cash-secured at 1x, orders.ts and trading.ts)
   const shortCollateral = shorting ? openingNotional : 0;
-  const borrowRate = world && ctx ? (marginConfig(world).borrowFee[ctx.def.assetClass] ?? 0.01) : 0;
+  // the engine's accrual rate: the asset's own borrow fee, else its class rate (trading.ts), so the ticket never shows another
+  const borrowRate = world && ctx ? (ctx.def.borrowFee ?? marginConfig(world).borrowFee[ctx.def.assetClass] ?? 0.01) : 0;
   // the open orders' committed notional, for simple mode's aggregate cap (the server reads the same rule, orders.ts)
   const committedOpen = simpleCap && world && me
     ? openingNotionalOf(me.orders, acct?.positions ?? {}, (id) => { const i = config.assets.findIndex((a) => a.id === id); return i < 0 ? 0 : Math.exp(world.assets[i]!.lnP); })
@@ -158,6 +162,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   else if (side === 'buy' && !margin && total > acct.cash + 1e-6) invalid = { key: 'broker.refuse.cash', vars: { total: money(total), cash: money(acct.cash) } };
   else if (side === 'buy' && margin && notional + fee > bp + Math.max(0, -held) * refPrice + 1e-6) invalid = { key: 'broker.refuse.bp', vars: { need: money(notional + fee), bp: money(bp) } };
   else if (shorting && !acct.canShort) invalid = held > 0 ? { key: 'broker.refuse.fewer' } : { key: 'broker.refuse.short' };
+  else if (shorting && !shortOk) invalid = { key: 'broker.refuse.covered' };
   else if (shorting && shortCollateral + fee > bp + 1e-6) invalid = { key: 'broker.refuse.bp', vars: { need: money(shortCollateral + fee), bp: money(bp) } };
   else if ((type === 'limit' || type === 'stop_limit') && num(limit) <= 0) invalid = { key: 'broker.refuse.limit' };
   else if ((type === 'stop' || type === 'stop_limit') && num(stop) <= 0) invalid = { key: 'broker.refuse.stop' };
@@ -339,7 +344,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
               label={t('broker.side')} className="mt-3 w-full" value={side} onChange={(v) => setSide(v as Side)}
               options={[
                 { value: 'buy', label: held < 0 ? t('broker.buyCover') : t('common.buy'), testId: 'side-buy' },
-                { value: 'sell', label: fundMode || held > 0 || !acct.canShort ? t('common.sell') : t('broker.sellShort'), testId: 'side-sell' },
+                { value: 'sell', label: fundMode || held > 0 || !shortOk ? t('common.sell') : t('broker.sellShort'), testId: 'side-sell' },
               ]}
             />
             {!simple && (

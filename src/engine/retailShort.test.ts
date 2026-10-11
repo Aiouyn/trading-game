@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { createWorld, step, stepMany } from './sim';
 import { DEFAULT_REGIMES, defaultConfig, normalizeLoadings } from './config';
 import { DEFAULT_RATES } from './rates';
-import { buyingPower, marginRuleApplies, openAccount, placeOrder, portfolio, setAccountPermissions } from './trading';
+import { buyingPower, marginRuleApplies, mayShort, openAccount, placeOrder, portfolio, setAccountPermissions } from './trading';
+import { restrictionsOf, setWindow } from './restrictions';
 import type { AssetDef, OrderRequest, RegimeDef, RegimeId, StepEvent, WorldState } from './types';
 
 function calmRegimes(): Record<RegimeId, RegimeDef> {
@@ -109,5 +110,18 @@ describe('shorting from R0 (cash-secured at 1x)', () => {
     // ten ticks is one game day here (ticksPerDay 10): the daily finance runs at the new day
     s = stepMany(s, 12).state;
     expect(s.accounts.p1!.borrowPaid ?? 0).toBeGreaterThan(0);
+  });
+  it('a covered insider on a cash-secured 1x account may not short its own company: the refusal names the short, not a missing holding', () => {
+    let w = world(RETAIL, false);
+    w = { ...w, restrictions: setWindow(restrictionsOf(w), 'STK', { covered: ['p1'], open: [[0, 1e9]] }) };
+    expect(mayShort(w, w.accounts.p1!, 'STK')).toBe(false);
+    const r = place(w, { side: 'sell', qty: 5 });
+    expect(r.order.status).toBe('rejected');
+    expect(r.order.rejectReason).toBe('covered short');
+    // a Pro (2x) covered insider keeps its shorts, as before the rule
+    let pro = world({ maxLeverage: 2, canShort: true }, false);
+    pro = { ...pro, restrictions: setWindow(restrictionsOf(pro), 'STK', { covered: ['p1'], open: [[0, 1e9]] }) };
+    expect(mayShort(pro, pro.accounts.p1!, 'STK')).toBe(true);
+    expect(place(pro, { side: 'sell', qty: 5 }).order.status).not.toBe('rejected');
   });
 });
