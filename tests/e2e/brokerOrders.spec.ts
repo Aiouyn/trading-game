@@ -112,11 +112,12 @@ test.describe('Broker chart lines and ticket (specs 1.3, 1.4)', () => {
       await skipTips(page);
       await page.screenshot({ path: `${SHOTS}/chart-${label}-position.png` });
 
-      // +TP and +SL on the position line place the reduce-only legs, drawn as lines with their $ and % move
-      await page.getByTestId('level-add-tp').click();
-      await expect(page.locator('[data-testid^="level-tp-"]')).toBeVisible({ timeout: 15_000 });
+      // +TP and +SL on the position line place the reduce-only legs, drawn as lines with their $ and % move. The stop-loss
+      // is added first: on a 720-high screen the take-profit pill (above the line) covers the +SL control once it is there.
       await page.getByTestId('level-add-sl').click();
       await expect(page.locator('[data-testid^="level-sl-"]')).toBeVisible({ timeout: 15_000 });
+      await page.getByTestId('level-add-tp').click();
+      await expect(page.locator('[data-testid^="level-tp-"]')).toBeVisible({ timeout: 15_000 });
       const tpBefore = await leg(page, 'limit');
       const slBefore = await leg(page, 'stop');
       expect(tpBefore?.limitPrice, 'the take-profit is an order at a price').toBeGreaterThan(0);
@@ -191,11 +192,15 @@ test.describe('Broker chart lines and ticket (specs 1.3, 1.4)', () => {
       await skipTips(page);
       await page.getByTestId('side-sell').click();
       await page.getByTestId('order-qty').fill('1000');
-      await page.getByTestId('order-submit').click();
       const me = await account(page);
       if (me?.account && !me.account.canShort) {
         // at Rookie the engine refuses a short sale: the refusal shows under the size, not as a toast
+        await page.getByTestId('order-submit').click({ timeout: 5000 });
         await expect(page.getByTestId('order-invalid')).toBeVisible({ timeout: 15_000 });
+      } else {
+        // a short above the simple-mode cap (20% of cash until Hustler) is held in the CTA, before the engine is asked
+        await expect(page.getByTestId('order-submit')).toBeDisabled();
+        await expect(page.getByTestId('order-submit')).toHaveText(/20% cap/);
       }
       await page.screenshot({ path: `${SHOTS}/chart-${label}-ticket-short.png` });
     });
@@ -237,7 +242,9 @@ test.describe('the side rules and the chart menu on the desktop (review of f9108
     const cb = await rect(chart);
     await chart.click({ button: 'right', position: { x: cb.width / 2, y: cb.height * 0.8 } });
     await page.getByTestId('menu-buyLimit').click();
-    await expect(page.getByTestId('order-type')).toHaveValue('limit');
+    // a first-trade ticket has no type picker; the pick still sets the limit type and its price (the limit field shows)
+    if (await page.getByTestId('order-type').count()) await expect(page.getByTestId('order-type')).toHaveValue('limit');
+    else await expect(page.getByTestId('order-limit')).not.toHaveValue('');
     // the desktop terminal never draws the sheet, so the flag must stay clear (CloseCard and the event takeover wait on it)
     const open = await page.evaluate(() => (window as unknown as { __tg: { state: () => { tradeSheetOpen: boolean } } }).__tg.state().tradeSheetOpen);
     expect(open).toBe(false);

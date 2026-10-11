@@ -54,6 +54,9 @@ test.describe('keyboard, launcher and layouts', () => {
   test('Alt Backquote moves the focus through the open windows', async ({ page }) => {
     await register(page);
     await settle(page);
+    // the R0 desk opens the Broker alone; the Trade layout opens the other windows
+    await page.getByTestId('shelf-layout-menu').click();
+    await page.getByTestId('layout-trade').click();
     await page.getByTestId('shelf-app-settings').click();
     await expect(page.getByTestId('win-settings')).toBeFocused();
     // The Trade layout opens Wire, Portfolio and the Broker in that order, so the bottom-most is Wire.
