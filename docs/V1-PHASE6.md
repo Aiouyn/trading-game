@@ -130,94 +130,80 @@ Not taken: the crash on day 3, the en bubble takeover, the flash crash, and the 
 
 ## 6D. Competitions and lifestyle
 
-Branch `p6/d`, worktree `.claude/worktrees/p6-d`, from `v1` at `26c2d98`. Spec: `docs/team/specs/lead-phase6.md` (track 6D), with ROADMAP §2.4 (tournament) and N8, and `docs/team/vision/04-experience-lifestyle.md` and `01-markets-economy.md` for the lifestyle, home, collection and auction fees.
-Status words as in `docs/V1-PHASE5.md`. Gates for each commit: `npx tsc --noEmit`, the vitest suites of the touched areas, and eslint with 0 errors on the touched files.
+Branch `p6/d`, worktree `.claude/worktrees/p6-d`, from `v1` at `26c2d98`; first pass at `45aa4cc`, repaired here after the adversarial review of `45aa4cc`. Spec: `docs/team/specs/lead-phase6.md` (track 6D), with ROADMAP §2.4 (tournament) and N8, `docs/team/vision/04-experience-lifestyle.md` and `01-markets-economy.md`. Status words as in `docs/V1-PHASE5.md`. Each commit passed `npx tsc --noEmit`, eslint with 0 errors on the touched files, and the vitest suites of the touched areas.
 
-### 6D.1 Weekly AI tournament
+### 6D.1 Review findings and repairs
 
-| Item | Status | What | Where |
-|---|---|---|---|
-| Tournament core | **Done** | Isolated runs (one world per entry per seed, 30 game days from $1,000,000). Score: median annualised Sharpe over 3 seeds, net of fees. Disqualified on a drawdown over 40% or under 20 trades in any seed. Five house AIs as reference rows. The strategy signal is shared with the live bots (`strategySignal`). | `src/world/tournament.ts` (`9b09cb6`) |
-| Lifecycle | **Done** | Week w is entered during week w-1 and locks at tick w × 120,960 (one real week is 168 game hours). One entry per player per week: the best trading model and its deployed bot, frozen at lock. Seeds derive from the world seed and the week; the commitment (a hash) shows from the open; the seeds are revealed only at settlement and checked against the commitment. Settlement is a command, so a replay applies the same rows. | `src/world/tournamentWeek.ts` (`9b09cb6`) |
-| Board view | **Partial** | `tournamentView` gives the entry window, commitment, entry count and the latest settled board (handle, division, Sharpe, total return, qualified). No page yet. | `tournamentWeek.ts` |
-| Server job | **Not built** | `dueSettlements`, `settlementInput` and `settleWeekRows` are pure and ready. Nothing calls them from the server, and no worker runs them off the tick loop. | `server/host.ts` untouched |
-| Trade-log opt-in (N8) | **Not built** | No trade-log path exists. The run keeps no log, so nothing is published by default. | — |
-| Rewards | **Decided** | No cash (zero faucet, ROADMAP §2.4). The weekly title and trophy decor are not built. | — |
+| # | Finding (review of `45aa4cc`) | Repair | Where | Test |
+|---|---|---|---|---|
+| 1 | Insurance 24 h lockout bypassed by a session cut within one game day | `breachedAt` is stamped when a hostile entry is created (`newEntry`) and when a session ends (`endSession`), as well as in the daily pass. The probe is a test now: open, refuse, `sec.disconnect`, tick +60, refuse with `insLockout`, then accept after 24 h. | `cyber.ts`, `insurance.ts` (`1531963`) | `insurance.test.ts` (probe) |
+| 2 | Auction no-reveal: a first bid below the opening price returned the reserve within a cent; refused bids persisted the lot | `placeBid` checks every rule before writing the lot. The opening bid is 50% of the collectibles index, and the reserve is index × a hidden factor in [0.8, 1.1) drawn per lot from the seed, so the public opening bid does not give the reserve away. A refusal carries only the public minimum. | `auctions.ts` (`d9e111a`) | `auctions.test.ts` (no-reveal block) |
+| 3 | Insurance had no loss sources | `lossDay` (securityDay) rolls once per game day: hack drain (a share of net worth per open hostile session, scaled by strength), shop fire (30% of the sale value), shop theft (15%), collectible theft (one owned good). Each cash loss is a booked sink; the claim is a transfer from `npc:insurer`. The collectible theft is an asset loss, so it books no sink. | `insurance.ts` (`1531963`) | `insurance.test.ts` (loss sources, determinism, money identity) |
+| 4 | Tournament settlement not wired (no job, no worker, no trigger) | `server/tournamentJob.ts` checks every 60 ticks; a due week (locked, unsettled) runs in a child process, `scripts/tournament-run.ts` (forked with tsx), off the tick loop; the rows come back as a logged `tournament.settle` command. One run at a time; a failed run waits ten real minutes. A restart re-detects every unsettled due week. | `server/index.ts`, `server/tournamentJob.ts`, `scripts/tournament-run.ts` (`72e133a`) | `scripts/tournament-run.test.ts` (forked child = in-process rows) |
+| 5 | Trade-log opt-in (N8) absent | Opt-in at entry (`tournament.enter` with `publishLog`), frozen on the entry. At settlement the runner keeps one seed's trade log for each top-three entry that opted in, and the settlement refuses a log for anyone else (`tnLogOptOut`) or outside the top three (`tnLogTop`). | `tournament.ts`, `tournamentWeek.ts` (`72e133a`) | `tournamentWeek.test.ts` (N8 block) |
+| 6 | No UI and no e2e for any track | Components for the insurance switch (Security), the streak card and the auction tab (Boutique), the tournament card (AI Lab) and the stress panel (Portfolio). Views carried on the player view (`sixd.ts`). Playwright specs for insurance, streak, stress (`sixd.spec.ts`) and an auction bid (`sixdAuction.spec.ts`, in the close chain). The home room and the collection page are not built (6D.5). | `src/components/apps/sixd/*`, `src/world/sixd.ts`, `tests/e2e/sixd*.spec.ts` | see 6D.4 |
+| 7 | Copy not i18n: English literals in every refusal; the tournament settlement line had no key | Every 6D refusal is a code with its numbers in `data`; each code has `sixd.refuse.<code>.what|why|do` in en and fr. Notification lines are `msg` keys (`loss.*`, `tournament.in`, `tournament.out.drawdown|trades`). | `src/i18n/en.json`, `fr.json` (`0aa54e9`) | `i18n.test.ts` (key sets, literal `t()` keys) |
 
-### 6D.2 Weekly live auctions
+### 6D.2 Non-blocking findings
 
-| Item | Status | What | Where |
-|---|---|---|---|
-| Lots and bidding | **Done** | 3 to 5 limited or unique collectibles per real week, a pure function of the world seed and the week. One English ascending auction per lot over one real hour (720 ticks). A bid raises by at least 2%. A bid in the last 2 real minutes (24 ticks) extends the lot by 2 real minutes. No state exists until the first bid. | `src/world/auctions.ts` (`5be1967`) |
-| Auction money | **Done** | The buyer pays the hammer plus a 15% premium. Sinks: "auction buyer premium" (15%), "auction seller fee" (12% of the hammer), "auction consignor" (the 88% that goes to the consignor). No escrow: a bid needs spendable cash for the bid plus the premium, and the settlement checks it again, so a bidder who spent the cash is passed over. | `auctions.ts` |
-| Reserve and visibility | **Done** | Reserve = list price × collectibles index × 0.9, set at the first bid and never shown (the view says only whether the high bid meets it). During the auction: the high amount and the count. At the end: the winner and the bidder handles. | `auctions.ts` |
-| Auction page and bid UI | **Not built** | The command `auction.bid` and the view `auctionsView` exist. No page and no Playwright spec. | — |
-
-### 6D.3 Daily streak
-
-| Item | Status | What | Where |
-|---|---|---|---|
-| Streak rules | **Done** | A real day is 24 game days. A claim needs a login that day and one successful action that day. The action is recorded after each successful player command; presence and the claim do not count. Cash = 100 × rank index × min(streak, 7) / 7, booked as a "daily streak" faucet, so never above 100 × rank index. Badges at 3, 7, 14 and 30 days; titles "regular" (7) and "ironclad" (30). One missed day a week keeps half the streak (rounded down, plus today's claim); a longer gap restarts at 1. No reminder: the only message is the claim's line. | `src/world/streak.ts` (`e386858`), `game.ts` (action marker) |
-| Streak card UI | **Not built** | The command `streak.claim` and the view `streakView` exist. | — |
-
-### 6D.4 One-switch insurance
-
-| Item | Status | What | Where |
-|---|---|---|---|
-| Policy and premium | **Done** | One switch. Premium 0.4% of the insured value each real week, a sink ("insurance premium"). Insured value: collectibles at resale plus shops at sale value. A policy that cannot pay its premium lapses, with a line to the owner. | `src/world/insurance.ts` (`c77aea1`) |
-| Switch gates | **Done** | The switch cannot go on during an active breach, or within 24 hours after one. The cyber state records the last tick a hostile session was open on each player (`cyber.breachedAt`). Switching off is always allowed. | `insurance.ts`, `cyber.ts` |
-| Claims | **Done** (hook) | `insuredLoss` pays the loss less a 10% deductible, capped at 80% of the loss, and never more than the insurer holds. The payout is a transfer from the NPC insurer account `npc:insurer`. The insurer's capital is one booked faucet ("insurer capital", $2,000,000) when the first policy goes on. | `insurance.ts` |
-| Loss sources | **Not built** | The engine has no cash-loss hack (its hack drain is a compute drain that skips bot runs), no shop fire or theft event, and no collectible theft. `insuredLoss` is the hook those sources call, with a loss they have already booked as a sink. | — |
-| Settings/Security toggle | **Not built** | The command `insurance.set` exists. No UI. | — |
-
-### 6D.5 Home room and collection
-
-| Item | Status | What | Where |
-|---|---|---|---|
-| Home room | **Done** (logic) | Six slots the owner fills with owned goods. Experiences cannot be placed, because they do not stay. | `src/world/home.ts` (`0f6e88a`) |
-| Collection | **Done** (logic) | Owned collectibles (limited and unique goods), with the streak badges and titles. | `home.ts` |
-| Opt-in | **Done** | Two switches, each off by default: `home` and `collection`. A viewer who is not the owner gets null for a surface that is off. Nothing shows cash, positions or strategy. | `home.ts` (`home.place`, `visibility.set`) |
-| Pages | **Not built** | The rank shell's home does not show the room yet. | — |
-
-### 6D.6 Stress test
-
-| Item | Status | What | Where |
-|---|---|---|---|
-| Stress test | **Done** (logic) | The book (cash plus held positions at mid) under the four kinds, at typical moves by asset class. Published moves (`quant-world-events.md`): crash stocks −32.5% (midpoint of −25% to −40%), with tech, semis and discretionary ×1.4 and staples ×0.4; gold +10%; crypto −30%; property −19.5%; commodities −12%. Bubble pop: the published −15% give-back on stocks and crypto. Flash: −8% on stocks and −10% on crypto. Crisis week (−10% stocks, −20% crypto, −5% commodities) is a round figure, because the published rule has no fixed size; the view must label it. Reads the book and the asset list only. Shorts gain in a crash. | `src/content/stress.ts`, `src/world/stress.ts` (`9e333a2`) |
-| Portfolio panel | **Not built** | `stressBook` exists. No panel and no "illustrative" label on screen yet. | — |
-
-### 6D.7 Gates
-
-Vitest suites added in this track (68 tests; each commit passed its own suites):
-
-| Suite | Tests | Covers |
+| # | Finding | Repair |
 |---|---|---|
-| `src/world/tournament.test.ts` | 13 | Divisions by tier, seed derivation and commitment, entry hash, Sharpe and drawdown, ranking, isolated-run reproducibility, disqualification, house ids, weekly re-run to identical rows, median score |
-| `src/world/tournamentWeek.test.ts` | 9 | Gates (Owner, bot, one entry a week), lock tick, settlement only from the committed seeds, rows limited to the week's entries, no money booked |
-| `src/world/auctions.test.ts` | 12 | Lot schedule, opening bid and 2% raise, cash for the premium, anti-snipe window and extension, closed auctions, money to the cent (the sinks equal the winner's payment), unsold moves nothing, pass-over, view secrecy |
-| `src/world/streak.test.ts` | 13 | Login and action gates, one claim a day, growth to the 7-day cap, never above 100 × rank index, booked faucet, rest day and breaks, milestones, view |
-| `src/world/insurance.test.ts` | 9 | Switch and gates (breach, 24 h), premium to the cent as a sink, week boundary only, lapse, claim arithmetic (80% cap, deductible), insurer limit, money identity |
-| `src/world/stress.test.ts` | 5 | Cash-only book, crash multiplier and staples discount, short gains, percentages, independence from the event schedule |
-| `src/world/home.test.ts` | 7 | Visibility off by default and on by switch, placement rules, experiences refused, collection contents |
+| 8 | The 10% deductible was dead: 80% of the loss always bound | The deductible is an excess of 10% of the insured value per claim (see 6D.5 Deviations). A loss under the excess pays nothing. |
+| 9 | Privacy: an owned unique lot showed as withdrawn, and the bid refusal said "already owned" | Neither remains. A unique lot someone holds settles as "did not sell", the same as an unmet reserve. |
+| 10 | Streak rewards had no cosmetics | Milestones at 3, 7 and 14 days record a palette accent (`phosphor`, `riviera`, `broadsheet`) on the streak. The shell's palette picker is not yet gated on them (6D.6). |
+| 11 | The consignor's share was destroyed | The hammer less the 12% fee is a transfer to the fictional `npc:consignor` account. Only the fee and the 15% premium are sinks. The resale faucet still pays the item's paid price × the index (disclosed, not changed). |
+| 12 | Doc and code mismatches | Fixed in the module headers: seeds derive from the world seed and the week; an entry's actor is captured at entry. |
 
-Regression suites run at each commit: `src/world/world.test.ts` (fingerprints), `src/i18n` (key sets), `honeypots`, `rivalCrews`, `shops`, `close`. All passed.
+### 6D.3 Track status
 
-Timing, measured in `tournament.test.ts`: a 2-day isolated run takes about 0.6 s, so a 30-day run takes about 9.6 minutes for one actor and one seed. An entry costs three seeds, about 29 minutes. The five house AIs add about 2.4 hours a week. A field of N entries costs about (N + 5) × 29 minutes, so the server job must run off-peak. Benchmark this before the job is wired.
+| Track | Status | What | Where |
+|---|---|---|---|
+| Tournament core | **Done** | Isolated runs of 30 game days from $1,000,000 against three seeds. Score: median annualised Sharpe. Disqualified on a drawdown over 40% or fewer than 20 trades in any seed. Five house AIs. | `src/world/tournament.ts` |
+| Lifecycle, reveal | **Done** | Week w is entered during week w-1 and locks at tick w × 120,960. Seeds from the world seed and the week; the commitment shows from the open; seeds are revealed at settlement and checked against it. Settlement is a logged command. | `tournamentWeek.ts` |
+| Settlement job | **Done** | See 6D.1 row 4. | `server/tournamentJob.ts` |
+| Benchmark | **Measured** | A 30-day isolated run takes **8.2 s** on the dev machine, unloaded (one house actor, twelve assets). The per-tick sha256 noise draw is about 9% of it (67 ms of 757 ms for two days); the engine step is most of the cost. The review's 9.6 min figure was a loaded-machine figure. A field of N entries costs (N+5) × 3 × 8 s on one core, about two minutes for ten entries. | `tournament.ts` header |
+| Trade log (N8) | **Done** | See 6D.1 row 5. The log is kept for one seed, only for a top-three opt-in, and is counted (not shown) on the board. | `tournament.ts`, `tournamentWeek.ts` |
+| Board UI | **Done** | Entry with an opt-in checkbox, the commitment, entries, the last settled board, and the count of published logs. The trades themselves are not shown. | `src/components/apps/sixd/TournamentCard.tsx` (AI Lab) |
+| Auctions | **Done** | 3 to 5 limited or unique collectibles per real week, one English auction over 720 ticks (one real hour); a bid in the last 24 ticks extends the lot by 24. Minimum raise 2%. No state until the first bid. Seller fee 12% and buyer premium 15% are sinks. | `src/world/auctions.ts` |
+| Auction UI | **Done** | The Boutique's Auctions tab: lots, high bid, count, minimum, reserve met or not, and a bid form. The bidders appear only at the end. | `src/components/apps/sixd/AuctionsPanel.tsx` |
+| Streak | **Done** | Real day = 24 game days. Login and one action per day (the action is recorded after each successful player command). Cash = 100 × rank index × min(days, 7) / 7, booked as a faucet. Milestones at 3, 7, 14, 30 days. One rest day a week keeps half the streak. | `src/world/streak.ts` |
+| Streak UI | **Done** | The streak card at the top of the Boutique, with the claim, the next milestone, badges, titles and accents. | `src/components/apps/sixd/StreakCard.tsx` |
+| Insurance | **Done** | One switch. Premium 0.4% of the insured value each real week (sink). Lapses when the premium exceeds spendable cash. Loss sources and claims as in 6D.1 row 3. Cannot go on during a breach, within 24 h after one, or with nothing insured. | `src/world/insurance.ts` |
+| Insurance UI | **Done** | The insurance card in Security: state, insured value, premium, paid out so far, the switch, and the refusal in three parts. | `src/components/apps/sixd/InsuranceCard.tsx` |
+| Home room, collection | **Logic only** | Six slots for owned goods (no experiences). Two opt-in switches (`home`, `collection`), both off by default. | `src/world/home.ts` |
+| Home and collection pages | **Not built** | The rank shell's home and a collection page are not drawn. | — |
+| Stress test | **Done** | The book (cash plus positions at mid) under the four kinds, at each kind's published typical move by asset class. Labelled "Illustrative". Reads the book and the static move table only. | `src/world/stress.ts`, `src/content/stress.ts` |
+| Stress UI | **Done** | The stress panel in the Portfolio positions tab. Empty state for a book with no positions. | `src/components/apps/sixd/StressPanel.tsx` |
 
-### 6D.8 Deviations
+### 6D.4 Gates
 
-- Tournament seeds derive from the world seed and the week, not from a per-week server secret. That keeps replays identical with no extra state. Their secrecy rests on the world seed staying private.
-- Auction extensions are not capped. The spec gives +2 minutes per snipe with no cap, so a long bidding war can run past the hour.
-- The consignor's share of an auction is booked as a sink, because the consignor is a fictional house and no player receives it. The spec names the fee and the premium as sinks and says nothing about the rest of the hammer.
-- Insurance pays 80% of the loss in every case. The 10% deductible is taken first, and the 80% cap then binds, so the deductible shows only in the arithmetic. The spec gives both figures; this is the literal reading.
-- The insurer's capital is a one-time $2,000,000 faucet, not a premium-funded reserve, because the spec makes the premium a sink. The insurer can run dry, and a payout is then limited to what it holds.
-- The stress test's crisis-week row is a round figure, not a published one.
-- Refusals: the new commands return English text, as `lab.ts` does, written in three parts (what happened, why, what to do). The inbox lines of auctions, streaks and insurance have i18n keys in en.json and fr.json. The tournament's inbox line is still English text only.
+- `npx next typegen && npx tsc --noEmit`: exit 0 at each commit.
+- eslint on the touched files: 0 errors (warnings fixed).
+- Full vitest run (run after the last source change of the UI, which added no unit tests): 209 files passed, 2 skipped; 2,073 tests passed, 70 skipped, 21 todo; exit 0. The touched suites include insurance (17), streak (14), tournament and tournamentWeek (with N8 and reveal), the runner (2), auctions (with the no-reveal block), home and i18n.
+- Playwright, the 6D specs at the final commit: 16 passed, 0 failed, on the desktop (1440 x 900) and phone (390 x 844) projects, in en and fr.
+  - `tests/e2e/sixd.spec.ts` (12): insurance switched on and off in Security; the streak claim in the Boutique, with its one-claim-a-day refusal; the Portfolio stress panel labelled Illustrative, with its empty state.
+  - `tests/e2e/sixdAuction.spec.ts` (4): the Auctions tab lists three to five lots with their status, and shows no bid form for lots past their hour.
+  - Screenshots: 16 PNGs in `scratchpad/shots-p6d`.
+- Not run in Playwright: an auction bid on an open lot. A lot is open only in its week's first real hour, so the test must advance the shared world to a week's first tick, about 120,000 ticks. The admin advance is synchronous and blocked the world server past the fetch timeout, and the next test could not register. The bid flow (the minimum, the reserve, the anti-snipe, the settlement and the money) is covered by `src/world/auctions.test.ts`.
+- `npx tsc --noEmit`: exit 0. eslint on every touched file: 0 errors, 0 warnings.
+- Money identity: the loss-day test checks that every change in cash matches the booked faucets less sinks. Each auction settlement, premium and claim has a cent test.
 
-### 6D.9 Open items
+### 6D.5 Deviations
 
-- The server job for tournament settlement, off the tick loop, with a worker thread and a benchmark of the 30-day run (6D.7).
-- The trade-log opt-in for the top three (N8), with commentary. Not started.
-- The UI for every track: the tournament board, the auction page, the streak card, the insurance switch in Settings/Security, the home room and collection pages, and the Portfolio stress panel. None has a page or a Playwright spec.
-- The loss sources for insurance (hack cash loss, shop fire and theft, collectible theft). The hook exists; the events do not.
-- End-to-end: the Playwright specs (auction bid, streak claim, insurance switch, stress test) at window and phone 390, in en and fr, were not run. No build or e2e run was started for this track.
+- **Deductible as an excess.** The spec gives a 10% deductible and an 80% payout cap, both as shares of the loss. Under those readings the cap always binds and the deductible never acts. The deductible is therefore 10% of the insured value at the claim (an excess, not a share of the loss); the payout is the loss less the excess, capped at 80% of the loss, and never more than the insurer holds. A loss under the excess pays nothing.
+- **Loss sources behind a market flag.** Loss sources and the insurer exist only in a world whose first policy went on (`insuranceMarket`), and the loss stream is seeded lazily. Worlds that never sold a policy draw no losses and keep their state, which is how "worlds without the feature keep every fingerprint" is met.
+- **`breachedAt` in hostile-session worlds.** `cyber.breachedAt` is a new field, absent in v1. Worlds with a hostile session now carry it, so their snapshots change from v1. Worlds without a hostile session do not.
+- **Trade log opt-in at entry.** The spec reads as a choice after the results. The log is computed by the off-tick runner, so the choice is made at entry and frozen on the entry. The publication itself still happens only for a top-three entry, after the settlement.
+- **Consignor transfer.** The consignor's share is a transfer to a fictional account, not a sink. The fee and the premium are sinks.
+- **Hack drain is cash.** A hostile session takes a daily share of net worth from cash, scaled by its strength (whisper 0.6, tap 1.0, siphon 1.6, times 0.01% a game day). The existing compute drain (fewer bot runs) is separate and unchanged.
+- **Shop events book a fraction of the sale value** (fire 30%, theft 15%), since a shop's contents are not modelled. The shop branch has no unit test of its own; the same claim path is covered by the hack-drain and collectible-theft tests.
+- **Tournament seeds** derive from the world seed and the week, with no per-week server secret, so replays need no stored seeds. Their secrecy rests on the world seed staying private.
+- **Refusal copy** is in `sixd.refuse.*`. The refusal codes are the same words the world sends, so a code that changes must change its keys with it.
+
+### 6D.6 Open items
+
+- The home room and the collection page are not drawn (6D.3). The logic and its opt-in are in place.
+- The trade-log publication is counted on the board, not shown. The log viewer and the commentary of N8 are not built.
+- The palette picker does not yet read the streak accents (the accents are recorded and listed on the card).
+- Auction extensions are not capped, as the spec says. A long bidding war can run past the hour.
+- An auction bid in Playwright (an open lot needs the shared world at a week's first tick; the admin advance of about 120,000 ticks blocks the world server). Covered by unit tests only. A test-only clock hook for the e2e world would close this.
