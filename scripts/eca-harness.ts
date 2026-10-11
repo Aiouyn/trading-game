@@ -6,6 +6,9 @@
 //   tip2/4/6 honest's trading, plus a successful hidden session on a company insider every CRIME days. The crime step is shortcut
 //            (the pending tip that queueInsiderTip would push). The tip is traded in TRANCHES tranches (one a game day) at
 //            2%, 4% or 6% of net worth a tranche (±50%), and the tipped shares are sold back the day after the report;
+//   honest2/4/6 (R-6C-6) the honest twin of each tip arm: honest's trading, plus each tip's shadow on the same player index, the same
+//            stock, the same tranche days and the same size, with the direction from the honest rule (the public consensus, sticky
+//            until the next consensus), never the tip's claim. The tip gate reads tipN against honestN (scripts/eca-arms.ts);
 //   rumor    follows the engine's public rumor on each report, blindly (the blind rumor-following gate);
 //   reader   follows a rumor only when the public record of all resolved rumors is at least READER_BAR over READER_MIN or more
 //            (the M16 v2 track-record reader). The engine has one rumor pool (no per-source accuracy yet), so this arm is a
@@ -36,13 +39,14 @@ import { credit, netWorthBreakdown, priceOf, TPD } from '../src/world/core';
 import { receivedTip, tipsOf, type InsiderTip } from '../src/world/tips';
 import { ecaOf } from '../src/world/eca';
 import { ECA_TUNE } from '../src/world/eca-tune';
+import { honestArmOf, honestDirection, pairedPlayerId, tipGateRow, TIP_ARMS, TIP_PCT, type TipArm } from './eca-arms';
 import { Rng, seedStream } from '../src/engine/rng';
 import type { GameState } from '../src/world/types';
 
-type Kind = 'honest' | 'heavy' | 'lucky' | 'tip2' | 'tip4' | 'tip6' | 'rumor' | 'reader';
-const KINDS: Kind[] = ['honest', 'heavy', 'lucky', 'tip2', 'tip4', 'tip6', 'rumor', 'reader'];
-const TIP_KINDS: Kind[] = ['tip2', 'tip4', 'tip6'];
-const TIP_PCT: Record<string, number> = { tip2: 0.02, tip4: 0.04, tip6: 0.06 };
+type Kind = 'honest' | 'heavy' | 'lucky' | 'tip2' | 'tip4' | 'tip6' | 'honest2' | 'honest4' | 'honest6' | 'rumor' | 'reader';
+const KINDS: Kind[] = ['honest', 'heavy', 'lucky', 'tip2', 'tip4', 'tip6', 'honest2', 'honest4', 'honest6', 'rumor', 'reader'];
+const TIP_KINDS: Kind[] = [...TIP_ARMS];
+const HONEST_TIP_KINDS: Kind[] = TIP_ARMS.map(honestArmOf);
 const PER_KIND = 8;
 const START_CASH = 20_000;
 /** the reader arm's track-record rule: the pooled record needs this many resolved rumors, at this hit rate, before it follows */
@@ -98,6 +102,18 @@ interface TipRecord {
   closed: boolean;
 }
 
+/** an honest twin's shadow of one tip: the same stock, days and size, the direction from the honest rule (R-6C-6) */
+interface ShadowRecord {
+  pid: string;
+  assetId: string;
+  revealsTick: number;
+  tranchesLeft: number;
+  size: number;
+  dir: 1 | -1 | 0;
+  qty: number;
+  closed: boolean;
+}
+
 interface SeedResult {
   ret: Record<Kind, number[]>;
   counts: Record<Kind, KindCount>;
@@ -141,6 +157,7 @@ function runSeed(seed: string): SeedResult {
   const rng = new Rng(seedStream(seed, 'harness'));
   const lastCrime = new Map<string, number>();
   const tipRecs = new Map<string, TipRecord>();
+  const shadows = new Map<string, ShadowRecord>();
   const tipTradesByKind: Record<string, number> = {};
   let rumorFills = 0;
   let readerFills = 0;
@@ -167,7 +184,7 @@ function runSeed(seed: string): SeedResult {
       if (e.rumor !== null && !openRumor.has(a)) openRumor.set(a, { day: e.day, dir: e.rumor });
     }
     // honest, and the tip arms' honest trading: follow the public consensus on a stock with one, on half the days
-    for (const id of [...ids.honest, ...TIP_KINDS.flatMap((k) => ids[k])]) {
+    for (const id of [...ids.honest, ...TIP_KINDS.flatMap((k) => ids[k]), ...HONEST_TIP_KINDS.flatMap((k) => ids[k])]) {
       const a = stocks[Math.floor(rng.uniform() * stocks.length)]!;
       const e = info(a);
       if (!e || e.consensus === null || Math.abs(e.consensus) < 0.2) continue;
@@ -205,9 +222,15 @@ function runSeed(seed: string): SeedResult {
     for (const t of tipsOf(g).tips as InsiderTip[]) {
       if (tipRecs.has(t.id) || !kindOf.has(t.playerId) || !TIP_KINDS.includes(kindOf.get(t.playerId)!)) continue;
       const k = kindOf.get(t.playerId)!;
+      const size = TIP_PCT[k as TipArm]! * (0.5 + rng.uniform());
       tipRecs.set(t.id, {
         id: t.id, pid: t.playerId, kind: k, assetId: t.assetId, up: t.claim === 'up', revealsTick: t.revealsTick,
-        tranchesLeft: TRANCHES, size: TIP_PCT[k]! * (0.5 + rng.uniform()), qty: 0, closed: false,
+        tranchesLeft: TRANCHES, size, qty: 0, closed: false,
+      });
+      // the honest twin's shadow of this tip: the same player index, stock, days and size (R-6C-6)
+      shadows.set(t.id, {
+        pid: pairedPlayerId(t.playerId, k as TipArm), assetId: t.assetId, revealsTick: t.revealsTick, tranchesLeft: TRANCHES,
+        size, dir: 0, qty: 0, closed: false,
       });
     }
     for (const r of tipRecs.values()) {
@@ -217,6 +240,16 @@ function runSeed(seed: string): SeedResult {
       r.qty += q;
       tipTradesByKind[r.kind] = (tipTradesByKind[r.kind] ?? 0) + (q > 0 ? 1 : 0);
     }
+    // the honest shadows trade the same tranche days: the direction is the honest rule's, sticky until the next consensus
+    for (const s of shadows.values()) {
+      if (s.closed || s.tranchesLeft <= 0 || g.market.tick >= s.revealsTick) continue;
+      s.tranchesLeft--;
+      const e = info(s.assetId);
+      const d = honestDirection(e ? e.consensus : null);
+      if (d !== 0) s.dir = d;
+      if (s.dir === 0) continue;
+      s.qty += s.dir * order(g, s.pid, s.assetId, s.dir > 0 ? 'buy' : 'sell', sizeOf(s.pid, s.size));
+    }
     // the tipped shares are sold back (or covered) the game day after the report: the gain is realized (FIFO, eca.ts)
     for (const r of tipRecs.values()) {
       if (r.closed || g.market.tick < r.revealsTick + TPD) continue;
@@ -224,6 +257,14 @@ function runSeed(seed: string): SeedResult {
       const pos = g.market.accounts[r.pid]?.positions[r.assetId]?.qty ?? 0;
       const q = Math.min(r.qty, Math.max(0, r.up ? pos : -pos));
       placeQty(g, r.pid, r.assetId, r.up ? 'sell' : 'buy', Math.floor(q));
+    }
+    for (const s of shadows.values()) {
+      if (s.closed || g.market.tick < s.revealsTick + TPD) continue;
+      s.closed = true;
+      if (s.qty === 0) continue;
+      const pos = g.market.accounts[s.pid]?.positions[s.assetId]?.qty ?? 0;
+      const q = s.qty > 0 ? Math.min(s.qty, Math.max(0, pos)) : Math.min(-s.qty, Math.max(0, -pos));
+      placeQty(g, s.pid, s.assetId, s.qty > 0 ? 'sell' : 'buy', Math.floor(q));
     }
     // rumor (blind) and reader: the engine's public rumor for the next report
     for (const id of ids.rumor) {
@@ -326,16 +367,23 @@ for (const k of KINDS) {
   };
 }
 summary.perKind = perKind;
-const honest = perKind.honest!;
-const honestLucky = { n: honest.playerSeasons! + perKind.lucky!.playerSeasons!, convicted: honest.convicted! + perKind.lucky!.convicted!, wrongful: honest.wrongful! + perKind.lucky!.wrongful! };
-summary.honestLucky = honestLucky;
-summary.wrongfulRateHonestLucky = honestLucky.n ? honestLucky.wrongful / honestLucky.n : 0;
+// the wrongful gate (R-6C-4): the honest, lucky and honest-twin accounts together (none of them ever receives a tip)
+const WRONGFUL_SET: Kind[] = ['honest', 'lucky', ...HONEST_TIP_KINDS];
+const honestSet = {
+  n: WRONGFUL_SET.reduce((s, k) => s + perKind[k]!.playerSeasons!, 0),
+  convicted: WRONGFUL_SET.reduce((s, k) => s + perKind[k]!.convicted!, 0),
+  wrongful: WRONGFUL_SET.reduce((s, k) => s + perKind[k]!.wrongful!, 0),
+};
+summary.honestSet = honestSet;
+summary.wrongfulRateHonestSet = honestSet.n ? honestSet.wrongful / honestSet.n : 0;
 const tipGates: Record<string, unknown> = {};
 for (const k of TIP_KINDS) {
   const t = perKind[k]!;
+  const row = tipGateRow(k as TipArm, perKind as Record<string, { meanRet: number; sdRet: number }>);
   tipGates[k] = {
-    evRatioVsHonest: honest.meanRet !== 0 ? t.meanRet! / honest.meanRet! : null,
-    varRatioVsHonest: honest.sdRet! > 0 ? (t.sdRet! / honest.sdRet!) ** 2 : null,
+    honest: row.honest,
+    evRatioVsHonest: row.evRatio,
+    varRatioVsHonest: row.varRatio,
     tribunal: t.tribunal,
     convicted: t.convicted,
     convictRateAtTribunal: t.tribunal ? t.convicted! / t.tribunal! : null,
