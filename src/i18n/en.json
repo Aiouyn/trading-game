@@ -3340,5 +3340,6 @@
   "security.msg.blocked": "Your defenses blocked an intrusion attempt.",
   "auction.won": "You won {item} for ${amount}, buyer premium included.",
   "auction.lost": "{item} sold to another bidder.",
-  "auction.unsold": "{item} did not sell. No cash moved."
+  "auction.unsold": "{item} did not sell. No cash moved.",
+  "streak.claimed": "Day {days} of your streak: ${cash}."
 }

@@ -103,6 +103,20 @@ export interface TournamentWeekRecord {
   settled?: { seeds: string[]; rows: TournamentRowRecord[]; settledTick: number };
 }
 
+/** The daily streak of one player (streak.ts). */
+export interface StreakState {
+  /** consecutive real days claimed */
+  count: number;
+  /** the real day of the last claim, or -1 */
+  lastDay: number;
+  /** the week (of real days) whose rest day was used, or -1 */
+  restWeek: number;
+  /** the real day of the last successful action, or -1 */
+  actedDay: number;
+  badges: string[];
+  titles: string[];
+}
+
 export interface TournamentState {
   weeks: Record<string, TournamentWeekRecord>;
 }
@@ -169,6 +183,8 @@ export interface Player {
   digestNetWorth: number;
   /** cash that cannot pay for analysts or desk upkeep (ad grants, fresh start) */
   restrictedCash?: number;
+  /** the daily streak (streak.ts). Absent until the first action; old saves load unchanged. */
+  streak?: StreakState;
   /**
    * Cumulative cash from outside trading and income (sign-up and admin grants, transfers and loans, both sides). The day
    * baseline and the arrival baseline move with it (core.ts shiftBaselines), so both show trading and income only.
@@ -678,6 +694,7 @@ export type Command =
   | { type: 'lab.signal' }
   | { type: 'tournament.enter' }
   | { type: 'auction.bid'; lot: string; amount: number }
+  | { type: 'streak.claim' }
   | { type: 'tournament.settle'; week: number; seeds: string[]; rows: TournamentRowRecord[] }
   | { type: 'sec.budget'; budget: number }
   | { type: 'sec.scan' }

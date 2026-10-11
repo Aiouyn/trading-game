@@ -3340,5 +3340,6 @@
   "security.msg.blocked": "Vos défenses ont bloqué une tentative d’intrusion.",
   "auction.won": "Vous avez remporté {item} pour {amount} $, prime d’acheteur comprise.",
   "auction.lost": "{item} a été adjugé à un autre enchérisseur.",
-  "auction.unsold": "{item} n’a pas trouvé preneur. Aucun argent n’a bougé."
+  "auction.unsold": "{item} n’a pas trouvé preneur. Aucun argent n’a bougé.",
+  "streak.claimed": "Jour {days} de votre série : {cash} $."
 }

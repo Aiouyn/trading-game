@@ -12,6 +12,7 @@ import {
 import { shopCommand, shopsDay } from './shops';
 import { enterTournament, settleTournament, TOURNAMENT_SYSTEM } from './tournamentWeek';
 import { auctionTick, placeBid } from './auctions';
+import { claimStreak, markStreakAction } from './streak';
 import { newsFromEvents, filings } from './news';
 import {
   addAlert, applyRank, checkAchievements, checkAlerts, claimContract, join, pickRivals, rollContracts, tradeStats,
@@ -227,7 +228,25 @@ function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
   }
 }
 
+/**
+ * Apply one command. A successful action (anything but presence, the claim and the read receipts) also records the day's
+ * action for the streak (streak.ts).
+ */
 export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
+  const r = applyCommandInner(g, pid, cmd, out);
+  if (r.ok && STREAK_ACTIONS.has(cmd.type)) markStreakAction(g, pid);
+  return r;
+}
+
+const STREAK_ACTIONS = new Set<Command['type']>([
+  'order.place', 'order.cancel', 'order.modify', 'position.close', 'option.trade', 'biz.buy', 'biz.upgrade', 'biz.sell', 'biz.rename',
+  'biz.crew', 'biz.price', 'biz.quality', 'biz.marketing', 'biz.maintain', 'biz.manager.hire', 'biz.manager.fire', 'prop.buy', 'prop.sell',
+  'prop.renovate', 'prop.home', 'prop.repay', 'life.buy', 'life.sell', 'note.buy', 'contract.claim', 'chat.send', 'auction.bid',
+  'lab.gpu', 'lab.reserve', 'lab.data', 'lab.research', 'lab.hire', 'lab.train', 'lab.bot', 'lab.botToggle', 'lab.signal', 'tournament.enter',
+  'alliance.deposit', 'alliance.withdraw', 'deal.offer', 'deal.respond', 'deal.repay', 'watch.set', 'alert.add', 'alert.remove',
+]);
+
+function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
   if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out);
   // the server settles a tournament week as TOURNAMENT_SYSTEM, which is not a player; a player's own call is refused here
   if (cmd.type === 'tournament.settle') return pid === TOURNAMENT_SYSTEM ? settleTournament(g, cmd.week, cmd.seeds, cmd.rows, out) : { ok: false, error: 'Only the server settles a tournament.' };
@@ -384,6 +403,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'lab.signal': return analystSignal(g, pid, out);
     case 'tournament.enter': return enterTournament(g, pid);
     case 'auction.bid': return placeBid(g, pid, cmd.lot, cmd.amount);
+    case 'streak.claim': return claimStreak(g, pid, out);
     case 'sec.budget': return setBudget(g, pid, cmd.budget);
     case 'sec.scan': return manualScan(g, pid, out);
     case 'sec.tag': return tagEntry(g, pid, cmd.entryId, cmd.tag);
