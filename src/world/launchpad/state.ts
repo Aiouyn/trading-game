@@ -3,6 +3,7 @@ import { openAccount, seedStream, type RngState } from '@/engine';
 import { TPD, cashOf, pushWire } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { textProvider } from '../text';
+import { moderatorLine } from './moderatorLine';
 import { curveAccountId, tokenStream } from './constants';
 import type { LaunchpadState, LpLot, LpToken } from './types';
 import type { Msg } from '@/i18n';
@@ -99,11 +100,14 @@ export function isCreatorLinked(g: GameState, creatorId: string, pid: string): b
 
 /**
  * The three-part refusal (lead-launchpad.md L2): what happened, why, and what to do. The English line is the command's error; the
- * descriptors go to the viewer's language. Keys are `lp.refuse.<code>.what|why|do` in en.json and fr.json.
+ * descriptors go to the viewer's language. Keys are `lp.refuse.<code>.what|why|do` in en.json and fr.json. A name or ticker the
+ * moderator refuses says its first part in the moderator's line (moderatorLine.ts, txt.mod.*).
  */
 export function refuse(code: string, vars?: Record<string, string | number>): CommandResult {
+  const subject = code === 'tickerCrypto' ? vars?.ticker : vars?.name;
+  const what = moderatorLine(code, subject === undefined ? undefined : String(subject)) ?? { key: `lp.refuse.${code}.what`, vars };
   const parts: Msg[] = [
-    { key: `lp.refuse.${code}.what`, vars },
+    what,
     { key: `lp.refuse.${code}.why`, vars },
     { key: `lp.refuse.${code}.do`, vars },
   ];

@@ -15,7 +15,7 @@ function sample(s: string): Msg['vars'] {
 }
 
 /** The player-facing world text families: the daily close and its card (close., luck., ghost.), work, goals, the journal and the Research Desk. */
-const WORLD_PREFIXES = ['dayclose.', 'work.', 'goal.', 'close.', 'luck.', 'ghost.', 'journal.', 'desk.', 'why.', 'analyst.'];
+const WORLD_PREFIXES = ['dayclose.', 'txt.narr.', 'work.', 'goal.', 'close.', 'luck.', 'ghost.', 'journal.', 'desk.', 'why.', 'analyst.'];
 
 describe('banned words in the world text', () => {
   it('flags whole words only, in any case', () => {
@@ -29,7 +29,7 @@ describe('banned words in the world text', () => {
 
   it('every world template (daily close, work, goals) is clean in English and French', () => {
     const keys = Object.keys(en).filter((k) => WORLD_PREFIXES.some((p) => k.startsWith(p)));
-    expect(keys.filter((k) => k.startsWith('dayclose.')).length).toBeGreaterThan(8);
+    expect(keys.filter((k) => k.startsWith('txt.narr.')).length).toBeGreaterThan(8);
     expect(keys.filter((k) => k.startsWith('work.')).length).toBeGreaterThan(15);
     expect(keys.filter((k) => k.startsWith('desk.')).length).toBeGreaterThan(20);
     expect(keys.filter((k) => k.startsWith('journal.')).length).toBeGreaterThan(20);

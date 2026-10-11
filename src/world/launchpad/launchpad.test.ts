@@ -61,7 +61,9 @@ describe('launch gates (L2)', () => {
     expect(refusal(launch(g, CREATOR, 'FROG'))).toBe('tickerTaken');
     const r = launch(g, CREATOR, 'ABCD', { name: 'Bitcoin Pals' });
     const parts = (r.data as { parts: { key: string }[] }).parts.map((p) => p.key);
-    expect(parts).toEqual(['lp.refuse.nameCrypto.what', 'lp.refuse.nameCrypto.why', 'lp.refuse.nameCrypto.do']);
+    // the first part is the moderator's line (txt.mod.crypto.N); the other two are the refusal's own copy
+    expect(parts[0]).toMatch(/^txt\.mod\.crypto\.\d$/);
+    expect(parts.slice(1)).toEqual(['lp.refuse.nameCrypto.why', 'lp.refuse.nameCrypto.do']);
   });
 
   it('a refused launch changes nothing: no fee, no state, no account', () => {

@@ -8,7 +8,6 @@ import { sectorName } from '@/engine';
 import { money, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { type GameStore, useGame } from '@/game/store';
 import { t, tm, useLocale } from '@/i18n';
-import { closeMove } from '@/world/close-move';
 import type { DailyClose, MoveLine } from '@/world/ledger-types';
 import { useEventPanel } from './os/EventBanner';
 import { OsSheet } from './os/OsSheet';
@@ -56,8 +55,12 @@ export function CloseCard() {
 
 /** The headline: the same direction rule as the Copy summary (closeMove), so a sub-dollar day reads flat in both. */
 function headline(c: DailyClose): string {
-  const move = closeMove(c.nwChange);
-  return move === 'flat' ? t('close.head.flat') : t(`close.head.${move}`, { amount: money(Math.abs(c.nwChange)) });
+  return tm(c.lines.find((m) => m.key.startsWith('txt.narr.head.')));
+}
+
+/** The rank line: the narrator's ranking or no-trades line from the close's descriptors. */
+function rankLine(c: DailyClose): string {
+  return tm(c.lines.find((m) => m.key.startsWith('txt.narr.rank.') || m.key.startsWith('txt.narr.noTrades.')));
 }
 
 /** The plain-text summary the Copy button puts on the clipboard: the card's descriptors, in the viewer's language. */
@@ -144,7 +147,7 @@ function CloseSheet({ card }: { card: DailyClose }) {
           <GhostRow label={t('close.ghost.you')} value={card.ghosts.player} strong />
         </ul>
         <p className="mt-2 text-small text-fg-muted" data-testid="close-rank">
-          {card.ghosts.percentile === null ? t('dayclose.noTrades') : t('dayclose.rank', { beaten: card.ghosts.beaten })}
+          {rankLine(card)}
         </p>
       </section>
 

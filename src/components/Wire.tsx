@@ -5,6 +5,7 @@ import { newsBand, type NewsBand } from '@/engine';
 import { t, tm } from '@/i18n';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
+import { wireTagMsg } from '@/world/text/wireTags';
 import type { WireItem } from '@/world/types';
 import { TONE_TEXT } from './Shell';
 import { openFromShell } from './os/openApp';
@@ -63,7 +64,7 @@ export function WireView() {
             <li key={w.id} className="flex gap-3 border-t border-ink-2 py-2.5" data-testid="wire-row">
               <span className="num w-20 shrink-0 text-caption text-fg-faint">{clockLabel(w.tick, 720)}</span>
               <div className="min-w-0">
-                <span className={`mr-2 text-caption font-semibold uppercase ${TONE_TEXT[w.tone]}`}>{w.tag}</span>
+                <span className={`mr-2 text-caption font-semibold uppercase ${TONE_TEXT[w.tone]}`}>{tm(wireTagMsg(w.tag), w.tag)}</span>
                 {w.assetId ? (
                   <button
                     type="button"

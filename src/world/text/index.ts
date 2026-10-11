@@ -1,7 +1,7 @@
 import type { Msg, Locale } from '@/i18n';
 import type { DailyClose } from '../ledger-types';
 import { templateTextProvider } from './template';
-import type { ExecFacts, ModFacts, NewsFacts, RivalFacts, RumorFacts } from './roles';
+import type { ExecFacts, ModFacts, NarratorFacts, NewsFacts, RivalFacts, RumorFacts } from './roles';
 
 /**
  * Text the world makes for a player (Phase 3, section 5). The world never writes a sentence inline: it asks the provider
@@ -21,6 +21,8 @@ export interface TextProvider {
   executives(facts: ExecFacts): Msg;
   /** rumor mill: one whisper line with its source; the direction is the world's and so is its accuracy. */
   rumor(facts: RumorFacts): Msg;
+  /** narrator: one line of the daily close card (the headline, the best and worst positions, the benchmarks and the rank). */
+  narrator(facts: NarratorFacts): Msg;
   /** rival personas: one voice per fund, from its past performance only. */
   rival(facts: RivalFacts): Msg;
   /** moderator: the Launchpad name check's line for one refusal reason. */

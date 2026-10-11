@@ -4,7 +4,7 @@ import { sectorName } from '@/engine';
 import type { Locale, Msg, MsgVar } from '@/i18n';
 import { closeMove } from '../close-move';
 import type { TextProvider } from './index';
-import { analystMsg, executivesMsg, moderatorMsg, newsroomMsg, rivalMsg, rumorMsg, vkey } from './roles';
+import { analystMsg, executivesMsg, moderatorMsg, narratorMsg, newsroomMsg, rivalMsg, rumorMsg, vkey } from './roles';
 
 /**
  * The template provider: the daily close, written from fixed sentences in en.json and fr.json (keys `dayclose.*`). The
@@ -51,9 +51,12 @@ export function absPct(x: number): string {
 
 export const templateTextProvider: TextProvider = {
   dailyClose(c) {
+    // the masthead is a label; every other line is a narrator variant (roles.ts narratorMsg), keyed by the close's day
     const out: Msg[] = [{ key: 'dayclose.title' }];
     const change = c.nwChange;
     const move = closeMove(change);
+    const day = `${c.day}`;
+    out.push(narratorMsg({ id: `${day}:head`, kind: 'head', move, amount: usd(Math.abs(change)) }));
     if (move === 'flat') {
       out.push({ key: vkey('txt.narr.nw.flat', `${c.day}:nw`), vars: { now: usd(c.nwClose) } });
     } else {
@@ -63,17 +66,17 @@ export const templateTextProvider: TextProvider = {
       });
     }
     if (c.best && c.worst) {
-      out.push({ key: 'dayclose.best', vars: { asset: c.best.assetId, pct: signedPct(c.best.pct), usd: usd(c.best.usd) } });
+      out.push(narratorMsg({ id: `${day}:best`, kind: 'best', asset: c.best.assetId, pct: signedPct(c.best.pct), usd: usd(c.best.usd) }));
       if (c.worst.assetId !== c.best.assetId) {
-        out.push({ key: 'dayclose.worst', vars: { asset: c.worst.assetId, pct: signedPct(c.worst.pct), usd: usd(c.worst.usd) } });
+        out.push(narratorMsg({ id: `${day}:worst`, kind: 'worst', asset: c.worst.assetId, pct: signedPct(c.worst.pct), usd: usd(c.worst.usd) }));
       }
     } else {
-      out.push({ key: 'dayclose.noPositions' });
+      out.push(narratorMsg({ id: `${day}:none`, kind: 'noPositions' }));
     }
-    out.push({ key: 'dayclose.gx', vars: { pct: signedPct(c.gx.pct) } });
+    out.push(narratorMsg({ id: `${day}:gx`, kind: 'gx', pct: signedPct(c.gx.pct) }));
     if (c.sectors) {
-      out.push({ key: 'dayclose.sectorBest', vars: { sector: sectorName(c.sectors.best.sector), pct: signedPct(c.sectors.best.pct) } });
-      out.push({ key: 'dayclose.sectorWorst', vars: { sector: sectorName(c.sectors.worst.sector), pct: signedPct(c.sectors.worst.pct) } });
+      out.push(narratorMsg({ id: `${day}:sector:best`, kind: 'sector', which: 'best', sector: sectorName(c.sectors.best.sector), pct: signedPct(c.sectors.best.pct) }));
+      out.push(narratorMsg({ id: `${day}:sector:worst`, kind: 'sector', which: 'worst', sector: sectorName(c.sectors.worst.sector), pct: signedPct(c.sectors.worst.pct) }));
     }
     for (const s of c.stories) {
       out.push({ key: vkey(`txt.narr.story.${s.band}`, `${c.day}:${s.assetId}`), vars: { headline: s.headlineMsg ?? s.headline, asset: s.assetId } });
@@ -83,12 +86,11 @@ export const templateTextProvider: TextProvider = {
       if (c.event.phase === 'active') out.push({ key: vkey('txt.narr.event.active', `${c.day}:event`), vars: { headline } });
       else out.push({ key: vkey('txt.narr.event.ended', `${c.day}:event`), vars: { headline, days: c.event.lastedDays ?? 0 } });
     }
-    out.push({
-      key: 'dayclose.ghosts',
-      vars: { basket: usd(c.ghosts.basket), random: usd(c.ghosts.random), momentum: usd(c.ghosts.momentum), player: usd(c.ghosts.player) },
-    });
-    if (c.ghosts.percentile === null) out.push({ key: 'dayclose.noTrades' });
-    else out.push({ key: 'dayclose.rank', vars: { beaten: c.ghosts.beaten } });
+    out.push(narratorMsg({
+      id: `${day}:ghosts`, kind: 'ghosts', basket: usd(c.ghosts.basket), random: usd(c.ghosts.random), momentum: usd(c.ghosts.momentum), player: usd(c.ghosts.player),
+    }));
+    if (c.ghosts.percentile === null) out.push(narratorMsg({ id: `${day}:rank`, kind: 'noTrades' }));
+    else out.push(narratorMsg({ id: `${day}:rank`, kind: 'rank', beaten: c.ghosts.beaten }));
     return out;
   },
   deskMemo(f) {
@@ -102,6 +104,7 @@ export const templateTextProvider: TextProvider = {
   newsroom: newsroomMsg,
   executives: executivesMsg,
   rumor: rumorMsg,
+  narrator: narratorMsg,
   rival: rivalMsg,
   moderator: moderatorMsg,
   tripLine(f) {

@@ -148,11 +148,11 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
       case 'world': {
         if (e.phase === 'announced') {
           for (const p of e.precursors ?? []) {
-            const key = e.kind === 'flash' ? null : precursorKey(e.kind, p);
+            const key = e.kind === 'flash' ? null : precursorKey(e.kind, p, e.id);
             pushWire(g, out, { kind: 'world', tag: 'Markets', tone: 'warn', text: p, ...(key ? { msg: { key } } : {}), ev: { type: 'world', id: e.id, phase: 'announced', kind: e.kind } });
           }
         } else if (e.phase === 'start') {
-          const key = headlineKey(e.kind, e.headline);
+          const key = headlineKey(e.kind, e.headline, e.id);
           pushWire(g, out, { kind: 'world', tag: worldLabel(e.kind), tone: worldTone(e.kind), text: e.headline, ...(key ? { msg: { key } } : {}), ev: { type: 'world', id: e.id, phase: 'start', kind: e.kind } });
         } else {
           const lasted = e.kind === 'flash' ? '' : ` · lasted ${e.lastedDays} day${e.lastedDays === 1 ? '' : 's'}`;

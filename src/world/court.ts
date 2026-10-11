@@ -8,6 +8,7 @@ import { rugVerdict } from './launchpad/rug';
 import { SEVERITY } from './court-scale';
 import { ECA_TUNE } from './eca-tune';
 import { usd } from './text/template';
+import { textProvider } from './text';
 import type { CommandResult, CourtCase, GameState, Player, StepOutput } from './types';
 
 /**
@@ -90,7 +91,10 @@ export function fileCase(g: GameState, pid: string, defendantId: string, kind: C
   // evidence is consumed by the case
   delete g.cyber.evidence[`${defendantId}>${pid}`];
   notify(g, out, defendantId, { kind: 'court', tone: 'warn', text: `${g.players[pid]!.handle} is suing you for ${kind}. Hearing in ${HEARING_DAYS} game days. You can offer a settlement.` });
-  pushWire(g, out, { kind: 'court', tag: 'Court', tone: 'warn', text: `${g.players[pid]!.handle} sues ${d.handle} for ${kind}` });
+  pushWire(g, out, {
+    kind: 'court', tag: 'Court', tone: 'warn', text: `${g.players[pid]!.handle} sues ${d.handle} for ${kind}`,
+    msg: textProvider.newsroom({ kind: 'lawsuit', id: `${id}:filed`, handle: g.players[pid]!.handle, defendant: d.handle, law: kind }),
+  });
   return { ok: true, data: { id } };
 }
 
@@ -166,7 +170,10 @@ export function courtTick(g: GameState, out: StepOutput): void {
     c.verdictText = `Liable: $${Math.round(damages).toLocaleString('en-US')} in damages and a $${Math.round(fine).toLocaleString('en-US')} fine${df.heldUntil > g.market.tick ? '; assets held for 24 game days' : ''}.`;
     notify(g, out, c.plaintiffId, { kind: 'court', tone: 'gain', text: `You won against ${df.handle}. ${c.verdictText}` });
     notify(g, out, c.defendantId, { kind: 'court', tone: 'loss', text: `Verdict for ${pl.handle}. ${c.verdictText}` });
-    pushWire(g, out, { kind: 'court', tag: 'Verdict', tone: 'loss', text: `Court finds ${df.handle} liable for ${c.kind}; ${pl.handle} awarded damages` });
+    pushWire(g, out, {
+      kind: 'court', tag: 'Verdict', tone: 'loss', text: `Court finds ${df.handle} liable for ${c.kind}; ${pl.handle} awarded damages`,
+      msg: textProvider.newsroom({ kind: 'verdict', id: `${c.id}:verdict`, defendant: df.handle, plaintiff: pl.handle, law: c.kind }),
+    });
   }
 }
 

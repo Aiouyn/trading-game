@@ -62,7 +62,24 @@ export type NewsFacts =
   | { kind: 'margin'; id: string; equity: number; required: number }
   | { kind: 'liquidated'; id: string; qty: number; asset: string; price: number }
   | { kind: 'liquidation'; id: string; asset: string }
-  | { kind: 'option'; id: string; contract: string; payout: number };
+  | { kind: 'option'; id: string; contract: string; payout: number }
+  | { kind: 'sale'; id: string; name: string; price: number }
+  | { kind: 'deal'; id: string; handle: string; biz: string; city: string }
+  | { kind: 'property'; id: string; handle: string; type: string; district: string; city: string }
+  | { kind: 'bizEvent'; id: string; event: string; biz: string; city: string; mult: number; days: number }
+  | { kind: 'chapter'; id: string; number: number; winner: string | null }
+  | { kind: 'hallOfFame'; id: string; rank: number; number: number }
+  | { kind: 'priced'; id: string; name: string; ticker: string; price: number }
+  | { kind: 'tradePlan'; id: string; name: string; from: number; to: number }
+  | { kind: 'buyback'; id: string; name: string; size: number; from: number; to: number }
+  | { kind: 'lawsuit'; id: string; handle: string; defendant: string; law: string }
+  | { kind: 'verdict'; id: string; defendant: string; plaintiff: string; law: string };
+
+/** The court's claim kind as a fragment (en.json txt.court.kind.*); a kind with no fragment shows as it is. */
+const LAW_SLUG: Record<string, string> = { 'cyber intrusion': 'cyber', 'model theft': 'model', 'loan default': 'loan', 'contract breach': 'contract', 'fund abuse': 'fund' };
+function lawMsg(law: string): Msg {
+  return LAW_SLUG[law] ? { key: `txt.court.kind.${LAW_SLUG[law]}` } : { key: law };
+}
 
 /** The threshold a macro print must clear to read as hot or cool (the engine's own band). */
 const MACRO_BAND = 0.0007;
@@ -141,6 +158,76 @@ export function newsroomMsg(f: NewsFacts): Msg {
         key: vkey(`txt.news.option.${f.payout > 0 ? 'itm' : 'otm'}`, f.id),
         vars: { contract: f.contract.replace(/\|/g, ' '), amount: usd0(f.payout) },
       };
+    case 'sale':
+      return { key: vkey('txt.news.sale', f.id), vars: { name: f.name, price: usd0(f.price) } };
+    case 'deal':
+      return { key: vkey('txt.news.deal', f.id), vars: { handle: f.handle, biz: f.biz, city: f.city } };
+    case 'property':
+      return { key: vkey('txt.news.property', f.id), vars: { handle: f.handle, type: f.type, district: f.district, city: f.city } };
+    case 'bizEvent': {
+      const sign = f.mult >= 1 ? '+' : '−';
+      return {
+        key: vkey('txt.news.bizEvent', f.id),
+        vars: {
+          event: { key: `txt.biz.ev.${f.event}`, vars: { biz: f.biz, city: f.city } },
+          mult: `${sign}${Math.round(Math.abs(f.mult - 1) * 100)}%`,
+          days: { key: 'txt.news.days', vars: { count: f.days, n: f.days } },
+        },
+      };
+    }
+    case 'chapter': {
+      const vars = { number: f.number, next: f.number + 1 };
+      return f.winner
+        ? { key: vkey('txt.news.chapter.win', f.id), vars: { ...vars, name: f.winner } }
+        : { key: vkey('txt.news.chapter.nowin', f.id), vars };
+    }
+    case 'hallOfFame':
+      return { key: vkey('txt.news.hof', f.id), vars: { rank: f.rank, number: f.number } };
+    case 'priced':
+      return { key: vkey('txt.news.ipoPriced', f.id), vars: { name: f.name, ticker: f.ticker, price: `$${f.price.toFixed(2)}` } };
+    case 'tradePlan':
+      return { key: vkey('txt.news.plan', f.id), vars: { name: f.name, from: f.from, to: f.to } };
+    case 'buyback':
+      return { key: vkey('txt.news.buyback', f.id), vars: { name: f.name, size: f.size, from: f.from, to: f.to } };
+    case 'lawsuit':
+      return { key: vkey('txt.news.sue', f.id), vars: { handle: f.handle, defendant: f.defendant, law: lawMsg(f.law) } };
+    case 'verdict':
+      return { key: vkey('txt.news.verdict', f.id), vars: { defendant: f.defendant, plaintiff: f.plaintiff, law: lawMsg(f.law) } };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// narrator: the daily close card's lines (the masthead and the story and event lines are the Wire's and the world's)
+
+export type NarratorFacts =
+  | { id: string; kind: 'head'; move: 'up' | 'down' | 'flat'; amount: string }
+  | { id: string; kind: 'best' | 'worst'; asset: string; pct: string; usd: string }
+  | { id: string; kind: 'noPositions' }
+  | { id: string; kind: 'gx'; pct: string }
+  | { id: string; kind: 'sector'; which: 'best' | 'worst'; sector: string; pct: string }
+  | { id: string; kind: 'ghosts'; basket: string; random: string; momentum: string; player: string }
+  | { id: string; kind: 'noTrades' }
+  | { id: string; kind: 'rank'; beaten: number };
+
+export function narratorMsg(f: NarratorFacts): Msg {
+  switch (f.kind) {
+    case 'head':
+      return f.move === 'flat' ? { key: vkey('txt.narr.head.flat', f.id) } : { key: vkey(`txt.narr.head.${f.move}`, f.id), vars: { amount: f.amount } };
+    case 'best':
+    case 'worst':
+      return { key: vkey(`txt.narr.${f.kind}`, f.id), vars: { asset: f.asset, pct: f.pct, usd: f.usd } };
+    case 'noPositions':
+      return { key: vkey('txt.narr.noPositions', f.id) };
+    case 'gx':
+      return { key: vkey('txt.narr.gx', f.id), vars: { pct: f.pct } };
+    case 'sector':
+      return { key: vkey(`txt.narr.sector${f.which === 'best' ? 'Best' : 'Worst'}`, f.id), vars: { sector: f.sector, pct: f.pct } };
+    case 'ghosts':
+      return { key: vkey('txt.narr.ghosts', f.id), vars: { basket: f.basket, random: f.random, momentum: f.momentum, player: f.player } };
+    case 'noTrades':
+      return { key: vkey('txt.narr.noTrades', f.id) };
+    case 'rank':
+      return { key: vkey('txt.narr.rank', f.id), vars: { beaten: f.beaten } };
   }
 }
 

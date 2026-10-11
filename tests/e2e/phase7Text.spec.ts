@@ -12,7 +12,17 @@ const ENGLISH_STORY = new RegExp([
   '\\b(Whisper|Margin call|Forced selling|Liquidated:|lists on Port Avalon|discloses a stake|Market event|priced in (early|midway|late))\\b',
   '\\b(Your net worth|expired (in the money|worthless)|reconstitutes today|Pension funds rebalance|Port Avalon since|Nobody has met)\\b',
   '\\b(Patience paid|Two partners|Value takes time|rose \\d|fell \\d|from the open of Day)\\b',
+  // the close card's narrator lines, as the English templates print them
+  '\\b(Best position|Worst position|Top performer|Weakest holding|Biggest drag|Benchmarks:|Against the benchmarks|You were ahead|You are ahead|No positions were|No trades yet|A flat day|The market \\(GX\\)|Net worth (barely|held|gained|lost|climbed|slipped)|Up \\$|Down \\$)\\b',
 ].join('|'));
+
+/** The English labels of the Wire's tags (WireItem.tag in the engine): a French Wire shows the French label instead. */
+const ENGLISH_TAGS = [
+  'Achievement', 'Alliance', 'Bankruptcy', 'Central bank', 'Chapter', 'Close', 'Court', 'Crash', 'Deal', 'Earnings', 'Economy', 'Filing',
+  'Halt', 'IPO', 'Index', 'Margin', 'Markets', 'Milestone', 'Move', 'Preview', 'Property', 'Reopen', 'Security', 'Spin-off', 'Squeeze',
+  'Takeover', 'Verdict', 'Whisper', 'Bubble', 'Crisis week', 'Flash crash', 'Inflation', 'Jobs', 'Auction', 'Liquidation', 'Launchpad',
+  'Rumor', 'Sponsored',
+].map((x) => x.toLowerCase());
 
 /** Opens the Research Desk for a player (the desk opens at Operator: a grant lifts the rank, as research-desk-hunts does). */
 async function openDesk(page: Page, handle: string): Promise<void> {
@@ -46,6 +56,10 @@ test('French: the Wire, the Research Desk and the Rivals profile show no English
   const wire = await rows.allTextContents();
   expect(wire.length).toBeGreaterThan(0);
   for (const line of wire) expect(line, `wire: ${line}`).not.toMatch(ENGLISH_STORY);
+  // the tag label at the start of each row (the uppercase chip) is French too
+  const tags = await page.locator('[data-testid="wire-row"] span.uppercase').allTextContents();
+  expect(tags.length).toBeGreaterThan(0);
+  for (const tag of tags) expect(ENGLISH_TAGS, `wire tag: ${tag}`).not.toContain(tag.trim().toLowerCase());
 
   // the Rivals profile: the persona line is French (the card sits in the Market app, under the watchlist)
   await goTo(page, 'market');

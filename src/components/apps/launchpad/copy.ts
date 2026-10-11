@@ -1,9 +1,10 @@
 // The Launchpad app's copy helpers: which i18n key a refusal code, a status, a reason or a tagline maps to, the three-part
 // refusal text, the client's own checks of a name (the world checks it again at launch), and the price figures. Pure functions
 // (no React), so copy.test.ts can check that every key they can return exists in English and French.
-import { hasKey, t, type Msg } from '@/i18n';
+import { hasKey, t, tm, type Msg } from '@/i18n';
 import { LP, TPD } from '@/world/launchpad/constants';
 import { moderateName, nameFormatOk, tickerFormatOk, type NameRefusal } from '@/world/launchpad/moderate';
+import { moderatorLine } from '@/world/launchpad/moderatorLine';
 
 /** A refusal in its three parts: what happened, why, and what the viewer can do. */
 export interface RefusalCopy {
@@ -33,7 +34,14 @@ export function refusalOf(data: unknown, code?: string): RefusalCopy {
 /** The copy of a refusal code, for the refusals the client finds before it sends (a slippage over the setting, a name). */
 export function refusalCopy(code: string, vars: Record<string, string | number> = {}): RefusalCopy {
   const base = hasKey(`lp.refuse.${code}.what`) ? `lp.refuse.${code}` : 'lp.refuse.unknown';
-  return { what: t(`${base}.what`, vars), why: t(`${base}.why`, vars), do: t(`${base}.do`, vars) };
+  // a refused name or ticker says its first part in the moderator's line, as the world's refusal does
+  const subject = code === 'tickerCrypto' ? vars.ticker : vars.name;
+  const moderated = moderatorLine(code, subject === undefined ? undefined : String(subject));
+  return {
+    what: moderated ? tm(moderated) : t(`${base}.what`, vars),
+    why: t(`${base}.why`, vars),
+    do: t(`${base}.do`, vars),
+  };
 }
 
 /** The refusal code of a command's data, or null. */
