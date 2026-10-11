@@ -14,7 +14,7 @@ import { applyCommand, createGame, stepGame } from '../../src/world/game';
 import { credit, netWorthBreakdown, TPD } from '../../src/world/core';
 import { bookedNet, engineTallyOf, netWorldMoney } from '../../src/world/company/exploits/sequences';
 import { LP, curveAccountId } from '../../src/world/launchpad/constants';
-import { curveProgress, spotAt } from '../../src/world/launchpad/curve';
+import { curveProgress, quoteSell, spotAt } from '../../src/world/launchpad/curve';
 import { NPC } from '../../src/world/launchpad/constants';
 import type { Command, GameState } from '../../src/world/types';
 import type { LpToken } from '../../src/world/launchpad/types';
@@ -28,17 +28,24 @@ const nSeeds = Number(arg('seeds', '50'));
 const days = Number(arg('days', '30'));
 const firstSeed = Number(arg('first', '1'));
 const outPath = arg('out', 'balance-out/launchpad.json');
+// tuning (lead-launchpad.md L6.3): --npc '{"DEMAND_PER_BUZZ":1000}' overrides the L6 constants of NPC for this run only; the summary records them
+const npcOverride = JSON.parse(arg('npc', '{}')) as Partial<typeof NPC>;
+Object.assign(NPC, npcOverride);
 const START_CASH = 20_000;
 const DECIDE_EVERY = 60;
 
-type Bot = { id: string; handle: string; kind: 'creatorDump' | 'sniper' | 'flipper' | 'buzzPumper' | 'retail' };
+type Bot = { id: string; handle: string; kind: 'creatorDump' | 'sniper' | 'flipper' | 'buzzPumper' | 'retail' | 'idle' };
 const BOTS: Bot[] = [
   { id: 'bot_creator', handle: 'bot_creator', kind: 'creatorDump' },
   { id: 'bot_sniper', handle: 'bot_sniper', kind: 'sniper' },
   { id: 'bot_flipper', handle: 'bot_flipper', kind: 'flipper' },
   { id: 'bot_buzz', handle: 'bot_buzz', kind: 'buzzPumper' },
   { id: 'bot_retail', handle: 'bot_retail', kind: 'retail' },
+  // the idle control (L8.1): never trades; its raw return must be zero to the cent (the valuation and the cash are exact)
+  { id: 'bot_idle', handle: 'bot_idle', kind: 'idle' },
 ];
+/** the five strategies the gate passes or fails (the idle control is checked for a zero raw return instead) */
+const STRATEGY_KINDS = ['creatorDump', 'sniper', 'flipper', 'buzzPumper', 'retail'] as const;
 
 interface BotState {
   launched: boolean;
@@ -136,6 +143,8 @@ function decide(g: GameState, bot: Bot, st: BotState, rng: Rng, startTick: numbe
       applyCommand(g, bot.id, { type: 'lp.buy', ticker: t.ticker, spendCents: 50_000, maxSlip: 0.3 });
       return;
     }
+    case 'idle':
+      return;
     case 'retail': {
       if (rng.uniform() > 0.2) return;
       if (rng.uniform() < 0.6 && live.length > 0) {
@@ -163,7 +172,12 @@ function runSeed(seed: string) {
     states[b.id] = { launched: false, sniped: new Set(), snipeEntry: {}, flipped: new Set(), flipEntry: {}, dumpedDay: -1 };
   }
   const nw0: Record<string, number> = {};
-  for (const b of BOTS) nw0[b.id] = netWorthBreakdown(g, b.id).total;
+  const cash0: Record<string, number> = {};
+  for (const b of BOTS) {
+    nw0[b.id] = netWorthBreakdown(g, b.id).total;
+    cash0[b.id] = g.market.accounts[b.id]?.cash ?? 0;
+  }
+  let idleDrift = 0;
   const gx0 = indexLevel(g.market, 'GX');
   const maxPx: Record<string, number> = {};
   let residualMax = 0;
@@ -191,12 +205,19 @@ function runSeed(seed: string) {
       }
     }
   }
+  if (process.argv.includes('--dbg')) {
+    const rid = BOTS.find((b) => b.kind === 'retail')!.id;
+    const pos = Object.entries(g.market.accounts[rid]?.positions ?? {}).filter(([, p]) => p.qty !== 0).map(([id, p]) => `${id}:${p.qty.toFixed(0)}@${p.avgCost.toFixed(6)} mid ${Math.exp(g.market.assets[g.market.config.assets.findIndex((x) => x.id === id)]?.lnP ?? 0).toFixed(6)}`);
+    const held = Object.values(g.launchpad?.tokens ?? {}).filter((t) => (t.bal[rid] ?? 0) > 0).map((t) => `${t.ticker}:${t.status}:${t.bal[rid]}`);
+    console.error('retail cash', g.market.accounts[rid]?.cash, 'positions', JSON.stringify(pos), 'curveHeld', JSON.stringify(held), 'nw0', nw0[rid], 'nw1', netWorthBreakdown(g, rid).total);
+  }
   const gx1 = indexLevel(g.market, 'GX');
   const bh = gx1 / gx0 - 1;
   const returns: Record<string, number> = {};
   const raw: Record<string, number> = {};
   for (const b of BOTS) {
     const nw1 = netWorthBreakdown(g, b.id).total;
+    if (b.kind === 'idle') idleDrift = nw1 - nw0[b.id]! - ((g.market.accounts[b.id]?.cash ?? 0) - cash0[b.id]!);
     raw[b.kind] = (nw1 - nw0[b.id]!) / nw0[b.id]!;
     returns[b.kind] = raw[b.kind]! - bh;
   }
@@ -232,9 +253,24 @@ function runSeed(seed: string) {
       grad: t.gradTick !== undefined, flows: t.flows, peakBuzz: +(t.buzz.base + t.buzz.board + t.buzz.wire).toFixed(3),
     }))
     : undefined;
+  // the NPC cohort's net over a token's life (the L6.1 gate): its curve buys less the NPC's own 1% buy fee (booked on the npcRetail
+  // line), less its gross sells, less the liquidation value of what it still holds on a live curve. A graduated token counts once it has
+  // had ten game days to unwind (its last share is 0.1%). Dead tokens are flat in tokens (liquidated at death), so they need no mark.
+  let npcLife = 0;
+  let npcLifeN = 0;
+  for (const t of observed) {
+    if (t.status === 'graduated' && (t.gradTick ?? end) > end - 10 * TPD) continue;
+    const inv = t.status === 'live' && t.npcBal > 0 ? quoteSell(t.y, t.npcBal) : null;
+    npcLife += 0.99 * t.flows.npcBuy - t.flows.npcSell - (inv && inv.ok ? inv.netCents / 100 : 0);
+    npcLifeN++;
+  }
   return {
     seed, launches, cohortLaunches, deadWithin7, deadWithin7Early, graduated, tenX, residualMax, allLaunches: toks.length, diag,
+    npcLife, npcLifeN,
+    idleDrift,
     excess: returns, raw, gx: bh, npcRetail: g.economy.faucets.npcRetail ?? 0,
+    // the NPC cohort's cash net over the world: buys in (the npcRetail faucet) less sells out (the npcRetail sink); L6.1 needs it <= 0 on average
+    npcNet: (g.economy.faucets.npcRetail ?? 0) - (g.economy.sinks.npcRetail ?? 0),
     lpTotals: g.launchpad?.totals ?? null, npcLaunches: g.launchpad?.npcSeq ?? 0,
   };
 }
@@ -248,8 +284,7 @@ for (const s of seeds) {
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
 const sd = (xs: number[]) => { const m = mean(xs); return Math.sqrt(mean(xs.map((x) => (x - m) ** 2))); };
-const kinds = BOTS.map((b) => b.kind);
-const strategies = Object.fromEntries(kinds.map((k) => {
+const strategies = Object.fromEntries(STRATEGY_KINDS.map((k) => {
   const xs = per.map((r) => r.excess[k]!);
   const se = sd(xs) / Math.sqrt(xs.length);
   const oneSided95 = mean(xs) + 1.645 * se;
@@ -262,13 +297,22 @@ const dead7Early = per.reduce((a, r) => a + r.deadWithin7Early, 0) / Math.max(1,
 const grad = per.reduce((a, r) => a + r.graduated, 0) / Math.max(1, totalLaunches);
 const tenX = per.reduce((a, r) => a + r.tenX, 0) / Math.max(1, totalLaunches);
 const residual = Math.max(...per.map((r) => r.residualMax));
+// the idle control: its net worth moves only with its cash (deposit interest included), to the cent on every seed: no valuation drift
+// (the interest is cash, so a raw zero return is not the test; the test is that nothing but cash enters its net worth)
+const idleZeroOk = per.every((r) => Math.abs(r.idleDrift) < 1e-9);
+// the NPC side: its cash net over the world, per launched token, must be <= 0 on average (L6.1, players do not drain it and it does not inflate)
+const npcNetBooked = per.reduce((a, r) => a + r.npcNet, 0) / Math.max(1, per.reduce((a, r) => a + r.allLaunches, 0));
+const npcNetPerToken = per.reduce((a, r) => a + r.npcLife, 0) / Math.max(1, per.reduce((a, r) => a + r.npcLifeN, 0));
+const npcOk = npcNetPerToken <= 0;
 const shape = {
   deadWithin7dFromDay3: dead7, deadWithin7dDay0to2Reported: dead7Early, graduationRate: grad, tenXRate: tenX,
   deadOk: dead7 >= 0.7, gradOk: grad >= 0.01 && grad <= 0.05, tenXOk: tenX <= 0.005,
+  idleZeroOk, npcNetPerToken, npcNetBookedPerToken: npcNetBooked, npcOk,
 };
-const gate = Object.values(strategies).every((s) => s.pass) && shape.deadOk && shape.gradOk && shape.tenXOk && residual < 0.005;
+const gate = Object.values(strategies).every((s) => s.pass) && shape.deadOk && shape.gradOk && shape.tenXOk && residual < 0.005 && idleZeroOk && npcOk;
 const gxMean = mean(per.map((r) => r.gx));
 const summary = { seeds: seeds.length, days, launches: totalLaunches, gxMean, strategies, shape, residualMax: residual, gate, NPC, perSeed: per };
+
 mkdirSync(path.dirname(outPath), { recursive: true });
 writeFileSync(outPath, JSON.stringify(summary, null, 2));
 console.log(JSON.stringify({ seeds: seeds.length, days, launches: totalLaunches, strategies, shape, residualMax: residual, gate }, null, 2));
