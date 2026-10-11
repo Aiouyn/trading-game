@@ -245,12 +245,28 @@ describe('valuation guards (S5)', () => {
     expect(trailingNet([base * 10], base)).toBeCloseTo((base * 10 + 6 * base) / 7, 9);
   });
 
-  it('a fresh shop is valued at cost until a real day is on its window: no baseline income on day zero', () => {
+  it('a fresh shop is valued at cost until its window holds a full week of real days: no baseline income on day zero or one', () => {
     const base = 100;
-    // the trailing average still pads missing days at the baseline (trailingNet), but a shop with no real day is at cost
+    // missing days pad at the baseline inside trailingNet, so the valuation waits for a full window of real days
     expect(trailingNet([], base)).toBe(base);
     expect(shopValue(1000, [], base)).toBe(1000);
-    expect(shopValue(1000, [0], base)).toBeCloseTo(SHOP.value.investedShare * 1000 + SHOP.value.incomeMult * valuedIncome([0], base), 9);
+    expect(shopValue(1000, [0], base)).toBe(1000);
+    expect(shopValue(1000, [0, 0, 0, 0, 0, 0], base)).toBe(1000);
+    const full = Array.from({ length: SHOP.value.window }, () => 0);
+    expect(shopValue(1000, full, base)).toBeCloseTo(SHOP.value.investedShare * 1000 + SHOP.value.incomeMult * valuedIncome(full, base), 9);
+  });
+
+  it('a new business is at cost on day one of its ownership, with the baseline not paid out', () => {
+    const g = game();
+    const id = tycoon(g);
+    const b: Business = g.businesses[id]!;
+    b.shop.net = [];
+    expect(bizValue(b)).toBe(b.invested);
+    run(g, TPD + 1);
+    // real days are on the window, but fewer than a full week: still at cost
+    expect(b.shop.net.length).toBeGreaterThan(0);
+    expect(b.shop.net.length).toBeLessThan(SHOP.value.window);
+    expect(bizValue(b)).toBe(b.invested);
   });
 
   it('buying a shop leaves net worth unchanged: the cash becomes the business at cost', () => {
