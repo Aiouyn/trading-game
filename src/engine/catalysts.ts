@@ -6,7 +6,8 @@ import type { AssetDef, AssetState, CatalystConfig, StepEvent, WorldState } from
  *
  * Every stock reports about once a quarter, before the open. Five days ahead, analysts publish a
  * consensus in [-1, 1] that is correlated (rho) with the real surprise; two days ahead a rumor may
- * leak, right `rumorAccuracy` of the time. The report gaps the price by `moveScale · surprise`
+ * leak, right `rumorAccuracy` of the time. On publication the rumor is partly priced in: `rumorPriceIn` of its expected move
+ * prints at once (R-6C-1), and the report's gap takes the rest. The report gaps the price by `moveScale · surprise`
  * (scaled by the stock's vol), and a share of that move keeps drifting in over the next days
  * (post-earnings announcement drift). That gives a reading player a real but noisy edge.
  *
@@ -25,7 +26,23 @@ export const DEFAULT_CATALYSTS: CatalystConfig = {
   moveScale: 0.055,
   peadShare: 0.3,
   peadDays: 8,
+  rumorPriceIn: 0.5,
 };
+
+/** The typical size of a report move for a stock: E|surprise| (sqrt(2/pi) for a normal) times the per-unit move scale. */
+export function typicalMove(def: AssetDef, cfg: CatalystConfig): number {
+  return cfg.moveScale * (def.vol / 0.3) * Math.sqrt(2 / Math.PI);
+}
+
+/**
+ * R-6C-1: the log move a rumor prints when it is published, in its direction. E[move | rumor] = (2p - 1) × the typical move, with p
+ * the rumor's accuracy; the market takes `rumorPriceIn` of it at once. Zero when the price-in is off.
+ */
+export function rumorPrint(def: AssetDef, cfg: CatalystConfig, dir: 1 | -1): number {
+  const share = cfg.rumorPriceIn ?? 0;
+  if (!(share > 0)) return 0;
+  return dir * share * (2 * cfg.rumorAccuracy - 1) * typicalMove(def, cfg);
+}
 
 const clamp = (x: number, lo: number, hi: number) => (x < lo ? lo : x > hi ? hi : x);
 
@@ -55,6 +72,7 @@ export function catalystDay(
     a.consensus = null;
     a.surprise = null;
     a.rumor = null;
+    delete a.rumorPrinted;
   }
   const away = a.nextEarnings - day;
   let jump = 0;
@@ -72,6 +90,10 @@ export function catalystDay(
       const truth: 1 | -1 = a.surprise >= 0 ? 1 : -1;
       const dir: 1 | -1 = rng.chance(cfg.rumorAccuracy) ? truth : (-truth as 1 | -1);
       a.rumor = dir;
+      // R-6C-1: the rumor is partly priced in at publication (the same print as a news jump); the report gap below takes the rest
+      const printed = rumorPrint(def, cfg, dir);
+      if (printed !== 0) a.rumorPrinted = printed;
+      jump += printed;
       events.push({ type: 'rumor', tick, assetId: def.id, direction: dir });
     }
   }
@@ -79,16 +101,19 @@ export function catalystDay(
   if (away === 0) {
     const consensus = a.consensus ?? 0;
     const surprise = a.surprise ?? rng.normal();
-    jump = cfg.moveScale * (def.vol / 0.3) * surprise;
-    events.push({ type: 'earnings', tick, assetId: def.id, surprise, consensus, move: Math.exp(jump) - 1 });
-    a.lastEarnings = { day, surprise, move: Math.exp(jump) - 1 };
-    a.peadPerTick = (cfg.peadShare * jump) / (cfg.peadDays * ticksPerDay);
+    // the report's full move; the part a rumor already printed is not printed again (R-6C-1)
+    const full = cfg.moveScale * (def.vol / 0.3) * surprise;
+    jump = full - (a.rumorPrinted ?? 0);
+    events.push({ type: 'earnings', tick, assetId: def.id, surprise, consensus, move: Math.exp(full) - 1 });
+    a.lastEarnings = { day, surprise, move: Math.exp(full) - 1 };
+    a.peadPerTick = (cfg.peadShare * full) / (cfg.peadDays * ticksPerDay);
     a.peadUntil = tick + cfg.peadDays * ticksPerDay;
     const jitter = Math.round((rng.uniform() * 2 - 1) * cfg.jitterDays);
     a.nextEarnings = day + cfg.everyDays + jitter;
     a.consensus = null;
     a.surprise = null;
     a.rumor = null;
+    delete a.rumorPrinted;
   }
 
   a.erng = rng.state();
