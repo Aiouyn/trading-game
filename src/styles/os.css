@@ -221,11 +221,17 @@
   .os-root .os-launcher-row[aria-selected="true"] { background: var(--color-ink-2); color: var(--color-fg); }
   .os-root .os-launcher-price { margin-left: auto; font-family: var(--font-mono); color: var(--color-fg); }
 
-  /* ---------- Toasts (top-right, 10 px under the strip, max 3 stacked) ---------- */
+  /* ---------- Toasts (bottom-right, above the shelf, max 3 stacked; the overflow count opens the bell) ---------- */
   .os-root .os-toasts {
-    position: fixed; top: calc(var(--os-strip-h) + var(--os-toast-gap)); right: 14px; z-index: 6;
+    position: fixed; bottom: calc(var(--os-shelf-h) + 12px); right: 14px; z-index: 6;
     display: flex; flex-direction: column; gap: var(--os-toast-gap); width: var(--os-toast-w); pointer-events: none;
   }
+  .os-root .os-toast-more {
+    pointer-events: auto; align-self: flex-end; height: 28px; padding: 0 10px; border-radius: var(--radius-sm);
+    background: var(--os-window-bg); border: 1px solid var(--os-window-border); color: var(--color-fg-muted);
+    font-size: var(--text-caption); box-shadow: var(--os-window-shadow);
+  }
+  .os-root .os-toast-more:hover { color: var(--color-fg); }
   .os-root .os-toast {
     display: flex; gap: 11px; padding: 11px 12px 12px 14px; pointer-events: auto;
     background: var(--os-window-bg); border: 1px solid var(--os-window-border);

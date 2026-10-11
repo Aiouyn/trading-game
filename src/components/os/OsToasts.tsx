@@ -22,6 +22,10 @@ export function OsToasts({ focusMode, side, phone = false }: { focusMode: boolea
   const dismissMany = useGame((s) => s.dismissToasts);
   // On the phone one notice at a time drops from the status bar (P2-095).
   const shown = visibleToasts(toasts, focusMode).slice(0, phone ? 1 : undefined);
+  // Notices past the drawn ones are not lost: the count opens the notification center behind the bell (UX 3).
+  const queued = (focusMode ? toasts.filter(allowedInFocus) : toasts).length;
+  const more = queued - shown.length;
+  const setInbox = useGame((s) => s.setInbox);
 
   useEffect(() => {
     if (!focusMode) return;
@@ -34,6 +38,16 @@ export function OsToasts({ focusMode, side, phone = false }: { focusMode: boolea
       {shown.map((x, i) => (
         <OsToast key={x.id} toast={x} n={i + 1} />
       ))}
+      {more > 0 && (
+        <button
+          type="button"
+          className="os-toast-more"
+          data-testid="os-toast-more"
+          onClick={() => setInbox(true)}
+        >
+          {t('shell.toast.more', { n: more })}
+        </button>
+      )}
     </div>
   );
 }

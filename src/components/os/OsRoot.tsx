@@ -310,7 +310,7 @@ export function OsRoot() {
   const band = bannerOn && shell.vp.w >= BP_PHONE ? EVENT_BAND_H : 0;
   // The toast column moves to the top left when a Broker sits under it (P2-088).
   const brokerRect = focusWin?.app === 'broker' && focus !== null ? (proj.rects[focus] ?? null) : null;
-  const toastCol = toastSide(shell.vp, brokerRect, stripH);
+  const toastCol = toastSide(shell.vp, brokerRect, stripH, shelfH);
   // Shared edges exist only in the full mode (the reducer refuses a split below it).
   const tiles: Tile[] = shell.wins.flatMap((w) =>
     w.id in proj.rects && !w.filled && w.slot !== null ? [{ id: w.id, f: slotFrac(w.slot) }] : [],

@@ -6,7 +6,7 @@
  * in the bell. A warning and a margin warning stay until they are read (P2-090).
  */
 
-import type { Rect, Size } from './geometry';
+import { SHELF_H, type Rect, type Size } from './geometry';
 
 export const TOAST_MAX = 3;
 /** The queue keeps this many notices, so a long run of sticky warnings cannot grow without bound. Only three draw. */
@@ -15,8 +15,8 @@ export const TOAST_HOLD_MS = 4000;
 /** Column geometry from V:143: 332 px wide, 14 px from the right, 10 px under the strip. */
 export const TOAST_W = 332;
 export const TOAST_EDGE = 14;
-export const TOAST_TOP = 10;
-/** Height a toast takes in the column, used only to decide whether it covers a Broker. */
+/** The column sits this far above the shelf (UX 3: bottom-right, above the dock). */
+export const TOAST_BOTTOM = 12;/** Height a toast takes in the column, used only to decide whether it covers a Broker. */
 export const TOAST_ROW_H = 96;
 
 export type ToastKind = 'fill' | 'margin' | 'world' | 'other';
@@ -51,15 +51,15 @@ export function isSticky(t: Pick<ShellToast, 'tone' | 'kind'>): boolean {
 }
 
 /**
- * The column's side: the top-right by default, the top-left when a Broker's window sits under it
- * (P2-088). The check is on the column's full height, so a ticket below the top toasts still moves it.
+ * The column's side (P2-088, UX 3): the bottom-right corner above the shelf by default, the bottom-left when a
+ * Broker's window sits under it, so a toast never covers the ticket column. The check is on the column's full height.
  */
-export function toastSide(vp: Size, broker: Rect | null, stripH: number): 'right' | 'left' {
+export function toastSide(vp: Size, broker: Rect | null, stripH: number, shelfH: number = SHELF_H): 'right' | 'left' {
   if (broker === null) return 'right';
   const colX0 = vp.w - TOAST_EDGE - TOAST_W;
   const colX1 = vp.w - TOAST_EDGE;
-  const colY0 = stripH + TOAST_TOP;
-  const colY1 = colY0 + TOAST_MAX * TOAST_ROW_H;
+  const colY1 = vp.h - shelfH - TOAST_BOTTOM;
+  const colY0 = colY1 - TOAST_MAX * TOAST_ROW_H;
   // Rects are relative to the work area, which starts below the strip.
   const bx0 = broker.x;
   const bx1 = broker.x + broker.w;

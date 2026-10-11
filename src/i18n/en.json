@@ -184,6 +184,7 @@
   "fill.forced.covered": "Liquidated: covered {qty} {asset} at {price} · cost ${amount} · fee ${fee}",
   "shell.toast.margin": "Margin warning",
   "shell.toast.world": "Market event",
+  "shell.toast.more": "+{n} more in the notification center",
   "shell.broker.chart": "Chart",
   "shell.broker.ticket": "Ticket",
   "shell.broker.view": "Broker view",

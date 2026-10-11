@@ -175,7 +175,16 @@ export function WindowFrame({ win, rect, active, z, mode, wa, gutter }: WindowFr
         style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h, zIndex: z }}
         onPointerDown={focusWin}
       >
-        <div className="os-tb" onPointerDown={onTitleDown} data-testid={`win-${win.id}-title`}>
+        <div
+          className="os-tb select-none"
+          onPointerDown={onTitleDown}
+          // Double-click on the title bar maximizes, and restores when already filled (the Fill toggle).
+          onDoubleClick={(e) => {
+            if ((e.target as HTMLElement).closest('button')) return;
+            dispatchWm({ type: 'fill', id: win.id });
+          }}
+          data-testid={`win-${win.id}-title`}
+        >
           <span className="os-tb-gl"><Glyph name={APP_GLYPH[win.app]} size={15} /></span>
           <span id={titleId} className="os-tb-nm">{name}</span>
           {sub !== undefined && <span className="os-tb-sub">{sub}</span>}

@@ -184,6 +184,7 @@
   "fill.forced.covered": "Liquidation : rachat de {qty} {asset} à {price} · coût {amount} $ · frais {fee} $",
   "shell.toast.margin": "Alerte de marge",
   "shell.toast.world": "Événement de marché",
+  "shell.toast.more": "+{n} de plus dans le centre de notifications",
   "shell.broker.chart": "Graphique",
   "shell.broker.ticket": "Ordre",
   "shell.broker.view": "Affichage du courtage",
