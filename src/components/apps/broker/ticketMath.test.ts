@@ -6,7 +6,8 @@ function base(over: Partial<OrderCheck> = {}): OrderCheck {
   return {
     side: 'buy', type: 'market', qty: 10, whole: true, mid: 100, ref: 100.05, limit: 0, stop: 0, trail: 5, tp: null, sl: null,
     cash: 5000, bp: 5000, margin: false, total: 1001, notional: 1000.5, held: 0,
-    simpleCap: false, capCash: Infinity, capPct: 20, capRank: 'Hustler', locked: false, lockedTier: 'retail', ...over,
+    simpleCap: false, capCash: Infinity, capPct: 20, capRank: 'Hustler', locked: false, lockedTier: 'retail',
+    shorting: false, opening: 10, committed: 0, canShort: true, shortOk: true, shortCollateral: 0, fee: 1, ...over,
   };
 }
 
@@ -46,7 +47,8 @@ describe('checkOrder: the first failing rule wins and sits under its field', () 
 
   it('a margin account is checked against buying power, not cash', () => {
     const margin = base({ margin: true, cash: 50, bp: 200, notional: 1000 });
-    expect(checkOrder(margin).refusal).toMatchObject({ key: 'broker.refuse.bp', vars: { need: 1000, bp: 200 } });
+    // the fee counts against buying power on a margin account too: the need is the total (notional plus fee)
+    expect(checkOrder(margin).refusal).toMatchObject({ key: 'broker.refuse.bp', vars: { need: 1001, bp: 200 } });
   });
 
   it('the simple-mode cap refuses a buy over its share of cash', () => {
@@ -184,5 +186,51 @@ describe('changeRefusal: an order change the engine refused reads as copy, never
 
   it('any other reason is the generic line, not the engine words', () => {
     expect(changeRefusal('closedWindow', 'buy', true)).toEqual({ key: 'broker.refuse.engineGeneric' });
+  });
+});
+
+describe('checkOrder: the short rules (R0 cash-secured short, covered insiders, the aggregate simple cap)', () => {
+  const short = (over: Partial<OrderCheck> = {}) => base({
+    side: 'sell', qty: 5, ref: 100, total: 499, notional: 500, held: 0, shorting: true, opening: 5,
+    shortCollateral: 500, cash: 5000, bp: 5000, ...over,
+  });
+
+  it('a short on an account that may short, with the collateral covered, has no refusal', () => {
+    expect(checkOrder(short()).refusal).toBeNull();
+  });
+
+  it('a short the account may not take is refused under the size, and the CTA says why', () => {
+    const r = checkOrder(short({ canShort: false })).refusal;
+    expect(r).toMatchObject({ field: 'qty', key: 'broker.refuse.short', cta: 'broker.cta.short' });
+  });
+
+  it('selling more than the holding on an account without shorts says so', () => {
+    expect(checkOrder(short({ canShort: false, held: 2 })).refusal).toMatchObject({ key: 'broker.refuse.fewer' });
+  });
+
+  it('a covered insider may not short its own company', () => {
+    expect(checkOrder(short({ shortOk: false })).refusal).toMatchObject({ key: 'broker.refuse.covered', cta: 'broker.cta.covered' });
+  });
+
+  it('the short collateral and the fee must fit in buying power', () => {
+    expect(checkOrder(short({ bp: 400, shortCollateral: 500 })).refusal).toMatchObject({ key: 'broker.refuse.bp', vars: { need: 501, bp: 400 } });
+  });
+
+  it('the simple cap is aggregate: open orders count against it, a sell that opens a short too', () => {
+    // 20% of 1000 is 200; 150 is already committed by open orders, so a new 100 short is over the cap
+    const over = checkOrder(short({ simpleCap: true, capCash: 200, committed: 150, opening: 1, qty: 1, ref: 100, mid: 100, shortCollateral: 100, total: 99, notional: 100 }));
+    expect(over.refusal).toMatchObject({ key: 'broker.firstCap' });
+    const under = checkOrder(short({ simpleCap: true, capCash: 200, committed: 50, opening: 1, qty: 1, ref: 100, mid: 100, shortCollateral: 100, total: 99, notional: 100 }));
+    expect(under.refusal).toBeNull();
+  });
+
+  it('a sell that only closes a holding is not a short, so the short rules do not apply', () => {
+    expect(checkOrder(base({ side: 'sell', qty: 3, held: 5, shorting: false, opening: 0, canShort: false, shortOk: false, total: 297, notional: 300 })).refusal).toBeNull();
+  });
+});
+
+describe('engineRefusal: a covered short', () => {
+  it('maps the engine reason to the covered line under the size', () => {
+    expect(engineRefusal('covered short', 'sell', true)).toEqual({ field: 'qty', key: 'broker.refuse.covered' });
   });
 });

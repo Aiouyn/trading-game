@@ -56,7 +56,7 @@ export function BankApp() {
             <p className="mt-2 rounded-md border border-warn/50 px-3 py-2 text-small text-warn" role="status">{t('bank.margin.call')}</p>
           )}
           <dl className="mt-2 flex flex-col gap-1 text-small">
-            <Row k={t('bank.margin.license')} v={`${lic.name} · ${lic.blurb}`} />
+            <Row k={t('bank.margin.license')} v={`${lic.name} · ${t(`license.${lic.id}.blurb`)}`} />
             <Row k={t('bank.margin.leverage')} v={`${acct?.maxLeverage ?? 1}×`} />
             <Row k={t('bank.margin.buyingPower')} v={bp === null ? '—' : money(bp)} />
             <Row k={t('bank.margin.shorting')} v={acct?.canShort ? t('bank.yes') : t('bank.no')} />

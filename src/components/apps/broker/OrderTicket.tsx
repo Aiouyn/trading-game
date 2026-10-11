@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { assetIndex, buyingPower, commission, estimateFill, halfSpread, tradingConfig, type OrderType, type Side } from '@/engine';
+import { assetIndex, buyingPower, commission, estimateFill, halfSpread, marginConfig, marginRuleApplies, mayShort, tradingConfig, type OrderType, type Side } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { QUICK_ENTER, SIMPLE_MODE } from '@/content/learning';
 import { money, price, qty as fmtQty, signedMoney, signedPct } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
+import { capBaseOf, openingNotionalOf } from '@/world/orders';
 import { t } from '@/i18n';
 import { getDraft, setDraft } from '@/components/os/drafts';
 import { isPhoneViewport } from '@/components/os/phoneStore';
@@ -124,15 +125,30 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const fee = world && ctx ? commission(world, ctx.def, notional) : 0;
   const total = side === 'buy' ? notional + fee : notional - fee;
   const bp = world && playerId ? buyingPower(world, playerId) : 0;
-  const margin = !fundMode && !!acct && ((acct.maxLeverage ?? 1) > 1 || !!acct.canShort);
+  // the margin rules bite for an account that borrows or holds a short; a cash-secured long account buys with its cash
+  const margin = !fundMode && !!acct && marginRuleApplies(acct);
   // the server's rule (orders.ts): every buy below R1 is capped, not only the first trade
   const simpleCap = !fundMode && !!me && rankIndex(me.player.rankId) < rankIndex(SIMPLE_MODE.untilRank);
-  const capCash = acct && simpleCap ? acct.cash * SIMPLE_MODE.capFraction : Infinity;
+  // the cap is a share of cash the short proceeds do not inflate (orders.ts capBaseOf, the same rule the server reads)
+  const capCash = acct && simpleCap ? capBaseOf(acct.cash, acct.positions) * SIMPLE_MODE.capFraction : Infinity;
+  // a short the rules allow this account (a covered insider on a cash-secured account may not short its own company)
+  const shortOk = !!world && !!acct && mayShort(world, acct, selected);
   const budget = side === 'buy' ? Math.min(margin ? bp : cashNow, capCash) : 0;
   const maxQty = !est ? 0 : side === 'buy'
     ? Math.max(0, (budget - (ctx?.def.assetClass === 'crypto' ? 0 : 1)) / (est.price * 1.002))
-    : held > 0 ? held : acct?.canShort ? bp / est.price : 0;
+    : held > 0 ? held : shortOk ? bp / est.price : 0;
   const shorting = !fundMode && side === 'sell' && qtyN > Math.max(0, held) + 1e-9;
+  // the notional this order opens: a buy's shares, or a sell's shares past the holding (a short), at the reference price
+  const opening = side === 'buy' ? qtyN : Math.max(0, qtyN - Math.max(0, held));
+  const openingNotional = opening * refPrice;
+  // a short is secured by its full notional on top of the proceeds (cash-secured at 1x, orders.ts and trading.ts)
+  const shortCollateral = shorting ? openingNotional : 0;
+  // the engine's accrual rate: the asset's own borrow fee, else its class rate (trading.ts), so the ticket never shows another
+  const borrowRate = world && ctx ? (ctx.def.borrowFee ?? marginConfig(world).borrowFee[ctx.def.assetClass] ?? 0.01) : 0;
+  // the open orders' committed notional, for simple mode's aggregate cap (the server reads the same rule, orders.ts)
+  const committedOpen = simpleCap && world && me
+    ? openingNotionalOf(me.orders, acct?.positions ?? {}, (id) => { const i = config.assets.findIndex((a) => a.id === id); return i < 0 ? 0 : Math.exp(world.assets[i]!.lnP); })
+    : 0;
 
   // the cap's percent and the rank that lifts it come from the same constant the server reads (SIMPLE_MODE), never typed here
   const firstCapVars = { pct: Math.round(SIMPLE_MODE.capFraction * 100), rank: t('rank.' + SIMPLE_MODE.untilRank) };
@@ -144,6 +160,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
     tp: tp.trim() === '' ? null : parseDecimal(tp), sl: sl.trim() === '' ? null : parseDecimal(sl),
     cash: acct?.cash ?? 0, bp, margin, total, notional, held, simpleCap, capCash, capPct: firstCapVars.pct, capRank: firstCapVars.rank,
     locked, lockedTier: t(ctx?.def.assetClass === 'stock' || ctx?.def.assetClass === 'crypto' ? 'broker.tier.retail' : 'broker.tier.pro'),
+    shorting, opening, committed: committedOpen, canShort: !!acct.canShort, shortOk, shortCollateral, fee,
   });
   let invalid: Refusal | null = null;
   if (fundMode) {
@@ -411,7 +428,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   </button>
                 ))}
               </div>
-              {simpleCap && side === 'buy' && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap', firstCapVars)}</p>}
+              {simpleCap && (side === 'buy' || shorting) && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap', firstCapVars)}</p>}
 
               {(type === 'limit' || type === 'stop_limit') && (
                 <>
@@ -469,6 +486,12 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   v={<span className="text-fg-muted" data-testid="order-cash-after">{money(cashAfter)}</span>}
                 />
                 <KV className="!py-0" k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
+                {shorting && (
+                  <div className="mt-1 grid gap-1" data-testid="order-short-terms">
+                    <KV className="!py-0" k={t('broker.collateral')} v={<span className="text-fg-muted" data-testid="order-collateral">{money(shortCollateral)}</span>} />
+                    <KV className="!py-0" k={t('broker.borrowFee')} v={<span className="text-fg-muted" data-testid="order-borrow-fee">{t('broker.borrowFee.rate', { rate: (borrowRate * 100).toFixed(2) })}</span>} />
+                  </div>
+                )}
                 {shorting && <p className="mt-1 text-caption text-warn">{t('broker.shortWarn')}</p>}
                 {margin && side === 'buy' && notional > acct.cash && <p className="mt-1 text-caption text-warn">{t('broker.marginWarn')}</p>}
               </div>

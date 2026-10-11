@@ -8,9 +8,9 @@
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
 import { clockLabel } from '@/game/clock';
-import { money, signedPct, tone, toneText } from '@/game/format';
 import { rankOrdinal } from '@/shell/ctx';
 import { Glyph } from './glyphs';
+import { NetWorthFigures } from './NetWorthFigures';
 import { openApp, openLauncher } from './shellStore';
 
 export function StatusStrip() {
@@ -22,10 +22,6 @@ export function StatusStrip() {
   const setChat = useGame((s) => s.setChat);
   const chatUnread = useGame((s) => s.chatUnread);
   const rankId = me?.rank.id ?? 'R0';
-  const nw = me?.netWorth.total ?? 0;
-  const dayStart = me?.player.dayStart.netWorth ?? nw;
-  const today = nw - dayStart;
-  const todayPct = dayStart ? today / dayStart : 0;
   const unread = me?.player.inboxUnread ?? 0;
   const ready = status === 'ready';
   return (
@@ -57,9 +53,7 @@ export function StatusStrip() {
         <button type="button" className="os-chip os-soft" data-testid="os-rank" onClick={() => openApp('settings', {}, { focus: true })}>
           {rankId} · {t(`rank.${rankId}`)}
         </button>
-        <span className="os-nw" data-testid="os-networth" title={t('shell.nw.today')}>
-          {money(nw)} <span className={toneText[tone(today)]}>{signedPct(todayPct)}</span>
-        </span>
+        <NetWorthFigures />
         <button
           type="button"
           className="os-bell os-soft"

@@ -57,6 +57,20 @@ export interface OrderCheck {
   /** the license tier the asset needs, when the account lacks it (the ticket is locked) */
   locked: boolean;
   lockedTier: string;
+  /** a sell past the holding opens a short (a sell to open) */
+  shorting: boolean;
+  /** the units this order opens: a buy's size, or a sell's size past the holding */
+  opening: number;
+  /** the notional the open orders already commit (simple mode's aggregate cap, orders.ts openingNotionalOf) */
+  committed: number;
+  /** the account may short at all (the R0 permission; a Pro account may too) */
+  canShort: boolean;
+  /** the account may short this asset (a covered insider on a cash account may not short its own company) */
+  shortOk: boolean;
+  /** the collateral a short holds: its full notional, on top of the proceeds */
+  shortCollateral: number;
+  /** the commission on this order */
+  fee: number;
 }
 
 /** A refusal and a warning (a warning never disables the CTA). */
@@ -75,14 +89,23 @@ export function checkOrder(c: OrderCheck): CheckResult {
   if (c.locked) return { refusal: { field: 'general', key: 'broker.refuse.license', cta: 'broker.refuse.license', vars: { tier: c.lockedTier } }, warning: null };
   if (!(c.qty > 0)) return { refusal: { field: 'qty', cta: 'broker.cta.size' }, warning: null };
   if (c.whole && !Number.isInteger(c.qty)) return { refusal: { field: 'qty', key: 'broker.refuse.whole', cta: 'broker.cta.whole' }, warning: null };
-  if (c.side === 'buy' && c.simpleCap && c.qty * c.mid > c.capCash + 1e-6) {
+  if ((c.side === 'buy' || c.shorting) && c.simpleCap && c.committed + c.opening * c.mid > c.capCash + 1e-6) {
     return { refusal: { field: 'qty', key: 'broker.firstCap', cta: 'broker.cta.firstCap', vars: { pct: c.capPct, rank: c.capRank } }, warning: null };
   }
   if (c.side === 'buy' && !c.margin && c.total > c.cash + 1e-6) {
     return { refusal: { field: 'qty', key: 'broker.refuse.cash', cta: 'broker.cta.cash', vars: { total: c.total, cash: c.cash } }, warning: null };
   }
-  if (c.side === 'buy' && c.margin && c.notional > c.bp + Math.max(0, -c.held) * c.ref + 1e-6) {
-    return { refusal: { field: 'qty', key: 'broker.refuse.bp', cta: 'broker.cta.bp', vars: { need: c.notional, bp: c.bp } }, warning: null };
+  if (c.side === 'buy' && c.margin && c.total > c.bp + Math.max(0, -c.held) * c.ref + 1e-6) {
+    return { refusal: { field: 'qty', key: 'broker.refuse.bp', cta: 'broker.cta.bp', vars: { need: c.total, bp: c.bp } }, warning: null };
+  }
+  if (c.shorting && !c.canShort) {
+    return c.held > 0
+      ? { refusal: { field: 'qty', key: 'broker.refuse.fewer', cta: 'broker.cta.fewer' }, warning: null }
+      : { refusal: { field: 'qty', key: 'broker.refuse.short', cta: 'broker.cta.short' }, warning: null };
+  }
+  if (c.shorting && !c.shortOk) return { refusal: { field: 'qty', key: 'broker.refuse.covered', cta: 'broker.cta.covered' }, warning: null };
+  if (c.shorting && c.shortCollateral + c.fee > c.bp + 1e-6) {
+    return { refusal: { field: 'qty', key: 'broker.refuse.bp', cta: 'broker.cta.bp', vars: { need: c.shortCollateral + c.fee, bp: c.bp } }, warning: null };
   }
   const limitType = c.type === 'limit' || c.type === 'stop_limit';
   const stopType = c.type === 'stop' || c.type === 'stop_limit';
@@ -127,6 +150,7 @@ export function engineRefusal(reason: string, side: Side, canShort: boolean, var
   const r = reason.trim().toLowerCase();
   if (r.startsWith('insufficient cash')) return { field: 'qty', key: 'broker.refuse.cashNow', vars: { cash: vars.cash ?? 0 } };
   if (r.startsWith('insufficient buying power')) return { field: 'qty', key: 'broker.refuse.bpNow', vars: { bp: vars.bp ?? 0 } };
+  if (r.startsWith('covered short')) return { field: 'qty', key: 'broker.refuse.covered' };
   if (r.startsWith('insufficient position')) {
     return side === 'sell' && !canShort ? { field: 'qty', key: 'broker.refuse.short' } : { field: 'qty', key: 'broker.refuse.fewer' };
   }
