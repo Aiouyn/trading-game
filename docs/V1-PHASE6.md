@@ -1,6 +1,6 @@
 # V1 Phase 6: status
 
-Scope: Phase 6 as set in `docs/team/specs/lead-phase6.md` (binding). This file holds section 6A (World events and rivals). The other tracks (6B, 6C, 6D) add their own sections when they land.
+Scope: Phase 6 as set in `docs/team/specs/lead-phase6.md` (binding). This file holds section 6A (World events and rivals) and section 6B (Comeback and money). The other tracks (6C, 6D) add their own sections when they land.
 Branch: `p6/a`, worktree `.claude/worktrees/p6-a`, from `v1` at `ae573f2`. Status date: 2026-10-11. Second pass: the adversarial review of `d69ade0` (16 findings), repaired in `b4ebe14`, `efaad30`, `afed1b8` and the commit that adds this text.
 Status words as in `docs/V1-PHASE5.md`: **Done**, **Partial**, **Not built**, **Deferred**, **Decided**.
 
@@ -13,7 +13,7 @@ Status words as in `docs/V1-PHASE5.md`: **Done**, **Partial**, **Not built**, **
 | Telegraph for a major (M39, at least 8 real hours) | **Done** | A crash or bubble is announced 8 to 16 real hours before onset. The lead is drawn from the seed in whole hours (8, 9 … 16), so the Wire time plus the window never gives the exact onset. Onsets stay on a day boundary, so the engine's own start path runs. | `src/engine/worldEvents.ts` (`drawLead`, `majorLeadDays`, `majorLeadMaxDays`) |
 | Telegraph window, no onset, no length | **Done** | An announced event carries `windowHours`: the hours left, rounded up to an 8-hour band. The panel and the banner show it. Never the exact onset, never `endTick`. | `worldEventView`, `telegraphBand`; `EventBanner.tsx` |
 | No-reveal before onset | **Done** | An announced major shows no kind and no headline (`kind`, `headline`, `headlineKey` are null). The calendar shows only an announced crisis week. The Wire's precursor lines are the telegraph and are unchanged. | `worldEventView`; `Calendar.tsx` |
-| Takeover (major onset only, once per event) | **Done** | Hairline 300–900 ms, scrim to 70%, `WORLD EVENT` label, the engine's headline in the viewer's language, `GX … today` in mono, one line, See my positions and Close. Close is disabled before 1 s and live from 1 s; the takeover ends by itself at 3 s. It waits (at most 10 s) behind a rank-up or an open phone ticket. The card sits on a 94% ink panel, so the headline reads over the chart and over the phone's app icons. Reduced motion: static card, no desaturation. | `src/components/os/EventTakeover.tsx`, `takeoverRules.ts`, `os-events.css` |
+| Takeover (major onset only, once per event) | **Done** | Hairline 300–900 ms, scrim to 70%, `WORLD EVENT` label, the engine's headline in the viewer's language, `GX … today` in mono, one line, See my positions and Close. Close is disabled before 1 s and live from 1 s; the takeover ends by itself at 3 s. It waits (at most 10 s) behind a rank-up or an open phone ticket. The card is solid ink-1 and fades in over 420 ms after its 900 ms start (it was a 1.5 s fade, so the card read translucent for about a second and the Wire text showed through). The headline and buttons sit on a solid surface in all four palettes. Reduced motion: static card, no desaturation. | `src/components/os/EventTakeover.tsx`, `takeoverRules.ts`, `os-events.css` |
 | Banner, panel, aftermath, flash | **Done** | The strip and the panel show the translated headline and the precursors (from the Wire's message keys). The panel's rows `event-share-<assetId>` show each held asset's share of today. Flash crash: no takeover; banner and panel; the aftermath line. | `EventBanner.tsx`, `eventText.ts` |
 | Ambient: header pulse | **Done** | A 2400 ms hairline pulse (40% to 80%) under the top bar, in the kind's colour, while live. Off under reduced motion. | `os-events.css` (`.os-event[data-state="live"]::before`) |
 | Ambient: chart band | **Done (price charts)** | The event window is shaded at 6% from the onset to now, with a kind label at the top left, on the broker's price chart (`data-testid="event-band"`). It follows zoom and scroll and never shows an end. | `PriceChart.tsx` (`eventBand`), `ChartCard.tsx` |
@@ -65,7 +65,7 @@ Each finding of the review of `d69ade0`, and what changed.
 | 6 | Verification shots did not show the claimed frames | The e2e spec waits for the settled card before each takeover shot; the profile is shot after a tips toast is dismissed, as a page shot and as the card alone | **Fixed**: the new shots were opened and checked by eye (`shots-p6a`: the fr takeover shows the French card over Settings; the phone profile card shows Pinn Partners) |
 | 7 | Takeover and panel render English headlines in fr | Headlines, precursors and Wire end lines are keys (`event.headline.*`, `event.pre.*`, `event.wire.end*`) in both files | **Fixed** (`b4ebe14`, `afed1b8`) |
 | 8 | Close test not proving Close, skip not proven | The spec measures in the page: Close disabled before 1 s and live from 1 s; a forced click before 1 s leaves the card; Close removes it before 3 s; the self-end is at about 3 s | **Fixed in the spec**; run result in 6A.4 |
-| 9 | Takeover legibility | Solid 94% ink backing panel on the card | **Fixed** (`afed1b8`) |
+| 9 | Takeover legibility | Solid 94% ink backing panel on the card | **Fixed** (`afed1b8`); **re-fixed in round 5**: the card is opaque ink-1 and its rise is 420 ms, not 1.5 s (the reviewer found the card still translucent mid-rise) |
 | 10 | Row change used the rival's own starting cash | Change since the player's day 1: `Player.rivalBase` | **Fixed** (`b4ebe14`) |
 | 11 | Admin `now` start did not run the engine start path | `worldEventIntraday` starts and ends any kind on its own tick (the day path skips an event already started); tested in `worldEventsTelegraph.test.ts` | **Fixed** (`b4ebe14`) |
 | 12 | Crew cadence 0.25 a day against a comment of once a month | `CREW_DAY_CHANCE = 1/30`; tested over 20 seeds × 240 days (rate between 0.3/30 and 1/30 of fund-days: the pick needs an eligible victim) | **Fixed** (`efaad30`) |
@@ -126,4 +126,102 @@ Written to the session scratchpad `shots-p6a` by the e2e spec (`P6_SHOTS`), each
 | Rivals profile card | `…-en-rivals-profile.png`, `…-en-rivals-profile-card.png` | — |
 | Bubble takeover, settled | — | `…-fr-takeover-bubble.png` |
 
-Not taken: the crash on day 3, the en bubble takeover, the flash crash, and the fr profile card. The velvet spec's sign-off set (crash onset, crash day 3, bubble, flash) is therefore not complete. The phone takeover's card is legible, but the home-screen icons show faintly through the 94% panel.
+Round 5 re-shots (scratchpad `shots-p6a2`, desktop and phone): the takeover at 0.35 s, 1.05 s and settled in all four palettes (ink-brass, broadsheet, phosphor, riviera), the banner panel, the Rivals board in en and fr, the profile card, and the fr bubble takeover. Still not taken: the crash on day 3 and the flash crash. The velvet spec's sign-off set (crash onset, crash day 3, bubble, flash) is therefore not complete. The phone takeover's card is legible, but the home-screen icons show faintly through the 94% panel.
+
+## 6B. Comeback and money
+
+Branch `p6/b`, worktree `.claude/worktrees/p6-b`. Specs: `docs/team/specs/lead-phase6.md` (6B), `velvet-bankruptcy.md` (M20), `velvet-rewarded-ads.md` (M48). Status date: 2026-10-11. The branch merges `v1` (6A) at `2fa5755`; the round-5 repairs are `959eb9f` and `26ec639`, and this status text is the commit after them.
+Status words as in `docs/V1-PHASE5.md`.
+
+### 6B.1 Items
+
+| Item | Status | What | Where |
+|---|---|---|---|
+| Low-cash card | **Done** | Shows under $1,000 net worth, or while a sponsor offer is open. Dismiss hides it for one real day. Rows: Fresh start (when available), Watch an ad for $250 (when offered), Keep trading. Top of Portfolio; under the chart on Market. | `src/components/comeback/LowCashCard.tsx` |
+| Chapter screen | **Done** | Peak, End, Days; the three largest losses with the journal sentence; Kept and Goes; perk choice (Old contacts needs a business); a 1.2 s hold to confirm. | `ComebackScreens.tsx`, `src/world/comeback.ts` |
+| New chapter | **Done** | A 2.4 s chapter-2 moment; the account resets to fresh money; rank and shell stay. | `ComebackScreens.tsx` |
+| Forced close (bust) | **Done** | Equity below zero after a liquidation: the chapter screen opens with the clearing-house header. A bust inside the 8-week window keeps its debt (no fresh money, no write-off). | `comeback.ts` (`comebackRefresh`) |
+| Fresh-start reset | **Done** | Positions sold reduce-only; open orders cancelled; businesses and property sold; lab models, compute, data, bots and research staff cleared (research kept); managed funds wound down; other fund units redeemed where the rules allow; Limited and Unique lifestyle items removed; cash swept (`chapter close`, a booked sink); $5,000 opened as fresh money (`fresh start`). A write-off inside the window comes out of the $5,000 (`bust discharge`). | `comeback.ts` (`closeStep`, `finishFreshStart`) |
+| Founder stakes at a fresh start | **Done (defined outcomes)** | A private company the founder alone owns goes through the company failure path. A listed company's founder shares go to its market book at 70% of VWAP30. The book pays from its own cash; shares it cannot pay for pass to the book for no payment. Guarantees on the founder's company debts are called and settled once. | `src/world/company/stakes.ts` |
+| Cooldown | **Done** | One fresh start per 8 real weeks (`CHAPTER_TICKS`, 56 real days), kept on the profile record. | `comeback.ts` |
+| Perks | **Done** | Old contacts (one T1 business at 50% off, a voucher); Lessons learned (half the trading fees for 7 real days); Second wind (business income x1.25 for 7 real days). Reputation -10. | `comeback.ts`, `perks.ts` |
+| Leverage and margin | **Done** | Leverage capped at 1x for 7 real days after a fresh start. Buys past cash and shorts refused for 14 real days (`comebackMarginRefusal`); reduce-only orders pass. | `comeback.ts`, `game.ts` |
+| Restricted cash (C5) | **Done** | Ad cash and the $5,000 start money are held 72 real hours. One rule for solo and online (72 hours = 72 game days, since one game day is one real hour). Restricted cash cannot pay ops, insider actions, margin, derivatives or transfers. The pill reads AD or START. | `core.ts` (`restrictedNow`), `cyber.ts`, order gates |
+| Sponsor breaks (M48, simulated) | **Done** | A 15 s card for a fictional brand. Skip after 5 s pays nothing; a full watch pays $250 of ad cash, booked as the `adCash` faucet. No ad network, no tracking. | `src/world/sponsor.ts`, shell host |
+| Ad offer | **Done** | Offered when the account is a real day old, and day-start cash and net worth are both under $1,000. Cap: 10 per real day, counted per player and per profile (the larger of the two). | `sponsor.ts` (`adRefusal`) |
+| Board value after a reset | **Done** | Boards rank a player by the larger of live net worth and the End of the last closed chapter (`boardNetWorth`). | `comeback.ts` |
+| Copy | **Done** | en and fr keys in both files, identical key sets (3,456 each). Refusals in three parts. Amounts are formatted in the message. | `src/i18n/en.json`, `fr.json` |
+| AD_GRANT alert | **Not built** | The economy dashboard alert for ad grants is not built. | — |
+| Clawback lookback and debts to players | **Not built** | The online-phase clawback lookback and the "Owed to players" line on screen 3 are not built. | — |
+| NPC bank-loan debts | **Not built** | No NPC bank loan exists in the engine. The margin block covers margin only. | — |
+| Insider restriction | **Partial (6C)** | `adInsiderRefusal` and its test exist. The insider command is 6C and is not built. | — |
+
+### 6B.2 Commits
+
+| Commit | What |
+|---|---|
+| `89de4fe` | Engine: sponsor breaks, comeback (confirm, dismiss, bust, close, reset, view), perks, restriction hooks (cyber, social, order margin, option derivative), `view.comeback` |
+| `50b09cb` | Review repairs: real-day cap and snapshot, offer on day-start cash and net worth, ad cash margin with reserved buys, spendable cash for settlements, bust write-off inside the window, lab and fund reset, boards on the closed End, stalled close abandoned after a real day, margin block after a fresh start, journal sentence on losses |
+| `2fa5755` | Merge of `v1` (Phase 6A) into `p6/b` |
+| `959eb9f` | Founder stakes (`stakes.ts`), the once-only guarantee call, the listed short-book outcome, the stake and guarantee copy, the comeback e2e |
+| `26ec639` | 6A polish: the takeover card opaque sooner, the Rivals profile padding and copy, the worldEvents Close race |
+
+### 6B.3 Review repair (round 5)
+
+The reviewer's findings on the uncommitted round-4 state, and what changed.
+
+| # | Finding | Repair | Status |
+|---|---|---|---|
+| 1 | Steps 2 and 3 not committed | Committed as `959eb9f` and `26ec639`; the tree is clean after this commit | **Fixed** |
+| 2 | Comeback e2e not green (`ECONNRESET` on the admin advance) | Two runs. The first run failed on a strict locator (the low-cash card mounts twice on desktop) and a `fetch failed`. The second run (`r5-e2e-b`): comeback green on desktop and phone, en and fr; worldEvents green on phone; the broker-adjacent specs (trading-tools, orders, no-leak, polish) green. The `ECONNRESET` did not recur. Its cause is not diagnosed: a fresh world advanced 721 ticks in one request with a 200 when tested alone. | **Fixed for these runs**; the cause is not known |
+| 3 | Listed founder sale paid nothing on a fresh listing (book cash 0) | The book pays what it has; the shares it cannot pay for pass to the book with no payment. `tenderOffer` is not used: it settles every holder at one price at or above 1.2 x VWAP30 and delists the company, so it cannot price a 70% block. Tests: unfunded book (zero proceeds, all shares pass, money conserved), funded book (proceeds = stake x 70% VWAP30, money conserved), partial book (half sold, the rest passes). | **Fixed** (decision recorded in 6B.5) |
+| 4 | Guarantee call booked personal debt twice | Each call is settled once: the paid part is applied, the unpaid part is booked as personal debt once, and the guarantee is discharged. A test calls twice and checks one booking. The company-level guarantee's paid part goes to company cash (a capital injection, as the ruling reads). | **Fixed** (the ruling wording is recorded in 6B.5 for the lead to confirm) |
+| 5 | No screenshots | Taken: `shots-p6b` (en and fr, desktop and phone: low-cash card, sponsor break at 0 s, 5 s and done, ad pill, chapter screen, new chapter); `shots-p6a2` (takeover at 0.35 s, 1.05 s and settled in four palettes, desktop and phone; banner panel; Rivals board en and fr; profile card en and fr; the fr bubble takeover) | **Fixed** |
+| 6 | No 6B section | This section | **Fixed** |
+| 7 | Stray vertical line | The probe (`shots-p6a2/*-takeover-probe.json`) finds one 1 px element in the takeover: `os-takeover-line`, at x = 720 of 1440 (x = 195 of 390), at most 342 px (38vh) tall, opacity 0 once settled. No full-height line is found. The desk's own 1 px edges (x = 38 and x = 754 on desktop) are present before the event. See 6B.5 deviation 3. | **Partly fixed**: the card no longer reads translucent; the hairline is kept per the spec; not removed |
+| 8 | Takeover backing translucent | The card was fading in over 1.5 s from opacity 0, so for about a second the Wire text showed through. It is now a 420 ms rise and the card is solid `ink-1`. The probe reads `cardOpacity` 1 and an opaque background in ink-brass, phosphor and riviera; broadsheet's card had ended at the probe frame, and its shots are checked by eye. | **Fixed** |
+| 9 | Rivals copy plural bug | The profile shows two number rows, "Days ahead of you" and "Days behind you". No plural. The padding is the card's `p-4`, as the other cards. The empty chart state (fewer than two points) reads "No history yet. The chart fills in as days close." | **Fixed** |
+| 10 | Sponsor cap per real day, not per game day | Kept. See 6B.5 deviation 1. | **Decided** (lead sign-off requested) |
+| 11 | Not built items | Listed in 6B.1 | **Documented** |
+| 12 | Raw numbers and "NPC book" in copy | Amounts are formatted before they reach the message; "NPC book" is gone from player copy (`comeback.stake.sold`, `comeback.stake.unpaid`, `comeback.guarantee.called`) | **Fixed** |
+
+### 6B.4 Gates
+
+- `npx next typegen` and `npx tsc --noEmit`: exit 0 on the final tree.
+- ESLint on the touched files (`stakes.ts`, `stakes.test.ts`, `comeback.ts`, `RivalsCard.tsx`, `components/comeback`, `Portfolio.tsx`, `comeback.spec.ts`, `worldEvents.spec.ts`): **0 errors**.
+- Vitest, the broad run (`src/engine src/world src/components src/game src/i18n src/shell src/content`, `--maxWorkers=2`) on the final tree: **193 files passed, 2 skipped; 1,893 tests passed, 70 skipped, 21 todo.**
+- The i18n test (`src/i18n/i18n.test.ts`) passes: the variables of each key match in en and fr. Key sets: 3,456 each, identical.
+- e2e (`--no-deps --workers=1`, the webpack build, ports 3262 and 8859): `r5-e2e-b`: **36 passed, 12 skipped** (11 on phone: the keyboard and shell order specs and the no-leak checks L1, L2, L5 and L6; 1 on desktop: no-leak L6; each is the spec's own device guard). The runs cover `comeback.spec.ts` (desktop, phone), `worldEvents.spec.ts` (desktop, phone), `trading-tools`, `orders`, `no-leak`, `polish`. The `--workers=1` is needed: the close projects advance one shared world.
+- Money identity: `stakes.test.ts` checks the total money before and after each sale and each call (book, founder, company, bank pool); the broad run includes the zero-sum tests in `src/world/company/exploits/zerosum.test.ts`.
+- Determinism: a world with no comeback, no stake and no sponsor card runs no new code. The new fields are optional (`Player.comeback`, `Player.adLots`, `Player.adDay`, `Player.rivalBase`, `Company.guarantee`), so old saves load. The sponsor brand is drawn from `keyedRng` per player and sequence number.
+
+### 6B.5 Deviations and decisions
+
+1. **The sponsor cap is per real day, not per game day.** The lead's line reads "at most 10 a game day". One game day is one real hour (720 ticks), so ten a game day is $60,000 a real day from a fifteen-second card. The cap is per real day (24 real hours, 24 game days), which gives $2,500 a real day (ROADMAP 2.7), as `sponsor.ts` documents. The day-start snapshot follows the same day. **Lead sign-off requested.**
+2. **The listed founder block is not the engine tender.** `tenderOffer` refuses below 1.2 x VWAP30 and delists the company, so it cannot price a 70% block. The block is a direct transfer to the market book, capped by the book's cash, with the short-book outcome in 6B.1. A listing opens its book with no cash (`ipo.ts`); this was not changed, since it would move the IPO economy and the fingerprints.
+3. **The takeover hairline is kept.** It is the spec's hairline (300–900 ms, the only fall in the game). The probe shows it at most 38vh tall and invisible once settled; the "whole screen" line was not reproduced. If the lead wants it gone, the change is one element in `EventTakeover.tsx`.
+4. **The company-level guarantee pays into company cash.** The lead's ruling says the company-level guarantee pays the company's cash. Its paid part is a capital injection into the company (`c.cash`), and it reduces no debt. The failure path sends the same money to the estate. **Lead to confirm the wording.**
+5. **A short book is a defined outcome.** The founder's stake does not stall the close, and a busted founder keeps no stake. Shares the book cannot pay for pass with no payment. The alternative (the shares stay locked and the close stalls) would leave a busted player with no way to start over.
+6. **The ECONNRESET of the first run is not diagnosed.** It did not recur in the second run; the cause is recorded as unknown, not as fixed.
+
+### 6B.6 Open items
+
+- The AD_GRANT alert, the clawback lookback, debts to players and the "Owed to players" line, the NPC bank-loan debts, and the 6C insider command (6B.1).
+- The lead's sign-off on deviations 1 and 4.
+- The `ECONNRESET` cause (6B.5, 6).
+
+### 6B.7 Screenshots
+
+Written to the session scratchpad. Each frame at 1440 × 900 (`desktop-`) and 390 × 844 (`phone-`):
+
+| Frame | en | fr |
+|---|---|---|
+| Low-cash card | `shots-p6b/…-en-1-lowcash-card.png` | `…-fr-1-lowcash-card.png` |
+| Sponsor break at 0 s, 5 s, done | `…-en-2a`, `2b`, `2c` | `…-fr-2a`, `2b`, `2c` |
+| Ad pill (AD) | `…-en-3-ad-pill.png` | — |
+| Chapter screen | `…-en-4-chapter-screen.png` | `…-fr-3-chapter-screen.png` |
+| New chapter | `…-en-5-new-chapter.png` | `…-fr-4-new-chapter.png` |
+| Takeover at 0.35 s, 1.05 s, settled (ink-brass, broadsheet, phosphor, riviera; desktop and phone) | `shots-p6a2/…-takeover-*.png` | — |
+| Banner, event panel | `shots-p6a2/…-en-banner-panel.png` | — |
+| Rivals board and profile card | `shots-p6a2/…-en-rivals-board.png`, `…-en-rivals-profile-card.png` | `…-fr-rivals-board.png` |
+| Bubble takeover, settled | — | `shots-p6a2/…-fr-takeover-bubble.png` |
