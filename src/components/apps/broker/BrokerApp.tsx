@@ -13,6 +13,7 @@ import { ChartCard } from './ChartCard';
 import { OptionChain } from './OptionChain';
 import { OrderTicket } from './OrderTicket';
 import { PlansCard } from './PlansCard';
+import { RivalsCard } from './RivalsCard';
 import { Universe } from './Universe';
 
 /**
@@ -82,6 +83,7 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
           <>
             <ChartCard ticker={name} narrow={view.narrow} />
             <Universe ticker={name} onPick={pick} />
+            <RivalsCard />
           </>
         ) : (
           <>
@@ -109,6 +111,7 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
       <OpenOrders assetId={name} />
       <PlansCard ticker={name} />
       <Universe ticker={name} onPick={pick} />
+            <RivalsCard />
     </div>
   );
 }

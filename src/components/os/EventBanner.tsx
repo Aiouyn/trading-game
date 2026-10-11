@@ -57,7 +57,7 @@ export function EventBannerStrip() {
   const kind = t(`event.kind.${ev.kind}`);
   const label = ev.phase === 'live'
     ? t('event.label', { kind, day: ev.elapsedDays + 1 })
-    : t('event.label.announced', { kind });
+    : `${t('event.label.announced', { kind })}${ev.windowHours !== undefined ? ' · ' + t('event.window.label', { hours: ev.windowHours }) : ''}`;
   return (
     <button
       type="button"
