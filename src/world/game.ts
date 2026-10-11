@@ -3,7 +3,7 @@ import {
   type WorldConfig,
 } from '@/engine';
 import {
-  BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, creditExternal, debit, drawFrom, findOrder, newOutput, notify, sanitize,
+  BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, credit, creditExternal, debit, drawFrom, findOrder, newOutput, notify, sanitize,
 } from './core';
 import {
   accrueBusinesses, businessEvents, buyBusiness, buyItem, buyNote, buyProperty, lifestyleDay, propertyDay, recomputeShares,
@@ -37,6 +37,9 @@ import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick,
 import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
 import { applyFundCommand, crossRefusal, fundsBeforeStep, fundsDay, fundsFills, type FundCommand } from './funds';
 import { orderError } from './orders';
+import { comebackCommand, comebackRefresh, comebackTick } from './comeback';
+import { adOptionRefusal, adOrderRefusal, finishBreak, pruneAdLots, startBreak } from './sponsor';
+import { lessonsRebateOf } from './perks';
 import { launchpadCommand, lockedEngineSell, lpFills, lpTick, refuse as lpRefuse, ensureLaunchpad, vestingSweep } from './launchpad';
 import { companyCommand, companyDay, companyFinanceCommand, companyStep, type CompanyFinanceCommand } from './company/bridge';
 import { adminIpoReady } from './company/ipo';
@@ -129,6 +132,12 @@ export function stepGame(g: GameState): StepOutput {
   ledgerTick(g, r.events, r.fills);
   fundsFills(g, r.fills, out);
   lpFills(g, r.fills, out);
+  // Lessons learned (velvet-bankruptcy.md): half the fee of a fill back while the perk runs, a booked faucet
+  for (const f of r.fills) {
+    const fp = g.players[f.playerId];
+    const rebate = fp && !fp.npc ? lessonsRebateOf(fp, tick, f.fee) : 0;
+    if (rebate > 0) credit(g, f.playerId, rebate, 'lessons rebate');
+  }
   companyStep(g, r.fills, r.events);
   tradeStats(g, r.fills, realizedBefore, out);
   const stillOpen = new Set(g.market.orders.filter((o) => o.status === 'open').map((o) => o.id));
@@ -163,6 +172,7 @@ export function stepGame(g: GameState): StepOutput {
     g.collectibles = Math.max(0.6, Math.min(2.5, g.collectibles * Math.exp(0.0004 + 0.006 * rng.normal())));
     save();
     for (const p of Object.values(g.players)) if (!p.npc) rollContracts(g, p);
+    pruneAdLots(g);
     // the analyst and desk dues, recurring buys, and DRIP on the day's dividends (orders fill at the next tick)
     workDay(g, out);
     planDay(g, out);
@@ -182,6 +192,7 @@ export function stepGame(g: GameState): StepOutput {
       }
       filings(g, p.id, out);
     }
+    comebackRefresh(g, out);
   }
   if (tick % BOARD_EVERY === 0) {
     computeBoards(g);
@@ -191,6 +202,7 @@ export function stepGame(g: GameState): StepOutput {
   planTick(g, out);
   npcTick(g, (gg, pid, cmd) => applyCommand(gg, pid, cmd, out));
   lpTick(g, out);
+  comebackTick(g, out);
   chapterCheck(g, out);
   // the close: after the net worth refresh of this tick, so the card and the ghosts read the day's final marks
   if (tick % TPD === 0) closeDay(g, out);
@@ -242,6 +254,9 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
       // the license, the court hold and simple mode's cap until Hustler (orders.ts), even when onboarding was skipped
       const err = orderError(g, p, o);
       if (err) return fail(err);
+      // ad cash cannot be margin: a buy past the cash, or a short (velvet-rewarded-ads.md, ROADMAP C5)
+      const adErr = adOrderRefusal(g, pid, { ...o, playerId: pid });
+      if (adErr) return fail(adErr);
       // a creator's vesting-locked allocation cannot be sold after graduation (L5)
       if (o.side === 'sell' && lockedEngineSell(g, pid, o.assetId, o.qty)) return lpRefuse('lockedEngine', { ticker: o.assetId });
       const r = placeOrder(g.market, { ...o, playerId: pid });
@@ -291,6 +306,8 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     }
     case 'option.trade': {
       if (held && cmd.side === 'buy') return fail('your assets are held by the court');
+      const derivErr = adOptionRefusal(g, pid, cmd.side);
+      if (derivErr) return fail(derivErr);
       const before = g.market.accounts[pid]?.realizedPnl ?? 0;
       const r = tradeOption(g.market, pid, cmd.contractId, cmd.side, cmd.qty);
       if (r.error) return fail(r.error);
@@ -427,6 +444,10 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'lp.buzz':
     case 'lp.cancel':
     case 'lp.file': return launchpadCommand(g, pid, cmd, out) ?? fail('unknown command');
+    case 'ad.start': return startBreak(g, pid);
+    case 'ad.finish': return finishBreak(g, pid, cmd.id, cmd.skip, out);
+    case 'comeback.confirm':
+    case 'comeback.dismiss': return comebackCommand(g, pid, cmd, out);
     case 'admin.advance': return fail('admin only');
     case 'admin.grant': {
       creditExternal(g, pid, cmd.amount, 'admin');

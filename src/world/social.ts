@@ -1,6 +1,6 @@
 import { rankIndex } from '@/content/lifestyle';
 import {
-  CHAT_KEEP, TPD, cashOf, debit, notify, pushWire, sanitize, shiftBaselines, today, transfer,
+  CHAT_KEEP, TPD, cashOf, debit, notify, pushWire, sanitize, shiftBaselines, spendableCash, today, transfer,
 } from './core';
 import type { ChatMessage, CommandResult, Deal, GameState, Player, StepOutput } from './types';
 
@@ -99,7 +99,7 @@ export function leaveAlliance(g: GameState, p: Player): CommandResult {
 export function allianceDeposit(g: GameState, p: Player, amount: number): CommandResult {
   const a = p.allianceId ? g.alliances[p.allianceId] : null;
   if (!a) return fail('not in an alliance');
-  const amt = Math.min(amount, cashOf(g, p.id));
+  const amt = Math.min(amount, spendableCash(g, p.id));
   if (!(amt > 0)) return fail('enter an amount');
   g.market.accounts[p.id] = { ...g.market.accounts[p.id]!, cash: g.market.accounts[p.id]!.cash - amt, startingCash: g.market.accounts[p.id]!.startingCash - amt };
   a.treasury += amt;
@@ -159,7 +159,8 @@ export function offerDeal(g: GameState, p: Player, kind: Deal['kind'], toId: str
     if (!(rate >= 0 && rate <= 1)) return fail('rate between 0% and 100% a year');
     if (!(termDays >= 1 && termDays <= 252)) return fail('term between 1 and 252 game days');
   }
-  if (cashOf(g, p.id) < amount) return fail('not enough cash');
+  // ad cash cannot leave the account by a transfer or a loan (velvet-rewarded-ads.md, ROADMAP C5)
+  if (spendableCash(g, p.id) < amount) return fail(cashOf(g, p.id) >= amount ? 'adCashTransfer' : 'not enough cash');
   g.dealSeq++;
   const id = `d${g.dealSeq}`;
   g.deals[id] = { id, kind, fromId: p.id, toId, amount, rate: kind === 'loan' ? rate : 0, termDays: kind === 'loan' ? Math.round(termDays) : 0, status: 'offered', createdTick: g.market.tick, paid: 0, note: sanitize(note, 120) };
@@ -173,7 +174,7 @@ export function respondDeal(g: GameState, p: Player, dealId: string, accept: boo
   const d = g.deals[dealId];
   if (!d || d.toId !== p.id || d.status !== 'offered') return fail('no such offer');
   if (!accept) { d.status = 'declined'; notify(g, out, d.fromId, { kind: 'deal', tone: 'info', text: `${p.handle} declined your offer.` }); return ok(); }
-  if (cashOf(g, d.fromId) < d.amount) { d.status = 'cancelled'; return fail('the sender no longer has the cash'); }
+  if (spendableCash(g, d.fromId) < d.amount) { d.status = 'cancelled'; return fail('the sender no longer has the cash'); }
   if (d.kind === 'transfer') {
     const tax = d.amount * TRANSFER_TAX;
     transfer(g, d.fromId, d.toId, d.amount - tax);
@@ -201,7 +202,7 @@ export function cancelDeal(g: GameState, p: Player, dealId: string): CommandResu
 export function repayDeal(g: GameState, p: Player, dealId: string, amount: number, out: StepOutput | null): CommandResult {
   const d = g.deals[dealId];
   if (!d || d.toId !== p.id || d.status !== 'active') return fail('no active loan');
-  const amt = Math.min(amount, d.outstanding ?? 0, cashOf(g, p.id));
+  const amt = Math.min(amount, d.outstanding ?? 0, spendableCash(g, p.id));
   if (!(amt > 0)) return fail('nothing to repay');
   transfer(g, p.id, d.fromId, amt);
   d.outstanding! -= amt;
@@ -222,7 +223,7 @@ export function dealsDay(g: GameState, out: StepOutput): void {
     d.outstanding! *= 1 + d.rate / dpy;
     if (g.market.tick - d.startTick! < d.termDays * TPD) continue;
     const borrower = g.players[d.toId];
-    const can = Math.max(0, Math.min(d.outstanding!, cashOf(g, d.toId)));
+    const can = Math.max(0, Math.min(d.outstanding!, spendableCash(g, d.toId)));
     if (can > 0) { transfer(g, d.toId, d.fromId, can); d.outstanding! -= can; d.paid += can; }
     if (d.outstanding! <= 0.005) {
       d.status = 'repaid';

@@ -84,9 +84,31 @@ export function bump(g: GameState, playerId: string, delta: number): void {
   for (const gp of [L.ghosts?.basket, L.ghosts?.random, L.ghosts?.momentum]) if (gp) gp.cash += delta;
 }
 
-/** Cash a player can spend on analysts, desk upkeep and plans: cash less restricted cash (ad grants, fresh start). */
+/** A tagged lot of ad or fresh-start cash is restricted for 72 real hours (ROADMAP C5): 72 game days at one game day an hour. */
+export const RESTRICT_TICKS = 72 * TPD;
+/** a real day (24 game hours), and a real week (7 game days), in ticks */
+export const REAL_DAY = 24 * TPD;
+export const REAL_WEEK = 7 * REAL_DAY;
+
+/**
+ * The restricted cash of a player at this tick: the unexpired ad and fresh-start lots, plus any older flat restriction
+ * (`restrictedCash`, kept for saves that carry it). A lot releases on its untilTick; no money moves when it does.
+ */
+export function restrictedOf(p: { adLots?: { amount: number; untilTick: number }[]; restrictedCash?: number } | undefined, tick: number): number {
+  if (!p) return 0;
+  let r = p.restrictedCash ?? 0;
+  for (const l of p.adLots ?? []) if (l.untilTick > tick) r += l.amount;
+  return r;
+}
+
+/** The restricted cash a player holds now (see restrictedOf). */
+export function restrictedNow(g: GameState, playerId: string): number {
+  return restrictedOf(g.players[playerId], g.market.tick);
+}
+
+/** Cash a player can spend on analysts, desk upkeep, plans, funds and transfers: cash less restricted cash (ad and fresh-start cash). */
 export function spendableCash(g: GameState, playerId: string): number {
-  return cashOf(g, playerId) - (g.players[playerId]?.restrictedCash ?? 0);
+  return cashOf(g, playerId) - restrictedNow(g, playerId);
 }
 
 export function credit(g: GameState, playerId: string, amount: number, source: string): void {

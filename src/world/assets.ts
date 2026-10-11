@@ -11,6 +11,7 @@ import {
   notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
 } from './core';
 import { offlineRate, purchaseShop, queueShare, servedOf } from './shopRules';
+import { PERK_RULES, windMultOf } from './perks';
 import type { Business, CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -42,14 +43,18 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
   const owned = Object.values(g.businesses).filter((b) => b.ownerId === pid && bizDef(b).tier === def.tier).length;
   if (owned >= tier.max) return fail(`you can run at most ${tier.max} ${tier.name} businesses: sell one or move up a tier`);
   if (p.heldUntil > g.market.tick) return fail('your assets are held by the court');
-  if (cashOf(g, pid) < def.cost) return fail('not enough cash');
-  bump(g, pid, -def.cost); // cash becomes the business: a conversion, not a sink
+  // Old contacts (velvet-bankruptcy.md): the chapter's one T1 business at half price, used once
+  const voucher = def.tier === 1 && !!p.comeback?.voucher;
+  const cost = voucher ? def.cost * PERK_RULES.contactsOff : def.cost;
+  if (cashOf(g, pid) < cost) return fail('not enough cash');
+  bump(g, pid, -cost); // cash becomes the business: a conversion, not a sink
+  if (voucher) delete p.comeback!.voucher;
   g.bizSeq++;
   const id = `b${g.bizSeq}`;
   const levels = { staff: 0, marketing: 0, equipment: 0, location: 0, automation: 0, research: 0 } as Record<UpgradeAxis, number>;
   const shop = purchaseShop(g.market.tick);
   const b: Business = {
-    id, defId, ownerId: pid, cityId, name: sanitize(name || def.name, 40), boughtTick: g.market.tick, invested: def.cost,
+    id, defId, ownerId: pid, cityId, name: sanitize(name || def.name, 40), boughtTick: g.market.tick, invested: cost,
     levels, event: null, incomePerDay: SHOP.revenueMult * def.income * Math.min(1, shop.crew), share: 0, earned: 0, shop,
   };
   g.businesses[id] = b;
@@ -184,7 +189,8 @@ export function accrueBusinesses(g: GameState, credit_: boolean, out: StepOutput
     if (!p) continue;
     let rate = 1;
     if (!p.online && !p.npc) rate = offlineRate((tick - p.lastSeenTick) / TPD, b.shop.managerStars, b.levels.automation);
-    const inc = (b.incomePerDay * rate) / TPD;
+    // Second wind (velvet-bankruptcy.md): business income x1.25 for 7 real days after a fresh start
+    const inc = (b.incomePerDay * rate * windMultOf(p, tick)) / TPD;
     b.earned += inc;
     p.pendingIncome += inc;
   }

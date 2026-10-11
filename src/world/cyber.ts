@@ -1,7 +1,7 @@
 import { rankIndex } from '@/content/lifestyle';
 import { mcsTier } from '@/content/research';
 import {
-  TPD, cashOf, clamp, debit, drawFrom, keyedRng, notify, ownerIndex, pushWire, touch,
+  TPD, cashOf, clamp, debit, drawFrom, keyedRng, notify, ownerIndex, pushWire, spendableCash, touch,
 } from './core';
 import { bestModel, labFor } from './lab';
 import type {
@@ -257,7 +257,8 @@ export function plantSession(g: GameState, pid: string, victimId: string, streng
   // punch-down tax: hitting someone ten times smaller costs much more
   const base = 15_000 * 2 ** mcsTier(model.mcs);
   const cost = v.netWorth * 10 < p.netWorth ? base * 5 : base;
-  if (cashOf(g, pid) < cost) return { ok: false, error: 'not enough cash for the operation' };
+  // ad cash cannot fund an operation (velvet-rewarded-ads.md, ROADMAP 2.7): only unrestricted cash pays for it
+  if (spendableCash(g, pid) < cost) return { ok: false, error: cashOf(g, pid) >= cost ? 'adCashOps' : 'not enough cash for the operation' };
   debit(g, pid, cost, 'operations');
   if (p.shieldUntil > tick) p.shieldUntil = tick; // protection ends on your first attack
   const st = STRENGTHS[strength];
