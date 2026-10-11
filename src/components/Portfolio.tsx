@@ -30,7 +30,7 @@ const CLASS_LABEL_KEY: Record<string, string> = {
 /** A game day in ticks (the chart's daily points sit at day * TPD + 1, as the daily net worth series does). */
 const TPD = 720;
 
-type NwRange = '1D' | '1W' | 'ALL';
+type NwRange = '1D' | '1W' | '1M' | '1Y' | 'ALL';
 
 export type PortfolioTab = 'portfolio' | 'journal' | 'analyst';
 
@@ -95,7 +95,9 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
   const b = me.netWorth;
   const series = useMemo(() => {
     if (!nw) return [];
-    if (range === 'ALL') return nw.daily.map((d) => ({ time: d.day * TPD + 1, value: d.value }));
+    // the daily ranges read the closes: a month is the last 30 game days, a year the last 365 (or all that are kept)
+    const daysBack = range === '1M' ? 30 : range === '1Y' ? 365 : null;
+    if (range === 'ALL' || daysBack !== null) return nw.daily.slice(daysBack === null ? 0 : -daysBack).map((d) => ({ time: d.day * TPD + 1, value: d.value }));
     const n = range === '1D' ? 60 : nw.samples.length;
     const s = nw.samples.slice(-n);
     return s.map((v, k) => ({ time: nw.lastTick - (s.length - 1 - k) * nw.every, value: v }));
@@ -182,7 +184,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
               {t('ghost.toggle')}
             </button>
             <Segmented label={t('portfolio.nwRange')} size="sm" value={range} onChange={(v) => setRange(v as NwRange)}
-              options={[{ value: '1D', label: '1D', testId: 'nw-range-1D' }, { value: '1W', label: '1W', testId: 'nw-range-1W' }, { value: 'ALL', label: 'All', testId: 'nw-range-ALL' }]} />
+              options={[{ value: '1D', label: '1D', testId: 'nw-range-1D' }, { value: '1W', label: '1W', testId: 'nw-range-1W' }, { value: '1M', label: '1M', testId: 'nw-range-1M' }, { value: '1Y', label: '1Y', testId: 'nw-range-1Y' }, { value: 'ALL', label: 'All', testId: 'nw-range-ALL' }]} />
           </div>
         </div>
         {/* the last point of the line, as the header shows it (the spec compares the two) */}

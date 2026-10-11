@@ -48,7 +48,7 @@ export function WireView() {
     const band = w.news && w.assetId ? newsBand(config, w.assetId, w.news, now - w.tick) : null;
     const chip = band !== null && band !== 'done' ? band : null;
     return (
-      <li key={w.id} className="flex gap-3 border-t border-ink-2 py-2.5" data-testid="wire-row">
+      <li key={w.id} className="flex gap-3 border-t border-ink-2 py-1.5" data-testid="wire-row">
         <span className="num w-20 shrink-0 text-caption text-fg-faint">{clockLabel(w.tick, 720)}</span>
         <div className="min-w-0">
           <span className={`mr-2 text-caption font-semibold uppercase ${TONE_TEXT[w.tone]}`}>{w.tag}</span>
@@ -75,7 +75,7 @@ export function WireView() {
   };
   return (
     <div className="os-body" data-testid="wire-view">
-      <div className="os-seg flex gap-1 overflow-x-auto pb-1" role="group" aria-label={t('wire.filters')}>
+      <div className="os-seg flex flex-wrap gap-1 pb-1" role="group" aria-label={t('wire.filters')}>
         {FILTERS.map((x) => (
           <button
             key={x.id}

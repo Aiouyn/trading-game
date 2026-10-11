@@ -101,6 +101,15 @@ export function debit(g: GameState, playerId: string, amount: number, sink: stri
   g.economy.sinks[sink] = (g.economy.sinks[sink] ?? 0) + amount;
 }
 
+/** A cost of owning (upkeep, salaries, desk fees): a debit that also counts toward the player's overheads, so the day's
+ * trading figure leaves it out. Trading fees are not overheads; they stay in the trade's realized P&L. */
+export function overhead(g: GameState, playerId: string, amount: number, sink: string): void {
+  if (!(amount > 0)) return;
+  debit(g, playerId, amount, sink);
+  const p = g.players[playerId];
+  if (p) p.stats.overheads = (p.stats.overheads ?? 0) + amount;
+}
+
 /**
  * Moves the day, digest and arrival baselines by a cash move from outside trading and income (a grant, a transfer, a loan or
  * its tax). The day change (dayStart.netWorth), the "while you were away" change (digestNetWorth) and "since you arrived"

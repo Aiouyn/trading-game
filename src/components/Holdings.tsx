@@ -1,6 +1,6 @@
 'use client';
 
-import { optionQuote, parseContract, portfolio, type WorldConfig, type WorldState } from '@/engine';
+import { commission, optionQuote, parseContract, portfolio, type WorldConfig, type WorldState } from '@/engine';
 import { LICENSES, rankIndex } from '@/content/lifestyle';
 import { sparkline } from '@/game/history';
 import { price, pct, qty, signedMoney, signedPct, tone, toneText, money } from '@/game/format';
@@ -9,7 +9,23 @@ import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
 import type { FillReason } from '@/engine/ledger-types';
 import type { LedgerFill } from '@/world/ledger-types';
+import { useState } from 'react';
 import { Button, Card, CardHeader, ConfirmButton, Flash, LockGlyph, Sparkline, Td, Th } from './ui';
+
+/** The columns the positions table sorts by. */
+type PosSortKey = 'asset' | 'qty' | 'value' | 'pnl' | 'ifSold' | 'weight';
+
+/** A sortable column header: a button inside the header cell, with the direction on aria-sort. */
+function SortTh({ k, sort, onSort, right = false }: { k: PosSortKey; sort: { key: PosSortKey; dir: 1 | -1 }; onSort: (k: PosSortKey) => void; right?: boolean }) {
+  const active = sort.key === k;
+  return (
+    <th className={`label px-3 py-2 font-medium ${right ? 'text-right' : 'text-left'}`} aria-sort={active ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" data-testid={`pos-sort-${k}`} onClick={() => onSort(k)} className={`label ${active ? 'text-fg' : 'text-fg-muted'} hover:text-fg`}>
+        {t(`holdings.col.${k}`)}{active ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}
+      </button>
+    </th>
+  );
+}
 
 /** The reason label for a fill (M13): what put the units on the books. */
 export function reasonLabel(r: FillReason): string {
@@ -50,8 +66,23 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
   useGame((s) => s.historyRev);
   const select = useGame((s) => s.select);
   const act = useGame((s) => s.act);
+  const [sort, setSort] = useState<{ key: PosSortKey; dir: 1 | -1 }>({ key: 'value', dir: -1 });
   if (!me.account) return null;
   const pf = portfolio(world, playerId);
+  // what the position would bank if sold now: the mark-to-market P&L less the exit fee on its value (after fees)
+  const rows = pf.positions.map((p) => {
+    const def = assetDefOf(p.assetId);
+    const exitFee = def ? commission(world, def, Math.abs(p.marketValue)) : 0;
+    return { p, ifSold: p.unrealizedPnl - exitFee };
+  });
+  const keyOf = (r: (typeof rows)[number], k: PosSortKey) => (k === 'asset' ? r.p.assetId : k === 'qty' ? r.p.qty : k === 'value' ? r.p.marketValue : k === 'pnl' ? r.p.unrealizedPnl : k === 'ifSold' ? r.ifSold : r.p.weight);
+  rows.sort((a, b) => {
+    const x = keyOf(a, sort.key);
+    const y = keyOf(b, sort.key);
+    const c = typeof x === 'string' ? x.localeCompare(y as string) : (x as number) - (y as number);
+    return c * sort.dir || a.p.assetId.localeCompare(b.p.assetId);
+  });
+  const onSort = (k: PosSortKey) => setSort((s) => (s.key === k ? { key: k, dir: s.dir === 1 ? -1 : 1 } : { key: k, dir: k === 'asset' ? 1 : -1 }));
   const h = useGame.getState().history;
   const reasons = lastReasonByAsset(me.trading?.fills ?? []);
   const lastFill = (assetId: string) => (reasons.has(assetId) ? t('holdings.lastFill', { reason: reasonLabel(reasons.get(assetId)!) }) : null);
@@ -75,7 +106,7 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
         <p className="px-4 pb-6 text-small text-fg-faint">{t('holdings.empty')}</p>
       ) : phone ? (
         <ul>
-          {pf.positions.map((p) => (
+          {rows.map(({ p, ifSold }) => (
             <li key={p.assetId} className="flex flex-wrap items-center gap-3 border-t border-ink-2 px-4 py-3" data-testid={`position-${p.assetId}`}>
               <button type="button" onClick={() => select(p.assetId)} className="min-w-0 flex-1 text-left">
                 <div className="num text-small font-semibold">{p.assetId} {p.qty < 0 && <span className="text-loss">{t('holdings.short')}</span>}</div>
@@ -85,6 +116,7 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
               <div className="text-right">
                 <div className="num text-small">{money(p.marketValue)}</div>
                 <div className={`num text-caption ${toneText[tone(p.unrealizedPnl)]}`}>{signedMoney(p.unrealizedPnl)} {signedPct(p.unrealizedPct)}</div>
+                <div className={`num text-caption ${toneText[tone(ifSold)]}`} data-testid={`position-ifsold-${p.assetId}`}>{t('holdings.ifSoldShort')} {signedMoney(ifSold)}</div>
               </div>
               <DripToggle assetId={p.assetId} />
             </li>
@@ -95,12 +127,12 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
           <table className="w-full text-small">
             <thead>
               <tr>
-                <Th>{t('holdings.col.asset')}</Th><Th right>{t('holdings.col.qty')}</Th><Th right>{t('holdings.col.avg')}</Th><Th right>{t('holdings.col.last')}</Th>
-                <Th right>{t('holdings.col.value')}</Th><Th right>{t('holdings.col.pnl')}</Th><Th right>{t('holdings.col.weight')}</Th><Th right>{t('holdings.col.fiveDay')}</Th><Th>{t('holdings.col.drip')}</Th><Th />
+                <SortTh k="asset" sort={sort} onSort={onSort} /><SortTh k="qty" sort={sort} onSort={onSort} right /><Th right>{t('holdings.col.avg')}</Th><Th right>{t('holdings.col.last')}</Th>
+                <SortTh k="value" sort={sort} onSort={onSort} right /><SortTh k="pnl" sort={sort} onSort={onSort} right /><SortTh k="ifSold" sort={sort} onSort={onSort} right /><SortTh k="weight" sort={sort} onSort={onSort} right /><Th right>{t('holdings.col.fiveDay')}</Th><Th>{t('holdings.col.drip')}</Th><Th />
               </tr>
             </thead>
             <tbody>
-              {pf.positions.map((p) => (
+              {rows.map(({ p, ifSold }) => (
                 <tr key={p.assetId} className="border-t border-ink-2 hover:bg-ink-2" data-testid={`position-${p.assetId}`}>
                   <Td>
                     <button type="button" onClick={() => select(p.assetId)} className="text-left">
@@ -114,6 +146,7 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
                   <Td right num><Flash value={p.price}>{price(p.price)}</Flash></Td>
                   <Td right num>{money(p.marketValue)}</Td>
                   <Td right num className={toneText[tone(p.unrealizedPnl)]}>{signedMoney(p.unrealizedPnl)}<div className="text-caption">{signedPct(p.unrealizedPct)}</div></Td>
+                  <Td right num className={toneText[tone(ifSold)]}><span data-testid={`position-ifsold-${p.assetId}`} title={t('holdings.ifSoldHint')}>{signedMoney(ifSold)}</span></Td>
                   <Td right num>{pct(p.weight)}</Td>
                   <Td right><Sparkline data={sparkline(h, p.assetId, 5)} /></Td>
                   <Td><DripToggle assetId={p.assetId} /></Td>

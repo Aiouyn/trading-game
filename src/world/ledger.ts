@@ -91,7 +91,7 @@ export function valuationAndIncome(g: GameState, pid: string): { val: number; in
   const b = netWorthBreakdown(g, pid);
   const val = b.total - b.cash - b.markets;
   const inc = (p?.stats.bizIncome ?? 0) + (p?.stats.rentCollected ?? 0) + (acct?.dividends ?? 0) + (acct?.interestEarned ?? 0)
-    - (acct?.interestPaid ?? 0) - (acct?.borrowPaid ?? 0);
+    - (acct?.interestPaid ?? 0) - (acct?.borrowPaid ?? 0) - (p?.stats.overheads ?? 0);
   return { val, inc };
 }
 

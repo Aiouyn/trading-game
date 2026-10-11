@@ -102,3 +102,20 @@ test('the Wire filters by kind, and Launchpad listings open from one line per ho
   await expect(page.getByTestId('wire-filter-all')).toHaveAttribute('aria-pressed', 'true');
   expect(errors).toEqual([]);
 });
+
+test('the net worth range has a month and a year, and the chart keeps its figure through them', async ({ page }) => {
+  const errors = watchErrors(page);
+  await register(page);
+  await skipTips(page);
+  await goTo(page, 'portfolio');
+  await expect(page.getByTestId('networth-series')).toBeVisible({ timeout: 25_000 });
+  for (const id of ['nw-range-1D', 'nw-range-1W', 'nw-range-1M', 'nw-range-1Y', 'nw-range-ALL']) {
+    await expect(page.getByTestId(id)).toBeVisible();
+  }
+  // a month and a year read the daily closes; the figure at the line's end is still the live one
+  await page.getByTestId('nw-range-1M').click();
+  await expect(page.getByTestId('networth-series')).toBeVisible();
+  await page.getByTestId('nw-range-1Y').click();
+  await expect(page.getByTestId('networth-series')).toBeVisible();
+  expect(errors).toEqual([]);
+});

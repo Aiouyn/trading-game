@@ -26,6 +26,8 @@ export interface PlayerStats {
   maxPositions: number;
   liquidations: number;
   bizIncome: number;
+  /** cumulative owner costs paid out of cash: property and mortgage upkeep, lifestyle upkeep, analysts, the desk, shop costs */
+  overheads?: number;
   dividends: number;
   researchDone: number;
   trainingRuns: number;

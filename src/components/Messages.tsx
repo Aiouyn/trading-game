@@ -100,7 +100,7 @@ export function InboxList() {
   return (
     <ul className="min-h-0 flex-1 overflow-y-auto" data-testid="inbox">
       {items.map((n) => (
-        <li key={n.id} className="flex gap-3 border-t border-ink-2 py-2.5" data-testid="inbox-item">
+        <li key={n.id} className="flex gap-3 border-t border-ink-2 py-1.5" data-testid="inbox-item">
           <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${TONE_BAR[n.tone]}`} aria-hidden />
           <div className="min-w-0">
             <p className="text-small text-fg">{tm(n.msg, n.text)}</p>

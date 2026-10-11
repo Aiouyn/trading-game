@@ -7,7 +7,7 @@ import {
 } from '@/content/lifestyle';
 import { SHOP } from '@/content/shops';
 import {
-  TPD, bizDef, bump, cashOf, touch, clamp, credit, debit, districtIndex, districtTier, drawFrom, keyedRng, netWorthBreakdown,
+  TPD, bizDef, bump, cashOf, touch, clamp, credit, debit, overhead, districtIndex, districtTier, drawFrom, keyedRng, netWorthBreakdown,
   notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
 } from './core';
 import { offlineRate, purchaseShop, queueShare, servedOf } from './shopRules';
@@ -377,10 +377,10 @@ export function propertyDay(g: GameState, out: StepOutput): void {
       pr.rentEarned += rent;
       owner.stats.rentCollected += rent;
     }
-    debit(g, pr.ownerId, (v * t.upkeep * g.economy.stabilizer.sinkMult) / dpy, 'property upkeep');
+    overhead(g, pr.ownerId, (v * t.upkeep * g.economy.stabilizer.sinkMult) / dpy, 'property upkeep');
     if (pr.mortgage > 0) {
       const interest = (pr.mortgage * pr.mortgageRate) / dpy;
-      debit(g, pr.ownerId, interest, 'mortgage interest');
+      overhead(g, pr.ownerId, interest, 'mortgage interest');
     }
   }
   save();
@@ -444,7 +444,7 @@ export function lifestyleDay(g: GameState): void {
       const item = LIFE_BY_ID.get(o.itemId);
       if (item) upkeep += (o.paid * item.upkeep) / dpy;
     }
-    debit(g, p.id, upkeep * g.economy.stabilizer.sinkMult, 'lifestyle upkeep');
+    overhead(g, p.id, upkeep * g.economy.stabilizer.sinkMult, 'lifestyle upkeep');
     p.lifestyle = p.lifestyle.filter((o) => {
       const item = LIFE_BY_ID.get(o.itemId);
       return !(item?.cls === 'consumed' && g.market.tick - o.boughtTick > 30 * TPD);

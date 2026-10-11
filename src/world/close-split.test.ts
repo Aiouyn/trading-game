@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
 import { dayClose } from './close';
-import { TPD } from './core';
+import { TPD, overhead } from './core';
+import { valuationAndIncome } from './ledger';
 import { textProvider } from './text';
 import type { GameState } from './types';
 
@@ -46,5 +47,13 @@ describe('the day close splits the change into trading, valuation and income (St
     expect(card.valuation).toBe(0);
     expect(card.income).toBe(0);
     expect(card.trading).toBeCloseTo(25, 6);
+  });
+
+  it('owner costs (upkeep, salaries, desk fees) are overheads: they lower income, so they never read as trading', () => {
+    const g = joined('close-split-overheads');
+    const before = valuationAndIncome(g, 'u1').inc;
+    overhead(g, 'u1', 40, 'property upkeep');
+    expect(valuationAndIncome(g, 'u1').inc).toBeCloseTo(before - 40, 6);
+    expect(g.players.u1!.stats.overheads).toBe(40);
   });
 });
