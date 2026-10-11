@@ -30,7 +30,7 @@ export function Shelf() {
   // Left and Right move along the toolbar's buttons (the tiles, then the tools), as a toolbar does.
   const onKeyDown = (e: KeyboardEvent<HTMLElement>): void => {
     if (e.code !== 'ArrowLeft' && e.code !== 'ArrowRight') return;
-    const btns = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button.os-tile, .os-tools > button, .os-ws > button'));
+    const btns = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button.os-tile, .os-tools > button'));
     const at = btns.indexOf(document.activeElement as HTMLButtonElement);
     if (at < 0) return;
     e.preventDefault();
@@ -105,21 +105,6 @@ export function Shelf() {
           <Glyph name="focus" size={14} />
           {t('shell.focus')} <span className="os-kbd">{t('shell.keys.focus')}</span>
         </button>
-        <div className="os-ws" role="group" aria-label={t('shell.workspaces')}>
-          {Array.from({ length: ctx.workspaces }, (_, n) => (
-            <button
-              key={n}
-              type="button"
-              data-testid={`ws-${n}`}
-              className={`os-ws-box${n === shell.activeWs ? ' on' : ''}`}
-              aria-label={t('shell.workspace', { n: n + 1 })}
-              aria-pressed={n === shell.activeWs}
-              onClick={() => dispatchWm({ type: 'switchWs', ws: n })}
-            >
-              {n + 1}
-            </button>
-          ))}
-        </div>
       </div>
     </nav>
   );

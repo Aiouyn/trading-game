@@ -145,15 +145,15 @@
     background: color-mix(in srgb, var(--color-ink-1) 70%, transparent);
     color: var(--color-fg-muted); font-size: var(--text-small);
   }
-  .os-root .os-ws { display: flex; align-items: center; gap: 5px; padding-left: 4px; }
-  .os-root .os-ws-box {
-    display: grid; place-items: center; width: 30px; height: 20px;
-    border: 1px solid var(--color-ink-3); border-radius: var(--radius-sm);
-    font-family: var(--font-mono); font-size: var(--text-micro); color: var(--color-fg-faint);
+  /* Workspaces as tabs in the top bar (UX stage 2): a tab per workspace, the active one underlined in brass. */
+  .os-root .os-wstabs { display: flex; align-items: stretch; gap: 2px; height: 100%; }
+  .os-root .os-wstab {
+    display: inline-flex; align-items: center; padding: 0 10px; font-size: var(--text-caption);
+    color: var(--color-fg-faint); border-bottom: 2px solid transparent;
   }
-  .os-root .os-ws-box.on { border-color: var(--color-brass); color: var(--color-brass); }
-  /* R3 three-screen rig: hairline bezel on each workspace box (velvet-desktop-os.md 185) */
-  .os-root.shell-r3 .os-ws-box:not(.on) { border-color: var(--os-ws-bezel); box-shadow: inset 0 0 0 1px var(--color-chrome); }
+  .os-root .os-wstab:hover:not(:disabled) { color: var(--color-fg-muted); }
+  .os-root .os-wstab.on { color: var(--color-fg); border-bottom-color: var(--color-brass); }
+  .os-root .os-wstab:disabled { color: var(--color-fg-disabled); cursor: default; }
 
   /* R5 glass: strip and shelf at 86% with a blur. Reduced transparency falls back to R4 (below). */
   .os-root.shell-r5 .os-strip,
