@@ -2,7 +2,7 @@ import { createWorld, equityOf, openAccount, placeOrder, step, universeConfig, t
 import { BOT_CADENCE, mcsTier } from '@/content/research';
 import { sha256Hex } from './company/hash';
 import { strategySignal } from './lab';
-import type { TradingBot } from './types';
+import type { TradeLogRecord, TradingBot } from './types';
 
 /**
  * The weekly AI tournament (ROADMAP §2.4, M32 solo and M43 server-run; lead-phase6.md 6D).
@@ -13,13 +13,20 @@ import type { TradingBot } from './types';
  * is the median over the three seeds of the annualised Sharpe of the daily equity returns, net of fees. A run that draws
  * down more than 40% or places fewer than 20 trades disqualifies the entry.
  *
- * Everything here is pure: no clock, no storage, no tick loop. The server triggers `runTournamentWeek` from a scheduled job
- * once a real week has locked (see `tournamentDue`), and tests call it directly with a short horizon.
+ * Everything here is pure: no clock, no storage, no tick loop. The server runs `runTournamentWeek` in a child process once a
+ * real week has locked (server/tournamentJob.ts, the script scripts/tournament-run.ts), and tests call it directly with a
+ * short horizon.
  *
- * Commitment and reveal: the three seeds are hashed at the week's open (`seedCommit`) and published after the results. An
- * entry is hashed at lock (`entryHash`) and its parameters are never published by default. The house rows reproduce from
- * the published seeds alone. An entrant reproduces their own row from their own frozen entry, which matches its hash.
- * Nothing about a player's strategy is published unless that player opts in (N8, the trade log).
+ * Commitment and reveal: the three seeds are a hash of the world seed and the week (`weekSeeds`, the same seeds on every
+ * replay), committed at the week's open (`seedCommitment`) and published after the results. An entry's actor is captured
+ * when the player enters, and its hash is taken then (`entryHash`); its parameters are never published by default. The house
+ * rows reproduce from the published seeds alone. An entrant reproduces their own row from their own frozen entry, which
+ * matches its hash. Nothing about a player's strategy is published unless that player opts in at entry (N8): a top-three
+ * entrant who opted in gets a trade log of one seed, and only that log is published.
+ *
+ * Cost: one isolated 30-day run takes about 8 s unloaded (measured on the server's machine class; the engine step is
+ * most of it, the noise draw about a tenth). A week is (entries + 5 house AIs) x 3 seeds runs, so a field of ten is about
+ * two minutes of one core.
  */
 
 export const TOURNAMENT = {
@@ -67,6 +74,8 @@ export interface TournamentRun {
   qualified: boolean;
   /** why the run disqualified the entry, when it did */
   reason?: 'drawdown' | 'trades';
+  /** the fills of this run, when it was asked to keep them (N8 trade log) */
+  log?: TradeLogRecord[];
 }
 
 export interface TournamentScore {
@@ -89,7 +98,11 @@ export function houseActor(strategy: TradingBot['strategy'], config: WorldConfig
   return { id: `house:${strategy}`, strategy, assets, allocation: TOURNAMENT.houseAllocation, mcs: TOURNAMENT.houseMcs };
 }
 
-/** The three secret seeds of a week, from the server's per-week secret. Pure: the same secret and week give the same seeds. */
+/**
+ * The three seeds of a week, from the world seed and the week number. Pure: the same world and week give the same seeds, so a
+ * replay derives them without storage. They stay secret until the week settles, because nothing published before then
+ * carries them (the commitment is a hash over them). The world seed itself is never sent to a client.
+ */
 export function weekSeeds(weekId: string, secret: string, count: number = TOURNAMENT.seeds): string[] {
   const out: string[] = [];
   for (let k = 0; k < count; k++) out.push(sha256Hex(`tournament|${secret}|${weekId}|${k}`).slice(0, 24));
@@ -146,7 +159,7 @@ const ACCOUNT_ID = 'entrant';
  * API (the same rules the live lab bots use: strategySignal, the model's noise, its cadence and the sizing of runBot). No
  * other player's order is in the world, so the run is purely a function of (seed, actor, days).
  */
-export function runIsolated(seed: string, actor: TournamentActor, days: number = TOURNAMENT.days, config: WorldConfig = tournamentConfig()): TournamentRun {
+export function runIsolated(seed: string, actor: TournamentActor, days: number = TOURNAMENT.days, config: WorldConfig = tournamentConfig(), log = false): TournamentRun {
   let st: WorldState = createWorld(seed, config);
   st = openAccount(st, ACCOUNT_ID, TOURNAMENT.startingCash);
   const start = equityOf(st, st.accounts[ACCOUNT_ID]!);
@@ -156,6 +169,7 @@ export function runIsolated(seed: string, actor: TournamentActor, days: number =
   const memory: Record<string, number> = {};
   const equity: number[] = [start];
   let trades = 0;
+  const fills: TradeLogRecord[] = [];
   const totalTicks = days * tpd;
   // a deterministic per-run draw for the noise: a counter-based hash of (seed, actor, tick, asset) keeps the run a pure function
   const draw = (tick: number, assetId: string): number => {
@@ -167,7 +181,11 @@ export function runIsolated(seed: string, actor: TournamentActor, days: number =
   for (let k = 1; k <= totalTicks; k++) {
     const r = step(st);
     st = r.state;
-    trades += r.fills.filter((f) => f.playerId === ACCOUNT_ID).length;
+    for (const f of r.fills) {
+      if (f.playerId !== ACCOUNT_ID) continue;
+      trades++;
+      if (log) fills.push({ tick: f.tick, assetId: f.assetId, side: f.side, qty: f.qty, price: f.price });
+    }
     if (k % cadence === 0) st = decide(st, actor, memory, noise, draw, k);
     if (k % tpd === 0) equity.push(equityOf(st, st.accounts[ACCOUNT_ID]!));
   }
@@ -178,6 +196,7 @@ export function runIsolated(seed: string, actor: TournamentActor, days: number =
   return {
     seed, days, equity, totalReturn: start > 0 ? last / start - 1 : 0, sharpe, maxDrawdown: maxDD, trades,
     qualified: reason === undefined, ...(reason ? { reason } : {}),
+    ...(log ? { log: fills } : {}),
   };
 }
 
@@ -223,6 +242,8 @@ export interface TournamentRow {
   division?: DivisionId;
   mcs: number;
   score: TournamentScore;
+  /** the trade log of one seed, for a top-three entry that opted in (N8); never set for a house AI */
+  log?: { seed: string; trades: TradeLogRecord[] };
 }
 
 /** Score one actor over the seeds. */
@@ -249,6 +270,8 @@ export interface TournamentEntryInput {
   id: string;
   handle: string;
   actor: TournamentActor;
+  /** opted in at entry: the trade log is kept if the entry finishes top three (N8) */
+  publishLog?: boolean;
 }
 
 /**
@@ -269,5 +292,14 @@ export function runTournamentWeek(
     const actor = houseActor(s, config);
     return { id: actor.id, kind: 'house', handle: `House ${s}`, mcs: actor.mcs, score: scoreActor(actor, seeds, days, config) };
   });
+  // N8: the trade log of one seed (the first) for each top-three entry that opted in at entry. Three runs at most, off the
+  // ranking, so the rest of the field pays nothing for it.
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  for (const row of rankRows(entryRows).slice(0, 3)) {
+    const entry = byId.get(row.id);
+    if (!entry?.publishLog || seeds.length === 0) continue;
+    const run = runIsolated(seeds[0]!, entry.actor, days, config, true);
+    row.log = { seed: seeds[0]!, trades: run.log ?? [] };
+  }
   return rankRows([...entryRows, ...houseRows]);
 }

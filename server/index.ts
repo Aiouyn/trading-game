@@ -6,6 +6,8 @@ import { WorldHost } from './host';
 import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
 import { lpPageOf } from '../src/world/launchpad/view';
 import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
+import { TournamentJob } from './tournamentJob';
+import { TOURNAMENT_SYSTEM } from '../src/world/tournamentWeek';
 import { validHandle, COUNTRIES } from '../src/world/players';
 import { freshWorldSeed } from '../src/world/seed';
 import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type ServerMsg } from '../src/net/protocol';
@@ -33,6 +35,14 @@ const host = new WorldHost(store, { seed: SEED, tickMs: TICK_MS, warmupDays: WAR
 host.boot();
 /** the asset list wire: the version the tick stream last sent, and the cached defs (see server/wire.ts) */
 const listWire = new ListWire(host.g);
+/** the weekly tournament settlement: a due week runs in a child process and comes back as a logged settle command */
+const tournamentJob = new TournamentJob(
+  (week, seeds, rows) => {
+    const r = host.command(TOURNAMENT_SYSTEM, { type: 'tournament.settle', week, seeds, rows });
+    if (!r.ok) log(`tournament week ${week} settle refused: ${r.error}`);
+  },
+  log,
+);
 /** the public short interest on the tick stream: slow cadence, sent on change (see server/wire.ts) */
 const shortInterest = new ShortInterestWire();
 /** the order depth of the latest closed day, on the tick that closed it and in every welcome (see server/wire.ts DepthWire) */
@@ -270,6 +280,9 @@ function canSee(pid: string, channel: string): boolean {
 }
 
 host.onTick((out, publicTick) => {
+  // the weekly tournament's settlement runs off the tick loop: a due week is checked every 60 ticks (5 real minutes), and its
+  // rows come back as a logged command (server/tournamentJob.ts)
+  if (host.g.market.tick % 60 === 0) tournamentJob.check(host.g);
   // the asset list moves on an IPO, a delisting or a spin-off: the frame of that tick carries it once. Clients connected
   // since then got it in their welcome, so a normal tick carries only the small cfgSeq.
   // shared parts are serialized once per tick, not once per socket

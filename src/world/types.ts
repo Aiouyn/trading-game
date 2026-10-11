@@ -83,9 +83,20 @@ export interface TournamentEntryRecord {
   hash: string;
   lockedTick: number;
   actor: { id: string; strategy: TradingBot['strategy']; assets: string[]; allocation: number; mcs: number };
+  /** opted in at entry (N8): if this entry finishes top three, its trade log is published with the settlement */
+  publishLog?: boolean;
 }
 
-/** One row of a settled week: an entry or a house AI, with its scores. No trades, no weights. */
+/** One fill of an isolated tournament run, as a trade log publishes it (N8). */
+export interface TradeLogRecord {
+  tick: number;
+  assetId: string;
+  side: string;
+  qty: number;
+  price: number;
+}
+
+/** One row of a settled week: an entry or a house AI, with its scores. No weights; a trade log only when published (N8). */
 export interface TournamentRowRecord {
   id: string;
   kind: 'entry' | 'house';
@@ -96,6 +107,8 @@ export interface TournamentRowRecord {
   totalReturn: number;
   qualified: boolean;
   reason?: 'drawdown' | 'trades';
+  /** the trade log of one seed, for a top-three entry that opted in (N8). Absent otherwise. */
+  log?: { seed: string; trades: TradeLogRecord[] };
 }
 
 export interface TournamentWeekRecord {
@@ -714,7 +727,7 @@ export type Command =
   | { type: 'lab.bot'; modelId: string; strategy: TradingBot['strategy']; assets: string[]; allocation: number }
   | { type: 'lab.botToggle'; botId: string; active: boolean }
   | { type: 'lab.signal' }
-  | { type: 'tournament.enter' }
+  | { type: 'tournament.enter'; publishLog?: boolean }
   | { type: 'auction.bid'; lot: string; amount: number }
   | { type: 'streak.claim' }
   | { type: 'insurance.set'; on: boolean }

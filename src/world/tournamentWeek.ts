@@ -24,7 +24,7 @@ export const TOURNAMENT_WEEK_TICKS = 7 * 24 * TPD;
 export const TOURNAMENT_SYSTEM = '__tournament';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
-const fail = (error: string): CommandResult => ({ ok: false, error });
+const fail = (error: string, data?: Record<string, number | string>): CommandResult => ({ ok: false, error, ...(data ? { data } : {}) });
 
 /** The week whose entries are open at this tick (week w is entered during week w-1). */
 export function weekEnteringAt(tick: number): number {
@@ -51,28 +51,30 @@ function weekRecord(g: GameState, week: number): TournamentWeekRecord {
 }
 
 /**
- * Enter the tournament with the player's best trading model, which must run a deployed bot (its strategy, assets and
- * allocation are frozen at lock). One entry per player per week. The entry window is open until the week's lock tick.
+ * Enter the tournament with the player's best trading model, which must run a deployed bot. The entry's actor (strategy,
+ * assets, allocation, capability) is captured now and hashed now; later changes to the bot do not reach it. One entry per
+ * player per week. The entry window is open until the week's lock tick. `publishLog` opts the entry into the trade log
+ * (N8): it is published only if the entry finishes top three, and only then.
  */
-export function enterTournament(g: GameState, pid: string): CommandResult {
+export function enterTournament(g: GameState, pid: string, publishLog = false): CommandResult {
   const p = g.players[pid];
-  if (!p || p.npc) return fail('No player account to enter with. Join the world first.');
-  if (rankIndex(p.rankId) < rankIndex(LAB_RANK)) return fail('The tournament runs on AI Lab models. Your lab opens at Owner ($250k). Reach Owner, then train a model.');
+  if (!p || p.npc) return fail('noPlayer');
+  if (rankIndex(p.rankId) < rankIndex(LAB_RANK)) return fail('tnRank', { rank: LAB_RANK });
   const lab = labFor(g, pid);
   const model = bestModel(lab, 'trading');
-  if (!model) return fail('You have no trading model to enter. Train one in the AI Lab first.');
+  if (!model) return fail('tnNoModel');
   const bot = lab.bots.find((b) => b.modelId === model.id && b.active) ?? lab.bots.find((b) => b.modelId === model.id);
-  if (!bot) return fail(`Your best model "${model.name}" runs no bot. Deploy one in the AI Lab, then enter.`);
+  if (!bot) return fail('tnNoBot', { model: model.name });
   const week = weekEnteringAt(g.market.tick);
   const rec = weekRecord(g, week);
-  if (rec.entries.some((e) => e.playerId === pid)) return fail(`You already entered week ${week}. One entry per week; it locks at tick ${lockTickOf(week)}.`);
+  if (rec.entries.some((e) => e.playerId === pid)) return fail('tnEntered', { week, lock: lockTickOf(week) });
   const actor: TournamentActor = { id: `entry:${pid}`, strategy: bot.strategy, assets: [...bot.assets], allocation: bot.allocation, mcs: model.mcs };
   const hash = entryHash(actor, p.handle, String(week));
   rec.entries.push({
     playerId: pid, handle: p.handle, modelName: model.name, mcs: model.mcs, division: divisionOf(model.mcs), hash,
-    lockedTick: g.market.tick, actor,
+    lockedTick: g.market.tick, actor, ...(publishLog ? { publishLog: true } : {}),
   });
-  return ok({ week, hash });
+  return ok({ week, hash, publishLog });
 }
 
 /** The weeks that have locked, hold entries, and have no settlement yet, oldest first. */
@@ -86,21 +88,42 @@ export function dueSettlements(g: GameState): number[] {
 }
 
 /** The off-tick inputs of a due week: its seeds and every entry's frozen actor. Null when the week is not due. */
-export function settlementInput(g: GameState, week: number): { seeds: string[]; entries: { id: string; handle: string; actor: TournamentActor }[] } | null {
+export function settlementInput(
+  g: GameState, week: number,
+): { seeds: string[]; entries: { id: string; handle: string; actor: TournamentActor; publishLog: boolean }[] } | null {
   const rec = g.tournament?.weeks[String(week)];
   if (!rec || rec.settled || lockTickOf(week) > g.market.tick || rec.entries.length === 0) return null;
   return {
     seeds: weekSeedsOf(g, week),
-    entries: rec.entries.map((e) => ({ id: e.actor.id, handle: e.handle, actor: { ...e.actor, assets: [...e.actor.assets] } })),
+    entries: rec.entries.map((e) => ({
+      id: e.actor.id, handle: e.handle, actor: { ...e.actor, assets: [...e.actor.assets] }, publishLog: !!e.publishLog,
+    })),
   };
 }
 
-/** Run one due week's isolated runs. Pure and slow (minutes for a full field): the server runs it off the tick loop. */
+/**
+ * The off-tick run of one week from its settlement input: every entry and house AI over the seeds, with the top-three trade
+ * logs (N8). Pure and slow (a field of ten is about two minutes of one core). The server runs it in a child process
+ * (server/tournamentJob.ts, scripts/tournament-run.ts), and tests call it with a short horizon.
+ */
+/** One entry of a week's settlement input: its id, handle, frozen actor, and whether it opted in to the trade log (N8). */
+export interface SettlementEntry {
+  id: string;
+  handle: string;
+  actor: TournamentActor;
+  publishLog?: boolean;
+}
+
+export function runWeekRows(input: { seeds: string[]; entries: SettlementEntry[] }, days: number = TOURNAMENT.days): TournamentRowRecord[] {
+  const rows = runTournamentWeek(input.seeds, input.entries, { days, config: tournamentConfig() });
+  return rows.map(toRowRecord);
+}
+
+/** Run one due week's isolated runs in this process (tests and the dev script). The server uses the child process instead. */
 export function settleWeekRows(g: GameState, week: number, days: number = TOURNAMENT.days): { seeds: string[]; rows: TournamentRowRecord[] } | null {
   const input = settlementInput(g, week);
   if (!input) return null;
-  const rows = runTournamentWeek(input.seeds, input.entries, { days, config: tournamentConfig() });
-  return { seeds: input.seeds, rows: rows.map(toRowRecord) };
+  return { seeds: input.seeds, rows: runWeekRows(input, days) };
 }
 
 function toRowRecord(r: TournamentRow): TournamentRowRecord {
@@ -110,7 +133,17 @@ function toRowRecord(r: TournamentRow): TournamentRowRecord {
   return {
     id: r.id, kind: r.kind, handle: r.handle, ...(r.division ? { division: r.division } : {}), mcs: r.mcs,
     sharpe: r.score.sharpe, totalReturn: r.score.totalReturn, qualified: r.score.qualified, ...(reason ? { reason } : {}),
+    ...(r.log ? { log: { seed: r.log.seed, trades: r.log.trades } } : {}),
   };
+}
+
+/** The ids of the top `n` entry rows, by the leaderboard's order (qualified, Sharpe, total return, id): the N8 eligibility. */
+export function topEntryIds(rows: TournamentRowRecord[], n = 3): string[] {
+  return rows
+    .filter((r) => r.kind === 'entry')
+    .sort((a, b) => Number(b.qualified) - Number(a.qualified) || b.sharpe - a.sharpe || b.totalReturn - a.totalReturn || a.id.localeCompare(b.id))
+    .slice(0, n)
+    .map((r) => r.id);
 }
 
 /**
@@ -119,24 +152,36 @@ function toRowRecord(r: TournamentRow): TournamentRowRecord {
  */
 export function settleTournament(g: GameState, week: number, seeds: string[], rows: TournamentRowRecord[], out: StepOutput | null = null): CommandResult {
   const rec = g.tournament?.weeks[String(week)];
-  if (!rec) return fail(`No tournament week ${week}. Nobody entered it.`);
-  if (rec.settled) return fail(`Week ${week} is already settled. Its seeds are public.`);
-  if (lockTickOf(week) > g.market.tick) return fail(`Week ${week} has not locked. Its entries lock at tick ${lockTickOf(week)}.`);
-  if (seedCommitment(seeds) !== commitmentOf(g, week)) return fail(`The seeds do not match week ${week}'s commitment. The settlement is refused; the run must use the committed seeds.`);
+  if (!rec) return fail('tnNoWeek', { week });
+  if (rec.settled) return fail('tnSettled', { week });
+  if (lockTickOf(week) > g.market.tick) return fail('tnNotLocked', { week, lock: lockTickOf(week) });
+  if (seedCommitment(seeds) !== commitmentOf(g, week)) return fail('tnCommit', { week });
   const known = new Set(rec.entries.map((e) => e.actor.id));
   for (const r of rows) {
-    if (r.kind === 'entry' && !known.has(r.id)) return fail(`Row ${r.id} is not an entry of week ${week}.`);
-    if (r.kind === 'house' && !r.id.startsWith('house:')) return fail(`Row ${r.id} is not a house AI.`);
+    if (r.kind === 'entry' && !known.has(r.id)) return fail('tnRowUnknown', { id: r.id });
+    if (r.kind === 'house' && !r.id.startsWith('house:')) return fail('tnRowHouse', { id: r.id });
+  }
+  // N8: a trade log is published only for a top-three entry that opted in at entry
+  const top = new Set(topEntryIds(rows, 3));
+  for (const r of rows) {
+    if (!r.log) continue;
+    const entry = rec.entries.find((e) => e.actor.id === r.id);
+    if (!entry?.publishLog) return fail('tnLogOptOut', { id: r.id });
+    if (!top.has(r.id)) return fail('tnLogTop', { id: r.id });
   }
   rec.settled = { seeds: [...seeds], rows: rows.map((r) => ({ ...r })), settledTick: g.market.tick };
   for (const e of rec.entries) {
     const row = rows.find((r) => r.id === e.actor.id);
     if (!row) continue;
+    const reason = row.reason === 'drawdown' ? 'drawdown' : 'trades';
     notify(g, out, e.playerId, {
       kind: 'lab', tone: row.qualified ? 'brass' : 'info',
       text: row.qualified
         ? `Tournament week ${week} is in. Your median Sharpe is ${row.sharpe.toFixed(2)} (${row.division ?? 'your'} division).`
         : `Tournament week ${week} disqualified your entry (${row.reason === 'drawdown' ? 'a drawdown over 40%' : 'fewer than 20 trades'}). No cash is at stake.`,
+      msg: row.qualified
+        ? { key: 'tournament.in', vars: { week, sharpe: row.sharpe.toFixed(2), division: row.division ?? 'your' } }
+        : { key: 'tournament.out', vars: { week, reason } },
     });
   }
   return ok({ week, rows: rows.length });
@@ -177,7 +222,11 @@ export function tournamentView(g: GameState, pid: string | null) {
       mine: open?.entries.find((e) => e.playerId === pid)?.hash ?? null,
     },
     latest: latest?.settled
-      ? { week: latest.week, seeds: latest.settled.seeds, settledTick: latest.settled.settledTick, board }
+      ? {
+        week: latest.week, seeds: latest.settled.seeds, settledTick: latest.settled.settledTick, board,
+        /** the trade logs the top three published (N8): none unless an entrant opted in and finished in the top three */
+        logs: latest.settled.rows.filter((r) => r.log).map((r) => ({ handle: r.handle, seed: r.log!.seed, trades: r.log!.trades })),
+      }
       : null,
   };
 }
