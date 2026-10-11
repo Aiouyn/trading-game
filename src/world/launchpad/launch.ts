@@ -209,20 +209,21 @@ export function cancelLaunch(g: GameState, pid: string, ticker: string): Command
 }
 
 /**
- * World-launched names: fictional, drawn from the word lists. The pair space is 48 prefixes by 36 suffixes (1,728 names, enough
- * for 80 game days at the world's rate). A draw starts at a random pair and walks the space to the first free one, so the world
- * keeps launching until the space is spent, and a name is never reused (the moderator's filter runs on every candidate).
+ * World-launched names: fictional and coined (no English or French words), so every locale reads a world name the same way (review
+ * item 7: "Moose Dust" in the French feed). The pair space is 48 prefixes by 36 suffixes (1,728 names, enough for 80 game days at the
+ * world's rate). A draw starts at a random pair and walks the space to the first free one, so the world keeps launching until the
+ * space is spent, and a name is never reused (the moderator's filter runs on every candidate).
  */
 export const PREFIX = [
-  'Pancake', 'Snail', 'Moose', 'Turnip', 'Pickle', 'Velvet', 'Quasar', 'Biscuit', 'Mango', 'Parsnip', 'Otter', 'Lantern', 'Pebble', 'Cosmic',
-  'Sprout', 'Gravy', 'Bramble', 'Dumpling', 'Cinder', 'Noodle', 'Thimble', 'Kumquat', 'Gizmo', 'Walnut', 'Pudding', 'Yodel', 'Marble',
-  'Zephyr', 'Crumpet', 'Doodle', 'Fizzle', 'Tinsel', 'Gobble', 'Moonbeam', 'Spud', 'Wobble', 'Pinwheel', 'Rascal', 'Bungle', 'Fable',
-  'Ember', 'Kelp', 'Juniper', 'Honeydew', 'Tofu', 'Nimbus', 'Quill', 'Pretzel',
+  'Zorbu', 'Plimo', 'Quazi', 'Brenta', 'Vaxil', 'Doomi', 'Kelvo', 'Tazzu', 'Mirok', 'Glenx', 'Sorvi', 'Bajoo', 'Fenno', 'Hulli', 'Ondri',
+  'Pakko', 'Lumbo', 'Rixel', 'Dazzo', 'Vimbi', 'Nopra', 'Chezu', 'Fyrro', 'Wendo', 'Gorvi', 'Tilmo', 'Yazzo', 'Bemmo', 'Caskra', 'Juvel',
+  'Mopti', 'Ruzzo', 'Selvo', 'Hamzi', 'Quibe', 'Porvo', 'Lanzu', 'Tenzo', 'Imbro', 'Wazzo', 'Kevri', 'Nubbo', 'Zimvo', 'Ferbo', 'Olzi',
+  'Dribba', 'Ketto', 'Gulvi',
 ];
 export const SUFFIX = [
-  'Pals', 'Club', 'Dust', 'Bits', 'Cat', 'Token', 'Fest', 'Party', 'Mart', 'Loaf', 'Dome', 'Wave', 'Kingdom', 'Hut', 'Coin', 'Parade',
-  'Bloom', 'Garden', 'Burrow', 'Pond', 'Harbor', 'Orchard', 'Circus', 'Bazaar', 'Lagoon', 'Meadow', 'Carnival', 'Hollow', 'Den', 'Nest',
-  'Factory', 'Market', 'Tavern', 'Quarry', 'Village', 'Beacon',
+  'Bliz', 'Tonk', 'Vorp', 'Pazz', 'Mimbo', 'Quarl', 'Dunzo', 'Fasko', 'Glimp', 'Hobbe', 'Kroma', 'Lemvo', 'Mazzo', 'Nyxal', 'Oddle',
+  'Pirvo', 'Rendo', 'Sibbo', 'Tuvik', 'Ugzo', 'Vellu', 'Wibbo', 'Xandi', 'Yomba', 'Zerbo', 'Brumo', 'Cadla', 'Dravo', 'Feznu', 'Gorla',
+  'Heximo', 'Imvo', 'Jebba', 'Koppa', 'Lindo', 'Murtu',
 ];
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 

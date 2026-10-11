@@ -96,6 +96,9 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
   t.gradTick = tick;
   t.gradPrice = price;
   t.gradRaise = raisedCents / 100;
+  // the chart ends at the graduation price: it is sampled only while live, so a token that graduated between two samples had one point
+  t.chart.push([tick, price]);
+  if (t.chart.length > 400) t.chart.splice(0, t.chart.length - 400);
   t.creatorHeldAtGrad = t.creatorId ? (t.bal[t.creatorId] ?? 0) : 0;
   // the day's sweep test starts from the graduation price (not the launch price the day was opened at)
   t.creatorDay = { day: dayOf(tick), qty: 0, proceeds: 0, startPrice: price, wired: false };
