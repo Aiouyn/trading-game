@@ -14,6 +14,7 @@ import { enterTournament, settleTournament, TOURNAMENT_SYSTEM } from './tourname
 import { auctionTick, placeBid } from './auctions';
 import { claimStreak, markStreakAction } from './streak';
 import { insuranceWeek, setInsurance } from './insurance';
+import { placeInSlot, setVisibility } from './home';
 import { newsFromEvents, filings } from './news';
 import {
   addAlert, applyRank, checkAchievements, checkAlerts, claimContract, join, pickRivals, rollContracts, tradeStats,
@@ -407,6 +408,8 @@ function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOut
     case 'auction.bid': return placeBid(g, pid, cmd.lot, cmd.amount);
     case 'streak.claim': return claimStreak(g, pid, out);
     case 'insurance.set': return setInsurance(g, pid, cmd.on, out);
+    case 'home.place': return placeInSlot(g, pid, cmd.slot, cmd.uid);
+    case 'visibility.set': return setVisibility(g, pid, cmd.surface, cmd.on);
     case 'sec.budget': return setBudget(g, pid, cmd.budget);
     case 'sec.scan': return manualScan(g, pid, out);
     case 'sec.tag': return tagEntry(g, pid, cmd.entryId, cmd.tag);

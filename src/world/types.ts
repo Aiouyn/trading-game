@@ -198,6 +198,10 @@ export interface Player {
   streak?: StreakState;
   /** the one-switch insurance (insurance.ts). Absent until the first switch-on; old saves load unchanged. */
   insurance?: InsuranceState;
+  /** the home room: the owned item uid in each of the six slots (home.ts). Absent until the first placement. */
+  homeSlots?: (string | null)[];
+  /** the opt-in public surfaces (home.ts). Off by default; absent means off. */
+  visibility?: { home: boolean; collection: boolean };
   /**
    * Cumulative cash from outside trading and income (sign-up and admin grants, transfers and loans, both sides). The day
    * baseline and the arrival baseline move with it (core.ts shiftBaselines), so both show trading and income only.
@@ -711,6 +715,8 @@ export type Command =
   | { type: 'auction.bid'; lot: string; amount: number }
   | { type: 'streak.claim' }
   | { type: 'insurance.set'; on: boolean }
+  | { type: 'home.place'; slot: number; uid: string | null }
+  | { type: 'visibility.set'; surface: 'home' | 'collection'; on: boolean }
   | { type: 'tournament.settle'; week: number; seeds: string[]; rows: TournamentRowRecord[] }
   | { type: 'sec.budget'; budget: number }
   | { type: 'sec.scan' }
