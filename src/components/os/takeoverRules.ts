@@ -46,7 +46,3 @@ export function takeoverStage(elapsedMs: number): { skippable: boolean; done: bo
   return { skippable: elapsedMs >= TAKEOVER_SKIP_MS, done: elapsedMs >= TAKEOVER_END_MS };
 }
 
-/** The GX tone of the takeover's number: a bubble reads as gain, a crash as loss (no euphoria: never a celebration colour). */
-export function takeoverTone(kind: TakeoverKind): 'gain' | 'loss' {
-  return kind === 'bubble' ? 'gain' : 'loss';
-}

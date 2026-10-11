@@ -1,5 +1,5 @@
 import {
-  cancelOrderResult, createWorld, forceWorldEvent, modifyOrder, placeOrder, seedStream, step, tradeOption, universeConfig,
+  cancelOrderResult, createWorld, forceWorldEvent, indexLevel, modifyOrder, placeOrder, seedStream, step, tradeOption, universeConfig,
   type WorldConfig,
 } from '@/engine';
 import {
@@ -208,8 +208,10 @@ const fail = (error: string): CommandResult => ({ ok: false, error });
  */
 function adminEvent(g: GameState, kind: string, days?: number): CommandResult {
   if (kind !== 'crash' && kind !== 'bubble' && kind !== 'crisis' && kind !== 'flash') return { ok: false, error: 'unknown event kind' };
-  const next = forceWorldEvent(g.market, kind as 'crash' | 'bubble' | 'crisis' | 'flash', days);
-  if (!next) return { ok: false, error: "an event is already live" };
+  const next = forceWorldEvent(g.market, kind as 'crash' | 'bubble' | 'crisis' | 'flash', days, true);
+  if (!next?.active) return { ok: false, error: 'an event is already live' };
+  // the GX level at the start, as the engine's own start path records it (the banner's "since it began")
+  if (g.market.config.indices.some((x) => x.id === 'GX')) next.active.gxStart = indexLevel(g.market, 'GX');
   g.market.worldEvents = next;
   return { ok: true };
 }

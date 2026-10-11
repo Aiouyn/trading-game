@@ -5,7 +5,7 @@
 // kind dot, the elapsed day, the GX move since the event began and today's GX move. It never shows an end or
 // a remaining time. Tapping it opens the panel: the headline, what came before, and the event's share of each
 // held asset's move today. One game day after the end, the aftermath line replaces it.
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import { t } from '@/i18n';
 import { signedPct } from '@/game/format';
@@ -41,8 +41,11 @@ export function EventBannerStrip() {
   const tpd = useGame((s) => s.world?.config.ticksPerDay ?? 720);
   // The panel belongs to one event: when that event ends, or the next one starts, the panel closes, so it never opens by itself.
   const eventId = frame?.worldEvent?.id ?? null;
+  // A new event closes the panel; a frame that briefly lacks the event does not (it is the same event).
+  const lastEventId = useRef<string | null>(eventId);
   useEffect(() => {
-    useEventPanel.setState({ open: false });
+    if (eventId !== null && lastEventId.current !== null && eventId !== lastEventId.current) useEventPanel.setState({ open: false });
+    if (eventId !== null) lastEventId.current = eventId;
   }, [eventId]);
   const banner = selectEventBanner(frame?.worldEvent ?? null, wire, frame?.tick ?? 0, tpd);
   if (banner === null) return null;

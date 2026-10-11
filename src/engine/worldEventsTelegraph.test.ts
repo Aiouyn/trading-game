@@ -107,6 +107,15 @@ describe('the admin seam forces an event for tests, never for players', () => {
     expect(onset.elapsedDays).toBe(0);
   });
 
+  it('the e2e seam can start a major now (one tick later), for a test that cannot wait for a day', () => {
+    const base = createWorld('now', cfg(NONE));
+    const s: WorldState = { ...base, tick: 2 * TPD + 100 };
+    const we = forceWorldEvent(s, 'crash', 1, true)!;
+    expect(we.active!.startTick).toBe(2 * TPD + 101);
+    expect(we.active!.endTick).toBe(2 * TPD + 101 + TPD);
+    expect(worldEventView({ ...s, tick: 2 * TPD + 101, worldEvents: we })!.phase).toBe('live');
+  });
+
   it('refuses while an event is already active, and a flash starts one tick later', () => {
     const base = createWorld('force2', cfg(NONE));
     const s: WorldState = { ...base, tick: 10 };

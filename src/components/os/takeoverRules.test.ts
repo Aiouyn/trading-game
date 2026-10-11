@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { WorldEventFrame } from '@/world/view';
 import {
   FULL_SCREEN_GAP_MS, TAKEOVER_END_MS, TAKEOVER_SKIP_MS, TAKEOVER_WAIT_MAX_MS, isTakeoverKind, takeoverDue, takeoverGate,
-  takeoverStage, takeoverTone,
+  takeoverStage,
 } from './takeoverRules';
 
 function ev(over: Partial<WorldEventFrame> = {}): WorldEventFrame {
@@ -49,10 +49,5 @@ describe('the takeover is for a major onset only (velvet-world-events.md section
     expect(takeoverGate(TAKEOVER_WAIT_MAX_MS, true, Infinity)).toBe('skip');
     expect(takeoverGate(0, false, FULL_SCREEN_GAP_MS - 1)).toBe('wait');
     expect(takeoverGate(0, false, FULL_SCREEN_GAP_MS)).toBe('show');
-  });
-
-  it('a bubble reads as gain and a crash as loss', () => {
-    expect(takeoverTone('bubble')).toBe('gain');
-    expect(takeoverTone('crash')).toBe('loss');
   });
 });

@@ -8,14 +8,14 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
-import { signedPct } from '@/game/format';
+import { signedPct, tone, toneText } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import type { WorldEventFrame } from '@/world/view';
 import { openFromShell } from './openApp';
 import { useEventPanel } from './EventBanner';
 import {
-  TAKEOVER_END_MS, TAKEOVER_SKIP_MS, takeoverDue, takeoverGate, takeoverTone, type TakeoverKind,
+  TAKEOVER_END_MS, TAKEOVER_SKIP_MS, takeoverDue, takeoverGate,
 } from './takeoverRules';
 
 const POLL_MS = 250;
@@ -121,7 +121,6 @@ export function EventTakeover() {
 
   if (!active) return null;
   const ev = active.ev;
-  const kind = ev.kind as TakeoverKind;
   const seePositions = () => {
     useEventPanel.setState({ open: false });
     closeTakeover();
@@ -136,7 +135,7 @@ export function EventTakeover() {
         <div className="label">{t('event.takeover.label')}</div>
         <h2 id="event-takeover-headline" className="os-takeover-headline" data-testid="event-headline">{ev.headline}</h2>
         {gx !== null && (
-          <p className={`num os-takeover-gx ${takeoverTone(kind) === 'gain' ? 'text-gain' : 'text-loss'}`} data-testid="event-gx">
+          <p className={`num os-takeover-gx ${toneText[tone(gx)]}`} data-testid="event-gx">
             {t('event.takeover.gx', { move: signedPct(gx) })}
           </p>
         )}
