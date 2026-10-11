@@ -1,5 +1,6 @@
 import { rankIndex, LIFE_BY_ID, LIFE_ITEMS, type LifeItem } from '@/content/lifestyle';
-import { TPD, debit, notify, spendableCash } from './core';
+import { openAccount } from '@/engine';
+import { TPD, debit, notify, spendableCash, transfer } from './core';
 import { refreshPrestige } from './assets';
 import { sha256Hex } from './company/hash';
 import { TOURNAMENT_WEEK_TICKS } from './tournamentWeek';
@@ -10,9 +11,9 @@ import type { CommandResult, GameState, StepOutput } from './types';
  * one English ascending auction per lot, one real hour long (720 ticks, one game day).
  *
  * Money (every movement is booked, so the world money identity closes to the cent):
- *   the buyer pays the hammer H and a buyer premium of 15% of H. Both are sinks: the premium ("auction buyer premium") and
- *   the hammer, which leaves the player economy to the consignor. The consignor's share is H minus the 12% seller fee; the
- *   fee ("auction seller fee") is a sink too. Money is never escrowed: a bid needs spendable cash for H plus the premium at
+ *   the buyer pays the hammer H and a buyer premium of 15% of H. The premium ("auction buyer premium") and the 12% seller fee
+ *   ("auction seller fee") are sinks. The consignor's share, H minus the fee, is a transfer to the fictional consignor
+ *   account (npc:consignor), so it stays in the world and no value is destroyed. Money is never escrowed: a bid needs spendable cash for H plus the premium at
  *   bid time, and the settlement re-checks it, so a bidder who spent the cash is passed over for the next valid bid.
  *
  * Anti-snipe: a bid that lands in the last 2 real minutes (24 ticks) extends the lot by 2 real minutes (24 ticks).
@@ -35,11 +36,18 @@ export const AUCTION = {
   minRaise: 0.02,
   /** the opening bid, as a share of the reserve */
   openShare: 0.5,
-  /** the reserve, as a share of the list price times the collectibles index */
-  reserveShare: 0.9,
+  /**
+   * The reserve, as a share of the list price times the collectibles index. Each lot draws its own factor in this band from
+   * the world seed, so the public opening bid does not give the reserve away.
+   */
+  reserveLow: 0.8,
+  reserveHigh: 1.1,
   premium: 0.15,
   sellerFee: 0.12,
 } as const;
+
+/** The fictional consignor's account: it takes the hammer less the seller fee (a transfer, so no value is destroyed). */
+export const CONSIGNOR_ID = 'npc:consignor';
 
 export type AuctionStatus = 'open' | 'sold' | 'unsold';
 
@@ -71,7 +79,7 @@ export interface AuctionState {
 }
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
-const fail = (error: string): CommandResult => ({ ok: false, error });
+const fail = (error: string, data?: Record<string, number | string>): CommandResult => ({ ok: false, error, ...(data ? { data } : {}) });
 
 const cents = (x: number): number => Math.round(x * 100) / 100;
 
@@ -106,10 +114,20 @@ export function minimumBid(lot: AuctionLotRecord): number {
   return hi ? cents(hi.amount * (1 + AUCTION.minRaise)) : lot.start;
 }
 
-/** The reserve and opening bid at which a lot is first priced: the collectibles index, set once at the first bid. */
-export function priceLot(g: GameState, item: LifeItem): { reserve: number; start: number } {
-  const reserve = cents(item.price * g.collectibles * AUCTION.reserveShare);
-  return { reserve, start: cents(reserve * AUCTION.openShare) };
+/** The hidden reserve factor of a lot, in [reserveLow, reserveHigh): a hash of the world seed, the week and the item. */
+export function reserveFactor(seed: string, week: number, itemId: string): number {
+  const h = sha256Hex(`auction-reserve|${seed}|${week}|${itemId}`);
+  return AUCTION.reserveLow + (AUCTION.reserveHigh - AUCTION.reserveLow) * (parseInt(h.slice(0, 8), 16) / 0x100000000);
+}
+
+/**
+ * The reserve and the public opening bid of a lot, both from the collectibles index and the list price. The opening bid is
+ * 50% of the index value; the reserve is the index value times the lot's hidden factor. Computed when a bid arrives, and
+ * stored with the lot only once that bid is accepted.
+ */
+export function priceLot(g: GameState, item: LifeItem, week: number): { reserve: number; start: number } {
+  const value = item.price * g.collectibles;
+  return { reserve: cents(value * reserveFactor(g.seed, week, item.id)), start: cents(value * AUCTION.openShare) };
 }
 
 /**
@@ -118,32 +136,32 @@ export function priceLot(g: GameState, item: LifeItem): { reserve: number; start
  */
 export function placeBid(g: GameState, pid: string, key: string, amount: number): CommandResult {
   const p = g.players[pid];
-  if (!p || p.npc) return fail('No player account to bid with. Join the world first.');
+  if (!p || p.npc) return fail('noPlayer');
   const [weekStr, ...rest] = key.split(':');
   const week = Number(weekStr);
   const itemId = rest.join(':');
   const item = LIFE_BY_ID.get(itemId);
-  if (!item || !Number.isInteger(week) || !weekLots(g.seed, week).some((x) => x.id === itemId)) return fail('No such lot this week.');
+  if (!item || !Number.isInteger(week) || !weekLots(g.seed, week).some((x) => x.id === itemId)) return fail('auctionNoLot');
   const open = week * TOURNAMENT_WEEK_TICKS;
   const tick = g.market.tick;
-  if (tick < open) return fail(`The lot opens at tick ${open}. Bids open with the week; wait for it.`);
+  if (tick < open) return fail('auctionNotYet', { hours: Math.ceil((open - tick) / TPD) });
+  const existing = g.auctions?.lots[key];
+  if (existing && (existing.status !== 'open' || tick >= existing.endTick)) return fail('auctionClosed');
+  if (!existing && tick >= open + AUCTION.hourTicks) return fail('auctionClosed');
+  if (rankIndex(p.rankId) < rankIndex(item.rank)) return fail('auctionRank', { rank: item.rank });
+  if (!Number.isFinite(amount) || amount <= 0) return fail('auctionAmount');
+  const amt = cents(amount);
+  const min = existing ? minimumBid(existing) : priceLot(g, item, week).start;
+  if (amt < min) return fail('bidLow', { min: cents(min) });
+  const need = cents(amt * (1 + AUCTION.premium));
+  if (spendableCash(g, pid) < need) return fail('bidCash', { amount: amt, need });
   g.auctions ??= { lots: {} };
-  let lot = g.auctions.lots[key];
-  if (lot && (lot.status !== 'open' || tick >= lot.endTick)) return fail('This auction has closed. Its result is on the lot.');
-  if (!lot && tick >= open + AUCTION.hourTicks) return fail('This auction has closed. It ran one real hour.');
-  if (rankIndex(p.rankId) < rankIndex(item.rank)) return fail(`${item.name} unlocks at a higher rank. Reach ${item.rank} to bid.`);
-  if (item.cls === 'unique' && ownedByAnyone(g, itemId)) return fail(`${item.name} is already owned. Unique lots are withdrawn.`);
-  if (!Number.isFinite(amount) || amount <= 0) return fail('Enter a bid amount. It must be a positive number.');
+  let lot = existing;
   if (!lot) {
-    const { reserve, start } = priceLot(g, item);
+    const { reserve, start } = priceLot(g, item, week);
     lot = { key, week, itemId, openTick: open, endTick: open + AUCTION.hourTicks, reserve, start, bids: [], status: 'open' };
     g.auctions.lots[key] = lot;
   }
-  const amt = cents(amount);
-  const min = minimumBid(lot);
-  if (amt < min) return fail(`Your bid is too low. The next bid must be at least $${min.toLocaleString('en-US')}.`);
-  const need = cents(amt * (1 + AUCTION.premium));
-  if (spendableCash(g, pid) < need) return fail(`Not enough cash for that bid. A bid of $${amt.toLocaleString('en-US')} needs $${need.toLocaleString('en-US')} with the buyer premium.`);
   lot.bids.push({ playerId: pid, amount: amt, tick });
   // a snipe in the last 2 real minutes extends the lot by 2 real minutes
   if (lot.endTick - tick <= AUCTION.snipeWindowTicks) lot.endTick += AUCTION.snipeExtendTicks;
@@ -175,6 +193,7 @@ export function settleLot(g: GameState, lot: AuctionLotRecord, out: StepOutput |
     if (b.amount < lot.reserve) break;
     const p = g.players[b.playerId];
     if (!p || p.npc) continue;
+    // a unique lot that someone already holds does not sell: the bidder sees only "did not sell", as for an unmet reserve
     if (item?.cls === 'unique' && ownedByAnyone(g, lot.itemId)) break;
     if (spendableCash(g, b.playerId) < cents(b.amount * (1 + AUCTION.premium))) continue;
     winner = b;
@@ -188,7 +207,8 @@ export function settleLot(g: GameState, lot: AuctionLotRecord, out: StepOutput |
   const hammer = winner.amount;
   const premium = cents(hammer * AUCTION.premium);
   const fee = cents(hammer * AUCTION.sellerFee);
-  debit(g, winner.playerId, hammer - fee, 'auction consignor');
+  g.market = openAccount(g.market, CONSIGNOR_ID, 0);
+  transfer(g, winner.playerId, CONSIGNOR_ID, cents(hammer - fee));
   debit(g, winner.playerId, fee, 'auction seller fee');
   debit(g, winner.playerId, premium, 'auction buyer premium');
   const w = g.players[winner.playerId]!;
@@ -221,7 +241,7 @@ export interface AuctionLotView {
   cls: string;
   rarity: number;
   blurb: string;
-  status: AuctionStatus | 'withdrawn' | 'upcoming';
+  status: AuctionStatus | 'upcoming';
   openTick: number;
   endTick: number;
   bidCount: number;
@@ -245,8 +265,7 @@ export function auctionsView(g: GameState, pid: string | null, week: number): Au
     const key = lotKeyOf(week, item.id);
     const lot = g.auctions?.lots[key];
     const ended = lot ? lot.status !== 'open' : g.market.tick >= week * TOURNAMENT_WEEK_TICKS + AUCTION.hourTicks;
-    let status: AuctionLotView['status'] = lot ? lot.status : (ended ? 'unsold' : 'upcoming');
-    if (item.cls === 'unique' && ownedByAnyone(g, item.id) && !(lot?.winnerId)) status = 'withdrawn';
+    const status: AuctionLotView['status'] = lot ? lot.status : (ended ? 'unsold' : 'upcoming');
     const hi = lot ? highBid(lot) : null;
     const bidders = lot && lot.status !== 'open' ? [...new Set(lot.bids.map((b) => g.players[b.playerId]?.handle ?? '?'))] : null;
     return {
