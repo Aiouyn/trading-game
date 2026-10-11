@@ -46,7 +46,7 @@ describe('phone app stack', () => {
     const unlocked = (a: AppId) => a !== 'security';
     expect(phoneCanOpen('security', unlocked)).toBe('locked');
     expect(phoneCanOpen('exchange', () => true)).toBe('ok');
-    expect(phoneCanOpen('launchpad', () => true)).toBe('unavailable');
+    expect(phoneCanOpen('launchpad', () => true)).toBe('ok');
     expect(phoneCanOpen('wire', unlocked)).toBe('ok');
   });
 

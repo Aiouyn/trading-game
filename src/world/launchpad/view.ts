@@ -124,16 +124,14 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
   if (!s) return { ...empty, gate: gateCode };
   const all = s.order.map((k) => s.tokens[k]!).filter(Boolean);
   const live = all.filter((t) => t.status === 'live');
-  const newest = [...live].reverse().slice(0, FEED).map((t) => cardOf(g, t));
+  const newestTokens = [...live].reverse().slice(0, FEED);
+  const newest = newestTokens.map((t) => cardOf(g, t));
   // the trending order: each token's volume is read once (a card builds an icon, so it is not made inside the comparator)
   const vols = new Map(live.map((t) => [t, t.volPrev > 0 ? t.volPrev : t.volToday] as const));
   const trendingTokens = [...live].sort((a, b) => vols.get(b)! - vols.get(a)!).slice(0, FEED);
   const trending = trendingTokens.map((t) => cardOf(g, t));
-  const graduated = all.filter((t) => t.status === 'graduated').reverse().slice(0, FEED).map((t) => cardOf(g, t));
-  const pages: Record<string, LpPage> = {};
-  for (const t of trendingTokens.slice(0, 6)) pages[t.ticker] = pageOf(g, t, pid);
-  const mine = all.filter((t) => t.creatorId === pid);
-  for (const t of mine) pages[t.ticker] = pageOf(g, t, pid);
+  const gradTokens = all.filter((t) => t.status === 'graduated').reverse().slice(0, FEED);
+  const graduated = gradTokens.map((t) => cardOf(g, t));
   const holdings: LaunchpadView['holdings'] = [];
   for (const t of all) {
     if (t.status === 'graduated') {
@@ -148,6 +146,17 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
       holdings.push({ ticker: t.ticker, qty: q, value: q * spotAt(t.y), locked: t.creatorId === pid ? Math.min(q, lockedAmount(t, g.market.tick)) : 0, status: t.status });
     }
   }
+  // A token page opens from any row (New, Trending, Graduated) and from any holding, so each of those tokens has its page, and
+  // so does each of the viewer's own launches (the creator console). A token listed twice has one page.
+  const mine = all.filter((t) => t.creatorId === pid);
+  const paged = new Map<string, LpToken>();
+  for (const t of [...newestTokens, ...trendingTokens, ...gradTokens, ...mine]) paged.set(t.ticker, t);
+  for (const h of holdings) {
+    const t = s.tokens[h.ticker];
+    if (t) paged.set(t.ticker, t);
+  }
+  const pages: Record<string, LpPage> = {};
+  for (const [ticker, t] of paged) pages[ticker] = pageOf(g, t, pid);
   const consoleRows = mine.map((t) => ({
     ticker: t.ticker, status: t.status, fees: t.creatorFees, allocation: t.allocation,
     unlocked: Math.floor(t.allocation * vestFraction(t, g.market.tick)), flag: flagOf(t),

@@ -72,13 +72,13 @@ describe('app registry', () => {
     }
   });
 
-  it('shows Exchange from Phase 4 and keeps Launchpad hidden until Phase 5 (C-38)', () => {
+  it('shows Exchange from Phase 4 and Launchpad from Phase 5, on the shelf after the Exchange (C-38)', () => {
     expect(APPS.exchange.available).toBe(true);
-    expect(APPS.launchpad.available).toBe(false);
-    for (const id of APP_IDS) {
-      if (id !== 'launchpad') expect(APPS[id].available, id).toBe(true);
-    }
+    expect(APPS.launchpad.available).toBe(true);
+    for (const id of APP_IDS) expect(APPS[id].available, id).toBe(true);
     expect(SHELF_ORDER).toContain('exchange');
+    expect(SHELF_ORDER).toContain('launchpad');
+    expect(SHELF_ORDER.indexOf('launchpad')).toBe(SHELF_ORDER.indexOf('exchange') + 1);
   });
 
   it('orders the shelf with Broker first and lists each visible app once', () => {

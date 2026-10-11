@@ -121,7 +121,8 @@ describe('initial shell', () => {
     const s = fresh();
     expect(s.shelf[0]).toBe('broker');
     expect(s.shelf).toContain('exchange');
-    expect(s.shelf).not.toContain('launchpad');
+    expect(s.shelf).toContain('launchpad');
+    expect(s.shelf.indexOf('launchpad')).toBe(s.shelf.indexOf('exchange') + 1);
   });
 });
 
@@ -196,8 +197,9 @@ describe('open', () => {
     expect(s.wins.some((w) => w.app === 'research')).toBe(false);
   });
 
-  it('refuses the hidden apps as unavailable (C-38)', () => {
-    refused(fresh(), { type: 'open', app: 'launchpad' }, 'unavailable');
+  it('opens the Launchpad window from the shelf (Phase 5)', () => {
+    const s = go(fresh(), { type: 'open', app: 'launchpad' });
+    expect(s.wins.some((w) => w.app === 'launchpad')).toBe(true);
   });
 
   it('refuses malformed props and unknown ids', () => {

@@ -69,6 +69,20 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(g.launchpad).toBeUndefined();
   });
 
+  it('a token page exists for every row a feed shows and every holding, so a row opens from anywhere', () => {
+    const g = lpWorld('view-pages');
+    launch(g, CREATOR, 'PGAA');
+    launch(g, HOLDER, 'PGBB');
+    run(g, TRADER, { type: 'lp.buy', ticker: 'PGAA', spendCents: 5_000 });
+    run(g, TRADER, { type: 'lp.buy', ticker: 'PGBB', spendCents: 2_000 });
+    const v = launchpadView(g, TRADER);
+    expect(v.feeds.newest.length).toBe(2);
+    for (const c of [...v.feeds.newest, ...v.feeds.trending]) expect(v.pages[c.ticker], c.ticker).toBeDefined();
+    for (const h of v.holdings) expect(v.pages[h.ticker], h.ticker).toBeDefined();
+    // the creator launched with no allocation, so the trader is the one holder of PGAA: the page counts holders, never names them
+    expect(v.pages.PGAA!.buckets.holders).toBe(1);
+  });
+
   it('an old snapshot without the Launchpad loads and steps, and the view reads it as empty', () => {
     const g = createGame('old-snap', { warmupDays: 0, npcs: false });
     const old = JSON.parse(JSON.stringify(g)) as typeof g;
