@@ -4,7 +4,8 @@ import { TPD, credit, debit, notify } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { LP, NPC, curveAccountId } from './constants';
 import { quoteBuy, spotAt } from './curve';
-import { buyCurve } from './trade';
+import { buyCurve, liquidateCohort } from './trade';
+import { arrive } from './demand';
 import { moderateName, nameFormatOk, normalizeName, tickerFormatOk, type NameRefusal } from './moderate';
 import { dayOf, ensureLaunchpad, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
 
@@ -160,25 +161,28 @@ export function createToken(g: GameState, ticker: string, name: string, tagline:
     flows: { npcBuy: 0, npcSell: 0, playerBuy: 0, playerSell: 0, fee: 0 }, sued: {},
   };
   t.buzz.base = launchBuzz(t);
+  // the launch's own buzz is the first arrival: it starts the NPC demand (L6.1)
+  arrive(t, t.buzz.base);
   return t;
 }
 
 /**
- * Cancels the creator's own launch while nobody has traded it: the token dies (its curve stays, empty), and the launch fee comes
- * back as a booked refund (a faucet line, `lpRefund`: the fee was taken as a sink, so the refund is the reversal, lead-launchpad.md
- * L2 has no cancel rule; recorded as a deviation for the lead to ratify). The ticker stays taken.
+ * Cancels the creator's own launch before any other player has traded it (ratified deviation, lead-launchpad.md v1.1). The token
+ * dies; its curve stays and still pays sellers, so the creator's own dev buy (if any) remains sellable. The cohort's tokens go back
+ * to the curve first (the NPC side is not an account, so the NPC's own early trades do not block a cancel). The creator gets half
+ * the $1,000 launch fee back as a booked refund (`lpRefund`); the other half stays a sink. The ticker stays taken.
  */
 export function cancelLaunch(g: GameState, pid: string, ticker: string): CommandResult {
   const t = tokenOf(g, ticker);
   if (!t) return refuse('noToken', { ticker });
   if (t.creatorId !== pid) return refuse('notCreator', { ticker });
   if (t.status !== 'live') return refuse('dead', { ticker });
-  if (t.tape.length > 0 || t.y !== LP.Y0) return refuse('traded', { ticker });
+  if (t.playerTraded) return refuse('traded', { ticker });
+  liquidateCohort(g, t, null);
   t.status = 'dead';
   t.deadTick = g.market.tick;
   t.deadReason = 'cancelled';
-  t.bal = {};
-  credit(g, pid, LP.LAUNCH_FEE, 'lpRefund');
+  credit(g, pid, LP.LAUNCH_FEE / 2, 'lpRefund');
   return { ok: true };
 }
 

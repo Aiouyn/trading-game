@@ -3005,7 +3005,7 @@
   "lp.refuse.notCreator.why": "You did not launch {ticker}.",
   "lp.refuse.notCreator.do": "Cancel your own launch.",
   "lp.refuse.traded.what": "{ticker} has been traded, so it cannot be cancelled.",
-  "lp.refuse.traded.why": "A launch can be cancelled only before anyone trades it.",
+  "lp.refuse.traded.why": "A launch can be cancelled only before another player trades it.",
   "lp.refuse.traded.do": "Let it run, or wait for it to die.",
   "lp.refuse.maxSlip.what": "The maximum slippage is out of range.",
   "lp.refuse.maxSlip.why": "It must be above 0% and at most 50%.",

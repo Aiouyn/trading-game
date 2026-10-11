@@ -94,6 +94,8 @@ export const LP_K = LP.X0 * LP.Y0;
 export const curveAccountId = (ticker: string) => `lp:curve:${ticker}`;
 export const bookAccountId = (ticker: string) => `lp:book:${ticker}`;
 export const npcAccountId = (ticker: string) => `lp:npc:${ticker}`;
+/** the NPC cohort's engine account after graduation (its id is not a player's: its fills are not holders' lots, rug.ts lpFills) */
+export const isNpcAccount = (id: string) => id.startsWith('lp:npc:');
 export const tokenStream = (ticker: string) => `lp:${ticker}`;
 
 /**
@@ -101,10 +103,16 @@ export const tokenStream = (ticker: string) => `lp:${ticker}`;
  * curve, the fees, the gates and the rules stay fixed. The defaults here are the tuned values of scripts/balance/launchpad.ts.
  */
 export const NPC = {
-  /** NPC buy pressure: dollars per tick at a buzz of 1 */
-  BUY_PER_TICK: 1,
+  /** NPC demand (L6.1): dollars of pending buy demand per unit of buzz that arrives. An arrival is a launch's buzz, a viral shock,
+   *  a buzz item or a copycat buy; the cohort buys the pending demand with a half-life of BUY_HALF_TICKS, never the buzz stock */
+  DEMAND_PER_BUZZ: 1_000,
+  /** the buy half-life of the pending demand, in ticks (L6.1: 2 to 6) */
+  BUY_HALF_TICKS: 3,
+  /** capitulation (L6.1): the share of the cohort's tokens sold per tick at any price, times (1 - buzz / the peak buzz since the last
+   *  arrival). The cohort sells into the fade, so its flow is a fast pump and a slow bleed */
+  CAPIT_PER_TICK: 0.1,
   /** profit taking: the share of the cohort's tokens sold per tick for each 100% the price is above the cohort's cost */
-  PROFIT_PER_TICK: 0.0005,
+  PROFIT_PER_TICK: 0.02,
   /** the time share: the cohort sells this share of its tokens per tick regardless of price (it never sells what it does not hold) */
   TIME_SELL_PER_TICK: 0.00002,
   /** viral shocks: expected shocks per token per game day, and the size of one (a Pareto tail with this exponent) */
@@ -121,6 +129,8 @@ export const NPC = {
   SNIPER_MAX: 400,
   SNIPER_EXIT_MULT: 1.5,
   SNIPER_EXIT_TICKS: 60,
+  /** post-graduation unwind (L6.2): the cohort's engine position is sold into the book with this half-life, in game days */
+  UNWIND_HALF_DAYS: 1,
 } as const;
 
 /** the half-life decay per tick of each buzz part */

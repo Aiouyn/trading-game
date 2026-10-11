@@ -195,7 +195,8 @@ describe('cancel and buzz (L2, L6)', () => {
     launch(g, CREATOR, 'CANC');
     const cash = cashOf(g, CREATOR);
     expect(run(g, CREATOR, { type: 'lp.cancel', ticker: 'CANC' }).ok).toBe(true);
-    expect(cashOf(g, CREATOR)).toBeCloseTo(cash + LP.LAUNCH_FEE, 6);
+    // the refund is half the fee (ratified deviation: the other half stays a sink)
+    expect(cashOf(g, CREATOR)).toBeCloseTo(cash + LP.LAUNCH_FEE / 2, 6);
     expect(g.launchpad!.tokens.CANC!.status).toBe('dead');
     jumpDays(g, 25);
     launch(g, CREATOR, 'TRAD', { name: 'Trade Fest' });
@@ -226,6 +227,7 @@ describe('death (L3)', () => {
     launch(g, CREATOR, 'QUIE');
     const t = g.launchpad!.tokens.QUIE!;
     t.buzz.base = 0;
+    t.npcPending = 0; // no arrivals either: the launch buzz would fund a cohort buy above the cash line (L6.1)
     t.sniperDone = true; // no sniper: its buy would hold the curve above the cash line
     // the world is on day 2 (tick 2*TPD+1) at the launch: day 9 is seven days after the launch but only six after day 3
     jumpDays(g, 7);
