@@ -104,3 +104,29 @@ Units: 1 game day (gd) = 1 real hour = TPD (720) ticks. Money is game dollars. R
   negative cases), rug case damages, determinism/replay, no-reveal of the view, snapshot load of an old world.
 - Playwright: launch flow, buy and sell on the curve, graduation (admin seam to fill the curve), token in the Broker after
   graduation, layout at the minimum window and on phone, en and fr.
+
+## Amendments v1.1 (lead, after the stage A review and the 50-seed gate)
+
+The 50-seed gate failed with flipper +22.7% and retail +4.6% excess. The cause is structural: NPC buy flow followed a buzz
+stock with a 2 gd half-life (persistent, autocorrelated flow, so any follower earns the momentum), and the NPC cohort sold
+only at a profit (bags never return, so the NPC side is a net buyer: a faucet to players). Parameter tuning cannot remove it.
+
+- **L6.1 Fast pump, slow bleed (replaces the NPC retail rule).** NPC demand answers buzz ARRIVALS, not the buzz stock: each
+  arrival (launch buzz, viral shock, buzz item, copycat response) adds to a pending demand that the NPC cohort buys with a
+  half-life of 3 ticks. The cohort then sells at any price as the hype fades: per tick, sell share = capitulation rate times
+  (1 - B / B_peak) + a time term, where B_peak is the cohort's running peak buzz since its last arrival; profit taking on top
+  as before. Over a token's life NPC flow is net-zero in tokens. The NPC side is not a faucet in expectation: the gate
+  reports the `npcRetail` net per token and it must be <= 0 on average (players in aggregate do not drain the NPC side).
+- **L6.2 Post-graduation unwind.** The NPC cohort's engine position after graduation is sold into the liquidity book through
+  the normal order path (the single impact path) with a half-life of 1 gd.
+- **L6.3 Tuning freedom.** Every L6 constant may be tuned (buy half-life 2 to 6 ticks, capitulation, viral law, base buzz,
+  sniper size), not only the earlier subset. The L3 curve, the fees and the L4/L5 rules do not change.
+- **L8.1 Gate measurement.** The excess is paired per seed (bot return minus GX buy-and-hold on the same seed and horizon),
+  CI over seeds. An idle bot must show zero excess. All five strategies must be <= 0 at one-sided 95%. "Dead within 7 gd"
+  is measured on launches from day 3 on (earlier launches cannot die before day 10 under L3). Curve holdings are valued at
+  liquidation (exit fee and slippage), not at spot, in the gate and in net worth.
+- **Deviations ratified.** Sector stays 'crypto' (no 'meme' sector key in the engine; the meme template gives the behaviour).
+  Vesting is a world check that counts open sell orders and re-checks at fill. The launch ban is 8 real weeks (1,344 gd).
+  Cancel: only before any other account has traded the token, refund 50% of the fee (the other 50% stays a sink).
+  NPC launches are ON in the game world (`createGame` for the server and the e2e world), OFF in bare test worlds; the game
+  world's fingerprint tests are updated in the commit that turns them on, and that commit says so.
