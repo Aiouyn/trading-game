@@ -101,7 +101,10 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
   for (let i = 1; i < ordered.length; i++) {
     const prev = ordered[i - 1]!;
     const cur = ordered[i]!;
-    if (cur.edge === null && !cur.dragging && cur.row < prev.row + PILL_H) cur.row = prev.row + PILL_H;
+    // A pill pinned at the top (edge up) that lands just under an in-range pill moves down past it as well: the average line's
+    // own buttons (+SL) are never covered by a pinned take-profit.
+    const movable = cur.edge === null || (cur.edge === 'up' && prev.edge === null);
+    if (movable && !cur.dragging && cur.row < prev.row + PILL_H) cur.row = prev.row + PILL_H;
   }
   return (
     <div ref={box} className="pointer-events-none absolute inset-0 z-[4] overflow-hidden" data-testid="chart-levels">

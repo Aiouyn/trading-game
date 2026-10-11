@@ -89,10 +89,14 @@ test('the Wire filters by kind, and Launchpad listings open from one line per ho
   const groups = page.getByTestId('wire-launch-group');
   const groupCount = await groups.count();
   if (groupCount > 0) {
-    const toggle = groups.first().getByTestId('wire-launch-toggle');
+    // the feed is newest first and a new hour can land above this one while the test runs, so the group is locked by its
+    // clock label rather than by position (groups.first() would then point at the new, closed line)
+    const clock = ((await groups.first().locator('span').first().textContent()) ?? '').trim();
+    const group = groups.filter({ hasText: clock }).first();
+    const toggle = group.getByTestId('wire-launch-toggle');
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(groups.first().getByTestId('wire-row').first()).toBeVisible();
+    await expect(group.getByTestId('wire-row').first()).toBeVisible();
   }
   // the markets filter leaves Launchpad out entirely
   await page.getByTestId('wire-filter-markets').click();
