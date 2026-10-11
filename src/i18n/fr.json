@@ -3341,5 +3341,10 @@
   "auction.won": "Vous avez remporté {item} pour {amount} $, prime d’acheteur comprise.",
   "auction.lost": "{item} a été adjugé à un autre enchérisseur.",
   "auction.unsold": "{item} n’a pas trouvé preneur. Aucun argent n’a bougé.",
-  "streak.claimed": "Jour {days} de votre série : {cash} $."
+  "streak.claimed": "Jour {days} de votre série : {cash} $.",
+  "insurance.on": "L’assurance est active. La prime est de 0,4 % de votre valeur assurée chaque semaine réelle.",
+  "insurance.off": "L’assurance est désactivée. Rien n’est remboursé et rien de nouveau n’est couvert.",
+  "insurance.lapsed": "L’assurance a pris fin : la prime hebdomadaire dépassait vos liquidités disponibles.",
+  "insurance.unpaid": "L’assureur n’a pas pu régler votre sinistre ({cause}).",
+  "insurance.paid": "L’assurance a versé {amount} $ pour votre sinistre ({cause})."
 }

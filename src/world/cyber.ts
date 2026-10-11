@@ -312,6 +312,8 @@ export function cyberDay(g: GameState, out: StepOutput | null): void {
   const securityPlayers = Object.values(g.players).filter((p) => rankIndex(p.rankId) >= rankIndex(SECURITY_RANK) || withEntries.has(p.id));
   for (const p of securityPlayers) {
     ensureLegit(g, p.id, rng);
+    // the last tick a hostile session was open on this player (the insurance switch waits 24 h after one)
+    if (entriesOf(g, p.id).some((e) => !!e.hostile)) (g.cyber.breachedAt ??= {})[p.id] = tick;
     const tier = defenseTier(g, p.id);
     // legit churn
     const churn = LEGIT_CHURN[tier]! / 24;

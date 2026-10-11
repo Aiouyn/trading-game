@@ -103,6 +103,17 @@ export interface TournamentWeekRecord {
   settled?: { seeds: string[]; rows: TournamentRowRecord[]; settledTick: number };
 }
 
+/** The one-switch insurance of one player (insurance.ts). */
+export interface InsuranceState {
+  on: boolean;
+  /** the tick the policy last went on, or -1 */
+  sinceTick: number;
+  /** premiums paid over the life of the policy */
+  premiums: number;
+  /** payouts received */
+  paidOut: number;
+}
+
 /** The daily streak of one player (streak.ts). */
 export interface StreakState {
   /** consecutive real days claimed */
@@ -185,6 +196,8 @@ export interface Player {
   restrictedCash?: number;
   /** the daily streak (streak.ts). Absent until the first action; old saves load unchanged. */
   streak?: StreakState;
+  /** the one-switch insurance (insurance.ts). Absent until the first switch-on; old saves load unchanged. */
+  insurance?: InsuranceState;
   /**
    * Cumulative cash from outside trading and income (sign-up and admin grants, transfers and loans, both sides). The day
    * baseline and the arrival baseline move with it (core.ts shiftBaselines), so both show trading and income only.
@@ -548,6 +561,8 @@ export interface CyberState {
   defense: Record<string, { budget: number; tier: number; lastScanTick: number; lockdownUntil: number; shieldUntil: number; honeypot?: HoneypotState }>;
   /** attacker cooldowns: `${attacker}>${victim}` → tick */
   cooldowns: Record<string, number>;
+  /** the last tick a hostile session was open on each player (absent until a breach; insurance waits 24 h after one) */
+  breachedAt?: Record<string, number>;
   /** evidence points on (attacker, victim) */
   evidence: Record<string, number>;
   /** attacker's ops in flight for the UI */
@@ -695,6 +710,7 @@ export type Command =
   | { type: 'tournament.enter' }
   | { type: 'auction.bid'; lot: string; amount: number }
   | { type: 'streak.claim' }
+  | { type: 'insurance.set'; on: boolean }
   | { type: 'tournament.settle'; week: number; seeds: string[]; rows: TournamentRowRecord[] }
   | { type: 'sec.budget'; budget: number }
   | { type: 'sec.scan' }

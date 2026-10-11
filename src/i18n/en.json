@@ -3341,5 +3341,10 @@
   "auction.won": "You won {item} for ${amount}, buyer premium included.",
   "auction.lost": "{item} sold to another bidder.",
   "auction.unsold": "{item} did not sell. No cash moved.",
-  "streak.claimed": "Day {days} of your streak: ${cash}."
+  "streak.claimed": "Day {days} of your streak: ${cash}.",
+  "insurance.on": "Insurance is on. The premium is 0.4% of your insured value each real week.",
+  "insurance.off": "Insurance is off. Nothing is refunded and nothing new is covered.",
+  "insurance.lapsed": "Insurance lapsed: the weekly premium was more than your spendable cash.",
+  "insurance.unpaid": "The insurer could not pay your {cause} claim.",
+  "insurance.paid": "Insurance paid ${amount} on your {cause} claim."
 }
