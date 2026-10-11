@@ -8,6 +8,7 @@ import { npcLaunchDraw, PREFIX, SUFFIX } from './launch';
 import { lockedEngineSell, openSellQty, vestingSweep } from './graduate';
 import { LOTS_KEPT, ensureLaunchpad, pushLot } from './state';
 import { lpTick } from './flow';
+import { liquidateCohort } from './trade';
 import { moderateName } from './moderate';
 import { curveHoldingsValue } from './value';
 import type { LpLot, LpToken } from './types';
@@ -158,6 +159,7 @@ describe('the cash death starts on day 3 (review 6)', () => {
     const g = lpWorld('death-start');
     launch(g, CREATOR, 'DAYT');
     const t = g.launchpad!.tokens.DAYT!;
+    liquidateCohort(g, t, null); // the launch cohort sells back, so the curve's cash is under the line (v1.4)
     t.buzz.base = 0;
     t.sniperDone = true;
     // L3.1 (v1.3): the closes of day 3 to day 8 leave it alive (six closes); the close of day 9 is the seventh

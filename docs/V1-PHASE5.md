@@ -307,3 +307,51 @@ Gate: **FAIL**.
 8. **Readings to ratify (review item 11).** `TIME_SELL_PER_TICK` at 0.5 sells half the cohort's inventory every tick (about 5 seconds of game time), which is not the slow bleed of L6.1. `SELL_BUZZ_PER_100` (a sell-driven buzz cut) is not in the v1.2 text and is not implemented.
 9. **Held-out verdict (review item 3).** The `lh-200` gate fails on retail and pump seller, as in section 3. No re-tune on `lh` was made.
 10. **Cancel fee.** A cancelled launch's cohort liquidation pays the creator's 0.5% fee (the creator is paid on NPC fills too). It is small (about $1 on the probe) and consistent with L3; the lead may want it stated.
+
+## 8. v1.4: the launch cohort, short virality, allocation locked until graduation
+
+Spec: `docs/team/specs/lead-launchpad.md`, "Amendments v1.4" (L6.9, L6.10, L5.1). Commit `6002e6d` set the constants; this section records the tests, the UI and the first screen.
+
+### 8.1 Settings (`src/world/launchpad/constants.ts`)
+
+| Constant | v1.3 | v1.4 |
+|---|---|---|
+| `BASE0` (launch buzz scale) | 0.008 | 21 (about $3,000 of NPC demand at launch) |
+| `BASE0_ALPHA` | 2.5 | 8 |
+| `VIRAL_PER_DAY` (r0) | 1.2 | 1.0 per game day |
+| `VIRAL_TAU_DAYS` | 1 | 0.5 |
+| `BLEED_HALF_TAU` | 1 | 0.3 (cohort half-life 0.15 game days) |
+| `CAPIT_PER_TICK` | 0.1 | 0 (off) |
+| `PROFIT_PER_TICK` | 0.02 | 0 (off) |
+
+Unchanged: `DEMAND_PER_BUZZ` 1000, `VIRAL_SCALE` 12, `VIRAL_ALPHA` 2.2, sniper, launches per day 20.
+
+### 8.2 Allocation locked until graduation (`src/world/launchpad/vest.ts`)
+
+- The creator allocation is locked before graduation. The curve refuses a sell into it (`lockedGrad`, "Unlocks after graduation").
+- From the graduation tick: nothing before the cliff (2 game days), then linear to all of it at 14 game days (`lockedEngineSell`).
+- A token that never graduates keeps the allocation locked for good, including after its death.
+- `vestCliffDay` and `vestEndDay` return null before graduation; the token page, holdings, ticket and creator console read the null as "Unlocks after graduation".
+
+### 8.3 Tests
+
+Updated to the v1.4 rules (keeping each test's intent): the creator cap (allocation 50M, room is the rest of the 100M cap), vesting from graduation, the cash-death tests (the launch cohort is sold back first, so the curve's cash is under the line), the view's launch progress bound (a third of the curve at most). New: the allocation is locked before graduation and stays locked after a death; the vesting schedule starts at the graduation tick. `src/world/launchpad` passes (125 tests in `launchpad.test.ts` and the other files).
+
+### 8.4 Balance: `lx-50` at v1.4 (`balance-out/lead/F50.json`)
+
+| Bot | Pass | Mean excess (per $) | One-sided 95% bound |
+|---|---|---|---|
+| creatorDump | no | -49.93% | 0.00% |
+| sniper | yes | -4.11% | -3.09% |
+| flipper | yes | -75.08% | -73.75% |
+| buzzPumper | yes | -84.47% | -84.21% |
+| retail | yes | -2.04% | -0.03% |
+| viralChaser | yes | -8.35% | -7.58% |
+| pumpSeller | no | +0.79% | +3.00% |
+| postGradBuyer | yes | -1.46% | -1.06% |
+| frontRunner | yes | -2.28% | -2.19% |
+| floorSprayer | no | -1.41% | +0.52% |
+
+Shape (gated): dead within 7 game days from day 3, 70.6%; graduation rate 1.72%; 10x rate 0. All three pass. The NPC net is reported, not gated (L5.1 gate rows): +18.67 per token (booked +59.58), with no players in that world.
+
+Checks on this run: residual max 5.4e-6, ledger max 1.7e-9. Creator dump, pump seller and floor sprayer fail; the held-out `lh-200` run decides. It is pending.

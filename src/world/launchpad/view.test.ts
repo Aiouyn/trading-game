@@ -53,9 +53,9 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(v.feeds.graduated).toHaveLength(0);
     expect(v.gate).toBeNull();
     expect(v.feeds.newest[0]!.icon.startsWith('<svg')).toBe(true);
-    // the launch's own buzz and the NPC sniper (at most $400, about 3% of the curve) are bought at once (L6.4, sniperEnter)
+    // the v1.4 launch cohort (about $3,000 of demand, L6.9) and the NPC sniper are bought at once (L6.4, sniperEnter): a third of the curve at most
     expect(v.feeds.newest[0]!.progress).toBeGreaterThan(0);
-    expect(v.feeds.newest[0]!.progress).toBeLessThan(0.05);
+    expect(v.feeds.newest[0]!.progress).toBeLessThan(0.5);
     const cr = launchpadView(g, CREATOR);
     expect(cr.gate).toBe('cooldown');
   });

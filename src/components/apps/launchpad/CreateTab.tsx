@@ -190,7 +190,7 @@ function CreatorConsole({ lp, onOpen }: { lp: LaunchpadView; onOpen: (ticker: st
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 @md:grid-cols-4">
                   <Fact label={t('lp.console.fees')} value={money(c.fees)} testId={`lp-console-fees-${c.ticker}`} />
                   <Fact label={t('lp.console.alloc')} value={fmtTokens(c.allocation)} />
-                  <Fact label={t('lp.console.unlocked')} value={fmtTokens(c.unlocked)} testId={`lp-console-unlocked-${c.ticker}`} />
+                  <Fact label={t('lp.console.unlocked')} value={c.status === 'graduated' ? fmtTokens(c.unlocked) : t('lp.vest.afterGrad')} testId={`lp-console-unlocked-${c.ticker}`} />
                   <Fact label={t('lp.console.cap')} value={`${pct(c.capUsed / LP.SUPPLY)} / ${pct(c.capMax / LP.SUPPLY)}`} />
                 </div>
                 <p className="text-caption text-fg-muted">

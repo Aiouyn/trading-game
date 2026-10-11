@@ -42,7 +42,7 @@ export interface LpCard {
 
 export interface LpPage extends LpCard {
   allocation: number;
-  vesting: { cliffDay: number; endDay: number; unlocked: number };
+  vesting: { cliffDay: number | null; endDay: number | null; unlocked: number };
   /** the creator's fees earned on this token: present only for the creator (the figure is not public) */
   creatorFees?: number;
   chart: [number, number][];
@@ -59,7 +59,7 @@ export interface LaunchpadView {
   gate: string | null;
   feeds: { newest: LpCard[]; trending: LpCard[]; graduated: LpCard[] };
   /** `vest` is the creator's own vesting (end day and the unlocked share), null for everyone else's holding */
-  holdings: { ticker: string; name: string; qty: number; value: number; locked: number; status: LpCard['status']; vest: { endDay: number; unlocked: number } | null }[];
+  holdings: { ticker: string; name: string; qty: number; value: number; locked: number; status: LpCard['status']; vest: { endDay: number | null; unlocked: number } | null }[];
   /** the creator console: the viewer's own tokens with their vesting, fees, promos and flags */
   console: { ticker: string; name: string; status: LpCard['status']; fees: number; allocation: number; unlocked: number; flag: LpCard['flag']; promos: number; capUsed: number; capMax: number; cancellable: boolean }[];
   /** the viewer's live token count against the limit */
@@ -140,7 +140,7 @@ export function lpPageOf(g: GameState, pid: string, ticker: string): LpPage | nu
 }
 
 /** The creator's vesting on a holding (null for anyone else). */
-function vestOf(g: GameState, t: LpToken, pid: string): { endDay: number; unlocked: number } | null {
+function vestOf(g: GameState, t: LpToken, pid: string): { endDay: number | null; unlocked: number } | null {
   return t.creatorId === pid ? { endDay: vestEndDay(t), unlocked: vestFraction(t, g.market.tick) } : null;
 }
 
