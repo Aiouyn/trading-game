@@ -11,8 +11,14 @@ import { Chip, Flash, LockGlyph, Segmented } from '@/components/ui';
 import { PriceChart } from './PriceChart';
 import { kindLabel } from '@/components/os/eventText';
 import { seriesInfo } from './seriesInfo';
-import { alertDir, alertFired, buildLevels, defaultExitPrice, type ChartLevel, type LevelFormat } from './chartLevels';
+import { alertDir, alertFired, buildLevels, defaultExitPrice, priceSideRefusal, type ChartLevel, type LevelFormat } from './chartLevels';
+import { changeRefusal } from './ticketMath';
 import { useAlerts } from './alerts';
+
+/** A refusal's copy as a toast (the line says why, in the reader's language). */
+function refusedToast(key: string, vars?: Record<string, string | number>) {
+  useGame.getState().toast({ tone: 'loss', text: t(key, vars) });
+}
 
 /** The order type's copy key (the chart's working-order lines name their type). */
 const ORDER_LABEL: Record<OrderType, string> = {
@@ -71,6 +77,7 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const pos = useGame((s) => s.me?.account?.positions[info.id]);
   const alerts = useAlerts((s) => s.alerts);
   const act = useGame((s) => s.act);
+  const canShort = useGame((s) => s.me?.account?.canShort ?? false);
   const heldQty = pos?.qty ?? 0;
   // the cash the closing order would move now (a sell's proceeds, or a cover's cost), so the average line's P&L is what closing books
   const closeTotal = world && heldQty !== 0 && !isIndex(info.id) ? estimateFill(world, { assetId: info.id, side: heldQty > 0 ? 'sell' : 'buy', qty: Math.abs(heldQty) }).total : 0;
@@ -81,32 +88,41 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
     fmt: levelFormat(),
   });
   // Dragging a working order's line modifies that order: a stop moves its stop price, any other order its limit (spec 1.3).
+  // A leg or stop that would sit on the wrong side of the mid is refused before it is sent (it would fire at once); the
+  // engine's own refusal comes back translated, never as its raw code.
   const commitLevel = async (l: ChartLevel, p: number) => {
     if (!l.orderId) return;
     const o = (orders ?? []).find((x) => x.id === l.orderId);
     if (!o) return;
+    const leg = l.kind === 'tp' ? 'tp' : l.kind === 'sl' ? 'sl' : null;
+    const why = priceSideRefusal(o, leg, p, info.price);
+    if (why) { refusedToast(why.key, why.vars); return; }
     const patch = o.type === 'stop' || o.type === 'stop_limit' ? { stopPrice: p } : { limitPrice: p };
-    const r = await act({ type: 'order.modify', orderId: o.id, ...patch });
+    const r = await act({ type: 'order.modify', orderId: o.id, ...patch }, { silent: true });
     if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.moved', { price: price(p) }) });
+    else { const c = changeRefusal(r.error ?? '', o.side, canShort); refusedToast(c.key, c.vars); }
   };
   const cancelLevel = async (l: ChartLevel) => {
     if (l.alertId) { useAlerts.getState().remove(l.alertId); return; }
     if (!l.orderId) return;
-    const r = await act({ type: 'order.cancel', orderId: l.orderId });
+    const r = await act({ type: 'order.cancel', orderId: l.orderId }, { silent: true });
     if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.cancelled') });
+    else { const c = changeRefusal(r.error ?? '', 'sell', canShort); refusedToast(c.key, c.vars); }
   };
-  // +TP and +SL place the leg the position lacks, reduce-only, at the default distance; the line then drags like any other
+  // +TP and +SL place the leg the position lacks, reduce-only, at the default distance (1% beyond the price when that distance
+  // has already been passed); the line then drags like any other
   const addLeg = async (_l: ChartLevel, key: 'addTp' | 'addSl') => {
     if (!pos || pos.qty === 0) return;
     const kind = key === 'addTp' ? 'tp' : 'sl';
-    const p = defaultExitPrice(kind, pos.qty, pos.avgCost);
+    const p = defaultExitPrice(kind, pos.qty, pos.avgCost, info.price);
     const type: OrderType = kind === 'tp' ? 'limit' : 'stop';
     const side: Side = pos.qty > 0 ? 'sell' : 'buy';
     const r = await act({
       type: 'order.place',
       order: { assetId: info.id, side, type, qty: Math.abs(pos.qty), reduceOnly: true, tif: 'gtc', ...(kind === 'tp' ? { limitPrice: p } : { stopPrice: p }) },
-    });
+    }, { silent: true });
     if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.placed', { price: price(p) }) });
+    else { const c = changeRefusal(r.error ?? '', side, canShort); refusedToast(c.key, c.vars); }
   };
   // The chart menu: a buy limit or sell stop fills the ticket at that price for the player to send (it never sends itself);
   // an alert is a price the viewer is told about (alerts.ts).

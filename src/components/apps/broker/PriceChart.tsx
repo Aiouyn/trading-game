@@ -61,15 +61,17 @@ const VOLUME_MARGINS = { top: 0.8, bottom: 0.02 };
 
 /**
  * The narrowest price range the plot shows, as a share of the price (spec 1.2): a 0.1% wiggle never fills the plot, so the
- * axis spans at least half a percent either side of the middle. The percent axis is exempt (it is already relative).
+ * axis spans at least half a percent either side of the middle. The percent axis keeps the same floor: lightweight-charts hands
+ * the autoscale rule its range in price, and the percent view is drawn from that range, so a 0.1% wiggle fills no more of the
+ * plot in % mode than in price mode.
  */
 export const MIN_SPAN_SHARE = 0.005;
 
 /** The autoscale rule for a price series: widen a too-narrow visible range about its middle. */
-export function spanFloor(percent: { current: boolean }): AutoscaleInfoProvider {
+export function spanFloor(): AutoscaleInfoProvider {
   return (base) => {
     const res = base();
-    if (!res || !res.priceRange || percent.current) return res;
+    if (!res || !res.priceRange) return res;
     const { minValue, maxValue } = res.priceRange;
     const mid = (minValue + maxValue) / 2;
     const floor = Math.abs(mid) * MIN_SPAN_SHARE;
@@ -149,7 +151,6 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   const volColors = useRef({ up: '', down: '' });
   const last = useRef({ key: '', len: 0 });
   const probe = useRef<() => void>(() => {});
-  const percentRef = useRef(percent);
   // the first open of the loaded bars: the crosshair's change is measured from it
   const baseOpen = useRef(0);
 
@@ -174,8 +175,6 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   const bandFrom = eventBand?.sinceTick ?? null;
   const daily = interval === '1D' || !rangeIsIntraday(range);
   const tpd = useGame((s) => s.history.ticksPerDay);
-  // the percent flag reaches the autoscale rule after commit (a ref is not written during render)
-  useEffect(() => { percentRef.current = percent; }, [percent]);
 
   // the event window: from the first bar at or after the onset to the right edge; it follows zoom and scroll
   useEffect(() => {
@@ -208,7 +207,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       localization: { priceFormatter: (v: number) => fmtPrice(v) },
       handleScale: { axisPressedMouseMove: false },
     });
-    const floor = spanFloor(percentRef);
+    const floor = spanFloor();
     candleS.current = c.addSeries(CandlestickSeries, {
       upColor: p.gain, downColor: p.loss, wickUpColor: p.gain, wickDownColor: p.loss, borderVisible: false,
       priceLineColor: p.brass, priceLineStyle: LineStyle.Dotted, priceLineWidth: 1, autoscaleInfoProvider: floor,

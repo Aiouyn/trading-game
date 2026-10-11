@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { OpenOrders } from '@/components/Holdings';
 import { notify, openApp, useShell } from '@/components/os/shellStore';
 import { Button, Card } from '@/components/ui';
@@ -38,6 +38,20 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
   // the bottom sheet is the store's trade sheet flag (a preset opens it, a fill closes it, as the coach and the close card read it);
   // the bar remounts when the sheet closes, so it shows what the ticket left in the draft
   const [barKey, setBarKey] = useState(0);
+  // The sheet belongs to the narrow layout. A new ticket preset (a chart menu pick, the coach's stop) opens it there; the
+  // desktop terminal never draws it, so it clears a flag that another window or a wider width left behind (CloseCard and
+  // the event takeover wait on that flag, so it must not outlive the sheet).
+  const terminalLayout = brokerView(size).terminal;
+  const presetNonce = useGame((s) => s.ticketPreset?.nonce);
+  const lastPreset = useRef(presetNonce);
+  useEffect(() => {
+    if (presetNonce === lastPreset.current) return;
+    lastPreset.current = presetNonce;
+    if (!terminalLayout && presetNonce !== undefined) setStoreSheet(true);
+  }, [presetNonce, terminalLayout, setStoreSheet]);
+  useEffect(() => {
+    if (terminalLayout && useGame.getState().tradeSheetOpen) setStoreSheet(false);
+  }, [terminalLayout, storeSheet, setStoreSheet]);
   const name = ticker ?? selected;
   if (!knownSeries(config, name)) {
     return (

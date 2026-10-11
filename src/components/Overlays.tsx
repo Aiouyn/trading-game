@@ -8,6 +8,7 @@ import { assetDefOf, useGame } from '@/game/store';
 import { useIsPhone } from '@/game/useMedia';
 import { t } from '@/i18n';
 import { OsSheet } from './os/OsSheet';
+import { useShell } from './os/shellStore';
 import { usePhone } from './os/phoneStore';
 import { useCloseCardShowing } from './CloseCard';
 import { Button, Progress } from './ui';
@@ -71,6 +72,9 @@ export function Coach() {
   // Over the desktop it never blocks the shelf: the sheet sits above it.
   const sheetOpen = useGame((s) => s.tradeSheetOpen);
   const phone = useIsPhone();
+  // Interim (UX redesign 1.1, principle 6): on the desktop a tip sheet over an open Broker would sit on the ticket's CTA, so
+  // the tips wait until no Broker window is open. Stage 2 turns them into toasts and notification-center items.
+  const brokerOpen = useShell((s) => s.shell.wins.some((w) => w.app === 'broker' && w.state === 'open'));
   const phoneApp = usePhone((s) => s.current);
   const step = me?.player.onboarding.step ?? 0;
   const done = me?.player.onboarding.done || me?.player.onboarding.skipped;
@@ -115,7 +119,8 @@ export function Coach() {
   // The first-run desktop opens the Broker maximized (UX redesign 1.1): no tip card over it before the first trade. The
   // coach resumes after the first fill, on the desktop as before.
   const firstRunDesktop = !phone && trades === 0;
-  if (!card || hidden === card.key || recentOpen || sheetOpen || closeUp || firstRunDesktop || (phone && !COACH_PHONE_APPS.has(phoneApp ?? ''))) return null;
+  const overBroker = !phone && brokerOpen;
+  if (!card || hidden === card.key || recentOpen || sheetOpen || closeUp || firstRunDesktop || overBroker || (phone && !COACH_PHONE_APPS.has(phoneApp ?? ''))) return null;
   const c = card;
   return (
     <OsSheet title={c.title} testId="coach" onClose={() => setHidden(c.key)}>

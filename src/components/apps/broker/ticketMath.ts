@@ -1,6 +1,7 @@
 // The order ticket's pure rules (spec 1.4): the refusal of each field, the cost summary (fee, spread, round trip, break-even)
 // and the mapping of an engine refusal to the field that caused it. No React here, so the rules are unit-tested.
 import type { OrderType, Side } from '@/engine';
+import { priceSideRefusal, roundPrice, stopSideKey } from './chartLevels';
 
 /** A decimal field's text as a number: a comma or a dot reads as the decimal point; anything else reads as 0. */
 export function parseDecimal(s: string): number {
@@ -88,11 +89,9 @@ export function checkOrder(c: OrderCheck): CheckResult {
   if (limitType && !(c.limit > 0)) return { refusal: { field: 'limit', key: 'broker.refuse.limit', cta: 'broker.cta.limit' }, warning: null };
   if (stopType && !(c.stop > 0)) return { refusal: { field: 'stop', key: 'broker.refuse.stop', cta: 'broker.cta.stop' }, warning: null };
   // a stop waits for the price to cross it: a buy stop above the mid, a sell stop below it (else it would trigger at once)
-  if (stopType && c.side === 'buy' && c.stop <= c.mid) {
-    return { refusal: { field: 'stop', key: 'broker.refuse.stopBuy', cta: 'broker.cta.stopSide', vars: { mid: c.mid } }, warning: null };
-  }
-  if (stopType && c.side === 'sell' && c.stop >= c.mid) {
-    return { refusal: { field: 'stop', key: 'broker.refuse.stopSell', cta: 'broker.cta.stopSide', vars: { mid: c.mid } }, warning: null };
+  if (stopType) {
+    const side = stopSideKey(c.side, c.stop, c.mid);
+    if (side) return { refusal: { field: 'stop', key: `broker.refuse.${side}`, cta: 'broker.cta.stopSide', vars: { mid: roundPrice(c.mid) } }, warning: null };
   }
   if (c.type === 'trailing' && !(c.trail > 0 && c.trail < 50)) return { refusal: { field: 'trail', key: 'broker.refuse.trail', cta: 'broker.cta.trail' }, warning: null };
   if (c.tp !== null && !(c.tp > 0)) return { refusal: { field: 'tp', key: 'broker.refuse.bracket', cta: 'broker.cta.bracket' }, warning: null };
@@ -100,6 +99,17 @@ export function checkOrder(c: OrderCheck): CheckResult {
   if (c.tp !== null && c.sl !== null) {
     const ok = c.side === 'buy' ? c.tp > c.sl : c.tp < c.sl;
     if (!ok) return { refusal: { field: 'tp', key: 'broker.refuse.bracketSide', cta: 'broker.cta.bracketSide' }, warning: null };
+  }
+  // A take-profit or stop-loss on the wrong side of the entry's price would fire at once: the legs are placed at the fill, so
+  // the entry's own reference price (the limit, the stop, or the estimated fill) is the one they are checked against.
+  const exit: Side = c.side === 'buy' ? 'sell' : 'buy';
+  if (c.tp !== null) {
+    const r = priceSideRefusal({ side: exit, type: 'limit' }, 'tp', c.tp, c.ref);
+    if (r) return { refusal: { field: 'tp', key: r.key, cta: 'broker.cta.tpSide', vars: { price: r.vars.price } }, warning: null };
+  }
+  if (c.sl !== null) {
+    const r = priceSideRefusal({ side: exit, type: 'stop' }, 'sl', c.sl, c.ref);
+    if (r) return { refusal: { field: 'sl', key: r.key, cta: 'broker.cta.slSide', vars: { price: r.vars.price } }, warning: null };
   }
   // a limit on the marketable side of the mid fills at once: allowed, but said
   const marketable = limitType && c.limit > 0 && (c.side === 'buy' ? c.limit >= c.mid : c.limit <= c.mid);
@@ -128,6 +138,19 @@ export function engineRefusal(reason: string, side: Side, canShort: boolean, var
   if (r.startsWith('take-profit') || r.startsWith('bad take-profit')) return { field: 'tp', key: 'broker.refuse.bracketSide' };
   if (r.startsWith('bad stop-loss')) return { field: 'sl', key: 'broker.refuse.bracket' };
   return { field: 'general', key: 'broker.refuse.engine', vars: { reason } };
+}
+
+/**
+ * The copy of an order change the engine refused (a chart drag, a cancel, a +TP or +SL): the engine's reason is never shown
+ * raw (it is English and capitalized). The known reasons get their own line; the rest say the change was not accepted.
+ */
+export function changeRefusal(reason: string, side: Side, canShort: boolean, vars: { total?: number; cash?: number; bp?: number } = {}): { key: string; vars?: Record<string, string | number> } {
+  const r = reason.trim().toLowerCase();
+  if (r === 'order is closed') return { key: 'broker.refuse.closed' };
+  if (r === 'below the filled quantity') return { key: 'broker.refuse.belowFilled' };
+  if (r === 'not your order' || r === 'unknown order') return { key: 'broker.refuse.gone' };
+  const e = engineRefusal(reason, side, canShort, vars);
+  return e.key === 'broker.refuse.engine' ? { key: 'broker.refuse.engineGeneric' } : { key: e.key, vars: e.vars };
 }
 
 /** The inputs of the cost summary: the fill estimate, the fee, the spread and the account after. */

@@ -43,7 +43,7 @@ export function DripToggle({ assetId }: { assetId: string }) {
  * list (all open orders, or one ticker's when `assetId` is given), and the license ladder for Profile.
  * Moved here from the old Market screen module (Phase 2 step 3); no rule changed.
  */
-export function Positions({ phone = false }: { phone?: boolean }) {
+export function Positions({ phone = false, bare = false }: { phone?: boolean; bare?: boolean }) {
   const world = useGame((s) => s.world)!;
   const me = useGame((s) => s.me)!;
   const playerId = useGame((s) => s.playerId)!;
@@ -55,16 +55,22 @@ export function Positions({ phone = false }: { phone?: boolean }) {
   const h = useGame.getState().history;
   const reasons = lastReasonByAsset(me.trading?.fills ?? []);
   const lastFill = (assetId: string) => (reasons.has(assetId) ? t('holdings.lastFill', { reason: reasonLabel(reasons.get(assetId)!) }) : null);
+  const cash = (
+    <span className="num text-caption text-fg-faint" data-testid="cash">
+      {t('holdings.cash', { cash: money(pf.cash) })} · {t('holdings.unrealized')} <span className={toneText[tone(pf.unrealizedPnl)]}>{signedMoney(pf.unrealizedPnl)}</span>
+    </span>
+  );
   return (
     <Card data-testid="positions">
-      <CardHeader
-        title={t('holdings.positions')}
-        right={(
-          <span className="num text-caption text-fg-faint" data-testid="cash">
-            {t('holdings.cash', { cash: money(pf.cash) })} · {t('holdings.unrealized')} <span className={toneText[tone(pf.unrealizedPnl)]}>{signedMoney(pf.unrealizedPnl)}</span>
-          </span>
-        )}
-      />
+      {/* bare (the Broker dock): the dock tab names the list, so only the cash line stays, with no second serif title */}
+      {bare ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 pt-3">
+          <span className="label">{t('holdings.positions')}</span>
+          {cash}
+        </div>
+      ) : (
+        <CardHeader title={t('holdings.positions')} right={cash} />
+      )}
       {pf.positions.length === 0 ? (
         <p className="px-4 pb-6 text-small text-fg-faint">{t('holdings.empty')}</p>
       ) : phone ? (
@@ -175,7 +181,7 @@ function OptionRows({ rows, world, config, onClose }: { rows: [string, { qty: nu
 }
 
 /** Open orders: every open order, or only one ticker's when `assetId` is given (the Broker shows its own). */
-export function OpenOrders({ assetId }: { assetId?: string } = {}) {
+export function OpenOrders({ assetId, bare = false }: { assetId?: string; bare?: boolean } = {}) {
   const me = useGame((s) => s.me)!;
   const act = useGame((s) => s.act);
   const open = me.orders.filter((o) => o.status === 'open' && (assetId === undefined || o.assetId === assetId));
@@ -183,7 +189,8 @@ export function OpenOrders({ assetId }: { assetId?: string } = {}) {
   const typeLabel = (ty: string) => ({ market: t('order.market'), limit: t('order.limit'), stop: t('order.stop'), stop_limit: t('order.stop_limit'), trailing: t('order.trailing') } as Record<string, string>)[ty] ?? ty;
   return (
     <Card data-testid="open-orders">
-      <CardHeader title={t('holdings.openOrders')} />
+      {/* bare (the Broker dock): the dock tab already names the list and its count */}
+      {!bare && <CardHeader title={t('holdings.openOrders')} />}
       <ul>
         {open.map((o) => (
           <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-ink-2 px-4 py-2.5 text-small" data-testid={`order-${o.id}`}>

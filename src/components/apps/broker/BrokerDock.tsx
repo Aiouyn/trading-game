@@ -45,10 +45,10 @@ export function BrokerDock({ ticker, tab, onTab, narrow = false, onPick }: {
   let panel: ReactNode;
   switch (tab) {
     case 'positions':
-      panel = <Positions />;
+      panel = <Positions bare />;
       break;
     case 'orders':
-      panel = openCount > 0 ? <OpenOrders /> : <p className="px-1 text-small text-fg-faint" data-testid="orders-empty">{t('broker.dock.noOrders')}</p>;
+      panel = openCount > 0 ? <OpenOrders bare /> :<p className="px-1 text-small text-fg-faint" data-testid="orders-empty">{t('broker.dock.noOrders')}</p>;
       break;
     case 'history':
       panel = <FillHistory assetId={ticker} />;

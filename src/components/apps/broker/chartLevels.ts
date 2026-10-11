@@ -47,11 +47,59 @@ export function levelMove(qty: number, avgCost: number, price: number): { usd: n
   return { usd: qty * (price - avgCost), pct: ((price - avgCost) / avgCost) * Math.sign(qty) };
 }
 
-/** The price a new take-profit (+TP) or stop-loss (+SL) starts at, before it is dragged: 5% up or 3% down for a long, mirrored for a short. */
-export function defaultExitPrice(kind: 'tp' | 'sl', qty: number, avgCost: number): number {
+/**
+ * The side rules of a price against the mid (spec 1.3, 1.4). A stop waits for the price to cross it: a buy stop above the
+ * mid, a sell stop below it. An exit leg on a position (the take-profit a limit, the stop-loss a stop) sits on the far side of
+ * the price from where the position closes: a long's take-profit above the mid and its stop-loss below, mirrored for a short.
+ * On the wrong side the engine fills or fires the leg at once (trading.ts: a limit fills at or past its price, a stop fires
+ * at or past its price), so the refusal is the honest answer. Each returns the copy key of the refusal, or null.
+ */
+export function stopSideKey(side: Side, price: number, mid: number): 'stopBuy' | 'stopSell' | null {
+  if (side === 'buy') return price <= mid ? 'stopBuy' : null;
+  return price >= mid ? 'stopSell' : null;
+}
+
+export function exitSideKey(exitSide: Side, leg: 'tp' | 'sl', price: number, mid: number): 'tpAbove' | 'tpBelow' | 'slBelow' | 'slAbove' | null {
+  if (leg === 'tp') {
+    if (exitSide === 'sell') return price > mid ? null : 'tpAbove';
+    return price < mid ? null : 'tpBelow';
+  }
+  if (exitSide === 'sell') return price < mid ? null : 'slBelow';
+  return price > mid ? null : 'slAbove';
+}
+
+/**
+ * The refusal of an order's price on its side of the mid: a leg (take-profit or stop-loss) by the exit rule, a stop order by
+ * the stop rule, and any other order (a limit that is marketable is a warning on the ticket, not a refusal) not at all. The
+ * copy key is a `broker.refuse.*` key and `price` is the mid, rounded to the tick, for the copy (the stop copy names it `mid`,
+ * so both names are given).
+ */
+export function priceSideRefusal(o: { side: Side; type: OrderType }, leg: 'tp' | 'sl' | null, price: number, mid: number): { key: string; vars: { price: number; mid: number } } | null {
+  if (!(mid > 0) || !(price > 0)) return null;
+  const vars = { price: roundPrice(mid), mid: roundPrice(mid) };
+  if (leg) {
+    const k = exitSideKey(o.side, leg, price, mid);
+    return k ? { key: `broker.refuse.${k}`, vars } : null;
+  }
+  if (o.type === 'stop' || o.type === 'stop_limit') {
+    const k = stopSideKey(o.side, price, mid);
+    return k ? { key: `broker.refuse.${k}`, vars } : null;
+  }
+  return null;
+}
+
+/**
+ * The price a new take-profit (+TP) or stop-loss (+SL) starts at, before it is dragged: 5% up or 3% down for a long, mirrored
+ * for a short. When the price has already passed that level (it would fire at once), the leg starts 1% beyond the price.
+ */
+export function defaultExitPrice(kind: 'tp' | 'sl', qty: number, avgCost: number, mid = 0): number {
   const long = qty > 0;
   const k = kind === 'tp' ? (long ? 1.05 : 0.95) : (long ? 0.97 : 1.03);
-  return roundPrice(avgCost * k);
+  const at = roundPrice(avgCost * k);
+  if (priceSideRefusal({ side: long ? 'sell' : 'buy', type: kind === 'tp' ? 'limit' : 'stop' }, kind, at, mid)) {
+    return roundPrice(mid * (kind === 'tp' ? (long ? 1.01 : 0.99) : (long ? 0.99 : 1.01)));
+  }
+  return at;
 }
 
 /** The price an order's line sits at: the limit, the stop (stop-limit draws its stop), or a trailing stop's trigger from its best price. */
@@ -97,6 +145,8 @@ export interface ChartLevel {
   cancelable: boolean;
   /** the buttons on the average line: "+ TP" and "+ SL", for the legs the position lacks */
   actions?: { key: 'addTp' | 'addSl'; label: string }[];
+  /** the pill's text at another price, while the line is dragged (a leg shows its $ and % move at that price too) */
+  labelAt?: (price: number) => string;
 }
 
 /** The text of each line's pill, given by the caller (the builder stays free of translation). */
@@ -142,18 +192,19 @@ export function buildLevels(input: LevelInput): ChartLevel[] {
     const remaining = o.qty - o.filledQty;
     if (role === 'tp' && !hasTp) {
       hasTp = true;
-      const move = levelMove(qty, avgCost, price);
-      legs.push({ id: `tp-${o.id}`, kind: 'tp', price, label: fmt.exit('tp', price, move.usd, move.pct), tone: 'gain', dashed: false, orderId: o.id, draggable: true, cancelable: true });
+      const exit = (p: number) => { const m = levelMove(qty, avgCost, p); return fmt.exit('tp', p, m.usd, m.pct); };
+      legs.push({ id: `tp-${o.id}`, kind: 'tp', price, label: exit(price), labelAt: exit, tone: 'gain', dashed: false, orderId: o.id, draggable: true, cancelable: true });
       continue;
     }
     if (role === 'sl' && !hasSl) {
       hasSl = true;
-      const move = levelMove(qty, avgCost, price);
-      legs.push({ id: `sl-${o.id}`, kind: 'sl', price, label: fmt.exit('sl', price, move.usd, move.pct), tone: 'loss', dashed: false, orderId: o.id, draggable: true, cancelable: true });
+      const exit = (p: number) => { const m = levelMove(qty, avgCost, p); return fmt.exit('sl', p, m.usd, m.pct); };
+      legs.push({ id: `sl-${o.id}`, kind: 'sl', price, label: exit(price), labelAt: exit, tone: 'loss', dashed: false, orderId: o.id, draggable: true, cancelable: true });
       continue;
     }
+    const at = (p: number) => fmt.order(o.side, o.type, p, remaining);
     working.push({
-      id: `order-${o.id}`, kind: 'order', price, label: fmt.order(o.side, o.type, price, remaining), tone: 'steel', dashed: true,
+      id: `order-${o.id}`, kind: 'order', price, label: at(price), labelAt: at, tone: 'steel', dashed: true,
       orderId: o.id, draggable: o.type !== 'trailing', cancelable: true,
     });
   }

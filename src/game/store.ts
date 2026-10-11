@@ -455,7 +455,9 @@ export const useGame = create<GameStore>((set, get) => {
       set({ closeOpen: null, closeDismissed: Math.max(get().closeDismissed, day) });
       void get().act({ type: 'close.seen', day }, { silent: true });
     },
-    presetTicket(p) { set({ ticketPreset: { ...p, nonce: Date.now() }, screen: 'market', tradeSheetOpen: true }); },
+    // The preset fills the ticket only. The trade sheet is the narrow layout's own (BrokerApp opens it on a new preset there);
+    // it is not raised here, because a desktop terminal never draws it, and a flag nobody clears would hold CloseCard back.
+    presetTicket(p) { set({ ticketPreset: { ...p, nonce: Date.now() }, screen: 'market' }); },
     openProfile(profileId) { set({ profileId }); },
     openDm(channel) { set({ dmTarget: channel, profileId: null, chatOpen: true, chatUnread: 0 }); },
   };

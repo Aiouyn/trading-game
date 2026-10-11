@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Order } from '@/engine';
 import {
-  alertDir, alertFired, buildLevels, defaultExitPrice, exitRole, levelMove, orderPrice, pnlIfClosed, priceOfY, roundPrice, yOfPrice,
+  alertDir, alertFired, buildLevels, defaultExitPrice, exitRole, levelMove, orderPrice, pnlIfClosed, priceOfY, priceSideRefusal, roundPrice, yOfPrice,
   type LevelFormat, type PriceScale,
 } from './chartLevels';
 
@@ -166,5 +166,45 @@ describe('buildLevels', () => {
     });
     expect(levels.map((l) => l.id)).toEqual(['avg', 'tp-a', 'order-b', 'order-tr']);
     expect(levels.find((l) => l.id === 'order-tr')).toMatchObject({ draggable: false, cancelable: true, price: 95 });
+  });
+});
+
+describe('the side rules against the price (a leg or stop on the wrong side fills or fires at once)', () => {
+  it('a stop waits past the mid: a buy above it, a sell below it', () => {
+    expect(priceSideRefusal({ side: 'buy', type: 'stop' }, null, 101, 100)).toBeNull();
+    expect(priceSideRefusal({ side: 'buy', type: 'stop' }, null, 99, 100)).toMatchObject({ key: 'broker.refuse.stopBuy' });
+    expect(priceSideRefusal({ side: 'sell', type: 'stop_limit' }, null, 101, 100)).toMatchObject({ key: 'broker.refuse.stopSell' });
+  });
+
+  it('a long take-profit sits above the mid and its stop-loss below; a short is the reverse', () => {
+    expect(priceSideRefusal({ side: 'sell', type: 'limit' }, 'tp', 101, 100)).toBeNull();
+    expect(priceSideRefusal({ side: 'sell', type: 'limit' }, 'tp', 100, 100)).toMatchObject({ key: 'broker.refuse.tpAbove', vars: { price: 100, mid: 100 } });
+    expect(priceSideRefusal({ side: 'sell', type: 'stop' }, 'sl', 99, 100)).toBeNull();
+    expect(priceSideRefusal({ side: 'sell', type: 'stop' }, 'sl', 101, 100)).toMatchObject({ key: 'broker.refuse.slBelow' });
+    expect(priceSideRefusal({ side: 'buy', type: 'limit' }, 'tp', 99, 100)).toBeNull();
+    expect(priceSideRefusal({ side: 'buy', type: 'limit' }, 'tp', 101, 100)).toMatchObject({ key: 'broker.refuse.tpBelow' });
+    expect(priceSideRefusal({ side: 'buy', type: 'stop' }, 'sl', 101, 100)).toBeNull();
+    expect(priceSideRefusal({ side: 'buy', type: 'stop' }, 'sl', 99, 100)).toMatchObject({ key: 'broker.refuse.slAbove' });
+  });
+
+  it('a plain limit is no side refusal (a marketable limit is a warning on the ticket)', () => {
+    expect(priceSideRefusal({ side: 'buy', type: 'limit' }, null, 101, 100)).toBeNull();
+  });
+
+  it('a +TP or +SL the price has already passed starts 1% beyond the price', () => {
+    expect(defaultExitPrice('tp', 10, 100, 110)).toBe(111.1);
+    expect(defaultExitPrice('sl', 10, 100, 90)).toBe(89.1);
+    expect(defaultExitPrice('tp', 10, 100, 100)).toBe(105);
+    expect(defaultExitPrice('sl', -10, 100, 110)).toBe(111.1);
+    expect(defaultExitPrice('tp', -10, 100, 90)).toBe(89.1);
+  });
+
+  it('a leg line says its $ and % move at the price it is dragged to', () => {
+    const levels = buildLevels({
+      qty: 10, avgCost: 100, closeTotal: 0, alerts: [], fmt,
+      orders: [order({ id: 'tp1', side: 'sell', type: 'limit', reduceOnly: true, limitPrice: 105, qty: 10 })],
+    });
+    const tp = levels.find((l) => l.kind === 'tp')!;
+    expect(tp.labelAt!(110)).toBe('tp 110 100.00');
   });
 });

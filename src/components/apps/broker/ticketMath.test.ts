@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkOrder, engineRefusal, parseDecimal, tradeSummary, type OrderCheck } from './ticketMath';
+import { changeRefusal, checkOrder, engineRefusal, parseDecimal, tradeSummary, type OrderCheck } from './ticketMath';
 
 /** A buy of 10 shares at 100 with a 1-share cash account that can pay for it: a clean base for each rule. */
 function base(over: Partial<OrderCheck> = {}): OrderCheck {
@@ -150,5 +150,39 @@ describe('engineRefusal: the engine says why, under the field that caused it', (
 
   it('an unknown code keeps the engine words under the CTA', () => {
     expect(engineRefusal('closedWindow', 'buy', true)).toEqual({ field: 'general', key: 'broker.refuse.engine', vars: { reason: 'closedWindow' } });
+  });
+});
+
+describe('the take-profit and stop-loss against the entry price (they fill or fire at once on the wrong side)', () => {
+  it('a long take-profit sits above the entry reference and a long stop-loss below it', () => {
+    expect(checkOrder(base({ tp: 100.5 })).refusal).toBeNull(); // the reference is 100.05
+    expect(checkOrder(base({ tp: 100.01 })).refusal).toMatchObject({ field: 'tp', key: 'broker.refuse.tpAbove', cta: 'broker.cta.tpSide' });
+    expect(checkOrder(base({ sl: 99 })).refusal).toBeNull();
+    expect(checkOrder(base({ sl: 101 })).refusal).toMatchObject({ field: 'sl', key: 'broker.refuse.slBelow', cta: 'broker.cta.slSide' });
+  });
+
+  it('a short take-profit sits below and a short stop-loss above', () => {
+    expect(checkOrder(base({ side: 'sell', tp: 99 })).refusal).toBeNull();
+    expect(checkOrder(base({ side: 'sell', tp: 101 })).refusal).toMatchObject({ field: 'tp', key: 'broker.refuse.tpBelow' });
+    expect(checkOrder(base({ side: 'sell', sl: 101 })).refusal).toBeNull();
+    expect(checkOrder(base({ side: 'sell', sl: 99 })).refusal).toMatchObject({ field: 'sl', key: 'broker.refuse.slAbove' });
+  });
+
+  it('a limit entry checks its legs against its own limit, the price the children are placed at', () => {
+    expect(checkOrder(base({ type: 'limit', limit: 95, ref: 95, tp: 97 })).refusal).toBeNull();
+    expect(checkOrder(base({ type: 'limit', limit: 95, ref: 95, tp: 94 })).refusal).toMatchObject({ key: 'broker.refuse.tpAbove' });
+  });
+});
+
+describe('changeRefusal: an order change the engine refused reads as copy, never as its raw code', () => {
+  it('maps the known reasons to their own line', () => {
+    expect(changeRefusal('order is closed', 'sell', true)).toEqual({ key: 'broker.refuse.closed' });
+    expect(changeRefusal('below the filled quantity', 'sell', true)).toEqual({ key: 'broker.refuse.belowFilled' });
+    expect(changeRefusal('unknown order', 'sell', true)).toEqual({ key: 'broker.refuse.gone' });
+    expect(changeRefusal('limit price required', 'buy', true)).toEqual({ key: 'broker.refuse.limit' });
+  });
+
+  it('any other reason is the generic line, not the engine words', () => {
+    expect(changeRefusal('closedWindow', 'buy', true)).toEqual({ key: 'broker.refuse.engineGeneric' });
   });
 });

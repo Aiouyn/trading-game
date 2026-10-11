@@ -73,6 +73,8 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
     live.current = null;
     setDrag(null);
     if (!cur || cur.id !== level.id || cur.price === null || cur.startP === null) return;
+    // a press without a move is a click, not a drag: it must not move an off-tick level to the tick
+    if (Math.abs(cur.price - cur.base) < 1e-9) return;
     const next = roundPrice(cur.price);
     if (Math.abs(next - level.price) > 1e-9) onCommit(level, next);
   };
@@ -91,6 +93,14 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
     const row = edge === 'up' ? EDGE + up++ * PILL_H : edge === 'down' ? height - EDGE - down++ * PILL_H : at;
     return [{ level, edge, row, dragging, shown: dragging ? drag.price! : level.price }];
   });
+  // Pills on the scale that sit on nearly the same row (the average line and a take-profit a few cents apart) are spread one
+  // pill height apart, top to bottom; the line keeps its true row, and the dragged pill keeps the pointer's row.
+  const inRange = laid.filter((l) => l.edge === null).sort((a, b) => a.row - b.row);
+  for (let i = 1; i < inRange.length; i++) {
+    const prev = inRange[i - 1]!;
+    const cur = inRange[i]!;
+    if (!cur.dragging && cur.row < prev.row + PILL_H) cur.row = prev.row + PILL_H;
+  }
   return (
     <div ref={box} className="pointer-events-none absolute inset-0 z-[4] overflow-hidden" data-testid="chart-levels">
       {laid.map(({ level, edge, row, dragging, shown }) => {
@@ -115,7 +125,7 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
             >
               <span className={`num truncate ${TEXT[level.tone]}`}>
                 {edge === 'up' ? `${ARROW_UP} ` : edge === 'down' ? `${ARROW_DOWN} ` : ''}
-                {dragging ? fmtPrice(shown) : level.label}
+                {dragging ? (level.labelAt?.(shown) ?? fmtPrice(shown)) : level.label}
               </span>
               {level.actions?.map((a) => (
                 <button
