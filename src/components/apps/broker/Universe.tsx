@@ -60,8 +60,9 @@ export function Universe({ ticker, onPick, bare = false }: { ticker: string; onP
   const body = (
     <>
       <div className={pad}>
+        {/* In the dock the tab already names the list (UX 4): no second serif title, only the count. */}
         <div className="flex items-center justify-between">
-          <h2 className="font-serif text-title">{t('broker.markets')}</h2>
+          {bare ? <span className="text-caption text-fg-faint">{t('broker.markets')}</span> : <h2 className="font-serif text-title">{t('broker.markets')}</h2>}
           <span className="num text-caption text-fg-faint">{ids.length}</span>
         </div>
         <TextField
@@ -98,9 +99,9 @@ export function Universe({ ticker, onPick, bare = false }: { ticker: string; onP
                     {info.cls !== 'index' && info.delisted && <span className="text-micro text-loss" data-testid={`delisted-${id}`}>{t('broker.delisted')}</span>}
                     {info.cls !== 'index' && !info.tradable && !info.delisted && <span className="text-micro text-fg-faint" data-testid={`untradable-${id}`}>{t('broker.notTradable')}</span>}
                   </div>
-                  <div className="truncate text-caption text-fg-faint">{info.cls === 'index' ? `${info.name} · ${info.blurb}` : info.name}</div>
+                  <div className="line-clamp-2 break-words text-caption leading-tight text-fg-faint" data-testid={`watch-name-${id}`}>{info.cls === 'index' ? `${info.name} · ${info.blurb}` : info.name}</div>
                 </div>
-                <Sparkline data={sparkline(h, id, 1, 32)} width={52} height={20} className="hidden sm:block" />
+                <Sparkline data={sparkline(h, id, 1, 32)} width={36} height={18} className="hidden sm:block" />
                 <div className="text-right">
                   <Flash value={info.price} className="num text-small text-fg">{price(info.price)}</Flash>
                   <div className={`num text-caption ${toneText[tone(info.changePct)]}`}>{signedPct(info.changePct)}</div>

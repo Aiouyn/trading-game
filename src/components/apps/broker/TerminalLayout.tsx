@@ -53,7 +53,7 @@ export function TerminalLayout({ chart, dock, watchlist, ticket, watchlistOpen =
   return (
     <div ref={body} className="flex min-h-0 flex-1" data-testid="broker-terminal">
       {open ? (
-        <aside className="flex w-52 shrink-0 flex-col border-r border-ink-2" data-testid="terminal-watchlist">
+        <aside className="flex w-64 shrink-0 flex-col border-r border-ink-2" data-testid="terminal-watchlist">
           <div className="flex items-center justify-between px-3 pt-2">
             <span className="label">{t('broker.watchlist.title')}</span>
             <button

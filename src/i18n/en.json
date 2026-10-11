@@ -276,6 +276,7 @@
   "broker.watchlist.show": "Show the watchlist",
   "broker.dock.label": "Broker panels",
   "broker.dock.resize": "Resize the bottom panel",
+  "broker.welcome": "Welcome. Pick a stock, set a size, then press Buy. Your first trade is a single market order.",
   "broker.dock.positions": "Positions",
   "broker.dock.orders": "Open orders",
   "broker.dock.history": "History",

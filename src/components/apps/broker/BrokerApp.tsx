@@ -31,6 +31,7 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
   const selected = useGame((s) => s.selected);
   const config = useGame((s) => s.config);
   const storeSheet = useGame((s) => s.tradeSheetOpen);
+  const tradesMade = useGame((s) => s.me?.player.stats.trades ?? 0);
   const setStoreSheet = useGame((s) => s.setTradeSheet);
   const [pane, setPane] = useState<'chart' | 'ticket'>('chart');
   const [chain, setChain] = useState(false);
@@ -130,6 +131,10 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
   if (view.terminal) {
     return (
       <div className="flex min-h-0 flex-1 flex-col" data-testid="broker-body">
+        {/* First run (UX 5): a one-line welcome strip instead of a tip card over the trade surface. */}
+        {tradesMade === 0 && (
+          <p className="shrink-0 truncate border-b border-ink-2 px-3 py-1.5 text-caption text-fg-muted" data-testid="broker-welcome">{t('broker.welcome')}</p>
+        )}
         <TerminalLayout
           watchlistOpen={size.w >= WATCHLIST_OPEN_W}
           chart={chart}

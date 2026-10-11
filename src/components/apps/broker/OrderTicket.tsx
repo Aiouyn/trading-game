@@ -110,6 +110,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const whole = ctx?.def.assetClass === 'stock';
   const firstTrade = !!me && me.player.stats.trades === 0 && !me.player.onboarding.skipped;
   const simple = firstTrade && !fundMode;
+  // The order-type picker is hidden on a first trade (simple mode), except in the narrow layout (the trade sheet, UX 4).
+  const showType = !simple || !dense;
   const typeOpts = fundMode ? TYPE_OPTS.filter((o) => o.value === 'market' || o.value === 'limit') : TYPE_OPTS;
   const roundQ = (x: number) => (whole ? Math.floor(x) : Math.floor(x * 1e4) / 1e4);
   // the size in units: the typed number, or a dollar amount converted at the price (the estimate at mid guesses the units)
@@ -263,7 +265,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
         handled = true;
         setSide(intent.side);
       } else if (intent.kind === 'type') {
-        if (simple) return; // the type picker is hidden on a first trade
+        if (!showType) return; // the type picker is hidden on a first trade
         handled = true;
         setType(intent.type);
       } else if (intent.kind === 'ticker') {
@@ -389,7 +391,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   { value: 'sell', label: fundMode ? t('common.sell') : t('broker.side.short'), testId: 'side-sell' },
                 ]}
               />
-              {!simple && (
+              {showType && (
                 <label className="mt-2 flex flex-col gap-1">
                   <span className="text-caption text-fg-muted">{t('broker.orderType')}</span>
                   <select

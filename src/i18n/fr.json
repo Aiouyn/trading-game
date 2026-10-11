@@ -276,6 +276,7 @@
   "broker.watchlist.show": "Afficher la liste de suivi",
   "broker.dock.label": "Panneaux du courtier",
   "broker.dock.resize": "Redimensionner le panneau du bas",
+  "broker.welcome": "Bienvenue. Choisissez une action, une quantité, puis appuyez sur Acheter. Votre premier ordre est un ordre au marché.",
   "broker.dock.positions": "Positions",
   "broker.dock.orders": "Ordres en cours",
   "broker.dock.history": "Historique",
