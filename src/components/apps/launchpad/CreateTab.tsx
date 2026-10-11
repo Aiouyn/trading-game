@@ -100,7 +100,7 @@ function LaunchForm({ lp, takenNames, onOpen }: { lp: LaunchpadView; takenNames:
         </div>
       </div>
 
-      {check && <RefusalBox copy={refusalCopy(check)} testId="lp-check" />}
+      {check && <RefusalBox copy={refusalCopy(check, { name: name.trim(), ticker })} testId="lp-check" />}
       {!check && name.trim() && tickerOk && <p className="text-caption text-gain" data-testid="lp-check-ok">{t('lp.create.checkOk')}</p>}
 
       <div className="flex flex-col gap-2">

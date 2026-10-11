@@ -112,17 +112,32 @@ const PRECURSORS: Record<'crash' | 'bubble' | 'crisis', string[]> = {
   crisis: ['The Union finance council calls an emergency session for next week', 'Interbank lending rates spike overnight'],
 };
 
+/** The variants of an event line in each locale (en.json / fr.json: event.headline.<kind>.0 .. .7, event.pre.<kind>.0 .. .7). */
+const EVENT_VARIANTS = 8;
+
 /**
- * The i18n key of an engine headline or precursor line (en.json / fr.json), by its index in the engine's list. The app shows
- * the translated line; the English stays for the log and the replay. Null for a line the lists do not hold.
+ * The variant of an event line, by a stable hash of its id (FNV-1a). No RNG stream is read, so the copy never moves a price,
+ * a draw or a fingerprint: the engine's English line is still picked by its stream, and only the viewer's copy varies.
  */
-export function headlineKey(kind: WorldEventKind, text: string): string | null {
-  const i = HEADLINES[kind].indexOf(text);
-  return i < 0 ? null : `event.headline.${kind}.${i}`;
+function eventVariant(id: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) % EVENT_VARIANTS;
 }
-export function precursorKey(kind: 'crash' | 'bubble' | 'crisis', text: string): string | null {
-  const i = PRECURSORS[kind].indexOf(text);
-  return i < 0 ? null : `event.pre.${kind}.${i}`;
+
+/**
+ * The i18n key of an engine headline (en.json / fr.json), chosen among its eight variants by the event's id. The app shows the
+ * translated line; the English stays for the log and the replay. Null for a line the lists do not hold.
+ */
+export function headlineKey(kind: WorldEventKind, text: string, id: string): string | null {
+  return HEADLINES[kind].includes(text) ? `event.headline.${kind}.${eventVariant(id)}` : null;
+}
+/** The i18n key of a precursor line, chosen among its eight variants by the event's id and the line. */
+export function precursorKey(kind: 'crash' | 'bubble' | 'crisis', text: string, id: string): string | null {
+  return PRECURSORS[kind].includes(text) ? `event.pre.${kind}.${eventVariant(`${id}:${text}`)}` : null;
 }
 /** How many headline and precursor lines each kind has (the copy check in the i18n tests reads these). */
 export const EVENT_COPY_COUNTS = {
@@ -384,7 +399,7 @@ export function worldEventView(state: WorldState): WorldEventView | null {
     id: a.id,
     kind: hidden ? null : a.kind,
     headline: hidden ? null : a.headline,
-    headlineKey: hidden ? null : headlineKey(a.kind, a.headline),
+    headlineKey: hidden ? null : headlineKey(a.kind, a.headline, a.id),
     phase: live ? 'live' : 'announced',
     elapsedDays: live ? Math.floor((state.tick - a.startTick) / tpd) : 0,
     todayShare: a.today.day === today ? { ...a.today.moves } : {},

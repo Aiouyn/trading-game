@@ -51,7 +51,13 @@ export function enrichItemOf(item: WireItem, handles?: ReadonlySet<string>): Enr
   if (!NEWSROOM_KINDS.has(item.kind)) return null;
   const facts: ItemFacts = { kind: item.kind, tag: item.tag, text: item.text, tone: item.tone };
   if (item.assetId) facts.assetId = item.assetId;
-  if (item.msg) facts.msg = item.msg.vars ? { key: item.msg.key, vars: item.msg.vars } : { key: item.msg.key };
+  if (item.msg) {
+    // a nested Msg (7A) is flattened to its key: the prompt only carries flat facts (no number or handle hides inside it)
+    const vars = item.msg.vars
+      ? Object.fromEntries(Object.entries(item.msg.vars).map(([k, v]) => [k, typeof v === "object" && v !== null ? v.key : v]))
+      : undefined;
+    facts.msg = vars ? { key: item.msg.key, vars } : { key: item.msg.key };
+  }
   if (handles && handles.size > 0) {
     const values = stringValuesOf(facts);
     for (const h of handles) {

@@ -21,6 +21,7 @@ import { TPD, notify, pushWire, today } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { isLinkedAccount, linkedAccounts } from '../collusion';
 import { post } from './books';
+import { textProvider } from '../text';
 import { syncWindow } from './insiders';
 import { headcountBand } from './signals';
 import type { Company, CompanyReject, FilingPublic, IpoBook } from './types';
@@ -270,5 +271,8 @@ export function listIpo(g: GameState, c: Company, out: StepOutput | null): void 
   c.ipo = null;
   syncWindow(g, c);
   notify(g, out, c.ownerId, { kind: 'system', tone: 'brass', text: `${c.name} is listed as ${assetId} at $${P.toFixed(2)}. Your shares are locked for ${COMPANY.ipo.lockupDays} game days.`, msg: { key: 'company.note.listed', vars: { name: c.name, ticker: assetId, price: P.toFixed(2), days: COMPANY.ipo.lockupDays } } });
-  pushWire(g, out, { kind: 'listing', tag: 'IPO', tone: 'brass', text: `${c.name} lists as ${assetId} at $${P.toFixed(2)}`, assetId });
+  pushWire(g, out, {
+    kind: 'listing', tag: 'IPO', tone: 'brass', text: `${c.name} lists as ${assetId} at $${P.toFixed(2)}`, assetId,
+    msg: textProvider.newsroom({ kind: 'priced', id: `${day}:${assetId}:priced`, name: c.name, ticker: assetId, price: P }),
+  });
 }

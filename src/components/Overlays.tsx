@@ -6,7 +6,8 @@ import { money, price, signedMoney, signedPct, tone, toneText } from '@/game/for
 import { clockLabel } from '@/game/clock';
 import { assetDefOf, useGame } from '@/game/store';
 import { useIsPhone } from '@/game/useMedia';
-import { t } from '@/i18n';
+import { t, tm } from '@/i18n';
+import { wireTagMsg } from '@/world/text/wireTags';
 import { OsSheet } from './os/OsSheet';
 import { usePhone } from './os/phoneStore';
 import { useCloseCardShowing } from './CloseCard';
@@ -34,7 +35,7 @@ export function DigestModal() {
       <ul className="flex max-h-[40dvh] flex-col gap-2 overflow-y-auto">
         {d.items.map((n) => (
           <li key={n.id} className="rounded-md border border-ink-3 px-3 py-2 text-small">
-            <span className="num mr-2 text-caption text-fg-faint">{clockLabel(n.tick, 720)}</span>{n.text}
+            <span className="num mr-2 text-caption text-fg-faint">{clockLabel(n.tick, 720)}</span>{tm(n.msg, n.text)}
           </li>
         ))}
       </ul>
@@ -91,7 +92,7 @@ export function Coach() {
   if (step < 1 && firstNews) {
     const ticker = firstNews.assetId ?? '';
     card = {
-      key: 1, title: firstNews.tag, body: firstNews.text,
+      key: 1, title: tm(wireTagMsg(firstNews.tag), firstNews.tag), body: tm(firstNews.msg, firstNews.text),
       action: { label: t('coach.look', { ticker }), run: () => { select(ticker); setScreen('market'); void advance(1); } },
     };
   } else if (step < 2 && trades > 0) {

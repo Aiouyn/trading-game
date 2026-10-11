@@ -12,6 +12,7 @@ import {
 } from './core';
 import { offlineRate, purchaseShop, queueShare, servedOf } from './shopRules';
 import { PERK_RULES, windMultOf } from './perks';
+import { textProvider } from './text';
 import type { Business, CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -61,7 +62,13 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
   touch(g);
   p.stats.bizBought++;
   markShares(g);
-  if (def.tier >= 3) pushWire(g, out, { kind: 'biz', tag: 'Deal', tone: 'brass', text: `${p.handle} buys ${def.name} in ${cityName(cityId)}`, playerId: pid });
+  if (def.tier >= 3) {
+    const city = cityName(cityId);
+    pushWire(g, out, {
+      kind: 'biz', tag: 'Deal', tone: 'brass', text: `${p.handle} buys ${def.name} in ${city}`, playerId: pid,
+      msg: textProvider.newsroom({ kind: 'deal', id: `${g.market.tick}:${id}`, handle: p.handle, biz: def.name, city }),
+    });
+  }
   return ok({ id });
 }
 
@@ -93,7 +100,10 @@ export function sellBusiness(g: GameState, pid: string, bizId: string, out: Step
   touch(g);
   g.players[pid]!.stats.bizSold++;
   markShares(g);
-  notify(g, out, pid, { kind: 'biz', tone: 'info', text: `Sold ${b.name} for $${price.toLocaleString('en-US')}` });
+  notify(g, out, pid, {
+    kind: 'biz', tone: 'info', text: `Sold ${b.name} for $${price.toLocaleString('en-US')}`,
+    msg: textProvider.newsroom({ kind: 'sale', id: `${g.market.tick}:${bizId}`, name: b.name, price }),
+  });
   return ok({ price });
 }
 
@@ -227,6 +237,9 @@ export function businessEvents(g: GameState, out: StepOutput): void {
     notify(g, out, b.ownerId, {
       kind: 'biz', tone: ev.good ? 'gain' : 'loss',
       text: `${ev.text.replace('{biz}', b.name).replace('{city}', cityName(b.cityId))} Income ${ev.mult >= 1 ? '+' : '−'}${Math.round(Math.abs(ev.mult - 1) * 100)}% for ${ev.days} day${ev.days > 1 ? 's' : ''}.`,
+      msg: textProvider.newsroom({
+        kind: 'bizEvent', id: `${tick}:${b.id}`, event: ev.id, biz: b.name, city: cityName(b.cityId), mult: ev.mult, days: ev.days,
+      }),
     });
   }
   save();
@@ -314,7 +327,12 @@ export function buyProperty(g: GameState, pid: string, cityId: string, districtI
   };
   touch(g);
   p.stats.propsBought++;
-  if (price >= 5_000_000) pushWire(g, out, { kind: 'purchase', tag: 'Property', tone: 'brass', text: `${p.handle} buys a ${t.name.toLowerCase()} in ${dist.name}, ${city.name}`, playerId: pid });
+  if (price >= 5_000_000) {
+    pushWire(g, out, {
+      kind: 'purchase', tag: 'Property', tone: 'brass', text: `${p.handle} buys a ${t.name.toLowerCase()} in ${dist.name}, ${city.name}`, playerId: pid,
+      msg: textProvider.newsroom({ kind: 'property', id: `${g.market.tick}:${id}`, handle: p.handle, type: t.name.toLowerCase(), district: dist.name, city: city.name }),
+    });
+  }
   return ok({ id, price, mortgage });
 }
 

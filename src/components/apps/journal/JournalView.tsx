@@ -205,7 +205,7 @@ function TradeDetail({ trip, detail, tpd, onHire }: { trip: RoundTrip; detail: J
               {detail.headlines.map((h, i) => (
                 <li key={`${h.day}-${i}`} className="flex gap-3 text-small" data-testid="why-news-item">
                   <span className="num shrink-0 text-fg-faint">{t('desk.day', { day: h.day })}</span>
-                  <span className="text-fg">{h.text}</span>
+                  <span className="text-fg">{tm(h.msg, h.text)}</span>
                 </li>
               ))}
             </ul>

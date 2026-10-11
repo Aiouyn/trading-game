@@ -4,26 +4,36 @@ import {
   earningsHeadline, macroHeadline, moveHeadline, previewHeadline, ratesHeadline, regimeHeadline, rumorHeadline,
 } from '@/content/news';
 import { notify, pushWire } from './core';
+import { textProvider } from './text';
 import type { GameState, StepOutput } from './types';
 
 function defOf(g: GameState, id: string) {
   return g.market.config.assets.find((a) => a.id === id);
 }
 
-/** Turn engine events into Wire stories (public) and margin notices (private). */
+/**
+ * Turn engine events into Wire stories (public) and margin notices (private). Each line keeps its English text (the log and
+ * old clients) and carries a message descriptor from the newsroom, executives or rumor role (Phase 7, P7-1), so the viewer's
+ * language renders it.
+ */
 export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutput): void {
   for (const e of events) {
     switch (e.type) {
       case 'regime':
-        pushWire(g, out, { kind: 'macro', tag: 'Economy', tone: e.to === 'contraction' ? 'loss' : 'info', text: regimeHeadline(e.from, e.to) });
+        pushWire(g, out, {
+          kind: 'macro', tag: 'Economy', tone: e.to === 'contraction' ? 'loss' : 'info', text: regimeHeadline(e.from, e.to),
+          msg: textProvider.newsroom({ kind: 'regime', id: `${e.tick}:regime`, from: e.from, to: e.to }),
+        });
         break;
       case 'jump': {
         const d = defOf(g, e.assetId);
         if (!d || d.listed === false) break;
         const move = Math.exp(e.logSize) - 1;
+        const id = `${e.tick}:${e.assetId}`;
         pushWire(g, out, {
           kind: 'move', tag: e.assetId, tone: move >= 0 ? 'gain' : 'loss', assetId: e.assetId, news: 'jump',
-          text: moveHeadline(e.assetId, d.sector, d.name, move, `${e.tick}:${e.assetId}`),
+          text: moveHeadline(e.assetId, d.sector, d.name, move, id),
+          msg: textProvider.newsroom({ kind: 'move', id, name: d.name, move }),
         });
         break;
       }
@@ -40,68 +50,109 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
         pushWire(g, out, {
           kind: 'move', tag: 'Close', tone: best.m >= 0 ? 'gain' : 'loss', assetId: best.id,
           text: `Closing auction: ${d.name} prints ${pctText(best.m)} from its last trade as the big desks square up`,
+          msg: textProvider.newsroom({ kind: 'auction', id: `${e.tick}:auction`, name: d.name, move: best.m }),
         });
         break;
       }
       case 'halt': {
         const d = defOf(g, e.assetId);
         if (!d) break;
-        pushWire(g, out, { kind: 'halt', tag: 'Halt', tone: 'warn', assetId: e.assetId, text: `${d.name} halted after a ${pctText(e.move)} move; trading resumes in 10 minutes` });
+        pushWire(g, out, {
+          kind: 'halt', tag: 'Halt', tone: 'warn', assetId: e.assetId,
+          text: `${d.name} halted after a ${pctText(e.move)} move; trading resumes in 10 minutes`,
+          msg: textProvider.newsroom({ kind: 'halt', id: `${e.tick}:${e.assetId}`, name: d.name, move: e.move }),
+        });
         break;
       }
       case 'reopen': {
         const d = defOf(g, e.assetId);
         if (!d) break;
-        pushWire(g, out, { kind: 'reopen', tag: 'Reopen', tone: e.gap >= 0 ? 'gain' : 'loss', assetId: e.assetId, text: `${d.name} reopens ${pctText(e.gap)}` });
+        pushWire(g, out, {
+          kind: 'reopen', tag: 'Reopen', tone: e.gap >= 0 ? 'gain' : 'loss', assetId: e.assetId, text: `${d.name} reopens ${pctText(e.gap)}`,
+          msg: textProvider.newsroom({ kind: 'reopen', id: `${e.tick}:${e.assetId}`, name: d.name, gap: e.gap }),
+        });
         break;
       }
       case 'earnings': {
         const d = defOf(g, e.assetId);
         if (!d) break;
-        pushWire(g, out, { kind: 'earnings', tag: 'Earnings', tone: e.move >= 0 ? 'gain' : 'loss', assetId: e.assetId, news: 'earnings', text: earningsHeadline(d.name, e.surprise, e.move) });
+        const id = `${e.tick}:${e.assetId}`;
+        pushWire(g, out, {
+          kind: 'earnings', tag: 'Earnings', tone: e.move >= 0 ? 'gain' : 'loss', assetId: e.assetId, news: 'earnings',
+          text: earningsHeadline(d.name, e.surprise, e.move),
+          msg: textProvider.newsroom({
+            kind: 'earnings', id, name: d.name, surprise: e.surprise, move: e.move,
+            quote: textProvider.executives({ id: `${id}:ceo`, name: d.name, surprise: e.surprise }),
+          }),
+        });
         break;
       }
       case 'preview': {
         const d = defOf(g, e.assetId);
         if (!d) break;
-        pushWire(g, out, { kind: 'preview', tag: 'Preview', tone: 'info', assetId: e.assetId, text: previewHeadline(d.name, e.consensus, e.daysAway) });
+        pushWire(g, out, {
+          kind: 'preview', tag: 'Preview', tone: 'info', assetId: e.assetId, text: previewHeadline(d.name, e.consensus, e.daysAway),
+          msg: textProvider.newsroom({ kind: 'preview', id: `${e.tick}:${e.assetId}`, name: d.name, consensus: e.consensus, daysAway: e.daysAway }),
+        });
         break;
       }
       case 'rumor': {
         const d = defOf(g, e.assetId);
         if (!d) break;
-        pushWire(g, out, { kind: 'rumor', tag: 'Whisper', tone: 'warn', assetId: e.assetId, text: rumorHeadline(d.name, e.direction) });
+        pushWire(g, out, {
+          kind: 'rumor', tag: 'Whisper', tone: 'warn', assetId: e.assetId, text: rumorHeadline(d.name, e.direction),
+          msg: textProvider.rumor({ id: `${e.tick}:${e.assetId}`, name: d.name, direction: e.direction }),
+        });
         break;
       }
       case 'macro':
-        pushWire(g, out, { kind: 'macro', tag: e.kind === 'cpi' ? 'Inflation' : 'Jobs', tone: 'info', text: macroHeadline(e.kind, e.actual, e.consensus) });
+        pushWire(g, out, {
+          kind: 'macro', tag: e.kind === 'cpi' ? 'Inflation' : 'Jobs', tone: 'info', text: macroHeadline(e.kind, e.actual, e.consensus),
+          msg: textProvider.newsroom({ kind: 'macro', id: `${e.tick}:${e.kind}`, macro: e.kind, actual: e.actual, consensus: e.consensus, diff: e.actual - e.consensus }),
+        });
         break;
       case 'rates':
-        pushWire(g, out, { kind: 'rates', tag: 'Central bank', tone: e.change > 0 ? 'loss' : e.change < 0 ? 'gain' : 'info', text: ratesHeadline(e.policy, e.change, e.expected) });
+        pushWire(g, out, {
+          kind: 'rates', tag: 'Central bank', tone: e.change > 0 ? 'loss' : e.change < 0 ? 'gain' : 'info', text: ratesHeadline(e.policy, e.change, e.expected),
+          msg: textProvider.newsroom({ kind: 'rates', id: `${e.tick}:rates`, policy: e.policy, change: e.change, expected: e.expected }),
+        });
         break;
       case 'listing': {
         const name = defOf(g, e.assetId)?.name ?? e.assetId;
         const px = `$${e.price.toFixed(2)}`;
+        const id = `${e.tick}:${e.assetId}`;
         if (e.kind === 'ipo') {
-          pushWire(g, out, { kind: 'listing', tag: 'IPO', tone: 'info', assetId: e.assetId, text: `${name} lists on Port Avalon at ${px}` });
+          pushWire(g, out, {
+            kind: 'listing', tag: 'IPO', tone: 'info', assetId: e.assetId, text: `${name} lists on Port Avalon at ${px}`,
+            msg: textProvider.newsroom({ kind: 'listing', id, event: 'ipo', name, price: e.price, child: '' }),
+          });
         } else if (e.kind === 'bankruptcy') {
-          pushWire(g, out, { kind: 'listing', tag: 'Bankruptcy', tone: 'loss', assetId: e.assetId, text: `${name} files for bankruptcy; holders recover ${px} a share in cash` });
+          pushWire(g, out, {
+            kind: 'listing', tag: 'Bankruptcy', tone: 'loss', assetId: e.assetId, text: `${name} files for bankruptcy; holders recover ${px} a share in cash`,
+            msg: textProvider.newsroom({ kind: 'listing', id, event: 'bankruptcy', name, price: e.price, child: '' }),
+          });
         } else if (e.kind === 'merger') {
-          pushWire(g, out, { kind: 'listing', tag: 'Takeover', tone: 'gain', assetId: e.assetId, text: `${name} agrees to a cash takeover at ${px} a share; trading stops` });
+          pushWire(g, out, {
+            kind: 'listing', tag: 'Takeover', tone: 'gain', assetId: e.assetId, text: `${name} agrees to a cash takeover at ${px} a share; trading stops`,
+            msg: textProvider.newsroom({ kind: 'listing', id, event: 'merger', name, price: e.price, child: '' }),
+          });
         } else {
           const child = defOf(g, e.otherId ?? '')?.name ?? e.otherId ?? 'a new company';
-          pushWire(g, out, { kind: 'listing', tag: 'Spin-off', tone: 'info', assetId: e.assetId, text: `${name} spins off ${child}; holders receive shares in the new company` });
+          pushWire(g, out, {
+            kind: 'listing', tag: 'Spin-off', tone: 'info', assetId: e.assetId, text: `${name} spins off ${child}; holders receive shares in the new company`,
+            msg: textProvider.newsroom({ kind: 'listing', id, event: 'spinoff', name, price: e.price, child }),
+          });
         }
         break;
       }
       case 'world': {
         if (e.phase === 'announced') {
           for (const p of e.precursors ?? []) {
-            const key = e.kind === 'flash' ? null : precursorKey(e.kind, p);
+            const key = e.kind === 'flash' ? null : precursorKey(e.kind, p, e.id);
             pushWire(g, out, { kind: 'world', tag: 'Markets', tone: 'warn', text: p, ...(key ? { msg: { key } } : {}), ev: { type: 'world', id: e.id, phase: 'announced', kind: e.kind } });
           }
         } else if (e.phase === 'start') {
-          const key = headlineKey(e.kind, e.headline);
+          const key = headlineKey(e.kind, e.headline, e.id);
           pushWire(g, out, { kind: 'world', tag: worldLabel(e.kind), tone: worldTone(e.kind), text: e.headline, ...(key ? { msg: { key } } : {}), ev: { type: 'world', id: e.id, phase: 'start', kind: e.kind } });
         } else {
           const lasted = e.kind === 'flash' ? '' : ` · lasted ${e.lastedDays} day${e.lastedDays === 1 ? '' : 's'}`;
@@ -120,29 +171,43 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
         break;
       }
       case 'margin_call':
-        notify(g, out, e.playerId, { kind: 'margin', tone: 'warn', text: `Margin call: equity $${Math.round(e.equity).toLocaleString('en-US')} is below the $${Math.round(e.required).toLocaleString('en-US')} requirement. Add cash or cut positions before you are liquidated.` });
+        notify(g, out, e.playerId, {
+          kind: 'margin', tone: 'warn',
+          text: `Margin call: equity $${Math.round(e.equity).toLocaleString('en-US')} is below the $${Math.round(e.required).toLocaleString('en-US')} requirement. Add cash or cut positions before you are liquidated.`,
+          msg: textProvider.newsroom({ kind: 'margin', id: `${e.tick}:${e.playerId}`, equity: e.equity, required: e.required }),
+        });
         break;
       case 'liquidation': {
         const p = g.players[e.playerId];
         if (p) p.stats.liquidations++;
-        notify(g, out, e.playerId, { kind: 'margin', tone: 'loss', text: `Liquidated: the broker closed ${e.qty} ${e.assetId} at ${e.price.toFixed(2)} to cover your margin.` });
-        pushWire(g, out, { kind: 'liquidation', tag: 'Margin', tone: 'loss', assetId: e.assetId, text: `Forced selling: a leveraged trader is liquidated in ${e.assetId}` });
+        notify(g, out, e.playerId, {
+          kind: 'margin', tone: 'loss', text: `Liquidated: the broker closed ${e.qty} ${e.assetId} at ${e.price.toFixed(2)} to cover your margin.`,
+          msg: textProvider.newsroom({ kind: 'liquidated', id: `${e.tick}:${e.playerId}`, qty: e.qty, asset: e.assetId, price: e.price }),
+        });
+        pushWire(g, out, {
+          kind: 'liquidation', tag: 'Margin', tone: 'loss', assetId: e.assetId, text: `Forced selling: a leveraged trader is liquidated in ${e.assetId}`,
+          msg: textProvider.newsroom({ kind: 'liquidation', id: `${e.tick}:${e.assetId}`, asset: e.assetId }),
+        });
         break;
       }
       case 'index': {
         const nm = g.market.config.indices.find((x) => x.id === e.indexId)?.name ?? e.indexId;
         const names = (ids: string[]) => ids.map((id) => defOf(g, id)?.name ?? id).join(', ');
         const moves = [e.adds.length ? `joins ${names(e.adds)}` : '', e.removes.length ? `leaves ${names(e.removes)}` : ''].filter(Boolean).join('; ');
+        const adds = e.adds.map((id) => defOf(g, id)?.name ?? id);
+        const removes = e.removes.map((id) => defOf(g, id)?.name ?? id);
         if (e.phase === 'announced') {
           const tpd = g.market.config.ticksPerDay;
           const away = Math.max(1, e.day - Math.floor((e.tick - 1) / tpd));
           pushWire(g, out, {
             kind: 'index', tag: 'Index', tone: 'info', text: `${nm} reviews its members in ${away} day${away === 1 ? '' : 's'}: ${moves}`,
+            msg: textProvider.newsroom({ kind: 'index', id: `${e.indexId}:${e.day}:announced`, phase: 'announced', index: nm, days: away, adds, removes }),
             ev: { type: 'index', id: `${e.indexId}:${e.day}`, phase: 'announced', indexId: e.indexId, day: e.day, adds: e.adds, removes: e.removes },
           });
         } else {
           pushWire(g, out, {
             kind: 'index', tag: 'Index', tone: 'info', text: `${nm} reconstitutes today: ${moves}. Pension funds rebalance into the new weights`,
+            msg: textProvider.newsroom({ kind: 'index', id: `${e.indexId}:${e.day}:effective`, phase: 'effective', index: nm, days: 0, adds, removes }),
             ev: { type: 'index', id: `${e.indexId}:${e.day}`, phase: 'effective', indexId: e.indexId, day: e.day, adds: e.adds, removes: e.removes },
           });
         }
@@ -154,12 +219,19 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
         pushWire(g, out, {
           kind: 'squeeze', tag: 'Squeeze', tone: 'warn', assetId: e.assetId,
           text: `Short squeeze in ${d.name}: forced buying to cover shorts reached ${(e.cover * 100).toFixed(0)}% of a day's volume`,
+          msg: textProvider.newsroom({ kind: 'squeeze', id: `${e.tick}:${e.assetId}`, name: d.name, cover: e.cover }),
         });
         break;
       }
-      case 'option_expiry':
-        notify(g, out, e.playerId, { kind: 'fill', tone: e.payout > 0 ? 'gain' : 'loss', text: e.payout > 0 ? `Option ${e.contractId.replace(/\|/g, ' ')} expired in the money: +$${Math.round(e.payout).toLocaleString('en-US')}` : `Option ${e.contractId.replace(/\|/g, ' ')} expired worthless` });
+      case 'option_expiry': {
+        const contract = e.contractId.replace(/\|/g, ' ');
+        notify(g, out, e.playerId, {
+          kind: 'fill', tone: e.payout > 0 ? 'gain' : 'loss',
+          text: e.payout > 0 ? `Option ${contract} expired in the money: +$${Math.round(e.payout).toLocaleString('en-US')}` : `Option ${contract} expired worthless`,
+          msg: textProvider.newsroom({ kind: 'option', id: `${e.tick}:${e.playerId}:${e.contractId}`, contract: e.contractId, payout: e.payout }),
+        });
         break;
+      }
     }
   }
 }
@@ -197,6 +269,7 @@ export function filings(g: GameState, playerId: string, out: StepOutput): void {
       pushWire(g, out, {
         kind: 'filing', tag: 'Filing', tone: 'brass', assetId, playerId,
         text: `${p.handle} discloses a stake of ${(level * 100).toFixed(1)}% in ${def.name}`,
+        msg: textProvider.newsroom({ kind: 'filing', id: `${g.market.tick}:${playerId}:${assetId}:${level}`, handle: p.handle, name: def.name, level }),
       });
     } else if (level < prev) {
       p.filings[assetId] = level;

@@ -84,7 +84,7 @@ export function launchInputError(g: GameState, input: LaunchInput): CommandResul
   if (seen !== undefined && dayOf(g.market.tick) - seen < LP.TICKER_HOLD_DAYS) return refuse('tickerRecent', { ticker: input.ticker, days: LP.TICKER_HOLD_DAYS });
   const tk = moderateName(input.ticker);
   if (tk.reason === 'crypto') return refuse('tickerCrypto', { ticker: input.ticker });
-  if (tk.reason === 'abuse') return refuse('nameAbuse', {});
+  if (tk.reason === 'abuse') return refuse('nameAbuse', { name: input.ticker });
   const nm = moderateName(input.name, takenNames(g));
   if (nm.reason) return refuse(NAME_REFUSAL_CODE[nm.reason], { name: input.name });
   return null;
