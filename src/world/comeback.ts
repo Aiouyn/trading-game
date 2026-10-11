@@ -9,6 +9,7 @@ import { applyRank } from './players';
 import { tradesOf } from './ledger';
 import { adRefusal, adsUsedToday, overdraws, SPONSOR } from './sponsor';
 import { fundsOf } from './funds/state';
+import { failPrivateFounderCompanies, callFounderGuarantees, sellListedFounderStakes } from './company/stakes';
 import { tripDetail } from './journal';
 import { requestRedeem } from './funds/flows';
 import { startWindDown } from './funds/risk';
@@ -180,6 +181,8 @@ function closeStep(g: GameState, p: Player, out: StepOutput | null): void {
     const r = cancelOrderResult(g.market, p.id, id);
     if (!r.error) g.market = r.state;
   }
+  // the founder's listed stakes go to the NPC book first (at 70% of the 30-day VWAP): the locked founder shares would otherwise stall the sell-down
+  sellListedFounderStakes(g, p.id, out);
   const acct = g.market.accounts[p.id] as Account;
   const openAssets = new Set(g.market.orders.filter((o) => o.playerId === p.id && o.status === 'open').map((o) => o.assetId));
   for (const [assetId, pos] of Object.entries(acct.positions)) {
@@ -218,6 +221,10 @@ function finishFreshStart(g: GameState, p: Player, out: StepOutput | null): void
   for (const pr of [...playerProperties(g, p.id)]) sellProperty(g, p.id, pr.id);
   resetLab(g, p.id);
   closeFunds(g, p.id, out);
+  // the founder's companies: a private company the founder alone owns goes through the failure path, and the guarantees on the
+  // listed ones are called. Their cash moves are transfers, so the bust sweep below takes what is left.
+  failPrivateFounderCompanies(g, p.id, out);
+  callFounderGuarantees(g, p.id, out);
   // the Limited and Unique items go (velvet-bankruptcy.md): their 15% haircut is swept with the rest of the cash, so no cash moves here
   p.lifestyle = p.lifestyle.filter((o) => { const cls = LIFE_BY_ID.get(o.itemId)?.cls; return cls !== 'limited' && cls !== 'unique'; });
   const cash = cashOf(g, p.id);
