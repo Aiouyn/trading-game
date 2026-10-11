@@ -18,7 +18,13 @@ test('core loop: join, first trade capped at 20%, fill, and everything survives 
   await register(page);
   await expect(page.getByTestId('os-networth')).toContainText('$5,250');
   // The Broker is the first window on the desktop and the first app on the phone (home-app-broker).
-  if (isPhone(page)) await page.getByTestId('home-app-broker').click();
+  if (isPhone(page)) {
+    await page.getByTestId('home-app-broker').click();
+    // on the phone the ticket is the bottom sheet, opened from the trade bar (a size first)
+    await skipTips(page);
+    await page.getByTestId('bar-qty').fill('1');
+    await page.getByTestId('bar-review').click();
+  }
   await expect(page.getByTestId('first-trade-cap')).toBeVisible();
   await page.getByTestId('order-qty').fill('20');
   await expect(page.getByTestId('order-invalid')).toContainText('20%');
@@ -36,7 +42,8 @@ test('core loop: join, first trade capped at 20%, fill, and everything survives 
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-game', 'ready', { timeout: 30_000 });
   if (isPhone(page)) await goTo(page, 'portfolio');
-  await expect(page.getByTestId('position-HLCN')).toBeVisible();
+  // the Broker's dock may still hold the same position in the page: the visible one is the Portfolio's
+  await expect(page.locator('[data-testid="position-HLCN"]:visible')).toBeVisible({ timeout: 15_000 });
   await noHorizontalOverflow(page);
   expect(errors).toEqual([]);
 });

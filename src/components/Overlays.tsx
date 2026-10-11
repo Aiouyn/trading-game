@@ -112,7 +112,10 @@ export function Coach() {
       action: { label: t('coach.gotIt'), run: () => { void advance(4, { done: true }); } },
     };
   }
-  if (!card || hidden === card.key || recentOpen || sheetOpen || closeUp || (phone && !COACH_PHONE_APPS.has(phoneApp ?? ''))) return null;
+  // The first-run desktop opens the Broker maximized (UX redesign 1.1): no tip card over it before the first trade. The
+  // coach resumes after the first fill, on the desktop as before.
+  const firstRunDesktop = !phone && trades === 0;
+  if (!card || hidden === card.key || recentOpen || sheetOpen || closeUp || firstRunDesktop || (phone && !COACH_PHONE_APPS.has(phoneApp ?? ''))) return null;
   const c = card;
   return (
     <OsSheet title={c.title} testId="coach" onClose={() => setHidden(c.key)}>

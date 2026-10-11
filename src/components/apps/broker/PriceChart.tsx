@@ -397,7 +397,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     <div className="relative h-full w-full">
       <div ref={host} className="h-full w-full" data-testid={testId} data-chart-id={assetId} />
       {showOverlay && (
-        <div className="pointer-events-none absolute left-2 top-2 z-[1] flex max-w-[calc(100%-5rem)] flex-col gap-1">
+        <div className="pointer-events-none absolute left-2 top-2 z-[3] flex max-w-[calc(100%-5rem)] flex-col gap-1">
           {readout && (
             <div className="num text-micro text-fg-muted" data-testid="chart-readout">
               <span className="text-fg-faint">{barTimeLabel(readout.time, tpd, daily)}</span>

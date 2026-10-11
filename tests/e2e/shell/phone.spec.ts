@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { boot, onlyIn, orders } from './support';
+import { skipTips } from '../helpers';
 
 /** Holds the Quay mark for ms (a real pointer hold). The app times the hold from pointerdown. */
 async function holdQuay(page: Page, ms: number): Promise<void> {
@@ -108,6 +109,7 @@ test.describe('phone shell', () => {
     await boot(page);
     await page.getByTestId('home-app-broker').click();
     await expect(page.getByTestId('phone-app-broker')).toBeVisible();
+    await skipTips(page);
     await expect(page.getByTestId('trade-bar')).toBeVisible();
     await expect(page.getByTestId('bar-qty')).toBeVisible();
     await expect(page.getByTestId('order-pad')).toHaveCount(0);

@@ -79,6 +79,17 @@ test.describe('Broker terminal on the desktop', () => {
       await page.screenshot({ path: `${SHOTS}/layout-${label}-position.png` });
       await inViewport(page, 'price-chart');
       await inViewport(page, 'order-submit');
+
+      // the indicators menu adds a study to the legend with its value, and the legend row removes it (spec 1.2)
+      if (vp.w === 1440) {
+        await page.getByTestId('indicators-menu').click();
+        await page.getByTestId('ind-sma20').check();
+        await expect(page.getByTestId('legend-sma20')).toBeVisible();
+        await page.getByTestId('indicators-menu').click({ force: true });
+        await page.screenshot({ path: `${SHOTS}/layout-${label}-legend.png` });
+        await page.getByTestId('legend-remove-sma20').click();
+        await expect(page.getByTestId('legend-sma20')).toHaveCount(0);
+      }
     });
   }
 });

@@ -6,7 +6,7 @@ import { INDICATORS } from '@/game/indicators';
 import { money, price, signedChange, signedPct, tone, toneText } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { useState } from 'react';
+import { type MouseEvent, useState } from 'react';
 import { Chip, Flash, LockGlyph, Segmented } from '@/components/ui';
 import { PriceChart } from './PriceChart';
 import { kindLabel } from '@/components/os/eventText';
@@ -161,13 +161,22 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
  */
 export function IndicatorMenu() {
   const [open, setOpen] = useState(false);
+  // the menu is placed under its button in the viewport: a toolbar that scrolls (the phone) would clip an absolute one
+  const [at, setAt] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
   const indicators = useGame((s) => s.indicators);
   const toggle = useGame((s) => s.toggleIndicator);
   const on = INDICATORS.filter((i) => indicators[i.id]).length;
+  const flip = (e: MouseEvent<HTMLButtonElement>) => {
+    if (!open) {
+      const r = e.currentTarget.getBoundingClientRect();
+      setAt({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+    }
+    setOpen((o) => !o);
+  };
   return (
-    <div className="relative">
+    <div className="relative shrink-0">
       <button
-        type="button" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((o) => !o)} data-testid="indicators-menu"
+        type="button" aria-expanded={open} aria-haspopup="menu" onClick={flip} data-testid="indicators-menu"
         className={`h-7 rounded-md border px-2.5 text-caption ${on > 0 ? 'border-brass/60 bg-brass/10 text-brass-hi' : 'border-ink-3 text-fg-faint hover:text-fg-muted'}`}
       >
         {t('broker.indicators')}{on > 0 ? ` (${on})` : ''}
@@ -175,7 +184,7 @@ export function IndicatorMenu() {
       {open && (
         <>
           <div className="fixed inset-0 z-[5]" onClick={() => setOpen(false)} aria-hidden />
-          <ul role="menu" aria-label={t('broker.indicators')} className="absolute right-0 top-full z-[6] mt-1 w-64 rounded-md border border-ink-3 bg-ink-1 p-1 shadow-lg">
+          <ul role="menu" aria-label={t('broker.indicators')} style={{ top: at.top, right: at.right }} className="fixed z-[6] w-64 rounded-md border border-ink-3 bg-ink-1 p-1 shadow-lg">
             {INDICATORS.map((ind) => (
               <li key={ind.id} role="none">
                 <label role="menuitemcheckbox" aria-checked={!!indicators[ind.id]} title={t(`broker.ind.${ind.id}`)} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-small text-fg-muted hover:bg-ink-2 hover:text-fg">
