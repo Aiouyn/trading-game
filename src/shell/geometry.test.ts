@@ -166,9 +166,12 @@ describe('min-size checks and nearest slot', () => {
 
 describe('Broker layout breakpoints (V:41, C-37)', () => {
   it('narrow below 720 wide, short below 560 tall', () => {
-    expect(brokerView({ w: 480, h: 420 })).toEqual({ narrow: true, short: true });
-    expect(brokerView({ w: 720, h: 560 })).toEqual({ narrow: false, short: false });
-    expect(brokerView({ w: 900, h: 559 })).toEqual({ narrow: false, short: true });
+    expect(brokerView({ w: 480, h: 420 })).toEqual({ narrow: true, short: true, terminal: false });
+    expect(brokerView({ w: 720, h: 560 })).toEqual({ narrow: false, short: false, terminal: false });
+    expect(brokerView({ w: 900, h: 559 })).toEqual({ narrow: false, short: true, terminal: true });
+    // the terminal starts at 900 px wide (spec 1.1)
+    expect(brokerView({ w: 899, h: 700 }).terminal).toBe(false);
+    expect(brokerView({ w: 900, h: 700 }).terminal).toBe(true);
   });
 });
 

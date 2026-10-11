@@ -27,7 +27,7 @@ const TABS: { id: UniverseTab; key: string }[] = [
  * Delisted tag and cannot be traded (its last price stays on the chart). Index rows show their member count
  * (indexMembers, as of the last review). Picking a row calls `onPick`, which opens that ticker in a Broker.
  */
-export function Universe({ ticker, onPick }: { ticker: string; onPick: (id: string) => void }) {
+export function Universe({ ticker, onPick, bare = false }: { ticker: string; onPick: (id: string) => void; bare?: boolean }) {
   const world = useGame((s) => s.world)!;
   const me = useGame((s) => s.me)!;
   useGame((s) => s.historyRev);
@@ -54,11 +54,12 @@ export function Universe({ ticker, onPick }: { ticker: string; onPick: (id: stri
     return config.assets.filter((a) => a.assetClass === tab).map((a) => a.id);
   }, [tab, q, watch, config]);
   const h = useGame.getState().history;
-  return (
-    // A floor under the card: the Broker body is a flex column, and the Rivals card (under this one) would paint over a
-    // header that the body squeezed to nothing. Below the floor the body scrolls instead.
-    <Card className="flex min-h-[16rem] flex-col" data-testid="watchlist">
-      <div className="px-4 pt-4">
+  // bare: the terminal's watchlist column (no card: the column draws its own edge). Otherwise a card with a floor under it:
+  // the Broker body is a flex column, and a card under this one would paint over a header that the body squeezed to nothing.
+  const pad = bare ? 'px-3 pt-3' : 'px-4 pt-4';
+  const body = (
+    <>
+      <div className={pad}>
         <div className="flex items-center justify-between">
           <h2 className="font-serif text-title">{t('broker.markets')}</h2>
           <span className="num text-caption text-fg-faint">{ids.length}</span>
@@ -118,6 +119,9 @@ export function Universe({ ticker, onPick }: { ticker: string; onPick: (id: stri
           );
         })}
       </ul>
-    </Card>
+    </>
   );
+  return bare
+    ? <div className="flex min-h-0 flex-1 flex-col" data-testid="watchlist">{body}</div>
+    : <Card className="flex min-h-[16rem] flex-col" data-testid="watchlist">{body}</Card>;
 }

@@ -530,7 +530,7 @@ function applyPlacements(state: ShellState, placements: Placement[]): ShellState
 
 // ---------------------------------------------------------------- start and load
 
-/** A fresh save: the Trade layout with the Broker focused (F:119). Also the fallback for a corrupt shell. */
+/** A fresh shell: the Trade layout with the Broker focused (F:119). Also the fallback for a corrupt shell. */
 export function initialShell(vp: Size, ctx: WmCtx, ticker?: string): ShellState {
   const base: ShellState = {
     v: 1,
@@ -543,6 +543,26 @@ export function initialShell(vp: Size, ctx: WmCtx, ticker?: string): ShellState 
     vp: { w: vp.w, h: vp.h },
   };
   return applyPlacements(base, ctx.plan('trade', vp, { ticker }));
+}
+
+/**
+ * The first-run desktop (spec 1.1, UX redesign): a save with no stored shell opens the Broker alone, maximized to the work
+ * area as the Trade workspace, not the Trade layout's three windows and a tip card. The Trade layout stays a named layout
+ * the launcher offers.
+ */
+export function firstRunShell(vp: Size, ctx: WmCtx, ticker?: string): ShellState {
+  const base: ShellState = {
+    v: 1,
+    wins: [],
+    activeWs: 0,
+    focusWs: [],
+    focusRestore: null,
+    layouts: [],
+    shelf: defaultShelf(),
+    vp: { w: vp.w, h: vp.h },
+  };
+  const broker = ctx.plan('trade', vp, { ticker }).filter((p) => p.app === 'broker');
+  return applyPlacements(base, broker.map((p) => ({ ...p, filled: true })));
 }
 
 /**

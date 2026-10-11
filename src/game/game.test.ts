@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { useLocale } from '@/i18n';
 import { clockLabel, clockParts, dayIndex } from './clock';
 import { compactMoney, money, price, signedChange, signedMoney, signedPct } from './format';
-import { barTimeLabel, candles, createHistory, dayOpen, ensureVolume, record, sparkline } from './history';
+import { barTimeLabel, barsFor, createHistory, dayOpen, ensureVolume, record, sparkline } from './history';
 
 const M = '\u2212';
 
@@ -66,12 +66,11 @@ describe('history and candles', () => {
     expect(dayOpen(h, 'X')).toBe(100 + tpd);
   });
 
-  it('aggregates intraday bars on fixed tick buckets with continuous opens', () => {
+  it('aggregates intraday bars on game-time buckets with continuous opens', () => {
     const h = filled(tpd * 3);
-    const bars = candles(h, 'X', '1D');
-    expect(bars.length).toBeGreaterThanOrEqual(60);
-    expect(bars.length).toBeLessThanOrEqual(61);
-    for (const b of bars) expect(b.time % 12).toBe(0);
+    // the last game day is 390 session minutes: 1h candles give seven (six full, and the half hour to the close)
+    const bars = barsFor(h, 'X', '1h', '1D');
+    expect(bars).toHaveLength(7);
     for (let i = 1; i < bars.length; i++) {
       expect(bars[i]!.time).toBeGreaterThan(bars[i - 1]!.time);
       expect(bars[i]!.open).toBe(bars[i - 1]!.close);
@@ -83,7 +82,8 @@ describe('history and candles', () => {
   it('keeps only the last five days of ticks in the ring', () => {
     const h = filled(tpd * 7);
     expect(h.series.X!.size).toBe(tpd * 5);
-    expect(candles(h, 'X', '1W').length).toBeLessThanOrEqual(61);
+    expect(barsFor(h, 'X', '1h', '1W').length).toBeLessThanOrEqual(5 * 7 + 1);
+    expect(barsFor(h, 'X', '1D', '1W')).toHaveLength(5);
     expect(sparkline(h, 'X', 5, 48)).toHaveLength(48);
   });
 });
@@ -101,9 +101,9 @@ describe('volume bars', () => {
     }
     const sum = (a: number, b: number) => a + (b > 0 ? b : 0);
     const total = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i).reduce(sum, 0);
-    const bars = candles(every, 'A', '1D');
-    const bar12 = bars.find((b) => b.time === 12)!; // ticks 12..23
-    expect(bar12.volume).toBe(total(12, 23));
+    // intraday candles sum the same tick deltas (the first tick in the ring has no baseline)
+    const intraday = barsFor(every, 'A', '5m', '1D');
+    expect(intraday.reduce((a, b) => a + (b.volume ?? 0), 0)).toBe(total(2, 48));
     expect(every.series.A!.daily.at(-1)!.volume).toBe(total(2, 48)); // first reading has no baseline
     // the skipped history attributes each 3-tick chunk to the tick that recorded it
     expect(skipped.series.A!.daily.at(-1)!.volume).toBe(total(4, 48));
@@ -112,7 +112,7 @@ describe('volume bars', () => {
   it('indices carry no volume and old saves gain volume rings', () => {
     const h = createHistory(['GX', 'A'], 720, ['A']);
     record(h, 1, { GX: 1000, A: 10 }, { A: 5 });
-    expect(candles(h, 'GX', '1D')[0]!.volume).toBeUndefined();
+    expect(barsFor(h, 'GX', '5m', '1D')[0]!.volume).toBeUndefined();
     const old = createHistory(['A'], 720);
     ensureVolume(old, ['A']);
     record(old, 1, { A: 10 }, { A: 5 });
