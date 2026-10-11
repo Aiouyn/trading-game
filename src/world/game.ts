@@ -13,7 +13,7 @@ import { shopCommand, shopsDay } from './shops';
 import { enterTournament, settleTournament, TOURNAMENT_SYSTEM } from './tournamentWeek';
 import { auctionTick, placeBid } from './auctions';
 import { claimStreak, markStreakAction } from './streak';
-import { insuranceWeek, setInsurance } from './insurance';
+import { insuranceWeek, lossDay, setInsurance } from './insurance';
 import { placeInSlot, setVisibility } from './home';
 import { newsFromEvents, filings } from './news';
 import {
@@ -493,4 +493,5 @@ function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOut
 export function securityDay(g: GameState, out: StepOutput | null): void {
   cyberDay(g, out);
   rivalCrewDay(g, out);
+  lossDay(g, out);
 }

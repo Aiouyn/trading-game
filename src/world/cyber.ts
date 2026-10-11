@@ -94,6 +94,8 @@ function newEntry(g: GameState, ownerId: string, rng: { uniform(): number }, hos
     firstSeenTick: t, lastHandshakeTick: t, load, tag: null, flagged: false, ...(hostile ? { hostile } : {}),
   };
   g.cyber.entries[id] = e;
+  // a hostile session stamps the breach as it opens, so the insurance switch waits 24 h after it ends (insurance.ts)
+  if (hostile) (g.cyber.breachedAt ??= {})[ownerId] = t;
   touch(g);
   return e;
 }
@@ -219,6 +221,8 @@ function endSession(g: GameState, e: ConnectionEntry, byVictim: boolean, out: St
   const st = STRENGTHS[h.strength];
   const key = `${h.attackerId}>${e.ownerId}`;
   g.cyber.cooldowns[key] = g.market.tick + 24 * TPD;
+  // a session that ends stamps the breach too: the insurance switch waits 24 h after the last one (insurance.ts)
+  (g.cyber.breachedAt ??= {})[e.ownerId] = g.market.tick;
   // the attacker keeps what was copied: a distilled student, capped below the teacher, with residue
   const teacher = g.lab[e.ownerId] ? bestModel(g.lab[e.ownerId]!, 'trading') ?? bestModel(g.lab[e.ownerId]!, 'analyst') : null;
   if (teacher && h.progress > 0.05) {

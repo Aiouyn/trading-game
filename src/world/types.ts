@@ -52,7 +52,8 @@ export interface GameState {
   lab: Record<string, LabState>;
   cyber: CyberState;
   court: CourtState;
-  rng: { biz: RngState; npc: RngState; world: RngState; cyber: RngState; court: RngState; lab: RngState };
+  /** `losses` is created lazily when the insurance market opens (insurance.ts); older worlds never have it. */
+  rng: { biz: RngState; npc: RngState; world: RngState; cyber: RngState; court: RngState; lab: RngState; losses?: RngState };
   /** per human player: trade ledger, ghosts, plans and day records (Phase 3). Absent in older saves; created on join. */
   ledgers?: Record<string, PlayerLedger>;
   /** the closing record of each game day (GX level and every asset's close), newest kept 400 days */
@@ -67,6 +68,8 @@ export interface GameState {
   tournament?: TournamentState;
   /** the weekly live auctions (auctions.ts). Absent until the first bid; worlds without one keep every fingerprint. */
   auctions?: AuctionState;
+  /** the insurance market is open: a first policy went on, so the insurer exists and the loss sources roll (insurance.ts). Absent in worlds that never sold one. */
+  insuranceMarket?: boolean;
 }
 
 /** One frozen entry in a week (tournament.ts): the strategy parameters stay here, and the view never shows them. */
