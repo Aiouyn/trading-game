@@ -1974,7 +1974,7 @@
   "company.refusal.ipoBookClosed.why": "Les souscriptions ne sont reçues que le jour d'ouverture du carnet.",
   "company.refusal.ipoBookClosed.do": "Redemandez l'introduction pour ouvrir un nouveau carnet.",
   "company.refusal.ipoOwnerSet.what": "Vous ne pouvez pas souscrire à l'introduction de votre propre entreprise.",
-  "company.refusal.ipoOwnerSet.why": "Le fondateur et les comptes liés au fondateur sont exclus du carnet.",
+  "company.refusal.ipoOwnerSet.why": "Le fondateur et tout compte lié sont exclus du carnet.",
   "company.refusal.ipoOwnerSet.do": "Laissez les autres joueurs acheter, ou gardez vos actions.",
   "company.refusal.ipoAccountTooYoung.what": "Ce compte est trop récent pour le carnet d'introduction.",
   "company.refusal.ipoAccountTooYoung.why": "Les comptes de moins de {minDays} jours de jeu ne reçoivent pas d'actions.",
@@ -3350,7 +3350,7 @@
   "eca.verdict.convicted.why": "Les preuves ont atteint le seuil du tribunal. Votre réputation baisse, et l’amende est un prélèvement, non un paiement à qui que ce soit.",
   "eca.verdict.convicted.do": "Réglez l’amende de ${fine} et restituez ${disgorged} de gains. Les deux sommes sont prélevées sur votre trésorerie.",
   "eca.verdict.cleared.what": "Le tribunal n’a pas relevé d’abus de marché dans vos opérations sur {ticker}.",
-  "eca.verdict.cleared.why": "Les preuves n’ont pas atteint le seuil du tribunal. Le dossier est clos, et une nouvelle enquête ne peut être ouverte pendant 20 jours de jeu.",
+  "eca.verdict.cleared.why": "Le tribunal a examiné le dossier et n’a pas retenu la culpabilité. Le dossier est clos, et une nouvelle enquête ne peut pas s’ouvrir avant 20 jours de jeu.",
   "eca.verdict.cleared.do": "Aucun paiement n’est dû. Vous pouvez continuer à trader ; l’ECA peut rouvrir l’examen si la configuration revient.",
   "inbox.kind.tip": "Information non publique",
   "legal.eca.title": "Régulateur des marchés (ECA)",
@@ -3369,5 +3369,6 @@
   "legal.eca.letter.verdict": "Verdict",
   "legal.eca.part.what": "Ce qui s’est passé",
   "legal.eca.part.why": "Pourquoi",
-  "legal.eca.part.do": "Que faire"
+  "legal.eca.part.do": "Que faire",
+  "legal.eca.colon": " :"
 }

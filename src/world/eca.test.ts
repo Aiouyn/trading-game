@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame } from './game';
 import { addEcaPoints, ECA, ecaDay, ecaOf, ecaScore } from './eca';
-import { regulatorVerdict, TRIBUNAL_BAR } from './court';
-import { credit, TPD } from './core';
+import { FLOOR, regulatorVerdict, TRIBUNAL_BAR } from './court';
+import { credit, debit, TPD } from './core';
 import type { GameState } from './types';
 
 // The ECA (M16 v2, ROADMAP 2.5, 03 §10.2). A score per account and asset, inquiry at 60 for three game days, investigation at 80
@@ -128,5 +128,64 @@ describe('the tribunal-lite (court.ts regulatorVerdict)', () => {
     const vb = regulatorVerdict(b, { id: 'eqD', evidence: 56, playerId: 'p1', gain: 0 });
     expect(va.convicted).toBe(vb.convicted);
     expect(va.fine).toBe(vb.fine);
+  });
+});
+
+describe('the ECA repair (6C review): cash floor, repeat, season cap, stalled investigations', () => {
+  it('the fine and the disgorgement come from cash above the $5k floor, never below it (ROADMAP 2.6)', () => {
+    const { g } = world('eca-floor');
+    g.players.p1!.netWorth = 80_000;
+    const cash = g.market.accounts.p1!.cash;
+    debit(g, 'p1', cash - 6_000, 'test');
+    const v = regulatorVerdict(g, { id: 'eqC', evidence: 500, playerId: 'p1', gain: 50_000 });
+    expect(v.convicted).toBe(true);
+    expect(g.market.accounts.p1!.cash).toBeGreaterThanOrEqual(FLOOR - 1e-6);
+    expect(v.fine + v.disgorged).toBeLessThanOrEqual(1_000 + 1e-6);
+  });
+
+  it('a repeat conviction in the season is x1.5 the scheduled fine; the first is not', () => {
+    const { g } = world('eca-repeat');
+    credit(g, 'p1', 2_000_000, 'test');
+    g.players.p1!.netWorth = 2_000_000;
+    const first = regulatorVerdict(g, { id: 'eqR1', evidence: 500, playerId: 'p1', gain: 0, priorConvictions: 0 });
+    const second = regulatorVerdict(g, { id: 'eqR2', evidence: 500, playerId: 'p1', gain: 0, priorConvictions: 1 });
+    expect(first.fine).toBeCloseTo(0.08 * 2_000_000, 4);
+    expect(second.fine).toBeCloseTo(1.5 * 0.08 * 2_000_000, 4);
+  });
+
+  it('the season room caps a verdict: all fines of a season stay within the room left (03 section 1)', () => {
+    const { g } = world('eca-room');
+    credit(g, 'p1', 2_000_000, 'test');
+    g.players.p1!.netWorth = 2_000_000;
+    const v = regulatorVerdict(g, { id: 'eqS1', evidence: 500, playerId: 'p1', gain: 0, priorConvictions: 0, seasonFinesLeft: 10_000 });
+    expect(v.fine).toBeCloseTo(10_000, 6);
+  });
+
+  it('an investigation that stalls below the line for five days closes quietly and frees the pair for a new inquiry', () => {
+    const { g, asset } = world('eca-stall');
+    for (let k = 1; k <= 3; k++) day(g, asset, 90, k);
+    const q = Object.values(ecaOf(g).inquiries)[0]!;
+    expect(q.stage).toBe('inquiry');
+    day(g, asset, 90, 4);
+    expect(q.stage).toBe('investigation');
+    let k = 5;
+    while (q.stage === 'investigation' && k < 80) { day(g, asset, 0, k); k++; }
+    expect(q.stage).toBe('closed');
+    expect(ecaOf(g).open[`p1|${asset}`]).toBeUndefined();
+    expect(q.letters.map((l) => l.kind)).not.toContain('verdict');
+  });
+});
+
+describe('an open inquiry is never stranded (6C review repair)', () => {
+  it('an open inquiry closes even when its score has been removed from the map', () => {
+    const { g, asset } = world('eca-gone');
+    ecaOf(g).score[`p1|${asset}`] = 70;
+    for (let k = 1; k <= 3; k++) day(g, asset, 14, k);
+    const q = Object.values(ecaOf(g).inquiries)[0]!;
+    expect(q.stage).toBe('inquiry');
+    delete ecaOf(g).score[`p1|${asset}`];
+    for (let k = 4; k < 60 && q.stage === 'inquiry'; k++) day(g, asset, 0, k);
+    expect(q.stage).toBe('closed');
+    expect(ecaOf(g).open[`p1|${asset}`]).toBeUndefined();
   });
 });

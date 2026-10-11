@@ -6,6 +6,8 @@ import {
   GPU_TIERS, TPD, cashOf, clamp, credit, debit, keyedRng, notify, playerBusinesses, priceOf, today,
 } from './core';
 import { crossRefusal } from './funds/guard';
+import { noteOrderPlaced } from './eca';
+import { controlledQty } from './tips';
 import type { CommandResult, GameState, LabState, Model, StepOutput, TradingBot } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -358,10 +360,13 @@ function runBot(g: GameState, pid: string, bot: TradingBot, m: Model, out: StepO
     if (!req) continue;
     // a lab order is a personal order: it may not match a fund's open order that the player or a linked account controls
     if (crossRefusal(g, pid, req.assetId, req.side, { fund: false })) continue;
+    const posBefore = controlledQty(g, pid, req.assetId);
     const r = placeOrder(g.market, { ...req, playerId: pid });
     if (r.order.status === 'open') {
       g.market = r.state;
       bot.trades++;
+      // the model's order is the player's trade: the tip rules score it on the player's account (eca.ts noteOrderPlaced)
+      noteOrderPlaced(g, pid, req.assetId, req.side, req.qty, posBefore);
     }
   }
   void out; void credit;

@@ -10,6 +10,23 @@ export interface Ack { ok: boolean; error?: string; data?: unknown; me?: PlayerV
 const TOKEN_KEY = 'tg-token'; // migrated from tycoon.token on boot (shell/prefs migrateLegacy)
 
 /** The world server lives next to the web app (same host, its own port), unless configured. */
+const DEVICE_KEY = 'tg-device'; // a random id for this browser, sent once at sign-up (collusion.ts hashes it on the server)
+
+/** This browser's device id: random, kept in localStorage, never shown to a player. Empty when storage and crypto are unavailable. */
+export function deviceId(): string {
+  try {
+    const have = window.localStorage.getItem(DEVICE_KEY);
+    if (have && have.length >= 16) return have;
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    const id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    window.localStorage.setItem(DEVICE_KEY, id);
+    return id;
+  } catch {
+    return '';
+  }
+}
+
 export function worldHttpUrl(): string {
   const env = process.env.NEXT_PUBLIC_WORLD_URL;
   if (env) return env.replace(/\/$/, '');
@@ -35,7 +52,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const api = {
-  register: (handle: string, country: string) => post<AuthRes>('/api/register', { handle, country }),
+  register: (handle: string, country: string) => post<AuthRes>('/api/register', { handle, country, device: deviceId() }),
   login: (handle: string, password: string) => post<AuthRes>('/api/login', { handle, password }),
   setPassword: (token: string, password: string) => post<{ ok: boolean; error?: string }>('/api/password', { token, password }),
 };

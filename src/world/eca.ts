@@ -3,22 +3,25 @@ import type { Msg } from '@/i18n';
 import { TPD, keyedRng, priceOf, today } from './core';
 import { say } from './say';
 import { TRIBUNAL_BAR, regulatorVerdict } from './court';
-import { medianNotional, receivedTip } from './tips';
+import { fundByAccount, isFundAccount } from './funds/state';
+import { flagTipTrade, medianNotional, noteNotional, receivedTip } from './tips';
 import type { CompanyWorld } from './company/types';
 import type { CommandResult, GameState, StepOutput } from './types';
 
 /**
  * The ECA, the market regulator (M16 v2, ROADMAP 2.5, 03 §10.2). Per account and asset it keeps a surveillance score in [0, 100]:
  *  - points from the company module's insider surveillance (Phase 4: window and plan attempts, related trades out of band);
- *  - points from trades on a tip, scored when placed (tips.ts flagTipTrade);
+ *  - points from trades on a tip, scored when placed (tips.ts flagTipTrade, through noteOrderPlaced on every trading route);
  *  - points from abnormal pre-announcement trading: a right-side trade within two game days before a report that moves the
- *    stock by at least 3%. Points are 40 × size factor × timing factor (1 within a day, 0.5 at one to two days).
+ *    stock by at least 3%. Points are 40 × size factor × timing factor (1 within a day, 0.5 at one to two days). A fund the
+ *    player manages counts as the player's own trade when it is a manager order (a discretionary fill).
  * Each game day the score decays to 0.8 of the day before and adds the day's points (capped at 100).
  *
  * Thresholds (03 §10.2): a score at or above 60 for three game days opens an inquiry (a notice, and its evidence converts at
  * 10 to 20 points). An investigation starts at 80, or at 60 when the account received a tip on the asset. The investigation adds
  * 5 evidence a day while the score stays at 60, and the tip trail gives 30 evidence on half the investigation days for an
- * account that received a tip. At 55 evidence the tribunal-lite (court.ts regulatorVerdict) decides. Nothing is shown before a
+ * account that received a tip. An investigation or inquiry that stays under 60 for five game days closes quietly (and cannot
+ * reopen for 20 game days). At 55 evidence the tribunal-lite (court.ts regulatorVerdict) decides. Nothing is shown before a
  * verdict: the letters give what happened, why, and what to do, and never the evidence or the outcome of the market.
  */
 
@@ -40,6 +43,8 @@ export const ECA = {
   preMinMove: 0.03,
   preBasePts: 40,
   keepClosed: 60,
+  /** all fines of one account in one season are at most 60% of its peak net worth (03 §1) */
+  seasonCapPct: 0.6,
 } as const;
 
 export type EcaStage = 'inquiry' | 'investigation' | 'closed' | 'convicted' | 'cleared';
@@ -76,6 +81,13 @@ export interface EcaRecentFill {
   notional: number;
 }
 
+/** The fines an account has paid in the current season (a chapter), for the repeat and season-cap rules (never shown). */
+export interface EcaSeason {
+  chapter: number;
+  fines: number;
+  convictions: number;
+}
+
 export interface EcaState {
   seq: number;
   /** today's points per `playerId|assetId`, folded into the score at the day close */
@@ -93,6 +105,8 @@ export interface EcaState {
   inquiries: Record<string, EcaInquiry>;
   /** recent fills per asset, for the pre-announcement window */
   fills: Record<string, EcaRecentFill[]>;
+  /** the season ledger per player (optional: older saves have none) */
+  season?: Record<string, EcaSeason>;
 }
 
 export function ecaOf(g: GameState): EcaState {
@@ -111,14 +125,34 @@ export function addEcaPoints(g: GameState, pid: string, assetId: string, points:
   e.pts[k] = (e.pts[k] ?? 0) + points;
 }
 
-/** Keeps the recent fills of each asset for the pre-announcement window (three game days, capped). */
+/**
+ * Scores one order an account placed, on every route a player trades through (order.place, position.close, fund.trade, a lab
+ * model order). `posBefore` is the controlled position before the order (tips.ts controlledQty). A tip trade adds its points; the
+ * notional feeds the size median. Only accepted orders call this.
+ */
+export function noteOrderPlaced(g: GameState, pid: string, assetId: string, side: Side, qty: number, posBefore: number): void {
+  if (!g.players[pid] || g.players[pid]!.npc) return;
+  addEcaPoints(g, pid, assetId, flagTipTrade(g, pid, assetId, side, qty, g.market.tick, posBefore));
+  noteNotional(g, pid, qty * priceOf(g, assetId));
+}
+
+/**
+ * Keeps the recent fills of each asset for the pre-announcement window (three game days, capped). A fund's fill counts for its
+ * manager, and only when it is a manager order (a discretionary fill, not a forced wind-down sale).
+ */
 export function ecaFills(g: GameState, fills: Fill[]): void {
   if (fills.length === 0) return;
   const e = ecaOf(g);
   for (const f of fills) {
-    if (!g.players[f.playerId] || g.players[f.playerId]!.npc) continue;
+    let pid = f.playerId;
+    if (isFundAccount(pid)) {
+      const fund = fundByAccount(g, pid);
+      if (!fund || !fund.managerOrders[f.orderId]) continue;
+      pid = fund.managerId;
+    }
+    if (!g.players[pid] || g.players[pid]!.npc) continue;
     const list = (e.fills[f.assetId] ??= []);
-    list.push({ tick: f.tick, pid: f.playerId, side: f.side, qty: f.qty, notional: f.qty * f.price });
+    list.push({ tick: f.tick, pid, side: f.side, qty: f.qty, notional: f.qty * f.price });
     if (list.length > 400) list.splice(0, list.length - 400);
   }
 }
@@ -179,6 +213,16 @@ function flaggedGain(g: GameState, pid: string, assetId: string): number {
   return Math.max(0, gain);
 }
 
+/** The season ledger of an account: reset when the chapter (the 8-week season) has changed. */
+function seasonOf(g: GameState, pid: string): EcaSeason {
+  const e = ecaOf(g);
+  e.season ??= {};
+  const ch = g.chapter.number;
+  const cur = e.season[pid];
+  if (!cur || cur.chapter !== ch) e.season[pid] = { chapter: ch, fines: 0, convictions: 0 };
+  return e.season[pid]!;
+}
+
 function letter(g: GameState, inq: EcaInquiry, out: StepOutput | null, l: EcaLetter): void {
   inq.letters.push(l);
   if (inq.letters.length > 6) inq.letters.splice(0, inq.letters.length - 6);
@@ -196,7 +240,9 @@ function noticeOf(day: number, inq: EcaInquiry): EcaLetter {
  * tribunal-lite once evidence reaches the bar. Worlds with no points keep no state (the record is created on demand).
  */
 export function ecaDay(g: GameState, out: StepOutput | null): void {
-  const hasPts = Object.keys(g.eca?.pts ?? {}).length > 0 || Object.keys(g.eca?.score ?? {}).length > 0 || Object.keys(g.companies?.insider ?? {}).length > 0;
+  // an open inquiry always keeps the step running, even after its score has decayed away: it must still be able to close
+  const hasPts = Object.keys(g.eca?.pts ?? {}).length > 0 || Object.keys(g.eca?.score ?? {}).length > 0
+    || Object.keys(g.eca?.open ?? {}).length > 0 || Object.keys(g.companies?.insider ?? {}).length > 0;
   if (!hasPts) return;
   insiderDeltas(g);
   const e = ecaOf(g);
@@ -232,6 +278,7 @@ export function ecaDay(g: GameState, out: StepOutput | null): void {
     if (inq.stage === 'inquiry') {
       if (s >= ECA.investigationScore || (s >= ECA.inquiryScore && receivedTip(g, pid, assetId))) {
         inq.stage = 'investigation';
+        inq.quietDays = 0;
         letter(g, inq, out, { kind: 'investigation', day, what: { key: 'eca.investigation.what', vars: { ticker: inq.assetId } }, why: { key: 'eca.investigation.why', vars: { ticker: inq.assetId } }, do: { key: 'eca.investigation.do', vars: { ticker: inq.assetId } } });
       } else if (s < ECA.inquiryScore) {
         inq.quietDays++;
@@ -246,14 +293,21 @@ export function ecaDay(g: GameState, out: StepOutput | null): void {
       }
     }
     if (inq.stage === 'investigation') {
-      if (s >= ECA.inquiryScore) inq.evidence += ECA.investigationPerDay;
+      // the pattern keeps the file open; a quiet stretch closes it (it cannot stall open and block new inquiries)
+      if (s >= ECA.inquiryScore) { inq.evidence += ECA.investigationPerDay; inq.quietDays = 0; } else inq.quietDays++;
       if (receivedTip(g, pid, assetId)) {
         const rng = keyedRng(g, `eca:trail:${inq.id}:${day}`);
         if (rng.chance(ECA.trailChance)) { inq.evidence += ECA.trailPts; inq.trail++; }
       }
       if (inq.evidence >= ECA.tribunalBar) {
+        const led = seasonOf(g, pid);
+        const df = g.players[pid]!;
+        const peak = Math.max(df.netWorthPeak ?? 0, df.netWorth);
+        const left = Math.max(0, ECA.seasonCapPct * peak - led.fines);
         const gain = flaggedGain(g, pid, assetId);
-        const v = regulatorVerdict(g, { id: inq.id, evidence: inq.evidence, playerId: pid, gain });
+        const v = regulatorVerdict(g, { id: inq.id, evidence: inq.evidence, playerId: pid, gain, priorConvictions: led.convictions, seasonFinesLeft: left });
+        led.fines += v.fine;
+        if (v.convicted) led.convictions++;
         delete e.open[k];
         e.cool[k] = day + ECA.clearCooldownDays;
         inq.stage = v.convicted ? 'convicted' : 'cleared';
@@ -265,6 +319,10 @@ export function ecaDay(g: GameState, out: StepOutput | null): void {
           why: { key: v.convicted ? 'eca.verdict.convicted.why' : 'eca.verdict.cleared.why', vars: vv },
           do: { key: v.convicted ? 'eca.verdict.convicted.do' : 'eca.verdict.cleared.do', vars: vv },
         });
+      } else if (inq.quietDays >= ECA.quietDaysClose) {
+        inq.stage = 'closed';
+        delete e.open[k];
+        e.cool[k] = day + ECA.clearCooldownDays;
       }
     }
   }

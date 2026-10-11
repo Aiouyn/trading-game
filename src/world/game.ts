@@ -3,7 +3,7 @@ import {
   type WorldConfig,
 } from '@/engine';
 import {
-  BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, creditExternal, debit, drawFrom, findOrder, newOutput, notify, priceOf, sanitize,
+  BOARD_EVERY, CHAPTER_TICKS, CREDIT_EVERY, NW_EVERY, SHARE_EVERY, TPD, cashOf, creditExternal, debit, drawFrom, findOrder, newOutput, notify, sanitize,
 } from './core';
 import {
   accrueBusinesses, businessEvents, buyBusiness, buyItem, buyNote, buyProperty, lifestyleDay, propertyDay, recomputeShares,
@@ -27,9 +27,9 @@ import {
 import { cyberDay, deployHoneypot, disconnect, emptyCyber, lockdown, manualScan, plantSession, setBudget, tagEntry } from './cyber';
 import { attackFund, rivalCrewDay } from './rivalCrews';
 import { acceptSettlement, courtTick, fileCase, offerSettlement } from './court';
-import { addEcaPoints, adminSeedInquiry, ecaDay, ecaEvents, ecaFills } from './eca';
-import { adminSeedTip, flagTipTrade, noteNotional, tipsDay } from './tips';
-import { noteFills } from './collusion';
+import { adminSeedInquiry, ecaDay, ecaEvents, ecaFills, noteOrderPlaced } from './eca';
+import { adminSeedTip, controlledQty, tipsDay } from './tips';
+import { collusionDay, noteFills } from './collusion';
 import { npcTick, seedNpcs } from './npc';
 import { shockPrice } from '@/engine/sim';
 import { ensureLedger, ledgerTick, recordOptionTrade } from './ledger';
@@ -180,6 +180,7 @@ export function stepGame(g: GameState): StepOutput {
     // insider tips arrive once the report's surprise is locked; then the regulator's day close (M16 v2)
     tipsDay(g, out);
     ecaDay(g, out);
+    collusionDay(g);
   }
 
   if (tick % NW_EVERY === 0 || newDay) {
@@ -235,7 +236,7 @@ function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
 }
 
 export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
-  if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out);
+  if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out, cmd.device);
   if (cmd.type === 'admin.shock') return adminShock(g, cmd.assetId, cmd.pct);
   if (cmd.type === 'admin.event') return adminEvent(g, cmd.kind, cmd.days);
   if (cmd.type === 'admin.age') {
@@ -268,6 +269,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
       if (err) return fail(err);
       // a creator's vesting-locked allocation cannot be sold after graduation (L5)
       if (o.side === 'sell' && lockedEngineSell(g, pid, o.assetId, o.qty)) return lpRefuse('lockedEngine', { ticker: o.assetId });
+      const posBefore = controlledQty(g, pid, o.assetId);
       const r = placeOrder(g.market, { ...o, playerId: pid });
       g.market = r.state;
       if (r.order.status === 'rejected') {
@@ -275,9 +277,8 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
         if (r.order.rejectReason === 'closedWindow') scoreWindowAttempt(g, pid, o.assetId);
         return { ok: false, error: r.order.rejectReason ?? 'rejected', data: r.order };
       }
-      // a trade on an insider tip is flagged when placed (M16 v1); every accepted order feeds the size factor's median (tips.ts)
-      addEcaPoints(g, pid, o.assetId, flagTipTrade(g, pid, o.assetId, o.side, o.qty, g.market.tick));
-      noteNotional(g, pid, o.qty * priceOf(g, o.assetId));
+      // a trade on an insider tip is flagged when placed (M16 v1); every accepted order feeds the size factor's median (eca.ts)
+      noteOrderPlaced(g, pid, o.assetId, o.side, o.qty, posBefore);
       return { ok: true, data: r.order };
     }
     case 'order.cancel': {
@@ -312,9 +313,13 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
       if (q > 0 && lockedEngineSell(g, pid, cmd.assetId, q)) return lpRefuse('lockedEngine', { ticker: cmd.assetId });
       const refused = crossRefusal(g, pid, cmd.assetId, q > 0 ? 'sell' : 'buy', { fund: false });
       if (refused) return fail(refused);
+      const posBefore = controlledQty(g, pid, cmd.assetId);
       const r = placeOrder(g.market, { playerId: pid, assetId: cmd.assetId, side: q > 0 ? 'sell' : 'buy', type: 'market', qty: Math.abs(q), reduceOnly: true });
       g.market = r.state;
-      return r.order.status === 'rejected' ? fail(r.order.rejectReason ?? 'rejected') : { ok: true, data: r.order };
+      if (r.order.status === 'rejected') return fail(r.order.rejectReason ?? 'rejected');
+      // a reduce-only close is a trade like any other for the tip rules (a close that sells a pre-tip long is not flagged)
+      noteOrderPlaced(g, pid, cmd.assetId, q > 0 ? 'sell' : 'buy', Math.abs(q), posBefore);
+      return { ok: true, data: r.order };
     }
     case 'option.trade': {
       if (held && cmd.side === 'buy') return fail('your assets are held by the court');

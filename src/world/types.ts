@@ -585,7 +585,8 @@ export interface CourtState {
 
 // ---- Commands (everything a player can do) ----
 export type Command =
-  | { type: 'join'; handle: string; country: string }
+  /** `device` is the registration device hash (collusion.ts), set by the server at sign-up; never a raw identifier */
+  | { type: 'join'; handle: string; country: string; device?: string }
   | { type: 'presence'; online: boolean }
   | { type: 'order.place'; order: Omit<OrderRequest, 'playerId'> }
   | { type: 'order.cancel'; orderId: string }

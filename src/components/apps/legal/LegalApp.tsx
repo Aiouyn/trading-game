@@ -96,9 +96,9 @@ function EcaCard({ inquiries }: { inquiries: EcaInquiryView[] }) {
                 <div key={`${q.id}-${i}`} className="mt-2 rounded-md border border-ink-2 p-3" data-testid={`eca-letter-${q.id}-${i}`}>
                   <p className="text-caption text-fg-faint">{t(`legal.eca.letter.${l.kind}`)} · {t('legal.eca.day', { day: l.day })}</p>
                   <dl className="mt-1 flex flex-col gap-1 text-small">
-                    <div><dt className="inline font-medium">{t('legal.eca.part.what')}: </dt><dd className="inline">{t(l.what.key, l.what.vars)}</dd></div>
-                    <div><dt className="inline font-medium">{t('legal.eca.part.why')}: </dt><dd className="inline">{t(l.why.key, l.why.vars)}</dd></div>
-                    <div><dt className="inline font-medium">{t('legal.eca.part.do')}: </dt><dd className="inline">{t(l.do.key, l.do.vars)}</dd></div>
+                    <div><dt className="inline font-medium">{t('legal.eca.part.what')}{t('legal.eca.colon')} </dt><dd className="inline">{t(l.what.key, l.what.vars)}</dd></div>
+                    <div><dt className="inline font-medium">{t('legal.eca.part.why')}{t('legal.eca.colon')} </dt><dd className="inline">{t(l.why.key, l.why.vars)}</dd></div>
+                    <div><dt className="inline font-medium">{t('legal.eca.part.do')}{t('legal.eca.colon')} </dt><dd className="inline">{t(l.do.key, l.do.vars)}</dd></div>
                   </dl>
                 </div>
               ))}

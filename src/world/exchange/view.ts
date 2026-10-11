@@ -17,7 +17,8 @@ import type { GameState } from '../types';
 import { publicCompanyView, type CompanyPublic } from '../company/views';
 import type { CompanyReject } from '../company/types';
 import { managerRefusal } from '../funds/rules';
-import { fundsOf, linked, managedBy, navOf, navPerUnitOf, unitsHeld } from '../funds/state';
+import { isLinkedAccount } from '../collusion';
+import { fundsOf, managedBy, navOf, navPerUnitOf, unitsHeld } from '../funds/state';
 import { publicFunds, aumBucketOf } from '../funds/view';
 import type { FundFiling, FundFees, FundMandate, FundPublic, FundRefusal, FundStatus } from '../funds/types';
 
@@ -212,7 +213,8 @@ export function listedStocks(g: GameState, day: number): ListedStock[] {
 
 /** The viewer's IPO subscription, and why they cannot subscribe (the owner set, or an account under 7 game days old). */
 export function ipoBlock(g: GameState, ownerId: string, pid: string): CompanyReject | null {
-  if (linked(g, ownerId, pid)) return { code: 'ipoOwnerSet' };
+  // the same owner group the order check uses (ipo.ts orderIpo), so the view and the refusal agree
+  if (isLinkedAccount(g, ownerId, pid)) return { code: 'ipoOwnerSet' };
   const p = g.players[pid];
   if (!p || !g.market.accounts[pid]) return { code: 'unknownCompany' };
   if (g.market.tick - p.joinedTick < COMPANY.ipo.minAccountAgeDays * TPD) {

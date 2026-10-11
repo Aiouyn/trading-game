@@ -1974,7 +1974,7 @@
   "company.refusal.ipoBookClosed.why": "Subscriptions are taken only on the day the book opens.",
   "company.refusal.ipoBookClosed.do": "Request the IPO again to open a new book.",
   "company.refusal.ipoOwnerSet.what": "You cannot buy in your own company's IPO.",
-  "company.refusal.ipoOwnerSet.why": "The founder and the accounts linked to the founder are kept out of the book.",
+  "company.refusal.ipoOwnerSet.why": "The founder and any linked account are kept out of the book.",
   "company.refusal.ipoOwnerSet.do": "Let other players buy, or keep your shares.",
   "company.refusal.ipoAccountTooYoung.what": "That account is too new for the IPO book.",
   "company.refusal.ipoAccountTooYoung.why": "Accounts under {minDays} game days old are not allocated shares.",
@@ -3350,7 +3350,7 @@
   "eca.verdict.convicted.why": "The evidence met the tribunal's bar. Your reputation has fallen, and the fine is a sink, not a payment to anyone.",
   "eca.verdict.convicted.do": "Pay the fine of ${fine} and give up ${disgorged} of gains. Both come out of your cash.",
   "eca.verdict.cleared.what": "The tribunal did not find market abuse in your trading in {ticker}.",
-  "eca.verdict.cleared.why": "The evidence did not meet the tribunal's bar. The file is closed, and a new inquiry cannot open for 20 game days.",
+  "eca.verdict.cleared.why": "The tribunal heard the file and did not convict. The file is closed, and a new inquiry cannot open for 20 game days.",
   "eca.verdict.cleared.do": "No payment is due. You can keep trading; the ECA can reopen the review if the pattern returns.",
   "inbox.kind.tip": "Non-public tip",
   "legal.eca.title": "Market regulator (ECA)",
@@ -3369,5 +3369,6 @@
   "legal.eca.letter.verdict": "Verdict",
   "legal.eca.part.what": "What happened",
   "legal.eca.part.why": "Why",
-  "legal.eca.part.do": "What to do"
+  "legal.eca.part.do": "What to do",
+  "legal.eca.colon": ":"
 }

@@ -1,5 +1,6 @@
 import type { Fill, Side } from '@/engine';
 import { sha256Hex } from './company/hash';
+import { TPD } from './core';
 import type { GameState } from './types';
 
 /**
@@ -35,7 +36,12 @@ export interface CollusionState {
   fills?: Record<string, number>;
   /** recent fills per asset, newest last: the tick, account, side and quantity */
   recent?: Record<string, { tick: number; pid: string; side: Side; qty: number }[]>;
+  /** the tick of each human account's latest fill (the mirror prune reads it) */
+  last?: Record<string, number>;
 }
+
+/** A mirror pair that is not linked, between accounts that have not filled for this long, is dropped (the map stays small). */
+export const MIRROR_PRUNE_TICKS = 10 * TPD;
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
@@ -74,6 +80,8 @@ export function noteFills(g: GameState, fills: Fill[]): void {
     c.fills ??= {};
     c.recent ??= {};
     c.fills[fl.playerId] = (c.fills[fl.playerId] ?? 0) + 1;
+    c.last ??= {};
+    c.last[fl.playerId] = fl.tick;
     const list = (c.recent[fl.assetId] ??= []);
     for (const o of list) {
       if (o.pid === fl.playerId || o.side !== fl.side || o.qty !== fl.qty) continue;
@@ -100,6 +108,24 @@ export function mirrorScore(g: GameState, a: string, b: string): number {
   const fb = c?.fills?.[b] ?? 0;
   const m = Math.min(fa, fb);
   return m > 0 ? n / m : 0;
+}
+
+/**
+ * The daily prune (game.ts, the day close). A mirror pair below the link line whose two accounts have not filled for
+ * MIRROR_PRUNE_TICKS is dropped, so the map holds the live coincidences only. A linked pair stays: it is part of an owner group.
+ * Deterministic: the keys are read in sorted order and nothing is drawn.
+ */
+export function collusionDay(g: GameState): void {
+  const c = g.collusion;
+  if (!c?.mirror || !c.last) return;
+  const now = g.market.tick;
+  for (const k of Object.keys(c.mirror).sort()) {
+    const [a, b] = k.split('|') as [string, string];
+    const quiet = (c.last[a] ?? 0) < now - MIRROR_PRUNE_TICKS && (c.last[b] ?? 0) < now - MIRROR_PRUNE_TICKS;
+    if (!quiet) continue;
+    const linked = (c.mirror[k] ?? 0) >= MIRROR_MIN_MATCHES && mirrorScore(g, a, b) >= MIRROR_MIN_SCORE;
+    if (!linked) delete c.mirror[k];
+  }
 }
 
 /** The union-find root of every human account in the graph (sorted input, so the roots are deterministic). */

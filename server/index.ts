@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
@@ -92,7 +92,10 @@ const http = createServer(async (req, res) => {
         return json(res, 409, { ok: false, error: 'That handle is taken' } satisfies AuthRes);
       }
       const id = `u_${randomUUID().slice(0, 12)}`;
-      const r = host.command(id, { type: 'join', handle, country });
+      // the browser's device id is hashed here and only the hash goes into the world (collusion.ts), never the raw id
+      const rawDevice = typeof b.device === 'string' ? b.device.slice(0, 128) : '';
+      const device = rawDevice.length >= 16 ? createHash('sha256').update(`device|${rawDevice}`).digest('hex') : undefined;
+      const r = host.command(id, { type: 'join', handle, country, ...(device ? { device } : {}) });
       if (!r.ok) return json(res, 400, { ok: false, error: r.error } satisfies AuthRes);
       const token = store.createAccount(id, handle);
       log(`new player ${handle} (${country})`);

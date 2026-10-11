@@ -7,6 +7,7 @@ import {
 import { playerBizSectors, refreshNetWorth } from './assets';
 import { computeBoards } from './boards';
 import { seedConnections } from './cyber';
+import { registerDevice } from './collusion';
 import { ensureLedger } from './ledger';
 import type { CommandResult, GameState, Player, StepOutput } from './types';
 import { rivalBaseline } from './rivalsBoard';
@@ -54,13 +55,15 @@ export function createPlayer(g: GameState, id: string, handle: string, country: 
   return p;
 }
 
-export function join(g: GameState, id: string, handleIn: string, countryIn: string, out: StepOutput | null): CommandResult {
+export function join(g: GameState, id: string, handleIn: string, countryIn: string, out: StepOutput | null, device?: string): CommandResult {
   if (g.players[id]) return fail('already joined');
   const handle = validHandle(handleIn);
   if (!handle) return fail('handle: 3-18 letters, digits, _ . -');
   if (Object.values(g.players).some((p) => p.handle.toLowerCase() === handle.toLowerCase())) return fail('handle taken');
   const country = COUNTRIES.some((c) => c.code === countryIn) ? countryIn : 'XX';
   const p = createPlayer(g, id, handle, country);
+  // the registration device feeds the collusion graph (a hash only; collusion.ts). Absent for worlds and tests that send none.
+  if (device) registerDevice(g, id, device);
   creditExternal(g, id, ONBOARDING_GRANT, 'onboarding grant');
   refreshNetWorth(g, p);
   p.netWorthPeak = Math.max(p.netWorthPeak, p.markNetWorth ?? p.netWorth);
