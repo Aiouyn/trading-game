@@ -39,7 +39,7 @@ export function HoldingsTab({ holdings, console: rows, onOpen }: {
                       </span>
                       {h.vest && h.locked > 0 && (
                         <span className="block text-caption text-fg-muted" data-testid={`lp-hold-vest-${h.ticker}`}>
-                          {t('lp.hold.vesting', { end: h.vest.endDay, unlocked: pct01(h.vest.unlocked) })}
+                          {h.vest.endDay === null ? t('lp.hold.vestingAfter') : t('lp.hold.vesting', { end: h.vest.endDay, unlocked: pct01(h.vest.unlocked) })}
                         </span>
                       )}
                     </span>

@@ -61,22 +61,23 @@ test('a creator launches a token: it is in New, and in Holdings with the allocat
 
   await page.getByTestId('tab-new').click();
   await expect(page.getByTestId(`lp-row-${ticker}`)).toBeVisible({ timeout: 20_000 });
-  // the launch's own buzz and the NPC sniper are bought at once (L6.4, sniperEnter): the bar is a small share of the curve, not zero
+  // the launch cohort (about $3,000 of demand, v1.4 L6.9) and the NPC sniper are bought at once (L6.4, sniperEnter): the bar is
+  // a share of the curve, not zero (the launch draw varies: 16% to 28% of the curve across the runs of v1.4)
   const bar = (await page.getByTestId(`lp-progress-${ticker}`).textContent()) ?? '';
   const share = Number(bar.match(/([\d.]+)%/)?.[1]);
   expect(share).toBeGreaterThan(0);
-  expect(share).toBeLessThan(5);
+  expect(share).toBeLessThan(50);
 
   await page.getByTestId('tab-holdings').click();
   await expect(page.getByTestId(`lp-hold-${ticker}`)).toBeVisible();
-  // 2% of a billion is 20 million tokens, all locked on day zero (the cliff is two game days after launch)
+  // 2% of a billion is 20 million tokens, all locked until graduation (v1.4: the schedule starts at the graduation tick)
   await expect(page.getByTestId(`lp-hold-qty-${ticker}`)).toContainText('20,000,000');
   await expect(page.getByTestId(`lp-hold-locked-${ticker}`)).toContainText('20,000,000');
   await expect(page.getByTestId(`lp-hold-vest-${ticker}`)).toBeVisible();
 
   await page.getByTestId('tab-create').click();
   await expect(page.getByTestId(`lp-console-${ticker}`)).toBeVisible();
-  await expect(page.getByTestId(`lp-console-unlocked-${ticker}`)).toContainText('0');
+  await expect(page.getByTestId(`lp-console-unlocked-${ticker}`)).toContainText('Unlocks after graduation');
   expect(errors).toEqual([]);
 });
 

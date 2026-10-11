@@ -109,24 +109,24 @@ export const NPC = {
   DEMAND_PER_BUZZ: 1_000,
   /** capitulation (L6.1): the share of the cohort's tokens sold per tick at any price, times (1 - buzz / the peak buzz since the last
    *  arrival). The cohort sells into the fade, so its flow is a fast pump and a slow bleed. Kept in v1.3 (L6.8) */
-  CAPIT_PER_TICK: 0.1,
+  CAPIT_PER_TICK: 0,
   /** profit taking: the share of a cohort's tokens sold per tick for each 100% the price is above the cohort's cost */
-  PROFIT_PER_TICK: 0.02,
+  PROFIT_PER_TICK: 0,
   /** L6.8 (v1.3): each NPC cohort (one absorbed arrival: a launch, a viral shock or a buzz item) sells its tokens with this half-life,
    *  in units of tau (VIRAL_TAU_DAYS): tunable 0.5 to 2 tau. It replaces the v1.1 instant exit (TIME_SELL_PER_TICK is withdrawn), so a
    *  young token trades above its floor while its virality lasts */
-  BLEED_HALF_TAU: 1,
+  BLEED_HALF_TAU: 0.3,
   /** viral shocks (L6.7, v1.3): the hazard of a live token is rate(age) = VIRAL_PER_DAY x exp(-age / VIRAL_TAU_DAYS) shocks per game
    *  day, age in game days since the launch (a dead token has none). VIRAL_TAU_DAYS is tunable 0.5 to 2. The size of a shock is a Pareto
    *  tail with exponent VIRAL_ALPHA. L6.6: the exponent is at least TAIL_ALPHA_MIN (2.2), so a shock has a finite mean and variance */
-  VIRAL_PER_DAY: 1.2,
-  VIRAL_TAU_DAYS: 1,
+  VIRAL_PER_DAY: 1.0,
+  VIRAL_TAU_DAYS: 0.5,
   VIRAL_SCALE: 12,
   VIRAL_ALPHA: 2.2,
   /** the buzz at launch: a heavy-tailed draw with this scale and tail exponent (most launches start low, a few start high). L6.6: the
    *  exponent is at least TAIL_ALPHA_MIN */
-  BASE0: 0.008,
-  BASE0_ALPHA: 2.5,
+  BASE0: 21,
+  BASE0_ALPHA: 8,
   /** world launches per game day, when the world runs them */
   LAUNCHES_PER_DAY: 20,
   /** the NPC sniper: a buy of this many dollars in the first ticks, sold into the first hype (at this multiple of its entry, or after N ticks) */

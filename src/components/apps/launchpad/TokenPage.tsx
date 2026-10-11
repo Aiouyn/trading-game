@@ -24,7 +24,9 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
   const [fileRefusal, setFileRefusal] = useState<RefusalCopy | null>(null);
   const [filed, setFiled] = useState<string | null>(null);
   const today = gameDayOf(tick);
-  const cliffLeft = Math.max(0, page.vesting.cliffDay - today);
+  // v1.4: the schedule starts at graduation, so before it there is no cliff or end day (null)
+  const vestDays = page.vesting.cliffDay === null || page.vesting.endDay === null ? null : { cliff: page.vesting.cliffDay, end: page.vesting.endDay };
+  const cliffLeft = vestDays ? Math.max(0, vestDays.cliff - today) : 0;
   const creatorLine = page.creatorHandle
     ? t('lp.page.creator', { handle: page.creatorHandle })
     : t('lp.page.worldLaunch');
@@ -104,9 +106,11 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
             <span className="num text-caption text-fg-muted">{pct(page.vesting.unlocked)}</span>
           </div>
           <p className="text-caption text-fg-muted" data-testid="lp-vesting">
-            {cliffLeft > 0
-              ? t('lp.page.vestingCliff', { cliff: page.vesting.cliffDay, end: page.vesting.endDay })
-              : t('lp.page.vestingOpen', { end: page.vesting.endDay })}
+            {!vestDays
+              ? t('lp.page.vestingAfter')
+              : cliffLeft > 0
+                ? t('lp.page.vestingCliff', { cliff: vestDays.cliff, end: vestDays.end })
+                : t('lp.page.vestingOpen', { end: vestDays.end })}
           </p>
         </Section>
       </Card>

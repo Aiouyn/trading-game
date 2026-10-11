@@ -5,7 +5,7 @@ import { bookedNet, netWorldMoney } from '../company/exploits/sequences';
 import { LP, NPC, npcAccountId } from './constants';
 import { quoteSell, spotAt } from './curve';
 import { lpTick } from './flow';
-import { buyCurve } from './trade';
+import { buyCurve, liquidateCohort } from './trade';
 import { absorbPending } from './absorb';
 import { arrivalCap, arrive, bleedPerTick, buzzOf } from './demand';
 import { curveHoldingsValue } from './value';
@@ -129,6 +129,8 @@ describe('L6.1 the cohort is flat in tokens over a token\'s life', () => {
     const g = lpWorld('flat');
     // a small buy, so the curve's cash stays under the death line (about $879) and the cash clock runs
     launch(g, CREATOR, 'FLAT');
+    // the launch cohort (about $3,000 under v1.4) sells back first, so the curve's cash is under the line
+    liquidateCohort(g, g.launchpad!.tokens.FLAT!, null);
     const t = quiet(g, 'FLAT');
     buyCurve(g, null, 'FLAT', 30_000, 1, null, true);
     expect(t.npcBal).toBeGreaterThan(0);

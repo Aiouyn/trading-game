@@ -15,7 +15,7 @@ export interface RefusalCopy {
 /** Every refusal code the Launchpad world can send (state.ts refuse). Each has its three parts in en.json and fr.json. */
 export const REFUSAL_CODES = [
   'age', 'allocation', 'alreadySued', 'ban', 'buzzCap', 'cash', 'cooldown', 'creatorCap', 'dead', 'devBuy', 'graduated', 'holdings',
-  'live', 'locked', 'lockedEngine', 'maxSlip', 'nameAbuse', 'nameBrand', 'nameCrypto', 'nameFigure', 'nameFormat', 'nameTaken',
+  'live', 'locked', 'lockedEngine', 'lockedGrad', 'maxSlip', 'nameAbuse', 'nameBrand', 'nameCrypto', 'nameFigure', 'nameFormat', 'nameTaken',
   'noFlag', 'noPlayer', 'noToken', 'notCreator', 'notEligible', 'ownFlag', 'rank', 'slippage', 'sold', 'tagline', 'tickerCrypto',
   'tickerFormat', 'tickerRecent', 'tickerTaken', 'tooLarge', 'tooSmall', 'traded', 'zero',
 ] as const;

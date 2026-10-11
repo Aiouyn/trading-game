@@ -3,8 +3,13 @@ import { TPD, cashOf } from '../core';
 import { bookedNet, netWorldMoney } from '../company/exploits/sequences';
 import { LP, curveAccountId } from './constants';
 import { quoteBuy } from './curve';
+import { applyCommand } from '../game';
 import { lpWorld, run, launch, jumpDays, CREATOR, TRADER, HOLDER } from './fixture';
 import { lpTick } from './flow';
+import { lockedEngineSell } from './graduate';
+import { dayOf } from './state';
+import { vestCliffDay, vestEndDay, vestFraction } from './vest';
+import { liquidateCohort } from './trade';
 
 const refusal = (r: { ok: boolean; data?: unknown }) => (r.data as { refusal?: string } | undefined)?.refusal;
 
@@ -136,7 +141,7 @@ describe('the curve (L3)', () => {
     expect(run(g, TRADER, { type: 'lp.buy', ticker: 'REFU', spendCents: 500_000, maxSlip: 0.5 }).ok).toBe(true);
     expect(refusal(run(g, TRADER, { type: 'lp.sell', ticker: 'REFU', tokens: 10 ** 12 }))).toBe('holdings');
     expect(refusal(run(g, TRADER, { type: 'lp.sell', ticker: 'REFU', tokens: 0 }))).toBe('zero');
-    expect(refusal(run(g, CREATOR, { type: 'lp.sell', ticker: 'REFU', tokens: 1 }))).toBe('locked');
+    expect(refusal(run(g, CREATOR, { type: 'lp.sell', ticker: 'REFU', tokens: 1 }))).toBe('lockedGrad');
     // a poor trader cannot buy, whatever the size: the cash check reads the fill the curve would take
     const poor = g.market.accounts[HOLDER]!;
     g.market = { ...g.market, accounts: { ...g.market.accounts, [HOLDER]: { ...poor, cash: 0.5 } } };
@@ -145,14 +150,16 @@ describe('the curve (L3)', () => {
 
   it('caps the creator and linked accounts at 10% of supply on the curve, allocation included', () => {
     const g = lpWorld('curve-cap');
-    launch(g, CREATOR, 'CAPS', { allocation: 0 });
-    const q = quoteBuy(LP.Y0, 150_000);
+    // a 50M allocation (ALLOC_MAX) leaves 50M of the 100M cap for the creator's curve buys
+    launch(g, CREATOR, 'CAPS', { allocation: LP.ALLOC_MAX });
+    const q = quoteBuy(LP.Y0, 50_000);
     expect(q.ok).toBe(true);
-    // the creator buys until the cap is near: a first buy inside the cap passes, a buy past it is refused
-    const first = run(g, CREATOR, { type: 'lp.buy', ticker: 'CAPS', spendCents: 150_000, maxSlip: 0.5 });
+    // the first buy (about 35M tokens) fits inside the room; a second buy past the cap (about 60M more) is refused
+    const first = run(g, CREATOR, { type: 'lp.buy', ticker: 'CAPS', spendCents: 50_000, maxSlip: 0.5 });
     expect(first.ok).toBe(true);
     expect(g.launchpad!.tokens.CAPS!.creatorBought).toBe((first.data as { tokens: number }).tokens);
-    const big = run(g, CREATOR, { type: 'lp.buy', ticker: 'CAPS', spendCents: 20_000 });
+    expect(g.launchpad!.tokens.CAPS!.creatorBought).toBeLessThan(LP.CREATOR_CAP - LP.ALLOC_MAX);
+    const big = run(g, CREATOR, { type: 'lp.buy', ticker: 'CAPS', spendCents: 100_000, maxSlip: 0.5 });
     expect(refusal(big)).toBe('creatorCap');
   });
 
@@ -162,18 +169,48 @@ describe('the curve (L3)', () => {
   });
 });
 
-describe('vesting (L5)', () => {
-  it('the creator’s allocation is locked until the cliff, then unlocks linearly to all of it at 14 game days', () => {
+describe('vesting (L5, v1.4)', () => {
+  it('the creator’s allocation is locked until graduation, then vests linearly from the graduation tick to all of it at 14 game days', () => {
     const g = lpWorld('vest');
     launch(g, CREATOR, 'VEST', { allocation: 10_000_000 });
-    expect(refusal(run(g, CREATOR, { type: 'lp.sell', ticker: 'VEST', tokens: 1 }))).toBe('locked');
+    expect(refusal(run(g, CREATOR, { type: 'lp.sell', ticker: 'VEST', tokens: 1 }))).toBe('lockedGrad');
     // the curve must have sold tokens for the creator to sell into it: a trader buys first
     run(g, TRADER, { type: 'lp.buy', ticker: 'VEST', spendCents: 10_000 });
-    jumpDays(g, 8); // halfway through the 12-day linear unlock (cliff at 2, end at 14)
-    const half = run(g, CREATOR, { type: 'lp.sell', ticker: 'VEST', tokens: 1_000 });
-    expect(half.ok).toBe(true);
-    jumpDays(g, 7);
-    expect(run(g, CREATOR, { type: 'lp.sell', ticker: 'VEST', tokens: 1_000_000 }).ok).toBe(true);
+    // before graduation nothing is unlocked and there is no unlock day to show (null), however long the token lives
+    expect(vestEndDay(g.launchpad!.tokens.VEST!)).toBeNull();
+    expect(vestCliffDay(g.launchpad!.tokens.VEST!)).toBeNull();
+    jumpDays(g, 20);
+    expect(vestFraction(g.launchpad!.tokens.VEST!, g.market.tick)).toBe(0);
+    expect(refusal(run(g, CREATOR, { type: 'lp.sell', ticker: 'VEST', tokens: 1 }))).toBe('lockedGrad');
+    expect(applyCommand(g, 'admin', { type: 'admin.lpFill', ticker: 'VEST' }).ok).toBe(true);
+    const t = g.launchpad!.tokens.VEST!;
+    expect(t.gradTick).toBe(g.market.tick);
+    expect(vestCliffDay(t)).toBe(dayOf(t.gradTick!) + LP.VEST_CLIFF_DAYS);
+    expect(vestEndDay(t)).toBe(dayOf(t.gradTick!) + LP.VEST_END_DAYS);
+    // from the graduation tick: nothing before the cliff (2 game days), then linear to all of it at 14
+    expect(lockedEngineSell(g, CREATOR, 'VEST', 10_000_000)).toBe(true);
+    jumpDays(g, 1.9);
+    expect(lockedEngineSell(g, CREATOR, 'VEST', 1)).toBe(true);
+    jumpDays(g, 6.1); // 8 game days: halfway through the 12-day linear unlock
+    expect(lockedEngineSell(g, CREATOR, 'VEST', 5_000_000)).toBe(false);
+    expect(lockedEngineSell(g, CREATOR, 'VEST', 5_000_001)).toBe(true);
+    jumpDays(g, 6);
+    expect(lockedEngineSell(g, CREATOR, 'VEST', 10_000_000)).toBe(false);
+  });
+
+  it('a token that never graduates keeps the allocation locked for good, and the lock holds after its death', () => {
+    const g = lpWorld('vest-dead');
+    launch(g, CREATOR, 'VDED', { allocation: 10_000_000 });
+    const t = g.launchpad!.tokens.VDED!;
+    jumpDays(g, 25);
+    lpTick(g, null);
+    expect(t.status).toBe('dead');
+    expect(t.gradTick).toBeUndefined();
+    expect(t.bal[CREATOR]).toBe(10_000_000);
+    jumpDays(g, 200);
+    expect(vestFraction(t, g.market.tick)).toBe(0);
+    expect(refusal(run(g, CREATOR, { type: 'lp.sell', ticker: 'VDED', tokens: 1 }))).toBe('lockedGrad');
+    expect(t.bal[CREATOR]).toBe(10_000_000);
   });
 });
 
@@ -233,6 +270,7 @@ describe('death (L3)', () => {
     const g = lpWorld('death-cash');
     launch(g, CREATOR, 'QUIE');
     const t = g.launchpad!.tokens.QUIE!;
+    liquidateCohort(g, t, null); // the launch cohort sells back, so the curve's cash is what the death line reads (v1.4)
     t.buzz.base = 0;
     t.npcPending = 0; // no arrivals either: the launch buzz would fund a cohort buy above the cash line (L6.1)
     t.sniperDone = true; // no sniper: its buy would hold the curve above the cash line

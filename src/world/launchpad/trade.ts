@@ -126,7 +126,12 @@ export function sellCurve(
   if (tokens > have) return refuse('holdings', { have: have.toLocaleString('en-US') });
   if (holder) {
     const lock = lockedOf(t, holder, tickOf(g));
-    if (have - tokens < lock) return refuse('locked', { locked: lock.toLocaleString('en-US'), day: vestEndDay(t) });
+    if (have - tokens < lock) {
+      const endDay = vestEndDay(t);
+      // v1.4: before graduation the allocation has no unlock day yet (the schedule starts at the graduation tick)
+      if (endDay === null) return refuse('lockedGrad', { locked: lock.toLocaleString('en-US') });
+      return refuse('locked', { locked: lock.toLocaleString('en-US'), day: endDay });
+    }
   }
   const q = quoteSell(t.y, tokens);
   if (!q.ok) return refuse(q.code === 'tooLarge' ? 'tooLarge' : 'zero', { ticker });

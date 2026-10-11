@@ -5,7 +5,7 @@ import { spotAt } from './curve';
 import { lpTick } from './flow';
 import { absorbPending } from './absorb';
 import { arrive, bleedPerTick, viralPerTick } from './demand';
-import { buyCurve } from './trade';
+import { buyCurve, liquidateCohort } from './trade';
 import { cohortsOf } from './cohorts';
 import { CREATOR, TRADER, launch, lpWorld, run } from './fixture';
 
@@ -259,6 +259,7 @@ describe('L3.1 the cash clock counts game-day closes (v1.3)', () => {
     withNpc({ VIRAL_PER_DAY: 0 }, () => {
       const g = lpWorld('l31-early');
       launch(g, CREATOR, 'EARL');
+      liquidateCohort(g, g.launchpad!.tokens.EARL!, null); // the launch cohort sells back: the curve's cash is under the line (v1.4)
       const t = quiet(g, 'EARL');
       // the world starts on day 2: its close (tick 3 TPD) does not count; the close of day 3 (tick 4 TPD) is the first
       at(g, 3 * TPD);
@@ -297,6 +298,7 @@ describe('L3.1 the cash clock counts game-day closes (v1.3)', () => {
     withNpc({ VIRAL_PER_DAY: 0 }, () => {
       const g = lpWorld('l31-intraday');
       launch(g, CREATOR, 'INTR');
+      liquidateCohort(g, g.launchpad!.tokens.INTR!, null); // the launch cohort sells back: the curve's cash is under the line (v1.4)
       const t = quiet(g, 'INTR');
       for (let d = 3; d <= 9; d++) {
         // mid-day the curve is funded (a buy inside the day), then the holder sells it all before the close
