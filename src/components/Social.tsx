@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { RANKS, LIFE_BY_ID } from '@/content/lifestyle';
+import { RANKS } from '@/content/lifestyle';
 import { ACHIEVEMENTS } from '@/content/progression';
 import { compactMoney, money } from '@/game/format';
 import { useGame } from '@/game/store';
@@ -10,6 +10,7 @@ import { COUNTRIES } from '@/world/players';
 import type { BoardRow } from '@/world/types';
 import type { DirectoryRow } from '@/world/view';
 import { BrassChip, Button, Card, CardHeader, Chip, ConfirmButton, Modal, NumberField, Select, Tabs, TextField } from './ui';
+import { VisitSections } from './apps/sixd/CollectionPage';
 
 type BoardId = 'netWorth' | 'chapter' | 'climber' | 'tycoon' | 'trader' | 'prestige' | 'landlord' | 'alliance' | 'mostWanted' | 'defender' | 'country';
 
@@ -170,12 +171,7 @@ export function ProfileModal() {
         <div><div className="label">{t('social.reputation')}</div><div className="num">{Math.round(d.reputation)}</div></div>
         {d.notoriety > 0 && <div><div className="label">{t('social.notorietyLabel')}</div><div className="num text-loss">{Math.round(d.notoriety)}</div></div>}
       </div>
-      {d.lifestyle.length > 0 && (
-        <div className="mt-4">
-          <div className="label">{t('social.showcase')}</div>
-          <div className="mt-1 flex flex-wrap gap-1.5">{[...new Set(d.lifestyle)].slice(0, 12).map((i) => <Chip key={i}>{LIFE_BY_ID.get(i)?.name ?? i}</Chip>)}</div>
-        </div>
-      )}
+      {!self && <VisitSections playerId={d.id} />}
       {!self && (
         <div className="mt-5 border-t border-ink-2 pt-4">
           <div className="flex flex-wrap gap-2">

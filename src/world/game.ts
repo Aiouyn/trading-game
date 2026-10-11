@@ -10,9 +10,9 @@ import {
   refreshNetWorth, renameBusiness, renovateProperty, repayMortgage, sellBusiness, sellItem, sellProperty, setHome, upgradeBusiness,
 } from './assets';
 import { shopCommand, shopsDay } from './shops';
-import { enterTournament, settleTournament, TOURNAMENT_SYSTEM } from './tournamentWeek';
-import { auctionTick, placeBid } from './auctions';
-import { claimStreak, markStreakAction } from './streak';
+import { enterTournament, settleTournament, TOURNAMENT_SYSTEM, TOURNAMENT_WEEK_TICKS } from './tournamentWeek';
+import { adminOpenLots, auctionTick, placeBid } from './auctions';
+import { adminStreakAccent, claimStreak, markStreakAction } from './streak';
 import { insuranceWeek, lossDay, setInsurance } from './insurance';
 import { placeInSlot, setVisibility } from './home';
 import { newsFromEvents, filings } from './news';
@@ -292,6 +292,8 @@ function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOut
   if (cmd.type === 'admin.lpFill') return launchpadCommand(g, pid, cmd, out) ?? fail('unknown command');
   if (cmd.type === 'admin.tip') return adminSeedTip(g, cmd.playerId, cmd.assetId, out);
   if (cmd.type === 'admin.inquiry') return adminSeedInquiry(g, cmd.playerId, cmd.assetId, out);
+  if (cmd.type === 'admin.streakAccent') return adminStreakAccent(g, cmd.playerId, cmd.accent);
+  if (cmd.type === 'admin.auctionOpen') return adminOpenLots(g, cmd.week ?? Math.floor(g.market.tick / TOURNAMENT_WEEK_TICKS), cmd.ticksLeft);
   const p = g.players[pid];
   if (!p) return fail('join the world first');
   if (!p.npc) p.lastSeenTick = g.market.tick;

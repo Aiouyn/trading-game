@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { grantAccent, register } from '../helpers';
 import { boot, gotoShell, onlyIn, reachRank, windowIds } from './support';
 
 const PALETTES = [
@@ -150,6 +151,31 @@ test.describe('palettes', () => {
     await expect(page.locator('html')).toHaveAttribute('data-palette', 'riviera');
     expect(await windowIds(page)).toContain('settings');
     await page.getByTestId('shelf-app-settings').click();
+    await pick(page, 'Ink & Brass');
+  });
+
+  test('@palette_locked a saved accent the streak has not earned shows Ink & Brass until it is earned (6D.4)', async ({ page }) => {
+    onlyIn('desktop');
+    await page.addInitScript(() => {
+      window.__tgE2eAdmin = 'e2e-admin';
+    });
+    // a fresh player holds no streak accent, and the device saved Phosphor (per device, so another player may have earned it)
+    const handle = await register(page);
+    await page.evaluate(() => {
+      const raw = window.localStorage.getItem('tg-prefs');
+      const prefs = raw === null ? {} : (JSON.parse(raw) as Record<string, unknown>);
+      window.localStorage.setItem('tg-prefs', JSON.stringify({ ...prefs, palette: 'phosphor' }));
+    });
+    await gotoShell(page, '/');
+    await expect(page.locator('html')).toHaveAttribute('data-palette', 'ink-brass');
+    await page.getByTestId('shelf-app-settings').click();
+    await expect(page.getByTestId('palette-phosphor')).toHaveAttribute('data-locked', 'true');
+    await expect(page.getByTestId('palette-phosphor')).toBeDisabled();
+    await expect(page.getByTestId('palette-ink-brass')).toHaveAttribute('aria-pressed', 'true');
+    // the accent is earned: the saved choice comes back on its own, with no pick by the player
+    await grantAccent(handle, 'phosphor');
+    await expect(page.locator('html')).toHaveAttribute('data-palette', 'phosphor', { timeout: 15_000 });
+    await expect(page.getByTestId('palette-phosphor')).toBeEnabled();
     await pick(page, 'Ink & Brass');
   });
 });

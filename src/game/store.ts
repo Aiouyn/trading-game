@@ -6,7 +6,7 @@ import { createHolds } from '@/shell/holds';
 import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky } from '@/shell/toasts';
 import { universeConfig, type DepthFrame, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
-import type { HistoryPayload, NwHistoryPayload, ServerMsg } from '@/net/protocol';
+import type { HistoryPayload, NwHistoryPayload, ServerMsg, VisitPayload } from '@/net/protocol';
 import type { LpPage } from '@/world/launchpad/view';
 import { mirrorWorld, type DirectoryRow, type MarketFrame, type PlayerView, type PublicState } from '@/world/view';
 import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
@@ -99,6 +99,8 @@ export interface GameStore {
   loadNw: () => Promise<void>;
   /** one Launchpad token page for the viewer, or null (no such token, or offline) */
   loadLpPage: (ticker: string) => Promise<LpPage | null>;
+  /** another player's home room and collection (null when the world is not connected) */
+  loadVisit: (playerId: string) => Promise<VisitPayload | null>;
   select: (assetId: string) => void;
   setScreen: (s: Screen) => void;
   setRange: (r: RangeId) => void;
@@ -392,6 +394,11 @@ export const useGame = create<GameStore>((set, get) => {
       if (!p || !(p as HistoryPayload).daily) { const l = { ...get().loaded }; delete l[series]; set({ loaded: l }); return; }
       loadSeries(get().history, series, p as HistoryPayload);
       set({ historyRev: get().historyRev + 1 });
+    },
+
+    async loadVisit(playerId) {
+      if (!client) return null;
+      return client.visit(playerId);
     },
 
     async loadLpPage(ticker) {

@@ -2,6 +2,7 @@
 // The palette changes token values only. Forge sets data-palette on <html> and never on body or a
 // subtree (the derived --os-* tokens resolve on <html>). Components never branch on palette.
 // The palette is per device, free, and never switches by itself (P2-184).
+import { STREAK } from '@/world/streak';
 
 export const PALETTE_SLUGS = ['ink-brass', 'broadsheet', 'phosphor', 'riviera'] as const;
 export type PaletteSlug = (typeof PALETTE_SLUGS)[number];
@@ -60,3 +61,17 @@ export interface PaletteTarget {
 export function applyPalette(slug: PaletteSlug, target: PaletteTarget): void {
   target.dataset.palette = slug;
 }
+
+
+/** The streak days that unlock a palette, or null when it is open from the start. */
+export function paletteStreakDays(slug: PaletteSlug): number | null {
+  if (slug === 'ink-brass') return null;
+  const m = STREAK.milestones.find((x) => 'accent' in x && x.accent === slug);
+  return m ? m.days : null;
+}
+
+/** Whether a palette is locked for a player holding these streak accents. */
+export function paletteLocked(slug: PaletteSlug, accents: readonly string[]): boolean {
+  return paletteStreakDays(slug) !== null && !accents.includes(slug);
+}
+

@@ -5,6 +5,7 @@ import { Store } from './db';
 import { WorldHost } from './host';
 import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
 import { lpPageOf } from '../src/world/launchpad/view';
+import { visitView } from '../src/world/home';
 import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
 import { TournamentJob } from './tournamentJob';
 import { TOURNAMENT_SYSTEM } from '../src/world/tournamentWeek';
@@ -184,6 +185,20 @@ const http = createServer(async (req, res) => {
       const b = await body(req);
       return json(res, 200, host.command('admin', { type: 'admin.lpFill', ticker: String(b.ticker ?? '') }));
     }
+    if (req.method === 'POST' && url.pathname === '/api/admin/streak-accent') {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      const p = Object.values(host.g.players).find((x) => x.handle.toLowerCase() === String(b.handle ?? '').toLowerCase());
+      if (!p) return json(res, 404, { ok: false });
+      return json(res, 200, host.command(p.id, { type: 'admin.streakAccent', playerId: p.id, accent: String(b.accent ?? '') }));
+    }
+    if (req.method === 'POST' && url.pathname === '/api/admin/auction-open') {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      const week = b.week === undefined ? undefined : Number(b.week);
+      const ticksLeft = b.ticksLeft === undefined ? undefined : Number(b.ticksLeft);
+      return json(res, 200, host.command('admin', { type: 'admin.auctionOpen', ...(week !== undefined ? { week } : {}), ...(ticksLeft !== undefined ? { ticksLeft } : {}) }));
+    }
     if (req.method === 'POST' && url.pathname === '/api/admin/advance') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const n = Math.max(1, Math.min(20_000, Number(url.searchParams.get('n') ?? 1)));
@@ -256,6 +271,14 @@ wss.on('connection', (ws) => {
           log(`lp-page error: ${(e as Error).message}`);
           return send(ws, { t: 'lp-page', id: msg.id, data: null });
         }
+      case 'visit': {
+        // another player's home room and collection: each is null unless its owner has opened it (no note that anything is hidden)
+        // an unauthenticated socket gets the null answer too, so the client's request always settles
+        if (!c.pid) return send(ws, { t: 'visit', id: msg.id, data: null });
+        const owner = typeof msg.playerId === 'string' ? msg.playerId : '';
+        if (!host.g.players[owner]) return send(ws, { t: 'visit', id: msg.id, data: null });
+        return send(ws, { t: 'visit', id: msg.id, data: visitView(host.g, c.pid, owner) });
+      }
       case 'ping':
         return send(ws, { t: 'pong' });
     }

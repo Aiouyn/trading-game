@@ -147,3 +147,17 @@ export function streakView(g: GameState, pid: string | null): StreakView | null 
     nextMilestone: nextM ? nextM.days : null,
   };
 }
+
+/**
+ * The e2e seam (`admin.streakAccent`): records a palette accent as if its streak milestone had been reached, so a test can
+ * choose an accent palette. Only the three accents of the milestones are accepted.
+ */
+export function adminStreakAccent(g: GameState, playerId: string, accent: string): CommandResult {
+  const p = g.players[playerId];
+  if (!p || p.npc) return { ok: false, error: 'noPlayer' };
+  if (!STREAK.milestones.some((m) => 'accent' in m && m.accent === accent)) return { ok: false, error: 'streakAccent' };
+  p.streak ??= emptyStreak();
+  p.streak.accents ??= [];
+  if (!p.streak.accents.includes(accent)) p.streak.accents.push(accent);
+  return { ok: true, data: { accents: [...p.streak.accents] } };
+}

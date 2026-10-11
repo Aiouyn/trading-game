@@ -18,9 +18,10 @@ import type { CommandResult, GameState, StepOutput } from './types';
  *
  * Anti-snipe: a bid that lands in the last 2 real minutes (24 ticks) extends the lot by 2 real minutes (24 ticks).
  * Visibility: during the auction the high bid and the bid count are public; bidder handles appear only at the end.
- * The reserve is set from the collectibles index at the lot's first bid and never shown; the view says only whether the
- * high bid meets it. The lots of a week are a pure function of the world seed and the week, so the schedule needs no storage
- * until someone bids.
+ * The reserve is set from the collectibles index at the lot's first bid and never shown. Nothing about it is shown during the
+ * auction, not even whether the high bid meets it: a bidder who raised in 2% steps could otherwise find the reserve. After the
+ * settlement the view says whether the winning bid met it. The lots of a week are a pure function of the world seed and the
+ * week, so the schedule needs no storage until someone bids.
  */
 
 export const AUCTION = {
@@ -76,6 +77,11 @@ export interface AuctionLotRecord {
 
 export interface AuctionState {
   lots: Record<string, AuctionLotRecord>;
+  /**
+   * The e2e seam (`admin.auctionOpen`): a week whose lots were opened early, by its open tick. Absent in a live world, where a
+   * week opens at its first tick. Only the admin command writes it.
+   */
+  openedAt?: Record<string, number>;
 }
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -85,6 +91,24 @@ const cents = (x: number): number => Math.round(x * 100) / 100;
 
 export function lotKeyOf(week: number, itemId: string): string {
   return `${week}:${itemId}`;
+}
+
+/** The tick a week's lots open: its first tick, unless the admin seam opened them early. */
+export function openTickOf(g: GameState, week: number): number {
+  return g.auctions?.openedAt?.[String(week)] ?? week * TOURNAMENT_WEEK_TICKS;
+}
+
+/**
+ * The admin seam (`admin.auctionOpen`, e2e only): opens a week's lots at once, with `ticksLeft` ticks to run (default: the
+ * full hour). From then on the lots follow the live rules: bids, the anti-snipe extension and the settlement.
+ */
+export function adminOpenLots(g: GameState, week: number, ticksLeft: number = AUCTION.hourTicks): CommandResult {
+  if (!Number.isInteger(week) || week < 0) return fail('auctionNoLot');
+  if (!Number.isInteger(ticksLeft) || ticksLeft <= 0 || ticksLeft > AUCTION.hourTicks) return fail('auctionOpenLeft');
+  g.auctions ??= { lots: {} };
+  const openTick = g.market.tick + ticksLeft - AUCTION.hourTicks;
+  g.auctions.openedAt = { ...(g.auctions.openedAt ?? {}), [String(week)]: openTick };
+  return ok({ week, openTick, endTick: openTick + AUCTION.hourTicks });
 }
 
 /** The auction lots of a week: 3 to 5 limited or unique collectibles, chosen by a hash of the world seed and the week. */
@@ -142,7 +166,7 @@ export function placeBid(g: GameState, pid: string, key: string, amount: number)
   const itemId = rest.join(':');
   const item = LIFE_BY_ID.get(itemId);
   if (!item || !Number.isInteger(week) || !weekLots(g.seed, week).some((x) => x.id === itemId)) return fail('auctionNoLot');
-  const open = week * TOURNAMENT_WEEK_TICKS;
+  const open = openTickOf(g, week);
   const tick = g.market.tick;
   if (tick < open) return fail('auctionNotYet', { hours: Math.ceil((open - tick) / TPD) });
   const existing = g.auctions?.lots[key];
@@ -246,7 +270,10 @@ export interface AuctionLotView {
   endTick: number;
   bidCount: number;
   high: number | null;
-  /** whether the high bid meets the reserve; the reserve itself is never shown */
+  /**
+   * Whether the high bid met the reserve: null until the lot has settled (and when no one bid). The reserve itself is never
+   * shown, and no field during the auction depends on it.
+   */
   reserveMet: boolean | null;
   minimum: number | null;
   /** during the auction: nothing about who bid. At the end: the winner and the bidder handles */
@@ -257,24 +284,28 @@ export interface AuctionLotView {
 }
 
 /**
- * The public view of a week's lots. Before the end, only the high bid, the count, and whether the reserve is met. After the
- * end, the winner and the bidders by handle. Nothing about a bidder's cash or strategy appears.
+ * The public view of a week's lots. Before the end, only the high bid, the count and the minimum: nothing that depends on the
+ * hidden reserve. After the end, whether the reserve was met, the winner and the bidders by handle. Nothing about a bidder's
+ * cash or strategy appears.
  */
 export function auctionsView(g: GameState, pid: string | null, week: number): AuctionLotView[] {
   return weekLots(g.seed, week).map((item) => {
     const key = lotKeyOf(week, item.id);
     const lot = g.auctions?.lots[key];
-    const ended = lot ? lot.status !== 'open' : g.market.tick >= week * TOURNAMENT_WEEK_TICKS + AUCTION.hourTicks;
-    const status: AuctionLotView['status'] = lot ? lot.status : (ended ? 'unsold' : 'upcoming');
+    const open = openTickOf(g, week);
+    // a lot with no bid yet has no record: it is open from the open tick until the hour ends, and unsold after that
+    const live = g.market.tick >= open && g.market.tick < open + AUCTION.hourTicks;
+    const status: AuctionLotView['status'] = lot ? lot.status : (g.market.tick < open ? 'upcoming' : live ? 'open' : 'unsold');
     const hi = lot ? highBid(lot) : null;
     const bidders = lot && lot.status !== 'open' ? [...new Set(lot.bids.map((b) => g.players[b.playerId]?.handle ?? '?'))] : null;
     return {
       key, itemId: item.id, name: item.name, category: item.category, cls: item.cls, rarity: item.rarity, blurb: item.blurb, status,
-      openTick: week * TOURNAMENT_WEEK_TICKS, endTick: lot?.endTick ?? week * TOURNAMENT_WEEK_TICKS + AUCTION.hourTicks,
+      openTick: open, endTick: lot?.endTick ?? open + AUCTION.hourTicks,
       bidCount: lot?.bids.length ?? 0,
       high: hi ? hi.amount : null,
-      reserveMet: lot && hi ? hi.amount >= lot.reserve : null,
-      minimum: lot && lot.status === 'open' ? minimumBid(lot) : null,
+      // no reserve-derived field until the settlement (a probe ladder of 2% raises would otherwise find the reserve)
+      reserveMet: lot && hi && lot.status !== 'open' ? hi.amount >= lot.reserve : null,
+      minimum: status === 'open' ? (lot ? minimumBid(lot) : priceLot(g, item, week).start) : null,
       mine: !!pid && !!lot && lot.bids.some((b) => b.playerId === pid),
       winner: lot?.winnerId ? g.players[lot.winnerId]?.handle ?? null : null,
       hammer: lot?.hammer ?? null,
