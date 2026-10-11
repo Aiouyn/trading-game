@@ -46,7 +46,7 @@ function Glossary() {
 
   return (
     <section className="flex flex-col gap-2" aria-labelledby="learn-glossary-title" data-testid="learn-glossary-section">
-      <h2 id="learn-glossary-title" className="font-serif text-title text-fg">{t('learn.glossary')}</h2>
+      <h2 id="learn-glossary-title" className="text-body font-semibold text-fg">{t('learn.glossary')}</h2>
       <TextField value={query} onChange={setQuery} placeholder={t('learn.search')} testId="learn-search" />
       {rows.length === 0 ? (
         <p className="text-small text-fg-muted" data-testid="learn-empty">{t('learn.empty')}</p>

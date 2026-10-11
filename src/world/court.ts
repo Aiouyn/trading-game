@@ -18,6 +18,8 @@ import type { CommandResult, CourtCase, GameState, Player, StepOutput } from './
  */
 
 export const COUNSEL_COST = [0, 5_000, 25_000, 120_000];
+/** The flat filing fee; counsel is added on top (COUNSEL_COST). The Legal CommitBar shows the same figure. */
+export const FILING_FEE = 2_000;
 const HEARING_DAYS = 2;
 
 // the fine scale lives in court-scale.ts, so the Launchpad's rug verdict reads the same table (lead-launchpad.md L5)
@@ -67,7 +69,7 @@ export function fileCase(g: GameState, pid: string, defendantId: string, kind: C
   if (!['cyber intrusion', 'model theft', 'loan default', 'contract breach'].includes(kind)) return { ok: false, error: 'unknown claim' };
   if (Object.values(g.court.cases).some((c) => c.status === 'filed' && c.plaintiffId === pid && c.defendantId === defendantId)) return { ok: false, error: 'you already have a case open against them' };
   const lvl = Math.max(0, Math.min(3, Math.round(counsel)));
-  const filingFee = 2_000 + COUNSEL_COST[lvl]!;
+  const filingFee = FILING_FEE + COUNSEL_COST[lvl]!;
   if (cashOf(g, pid) < filingFee) return { ok: false, error: 'not enough cash for fees' };
   const evidence = evidenceFor(g, pid, defendantId, kind);
   const bar = kind === 'model theft' ? 55 : 40;

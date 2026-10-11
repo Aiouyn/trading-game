@@ -10,7 +10,7 @@ import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import type { ShopView } from '@/world/shopView';
 import type { Command } from '@/world/types';
-import { Button, Card, ConfirmButton, Segmented, Stat } from '@/components/ui';
+import { Card, ConfirmButton, Segmented, SpendReview, Stat, spendRows } from '@/components/ui';
 import { ShopRefusal } from './ShopRefusal';
 import { refusalVars } from './shopPlan';
 
@@ -27,6 +27,7 @@ export function ShopCard({ v }: { v: ShopView }) {
   const st = v.settings;
   const m = v.manager;
   const id = v.id;
+  const cash = useGame((s) => s.me?.account?.cash ?? 0);
 
   /** Sends one change; a refusal stays on the card with its copy, a success clears it. */
   const run = async (cmd: Command, vars: Record<string, string | number> = {}) => {
@@ -159,14 +160,15 @@ export function ShopCard({ v }: { v: ShopView }) {
             <p className="text-caption text-fg-faint">{t('shop.manager.none')}</p>
             <div className="flex flex-wrap gap-2">
               {m.offers.map((o) => (
-                <Button
+                <SpendReview
                   key={o.stars}
                   size="sm"
                   testId={`shop-${id}-hire-${o.stars}`}
-                  onClick={() => run({ type: 'biz.manager.hire', bizId: id, stars: o.stars }, { prepay: money(o.prepay), shortfall: money(o.shortfall) })}
-                >
-                  {t('shop.manager.hire', { stars: o.stars, prepay: money(o.prepay) })}
-                </Button>
+                  label={t('shop.manager.hire', { stars: o.stars, prepay: money(o.prepay) })}
+                  title={t('shop.manager.hire', { stars: o.stars, prepay: money(o.prepay) })}
+                  rows={spendRows(o.prepay, cash)}
+                  onConfirm={() => run({ type: 'biz.manager.hire', bizId: id, stars: o.stars }, { prepay: money(o.prepay), shortfall: money(o.shortfall) })}
+                />
               ))}
             </div>
           </>

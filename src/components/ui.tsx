@@ -339,6 +339,110 @@ export function Empty({ title, action }: { title: ReactNode; action?: ReactNode 
   );
 }
 
+/**
+ * An empty state as a next step (Stage 4): one sentence of what is missing, one line of why or when, and one CTA that
+ * moves the player forward (switch tab, open the Broker, buy the first item). `progress` shows how far a gated item is.
+ */
+export function EmptyNext({ title, body, cta, progress, progressLabel, testId }: {
+  title: ReactNode; body?: ReactNode; cta?: ReactNode; progress?: number; progressLabel?: string; testId?: string;
+}) {
+  return (
+    <Card className="flex flex-col items-start gap-3 p-6" data-testid={testId}>
+      <p className="text-body font-semibold text-fg">{title}</p>
+      {body && <p className="max-w-prose text-small text-fg-muted">{body}</p>}
+      {progress !== undefined && <Progress value={progress} className="w-full max-w-xs" label={progressLabel} />}
+      {cta}
+    </Card>
+  );
+}
+
+/**
+ * The one review-then-confirm bar for a spend (Stage 4). The caller holds the pending choice and renders this bar once
+ * the player has picked it; the rows show what the money does (cost, cash now, cash after), and nothing is spent until
+ * the Confirm button is pressed. Cancel clears the pick.
+ */
+export function CommitBar({ title, rows, confirmLabel, onConfirm, onCancel, disabled = false, testId, className = '' }: {
+  title: ReactNode; rows: { label: ReactNode; value: ReactNode; testId?: string }[]; confirmLabel: ReactNode;
+  onConfirm: () => void | Promise<unknown>; onCancel: () => void; disabled?: boolean; testId?: string; className?: string;
+}) {
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-3 rounded-md border border-brass/60 bg-ink-1 p-3 shadow-lg ${className}`} data-testid={testId}>
+      <div className="min-w-0 flex-1">
+        <p className="text-small font-semibold text-fg">{title}</p>
+        <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-caption">
+          {rows.map((r, i) => (
+            <div key={i} className="flex gap-1.5" data-testid={r.testId}>
+              <dt className="text-fg-faint">{r.label}</dt>
+              <dd className="num whitespace-nowrap text-fg">{r.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        <Button size="sm" variant="ghost" onClick={onCancel} testId={testId ? `${testId}-cancel` : undefined}>{t('common.cancel')}</Button>
+        <Button size="sm" variant="brass" disabled={disabled} onClick={onConfirm} testId={testId ? `${testId}-confirm` : undefined}>{confirmLabel}</Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A spend behind a review (Stage 4, item 4): the trigger opens a CommitBar in its place with the rows of what the money
+ * does, and nothing is spent until Confirm. Cancel closes the bar. Test ids: `${testId}` opens it, `${testId}-review-confirm`
+ * spends.
+ */
+export function SpendReview({ testId, label, title, rows, confirmLabel, onConfirm, disabled = false, variant = 'outline', size = 'sm', className = '' }: {
+  testId: string;
+  label: ReactNode;
+  title?: ReactNode;
+  rows: { label: ReactNode; value: ReactNode; testId?: string }[];
+  confirmLabel?: ReactNode;
+  onConfirm: () => void | Promise<unknown>;
+  disabled?: boolean;
+  variant?: BtnVariant;
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  if (open) {
+    return (
+      <CommitBar
+        testId={`${testId}-review`}
+        title={title ?? label}
+        rows={rows}
+        confirmLabel={confirmLabel ?? t('commit.confirm')}
+        disabled={disabled}
+        className={`w-full ${className}`}
+        onCancel={() => setOpen(false)}
+        onConfirm={async () => { setOpen(false); await onConfirm(); }}
+      />
+    );
+  }
+  return (
+    <Button size={size} variant={variant} disabled={disabled} testId={testId} className={className} onClick={() => setOpen(true)}>
+      {label}
+    </Button>
+  );
+}
+
+/**
+ * The compact header of an empire app (Stage 4): no serif hero title (the window title names the app), one intro line
+ * and a strip of labelled figures on one row.
+ */
+export function StatStrip({ intro, items, testId, children }: {
+  intro?: ReactNode; items: { label: ReactNode; value: ReactNode; sub?: ReactNode; testId?: string }[]; testId?: string; children?: ReactNode;
+}) {
+  return (
+    <Card className="p-3" data-testid={testId}>
+      {intro && <p className="mb-2 max-w-3xl text-caption text-fg-muted">{intro}</p>}
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2 @md:flex @md:flex-wrap @md:items-end">
+        {items.map((it, i) => <Stat key={i} label={it.label} value={it.value} sub={it.sub} testId={it.testId} figure className="@md:min-w-[7rem]" />)}
+        {children && <div className="col-span-2 ml-auto @md:col-auto">{children}</div>}
+      </div>
+    </Card>
+  );
+}
+
 /** A locked feature: what it is, and what unlocks it. */
 export function Locked({ what, need, progress }: { what: ReactNode; need: ReactNode; progress?: number }) {
   return (
@@ -407,4 +511,13 @@ export function ticksLabel(ticks: number, tpd = 720): string {
   if (days >= 1) return t('time.days', { n: days.toFixed(days >= 10 ? 0 : 1) });
   const min = Math.round((ticks * 5) / 60);
   return min >= 60 ? t('time.hours', { n: (min / 60).toFixed(1) }) : t('time.minutes', { n: Math.max(1, min) });
+}
+
+/** The three rows every spend review shows: what it costs, the cash now, and the cash after it. */
+export function spendRows(cost: number, cash: number): { label: string; value: string }[] {
+  return [
+    { label: t('commit.cost'), value: money(cost) },
+    { label: t('commit.cashNow'), value: money(cash) },
+    { label: t('commit.cashAfter'), value: money(cash - cost) },
+  ];
 }

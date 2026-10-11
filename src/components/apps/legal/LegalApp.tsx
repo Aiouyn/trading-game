@@ -1,15 +1,15 @@
 'use client';
 
 // Legal & Court (Velvet app 9): file a case, follow your cases, settle. Evidence decides; counsel nudges
-// the odds a little but cannot buy a verdict (bible 03).
+// the odds a little but cannot buy a verdict (bible 03). Filing spends money, so it goes through the CommitBar.
 import { useState } from 'react';
 import { compactMoney, money } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
-import { COUNSEL_COST } from '@/world/court';
+import { COUNSEL_COST, FILING_FEE } from '@/world/court';
 import type { CourtCase } from '@/world/types';
 import { t } from '@/i18n';
-import { Button, Card, CardHeader, Chip, NumberField, Select, ticksLabel } from '@/components/ui';
+import { Button, Card, CardHeader, Chip, CommitBar, NumberField, Select, SpendReview, StatStrip, ticksLabel } from '@/components/ui';
 
 const COUNSEL_FEES = ['0', '1', '2', '3'] as const;
 const COUNSEL_NAME = ['selfRep', 'junior', 'senior', 'star'] as const;
@@ -31,38 +31,68 @@ export function LegalApp() {
   const def = pickDef && (others.some((o) => o.id === pickDef) || suggested.includes(pickDef)) ? pickDef : (suggested[0] ?? others[0]?.id ?? '');
   const [kind, setKind] = useState<Kind>(defaulters.includes(def) ? 'loan default' : 'cyber intrusion');
   const [counsel, setCounsel] = useState('1');
+  const [filing, setFiling] = useState(false);
   const name = (id: string) => directory.find((d) => d.id === id)?.handle ?? id;
   const mine = me.cases.slice().sort((a, b) => b.filedTick - a.filedTick);
   const points = Math.round(me.security.evidence.find((e) => e.against === def)?.points ?? (defaulters.includes(def) ? 80 : 0));
+  const cash = me.account?.cash ?? 0;
+  const counselCost = COUNSEL_COST[Number(counsel)] ?? 0;
+  const fee = FILING_FEE + counselCost;
+  const open = me.cases.filter((c) => c.status === 'filed').length;
+  const won = me.cases.filter((c) => (c.status === 'won' && c.plaintiffId === me.player.id) || (c.status === 'lost' && c.defendantId === me.player.id)).length;
   return (
     <div className="flex flex-col gap-4" data-testid="court-view">
-      <Card className="p-4">
-        <h1 className="font-serif text-hero">{t('shell.app.legal')}</h1>
-        <p className="max-w-2xl text-small text-fg-muted">{t('legal.intro')}</p>
-      </Card>
+      <StatStrip
+        testId="court-stats"
+        intro={t('legal.intro')}
+        items={[
+          { label: t('legal.stat.open'), value: open, testId: 'court-open' },
+          { label: t('legal.stat.won'), value: won },
+          { label: t('legal.stat.total'), value: me.cases.length },
+        ]}
+      />
       <div className="grid gap-4 @3xl:grid-cols-[minmax(0,380px)_1fr] [&>*]:min-w-0">
-        <Card className="p-4">
-          <h2 className="font-serif text-title">{t('legal.file.title')}</h2>
+        <Card className="p-4 order-2 @3xl:order-1" data-testid="court-file">
+          <h2 className="text-body font-semibold text-fg">{t('legal.file.title')}</h2>
           <div className="mt-3 flex flex-col gap-2">
-            <Select label={t('legal.file.defendant')} value={def} onChange={(v) => setDef(v)} options={[
+            <Select label={t('legal.file.defendant')} value={def} onChange={(v) => { setDef(v); setFiling(false); }} options={[
               ...suggested.map((id) => ({ value: id, label: t('legal.file.claim', { name: name(id) }) })),
               ...others.filter((o) => !suggested.includes(o.id)).map((o) => ({ value: o.id, label: o.handle })),
             ]} />
-            <Select label={t('legal.file.kind')} value={kind} onChange={setKind} options={[
+            <Select label={t('legal.file.kind')} value={kind} onChange={(v) => { setKind(v); setFiling(false); }} options={[
               { value: 'cyber intrusion', label: t('legal.kind.intrusion') },
               { value: 'model theft', label: t('legal.kind.theft') },
               { value: 'loan default', label: t('legal.kind.default') },
               { value: 'contract breach', label: t('legal.kind.breach') },
             ]} />
-            <Select label={t('legal.file.counsel')} value={counsel} onChange={setCounsel} options={COUNSEL_FEES.map((c) => ({
+            <Select label={t('legal.file.counsel')} value={counsel} onChange={(v) => { setCounsel(v); setFiling(false); }} options={COUNSEL_FEES.map((c) => ({
               value: c,
-              label: t(`legal.counsel.${COUNSEL_NAME[Number(c)]}`, { cost: compactMoney(COUNSEL_COST[c]) }),
+              label: t(`legal.counsel.${COUNSEL_NAME[Number(c)]}`, { cost: compactMoney(COUNSEL_COST[Number(c)]!) }),
             }))} />
-            <p className="text-caption text-fg-faint">{t('legal.file.evidence', { name: name(def), points })}</p>
-            <Button variant="brass" onClick={() => act({ type: 'court.file', defendantId: def, kind, counsel: Number(counsel) }, { success: t('legal.filed') })} testId="file-case">{t('legal.file.button')}</Button>
+            <p className="text-caption text-fg-faint">{t('legal.file.evidence', { name: name(def), points, fee: money(FILING_FEE) })}</p>
+            {filing ? (
+              <CommitBar
+                testId="court-commit"
+                title={t('commit.fileTitle', { name: name(def) })}
+                rows={[
+                  { label: t('commit.filingFee'), value: money(fee), testId: 'court-commit-fee' },
+                  { label: t('commit.counsel'), value: money(counselCost) },
+                  { label: t('commit.cashAfter'), value: money(cash - fee), testId: 'court-commit-after' },
+                ]}
+                confirmLabel={t('commit.confirmFile')}
+                disabled={!def || cash < fee}
+                onCancel={() => setFiling(false)}
+                onConfirm={async () => {
+                  const r = await act({ type: 'court.file', defendantId: def, kind, counsel: Number(counsel) }, { success: t('legal.filed') });
+                  if (r.ok) setFiling(false);
+                }}
+              />
+            ) : (
+              <Button variant="brass" disabled={!def} onClick={() => setFiling(true)} testId="file-case">{t('legal.file.button')}</Button>
+            )}
           </div>
         </Card>
-        <Card>
+        <Card className="order-1 @3xl:order-2" data-testid="court-cases">
           <CardHeader title={t('legal.cases.title')} />
           {mine.length === 0 ? <p className="px-4 pb-6 text-small text-fg-faint">{t('legal.cases.none')}</p> : (
             <ul>
@@ -94,7 +124,7 @@ function CaseRow({ c, me, name, tick }: { c: CourtCase; me: string; name: (id: s
       {c.status === 'filed' && !plaintiff && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <NumberField label={t('legal.settle.for')} value={offer} onChange={setOffer} suffix="$" className="h-9 w-56" testId={`case-offer-${c.id}`} />
-          <Button size="sm" onClick={() => act({ type: 'court.settle', caseId: c.id, amount: Number(offer) }, { success: t('legal.settle.offered') })}>{t('legal.settle.offer')}</Button>
+          <SpendReview size="sm" testId={`case-settle-${c.id}`} label={t('legal.settle.offer')} title={t('legal.settle.offer')} rows={[{ label: t('commit.amount'), value: money(Number(offer) || 0) }]} disabled={!(Number(offer) > 0)} onConfirm={() => act({ type: 'court.settle', caseId: c.id, amount: Number(offer) }, { success: t('legal.settle.offered') })} />
         </div>
       )}
       {c.status === 'filed' && plaintiff && c.settlementOffer && (

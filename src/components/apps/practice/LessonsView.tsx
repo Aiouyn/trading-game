@@ -38,7 +38,7 @@ export function LessonsView() {
 
   return (
     <section className="flex flex-col gap-2" aria-labelledby="learn-lessons-title" data-testid="learn-lessons">
-      <h2 id="learn-lessons-title" className="font-serif text-title text-fg">{t('learn.lessons')}</h2>
+      <h2 id="learn-lessons-title" className="text-body font-semibold text-fg">{t('learn.lessons')}</h2>
       <p className="text-caption text-fg-faint">{t('learn.lessons.hint')}</p>
       <p className="text-caption text-fg-muted" data-testid="learn-progress">{t('learn.lesson.progress', { n: done.size, total: LESSONS.length })}</p>
       <ul className="flex flex-col divide-y divide-ink-2 rounded-lg border border-ink-3 bg-ink-1">

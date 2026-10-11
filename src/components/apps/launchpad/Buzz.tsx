@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button } from '@/components/ui';
+import { SpendReview } from '@/components/ui';
 import { LP } from '@/world/launchpad/constants';
 import { refusalOf, type RefusalCopy } from './copy';
 import { RefusalBox } from './Shared';
@@ -25,12 +25,20 @@ export function BuzzButtons({ ticker, promosToday, testPrefix = 'lp-buzz' }: { t
   return (
     <div className="flex flex-col gap-2" data-testid={`${testPrefix}-${ticker}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="outline" testId={`${testPrefix}-board`} onClick={() => buy('board')}>
-          {t('lp.buzz.boardBuy', { cost: money(LP.BOARD_COST) })}
-        </Button>
-        <Button size="sm" variant="outline" testId={`${testPrefix}-wire`} onClick={() => buy('wire')}>
-          {t('lp.buzz.wireBuy', { cost: money(LP.WIRE_PROMO_COST) })}
-        </Button>
+        <SpendReview
+          testId={`${testPrefix}-board`}
+          label={t('lp.buzz.boardBuy', { cost: money(LP.BOARD_COST) })}
+          title={t('lp.buzz.board')}
+          rows={[{ label: t('commit.cost'), value: money(LP.BOARD_COST) }]}
+          onConfirm={() => buy('board')}
+        />
+        <SpendReview
+          testId={`${testPrefix}-wire`}
+          label={t('lp.buzz.wireBuy', { cost: money(LP.WIRE_PROMO_COST) })}
+          title={t('lp.buzz.wire')}
+          rows={[{ label: t('commit.cost'), value: money(LP.WIRE_PROMO_COST) }]}
+          onConfirm={() => buy('wire')}
+        />
         <span className="text-caption text-fg-faint" data-testid={`${testPrefix}-count`}>
           {t('lp.buzz.today', { n: promosToday, max: LP.BUZZ_MAX_PER_DAY })}
         </span>

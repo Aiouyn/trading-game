@@ -32,7 +32,7 @@ function renderWithCash(cash: number): string {
   const me = viewWithShop();
   const account = me.account ? { ...me.account, cash } : null;
   holder.me = { ...me, account };
-  return renderToStaticMarkup(<ShopsTab />);
+  return renderToStaticMarkup(<ShopsTab onBuy={() => {}} />);
 }
 
 describe('the Shops tab overdraft notice', () => {

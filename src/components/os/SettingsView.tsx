@@ -11,7 +11,9 @@ import { AccountView, ProfileView } from '@/components/Profile';
 import { About } from './About';
 import { PalettePicker } from './PalettePicker';
 import { ShortcutList } from './ShortcutList';
-import { useMotion } from './shellStore';
+import { useMotion, usePalette } from './shellStore';
+import { PALETTE_KEYS } from './palette';
+import { StatStrip } from '@/components/ui';
 
 /** Settings > Language. The choice is saved in tg-prefs (the i18n layer) and re-renders the whole tree. */
 function LanguagePicker() {
@@ -92,6 +94,10 @@ function GoalsToggle() {
 }
 
 export function SettingsView({ view }: { view?: string }) {
+  const locale = useLocale((s) => s.locale);
+  const palette = usePalette((s) => s.palette);
+  const reduced = useMotion((s) => s.reduced);
+  const goalsOn = useGame((s) => !!s.me?.trading.goals.optIn);
   if (view === 'about') {
     return (
       <div className="os-body">
@@ -101,6 +107,15 @@ export function SettingsView({ view }: { view?: string }) {
   }
   return (
     <div className="os-body" data-testid="settings">
+      <StatStrip
+        testId="settings-stats"
+        items={[
+          { label: t('settings.language'), value: LOCALES.find((l) => l.id === locale)?.name ?? locale, testId: 'settings-stat-language' },
+          { label: t('settings.palette'), value: t(PALETTE_KEYS[palette].name), testId: 'settings-stat-palette' },
+          { label: t('settings.motion'), value: t(reduced ? 'settings.stat.on' : 'settings.stat.off') },
+          { label: t('settings.goals'), value: t(goalsOn ? 'settings.stat.on' : 'settings.stat.off') },
+        ]}
+      />
       <PalettePicker />
       <LanguagePicker />
       <MotionToggle />

@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Card, Stat, Tabs, Button } from '@/components/ui';
+import { Card, StatStrip, Tabs, Button } from '@/components/ui';
 import { normalizeName } from '@/world/launchpad/moderate';
 import type { LpPage } from '@/world/launchpad/view';
 import { CreateTab } from './CreateTab';
@@ -61,19 +61,15 @@ export function LaunchpadApp() {
               <Button size="sm" variant="outline" testId="lp-back" onClick={() => setOpen(null)}>{t('lp.back')}</Button>
             </Card>
           )}
-          <Card className="p-4">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div className="min-w-0">
-                <h1 className="font-serif text-hero text-fg">{t('lp.app.title')}</h1>
-                <p className="text-small text-fg-muted">{t('lp.app.intro')}</p>
-              </div>
-              <div className="grid grid-cols-3 gap-x-8 gap-y-2">
-                <Stat figure label={t('lp.app.stat.live')} value={`${lp.live.count} / ${lp.live.max}`} testId="lp-stat-live" />
-                <Stat figure label={t('lp.app.stat.holdings')} value={money(holdingsValue)} testId="lp-stat-holdings" />
-                <Stat figure label={t('lp.app.stat.fees')} value={money(fees)} testId="lp-stat-fees" />
-              </div>
-            </div>
-          </Card>
+          <StatStrip
+            testId="lp-stats"
+            intro={t('lp.app.intro')}
+            items={[
+              { label: t('lp.app.stat.live'), value: `${lp.live.count} / ${lp.live.max}`, testId: 'lp-stat-live' },
+              { label: t('lp.app.stat.holdings'), value: money(holdingsValue), testId: 'lp-stat-holdings' },
+              { label: t('lp.app.stat.fees'), value: money(fees), testId: 'lp-stat-fees' },
+            ]}
+          />
           <Tabs<Tab>
             wrap
             tabs={[
@@ -86,10 +82,10 @@ export function LaunchpadApp() {
             value={tab}
             onChange={setTab}
           />
-          {tab === 'new' && <FeedTab rows={lp.feeds.newest} kind="new" onOpen={openToken} />}
-          {tab === 'trending' && <FeedTab rows={lp.feeds.trending} kind="trending" onOpen={openToken} />}
-          {tab === 'graduated' && <FeedTab rows={lp.feeds.graduated} kind="graduated" onOpen={openToken} />}
-          {tab === 'holdings' && <HoldingsTab holdings={lp.holdings} console={lp.console} onOpen={openToken} />}
+          {tab === 'new' && <FeedTab rows={lp.feeds.newest} kind="new" onOpen={openToken} onTab={setTab} />}
+          {tab === 'trending' && <FeedTab rows={lp.feeds.trending} kind="trending" onOpen={openToken} onTab={setTab} />}
+          {tab === 'graduated' && <FeedTab rows={lp.feeds.graduated} kind="graduated" onOpen={openToken} onTab={setTab} />}
+          {tab === 'holdings' && <HoldingsTab holdings={lp.holdings} console={lp.console} onOpen={openToken} onTab={setTab} />}
           {tab === 'create' && <CreateTab lp={lp} takenNames={takenNames} onOpen={openToken} />}
         </>
       )}

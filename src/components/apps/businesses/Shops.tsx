@@ -7,20 +7,19 @@ import { BIZ_SECTORS } from '@/content/businesses';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import type { ShopView } from '@/world/shopView';
-import { Button, Card, Select } from '@/components/ui';
+import { Button, Card, EmptyNext, Select } from '@/components/ui';
 import { ShopCard } from './ShopCard';
 import { ShopRefusal } from './ShopRefusal';
 import { NO_BULK, bulkCommands, bulkPicked, bulkResult, bulkScope, type BulkResult, type BulkSettings } from './shopPlan';
 
-export function ShopsTab() {
+export function ShopsTab({ onBuy }: { onBuy: () => void }) {
   const me = useGame((s) => s.me)!;
   const shops = me.shops;
   const cash = me.account?.cash ?? 0;
   if (!shops.length) {
     return (
-      <Card className="p-8 text-center" data-testid="shops-empty">
-        <p className="text-small text-fg-faint">{t('shop.none')}</p>
-      </Card>
+      <EmptyNext testId="shops-empty" title={t('shop.none')} body={t('shop.empty.body')}
+        cta={<Button variant="brass" onClick={onBuy} testId="shops-to-catalog">{t('shop.empty.cta')}</Button>} />
     );
   }
   return (

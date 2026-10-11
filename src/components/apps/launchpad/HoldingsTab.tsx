@@ -4,7 +4,7 @@
 // under the creator's vesting, and the creator fees a launch has earned. Holders' balances of other players are never shown.
 import { money } from '@/game/format';
 import { t } from '@/i18n';
-import { Empty } from '@/components/ui';
+import { Button, EmptyNext } from '@/components/ui';
 import { iconSvg } from '@/world/launchpad/icon';
 import type { LaunchpadView } from '@/world/launchpad/view';
 import { Fact, Section, StatusChip, TokenIcon } from './Shared';
@@ -13,7 +13,8 @@ import { tokens as fmtTokens } from './copy';
 type Holding = LaunchpadView['holdings'][number];
 type Console = LaunchpadView['console'][number];
 
-export function HoldingsTab({ holdings, console: rows, onOpen }: {
+export function HoldingsTab({ holdings, console: rows, onOpen, onTab }: {
+  onTab: (tab: 'new') => void;
   holdings: Holding[];
   console: Console[];
   onOpen: (ticker: string) => void;
@@ -23,7 +24,8 @@ export function HoldingsTab({ holdings, console: rows, onOpen }: {
     <div className="flex flex-col gap-4" data-testid="lp-holdings">
       <Section title={t('lp.hold.title')}>
         {holdings.length === 0 ? (
-          <Empty title={t('lp.hold.empty')} />
+          <EmptyNext testId="lp-hold-empty" title={t('lp.hold.empty')} body={t('lp.hold.empty.body')}
+            cta={<Button variant="brass" onClick={() => onTab('new')} testId="lp-hold-empty-cta">{t('lp.hold.empty.cta')}</Button>} />
         ) : (
           <ul className="flex flex-col gap-2" data-testid="lp-hold-rows">
             {holdings.map((h) => {
@@ -58,7 +60,7 @@ export function HoldingsTab({ holdings, console: rows, onOpen }: {
 
       <Section title={t('lp.hold.fees')} testId="lp-fees">
         {fees.length === 0 ? (
-          <Empty title={t('lp.hold.noFees')} />
+          <p className="text-small text-fg-faint" data-testid="lp-fees-none">{t('lp.hold.noFees')}</p>
         ) : (
           <ul className="flex flex-col divide-y divide-ink-2" data-testid="lp-fee-rows">
             {fees.map((r) => (
