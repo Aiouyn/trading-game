@@ -1,5 +1,4 @@
-import { TPD } from '../core';
-import { LP } from './constants';
+import { LP, TPD } from './constants';
 import type { LpToken } from './types';
 
 /**

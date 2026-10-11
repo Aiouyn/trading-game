@@ -81,7 +81,9 @@ export interface LpToken {
   /** every buy of the token (player and holder), kept for the rug window: who bought how much, when */
   buyLog: { pid: string; tick: number; qty: number }[];
   /** the rug flag, public on the token page */
-  flag?: { tick: number; reason: 'dump' | 'sweep'; proceeds: number; window: number };
+  /** the rug flag. `buyers` is the snapshot taken at the flag: each holder's tokens bought in the 7 game days before it (the
+   *  eligibility to sue and the share of the damages), so the buy log can keep only its rolling window. */
+  flag?: { tick: number; reason: 'dump' | 'sweep'; proceeds: number; window: number; buyers: Record<string, number> };
   /** the creator's cash from the trading fee (booked income) */
   creatorFees: number;
   /** the creator's allocation sold on the vesting pace so far (those sales are paced, and the 50% rule does not count them) */

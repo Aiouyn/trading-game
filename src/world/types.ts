@@ -521,6 +521,8 @@ export interface CourtCase {
   damages: number;
   fine: number;
   verdictText?: string;
+  /** the verdict as an i18n descriptor (the rug verdict is through the keys; verdictText is its English for old clients) */
+  verdictMsg?: { key: string; vars?: Record<string, string | number> };
   settlementOffer?: number;
 }
 

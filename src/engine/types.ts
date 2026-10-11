@@ -88,6 +88,12 @@ export interface AssetDef {
    */
   supplyAccount?: string;
   /**
+   * The book's cash bounds its sells: a fill where the book would pay more cash than it holds is partial (the fill is cut to what
+   * the book can pay, and waits otherwise), so a book never goes into overdraft (lead-launchpad.md L4). Only the Launchpad sets it;
+   * absent = the book pays as before (company stocks, whose float is backed by the company).
+   */
+  bookCashBound?: boolean;
+  /**
    * A company stock's insider: the player who runs the company (its founder). The funds' insider test reads it: a fund the
    * insider manages is capped at 5% of NAV in the stock, and files it (O-14). Absent = no insider (every other stock).
    */

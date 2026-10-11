@@ -1,5 +1,5 @@
 // a game day in ticks: the same figure as core.ts TPD (720 ticks, one real hour). Local so core can import this module without a cycle.
-const TPD = 720;
+export const TPD = 720;
 
 /**
  * The Launchpad's numbers (lead-launchpad.md, L2 to L6). Every rule reads from here, so the balance gate and the tests use the
@@ -52,6 +52,8 @@ export const LP = {
   DEAD_CASH_FRAC: 0.02,
   DEAD_CASH_DAYS: 7,
   DEAD_CASH_FROM_DAY: 3,
+  /** the first tick of day DEAD_CASH_FROM_DAY (dayOf(tick) >= 3 from here): the cash clock never starts before it */
+  DEAD_CASH_START_TICK: 3 * TPD + 1,
   /** rug flag (L5) */
   RUG_WINDOW_DAYS: 24,
   RUG_SELL_FRAC: 0.5,
@@ -59,8 +61,12 @@ export const LP = {
   RUG_DUMP_PRICE_FALL: 0.4,
   /** a holder who bought within this many game days before a flagged dump may sue (L5) */
   RUG_BUY_WINDOW_DAYS: 7,
-  /** a creator who loses a rug case is barred from launching for 8 real weeks (L5) */
-  RUG_BAN_TICKS: 8 * 7 * TPD,
+  /** a creator who loses a rug case is barred from launching for 8 real weeks (L5). A real week is 168 real hours and a game day
+   *  is one real hour, so the ban is 1,344 game days (the chapter convention, core.ts CHAPTER_TICKS). */
+  RUG_BAN_WEEKS: 8,
+  RUG_BAN_TICKS: 8 * 7 * 24 * TPD,
+  /** the court's fine level for a rug verdict: an index into court-scale.ts SEVERITY (2, the cyber-intrusion level) */
+  RUG_SEVERITY: 2,
   /** a creator sell of 1% of supply or more in a day is a Wire item (L5) */
   BIG_SELL_SUPPLY_FRAC: 0.01,
   /** buzz items (L6): a Quay billboard and a Wire promo, both sinks, at most three per token per game day */

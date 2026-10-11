@@ -1,4 +1,4 @@
-import { TPD, priceOf } from '../core';
+import { priceOf } from '../core';
 import type { GameState } from '../types';
 import { LP } from './constants';
 import { curveProgress, spotAt } from './curve';
@@ -111,7 +111,7 @@ export function pageOf(g: GameState, t: LpToken, pid: string): LpPage {
     tape: t.tape.slice(-PAGE_TAPE),
     buckets: holdersOf(t),
     ticket: { spot: spotAt(t.y), maxSlip: LP.MAX_SLIP },
-    canFile: !!t.flag && !!t.creatorId && pid !== t.creatorId && (t.sued[pid] === undefined) && t.buyLog.some((b) => b.pid === pid && b.tick >= (t.flag!.tick - LP.RUG_BUY_WINDOW_DAYS * TPD) && b.tick <= t.flag!.tick),
+    canFile: !!t.flag && !!t.creatorId && pid !== t.creatorId && (t.sued[pid] === undefined) && (t.flag?.buyers[pid] ?? 0) > 0,
   };
 }
 
@@ -125,7 +125,9 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
   const all = s.order.map((k) => s.tokens[k]!).filter(Boolean);
   const live = all.filter((t) => t.status === 'live');
   const newest = [...live].reverse().slice(0, FEED).map((t) => cardOf(g, t));
-  const trendingTokens = [...live].sort((a, b) => cardOf(g, b).vol - cardOf(g, a).vol).slice(0, FEED);
+  // the trending order: each token's volume is read once (a card builds an icon, so it is not made inside the comparator)
+  const vols = new Map(live.map((t) => [t, t.volPrev > 0 ? t.volPrev : t.volToday] as const));
+  const trendingTokens = [...live].sort((a, b) => vols.get(b)! - vols.get(a)!).slice(0, FEED);
   const trending = trendingTokens.map((t) => cardOf(g, t));
   const graduated = all.filter((t) => t.status === 'graduated').reverse().slice(0, FEED).map((t) => cardOf(g, t));
   const pages: Record<string, LpPage> = {};

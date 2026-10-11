@@ -5,6 +5,7 @@ import { BUZZ_DECAY, LP, NPC, curveAccountId } from './constants';
 import { formulaCashAt, spotAt } from './curve';
 import { buyCurve, sellCurve } from './trade';
 import { npcLaunchDraw } from './launch';
+import { priceNow } from './rug';
 import { dayOf, ensureLaunchpad, lpWire, refuse, tokenOf } from './state';
 import type { LpToken } from './types';
 
@@ -99,6 +100,13 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
     s.worldRng = rng.state();
     if (hit) npcLaunchDraw(g, out);
   }
+  if (newDay) {
+    // a graduated token's day starts at the engine's price (the post-graduation sweep test reads it, rug.ts priceNow)
+    for (const ticker of s.order) {
+      const t = s.tokens[ticker];
+      if (t?.status === 'graduated') t.creatorDay = { day, qty: 0, proceeds: 0, startPrice: priceNow(g, t), wired: false };
+    }
+  }
   for (const ticker of s.order) {
     const t = s.tokens[ticker];
     if (!t || t.status !== 'live') continue;
@@ -125,7 +133,9 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
     }
     if (t.status === 'live') {
       if (tick - t.lastTradeTick >= LP.DEAD_NO_TRADE_DAYS * TPD) kill(g, t, 'noTrade', out);
-      else if (t.cashLowSince !== null && day >= LP.DEAD_CASH_FROM_DAY && tick - t.cashLowSince >= LP.DEAD_CASH_DAYS * TPD) kill(g, t, 'cash', out);
+      // the cash clock counts from the later of the first low tick and day 3 (L3: "7 game days after day 3"), so a launch on day 2
+      // with no funding is dead on day 10, not day 9
+      else if (t.cashLowSince !== null && tick - Math.max(t.cashLowSince, LP.DEAD_CASH_START_TICK) >= LP.DEAD_CASH_DAYS * TPD) kill(g, t, 'cash', out);
     }
     if (t.status === 'live' && tick % LP.CHART_EVERY === 0) {
       t.chart.push([tick, spotAt(t.y)]);

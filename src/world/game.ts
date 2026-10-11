@@ -37,7 +37,7 @@ import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick,
 import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
 import { applyFundCommand, crossRefusal, fundsBeforeStep, fundsDay, fundsFills, type FundCommand } from './funds';
 import { orderError } from './orders';
-import { launchpadCommand, lockedEngineSell, lpFills, lpTick, refuse as lpRefuse, ensureLaunchpad } from './launchpad';
+import { launchpadCommand, lockedEngineSell, lpFills, lpTick, refuse as lpRefuse, ensureLaunchpad, vestingSweep } from './launchpad';
 import { companyCommand, companyDay, companyFinanceCommand, companyStep, type CompanyFinanceCommand } from './company/bridge';
 import { adminIpoReady } from './company/ipo';
 import { scorePlanAbuse, scoreWindowAttempt } from './company/backstop';
@@ -116,6 +116,8 @@ export function stepGame(g: GameState): StepOutput {
 
   // a fund order that an alliance change has put opposite a linked order is cancelled before the engine can match them
   fundsBeforeStep(g, out);
+  // the Launchpad's vesting re-check, before the engine matches (lead-launchpad.md L5): resting creator sells are cut to what is unlocked
+  vestingSweep(g, out);
   const r = step(g.market);
   g.market = r.state;
   const tick = g.market.tick;

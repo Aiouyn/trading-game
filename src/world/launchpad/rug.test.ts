@@ -98,7 +98,7 @@ describe('the rug case (L5)', () => {
     launch(g, CREATOR, 'VERD', { allocation: 0 });
     run(g, HOLDER, { type: 'lp.buy', ticker: 'VERD', spendCents: 2_000 });
     const t = tok(g, 'VERD');
-    t.flag = { tick: g.market.tick, reason: 'dump', proceeds: 10_000, window: 0 };
+    t.flag = { tick: g.market.tick, reason: 'dump', proceeds: 10_000, window: 0, buyers: { [HOLDER]: 1_000 } };
     t.buyLog.push({ pid: HOLDER, tick: g.market.tick, qty: 1_000 });
     t.realized[HOLDER] = -800;
     const c: CourtCase = {
@@ -113,7 +113,7 @@ describe('the rug case (L5)', () => {
     expect(c0 - cashOf(g, CREATOR)).toBeGreaterThanOrEqual(800);
     expect(g.launchpad!.bans[CREATOR]).toBe(g.market.tick + LP.RUG_BAN_TICKS);
     expect(launchGate(g, CREATOR)?.data).toMatchObject({ refusal: 'ban' });
-    expect(LP.RUG_BAN_TICKS).toBe(8 * 7 * TPD);
+    expect(LP.RUG_BAN_TICKS).toBe(8 * 7 * 24 * TPD);
   });
 
   it('the damages are capped by the creator’s proceeds, and a holder with no loss gets none', () => {
@@ -121,7 +121,7 @@ describe('the rug case (L5)', () => {
     launch(g, CREATOR, 'CAPR', { allocation: 0 });
     run(g, HOLDER, { type: 'lp.buy', ticker: 'CAPR', spendCents: 2_000 });
     const t = tok(g, 'CAPR');
-    t.flag = { tick: g.market.tick, reason: 'sweep', proceeds: 100, window: 0 };
+    t.flag = { tick: g.market.tick, reason: 'sweep', proceeds: 100, window: 0, buyers: { [HOLDER]: 1_000 } };
     t.buyLog.push({ pid: HOLDER, tick: g.market.tick, qty: 1_000 });
     t.realized[HOLDER] = -800;
     const mk = (id: string): CourtCase => ({

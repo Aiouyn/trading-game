@@ -3,7 +3,7 @@ import { TPD, cashOf, pushWire } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { textProvider } from '../text';
 import { curveAccountId, tokenStream } from './constants';
-import type { LaunchpadState, LpToken } from './types';
+import type { LaunchpadState, LpLot, LpToken } from './types';
 import { linked } from '../funds/state';
 import type { Msg } from '@/i18n';
 
@@ -117,4 +117,33 @@ export function liveCountOf(s: LaunchpadState, creatorId: string): number {
 /** The public short name of a token, for copy and the feed (the ticker is the public id). */
 export function tokenLabel(t: LpToken): string {
   return `${t.name} (${t.ticker})`;
+}
+
+/** The most FIFO lots a holder keeps per token. Past it the two oldest merge (see pushLot). */
+export const LOTS_KEPT = 300;
+/** The buy log keeps this many game days back: the rug window (7 game days) and the flag's snapshot read from it. */
+const BUY_LOG_DAYS = 8;
+
+/**
+ * Adds a FIFO lot. Past LOTS_KEPT the two oldest lots merge into one at their weighted cost, so the holder's total cost basis
+ * is kept exact (dropping a lot would understate the basis of a long-held position, and with it the realised loss in a rug case).
+ */
+export function pushLot(lots: LpLot[], lot: LpLot): void {
+  lots.push(lot);
+  while (lots.length > LOTS_KEPT) {
+    const a = lots[0]!;
+    const b = lots[1]!;
+    const qty = a.qty + b.qty;
+    const cost = qty > 0 ? (a.qty * a.cost + b.qty * b.cost) / qty : a.cost;
+    lots.splice(0, 2, { qty, cost, tick: a.tick });
+  }
+}
+
+/** Logs a buy for the rug window: entries older than the window are dropped (the log is in tick order). */
+export function pushBuy(t: LpToken, pid: string, tick: number, qty: number): void {
+  t.buyLog.push({ pid, tick, qty });
+  const from = tick - BUY_LOG_DAYS * TPD;
+  let drop = 0;
+  while (drop < t.buyLog.length && t.buyLog[drop]!.tick < from) drop++;
+  if (drop > 0) t.buyLog.splice(0, drop);
 }

@@ -69,13 +69,27 @@ describe('launch gates (L2)', () => {
     expect(g.economy.sinks.lpLaunchFee ?? 0).toBe(0);
   });
 
-  it('a ticker is taken for 30 game days after its launch, and free after that (names stay unique)', () => {
+  it('a ticker a token has used is taken for good: no token is ever replaced (live, cancelled, dead or graduated)', () => {
     const g = lpWorld('gate-reuse');
     expect(launch(g, CREATOR, 'SNAL').ok).toBe(true);
-    expect(run(g, CREATOR, { type: 'lp.cancel', ticker: 'SNAL' }).ok).toBe(true);
-    expect(refusal(launch(g, TRADER, 'SNAL', { name: 'Snail Party' }))).toBe('tickerRecent');
-    jumpDays(g, 31);
-    expect(launch(g, TRADER, 'SNAL', { name: 'Snail Party' }).ok).toBe(true);
+    expect(run(g, TRADER, { type: 'lp.buy', ticker: 'SNAL', spendCents: 10_000 }).ok).toBe(true);
+    // a live token with a holder: the same ticker is refused, and the holder's balance and the creator are untouched
+    expect(refusal(launch(g, TRADER, 'SNAL', { name: 'Snail Party' }))).toBe('tickerTaken');
+    const held = g.launchpad!.tokens.SNAL!.bal[TRADER];
+    jumpDays(g, 40);
+    expect(refusal(launch(g, HOLDER, 'SNAL', { name: 'Snail Party' }))).toBe('tickerTaken');
+    expect(g.launchpad!.tokens.SNAL!.bal[TRADER]).toBe(held);
+    expect(g.launchpad!.tokens.SNAL!.creatorId).toBe(CREATOR);
+    expect(g.launchpad!.order.filter((k) => k === 'SNAL')).toHaveLength(1);
+  });
+
+  it('a cancelled ticker stays taken too, and a fresh ticker still launches', () => {
+    const g = lpWorld('gate-cancel');
+    expect(launch(g, CREATOR, 'CNCL').ok).toBe(true);
+    expect(run(g, CREATOR, { type: 'lp.cancel', ticker: 'CNCL' }).ok).toBe(true);
+    jumpDays(g, 40);
+    expect(refusal(launch(g, TRADER, 'CNCL', { name: 'Cancel Club' }))).toBe('tickerTaken');
+    expect(launch(g, TRADER, 'CNEW', { name: 'Cancel Fresh' }).ok).toBe(true);
   });
 });
 
@@ -207,13 +221,17 @@ describe('cancel and buzz (L2, L6)', () => {
 });
 
 describe('death (L3)', () => {
-  it('a token with no trade for 24 game days is dead, and a token under the cash line for a week after day 3 is dead', () => {
-    const g = lpWorld('death-trade');
+  it('a token under the cash line dies seven game days after day 3 begins (day 10), so a day-2 launch is not dead on day 9', () => {
+    const g = lpWorld('death-cash');
     launch(g, CREATOR, 'QUIE');
     const t = g.launchpad!.tokens.QUIE!;
     t.buzz.base = 0;
     t.sniperDone = true; // no sniper: its buy would hold the curve above the cash line
+    // the world is on day 2 (tick 2*TPD+1) at the launch: day 9 is seven days after the launch but only six after day 3
     jumpDays(g, 7);
+    lpTick(g, null);
+    expect(t.status).toBe('live');
+    jumpDays(g, 1);
     lpTick(g, null);
     expect(t.status).toBe('dead');
     expect(t.deadReason).toBe('cash');

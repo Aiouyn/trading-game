@@ -1,4 +1,4 @@
-import { Rng, appendAsset, openAccount, type AssetDef } from '@/engine';
+import { Rng, appendAsset, cancelOrderResult, openAccount, type AssetDef } from '@/engine';
 import { addShares } from '../company/ipo';
 import type { GameState, StepOutput } from '../types';
 import { notify } from '../core';
@@ -68,6 +68,8 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
     vol,
     drift,
     supplyAccount: bookId,
+    // the book pays for what it buys: a sell the book cannot pay for is partial (never minted, trading.ts routeToSupply)
+    bookCashBound: true,
     listedDay: dayOf(tick),
     blurb: `${t.name} (${t.ticker}): a memecoin that graduated from the Launchpad.`,
   };
@@ -95,6 +97,8 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
   t.gradPrice = price;
   t.gradRaise = raisedCents / 100;
   t.creatorHeldAtGrad = t.creatorId ? (t.bal[t.creatorId] ?? 0) : 0;
+  // the day's sweep test starts from the graduation price (not the launch price the day was opened at)
+  t.creatorDay = { day: dayOf(tick), qty: 0, proceeds: 0, startPrice: price, wired: false };
   // the balances are engine positions now; the lots and realised P&L stay, and the engine's fills keep them (rug.ts lpFills)
   t.bal = {};
   t.npcBal = 0;
@@ -106,14 +110,57 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
   if (t.creatorId) notify(g, out, t.creatorId, { kind: 'system', tone: 'brass', text: `${t.name} graduated to the Broker as ${t.ticker}.`, msg: { key: 'lp.inbox.grad', vars } });
 }
 
+/** The creator's resting sell quantity in a token: every open sell (limits, stops and bracket children included). */
+export function openSellQty(g: GameState, pid: string, assetId: string): number {
+  let q = 0;
+  for (const o of g.market.orders) {
+    if (o.status === 'open' && o.playerId === pid && o.assetId === assetId && o.side === 'sell') q += o.qty - o.filledQty;
+  }
+  return q;
+}
+
 /**
- * The creator's engine-side sell rule after graduation: their allocation is locked by the vesting (L5), and an order that would
- * sell into the locked part is refused. False when the sell is allowed, or when the asset is not a Launchpad token.
+ * The creator's engine-side sell rule after graduation (L5). The vesting locks the allocation's unvested part: the open sells
+ * and the new sell together may not reach into it. Resting orders count (a second sell cannot be placed against shares the first
+ * already commits). False when the sell is allowed, or when the asset is not a Launchpad token, or nothing is locked.
  */
 export function lockedEngineSell(g: GameState, pid: string, assetId: string, qty: number): boolean {
   const t = g.launchpad?.tokens[assetId];
   if (!t || t.status !== 'graduated' || t.creatorId !== pid) return false;
   const held = g.market.accounts[pid]?.positions[assetId]?.qty ?? 0;
   const locked = Math.min(lockedAmount(t, g.market.tick), held);
-  return held - qty < locked;
+  if (locked <= 0) return false;
+  return openSellQty(g, pid, assetId) + qty > held - locked;
+}
+
+/**
+ * The pre-step re-check (L5, the engine's fill loop has no hook of its own): before each tick's matching, the creator's resting
+ * sells are cut back to what the vesting lets them sell. The newest resting sell goes first; the owner is told. Returns the
+ * cancelled order ids. Nothing moves when no allocation is locked.
+ */
+export function vestingSweep(g: GameState, out: StepOutput | null): string[] {
+  const s = g.launchpad;
+  if (!s) return [];
+  const cancelled: string[] = [];
+  for (const t of Object.values(s.tokens)) {
+    if (t.status !== 'graduated' || !t.creatorId) continue;
+    const pid = t.creatorId;
+    const held = g.market.accounts[pid]?.positions[t.ticker]?.qty ?? 0;
+    const locked = Math.min(lockedAmount(t, g.market.tick), held);
+    if (locked <= 0) continue;
+    const sellable = Math.max(0, held - locked);
+    let open = openSellQty(g, pid, t.ticker);
+    if (open <= sellable) continue;
+    const newest = g.market.orders.filter((o) => o.status === 'open' && o.playerId === pid && o.assetId === t.ticker && o.side === 'sell').reverse();
+    for (const o of newest) {
+      if (open <= sellable) break;
+      const res = cancelOrderResult(g.market, pid, o.id);
+      if (res.error) continue;
+      g.market = res.state;
+      open -= o.qty - o.filledQty;
+      cancelled.push(o.id);
+      notify(g, out, pid, { kind: 'order', tone: 'warn', text: `${t.ticker} sell cancelled: the unvested allocation is locked.`, msg: { key: 'lp.inbox.vestCancel', vars: { ticker: t.ticker } } });
+    }
+  }
+  return cancelled;
 }
