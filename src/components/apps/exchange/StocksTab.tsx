@@ -5,7 +5,7 @@
 import { compactMoney, money, price, qty } from '@/game/format';
 import { t } from '@/i18n';
 import { openFromShell } from '@/components/os/openApp';
-import { Button, Card, Chip } from '@/components/ui';
+import { Button, Card, Chip, EmptyNext } from '@/components/ui';
 import type { ListedStock } from '@/world/exchange/view';
 import type { CompanyPublic } from '@/world/company/views';
 import { Fact, Section } from './Shared';
@@ -14,9 +14,8 @@ import { covenantKey, hiresKey, planEndKey, sectorKey, skipKey, sideKey, tierKey
 export function StocksTab({ stocks }: { stocks: ListedStock[] }) {
   if (stocks.length === 0) {
     return (
-      <Card className="p-6" data-testid="exchange-stocks-empty">
-        <p className="text-center text-fg-muted">{t('exchange.empty.stocks')}</p>
-      </Card>
+      <EmptyNext testId="exchange-stocks-empty" title={t('exchange.empty.stocks')} body={t('exchange.empty.stocks.body')}
+        cta={<Button variant="brass" onClick={() => openFromShell('broker')} testId="exchange-stocks-cta">{t('exchange.empty.stocks.cta')}</Button>} />
     );
   }
   return (

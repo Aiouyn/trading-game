@@ -10,7 +10,7 @@ import { GPU_TIERS } from '@/world/core';
 import { reserveCost, trainingPlan } from '@/world/lab';
 import type { Model, TradingBot } from '@/world/types';
 import { t } from '@/i18n';
-import { BrassChip, Button, Card, CardHeader, Chip, NumberField, Select, TextField } from '@/components/ui';
+import { BrassChip, Button, Card, CardHeader, Chip, EmptyNext, NumberField, Select, TextField } from '@/components/ui';
 
 const STRATEGIES: TradingBot['strategy'][] = ['momentum', 'meanrev', 'value', 'earnings', 'trend'];
 const MODEL_KINDS: Model['kind'][] = ['trading', 'analyst', 'security'];
@@ -168,10 +168,12 @@ export function Train() {
   );
 }
 
-export function Models() {
+export function Models({ onTrain }: { onTrain: () => void }) {
   const me = useGame((s) => s.me)!;
   const models = me.lab?.models ?? [];
-  if (!models.length) return <Card className="p-8 text-center font-serif text-title text-fg-muted">{t('lab.models.none')}</Card>;
+  if (!models.length) {
+    return <EmptyNext testId="lab-models-empty" title={t('lab.models.none')} body={t('lab.models.empty.body')} cta={<Button variant="brass" onClick={onTrain} testId="lab-to-train">{t('lab.models.empty.cta')}</Button>} />;
+  }
   return (
     <div className="grid gap-3 @md:grid-cols-2 @4xl:grid-cols-3">
       {models.map((m) => (

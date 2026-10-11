@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { money, pct, qty } from '@/game/format';
 import { t } from '@/i18n';
-import { ticksLabel, Button, Card, Chip, NumberField, Sparkline } from '@/components/ui';
+import { ticksLabel, Button, Card, Chip, EmptyNext, NumberField, Sparkline } from '@/components/ui';
 import { FUND_RULES } from '@/content/funds';
 import type { ExchangeFund, ExchangeView, FundHolding, FundRules } from '@/world/exchange/view';
 import { Fact, PublicChip, RefusalBox, Section } from './Shared';
@@ -20,10 +20,8 @@ export function FundsTab({ x, selected, onSelect, onOpenManage }: {
 }) {
   if (x.funds.length === 0) {
     return (
-      <Card className="flex flex-col items-center gap-3 p-6" data-testid="exchange-funds-empty">
-        <p className="text-center text-fg-muted">{t('exchange.empty.funds')}</p>
-        <Button variant="outline" onClick={onOpenManage} testId="exchange-funds-open-manage">{t('exchange.tab.manage')}</Button>
-      </Card>
+      <EmptyNext testId="exchange-funds-empty" title={t('exchange.empty.funds')} body={t('exchange.empty.funds.body')}
+        cta={<Button variant="outline" onClick={onOpenManage} testId="exchange-funds-open-manage">{t('exchange.tab.manage')}</Button>} />
     );
   }
   const current = x.funds.find((f) => f.id === selected) ?? x.funds[0]!;

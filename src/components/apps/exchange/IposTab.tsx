@@ -6,17 +6,16 @@ import { useState } from 'react';
 import { pct, price, qty } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, Card, NumberField } from '@/components/ui';
+import { Button, Card, EmptyNext, NumberField } from '@/components/ui';
 import type { IpoRow } from '@/world/exchange/view';
 import { Fact, PublicChip, RefusalBox, Section } from './Shared';
 import { type RefusalCopy, refusalCopy, rejectVars, sectorKey } from './copy';
 
-export function IposTab({ ipos }: { ipos: IpoRow[] }) {
+export function IposTab({ ipos, onTab }: { ipos: IpoRow[]; onTab: (tab: 'stocks') => void }) {
   if (ipos.length === 0) {
     return (
-      <Card className="p-6" data-testid="exchange-ipos-empty">
-        <p className="text-center text-fg-muted">{t('exchange.empty.ipos')}</p>
-      </Card>
+      <EmptyNext testId="exchange-ipos-empty" title={t('exchange.empty.ipos')} body={t('exchange.empty.ipos.body')}
+        cta={<Button variant="outline" onClick={() => onTab('stocks')} testId="exchange-ipos-cta">{t('exchange.empty.ipos.cta')}</Button>} />
     );
   }
   return (

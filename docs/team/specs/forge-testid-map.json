@@ -310,5 +310,15 @@
   "lp-hold-empty": "Launchpad Holdings empty state (next-step card)",
   "lp-hold-empty-cta": "Launchpad Holdings empty state CTA: browse New",
   "lp-fees-none": "Launchpad creator fees: none yet (plain line)",
-  "lp-ticket-aside": "Token page: the sticky trade column (ticket) beside the page at 1280 px and wider"
+  "lp-ticket-aside": "Token page: the sticky trade column (ticket) beside the page at 1280 px and wider",
+  "lab-stats": "AI Lab compact stat strip (replaces the serif hero title; plain units)",
+  "lab-stepper": "AI Lab stepper: four steps (research, compute, train, bots), each marked done, with the next step",
+  "lab-step-<id>": "AI Lab stepper step button (research, compute, train, bots)",
+  "lab-step-next": "AI Lab stepper: the next step, or all done",
+  "lab-models-empty": "AI Lab Models empty state (next-step card)",
+  "lab-to-train": "AI Lab Models empty state CTA: train a model",
+  "exchange-stats": "Exchange compact stat strip (replaces the serif hero title)",
+  "exchange-holdings-cta": "Exchange Mine empty state CTA: browse funds",
+  "exchange-ipos-cta": "Exchange IPOs empty state CTA: see listed stocks",
+  "exchange-stocks-cta": "Exchange Stocks empty state CTA: open the Broker"
 }
