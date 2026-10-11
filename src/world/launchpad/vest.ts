@@ -2,8 +2,8 @@ import { LP, TPD } from './constants';
 import type { LpToken } from './types';
 
 /**
- * Vesting of the creator's allocation (lead-launchpad.md L5): nothing unlocks before the cliff at 2 game days after launch,
- * then the allocation unlocks linearly to all of it at 14 game days. Locked tokens cannot be sold. The curve checks it at every
+ * Vesting of the creator's allocation (lead-launchpad.md L5, v1.4): nothing unlocks before the cliff at 2 game days after
+ * graduation (the schedule starts at gradTick), then the allocation unlocks linearly to all of it at 14 game days. Locked tokens cannot be sold. The curve checks it at every
  * sell, and after graduation the engine order path checks the same figure against the creator's position (game.ts).
  */
 
