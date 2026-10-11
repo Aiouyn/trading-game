@@ -85,7 +85,7 @@ export function TerminalLayout({ chart, dock, watchlist, ticket, watchlistOpen =
         />
         <div className="flex min-h-0 shrink-0 flex-col" style={{ height: dockH }} data-testid="terminal-dock">{dock}</div>
       </div>
-      <aside className="flex w-[344px] shrink-0 flex-col overflow-y-auto border-l border-ink-2 p-2" data-testid="terminal-ticket">{ticket}</aside>
+      <aside className="flex min-h-0 w-[344px] shrink-0 flex-col overflow-hidden border-l border-ink-2 p-2" data-testid="terminal-ticket">{ticket}</aside>
     </div>
   );
 }

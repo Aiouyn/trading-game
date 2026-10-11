@@ -121,7 +121,7 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
           chart={chart}
           dock={dock}
           watchlist={<Universe ticker={name} onPick={pick} bare />}
-          ticket={<OrderTicket ticker={name} />}
+          ticket={<OrderTicket ticker={name} dense />}
         />
       </div>
     );

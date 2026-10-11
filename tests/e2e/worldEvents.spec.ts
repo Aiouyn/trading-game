@@ -137,6 +137,8 @@ test('the banner opens the event panel, and the Rivals board lists the funds bes
   await noHorizontalOverflow(page);
 
   await goTo(page, 'market');
+  // the rivals board sits in the Broker's Asset tab (the dock)
+  await page.getByTestId('dock-tab-asset').click();
   const board = page.getByTestId('rivals-board');
   await board.scrollIntoViewIfNeeded();
   await expect(board).toBeVisible({ timeout: 15_000 });
@@ -181,6 +183,8 @@ test('in French, the takeover reads in French (headline, label, the See my posit
   await shot(page, 'fr-takeover-bubble');
   await page.getByTestId('event-close').click();
   await goTo(page, 'market');
+  // the rivals board sits in the Broker's Asset tab (the dock)
+  await page.getByTestId('dock-tab-asset').click();
   const board = page.getByTestId('rivals-board');
   await board.scrollIntoViewIfNeeded();
   await expect(board).toContainText('Rivaux');

@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import { signedMoney, money, price, qty as fmtQty, tone, toneText } from '@/game/format';
 import { useGame } from '@/game/store';
 import { clockLabel } from '@/game/clock';
@@ -95,7 +95,9 @@ export function BrokerDock({ ticker, tab, onTab, narrow = false, onPick }: {
 /** The fills of one asset, newest first: when, side, units, price, fee and the realized P&L each fill booked. */
 export function FillHistory({ assetId }: { assetId: string }) {
   const tpd = useGame((s) => s.world?.config.ticksPerDay ?? 720);
-  const fills = useGame((s) => (s.me?.trading?.fills ?? []).filter((f) => f.assetId === assetId));
+  // the store's array is selected as it is and filtered here: a selector that builds a new array every call never settles
+  const all = useGame((s) => s.me?.trading?.fills);
+  const fills = useMemo(() => (all ?? []).filter((f) => f.assetId === assetId), [all, assetId]);
   if (fills.length === 0) return <p className="px-1 text-small text-fg-faint" data-testid="history-empty">{t('broker.dock.noFills')}</p>;
   const rows = fills.slice(-60).reverse();
   return (

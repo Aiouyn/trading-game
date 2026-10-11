@@ -55,9 +55,43 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const candleName = interval;
   const realText = realTimeText(candleRealSeconds(interval, tpd));
   const candleTip = t('broker.chart.realTip', { candle: candleName, real: realText, day: realTimeText(candleRealSeconds('1D', tpd)) });
+  const intervalGroup = (
+    <div title={candleTip} data-testid="interval-group" className="flex shrink-0 items-center gap-2">
+      <Segmented
+        label={t('broker.chart.interval')} size="sm"
+        options={INTERVALS.map((i) => ({ value: i, label: i, testId: `interval-${i}`, disabled: !allowed.includes(i) }))}
+        value={interval} onChange={(v) => setInterval(v as Interval)}
+      />
+      <span className="num text-caption text-fg-faint" data-testid="candle-real">{t('broker.chart.candleReal', { candle: candleName, real: realText })}</span>
+    </div>
+  );
+  const rangeSeg = (
+    <Segmented
+      label={t('broker.chart.range')} size="sm" className="shrink-0"
+      options={CHART_RANGES.map((r) => ({ value: r, label: r === 'ALL' ? t('broker.range.all') : r, testId: `range-${r}` }))}
+      value={range} onChange={(v) => setRange(v as ChartRange)}
+    />
+  );
+  const styleSeg = (
+    <Segmented
+      label={t('broker.chart.style')} size="sm" className="shrink-0"
+      options={[{ value: 'candles', label: t('broker.chart.candles') }, { value: 'line', label: t('broker.chart.line') }]}
+      value={mode} onChange={(v) => setMode(v as 'candles' | 'line')}
+    />
+  );
+  const pctBtn = (
+    <button
+      type="button" aria-pressed={percent} onClick={() => setPercent((p) => !p)} data-testid="pct-axis" title={t('broker.chart.pctTip')}
+      className={`h-7 shrink-0 rounded-md border px-2.5 text-caption ${percent ? 'border-brass/60 bg-brass/10 text-brass-hi' : 'border-ink-3 text-fg-faint hover:text-fg-muted'}`}
+    >
+      {t('broker.chart.pct')}
+    </button>
+  );
   return (
     <section className="flex h-full min-h-0 flex-col" data-testid="chart-card">
-      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 px-3 pt-2.5">
+      {/* The header: the ticker and price, then the controls. Phone widths keep one line of price and one scrolling toolbar,
+          so the chart keeps its share of the height. */}
+      <div className={narrow ? "px-3 pt-2" : "flex flex-wrap items-start justify-between gap-x-6 gap-y-2 px-3 pt-2.5"}>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="num text-body font-semibold text-fg" data-testid="chart-ticker">{info.id}</span>
@@ -84,38 +118,30 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
             </div>
           )}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div title={candleTip} data-testid="interval-group" className="flex items-center gap-2">
-            <Segmented
-              label={t('broker.chart.interval')} size="sm"
-              options={INTERVALS.map((i) => ({ value: i, label: i, testId: `interval-${i}`, disabled: !allowed.includes(i) }))}
-              value={interval} onChange={(v) => setInterval(v as Interval)}
-            />
-            <span className="num text-caption text-fg-faint" data-testid="candle-real">{t('broker.chart.candleReal', { candle: candleName, real: realText })}</span>
+        {!narrow && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {intervalGroup}
+            {rangeSeg}
           </div>
-          <Segmented
-            label={t('broker.chart.range')} size="sm"
-            options={CHART_RANGES.map((r) => ({ value: r, label: r === 'ALL' ? t('broker.range.all') : r, testId: `range-${r}` }))}
-            value={range} onChange={(v) => setRange(v as ChartRange)}
-          />
-        </div>
+        )}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5">
-        <div className="flex items-center gap-2">
-          <Segmented
-            label={t('broker.chart.style')} size="sm"
-            options={[{ value: 'candles', label: t('broker.chart.candles') }, { value: 'line', label: t('broker.chart.line') }]}
-            value={mode} onChange={(v) => setMode(v as 'candles' | 'line')}
-          />
-          <button
-            type="button" aria-pressed={percent} onClick={() => setPercent((p) => !p)} data-testid="pct-axis" title={t('broker.chart.pctTip')}
-            className={`h-7 rounded-md border px-2.5 text-caption ${percent ? 'border-brass/60 bg-brass/10 text-brass-hi' : 'border-ink-3 text-fg-faint hover:text-fg-muted'}`}
-          >
-            {t('broker.chart.pct')}
-          </button>
+      {narrow ? (
+        <div className="flex items-center gap-2 overflow-x-auto px-3 pb-1.5 pt-1.5 [&>*]:shrink-0" data-testid="chart-toolbar">
+          {intervalGroup}
+          {rangeSeg}
+          {styleSeg}
+          {pctBtn}
+          <IndicatorMenu />
         </div>
-        <IndicatorMenu />
-      </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5">
+          <div className="flex items-center gap-2">
+            {styleSeg}
+            {pctBtn}
+          </div>
+          <IndicatorMenu />
+        </div>
+      )}
       <div className="relative min-h-0 flex-1 px-1 pb-1">
         <PriceChart assetId={info.id} marks={marks} onMarkOff={setOffSide} eventBand={eventBand} percent={percent} />
       </div>

@@ -116,7 +116,7 @@ test.describe('phone desktop', () => {
   test('a Broker ticket keeps its quantity when its Recent row is closed and reopened (P2-161)', async ({ page }) => {
     await register(page);
     await page.getByTestId('home-app-broker').click();
-    await page.getByTestId('order-qty').fill('7');
+    await page.getByTestId('bar-qty').fill('7');
     await page.getByTestId('phone-back').click();
 
     // The unsent ticket shows its dot on the Recent row (P2-160).
@@ -128,8 +128,8 @@ test.describe('phone desktop', () => {
     // Reopening the Broker restores the ticket exactly. Nothing was sent (P2-161).
     await page.getByTestId('recents-home').click();
     await page.getByTestId('home-app-broker').click();
-    await expect(page.getByTestId('order-qty')).toHaveValue('7');
-    await expect(page.getByTestId('order-total')).toBeVisible();
+    await expect(page.getByTestId('bar-qty')).toHaveValue('7');
+    await expect(page.getByTestId('bar-review')).toBeVisible();
   });
 
   test('a rank-up plays the OS update, skippable after a second; the e2e hooks exist only under ?e2e', async ({ page }) => {

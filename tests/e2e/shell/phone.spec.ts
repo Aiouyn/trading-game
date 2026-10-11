@@ -91,7 +91,7 @@ test.describe('phone shell', () => {
     await boot(page);
     const before = await orders(page);
     await page.getByTestId('home-app-broker').click();
-    await page.getByTestId('order-qty').fill('7');
+    await page.getByTestId('bar-qty').fill('7');
     await page.getByTestId('phone-back').click();
     await holdQuay(page, 800);
     await expect(page.getByTestId('recents-draft-broker')).toHaveCount(1);
@@ -103,13 +103,17 @@ test.describe('phone shell', () => {
     test.skip(true, 'standalone-only path: the installed app is not built in V1 (C-18, C-36, F:97)');
   });
 
-  test('@phone_broker_inline the phone Broker is a full-screen app with its ticket inline, and no trade sheet', async ({ page }) => {
+  test('@phone_broker_inline the phone Broker is a full-screen app with a sticky trade bar; the full ticket is a bottom sheet', async ({ page }) => {
     onlyIn('phone');
     await boot(page);
     await page.getByTestId('home-app-broker').click();
     await expect(page.getByTestId('phone-app-broker')).toBeVisible();
+    await expect(page.getByTestId('trade-bar')).toBeVisible();
+    await expect(page.getByTestId('bar-qty')).toBeVisible();
+    await expect(page.getByTestId('order-pad')).toHaveCount(0);
+    await page.getByTestId('bar-qty').fill('1');
+    await page.getByTestId('bar-review').click();
     await expect(page.getByTestId('order-pad')).toBeVisible();
-    await expect(page.getByTestId('order-qty')).toBeVisible();
     await expect(page.getByTestId('open-trade')).toHaveCount(0);
   });
 });

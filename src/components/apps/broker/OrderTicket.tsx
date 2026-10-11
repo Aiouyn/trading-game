@@ -41,16 +41,16 @@ function nativeEnter(el: HTMLElement | null): boolean {
  * The ticket for a ticker. A Broker passes its own ticker. A ticket preset (the stop explainer) fills
  * only the ticket on the game's selected ticker, so two Brokers on other tickers stay clean.
  */
-export function OrderTicket({ ticker }: { ticker?: string } = {}) {
+export function OrderTicket({ ticker, dense = false }: { ticker?: string; dense?: boolean } = {}) {
   const globalSelected = useGame((s) => s.selected);
   const preset = useGame((s) => s.ticketPreset);
   const selected = ticker ?? globalSelected;
   const here = ticker === undefined || ticker === globalSelected ? preset : null;
   // a new asset or a new preset starts a fresh ticket
-  return <Ticket key={`${selected}-${here?.nonce ?? 0}`} preset={here} selected={selected} />;
+  return <Ticket key={`${selected}-${here?.nonce ?? 0}`} preset={here} selected={selected} dense={dense} />;
 }
 
-function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getState>['ticketPreset']; selected: string }) {
+function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame.getState>['ticketPreset']; selected: string; dense: boolean }) {
   const world = useGame((s) => s.world);
   const me = useGame((s) => s.me);
   const playerId = useGame((s) => s.playerId);
@@ -265,9 +265,27 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   // the rate the engine charges this class (trading config), so the ticket never shows a stale fee
   const feeTable = tradingConfig(world).fees;
   const fees = `${((feeTable[def.assetClass] ?? feeTable.stock).rate * 100).toFixed(2)}%`;
+  // the refusal, the confirm line and the Buy button stay pinned under the fields, so they are on screen whatever the fields height
+  const footerBody = (
+    <>
+            {invalid && <p className="mt-2 text-caption text-warn" data-testid="order-invalid">{t(invalid.key, invalid.vars)}</p>}
+            {fundRefusal && <RefusalBox copy={fundRefusal} testId="order-fund-refusal" />}
+            {halted && <p className="mt-2 text-caption text-warn">{t('broker.haltedNote')}</p>}
+            {confirming && (
+              <p className="mt-3 text-small text-fg" role="status" data-testid="order-confirm">{t('broker.confirm', { label: actionLabel, total: money(total) })}</p>
+            )}
+            <Button variant="brass" size={dense ? "md" : "lg"} className={`w-full ${dense ? "mt-2" : "mt-3"}`} disabled={!canSubmit} onClick={submit} testId="order-submit">{actionLabel}</Button>
+            <p className="mt-2 text-center text-caption text-fg-faint" data-testid="honest-note">{t('order.honest')}</p>
+            <label className="mt-2 flex items-center gap-2 text-caption text-fg-muted">
+              <input type="checkbox" checked={quick} onChange={(e) => setQuick(e.target.checked)} data-testid="quick-enter" />
+              {t('broker.quickEnter', { pct: Math.round(QUICK_ENTER.maxCashFraction * 100) })}
+            </label>
+    </>
+  );
   return (
-    <Card className="p-4" data-testid="order-pad">
-      <div ref={rootRef}>
+    <Card className={dense ? 'flex min-h-0 flex-1 flex-col p-3' : 'p-4'} data-testid="order-pad">
+      <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex items-baseline justify-between">
           <h2 className="font-serif text-title">{t('broker.trade')}</h2>
           <span className="text-caption text-fg-faint">
@@ -379,20 +397,10 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
               {shorting && <p className="mt-1 text-caption text-warn">{t('broker.shortWarn')}</p>}
               {margin && side === 'buy' && notional > acct.cash && <p className="mt-1 text-caption text-warn">{t('broker.marginWarn')}</p>}
             </div>
-            {invalid && <p className="mt-2 text-caption text-warn" data-testid="order-invalid">{t(invalid.key, invalid.vars)}</p>}
-            {fundRefusal && <RefusalBox copy={fundRefusal} testId="order-fund-refusal" />}
-            {halted && <p className="mt-2 text-caption text-warn">{t('broker.haltedNote')}</p>}
-            {confirming && (
-              <p className="mt-3 text-small text-fg" role="status" data-testid="order-confirm">{t('broker.confirm', { label: actionLabel, total: money(total) })}</p>
-            )}
-            <Button variant="brass" size="lg" className="mt-3 w-full" disabled={!canSubmit} onClick={submit} testId="order-submit">{actionLabel}</Button>
-            <p className="mt-2 text-center text-caption text-fg-faint" data-testid="honest-note">{t('order.honest')}</p>
-            <label className="mt-2 flex items-center gap-2 text-caption text-fg-muted">
-              <input type="checkbox" checked={quick} onChange={(e) => setQuick(e.target.checked)} data-testid="quick-enter" />
-              {t('broker.quickEnter', { pct: Math.round(QUICK_ENTER.maxCashFraction * 100) })}
-            </label>
           </>
         )}
+        </div>
+        {!locked && <div className="shrink-0 pt-2">{footerBody}</div>}
       </div>
     </Card>
   );
