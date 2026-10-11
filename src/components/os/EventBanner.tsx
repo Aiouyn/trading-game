@@ -17,6 +17,9 @@ import { headlineText, kindDot, kindLabel } from './eventText';
 /** Whether the event panel is open. Shared, so the strip, the phone and Escape close it the same way. */
 export const useEventPanel = create<{ open: boolean }>(() => ({ open: false }));
 
+/** The flash crashes whose soft edge glow has run (one glow per event, at its onset). */
+const flashGlowed = new Set<string>();
+
 /** The banner now, read from the store. A boolean selector, so the shell re-syncs only when the strip appears or goes. */
 export function useBannerOn(): boolean {
   return useGame((s) => selectEventBanner(s.frame?.worldEvent ?? null, s.wire, s.frame?.tick ?? 0, s.world?.config.ticksPerDay ?? 720) !== null);
@@ -43,6 +46,16 @@ export function EventBannerStrip() {
     if (eventId !== null && lastEventId.current !== null && eventId !== lastEventId.current) useEventPanel.setState({ open: false });
     if (eventId !== null) lastEventId.current = eventId;
   }, [eventId]);
+  // a flash crash, at its onset: a 1.5 s soft info edge, once per event (no takeover, no red; off under reduced motion)
+  const flashOnset = frame?.worldEvent?.kind === 'flash' && frame.worldEvent.phase === 'live' && frame.worldEvent.elapsedDays === 0;
+  useEffect(() => {
+    if (!flashOnset || eventId === null || flashGlowed.has(eventId)) return;
+    flashGlowed.add(eventId);
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    document.body.classList.add('os-flash-glow');
+    const id = window.setTimeout(() => document.body.classList.remove('os-flash-glow'), 1500);
+    return () => { window.clearTimeout(id); document.body.classList.remove('os-flash-glow'); };
+  }, [flashOnset, eventId]);
   const banner = selectEventBanner(frame?.worldEvent ?? null, wire, frame?.tick ?? 0, tpd);
   if (banner === null) return null;
   if (banner.kind === 'aftermath') {

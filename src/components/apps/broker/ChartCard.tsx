@@ -9,6 +9,7 @@ import { t } from '@/i18n';
 import { useState } from 'react';
 import { Card, Chip, Flash, LockGlyph, Segmented } from '@/components/ui';
 import { PriceChart } from './PriceChart';
+import { kindLabel } from '@/components/os/eventText';
 import { seriesInfo } from './seriesInfo';
 
 const RANGE_OPTS = RANGES.map((r) => ({ value: r, label: r, testId: `range-${r}` }));
@@ -20,6 +21,11 @@ const RANGE_OPTS = RANGES.map((r) => ({ value: r, label: r, testId: `range-${r}`
  */
 export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?: boolean }) {
   const world = useGame((s) => s.world)!;
+  // the live world event's window, shaded on the chart from its onset (never its end)
+  const ev = useGame((s) => s.frame?.worldEvent ?? null);
+  const eventBand = ev && ev.phase === 'live' && ev.kind && ev.sinceTick !== undefined
+    ? { sinceTick: ev.sinceTick, kind: ev.kind, label: t('event.label', { kind: kindLabel(ev.kind), day: ev.elapsedDays + 1 }) }
+    : undefined;
   useGame((s) => s.historyRev);
   useGame((s) => s.config);
   const rankId = useGame((s) => s.me?.player.rankId ?? 'R0');
@@ -90,7 +96,7 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
         ))}
       </div>
       <div className="mt-3 h-[min(46vh,420px)] min-h-64">
-        <PriceChart assetId={info.id} marks={marks} onMarkOff={setOffSide} />
+        <PriceChart assetId={info.id} marks={marks} onMarkOff={setOffSide} eventBand={eventBand} />
       </div>
       {liq !== null && offSide !== null && (
         <p className="mt-2 text-caption text-fg-faint" data-testid="liquidation-off">

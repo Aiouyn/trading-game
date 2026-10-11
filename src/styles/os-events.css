@@ -71,7 +71,8 @@
     animation: os-takeover-drop 600ms ease-in 300ms forwards;
   }
   .os-takeover-card {
-    position: relative; width: min(640px, calc(100vw - 32px)); padding: 0 16px; color: var(--color-fg);
+    position: relative; width: min(640px, calc(100vw - 32px)); padding: 28px 24px; color: var(--color-fg);
+    background: color-mix(in srgb, var(--color-ink-1) 94%, transparent); border-radius: var(--radius-sm); box-shadow: 0 8px 32px rgb(0 0 0 / 0.35);
     animation: os-takeover-rise 1500ms ease-out 900ms both;
   }
   .os-takeover-headline {
@@ -101,3 +102,43 @@
 @keyframes os-takeover-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes os-takeover-drop { from { height: 0; } to { height: 38vh; } }
 @keyframes os-takeover-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/*
+ * Ambient layers while a world event is live (velvet-world-events.md, section 4): a slow hairline pulse under the top bar in the
+ * kind's colour, the event window shaded on the price charts at 6% from the onset, and a 1.5 s soft edge glow for a flash crash
+ * (its info colour, once, never a red screen). Reduced motion turns the pulse and the glow off. The band is not a rebound hint:
+ * it stops at the chart's right edge (now), never at an end.
+ */
+@layer components {
+  .os-event[data-kind="crash"] { --os-event-hue: var(--color-loss); }
+  .os-event[data-kind="bubble"] { --os-event-hue: var(--color-gain); }
+  .os-event[data-kind="crisis"], .os-event[data-kind=""] { --os-event-hue: var(--color-warn); }
+  .os-event[data-kind="flash"] { --os-event-hue: var(--color-info); }
+  .os-root .os-event[data-state="live"]::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--os-event-hue);
+    animation: os-event-pulse 2400ms ease-in-out infinite;
+  }
+  .os-event-band {
+    position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: 1;
+    background: color-mix(in srgb, var(--color-loss) 6%, transparent);
+  }
+  .os-event-band[data-kind="bubble"] { background: color-mix(in srgb, var(--color-gain) 6%, transparent); }
+  .os-event-band[data-kind="crisis"] { background: color-mix(in srgb, var(--color-warn) 6%, transparent); }
+  .os-event-band[data-kind="flash"] { background: color-mix(in srgb, var(--color-info) 6%, transparent); }
+  .os-event-band-label {
+    position: absolute; top: 4px; left: 6px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--color-fg-muted); white-space: nowrap;
+  }
+  body.os-flash-glow .os-root::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 30;
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-info) 45%, transparent);
+    animation: os-flash-glow 1500ms ease-out forwards;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .os-root .os-event[data-state="live"]::before { animation: none; opacity: 0.6; }
+    body.os-flash-glow .os-root::after { animation: none; opacity: 0; }
+  }
+}
+
+@keyframes os-event-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+@keyframes os-flash-glow { from { opacity: 1; } to { opacity: 0; } }

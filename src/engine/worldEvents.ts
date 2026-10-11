@@ -92,6 +92,8 @@ export interface WorldEventView {
   windowHours?: number;
   /** log move the event put into each asset so far today (past only) */
   todayShare: Record<string, number>;
+  /** live only: the onset tick, so the charts can shade the window from its start (never the end) */
+  sinceTick?: number;
 }
 
 export function worldEventsConfig(cfg: WorldConfig): WorldEventsConfig | null {
@@ -386,7 +388,7 @@ export function worldEventView(state: WorldState): WorldEventView | null {
     phase: live ? 'live' : 'announced',
     elapsedDays: live ? Math.floor((state.tick - a.startTick) / tpd) : 0,
     todayShare: a.today.day === today ? { ...a.today.moves } : {},
-    ...(live ? {} : { windowHours: telegraphBand(hoursLeft) }),
+    ...(live ? { sinceTick: a.startTick } : { windowHours: telegraphBand(hoursLeft) }),
   };
 }
 
