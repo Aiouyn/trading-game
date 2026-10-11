@@ -3,7 +3,7 @@ import { applyCommand, createGame, securityDay, stepGame } from './game';
 import { TPD } from './core';
 import {
   AP_RANGE, attackFund, CREW_DAY_CHANCE, LIST_SIZE_RANGE, NEW_ACCOUNT_PROTECTION, OFFLINE_PROTECTION, canaryFlagChance, crewMayAttack,
-  fundDefense, fundHoneypot, fundModelList, honeypotEvidence, inheritedPoison, quarterOf, rivalCrewDay,
+  fundDefense, fundHoneypot, fundModelList, honeypotEvidence, inheritedPoison, QUARTER_DAYS, quarterOf, rivalCrewDay,
 } from './rivalCrews';
 import { decoyDay, defensePoints, entriesOf, plantCrewSession } from './cyber';
 import { labFor } from './lab';
@@ -258,30 +258,37 @@ describe('the canary and the honeypot in play (M29)', () => {
   });
 
   it('a fund with a honeypot: the canary can steer an op away from it; without the canary the honeypot takes the session', () => {
-    let withHoneypot = 0;
+    // The honeypot draw is keyed by the game seed and the quarter. One template game (one attacker, one security model) is built
+    // once; the quarters in which Pinn runs a honeypot are read off it, and each such quarter is played on a copy of the template
+    // with the clock set to that quarter, canary on and canary off. The work is one game build plus cheap copies, not a loop over
+    // seeds of full game builds (that loop took about 30 s and timed out under a loaded worker).
+    const template = createGame('fund-op', { warmupDays: 1 });
+    applyCommand(template, 'fx1', { type: 'join', handle: 'trader_fx1', country: 'AV' });
+    template.players.fx1!.rankId = 'R3';
+    template.market.accounts.fx1!.cash = 1e7;
+    labFor(template, 'fx1').models.push({ id: 'sec1', name: 'Sec', kind: 'security', mcs: 1000, createdTick: 0, residue: 0 });
+    const hits: number[] = [];
+    for (let q = 0; q < 40 && hits.length < 8; q++) if (fundHoneypot(template, 'pinn', q)) hits.push(q);
+    expect(hits.length).toBeGreaterThan(0);
+
+    const playAt = (q: number, canary: boolean): GameState => {
+      const g = structuredClone(template);
+      g.market.tick = q * QUARTER_DAYS * TPD + 1; // quarterOf(tick) === q
+      attackFund(g, 'fx1', 'pinn', 'tap', 'sec1', canary, null);
+      return g;
+    };
+
     let flagged = 0;
     let decoyNoCanary = 0;
     let flaggedWithoutCanary = 0;
-    for (let i = 0; i < 60; i++) {
-      const g = createGame(`fund-op-${i}`, { warmupDays: 1 });
-      applyCommand(g, 'fx1', { type: 'join', handle: 'trader_fx1', country: 'AV' });
-      g.players.fx1!.rankId = 'R3';
-      g.market.accounts.fx1!.cash = 1e7;
-      labFor(g, 'fx1').models.push({ id: 'sec1', name: 'Sec', kind: 'security', mcs: 1000, createdTick: 0, residue: 0 });
-      if (!fundHoneypot(g, 'pinn', quarterOf(g.market.tick))) continue;
-      withHoneypot++;
-      attackFund(g, 'fx1', 'pinn', 'tap', 'sec1', true, null);
+    for (const q of hits) {
+      const g = playAt(q, true);
+      expect(fundHoneypot(g, 'pinn', quarterOf(g.market.tick))).not.toBeNull();
       if (g.cyber.ops[0]?.result === 'flagged') flagged++;
-      const g2 = createGame(`fund-op-${i}`, { warmupDays: 1 });
-      applyCommand(g2, 'fx1', { type: 'join', handle: 'trader_fx1', country: 'AV' });
-      g2.players.fx1!.rankId = 'R3';
-      g2.market.accounts.fx1!.cash = 1e7;
-      labFor(g2, 'fx1').models.push({ id: 'sec1', name: 'Sec', kind: 'security', mcs: 1000, createdTick: 0, residue: 0 });
-      attackFund(g2, 'fx1', 'pinn', 'tap', 'sec1', false, null);
+      const g2 = playAt(q, false);
       if (g2.cyber.ops[0]?.result === 'flagged') flaggedWithoutCanary++;
       if ((g2.cyber.decoys ?? []).some((s) => s.on === 'fund' && s.poisonTier > 0)) decoyNoCanary++;
     }
-    expect(withHoneypot).toBeGreaterThan(0);
     expect(flaggedWithoutCanary).toBe(0); // only the canary can flag
     expect(flagged + decoyNoCanary).toBeGreaterThan(0);
   });
