@@ -2,6 +2,7 @@ import type { Bar } from '@/game/history';
 import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
 import type { AssetDef } from '@/engine';
 import type { DirectoryRow, MarketFrame, PlayerView, PublicState } from '@/world/view';
+import type { LpPage } from '@/world/launchpad/view';
 
 /** Messages from the browser to the world server. */
 export type ClientMsg =
@@ -9,6 +10,8 @@ export type ClientMsg =
   | { t: 'cmd'; id: number; cmd: Command }
   | { t: 'history'; id: number; series: string }
   | { t: 'nw-history'; id: number }
+  /** one Launchpad token page, read on demand (the view carries none) */
+  | { t: 'lp-page'; id: number; ticker: string }
   | { t: 'ping' };
 
 export interface HistoryPayload {
@@ -64,6 +67,7 @@ export type ServerMsg =
   | { t: 'ack'; id: number; ok: boolean; error?: string; data?: unknown; me?: PlayerView }
   | { t: 'history'; id: number; data: HistoryPayload | null }
   | { t: 'nw-history'; id: number; data: NwHistoryPayload }
+  | { t: 'lp-page'; id: number; data: LpPage | null }
   | { t: 'chat'; chat: (ChatMessage & { channel: string })[] }
   | { t: 'error'; message: string }
   | { t: 'pong' };

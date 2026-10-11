@@ -2,13 +2,15 @@
 
 // The Launchpad (Phase 5, lead-launchpad.md L7): player-made memecoins on a bonding curve. Five tabs (New, Trending, Graduated,
 // Holdings, Create); a token's page opens from any row. Every number comes from the player view (`me.launchpad`), which the
-// world builds; the view carries no other player's holdings.
-import { useState } from 'react';
+// world builds; the view carries no other player's holdings and no token pages. The open token's page is read from the world
+// (`loadLpPage`) on each tick, so it stays current and works for any token, whether or not it is still in a feed.
+import { useEffect, useState } from 'react';
 import { money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Card, Stat, Tabs, Button } from '@/components/ui';
 import { normalizeName } from '@/world/launchpad/moderate';
+import type { LpPage } from '@/world/launchpad/view';
 import { CreateTab } from './CreateTab';
 import { FeedTab } from './FeedTab';
 import { HoldingsTab } from './HoldingsTab';
@@ -19,14 +21,25 @@ type Tab = 'new' | 'trending' | 'graduated' | 'holdings' | 'create';
 export function LaunchpadApp() {
   const me = useGame((s) => s.me);
   const tick = useGame((s) => s.frame?.tick ?? 0);
+  const loadLpPage = useGame((s) => s.loadLpPage);
   const [tab, setTab] = useState<Tab>('new');
   const [open, setOpen] = useState<string | null>(null);
+  // the open token's page as the world read it, with the ticker it is for (a page for another ticker is never shown)
+  const [read, setRead] = useState<{ ticker: string; page: LpPage | null } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    void loadLpPage(open).then((p) => { if (live) setRead({ ticker: open, page: p }); });
+    return () => { live = false; };
+  }, [open, tick, loadLpPage]);
   if (!me) return null;
   const lp = me.launchpad;
-  const page = open ? lp.pages[open] : undefined;
+  const shown = open !== null && read?.ticker === open ? read : null;
+  const page = shown?.page ?? null;
+  const missing = open !== null && shown !== null && page === null;
   const holdingsValue = lp.holdings.reduce((a, h) => a + h.value, 0);
   const fees = lp.console.reduce((a, c) => a + c.fees, 0);
-  const takenNames = takenNamesOf([...lp.feeds.newest, ...lp.feeds.trending, ...lp.feeds.graduated, ...Object.values(lp.pages)]);
+  const takenNames = takenNamesOf([...lp.feeds.newest, ...lp.feeds.trending, ...lp.feeds.graduated, ...lp.holdings, ...lp.console]);
   const openToken = (ticker: string) => setOpen(ticker);
 
   return (
@@ -42,9 +55,9 @@ export function LaunchpadApp() {
         />
       ) : (
         <>
-          {open && (
+          {missing && (
             <Card className="flex flex-wrap items-center justify-between gap-3 p-4" >
-              <p className="text-small text-fg-muted" data-testid="lp-missing">{t('lp.page.missing', { ticker: open })}</p>
+              <p className="text-small text-fg-muted" data-testid="lp-missing">{t('lp.page.missing', { ticker: open ?? '' })}</p>
               <Button size="sm" variant="outline" testId="lp-back" onClick={() => setOpen(null)}>{t('lp.back')}</Button>
             </Card>
           )}
@@ -75,15 +88,15 @@ export function LaunchpadApp() {
           {tab === 'new' && <FeedTab rows={lp.feeds.newest} kind="new" onOpen={openToken} />}
           {tab === 'trending' && <FeedTab rows={lp.feeds.trending} kind="trending" onOpen={openToken} />}
           {tab === 'graduated' && <FeedTab rows={lp.feeds.graduated} kind="graduated" onOpen={openToken} />}
-          {tab === 'holdings' && <HoldingsTab holdings={lp.holdings} console={lp.console} pages={lp.pages} onOpen={openToken} />}
-          {tab === 'create' && <CreateTab lp={lp} takenNames={takenNames} pages={lp.pages} onOpen={openToken} />}
+          {tab === 'holdings' && <HoldingsTab holdings={lp.holdings} console={lp.console} onOpen={openToken} />}
+          {tab === 'create' && <CreateTab lp={lp} takenNames={takenNames} onOpen={openToken} />}
         </>
       )}
     </div>
   );
 }
 
-/** The normalised names this viewer can see (the feeds and the pages), for the Create form's live check. The world checks all. */
+/** The normalised names this viewer can see (the feeds, holdings and console), for the Create form's live check. The world checks all. */
 function takenNamesOf(cards: { name: string }[]): Set<string> {
   const out = new Set<string>();
   for (const c of cards) out.add(normalizeName(c.name).joined);

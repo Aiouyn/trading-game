@@ -235,6 +235,8 @@ function runSeed(seed: string) {
   return {
     seed, launches, cohortLaunches, deadWithin7, deadWithin7Early, graduated, tenX, residualMax, allLaunches: toks.length, diag,
     excess: returns, raw, gx: bh, npcRetail: g.economy.faucets.npcRetail ?? 0,
+    // L8.1: the NPC side's net cash to players (its faucet less its sink), over the launches of the seed
+    npcRetailNet: (g.economy.faucets.npcRetail ?? 0) - (g.economy.sinks.npcRetail ?? 0),
     lpTotals: g.launchpad?.totals ?? null, npcLaunches: g.launchpad?.npcSeq ?? 0,
   };
 }
@@ -262,11 +264,14 @@ const dead7Early = per.reduce((a, r) => a + r.deadWithin7Early, 0) / Math.max(1,
 const grad = per.reduce((a, r) => a + r.graduated, 0) / Math.max(1, totalLaunches);
 const tenX = per.reduce((a, r) => a + r.tenX, 0) / Math.max(1, totalLaunches);
 const residual = Math.max(...per.map((r) => r.residualMax));
+// L8.1: the NPC side is not a net faucet to players: its net per token, averaged over the seeds, is <= 0
+const npcNetPerToken = mean(per.map((r) => r.npcRetailNet / Math.max(1, r.allLaunches)));
 const shape = {
   deadWithin7dFromDay3: dead7, deadWithin7dDay0to2Reported: dead7Early, graduationRate: grad, tenXRate: tenX,
   deadOk: dead7 >= 0.7, gradOk: grad >= 0.01 && grad <= 0.05, tenXOk: tenX <= 0.005,
+  npcNetPerToken, npcNetOk: npcNetPerToken <= 0,
 };
-const gate = Object.values(strategies).every((s) => s.pass) && shape.deadOk && shape.gradOk && shape.tenXOk && residual < 0.005;
+const gate = Object.values(strategies).every((s) => s.pass) && shape.deadOk && shape.gradOk && shape.tenXOk && shape.npcNetOk && residual < 0.005;
 const gxMean = mean(per.map((r) => r.gx));
 const summary = { seeds: seeds.length, days, launches: totalLaunches, gxMean, strategies, shape, residualMax: residual, gate, NPC, perSeed: per };
 mkdirSync(path.dirname(outPath), { recursive: true });

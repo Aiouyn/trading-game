@@ -35,14 +35,16 @@ interface Preview {
 /** A fraction as a percent with one decimal: the world's wording for a slippage refusal. */
 const oneDp = (f: number) => `${(f * 100).toFixed(1)}%`;
 
-export function Ticket({ page, held, locked }: { page: LpPage; held: number; locked: number }) {
+/** A dead token takes no buys (the world refuses them), so its ticket is sell-only: the curve still pays sellers. */
+export function Ticket({ page, held, locked, dead = false }: { page: LpPage; held: number; locked: number; dead?: boolean }) {
   const act = useGame((s) => s.act);
-  const [side, setSide] = useState<Side>('buy');
+  const [side, setSide] = useState<Side>(dead ? 'sell' : 'buy');
   const [spend, setSpend] = useState('100');
   const [sell, setSell] = useState('');
   const [slipText, setSlipText] = useState(String(LP.MAX_SLIP * 100));
   const [sent, setSent] = useState<string | null>(null);
-  const [sentRefusal, setSentRefusal] = useState<RefusalCopy | null>(null);
+  // a refusal from the world is kept with the inputs it was sent with: an edit makes it stale, so it is no longer shown
+  const [sentRefusal, setSentRefusal] = useState<{ key: string; copy: RefusalCopy } | null>(null);
 
   const ticker = page.ticker;
   const y = curveYOf(page.progress);
@@ -52,7 +54,8 @@ export function Ticket({ page, held, locked }: { page: LpPage; held: number; loc
   const pre = side === 'buy'
     ? buyPreview(y, ticker, spend, slip, slipValid)
     : sellPreview(y, ticker, sell, slip, slipValid, held, locked, page.vesting.endDay);
-  const refusal = pre.refusal ?? sentRefusal;
+  const inputsKey = [side, spend, sell, slipText].join('|');
+  const refusal = pre.refusal ?? (sentRefusal && sentRefusal.key === inputsKey ? sentRefusal.copy : null);
 
   const submit = async () => {
     setSent(null);
@@ -65,7 +68,7 @@ export function Ticket({ page, held, locked }: { page: LpPage; held: number; loc
         const d = (r.data ?? {}) as { tokens?: number };
         setSent(t('lp.ticket.sent.buy', { tokens: fmtTokens(d.tokens ?? 0), ticker }));
         setSpend('100');
-      } else setSentRefusal(refusalOf(r.data, r.error ? undefined : 'unknown'));
+      } else setSentRefusal({ key: inputsKey, copy: refusalOf(r.data, r.error ? undefined : 'unknown') });
       return;
     }
     const n = Number(sell);
@@ -75,13 +78,13 @@ export function Ticket({ page, held, locked }: { page: LpPage; held: number; loc
       const d = (r.data ?? {}) as { netCents?: number };
       setSent(t('lp.ticket.sent.sell', { tokens: fmtTokens(n), ticker, amount: money((d.netCents ?? 0) / 100) }));
       setSell('');
-    } else setSentRefusal(refusalOf(r.data, r.error ? undefined : 'unknown'));
+    } else setSentRefusal({ key: inputsKey, copy: refusalOf(r.data, r.error ? undefined : 'unknown') });
   };
 
   return (
     <div className="flex flex-col gap-3" data-testid="lp-ticket">
-      <div role="group" aria-label={t('lp.ticket.side')} className="grid grid-cols-2 gap-2">
-        {(['buy', 'sell'] as const).map((s) => (
+      <div role="group" aria-label={t('lp.ticket.side')} className={`grid gap-2 ${dead ? 'grid-cols-1' : 'grid-cols-2'}`}>
+        {(dead ? (['sell'] as const) : (['buy', 'sell'] as const)).map((s) => (
           <button
             key={s}
             type="button"
@@ -95,7 +98,7 @@ export function Ticket({ page, held, locked }: { page: LpPage; held: number; loc
         ))}
       </div>
 
-      {side === 'buy' ? (
+      {side === 'buy' && !dead ? (
         <NumberField value={spend} onChange={setSpend} label={t('lp.ticket.spend')} suffix="$" min={0} step={1} testId="lp-spend" />
       ) : (
         <div className="flex flex-col gap-2">

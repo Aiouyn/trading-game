@@ -141,6 +141,14 @@ test('a token the curve fills through the admin seam graduates into Graduated, a
   const row = page.getByTestId(`lp-row-${ticker}`);
   await expect(row).toBeVisible({ timeout: 30_000 });
   await expect(row.getByTestId(`lp-status-graduated`)).toBeVisible();
+  // the graduated page has no curve ticket: it offers the Broker, and its holder buckets come from the engine positions
+  await row.getByTestId(`lp-open-${ticker}`).click();
+  await expect(page.getByTestId('lp-token-page')).toBeVisible();
+  await expect(page.getByTestId('lp-ticket')).toHaveCount(0);
+  await expect(page.getByTestId('lp-trade-broker')).toBeVisible();
+  await expect(page.getByTestId('lp-holder-count')).not.toHaveText('0');
+  await page.getByTestId('lp-back').click();
+  await page.getByTestId('tab-graduated').click();
   await page.getByTestId(`lp-broker-${ticker}`).click();
   // the Broker opens the token as an asset: its panel names the ticker, and it can be traded there
   await expect(page.getByTestId('asset-panel').filter({ hasText: ticker }).first()).toBeVisible({ timeout: 30_000 });

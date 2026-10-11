@@ -9,6 +9,7 @@ import { money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Button, Card, Progress, ticksLabel } from '@/components/ui';
+import { openFromShell } from '@/components/os/openApp';
 import type { LpPage } from '@/world/launchpad/view';
 import { GRAD_RAISE, gameDayOf, lpPrice, refusalOf, taglineKey, tokens as fmtTokens, type RefusalCopy } from './copy';
 import { BuzzButtons } from './Buzz';
@@ -75,9 +76,17 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
       </Card>
 
       <Card className="flex flex-col gap-3 p-4">
-        <Section title={t('lp.page.trade')}>
-          <Ticket page={page} held={held} locked={locked} />
-        </Section>
+        {page.status === 'graduated' ? (
+          <Section title={t('lp.page.trade')} testId="lp-grad-trade">
+            <p className="text-small text-fg-muted" data-testid="lp-grad-note">{t('lp.page.gradNote')}</p>
+            <div><Button variant="brass" testId="lp-trade-broker" onClick={() => openFromShell('broker', { ticker: page.ticker })}>{t('lp.trade.broker')}</Button></div>
+          </Section>
+        ) : (
+          <Section title={t('lp.page.trade')}>
+            {page.status === 'dead' && <p className="text-small text-fg-muted" data-testid="lp-dead-note">{t('lp.page.deadNote')}</p>}
+            <Ticket page={page} held={held} locked={locked} dead={page.status === 'dead'} />
+          </Section>
+        )}
       </Card>
 
       <Card className="flex flex-col gap-3 p-4">
@@ -85,7 +94,7 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
           <div className="grid grid-cols-2 gap-x-6 gap-y-3 @md:grid-cols-3">
             <Fact label={t('lp.page.allocTokens')} value={fmtTokens(page.allocation)} testId="lp-page-alloc" />
             <Fact label={t('lp.page.allocShare')} value={pct(page.allocation / 1_000_000_000)} />
-            {isCreator && <Fact label={t('lp.page.feesEarned')} value={money(page.creatorFees)} testId="lp-page-fees" />}
+            {isCreator && page.creatorFees !== undefined && <Fact label={t('lp.page.feesEarned')} value={money(page.creatorFees)} testId="lp-page-fees" />}
           </div>
           <div className="flex items-center gap-2">
             <Progress value={page.vesting.unlocked} className="flex-1" label={t('lp.page.vesting')} />
@@ -159,7 +168,11 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
 
       <Card className="flex flex-col gap-3 p-4">
         <Section title={t('lp.page.promote')}>
-          <BuzzButtons ticker={page.ticker} promosToday={page.sponsored} testPrefix="lp-page-buzz" />
+          {page.status === 'live' ? (
+            <BuzzButtons ticker={page.ticker} promosToday={page.sponsored} testPrefix="lp-page-buzz" />
+          ) : (
+            <p className="text-small text-fg-muted" data-testid="lp-buzz-closed">{t('lp.page.buzzClosed')}</p>
+          )}
         </Section>
       </Card>
     </div>

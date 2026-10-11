@@ -92,6 +92,8 @@ export class WorldHost {
       this.history = createHistory(ids.all, 720, ids.volume);
       this.g = createGame(this.opts.seed, {
         warmupDays: this.opts.warmupDays,
+        // the game world launches NPC tokens (lead-launchpad.md L1, L8; the v1.1 ratified deviations): the feeds are not empty
+        launchpadNpc: true,
         onWarmupTick: (g) => {
           this.g = g;
           this.recordTick();

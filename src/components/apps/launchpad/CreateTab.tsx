@@ -11,21 +11,20 @@ import { t } from '@/i18n';
 import { Button, Card, Empty, NumberField, TextField } from '@/components/ui';
 import { LP } from '@/world/launchpad/constants';
 import { iconSvg } from '@/world/launchpad/icon';
-import type { LaunchpadView, LpPage } from '@/world/launchpad/view';
+import type { LaunchpadView } from '@/world/launchpad/view';
 import { TAGLINES, allocationFromPct, centsFromDollars, clientCheck, refusalCopy, refusalOf, taglineKey, tokens as fmtTokens, type RefusalCopy } from './copy';
 import { BuzzButtons } from './Buzz';
 import { Fact, FlagChip, RefusalBox, Section, StatusChip, TokenIcon } from './Shared';
 
-export function CreateTab({ lp, takenNames, pages, onOpen }: {
+export function CreateTab({ lp, takenNames, onOpen }: {
   lp: LaunchpadView;
   takenNames: ReadonlySet<string>;
-  pages: Record<string, LpPage>;
   onOpen: (ticker: string) => void;
 }) {
   return (
     <div className="flex flex-col gap-4" data-testid="lp-create">
       <LaunchForm lp={lp} takenNames={takenNames} onOpen={onOpen} />
-      <CreatorConsole lp={lp} pages={pages} onOpen={onOpen} />
+      <CreatorConsole lp={lp} onOpen={onOpen} />
     </div>
   );
 }
@@ -161,7 +160,7 @@ function LaunchForm({ lp, takenNames, onOpen }: { lp: LaunchpadView; takenNames:
   );
 }
 
-function CreatorConsole({ lp, pages, onOpen }: { lp: LaunchpadView; pages: Record<string, LpPage>; onOpen: (ticker: string) => void }) {
+function CreatorConsole({ lp, onOpen }: { lp: LaunchpadView; onOpen: (ticker: string) => void }) {
   const act = useGame((s) => s.act);
   const [cancelled, setCancelled] = useState<Record<string, RefusalCopy | null>>({});
   const [done, setDone] = useState<string | null>(null);
@@ -179,13 +178,11 @@ function CreatorConsole({ lp, pages, onOpen }: { lp: LaunchpadView; pages: Recor
       ) : (
         <ul className="flex flex-col gap-3" data-testid="lp-console-rows">
           {lp.console.map((c) => {
-            const page = pages[c.ticker];
-            const untraded = !!page && page.tape.length === 0 && page.progress === 0 && c.status === 'live';
             return (
               <li key={c.ticker} className="flex flex-col gap-3 rounded-md border border-ink-2 p-3" data-testid={`lp-console-${c.ticker}`}>
                 <div className="flex flex-wrap items-center gap-2">
-                  {page && <TokenIcon svg={page.icon} size={36} />}
-                  <span className="break-words font-medium text-fg">{page?.name ?? c.ticker}</span>
+                  <TokenIcon svg={iconSvg(c.ticker)} size={36} />
+                  <span className="break-words font-medium text-fg">{c.name}</span>
                   <span className="num text-caption text-brass">{c.ticker}</span>
                   <StatusChip status={c.status} />
                   {c.flag && <FlagChip reason={c.flag.reason} />}
@@ -202,10 +199,10 @@ function CreatorConsole({ lp, pages, onOpen }: { lp: LaunchpadView; pages: Recor
                 <BuzzButtons ticker={c.ticker} promosToday={c.promos} testPrefix={`lp-console-buzz`} />
                 <div className="flex flex-wrap items-center gap-2">
                   <Button size="sm" variant="outline" testId={`lp-console-open-${c.ticker}`} onClick={() => onOpen(c.ticker)}>{t('lp.console.open')}</Button>
-                  {untraded && (
+                  {c.cancellable && (
                     <Button size="sm" variant="danger" testId={`lp-cancel-${c.ticker}`} onClick={() => cancel(c.ticker)}>{t('lp.console.cancel')}</Button>
                   )}
-                  {untraded && <span className="text-caption text-fg-faint">{t('lp.console.cancelNote')}</span>}
+                  {c.cancellable && <span className="text-caption text-fg-faint">{t('lp.console.cancelNote')}</span>}
                 </div>
                 {cancelled[c.ticker] && <RefusalBox copy={cancelled[c.ticker]!} testId={`lp-cancel-refusal-${c.ticker}`} />}
               </li>

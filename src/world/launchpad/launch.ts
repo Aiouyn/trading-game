@@ -164,9 +164,9 @@ export function createToken(g: GameState, ticker: string, name: string, tagline:
 }
 
 /**
- * Cancels the creator's own launch while nobody has traded it: the token dies (its curve stays, empty), and the launch fee comes
- * back as a booked refund (a faucet line, `lpRefund`: the fee was taken as a sink, so the refund is the reversal, lead-launchpad.md
- * L2 has no cancel rule; recorded as a deviation for the lead to ratify). The ticker stays taken.
+ * Cancels the creator's own launch while nobody has traded it: the token dies (its curve stays, empty), and half the launch fee comes
+ * back as a booked refund (a faucet line, `lpRefund`). The other half stays a sink (lead-launchpad.md v1.1 ratified deviations: "refund
+ * 50% of the fee (the other 50% stays a sink)"). The ticker stays taken.
  */
 export function cancelLaunch(g: GameState, pid: string, ticker: string): CommandResult {
   const t = tokenOf(g, ticker);
@@ -178,7 +178,7 @@ export function cancelLaunch(g: GameState, pid: string, ticker: string): Command
   t.deadTick = g.market.tick;
   t.deadReason = 'cancelled';
   t.bal = {};
-  credit(g, pid, LP.LAUNCH_FEE, 'lpRefund');
+  credit(g, pid, LP.LAUNCH_FEE / 2, 'lpRefund');
   return { ok: true };
 }
 

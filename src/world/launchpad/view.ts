@@ -1,6 +1,6 @@
 import { priceOf } from '../core';
 import type { GameState } from '../types';
-import { LP } from './constants';
+import { LP, bookAccountId } from './constants';
 import { curveProgress, spotAt } from './curve';
 import { iconSvg } from './icon';
 import { launchGate } from './launch';
@@ -43,7 +43,8 @@ export interface LpCard {
 export interface LpPage extends LpCard {
   allocation: number;
   vesting: { cliffDay: number; endDay: number; unlocked: number };
-  creatorFees: number;
+  /** the creator's fees earned on this token: present only for the creator (the figure is not public) */
+  creatorFees?: number;
   chart: [number, number][];
   tape: LpTrade[];
   buckets: { top10Share: number; holders: number };
@@ -57,15 +58,19 @@ export interface LaunchpadView {
   /** the launch gate for the viewer: null when they may launch, otherwise the refusal code */
   gate: string | null;
   feeds: { newest: LpCard[]; trending: LpCard[]; graduated: LpCard[] };
-  /** full token pages: the viewer's own tokens, their holdings, and the trending tokens */
-  pages: Record<string, LpPage>;
-  holdings: { ticker: string; qty: number; value: number; locked: number; status: LpCard['status'] }[];
+  /** `vest` is the creator's own vesting (end day and the unlocked share), null for everyone else's holding */
+  holdings: { ticker: string; name: string; qty: number; value: number; locked: number; status: LpCard['status']; vest: { endDay: number; unlocked: number } | null }[];
   /** the creator console: the viewer's own tokens with their vesting, fees, promos and flags */
-  console: { ticker: string; status: LpCard['status']; fees: number; allocation: number; unlocked: number; flag: LpCard['flag']; promos: number; capUsed: number; capMax: number }[];
+  console: { ticker: string; name: string; status: LpCard['status']; fees: number; allocation: number; unlocked: number; flag: LpCard['flag']; promos: number; capUsed: number; capMax: number; cancellable: boolean }[];
   /** the viewer's live token count against the limit */
   live: { count: number; max: number };
 }
 
+/**
+ * The view carries no token pages. A page is read on demand (`lpPageOf`, the `lp-page` request) for the token that is open, so a tick
+ * costs the feeds, the viewer's holdings and console, and nothing per token page (a page is about 7 KB; 40 rows of three feeds were
+ * about 460 KB per view).
+ */
 const PAGE_TAPE = 30;
 const PAGE_CHART = 120;
 const FEED = 40;
@@ -92,8 +97,16 @@ export function flagOf(t: LpToken): { reason: 'dump' | 'sweep'; tick: number } |
   return t.flag ? { reason: t.flag.reason, tick: t.flag.tick } : null;
 }
 
-function holdersOf(t: LpToken): { top10Share: number; holders: number } {
-  const qs = Object.values(t.bal).filter((q) => q > 0).sort((a, b) => b - a);
+/**
+ * The holder buckets. A live or dead token's holders are its curve balances. A graduated token's curve balances are cleared at
+ * graduation (graduate.ts), so its holders are the engine positions of its ticker, except the liquidity book, which holds the
+ * unsold supply and is the pool, not a holder.
+ */
+function holdersOf(g: GameState, t: LpToken): { top10Share: number; holders: number } {
+  const raw = t.status === 'graduated'
+    ? Object.entries(g.market.accounts).filter(([id]) => id !== bookAccountId(t.ticker)).map(([, a]) => a.positions?.[t.ticker]?.qty ?? 0)
+    : Object.values(t.bal);
+  const qs = raw.filter((q) => q > 0).sort((a, b) => b - a);
   const top = qs.slice(0, 10).reduce((a, b) => a + b, 0);
   return { top10Share: top / LP.SUPPLY, holders: qs.length };
 }
@@ -102,23 +115,35 @@ function holdersOf(t: LpToken): { top10Share: number; holders: number } {
 export function pageOf(g: GameState, t: LpToken, pid: string): LpPage {
   const card = cardOf(g, t);
   const chart = t.chart.slice(-PAGE_CHART);
+  const isCreator = t.creatorId === pid;
   return {
     ...card,
     allocation: t.allocation,
     vesting: { cliffDay: vestCliffDay(t), endDay: vestEndDay(t), unlocked: vestFraction(t, g.market.tick) },
-    creatorFees: t.creatorFees,
+    ...(isCreator ? { creatorFees: t.creatorFees } : {}),
     chart,
     tape: t.tape.slice(-PAGE_TAPE),
-    buckets: holdersOf(t),
+    buckets: holdersOf(g, t),
     ticket: { spot: spotAt(t.y), maxSlip: LP.MAX_SLIP },
-    canFile: !!t.flag && !!t.creatorId && pid !== t.creatorId && (t.sued[pid] === undefined) && (t.flag?.buyers[pid] ?? 0) > 0,
+    canFile: !!t.flag && !!t.creatorId && !isCreator && (t.sued[pid] === undefined) && (t.flag?.buyers[pid] ?? 0) > 0,
   };
+}
+
+/** The token page the viewer asks for (any token, live, graduated or dead), or null when there is no such ticker. */
+export function lpPageOf(g: GameState, pid: string, ticker: string): LpPage | null {
+  const t = g.launchpad?.tokens[ticker];
+  return t ? pageOf(g, t, pid) : null;
+}
+
+/** The creator's vesting on a holding (null for anyone else). */
+function vestOf(g: GameState, t: LpToken, pid: string): { endDay: number; unlocked: number } | null {
+  return t.creatorId === pid ? { endDay: vestEndDay(t), unlocked: vestFraction(t, g.market.tick) } : null;
 }
 
 /** The viewer's Launchpad view. Empty (no feeds) in a world that has never launched a token. */
 export function launchpadView(g: GameState, pid: string): LaunchpadView {
   const s = g.launchpad;
-  const empty: LaunchpadView = { gate: null, feeds: { newest: [], trending: [], graduated: [] }, pages: {}, holdings: [], console: [], live: { count: 0, max: LP.MAX_LIVE } };
+  const empty: LaunchpadView = { gate: null, feeds: { newest: [], trending: [], graduated: [] }, holdings: [], console: [], live: { count: 0, max: LP.MAX_LIVE } };
   const gate = launchGate(g, pid);
   const gateCode = gate && !gate.ok ? (gate.data as { refusal?: string } | undefined)?.refusal ?? null : null;
   if (!s) return { ...empty, gate: gateCode };
@@ -137,36 +162,27 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
     if (t.status === 'graduated') {
       const pos = g.market.accounts[pid]?.positions[t.ticker];
       if (pos && pos.qty > 0) {
-        holdings.push({ ticker: t.ticker, qty: pos.qty, value: pos.qty * priceOf(g, t.ticker), locked: t.creatorId === pid ? Math.min(pos.qty, lockedAmount(t, g.market.tick)) : 0, status: 'graduated' });
+        holdings.push({ ticker: t.ticker, name: t.name, qty: pos.qty, value: pos.qty * priceOf(g, t.ticker), locked: t.creatorId === pid ? Math.min(pos.qty, lockedAmount(t, g.market.tick)) : 0, status: 'graduated', vest: vestOf(g, t, pid) });
       }
       continue;
     }
     const q = t.bal[pid] ?? 0;
     if (q > 0) {
-      holdings.push({ ticker: t.ticker, qty: q, value: q * spotAt(t.y), locked: t.creatorId === pid ? Math.min(q, lockedAmount(t, g.market.tick)) : 0, status: t.status });
+      holdings.push({ ticker: t.ticker, name: t.name, qty: q, value: q * spotAt(t.y), locked: t.creatorId === pid ? Math.min(q, lockedAmount(t, g.market.tick)) : 0, status: t.status, vest: vestOf(g, t, pid) });
     }
   }
-  // A token page opens from any row (New, Trending, Graduated) and from any holding, so each of those tokens has its page, and
-  // so does each of the viewer's own launches (the creator console). A token listed twice has one page.
   const mine = all.filter((t) => t.creatorId === pid);
-  const paged = new Map<string, LpToken>();
-  for (const t of [...newestTokens, ...trendingTokens, ...gradTokens, ...mine]) paged.set(t.ticker, t);
-  for (const h of holdings) {
-    const t = s.tokens[h.ticker];
-    if (t) paged.set(t.ticker, t);
-  }
-  const pages: Record<string, LpPage> = {};
-  for (const [ticker, t] of paged) pages[ticker] = pageOf(g, t, pid);
   const consoleRows = mine.map((t) => ({
-    ticker: t.ticker, status: t.status, fees: t.creatorFees, allocation: t.allocation,
+    ticker: t.ticker, name: t.name, status: t.status, fees: t.creatorFees, allocation: t.allocation,
     unlocked: Math.floor(t.allocation * vestFraction(t, g.market.tick)), flag: flagOf(t),
     promos: t.promos.filter((p) => dayOf(p.tick) === dayOf(g.market.tick)).length,
     capUsed: t.allocation + t.creatorBought, capMax: LP.CREATOR_CAP,
+    // a cancel is open while nobody has traded the token (launch.ts cancelLaunch)
+    cancellable: t.status === 'live' && t.tape.length === 0 && t.y === LP.Y0,
   }));
   return {
     gate: gateCode,
     feeds: { newest, trending, graduated },
-    pages,
     holdings,
     console: consoleRows,
     live: { count: mine.filter((t) => t.status === 'live').length, max: LP.MAX_LIVE },

@@ -195,7 +195,9 @@ describe('cancel and buzz (L2, L6)', () => {
     launch(g, CREATOR, 'CANC');
     const cash = cashOf(g, CREATOR);
     expect(run(g, CREATOR, { type: 'lp.cancel', ticker: 'CANC' }).ok).toBe(true);
-    expect(cashOf(g, CREATOR)).toBeCloseTo(cash + LP.LAUNCH_FEE, 6);
+    // half the fee comes back; the other half stays a sink (v1.1)
+    expect(cashOf(g, CREATOR)).toBeCloseTo(cash + LP.LAUNCH_FEE / 2, 6);
+    expect(g.economy.sinks.lpLaunchFee).toBe(LP.LAUNCH_FEE);
     expect(g.launchpad!.tokens.CANC!.status).toBe('dead');
     jumpDays(g, 25);
     launch(g, CREATOR, 'TRAD', { name: 'Trade Fest' });

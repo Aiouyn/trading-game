@@ -6,17 +6,16 @@ import { money } from '@/game/format';
 import { t } from '@/i18n';
 import { Empty } from '@/components/ui';
 import { iconSvg } from '@/world/launchpad/icon';
-import type { LaunchpadView, LpPage } from '@/world/launchpad/view';
+import type { LaunchpadView } from '@/world/launchpad/view';
 import { Fact, Section, StatusChip, TokenIcon } from './Shared';
 import { tokens as fmtTokens } from './copy';
 
 type Holding = LaunchpadView['holdings'][number];
 type Console = LaunchpadView['console'][number];
 
-export function HoldingsTab({ holdings, console: rows, pages, onOpen }: {
+export function HoldingsTab({ holdings, console: rows, onOpen }: {
   holdings: Holding[];
   console: Console[];
-  pages: Record<string, LpPage>;
   onOpen: (ticker: string) => void;
 }) {
   const fees = rows;
@@ -28,20 +27,19 @@ export function HoldingsTab({ holdings, console: rows, pages, onOpen }: {
         ) : (
           <ul className="flex flex-col gap-2" data-testid="lp-hold-rows">
             {holdings.map((h) => {
-              const page = pages[h.ticker];
               return (
                 <li key={h.ticker} className="flex flex-wrap items-center gap-3 rounded-md border border-ink-2 bg-ink-0/40 p-3" data-testid={`lp-hold-${h.ticker}`}>
                   <button type="button" onClick={() => onOpen(h.ticker)} className="flex min-w-0 flex-1 basis-[12rem] items-center gap-3 text-left" data-testid={`lp-hold-open-${h.ticker}`}>
                     <TokenIcon svg={iconSvg(h.ticker)} size={36} />
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-2">
-                        <span className="break-words font-medium text-fg">{page?.name ?? h.ticker}</span>
+                        <span className="break-words font-medium text-fg">{h.name}</span>
                         <span className="num text-caption text-brass">{h.ticker}</span>
                         <StatusChip status={h.status} />
                       </span>
-                      {page && h.locked > 0 && (
+                      {h.vest && h.locked > 0 && (
                         <span className="block text-caption text-fg-muted" data-testid={`lp-hold-vest-${h.ticker}`}>
-                          {t('lp.hold.vesting', { end: page.vesting.endDay, unlocked: pct01(page.vesting.unlocked) })}
+                          {t('lp.hold.vesting', { end: h.vest.endDay, unlocked: pct01(h.vest.unlocked) })}
                         </span>
                       )}
                     </span>

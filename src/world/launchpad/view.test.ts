@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from '../game';
 import { playerView } from '../view';
 import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
-import { launchpadView } from './view';
+import { bookAccountId } from './constants';
+import { launchpadView, lpPageOf } from './view';
 
 describe('the Launchpad view (L1, L7)', () => {
   it('no-reveal: the view carries holder buckets and the tape, never a holder’s handle; the tape flags only the creator’s own trades', () => {
@@ -14,7 +15,7 @@ describe('the Launchpad view (L1, L7)', () => {
     const v = JSON.stringify(launchpadView(g, CREATOR));
     expect(v).not.toContain('trader_two');
     expect(v).not.toContain('zed_holder_x');
-    const page = launchpadView(g, CREATOR).pages.REVL!;
+    const page = lpPageOf(g, CREATOR, 'REVL')!;
     expect(Object.keys(page.buckets).sort()).toEqual(['holders', 'top10Share']);
     expect(page.buckets.holders).toBe(3);
     for (const tr of page.tape) {
@@ -65,11 +66,12 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(join.ok).toBe(true);
     const v = playerView(g, 'lp_x')!.launchpad;
     expect(v.feeds.newest).toHaveLength(0);
-    expect(v.pages).toEqual({});
+    expect(v.holdings).toEqual([]);
+    expect(v.console).toEqual([]);
     expect(g.launchpad).toBeUndefined();
   });
 
-  it('a token page exists for every row a feed shows and every holding, so a row opens from anywhere', () => {
+  it('a token page is read on demand for every row and holding, and the view carries no page (the per-tick payload stays small)', () => {
     const g = lpWorld('view-pages');
     launch(g, CREATOR, 'PGAA');
     launch(g, HOLDER, 'PGBB');
@@ -77,10 +79,44 @@ describe('the Launchpad view (L1, L7)', () => {
     run(g, TRADER, { type: 'lp.buy', ticker: 'PGBB', spendCents: 2_000 });
     const v = launchpadView(g, TRADER);
     expect(v.feeds.newest.length).toBe(2);
-    for (const c of [...v.feeds.newest, ...v.feeds.trending]) expect(v.pages[c.ticker], c.ticker).toBeDefined();
-    for (const h of v.holdings) expect(v.pages[h.ticker], h.ticker).toBeDefined();
+    for (const c of [...v.feeds.newest, ...v.feeds.trending, ...v.feeds.graduated]) expect(lpPageOf(g, TRADER, c.ticker), c.ticker).not.toBeNull();
+    for (const h of v.holdings) expect(lpPageOf(g, TRADER, h.ticker), h.ticker).not.toBeNull();
+    expect(lpPageOf(g, TRADER, 'NOPE')).toBeNull();
+    expect(JSON.stringify(v)).not.toContain('"chart"');
+    expect(JSON.stringify(v)).not.toContain('"tape"');
     // the creator launched with no allocation, so the trader is the one holder of PGAA: the page counts holders, never names them
-    expect(v.pages.PGAA!.buckets.holders).toBe(1);
+    expect(lpPageOf(g, TRADER, 'PGAA')!.buckets.holders).toBe(1);
+  });
+
+  it('creator fees are on the page for the creator only (the figure is not public)', () => {
+    const g = lpWorld('view-fees');
+    launch(g, CREATOR, 'FEEA');
+    run(g, TRADER, { type: 'lp.buy', ticker: 'FEEA', spendCents: 5_000 });
+    expect(g.launchpad!.tokens.FEEA!.creatorFees).toBeGreaterThan(0);
+    expect(lpPageOf(g, CREATOR, 'FEEA')!.creatorFees).toBeCloseTo(g.launchpad!.tokens.FEEA!.creatorFees, 9);
+    expect('creatorFees' in lpPageOf(g, TRADER, 'FEEA')!).toBe(false);
+  });
+
+  it('a graduated token counts its holders from the engine positions, never the liquidity book', () => {
+    const g = lpWorld('view-grad-holders');
+    launch(g, CREATOR, 'GHLD', { allocation: 20_000_000 });
+    run(g, TRADER, { type: 'lp.buy', ticker: 'GHLD', spendCents: 10_000 });
+    expect(applyCommand(g, 'admin', { type: 'admin.lpFill', ticker: 'GHLD' }).ok).toBe(true);
+    const expected = Object.entries(g.market.accounts).filter(([id, a]) => id !== bookAccountId('GHLD') && (a.positions.GHLD?.qty ?? 0) > 0);
+    const page = lpPageOf(g, TRADER, 'GHLD')!;
+    expect(page.status).toBe('graduated');
+    expect(page.buckets.holders).toBe(expected.length);
+    expect(page.buckets.holders).toBeGreaterThan(0);
+    expect(page.buckets.top10Share).toBeGreaterThan(0);
+    expect(page.buckets.top10Share).toBeLessThanOrEqual(1);
+  });
+
+  it('a cancel is offered only while the launch is untraded', () => {
+    const g = lpWorld('view-cancel');
+    launch(g, CREATOR, 'CNCL');
+    expect(launchpadView(g, CREATOR).console[0]!.cancellable).toBe(true);
+    run(g, TRADER, { type: 'lp.buy', ticker: 'CNCL', spendCents: 1_000 });
+    expect(launchpadView(g, CREATOR).console[0]!.cancellable).toBe(false);
   });
 
   it('an old snapshot without the Launchpad loads and steps, and the view reads it as empty', () => {

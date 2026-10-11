@@ -4,6 +4,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
 import { WorldHost } from './host';
 import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
+import { lpPageOf } from '../src/world/launchpad/view';
 import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
 import { validHandle, COUNTRIES } from '../src/world/players';
 import { freshWorldSeed } from '../src/world/seed';
@@ -206,6 +207,9 @@ wss.on('connection', (ws) => {
       case 'nw-history':
         if (!c.pid) return;
         return send(ws, { t: 'nw-history', id: msg.id, data: host.nwHistoryFor(c.pid) });
+      case 'lp-page':
+        if (!c.pid) return;
+        return send(ws, { t: 'lp-page', id: msg.id, data: lpPageOf(host.g, c.pid, String(msg.ticker ?? '')) });
       case 'ping':
         return send(ws, { t: 'pong' });
     }
