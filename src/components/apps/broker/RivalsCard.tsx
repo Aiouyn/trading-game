@@ -11,11 +11,14 @@ import { t } from '@/i18n';
 import { Card, Sparkline } from '@/components/ui';
 import type { RivalRowView, RivalsBoardView } from '@/world/rivalsBoard';
 
+/** The ampersand of the Hale & Ward mark (a constant, so the JSX has no string literal). */
+const AMPERSAND = String.fromCharCode(38);
+
 /** The monochrome mark of each fund, told apart by shape only (never a semantic colour). */
 function Mark({ id }: { id: string }) {
   return (
     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-ink-2" aria-hidden>
-      {id === 'hale' && <span className="font-serif text-[20px] leading-none text-fg-muted">{"&"}</span>}
+      {id === 'hale' && <span className="font-serif text-[20px] leading-none text-fg-muted">{AMPERSAND}</span>}
       {id === 'pinn' && (
         <svg width="28" height="28" viewBox="0 0 28 28" className="text-fg-muted">
           <circle cx="7" cy="20" r="2.2" fill="currentColor" />

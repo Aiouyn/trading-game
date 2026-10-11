@@ -146,13 +146,16 @@ test('the banner opens the event panel, and the Rivals board lists the funds bes
   const text = await board.innerText();
   expect(text).not.toMatch(STYLE_WORDS);
   await shot(page, 'en-rivals-board');
+  // a tips toast can sit over the lower part of the board on the phone: dismiss it, so the card is not hidden under it
+  for (const b of await page.getByRole('button', { name: /^(Not now|Plus tard)$/ }).all()) await b.click().catch(() => undefined);
   await page.getByTestId('rival-row-pinn').click();
   const profile = page.getByTestId('rival-profile');
   await expect(profile).toBeVisible();
   await expect(profile).not.toContainText(STYLE_WORDS);
-  // the profile card is the subject of the frame: scrolled into view, so the phone shot shows the card and not the board
+  // the profile card is the subject of the frame: scrolled into view, the page shot and the card's own shot
   await profile.scrollIntoViewIfNeeded();
   await shot(page, 'en-rivals-profile');
+  await profile.screenshot({ path: `${SHOTS}/${isPhone(page) ? 'phone' : 'desktop'}-en-rivals-profile-card.png` });
   await noHorizontalOverflow(page);
   expect(errors.filter((e) => !/favicon|ResizeObserver/.test(e))).toEqual([]);
 });
