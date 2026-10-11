@@ -65,6 +65,13 @@ test('the Launchpad screens for the design review, en and fr, desktop and phone'
 
   // the viewer trades on the first two tokens, so Holdings and the tape have something to show
   await setUp(page, 'lpshot', 60_000);
+  // the viewer's own launch, cancelled before anyone trades: a dead token. Its page opens from the creator's console only.
+  const dead = randomTicker();
+  await launch(page, dead, '0', 'tg2');
+  await goTo(page, 'launchpad');
+  await page.getByTestId('tab-create').click();
+  await page.getByTestId(`lp-cancel-${dead}`).click({ timeout: 20_000 });
+  await expect(page.getByTestId(`lp-console-${dead}`).getByTestId('lp-status-dead')).toBeVisible({ timeout: 20_000 });
   for (const tk of tickers.slice(0, 2)) {
     await goTo(page, 'launchpad');
     await page.getByTestId('tab-new').click();
@@ -77,6 +84,8 @@ test('the Launchpad screens for the design review, en and fr, desktop and phone'
   }
 
   const shot = async (name: string) => {
+    // a token page opens at its top, not at the scroll of the list it was opened from
+    if (name.includes('token')) await page.getByTestId('lp-token-page').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(400);
     const win = isPhone(page) ? null : frame(page, 'launchpad');
     if (win) await win.screenshot({ path: join(dir!, `${tag}-${name}.png`) });
@@ -100,10 +109,21 @@ test('the Launchpad screens for the design review, en and fr, desktop and phone'
       await page.getByTestId(tab).click();
       await shot(`${lang}-${name}`);
     }
+    // a live token page, a graduated one (no curve ticket, Trade in Broker), and a dead one (sell-only ticket)
     await page.getByTestId('tab-new').click();
     await page.getByTestId(`lp-open-${tickers[0]}`).click({ timeout: 20_000 });
     await expect(page.getByTestId('lp-token-page')).toBeVisible();
     await shot(`${lang}-token`);
+    await page.getByTestId('lp-back').click();
+    await page.getByTestId('tab-graduated').click();
+    await page.getByTestId(`lp-open-${tickers[2]}`).click({ timeout: 20_000 });
+    await expect(page.getByTestId('lp-trade-broker')).toBeVisible();
+    await shot(`${lang}-token-graduated`);
+    await page.getByTestId('lp-back').click();
+    await page.getByTestId('tab-create').click();
+    await page.getByTestId(`lp-console-open-${dead}`).click({ timeout: 20_000 });
+    await expect(page.getByTestId('lp-dead-note')).toBeVisible();
+    await shot(`${lang}-token-dead`);
     await page.getByTestId('lp-back').click();
   }
 });
