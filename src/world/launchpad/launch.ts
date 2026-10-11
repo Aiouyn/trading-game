@@ -6,6 +6,7 @@ import { LP, NPC, curveAccountId } from './constants';
 import { quoteBuy, spotAt } from './curve';
 import { buyCurve, liquidateCohort } from './trade';
 import { arrive } from './demand';
+import { absorbPending } from './absorb';
 import { moderateName, nameFormatOk, normalizeName, tickerFormatOk, type NameRefusal } from './moderate';
 import { dayOf, ensureLaunchpad, hasOtherTrader, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
 
@@ -131,6 +132,8 @@ export function launchToken(g: GameState, pid: string, input: LaunchInput, out: 
   s.lastLaunch[pid] = tick;
   s.tickerDay[t.ticker] = dayOf(tick);
   s.seq++;
+  // L6.4: the launch's own buzz is bought by the cohort in this tick (after the creator's dev buy, which is the creator's own fill)
+  absorbPending(g, t, out);
   const creator = g.players[pid]!;
   lpWire(g, out, 'brass', 'Launchpad', { key: 'lp.wire.launch', vars: { name: t.name, ticker: t.ticker, creator: creator.handle } }, t.ticker);
   notify(g, out, pid, { kind: 'system', tone: 'brass', text: `${t.name} (${t.ticker}) is live on the curve.`, msg: { key: 'lp.inbox.launched', vars: { name: t.name, ticker: t.ticker } } });
@@ -241,6 +244,8 @@ export function npcLaunchDraw(g: GameState, out: StepOutput | null): boolean {
   s.tickerDay[ticker] = dayOf(g.market.tick);
   s.totals.launches++;
   s.seq++;
+  // L6.4: the world launch's own buzz is bought by the cohort in this tick
+  absorbPending(g, t, out);
   lpWire(g, out, 'info', 'Launchpad', { key: 'lp.wire.launchWorld', vars: { name, ticker } }, ticker);
   return true;
 }

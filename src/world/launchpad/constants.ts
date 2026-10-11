@@ -36,8 +36,7 @@ export const LP = {
   MIN_RANK_INDEX: 1,
   /** tickers used in the last 30 game days are taken (L2) */
   TICKER_HOLD_DAYS: 30,
-  /** the base hype a player trade adds (per $100 bought) and takes back (per $100 sold): the copycat retail of L6 */
-  BUY_BUZZ_PER_100: 0.02,
+  /** the base hype a player's sale takes back (per $100 sold). Player buys add no buzz (L6.5, no copycat in V1) */
   SELL_BUZZ_PER_100: 0.01,
   /** the ticker is 3 to 5 letters; the name is 3 to 24 characters */
   TICKER_MIN: 3,
@@ -103,11 +102,10 @@ export const tokenStream = (ticker: string) => `lp:${ticker}`;
  * curve, the fees, the gates and the rules stay fixed. The defaults here are the tuned values of scripts/balance/launchpad.ts.
  */
 export const NPC = {
-  /** NPC demand (L6.1): dollars of pending buy demand per unit of buzz that arrives. An arrival is a launch's buzz, a viral shock,
-   *  a buzz item or a copycat buy; the cohort buys the pending demand with a half-life of BUY_HALF_TICKS, never the buzz stock */
+  /** NPC demand (L6.1): dollars of demand per unit of buzz that arrives. An arrival is a launch's buzz, a viral shock or a buzz item.
+   *  L6.4: the cohort buys the whole arrival in the tick it arrives (no half-life); L6.5: no player buy is an arrival; L6.6: one
+   *  arrival is capped at the cash that takes the curve to graduation from its current point (demand.ts arrivalCap) */
   DEMAND_PER_BUZZ: 1_000,
-  /** the buy half-life of the pending demand, in ticks (L6.1: 2 to 6) */
-  BUY_HALF_TICKS: 3,
   /** capitulation (L6.1): the share of the cohort's tokens sold per tick at any price, times (1 - buzz / the peak buzz since the last
    *  arrival). The cohort sells into the fade, so its flow is a fast pump and a slow bleed */
   CAPIT_PER_TICK: 0.1,
@@ -115,13 +113,15 @@ export const NPC = {
   PROFIT_PER_TICK: 0.02,
   /** the time share: the cohort sells this share of its tokens per tick regardless of price (it never sells what it does not hold) */
   TIME_SELL_PER_TICK: 0.00002,
-  /** viral shocks: expected shocks per token per game day, and the size of one (a Pareto tail with this exponent) */
+  /** viral shocks: expected shocks per token per game day, and the size of one (a Pareto tail with this exponent). L6.6: the tail
+   *  exponent is at least TAIL_ALPHA_MIN (2.2), so a shock has a finite mean and variance */
   VIRAL_PER_DAY: 0.05,
   VIRAL_SCALE: 0.2,
-  VIRAL_ALPHA: 0.8,
-  /** the buzz at launch: a heavy-tailed draw with this scale and tail exponent (most launches start low, a few start high) */
+  VIRAL_ALPHA: 2.5,
+  /** the buzz at launch: a heavy-tailed draw with this scale and tail exponent (most launches start low, a few start high). L6.6: the
+   *  exponent is at least TAIL_ALPHA_MIN */
   BASE0: 0.008,
-  BASE0_ALPHA: 0.5,
+  BASE0_ALPHA: 2.5,
   /** world launches per game day, when the world runs them */
   LAUNCHES_PER_DAY: 20,
   /** the NPC sniper: a buy of this many dollars in the first ticks, sold into the first hype (at this multiple of its entry, or after N ticks) */
@@ -131,6 +131,8 @@ export const NPC = {
   SNIPER_EXIT_TICKS: 60,
   /** post-graduation unwind (L6.2): the cohort's engine position is sold into the book with this half-life, in game days */
   UNWIND_HALF_DAYS: 1,
+  /** the tail exponent floor of the viral and launch-buzz laws (L6.6: Pareto alpha >= 2.2, or a lognormal) */
+  TAIL_ALPHA_MIN: 2.2,
 } as const;
 
 /** the half-life decay per tick of each buzz part */

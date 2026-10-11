@@ -4,9 +4,10 @@ import { cashOf, netWorthBreakdown, TPD } from '../core';
 import { bookedNet, netWorldMoney } from '../company/exploits/sequences';
 import { LP, NPC, npcAccountId } from './constants';
 import { quoteSell, spotAt } from './curve';
-import { buzzOf } from './demand';
 import { lpTick } from './flow';
 import { buyCurve } from './trade';
+import { absorbPending } from './absorb';
+import { arrivalCap, arrive, buzzOf } from './demand';
 import { curveHoldingsValue } from './value';
 import { CREATOR, HOLDER, TRADER, jumpDays, launch, lpWorld, run } from './fixture';
 
@@ -27,33 +28,56 @@ function quiet(g: ReturnType<typeof lpWorld>, ticker: string) {
   return t;
 }
 
-describe('L6.1 demand comes from the arrivals, not the buzz stock', () => {
-  it('a launch, a buzz item and a copycat buy each add pending NPC demand; a sell adds none', () => {
+describe('L6.4 instant arrivals, L6.5 no copycat (v1.2)', () => {
+  it('a launch and a buzz item are bought by the cohort in full in the tick they arrive: nothing stays pending', () => {
     const g = lpWorld('arrivals');
     launch(g, CREATOR, 'ARRV');
     const t = g.launchpad!.tokens.ARRV!;
-    expect(t.npcPending).toBeCloseTo(t.buzz.base * NPC.DEMAND_PER_BUZZ, 9);
-    const p0 = t.npcPending!;
+    // the launch's own buzz is the first arrival: the cohort bought all of it, in the launch's tick
+    expect(t.npcPending).toBe(0);
+    expect(t.npcBal).toBeGreaterThan(0);
+    expect(t.flows.npcBuy).toBeCloseTo(t.buzz.base * NPC.DEMAND_PER_BUZZ, 1);
+    const bought0 = t.flows.npcBuy;
     expect(run(g, TRADER, { type: 'lp.buzz', ticker: 'ARRV', kind: 'board' }).ok).toBe(true);
-    expect(t.npcPending! - p0).toBeCloseTo(LP.BOARD_ADD * NPC.DEMAND_PER_BUZZ, 6);
-    const p1 = t.npcPending!;
-    // a $100 buy adds copycat buzz of 0.02 (LP.BUY_BUZZ_PER_100), which is an arrival of 0.02 units of demand
-    expect(run(g, TRADER, { type: 'lp.buy', ticker: 'ARRV', spendCents: 10_000, maxSlip: 0.5 }).ok).toBe(true);
-    expect(t.npcPending! - p1).toBeCloseTo(LP.BUY_BUZZ_PER_100 * (100 / 100) * NPC.DEMAND_PER_BUZZ, 6);
-    const p2 = t.npcPending!;
-    const have = t.bal[TRADER] ?? 0;
-    expect(run(g, TRADER, { type: 'lp.sell', ticker: 'ARRV', tokens: Math.floor(have / 2), maxSlip: 0.5 }).ok).toBe(true);
-    expect(t.npcPending).toBe(p2);
+    // a Quay billboard ($500) is an arrival of BOARD_ADD buzz: the cohort buys BOARD_ADD x DEMAND_PER_BUZZ dollars at once
+    expect(t.npcPending).toBe(0);
+    expect(t.flows.npcBuy - bought0).toBeCloseTo(LP.BOARD_ADD * NPC.DEMAND_PER_BUZZ, 2);
   });
 
-  it('the pending demand is bought with the buy half-life: after BUY_HALF_TICKS ticks half of it is still waiting', () => {
+  it('a player buy adds no buzz and no demand (no copycat); a sell adds no demand either', () => {
+    const g = lpWorld('nocopy');
+    launch(g, CREATOR, 'NOCP');
+    const t = g.launchpad!.tokens.NOCP!;
+    const b0 = buzzOf(t);
+    const p0 = t.npcPending ?? 0;
+    expect(run(g, TRADER, { type: 'lp.buy', ticker: 'NOCP', spendCents: 10_000, maxSlip: 0.5 }).ok).toBe(true);
+    expect(buzzOf(t)).toBe(b0);
+    expect(t.npcPending ?? 0).toBe(p0);
+    const have = t.bal[TRADER] ?? 0;
+    expect(run(g, TRADER, { type: 'lp.sell', ticker: 'NOCP', tokens: Math.floor(have / 2), maxSlip: 0.5 }).ok).toBe(true);
+    expect(t.npcPending ?? 0).toBe(p0);
+  });
+
+  it('an arrival demand is absorbed in one fill and leaves the pool, and the cohort holds the tokens it bought', () => {
     const g = lpWorld('half');
     launch(g, CREATOR, 'HALF');
     const t = quiet(g, 'HALF');
+    const nb0 = t.flows.npcBuy;
     t.npcPending = 10_000;
-    for (let k = 0; k < NPC.BUY_HALF_TICKS; k++) lpTick(g, null);
-    expect(t.npcPending).toBeCloseTo(5_000, 2);
+    absorbPending(g, t, null);
+    expect(t.npcPending).toBe(0);
     expect(t.npcBal).toBeGreaterThan(0);
+    expect(t.flows.npcBuy - nb0).toBeCloseTo(10_000, 2);
+  });
+
+  it('a fill that graduates the token ends its demand: nothing is left pending on a graduated token', () => {
+    const g = lpWorld('gradabs');
+    launch(g, CREATOR, 'GRAA');
+    const t = quiet(g, 'GRAA');
+    t.npcPending = 1e9;
+    absorbPending(g, t, null);
+    expect(t.status).toBe('graduated');
+    expect(t.npcPending).toBe(0);
   });
 
   it('the cohort sells into the fade at any price: a buzz below its peak is sold even under the cohort\'s cost', () => {
@@ -74,10 +98,13 @@ describe('L6.1 demand comes from the arrivals, not the buzz stock', () => {
     const g = lpWorld('never');
     launch(g, CREATOR, 'NEVR');
     const t = quiet(g, 'NEVR');
+    t.npcBal = 0;
+    t.npcCost = 0;
+    const y0 = t.y;
     t.npcPeak = 1;
     lpTick(g, null);
     expect(t.npcBal).toBe(0);
-    expect(t.y).toBe(LP.Y0);
+    expect(t.y).toBe(y0);
   });
 
   it('an old snapshot without the demand fields loads and runs (the fields read as zero, the peak as the buzz)', () => {
@@ -140,6 +167,8 @@ describe('L6.1 the cohort is flat in tokens over a token\'s life', () => {
     const t = quiet(g, 'REFU');
     // a sold-out curve refuses every buy, so the cohort's demand must wait rather than vanish
     t.y = 1;
+    t.npcBal = 0;
+    t.npcCost = 0;
     t.npcPending = 10_000;
     lpTick(g, null);
     expect(t.npcPending).toBe(10_000);
@@ -188,8 +217,9 @@ describe('the cancel rule (ratified deviation)', () => {
     launch(g, CREATOR, 'DEVB', { devBuyCents: 5_000 });
     expect((g.launchpad!.tokens.DEVB!.bal[CREATOR] ?? 0)).toBeGreaterThan(0);
     const cash0 = cashOf(g, CREATOR);
+    const fees0 = g.launchpad!.tokens.DEVB!.creatorFees;
     expect(run(g, CREATOR, { type: 'lp.cancel', ticker: 'DEVB' }).ok).toBe(true);
-    expect(cashOf(g, CREATOR)).toBeCloseTo(cash0 + LP.LAUNCH_FEE / 2, 6);
+    expect(cashOf(g, CREATOR) - cash0).toBeCloseTo(LP.LAUNCH_FEE / 2 + (g.launchpad!.tokens.DEVB!.creatorFees - fees0), 6);
     const have = g.launchpad!.tokens.DEVB!.bal[CREATOR] ?? 0;
     expect(run(g, CREATOR, { type: 'lp.sell', ticker: 'DEVB', tokens: Math.floor(have / 2), maxSlip: 0.5 }).ok).toBe(true);
   });
@@ -251,5 +281,49 @@ describe('NPC launches in the game world (ratified)', () => {
     expect(on.launchpad?.npcLaunches).toBe(true);
     const off = createGame('gw-off', { warmupDays: 0, npcs: false });
     expect('launchpad' in off).toBe(false);
+  });
+});
+
+describe('L6.6 finite tails and the per-arrival cap (v1.2)', () => {
+  it('the viral and launch-buzz tails have a finite mean and variance: Pareto alpha is at least 2.2', () => {
+    expect(NPC.VIRAL_ALPHA).toBeGreaterThanOrEqual(NPC.TAIL_ALPHA_MIN);
+    expect(NPC.BASE0_ALPHA).toBeGreaterThanOrEqual(NPC.TAIL_ALPHA_MIN);
+    expect(NPC.TAIL_ALPHA_MIN).toBeGreaterThanOrEqual(2.2);
+  });
+
+  it('a single arrival is capped at the cash that takes the curve to graduation from its current point', () => {
+    const g = lpWorld('cap');
+    launch(g, CREATOR, 'CAPP');
+    const t = quiet(g, 'CAPP');
+    const cap = arrivalCap(t);
+    // the cap at the launch curve is the raise (the formula's cash to graduation, about $43,950) over (1 - the 1% fee)
+    expect(cap).toBeCloseTo((LP.X0 * LP.Y0 / LP.GRAD_Y - LP.X0 * LP.Y0 / t.y) / (1 - LP.FEE_RATE) + 0.01, 4);
+    arrive(t, 1e6);
+    expect(t.npcPending).toBeCloseTo(cap, 6);
+    absorbPending(g, t, null);
+    // the capped buy clips to graduation: it graduates the token and never overshoots it
+    expect(t.status).toBe('graduated');
+    expect(t.npcPending).toBe(0);
+    expect(g.market.accounts[`lp:curve:CAPP`]?.cash ?? 0).toBeGreaterThanOrEqual(0);
+  });
+
+  it('a token next to graduation has only a small cap, so its arrival cannot overshoot the curve', () => {
+    const g = lpWorld('cap-near');
+    launch(g, CREATOR, 'CAPN');
+    const t = quiet(g, 'CAPN');
+    t.y = LP.GRAD_Y + 1_000_000;
+    const cap = arrivalCap(t);
+    expect(cap).toBeGreaterThan(0);
+    expect(cap).toBeLessThan(10_000);
+    arrive(t, 1e6);
+    expect(t.npcPending).toBeCloseTo(cap, 6);
+  });
+
+  it('an arrival below the cap is not reduced: demand is the buzz times DEMAND_PER_BUZZ', () => {
+    const g = lpWorld('cap-small');
+    launch(g, CREATOR, 'CAPS');
+    const t = quiet(g, 'CAPS');
+    arrive(t, 0.5);
+    expect(t.npcPending).toBeCloseTo(0.5 * NPC.DEMAND_PER_BUZZ, 9);
   });
 });

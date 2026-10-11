@@ -25,11 +25,12 @@ describe('launch gates (L2)', () => {
     expect(r.ok).toBe(true);
     const t = g.launchpad!.tokens.PANC!;
     expect(t.status).toBe('live');
-    expect(t.y).toBe(LP.Y0);
+    // the launch's own buzz is bought by the cohort in the launch tick (L6.4): the curve is at or below its start
+    expect(t.y).toBeLessThanOrEqual(LP.Y0);
     expect(t.bal[CREATOR]).toBe(10_000_000);
-    expect(cashOf(g, CREATOR)).toBeCloseTo(cash0 - LP.LAUNCH_FEE, 6);
+    expect(cashOf(g, CREATOR)).toBeCloseTo(cash0 - LP.LAUNCH_FEE + t.creatorFees, 6);
     expect(g.economy.sinks.lpLaunchFee).toBe(LP.LAUNCH_FEE);
-    expect(g.market.accounts[curveAccountId('PANC')]?.cash).toBe(0);
+    expect(g.market.accounts[curveAccountId('PANC')]?.cash ?? 0).toBeCloseTo(t.flows.npcBuy - t.flows.fee, 6);
   });
 
   it('refuses a second launch inside 24 real hours, and a fourth live token', () => {
@@ -101,6 +102,7 @@ describe('the curve (L3)', () => {
     const cashC0 = cashOf(g, CREATOR);
     const curve0 = g.market.accounts[curveAccountId('CURV')]!.cash;
     const sink0 = g.economy.sinks.lpTradeFee ?? 0;
+    const y0 = g.launchpad!.tokens.CURV!.y;
     const r = run(g, TRADER, { type: 'lp.buy', ticker: 'CURV', spendCents: 10_000 });
     expect(r.ok).toBe(true);
     const d = r.data as { tokens: number; feeCents: number };
@@ -110,7 +112,7 @@ describe('the curve (L3)', () => {
     expect(g.market.accounts[curveAccountId('CURV')]!.cash).toBeCloseTo(curve0 + 99, 6);
     expect((g.economy.sinks.lpTradeFee ?? 0) - sink0).toBeCloseTo(0.5, 6);
     expect(g.launchpad!.tokens.CURV!.bal[TRADER]).toBe(d.tokens);
-    expect(g.launchpad!.tokens.CURV!.y).toBe(LP.Y0 - d.tokens);
+    expect(g.launchpad!.tokens.CURV!.y).toBe(y0 - d.tokens);
   });
 
   it('a sell pays the trader the formula cash less the fee, and FIFO books the realised P&L', () => {

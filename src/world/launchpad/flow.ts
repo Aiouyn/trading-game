@@ -6,6 +6,7 @@ import { formulaCashAt, spotAt } from './curve';
 import { buyCurve, liquidateCohort, sellCurve } from './trade';
 import { npcLaunchDraw } from './launch';
 import { buzzOf, arrive } from './demand';
+import { absorbPending } from './absorb';
 import { openSellQty } from './graduate';
 import { priceNow } from './rug';
 import { dayOf, ensureLaunchpad, lpWire, refuse, sinkCents, tokenOf } from './state';
@@ -13,12 +14,13 @@ import { placeOrder } from '@/engine';
 import type { LpToken } from './types';
 
 /**
- * The hype and the NPC flow (lead-launchpad.md L6, as amended in v1.1), run once per tick by stepGame. Every live token:
+ * The hype and the NPC flow (lead-launchpad.md L6, as amended in v1.1 and v1.2), run once per tick by stepGame. Every live token:
  *   - its buzz decays (the base with a two-day half-life, the Quay billboard in six ticks, the Wire promo in a day);
- *   - it takes rare viral shocks (a heavy tail: few tokens, few shocks), and each shock, buzz item and copycat buy is an ARRIVAL;
+ *   - it takes rare viral shocks (a finite-mean heavy tail: few tokens, few shocks), and each shock and buzz item is an ARRIVAL; a
+ *     player's buy is not one (L6.5);
+ *   - an arrival is bought by the NPC cohort in full in the tick it arrives (L6.4, absorb.ts), so no player can act before the top;
  *   - an NPC sniper buys in the first ticks and sells into the first hype (so players cannot farm the edge);
- *   - the NPC cohort answers the arrivals (L6.1, fast pump): the pending demand is bought with a buy half-life of a few ticks, and
- *     the cohort sells into the fade (slow bleed): a capitulation share that grows as the buzz falls below its peak since the last
+ *   - the cohort sells into the fade (slow bleed): a capitulation share that grows as the buzz falls below its peak since the last
  *     arrival, a time share, and profit taking above its cost. It never sells tokens it does not hold;
  *   - a token dies with no trade for 24 game days, or with curve cash under 2% of the raise for 7 game days (counted from the
  *     launch, tested from day 3). At death the cohort sells what it holds to the curve, so the NPC side is flat in tokens;
@@ -28,9 +30,6 @@ import type { LpToken } from './types';
  */
 
 const RAISE_LINE = 0.02 * formulaCashAt(LP.GRAD_Y);
-/** the share of pending demand the cohort buys each tick (the buy half-life of NPC.BUY_HALF_TICKS ticks); read per tick so the balance
- *  harness can tune it */
-const buyShare = () => 1 - Math.pow(0.5, 1 / NPC.BUY_HALF_TICKS);
 
 /** Buzz items: a Quay billboard or a Wire promo. Sinks; at most three per token per game day. */
 export function buyBuzz(g: GameState, pid: string, ticker: string, kind: 'board' | 'wire', out: StepOutput | null): CommandResult {
@@ -56,6 +55,8 @@ export function buyBuzz(g: GameState, pid: string, ticker: string, kind: 'board'
   }
   t.promos.push({ tick: g.market.tick, kind });
   if (t.promos.length > 20) t.promos.splice(0, t.promos.length - 20);
+  // L6.4: the arrival is bought by the cohort in full now, before any player can act on the promoted token
+  absorbPending(g, t, out);
   return { ok: true, data: { kind, cost } };
 }
 
@@ -99,19 +100,8 @@ function npcFlow(g: GameState, t: LpToken, rng: Rng, out: StepOutput | null): vo
   const share = Math.min(1, NPC.CAPIT_PER_TICK * fade + (gain > 0 ? NPC.PROFIT_PER_TICK * gain : 0) + NPC.TIME_SELL_PER_TICK);
   const sellTokens = Math.min(t.npcBal, Math.floor(t.npcBal * share));
   if (sellTokens > 0) sellCurve(g, null, t.ticker, sellTokens, 1, out, true);
-  // the buy: the share of the pending demand that the buy half-life takes this tick. The demand leaves the pending pool only when
-  // the buy fills; a refused buy (too small, or the curve has sold out) keeps it for the next tick, so no demand vanishes unbooked
-  const pending = t.npcPending ?? 0;
-  const buyDollars = pending * buyShare();
-  if (buyDollars * 100 >= 1) {
-    const r = buyCurve(g, null, t.ticker, Math.round(buyDollars * 100), 1, out, true);
-    if (r.ok) {
-      const left = pending - buyDollars;
-      t.npcPending = left < 1e-6 ? 0 : left;
-    }
-  } else if (pending < 1e-6) {
-    t.npcPending = 0;
-  }
+  // the buy: arrivals are absorbed in full in the tick they arrive (L6.4), so only a demand a refused fill left pending waits here
+  absorbPending(g, t, out);
 }
 
 /**
@@ -179,13 +169,18 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
     t.buzz.base *= BUZZ_DECAY.base;
     t.buzz.board *= BUZZ_DECAY.board;
     t.buzz.wire *= BUZZ_DECAY.wire;
-    const rng = new Rng(t.rng);
+    let rng = new Rng(t.rng);
     if (rng.chance(NPC.VIRAL_PER_DAY / TPD)) {
       const shock = NPC.VIRAL_SCALE * (Math.pow(Math.max(1e-9, rng.uniform()), -1 / NPC.VIRAL_ALPHA) - 1);
       t.buzz.base += shock;
       arrive(t, shock);
+      // L6.4: the shock is bought by the cohort in full in this tick. A graduation inside that fill advances the token's stream, so the
+      // local stream is taken again from the token after it
+      t.rng = rng.state();
+      absorbPending(g, t, out);
+      rng = new Rng(t.rng);
     }
-    npcFlow(g, t, rng, out);
+    if (t.status === 'live') npcFlow(g, t, rng, out);
     t.rng = rng.state();
     // the death rules (L3)
     const curveCash = g.market.accounts[curveAccountId(t.ticker)]?.cash ?? 0;

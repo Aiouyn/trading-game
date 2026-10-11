@@ -7,7 +7,6 @@ import { curveAccountId } from './constants';
 import { lockedOf, vestEndDay } from './vest';
 import type { LpLot, LpToken, LpTrade } from './types';
 import { recordCreatorSale } from './rug';
-import { arrive } from './demand';
 import { graduate } from './graduate';
 import type { GameState as G } from '../types';
 
@@ -95,10 +94,7 @@ export function buyCurve(
     pushBuy(t, pid, tickOf(g), q.tokens);
     t.bal[pid] = (t.bal[pid] ?? 0) + q.tokens;
     t.flows.playerBuy += q.spendCents / 100;
-    // the copycat hype is an arrival: it adds pending NPC demand (L6.1)
-    const copy = LP.BUY_BUZZ_PER_100 * (q.spendCents / 100) / 100;
-    t.buzz.base += copy;
-    arrive(t, copy);
+    // L6.5: a player's buy adds no buzz and is no arrival (no copycat in V1)
     if (pid !== t.creatorId) t.playerTraded = true;
   }
   t.y -= q.tokens;
