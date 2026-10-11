@@ -172,10 +172,11 @@ Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merg
 | O-3 | **Zero-sum defect (KNOWN DEFECT).** An ordinary stock has no counterparty account. A buy takes its notional and commission out of the world, and a sell mints its notional. Pinned as `it.fails` in `zerosum.test.ts`. Not fixed. | Ledger (ruling pending), Forge (fix) |
 | O-4 | Underwriting fee base is the gross float value, including the NPC book's share. Spec 5.1 does not name the base. | Ledger (sign-off) |
 | O-5 | Collusion graph for alt accounts is not in `src`. Only alliances define owner links (ruling 2). A founder-controlled account outside an alliance can subscribe to an IPO and trade outside the window. | Ledger (spec), Forge (anti-cheat, Phases 6 and 9) |
-| O-6 | Five-year `run.ts` economy check for shops is still open. The stabilizer was rechecked on three 40-day seeds and never engaged. | Ledger |
+| O-6 | **Ruled (section 0.6), built in `p4/ui2`:** the stabilizer's target is 1.0% a game day on a 7-gd trailing average (`boards.ts`); the five-year check (3 seeds x 5 years) is in section 2.2b. The old 4% target never engaged. | Ledger (ruled by lead) |
 | O-7 | Sign-off on B1 deviations 1 (sell cap scope) and 6 (default triggers stricter than spec 5). | Ledger |
-| O-8 | Managed sits at 1.3 to 1.5 against S3's about 1.0. Options: restate S3 as an ungated reference; extend the full-income window to 24 days (an S4 change); or lower the star cost and re-hold excellent. | Lead |
-| O-9 | Pool sale proceeds are misattributed to the pool account (B1 deviation 7). | Quant |
+| O-8 | Managed sits at 1.3 to 1.5 against S3's about 1.0. **Accepted by the lead (section 0.6): the crew floor change to 1.08.** Not found in the `p4/ui2` tree; the change is recorded here and its code is not in this branch. | Lead (accepted) |
+| O-9 | Pool sale proceeds are misattributed to the pool account (B1 deviation 7). **Accepted by the lead (section 0.6): the pool interest delta.** Not found in the `p4/ui2` tree; recorded here, code not in this branch. | Quant (accepted) |
+| O-22 | **Ruled (section 0.6), built in `p4/ui2`:** rival books are Street-side (NPC) money. A delisting that settles rival units books the cash to the Street tally (`street` event, `bookStreet` in `world/ledger.ts`), and the zero-sum row in `zerosum.test.ts` closes to the cent with the rival books counted. | Forge (done) |
 | O-10 | Company spec is still NOT FROZEN (G22 reading recorded in code). | Ledger |
 | O-11 | Tape rows not built or not run: the bot harnesses (`cap_carry_edge`, `signal_postprint_drift`, `company_print_full_npc_untouched`, X6, X8, X10 rows), the E-UI rows (no Playwright specs for them), and the ABSENT features (credibility EWMA, other income, consolidation, `self_match`, forward cap, eslint canary, AD_GRANT cash). | Tape (rows), Quant (features), Velvet (E-UI) |
 | O-12 | The sector shock is a world stream, not the engine's `sectorRng` (`sim.ts` owns `sectorRng`). Binding is not done. | Forge, Quant |
@@ -186,9 +187,19 @@ Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merg
 | O-17 | Built in `p4/ui2` (section 12): next-day-close staging of the Overview decision, the "was" tick, the next-gen launch and the Filings tab. Open for Velvet: copy sign-off on the new strings (en and fr). | Velvet (copy sign-off) |
 | O-18 | Derivatives on the founder's company stock are not filed (B1 deviation 5). Revisit when listed options on company stocks exist. | Forge |
 | O-19 | Plan verification not run in this pass: `scripts/ecology/gates.ts full`, `scripts/load/socket-load.mjs` (4,000 clients, tick p99 under 2.5 s), play-by-hand on desktop and phone in English and French, and the screenshot tour. | Lead |
+| O-20 | **Ruled (section 0.6), built in `p4/ui2`:** the ready mark is advice, not a rule. The engine launches any credit; the R&D launch form is always there, and below the mark it shows the three-part warning and asks the founder to confirm. The original owner options are kept below for the record. **Owner decision: the next-gen ready mark is a screen rule only.** The mark (score 55, `company.rd.readyMark`) is enforced on the R&D launch form and nowhere else. `launchProduct` in `company.ts` launches any credit that has no launch, and refuses only `noLaunchCredit`, `productCap` and `priceOutOfBand`. Options: (A) keep the mark display-only and say so in Velvet's spec and the copy; (B) gate the launch on the mark in `company.ts`, which reads the quality of the credit. The implementer read the tape guard `quality_score_display_only` as forbidding that read in `company.ts`. The guard's text names the share code only, so the owner must confirm which reading holds before B. No engine change was made for this item. | Owner (Velvet spec, Quant tape guard) |
 | O-21 | Pre-existing lint warnings: 15 (`react/jsx-no-literals` in `Welcome.tsx`, unused vars in `game.test.ts`). Zero errors. | Velvet (copy keys), Forge (unused vars) |
 
 The Phase 4 items above that are **Partial** or **Not built** are the ones that block closing the phase. Items O-1, O-3 and O-19 are the largest.
+
+### 0.6 Lead rulings (`p4/ui2`, this pass)
+
+Each ruling is listed once with where it is built. The lead ruled these on the open items in section 0.5.
+
+- **O-20 (ready mark is advice).** The engine keeps launching any credit: `launchProduct` still refuses only `noLaunchCredit`, `productCap` and `priceOutOfBand`, and nothing reads the mark there. The R&D Launch form is always available. Below the mark (quality under `company.rd.readyMark`) it shows the three-part warning (what: "Quality 42. The mark is 55."; why: "A launch now ships a weaker product."; do: run a project first, or confirm) and a checkbox the founder must tick before the launch is sent. Built in `src/components/apps/company/RnD.tsx` (`Launch`). Copy: `company.ui.launch.belowMark.what|why|do` and `company.ui.launch.acceptBelow` (en and fr). Velvet's copy sign-off on these is still open (O-17).
+- **O-22 (rival books are Street-side money).** A delisting that settles a rival's units pays the rival book in cash. `settleRivals` (`src/engine/listings.ts`) now returns a `street` event with that cash (`reason: 'rivalSettlement'`). `ledgerTick` (`src/world/ledger.ts`) books it as an economy faucet, `STREET_TALLY` ("street: rival settlements"), the way any non-account counterparty is booked. The rival cash is counted as money in the zero-sum row. The row is in `src/world/company/exploits/zerosum.test.ts` ("O-22"): it delists an ordinary stock that a rival holds (no account does) and closes the money identity to the cent. Worlds with no rival units in a delisted name emit no event, so their books do not change.
+- **O-6 (stabilizer target).** The 4% a game day target was far too loose: the stabilizer never engaged. It is now 1.0% a game day (`STABILIZER_TARGET`), measured as the average daily growth over the trailing 7 game days (`STABILIZER_WINDOW`, the supply seven days back is the base). The PI mechanism, the `sinkMult` cap (1.6) and the integral clamp are kept. `stabilizer.hist` is a new optional field (the last seven supplies); an old save loads with it empty, and the controller starts once a full window exists. Built in `src/world/boards.ts` and `src/world/types.ts`. The five-year check (3 seeds, 5 years, `scripts/balance/economy.ts`) is in section 2.2b.
+- **O-8 (crew floor change, 1.08) and O-9 (pool interest delta).** Accepted by the lead. This worktree has neither change: no crew floor at 1.08 in `src/content/shops.ts` and no pool interest delta in the company or pool code. The acceptance is recorded here; the code is not in `p4/ui2` and must land on the branch that owns it.
 
 ## 1. Stage A merged
 
@@ -306,6 +317,39 @@ Whole-day check (the same rows, each payback rounded up to a whole game day): av
 Managed (reference, not gated) is about 1.3 to 1.5 against S3's "managed reaches the well-run payback" (about 1.0). Measured cause: the manager's star cost is one part, and the S4 ramp is the rest. With the manager's star cost set to 0 (a temporary edit, four seeds, reverted and not committed), managed is 1.00 to 1.19 by tier. The rest is structural: a once-a-real-day owner is away 23 game days in 24, so a manager's 16 full days and then the ramp average about 0.875 of full income (a rough cycle estimate). S3's target cannot hold with S4's shape and once-a-real-day presence. This needs a lead ruling (open item 8). Stage B changes nothing for it.
 
 Stabilizer (risk 7), rechecked: three seeds, 40 game days each, NPC competition present (a throwaway script, not committed). The sink multiplier was 1.000 on every day of all three runs. Supply growth was negative in the first days (shops being bought) and below 1.5% a game day after day 6 in seed 1, under the 4% target. Shop costs were 20 to 23% of all sinks. The new sinks only lower wealth growth, so they cannot engage the stabilizer. Not checked: the five-year `run.ts` economy.
+
+### 2.2b Five-year economy check (O-6 ruling): the stabilizer at 1.0% a game day
+
+`scripts/balance/economy.ts` (new in `p4/ui2`) runs the full world, with NPCs and the app's 720 ticks a game day, for five game years (1,825 game days) on one seed, one seed at a time: `npx tsx scripts/balance/economy.ts <seed> 5 <out>`. It reports the players' supply (the stabilizer's measure), the growth a game day, the trailing 7-day windows above the target, the days the stabilizer engaged, the faucet and sink split and net worth by rank. Seeds `economy-1`, `economy-2`, `economy-3`; wall time 14 to 29 minutes a seed. The target is `STABILIZER_TARGET` (1.0%) on the 7-day window (`STABILIZER_WINDOW`), in `src/world/boards.ts`.
+
+| Seed | Supply, day 0 to day 1825 | Mean growth a gd | Trailing windows above 1.0% | Days engaged (max sink multiplier) |
+|---|---|---|---|---|
+| economy-1 | $1.6B to $49.9B | 0.188% | 0.3% (5 of 1,819) | 5 (1.002) |
+| economy-2 | $1.6B to $57.0B | 0.195% | 0% | 0 (1.000) |
+| economy-3 | $1.6B to $44.2B | 0.182% | 0% | 0 (1.000) |
+
+Faucet and sink split (booked over the run; the faucets are the world's money in, the sinks its money out):
+
+| Seed | Faucets | Sinks | Sinks as a share of the flow | Top faucet | Top sinks (share of sinks) |
+|---|---|---|---|---|---|
+| economy-1 | $85.3B | $53.4B | 38.5% | business income (100%) | business upgrades 46%, shop wages 28%, shop quality 13%, shop opex 9%, shop maintenance 2% |
+| economy-2 | $89.3B | $54.0B | 37.7% | business income (100%) | business upgrades 45%, shop wages 29%, shop quality 13%, shop opex 10%, shop maintenance 2% |
+| economy-3 | $76.2B | $46.7B | 38.0% | business income (100%) | business upgrades 53%, shop wages 25%, shop quality 12%, shop opex 8%, shop maintenance 2% |
+
+The "street: rival settlements" faucet (O-22) is booked on seed 1, at under 0.05% of the faucets there. Rent is booked as under 0.05% too.
+
+Net worth by rank at day 1,825 (24 players, NPCs included; ranks past 24 show the last player):
+
+| Seed | Rank 1 | Rank 3 | Rank 10 | Median |
+|---|---|---|---|---|
+| economy-1 | $33.1B | $2.7B | $66M | $14.5M |
+| economy-2 | $35.2B | $3.0B | $75M | $12.5M |
+| economy-3 | $31.8B | $2.8B | $85M | $11.3M |
+
+What this says, and what it does not:
+- **At 1.0% the stabilizer is nearly idle on these seeds.** It engaged on 5 game days of 1,825 on seed 1 (the multiplier peaked at 1.002), and not at all on seeds 2 and 3. The supply grows at about 0.19% a game day on average, under a fifth of the 1.0% target. The 4% target never engaged, and 1.0% engages only on the rare windows that run hot. The ruling's target is kept as set. Whether the target should be tighter (a rate near the observed 0.2% would engage here) is a lead decision; it is not tested in this pass.
+- The only faucet is business income, so the money supply is set by the NPC businesses. The sinks are the businesses' own upgrades and the shops' costs (about 38% of the flow).
+- The run used one process at a time after a duplicate launch: the first attempt ran seed 1 twice in parallel (the same seed, the same output); the duplicate chain was stopped before seeds 2 and 3 ran. `summary.jsonl` has one line per seed.
 
 ### 2.3 A1 open items
 
@@ -699,12 +743,13 @@ The IPO e2e found a real bug, present on this branch since the company engine ho
 Scope: the four items of O-17 and O-16 (section 0.5): the Overview decision staged for the next close, the "was" tick, the next-gen launch, the Filings tab, and the CEO change. Velvet's spec is `docs/team/specs/velvet-company-app.md` (section 5 for staging).
 
 What is in:
-- **Staging (O-17).** Actions `stageProject` and `cancelStaged` (`company.ts`). A stage is checked at once with the start checks (`unknownProduct`, `negativeAmount`, `noRdStaff`, `projectBusy`, `insufficientFunds`). It is kept as `Company.staged` (one decision: a second confirm the same day replaces it). The close applies it in `companyTick`, before the company's day step of the closing day, through the same start function as the R&D tab. A refusal at the close drops it, and the event `staged` (status `dropped`, with the code) becomes a founder note. The R&D tab's start stays immediate. The fields are optional, so an old save loads with nothing staged.
+- **Staging (O-17).** Actions `stageProject` and `cancelStaged` (`company.ts`). A stage is checked at once with the start checks (`unknownProduct`, `negativeAmount`, `noRdStaff`, `projectBusy`, `insufficientFunds`). It is kept as `Company.staged` (one decision: a second confirm the same day replaces it). The close applies it in `companyTick`, before the company's day step of the closing day, through the same start function as the R&D tab. A refusal at the close drops it, and the event `staged` (status `dropped`, with the code and, for `insufficientFunds`, the shortfall) becomes a founder note. The note says what, why and the next step, with one copy per code (`company.note.stagedDropped.*`: insufficientFunds, projectBusy, noRdStaff, unknownProduct, negativeAmount, and other). The R&D tab's start stays immediate. The fields are optional, so an old save loads with nothing staged.
 - **"Was" tick.** `Company.inForce` holds the quality spend last started or applied per product. The Overview marks the level whose spend is in force ("Mid · was") and reads "Was $X", or "Nothing in force yet".
 - **Lines.** "Applies at the close of Day N. You can change it until then." and the staged value with a cancel action. The confirm reads "Confirm for the Day N close".
-- **Launch (O-17).** The founder view carries `launchCredits` (generation, quality score, ready). The R&D tab shows the first credit: at the ready mark (score 55 or more) it opens the launch form (name, price). Below it, the score and the mark only. The refusals are the engine's existing ones (`noLaunchCredit`, `productCap`, `priceOutOfBand`), copied in three parts. The ready mark is a screen threshold. The engine does not gate the launch on it, because the tape guard `quality_score_display_only` forbids reading the displayed score in `company.ts`.
-- **Filings (O-17).** A `filings` tab for the founder: each filed quarter (newest first) with its income, balance sheet and cash flow lines, its filed day and its period close, and the next filing day (`nextFilingDay`: the public schedule, the next close plus the filing lag, never the unfiled quarter). Seed and Growth see the registry line and no statements. Figures are stacked `Stat` figures (the `figure` prop), so none truncates or splits at 390. The Exchange's filing rows are inline JSX in `StocksTab.tsx`, not a component, so they are not reused here (a refactor, not done).
-- **CEO change (O-16).** A CEO section on People. Before the founder confirms, it shows the days: the announcement today, the change effective ten game days later, the freeze of the departing CEO's accounts to the end of the exit freeze (A..A+31), and the ex-CEO's cooling (252 game days from the effective day). The successor is an outside executive (an NPC). The engine accepts a player holder too, and the UI does not offer it. A confirm is a second click. The refusals are the engine's existing ones (`ceoChangePending`, `exCeoCooling`, `boardRejected`, `notController`, `companyBankrupt`).
+- **Launch (O-17).** The founder view carries `launchCredits` (generation, quality score, ready). The R&D tab shows the first credit: at the ready mark (score 55 or more) it opens the launch form (name, price). Below it, the score and the mark only. The refusals are the engine's existing ones (`noLaunchCredit`, `productCap`, `priceOutOfBand`), copied in three parts. The ready mark is a screen threshold only: the engine does not gate the launch on it. This is open decision O-20 (owner): keep it display-only, or gate `launchProduct` on it, which needs the tape guard reading settled first.
+- **Filings (O-17).** A `filings` tab for the founder: each filed quarter (newest first) with its income, balance sheet and cash flow lines, its filed day and its period close, and the next filing day (`nextFilingDay`: the public schedule, the next close plus the filing lag, never the unfiled quarter). Seed and Growth see the registry line and no statements, and no next filing day (the line shows for late and listed companies only). Figures are stacked `Stat` figures (the `figure` prop), so none truncates or splits at 390. The Exchange's filing rows are inline JSX in `StocksTab.tsx`, not a component, so they are not reused here (a refactor, not done).
+- **CEO change (O-16).** A CEO section on People. Before the founder confirms, it shows the days: the announcement today, the change effective ten game days later, the freeze of the departing CEO's accounts to the end of the exit freeze (A..A+31), and the ex-CEO's cooling (252 game days from the effective day). The successor is an outside executive (an NPC). The engine accepts a player holder too, and the UI does not offer it. A confirm is a second click. Once a change is announced, the founder view carries `ceoPending` (the recorded announced, effective, freeze and cooling days, and the successor): the screen shows them, says the change cannot be withdrawn, and offers no second confirm. The seat stays with the current CEO until the effective day. The refusals are the engine's existing ones (`ceoChangePending`, `exCeoCooling`, `boardRejected`, `notController`, `companyBankrupt`). The screen offers only an outside successor, so `exCeoCooling` (a former CEO's return) cannot be reached from it; its copy says only to wait until the cooling ends.
+- **Dev and test seams.** `src/world/company/seams.ts`: `admin.filedLate` (late tier, two filed quarters) and `admin.launchCredit` (a credit at a whole score from 0 to 100). Reached through `makeFiledLate` and `grantLaunchCredit` in `tests/e2e/helpers.ts`. The server refuses `admin.*` from clients. Both change only the named player's own company.
 - Copy: 65 new keys, the same set in en and fr. The Overview confirm key changed its value (it now carries the day).
 
 Checks (this pass, worktree `p4-ui2`):
@@ -719,3 +764,38 @@ Not done, and why:
 - The Filings view is not shown with a filed quarter in e2e: a quarter needs game days to pass, and the shared e2e world does not advance in this spec. The component test covers the filed view with a constructed filing.
 - The staged decision is not shown applied in e2e (it applies at a real close). The engine test covers the close, and the e2e covers the stage and cancel.
 - A ready next-gen launch is not in e2e (it needs a next-gen success). The component test covers the ready and waiting states.
+
+### 12.1 Review repairs and the lead's screenshot fixes (`p4/ui2`, second pass)
+
+Repairs on top of `2769a7a` (the first pass's uncommitted work, now verified): the CEO pending state (`ceoPending` on the founder view, shown on People with the days and no second confirm); the Filings next-filing line for late and listed companies only; the staged-drop note per refusal code (`company.note.stagedDropped.*`, with the shortfall for `insufficientFunds`); the dev seams `admin.filedLate` and `admin.launchCredit` (`seams.ts`, the admin HTTP routes in `server/index.ts`); and the `exCeoCooling` copy. Their e2e had not run: `company.spec.ts` and `companyUi2.spec.ts` now pass (20 passed, 12 skipped, the shots off).
+
+Lead screenshot fixes (a) to (e):
+- **(a)** The Stocks window line: "Trading window closed until Day N" only when there is an opening day; with none it reads "Trading window closed. No later window is scheduled yet." (`exchange.stock.window.closedNoDay`).
+- **(b)** Debt is a figure of its own: zero reads "$0.00" (`money(0)`), the other bands are the engine's words. Covenant is a second figure ("Covenant", "ok", "cure" or "default").
+- **(c)** The filed revenue: nothing filed reads "None filed yet" (`exchange.stock.revenueNone`); a zero filing reads "$0"; a filed band reads as before. Never "$0 to $0".
+- **(d)** The decision card: the gain is "3.9 / 5.2 / 6.5" with the caption "bear / base / bull" (fr "pessimiste / central / optimiste"); odds are whole percents ("64% to 74%"); runway is "104 → 76 days" (fr "104 → 76 jours"), with the plain pair when a side has no payroll.
+- **(e)** Day labels go through i18n: `clock.day` ("Day 4", fr "Jour 4") and `clock.dayShort` ("D4", fr "J4") in `src/game/clock.ts` (the top bar and the Wire rows), `src/game/history.ts` (the chart axis), `PhoneDesk.tsx` (the phone status clock) and `PhoneRecents.tsx`. Checks: `src/game/game.test.ts` (the fr labels, and back to en) and `companyUi2.spec.ts` ("the top bar and the phone clock show the day in French").
+
+Checks in this pass: `npx next typegen` and `npx tsc --noEmit` exit 0; the full `vitest run --maxWorkers=3` passes (see the gates in section 12.2); `eslint` on the touched files, 0 errors (the 5 warnings are the pre-existing unused imports in `game.test.ts`); the full `playwright` suite with the shots on (`P4UI2_SHOTS` and `P4FINAL_SHOTS` at `shots-p4final`).
+
+### 12.2 Gates and checks (`p4/ui2`, the commit after `2769a7a`)
+
+| Command | Result |
+|---|---|
+| `npx next typegen` and `npx tsc --noEmit` | exit 0 |
+| `npx vitest run --maxWorkers=3` (final) | 177 files passed, 2 skipped. 1756 tests passed, 2 expected fail, 70 skipped, 21 todo (1849). Includes the i18n key parity test. |
+| `npx eslint` on the touched files | 0 errors. 5 warnings, the unused imports in `game.test.ts` (pre-existing). |
+| `npx playwright test --workers=2` (full suite, `P4UI2_SHOTS` and `P4FINAL_SHOTS` set) | 241 passed, 304 skipped, exit 0 (the second full run). The first full run had one failing check in the new IPO shot code (the card was not visible on the IPO tab), fixed in the test and re-run. |
+| `scripts/balance/economy.ts`, 3 seeds x 5 years | section 2.2b |
+
+New e2e checks: the French top bar and phone clock show `Jour` and `J` (`companyUi2.spec.ts`); the Exchange stock card for a listed company, in English and French, on desktop and phone (`exchangeIpo.spec.ts`, when `P4FINAL_SHOTS` is set).
+
+Screenshots (32 PNGs, `scratchpad/shots-p4final`, en and fr, desktop 1440x900 and phone 390x844): the Overview decision staged (`decision-staged`); the Filings list and a filed statement; the CEO change before and after the announcement; the next-gen launch ready and below the mark (`launch-ready`, `launch-not-ready`); and the listed company's Stocks card (`exchange-stock`, the IPO spec's listing, desktop and phone). The French top bar is checked by the e2e test, not by a shot.
+
+Not done, and why:
+- **O-8 (crew floor 1.08) and O-9 (pool interest delta)** are accepted by the lead, but neither change is in this worktree; there is no code to test or measure. Each must land on its own branch.
+- **The stabilizer at 1.0% is nearly idle on the three seeds** (section 2.2b). The ruling's target is kept; a tighter target is a lead decision, not made here.
+- **Velvet's copy sign-off** on the new strings (O-17 and the O-20 warning) is still open.
+- **NPC rival trades** are not booked as they run, only the settlement at a delisting (O-22 as ruled).
+- **The below-mark launch is not sent in e2e** (no next-gen success in the shared world): the checkbox and the warning are checked by the component test and the shot, not by a launch.
+- **Tape rows and the play-by-hand pass** (O-19) are not run in this pass.
