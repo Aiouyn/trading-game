@@ -63,7 +63,6 @@ export function SocialView() {
       {tab === 'alliances' && <Alliances />}
       {tab === 'deals' && <Deals />}
       {tab === 'hall' && <Hall />}
-      <ProfileModal />
     </div>
   );
 }

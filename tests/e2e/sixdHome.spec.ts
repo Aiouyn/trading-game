@@ -41,6 +41,7 @@ async function visitorPage(browser: Browser, like: Page): Promise<Page> {
 /** Opens another player's profile from Messages > Social > Players. */
 async function openProfile(page: Page, handle: string): Promise<void> {
   await goTo(page, 'social');
+  await page.getByTestId('tab-social').click(); // goTo opens Messages on its inbox; Social is its own tab
   await page.getByTestId('tab-players').click();
   await expect(page.getByTestId(`player-${handle}`)).toBeVisible({ timeout: 15_000 });
   await page.getByTestId(`player-${handle}`).click();
