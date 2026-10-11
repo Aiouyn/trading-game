@@ -229,21 +229,24 @@ describe('cancel and buzz (L2, L6)', () => {
 });
 
 describe('death (L3)', () => {
-  it('a token under the cash line dies seven game days after day 3 begins (day 10), so a day-2 launch is not dead on day 9', () => {
+  it('a token under the cash line dies at the seventh game-day close counted from day 3 (the close of day 9, tick 10 TPD), not before', () => {
     const g = lpWorld('death-cash');
     launch(g, CREATOR, 'QUIE');
     const t = g.launchpad!.tokens.QUIE!;
     t.buzz.base = 0;
     t.npcPending = 0; // no arrivals either: the launch buzz would fund a cohort buy above the cash line (L6.1)
     t.sniperDone = true; // no sniper: its buy would hold the curve above the cash line
-    // the world is on day 2 (tick 2*TPD+1) at the launch: day 9 is seven days after the launch but only six after day 3
-    jumpDays(g, 7);
-    lpTick(g, null);
-    expect(t.status).toBe('live');
-    jumpDays(g, 1);
+    // L3.1 (v1.3): the clock counts the closes of days 3 to 9, the seventh close is the close of day 9 (tick 10 * TPD)
+    for (let d = 3; d <= 8; d++) {
+      g.market = { ...g.market, tick: (d + 1) * TPD };
+      lpTick(g, null);
+      expect(t.status).toBe('live');
+    }
+    g.market = { ...g.market, tick: 10 * TPD };
     lpTick(g, null);
     expect(t.status).toBe('dead');
     expect(t.deadReason).toBe('cash');
+    expect(t.deadTick).toBe(10 * TPD);
     const h = lpWorld('death-none');
     launch(h, CREATOR, 'SLOW');
     jumpDays(h, 25);

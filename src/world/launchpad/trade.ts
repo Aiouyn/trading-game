@@ -3,8 +3,10 @@ import type { CommandResult, GameState, StepOutput } from '../types';
 import { LP } from './constants';
 import { quoteBuy, quoteSell } from './curve';
 import { addAccountCash, centsOf, faucetCents, isCreatorLinked, moveCents, pushBuy, pushLot, refuse, tokenOf } from './state';
+import { addCohort, takeFromCohorts } from './cohorts';
 import { curveAccountId } from './constants';
 import { lockedOf, vestEndDay } from './vest';
+import { cohortsOf } from './cohorts';
 import type { LpLot, LpToken, LpTrade } from './types';
 import { recordCreatorSale } from './rug';
 import { graduate } from './graduate';
@@ -75,8 +77,8 @@ export function buyCurve(
     // an NPC's cash is a booked faucet (the npcRetail line): it enters the world into the curve, and the fee leaves it
     faucetCents(g, curve, 'npcRetail', q.spendCents);
     bookFee(g, t, true, q.creatorFeeCents, q.sinkFeeCents, true);
-    t.npcBal += q.tokens;
-    t.npcCost += q.cashCents / 100;
+    // L6.8: the buy is one cohort (its own half-life and cost basis)
+    addCohort(t, tickOf(g), q.tokens, q.cashCents / 100);
     t.flows.npcBuy += q.spendCents / 100;
   } else {
     if (centsOf(cashOf(g, pid)) < q.spendCents) return refuse('cash', { need: (q.spendCents / 100).toFixed(2) });
@@ -99,7 +101,8 @@ export function buyCurve(
   }
   t.y -= q.tokens;
   t.volToday += q.spendCents / 100;
-  t.lastTradeTick = tickOf(g);
+  // the no-trade clock (L3) counts player fills only: the NPC cohort bleeds every tick (L6.8), which is not a trade by anyone
+  if (!npc) t.lastTradeTick = tickOf(g);
   pushTape(t, { tick: tickOf(g), side: 'buy', qty: q.tokens, price: q.avgPrice, creator: !!pid && pid === t.creatorId, npc: npc || !pid });
   if (q.graduates) graduate(g, t, out);
   return {
@@ -111,13 +114,15 @@ export function buyCurve(
 /** Sells `tokens` back to a token's curve. The curve pays the formula cash; the trader gets it less the fee. */
 export function sellCurve(
   g: GameState, pid: string | null, ticker: string, tokens: number, maxSlip: number, out: StepOutput | null, npc = false,
+  plan?: number[],
 ): CommandResult {
   const t = tokenOf(g, ticker);
   if (!t) return refuse('noToken', { ticker });
   if (t.status === 'graduated') return refuse('graduated', { ticker });
   if (!Number.isInteger(tokens) || tokens <= 0) return refuse('zero', { ticker });
   const holder = npc || !pid ? null : pid;
-  const have = holder ? (t.bal[holder] ?? 0) : t.npcBal;
+  // L6.8: an NPC sell takes from the cohorts (the planned count of each, or the oldest first)
+  const have = holder ? (t.bal[holder] ?? 0) : cohortsOf(t).reduce((a, c) => a + c.tokens, 0);
   if (tokens > have) return refuse('holdings', { have: have.toLocaleString('en-US') });
   if (holder) {
     const lock = lockedOf(t, holder, tickOf(g));
@@ -157,14 +162,12 @@ export function sellCurve(
     // an NPC's cash leaves the world: the net is a booked sink (the npcRetail line), the fees split as above
     g.economy.sinks.npcRetail = (g.economy.sinks.npcRetail ?? 0) + q.netCents / 100;
     bookFee(g, t, false, q.creatorFeeCents, q.sinkFeeCents, true);
-    const avg = t.npcBal > 0 ? t.npcCost / t.npcBal : 0;
-    t.npcBal -= tokens;
-    t.npcCost = Math.max(0, t.npcCost - avg * tokens);
+    takeFromCohorts(t, tokens, plan);
     t.flows.npcSell += q.grossCents / 100;
   }
   t.y += tokens;
   t.volToday += q.grossCents / 100;
-  t.lastTradeTick = tickOf(g);
+  if (holder) t.lastTradeTick = tickOf(g);
   pushTape(t, { tick: tickOf(g), side: 'sell', qty: tokens, price: q.avgPrice, creator: !!holder && holder === t.creatorId, npc: !holder });
   if (holder) recordCreatorSale(g, t, holder, tokens, q.netCents, out);
   return { ok: true, data: { tokens, grossCents: q.grossCents, netCents: q.netCents, feeCents: q.feeCents, avgPrice: q.avgPrice, slippage: q.slippage } };

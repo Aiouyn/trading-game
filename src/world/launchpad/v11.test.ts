@@ -7,9 +7,9 @@ import { quoteSell, spotAt } from './curve';
 import { lpTick } from './flow';
 import { buyCurve } from './trade';
 import { absorbPending } from './absorb';
-import { arrivalCap, arrive, buzzOf } from './demand';
+import { arrivalCap, arrive, bleedPerTick, buzzOf } from './demand';
 import { curveHoldingsValue } from './value';
-import { CREATOR, HOLDER, TRADER, jumpDays, launch, lpWorld, run } from './fixture';
+import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
 
 /**
  * The v1.1 amendments of lead-launchpad.md (L6.1 fast pump and slow bleed, L6.2 post-graduation unwind), the liquidation valuation
@@ -95,7 +95,8 @@ describe('L6.4 instant arrivals, L6.5 no copycat (v1.2)', () => {
     t.npcPeak = 1;
     const before = t.npcBal;
     lpTick(g, null);
-    expect(t.npcBal).toBe(before - Math.floor(before * (NPC.CAPIT_PER_TICK + NPC.TIME_SELL_PER_TICK)));
+    // v1.3 (L6.8): the cohort sells its bleed (the half-life share) plus the capitulation share, with no instant exit
+    expect(t.npcBal).toBe(before - Math.floor(before * (NPC.CAPIT_PER_TICK + bleedPerTick())));
   });
 
   it('the cohort never sells tokens it does not hold', () => {
@@ -132,8 +133,11 @@ describe('L6.1 the cohort is flat in tokens over a token\'s life', () => {
     buyCurve(g, null, 'FLAT', 30_000, 1, null, true);
     expect(t.npcBal).toBeGreaterThan(0);
     const m0 = netWorldMoney(g) - bookedNet(g);
-    jumpDays(g, 8);
-    lpTick(g, null);
+    // L3.1 (v1.3): the seven closes of days 3 to 9 (the cash clock counts closes, not ticks)
+    for (let d = 3; d <= 9; d++) {
+      g.market = { ...g.market, tick: (d + 1) * TPD };
+      lpTick(g, null);
+    }
     expect(t.status).toBe('dead');
     expect(t.deadReason).toBe('cash');
     expect(t.npcBal).toBe(0);

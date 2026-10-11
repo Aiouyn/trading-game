@@ -7,6 +7,7 @@ import { quoteBuy, spotAt } from './curve';
 import { buyCurve, liquidateCohort } from './trade';
 import { arrive } from './demand';
 import { absorbPending } from './absorb';
+import { cohortsOf } from './cohorts';
 import { moderateName, nameFormatOk, normalizeName, tickerFormatOk, type NameRefusal } from './moderate';
 import { dayOf, ensureLaunchpad, hasOtherTrader, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
 
@@ -156,6 +157,10 @@ export function sniperEnter(g: GameState, t: LpToken, out: StepOutput | null): v
   if (r.ok) {
     const d = r.data as { tokens: number; avgPrice: number };
     t.sniper = { tick: g.market.tick, tokens: d.tokens, entry: d.avgPrice };
+    // the fill is the cohort added last; its exit sells that cohort (flow.ts)
+    const cs = cohortsOf(t);
+    const last = cs[cs.length - 1];
+    if (last && last.tokens === d.tokens) last.sniper = true;
   }
 }
 
@@ -176,7 +181,7 @@ export function createToken(g: GameState, ticker: string, name: string, tagline:
     bal: allocation > 0 && creatorId ? { [creatorId]: allocation } : {},
     npcBal: 0, npcCost: 0, creatorBought: 0,
     buzz: { base: 0, board: 0, wire: 0 }, buzzDay: { day: dayOf(tick), n: 0 }, promos: [],
-    status: 'live', lastTradeTick: tick, cashLowSince: tick,
+    status: 'live', lastTradeTick: tick, lowCloses: 0, npcCohorts: [],
     creatorSoldSinceGrad: 0, creatorProceedsSinceGrad: 0, creatorDay: { day: dayOf(tick), qty: 0, proceeds: 0, startPrice: price, wired: false },
     creatorFees: 0, allocSold: 0, realized: {}, lots: {}, buyLog: [], tape: [], chart: [[tick, price]],
     volToday: 0, volPrev: 0, volDay: dayOf(tick), rng: streamOf(g, ticker),
