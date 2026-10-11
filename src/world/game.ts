@@ -48,7 +48,7 @@ export interface CreateOptions {
   warmupDays?: number;
   config?: Partial<WorldConfig>;
   npcs?: boolean;
-  /** the world launches NPC tokens on the Launchpad (off by default: a world with no launch keeps every fingerprint) */
+  /** the world launches NPC tokens on the Launchpad. Off by default (the bare test worlds keep every fingerprint); the server's game world turns it on (server/host.ts). */
   launchpadNpc?: boolean;
   /** called during warmup with progress 0..1 and every tick's state (for history recording) */
   onWarmupTick?: (g: GameState) => void;
