@@ -6,6 +6,7 @@ import { startWindDown } from './funds/risk';
 import { say } from './say';
 import { rugVerdict } from './launchpad/rug';
 import { SEVERITY } from './court-scale';
+import { ECA_TUNE } from './eca-tune';
 import { usd } from './text/template';
 import type { CommandResult, CourtCase, GameState, Player, StepOutput } from './types';
 
@@ -209,32 +210,47 @@ function fundVerdict(g: GameState, c: CourtCase, out: StepOutput | null, df: Pla
   c.verdictText = `Restored ${usd(paid)} to the fund and a ${usd(fine)} fine.`;
 }
 
+/** R-6C-2: the insider fine's floor (the S5 scale's $100k floor does not apply to the ECA's insider penalty any more). */
+export const ECA_FINE_FLOOR = 1_000;
+/** R-6C-4: the counsel term is at most this many logits, for each side (the M30 counsel rule, as in courtTick). */
+export const COUNSEL_LOGIT_MAX = 0.75;
+
 /**
- * The ECA tribunal-lite (ROADMAP 2.5, 03 §9.2, §10.2). The regulator is the plaintiff, so there is no counsel and no hearing: the
- * verdict is the same logistic on (evidence − bar) at the tribunal bar, drawn from a keyed stream so replays agree. A conviction is
- * S5 (manipulation and insider trading): 8% of net worth with a $100k floor, at most 35% of net worth, and never below the $5k
- * floor. The disgorgement is the gain on the flagged trades (at most what is left above the floor after the fine). Both are sinks:
- * an insider trade has no identifiable victim to pay (03 §1). Nothing here moves cash to another player.
+ * The ECA tribunal (ROADMAP 2.5, 03 §9.2, §10.2, R-6C-2 and R-6C-4). The regulator is the plaintiff. At the tribunal bar the verdict
+ * is a logistic on (evidence − bar) over the slope ECA_TUNE.tribunalSlope, with the counsel term (at most ±0.75 logit, the regulator's
+ * counsel less the defence's, at 0.25 a level as in courtTick) added before the draw, from a keyed stream so replays agree. It is
+ * uncertain by design: far above the bar convicts, the bar is a coin flip, and the counsel can move it, but not far.
+ *
+ * A conviction is the insider penalty: the gain is disgorged in full (the FIFO realized gain on the tipped lots, from cash above
+ * the $5k floor), and the fine is k × gain (ECA_TUNE.insiderK) with the $1,000 floor, times the season repeat factor, capped at 35%
+ * of net worth (ECA_CAP_PCT) and at what the season has left. Both are sinks: an insider trade has no identifiable victim to pay
+ * (03 §1). Nothing here moves cash to another player. The S5 scale (court-scale.ts) is unchanged for the other offences.
  */
 export function regulatorVerdict(
   g: GameState,
-  c: { id: string; evidence: number; playerId: string; gain: number; priorConvictions?: number; seasonFinesLeft?: number },
+  c: {
+    id: string; evidence: number; playerId: string; gain: number; priorConvictions?: number; seasonFinesLeft?: number;
+    /** counsel levels (0 to 3, as for a case); both 0 when unset */
+    counsel?: { regulator?: number; defence?: number };
+  },
 ): { convicted: boolean; fine: number; disgorged: number; p: number } {
-  const p = 1 / (1 + Math.exp(-(c.evidence - TRIBUNAL_BAR) / 12));
+  const counsel = Math.max(-COUNSEL_LOGIT_MAX, Math.min(COUNSEL_LOGIT_MAX, 0.25 * ((c.counsel?.regulator ?? 0) - (c.counsel?.defence ?? 0))));
+  const z = (c.evidence - TRIBUNAL_BAR) / ECA_TUNE.tribunalSlope + counsel;
+  const p = 1 / (1 + Math.exp(-z));
   const won = keyedRng(g, `eca:verdict:${c.id}`).chance(p);
   const df = g.players[c.playerId];
   if (!won || !df) return { convicted: false, fine: 0, disgorged: 0, p };
-  const sev = SEVERITY[4]!;
   const nw = df.netWorth;
-  // the debit comes from cash, never below the floor (03 §13.5, ROADMAP 2.6): the fine and the disgorgement share one cash room
+  // the debit comes from cash, never below the floor (03 §13.5, ROADMAP 2.6): the disgorgement is owed first, then the fine
   const cashRoom = Math.max(0, cashOf(g, c.playerId) - FLOOR);
+  const gain = Math.max(0, c.gain);
+  const disgorged = Math.min(cashRoom, gain);
   // the repeat modifier (03 §1): x1.5 per prior conviction in the season, at most x2.5; then the per-verdict cap of 35% of net worth
   const repeat = Math.min(ECA_REPEAT_MAX, ECA_REPEAT_X ** Math.max(0, c.priorConvictions ?? 0));
-  const scheduled = Math.max(sev.floor, nw * sev.pct) * repeat;
-  const fine = Math.max(0, Math.min(cashRoom, ECA_CAP_PCT * nw, scheduled, c.seasonFinesLeft ?? Infinity));
-  debit(g, c.playerId, fine, 'eca fines');
-  const disgorged = Math.max(0, Math.min(cashRoom - fine, c.gain));
+  const scheduled = Math.max(ECA_FINE_FLOOR, ECA_TUNE.insiderK * gain) * repeat;
+  const fine = Math.max(0, Math.min(cashRoom - disgorged, ECA_CAP_PCT * nw, scheduled, c.seasonFinesLeft ?? Infinity));
   debit(g, c.playerId, disgorged, 'eca disgorgement');
+  debit(g, c.playerId, fine, 'eca fines');
   df.reputation -= 10;
   return { convicted: true, fine, disgorged, p };
 }

@@ -4,7 +4,8 @@ import { TPD, keyedRng, priceOf, today } from './core';
 import { say } from './say';
 import { TRIBUNAL_BAR, regulatorVerdict } from './court';
 import { fundByAccount, isFundAccount } from './funds/state';
-import { flagTipTrade, medianNotional, noteNotional, receivedTip } from './tips';
+import { claimTipQty, flagTipTrade, medianNotional, noteNotional, receivedTip } from './tips';
+import { ECA_TUNE } from './eca-tune';
 import type { CompanyWorld } from './company/types';
 import type { CommandResult, GameState, StepOutput } from './types';
 
@@ -26,7 +27,6 @@ import type { CommandResult, GameState, StepOutput } from './types';
  */
 
 export const ECA = {
-  inquiryScore: 60,
   inquiryDays: 3,
   investigationScore: 80,
   decay: 0.8,
@@ -46,6 +46,12 @@ export const ECA = {
   /** all fines of one account in one season are at most 60% of its peak net worth (03 §1) */
   seasonCapPct: 0.6,
 } as const;
+
+/**
+ * The regulator's counsel level at the tribunal (R-6C-4, the M30 counsel term: +0.25 logit a level, at most 0.75). The ECA staffs one
+ * level of counsel for every tribunal it brings. The defence side (regulatorVerdict counsel.defence) has no purchase yet, so it is 0.
+ */
+export const ECA_REGULATOR_COUNSEL = 1;
 
 export type EcaStage = 'inquiry' | 'investigation' | 'closed' | 'convicted' | 'cleared';
 
@@ -71,6 +77,8 @@ export interface EcaInquiry {
   letters: EcaLetter[];
   fine?: number;
   disgorged?: number;
+  /** the regulator's conviction probability at the verdict (regulator-side, never shown; the harness reads it) */
+  p?: number;
 }
 
 export interface EcaRecentFill {
@@ -88,8 +96,22 @@ export interface EcaSeason {
   convictions: number;
 }
 
+/**
+ * A FIFO lot of an account on an asset (R-6C-2): `qty` is signed (negative is a short), `price` the fill price, and `tip` the part of
+ * |qty| that is tip-flagged. The gain on the tipped share of a closed lot is what the regulator disgorges.
+ */
+export interface EcaLot {
+  qty: number;
+  price: number;
+  tip: number;
+}
+
 export interface EcaState {
   seq: number;
+  /** FIFO lots per `playerId|assetId` (R-6C-2); optional, older saves have none */
+  lots?: Record<string, EcaLot[]>;
+  /** the realized gain on the tipped share of the closed FIFO lots per `playerId|assetId` (disgorged at a conviction) */
+  tipGain?: Record<string, number>;
   /** today's points per `playerId|assetId`, folded into the score at the day close */
   pts: Record<string, number>;
   /** the score per `playerId|assetId` after the last day close */
@@ -130,9 +152,11 @@ export function addEcaPoints(g: GameState, pid: string, assetId: string, points:
  * model order). `posBefore` is the controlled position before the order (tips.ts controlledQty). A tip trade adds its points; the
  * notional feeds the size median. Only accepted orders call this.
  */
-export function noteOrderPlaced(g: GameState, pid: string, assetId: string, side: Side, qty: number, posBefore: number): void {
+export function noteOrderPlaced(
+  g: GameState, pid: string, assetId: string, side: Side, qty: number, posBefore: number, orderId?: string,
+): void {
   if (!g.players[pid] || g.players[pid]!.npc) return;
-  addEcaPoints(g, pid, assetId, flagTipTrade(g, pid, assetId, side, qty, g.market.tick, posBefore));
+  addEcaPoints(g, pid, assetId, flagTipTrade(g, pid, assetId, side, qty, g.market.tick, posBefore, orderId));
   noteNotional(g, pid, qty * priceOf(g, assetId));
 }
 
@@ -151,6 +175,9 @@ export function ecaFills(g: GameState, fills: Fill[]): void {
       pid = fund.managerId;
     }
     if (!g.players[pid] || g.players[pid]!.npc) continue;
+    // the FIFO lots of the account (R-6C-2): the flagged part of the fill is the tip share of the lot it opens
+    const sgn = f.side === 'buy' ? 1 : -1;
+    applyLots(e, keyOf(pid, f.assetId), sgn * f.qty, f.price, claimTipQty(g, f.orderId, f.qty));
     const list = (e.fills[f.assetId] ??= []);
     list.push({ tick: f.tick, pid, side: f.side, qty: f.qty, notional: f.qty * f.price });
     if (list.length > 400) list.splice(0, list.length - 400);
@@ -201,16 +228,63 @@ function insiderDeltas(g: GameState): void {
   }
 }
 
-/** The gain on an account's tip-flagged trades on an asset, at today's price (never below zero): what the regulator disgorges. */
-function flaggedGain(g: GameState, pid: string, assetId: string): number {
-  const flags = (g.tips?.flags ?? []).filter((f) => f.playerId === pid && f.assetId === assetId);
-  const now = priceOf(g, assetId);
+/**
+ * Books a fill against the account's FIFO lots (R-6C-2). The fill first closes the opposite lots, oldest first; the realized gain on
+ * each closed share is booked to the tip gain when that share was tip-flagged. The rest opens a new lot, whose tip share is the
+ * flagged part of the fill (at most the remainder). `signed` is the fill's quantity (buy positive, sell negative).
+ */
+export function applyLots(e: EcaState, key: string, signed: number, price: number, tipQty: number): void {
+  const lots = ((e.lots ??= {})[key] ??= []);
+  let rem = signed;
   let gain = 0;
-  for (const f of flags) {
-    const sgn = f.side === 'buy' ? 1 : -1;
-    gain += sgn * (now - f.price) * f.qty;
+  while (Math.abs(rem) > 1e-9 && lots.length > 0 && Math.sign(lots[0]!.qty) === -Math.sign(rem)) {
+    const lot = lots[0]!;
+    const side = Math.sign(lot.qty);
+    const m = Math.min(Math.abs(rem), Math.abs(lot.qty));
+    const share = lot.tip * (m / Math.abs(lot.qty));
+    gain += side * (price - lot.price) * share;
+    lot.tip -= share;
+    lot.qty = side * (Math.abs(lot.qty) - m);
+    rem = Math.sign(rem) * (Math.abs(rem) - m);
+    if (Math.abs(lot.qty) <= 1e-9) lots.shift();
   }
-  return Math.max(0, gain);
+  if (Math.abs(rem) > 1e-9) lots.push({ qty: rem, price, tip: Math.min(Math.max(0, tipQty), Math.abs(rem)) });
+  if (gain !== 0) {
+    e.tipGain ??= {};
+    e.tipGain[key] = (e.tipGain[key] ?? 0) + gain;
+  }
+}
+
+/**
+ * Review repair (hold to reveal, R-6C-2): at a verdict the tipped share of each open FIFO lot is marked to the verdict price. The
+ * unrealized gain on it joins the realized pool (so the verdict disgorges it), and the tipped share takes the verdict price as its
+ * basis, so a later close does not book the same gain again. Returns the gain marked (negative for a loss).
+ */
+export function markTipLots(e: EcaState, key: string, price: number): number {
+  const lots = e.lots?.[key];
+  if (!lots || lots.length === 0) return 0;
+  let gain = 0;
+  const out: EcaLot[] = [];
+  for (const lot of lots) {
+    const side = Math.sign(lot.qty);
+    const t = Math.min(Math.max(0, lot.tip), Math.abs(lot.qty));
+    if (t <= 1e-9) { out.push(lot); continue; }
+    gain += side * (price - lot.price) * t;
+    const rest = Math.abs(lot.qty) - t;
+    if (rest > 1e-9) out.push({ qty: side * rest, price: lot.price, tip: 0 });
+    out.push({ qty: side * t, price, tip: t });
+  }
+  e.lots![key] = out;
+  if (gain !== 0) {
+    e.tipGain ??= {};
+    e.tipGain[key] = (e.tipGain[key] ?? 0) + gain;
+  }
+  return gain;
+}
+
+/** The realized gain on the tipped share of an account's closed FIFO lots on an asset, never below zero (R-6C-2). */
+export function tipGainOf(g: GameState, pid: string, assetId: string): number {
+  return Math.max(0, g.eca?.tipGain?.[keyOf(pid, assetId)] ?? 0);
 }
 
 /** The season ledger of an account: reset when the chapter (the 8-week season) has changed. */
@@ -258,7 +332,7 @@ export function ecaDay(g: GameState, out: StepOutput | null): void {
     const [pid, assetId] = k.split('|') as [string, string];
     if (!g.players[pid] || g.players[pid]!.npc) continue;
     const s = e.score[k] ?? 0;
-    e.over[k] = s >= ECA.inquiryScore ? (e.over[k] ?? 0) + 1 : 0;
+    e.over[k] = s >= ECA_TUNE.inquiryScore ? (e.over[k] ?? 0) + 1 : 0;
     const id = e.open[k];
     if (!id) {
       if (e.over[k]! >= ECA.inquiryDays && (e.cool[k] ?? 0) <= day) {
@@ -276,11 +350,11 @@ export function ecaDay(g: GameState, out: StepOutput | null): void {
     }
     const inq = e.inquiries[id]!;
     if (inq.stage === 'inquiry') {
-      if (s >= ECA.investigationScore || (s >= ECA.inquiryScore && receivedTip(g, pid, assetId))) {
+      if (s >= ECA.investigationScore || (s >= ECA_TUNE.inquiryScore && receivedTip(g, pid, assetId))) {
         inq.stage = 'investigation';
         inq.quietDays = 0;
         letter(g, inq, out, { kind: 'investigation', day, what: { key: 'eca.investigation.what', vars: { ticker: inq.assetId } }, why: { key: 'eca.investigation.why', vars: { ticker: inq.assetId } }, do: { key: 'eca.investigation.do', vars: { ticker: inq.assetId } } });
-      } else if (s < ECA.inquiryScore) {
+      } else if (s < ECA_TUNE.inquiryScore) {
         inq.quietDays++;
       } else {
         inq.quietDays = 0;
@@ -294,7 +368,7 @@ export function ecaDay(g: GameState, out: StepOutput | null): void {
     }
     if (inq.stage === 'investigation') {
       // the pattern keeps the file open; a quiet stretch closes it (it cannot stall open and block new inquiries)
-      if (s >= ECA.inquiryScore) { inq.evidence += ECA.investigationPerDay; inq.quietDays = 0; } else inq.quietDays++;
+      if (s >= ECA_TUNE.inquiryScore) { inq.evidence += ECA.investigationPerDay; inq.quietDays = 0; } else inq.quietDays++;
       if (receivedTip(g, pid, assetId)) {
         const rng = keyedRng(g, `eca:trail:${inq.id}:${day}`);
         if (rng.chance(ECA.trailChance)) { inq.evidence += ECA.trailPts; inq.trail++; }
@@ -304,8 +378,17 @@ export function ecaDay(g: GameState, out: StepOutput | null): void {
         const df = g.players[pid]!;
         const peak = Math.max(df.netWorthPeak ?? 0, df.netWorth);
         const left = Math.max(0, ECA.seasonCapPct * peak - led.fines);
-        const gain = flaggedGain(g, pid, assetId);
-        const v = regulatorVerdict(g, { id: inq.id, evidence: inq.evidence, playerId: pid, gain, priorConvictions: led.convictions, seasonFinesLeft: left });
+        // review repair (hold to reveal): the tipped share of the open lots is marked to the verdict price first, so a tipped position
+        // held past the verdict disgorges its gain too (markTipLots); a later close books only the gain after this verdict
+        markTipLots(e, k, priceOf(g, assetId));
+        const gain = tipGainOf(g, pid, assetId);
+        const v = regulatorVerdict(g, {
+          id: inq.id, evidence: inq.evidence, playerId: pid, gain, priorConvictions: led.convictions, seasonFinesLeft: left,
+          counsel: { regulator: ECA_REGULATOR_COUNSEL, defence: 0 },
+        });
+        inq.p = v.p;
+        // what the verdict did not disgorge (cash-limited, or not convicted) stays in the pool for the next verdict on this asset
+        if (e.tipGain) e.tipGain[k] = (e.tipGain[k] ?? 0) - v.disgorged;
         led.fines += v.fine;
         if (v.convicted) led.convictions++;
         delete e.open[k];

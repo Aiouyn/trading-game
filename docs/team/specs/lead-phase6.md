@@ -86,3 +86,8 @@ The 20-seed ECA harness missed three gates: blind rumor-following earns +0.55% a
   reaches the tribunal).
 - **R-6C-5 Sizes.** The harness runs 50 seeds x 60 gd for the confirmation (20 to tune), with arms: honest, lucky, tip at 2%,
   4% and 6% of net worth per trade, blind rumor follower, rumor reader.
+- **R-6C-6 (after the default-knob baseline).** The comparator is wrong: "honest" is a small-position arm (1.24% a season) while the
+  same rules with bigger positions earn 4x ("heavy"). Add honest arms of the same size as each tip arm (honest2, honest4, honest6:
+  the same names and the same dates as the tip arm, direction from the honest rule, not from the tip). The tip gate reads tipN
+  against honestN: EV ratio 0.8 to 1.2 and variance ratio 2 to 4, for N = 2 and 4 at least. priceIn may go up to 1.0 (a blind
+  follower then has no edge; the reader arm keeps whatever its pooled record earns). The counsel term is on in the harness.

@@ -90,7 +90,7 @@ export function fundTrade(g: GameState, pid: string, c: FundOrderCmd): CommandRe
   g.market = r.state;
   if (r.order.status === 'rejected') return fail('fundOrderRejected', { reason: r.order.rejectReason ?? 'rejected' });
   // the manager's own trade is scored like a personal one: a fund is a route to the trade, not a way around the tip rules
-  noteOrderPlaced(g, pid, c.assetId, c.side, c.qty, posBefore);
+  noteOrderPlaced(g, pid, c.assetId, c.side, c.qty, posBefore, r.order.id);
   // the manager's own order: its fills are discretionary for the front-running check (raiseCash and wind-down sells are not)
   f.managerOrders[r.order.id] = tick;
   const kept = Object.keys(f.managerOrders);
