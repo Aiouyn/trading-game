@@ -119,8 +119,8 @@ export const NPC = {
   /** viral shocks (L6.7, v1.3): the hazard of a live token is rate(age) = VIRAL_PER_DAY x exp(-age / VIRAL_TAU_DAYS) shocks per game
    *  day, age in game days since the launch (a dead token has none). VIRAL_TAU_DAYS is tunable 0.5 to 2. The size of a shock is a Pareto
    *  tail with exponent VIRAL_ALPHA. L6.6: the exponent is at least TAIL_ALPHA_MIN (2.2), so a shock has a finite mean and variance */
-  VIRAL_PER_DAY: 1.0,
-  VIRAL_TAU_DAYS: 0.5,
+  VIRAL_PER_DAY: 1.43,
+  VIRAL_TAU_DAYS: 0.35,
   VIRAL_SCALE: 12,
   VIRAL_ALPHA: 2.2,
   /** the buzz at launch: a heavy-tailed draw with this scale and tail exponent (most launches start low, a few start high). L6.6: the
