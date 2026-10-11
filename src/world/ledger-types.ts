@@ -142,10 +142,10 @@ export interface DailyClose {
   gx: { pct: number };
   sectors: { best: SectorLine; worst: SectorLine } | null;
   /** priced-in chips for the day's stories (band only, never the share) */
-  stories: { assetId: string; headline: string; band: NewsBand }[];
+  stories: { assetId: string; headline: string; /** the story as a descriptor, when the Wire line has one */ headlineMsg?: Msg; band: NewsBand }[];
   ghosts: { player: number; basket: number; random: number; momentum: number; beaten: number; percentile: number | null };
   /** the world event line: an active event (headline only) or the ended line (duration, given only once it ends) */
-  event: { phase: 'active' | 'ended'; headline: string; lastedDays?: number } | null;
+  event: { phase: 'active' | 'ended'; headline: string; headlineMsg?: Msg; lastedDays?: number } | null;
   lines: Msg[];
 }
 
@@ -205,7 +205,7 @@ export interface DeskDossier {
   flow: DeskPool[];
   /** past-tense memo lines (descriptors, rendered in the viewer's language) */
   memo: Msg[];
-  headlines: { day: number; text: string }[];
+  headlines: { day: number; text: string; msg?: Msg }[];
   /** the window's daily closes, plus the close before it (the chart strip) */
   bars: { day: number; px: number }[];
 }

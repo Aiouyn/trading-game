@@ -1,6 +1,7 @@
 import type { Msg, Locale } from '@/i18n';
 import type { DailyClose } from '../ledger-types';
 import { templateTextProvider } from './template';
+import type { ExecFacts, ModFacts, NewsFacts, RivalFacts, RumorFacts } from './roles';
 
 /**
  * Text the world makes for a player (Phase 3, section 5). The world never writes a sentence inline: it asks the provider
@@ -14,6 +15,16 @@ export interface TextProvider {
   deskMemo(facts: DeskMemoFacts): Msg[];
   /** The one-line explanation of a closed trade, from its parts (velvet-trade-journal-replay.md). */
   tripLine(facts: TripLineFacts): Msg;
+  /** newsroom: one Wire story, margin notice or world line, from its cause facts (variants by the fact id). */
+  newsroom(facts: NewsFacts): Msg;
+  /** executives: a CEO's quote on an earnings print, from the surprise's sign and size band. */
+  executives(facts: ExecFacts): Msg;
+  /** rumor mill: one whisper line with its source; the direction is the world's and so is its accuracy. */
+  rumor(facts: RumorFacts): Msg;
+  /** rival personas: one voice per fund, from its past performance only. */
+  rival(facts: RivalFacts): Msg;
+  /** moderator: the Launchpad name check's line for one refusal reason. */
+  moderator(facts: ModFacts): Msg;
   /** Render a descriptor in a language (falls back to English, then to the key). */
   render(m: Msg, locale: Locale): string;
 }

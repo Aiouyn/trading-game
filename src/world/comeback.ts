@@ -1,3 +1,4 @@
+import type { Msg } from '@/i18n';
 import { cancelOrderResult, equityOf, placeOrder, tradeOption, type Account, type OrderRequest } from '@/engine';
 import { LIFE_BY_ID } from '@/content/lifestyle';
 import {
@@ -294,7 +295,7 @@ export interface ComebackView {
   leverageUntil: number | null;
   marginBlockUntil: number | null;
   /** the three largest realized losses of the chapter so far (the screen's "What happened") */
-  losses: { id: string; assetId: string; pnl: number; line: { key: string; vars?: Record<string, string | number> } | null }[];
+  losses: { id: string; assetId: string; pnl: number; line: Msg | null }[];
   last: ComebackState['last'] | null;
   /** the restricted cash: its amount, the release tick of the earliest lot, and the lot kind shown on the pill (START when a fresh start is held) */
   restricted: { amount: number; until: number | null; kind: 'ad' | 'start' };
@@ -374,9 +375,9 @@ function adView(g: GameState, pid: string): ComebackView['ad'] {
 }
 
 /** The journal's one-line sentence for a closed round trip (velvet: the chapter screen explains each loss); null when none. */
-function tripLine(g: GameState, p: Player, id: string): { key: string; vars?: Record<string, string | number> } | null {
+function tripLine(g: GameState, p: Player, id: string): Msg | null {
   const r = tripDetail(g, p, id);
   if (!r.ok) return null;
-  const line = (r.data as { line?: { key: string; vars?: Record<string, string | number> } } | undefined)?.line;
+  const line = (r.data as { line?: Msg } | undefined)?.line;
   return line ?? null;
 }

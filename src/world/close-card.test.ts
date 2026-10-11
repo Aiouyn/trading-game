@@ -88,7 +88,7 @@ describe('the close card: seen marker, offline notice and ghost series', () => {
       ghosts: { player: 1000.5, basket: 1000, random: 1000, momentum: 1000, beaten: 0, percentile: 0 },
     };
     const lines = textProvider.dailyClose(card);
-    expect(lines.map((m) => m.key)).toContain('dayclose.nw.flat');
+    expect(lines.map((m) => m.key.replace(/\.\d$/, ''))).toContain('txt.narr.nw.flat');
     const summary = lines.map((m) => renderMsg(m, 'en')).join('\n');
     expect(summary).not.toMatch(/rose|fell|augment|baiss/i);
     expect(renderMsg({ key: 'close.head.flat' }, 'en')).toBe('A flat day.');

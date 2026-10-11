@@ -115,7 +115,7 @@ function CloseSheet({ card }: { card: DailyClose }) {
         <section className="flex flex-col gap-2" aria-label={t('close.stories')}>
           {card.stories.map((s) => (
             <div key={`${s.assetId}-${s.headline}`} className="rounded-md bg-ink-2 p-3" data-testid="close-story">
-              <p className="font-serif text-[20px] leading-snug text-fg">{s.headline}</p>
+              <p className="font-serif text-[20px] leading-snug text-fg">{tm(s.headlineMsg, s.headline)}</p>
               <p className="mt-1 flex flex-wrap items-center gap-2 text-caption text-fg-muted">
                 <span className="num">{s.assetId}</span>
                 {s.band !== 'done' && (
@@ -131,9 +131,7 @@ function CloseSheet({ card }: { card: DailyClose }) {
 
       {card.event && (
         <p className="text-small text-fg" data-testid="close-event">
-          {card.event.phase === 'active'
-            ? t('dayclose.event.active', { headline: card.event.headline })
-            : t('dayclose.event.ended', { headline: card.event.headline, days: card.event.lastedDays ?? 0 })}
+          {tm(card.lines.find((m) => m.key.startsWith('txt.narr.event.')), card.event.headline)}
         </p>
       )}
 

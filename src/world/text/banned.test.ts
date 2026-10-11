@@ -29,7 +29,7 @@ describe('banned words in the world text', () => {
 
   it('every world template (daily close, work, goals) is clean in English and French', () => {
     const keys = Object.keys(en).filter((k) => WORLD_PREFIXES.some((p) => k.startsWith(p)));
-    expect(keys.filter((k) => k.startsWith('dayclose.')).length).toBeGreaterThan(15);
+    expect(keys.filter((k) => k.startsWith('dayclose.')).length).toBeGreaterThan(8);
     expect(keys.filter((k) => k.startsWith('work.')).length).toBeGreaterThan(15);
     expect(keys.filter((k) => k.startsWith('desk.')).length).toBeGreaterThan(20);
     expect(keys.filter((k) => k.startsWith('journal.')).length).toBeGreaterThan(20);
