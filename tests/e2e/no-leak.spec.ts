@@ -5,7 +5,7 @@ import { goTo, grant, isPhone, register, skipRankUp, skipTips, WORLD, watchError
 // section 6). A player's market activity is private: positions, orders, P&L curves, style and bots never reach another client.
 
 /** L1: the only localStorage keys (P6) and the only sessionStorage key. */
-const LOCAL_KEYS = ['tg-prefs', 'tg-token'];
+const LOCAL_KEYS = ['tg-prefs', 'tg-token', 'tg-device']; // tg-device: the random per-browser id (V1-PRIVACY.md section 4)
 const SESSION_KEYS = ['tg-replay-intro'];
 
 /** Keys that carry a market position, an order, a P&L curve, a trade or a style. None may reach another client. */
