@@ -88,11 +88,12 @@ export function CalendarView() {
       )}
 
       {days.size === 0 && <p className="py-3 text-small text-fg-faint" data-testid="calendar-empty">{t('calendar.agenda.empty')}</p>}
+      <div data-testid="calendar-next" className="flex flex-col gap-3">
       {[...days.entries()].map(([day, items]) => (
         <section key={day} className="border-t border-ink-2 pt-2" data-testid={`calendar-day-${day - today}`}>
           <header className="flex items-baseline justify-between gap-3">
             <span className="label">{whenText(day - today)}</span>
-            <span className="num text-caption text-fg-faint">{t('calendar.day.number', { n: day })}</span>
+            <span className="num text-caption text-fg-faint">{t('calendar.day.number', { n: day + 1 })}</span>
           </header>
           <ul>
             {items.map((x, i) => {
@@ -133,6 +134,7 @@ export function CalendarView() {
           </ul>
         </section>
       ))}
+      </div>
     </div>
   );
 }

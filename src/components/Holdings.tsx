@@ -19,7 +19,7 @@ type PosSortKey = 'asset' | 'qty' | 'value' | 'pnl' | 'ifSold' | 'weight';
 function SortTh({ k, sort, onSort, right = false }: { k: PosSortKey; sort: { key: PosSortKey; dir: 1 | -1 }; onSort: (k: PosSortKey) => void; right?: boolean }) {
   const active = sort.key === k;
   return (
-    <th className={`label px-3 py-2 font-medium ${right ? 'text-right' : 'text-left'}`} aria-sort={active ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}>
+    <th className={`label whitespace-nowrap px-3 py-2 font-medium ${right ? 'text-right' : 'text-left'}`} aria-sort={active ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}>
       <button type="button" data-testid={`pos-sort-${k}`} onClick={() => onSort(k)} className={`label ${active ? 'text-fg' : 'text-fg-muted'} hover:text-fg`}>
         {t(`holdings.col.${k}`)}{active ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}
       </button>
@@ -145,8 +145,8 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
                   <Td right num>{price(p.avgCost)}</Td>
                   <Td right num><Flash value={p.price}>{price(p.price)}</Flash></Td>
                   <Td right num>{money(p.marketValue)}</Td>
-                  <Td right num className={toneText[tone(p.unrealizedPnl)]}>{signedMoney(p.unrealizedPnl)}<div className="text-caption">{signedPct(p.unrealizedPct)}</div></Td>
-                  <Td right num className={toneText[tone(ifSold)]}><span data-testid={`position-ifsold-${p.assetId}`} title={t('holdings.ifSoldHint')}>{signedMoney(ifSold)}</span></Td>
+                  <Td right num className={`whitespace-nowrap ${toneText[tone(p.unrealizedPnl)]}`}>{signedMoney(p.unrealizedPnl)}<div className="text-caption">{signedPct(p.unrealizedPct)}</div></Td>
+                  <Td right num className={`whitespace-nowrap ${toneText[tone(ifSold)]}`}><span data-testid={`position-ifsold-${p.assetId}`} title={t('holdings.ifSoldHint')}>{signedMoney(ifSold)}</span></Td>
                   <Td right num>{pct(p.weight)}</Td>
                   <Td right><Sparkline data={sparkline(h, p.assetId, 5)} /></Td>
                   <Td><DripToggle assetId={p.assetId} /></Td>
