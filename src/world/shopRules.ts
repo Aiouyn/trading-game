@@ -52,8 +52,13 @@ export function valuedIncome(net: number[], baseline: number): number {
   return Math.max(0, Math.min(trailingNet(net, baseline), SHOP.value.incomeCap * baseline));
 }
 
-/** Net worth value of an owned shop: cash put in (at a discount) plus a multiple of valued income. */
+/**
+ * Net worth value of an owned shop. A shop whose trailing window holds no real day yet is valued at cost (the cash put in), so
+ * buying one leaves net worth unchanged: the well-run baseline is not paid out on day zero. Once a real day is on the window it
+ * is cash put in (at a discount) plus a multiple of valued income.
+ */
 export function shopValue(invested: number, net: number[], baseline: number): number {
+  if (net.length === 0) return invested;
   return SHOP.value.investedShare * invested + SHOP.value.incomeMult * valuedIncome(net, baseline);
 }
 

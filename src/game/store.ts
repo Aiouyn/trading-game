@@ -6,6 +6,7 @@ import { createHolds } from '@/shell/holds';
 import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky } from '@/shell/toasts';
 import { universeConfig, type DepthFrame, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
+import { tm } from '@/i18n';
 import type { HistoryPayload, NwHistoryPayload, ServerMsg } from '@/net/protocol';
 import type { LpPage } from '@/world/launchpad/view';
 import { mirrorWorld, type DirectoryRow, type MarketFrame, type PlayerView, type PublicState } from '@/world/view';
@@ -219,7 +220,7 @@ export const useGame = create<GameStore>((set, get) => {
         const toasts = msg.inbox.filter((n) => TOAST_KINDS.has(n.kind)).map((n) => ({
           id: `t${++toastSeq}`,
           tone: n.tone,
-          text: n.text,
+          text: tm(n.msg, n.text),
           kind: n.kind === 'fill' ? 'fill' as const : n.kind === 'margin' ? 'margin' as const : 'other' as const,
           app: n.kind === 'fill' ? 'broker' : undefined,
         }));

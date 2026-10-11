@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buyingPower, commission, estimateFill, tradingConfig, type OrderType, type Side } from '@/engine';
+import { buyingPower, commission, estimateFill, marginConfig, marginRuleApplies, tradingConfig, type OrderType, type Side } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { QUICK_ENTER, SIMPLE_MODE } from '@/content/learning';
 import { money, price, qty as fmtQty } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
+import { openingNotionalOf } from '@/world/orders';
 import { t } from '@/i18n';
 import { getDraft, setDraft } from '@/components/os/drafts';
 import { isPhoneViewport } from '@/components/os/phoneStore';
@@ -115,7 +116,8 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   const fee = world && ctx ? commission(world, ctx.def, notional) : 0;
   const total = side === 'buy' ? notional + fee : notional - fee;
   const bp = world && playerId ? buyingPower(world, playerId) : 0;
-  const margin = !fundMode && !!acct && ((acct.maxLeverage ?? 1) > 1 || !!acct.canShort);
+  // the margin rules bite for an account that borrows or holds a short; a cash-secured long account buys with its cash
+  const margin = !fundMode && !!acct && marginRuleApplies(acct);
   // the server's rule (orders.ts): every buy below R1 is capped, not only the first trade
   const simpleCap = !fundMode && !!me && rankIndex(me.player.rankId) < rankIndex(SIMPLE_MODE.untilRank);
   const capCash = acct && simpleCap ? acct.cash * SIMPLE_MODE.capFraction : Infinity;
@@ -125,6 +127,16 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
     : held > 0 ? held : acct?.canShort ? bp / est.price : 0;
   const roundQ = (x: number) => (whole ? Math.floor(x) : Math.floor(x * 1e4) / 1e4);
   const shorting = !fundMode && side === 'sell' && qtyN > Math.max(0, held) + 1e-9;
+  // the notional this order opens: a buy's shares, or a sell's shares past the holding (a short), at the reference price
+  const opening = side === 'buy' ? qtyN : Math.max(0, qtyN - Math.max(0, held));
+  const openingNotional = opening * refPrice;
+  // a short is secured by its full notional on top of the proceeds (cash-secured at 1x, orders.ts and trading.ts)
+  const shortCollateral = shorting ? openingNotional : 0;
+  const borrowRate = world && ctx ? (marginConfig(world).borrowFee[ctx.def.assetClass] ?? 0.01) : 0;
+  // the open orders' committed notional, for simple mode's aggregate cap (the server reads the same rule, orders.ts)
+  const committedOpen = simpleCap && world && me
+    ? openingNotionalOf(me.orders, acct?.positions ?? {}, (id) => { const i = config.assets.findIndex((a) => a.id === id); return i < 0 ? 0 : Math.exp(world.assets[i]!.lnP); })
+    : 0;
 
   // the cap's percent and the rank that lifts it come from the same constant the server reads (SIMPLE_MODE), never typed here
   const firstCapVars = { pct: Math.round(SIMPLE_MODE.capFraction * 100), rank: t('rank.' + SIMPLE_MODE.untilRank) };
@@ -142,10 +154,11 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
   else if (locked) invalid = { key: 'broker.refuse.license', vars: { tier: t(ctx.def.assetClass === 'stock' || ctx.def.assetClass === 'crypto' ? 'broker.tier.retail' : 'broker.tier.pro') } };
   else if (qtyN <= 0) invalid = null;
   else if (whole && !Number.isInteger(qtyN)) invalid = { key: 'broker.refuse.whole' };
-  else if (side === 'buy' && simpleCap && qtyN * ctx.mid > capCash + 1e-6) invalid = { key: 'broker.firstCap', vars: firstCapVars };
+  else if ((side === 'buy' || shorting) && simpleCap && committedOpen + opening * ctx.mid > capCash + 1e-6) invalid = { key: 'broker.firstCap', vars: firstCapVars };
   else if (side === 'buy' && !margin && total > acct.cash + 1e-6) invalid = { key: 'broker.refuse.cash', vars: { total: money(total), cash: money(acct.cash) } };
-  else if (side === 'buy' && margin && notional > bp + Math.max(0, -held) * refPrice + 1e-6) invalid = { key: 'broker.refuse.bp', vars: { need: money(notional), bp: money(bp) } };
+  else if (side === 'buy' && margin && notional + fee > bp + Math.max(0, -held) * refPrice + 1e-6) invalid = { key: 'broker.refuse.bp', vars: { need: money(notional + fee), bp: money(bp) } };
   else if (shorting && !acct.canShort) invalid = held > 0 ? { key: 'broker.refuse.fewer' } : { key: 'broker.refuse.short' };
+  else if (shorting && shortCollateral + fee > bp + 1e-6) invalid = { key: 'broker.refuse.bp', vars: { need: money(shortCollateral + fee), bp: money(bp) } };
   else if ((type === 'limit' || type === 'stop_limit') && num(limit) <= 0) invalid = { key: 'broker.refuse.limit' };
   else if ((type === 'stop' || type === 'stop_limit') && num(stop) <= 0) invalid = { key: 'broker.refuse.stop' };
   else if (type === 'trailing' && !(num(trail) > 0 && num(trail) < 50)) invalid = { key: 'broker.refuse.trail' };
@@ -373,9 +386,15 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
               <KV k={t('broker.slippage')} v={t('broker.bp', { v: est!.slippageBps.toFixed(1) })} />
               <KV k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
               <KV
-                k={margin ? t('broker.buyingPower') : t('broker.cashAfter')}
-                v={<span className="text-fg-muted">{money(margin ? bp - (side === 'buy' || shorting ? notional : 0) : cashNow - (side === 'buy' ? total : -total))}</span>}
+                k={margin || shorting ? t('broker.buyingPower') : t('broker.cashAfter')}
+                v={<span className="text-fg-muted">{money(margin || shorting ? bp - (side === 'buy' || shorting ? notional : 0) : cashNow - (side === 'buy' ? total : -total))}</span>}
               />
+              {shorting && (
+                <div className="mt-1 grid gap-1" data-testid="order-short-terms">
+                  <KV k={t('broker.collateral')} v={<span className="text-fg-muted" data-testid="order-collateral">{money(shortCollateral)}</span>} />
+                  <KV k={t('broker.borrowFee')} v={<span className="text-fg-muted" data-testid="order-borrow-fee">{t('broker.borrowFee.rate', { rate: (borrowRate * 100).toFixed(2) })}</span>} />
+                </div>
+              )}
               {shorting && <p className="mt-1 text-caption text-warn">{t('broker.shortWarn')}</p>}
               {margin && side === 'buy' && notional > acct.cash && <p className="mt-1 text-caption text-warn">{t('broker.marginWarn')}</p>}
             </div>

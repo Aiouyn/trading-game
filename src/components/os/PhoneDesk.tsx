@@ -20,6 +20,7 @@ import type { Rank } from './hardware';
 import { RankHardware } from './RankHardware';
 import { APP_GLYPH } from './appMap';
 import { Glyph } from './glyphs';
+import { NetWorthFigures } from './NetWorthFigures';
 import { OsToasts } from './OsToasts';
 import { EventBannerStrip, EventPanel, useBannerOn } from './EventBanner';
 import { EventTakeover } from './EventTakeover';
@@ -88,7 +89,6 @@ function RecentSheetGate() {
 /** The status bar (44 px): the Quay mark (tap Home, hold Recent), the clock, and the market dot and net worth. */
 function PhoneStatus() {
   const tick = useGame((s) => s.frame?.tick ?? 0);
-  const nw = useGame((s) => s.me?.netWorth.total ?? 0);
   const ready = useGame((s) => s.status === 'ready');
   const timer = useRef<number | null>(null);
   const fired = useRef(false);
@@ -133,7 +133,7 @@ function PhoneStatus() {
       <span className="num text-caption text-fg" data-testid="phone-clock">{shortClock(tick)}</span>
       <span className="os-phone-r">
         <span className={`os-dot ${ready ? 'bg-gain' : 'bg-warn'}`} aria-hidden />
-        <span className="num text-caption text-fg-muted">{compactMoney(nw)}</span>
+        <NetWorthFigures phone />
       </span>
     </header>
   );

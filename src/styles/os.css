@@ -91,7 +91,21 @@
     background: var(--color-ink-2); color: var(--color-fg); box-shadow: inset 0 -1.5px 0 var(--color-brass);
   }
   .os-root .os-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
-  .os-root .os-nw { font-family: var(--font-mono); font-size: var(--text-small); }
+  .os-root .os-nw { font-family: var(--font-mono); font-size: var(--text-small); display: flex; align-items: baseline; gap: 6px; color: var(--color-fg); }
+  /* Cash and net worth in the strip: labelled figures (the label in caption type, the value in mono). */
+  .os-root .os-figs { position: relative; display: flex; align-items: center; gap: 14px; }
+  .os-root .os-fig { display: flex; align-items: baseline; gap: 6px; font-family: var(--font-mono); font-size: var(--text-small); color: var(--color-fg); }
+  .os-root .os-fig-k { font-family: var(--font-sans, inherit); font-size: var(--text-caption); color: var(--color-fg-faint); }
+  .os-root .os-nw:hover .os-fig-k { color: var(--color-fg-muted); }
+  .os-root .os-nw-pop {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 9; width: 264px; padding: 12px 14px;
+    background: var(--os-window-bg); border: 1px solid var(--os-window-border); border-radius: var(--os-window-radius);
+    box-shadow: var(--os-window-shadow); font-family: var(--font-mono);
+  }
+  .os-root .os-nw-pop .label { margin-bottom: 8px; }
+  .os-root .os-nw-rows { display: grid; gap: 5px; }
+  .os-root .os-nw-row { display: flex; justify-content: space-between; gap: 12px; }
+  .os-root .os-nw-total { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--color-ink-3); }
   .os-root .os-bell { position: relative; color: var(--color-fg-muted); }
   .os-root .os-bell-dot {
     position: absolute; right: 0; top: 1px; width: 5px; height: 5px; border-radius: 50%;

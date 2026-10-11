@@ -27,7 +27,7 @@ export type { NewsBand, NewsKind } from './news';
 export {
   openAccount, placeOrder, cancelOrder, cancelOrderResult, modifyOrder, estimateFill, openOrders, orderHistory, portfolio,
   halfSpread, impact, commission, tradingConfig, marginConfig, buyingPower, grossExposure, equityOf,
-  isMarginAccount, setAccountPermissions, adjustCash, tradeOption, assetIndex, DEFAULT_MARGIN,
+  isMarginAccount, marginRuleApplies, mayShort, setAccountPermissions, adjustCash, tradeOption, assetIndex, DEFAULT_MARGIN,
   liquidationEquity, crowdHoldings, publicShortInterest, guardedMark, permanentMove, marginalImpact, tallyToday, tallyTick, tallyDay,
 } from './trading';
 export type { OptionTradeResult } from './trading';

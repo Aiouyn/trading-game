@@ -1,4 +1,4 @@
-import { placeOrder, type OrderRequest } from '@/engine';
+import { placeOrder, type Order, type OrderRequest, type Position } from '@/engine';
 import { RANKS, licenseFor, rankIndex } from '@/content/lifestyle';
 import { SIMPLE_MODE } from '@/content/learning';
 import { cashOf, priceOf } from './core';
@@ -10,8 +10,37 @@ import type { CommandResult, GameState, Player } from './types';
 const fail = (error: string): CommandResult => ({ ok: false, error });
 
 /**
- * The checks an order must pass before it reaches the engine: the license class, the court hold, and simple mode's cap on
- * buys until Hustler (SIMPLE_MODE). The same gate serves a click, a keyboard order, and a plan the world places.
+ * The notional a set of open orders already commits to open, at `px(asset)` (simple mode's aggregate cap). An open buy
+ * commits its remaining shares. An open sell commits only the shares past what the account holds: that part is a short.
+ * Reduce-only orders close a position and commit nothing. Pure: the world uses it, and so does the ticket's mirror.
+ */
+export function openingNotionalOf(orders: Order[], positions: Record<string, Position>, px: (assetId: string) => number): number {
+  const buys = new Map<string, number>();
+  const sells = new Map<string, number>();
+  for (const o of orders) {
+    if (o.status !== 'open' || o.reduceOnly) continue;
+    const rem = o.qty - o.filledQty;
+    const m = o.side === 'buy' ? buys : sells;
+    m.set(o.assetId, (m.get(o.assetId) ?? 0) + rem);
+  }
+  let total = 0;
+  for (const [assetId, q] of buys) total += q * px(assetId);
+  for (const [assetId, q] of sells) total += Math.max(0, q - Math.max(0, positions[assetId]?.qty ?? 0)) * px(assetId);
+  return total;
+}
+
+/** The same for one player in the world: their open orders at the live price. */
+export function openOpeningNotional(g: GameState, playerId: string): number {
+  const acct = g.market.accounts[playerId];
+  const mine = g.market.orders.filter((o) => o.playerId === playerId);
+  return openingNotionalOf(mine, acct?.positions ?? {}, (assetId) => priceOf(g, assetId));
+}
+
+/**
+ * The checks an order must pass before it reaches the engine: the license class, the court hold, and simple mode's cap until
+ * Hustler (SIMPLE_MODE). The cap is aggregate: the new order's opening notional (a buy, or a sell past the shares held, which
+ * is a short) plus what the open orders already commit must stay within the cap share of cash, so three orders in one tick
+ * cannot pass it. Sells of held shares are never capped. The same gate serves a click, a keyboard order, and a plan the world places.
  */
 export function orderError(g: GameState, p: Player, req: Omit<OrderRequest, 'playerId'>): string | null {
   const def = g.market.config.assets.find((a) => a.id === req.assetId);
@@ -22,11 +51,14 @@ export function orderError(g: GameState, p: Player, req: Omit<OrderRequest, 'pla
   const lic = licenseFor(p.rankId);
   if (!lic.classes.includes(def.assetClass)) return `${def.name} needs the Pro license (Owner, $250k)`;
   if (p.heldUntil > g.market.tick && req.side === 'buy') return 'your assets are held by the court';
-  if (!p.npc && req.side === 'buy' && rankIndex(p.rankId) < rankIndex(SIMPLE_MODE.untilRank)) {
+  if (!p.npc && !req.reduceOnly && rankIndex(p.rankId) < rankIndex(SIMPLE_MODE.untilRank)) {
     const px = priceOf(g, req.assetId);
-    if (req.qty * px > cashOf(g, p.id) * SIMPLE_MODE.capFraction + 1e-6) {
+    const held = Math.max(0, g.market.accounts[p.id]?.positions[req.assetId]?.qty ?? 0);
+    const opening = req.side === 'buy' ? req.qty : Math.max(0, req.qty - held);
+    const cap = cashOf(g, p.id) * SIMPLE_MODE.capFraction + 1e-6;
+    if (opening > 0 && openOpeningNotional(g, p.id) + opening * px > cap) {
       const to = RANKS.find((r) => r.id === SIMPLE_MODE.untilRank)?.name ?? SIMPLE_MODE.untilRank;
-      return `Simple mode caps a buy at ${Math.round(SIMPLE_MODE.capFraction * 100)}% of cash until ${to}.`;
+      return `Simple mode caps your open buys and shorts at ${Math.round(SIMPLE_MODE.capFraction * 100)}% of cash until ${to}.`;
     }
   }
   return null;

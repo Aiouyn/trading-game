@@ -8,7 +8,7 @@ import { playerBizSectors, refreshNetWorth } from './assets';
 import { computeBoards } from './boards';
 import { seedConnections } from './cyber';
 import { ensureLedger } from './ledger';
-import type { CommandResult, GameState, Player, StepOutput } from './types';
+import type { CommandResult, GameState, InboxItem, Player, StepOutput } from './types';
 import { rivalBaseline } from './rivalsBoard';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -111,7 +111,7 @@ export function applyRank(g: GameState, p: Player, out: StepOutput | null, silen
   if (rankIndex(r.id) >= 3) seedConnections(g, p.id);
   if (silent || prev === r.id) return;
   out?.rankUps.push({ playerId: p.id, rankId: r.id });
-  notify(g, out, p.id, { kind: 'rank', tone: 'brass', text: `Rank up: you are now ${r.name}. ${r.unlocks.join(' · ')}.` });
+  notify(g, out, p.id, { kind: 'rank', tone: 'brass', text: `Rank up: you are now ${r.name}. ${r.unlocks.join(' · ')}.`, msg: { key: `rank.note.up.${r.id}`, vars: { name: r.name } } });
   // The public Wire names rank milestones from R3 up only; lower ranks are the player's own news.
   if (rankIndex(r.id) >= 3) pushWire(g, out, { kind: 'milestone', tag: 'Milestone', tone: 'brass', playerId: p.id, text: `${p.handle} reaches ${r.name}` });
 }
@@ -267,16 +267,44 @@ export function tradeStats(g: GameState, fills: Fill[], realizedBefore: Record<s
       p.stats.bestTrade = Math.max(p.stats.bestTrade, delta);
       p.stats.worstTrade = Math.min(p.stats.worstTrade, delta);
     }
+    // the position before each fill: this tick's fills walk from the start position (the post-tick position less what they
+    // moved), so a fill that opens a short reads "Shorted" and one that closes a short reads "Covered"
+    const run = new Map<string, number>();
+    for (const f of fs) run.set(f.assetId, (acct.positions[f.assetId]?.qty ?? 0) - fs.reduce((s, x) => (x.assetId === f.assetId ? s + (x.side === 'buy' ? x.qty : -x.qty) : s), 0));
     for (const f of fs) {
       const o = findOrder(g, pid, f.orderId);
       if (o && (o.type === 'stop' || o.type === 'trailing' || o.type === 'stop_limit')) p.stats.stopsTriggered++;
-      notify(g, out, pid, {
-        kind: 'fill', tone: f.side === 'buy' ? 'gain' : 'loss',
-        text: `${o?.forced ? 'Liquidated: ' : ''}${f.side === 'buy' ? 'Bought' : 'Sold'} ${+f.qty.toFixed(4)} ${f.assetId} at ${f.price.toLocaleString('en-US', { maximumFractionDigits: f.price < 1 ? 6 : 2 })} · fee $${f.fee.toFixed(2)}`,
-      });
+      const before = run.get(f.assetId) ?? 0;
+      run.set(f.assetId, before + (f.side === 'buy' ? f.qty : -f.qty));
+      notify(g, out, pid, fillNotice(f, before, !!o?.forced));
     }
     p.stats.maxPositions = Math.max(p.stats.maxPositions, Object.keys(acct.positions).length);
   }
+}
+
+/**
+ * The fill notice (inbox and toast): "Bought 5 HLCN at 177.22 · cost $887.10 · fee $1.00". A buy that closes a short is
+ * "Covered"; a sell that opens or adds to a short is "Shorted". Cost is the cash out, fee included; a sale shows the proceeds
+ * after its fee. The English text is the fallback; the message descriptor is rendered in the viewer's language.
+ */
+export function fillNotice(f: Fill, before: number, forced: boolean): Omit<InboxItem, 'id' | 'tick'> {
+  const verb = f.side === 'buy' ? (before < 0 ? 'covered' : 'bought') : before > 0 ? 'sold' : 'shorted';
+  const qty = String(+f.qty.toFixed(4));
+  const price = f.price.toLocaleString('en-US', { maximumFractionDigits: f.price < 1 ? 6 : 2 });
+  const notional = f.qty * f.price;
+  const money2 = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sale = f.side === 'sell';
+  const amountLabel = sale ? 'proceeds' : 'cost';
+  const amount = money2(sale ? notional - f.fee : notional + f.fee);
+  const fee = money2(f.fee);
+  const key = forced ? `fill.forced.${f.side === 'buy' ? 'covered' : 'sold'}` : `fill.${verb}`;
+  const word = forced ? verb : `${verb[0]!.toUpperCase()}${verb.slice(1)}`;
+  const head = `${forced ? 'Liquidated: ' : ''}${word} ${qty} ${f.assetId} at ${price}`;
+  return {
+    kind: 'fill', tone: f.side === 'buy' ? 'gain' : 'loss',
+    text: `${head} · ${amountLabel} $${amount} · fee $${fee}`,
+    msg: { key, vars: { qty, asset: f.assetId, price, amount, fee } },
+  };
 }
 
 export function updateProfile(g: GameState, p: Player, patch: { bio?: string; country?: string; title?: string; mostWantedOptIn?: boolean }): CommandResult {

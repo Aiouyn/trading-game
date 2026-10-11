@@ -350,6 +350,29 @@ export function isMarginAccount(acct: Account): boolean {
   return (acct.maxLeverage ?? 1) > 1 || !!acct.canShort;
 }
 
+/**
+ * Whether an account may open a short in an asset. Every account with the short permission may, with one exception: a
+ * covered insider (the window rules' covered list, restrictions.ts) on a cash-secured 1x account may not short its own
+ * company's stock. Pro and above keep their shorts.
+ */
+export function mayShort(state: WorldState, acct: Account, assetId: string): boolean {
+  if (!acct.canShort) return false;
+  if ((acct.maxLeverage ?? 1) > 1) return true;
+  const rule = state.restrictions ? restrictionsOf(state).windows[assetId] : undefined;
+  return !(rule && rule.covered.includes(acct.playerId));
+}
+
+/**
+ * Whether the margin rules bite (buying power beyond cash, a margin call, a liquidation): the account borrows (maxLeverage
+ * above 1) or holds a short. A cash-secured account at 1x with only longs (the Retail license, which may short from R0)
+ * is never called: its buying power is its cash, as in a cash account.
+ */
+export function marginRuleApplies(acct: Account): boolean {
+  if ((acct.maxLeverage ?? 1) > 1) return true;
+  for (const pos of Object.values(acct.positions)) if (pos.qty < 0) return true;
+  return false;
+}
+
 // ---------------------------------------------------------------- accounts
 
 export function openAccount(state: WorldState, playerId: string, cash = tradingConfig(state).startingCash): WorldState {
@@ -527,7 +550,7 @@ function reservedQty(state: WorldState, playerId: string, assetId: string): numb
 export function buyingPower(state: WorldState, playerId: string): number {
   const acct = state.accounts[playerId];
   if (!acct) return 0;
-  if (!isMarginAccount(acct)) return Math.max(0, acct.cash - reservedCash(state, playerId));
+  if (!isMarginAccount(acct) || !marginRuleApplies(acct)) return Math.max(0, acct.cash - reservedCash(state, playerId));
   const eq = collateralEquityOf(state, acct, sessionDay(state));
   return Math.max(0, eq * (acct.maxLeverage ?? 1) - grossExposure(state, acct) - reservedExposure(state, playerId));
 }
@@ -590,13 +613,14 @@ function validate(state: WorldState, req: OrderRequest): string | null {
   }
 
   // margin account
-  if (req.side === 'sell' && !acct.canShort && req.qty > held - reservedQty(state, req.playerId, req.assetId) - locked + EPS) {
+  if (req.side === 'sell' && !mayShort(state, acct, req.assetId) && req.qty > held - reservedQty(state, req.playerId, req.assetId) - locked + EPS) {
     return locked > 0 ? 'stacking' : 'insufficient position';
   }
   const px = reservePrice(state, i, req, req.qty) || mid(state, i);
   const after = held + sign(req.side) * req.qty;
   const addExposure = Math.max(0, Math.abs(after) - Math.abs(held)) * px;
-  if (addExposure > buyingPower(state, req.playerId) + EPS) return 'insufficient buying power';
+  // the fee comes out of the same buying power (a cash-secured account cannot spend its last dollar on the fee)
+  if (addExposure + commission(state, def, addExposure) > buyingPower(state, req.playerId) + EPS) return 'insufficient buying power';
   return null;
 }
 
@@ -1046,6 +1070,8 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       const acct0 = s.accounts[o.playerId];
       if (!acct0) { s.orders[k] = { ...o, status: 'cancelled', rejectReason: 'no account', closedTick: tick }; continue; }
       const margin = isMarginAccount(acct0);
+      // a buy is shrunk to the cash it has unless the account borrows (maxLeverage above 1): a cash-secured short account too
+      const borrows = (acct0.maxLeverage ?? 1) > 1;
       const held = acct0.positions[o.assetId]?.qty ?? 0;
 
       // windows and lockups hold at the fill too: an open covered order is cancelled when its window shuts (v1.7)
@@ -1073,7 +1099,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       } else if (prog?.kind === 'plan') {
         // a plan sells out of its escrow, and never more than the account still holds (held is checked on every fill)
         q = Math.min(q, prog.escrow, Math.max(0, held));
-      } else if (o.side === 'sell' && (locked > 0 || !(margin && acct0.canShort))) {
+      } else if (o.side === 'sell' && (locked > 0 || !(margin && mayShort(s, acct0, o.assetId)))) {
         q = Math.min(q, Math.max(0, held - locked));
       }
       // the founder's daily sell cap (v1.7 §5.1, §6.1): window sells and plan fills share one room a game day. A plan sells
@@ -1133,7 +1159,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       let fee = commission(s, def, q * price);
 
       let shrunk = false;
-      if (!margin && o.side === 'buy' && q * price + fee > acct0.cash + EPS) {
+      if (!borrows && o.side === 'buy' && q * price + fee > acct0.cash + EPS) {
         shrunk = true;
         // shrink to what the cash covers (prices moved since placement)
         const f = t.fees[def.assetClass] ?? t.fees.stock;
@@ -1269,7 +1295,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
   const marks: string[] = [];
   for (const id of accountIds) {
     let a = s.accounts[id]!;
-    if (isMarginAccount(a)) {
+    if (isMarginAccount(a) && marginRuleApplies(a)) {
       let gross = grossExposure(s, a);
       let eq = collateralEquityOf(s, a, liqDay);
       if (gross > 0 && eq / gross < mc.liquidation) {

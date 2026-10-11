@@ -16,6 +16,12 @@
   }
   .os-root .os-phone-qm.on { background: color-mix(in srgb, var(--color-brass) 16%, transparent); }
   .os-root .os-phone-r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  /* the phone strip: cash and net worth, labelled, compact; the breakdown drops below the bar */
+  .os-root .os-phone-r .os-figs { gap: 8px; }
+  .os-root .os-phone-r .os-fig,
+  .os-root .os-phone-r .os-nw { font-size: 12px; gap: 4px; }
+  .os-root .os-phone-r .os-fig-k { font-size: 10px; }
+  .os-root .os-phone-r .os-nw-pop { position: fixed; top: calc(var(--phone-status-h) + 6px); left: 12px; right: 12px; width: auto; }
 
   /* ---------- Home widget: net worth card ---------- */
   .os-root .os-widget {

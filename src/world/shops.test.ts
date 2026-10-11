@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
-import { TPD, bizDef, bizValue, bump, cashOf, credit, today } from './core';
+import { TPD, bizDef, bizValue, bump, cashOf, credit, netWorthBreakdown, today } from './core';
 import { recomputeShares } from './assets';
 import { migrateShops, shopsDay, wellRunCommands } from './shops';
 import { seedNpcs } from './npc';
@@ -245,10 +245,23 @@ describe('valuation guards (S5)', () => {
     expect(trailingNet([base * 10], base)).toBeCloseTo((base * 10 + 6 * base) / 7, 9);
   });
 
-  it('a fresh shop is valued at its well-run baseline, not at zero', () => {
+  it('a fresh shop is valued at cost until a real day is on its window: no baseline income on day zero', () => {
     const base = 100;
+    // the trailing average still pads missing days at the baseline (trailingNet), but a shop with no real day is at cost
     expect(trailingNet([], base)).toBe(base);
-    expect(shopValue(1000, [], base)).toBeCloseTo(SHOP.value.investedShare * 1000 + SHOP.value.incomeMult * base, 9);
+    expect(shopValue(1000, [], base)).toBe(1000);
+    expect(shopValue(1000, [0], base)).toBeCloseTo(SHOP.value.investedShare * 1000 + SHOP.value.incomeMult * valuedIncome([0], base), 9);
+  });
+
+  it('buying a shop leaves net worth unchanged: the cash becomes the business at cost', () => {
+    const g = game();
+    cmd(g, 'u1', { type: 'join', handle: 'tycoon', country: 'AV' });
+    g.players.u1!.onboarding.skipped = true;
+    const before = netWorthBreakdown(g, 'u1').total;
+    const def = BUSINESSES.find((b) => b.tier === 1 && b.sector === 'food')!;
+    const r = cmd(g, 'u1', { type: 'biz.buy', defId: def.id, cityId: 'avalon' });
+    expect(r.ok).toBe(true);
+    expect(netWorthBreakdown(g, 'u1').total).toBeCloseTo(before, 6);
   });
 
   it('hiring pays a week of salary up front and nothing comes back on fire', () => {
@@ -274,8 +287,10 @@ describe('valuation guards (S5)', () => {
     const id = tycoon(g);
     const b: Business = g.businesses[id]!;
     b.shop.net = [];
-    const flat = bizValue(b);
     const base = bizDefIncome(b);
+    // a window of real days at the baseline, so the comparison is between two valued incomes
+    b.shop.net = Array.from({ length: SHOP.value.window }, () => base);
+    const flat = bizValue(b);
     b.shop.net = [base * 50, 0, 0, 0, 0, 0, 0];
     const spiked = bizValue(b);
     // the valued income tops out at the cap: at most (cap - 1) x well-run target more, times the multiple
