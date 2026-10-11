@@ -1,5 +1,5 @@
 import {
-  cancelOrderResult, createWorld, modifyOrder, placeOrder, seedStream, step, tradeOption, universeConfig,
+  cancelOrderResult, createWorld, forceWorldEvent, modifyOrder, placeOrder, seedStream, step, tradeOption, universeConfig,
   type WorldConfig,
 } from '@/engine';
 import {
@@ -204,6 +204,14 @@ const fail = (error: string): CommandResult => ({ ok: false, error });
  * The e2e price shock (tape-e2e-conventions.md section 3). Only the admin route sends it (the server refuses
  * admin.* from clients). A refused move is a failed result, not a throw.
  */
+function adminEvent(g: GameState, kind: string): CommandResult {
+  if (kind !== 'crash' && kind !== 'bubble' && kind !== 'crisis' && kind !== 'flash') return { ok: false, error: 'unknown event kind' };
+  const next = forceWorldEvent(g.market, kind as 'crash' | 'bubble' | 'crisis' | 'flash');
+  if (!next) return { ok: false, error: "an event is already live" };
+  g.market.worldEvents = next;
+  return { ok: true };
+}
+
 function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
   try {
     g.market.assets = shockPrice(g.market, assetId, pct).assets;
@@ -216,6 +224,7 @@ function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
 export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
   if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out);
   if (cmd.type === 'admin.shock') return adminShock(g, cmd.assetId, cmd.pct);
+  if (cmd.type === 'admin.event') return adminEvent(g, cmd.kind);
   if (cmd.type === 'admin.age') {
     const target = g.players[cmd.playerId];
     if (!target) return fail('unknown player');

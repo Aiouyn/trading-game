@@ -10,6 +10,7 @@ import { deskFileSummaries, deskWindow } from './desk';
 import { calendarFor, type CalendarItem } from './calendar';
 import { goalsView } from './learn';
 import { ownCompanyView, type CompanyFounderView } from './company/views';
+import { rivalsBoard, type RivalsBoardView } from './rivalsBoard';
 import { textProvider } from './text';
 import { capitalViewOf, type CapitalView } from './company/capital';
 import type { DailyClose, LedgerFill, PlanState, RoundTrip } from './ledger-types';
@@ -188,6 +189,8 @@ export interface PlayerView {
    * cumulative external cash the change leaves out (grants, transfers, loans, court payments to the victim fund).
    */
   arrival: { cash: number; change: number; changePct: number; external: number };
+  /** the Rivals board (names and net worth only), or null when the world has no rivals */
+  rivals: RivalsBoardView | null;
   rank: { id: string; name: string; next: { id: string; name: string; threshold: number } | null; progress: number };
   businesses: Business[];
   /** the company this player founded (its founder view: private, for this player only); absent before a company exists */
@@ -252,6 +255,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
     orders: ordersOf(g, pid),
     netWorth: netWorthBreakdown(g, pid),
     arrival: arrivalView(g, pid),
+    rivals: rivalsBoard(g, pid, tradingConfig(g.market).startingCash),
     rank: {
       id: p.rankId, name: RANKS[rIdx]!.name,
       next: next ? { id: next.id, name: next.name, threshold: next.threshold } : null,

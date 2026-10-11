@@ -10,9 +10,9 @@ import type { AssetDef, EcologyState, RivalDef, RivalState, RivalStyle, WorldCon
  * (publicValueLine), never the true lnV the pools trade toward. No rival sees the next close.
  */
 export const DEFAULT_RIVALS: RivalDef[] = [
-  { id: 'hale', name: 'Hale & Ward', style: 'value', startingCash: 7000 },
-  { id: 'pinn', name: 'Pinn Partners', style: 'momentum', startingCash: 50000 },
-  { id: 'vetch', name: 'Vetch', style: 'degen', startingCash: 50000 },
+  { id: 'hale', name: 'Hale & Ward', style: 'value', startingCash: 7000, tier: 1 },
+  { id: 'pinn', name: 'Pinn Partners', style: 'momentum', startingCash: 50000, tier: 2 },
+  { id: 'vetch', name: 'Vetch', style: 'degen', startingCash: 50000, tier: 2 },
 ];
 
 /** Most a rival trades in one asset in one day, as a share of that asset's ADV. */
@@ -24,8 +24,11 @@ const N_TARGETS: Record<RivalStyle, number> = { value: 3, momentum: 1, degen: 3 
 const RIVAL_POOL: Record<RivalStyle, 'value' | 'trend'> = { value: 'value', momentum: 'trend', degen: 'trend' };
 
 export function initRivals(cfg: WorldConfig): RivalState[] {
-  return (cfg.rivals ?? []).map((r) => ({ id: r.id, cash: r.startingCash, units: {}, target: [], peak: r.startingCash }));
+  return (cfg.rivals ?? []).map((r) => ({ id: r.id, cash: r.startingCash, units: {}, target: [], peak: r.startingCash, hist: [] }));
 }
+
+/** Closes kept for a rival's public chart: one game quarter (63 game days). */
+export const RIVAL_HIST_DAYS = 63;
 
 function eligible(def: AssetDef, style: RivalStyle): boolean {
   if (def.listed === false) return false;
@@ -66,6 +69,8 @@ function pickTargets(cfg: WorldConfig, eco: EcologyState, read: readonly number[
 
 /** A day's rival plan, before the pools clear: rebalanced targets and each rival's wanted trade per asset. */
 export interface RivalDay {
+  /** the game day this plan is for (the close it clears at) */
+  day: number;
   /** the rivals in config order, with this day's targets (cash and units not yet changed) */
   rivals: RivalState[];
   /** per rival, per asset (config order): the signed trade it wants, in ADV, capped at RIVAL_CAP_ADV */
@@ -106,7 +111,7 @@ export function rivalsDay(cfg: WorldConfig, eco: EcologyState, lnV: readonly num
     rivals.push({ ...book, target });
     desire.push(d);
   }
-  return { rivals, desire };
+  return { day, rivals, desire };
 }
 
 /**
@@ -168,7 +173,8 @@ export function rivalsClose(cfg: WorldConfig, day: RivalDay, qValue: readonly nu
     }
     let equity = cash;
     cfg.assets.forEach((a, i) => { equity += (units[a.id] ?? 0) * Math.exp(lnS[i]!); });
-    return { ...book, cash, units, peak: Math.max(book.peak, equity) };
+    const hist = [...(book.hist ?? []), { day: day.day, equity }].slice(-RIVAL_HIST_DAYS);
+    return { ...book, cash, units, peak: Math.max(book.peak, equity), hist };
   });
 }
 
