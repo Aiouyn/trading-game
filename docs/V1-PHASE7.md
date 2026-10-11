@@ -31,8 +31,11 @@ Branch: `p7/a`, worktree `.claude/worktrees/p7-a`. Status words as in `docs/V1-P
 - The close, desk, journal, news and rivals tests were updated to the variant keys (`close.test.ts`, `close-card.test.ts`, `banned.test.ts`).
 - Determinism: the engine's `text` on every Wire item is unchanged. The new `msg` field is additive; no price, RNG draw or event timing reads it.
 
+### 7A.3 Playwright
+
+- `tests/e2e/phase7Text.spec.ts` (new, in the close chain because the close card test advances a game day): French set in Settings, then the Wire rows, the Rivals persona line, the Research Desk memo and headlines, and the close card story and event lines carry no English template sentence. Passes on the desktop and phone projects (close-text, close-text-phone). Run with the closeCard and research-desk-hunts specs (14 passed, 4 skipped).
+
 ### 7A.3 Not done in this pass
 
 - The model overlay (P7-2) and its tests (cache, cap, validation, fallback, the determinism run with the enricher on).
-- The Playwright checks in French (Wire, close card, Rivals profile, Research Desk, desktop and phone).
 - The moderator role in the Launchpad refusals, and the single-variant close lines listed in 7A.1.
