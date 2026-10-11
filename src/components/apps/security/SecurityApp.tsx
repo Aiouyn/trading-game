@@ -9,6 +9,7 @@ import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import type { SessionStrength } from '@/world/types';
 import { deepScanCost, disconnectCost, scanCooldownLeft } from '@/world/cyber';
+import { HONEYPOT_COST, type HoneypotKind } from '@/world/honeypots';
 import { t } from '@/i18n';
 import { isAppUnlocked } from '@/shell/ctx';
 import { openApp } from '@/components/os/shellStore';
@@ -16,6 +17,7 @@ import { AppLocked } from '@/components/apps/AppLocked';
 import { Button, Card, CardHeader, Chip, ConfirmButton, NumberField, Progress, Select, Stat, Tabs, ticksLabel } from '@/components/ui';
 
 const STRENGTHS: SessionStrength[] = ['whisper', 'tap', 'siphon'];
+const HONEYPOT_KINDS: HoneypotKind[] = ['basic', 'advanced', 'frontier'];
 const DEFENSE_SCAN_DAYS = [0, 24, 12, 6, 4, 2];
 const EXPECTED_LOAD = [0.06, 0.12, 0.25, 0.5, 1, 2];
 
@@ -101,6 +103,18 @@ function Connections() {
             <div className="flex justify-between text-caption"><span className="text-fg-muted">{t('security.defense.throughput')}</span><span className="num">{t('security.defense.throughputValue', { load: pct(load), normal: pct(expected) })}</span></div>
             <Progress value={load / Math.max(expected * 2, 0.01)} tone={load > expected * 1.3 ? 'warn' : 'steel'} className="mt-1" label={t('security.defense.throughput')} />
           </div>
+          <div className="mt-3 rounded-md border border-ink-3 p-3" data-testid="honeypot">
+            <div className="text-small font-semibold">{t('security.honeypot.title')}</div>
+            <p className="mt-1 text-caption text-fg-faint" data-testid="honeypot-state">{sec.honeypot ? t('security.honeypot.placed', { kind: t(`security.honeypot.kind.${sec.honeypot.kind}`) }) : t('security.honeypot.none')}</p>
+            <div className="mt-2 grid grid-cols-1 gap-2 @md:grid-cols-3">
+              {HONEYPOT_KINDS.map((k) => (
+                <ConfirmButton key={k} size="sm" confirm={t('security.honeypot.confirm', { kind: t(`security.honeypot.kind.${k}`), amount: money(HONEYPOT_COST[k]) })} onConfirm={() => act({ type: 'sec.honeypot', kind: k }, { success: t('security.honeypot.done') })} testId={`honeypot-${k}`}>
+                  {t('security.honeypot.button', { kind: t(`security.honeypot.kind.${k}`), amount: money(HONEYPOT_COST[k]) })}
+                </ConfirmButton>
+              ))}
+            </div>
+            <p className="mt-1 text-caption text-fg-faint">{t('security.honeypot.hint')}</p>
+          </div>
           <NumberField className="mt-3" label={t('security.defense.budget')} value={budget} onChange={setBudget} suffix="$" testId="sec-budget" />
           <Button size="sm" className="mt-2 w-full" onClick={() => act({ type: 'sec.budget', budget: Number(budget) }, { success: t('security.budget.set') })}>{t('security.budget.button')}</Button>
           <p className="mt-1 text-caption text-fg-faint">{t('security.defense.hint')}</p>
@@ -145,6 +159,10 @@ function Operations() {
   const victim = pickVictim && targets.some((x) => x.id === pickVictim) ? pickVictim : (targets[0]?.id ?? '');
   const modelId = pickModel && models.some((m) => m.id === pickModel) ? pickModel : (models[0]?.id ?? '');
   const [strength, setStrength] = useState<SessionStrength>('tap');
+  // the canary add-on (+20%): it may flag a honeypot in the target and steer the op away from it (M29)
+  const [canary, setCanary] = useState(false);
+  // rival funds are targets too (M28): their id travels as fund:<id>
+  const funds = (me.rivals?.rows ?? []).map((r) => ({ value: `fund:${r.id}`, label: t('security.ops.fund', { name: r.name }) }));
   const handle = (id: string) => directory.find((d) => d.id === id)?.handle ?? id;
   return (
     <div className="grid gap-4 @3xl:grid-cols-2 [&>*]:min-w-0">
@@ -152,7 +170,7 @@ function Operations() {
         <h2 className="font-serif text-title">{t('security.ops.new')}</h2>
         <p className="mt-1 text-small text-fg-muted">{t('security.ops.intro')}</p>
         <div className="mt-3 flex flex-col gap-2">
-          <Select label={t('security.ops.target')} value={victim} onChange={(v) => setVictim(v)} options={targets.map((x) => ({ value: x.id, label: x.npc ? t('security.ops.targetNpc', { handle: x.handle, amount: compactMoney(x.netWorth) }) : t('security.ops.target.line', { handle: x.handle, amount: compactMoney(x.netWorth) }) }))} />
+          <Select label={t('security.ops.target')} value={victim} onChange={(v) => setVictim(v)} options={[...targets.map((x) => ({ value: x.id, label: x.npc ? t('security.ops.targetNpc', { handle: x.handle, amount: compactMoney(x.netWorth) }) : t('security.ops.target.line', { handle: x.handle, amount: compactMoney(x.netWorth) }) })), ...funds]} />
           <div className="grid grid-cols-1 gap-2 @md:grid-cols-3">
             {STRENGTHS.map((s) => (
               <button key={s} type="button" aria-pressed={strength === s} onClick={() => setStrength(s)} className={`rounded-md border p-2 text-left ${strength === s ? 'border-brass/60 bg-ink-2' : 'border-ink-3'}`}>
@@ -162,7 +180,11 @@ function Operations() {
             ))}
           </div>
           <Select label={t('security.ops.model')} value={modelId} onChange={(v) => setModel(v)} options={models.length ? models.map((m) => ({ value: m.id, label: t('security.ops.modelLine', { name: m.name, mcs: m.mcs.toFixed(0) }) })) : [{ value: '', label: t('security.ops.noModel') }]} />
-          <ConfirmButton variant="brass" size="md" confirm={t('security.ops.launch.confirm')} disabled={!modelId || !victim} onConfirm={() => act({ type: 'sec.plant', victimId: victim, strength, modelId })} testId="plant">{t('security.ops.launch')}</ConfirmButton>
+          <button type="button" aria-pressed={canary} data-testid="canary" onClick={() => setCanary(!canary)} className={`rounded-md border p-2 text-left text-small ${canary ? 'border-brass/60 bg-ink-2' : 'border-ink-3'}`}>
+            <div className="font-semibold">{t('security.ops.canary')}</div>
+            <div className="text-caption text-fg-faint">{t('security.ops.canary.text')}</div>
+          </button>
+          <ConfirmButton variant="brass" size="md" confirm={t('security.ops.launch.confirm')} disabled={!modelId || !victim} onConfirm={() => (victim.startsWith('fund:') ? act({ type: 'sec.fund', fundId: victim.slice(5), strength, modelId, canary }) : act({ type: 'sec.plant', victimId: victim, strength, modelId, canary }))} testId="plant">{t('security.ops.launch')}</ConfirmButton>
         </div>
       </Card>
       <div className="flex flex-col gap-4">

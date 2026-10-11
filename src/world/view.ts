@@ -17,7 +17,7 @@ import type { DailyClose, LedgerFill, PlanState, RoundTrip } from './ledger-type
 import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, propValue, today, type NetWorthBreakdown } from './core';
 import { shopViews, type ShopView } from './shopView';
 import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
-import { defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
+import { decoyCodename, defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
 import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
 import { exchangeView, type ExchangeView } from './exchange/view';
 import { launchpadView, type LaunchpadView } from './launchpad/view';
@@ -207,7 +207,10 @@ export interface PlayerView {
     clues: { id: string; tick: number; kind: string; entryId?: string }[];
     myOps: CyberOp[];
     evidence: { against: string; points: number }[];
+    /** the attacker's own sessions: real ones and decoy sessions alike (a decoy looks like a real session to its thief) */
     liveSessions: { entryId: string; victimId: string; strength: string; progress: number; codename: string }[];
+    /** the defender's own honeypot (kind and when it was placed; the poison and the bait stay in the engine) */
+    honeypot: { kind: string; placedTick: number } | null;
   };
   cases: CourtCase[];
   deals: Deal[];
@@ -272,11 +275,18 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
       tier: defenseTier(g, pid), dp: defensePoints(g, pid), budget: d.budget, lastScanTick: d.lastScanTick, lockdownUntil: d.lockdownUntil, shieldUntil: d.shieldUntil,
       entries: entriesOf(g, pid).map((e) => without(e, ['hostile'])),
       clues: g.cyber.clues.filter((c) => c.ownerId === pid).slice(-40).map((c) => without(c, ['real', 'ownerId'])),
-      myOps: g.cyber.ops.filter((o) => o.attackerId === pid).slice(0, 30),
+      // a decoy session reads as a plant to its thief: the result is "planted", and the session shows in the live list
+      myOps: g.cyber.ops.filter((o) => o.attackerId === pid).slice(0, 30).map((o) => (o.result === 'decoy' ? { ...o, result: 'planted' as const } : o)),
       evidence: Object.entries(g.cyber.evidence).filter(([k]) => k.endsWith(`>${pid}`)).map(([k, v]) => ({ against: k.split('>')[0]!, points: v })),
-      liveSessions: Object.values(g.cyber.entries).filter((e) => e.hostile?.attackerId === pid).map((e) => ({
-        entryId: e.id, victimId: e.ownerId, strength: e.hostile!.strength, progress: e.hostile!.progress, codename: e.codename,
-      })),
+      liveSessions: [
+        ...Object.values(g.cyber.entries).filter((e) => e.hostile?.attackerId === pid).map((e) => ({
+          entryId: e.id, victimId: e.ownerId, strength: e.hostile!.strength, progress: e.hostile!.progress, codename: e.codename,
+        })),
+        ...(g.cyber.decoys ?? []).filter((s) => s.attackerId === pid).map((s) => ({
+          entryId: s.id, victimId: s.targetId, strength: s.strength, progress: s.progress, codename: decoyCodename(g, s.id),
+        })),
+      ],
+      honeypot: d.honeypot ? { kind: d.honeypot.kind, placedTick: d.honeypot.placedTick } : null,
     },
     cases: Object.values(g.court.cases).filter((c) => c.plaintiffId === pid || c.defendantId === pid),
     deals: Object.values(g.deals).filter((x) => x.fromId === pid || x.toId === pid).slice(-50),

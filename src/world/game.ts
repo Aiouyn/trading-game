@@ -24,8 +24,8 @@ import {
   analystSignal, bestModel, buyData, buyGpus, deployBot, emptyLab, hireResearchers, labFor, labTick, reserveCompute,
   startResearch, startTraining, toggleBot,
 } from './lab';
-import { cyberDay, disconnect, emptyCyber, lockdown, manualScan, plantSession, setBudget, tagEntry } from './cyber';
-import { rivalCrewDay } from './rivalCrews';
+import { cyberDay, deployHoneypot, disconnect, emptyCyber, lockdown, manualScan, plantSession, setBudget, tagEntry } from './cyber';
+import { attackFund, rivalCrewDay } from './rivalCrews';
 import { acceptSettlement, courtTick, fileCase, offerSettlement } from './court';
 import { npcTick, seedNpcs } from './npc';
 import { shockPrice } from '@/engine/sim';
@@ -157,8 +157,7 @@ export function stepGame(g: GameState): StepOutput {
     propertyDay(g, out);
     lifestyleDay(g);
     dealsDay(g, out);
-    cyberDay(g, out);
-    rivalCrewDay(g, out);
+    securityDay(g, out);
     stabilizerDay(g);
     // collectibles index: slow random walk with a gentle upward drift
     const { rng, save } = drawFrom(g, "world");
@@ -383,7 +382,9 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'sec.tag': return tagEntry(g, pid, cmd.entryId, cmd.tag);
     case 'sec.disconnect': return disconnect(g, pid, cmd.entryId, out);
     case 'sec.lockdown': return lockdown(g, pid, out);
-    case 'sec.plant': return plantSession(g, pid, cmd.victimId, cmd.strength, cmd.modelId, out);
+    case 'sec.plant': return plantSession(g, pid, cmd.victimId, cmd.strength, cmd.modelId, out, cmd.canary === true);
+    case 'sec.honeypot': return deployHoneypot(g, pid, cmd.kind, cmd.bait ?? 1, out);
+    case 'sec.fund': return attackFund(g, pid, cmd.fundId, cmd.strength, cmd.modelId, cmd.canary === true, out);
     case 'court.file': return fileCase(g, pid, cmd.defendantId, cmd.kind, cmd.counsel, out);
     case 'court.settle': return offerSettlement(g, pid, cmd.caseId, cmd.amount, out);
     case 'court.acceptSettlement': return acceptSettlement(g, pid, cmd.caseId, out);
@@ -450,4 +451,13 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
   }
   void labFor; void emptyLab;
   return fail('unknown command');
+}
+
+/**
+ * The security day, once per game day, in the order stepGame runs it: the players' cyber day (sessions, clues, scans, decoy
+ * sessions), then the rival crews' attacks (M31). The harness calls this same function, so its numbers are the game's.
+ */
+export function securityDay(g: GameState, out: StepOutput | null): void {
+  cyberDay(g, out);
+  rivalCrewDay(g, out);
 }

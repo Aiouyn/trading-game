@@ -420,6 +420,8 @@ export interface Model {
   createdTick: number;
   /** watermark residue from distillation (0 = clean) */
   residue: number;
+  /** the poison a student inherited from a honeypot (M29); absent on a clean model */
+  poison?: number;
 }
 
 export interface TrainingRun {
@@ -483,13 +485,45 @@ export interface CyberState {
   clues: Clue[];
   seq: number;
   /** security budget per player ($ per game day) and defense tier */
-  defense: Record<string, { budget: number; tier: number; lastScanTick: number; lockdownUntil: number; shieldUntil: number }>;
+  defense: Record<string, { budget: number; tier: number; lastScanTick: number; lockdownUntil: number; shieldUntil: number; honeypot?: HoneypotState }>;
   /** attacker cooldowns: `${attacker}>${victim}` → tick */
   cooldowns: Record<string, number>;
   /** evidence points on (attacker, victim) */
   evidence: Record<string, number>;
   /** attacker's ops in flight for the UI */
   ops: CyberOp[];
+  /** sessions inside a honeypot or on a rival fund (M29, M28): not in any Connections panel, no drain, no clues. Absent in old saves. */
+  decoys?: DecoySession[];
+}
+
+/** A player's honeypot (M29): the bait model in their list. One at a time; placing a new one replaces it. */
+export interface HoneypotState {
+  kind: 'basic' | 'advanced' | 'frontier';
+  /** the poison the kind carries (0.2, 0.4, 0.6) */
+  poison: number;
+  /** the bait's MCS: the best security model's MCS times the chosen ratio (0.5 to 1.25) */
+  bait: number;
+  placedTick: number;
+}
+
+/** A session on a honeypot (on: 'honeypot') or on a rival fund (on: 'fund'). The attacker's student is built when it closes. */
+export interface DecoySession {
+  id: string;
+  attackerId: string;
+  /** the player whose honeypot is entered, or the rival fund */
+  targetId: string;
+  on: 'honeypot' | 'fund';
+  strength: SessionStrength;
+  /** the bait MCS the student is built from */
+  bait: number;
+  /** the poison tier the target carries (0 for a fund without a honeypot) */
+  poisonTier: number;
+  progress: number;
+  /** effective hours connected: the evidence clock */
+  effHours: number;
+  startTick: number;
+  /** honeypot evidence given so far (capped at 40, honeypotEvidence) */
+  evidence: number;
 }
 
 export interface CyberOp {
@@ -499,7 +533,8 @@ export interface CyberOp {
   strength: SessionStrength;
   modelId: string;
   tick: number;
-  result: 'planted' | 'failed' | 'detected';
+  /** planted: a real session; decoy: a session inside a honeypot or a fund (no entry); flagged: the canary avoided the honeypot */
+  result: 'planted' | 'failed' | 'detected' | 'decoy' | 'flagged';
   entryId?: string;
 }
 
@@ -602,7 +637,9 @@ export type Command =
   | { type: 'sec.tag'; entryId: string; tag: 'trusted' | 'watch' | null }
   | { type: 'sec.disconnect'; entryId: string }
   | { type: 'sec.lockdown' }
-  | { type: 'sec.plant'; victimId: string; strength: SessionStrength; modelId: string }
+  | { type: 'sec.plant'; victimId: string; strength: SessionStrength; modelId: string; canary?: boolean }
+  | { type: 'sec.honeypot'; kind: 'basic' | 'advanced' | 'frontier'; bait?: number }
+  | { type: 'sec.fund'; fundId: string; strength: SessionStrength; modelId: string; canary?: boolean }
   | { type: 'court.file'; defendantId: string; kind: CourtCase['kind']; counsel: number }
   | { type: 'court.settle'; caseId: string; amount: number }
   | { type: 'court.acceptSettlement'; caseId: string }
