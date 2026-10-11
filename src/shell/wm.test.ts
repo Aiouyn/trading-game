@@ -246,19 +246,30 @@ describe('open', () => {
     expect(s.wins.find((w) => w.app === 'learn')!.rect).toEqual(openRect(APPS.learn, wa, 2));
   });
 
-  it('does not snap a Broker that opens beside another window; it is a free window', () => {
+  it('a Broker that opens beside another window tiles with it: the older window keeps the left half (UX 2)', () => {
     let s = go(emptyShell(VP_1440), { type: 'open', app: 'wire' });
     s = go(s, { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
-    const b = s.wins.find((w) => w.app === 'broker')!;
-    expect(b.slot).toBeNull();
-    expect(b.rect).toEqual(openRect(APPS.broker, workArea(VP_1440, false), 1));
+    expect(s.wins.find((w) => w.app === 'wire')!.slot).toBe('L2');
+    expect(s.wins.find((w) => w.app === 'broker')!.slot).toBe('R2');
   });
 
-  it('keeps the first Broker snap when a later Broker opens on the same workspace', () => {
+  it('a later Broker on the same workspace retiles: the first Broker moves to the left half, the new one to the right', () => {
     let s = go(emptyShell(VP_1440), { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
     s = go(s, { type: 'open', app: 'broker', props: { ticker: 'BRNT' }, fresh: true });
-    expect(s.wins.find((w) => w.id === 'broker-1')!.slot).toBe('L23');
-    expect(s.wins.find((w) => w.id === 'broker-2')!.slot).toBeNull();
+    expect(s.wins.find((w) => w.id === 'broker-1')!.slot).toBe('L2');
+    expect(s.wins.find((w) => w.id === 'broker-2')!.slot).toBe('R2');
+  });
+
+  it('three windows tile as one large window plus two stacked; four as quarters (UX 2)', () => {
+    let s = go(emptyShell(VP_1920), { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
+    s = go(s, { type: 'open', app: 'wire' });
+    s = go(s, { type: 'open', app: 'portfolio' });
+    expect(s.wins.find((w) => w.app === 'broker')!.slot).toBe('L23');
+    expect(s.wins.find((w) => w.app === 'wire')!.slot).toBe('R3T');
+    expect(s.wins.find((w) => w.app === 'portfolio')!.slot).toBe('R3B');
+    s = go(s, { type: 'open', app: 'learn' });
+    const slots = s.wins.filter((w) => w.ws === s.activeWs && w.state === 'open').map((w) => w.slot);
+    expect(slots).toEqual(['TL', 'TR', 'BL', 'BR']);
   });
 
   it('keeps a window opened on top visible in halves, even when a filled window is below it', () => {

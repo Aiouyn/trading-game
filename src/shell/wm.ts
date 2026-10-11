@@ -47,6 +47,7 @@ import {
   sideOfFrac,
   slotAllowedInMode,
   slotFrac,
+  tileSlots,
   workArea,
 } from './geometry';
 
@@ -395,6 +396,32 @@ function placeAlone(state: ShellState, id: string): ShellState {
   return state;
 }
 
+/**
+ * Tiles the open windows of the active workspace when a new one opens (UX stage 2): 2 = halves, 3 = one large plus
+ * two stacked, 4 = quarters, 5+ = grid, in z-order. Only in the full mode (and halves for two
+ * windows), and only when every window fits its tile; otherwise the cascade stays as it was. Filled windows are
+ * restored to their tile, because tiling is the layout the user asked for by opening another window.
+ */
+function tileWorkspace(state: ShellState): ShellState {
+  const open = state.wins.filter((w) => w.ws === state.activeWs && w.state === 'open');
+  if (open.length < 2) return state;
+  const mode = layoutMode(state.vp.w);
+  if (mode === 'phone' || mode === 'single') return state;
+  if (mode === 'halves' && open.length !== 2) return state;
+  const tiles = tileSlots(open.length);
+  const wa = workArea(state.vp, false);
+  const g = gutterFor(false);
+  // Z-order: the oldest window takes the main tile and the newest the last one, so a new window lands on the right.
+  const order = open;
+  const fits = order.every((w, i) => fitsMin(APPS[w.app], fracToRect(slotFrac(tiles[i]!), wa, g)));
+  if (!fits) return state;
+  const wins = state.wins.map((w) => {
+    const i = order.findIndex((x) => x.id === w.id);
+    return i < 0 ? w : { ...w, slot: tiles[i]!, filled: false };
+  });
+  return { ...state, wins };
+}
+
 function nextBrokerId(wins: Win[]): string {
   for (let n = 1; ; n++) {
     const id = `broker-${n}`;
@@ -619,6 +646,7 @@ function openAction(state: ShellState, app: AppId, rawProps: unknown, ctx: WmCtx
   if (r.created) {
     s = exitFocus(s, state.activeWs);
     if (app === 'broker') s = placeAlone(s, r.id);
+    s = tileWorkspace(s);
   } else if (restored) {
     const landing = s.wins.find((w) => w.id === r.id);
     if (landing !== undefined) s = exitFocus(s, landing.ws);

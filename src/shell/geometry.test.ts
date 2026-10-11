@@ -20,6 +20,8 @@ import {
   workArea,
   gutterFor,
   SLOT_FRAC,
+  slotFrac,
+  tileSlots,
 } from './geometry';
 
 const VP_1440 = { w: 1440, h: 900 };
@@ -222,5 +224,25 @@ describe('default open rect (defect A, Velvet window rules)', () => {
     }
     // A work area smaller than the minimum is the limit: the window takes the whole area.
     expect(openRect({ minW: 5000, minH: 5000, pref: { w: 0.5, h: 0.5 } }, wa, 0)).toEqual({ x: 0, y: 0, w: wa.w, h: wa.h });
+  });
+});
+
+describe('tileSlots (UX stage 2 tiling)', () => {
+  it('uses halves for two, one large plus two stacked for three, and quarters for four', () => {
+    expect(tileSlots(2)).toEqual(['L2', 'R2']);
+    expect(tileSlots(3)).toEqual(['L23', 'R3T', 'R3B']);
+    expect(tileSlots(4)).toEqual(['TL', 'TR', 'BL', 'BR']);
+  });
+
+  it('fills a grid for five and more, with the last row at equal width and no overlap', () => {
+    const wa = { w: 1200, h: 800 };
+    for (const n of [5, 6, 7, 9]) {
+      const tiles = tileSlots(n);
+      expect(tiles).toHaveLength(n);
+      const rects = tiles.map((t) => fracToRect(slotFrac(t), wa, 0));
+      const area = rects.reduce((s, r) => s + r.w * r.h, 0);
+      expect(area).toBeGreaterThan(wa.w * wa.h * 0.99);
+      expect(area).toBeLessThanOrEqual(wa.w * wa.h * 1.01);
+    }
   });
 });
