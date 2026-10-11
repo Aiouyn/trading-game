@@ -1,5 +1,4 @@
 import { LP, TPD } from './constants';
-import { dayOf } from './state';
 import type { LpToken } from './types';
 
 /**
@@ -31,17 +30,20 @@ export function lockedOf(t: LpToken, pid: string, tick: number): number {
   return Math.min(lockedAmount(t, tick), t.bal[pid] ?? 0);
 }
 
+/** The game day of a tick, the same count as state.ts dayOf (kept local: state.ts imports the core, and a cycle here reads TPD too early). */
+const gameDayOf = (tick: number): number => (tick <= 0 ? 0 : Math.floor((tick - 1) / TPD));
+
 /**
  * The game day the allocation is fully unlocked: the graduation day plus the end of the schedule. Null before graduation (v1.4: the
  * schedule starts at the graduation tick, so there is no day to show yet; the UI says "unlocks after graduation").
  */
 export function vestEndDay(t: LpToken): number | null {
   if (t.gradTick === undefined) return null;
-  return dayOf(t.gradTick) + LP.VEST_END_DAYS;
+  return gameDayOf(t.gradTick) + LP.VEST_END_DAYS;
 }
 
 /** The game day the cliff ends (the first day anything unlocks), or null before graduation. */
 export function vestCliffDay(t: LpToken): number | null {
   if (t.gradTick === undefined) return null;
-  return dayOf(t.gradTick) + LP.VEST_CLIFF_DAYS;
+  return gameDayOf(t.gradTick) + LP.VEST_CLIFF_DAYS;
 }
