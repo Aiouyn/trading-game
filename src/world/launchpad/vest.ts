@@ -9,7 +9,10 @@ import type { LpToken } from './types';
 
 /** The unlocked share of the allocation at a tick, from 0 to 1. */
 export function vestFraction(t: LpToken, tick: number): number {
-  const days = (tick - t.createdTick) / TPD;
+  // v1.4 (lead): the allocation stays locked until graduation and vests from the graduation tick; a token that never graduates
+  // keeps it locked for good (burned in effect)
+  if (t.gradTick === undefined) return 0;
+  const days = (tick - t.gradTick) / TPD;
   if (days < LP.VEST_CLIFF_DAYS) return 0;
   if (days >= LP.VEST_END_DAYS) return 1;
   return (days - LP.VEST_CLIFF_DAYS) / (LP.VEST_END_DAYS - LP.VEST_CLIFF_DAYS);

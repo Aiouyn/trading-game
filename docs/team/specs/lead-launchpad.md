@@ -173,3 +173,20 @@ and it cannot be tuned away while the floor is the resting state and virality is
   1 gd at its floor, holds) and keep the front-runner and the eight v1.2 bots.
 - **Merge state.** Phase 5 is on v1 with this gate open (lead decision: the gate is isolated to src/world/launchpad and the
   harness, so it no longer blocks Phase 6). It must pass before Phase 9 sign-off.
+
+## Amendments v1.4 (lead, after the price-path probe and the lx-50 runs)
+
+The lead's price-path probe (mean spot of NPC launches relative to tick 2) showed young tokens rising about +29% on average over
+their first game day while the median fell: the graduation lottery was not priced into the launch price (the launch arrival was
+about $8). Rulings:
+- **L6.9 A real launch cohort.** The launch arrival is about $3,000 of NPC demand (BASE0 21, alpha 8), so the opening price carries
+  the premium for the token's remaining viral chance.
+- **L6.10 Short, front-loaded virality.** Viral hazard r0 = 1.0 a game day with tau = 0.5 gd; the cohorts bleed with a half-life
+  of 0.3 tau. Capitulation and profit-taking terms are off (0): the bleed alone sets the exit.
+- **L5.1 Allocation locked until graduation.** The creator allocation vests from the graduation tick (cliff 2 gd, linear to
+  14 gd); a token that never graduates keeps it locked for good. Before graduation the UI says "unlocks after graduation".
+- **v1.3 readings ratified.** The no-trade clock counts player fills only; buzz items form their own cohorts.
+- **Gate rows.** The NPC-net row is reported, not gated: in a world with no players the NPC side always loses the fees, so its
+  sign says nothing about player edge (the per-bot rows measure that). lx-50 at these settings: every bot passes except
+  creatorDump (bound 0.00, median -80%), pumpSeller (+0.79%, bound +3.0%, median -2.5%) and floorSprayer (-1.41%, bound +0.52%);
+  shape rows pass (dead within 7 gd 70.6%, graduation 1.72%, 10x 0). The held-out lh-200 run decides.
