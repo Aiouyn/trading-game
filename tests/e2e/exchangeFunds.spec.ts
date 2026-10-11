@@ -19,6 +19,8 @@ async function dismissRankUp(page: Page): Promise<void> {
 
 test('a manager opens a fund; an investor deposits, sees the holding, redeems and is paid', async ({ page, browser }) => {
   test.setTimeout(420_000);
+  // the phone's trade bar has no fund-account selector (the full ticket does), so the fund trade below is a desktop check
+  test.skip(isPhone(page), 'the phone trade bar has no fund-account selector; the desktop ticket carries the fund trade');
   const errors = watchErrors(page);
 
   // the investor registers first: their account must be 7 real days old before it can invest in a fund
