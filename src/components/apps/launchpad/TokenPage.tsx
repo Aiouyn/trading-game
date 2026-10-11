@@ -45,7 +45,7 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
         <div className="flex flex-wrap items-start gap-4">
           <TokenIcon svg={page.icon} size={56} />
           <div className="min-w-0 flex-1">
-            <h1 className="break-words font-serif text-hero text-fg" data-testid="lp-page-name">{page.name}</h1>
+            <h1 className="break-words font-serif text-title text-fg" data-testid="lp-page-name">{page.name}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="num text-body text-brass" data-testid="lp-page-ticker">{page.ticker}</span>
               <StatusChip status={page.status} />
@@ -64,6 +64,8 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
         </div>
       </Card>
 
+      <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1fr)_360px] [&>*]:min-w-0">
+        <div className="flex flex-col gap-4">
       <Card className="flex flex-col gap-3 p-4">
         <Section title={t('lp.page.curve')}>
           <div className="flex items-center gap-2">
@@ -75,21 +77,6 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
             : page.status === 'dead' ? t('lp.page.curveNote.dead') : t('lp.page.curveNote', { raise: money(GRAD_RAISE) })}</p>
           <CurveChart points={page.chart} />
         </Section>
-      </Card>
-
-      <Card className="flex flex-col gap-3 p-4">
-        {page.status === 'graduated' ? (
-          <Section title={t('lp.page.trade')} testId="lp-grad-trade">
-            <p className="text-small text-fg-muted" data-testid="lp-grad-note">{t('lp.page.gradNote')}</p>
-            <div><Button variant="brass" testId="lp-trade-broker" onClick={() => openFromShell('broker', { ticker: page.ticker })}>{t('lp.trade.broker')}</Button></div>
-          </Section>
-        ) : (
-          <Section title={t('lp.page.trade')}>
-            {page.status === 'dead' && <p className="text-small text-fg-muted" data-testid="lp-dead-note">{t('lp.page.deadNote')}</p>}
-            {page.status === 'dead' && page.deadReason && <p className="text-small text-fg-muted" data-testid="lp-dead-reason">{t(deadReasonKey(page.deadReason))}</p>}
-            <Ticket page={page} held={held} locked={locked} dead={page.status === 'dead'} />
-          </Section>
-        )}
       </Card>
 
       <Card className="flex flex-col gap-3 p-4">
@@ -178,6 +165,25 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
           )}
         </Section>
       </Card>
+        </div>
+        <aside className="flex flex-col gap-4 @3xl:sticky @3xl:top-2 @3xl:self-start" data-testid="lp-ticket-aside">
+      <Card className="flex flex-col gap-3 p-4">
+        {page.status === 'graduated' ? (
+          <Section title={t('lp.page.trade')} testId="lp-grad-trade">
+            <p className="text-small text-fg-muted" data-testid="lp-grad-note">{t('lp.page.gradNote')}</p>
+            <div><Button variant="brass" testId="lp-trade-broker" onClick={() => openFromShell('broker', { ticker: page.ticker })}>{t('lp.trade.broker')}</Button></div>
+          </Section>
+        ) : (
+          <Section title={t('lp.page.trade')}>
+            {page.status === 'dead' && <p className="text-small text-fg-muted" data-testid="lp-dead-note">{t('lp.page.deadNote')}</p>}
+            {page.status === 'dead' && page.deadReason && <p className="text-small text-fg-muted" data-testid="lp-dead-reason">{t(deadReasonKey(page.deadReason))}</p>}
+            <Ticket page={page} held={held} locked={locked} dead={page.status === 'dead'} />
+          </Section>
+        )}
+      </Card>
+
+        </aside>
+      </div>
     </div>
   );
 }

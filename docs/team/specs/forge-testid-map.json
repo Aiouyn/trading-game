@@ -298,5 +298,17 @@
   "court-commit-fee": "CommitBar row: filing fee plus counsel",
   "court-commit-after": "CommitBar row: cash after filing",
   "court-commit-cancel": "CommitBar cancel for filing a case",
-  "court-commit-confirm": "CommitBar confirm: files the case"
+  "court-commit-confirm": "CommitBar confirm: files the case",
+  "lp-stats": "Launchpad compact stat strip (replaces the serif hero title)",
+  "lp-table": "Launchpad feed as a dense table (New, Trending, Graduated): token, price, cap, volume, curve bar, action",
+  "lp-search-<kind>": "Launchpad feed search (name or ticker)",
+  "lp-sort-<kind>": "Launchpad feed sort (feed order, volume, market cap, curve)",
+  "lp-feed-none": "Launchpad feed: no token matches the search",
+  "lp-feed-empty-<kind>": "Launchpad feed empty state (next-step card)",
+  "lp-feed-empty-cta-<kind>": "Launchpad feed empty state CTA (Create or New)",
+  "lp-trade-<ticker>": "Launchpad feed row action: open the token page",
+  "lp-hold-empty": "Launchpad Holdings empty state (next-step card)",
+  "lp-hold-empty-cta": "Launchpad Holdings empty state CTA: browse New",
+  "lp-fees-none": "Launchpad creator fees: none yet (plain line)",
+  "lp-ticket-aside": "Token page: the sticky trade column (ticket) beside the page at 1280 px and wider"
 }
