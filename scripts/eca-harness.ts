@@ -33,12 +33,12 @@
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_CATALYSTS, earningsInfo } from '../src/engine';
+import { earningsInfo } from '../src/engine';
 import { applyCommand, createGame, stepGame } from '../src/world/game';
 import { credit, netWorthBreakdown, priceOf, TPD } from '../src/world/core';
 import { receivedTip, tipsOf, type InsiderTip } from '../src/world/tips';
 import { ecaOf } from '../src/world/eca';
-import { ECA_TUNE } from '../src/world/eca-tune';
+import { applyEcaTune, harnessCatalysts, numArg, parseKnobs } from './eca-knobs';
 import { honestArmOf, honestDirection, pairedPlayerId, tipGateRow, TIP_ARMS, TIP_PCT, type TipArm } from './eca-arms';
 import { Rng, seedStream } from '../src/engine/rng';
 import type { GameState } from '../src/world/types';
@@ -53,26 +53,20 @@ const START_CASH = 20_000;
 const READER_MIN = 10;
 const READER_BAR = 0.55;
 
-function arg(name: string, def: number): number {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 ? Number(process.argv[i + 1]) : def;
-}
+const arg = (name: string, def: number): number => numArg(process.argv, name, def);
+const KNOBS = parseKnobs(process.argv);
 
 const SEEDS = arg('seeds', 20);
 const DAYS = arg('days', 60);
 const FIRST = arg('first', 0);
 const CRIME_EVERY_DAYS = arg('crime', 10);
 const TRANCHES = arg('tranches', 3);
-const PRICE_IN = arg('priceIn', DEFAULT_CATALYSTS.rumorPriceIn ?? 0);
 const OUT = (() => {
   const i = process.argv.indexOf('--out');
   return i >= 0 ? process.argv[i + 1]! : '';
 })();
 // the tuned knobs: the harness sets them for its runs only (production keeps the eca-tune.ts defaults)
-ECA_TUNE.tipBase = arg('tipBase', ECA_TUNE.tipBase);
-ECA_TUNE.inquiryScore = arg('inquiryScore', ECA_TUNE.inquiryScore);
-ECA_TUNE.insiderK = arg('k', ECA_TUNE.insiderK);
-ECA_TUNE.tribunalSlope = arg('slope', ECA_TUNE.tribunalSlope);
+applyEcaTune(KNOBS);
 
 function playerIds(): Record<Kind, string[]> {
   const out = {} as Record<Kind, string[]>;
@@ -142,7 +136,7 @@ function order(g: GameState, id: string, assetId: string, side: 'buy' | 'sell', 
 }
 
 function runSeed(seed: string): SeedResult {
-  const cfg = { catalysts: { ...DEFAULT_CATALYSTS, rumorProb: 0.32, rumorAccuracy: 0.55, everyDays: 12, jitterDays: 2, rumorPriceIn: PRICE_IN } };
+  const cfg = { catalysts: harnessCatalysts(KNOBS) };
   const g: GameState = createGame(seed, { warmupDays: 1, npcs: false, config: cfg });
   const ids = playerIds();
   const all = KINDS.flatMap((k) => ids[k]);
@@ -315,7 +309,6 @@ function sd(xs: number[]): number {
 
 // The seeds run in chunks (--first, --seeds) so two chunks can run at once; each chunk writes its raw per-seed results
 // (eca-raw-<first>-<last>.json) and `--merge <dir>` reads the raw chunks of one set of knobs and prints the summary.
-const KNOBS = { priceIn: PRICE_IN, tipBase: ECA_TUNE.tipBase, inquiryScore: ECA_TUNE.inquiryScore, insiderK: ECA_TUNE.insiderK, tribunalSlope: ECA_TUNE.tribunalSlope };
 const MERGE = (() => {
   const i = process.argv.indexOf('--merge');
   return i >= 0 ? process.argv[i + 1]! : '';

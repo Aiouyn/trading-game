@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createWorld, step } from './sim';
 import { DEFAULT_REGIMES, defaultConfig, gameConfig, normalizeLoadings } from './config';
 import { catalystDay, DEFAULT_CATALYSTS, earningsCalendar, earningsInfo, rumorPrint } from './catalysts';
-import type { AssetDef, RegimeDef, RegimeId, StepEvent, WorldConfig, WorldState } from './types';
+import type { AssetDef, CatalystConfig, RegimeDef, RegimeId, StepEvent, WorldConfig, WorldState } from './types';
 
 const TPD = 24;
 
@@ -190,5 +190,39 @@ describe('the rumor price-in (R-6C-1)', () => {
     expect(dir && dir.type === 'rumor' ? dir.direction : 0).toBe(-1);
     expect(pub.jump).toBeGreaterThan(0);
     expect(pub.jump + rep.jump).toBeCloseTo(c.moveScale * (def.vol / 0.3) * 1, 12);
+  });
+});
+
+describe('the rumor price-in at the world level (the harness knob reaches the publication print)', () => {
+  // two worlds on one seed: the catalyst stream is its own, so the rumor comes out on the same tick with the same direction in both;
+  // only the publication print differs. The first rumor of the run is read at its tick.
+  function firstRumorAt(priceIn: number) {
+    const c: CatalystConfig = { ...DEFAULT_CATALYSTS, rumorProb: 1, rumorAccuracy: 1, everyDays: 12, jitterDays: 0, rumorPriceIn: priceIn };
+    const assets = Array.from({ length: 8 }, (_, i) => stock(`S${i}`));
+    let s = createWorld('rumor-knob', defaultConfig({ ticksPerDay: TPD, regimes: regimes(), indices: [], assets, catalysts: c }));
+    for (let k = 0; k < TPD * 40; k++) {
+      const r = step(s);
+      s = r.state;
+      const ev = r.events.find((e) => e.type === 'rumor');
+      if (ev && ev.type === 'rumor') {
+        const i = s.assets.findIndex((a) => a.id === ev.assetId);
+        return { direction: ev.direction, tick: ev.tick, lnP: s.assets[i]!.lnP };
+      }
+    }
+    throw new Error('no rumor in 40 days');
+  }
+
+  it('a larger priceIn moves the price further in the rumor direction at publication, and priceIn 0 leaves that move out', () => {
+    const off = firstRumorAt(0);
+    const low = firstRumorAt(0.3);
+    const high = firstRumorAt(1.0);
+    expect(low.tick).toBe(off.tick);
+    expect(high.tick).toBe(off.tick);
+    expect(high.direction).toBe(off.direction);
+    // the price gap between a priceIn of 1 and of 0 is the print: in the rumor's direction, and larger than the 0.3 gap
+    const gapHigh = (high.lnP - off.lnP) * high.direction;
+    const gapLow = (low.lnP - off.lnP) * low.direction;
+    expect(gapHigh).toBeGreaterThan(gapLow);
+    expect(gapLow).toBeGreaterThan(0);
   });
 });
