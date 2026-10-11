@@ -155,8 +155,9 @@ test('a token the curve fills through the admin seam graduates into Graduated, a
   await page.getByTestId('tab-graduated').click();
   await page.getByTestId(`lp-broker-${ticker}`).click();
   // the Broker opens the token as an asset: its panel names the ticker, and it can be traded there
-  // the desk already has a Broker: the one that opened the token is the window that names its ticker
-  await page.locator('[data-testid^="win-broker-"]').filter({ hasText: ticker }).first().getByTestId('dock-tab-asset').click();
+  // on the desk the desk may already hold a Broker: the window that names the token is the one that opened it (the phone has no windows)
+  const brokerWin = page.locator('[data-testid^="win-broker-"]').filter({ hasText: ticker });
+  await (((await brokerWin.count()) > 0) ? brokerWin.first() : page).getByTestId('dock-tab-asset').click();
   await expect(page.getByTestId('asset-panel').filter({ hasText: ticker }).first()).toBeVisible({ timeout: 30_000 });
 });
 
