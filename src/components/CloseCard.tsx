@@ -54,10 +54,39 @@ export function CloseCard() {
   return card ? <CloseSheet key={card.day} card={card} /> : null;
 }
 
-/** The headline: the same direction rule as the Copy summary (closeMove), so a sub-dollar day reads flat in both. */
+/** The headline: trading alone (the same direction rule as the Copy summary, so a sub-dollar day reads flat in both). */
 function headline(c: DailyClose): string {
-  const move = closeMove(c.nwChange);
-  return move === 'flat' ? t('close.head.flat') : t(`close.head.${move}`, { amount: money(Math.abs(c.nwChange)) });
+  const move = closeMove(c.trading);
+  return move === 'flat' ? t('close.head.flat') : t(`close.head.${move}`, { amount: money(Math.abs(c.trading)) });
+}
+
+/** Where the net worth change came from: trading first, then valuation, income and costs, and the grants left out. */
+function SplitRows({ card }: { card: DailyClose }) {
+  const rows: { key: string; label: string; value: number; testId: string }[] = [
+    { key: 'trading', label: t('close.split.trading'), value: card.trading, testId: 'close-split-trading' },
+    { key: 'valuation', label: t('close.split.valuation'), value: card.valuation, testId: 'close-split-valuation' },
+    { key: 'income', label: t('close.split.income'), value: card.income, testId: 'close-split-income' },
+  ];
+  return (
+    <section className="flex flex-col gap-1" aria-label={t('close.split.title')} data-testid="close-split">
+      <p className="label">{t('close.split.title')}</p>
+      <dl className="num grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-small">
+        {rows.map((r) => (
+          <div key={r.key} className="contents">
+            <dt className="text-fg-muted">{r.label}</dt>
+            <dd className={toneText[tone(r.value)]} data-testid={r.testId}>{signedMoney(r.value)}</dd>
+          </div>
+        ))}
+        <div className="col-span-2 mt-1 border-t border-ink-2 pt-1 text-caption text-fg-muted">
+          <span>{t('close.split.external')}: {signedMoney(card.external)}</span>
+        </div>
+        <div className="contents">
+          <dt className="font-medium text-fg">{t('close.split.net')}</dt>
+          <dd className={`font-medium ${toneText[tone(card.nwChange)]}`} data-testid="close-split-net">{signedMoney(card.nwChange)}</dd>
+        </div>
+      </dl>
+    </section>
+  );
 }
 
 /** The plain-text summary the Copy button puts on the clipboard: the card's descriptors, in the viewer's language. */
@@ -92,6 +121,8 @@ function CloseSheet({ card }: { card: DailyClose }) {
         <span className="mx-2">·</span>
         <span className={toneText[tone(card.gx.pct)]}>{t('close.gx', { pct: signedPct(card.gx.pct) })}</span>
       </p>
+
+      <SplitRows card={card} />
 
       {card.best ? (
         <div className="grid gap-3 sm:grid-cols-2">

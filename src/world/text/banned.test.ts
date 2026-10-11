@@ -44,7 +44,7 @@ describe('banned words in the world text', () => {
 
   it('the provider output for a full card is clean in both languages', () => {
     const card = {
-      day: 4, offline: false, nwOpen: 5000, nwClose: 5100, nwChange: 100, nwChangePct: 0.02,
+      day: 4, offline: false, nwOpen: 5000, nwClose: 5100, nwChange: 100, nwChangePct: 0.02, trading: 60, valuation: 35, income: 5, external: 0,
       best: { assetId: 'HLCN', pct: 0.03, usd: 60 }, worst: { assetId: 'ORBT', pct: -0.01, usd: -10 },
       gx: { pct: 0.004 }, sectors: { best: { sector: 'tech', pct: 0.01 }, worst: { sector: 'energy', pct: -0.02 } },
       stories: [{ assetId: 'WHEA', headline: 'Wheat climbs', band: 'early' as const }, { assetId: 'MOON', headline: 'Moon rallies', band: 'late' as const }],
@@ -56,7 +56,7 @@ describe('banned words in the world text', () => {
     for (const locale of ['en', 'fr'] as const) {
       for (const m of lines) expect(bannedIn(renderMsg(m, locale)), renderMsg(m, locale)).toEqual([]);
     }
-    expect(renderMsg(lines[1]!, 'fr')).toMatch(/valeur nette/);
+    expect(renderMsg(lines.find((m) => m.key.startsWith('dayclose.nw.'))!, 'fr')).toMatch(/valeur nette/);
   });
 
   it('the story headlines the close embeds are clean (every wire headline of a short run, two seeds)', { timeout: 60_000 }, () => {

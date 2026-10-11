@@ -13,7 +13,7 @@ import { ownCompanyView, type CompanyFounderView } from './company/views';
 import { rivalsBoard, type RivalsBoardView } from './rivalsBoard';
 import { textProvider } from './text';
 import { capitalViewOf, type CapitalView } from './company/capital';
-import type { DailyClose, LedgerFill, PlanState, RoundTrip } from './ledger-types';
+import type { DailyClose, LedgerFill, PlanState, RoundTrip, StoredClose } from './ledger-types';
 import { TPD, netWorthBreakdown, ordersOf, playerBusinesses, playerProperties, propValue, today, type NetWorthBreakdown } from './core';
 import { shopViews, type ShopView } from './shopView';
 import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
@@ -317,13 +317,21 @@ function arrivalView(g: GameState, pid: string): PlayerView['arrival'] {
   return { cash, change: total - cash, changePct: changeOf(total, cash), external };
 }
 
+/** A stored close with its lines. Closes saved before the trading split carry only the net change, so all of it counts as trading. */
+function closeView(c: StoredClose): DailyClose {
+  const full: StoredClose = {
+    ...c, trading: c.trading ?? c.nwChange, valuation: c.valuation ?? 0, income: c.income ?? 0, external: c.external ?? 0,
+  };
+  return { ...full, lines: textProvider.dailyClose(full) };
+}
+
 /** The owner's trading record, sliced for the view. */
 function tradingView(g: GameState, pid: string): PlayerView['trading'] {
   const { fills, trips } = tradesOf(g, pid);
   const L = g.ledgers?.[pid];
   return {
     fills: fills.slice(-VIEW_FILLS), trips: trips.slice(-VIEW_FILLS), benchmark: ghostReport(g, pid),
-    closes: (L?.closes ?? []).slice(0, VIEW_CLOSES).map((c) => ({ ...c, lines: textProvider.dailyClose(c) })), closeSeenDay: L?.closeSeenDay ?? null,
+    closes: (L?.closes ?? []).slice(0, VIEW_CLOSES).map(closeView), closeSeenDay: L?.closeSeenDay ?? null,
     plans: L?.plans ?? null,
     calendar: calendarFor(g, pid), goals: goalsView(g, g.players[pid]!), challengeWeeks: g.players[pid]!.challengeWeeks ?? [],
     desk: { ...deskWindow(g), today: today(g), files: deskFileSummaries(g, pid).slice(0, 40) },
