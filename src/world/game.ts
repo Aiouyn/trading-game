@@ -10,6 +10,7 @@ import {
   refreshNetWorth, renameBusiness, renovateProperty, repayMortgage, sellBusiness, sellItem, sellProperty, setHome, upgradeBusiness,
 } from './assets';
 import { shopCommand, shopsDay } from './shops';
+import { enterTournament, settleTournament, TOURNAMENT_SYSTEM } from './tournamentWeek';
 import { newsFromEvents, filings } from './news';
 import {
   addAlert, applyRank, checkAchievements, checkAlerts, claimContract, join, pickRivals, rollContracts, tradeStats,
@@ -226,6 +227,8 @@ function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
 
 export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
   if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out);
+  // the server settles a tournament week as TOURNAMENT_SYSTEM, which is not a player; a player's own call is refused here
+  if (cmd.type === 'tournament.settle') return pid === TOURNAMENT_SYSTEM ? settleTournament(g, cmd.week, cmd.seeds, cmd.rows, out) : { ok: false, error: 'Only the server settles a tournament.' };
   if (cmd.type === 'admin.shock') return adminShock(g, cmd.assetId, cmd.pct);
   if (cmd.type === 'admin.event') return adminEvent(g, cmd.kind, cmd.days);
   if (cmd.type === 'admin.age') {
@@ -377,6 +380,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'lab.bot': return deployBot(g, pid, cmd.modelId, cmd.strategy, cmd.assets, cmd.allocation);
     case 'lab.botToggle': return toggleBot(g, pid, cmd.botId, cmd.active);
     case 'lab.signal': return analystSignal(g, pid, out);
+    case 'tournament.enter': return enterTournament(g, pid);
     case 'sec.budget': return setBudget(g, pid, cmd.budget);
     case 'sec.scan': return manualScan(g, pid, out);
     case 'sec.tag': return tagEntry(g, pid, cmd.entryId, cmd.tag);

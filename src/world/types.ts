@@ -61,6 +61,46 @@ export interface GameState {
   funds?: FundsState;
   /** the Launchpad (player-created memecoins, lead-launchpad.md). Absent until the first launch; worlds without one keep every fingerprint. */
   launchpad?: LaunchpadState;
+  /** the weekly AI tournament (ROADMAP §2.4). Absent until the first entry; worlds without one keep every fingerprint. */
+  tournament?: TournamentState;
+}
+
+/** One frozen entry in a week (tournament.ts): the strategy parameters stay here, and the view never shows them. */
+export interface TournamentEntryRecord {
+  playerId: string;
+  handle: string;
+  modelName: string;
+  mcs: number;
+  division: 'laptop' | 'startup' | 'frontier';
+  /** sha256 of the frozen fields at lock */
+  hash: string;
+  lockedTick: number;
+  actor: { id: string; strategy: TradingBot['strategy']; assets: string[]; allocation: number; mcs: number };
+}
+
+/** One row of a settled week: an entry or a house AI, with its scores. No trades, no weights. */
+export interface TournamentRowRecord {
+  id: string;
+  kind: 'entry' | 'house';
+  handle: string;
+  division?: 'laptop' | 'startup' | 'frontier';
+  mcs: number;
+  sharpe: number;
+  totalReturn: number;
+  qualified: boolean;
+  reason?: 'drawdown' | 'trades';
+}
+
+export interface TournamentWeekRecord {
+  /** the week number: its entries lock at tick week * TOURNAMENT_WEEK_TICKS */
+  week: number;
+  entries: TournamentEntryRecord[];
+  /** set when the off-tick runner settles the week; the seeds are revealed here and nowhere before */
+  settled?: { seeds: string[]; rows: TournamentRowRecord[]; settledTick: number };
+}
+
+export interface TournamentState {
+  weeks: Record<string, TournamentWeekRecord>;
 }
 
 export interface Player {
@@ -632,6 +672,8 @@ export type Command =
   | { type: 'lab.bot'; modelId: string; strategy: TradingBot['strategy']; assets: string[]; allocation: number }
   | { type: 'lab.botToggle'; botId: string; active: boolean }
   | { type: 'lab.signal' }
+  | { type: 'tournament.enter' }
+  | { type: 'tournament.settle'; week: number; seeds: string[]; rows: TournamentRowRecord[] }
   | { type: 'sec.budget'; budget: number }
   | { type: 'sec.scan' }
   | { type: 'sec.tag'; entryId: string; tag: 'trusted' | 'watch' | null }
