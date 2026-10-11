@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import { newsBand, type NewsBand } from '@/engine';
-import { t, tm } from '@/i18n';
+import { t, tm, useLocale } from '@/i18n';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import type { WireItem } from '@/world/types';
+import { overlayText } from '@/world/text/overlay';
 import { TONE_TEXT } from './Shell';
 import { openFromShell } from './os/openApp';
 import { Chip } from './ui';
@@ -35,6 +36,10 @@ const BAND_CLASS: Record<Exclude<NewsBand, 'done'>, string> = {
 export function WireView() {
   const wire = useGame((s) => s.wire);
   const config = useGame((s) => s.config);
+  const overlay = useGame((s) => s.textOverlay);
+  const locale = useLocale((s) => s.locale);
+  /** the model line in this language when the text slot wrote one, else the world's own line */
+  const line = (w: WireItem) => overlayText(overlay, w.id, locale) ?? tm(w.msg, w.text);
   const now = useGame((s) => s.frame?.tick ?? 0);
   const [f, setF] = useState('all');
   const kinds = FILTERS.find((x) => x.id === f)!.kinds;
@@ -71,10 +76,10 @@ export function WireView() {
                     title={t('wire.openBroker', { ticker: w.assetId })}
                     onClick={() => openFromShell('broker', { ticker: w.assetId })}
                   >
-                    {tm(w.msg, w.text)}
+                    {line(w)}
                   </button>
                 ) : (
-                  <span className="text-small text-fg">{tm(w.msg, w.text)}</span>
+                  <span className="text-small text-fg">{line(w)}</span>
                 )}
                 {chip !== null && (
                   <span className="ml-2 align-middle" data-testid={`news-band-${chip}`}>

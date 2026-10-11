@@ -95,9 +95,12 @@ export interface WelcomeParts {
   directoryJson: string;
   chatJson: string;
   serverTime: number;
+  /** the model text overlay (presentation only, server/text): sent only when the slot is on, so with it off the bytes do not change */
+  textOverlayJson?: string;
 }
 
 /** The welcome message: the frame, the full asset list and the player's view, all in one message. */
 export function welcomeJson(p: WelcomeParts): string {
-  return `{"t":"welcome","playerId":${JSON.stringify(p.playerId)},"tickMs":${p.tickMs},"frame":${p.frameJson},"defs":${p.defsJson},"me":${p.meJson},"pub":${p.pubJson},"directory":${p.directoryJson},"chat":${p.chatJson},"serverTime":${p.serverTime}}`;
+  const overlay = p.textOverlayJson !== undefined ? `,"textOverlay":${p.textOverlayJson}` : '';
+  return `{"t":"welcome","playerId":${JSON.stringify(p.playerId)},"tickMs":${p.tickMs},"frame":${p.frameJson},"defs":${p.defsJson},"me":${p.meJson},"pub":${p.pubJson},"directory":${p.directoryJson},"chat":${p.chatJson}${overlay},"serverTime":${p.serverTime}}`;
 }
