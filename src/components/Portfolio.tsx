@@ -17,6 +17,7 @@ import { ClosesCard, LuckCard } from './PortfolioLuck';
 import { Card, CardHeader, KV, Segmented, Stat, Td, Th } from './ui';
 import { JournalView } from './apps/journal/JournalView';
 import { AnalystView } from './apps/analyst/AnalystView';
+import { StressPanel } from './apps/sixd/StressPanel';
 
 const CLASS_COLOR: Record<string, string> = {
   cash: 'bg-ink-3', stock: 'bg-brass', crypto: 'bg-steel', commodity: 'bg-brass-lo', forex: 'bg-info', bond: 'bg-gain', options: 'bg-warn',
@@ -132,6 +133,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
     <div className="flex flex-col gap-4" data-testid="portfolio-view">
       <LowCashCard />
       {!phone && <GoalsCard />}
+      <StressPanel />
       <Card className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>

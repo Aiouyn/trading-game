@@ -11,6 +11,7 @@ import { isAppUnlocked } from '@/shell/ctx';
 import { AppLocked } from '@/components/apps/AppLocked';
 import { Card, Progress, Stat, Tabs, ticksLabel } from '@/components/ui';
 import { Bots, Compute, Models, Research, Train } from './LabTabs';
+import { TournamentCard } from '@/components/apps/sixd/TournamentCard';
 
 type Tab = 'research' | 'compute' | 'train' | 'models' | 'bots';
 
@@ -65,6 +66,7 @@ export function LabApp() {
       {tab === 'train' && <Train />}
       {tab === 'models' && <Models />}
       {tab === 'bots' && <Bots />}
+      <TournamentCard />
     </div>
   );
 }
