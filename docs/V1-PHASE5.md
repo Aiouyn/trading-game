@@ -335,7 +335,7 @@ Unchanged: `DEMAND_PER_BUZZ` 1000, `VIRAL_SCALE` 12, `VIRAL_ALPHA` 2.2, sniper, 
 
 ### 8.3 Tests
 
-Updated to the v1.4 rules (keeping each test's intent): the creator cap (allocation 50M, room is the rest of the 100M cap), vesting from graduation, the cash-death tests (the launch cohort is sold back first, so the curve's cash is under the line), the view's launch progress bound (a third of the curve at most). New: the allocation is locked before graduation and stays locked after a death; the vesting schedule starts at the graduation tick. `src/world/launchpad` passes (125 tests in `launchpad.test.ts` and the other files).
+Updated to the v1.4 rules (keeping each test's intent): the creator cap (allocation 50M, room is the rest of the 100M cap), vesting from graduation, the cash-death tests (the launch cohort is sold back first, so the curve's cash is under the line), the view's launch progress bound and the e2e launch-share bound (both the share a 99th-percentile launch buys, about 70.7% of the curve; see 8.5, not a fixed guess). New: the allocation is locked before graduation and stays locked after a death; the vesting schedule starts at the graduation tick. `src/world/launchpad` passes (125 tests in `launchpad.test.ts` and the other files).
 
 ### 8.4 Balance: `lx-50` at v1.4 (`balance-out/lead/F50.json`)
 
@@ -355,3 +355,18 @@ Updated to the v1.4 rules (keeping each test's intent): the creator cap (allocat
 Shape (gated): dead within 7 game days from day 3, 70.6%; graduation rate 1.72%; 10x rate 0. All three pass. The NPC net is reported, not gated (L5.1 gate rows): +18.67 per token (booked +59.58), with no players in that world.
 
 Checks on this run: residual max 5.4e-6, ledger max 1.7e-9. Creator dump, pump seller and floor sprayer fail; the held-out `lh-200` run decides. It is pending.
+
+### 8.5 The launch share (view and e2e bounds)
+
+The launch buzz is `BASE0 * (u^(-1/alpha) - 1)` with BASE0 21 and alpha 8 (`launch.ts`), so the mean cohort is 21/7 = 3 buzz = $3,000 and the tail is heavy. Through the constant product (fee left out, an upper bound) and the $400 sniper maximum, a cohort buys this share of the curve at once:
+
+| Cohort | Demand | Share of curve (+ sniper $400) |
+|---|---|---|
+| median (p50) | $1,901 | 15.1% (17.8%) |
+| mean | $3,000 | 22.4% (24.8%) |
+| p95 | $9,539 | 52.1% (53.5%) |
+| p99 | $16,344 | 69.9% (70.8%) |
+
+The UI-facing bounds use p99 with the sniper: the view test (`view.test.ts`, `cohortShareBound`) and the e2e spec (`tests/e2e/launchpad.spec.ts`, `p99Share`). The bound is a function of the cohort figure, not a fixed number; it rejects a token whose launch is far off the v1.4 cohort, and accepts a normal one with a 1% chance of a false failure per run.
+
+Measured on the view's own fixture (`lpWorld`, no NPC launches, one launch per seed, 60 seeds `measure-0` to `measure-59`): min 1.9%, median 14.7%, mean 20.9%, max 78.6%. At least one launch in 60 (the 78.6% run) is above the p99 bound, which is the tail the bound leaves out. The spec's "16% to 28% across runs" is not backed by these runs and is not used. The e2e run's own launch share is not recorded here: the Playwright run reads one draw per run.

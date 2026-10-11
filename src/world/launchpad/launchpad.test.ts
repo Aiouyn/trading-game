@@ -198,7 +198,7 @@ describe('vesting (L5, v1.4)', () => {
     expect(lockedEngineSell(g, CREATOR, 'VEST', 10_000_000)).toBe(false);
   });
 
-  it('a token that never graduates keeps the allocation locked for good, and the lock holds after its death', () => {
+  it('a token that never graduates keeps the allocation locked for good (L5.1 v1.4: locked, not burned): the balance stays, the lock stays after its death', () => {
     const g = lpWorld('vest-dead');
     launch(g, CREATOR, 'VDED', { allocation: 10_000_000 });
     const t = g.launchpad!.tokens.VDED!;

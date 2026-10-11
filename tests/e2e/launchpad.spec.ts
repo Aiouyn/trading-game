@@ -61,12 +61,16 @@ test('a creator launches a token: it is in New, and in Holdings with the allocat
 
   await page.getByTestId('tab-new').click();
   await expect(page.getByTestId(`lp-row-${ticker}`)).toBeVisible({ timeout: 20_000 });
-  // the launch cohort (about $3,000 of demand, v1.4 L6.9) and the NPC sniper are bought at once (L6.4, sniperEnter): the bar is
-  // a share of the curve, not zero (the launch draw varies: 16% to 28% of the curve across the runs of v1.4)
+  // the launch cohort (v1.4 L6.9: launch buzz 21 x (u^(-1/8) - 1), a heavy-tailed draw with a mean of $3,000) and the NPC sniper
+  // (at most $400) are bought at once (L6.4, sniperEnter): the bar is a share of the curve, not zero. The bound is what a
+  // 99th-percentile launch buys through the constant product (about 70.7% of the curve); the measured runs are in
+  // docs/V1-PHASE5.md section 8.5 (mean 21% of the curve, median 15%, max 79%)
   const bar = (await page.getByTestId(`lp-progress-${ticker}`).textContent()) ?? '';
   const share = Number(bar.match(/([\d.]+)%/)?.[1]);
+  const p99Dollars = 21 * (Math.pow(0.01, -1 / 8) - 1) * 1000 + 400;
+  const p99Share = ((1073e6 - (15000 * 1073e6) / (15000 + p99Dollars)) / 800e6) * 100;
   expect(share).toBeGreaterThan(0);
-  expect(share).toBeLessThan(50);
+  expect(share).toBeLessThan(p99Share);
 
   await page.getByTestId('tab-holdings').click();
   await expect(page.getByTestId(`lp-hold-${ticker}`)).toBeVisible();
