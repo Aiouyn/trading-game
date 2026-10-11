@@ -1,14 +1,16 @@
 'use client';
 
 // Boutique (Velvet app 11): the lifestyle shop and your collection, from the old Estate screen. Property
-// lives in Businesses (Velvet's app table). Game money only; palettes are never sold here.
+// lives in Businesses (Velvet's app table). Game money only; palettes are never sold here. A purchase is picked
+// first and spent only from the CommitBar (review, then confirm).
 import { useState } from 'react';
 import { LIFE_CATEGORIES, LIFE_ITEMS, RANKS, itemPrestige, rankIndex, resaleValue, type LifeCategory } from '@/content/lifestyle';
 import { compactMoney, money, qty } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { isAppUnlocked } from '@/shell/ctx';
-import { Button, Card, Chip, ConfirmButton, Stat, Tabs } from '@/components/ui';
+import { Button, Card, Chip, CommitBar, ConfirmButton, EmptyNext, StatStrip, Tabs } from '@/components/ui';
+import { unlockLine } from '../unlock';
 
 type Tab = 'shop' | 'collection';
 
@@ -19,19 +21,15 @@ export function BoutiqueApp() {
   if (!isAppUnlocked('boutique', me.player.rankId)) return null;
   return (
     <div className="flex flex-col gap-4" data-testid="estate-view">
-      <Card className="p-4">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="font-serif text-hero text-fg">{t('shell.app.boutique')}</h1>
-            <p className="text-small text-fg-muted">{t('boutique.intro')}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-2 @md:grid-cols-3">
-            <Stat label={t('boutique.stat.prestige')} value={<span className="text-brass-hi">{qty(Math.round(me.player.prestige))}</span>} testId="prestige" />
-            <Stat label={t('boutique.stat.reputation')} value={Math.round(me.player.reputation)} />
-            <Stat label={t('boutique.stat.shell')} value={rank.shell} />
-          </div>
-        </div>
-      </Card>
+      <StatStrip
+        testId="boutique-stats"
+        intro={t('boutique.intro')}
+        items={[
+          { label: t('boutique.stat.prestige'), value: <span className="text-brass-hi">{qty(Math.round(me.player.prestige))}</span>, testId: 'prestige' },
+          { label: t('boutique.stat.reputation'), value: Math.round(me.player.reputation) },
+          { label: t('boutique.stat.shell'), value: rank.shell },
+        ]}
+      />
       <Tabs<Tab>
         tabs={[
           { id: 'shop', label: t('boutique.tab.shop') },
@@ -40,7 +38,7 @@ export function BoutiqueApp() {
         value={tab}
         onChange={setTab}
       />
-      {tab === 'shop' ? <Shop /> : <Collection />}
+      {tab === 'shop' ? <Shop /> : <Collection onShop={() => setTab('shop')} />}
     </div>
   );
 }
@@ -51,6 +49,7 @@ function Shop() {
   const directory = useGame((s) => s.directory);
   const coll = useGame((s) => s.pub?.collectibles ?? 1);
   const [cat, setCat] = useState<LifeCategory | 'all'>('all');
+  const [pick, setPick] = useState<string | null>(null);
   const rIdx = rankIndex(me.player.rankId);
   const cash = me.account?.cash ?? 0;
   // A unique item can be held once. The directory shows who holds what, but the shop only says "Taken":
@@ -58,6 +57,9 @@ function Shop() {
   const held = new Set(directory.flatMap((d) => d.lifestyle));
   const items = LIFE_ITEMS.filter((i) => cat === 'all' || i.category === cat);
   const clsLabel = (cls: string) => t(`boutique.cls.${cls}`);
+  const picked = pick ? LIFE_ITEMS.find((i) => i.id === pick) ?? null : null;
+  const pickedLocked = picked ? rIdx < rankIndex(picked.rank) : false;
+  const pickedTaken = picked ? picked.cls === 'unique' && held.has(picked.id) : false;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-1 overflow-x-auto" role="group" aria-label={t('boutique.categories')}>
@@ -65,10 +67,31 @@ function Shop() {
           <button key={c.id} type="button" onClick={() => setCat(c.id)} aria-pressed={cat === c.id} className={`shrink-0 rounded-chip border px-3 py-1 text-caption ${cat === c.id ? 'border-brass/60 text-brass-hi' : 'border-ink-3 text-fg-muted'}`}>{c.name}</button>
         ))}
       </div>
+      {picked && (
+        <div className="sticky top-0 z-10">
+          <CommitBar
+            testId="boutique-commit"
+            title={t('commit.itemTitle', { name: picked.name })}
+            rows={[
+              { label: t('commit.cost'), value: money(picked.price), testId: 'boutique-commit-cost' },
+              { label: t('commit.cashNow'), value: money(cash) },
+              { label: t('commit.cashAfter'), value: money(cash - picked.price), testId: 'boutique-commit-after' },
+            ]}
+            confirmLabel={t('commit.confirmItem')}
+            disabled={pickedLocked || pickedTaken || cash < picked.price}
+            onCancel={() => setPick(null)}
+            onConfirm={async () => {
+              const r = await act({ type: 'life.buy', itemId: picked.id }, { success: t('boutique.yours', { name: picked.name }) });
+              if (r.ok) setPick(null);
+            }}
+          />
+        </div>
+      )}
       <div className="grid gap-3 @md:grid-cols-2 @4xl:grid-cols-3">
         {items.map((i) => {
           const locked = rIdx < rankIndex(i.rank);
           const taken = i.cls === 'unique' && held.has(i.id);
+          const unlock = locked ? unlockLine(i.rank, me.player.netWorthPeak) : null;
           return (
             <Card key={i.id} className={`flex flex-col p-4 ${locked ? 'opacity-70' : ''}`} data-testid={`item-${i.id}`}>
               <div className="flex items-start justify-between gap-2">
@@ -82,10 +105,14 @@ function Shop() {
                 <span className="text-brass-hi">{t('boutique.pp', { n: Math.round(itemPrestige(i, 0)) })}</span>
                 <span className="text-fg-faint">{i.upkeep ? t('boutique.upkeep', { x: (i.upkeep * 100).toFixed(1) }) : t('boutique.noUpkeep')}</span>
               </div>
-              <Button size="sm" variant={locked || taken ? 'outline' : 'brass'} className="mt-3" disabled={locked || taken || cash < i.price}
-                onClick={() => act({ type: 'life.buy', itemId: i.id }, { success: t('boutique.yours', { name: i.name }) })} testId={`buy-item-${i.id}`}>
-                {taken ? t('boutique.taken') : locked ? t('common.unlocksAt', { rank: t(`rank.${i.rank}`) }) : t('boutique.buyFor', { price: compactMoney(i.price) })}
-              </Button>
+              {unlock ? (
+                <p className="mt-3 text-caption text-fg-faint" data-testid={`item-unlock-${i.id}`}>{unlock.text}</p>
+              ) : (
+                <Button size="sm" variant={pick === i.id ? 'brass' : 'outline'} className="mt-3" disabled={taken || cash < i.price}
+                  onClick={() => setPick(i.id)} testId={`buy-item-${i.id}`}>
+                  {taken ? t('boutique.taken') : cash < i.price ? t('biz.needMore', { amount: compactMoney(i.price - cash) }) : t('boutique.buyFor', { price: compactMoney(i.price) })}
+                </Button>
+              )}
             </Card>
           );
         })}
@@ -95,12 +122,21 @@ function Shop() {
   );
 }
 
-function Collection() {
+function Collection({ onShop }: { onShop: () => void }) {
   const me = useGame((s) => s.me)!;
   const tick = useGame((s) => s.frame?.tick ?? 0);
   const act = useGame((s) => s.act);
   const coll = useGame((s) => s.pub?.collectibles ?? 1);
-  if (!me.player.lifestyle.length) return <Card className="p-8 text-center font-serif text-title text-fg-muted">{t('boutique.empty')}</Card>;
+  if (!me.player.lifestyle.length) {
+    return (
+      <EmptyNext
+        testId="boutique-collection-empty"
+        title={t('boutique.empty')}
+        body={t('boutique.empty.body')}
+        cta={<Button variant="brass" onClick={onShop} testId="boutique-to-shop">{t('boutique.empty.cta')}</Button>}
+      />
+    );
+  }
   return (
     <div className="grid gap-3 @md:grid-cols-2 @4xl:grid-cols-3">
       {me.player.lifestyle.map((o) => {

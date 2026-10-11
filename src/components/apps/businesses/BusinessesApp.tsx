@@ -8,7 +8,7 @@ import { compactMoney, money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { isAppUnlocked } from '@/shell/ctx';
-import { Card, Stat, Tabs } from '@/components/ui';
+import { StatStrip, Tabs } from '@/components/ui';
 import { Catalog } from './Catalog';
 import { OwnedBusinesses } from './OwnedBusinesses';
 import { PropertyMarket, OwnedProperty } from './Property';
@@ -25,20 +25,16 @@ export function BusinessesApp() {
   const sectors = new Set(me.businesses.map((b) => BIZ_BY_ID.get(b.defId)!.sector)).size;
   return (
     <div className="flex flex-col gap-4" data-testid="empire-view">
-      <Card className="p-4">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="font-serif text-hero text-fg">{t('shell.app.businesses')}</h1>
-            <p className="text-small text-fg-muted">{t('biz.intro')}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-2 @md:grid-cols-4">
-            <Stat label={t('biz.stat.count')} value={me.businesses.length} />
-            <Stat label={t('biz.stat.income')} value={<span className="text-gain">{money(income)}</span>} testId="empire-income" />
-            <Stat label={t('biz.stat.invested')} value={compactMoney(invested)} />
-            <Stat label={t('biz.stat.sectors')} value={t('biz.stat.sectorsOf', { n: sectors, total: BIZ_SECTORS.length })} />
-          </div>
-        </div>
-      </Card>
+      <StatStrip
+        testId="biz-stats"
+        intro={t('biz.intro')}
+        items={[
+          { label: t('biz.stat.count'), value: me.businesses.length },
+          { label: t('biz.stat.income'), value: <span className="text-gain">{money(income)}</span>, testId: 'empire-income' },
+          { label: t('biz.stat.invested'), value: compactMoney(invested) },
+          { label: t('biz.stat.sectors'), value: t('biz.stat.sectorsOf', { n: sectors, total: BIZ_SECTORS.length }) },
+        ]}
+      />
       <Tabs<Tab>
         tabs={[
           { id: 'owned', label: t('biz.tab.owned'), badge: me.businesses.length },
@@ -50,11 +46,11 @@ export function BusinessesApp() {
         value={tab}
         onChange={setTab}
       />
-      {tab === 'owned' && <OwnedBusinesses />}
-      {tab === 'shops' && <ShopsTab />}
+      {tab === 'owned' && <OwnedBusinesses onBrowse={() => setTab('buy')} />}
+      {tab === 'shops' && <ShopsTab onBuy={() => setTab('buy')} />}
       {tab === 'buy' && <Catalog onBought={() => setTab('owned')} />}
       {tab === 'property' && <PropertyMarket />}
-      {tab === 'homes' && <OwnedProperty />}
+      {tab === 'homes' && <OwnedProperty onBrowse={() => setTab('property')} />}
     </div>
   );
 }

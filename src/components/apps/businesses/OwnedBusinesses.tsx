@@ -8,16 +8,14 @@ import { useGame } from '@/game/store';
 import { businessSalePrice } from '@/world/assets';
 import type { Business } from '@/world/types';
 import { t } from '@/i18n';
-import { Button, Card, Chip, ConfirmButton, TextField } from '@/components/ui';
+import { Button, Card, Chip, ConfirmButton, EmptyNext, TextField } from '@/components/ui';
 
-export function OwnedBusinesses() {
+export function OwnedBusinesses({ onBrowse }: { onBrowse: () => void }) {
   const me = useGame((s) => s.me)!;
   if (!me.businesses.length) {
     return (
-      <Card className="p-8 text-center">
-        <p className="font-serif text-title text-fg-muted">{t('biz.none.title')}</p>
-        <p className="mt-2 text-small text-fg-faint">{t('biz.none.body')}</p>
-      </Card>
+      <EmptyNext testId="biz-owned-empty" title={t('biz.none.title')} body={t('biz.none.body')}
+        cta={<Button variant="brass" onClick={onBrowse} testId="biz-to-catalog">{t('biz.none.cta')}</Button>} />
     );
   }
   return (

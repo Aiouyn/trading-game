@@ -5,11 +5,12 @@
 import { useState } from 'react';
 import { CITIES, districtAssetId } from '@/engine';
 import { PROPERTY_TYPE_BY_ID, PROPERTY_TYPES, rankIndex } from '@/content/lifestyle';
-import { compactMoney, signedPct } from '@/game/format';
+import { compactMoney, money, signedPct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { maxLtvFor, priceAt, propertyDeposit, propertySaleNet, renovateCost } from '@/world/assets';
 import { t } from '@/i18n';
-import { BrassChip, Button, Card, Chip, ConfirmButton, LockGlyph, Select, Stat } from '@/components/ui';
+import { BrassChip, Button, Card, Chip, CommitBar, ConfirmButton, EmptyNext, LockGlyph, Select, Stat } from '@/components/ui';
+import { unlockLine } from '../unlock';
 
 const rankName = (id: string) => t(`rank.${id}`);
 
@@ -24,6 +25,7 @@ export function PropertyMarket() {
   const act = useGame((s) => s.act);
   const [cityId, setCity] = useState('avalon');
   const [ltv, setLtv] = useState(0);
+  const [pick, setPick] = useState<string | null>(null);
   const rIdx = rankIndex(me.player.rankId);
   const city = CITIES.find((c) => c.id === cityId)!;
   const cityLocked = rIdx < rankIndex(city.unlockRank);
@@ -41,6 +43,36 @@ export function PropertyMarket() {
         <span className="text-caption text-fg-faint">{maxLtv ? t('prop.rate', { rate: (me.mortgageRate * 100).toFixed(2) }) : t('prop.mortgageLocked', { rank: rankName('R1') })}</span>
       </div>
       <p className="text-small text-fg-muted">{city.blurb}</p>
+      {pick && (() => {
+        const [dId, tId] = pick.split('|');
+        const d = city.districts.find((x) => x.id === dId);
+        const ty = PROPERTY_TYPE_BY_ID.get(tId ?? '');
+        if (!d || !ty) return null;
+        const idx = districtIndexOf(world, city.id, d.id);
+        const price = priceAt(ty.value, d.tier, idx);
+        const down = propertyDeposit(price, ltv);
+        return (
+          <div className="sticky top-0 z-10">
+            <CommitBar
+              testId="prop-commit"
+              title={t('commit.propTitle', { type: ty.name, district: d.name })}
+              rows={[
+                { label: t('commit.price'), value: money(price), testId: 'prop-commit-price' },
+                { label: t('commit.down'), value: money(down), testId: 'prop-commit-down' },
+                { label: t('commit.loan'), value: money(price - down) },
+                { label: t('commit.cashAfter'), value: money(cash - down), testId: 'prop-commit-after' },
+              ]}
+              confirmLabel={t('commit.confirmProp')}
+              disabled={cityLocked || rIdx < rankIndex(ty.rank) || cash < down}
+              onCancel={() => setPick(null)}
+              onConfirm={async () => {
+                const r = await act({ type: 'prop.buy', cityId: city.id, districtId: d.id, typeId: ty.id, ltv }, { success: t('prop.bought', { type: ty.name, district: d.name }) });
+                if (r.ok) setPick(null);
+              }}
+            />
+          </div>
+        );
+      })()}
       {cityLocked && <Card className="flex items-center gap-3 p-4"><LockGlyph /><span className="text-small text-fg-muted">{t('prop.cityLocked', { city: city.name, rank: rankName(city.unlockRank) })}</span></Card>}
       {city.districts.map((d) => {
         const idx = districtIndexOf(world, city.id, d.id);
@@ -71,10 +103,14 @@ export function PropertyMarket() {
                       <span className="text-gain">{t('prop.rent', { x: (ty.rentYield * 100).toFixed(1) })}</span>
                       <span className="text-fg-faint">{t('prop.upkeep', { x: (ty.upkeep * 100).toFixed(1) })}</span>
                     </div>
-                    <Button size="sm" variant={locked ? 'outline' : 'brass'} className="mt-2" disabled={locked || cash < down}
-                      onClick={() => act({ type: 'prop.buy', cityId: city.id, districtId: d.id, typeId: ty.id, ltv }, { success: t('prop.bought', { type: ty.name, district: d.name }) })} testId={`buy-prop-${d.id}-${ty.id}`}>
-                      {locked ? t('common.unlocksAt', { rank: rankName(cityLocked ? city.unlockRank : ty.rank) }) : t('prop.buyDown', { amount: compactMoney(down) })}
-                    </Button>
+                    {locked ? (
+                      <p className="mt-2 text-caption text-fg-faint" data-testid={`prop-unlock-${d.id}-${ty.id}`}>{cityLocked ? t('common.unlocksAt', { rank: rankName(city.unlockRank) }) : unlockLine(ty.rank, me.player.netWorthPeak).text}</p>
+                    ) : (
+                      <Button size="sm" variant={pick === `${d.id}|${ty.id}` ? 'brass' : 'outline'} className="mt-2" disabled={cash < down}
+                        onClick={() => setPick(`${d.id}|${ty.id}`)} testId={`buy-prop-${d.id}-${ty.id}`}>
+                        {cash < down ? t('biz.needMore', { amount: compactMoney(down - cash) }) : t('prop.buyDown', { amount: compactMoney(down) })}
+                      </Button>
+                    )}
                   </div>
                 );
               })}
@@ -86,10 +122,12 @@ export function PropertyMarket() {
   );
 }
 
-export function OwnedProperty() {
+export function OwnedProperty({ onBrowse }: { onBrowse: () => void }) {
   const me = useGame((s) => s.me)!;
   const act = useGame((s) => s.act);
-  if (!me.properties.length) return <Card className="p-8 text-center font-serif text-title text-fg-muted">{t('prop.none')}</Card>;
+  if (!me.properties.length) {
+    return <EmptyNext testId="prop-empty" title={t('prop.none')} body={t('prop.empty.body')} cta={<Button variant="brass" onClick={onBrowse} testId="prop-to-market">{t('prop.empty.cta')}</Button>} />;
+  }
   return (
     <div className="grid gap-3 @2xl:grid-cols-2">
       {me.properties.map((p) => {

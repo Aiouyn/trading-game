@@ -54,6 +54,7 @@ test('a business earns: buy a street food cart and see it in the empire', async 
   await goTo(page, 'empire');
   await page.getByTestId('tab-buy').click();
   await page.getByTestId('buy-biz-food.street-food-cart').click();
+  await page.getByTestId('biz-commit-confirm').click();
   await expect(page.getByTestId('empire-income')).not.toContainText('$0.00', { timeout: 10_000 });
   await proof(page, 'empire');
   expect(errors).toEqual([]);

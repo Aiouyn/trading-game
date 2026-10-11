@@ -37,6 +37,7 @@ async function buyFoodCart(page: import('@playwright/test').Page): Promise<strin
   await goTo(page, 'empire');
   await page.getByTestId('tab-buy').click();
   await page.getByTestId('buy-biz-food.street-food-cart').click();
+  await page.getByTestId('biz-commit-confirm').click();
   await expect(page.getByTestId('empire-income')).not.toContainText('$0.00', { timeout: 10_000 });
   return shopId(page);
 }
