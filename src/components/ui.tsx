@@ -351,9 +351,10 @@ export function Locked({ what, need, progress }: { what: ReactNode; need: ReactN
   );
 }
 
-export function Tabs<T extends string>({ tabs, value, onChange, className = '' }: { tabs: { id: T; label: string; badge?: number }[]; value: T; onChange: (t: T) => void; className?: string }) {
+export function Tabs<T extends string>({ tabs, value, onChange, className = '', wrap = false }: { tabs: { id: T; label: string; badge?: number }[]; value: T; onChange: (t: T) => void; className?: string; wrap?: boolean }) {
+  // wrap: the tabs break onto a second row instead of scrolling (a horizontal scroll with no cue hid the last label on a phone)
   return (
-    <div role="tablist" className={`flex gap-1 overflow-x-auto border-b border-ink-2 ${className}`}>
+    <div role="tablist" className={`flex gap-1 border-b border-ink-2 ${wrap ? 'flex-wrap' : 'overflow-x-auto'} ${className}`}>
       {tabs.map((t) => {
         const on = t.id === value;
         return (

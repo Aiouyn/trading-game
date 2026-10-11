@@ -57,6 +57,11 @@ export function statusKey(status: string): string {
   return `lp.status.${status}`;
 }
 
+/** The key of a dead token's reason (the world's deadReason: no trade for 24 game days, the cash rule, or a cancelled launch). */
+export function deadReasonKey(reason: string): string {
+  return `lp.page.deadReason.${reason}`;
+}
+
 /** The key of a flag reason (a dump after graduation, or a one-day sweep). */
 export function reasonKey(reason: string): string {
   return `lp.reason.${reason}`;

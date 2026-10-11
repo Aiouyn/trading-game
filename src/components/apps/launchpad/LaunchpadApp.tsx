@@ -75,6 +75,7 @@ export function LaunchpadApp() {
             </div>
           </Card>
           <Tabs<Tab>
+            wrap
             tabs={[
               { id: 'new', label: t('lp.tab.new') },
               { id: 'trending', label: t('lp.tab.trending') },

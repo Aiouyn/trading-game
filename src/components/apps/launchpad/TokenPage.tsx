@@ -11,7 +11,7 @@ import { t } from '@/i18n';
 import { Button, Card, Progress, ticksLabel } from '@/components/ui';
 import { openFromShell } from '@/components/os/openApp';
 import type { LpPage } from '@/world/launchpad/view';
-import { GRAD_RAISE, gameDayOf, lpPrice, refusalOf, taglineKey, tokens as fmtTokens, type RefusalCopy } from './copy';
+import { GRAD_RAISE, deadReasonKey, gameDayOf, lpPrice, refusalOf, taglineKey, tokens as fmtTokens, type RefusalCopy } from './copy';
 import { BuzzButtons } from './Buzz';
 import { CurveChart } from './CurveChart';
 import { FlagChip, Fact, RefusalBox, Section, SponsoredChip, StatusChip, TokenIcon } from './Shared';
@@ -70,7 +70,9 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
             <Progress value={page.progress} className="flex-1" label={t('lp.page.curve')} />
             <span className="num text-small text-fg" data-testid="lp-page-progress">{pct(page.progress)}</span>
           </div>
-          <p className="text-caption text-fg-muted">{t('lp.page.curveNote', { raise: money(GRAD_RAISE) })}</p>
+          <p className="text-caption text-fg-muted" data-testid="lp-curve-note">{page.status === 'graduated'
+            ? t('lp.page.curveNote.graduated', { raise: money(page.raised) })
+            : page.status === 'dead' ? t('lp.page.curveNote.dead') : t('lp.page.curveNote', { raise: money(GRAD_RAISE) })}</p>
           <CurveChart points={page.chart} />
         </Section>
       </Card>
@@ -84,6 +86,7 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
         ) : (
           <Section title={t('lp.page.trade')}>
             {page.status === 'dead' && <p className="text-small text-fg-muted" data-testid="lp-dead-note">{t('lp.page.deadNote')}</p>}
+            {page.status === 'dead' && page.deadReason && <p className="text-small text-fg-muted" data-testid="lp-dead-reason">{t(deadReasonKey(page.deadReason))}</p>}
             <Ticket page={page} held={held} locked={locked} dead={page.status === 'dead'} />
           </Section>
         )}

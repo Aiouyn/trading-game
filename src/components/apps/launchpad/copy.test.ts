@@ -5,7 +5,7 @@ import { LP, LP_K } from '@/world/launchpad/constants';
 import { normalizeName } from '@/world/launchpad/moderate';
 import {
   GRAD_RAISE, REFUSAL_CODES, allocationFromPct, buzzKey, centsFromDollars, clientCheck, codeOf, curveYOf, gameDayOf, lpPrice, reasonKey,
-  refusalCopy, refusalOf, sideKey, statusKey, taglineKey, TAGLINES, tokens,
+  deadReasonKey, refusalCopy, refusalOf, sideKey, statusKey, taglineKey, TAGLINES, tokens,
 } from './copy';
 
 // The Launchpad copy: every key a helper can return exists in English and French, every refusal has its three parts, and the
@@ -134,5 +134,22 @@ describe('the client check of a name and a ticker', () => {
 
   it('does not nag while the field is still short', () => {
     expect(clientCheck('Ab', 'AB', new Set())).toBeNull();
+  });
+});
+
+describe('dead and graduated copy (review items 6 and 9)', () => {
+  it('every reason a dead token carries has its line in both languages', () => {
+    for (const r of ['noTrade', 'cash', 'cancelled']) {
+      expect(EN[deadReasonKey(r)], r + ' en').toBeTruthy();
+      expect(FR[deadReasonKey(r)], r + ' fr').toBeTruthy();
+    }
+  });
+
+  it('the curve note has a line for a graduated and a dead token, not only the live one', () => {
+    for (const k of ['lp.page.curveNote', 'lp.page.curveNote.graduated', 'lp.page.curveNote.dead']) {
+      expect(EN[k], k + ' en').toBeTruthy();
+      expect(FR[k], k + ' fr').toBeTruthy();
+    }
+    expect(EN['lp.page.curveNote.graduated']).toContain('{raise}');
   });
 });
