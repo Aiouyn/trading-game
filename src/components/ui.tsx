@@ -387,6 +387,45 @@ export function CommitBar({ title, rows, confirmLabel, onConfirm, onCancel, disa
 }
 
 /**
+ * A spend behind a review (Stage 4, item 4): the trigger opens a CommitBar in its place with the rows of what the money
+ * does, and nothing is spent until Confirm. Cancel closes the bar. Test ids: `${testId}` opens it, `${testId}-review-confirm`
+ * spends.
+ */
+export function SpendReview({ testId, label, title, rows, confirmLabel, onConfirm, disabled = false, variant = 'outline', size = 'sm', className = '' }: {
+  testId: string;
+  label: ReactNode;
+  title?: ReactNode;
+  rows: { label: ReactNode; value: ReactNode; testId?: string }[];
+  confirmLabel?: ReactNode;
+  onConfirm: () => void | Promise<unknown>;
+  disabled?: boolean;
+  variant?: BtnVariant;
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  if (open) {
+    return (
+      <CommitBar
+        testId={`${testId}-review`}
+        title={title ?? label}
+        rows={rows}
+        confirmLabel={confirmLabel ?? t('commit.confirm')}
+        disabled={disabled}
+        className={`w-full ${className}`}
+        onCancel={() => setOpen(false)}
+        onConfirm={async () => { setOpen(false); await onConfirm(); }}
+      />
+    );
+  }
+  return (
+    <Button size={size} variant={variant} disabled={disabled} testId={testId} className={className} onClick={() => setOpen(true)}>
+      {label}
+    </Button>
+  );
+}
+
+/**
  * The compact header of an empire app (Stage 4): no serif hero title (the window title names the app), one intro line
  * and a strip of labelled figures on one row.
  */
@@ -472,4 +511,13 @@ export function ticksLabel(ticks: number, tpd = 720): string {
   if (days >= 1) return t('time.days', { n: days.toFixed(days >= 10 ? 0 : 1) });
   const min = Math.round((ticks * 5) / 60);
   return min >= 60 ? t('time.hours', { n: (min / 60).toFixed(1) }) : t('time.minutes', { n: Math.max(1, min) });
+}
+
+/** The three rows every spend review shows: what it costs, the cash now, and the cash after it. */
+export function spendRows(cost: number, cash: number): { label: string; value: string }[] {
+  return [
+    { label: t('commit.cost'), value: money(cost) },
+    { label: t('commit.cashNow'), value: money(cash) },
+    { label: t('commit.cashAfter'), value: money(cash - cost) },
+  ];
 }

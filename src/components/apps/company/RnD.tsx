@@ -9,7 +9,7 @@ import { COMPANY, PHARMA_GATES } from '@/content/company';
 import { money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, NumberField, Select, TextField } from '@/components/ui';
+import { NumberField, Select, SpendReview, spendRows, TextField } from '@/components/ui';
 import type { CompanyFounderView } from '@/world/company/views';
 import type { ProjectKind } from '@/world/company/types';
 import { PrivateChip, RefusalNote, Section } from './Shared';
@@ -18,6 +18,7 @@ import { PROJECT_IDS, projectLabel } from './labels';
 
 export function RnD({ co }: { co: CompanyFounderView }) {
   const act = useGame((s) => s.act);
+  const cash = useGame((s) => s.me?.account?.cash ?? 0);
   const [kind, setKind] = useState<ProjectKind>('quality');
   const [productId, setProductId] = useState(co.productsPrivate[0]?.id ?? '');
   const [spend, setSpend] = useState('50000');
@@ -113,9 +114,7 @@ export function RnD({ co }: { co: CompanyFounderView }) {
           <RefusalNote refusal={refusal} />
           <div className="flex items-center justify-between gap-3">
             <span className="text-caption text-fg-faint">{productName}</span>
-            <Button variant="brass" disabled={busy || amount === null || !productId} onClick={start} testId="company-rd-submit">
-              {t('company.ui.rd.start')}
-            </Button>
+            <SpendReview variant="brass" testId="company-rd-submit" label={t('company.ui.rd.start')} title={t('company.ui.rd.start')} rows={spendRows(amount ?? 0, cash)} disabled={busy || amount === null || !productId} onConfirm={start} />
           </div>
         </div>
       </Section>
@@ -184,7 +183,7 @@ function Launch({ co }: { co: CompanyFounderView }) {
           ) : null}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-caption text-fg-faint">{t('company.ui.launch.note')}</span>
-            <Button variant="brass" disabled={blocked} onClick={launch} testId="company-launch-submit">{t('company.ui.launch.submit')}</Button>
+            <SpendReview variant="brass" testId="company-launch-submit" label={t('company.ui.launch.submit')} title={t('company.ui.launch.submit')} rows={[{ label: t('commit.price'), value: money(amount ?? 0) }]} disabled={blocked} onConfirm={launch} />
           </div>
         </div>
       )}

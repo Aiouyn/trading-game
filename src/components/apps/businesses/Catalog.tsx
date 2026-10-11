@@ -10,10 +10,13 @@ import { compactMoney, money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { CITY_DEMAND } from '@/world/assets';
 import { t } from '@/i18n';
-import { Button, Card, CommitBar, Select, Td, TextField, Th } from '@/components/ui';
+import { Button, Card, CommitBar, Segmented, Select, Td, TextField, Th } from '@/components/ui';
 import { unlockLine } from '../unlock';
 
 type SortKey = 'payback' | 'perDay' | 'cost';
+
+/** The most units one Max buy sends, so a large cash balance cannot flood the shop with commands. */
+const MAX_BATCH = 20;
 
 export function Catalog({ onBought }: { onBought: () => void }) {
   const me = useGame((s) => s.me)!;
@@ -24,6 +27,8 @@ export function Catalog({ onBought }: { onBought: () => void }) {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('payback');
   const [pick, setPick] = useState<string | null>(null);
+  // How many of the picked business to buy: one, five, or as many as the cash covers (capped, so one tap is never a flood).
+  const [qty, setQty] = useState<'1' | '5' | 'max'>('1');
   const rIdx = rankIndex(me.player.rankId);
   const cash = me.account?.cash ?? 0;
   const cities = CITIES.map((c) => {
@@ -43,6 +48,9 @@ export function Catalog({ onBought }: { onBought: () => void }) {
     .sort((a, b) => (sort === 'payback' ? a.payback - b.payback : sort === 'perDay' ? b.inc - a.inc : a.d.cost - b.d.cost));
   const picked = pick ? rows.find((r) => r.d.id === pick) ?? null : null;
   const cityOpen = !cities.find((c) => c.value === city)?.disabled;
+  const unitCost = picked?.d.cost ?? 0;
+  const count = !picked ? 1 : qty === '1' ? 1 : qty === '5' ? 5 : Math.max(1, Math.min(MAX_BATCH, Math.floor(cash / unitCost)));
+  const total = unitCost * count;
   return (
     <div className="flex flex-col gap-3" data-testid="catalog">
       <div className="flex flex-wrap items-center gap-2">
@@ -58,21 +66,41 @@ export function Catalog({ onBought }: { onBought: () => void }) {
         <span className="text-caption text-fg-faint">{t('biz.demand', { x: demand.toFixed(2) })} · {t('biz.count', { n: rows.length })}</span>
       </div>
       {picked && (
-        <div className="sticky top-0 z-10">
+        <div className="sticky top-0 z-10 flex flex-col gap-2">
+          <Segmented<'1' | '5' | 'max'>
+            size="sm"
+            label={t('commit.qty')}
+            value={qty}
+            onChange={setQty}
+            className="self-start"
+            options={[
+              { value: '1', label: '×1', testId: 'biz-qty-1' },
+              { value: '5', label: '×5', testId: 'biz-qty-5', disabled: cash < unitCost * 5 },
+              { value: 'max', label: t('commit.qty.max'), testId: 'biz-qty-max', disabled: cash < unitCost },
+            ]}
+          />
           <CommitBar
             testId="biz-commit"
             title={t('commit.buyTitle', { name: picked.d.name })}
             rows={[
-              { label: t('commit.cost'), value: money(picked.d.cost), testId: 'biz-commit-cost' },
+              { label: t('commit.qty'), value: String(count), testId: 'biz-commit-qty' },
+              { label: t('commit.cost'), value: money(total), testId: 'biz-commit-cost' },
               { label: t('commit.cashNow'), value: money(cash) },
-              { label: t('commit.cashAfter'), value: money(cash - picked.d.cost), testId: 'biz-commit-after' },
+              { label: t('commit.cashAfter'), value: money(cash - total), testId: 'biz-commit-after' },
             ]}
             confirmLabel={t('commit.confirmBuy')}
-            disabled={!cityOpen || picked.locked || cash < picked.d.cost}
-            onCancel={() => setPick(null)}
+            disabled={!cityOpen || picked.locked || cash < unitCost}
+            onCancel={() => { setPick(null); setQty('1'); }}
             onConfirm={async () => {
-              const r = await act({ type: 'biz.buy', defId: picked.d.id, cityId: city }, { success: t('biz.bought', { name: picked.d.name }) });
-              if (r.ok) { setPick(null); onBought(); }
+              // one buy command per unit: the first refusal stops the run, and the units already bought stay bought
+              let bought = 0;
+              for (let i = 0; i < count; i++) {
+                const last = i === count - 1;
+                const r = await act({ type: 'biz.buy', defId: picked.d.id, cityId: city }, last ? { success: t('biz.bought', { name: picked.d.name }) } : { silent: true });
+                if (!r.ok) break;
+                bought++;
+              }
+              if (bought > 0) { setPick(null); setQty('1'); onBought(); }
             }}
           />
         </div>

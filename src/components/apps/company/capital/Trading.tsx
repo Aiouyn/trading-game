@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { t } from '@/i18n';
 import { money, price, qty } from '@/game/format';
-import { Button, NumberField } from '@/components/ui';
+import { NumberField, SpendReview } from '@/components/ui';
 import { buybackFit, buybackRoomOver, type CapitalView } from '@/world/company/capital';
 import { HoldButton, Line, Note, Panel, PublChip, RefusalBox, numOf, useAct, type Refusal } from './shared';
 
@@ -196,14 +196,15 @@ export function BuybackPanel({ cap }: { cap: CapitalView }) {
         <RefusalBox refusal={{ code: 'buybackTooLarge', maxPerDay: fit.room }} testId="company-buyback-over" />
       )}
       {b.listed && (
-        <Button
+        <SpendReview
           variant="brass"
-          disabled={!ready || act.busy}
-          onClick={() => act.run({ type: 'company.buyback', companyId: cap.companyId, size: sz, fromDay, toDay }, t('company.capital.buyback.filed'))}
           testId="company-buyback-file"
-        >
-          {t('company.capital.buyback.file')}
-        </Button>
+          label={t('company.capital.buyback.file')}
+          title={t('company.capital.buyback.file')}
+          rows={[{ label: t('company.capital.buyback.size'), value: qty(Number.isFinite(sz) ? sz : 0) }, { label: t('company.capital.buyback.from'), value: String(fromDay) }, { label: t('company.capital.buyback.to'), value: String(toDay) }]}
+          disabled={!ready || act.busy}
+          onConfirm={() => act.run({ type: 'company.buyback', companyId: cap.companyId, size: sz, fromDay, toDay }, t('company.capital.buyback.filed'))}
+        />
       )}
       {act.refusal && <RefusalBox refusal={act.refusal} testId="company-buyback-error" />}
       <Note>{t('company.capital.buyback.rule')}</Note>

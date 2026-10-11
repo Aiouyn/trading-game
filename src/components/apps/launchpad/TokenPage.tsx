@@ -8,9 +8,10 @@ import { useState } from 'react';
 import { money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, Card, Progress, ticksLabel } from '@/components/ui';
+import { Button, Card, Progress, SpendReview, spendRows, ticksLabel } from '@/components/ui';
 import { openFromShell } from '@/components/os/openApp';
 import type { LpPage } from '@/world/launchpad/view';
+import { FILING_FEE } from '@/world/launchpad/rug';
 import { GRAD_RAISE, deadReasonKey, gameDayOf, lpPrice, refusalOf, taglineKey, tokens as fmtTokens, type RefusalCopy } from './copy';
 import { BuzzButtons } from './Buzz';
 import { CurveChart } from './CurveChart';
@@ -21,6 +22,7 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
   page: LpPage; held: number; locked: number; isCreator: boolean; tick: number; onBack: () => void;
 }) {
   const act = useGame((s) => s.act);
+  const cash = useGame((s) => s.me?.account?.cash ?? 0);
   const [fileRefusal, setFileRefusal] = useState<RefusalCopy | null>(null);
   const [filed, setFiled] = useState<string | null>(null);
   const today = gameDayOf(tick);
@@ -45,7 +47,7 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
         <div className="flex flex-wrap items-start gap-4">
           <TokenIcon svg={page.icon} size={56} />
           <div className="min-w-0 flex-1">
-            <h1 className="break-words font-serif text-title text-fg" data-testid="lp-page-name">{page.name}</h1>
+            <h1 className="break-words text-title font-semibold text-fg" data-testid="lp-page-name">{page.name}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="num text-body text-brass" data-testid="lp-page-ticker">{page.ticker}</span>
               <StatusChip status={page.status} />
@@ -110,7 +112,7 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
           {page.canFile && (
             <div className="flex flex-col gap-2">
               <p className="text-caption text-fg-muted">{t('lp.page.fileNote')}</p>
-              <div><Button size="sm" variant="danger" testId="lp-file" onClick={fileCase}>{t('lp.page.fileCase')}</Button></div>
+              <div><SpendReview variant="danger" testId="lp-file" label={t('lp.page.fileCase')} title={t('commit.fileTitle', { name: page.ticker })} confirmLabel={t('commit.confirmFile')} rows={spendRows(FILING_FEE, cash)} onConfirm={fileCase} /></div>
             </div>
           )}
           {filed && <p role="status" className="text-small text-gain" data-testid="lp-filed">{filed}</p>}
@@ -166,7 +168,7 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
         </Section>
       </Card>
         </div>
-        <aside className="flex flex-col gap-4 @3xl:sticky @3xl:top-2 @3xl:self-start" data-testid="lp-ticket-aside">
+        <aside id="lp-ticket-aside" className="flex flex-col gap-4 @3xl:sticky @3xl:top-2 @3xl:self-start" data-testid="lp-ticket-aside">
       <Card className="flex flex-col gap-3 p-4">
         {page.status === 'graduated' ? (
           <Section title={t('lp.page.trade')} testId="lp-grad-trade">
@@ -183,6 +185,16 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack }: {
       </Card>
 
         </aside>
+      </div>
+      {/* Below the wide layout the ticket stacks under the chart and tape; this bar keeps the price and the trade in reach. */}
+      <div className="sticky bottom-2 z-20 flex items-center justify-between gap-3 rounded-md border border-brass/50 bg-ink-1 p-3 shadow-lg @3xl:hidden" data-testid="lp-mobile-ticket">
+        <div className="min-w-0">
+          <span className="num text-body text-fg" data-testid="lp-mobile-price">{lpPrice(page.price)}</span>
+          <span className="num ml-2 text-caption text-brass">{page.ticker}</span>
+        </div>
+        <Button variant="brass" size="sm" testId="lp-mobile-trade" onClick={() => document.getElementById('lp-ticket-aside')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+          {t('lp.page.trade')}
+        </Button>
       </div>
     </div>
   );

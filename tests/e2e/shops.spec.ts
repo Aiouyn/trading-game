@@ -113,6 +113,7 @@ test('a manager is hired with its prepay shown, and letting go before the term r
 
   await expect(page.getByTestId(`shop-${id}-hire-1`)).toBeVisible();
   await page.getByTestId(`shop-${id}-hire-1`).click();
+  await page.getByTestId(`shop-${id}-hire-1-review-confirm`).click();
   await expect(page.getByTestId(`shop-${id}-fire`)).toBeVisible({ timeout: 5_000 });
   await expect(page.getByTestId(`shop-${id}-manager`)).toContainText('forfeits');
 

@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { money, pct, qty } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, Card, Chip, NumberField, Select, TextField, ticksLabel } from '@/components/ui';
+import { Button, Card, Chip, NumberField, Select, SpendReview, TextField, spendRows, ticksLabel } from '@/components/ui';
 import { FUND_RULES } from '@/content/funds';
 import type { Side } from '@/engine';
 import { feeFractionOf, type ExchangeView, type FundRules, type ManagedFund } from '@/world/exchange/view';
@@ -48,6 +48,7 @@ const POSITION = [0.1, 0.2];
 
 function OpenFund({ x }: { x: ExchangeView }) {
   const act = useGame((s) => s.act);
+  const cash = useGame((s) => s.me?.account?.cash ?? 0);
   const [name, setName] = useState('');
   const [stake, setStake] = useState(String(x.rules.managerMinStake));
   const [classes, setClasses] = useState<string[]>([...FUND_RULES.classes]);
@@ -107,7 +108,7 @@ function OpenFund({ x }: { x: ExchangeView }) {
         {blocked && <RefusalBox copy={blocked} testId="exchange-opening-refusal" />}
         {refusal && <RefusalBox copy={refusal} testId="exchange-open-refusal" />}
         {sent && <p className="text-small text-gain" data-testid="exchange-open-sent">{sent}</p>}
-        <Button variant="brass" disabled={!valid} onClick={submit} testId="exchange-open-submit">{t('exchange.manage.open.submit')}</Button>
+        <SpendReview variant="brass" testId="exchange-open-submit" label={t('exchange.manage.open.submit')} title={t('exchange.manage.open.submit')} rows={spendRows(valid ? n : 0, cash)} disabled={!valid} onConfirm={submit} />
       </Card>
     </div>
   );
@@ -247,7 +248,17 @@ function TradeTicket({ m }: { m: ManagedFund }) {
           )}
         </div>
       )}
-      {assets.length > 0 && <Button variant="brass" disabled={!valid} onClick={submit} testId="exchange-trade-submit">{t('exchange.manage.trade.submit')}</Button>}
+      {assets.length > 0 && (
+        <SpendReview
+          variant="brass"
+          testId="exchange-trade-submit"
+          label={t('exchange.manage.trade.submit')}
+          title={t('exchange.manage.trade.submit')}
+          rows={[{ label: t('exchange.manage.trade.side'), value: t(side === 'buy' ? 'exchange.side.buy' : 'exchange.side.sell') }, { label: t('exchange.manage.trade.qty'), value: qty(valid ? n : 0) }, { label: t('exchange.manage.trade.asset'), value: assetId }]}
+          disabled={!valid}
+          onConfirm={submit}
+        />
+      )}
       {refusal && <RefusalBox copy={refusal} testId="exchange-trade-refusal" />}
       {sent && <p className="text-small text-gain" data-testid="exchange-trade-sent">{sent}</p>}
     </Card>

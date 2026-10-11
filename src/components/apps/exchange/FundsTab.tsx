@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { money, pct, qty } from '@/game/format';
 import { t } from '@/i18n';
-import { ticksLabel, Button, Card, Chip, EmptyNext, NumberField, Sparkline } from '@/components/ui';
+import { ticksLabel, Button, Card, Chip, EmptyNext, NumberField, SpendReview, Sparkline, spendRows } from '@/components/ui';
 import { FUND_RULES } from '@/content/funds';
 import type { ExchangeFund, ExchangeView, FundHolding, FundRules } from '@/world/exchange/view';
 import { Fact, PublicChip, RefusalBox, Section } from './Shared';
@@ -126,6 +126,7 @@ function FundNotices({ f, holding }: { f: ExchangeFund; holding: FundHolding | n
 /** Invest: a deposit settles at the next day-close NAV. A refusal (the rank, the account age, the stake, the caps) shows inline. */
 function InvestForm({ f, rules, holding }: { f: ExchangeFund; rules: FundRules; holding: FundHolding | null }) {
   const act = useGame((s) => s.act);
+  const cash = useGame((s) => s.me?.account?.cash ?? 0);
   const [amount, setAmount] = useState('');
   const [refusal, setRefusal] = useState<RefusalCopy | null>(null);
   const [sent, setSent] = useState<string | null>(null);
@@ -148,7 +149,7 @@ function InvestForm({ f, rules, holding }: { f: ExchangeFund; rules: FundRules; 
       <p className="text-caption text-fg-muted">{t('exchange.fund.invest.note')}</p>
       <div className="flex flex-wrap items-center gap-2">
         <NumberField label={t('exchange.fund.invest.amount')} value={amount} onChange={setAmount} min={rules.minDeposit} suffix="$" className="w-56" testId="exchange-invest-amount" />
-        <Button variant="brass" disabled={!valid} onClick={submit} testId="exchange-invest">{t('exchange.fund.invest.submit')}</Button>
+        <SpendReview variant="brass" testId="exchange-invest" label={t('exchange.fund.invest.submit')} title={t('exchange.fund.invest.submit')} rows={spendRows(valid ? n : 0, cash)} disabled={!valid} onConfirm={submit} />
       </div>
       {holding && holding.pendingDeposit > 0 && (
         <p className="num text-small text-fg-muted" data-testid="exchange-pending-deposit">
@@ -196,7 +197,7 @@ function RedeemForm({ f, rules, holding }: { f: ExchangeFund; rules: FundRules; 
       )}
       <div className="flex flex-wrap items-center gap-2">
         <NumberField label={t('exchange.fund.redeem.units')} value={units} onChange={setUnits} min={0} suffix={qty(held)} className="w-56" testId="exchange-redeem-units" />
-        <Button variant="outline" disabled={!valid} onClick={submit} testId="exchange-redeem">{t('exchange.fund.redeem.submit')}</Button>
+        <SpendReview testId="exchange-redeem" label={t('exchange.fund.redeem.submit')} title={t('exchange.fund.redeem.submit')} rows={[{ label: t('commit.amount'), value: qty(valid ? n : 0) }, ...(early && holding ? [{ label: t('commit.fee'), value: pct(rules.earlyExitFeePct) }] : [])]} disabled={!valid} onConfirm={submit} />
       </div>
       {refusal && <RefusalBox copy={refusal} testId="exchange-redeem-refusal" />}
       {sent && <p className="text-small text-gain" data-testid="exchange-redeem-sent">{sent}</p>}

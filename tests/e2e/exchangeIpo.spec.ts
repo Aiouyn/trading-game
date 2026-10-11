@@ -37,11 +37,13 @@ test('a founder opens an IPO book, an investor subscribes within the cap, and th
   await expect(page.getByTestId('company-found')).toBeVisible();
   await page.getByTestId('company-name').fill(companyName);
   await page.getByTestId('company-found-submit').click();
+  await page.getByTestId('company-found-submit-review-confirm').click();
   await expect(page.getByTestId('company-overview')).toBeVisible();
   await makeIpoReady(founder);
   await page.getByTestId('company-tab-capital').click();
   await expect(page.getByTestId('company-ipo-request')).toBeEnabled({ timeout: 20_000 });
   await page.getByTestId('company-ipo-request').click();
+  await page.getByTestId('company-ipo-request-review-confirm').click();
   await expect(page.getByTestId('company-ipo-book')).toBeVisible({ timeout: 20_000 });
   await noHorizontalOverflow(page);
 
@@ -69,6 +71,7 @@ test('a founder opens an IPO book, an investor subscribes within the cap, and th
   await invPage.getByTestId(`exchange-ipo-shares-${id}`).fill('1000');
   await expect(invPage.getByTestId(`exchange-ipo-overcap-${id}`)).toHaveCount(0);
   await invPage.getByTestId(`exchange-ipo-subscribe-${id}`).click();
+  await invPage.getByTestId(`exchange-ipo-subscribe-${id}-review-confirm`).click();
   await expect(invPage.getByTestId(`exchange-ipo-sent-${id}`)).toBeVisible({ timeout: 20_000 });
   await expect(invPage.getByTestId(`exchange-ipo-mine-${id}`)).toContainText('1,000');
   await noHorizontalOverflow(invPage);

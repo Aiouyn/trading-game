@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { pct, price, qty } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, Card, EmptyNext, NumberField } from '@/components/ui';
+import { Button, Card, EmptyNext, NumberField, SpendReview, spendRows } from '@/components/ui';
 import type { IpoRow } from '@/world/exchange/view';
 import { Fact, PublicChip, RefusalBox, Section } from './Shared';
 import { type RefusalCopy, refusalCopy, rejectVars, sectorKey } from './copy';
@@ -28,6 +28,7 @@ export function IposTab({ ipos, onTab }: { ipos: IpoRow[]; onTab: (tab: 'stocks'
 
 function IpoCard({ row }: { row: IpoRow }) {
   const act = useGame((s) => s.act);
+  const cash = useGame((s) => s.me?.account?.cash ?? 0);
   const [shares, setShares] = useState('');
   const [refusal, setRefusal] = useState<RefusalCopy | null>(null);
   const [sent, setSent] = useState<string | null>(null);
@@ -90,9 +91,15 @@ function IpoCard({ row }: { row: IpoRow }) {
               className="w-44"
               testId={`exchange-ipo-shares-${row.companyId}`}
             />
-            <Button variant="brass" disabled={!valid || over} onClick={subscribe} testId={`exchange-ipo-subscribe-${row.companyId}`}>
-              {t('exchange.ipo.subscribe')}
-            </Button>
+            <SpendReview
+              variant="brass"
+              testId={`exchange-ipo-subscribe-${row.companyId}`}
+              label={t('exchange.ipo.subscribe')}
+              title={t('exchange.ipo.subscribe')}
+              rows={[{ label: t('commit.amount'), value: qty(valid ? n : 0) }, ...spendRows(valid ? n * row.price : 0, cash)]}
+              disabled={!valid || over}
+              onConfirm={subscribe}
+            />
           </div>
         )}
         {!blocked && over && <RefusalBox copy={overCap} testId={`exchange-ipo-overcap-${row.companyId}`} />}

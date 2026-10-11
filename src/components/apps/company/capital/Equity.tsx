@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { t } from '@/i18n';
 import { money, pct, price, qty } from '@/game/format';
-import { Button, NumberField, Select } from '@/components/ui';
+import { NumberField, Select, SpendReview } from '@/components/ui';
 import type { CapitalView, CapTableRow } from '@/world/company/capital';
 import { Line, Note, Panel, RefusalBox, numOf, useAct, type Refusal } from './shared';
 
@@ -71,14 +71,15 @@ export function RoundPanel({ cap }: { cap: CapitalView }) {
           />
           <Note>{t('company.capital.round.voteRule', { share: Math.round(r.voteShare * 100) })}</Note>
           <Note testId="company-round-votes">{t('company.capital.round.votes', { founder: qty(cap.voting.founderShares), npc: qty(cap.voting.npcShares) })}</Note>
-          <Button
+          <SpendReview
             variant="brass"
-            disabled={!ok || act.busy}
-            onClick={() => act.run({ type: 'company.act', companyId: cap.companyId, action: { kind: 'raiseRound', amount: n, founderVote: vote } }, t('company.capital.round.done'))}
             testId="company-round-raise"
-          >
-            {t('company.capital.round.raise')}
-          </Button>
+            label={t('company.capital.round.raise')}
+            title={t('company.capital.round.raise')}
+            rows={[{ label: t('commit.amount'), value: money(Number.isFinite(n) ? n : 0) }, { label: t('company.capital.round.vote'), value: t(vote === 'yes' ? 'company.capital.round.vote.yes' : 'company.capital.round.vote.no') }]}
+            disabled={!ok || act.busy}
+            onConfirm={() => act.run({ type: 'company.act', companyId: cap.companyId, action: { kind: 'raiseRound', amount: n, founderVote: vote } }, t('company.capital.round.done'))}
+          />
         </>
       )}
       {act.refusal && <RefusalBox refusal={act.refusal} testId="company-round-error" />}
@@ -160,14 +161,15 @@ export function IpoPanel({ cap }: { cap: CapitalView }) {
               <Line k={t('company.capital.ipo.fee')} v={money(preview.fee)} />
             </div>
           )}
-          <Button
+          <SpendReview
             variant="brass"
-            disabled={act.busy || !preview}
-            onClick={() => act.run({ type: 'company.ipo', companyId: cap.companyId, floatPct: floor / 100 }, t('company.capital.ipo.requested'))}
             testId="company-ipo-request"
-          >
-            {t('company.capital.ipo.request')}
-          </Button>
+            label={t('company.capital.ipo.request')}
+            title={t('company.capital.ipo.request')}
+            rows={[{ label: t('company.capital.ipo.floatLabel'), value: `${floor}%` }, { label: t('commit.fee'), value: money(preview?.fee ?? 0) }]}
+            disabled={act.busy || !preview}
+            onConfirm={() => act.run({ type: 'company.ipo', companyId: cap.companyId, floatPct: floor / 100 }, t('company.capital.ipo.requested'))}
+          />
         </>
       )}
       {ipo.phase === 'blocked' && ipo.refusal && <RefusalBox refusal={ipo.refusal as Refusal} testId="company-ipo-refusal" />}

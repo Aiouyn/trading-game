@@ -9,7 +9,7 @@ import { compactMoney, money, signedPct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { maxLtvFor, priceAt, propertyDeposit, propertySaleNet, renovateCost } from '@/world/assets';
 import { t } from '@/i18n';
-import { BrassChip, Button, Card, Chip, CommitBar, ConfirmButton, EmptyNext, LockGlyph, Select, Stat } from '@/components/ui';
+import { BrassChip, Button, Card, Chip, CommitBar, ConfirmButton, EmptyNext, LockGlyph, Select, SpendReview, Stat, spendRows } from '@/components/ui';
 import { unlockLine } from '../unlock';
 
 const rankName = (id: string) => t(`rank.${id}`);
@@ -73,7 +73,7 @@ export function PropertyMarket() {
           </div>
         );
       })()}
-      {cityLocked && <Card className="flex items-center gap-3 p-4"><LockGlyph /><span className="text-small text-fg-muted">{t('prop.cityLocked', { city: city.name, rank: rankName(city.unlockRank) })}</span></Card>}
+      {cityLocked && <Card className="flex items-center gap-3 p-4"><LockGlyph /><span className="flex flex-col gap-0.5"><span className="text-small text-fg-muted">{t('prop.cityLocked', { city: city.name, rank: rankName(city.unlockRank) })}</span><span className="text-caption text-fg-faint" data-testid="prop-city-unlock">{unlockLine(city.unlockRank, me.player.netWorthPeak).text}</span></span></Card>}
       {city.districts.map((d) => {
         const idx = districtIndexOf(world, city.id, d.id);
         const types = PROPERTY_TYPES.filter((x) => x.tiers.includes(d.tier));
@@ -154,8 +154,8 @@ export function OwnedProperty({ onBrowse }: { onBrowse: () => void }) {
             <div className="mt-3 flex flex-wrap gap-2">
               {ty.home && !home && <Button size="sm" onClick={() => act({ type: 'prop.home', propId: p.id }, { success: t('prop.movedIn') })}>{t('prop.live')}</Button>}
               {home && <Button size="sm" onClick={() => act({ type: 'prop.home', propId: null })}>{t('prop.moveOut')}</Button>}
-              <Button size="sm" disabled={p.improvement >= 1.5} onClick={() => act({ type: 'prop.renovate', propId: p.id }, { success: t('prop.renovatedOk') })}>{t('prop.renovate', { amount: compactMoney(renovateCost(p.value)) })}</Button>
-              {p.mortgage > 0 && <Button size="sm" onClick={() => act({ type: 'prop.repay', propId: p.id, amount: p.mortgage })}>{t('prop.repay')}</Button>}
+              <SpendReview size="sm" testId={`prop-renovate-${p.id}`} label={t('prop.renovate', { amount: compactMoney(renovateCost(p.value)) })} title={t('prop.renovate', { amount: compactMoney(renovateCost(p.value)) })} rows={spendRows(renovateCost(p.value), me.account?.cash ?? 0)} disabled={p.improvement >= 1.5} onConfirm={() => act({ type: 'prop.renovate', propId: p.id }, { success: t('prop.renovatedOk') })} />
+              {p.mortgage > 0 && <SpendReview size="sm" testId={`prop-repay-${p.id}`} label={t('prop.repay')} title={t('prop.repay')} rows={spendRows(p.mortgage, me.account?.cash ?? 0)} onConfirm={() => act({ type: 'prop.repay', propId: p.id, amount: p.mortgage })} />}
               <ConfirmButton confirm={t('prop.sellFor', { amount: compactMoney(propertySaleNet(p.value, p.mortgage)) })} onConfirm={() => act({ type: 'prop.sell', propId: p.id })}>{t('common.sell')}</ConfirmButton>
             </div>
           </Card>

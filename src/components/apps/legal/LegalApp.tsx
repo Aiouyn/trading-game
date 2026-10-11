@@ -9,7 +9,7 @@ import { useGame } from '@/game/store';
 import { COUNSEL_COST, FILING_FEE } from '@/world/court';
 import type { CourtCase } from '@/world/types';
 import { t } from '@/i18n';
-import { Button, Card, CardHeader, Chip, CommitBar, NumberField, Select, StatStrip, ticksLabel } from '@/components/ui';
+import { Button, Card, CardHeader, Chip, CommitBar, NumberField, Select, SpendReview, StatStrip, ticksLabel } from '@/components/ui';
 
 const COUNSEL_FEES = ['0', '1', '2', '3'] as const;
 const COUNSEL_NAME = ['selfRep', 'junior', 'senior', 'star'] as const;
@@ -52,8 +52,8 @@ export function LegalApp() {
         ]}
       />
       <div className="grid gap-4 @3xl:grid-cols-[minmax(0,380px)_1fr] [&>*]:min-w-0">
-        <Card className="p-4">
-          <h2 className="font-serif text-title">{t('legal.file.title')}</h2>
+        <Card className="p-4 order-2 @3xl:order-1" data-testid="court-file">
+          <h2 className="text-body font-semibold text-fg">{t('legal.file.title')}</h2>
           <div className="mt-3 flex flex-col gap-2">
             <Select label={t('legal.file.defendant')} value={def} onChange={(v) => { setDef(v); setFiling(false); }} options={[
               ...suggested.map((id) => ({ value: id, label: t('legal.file.claim', { name: name(id) }) })),
@@ -92,7 +92,7 @@ export function LegalApp() {
             )}
           </div>
         </Card>
-        <Card>
+        <Card className="order-1 @3xl:order-2" data-testid="court-cases">
           <CardHeader title={t('legal.cases.title')} />
           {mine.length === 0 ? <p className="px-4 pb-6 text-small text-fg-faint">{t('legal.cases.none')}</p> : (
             <ul>
@@ -124,7 +124,7 @@ function CaseRow({ c, me, name, tick }: { c: CourtCase; me: string; name: (id: s
       {c.status === 'filed' && !plaintiff && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <NumberField label={t('legal.settle.for')} value={offer} onChange={setOffer} suffix="$" className="h-9 w-56" testId={`case-offer-${c.id}`} />
-          <Button size="sm" onClick={() => act({ type: 'court.settle', caseId: c.id, amount: Number(offer) }, { success: t('legal.settle.offered') })}>{t('legal.settle.offer')}</Button>
+          <SpendReview size="sm" testId={`case-settle-${c.id}`} label={t('legal.settle.offer')} title={t('legal.settle.offer')} rows={[{ label: t('commit.amount'), value: money(Number(offer) || 0) }]} disabled={!(Number(offer) > 0)} onConfirm={() => act({ type: 'court.settle', caseId: c.id, amount: Number(offer) }, { success: t('legal.settle.offered') })} />
         </div>
       )}
       {c.status === 'filed' && plaintiff && c.settlementOffer && (
