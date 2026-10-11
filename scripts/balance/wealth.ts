@@ -26,6 +26,7 @@ import { rankIndex } from '../../src/content/lifestyle';
 import { TPD, bizDef, bizValuedIncome, cashOf, credit, netWorthBreakdown } from '../../src/world/core';
 import { SHOP } from '../../src/content/shops';
 import { wellRunCommands } from '../../src/world/shops';
+import { managerPrepayCost } from '../../src/world/shopRules';
 import type { Command, GameState } from '../../src/world/types';
 
 export type Style = 'neglected' | 'casual' | 'average' | 'excellent' | 'idle' | 'managed';
@@ -94,7 +95,11 @@ function probe(seed: string, days: number): void {
       const r = applyCommand(g, pid, { type: 'biz.buy', defId: def.id, cityId: city });
       if (!r.ok) throw new Error(`buy failed for ${style} tier ${t.tier}: ${r.error}`);
       const bizId = (r.data as { id: string }).id;
-      if (style === 'managed') applyCommand(g, pid, { type: 'biz.manager.hire', bizId, stars: 2 });
+      const stars = starsFor(style);
+      if (stars > 0) {
+        const h = applyCommand(g, pid, { type: 'biz.manager.hire', bizId, stars });
+        if (!h.ok) throw new Error(`manager hire failed for ${style} tier ${t.tier}: ${h.error}`);
+      }
       probes.push({ style, pid, bizId, tier: t.tier, invested: def.cost, sector, city, rivals, cum: [] });
     });
   });
@@ -164,22 +169,37 @@ function bot(seed: string, days: number, style: Style): void {
   console.log(JSON.stringify({ mode: 'bot', seed, style, days, rankFirstSeenGameDay: ranks, netWorth: Math.round(p.netWorth), valuedIncome: Math.round(income), checkpoints }));
 }
 
-/** Buy the best net income per dollar the cash and rank allow, within each tier's slot cap (up to four a check-in). */
+/**
+ * Buy the best net income per dollar the cash and rank allow, within each tier's slot cap (up to four a check-in).
+ * A managed purchase only happens when the cash also covers the prepaid manager salary, so the hire is asserted.
+ */
 function buyGreedy(g: GameState, style: Style): void {
   const p = g.players.bot!;
   const r = rankIndex(p.rankId);
+  const stars = starsFor(style);
   for (let k = 0; k < 4; k++) {
     const cash = cashOf(g, 'bot') * 0.9;
     const mine = Object.values(g.businesses).filter((b) => b.ownerId === 'bot');
     const count = (tier: number) => mine.filter((b) => bizDef(b).tier === tier).length;
-    const best = BUSINESSES.filter((d) => d.cost <= cash && rankIndex(TIERS[d.tier - 1]!.rank) <= r && count(d.tier) < TIERS[d.tier - 1]!.max)
+    const affordable = (d: { cost: number; income: number }) => d.cost + managerPrepayCost(stars, d.income) <= cash;
+    const best = BUSINESSES.filter((d) => affordable(d) && rankIndex(TIERS[d.tier - 1]!.rank) <= r && count(d.tier) < TIERS[d.tier - 1]!.max)
       .sort((a, b) => b.income / b.cost - a.income / a.cost || a.id.localeCompare(b.id))[0];
     if (!best) return;
     const r2 = applyCommand(g, 'bot', { type: 'biz.buy', defId: best.id, cityId: CITIES[0]! });
     if (!r2.ok) return;
-    // the managed style hires a 2-star manager at purchase (S3); the others run without one
-    if (style === 'managed') applyCommand(g, 'bot', { type: 'biz.manager.hire', bizId: (r2.data as { id: string }).id, stars: 2 });
+    // managed hires a 2-star manager and excellent a 3-star one, at purchase (S3); the others run without one
+    if (stars > 0) {
+      const h = applyCommand(g, 'bot', { type: 'biz.manager.hire', bizId: (r2.data as { id: string }).id, stars });
+      if (!h.ok) throw new Error(`manager hire failed for ${style}: ${h.error}`);
+    }
   }
+}
+
+/** Stars a style hires at purchase: managed 2 (S3), excellent 3, none otherwise. */
+function starsFor(style: Style): number {
+  if (style === 'managed') return 2;
+  if (style === 'excellent') return 3;
+  return 0;
 }
 
 const { mode, seed, days, style } = argv();

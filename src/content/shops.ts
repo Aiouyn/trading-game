@@ -73,7 +73,7 @@ export const SHOP = {
   manager: {
     maxStars: 3,
     /** salary per star per game day */
-    costPerStar: 0.08,
+    costPerStar: 0.02,
     /**
      * hiring pays this many days of salary up front (a real prepayment: the next `prepayDays` game days are not
      * charged the daily salary again); nothing is refunded on fire
@@ -88,7 +88,7 @@ export const SHOP = {
      * game day, and the highest price it lets stand (above it, the price is brought back to the cap).
      */
     autopilot: {
-      crewFloor: [0.75, 1, 1.25],
+      crewFloor: [0.75, 1.08, 1.25],
       qualityFloor: [0, 1, 2],
       priceCap: [1.05, 1.1, 1.2],
     },

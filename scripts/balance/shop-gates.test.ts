@@ -14,9 +14,9 @@ function passingRows(): PaybackRow[] {
     ...styleRows('average', 1.0),
     ...styleRows('excellent', 0.75),
     ...styleRows('neglected', 2.5),
+    ...styleRows('managed', 1.05),
     ...styleRows('casual', 1.5),
     ...styleRows('idle', 1.5),
-    ...styleRows('managed', 1.5),
   ];
 }
 
@@ -75,11 +75,19 @@ describe('shop gates: band logic', () => {
     expect(bad.every((b) => b.includes('NaNx'))).toBe(true);
   });
 
-  it('the gates are the lead ruling: well-run 0.9 to 1.1, excellent 0.7 to 0.8, neglected 2 to 3', () => {
+  it('managed out of band on every tier fails on every tier (the O-8 ruling is a gate, not a reference row)', () => {
+    const rows = passingRows().map((r) => (r.style === 'managed' ? { ...r, payback: LADDER[r.tier - 1]! * 1.2 } : r));
+    const bad = failures(summarize(rows)).filter((b) => b.startsWith('managed'));
+    expect(bad).toHaveLength(LADDER.length);
+    expect(bad[0]).toContain('0.95 to 1.15x');
+  });
+
+  it('the gates are the lead ruling: well-run 0.9 to 1.1, excellent 0.7 to 0.8, neglected 2 to 3, managed 0.95 to 1.15', () => {
     expect(GATES.map((g) => [g.style, g.lo, g.hi])).toEqual([
       ['average', 0.9, 1.1],
       ['excellent', 0.7, 0.8],
       ['neglected', 2, 3],
+      ['managed', 0.95, 1.15],
     ]);
   });
 });
