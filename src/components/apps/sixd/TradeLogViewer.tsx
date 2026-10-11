@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { clockParts } from '@/game/clock';
 import { hasKey, t } from '@/i18n';
+import { TPD } from '@/world/core';
 import type { TradeLogRecord } from '@/world/types';
 
 export const TRADE_LOG_ROWS = 200;
@@ -27,7 +28,6 @@ export function TradeLogViewer({ logs }: { logs: PublishedLog[] }) {
 
 function TradeLogRow({ log, index }: { log: PublishedLog; index: number }) {
   const [open, setOpen] = useState(false);
-  const shown = log.trades.slice(0, TRADE_LOG_ROWS);
   return (
     <div className="rounded-md border border-ink-3" data-testid={`trade-log-${index}`}>
       <button
@@ -40,34 +40,40 @@ function TradeLogRow({ log, index }: { log: PublishedLog; index: number }) {
         <span className="min-w-0 truncate">{t('sixd.tn.logs.summary', { handle: log.handle, seed: log.seed.slice(0, 8), count: log.trades.length })}</span>
         <span aria-hidden className="text-fg-faint">{open ? '−' : '+'}</span>
       </button>
-      {open && (
-        <div className="overflow-x-auto px-3 pb-3">
-          <table className="num w-full text-caption" data-testid={`trade-log-table-${index}`}>
-            <thead>
-              <tr className="text-fg-faint">
-                <th scope="col" className="text-left font-normal">{t('sixd.tn.logs.day')}</th>
-                <th scope="col" className="text-left font-normal">{t('sixd.tn.logs.asset')}</th>
-                <th scope="col" className="text-left font-normal">{t('sixd.tn.logs.side')}</th>
-                <th scope="col" className="text-right font-normal">{t('sixd.tn.logs.qty')}</th>
-                <th scope="col" className="text-right font-normal">{t('sixd.tn.logs.price')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((tr, k) => (
-                <tr key={k} className="text-fg" data-testid="trade-log-row">
-                  <td>{clockParts(tr.tick, 720).day}</td>
-                  <td>{tr.assetId}</td>
-                  <td>{hasKey(`sixd.tn.logs.side.${tr.side}`) ? t(`sixd.tn.logs.side.${tr.side}`) : tr.side}</td>
-                  <td className="text-right">{tr.qty}</td>
-                  <td className="text-right">{tr.price.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {log.trades.length > TRADE_LOG_ROWS && (
-            <p className="mt-2 text-caption text-fg-faint">{t('sixd.tn.logs.more', { shown: TRADE_LOG_ROWS, count: log.trades.length })}</p>
-          )}
-        </div>
+      {open && <TradeLogTable trades={log.trades} index={index} />}
+    </div>
+  );
+}
+
+/** The fills of one log, the first TRADE_LOG_ROWS of them, with a note of how many more the log holds. */
+export function TradeLogTable({ trades, index }: { trades: TradeLogRecord[]; index: number }) {
+  const shown = trades.slice(0, TRADE_LOG_ROWS);
+  return (
+    <div className="overflow-x-auto px-3 pb-3">
+      <table className="num w-full text-caption" data-testid={`trade-log-table-${index}`}>
+        <thead>
+          <tr className="text-fg-faint">
+            <th scope="col" className="text-left font-normal">{t('sixd.tn.logs.day')}</th>
+            <th scope="col" className="text-left font-normal">{t('sixd.tn.logs.asset')}</th>
+            <th scope="col" className="text-left font-normal">{t('sixd.tn.logs.side')}</th>
+            <th scope="col" className="text-right font-normal">{t('sixd.tn.logs.qty')}</th>
+            <th scope="col" className="text-right font-normal">{t('sixd.tn.logs.price')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((tr, k) => (
+            <tr key={k} className="text-fg" data-testid="trade-log-row">
+              <td>{clockParts(tr.tick, TPD).day}</td>
+              <td>{tr.assetId}</td>
+              <td>{hasKey(`sixd.tn.logs.side.${tr.side}`) ? t(`sixd.tn.logs.side.${tr.side}`) : tr.side}</td>
+              <td className="text-right">{tr.qty}</td>
+              <td className="text-right">{tr.price.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {trades.length > TRADE_LOG_ROWS && (
+        <p className="mt-2 text-caption text-fg-faint" data-testid={`trade-log-more-${index}`}>{t('sixd.tn.logs.more', { shown: TRADE_LOG_ROWS, count: trades.length })}</p>
       )}
     </div>
   );

@@ -36,6 +36,7 @@ import { StatusStrip } from './StatusStrip';
 import { WindowFrame, pruneDrawn } from './WindowFrame';
 import { sharedEdges, type Tile } from './windowMath';
 import {
+  applyEarnedPalette,
   bindShell,
   closeWindow,
   closeLauncher,
@@ -213,6 +214,13 @@ export function OsRoot() {
       delete html.dataset.testid;
     };
   }, []);
+
+  // The streak accents of this player (6D.4), as one key so the effect runs only when they change. Until the world's view
+  // arrives there is no key, and the saved palette stays as it was loaded.
+  const accentKey = useGame((s) => (s.me?.sixd?.streak ? s.me.sixd.streak.accents.join(',') : null));
+  useEffect(() => {
+    if (accentKey !== null) applyEarnedPalette(accentKey ? accentKey.split(',') : []);
+  }, [accentKey]);
 
   useEffect(() => {
     const html = document.documentElement;

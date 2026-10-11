@@ -273,7 +273,8 @@ wss.on('connection', (ws) => {
         }
       case 'visit': {
         // another player's home room and collection: each is null unless its owner has opened it (no note that anything is hidden)
-        if (!c.pid) return;
+        // an unauthenticated socket gets the null answer too, so the client's request always settles
+        if (!c.pid) return send(ws, { t: 'visit', id: msg.id, data: null });
         const owner = typeof msg.playerId === 'string' ? msg.playerId : '';
         if (!host.g.players[owner]) return send(ws, { t: 'visit', id: msg.id, data: null });
         return send(ws, { t: 'visit', id: msg.id, data: visitView(host.g, c.pid, owner) });

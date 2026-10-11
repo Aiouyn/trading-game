@@ -1,7 +1,8 @@
 'use client';
 
 // The weekly live auctions (6D.2): the week's lots, English ascending bids for one real hour. During an auction only the high
-// bid, the count and whether the reserve is met are shown; the bidders appear at the end. The reserve is never shown.
+// bid, the count and the minimum are shown; the bidders and whether the reserve was met appear at the end. The reserve is never
+// shown.
 import { useState } from 'react';
 import { money } from '@/game/format';
 import { useGame } from '@/game/store';
@@ -74,7 +75,7 @@ function AuctionLot({ lot, tick, tickMs }: { lot: AuctionLotView; tick: number; 
             <span className="text-right text-fg">{t('sixd.auc.minutes', { min: minutesLeft(lot.endTick, tick, tickMs) })}</span>
           </>
         )}
-        {lot.reserveMet !== null && open && (
+        {lot.reserveMet !== null && !open && (
           <span className="col-span-2 text-caption text-fg-muted">{lot.reserveMet ? t('sixd.auc.reserveMet') : t('sixd.auc.reserveNotMet')}</span>
         )}
         {lot.mine && open && <span className="col-span-2 text-caption text-brass-hi">{t('sixd.auc.mine')}</span>}

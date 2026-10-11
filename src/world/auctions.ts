@@ -18,9 +18,10 @@ import type { CommandResult, GameState, StepOutput } from './types';
  *
  * Anti-snipe: a bid that lands in the last 2 real minutes (24 ticks) extends the lot by 2 real minutes (24 ticks).
  * Visibility: during the auction the high bid and the bid count are public; bidder handles appear only at the end.
- * The reserve is set from the collectibles index at the lot's first bid and never shown; the view says only whether the
- * high bid meets it. The lots of a week are a pure function of the world seed and the week, so the schedule needs no storage
- * until someone bids.
+ * The reserve is set from the collectibles index at the lot's first bid and never shown. Nothing about it is shown during the
+ * auction, not even whether the high bid meets it: a bidder who raised in 2% steps could otherwise find the reserve. After the
+ * settlement the view says whether the winning bid met it. The lots of a week are a pure function of the world seed and the
+ * week, so the schedule needs no storage until someone bids.
  */
 
 export const AUCTION = {
@@ -269,7 +270,10 @@ export interface AuctionLotView {
   endTick: number;
   bidCount: number;
   high: number | null;
-  /** whether the high bid meets the reserve; the reserve itself is never shown */
+  /**
+   * Whether the high bid met the reserve: null until the lot has settled (and when no one bid). The reserve itself is never
+   * shown, and no field during the auction depends on it.
+   */
   reserveMet: boolean | null;
   minimum: number | null;
   /** during the auction: nothing about who bid. At the end: the winner and the bidder handles */
@@ -280,8 +284,9 @@ export interface AuctionLotView {
 }
 
 /**
- * The public view of a week's lots. Before the end, only the high bid, the count, and whether the reserve is met. After the
- * end, the winner and the bidders by handle. Nothing about a bidder's cash or strategy appears.
+ * The public view of a week's lots. Before the end, only the high bid, the count and the minimum: nothing that depends on the
+ * hidden reserve. After the end, whether the reserve was met, the winner and the bidders by handle. Nothing about a bidder's
+ * cash or strategy appears.
  */
 export function auctionsView(g: GameState, pid: string | null, week: number): AuctionLotView[] {
   return weekLots(g.seed, week).map((item) => {
@@ -298,7 +303,8 @@ export function auctionsView(g: GameState, pid: string | null, week: number): Au
       openTick: open, endTick: lot?.endTick ?? open + AUCTION.hourTicks,
       bidCount: lot?.bids.length ?? 0,
       high: hi ? hi.amount : null,
-      reserveMet: lot && hi ? hi.amount >= lot.reserve : null,
+      // no reserve-derived field until the settlement (a probe ladder of 2% raises would otherwise find the reserve)
+      reserveMet: lot && hi && lot.status !== 'open' ? hi.amount >= lot.reserve : null,
       minimum: status === 'open' ? (lot ? minimumBid(lot) : priceLot(g, item, week).start) : null,
       mine: !!pid && !!lot && lot.bids.some((b) => b.playerId === pid),
       winner: lot?.winnerId ? g.players[lot.winnerId]?.handle ?? null : null,

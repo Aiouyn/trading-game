@@ -195,6 +195,8 @@ describe('auction settlement and money', () => {
     expect(g.auctions!.lots[key]!.status).toBe('unsold');
     expect(sinkSum(g)).toBe(sinks);
     expect(g.market.accounts[a]!.cash).toBe(cash);
+    // only after the settlement does the view say the reserve was not met
+    expect(auctionsView(g, a, WEEK).find((x) => x.key === key)!.reserveMet).toBe(false);
   });
 
   it('passes over a high bidder who spent the cash before the close, to the next valid bid', () => {
@@ -221,7 +223,7 @@ describe('auction view', () => {
     expect(during.status).toBe('open');
     expect(during.high).toBe(cents(reserve * 1.1));
     expect(during.bidCount).toBe(2);
-    expect(during.reserveMet).toBe(true);
+    expect(during.reserveMet).toBeNull();
     expect(during.bidders).toBeNull();
     expect(during.mine).toBe(true);
     expect(JSON.stringify(during)).not.toContain('bidder_');
@@ -229,8 +231,36 @@ describe('auction view', () => {
     auctionTick(g, null);
     const after = auctionsView(g, a, WEEK).find((x) => x.key === key)!;
     expect(after.status).toBe('sold');
+    expect(after.reserveMet).toBe(true);
     expect(after.winner).toBe('bidder_b');
     expect([...after.bidders!].sort()).toEqual(['bidder_a', 'bidder_b']);
+  });
+
+  it('a probe ladder of 2% raises cannot recover the reserve: the open view is the same whatever the reserve', () => {
+    // two copies of one auction, the same bids, each with another hidden reserve (the lot's reserve is set at the first bid)
+    const run = (scale: number) => {
+      const { g, a, b } = world();
+      const { key, reserve, start } = cheapestLot(g);
+      placeBid(g, a, key, start);
+      g.auctions!.lots[key]!.reserve = cents(reserve * scale);
+      const views: unknown[] = [];
+      for (let step = 0; step < 60; step++) {
+        const bidder = step % 2 === 0 ? b : a;
+        const min = minimumBid(g.auctions!.lots[key]!);
+        // a bid the probe may take: the minimum is always 2% over the last high bid, so the ladder climbs by the minimum raise
+        expect(placeBid(g, bidder, key, min).ok).toBe(true);
+        const v = auctionsView(g, a, WEEK).find((x) => x.key === key)!;
+        expect(v.status).toBe('open');
+        expect(v.reserveMet).toBeNull();
+        views.push(v);
+      }
+      // the ladder crosses the reserve in both copies: the high bid is above it, which only the settlement may say
+      expect(g.auctions!.lots[key]!.bids.at(-1)!.amount).toBeGreaterThan(cents(reserve * scale));
+      return views;
+    };
+    const low = run(0.8);
+    const high = run(1.1);
+    expect(high).toEqual(low);
   });
 });
 
