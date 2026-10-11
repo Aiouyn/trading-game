@@ -12,7 +12,7 @@ const SHELL_SPECS = /[\/]shell[\/].*\.spec\.ts$/;
  * advances the world past the account-age rules (7 real days), and the IPO spec (exchangeIpo.spec.ts) lists a company
  * a game day on.
  */
-const CLOSE_SPECS = /(closeCard|shops|exchangeFunds|exchangeIpo|worldEvents)\.spec\.ts$/;
+const CLOSE_SPECS = /(closeCard|shops|exchangeFunds|exchangeIpo|comeback|worldEvents)\.spec\.ts$/;
 const chromium = { browserName: "chromium" as const };
 
 /** The time-advancing specs, in run order. The desktop project is named close-card (the day-close spec), then close-shops, ... */
@@ -21,6 +21,7 @@ const CLOSE_CHAIN: { spec: string; name: string }[] = [
   { spec: "shops", name: "shops" },
   { spec: "exchangeFunds", name: "funds" },
   { spec: "exchangeIpo", name: "ipo" },
+  { spec: "comeback", name: "comeback" },
   { spec: "worldEvents", name: "events" },
 ];
 

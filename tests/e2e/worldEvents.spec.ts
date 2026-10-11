@@ -79,8 +79,8 @@ test('a crash onset takes over the desk: Close is inert before one second, live 
   expect(t.appear).not.toBeNull();
   expect(t.enabled! - t.appear!).toBeGreaterThanOrEqual(950);
   expect(t.enabled! - t.appear!).toBeLessThanOrEqual(1_400);
-  // the settled card, the sign-off frame (the headline lands at 0.9–2.4 s)
-  await page.waitForTimeout(1_200);
+  // the settled card, the sign-off frame (the card has risen by 1.3 s; a short wait keeps the shot clear of the 3 s self-end)
+  await page.waitForTimeout(300);
   await shot(page, 'en-takeover-onset');
   await close.click();
   await expect(takeover).toHaveCount(0);

@@ -20,6 +20,7 @@ import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
 import { decoyCodename, defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
 import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
 import { exchangeView, type ExchangeView } from './exchange/view';
+import { comebackView, type ComebackView } from './comeback';
 import { launchpadView, type LaunchpadView } from './launchpad/view';
 import type {
   Alliance, BoardRow, Boards, Business, ChatMessage, ConnectionEntry, CourtCase, CyberOp, Deal, GameState, InboxItem,
@@ -240,6 +241,8 @@ export interface PlayerView {
   exchange: ExchangeView;
   /** the Launchpad app (lead-launchpad.md L7): the feeds, token pages, the viewer's holdings and the creator console */
   launchpad: LaunchpadView;
+  /** the comeback (velvet-bankruptcy.md): the low-cash card, the chapter screen, the perks and the sponsor break offer (private) */
+  comeback: ComebackView | null;
 }
 
 export function playerView(g: GameState, pid: string): PlayerView | null {
@@ -298,6 +301,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
     exchange: exchangeView(g, pid),
     launchpad: launchpadView(g, pid),
     capital: capitalViewOf(g, pid),
+    comeback: comebackView(g, pid),
   };
 }
 

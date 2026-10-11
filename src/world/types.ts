@@ -61,6 +61,17 @@ export interface GameState {
   funds?: FundsState;
   /** the Launchpad (player-created memecoins, lead-launchpad.md). Absent until the first launch; worlds without one keep every fingerprint. */
   launchpad?: LaunchpadState;
+  /** sponsor breaks (velvet-rewarded-ads.md, ROADMAP 2.7): the open breaks and the rewarded count per profile per game day. Absent until the first break. */
+  sponsor?: SponsorState;
+}
+
+/** A simulated sponsor break (ROADMAP 2.7): one open card per player, and rewarded breaks counted per profile per game day. */
+export interface SponsorState {
+  /** rewarded breaks per profile key (the alliance owner, or the player alone), with the game day they were counted on */
+  counts: Record<string, { day: number; n: number }>;
+  /** the break a player has open (one at a time) */
+  pending: Record<string, { id: string; startTick: number; brand: string }>;
+  seq: number;
 }
 
 export interface Player {
@@ -93,7 +104,10 @@ export interface Player {
   contracts: ActiveContract[];
   contractsDay: number;
   /** snapshot used by contracts and day summaries */
-  dayStart: { day: number; netWorth: number; gx: number; stats: PlayerStats };
+  /** the game day's snapshot (the day change, the contracts). Its cash is informational; the ad offer reads adDay. */
+  dayStart: { day: number; netWorth: number; gx: number; stats: PlayerStats; cash?: number };
+  /** the ad offer's snapshot of the real day: cash and net worth at its start (velvet-rewarded-ads.md); absent in older saves */
+  adDay?: { day: number; cash: number; netWorth: number };
   chapterStartNetWorth: number;
   watchlist: string[];
   alerts: PriceAlert[];
@@ -140,7 +154,41 @@ export interface Player {
   goals?: { optIn: boolean; done: Record<string, number> };
   /** weekly challenge: the ISO weeks this player has used their one attempt (the attempt is claimed here, durably) */
   challengeWeeks?: string[];
+  /** cash from ads and the fresh start, tagged and held 72 real hours (core.ts restrictedOf): it cannot pay for ops, margin, derivatives or transfers */
+  adLots?: { amount: number; untilTick: number; kind: 'ad' | 'start' }[];
+  /** the comeback (velvet-bankruptcy.md, ROADMAP 2.6): chapters, the fresh start, perks and the low-cash card. Absent until a comeback or a dismissal. */
+  comeback?: ComebackState;
 }
+
+/** A player's chapter state (ROADMAP 2.6). The fresh start comes at most once per 8 real weeks, kept here so a save cannot reset it. */
+export interface ComebackState {
+  /** the player's chapter number (1 at the start, +1 per fresh start) */
+  chapter: number;
+  /** the tick the current chapter began */
+  chapterStartTick: number;
+  /** the highest net worth in the current chapter */
+  peak: number;
+  /** the tick of the last fresh start (absent before the first) */
+  freshTick?: number;
+  /** a close in progress: the positions are sold, then the account is reset once it is flat */
+  closing?: { tick: number; perk: ComebackPerk; forced: boolean; netWorth: number };
+  /** a forced close (equity below zero): the chapter screen opens; `blocked` when the cooldown stops a fresh start */
+  bust?: { tick: number; blocked: boolean };
+  /** the perk for the new chapter: lessons (fee rebate) and wind (business income) run for 7 real days */
+  perk?: { id: ComebackPerk; untilTick: number };
+  /** Old contacts: one T1 business at 50% off, used once */
+  voucher?: boolean;
+  /** leverage is capped at 1x until this tick (7 real days after a fresh start) */
+  leverageUntil?: number;
+  /** margin and borrowing are blocked until this tick (14 real days after a fresh start, ROADMAP 2.6) */
+  marginBlockUntil?: number;
+  /** the low-cash card is hidden until this tick (a dismissal lasts a real day) */
+  dismissedUntil?: number;
+  /** the chapter that closed last: its peak, end value and the three largest realized losses */
+  last?: { chapter: number; startTick: number; endTick: number; peak: number; end: number; losses: { id: string; assetId: string; pnl: number }[] };
+}
+
+export type ComebackPerk = 'contacts' | 'lessons' | 'wind';
 
 export interface OwnedItem {
   uid: string;
@@ -687,6 +735,13 @@ export type Command =
   | { type: 'lp.buzz'; ticker: string; kind: 'board' | 'wire' }
   | { type: 'lp.cancel'; ticker: string }
   | { type: 'lp.file'; ticker: string }
+  /** sponsor breaks (velvet-rewarded-ads.md): open a 15-second card, then finish it (a full watch pays; a skip after 5 s pays nothing) */
+  | { type: 'ad.start' }
+  | { type: 'ad.finish'; id: string; skip: boolean }
+  /** the fresh start (chapter screen, held to confirm): closes the positions and starts the next chapter with $5,000 */
+  | { type: 'comeback.confirm'; perk: ComebackPerk }
+  /** the low-cash card is dismissed for a real day */
+  | { type: 'comeback.dismiss' }
   | { type: 'admin.advance'; ticks: number }
   /** dev and tests only: the server refuses admin.* from clients */
   | { type: 'admin.grant'; amount: number }

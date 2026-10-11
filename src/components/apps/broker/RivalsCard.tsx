@@ -143,7 +143,7 @@ function RivalProfile({ board, id, youDaily, onClose }: { board: RivalsBoardView
   if (!row) return null;
   const { ahead, behind } = daysAheadBehind(chart, youDaily);
   return (
-    <section className="mt-4 border-t border-ink-2 pt-4" data-testid="rival-profile" aria-label={row.name}>
+    <section className="mt-4 rounded-md border border-ink-2 bg-ink-1 p-4" data-testid="rival-profile" aria-label={row.name}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Mark id={row.id} />
@@ -159,13 +159,19 @@ function RivalProfile({ board, id, youDaily, onClose }: { board: RivalsBoardView
         <dd className="num text-right">{money(row.equity)}</dd>
         <dt className="text-fg-muted">{t('rivals.profile.since')}</dt>
         <dd className={`num text-right ${toneText[tone(row.sinceStart)]}`}>{signedPct(row.sinceStart)}</dd>
-        <dt className="text-fg-muted">{t('rivals.profile.days')}</dt>
-        <dd className="num text-right" data-testid="rival-days">{t('rivals.profile.daysValue', { ahead, behind })}</dd>
+        <dt className="text-fg-muted">{t('rivals.profile.daysAhead')}</dt>
+        <dd className="num text-right" data-testid="rival-days-ahead">{ahead}</dd>
+        <dt className="text-fg-muted">{t('rivals.profile.daysBehind')}</dt>
+        <dd className="num text-right" data-testid="rival-days-behind">{behind}</dd>
       </dl>
       <div className="label mt-3">{t('rivals.profile.chart')}</div>
-      <div className="mt-1">
-        <Sparkline data={chart.map((c) => c.equity)} width={280} height={56} className="text-fg-muted" />
-      </div>
+      {chart.length < 2 ? (
+        <p className="mt-2 text-small text-fg-faint" data-testid="rival-chart-empty">{t('rivals.profile.chartEmpty')}</p>
+      ) : (
+        <div className="mt-1">
+          <Sparkline data={chart.map((c) => c.equity)} width={280} height={56} className="text-fg-muted" />
+        </div>
+      )}
     </section>
   );
 }

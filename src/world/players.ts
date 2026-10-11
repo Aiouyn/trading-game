@@ -103,10 +103,14 @@ export function applyRank(g: GameState, p: Player, out: StepOutput | null, silen
   p.rankId = r.id;
   const lic = licenseFor(r.id);
   p.licenseId = lic.id;
+  // a fresh start caps leverage at 1x for 7 real days (velvet-bankruptcy.md): the license is applied under that cap
+  const capped = (p.comeback?.leverageUntil ?? 0) > g.market.tick;
+  const maxLeverage = capped ? 1 : lic.maxLeverage;
+  const canShort = capped ? false : lic.canShort;
   // in place: the world owns its market copy (the pure helper would copy every account)
   const acct = g.market.accounts[p.id];
-  if (acct && (acct.maxLeverage !== lic.maxLeverage || acct.canShort !== lic.canShort || acct.canOptions !== lic.canOptions)) {
-    g.market.accounts[p.id] = { ...acct, maxLeverage: lic.maxLeverage, canShort: lic.canShort, canOptions: lic.canOptions };
+  if (acct && (acct.maxLeverage !== maxLeverage || acct.canShort !== canShort || acct.canOptions !== lic.canOptions)) {
+    g.market.accounts[p.id] = { ...acct, maxLeverage, canShort, canOptions: lic.canOptions };
   }
   if (rankIndex(r.id) >= 3) seedConnections(g, p.id);
   if (silent || prev === r.id) return;
