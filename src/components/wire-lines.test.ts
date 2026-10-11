@@ -27,3 +27,17 @@ describe('the Wire feed as lines (Stage 3)', () => {
     expect(lines[0]!.kind === 'group' && lines[0]!.items).toHaveLength(40);
   });
 });
+
+describe('the Wire feed: one Launchpad line per hour', () => {
+  it('a headline between two listings of one hour does not split the hour into two lines with the same key', () => {
+    const feed = [
+      item('l2', HOUR * 5 + 2, 'launchpad'),
+      item('m1', HOUR * 5 + 1, 'move'),
+      item('l1', HOUR * 5 + 1, 'launchpad'),
+    ];
+    const lines = feedLines(feed);
+    expect(lines.map((e) => e.kind)).toEqual(['group', 'row']);
+    const group = lines[0]!;
+    expect(group.kind === 'group' && group.items.map((w) => w.id)).toEqual(['l2', 'l1']);
+  });
+});

@@ -9,20 +9,26 @@ export type Entry = { kind: 'row'; item: WireItem } | { kind: 'group'; key: numb
 
 /**
  * The feed as lines: each headline is one line, and the Launchpad listings of one game hour fold into one collapsible line,
- * so a busy launch cannot flood the feed. Newest first, as the feed holds them.
+ * so a busy launch cannot flood the feed. Newest first, as the feed holds them. An hour is one line even when a headline of
+ * another kind sits between its listings: the group keeps the place of its newest listing, and its key stays unique.
  */
 export function feedLines(items: WireItem[]): Entry[] {
   const out: Entry[] = [];
+  const groups = new Map<number, Extract<Entry, { kind: 'group' }>>();
   for (const w of items) {
     if (w.kind !== 'launchpad') {
       out.push({ kind: 'row', item: w });
       continue;
     }
     const key = Math.floor((w.tick - 1) / HOUR);
-    const last = out[out.length - 1];
-    if (last && last.kind === 'group' && last.key === key) last.items.push(w);
-    else out.push({ kind: 'group', key, start: key * HOUR + 1, items: [w] });
+    const open = groups.get(key);
+    if (open) {
+      open.items.push(w);
+      continue;
+    }
+    const group: Extract<Entry, { kind: 'group' }> = { kind: 'group', key, start: key * HOUR + 1, items: [w] };
+    groups.set(key, group);
+    out.push(group);
   }
   return out;
 }
-
