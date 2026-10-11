@@ -8,7 +8,7 @@ Status words as in `docs/V1-PHASE4.md`: **Done**, **Partial**, **Not built**, **
 
 ### 0.1 Verdict
 
-**Held-out gate (lh, 200 seeds): FAIL.** The v1.2 gate (L8.2) requires every bot at or below zero at one-sided 95% on the held-out prefix `lh`. Two of the eight bots fail: the random retail bot (mean excess +5.70 points, one-sided +8.37) and the pump seller (mean -0.13, one-sided +0.71). Six bots pass. The shape (dead within 7 game days, graduation rate, 10x rate), the NPC life net, the money identity and the idle control all pass on the held-out seeds.
+**Held-out gate (lh, 200 seeds): FAIL.** Re-run after the sniper fix (section 6, the repair pass; same verdict, shape now also fails). The table below is the v1.2 state before that pass. The v1.2 gate (L8.2) requires every bot at or below zero at one-sided 95% on the held-out prefix `lh`. Two of the eight bots fail: the random retail bot (mean excess +5.70 points, one-sided +8.37) and the pump seller (mean -0.13, one-sided +0.71). Six bots pass. The shape (dead within 7 game days, graduation rate, 10x rate), the NPC life net, the money identity and the idle control all pass on the held-out seeds.
 
 The tuning screen on `lx` (50 seeds) had failed four bots: flipper, retail, pump seller and post-graduation buyer (section 2). On `lh-200` the flipper and the post-graduation buyer pass, but only because the held-out GX draw was higher (section 3). Retail and the pump seller fail on both prefixes.
 
@@ -213,3 +213,91 @@ The shape, identity and idle control pass on `lh-200` (section 0.4).
 4. **Pump seller.** It earns the buy pumps of other bots. This is a structural question about who can front-run a pump under L6.4.
 5. **NPC flag at boot.** Decide whether old worlds turn NPC launches on at boot.
 6. **e2e.** Run the Playwright suite for L7 (launch, trade, graduation, layout) before the next merge.
+
+## 6. Repair pass (review items, p5 second review)
+
+Branch `p5/lp` at the commits below; the app branch `p5/ui` merges it (see `V1-PHASE5` in `p5/ui`).
+
+| Commit | Item | What |
+|---|---|---|
+| `e5b29fe` | 2 | The NPC sniper fills inside the launch command (`sniperEnter`, `launch.ts`), after the launch's own buzz, as L6.4 does for arrivals. Its exit stays in `flow.ts`. Front-runner bot added to L8.2. |
+| `20f0371` | 6, 7 | World launch names are coined words (same 48 by 36 counts, so the draws and the economics do not move). Graduation records the graduation price as the chart's last point. |
+
+### 6.1 Front-runner probe (item 2), 10 seeds `lq`
+
+- Before the fix: buy $2,000 on the launch tick, sell at launch+2 (after the sniper's launch+2 buy): +129.1 points mean excess, positive on every seed.
+- After the fix, same seeds, same bot: -69.6 points (lq-10, the v1.2 probe seeds) excess, one-sided -64.8 points. No edge.
+- Control with the bot removed, current code: dead within 7 game days 75.8%, NPC life net -7.36, the same as before the fix. The sniper change does not move the shape.
+- The bot itself does: with it on, dead within 7 game days is 0%. A round trip at launch resets the cash clock at launch+2, so death falls past the 7-day line (item 10, section 5).
+
+### 6.2 Gates after the sniper fix (flow changed, so re-run)
+
+**Tuning screen, `lx-50` (after the fix; the bot is gated from here on):**
+
+| Bot | Mean return | Mean excess | One-sided 95% | Result |
+|---|---|---|---|---|
+| creatorDump | -13.83% | -14.17 | -12.63 | Pass |
+| sniper | -7.45% | -7.79 | -5.88 | Pass |
+| flipper | 0.19% | -0.14 | 1.29 | **Fail** |
+| buzzPumper | -81.01% | -81.35 | -79.02 | Pass |
+| retail | 5.93% | 5.59 | 9.75 | **Fail** |
+| viralChaser | -98.95% | -99.29 | -97.85 | Pass |
+| pumpSeller | 1.18% | 0.84 | 2.52 | **Fail** |
+| postGradBuyer | -0.14% | -0.47 | 0.97 | **Fail** |
+| frontRunner | -67.40% | -67.74 | -64.99 | Pass |
+
+GX mean return over the seeds: 0.34%. Launches observed: 20121. Bot gate: 5 of 9 pass.
+
+| Check | Pass line | Value | Result |
+|---|---|---|---|
+| dead within 7 game days (launches from day 3) | >= 70% | 0.00% | **Fail** |
+| graduation rate | 1% to 5% | 1.34% | Pass |
+| 10x within 30 game days of graduation | <= 0.5% | 0.0000% | Pass |
+| NPC cohort life net per token | <= 0 | -23.08 | Pass |
+| money identity, worst residual per game day | < 0.005 | 5.2e-8 | Pass |
+| idle control valuation drift | = 0 | | Pass |
+
+Gate: **FAIL**.
+
+
+**Held-out, `lh-200` (after the fix; authoritative, no tuning on `lh`):**
+
+| Bot | Mean return | Mean excess | One-sided 95% | Result |
+|---|---|---|---|---|
+| creatorDump | -13.13% | -14.68 | -13.23 | Pass |
+| sniper | -7.14% | -8.69 | -7.60 | Pass |
+| flipper | 0.18% | -1.37 | -0.66 | Pass |
+| buzzPumper | -78.63% | -80.18 | -78.21 | Pass |
+| retail | 7.46% | 5.92 | 8.60 | **Fail** |
+| viralChaser | -98.94% | -100.48 | -99.78 | Pass |
+| pumpSeller | 1.38% | -0.16 | 0.68 | **Fail** |
+| postGradBuyer | -0.12% | -1.67 | -0.95 | Pass |
+| frontRunner | -67.63% | -69.18 | -68.01 | Pass |
+
+GX mean return over the seeds: 1.55%. Launches observed: 80234. Bot gate: 7 of 9 pass.
+
+| Check | Pass line | Value | Result |
+|---|---|---|---|
+| dead within 7 game days (launches from day 3) | >= 70% | 0.00% | **Fail** |
+| graduation rate | 1% to 5% | 1.34% | Pass |
+| 10x within 30 game days of graduation | <= 0.5% | 0.0012% | Pass |
+| NPC cohort life net per token | <= 0 | -22.76 | Pass |
+| money identity, worst residual per game day | < 0.005 | 5.1e-8 | Pass |
+| idle control valuation drift | = 0 | | Pass |
+
+Gate: **FAIL**.
+
+
+### 6.3 What the re-run shows
+
+- **The sniper fix holds.** The front-runner that made +129 points on the probe seeds now has a mean excess of -69.6 points (one-sided -64.8) on the same seeds. It is gated and passes on `lx-50` and `lh-200`.
+- **The shape gate fails, because of the bot, not the sniper.** Dead within 7 game days is 0.00% on both prefixes. The cohort's deaths read 7.00 days to two decimals (301 of 398 launches on lq-01), but the gate compares ticks against 5,040, and each death lands a tick or more past it: the round trip at launch restarts the cash clock at launch+2, which pushes the death across the 7-day line. Without the bot, the same code gives 75.8% (lq-10 control). This is review item 10 and a ruling for the lead (section 5, item 7).
+- **Other bots move with the front-runner.** The viral chaser's mean return on `lh-200` is -98.9% (about -100 points excess), against about -28 points in section 0.4. Its counterparties changed when the front-runner joined the world. Retail and the pump seller are essentially unchanged.
+- **Gate result, both runs: FAIL.** `lh-200`: shape (dead within 7 days, 0%), retail (one-sided +8.60) and pump seller (one-sided +0.68). `lx-50`: shape, flipper, retail, pump seller and post-graduation buyer.
+
+### 6.4 Rulings the lead still needs (not changed by this pass)
+
+7. **Shape measure at the clock boundary (review item 10).** The 7-day death measure compares ticks to 5,040. The front-runner's round trip restarts the cash clock and moves deaths past it: 0% with the bot, 75.8% without. Options: a tolerance on the measure, a measure on the death day rounded to whole days, or a rule for when a round trip resets the clock. The gate is not changed here.
+8. **Readings to ratify (review item 11).** `TIME_SELL_PER_TICK` at 0.5 sells half the cohort's inventory every tick (about 5 seconds of game time), which is not the slow bleed of L6.1. `SELL_BUZZ_PER_100` (a sell-driven buzz cut) is not in the v1.2 text and is not implemented.
+9. **Held-out verdict (review item 3).** The `lh-200` gate fails on retail and pump seller, as in section 3. No re-tune on `lh` was made.
+10. **Cancel fee.** A cancelled launch's cohort liquidation pays the creator's 0.5% fee (the creator is paid on NPC fills too). It is small (about $1 on the probe) and consistent with L3; the lead may want it stated.
