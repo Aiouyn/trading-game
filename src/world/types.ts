@@ -109,6 +109,8 @@ export interface Player {
   allianceId: string | null;
   /** new-player protection (bible 03 anti-grief): no hostile ops until this tick */
   shieldUntil: number;
+  /** the rival funds' equity when this account joined (the Rivals board's "since your day 1" base). Absent in old saves and in worlds without rivals. */
+  rivalBase?: Record<string, number>;
   /** rival shown on the header (bible 04: a visible rival by minute 4) */
   rivalId: string | null;
   /** the most recent world tick the player opened their digest (While You Were Away) */
@@ -418,6 +420,8 @@ export interface Model {
   createdTick: number;
   /** watermark residue from distillation (0 = clean) */
   residue: number;
+  /** the poison a student inherited from a honeypot (M29); absent on a clean model */
+  poison?: number;
 }
 
 export interface TrainingRun {
@@ -481,13 +485,45 @@ export interface CyberState {
   clues: Clue[];
   seq: number;
   /** security budget per player ($ per game day) and defense tier */
-  defense: Record<string, { budget: number; tier: number; lastScanTick: number; lockdownUntil: number; shieldUntil: number }>;
+  defense: Record<string, { budget: number; tier: number; lastScanTick: number; lockdownUntil: number; shieldUntil: number; honeypot?: HoneypotState }>;
   /** attacker cooldowns: `${attacker}>${victim}` → tick */
   cooldowns: Record<string, number>;
   /** evidence points on (attacker, victim) */
   evidence: Record<string, number>;
   /** attacker's ops in flight for the UI */
   ops: CyberOp[];
+  /** sessions inside a honeypot or on a rival fund (M29, M28): not in any Connections panel, no drain, no clues. Absent in old saves. */
+  decoys?: DecoySession[];
+}
+
+/** A player's honeypot (M29): the bait model in their list. One at a time; placing a new one replaces it. */
+export interface HoneypotState {
+  kind: 'basic' | 'advanced' | 'frontier';
+  /** the poison the kind carries (0.2, 0.4, 0.6) */
+  poison: number;
+  /** the bait's MCS: the best security model's MCS times the chosen ratio (0.5 to 1.25) */
+  bait: number;
+  placedTick: number;
+}
+
+/** A session on a honeypot (on: 'honeypot') or on a rival fund (on: 'fund'). The attacker's student is built when it closes. */
+export interface DecoySession {
+  id: string;
+  attackerId: string;
+  /** the player whose honeypot is entered, or the rival fund */
+  targetId: string;
+  on: 'honeypot' | 'fund';
+  strength: SessionStrength;
+  /** the bait MCS the student is built from */
+  bait: number;
+  /** the poison tier the target carries (0 for a fund without a honeypot) */
+  poisonTier: number;
+  progress: number;
+  /** effective hours connected: the evidence clock */
+  effHours: number;
+  startTick: number;
+  /** honeypot evidence given so far (capped at 40, honeypotEvidence) */
+  evidence: number;
 }
 
 export interface CyberOp {
@@ -497,7 +533,8 @@ export interface CyberOp {
   strength: SessionStrength;
   modelId: string;
   tick: number;
-  result: 'planted' | 'failed' | 'detected';
+  /** planted: a real session; decoy: a session inside a honeypot or a fund (no entry); flagged: the canary avoided the honeypot */
+  result: 'planted' | 'failed' | 'detected' | 'decoy' | 'flagged';
   entryId?: string;
 }
 
@@ -600,7 +637,9 @@ export type Command =
   | { type: 'sec.tag'; entryId: string; tag: 'trusted' | 'watch' | null }
   | { type: 'sec.disconnect'; entryId: string }
   | { type: 'sec.lockdown' }
-  | { type: 'sec.plant'; victimId: string; strength: SessionStrength; modelId: string }
+  | { type: 'sec.plant'; victimId: string; strength: SessionStrength; modelId: string; canary?: boolean }
+  | { type: 'sec.honeypot'; kind: 'basic' | 'advanced' | 'frontier'; bait?: number }
+  | { type: 'sec.fund'; fundId: string; strength: SessionStrength; modelId: string; canary?: boolean }
   | { type: 'court.file'; defendantId: string; kind: CourtCase['kind']; counsel: number }
   | { type: 'court.settle'; caseId: string; amount: number }
   | { type: 'court.acceptSettlement'; caseId: string }
@@ -653,6 +692,8 @@ export type Command =
   | { type: 'admin.grant'; amount: number }
   /** dev and tests only: a test price shock (shockPrice: lnP moves, the value does not) */
   | { type: 'admin.shock'; assetId: string; pct: number }
+  /** dev and tests only: force a shared world event now (forceWorldEvent: a major or crisis starts at the next day) */
+  | { type: 'admin.event'; kind: 'crash' | 'bubble' | 'crisis' | 'flash'; days?: number }
   /** dev and tests only: backdates a player's join by `ticks` (the account-age rules, without a long advance) */
   | { type: 'admin.age'; playerId: string; ticks: number }
   /** dev and tests only: a founder's company has the filed quarters and filed value the IPO rules read (adminIpoReady) */

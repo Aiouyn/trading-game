@@ -156,7 +156,7 @@ function advance(state: WorldState): StepResult {
     for (const p of wstep.events) events.push(worldEventStepEvent(p, tick));
   }
   if (evOn) {
-    const intra = worldEventIntraday(worldEvents, tick, () => compositeLevel(state));
+    const intra = worldEventIntraday(worldEvents, tick, cfg.ticksPerDay, () => compositeLevel(state));
     worldEvents = intra.state;
     for (const p of intra.events) events.push(worldEventStepEvent(p, tick));
   }

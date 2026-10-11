@@ -21,6 +21,7 @@ import { Wallpaper } from './DesktopWallpaper';
 import { type Rank, rankClass } from './hardware';
 import { BellPanel } from './BellPanel';
 import { EventBannerStrip, EventPanel, useBannerOn, useEventPanel } from './EventBanner';
+import { EventTakeover } from './EventTakeover';
 import { EVENT_BAND_H } from './eventSelect';
 import { Launcher } from './Launcher';
 import { OsToasts } from './OsToasts';
@@ -365,6 +366,7 @@ export function OsRoot() {
       {bound && <Launcher />}
       {bound && <BellPanel />}
       {bound && <EventPanel />}
+      {bound && <EventTakeover />}
       <OsToasts focusMode={focusMode} side={toastCol} />
     </div>
   );

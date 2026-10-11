@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AreaSeries, CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, createChart,
   type IChartApi, type IPriceLine, type ISeriesApi, type Time, type UTCTimestamp,
@@ -65,7 +65,7 @@ export interface ChartOverlay {
   points: { time: number; value: number }[];
 }
 
-export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff }: {
+export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand }: {
   assetId: string;
   range?: RangeId;
   mode?: 'candles' | 'line' | 'area';
@@ -79,6 +79,8 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
   marks?: { price: number; title: string }[];
   /** reports the side the first mark sits off the visible price range (null when it is on the chart); the caller says so */
   onMarkOff?: (side: 'above' | 'below' | null) => void;
+  /** a live world event: its window is shaded from the onset to now (velvet-world-events.md section 4); never its end */
+  eventBand?: { sinceTick: number; kind: 'crash' | 'bubble' | 'crisis' | 'flash'; label: string };
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -101,6 +103,23 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
   const mode = modeOverride ?? storeMode;
   const rev = useGame((s) => s.historyRev);
   const loaded = useGame((s) => !!s.loaded[assetId]);
+  const [band, setBand] = useState<{ left: number; width: number } | null>(null);
+  const bandFrom = eventBand?.sinceTick ?? null;
+
+  // the event window: from the first bar at or after the onset to the right edge; it follows zoom and scroll
+  useEffect(() => {
+    const c = chart.current;
+    const el = host.current;
+    if (bandFrom === null || !c || !el) { setBand(null); return; }
+    const place = () => {
+      const first = candles(useGame.getState().history, assetId, range).find((b) => b.time >= bandFrom);
+      const x = first ? c.timeScale().timeToCoordinate(toTime(first.time)) : null;
+      setBand(x === null ? null : { left: Math.max(0, x), width: Math.max(0, el.clientWidth - Math.max(0, x)) });
+    };
+    place();
+    c.timeScale().subscribeVisibleLogicalRangeChange(place);
+    return () => c.timeScale().unsubscribeVisibleLogicalRangeChange(place);
+  }, [bandFrom, rev, range, loaded, assetId, mode]);
 
   useEffect(() => {
     const el = host.current;
@@ -300,7 +319,16 @@ export function PriceChart({ assetId, range: rangeOverride, mode: modeOverride, 
     probe.current();
   });
 
-  return <div ref={host} className="h-full w-full" data-testid={testId} data-chart-id={assetId} />;
+  return (
+    <div className="relative h-full w-full">
+      <div ref={host} className="h-full w-full" data-testid={testId} data-chart-id={assetId} />
+      {band && eventBand && (
+        <div className="os-event-band" data-testid="event-band" data-kind={eventBand.kind} style={{ left: band.left, width: band.width }} aria-hidden>
+          <span className="os-event-band-label">{eventBand.label}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export type { IndicatorId };

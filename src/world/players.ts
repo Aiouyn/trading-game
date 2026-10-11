@@ -9,6 +9,7 @@ import { computeBoards } from './boards';
 import { seedConnections } from './cyber';
 import { ensureLedger } from './ledger';
 import type { CommandResult, GameState, Player, StepOutput } from './types';
+import { rivalBaseline } from './rivalsBoard';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
 const fail = (error: string): CommandResult => ({ ok: false, error });
@@ -46,6 +47,7 @@ export function createPlayer(g: GameState, id: string, handle: string, country: 
     shieldUntil: g.market.tick + 72 * TPD, rivalId: null, digestSeenTick: g.market.tick, mostWantedOptIn: false, heldUntil: 0,
     filings: {}, digestNetWorth: nw,
     ...(opts.npc ? { npc: opts.npc } : {}),
+    ...(g.market.config.rivals?.length ? { rivalBase: rivalBaseline(g) } : {}),
   };
   g.players[id] = p;
   applyRank(g, p, null, true);

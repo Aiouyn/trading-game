@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { newsBand, type NewsBand } from '@/engine';
-import { t } from '@/i18n';
+import { t, tm } from '@/i18n';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import type { WireItem } from '@/world/types';
@@ -71,10 +71,10 @@ export function WireView() {
                     title={t('wire.openBroker', { ticker: w.assetId })}
                     onClick={() => openFromShell('broker', { ticker: w.assetId })}
                   >
-                    {w.text}
+                    {tm(w.msg, w.text)}
                   </button>
                 ) : (
-                  <span className="text-small text-fg">{w.text}</span>
+                  <span className="text-small text-fg">{tm(w.msg, w.text)}</span>
                 )}
                 {chip !== null && (
                   <span className="ml-2 align-middle" data-testid={`news-band-${chip}`}>
