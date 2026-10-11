@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
 import { credit } from './core';
 import { refreshNetWorth } from './assets';
+import { NW_EVERY } from './core';
 import { applyRank } from './players';
 import { orderError } from './orders';
 import type { GameState, Command } from './types';
@@ -81,5 +82,18 @@ describe('simple mode: the 20% cap until Hustler', () => {
     const second = cmd(g, 'u1', { type: 'order.place', order: { ...FIVE, side: 'buy' } });
     expect(second.ok).toBe(false);
     expect(second.error).toMatch(/20%/);
+  });
+});
+
+describe('the Retail short permission reaches saves made before it', () => {
+  it('an R0 account that was saved without shorting gets the license on the next tick, and can short', () => {
+    const g = world('simple-save', true);
+    const acct = g.market.accounts.u1!;
+    g.market.accounts.u1 = { ...acct, canShort: false, maxLeverage: 1 };
+    expect(cmd(g, 'u1', { type: 'order.place', order: { ...FIVE, side: 'sell' } }).error).toBe('insufficient position');
+    // the permission is brought up to date on the net worth refresh (every NW_EVERY ticks, and on each new day)
+    for (let k = 0; k < NW_EVERY; k++) stepGame(g);
+    expect(g.market.accounts.u1!.canShort).toBe(true);
+    expect(cmd(g, 'u1', { type: 'order.place', order: { ...FIVE, side: 'sell' } }).ok).toBe(true);
   });
 });

@@ -95,19 +95,30 @@ export function pickRival(g: GameState, p: Player): void {
   p.rivalId = best?.id ?? null;
 }
 
-/** Rank and license follow the net worth peak; ranks are never lost. */
-export function applyRank(g: GameState, p: Player, out: StepOutput | null, silent = false): void {
-  const r = rankFor(p.netWorthPeak);
-  if (rankIndex(r.id) <= rankIndex(p.rankId) && !silent) return;
-  const prev = p.rankId;
-  p.rankId = r.id;
-  const lic = licenseFor(r.id);
+/**
+ * The account's trading permissions follow the license of the rank the player holds. It runs on every call, not only on a
+ * rank-up, so a save from before a licence changed (an R0 account before shorting opened there) is brought up to date.
+ */
+function syncLicense(g: GameState, p: Player): void {
+  const lic = licenseFor(p.rankId);
   p.licenseId = lic.id;
   // in place: the world owns its market copy (the pure helper would copy every account)
   const acct = g.market.accounts[p.id];
   if (acct && (acct.maxLeverage !== lic.maxLeverage || acct.canShort !== lic.canShort || acct.canOptions !== lic.canOptions)) {
     g.market.accounts[p.id] = { ...acct, maxLeverage: lic.maxLeverage, canShort: lic.canShort, canOptions: lic.canOptions };
   }
+}
+
+/** Rank and license follow the net worth peak; ranks are never lost. */
+export function applyRank(g: GameState, p: Player, out: StepOutput | null, silent = false): void {
+  const r = rankFor(p.netWorthPeak);
+  if (rankIndex(r.id) <= rankIndex(p.rankId) && !silent) {
+    syncLicense(g, p);
+    return;
+  }
+  const prev = p.rankId;
+  p.rankId = r.id;
+  syncLicense(g, p);
   if (rankIndex(r.id) >= 3) seedConnections(g, p.id);
   if (silent || prev === r.id) return;
   out?.rankUps.push({ playerId: p.id, rankId: r.id });

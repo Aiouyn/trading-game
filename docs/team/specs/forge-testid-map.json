@@ -244,5 +244,18 @@
     "shop-<id>-manager | shop-<id>-hire-<stars> | shop-<id>-fire | shop-<id>-fire-yes | shop-<id>-tenure": "manager hire, let go (confirm), tenure line",
     "shop-<id>-day | shop-<id>-line-<key> | shop-<id>-line-net": "per game day money lines",
     "shop-<id>-offline | shop-<id>-wellrun": "away window and well-run line"
+  },
+  "$new_ids_stage1_rules": {
+    "os-figures": "top bar figures wrapper (desktop strip and phone status)",
+    "os-cash": "top bar: labelled Cash figure",
+    "os-networth": "top bar: labelled Net worth button (opens the breakdown); carries the figure and the day change",
+    "os-today": "top bar: day change beside net worth (neutral at 0.00%)",
+    "nw-breakdown": "net worth breakdown popover (dialog)",
+    "nw-row-<key>": "breakdown row: cash | markets | businesses | property | companies | funds | tokens | lab | lifestyle | debts",
+    "nw-total": "breakdown total row",
+    "order-short-terms": "ticket: short terms block (collateral and borrow fee), shown on a short",
+    "order-collateral": "ticket: collateral held for the short (100% of its notional)",
+    "order-borrow-fee": "ticket: borrow fee rate, per year, accrued daily",
+    "first-trade-cap": "ticket: simple-mode cap note, shown on buys and shorts below Hustler"
   }
 }

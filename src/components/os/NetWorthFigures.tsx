@@ -54,20 +54,20 @@ export function NetWorthFigures({ phone = false }: { phone?: boolean }) {
 
   return (
     <div ref={wrap} className={`os-figs${phone ? ' os-figs-phone' : ''}`} data-testid="os-figures">
-      <span className="os-fig os-soft" data-testid="os-cash">
+      <span className="os-fig os-soft" data-testid={phone ? 'os-phone-cash' : 'os-cash'}>
         <span className="os-fig-k">{t('common.cash')}</span> <span className="num">{fmt(cash)}</span>
       </span>
       <button
         type="button"
         className="os-nw"
-        data-testid="os-networth"
+        data-testid={phone ? 'os-phone-networth' : 'os-networth'}
         aria-haspopup="dialog"
         aria-expanded={open}
         title={t('shell.nw.today')}
         onClick={() => setOpen((o) => !o)}
       >
         <span className="os-fig-k">{t('common.netWorth')}</span> <span className="num">{fmt(nw)}</span>{' '}
-        <span className={`num ${toneText[tone(today)]}`} data-testid="os-today">{signedPct(todayPct)}</span>
+        <span className={`num ${toneText[tone(today)]}`} data-testid={phone ? 'os-phone-today' : 'os-today'}>{signedPct(todayPct)}</span>
       </button>
       {open && breakdown && (
         <section className="os-nw-pop" role="dialog" aria-label={t('shell.nw.breakdown')} data-testid="nw-breakdown">

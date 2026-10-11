@@ -344,7 +344,7 @@ function Ticket({ preset, selected }: { preset: ReturnType<typeof useGame.getSta
                 </button>
               ))}
             </div>
-            {simpleCap && side === 'buy' && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap', firstCapVars)}</p>}
+            {simpleCap && (side === 'buy' || shorting) && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap', firstCapVars)}</p>}
 
             {(type === 'limit' || type === 'stop_limit') && <NumberField className="mt-2" label={t('order.limit')} value={limit} onChange={setLimit} suffix="$" testId="order-limit" />}
             {(type === 'stop' || type === 'stop_limit') && <NumberField className="mt-2" label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />}
