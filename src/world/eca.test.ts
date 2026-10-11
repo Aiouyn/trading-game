@@ -209,6 +209,29 @@ describe('the ECA repair (6C review): cash floor, repeat, season cap, stalled in
   });
 });
 
+describe('older saves load and run the verdict path (6C review repair)', () => {
+  it('a save with none of the 6C-2 fields (no lots, tip gain, season ledger, tip size, or tip flag order) still runs a verdict', () => {
+    const { g, asset } = world('eca-oldsave');
+    g.players.p1!.netWorth = 80_000;
+    // the old shape: the ECA record and the tip record without the fields this change added
+    const e = ecaOf(g);
+    delete e.lots;
+    delete e.tipGain;
+    delete e.season;
+    const t = { seq: 1, tips: [{ id: 'tp1', tick: 1, playerId: 'p1', assetId: asset, claim: 'up', truth: true, insider: true, source: 'insider', revealsTick: TPD * 9, companyId: 'co' }], pending: [], flags: [{ playerId: 'p1', tipId: 'tp1', assetId: asset, tick: 2, side: 'buy', qty: 1, price: 1, points: 40, tradedBeforeReveal: true }], received: { [`p1|${asset}`]: 1 }, notionals: {} };
+    (g as { tips?: unknown }).tips = t;
+    // a JSON round trip, as a save is read back
+    const back = JSON.parse(JSON.stringify(g)) as GameState;
+    for (let k = 1; k <= 3; k++) { back.market = { ...back.market, tick: k * TPD + 1 }; addEcaPoints(back, 'p1', asset, 70); ecaDay(back, null); }
+    const q = Object.values(ecaOf(back).inquiries)[0]!;
+    let k = 4;
+    while (q.stage !== 'convicted' && q.stage !== 'cleared' && k < 60) { back.market = { ...back.market, tick: k * TPD + 1 }; addEcaPoints(back, 'p1', asset, 70); ecaDay(back, null); k++; }
+    expect(['convicted', 'cleared']).toContain(q.stage);
+    expect(q.disgorged ?? 0).toBe(0);
+    expect(tipGainOf(back, 'p1', asset)).toBe(0);
+  });
+});
+
 describe('an open inquiry is never stranded (6C review repair)', () => {
   it('an open inquiry closes even when its score has been removed from the map', () => {
     const { g, asset } = world('eca-gone');
