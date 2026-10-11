@@ -48,7 +48,8 @@ export function addAccountCash(g: GameState, accountId: string, cents: number): 
   if (!(cents !== 0)) return;
   const a = g.market.accounts[accountId];
   if (!a) throw new Error(`launchpad: no account ${accountId}`);
-  g.market = { ...g.market, accounts: { ...g.market.accounts, [accountId]: { ...a, cash: a.cash + cents / 100 } } };
+  // in place on the one account: every curve has an account, so a copy of the whole map per fill made a month of trading quadratic
+  g.market.accounts[accountId] = { ...a, cash: a.cash + cents / 100 };
 }
 
 /** Moves whole cents between two engine accounts (a zero-sum move). The sum of their cash does not change. */

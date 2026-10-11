@@ -104,21 +104,21 @@ export const NPC = {
   /** NPC buy pressure: dollars per tick at a buzz of 1 */
   BUY_PER_TICK: 1,
   /** profit taking: the share of the cohort's tokens sold per tick for each 100% the price is above the cohort's cost */
-  PROFIT_PER_TICK: 0.02,
+  PROFIT_PER_TICK: 0.0005,
   /** the time share: the cohort sells this share of its tokens per tick regardless of price (it never sells what it does not hold) */
-  TIME_SELL_PER_TICK: 0.0005,
+  TIME_SELL_PER_TICK: 0.00002,
   /** viral shocks: expected shocks per token per game day, and the size of one (a Pareto tail with this exponent) */
-  VIRAL_PER_DAY: 0.1,
-  VIRAL_SCALE: 0.5,
-  VIRAL_ALPHA: 1.5,
+  VIRAL_PER_DAY: 0.05,
+  VIRAL_SCALE: 0.2,
+  VIRAL_ALPHA: 0.8,
   /** the buzz at launch: a heavy-tailed draw with this scale and tail exponent (most launches start low, a few start high) */
-  BASE0: 0.05,
-  BASE0_ALPHA: 1.2,
+  BASE0: 0.008,
+  BASE0_ALPHA: 0.5,
   /** world launches per game day, when the world runs them */
   LAUNCHES_PER_DAY: 20,
   /** the NPC sniper: a buy of this many dollars in the first ticks, sold into the first hype (at this multiple of its entry, or after N ticks) */
-  SNIPER_MIN: 300,
-  SNIPER_MAX: 1500,
+  SNIPER_MIN: 100,
+  SNIPER_MAX: 400,
   SNIPER_EXIT_MULT: 1.5,
   SNIPER_EXIT_TICKS: 60,
 } as const;

@@ -194,24 +194,47 @@ function runSeed(seed: string) {
   const gx1 = indexLevel(g.market, 'GX');
   const bh = gx1 / gx0 - 1;
   const returns: Record<string, number> = {};
+  const raw: Record<string, number> = {};
   for (const b of BOTS) {
     const nw1 = netWorthBreakdown(g, b.id).total;
-    returns[b.kind] = (nw1 - nw0[b.id]!) / nw0[b.id]! - bh;
+    raw[b.kind] = (nw1 - nw0[b.id]!) / nw0[b.id]!;
+    returns[b.kind] = raw[b.kind]! - bh;
   }
-  // the L6 shape over the world's launches
+  // the L6 shape over the world's launches. A launch is observed when the run lasted 10 game days after it (the latest death is
+  // day 10 of a launch after day 3), so the end of the run does not censor the cohort; the shares are over observed launches.
+  const end = g.market.tick;
   const toks = Object.values(g.launchpad?.tokens ?? {});
-  const launches = toks.length;
+  const observed = toks.filter((t) => t.createdTick <= end - 10 * TPD);
+  const launches = observed.length;
+  // the death share is over the launches from day 3 on: the cash rule (L3) cannot kill a day-0-to-2 launch before day 10, so those
+  // are reported beside it (cohort0to2) for the lead's ruling, not gated
+  const cohort = observed.filter((t) => t.createdTick >= LP.DEAD_CASH_START_TICK);
+  const cohortLaunches = cohort.length;
   let deadWithin7 = 0;
-  let graduated = 0;
-  for (const t of toks) {
+  for (const t of cohort) {
     if (t.status === 'dead' && t.deadTick !== undefined && t.deadTick - t.createdTick <= 7 * TPD) deadWithin7++;
-    if (t.gradTick !== undefined) graduated++;
   }
+  let deadWithin7Early = 0;
+  for (const t of observed) {
+    if (t.createdTick < LP.DEAD_CASH_START_TICK && t.status === 'dead' && t.deadTick !== undefined && t.deadTick - t.createdTick <= 7 * TPD) deadWithin7Early++;
+  }
+  let graduated = 0;
   let tenX = 0;
-  for (const v of Object.values(maxPx)) if (v >= 10) tenX++;
+  for (const t of observed) {
+    if (t.gradTick !== undefined) graduated++;
+    if ((maxPx[t.ticker] ?? 0) >= 10) tenX++;
+  }
+  // --diag: each token's death, graduation and flows (where its cash came from), for tuning (V1-PHASE5.md)
+  const diag = process.argv.includes('--diag')
+    ? observed.map((t) => ({
+      ticker: t.ticker, creator: t.creatorId !== null, deadReason: t.deadReason ?? null,
+      deadDay: t.deadTick !== undefined ? +((t.deadTick - t.createdTick) / TPD).toFixed(2) : null,
+      grad: t.gradTick !== undefined, flows: t.flows, peakBuzz: +(t.buzz.base + t.buzz.board + t.buzz.wire).toFixed(3),
+    }))
+    : undefined;
   return {
-    seed, launches, deadWithin7, graduated, tenX, residualMax,
-    excess: returns, gx: bh, npcRetail: g.economy.faucets.npcRetail ?? 0,
+    seed, launches, cohortLaunches, deadWithin7, deadWithin7Early, graduated, tenX, residualMax, allLaunches: toks.length, diag,
+    excess: returns, raw, gx: bh, npcRetail: g.economy.faucets.npcRetail ?? 0,
     lpTotals: g.launchpad?.totals ?? null, npcLaunches: g.launchpad?.npcSeq ?? 0,
   };
 }
@@ -230,16 +253,22 @@ const strategies = Object.fromEntries(kinds.map((k) => {
   const xs = per.map((r) => r.excess[k]!);
   const se = sd(xs) / Math.sqrt(xs.length);
   const oneSided95 = mean(xs) + 1.645 * se;
-  return [k, { meanExcess: mean(xs), oneSided95, pass: oneSided95 <= 0 }];
+  return [k, { meanExcess: mean(xs), oneSided95, pass: oneSided95 <= 0, meanReturn: mean(per.map((r) => r.raw[k]!)) }];
 }));
 const totalLaunches = per.reduce((a, r) => a + r.launches, 0);
-const dead7 = per.reduce((a, r) => a + r.deadWithin7, 0) / Math.max(1, totalLaunches);
+const cohortTotal = per.reduce((a, r) => a + r.cohortLaunches, 0);
+const dead7 = per.reduce((a, r) => a + r.deadWithin7, 0) / Math.max(1, cohortTotal);
+const dead7Early = per.reduce((a, r) => a + r.deadWithin7Early, 0) / Math.max(1, totalLaunches - cohortTotal);
 const grad = per.reduce((a, r) => a + r.graduated, 0) / Math.max(1, totalLaunches);
 const tenX = per.reduce((a, r) => a + r.tenX, 0) / Math.max(1, totalLaunches);
 const residual = Math.max(...per.map((r) => r.residualMax));
-const shape = { deadWithin7d: dead7, graduationRate: grad, tenXRate: tenX, deadOk: dead7 >= 0.7, gradOk: grad >= 0.01 && grad <= 0.05, tenXOk: tenX <= 0.005 };
+const shape = {
+  deadWithin7dFromDay3: dead7, deadWithin7dDay0to2Reported: dead7Early, graduationRate: grad, tenXRate: tenX,
+  deadOk: dead7 >= 0.7, gradOk: grad >= 0.01 && grad <= 0.05, tenXOk: tenX <= 0.005,
+};
 const gate = Object.values(strategies).every((s) => s.pass) && shape.deadOk && shape.gradOk && shape.tenXOk && residual < 0.005;
-const summary = { seeds: seeds.length, days, launches: totalLaunches, strategies, shape, residualMax: residual, gate, NPC, perSeed: per };
+const gxMean = mean(per.map((r) => r.gx));
+const summary = { seeds: seeds.length, days, launches: totalLaunches, gxMean, strategies, shape, residualMax: residual, gate, NPC, perSeed: per };
 mkdirSync(path.dirname(outPath), { recursive: true });
 writeFileSync(outPath, JSON.stringify(summary, null, 2));
 console.log(JSON.stringify({ seeds: seeds.length, days, launches: totalLaunches, strategies, shape, residualMax: residual, gate }, null, 2));
