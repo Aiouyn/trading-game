@@ -52,9 +52,11 @@ test('the close is a toast after a game day, the Wire card matches the server, a
   // the card reads the server's close, to the cent
   const server = await page.evaluate(() => window.__tg!.state().me!.trading.closes[0]!);
   await expect(page.getByTestId('close-masthead')).toHaveText(`Day ${server.day + 1}`);
-  const headline = Math.abs(server.nwChange) < 1
-    ? 'A flat day.'
-    : `${server.nwChange > 0 ? 'Up' : 'Down'} ${usd(Math.abs(server.nwChange))} today.`;
+  // the headline counts trading alone (price moves, realized P&L, fees); valuation and income sit in the split below
+  const trade = server.trading;
+  const headline = Math.abs(trade) < 1
+    ? 'Trading was flat today.'
+    : `Trading ${trade > 0 ? 'made' : 'lost'} ${usd(Math.abs(trade))} today.`;
   await expect(page.getByTestId('close-headline')).toHaveText(headline);
   const ghosts = (await page.getByTestId('close-ghosts').textContent()) ?? '';
   for (const v of [server.ghosts.basket, server.ghosts.random, server.ghosts.momentum, server.ghosts.player]) {

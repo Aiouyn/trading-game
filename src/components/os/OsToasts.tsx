@@ -14,6 +14,7 @@ import { isAppId } from '@/shell/apps';
 import { type ShellToast, allowedInFocus, isSticky, visibleToasts } from '@/shell/toasts';
 import { Glyph, type GlyphName } from './glyphs';
 import { focusOrOpen } from './shellStore';
+import { phoneOpen } from './phoneStore';
 
 const ICON: Record<string, GlyphName> = { gain: 'check', loss: 'close', warn: 'bell', info: 'bell', brass: 'bell' };
 
@@ -36,7 +37,7 @@ export function OsToasts({ focusMode, side, phone = false }: { focusMode: boolea
   return (
     <div className={`os-toasts${side === 'left' && !phone ? ' left' : ''}${phone ? ' phone' : ''}`} aria-live="polite" data-testid="os-toasts">
       {shown.map((x, i) => (
-        <OsToast key={x.id} toast={x} n={i + 1} />
+        <OsToast key={x.id} toast={x} n={i + 1} phone={phone} />
       ))}
       {more > 0 && (
         <button
@@ -52,7 +53,7 @@ export function OsToasts({ focusMode, side, phone = false }: { focusMode: boolea
   );
 }
 
-function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
+function OsToast({ toast, n, phone }: { toast: ShellToast; n: number; phone: boolean }) {
   const dismiss = useGame((s) => s.dismissToast);
   const pause = useGame((s) => s.pauseToast);
   const resume = useGame((s) => s.resumeToast);
@@ -90,7 +91,8 @@ function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
   // A click runs the notice's own action (a coach tip), or opens the window it names, and dismisses the toast.
   const open = (): void => {
     if (toast.run) toast.run();
-    else if (toast.app !== undefined && isAppId(toast.app)) focusOrOpen(toast.app);
+    // on the phone the window is an app of the phone stack (the desktop windows are not drawn there)
+    else if (toast.app !== undefined && isAppId(toast.app)) { if (phone) phoneOpen(toast.app, {}); else focusOrOpen(toast.app); }
     dismiss(id);
   };
 
