@@ -149,3 +149,27 @@ copycat buzz worth about 50x the launch base (a buy that pumps itself).
 - **Readings ratified.** The NPC-net criterion is the life-end measure with inventory valued at liquidation (the booked line
   alone ignores inventory). The idle control is zero valuation drift. "Any other account" in the cancel rule excludes the
   NPC cohort.
+
+## Amendments v1.3 (lead, after the v1.2 held-out gate)
+
+Diagnosis. With TIME_SELL_PER_TICK 0.5 the NPC cohort exits in a few ticks, so a token sits at its curve floor almost all its
+life. Bought at the floor, a token costs only the 2% round-trip fee and keeps the full chance of a viral arrival that can carry
+it to graduation (about 15x the floor): a free lottery ticket, about +17% expected. That is the retail and pump-seller failure,
+and it cannot be tuned away while the floor is the resting state and virality is age-independent.
+
+- **L6.7 Age-decaying virality.** The viral hazard of a token falls with its age: rate(age) = r0 * exp(-age / tau), tau about
+  1 gd (tunable 0.5 to 2 gd); a dead token has none.
+- **L6.8 Bleed that tracks the hazard.** Each NPC cohort (the launch cohort and each viral cohort) sells its tokens with a
+  half-life tied to tau (tunable 0.5 tau to 2 tau), so a young token trades ABOVE its floor while it still has upside and
+  reaches the floor only when its virality is gone. The premium a buyer pays prices the option. TIME_SELL_PER_TICK as an
+  instant exit is withdrawn; the capitulation term stays for fading hype.
+- **L3.1 Death clock on closes.** The cash-death rule counts consecutive game-day CLOSES with curve cash under the line
+  (7 closes after day 3). Intraday round trips do not reset it.
+- **L8.3 Isolated, deployed-capital gate.** Each bot runs ALONE in its own world (paired seeds, same NPC world without the
+  other bots), so player-vs-player transfers (one bot selling into another's buys) are not counted as NPC edge. The gated
+  statistic is the bot's Launchpad P&L per dollar deployed (sum of P&L over its tokens / sum of cash put in, curve holdings at
+  liquidation at the horizon), pass when <= 0 at one-sided 95% over seeds. GX buy-and-hold is reported beside it, not used as
+  the benchmark (cash-holding bots otherwise just measure GX noise). Add a "floor sprayer" bot (buys every token older than
+  1 gd at its floor, holds) and keep the front-runner and the eight v1.2 bots.
+- **Merge state.** Phase 5 is on v1 with this gate open (lead decision: the gate is isolated to src/world/launchpad and the
+  harness, so it no longer blocks Phase 6). It must pass before Phase 9 sign-off.
