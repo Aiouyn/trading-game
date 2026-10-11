@@ -5,7 +5,7 @@ import { say } from './say';
 import { TRIBUNAL_BAR, regulatorVerdict } from './court';
 import { medianNotional, receivedTip } from './tips';
 import type { CompanyWorld } from './company/types';
-import type { GameState, StepOutput } from './types';
+import type { CommandResult, GameState, StepOutput } from './types';
 
 /**
  * The ECA, the market regulator (M16 v2, ROADMAP 2.5, 03 §10.2). Per account and asset it keeps a surveillance score in [0, 100]:
@@ -201,16 +201,17 @@ export function ecaDay(g: GameState, out: StepOutput | null): void {
   insiderDeltas(g);
   const e = ecaOf(g);
   const day = today(g);
-  const keys = [...new Set([...Object.keys(e.pts), ...Object.keys(e.score)])].sort();
+  // every key that has points, a score or an open inquiry: a score that decays to nothing still lets its inquiry close
+  const keys = [...new Set([...Object.keys(e.pts), ...Object.keys(e.score), ...Object.keys(e.open)])].sort();
   for (const k of keys) {
     const s = Math.min(ECA.cap, ECA.decay * (e.score[k] ?? 0) + (e.pts[k] ?? 0));
     if (s > 0.01) e.score[k] = s; else delete e.score[k];
   }
   e.pts = {};
-  for (const k of Object.keys(e.score).sort()) {
+  for (const k of keys) {
     const [pid, assetId] = k.split('|') as [string, string];
     if (!g.players[pid] || g.players[pid]!.npc) continue;
-    const s = e.score[k]!;
+    const s = e.score[k] ?? 0;
     e.over[k] = s >= ECA.inquiryScore ? (e.over[k] ?? 0) + 1 : 0;
     const id = e.open[k];
     if (!id) {
@@ -295,4 +296,23 @@ export function ecaViewOf(g: GameState, pid: string): EcaInquiryView[] {
     .sort((a, b) => b.openedDay - a.openedDay || (a.id < b.id ? 1 : -1))
     .slice(0, 10)
     .map((q) => ({ id: q.id, ticker: q.assetId, stage: q.stage, openedDay: q.openedDay, letters: q.letters.slice(), fine: q.fine, disgorged: q.disgorged }));
+}
+
+/**
+ * e2e seed (admin only, behind ADMIN_TOKEN): opens an inquiry on an account and asset at the inquiry stage, with its notice, as the
+ * ECA would after three days at 60. Nothing else changes (no score, no evidence, no fine).
+ */
+export function adminSeedInquiry(g: GameState, pid: string, asked: string, out: StepOutput | null): CommandResult {
+  const assetId = asked || (g.market.config.assets.find((d) => d.assetClass === 'stock')?.id ?? '');
+  if (!g.players[pid] || g.players[pid]!.npc || assetId === '' || !g.market.config.assets.some((d) => d.id === assetId)) return { ok: false, error: 'pick a stock' };
+  const e = ecaOf(g);
+  const k = keyOf(pid, assetId);
+  if (e.open[k]) return { ok: false, error: 'an inquiry is already open on that stock' };
+  const day = today(g);
+  e.seq++;
+  const inq: EcaInquiry = { id: `eq${e.seq}`, playerId: pid, assetId, stage: 'inquiry', openedDay: day, evidence: ECA.inquiryEvidenceMin, quietDays: 0, trail: 0, letters: [] };
+  e.inquiries[inq.id] = inq;
+  e.open[k] = inq.id;
+  letter(g, inq, out, noticeOf(day, inq));
+  return { ok: true, data: { id: inq.id, assetId } };
 }

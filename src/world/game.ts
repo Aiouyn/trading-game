@@ -27,8 +27,8 @@ import {
 import { cyberDay, deployHoneypot, disconnect, emptyCyber, lockdown, manualScan, plantSession, setBudget, tagEntry } from './cyber';
 import { attackFund, rivalCrewDay } from './rivalCrews';
 import { acceptSettlement, courtTick, fileCase, offerSettlement } from './court';
-import { addEcaPoints, ecaDay, ecaEvents, ecaFills } from './eca';
-import { flagTipTrade, noteNotional, tipsDay } from './tips';
+import { addEcaPoints, adminSeedInquiry, ecaDay, ecaEvents, ecaFills } from './eca';
+import { adminSeedTip, flagTipTrade, noteNotional, tipsDay } from './tips';
 import { noteFills } from './collusion';
 import { npcTick, seedNpcs } from './npc';
 import { shockPrice } from '@/engine/sim';
@@ -248,6 +248,8 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
   if (cmd.type === 'admin.filedLate') return adminFiledLate(g, cmd.playerId);
   if (cmd.type === 'admin.launchCredit') return adminLaunchCredit(g, cmd.playerId, cmd.score);
   if (cmd.type === 'admin.lpFill') return launchpadCommand(g, pid, cmd, out) ?? fail('unknown command');
+  if (cmd.type === 'admin.tip') return adminSeedTip(g, cmd.playerId, cmd.assetId, out);
+  if (cmd.type === 'admin.inquiry') return adminSeedInquiry(g, cmd.playerId, cmd.assetId, out);
   const p = g.players[pid];
   if (!p) return fail('join the world first');
   if (!p.npc) p.lastSeenTick = g.market.tick;

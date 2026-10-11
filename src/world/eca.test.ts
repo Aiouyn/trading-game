@@ -70,6 +70,17 @@ describe('the ECA score and inquiry (M16 v2)', () => {
     expect(g.players.p1!.netWorth).toBeLessThanOrEqual(before + 1);
   });
 
+  it('an inquiry closes quietly even after its score has decayed to nothing', () => {
+    const { g, asset } = world('eca-vanish');
+    ecaOf(g).score[`p1|${asset}`] = 70;
+    for (let k = 1; k <= 3; k++) day(g, asset, 14, k);
+    const q = Object.values(ecaOf(g).inquiries)[0]!;
+    expect(q.stage).toBe('inquiry');
+    for (let k = 4; k < 60 && q.stage === 'inquiry'; k++) day(g, asset, 0, k);
+    expect(q.stage).toBe('closed');
+    expect(ecaOf(g).open[`p1|${asset}`]).toBeUndefined();
+  });
+
   it('a score that falls back below the line for five days closes an inquiry quietly', () => {
     const { g, asset } = world('eca-quiet');
     // a score of 70 held by 14 points a day (below the investigation line of 80), then the pattern stops

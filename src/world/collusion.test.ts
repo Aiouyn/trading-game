@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Fill } from '@/engine';
 import { applyCommand, createGame } from './game';
+import { COMPANY } from '@/content/company';
+import { restrictionsOf, sellCapOf } from '@/engine';
+import { companyDay } from './company/bridge';
+import { BUYER_A, FOUNDER, listedWorld } from './company/b1fixture';
 import { isLinkedAccount, linkedAccounts, MIRROR_MIN_MATCHES, noteFills, recordGift, registerDevice, syncGroupSellCap } from './collusion';
 import type { GameState } from './types';
 
@@ -104,5 +108,20 @@ describe('the collusion graph (6C)', () => {
     expect(caps.ACME).toEqual({ f: 50, m: 50 });
     const solo = syncGroupSellCap(g, 'ACME', 'z', 100, { sellCaps: {} });
     expect(solo.ACME).toEqual({ z: 100 });
+  });
+
+  it('the listed founder sell cap is shared with an owner-linked account (O-7a): the group sells the day cap together', () => {
+    const { g, c, assetId } = listedWorld('col-ipo-cap');
+    const perDay = Math.floor(COMPANY.insiders.sellCapPct * c.listed!.sharesOut);
+    g.players[FOUNDER]!.allianceId = 'alcap';
+    g.players[BUYER_A]!.allianceId = 'alcap';
+    companyDay(g, null);
+    expect(sellCapOf(restrictionsOf(g.market), assetId, FOUNDER)).toBe(Math.floor(perDay / 2));
+    expect(sellCapOf(restrictionsOf(g.market), assetId, BUYER_A)).toBe(Math.floor(perDay / 2));
+    // the link ends with the alliance: the founder keeps the whole cap again
+    g.players[BUYER_A]!.allianceId = null;
+    companyDay(g, null);
+    expect(sellCapOf(restrictionsOf(g.market), assetId, FOUNDER)).toBe(perDay);
+    expect(sellCapOf(restrictionsOf(g.market), assetId, BUYER_A)).toBeUndefined();
   });
 });

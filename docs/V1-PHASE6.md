@@ -127,3 +127,84 @@ Written to the session scratchpad `shots-p6a` by the e2e spec (`P6_SHOTS`), each
 | Bubble takeover, settled | — | `…-fr-takeover-bubble.png` |
 
 Not taken: the crash on day 3, the en bubble takeover, the flash crash, and the fr profile card. The velvet spec's sign-off set (crash onset, crash day 3, bubble, flash) is therefore not complete. The phone takeover's card is legible, but the home-screen icons show faintly through the 94% panel.
+
+## 6C. Security, law and anti-cheat
+
+Scope: track 6C of `docs/team/specs/lead-phase6.md` (binding): insider tips from crime (M16 v1, `specs/quant-rumors.md`), the ECA market regulator (M16 v2, ROADMAP §2.5, 03 §10.2), and the collusion graph (Phase 4 O-5). Branch `p6/c`, worktree `.claude/worktrees/p6-c`, from `v1` at `26c2d98`. Status date: 2026-10-11. Status words as in 6A.
+
+### 6C.1 Items
+
+| Item | Status | What | Where |
+|---|---|---|---|
+| Insider tips from crime (M16 v1) | **Done** | A planted session on a covered insider of a listed stock queues a tip for the attacker. It is delivered privately once the report's surprise is locked (the analyst preview, at most five game days before the report). The claim is the sign of that surprise, so it is always true. Orders on the claim's side, after the tip and before the report, are flagged when placed. Rumors are never flagged. | `src/world/tips.ts`; hooks in `cyber.ts` (plantSession), `game.ts` (order.place, day close) |
+| Tip item in Messages | **Done** | Inbox kind `tip`: a NON-PUBLIC card with the claim, the ticker and the days to the report. No outcome. | `tips.ts` (`say`); `inbox.kind.tip` in `en.json` and `fr.json` |
+| ECA surveillance score | **Done** | Per account and asset, folded at the day close as `score = min(100, 0.8 × previous + points)`. Points come from the company insider record (Phase 4 window and plan points, read as a daily delta), from tip flags (40 × size factor at placement), and from abnormal pre-announcement trading (a right-side fill within two game days before a report that moves the stock by at least 3%: 40 × size factor × timing factor, timing 1 within a day and 0.5 at one to two days). | `src/world/eca.ts` |
+| ECA inquiry and investigation | **Done** | An inquiry opens after three consecutive day closes at 60 or more, with 10 to 20 evidence points (score / 5). It becomes an investigation at 80, or at 60 when the account received a tip on the asset. An investigation adds 5 evidence a day while the score stays at 60 or more; the tip trail gives 30 evidence on half the investigation days for an account that received a tip. An inquiry whose score stays under 60 for five game days closes quietly. A decided file cannot reopen for 20 game days. | `eca.ts` |
+| Tribunal-lite and S5 fines | **Done** | At 55 evidence, `regulatorVerdict` (in `court.ts`) decides on the logistic `σ((E − 55)/12)` with a keyed draw. A conviction is S5: 8% of net worth, floor $100k, at most 35% of net worth, never below the $5k floor, plus disgorgement of the gain on the flagged trades (at today's price). Both are sinks (`eca fines`, `eca disgorgement`), since there is no victim to pay. Reputation −10. | `court.ts` (`regulatorVerdict`, `TRIBUNAL_BAR`, `ECA_CAP_PCT`) |
+| ECA letters | **Done** | Notice, investigation letter and verdict, each in three parts (what happened, why, what to do), in `en.json` and `fr.json` (`eca.notice.*`, `eca.investigation.*`, `eca.verdict.*`). The Legal & Court app shows the player's own inquiries and letters (`EcaCard`). The view carries the stage and the letters only, never the score, the evidence, the tip trail or the flags. | `eca.ts` (`letter`, `ecaViewOf`); `view.ts` (`regulator`); `components/apps/legal/LegalApp.tsx` |
+| Collusion graph | **Done** | Owner groups are the transitive closure of: alliances (unchanged); a registration device, kept as a sha256 hash (`registerDevice`, never sent to a client); two or more completed gifts between a pair (`recordGift`, from accepted transfer deals); and mirrored fills (same asset, side and quantity within two ticks; at least eight matches covering at least 60% of the smaller account's fills). | `src/world/collusion.ts` |
+| `linkedAccounts(g, pid)` | **Done** | The API for the consumers: IPO exclusions (`company/ipo.ts`), the Launchpad creator cap (`launchpad/state.ts`, `isCreatorLinked`), the founder sell cap, and the ad cap (exported, not wired: `sponsor.ts` is on `p6/b`). `isLinkedAccount` answers pairs. | `collusion.ts` |
+| Founder sell cap on linked accounts (closes O-7a) | **Done** | Each member of the founder's group gets `floor(perDay / group size)` of the listed stock's daily cap, so the group sells at most the cap together. A group of one keeps the full cap. It is re-set every game day, so a member who leaves the group loses the cap. | `company/bridge.ts` (`syncFounderCaps`); `collusion.ts` (`syncGroupSellCap`) |
+| Admin seeds for e2e | **Done** | `admin.tip` and `admin.inquiry`, behind `ADMIN_TOKEN` (`/api/admin/tip`, `/api/admin/inquiry`). They run the game's delivery and notice code on a chosen stock, or the first stock with a report ahead. The tip seed locks the surprise and the consensus, so the claim stays true. | `game.ts`; `tips.ts` (`adminSeedTip`); `eca.ts` (`adminSeedInquiry`); `server/index.ts` |
+| Harness | **Done** | `scripts/eca-harness.ts`: the real engine (`createGame`, `applyCommand`, `stepGame`) over seeds, with honest, lucky, tip and rumor traders. Reports every 12 game days (the production cadence is 63), so a 60-day season holds several per stock. | `scripts/eca-harness.ts` |
+
+### 6C.2 Commits
+
+| Commit | What |
+|---|---|
+| `554d2fe` | Engine, letters and copy: collusion, tips, ECA, tribunal-lite, hooks, Legal & Court letters, Messages kind, the unit tests and the harness. |
+| (next commit on `p6/c`) | Inquiry closure fix, the founder group cap test, the admin seeds, the e2e spec, the harness default and this section. |
+
+### 6C.3 Gates
+
+Unit tests (new): `src/world/collusion.test.ts` (9), `src/world/tips.test.ts` (6), `src/world/eca.test.ts` (8). All pass. The founder cap test runs the listed-company fixture through `companyDay`.
+
+Harness: `npx tsx scripts/eca-harness.ts --seeds 20 --days 60` (seeds `eca-h0` to `eca-h19`, 8 traders per kind, 60 game days, reports every 12 game days). The tip trader's crime is simulated by pushing the pending tip that `queueInsiderTip` would push, since no listed company is built in the harness. Everything after that is the real code. Each tip is traded in three tranches, one a game day. Returns are net worth over the season.
+
+| Tip tranche (per day, % of NW) | Tip EV / honest | Tip variance / honest | Inquiries | Convictions | Wrongful | Rumor trader (mean season) |
+|---|---|---|---|---|---|---|
+| 4% (the default) | **1.71** (band 0.8 to 1.2: fail) | **2.04** (band 2 to 4: pass) | 0 | 0 of 160 | 0 | +0.52% |
+| 6% | **−13.5** (fail) | **53** (fail) | 135 | 97 of 160 (61%; band 40 to 65%: pass) | 0 of 97 (pass, under 3%) | +0.52% |
+
+Four-seed points on the same harness, not release numbers: 2% gives tip EV 1.07 and variance 0.60, with no inquiries; 5% gives 1.99 and 3.9, with 5 inquiries and no conviction; 8% gives −28 and 44, with 66% convicted.
+
+| Gate (lead-phase6 6C, 03 §16) | Result |
+|---|---|
+| Wrongful convictions under 3% | **Pass.** 0 of 97 convictions at 6%; no honest, lucky or rumor trader got an inquiry in 20 seeds. |
+| Blind rumor-following EV at or below 0 after fees | **Fail.** +0.52% per trader-season (20 seeds × 8 traders; standard error about 0.08%). The engine's catalyst rumors are 55% accurate (`universeConfig`), and that edge survives the fees. Not changed here: a rumor price or fee change moves every world with rumors. Quant to decide. |
+| Tip EV 0.8 to 1.2 × honest at 2 to 4 × variance | **Fail** at every tranche tested. Only the 2% tranche is in the EV band, and its variance is 0.6 ×. The 4% tranche is in the variance band with EV 1.7 ×. At 6% the 35%-of-NW S5 fine makes EV negative. |
+| Conviction rate 40 to 65% on attributed ops (03 §16) | Pass at 6%, but only with the EV failing. At 4% there are no convictions. |
+
+Why the EV band is missed (for Tape and Quant):
+
+1. **The size factor is relative to the trader's own median.** A tip trade at the trader's usual size scores about 13 points (40 × 1/3), so three tranches never reach 60 for three game days. Detection is a cliff: 0 inquiries at 4%, 5 at 5%, 28 at 6%.
+2. **The fine drives the EV.** A conviction costs 35% of a small book (the cap binds below about $285k of net worth). ROADMAP §2.5 flagged this already (a gentler first-offence rule for small books is Tape's call). Nothing here changes the scale.
+3. **Tip trades are right-side by construction.** A tip is perfect information on one report, so a tip trader beats honest play whenever undetected. Detection has to be smooth to hold EV near honest. The current 60-for-three-days line is not smooth.
+
+### 6C.4 Tuning
+
+The harness default is the 4% tranche. The 6% run is the same code with `ECA_TRANCHE_MULT=1.5`. The regulator's constants are the spec values: `ECA` in `eca.ts`, and `TRIBUNAL_BAR` and `ECA_CAP_PCT` in `court.ts`. None was tuned to hit a gate. Only the trader's tranche size was swept.
+
+### 6C.5 Deviations
+
+1. **Rival-fund tips are not built.** The spec's "or a rival" needs a session target among rival funds. `plantSession` takes players only, and rival funds are reached by the crew and fund paths. Tips come from covered insiders of listed stocks only (the roster in `company/insiders.ts`).
+2. **A tip is queued at a planted session, not at the session's progress.** The spec says "successful". The cyber model's success is a planted entry.
+3. **Delivery waits for the report's surprise.** The engine draws it at the analyst preview, five game days before the report. A tip queued earlier is delivered at that preview; its claim is the sign of the surprise.
+4. **Sells of a pre-existing position are flagged.** The spec says they are not. The engine keeps no lot history per tip, so a sell on a "down" claim is flagged whatever the position. Open.
+5. **Disgorgement uses today's price.** It is the flagged trades' gain at the verdict day, not realised P&L.
+6. **The device hash is an API, not a feed.** The engine has no device or IP. `registerDevice` takes a token from the server, and no client sends one yet.
+7. **Mirror matching is exact-quantity, two ticks.** It is conservative. It has unit tests but no harness of its own.
+8. **The group sell cap is split, not pooled.** Each member gets `floor(perDay / n)`, so the group total stays at or under the cap (the sum proves it), at the cost of a small rounding loss. The engine's per-account tally is unchanged.
+9. **The ad cap is not wired.** `sponsor.ts` is on `p6/b`. `linkedAccounts` is exported for it.
+10. **Refusals.** The IPO refusal (`ipoOwnerSet`) and the creator cap already say "linked accounts" and name nobody. The sell-cap refusal text is unchanged.
+11. **The harness simplifies the market.** Reports every 12 game days, no listed company (the crime step is a pushed pending tip), and tip traders trade three tranches on consecutive days.
+
+### 6C.6 Open items
+
+- Failing gates, with owners: the rumor EV (Quant); the tip EV band and variance (Tape, with the small-book S5 rule); and the detection cliff (Tape: a smoother evidence function, or a size factor relative to the market rather than to the trader).
+- The e2e spec (`tests/e2e/regulator.spec.ts`) seeds a tip and an inquiry through the admin routes and reads Messages and the Legal & Court app in English and French.
+- `src/world/rivalCrews.test.ts` takes about 74 s on this machine, and one of its tests hit the 60 s default timeout during the full run under four-agent load. It passes alone (18 of 18). Not a regression from 6C; noted for the merge run.
+
+### 6C.7 Screenshots
+
+Desktop and phone, English and French, the tip card and the inquiry letter: `scratchpad/shots-p6c` (written by the e2e run when `REG_SHOTS_DIR` is set).

@@ -29,7 +29,8 @@ const PER_KIND = 8;
 const START_CASH = 20_000;
 const CRIME_EVERY_DAYS = 10;
 const TRANCHES = Number(process.env.ECA_TRANCHES ?? 3);
-const TRANCHE_MULT = Number(process.env.ECA_TRANCHE_MULT ?? 2);
+// a tranche is this multiple of 4% of net worth (the default: 4%). The sweep in docs/V1-PHASE6.md 6C.4 varies it.
+const TRANCHE_MULT = Number(process.env.ECA_TRANCHE_MULT ?? 1);
 
 function arg(name: string, def: number): number {
   const i = process.argv.indexOf(`--${name}`);

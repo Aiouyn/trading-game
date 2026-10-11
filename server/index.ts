@@ -144,6 +144,17 @@ const http = createServer(async (req, res) => {
         : { type: 'admin.launchCredit' as const, playerId: p.id, score: Number(b.score) };
       return json(res, 200, host.command(p.id, cmd));
     }
+    if (req.method === 'POST' && (url.pathname === '/api/admin/tip' || url.pathname === '/api/admin/inquiry')) {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      const p = Object.values(host.g.players).find((x) => x.handle.toLowerCase() === String(b.handle ?? '').toLowerCase());
+      if (!p) return json(res, 404, { ok: false });
+      const assetId = String(b.assetId ?? '');
+      const cmd = url.pathname === '/api/admin/tip'
+        ? { type: 'admin.tip' as const, playerId: p.id, assetId }
+        : { type: 'admin.inquiry' as const, playerId: p.id, assetId };
+      return json(res, 200, host.command(p.id, cmd));
+    }
     if (req.method === 'POST' && url.pathname === '/api/admin/shock') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const b = await body(req);

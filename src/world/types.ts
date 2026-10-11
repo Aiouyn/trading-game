@@ -711,6 +711,10 @@ export type Command =
   | { type: 'admin.filedLate'; playerId: string }
   /** dev and tests only: a next-gen launch credit at a quality score (adminLaunchCredit, the R&D launch block) */
   | { type: 'admin.launchCredit'; playerId: string; score: number }
+  /** e2e seed (ADMIN_TOKEN): an insider tip on a stock with a report ahead (tips.ts adminSeedTip) */
+  | { type: 'admin.tip'; playerId: string; assetId: string }
+  /** e2e seed (ADMIN_TOKEN): an open regulator inquiry with its notice (eca.ts adminSeedInquiry) */
+  | { type: 'admin.inquiry'; playerId: string; assetId: string }
   /** dev and tests only: fills a token's curve up to graduation (the e2e seam for the graduation path) */
   | { type: 'admin.lpFill'; ticker: string };
 

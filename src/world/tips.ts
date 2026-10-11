@@ -1,9 +1,9 @@
 import { earningsInfo, type Side } from '@/engine';
-import { TPD, priceOf } from './core';
+import { keyedRng, TPD, priceOf } from './core';
 import { say } from './say';
 import { rosterOf } from './company/insiders';
 import type { CompanyWorld } from './company/types';
-import type { GameState, StepOutput } from './types';
+import type { CommandResult, GameState, StepOutput } from './types';
 
 /**
  * Insider tips from crime (M16 v1, specs/quant-rumors.md, lead-phase6.md 6C). A successful session (a planted hidden session)
@@ -186,4 +186,27 @@ export function flagTipTrade(g: GameState, pid: string, assetId: string, side: S
 /** The tip trail for the regulator: did this account ever receive a tip on the asset. */
 export function receivedTip(g: GameState, pid: string, assetId: string): boolean {
   return (g.tips?.received[`${pid}|${assetId}`] ?? 0) > 0;
+}
+
+/**
+ * e2e seed (admin only, behind ADMIN_TOKEN): an insider tip on a stock whose report is ahead, delivered now. A real tip waits for
+ * the report's surprise to be locked; this seed locks it at once (a keyed draw, so a replay agrees) and then runs the same
+ * delivery as tipsDay, so the card and the flags are the game's own. Refused when there is no report ahead.
+ */
+export function adminSeedTip(g: GameState, pid: string, asked: string, out: StepOutput | null): CommandResult {
+  // an empty asset picks the first stock with a report ahead (the seed is for tests; the game never picks for a player)
+  const assetId = asked || (g.market.config.assets.find((d) => d.assetClass === 'stock' && earningsInfo(g.market, d.id) !== null)?.id ?? '');
+  const idx = assetIndex(g, assetId);
+  const info = earningsInfo(g.market, assetId);
+  if (!g.players[pid] || idx < 0 || !info || info.day * TPD + 1 <= g.market.tick) return { ok: false, error: 'no report ahead on that stock' };
+  const a = g.market.assets[idx]!;
+  if (a.surprise === null || a.surprise === undefined) {
+    a.surprise = keyedRng(g, `admin.tip:${assetId}:${info.day}`).normal();
+    // a consensus set here stops the analyst preview from drawing a new surprise later (the tip must stay true)
+    if (a.consensus === null || a.consensus === undefined) a.consensus = a.surprise >= 0 ? 0.2 : -0.2;
+  }
+  const t = tipsOf(g);
+  t.pending.push({ id: `pt${t.seq + 1}`, playerId: pid, assetId, companyId: 'admin', tick: g.market.tick });
+  tipsDay(g, out);
+  return { ok: true, data: { assetId } };
 }
