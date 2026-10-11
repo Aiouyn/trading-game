@@ -139,6 +139,27 @@ export async function makeIpoReady(handle: string): Promise<void> {
 }
 
 /**
+ * Makes a founder's company late-tier with two filed quarters, so the Filings tab shows real statements (the statements are
+ * the filed ones). See admin.filedLate in src/world/company/seams.ts.
+ */
+export async function makeFiledLate(handle: string): Promise<void> {
+  const r = await fetch(`${WORLD}/api/admin/filed-late`, {
+    method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle }),
+  });
+  expect(r.status).toBe(200);
+  expect((await r.json()).ok).toBe(true);
+}
+
+/** Gives a founder's company a next-gen launch credit that reads `score` on the R&D launch block (admin.launchCredit). */
+export async function grantLaunchCredit(handle: string, score: number): Promise<void> {
+  const r = await fetch(`${WORLD}/api/admin/launch-credit`, {
+    method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, score }),
+  });
+  expect(r.status).toBe(200);
+  expect((await r.json()).ok).toBe(true);
+}
+
+/**
  * Drags an app window's south-east corner far up and left, so the window stops at its declared minimum (src/shell/apps.ts),
  * and returns its box. Desktop only: a phone app is full screen.
  */

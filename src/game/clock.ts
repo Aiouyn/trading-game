@@ -1,3 +1,5 @@
+import { t } from '@/i18n';
+
 /**
  * Game clock. One game day is ticksPerDay ticks (720 by default, 1 tick = 5 real seconds),
  * shown as a 09:30 to 16:00 session so the clock reads like a trading day.
@@ -36,7 +38,7 @@ export function sessionTime(tickInDay: number, ticksPerDay: number): string {
 /** "Day 12 · 14:35" */
 export function clockLabel(tick: number, ticksPerDay: number): string {
   const c = clockParts(tick, ticksPerDay);
-  return `Day ${c.day} \u00b7 ${c.hhmm}`;
+  return `${t('clock.day', { day: c.day })} \u00b7 ${c.hhmm}`;
 }
 
 export const SPEEDS = [1, 4, 20] as const;

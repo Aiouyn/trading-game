@@ -33,10 +33,17 @@ describe('Filings tab (O-17)', () => {
   it('shows the next filing day and the empty state before any quarter is filed', () => {
     const v = view();
     const html = renderToStaticMarkup(<Filings co={v} />);
-    expect(html).toContain('data-testid="company-filings-next"');
+    // a Seed company files no quarter, so it has no next filing day to show (the registry line says so)
+    expect(html).not.toContain('data-testid="company-filings-next"');
     expect(html).toContain('data-testid="company-filings-none"');
     expect(html).toContain('data-testid="company-filings-registry"');
     expect(html).not.toContain('data-testid="company-filing"');
+  });
+
+  it('shows the next filing day for a late company, which files each quarter', () => {
+    const html = renderToStaticMarkup(<Filings co={{ ...view(), tier: 'late' }} />);
+    expect(html).toContain('data-testid="company-filings-next"');
+    expect(html).not.toContain('data-testid="company-filings-registry"');
   });
 
   it('lists each filed quarter newest first, with its income, balance and cash flow lines as whole figures', () => {
@@ -61,17 +68,23 @@ describe('Filings tab (O-17)', () => {
 });
 
 describe('Launch on R&D (O-17)', () => {
-  it('shows the launch form for a credit at the ready mark, and waits below it', () => {
+  it('shows the launch form for a credit at the ready mark, and below it the three-part warning with a confirm (O-20)', () => {
     const ready = { ...view(), launchCredits: [{ generation: 2, score: 80, ready: true }] };
     const htmlReady = renderToStaticMarkup(<RnD co={ready} />);
     expect(htmlReady).toContain('data-testid="company-launch-ready"');
     expect(htmlReady).toContain('data-testid="company-launch-submit"');
     expect(htmlReady).not.toContain('data-testid="company-launch-not-ready"');
+    expect(htmlReady).not.toContain('data-testid="company-launch-accept"');
 
+    // the mark is advice: the form is there below it too, with the warning in three parts and a confirm the launch waits on
     const waiting = { ...view(), launchCredits: [{ generation: 2, score: 40, ready: false }] };
     const htmlWaiting = renderToStaticMarkup(<RnD co={waiting} />);
     expect(htmlWaiting).toContain('data-testid="company-launch-not-ready"');
-    expect(htmlWaiting).not.toContain('data-testid="company-launch-submit"');
+    expect(htmlWaiting).toContain('data-testid="company-launch-warn-what"');
+    expect(htmlWaiting).toContain('data-testid="company-launch-warn-why"');
+    expect(htmlWaiting).toContain('data-testid="company-launch-warn-do"');
+    expect(htmlWaiting).toContain('data-testid="company-launch-accept"');
+    expect(htmlWaiting).toContain('data-testid="company-launch-submit"');
 
     const none = renderToStaticMarkup(<RnD co={{ ...view(), launchCredits: [] }} />);
     expect(none).toContain('data-testid="company-launch-none"');

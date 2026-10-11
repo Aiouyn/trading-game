@@ -78,8 +78,20 @@ export interface CompanyFounderView extends CompanyPublic, OperationsView {
   launchCredits: { generation: number; score: number; ready: boolean }[];
   /** O-16: the CEO change as it would be announced today, the rules it runs under, and who is CEO now */
   ceoPlan: CeoPlan;
+  /** O-16: the CEO change already announced and not yet in effect (null when none): its days, from the engine's record */
+  ceoPending: CeoPending | null;
   /** O-17: the next filing day, from the public schedule (the next quarter close plus the filing lag), never the unfiled quarter */
   nextFilingDay: number;
+}
+
+/** A CEO change the founder has announced: the days the engine recorded at the announcement (governance.ts). */
+export interface CeoPending {
+  announcedDay: number;
+  effectiveDay: number;
+  freezeUntil: number;
+  cooldownUntil: number;
+  /** the successor's kind: an outside executive (an NPC) or another player */
+  successor: 'npc' | 'player';
 }
 
 /** The CEO change as the founder would announce it today (spec 9.1): the days and the rules, shown before confirming. */
@@ -103,6 +115,20 @@ export function nextFilingDay(day: number): number {
   // the smallest close k >= 1 whose filing (k * q + lag) is strictly after today
   const k = Math.max(1, Math.floor((day - lag) / q) + 1);
   return k * q + lag;
+}
+
+/** The announced CEO change, read from the company's record (null once it has taken effect, or when none is announced). */
+export function ceoPendingOf(c: Company): CeoPending | null {
+  const ch = c.ceoChange;
+  if (!ch) return null;
+  const K = COMPANY.governance.ceo;
+  return {
+    announcedDay: ch.announcedDay,
+    effectiveDay: ch.effectiveDay,
+    freezeUntil: ch.effectiveDay + K.exitFreezeDays,
+    cooldownUntil: ch.effectiveDay + K.cooldownDays,
+    successor: ch.successor.kind === 'player' ? 'player' : 'npc',
+  };
 }
 
 /** The CEO change plan read from the rules (governance.ts runs the same numbers on the announcement). */
@@ -248,6 +274,7 @@ export function founderCompanyView(w: CompanyWorld, playerId: string, companyId:
       return { generation: l.generation, score, ready: score >= COMPANY.rd.readyMark };
     }),
     ceoPlan: ceoPlanOf(c, playerId, day),
+    ceoPending: ceoPendingOf(c),
     nextFilingDay: nextFilingDay(day),
   };
 }

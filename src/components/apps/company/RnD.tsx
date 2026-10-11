@@ -124,35 +124,50 @@ export function RnD({ co }: { co: CompanyFounderView }) {
 }
 
 /**
- * The next-gen launch (O-17): a next-gen success waits as a launch credit. The first credit shows its quality score against
- * the ready mark; at or above it, the founder names the product and sets its price, and the engine launches it (its
- * refusals are shown inline). Below the mark there is no launch form, only the score.
+ * The next-gen launch (O-17, ruling O-20): a next-gen success waits as a launch credit. The form is always there: the
+ * engine launches any credit, and the ready mark is advice. Below the mark the screen says so in three parts (what, why,
+ * do) and asks the founder to confirm before the launch is sent. At or above the mark the form is plain. The engine's
+ * refusals are shown inline.
  */
 function Launch({ co }: { co: CompanyFounderView }) {
   const act = useGame((s) => s.act);
   const credit = co.launchCredits[0];
   const [name, setName] = useState<string | null>(null);
   const [price, setPrice] = useState(String(COMPANY.demand.priceRef));
+  const [acceptBelow, setAcceptBelow] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [busy, setBusy] = useState(false);
   const amount = numberOrNull(price);
   const label = name ?? (credit ? t('company.ui.launch.defaultName', { generation: credit.generation }) : '');
+  const mark = co.limits.qualityReady;
+  const belowMark = credit !== undefined && !credit.ready;
+  const blocked = busy || amount === null || label.trim() === '' || (belowMark && !acceptBelow);
   const launch = async () => {
-    if (busy || amount === null || label.trim() === '') return;
+    if (blocked) return;
     setBusy(true);
     const ack = await act({ type: 'company.act', companyId: co.id, action: { kind: 'launchProduct', name: label.trim(), price: amount } }, { silent: true });
     setBusy(false);
     setRefusal(refusalOf(ack));
-    if (ack.ok) setName(null);
+    if (ack.ok) {
+      setName(null);
+      setAcceptBelow(false);
+    }
   };
-  const mark = co.limits.qualityReady;
   return (
     <Section title={t('company.ui.launch.title')} chip={<PrivateChip />} testId="company-launch">
       {!credit ? (
         <p className="text-small text-fg-muted" data-testid="company-launch-none">{t('company.ui.launch.none')}</p>
-      ) : credit.ready ? (
+      ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-small text-fg" data-testid="company-launch-ready">{t('company.ui.launch.ready', { score: credit.score, mark })}</p>
+          {credit.ready ? (
+            <p className="text-small text-fg" data-testid="company-launch-ready">{t('company.ui.launch.ready', { score: credit.score, mark })}</p>
+          ) : (
+            <div role="note" className="flex flex-col gap-1 rounded-md border border-warn/40 bg-warn/5 px-3 py-2 text-small" data-testid="company-launch-not-ready">
+              <p className="font-medium text-fg" data-testid="company-launch-warn-what">{t('company.ui.launch.belowMark.what', { score: credit.score, mark })}</p>
+              <p className="text-fg-muted" data-testid="company-launch-warn-why">{t('company.ui.launch.belowMark.why')}</p>
+              <p className="text-fg" data-testid="company-launch-warn-do">{t('company.ui.launch.belowMark.do')}</p>
+            </div>
+          )}
           {co.launchCredits.length > 1 ? (
             <p className="text-caption text-fg-faint">{t('company.ui.launch.queue', { count: co.launchCredits.length - 1 })}</p>
           ) : null}
@@ -161,15 +176,16 @@ function Launch({ co }: { co: CompanyFounderView }) {
             <NumberField value={price} onChange={setPrice} min={1} step={1} testId="company-launch-price" label={t('company.ui.launch.price')} className="h-11" />
           </div>
           <RefusalNote refusal={refusal} />
+          {belowMark ? (
+            <label className="flex items-center gap-2 text-small text-fg" data-testid="company-launch-accept">
+              <input type="checkbox" checked={acceptBelow} onChange={(e) => setAcceptBelow(e.target.checked)} data-testid="company-launch-accept-input" />
+              {t('company.ui.launch.acceptBelow', { score: credit.score, mark })}
+            </label>
+          ) : null}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-caption text-fg-faint">{t('company.ui.launch.note')}</span>
-            <Button variant="brass" disabled={busy || amount === null || label.trim() === ''} onClick={launch} testId="company-launch-submit">{t('company.ui.launch.submit')}</Button>
+            <Button variant="brass" disabled={blocked} onClick={launch} testId="company-launch-submit">{t('company.ui.launch.submit')}</Button>
           </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          <p className="text-small text-fg-muted" data-testid="company-launch-not-ready">{t('company.ui.launch.notReady', { score: credit.score, mark })}</p>
-          <RefusalNote refusal={refusal} />
         </div>
       )}
     </Section>

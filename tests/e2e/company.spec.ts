@@ -106,7 +106,9 @@ test('the next-gen launch waits on R&D with no credit, the Filings tab shows the
   await page.getByTestId('company-tab-rd').click();
   await expect(page.getByTestId('company-launch-none')).toBeVisible();
   await page.getByTestId('company-tab-filings').click();
-  await expect(page.getByTestId('company-filings-next')).toContainText('Next filing: Day');
+  // a Seed company files no quarter: no next filing day, the registry line instead
+  await expect(page.getByTestId('company-filings-next')).toHaveCount(0);
+  await expect(page.getByTestId('company-filings-registry')).toBeVisible();
   await expect(page.getByTestId('company-filings-none')).toBeVisible();
   await page.getByTestId('company-tab-people').click();
   await expect(page.getByTestId('company-ceo-announce')).toContainText('Announced today');
@@ -115,10 +117,10 @@ test('the next-gen launch waits on R&D with no credit, the Filings tab shows the
   await page.getByTestId('company-ceo-submit').click();
   await page.getByTestId('company-ceo-submit-yes').click();
   await expect(page.getByTestId('company-refusal')).toHaveCount(0);
-  // a second change while one is announced is refused inline
-  await page.getByTestId('company-ceo-submit').click();
-  await page.getByTestId('company-ceo-submit-yes').click();
-  await expect(page.getByTestId('company-refusal')).toHaveAttribute('data-code', 'ceoChangePending');
+  // once announced, the recorded days and the pending state show, and no second confirm is offered
+  await expect(page.getByTestId('company-ceo-pending')).toBeVisible();
+  await expect(page.getByTestId('company-ceo-announce')).toContainText('Announced on Day');
+  await expect(page.getByTestId('company-ceo-submit')).toHaveCount(0);
   if (isPhone(page)) await noHorizontalOverflow(page);
   expect(errors).toEqual([]);
 });

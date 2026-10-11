@@ -3,6 +3,8 @@ import { COMPANY } from '@/content/company';
 import { companyAction, companyTick, emptyCompanyWorld, foundCompany, type CompanyEnv, type CompanyEvent } from './company';
 import { ceoPlanOf, founderCompanyView, nextFilingDay } from './views';
 import { qualityScore } from './rd';
+import { seedFiledLate, seedLaunchCredit } from './seams';
+import { stagedDropCopy } from './bridge';
 import type { CompanyWorld } from './types';
 
 // O-17: the Overview decision is staged and applied at the next game-day close (before the company's day step), replaced
@@ -112,7 +114,8 @@ describe('O-17 staging of the Overview decision', () => {
     companyAction(h.w, h.env, 'founder', id, { kind: 'stageProject', projectKind: 'quality', productId: `${id}:p0`, spend: 90_000 });
     c.cash = 10_000;
     const evs = advance(h, 1, 1);
-    expect(evs).toContainEqual({ kind: 'staged', companyId: id, day: 0, status: 'dropped', productId: `${id}:p0`, spend: 90_000, code: 'insufficientFunds' });
+    // the drop says why: the code and the shortfall at the close (the cash left, 10,000, against the 90,000 spend)
+    expect(evs).toContainEqual({ kind: 'staged', companyId: id, day: 0, status: 'dropped', productId: `${id}:p0`, spend: 90_000, code: 'insufficientFunds', shortfall: 80_000 });
     expect(c.projects).toHaveLength(0);
     expect(c.staged).toBeNull();
   });
@@ -187,5 +190,70 @@ describe('O-16 CEO change plan: the days and rules shown before confirming', () 
     // the plan matches what the engine records when the founder announces the change
     c.ceo = { kind: 'npc' };
     expect(ceoPlanOf(c, 'founder', 40).ceoHolder).toBe('npc');
+  });
+});
+
+describe('O-16 CEO change: an announced change is shown until it takes effect', () => {
+  it('the founder view carries the recorded days once announced, and clears on the effective day', () => {
+    const h = harness('e2');
+    const id = found(h);
+    const c = h.w.companies[id]!;
+    h.env.day = 40;
+    expect(companyAction(h.w, h.env, 'founder', id, { kind: 'changeCEO', successor: { kind: 'npc' } }).ok).toBe(true);
+    const eff = 40 + COMPANY.governance.ceo.noticeDays;
+    expect(founderCompanyView(h.w, 'founder', id, 41).ceoPending).toEqual({
+      announcedDay: 40,
+      effectiveDay: eff,
+      freezeUntil: eff + COMPANY.governance.ceo.exitFreezeDays,
+      cooldownUntil: eff + COMPANY.governance.ceo.cooldownDays,
+      successor: 'npc',
+    });
+    // a second change is refused while one is announced, and the seat is unchanged until the effective day
+    expect(companyAction(h.w, h.env, 'founder', id, { kind: 'changeCEO', successor: { kind: 'npc' } })).toEqual({ ok: false, reject: { code: 'ceoChangePending', untilDay: eff } });
+    expect(c.ceo ?? null).toBeNull();
+    advance(h, 41, eff);
+    expect(c.ceo).toEqual({ kind: 'npc' });
+    expect(founderCompanyView(h.w, 'founder', id, eff).ceoPending).toBeNull();
+  });
+
+  it('with no change announced, nothing is pending', () => {
+    const h = harness('e3');
+    const id = found(h);
+    expect(founderCompanyView(h.w, 'founder', id, 0).ceoPending).toBeNull();
+  });
+});
+
+describe('O-17 staged drop note and e2e seams', () => {
+  it('each start-check code the close can give has its own note copy; any other code gets the general note', () => {
+    expect(stagedDropCopy('insufficientFunds')).toBe('insufficientFunds');
+    expect(stagedDropCopy('projectBusy')).toBe('projectBusy');
+    expect(stagedDropCopy('noRdStaff')).toBe('noRdStaff');
+    expect(stagedDropCopy('unknownProduct')).toBe('unknownProduct');
+    expect(stagedDropCopy('negativeAmount')).toBe('negativeAmount');
+    expect(stagedDropCopy('someOtherCode')).toBe('other');
+    expect(stagedDropCopy(undefined)).toBe('other');
+  });
+
+  it('seedFiledLate makes the company late with two filed quarters the founder view shows', () => {
+    const h = harness('seam1');
+    const id = found(h);
+    const c = h.w.companies[id]!;
+    seedFiledLate(c, 70);
+    seedFiledLate(c, 80);
+    expect(c.tier).toBe('late');
+    expect(c.filings.map((f) => f.quarter)).toEqual([1, 2]);
+    expect(founderCompanyView(h.w, 'founder', id, 90).filings.map((f) => f.quarter)).toEqual([1, 2]);
+  });
+
+  it('seedLaunchCredit reads the score it is given on the screen, and reads ready at the mark', () => {
+    const h = harness('seam2');
+    const id = found(h);
+    const c = h.w.companies[id]!;
+    seedLaunchCredit(c, 80);
+    seedLaunchCredit(c, 40);
+    expect(founderCompanyView(h.w, 'founder', id, 0).launchCredits).toEqual([
+      { generation: 2, score: 80, ready: true },
+      { generation: 2, score: 40, ready: false },
+    ]);
   });
 });

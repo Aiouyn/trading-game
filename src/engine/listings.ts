@@ -127,18 +127,25 @@ function eligibleStocks(state: WorldState): number[] {
   return out;
 }
 
-/** Rivals' units in a delisted name are settled at the same price as everyone else. */
-function settleRivals(state: WorldState, assetId: string, price: number): WorldState {
+/**
+ * Rivals' units in a delisted name are settled at the same price as everyone else. The rival books are Street-side (NPC)
+ * money (ruling O-22), so the cash they receive is an event: the world books it to the Street tally, like any other
+ * non-account counterparty, so the money identity closes.
+ */
+function settleRivals(state: WorldState, assetId: string, price: number, tick: number): { state: WorldState; events: StepEvent[] } {
   const books = state.ecology?.rivals;
-  if (!books) return state;
+  if (!books) return { state, events: [] };
+  let paid = 0;
   const rivals: RivalState[] = books.map((b) => {
     const q = b.units[assetId];
     if (!q) return b;
     const units = { ...b.units };
     delete units[assetId];
+    paid += q * price;
     return { ...b, units, cash: b.cash + q * price };
   });
-  return { ...state, ecology: { ...state.ecology!, rivals } };
+  const events: StepEvent[] = paid !== 0 ? [{ type: 'street', tick, assetId, amount: paid, reason: 'rivalSettlement' }] : [];
+  return { state: { ...state, ecology: { ...state.ecology!, rivals } }, events };
 }
 
 /**
@@ -155,10 +162,11 @@ export function delistAsset(state: WorldState, i: number, price: number, tick: n
     next = { ...state, restrictions: endProgramsOn(restrictionsOf(state), def.id, 'terminated', dayOfTick(tick, state.config.ticksPerDay), tick, planEvents) };
   }
   next = settleAsset(next, def.id, price);
-  next = settleRivals(next, def.id, price);
+  const rivals = settleRivals(next, def.id, price, tick);
+  next = rivals.state;
   const options = settleOptionsOn(next, def.id, price, tick);
   next = replaceDef(options.state, i, { ...def, listed: false, delisted: true });
-  return { state: next, events: [...planEvents, ...options.events] };
+  return { state: next, events: [...planEvents, ...rivals.events, ...options.events] };
 }
 
 /** Delist one asset (see delistAsset); the option settlement events are not returned here. */

@@ -80,7 +80,7 @@ export type CompanyEvent =
   | { kind: 'bankrupt'; companyId: string; day: number; listed: boolean; shortfall: number; recovery: number }
   | { kind: 'ceo'; companyId: string; day: number; holder: Holder }
   /** O-17: a staged decision reached its close: applied, or dropped with the refusal's code */
-  | { kind: 'staged'; companyId: string; day: number; status: 'applied' | 'dropped'; productId: string; spend: number; code?: string };
+  | { kind: 'staged'; companyId: string; day: number; status: 'applied' | 'dropped'; productId: string; spend: number; code?: string; shortfall?: number };
 
 /**
  * The largest money amount the company layer accepts (X3, company-tests.md section 5, invariant 18): the ledger holds integer
@@ -217,6 +217,7 @@ function applyStaged(c: Company, closeDay: number, events: CompanyEvent[]): void
   const r = startProjectOn(c, closeDay, s.projectKind, s.productId, s.spend);
   const base = { companyId: c.id, day: closeDay, productId: s.productId, spend: s.spend };
   if (r.ok) events.push({ kind: 'staged', ...base, status: 'applied' });
+  else if (r.reject.code === 'insufficientFunds') events.push({ kind: 'staged', ...base, status: 'dropped', code: r.reject.code, shortfall: r.reject.shortfall });
   else events.push({ kind: 'staged', ...base, status: 'dropped', code: r.reject.code });
 }
 

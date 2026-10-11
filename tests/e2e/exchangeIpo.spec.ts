@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { advanceWorld, ageAccount, clearSheets, goTo, grant, makeIpoReady, noHorizontalOverflow, register, skipRankUp, skipTips, watchErrors } from './helpers';
 
@@ -12,7 +13,7 @@ import { advanceWorld, ageAccount, clearSheets, goTo, grant, makeIpoReady, noHor
 const TPD = 720;
 const REAL_DAY = 24 * TPD;
 
-test('a founder opens an IPO book, an investor subscribes within the cap, and the stock lists with the allocation', async ({ page, browser }) => {
+test('a founder opens an IPO book, an investor subscribes within the cap, and the stock lists with the allocation', async ({ page, browser }, info) => {
   test.setTimeout(420_000);
   const errors = watchErrors(page);
 
@@ -91,6 +92,22 @@ test('a founder opens an IPO book, an investor subscribes within the cap, and th
   await clearSheets(page);
   await page.getByTestId('company-tab-capital').click();
   await expect(page.getByTestId('company-ipo-lockup')).toBeVisible({ timeout: 20_000 });
+
+  // the Stocks card of the listed company, in English and then French (a listed company, no filing yet: the revenue line says so).
+  // P4FINAL_SHOTS, when set, is the folder the PNGs are written to (the final screenshot pass of the company and exchange views).
+  if (process.env.P4FINAL_SHOTS) {
+    mkdirSync(process.env.P4FINAL_SHOTS, { recursive: true });
+    const project = info.project.name;
+    const card = `exchange-stock-${listed!.ticker}`;
+    await invPage.getByTestId('tab-stocks').click();
+    await invPage.getByTestId(card).screenshot({ path: `${process.env.P4FINAL_SHOTS}/en-${project}-exchange-stock.png` });
+    await goTo(invPage, 'profile');
+    await invPage.getByTestId('settings-lang-fr').click();
+    await expect(invPage.locator('html')).toHaveAttribute('lang', 'fr');
+    await goTo(invPage, 'exchange');
+    await invPage.getByTestId('tab-stocks').click();
+    await invPage.getByTestId(card).screenshot({ path: `${process.env.P4FINAL_SHOTS}/fr-${project}-exchange-stock.png` });
+  }
 
   expect(errors).toEqual([]);
   expect(invErrors).toEqual([]);

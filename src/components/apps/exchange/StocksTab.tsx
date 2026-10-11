@@ -30,6 +30,18 @@ function band(b: [number, number]): string {
   return `${compactMoney(b[0])} to ${compactMoney(b[1])}`;
 }
 
+/** The debt band as a figure: zero is money ($0.00), the other bands are the engine's words. */
+function debtText(totalBand: string): string {
+  return totalBand === '0' ? money(0) : totalBand;
+}
+
+/** The filed revenue: nothing filed yet is a line, a zero filing is $0, and a filed band is a band (never "$0 to $0"). */
+function revenueText(b: [number, number] | null): string {
+  if (b === null) return t('exchange.stock.revenueNone');
+  if (b[0] === 0 && b[1] === 0) return compactMoney(0);
+  return band(b);
+}
+
 function StockCard({ s }: { s: ListedStock }) {
   const v: CompanyPublic = s.view;
   const last = v.filings[v.filings.length - 1];
@@ -65,12 +77,9 @@ function StockCard({ s }: { s: ListedStock }) {
 
       <div className="grid grid-cols-2 gap-3 @xl:grid-cols-4">
         <Fact label={t('exchange.stock.headcount', { band: v.headcountBand })} value={v.headcountBand} testId={`exchange-headcount-${s.ticker}`} />
-        <Fact
-          label={t('exchange.stock.debt', { band: v.debt.totalBand, status: t(covenantKey(v.debt.covenant)) })}
-          value={v.debt.totalBand}
-          testId={`exchange-debt-${s.ticker}`}
-        />
-        {v.revenueBand && <Fact label={t('exchange.stock.revenue')} value={band(v.revenueBand)} testId={`exchange-revenue-${s.ticker}`} />}
+        <Fact label={t('exchange.stock.debt')} value={debtText(v.debt.totalBand)} testId={`exchange-debt-${s.ticker}`} />
+        <Fact label={t('exchange.stock.covenant')} value={t(covenantKey(v.debt.covenant))} testId={`exchange-covenant-${s.ticker}`} />
+        {v.revenueBand !== undefined && <Fact label={t('exchange.stock.revenue')} value={revenueText(v.revenueBand)} testId={`exchange-revenue-${s.ticker}`} />}
         <Fact prose label={t('exchange.stock.tier')} value={t(tierKey(v.tier, !!v.listed))} />
       </div>
 
@@ -78,7 +87,9 @@ function StockCard({ s }: { s: ListedStock }) {
         {v.window
           ? (v.window.open
             ? <p className="text-small text-gain" data-testid="exchange-window-state">{t('exchange.stock.window.open', { day: v.window.closesDay ?? '' })}</p>
-            : <p className="text-small text-fg-muted" data-testid="exchange-window-state">{t('exchange.stock.window.closed', { day: v.window.opensDay ?? '' })}</p>)
+            : <p className="text-small text-fg-muted" data-testid="exchange-window-state">
+              {v.window.opensDay !== undefined ? t('exchange.stock.window.closed', { day: v.window.opensDay }) : t('exchange.stock.window.closedNoDay')}
+            </p>)
           : <p className="text-small text-fg-faint" data-testid="exchange-window-state">{t('exchange.stock.window.none')}</p>}
       </Section>
 

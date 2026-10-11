@@ -50,7 +50,9 @@ export function Filings({ co }: { co: CompanyFounderView }) {
     <div className="flex flex-col gap-4" data-testid="company-filings">
       <Section title={t('company.ui.filings.title')} testId="company-filings-list">
         <p className="text-caption text-fg-faint" data-testid="company-filings-note">{t('company.ui.filings.note')}</p>
-        <p className="mt-2 text-small text-fg" data-testid="company-filings-next">{t('company.ui.filings.next', { day: co.nextFilingDay })}</p>
+        {quarterly ? (
+          <p className="mt-2 text-small text-fg" data-testid="company-filings-next">{t('company.ui.filings.next', { day: co.nextFilingDay })}</p>
+        ) : null}
         {!quarterly ? (
           <div className="mt-3 flex flex-col gap-1" data-testid="company-filings-registry">
             <p className="text-small text-fg-muted">{t('company.ui.filings.seed')}</p>

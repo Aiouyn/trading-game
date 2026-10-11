@@ -89,6 +89,12 @@ export function refusalKeys(reject: CompanyReject): { what: string; why: string;
   return { what: `${base}.what`, why: `${base}.why`, do: `${base}.do`, vars };
 }
 
+/** The note copy suffix for a staged decision the close refused: the codes the start checks can give (company.ts applyStaged). */
+const STAGED_DROP_CODES = ['insufficientFunds', 'projectBusy', 'noRdStaff', 'unknownProduct', 'negativeAmount'] as const;
+export function stagedDropCopy(code: string | undefined): string {
+  return (STAGED_DROP_CODES as readonly string[]).includes(code ?? '') ? code! : 'other';
+}
+
 /** The founder notes for the day's events (private to the owner; the public Wire is a later step). */
 export function companyNotes(g: GameState, out: StepOutput | null, events: CompanyEvent[]): void {
   const w = g.companies!;
@@ -108,10 +114,13 @@ export function companyNotes(g: GameState, out: StepOutput | null, events: Compa
     } else if (e.kind === 'ceo') {
       notify(g, out, c.ownerId, { kind: 'system', tone: 'info', text: `${c.name}: the CEO change is in effect.`, msg: { key: 'company.note.ceo', vars: { name: c.name } } });
     } else if (e.kind === 'staged') {
-      // O-17: the founder hears that the decision confirmed on this day was applied at its close, or dropped at it
-      const key = e.status === 'applied' ? 'company.note.stagedApplied' : 'company.note.stagedDropped';
-      const text = e.status === 'applied' ? `${c.name}: the staged project started at the close of day ${e.day}.` : `${c.name}: the staged project was not started at the close of day ${e.day}.`;
-      notify(g, out, c.ownerId, { kind: 'system', tone: e.status === 'applied' ? 'info' : 'warn', text, msg: { key, vars: { name: c.name, day: e.day, amount: Math.round(e.spend) } } });
+      // O-17: the founder hears that the decision confirmed on this day was applied at its close, or dropped at it, with the
+      // refusal's reason and the next step (what, why, do): one note key per refusal code the close can give
+      const applied = e.status === 'applied';
+      const key = applied ? 'company.note.stagedApplied' : `company.note.stagedDropped.${stagedDropCopy(e.code)}`;
+      const text = applied ? `${c.name}: the staged project started at the close of day ${e.day}.` : `${c.name}: the staged project did not start at the close of day ${e.day} (${e.code ?? 'refused'}).`;
+      const vars = { name: c.name, day: e.day, amount: Math.round(e.spend), shortfall: Math.round(e.shortfall ?? 0) };
+      notify(g, out, c.ownerId, { kind: 'system', tone: applied ? 'info' : 'warn', text, msg: { key, vars } });
     } else if (e.kind === 'backlogRepay') {
       notify(g, out, c.ownerId, { kind: 'system', tone: 'warn', text: `${c.name}: backlog repayment ${Math.round(e.repayment)}.`, msg: { key: 'company.note.repay', vars: { name: c.name, amount: Math.round(e.repayment) } } });
     }

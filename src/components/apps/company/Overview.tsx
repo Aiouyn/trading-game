@@ -6,7 +6,7 @@
 // number comes from the founder view; the screen only formats it and draws the lines.
 import { useState } from 'react';
 import { COMPANY } from '@/content/company';
-import { compactMoney, money, pct } from '@/game/format';
+import { compactMoney, money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Button, Segmented, Stat } from '@/components/ui';
@@ -57,6 +57,17 @@ function runwayText(days: number | null): string {
   return days === null ? t('company.ui.kpi.noPayroll') : t('company.ui.kpi.runwayDays', { days: Math.floor(days) });
 }
 
+/** The runway before and after the decision: "104 → 76 days", or the plain pair when a side has no payroll to count. */
+function runwayChange(before: number | null, after: number | null): string {
+  if (before === null || after === null) return t('company.ui.decision.runwayPlain', { before: runwayText(before), after: runwayText(after) });
+  return t('company.ui.decision.runwayChange', { before: Math.floor(before), after: Math.floor(after) });
+}
+
+/** An odds bound as a whole percent ("64%"): the engine's band is wider than two decimals, so the screen rounds it. */
+function wholePct(fraction: number): string {
+  return `${Math.round(fraction * 100)}%`;
+}
+
 const LEVEL_IDS: PreviewLevel[] = ['low', 'mid', 'high'];
 
 /**
@@ -101,7 +112,7 @@ function DecisionCard({ co }: { co: CompanyFounderView }) {
   };
   return (
     <Section title={t('company.ui.decision.title', { product: card.productName })} chip={<PrivateChip />} testId="company-decision">
-      <div className="grid gap-4 @2xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-4 @2xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-3">
           <Segmented<PreviewLevel>
             label={t('company.ui.decision.level')}
@@ -114,9 +125,14 @@ function DecisionCard({ co }: { co: CompanyFounderView }) {
           </p>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2" data-testid="company-decision-figures">
             <Figure label={t('company.ui.decision.spend')} value={money(chosen.spend)} testId="company-decision-spend" />
-            <Figure label={t('company.ui.decision.odds')} value={t('company.ui.decision.oddsRange', { low: pct(chosen.pLow), high: pct(chosen.pHigh) })} testId="company-decision-odds" />
-            <Figure label={t('company.ui.rd.gainLabel')} value={t('company.ui.rd.gain', { bear: chosen.gainPoints[0].toFixed(1), base: chosen.gainPoints[1].toFixed(1), bull: chosen.gainPoints[2].toFixed(1) })} testId="company-decision-gain" />
-            <Figure label={t('company.ui.decision.runway')} value={t('company.ui.decision.runwayChange', { before: runwayText(co.runwayDays), after: runwayText(chosen.runwayAfter) })} testId="company-decision-runway" />
+            <Figure label={t('company.ui.decision.odds')} value={t('company.ui.decision.oddsRange', { low: wholePct(chosen.pLow), high: wholePct(chosen.pHigh) })} testId="company-decision-odds" />
+            <Figure
+              label={t('company.ui.rd.gainLabel')}
+              value={t('company.ui.decision.gainValues', { bear: chosen.gainPoints[0].toFixed(1), base: chosen.gainPoints[1].toFixed(1), bull: chosen.gainPoints[2].toFixed(1) })}
+              note={t('company.ui.decision.gainCaption')}
+              testId="company-decision-gain"
+            />
+            <Figure label={t('company.ui.decision.runway')} value={runwayChange(co.runwayDays, chosen.runwayAfter)} testId="company-decision-runway" />
           </dl>
           <p className="text-caption text-fg-muted" data-testid="company-decision-clock">
             {t('company.ui.decision.clock', { days: card.days, day: card.endDay, mark: co.limits.qualityReady, score: Math.round(product?.qualityScore ?? 0) })}
@@ -147,11 +163,13 @@ function DecisionCard({ co }: { co: CompanyFounderView }) {
   );
 }
 
-function Figure({ label, value, testId }: { label: string; value: string; testId: string }) {
+function Figure({ label, value, note, testId }: { label: string; value: string; note?: string; testId: string }) {
   return (
     <div className="flex min-w-0 flex-col" data-testid={testId}>
       <dt className="text-caption text-fg-faint">{label}</dt>
-      <dd className="num text-small text-fg">{value}</dd>
+      {/* a figure stays on one line (the gain is three numbers, the runway a range): the column is made wide enough for it */}
+      <dd className="num whitespace-nowrap text-small text-fg">{value}</dd>
+      {note ? <dd className="text-caption text-fg-faint">{note}</dd> : null}
     </div>
   );
 }

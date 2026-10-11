@@ -57,24 +57,35 @@ export function computeBoards(g: GameState): void {
   };
 }
 
+/** The stabilizer's target: money growth per game day, measured on the trailing STABILIZER_WINDOW days (ruling O-6). */
+export const STABILIZER_TARGET = 0.01;
+/** The trailing window, in game days, that the growth is measured over (ruling O-6). */
+export const STABILIZER_WINDOW = 7;
+
 /**
  * Stabilizer (bible 01 anti-inflation): a public PI controller on the growth of total money
  * held by players. When money grows faster than the target, upkeep and fees scale up (sinkMult,
  * shown in-world as the Treasury levy); when it is calm, the levy relaxes back to 1.
+ * Ruling O-6: the target is 1.0% a game day, on the average daily growth over the trailing 7 game days (the supply
+ * seven days ago is the base). The old 4% a day never engaged. `hist` holds the last supplies, oldest first (optional,
+ * so an old save loads with an empty history and the controller starts once a full window exists).
  */
 export function stabilizerDay(g: GameState): void {
   let supply = 0;
   for (const p of Object.values(g.players)) supply += Math.max(0, p.netWorth);
   const st = g.economy.stabilizer;
-  if (st.lastSupply > 0) {
-    const n = Math.max(1, Object.keys(g.players).length);
-    // growth per player, so new players joining do not look like inflation
-    const growth = supply / st.lastSupply - 1;
-    const target = 0.04;
-    const err = growth - target - 0 * n;
-    st.integral = Math.max(-0.5, Math.min(0.5, st.integral * 0.9 + err));
-    st.sinkMult = Math.max(1, Math.min(1.6, 1 + 2 * Math.max(0, err) + 0.5 * Math.max(0, st.integral)));
+  const hist = st.hist ?? [];
+  if (hist.length >= STABILIZER_WINDOW) {
+    const base = hist[hist.length - STABILIZER_WINDOW]!;
+    if (base > 0 && supply > 0) {
+      // growth per player, so new players joining do not look like inflation
+      const growth = Math.pow(supply / base, 1 / STABILIZER_WINDOW) - 1;
+      const err = growth - STABILIZER_TARGET;
+      st.integral = Math.max(-0.5, Math.min(0.5, st.integral * 0.9 + err));
+      st.sinkMult = Math.max(1, Math.min(1.6, 1 + 2 * Math.max(0, err) + 0.5 * Math.max(0, st.integral)));
+    }
   }
+  st.hist = [...hist, supply].slice(-STABILIZER_WINDOW);
   st.lastSupply = supply;
   const created = Object.values(g.economy.faucets).reduce((s, v) => s + v, 0);
   const destroyed = Object.values(g.economy.sinks).reduce((s, v) => s + v, 0);

@@ -919,6 +919,8 @@ export type StepEvent =
   | { type: 'world'; tick: number; phase: 'announced' | 'start' | 'end'; kind: WorldEventKind; id: string; headline: string; precursors?: string[]; lastedDays?: number; gxMove?: number }
   /** the evolving universe: a listing (ipo, spin-off child), a delisting (bankruptcy, merger), or a spin-off parent */
   | { type: 'listing'; tick: number; kind: 'ipo' | 'bankruptcy' | 'merger' | 'spinoff'; assetId: string; otherId?: string; price: number }
+  /** a delisting settled the NPC rival books' units in cash (rival books are Street-side money, ruling O-22); the world books amount to the Street tally */
+  | { type: 'street'; tick: number; assetId: string; amount: number; reason: 'rivalSettlement' }
   | { type: 'margin_call'; tick: number; playerId: string; equity: number; required: number }
   | { type: 'liquidation'; tick: number; playerId: string; assetId: string; qty: number; price: number }
   | { type: 'option_expiry'; tick: number; playerId: string; contractId: string; qty: number; payout: number; reason?: 'delisting' }

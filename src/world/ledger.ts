@@ -247,6 +247,7 @@ export function ledgerTick(g: GameState, events: StepEvent[], fills: Fill[]): vo
     if (e.type === 'liquidation') liquidated.add(`${e.playerId}|${e.assetId}`);
     else if (e.type === 'listing' && (e.kind === 'bankruptcy' || e.kind === 'merger')) settleHolders(g, e.assetId, e.price, e.tick);
     else if (e.type === 'option_expiry') expireOption(g, e.playerId, e.contractId, e.qty, e.payout, e.tick, mult);
+    else if (e.type === 'street') bookStreet(g, e.amount);
   }
   for (const f of fills) {
     const L = ledgerOf(g, f.playerId);
@@ -288,6 +289,15 @@ export function settleHolders(g: GameState, assetId: string, price: number, tick
       reason: 'settlement', orderId: null, qtyBefore: pos.qty, avgBefore: pos.avgCost,
     });
   }
+}
+
+/** The economy tally for money that moves against the Street: NPC rival books, which are not accounts (ruling O-22). */
+export const STREET_TALLY = 'street: rival settlements';
+
+/** Books cash paid out of the Street side into the world (a faucet), so the world's money identity closes to the cent. */
+export function bookStreet(g: GameState, amount: number): void {
+  if (!(amount > 0)) return;
+  g.economy.faucets[STREET_TALLY] = (g.economy.faucets[STREET_TALLY] ?? 0) + amount;
 }
 
 /** A listed option cash-settled at intrinsic value (engine: expiry or delisting). Realized as the engine books it. */

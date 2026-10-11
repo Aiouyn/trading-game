@@ -209,6 +209,24 @@ function CeoChange({ co }: { co: CompanyFounderView }) {
   const holder = plan.ceoHolder === 'npc'
     ? t('company.ui.ceo.holder.npc')
     : plan.ceoHolder === 'player' ? t('company.ui.ceo.holder.player') : t('company.ui.ceo.holder.founder');
+  const pending = co.ceoPending;
+  if (pending) {
+    // an announced change: its recorded days, the seat that stays filled until the effective day, and no second change
+    const successor = pending.successor === 'player' ? t('company.ui.ceo.holder.player') : t('company.ui.ceo.holder.npc');
+    return (
+      <Section title={t('company.ui.ceo.title')} testId="company-ceo">
+        <p className="text-small text-fg" data-testid="company-ceo-now">{t('company.ui.ceo.now', { holder })}</p>
+        <p className="mt-3 text-small text-fg" data-testid="company-ceo-pending">{t('company.ui.ceo.pending', { effective: pending.effectiveDay })}</p>
+        <ul className="mt-2 flex flex-col gap-2 text-caption text-fg-muted" data-testid="company-ceo-plan">
+          <li data-testid="company-ceo-announce">{t('company.ui.ceo.announced', { day: pending.announcedDay, effective: pending.effectiveDay })}</li>
+          <li data-testid="company-ceo-successor">{t('company.ui.ceo.successorIs', { successor })}</li>
+          <li data-testid="company-ceo-freeze">{t('company.ui.ceo.freeze', { day: pending.announcedDay, until: pending.freezeUntil })}</li>
+          <li data-testid="company-ceo-cooling">{t('company.ui.ceo.cooling', { days: plan.cooldownDays, until: pending.cooldownUntil })}</li>
+        </ul>
+        <p className="mt-3 text-caption text-fg-faint" data-testid="company-ceo-pending-note">{t('company.ui.ceo.pendingNote')}</p>
+      </Section>
+    );
+  }
   return (
     <Section title={t('company.ui.ceo.title')} testId="company-ceo">
       <p className="text-small text-fg" data-testid="company-ceo-now">{t('company.ui.ceo.now', { holder })}</p>
