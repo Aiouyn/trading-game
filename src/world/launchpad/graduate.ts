@@ -106,7 +106,8 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
   t.bal = {};
   t.npcBal = 0;
   t.npcCost = 0;
-  t.cashLowSince = null;
+  t.lowCloses = 0;
+  t.npcCohorts = [];
   g.launchpad!.totals.graduations++;
   const vars = { name: t.name, ticker: t.ticker, raised: (raisedCents / 100).toFixed(2), price: price.toFixed(6) };
   lpWire(g, out, 'brass', 'Launchpad', { key: 'lp.wire.grad', vars }, t.ticker);

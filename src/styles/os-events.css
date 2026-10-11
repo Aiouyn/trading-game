@@ -56,3 +56,89 @@
   .os-root .os-bell-tone { width: 2px; align-self: stretch; border-radius: 2px; flex: none; }
   .os-root .os-bell-foot { padding: 8px 14px; border-top: 1px solid var(--color-ink-2); }
 }
+
+/*
+ * The world event takeover (velvet-world-events.md section 2). It sits on the body, outside .os-root, so its own brass
+ * button keeps its colour while the desk's brass accents go grey for the moment (body.os-takeover-on). Timings: the
+ * accents at 0 ms, the hairline 300–900 ms (ease-in, the only fall in the game), the scrim to 70% brightness, the card
+ * from 900 ms. Reduced motion: the card is static and nothing desaturates.
+ */
+@layer components {
+  .os-takeover { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; overflow: hidden; }
+  .os-takeover-scrim { position: absolute; inset: 0; background: rgb(0 0 0 / 0.3); animation: os-takeover-fade 600ms ease-in 300ms both; }
+  .os-takeover-line {
+    position: absolute; top: 0; left: 50%; width: 1px; height: 0; background: var(--color-fg-muted);
+    animation: os-takeover-drop 600ms ease-in 300ms forwards;
+  }
+  .os-takeover-card {
+    position: relative; width: min(640px, calc(100vw - 32px)); padding: 28px 24px; color: var(--color-fg);
+    background: color-mix(in srgb, var(--color-ink-1) 94%, transparent); border-radius: var(--radius-sm); box-shadow: 0 8px 32px rgb(0 0 0 / 0.35);
+    animation: os-takeover-rise 1500ms ease-out 900ms both;
+  }
+  .os-takeover-headline {
+    margin-top: 8px; font-family: var(--font-serif, serif); font-size: 56px; line-height: 1.05; max-width: 18ch;
+  }
+  .os-takeover-gx { margin-top: 16px; font-size: var(--text-title); }
+  .os-takeover-line-text { margin-top: 12px; }
+  .os-takeover-actions { display: flex; align-items: center; gap: 16px; margin-top: 24px; }
+  .os-takeover-cta {
+    height: 40px; padding: 0 16px; border: 0; border-radius: var(--radius-sm);
+    background: var(--color-brass); color: var(--color-ink-1); cursor: pointer;
+  }
+  .os-takeover-cta:focus-visible, .os-takeover-close:focus-visible { outline: 2px solid var(--color-brass); outline-offset: 2px; }
+  .os-takeover-close { background: transparent; border: 0; color: var(--color-fg-muted); text-decoration: underline; cursor: pointer; }
+  .os-takeover-close:disabled { opacity: 0.4; cursor: default; }
+  body.os-takeover-on .os-root {
+    --color-brass: var(--color-fg-muted); --color-brass-hi: var(--color-fg-muted); --color-brass-lo: var(--color-fg-muted);
+  }
+  @media (max-width: 600px) { .os-takeover-headline { font-size: 40px; } }
+  @media (prefers-reduced-motion: reduce) {
+    .os-takeover-scrim, .os-takeover-line, .os-takeover-card { animation: none; }
+    .os-takeover-scrim { opacity: 1; }
+    .os-takeover-card { opacity: 1; }
+  }
+}
+
+@keyframes os-takeover-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes os-takeover-drop { from { height: 0; } to { height: 38vh; } }
+@keyframes os-takeover-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/*
+ * Ambient layers while a world event is live (velvet-world-events.md, section 4): a slow hairline pulse under the top bar in the
+ * kind's colour, the event window shaded on the price charts at 6% from the onset, and a 1.5 s soft edge glow for a flash crash
+ * (its info colour, once, never a red screen). Reduced motion turns the pulse and the glow off. The band is not a rebound hint:
+ * it stops at the chart's right edge (now), never at an end.
+ */
+@layer components {
+  .os-event[data-kind="crash"] { --os-event-hue: var(--color-loss); }
+  .os-event[data-kind="bubble"] { --os-event-hue: var(--color-gain); }
+  .os-event[data-kind="crisis"], .os-event[data-kind=""] { --os-event-hue: var(--color-warn); }
+  .os-event[data-kind="flash"] { --os-event-hue: var(--color-info); }
+  .os-root .os-event[data-state="live"]::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--os-event-hue);
+    animation: os-event-pulse 2400ms ease-in-out infinite;
+  }
+  .os-event-band {
+    position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: 1;
+    background: color-mix(in srgb, var(--color-loss) 6%, transparent);
+  }
+  .os-event-band[data-kind="bubble"] { background: color-mix(in srgb, var(--color-gain) 6%, transparent); }
+  .os-event-band[data-kind="crisis"] { background: color-mix(in srgb, var(--color-warn) 6%, transparent); }
+  .os-event-band[data-kind="flash"] { background: color-mix(in srgb, var(--color-info) 6%, transparent); }
+  .os-event-band-label {
+    position: absolute; top: 4px; left: 6px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--color-fg-muted); white-space: nowrap;
+  }
+  body.os-flash-glow .os-root::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 30;
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-info) 45%, transparent);
+    animation: os-flash-glow 1500ms ease-out forwards;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .os-root .os-event[data-state="live"]::before { animation: none; opacity: 0.6; }
+    body.os-flash-glow .os-root::after { animation: none; opacity: 0; }
+  }
+}
+
+@keyframes os-event-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+@keyframes os-flash-glow { from { opacity: 1; } to { opacity: 0; } }

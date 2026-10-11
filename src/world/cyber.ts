@@ -4,8 +4,12 @@ import {
   TPD, cashOf, clamp, debit, drawFrom, keyedRng, notify, ownerIndex, pushWire, spendableCash, touch,
 } from './core';
 import { bestModel, labFor } from './lab';
+import {
+  BAIT_RANGE, HONEYPOT_COST, HONEYPOT_MIN_TIER, HONEYPOT_PLANT_EVIDENCE, HONEYPOT_POISON, baitMcs, canaryFlagChance, copyStep,
+  honeypotEvidence, inheritedPoison,
+} from './honeypots';
 import type {
-  CommandResult, ConnectionEntry, CyberState, GameState, Model, SessionStrength, StepOutput,
+  CommandResult, ConnectionEntry, CyberOp, CyberState, DecoySession, GameState, Model, SessionStrength, StepOutput,
 } from './types';
 
 /**
@@ -234,7 +238,11 @@ function endSession(g: GameState, e: ConnectionEntry, byVictim: boolean, out: St
   }
 }
 
-export function plantSession(g: GameState, pid: string, victimId: string, strength: SessionStrength, modelId: string, out: StepOutput | null): CommandResult {
+/**
+ * `canary` runs the optional recon add-on (+20% of the op cost, charged by the caller's price): it may flag a honeypot in the
+ * victim's systems and steer the op away from it (M29). Without it, a honeypot takes the session.
+ */
+export function plantSession(g: GameState, pid: string, victimId: string, strength: SessionStrength, modelId: string, out: StepOutput | null, canary = false): CommandResult {
   const p = g.players[pid]!;
   const v = g.players[victimId];
   const tick = g.market.tick;
@@ -252,11 +260,12 @@ export function plantSession(g: GameState, pid: string, victimId: string, streng
   const onVictim = entriesOf(g, victimId).filter((e) => e.hostile);
   if (onVictim.length >= 3) return { ok: false, error: 'the target already has 3 hostile sessions' };
   if (onVictim.some((e) => e.hostile!.attackerId === pid)) return { ok: false, error: 'one session per target' };
-  const myLive = Object.values(g.cyber.entries).filter((e) => e.hostile?.attackerId === pid).length;
+  const myLive = Object.values(g.cyber.entries).filter((e) => e.hostile?.attackerId === pid).length + liveDecoys(g, pid);
   if (myLive >= 1 + mcsTier(model.mcs)) return { ok: false, error: 'too many live sessions for your model tier' };
-  // punch-down tax: hitting someone ten times smaller costs much more
+  // punch-down tax: hitting someone ten times smaller costs much more; the canary add-on is +20% (M29)
   const base = 15_000 * 2 ** mcsTier(model.mcs);
-  const cost = v.netWorth * 10 < p.netWorth ? base * 5 : base;
+  const cost0 = v.netWorth * 10 < p.netWorth ? base * 5 : base;
+  const cost = canary ? Math.round(cost0 * 1.2) : cost0;
   // ad cash cannot fund an operation (velvet-rewarded-ads.md, ROADMAP 2.7): only unrestricted cash pays for it
   if (spendableCash(g, pid) < cost) return { ok: false, error: cashOf(g, pid) >= cost ? 'adCashOps' : 'not enough cash for the operation' };
   debit(g, pid, cost, 'operations');
@@ -266,6 +275,13 @@ export function plantSession(g: GameState, pid: string, victimId: string, streng
   const rng = keyedRng(g, `op:${pid}:${victimId}:${tick}`);
   g.cyber.seq++;
   const opId = `op${g.cyber.seq}`;
+  const meet = meetHoneypot(g, victimId, attackPoints(model), canary, rng);
+  if (meet === 'decoy') {
+    const result = decoyAttempt(g, { attackerId: pid, victimId, strength, model, opId, out, rng, attackerHandle: p.handle, victimHandle: v.handle });
+    if (g.cyber.ops.length > 200) g.cyber.ops.length = 200;
+    return { ok: true, data: { result } };
+  }
+  if (meet === 'avoided') notify(g, out, pid, { kind: 'security', tone: 'info', text: `Your canary flagged a decoy in ${v.handle}'s systems and stayed out of it.`, msg: { key: 'security.msg.canary', vars: { target: v.handle } } });
   if (rng.chance(odds)) {
     const e = newEntry(g, victimId, rng, { attackerId: pid, strength, progress: 0, modelId });
     g.cyber.ops.unshift({ id: opId, attackerId: pid, victimId, strength, modelId, tick, result: 'planted', entryId: e.id });
@@ -290,7 +306,7 @@ export function plantSession(g: GameState, pid: string, victimId: string, streng
  * stretch adds at most 0.08), clues and decoys appear, auto-scans run by tier, legit entries churn,
  * sessions expire after 7 real days.
  */
-export function cyberDay(g: GameState, out: StepOutput): void {
+export function cyberDay(g: GameState, out: StepOutput | null): void {
   const tick = g.market.tick;
   const { rng, save } = drawFrom(g, 'cyber');
   const withEntries = ownerIndex(g).entries;
@@ -311,10 +327,7 @@ export function cyberDay(g: GameState, out: StepOutput): void {
       const h = e.hostile;
       const st = STRENGTHS[h.strength];
       const online = p.online || !!p.npc;
-      const hEff = online ? 1 : 0.25;
-      const target = 0.85 * (1 - Math.exp(-st.k * 24 * hEff));
-      const add = (0.85 - h.progress) * (target / 0.85);
-      h.progress = Math.min(0.85, h.progress + (online ? add : Math.min(add, 0.08)));
+      h.progress = copyStep(h.progress, st.k, online);
       if (rng.chance(st.clue * 6)) addClue(g, p.id, rng, true, e.id);
       if (tick - e.firstSeenTick > 7 * 24 * TPD) {
         delete g.cyber.entries[e.id];
@@ -331,6 +344,7 @@ export function cyberDay(g: GameState, out: StepOutput): void {
     if (d.budget > 0) debit(g, p.id, d.budget, 'security');
   }
   if (g.cyber.clues.length > 600) g.cyber.clues.splice(0, g.cyber.clues.length - 600);
+  decoyDay(g, out);
   save();
 }
 
@@ -353,4 +367,187 @@ export function drainOf(g: GameState, pid: string): number {
 
 export function announceBreach(g: GameState, out: StepOutput, text: string): void {
   pushWire(g, out, { kind: 'security', tag: 'Security', tone: 'warn', text });
+}
+
+/**
+ * A rival fund's crew plants a session on a player (M31, rivalCrews.ts). The same breach odds and session as a player's op:
+ * a clean plant is a quiet hostile entry; a failed one may be detected (evidence against the crew, a warning to the victim).
+ * The crew's gates (protection, rookie zone, offline, cooldown, the session caps) are the caller's. A crew pays no cash in
+ * this build, so no faucet or sink is booked for it (see docs/V1-PHASE6.md, 6A).
+ */
+export function plantCrewSession(g: GameState, crewId: string, victimId: string, model: Model, strength: SessionStrength, out: StepOutput | null): boolean {
+  const tick = g.market.tick;
+  const st = STRENGTHS[strength];
+  const odds = breachOdds(attackPoints(model), defensePoints(g, victimId), st.bias);
+  const rng = keyedRng(g, `crew:op:${crewId}:${victimId}:${tick}`);
+  g.cyber.seq++;
+  const opId = `op${g.cyber.seq}`;
+  g.cyber.cooldowns[`${crewId}>${victimId}`] = tick + 3 * TPD;
+  // a crew always runs the canary (M29): a flagged honeypot is avoided; an unflagged one takes the session
+  const meet = meetHoneypot(g, victimId, attackPoints(model), true, rng);
+  if (meet === 'decoy') {
+    decoyAttempt(g, { attackerId: crewId, victimId, strength, model, opId, out, rng, attackerHandle: fundName(g, crewId), victimHandle: g.players[victimId]?.handle ?? '' });
+    if (g.cyber.ops.length > 200) g.cyber.ops.length = 200;
+    return false;
+  }
+  if (rng.chance(odds)) {
+    const e = newEntry(g, victimId, rng, { attackerId: crewId, strength, progress: 0, modelId: model.id });
+    g.cyber.ops.unshift({ id: opId, attackerId: crewId, victimId, strength, modelId: model.id, tick, result: 'planted', entryId: e.id });
+    if (g.cyber.ops.length > 200) g.cyber.ops.length = 200;
+    return true;
+  }
+  const detected = rng.chance(0.5);
+  g.cyber.ops.unshift({ id: opId, attackerId: crewId, victimId, strength, modelId: model.id, tick, result: detected ? 'detected' : 'failed' });
+  if (detected) {
+    g.cyber.evidence[`${crewId}>${victimId}`] = (g.cyber.evidence[`${crewId}>${victimId}`] ?? 0) + 15;
+    notify(g, out, victimId, { kind: 'security', tone: 'warn', text: 'Your defenses blocked an intrusion attempt.' });
+  }
+  if (g.cyber.ops.length > 200) g.cyber.ops.length = 200;
+  return false;
+}
+
+// ---- honeypots and decoy sessions (M29, M28): the defender's bait, the canary, and the sessions inside a honeypot or a fund ----
+
+/** A rival fund's display name (a crew's attribution), or its id when it has none. */
+export function fundName(g: GameState, id: string): string {
+  return g.market.config.rivals?.find((d) => d.id === id)?.name ?? id;
+}
+
+/** The decoy sessions an attacker carries now: they count against the attacker's live-session cap (ROADMAP §2.3). */
+export function liveDecoys(g: GameState, attackerId: string): number {
+  return (g.cyber.decoys ?? []).filter((s) => s.attackerId === attackerId).length;
+}
+
+/**
+ * Places the player's honeypot (M29, ROADMAP §2.3): a bait the size of the best security model times `ratio` (0.5 to 1.25). One
+ * at a time: a new one replaces the old. The price is a sink in the security book. It is a normal entry in the defender's model
+ * list, so it takes no Connections slot and drains nothing. (The 5% DU burn is not modeled: see docs/V1-PHASE6.md, 6A.)
+ */
+export function deployHoneypot(g: GameState, pid: string, kind: keyof typeof HONEYPOT_COST, ratio: number, out: StepOutput | null): CommandResult {
+  const p = g.players[pid];
+  if (!p) return { ok: false, error: 'join the world first' };
+  if (rankIndex(p.rankId) < rankIndex(SECURITY_RANK)) return { ok: false, error: 'Security Ops unlock at Operator' };
+  if (!(kind in HONEYPOT_COST)) return { ok: false, error: 'pick a honeypot' };
+  if (!(ratio >= BAIT_RANGE[0] && ratio <= BAIT_RANGE[1])) return { ok: false, error: 'the bait is between 0.5 and 1.25 times your best model' };
+  const best = g.lab[pid] ? bestModel(g.lab[pid]!, 'security') : null;
+  if (!best) return { ok: false, error: 'train a security model first: the honeypot needs a bait' };
+  if (defenseTier(g, pid) < HONEYPOT_MIN_TIER[kind]) return { ok: false, error: 'that honeypot needs a higher defense tier' };
+  const cost = HONEYPOT_COST[kind];
+  if (cashOf(g, pid) < cost) return { ok: false, error: 'not enough cash for that honeypot' };
+  debit(g, pid, cost, 'security');
+  defenseOf(g, pid).honeypot = { kind, poison: HONEYPOT_POISON[kind], bait: baitMcs(best.mcs, ratio), placedTick: g.market.tick };
+  notify(g, out, pid, { kind: 'security', tone: 'info', text: `${kind} honeypot placed. It holds a bait the size of your best security model.`, msg: { key: 'security.msg.honeypotPlaced', vars: { kind: `@security.honeypot.kind.${kind}` } } });
+  return { ok: true };
+}
+
+/**
+ * What an attempt meets in a victim's systems (M29). 'none': no honeypot. 'avoided': the canary (when run) flagged it, so the
+ * attempt goes to the real systems. 'decoy': the session takes the honeypot.
+ */
+function meetHoneypot(g: GameState, victimId: string, ap: number, canary: boolean, rng: { chance(p: number): boolean }): 'none' | 'avoided' | 'decoy' {
+  if (!g.cyber.defense[victimId]?.honeypot) return 'none';
+  if (canary && rng.chance(canaryFlagChance(ap, defensePoints(g, victimId)))) return 'avoided';
+  return 'decoy';
+}
+
+/** Opens a decoy session. A honeypot gives the defender its plant evidence at once (+15). */
+export function openDecoy(g: GameState, s: { attackerId: string; targetId: string; on: DecoySession['on']; strength: SessionStrength; bait: number; poisonTier: number }): DecoySession {
+  g.cyber.seq++;
+  const session: DecoySession = { id: `dc${g.cyber.seq}`, ...s, progress: 0, effHours: 0, startTick: g.market.tick, evidence: s.on === 'honeypot' ? HONEYPOT_PLANT_EVIDENCE : 0 };
+  g.cyber.decoys = [...(g.cyber.decoys ?? []), session];
+  if (s.on === 'honeypot') {
+    const key = `${s.attackerId}>${s.targetId}`;
+    g.cyber.evidence[key] = (g.cyber.evidence[key] ?? 0) + HONEYPOT_PLANT_EVIDENCE;
+  }
+  touch(g);
+  return session;
+}
+
+/**
+ * The attempt meets a honeypot and goes in: the same breach roll as any session (the 1% floor included). A clean breach opens
+ * a decoy session, which the attacker believes is a real one; a failed one is detected or not, as for any failed op. The
+ * defender gets the attribution roll (p = 0.5) on the plant, and the evidence clock runs on the decoy session (decoyDay).
+ */
+function decoyAttempt(g: GameState, a: {
+  attackerId: string; victimId: string; strength: SessionStrength; model: Model; opId: string; out: StepOutput | null;
+  rng: { chance(p: number): boolean }; attackerHandle: string; victimHandle: string;
+}): CyberOp['result'] {
+  const tick = g.market.tick;
+  const hp = g.cyber.defense[a.victimId]!.honeypot!;
+  const st = STRENGTHS[a.strength];
+  const odds = breachOdds(attackPoints(a.model), defensePoints(g, a.victimId), st.bias);
+  const key = `${a.attackerId}>${a.victimId}`;
+  if (a.rng.chance(odds)) {
+    openDecoy(g, { attackerId: a.attackerId, targetId: a.victimId, on: 'honeypot', strength: a.strength, bait: hp.bait, poisonTier: hp.poison });
+    g.cyber.ops.unshift({ id: a.opId, attackerId: a.attackerId, victimId: a.victimId, strength: a.strength, modelId: a.model.id, tick, result: 'decoy' });
+    notify(g, a.out, a.attackerId, { kind: 'security', tone: 'gain', text: `${st.label} session planted on ${a.victimHandle}'s systems.`, msg: { key: 'security.msg.planted', vars: { label: `@security.strength.${a.strength}.label`, target: a.victimHandle } } });
+    const attributed = a.rng.chance(0.5);
+    notify(g, a.out, a.victimId, { kind: 'security', tone: 'warn', text: `Your honeypot logged an intrusion${attributed ? ` traced to ${a.attackerHandle}` : ''}.`, msg: attributed ? { key: 'security.msg.intrusionTraced', vars: { who: a.attackerHandle } } : { key: 'security.msg.intrusion' } });
+    return 'decoy';
+  }
+  const detected = a.rng.chance(0.5);
+  g.cyber.ops.unshift({ id: a.opId, attackerId: a.attackerId, victimId: a.victimId, strength: a.strength, modelId: a.model.id, tick, result: detected ? 'detected' : 'failed' });
+  notify(g, a.out, a.attackerId, { kind: 'security', tone: 'loss', text: `The operation against ${a.victimHandle} failed${detected ? ' and was detected' : ''}.`, msg: { key: detected ? 'security.msg.failedDetected' : 'security.msg.failed', vars: { target: a.victimHandle } } });
+  if (detected) {
+    g.cyber.evidence[key] = (g.cyber.evidence[key] ?? 0) + 15;
+    notify(g, a.out, a.victimId, { kind: 'security', tone: 'warn', text: `Your defenses blocked an intrusion attempt${a.rng.chance(0.3) ? ` traced to ${a.attackerHandle}` : ''}.`, msg: { key: 'security.msg.blocked' } });
+  }
+  return detected ? 'detected' : 'failed';
+}
+
+/**
+ * Per game day, for each decoy session: progress on the same curve as a session (the victim's presence for a honeypot, the
+ * attacker's for a fund), the effective hours grow by 24 × the presence factor, and a honeypot's evidence rises to
+ * honeypotEvidence(hours) (+3 an hour, capped at 40). After 7 real days a session closes and the attacker keeps a student.
+ */
+export function decoyDay(g: GameState, out: StepOutput | null): void {
+  const list = g.cyber.decoys;
+  if (!list || list.length === 0) return;
+  const tick = g.market.tick;
+  for (const s of list) {
+    const attacker = g.players[s.attackerId];
+    const target = g.players[s.targetId];
+    const online = s.on === 'honeypot' ? !!(target && (target.online || target.npc)) : !!(attacker && (attacker.online || attacker.npc));
+    s.progress = copyStep(s.progress, STRENGTHS[s.strength].k, online);
+    s.effHours += 24 * (online ? 1 : 0.25);
+    if (s.on === 'honeypot') {
+      const next = honeypotEvidence(s.effHours);
+      if (next > s.evidence) {
+        const key = `${s.attackerId}>${s.targetId}`;
+        g.cyber.evidence[key] = (g.cyber.evidence[key] ?? 0) + (next - s.evidence);
+        s.evidence = next;
+      }
+    }
+  }
+  const closing = list.filter((s) => tick - s.startTick > 7 * TPD);
+  if (closing.length === 0) return;
+  for (const s of closing) endDecoy(g, s, out);
+  g.cyber.decoys = list.filter((s) => tick - s.startTick <= 7 * TPD);
+  touch(g);
+}
+
+/**
+ * A decoy session closes: the attacker keeps a student built from the bait (bait · P), with the inherited poison as a cut to
+ * its strength (student MCS = bait · P · (1 − poison)). The poison is not shown anywhere a player can read it.
+ */
+function endDecoy(g: GameState, s: DecoySession, out: StepOutput | null): void {
+  const P = s.progress;
+  if (P <= 0.05) {
+    notify(g, out, s.attackerId, { kind: 'security', tone: 'loss', text: 'A session closed before it copied anything useful.', msg: { key: 'security.msg.closedEarly' } });
+    return;
+  }
+  const poison = inheritedPoison(s.poisonTier, P);
+  const lab = labFor(g, s.attackerId);
+  lab.modelSeq++;
+  const residue = Math.max(0.03, 0.7 * (0.4 + (0.6 * P) / 0.85));
+  lab.models.push({
+    id: `m${lab.modelSeq}`, name: s.on === 'honeypot' ? 'Distilled decoy model' : 'Distilled fund model', kind: 'security',
+    mcs: s.bait * P * (1 - poison), createdTick: g.market.tick, residue, ...(poison > 0 ? { poison } : {}),
+  });
+  notify(g, out, s.attackerId, { kind: 'security', tone: 'gain', text: `Session closed. You distilled ${(P * 100).toFixed(0)}% of a security model.`, msg: { key: 'security.msg.distilled', vars: { pct: (P * 100).toFixed(0) } } });
+}
+
+/** The codename a decoy session shows its thief: the same shape as a real connection's, drawn from the session's own stream. */
+export function decoyCodename(g: GameState, id: string): string {
+  return codename(keyedRng(g, `decoy-name:${id}`));
 }

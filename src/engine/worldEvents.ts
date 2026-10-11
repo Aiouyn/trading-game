@@ -17,14 +17,27 @@ export type WorldEventKind = 'crash' | 'bubble' | 'crisis' | 'flash';
 export interface WorldEventsConfig {
   /** chance per game day of each kind starting (or, for majors and crisis weeks, being scheduled) */
   odds: Record<WorldEventKind, number>;
-  /** game days of warning: precursor headlines for majors, the announcement for crisis weeks */
+  /** the longest crisis-week lead, in whole game days (its announcement, 2 = 2 real hours) */
   leadDays: number;
+  /** the shortest crisis-week lead, in whole game days */
+  crisisLeadMinDays: number;
+  /**
+   * the shortest major lead, in game days: 8 (= 8 real hours, 720 ticks a game day), so every timezone gets a waking window
+   * (ROADMAP §2.8, M39). The lead is drawn from the seed between this and majorLeadMaxDays, in whole hours, so the Wire
+   * timestamp plus the window never gives the exact onset (velvet-world-events.md, section 1).
+   */
+  majorLeadDays: number;
+  /** the longest major lead, in game days (16) */
+  majorLeadMaxDays: number;
 }
 
 export const DEFAULT_WORLD_EVENTS: WorldEventsConfig = {
   // majors 0.05% a game day combined (~37% a season), storms 1.3% (spec numbers)
   odds: { crash: 0.0003, bubble: 0.0002, crisis: 0.008, flash: 0.005 },
   leadDays: 2,
+  crisisLeadMinDays: 1,
+  majorLeadDays: 8,
+  majorLeadMaxDays: 16,
 };
 
 export interface WorldEvent {
@@ -39,7 +52,7 @@ export interface WorldEvent {
   shocks: Record<string, number>;
   /** flash only: share of the drop given back intraday (0 = none), and when the give-back runs */
   giveBack?: { frac: number; dropEnd: number; fromTick: number; toTick: number };
-  /** GX level when the event began (for "GX −18.4% since it began") */
+  /** GX level when the event began (for "GX −18.4% since it began"); unset until it starts */
   gxStart?: number;
   /** log move applied so far today per asset, and the day it belongs to (the event panel's "share of today") */
   today: { day: number; moves: Record<string, number> };
@@ -63,13 +76,24 @@ export interface WorldEventsState {
 
 export interface WorldEventView {
   id: string;
-  kind: WorldEventKind;
-  headline: string;
+  /** null for an announced major: its kind is not shown before the onset (no-reveal, velvet-world-events.md) */
+  kind: WorldEventKind | null;
+  /** the engine's English headline; null for an announced major. The app translates headlineKey instead. */
+  headline: string | null;
+  /** the en.json / fr.json key of the headline ('event.headline.<kind>.<n>'); null when the headline is hidden */
+  headlineKey: string | null;
   /** 'announced' (precursors / crisis-week card) or 'live' */
   phase: 'announced' | 'live';
   elapsedDays: number;
+  /**
+   * announced only: the onset is within this many real hours, rounded UP to the next 8-hour band (8, 16, 24 ...). Never the
+   * exact onset and never the length. Absent once live.
+   */
+  windowHours?: number;
   /** log move the event put into each asset so far today (past only) */
   todayShare: Record<string, number>;
+  /** live only: the onset tick, so the charts can shade the window from its start (never the end) */
+  sinceTick?: number;
 }
 
 export function worldEventsConfig(cfg: WorldConfig): WorldEventsConfig | null {
@@ -88,8 +112,38 @@ const PRECURSORS: Record<'crash' | 'bubble' | 'crisis', string[]> = {
   crisis: ['The Union finance council calls an emergency session for next week', 'Interbank lending rates spike overnight'],
 };
 
+/**
+ * The i18n key of an engine headline or precursor line (en.json / fr.json), by its index in the engine's list. The app shows
+ * the translated line; the English stays for the log and the replay. Null for a line the lists do not hold.
+ */
+export function headlineKey(kind: WorldEventKind, text: string): string | null {
+  const i = HEADLINES[kind].indexOf(text);
+  return i < 0 ? null : `event.headline.${kind}.${i}`;
+}
+export function precursorKey(kind: 'crash' | 'bubble' | 'crisis', text: string): string | null {
+  const i = PRECURSORS[kind].indexOf(text);
+  return i < 0 ? null : `event.pre.${kind}.${i}`;
+}
+/** How many headline and precursor lines each kind has (the copy check in the i18n tests reads these). */
+export const EVENT_COPY_COUNTS = {
+  headline: { crash: HEADLINES.crash.length, bubble: HEADLINES.bubble.length, crisis: HEADLINES.crisis.length, flash: HEADLINES.flash.length },
+  precursor: { crash: PRECURSORS.crash.length, bubble: PRECURSORS.bubble.length, crisis: PRECURSORS.crisis.length },
+} as const;
+
 const pick = <T>(rng: Rng, xs: T[]): T => xs[Math.floor(rng.uniform() * xs.length) % xs.length]!;
 const U = (rng: Rng, lo: number, hi: number) => lo + (hi - lo) * rng.uniform();
+
+/**
+ * The telegraph lead of a scheduled event, in whole game days (= real hours): a major between majorLeadDays and
+ * majorLeadMaxDays, a crisis week between crisisLeadMinDays and leadDays. Whole days keep the onset on a day boundary, so the
+ * engine's own start path runs. One seeded draw, so the lead is replayable and never shows in the app.
+ */
+function drawLead(rng: Rng, kind: 'crash' | 'bubble' | 'crisis', wc: WorldEventsConfig): number {
+  const lo = kind === 'crisis' ? wc.crisisLeadMinDays : wc.majorLeadDays;
+  const hi = kind === 'crisis' ? wc.leadDays : wc.majorLeadMaxDays;
+  const span = Math.max(1, Math.floor(hi) - Math.floor(lo) + 1);
+  return Math.floor(lo) + Math.min(span - 1, Math.floor(rng.uniform() * span));
+}
 
 /** Sector multipliers for a crash (spec): tech and discretionary 1.4, staples 0.4. */
 function crashMult(def: AssetDef): number {
@@ -184,7 +238,7 @@ export function worldEventsDay(cfg: WorldConfig, we: WorldEventsState, day: numb
   }
   // start a scheduled event
   const s = next.active;
-  if (s && s.startTick === tick) {
+  if (s && s.startTick === tick && s.gxStart === undefined) {
     out.push({ phase: 'start', ev: s });
     next = { ...next, active: { ...s, gxStart: gx } };
   }
@@ -217,7 +271,8 @@ export function worldEventsDay(cfg: WorldConfig, we: WorldEventsState, day: numb
         next = { ...next, active: ev };
       } else {
         const len = kind === 'crash' ? Math.floor(U(rng, 10, 31)) : kind === 'bubble' ? Math.floor(U(rng, 15, 41)) : 5;
-        const startTick = tick + wc.leadDays * tpd;
+        const lead = drawLead(rng, kind, wc);
+        const startTick = tick + lead * tpd;
         const ev: WorldEvent = { id, kind, headline, announcedTick: tick, startTick, endTick: startTick + len * tpd, shocks, today: { day, moves: {} } };
         const pre = kind === 'crisis' ? [pick(rng, PRECURSORS.crisis)] : [pick(rng, PRECURSORS[kind]), pick(rng, PRECURSORS[kind])];
         next = { ...next, active: ev };
@@ -229,19 +284,21 @@ export function worldEventsDay(cfg: WorldConfig, we: WorldEventsState, day: numb
 }
 
 /**
- * Intraday transitions of a flash crash, which starts and ends inside a day, so the day-boundary check cannot see it.
- * `gx` is read lazily: it is only needed at the two transitions. Pure.
+ * Intraday transitions of an event that does not start or end on a day boundary: a flash crash (inside a day), and an admin
+ * event started one tick after a request (forceWorldEvent with `now`). A start publishes once (the day path sets gxStart when it
+ * starts an event on a boundary, so this skips it). `gx` is read lazily: it is only needed at the two transitions. Pure.
  */
-export function worldEventIntraday(we: WorldEventsState | undefined, tick: number, gx: () => number): { state: WorldEventsState | undefined; events: WorldEventPublish[] } {
+export function worldEventIntraday(we: WorldEventsState | undefined, tick: number, tpd: number, gx: () => number): { state: WorldEventsState | undefined; events: WorldEventPublish[] } {
   const a = we?.active;
-  if (!we || !a || a.kind !== 'flash') return { state: we, events: [] };
-  if (tick === a.startTick) {
+  if (!we || !a) return { state: we, events: [] };
+  if (tick === a.startTick && a.gxStart === undefined) {
     return { state: { ...we, active: { ...a, gxStart: gx() } }, events: [{ phase: 'start', ev: a }] };
   }
-  if (tick >= a.endTick) {
+  if (tick >= a.endTick && a.gxStart !== undefined) {
     const gxMove = a.gxStart ? gx() / a.gxStart - 1 : undefined;
-    const ended = { id: a.id, kind: a.kind, headline: a.headline, endTick: a.endTick, lastedDays: 0, gxMove };
-    return { state: { ...we, active: undefined, ended }, events: [{ phase: 'end', ev: a, lastedDays: 0, gxMove }] };
+    const lastedDays = a.kind === 'flash' ? 0 : Math.round((a.endTick - a.startTick) / tpd);
+    const ended = { id: a.id, kind: a.kind, headline: a.headline, endTick: a.endTick, lastedDays, gxMove };
+    return { state: { ...we, active: undefined, ended }, events: [{ phase: 'end', ev: a, lastedDays, gxMove }] };
   }
   return { state: we, events: [] };
 }
@@ -313,19 +370,67 @@ export function worldEventJumpMult(we: WorldEventsState | undefined, tick: numbe
   return a && a.kind === 'crisis' && tick >= a.startTick && tick < a.endTick ? 1.5 : 1;
 }
 
-/** The only shape the app gets: no end tick, no remaining length, no planned move. */
+/** The only shape the app gets: no end tick, no remaining length, no planned move. An announced major shows no kind or headline. */
 export function worldEventView(state: WorldState): WorldEventView | null {
   const a = state.worldEvents?.active;
   if (!a) return null;
   const tpd = state.config.ticksPerDay;
   const live = state.tick >= a.startTick;
   if (!live && a.kind === 'flash') return null; // a flash has no warning
+  const hidden = !live && (a.kind === 'crash' || a.kind === 'bubble');
   const today = Math.floor((state.tick - 1) / tpd);
+  const hoursLeft = (a.startTick - state.tick) / tpd; // one game day is one real hour
   return {
-    id: a.id, kind: a.kind, headline: a.headline, phase: live ? 'live' : 'announced',
+    id: a.id,
+    kind: hidden ? null : a.kind,
+    headline: hidden ? null : a.headline,
+    headlineKey: hidden ? null : headlineKey(a.kind, a.headline),
+    phase: live ? 'live' : 'announced',
     elapsedDays: live ? Math.floor((state.tick - a.startTick) / tpd) : 0,
     todayShare: a.today.day === today ? { ...a.today.moves } : {},
+    ...(live ? { sinceTick: a.startTick } : { windowHours: telegraphBand(hoursLeft) }),
   };
+}
+
+/** The 8-hour band an announced onset falls in: the hours left, rounded up to a multiple of 8 (at least 8). */
+export function telegraphBand(hoursLeft: number): number {
+  return Math.max(1, Math.ceil(hoursLeft / 8)) * 8;
+}
+
+/** The first tick after `tick` that opens a game day (the engine checks events there: tick - 1 divisible by tpd). */
+export function nextDayBoundary(tick: number, tpd: number): number {
+  return (Math.floor((tick - 1) / tpd) + 1) * tpd + 1;
+}
+
+/**
+ * An admin-forced event (the e2e seam and the dev console; never a player action). By default a major or a crisis week starts
+ * at the next day boundary, so the engine's own start path runs; `now` starts it one tick later instead (the e2e seam: no
+ * waiting for a day), and a flash always starts one tick later. A forced event that does not start on a boundary is started and
+ * ended by worldEventIntraday, every tick, so it runs whatever the request's tick. Its moves come from the same planner on its
+ * own seed stream. Returns the next event state, or null when an event is already active.
+ */
+export function forceWorldEvent(state: WorldState, kind: WorldEventKind, days?: number, now = false): WorldEventsState | null {
+  const tpd = state.config.ticksPerDay;
+  const base = state.worldEvents ?? initWorldEvents(state);
+  if (base.active) return null;
+  const seq = (base.seq ?? 0) + 1;
+  const rng = new Rng(seedStream(state.seed, `macro:events:admin:${seq}`));
+  const id = `ev${seq}`;
+  const shocks = planShocks(state.config, kind, rng);
+  const headline = pick(rng, HEADLINES[kind]);
+  const tick = state.tick;
+  const today: WorldEvent["today"] = { day: Math.floor((tick - 1) / tpd), moves: {} };
+  if (kind === 'flash') {
+    const start = tick + 1;
+    const end = start + Math.ceil(tpd / 6);
+    const ev: WorldEvent = { id, kind, headline, announcedTick: tick, startTick: start, endTick: end, shocks, giveBack: { frac: 0, dropEnd: end, fromTick: end, toTick: end + 1 }, today };
+    return { ...base, seq, active: ev };
+  }
+  const startTick = now ? tick + 1 : nextDayBoundary(tick, tpd);
+  const drawn = kind === 'crash' ? Math.floor(U(rng, 10, 31)) : kind === 'bubble' ? Math.floor(U(rng, 15, 41)) : 5;
+  const len = days !== undefined && days >= 1 ? Math.floor(days) : drawn;
+  const ev: WorldEvent = { id, kind, headline, announcedTick: tick, startTick, endTick: startTick + len * tpd, shocks, today };
+  return { ...base, seq, active: ev };
 }
 
 /** The aftermath line for one game day after an event ends ("Crash ended · lasted 18 days · GX −31.0%"). */

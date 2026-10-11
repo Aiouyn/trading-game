@@ -55,7 +55,9 @@ export function Universe({ ticker, onPick }: { ticker: string; onPick: (id: stri
   }, [tab, q, watch, config]);
   const h = useGame.getState().history;
   return (
-    <Card className="flex min-h-0 flex-col" data-testid="watchlist">
+    // A floor under the card: the Broker body is a flex column, and the Rivals card (under this one) would paint over a
+    // header that the body squeezed to nothing. Below the floor the body scrolls instead.
+    <Card className="flex min-h-[16rem] flex-col" data-testid="watchlist">
       <div className="px-4 pt-4">
         <div className="flex items-center justify-between">
           <h2 className="font-serif text-title">{t('broker.markets')}</h2>

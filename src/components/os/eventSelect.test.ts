@@ -5,7 +5,7 @@ import { EVENT_BAND_H, bannerBand, selectEventBanner } from './eventSelect';
 
 const TPD = 720;
 const ev = (over: Partial<WorldEventFrame> = {}): WorldEventFrame => ({
-  id: 'e1', kind: 'crash', headline: 'Markets in freefall.', phase: 'live', elapsedDays: 2, todayShare: {},
+  id: 'e1', kind: 'crash', headline: 'Markets in freefall.', headlineKey: 'event.headline.crash.0', phase: 'live', elapsedDays: 2, todayShare: {},
   gxSince: -0.18, gxToday: -0.02, ...over,
 });
 const endItem = (tick: number): WireItem => ({

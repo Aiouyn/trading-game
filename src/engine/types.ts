@@ -862,6 +862,8 @@ export interface RivalDef {
   name: string;
   style: RivalStyle;
   startingCash: number;
+  /** the fund's AI tier (B2 ranges, world rivalCrews.ts): 0–5. Absent = tier 1. Config only, never shown. */
+  tier?: number;
 }
 
 /** A rival's book. Server-side: the public surface is the name and equity only (rivalLeaderboard). */
@@ -874,6 +876,8 @@ export interface RivalState {
   target: string[];
   /** highest equity seen at a close */
   peak: number;
+  /** equity at each close, oldest first, the last 63 game days (the public 1-quarter chart; net worth only) */
+  hist?: { day: number; equity: number }[];
 }
 
 export interface Quote {

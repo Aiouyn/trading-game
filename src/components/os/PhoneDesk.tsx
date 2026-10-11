@@ -22,6 +22,7 @@ import { APP_GLYPH } from './appMap';
 import { Glyph } from './glyphs';
 import { OsToasts } from './OsToasts';
 import { EventBannerStrip, EventPanel, useBannerOn } from './EventBanner';
+import { EventTakeover } from './EventTakeover';
 import { PhoneRecents } from './PhoneRecents';
 import { onPhonePop, phoneBack, phoneGoHome, phoneOpen, setRecentOpen, usePhone } from './phoneStore';
 import { usePalette, useShell } from './shellStore';
@@ -73,6 +74,7 @@ export function PhoneDesk({ rank }: { rank: Rank }) {
       <PhoneEdge />
       <RecentSheetGate />
       <EventPanel />
+      <EventTakeover />
       <OsToasts focusMode={false} side="right" phone />
     </div>
   );

@@ -46,12 +46,13 @@ export const LP = {
   /** vesting (L5): the creator allocation is locked until the cliff, then unlocks linearly to the end day */
   VEST_CLIFF_DAYS: 2,
   VEST_END_DAYS: 14,
-  /** death (L3): no trade for 24 game days, or curve cash under 2% of the raise for 7 game days (counted from launch, tested from day 3) */
+  /** death (L3, L3.1 as v1.3): no trade for 24 game days, or curve cash under 2% of the raise at the CLOSE of each of 7 consecutive game
+   *  days, the closes counted from day 3 on. An intraday round trip does not reset the clock; a close above the line does */
   DEAD_NO_TRADE_DAYS: 24,
   DEAD_CASH_FRAC: 0.02,
   DEAD_CASH_DAYS: 7,
   DEAD_CASH_FROM_DAY: 3,
-  /** the first tick of day DEAD_CASH_FROM_DAY (dayOf(tick) >= 3 from here): the cash clock never starts before it */
+  /** the first tick of day DEAD_CASH_FROM_DAY (dayOf(tick) >= 3 from here): the cash clock never counts a close before it */
   DEAD_CASH_START_TICK: 3 * TPD + 1,
   /** rug flag (L5) */
   RUG_WINDOW_DAYS: 24,
@@ -107,15 +108,19 @@ export const NPC = {
    *  arrival is capped at the cash that takes the curve to graduation from its current point (demand.ts arrivalCap) */
   DEMAND_PER_BUZZ: 1_000,
   /** capitulation (L6.1): the share of the cohort's tokens sold per tick at any price, times (1 - buzz / the peak buzz since the last
-   *  arrival). The cohort sells into the fade, so its flow is a fast pump and a slow bleed */
+   *  arrival). The cohort sells into the fade, so its flow is a fast pump and a slow bleed. Kept in v1.3 (L6.8) */
   CAPIT_PER_TICK: 0.1,
-  /** profit taking: the share of the cohort's tokens sold per tick for each 100% the price is above the cohort's cost */
+  /** profit taking: the share of a cohort's tokens sold per tick for each 100% the price is above the cohort's cost */
   PROFIT_PER_TICK: 0.02,
-  /** the time share: the cohort sells this share of its tokens per tick regardless of price (it never sells what it does not hold) */
-  TIME_SELL_PER_TICK: 0.5,
-  /** viral shocks: expected shocks per token per game day, and the size of one (a Pareto tail with this exponent). L6.6: the tail
-   *  exponent is at least TAIL_ALPHA_MIN (2.2), so a shock has a finite mean and variance */
-  VIRAL_PER_DAY: 0.05,
+  /** L6.8 (v1.3): each NPC cohort (one absorbed arrival: a launch, a viral shock or a buzz item) sells its tokens with this half-life,
+   *  in units of tau (VIRAL_TAU_DAYS): tunable 0.5 to 2 tau. It replaces the v1.1 instant exit (TIME_SELL_PER_TICK is withdrawn), so a
+   *  young token trades above its floor while its virality lasts */
+  BLEED_HALF_TAU: 1,
+  /** viral shocks (L6.7, v1.3): the hazard of a live token is rate(age) = VIRAL_PER_DAY x exp(-age / VIRAL_TAU_DAYS) shocks per game
+   *  day, age in game days since the launch (a dead token has none). VIRAL_TAU_DAYS is tunable 0.5 to 2. The size of a shock is a Pareto
+   *  tail with exponent VIRAL_ALPHA. L6.6: the exponent is at least TAIL_ALPHA_MIN (2.2), so a shock has a finite mean and variance */
+  VIRAL_PER_DAY: 1.2,
+  VIRAL_TAU_DAYS: 1,
   VIRAL_SCALE: 12,
   VIRAL_ALPHA: 2.2,
   /** the buzz at launch: a heavy-tailed draw with this scale and tail exponent (most launches start low, a few start high). L6.6: the

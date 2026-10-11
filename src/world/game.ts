@@ -1,5 +1,5 @@
 import {
-  cancelOrderResult, createWorld, modifyOrder, placeOrder, seedStream, step, tradeOption, universeConfig,
+  cancelOrderResult, createWorld, forceWorldEvent, indexLevel, modifyOrder, placeOrder, seedStream, step, tradeOption, universeConfig,
   type WorldConfig,
 } from '@/engine';
 import {
@@ -24,7 +24,8 @@ import {
   analystSignal, bestModel, buyData, buyGpus, deployBot, emptyLab, hireResearchers, labFor, labTick, reserveCompute,
   startResearch, startTraining, toggleBot,
 } from './lab';
-import { cyberDay, disconnect, emptyCyber, lockdown, manualScan, plantSession, setBudget, tagEntry } from './cyber';
+import { cyberDay, deployHoneypot, disconnect, emptyCyber, lockdown, manualScan, plantSession, setBudget, tagEntry } from './cyber';
+import { attackFund, rivalCrewDay } from './rivalCrews';
 import { acceptSettlement, courtTick, fileCase, offerSettlement } from './court';
 import { npcTick, seedNpcs } from './npc';
 import { shockPrice } from '@/engine/sim';
@@ -165,7 +166,7 @@ export function stepGame(g: GameState): StepOutput {
     propertyDay(g, out);
     lifestyleDay(g);
     dealsDay(g, out);
-    cyberDay(g, out);
+    securityDay(g, out);
     stabilizerDay(g);
     // collectibles index: slow random walk with a gentle upward drift
     const { rng, save } = drawFrom(g, "world");
@@ -218,6 +219,16 @@ const fail = (error: string): CommandResult => ({ ok: false, error });
  * The e2e price shock (tape-e2e-conventions.md section 3). Only the admin route sends it (the server refuses
  * admin.* from clients). A refused move is a failed result, not a throw.
  */
+function adminEvent(g: GameState, kind: string, days?: number): CommandResult {
+  if (kind !== 'crash' && kind !== 'bubble' && kind !== 'crisis' && kind !== 'flash') return { ok: false, error: 'unknown event kind' };
+  const next = forceWorldEvent(g.market, kind as 'crash' | 'bubble' | 'crisis' | 'flash', days, true);
+  if (!next?.active) return { ok: false, error: 'an event is already live' };
+  // the GX level at the start, as the engine's own start path records it (the banner's "since it began")
+  if (g.market.config.indices.some((x) => x.id === 'GX')) next.active.gxStart = indexLevel(g.market, 'GX');
+  g.market.worldEvents = next;
+  return { ok: true };
+}
+
 function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
   try {
     g.market.assets = shockPrice(g.market, assetId, pct).assets;
@@ -230,6 +241,7 @@ function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
 export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
   if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out);
   if (cmd.type === 'admin.shock') return adminShock(g, cmd.assetId, cmd.pct);
+  if (cmd.type === 'admin.event') return adminEvent(g, cmd.kind, cmd.days);
   if (cmd.type === 'admin.age') {
     const target = g.players[cmd.playerId];
     if (!target) return fail('unknown player');
@@ -392,7 +404,9 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'sec.tag': return tagEntry(g, pid, cmd.entryId, cmd.tag);
     case 'sec.disconnect': return disconnect(g, pid, cmd.entryId, out);
     case 'sec.lockdown': return lockdown(g, pid, out);
-    case 'sec.plant': return plantSession(g, pid, cmd.victimId, cmd.strength, cmd.modelId, out);
+    case 'sec.plant': return plantSession(g, pid, cmd.victimId, cmd.strength, cmd.modelId, out, cmd.canary === true);
+    case 'sec.honeypot': return deployHoneypot(g, pid, cmd.kind, cmd.bait ?? 1, out);
+    case 'sec.fund': return attackFund(g, pid, cmd.fundId, cmd.strength, cmd.modelId, cmd.canary === true, out);
     case 'court.file': return fileCase(g, pid, cmd.defendantId, cmd.kind, cmd.counsel, out);
     case 'court.settle': return offerSettlement(g, pid, cmd.caseId, cmd.amount, out);
     case 'court.acceptSettlement': return acceptSettlement(g, pid, cmd.caseId, out);
@@ -463,4 +477,13 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
   }
   void labFor; void emptyLab;
   return fail('unknown command');
+}
+
+/**
+ * The security day, once per game day, in the order stepGame runs it: the players' cyber day (sessions, clues, scans, decoy
+ * sessions), then the rival crews' attacks (M31). The harness calls this same function, so its numbers are the game's.
+ */
+export function securityDay(g: GameState, out: StepOutput | null): void {
+  cyberDay(g, out);
+  rivalCrewDay(g, out);
 }

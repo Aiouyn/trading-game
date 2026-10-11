@@ -12,7 +12,7 @@ const SHELL_SPECS = /[\/]shell[\/].*\.spec\.ts$/;
  * advances the world past the account-age rules (7 real days), and the IPO spec (exchangeIpo.spec.ts) lists a company
  * a game day on.
  */
-const CLOSE_SPECS = /(closeCard|shops|exchangeFunds|exchangeIpo|comeback)\.spec\.ts$/;
+const CLOSE_SPECS = /(closeCard|shops|exchangeFunds|exchangeIpo|comeback|worldEvents)\.spec\.ts$/;
 const chromium = { browserName: "chromium" as const };
 
 /** The time-advancing specs, in run order. The desktop project is named close-card (the day-close spec), then close-shops, ... */
@@ -22,6 +22,7 @@ const CLOSE_CHAIN: { spec: string; name: string }[] = [
   { spec: "exchangeFunds", name: "funds" },
   { spec: "exchangeIpo", name: "ipo" },
   { spec: "comeback", name: "comeback" },
+  { spec: "worldEvents", name: "events" },
 ];
 
 /** One device's chain of close projects: each runs after `after` and after the close project before it. */
@@ -63,7 +64,7 @@ export default defineConfig({
     // before it, so no two of them advance the shared e2e world at once (with --workers=2 a single project would run two
     // of them in parallel). The desktop chain runs first; the phone chain follows it.
     ...closeChain("desktop", { viewport: { width: 1440, height: 900 } }, ["desktop", "desktop-1920", "desktop-1000", "desktop-900", "phone"]),
-    ...closeChain("phone", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, ["close-comeback"]),
+    ...closeChain("phone", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, ["close-events"]),
   ],
   webServer: [
     {
