@@ -5,6 +5,9 @@ import type { Msg } from '@/i18n';
 import type { AnalystTier } from '@/content/learning';
 import type { DayClose, PlayerLedger } from './ledger-types';
 import type { CompanyWorld } from './company/types';
+import type { TipState } from './tips';
+import type { EcaState } from './eca';
+import type { CollusionState } from './collusion';
 import type { CompanyAction } from './company/company';
 import type { CompanySector } from '@/content/company';
 import type { FundFees, FundMandate, FundsState } from './funds/types';
@@ -63,6 +66,12 @@ export interface GameState {
   launchpad?: LaunchpadState;
   /** sponsor breaks (velvet-rewarded-ads.md, ROADMAP 2.7): the open breaks and the rewarded count per profile per game day. Absent until the first break. */
   sponsor?: SponsorState;
+  /** insider tips from crime (M16 v1, tips.ts). Absent until the first tip; worlds without one keep every fingerprint. */
+  tips?: TipState;
+  /** the market regulator (M16 v2, eca.ts). Absent until a score or a pattern exists. */
+  eca?: EcaState;
+  /** the collusion graph inputs (collusion.ts): devices (hashed), gifts, mirror matches. Absent until one is recorded. */
+  collusion?: CollusionState;
 }
 
 /** A simulated sponsor break (ROADMAP 2.7): one open card per player, and rewarded breaks counted per profile per game day. */
@@ -219,7 +228,7 @@ export interface AnalystNote {
 export interface InboxItem {
   id: string;
   tick: number;
-  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan' | 'fund';
+  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan' | 'fund' | 'tip';
   text: string;
   /** the same line as a message descriptor (en.json / fr.json key), rendered in the viewer's language */
   msg?: Msg;
@@ -624,7 +633,8 @@ export interface CourtState {
 
 // ---- Commands (everything a player can do) ----
 export type Command =
-  | { type: 'join'; handle: string; country: string }
+  /** `device` is the registration device hash (collusion.ts), set by the server at sign-up; never a raw identifier */
+  | { type: 'join'; handle: string; country: string; device?: string }
   | { type: 'presence'; online: boolean }
   | { type: 'order.place'; order: Omit<OrderRequest, 'playerId'> }
   | { type: 'order.cancel'; orderId: string }
@@ -757,6 +767,10 @@ export type Command =
   | { type: 'admin.filedLate'; playerId: string }
   /** dev and tests only: a next-gen launch credit at a quality score (adminLaunchCredit, the R&D launch block) */
   | { type: 'admin.launchCredit'; playerId: string; score: number }
+  /** e2e seed (ADMIN_TOKEN): an insider tip on a stock with a report ahead (tips.ts adminSeedTip) */
+  | { type: 'admin.tip'; playerId: string; assetId: string }
+  /** e2e seed (ADMIN_TOKEN): an open regulator inquiry with its notice (eca.ts adminSeedInquiry) */
+  | { type: 'admin.inquiry'; playerId: string; assetId: string }
   /** dev and tests only: fills a token's curve up to graduation (the e2e seam for the graduation path) */
   | { type: 'admin.lpFill'; ticker: string };
 

@@ -7,6 +7,7 @@ import { compactMoney, money } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import { COUNSEL_COST } from '@/world/court';
+import type { EcaInquiryView } from '@/world/eca';
 import type { CourtCase } from '@/world/types';
 import { t } from '@/i18n';
 import { Button, Card, CardHeader, Chip, NumberField, Select, ticksLabel } from '@/components/ui';
@@ -71,7 +72,41 @@ export function LegalApp() {
           )}
         </Card>
       </div>
+      <EcaCard inquiries={me.regulator ?? []} />
     </div>
+  );
+}
+
+/** The market regulator's letters to this player (M16 v2): each inquiry's stage and its letters, every letter in three parts. */
+function EcaCard({ inquiries }: { inquiries: EcaInquiryView[] }) {
+  return (
+    <Card data-testid="eca-view">
+      <CardHeader title={t('legal.eca.title')} />
+      <p className="px-4 pb-2 text-small text-fg-muted">{t('legal.eca.intro')}</p>
+      {inquiries.length === 0 ? <p className="px-4 pb-6 text-small text-fg-faint">{t('legal.eca.none')}</p> : (
+        <ul>
+          {inquiries.map((q) => (
+            <li key={q.id} className="border-t border-ink-2 px-4 py-3" data-testid={`eca-${q.id}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-small">{t('legal.eca.inquiry', { ticker: q.ticker })}</span>
+                <Chip>{t(`legal.eca.stage.${q.stage}`)}</Chip>
+              </div>
+              <p className="num mt-1 text-caption text-fg-faint">{t('legal.eca.opened', { day: q.openedDay })}</p>
+              {q.letters.map((l, i) => (
+                <div key={`${q.id}-${i}`} className="mt-2 rounded-md border border-ink-2 p-3" data-testid={`eca-letter-${q.id}-${i}`}>
+                  <p className="text-caption text-fg-faint">{t(`legal.eca.letter.${l.kind}`)} · {t('legal.eca.day', { day: l.day })}</p>
+                  <dl className="mt-1 flex flex-col gap-1 text-small">
+                    <div><dt className="inline font-medium">{t('legal.eca.part.what')}{t('legal.eca.colon')} </dt><dd className="inline">{t(l.what.key, l.what.vars)}</dd></div>
+                    <div><dt className="inline font-medium">{t('legal.eca.part.why')}{t('legal.eca.colon')} </dt><dd className="inline">{t(l.why.key, l.why.vars)}</dd></div>
+                    <div><dt className="inline font-medium">{t('legal.eca.part.do')}{t('legal.eca.colon')} </dt><dd className="inline">{t(l.do.key, l.do.vars)}</dd></div>
+                  </dl>
+                </div>
+              ))}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

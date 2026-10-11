@@ -23,6 +23,13 @@ const HEARING_DAYS = 2;
 // the fine scale lives in court-scale.ts, so the Launchpad's rug verdict reads the same table (lead-launchpad.md L5)
 
 export const FLOOR = 5_000;
+/** The tribunal bar (03 §4.4, §8.1): a regulator's file needs 55 evidence points before a tribunal decides. */
+export const TRIBUNAL_BAR = 55;
+/** The ECA's S5 cap: one verdict's fine is at most 35% of net worth (03 §1). */
+export const ECA_CAP_PCT = 0.35;
+/** The S5 repeat modifier (03 §1): x1.5 per prior conviction in the same season, at most x2.5. */
+export const ECA_REPEAT_X = 1.5;
+export const ECA_REPEAT_MAX = 2.5;
 
 function evidenceFor(g: GameState, plaintiffId: string, defendantId: string, kind: CourtCase['kind']): number {
   if (kind === 'loan default') {
@@ -200,4 +207,34 @@ function fundVerdict(g: GameState, c: CourtCase, out: StepOutput | null, df: Pla
   say(g, out, c.plaintiffId, 'court', 'gain', { key: 'funds.verdict.won', vars: { player: df.handle, restored: usd(paid), fine: usd(fine) } });
   say(g, out, c.defendantId, 'court', 'loss', { key: 'funds.verdict.lost', vars: { player: pl.handle, restored: usd(paid), fine: usd(fine) } });
   c.verdictText = `Restored ${usd(paid)} to the fund and a ${usd(fine)} fine.`;
+}
+
+/**
+ * The ECA tribunal-lite (ROADMAP 2.5, 03 §9.2, §10.2). The regulator is the plaintiff, so there is no counsel and no hearing: the
+ * verdict is the same logistic on (evidence − bar) at the tribunal bar, drawn from a keyed stream so replays agree. A conviction is
+ * S5 (manipulation and insider trading): 8% of net worth with a $100k floor, at most 35% of net worth, and never below the $5k
+ * floor. The disgorgement is the gain on the flagged trades (at most what is left above the floor after the fine). Both are sinks:
+ * an insider trade has no identifiable victim to pay (03 §1). Nothing here moves cash to another player.
+ */
+export function regulatorVerdict(
+  g: GameState,
+  c: { id: string; evidence: number; playerId: string; gain: number; priorConvictions?: number; seasonFinesLeft?: number },
+): { convicted: boolean; fine: number; disgorged: number; p: number } {
+  const p = 1 / (1 + Math.exp(-(c.evidence - TRIBUNAL_BAR) / 12));
+  const won = keyedRng(g, `eca:verdict:${c.id}`).chance(p);
+  const df = g.players[c.playerId];
+  if (!won || !df) return { convicted: false, fine: 0, disgorged: 0, p };
+  const sev = SEVERITY[4]!;
+  const nw = df.netWorth;
+  // the debit comes from cash, never below the floor (03 §13.5, ROADMAP 2.6): the fine and the disgorgement share one cash room
+  const cashRoom = Math.max(0, cashOf(g, c.playerId) - FLOOR);
+  // the repeat modifier (03 §1): x1.5 per prior conviction in the season, at most x2.5; then the per-verdict cap of 35% of net worth
+  const repeat = Math.min(ECA_REPEAT_MAX, ECA_REPEAT_X ** Math.max(0, c.priorConvictions ?? 0));
+  const scheduled = Math.max(sev.floor, nw * sev.pct) * repeat;
+  const fine = Math.max(0, Math.min(cashRoom, ECA_CAP_PCT * nw, scheduled, c.seasonFinesLeft ?? Infinity));
+  debit(g, c.playerId, fine, 'eca fines');
+  const disgorged = Math.max(0, Math.min(cashRoom - fine, c.gain));
+  debit(g, c.playerId, disgorged, 'eca disgorgement');
+  df.reputation -= 10;
+  return { convicted: true, fine, disgorged, p };
 }

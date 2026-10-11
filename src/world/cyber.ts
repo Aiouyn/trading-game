@@ -4,6 +4,7 @@ import {
   TPD, cashOf, clamp, debit, drawFrom, keyedRng, notify, ownerIndex, pushWire, spendableCash, touch,
 } from './core';
 import { bestModel, labFor } from './lab';
+import { queueInsiderTip } from './tips';
 import {
   BAIT_RANGE, HONEYPOT_COST, HONEYPOT_MIN_TIER, HONEYPOT_PLANT_EVIDENCE, HONEYPOT_POISON, baitMcs, canaryFlagChance, copyStep,
   honeypotEvidence, inheritedPoison,
@@ -286,6 +287,8 @@ export function plantSession(g: GameState, pid: string, victimId: string, streng
     const e = newEntry(g, victimId, rng, { attackerId: pid, strength, progress: 0, modelId });
     g.cyber.ops.unshift({ id: opId, attackerId: pid, victimId, strength, modelId, tick, result: 'planted', entryId: e.id });
     p.notoriety += 1;
+    // a successful session on a covered insider of a listed stock hands the attacker a tip (M16 v1, tips.ts)
+    queueInsiderTip(g, pid, victimId);
     notify(g, out, pid, { kind: 'security', tone: 'gain', text: `${st.label} session planted on ${v.handle}'s systems as ${e.codename}.` });
   } else {
     const detected = rng.chance(0.5);

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
@@ -92,7 +92,10 @@ const http = createServer(async (req, res) => {
         return json(res, 409, { ok: false, error: 'That handle is taken' } satisfies AuthRes);
       }
       const id = `u_${randomUUID().slice(0, 12)}`;
-      const r = host.command(id, { type: 'join', handle, country });
+      // the browser's device id is hashed here and only the hash goes into the world (collusion.ts), never the raw id
+      const rawDevice = typeof b.device === 'string' ? b.device.slice(0, 128) : '';
+      const device = rawDevice.length >= 16 ? createHash('sha256').update(`device|${rawDevice}`).digest('hex') : undefined;
+      const r = host.command(id, { type: 'join', handle, country, ...(device ? { device } : {}) });
       if (!r.ok) return json(res, 400, { ok: false, error: r.error } satisfies AuthRes);
       const token = store.createAccount(id, handle);
       log(`new player ${handle} (${country})`);
@@ -142,6 +145,17 @@ const http = createServer(async (req, res) => {
       const cmd = url.pathname === '/api/admin/filed-late'
         ? { type: 'admin.filedLate' as const, playerId: p.id }
         : { type: 'admin.launchCredit' as const, playerId: p.id, score: Number(b.score) };
+      return json(res, 200, host.command(p.id, cmd));
+    }
+    if (req.method === 'POST' && (url.pathname === '/api/admin/tip' || url.pathname === '/api/admin/inquiry')) {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      const p = Object.values(host.g.players).find((x) => x.handle.toLowerCase() === String(b.handle ?? '').toLowerCase());
+      if (!p) return json(res, 404, { ok: false });
+      const assetId = String(b.assetId ?? '');
+      const cmd = url.pathname === '/api/admin/tip'
+        ? { type: 'admin.tip' as const, playerId: p.id, assetId }
+        : { type: 'admin.inquiry' as const, playerId: p.id, assetId };
       return json(res, 200, host.command(p.id, cmd));
     }
     if (req.method === 'POST' && url.pathname === '/api/admin/shock') {
