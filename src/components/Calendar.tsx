@@ -6,6 +6,7 @@ import { consensusLabel } from '@/content/news';
 import { assetDefOf, useGame } from '@/game/store';
 import type { WireItem } from '@/world/types';
 import { openFromShell } from './os/openApp';
+import { headlineText, kindLabel } from './os/eventText';
 import { Chip } from './ui';
 
 /** A shared empty list, so a selector that has no calendar returns the same value each time. */
@@ -73,12 +74,13 @@ export function CalendarView() {
         </div>
       )}
 
-      {ev && ev.phase === 'announced' && (
+      {/* only a crisis week is announced on the calendar: a major's kind and headline stay hidden until its onset (no-reveal) */}
+      {ev && ev.phase === 'announced' && ev.kind === 'crisis' && (
         <>
           <div className="label pt-3">{t('calendar.section.world')}</div>
           <p className="border-t border-ink-2 py-2 text-small text-fg" data-testid="calendar-world">
-            <span className="mr-2 text-caption uppercase text-warn">{t(`event.kind.${ev.kind}`)}</span>
-            {ev.headline}
+            <span className="mr-2 text-caption uppercase text-warn">{kindLabel(ev.kind)}</span>
+            {headlineText(ev)}
           </p>
         </>
       )}

@@ -109,6 +109,8 @@ export interface Player {
   allianceId: string | null;
   /** new-player protection (bible 03 anti-grief): no hostile ops until this tick */
   shieldUntil: number;
+  /** the rival funds' equity when this account joined (the Rivals board's "since your day 1" base). Absent in old saves and in worlds without rivals. */
+  rivalBase?: Record<string, number>;
   /** rival shown on the header (bible 04: a visible rival by minute 4) */
   rivalId: string | null;
   /** the most recent world tick the player opened their digest (While You Were Away) */

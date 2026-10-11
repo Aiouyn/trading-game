@@ -50,7 +50,7 @@ describe('telegraph bands', () => {
 });
 
 describe('major events are telegraphed 8 real hours ahead', () => {
-  it('a rolled crash or bubble starts 8 game days after its announcement, and a crisis keeps its 2-day lead', () => {
+  it('a rolled crash or bubble starts 8 to 16 game days after its announcement (whole hours), and a crisis week 1 to 2', () => {
     for (const kind of ['crash', 'bubble', 'crisis'] as const) {
       const c = cfg({ ...NONE, [kind]: 1 });
       const s = createWorld('lead', c);
@@ -61,8 +61,9 @@ describe('major events are telegraphed 8 real hours ahead', () => {
       expect(a).toBeDefined();
       expect(a.kind).toBe(kind);
       const lead = (a.startTick - a.announcedTick) / TPD;
-      expect(lead).toBe(kind === 'crisis' ? DEFAULT_WORLD_EVENTS.leadDays : DEFAULT_WORLD_EVENTS.majorLeadDays);
-      if (kind !== 'crisis') expect(lead).toBeGreaterThanOrEqual(8);
+      expect(Number.isInteger(lead)).toBe(true); // whole hours: the onset stays on a day boundary
+      if (kind === 'crisis') expect(lead >= DEFAULT_WORLD_EVENTS.crisisLeadMinDays && lead <= DEFAULT_WORLD_EVENTS.leadDays).toBe(true);
+      else expect(lead >= DEFAULT_WORLD_EVENTS.majorLeadDays && lead <= DEFAULT_WORLD_EVENTS.majorLeadMaxDays).toBe(true);
     }
   });
 
@@ -79,7 +80,7 @@ describe('major events are telegraphed 8 real hours ahead', () => {
     const v3 = worldEventView(mk(TPD + 1, TPD + 1 + 12 * TPD))!; // 12 real hours
     expect(v3.windowHours).toBe(16);
     // the view never carries the onset, the end or the planned moves
-    expect(Object.keys(v3).sort()).toEqual(['elapsedDays', 'headline', 'id', 'kind', 'phase', 'todayShare', 'windowHours']);
+    expect(Object.keys(v3).sort()).toEqual(['elapsedDays', 'headline', 'headlineKey', 'id', 'kind', 'phase', 'todayShare', 'windowHours']);
   });
 
   it('a live event has no window at all', () => {
@@ -136,5 +137,64 @@ describe('the admin seam forces an event for tests, never for players', () => {
     }
     expect(starts.length).toBe(1);
     expect(starts[0]).toBe(TPD + 1);
+  });
+});
+
+describe('no exact onset and no kind before a major starts (velvet-world-events.md, no-reveal)', () => {
+  it('the lead varies with the seed across the 8-to-16-hour band, so the Wire time plus the window never gives the onset', () => {
+    const c = cfg({ ...NONE, crash: 1 });
+    const leads = new Set<number>();
+    for (let seed = 0; seed < 60; seed++) {
+      const s = { ...createWorld(`lead-${seed}`, c), seed: `lead-${seed}` } as WorldState;
+      const next = worldEventsDay(c, initWorldEvents(s), 30, 30 * TPD + 1, 'expansion', 100);
+      const a = next.state.active!;
+      leads.add((a.startTick - a.announcedTick) / TPD);
+    }
+    expect([...leads].every((h) => h >= 8 && h <= 16)).toBe(true);
+    expect(leads.size).toBeGreaterThan(3);
+  });
+
+  it('an announced major shows neither its kind nor its headline; the live event shows both', () => {
+    const base = createWorld('hidden', cfg(NONE));
+    const f = forceWorldEvent({ ...base, tick: 2 * TPD + 100 }, 'crash')!;
+    const announced = worldEventView({ ...base, tick: 2 * TPD + 100, worldEvents: f })!;
+    expect(announced.phase).toBe('announced');
+    expect(announced.kind).toBeNull();
+    expect(announced.headline).toBeNull();
+    expect(announced.headlineKey).toBeNull();
+    const live = worldEventView({ ...base, tick: 3 * TPD + 1, worldEvents: f })!;
+    expect(live.kind).toBe('crash');
+    expect(live.headlineKey).toMatch(/^event\.headline\.crash\.\d$/);
+  });
+
+  it('an announced crisis week keeps its kind and headline (the calendar card)', () => {
+    const base = createWorld('crisis-card', cfg(NONE));
+    const c = cfg({ ...NONE, crisis: 1 });
+    const next = worldEventsDay(c, initWorldEvents({ ...base, config: c }), 30, 30 * TPD + 1, 'expansion', 100);
+    const v = worldEventView({ ...base, config: c, tick: 30 * TPD + 1, worldEvents: next.state })!;
+    expect(v.phase).toBe('announced');
+    expect(v.kind).toBe('crisis');
+    expect(v.headlineKey).toMatch(/^event\.headline\.crisis\.\d$/);
+  });
+});
+
+describe('forced events start and end on their own ticks, boundary or not', () => {
+  it('the e2e seam (now) starts a major one tick later, publishes the start, and ends it on its end tick', () => {
+    const c = cfg(NONE);
+    let s = createWorld('now-run', c);
+    s = { ...s, tick: 2 * TPD + 100, worldEvents: forceWorldEvent({ ...s, tick: 2 * TPD + 100 }, 'crash', 1, true)! };
+    const starts: number[] = [];
+    const ends: number[] = [];
+    for (let k = 0; k < 2 * TPD; k++) {
+      const r = step(s);
+      s = r.state;
+      for (const e of r.events) {
+        if (e.type === 'world' && e.phase === 'start') starts.push(e.tick);
+        if (e.type === 'world' && e.phase === 'end') ends.push(e.tick);
+      }
+    }
+    expect(starts).toEqual([2 * TPD + 101]);
+    expect(ends).toEqual([2 * TPD + 101 + TPD]);
+    expect(s.worldEvents?.active).toBeUndefined();
   });
 });

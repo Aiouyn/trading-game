@@ -14,6 +14,7 @@ import { t } from '@/i18n';
 import type { WorldEventFrame } from '@/world/view';
 import { openFromShell } from './openApp';
 import { useEventPanel } from './EventBanner';
+import { headlineText } from './eventText';
 import {
   TAKEOVER_END_MS, TAKEOVER_SKIP_MS, takeoverDue, takeoverGate,
 } from './takeoverRules';
@@ -133,7 +134,7 @@ export function EventTakeover() {
       {!reduced && <div className="os-takeover-line" aria-hidden />}
       <div className="os-takeover-card">
         <div className="label">{t('event.takeover.label')}</div>
-        <h2 id="event-takeover-headline" className="os-takeover-headline" data-testid="event-headline">{ev.headline}</h2>
+        <h2 id="event-takeover-headline" className="os-takeover-headline" data-testid="event-headline">{headlineText(ev)}</h2>
         {gx !== null && (
           <p className={`num os-takeover-gx ${toneText[tone(gx)]}`} data-testid="event-gx">
             {t('event.takeover.gx', { move: signedPct(gx) })}

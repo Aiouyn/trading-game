@@ -7,7 +7,7 @@ import {
 
 function ev(over: Partial<WorldEventFrame> = {}): WorldEventFrame {
   return {
-    id: 'ev1', kind: 'crash', headline: 'Markets in freefall.', phase: 'live', elapsedDays: 0, todayShare: {},
+    id: 'ev1', kind: 'crash', headline: 'Markets in freefall.', headlineKey: 'event.headline.crash.0', phase: 'live', elapsedDays: 0, todayShare: {},
     gxSince: null, gxToday: -0.062, ...over,
   };
 }

@@ -1,4 +1,5 @@
-import type { StepEvent, WorldEventKind } from '@/engine';
+import { headlineKey, precursorKey, type StepEvent, type WorldEventKind } from '@/engine';
+import type { Msg } from '@/i18n';
 import {
   earningsHeadline, macroHeadline, moveHeadline, previewHeadline, ratesHeadline, regimeHeadline, rumorHeadline,
 } from '@/content/news';
@@ -95,14 +96,24 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
       }
       case 'world': {
         if (e.phase === 'announced') {
-          for (const p of e.precursors ?? []) pushWire(g, out, { kind: 'world', tag: 'Markets', tone: 'warn', text: p, ev: { type: 'world', id: e.id, phase: 'announced', kind: e.kind } });
+          for (const p of e.precursors ?? []) {
+            const key = e.kind === 'flash' ? null : precursorKey(e.kind, p);
+            pushWire(g, out, { kind: 'world', tag: 'Markets', tone: 'warn', text: p, ...(key ? { msg: { key } } : {}), ev: { type: 'world', id: e.id, phase: 'announced', kind: e.kind } });
+          }
         } else if (e.phase === 'start') {
-          pushWire(g, out, { kind: 'world', tag: worldLabel(e.kind), tone: worldTone(e.kind), text: e.headline, ev: { type: 'world', id: e.id, phase: 'start', kind: e.kind } });
+          const key = headlineKey(e.kind, e.headline);
+          pushWire(g, out, { kind: 'world', tag: worldLabel(e.kind), tone: worldTone(e.kind), text: e.headline, ...(key ? { msg: { key } } : {}), ev: { type: 'world', id: e.id, phase: 'start', kind: e.kind } });
         } else {
           const lasted = e.kind === 'flash' ? '' : ` · lasted ${e.lastedDays} day${e.lastedDays === 1 ? '' : 's'}`;
           const gx = e.gxMove !== undefined ? ` · GX ${pctText(e.gxMove)}` : '';
+          // the end line is a message descriptor too, so French readers get "Krach ended" in their language
+          const kindRef = `@event.kind.${e.kind}`;
+          const move = pctText(e.gxMove ?? 0);
+          const msg: Msg = e.kind === 'flash'
+            ? { key: 'event.wire.endFlash', vars: { kind: kindRef, move } }
+            : { key: 'event.wire.end', vars: { kind: kindRef, count: e.lastedDays ?? 0, days: e.lastedDays ?? 0, move } };
           pushWire(g, out, {
-            kind: 'world', tag: worldLabel(e.kind), tone: 'info', text: `${worldLabel(e.kind)} ended${lasted}${gx}`,
+            kind: 'world', tag: worldLabel(e.kind), tone: 'info', text: `${worldLabel(e.kind)} ended${lasted}${gx}`, msg,
             ev: { type: 'world', id: e.id, phase: 'end', kind: e.kind, lastedDays: e.lastedDays, gxMove: e.gxMove },
           });
         }

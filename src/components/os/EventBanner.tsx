@@ -7,19 +7,15 @@
 // held asset's move today. One game day after the end, the aftermath line replaces it.
 import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
-import { t } from '@/i18n';
+import { t, tm } from '@/i18n';
 import { signedPct } from '@/game/format';
 import { useGame } from '@/game/store';
 import type { WireEvent } from '@/world/types';
-import type { WorldEventFrame } from '@/world/view';
 import { selectEventBanner } from './eventSelect';
+import { headlineText, kindDot, kindLabel } from './eventText';
 
 /** Whether the event panel is open. Shared, so the strip, the phone and Escape close it the same way. */
 export const useEventPanel = create<{ open: boolean }>(() => ({ open: false }));
-
-const KIND_DOT: Record<WorldEventFrame['kind'], string> = {
-  crash: 'bg-loss', bubble: 'bg-gain', crisis: 'bg-warn', flash: 'bg-info',
-};
 
 /** The banner now, read from the store. A boolean selector, so the shell re-syncs only when the strip appears or goes. */
 export function useBannerOn(): boolean {
@@ -57,7 +53,7 @@ export function EventBannerStrip() {
     );
   }
   const ev = banner.ev;
-  const kind = t(`event.kind.${ev.kind}`);
+  const kind = kindLabel(ev.kind);
   const label = ev.phase === 'live'
     ? t('event.label', { kind, day: ev.elapsedDays + 1 })
     : `${t('event.label.announced', { kind })}${ev.windowHours !== undefined ? ' · ' + t('event.window.label', { hours: ev.windowHours }) : ''}`;
@@ -67,11 +63,11 @@ export function EventBannerStrip() {
       className="os-event"
       data-testid="event-banner"
       data-state={ev.phase}
-      data-kind={ev.kind}
+      data-kind={ev.kind ?? ''}
       aria-label={t('event.open', { label })}
       onClick={() => useEventPanel.setState({ open: true })}
     >
-      <span className={`os-event-dot ${KIND_DOT[ev.kind]}`} aria-hidden />
+      <span className={`os-event-dot ${kindDot(ev.kind)}`} aria-hidden />
       <span className="os-event-label">{label}</span>
       {ev.gxSince !== null && <span className="num os-event-move">{t('event.gxSince', { move: signedPct(ev.gxSince) })}</span>}
       {ev.gxToday !== null && <span className="num os-event-move">{t('event.today', { move: signedPct(ev.gxToday) })}</span>}
@@ -94,10 +90,10 @@ export function EventPanel() {
   return (
     <section className="os-event-panel" role="dialog" aria-labelledby="event-panel-title" data-testid="event-panel" data-kind={ev.kind}>
       <header className="os-event-panel-head">
-        <span className="label">{t('event.panel.kind', { kind: t(`event.kind.${ev.kind}`) })}</span>
+        <span className="label">{t('event.panel.kind', { kind: kindLabel(ev.kind) })}</span>
         <button type="button" className="os-event-close" data-testid="event-close" onClick={close}>{t('common.close')}</button>
       </header>
-      <h2 id="event-panel-title" className="os-event-headline" data-testid="event-headline">{ev.headline}</h2>
+      <h2 id="event-panel-title" className="os-event-headline" data-testid="event-headline">{headlineText(ev)}</h2>
       {ev.phase === 'announced' && ev.windowHours !== undefined && (
         <p className="pt-2 text-small text-fg-muted" data-testid="event-window">{t('event.window', { hours: ev.windowHours })}</p>
       )}
@@ -105,7 +101,7 @@ export function EventPanel() {
         <>
           <div className="label pt-3">{t('event.panel.before')}</div>
           <ul className="text-small text-fg-muted">
-            {before.map((w) => <li key={w.id} className="border-t border-ink-2 py-1.5">{w.text}</li>)}
+            {before.map((w) => <li key={w.id} className="border-t border-ink-2 py-1.5">{tm(w.msg, w.text)}</li>)}
           </ul>
         </>
       )}

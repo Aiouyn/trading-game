@@ -68,8 +68,9 @@ describe('the Rivals board (velvet-rivals-board.md)', () => {
     g.players.u1!.netWorth = 1e12;
     const b = rivalsBoard(g, 'u1', 5000)!;
     expect(b.you.rank).toBe(1);
-    // ties share a rank (two rivals can start level), so the rule is the formula, not the position
-    for (const r of b.rows) expect(r.rank).toBe(1 + b.rows.filter((x) => x.equity > r.equity).length + 1);
+    // unique ranks: a rival sits under the rivals above it in the sort, and under the player when the player is above it
+    for (const [i, r] of b.rows.entries()) expect(r.rank).toBe(1 + i + 1);
+    expect(new Set(b.rows.map((r) => r.rank)).size).toBe(b.rows.length);
   });
 
   it('the 1W sparkline and the quarter chart are the rival\'s own closes, one per game day', () => {

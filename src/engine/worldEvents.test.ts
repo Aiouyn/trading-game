@@ -91,7 +91,7 @@ describe('shared world events', () => {
     const live = { ...createWorld('view', c), tick: 2 * TPD };
     const v = worldEventView(withEvent(live, event('crash', { startTick: TPD, endTick: 40 * TPD, shocks: { S0: -0.4 } })));
     expect(v).not.toBeNull();
-    expect(Object.keys(v!).sort()).toEqual(['elapsedDays', 'headline', 'id', 'kind', 'phase', 'todayShare']);
+    expect(Object.keys(v!).sort()).toEqual(['elapsedDays', 'headline', 'headlineKey', 'id', 'kind', 'phase', 'todayShare']);
     expect(v!.phase).toBe('live');
     expect(v!.elapsedDays).toBe(1);
 
