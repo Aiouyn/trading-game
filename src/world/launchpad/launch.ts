@@ -176,7 +176,7 @@ export function createToken(g: GameState, ticker: string, name: string, tagline:
     bal: allocation > 0 && creatorId ? { [creatorId]: allocation } : {},
     npcBal: 0, npcCost: 0, creatorBought: 0,
     buzz: { base: 0, board: 0, wire: 0 }, buzzDay: { day: dayOf(tick), n: 0 }, promos: [],
-    status: 'live', lastTradeTick: tick, cashLowSince: tick,
+    status: 'live', lastTradeTick: tick, lowCloses: 0, npcCohorts: [],
     creatorSoldSinceGrad: 0, creatorProceedsSinceGrad: 0, creatorDay: { day: dayOf(tick), qty: 0, proceeds: 0, startPrice: price, wired: false },
     creatorFees: 0, allocSold: 0, realized: {}, lots: {}, buyLog: [], tape: [], chart: [[tick, price]],
     volToday: 0, volPrev: 0, volDay: dayOf(tick), rng: streamOf(g, ticker),

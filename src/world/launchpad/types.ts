@@ -27,6 +27,18 @@ export interface LpLot {
   tick: number;
 }
 
+/**
+ * One NPC cohort (L6.8, v1.3): the tokens one absorbed arrival bought (the launch, a viral shock or a buzz item), with their cash cost.
+ * Each cohort sells on its own half-life and profit test. `carry` keeps the fraction of a sell that a whole token does not cover, so a
+ * slow bleed is not lost to rounding.
+ */
+export interface NpcCohort {
+  tick: number;
+  tokens: number;
+  cost: number;
+  carry?: number;
+}
+
 export interface LpToken {
   /** the ticker, which is also the engine asset id once the token graduates */
   ticker: string;
@@ -54,6 +66,9 @@ export interface LpToken {
   playerTraded?: boolean;
   /** the cash the cohort paid for the tokens it holds (its cost basis) */
   npcCost: number;
+  /** L6.8 (v1.3): the NPC cohorts, oldest first. Their tokens sum to npcBal and their cost to npcCost (cohorts.ts keeps them in step;
+   *  absent in a snapshot from before v1.3, when the whole holding reads as one cohort). */
+  npcCohorts?: NpcCohort[];
   /** curve buys by the creator and owner-linked accounts, cumulative (the 10% cap) */
   creatorBought: number;
   /** the buzz B: the base hype, the Quay billboard part and the Wire promo part (L6) */
@@ -68,8 +83,8 @@ export interface LpToken {
   sniperDone?: boolean;
   status: TokenStatus;
   lastTradeTick: number;
-  /** the tick the curve cash first fell under the death line, while it stays under (null when it is above) */
-  cashLowSince: number | null;
+  /** L3.1 (v1.3): the game-day closes in a row with curve cash under the death line, counted from day 3 (absent reads as zero) */
+  lowCloses?: number;
   deadTick?: number;
   deadReason?: 'noTrade' | 'cash' | 'cancelled';
   gradTick?: number;

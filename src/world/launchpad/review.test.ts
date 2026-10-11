@@ -160,10 +160,13 @@ describe('the cash death starts on day 3 (review 6)', () => {
     const t = g.launchpad!.tokens.DAYT!;
     t.buzz.base = 0;
     t.sniperDone = true;
-    jumpDays(g, 7);
-    lpTick(g, null);
+    // L3.1 (v1.3): the closes of day 3 to day 8 leave it alive (six closes); the close of day 9 is the seventh
+    for (let d = 3; d <= 8; d++) {
+      g.market = { ...g.market, tick: (d + 1) * TPD };
+      lpTick(g, null);
+    }
     expect(t.status).toBe('live');
-    jumpDays(g, 1);
+    g.market = { ...g.market, tick: 10 * TPD };
     lpTick(g, null);
     expect(t.status).toBe('dead');
     expect(t.deadTick! / TPD).toBeCloseTo(10, 0);

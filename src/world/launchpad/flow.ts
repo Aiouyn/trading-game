@@ -5,7 +5,8 @@ import { BUZZ_DECAY, LP, NPC, curveAccountId, npcAccountId } from './constants';
 import { formulaCashAt, spotAt } from './curve';
 import { liquidateCohort, sellCurve } from './trade';
 import { npcLaunchDraw } from './launch';
-import { buzzOf, arrive } from './demand';
+import { buzzOf, arrive, bleedPerTick, viralPerTick } from './demand';
+import { cohortsOf } from './cohorts';
 import { absorbPending } from './absorb';
 import { openSellQty } from './graduate';
 import { priceNow } from './rug';
@@ -16,15 +17,15 @@ import type { LpToken } from './types';
 /**
  * The hype and the NPC flow (lead-launchpad.md L6, as amended in v1.1 and v1.2), run once per tick by stepGame. Every live token:
  *   - its buzz decays (the base with a two-day half-life, the Quay billboard in six ticks, the Wire promo in a day);
- *   - it takes rare viral shocks (a finite-mean heavy tail: few tokens, few shocks), and each shock and buzz item is an ARRIVAL; a
+ *   - it takes viral shocks at a hazard that falls with its age (L6.7, v1.3; a finite-mean heavy tail in size), and each shock and buzz item is an ARRIVAL; a
  *     player's buy is not one (L6.5);
  *   - an arrival is bought by the NPC cohort in full in the tick it arrives (L6.4, absorb.ts), so no player can act before the top;
  *   - an NPC sniper buys inside the launch command (launch.ts sniperEnter) and sells here into the first hype (so players cannot
  *     farm the edge: no fill can sit between a launch and the sniper's price impact);
- *   - the cohort sells into the fade (slow bleed): a capitulation share that grows as the buzz falls below its peak since the last
- *     arrival, a time share, and profit taking above its cost. It never sells tokens it does not hold;
- *   - a token dies with no trade for 24 game days, or with curve cash under 2% of the raise for 7 game days (counted from the
- *     launch, tested from day 3). At death the cohort sells what it holds to the curve, so the NPC side is flat in tokens;
+ *   - each NPC cohort (one absorbed arrival) sells on its own bleed, a half-life tied to tau (L6.8, v1.3), plus the capitulation
+ *     share as the buzz falls below its peak since the last arrival, and profit taking above its cost. It never sells tokens it does not hold;
+ *   - a token dies with no trade for 24 game days, or with curve cash under 2% of the raise at the close of 7 game days in a row,
+ *     the closes counted from day 3 (L3.1, v1.3). At death the cohorts sell what they hold to the curve, so the NPC side is flat in tokens;
  *   - a graduated token's cohort position is unwound into the liquidity book through the engine's order path, with a one-day
  *     half-life (L6.2), and the proceeds are booked as the npcRetail sink.
  * A world with no launch does nothing here (the state is absent), so its fingerprints do not move.
@@ -62,11 +63,12 @@ export function buyBuzz(g: GameState, pid: string, ticker: string, kind: 'board'
 }
 
 /**
- * One tick of the NPC cohort on a token (L6.1). The sniper first (its exit, if it is in). Otherwise the cohort buys its pending
- * demand (the arrivals, decayed by the buy half-life) and sells into the fade: the capitulation share is NPC.CAPIT_PER_TICK times
- * (1 - buzz / peak), where the peak is the buzz since the last arrival (it never falls below the buzz now); the profit share is
- * NPC.PROFIT_PER_TICK times the price's gain over the cohort's cost, and the time share is NPC.TIME_SELL_PER_TICK. The sell is at
- * any price, and never more than the cohort holds. A sell and a buy in the same tick are two fills through the curve.
+ * One tick of the NPC cohort on a token (L6.1 as amended by v1.3). The sniper first (its exit, if it is in). Otherwise each cohort
+ * (L6.8, cohorts.ts) sells its own share of its tokens: the bleed (half-life BLEED_HALF_TAU x tau, demand.ts bleedPerTick), plus the
+ * capitulation NPC.CAPIT_PER_TICK times (1 - buzz / peak), where the peak is the buzz since the last arrival (it never falls below the
+ * buzz now), plus profit taking NPC.PROFIT_PER_TICK times the gain of that cohort over its own cost. The sell is at any price and never
+ * more than the cohort holds, and the cohorts' sells are one fill through the curve. The buy side is the arrivals, absorbed in full in
+ * the tick they arrive (absorb.ts). There is no instant exit (the v1.1 time share is withdrawn in v1.3).
  */
 function npcFlow(g: GameState, t: LpToken, out: StepOutput | null): void {
   const tick = g.market.tick;
@@ -83,14 +85,30 @@ function npcFlow(g: GameState, t: LpToken, out: StepOutput | null): void {
   const buzz = buzzOf(t);
   const peak = Math.max(t.npcPeak ?? buzz, buzz);
   t.npcPeak = peak;
-  // the sell: capitulation into the fade, profit taking above the cohort's cost, and the time share
   const spot = spotAt(t.y);
-  const avg = t.npcBal > 0 ? t.npcCost / t.npcBal : 0;
-  const gain = avg > 0 ? spot / avg - 1 : 0;
   const fade = peak > 0 ? Math.max(0, 1 - buzz / peak) : 0;
-  const share = Math.min(1, NPC.CAPIT_PER_TICK * fade + (gain > 0 ? NPC.PROFIT_PER_TICK * gain : 0) + NPC.TIME_SELL_PER_TICK);
-  const sellTokens = Math.min(t.npcBal, Math.floor(t.npcBal * share));
-  if (sellTokens > 0) sellCurve(g, null, t.ticker, sellTokens, 1, out, true);
+  const bleed = bleedPerTick();
+  const cs = cohortsOf(t);
+  // each cohort's share, with a fractional carry so a slow bleed on a small cohort is not lost to rounding
+  const plan: number[] = [];
+  const carry: number[] = [];
+  let total = 0;
+  for (const c of cs) {
+    const avg = c.tokens > 0 ? c.cost / c.tokens : 0;
+    const gain = avg > 0 ? spot / avg - 1 : 0;
+    const share = Math.min(1, bleed + NPC.CAPIT_PER_TICK * fade + (gain > 0 ? NPC.PROFIT_PER_TICK * gain : 0));
+    const want = c.tokens * share + (c.carry ?? 0);
+    const n = Math.min(c.tokens, Math.floor(want));
+    plan.push(n);
+    carry.push(Math.max(0, want - n));
+    total += n;
+  }
+  if (total > 0) {
+    const r = sellCurve(g, null, t.ticker, total, 1, out, true, plan);
+    if (r.ok) cs.forEach((c, i) => { if (c.tokens > 0) c.carry = carry[i]; });
+  } else {
+    cs.forEach((c, i) => { if (c.tokens > 0) c.carry = carry[i]; });
+  }
   // the buy: arrivals are absorbed in full in the tick they arrive (L6.4), so only a demand a refused fill left pending waits here
   absorbPending(g, t, out);
 }
@@ -161,7 +179,8 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
     t.buzz.board *= BUZZ_DECAY.board;
     t.buzz.wire *= BUZZ_DECAY.wire;
     let rng = new Rng(t.rng);
-    if (rng.chance(NPC.VIRAL_PER_DAY / TPD)) {
+    // L6.7: the hazard falls with the token's age; a live token only (a dead or graduated token takes no shock)
+    if (rng.chance(viralPerTick(tick - t.createdTick))) {
       const shock = NPC.VIRAL_SCALE * (Math.pow(Math.max(1e-9, rng.uniform()), -1 / NPC.VIRAL_ALPHA) - 1);
       t.buzz.base += shock;
       arrive(t, shock);
@@ -173,18 +192,16 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
     }
     if (t.status === 'live') npcFlow(g, t, out);
     t.rng = rng.state();
-    // the death rules (L3)
+    // the death rules (L3, L3.1 as v1.3): no trade for 24 game days, or the cash clock. The cash clock counts CLOSES: at the close of each
+    // game day (the day's last tick) from day 3 on, a close with curve cash under the line adds one, a close above it resets the count.
+    // An intraday round trip does not reset it, so a token cannot be kept alive by a buy and sell inside one day.
     const curveCash = g.market.accounts[curveAccountId(t.ticker)]?.cash ?? 0;
-    if (curveCash < RAISE_LINE) {
-      if (t.cashLowSince === null) t.cashLowSince = tick;
-    } else {
-      t.cashLowSince = null;
-    }
     if (t.status === 'live') {
       if (tick - t.lastTradeTick >= LP.DEAD_NO_TRADE_DAYS * TPD) kill(g, t, 'noTrade', out);
-      // the cash clock counts from the later of the first low tick and day 3 (L3: "7 game days after day 3"), so a launch on day 2
-      // with no funding is dead on day 10, not day 9
-      else if (t.cashLowSince !== null && tick - Math.max(t.cashLowSince, LP.DEAD_CASH_START_TICK) >= LP.DEAD_CASH_DAYS * TPD) kill(g, t, 'cash', out);
+      else if (tick % TPD === 0 && dayOf(tick) >= LP.DEAD_CASH_FROM_DAY) {
+        t.lowCloses = curveCash < RAISE_LINE ? (t.lowCloses ?? 0) + 1 : 0;
+        if (t.lowCloses >= LP.DEAD_CASH_DAYS) kill(g, t, 'cash', out);
+      }
     }
     if (t.status === 'live' && tick % LP.CHART_EVERY === 0) {
       t.chart.push([tick, spotAt(t.y)]);

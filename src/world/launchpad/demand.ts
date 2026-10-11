@@ -1,4 +1,4 @@
-import { LP, NPC } from './constants';
+import { LP, NPC, TPD } from './constants';
 import { formulaCashAt } from './curve';
 import type { LpToken } from './types';
 
@@ -25,6 +25,25 @@ export function buzzOf(t: LpToken): number {
 export function arrivalCap(t: LpToken): number {
   const cashToGrad = formulaCashAt(LP.GRAD_Y) - formulaCashAt(t.y);
   return cashToGrad > 0 ? cashToGrad / (1 - LP.FEE_RATE) + 0.01 : 0;
+}
+
+/**
+ * The viral hazard of a live token (lead-launchpad.md L6.7, v1.3): the chance of one shock in a tick, at the token's age. The rate is
+ * VIRAL_PER_DAY shocks per game day at launch and falls as exp(-age / VIRAL_TAU_DAYS), with age in game days, so a token's virality
+ * is front-loaded. The chance is the rate over a tick (the per-tick draw of flow.ts).
+ */
+export function viralPerTick(ageTicks: number): number {
+  const ageDays = Math.max(0, ageTicks) / TPD;
+  return (NPC.VIRAL_PER_DAY / TPD) * Math.exp(-ageDays / NPC.VIRAL_TAU_DAYS);
+}
+
+/**
+ * The share of a cohort's tokens sold per tick by the bleed alone (lead-launchpad.md L6.8, v1.3): a half-life of BLEED_HALF_TAU times
+ * tau, so the cohort's holding halves in that time whatever the price. The capitulation and profit terms are added to it (flow.ts).
+ */
+export function bleedPerTick(): number {
+  const halfLifeTicks = NPC.BLEED_HALF_TAU * NPC.VIRAL_TAU_DAYS * TPD;
+  return 1 - Math.pow(0.5, 1 / halfLifeTicks);
 }
 
 /**
