@@ -372,7 +372,7 @@ function runBot(g: GameState, pid: string, bot: TradingBot, m: Model, out: StepO
       g.market = r.state;
       bot.trades++;
       // the model's order is the player's trade: the tip rules score it on the player's account (eca.ts noteOrderPlaced)
-      noteOrderPlaced(g, pid, req.assetId, req.side, req.qty, posBefore);
+      noteOrderPlaced(g, pid, req.assetId, req.side, req.qty, posBefore, r.order.id);
     }
   }
   void out; void credit;

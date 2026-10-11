@@ -1,5 +1,6 @@
 import { earningsInfo, type Side } from '@/engine';
 import { keyedRng, TPD, priceOf } from './core';
+import { ECA_TUNE } from './eca-tune';
 import { say } from './say';
 import { rosterOf } from './company/insiders';
 import type { CompanyWorld } from './company/types';
@@ -20,10 +21,11 @@ import type { CommandResult, GameState, StepOutput } from './types';
  * Rumors (the engine's public catalyst rumors) are never flagged.
  */
 
-/** Surveillance points for a flagged trade at full size (quant-rumors / ROADMAP 2.5): 40 × size factor. */
-export const TIP_FLAG_POINTS = 40;
-/** A trade counts as full size at three times the player's median trade (ROADMAP 2.5). */
-export const SIZE_CAP_MULT = 3;
+/** A flagged trade's points are the base (eca-tune.ts tipBase) times the log size factor (R-6C-3, tipSizeFactor). */
+/** The size factor is capped at this (a trade 100 times the median scores five times the base). */
+export const TIP_SIZE_CAP = 5;
+/** The size factor's floor: a flagged trade always scores at least this share of the base (review repair: no zero-point trade). */
+export const TIP_SIZE_FLOOR = 0.25;
 /** Tips kept in the save; the oldest go first. */
 const TIPS_KEEP = 60;
 const FLAGS_KEEP = 200;
@@ -46,6 +48,10 @@ export interface InsiderTip {
   companyId: string;
   /** the shares the player controls in the asset at delivery (own account plus a managed fund); optional for older saves */
   heldAtTip?: number;
+  /** the notional flagged on this tip so far (all its flagged trades, cumulative; review repair, splitting); optional for older saves */
+  flaggedNotional?: number;
+  /** the points this tip has scored so far (the running maximum of tipBase x size factor); optional for older saves */
+  scoredPts?: number;
 }
 
 export interface PendingTip {
@@ -68,6 +74,10 @@ export interface TipFlag {
   points: number;
   /** a tip flag is always before the reveal (only orders placed after the tip tick and before the reveal count) */
   tradedBeforeReveal: true;
+  /** the order the flag is on, so its fills can be matched to the flagged part (FIFO lots, eca.ts); optional for older saves */
+  orderId?: string;
+  /** the flagged quantity already filled (the FIFO tip share, claimTipQty) */
+  filled?: number;
 }
 
 export interface TipState {
@@ -203,12 +213,24 @@ export function noteNotional(g: GameState, pid: string, notional: number): void 
 }
 
 /**
+ * R-6C-3: the size factor of a flagged trade, log-shaped against the account's median trade. A trade at the median scores 1, ten
+ * times the median scores 3, and the factor stays between TIP_SIZE_FLOOR (a small trade still scores) and TIP_SIZE_CAP.
+ */
+export function tipSizeFactor(notional: number, median: number): number {
+  if (!(notional > 0) || !(median > 0)) return 0;
+  return Math.min(TIP_SIZE_CAP, Math.max(TIP_SIZE_FLOOR, 1 + 2 * Math.log10(notional / median)));
+}
+
+/**
  * Flags a placed order that trades on a tip (the claim's side, after the tip, before the report). `posBefore` is the controlled
  * position before the order (controlledQty, captured by the caller before it placed the order). The part of the order that
  * reduces a position the player held before the tip (a long for a "down" claim, a short for an "up" claim) is not flagged. Returns
- * the surveillance points it adds (0 when nothing is flagged). Only accepted orders call this.
+ * the surveillance points it adds (0 when nothing is flagged). Only accepted orders call this. `orderId` ties the flag to the
+ * order's fills (claimTipQty).
  */
-export function flagTipTrade(g: GameState, pid: string, assetId: string, side: Side, qty: number, tick: number, posBefore: number): number {
+export function flagTipTrade(
+  g: GameState, pid: string, assetId: string, side: Side, qty: number, tick: number, posBefore: number, orderId?: string,
+): number {
   if (!(qty > 0)) return 0;
   const tips = openTipsFor(g, pid, assetId, tick);
   if (tips.length === 0) return 0;
@@ -221,13 +243,40 @@ export function flagTipTrade(g: GameState, pid: string, assetId: string, side: S
   const flagQty = qty - exempt;
   if (flagQty <= 1e-9) return 0;
   const price = priceOf(g, assetId);
-  const notional = flagQty * price;
-  const sizeF = Math.min(1, notional / (SIZE_CAP_MULT * medianNotional(g, pid, notional)));
-  const points = TIP_FLAG_POINTS * sizeF;
+  // review repair (splitting): the size is scored on the tip's cumulative flagged notional, so one position split into many orders
+  // scores what one order of the same total scores. The tip's points are the running maximum of tipBase x size factor.
+  aligned.flaggedNotional = (aligned.flaggedNotional ?? 0) + flagQty * price;
+  const cum = aligned.flaggedNotional;
+  const target = ECA_TUNE.tipBase * tipSizeFactor(cum, medianNotional(g, pid, cum));
+  const points = Math.max(0, target - (aligned.scoredPts ?? 0));
+  aligned.scoredPts = Math.max(aligned.scoredPts ?? 0, target);
   const t = tipsOf(g);
-  t.flags.push({ playerId: pid, tipId: aligned.id, assetId, tick, side, qty: flagQty, price, points, tradedBeforeReveal: true });
+  t.flags.push({
+    playerId: pid, tipId: aligned.id, assetId, tick, side, qty: flagQty, price, points, tradedBeforeReveal: true,
+    ...(orderId ? { orderId, filled: 0 } : {}),
+  });
   if (t.flags.length > FLAGS_KEEP) t.flags.splice(0, t.flags.length - FLAGS_KEEP);
   return points;
+}
+
+/**
+ * The part of a fill that is the flagged (tip) quantity of its order: the flags of that order take the fill up to their unfilled
+ * flagged quantity, in placement order (the exempt part of an order is never flagged, so it is never a tip share). Returns the
+ * tip quantity of this fill, which the FIFO lots carry (eca.ts).
+ */
+export function claimTipQty(g: GameState, orderId: string, qty: number): number {
+  let left = qty;
+  let got = 0;
+  for (const f of g.tips?.flags ?? []) {
+    if (f.orderId !== orderId || left <= 1e-9) continue;
+    const room = Math.max(0, f.qty - (f.filled ?? 0));
+    const take = Math.min(room, left);
+    if (take <= 0) continue;
+    f.filled = (f.filled ?? 0) + take;
+    got += take;
+    left -= take;
+  }
+  return got;
 }
 
 /** The tip trail for the regulator: did this account ever receive a tip on the asset. */

@@ -325,7 +325,7 @@ function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOut
         return { ok: false, error: r.order.rejectReason ?? 'rejected', data: r.order };
       }
       // a trade on an insider tip is flagged when placed (M16 v1); every accepted order feeds the size factor's median (eca.ts)
-      noteOrderPlaced(g, pid, o.assetId, o.side, o.qty, posBefore);
+      noteOrderPlaced(g, pid, o.assetId, o.side, o.qty, posBefore, r.order.id);
       return { ok: true, data: r.order };
     }
     case 'order.cancel': {
@@ -365,7 +365,7 @@ function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOut
       g.market = r.state;
       if (r.order.status === 'rejected') return fail(r.order.rejectReason ?? 'rejected');
       // a reduce-only close is a trade like any other for the tip rules (a close that sells a pre-tip long is not flagged)
-      noteOrderPlaced(g, pid, cmd.assetId, q > 0 ? 'sell' : 'buy', Math.abs(q), posBefore);
+      noteOrderPlaced(g, pid, cmd.assetId, q > 0 ? 'sell' : 'buy', Math.abs(q), posBefore, r.order.id);
       return { ok: true, data: r.order };
     }
     case 'option.trade': {
