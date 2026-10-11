@@ -56,13 +56,13 @@ function OwnedRow({ b }: { b: Business }) {
       <tr className="border-t border-ink-2" data-testid={`biz-${b.id}`}>
         <Td>
           <span className="block font-medium text-fg">{b.name}</span>
-          <span className="block text-caption text-fg-faint">{def.name}</span>
+          {def.name !== b.name && <span className="block text-caption text-fg-faint">{def.name}</span>}
         </Td>
-        <Td className="text-fg-muted">{cityName}</Td>
-        <Td right num><span className="text-gain">{money(b.incomePerDay)}</span><span className="text-caption text-fg-faint"> {t('biz.perDay')}</span></Td>
-        <Td right num>{compactMoney(b.earned)}</Td>
-        <Td right num>{pct(b.share)}</Td>
-        <Td right num>{t('biz.upgrades.count', { n: levels, max: UPGRADES.length * MAX_UPGRADE })}</Td>
+        <Td className="whitespace-nowrap text-fg-muted">{cityName}</Td>
+        <Td right num className="whitespace-nowrap"><span className="text-gain">{money(b.incomePerDay)}</span><span className="text-caption text-fg-faint"> {t('biz.perDay')}</span></Td>
+        <Td right num className="whitespace-nowrap">{compactMoney(b.earned)}</Td>
+        <Td right num className="whitespace-nowrap">{pct(b.share)}</Td>
+        <Td right num className="whitespace-nowrap">{t('biz.upgrades.count', { n: levels, max: UPGRADES.length * MAX_UPGRADE })}</Td>
         <Td right>
           <Button size="sm" variant="outline" onClick={() => setOpen((o) => !o)} testId={`biz-manage-${b.id}`}>
             {open ? t('biz.manage.close') : t('biz.manage')}
