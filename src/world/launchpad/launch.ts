@@ -7,7 +7,7 @@ import { quoteBuy, spotAt } from './curve';
 import { buyCurve, liquidateCohort } from './trade';
 import { arrive } from './demand';
 import { moderateName, nameFormatOk, normalizeName, tickerFormatOk, type NameRefusal } from './moderate';
-import { dayOf, ensureLaunchpad, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
+import { dayOf, ensureLaunchpad, hasOtherTrader, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
 
 import type { LpToken } from './types';
 
@@ -177,7 +177,7 @@ export function cancelLaunch(g: GameState, pid: string, ticker: string): Command
   if (!t) return refuse('noToken', { ticker });
   if (t.creatorId !== pid) return refuse('notCreator', { ticker });
   if (t.status !== 'live') return refuse('dead', { ticker });
-  if (t.playerTraded) return refuse('traded', { ticker });
+  if (hasOtherTrader(t)) return refuse('traded', { ticker });
   liquidateCohort(g, t, null);
   t.status = 'dead';
   t.deadTick = g.market.tick;

@@ -91,10 +91,6 @@ function npcFlow(g: GameState, t: LpToken, rng: Rng, out: StepOutput | null): vo
   const buzz = buzzOf(t);
   const peak = Math.max(t.npcPeak ?? buzz, buzz);
   t.npcPeak = peak;
-  // the buy: the share of the pending demand that the buy half-life takes this tick
-  const pending = t.npcPending ?? 0;
-  const buyDollars = pending * buyShare();
-  t.npcPending = pending - buyDollars < 1e-6 ? 0 : pending - buyDollars;
   // the sell: capitulation into the fade, profit taking above the cohort's cost, and the time share
   const spot = spotAt(t.y);
   const avg = t.npcBal > 0 ? t.npcCost / t.npcBal : 0;
@@ -103,7 +99,19 @@ function npcFlow(g: GameState, t: LpToken, rng: Rng, out: StepOutput | null): vo
   const share = Math.min(1, NPC.CAPIT_PER_TICK * fade + (gain > 0 ? NPC.PROFIT_PER_TICK * gain : 0) + NPC.TIME_SELL_PER_TICK);
   const sellTokens = Math.min(t.npcBal, Math.floor(t.npcBal * share));
   if (sellTokens > 0) sellCurve(g, null, t.ticker, sellTokens, 1, out, true);
-  if (buyDollars * 100 >= 1) buyCurve(g, null, t.ticker, Math.round(buyDollars * 100), 1, out, true);
+  // the buy: the share of the pending demand that the buy half-life takes this tick. The demand leaves the pending pool only when
+  // the buy fills; a refused buy (too small, or the curve has sold out) keeps it for the next tick, so no demand vanishes unbooked
+  const pending = t.npcPending ?? 0;
+  const buyDollars = pending * buyShare();
+  if (buyDollars * 100 >= 1) {
+    const r = buyCurve(g, null, t.ticker, Math.round(buyDollars * 100), 1, out, true);
+    if (r.ok) {
+      const left = pending - buyDollars;
+      t.npcPending = left < 1e-6 ? 0 : left;
+    }
+  } else if (pending < 1e-6) {
+    t.npcPending = 0;
+  }
 }
 
 /**

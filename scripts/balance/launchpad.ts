@@ -27,6 +27,8 @@ function arg(name: string, fallback: string) {
 const nSeeds = Number(arg('seeds', '50'));
 const days = Number(arg('days', '30'));
 const firstSeed = Number(arg('first', '1'));
+// the seed namespace: tuning runs use their own prefix (lx) so the held-out gate (lh) never sees a tuned seed (lead-launchpad.md L8)
+const prefix = arg('prefix', 'lp');
 const outPath = arg('out', 'balance-out/launchpad.json');
 // tuning (lead-launchpad.md L6.3): --npc '{"DEMAND_PER_BUZZ":1000}' overrides the L6 constants of NPC for this run only; the summary records them
 const npcOverride = JSON.parse(arg('npc', '{}')) as Partial<typeof NPC>;
@@ -179,7 +181,8 @@ function runSeed(seed: string) {
   }
   let idleDrift = 0;
   const gx0 = indexLevel(g.market, 'GX');
-  const maxPx: Record<string, number> = {};
+  // the 10x check (L8): a graduated token reaches ten times its graduation price within 30 game days of graduating; sampled every tick
+  const tenXSeen: Record<string, boolean> = {};
   let residualMax = 0;
   let money = netWorldMoney(g);
   let booked = bookedNet(g);
@@ -190,19 +193,19 @@ function runSeed(seed: string) {
       for (const b of BOTS) decide(g, b, states[b.id]!, rngs[b.id]!, startTick);
     }
     stepGame(g);
+    for (const t of Object.values(g.launchpad?.tokens ?? {})) {
+      if (t.status !== 'graduated' || t.gradTick === undefined || !(t.gradPrice ?? 0) || tenXSeen[t.ticker]) continue;
+      if (g.market.tick > t.gradTick + 30 * TPD) continue;
+      const idx = g.market.config.assets.findIndex((a) => a.id === t.ticker);
+      if (idx < 0) continue;
+      if (Math.exp(g.market.assets[idx]!.lnP) >= 10 * t.gradPrice!) tenXSeen[t.ticker] = true;
+    }
     if (g.market.tick % TPD === 0 || k === totalTicks - 1) {
       const m = netWorldMoney(g);
       const bk = bookedNet(g);
       const et = engineTallyOf(g);
       residualMax = Math.max(residualMax, Math.abs((m - money) - (bk - booked) - (et - tally)));
       money = m; booked = bk; tally = et;
-      for (const t of Object.values(g.launchpad?.tokens ?? {})) {
-        if (t.status !== 'graduated') continue;
-        const idx = g.market.config.assets.findIndex((a) => a.id === t.ticker);
-        if (idx < 0) continue;
-        const px = Math.exp(g.market.assets[idx]!.lnP);
-        maxPx[t.ticker] = Math.max(maxPx[t.ticker] ?? 0, px / (t.gradPrice ?? px));
-      }
     }
   }
   if (process.argv.includes('--dbg')) {
@@ -243,7 +246,7 @@ function runSeed(seed: string) {
   let tenX = 0;
   for (const t of observed) {
     if (t.gradTick !== undefined) graduated++;
-    if ((maxPx[t.ticker] ?? 0) >= 10) tenX++;
+    if (tenXSeen[t.ticker]) tenX++;
   }
   // --diag: each token's death, graduation and flows (where its cash came from), for tuning (V1-PHASE5.md)
   const diag = process.argv.includes('--diag')
@@ -275,7 +278,7 @@ function runSeed(seed: string) {
   };
 }
 
-const seeds = Array.from({ length: nSeeds }, (_, i) => `lp-${String(firstSeed + i).padStart(2, '0')}`);
+const seeds = Array.from({ length: nSeeds }, (_, i) => `${prefix}-${String(firstSeed + i).padStart(2, '0')}`);
 const per: ReturnType<typeof runSeed>[] = [];
 for (const s of seeds) {
   per.push(runSeed(s));

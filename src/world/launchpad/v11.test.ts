@@ -109,17 +109,41 @@ describe('L6.1 the cohort is flat in tokens over a token\'s life', () => {
     expect(netWorldMoney(g) - bookedNet(g) - m0).toBeCloseTo(0, 2);
   });
 
-  it('a graduated token keeps its own cohort position in the engine, and a cancel flattens the cohort too', () => {
+  it('a cancel after the NPC sniper has bought flattens the cohort\'s tokens back to the curve (the cohort is not an account)', () => {
     const g = lpWorld('cancel-npc');
     launch(g, CREATOR, 'CNPC');
     const t = g.launchpad!.tokens.CNPC!;
-    // the sniper buys on the second tick: a cancel after it is still allowed (the cohort is not an account)
+    // the sniper buys two ticks after launch, so after three steps the cohort holds tokens
     for (let k = 0; k < 3; k++) stepGame(g);
-    expect(t.npcBal).toBeGreaterThanOrEqual(0);
+    expect(t.sniperDone).toBe(true);
+    expect(t.npcBal).toBeGreaterThan(0);
     const r = run(g, CREATOR, { type: 'lp.cancel', ticker: 'CNPC' });
     expect(r.ok).toBe(true);
     expect(t.npcBal).toBe(0);
     expect(t.deadReason).toBe('cancelled');
+  });
+
+  it('a graduated token keeps its cohort position in the engine, and a cancel on it is refused', () => {
+    const g = lpWorld('grad-npc');
+    launch(g, CREATOR, 'GNPC', { allocation: 0 });
+    expect(grad(g, 'GNPC').ok).toBe(true);
+    const pos = g.market.accounts[npcAccountId('GNPC')]?.positions.GNPC?.qty ?? 0;
+    expect(pos).toBeGreaterThan(0);
+    const r = run(g, CREATOR, { type: 'lp.cancel', ticker: 'GNPC' });
+    expect(r.ok).toBe(false);
+    expect(g.launchpad!.tokens.GNPC!.status).toBe('graduated');
+  });
+
+  it('a pending demand that the curve refuses stays pending (it is not silently dropped)', () => {
+    const g = lpWorld('refused');
+    launch(g, CREATOR, 'REFU');
+    const t = quiet(g, 'REFU');
+    // a sold-out curve refuses every buy, so the cohort's demand must wait rather than vanish
+    t.y = 1;
+    t.npcPending = 10_000;
+    lpTick(g, null);
+    expect(t.npcPending).toBe(10_000);
+    expect(t.npcBal).toBe(0);
   });
 });
 
@@ -170,13 +194,37 @@ describe('the cancel rule (ratified deviation)', () => {
     expect(run(g, CREATOR, { type: 'lp.sell', ticker: 'DEVB', tokens: Math.floor(have / 2), maxSlip: 0.5 }).ok).toBe(true);
   });
 
-  it('a cancel is refused once any other player has traded, even by a buy that is later sold', () => {
+  it('a cancel is refused once another player has traded, and it stays refused after that player has sold back to zero', () => {
     const g = lpWorld('cancel-other');
     launch(g, CREATOR, 'OTHR');
     run(g, HOLDER, { type: 'lp.buy', ticker: 'OTHR', spendCents: 1_000 });
+    const have = g.launchpad!.tokens.OTHR!.bal[HOLDER] ?? 0;
+    expect(have).toBeGreaterThan(0);
+    // the holder sells everything: the balance is gone, but the trade happened, so the cancel stays refused
+    expect(run(g, HOLDER, { type: 'lp.sell', ticker: 'OTHR', tokens: have, maxSlip: 0.5 }).ok).toBe(true);
+    expect(g.launchpad!.tokens.OTHR!.bal[HOLDER]).toBeUndefined();
     const r = run(g, CREATOR, { type: 'lp.cancel', ticker: 'OTHR' });
     expect(r.ok).toBe(false);
     expect((r.data as { refusal?: string } | undefined)?.refusal).toBe('traded');
+  });
+
+  it('an old token without the playerTraded flag is still refused once another player has traded (read from its record)', () => {
+    const g = lpWorld('cancel-old');
+    launch(g, CREATOR, 'OLDC');
+    run(g, HOLDER, { type: 'lp.buy', ticker: 'OLDC', spendCents: 1_000 });
+    const t = g.launchpad!.tokens.OLDC!;
+    delete t.playerTraded;
+    const r = run(g, CREATOR, { type: 'lp.cancel', ticker: 'OLDC' });
+    expect(r.ok).toBe(false);
+    expect((r.data as { refusal?: string } | undefined)?.refusal).toBe('traded');
+  });
+
+  it('an old token with only the creator\'s own trades (no flag) can still be cancelled', () => {
+    const g = lpWorld('cancel-old-creator');
+    launch(g, CREATOR, 'OLDK', { devBuyCents: 2_000 });
+    const t = g.launchpad!.tokens.OLDK!;
+    delete t.playerTraded;
+    expect(run(g, CREATOR, { type: 'lp.cancel', ticker: 'OLDK' }).ok).toBe(true);
   });
 });
 
