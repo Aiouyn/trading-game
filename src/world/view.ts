@@ -5,7 +5,7 @@ import {
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { contractProgress } from './players';
 import { changeOf, ghostReport, type GhostReport } from './ghosts';
-import { tradesOf } from './ledger';
+import { ledgerOf, tradesOf, valuationAndIncome } from './ledger';
 import { deskFileSummaries, deskWindow } from './desk';
 import { calendarFor, type CalendarItem } from './calendar';
 import { goalsView } from './learn';
@@ -188,7 +188,11 @@ export interface PlayerView {
    * The cash the player arrived with (the engine's starting cash), the change since then (trading and income only), and the
    * cumulative external cash the change leaves out (grants, transfers, loans, court payments to the victim fund).
    */
-  arrival: { cash: number; change: number; changePct: number; external: number };
+  arrival: {
+    cash: number; change: number; changePct: number; external: number;
+    /** the change since arrival, split: trading (after fees), valuation of holdings, and income and costs (grants left out) */
+    split: { trading: number; valuation: number; income: number };
+  };
   /** the Rivals board (names and net worth only), or null when the world has no rivals */
   rivals: RivalsBoardView | null;
   rank: { id: string; name: string; next: { id: string; name: string; threshold: number } | null; progress: number };
@@ -314,7 +318,14 @@ function arrivalView(g: GameState, pid: string): PlayerView['arrival'] {
   const cash = tradingConfig(g.market).startingCash;
   const external = g.players[pid]?.externalCash ?? 0;
   const total = netWorthBreakdown(g, pid).total - external;
-  return { cash, change: total - cash, changePct: changeOf(total, cash), external };
+  const change = total - cash;
+  // the split: valuation and income against the record kept when the ledger opened (the join); trading is what is left
+  const L = ledgerOf(g, pid);
+  const open = L?.days[(L.startDay) - 1];
+  const now = valuationAndIncome(g, pid);
+  const valuation = open?.val !== undefined ? now.val - open.val : 0;
+  const income = open?.inc !== undefined ? now.inc - open.inc : 0;
+  return { cash, change, changePct: changeOf(total, cash), external, split: { trading: change - valuation - income, valuation, income } };
 }
 
 /** A stored close with its lines. Closes saved before the trading split carry only the net change, so all of it counts as trading. */

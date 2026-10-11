@@ -253,8 +253,8 @@ export const useGame = create<GameStore>((set, get) => {
         if (absorbed.behind) resync();
         const nw = get().nw;
         if (nw && msg.frame.tick % nw.every === 0) {
-          // the same trading-and-income basis as the server's samples (grants and transfers taken out)
-          nw.samples.push(msg.me.netWorth.total - msg.me.arrival.external);
+          // the same basis as the server's samples: the net worth the header shows, grants and transfers included
+          nw.samples.push(msg.me.netWorth.total);
           if (nw.samples.length > 600) nw.samples.shift();
           nw.lastTick = msg.frame.tick;
         }

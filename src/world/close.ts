@@ -1,8 +1,8 @@
 import { indexLevel, newsBand, type Account, type NewsBand } from '@/engine';
 import { CLOSE_STORIES, LEDGER } from '@/content/learning';
-import { TPD, netWorthBreakdown, notify, today } from './core';
+import { TPD, notify, today } from './core';
 import { advanceGhosts, beatenCount, ghostValues, percentileOf } from './ghosts';
-import { ensureLedger, hasTrades, ledgerOf, priceEquity } from './ledger';
+import { ensureLedger, hasTrades, ledgerOf, priceEquity, valuationAndIncome } from './ledger';
 import { textProvider, type Msg } from './text';
 import type { DailyClose, DayClose, DayRecord, PlayerLedger } from './ledger-types';
 import type { GameState, StepOutput, WireItem } from './types';
@@ -140,12 +140,7 @@ function dayRecord(g: GameState, L: PlayerLedger, pid: string, day: number): Day
   if (!p || !acct) return null;
   const qty: Record<string, number> = {};
   for (const [id, pos] of Object.entries(acct.positions)) if (pos.qty !== 0) qty[id] = pos.qty;
-  // valuation: everything but cash and markets; income: the cumulative cash the player earned from holdings, less borrow costs
-  const b = netWorthBreakdown(g, pid);
-  const val = b.total - b.cash - b.markets;
-  const inc = p.stats.bizIncome + p.stats.rentCollected + (acct.dividends ?? 0) + (acct.interestEarned ?? 0)
-    - (acct.interestPaid ?? 0) - (acct.borrowPaid ?? 0);
-  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0, val, inc };
+  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0, ...valuationAndIncome(g, pid) };
 }
 
 /**
