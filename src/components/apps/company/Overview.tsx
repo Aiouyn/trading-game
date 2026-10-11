@@ -20,7 +20,7 @@ export function Overview({ co }: { co: CompanyFounderView }) {
   return (
     <div className="flex flex-col gap-4" data-testid="company-overview">
       <div className="flex flex-wrap items-center gap-2 text-caption text-fg-faint">
-        <span className="font-serif text-hero text-fg" data-testid="company-hero-name">{co.name}</span>
+        <span className="font-serif text-title text-fg" data-testid="company-hero-name">{co.name}</span>
         <span className="rounded-chip border border-ink-3 px-2 py-0.5">{t('company.ui.tier', { tier: tierLabel(co.tier) })}</span>
         {co.bankrupt ? <span className="text-loss">{t('company.ui.notice.bankrupt')}</span> : null}
       </div>

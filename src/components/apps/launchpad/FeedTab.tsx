@@ -55,21 +55,20 @@ export function FeedTab({ rows, kind, onOpen, onTab }: { rows: LpCard[]; kind: F
         <Card className="p-6 text-center text-small text-fg-faint" data-testid="lp-feed-none">{t('lp.feed.noMatch')}</Card>
       ) : (
         <Card className="overflow-x-auto">
-          <table className="w-full min-w-[22rem] border-collapse text-small" data-testid="lp-table">
+          <table className="w-full table-fixed border-collapse text-small" data-testid="lp-table">
             <thead>
               <tr className="border-b border-ink-2 text-left">
                 <Th>{t('lp.col.token')}</Th>
-                <Th right>{t('lp.row.price')}</Th>
-                <Th right className="hidden @md:table-cell">{t('lp.row.marketCap')}</Th>
-                <Th right className="hidden @xl:table-cell">{t('lp.row.vol')}</Th>
-                <Th className="w-40 @md:w-56">{t('lp.col.curve')}</Th>
-                <Th right>{t('lp.col.action')}</Th>
+                <Th right className="w-[8.5rem]">{t('lp.row.price')}</Th>
+                <Th right className="hidden w-[7.5rem] @md:table-cell">{t('lp.row.marketCap')}</Th>
+                <Th right className="hidden w-[7.5rem] @xl:table-cell">{t('lp.row.vol')}</Th>
+                <Th right className="w-[8rem]">{t('lp.col.action')}</Th>
               </tr>
             </thead>
             <tbody>
               {shown.map((c) => (
                 <tr key={c.ticker} className="border-b border-ink-2 last:border-0" data-testid={`lp-row-${c.ticker}`}>
-                  <Td className="min-w-[10rem]">
+                  <Td className="min-w-[6rem]">
                     <button type="button" onClick={() => onOpen(c.ticker)} className="flex min-w-0 items-center gap-2 text-left" data-testid={`lp-open-${c.ticker}`}>
                       <TokenIcon svg={c.icon} size={28} />
                       <span className="min-w-0">
@@ -81,22 +80,20 @@ export function FeedTab({ rows, kind, onOpen, onTab }: { rows: LpCard[]; kind: F
                           <StatusChip status={c.status} />
                           {c.flag && <FlagChip reason={c.flag.reason} />}
                           {c.sponsored > 0 && <SponsoredChip />}
-                          <span className="block truncate text-caption text-fg-faint">{t(taglineKey(c.tagline))}</span>
+                          <span className="hidden truncate text-caption text-fg-faint @xl:block">{t(taglineKey(c.tagline))}</span>
                         </span>
+                        {c.status === 'live' ? (
+                          <span className="mt-1 flex items-center gap-2">
+                            <Progress value={c.progress} className="min-w-[3rem] flex-1" label={t('lp.row.progress', { pct: pct(c.progress) })} />
+                            <span className="num whitespace-nowrap text-caption text-fg-muted" data-testid={`lp-progress-${c.ticker}`}>{t('lp.row.progress', { pct: pct(c.progress) })}</span>
+                          </span>
+                        ) : <span className="mt-1 block text-caption text-fg-faint">{t('lp.row.noCurve')}</span>}
                       </span>
                     </button>
                   </Td>
-                  <Td right num className="whitespace-nowrap text-fg">{lpPrice(c.price)}</Td>
-                  <Td right num className="hidden whitespace-nowrap @md:table-cell">{money(c.marketCap)}</Td>
-                  <Td right num className="hidden whitespace-nowrap @xl:table-cell">{money(c.vol)}</Td>
-                  <Td>
-                    {c.status === 'live' ? (
-                      <span className="flex items-center gap-2">
-                        <Progress value={c.progress} className="min-w-[4rem] flex-1" label={t('lp.row.progress', { pct: pct(c.progress) })} />
-                        <span className="num whitespace-nowrap text-caption text-fg-muted" data-testid={`lp-progress-${c.ticker}`}>{t('lp.row.progress', { pct: pct(c.progress) })}</span>
-                      </span>
-                    ) : <span className="text-caption text-fg-faint">{t('lp.row.noCurve')}</span>}
-                  </Td>
+                  <Td right><span className="num whitespace-nowrap text-caption text-fg">{lpPrice(c.price)}</span></Td>
+                  <Td right className="hidden @md:table-cell"><span className="num whitespace-nowrap">{money(c.marketCap)}</span></Td>
+                  <Td right className="hidden @xl:table-cell"><span className="num whitespace-nowrap">{money(c.vol)}</span></Td>
                   <Td right>
                     {kind === 'graduated' ? (
                       <Button size="sm" variant="brass" testId={`lp-broker-${c.ticker}`} onClick={() => openFromShell('broker', { ticker: c.ticker })}>
