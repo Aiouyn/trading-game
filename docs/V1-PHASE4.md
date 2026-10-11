@@ -38,7 +38,7 @@ Plan Phase 4 items, as written in `expressive-sprouting-aurora.md`, with the sta
 | Shops: management levers in the Businesses app (crew, price, quality, maintenance, marketing, manager, morale) | **Done** | `ae481aa` (merge `8665762`) | Refusals inline with three-part copy. Overdraft notice is an i18n key (closes A1 open item). |
 | Shops: visible reviews, queues and morale | **Done** | `ae481aa` | Rolling star reviews, queue, served versus demand, morale. |
 | Shops: payback gates (well run 9 to 11 gd, excellent 7 to 8, neglected 20 to 30, every tier, 20 seeds) | **Done** | `f3d03f3`, `f634f01` (merge `ee80574`) | Gate: `npm run balance:shops`. |
-| Shops: re-tune with `scripts/balance/wealth.ts` management variants | **Partial** | `f3d03f3`, `f634f01` | `wealth.ts` has the three styles and presence patterns. The five-year `run.ts` economy check is open (O-6). The managed row sits above S3's payback (O-8). |
+| Shops: re-tune with `scripts/balance/wealth.ts` management variants | **Partial** | `f3d03f3`, `f634f01`, `p4/tune2` (section 2.2b) | The gates hold on every tier with managed enforced (O-8 closed, section 2.2b). The five-year economy check ran on three seeds (`scripts/balance/economy.ts`, O-6): the stabilizer never engaged, and supply grew 13.5x to 19.1x. Whether that is in budget needs a lead ruling. |
 | Company world core: sectors, demand and logit share, R&D (quality, patents, pharma gates), hiring caps, tiers Seed, Growth, Late | **Done** | `943f7c6`, `b09fe01` (merge `5a23eba`) | |
 | Company engine hooks: value source (`companyPrintShare` = 1 on player stocks), IPO through `appendAsset`, window enforcement (`closedWindow`, `windowClosing`), sell-only plans with escrow, buybacks, takeover tender | **Done** | `3fcd667`, `f6ed59c` (merge `3dfbc2a`) | Sector shock is still a world stream, not `sectorRng` (O-12). |
 | Private rounds | **Done** | `0ed0dcb`, `4d70686` (merge `583f573`); `f0aa5af`, `c731500` (merge `0daa58a`) | Refused after listing and during the IPO, with copy. |
@@ -172,9 +172,9 @@ Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merg
 | O-3 | **Zero-sum defect (KNOWN DEFECT).** An ordinary stock has no counterparty account. A buy takes its notional and commission out of the world, and a sell mints its notional. Pinned as `it.fails` in `zerosum.test.ts`. Not fixed. | Ledger (ruling pending), Forge (fix) |
 | O-4 | Underwriting fee base is the gross float value, including the NPC book's share. Spec 5.1 does not name the base. | Ledger (sign-off) |
 | O-5 | Collusion graph for alt accounts is not in `src`. Only alliances define owner links (ruling 2). A founder-controlled account outside an alliance can subscribe to an IPO and trade outside the window. | Ledger (spec), Forge (anti-cheat, Phases 6 and 9) |
-| O-6 | Five-year `run.ts` economy check for shops is still open. The stabilizer was rechecked on three 40-day seeds and never engaged. | Ledger |
+| O-6 | Five-year economy check run on three seeds (section 2.2b, `scripts/balance/economy.ts`). The stabilizer never engaged: its target is 4% growth per game day, and the spec's target is an unnumbered 'slight real growth'. Supply grew 13.5x to 19.1x in five years. The inflation budget needs a lead ruling. | Lead (ruling), Ledger (spec) |
 | O-7 | Sign-off on B1 deviations 1 (sell cap scope) and 6 (default triggers stricter than spec 5). | Ledger |
-| O-8 | Managed sits at 1.3 to 1.5 against S3's about 1.0. Options: restate S3 as an ungated reference; extend the full-income window to 24 days (an S4 change); or lower the star cost and re-hold excellent. | Lead |
+| O-8 | Closed in `p4/tune2` (section 2.2b). Managed is in band on every tier at 20 seeds: star cost 0.02, and the 2-star autopilot crew floor 1.08 (the manager's efficiency). S4 is untouched, and the gate enforces it. | Lead (confirm the crew-floor change) |
 | O-9 | Pool sale proceeds are misattributed to the pool account (B1 deviation 7). | Quant |
 | O-10 | Company spec is still NOT FROZEN (G22 reading recorded in code). | Ledger |
 | O-11 | Tape rows not built or not run: the bot harnesses (`cap_carry_edge`, `signal_postprint_drift`, `company_print_full_npc_untouched`, X6, X8, X10 rows), the E-UI rows (no Playwright specs for them), and the ABSENT features (credibility EWMA, other income, consolidation, `self_match`, forward cap, eslint canary, AD_GRANT cash). | Tape (rows), Quant (features), Velvet (E-UI) |
@@ -306,6 +306,85 @@ Whole-day check (the same rows, each payback rounded up to a whole game day): av
 Managed (reference, not gated) is about 1.3 to 1.5 against S3's "managed reaches the well-run payback" (about 1.0). Measured cause: the manager's star cost is one part, and the S4 ramp is the rest. With the manager's star cost set to 0 (a temporary edit, four seeds, reverted and not committed), managed is 1.00 to 1.19 by tier. The rest is structural: a once-a-real-day owner is away 23 game days in 24, so a manager's 16 full days and then the ramp average about 0.875 of full income (a rough cycle estimate). S3's target cannot hold with S4's shape and once-a-real-day presence. This needs a lead ruling (open item 8). Stage B changes nothing for it.
 
 Stabilizer (risk 7), rechecked: three seeds, 40 game days each, NPC competition present (a throwaway script, not committed). The sink multiplier was 1.000 on every day of all three runs. Supply growth was negative in the first days (shops being bought) and below 1.5% a game day after day 6 in seed 1, under the 4% target. Shop costs were 20 to 23% of all sinks. The new sinks only lower wealth growth, so they cannot engage the stabilizer. Not checked: the five-year `run.ts` economy.
+
+**Stage B2 before and after (`p4/tune2`, O-8).** Median payback in game days, ratio to the ladder in brackets. 20 seeds (`base` seeds), 40 game days, NPC competition present, the fixed harness (the excellent style hires its 3-star manager, the managed style its 2-star manager). The `gate` seeds that `npm run balance:shops` runs are in 2.2b.
+
+| Row | Ruling | T1 (10) | T2 (15) | T3 (30) | T4 (50) | T5 (80) | T6 (120) |
+|---|---|---|---|---|---|---|---|
+| Well-run (average), before and after | 0.9 to 1.1x | 10.9 (1.09) | 15.5 (1.03) | 31.8 (1.06) | 52.4 (1.05) | 84.1 (1.05) | 126.1 (1.05) |
+| Excellent, before (star cost 0.08) | 0.7 to 0.8x | 9.3 (0.93) | 13.1 (0.88) | 26.7 (0.89) | 44.0 (0.88) | 72.2 (0.90) | 106.2 (0.88) |
+| Excellent, after (star cost 0.02) | 0.7 to 0.8x | 8.0 (0.80) | 11.3 (0.76) | 23.0 (0.77) | 38.0 (0.76) | 62.1 (0.78) | 91.7 (0.76) |
+| Neglected, before and after | 2 to 3x | 25.8 (2.58) | 32.0 (2.13) | 76.1 (2.54) | 132.2 (2.64) | 225.4 (2.82) | 336.4 (2.80) |
+| Managed, before (star cost 0.08, 2-star floor 1.00) | 0.95 to 1.15x | 13.1 (1.31) | 19.0 (1.26) | 42.5 (1.42) | 71.9 (1.44) | 116.4 (1.46) | 174.7 (1.46) |
+| Managed, star cost 0.02 only (floor 1.00) | 0.95 to 1.15x | 11.4 (1.14) | 16.2 (1.08) | 36.6 (1.22) | 61.1 (1.22) | 98.9 (1.24) | 148.6 (1.24) |
+| Managed, after (star cost 0.02, 2-star floor 1.08) | 0.95 to 1.15x | 10.3 (1.03) | 14.6 (0.98) | 34.0 (1.13) | 55.2 (1.10) | 89.2 (1.12) | 134.0 (1.12) |
+
+The HEAD gate passed only because the harness never hired a manager for the excellent style. With the hire in place, HEAD's excellent row is out of band (0.88 to 0.93), and the lower star cost brings it back.
+
+### 2.2b Stage B2 (`p4/tune2`): managed (O-8) and the five-year check (O-6)
+
+**Managed (O-8): in band on every tier.** The ruling is managed at 0.95 to 1.15x, with well-run 0.9 to 1.1x, excellent 0.7 to 0.8x and neglected 2 to 3x held at 20 seeds. S4 (the offline rules) is untouched. Two levers, in the order the brief allows:
+
+1. **Star cost** `manager.costPerStar` 0.08 to 0.02 (`src/content/shops.ts`). It also brings excellent back into band. On its own it leaves managed at 1.14 to 1.24, so T3 to T6 stay out.
+2. **Manager efficiency** `manager.autopilot.crewFloor` for 2 stars, 1.00 to 1.08. The 2-star manager holds the crew at its floor each game day. Sweep at star cost 0.02 (20 seeds, `base`; managed median ratios by tier):
+
+| 2-star crew floor | T1 | T2 | T3 | T4 | T5 | T6 | Result |
+|---|---|---|---|---|---|---|---|
+| 1.00 | 1.14 | 1.08 | 1.22 | 1.22 | 1.24 | 1.24 | T3 to T6 out |
+| 1.08 | 1.03 | 0.98 | 1.13 | 1.10 | 1.12 | 1.12 | all in (chosen) |
+| 1.10 | 1.01 | 0.95 | 1.11 | 1.08 | 1.09 | 1.09 | all in, T2 on the edge |
+| 1.15 | 0.95 | 0.91 | 1.05 | 1.02 | 1.03 | 1.03 | T2 out |
+| 1.20 | 0.90 | 0.87 | 1.01 | 0.96 | 0.97 | 0.98 | T1 and T2 out |
+| 1.25 | 0.87 | 0.83 | 0.96 | 0.91 | 0.92 | 0.93 | T1, T2 and T4 to T6 out |
+
+Notes on the change:
+- The autopilot floor is shown from the constant (`ShopCard`, `shop.manager.has`), so no copy changes. Crew at 1.08 is off the 0.25 lever grid, but attrition already produces off-grid crew, and the owner's lever still refuses off-grid values, so nothing new is exposed.
+- Well-run, excellent (3-star floor 1.25) and neglected do not move. No state schema changes, so old snapshots load. Vitest is green (174 files).
+- The gate now enforces managed (`GATES` in `shop-gates-rules.ts`, previously a reference row). `npm run balance:shops` passes on 20 seeds (`gate` seeds): managed 1.04, 0.99, 1.13, 1.11, 1.10, 1.13; excellent 0.76 to 0.80; well-run 1.03 to 1.09.
+- Edges, all inclusive passes: managed T2 is 0.99 (0.04 above the bottom), managed T3 is 1.13 (0.02 below the top), and excellent T1 is 0.80 (on the edge, a fragile pass rather than a margin).
+
+**Harness fixes (`scripts/balance/wealth.ts`).** The probe and the greedy bot now hire the excellent style's 3-star manager (2.1 documents it, the harness did not do it). Hires are asserted: the probe throws when a hire is refused, and the bot buys a managed or excellent business only when cash covers the price plus the prepaid salary.
+
+**Five-year economy (O-6): run, and it does not match the spec.** `scripts/balance/run.ts` is the market-engine harness (`--seeds`, `--years`, `--tpd`, `--universe`, `--assets`; it has no `--help` beyond its header). It places no businesses, runs no shops and never calls the stabilizer, so it cannot measure this. The world-level check is the new `scripts/balance/economy.ts [seed] [years]`: three styled players (average, managed with a 2-star manager, neglected), each buying the best income per dollar its cash and rank allow, NPC competition present, five game years of 252 game days at 720 ticks. Seeds econ-01 to econ-03, about 20 minutes each.
+
+Money supply (sum of positive net worth over all players, NPCs included), by seed:
+
+| Seed | Start (day 2) | Y1 | Y2 | Y3 | Y4 | Y5 | Five-year multiple | Per game day (compounded) |
+|---|---|---|---|---|---|---|---|---|
+| econ-01 | 1.62B | 3.84B | 7.50B | 12.58B | 19.50B | 30.80B | 19.1x | 0.24% |
+| econ-02 | 1.62B | 3.68B | 7.44B | 11.34B | 18.49B | 26.75B | 16.6x | 0.22% |
+| econ-03 | 1.62B | 3.68B | 7.00B | 11.76B | 19.12B | 21.86B | 13.5x | 0.21% |
+
+Growth per game year: 128 to 138% in Y1, 90 to 102% in Y2, 52 to 68% in Y3, 55 to 63% in Y4, 14 to 58% in Y5.
+
+| Measure (per seed: 01 / 02 / 03) | Result |
+|---|---|
+| Stabilizer engaged (game days, engagements) | 0 / 0 / 0; sinkMult 1.000 every day |
+| Days with supply growth over the 4% target (`boards.ts`) | 0 / 0 / 0 |
+| Largest one-day supply growth | 1.24% / 1.57% / 1.47% |
+| Faucets to sinks, Y1 and Y5 | 1.05x and 1.65x / 0.99x and 1.39x / 1.04x and 1.63x |
+| Shop share of sinks, Y1 to Y5 | 29 to 44% |
+| World money index (`economy.moneyIndex`, which prices lifestyle items), Y5 | 109 / 65 / 87 |
+
+Median net worth by rank at day 1260 (n in brackets; styled players are one each):
+
+| Group | Seed 01 | Seed 02 | Seed 03 |
+|---|---|---|---|
+| Styled average (28 shops) | R3, 64.1M | R3, 22.5M | R3, 82.1M |
+| Styled managed (15 to 18 shops) | R2, 1.57M | R2, 1.20M | R2, 4.75M |
+| Styled neglected (4 shops, no setup) | R0, -46k | R0, -52k | R0, -55k |
+| NPC R2 | 0.94M (9) | 1.45M (11) | 1.71M (10) |
+| NPC R3 | 10.1M (8) | 19.7M (7) | 23.9M (8) |
+| NPC R4 | 278M (4) | 485M (3) | 490M (3) |
+| NPC R5 | 14.2B (2) | 12.1B (2) | 9.7B (2) |
+
+What the numbers say:
+- **The stabilizer never engages.** Its target in code is 4% growth per game day (`src/world/boards.ts` `stabilizerDay`, `const target = 0.04`). The observed peak is 1.2 to 1.6% a day. Compounded over a 252-day game year, 4% a day is about 19,600x, so as coded the controller only reacts to a rate the economy never reaches.
+- **The spec does not set that number.** `docs/team/vision/01-markets-economy.md` section 8.2 sets the target as a "population-adjusted growth path (≈ slight real growth per active player)", with no figure. Read against that wording, supply grows 13.5x to 19.1x in five years, faucets run 1.4x to 1.65x the sinks by Y5, and the world money index reaches 65 to 109. That is inflation, not slight growth. This is a lead ruling: the per-day or per-year inflation budget, and whether 4% a day is intended. The vision docs also cite about 5% per real day as a late-season median growth figure (`04-experience-lifestyle.md`, line 311), which is a player-growth number, not a money budget.
+- **Supply is NPC wealth.** The R4 and R5 personas hold most of it. The three styled players hold under 0.5% of supply at Y5, so this is an NPC-driven result. Shops drain 29 to 44% of sinks, which is real, but the net is still a large mint.
+- **Neglected goes negative.** A neglected owner that buys once and never sets anything runs to a negative balance, since operating costs are obligations (the overdraft rule in `shopsDay`). That is the intended behaviour, but it means a neglected style is not a stable one over years.
+
+Not retuned: per the brief, no constant changed for O-6. The numbers are the input for the lead's ruling.
 
 ### 2.3 A1 open items
 
@@ -471,13 +550,13 @@ Disk: C: had 4.43 GB free before the `--workers=1` run, 3.8 GB at its lowest, an
 ## 6. Open items
 
 1. **Shops gates.** Resolved in stage B (2.2a): all three gated styles hold on every tier at 20 seeds (`npm run balance:shops`). Still open: the ladder against a flat lock (Mathis, `shops.md` 6.2), and the managed row, which is above S3's well-run payback (lead).
-2. **Shops economy.** The stabilizer was rechecked on three 40-day seeds in stage B (2.2a) and never engaged. A five-year `run.ts` check is still open. Owner: Ledger.
+2. **Shops economy.** The five-year check ran on three seeds (2.2b, O-6). The stabilizer never engaged: its 4%-per-game-day target (`boards.ts`) differs from the spec's unnumbered 'slight real growth' (01 section 8.2), and supply grew 13.5x to 19.1x in five years. Owner: lead (ruling on the inflation budget), Ledger (spec).
 3. **Company freeze.** The G22 reading is recorded in code. The spec is still NOT FROZEN. Owner: Ledger.
 4. **Company engine wiring.** A2 wires filings and signals into the engine (`companyPrintShare`, G21) and binds the sector shock to `sectorRng`.
 5. **VCF advance and the manager's day figures.** Resolved in stage B: the advance goes to the investors, not the fund, and sits outside their day and arrival figures (4.4). Owner: lead to confirm the day-figure part.
 6. **Lever UI, refusal copy and the funds UI.** Stage C.
 7. **Insider seam.** `insiderId` is not set by the company module yet.
-8. **Managed against S3 (lead decision).** Managed sits at 1.3 to 1.5 against S3's about 1.0. The manager's star cost is one part and the S4 ramp against once-a-real-day presence is the rest (2.2a). Options: restate S3 as an ungated reference; extend the manager's full-income window to 24 days (an S4 change); or lower the star cost and re-hold excellent with another lever. Owner: lead.
+8. **Managed against S3 (resolved in `p4/tune2`, lead to confirm).** Managed is in band on every tier (0.95 to 1.15x): the star cost is 0.02 and the 2-star autopilot crew floor is 1.08 (2.2a, 2.2b). S4 is untouched, and the gate enforces it. Owner: lead to confirm the crew-floor change as the manager's efficiency lever.
 
 ## 7. B1: market path (`p4/b1`)
 

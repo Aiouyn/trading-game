@@ -3,7 +3,8 @@
  * suite can check the band logic without running the probe. The CLI that runs the probe is shop-gates.ts.
  *
  * The gates are ratios to the ladder value (the lead's ruling):
- *   well-run (average style) 0.9 to 1.1x, excellent 0.7 to 0.8x, neglected (once a real day, sets nothing) 2 to 3x.
+ *   well-run (average style) 0.9 to 1.1x, excellent 0.7 to 0.8x, neglected (once a real day, sets nothing) 2 to 3x,
+ *   managed (once a real day, 2-star manager, well-run settings) 0.95 to 1.15x (O-8, docs/V1-PHASE4.md 2.2b).
  */
 
 /** The tier ladder the gates are read against (S1): payback in game days for well-run play on each tier. */
@@ -14,10 +15,11 @@ export const GATES = [
   { style: 'average', label: 'well-run', lo: 0.9, hi: 1.1 },
   { style: 'excellent', label: 'excellent', lo: 0.7, hi: 0.8 },
   { style: 'neglected', label: 'neglected (once a real day, sets nothing)', lo: 2, hi: 3 },
+  { style: 'managed', label: 'managed (once a real day, 2-star manager)', lo: 0.95, hi: 1.15 },
 ] as const;
 
 /** Reference styles reported but not gated. */
-export const REFERENCE = ['casual', 'idle', 'managed'] as const;
+export const REFERENCE = ['casual', 'idle'] as const;
 
 export interface PaybackRow { style: string; tier: number; payback: number }
 export interface StyleSummary { medians: number[]; ratios: number[] }
