@@ -6,8 +6,8 @@
 import { t } from '@/i18n';
 import { useShell, dispatchWm } from './shellStore';
 
-/** The workspace names in order. Index 0 is Trade (the Broker desk); the rank sets how many are open (ctx.workspaces). */
-export const WORKSPACE_NAMES = ['trade', 'portfolio', 'empire'] as const;
+/** The workspace names in order. Index 0 is Trade (the Broker desk), 1 News (the Wire); the rank sets how many are open (ctx.workspaces). */
+export const WORKSPACE_NAMES = ['trade', 'news', 'portfolio', 'empire'] as const;
 
 export function WorkspaceTabs() {
   const activeWs = useShell((s) => s.shell.activeWs);

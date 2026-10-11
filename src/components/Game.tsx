@@ -3,8 +3,8 @@
 import { useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { initLocale, useLocale } from '@/i18n';
-import { CloseCard } from './CloseCard';
-import { Coach, ConnectionBanner, DigestModal } from './Overlays';
+import { CloseAnnouncer } from './CloseCard';
+import { Coach, ConnectionBanner, DigestAnnouncer } from './Overlays';
 import { ProfileModal } from './Social';
 import { OsRoot } from './os/OsRoot';
 import { OsUpdate } from './os/OsUpdate';
@@ -41,8 +41,8 @@ export function Game() {
     <>
       <OsRoot />
       <OsUpdate />
-      <DigestModal />
-      <CloseCard />
+      <DigestAnnouncer />
+      <CloseAnnouncer />
       <ProfileModal />
       <ConnectionBanner />
       <Coach />

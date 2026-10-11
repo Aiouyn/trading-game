@@ -19,7 +19,7 @@ export const TOAST_EDGE = 14;
 export const TOAST_BOTTOM = 12;/** Height a toast takes in the column, used only to decide whether it covers a Broker. */
 export const TOAST_ROW_H = 96;
 
-export type ToastKind = 'fill' | 'margin' | 'world' | 'other';
+export type ToastKind = 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'other';
 export type ToastTone = 'gain' | 'loss' | 'warn' | 'info' | 'brass';
 
 /** A toast as the desktop reads it. The game store holds the same shape with a few more fields. */
@@ -30,6 +30,8 @@ export interface ShellToast {
   kind?: ToastKind;
   /** The app whose window a click opens (a window id is never stored here). */
   app?: string;
+  /** What a click does besides dismissing (a coach tip performs its action). Not stored in the shell. */
+  run?: () => void;
 }
 
 const FOCUS_KINDS: readonly ToastKind[] = ['fill', 'margin', 'world'];

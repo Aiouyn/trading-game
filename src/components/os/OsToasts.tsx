@@ -73,7 +73,12 @@ function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
   );
 
   const label =
-    toast.kind === 'fill' ? t('shell.toast.fill') : toast.kind === 'margin' ? t('shell.toast.margin') : toast.kind === 'world' ? t('shell.toast.world') : undefined;
+    toast.kind === 'fill' ? t('shell.toast.fill')
+      : toast.kind === 'margin' ? t('shell.toast.margin')
+      : toast.kind === 'world' ? t('shell.toast.world')
+      : toast.kind === 'close' ? t('shell.toast.close')
+      : toast.kind === 'coach' ? t('shell.toast.coach')
+      : undefined;
   const urgent = toast.kind === 'fill' || toast.kind === 'world';
   const sticky = isSticky(toast);
   // A fill is news about an order, not an error: a neutral check, and the buy or sell colour on the text only. Errors keep the red X.
@@ -82,8 +87,10 @@ function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
   const iconColor = fill ? 'var(--color-fg-muted)' : toast.tone === 'loss' ? 'var(--color-loss)' : undefined;
   const textTone = fill ? (toast.tone === 'gain' ? 'text-gain' : toast.tone === 'loss' ? 'text-loss' : 'text-fg') : 'text-fg';
 
+  // A click runs the notice's own action (a coach tip), or opens the window it names, and dismisses the toast.
   const open = (): void => {
-    if (toast.app !== undefined && isAppId(toast.app)) focusOrOpen(toast.app);
+    if (toast.run) toast.run();
+    else if (toast.app !== undefined && isAppId(toast.app)) focusOrOpen(toast.app);
     dismiss(id);
   };
 
