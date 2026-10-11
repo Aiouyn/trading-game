@@ -201,7 +201,7 @@ export function contractProgress(g: GameState, p: Player, defId: string): { valu
     const idx = p.dayStart.gx > 0 ? gx(g) / p.dayStart.gx - 1 : 0;
     return { value: mine - idx, target: c.target };
   }
-  const k = c.stat as keyof PlayerStats;
+  const k = c.stat as Exclude<keyof PlayerStats, 'overheads'>;
   return { value: p.stats[k] - p.dayStart.stats[k], target: c.target };
 }
 

@@ -2,7 +2,7 @@ import { indexLevel, newsBand, type Account, type NewsBand } from '@/engine';
 import { CLOSE_STORIES, LEDGER } from '@/content/learning';
 import { TPD, notify, today } from './core';
 import { advanceGhosts, beatenCount, ghostValues, percentileOf } from './ghosts';
-import { ensureLedger, hasTrades, ledgerOf, priceEquity } from './ledger';
+import { ensureLedger, hasTrades, ledgerOf, priceEquity, valuationAndIncome } from './ledger';
 import { textProvider, type Msg } from './text';
 import type { DailyClose, DayClose, DayRecord, PlayerLedger } from './ledger-types';
 import type { GameState, StepOutput, WireItem } from './types';
@@ -56,6 +56,12 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
   const extDay = prev && cur.ext !== undefined && prev.ext !== undefined ? cur.ext - prev.ext : 0;
   const nwChange = cur.nw - nwOpen - extDay;
   const nwChangePct = nwOpen > 0 ? nwChange / nwOpen : 0;
+  // the split of that change: valuation and income come from the stored day records (both closes must carry them, else the
+  // day predates the split and all of it counts as trading); trading is the rest, so the three parts sum to the change
+  const split = !!prev && prev.val !== undefined && prev.inc !== undefined && cur.val !== undefined && cur.inc !== undefined;
+  const valuation = split ? cur.val! - prev!.val! : 0;
+  const income = split ? cur.inc! - prev!.inc! : 0;
+  const trading = nwChange - valuation - income;
 
   // best and worst positions: the quantity held at the open (the previous close), and the day's price change on it
   let best: DailyClose['best'] = null;
@@ -114,7 +120,7 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
   const beaten = beatenCount(cur.equity, ghosts);
   const noTrades = !hasTrades(g, playerId);
   const base: Omit<DailyClose, 'lines'> = {
-    day, offline: !g.players[playerId]?.online, nwOpen, nwClose: cur.nw, nwChange, nwChangePct, best, worst, gx: { pct: gxPct }, sectors, stories, event,
+    day, offline: !g.players[playerId]?.online, nwOpen, nwClose: cur.nw, nwChange, nwChangePct, trading, valuation, income, external: extDay, best, worst, gx: { pct: gxPct }, sectors, stories, event,
     ghosts: {
       player: cur.equity, basket: ghosts.basket, random: ghosts.random, momentum: ghosts.momentum, beaten,
       percentile: noTrades ? null : percentileOf(beaten),
@@ -134,7 +140,7 @@ function dayRecord(g: GameState, L: PlayerLedger, pid: string, day: number): Day
   if (!p || !acct) return null;
   const qty: Record<string, number> = {};
   for (const [id, pos] of Object.entries(acct.positions)) if (pos.qty !== 0) qty[id] = pos.qty;
-  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0 };
+  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0, ...valuationAndIncome(g, pid) };
 }
 
 /**

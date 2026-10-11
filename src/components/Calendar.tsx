@@ -3,8 +3,7 @@
 import { earningsCalendar } from '@/engine';
 import { t } from '@/i18n';
 import { consensusLabel } from '@/content/news';
-import { assetDefOf, useGame } from '@/game/store';
-import type { WireItem } from '@/world/types';
+import { useGame } from '@/game/store';
 import { openFromShell } from './os/openApp';
 import { headlineText, kindLabel } from './os/eventText';
 import { Chip } from './ui';
@@ -12,139 +11,130 @@ import { Chip } from './ui';
 /** A shared empty list, so a selector that has no calendar returns the same value each time. */
 const NO_ITEMS: never[] = [];
 
-/** Index reviews still ahead: the announced items whose effective day is today or later, earliest first. */
-function upcomingReviews(wire: readonly WireItem[], today: number): WireItem[] {
-  const seen = new Set<string>();
-  const out: WireItem[] = [];
-  for (const w of wire) {
-    if (w.ev?.type !== 'index' || w.ev.phase !== 'announced' || (w.ev.day ?? -1) < today) continue;
-    if (seen.has(w.ev.id)) continue;
-    seen.add(w.ev.id);
-    out.push(w);
-  }
-  return out.sort((a, b) => (a.ev?.day ?? 0) - (b.ev?.day ?? 0));
+/** One agenda row: a dated item, its kind (bank, earnings, index...) and its sentence. */
+interface AgendaRow {
+  key: string;
+  day: number;
+  kind: string;
+  text: string;
+  assetId?: string;
 }
 
-/** The Calendar, its own app (velvet-desktop-os.md; velvet-world-events.md section 1): what is scheduled. */
+/** The expectation in the policy line: a hold, or a hike or cut of so many basis points. */
+function expectText(expectedMove: number): string {
+  if (expectedMove === 0) return t('calendar.expect.hold');
+  const bp = String(Math.abs(Math.round(expectedMove * 1e4)));
+  return t(expectedMove > 0 ? 'calendar.expect.hike' : 'calendar.expect.cut', { bp });
+}
+
+/** The day heading: today, tomorrow, or how many days away. */
+function whenText(offset: number): string {
+  if (offset <= 0) return t('calendar.day.today');
+  if (offset === 1) return t('calendar.day.tomorrow');
+  return t('calendar.in', { n: offset });
+}
+
+/**
+ * The Calendar, its own app (velvet-desktop-os.md; velvet-world-events.md section 1): what is scheduled, as an agenda. The
+ * dated items of the next two game days come from the player's calendar; earnings further out come from the earnings
+ * calendar. Items are grouped by game day, earliest first, each with its kind.
+ */
 export function CalendarView() {
   const world = useGame((s) => s.world);
   const frame = useGame((s) => s.frame);
-  const wire = useGame((s) => s.wire);
   const next = useGame((s) => s.me?.trading.calendar) ?? NO_ITEMS;
   if (!world || !frame) return null;
   const tpd = world.config.ticksPerDay;
   const today = frame.tick <= 0 ? 0 : Math.floor((frame.tick - 1) / tpd);
   const cal = earningsCalendar(world, 10);
-  const reviews = upcomingReviews(wire, today);
+  const byAsset = new Map(cal.map((e) => [e.assetId, e]));
   const r = frame.rates;
   const ev = frame.worldEvent;
+
+  const rows: AgendaRow[] = next.map((c, i) => ({ key: `n-${i}`, day: c.day, kind: c.kind, text: t(c.msg.key, c.msg.vars), assetId: c.assetId }));
+  // earnings beyond the two days the calendar lists
+  for (const e of cal) {
+    const day = today + e.daysAway;
+    if (rows.some((x) => x.kind === 'earnings' && x.assetId === e.assetId && x.day === day)) continue;
+    rows.push({ key: `e-${e.assetId}-${day}`, day, kind: 'earnings', text: t('work.cal.earnings', { asset: e.assetId }), assetId: e.assetId });
+  }
+  rows.sort((a, b) => a.day - b.day || a.kind.localeCompare(b.kind) || (a.assetId ?? '').localeCompare(b.assetId ?? ''));
+  const days = new Map<number, AgendaRow[]>();
+  for (const x of rows) {
+    if (x.day < today) continue;
+    days.set(x.day, [...(days.get(x.day) ?? []), x]);
+  }
+
   return (
-    <div className="os-body" data-testid="calendar-view">
-      <p className="text-caption text-fg-faint">{t('calendar.sub')}</p>
-
-      <div className="label pt-3">{t('calendar.section.next')}</div>
-      <p className="text-caption text-fg-faint" data-testid="calendar-busy">{t('calendar.busy', { n: next.length })}</p>
-      <ul data-testid="calendar-next">
-        {next.map((c, i) => (
-          <li key={`${c.day}-${c.kind}-${c.assetId ?? ''}-${i}`} className="flex items-baseline justify-between gap-3 border-t border-ink-2 py-2 text-small" data-testid={`calendar-item-${i}`}>
-            <span className="min-w-0 text-fg">{t(c.msg.key, c.msg.vars)}</span>
-            <span className="num shrink-0 text-caption text-fg-muted">{c.offset === 0 ? t('calendar.day.today') : t('calendar.day.tomorrow')}</span>
-          </li>
-        ))}
-      </ul>
-
-      <div className="label pt-3">{t('calendar.section.macro')}</div>
+    <div className="os-body flex flex-col gap-3" data-testid="calendar-view">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className="text-caption text-fg-faint">{t('calendar.sub')}</p>
+        <p className="num text-caption text-fg-faint" data-testid="calendar-busy">{t('calendar.busy', { n: next.length })}</p>
+      </div>
       {r && (
-        <div className="text-small">
-          <div className="flex justify-between border-t border-ink-2 py-2" data-testid="calendar-bank">
-            <span>{t('calendar.bank')}</span>
-            <span className="num text-fg-muted">{t('calendar.in', { n: Math.max(0, r.nextMeeting - today) })}</span>
-          </div>
-          <p className="text-caption text-fg-faint">
-            {t('calendar.policy', { rate: (r.policy * 100).toFixed(2), expect: expectText(r.expectedMove) })}
-          </p>
-          <div className="flex justify-between border-t border-ink-2 py-2" data-testid="calendar-release">
-            <span>{r.releaseKind === 'cpi' ? t('calendar.release.cpi') : t('calendar.release.jobs')}</span>
-            <span className="num text-fg-muted">{t('calendar.in', { n: Math.max(0, r.nextRelease - today) })}</span>
-          </div>
-          <p className="text-caption text-fg-faint">
-            {t('calendar.curve', { y2: (r.y2 * 100).toFixed(2), y10: (r.y10 * 100).toFixed(2), y30: (r.y30 * 100).toFixed(2) })}
-            {r.y2 > r.y10 ? ` · ${t('calendar.inverted')}` : ''}
-          </p>
-        </div>
+        <p className="num text-caption text-fg-muted" data-testid="calendar-macro">
+          {t('calendar.policy', { rate: (r.policy * 100).toFixed(2), expect: expectText(r.expectedMove) })}
+          {' · '}
+          {t('calendar.curve', { y2: (r.y2 * 100).toFixed(2), y10: (r.y10 * 100).toFixed(2), y30: (r.y30 * 100).toFixed(2) })}
+          {r.y2 > r.y10 ? ` · ${t('calendar.inverted')}` : ''}
+        </p>
       )}
-
       {/* only a crisis week is announced on the calendar: a major's kind and headline stay hidden until its onset (no-reveal) */}
       {ev && ev.phase === 'announced' && ev.kind === 'crisis' && (
-        <>
-          <div className="label pt-3">{t('calendar.section.world')}</div>
-          <p className="border-t border-ink-2 py-2 text-small text-fg" data-testid="calendar-world">
-            <span className="mr-2 text-caption uppercase text-warn">{kindLabel(ev.kind)}</span>
-            {headlineText(ev)}
-          </p>
-        </>
+        <p className="border-l-2 border-warn bg-ink-2 px-3 py-2 text-small text-fg" data-testid="calendar-world">
+          <span className="mr-2 text-caption uppercase text-warn">{kindLabel(ev.kind)}</span>
+          {headlineText(ev)}
+        </p>
       )}
 
-      <div className="label pt-3">{t('calendar.section.index')}</div>
-      <ul>
-        {reviews.map((w) => {
-          const e = w.ev!;
-          const name = world.config.indices.find((x) => x.id === e.indexId)?.name ?? e.indexId ?? '';
-          const days = (e.day ?? today) - today;
-          const names = (ids: string[] | undefined) => (ids ?? []).map((id) => assetDefOf(id)?.name ?? id).join(', ');
-          return (
-            <li key={w.id} className="border-t border-ink-2 py-2" data-testid="calendar-index">
-              <div className="flex justify-between text-small">
-                <span>{t('calendar.index.review', { index: name })}</span>
-                <span className="num text-fg-muted">{days <= 0 ? t('calendar.today') : t('calendar.in', { n: days })}</span>
-              </div>
-              {e.adds?.length ? <p className="text-caption text-fg-faint">{t('calendar.index.joins', { names: names(e.adds) })}</p> : null}
-              {e.removes?.length ? <p className="text-caption text-fg-faint">{t('calendar.index.leaves', { names: names(e.removes) })}</p> : null}
-            </li>
-          );
-        })}
-        {!reviews.length && <li className="py-2 text-small text-fg-faint">{t('calendar.index.none')}</li>}
-      </ul>
-
-      <div className="label pt-3">{t('calendar.section.earnings', { n: 10 })}</div>
-      <ul>
-        {cal.map((e) => {
-          const c = e.consensus !== null ? consensusLabel(e.consensus) : null;
-          const lean = c ? t(`calendar.lean.${c.lean.toLowerCase()}`) : null;
-          return (
-            <li key={e.assetId}>
-              <button
-                type="button"
-                data-testid={`calendar-earnings-${e.assetId}`}
-                onClick={() => openFromShell('broker', { ticker: e.assetId })}
-                className="flex w-full items-center gap-3 border-t border-ink-2 py-2 text-left hover:bg-ink-2"
-              >
-                <span className="num w-14 text-small font-semibold">{e.assetId}</span>
-                <span className="min-w-0 flex-1 truncate text-caption text-fg-faint">{assetDefOf(e.assetId)?.name}</span>
-                {c && lean && (
-                  <Chip className={c.lean === 'Beat' ? 'border-gain/40 text-gain' : c.lean === 'Miss' ? 'border-loss/40 text-loss' : ''}>
-                    {lean}{c.stars ? ` ${'★'.repeat(c.stars)}` : ''}
-                  </Chip>
-                )}
-                {e.rumor !== null && (
-                  <Chip className="border-warn/50 text-warn">{t(e.rumor > 0 ? 'calendar.whisper.beat' : 'calendar.whisper.miss')}</Chip>
-                )}
-                <span className="num w-16 text-right text-caption text-fg-muted">
-                  {e.daysAway === 0 ? t('calendar.today') : t('calendar.days.short', { n: e.daysAway })}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-        {!cal.length && <li className="py-3 text-small text-fg-faint">{t('calendar.earnings.none')}</li>}
-      </ul>
+      {days.size === 0 && <p className="py-3 text-small text-fg-faint" data-testid="calendar-empty">{t('calendar.agenda.empty')}</p>}
+      <div data-testid="calendar-next" className="flex flex-col gap-3">
+      {[...days.entries()].map(([day, items]) => (
+        <section key={day} className="border-t border-ink-2 pt-2" data-testid={`calendar-day-${day - today}`}>
+          <header className="flex items-baseline justify-between gap-3">
+            <span className="label">{whenText(day - today)}</span>
+            <span className="num text-caption text-fg-faint">{t('calendar.day.number', { n: day + 1 })}</span>
+          </header>
+          <ul>
+            {items.map((x, i) => {
+              const earnings = x.kind === 'earnings' && x.assetId ? byAsset.get(x.assetId) : undefined;
+              const c = earnings && earnings.consensus !== null ? consensusLabel(earnings.consensus) : null;
+              const lean = c ? t(`calendar.lean.${c.lean.toLowerCase()}`) : null;
+              const body = (
+                <>
+                  <span className="w-20 shrink-0 text-micro uppercase text-fg-faint">{t(`calendar.kind.${x.kind}`)}</span>
+                  <span className="min-w-0 flex-1 truncate text-fg">{x.text}</span>
+                  {c && lean && (
+                    <Chip className={c.lean === 'Beat' ? 'border-gain/40 text-gain' : c.lean === 'Miss' ? 'border-loss/40 text-loss' : ''}>
+                      {lean}{c.stars ? ` ${'★'.repeat(c.stars)}` : ''}
+                    </Chip>
+                  )}
+                  {earnings?.rumor !== null && earnings?.rumor !== undefined && (
+                    <Chip className="border-warn/50 text-warn">{t(earnings.rumor > 0 ? 'calendar.whisper.beat' : 'calendar.whisper.miss')}</Chip>
+                  )}
+                </>
+              );
+              return (
+                <li key={x.key} className="border-t border-ink-2/60 first:border-t-0" data-testid={`calendar-item-${i}`}>
+                  {x.kind === 'earnings' && x.assetId ? (
+                    <button
+                      type="button"
+                      data-testid={`calendar-earnings-${x.assetId}`}
+                      onClick={() => openFromShell('broker', { ticker: x.assetId })}
+                      className="flex w-full items-center gap-3 py-2 text-left text-small hover:bg-ink-2"
+                    >
+                      {body}
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-3 py-2 text-small">{body}</div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
+      </div>
     </div>
   );
-}
-
-/** The policy line's expectation: a hold, or a hike or cut of so many basis points. */
-function expectText(expectedMove: number): string {
-  if (expectedMove === 0) return t('calendar.expect.hold');
-  const bp = String(Math.abs(Math.round(expectedMove * 1e4)));
-  return t(expectedMove > 0 ? 'calendar.expect.hike' : 'calendar.expect.cut', { bp });
 }

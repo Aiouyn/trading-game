@@ -36,10 +36,7 @@ export function BankApp() {
     <div className="flex flex-col gap-4" data-testid="bank-view">
       <Card className="p-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="font-serif text-hero text-fg">{t('shell.app.bank')}</h1>
-            <p className="text-small text-fg-muted">{t('bank.intro')}</p>
-          </div>
+          <p className="min-w-0 text-caption text-fg-faint">{t('bank.intro')}</p>
           <div className="grid grid-cols-2 gap-x-8 gap-y-2 @md:grid-cols-4">
             <Stat label={t('common.cash')} value={money(cash)} testId="bank-cash" />
             <Stat label={t('bank.stat.owed')} value={compactMoney(owed.reduce((s, d) => s + (d.outstanding ?? 0), 0))} testId="bank-owed" />

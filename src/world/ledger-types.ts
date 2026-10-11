@@ -123,6 +123,10 @@ export interface DayRecord {
   ghosts: { basket: number; random: number; momentum: number };
   /** the player's cumulative external cash at this close (grants, transfers, loans; see core.ts shiftBaselines): a day's change leaves out what came in */
   ext?: number;
+  /** valuation at this close: businesses, property, companies, funds, tokens, lifestyle and lab, less mortgages (not cash, not markets) */
+  val?: number;
+  /** cumulative income at this close: business income, rent, dividends and interest, less borrow and margin interest */
+  inc?: number;
 }
 
 /** The daily close card (velvet-daily-close.md): the day's facts, and the lines rendered from them by the text provider. */
@@ -137,6 +141,14 @@ export interface DailyClose {
   nwClose: number;
   nwChange: number;
   nwChangePct: number;
+  /** the change in net worth that trading made (price moves, realized P&L, fees): the card's headline */
+  trading: number;
+  /** the change in valuation: businesses, property, companies, funds and tokens marked up or down */
+  valuation: number;
+  /** the change in income and costs: business income, rent, dividends and interest, less borrow costs */
+  income: number;
+  /** the grants, transfers and loans that came in during the day (taken out of every change above) */
+  external: number;
   best: MoveLine | null;
   worst: MoveLine | null;
   gx: { pct: number };

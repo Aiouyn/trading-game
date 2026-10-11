@@ -83,7 +83,7 @@ describe('the close card: seen marker, offline notice and ghost series', () => {
     expect(closeMove(1)).toBe('up');
     expect(closeMove(-1)).toBe('down');
     const card: Omit<DailyClose, 'lines'> = {
-      day: 3, offline: false, nwOpen: 1000, nwClose: 1000.5, nwChange: 0.5, nwChangePct: 0.0005, best: null, worst: null,
+      day: 3, offline: false, nwOpen: 1000, nwClose: 1000.5, nwChange: 0.5, nwChangePct: 0.0005, trading: 0.5, valuation: 0, income: 0, external: 0, best: null, worst: null,
       gx: { pct: 0 }, sectors: null, stories: [], event: null,
       ghosts: { player: 1000.5, basket: 1000, random: 1000, momentum: 1000, beaten: 0, percentile: 0 },
     };
@@ -91,7 +91,7 @@ describe('the close card: seen marker, offline notice and ghost series', () => {
     expect(lines.map((m) => m.key)).toContain('dayclose.nw.flat');
     const summary = lines.map((m) => renderMsg(m, 'en')).join('\n');
     expect(summary).not.toMatch(/rose|fell|augment|baiss/i);
-    expect(renderMsg({ key: 'close.head.flat' }, 'en')).toBe('A flat day.');
+    expect(renderMsg({ key: 'close.head.flat' }, 'en')).toBe('Trading was flat today.');
   });
 
   it('the ghost series keeps every closed day the chart needs (not only the last two)', { timeout: 60_000 }, () => {

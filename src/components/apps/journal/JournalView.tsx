@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { JOURNAL } from '@/content/learning';
-import { signedMoney, signedPct, toneText, tone } from '@/game/format';
+import { money, price, qty as qtyText, signedMoney, signedPct, toneText, tone } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t, tm } from '@/i18n';
-import { Button, Card } from '@/components/ui';
-import type { JournalDetail, JournalRow } from '@/world/journal';
+import { Button, Card, Segmented, Td, Th } from '@/components/ui';
+import type { JournalDetail } from '@/world/journal';
 import { EXPLAIN_ROWS, type RoundTrip } from '@/engine';
 import { Waterfall, type WaterfallRow } from '../analyst/Waterfall';
 import { Replay } from './Replay';
@@ -27,11 +27,16 @@ function detailKey(id: string, version: string): string {
   return `${id}|${version}`;
 }
 
+type SideFilter = 'all' | 'long' | 'short';
+type ResultFilter = 'all' | 'win' | 'loss';
+
 export function JournalView({ onHire }: { onHire: () => void }) {
   const me = useGame((s) => s.me)!;
   const act = useGame((s) => s.act);
   const tpd = useGame((s) => s.config.ticksPerDay);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [sideFilter, setSideFilter] = useState<SideFilter>('all');
+  const [resultFilter, setResultFilter] = useState<ResultFilter>('all');
   // the details are cached by trade and version (state, so a resolved fetch re-renders the list)
   const [details, setDetails] = useState<Record<string, JournalDetail>>({});
   const seen = useRef(new Set<string>());
@@ -73,22 +78,67 @@ export function JournalView({ onHire }: { onHire: () => void }) {
     );
   }
 
+  // the rows the filters keep (the listed round trips are the newest JOURNAL.listRows)
+  const shown = trips.filter((tr) => (sideFilter === 'all' || tr.side === sideFilter)
+    && (resultFilter === 'all' || (resultFilter === 'win' ? tr.realizedPnl >= EVEN_BELOW : tr.realizedPnl <= -EVEN_BELOW)));
+  const net = shown.reduce((sum, tr) => sum + tr.realizedPnl, 0);
+  const wins = shown.filter((tr) => tr.realizedPnl >= EVEN_BELOW).length;
+
   return (
     <section className="flex flex-col gap-3" data-testid="journal">
-      <header className="flex flex-col gap-0.5">
-        <h2 className="font-serif text-title text-fg">{t('journal.title')}</h2>
-        <p className="text-small text-fg-faint">{t('journal.sub')}</p>
+      <header className="flex flex-wrap items-end justify-between gap-2">
+        <div className="flex flex-col gap-0.5">
+          <p className="label">{t('journal.title')}</p>
+          <p className="text-caption text-fg-faint" data-testid="journal-summary">
+            {t('journal.summary', { count: shown.length, pnl: signedMoney(net), wins })}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Segmented<SideFilter> label={t('journal.filter.side')} size="sm" value={sideFilter} onChange={setSideFilter}
+            options={[
+              { value: 'all', label: t('journal.filter.all'), testId: 'journal-side-all' },
+              { value: 'long', label: t('journal.side.long'), testId: 'journal-side-long' },
+              { value: 'short', label: t('journal.side.short'), testId: 'journal-side-short' },
+            ]} />
+          <Segmented<ResultFilter> label={t('journal.filter.result')} size="sm" value={resultFilter} onChange={setResultFilter}
+            options={[
+              { value: 'all', label: t('journal.filter.all'), testId: 'journal-result-all' },
+              { value: 'win', label: t('journal.filter.win'), testId: 'journal-result-win' },
+              { value: 'loss', label: t('journal.filter.loss'), testId: 'journal-result-loss' },
+            ]} />
+        </div>
       </header>
       {trips.length === 0 ? (
-        <p className="text-small text-fg-muted" data-testid="journal-empty">{t('journal.empty')}</p>
+        <div className="rounded-lg border border-dashed border-ink-3 p-4" data-testid="journal-empty">
+          <p className="text-small text-fg">{t('journal.empty')}</p>
+          <p className="mt-1 text-caption text-fg-faint">{t('journal.emptyHow')}</p>
+        </div>
+      ) : shown.length === 0 ? (
+        <p className="text-small text-fg-muted" data-testid="journal-nomatch">{t('journal.nomatch')}</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-ink-2 overflow-hidden rounded-lg border border-ink-3 bg-ink-1">
-          {trips.map((trip) => (
-            <li key={trip.id}>
-              <JournalRowButton trip={trip} detail={details[detailKey(trip.id, version)]} tpd={tpd} onOpen={() => setOpenId(trip.id)} />
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto rounded-lg border border-ink-3 bg-ink-1">
+          <table className="w-full text-small" data-testid="journal-table">
+            <thead>
+              <tr>
+                <Th>{t('journal.col.asset')}</Th>
+                <Th>{t('journal.col.side')}</Th>
+                <Th right>{t('journal.col.qty')}</Th>
+                <Th right>{t('journal.col.entry')}</Th>
+                <Th right>{t('journal.col.exit')}</Th>
+                <Th right>{t('journal.col.move')}</Th>
+                <Th right>{t('journal.col.pnl')}</Th>
+                <Th right>{t('journal.col.fees')}</Th>
+                <Th right>{t('journal.col.held')}</Th>
+                <Th>{t('journal.col.notes')}</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((trip) => (
+                <JournalRowLine key={trip.id} trip={trip} tpd={tpd} onOpen={() => setOpenId(trip.id)} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );
@@ -102,44 +152,28 @@ function dayOf(tick: number, tpd: number): number {
   return Math.floor((tick - 1) / tpd);
 }
 
-function JournalRowButton({ trip, detail, tpd, onOpen }: { trip: RoundTrip; detail: JournalDetail | undefined; tpd: number; onOpen: () => void }) {
+/** One round trip as a log row: entry, exit, size, the price move, P&L after fees, fees, hold time and how it closed. */
+function JournalRowLine({ trip, tpd, onOpen }: { trip: RoundTrip; tpd: number; onOpen: () => void }) {
   const even = Math.abs(trip.realizedPnl) < EVEN_BELOW;
   const side = trip.side === 'long' ? t('journal.side.long') : t('journal.side.short');
-  const held = t('journal.held', { count: heldDays(trip, tpd) });
+  const move = trip.avgEntry > 0 ? trip.avgExit / trip.avgEntry - 1 : 0;
   return (
-    <button type="button" onClick={onOpen} className="flex w-full flex-col gap-1 px-4 py-3 text-left hover:bg-ink-2" data-testid={`journal-row-${trip.id}`}>
-      <span className="flex items-baseline justify-between gap-3">
-        <span className="flex items-baseline gap-2 truncate">
-          <span className="font-semibold text-fg">{trip.assetId}</span>
-          <span className="truncate text-small text-fg-muted">{side} · {held}</span>
-        </span>
-        <span className={`num shrink-0 text-small ${even ? 'text-fg-muted' : toneText[tone(trip.realizedPnl)]}`}>
-          {even ? t('journal.even') : signedMoney(trip.realizedPnl)}
-        </span>
-      </span>
-      {detail && (
-        <span className="truncate text-small text-fg-muted" data-testid="explain-line">{tm(detail.line)}</span>
-      )}
-      {detail?.rows && detail.rows.length > 0 && <AttributionBar rows={detail.rows} />}
-    </button>
-  );
-}
-
-/** A 4 px bar split by part size: gain parts at 70% gain, loss parts at 70% loss, fees faint. Widths only; no labels. */
-function AttributionBar({ rows }: { rows: JournalRow[] }) {
-  const sizes = rows.map((r) => Math.abs(r.value));
-  const all = sizes.reduce((s, x) => s + x, 0);
-  if (all === 0) return null;
-  return (
-    <span className="flex h-1 w-full overflow-hidden rounded-chip" aria-hidden data-testid="attribution-bar">
-      {rows.map((r, i) => (
-        <span
-          key={r.row}
-          className={r.row === 'fees' ? 'bg-fg-faint' : r.value >= 0 ? 'bg-gain/70' : 'bg-loss/70'}
-          style={{ width: `${(sizes[i]! / all) * 100}%` }}
-        />
-      ))}
-    </span>
+    <tr className="border-t border-ink-2 hover:bg-ink-2" data-testid={`journal-row-${trip.id}`} onClick={onOpen}>
+      <Td>
+        <button type="button" onClick={onOpen} className="font-semibold text-fg hover:underline" data-testid={`journal-open-${trip.id}`}>{trip.assetId}</button>
+      </Td>
+      <Td className="text-fg-muted">{side}</Td>
+      <Td right num>{qtyText(trip.qty)}</Td>
+      <Td right num>{price(trip.avgEntry)}</Td>
+      <Td right num>{price(trip.avgExit)}</Td>
+      <Td right num className={toneText[tone(move)]}>{signedPct(move)}</Td>
+      <Td right num className={even ? 'text-fg-muted' : toneText[tone(trip.realizedPnl)]}>
+        <span data-testid={`journal-pnl-${trip.id}`}>{even ? t('journal.even') : signedMoney(trip.realizedPnl)}</span>
+      </Td>
+      <Td right num className="text-fg-muted">{money(trip.feesPaid)}</Td>
+      <Td right num className="text-fg-muted">{t('journal.held', { count: heldDays(trip, tpd) })}</Td>
+      <Td className="text-fg-muted">{t('journal.closedBy', { reason: t(`journal.reason.${trip.closeReason}`) })}</Td>
+    </tr>
   );
 }
 

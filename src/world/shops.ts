@@ -5,7 +5,7 @@
  */
 import { SHOP, SHOP_REFUSAL } from '@/content/shops';
 import type { UpgradeAxis } from '@/content/businesses';
-import { debit, bizDef, cashOf, clamp, notify, today, TPD } from './core';
+import { overhead, bizDef, cashOf, clamp, notify, today, TPD } from './core';
 import { markShares, recomputeShares } from './assets';
 import {
   attrition, autopilotFor, dailyCosts, isCrew, isLevel, managerPrepaid, managerPrepayCost, moraleTarget, reviewsTarget, wellRunShop,
@@ -93,7 +93,7 @@ export function hireManager(g: GameState, pid: string, bizId: string, stars: num
   const target = bizDef(b).income;
   const prepay = managerPrepayCost(stars, target);
   if (cashOf(g, pid) < prepay) return refuse(SHOP_REFUSAL.cash);
-  debit(g, pid, prepay, 'shop manager');
+  overhead(g, pid, prepay, 'shop manager');
   b.shop.costs += prepay;
   b.shop.managerStars = stars;
   b.shop.managerDay = today(g);
@@ -176,7 +176,7 @@ export function shopsDay(g: GameState, out: StepOutput | null): void {
     const cashBefore = cashOf(g, b.ownerId);
     for (const line of Object.keys(SINKS) as (keyof typeof SINKS)[]) {
       const amt = k[line];
-      if (amt > 0) { debit(g, b.ownerId, amt, SINKS[line]); total += amt; }
+      if (amt > 0) { overhead(g, b.ownerId, amt, SINKS[line]); total += amt; }
     }
     // costs are obligations, paid even when cash runs out (as property upkeep is). The owner is told once, on the
     // costs that take cash from zero or above to below zero; the Shops tab keeps the notice up while cash stays negative.

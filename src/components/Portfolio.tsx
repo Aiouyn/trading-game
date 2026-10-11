@@ -30,7 +30,7 @@ const CLASS_LABEL_KEY: Record<string, string> = {
 /** A game day in ticks (the chart's daily points sit at day * TPD + 1, as the daily net worth series does). */
 const TPD = 720;
 
-type NwRange = '1D' | '1W' | 'ALL';
+type NwRange = '1D' | '1W' | '1M' | '1Y' | 'ALL';
 
 export type PortfolioTab = 'portfolio' | 'journal' | 'analyst';
 
@@ -66,11 +66,22 @@ export function PortfolioView({ phone = false, view }: { phone?: boolean; view?:
   );
 }
 
+/** One figure of the since-arrival split: a label and a signed amount, tinted by its sign. */
+function SplitItem({ label, value, testId }: { label: string; value: number; testId: string }) {
+  return (
+    <div className="flex items-baseline gap-1">
+      <dt className="text-fg-muted">{label}</dt>
+      <dd className={toneText[tone(value)]} data-testid={testId}>{signedMoney(value)}</dd>
+    </div>
+  );
+}
+
 function PortfolioPositions({ phone = false }: { phone?: boolean }) {
   const me = useGame((s) => s.me)!;
   const world = useGame((s) => s.world)!;
   const playerId = useGame((s) => s.playerId)!;
   const nw = useGame((s) => s.nw);
+  const frame = useGame((s) => s.frame);
   const config = useGame((s) => s.config);
   const loadNw = useGame((s) => s.loadNw);
   useGame((s) => s.historyRev);
@@ -84,11 +95,24 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
   const b = me.netWorth;
   const series = useMemo(() => {
     if (!nw) return [];
-    if (range === 'ALL') return nw.daily.map((d) => ({ time: d.day * TPD + 1, value: d.value }));
+    // the daily ranges read the closes: a month is the last 30 game days, a year the last 365 (or all that are kept)
+    const daysBack = range === '1M' ? 30 : range === '1Y' ? 365 : null;
+    if (range === 'ALL' || daysBack !== null) return nw.daily.slice(daysBack === null ? 0 : -daysBack).map((d) => ({ time: d.day * TPD + 1, value: d.value }));
     const n = range === '1D' ? 60 : nw.samples.length;
     const s = nw.samples.slice(-n);
     return s.map((v, k) => ({ time: nw.lastTick - (s.length - 1 - k) * nw.every, value: v }));
   }, [nw, range, nw?.samples.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the chart ends at the header's figure: the samples are every few ticks, so the live net worth is the last point
+  const liveTick = frame?.tick;
+  const chartSeries = useMemo(() => {
+    if (liveTick === undefined) return series;
+    const last = series[series.length - 1];
+    const live = { time: liveTick, value: b.total };
+    if (!last) return [live];
+    if (last.time === liveTick) return [...series.slice(0, -1), live];
+    return last.time < liveTick ? [...series, live] : series;
+  }, [series, liveTick, b.total]);
 
   // The ghosts and the player's own trading equity, drawn over the net worth line (private: the owner's ledger, every kept
   // closed day). They are priced on the same daily closes, so the lines compare with each other, not with the net worth above.
@@ -138,6 +162,15 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
             <div className={`num mt-1 text-small ${toneText[tone(me.arrival.change)]}`} data-testid="networth-total">
               {t('portfolio.sinceArrival', { delta: signedMoney(me.arrival.change), pct: signedPct(me.arrival.changePct), start: money(me.arrival.cash) })}
             </div>
+            <dl className="num mt-2 flex flex-wrap gap-x-4 gap-y-1 text-caption" data-testid="arrival-split">
+              <SplitItem label={t('portfolio.split.trading')} value={me.arrival.split.trading} testId="arrival-trading" />
+              <SplitItem label={t('portfolio.split.valuation')} value={me.arrival.split.valuation} testId="arrival-valuation" />
+              <SplitItem label={t('portfolio.split.income')} value={me.arrival.split.income} testId="arrival-income" />
+              <div className="flex items-baseline gap-1">
+                <dt className="text-fg-muted">{t('portfolio.split.grants')}</dt>
+                <dd className="text-fg" data-testid="arrival-grants">{signedMoney(me.arrival.external)}</dd>
+              </div>
+            </dl>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <button
@@ -151,12 +184,13 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
               {t('ghost.toggle')}
             </button>
             <Segmented label={t('portfolio.nwRange')} size="sm" value={range} onChange={(v) => setRange(v as NwRange)}
-              options={[{ value: '1D', label: '1D', testId: 'nw-range-1D' }, { value: '1W', label: '1W', testId: 'nw-range-1W' }, { value: 'ALL', label: 'All', testId: 'nw-range-ALL' }]} />
+              options={[{ value: '1D', label: '1D', testId: 'nw-range-1D' }, { value: '1W', label: '1W', testId: 'nw-range-1W' }, { value: '1M', label: '1M', testId: 'nw-range-1M' }, { value: '1Y', label: '1Y', testId: 'nw-range-1Y' }, { value: 'ALL', label: 'All', testId: 'nw-range-ALL' }]} />
           </div>
         </div>
-        <div className={phone ? 'mt-3 h-48' : 'mt-3 h-64'}>
-          {series.length > 1
-            ? <PriceChart assetId="NW" series={series} mode="area" testId="networth-chart" studies={false} overlays={overlays} />
+        {/* the last point of the line, as the header shows it (the spec compares the two) */}
+        <div className={phone ? 'mt-3 h-48' : 'mt-3 h-64'} data-testid="networth-series" data-last-value={chartSeries.at(-1)?.value.toFixed(2) ?? ''}>
+          {chartSeries.length > 1
+            ? <PriceChart assetId="NW" series={chartSeries} mode="area" testId="networth-chart" studies={false} overlays={overlays} />
             : <div className="flex h-full items-center justify-center text-small text-fg-faint" data-testid="networth-chart">{t('portfolio.building')}</div>}
         </div>
         <p className="mt-2 text-caption text-fg-faint" data-testid="networth-chart-note">{t('portfolio.nwChartNote')}</p>

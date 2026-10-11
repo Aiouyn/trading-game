@@ -37,6 +37,11 @@ export function signedPct(x: number): string {
   return `${x > 0 ? '+' : ''}${(x * 100).toFixed(2)}%`;
 }
 
+/** A dollar amount with an explicit sign (+$12.00, -$3.51). */
+export function signedUsd(x: number): string {
+  return `${x > 0 ? '+' : ''}${usd(x)}`;
+}
+
 /** An unsigned percentage, from a fraction. */
 export function absPct(x: number): string {
   return `${Math.abs(x * 100).toFixed(2)}%`;
@@ -45,14 +50,20 @@ export function absPct(x: number): string {
 export const templateTextProvider: TextProvider = {
   dailyClose(c) {
     const out: Msg[] = [{ key: 'dayclose.title' }];
-    const change = c.nwChange;
-    const move = closeMove(change);
+    // the headline is trading alone; valuation and income are their own lines, so a marked-up business never reads as a gain made today
+    const trade = closeMove(c.trading);
+    out.push(trade === 'flat'
+      ? { key: 'dayclose.trade.flat' }
+      : { key: `dayclose.trade.${trade}`, vars: { change: usd(Math.abs(c.trading)) } });
+    out.push({ key: 'dayclose.valuation', vars: { change: signedUsd(c.valuation) } });
+    out.push({ key: 'dayclose.income', vars: { change: signedUsd(c.income) } });
+    const move = closeMove(c.nwChange);
     if (move === 'flat') {
       out.push({ key: 'dayclose.nw.flat', vars: { now: usd(c.nwClose) } });
     } else {
       out.push({
         key: `dayclose.nw.${move}`,
-        vars: { change: usd(Math.abs(change)), pct: absPct(c.nwChangePct), now: usd(c.nwClose) },
+        vars: { change: usd(Math.abs(c.nwChange)), pct: absPct(c.nwChangePct), now: usd(c.nwClose) },
       });
     }
     if (c.best && c.worst) {
