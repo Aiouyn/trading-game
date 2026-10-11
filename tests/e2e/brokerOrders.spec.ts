@@ -58,6 +58,32 @@ function quote(p: number): string {
   return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** The four palettes of Settings (palette.ts): the chart lines and the ticket must read in each one. */
+const PALETTES = ['ink-brass', 'broadsheet', 'phosphor', 'riviera'] as const;
+
+for (const palette of PALETTES) {
+  test(`the position lines and the ticket read in the ${palette} palette`, async ({ page }) => {
+    onlyIn('desktop');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // the palette is a per-device pref (tg-prefs); it is set before the app loads, so the first paint is the palette
+    await page.addInitScript((p) => {
+      try { localStorage.setItem('tg-prefs', JSON.stringify({ palette: p })); } catch { /* a blocked store keeps the default */ }
+    }, palette);
+    await boot(page);
+    await expect(page.locator('html')).toHaveAttribute('data-palette', palette);
+    await page.getByTestId('order-qty').fill('1');
+    await page.getByTestId('order-submit').click();
+    await expect(page.getByTestId('level-avg')).toBeVisible({ timeout: 30_000 });
+    await skipTips(page);
+    await page.getByTestId('level-add-tp').click();
+    await expect(page.locator('[data-testid^="level-tp-"]')).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('level-add-sl').click();
+    await expect(page.locator('[data-testid^="level-sl-"]')).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('order-qty').fill('2');
+    await page.screenshot({ path: `${SHOTS}/chart-1440x900-palette-${palette}.png` });
+  });
+}
+
 test.describe('Broker chart lines and ticket (specs 1.3, 1.4)', () => {
   for (const vp of VIEWPORTS) {
     test(`buy, drag the take-profit and stop-loss, cancel a chart limit at ${vp.w}x${vp.h}`, async ({ page }) => {

@@ -457,18 +457,18 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
               )}
 
               <div className="mt-4 border-t border-ink-2 pt-3" data-testid="order-summary">
-                <KV k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(d.price)} />
-                <KV k={t('broker.notional')} v={money(notional)} />
-                <KV k={feeText} v={money(fee)} />
-                <KV k={t('broker.spread')} v={<span data-testid="order-spread">{spreadText}</span>} />
-                <KV k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
-                <KV k={t('broker.roundTrip')} v={<span data-testid="order-roundtrip">{money(summary.roundTrip)}</span>} />
-                <KV k={t('broker.breakEven')} v={<span data-testid="order-breakeven">{price(summary.breakEven)}</span>} />
+                <KV className="!py-0" k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(d.price)} />
+                <KV className="!py-0" k={t('broker.notional')} v={money(notional)} />
+                <KV className="!py-0" k={feeText} v={money(fee)} />
+                <KV className="!py-0" k={t('broker.spread')} v={<span data-testid="order-spread">{spreadText}</span>} />
+                <KV className="!py-0" k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
+                <KV className="!py-0" k={t('broker.roundTrip')} v={<span data-testid="order-roundtrip">{money(summary.roundTrip)}</span>} />
+                <KV className="!py-0" k={t('broker.breakEven')} v={<span data-testid="order-breakeven">{price(summary.breakEven)}</span>} />
                 <KV
                   k={t('broker.cashAfter')}
                   v={<span className="text-fg-muted" data-testid="order-cash-after">{money(cashAfter)}</span>}
                 />
-                <KV k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
+                <KV className="!py-0" k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
                 {shorting && <p className="mt-1 text-caption text-warn">{t('broker.shortWarn')}</p>}
                 {margin && side === 'buy' && notional > acct.cash && <p className="mt-1 text-caption text-warn">{t('broker.marginWarn')}</p>}
               </div>
