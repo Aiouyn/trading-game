@@ -522,6 +522,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
           axisW={placed.axisW}
           height={placed.h}
           toPrice={toPrice}
+          toY={(p) => { const s = activeSeries(); return s ? yOfPrice(scaleOf(s), p) : null; }}
           onCommit={(l, p) => onLevelCommit?.(l, p)}
           onCancel={(l) => onLevelCancel?.(l)}
           onAction={(l, k) => onLevelAction?.(l, k)}
