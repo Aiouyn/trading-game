@@ -95,6 +95,9 @@ export function EventPanel() {
         <button type="button" className="os-event-close" data-testid="event-close" onClick={close}>{t('common.close')}</button>
       </header>
       <h2 id="event-panel-title" className="os-event-headline" data-testid="event-headline">{ev.headline}</h2>
+      {ev.phase === 'announced' && ev.windowHours !== undefined && (
+        <p className="pt-2 text-small text-fg-muted" data-testid="event-window">{t('event.window', { hours: ev.windowHours })}</p>
+      )}
       {before.length > 0 && (
         <>
           <div className="label pt-3">{t('event.panel.before')}</div>
