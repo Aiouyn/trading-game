@@ -32,12 +32,12 @@ Status words as in `docs/V1-PHASE5.md`: **Done**, **Partial**, **Not built**, **
 | `95275de` | Takeover (store-driven queue, pure rules, CSS, i18n), window line in the event panel |
 | `b868670` | Rivals card in the Market app, profile card, onset window on the banner label, i18n |
 | `2765a5e` | Rival tiers, AP/DP, honeypot math, rival crews with the gates and the harness |
-| (this commit) | The worldEvents Playwright spec (6 of 6), the close-chain entry, the admin event length and start, the banner panel's reset, the takeover's GX colour by sign, this status doc |
+| `1e863e6` | The worldEvents Playwright spec (6 of 6), the close-chain entry, the admin event length and start, the banner panel's reset, the takeover's GX colour by sign, this status doc |
 
 ### 6A.3 Gates
 
 - `npx next typegen && npx tsc --noEmit`: exit 0 (after each commit).
-- Vitest, touched areas and then the broad run (`src/engine src/world src/components src/game src/i18n src/shell`, `--maxWorkers=2`): **187 files passed, 2 skipped; 1813 tests passed, 70 skipped, 21 todo.** Run before the admin-length edit; the touched tests were re-run after it (33 tests in the new files, all green).
+- Vitest, touched areas, then the broad run (`src/engine src/world src/components src/game src/i18n src/shell`, `--maxWorkers=2`): **187 files passed, 2 skipped; 1813 tests passed, 70 skipped, 21 todo** on the final tree (`1e863e6`).
 - New tests: `src/engine/worldEventsTelegraph.test.ts` (16 cases, telegraph bands, forced events, lead rule), `src/world/rivalsBoard.test.ts` (6), `src/components/os/takeoverRules.test.ts` (7), `src/components/apps/broker/rivalsCard.test.tsx` (2), `src/world/rivalCrews.test.ts` (11, including the 20-seed, 90-day harness).
 - ESLint on the touched files: 0 errors. One `react/jsx-no-literals` warning remains in `RivalsCard.tsx` (the `&` ampersand mark).
 - Money identity: no faucet or sink was added. Crew attacks pay no cash (see deviations). The admin event seam moves no cash. The existing zero-sum and sequence tests in `src/world` pass.
