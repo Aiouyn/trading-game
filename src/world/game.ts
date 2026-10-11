@@ -25,6 +25,7 @@ import {
   startResearch, startTraining, toggleBot,
 } from './lab';
 import { cyberDay, disconnect, emptyCyber, lockdown, manualScan, plantSession, setBudget, tagEntry } from './cyber';
+import { rivalCrewDay } from './rivalCrews';
 import { acceptSettlement, courtTick, fileCase, offerSettlement } from './court';
 import { npcTick, seedNpcs } from './npc';
 import { shockPrice } from '@/engine/sim';
@@ -157,6 +158,7 @@ export function stepGame(g: GameState): StepOutput {
     lifestyleDay(g);
     dealsDay(g, out);
     cyberDay(g, out);
+    rivalCrewDay(g, out);
     stabilizerDay(g);
     // collectibles index: slow random walk with a gentle upward drift
     const { rng, save } = drawFrom(g, "world");
@@ -204,9 +206,9 @@ const fail = (error: string): CommandResult => ({ ok: false, error });
  * The e2e price shock (tape-e2e-conventions.md section 3). Only the admin route sends it (the server refuses
  * admin.* from clients). A refused move is a failed result, not a throw.
  */
-function adminEvent(g: GameState, kind: string): CommandResult {
+function adminEvent(g: GameState, kind: string, days?: number): CommandResult {
   if (kind !== 'crash' && kind !== 'bubble' && kind !== 'crisis' && kind !== 'flash') return { ok: false, error: 'unknown event kind' };
-  const next = forceWorldEvent(g.market, kind as 'crash' | 'bubble' | 'crisis' | 'flash');
+  const next = forceWorldEvent(g.market, kind as 'crash' | 'bubble' | 'crisis' | 'flash', days);
   if (!next) return { ok: false, error: "an event is already live" };
   g.market.worldEvents = next;
   return { ok: true };
@@ -224,7 +226,7 @@ function adminShock(g: GameState, assetId: string, pct: number): CommandResult {
 export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
   if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out);
   if (cmd.type === 'admin.shock') return adminShock(g, cmd.assetId, cmd.pct);
-  if (cmd.type === 'admin.event') return adminEvent(g, cmd.kind);
+  if (cmd.type === 'admin.event') return adminEvent(g, cmd.kind, cmd.days);
   if (cmd.type === 'admin.age') {
     const target = g.players[cmd.playerId];
     if (!target) return fail('unknown player');

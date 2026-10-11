@@ -152,7 +152,8 @@ const http = createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/admin/event') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const b = await body(req);
-      return json(res, 200, host.command('admin', { type: 'admin.event', kind: String(b.kind ?? '') as 'crash' }));
+      const days = b.days === undefined ? undefined : Number(b.days);
+      return json(res, 200, host.command('admin', { type: 'admin.event', kind: String(b.kind ?? '') as 'crash', ...(days !== undefined ? { days } : {}) }));
     }
     if (req.method === 'POST' && url.pathname === '/api/admin/lp-fill') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });

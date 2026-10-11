@@ -356,7 +356,7 @@ export function nextDayBoundary(tick: number, tpd: number): number {
  * next day boundary, so the engine's own start path runs; a flash starts one tick later. Its moves come from the same
  * planner on its own seed stream. Returns the next event state, or null when an event is already active.
  */
-export function forceWorldEvent(state: WorldState, kind: WorldEventKind): WorldEventsState | null {
+export function forceWorldEvent(state: WorldState, kind: WorldEventKind, days?: number): WorldEventsState | null {
   const tpd = state.config.ticksPerDay;
   const base = state.worldEvents ?? initWorldEvents(state);
   if (base.active) return null;
@@ -374,7 +374,8 @@ export function forceWorldEvent(state: WorldState, kind: WorldEventKind): WorldE
     return { ...base, seq, active: ev };
   }
   const startTick = nextDayBoundary(tick, tpd);
-  const len = kind === 'crash' ? Math.floor(U(rng, 10, 31)) : kind === 'bubble' ? Math.floor(U(rng, 15, 41)) : 5;
+  const drawn = kind === 'crash' ? Math.floor(U(rng, 10, 31)) : kind === 'bubble' ? Math.floor(U(rng, 15, 41)) : 5;
+  const len = days !== undefined && days >= 1 ? Math.floor(days) : drawn;
   const ev: WorldEvent = { id, kind, headline, announcedTick: tick, startTick, endTick: startTick + len * tpd, shocks, today };
   return { ...base, seq, active: ev };
 }

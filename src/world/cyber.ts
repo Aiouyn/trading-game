@@ -353,3 +353,33 @@ export function drainOf(g: GameState, pid: string): number {
 export function announceBreach(g: GameState, out: StepOutput, text: string): void {
   pushWire(g, out, { kind: 'security', tag: 'Security', tone: 'warn', text });
 }
+
+/**
+ * A rival fund's crew plants a session on a player (M31, rivalCrews.ts). The same breach odds and session as a player's op:
+ * a clean plant is a quiet hostile entry; a failed one may be detected (evidence against the crew, a warning to the victim).
+ * The crew's gates (protection, rookie zone, offline, cooldown, the session caps) are the caller's. A crew pays no cash in
+ * this build, so no faucet or sink is booked for it (see docs/V1-PHASE6.md, 6A).
+ */
+export function plantCrewSession(g: GameState, crewId: string, victimId: string, model: Model, strength: SessionStrength, out: StepOutput | null): boolean {
+  const tick = g.market.tick;
+  const st = STRENGTHS[strength];
+  const odds = breachOdds(attackPoints(model), defensePoints(g, victimId), st.bias);
+  const rng = keyedRng(g, `crew:op:${crewId}:${victimId}:${tick}`);
+  g.cyber.seq++;
+  const opId = `op${g.cyber.seq}`;
+  g.cyber.cooldowns[`${crewId}>${victimId}`] = tick + 3 * TPD;
+  if (rng.chance(odds)) {
+    const e = newEntry(g, victimId, rng, { attackerId: crewId, strength, progress: 0, modelId: model.id });
+    g.cyber.ops.unshift({ id: opId, attackerId: crewId, victimId, strength, modelId: model.id, tick, result: 'planted', entryId: e.id });
+    if (g.cyber.ops.length > 200) g.cyber.ops.length = 200;
+    return true;
+  }
+  const detected = rng.chance(0.5);
+  g.cyber.ops.unshift({ id: opId, attackerId: crewId, victimId, strength, modelId: model.id, tick, result: detected ? 'detected' : 'failed' });
+  if (detected) {
+    g.cyber.evidence[`${crewId}>${victimId}`] = (g.cyber.evidence[`${crewId}>${victimId}`] ?? 0) + 15;
+    notify(g, out, victimId, { kind: 'security', tone: 'warn', text: 'Your defenses blocked an intrusion attempt.' });
+  }
+  if (g.cyber.ops.length > 200) g.cyber.ops.length = 200;
+  return false;
+}

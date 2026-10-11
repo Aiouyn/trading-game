@@ -654,7 +654,7 @@ export type Command =
   /** dev and tests only: a test price shock (shockPrice: lnP moves, the value does not) */
   | { type: 'admin.shock'; assetId: string; pct: number }
   /** dev and tests only: force a shared world event now (forceWorldEvent: a major or crisis starts at the next day) */
-  | { type: 'admin.event'; kind: 'crash' | 'bubble' | 'crisis' | 'flash' }
+  | { type: 'admin.event'; kind: 'crash' | 'bubble' | 'crisis' | 'flash'; days?: number }
   /** dev and tests only: backdates a player's join by `ticks` (the account-age rules, without a long advance) */
   | { type: 'admin.age'; playerId: string; ticks: number }
   /** dev and tests only: a founder's company has the filed quarters and filed value the IPO rules read (adminIpoReady) */
