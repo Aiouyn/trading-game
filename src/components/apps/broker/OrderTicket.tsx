@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buyingPower, commission, estimateFill, tradingConfig, type OrderType, type Side } from '@/engine';
+import { assetIndex, buyingPower, commission, estimateFill, halfSpread, tradingConfig, type OrderType, type Side } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { QUICK_ENTER, SIMPLE_MODE } from '@/content/learning';
-import { money, price, qty as fmtQty } from '@/game/format';
+import { money, price, qty as fmtQty, signedMoney, signedPct } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
@@ -14,6 +14,8 @@ import { Button, Card, KV, LockGlyph, NumberField, Segmented } from '@/component
 import { RefusalBox } from '@/components/apps/exchange/Shared';
 import { type RefusalCopy, refusalCopy, rejectVars } from '@/components/apps/exchange/copy';
 import { quickEnterAllowed, tradeKeyIntent } from './tradeKeys';
+import { levelMove } from './chartLevels';
+import { checkOrder, engineRefusal, parseDecimal, tradeSummary, type EngineRefusal, type Refusal, type RefusalField } from './ticketMath';
 
 const TYPE_OPTS: { value: OrderType; key: string; testId: string }[] = [
   { value: 'market', key: 'order.market', testId: 'type-market' },
@@ -23,22 +25,17 @@ const TYPE_OPTS: { value: OrderType; key: string; testId: string }[] = [
   { value: 'trailing', key: 'order.trailing', testId: 'type-trailing' },
 ];
 
-/** A refusal shown inline under the ticket: a translation key and its values. */
-interface Refusal { key: string; vars?: Record<string, string | number> }
-
-function num(s: string): number {
-  const v = Number(s);
-  return Number.isFinite(v) ? v : 0;
-}
+/** The size is typed in shares, or in dollars and converted at the reference price (spec 1.4). */
+type Unit = 'shares' | 'usd';
 
 /** Native controls keep their own Enter (a button clicks, a checkbox toggles), so the ticket leaves that Enter alone. */
 function nativeEnter(el: HTMLElement | null): boolean {
   if (!el) return false;
-  return el.tagName === 'BUTTON' || el.tagName === 'A' || (el instanceof HTMLInputElement && el.type === 'checkbox');
+  return el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'SELECT' || (el instanceof HTMLInputElement && el.type === 'checkbox');
 }
 
 /**
- * The ticket for a ticker. A Broker passes its own ticker. A ticket preset (the stop explainer) fills
+ * The ticket for a ticker. A Broker passes its own ticker. A ticket preset (the stop explainer, a chart menu item) fills
  * only the ticket on the game's selected ticker, so two Brokers on other tickers stay clean.
  */
 export function OrderTicket({ ticker, dense = false }: { ticker?: string; dense?: boolean } = {}) {
@@ -49,6 +46,9 @@ export function OrderTicket({ ticker, dense = false }: { ticker?: string; dense?
   // a new asset or a new preset starts a fresh ticket
   return <Ticket key={`${selected}-${here?.nonce ?? 0}`} preset={here} selected={selected} dense={dense} />;
 }
+
+/** A refusal the engine gave for the ticket as it was when it was sent: it shows until the ticket changes. */
+interface EngineSaid { sig: string; refusal: EngineRefusal }
 
 function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame.getState>['ticketPreset']; selected: string; dense: boolean }) {
   const world = useGame((s) => s.world);
@@ -64,12 +64,13 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const saved = getDraft(selected);
   const [side, setSide] = useState<Side>(preset?.side ?? saved?.side ?? 'buy');
   const [type, setType] = useState<OrderType>(preset?.type ?? 'market');
+  const [unit, setUnit] = useState<Unit>('shares');
   const [q, setQ] = useState(preset?.qty !== undefined ? String(preset.qty) : (saved?.q ?? ''));
   const [limit, setLimit] = useState(preset?.limitPrice !== undefined ? preset.limitPrice.toFixed(2) : '');
   const [stop, setStop] = useState(preset?.stopPrice !== undefined ? preset.stopPrice.toFixed(2) : '');
   const [trail, setTrail] = useState('5');
   const [tif, setTif] = useState<'gtc' | 'day'>('gtc');
-  const [bracket, setBracket] = useState(false);
+  // take profit and stop loss are always there (spec 1.4, also in simple mode): an empty field is no leg
   const [tp, setTp] = useState('');
   const [sl, setSl] = useState('');
   // A manager may trade through the account of his own fund (the selector shows only then). Fund trades are market or
@@ -80,7 +81,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const fundMode = !!managed && account === 'fund';
   // The confirm line belongs to one order: it holds that order's signature, so any edit clears it without an effect.
   const [confirm, setConfirm] = useState<string | null>(null);
-  const signature = [side, type, q, limit, stop, trail, tif, bracket, tp, sl].join('|');
+  const [engineSaid, setEngineSaid] = useState<EngineSaid | null>(null);
+  const signature = [side, type, unit, q, limit, stop, trail, tif, tp, sl].join('|');
   // Unsent input is a session draft for this ticker (P2-160, P2-161): it stays when the ticket unmounts, and Recent
   // shows its dot. It is never sent from there. An empty quantity (a sent order clears it) leaves no draft.
   useEffect(() => {
@@ -93,7 +95,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
     const def = config.assets[i];
     if (!def || isUntradable(config, selected)) return null;
     const a = world.assets[i]!;
-    return { def, mid: Math.exp(a.lnP), halted: a.haltUntil !== -1 && a.haltUntil > world.tick };
+    return { def, idx: assetIndex(world, selected), mid: Math.exp(a.lnP), halted: a.haltUntil !== -1 && a.haltUntil > world.tick };
   }, [world, me, playerId, selected, config]);
 
   const ready = !!(world && me && playerId && ctx);
@@ -108,9 +110,16 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const firstTrade = !!me && me.player.stats.trades === 0 && !me.player.onboarding.skipped;
   const simple = firstTrade && !fundMode;
   const typeOpts = fundMode ? TYPE_OPTS.filter((o) => o.value === 'market' || o.value === 'limit') : TYPE_OPTS;
-  const qtyN = num(q);
-  const est = world && ctx ? estimateFill(world, { assetId: selected, side, qty: Math.max(qtyN, whole ? 1 : 0.0001) }) : null;
-  const refPrice = est ? (type === 'limit' || type === 'stop_limit' ? num(limit) || est.price : type === 'stop' ? num(stop) || est.price : est.price) : 0;
+  const roundQ = (x: number) => (whole ? Math.floor(x) : Math.floor(x * 1e4) / 1e4);
+  // the size in units: the typed number, or a dollar amount converted at the price (the estimate at mid guesses the units)
+  const typed = parseDecimal(q);
+  const mid = ctx?.mid ?? 0;
+  const guessQty = unit === 'shares' ? typed : (mid > 0 ? typed / mid : 0);
+  const est = world && ctx ? estimateFill(world, { assetId: selected, side, qty: Math.max(guessQty, whole ? 1 : 0.0001) }) : null;
+  const refPrice = est ? (type === 'limit' || type === 'stop_limit' ? parseDecimal(limit) || est.price : type === 'stop' ? parseDecimal(stop) || est.price : est.price) : 0;
+  const qtyN = unit === 'shares' ? typed : (refPrice > 0 ? roundQ(typed / refPrice) : 0);
+  // a dollar amount that does not reach one whole share at this price: said under the size, never sent as zero
+  const tooSmall = unit === 'usd' && whole && typed > 0 && qtyN === 0;
   const notional = qtyN * refPrice;
   const fee = world && ctx ? commission(world, ctx.def, notional) : 0;
   const total = side === 'buy' ? notional + fee : notional - fee;
@@ -123,34 +132,35 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const maxQty = !est ? 0 : side === 'buy'
     ? Math.max(0, (budget - (ctx?.def.assetClass === 'crypto' ? 0 : 1)) / (est.price * 1.002))
     : held > 0 ? held : acct?.canShort ? bp / est.price : 0;
-  const roundQ = (x: number) => (whole ? Math.floor(x) : Math.floor(x * 1e4) / 1e4);
   const shorting = !fundMode && side === 'sell' && qtyN > Math.max(0, held) + 1e-9;
 
   // the cap's percent and the rank that lifts it come from the same constant the server reads (SIMPLE_MODE), never typed here
   const firstCapVars = { pct: Math.round(SIMPLE_MODE.capFraction * 100), rank: t('rank.' + SIMPLE_MODE.untilRank) };
 
-  // Every refusal says why (the ticket never just greys out): the first failing rule wins.
+  // The rules (ticketMath.ts): the first failing rule is the refusal, under its field. A fund trade keeps its own short list.
+  const check = !ctx || !acct || !est || fundMode ? null : checkOrder({
+    side, type, qty: qtyN, whole: !!whole, mid: ctx?.mid ?? 0, ref: refPrice,
+    limit: parseDecimal(limit), stop: parseDecimal(stop), trail: parseDecimal(trail),
+    tp: tp.trim() === '' ? null : parseDecimal(tp), sl: sl.trim() === '' ? null : parseDecimal(sl),
+    cash: acct?.cash ?? 0, bp, margin, total, notional, held, simpleCap, capCash, capPct: firstCapVars.pct, capRank: firstCapVars.rank,
+    locked, lockedTier: t(ctx?.def.assetClass === 'stock' || ctx?.def.assetClass === 'crypto' ? 'broker.tier.retail' : 'broker.tier.pro'),
+  });
   let invalid: Refusal | null = null;
-  if (!ctx || !acct || !est) invalid = null;
-  else if (fundMode) {
+  if (fundMode) {
     // the mandate and the fund's cash and limits are the world's to refuse (the refusal shows after the send)
-    if (outside) invalid = { key: 'broker.fund.outside', vars: { name: managed!.name } };
-    else if (qtyN <= 0) invalid = null;
-    else if (whole && !Number.isInteger(qtyN)) invalid = { key: 'broker.refuse.whole' };
-    else if (type === 'limit' && num(limit) <= 0) invalid = { key: 'broker.refuse.limit' };
+    if (!ctx || !acct || !est) invalid = null;
+    else if (outside) invalid = { field: 'general', key: 'broker.fund.outside', vars: { name: managed!.name }, cta: 'broker.fund.outside' };
+    else if (qtyN > 0 && whole && !Number.isInteger(qtyN)) invalid = { field: 'qty', key: 'broker.refuse.whole', cta: 'broker.cta.whole' };
+    else if (qtyN > 0 && type === 'limit' && parseDecimal(limit) <= 0) invalid = { field: 'limit', key: 'broker.refuse.limit', cta: 'broker.cta.limit' };
+  } else {
+    invalid = check?.refusal ?? null;
   }
-  else if (locked) invalid = { key: 'broker.refuse.license', vars: { tier: t(ctx.def.assetClass === 'stock' || ctx.def.assetClass === 'crypto' ? 'broker.tier.retail' : 'broker.tier.pro') } };
-  else if (qtyN <= 0) invalid = null;
-  else if (whole && !Number.isInteger(qtyN)) invalid = { key: 'broker.refuse.whole' };
-  else if (side === 'buy' && simpleCap && qtyN * ctx.mid > capCash + 1e-6) invalid = { key: 'broker.firstCap', vars: firstCapVars };
-  else if (side === 'buy' && !margin && total > acct.cash + 1e-6) invalid = { key: 'broker.refuse.cash', vars: { total: money(total), cash: money(acct.cash) } };
-  else if (side === 'buy' && margin && notional > bp + Math.max(0, -held) * refPrice + 1e-6) invalid = { key: 'broker.refuse.bp', vars: { need: money(notional), bp: money(bp) } };
-  else if (shorting && !acct.canShort) invalid = held > 0 ? { key: 'broker.refuse.fewer' } : { key: 'broker.refuse.short' };
-  else if ((type === 'limit' || type === 'stop_limit') && num(limit) <= 0) invalid = { key: 'broker.refuse.limit' };
-  else if ((type === 'stop' || type === 'stop_limit') && num(stop) <= 0) invalid = { key: 'broker.refuse.stop' };
-  else if (type === 'trailing' && !(num(trail) > 0 && num(trail) < 50)) invalid = { key: 'broker.refuse.trail' };
-  else if (bracket && (num(tp) <= 0 || num(sl) <= 0)) invalid = { key: 'broker.refuse.bracket' };
-  else if (bracket && (side === 'buy' ? num(tp) <= num(sl) : num(tp) >= num(sl))) invalid = { key: 'broker.refuse.bracketSide' };
+  const warning = check?.warning ?? null;
+  // the engine's refusal of this ticket, shown until the ticket changes; a local refusal is shown first
+  const said = engineSaid && engineSaid.sig === signature ? engineSaid.refusal : null;
+  const shown: { field: RefusalField; key: string; vars?: Record<string, string | number> } | null =
+    invalid?.key ? { field: invalid.field, key: invalid.key, vars: invalid.vars } : said ? { field: said.field, key: said.key, vars: said.vars } : null;
+  const at = (field: RefusalField) => (shown && shown.field === field ? t(shown.key, shown.vars) : null);
 
   const canSubmit = !invalid && qtyN > 0;
   const confirming = canSubmit && confirm === signature;
@@ -158,6 +168,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
     ? (held < 0 ? t('broker.verb.cover') : t('broker.verb.buy'))
     : shorting ? t('broker.verb.short') : t('broker.verb.sell');
   const actionLabel = t('broker.action', { verb, qty: qtyN > 0 ? fmtQty(qtyN) : '', ticker: selected }).replace(/\s+/g, ' ').trim();
+  // The CTA says why it is disabled (spec 1.4): the refusal's short reason, or "Enter a size".
+  const ctaLabel = canSubmit ? actionLabel : invalid?.cta ? t(invalid.cta, invalid.vars) : tooSmall ? t('broker.cta.tooSmall') : t('broker.cta.size');
 
   const submit = async () => {
     setConfirm(null);
@@ -167,7 +179,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
       const fr = await act({
         type: 'fund.trade', fundId: managed.id, assetId: selected, side, qty: qtyN,
         orderType: type === 'limit' ? 'limit' : 'market',
-        ...(type === 'limit' ? { limitPrice: num(limit) } : {}),
+        ...(type === 'limit' ? { limitPrice: parseDecimal(limit) } : {}),
       }, { silent: true });
       if (fr.ok) {
         setQ('');
@@ -177,21 +189,28 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
       }
       return;
     }
+    const tpN = tp.trim() === '' ? null : parseDecimal(tp);
+    const slN = sl.trim() === '' ? null : parseDecimal(sl);
     const order = {
       assetId: selected, side, type, qty: qtyN, tif,
-      ...(type === 'limit' || type === 'stop_limit' ? { limitPrice: num(limit) } : {}),
-      ...(type === 'stop' || type === 'stop_limit' ? { stopPrice: num(stop) } : {}),
-      ...(type === 'trailing' ? { trailPct: num(trail) / 100 } : {}),
-      ...(bracket ? { takeProfit: num(tp), stopLoss: num(sl) } : {}),
+      ...(type === 'limit' || type === 'stop_limit' ? { limitPrice: parseDecimal(limit) } : {}),
+      ...(type === 'stop' || type === 'stop_limit' ? { stopPrice: parseDecimal(stop) } : {}),
+      ...(type === 'trailing' ? { trailPct: parseDecimal(trail) / 100 } : {}),
+      ...(tpN !== null ? { takeProfit: tpN } : {}),
+      ...(slN !== null ? { stopLoss: slN } : {}),
     };
-    const r = await act({ type: 'order.place', order });
+    // a refusal stays on the ticket, under its field (the engine's words are not toasted over the form)
+    const r = await act({ type: 'order.place', order }, { silent: true });
     if (r.ok) {
       setQ('');
+      setEngineSaid(null);
       useGame.getState().toast({
         tone: 'info',
         text: type === 'market' ? t('broker.toast.fillsNext', { label: actionLabel }) : t('broker.toast.working', { label: actionLabel }),
       });
       if (type !== 'market') setSheet(false);
+    } else {
+      setEngineSaid({ sig: signature, refusal: engineRefusal(r.error ?? 'rejected', side, !!acct?.canShort, { cash: acct?.cash ?? 0, bp }) });
     }
   };
 
@@ -260,145 +279,201 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
       </Card>
     );
   }
-  const { def, mid, halted } = ctx;
+  const { def, halted } = ctx;
+  const d = est!;
 
-  // the rate the engine charges this class (trading config), so the ticket never shows a stale fee
+  // The cost summary (spec 1.4): the fee at its rate and its minimum, the spread, the round trip and the break-even.
   const feeTable = tradingConfig(world).fees;
-  const fees = `${((feeTable[def.assetClass] ?? feeTable.stock).rate * 100).toFixed(2)}%`;
+  const feeRule = feeTable[def.assetClass] ?? feeTable.stock;
+  const feeText = t('broker.feeMin', { rate: `${(feeRule.rate * 100).toFixed(2)}%`, min: money(feeRule.min) });
+  const summary = tradeSummary({
+    side, qty: qtyN, price: d.price, mid: ctx.mid, fee, halfSpreadFrac: halfSpread(world, ctx.idx),
+    cash: cashNow, bp, margin, shorting, total, notional,
+  });
+  const cashAfter = summary.cashAfter;
+  const spreadText = `${money(summary.spread)} (${(summary.spreadPct * 100).toFixed(2)}%)`;
+  // a take-profit or stop-loss shows its move on the position, once it is typed (the same rule the chart's lines use)
+  const legMove = (v: string) => {
+    const n = parseDecimal(v);
+    if (v.trim() === '' || !(n > 0) || !(qtyN > 0)) return null;
+    return levelMove(side === 'buy' ? qtyN : -qtyN, d.price, n);
+  };
+  const tpMove = legMove(tp);
+  const slMove = legMove(sl);
+  const showWarn = warning ? t(warning) : null;
+
   // the refusal, the confirm line and the Buy button stay pinned under the fields, so they are on screen whatever the fields height
   const footerBody = (
     <>
-            {invalid && <p className="mt-2 text-caption text-warn" data-testid="order-invalid">{t(invalid.key, invalid.vars)}</p>}
-            {fundRefusal && <RefusalBox copy={fundRefusal} testId="order-fund-refusal" />}
-            {halted && <p className="mt-2 text-caption text-warn">{t('broker.haltedNote')}</p>}
-            {confirming && (
-              <p className="mt-3 text-small text-fg" role="status" data-testid="order-confirm">{t('broker.confirm', { label: actionLabel, total: money(total) })}</p>
-            )}
-            <Button variant="brass" size={dense ? "md" : "lg"} className={`w-full ${dense ? "mt-2" : "mt-3"}`} disabled={!canSubmit} onClick={submit} testId="order-submit">{actionLabel}</Button>
-            <p className="mt-2 text-center text-caption text-fg-faint" data-testid="honest-note">{t('order.honest')}</p>
-            <label className="mt-2 flex items-center gap-2 text-caption text-fg-muted">
-              <input type="checkbox" checked={quick} onChange={(e) => setQuick(e.target.checked)} data-testid="quick-enter" />
-              {t('broker.quickEnter', { pct: Math.round(QUICK_ENTER.maxCashFraction * 100) })}
-            </label>
+      {fundRefusal && <RefusalBox copy={fundRefusal} testId="order-fund-refusal" />}
+      {halted && <p className="mt-2 text-caption text-warn">{t('broker.haltedNote')}</p>}
+      {shown && !['qty', 'limit', 'stop', 'trail', 'tp', 'sl'].includes(shown.field) && <p className="mt-2 text-caption text-warn" data-testid="order-invalid">{at(shown.field)}</p>}
+      {confirming && (
+        <p className="mt-3 text-small text-fg" role="status" data-testid="order-confirm">{t('broker.confirm', { label: actionLabel, total: money(total) })}</p>
+      )}
+      <Button variant="brass" size={dense ? 'md' : 'lg'} className={`w-full ${dense ? 'mt-2' : 'mt-3'}`} disabled={!canSubmit} onClick={submit} testId="order-submit">{ctaLabel}</Button>
+      <p className="mt-2 text-center text-caption text-fg-faint" data-testid="honest-note">{t('order.honest')}</p>
+      <label className="mt-2 flex items-center gap-2 text-caption text-fg-muted">
+        <input type="checkbox" checked={quick} onChange={(e) => setQuick(e.target.checked)} data-testid="quick-enter" />
+        {t('broker.quickEnter', { pct: Math.round(QUICK_ENTER.maxCashFraction * 100) })}
+      </label>
     </>
   );
+  // a refusal under one field: the message, with the test id the core spec reads
+  const under = (field: RefusalField) => {
+    const msg = at(field);
+    return msg ? <p className="mt-1 text-caption text-warn" data-testid={field === 'qty' ? 'order-invalid' : `order-${field}-refusal`}>{msg}</p> : null;
+  };
   return (
     <Card className={dense ? 'flex min-h-0 flex-1 flex-col p-3' : 'p-4'} data-testid="order-pad">
       <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="flex items-baseline justify-between">
-          <h2 className="font-serif text-title">{t('broker.trade')}</h2>
-          <span className="text-caption text-fg-faint">
-            {margin ? t('broker.licenseMargin', { name: lic.name, lev: acct.maxLeverage ?? 1 }) : t('broker.license', { name: lic.name })}
-          </span>
-        </div>
-        <div className="mt-1 flex items-baseline justify-between text-caption">
-          <span className="num text-fg-muted">{t('broker.mid', { ticker: selected, price: price(mid) })}</span>
-          {held !== 0 && <span className="num text-fg-faint">{t('broker.youHold', { qty: fmtQty(held) })}</span>}
-        </div>
-
-        {managed && (
-          <div className="mt-3 flex flex-col gap-1" data-testid="order-account">
-            <Segmented
-              label={t('broker.account.label')} size="sm" className="w-full" value={account}
-              onChange={(v) => {
-                const next = v as 'me' | 'fund';
-                setAccount(next);
-                if (next === 'fund' && type !== 'market' && type !== 'limit') setType('market');
-              }}
-              options={[
-                { value: 'me', label: t('broker.account.me'), testId: 'account-me' },
-                { value: 'fund', label: t('broker.account.fund', { name: managed.name }), testId: 'account-fund' },
-              ]}
-            />
-            {fundMode && <p className="text-caption text-fg-muted" data-testid="account-fund-note">{t('broker.account.note', { name: managed.name })}</p>}
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-serif text-title">{t('broker.trade')}</h2>
+            <span className="text-caption text-fg-faint">
+              {margin ? t('broker.licenseMargin', { name: lic.name, lev: acct.maxLeverage ?? 1 }) : t('broker.license', { name: lic.name })}
+            </span>
           </div>
-        )}
-
-        {locked ? (
-          <div className="mt-4 flex items-center gap-3 rounded-md border border-ink-3 p-3" data-testid="locked-ticket">
-            <LockGlyph />
-            <p className="text-small text-fg-muted">{t('broker.lockedNeed', { name: def.name })}</p>
+          <div className="mt-1 flex items-baseline justify-between text-caption">
+            <span className="num text-fg-muted">{t('broker.mid', { ticker: selected, price: price(ctx.mid) })}</span>
+            {held !== 0 && <span className="num text-fg-faint">{t('broker.youHold', { qty: fmtQty(held) })}</span>}
           </div>
-        ) : (
-          <>
-            <Segmented
-              label={t('broker.side')} className="mt-3 w-full" value={side} onChange={(v) => setSide(v as Side)}
-              options={[
-                { value: 'buy', label: held < 0 ? t('broker.buyCover') : t('common.buy'), testId: 'side-buy' },
-                { value: 'sell', label: fundMode || held > 0 || !acct.canShort ? t('common.sell') : t('broker.sellShort'), testId: 'side-sell' },
-              ]}
-            />
-            {!simple && (
+
+          {managed && (
+            <div className="mt-3 flex flex-col gap-1" data-testid="order-account">
               <Segmented
-                label={t('broker.orderType')} size="sm" className="mt-2 w-full" value={type} onChange={(v) => setType(v as OrderType)}
-                options={typeOpts.map((o) => ({ value: o.value, label: t(o.key), testId: o.testId }))}
+                label={t('broker.account.label')} size="sm" className="w-full" value={account}
+                onChange={(v) => {
+                  const next = v as 'me' | 'fund';
+                  setAccount(next);
+                  if (next === 'fund' && type !== 'market' && type !== 'limit') setType('market');
+                }}
+                options={[
+                  { value: 'me', label: t('broker.account.me'), testId: 'account-me' },
+                  { value: 'fund', label: t('broker.account.fund', { name: managed.name }), testId: 'account-fund' },
+                ]}
               />
-            )}
-            <p className="mt-1.5 text-caption text-fg-faint">{t(`broker.help.${type}`)}</p>
-
-            <NumberField className="mt-3" label={t('broker.quantity')} value={q} onChange={setQ} suffix={whole ? t('broker.unit.shares') : t('broker.unit.units')} step={whole ? 1 : 'any'} testId="order-qty" />
-            <div className="mt-2 grid grid-cols-4 gap-2">
-              {[0.1, 0.25, 0.5, 1].map((f) => (
-                <button
-                  key={f} type="button" onClick={() => setQ(String(roundQ(maxQty * f)))}
-                  className="h-9 rounded-md border border-ink-3 text-caption text-fg-muted hover:border-brass/50 hover:text-fg"
-                  data-testid={`chip-${f === 1 ? 'Max' : Math.round(f * 100)}`}
-                >
-                  {f === 1 ? (simpleCap && side === 'buy' ? t('broker.maxCap', { pct: firstCapVars.pct }) : t('broker.max')) : t('broker.pct', { p: Math.round(f * 100) })}
-                </button>
-              ))}
+              {fundMode && <p className="text-caption text-fg-muted" data-testid="account-fund-note">{t('broker.account.note', { name: managed.name })}</p>}
             </div>
-            {simpleCap && side === 'buy' && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap', firstCapVars)}</p>}
+          )}
 
-            {(type === 'limit' || type === 'stop_limit') && <NumberField className="mt-2" label={t('order.limit')} value={limit} onChange={setLimit} suffix="$" testId="order-limit" />}
-            {(type === 'stop' || type === 'stop_limit') && <NumberField className="mt-2" label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />}
-            {type === 'trailing' && <NumberField className="mt-2" label={t('broker.trail')} value={trail} onChange={setTrail} suffix="%" testId="order-trail" />}
-
-            {!simple && !fundMode && (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Segmented
-                  label={t('broker.tif')} size="sm" value={tif} onChange={(v) => setTif(v as 'gtc' | 'day')}
-                  options={[{ value: 'gtc', label: t('broker.gtc') }, { value: 'day', label: t('broker.day') }]}
-                />
-                <label className="ml-auto flex items-center gap-2 text-caption text-fg-muted">
-                  <input
-                    type="checkbox" checked={bracket} data-testid="bracket-toggle"
-                    onChange={(e) => {
-                      setBracket(e.target.checked);
-                      if (e.target.checked && !tp) {
-                        const up = side === 'buy' ? 1 : -1;
-                        setTp((est!.price * (1 + up * 0.08)).toFixed(2));
-                        setSl((est!.price * (1 - up * 0.04)).toFixed(2));
-                      }
-                    }}
-                  />
-                  {t('broker.bracket')}
+          {locked ? (
+            <div className="mt-4 flex items-center gap-3 rounded-md border border-ink-3 p-3" data-testid="locked-ticket">
+              <LockGlyph />
+              <p className="text-small text-fg-muted">{t('broker.lockedNeed', { name: def.name })}</p>
+            </div>
+          ) : (
+            <>
+              {/* Long and Short are the two tabs (spec 1.4): Short is a sell to open, and it is offered from the first trade */}
+              <Segmented
+                label={t('broker.side')} className="mt-3 w-full" value={side} onChange={(v) => setSide(v as Side)}
+                options={[
+                  { value: 'buy', label: fundMode ? t('common.buy') : t('broker.side.long'), testId: 'side-buy' },
+                  { value: 'sell', label: fundMode ? t('common.sell') : t('broker.side.short'), testId: 'side-sell' },
+                ]}
+              />
+              {!simple && (
+                <label className="mt-2 flex flex-col gap-1">
+                  <span className="text-caption text-fg-muted">{t('broker.orderType')}</span>
+                  <select
+                    value={type} onChange={(e) => setType(e.target.value as OrderType)} data-testid="order-type"
+                    className="h-9 rounded-md border border-ink-3 bg-ink-0 px-2 text-small text-fg outline-none focus:border-brass/60"
+                  >
+                    {typeOpts.map((o) => <option key={o.value} value={o.value} data-testid={o.testId}>{t(o.key)}</option>)}
+                  </select>
                 </label>
-              </div>
-            )}
-            {bracket && (
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <NumberField label={t('broker.takeProfit')} value={tp} onChange={setTp} testId="order-tp" />
-                <NumberField label={t('broker.stopLoss')} value={sl} onChange={setSl} testId="order-sl" />
-              </div>
-            )}
+              )}
+              <p className="mt-1.5 text-caption text-fg-faint" data-testid="order-type-help">{t(`broker.help.${type}`)}</p>
 
-            <div className="mt-4 border-t border-ink-2 pt-3">
-              <KV k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(est!.price)} />
-              <KV k={t('broker.notional')} v={money(notional)} />
-              <KV k={t('broker.fee', { rate: fees })} v={money(fee)} />
-              <KV k={t('broker.slippage')} v={t('broker.bp', { v: est!.slippageBps.toFixed(1) })} />
-              <KV k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
-              <KV
-                k={margin ? t('broker.buyingPower') : t('broker.cashAfter')}
-                v={<span className="text-fg-muted">{money(margin ? bp - (side === 'buy' || shorting ? notional : 0) : cashNow - (side === 'buy' ? total : -total))}</span>}
+              <Segmented
+                label={t('broker.unit.label')} size="sm" className="mt-3 w-full" value={unit} onChange={(v) => setUnit(v as Unit)}
+                options={[
+                  { value: 'shares', label: whole ? t('broker.unit.shares') : t('broker.unit.units'), testId: 'unit-shares' },
+                  { value: 'usd', label: t('broker.unit.dollars'), testId: 'unit-usd' },
+                ]}
               />
-              {shorting && <p className="mt-1 text-caption text-warn">{t('broker.shortWarn')}</p>}
-              {margin && side === 'buy' && notional > acct.cash && <p className="mt-1 text-caption text-warn">{t('broker.marginWarn')}</p>}
-            </div>
-          </>
-        )}
+              <NumberField
+                className="mt-2" label={t('broker.quantity')} value={q} onChange={setQ}
+                suffix={unit === 'usd' ? '$' : whole ? t('broker.unit.shares') : t('broker.unit.units')} step={unit === 'usd' ? 'any' : whole ? 1 : 'any'} testId="order-qty"
+              />
+              {unit === 'usd' && qtyN > 0 && <p className="mt-1 text-caption text-fg-faint" data-testid="order-usd-shares">{t('broker.approxShares', { qty: fmtQty(qtyN) })}</p>}
+              {tooSmall && <p className="mt-1 text-caption text-warn" data-testid="order-too-small">{t('broker.refuse.tooSmall')}</p>}
+              {under('qty')}
+              <div className="mt-2 grid grid-cols-4 gap-2">
+                {[0.1, 0.25, 0.5, 1].map((f) => (
+                  <button
+                    key={f} type="button"
+                    onClick={() => setQ(unit === 'usd' ? String(Math.floor(maxQty * f * d.price * 100) / 100) : String(roundQ(maxQty * f)))}
+                    className="h-9 rounded-md border border-ink-3 text-caption text-fg-muted hover:border-brass/50 hover:text-fg"
+                    data-testid={`chip-${f === 1 ? 'Max' : Math.round(f * 100)}`}
+                  >
+                    {f === 1 ? (simpleCap && side === 'buy' ? t('broker.maxCap', { pct: firstCapVars.pct }) : t('broker.max')) : t('broker.pct', { p: Math.round(f * 100) })}
+                  </button>
+                ))}
+              </div>
+              {simpleCap && side === 'buy' && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap', firstCapVars)}</p>}
+
+              {(type === 'limit' || type === 'stop_limit') && (
+                <>
+                  <NumberField className="mt-2" label={t('order.limit')} value={limit} onChange={setLimit} suffix="$" testId="order-limit" />
+                  {under('limit')}
+                  {showWarn && (type === 'limit' || type === 'stop_limit') && !at('limit') && <p className="mt-1 text-caption text-fg-muted" data-testid="order-warn">{showWarn}</p>}
+                </>
+              )}
+              {(type === 'stop' || type === 'stop_limit') && (
+                <>
+                  <NumberField className="mt-2" label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />
+                  {under('stop')}
+                </>
+              )}
+              {type === 'trailing' && (
+                <>
+                  <NumberField className="mt-2" label={t('broker.trail')} value={trail} onChange={setTrail} suffix="%" testId="order-trail" />
+                  {under('trail')}
+                </>
+              )}
+
+              {!simple && !fundMode && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Segmented
+                    label={t('broker.tif')} size="sm" value={tif} onChange={(v) => setTif(v as 'gtc' | 'day')}
+                    options={[{ value: 'gtc', label: t('broker.gtc') }, { value: 'day', label: t('broker.day') }]}
+                  />
+                </div>
+              )}
+              {!fundMode && (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <NumberField label={t('broker.takeProfit')} value={tp} onChange={setTp} testId="order-tp" />
+                    {tpMove && <p className="mt-1 text-caption text-gain" data-testid="order-tp-move">{t('broker.bracket.move', { usd: signedMoney(tpMove.usd), pct: signedPct(tpMove.pct) })}</p>}
+                    {under('tp')}
+                  </div>
+                  <div>
+                    <NumberField label={t('broker.stopLoss')} value={sl} onChange={setSl} testId="order-sl" />
+                    {slMove && <p className="mt-1 text-caption text-loss" data-testid="order-sl-move">{t('broker.bracket.move', { usd: signedMoney(slMove.usd), pct: signedPct(slMove.pct) })}</p>}
+                    {under('sl')}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 border-t border-ink-2 pt-3" data-testid="order-summary">
+                <KV k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(d.price)} />
+                <KV k={t('broker.notional')} v={money(notional)} />
+                <KV k={feeText} v={money(fee)} />
+                <KV k={t('broker.spread')} v={<span data-testid="order-spread">{spreadText}</span>} />
+                <KV k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
+                <KV k={t('broker.roundTrip')} v={<span data-testid="order-roundtrip">{money(summary.roundTrip)}</span>} />
+                <KV k={t('broker.breakEven')} v={<span data-testid="order-breakeven">{price(summary.breakEven)}</span>} />
+                <KV
+                  k={t('broker.cashAfter')}
+                  v={<span className="text-fg-muted" data-testid="order-cash-after">{money(cashAfter)}</span>}
+                />
+                <KV k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
+                {shorting && <p className="mt-1 text-caption text-warn">{t('broker.shortWarn')}</p>}
+                {margin && side === 'buy' && notional > acct.cash && <p className="mt-1 text-caption text-warn">{t('broker.marginWarn')}</p>}
+              </div>
+            </>
+          )}
         </div>
         {!locked && <div className="shrink-0 pt-2">{footerBody}</div>}
       </div>

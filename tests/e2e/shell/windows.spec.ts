@@ -106,10 +106,10 @@ test.describe('window rules', () => {
     // the first trade is a market buy: the order-type picker shows once a trade is done (the first trade is simple mode)
     await page.getByTestId('order-qty').fill('1');
     await page.getByTestId('order-submit').click();
-    await expect(page.getByTestId('type-limit')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('order-type')).toBeVisible({ timeout: 20_000 });
     await skipTips(page);
     const before = (JSON.parse(await orders(page)) as unknown[]).length;
-    await page.getByTestId('type-limit').click();
+    await page.getByTestId('order-type').selectOption('limit');
     await page.getByTestId('order-qty').fill('1');
     await page.getByTestId('order-limit').fill('1');
     await page.getByTestId('order-submit').click();

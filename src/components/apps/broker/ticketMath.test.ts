@@ -1,0 +1,154 @@
+import { describe, expect, it } from 'vitest';
+import { checkOrder, engineRefusal, parseDecimal, tradeSummary, type OrderCheck } from './ticketMath';
+
+/** A buy of 10 shares at 100 with a 1-share cash account that can pay for it: a clean base for each rule. */
+function base(over: Partial<OrderCheck> = {}): OrderCheck {
+  return {
+    side: 'buy', type: 'market', qty: 10, whole: true, mid: 100, ref: 100.05, limit: 0, stop: 0, trail: 5, tp: null, sl: null,
+    cash: 5000, bp: 5000, margin: false, total: 1001, notional: 1000.5, held: 0,
+    simpleCap: false, capCash: Infinity, capPct: 20, capRank: 'Hustler', locked: false, lockedTier: 'retail', ...over,
+  };
+}
+
+describe('parseDecimal', () => {
+  it('reads a comma or a dot as the one decimal point', () => {
+    expect(parseDecimal('12,5')).toBe(12.5);
+    expect(parseDecimal('12.5')).toBe(12.5);
+    expect(parseDecimal(' 3 ')).toBe(3);
+  });
+  it('reads an empty or broken field as zero', () => {
+    expect(parseDecimal('')).toBe(0);
+    expect(parseDecimal('abc')).toBe(0);
+  });
+});
+
+describe('checkOrder: the first failing rule wins and sits under its field', () => {
+  it('a clean order has no refusal', () => {
+    expect(checkOrder(base())).toEqual({ refusal: null, warning: null });
+  });
+
+  it('an empty size is a CTA reason only, with no message under the field', () => {
+    const r = checkOrder(base({ qty: 0 })).refusal!;
+    expect(r.field).toBe('qty');
+    expect(r.key).toBeUndefined();
+    expect(r.cta).toBe('broker.cta.size');
+  });
+
+  it('whole shares only for a stock', () => {
+    const r = checkOrder(base({ qty: 1.5 })).refusal!;
+    expect(r).toMatchObject({ field: 'qty', key: 'broker.refuse.whole' });
+  });
+
+  it('a cash account refuses a buy that its fee-included total does not cover, with both numbers', () => {
+    const r = checkOrder(base({ cash: 500, total: 1001, bp: 500 })).refusal!;
+    expect(r).toMatchObject({ field: 'qty', key: 'broker.refuse.cash', cta: 'broker.cta.cash', vars: { total: 1001, cash: 500 } });
+  });
+
+  it('a margin account is checked against buying power, not cash', () => {
+    const margin = base({ margin: true, cash: 50, bp: 200, notional: 1000 });
+    expect(checkOrder(margin).refusal).toMatchObject({ key: 'broker.refuse.bp', vars: { need: 1000, bp: 200 } });
+  });
+
+  it('the simple-mode cap refuses a buy over its share of cash', () => {
+    const r = checkOrder(base({ simpleCap: true, capCash: 400, mid: 100, qty: 10 })).refusal!;
+    expect(r).toMatchObject({ key: 'broker.firstCap', vars: { pct: 20, rank: 'Hustler' } });
+  });
+
+  it('a limit needs a price; a stop needs one too', () => {
+    expect(checkOrder(base({ type: 'limit', limit: 0 })).refusal).toMatchObject({ field: 'limit', key: 'broker.refuse.limit' });
+    expect(checkOrder(base({ type: 'stop', stop: 0 })).refusal).toMatchObject({ field: 'stop', key: 'broker.refuse.stop' });
+  });
+
+  it('a buy stop must sit above the mid and a sell stop below it', () => {
+    expect(checkOrder(base({ type: 'stop', stop: 99, mid: 100 })).refusal).toMatchObject({ field: 'stop', key: 'broker.refuse.stopBuy', vars: { mid: 100 } });
+    expect(checkOrder(base({ type: 'stop', side: 'sell', stop: 101, mid: 100 })).refusal).toMatchObject({ field: 'stop', key: 'broker.refuse.stopSell' });
+    expect(checkOrder(base({ type: 'stop', stop: 101, mid: 100 })).refusal).toBeNull();
+    expect(checkOrder(base({ type: 'stop', side: 'sell', stop: 99, mid: 100 })).refusal).toBeNull();
+  });
+
+  it('a stop-limit checks its stop side too', () => {
+    expect(checkOrder(base({ type: 'stop_limit', limit: 102, stop: 99, mid: 100 })).refusal).toMatchObject({ field: 'stop', key: 'broker.refuse.stopBuy' });
+  });
+
+  it('a limit on the marketable side of the mid is allowed, with a warning', () => {
+    expect(checkOrder(base({ type: 'limit', limit: 101, mid: 100 }))).toEqual({ refusal: null, warning: 'broker.warn.marketable' });
+    expect(checkOrder(base({ type: 'limit', limit: 99, mid: 100 })).warning).toBeNull();
+    expect(checkOrder(base({ type: 'limit', side: 'sell', limit: 99, mid: 100 })).warning).toBe('broker.warn.marketable');
+  });
+
+  it('a trailing stop stays between 0 and 50 percent', () => {
+    expect(checkOrder(base({ type: 'trailing', trail: 60 })).refusal).toMatchObject({ field: 'trail' });
+    expect(checkOrder(base({ type: 'trailing', trail: 5 })).refusal).toBeNull();
+  });
+
+  it('take-profit and stop-loss are optional, but a set one must be positive and on the profit side of the other', () => {
+    expect(checkOrder(base({ tp: null, sl: null })).refusal).toBeNull();
+    expect(checkOrder(base({ tp: 105, sl: null })).refusal).toBeNull();
+    expect(checkOrder(base({ tp: 0 })).refusal).toMatchObject({ field: 'tp', key: 'broker.refuse.bracket' });
+    expect(checkOrder(base({ sl: -1 })).refusal).toMatchObject({ field: 'sl', key: 'broker.refuse.bracket' });
+    expect(checkOrder(base({ tp: 95, sl: 97 })).refusal).toMatchObject({ field: 'tp', key: 'broker.refuse.bracketSide' });
+    expect(checkOrder(base({ side: 'sell', tp: 95, sl: 105 })).refusal).toBeNull();
+    expect(checkOrder(base({ side: 'sell', tp: 105, sl: 95 })).refusal).toMatchObject({ field: 'tp', key: 'broker.refuse.bracketSide' });
+  });
+
+  it('a short sale is not refused here: the engine decides it', () => {
+    expect(checkOrder(base({ side: 'sell', qty: 10, held: 0, cash: 5000 })).refusal).toBeNull();
+  });
+
+  it('a locked license refuses under the whole ticket', () => {
+    expect(checkOrder(base({ locked: true, lockedTier: 'pro' })).refusal).toMatchObject({ field: 'general', key: 'broker.refuse.license', vars: { tier: 'pro' } });
+  });
+});
+
+describe('tradeSummary: the cost before the trade', () => {
+  it('a round trip pays two fees and crosses the gap to mid twice; the break-even moves up by that per unit', () => {
+    const s = tradeSummary({
+      side: 'buy', qty: 10, price: 100.05, mid: 100, fee: 1, halfSpreadFrac: 0.0005, cash: 5000, bp: 5000,
+      margin: false, shorting: false, total: 1002.5, notional: 1000.5,
+    });
+    // slippage 0.05 a unit: round trip = 2 fees + 2 × 10 × 0.05 = 2 + 1
+    expect(s.roundTrip).toBeCloseTo(3, 6);
+    expect(s.breakEven).toBeCloseTo(100.05 + 0.3, 6);
+    expect(s.spreadPct).toBeCloseTo(0.001, 6);
+    expect(s.spread).toBeCloseTo(0.1, 6);
+    expect(s.cashAfter).toBeCloseTo(5000 - 1002.5, 6);
+    expect(s.bpAfter).toBeCloseTo(5000 - 1002.5, 6);
+  });
+
+  it('a short moves the break-even down and adds the proceeds to cash', () => {
+    const s = tradeSummary({
+      side: 'sell', qty: 10, price: 99.95, mid: 100, fee: 1, halfSpreadFrac: 0.0005, cash: 5000, bp: 5000,
+      margin: false, shorting: true, total: 997.5, notional: 999.5,
+    });
+    expect(s.breakEven).toBeCloseTo(99.95 - 0.3, 6);
+    expect(s.cashAfter).toBeCloseTo(5000 + 997.5, 6);
+    expect(s.bpAfter).toBeCloseTo(5000 - 999.5, 6);
+  });
+
+  it('an empty size costs nothing to go in and out of', () => {
+    const s = tradeSummary({ side: 'buy', qty: 0, price: 100, mid: 100, fee: 0, halfSpreadFrac: 0, cash: 10, bp: 10, margin: false, shorting: false, total: 0, notional: 0 });
+    expect(s.roundTrip).toBe(0);
+    expect(s.breakEven).toBe(100);
+  });
+});
+
+describe('engineRefusal: the engine says why, under the field that caused it', () => {
+  it('maps the engine codes to their field and copy', () => {
+    expect(engineRefusal('insufficient cash', 'buy', true, { cash: 12 })).toEqual({ field: 'qty', key: 'broker.refuse.cashNow', vars: { cash: 12 } });
+    expect(engineRefusal('insufficient buying power', 'buy', true, { bp: 3 })).toMatchObject({ field: 'qty', key: 'broker.refuse.bpNow' });
+    expect(engineRefusal('stacking', 'sell', true)).toEqual({ field: 'qty', key: 'broker.refuse.stacking' });
+    expect(engineRefusal('whole units only', 'buy', true)).toMatchObject({ field: 'qty', key: 'broker.refuse.whole' });
+    expect(engineRefusal('limit price required', 'buy', true)).toMatchObject({ field: 'limit' });
+    expect(engineRefusal('stop price required', 'buy', true)).toMatchObject({ field: 'stop' });
+    expect(engineRefusal('bad stop-loss', 'buy', true)).toMatchObject({ field: 'sl' });
+  });
+
+  it('a short the account cannot take says so (the engine answers with insufficient position)', () => {
+    expect(engineRefusal('insufficient position', 'sell', false)).toEqual({ field: 'qty', key: 'broker.refuse.short' });
+    expect(engineRefusal('insufficient position', 'sell', true)).toEqual({ field: 'qty', key: 'broker.refuse.fewer' });
+  });
+
+  it('an unknown code keeps the engine words under the CTA', () => {
+    expect(engineRefusal('closedWindow', 'buy', true)).toEqual({ field: 'general', key: 'broker.refuse.engine', vars: { reason: 'closedWindow' } });
+  });
+});
