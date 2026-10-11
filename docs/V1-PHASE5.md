@@ -1,173 +1,215 @@
-# V1 Phase 5: status (Launchpad, lead spec v1 with the v1.1 amendments)
+# V1 Phase 5: status (Launchpad, lead spec v1 with the v1.1 and v1.2 amendments)
 
-Scope: Phase 5 Launchpad, as set in `docs/team/specs/lead-launchpad.md` (L1 to L8), with the binding "Amendments v1.1" section at its end (L6.1, L6.2, L6.3, L8.1 and the ratified deviations).
-Branch: `p5/lp`, worktree `.claude/worktrees/p5-lp`. Base: `4ede148`. Status date: 2026-10-11.
+Scope: Phase 5 Launchpad, as set in `docs/team/specs/lead-launchpad.md` (L1 to L8), with the binding "Amendments v1.1" and "Amendments v1.2" sections at its end.
+Branch: `p5/lp`, worktree `.claude/worktrees/p5-lp`. v1.1 base: `4ede148`. v1.2 base: `cbb24d8`. Status date: 2026-10-11.
 Status words as in `docs/V1-PHASE4.md`: **Done**, **Partial**, **Not built**, **Deferred**, **Decided**.
 
 ## 0. Phase 5 status (current)
 
-### 0.1 Commits
+### 0.1 Verdict
 
-| Commit | What |
-|---|---|
-| `b1d3bed` | v1.1 world: L6.1 fast pump and slow bleed, L6.2 post-graduation unwind, the cancel rule, the tuned L6 constants, and `v11.test.ts` |
-| `741f84d` | NPC launches on in the server's game world (`server/host.ts`); `createGame` default stays off |
-| `288dcb2` | L8.1 gate harness: life-end NPC net, paired excess, idle drift control, `--npc` overrides |
-| (this doc) | `docs: V1 Phase 5 status` |
+**Held-out gate (lh, 200 seeds): FAIL.** The v1.2 gate (L8.2) requires every bot at or below zero at one-sided 95% on the held-out prefix `lh`. Two of the eight bots fail: the random retail bot (mean excess +5.70 points, one-sided +8.37) and the pump seller (mean -0.13, one-sided +0.71). Six bots pass. The shape (dead within 7 game days, graduation rate, 10x rate), the NPC life net, the money identity and the idle control all pass on the held-out seeds.
 
-Gates at `b1d3bed` (the world commit): `npx tsc --noEmit` exit 0; `npx eslint` on the touched files 0 errors; `npx vitest run` (full suite) 187 files, 1843 tests, all pass; `src/world/launchpad` 80 tests pass (67 before this phase, 13 new in `v11.test.ts`).
+The tuning screen on `lx` (50 seeds) had failed four bots: flipper, retail, pump seller and post-graduation buyer (section 2). On `lh-200` the flipper and the post-graduation buyer pass, but only because the held-out GX draw was higher (section 3). Retail and the pump seller fail on both prefixes.
 
-### 0.2 Spec items L1 to L8
+No constants were changed after the held-out run. Nothing was tuned on `lh`.
+
+### 0.2 Commits
+
+| Commit | Amendment | What |
+|---|---|---|
+| `99fe466` | v1.1 spec | lead Launchpad spec v1.1 (fast pump, slow bleed; post-graduation unwind; paired gate; ratified deviations) |
+| `4ede148` | v1.1 base | in-place account cash (30-day seed 5.4 min to 20 s, same output); gate measures day-3+ cohorts; L6 tuning set C |
+| `b1d3bed` | v1.1 | L6.1 fast pump and slow bleed, L6.2 post-graduation unwind, the cancel rule, the tuned L6 constants, `v11.test.ts` |
+| `741f84d` | v1.1 | NPC launches on in the server's game world (`server/host.ts`); `createGame` default stays off |
+| `288dcb2` | v1.1 | L8.1 gate harness: life-end NPC net, paired excess, idle drift control, `--npc` overrides |
+| `caf497b` | v1.1 | `docs: V1 Phase 5 status` (gate at 10, 50 and 200 seeds) |
+| `c78f29b` | v1.2 spec | lead Launchpad spec v1.2 (instant arrivals, no copycat buzz, finite tails, held-out gate with chaser and pump-seller bots) |
+| `cbb24d8` | v1.2 review | review items 6, 8, 9, 14: cancel rule from lots and tape on old snapshots, refused NPC demand kept, v11 tests renamed and strengthened, harness seed prefixes, a 30-gd post-graduation 10x window |
+| `e3fb81a` | v1.2 | L6.4 instant arrivals, L6.5 no copycat, L6.6 finite tails (Pareto alpha 2.5, floor 2.2; arrival capped at the cash to graduation); `v11.test.ts` extended |
+| `fdee353` | v1.2 | L8.2 harness: viral chaser (per tick), pump seller, post-graduation buyer; eight gated strategies; the probe deleted |
+| `1678d34` | v1.2 | L6 constants tuned on `lx-50` (`VIRAL_SCALE` 0.2 to 12, `VIRAL_ALPHA` 2.5 to 2.2, `TIME_SELL_PER_TICK` 0.00002 to 0.5); table in the commit message |
+| (this doc) | v1.2 | `docs: V1 Phase 5 status (v1.2, lh-200 held-out gate FAIL)` |
+
+Gates at `1678d34` (the last code commit): `npx next typegen && npx tsc --noEmit` exit 0; `npx eslint` on the touched files 0 errors; `src/world/launchpad` 90 tests pass; full `npx vitest run --maxWorkers=2` 187 files, 1853 pass, 70 skipped, 21 todo. This pass changed no code (the held-out run and this doc only), so those gates stand. Section 4 has the run at the final commit.
+
+### 0.3 Spec items L1 to L8 (with v1.1 and v1.2 amendments)
 
 | Item | Status | Commits | Notes |
 |---|---|---|---|
 | L1 Scope and placement | **Done** | `b1d3bed`, `741f84d` | World layer only. NPC launches are on in the server's game world and off in every bare test world. Determinism and the zero-sum test pass. |
-| L2 Launch | **Done** (cancel is a ratified deviation) | `b1d3bed` | Cancel now refused only after another player trades; refund is half the fee (see 0.4). Gates, fee, limits and moderation are unchanged from earlier commits. |
-| L3 Bonding curve | **Done** (unchanged) | `b1d3bed` | Curve math and the 1% fee are unchanged. NPC fee sink halves now book on the `npcRetail` line (see 0.4). |
-| L4 Graduation | **Done** (unchanged); L6.2 **Done** | `b1d3bed` | The cohort's position unwinds through `placeOrder` with a one-day half-life. |
-| L5 Anti-rug | **Done** (unchanged) | | Vesting world check, rug flag and suits are as in earlier commits. |
-| L6 Hype and NPC flow | **Done** for the v1.1 mechanics; tuned (L6.3); the gate is **Partial** | `b1d3bed` | L6.1 and L6.2 are built and tested. The shape and the NPC net pass at 200 seeds. The retail strategy fails the paired gate by 0.46 points (section 3). |
-| L7 App (Launchpad) | **Not re-checked** in this pass | | No client code was touched. The e2e suite was not run (section 0.5). |
-| L8 Gates | **Partial** | `288dcb2` and this doc | Four of the five strategies pass at 200 seeds, along with the shape, the identity and the idle control. Retail fails. |
+| L2 Launch | **Done** (cancel is a ratified deviation) | `b1d3bed`, `cbb24d8` | Cancel refused only after another player trades; refund is half the fee (deviation 1). Gates, fee, limits and moderation unchanged. |
+| L3 Bonding curve | **Done** (unchanged) | | Curve math and the 1% fee unchanged. NPC fee sink halves book on `npcRetail` (deviation 3). |
+| L4 Graduation | **Done** (unchanged); L6.2 **Done** | `b1d3bed` | The cohort's position unwinds through `placeOrder` with a one-game-day half-life. |
+| L5 Anti-rug | **Done** (unchanged) | | Vesting world check, rug flag and suits as in earlier commits. |
+| L6 Hype and NPC flow | **Done** for the v1.1 and v1.2 mechanics (L6.1 to L6.6); constants tuned (L6.3); the gate is **Partial** | `b1d3bed`, `e3fb81a`, `1678d34` | Instant arrivals, no copycat and finite tails are built and tested. The shape and the NPC life net pass on `lx-50` and `lh-200`. Retail and pump seller fail on `lh-200` (section 3). |
+| L7 App (Launchpad) | **Not re-checked** in this pass | | No client code changed in v1.1 or v1.2. The e2e suite and the Playwright specs were not run (section 0.6). |
+| L8 Gates | **Partial** (held-out FAIL) | `288dcb2`, `fdee353`, `1678d34` | Eight strategies are gated, plus the idle control. The held-out `lh-200` run fails on retail and pump seller (section 3). |
 
-### 0.3 Gate at 50 and 200 seeds (authoritative: 200)
+### 0.4 Gate results: `lx-50` (tuning screen) and `lh-200` (held-out, authoritative)
 
-The gate is `scripts/balance/launchpad.ts`, 30 game days per seed, seeds `lp-01` to `lp-200`, on the committed defaults (section 2.4). The excess of each bot is its return minus the GX buy-and-hold on the same seed; the pass line is the one-sided 95% bound of the mean excess (mean + 1.645 SE over seeds).
+The gate is `scripts/balance/launchpad.ts`, 30 game days per seed, committed defaults (`1678d34`). The excess of each bot is its return minus the GX buy-and-hold on the same seed. The pass line is one-sided 95% (mean + 1.645 SE over seeds) at or below 0. Figures are in percentage points of return.
 
-| Check | Pass line | 50 seeds | 200 seeds | Result at 200 |
+The `lx-50` run is the tuning screen (seeds `lx-01` to `lx-50`). The `lh-200` run is the held-out confirmation (seeds `lh-01` to `lh-200`), which no tuning step has seen.
+
+**Bots, all eight, on `lh-200` (authoritative):**
+
+| Bot | Mean return | Mean excess | One-sided 95% | Result |
 |---|---|---|---|---|
-| creatorDump: mean excess / one-sided 95% | <= 0 | -0.138 / -0.106 | -0.133 / -0.119 | **Pass** |
-| sniper | <= 0 | -0.302 / -0.282 | -0.294 / -0.285 | **Pass** |
-| flipper | <= 0 | -0.254 / -0.227 | -0.263 / -0.249 | **Pass** |
-| buzzPumper | <= 0 | -0.807 / -0.783 | -0.796 / -0.785 | **Pass** |
-| retail | <= 0 | 0.000 / +0.051 | -0.010 / +0.0046 | **Fail** (by 0.46 points) |
-| dead within 7 game days, launches from day 3 | >= 70% | 77.8% | 77.4% | **Pass** |
-| graduation rate | 1% to 5% | 1.17% | 1.16% | **Pass** |
-| 10x within 30 game days | <= 0.5% | 0 | 0.0012% (1 token of 80,372) | **Pass** |
-| NPC cohort net per token over life (npcRetail, section 0.4) | <= 0 | -8.0 | -9.6 | **Pass** |
-| money identity, worst residual per game day | < 0.005 | 3.5e-7 | 3.8e-7 | **Pass** |
-| idle control: valuation drift (net worth minus cash), worst seed | = 0 | 0 | 0 | **Pass** |
-| observed launches | | 20,029 | 80,372 | |
-| booked npcRetail net per launch (reference, not gated) | | +4.0 | +2.3 | |
-| GX mean return over the seeds (benchmark) | | +1.0% | +0.4% | |
+| creatorDump | -13.13% | -14.67 | -13.23 | Pass |
+| sniper | -7.40% | -8.95 | -7.86 | Pass |
+| flipper | +0.18% | -1.37 | -0.66 | Pass (cash holder, see section 3) |
+| buzzPumper | -78.38% | -79.93 | -77.94 | Pass |
+| retail | +7.24% | +5.70 | +8.37 | **Fail** |
+| viralChaser | -27.41% | -28.96 | -27.87 | Pass |
+| pumpSeller | +1.41% | -0.13 | +0.71 | **Fail** |
+| postGradBuyer | -0.12% | -1.67 | -0.95 | Pass (cash holder, see section 3) |
 
-Gate result at 200 seeds: **false** (retail). The 50-seed table is kept because it is the screen that the lead's tuning rule asks for. The 200-seed run is `balance-out/lp-v11-a200.json` (ignored by git; reproduce with `npx tsx scripts/balance/launchpad.ts --seeds 200 --days 30`).
+GX mean return over the `lh-200` seeds: +1.55% (standard deviation across seeds about 6.1%). Bot gate: **6 of 8 pass, 2 fail (retail, pump seller)**.
 
-### 0.4 Deviations and readings (for the lead to rule on)
+**Bots, all eight, on `lx-50` (tuning screen, reference):**
 
-1. **Cancel (ratified, v1.1).** A creator may cancel a live launch only before another player has traded it. The creator's own dev buy does not block a cancel (the token then dies and its curve still pays sellers), and the NPC cohort does not block it either (NPCs are not accounts). A cancel sells the cohort's tokens back to the curve and refunds half the $1,000 fee (`lpRefund`); the other half stays a sink. The refusal copy in en and fr now says "another player".
-2. **NPC launches on in the game world (ratified, v1.1).** `server/host.ts` passes `launchpadNpc: true` to `createGame`, which is what the e2e world runs through. `createGame`'s default stays off, so the bare test worlds keep their fingerprints. The state flag is stored with the Launchpad state, so an existing snapshot without a Launchpad keeps none until a fresh world is created. **No game-world fingerprint test changed**: the full suite (187 files) passes unchanged with the flag on in the server world.
-3. **npcRetail booking.** An NPC fill's fee sink halves now book on the `npcRetail` line (both halves when the token has no creator), not on `lpTradeFee`. Without this the line counts the cohort's own buy fees as money it injected, so a flat cohort looked like a faucet. The money identity closes to the cent, and player fees are booked as before.
-4. **Idle-bot zero check (L8.1), reading.** The idle control never trades. Its net worth must move only with its cash, to the cent, on every seed (the drift is exactly zero). A zero *raw* return was not the test: idle cash earns deposit interest (the idle control's raw return is positive in the smoke runs), and an idle bot's paired excess is minus the GX return by construction. **The lead should confirm this reading.**
-5. **NPC cohort net, the gated measure (L6.1).** The gate uses the life-end measure per observed launch: the cohort's curve buys, less its own 1% buy fee, less its gross sells, less the liquidation value of the inventory it still holds on a live curve. A graduated token counts once it has had ten game days to unwind (its last share is then 0.1%). Dead tokens are flat in tokens (liquidated at death), so they need no mark. The raw booked line per launch is also reported (+2.3 at 200 seeds). Graduated inventory is not marked at the engine's mid, because that mark is optimistic (the unwind happens at lower book prices). **The lead should confirm this measure.**
-6. **Observed launches** keep the earlier rule: a launch counts when it is at least ten game days old at the end of the run, so its life has run out.
+| Bot | Mean excess | One-sided 95% | Result |
+|---|---|---|---|
+| creatorDump | -14.16 | -12.63 | Pass |
+| sniper | -8.07 | -6.17 | Pass |
+| flipper | -0.14 | +1.29 | **Fail** (cash holder: excess = minus GX draw plus interest) |
+| buzzPumper | -81.33 | -79.00 | Pass |
+| retail | +5.58 | +9.99 | **Fail** (fat right tail from lucky graduated bags) |
+| viralChaser | -28.48 | -26.13 | Pass |
+| pumpSeller | +1.07 | +2.79 | **Fail** (earns other bots' buy pumps) |
+| postGradBuyer | -0.47 | +0.97 | **Fail** (cash holder most days, GX-limited) |
 
-### 0.5 Open items
+GX mean return over the `lx-50` seeds: +0.34%.
 
-- **Retail fails the paired gate by 0.46 points at 200 seeds** (section 3). This is the one open gate. It is a ruling question as much as a tuning one.
-- **L7 and e2e not run.** The Launchpad app was not re-checked, and the Playwright specs for launch, trade and graduation were not run in this pass. The e2e world now runs NPC launches, so the feed and the Quay tabs will show world tokens; a look at the e2e expectations is needed before the next merge.
-- **Old worlds get no NPC launches** (flag set at creation only). A live world started before this commit keeps running without them until it is recreated; the lead should decide whether to turn the flag on at boot.
-- **The 10x check samples the price at day boundaries**, not intraday. A spike inside a day can be missed.
-- **The GX benchmark** has a non-zero mean and wide spread over seeds. A bot that holds cash has an excess of minus the GX return, so the paired excess of the cash-holding control depends on the GX draw. This is inherent in the spec's benchmark and bears on the retail ruling (section 3.3).
-- **Balance rigidity.** The L6.3 constants are the only numbers moved. The curve, fees, launch gates, vesting, the rug rules and the ban are unchanged, as the spec requires.
+**Shape, NPC life net and identity (on `lh-200`, with the `lx-50` figures beside them):**
 
-## 1. v1.1 mechanics (what changed in `b1d3bed`)
+| Check | Pass line | lh-200 result | lx-50 result | Result (lh-200) |
+|---|---|---|---|---|
+| dead within 7 game days (launches from day 3) | >= 70% | 76.05% (76,051 launches) | 75.66% | Pass |
+| graduation rate (observed launches) | 1% to 5% | 1.34% (1,075 of 80,234) | 1.34% | Pass |
+| 10x within 30 game days of graduation | <= 0.5% | 0.0012% (1 of 80,234) | 0.000% | Pass |
+| NPC cohort life net per token (L6.1, deviation 5) | <= 0 | -6.41 | -7.19 | Pass |
+| NPC booked `npcRetail` net per token (reference, not gated) | | -0.56 | -0.47 | |
+| money identity, worst residual per game day | < 0.005 | 6.4e-8 | 6.1e-8 | Pass |
+| idle control: valuation drift, worst seed | = 0 | 0 | 0 | Pass |
+| observed launches (of all created) | | 80,234 (of 120,144) | 20,121 | |
 
-### 1.1 L6.1 demand comes from arrivals, bought with a short half-life
+Shape result on `lh-200`: **Pass** on all six rows.
 
-- Every buzz arrival adds pending NPC demand: the launch's own buzz, each viral shock, each Quay billboard or Wire promo, and each copycat buy (`src/world/launchpad/demand.ts`). Demand is `buzz added x NPC.DEMAND_PER_BUZZ`, in dollars.
-- The cohort buys the pending demand with a buy half-life of `NPC.BUY_HALF_TICKS` ticks (3 at the tuned set).
-- An arrival resets the cohort's reference peak to the buzz now.
+**Gate result at `lh-200`: FAIL** (retail and pump seller). The gate is `false` in `balance-out/launchpad-lh200.json`, and the process exits 1.
 
-### 1.2 Capitulation, profit taking and the time share; flat at death
+### 0.5 Deviations and readings (for the lead to rule on)
 
-- Each tick the cohort sells `floor(npcBal x share)` tokens, where `share = min(1, CAPIT x (1 - buzz / peak) + PROFIT x gain + TIME)`. `gain` is the price over the cohort's cost, and only a positive gain counts. The sell is at any price, and never more than the cohort holds.
-- At death (no trade for 24 game days, or the cash clock) and at a cancel, the cohort's tokens are sold to the curve in one fill (`liquidateCohort`, `trade.ts`), so the cohort is flat in tokens over the token's life.
-- The NPC fee halves book on the `npcRetail` line (deviation 3).
+1. **Cancel (ratified, v1.1, reading in v1.2).** A creator may cancel a live launch only before another player has traded it. The creator's own dev buy does not block a cancel, and the NPC cohort does not block it (NPCs are not accounts, per the v1.2 reading). A cancel sells the cohort's tokens back to the curve and refunds half the $1,000 fee (`lpRefund`); the other half stays a sink.
+2. **NPC launches on in the game world (ratified, v1.1).** `server/host.ts` passes `launchpadNpc: true` to `createGame`. `createGame`'s default stays off, so bare test worlds keep their fingerprints. No game-world fingerprint test changed.
+3. **npcRetail booking.** An NPC fill's fee sink halves book on `npcRetail` (both halves when the token has no creator), not on `lpTradeFee`. Without this the line counted the cohort's own buy fees as injected money. The identity closes to the cent; player fees are booked as before.
+4. **Idle control (L8.1, ratified reading).** The idle control never trades. Its net worth must move only with its cash, to the cent, on every seed. A zero raw return was not the test: idle cash earns deposit interest, so the paired excess of an idle bot is minus the GX return by construction.
+5. **NPC cohort net, the gated measure (L6.1, ratified in v1.2).** Life-end measure per observed launch: the cohort's curve buys, less its 1% buy fee, less its gross sells, less the liquidation value of the inventory still held on a live curve. A graduated token counts once it has had ten game days to unwind. Dead tokens are flat in tokens and need no mark. The raw booked line per launch is reported beside it, not gated.
+6. **Observed launches.** A launch counts when it is at least ten game days old at the end of the run.
+7. **Benchmark for cash-holding bots (open, section 5).** A bot that holds cash is judged against GX buy-and-hold by construction, so its excess is minus the GX draw plus interest. Its gate result therefore depends on the GX draw of the seed set, not on its trades. This applies to the flipper and the post-graduation buyer, which fail on `lx-50` and pass on `lh-200`.
 
-### 1.3 L6.2 post-graduation unwind
+### 0.6 Open items
 
-- A graduated token's cohort position is sold into the liquidity book through `placeOrder`, the engine's normal order path, every tick: a share `1 - 0.5^(1/TPD)` of what it still holds (a one-game-day half-life), less the sells already resting (`openSellQty`).
-- The proceeds are swept to the `npcRetail` sink each tick, and `lpFills` keeps no holder lots for the cohort account (`isNpcAccount`).
+- **Held-out gate fails (`lh-200`).** Retail and pump seller fail. The result is in section 3. Per the lead's rule, the next move is a ruling, not a re-tune on `lh`.
+- **Retail's pass line is a single-seed tail.** Retail's median excess on `lh-200` is -0.98 points, but its mean is +5.70, and one seed (`lh-97`) has an excess of +222 points, so it alone contributes +1.11 points of the mean. Without that seed the mean is +4.61. The result is a fat right tail from lucky graduated bags, not a broad edge.
+- **Pump seller fails by 0.71 points.** Its mean is -0.13 and its median -0.39. It is the closest failing bot. Its edge on `lx-50` came from other bots' buy pumps; that diagnosis was not repeated on `lh`.
+- **L7 and e2e not run.** The Launchpad app was not re-checked, and the Playwright specs for launch, trade and graduation were not run in this phase. The e2e world runs NPC launches, so the feed and the Quay tabs show world tokens; the e2e expectations need a look before a merge.
+- **Old worlds get no NPC launches.** The flag is set at creation only. A live world started before the flag keeps running without them until it is recreated; the lead should decide whether to turn the flag on at boot.
+- **The 10x check samples the price at each tick** (since the 30-gd window fix in `cbb24d8`), not intraday. A spike inside a tick can still be missed.
+- **Balance rigidity.** The L6 constants are the only numbers moved. The curve, fees, launch gates, vesting, rug rules and the ban are unchanged, as the spec requires.
 
-### 1.4 Tests
+## 1. Mechanics by amendment
 
-`src/world/launchpad/v11.test.ts` (13 tests): the arrivals and the copycat amount; the buy half-life (pending halves in three ticks); the fade sells under the cohort's cost; the cohort never sells what it does not hold; an old snapshot without the new fields loads; the flat-at-death rule and the money identity across it; the cancel after the NPC sniper has traded; the unwind through `placeOrder`, its one-day share, the sweep, and no holder lots for the cohort; the cancel after the creator's own dev buy (refund half, sells still allowed); the refusal after another player's buy; the liquidation valuation in net worth; and the game-world flag.
+### 1.1 L6.1 (v1.1) fast pump, slow bleed
 
-## 2. Tuning (L6.3)
+- Each buzz arrival adds pending NPC demand (`demand.ts`). The cohort buys pending demand with a buy half-life, then sells as hype fades: per tick, sell share = capitulation x (1 - buzz / peak) + profit taking x gain + time term, never more than the cohort holds.
+- At death and at a cancel, the cohort is liquidated to the curve in one fill (`liquidateCohort`, `trade.ts`), so it is flat in tokens over a token's life.
+- The NPC fee halves book on `npcRetail` (deviation 3).
 
-### 2.1 Where the work started
+### 1.2 L6.2 (v1.1) post-graduation unwind
 
-At `4ede148` (set C, the v1.1 starting point) the gate failed on flipper and retail and had no graduations. The first v1.1 model, with the first set of constants, gave 67% dead within 7 days, 2.5% graduations, and an NPC net far above zero. Part of that net was a booking artifact (deviation 3). The rest was real: see 2.2.
+- A graduated token's cohort position is sold into the liquidity book through `placeOrder` every tick: a share `1 - 0.5^(1/TPD)` of what it still holds (one-game-day half-life), less resting sells.
+- Proceeds sweep to `npcRetail` each tick. `lpFills` keeps no holder lots for the cohort account (`isNpcAccount`).
 
-### 2.2 Root cause of the NPC cohort's sign
+### 1.3 L6.4 (v1.2) instant arrivals
 
-- **Dead tokens are roughly flat** before fees. The cohort buys the arrivals and is liquidated at death.
-- **Graduated tokens are where the cohort loses.** The cohort's demand is essentially the whole raise (on a typical graduation the cohort bought about $45k of the $44k raise, diagnostic run `balance-out/diag-d3.json`). Then the unwind into the book loses a further 1 to 2% (the book's impact and spread). Graduation is therefore driven by the cohort, and the cohort pays for it.
-- **Fast exits help.** A high capitulation rate lowers the cohort's exposure to the fade, and so lowers the life net. Profit taking helps too, but at high rates it cuts graduations below the 1% floor, because the cohort sells into the rise before the raise is complete.
-- **Retail's excess does respond to the exit speed.** Across the twenty-odd settings tried, retail's 10-seed mean excess went from +0.05 (slow exits) to about -0.02 (fast exits), and it stayed near -0.02 for every fast-exit set. Its 200-seed mean is -0.010 (section 3.3).
+- A buzz arrival (launch buzz, viral shock, buzz item) is bought by the cohort in full in the tick it arrives (`absorb.ts`). No half-life: no player can act before it.
+- A refused buy keeps its demand pending.
 
-### 2.3 Parameter sets tried
+### 1.4 L6.5 (v1.2) no copycat
 
-Ten seeds each unless marked. "Booked" is the raw npcRetail line per launch; "life" is the gated measure. Retail is shown as its mean excess and its one-sided 95% bound. The NPC defaults not listed are the v1.1 values (`BUY_HALF_TICKS` 3, `TIME_SELL_PER_TICK` 0.00002, the viral law, the base buzz, the sniper).
+- Player buys add no buzz. `LP.BUY_BUZZ_PER_100` and `NPC.BUY_HALF_TICKS` are removed.
 
-| Set | DEMAND_PER_BUZZ | PROFIT | CAPIT | BUY_HALF | Other | Dead 7d | Grad | Retail mean / 1s95 | Booked net | Life net |
-|---|---|---|---|---|---|---|---|---|---|---|
-| a10 (first model, old booking) | 2000 | 0.0005 | 0.01 | 3 | | 66.7% | 2.51% | +0.012 / +0.078 | 93.8 | |
-| c1 | 2000 | 0.002 | 0.002 | 3 | | 66.3% | 2.46% | +0.049 / +0.129 | 91.0 | |
-| c2 / d1 | 1000 | 0.002 | 0.002 | 3 | | 76.0% | 1.67% | +0.013 / +0.072 | 65.7 | |
-| d2 | 1000 | 0.005 | 0.0005 | 3 | | 75.7% | 1.52% | +0.015 / +0.072 | 119.3 | |
-| d3 | 500 | 0.002 | 0.002 | 3 | | 83.3% | 0.96% | -0.022 / +0.012 | 47.6 | |
-| d4 | 1000 | 0.002 | 0.002 | 6 | | 76.1% | 1.50% | +0.014 / +0.073 | 64.2 | |
-| e1 | 500 | 0.002 | 0.01 | 3 | | 83.7% | 0.96% | -0.021 / +0.011 | 20.1 | |
-| e2 | 500 | 0.002 | 0.005 | 3 | | 83.6% | 0.96% | -0.023 / +0.009 | 29.3 | |
-| e3 | 250 | 0.002 | 0.002 | 3 | | 88.2% | 0.64% | -0.021 / +0.012 | 35.6 | |
-| e4 | 500 | 0.002 | 0.002 | 2 | | 83.3% | 0.98% | -0.022 / +0.012 | 44.2 | |
-| f1 | 500 | 0.002 | 0.01 | 3 | VIRAL_PER_DAY 0.08 | 80.9% | 1.11% | +0.008 / +0.048 | 26.7 | |
-| f2 | 700 | 0.002 | 0.01 | 3 | | 80.4% | 1.20% | -0.025 / +0.006 | 23.4 | |
-| f3 | 500 | 0.0005 | 0.01 | 3 | | 83.7% | 1.03% | -0.021 / +0.011 | 21.6 | |
-| f4 | 500 | 0.002 | 0.02 | 3 | | 83.7% | 0.96% | -0.020 / +0.012 | 13.9 | |
-| g1 | 700 | 0.002 | 0.05 | 3 | | 80.8% | 1.20% | -0.018 / +0.013 | 11.0 | |
-| g2 | 700 | 0.002 | 0.1 | 3 | | 81.1% | 1.20% | -0.018 / +0.014 | 7.3 | |
-| g3 | 700 | 0.002 | 0.05 | 3 | TIME 0.0002 | 80.9% | 1.20% | -0.018 / +0.013 | 10.5 | |
-| g4 | 700 | 0.002 | 0.05 | 6 | | 81.0% | 1.06% | -0.018 / +0.014 | 9.7 | |
-| h1 | 700 | 0.02 | 0.05 | 3 | | 81.3% | 0.71% | -0.018 / +0.014 | 4.6 | |
-| h2 | 700 | 0.005 | 0.05 | 3 | | 80.9% | 1.06% | -0.018 / +0.014 | 8.4 | |
-| h3 | 700 | 0.02 | 0.1 | 3 | | 81.5% | 0.71% | -0.017 / +0.014 | 1.3 | |
-| **h4 (chosen)** | **1000** | **0.02** | **0.1** | **3** | | **77.7%** | **1.06%** | **-0.018 / +0.013** | **5.3** | **-10.4** |
-| 50 seeds, chosen | 1000 | 0.02 | 0.1 | 3 | | 77.8% | 1.17% | 0.000 / +0.051 | 4.0 | -8.0 |
-| 200 seeds, chosen | 1000 | 0.02 | 0.1 | 3 | | 77.4% | 1.16% | -0.010 / +0.0046 | 2.3 | -9.6 |
+### 1.5 L6.6 (v1.2) finite tails
 
-Notes on the table. The "life" column exists from set h4 on (the measure was changed after h3; the earlier sets report the booked net only). Set h3 reached a booked net of 1.3, but its graduation rate of 0.71% fails the floor. At demand 500 most sets sit at 0.96% to 0.98%, below the 1% floor; f1 and f3 pass only just (1.11% and 1.03%), and at demand 250 (set e3) graduations are 0.64%.
+- Viral and launch-buzz laws are Pareto with alpha at least 2.2 (`TAIL_ALPHA_MIN`), so mean and variance are finite. One arrival's demand is capped at the spend that takes the curve from its current point to graduation, plus one cent (`demand.ts` `arrivalCap`).
 
-### 2.4 Chosen set
+### 1.6 Tests
 
-`NPC.DEMAND_PER_BUZZ` 1000, `NPC.PROFIT_PER_TICK` 0.02, `NPC.CAPIT_PER_TICK` 0.1. The rest is unchanged: `BUY_HALF_TICKS` 3, `TIME_SELL_PER_TICK` 0.00002, the viral law, the base buzz and the sniper.
+`src/world/launchpad/v11.test.ts` covers the v1.1 mechanics (arrivals, half-life, fade, flat at death, cancel rules, unwind, valuation) and the v1.2 mechanics (instant absorption, no copycat, absorb refusal and graduation, the arrival cap, the tail floor). `src/world/launchpad`: 90 tests pass at `1678d34`.
 
-It is the set that passed the dead, graduation and life-net checks at 10 seeds with the most margin on each. The 200-seed run then confirmed the shape, the life net and the identity, and retail failed by 0.46 points.
+### 1.7 L8.2 bots (v1.2)
 
-## 3. Gate results and the retail question
+- **Viral chaser:** buys within a tick of a buzz rise of 0.25 or a day-volume rise of 1,000; exits at -10%, +50% or after two game days.
+- **Pump seller:** $150 stakes in tokens under two game days old, at most four at once; sells into any pump of 5% above its last level, or after three game days.
+- **Post-graduation buyer:** buys $1,000 of a graduation within two game hours of it; sells into the unwind after two game hours of hold.
 
-### 3.1 Why the gate is not reported as a pass
+## 2. Tuning (L6.3) on `lx`
 
-Four of the five strategies pass at 200 seeds, and so do the shape, the identity and the idle control. The retail strategy fails. Its one-sided 95% bound is +0.0046 at a mean of -0.010. Passing needs the mean at or below about -0.015 at this spread.
+### 2.1 Where v1.2 started
 
-### 3.2 Retail's spread
+v1.1 constants with the v1.2 mechanics (instant arrivals, finite tails) gave 0 graduations and about 97% dead within 7 days at `VIRAL_SCALE` 0.2: the viral shocks were too small to lift a curve to graduation.
 
-Across seeds, retail's excess has a standard deviation of 0.125 at 200 seeds (0.22 at 50). The distribution is fat-tailed. Its median is -0.017, and one seed (`lp-36`) contributes +1.40. In that seed the retail bot bought a token's curve tokens early, at about $0.000015 each, and the token then graduated and doubled. The engine marks that position at mid, which is correct. At 50 seeds that one seed alone moves the mean by +0.028.
+### 2.2 Search
 
-### 3.3 Root cause and what was not done
+Tuning used 10-seed screens on `lx`, then 50 seeds. Rounds: scale 0.2 to 8 to 12 at alpha 2.2 to 2.5; `TIME_SELL_PER_TICK` at 0.03, 0.01, 0.1 (fast reversal), then 0.5 and 1.0. The time term at 1.0 raised the NPC net (+11, fail) and the chaser (+6.5, fail), so 0.5 was kept.
 
-- Retail's excess is noise-dominated: its mean is near zero, and a few lucky graduated bags set the spread. The sampling error at 200 seeds is about 0.009, so a true mean of about -0.015 is needed to pass.
-- The mean moved only between -0.017 and -0.025 across the fast-exit sets, and +0.013 to +0.049 across the slow-exit sets. So retail responds to the L6 constants, but no tried set reached -0.015 at 200 seeds without losing the graduation floor or the life-net sign.
-- Changing the retail bot's rules to make it lose would be gaming the gate, so it was not done. Nor was the benchmark changed.
-- **For the lead's ruling:** either retail is kept as a gated bot and needs a larger sample or a structural change to the L6 model, or the spec's benchmark (GX buy-and-hold for a bot that holds cash) is reconsidered for bots that do not trade the index. A bot that holds cash is judged against the index by construction, so its excess is minus the GX return, and the GX draw decides its sign.
+### 2.3 Chosen set (`1678d34`)
+
+| Constant | v1.1 value | v1.2 value |
+|---|---|---|
+| `VIRAL_SCALE` | 0.2 | 12 |
+| `VIRAL_ALPHA` | 2.5 | 2.2 (the `TAIL_ALPHA_MIN` floor) |
+| `TIME_SELL_PER_TICK` | 0.00002 | 0.5 |
+
+Other L6 constants unchanged from v1.1 (`DEMAND_PER_BUZZ` 1000, `PROFIT_PER_TICK` 0.02, `CAPIT_PER_TICK` 0.1, `BASE0` 0.008, `LAUNCHES_PER_DAY` 20, sniper 100 to 400).
+
+Why: with instant arrivals and finite tails, scale 12 gives raise-sized shocks that graduate about 1.3% of launches. The fast time term keeps the NPC life net negative and reverts most pumps inside a decision window.
+
+### 2.4 What the search could not fix
+
+- **Pump seller** earns other bots' buy pumps, not its cohort's. No constant closed it.
+- **Flipper and post-graduation buyer** hold cash most days. Their excess is the GX draw plus interest. The GX standard deviation over 30 days across seeds is about 6 to 8%, which is larger than the bots' trading effect, so their result turns on the seed set.
+- **Retail** has a mean near zero on the median and a right tail from lucky graduated bags.
+
+Changing bot rules to make them lose would be gaming the gate, so it was not done, and neither was the benchmark.
+
+## 3. Held-out confirmation `lh-200`
+
+Run: `npx tsx scripts/balance/launchpad.ts --prefix lh --seeds 200 --days 30 --out balance-out/launchpad-lh200.json` at `1678d34`. Seeds `lh-01` to `lh-200`. Output JSON: `balance-out/launchpad-lh200.json` (git-ignored). Run time about 51 minutes (09:02 to 09:53).
+
+**Result: FAIL.** Retail (+5.70, one-sided +8.37) and pump seller (-0.13, one-sided +0.71) fail. Flipper and post-graduation buyer pass.
+
+- **Retail.** Mean excess +5.70 points, the same sign and size as on `lx-50` (+5.58). The median is -0.98 and the maximum single seed is +222 points: that one seed contributes +1.11 points to the mean. Without it the mean is +4.61. This is the graduated-bag tail named on `lx`, and the held-out run confirms it. The rule does not admit a fix that makes retail lose, so the bot stays as specified.
+- **Pump seller.** Mean -0.13, median -0.39, one-sided +0.71. It is the closest failing bot. Its edge on `lx` was other bots' buy pumps; not re-diagnosed on `lh`.
+- **Flipper and post-graduation buyer** pass on `lh-200` (-0.66 and -0.95 one-sided). They fail on `lx-50` (+1.29 and +0.97). Both hold cash most days, so their excess is minus the GX draw plus interest. The held-out GX mean is +1.55% against +0.34% on `lx`. The pass on `lh` is a benchmark effect, not evidence that the bots lose on trades. The gate's pass or fail for a cash holder follows the GX draw of the seeds.
+
+The shape, identity and idle control pass on `lh-200` (section 0.4).
 
 ## 4. Checks
 
-- `npx next typegen && npx tsc --noEmit`: exit 0 at `b1d3bed`.
+- `npx next typegen && npx tsc --noEmit`: exit 0 at `1678d34`.
 - `npx eslint` on the touched files: 0 errors.
-- `npx vitest run --maxWorkers=2` (full suite): 187 files, 1843 tests pass, 70 skipped, 21 todo, unchanged by the flag.
-- `src/world/launchpad`: 80 tests pass (13 new).
-- `scripts/balance/launchpad.ts` at 200 seeds: identity residual 3.8e-7, idle drift exactly 0 on every seed, one token of 80,372 reaches 10x within the run.
-- Not run: the Playwright suite and any e2e check of the Launchpad app.
+- `npx vitest run --maxWorkers=2` (full suite): 187 files, 1853 pass, 70 skipped, 21 todo, at `1678d34`.
+- `src/world/launchpad`: 90 tests pass.
+- Not run: Playwright and any e2e check of the Launchpad app (no client change in v1.1 or v1.2).
+
+## 5. Open rulings for the lead
+
+1. **Gate verdict.** The held-out gate fails on retail and pump seller. Options: (a) keep the gate as written and accept the constants as not passing; (b) change the retail bot's sample (a larger seed set, or a trimmed-mean statistic), which needs a ruling because it changes the gate; (c) a structural change to L6 for the pump seller.
+2. **Benchmark for cash-holding bots.** Flipper and post-graduation buyer hold cash most days, so their paired excess is minus the GX draw by construction. Either the benchmark is reconsidered for bots that do not trade the index, or the gate's result for them is left to the GX draw.
+3. **Retail's tail.** A bot that buys random live tokens has a mean near zero on the median and a right tail from graduated bags. A ruling on the statistic is needed (mean versus median) before the gate can pass.
+4. **Pump seller.** It earns the buy pumps of other bots. This is a structural question about who can front-run a pump under L6.4.
+5. **NPC flag at boot.** Decide whether old worlds turn NPC launches on at boot.
+6. **e2e.** Run the Playwright suite for L7 (launch, trade, graduation, layout) before the next merge.
