@@ -112,6 +112,12 @@ export function secondWindowReady(app: AppId, ready: readonly string[] = READY_V
   return s !== null && ready.includes(s.view);
 }
 
+/**
+ * The app a workspace opens with when it has no window (UX stage 2), by workspace index: 0 Trade the Broker, 1 News the
+ * Wire, 2 Portfolio the Portfolio, 3 Empire none (its apps open from the shelf).
+ */
+export const WORKSPACE_DEFAULT_APP: readonly (AppId | null)[] = ['broker', 'wire', 'portfolio', null];
+
 /** Default shelf order (V:82): trading group first, Broker pinned first. Hidden apps are absent. */
 export const SHELF_ORDER: readonly AppId[] = [
   'broker', 'portfolio', 'exchange', 'launchpad', 'wire', 'messages', 'calendar', 'businesses', 'ailab', 'research', 'bank',

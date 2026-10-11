@@ -38,7 +38,7 @@ describe('shell store', () => {
   it('replaces the context after a rank change, and replaces the state on load', () => {
     const store = createShellStore({ shell: shell0(), ctx });
     store.getState().setCtx(makeWmCtx('R0'));
-    expect(store.getState().ctx.workspaces).toBe(1);
+    expect(store.getState().ctx.workspaces).toBe(2);
     const next = { ...shell0(), activeWs: 0 };
     store.getState().replace(next);
     expect(store.getState().shell).toBe(next);

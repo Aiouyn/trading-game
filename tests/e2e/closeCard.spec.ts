@@ -30,7 +30,7 @@ async function act(page: Page, cmd: Record<string, unknown>): Promise<{ ok: bool
 // Both tests advance the shared world by a game day: they run one after the other, never side by side.
 test.describe.configure({ mode: 'serial' });
 
-test('the close card opens after a game day, its numbers match the server, and Done keeps it in the closes list', async ({ page }) => {
+test('the close is a toast after a game day, the Wire card matches the server, and the close stays in the Wire and the list', async ({ page }) => {
   const errors = watchErrors(page);
   await page.addInitScript(() => { window.__tgE2eAdmin = 'e2e-admin'; });
   await register(page);
@@ -41,9 +41,13 @@ test('the close card opens after a game day, its numbers match the server, and D
   const next = (Math.floor(tick / 720) + 1) * 720;
   await page.evaluate((n) => window.__tg!.advance(n), next - tick);
 
-  const card = page.getByTestId('close-card');
-  await expect(card).toBeVisible({ timeout: 25_000 });
+  // UX stage 2: the close is a non-blocking toast; its click opens the Wire, where the card is
+  const toast = page.locator('[data-testid^="os-toast-"][data-kind="close"]');
+  await expect(toast).toBeVisible({ timeout: 25_000 });
   await noHorizontalOverflow(page);
+  await toast.click();
+  const card = page.getByTestId('close-card');
+  await expect(card).toBeVisible();
 
   // the card reads the server's close, to the cent
   const server = await page.evaluate(() => window.__tg!.state().me!.trading.closes[0]!);
@@ -58,9 +62,7 @@ test('the close card opens after a game day, its numbers match the server, and D
   }
   await proof(page, 'close-card');
 
-  // Done closes it for good: the server holds the seen day (the ack carries the view), so a reload does not bring it back
-  await page.getByTestId('close-done').click();
-  await expect(card).toHaveCount(0);
+  // the server holds the seen day (the ack carries the view), so a reload does not bring the toast back
   await expect.poll(() => page.evaluate(() => window.__tg!.state().me?.trading.closeSeenDay ?? null), { timeout: 10_000 }).toBe(server.day);
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-game', 'ready', { timeout: 30_000 });
@@ -68,10 +70,10 @@ test('the close card opens after a game day, its numbers match the server, and D
   // a reload after time away opens While You Were Away first; closing it counts the close as seen (the digest replaces it)
   const back = page.getByText('Back to the desktop');
   if (await back.isVisible().catch(() => false)) await back.click();
-  await expect(page.getByTestId('close-card')).toHaveCount(0);
+  await expect(page.locator('[data-kind="close"]')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.__tg!.state().me?.trading.closeSeenDay ?? null), { timeout: 10_000 }).toBe(server.day);
 
-  // the closes list keeps it, and its row reopens the card
+  // the closes list keeps it, and its row shows the card in the Wire
   await goTo(page, 'portfolio');
   await expect(page.getByTestId('closes-history')).toBeVisible();
   await skipTips(page);
@@ -91,8 +93,6 @@ test('the close card opens after a game day, its numbers match the server, and D
 
   await page.getByTestId(`close-row-${server.day}`).click();
   await expect(page.getByTestId('close-card')).toBeVisible();
-  await page.getByTestId('close-done').click();
-  await expect(page.getByTestId('close-card')).toHaveCount(0);
 
   expect(errors).toEqual([]);
 });

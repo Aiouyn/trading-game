@@ -22,10 +22,22 @@ export interface Toast {
   tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';
   text: string;
   /** What the notice is, for focus mode and the sticky rules (src/shell/toasts.ts). */
-  kind?: 'fill' | 'margin' | 'world' | 'other';
+  kind?: 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'other';
   /** The app a click opens (a shell app id), when the notice has one. */
   app?: string;
+  /** What a click does besides dismissing (a coach tip performs its action). */
+  run?: () => void;
 }
+
+/** A client notice kept for the notification center behind the bell (UX stage 2): the toasts the desktop raised. */
+export interface Notice {
+  id: string;
+  tone: Toast['tone'];
+  text: string;
+}
+
+/** The notification center keeps this many notices, newest last. */
+export const NOTICE_KEEP = 50;
 
 export const WIRE_KEEP = 300;
 /** The static universe, the starting point until the server's welcome sends its current asset list. */
@@ -63,6 +75,8 @@ export interface GameStore {
   loaded: Record<string, true>;
   nw: { samples: number[]; lastTick: number; every: number; daily: { day: number; value: number }[]; ghosts: NwHistoryPayload['ghosts'] } | null;
   toasts: Toast[];
+  /** Client notices for the notification center (the bell panel lists them with the inbox). */
+  notices: Notice[];
   screen: Screen;
   /** Counts every setScreen call, so the desktop opens the window even when the screen is unchanged. */
   screenNonce: number;
@@ -119,6 +133,8 @@ export interface GameStore {
   resumeToast: (id: string) => void;
   closeRankUp: () => void;
   closeDigest: () => void;
+  /** Adds client notices to the notification center without a toast (the While You Were Away items). */
+  notify: (items: readonly Pick<Notice, 'tone' | 'text'>[]) => void;
   openClose: (day: number | null) => void;
   /** Dismisses a close card: it stays in the closes list and the server remembers it was seen. */
   dismissClose: (day: number) => void;
@@ -312,6 +328,7 @@ export const useGame = create<GameStore>((set, get) => {
     loaded: {},
     nw: null,
     toasts: [],
+    notices: [],
     screen: 'market',
     screenNonce: 0,
     selected: 'HLCN',
@@ -435,7 +452,12 @@ export const useGame = create<GameStore>((set, get) => {
       if (inboxOpen && (get().me?.player.inboxUnread ?? 0) > 0) void get().act({ type: 'inbox.read' }, { silent: true });
     },
     setChat(chatOpen) { set({ chatOpen, ...(chatOpen ? { chatUnread: 0 } : {}) }); },
-    toast(t) { queueToasts([{ ...t, id: `t${++toastSeq}` }]); },
+    toast(t) {
+      const id = `t${++toastSeq}`;
+      queueToasts([{ ...t, id }]);
+      // The same notice waits in the notification center once its toast has gone (UX stage 2).
+      set({ notices: [...get().notices, { id, tone: t.tone, text: t.text }].slice(-NOTICE_KEEP) });
+    },
     dismissToast(id) { get().dismissToasts([id]); },
     dismissToasts(ids) {
       for (const id of ids) toastHolds.cancel(id);
@@ -444,6 +466,10 @@ export const useGame = create<GameStore>((set, get) => {
     pauseToast(id) { toastHolds.pause(id); },
     resumeToast(id) { toastHolds.resume(id); },
     closeRankUp() { set({ rankUp: null }); },
+    notify(items) {
+      const add = items.map((x) => ({ id: `n${++toastSeq}`, tone: x.tone, text: x.text }));
+      set({ notices: [...get().notices, ...add].slice(-NOTICE_KEEP) });
+    },
     closeDigest() {
       set({ digestOpen: false });
       void get().act({ type: 'digest.seen' }, { silent: true });

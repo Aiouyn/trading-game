@@ -12,6 +12,7 @@ import { rankOrdinal } from '@/shell/ctx';
 import { Glyph } from './glyphs';
 import { NetWorthFigures } from './NetWorthFigures';
 import { openApp, openLauncher } from './shellStore';
+import { WorkspaceTabs } from './WorkspaceTabs';
 
 export function StatusStrip() {
   const me = useGame((s) => s.me);
@@ -42,11 +43,12 @@ export function StatusStrip() {
         <span className="os-launch-text">{t('shell.launch.placeholder')}</span>
         <span className="os-kbd">{t('shell.keys.launcher')}</span>
       </button>
+      <WorkspaceTabs />
       <div className="os-mid">
         <span className="os-clock" data-testid="os-clock">{clockLabel(frame?.tick ?? 0, 720)}</span>
         <span className="os-soft os-market items-center gap-1.5 text-caption text-fg-muted">
           <span className={`os-dot ${ready ? 'bg-gain' : 'bg-warn'}`} aria-hidden />
-          {ready ? t('shell.market.open') : t('shell.market.reconnect')}
+          <span className="os-market-text">{ready ? t('shell.market.open') : t('shell.market.reconnect')}</span>
         </span>
       </div>
       <div className="os-right">

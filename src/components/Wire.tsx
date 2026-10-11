@@ -7,6 +7,7 @@ import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import type { WireItem } from '@/world/types';
 import { TONE_TEXT } from './Shell';
+import { CloseBrief } from './CloseCard';
 import { openFromShell } from './os/openApp';
 import { Chip } from './ui';
 
@@ -41,6 +42,7 @@ export function WireView() {
   const items = wire.filter((w) => !kinds || kinds.includes(w.kind));
   return (
     <div className="os-body" data-testid="wire-view">
+      <CloseBrief />
       <div className="os-seg flex gap-1 overflow-x-auto pb-1" role="group" aria-label={t('wire.filters')}>
         {FILTERS.map((x) => (
           <button

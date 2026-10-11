@@ -216,3 +216,28 @@ export function nearestSlot(
   }
   return best;
 }
+
+/**
+ * Tiles for n windows on a workspace (UX stage 2): 2 = halves, 3 = one large plus two stacked on the right,
+ * 4 = quarters, 5 and more = a grid whose last row takes the leftover cells at equal width. The first tile is the
+ * main one (the newest window). Pure: wm.ts checks each tile against its app's minimum size.
+ */
+export function tileSlots(n: number): Slot[] {
+  if (n <= 0) return [];
+  if (n === 1) return ['L23'];
+  if (n === 2) return ['L2', 'R2'];
+  if (n === 3) return ['L23', 'R3T', 'R3B'];
+  if (n === 4) return ['TL', 'TR', 'BL', 'BR'];
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  const out: Slot[] = [];
+  for (let i = 0; i < n; i++) {
+    const row = Math.floor(i / cols);
+    const inRow = row === rows - 1 ? n - (rows - 1) * cols : cols;
+    const col = i - row * cols;
+    out.push({
+      custom: { x0: col / inRow, y0: row / rows, x1: (col + 1) / inRow, y1: (row + 1) / rows },
+    });
+  }
+  return out;
+}

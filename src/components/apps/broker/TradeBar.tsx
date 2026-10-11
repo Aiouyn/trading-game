@@ -73,8 +73,9 @@ export function TradeSheet({ ticker, onClose }: { ticker: string; onClose: () =>
             {t('common.close')}
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          <OrderTicket ticker={ticker} />
+        {/* The ticket is dense here: its refusal, confirm line and Buy/Sell button are a footer pinned under the fields (UX 4). */}
+        <div className="flex min-h-0 flex-1 flex-col p-2">
+          <OrderTicket ticker={ticker} dense />
         </div>
       </div>
     </>

@@ -35,7 +35,7 @@ describe('ctx: rank gate', () => {
 
   it('builds a reducer context from the earned rank', () => {
     const ctx = makeWmCtx('R2', (t) => t === 'HLCN');
-    expect(ctx.workspaces).toBe(2);
+    expect(ctx.workspaces).toBe(3);
     expect(ctx.unlocked('ailab')).toBe(true);
     expect(ctx.unlocked('research')).toBe(false);
     expect(ctx.hasPendingOrder('HLCN')).toBe(true);
@@ -51,13 +51,13 @@ describe('ctx: rank gate', () => {
 });
 
 describe('ctx: workspaces from earned rank (C-03)', () => {
-  it('has one workspace at R0 and R1, two at R2, three from R3 up', () => {
-    expect(workspaceCount('R0')).toBe(1);
-    expect(workspaceCount('R1')).toBe(1);
-    expect(workspaceCount('R2')).toBe(2);
-    expect(workspaceCount('R3')).toBe(3);
-    expect(workspaceCount('R6')).toBe(3);
-    expect(workspaceCount('nope')).toBe(1);
+  it('has Trade and News at R0 and R1, Portfolio from R2, Empire from R3', () => {
+    expect(workspaceCount('R0')).toBe(2);
+    expect(workspaceCount('R1')).toBe(2);
+    expect(workspaceCount('R2')).toBe(3);
+    expect(workspaceCount('R3')).toBe(4);
+    expect(workspaceCount('R6')).toBe(4);
+    expect(workspaceCount('nope')).toBe(2);
   });
 });
 

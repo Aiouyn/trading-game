@@ -36,14 +36,14 @@ describe('toast rules (P2-085..P2-090)', () => {
     expect(isSticky({ tone: 'gain', kind: 'fill' })).toBe(false);
   });
 
-  it('the column stays top-right unless a Broker sits under it, then it moves top-left (P2-088)', () => {
+  it('the column stays bottom-right unless a Broker sits under it, then it moves bottom-left (P2-088)', () => {
     const vp = { w: 1440, h: 900 };
     expect(toastSide(vp, null, 34)).toBe('right');
     // A Broker in the left two-thirds does not reach the column.
     expect(toastSide(vp, { x: 8, y: 8, w: 940, h: 700 }, 34)).toBe('right');
-    // A Broker across the right edge does.
+    // A Broker across the right edge, down to the column, does.
     expect(toastSide(vp, { x: 900, y: 8, w: 520, h: 700 }, 34)).toBe('left');
-    // Below the column's height, a window does not cover it.
-    expect(toastSide(vp, { x: 900, y: 400, w: 520, h: 400 }, 34)).toBe('right');
+    // A window that ends above the column does not cover it.
+    expect(toastSide(vp, { x: 900, y: 8, w: 520, h: 400 }, 34)).toBe('right');
   });
 });

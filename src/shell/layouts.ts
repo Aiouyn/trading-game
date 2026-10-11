@@ -12,7 +12,7 @@
  * skipped the same way. wm.ts never imports this module: ctx.ts wires `planLayout` into WmCtx.
  */
 
-import { APPS, type AppId, type BuiltinLayout, type WinProps, READY_VIEWS, isBuiltinLayout, secondWindowReady } from './apps';
+import { APPS, type AppId, type BuiltinLayout, type WinProps, isBuiltinLayout } from './apps';
 import {
   BP_HALVES,
   type Rect,
@@ -33,7 +33,7 @@ export type { BuiltinLayout };
 export interface PlanOpts {
   ticker?: string;
   fileId?: string;
-  /** The built views (apps.ts READY_VIEWS). Tests pass a longer list to check the journal rule. */
+  /** Kept for callers: Review no longer depends on the built views (UX stage 2: one Portfolio and the Wire). */
   views?: readonly string[];
 }
 
@@ -87,21 +87,18 @@ const DEFS: Readonly<Record<Exclude<BuiltinLayout, 'review'>, readonly Entry[]>>
   ],
 };
 
-/** Review before the journal view exists: Portfolio on the left, Wire on the right. */
+/**
+ * Review (UX stage 2): one Portfolio on the left and the Wire on the right, whether or not the journal view is built. The
+ * journal is reached from the Portfolio itself, so Review never opens a second Portfolio (C-27 is kept as a Portfolio view).
+ */
 const REVIEW_WIRE: readonly Entry[] = [
   { app: 'portfolio', slot: 'L2', main: true },
   { app: 'wire', slot: 'R2' },
 ];
 
-/** Review once the journal view is built: a second Portfolio (the journal) on the right (C-27). */
-const REVIEW_JOURNAL: readonly Entry[] = [
-  { app: 'portfolio', slot: 'L2', main: true },
-  { app: 'portfolio', slot: 'R2', view: 'journal', second: true },
-];
-
-/** The entries of a layout. Review's second Portfolio appears only when the journal view is ready. */
-function entriesFor(name: BuiltinLayout, views: readonly string[]): readonly Entry[] {
-  if (name === 'review') return secondWindowReady('portfolio', views) ? REVIEW_JOURNAL : REVIEW_WIRE;
+/** The entries of a layout. Review is Portfolio and the Wire at every view set. */
+function entriesFor(name: BuiltinLayout): readonly Entry[] {
+  if (name === 'review') return REVIEW_WIRE;
   return DEFS[name];
 }
 
@@ -121,7 +118,7 @@ interface Cur {
  * reducer; applyLayout refuses below 1200 (V:42), but the plan is useful at any width.
  */
 export function planLayout(name: BuiltinLayout, vp: Size, unlocked: Unlocked, opts: PlanOpts = {}): LayoutPlan {
-  const defs = entriesFor(name, opts.views ?? READY_VIEWS);
+  const defs = entriesFor(name);
   const kept: Cur[] = [];
   const dropped: Cur[] = [];
   defs.forEach((e, i) => {
