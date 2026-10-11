@@ -400,7 +400,6 @@
   "broker.refuse.whole": "Actions entières uniquement.",
   "broker.search": "Rechercher parmi {n} actifs",
   "broker.search.none": "Aucun résultat pour cette recherche.",
-  "broker.sellShort": "Vendre / Vente à découvert",
   "broker.short.label": "Positions vendeuses",
   "broker.short.none": "Aucune position vendeuse",
   "broker.short.pct": "{p} % des actions en circulation",

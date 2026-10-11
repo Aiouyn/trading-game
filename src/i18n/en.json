@@ -400,7 +400,6 @@
   "broker.refuse.whole": "Whole shares only.",
   "broker.search": "Search {n} assets",
   "broker.search.none": "Nothing matches that search.",
-  "broker.sellShort": "Sell / Short",
   "broker.short.label": "Short interest",
   "broker.short.none": "No shorts open",
   "broker.short.pct": "{p}% of shares outstanding",
