@@ -320,3 +320,48 @@ describe('L3.1 the cash clock counts game-day closes (v1.3)', () => {
     expect(spotAt(LP.Y0)).toBeGreaterThan(0);
   });
 });
+
+describe('the NPC sniper exit sells from the sniper cohort (v1.2 review item 5)', () => {
+  it('the exit takes the sniper tokens from the sniper cohort; an older cohort keeps its tokens and cost basis', () => {
+    withNpc({ VIRAL_PER_DAY: 0, CAPIT_PER_TICK: 0, PROFIT_PER_TICK: 0 }, () => {
+      const g = lpWorld('l68-sniper-cohort');
+      launch(g, CREATOR, 'SNPX');
+      const t = quiet(g, 'SNPX');
+      // an older cohort, then the sniper's own cohort (flagged, as sniperEnter flags it)
+      buyCurve(g, null, 'SNPX', 100_000, 1, null, true);
+      const older = { ...cohortsOf(t)[0]! };
+      buyCurve(g, null, 'SNPX', 20_000, 1, null, true);
+      const cs = cohortsOf(t);
+      expect(cs.length).toBe(2);
+      const sc = cs[1]!;
+      sc.sniper = true;
+      t.sniper = { tick: g.market.tick, tokens: sc.tokens, entry: spotAt(t.y) };
+      const sniperTokens = sc.tokens;
+      // the time exit (the sniper has been in for NPC.SNIPER_EXIT_TICKS)
+      at(g, g.market.tick + NPC.SNIPER_EXIT_TICKS);
+      expect(t.sniper).toBeUndefined();
+      const after = cohortsOf(t);
+      expect(after.length).toBe(1);
+      expect(after[0]!.tick).toBe(older.tick);
+      expect(after[0]!.tokens).toBe(older.tokens);
+      expect(after[0]!.cost).toBeCloseTo(older.cost, 6);
+      expect(after[0]!.sniper).toBeUndefined();
+      expect(t.npcBal).toBe(older.tokens);
+      expect(sniperTokens).toBeGreaterThan(0);
+    });
+  });
+
+  it('after the sniper cohort is gone (the bleed took it), the exit sells nothing from the other cohorts', () => {
+    withNpc({ VIRAL_PER_DAY: 0, CAPIT_PER_TICK: 0, PROFIT_PER_TICK: 0 }, () => {
+      const g = lpWorld('l68-sniper-gone');
+      launch(g, CREATOR, 'SNPG');
+      const t = quiet(g, 'SNPG');
+      buyCurve(g, null, 'SNPG', 100_000, 1, null, true);
+      const before = cohortsOf(t)[0]!.tokens;
+      t.sniper = { tick: g.market.tick, tokens: 500, entry: spotAt(t.y) };
+      at(g, g.market.tick + NPC.SNIPER_EXIT_TICKS);
+      expect(t.sniper).toBeUndefined();
+      expect(t.npcBal).toBe(before);
+    });
+  });
+});

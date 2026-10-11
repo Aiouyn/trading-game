@@ -37,6 +37,8 @@ export interface NpcCohort {
   tokens: number;
   cost: number;
   carry?: number;
+  /** the NPC sniper's cohort (launch.ts sniperEnter): its exit sells this cohort's tokens, not the oldest cohort's (v1.2 review item 5) */
+  sniper?: boolean;
 }
 
 export interface LpToken {

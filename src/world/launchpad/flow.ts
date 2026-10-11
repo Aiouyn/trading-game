@@ -76,9 +76,18 @@ function npcFlow(g: GameState, t: LpToken, out: StepOutput | null): void {
   if (t.sniper) {
     const spot = spotAt(t.y);
     if (spot >= t.sniper.entry * NPC.SNIPER_EXIT_MULT || tick - t.sniper.tick >= NPC.SNIPER_EXIT_TICKS) {
-      const qty = Math.min(t.sniper.tokens, t.npcBal);
+      // the sniper's tokens leave its own cohort (v1.2 review item 5), never the other cohorts. If the bleed has already taken the whole
+      // sniper cohort, there is nothing of the sniper's left to sell
+      const cs = cohortsOf(t);
+      const si = cs.findIndex((c) => c.sniper);
+      const entered = t.sniper.tokens;
       t.sniper = undefined;
-      if (qty > 0) sellCurve(g, null, t.ticker, qty, 1, out, true);
+      if (si >= 0) {
+        const sc = cs[si]!;
+        delete sc.sniper;
+        const qty = Math.min(entered, sc.tokens);
+        if (qty > 0) sellCurve(g, null, t.ticker, qty, 1, out, true, cs.map((_, i) => (i === si ? qty : 0)));
+      }
       return;
     }
   }

@@ -7,6 +7,7 @@ import { quoteBuy, spotAt } from './curve';
 import { buyCurve, liquidateCohort } from './trade';
 import { arrive } from './demand';
 import { absorbPending } from './absorb';
+import { cohortsOf } from './cohorts';
 import { moderateName, nameFormatOk, normalizeName, tickerFormatOk, type NameRefusal } from './moderate';
 import { dayOf, ensureLaunchpad, hasOtherTrader, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
 
@@ -156,6 +157,10 @@ export function sniperEnter(g: GameState, t: LpToken, out: StepOutput | null): v
   if (r.ok) {
     const d = r.data as { tokens: number; avgPrice: number };
     t.sniper = { tick: g.market.tick, tokens: d.tokens, entry: d.avgPrice };
+    // the fill is the cohort added last; its exit sells that cohort (flow.ts)
+    const cs = cohortsOf(t);
+    const last = cs[cs.length - 1];
+    if (last && last.tokens === d.tokens) last.sniper = true;
   }
 }
 
