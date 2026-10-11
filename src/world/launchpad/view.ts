@@ -131,8 +131,12 @@ export function pageOf(g: GameState, t: LpToken, pid: string): LpPage {
 
 /** The token page the viewer asks for (any token, live, graduated or dead), or null when there is no such ticker. */
 export function lpPageOf(g: GameState, pid: string, ticker: string): LpPage | null {
-  const t = g.launchpad?.tokens[ticker];
-  return t ? pageOf(g, t, pid) : null;
+  // tickers are upper-case letters; an own-property check keeps "constructor", "toString" and "__proto__" from resolving to
+  // Object.prototype members (review item 1: the lookup threw in cardOf and killed the server)
+  const s = g.launchpad;
+  const key = ticker.toUpperCase();
+  if (!s || !Object.hasOwn(s.tokens, key)) return null;
+  return pageOf(g, s.tokens[key]!, pid);
 }
 
 /** The creator's vesting on a holding (null for anyone else). */

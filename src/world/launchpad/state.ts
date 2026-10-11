@@ -30,7 +30,9 @@ export function centsOf(dollars: number): number {
 }
 
 export function tokenOf(g: GameState, ticker: string): LpToken | undefined {
-  return g.launchpad?.tokens[ticker];
+  // an own-property check: a ticker such as "constructor" or "__proto__" is a client's string, not a token (review item 1)
+  const s = g.launchpad;
+  return s && Object.hasOwn(s.tokens, ticker) ? s.tokens[ticker] : undefined;
 }
 
 /** A live token: on the curve, not graduated and not dead. */

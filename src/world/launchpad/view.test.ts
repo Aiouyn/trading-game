@@ -4,6 +4,7 @@ import { playerView } from '../view';
 import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
 import { bookAccountId } from './constants';
 import { launchpadView, lpPageOf } from './view';
+import { tokenOf } from './state';
 
 describe('the Launchpad view (L1, L7)', () => {
   it('no-reveal: the view carries holder buckets and the tape, never a holder’s handle; the tape flags only the creator’s own trades', () => {
@@ -125,5 +126,31 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(old.launchpad).toBeUndefined();
     stepGame(old);
     expect(old.launchpad).toBeUndefined();
+  });
+});
+
+describe('the token lookups are own-property only (review item 1)', () => {
+  it('a ticker that names an Object.prototype member is no token: the page is null and nothing throws', () => {
+    const g = lpWorld('view-proto');
+    launch(g, CREATOR, 'PROT');
+    for (const bad of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf', 'Constructor', '']) {
+      expect(() => lpPageOf(g, TRADER, bad)).not.toThrow();
+      expect(lpPageOf(g, TRADER, bad)).toBeNull();
+    }
+    // the same guard holds for the commands that read a ticker
+    expect(tokenOf(g, 'constructor')).toBeUndefined();
+    expect(tokenOf(g, '__proto__')).toBeUndefined();
+  });
+
+  it('a real ticker is found in any case, and a page is built for it', () => {
+    const g = lpWorld('view-case');
+    launch(g, CREATOR, 'CASE');
+    expect(lpPageOf(g, TRADER, 'CASE')?.ticker).toBe('CASE');
+    expect(lpPageOf(g, TRADER, 'case')?.ticker).toBe('CASE');
+  });
+
+  it('the lp-page request never throws on a prototype name, even on a world with no launches', () => {
+    const g = lpWorld('view-empty');
+    expect(lpPageOf(g, TRADER, 'constructor')).toBeNull();
   });
 });

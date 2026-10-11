@@ -209,7 +209,13 @@ wss.on('connection', (ws) => {
         return send(ws, { t: 'nw-history', id: msg.id, data: host.nwHistoryFor(c.pid) });
       case 'lp-page':
         if (!c.pid) return;
-        return send(ws, { t: 'lp-page', id: msg.id, data: lpPageOf(host.g, c.pid, String(msg.ticker ?? '')) });
+        // a bad ticker must never take the process down: the page is read in a guard, and a failure answers with no page
+        try {
+          return send(ws, { t: 'lp-page', id: msg.id, data: lpPageOf(host.g, c.pid, String(msg.ticker ?? '')) });
+        } catch (e) {
+          log(`lp-page error: ${(e as Error).message}`);
+          return send(ws, { t: 'lp-page', id: msg.id, data: null });
+        }
       case 'ping':
         return send(ws, { t: 'pong' });
     }
