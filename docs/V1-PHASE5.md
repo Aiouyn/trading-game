@@ -295,6 +295,12 @@ Gate: **FAIL**.
 - **Other bots move with the front-runner.** The viral chaser's mean return on `lh-200` is -98.9% (about -100 points excess), against about -28 points in section 0.4. Its counterparties changed when the front-runner joined the world. Retail and the pump seller are essentially unchanged.
 - **Gate result, both runs: FAIL.** `lh-200`: shape (dead within 7 days, 0%), retail (one-sided +8.60) and pump seller (one-sided +0.68). `lx-50`: shape, flipper, retail, pump seller and post-graduation buyer.
 
+### 6.3a App checks on the merged v1.2 build (p5/ui)
+
+- Full vitest on `p5/ui` after the merge: 190 files pass (2 skipped), 1884 tests pass, 70 skipped, 21 todo.
+- Full Playwright run on `p5/ui`, 2 workers: 234 passed, 0 failed, 307 skipped by project and device rules. The first run had two failures in the creator-launch spec: the bar read 0.09% where the spec expected 0.00% (the sniper's fill). The spec now checks the bar is above zero and below 5%; the rerun passes.
+- Design screens re-taken on v1.2 (32 files, desktop and phone, en and fr). Checked: the phone tab row wraps and no label is cut; the dead page gives its reason; the graduated page reads "Graduated" and draws its chart.
+
 ### 6.4 Rulings the lead still needs (not changed by this pass)
 
 7. **Shape measure at the clock boundary (review item 10).** The 7-day death measure compares ticks to 5,040. The front-runner's round trip restarts the cash clock and moves deaths past it: 0% with the bot, 75.8% without. Options: a tolerance on the measure, a measure on the death day rounded to whole days, or a rule for when a round trip resets the clock. The gate is not changed here.
