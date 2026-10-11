@@ -134,10 +134,29 @@ export function launchToken(g: GameState, pid: string, input: LaunchInput, out: 
   s.seq++;
   // L6.4: the launch's own buzz is bought by the cohort in this tick (after the creator's dev buy, which is the creator's own fill)
   absorbPending(g, t, out);
+  sniperEnter(g, t, out);
   const creator = g.players[pid]!;
   lpWire(g, out, 'brass', 'Launchpad', { key: 'lp.wire.launch', vars: { name: t.name, ticker: t.ticker, creator: creator.handle } }, t.ticker);
   notify(g, out, pid, { kind: 'system', tone: 'brass', text: `${t.name} (${t.ticker}) is live on the curve.`, msg: { key: 'lp.inbox.launched', vars: { name: t.name, ticker: t.ticker } } });
   return { ok: true, data: { ticker: t.ticker } };
+}
+
+/**
+ * The NPC sniper's entry (L6.3, v1.2 amendment): one small buy, filled inside the launch command right after the launch's own buzz is
+ * absorbed. A fill in the flow two ticks later let a player buy on the launch tick and sell into the sniper's price impact (the v1.2
+ * review: +129 points on ten seeds); filled here, the sniper is the first fill and every later fill pays its impact. Its draw is on the
+ * token's own stream, so a replay is byte-identical. Its exit stays in the flow (flow.ts).
+ */
+export function sniperEnter(g: GameState, t: LpToken, out: StepOutput | null): void {
+  t.sniperDone = true;
+  const rng = new Rng(t.rng);
+  const spendDollars = NPC.SNIPER_MIN + (NPC.SNIPER_MAX - NPC.SNIPER_MIN) * rng.uniform();
+  t.rng = rng.state();
+  const r = buyCurve(g, null, t.ticker, Math.round(spendDollars * 100), 1, out, true);
+  if (r.ok) {
+    const d = r.data as { tokens: number; avgPrice: number };
+    t.sniper = { tick: g.market.tick, tokens: d.tokens, entry: d.avgPrice };
+  }
 }
 
 /** The initial buzz of a launch: a heavy-tailed draw on the token's own stream (most launches low, a few high). */
@@ -246,6 +265,7 @@ export function npcLaunchDraw(g: GameState, out: StepOutput | null): boolean {
   s.seq++;
   // L6.4: the world launch's own buzz is bought by the cohort in this tick
   absorbPending(g, t, out);
+  sniperEnter(g, t, out);
   lpWire(g, out, 'info', 'Launchpad', { key: 'lp.wire.launchWorld', vars: { name, ticker } }, ticker);
   return true;
 }

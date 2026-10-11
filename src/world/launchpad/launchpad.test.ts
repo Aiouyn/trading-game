@@ -196,9 +196,13 @@ describe('cancel and buzz (L2, L6)', () => {
     const g = lpWorld('cancel');
     launch(g, CREATOR, 'CANC');
     const cash = cashOf(g, CREATOR);
+    const fees0 = g.launchpad!.tokens.CANC!.creatorFees;
     expect(run(g, CREATOR, { type: 'lp.cancel', ticker: 'CANC' }).ok).toBe(true);
+    // the sniper entered in the launch, so the cancel sells its tokens back to the curve: the creator's half of that fee is theirs
+    const cancelFees = g.launchpad!.tokens.CANC!.creatorFees - fees0;
+    expect(cancelFees).toBeGreaterThan(0);
     // the refund is half the fee (ratified deviation: the other half stays a sink)
-    expect(cashOf(g, CREATOR)).toBeCloseTo(cash + LP.LAUNCH_FEE / 2, 6);
+    expect(cashOf(g, CREATOR)).toBeCloseTo(cash + LP.LAUNCH_FEE / 2 + cancelFees, 6);
     expect(g.launchpad!.tokens.CANC!.status).toBe('dead');
     jumpDays(g, 25);
     launch(g, CREATOR, 'TRAD', { name: 'Trade Fest' });

@@ -36,7 +36,11 @@ describe('L6.4 instant arrivals, L6.5 no copycat (v1.2)', () => {
     // the launch's own buzz is the first arrival: the cohort bought all of it, in the launch's tick
     expect(t.npcPending).toBe(0);
     expect(t.npcBal).toBeGreaterThan(0);
-    expect(t.flows.npcBuy).toBeCloseTo(t.buzz.base * NPC.DEMAND_PER_BUZZ, 1);
+    // the NPC sniper enters in the same command (sniperEnter): its spend is the rest of the cohort's launch-tick buy
+    expect(t.sniper).toBeDefined();
+    const sniperSpend = t.flows.npcBuy - t.buzz.base * NPC.DEMAND_PER_BUZZ;
+    expect(sniperSpend).toBeGreaterThan(NPC.SNIPER_MIN * 0.9);
+    expect(sniperSpend).toBeLessThan(NPC.SNIPER_MAX * 1.1);
     const bought0 = t.flows.npcBuy;
     expect(run(g, TRADER, { type: 'lp.buzz', ticker: 'ARRV', kind: 'board' }).ok).toBe(true);
     // a Quay billboard ($500) is an arrival of BOARD_ADD buzz: the cohort buys BOARD_ADD x DEMAND_PER_BUZZ dollars at once

@@ -45,7 +45,7 @@ const POST_WINDOW_TICKS = 60;
 const POST_STAKE = 1_000;
 const POST_HOLD_TICKS = 120;
 
-type Kind = 'creatorDump' | 'sniper' | 'flipper' | 'buzzPumper' | 'retail' | 'viralChaser' | 'pumpSeller' | 'postGradBuyer' | 'idle';
+type Kind = 'creatorDump' | 'sniper' | 'flipper' | 'buzzPumper' | 'retail' | 'viralChaser' | 'pumpSeller' | 'postGradBuyer' | 'frontRunner' | 'idle';
 type Bot = { id: string; handle: string; kind: Kind };
 const BOTS: Bot[] = [
   { id: 'bot_creator', handle: 'bot_creator', kind: 'creatorDump' },
@@ -56,13 +56,15 @@ const BOTS: Bot[] = [
   { id: 'bot_chaser', handle: 'bot_chaser', kind: 'viralChaser' },
   { id: 'bot_pump', handle: 'bot_pump', kind: 'pumpSeller' },
   { id: 'bot_postgrad', handle: 'bot_postgrad', kind: 'postGradBuyer' },
+  // the v1.2 review's front-runner: buys $2,000 on the tick a launch appears, sells all two ticks later (after the sniper's launch+2 buy)
+  { id: 'bot_front', handle: 'bot_front', kind: 'frontRunner' },
   // the idle control (L8.1): never trades; its net worth must move only with its cash (no valuation drift)
   { id: 'bot_idle', handle: 'bot_idle', kind: 'idle' },
 ];
 /** the eight strategies the gate passes or fails (the idle control is checked for zero valuation drift instead) */
-const STRATEGY_KINDS = ['creatorDump', 'sniper', 'flipper', 'buzzPumper', 'retail', 'viralChaser', 'pumpSeller', 'postGradBuyer'] as const;
+const STRATEGY_KINDS = ['creatorDump', 'sniper', 'flipper', 'buzzPumper', 'retail', 'viralChaser', 'pumpSeller', 'postGradBuyer', 'frontRunner'] as const;
 /** the bots that act every tick; the others act on the decision cadence */
-const TICK_KINDS: ReadonlySet<Kind> = new Set<Kind>(['viralChaser', 'postGradBuyer']);
+const TICK_KINDS: ReadonlySet<Kind> = new Set<Kind>(['viralChaser', 'postGradBuyer', 'frontRunner']);
 
 interface BotState {
   launched: boolean;
@@ -266,6 +268,27 @@ function tickDecide(g: GameState, bot: Bot, st: BotState): void {
       if (t.status !== 'live') { delete st.snipeEntry[ticker]; continue; }
       const px = spotAt(t.y);
       if (px <= e.entry * 0.9 || px >= e.entry * 1.5 || tick - e.tick >= 2 * TPD) {
+        const have = t.bal[bot.id] ?? 0;
+        if (have > 0) applyCommand(g, bot.id, { type: 'lp.sell', ticker, tokens: have, maxSlip: 0.5 });
+        delete st.snipeEntry[ticker];
+      }
+    }
+    return;
+  }
+  if (bot.kind === 'frontRunner') {
+    // buys on the tick a launch appears (after the tick's launches and their sniper entry), and sells everything two ticks after it
+    for (const ticker of s.order) {
+      const t = s.tokens[ticker];
+      if (!t || t.status !== 'live' || st.sniped.has(ticker) || tick - t.createdTick !== 0) continue;
+      st.sniped.add(ticker);
+      const r = applyCommand(g, bot.id, { type: 'lp.buy', ticker, spendCents: 200_000, maxSlip: 0.2 });
+      if (r.ok) st.snipeEntry[ticker] = { tick, tokens: (r.data as { tokens: number }).tokens, entry: (r.data as { avgPrice: number }).avgPrice };
+    }
+    for (const [ticker] of Object.entries(st.snipeEntry)) {
+      const t = s.tokens[ticker];
+      if (!t) { delete st.snipeEntry[ticker]; continue; }
+      if (t.status !== 'live') { delete st.snipeEntry[ticker]; continue; }
+      if (tick - t.createdTick >= 2) {
         const have = t.bal[bot.id] ?? 0;
         if (have > 0) applyCommand(g, bot.id, { type: 'lp.sell', ticker, tokens: have, maxSlip: 0.5 });
         delete st.snipeEntry[ticker];
