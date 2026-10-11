@@ -161,6 +161,45 @@ Each ruling is listed once with where it is recorded.
 
 The `p4/d2` tsc and eslint logs record no errors. They are not counted as recorded exit codes. The merged `v1` run in this pass is the gate for both branches.
 
+**Plan verification on `v1` at `ab14b3b` (O-19; the run of the plan's Verification items that the earlier passes left out).** Run in the worktree `.claude/worktrees/tycoon`, with the real `node_modules`. Ports 3200 and 8797 were free and were used. Every server started here was stopped afterwards, and no listener remains on 3200, 8797, 3232 or 8829.
+
+| Check | Command | Result |
+|---|---|---|
+| Production build | `npm run build` | exit 0 (Turbopack, TypeScript pass) |
+| E2E, all projects | `npm run e2e -- --workers=2` (fresh `test-results`) | **229 passed, 0 failed, 316 skipped, 0 did not run**; 545 tests in 14.5 min; exit 0. The 316 skips are the specs' own guards, not failures: platform-gated checks (`isMobile` or `isPhone`, 26 of them in the spec bodies), the screenshot specs that need `P4UI2_SHOTS` (12 in the run), and the static-export and standalone-only paths. Per project: desktop 123 passed and 30 skipped; desktop-1920 12 and 61; desktop-1000 11 and 62; desktop-900 11 and 62; phone 53 and 100; the close chain (card, shops, funds, ipo, both devices) 19 passed and 1 skipped. The stall of the last attempt (441 did not run) did not recur. Log: scratchpad `e2e-v1.log`. |
+| Ecology gates, full | `npx tsx scripts/ecology/gates.ts full --txt ...` (bare catalog, default 8 seeds `eco-01` to `eco-08`, 1,260 game days, `ticksPerDay` 720) | **7 of 7 gates PASS** at 8 seeds, with 8 volatility rows undecided (see below). Run time 1 min 34 s. |
+| Socket load | world server on 8797 with `TICK_MS=1000 WARMUP_DAYS=1 REGISTER_LIMIT=100000`, then `node scripts/load/socket-load.mjs http://localhost:8797 4000 30` | **Tick p99 is under the 2.5 s gate, but the run had errors.** 4,000 registered (8.2 s); 3,747 of 4,000 welcomed; 253 never connected (see below). |
+
+Ecology gate values (mean over the 8 seeds, ± 1 s.e.; the script's own rule):
+
+| Gate | FULL (gates) | Band | Result |
+|---|---|---|---|
+| excess kurtosis of daily returns | 7.544 ± 0.761 | above 3 | PASS |
+| corr(\|r_t\|, \|r_t-1\|), vol clustering | 0.196 ± 0.009 | above 0.15 | PASS |
+| daily return autocorrelation | 0.029 ± 0.005 | in [-0.05, 0.05] | PASS |
+| 1-day cross-sectional rank IC | -0.003 ± 0.005 | in [-0.05, 0] | PASS |
+| 63-day to next-21-day rank IC | 0.025 ± 0.015 | in [0, 0.04] | PASS |
+| corr(\|r_t\|, traded value) | 0.499 ± 0.008 | in (0.3, 0.6] | PASS |
+| vol ratio, RMS over seeds, 17 assets | 0.841 to 1.069, median 0.962 | none wholly outside [0.85, 1.4], 2 s.e. | PASS (by the rule), **8 assets undecided** |
+
+The 8 undecided volatility rows (2 s.e. straddles a band edge; the script says these are not a pass): HLCN 0.858 ± 0.017, VRDN 0.971 ± 0.080, OSTV 0.880 ± 0.033, ATLF 0.939 ± 0.065, MRDB 0.921 ± 0.057, CRVO 0.841 ± 0.027, VLMS 0.885 ± 0.031, AURH 0.867 ± 0.058. Info only: GARCH h (live engine) mean 0.996, max 9.0; ecology gross flow 0.893 ADV per asset-day. **This is the 8-seed quick release run.** The header calls 60 seeds the full one (about 11 minutes at 11 s a seed). A 60-seed run would settle the 8 undecided rows; it was not run here because the instruction was the default run, and a parallel run would have skewed the load test.
+
+Socket load values (`socket-load.mjs`, 4,000 clients, 30 s, after the sockets were open):
+
+| Measure | Value |
+|---|---|
+| Clients welcomed | 3,747 of 4,000 (253 never welcomed, after the script's 6 retries) |
+| Connect errors | 9,423 retries, all `ECONNREFUSED` (close code 1006) |
+| Tick messages delivered | 93,090; 100.5 MB/s total; 26.8 kB/s per client |
+| Fan-out per tick (first to last client) | p50 495 ms, **p99 924 ms** |
+| Tick spacing | p50 1,002 ms, **p99 1,192 ms** |
+| Server slow ticks (over 500 ms, the server's own log line) | 18 in the run, 508 to 943 ms, median 545 ms |
+| Server after the run | tick 765, 4,024 players |
+
+The tick p99 (1.19 s spacing, 0.92 s fan-out) is under the 2.5 s gate. The run is not a clean 4,000-client pass, though: 253 clients never connected, and each refusal was `ECONNREFUSED`. The server code has no connection cap (`server/index.ts` sets only `maxPayload` on the WebSocket server; the per-IP limit applies only to account creation, and this run raised it to 100,000 with `REGISTER_LIMIT`). The likely cause is the accept queue under the script's bursts of 200 connects every 100 ms on this Windows host, but that is not confirmed. A rerun with a slower ramp, or a check of the listen backlog, would tell.
+
+**CPU was shared with other agents.** Before the load run, total CPU (16 logical processors) read 19 to 51% over three samples, with Python, Spotify, Google Drive and an Epic overlay renderer running, and one `node` process with 216 CPU-seconds whose owner was not identified. CPU was not sampled during the load run. The tick numbers above are measured under that contention; the slow ticks may partly come from it.
+
 ### 0.5 Open items
 
 Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merge decisions. The last column is the outcome after the `p4/fix` pass (section 0.6): **Closed** (with its commit), **Ruled** (a lead ruling; the item is decided, the work is named), **Deferred** (to the phase named), or **Open** (not in this pass).
@@ -185,7 +224,7 @@ Owners are named as in the Phase 4 files. "Lead" is the lead for ruling and merg
 | O-16 | CEO-change action has no UI (only notices). NPC acquirer bids are an API, not scheduled. NPC CEO policy, dividends and covenants are not modelled in B2 (dividends and covenants exist in B1). | Forge (UI), Quant (NPC policy) | **Partly built in `p4/ui2` (section 12):** the CEO change has its screen, with the days before confirming. Open: NPC acquirer bids are not scheduled; NPC CEO policy, dividends and covenants are not modelled in B2. |
 | O-17 | Company Overview: the decision applies at once through `startProject` (Velvet asks for next-day-close staging, which the engine does not have). The "was" tick on the slider, the launch of next-gen products (credits not carried in the founder view), and the Filings view are not built. | Forge (engine staging and launch), Velvet (copy and Filings view) | **Built in `p4/ui2` (section 12):** next-day-close staging of the Overview decision, the "was" tick, the next-gen launch and the Filings tab. Open for Velvet: copy sign-off on the new strings (en and fr). |
 | O-18 | Derivatives on the founder's company stock are not filed (B1 deviation 5). Revisit when listed options on company stocks exist. | Forge | Deferred until listed options on company stocks exist (lead ruling). The engine still refuses them. |
-| O-19 | Plan verification not run in this pass: `scripts/ecology/gates.ts full`, `scripts/load/socket-load.mjs` (4,000 clients, tick p99 under 2.5 s), play-by-hand on desktop and phone in English and French, and the screenshot tour. | Lead | Open (lead; not in this pass) |
+| O-19 | Plan verification not run in this pass: `scripts/ecology/gates.ts full`, `scripts/load/socket-load.mjs` (4,000 clients, tick p99 under 2.5 s), play-by-hand on desktop and phone in English and French, and the screenshot tour. | Lead | **Partly run on `v1` at `ab14b3b` (section 0.4).** Ecology `full` at 8 seeds: 7 of 7 gates PASS, 8 volatility rows undecided (a 60-seed run settles them). Socket load at 4,000 clients: tick p99 1.19 s spacing and 0.92 s fan-out, under the 2.5 s gate, but 253 of 4,000 clients never connected (`ECONNREFUSED`; cause not confirmed). Still open: the 60-seed ecology run, a clean 4,000-client rerun, play-by-hand on desktop and phone in English and French, and the screenshot tour. |
 | O-20 | The ready mark is advice, not a rule. The engine launches any credit; the R&D launch form is always there, and below the mark it shows the three-part warning and asks the founder to confirm. | Owner (Velvet spec, Quant tape guard) | **Ruled and built in `p4/ui2` (section 0.6).** Owner decision: the next-gen ready mark (score 55, `company.rd.readyMark`) is a screen rule only, enforced on the R&D launch form and nowhere else. No engine change. |
 | O-21 | Pre-existing lint warnings: 15 (`react/jsx-no-literals` in `Welcome.tsx`, unused vars in `game.test.ts`). Zero errors. | Velvet (copy keys), Forge (unused vars) | **Closed, `f597d11`.** The cold open and loading copy read from i18n keys in en and fr, and the unused imports are gone. `npx eslint src scripts server --max-warnings 0` passes. |
 | O-22 | Rival books are outside the money identity. The NPC rival funds (`ecology.rivals`, Hale & Ward, Pinn Partners and Vetch, live in `universe.ts`) trade slices of the pools' flow, not accounts, so their trades are not in `netWorldMoney`. `settleRivals` pays a rival `units x price` on a delisting with no booked side, so an NPC bankruptcy or merger of a stock a rival holds moves money the identity does not see. Found while closing review item 4; not in the reviewer's list. | Ledger (ruling: book the rival side as a Street flow, or bring the rival books into the identity), Forge | **Ruled and built in `p4/ui2` (section 0.6):** rival books are Street-side (NPC) money. A delisting that settles rival units books the cash to the Street tally (`street` event, `reason: 'rivalSettlement'`, booked by `ledgerTick` in `src/world/ledger.ts` as `STREET_TALLY`). The zero-sum row in `zerosum.test.ts` ("O-22") closes to the cent with the rival books counted. The account side is O-3. |
