@@ -155,8 +155,10 @@ describe('L6.8 each NPC cohort bleeds on a half-life tied to tau (v1.3)', () => 
       const start = t.npcBal;
       expect(start).toBeGreaterThan(100);
       const halfTicks = NPC.BLEED_HALF_TAU * NPC.VIRAL_TAU_DAYS * TPD;
-      for (let k = 1; k <= halfTicks; k++) at(g, g.market.tick + 1);
-      expect(Math.abs(t.npcBal - start / 2)).toBeLessThanOrEqual(1);
+      // the half-life need not be a whole number of ticks (0.3 x 0.35 gd = 75.6): step a whole number and compare with the exact decay
+      const n = Math.round(halfTicks);
+      for (let k = 1; k <= n; k++) at(g, g.market.tick + 1);
+      expect(Math.abs(t.npcBal - start * Math.pow(0.5, n / halfTicks))).toBeLessThanOrEqual(1);
     });
   });
 

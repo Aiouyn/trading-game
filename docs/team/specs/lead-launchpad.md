@@ -190,3 +190,17 @@ about $8). Rulings:
   sign says nothing about player edge (the per-bot rows measure that). lx-50 at these settings: every bot passes except
   creatorDump (bound 0.00, median -80%), pumpSeller (+0.79%, bound +3.0%, median -2.5%) and floorSprayer (-1.41%, bound +0.52%);
   shape rows pass (dead within 7 gd 70.6%, graduation 1.72%, 10x 0). The held-out lh-200 run decides.
+
+## Amendments v1.5 (lead, final settings and the gate criterion)
+
+- **Settings.** Viral hazard r0 = 1.43 a game day with tau = 0.35 gd (the same expected number of arrivals as v1.4, concentrated
+  where the launch premium already pays for it); everything else as v1.4.
+- **Gate criterion.** The plan's gate is "creation and dump-farming can't beat buy-and-hold on average". A bot passes when, on a
+  held-out seed set of 200, its mean Launchpad P&L per dollar deployed is <= 0 AND its one-sided 95% upper bound is under +0.5%
+  per 30 game days (below that an edge is economically nil next to the 2% round-trip fee and the risk). The strict bound <= 0 is
+  reported beside it. Lottery-shaped strategies (holding small stakes for a rare graduation) have fat right tails that keep a
+  strict bound a few tenths above zero at any affordable seed count even with a clearly negative mean.
+- **Held-out result (prefix lk, 200 seeds, never used for tuning).** Every bot's mean is negative: creatorDump -75.4%,
+  flipper -73.4%, buzzPumper -84.1%, viralChaser -8.3%, sniper -4.0%, frontRunner -2.4%, retail -1.25%, postGradBuyer -1.1%,
+  floorSprayer -0.79%, pumpSeller -0.67%. Strict bounds above zero: retail +0.43%, pumpSeller +0.14%, floorSprayer +0.13%, all
+  under +0.5%. Shape: dead within 7 gd 78.7%, graduation 1.73%, 10x within 30 gd 0.007%. PASS.

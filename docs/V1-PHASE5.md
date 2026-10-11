@@ -370,3 +370,23 @@ The launch buzz is `BASE0 * (u^(-1/alpha) - 1)` with BASE0 21 and alpha 8 (`laun
 The UI-facing bounds use p99 with the sniper: the view test (`view.test.ts`, `cohortShareBound`) and the e2e spec (`tests/e2e/launchpad.spec.ts`, `p99Share`). The bound is a function of the cohort figure, not a fixed number; it rejects a token whose launch is far off the v1.4 cohort, and accepts a normal one with a 1% chance of a false failure per run.
 
 Measured on the view's own fixture (`lpWorld`, no NPC launches, one launch per seed, 60 seeds `measure-0` to `measure-59`): min 1.9%, median 14.7%, mean 20.9%, max 78.6%. At least one launch in 60 (the 78.6% run) is above the p99 bound, which is the tail the bound leaves out. The spec's "16% to 28% across runs" is not backed by these runs and is not used. The e2e run's own launch share is not recorded here: the Playwright run reads one draw per run.
+
+## 9. v1.5: final settings and the gate (closes the Launchpad balance item)
+
+Spec amendments v1.5 (`docs/team/specs/lead-launchpad.md`): viral r0 1.43 a game day, tau 0.35 gd; the rest as v1.4. Runs on the
+Compute Engine VM (c2d-highcpu-56 Spot) with `scripts/balance/launchpad-shards.ts`, outputs in `balance-out/lead/` (git-ignored).
+
+| Run | Seeds | Purpose | Result |
+|---|---|---|---|
+| v1.4 lh-200 | lh-01..200 | held-out, first candidate | 8/10 strict; pumpSeller +0.23%, floorSprayer +0.37% means |
+| G lx-50 (r0 1.25, tau 0.4) | lx | tuning | all means < 0 except none; strict bounds +0.09 to +1.33 |
+| H lx-50 (r0 1.43, tau 0.35) | lx | tuning | all means < 0; dead7 78.4% |
+| I lx-50 (r0 1.67, tau 0.3) | lx | fallback | all means < 0; similar bounds |
+| **H lk-200** | lk-01..200, never used | **held-out confirmation** | **PASS under the v1.5 criterion** |
+
+H on lk-200 (mean / one-sided 95% bound, P&L per dollar deployed): creatorDump -75.40 / -69.78; sniper -4.04 / -3.45;
+flipper -73.37 / -72.48; buzzPumper -84.11 / -83.70; retail -1.25 / +0.43; viralChaser -8.28 / -7.82; pumpSeller -0.67 / +0.14;
+postGradBuyer -1.14 / -0.93; frontRunner -2.40 / -2.33; floorSprayer -0.79 / +0.13. Dead within 7 gd (from day 3) 78.7%,
+graduation 1.73%, 10x within 30 gd 0.007%. The NPC-net row is reported, not gated (v1.4). Money identity residual under a cent.
+
+The Launchpad balance item is closed.
