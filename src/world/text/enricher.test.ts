@@ -69,6 +69,31 @@ describe('item facts', () => {
     expect(enrichItemOf({ ...wire, kind: 'chapter' })).toBeNull();
   });
 
+  it('never takes a launchpad line, which names other players (the creator, the plaintiff, the defendant)', () => {
+    const lp = { id: 'w11', tick: 1, kind: 'launchpad', tag: 'Launchpad', text: 'maker_one launched ZED', tone: 'brass', assetId: 'ZED',
+      msg: { key: 'lp.wire.launch', vars: { name: 'Zed', ticker: 'ZED', creator: 'maker_one' } } } as WireItem;
+    expect(enrichItemOf(lp)).toBeNull();
+    const suit = { ...lp, id: 'w12', kind: 'court', tag: 'Court', text: 'trader_two is suing you', msg: { key: 'lp.wire.rugSued', vars: { plaintiff: 'trader_two', defendant: 'maker_one', ticker: 'ZED' } } } as WireItem;
+    expect(enrichItemOf(suit)).toBeNull();
+  });
+
+  it('drops a wire line that names a player handle, in its text or its vars, when the server passes the handles', () => {
+    const handles = new Set(['maker_one', 'trader_two']);
+    const move = { id: 'w13', tick: 1, kind: 'move', tag: 'MOVE', text: 'ACME up 3%', tone: 'gain', assetId: 'ACME' } as WireItem;
+    expect(enrichItemOf(move, handles)?.id).toBe('w13');
+    expect(enrichItemOf({ ...move, text: 'trader_two bought ACME' }, handles)).toBeNull();
+    expect(enrichItemOf({ ...move, msg: { key: 'wire.x', vars: { who: 'MAKER_ONE' } } }, handles)).toBeNull();
+  });
+
+  it('keeps a handle out of the prompt and the cache key: a clean item keeps its facts, a named one is never offered', () => {
+    const handles = new Set(['zed_holder_x']);
+    const clean = { id: 'w14', tick: 2, kind: 'rumor', tag: 'Rumor', text: 'ACME rumored to buy a rival', tone: 'info', assetId: 'ACME' } as WireItem;
+    const it = enrichItemOf(clean, handles);
+    expect(it).not.toBeNull();
+    expect(promptFor(it!)).not.toMatch(/zed_holder_x/);
+    expect(enrichItemOf({ ...clean, text: 'zed_holder_x rumored to buy ACME' }, handles)).toBeNull();
+  });
+
   it('hashes the same facts the same way whatever the key order', () => {
     const a = { x: 1, y: { p: 2, q: [1, 2] } };
     const b = { y: { q: [1, 2], p: 2 }, x: 1 };
@@ -114,6 +139,15 @@ describe('reply validation (every reject reason)', () => {
     expect(validateReply(ok({ en: 'You should buy Acme.' }), facts, 200)).toEqual({ ok: false, reason: 'banned' });
     expect(validateReply(ok({ fr: 'Il faut acheter Acme maintenant.' }), facts, 200)).toEqual({ ok: false, reason: 'advice' });
   });
+  it('rejects a French line that is English (an English stopword the facts do not hold)', () => {
+    expect(validateReply(ok({ fr: 'The stock is up and it rose.' }), facts, 200)).toEqual({ ok: false, reason: 'language' });
+    expect(validateReply(ok({ fr: 'Acme rose with its peers.' }), facts, 200)).toEqual({ ok: false, reason: 'language' });
+  });
+  it('accepts a real French line, and a stopword that the facts themselves contain', () => {
+    expect(validateReply(ok({ fr: 'Acme a dépassé son estimation.' }), facts, 200).ok).toBe(true);
+    const named = { text: 'The Trust beat by 12.5%' };
+    expect(validateReply(JSON.stringify({ en: 'The Trust beat.', fr: 'The Trust a dépassé de 12,5 %.' }), named, 200).ok).toBe(true);
+  });
   it('accepts a French thousands space and decimal comma when the facts hold the value', () => {
     const f = { amount: 1234.56 };
     expect(validateReply(JSON.stringify({ en: 'Net worth 1,234.56 dollars.', fr: 'Valeur nette 1 234,56 dollars.' }), f, 200).ok).toBe(true);
@@ -146,8 +180,8 @@ describe('the enricher', () => {
     const body = JSON.parse(String(init.body)) as { model: string; max_tokens: number; messages: { content: string }[] };
     expect(body.model).toBe('claude-haiku-5-5');
     expect(body.messages[0]!.content).toContain('FACTS:');
-    expect(e.drain()).toEqual({ w7: GOOD });
-    expect(e.drain()).toBeNull();
+    expect(e.since(0)).toEqual({ w7: GOOD });
+    expect(e.since(e.version())).toBeNull();
     expect(store.textCacheGet('newsroom', factsHash(FACTS), 'fr')).toBe(GOOD.fr);
   });
 
@@ -190,6 +224,7 @@ describe('the enricher', () => {
       'not json', JSON.stringify({ en: 'only english' }), JSON.stringify({ en: 'x'.repeat(250), fr: 'y' }),
       JSON.stringify({ en: 'Up 99%.', fr: 'Up 99%.' }), JSON.stringify({ en: 'Acme should go.', fr: 'Acme monte.' }),
       JSON.stringify({ en: 'Acme is up.', fr: 'Il faut acheter maintenant.' }),
+      JSON.stringify({ en: 'Acme is up.', fr: 'The stock is up.' }),
     ];
     const seen = replies.length;
     let i = 0;
@@ -199,8 +234,8 @@ describe('the enricher', () => {
     await e.settled();
     expect(e.overlay()).toEqual({});
     const r = e.readout().rejects;
-    expect(r).toMatchObject({ json: 1, locale: 1, length: 1, number: 1, banned: 1, advice: 1 });
-    expect(e.readout().fallbacks).toBe(6);
+    expect(r).toMatchObject({ json: 1, locale: 1, length: 1, number: 1, banned: 1, advice: 1, language: 1 });
+    expect(e.readout().fallbacks).toBe(7);
   });
 
   it('falls back to the template on a timeout, with a counter', async () => {
@@ -237,6 +272,47 @@ describe('the enricher', () => {
   });
 });
 
+describe('in flight, per connection and at the cap', () => {
+  it('gives an identical item that arrives during its twin call the same line (one call, two overlays)', async () => {
+    const f = mockFetch(() => answer(JSON.stringify(GOOD)));
+    const e = enricher(cfg({ ratePerMinute: 100 }), f as unknown as typeof fetch);
+    e.offer({ ...ITEM, id: 'twin-a' });
+    e.offer({ ...ITEM, id: 'twin-b' });
+    await e.settled();
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(e.overlay()).toEqual({ 'twin-a': GOOD, 'twin-b': GOOD });
+  });
+
+  it('counts the cost of calls in flight against the cap, so two calls cannot both pass it', async () => {
+    // one call reserves about 0.00018 USD at the estimate; a cap of 0.0002 admits one call only
+    const f = mockFetch(() => answer(JSON.stringify(GOOD)));
+    const e = enricher(cfg({ dailyUsdCap: 0.0002, ratePerMinute: 100 }), f as unknown as typeof fetch);
+    e.offer({ ...ITEM, id: 'c1', facts: { ...FACTS, text: 'first line' } });
+    e.offer({ ...ITEM, id: 'c2', facts: { ...FACTS, text: 'second line' } });
+    expect(e.readout()).toMatchObject({ stops: { cap: 1, rate: 0 } });
+    expect(e.readout().reservedToday).toBeGreaterThan(0);
+    await e.settled();
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(e.readout().reservedToday).toBe(0);
+  });
+
+  it('gives each connection only the lines after its own cursor, so a skipped tick is not lost', async () => {
+    const f = mockFetch(() => answer(JSON.stringify(GOOD)));
+    const e = enricher(cfg({ ratePerMinute: 100 }), f as unknown as typeof fetch);
+    const welcomeCursor = e.version();
+    e.offer({ ...ITEM, id: 'k1', facts: { ...FACTS, text: 'one' } });
+    await e.settled();
+    expect(e.since(welcomeCursor)).toEqual({ k1: GOOD });
+    // a connection that did not send at that tick still has its cursor at the welcome, and gets the line later
+    expect(e.since(welcomeCursor)).toEqual({ k1: GOOD });
+    const afterSent = e.version();
+    expect(e.since(afterSent)).toBeNull();
+    e.offer({ ...ITEM, id: 'k2', facts: { ...FACTS, text: 'two' } });
+    await e.settled();
+    expect(e.since(afterSent)).toEqual({ k2: GOOD });
+  });
+});
+
 describe('the world is unchanged by the enricher', () => {
   /** Steps a world; when `enrich` is set, every wire item goes to a mocked enricher. Returns the state as JSON. */
   async function run(seed: string, ticks: number, enrich: boolean): Promise<{ json: string; calls: number }> {
@@ -249,7 +325,7 @@ describe('the world is unchanged by the enricher', () => {
         const it = enrichItemOf(w);
         if (it) e.offer(it);
       }
-      e.drain();
+      e.since(e.version());
     }
     await e.settled();
     return { json: JSON.stringify(g), calls: enrich ? e.readout().calls : 0 };

@@ -30,6 +30,8 @@ export interface TextReadout {
   day: string;
   dailyUsdCap: number;
   spentToday: number;
+  /** the cost reserved for calls in flight today (counted against the cap until each one answers) */
+  reservedToday: number;
   /** calls sent to the provider */
   calls: number;
   /** items answered from the cache (no call, no cost) */
@@ -47,7 +49,7 @@ const OVERLAY_KEEP = 300;
 const RATE_WINDOW_MS = 60_000;
 
 const EMPTY_REJECTS = (): Record<FallbackReason, number> => ({
-  json: 0, locale: 0, length: 0, number: 0, banned: 0, advice: 0, timeout: 0, http: 0, network: 0, shape: 0,
+  json: 0, locale: 0, language: 0, length: 0, number: 0, banned: 0, advice: 0, timeout: 0, http: 0, network: 0, shape: 0,
 });
 
 /** The UTC day a cap is counted on: the spend resets at the next real day. */
@@ -60,10 +62,16 @@ export interface EnricherOptions {
   now?: () => number;
 }
 
+interface OverlayEntry { line: OverlayLine; seq: number }
+interface Flight { ids: string[]; done: Promise<void> }
+
 export class TextEnricher {
-  private overlayMap = new Map<string, OverlayLine>();
-  private delta: Record<string, OverlayLine> = {};
-  private inflight = new Map<string, Promise<void>>();
+  private overlayMap = new Map<string, OverlayEntry>();
+  /** the overlay version: each line that lands takes the next number (a connection's cursor is the last number it was sent) */
+  private seq = 0;
+  private inflight = new Map<string, Flight>();
+  /** the cost reserved per UTC day for calls in flight (released when each answers) */
+  private reserved = new Map<string, number>();
   private rate = new Map<string, number[]>();
   private calls = 0;
   private hits = 0;
@@ -80,12 +88,19 @@ export class TextEnricher {
   }
 
   /**
-   * Offer one world item. A cached item is answered at once; otherwise a call is made unless the day's cap or the role's rate
-   * limit stops it. Never throws and never waits: the answer lands in the overlay when it validates.
+   * Offer one world item. A cached item is answered at once; otherwise a call is made unless the day's cap (spend plus the cost
+   * reserved for calls in flight) or the role's rate limit stops it. An identical item that arrives while its twin is in flight
+   * waits on that call and gets the same line. Never throws and never waits: the answer lands in the overlay when it validates.
    */
   offer(item: EnrichItem): void {
     if (!this.cfg.enabled || !this.cfg.roles.has(item.role) || this.overlayMap.has(item.id)) return;
     const hash = factsHash(item.facts);
+    const key = `${item.role}|${hash}`;
+    const open = this.inflight.get(key);
+    if (open) {
+      if (!open.ids.includes(item.id)) open.ids.push(item.id);
+      return;
+    }
     const en = this.store.textCacheGet(item.role, hash, 'en');
     const fr = this.store.textCacheGet(item.role, hash, 'fr');
     if (en !== null && fr !== null) {
@@ -93,11 +108,11 @@ export class TextEnricher {
       this.setOverlay(item.id, { en, fr });
       return;
     }
-    const key = `${item.role}|${hash}`;
-    if (this.inflight.has(key)) return;
     const now = this.now();
     const day = dayOf(now);
-    if (this.store.textSpendOn(day) >= this.cfg.dailyUsdCap) {
+    const reserve = this.reserveFor(item);
+    const committed = this.store.textSpendOn(day) + (this.reserved.get(day) ?? 0);
+    if (committed + reserve > this.cfg.dailyUsdCap) {
       this.stops.cap++;
       return;
     }
@@ -110,11 +125,22 @@ export class TextEnricher {
     recent.push(now);
     this.rate.set(item.role, recent);
     this.calls++;
-    const p = this.run(item, hash, day).finally(() => this.inflight.delete(key));
-    this.inflight.set(key, p);
+    this.reserved.set(day, (this.reserved.get(day) ?? 0) + reserve);
+    const flight: Flight = { ids: [item.id], done: Promise.resolve() };
+    this.inflight.set(key, flight);
+    flight.done = this.run(item, hash, day, key, flight, reserve);
   }
 
-  private async run(item: EnrichItem, hash: string, day: string): Promise<void> {
+  /**
+   * The most a call can cost, estimated before it is sent: the prompt at two characters per token (an over-estimate, so the
+   * reservation is never short) and the output at the token cap.
+   */
+  private reserveFor(item: EnrichItem): number {
+    const inputTokens = Math.ceil((SYSTEM_PROMPT.length + promptFor(item).length) / 2);
+    return callCostUsd(this.cfg.model, inputTokens, this.cfg.maxTokens);
+  }
+
+  private async run(item: EnrichItem, hash: string, day: string, key: string, flight: Flight, reserve: number): Promise<void> {
     try {
       const r = await callClaude({
         apiKey: this.cfg.apiKey,
@@ -133,9 +159,12 @@ export class TextEnricher {
       }
       this.store.textCachePut(item.role, hash, 'en', v.en);
       this.store.textCachePut(item.role, hash, 'fr', v.fr);
-      this.setOverlay(item.id, { en: v.en, fr: v.fr });
+      for (const id of flight.ids) this.setOverlay(id, { en: v.en, fr: v.fr });
     } catch (e) {
       this.reject(e instanceof TextCallError ? e.reason : 'network');
+    } finally {
+      this.reserved.set(day, Math.max(0, (this.reserved.get(day) ?? 0) - reserve));
+      this.inflight.delete(key);
     }
   }
 
@@ -145,30 +174,39 @@ export class TextEnricher {
 
   private setOverlay(id: string, line: OverlayLine): void {
     this.overlayMap.delete(id);
-    this.overlayMap.set(id, line);
+    this.overlayMap.set(id, { line, seq: ++this.seq });
     if (this.overlayMap.size > OVERLAY_KEEP) {
       const oldest = this.overlayMap.keys().next().value;
       if (oldest !== undefined) this.overlayMap.delete(oldest);
     }
-    this.delta[id] = line;
   }
 
   /** Every overlay line kept (a welcome sends all of them). */
   overlay(): Record<string, OverlayLine> {
-    return Object.fromEntries(this.overlayMap);
+    return Object.fromEntries([...this.overlayMap].map(([id, e]) => [id, e.line]));
   }
 
-  /** The lines that landed since the last drain (a tick sends only these), or null when none did. */
-  drain(): Record<string, OverlayLine> | null {
-    const d = this.delta;
-    if (Object.keys(d).length === 0) return null;
-    this.delta = {};
-    return d;
+  /** The current overlay version. A connection stores it when it is sent the overlay, and asks for lines after it. */
+  version(): number {
+    return this.seq;
+  }
+
+  /** The lines that landed after a cursor (a connection's last version), or null when none did. */
+  since(cursor: number): Record<string, OverlayLine> | null {
+    const out: Record<string, OverlayLine> = {};
+    let any = false;
+    for (const [id, e] of this.overlayMap) {
+      if (e.seq > cursor) {
+        out[id] = e.line;
+        any = true;
+      }
+    }
+    return any ? out : null;
   }
 
   /** Resolves once every call in flight has settled (tests and shutdown). */
   async settled(): Promise<void> {
-    while (this.inflight.size > 0) await Promise.allSettled([...this.inflight.values()]);
+    while (this.inflight.size > 0) await Promise.allSettled([...this.inflight.values()].map((f) => f.done));
   }
 
   readout(): TextReadout {
@@ -184,6 +222,7 @@ export class TextEnricher {
       day,
       dailyUsdCap: this.cfg.dailyUsdCap,
       spentToday: this.store.textSpendOn(day),
+      reservedToday: this.reserved.get(day) ?? 0,
       calls: this.calls,
       hits: this.hits,
       rejects,

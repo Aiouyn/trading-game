@@ -54,7 +54,8 @@ const depthWire = new DepthWire();
 /** the model text slot (server/text): off unless TEXT_PROVIDER=claude and ANTHROPIC_API_KEY are set; its overlay is presentation only */
 const textEnricher = new TextEnricher(textConfigFromEnv(), store);
 
-interface Conn { ws: WebSocket; pid: string | null; budget: number; last: number }
+/** textSeq: the model overlay version this connection was last sent (its welcome, then each tick's lines after it) */
+interface Conn { ws: WebSocket; pid: string | null; budget: number; last: number; textSeq: number }
 const conns = new Set<Conn>();
 
 function send(ws: WebSocket, msg: ServerMsg): void {
@@ -225,7 +226,7 @@ const http = createServer(async (req, res) => {
 const wss = new WebSocketServer({ server: http, maxPayload: MAX_MSG });
 
 wss.on('connection', (ws) => {
-  const c: Conn = { ws, pid: null, budget: 30, last: Date.now() };
+  const c: Conn = { ws, pid: null, budget: 30, last: Date.now(), textSeq: 0 };
   conns.add(c);
   ws.on('message', (raw) => {
     // token bucket: 20 messages per second sustained, bursts of 30
@@ -245,6 +246,8 @@ wss.on('connection', (ws) => {
         host.command(acct.id, { type: 'presence', online: true });
         const shared = publicCache();
         const dir = shared.topJson ?? JSON.stringify(directoryFor(host.g, shared.all, shared.top, acct.id));
+        // the welcome carries every kept overlay line, so this connection's cursor starts at the current version
+        if (textEnricher.enabled) c.textSeq = textEnricher.version();
         ws.send(welcomeJson({
           playerId: acct.id, tickMs: TICK_MS, frameJson: shared.frameJson, defsJson: listWire.defsJson(host.g),
           meJson: JSON.stringify(playerView(host.g, acct.id)), pubJson: shared.pubJson, directoryJson: dir,
@@ -346,19 +349,23 @@ host.onTick((out, publicTick) => {
   const topJson = top && all!.length <= top.length ? JSON.stringify(top) : null;
   const chat = out.chat as (ChatMessage & { channel?: string })[];
   // the model text slot: this tick's new items are offered (never inside the step), and the overlay lines that landed since the last tick go out
-  if (textEnricher.enabled) {
+  // the handles of every player are passed too, so an item that names one (of any player) is never offered
+  if (textEnricher.enabled && out.wire.length > 0) {
+    const handles = new Set(Object.values(host.g.players).map((p) => p.handle));
     for (const w of out.wire) {
-      const item = enrichItemOf(w);
+      const item = enrichItemOf(w, handles);
       if (item) textEnricher.offer(item);
     }
   }
-  const overlayDelta = textEnricher.enabled ? textEnricher.drain() : null;
-  const overlayPart = overlayDelta ? `,"textOverlay":${JSON.stringify(overlayDelta)}` : '';
   const now = Date.now();
   for (const c of conns) {
     if (!c.pid || c.ws.readyState !== c.ws.OPEN) continue;
     const me = playerView(host.g, c.pid);
     if (!me) continue;
+    // each connection gets the overlay lines that landed after its own cursor, so a line is never lost to a socket that was skipped
+    const overlayDelta = textEnricher.enabled ? textEnricher.since(c.textSeq) : null;
+    if (textEnricher.enabled) c.textSeq = textEnricher.version();
+    const overlayPart = overlayDelta ? `,"textOverlay":${JSON.stringify(overlayDelta)}` : '';
     const myChat = chat.filter((m) => canSee(c.pid!, m.channel ?? 'world')).map((m) => ({ ...m, channel: m.channel ?? 'world' }));
     let extra = '';
     if (pubJson) extra = `,"pub":${pubJson},"directory":${topJson ?? JSON.stringify(directoryFor(host.g, all!, top!, c.pid))}`;

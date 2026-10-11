@@ -26,17 +26,39 @@ export interface EnrichItem {
   facts: ItemFacts;
 }
 
-/** The wire kinds that are news for the newsroom role. */
+/**
+ * The wire kinds that are news for the newsroom role. 'launchpad' is not one of them: its lines name other players (the
+ * creator, the plaintiff, the defendant) in their vars and text.
+ */
 const NEWSROOM_KINDS = new Set<string>([
-  'macro', 'rates', 'move', 'earnings', 'preview', 'rumor', 'halt', 'reopen', 'listing', 'index', 'squeeze', 'world', 'launchpad',
+  'macro', 'rates', 'move', 'earnings', 'preview', 'rumor', 'halt', 'reopen', 'listing', 'index', 'squeeze', 'world',
 ]);
 
-/** The enrichable item of a wire line, or null when no role takes it (player-private kinds never reach here). */
-export function enrichItemOf(item: WireItem): EnrichItem | null {
+/** Every string value in a facts object, lower-cased. Keys are fixed names and are not searched. */
+export function stringValuesOf(v: unknown, out: string[] = []): string[] {
+  if (typeof v === 'string') out.push(v.toLowerCase());
+  else if (Array.isArray(v)) v.forEach((x) => stringValuesOf(x, out));
+  else if (v && typeof v === 'object') Object.values(v).forEach((x) => stringValuesOf(x, out));
+  return out;
+}
+
+/**
+ * The enrichable item of a wire line, or null when no role takes it (player-private kinds never reach here). When the server
+ * passes the player handles, an item whose facts mention any of them (a case-insensitive substring of a fact value) is dropped,
+ * so a handle of another player never reaches a prompt or a cache key.
+ */
+export function enrichItemOf(item: WireItem, handles?: ReadonlySet<string>): EnrichItem | null {
   if (!NEWSROOM_KINDS.has(item.kind)) return null;
   const facts: ItemFacts = { kind: item.kind, tag: item.tag, text: item.text, tone: item.tone };
   if (item.assetId) facts.assetId = item.assetId;
   if (item.msg) facts.msg = item.msg.vars ? { key: item.msg.key, vars: item.msg.vars } : { key: item.msg.key };
+  if (handles && handles.size > 0) {
+    const values = stringValuesOf(facts);
+    for (const h of handles) {
+      const needle = h.trim().toLowerCase();
+      if (needle && values.some((v) => v.includes(needle))) return null;
+    }
+  }
   return { id: item.id, role: 'newsroom', facts };
 }
 
