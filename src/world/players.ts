@@ -102,10 +102,13 @@ export function pickRival(g: GameState, p: Player): void {
 function syncLicense(g: GameState, p: Player): void {
   const lic = licenseFor(p.rankId);
   p.licenseId = lic.id;
+  // the R0 short is a human player's permission: the NPC crowd keeps its old R0 permissions, so the price paths it drives
+  // (and the seeded runs) do not move
+  const canShort = lic.canShort && !(p.npc && lic.maxLeverage <= 1);
   // in place: the world owns its market copy (the pure helper would copy every account)
   const acct = g.market.accounts[p.id];
-  if (acct && (acct.maxLeverage !== lic.maxLeverage || acct.canShort !== lic.canShort || acct.canOptions !== lic.canOptions)) {
-    g.market.accounts[p.id] = { ...acct, maxLeverage: lic.maxLeverage, canShort: lic.canShort, canOptions: lic.canOptions };
+  if (acct && (acct.maxLeverage !== lic.maxLeverage || acct.canShort !== canShort || acct.canOptions !== lic.canOptions)) {
+    g.market.accounts[p.id] = { ...acct, maxLeverage: lic.maxLeverage, canShort, canOptions: lic.canOptions };
   }
 }
 
