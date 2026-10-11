@@ -173,7 +173,6 @@ export function settleTournament(g: GameState, week: number, seeds: string[], ro
   for (const e of rec.entries) {
     const row = rows.find((r) => r.id === e.actor.id);
     if (!row) continue;
-    const reason = row.reason === 'drawdown' ? 'drawdown' : 'trades';
     notify(g, out, e.playerId, {
       kind: 'lab', tone: row.qualified ? 'brass' : 'info',
       text: row.qualified
@@ -181,7 +180,7 @@ export function settleTournament(g: GameState, week: number, seeds: string[], ro
         : `Tournament week ${week} disqualified your entry (${row.reason === 'drawdown' ? 'a drawdown over 40%' : 'fewer than 20 trades'}). No cash is at stake.`,
       msg: row.qualified
         ? { key: 'tournament.in', vars: { week, sharpe: row.sharpe.toFixed(2), division: row.division ?? 'your' } }
-        : { key: 'tournament.out', vars: { week, reason } },
+        : { key: row.reason === 'drawdown' ? 'tournament.out.drawdown' : 'tournament.out.trades', vars: { week } },
     });
   }
   return ok({ week, rows: rows.length });

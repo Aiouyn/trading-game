@@ -9,7 +9,8 @@ import type { CommandResult, GameState, Player, StepOutput, StreakState } from '
  * Rewards are fixed and carry no chance. Cash is at most 100 x the rank index per day, and it grows with the streak only up
  * to 7 days (the day-7 amount is the daily maximum). Milestones at 3, 7, 14 and 30 days give a badge (and a title at 7 and
  * 30). One rest day a week: a single missed day keeps half the streak (rounded down, then today's claim adds one) once per
- * week; a longer gap restarts it at 1. No push nags: the only message is the claim's own line.
+ * week; a longer gap restarts it at 1. Palette accents come with the 3, 7 and 14 day milestones (recorded on the streak; the
+ * shell's picker reads them). No push nags: the only message is the claim's own line.
  *
  * Presence and actions are recorded as the player plays: `markStreakAction` runs after each successful player command
  * (game.ts), and the login is the player's last-seen tick, which the same command path updates.
@@ -21,11 +22,11 @@ export const STREAK = {
   /** the growth cap in days: the cash per day stops growing here */
   capDays: 7,
   milestones: [
-    { days: 3, badge: 'streak3' },
-    { days: 7, badge: 'streak7', title: 'regular' },
-    { days: 14, badge: 'streak14' },
+    { days: 3, badge: 'streak3', accent: 'phosphor' },
+    { days: 7, badge: 'streak7', title: 'regular', accent: 'riviera' },
+    { days: 14, badge: 'streak14', accent: 'broadsheet' },
     { days: 30, badge: 'streak30', title: 'ironclad' },
-  ],
+  ] as { days: number; badge: string; title?: string; accent?: string }[],
 } as const;
 
 export const REAL_DAY_TICKS = 24 * TPD;
@@ -69,14 +70,15 @@ export function nextStreak(s: StreakState, day: number): { count: number; restUs
   return { count: 1, restUsed: false };
 }
 
-export function streakClaimBlock(g: GameState, pid: string): string | null {
+/** Why the claim is closed now, as a refusal code (the client turns it into copy), or null when it is open. */
+export function streakClaimBlock(g: GameState, pid: string): 'noPlayer' | 'streakClaimed' | 'streakLogin' | 'streakAction' | null {
   const p = g.players[pid];
-  if (!p || p.npc) return 'No player account to claim with. Join the world first.';
+  if (!p || p.npc) return 'noPlayer';
   const day = realDayOf(g.market.tick);
   const s = p.streak ?? emptyStreak();
-  if (s.lastDay === day) return 'You already claimed today. The next claim opens with tomorrow\'s login.';
-  if (!loggedInToday(g, p, day)) return 'The streak needs a login today. Log in, then claim again.';
-  if (s.actedDay !== day) return 'The streak needs one action today. Trade, bid or buy something, then claim.';
+  if (s.lastDay === day) return 'streakClaimed';
+  if (!loggedInToday(g, p, day)) return 'streakLogin';
+  if (s.actedDay !== day) return 'streakAction';
   return null;
 }
 
@@ -91,10 +93,13 @@ export function claimStreak(g: GameState, pid: string, out: StepOutput | null = 
   const cash = streakCash(count, p.rankId);
   const newBadges: string[] = [];
   const newTitles: string[] = [];
+  const newAccents: string[] = [];
+  s.accents ??= [];
   for (const m of STREAK.milestones) {
     if (count < m.days) continue;
     if (!s.badges.includes(m.badge)) { s.badges.push(m.badge); newBadges.push(m.badge); }
-    if ('title' in m && !s.titles.includes(m.title)) { s.titles.push(m.title); newTitles.push(m.title); }
+    if ('title' in m && m.title && !s.titles.includes(m.title)) { s.titles.push(m.title); newTitles.push(m.title); }
+    if ('accent' in m && m.accent && !s.accents.includes(m.accent)) { s.accents.push(m.accent); newAccents.push(m.accent); }
   }
   s.count = count;
   s.lastDay = day;
@@ -106,18 +111,19 @@ export function claimStreak(g: GameState, pid: string, out: StepOutput | null = 
     text: `Day ${count} of your streak: $${cash.toFixed(2)}.`,
     msg: { key: 'streak.claimed', vars: { days: count, cash: cash.toFixed(2) } },
   });
-  return { ok: true, data: { count, cash, newBadges, newTitles, restUsed } };
+  return { ok: true, data: { count, cash, newBadges, newTitles, newAccents, restUsed } };
 }
 
 export interface StreakView {
   count: number;
   canClaim: boolean;
-  /** the refusal, as the same three-part text the claim gives, or null when the claim is open */
-  block: string | null;
+  /** the refusal code the claim gives, or null when the claim is open */
+  block: 'noPlayer' | 'streakClaimed' | 'streakLogin' | 'streakAction' | null;
   cashToday: number;
   restAvailable: boolean;
   badges: string[];
   titles: string[];
+  accents: string[];
   nextMilestone: number | null;
 }
 
@@ -137,6 +143,7 @@ export function streakView(g: GameState, pid: string | null): StreakView | null 
     restAvailable: s.restWeek !== Math.floor(day / WEEK_DAYS),
     badges: [...s.badges],
     titles: [...s.titles],
+    accents: [...(s.accents ?? [])],
     nextMilestone: nextM ? nextM.days : null,
   };
 }

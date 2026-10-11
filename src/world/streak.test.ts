@@ -29,7 +29,7 @@ describe('streak gates', () => {
     g.players[pid]!.lastSeenTick = 5;
     const r = claimStreak(g, pid);
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/login today/);
+    expect(r.error).toBe('streakLogin');
   });
 
   it('refuses a claim with no action today', () => {
@@ -37,14 +37,25 @@ describe('streak gates', () => {
     atDay(g, 0, false);
     const r = claimStreak(g, pid);
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/one action today/);
+    expect(r.error).toBe('streakAction');
   });
 
   it('allows one claim a real day', () => {
     const g = world();
     atDay(g, 0);
     expect(claimStreak(g, pid).ok).toBe(true);
-    expect(claimStreak(g, pid).error).toMatch(/already claimed/);
+    expect(claimStreak(g, pid).error).toBe('streakClaimed');
+  });
+
+  it('a milestone also unlocks a palette accent, kept on the streak and listed in the view', () => {
+    const g = world();
+    g.players[pid]!.streak = { count: 2, lastDay: 0, restWeek: -1, actedDay: -1, badges: [], titles: [] };
+    atDay(g, 1);
+    const r = claimStreak(g, pid);
+    expect(r.ok).toBe(true);
+    expect(r.data).toMatchObject({ count: 3, newAccents: ['phosphor'] });
+    expect(g.players[pid]!.streak!.accents).toEqual(['phosphor']);
+    expect(streakView(g, pid)!.accents).toEqual(['phosphor']);
   });
 
   it('counts a successful command as the day\'s action, through applyCommand', () => {
@@ -147,7 +158,7 @@ describe('streak milestones and view', () => {
     atDay(g, 0, false);
     const closed = streakView(g, pid)!;
     expect(closed.canClaim).toBe(false);
-    expect(closed.block).toMatch(/one action/);
+    expect(closed.block).toBe('streakAction');
     expect(closed.nextMilestone).toBe(3);
     markStreakAction(g, pid);
     expect(streakView(g, pid)!.canClaim).toBe(true);

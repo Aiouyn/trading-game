@@ -62,7 +62,7 @@ describe('the home room', () => {
     expect(placeInSlot(g, owner, 0, 'u-nothing').ok).toBe(false);
     const r = placeInSlot(g, owner, 0, 'u-festival');
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/Experiences/);
+    expect(r.error).toBe('homeConsumed');
   });
 
   it('gives a viewer the placed items, and the owner their unplaced items too', () => {

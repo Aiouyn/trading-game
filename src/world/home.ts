@@ -20,7 +20,7 @@ export interface Visibility {
 }
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
-const fail = (error: string): CommandResult => ({ ok: false, error });
+const fail = (error: string, data?: Record<string, number | string>): CommandResult => ({ ok: false, error, ...(data ? { data } : {}) });
 
 function ownedItem(g: GameState, pid: string, uid: string): OwnedItem | undefined {
   return g.players[pid]?.lifestyle.find((o) => o.uid === uid);
@@ -29,16 +29,16 @@ function ownedItem(g: GameState, pid: string, uid: string): OwnedItem | undefine
 /** A slot's item, placed by the owner. Consumed experiences cannot go in a slot: they do not stay. */
 export function placeInSlot(g: GameState, pid: string, slot: number, uid: string | null): CommandResult {
   const p = g.players[pid];
-  if (!p || p.npc) return fail('No player account. Join the world first.');
-  if (!Number.isInteger(slot) || slot < 0 || slot >= HOME_SLOTS) return fail(`Pick a slot from 1 to ${HOME_SLOTS}.`);
+  if (!p || p.npc) return fail('noPlayer');
+  if (!Number.isInteger(slot) || slot < 0 || slot >= HOME_SLOTS) return fail('homeSlot', { max: HOME_SLOTS });
   const slots: (string | null)[] = [...(p.homeSlots ?? Array<string | null>(HOME_SLOTS).fill(null))];
   if (uid === null) {
     slots[slot] = null;
   } else {
     const o = ownedItem(g, pid, uid);
-    if (!o) return fail('That item is not in your Vault. Buy it first, then place it.');
+    if (!o) return fail('homeNotOwned');
     const item = LIFE_BY_ID.get(o.itemId);
-    if (item?.cls === 'consumed') return fail('Experiences do not stay in a room. Only goods go in a slot.');
+    if (item?.cls === 'consumed') return fail('homeConsumed');
     for (let k = 0; k < slots.length; k++) if (slots[k] === uid) slots[k] = null;
     slots[slot] = uid;
   }
@@ -49,8 +49,8 @@ export function placeInSlot(g: GameState, pid: string, slot: number, uid: string
 /** The visibility switch of one surface. Off by default; a player may switch it off at any time. */
 export function setVisibility(g: GameState, pid: string, surface: VisibilitySurface, on: boolean): CommandResult {
   const p = g.players[pid];
-  if (!p || p.npc) return fail('No player account. Join the world first.');
-  p.visibility = { home: false, collection: false, ...(p.visibility ?? {}), [surface]: on };
+  if (!p || p.npc) return fail('noPlayer');
+  p.visibility ={ home: false, collection: false, ...(p.visibility ?? {}), [surface]: on };
   return ok({ visibility: p.visibility });
 }
 

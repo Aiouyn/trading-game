@@ -142,6 +142,8 @@ export interface StreakState {
   actedDay: number;
   badges: string[];
   titles: string[];
+  /** palette accents unlocked by the milestones (shell palette ids). Absent in older saves. */
+  accents?: string[];
 }
 
 export interface TournamentState {
