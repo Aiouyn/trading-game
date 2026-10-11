@@ -50,6 +50,18 @@ export class Store {
         data TEXT NOT NULL,
         updated INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS text_cache (
+        role TEXT NOT NULL,
+        facts_hash TEXT NOT NULL,
+        locale TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created INTEGER NOT NULL,
+        PRIMARY KEY (role, facts_hash, locale)
+      );
+      CREATE TABLE IF NOT EXISTS text_spend (
+        day TEXT PRIMARY KEY,
+        usd REAL NOT NULL
+      );
     `);
   }
 
@@ -163,6 +175,26 @@ export class Store {
   loadArchiveDays(): string[] {
     this.db.exec('CREATE TABLE IF NOT EXISTS eco_archive (day INTEGER PRIMARY KEY, data TEXT NOT NULL)');
     return (this.db.prepare('SELECT data FROM eco_archive ORDER BY day ASC').all() as { data: string }[]).map((r) => r.data);
+  }
+
+  // ---------------------------------------------------------------- model text (server/text, presentation only)
+
+  /** One cached model line for a role, its facts hash and a locale, or null. */
+  textCacheGet(role: string, factsHash: string, locale: string): string | null {
+    return (this.db.prepare('SELECT text FROM text_cache WHERE role = ? AND facts_hash = ? AND locale = ?').get(role, factsHash, locale) as { text: string } | undefined)?.text ?? null;
+  }
+
+  textCachePut(role: string, factsHash: string, locale: string, text: string): void {
+    this.db.prepare('INSERT OR REPLACE INTO text_cache (role, facts_hash, locale, text, created) VALUES (?, ?, ?, ?, ?)').run(role, factsHash, locale, text, Date.now());
+  }
+
+  /** The USD spent on model text on a day (UTC date string), 0 when none. */
+  textSpendOn(day: string): number {
+    return (this.db.prepare('SELECT usd FROM text_spend WHERE day = ?').get(day) as { usd: number } | undefined)?.usd ?? 0;
+  }
+
+  textSpendAdd(day: string, usd: number): void {
+    this.db.prepare('INSERT INTO text_spend (day, usd) VALUES (?, ?) ON CONFLICT(day) DO UPDATE SET usd = usd + excluded.usd').run(day, usd);
   }
 
   close(): void {
