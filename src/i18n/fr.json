@@ -3337,5 +3337,8 @@
   "security.msg.closedEarly": "Une session s’est close avant de copier quoi que ce soit d’utile.",
   "security.msg.failed": "L’opération contre {target} a échoué.",
   "security.msg.failedDetected": "L’opération contre {target} a échoué et a été détectée.",
-  "security.msg.blocked": "Vos défenses ont bloqué une tentative d’intrusion."
+  "security.msg.blocked": "Vos défenses ont bloqué une tentative d’intrusion.",
+  "auction.won": "Vous avez remporté {item} pour {amount} $, prime d’acheteur comprise.",
+  "auction.lost": "{item} a été adjugé à un autre enchérisseur.",
+  "auction.unsold": "{item} n’a pas trouvé preneur. Aucun argent n’a bougé."
 }

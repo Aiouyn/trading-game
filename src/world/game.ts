@@ -11,6 +11,7 @@ import {
 } from './assets';
 import { shopCommand, shopsDay } from './shops';
 import { enterTournament, settleTournament, TOURNAMENT_SYSTEM } from './tournamentWeek';
+import { auctionTick, placeBid } from './auctions';
 import { newsFromEvents, filings } from './news';
 import {
   addAlert, applyRank, checkAchievements, checkAlerts, claimContract, join, pickRivals, rollContracts, tradeStats,
@@ -193,6 +194,7 @@ export function stepGame(g: GameState): StepOutput {
   planTick(g, out);
   npcTick(g, (gg, pid, cmd) => applyCommand(gg, pid, cmd, out));
   lpTick(g, out);
+  auctionTick(g, out);
   chapterCheck(g, out);
   // the close: after the net worth refresh of this tick, so the card and the ghosts read the day's final marks
   if (tick % TPD === 0) closeDay(g, out);
@@ -381,6 +383,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'lab.botToggle': return toggleBot(g, pid, cmd.botId, cmd.active);
     case 'lab.signal': return analystSignal(g, pid, out);
     case 'tournament.enter': return enterTournament(g, pid);
+    case 'auction.bid': return placeBid(g, pid, cmd.lot, cmd.amount);
     case 'sec.budget': return setBudget(g, pid, cmd.budget);
     case 'sec.scan': return manualScan(g, pid, out);
     case 'sec.tag': return tagEntry(g, pid, cmd.entryId, cmd.tag);

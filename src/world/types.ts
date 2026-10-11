@@ -16,6 +16,8 @@ import type { LaunchpadState } from './launchpad/types';
  * the command log, so the server can rebuild any moment from a snapshot plus the commands since.
  * Unlike the engine, the world layer mutates its state in place (the server owns one copy).
  */
+import type { AuctionState } from './auctions';
+
 export interface GameState {
   version: 2;
   seed: string;
@@ -63,6 +65,8 @@ export interface GameState {
   launchpad?: LaunchpadState;
   /** the weekly AI tournament (ROADMAP §2.4). Absent until the first entry; worlds without one keep every fingerprint. */
   tournament?: TournamentState;
+  /** the weekly live auctions (auctions.ts). Absent until the first bid; worlds without one keep every fingerprint. */
+  auctions?: AuctionState;
 }
 
 /** One frozen entry in a week (tournament.ts): the strategy parameters stay here, and the view never shows them. */
@@ -211,7 +215,7 @@ export interface AnalystNote {
 export interface InboxItem {
   id: string;
   tick: number;
-  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan' | 'fund';
+  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan' | 'fund' | 'auction';
   text: string;
   /** the same line as a message descriptor (en.json / fr.json key), rendered in the viewer's language */
   msg?: Msg;
@@ -673,6 +677,7 @@ export type Command =
   | { type: 'lab.botToggle'; botId: string; active: boolean }
   | { type: 'lab.signal' }
   | { type: 'tournament.enter' }
+  | { type: 'auction.bid'; lot: string; amount: number }
   | { type: 'tournament.settle'; week: number; seeds: string[]; rows: TournamentRowRecord[] }
   | { type: 'sec.budget'; budget: number }
   | { type: 'sec.scan' }
