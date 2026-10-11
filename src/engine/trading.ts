@@ -1112,6 +1112,17 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       }
 
       let { price, p0 } = tickPrice(i, o.side, q);
+      // a bounded book (a Launchpad token, lead-launchpad.md L4) pays for a sell only from the cash it holds: the fill is cut to what
+      // the book can pay, and the order waits when it cannot pay for any (the book is never in overdraft, nothing is minted)
+      if (supplyId !== undefined && o.side === 'sell' && def.bookCashBound === true) {
+        const bookCash = s.accounts[supplyId]!.cash;
+        for (let pass = 0; pass < 4 && q > EPS && q * price > bookCash + EPS; pass++) {
+          q = roundQty(def, Math.max(0, bookCash / price));
+          if (q <= EPS) break;
+          ({ price, p0 } = tickPrice(i, o.side, q));
+        }
+        if (q <= EPS || q * price > bookCash + EPS) continue;
+      }
       if (o.type === 'limit' || o.type === 'stop_limit') {
         if (o.side === 'buy' ? price > o.limitPrice! : price < o.limitPrice!) {
           // a plan records that its last price check failed: an unsold remainder then becomes a price hold, not a volume skip
@@ -1281,6 +1292,8 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           const liqSupply = supplyOf(s, assetId);
           if (liqSupply === null) continue;
           const { price, p0 } = tickPrice(i, side, q);
+          // a bounded book (a Launchpad token) cannot pay a forced sale past its cash: the liquidation waits (L4)
+          if (liqSupply !== undefined && side === 'sell' && s.config.assets[i]!.bookCashBound === true && s.accounts[liqSupply]!.cash < q * price) continue;
           const fee = commission(s, s.config.assets[i]!, q * price);
           book(a, assetId, side, q, price, fee);
           if (liqSupply === undefined) tallyStreet(a, -(sign(side) * q * price + fee)); // a forced fill with the Street (O-3)

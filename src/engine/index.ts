@@ -20,6 +20,8 @@ export { DEFAULT_INDEX_REVIEW, indexReviewConfig, indexMembers, indexDivisor } f
 export { DEFAULT_SQUEEZE, squeezeConfig } from './trading';
 export type { ListingKind, ListingsConfig } from './listings';
 export { settleAsset, liquidationPrice } from './trading';
+// the listing path a runtime asset takes (the Launchpad's graduation; the engine's own listings use it too)
+export { appendAsset } from './listings';
 export type { RivalRow } from './rivals';
 export type { NewsBand, NewsKind } from './news';
 export {

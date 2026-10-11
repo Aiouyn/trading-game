@@ -4,6 +4,8 @@ import { advanceToInvestors, cancelStake } from './funds/flows';
 import { emptyFunds, fundById } from './funds/state';
 import { startWindDown } from './funds/risk';
 import { say } from './say';
+import { rugVerdict } from './launchpad/rug';
+import { SEVERITY } from './court-scale';
 import { usd } from './text/template';
 import type { CommandResult, CourtCase, GameState, Player, StepOutput } from './types';
 
@@ -18,14 +20,7 @@ import type { CommandResult, CourtCase, GameState, Player, StepOutput } from './
 export const COUNSEL_COST = [0, 5_000, 25_000, 120_000];
 const HEARING_DAYS = 2;
 
-const SEVERITY = [
-  { pct: 0.001, floor: 1_000, cap: 5_000_000 },
-  { pct: 0.005, floor: 5_000, cap: 25_000_000 },
-  { pct: 0.01, floor: 10_000, cap: 100_000_000 },
-  { pct: 0.03, floor: 50_000, cap: Infinity },
-  { pct: 0.08, floor: 100_000, cap: Infinity },
-  { pct: 0.15, floor: 250_000, cap: Infinity },
-];
+// the fine scale lives in court-scale.ts, so the Launchpad's rug verdict reads the same table (lead-launchpad.md L5)
 
 export const FLOOR = 5_000;
 
@@ -134,6 +129,7 @@ export function courtTick(g: GameState, out: StepOutput): void {
     c.status = 'won';
     pl.stats.casesWon++;
     if (c.kind === 'fund abuse') { fundVerdict(g, c, out, df); continue; }
+    if (c.kind === 'rug') { rugVerdict(g, c, out, df); continue; }
     const sevIdx = c.kind === 'model theft' ? 3 : c.kind === 'cyber intrusion' ? 2 : 1;
     const sev = SEVERITY[sevIdx]!;
     const headroom = Math.max(0, df.netWorth - FLOOR);

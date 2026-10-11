@@ -3,6 +3,7 @@
 import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type HistoryPayload, type NwHistoryPayload, type ServerMsg } from './protocol';
 import type { Command } from '@/world/types';
 import type { PlayerView } from '@/world/view';
+import type { LpPage } from '@/world/launchpad/view';
 
 export interface Ack { ok: boolean; error?: string; data?: unknown; me?: PlayerView }
 
@@ -69,7 +70,7 @@ export class WorldClient {
       try { msg = JSON.parse(String(ev.data)) as ServerMsg; } catch { return; }
       if (msg.t === 'welcome') this.onState('open');
       if (msg.t === 'error' && msg.message === 'auth') { this.closed = true; this.onState('auth-failed'); ws.close(); return; }
-      if ((msg.t === 'ack' || msg.t === 'history' || msg.t === 'nw-history') && this.pending.has(msg.id)) {
+      if ((msg.t === 'ack' || msg.t === 'history' || msg.t === 'nw-history' || msg.t === 'lp-page') && this.pending.has(msg.id)) {
         const resolve = this.pending.get(msg.id)!;
         this.pending.delete(msg.id);
         resolve(msg.t === 'ack' ? msg : msg.data);
@@ -116,5 +117,9 @@ export class WorldClient {
 
   nwHistory(): Promise<NwHistoryPayload> {
     return this.request<NwHistoryPayload>((id) => ({ t: 'nw-history', id }));
+  }
+
+  lpPage(ticker: string): Promise<LpPage | null> {
+    return this.request<LpPage | null>((id) => ({ t: 'lp-page', id, ticker }));
   }
 }

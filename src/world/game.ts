@@ -37,6 +37,7 @@ import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick,
 import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
 import { applyFundCommand, crossRefusal, fundsBeforeStep, fundsDay, fundsFills, type FundCommand } from './funds';
 import { orderError } from './orders';
+import { launchpadCommand, lockedEngineSell, lpFills, lpTick, refuse as lpRefuse, ensureLaunchpad, vestingSweep } from './launchpad';
 import { companyCommand, companyDay, companyFinanceCommand, companyStep, type CompanyFinanceCommand } from './company/bridge';
 import { adminIpoReady } from './company/ipo';
 import { scorePlanAbuse, scoreWindowAttempt } from './company/backstop';
@@ -48,6 +49,8 @@ export interface CreateOptions {
   warmupDays?: number;
   config?: Partial<WorldConfig>;
   npcs?: boolean;
+  /** the world launches NPC tokens on the Launchpad. Off by default (the bare test worlds keep every fingerprint); the server's game world turns it on (server/host.ts). */
+  launchpadNpc?: boolean;
   /** called during warmup with progress 0..1 and every tick's state (for history recording) */
   onWarmupTick?: (g: GameState) => void;
 }
@@ -98,6 +101,7 @@ export function createGame(seed: string, opts: CreateOptions = {}): GameState {
   }
   g.chapter = { number: 1, startTick: g.market.tick, endTick: g.market.tick + CHAPTER_TICKS };
   if (opts.npcs !== false) seedNpcs(g);
+  if (opts.launchpadNpc) ensureLaunchpad(g).npcLaunches = true;
   computeBoards(g);
   return g;
 }
@@ -113,6 +117,8 @@ export function stepGame(g: GameState): StepOutput {
 
   // a fund order that an alliance change has put opposite a linked order is cancelled before the engine can match them
   fundsBeforeStep(g, out);
+  // the Launchpad's vesting re-check, before the engine matches (lead-launchpad.md L5): resting creator sells are cut to what is unlocked
+  vestingSweep(g, out);
   const r = step(g.market);
   g.market = r.state;
   const tick = g.market.tick;
@@ -122,6 +128,7 @@ export function stepGame(g: GameState): StepOutput {
   for (const f of r.fills) out.fills.push({ playerId: f.playerId, assetId: f.assetId, side: f.side, qty: f.qty, price: f.price, fee: f.fee, orderId: f.orderId });
   ledgerTick(g, r.events, r.fills);
   fundsFills(g, r.fills, out);
+  lpFills(g, r.fills, out);
   companyStep(g, r.fills, r.events);
   tradeStats(g, r.fills, realizedBefore, out);
   const stillOpen = new Set(g.market.orders.filter((o) => o.status === 'open').map((o) => o.id));
@@ -183,6 +190,7 @@ export function stepGame(g: GameState): StepOutput {
   }
   planTick(g, out);
   npcTick(g, (gg, pid, cmd) => applyCommand(gg, pid, cmd, out));
+  lpTick(g, out);
   chapterCheck(g, out);
   // the close: after the net worth refresh of this tick, so the card and the ghosts read the day's final marks
   if (tick % TPD === 0) closeDay(g, out);
@@ -217,6 +225,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
   if (cmd.type === 'admin.ipoReady') return adminIpoReady(g, cmd.playerId);
   if (cmd.type === 'admin.filedLate') return adminFiledLate(g, cmd.playerId);
   if (cmd.type === 'admin.launchCredit') return adminLaunchCredit(g, cmd.playerId, cmd.score);
+  if (cmd.type === 'admin.lpFill') return launchpadCommand(g, pid, cmd, out) ?? fail('unknown command');
   const p = g.players[pid];
   if (!p) return fail('join the world first');
   if (!p.npc) p.lastSeenTick = g.market.tick;
@@ -233,6 +242,8 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
       // the license, the court hold and simple mode's cap until Hustler (orders.ts), even when onboarding was skipped
       const err = orderError(g, p, o);
       if (err) return fail(err);
+      // a creator's vesting-locked allocation cannot be sold after graduation (L5)
+      if (o.side === 'sell' && lockedEngineSell(g, pid, o.assetId, o.qty)) return lpRefuse('lockedEngine', { ticker: o.assetId });
       const r = placeOrder(g.market, { ...o, playerId: pid });
       g.market = r.state;
       if (r.order.status === 'rejected') {
@@ -271,6 +282,7 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'position.close': {
       const q = g.market.accounts[pid]?.positions[cmd.assetId]?.qty ?? 0;
       if (!q) return fail('no position');
+      if (q > 0 && lockedEngineSell(g, pid, cmd.assetId, q)) return lpRefuse('lockedEngine', { ticker: cmd.assetId });
       const refused = crossRefusal(g, pid, cmd.assetId, q > 0 ? 'sell' : 'buy', { fund: false });
       if (refused) return fail(refused);
       const r = placeOrder(g.market, { playerId: pid, assetId: cmd.assetId, side: q > 0 ? 'sell' : 'buy', type: 'market', qty: Math.abs(q), reduceOnly: true });
@@ -409,6 +421,12 @@ export function applyCommand(g: GameState, pid: string, cmd: Command, out: StepO
     case 'fund.deposit':
     case 'fund.redeem':
       return applyFundCommand(g, pid, cmd as FundCommand, out);
+    case 'lp.launch':
+    case 'lp.buy':
+    case 'lp.sell':
+    case 'lp.buzz':
+    case 'lp.cancel':
+    case 'lp.file': return launchpadCommand(g, pid, cmd, out) ?? fail('unknown command');
     case 'admin.advance': return fail('admin only');
     case 'admin.grant': {
       creditExternal(g, pid, cmd.amount, 'admin');

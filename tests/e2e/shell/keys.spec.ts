@@ -17,12 +17,15 @@ test.describe('keyboard', () => {
     // On AZERTY the digit keys produce accented or symbol keys; the code is still Digit2..Digit4.
     await dispatchKey(page, { code: 'Digit2', key: 'é', alt: true });
     await expect(frame(page, 'portfolio')).toBeVisible();
-    // The shelf is Broker, Portfolio, Exchange (Phase 4), Wire, Messages: Alt+3 is the Exchange, Alt+4 Wire, Alt+5 Messages.
+    // The shelf is Broker, Portfolio, Exchange (Phase 4), Launchpad (Phase 5), Wire, Messages: Alt+3 is the Exchange,
+    // Alt+4 the Launchpad, Alt+5 Wire, Alt+6 Messages.
     await dispatchKey(page, { code: 'Digit3', key: '"', alt: true });
     await expect(frame(page, 'exchange')).toBeVisible();
     await dispatchKey(page, { code: 'Digit4', key: "'", alt: true });
-    await expect(frame(page, 'wire')).toBeVisible();
+    await expect(frame(page, 'launchpad')).toBeVisible();
     await dispatchKey(page, { code: 'Digit5', key: '(', alt: true });
+    await expect(frame(page, 'wire')).toBeVisible();
+    await dispatchKey(page, { code: 'Digit6', key: '-', alt: true });
     await expect(frame(page, 'messages')).toBeVisible();
   });
 

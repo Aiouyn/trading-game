@@ -8,6 +8,7 @@ import type { CompanyWorld } from './company/types';
 import type { CompanyAction } from './company/company';
 import type { CompanySector } from '@/content/company';
 import type { FundFees, FundMandate, FundsState } from './funds/types';
+import type { LaunchpadState } from './launchpad/types';
 
 /**
  * The persistent multiplayer world (bible Part II): one market engine plus everything players
@@ -58,6 +59,8 @@ export interface GameState {
   companies?: CompanyWorld;
   /** player-run funds (ROADMAP 2.2). Absent in older saves; created on the first fund. */
   funds?: FundsState;
+  /** the Launchpad (player-created memecoins, lead-launchpad.md). Absent until the first launch; worlds without one keep every fingerprint. */
+  launchpad?: LaunchpadState;
 }
 
 export interface Player {
@@ -267,7 +270,9 @@ export interface Property {
 export interface WireItem {
   id: string;
   tick: number;
-  kind: 'macro' | 'rates' | 'move' | 'earnings' | 'preview' | 'rumor' | 'halt' | 'reopen' | 'biz' | 'purchase' | 'milestone' | 'filing' | 'court' | 'security' | 'alliance' | 'chapter' | 'liquidation' | 'world' | 'listing' | 'index' | 'squeeze';
+  kind: 'macro' | 'rates' | 'move' | 'earnings' | 'preview' | 'rumor' | 'halt' | 'reopen' | 'biz' | 'purchase' | 'milestone' | 'filing' | 'court' | 'security' | 'alliance' | 'chapter' | 'liquidation' | 'world' | 'listing' | 'index' | 'squeeze' | 'launchpad';
+  /** the same line as a message descriptor (en.json / fr.json key), when the line is the world's own copy (Launchpad) */
+  msg?: Msg;
   tag: string;
   text: string;
   tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';
@@ -502,7 +507,9 @@ export interface CourtCase {
   plaintiffId: string;
   defendantId: string;
   /** insider: opened by the backstop on surveillance points (spec 6.2); the victim is a holder of the stock */
-  kind: 'cyber intrusion' | 'model theft' | 'loan default' | 'contract breach' | 'fund abuse' | 'insider';
+  kind: 'cyber intrusion' | 'model theft' | 'loan default' | 'contract breach' | 'fund abuse' | 'insider' | 'rug';
+  /** rug: the token the flag is on */
+  tokenId?: string;
   /** fund abuse: the harm to the fund (the fund's loss against the manager's personal price), the manager's gain on the flagged trades (disgorged), and the fund it concerns */
   harm?: number;
   gain?: number;
@@ -520,6 +527,8 @@ export interface CourtCase {
   damages: number;
   fine: number;
   verdictText?: string;
+  /** the verdict as an i18n descriptor (the rug verdict is through the keys; verdictText is its English for old clients) */
+  verdictMsg?: { key: string; vars?: Record<string, string | number> };
   settlementOffer?: number;
 }
 
@@ -632,6 +641,13 @@ export type Command =
   | { type: 'fund.trade'; fundId: string; assetId: string; side: Side; qty: number; orderType?: 'market' | 'limit'; limitPrice?: number }
   | { type: 'fund.deposit'; fundId: string; amount: number }
   | { type: 'fund.redeem'; fundId: string; units: number }
+  /** the Launchpad (lead-launchpad.md): launch a token (cents of dev buy optional), buy and sell on its curve, buy a buzz item, cancel an untraded launch, file a rug case */
+  | { type: 'lp.launch'; name: string; ticker: string; tagline: string; allocation: number; devBuyCents?: number }
+  | { type: 'lp.buy'; ticker: string; spendCents: number; maxSlip?: number }
+  | { type: 'lp.sell'; ticker: string; tokens: number; maxSlip?: number }
+  | { type: 'lp.buzz'; ticker: string; kind: 'board' | 'wire' }
+  | { type: 'lp.cancel'; ticker: string }
+  | { type: 'lp.file'; ticker: string }
   | { type: 'admin.advance'; ticks: number }
   /** dev and tests only: the server refuses admin.* from clients */
   | { type: 'admin.grant'; amount: number }
@@ -644,7 +660,9 @@ export type Command =
   /** dev and tests only: a founder's company is late-tier with two filed quarters (adminFiledLate, the Filings tab) */
   | { type: 'admin.filedLate'; playerId: string }
   /** dev and tests only: a next-gen launch credit at a quality score (adminLaunchCredit, the R&D launch block) */
-  | { type: 'admin.launchCredit'; playerId: string; score: number };
+  | { type: 'admin.launchCredit'; playerId: string; score: number }
+  /** dev and tests only: fills a token's curve up to graduation (the e2e seam for the graduation path) */
+  | { type: 'admin.lpFill'; ticker: string };
 
 export interface CommandResult {
   ok: boolean;

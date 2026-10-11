@@ -1,0 +1,163 @@
+import { openAccount, seedStream, type RngState } from '@/engine';
+import { TPD, cashOf, pushWire } from '../core';
+import type { CommandResult, GameState, StepOutput } from '../types';
+import { textProvider } from '../text';
+import { curveAccountId, tokenStream } from './constants';
+import type { LaunchpadState, LpLot, LpToken } from './types';
+import { linked } from '../funds/state';
+import type { Msg } from '@/i18n';
+
+/** The state, created on first use. Worlds that never launch have none, so their fingerprints do not change. */
+export function ensureLaunchpad(g: GameState): LaunchpadState {
+  if (!g.launchpad) {
+    g.launchpad = {
+      seq: 0, tokens: {}, order: [], lastLaunch: {}, bans: {}, tickerDay: {},
+      worldRng: seedStream(g.seed, 'lp:world'), npcSeq: 0, rumorDay: -1,
+      totals: { launchFee: 0, tradeFee: 0, creatorFee: 0, gradFee: 0, buzz: 0, npcNet: 0, launches: 0, graduations: 0, deaths: 0 },
+    };
+  }
+  return g.launchpad;
+}
+
+/** The game day a tick falls in (0 before the first tick). */
+export function dayOf(tick: number): number {
+  return tick <= 0 ? 0 : Math.floor((tick - 1) / TPD);
+}
+
+/** Whole cents from dollars, rounding half up (for the curve's and the state's money figures). */
+export function centsOf(dollars: number): number {
+  return Math.round(dollars * 100);
+}
+
+export function tokenOf(g: GameState, ticker: string): LpToken | undefined {
+  // an own-property check: a ticker such as "constructor" or "__proto__" is a client's string, not a token (review item 1)
+  const s = g.launchpad;
+  return s && Object.hasOwn(s.tokens, ticker) ? s.tokens[ticker] : undefined;
+}
+
+/**
+ * True once any account other than the creator (and not the NPC cohort) has traded the token: the cancel rule's test (lead-launchpad.md
+ * v1.1, ratified). The `playerTraded` flag is the fast path; a snapshot from before the flag existed has none, so the test then reads
+ * the token's own record: a non-creator holder's FIFO lots (kept for every player buy), or a non-creator, non-NPC tape line.
+ */
+export function hasOtherTrader(t: LpToken): boolean {
+  if (t.playerTraded === true) return true;
+  if (Object.keys(t.lots).some((k) => k !== t.creatorId)) return true;
+  return t.tape.some((e) => !e.creator && !e.npc);
+}
+
+/** A live token: on the curve, not graduated and not dead. */
+export function isLive(t: LpToken): boolean {
+  return t.status === 'live';
+}
+
+/** The deterministic stream of one token (lp:<TICKER>), as a fresh Rng state. */
+export function streamOf(g: GameState, ticker: string): RngState {
+  return seedStream(g.seed, tokenStream(ticker));
+}
+
+/** Adds cents to an engine account (no trading baseline moves: curve and fee cash is trading, not an outside grant). */
+export function addAccountCash(g: GameState, accountId: string, cents: number): void {
+  if (!(cents !== 0)) return;
+  const a = g.market.accounts[accountId];
+  if (!a) throw new Error(`launchpad: no account ${accountId}`);
+  // in place on the one account: every curve has an account, so a copy of the whole map per fill made a month of trading quadratic
+  g.market.accounts[accountId] = { ...a, cash: a.cash + cents / 100 };
+}
+
+/** Moves whole cents between two engine accounts (a zero-sum move). The sum of their cash does not change. */
+export function moveCents(g: GameState, fromId: string, toId: string, cents: number): void {
+  if (!(cents > 0)) return;
+  addAccountCash(g, fromId, -cents);
+  addAccountCash(g, toId, cents);
+}
+
+/** Books a sink: money that leaves the world (the sink line's total goes up by the cents). */
+export function sinkCents(g: GameState, accountId: string, line: string, cents: number): void {
+  if (!(cents > 0)) return;
+  addAccountCash(g, accountId, -cents);
+  g.economy.sinks[line] = (g.economy.sinks[line] ?? 0) + cents / 100;
+}
+
+/** Books a faucet: money that enters the world (the faucet line goes up, the account gains). */
+export function faucetCents(g: GameState, accountId: string, line: string, cents: number): void {
+  if (!(cents > 0)) return;
+  addAccountCash(g, accountId, cents);
+  g.economy.faucets[line] = (g.economy.faucets[line] ?? 0) + cents / 100;
+}
+
+/** Opens a token's curve account (zero cash) in the engine, once. */
+export function openCurve(g: GameState, ticker: string): void {
+  const id = curveAccountId(ticker);
+  if (!g.market.accounts[id]) g.market = openAccount(g.market, id, 0);
+}
+
+/** The owner-linked accounts of a creator: the creator and their alliance members (the 10% cap counts them, L3). */
+export function isCreatorLinked(g: GameState, creatorId: string, pid: string): boolean {
+  return linked(g, creatorId, pid);
+}
+
+/**
+ * The three-part refusal (lead-launchpad.md L2): what happened, why, and what to do. The English line is the command's error; the
+ * descriptors go to the viewer's language. Keys are `lp.refuse.<code>.what|why|do` in en.json and fr.json.
+ */
+export function refuse(code: string, vars?: Record<string, string | number>): CommandResult {
+  const parts: Msg[] = [
+    { key: `lp.refuse.${code}.what`, vars },
+    { key: `lp.refuse.${code}.why`, vars },
+    { key: `lp.refuse.${code}.do`, vars },
+  ];
+  const error = parts.map((m) => textProvider.render(m, 'en')).join(' ');
+  return { ok: false, error, data: { refusal: code, parts } };
+}
+
+/** A public Wire item for a launchpad event: the English line for old clients, the descriptor for the viewer's language. */
+export function lpWire(g: GameState, out: StepOutput | null, tone: 'brass' | 'gain' | 'loss' | 'warn' | 'info', tag: string, msg: Msg, assetId?: string): void {
+  pushWire(g, out, { kind: 'launchpad', tag, tone, text: textProvider.render(msg, 'en'), msg, ...(assetId ? { assetId } : {}) });
+}
+
+/** The player's cash, for the gates (the same figure the engine reads). */
+export function playerCash(g: GameState, pid: string): number {
+  return cashOf(g, pid);
+}
+
+/** The creator's live tokens (not graduated, not dead). */
+export function liveCountOf(s: LaunchpadState, creatorId: string): number {
+  let n = 0;
+  for (const t of Object.values(s.tokens)) if (t.creatorId === creatorId && t.status === 'live') n++;
+  return n;
+}
+
+/** The public short name of a token, for copy and the feed (the ticker is the public id). */
+export function tokenLabel(t: LpToken): string {
+  return `${t.name} (${t.ticker})`;
+}
+
+/** The most FIFO lots a holder keeps per token. Past it the two oldest merge (see pushLot). */
+export const LOTS_KEPT = 300;
+/** The buy log keeps this many game days back: the rug window (7 game days) and the flag's snapshot read from it. */
+const BUY_LOG_DAYS = 8;
+
+/**
+ * Adds a FIFO lot. Past LOTS_KEPT the two oldest lots merge into one at their weighted cost, so the holder's total cost basis
+ * is kept exact (dropping a lot would understate the basis of a long-held position, and with it the realised loss in a rug case).
+ */
+export function pushLot(lots: LpLot[], lot: LpLot): void {
+  lots.push(lot);
+  while (lots.length > LOTS_KEPT) {
+    const a = lots[0]!;
+    const b = lots[1]!;
+    const qty = a.qty + b.qty;
+    const cost = qty > 0 ? (a.qty * a.cost + b.qty * b.cost) / qty : a.cost;
+    lots.splice(0, 2, { qty, cost, tick: a.tick });
+  }
+}
+
+/** Logs a buy for the rug window: entries older than the window are dropped (the log is in tick order). */
+export function pushBuy(t: LpToken, pid: string, tick: number, qty: number): void {
+  t.buyLog.push({ pid, tick, qty });
+  const from = tick - BUY_LOG_DAYS * TPD;
+  let drop = 0;
+  while (drop < t.buyLog.length && t.buyLog[drop]!.tick < from) drop++;
+  if (drop > 0) t.buyLog.splice(0, drop);
+}

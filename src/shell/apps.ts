@@ -93,7 +93,8 @@ export const APPS: Readonly<Record<AppId, AppDef>> = {
   research: app('research', 420, 300, { instances: { kind: 'per-file' }, minRank: 'R3', pref: { w: 0.6, h: 0.8 } }),
   // Phase 4: player stocks and player-run funds (the Exchange app, velvet-company-app.md and ROADMAP 2.2)
   exchange: app('exchange', 420, 300, { pref: { w: 0.5, h: 0.72 } }),
-  launchpad: app('launchpad', 420, 300, { available: false }),
+  // Phase 5: the Launchpad (memecoins, lead-launchpad.md L7). Open from the start, like the Exchange.
+  launchpad: app('launchpad', 420, 300, { pref: { w: 0.6, h: 0.8 } }),
   learn: app('learn', 420, 300, { pref: { w: 0.45, h: 0.66 } }),
   settings: app('settings', 420, 300, { views: ['about'], pref: { w: 0.5, h: 0.72 } }),
 };
@@ -113,7 +114,7 @@ export function secondWindowReady(app: AppId, ready: readonly string[] = READY_V
 
 /** Default shelf order (V:82): trading group first, Broker pinned first. Hidden apps are absent. */
 export const SHELF_ORDER: readonly AppId[] = [
-  'broker', 'portfolio', 'exchange', 'wire', 'messages', 'calendar', 'businesses', 'ailab', 'research', 'bank',
+  'broker', 'portfolio', 'exchange', 'launchpad', 'wire', 'messages', 'calendar', 'businesses', 'ailab', 'research', 'bank',
   'legal', 'security', 'boutique', 'learn', 'settings', 'company',
 ];
 

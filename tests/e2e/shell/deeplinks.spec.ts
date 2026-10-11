@@ -57,17 +57,14 @@ test.describe('deep links', () => {
     await expect(page.getByTestId('shelf-app-company')).toHaveCount(0);
   });
 
-  test('@route_hidden_apps Launchpad is not on the shelf, and a link to it lands on the desktop with a notice', async ({ page }) => {
+  test('@route_launchpad Launchpad is on the shelf after the Exchange, and a link to it opens its window', async ({ page }) => {
     onlyIn('desktop');
     await boot(page);
-    for (const id of ['launchpad'] as const) {
-      expect(APPS[id as AppId].available).toBe(false);
-      await expect(page.getByTestId(`shelf-app-${id}`)).toHaveCount(0);
-      await gotoShell(page, `/${id}`);
-      await expect(page.getByTestId('os-toasts')).toContainText('Coming later');
-      await expect(page.getByTestId('os-desktop')).toBeVisible();
-      expect(await windowIds(page)).not.toContain(id);
-    }
+    expect(APPS.launchpad.available).toBe(true);
+    await expect(page.getByTestId('shelf-app-launchpad')).toBeVisible();
+    await gotoShell(page, '/launchpad');
+    await expect(page.getByTestId('launchpad-view')).toBeVisible();
+    expect(await windowIds(page)).toContain('launchpad');
   });
 
   test('@route_unknown an unknown path lands on the desktop with a Not found notice', async ({ page }) => {

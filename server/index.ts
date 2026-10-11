@@ -4,6 +4,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
 import { WorldHost } from './host';
 import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
+import { lpPageOf } from '../src/world/launchpad/view';
 import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
 import { validHandle, COUNTRIES } from '../src/world/players';
 import { freshWorldSeed } from '../src/world/seed';
@@ -148,6 +149,11 @@ const http = createServer(async (req, res) => {
       const b = await body(req);
       return json(res, 200, host.command('admin', { type: 'admin.shock', assetId: String(b.assetId ?? ''), pct: Number(b.pct) }));
     }
+    if (req.method === 'POST' && url.pathname === '/api/admin/lp-fill') {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      return json(res, 200, host.command('admin', { type: 'admin.lpFill', ticker: String(b.ticker ?? '') }));
+    }
     if (req.method === 'POST' && url.pathname === '/api/admin/advance') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const n = Math.max(1, Math.min(20_000, Number(url.searchParams.get('n') ?? 1)));
@@ -211,6 +217,15 @@ wss.on('connection', (ws) => {
       case 'nw-history':
         if (!c.pid) return;
         return send(ws, { t: 'nw-history', id: msg.id, data: host.nwHistoryFor(c.pid) });
+      case 'lp-page':
+        if (!c.pid) return;
+        // a bad ticker must never take the process down: the page is read in a guard, and a failure answers with no page
+        try {
+          return send(ws, { t: 'lp-page', id: msg.id, data: lpPageOf(host.g, c.pid, String(msg.ticker ?? '')) });
+        } catch (e) {
+          log(`lp-page error: ${(e as Error).message}`);
+          return send(ws, { t: 'lp-page', id: msg.id, data: null });
+        }
       case 'ping':
         return send(ws, { t: 'pong' });
     }
