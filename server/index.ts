@@ -138,6 +138,11 @@ const http = createServer(async (req, res) => {
       const b = await body(req);
       return json(res, 200, host.command('admin', { type: 'admin.shock', assetId: String(b.assetId ?? ''), pct: Number(b.pct) }));
     }
+    if (req.method === 'POST' && url.pathname === '/api/admin/lp-fill') {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      return json(res, 200, host.command('admin', { type: 'admin.lpFill', ticker: String(b.ticker ?? '') }));
+    }
     if (req.method === 'POST' && url.pathname === '/api/admin/advance') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const n = Math.max(1, Math.min(20_000, Number(url.searchParams.get('n') ?? 1)));

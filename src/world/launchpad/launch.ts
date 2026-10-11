@@ -1,0 +1,204 @@
+import { Rng } from '@/engine';
+import { rankIndex } from '@/content/lifestyle';
+import { TPD, credit, debit, notify } from '../core';
+import type { CommandResult, GameState, StepOutput } from '../types';
+import { LP, NPC } from './constants';
+import { quoteBuy, spotAt } from './curve';
+import { buyCurve } from './trade';
+import { moderateName, nameFormatOk, normalizeName, tickerFormatOk, type NameRefusal } from './moderate';
+import { dayOf, ensureLaunchpad, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
+import type { LpToken } from './types';
+
+
+/**
+ * Launch, cancel (lead-launchpad.md L2). A launch passes the gates (rank R1 or higher, the account age, the ban, one launch per
+ * 24 real hours, at most three live tokens), the inputs (name, ticker, tagline from the template list, creator allocation 0 to 5%,
+ * an optional dev buy within the creator cap), and the moderator filter. It pays the $1,000 fee (a sink) and opens the curve.
+ */
+
+/** The tagline templates (ids; the copy is in en.json and fr.json as lp.tagline.<id>). No free text in V1. */
+export const TAGLINE_IDS = ['tg1', 'tg2', 'tg3', 'tg4', 'tg5', 'tg6', 'tg7', 'tg8'] as const;
+
+const NAME_REFUSAL_CODE: Record<NameRefusal, string> = {
+  abuse: 'nameAbuse', crypto: 'nameCrypto', brand: 'nameBrand', figure: 'nameFigure', taken: 'nameTaken',
+};
+
+/** Every normalised name in the world: each asset's name, and each token's name (live, dead or graduated). */
+export function takenNames(g: GameState): Set<string> {
+  const taken = new Set<string>();
+  for (const a of g.market.config.assets) taken.add(normalizeName(a.name).joined);
+  for (const t of Object.values(g.launchpad?.tokens ?? {})) taken.add(normalizeName(t.name).joined);
+  return taken;
+}
+
+/** Whole real hours for a count of ticks (720 ticks is one real hour), for the copy of the gates. */
+function hoursOf(ticks: number): number {
+  return Math.max(1, Math.ceil(ticks / TPD));
+}
+
+export interface LaunchInput {
+  name: string;
+  ticker: string;
+  tagline: string;
+  allocation: number;
+  devBuyCents?: number;
+}
+
+/** The creator's gate checks (rank, age, ban, cooldown, live count). Null when the launch may proceed. */
+export function launchGate(g: GameState, pid: string): CommandResult | null {
+  const p = g.players[pid];
+  if (!p || p.npc) return refuse('noPlayer', {});
+  const tick = g.market.tick;
+  if (rankIndex(p.rankId) < LP.MIN_RANK_INDEX) return refuse('rank', {});
+  const age = tick - p.joinedTick;
+  if (age < LP.MIN_AGE_TICKS) return refuse('age', { hours: hoursOf(LP.MIN_AGE_TICKS - age) });
+  const s = g.launchpad;
+  const ban = s?.bans[pid];
+  if (ban !== undefined && ban > tick) return refuse('ban', { hours: hoursOf(ban - tick) });
+  const last = s?.lastLaunch[pid];
+  if (last !== undefined && tick - last < LP.LAUNCH_COOLDOWN_TICKS) return refuse('cooldown', { hours: hoursOf(LP.LAUNCH_COOLDOWN_TICKS - (tick - last)) });
+  if (s && liveCountOf(s, pid) >= LP.MAX_LIVE) return refuse('live', { max: LP.MAX_LIVE });
+  return null;
+}
+
+/** The inputs' checks (format, tagline, allocation) and the moderator's (names, tickers). Null when they pass. */
+export function launchInputError(g: GameState, input: LaunchInput): CommandResult | null {
+  if (!nameFormatOk(input.name)) return refuse('nameFormat', { min: LP.NAME_MIN, max: LP.NAME_MAX });
+  if (!tickerFormatOk(input.ticker)) return refuse('tickerFormat', { min: LP.TICKER_MIN, max: LP.TICKER_MAX });
+  if (!(TAGLINE_IDS as readonly string[]).includes(input.tagline)) return refuse('tagline', {});
+  if (!Number.isInteger(input.allocation) || input.allocation < 0 || input.allocation > LP.ALLOC_MAX) {
+    return refuse('allocation', { max: LP.ALLOC_MAX.toLocaleString('en-US') });
+  }
+  if (g.market.config.assets.some((a) => a.id === input.ticker)) return refuse('tickerTaken', { ticker: input.ticker });
+  const s = g.launchpad;
+  const seen = s?.tickerDay[input.ticker];
+  if (seen !== undefined && dayOf(g.market.tick) - seen < LP.TICKER_HOLD_DAYS) return refuse('tickerRecent', { ticker: input.ticker, days: LP.TICKER_HOLD_DAYS });
+  const tk = moderateName(input.ticker);
+  if (tk.reason === 'crypto') return refuse('tickerCrypto', { ticker: input.ticker });
+  if (tk.reason === 'abuse') return refuse('nameAbuse', {});
+  const nm = moderateName(input.name, takenNames(g));
+  if (nm.reason) return refuse(NAME_REFUSAL_CODE[nm.reason], { name: input.name });
+  return null;
+}
+
+/**
+ * Launches a token for a player. Every gate and input runs before any money or state moves, so a refused launch changes nothing.
+ * The dev buy (optional) is checked as a quote before the launch and then made with the launch.
+ */
+export function launchToken(g: GameState, pid: string, input: LaunchInput, out: StepOutput | null): CommandResult {
+  const gate = launchGate(g, pid);
+  if (gate) return gate;
+  const bad = launchInputError(g, input);
+  if (bad) return bad;
+  const dev = input.devBuyCents ?? 0;
+  if (!Number.isInteger(dev) || dev < 0) return refuse('devBuy', {});
+  const need = LP.LAUNCH_FEE + dev / 100;
+  const cash = g.market.accounts[pid]?.cash ?? 0;
+  if (cash < need) return refuse('cash', { need: need.toLocaleString('en-US', { minimumFractionDigits: 2 }) });
+  if (dev > 0) {
+    const q = quoteBuy(LP.Y0, dev);
+    if (!q.ok) return refuse('devBuy', {});
+    if (q.slippage > LP.MAX_SLIP) return refuse('slippage', { slip: `${(q.slippage * 100).toFixed(1)}%`, max: `${(LP.MAX_SLIP * 100).toFixed(1)}%` });
+    if (input.allocation + q.tokens > LP.CREATOR_CAP) return refuse('creatorCap', { room: Math.max(0, LP.CREATOR_CAP - input.allocation).toLocaleString('en-US') });
+  }
+  const s = ensureLaunchpad(g);
+  const tick = g.market.tick;
+  debit(g, pid, LP.LAUNCH_FEE, 'lpLaunchFee');
+  s.totals.launchFee += LP.LAUNCH_FEE;
+  s.totals.launches++;
+  const t = createToken(g, input.ticker, input.name, input.tagline, pid, input.allocation, tick);
+  s.tokens[t.ticker] = t;
+  s.order.push(t.ticker);
+  s.lastLaunch[pid] = tick;
+  s.tickerDay[t.ticker] = dayOf(tick);
+  s.seq++;
+  const creator = g.players[pid]!;
+  lpWire(g, out, 'brass', 'Launchpad', { key: 'lp.wire.launch', vars: { name: t.name, ticker: t.ticker, creator: creator.handle } }, t.ticker);
+  notify(g, out, pid, { kind: 'system', tone: 'brass', text: `${t.name} (${t.ticker}) is live on the curve.`, msg: { key: 'lp.inbox.launched', vars: { name: t.name, ticker: t.ticker } } });
+  if (dev > 0) {
+    const r = buyCurve(g, pid, t.ticker, dev, LP.MAX_SLIP, out, false);
+    if (!r.ok) return r;
+  }
+  return { ok: true, data: { ticker: t.ticker } };
+}
+
+/** A fresh token: its curve account, the creator's allocation (locked by vesting) and its own stream. */
+/** The initial buzz of a launch: a heavy-tailed draw on the token's own stream (most launches low, a few high). */
+export function launchBuzz(t: LpToken): number {
+  const rng = new Rng(t.rng);
+  const u = Math.max(1e-9, rng.uniform());
+  t.rng = rng.state();
+  return NPC.BASE0 * (Math.pow(u, -1 / NPC.BASE0_ALPHA) - 1);
+}
+
+export function createToken(g: GameState, ticker: string, name: string, tagline: string, creatorId: string | null, allocation: number, tick: number): LpToken {
+  openCurve(g, ticker);
+  const price = spotAt(LP.Y0);
+  const t: LpToken = {
+    ticker, name, tagline, creatorId, createdTick: tick, day0: dayOf(tick), allocation, y: LP.Y0,
+    bal: allocation > 0 && creatorId ? { [creatorId]: allocation } : {},
+    npcBal: 0, npcCost: 0, creatorBought: 0,
+    buzz: { base: 0, board: 0, wire: 0 }, buzzDay: { day: dayOf(tick), n: 0 }, promos: [],
+    status: 'live', lastTradeTick: tick, cashLowSince: tick,
+    creatorSoldSinceGrad: 0, creatorProceedsSinceGrad: 0, creatorDay: { day: dayOf(tick), qty: 0, proceeds: 0, startPrice: price, wired: false },
+    creatorFees: 0, allocSold: 0, realized: {}, lots: {}, buyLog: [], tape: [], chart: [[tick, price]],
+    volToday: 0, volPrev: 0, volDay: dayOf(tick), rng: streamOf(g, ticker),
+    flows: { npcBuy: 0, npcSell: 0, playerBuy: 0, playerSell: 0, fee: 0 }, sued: {},
+  };
+  t.buzz.base = launchBuzz(t);
+  return t;
+}
+
+/**
+ * Cancels the creator's own launch while nobody has traded it: the token dies (its curve stays, empty), and the launch fee comes
+ * back out of the sink as a booked refund.
+ */
+export function cancelLaunch(g: GameState, pid: string, ticker: string): CommandResult {
+  const t = tokenOf(g, ticker);
+  if (!t) return refuse('noToken', { ticker });
+  if (t.creatorId !== pid) return refuse('notCreator', { ticker });
+  if (t.status !== 'live') return refuse('dead', { ticker });
+  if (t.tape.length > 0 || t.y !== LP.Y0) return refuse('traded', { ticker });
+  t.status = 'dead';
+  t.deadTick = g.market.tick;
+  t.deadReason = 'cancelled';
+  t.bal = {};
+  credit(g, pid, LP.LAUNCH_FEE, 'lpRefund');
+  return { ok: true };
+}
+
+/** A world-launched name: a fictional name from the word lists, never a name the world has (the moderator's filter runs on it). */
+const PREFIX = ['Pancake', 'Snail', 'Moose', 'Turnip', 'Pickle', 'Velvet', 'Quasar', 'Biscuit', 'Mango', 'Parsnip', 'Otter', 'Lantern', 'Pebble', 'Cosmic', 'Sprout', 'Gravy'];
+const SUFFIX = ['Pals', 'Club', 'Dust', 'Bits', 'Cat', 'Token', 'Fest', 'Party', 'Mart', 'Loaf', 'Dome', 'Wave'];
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+/** Draws a world launch (no creator, no fee, no allocation) from the world stream, unique among names and tickers. */
+export function npcLaunchDraw(g: GameState, out: StepOutput | null): boolean {
+  const s = ensureLaunchpad(g);
+  const rng = new Rng(s.worldRng);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const p = PREFIX[Math.floor(rng.uniform() * PREFIX.length)]!;
+    const x = SUFFIX[Math.floor(rng.uniform() * SUFFIX.length)]!;
+    const name = `${p} ${x}`;
+    let ticker = '';
+    for (let k = 0; k < 3; k++) ticker += LETTERS[Math.floor(rng.uniform() * 26)];
+    if (rng.uniform() < 0.5) ticker += LETTERS[Math.floor(rng.uniform() * 26)];
+    const taken = takenNames(g);
+    if (moderateName(name, taken).reason || moderateName(ticker).reason) continue;
+    if (g.market.config.assets.some((a) => a.id === ticker)) continue;
+    const seen = s.tickerDay[ticker];
+    if (seen !== undefined && dayOf(g.market.tick) - seen < LP.TICKER_HOLD_DAYS) continue;
+    const tagline = TAGLINE_IDS[Math.floor(rng.uniform() * TAGLINE_IDS.length)]!;
+    s.worldRng = rng.state();
+    s.npcSeq++;
+    const t = createToken(g, ticker, name, tagline, null, 0, g.market.tick);
+    s.tokens[ticker] = t;
+    s.order.push(ticker);
+    s.tickerDay[ticker] = dayOf(g.market.tick);
+    s.totals.launches++;
+    s.seq++;
+    lpWire(g, out, 'info', 'Launchpad', { key: 'lp.wire.launchWorld', vars: { name, ticker } }, ticker);
+    return true;
+  }
+  return false;
+}

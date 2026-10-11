@@ -54,12 +54,18 @@ export interface LpToken {
   buzz: { base: number; board: number; wire: number };
   /** buzz items bought per game day for this token (the 3 per day cap) */
   buzzDay: { day: number; n: number };
+  /** the public promos bought for this token, newest last (shown as Sponsored; the last 20 are kept) */
+  promos: { tick: number; kind: 'board' | 'wire' }[];
+  /** the world's NPC sniper on this token, while it is in: the cohort's tokens it bought and its entry price */
+  sniper?: { tick: number; tokens: number; entry: number };
+  /** the sniper has bought (or the token had its chance): one sniper per token */
+  sniperDone?: boolean;
   status: TokenStatus;
   lastTradeTick: number;
   /** the tick the curve cash first fell under the death line, while it stays under (null when it is above) */
   cashLowSince: number | null;
   deadTick?: number;
-  deadReason?: 'noTrade' | 'cash';
+  deadReason?: 'noTrade' | 'cash' | 'cancelled';
   gradTick?: number;
   /** the price the token graduated at, dollars per token */
   gradPrice?: number;
@@ -71,11 +77,17 @@ export interface LpToken {
   creatorSoldSinceGrad: number;
   creatorProceedsSinceGrad: number;
   /** the creator's sells of the current game day (the 3% test and the Wire item) */
-  creatorDay: { day: number; qty: number; proceeds: number; startPrice: number };
+  creatorDay: { day: number; qty: number; proceeds: number; startPrice: number; wired: boolean };
+  /** every buy of the token (player and holder), kept for the rug window: who bought how much, when */
+  buyLog: { pid: string; tick: number; qty: number }[];
   /** the rug flag, public on the token page */
   flag?: { tick: number; reason: 'dump' | 'sweep'; proceeds: number; window: number };
   /** the creator's cash from the trading fee (booked income) */
   creatorFees: number;
+  /** the creator's allocation sold on the vesting pace so far (those sales are paced, and the 50% rule does not count them) */
+  allocSold: number;
+  /** each player's realised P&L on this token, FIFO (the rug case's loss) */
+  realized: Record<string, number>;
   /** the cash taken by the buzz items, the launch fee is in the state's flows */
   lots: Record<string, LpLot[]>;
   /** the public tape, newest last */
@@ -110,6 +122,8 @@ export interface LaunchpadState {
   worldRng: RngState;
   /** the next world launch id */
   npcSeq: number;
+  /** world launches (NPC tokens) run on the ticks when this is on (the balance harness and the server turn it on) */
+  npcLaunches?: boolean;
   /** the last game day a Wire rumor was published */
   rumorDay: number;
   /** the state's booked totals by line, for the balance report and the zero-sum tests (cents-exact) */

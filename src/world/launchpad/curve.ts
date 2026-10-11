@@ -118,7 +118,8 @@ export function quoteSell(y: number, tokens: number): SellQuote | CurveRefusal {
   const gross = LP_K / y - LP_K / (y + tokens);
   const grossCents = Math.floor(gross * 100 + 1e-9);
   const fee = feeSplit(grossCents);
-  const avg = grossCents / 100 / tokens;
+  // the average is taken before the cent rounding, so a small sale is not priced in whole cents
+  const avg = gross / tokens;
   const y1 = y + tokens;
   const spot1 = spotAt(y1);
   return {

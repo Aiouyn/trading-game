@@ -19,6 +19,7 @@ import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
 import { defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
 import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
 import { exchangeView, type ExchangeView } from './exchange/view';
+import { launchpadView, type LaunchpadView } from './launchpad/view';
 import type {
   Alliance, BoardRow, Boards, Business, ChatMessage, ConnectionEntry, CourtCase, CyberOp, Deal, GameState, InboxItem,
   LabState, Player, Property, WireItem,
@@ -231,6 +232,8 @@ export interface PlayerView {
   };
   /** the Exchange app: listed player stocks, open IPO books, player-run funds, the viewer's fund holdings and the manager console */
   exchange: ExchangeView;
+  /** the Launchpad app (lead-launchpad.md L7): the feeds, token pages, the viewer's holdings and the creator console */
+  launchpad: LaunchpadView;
 }
 
 export function playerView(g: GameState, pid: string): PlayerView | null {
@@ -279,6 +282,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
     digest: away.length ? { since: p.digestSeenTick, items: away, netWorthThen: p.digestNetWorth } : null,
     trading: tradingView(g, pid),
     exchange: exchangeView(g, pid),
+    launchpad: launchpadView(g, pid),
     capital: capitalViewOf(g, pid),
   };
 }

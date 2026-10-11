@@ -4,6 +4,7 @@ import { advanceToInvestors, cancelStake } from './funds/flows';
 import { emptyFunds, fundById } from './funds/state';
 import { startWindDown } from './funds/risk';
 import { say } from './say';
+import { rugVerdict } from './launchpad/rug';
 import { usd } from './text/template';
 import type { CommandResult, CourtCase, GameState, Player, StepOutput } from './types';
 
@@ -134,6 +135,7 @@ export function courtTick(g: GameState, out: StepOutput): void {
     c.status = 'won';
     pl.stats.casesWon++;
     if (c.kind === 'fund abuse') { fundVerdict(g, c, out, df); continue; }
+    if (c.kind === 'rug') { rugVerdict(g, c, out, df); continue; }
     const sevIdx = c.kind === 'model theft' ? 3 : c.kind === 'cyber intrusion' ? 2 : 1;
     const sev = SEVERITY[sevIdx]!;
     const headroom = Math.max(0, df.netWorth - FLOOR);

@@ -1,4 +1,5 @@
-import { TPD } from '../core';
+// a game day in ticks: the same figure as core.ts TPD (720 ticks, one real hour). Local so core can import this module without a cycle.
+const TPD = 720;
 
 /**
  * The Launchpad's numbers (lead-launchpad.md, L2 to L6). Every rule reads from here, so the balance gate and the tests use the
@@ -35,6 +36,9 @@ export const LP = {
   MIN_RANK_INDEX: 1,
   /** tickers used in the last 30 game days are taken (L2) */
   TICKER_HOLD_DAYS: 30,
+  /** the base hype a player trade adds (per $100 bought) and takes back (per $100 sold): the copycat retail of L6 */
+  BUY_BUZZ_PER_100: 0.02,
+  SELL_BUZZ_PER_100: 0.01,
   /** the ticker is 3 to 5 letters; the name is 3 to 24 characters */
   TICKER_MIN: 3,
   TICKER_MAX: 5,
@@ -85,3 +89,37 @@ export const curveAccountId = (ticker: string) => `lp:curve:${ticker}`;
 export const bookAccountId = (ticker: string) => `lp:book:${ticker}`;
 export const npcAccountId = (ticker: string) => `lp:npc:${ticker}`;
 export const tokenStream = (ticker: string) => `lp:${ticker}`;
+
+/**
+ * The hype and NPC retail parameters (L6). These are the only numbers the balance tuning changes (lead-launchpad.md L8): the
+ * curve, the fees, the gates and the rules stay fixed. The defaults here are the tuned values of scripts/balance/launchpad.ts.
+ */
+export const NPC = {
+  /** NPC buy pressure: dollars per tick at a buzz of 1 */
+  BUY_PER_TICK: 1,
+  /** profit taking: the share of the cohort's tokens sold per tick for each 100% the price is above the cohort's cost */
+  PROFIT_PER_TICK: 0.02,
+  /** the time share: the cohort sells this share of its tokens per tick regardless of price (it never sells what it does not hold) */
+  TIME_SELL_PER_TICK: 0.0005,
+  /** viral shocks: expected shocks per token per game day, and the size of one (a Pareto tail with this exponent) */
+  VIRAL_PER_DAY: 0.1,
+  VIRAL_SCALE: 0.5,
+  VIRAL_ALPHA: 1.5,
+  /** the buzz at launch: a heavy-tailed draw with this scale and tail exponent (most launches start low, a few start high) */
+  BASE0: 0.05,
+  BASE0_ALPHA: 1.2,
+  /** world launches per game day, when the world runs them */
+  LAUNCHES_PER_DAY: 20,
+  /** the NPC sniper: a buy of this many dollars in the first ticks, sold into the first hype (at this multiple of its entry, or after N ticks) */
+  SNIPER_MIN: 300,
+  SNIPER_MAX: 1500,
+  SNIPER_EXIT_MULT: 1.5,
+  SNIPER_EXIT_TICKS: 60,
+} as const;
+
+/** the half-life decay per tick of each buzz part */
+export const BUZZ_DECAY = {
+  base: Math.pow(0.5, 1 / (2 * TPD)),
+  board: Math.pow(0.5, 1 / 6),
+  wire: Math.pow(0.5, 1 / TPD),
+} as const;
