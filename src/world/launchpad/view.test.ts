@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from '../game';
 import { playerView } from '../view';
 import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
-import { bookAccountId } from './constants';
+import { LP, bookAccountId } from './constants';
 import { launchpadView, lpPageOf } from './view';
 import { tokenOf } from './state';
 
@@ -53,7 +53,9 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(v.feeds.graduated).toHaveLength(0);
     expect(v.gate).toBeNull();
     expect(v.feeds.newest[0]!.icon.startsWith('<svg')).toBe(true);
-    expect(v.feeds.newest[0]!.progress).toBe(0);
+    // the launch's own buzz and the NPC sniper (at most $400, about 3% of the curve) are bought at once (L6.4, sniperEnter)
+    expect(v.feeds.newest[0]!.progress).toBeGreaterThan(0);
+    expect(v.feeds.newest[0]!.progress).toBeLessThan(0.05);
     const cr = launchpadView(g, CREATOR);
     expect(cr.gate).toBe('cooldown');
   });
@@ -118,6 +120,17 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(launchpadView(g, CREATOR).console[0]!.cancellable).toBe(true);
     run(g, TRADER, { type: 'lp.buy', ticker: 'CNCL', spendCents: 1_000 });
     expect(launchpadView(g, CREATOR).console[0]!.cancellable).toBe(false);
+  });
+
+  it('a v1.2 launch stays cancellable though its own buzz and sniper are on the tape and the curve has moved (review item 5)', () => {
+    const g = lpWorld('view-cancel-v12');
+    launch(g, CREATOR, 'CNLX');
+    const t = g.launchpad!.tokens.CNLX!;
+    expect(t.tape.length).toBeGreaterThan(0);
+    expect(t.y).toBeLessThan(LP.Y0);
+    expect(launchpadView(g, CREATOR).console[0]!.cancellable).toBe(true);
+    expect(run(g, CREATOR, { type: 'lp.cancel', ticker: 'CNLX' }).ok).toBe(true);
+    expect(g.launchpad!.tokens.CNLX!.status).toBe('dead');
   });
 
   it('an old snapshot without the Launchpad loads and steps, and the view reads it as empty', () => {

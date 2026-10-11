@@ -35,6 +35,17 @@ export function tokenOf(g: GameState, ticker: string): LpToken | undefined {
   return s && Object.hasOwn(s.tokens, ticker) ? s.tokens[ticker] : undefined;
 }
 
+/**
+ * True once any account other than the creator (and not the NPC cohort) has traded the token: the cancel rule's test (lead-launchpad.md
+ * v1.1, ratified). The `playerTraded` flag is the fast path; a snapshot from before the flag existed has none, so the test then reads
+ * the token's own record: a non-creator holder's FIFO lots (kept for every player buy), or a non-creator, non-NPC tape line.
+ */
+export function hasOtherTrader(t: LpToken): boolean {
+  if (t.playerTraded === true) return true;
+  if (Object.keys(t.lots).some((k) => k !== t.creatorId)) return true;
+  return t.tape.some((e) => !e.creator && !e.npc);
+}
+
 /** A live token: on the curve, not graduated and not dead. */
 export function isLive(t: LpToken): boolean {
   return t.status === 'live';

@@ -46,6 +46,12 @@ export interface LpToken {
   bal: Record<string, number>;
   /** the NPC cohort's token balance, which the cohort never sells beyond what it holds */
   npcBal: number;
+  /** L6.1: the NPC demand not yet bought (dollars). Each buzz arrival adds to it; it decays with the buy half-life. Absent in old snapshots (zero). */
+  npcPending?: number;
+  /** L6.1: the buzz peak since the last arrival (the capitulation's reference). Absent in old snapshots (the buzz then). */
+  npcPeak?: number;
+  /** true once a non-creator account has traded the token (a cancel is then refused, lead-launchpad.md L2 as ratified). */
+  playerTraded?: boolean;
   /** the cash the cohort paid for the tokens it holds (its cost basis) */
   npcCost: number;
   /** curve buys by the creator and owner-linked accounts, cumulative (the 10% cap) */

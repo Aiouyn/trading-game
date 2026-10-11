@@ -10,6 +10,15 @@ import { CREATOR, TRADER, launch, lpWorld, run, jumpDays } from './fixture';
 const grad = (g: ReturnType<typeof lpWorld>, ticker: string) => applyCommand(g, 'admin', { type: 'admin.lpFill', ticker });
 
 describe('graduation (L4)', () => {
+  it('the chart ends at the graduation price, so a token that graduated between two samples still has a line to draw (review item 6)', () => {
+    const g = lpWorld('grad-chart');
+    launch(g, CREATOR, 'CHRT');
+    expect(grad(g, 'CHRT').ok).toBe(true);
+    const t = g.launchpad!.tokens.CHRT!;
+    expect(t.chart.length).toBeGreaterThanOrEqual(2);
+    expect(t.chart[t.chart.length - 1]![1]).toBeCloseTo(t.gradPrice!, 9);
+  });
+
   it('the curve graduates at its last token: an engine crypto asset with the book as its supply account, and the list version bumps', () => {
     const g = lpWorld('grad-list');
     launch(g, CREATOR, 'GRAD', { allocation: 20_000_000 });

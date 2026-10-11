@@ -3005,7 +3005,7 @@
   "lp.refuse.notCreator.why": "Vous n’avez pas lancé {ticker}.",
   "lp.refuse.notCreator.do": "Annulez votre propre lancement.",
   "lp.refuse.traded.what": "{ticker} a déjà été négocié, il ne peut donc pas être annulé.",
-  "lp.refuse.traded.why": "Un lancement ne peut être annulé qu’avant toute transaction.",
+  "lp.refuse.traded.why": "Un lancement ne peut être annulé qu’avant qu’un autre joueur ne le négocie.",
   "lp.refuse.traded.do": "Laissez-le vivre, ou attendez qu’il meure.",
   "lp.refuse.maxSlip.what": "La glissade maximale est hors limites.",
   "lp.refuse.maxSlip.why": "Elle doit être supérieure à 0 % et au plus égale à 50 %.",

@@ -3,7 +3,7 @@ import type { GameState } from '../types';
 import { LP, bookAccountId } from './constants';
 import { curveProgress, spotAt } from './curve';
 import { iconSvg } from './icon';
-import { launchGate } from './launch';
+import { canCancel, launchGate } from './launch';
 import { lockedAmount, vestCliffDay, vestEndDay, vestFraction } from './vest';
 import { dayOf } from './state';
 import type { LpToken, LpTrade } from './types';
@@ -181,8 +181,8 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
     unlocked: Math.floor(t.allocation * vestFraction(t, g.market.tick)), flag: flagOf(t),
     promos: t.promos.filter((p) => dayOf(p.tick) === dayOf(g.market.tick)).length,
     capUsed: t.allocation + t.creatorBought, capMax: LP.CREATOR_CAP,
-    // a cancel is open while nobody has traded the token (launch.ts cancelLaunch)
-    cancellable: t.status === 'live' && t.tape.length === 0 && t.y === LP.Y0,
+    // the same predicate as cancelLaunch (review item 5): the tape of a v1.2 launch always holds its NPC buzz rows, so "no tape" is wrong
+    cancellable: canCancel(t, pid),
   }));
   return {
     gate: gateCode,

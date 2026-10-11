@@ -35,8 +35,13 @@ function creatorAccount(g: GameState, t: LpToken): string | null {
  * Books a token's trading fee. The creator half goes to the creator's account (a transfer, booked as their income), or is a sink
  * with no creator account. The sink half leaves the world. A fill from the curve pays both out of the curve; a trader's fill has
  * already moved its outlay or proceeds, so only the creator half is paid in and the sink half is simply destroyed.
+ *
+ * An NPC fill books its fee on the npcRetail line (both halves when the token has no creator; the creator half is a transfer when it
+ * has one). So the npcRetail line is the NPC side's whole net money into the world, its own fees included: a flat cohort is not a
+ * faucet by its fees (L6.1 gate, the npcRetail net per token).
  */
-function bookFee(g: GameState, t: LpToken, fromCurve: boolean, creatorCents: number, sinkC: number): void {
+function bookFee(g: GameState, t: LpToken, fromCurve: boolean, creatorCents: number, sinkC: number, npc = false): void {
+  const line = npc ? 'npcRetail' : 'lpTradeFee';
   const curve = curveAccountId(t.ticker);
   const ca = creatorAccount(g, t);
   if (ca) {
@@ -46,11 +51,11 @@ function bookFee(g: GameState, t: LpToken, fromCurve: boolean, creatorCents: num
     g.launchpad!.totals.creatorFee += creatorCents / 100;
   } else if (creatorCents > 0) {
     if (fromCurve) addAccountCash(g, curve, -creatorCents);
-    g.economy.sinks.lpTradeFee = (g.economy.sinks.lpTradeFee ?? 0) + creatorCents / 100;
+    g.economy.sinks[line] = (g.economy.sinks[line] ?? 0) + creatorCents / 100;
     g.launchpad!.totals.tradeFee += creatorCents / 100;
   }
   if (fromCurve && sinkC > 0) addAccountCash(g, curve, -sinkC);
-  g.economy.sinks.lpTradeFee = (g.economy.sinks.lpTradeFee ?? 0) + sinkC / 100;
+  g.economy.sinks[line] = (g.economy.sinks[line] ?? 0) + sinkC / 100;
   g.launchpad!.totals.tradeFee += sinkC / 100;
   t.flows.fee += (creatorCents + sinkC) / 100;
 }
@@ -69,7 +74,7 @@ export function buyCurve(
   if (npc || !pid) {
     // an NPC's cash is a booked faucet (the npcRetail line): it enters the world into the curve, and the fee leaves it
     faucetCents(g, curve, 'npcRetail', q.spendCents);
-    bookFee(g, t, true, q.creatorFeeCents, q.sinkFeeCents);
+    bookFee(g, t, true, q.creatorFeeCents, q.sinkFeeCents, true);
     t.npcBal += q.tokens;
     t.npcCost += q.cashCents / 100;
     t.flows.npcBuy += q.spendCents / 100;
@@ -89,7 +94,8 @@ export function buyCurve(
     pushBuy(t, pid, tickOf(g), q.tokens);
     t.bal[pid] = (t.bal[pid] ?? 0) + q.tokens;
     t.flows.playerBuy += q.spendCents / 100;
-    t.buzz.base += LP.BUY_BUZZ_PER_100 * (q.spendCents / 100) / 100;
+    // L6.5: a player's buy adds no buzz and is no arrival (no copycat in V1)
+    if (pid !== t.creatorId) t.playerTraded = true;
   }
   t.y -= q.tokens;
   t.volToday += q.spendCents / 100;
@@ -146,10 +152,11 @@ export function sellCurve(
     else delete t.bal[holder];
     t.flows.playerSell += q.grossCents / 100;
     t.buzz.base = Math.max(0, t.buzz.base - LP.SELL_BUZZ_PER_100 * (q.grossCents / 100) / 100);
+    if (holder !== t.creatorId) t.playerTraded = true;
   } else {
     // an NPC's cash leaves the world: the net is a booked sink (the npcRetail line), the fees split as above
     g.economy.sinks.npcRetail = (g.economy.sinks.npcRetail ?? 0) + q.netCents / 100;
-    bookFee(g, t, false, q.creatorFeeCents, q.sinkFeeCents);
+    bookFee(g, t, false, q.creatorFeeCents, q.sinkFeeCents, true);
     const avg = t.npcBal > 0 ? t.npcCost / t.npcBal : 0;
     t.npcBal -= tokens;
     t.npcCost = Math.max(0, t.npcCost - avg * tokens);
@@ -161,6 +168,15 @@ export function sellCurve(
   pushTape(t, { tick: tickOf(g), side: 'sell', qty: tokens, price: q.avgPrice, creator: !!holder && holder === t.creatorId, npc: !holder });
   if (holder) recordCreatorSale(g, t, holder, tokens, q.netCents, out);
   return { ok: true, data: { tokens, grossCents: q.grossCents, netCents: q.netCents, feeCents: q.feeCents, avgPrice: q.avgPrice, slippage: q.slippage } };
+}
+
+/**
+ * The cohort's flat-out exit when a token dies or is cancelled: its tokens go back to the curve in one fill (the curve pays sellers
+ * after death, L3), so the NPC side is flat in tokens over the token's life (L6.1). Nothing to sell, nothing to do.
+ */
+export function liquidateCohort(g: GameState, t: LpToken, out: StepOutput | null): void {
+  t.sniper = undefined;
+  if (t.npcBal > 0) sellCurve(g, null, t.ticker, t.npcBal, 1, out, true);
 }
 
 function pct(x: number): string {

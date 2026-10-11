@@ -1,23 +1,32 @@
 import { Rng } from '@/engine';
 import { cashOf, debit, notify, TPD } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
-import { BUZZ_DECAY, LP, NPC, curveAccountId } from './constants';
+import { BUZZ_DECAY, LP, NPC, curveAccountId, npcAccountId } from './constants';
 import { formulaCashAt, spotAt } from './curve';
-import { buyCurve, sellCurve } from './trade';
+import { liquidateCohort, sellCurve } from './trade';
 import { npcLaunchDraw } from './launch';
+import { buzzOf, arrive } from './demand';
+import { absorbPending } from './absorb';
+import { openSellQty } from './graduate';
 import { priceNow } from './rug';
-import { dayOf, ensureLaunchpad, lpWire, refuse, tokenOf } from './state';
+import { dayOf, ensureLaunchpad, lpWire, refuse, sinkCents, tokenOf } from './state';
+import { placeOrder } from '@/engine';
 import type { LpToken } from './types';
 
 /**
- * The hype and the NPC flow (lead-launchpad.md L6), run once per tick by stepGame. Every live token:
+ * The hype and the NPC flow (lead-launchpad.md L6, as amended in v1.1 and v1.2), run once per tick by stepGame. Every live token:
  *   - its buzz decays (the base with a two-day half-life, the Quay billboard in six ticks, the Wire promo in a day);
- *   - it takes rare viral shocks (a heavy tail: few tokens, few shocks);
- *   - an NPC sniper buys in the first ticks and sells into the first hype (so players cannot farm the edge);
- *   - the NPC retail trades the curve: buy pressure from the buzz, or profit taking that grows with the price's rise above the
- *     cohort's cost and with time. The cohort's tokens are tracked and never sold beyond what it holds;
+ *   - it takes rare viral shocks (a finite-mean heavy tail: few tokens, few shocks), and each shock and buzz item is an ARRIVAL; a
+ *     player's buy is not one (L6.5);
+ *   - an arrival is bought by the NPC cohort in full in the tick it arrives (L6.4, absorb.ts), so no player can act before the top;
+ *   - an NPC sniper buys inside the launch command (launch.ts sniperEnter) and sells here into the first hype (so players cannot
+ *     farm the edge: no fill can sit between a launch and the sniper's price impact);
+ *   - the cohort sells into the fade (slow bleed): a capitulation share that grows as the buzz falls below its peak since the last
+ *     arrival, a time share, and profit taking above its cost. It never sells tokens it does not hold;
  *   - a token dies with no trade for 24 game days, or with curve cash under 2% of the raise for 7 game days (counted from the
- *     launch, tested from day 3).
+ *     launch, tested from day 3). At death the cohort sells what it holds to the curve, so the NPC side is flat in tokens;
+ *   - a graduated token's cohort position is unwound into the liquidity book through the engine's order path, with a one-day
+ *     half-life (L6.2), and the proceeds are booked as the npcRetail sink.
  * A world with no launch does nothing here (the state is absent), so its fingerprints do not move.
  */
 
@@ -37,30 +46,31 @@ export function buyBuzz(g: GameState, pid: string, ticker: string, kind: 'board'
   debit(g, pid, cost, 'lpBuzz');
   ensureLaunchpad(g).totals.buzz += cost;
   t.buzzDay.n++;
-  if (kind === 'board') t.buzz.board += LP.BOARD_ADD;
-  else {
+  if (kind === 'board') {
+    t.buzz.board += LP.BOARD_ADD;
+    arrive(t, LP.BOARD_ADD);
+  } else {
     t.buzz.wire += LP.WIRE_ADD;
+    arrive(t, LP.WIRE_ADD);
     lpWire(g, out, 'info', 'Sponsored', { key: 'lp.wire.promo', vars: { name: t.name, ticker: t.ticker } }, t.ticker);
   }
   t.promos.push({ tick: g.market.tick, kind });
   if (t.promos.length > 20) t.promos.splice(0, t.promos.length - 20);
+  // L6.4: the arrival is bought by the cohort in full now, before any player can act on the promoted token
+  absorbPending(g, t, out);
   return { ok: true, data: { kind, cost } };
 }
 
-/** One NPC retail or sniper action on a token (a single fill per tick: the bigger of the two signals). */
-function npcFlow(g: GameState, t: LpToken, rng: Rng, out: StepOutput | null): void {
+/**
+ * One tick of the NPC cohort on a token (L6.1). The sniper first (its exit, if it is in). Otherwise the cohort buys its pending
+ * demand (the arrivals, decayed by the buy half-life) and sells into the fade: the capitulation share is NPC.CAPIT_PER_TICK times
+ * (1 - buzz / peak), where the peak is the buzz since the last arrival (it never falls below the buzz now); the profit share is
+ * NPC.PROFIT_PER_TICK times the price's gain over the cohort's cost, and the time share is NPC.TIME_SELL_PER_TICK. The sell is at
+ * any price, and never more than the cohort holds. A sell and a buy in the same tick are two fills through the curve.
+ */
+function npcFlow(g: GameState, t: LpToken, out: StepOutput | null): void {
   const tick = g.market.tick;
-  // the sniper: one small buy in the first ticks, sold into the first hype
-  if (!t.sniperDone && tick >= t.createdTick + 2) {
-    t.sniperDone = true;
-    const spendDollars = NPC.SNIPER_MIN + (NPC.SNIPER_MAX - NPC.SNIPER_MIN) * rng.uniform();
-    const r = buyCurve(g, null, t.ticker, Math.round(spendDollars * 100), 1, out, true);
-    if (r.ok) {
-      const d = r.data as { tokens: number; avgPrice: number };
-      t.sniper = { tick, tokens: d.tokens, entry: d.avgPrice };
-    }
-    return;
-  }
+  // the sniper's exit: it entered in the launch command (sniperEnter) and sells into the first hype, or after its time
   if (t.sniper) {
     const spot = spotAt(t.y);
     if (spot >= t.sniper.entry * NPC.SNIPER_EXIT_MULT || tick - t.sniper.tick >= NPC.SNIPER_EXIT_TICKS) {
@@ -70,17 +80,49 @@ function npcFlow(g: GameState, t: LpToken, rng: Rng, out: StepOutput | null): vo
       return;
     }
   }
-  const buzz = t.buzz.base + t.buzz.board + t.buzz.wire;
-  const buyDollars = NPC.BUY_PER_TICK * buzz;
+  const buzz = buzzOf(t);
+  const peak = Math.max(t.npcPeak ?? buzz, buzz);
+  t.npcPeak = peak;
+  // the sell: capitulation into the fade, profit taking above the cohort's cost, and the time share
   const spot = spotAt(t.y);
   const avg = t.npcBal > 0 ? t.npcCost / t.npcBal : 0;
   const gain = avg > 0 ? spot / avg - 1 : 0;
-  const share = Math.min(1, (gain > 0 ? NPC.PROFIT_PER_TICK * gain : 0) + NPC.TIME_SELL_PER_TICK);
-  const sellTokens = Math.floor(t.npcBal * share);
-  if (sellTokens > 0 && sellTokens * spot > buyDollars) {
-    sellCurve(g, null, t.ticker, sellTokens, 1, out, true);
-  } else if (buyDollars >= 0.01) {
-    buyCurve(g, null, t.ticker, Math.round(buyDollars * 100), 1, out, true);
+  const fade = peak > 0 ? Math.max(0, 1 - buzz / peak) : 0;
+  const share = Math.min(1, NPC.CAPIT_PER_TICK * fade + (gain > 0 ? NPC.PROFIT_PER_TICK * gain : 0) + NPC.TIME_SELL_PER_TICK);
+  const sellTokens = Math.min(t.npcBal, Math.floor(t.npcBal * share));
+  if (sellTokens > 0) sellCurve(g, null, t.ticker, sellTokens, 1, out, true);
+  // the buy: arrivals are absorbed in full in the tick they arrive (L6.4), so only a demand a refused fill left pending waits here
+  absorbPending(g, t, out);
+}
+
+/**
+ * L6.2, post-graduation unwind. The cohort's engine position is sold into the liquidity book through the engine's order path (a
+ * market sell, matched by the engine's single impact path), a share of what it still holds each tick, so the half-life is one game
+ * day. The sells already resting are counted, so a slow fill is not sold twice. The proceeds are swept to the npcRetail sink, so
+ * the NPC side's cash is booked like its curve cash.
+ */
+export function unwindGraduated(g: GameState): void {
+  const s = g.launchpad;
+  if (!s) return;
+  const share = 1 - Math.pow(0.5, 1 / (NPC.UNWIND_HALF_DAYS * TPD));
+  for (const ticker of s.order) {
+    const t = s.tokens[ticker];
+    if (!t || t.status !== 'graduated') continue;
+    const id = npcAccountId(ticker);
+    const acct = g.market.accounts[id];
+    if (!acct) continue;
+    const cashC = Math.round(acct.cash * 100);
+    if (cashC > 0) {
+      sinkCents(g, id, 'npcRetail', cashC);
+      t.flows.npcSell += cashC / 100;
+    }
+    const pos = acct.positions[ticker]?.qty ?? 0;
+    if (!(pos > 0)) continue;
+    const want = Math.min(pos, Math.max(1, Math.floor(pos * share)));
+    const qty = want - openSellQty(g, id, ticker);
+    if (qty <= 0) continue;
+    const r = placeOrder(g.market, { playerId: id, assetId: ticker, side: 'sell', type: 'market', qty });
+    g.market = r.state;
   }
 }
 
@@ -118,11 +160,18 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
     t.buzz.base *= BUZZ_DECAY.base;
     t.buzz.board *= BUZZ_DECAY.board;
     t.buzz.wire *= BUZZ_DECAY.wire;
-    const rng = new Rng(t.rng);
+    let rng = new Rng(t.rng);
     if (rng.chance(NPC.VIRAL_PER_DAY / TPD)) {
-      t.buzz.base += NPC.VIRAL_SCALE * (Math.pow(Math.max(1e-9, rng.uniform()), -1 / NPC.VIRAL_ALPHA) - 1);
+      const shock = NPC.VIRAL_SCALE * (Math.pow(Math.max(1e-9, rng.uniform()), -1 / NPC.VIRAL_ALPHA) - 1);
+      t.buzz.base += shock;
+      arrive(t, shock);
+      // L6.4: the shock is bought by the cohort in full in this tick. A graduation inside that fill advances the token's stream, so the
+      // local stream is taken again from the token after it
+      t.rng = rng.state();
+      absorbPending(g, t, out);
+      rng = new Rng(t.rng);
     }
-    npcFlow(g, t, rng, out);
+    if (t.status === 'live') npcFlow(g, t, out);
     t.rng = rng.state();
     // the death rules (L3)
     const curveCash = g.market.accounts[curveAccountId(t.ticker)]?.cash ?? 0;
@@ -142,10 +191,13 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
       if (t.chart.length > 400) t.chart.splice(0, t.chart.length - 400);
     }
   }
+  unwindGraduated(g);
   if (newDay) rumorOfTheDay(g, out, day);
 }
 
 function kill(g: GameState, t: LpToken, reason: 'noTrade' | 'cash', out: StepOutput | null): void {
+  // the cohort's tokens go back to the curve first (the dead token's curve still pays sellers), so the NPC side ends flat
+  liquidateCohort(g, t, out);
   t.status = 'dead';
   t.deadTick = g.market.tick;
   t.deadReason = reason;

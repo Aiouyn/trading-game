@@ -3,7 +3,7 @@ import type { CommandResult, CourtCase, GameState, Player, StepOutput } from '..
 import { SEVERITY } from '../court-scale';
 import { textProvider } from '../text';
 import type { Msg } from '@/i18n';
-import { LP } from './constants';
+import { LP, isNpcAccount } from './constants';
 import { spotAt } from './curve';
 import { dayOf, isCreatorLinked, lpWire, pushBuy, pushLot, refuse, tokenOf } from './state';
 import { vestFraction } from './vest';
@@ -100,6 +100,8 @@ export function lpFills(g: GameState, fills: { playerId: string; assetId: string
   const s = g.launchpad;
   if (!s) return;
   for (const f of fills) {
+    // the NPC cohort's post-graduation unwind is not a holder: it keeps no lots and feeds no rule (L6.2)
+    if (isNpcAccount(f.playerId)) continue;
     const t = s.tokens[f.assetId];
     if (!t || t.status !== 'graduated') continue;
     const tick = g.market.tick;

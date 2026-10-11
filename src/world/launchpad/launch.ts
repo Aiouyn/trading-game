@@ -4,9 +4,11 @@ import { TPD, credit, debit, notify } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { LP, NPC, curveAccountId } from './constants';
 import { quoteBuy, spotAt } from './curve';
-import { buyCurve } from './trade';
+import { buyCurve, liquidateCohort } from './trade';
+import { arrive } from './demand';
+import { absorbPending } from './absorb';
 import { moderateName, nameFormatOk, normalizeName, tickerFormatOk, type NameRefusal } from './moderate';
-import { dayOf, ensureLaunchpad, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
+import { dayOf, ensureLaunchpad, hasOtherTrader, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
 
 import type { LpToken } from './types';
 
@@ -130,10 +132,31 @@ export function launchToken(g: GameState, pid: string, input: LaunchInput, out: 
   s.lastLaunch[pid] = tick;
   s.tickerDay[t.ticker] = dayOf(tick);
   s.seq++;
+  // L6.4: the launch's own buzz is bought by the cohort in this tick (after the creator's dev buy, which is the creator's own fill)
+  absorbPending(g, t, out);
+  sniperEnter(g, t, out);
   const creator = g.players[pid]!;
   lpWire(g, out, 'brass', 'Launchpad', { key: 'lp.wire.launch', vars: { name: t.name, ticker: t.ticker, creator: creator.handle } }, t.ticker);
   notify(g, out, pid, { kind: 'system', tone: 'brass', text: `${t.name} (${t.ticker}) is live on the curve.`, msg: { key: 'lp.inbox.launched', vars: { name: t.name, ticker: t.ticker } } });
   return { ok: true, data: { ticker: t.ticker } };
+}
+
+/**
+ * The NPC sniper's entry (L6.3, v1.2 amendment): one small buy, filled inside the launch command right after the launch's own buzz is
+ * absorbed. A fill in the flow two ticks later let a player buy on the launch tick and sell into the sniper's price impact (the v1.2
+ * review: +129 points on ten seeds); filled here, the sniper is the first fill and every later fill pays its impact. Its draw is on the
+ * token's own stream, so a replay is byte-identical. Its exit stays in the flow (flow.ts).
+ */
+export function sniperEnter(g: GameState, t: LpToken, out: StepOutput | null): void {
+  t.sniperDone = true;
+  const rng = new Rng(t.rng);
+  const spendDollars = NPC.SNIPER_MIN + (NPC.SNIPER_MAX - NPC.SNIPER_MIN) * rng.uniform();
+  t.rng = rng.state();
+  const r = buyCurve(g, null, t.ticker, Math.round(spendDollars * 100), 1, out, true);
+  if (r.ok) {
+    const d = r.data as { tokens: number; avgPrice: number };
+    t.sniper = { tick: g.market.tick, tokens: d.tokens, entry: d.avgPrice };
+  }
 }
 
 /** The initial buzz of a launch: a heavy-tailed draw on the token's own stream (most launches low, a few high). */
@@ -160,43 +183,51 @@ export function createToken(g: GameState, ticker: string, name: string, tagline:
     flows: { npcBuy: 0, npcSell: 0, playerBuy: 0, playerSell: 0, fee: 0 }, sued: {},
   };
   t.buzz.base = launchBuzz(t);
+  // the launch's own buzz is the first arrival: it starts the NPC demand (L6.1)
+  arrive(t, t.buzz.base);
   return t;
 }
 
 /**
- * Cancels the creator's own launch while nobody has traded it: the token dies (its curve stays, empty), and half the launch fee comes
- * back as a booked refund (a faucet line, `lpRefund`). The other half stays a sink (lead-launchpad.md v1.1 ratified deviations: "refund
- * 50% of the fee (the other 50% stays a sink)"). The ticker stays taken.
+ * Cancels the creator's own launch before any other player has traded it (ratified deviation, lead-launchpad.md v1.1). The token
+ * dies; its curve stays and still pays sellers, so the creator's own dev buy (if any) remains sellable. The cohort's tokens go back
+ * to the curve first (the NPC side is not an account, so the NPC's own early trades do not block a cancel). The creator gets half
+ * the $1,000 launch fee back as a booked refund (`lpRefund`); the other half stays a sink. The ticker stays taken.
  */
+export function canCancel(t: LpToken, pid: string): boolean {
+  return t.creatorId === pid && t.status === 'live' && !hasOtherTrader(t);
+}
+
 export function cancelLaunch(g: GameState, pid: string, ticker: string): CommandResult {
   const t = tokenOf(g, ticker);
   if (!t) return refuse('noToken', { ticker });
   if (t.creatorId !== pid) return refuse('notCreator', { ticker });
   if (t.status !== 'live') return refuse('dead', { ticker });
-  if (t.tape.length > 0 || t.y !== LP.Y0) return refuse('traded', { ticker });
+  if (!canCancel(t, pid)) return refuse('traded', { ticker });
+  liquidateCohort(g, t, null);
   t.status = 'dead';
   t.deadTick = g.market.tick;
   t.deadReason = 'cancelled';
-  t.bal = {};
   credit(g, pid, LP.LAUNCH_FEE / 2, 'lpRefund');
   return { ok: true };
 }
 
 /**
- * World-launched names: fictional, drawn from the word lists. The pair space is 48 prefixes by 36 suffixes (1,728 names, enough
- * for 80 game days at the world's rate). A draw starts at a random pair and walks the space to the first free one, so the world
- * keeps launching until the space is spent, and a name is never reused (the moderator's filter runs on every candidate).
+ * World-launched names: fictional and coined (no English or French words), so every locale reads a world name the same way (review
+ * item 7: "Moose Dust" in the French feed). The pair space is 48 prefixes by 36 suffixes (1,728 names, enough for 80 game days at the
+ * world's rate). A draw starts at a random pair and walks the space to the first free one, so the world keeps launching until the
+ * space is spent, and a name is never reused (the moderator's filter runs on every candidate).
  */
 export const PREFIX = [
-  'Pancake', 'Snail', 'Moose', 'Turnip', 'Pickle', 'Velvet', 'Quasar', 'Biscuit', 'Mango', 'Parsnip', 'Otter', 'Lantern', 'Pebble', 'Cosmic',
-  'Sprout', 'Gravy', 'Bramble', 'Dumpling', 'Cinder', 'Noodle', 'Thimble', 'Kumquat', 'Gizmo', 'Walnut', 'Pudding', 'Yodel', 'Marble',
-  'Zephyr', 'Crumpet', 'Doodle', 'Fizzle', 'Tinsel', 'Gobble', 'Moonbeam', 'Spud', 'Wobble', 'Pinwheel', 'Rascal', 'Bungle', 'Fable',
-  'Ember', 'Kelp', 'Juniper', 'Honeydew', 'Tofu', 'Nimbus', 'Quill', 'Pretzel',
+  'Zorbu', 'Plimo', 'Quazi', 'Brenta', 'Vaxil', 'Doomi', 'Kelvo', 'Tazzu', 'Mirok', 'Glenx', 'Sorvi', 'Bajoo', 'Fenno', 'Hulli', 'Ondri',
+  'Pakko', 'Lumbo', 'Rixel', 'Dazzo', 'Vimbi', 'Nopra', 'Chezu', 'Fyrro', 'Wendo', 'Gorvi', 'Tilmo', 'Yazzo', 'Bemmo', 'Caskra', 'Juvel',
+  'Mopti', 'Ruzzo', 'Selvo', 'Hamzi', 'Quibe', 'Porvo', 'Lanzu', 'Tenzo', 'Imbro', 'Wazzo', 'Kevri', 'Nubbo', 'Zimvo', 'Ferbo', 'Olzi',
+  'Dribba', 'Ketto', 'Gulvi',
 ];
 export const SUFFIX = [
-  'Pals', 'Club', 'Dust', 'Bits', 'Cat', 'Token', 'Fest', 'Party', 'Mart', 'Loaf', 'Dome', 'Wave', 'Kingdom', 'Hut', 'Coin', 'Parade',
-  'Bloom', 'Garden', 'Burrow', 'Pond', 'Harbor', 'Orchard', 'Circus', 'Bazaar', 'Lagoon', 'Meadow', 'Carnival', 'Hollow', 'Den', 'Nest',
-  'Factory', 'Market', 'Tavern', 'Quarry', 'Village', 'Beacon',
+  'Bliz', 'Tonk', 'Vorp', 'Pazz', 'Mimbo', 'Quarl', 'Dunzo', 'Fasko', 'Glimp', 'Hobbe', 'Kroma', 'Lemvo', 'Mazzo', 'Nyxal', 'Oddle',
+  'Pirvo', 'Rendo', 'Sibbo', 'Tuvik', 'Ugzo', 'Vellu', 'Wibbo', 'Xandi', 'Yomba', 'Zerbo', 'Brumo', 'Cadla', 'Dravo', 'Feznu', 'Gorla',
+  'Heximo', 'Imvo', 'Jebba', 'Koppa', 'Lindo', 'Murtu',
 ];
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
@@ -237,6 +268,9 @@ export function npcLaunchDraw(g: GameState, out: StepOutput | null): boolean {
   s.tickerDay[ticker] = dayOf(g.market.tick);
   s.totals.launches++;
   s.seq++;
+  // L6.4: the world launch's own buzz is bought by the cohort in this tick
+  absorbPending(g, t, out);
+  sniperEnter(g, t, out);
   lpWire(g, out, 'info', 'Launchpad', { key: 'lp.wire.launchWorld', vars: { name, ticker } }, ticker);
   return true;
 }

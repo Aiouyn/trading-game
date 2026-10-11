@@ -130,3 +130,22 @@ only at a profit (bags never return, so the NPC side is a net buyer: a faucet to
   Cancel: only before any other account has traded the token, refund 50% of the fee (the other 50% stays a sink).
   NPC launches are ON in the game world (`createGame` for the server and the e2e world), OFF in bare test worlds; the game
   world's fingerprint tests are updated in the commit that turns them on, and that commit says so.
+
+## Amendments v1.2 (lead, after the 200-seed gate and the stage B review)
+
+At 200 seeds every strategy passed except the random retail bot (mean -1.0%, one-sided bound +0.46%), driven by one seed with
+a lucky graduated bag. A reviewer's viral-shock follower probe earned +134% on the pre-v1.1 flow, and player buys added
+copycat buzz worth about 50x the launch base (a buy that pumps itself).
+
+- **L6.4 Instant arrivals.** A buzz arrival is bought by the NPC cohort in full within the tick it arrives (no half-life):
+  no player can act before it. Followers buy the top; the edge belongs only to holders positioned before the shock.
+- **L6.5 No copycat in V1.** Player buys add no buzz. (Copycat flow is a self-pump: removed.)
+- **L6.6 Finite tails.** The viral and launch-buzz laws must have a finite mean and variance (Pareto alpha >= 2.2, or a
+  lognormal), with a hard cap on a single arrival (at most the cash to take the curve from its current point to graduation).
+- **L8.2 More strategies, held-out seeds.** Add to the gate: a viral chaser (buys within a tick of a visible buzz/volume jump,
+  exits at -10% / +50% / 2 gd), a pump seller (holds small stakes in fresh tokens and sells into any pump), and a
+  post-graduation shorter-by-avoidance (buys just after graduation, sells into the unwind) as bots. Tune on seed prefix
+  `lx`, confirm on a disjoint held-out prefix `lh` at 200 seeds. Every bot must be <= 0 at one-sided 95% on `lh`.
+- **Readings ratified.** The NPC-net criterion is the life-end measure with inventory valued at liquidation (the booked line
+  alone ignores inventory). The idle control is zero valuation drift. "Any other account" in the cancel rule excludes the
+  NPC cohort.
