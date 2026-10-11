@@ -10,14 +10,15 @@ import { Button, Card, Chip } from '@/components/ui';
 import type { AuctionLotView } from '@/world/auctions';
 import { refusalVars, sixdRefusal, type SixdRefusal } from './copy';
 
-/** Real minutes left on a lot, from the world tick (one tick is 5 real seconds). */
-function minutesLeft(endTick: number, tick: number): number {
-  return Math.max(0, Math.ceil(((endTick - tick) * 5) / 60));
+/** Real minutes left on a lot, from the world ticks and the world's tick length (5 s live; 1 s in the e2e world). */
+function minutesLeft(endTick: number, tick: number, tickMs: number): number {
+  return Math.max(0, Math.ceil(((endTick - tick) * tickMs) / 60_000));
 }
 
 export function AuctionsPanel() {
   const me = useGame((s) => s.me)!;
   const tick = useGame((s) => s.frame?.tick ?? 0);
+  const tickMs = useGame((s) => s.tickMs) || 5000;
   const lots = me.sixd?.auctions.lots ?? [];
   return (
     <div className="flex flex-col gap-3" data-testid="auctions-panel">
@@ -27,7 +28,7 @@ export function AuctionsPanel() {
       </Card>
       <div className="grid gap-3 @md:grid-cols-2">
         {lots.map((lot) => (
-          <AuctionLot key={lot.key} lot={lot} tick={tick} />
+          <AuctionLot key={lot.key} lot={lot} tick={tick} tickMs={tickMs} />
         ))}
         {lots.length === 0 && <p className="text-small text-fg-muted" data-testid="auctions-empty">{t('sixd.auc.none')}</p>}
       </div>
@@ -35,7 +36,7 @@ export function AuctionsPanel() {
   );
 }
 
-function AuctionLot({ lot, tick }: { lot: AuctionLotView; tick: number }) {
+function AuctionLot({ lot, tick, tickMs }: { lot: AuctionLotView; tick: number; tickMs: number }) {
   const act = useGame((s) => s.act);
   const [amount, setAmount] = useState('');
   const [refusal, setRefusal] = useState<SixdRefusal | null>(null);
@@ -70,7 +71,7 @@ function AuctionLot({ lot, tick }: { lot: AuctionLotView; tick: number }) {
             <span>{t('sixd.auc.min')}</span>
             <span className="text-right text-fg" data-testid={`auction-min-${lot.itemId}`}>{lot.minimum !== null ? money(lot.minimum) : '—'}</span>
             <span>{t('sixd.auc.ends')}</span>
-            <span className="text-right text-fg">{t('sixd.auc.minutes', { min: minutesLeft(lot.endTick, tick) })}</span>
+            <span className="text-right text-fg">{t('sixd.auc.minutes', { min: minutesLeft(lot.endTick, tick, tickMs) })}</span>
           </>
         )}
         {lot.reserveMet !== null && open && (

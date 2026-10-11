@@ -1,16 +1,17 @@
-import { homeView, type HomeView } from './home';
+import { collectionView, homeView, visibilityOf, type CollectionView, type HomeView, type Visibility } from './home';
 import { insuranceBlock, insuredValue, INSURANCE } from './insurance';
 import { auctionsView, type AuctionLotView } from './auctions';
 import { streakView, type StreakView } from './streak';
 import { stressBook, type StressBookResult } from './stress';
 import { TOURNAMENT_WEEK_TICKS, tournamentView, type TournamentLeaderRow } from './tournamentWeek';
-import type { GameState } from './types';
+import type { GameState, TradeLogRecord } from './types';
 
 /**
  * The 6D views a player's own client shows (the rank shell's Security, Boutique, AI Lab and Portfolio apps), carried on the
  * player view. Every field here is the viewer's own or public: the auction lots of the current week (public figures only, see
- * auctions.ts), the tournament board (rows only; the trade logs are counted, never sent here), the stress test of the viewer's
- * own book, and the viewer's own home room. Nothing about another player's holdings appears.
+ * auctions.ts), the tournament board (rows, and the trade logs the top three published after the settlement, N8), the stress
+ * test of the viewer's own book, the viewer's own home room and collection, and the viewer's two visibility switches. Nothing
+ * about another player's holdings appears.
  */
 export interface SixdView {
   insurance: {
@@ -26,10 +27,21 @@ export interface SixdView {
   auctions: { week: number; lots: AuctionLotView[] };
   tournament: {
     entering: { week: number; lockTick: number; commitment: string; entries: number; mine: string | null };
-    latest: { week: number; seeds: string[]; settledTick: number; board: TournamentLeaderRow[]; logCount: number } | null;
+    latest: {
+      week: number;
+      seeds: string[];
+      settledTick: number;
+      board: TournamentLeaderRow[];
+      logCount: number;
+      /** the published trade logs (N8): one seed for each top-three entry that opted in */
+      logs: { handle: string; seed: string; trades: TradeLogRecord[] }[];
+    } | null;
   };
   stress: StressBookResult | null;
   home: HomeView | null;
+  collection: CollectionView | null;
+  /** the two opt-in switches, off by default */
+  visibility: Visibility;
 }
 
 export function sixdView(g: GameState, pid: string): SixdView | null {
@@ -58,9 +70,12 @@ export function sixdView(g: GameState, pid: string): SixdView | null {
         settledTick: latest.settledTick,
         board: latest.board,
         logCount: latest.logs.length,
+        logs: latest.logs,
       } : null,
     },
     stress: stressBook(g, pid),
     home: homeView(g, pid, pid),
+    collection: collectionView(g, pid, pid),
+    visibility: visibilityOf(g, pid),
   };
 }

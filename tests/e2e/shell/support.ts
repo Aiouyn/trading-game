@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { grant, isPhone, register, skipRankUp, skipTips } from '../helpers';
+import { grant, grantAccent, isPhone, register, skipRankUp, skipTips } from '../helpers';
 import { GUTTER, SLOT_FRAC, STRIP_H, fracToRect, workArea, type Rect } from '../../../src/shell/geometry';
 import type { ShellWindows } from '../../../src/components/os/e2eHooks';
 
@@ -27,6 +27,8 @@ export async function boot(page: Page): Promise<string> {
     window.__tgE2eAdmin = 'e2e-admin';
   });
   const handle = await register(page);
+  // the three streak accents (6D.4) gate the accent palettes; the palette specs pick them, so every e2e player holds them
+  for (const accent of ['phosphor', 'riviera', 'broadsheet'] as const) await grantAccent(handle, accent);
   await gotoShell(page, '/');
   return handle;
 }

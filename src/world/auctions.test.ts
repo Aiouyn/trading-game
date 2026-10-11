@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame } from './game';
-import { AUCTION, CONSIGNOR_ID, auctionTick, auctionsView, lotKeyOf, minimumBid, placeBid, priceLot, reserveFactor, weekLots } from './auctions';
+import { AUCTION, CONSIGNOR_ID, auctionTick, auctionsView, lotKeyOf, minimumBid, openTickOf, placeBid, priceLot, reserveFactor, weekLots } from './auctions';
 import { creditExternal, debit } from './core';
 import { TOURNAMENT_WEEK_TICKS } from './tournamentWeek';
 import { LIFE_BY_ID } from '@/content/lifestyle';
@@ -231,5 +231,34 @@ describe('auction view', () => {
     expect(after.status).toBe('sold');
     expect(after.winner).toBe('bidder_b');
     expect([...after.bidders!].sort()).toEqual(['bidder_a', 'bidder_b']);
+  });
+});
+
+describe('auction admin seam (admin.auctionOpen, e2e only)', () => {
+  it('opens a later week at once with the ticks left, and the lots then take a snipe under the live rules', () => {
+    const { g, a } = world();
+    const W = 1;
+    g.market = { ...g.market, tick: TOURNAMENT_WEEK_TICKS - 100 };
+    const { key, start } = cheapestLot(g, W);
+    // before the seam, week 1 has not opened
+    expect(placeBid(g, a, key, start)).toEqual({ ok: false, error: 'auctionNotYet', data: { hours: 1 } });
+    const opened = applyCommand(g, 'admin', { type: 'admin.auctionOpen', week: W, ticksLeft: 20 });
+    expect(opened.ok).toBe(true);
+    expect(auctionsView(g, a, W).find((x) => x.key === key)!.status).toBe('open');
+    // a bid 20 ticks before the end is inside the snipe window: the lot runs 24 ticks longer
+    const r = placeBid(g, a, key, start);
+    expect(r.ok).toBe(true);
+    expect(g.auctions!.lots[key]!.endTick).toBe(g.market.tick + 20 + AUCTION.snipeExtendTicks);
+    // the seam only moves its own week: week 0 keeps its first tick
+    expect(openTickOf(g, 0)).toBe(0);
+  });
+
+  it('opens with the full hour by default, and refuses a window of no ticks or more than an hour', () => {
+    const { g } = world();
+    g.market = { ...g.market, tick: TOURNAMENT_WEEK_TICKS * 2 + 50 };
+    expect(applyCommand(g, 'admin', { type: 'admin.auctionOpen', week: 2 }).ok).toBe(true);
+    expect(g.auctions!.openedAt!['2']).toBe(g.market.tick);
+    expect(applyCommand(g, 'admin', { type: 'admin.auctionOpen', week: 3, ticksLeft: 0 })).toEqual({ ok: false, error: 'auctionOpenLeft' });
+    expect(applyCommand(g, 'admin', { type: 'admin.auctionOpen', week: 3, ticksLeft: HOUR + 1 })).toEqual({ ok: false, error: 'auctionOpenLeft' });
   });
 });

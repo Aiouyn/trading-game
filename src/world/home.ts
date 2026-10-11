@@ -133,3 +133,11 @@ export function collectionView(g: GameState, viewerId: string | null, ownerId: s
   });
   return { owner: p.handle, mine, collectibles, badges: [...(p.streak?.badges ?? [])], titles: [...(p.streak?.titles ?? [])] };
 }
+
+/**
+ * What a visitor may see of another player: the home room and the collection, each only when its owner has opened it. Both
+ * null means the owner has opened neither, and the client then shows no section at all (no note that anything is hidden).
+ */
+export function visitView(g: GameState, viewerId: string | null, ownerId: string): { home: HomeView | null; collection: CollectionView | null } {
+  return { home: homeView(g, viewerId, ownerId), collection: collectionView(g, viewerId, ownerId) };
+}

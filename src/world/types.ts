@@ -876,7 +876,9 @@ export type Command =
   /** e2e seed (ADMIN_TOKEN): an open regulator inquiry with its notice (eca.ts adminSeedInquiry) */
   | { type: 'admin.inquiry'; playerId: string; assetId: string }
   /** dev and tests only: fills a token's curve up to graduation (the e2e seam for the graduation path) */
-  | { type: 'admin.lpFill'; ticker: string };
+  | { type: 'admin.lpFill'; ticker: string }
+  | { type: 'admin.auctionOpen'; week?: number; ticksLeft?: number }
+  | { type: 'admin.streakAccent'; playerId: string; accent: string };
 
 export interface CommandResult {
   ok: boolean;

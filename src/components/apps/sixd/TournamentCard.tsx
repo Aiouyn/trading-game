@@ -8,6 +8,7 @@ import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Button, Card, CardHeader, Chip } from '@/components/ui';
 import { refusalVars, sixdRefusal, type SixdRefusal } from './copy';
+import { TradeLogViewer } from './TradeLogViewer';
 
 export function TournamentCard() {
   const me = useGame((s) => s.me)!;
@@ -73,6 +74,7 @@ export function TournamentCard() {
             </div>
             <p className="text-caption text-fg-faint" data-testid="tournament-seeds">{t('sixd.tn.seeds', { count: latest.seeds.length })}</p>
             <p className="text-caption text-fg-faint" data-testid="tournament-logs">{t('sixd.tn.logs', { count: latest.logCount })}</p>
+            <TradeLogViewer logs={latest.logs} />
           </div>
         ) : (
           <p className="text-caption text-fg-faint" data-testid="tournament-none">{t('sixd.tn.none')}</p>

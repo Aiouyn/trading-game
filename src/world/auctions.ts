@@ -76,6 +76,11 @@ export interface AuctionLotRecord {
 
 export interface AuctionState {
   lots: Record<string, AuctionLotRecord>;
+  /**
+   * The e2e seam (`admin.auctionOpen`): a week whose lots were opened early, by its open tick. Absent in a live world, where a
+   * week opens at its first tick. Only the admin command writes it.
+   */
+  openedAt?: Record<string, number>;
 }
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -85,6 +90,24 @@ const cents = (x: number): number => Math.round(x * 100) / 100;
 
 export function lotKeyOf(week: number, itemId: string): string {
   return `${week}:${itemId}`;
+}
+
+/** The tick a week's lots open: its first tick, unless the admin seam opened them early. */
+export function openTickOf(g: GameState, week: number): number {
+  return g.auctions?.openedAt?.[String(week)] ?? week * TOURNAMENT_WEEK_TICKS;
+}
+
+/**
+ * The admin seam (`admin.auctionOpen`, e2e only): opens a week's lots at once, with `ticksLeft` ticks to run (default: the
+ * full hour). From then on the lots follow the live rules: bids, the anti-snipe extension and the settlement.
+ */
+export function adminOpenLots(g: GameState, week: number, ticksLeft: number = AUCTION.hourTicks): CommandResult {
+  if (!Number.isInteger(week) || week < 0) return fail('auctionNoLot');
+  if (!Number.isInteger(ticksLeft) || ticksLeft <= 0 || ticksLeft > AUCTION.hourTicks) return fail('auctionOpenLeft');
+  g.auctions ??= { lots: {} };
+  const openTick = g.market.tick + ticksLeft - AUCTION.hourTicks;
+  g.auctions.openedAt = { ...(g.auctions.openedAt ?? {}), [String(week)]: openTick };
+  return ok({ week, openTick, endTick: openTick + AUCTION.hourTicks });
 }
 
 /** The auction lots of a week: 3 to 5 limited or unique collectibles, chosen by a hash of the world seed and the week. */
@@ -142,7 +165,7 @@ export function placeBid(g: GameState, pid: string, key: string, amount: number)
   const itemId = rest.join(':');
   const item = LIFE_BY_ID.get(itemId);
   if (!item || !Number.isInteger(week) || !weekLots(g.seed, week).some((x) => x.id === itemId)) return fail('auctionNoLot');
-  const open = week * TOURNAMENT_WEEK_TICKS;
+  const open = openTickOf(g, week);
   const tick = g.market.tick;
   if (tick < open) return fail('auctionNotYet', { hours: Math.ceil((open - tick) / TPD) });
   const existing = g.auctions?.lots[key];
@@ -264,17 +287,19 @@ export function auctionsView(g: GameState, pid: string | null, week: number): Au
   return weekLots(g.seed, week).map((item) => {
     const key = lotKeyOf(week, item.id);
     const lot = g.auctions?.lots[key];
-    const ended = lot ? lot.status !== 'open' : g.market.tick >= week * TOURNAMENT_WEEK_TICKS + AUCTION.hourTicks;
-    const status: AuctionLotView['status'] = lot ? lot.status : (ended ? 'unsold' : 'upcoming');
+    const open = openTickOf(g, week);
+    // a lot with no bid yet has no record: it is open from the open tick until the hour ends, and unsold after that
+    const live = g.market.tick >= open && g.market.tick < open + AUCTION.hourTicks;
+    const status: AuctionLotView['status'] = lot ? lot.status : (g.market.tick < open ? 'upcoming' : live ? 'open' : 'unsold');
     const hi = lot ? highBid(lot) : null;
     const bidders = lot && lot.status !== 'open' ? [...new Set(lot.bids.map((b) => g.players[b.playerId]?.handle ?? '?'))] : null;
     return {
       key, itemId: item.id, name: item.name, category: item.category, cls: item.cls, rarity: item.rarity, blurb: item.blurb, status,
-      openTick: week * TOURNAMENT_WEEK_TICKS, endTick: lot?.endTick ?? week * TOURNAMENT_WEEK_TICKS + AUCTION.hourTicks,
+      openTick: open, endTick: lot?.endTick ?? open + AUCTION.hourTicks,
       bidCount: lot?.bids.length ?? 0,
       high: hi ? hi.amount : null,
       reserveMet: lot && hi ? hi.amount >= lot.reserve : null,
-      minimum: lot && lot.status === 'open' ? minimumBid(lot) : null,
+      minimum: status === 'open' ? (lot ? minimumBid(lot) : priceLot(g, item, week).start) : null,
       mine: !!pid && !!lot && lot.bids.some((b) => b.playerId === pid),
       winner: lot?.winnerId ? g.players[lot.winnerId]?.handle ?? null : null,
       hammer: lot?.hammer ?? null,

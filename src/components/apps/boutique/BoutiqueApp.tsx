@@ -11,8 +11,10 @@ import { isAppUnlocked } from '@/shell/ctx';
 import { Button, Card, Chip, ConfirmButton, Stat, Tabs } from '@/components/ui';
 import { AuctionsPanel } from '@/components/apps/sixd/AuctionsPanel';
 import { StreakCard } from '@/components/apps/sixd/StreakCard';
+import { HomeRoomPanel } from '@/components/apps/sixd/HomeRoom';
+import { CollectionOwnerCard } from '@/components/apps/sixd/CollectionPage';
 
-type Tab = 'shop' | 'collection' | 'auctions';
+type Tab = 'shop' | 'home' | 'collection' | 'auctions';
 
 export function BoutiqueApp() {
   const me = useGame((s) => s.me)!;
@@ -38,13 +40,14 @@ export function BoutiqueApp() {
       <Tabs<Tab>
         tabs={[
           { id: 'shop', label: t('boutique.tab.shop') },
+          { id: 'home', label: t('boutique.tab.home') },
           { id: 'collection', label: t('boutique.tab.collection'), badge: me.player.lifestyle.length },
           { id: 'auctions', label: t('sixd.auc.tab') },
         ]}
         value={tab}
         onChange={setTab}
       />
-      {tab === 'auctions' ? <AuctionsPanel /> : tab === 'shop' ? <Shop /> : <Collection />}
+      {tab === 'auctions' ? <AuctionsPanel /> : tab === 'shop' ? <Shop /> : tab === 'home' ? <HomeRoomPanel /> : <Collection />}
     </div>
   );
 }
@@ -104,9 +107,11 @@ function Collection() {
   const tick = useGame((s) => s.frame?.tick ?? 0);
   const act = useGame((s) => s.act);
   const coll = useGame((s) => s.pub?.collectibles ?? 1);
-  if (!me.player.lifestyle.length) return <Card className="p-8 text-center font-serif text-title text-fg-muted">{t('boutique.empty')}</Card>;
+  if (!me.player.lifestyle.length) return <div className="flex flex-col gap-4"><CollectionOwnerCard /><Card className="p-8 text-center font-serif text-title text-fg-muted">{t('boutique.empty')}</Card></div>;
   return (
-    <div className="grid gap-3 @md:grid-cols-2 @4xl:grid-cols-3">
+    <div className="flex flex-col gap-4">
+      <CollectionOwnerCard />
+      <div className="grid gap-3 @md:grid-cols-2 @4xl:grid-cols-3">
       {me.player.lifestyle.map((o) => {
         const i = LIFE_ITEMS.find((x) => x.id === o.itemId)!;
         const age = (tick - o.boughtTick) / 720;
@@ -121,6 +126,7 @@ function Collection() {
           </Card>
         );
       })}
+      </div>
     </div>
   );
 }
