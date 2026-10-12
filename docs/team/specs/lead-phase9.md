@@ -53,3 +53,18 @@ Binding for Phase 9 on the tech fork (`v1`). Visual polish and the four-palette 
   beside it, not gated.
 - **R-9-9 Rank-time table.** Run the 365-day wealth bot (four styles x 20 seeds, sharded) for days to R1..R4 at p10/p50/p90;
   a style that never reaches a rank is reported as censored with the share reached.
+- **R-9-1b Clip across the day boundary.** The 9B clip ratio (1.81) came from an attack window that straddles a game-day
+  boundary: the calendar-day tally resets at the boundary, so the second half of the clips is charged against a fresh tally.
+  Inside one game day the ratio is 1.01. The impact tally becomes a rolling window, not a calendar day: per account and asset,
+  a same-direction quantity that decays with a half-life of half a game day (360 ticks), so no boundary resets it. The
+  per-account tally is required (a shared tally lets one account's flow cheapen another's). Gate: 720 clips against 1 order,
+  at any window start (include straddling starts), 20 seeds, one-sided 95% <= 1.5.
+- **R-9-1c Amends R-9-1b: one shared rolling tally per asset.** A per-account tally lets N linked or unlinked accounts each
+  start fresh (the N-account dodge the 9B track found). The temporary-impact tally is therefore per ASSET, shared by all
+  flow (as in a real book: impact comes from aggregate flow), same-direction, decaying with a half-life of 360 ticks, with
+  no calendar-day reset; a fill pays I(cum + q) - I(cum). The clip gate (720 clips against 1 order, any window start
+  including straddling starts, 20 seeds, one-sided 95% <= 1.5) must pass as a normal test.
+- **R-9-8b Load metric.** At the production 5 s tick the spacing between ticks is 5 s by design. The gate is: all 4,000
+  clients welcomed; tick fan-out p99 (tick start to the last client's receipt) < 2.5 s; tick overrun p99 (spacing minus the
+  nominal tick) < 0.5 s; three repeats. The 1 s stress run is reported, not gated; its regression against the earlier
+  record is investigated and written down.
