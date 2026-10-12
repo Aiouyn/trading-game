@@ -8,6 +8,7 @@ import {
 import { refreshNetWorth, sellBusiness, sellProperty } from './assets';
 import { applyRank } from './players';
 import { tradesOf } from './ledger';
+import { rankBasisOf } from './social';
 import { adRefusal, adsUsedToday, overdraws, SPONSOR } from './sponsor';
 import { fundsOf } from './funds/state';
 import { failPrivateFounderCompanies, callFounderGuarantees, sellListedFounderStakes } from './company/stakes';
@@ -217,7 +218,7 @@ function finishFreshStart(g: GameState, p: Player, out: StepOutput | null): void
     .sort((a, b) => a.realizedPnl - b.realizedPnl)
     .slice(0, 3)
     .map((t) => ({ id: t.id, assetId: t.assetId, pnl: t.realizedPnl }));
-  c.last = { chapter: c.chapter, startTick: c.chapterStartTick, endTick: tick, peak: Math.max(c.peak, p.netWorth), end: p.netWorth, losses: trips };
+  c.last = { chapter: c.chapter, startTick: c.chapterStartTick, endTick: tick, peak: Math.max(c.peak, p.netWorth), end: p.netWorth, endBasis: rankBasisOf(g, p), losses: trips };
   for (const b of [...playerBusinesses(g, p.id)]) sellBusiness(g, p.id, b.id, out);
   for (const pr of [...playerProperties(g, p.id)]) sellProperty(g, p.id, pr.id);
   resetLab(g, p.id);
@@ -351,12 +352,14 @@ export function comebackView(g: GameState, pid: string): ComebackView | null {
 }
 
 /**
- * The net worth the boards rank a player by (velvet-bankruptcy.md acceptance): the live net worth, or the End of the chapter
- * that closed last when that is higher, so a fresh start does not drop the row. The closed chapter's End stands.
+ * The value the net worth board ranks a player by (velvet-bankruptcy.md acceptance, R-9-4): the live rank basis, or the End of
+ * the chapter that closed last when that is higher, so a fresh start does not drop the row. The closed chapter's End stands.
+ * The End is kept on the rank basis too (endBasis); a save from before R-9-4 has only the raw End.
  */
-export function boardNetWorth(p: Player): number {
-  const live = p.markNetWorth ?? p.netWorth;
-  const end = p.comeback?.last?.end;
+export function boardNetWorth(g: GameState, p: Player): number {
+  const live = rankBasisOf(g, p);
+  const last = p.comeback?.last;
+  const end = last ? (last.endBasis ?? last.end) : undefined;
   return end !== undefined && end > live ? end : live;
 }
 

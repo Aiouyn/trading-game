@@ -54,6 +54,7 @@ function mainPeak(c: WorldConfig, seed: string, id: string, aUsd: number, bUsd: 
 describe('alt-lifted peak: liquidation is a share of the whole crowd exit', () => {
   for (const [name, c] of MODES) {
     for (const id of ['SYN', 'AURH']) {
+      // R-9-1c: one tally per asset, so the alt's fills pay on the whale's flow and the whale-plus-alt peak never beats one account's.
       it(`${name} ${id}: whale + alt summed peaks never beat one account holding the same block`, { timeout: 180_000 }, () => {
         for (const seed of ['hunt-1', 'hunt-2']) {
           for (const exitTick of [10, 721]) {
@@ -66,6 +67,7 @@ describe('alt-lifted peak: liquidation is a share of the whole crowd exit', () =
         }
       });
 
+      // R-9-1c: the alt's buy pays on the shared tally the whale's buy built, so it never lifts the main's peak.
       it(`${name} ${id}: an alt's buy (held, or sold later) never lifts the main's peak`, { timeout: 180_000 }, () => {
         for (const seed of ['pump-1', 'pump-2']) {
           for (const bFrac of [0.02, 0.2, 1, 3]) {
@@ -80,6 +82,7 @@ describe('alt-lifted peak: liquidation is a share of the whole crowd exit', () =
     }
   }
 
+  // R-9-1c: N accounts holding Q/N each pay on the asset's shared tally, so their per-unit marks match one account's (fees aside).
   it('one account holding Q marks the same per unit as N accounts holding Q/N (fees aside)', () => {
     for (const id of ['SYN', 'AURH', 'HLCN']) {
       const Q0 = qtyOf(id, 0.1 * adv(id));

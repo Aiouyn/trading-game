@@ -1,4 +1,5 @@
 import { boardNetWorth } from './comeback';
+import { rankBasisOf } from './social';
 import { bizValuedIncome, CHAPTER_TICKS, notify, playerBusinesses, playerProperties, propValue, pushWire } from './core';
 import { textProvider } from './text';
 import type { BoardRow, Boards, GameState, Player, StepOutput } from './types';
@@ -7,6 +8,11 @@ const TOP = 100;
 
 export function emptyBoards(): Boards {
   return { tick: 0, netWorth: [], chapter: [], climber: [], tycoon: [], trader: [], prestige: [], landlord: [], alliance: [], mostWanted: [], defender: [], country: {}, nwRank: {} };
+}
+
+/** The rank basis at the chapter's start (R-9-4); an older save without it starts at its raw chapter-start net worth. */
+function chapterStartBasisOf(p: Player): number {
+  return p.chapterStartBasis ?? p.chapterStartNetWorth;
 }
 
 function row(p: Player, value: number): BoardRow {
@@ -26,7 +32,8 @@ function top(rows: BoardRow[]): BoardRow[] {
  */
 export function computeBoards(g: GameState): void {
   const ps = Object.values(g.players);
-  const all = ps.map((p) => row(p, boardNetWorth(p))).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+  // R-9-4: every board ranks on the rank basis (marked net worth minus loans owed and net gifts received), as rank-ups do
+  const all = ps.map((p) => row(p, boardNetWorth(g, p))).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
   const nwRank: Record<string, number> = {};
   all.forEach((r, i) => { nwRank[r.id] = i + 1; });
   const country: Record<string, BoardRow[]> = {};
@@ -40,13 +47,13 @@ export function computeBoards(g: GameState): void {
   const trader = ps.map((p) => row(p, g.market.accounts[p.id]?.realizedPnl ?? 0));
   const alliance: BoardRow[] = Object.values(g.alliances).map((a) => ({
     id: a.id, name: `${a.name} [${a.tag}]`,
-    value: Object.keys(a.members).reduce((s, m) => s + (g.players[m]?.netWorth ?? 0), 0) + a.treasury,
+    value: Object.keys(a.members).reduce((s, m) => s + (g.players[m] ? rankBasisOf(g, g.players[m]!) : 0), 0) + a.treasury,
   }));
   g.boards = {
     tick: g.market.tick,
     netWorth: all.slice(0, TOP),
-    chapter: top(ps.map((p) => row(p, p.netWorth - p.chapterStartNetWorth))),
-    climber: top(ps.map((p) => row(p, Math.log(Math.max(p.netWorth, 1e5) / Math.max(p.chapterStartNetWorth, 1e5))))),
+    chapter: top(ps.map((p) => row(p, rankBasisOf(g, p) - chapterStartBasisOf(p)))),
+    climber: top(ps.map((p) => row(p, Math.log(Math.max(rankBasisOf(g, p), 1e5) / Math.max(chapterStartBasisOf(p), 1e5))))),
     tycoon: top(tycoon),
     trader: top(trader),
     prestige: top(ps.map((p) => row(p, p.prestige))),
@@ -111,6 +118,6 @@ export function chapterCheck(g: GameState, out: StepOutput): void {
     kind: 'system', tone: 'brass', text: `You finished #${i + 1} in Chapter ${number}. Your portrait hangs in the Hall of Fame.`,
     msg: textProvider.newsroom({ kind: 'hallOfFame', id: `${number}:hof:${r.id}`, rank: i + 1, number }),
   }));
-  for (const p of Object.values(g.players)) p.chapterStartNetWorth = p.netWorth;
+  for (const p of Object.values(g.players)) { p.chapterStartNetWorth = p.netWorth; p.chapterStartBasis = rankBasisOf(g, p); }
   g.chapter = { number: g.chapter.number + 1, startTick: g.market.tick, endTick: g.market.tick + CHAPTER_TICKS };
 }

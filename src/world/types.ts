@@ -210,6 +210,8 @@ export interface Player {
   /** the ad offer's snapshot of the real day: cash and net worth at its start (velvet-rewarded-ads.md); absent in older saves */
   adDay?: { day: number; cash: number; netWorth: number };
   chapterStartNetWorth: number;
+  /** the rank basis (mark minus loans owed and net gifts, social.ts rankBasisOf) at the chapter's start; boards rank on it (R-9-4). Absent in older saves: the chapter then starts at chapterStartNetWorth. */
+  chapterStartBasis?: number;
   watchlist: string[];
   alerts: PriceAlert[];
   alertSeq: number;
@@ -294,7 +296,7 @@ export interface ComebackState {
   /** the low-cash card is hidden until this tick (a dismissal lasts a real day) */
   dismissedUntil?: number;
   /** the chapter that closed last: its peak, end value and the three largest realized losses */
-  last?: { chapter: number; startTick: number; endTick: number; peak: number; end: number; losses: { id: string; assetId: string; pnl: number }[] };
+  last?: { chapter: number; startTick: number; endTick: number; peak: number; end: number; endBasis?: number; losses: { id: string; assetId: string; pnl: number }[] };
 }
 
 export type ComebackPerk = 'contacts' | 'lessons' | 'wind';

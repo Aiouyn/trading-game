@@ -1,5 +1,5 @@
 import { Rng } from '@/engine';
-import { cashOf, debit, notify, TPD } from '../core';
+import { cashOf, debit, notify, spendableCash, TPD } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { BUZZ_DECAY, LP, NPC, curveAccountId, npcAccountId } from './constants';
 import { formulaCashAt, spotAt } from './curve';
@@ -43,7 +43,8 @@ export function buyBuzz(g: GameState, pid: string, ticker: string, kind: 'board'
   if (t.buzzDay.day !== day) t.buzzDay = { day, n: 0 };
   if (t.buzzDay.n >= LP.BUZZ_MAX_PER_DAY) return refuse('buzzCap', { max: LP.BUZZ_MAX_PER_DAY });
   const cost = kind === 'board' ? LP.BOARD_COST : LP.WIRE_PROMO_COST;
-  if (cashOf(g, pid) < cost) return refuse('cash', { need: cost.toLocaleString('en-US') });
+  // R-9-6 (Phase 9 rulings): a buzz item is an op, and restricted (ad or fresh-start) cash cannot pay for it
+  if (spendableCash(g, pid) < cost) return refuse(cashOf(g, pid) >= cost ? 'adCashOps' : 'cash', { need: cost.toLocaleString('en-US'), name: t.name });
   debit(g, pid, cost, 'lpBuzz');
   ensureLaunchpad(g).totals.buzz += cost;
   t.buzzDay.n++;
