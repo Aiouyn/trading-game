@@ -16,7 +16,7 @@ import { RefusalBox } from '@/components/apps/exchange/Shared';
 import { type RefusalCopy, refusalCopy, rejectVars } from '@/components/apps/exchange/copy';
 import { quickEnterAllowed, tradeKeyIntent } from './tradeKeys';
 import { levelMove } from './chartLevels';
-import { checkOrder, engineRefusal, parseDecimal, tradeSummary, type EngineRefusal, type Refusal, type RefusalField } from './ticketMath';
+import { checkOrder, engineRefusal, formatRefusalVars, parseDecimal, tradeSummary, type EngineRefusal, type Refusal, type RefusalField } from './ticketMath';
 
 const TYPE_OPTS: { value: OrderType; key: string; testId: string }[] = [
   { value: 'market', key: 'order.market', testId: 'type-market' },
@@ -174,6 +174,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
     cash: acct?.cash ?? 0, bp, margin, total, notional, held, simpleCap, capCash, capPct: firstCapVars.pct, capRank: firstCapVars.rank,
     locked, lockedTier: t(ctx?.def.assetClass === 'stock' || ctx?.def.assetClass === 'crypto' ? 'broker.tier.retail' : 'broker.tier.pro'),
     shorting, opening, committed: committedOpen, canShort: !!acct.canShort, shortOk, shortCollateral, fee,
+    // the largest buy the cash affords: a refused buy says "Max = X" (weakness 2)
+    max: side === 'buy' && maxQty > 0 ? roundQ(maxQty) : undefined,
   });
   let invalid: Refusal | null = null;
   if (fundMode) {
@@ -190,7 +192,9 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const said = engineSaid && engineSaid.sig === signature ? engineSaid.refusal : null;
   const shown: { field: RefusalField; key: string; vars?: Record<string, string | number> } | null =
     invalid?.key ? { field: invalid.field, key: invalid.key, vars: invalid.vars } : said ? { field: said.field, key: said.key, vars: said.vars } : null;
-  const at = (field: RefusalField) => (shown && shown.field === field ? t(shown.key, shown.vars) : null);
+  // refusal copy: the money and the size are formatted with the ticket's own formatters, never as raw floats (weakness 2)
+  const fmtVars = (vars: Record<string, string | number> | undefined) => formatRefusalVars(vars, { money, qty: fmtQty });
+  const at = (field: RefusalField) => (shown && shown.field === field ? t(shown.key, fmtVars(shown.vars)) : null);
 
   const canSubmit = !invalid && qtyN > 0;
   const confirming = canSubmit && confirm === signature;
@@ -199,7 +203,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
     : shorting ? t('broker.verb.short') : t('broker.verb.sell');
   const actionLabel = t('broker.action', { verb, qty: qtyN > 0 ? fmtQty(qtyN) : '', ticker: selected }).replace(/\s+/g, ' ').trim();
   // The CTA says why it is disabled (spec 1.4): the refusal's short reason, or "Enter a size".
-  const ctaLabel = canSubmit ? actionLabel : invalid?.cta ? t(invalid.cta, invalid.vars) : tooSmall ? t('broker.cta.tooSmall') : t('broker.cta.size');
+  const ctaLabel = canSubmit ? actionLabel : invalid?.cta ? t(invalid.cta, fmtVars(invalid.vars)) : tooSmall ? t('broker.cta.tooSmall') : t('broker.cta.size');
 
   const submit = async () => {
     setConfirm(null);
@@ -534,7 +538,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                 <SumRow dense={dense} k={t('broker.breakEven')} v={<span data-testid="order-breakeven">{price(summary.breakEven)}</span>} />
                 <SumRow
                   dense={dense} k={t('broker.cashAfter')}
-                  v={<span className="text-fg-muted" data-testid="order-cash-after">{money(cashAfter)}</span>}
+                  v={<span className="text-fg-muted" data-testid="order-cash-after">{cashAfter < -0.005 ? '—' : money(cashAfter)}</span>}
                 />
                 <SumRow dense={dense} k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
                 </div>

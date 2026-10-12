@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changeRefusal, checkOrder, engineRefusal, parseDecimal, tradeSummary, type OrderCheck } from './ticketMath';
+import { changeRefusal, checkOrder, engineRefusal, formatRefusalVars, parseDecimal, tradeSummary, type OrderCheck } from './ticketMath';
 
 /** A buy of 10 shares at 100 with a 1-share cash account that can pay for it: a clean base for each rule. */
 function base(over: Partial<OrderCheck> = {}): OrderCheck {
@@ -43,6 +43,21 @@ describe('checkOrder: the first failing rule wins and sits under its field', () 
   it('a cash account refuses a buy that its fee-included total does not cover, with both numbers', () => {
     const r = checkOrder(base({ cash: 500, total: 1001, bp: 500 })).refusal!;
     expect(r).toMatchObject({ field: 'qty', key: 'broker.refuse.cash', cta: 'broker.cta.cash', vars: { total: 1001, cash: 500 } });
+  });
+
+  it('a refused buy names the largest size it affords as Max = X (UX stage 6, weakness 2)', () => {
+    const r = checkOrder(base({ cash: 500, total: 1001, bp: 500, max: 4 })).refusal!;
+    expect(r).toMatchObject({ key: 'broker.refuse.cashMax', vars: { total: 1001, cash: 500, max: 4 } });
+    // no max (a sell, or nothing affordable): the plain refusal
+    expect(checkOrder(base({ cash: 500, total: 1001, bp: 500, max: 0 })).refusal).toMatchObject({ key: 'broker.refuse.cash' });
+  });
+
+  it('the money in a refusal is formatted with the ticket money formatter, never a raw float (weakness 2)', () => {
+    const money = (n: number) => `$${n.toFixed(2)}`;
+    const qty = (n: number) => String(n);
+    const vars = formatRefusalVars({ total: 101489753.6992725, cash: 5689.56, max: 3, need: 2, bp: 0.5, pct: 20 }, { money, qty });
+    expect(vars).toEqual({ total: '$101489753.70', cash: '$5689.56', max: '3', need: '$2.00', bp: '$0.50', pct: 20 });
+    expect(formatRefusalVars(undefined, { money, qty })).toBeUndefined();
   });
 
   it('a margin account is checked against buying power, not cash', () => {
