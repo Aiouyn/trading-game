@@ -162,11 +162,15 @@ describe('shared world events', () => {
     expect(after.state.regime).toBe('expansion');
   });
 
-  it('replays byte-identical from the seed', () => {
+  it('replays byte-identical from the seed, over 20 seeds (tape-ecology-hunts event_replay_bytes: 0 diffs)', () => {
     const c = cfg({ worldEvents: { odds: { crash: 0.2, bubble: 0.2, crisis: 0.2, flash: 0.2 } } });
-    const a = run(createWorld('replay', c), 4 * TPD).state;
-    const b = run(createWorld('replay', c), 4 * TPD).state;
-    expect(a.worldEvents).toBeDefined();
-    expect(JSON.stringify(a)).toEqual(JSON.stringify(b));
+    let diffs = 0;
+    for (let k = 0; k < 20; k++) {
+      const a = run(createWorld(`replay-${k}`, c), 4 * TPD).state;
+      const b = run(createWorld(`replay-${k}`, c), 4 * TPD).state;
+      expect(a.worldEvents, `seed ${k}`).toBeDefined();
+      if (JSON.stringify(a) !== JSON.stringify(b)) diffs++;
+    }
+    expect(diffs).toBe(0);
   });
 });

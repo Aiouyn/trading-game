@@ -3,7 +3,7 @@
  * its value, h, regime or any random stream; leaves every other asset bit-identical; rejects bad input; never goes
  * under the asset floor; and never creates a world event (tape-ecology-hunts.md, shockprice_not_event).
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { defaultConfig } from './config';
@@ -18,7 +18,7 @@ function base(): WorldState {
 }
 
 describe('M02 shockPrice (test-only, Tape unit)', () => {
-  it('moves only assets[id].lnP: value, h, regime and every random stream are unchanged', () => {
+  it('moves lnP and the day Test-shock field dayShock on that asset only: value, h, regime and every random stream are unchanged', () => {
     const s0 = base();
     const id = s0.config.assets[0]!.id;
     const i = s0.config.assets.findIndex((a) => a.id === id);
@@ -26,6 +26,10 @@ describe('M02 shockPrice (test-only, Tape unit)', () => {
     const a0 = s0.assets[i]!;
     const a1 = s1.assets[i]!;
     expect(a1.lnP).toBeCloseTo(a0.lnP + Math.log1p(-0.015), 12);
+    // the spec says "only lnP"; the code also books the move as the day's Test shock (sim.ts shockPrice), so the close labels it
+    const changed = (Object.keys(a1) as (keyof typeof a1)[]).filter((k) => a1[k] !== a0[k]).sort();
+    expect(changed).toEqual(['dayShock', 'lnP']);
+    expect(a1.dayShock).toBeCloseTo(a1.lnP - a0.lnP, 12);
     expect(a1.lnV).toBe(a0.lnV);
     expect(a1.h).toBe(a0.h);
     expect(s1.regime).toBe(s0.regime);
@@ -76,11 +80,21 @@ describe('M02 shockPrice (test-only, Tape unit)', () => {
     expect(shocked.worldEvents).toEqual(s.worldEvents);
   });
 
-  it('no world-event module calls shockPrice or shockValue', () => {
-    const engine = resolve(__dirname);
-    for (const file of ['worldEvents.ts']) {
-      const src = readFileSync(resolve(engine, file), 'utf8');
-      expect(src, file).not.toMatch(/shockPrice|shockValue/);
+  it('no event code path calls shockPrice or shockValue: every call site in src is a known non-event caller, and no event module has one', () => {
+    // every non-test source file under src that calls one of the two test shocks (a call, not a comment or a definition)
+    const srcRoot = resolve(__dirname, '..');
+    const callRe = /\bshock(?:Price|Value)\s*\(/;
+    const callers: string[] = [];
+    for (const rel of readdirSync(srcRoot, { recursive: true }) as string[]) {
+      if (!/\.(ts|tsx)$/.test(rel) || /\.(test|spec)\.tsx?$/.test(rel)) continue;
+      const text = readFileSync(resolve(srcRoot, rel), 'utf8');
+      const hit = text.split('\n').some((line) => callRe.test(line) && !/\bfunction\s+shock(?:Price|Value)\b/.test(line) && !/^\s*(\/\/|\*|\/\*)/.test(line));
+      if (hit) callers.push(rel.replace(/\\/g, '/'));
     }
+    // known callers: the e2e admin shock (world/game.ts), and the hunt helper that prices a test move (engine/hunt-helpers.ts)
+    expect(callers.sort()).toEqual(['engine/hunt-helpers.ts', 'world/game.ts'].sort());
+    for (const file of callers) expect(file, 'no event module calls a test shock').not.toMatch(/event/i);
+    const events = readFileSync(resolve(srcRoot, 'engine/worldEvents.ts'), 'utf8');
+    expect(events).not.toMatch(callRe);
   });
 });

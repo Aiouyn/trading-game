@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { APPS, APP_IDS, type AppId } from './apps';
 import { makeWmCtx } from './ctx';
-import { GUTTER, SLOT_NAMES, type Size, slotRect, workArea } from './geometry';
+import { GUTTER, SLOT_NAMES, type Size, clampRect, fitsMin, nearestSlot, slotRect, workArea } from './geometry';
 import { type ShellState, type WmAction, focusedId, initialShell, project, reduce } from './wm';
 
 const CTX = makeWmCtx('R3');
@@ -92,6 +92,7 @@ function raisedBy(action: WmAction): string | null {
 describe('wm_focus_is_top (2,000 seeded sequences)', () => {
   it('after every accepted action the focus is the top-most open window on the active workspace, with no stored focus or z field', () => {
     let checked = 0;
+    let raises = 0;
     for (let seq = 0; seq < 2000; seq++) {
       const rnd = rng(0x9000 + seq);
       let s = initialShell(VP_1440, CTX, 'HLCN');
@@ -105,10 +106,13 @@ describe('wm_focus_is_top (2,000 seeded sequences)', () => {
         let top: string | null = null;
         for (const w of s.wins) if (w.ws === s.activeWs && w.state === 'open') top = w.id;
         expect(focusedId(s), `seq ${seq} step ${step} ${action.type}`).toBe(top);
-        // a raising action makes its window the focus when that window is open on the active workspace
+        // the independent check: a raising action makes its window the focus when that window is open on the active workspace
         const raised = raisedBy(action);
         const w = raised ? s.wins.find((x) => x.id === raised) : undefined;
-        if (w && w.state === 'open' && w.ws === s.activeWs) expect(focusedId(s), `raise ${raised}`).toBe(raised);
+        if (w && w.state === 'open' && w.ws === s.activeWs) {
+          raises++;
+          expect(focusedId(s), `raise ${raised}`).toBe(raised);
+        }
         // no z or focus field is stored on a window or on the shell
         for (const win of s.wins) {
           expect(Object.keys(win)).not.toContain('z');
@@ -119,6 +123,8 @@ describe('wm_focus_is_top (2,000 seeded sequences)', () => {
       }
     }
     expect(checked).toBeGreaterThan(20000);
+    // the raise assertion must actually run in volume, or the first assertion is the only one left
+    expect(raises).toBeGreaterThan(1000);
   });
 });
 
@@ -137,6 +143,18 @@ describe('wm_free_clamp (a free window dragged off screen keeps its title bar on
     { name: 'above the top edge', rect: { x: 200, y: -3000, w: 600, h: 400 } },
     { name: 'below the bottom edge', rect: { x: 200, y: 5000, w: 600, h: 400 } },
   ];
+
+  it('a free window stored under its minimum re-snaps to the nearest slot when projected (F rule 4, project path)', () => {
+    // the reducer refuses a move under the minimum (too-small), so the clause is reached only through a stored rect
+    const s0 = withFreePortfolio();
+    const stored = { x: 5000, y: 100, w: 100, h: 100 };
+    const under = { ...s0, wins: s0.wins.map((w) => (w.id === 'portfolio' ? { ...w, rect: stored } : w)) };
+    const wa = workArea(VP_1440, false);
+    const near = nearestSlot(clampRect(stored, wa), wa, GUTTER, APPS.portfolio, 'full');
+    expect(near, 'a nearest slot exists').not.toBeNull();
+    expect(fitsMin(APPS.portfolio, clampRect(stored, wa))).toBe(false);
+    expect(project(under).rects['portfolio']).toEqual(slotRect(near!, VP_1440, false));
+  });
 
   for (const c of cases) {
     it(`a window dragged ${c.name} keeps at least ${TITLE_MIN_VISIBLE} px of its title bar inside the work area`, () => {
@@ -159,23 +177,41 @@ describe('wm_free_clamp (a free window dragged off screen keeps its title bar on
 
 describe('wm_slot_exact (snapped rects match geometry within 1 px, gutter 8)', () => {
   for (const vp of [VP_1440, VP_1920]) {
-    it(`every slot the Broker can take at ${vp.w} x ${vp.h} is placed within 1 px of its geometry`, () => {
+    it(`at ${vp.w} x ${vp.h}: every slot that fits the Broker minimum is placed within 1 px of its geometry, and every refusal is a min-size refusal`, () => {
       const base = initialShell(vp, CTX, 'HLCN');
-      let placed = 0;
+      const placedSlots: string[] = [];
+      const refusals: { slot: string; reason: string; fits: boolean }[] = [];
       for (const slot of SLOT_NAMES) {
-        const r = reduce(base, { type: 'snap', id: 'broker-1', slot }, CTX);
-        if (!r.ok) continue; // a slot that cannot fit the Broker's minimum or the mode is refused, not placed wrongly
-        const rect = project(r.state).rects['broker-1']!;
         const want = slotRect(slot, vp, false);
-        placed++;
+        const r = reduce(base, { type: 'snap', id: 'broker-1', slot }, CTX);
+        if (!r.ok) {
+          refusals.push({ slot, reason: r.reason, fits: fitsMin(APPS.broker, want) });
+          continue;
+        }
+        placedSlots.push(slot);
+        const rect = project(r.state).rects['broker-1']!;
         expect(Math.abs(rect.x - want.x), `${slot} x`).toBeLessThanOrEqual(1);
         expect(Math.abs(rect.y - want.y), `${slot} y`).toBeLessThanOrEqual(1);
         expect(Math.abs(rect.w - want.w), `${slot} w`).toBeLessThanOrEqual(1);
         expect(Math.abs(rect.h - want.h), `${slot} h`).toBeLessThanOrEqual(1);
       }
-      expect(placed).toBeGreaterThanOrEqual(4);
+      // a refusal is only ever the min-size refusal, and only for a slot whose geometry is under the Broker minimum
+      for (const x of refusals) {
+        expect(x.reason, `${x.slot} refusal`).toBe('too-small');
+        expect(x.fits, `${x.slot} is refused but fits the Broker minimum`).toBe(false);
+      }
+      // and every slot that fits the minimum is placed (no silent refusal)
+      expect(placedSlots).toEqual(SLOT_NAMES.filter((s) => fitsMin(APPS.broker, slotRect(s, vp, false))));
     });
   }
+
+  it('at 1440 x 900 the Broker places exactly the four slots that fit its minimum (L2, R2, L23, R23) and refuses the other eight as too small', () => {
+    const base = initialShell(VP_1440, CTX, 'HLCN');
+    const placed = SLOT_NAMES.filter((slot) => reduce(base, { type: 'snap', id: 'broker-1', slot }, CTX).ok);
+    expect(placed).toEqual(['L2', 'R2', 'L23', 'R23']);
+    const refused = SLOT_NAMES.filter((slot) => !placed.includes(slot));
+    expect(refused.sort()).toEqual(['BL', 'BR', 'L3', 'R3', 'R3B', 'R3T', 'TL', 'TR'].sort());
+  });
 
   it('the halves at 1440 x 900 leave exactly 8 px between them and 8 px at the outer edges', () => {
     const wa = workArea(VP_1440, false);
