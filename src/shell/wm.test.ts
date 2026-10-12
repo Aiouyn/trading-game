@@ -214,7 +214,8 @@ describe('open', () => {
     const s = go(fresh(), { type: 'open', app: 'ailab' });
     const w = s.wins.find((x) => x.app === 'ailab')!;
     expect(w.ws).toBe(0);
-    expect(w.slot).toBe('R3');
+    // UX stage 6: the default Trade quarters are not side panels, so the app tiles beside the Broker (R2) and the quarters collapse.
+    expect(['R2', 'R3']).toContain(w.slot);
     expect(focusedId(s)).toBe('ailab');
     const off = go(emptyShell(VP_1440), { type: 'open', app: 'ailab' });
     expect(off.wins.find((x) => x.app === 'ailab')!.slot).toBeNull();
@@ -911,6 +912,31 @@ describe('rect helpers', () => {
     const s = fresh(VP_1440);
     for (const r of Object.values(project(s).rects) as Rect[]) {
       expect(Number.isInteger(r.x) && Number.isInteger(r.w) && Number.isInteger(r.y) && Number.isInteger(r.h)).toBe(true);
+    }
+  });
+});
+
+describe('six windows on a workspace never cascade over each other (UX stage 6)', () => {
+  it('on News at 1440, six opens leave the open windows tiled with no two overlapping; the rest collapse to the shelf', () => {
+    let s = go(emptyShell(VP_1440), { type: 'switchWs', ws: 1 }, R3);
+    for (const app of ['wire', 'messages', 'portfolio', 'exchange', 'launchpad', 'calendar'] as const) {
+      s = go(s, { type: 'open', app }, R3);
+    }
+    const open = s.wins.filter((w) => w.ws === s.activeWs && w.state === 'open');
+    const wa = workArea(s.vp, false);
+    const rects = project(s).rects;
+    expect(open.length).toBeGreaterThanOrEqual(2);
+    expect(open.length).toBeLessThanOrEqual(4);
+    expect(s.wins.some((w) => w.state === 'collapsed')).toBe(true);
+    for (const a of open) {
+      for (const b of open) {
+        if (a === b) continue;
+        const ra = rects[a.id]!;
+        const rb = rects[b.id]!;
+        const overlap = ra.x < rb.x + rb.w && rb.x < ra.x + ra.w && ra.y < rb.y + rb.h && rb.y < ra.y + ra.h;
+        expect(overlap, `${a.app} over ${b.app}`).toBe(false);
+      }
+      expect(rects[a.id]!.x + rects[a.id]!.w).toBeLessThanOrEqual(wa.w);
     }
   });
 });

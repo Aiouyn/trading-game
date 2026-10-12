@@ -414,6 +414,10 @@ function sidePanel(state: ShellState, id: string): ShellState | null {
   if (!broker || !fitsMin(APPS.broker, fracToRect(SLOT_FRAC.L23, wa, g))) return null;
   const app = state.wins.find((w) => w.id === id);
   if (!app) return null;
+  // Only side panels may share the Trade with the Broker. A window tiled into the halves (UX stage 6, six-window state) would
+  // stay where it is under the Broker's new 70%, so the caller tiles the whole workspace instead.
+  const others = state.wins.filter((w) => w.ws === 0 && w.state === 'open' && w.id !== id && w.id !== broker.id && w.app !== 'broker');
+  if (others.some((w) => w.slot === null || !SIDE_SLOTS.includes(w.slot as SlotName))) return null;
   const panels = state.wins.filter(
     (w) => w.ws === 0 && w.state === 'open' && w.id !== id && w.app !== 'broker' && w.slot !== null && SIDE_SLOTS.includes(w.slot as SlotName),
   );
@@ -443,15 +447,27 @@ function tileWorkspace(state: ShellState, ws: number = state.activeWs): ShellSta
   const mode = layoutMode(state.vp.w);
   if (mode === 'phone' || mode === 'single') return state;
   if (mode === 'halves' && open.length !== 2) return state;
-  const tiles = tileSlots(open.length);
   const wa = workArea(state.vp, false);
   const g = gutterFor(false);
+  const fitsAll = (list: readonly Win[]): boolean => {
+    const slots = tileSlots(list.length);
+    return list.every((w, i) => fitsMin(APPS[w.app], fracToRect(slotFrac(slots[i]!), wa, g)));
+  };
+  // UX stage 6 (six-window state): a crowded workspace never cascades over itself. When the tiles do not fit, the oldest
+  // window that is not the Broker and not the newest one gives up its tile and collapses to the shelf (its state is kept),
+  // until the rest fit or two windows are left. A workspace with two or fewer windows keeps the old rule.
+  let keep: Win[] = [...open];
+  while (keep.length > 2 && !fitsAll(keep)) {
+    const drop = keep.slice(0, -1).find((w) => w.app !== 'broker') ?? keep[0]!;
+    keep = keep.filter((w) => w.id !== drop.id);
+  }
+  if (!fitsAll(keep)) return state;
+  const kept = new Set(keep.map((w) => w.id));
   // Z-order: the oldest window takes the main tile and the newest the last one, so a new window lands on the right.
-  const order = open;
-  const fits = order.every((w, i) => fitsMin(APPS[w.app], fracToRect(slotFrac(tiles[i]!), wa, g)));
-  if (!fits) return state;
+  const tiles = tileSlots(keep.length);
   const wins = state.wins.map((w) => {
-    const i = order.findIndex((x) => x.id === w.id);
+    if (w.ws === ws && w.state === 'open' && !kept.has(w.id)) return { ...w, state: 'collapsed' as const };
+    const i = keep.findIndex((x) => x.id === w.id);
     return i < 0 ? w : { ...w, slot: tiles[i]!, filled: false };
   });
   return { ...state, wins };
