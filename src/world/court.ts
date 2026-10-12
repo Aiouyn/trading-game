@@ -151,7 +151,14 @@ export function courtTick(g: GameState, out: StepOutput): void {
     if (c.kind === 'loan default') {
       const d = Object.values(g.deals).find((x) => x.status === 'defaulted' && x.fromId === c.plaintiffId && x.toId === c.defendantId);
       damages = Math.min(headroom - fine, d?.outstanding ?? 0);
-      if (d) { d.status = 'repaid'; d.paid += damages; d.outstanding = 0; bumpDeals(g); }
+      // R-9-5 (Phase 9 rulings): a default collected in part keeps the remainder open. The deal stays defaulted with what is
+      // still owed, so the lender can sue again and the borrower's rank basis keeps subtracting the debt. Nothing is written off.
+      if (d) {
+        d.paid += damages;
+        d.outstanding = Math.max(0, (d.outstanding ?? 0) - damages);
+        if (d.outstanding <= 0.005) { d.status = 'repaid'; d.outstanding = 0; }
+        bumpDeals(g);
+      }
     } else {
       damages = Math.min(headroom - fine, Math.max(10_000, df.netWorth * 0.01));
     }
