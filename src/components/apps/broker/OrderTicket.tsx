@@ -346,7 +346,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
       {confirming && (
         <p className="mt-3 text-small text-fg" role="status" data-testid="order-confirm">{t('broker.confirm', { label: actionLabel, total: money(total) })}</p>
       )}
-      <Button variant="brass" size={dense ? 'md' : 'lg'} className={`w-full ${dense ? 'mt-2' : 'mt-3'}`} disabled={!canSubmit} onClick={submit} testId="order-submit">{ctaLabel}</Button>
+      {/* a refusal's label may carry two figures: it wraps inside the button rather than being cut at both edges (UX stage 6, weakness 2) */}
+      <Button variant="brass" size={dense ? 'md' : 'lg'} className={`w-full ${dense ? 'mt-2 !whitespace-normal py-1 text-center leading-tight' : 'mt-3'}`} disabled={!canSubmit} onClick={submit} testId="order-submit">{ctaLabel}</Button>
       <p className={`${dense ? 'mt-1' : 'mt-2'} text-center text-caption text-fg-faint`} data-testid="honest-note">{t('order.honest')}</p>
       <label className={`${dense ? 'mt-1' : 'mt-2'} flex items-center gap-2 text-caption text-fg-muted`}>
         <input type="checkbox" checked={quick} onChange={(e) => setQuick(e.target.checked)} data-testid="quick-enter" />
