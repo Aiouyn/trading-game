@@ -12,6 +12,7 @@ import { signedPct } from '@/game/format';
 import { useGame } from '@/game/store';
 import type { WireEvent } from '@/world/types';
 import { selectEventBanner } from './eventSelect';
+import { reducedMotion } from './motion';
 import { headlineText, kindDot, kindLabel } from './eventText';
 
 /** Whether the event panel is open. Shared, so the strip, the phone and Escape close it the same way. */
@@ -51,7 +52,7 @@ export function EventBannerStrip() {
   useEffect(() => {
     if (!flashOnset || eventId === null || flashGlowed.has(eventId)) return;
     flashGlowed.add(eventId);
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    if (reducedMotion()) return;
     document.body.classList.add('os-flash-glow');
     const id = window.setTimeout(() => document.body.classList.remove('os-flash-glow'), 1500);
     return () => { window.clearTimeout(id); document.body.classList.remove('os-flash-glow'); };

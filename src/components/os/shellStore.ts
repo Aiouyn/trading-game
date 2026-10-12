@@ -15,6 +15,7 @@ import { BP_PHONE, type Rect } from '@/shell/geometry';
 import { type ShellState, type WmAction, type WmReason, type WmResult, focusedId, initialShell, normalize, project } from '@/shell/wm';
 import { DEFAULT_PALETTE, type PaletteSlug, applyPalette, isPaletteSlug, paletteLocked, readPalette } from './palette';
 import { bannerBand, selectEventBanner } from './eventSelect';
+import { announceMotion, finishRunningMotion } from './motion';
 
 const INIT_VP = { w: 1440, h: 900 };
 
@@ -340,6 +341,9 @@ export const useMotion = create<MotionStore>((set) => ({
   setReduced(v) {
     updatePrefs(browserKv(), (p) => ({ ...p, reducedMotion: v }));
     applyMotion(v);
+    // The motion already running keeps its old duration, so it is settled now: the switch takes effect at once.
+    if (v === true) finishRunningMotion();
+    announceMotion();
     set({ reduced: v });
   },
 }));

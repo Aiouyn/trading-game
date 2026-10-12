@@ -13,6 +13,7 @@ import { RANKS } from '@/content/lifestyle';
 import { alsoRanks, ceremonyBeat, ceremonyMayStart } from '@/shell/ceremony';
 import { rankOrdinal } from '@/shell/ctx';
 import { idleMs, listenActivity } from './idle';
+import { reducedMotion } from './motion';
 
 /** The ceremony for the player's own rank-up. The listener for idle time runs whenever the shell is up. */
 export function OsUpdate() {
@@ -21,10 +22,6 @@ export function OsUpdate() {
   useEffect(() => listenActivity(), []);
   if (rankUp === null) return null;
   return <Ceremony key={rankUp} rankId={rankUp} from={from} />;
-}
-
-function reducedMotion(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 function Ceremony({ rankId, from }: { rankId: string; from: string | null }) {

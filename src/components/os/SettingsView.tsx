@@ -13,6 +13,7 @@ import { PalettePicker } from './PalettePicker';
 import { ShortcutList } from './ShortcutList';
 import { useMotion, usePalette } from './shellStore';
 import { PALETTE_KEYS } from './palette';
+import { systemReducesMotion } from './motion';
 import { StatStrip } from '@/components/ui';
 
 /** Settings > Language. The choice is saved in tg-prefs (the i18n layer) and re-renders the whole tree. */
@@ -45,7 +46,7 @@ function LanguagePicker() {
 function MotionToggle() {
   const reduced = useMotion((s) => s.reduced);
   const setReduced = useMotion((s) => s.setReduced);
-  const system = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const system = systemReducesMotion();
   const on = system || reduced === true;
   return (
     <section className="flex flex-col gap-2" data-testid="settings-motion">
