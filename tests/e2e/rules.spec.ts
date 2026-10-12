@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { clearSheets, goTo, isPhone, register, skipTips, watchErrors } from './helpers';
+import { clearSheets, goTo, grantAccent, isPhone, register, skipTips, watchErrors } from './helpers';
 
 /** The four palettes in Settings, by the names their picker buttons carry (palette.spec.ts). */
 const PALETTES = [
@@ -121,7 +121,9 @@ for (const [w, h] of [[1280, 720], [1440, 900]] as const) {
 test('the top bar breakdown and the Trade ticket read in each of the four palettes', async ({ page }) => {
   test.skip(isPhone(page), 'the palette check is a desktop screenshot set');
   const errors = watchErrors(page);
-  await register(page);
+  const handle = await register(page);
+  // the three streak accents gate the accent palettes (6D.4): this player has earned them, so all four are pickable
+  for (const accent of ['phosphor', 'riviera', 'broadsheet'] as const) await grantAccent(handle, accent);
   await skipTips(page);
   for (const { slug, button } of PALETTES) {
     await goTo(page, 'profile');

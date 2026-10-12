@@ -35,8 +35,8 @@ function SumRow({ dense, k, v, className = '' }: { dense: boolean; k: ReactNode;
   if (!dense) return <KV className={className} k={k} v={v} />;
   return (
     <div className={`flex items-baseline justify-between gap-2 text-caption leading-4 ${className}`}>
-      <span className="whitespace-nowrap text-fg-muted">{k}</span>
-      <span className="num text-right text-fg">{v}</span>
+      <span className="min-w-0 text-fg-muted">{k}</span>
+      <span className="num shrink-0 text-right text-fg">{v}</span>
     </div>
   );
 }
@@ -523,7 +523,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
               )}
 
               <div className={dense ? 'mt-1 border-t border-ink-2 pt-0.5' : 'mt-4 border-t border-ink-2 pt-3'} data-testid="order-summary">
-                <div>
+                {/* the dense ticket packs the summary two to a row, so the whole block fits 1280 x 720 without a scroll */}
+                <div className={dense ? 'grid grid-cols-2 gap-x-3' : undefined}>
                 <SumRow dense={dense} k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(d.price)} />
                 <SumRow dense={dense} k={t('broker.notional')} v={money(notional)} />
                 <SumRow dense={dense} k={feeText} v={money(fee)} />
@@ -538,7 +539,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                 <SumRow dense={dense} k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
                 </div>
                 {shorting && (
-                  <div className="mt-1 grid gap-1" data-testid="order-short-terms">
+                  <div className={dense ? 'mt-0.5 grid grid-cols-2 gap-x-3' : 'mt-1 grid gap-1'} data-testid="order-short-terms">
                     <KV className="!py-0" k={t('broker.collateral')} v={<span className="text-fg-muted" data-testid="order-collateral">{money(shortCollateral)}</span>} />
                     <KV className="!py-0" k={t('broker.borrowFee')} v={<span className="text-fg-muted" data-testid="order-borrow-fee">{t('broker.borrowFee.rate', { rate: (borrowRate * 100).toFixed(2) })}</span>} />
                   </div>
