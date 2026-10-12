@@ -6,6 +6,34 @@ This file records each Phase 9 track's status. Track 9A (acceptance matrix) is r
 ## 9A acceptance matrix
 
 **Counts** (regenerated from the tape spec tables and the Vitest title index): see the header of `docs/V1-ACCEPTANCE.md`.
+At the last regeneration: PASS 167, PARTIAL 5, NOT RUN 63, NOT BUILT 264, DEFERRED 17, N/A 6 (total 522).
+
+**Runs of this pass (last commit of track 9A):**
+- Full Vitest (`npx vitest run --maxWorkers=3`): 236 files passed, 2 skipped (238); 2333 tests passed, 70 skipped, 21 todo;
+  exit 0. The baseline before the new tests was 232 files and 2311 tests.
+- `npx next typegen` and `npx tsc --noEmit`: exit 0.
+- `npx eslint` on the four test files touched in this pass: exit 0.
+- Not run: any Playwright spec (every NOT RUN row names one), and the harness bands in `scripts/balance` and `scripts/ecology`.
+
+**Reviewer findings and how this pass answered them:**
+- Items 1 to 4 (PASS rows backed only by todo or skip): cap_carry_edge and signal_postprint_drift are NOT BUILT; the desk
+  rank-loss row is N/A; X10 is PARTIAL (hash PASS, ratio DEFERRED).
+- Item 5 (matrix contradicts the tree): link_carries_no_state is PASS (route.hunts); event_invalid_values is PARTIAL (its
+  test exists); the matrix is regenerated.
+- Item 6 (wm_slot_exact): the test asserts the exact refused set and that each refusal is a min-size refusal. Row PARTIAL.
+- Items 7 and 8 (gates not written): event_replay_bytes now runs 20 seeds (PASS). event_invalid_values stays PARTIAL (20 x 1,
+  no flash halt). X2 (ecology) stays PARTIAL. M07 unit runs 30 game days of one seeded run plus 3 seeds on day 1 (PASS, the
+  reading is written on the row).
+- Item 9 (M02): the test asserts that dayShock is the only field changed besides lnP (PASS; the deviation is recorded above).
+- Item 10 (wm_free_clamp): the re-snap clause is tested through the projection; the reducer cannot store an under-min free
+  rect, so the row stays PARTIAL.
+- Item 11 (wm_focus_is_top): a count guard (more than 1,000 raise checks) makes the raise check the real assertion.
+- Item 12 (shockprice_not_event): every non-test source file under src is walked; the known callers are listed and no event
+  module calls a test shock.
+- Item 13 (describe citations): described above; generator now refuses todo-only describes.
+
+**Not done in this pass (9A):** most NOT BUILT rows (onboarding, Hooks, company E-UI and B-HARNESS, rivals bots, bust and ad
+farming, perf rows) were not implemented as tests. Those rows stay NOT BUILT with their named reason.
 
 **Status vocabulary.** PASS, PARTIAL (part of the row passes; the named remainder is not met or not written), FAIL,
 NOT RUN, NOT BUILT, DEFERRED (ruling named), N/A (reason given).
