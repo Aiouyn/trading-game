@@ -162,6 +162,7 @@ function bot(seed: string, days: number, style: Style, trace = false): void {
   const start = g.market.tick;
   let lastDayActed = -1;
   const prevEarned: Record<string, number> = {};
+  let sold = 0;
   for (let t = 0; t < days * TPD; t++) {
     const gameDay = Math.floor((g.market.tick - start) / TPD);
     if ((g.market.tick - start) % TPD === 0 && gameDay !== lastDayActed) {
@@ -169,7 +170,7 @@ function bot(seed: string, days: number, style: Style, trace = false): void {
       const pres = presence(style, gameDay);
       if (p.online !== pres.online) applyCommand(g, 'bot', { type: 'presence', online: pres.online });
       if (pres.online) buyGreedy(g, style);
-      if (pres.checkIn) checkIn(g, style);
+      if (pres.checkIn) sold += checkIn(g, style);
       if (ranks[p.rankId] === undefined) ranks[p.rankId] = gameDay;
     }
     stepGame(g);
@@ -179,7 +180,8 @@ function bot(seed: string, days: number, style: Style, trace = false): void {
     if ((g.market.tick - start) % (TPD * 8) === 0) checkpoints[Math.floor((g.market.tick - start) / TPD)] = netWorthBreakdown(g, 'bot').total;
   }
   const income = Object.values(g.businesses).filter((b) => b.ownerId === 'bot').reduce((s, b) => s + bizValuedIncome(b), 0);
-  console.log(JSON.stringify({ mode: 'bot', seed, style, days, rankFirstSeenGameDay: ranks, netWorth: Math.round(p.netWorth), valuedIncome: Math.round(income), checkpoints }));
+  const bizCount = Object.values(g.businesses).filter((b) => b.ownerId === 'bot').length;
+  console.log(JSON.stringify({ mode: 'bot', seed, style, days, rankFirstSeenGameDay: ranks, netWorth: Math.round(p.netWorth), valuedIncome: Math.round(income), bizCount, sold, checkpoints }));
 }
 
 /**
@@ -231,10 +233,12 @@ function poolMasses(g: GameState): Map<string, PoolMass> {
  * The owner's check-in: sell any shop that has lost money for two weeks (`shouldExit`), then set the style's levers on
  * what is kept. The sale is a choice the owner makes on the books, not a lever, so every style makes it.
  */
-function checkIn(g: GameState, style: Style): void {
+export function checkIn(g: GameState, style: Style): number {
   const mine = Object.values(g.businesses).filter((b) => b.ownerId === 'bot');
-  for (const b of mine) if (shouldExit(b.shop.net)) applyCommand(g, 'bot', { type: 'biz.sell', bizId: b.id });
+  let sold = 0;
+  for (const b of mine) if (shouldExit(b.shop.net) && applyCommand(g, 'bot', { type: 'biz.sell', bizId: b.id }).ok) sold++;
   for (const b of Object.values(g.businesses)) if (b.ownerId === 'bot') for (const c of setupFor(style, b.id, b.shop.demand)) applyCommand(g, 'bot', c);
+  return sold;
 }
 
 /**
@@ -318,12 +322,15 @@ function census(seed: string, days: number): void {
   }
 }
 
-const { mode, seed, days, style, first, seeds, trace } = argv();
-if (mode === 'census') census(seed, days);
-else if (mode === 'probe') probe(seed, days);
-else if (trace) bot(seed, days, style, true);
-else if (first !== undefined) {
-  // a shard: seeds first..first+seeds-1 (one run per style, styles inner); `all` runs the four styles of the wealth table
-  const styles: Style[] = style === ('all' as Style) ? ['neglected', 'average', 'managed', 'excellent'] : [style];
-  for (let k = first; k < first + (seeds ?? 1); k++) for (const st of styles) bot(`${seed}-${k}`, days, st);
-} else bot(seed, days, style);
+// the CLI runs only when this file is the entry point, so the owner's check-in is importable by the tests (clip.ts pattern)
+if (process.argv[1] && /wealth\.ts$/.test(process.argv[1])) {
+  const { mode, seed, days, style, first, seeds, trace } = argv();
+  if (mode === 'census') census(seed, days);
+  else if (mode === 'probe') probe(seed, days);
+  else if (trace) bot(seed, days, style, true);
+  else if (first !== undefined) {
+    // a shard: seeds first..first+seeds-1 (one run per style, styles inner); `all` runs the four styles of the wealth table
+    const styles: Style[] = style === ('all' as Style) ? ['neglected', 'average', 'managed', 'excellent'] : [style];
+    for (let k = first; k < first + (seeds ?? 1); k++) for (const st of styles) bot(`${seed}-${k}`, days, st);
+  } else bot(seed, days, style);
+}

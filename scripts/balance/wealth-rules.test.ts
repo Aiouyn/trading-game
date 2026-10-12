@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SHOP } from '../../src/content/shops';
 import { shareFactorFor, shouldExit, siteScore, startAppeal } from './wealth-rules';
 
 describe('the share factor a new business earns (the world share formula)', () => {
@@ -33,22 +34,29 @@ describe('site choice: the bot prices the competition, not only the income per d
   });
 });
 
-describe('exit: a checked-in owner sells a shop that has lost money over the window', () => {
+describe('exit: a checked-in owner sells a shop that has lost money over the valuation window', () => {
+  // the world keeps SHOP.value.window (7) days of net per shop; these arrays are the length the bot really sees
+  const W = SHOP.value.window;
+
   it('keeps a shop with less history than the window', () => {
-    expect(shouldExit(new Array(13).fill(-100))).toBe(false);
+    expect(shouldExit(new Array(W - 1).fill(-100))).toBe(false);
   });
 
-  it('sells a shop whose net over the last 14 days is negative', () => {
-    expect(shouldExit(new Array(14).fill(-5))).toBe(true);
+  it('sells a shop whose net over the window is negative', () => {
+    expect(shouldExit(new Array(W).fill(-5))).toBe(true);
   });
 
-  it('keeps a shop whose recent net is not negative in total, even with one bad day', () => {
-    const net = [...new Array(13).fill(10), -30];
+  it('keeps a shop whose window is not negative in total, even with one bad day', () => {
+    const net = [...new Array(W - 1).fill(10), -30];
     expect(shouldExit(net)).toBe(false);
   });
 
-  it('judges only the window: old losses do not sell a shop that has earned for two weeks', () => {
-    const net = [...new Array(30).fill(-50), ...new Array(14).fill(20)];
+  it('judges only the window: old losses do not sell a shop that has earned for the window', () => {
+    const net = [...new Array(30).fill(-50), ...new Array(W).fill(20)];
     expect(shouldExit(net)).toBe(false);
+  });
+
+  it('regression: a 14-day window never fires on the 7-entry history the world keeps (the 9B.4a rule)', () => {
+    expect(shouldExit(new Array(W).fill(-5), 14)).toBe(false);
   });
 });

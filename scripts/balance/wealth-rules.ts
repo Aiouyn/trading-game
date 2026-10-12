@@ -6,8 +6,9 @@
  * logit share gives it (`recomputeShares` in src/world/assets.ts): every business in the pool, the bot's and the NPCs', adds
  * to the pool's mass, so a crowded pool pays each shop less. The bot scores a candidate by its income per dollar times that
  * share factor, so a second shop goes to the pool with room, not to the densest one. A checked-in owner sells a shop that
- * has lost money for two straight weeks (the valued income is trailing net, so a shop that stays under water is worth 0.6 of
- * its cost and its costs keep running).
+ * has lost money over the valuation window (`SHOP.value.window`, 7 game days): the world keeps exactly that many days of net
+ * per shop (`shopsDay` splices `net` to the window), so the owner's rule reads the same history the world does. The valued
+ * income is trailing net too, so a shop that stays under water is worth little and its costs keep running.
  */
 import { SHOP } from '../../src/content/shops';
 
@@ -40,10 +41,12 @@ export function startAppeal(marketing: number): number {
 }
 
 /**
- * Exit rule: a checked-in owner sells a shop whose net has been negative in total over the last `windowDays` game days
- * (the shop's `net` holds one entry per game day). A shop with less history than the window is kept.
+ * Exit rule: a checked-in owner sells a shop whose net has been negative in total over the last `windowDays` game days.
+ * The default is the valuation window the world keeps (`SHOP.value.window`, 7): `shopsDay` holds one net entry per game
+ * day and splices the list to that window, so a longer window is never reached (the 14-day rule of 9B.4a never fired).
+ * A shop with less history than the window is kept.
  */
-export function shouldExit(net: number[], windowDays = 14): boolean {
+export function shouldExit(net: number[], windowDays: number = SHOP.value.window): boolean {
   if (net.length < windowDays) return false;
   let sum = 0;
   for (let k = net.length - windowDays; k < net.length; k++) sum += net[k]!;
