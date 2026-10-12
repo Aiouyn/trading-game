@@ -16,11 +16,11 @@ const ENGLISH_STORY = new RegExp([
   '\\b(Best position|Worst position|Top performer|Weakest holding|Biggest drag|Benchmarks:|Against the benchmarks|You were ahead|You are ahead|No positions were|No trades yet|A flat day|The market \\(GX\\)|Net worth (barely|held|gained|lost|climbed|slipped)|Up \\$|Down \\$)\\b',
 ].join('|'));
 
-/** The English labels of the Wire's tags (WireItem.tag in the engine): a French Wire shows the French label instead. */
+/** The English labels of the Wire's tags (WireItem.tag in the engine): a French Wire shows the French label instead. 'Inflation' is left out: it is the same word in French. */
 const ENGLISH_TAGS = [
   'Achievement', 'Alliance', 'Bankruptcy', 'Central bank', 'Chapter', 'Close', 'Court', 'Crash', 'Deal', 'Earnings', 'Economy', 'Filing',
   'Halt', 'IPO', 'Index', 'Margin', 'Markets', 'Milestone', 'Move', 'Preview', 'Property', 'Reopen', 'Security', 'Spin-off', 'Squeeze',
-  'Takeover', 'Verdict', 'Whisper', 'Bubble', 'Crisis week', 'Flash crash', 'Inflation', 'Jobs', 'Auction', 'Liquidation', 'Launchpad',
+  'Takeover', 'Verdict', 'Whisper', 'Bubble', 'Crisis week', 'Flash crash', 'Jobs', 'Auction', 'Liquidation', 'Launchpad',
   'Rumor', 'Sponsored',
 ].map((x) => x.toLowerCase());
 
