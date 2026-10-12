@@ -238,8 +238,9 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
     if (r.ok) {
       setQ('');
       setEngineSaid(null);
+      // a pending notice: the fill of this asset replaces it, so one order is one toast (UX stage 6)
       useGame.getState().toast({
-        tone: 'info',
+        tone: 'info', kind: 'pending', ref: selected,
         text: type === 'market' ? t('broker.toast.fillsNext', { label: actionLabel }) : t('broker.toast.working', { label: actionLabel }),
       });
       if (type !== 'market') setSheet(false);

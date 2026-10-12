@@ -8,7 +8,8 @@
 
 import { SHELF_H, type Rect, type Size } from './geometry';
 
-export const TOAST_MAX = 3;
+/** At most two notices draw at once (UX stage 6, weakness 3): a third would cover the positions table or the watchlist. */
+export const TOAST_MAX = 2;
 /** The queue keeps this many notices, so a long run of sticky warnings cannot grow without bound. Only three draw. */
 export const TOAST_QUEUE_MAX = 12;
 export const TOAST_HOLD_MS = 4000;
@@ -19,7 +20,7 @@ export const TOAST_EDGE = 14;
 export const TOAST_BOTTOM = 12;/** Height a toast takes in the column, used only to decide whether it covers a Broker. */
 export const TOAST_ROW_H = 96;
 
-export type ToastKind = 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'other';
+export type ToastKind = 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'pending' | 'other';
 export type ToastTone = 'gain' | 'loss' | 'warn' | 'info' | 'brass';
 
 /** A toast as the desktop reads it. The game store holds the same shape with a few more fields. */
@@ -28,6 +29,8 @@ export interface ShellToast {
   tone: ToastTone;
   text: string;
   kind?: ToastKind;
+  /** The asset an order notice is about: a pending notice is replaced by the fill of the same asset (one toast per order). */
+  ref?: string;
   /** The app whose window a click opens (a window id is never stored here). */
   app?: string;
   /** What a click does besides dismissing (a coach tip performs its action). Not stored in the shell. */
@@ -50,6 +53,16 @@ export function visibleToasts<T extends Pick<ShellToast, 'kind'>>(list: readonly
 /** Sticky toasts stay until they are read, not for the hold time (P2-090). */
 export function isSticky(t: Pick<ShellToast, 'tone' | 'kind'>): boolean {
   return t.tone === 'warn' || t.kind === 'margin';
+}
+
+/**
+ * One toast per order (UX stage 6, weakness 3): a pending notice ("fills at the next tick", "order working") leaves the queue when
+ * the fill of its asset arrives, so the order shows as one filled notice. Pure: returns the queue without those pending notices.
+ */
+export function withoutPending<T extends Pick<ShellToast, 'kind' | 'ref'>>(list: readonly T[], incoming: readonly T[]): T[] {
+  const filled = new Set(incoming.filter((t) => t.kind === 'fill' && t.ref !== undefined).map((t) => t.ref));
+  if (filled.size === 0) return list.slice();
+  return list.filter((t) => !(t.kind === 'pending' && t.ref !== undefined && filled.has(t.ref)));
 }
 
 /**

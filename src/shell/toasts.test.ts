@@ -1,14 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { TOAST_MAX, type ShellToast, allowedInFocus, isSticky, toastSide, visibleToasts } from './toasts';
+import { TOAST_MAX, type ShellToast, allowedInFocus, isSticky, toastSide, visibleToasts, withoutPending } from './toasts';
 
 const t = (id: string, over: Partial<ShellToast> = {}): ShellToast => ({ id, tone: 'info', text: id, ...over });
 
 describe('toast rules (P2-085..P2-090)', () => {
-  it('shows at most three, and the oldest leaves first', () => {
+  it('shows at most two, and the oldest leaves first (UX stage 6)', () => {
     const list = ['a', 'b', 'c', 'd'].map((id) => t(id));
-    expect(visibleToasts(list, false).map((x) => x.id)).toEqual(['b', 'c', 'd']);
+    expect(visibleToasts(list, false).map((x) => x.id)).toEqual(['c', 'd']);
     expect(visibleToasts(list.slice(0, 2), false).map((x) => x.id)).toEqual(['a', 'b']);
-    expect(TOAST_MAX).toBe(3);
+    expect(TOAST_MAX).toBe(2);
+  });
+
+  it('one toast per order: a fill replaces the pending notice of its asset, and no other notice', () => {
+    const queue = [
+      t('pending-hlcn', { kind: 'pending', ref: 'HLCN' }),
+      t('pending-xyz', { kind: 'pending', ref: 'XYZ' }),
+      t('plain'),
+    ];
+    const fill = [t('fill-hlcn', { kind: 'fill', ref: 'HLCN', tone: 'gain' })];
+    expect(withoutPending(queue, fill).map((x) => x.id)).toEqual(['pending-xyz', 'plain']);
+    expect(withoutPending(queue, [t('other', { kind: 'other' })]).map((x) => x.id)).toEqual(['pending-hlcn', 'pending-xyz', 'plain']);
   });
 
   it('in focus mode only fills, margin warnings and world events show (P2-069)', () => {
@@ -19,7 +30,7 @@ describe('toast rules (P2-085..P2-090)', () => {
       t('margin', { kind: 'margin', tone: 'warn' }),
       t('world', { kind: 'world' }),
     ];
-    expect(visibleToasts(list, true).map((x) => x.id)).toEqual(['fill', 'margin', 'world']);
+    expect(visibleToasts(list, true).map((x) => x.id)).toEqual(['margin', 'world']);
     expect(allowedInFocus({ kind: 'other' })).toBe(false);
     expect(allowedInFocus({})).toBe(false);
   });
