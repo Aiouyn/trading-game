@@ -147,11 +147,14 @@ describe('the journal: a closed trade explained', () => {
     expect(pendingReplay!.series.at(-1)!.day).toBeLessThanOrEqual(deskWindow(g).lastClosed!);
     runPastDay(g, gameDayOfTick(trip.closeTick, TPD));
     const r = cmd(g, 'u1', { type: 'journal.detail', tripId: trip.id });
-    const d = r.data as { line: { key: string }; analyst: string | null; rows: unknown; total: number | null; replay: { series: { day: number; px: number }[] } | null };
+    const d = r.data as { line: { key: string }; analyst: string | null; rows: unknown; total: number | null; sample: { rows: { row: string; value: number }[]; total: number } | null; replay: { series: { day: number; px: number }[] } | null };
     expect(d.line.key).not.toBe('journal.line.pending');
     // free tier: the sentence, but no parts
     expect(d.analyst).toBeNull();
     expect(d.rows).toBeNull();
+    // the free sample: the newest trade's parts, which sum to the same explain total (one breakdown, no analyst)
+    expect(d.sample).not.toBeNull();
+    expect(Math.abs(d.sample!.rows.reduce((s, x) => s + x.value, 0) - d.sample!.total)).toBeLessThanOrEqual(TRADE_REALIZED_TOLERANCE);
     expect(d.replay!.series.length).toBeGreaterThan(0);
     // hired analyst: the parts sum to the explain total, which is the ledger's realized P&L
     g.players['u1']!.analyst = { tier: 'junior', hiredDay: 0, paidThroughDay: 99 };
