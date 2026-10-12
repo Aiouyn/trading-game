@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { englishLines } from '../../src/i18n/frAudit';
 import { ADMIN, WORLD, noHorizontalOverflow } from './helpers';
 
 // Phase 8 (lead-phase8.md P8-3): the /admin page behind the admin token. The token is typed once and kept in the page's memory,
@@ -77,5 +78,25 @@ test.describe('the admin page', () => {
       // the shared e2e world must keep running whatever happened above
       await setPaused(false);
     }
+  });
+
+  test('the admin page reads in French when the player chose French (P8-4)', async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        window.localStorage.setItem('tg-prefs', JSON.stringify({ lang: 'fr' }));
+      } catch { /* private mode */ }
+    });
+    await page.goto('/admin');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
+    await expect(page.getByTestId('admin-token')).toBeVisible();
+    await expect(page.getByText('Jeton d’administration', { exact: true })).toBeVisible();
+    await page.getByTestId('admin-token').fill(ADMIN);
+    await page.getByTestId('admin-token-submit').click();
+    await expect(page.getByTestId('admin-tick')).toBeVisible();
+    await expect(page.getByTestId('backup-now')).toHaveText('Sauvegarder maintenant');
+    await expect(page.getByTestId('admin-text')).toContainText('Désactivée');
+    const text = await page.getByTestId('admin-status').innerText();
+    expect(englishLines(text)).toEqual([]);
+    await noHorizontalOverflow(page);
   });
 });

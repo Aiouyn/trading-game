@@ -153,7 +153,7 @@ export function adminRoute(method: string, path: string, authorization: string |
   if (path === '/api/admin/backup') {
     try {
       const rec = d.backups.take('manual');
-      d.adminLog.record('backup', ip, `${rec.name}, held ${rec.pauseMs.toFixed(1)} ms`, now);
+      d.adminLog.record('backup', ip, `${rec.name} · pause ${rec.pauseMs.toFixed(1)} ms`, now);
       return { code: 200, body: { ok: true, backup: { name: rec.name, at: rec.at, tick: rec.tick, kind: rec.kind, bytes: rec.bytes, pauseMs: rec.pauseMs } } };
     } catch (e) {
       d.adminLog.record('backup', ip, `failed: ${(e as Error).message}`, now);
@@ -166,7 +166,7 @@ export function adminRoute(method: string, path: string, authorization: string |
     if (body.paused) d.host.pause();
     else d.host.resume();
     const tick = d.host.g.market.tick;
-    d.adminLog.record(body.paused ? 'pause' : 'resume', ip, `at tick ${tick}${was === body.paused ? ' (no change)' : ''}`, now);
+    d.adminLog.record(body.paused ? 'pause' : 'resume', ip, `tick ${tick}${was === body.paused ? ' · same' : ''}`, now);
     return { code: 200, body: { ok: true, paused: d.host.isPaused(), tick } };
   }
   return { code: 404, body: { ok: false } };
