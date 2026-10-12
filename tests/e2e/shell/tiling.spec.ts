@@ -132,9 +132,11 @@ test.describe('tiling, side panels and toasts (stage 2)', () => {
     await expect(page.locator('[data-testid^="os-toast-"][data-tone]')).toHaveCount(2);
     await expect(page.locator('[data-testid^="os-toast-"][data-tone]').first()).toBeVisible();
     const col = await page.getByTestId('os-toasts').boundingBox();
-    // Over a maximized Broker the column is in its dock (an inline left sets the place): the notices stay between the dock's edges.
+    // Over a maximized terminal Broker the column is in its dock (an inline left sets the place): the notices stay between the
+    // dock's edges. A narrow Broker (under 900 px, no terminal ticket) has its dock above the trade bar, so the check is the terminal's.
     const inDock = ((await page.getByTestId('os-toasts').getAttribute('style')) ?? '').includes('left:');
-    const dockBox = inDock ? await page.getByTestId('terminal-dock').boundingBox() : null;
+    const terminal = (await page.getByTestId('terminal-ticket').count()) > 0;
+    const dockBox = inDock && terminal ? await page.getByTestId('terminal-dock').boundingBox() : null;
     if (col !== null && dockBox !== null) {
       expect(col.y, 'toast column top above the dock').toBeGreaterThanOrEqual(dockBox.y - 1);
       expect(col.y + col.height, 'toast column bottom below the dock').toBeLessThanOrEqual(dockBox.y + dockBox.height + 1);
