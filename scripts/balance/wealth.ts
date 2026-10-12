@@ -10,6 +10,9 @@
  *
  *   bot: one greedy investor in a style and a presence pattern. Reports net worth and rank timing in game days.
  *       npx tsx scripts/balance/wealth.ts bot [seed=wealth] [days=40] [style=average]
+ *   Shard (Phase 9 R-9-9): `--first=K --seeds=N` runs seeds `<seed>-K` .. `<seed>-(K+N-1)` for the style given, or for all four
+ *   styles when style is `all` (one JSON line per run, styles inner, seeds outer). Four shards of five seeds cover 20 seeds.
+ *       npx tsx scripts/balance/wealth.ts bot wealth 365 all --first=1 --seeds=5
  *
  * Styles (shops.md 7.1): neglected (buy, set nothing, check in once per 24 game days), casual (well-run
  * settings, check in once per 24 game days, no manager), average (well-run settings, online 16 of every 24
@@ -59,9 +62,12 @@ function presence(style: Style, gameDay: number): { online: boolean; checkIn: bo
   return { online: hourOfDay < 16, checkIn: style !== 'idle' && hourOfDay < 16 };
 }
 
-function argv(): { mode: string; seed: string; days: number; style: Style } {
-  const [mode = 'probe', seed = 'wealth', days = '40', style = 'average'] = process.argv.slice(2);
-  return { mode, seed, days: Number(days), style: style as Style };
+function argv(): { mode: string; seed: string; days: number; style: Style; first?: number; seeds?: number } {
+  const flags = process.argv.slice(2).filter((a) => a.startsWith('--'));
+  const pos = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+  const [mode = 'probe', seed = 'wealth', days = '40', style = 'average'] = pos;
+  const flag = (name: string) => { const f = flags.find((x) => x.startsWith(`--${name}=`)); return f === undefined ? undefined : Number(f.split('=')[1]); };
+  return { mode, seed, days: Number(days), style: style as Style, first: flag('first'), seeds: flag('seeds') };
 }
 
 function hash(x: string): number {
@@ -202,6 +208,10 @@ function starsFor(style: Style): number {
   return 0;
 }
 
-const { mode, seed, days, style } = argv();
+const { mode, seed, days, style, first, seeds } = argv();
 if (mode === 'probe') probe(seed, days);
-else bot(seed, days, style);
+else if (first !== undefined) {
+  // a shard: seeds first..first+seeds-1 (one run per style, styles inner); `all` runs the four styles of the wealth table
+  const styles: Style[] = style === ('all' as Style) ? ['neglected', 'average', 'managed', 'excellent'] : [style];
+  for (let k = first; k < first + (seeds ?? 1); k++) for (const st of styles) bot(`${seed}-${k}`, days, st);
+} else bot(seed, days, style);
