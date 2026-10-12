@@ -409,7 +409,7 @@ export function plantCrewSession(g: GameState, crewId: string, victimId: string,
   g.cyber.ops.unshift({ id: opId, attackerId: crewId, victimId, strength, modelId: model.id, tick, result: detected ? 'detected' : 'failed' });
   if (detected) {
     g.cyber.evidence[`${crewId}>${victimId}`] = (g.cyber.evidence[`${crewId}>${victimId}`] ?? 0) + 15;
-    notify(g, out, victimId, { kind: 'security', tone: 'warn', text: 'Your defenses blocked an intrusion attempt.' });
+    notify(g, out, victimId, { kind: 'security', tone: 'warn', text: 'Your defenses blocked an intrusion attempt.', msg: { key: 'security.msg.blocked' } });
   }
   if (g.cyber.ops.length > 200) g.cyber.ops.length = 200;
   return false;

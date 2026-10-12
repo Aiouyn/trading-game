@@ -105,3 +105,14 @@ design is the cost; the copy alone is the rest.
 - `eslint` on every touched file: 0 errors, 0 warnings.
 - `npx playwright test tests/e2e/frSweep.spec.ts --project=desktop --project=phone --no-deps`: passed.
 - Determinism and replays: no engine or simulation code changed; the only world change adds a `msg` descriptor to notification lines, and the English text stays identical.
+
+**Review repairs (round 2)**
+- NPC chat (blocking 1): the 30 engine chatter lines in `src/world/npc.ts` were English in French play. The table now lives in `src/world/text/npcChat.ts`, and the stored chat text is unchanged (saves and replays are the same). The screen translates a stored NPC line through `npc.chat.<style>.<n>` (en.json and fr.json), matched on the English template with `{a}` as the stock. Player lines are never translated. `npcChat.test.ts` checks that every template has its key in both locales and that each stored line maps back to its key.
+- NPC bios (blocking 2): `Social.tsx` shows an NPC bio through `npc.bio.<playerId>` (24 keys, en equal to the bio the engine stores). Player bios are shown as typed.
+- Cyber notify (blocking 3): the "defenses blocked" line at `src/world/cyber.ts:412` now carries `msg: { key: 'security.msg.blocked' }`, the key the Wire and bell already read.
+- French spacing (item 4): every space before `: ; ! ? %` and inside `« »` in fr.json is now a no-break space (U+00A0), so "1 %" and "Ventes forcées en {asset} :" do not wrap apart. The en values are unchanged.
+- Sweep coverage (item 5): the Playwright sweep still reads the default app views. The world chat and the NPC bio sit behind the chat tab and the profile modal, so they are guarded by `npcChat.test.ts` and the audit test, not by the sweep. Reasoned deviation: the sweep is not extended to those views in this round.
+
+**Gates (round 2)**
+- `npx next typegen && npx tsc --noEmit`: 0 errors. `eslint` on the touched files: 0.
+- `npx vitest run --maxWorkers=3` (full): 228 files passed, 2 skipped; 2273 tests passed, 70 skipped.

@@ -161,7 +161,7 @@ export function ProfileModal() {
         {d.npc && <Chip>{t('social.npc')}</Chip>}
         <Chip className={d.online ? 'border-gain/50 text-gain' : ''}>{d.online ? t('social.online') : t('social.offline')}</Chip>
       </div>
-      {d.bio && <p className="mt-3 text-small text-fg-muted">{q(d.bio)}</p>}
+      {d.bio && <p className="mt-3 text-small text-fg-muted">{q(d.npc ? t(`npc.bio.${d.id}`) : d.bio)}</p>}
       <div className="mt-4 grid grid-cols-2 gap-3 text-small sm:grid-cols-4">
         <div><div className="label">{t('common.netWorth')}</div><div className="num">{compactMoney(d.netWorth)}</div></div>
         <div><div className="label">{t('social.prestige')}</div><div className="num">{Math.round(d.prestige)}</div></div>
