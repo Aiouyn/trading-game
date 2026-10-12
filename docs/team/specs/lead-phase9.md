@@ -53,3 +53,9 @@ Binding for Phase 9 on the tech fork (`v1`). Visual polish and the four-palette 
   beside it, not gated.
 - **R-9-9 Rank-time table.** Run the 365-day wealth bot (four styles x 20 seeds, sharded) for days to R1..R4 at p10/p50/p90;
   a style that never reaches a rank is reported as censored with the share reached.
+- **R-9-1b Clip across the day boundary.** The 9B clip ratio (1.81) came from an attack window that straddles a game-day
+  boundary: the calendar-day tally resets at the boundary, so the second half of the clips is charged against a fresh tally.
+  Inside one game day the ratio is 1.01. The impact tally becomes a rolling window, not a calendar day: per account and asset,
+  a same-direction quantity that decays with a half-life of half a game day (360 ticks), so no boundary resets it. The
+  per-account tally is required (a shared tally lets one account's flow cheapen another's). Gate: 720 clips against 1 order,
+  at any window start (include straddling starts), 20 seeds, one-sided 95% <= 1.5.
