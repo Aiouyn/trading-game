@@ -161,7 +161,6 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
     <div className="flex flex-col gap-4" data-testid="portfolio-view">
       <LowCashCard />
       {!phone && <GoalsCard />}
-      <StressPanel />
       <Card className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -196,13 +195,16 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
           </div>
         </div>
         {/* the last point of the line, as the header shows it (the spec compares the two) */}
-        <div className={phone ? 'mt-3 h-48' : 'mt-3 h-64'} data-testid="networth-series" data-last-value={chartSeries.at(-1)?.value.toFixed(2) ?? ''}>
+        <div className="mt-3 h-48" data-testid="networth-series" data-last-value={chartSeries.at(-1)?.value.toFixed(2) ?? ''}>
           {chartSeries.length > 1
             ? <PriceChart assetId="NW" series={chartSeries} range={range} interval={nwInterval} mode="area" testId="networth-chart" studies={false} overlays={overlays} />
             : <div className="flex h-full items-center justify-center text-small text-fg-faint" data-testid="networth-chart">{t('portfolio.building')}</div>}
         </div>
         <p className="mt-2 text-caption text-fg-faint" data-testid="networth-chart-note">{t('portfolio.nwChartNote')}</p>
       </Card>
+
+      {/* The positions sit right under net worth (UX stage 6, item 14): at 1440 they show without a scroll, above the balance sheet. */}
+      <Positions phone={phone} />
 
       <div className={`grid gap-4 ${phone ? '' : 'lg:grid-cols-2'}`}>
         <Card className="p-4">
@@ -254,9 +256,9 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
         </Card>
       </div>
 
-      <LuckCard />
+      <StressPanel />
 
-      <Positions phone={phone} />
+      <LuckCard />
 
       <ClosesCard />
 

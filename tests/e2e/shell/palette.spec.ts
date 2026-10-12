@@ -179,3 +179,35 @@ test.describe('palettes', () => {
     await pick(page, 'Ink & Brass');
   });
 });
+
+test.describe('palette cards (UX stage 6, item 13)', () => {
+  test.skip(({ isMobile }) => isMobile, 'desktop palettes');
+
+  test('@palette_cards every card has a thumbnail, a four-colour strip, and a check only on the selected card; nothing clips', async ({ page }) => {
+    onlyIn('desktop', 'desktop-1920');
+    await boot(page);
+    await page.getByTestId('shelf-app-settings').click();
+    const picker = page.getByTestId('palette-picker');
+    await expect(picker).toBeVisible();
+    for (const p of PALETTES) {
+      const card = page.getByTestId(`palette-${p.slug}`);
+      await expect(card.locator('img.os-pal-thumb')).toBeVisible();
+      await expect(card.locator('img.os-pal-thumb')).toHaveJSProperty('complete', true);
+      await expect(page.getByTestId(`palette-${p.slug}-strip`).locator('i')).toHaveCount(4);
+      // the strip is four real colours, not transparent
+      const colours = await page.getByTestId(`palette-${p.slug}-strip`).locator('i').evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
+      expect(colours.every((c) => c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent')).toBe(true);
+      // the card's text sits inside the card (no clipping on the right edge)
+      const box = await card.boundingBox();
+      const text = await card.locator('span.text-body').boundingBox();
+      expect(box && text && text.x + text.width <= box.x + box.width + 1).toBe(true);
+    }
+    await pick(page, 'Ink & Brass');
+    await expect(page.getByTestId('palette-ink-brass-check')).toBeVisible();
+    await expect(page.getByTestId('palette-broadsheet-check')).toHaveCount(0);
+    await pick(page, 'Broadsheet');
+    await expect(page.getByTestId('palette-broadsheet-check')).toBeVisible();
+    await expect(page.getByTestId('palette-ink-brass-check')).toHaveCount(0);
+    await pick(page, 'Ink & Brass');
+  });
+});
