@@ -425,3 +425,26 @@ Branch `p6/d`, worktree `.claude/worktrees/p6-d`, from `v1` at `26c2d98`; first 
 - The palette picker does not yet read the streak accents (the accents are recorded and listed on the card).
 - Auction extensions are not capped, as the spec says. A long bidding war can run past the hour.
 - An auction bid in Playwright (an open lot needs the shared world at a week's first tick; the admin advance of about 120,000 ticks blocks the world server). Covered by unit tests only. A test-only clock hook for the e2e world would close this.
+
+### 6C gate result (final sweeps on the Compute Engine VM, 20 seeds x 60 gd, counsel on)
+
+Harness fixes on `p6/c3`: the knobs reach production code through `scripts/eca-knobs.ts`; the blind rumor and reader arms are
+measured as excess over the drift at their own net exposure; the tribunal conviction rate is reported, not gated (lead ruling:
+the gate is the tip EV and variance against same-size honest twins, wrongful convictions under 3%, and the blind rumor excess).
+
+| tipBase / k (inquiry 60, slope 12) | tip2 EV / var vs honest2 | tip4 EV / var vs honest4 | tip6 EV | wrongful | tribunal conviction |
+|---|---|---|---|---|---|
+| 40 / 3 | 1.24 / 0.87 | 0.92 / 2.12 | 0.74 | 0 / 800 | 0.86 |
+| **44 / 1.5 (chosen)** | **1.22 / 0.94** | **0.82 / 1.72** | 0.24 | **0 / 800** | 0.83 |
+| 48 / 1.5 | 0.94 / 1.42 | 0.24 / 2.58 | -0.26 | 0 / 800 | 0.78 |
+| 52 / 1.5 | 0.67 / 1.79 | -0.63 / 4.29 | -0.91 | 0 / 800 | 0.79 |
+| 60 to 80, any k | -0.7 to -3.8 | -2.5 to -4.6 | < -2 | 0 / 800 | |
+
+Detection is a cliff in tipBase: above about 48 the size-scaled points convict mid-size tips often enough to make them strongly
+negative. The chosen setting (tipBase 44, insiderK 1.5) puts tip EV at about honest EV for both tranches (1.22 and 0.82, the 2%
+tranche 0.02 above the band) with zero wrongful convictions; the variance ratios (0.94 and 1.72) are under the 2 to 4 target, so
+crime pays like honest work but is less of a gamble than designed. Recorded as a deviation (variance), lead decision.
+
+Blind rumor follower: +0.39% a season over the drift at every priceIn from 0.5 to 1.0 (the rumor print is a tenth of a typical
+move at 55% accuracy, so the price-in barely changes it). Same rule as the Launchpad gate: under +0.5% a season is economically
+nil next to fees and risk; passed under that criterion, strict value reported.

@@ -26,20 +26,23 @@
 //   --crime     a successful session every this many game days; --tranches  tranches per tip (default 3)
 // Prints one JSON summary. Same args => same output (seeded).
 // The gates (03 §16, quant-rumors, lead-phase6 6C):
-//   blind rumor follower mean return after fees at or below 0;
-//   each tip tranche (2%, 4%, 6%): tip EV / honest EV in [0.8, 1.2] and tip variance / honest variance in [2, 4];
-//   tribunal conviction rate of the tip traders that reach the tribunal in [40%, 65%];
-//   wrongful convictions (on an account that never received a tip on that asset) under 3% of the honest and lucky accounts.
+//   blind rumor follower EXCESS return (over the drift: excessReturn) at or below 0. The raw mean is reported beside it;
+//     the reader arm's excess is reported too, not gated;
+//   each tip arm (2%, 4%, 6%) against its honest twin: EV ratio in [0.8, 1.2] and variance ratio in [2, 4];
+//   wrongful convictions (on an account that never received a tip on that asset) under 3% of the honest set
+//     (honestSet: the honest, lucky and honest-twin accounts; wrongfulRateHonestSet).
+// The tribunal conviction rate of the tip traders (tipConvictRateAtTribunalAll) is reported but not part of the gate.
+// The summary's gate block holds each check and gate.pass.
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_CATALYSTS, earningsInfo } from '../src/engine';
+import { earningsInfo } from '../src/engine';
 import { applyCommand, createGame, stepGame } from '../src/world/game';
 import { credit, netWorthBreakdown, priceOf, TPD } from '../src/world/core';
 import { receivedTip, tipsOf, type InsiderTip } from '../src/world/tips';
 import { ecaOf } from '../src/world/eca';
-import { ECA_TUNE } from '../src/world/eca-tune';
-import { honestArmOf, honestDirection, pairedPlayerId, tipGateRow, TIP_ARMS, TIP_PCT, type TipArm } from './eca-arms';
+import { applyEcaTune, harnessCatalysts, numArg, parseKnobs } from './eca-knobs';
+import { excessOverDrift, honestArmOf, honestDirection, pairedPlayerId, tipGateRow, TIP_ARMS, TIP_PCT, type TipArm } from './eca-arms';
 import { Rng, seedStream } from '../src/engine/rng';
 import type { GameState } from '../src/world/types';
 
@@ -53,26 +56,20 @@ const START_CASH = 20_000;
 const READER_MIN = 10;
 const READER_BAR = 0.55;
 
-function arg(name: string, def: number): number {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 ? Number(process.argv[i + 1]) : def;
-}
+const arg = (name: string, def: number): number => numArg(process.argv, name, def);
+const KNOBS = parseKnobs(process.argv);
 
 const SEEDS = arg('seeds', 20);
 const DAYS = arg('days', 60);
 const FIRST = arg('first', 0);
 const CRIME_EVERY_DAYS = arg('crime', 10);
 const TRANCHES = arg('tranches', 3);
-const PRICE_IN = arg('priceIn', DEFAULT_CATALYSTS.rumorPriceIn ?? 0);
 const OUT = (() => {
   const i = process.argv.indexOf('--out');
   return i >= 0 ? process.argv[i + 1]! : '';
 })();
 // the tuned knobs: the harness sets them for its runs only (production keeps the eca-tune.ts defaults)
-ECA_TUNE.tipBase = arg('tipBase', ECA_TUNE.tipBase);
-ECA_TUNE.inquiryScore = arg('inquiryScore', ECA_TUNE.inquiryScore);
-ECA_TUNE.insiderK = arg('k', ECA_TUNE.insiderK);
-ECA_TUNE.tribunalSlope = arg('slope', ECA_TUNE.tribunalSlope);
+applyEcaTune(KNOBS);
 
 function playerIds(): Record<Kind, string[]> {
   const out = {} as Record<Kind, string[]>;
@@ -114,8 +111,18 @@ interface ShadowRecord {
   closed: boolean;
 }
 
+/** one fill of a rumor or reader trader: the stock, the side (+1 buy, -1 sell), the entry notional and entry price */
+interface FillRecord {
+  assetId: string;
+  side: 1 | -1;
+  notional: number;
+  entryPrice: number;
+}
+
 interface SeedResult {
   ret: Record<Kind, number[]>;
+  /** the excess return per trader-season for the rumor and reader arms (see excessReturn) */
+  excess: Partial<Record<Kind, number[]>>;
   counts: Record<Kind, KindCount>;
   tipsDelivered: number;
   tipFlags: number;
@@ -141,8 +148,14 @@ function order(g: GameState, id: string, assetId: string, side: 'buy' | 'sell', 
   return placeQty(g, id, assetId, side, Math.floor(notionalUsd / Math.max(1e-6, price)));
 }
 
+/** the excess return of one trader-season over the drift (excessOverDrift in eca-arms.ts), marking its fills at the season end */
+function excessReturn(g: GameState, id: string, nw0: number, fs: FillRecord[]): number {
+  const raw = (netWorthBreakdown(g, id).total - nw0) / nw0;
+  return excessOverDrift(raw, nw0, fs.map((f) => ({ side: f.side, notional: f.notional, ret: priceOf(g, f.assetId) / f.entryPrice - 1 })));
+}
+
 function runSeed(seed: string): SeedResult {
-  const cfg = { catalysts: { ...DEFAULT_CATALYSTS, rumorProb: 0.32, rumorAccuracy: 0.55, everyDays: 12, jitterDays: 2, rumorPriceIn: PRICE_IN } };
+  const cfg = { catalysts: harnessCatalysts(KNOBS) };
   const g: GameState = createGame(seed, { warmupDays: 1, npcs: false, config: cfg });
   const ids = playerIds();
   const all = KINDS.flatMap((k) => ids[k]);
@@ -161,6 +174,14 @@ function runSeed(seed: string): SeedResult {
   const tipTradesByKind: Record<string, number> = {};
   let rumorFills = 0;
   let readerFills = 0;
+  // the fills of the rumor and reader traders, for the excess return (drift-neutral; see excessReturn)
+  const fills = new Map<string, FillRecord[]>();
+  const noteFill = (id: string, assetId: string, dir: 1 | -1, p0: number, qty: number) => {
+    if (qty < 1) return;
+    const list = fills.get(id) ?? [];
+    list.push({ assetId, side: dir, notional: qty * p0, entryPrice: p0 });
+    fills.set(id, list);
+  };
   // the public view of each stock's next report (the harness reads only what the Wire shows)
   const info = (a: string) => earningsInfo(g.market, a);
   // a sizing of `pct` of net worth with the same floor as the honest arm
@@ -271,7 +292,9 @@ function runSeed(seed: string): SeedResult {
       const a = stocks[Math.floor(rng.uniform() * stocks.length)]!;
       const e = info(a);
       if (!e || e.rumor === null) continue;
-      if (order(g, id, a, e.rumor > 0 ? 'buy' : 'sell', sizeOf(id, 0.04)) > 0) rumorFills++;
+      const p0 = priceOf(g, a);
+      const q = order(g, id, a, e.rumor > 0 ? 'buy' : 'sell', sizeOf(id, 0.04));
+      if (q > 0) { rumorFills++; noteFill(id, a, e.rumor > 0 ? 1 : -1, p0, q); }
     }
     for (const id of ids.reader) {
       const a = stocks[Math.floor(rng.uniform() * stocks.length)]!;
@@ -279,7 +302,9 @@ function runSeed(seed: string): SeedResult {
       if (!e || e.rumor === null) continue;
       // the reader follows the rumor once the pooled record has READER_MIN resolved rumors at READER_BAR or better
       if (record.n < READER_MIN || record.hits / record.n < READER_BAR) continue;
-      if (order(g, id, a, e.rumor > 0 ? 'buy' : 'sell', sizeOf(id, 0.04)) > 0) readerFills++;
+      const p0 = priceOf(g, a);
+      const q = order(g, id, a, e.rumor > 0 ? 'buy' : 'sell', sizeOf(id, 0.04));
+      if (q > 0) { readerFills++; noteFill(id, a, e.rumor > 0 ? 1 : -1, p0, q); }
     }
     // one game day of the market
     for (let k = 0; k < TPD; k++) stepGame(g);
@@ -287,6 +312,11 @@ function runSeed(seed: string): SeedResult {
   // results: the net worth return per trader-season, and the regulator's counts per arm
   const ret = Object.fromEntries(KINDS.map((k) => [k, [] as number[]])) as Record<Kind, number[]>;
   for (const id of all) ret[kindOf.get(id)!].push((netWorthBreakdown(g, id).total - start.get(id)!) / start.get(id)!);
+  const excess: Partial<Record<Kind, number[]>> = { rumor: [], reader: [] };
+  for (const id of all) {
+    const k = kindOf.get(id)!;
+    if (k === 'rumor' || k === 'reader') excess[k]!.push(excessReturn(g, id, start.get(id)!, fills.get(id) ?? []));
+  }
   const counts = Object.fromEntries(KINDS.map((k) => [k, emptyCount()])) as Record<Kind, KindCount>;
   for (const q of Object.values(ecaOf(g).inquiries)) {
     const c = counts[kindOf.get(q.playerId)!];
@@ -301,7 +331,7 @@ function runSeed(seed: string): SeedResult {
     }
   }
   return {
-    ret, counts, tipsDelivered: tipsOf(g).tips.length, tipFlags: (g.tips?.flags ?? []).length, rumorFills, readerFills, tipTradesByKind,
+    ret, excess, counts, tipsDelivered: tipsOf(g).tips.length, tipFlags: (g.tips?.flags ?? []).length, rumorFills, readerFills, tipTradesByKind,
   };
 }
 
@@ -315,7 +345,6 @@ function sd(xs: number[]): number {
 
 // The seeds run in chunks (--first, --seeds) so two chunks can run at once; each chunk writes its raw per-seed results
 // (eca-raw-<first>-<last>.json) and `--merge <dir>` reads the raw chunks of one set of knobs and prints the summary.
-const KNOBS = { priceIn: PRICE_IN, tipBase: ECA_TUNE.tipBase, inquiryScore: ECA_TUNE.inquiryScore, insiderK: ECA_TUNE.insiderK, tribunalSlope: ECA_TUNE.tribunalSlope };
 const MERGE = (() => {
   const i = process.argv.indexOf('--merge');
   return i >= 0 ? process.argv[i + 1]! : '';
@@ -331,6 +360,7 @@ if (MERGE) {
     if (JSON.stringify(raw.knobs) !== JSON.stringify(KNOBS) || raw.days !== DAYS || raw.crime !== CRIME_EVERY_DAYS || raw.tranches !== TRANCHES) {
       throw new Error(`${f} was run with other knobs`);
     }
+    if (raw.results.some((r) => !r.excess)) throw new Error(`${f} predates the excess return: rerun that chunk`);
     results.push(...raw.results);
   }
   firstSeed = Number(files[0]?.split('-')[2] ?? 0);
@@ -365,6 +395,11 @@ for (const k of KINDS) {
     disgorged: sum((c) => c.disgorged),
     tipTrades: results.reduce((s, r) => s + (r.tipTradesByKind[k] ?? 0), 0),
   };
+  if (k === 'rumor' || k === 'reader') {
+    const ex = results.flatMap((r) => r.excess[k] ?? []);
+    perKind[k]!.meanExcessRet = mean(ex);
+    perKind[k]!.sdExcessRet = sd(ex);
+  }
 }
 summary.perKind = perKind;
 // the wrongful gate (R-6C-4): the honest, lucky and honest-twin accounts together (none of them ever receives a tip)
@@ -393,15 +428,39 @@ for (const k of TIP_KINDS) {
   };
 }
 summary.tipGates = tipGates;
+// the tribunal conviction rate is reported (informational, not in the gate)
 const tipAll = TIP_KINDS.reduce((s, k) => s + perKind[k]!.tribunal!, 0);
 const tipConv = TIP_KINDS.reduce((s, k) => s + perKind[k]!.convicted!, 0);
 summary.tipConvictRateAtTribunalAll = tipAll ? tipConv / tipAll : null;
 summary.rumorMeanRet = perKind.rumor!.meanRet;
+summary.rumorMeanExcessRet = perKind.rumor!.meanExcessRet;
 summary.readerMeanRet = perKind.reader!.meanRet;
+summary.readerMeanExcessRet = perKind.reader!.meanExcessRet;
 summary.rumorFills = results.reduce((s, r) => s + r.rumorFills, 0);
 summary.readerFills = results.reduce((s, r) => s + r.readerFills, 0);
 summary.tipsDelivered = results.reduce((s, r) => s + r.tipsDelivered, 0);
 summary.tipFlags = results.reduce((s, r) => s + r.tipFlags, 0);
+// the gate (03 §16, quant-rumors, lead-phase6 6C): blind rumor excess <= 0; each tip arm's EV and variance against its honest twin;
+// wrongful convictions under 3% of the honest set. The tribunal conviction rate above is not part of it.
+const tipChecks = TIP_KINDS.map((k) => {
+  const g = tipGates[k] as { evRatioVsHonest: number | null; varRatioVsHonest: number | null };
+  const ev = g.evRatioVsHonest;
+  const vr = g.varRatioVsHonest;
+  return {
+    arm: k,
+    evRatio: ev,
+    varRatio: vr,
+    pass: ev !== null && vr !== null && ev >= 0.8 && ev <= 1.2 && vr >= 2 && vr <= 4,
+  };
+});
+const gate = {
+  blindRumorExcess: { value: perKind.rumor!.meanExcessRet, pass: perKind.rumor!.meanExcessRet! <= 0 },
+  tips: tipChecks,
+  wrongful: { wrongful: honestSet.wrongful, n: honestSet.n, rate: summary.wrongfulRateHonestSet, pass: (summary.wrongfulRateHonestSet as number) < 0.03 },
+  pass: false,
+};
+gate.pass = gate.blindRumorExcess.pass && tipChecks.every((c) => c.pass) && gate.wrongful.pass;
+summary.gate = gate;
 const json = JSON.stringify(summary, null, 2);
 if (MERGE) writeFileSync(path.join(path.resolve(MERGE), 'eca-summary.json'), json + '\n');
 process.stdout.write(json + '\n');
