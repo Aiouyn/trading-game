@@ -131,7 +131,8 @@ describe('whale + alt hunt', () => {
 function cfgAdv(id: string) { return cfg.assets.find((a) => a.id === id)!.advNotional ?? 1e9; }
 
 /**
- * Temporary impact and the 3x ADV cap are charged on the asset's shared PER-TICK tally (Ledger, 2026-10-09).
+ * Temporary impact is charged on the asset's shared same-tick tally (Ledger, 2026-10-09) and, from R-9-1 (Phase 9 rulings),
+ * on the shared same-DAY tally of player fills at mid (dayMidTraded). The 3x ADV cap stays on the per-tick tally.
  * Cost = sum over fills of qty * |price - mid| where mid is the tick's pre-trade mid (tickTraded.lnMid):
  * half spread plus temporary impact, all in. Tolerance for same-tick splits: |ratio - 1| <= 0.01.
  */
@@ -180,7 +181,7 @@ describe('shared per-tick temporary impact', () => {
   });
 
   for (const id of ['SYN', 'AURH']) {
-    it(`temp_split_across_ticks (${id}): the same total over 720 ticks costs less than one order`, { timeout: 60_000 }, () => {
+    it(`temp_split_across_ticks (${id}): R-9-1, the same total over the 720 ticks of one day pays the same temporary impact as one order`, { timeout: 60_000 }, () => {
       const one = sameTick(id, 1, 1);
       const Q = units(id);
       let s = openAccount(createWorld('temp', cfg), 'a0', 3e6);
@@ -194,7 +195,10 @@ describe('shared per-tick temporary impact', () => {
       }
       const ratio = (cost / notional) / (one.cost / one.notional);
       console.log(`temp_split_across_ticks ${id}: one order ${(1e4 * one.cost / one.notional).toFixed(3)} bp over mid, 720 ticks ${(1e4 * cost / notional).toFixed(3)} bp, ratio ${ratio.toFixed(4)}`);
-      expect(ratio).toBeLessThan(0.75);
+      // was ratio < 0.75 (the per-tick tally let a day of clips dodge the impact: about 1/sqrt(720) of one order). R-9-1 charges
+      // the day's marginal curve, so the day costs what one order costs. The residue is the mid drifting through the day (each
+      // fill's cost is measured against its own mid).
+      expect(Math.abs(ratio - 1)).toBeLessThanOrEqual(0.03);
     });
   }
 

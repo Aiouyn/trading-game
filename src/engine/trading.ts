@@ -164,6 +164,8 @@ function printFill(state: WorldState, assets: WorldState['assets'], i: number, s
   if (atMid !== undefined) {
     const tt = tallyTick(a.tickTraded, state.tick, a.lnP);
     next.tickTraded = { ...tt, [side]: tt[side] + atMid };
+    const dm = tallyToday(a.dayMidTraded, tallyDay(state));
+    next.dayMidTraded = { ...dm, [side]: dm[side] + atMid };
   }
   assets[i] = next;
 }
@@ -1003,12 +1005,14 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
   // permanent share of impact moves the price (the pull to value decays it), charged on the asset's shared day
   // tally across every account, so splitting into clips or across accounts doesn't multiply or dodge it
   const printTape = (i: number, side: Side, q: number, price: number, p0: number) => printFill(s, s.assets, i, side, q, price, q * p0);
-  // every fill this tick prices off the tick's pre-trade mid; temporary impact is charged on what ALL accounts
-  // already filled this tick on that side (a lone order prices exactly as before)
+  // every fill this tick prices off the tick's pre-trade mid. Temporary impact is charged on the notional the player fills
+  // have taken TODAY on that side (R-9-1, Phase 9 rulings: path-independent over the game day, so clips across ticks cost
+  // what one order costs). A lone first fill of a day prices exactly as before.
   const tickPrice = (i: number, side: Side, q: number) => {
     const tt = tallyTick(s.assets[i]!.tickTraded, tick, s.assets[i]!.lnP);
     const p0 = Math.exp(tt.lnMid);
-    const imp = marginalImpact(s, i, tt[side], q * p0);
+    const before = tallyToday(s.assets[i]!.dayMidTraded, tallyDay(s))[side];
+    const imp = marginalImpact(s, i, before, q * p0);
     return { price: fillPrice(p0, side, halfSpread(s, i) + imp), p0 };
   };
 

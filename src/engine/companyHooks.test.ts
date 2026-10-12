@@ -61,7 +61,9 @@ const atDay = (s: WorldState, d: number) => run(s, d * TPD - s.tick);
  * The digest of a state. `streetCash` (O-3, the Street's running tally on an ordinary stock's fills) was added after these
  * digests were taken: it is bookkeeping, not dynamics, so it is dropped here and the digests still pin everything else.
  */
-const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x, (k, v) => (k === 'streetCash' ? undefined : v))).digest('hex');
+// dayMidTraded is the R-9-1 per-day tally of player fills at mid (an optional field written by the first fill of a day): the digest
+// leaves it out, so the pin still covers prices, cash and positions, which R-9-1 does not move for this one-order-a-day world.
+const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x, (k, v) => (k === 'streetCash' || k === 'dayMidTraded' ? undefined : v))).digest('hex');
 /**
  * The Street tally on every account, pinned on its own (O-3 review): the digests above drop it, so this is what catches a
  * regression in the Street side of a fill or a settlement.

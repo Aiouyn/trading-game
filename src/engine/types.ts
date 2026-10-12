@@ -336,6 +336,13 @@ export interface AssetState {
    */
   tickTraded?: TickTraded;
   /**
+   * Notional at each fill's pre-trade mid that PLAYER fills have taken TODAY on this asset, per side (R-9-1, Phase 9
+   * rulings). Temporary impact is charged on this running day total by the marginal of C(n) = n · impact(n), so a day of
+   * clips costs what one order of the same total costs, whichever tick the clips land in. Pools and the close are not in
+   * it. Absent, or stamped with an earlier day = nothing filled yet today.
+   */
+  dayMidTraded?: DayTraded;
+  /**
    * Alt-peak mark guard (config.markGuard): after a day (or a rolling 5 days) of one-sided crowd flow, peak / rank /
    * licence marks value longs at min(mid, anchor) (dir 1, buy pump) or shorts at max(mid, anchor) (dir −1, dump),
    * anchor = the close before the flow began. Live through untilDay. Absent when no guard is on.
