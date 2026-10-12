@@ -12,6 +12,10 @@ const SECONDS = Number(process.argv[4] ?? 30);
 const ws = base.replace(/^http/, 'ws');
 
 const t0 = Date.now();
+// connect ramp: RAMP=batch/ms (default 200/250) opens the sockets in waves of `batch`, `ms` apart. An instant burst of N connects
+// overflows the server's accept queue and the surplus is refused (ECONNREFUSED), the 253-client failure of V1-PHASE4 O-19 and the
+// 2,890-of-4,000 run of V1-PHASE9 9C. RAMP=0/0 turns the ramp off (the old burst).
+const [RAMP_BATCH, RAMP_MS] = (process.env.RAMP ?? '200/250').split('/').map(Number);
 const tokens = [];
 for (let i = 0; i < N; i += 50) {
   const batch = await Promise.all(Array.from({ length: Math.min(50, N - i) }, (_, k) => fetch(`${base}/api/register`, {
@@ -30,8 +34,9 @@ let closes = 0;
 let stopping = false;
 const closeCodes = {};
 const sockets = [];
+console.log(RAMP_BATCH > 0 ? `connect ramp ${RAMP_BATCH} per ${RAMP_MS} ms` : 'connect ramp off (one burst)');
 for (const [i, token] of tokens.entries()) {
-  if (i % 200 === 0 && i) await new Promise((r) => setTimeout(r, 100)); // a login wave, not one instant
+  if (RAMP_BATCH > 0 && i && i % RAMP_BATCH === 0) await new Promise((r) => setTimeout(r, RAMP_MS)); // a login wave, not one instant
   sockets[i] = open(token, i);
 }
 function open(token, i, attempt = 0) {
@@ -61,11 +66,21 @@ function open(token, i, attempt = 0) {
     closes++;
     closeCodes[e.code] = (closeCodes[e.code] ?? 0) + 1;
     // like the real client: reconnect with backoff when the connection drops before the welcome
-    if (!got && attempt < 6 && !stopping) setTimeout(() => { sockets[i] = open(token, i, attempt + 1); }, 500 * 2 ** attempt);
+    // as src/net/client.ts: reconnect until the welcome, backoff 500 ms doubling, capped at 15 s
+    if (!got && !stopping) setTimeout(() => { sockets[i] = open(token, i, attempt + 1); }, Math.min(15_000, 500 * 2 ** attempt));
   };
   return s;
 }
 
+// the measured window starts once every client has welcomed (at most 240 s), so the tick numbers describe the full population
+// and not the clients still in backoff
+const settleStart = Date.now();
+while (welcomed < N && Date.now() - settleStart < 240_000) await new Promise((r) => setTimeout(r, 250));
+console.log(`settled after ${((Date.now() - settleStart) / 1000).toFixed(1)} s: welcomed ${welcomed} of ${N}`);
+// the window's own counters: the settle period (clients still in backoff) is not part of the tick numbers
+arrivals.clear();
+bytes = 0;
+ticks = 0;
 const start = Date.now();
 await new Promise((r) => setTimeout(r, SECONDS * 1000));
 const secs = (Date.now() - start) / 1000;
