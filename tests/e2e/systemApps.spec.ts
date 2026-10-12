@@ -53,7 +53,7 @@ test('the Research Desk is locked below Operator, then opens with an empty Files
   const handle = await register(page);
   await skipTips(page);
   await expect(page.getByTestId('shelf-app-research')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByTestId('shelf-app-research')).toHaveAttribute('aria-label', /opens at Operator/);
+  await expect(page.getByTestId('shelf-app-research')).toHaveAttribute('aria-label', /opens at Operator/i);
   await grant(handle, 8_000_000);
   await skipRankUp(page);
   await goTo(page, 'research');
@@ -64,11 +64,11 @@ test('the Research Desk is locked below Operator, then opens with an empty Files
   await expect(page.getByTestId('research-locked')).toHaveCount(0);
 });
 
-test('Company has no tile before Owner, and the founding flow from Owner', async ({ page }) => {
+test('Company is a locked tile before Owner, and the founding flow from Owner', async ({ page }) => {
   test.skip(isPhone(page), 'the desktop shelf shows the tile; the phone grid is checked in phone.spec');
   const handle = await register(page);
   await skipTips(page);
-  await expect(page.getByTestId('shelf-app-company')).toHaveCount(0);
+  await expect(page.getByTestId('shelf-app-company')).toHaveAttribute('aria-disabled', 'true');
   await grant(handle, 8_000_000);
   await skipRankUp(page);
   await goTo(page, 'company');

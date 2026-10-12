@@ -429,16 +429,61 @@ export function SpendReview({ testId, label, title, rows, confirmLabel, onConfir
  * The compact header of an empire app (Stage 4): no serif hero title (the window title names the app), one intro line
  * and a strip of labelled figures on one row.
  */
+/** True under `maxWidth` pixels (the phone). Read after mount, so the first paint is the desktop layout and the phone one follows. */
+export function useNarrow(maxWidth = 599): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia(`(max-width: ${maxWidth}px)`);
+    const on = () => setNarrow(mq.matches);
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, [maxWidth]);
+  return narrow;
+}
+
+/**
+ * An app's intro and figures. On a phone (under 600 px) they move into an info sheet behind one row, so the tabs and the
+ * content start near the top of the screen (UX stage 6, item 7). The children (the app's own actions) stay in view.
+ */
 export function StatStrip({ intro, items, testId, children }: {
   intro?: ReactNode; items: { label: ReactNode; value: ReactNode; sub?: ReactNode; testId?: string }[]; testId?: string; children?: ReactNode;
 }) {
+  const narrow = useNarrow();
+  const [sheet, setSheet] = useState(false);
+  const figures = (actions?: ReactNode) => (
+    <div className="grid grid-cols-2 gap-x-6 gap-y-2 @md:flex @md:flex-wrap @md:items-end">
+      {items.map((it, i) => <Stat key={i} label={it.label} value={it.value} sub={it.sub} testId={it.testId} figure className="@md:min-w-[7rem]" />)}
+      {actions}
+    </div>
+  );
+  if (narrow) {
+    return (
+      <Card className="flex items-center gap-2 px-3 py-2" data-testid={testId}>
+        <button type="button" onClick={() => setSheet(true)} className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left text-small text-fg-muted" data-testid={testId ? `${testId}-info` : undefined}>
+          <span className="truncate">{t('common.infoOpen')}</span>
+          <span aria-hidden className="num h-6 w-6 shrink-0 rounded-full border border-ink-3 text-center leading-6 text-fg-faint">i</span>
+        </button>
+        {children && <div className="flex shrink-0 items-center gap-2">{children}</div>}
+        {sheet ? (
+          <Modal open onClose={() => setSheet(false)} title={t('common.info')} testId={testId ? `${testId}-sheet` : undefined}>
+            <div className="flex flex-col gap-4">
+              {intro && <div className="text-small text-fg-muted">{intro}</div>}
+              {figures()}
+            </div>
+          </Modal>
+        ) : (
+          // closed, the figures stay in the page (hidden), so a reader of the screen and the tests still find each figure
+          <div hidden>{figures()}</div>
+        )}
+      </Card>
+    );
+  }
   return (
     <Card className="p-3" data-testid={testId}>
-      {intro && <p className="mb-2 max-w-3xl text-caption text-fg-muted">{intro}</p>}
-      <div className="grid grid-cols-2 gap-x-6 gap-y-2 @md:flex @md:flex-wrap @md:items-end">
-        {items.map((it, i) => <Stat key={i} label={it.label} value={it.value} sub={it.sub} testId={it.testId} figure className="@md:min-w-[7rem]" />)}
-        {children && <div className="col-span-2 ml-auto @md:col-auto">{children}</div>}
-      </div>
+      {intro && <div className="mb-2 max-w-3xl text-caption text-fg-muted">{intro}</div>}
+      {figures(children && <div className="col-span-2 ml-auto @md:col-auto">{children}</div>)}
     </Card>
   );
 }
@@ -456,8 +501,9 @@ export function Locked({ what, need, progress }: { what: ReactNode; need: ReactN
 }
 
 export function Tabs<T extends string>({ tabs, value, onChange, className = '', wrap = false }: { tabs: { id: T; label: string; badge?: number }[]; value: T; onChange: (t: T) => void; className?: string; wrap?: boolean }) {
-  // wrap: the tabs break onto a second row instead of scrolling (a horizontal scroll with no cue hid the last label on a phone)
-  return (
+  // wrap: the tabs break onto a second row instead of scrolling (a horizontal scroll with no cue hid the last label on a phone).
+  // A scrolling row sticks to the top of a phone screen while the content scrolls, and fades at its right edge to say there is more (UX stage 6, item 7).
+  const row = (
     <div role="tablist" className={`flex gap-1 border-b border-ink-2 ${wrap ? 'flex-wrap' : 'overflow-x-auto'} ${className}`}>
       {tabs.map((t) => {
         const on = t.id === value;
@@ -476,6 +522,13 @@ export function Tabs<T extends string>({ tabs, value, onChange, className = '', 
           </button>
         );
       })}
+    </div>
+  );
+  if (wrap) return row;
+  return (
+    <div className="relative max-md:sticky max-md:top-0 max-md:z-10 max-md:bg-ink-0">
+      {row}
+      <span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-8 md:hidden" style={{ background: 'linear-gradient(to left, var(--color-ink-0), transparent)' }} />
     </div>
   );
 }

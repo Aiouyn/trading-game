@@ -39,7 +39,7 @@ export interface AppDef {
   views: readonly string[];
   /** Rank that unlocks the app. null means open from the start. */
   minRank: RankId | null;
-  /** No tile before unlock (Company, V:96). Otherwise the tile is drawn locked. */
+  /** Hides the tile before unlock. Every app that sets it is drawn locked instead (none does since UX stage 6). */
   hideWhenLocked: boolean;
   /** false until the phase that ships the app (C-38): no tile, a deep link shows "Coming later". */
   available: boolean;
@@ -87,7 +87,8 @@ export const APPS: Readonly<Record<AppId, AppDef>> = {
   calendar: app('calendar', 350, 300),
   messages: app('messages', 350, 300, { views: ['inbox', 'chat', 'social'] }),
   businesses: app('businesses', 350, 300),
-  company: app('company', 350, 300, { views: ['overview', 'products', 'rd', 'people', 'deals', 'capital', 'public'], minRank: 'R2', hideWhenLocked: true }),
+  // Company shows a locked tile with its rank and peak net worth (UX stage 6, item 11), like the AI Lab and Security.
+  company: app('company', 350, 300, { views: ['overview', 'products', 'rd', 'people', 'deals', 'capital', 'public'], minRank: 'R2', hideWhenLocked: false }),
   boutique: app('boutique', 350, 300),
   ailab: app('ailab', 350, 300, { minRank: 'R2', pref: { w: 0.5, h: 0.7 } }),
   security: app('security', 350, 300, { minRank: 'R3' }),

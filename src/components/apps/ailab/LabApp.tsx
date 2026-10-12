@@ -27,14 +27,25 @@ export function LabApp() {
     <div className="flex flex-col gap-4" data-testid="lab-view">
       <StatStrip
         testId="lab-stats"
-        intro={t('lab.intro')}
+        // The header leads with what the lab does; the formula sits in its own disclosure, and each unit has a tooltip.
+        intro={(
+          <>
+            <span>{t('lab.intro')}</span>
+            <details className="mt-1" data-testid="lab-score">
+              <summary className="cursor-pointer text-fg-muted hover:text-fg">{t('lab.score.title')}</summary>
+              <p className="num mt-1 text-fg-faint">{t('lab.score.formula')}</p>
+            </details>
+          </>
+        )}
         items={[
-          { label: t('lab.stat.algorithm'), value: `×${(lab?.a ?? 1).toFixed(2)}` },
-          { label: t('lab.stat.compute'), value: t('lab.stat.computeValue', { n: (lab?.pflopPerDay ?? 0).toFixed(1) }) },
-          { label: t('lab.stat.data'), value: t('lab.stat.dataValue', { n: qty(Math.round(lab?.data ?? 0)) }), sub: lab && lab.dataSynth > 0 ? t('lab.stat.synthetic', { pct: pct(lab.dataSynth) }) : undefined },
-          { label: t('lab.stat.spot'), value: t('lab.stat.spotValue', { n: (lab?.spotPrice ?? 1.2).toFixed(2) }) },
+          { label: <span title={t('lab.stat.algorithmTip')}>{t('lab.stat.algorithm')}</span>, value: `×${(lab?.a ?? 1).toFixed(2)}` },
+          { label: <span title={t('lab.stat.computeTip')}>{t('lab.stat.compute')}</span>, value: t('lab.stat.computeValue', { n: (lab?.pflopPerDay ?? 0).toFixed(1) }) },
+          { label: <span title={t('lab.stat.dataTip')}>{t('lab.stat.data')}</span>, value: t('lab.stat.dataValue', { n: qty(Math.round(lab?.data ?? 0)) }), sub: lab && lab.dataSynth > 0 ? t('lab.stat.synthetic', { pct: pct(lab.dataSynth) }) : undefined },
+          { label: <span title={t('lab.stat.spotTip')}>{t('lab.stat.spot')}</span>, value: t('lab.stat.spotValue', { n: (lab?.spotPrice ?? 1.2).toFixed(2) }) },
         ]}
       />
+      {/* the progress card is drawn only while a run or a study is under way: an empty card read as a gap (UX stage 6, item 10) */}
+      {(lab?.researching || lab?.training) && (
       <Card className="p-4">
         {lab?.researching && (
           <div className="mt-4">
@@ -48,6 +59,7 @@ export function LabApp() {
           </div>
         )}
       </Card>
+      )}
       <Stepper steps={[
         { id: 'research', label: t('lab.tab.research'), done: (lab?.a ?? 1) > 1 },
         { id: 'compute', label: t('lab.tab.compute'), done: (lab?.pflopPerDay ?? 0) > 0 || (lab?.data ?? 0) > 0 },
@@ -69,7 +81,7 @@ export function LabApp() {
       {tab === 'compute' && <Compute />}
       {tab === 'train' && <Train />}
       {tab === 'models' && <Models onTrain={() => setTab('train')} />}
-      {tab === 'bots' && <Bots />}
+      {tab === 'bots' && <Bots onTrain={() => setTab('train')} />}
       <TournamentCard />
     </div>
   );

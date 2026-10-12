@@ -36,8 +36,8 @@ test.describe('dock', () => {
     if ((await locked.count()) > 0) {
       const id = (await locked.getAttribute('data-testid'))!.replace('shelf-app-', '');
       await locked.hover();
-      // the rank is the code and its name, e.g. "R2 Owner"
-      await expect(page.getByTestId(`shelf-tip-${id}`)).toHaveText(/\bR[1-6] \S+/);
+      // the tip says what opens the tile: its rank and the peak net worth it needs (UX stage 6, item 11)
+      await expect(page.getByTestId(`shelf-tip-${id}`)).toHaveText(/Opens at \S+.*peak net worth/);
     }
   });
 });

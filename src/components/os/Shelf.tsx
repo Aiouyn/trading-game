@@ -2,9 +2,9 @@
 
 // Shelf (P2-053..P2-055, P2-047, 52 px): app tiles in three groups (UX stage 6, item 15): Pinned (Broker, Portfolio,
 // Wire, Messages), Apps (the rest, in shelf order) and Tools (the Trade layout button and its menu, focus mode). Hovering
-// or focusing a tile shows its name in a label; a locked tile names the rank that unlocks it ("R2 Owner"). Locked apps are
-// drawn disabled with the unlock tip; Company has no tile until it unlocks (C-11). The shelf is a toolbar: the arrow keys
-// move between its buttons (V:261).
+// or focusing a tile shows its name in a label; a locked tile says what opens it, its rank and the peak net worth it needs
+// (UX stage 6, item 11), in the label and in the tile's title. Locked apps are drawn disabled with that unlock tip; Company
+// is drawn locked like the AI Lab. The shelf is a toolbar: the arrow keys move between its buttons (V:261).
 import { type KeyboardEvent } from 'react';
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
@@ -13,6 +13,7 @@ import { BP_FULL } from '@/shell/geometry';
 import { focusedId, isFocused } from '@/shell/wm';
 import { APP_GLYPH } from './appMap';
 import { Glyph } from './glyphs';
+import { unlockLine } from '../apps/unlock';
 import { LayoutMenu } from './LayoutMenu';
 import { applyNamedLayout, dispatchWm, openApp, useLayoutMenu, useShell } from './shellStore';
 
@@ -22,6 +23,7 @@ const PINNED: readonly AppId[] = ['broker', 'portfolio', 'wire', 'messages'];
 export function Shelf() {
   const shell = useShell((s) => s.shell);
   const ctx = useShell((s) => s.ctx);
+  const peak = useGame((s) => s.me?.player.netWorthPeak ?? 0);
   const selected = useGame((s) => s.selected);
   const menuOpen = useLayoutMenu((s) => s.open);
   const focus = focusedId(shell);
@@ -47,9 +49,8 @@ export function Shelf() {
     const def = APPS[a];
     const name = t(def.titleKey);
     const locked = !ctx.unlocked(a);
-    // a locked tile names the rank that unlocks it, with its code and name ("R2 Owner")
-    const rank = def.minRank ?? 'R0';
-    const tip = locked ? t('shell.locked.tip', { app: name, rank: `${rank} ${t(`rank.${rank}`)}` }) : name;
+    // A locked tile says what opens it: its rank and the peak net worth it needs (UX stage 6, item 11).
+    const tip = locked ? `${name}. ${unlockLine(def.minRank ?? 'R0', peak).text}` : name;
     const cls = ['os-tile', running.has(a) ? 'run' : '', activeApp === a ? 'on' : '', locked ? 'locked' : '']
       .filter(Boolean)
       .join(' ');
@@ -61,6 +62,7 @@ export function Shelf() {
         data-testid={`shelf-app-${a}`}
         aria-label={tip}
         aria-disabled={locked || undefined}
+        title={tip}
         onClick={() => {
           if (locked) return;
           openApp(a, a === 'broker' ? { ticker: selected } : {}, { focus: true });

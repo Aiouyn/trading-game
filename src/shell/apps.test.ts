@@ -60,9 +60,9 @@ describe('app registry', () => {
     expect(secondWindowReady('wire')).toBe(false);
   });
 
-  it('keeps unlock ranks as data, Company hidden until R2 and Research at R3', () => {
+  it('keeps unlock ranks as data, Company locked until R2 and Research at R3', () => {
     expect(APPS.company.minRank).toBe('R2');
-    expect(APPS.company.hideWhenLocked).toBe(true);
+    expect(APPS.company.hideWhenLocked).toBe(false);
     expect(APPS.research.minRank).toBe('R3');
     expect(APPS.research.hideWhenLocked).toBe(false);
     expect(APPS.broker.minRank).toBeNull();

@@ -40,15 +40,17 @@ export function TradeBar({ ticker, onReview }: { ticker: string; onReview: () =>
   return (
     <div className="flex items-center gap-2" data-testid="trade-bar">
       <Segmented
-        label={t('broker.side')} size="sm" value={side}
+        className="shrink-0" label={t('broker.side')} size="sm" value={side}
         onChange={(v) => write(v as Side, q)}
         options={[{ value: 'buy', label: t('common.buy'), testId: 'bar-side-buy' }, { value: 'sell', label: t('common.sell'), testId: 'bar-side-sell' }]}
       />
       <NumberField
-        value={q} onChange={(v) => write(side, v)} suffix={def?.assetClass === 'stock' ? t('broker.unit.shares') : t('broker.unit.units')}
-        step={def?.assetClass === 'stock' ? 1 : 'any'} testId="bar-qty" className="h-9 min-w-0 flex-1 px-2" label={t('broker.quantity')}
+        value={q} onChange={(v) => write(side, v)}
+        step={def?.assetClass === 'stock' ? 1 : 'any'} testId="bar-qty" className="h-9 min-w-[4.5rem] flex-1 px-2"
       />
-      <Button variant="brass" size="md" className="min-w-0 shrink-0" disabled={!(n > 0) || !est} onClick={onReview} testId="bar-review">
+      {/* no unit suffix and no field label in the bar: the input keeps its room, and the Review label truncates before it squeezes
+          the input out (French labels are longer). The unit is in the sheet and in the summary. */}
+      <Button variant="brass" size="md" className="min-w-0 max-w-[42%] shrink" disabled={!(n > 0) || !est} onClick={onReview} testId="bar-review">
         <span className="truncate">{n > 0 && est ? t('broker.bar.review', { verb, qty: fmtQty(n), total: money(total) }) : t('broker.bar.enter')}</span>
       </Button>
     </div>

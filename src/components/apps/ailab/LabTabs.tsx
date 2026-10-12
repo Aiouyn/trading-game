@@ -168,11 +168,11 @@ export function Train() {
           <label className="flex items-center gap-2 text-small text-fg-muted"><input type="checkbox" checked={careful} onChange={(e) => setCareful(e.target.checked)} /> {t('lab.train.careful')}</label>
         </div>
         <div className="rounded-md border border-ink-3 p-3 text-small">
-          <div className="flex justify-between gap-2"><span className="text-fg-muted">{t('lab.train.compute')}</span><span className="num">{t('lab.train.pf', { n: qty(Math.round(pflop)) })}</span></div>
-          <div className="flex justify-between gap-2"><span className="text-fg-muted">{t('lab.train.data')}</span><span className="num">{t('lab.train.dqu', { n: qty(Math.round(dqu)) })}</span></div>
+          <div className="flex justify-between gap-2"><span className="text-fg-muted" title={t('lab.train.pfTip')}>{t('lab.train.compute')}</span><span className="num" title={t('lab.train.pfTip')}>{t('lab.train.pf', { n: qty(Math.round(pflop)) })}</span></div>
+          <div className="flex justify-between gap-2"><span className="text-fg-muted" title={t('lab.train.dquTip')}>{t('lab.train.data')}</span><span className="num" title={t('lab.train.dquTip')}>{t('lab.train.dqu', { n: qty(Math.round(dqu)) })}</span></div>
           <div className="flex justify-between gap-2"><span className="text-fg-muted">{t('lab.train.duration')}</span><span className="num">{t('lab.train.days', { x: days.toFixed(1) })}</span></div>
           <div className="flex justify-between gap-2"><span className="text-fg-muted">{t('lab.train.failure')}</span><span className="num text-warn">{pct(fail)}</span></div>
-          <div className="mt-2 flex justify-between gap-2 border-t border-ink-2 pt-2"><span className="font-semibold">{t('lab.train.expected')}</span><span className="num font-semibold text-brass-hi">{expected.toFixed(0)} · {tier.name}</span></div>
+          <div className="mt-2 flex justify-between gap-2 border-t border-ink-2 pt-2"><span className="font-semibold" title={t('lab.train.mcsTip')}>{t('lab.train.expected')}</span><span className="num font-semibold text-brass-hi">{expected.toFixed(0)} · {tier.name}</span></div>
           {dqu < pflop * 0.5 && <p className="mt-2 text-caption text-warn">{t('lab.train.starved')}</p>}
         </div>
       </div>
@@ -202,7 +202,7 @@ export function Models({ onTrain }: { onTrain: () => void }) {
   );
 }
 
-export function Bots() {
+export function Bots({ onTrain }: { onTrain: () => void }) {
   const me = useGame((s) => s.me)!;
   const config = useGame((s) => s.config);
   const act = useGame((s) => s.act);
@@ -219,6 +219,7 @@ export function Bots() {
         <p className="mt-1 text-small text-fg-muted">{t('lab.bot.sub')}</p>
         <div className="mt-3 flex flex-col gap-2">
           <Select label={t('lab.bot.model')} value={modelId} onChange={setModel} options={trading.length ? trading.map((m) => ({ value: m.id, label: t('lab.bot.modelLine', { name: m.name, mcs: m.mcs.toFixed(0) }) })) : [{ value: '', label: t('lab.bot.needModel') }]} />
+          {!trading.length && <Button size="sm" variant="outline" className="self-start" onClick={onTrain} testId="lab-bot-to-train">{t('lab.bot.goTrain')}</Button>}
           <Select label={t('lab.bot.strategy')} value={strategy} onChange={setStrategy} options={STRATEGIES.map((s) => ({ value: s, label: t(`lab.strategy.${s}`) }))} />
           <TextField value={assets} onChange={setAssets} placeholder={t('lab.bot.tickers')} />
           <NumberField label={t('lab.bot.allocation')} value={alloc} onChange={setAlloc} suffix={t('lab.bot.allocSuffix')} />
@@ -233,7 +234,12 @@ export function Bots() {
         </Card>
         <Card>
           <CardHeader title={t('lab.bots.title')} />
-          {(me.lab?.bots ?? []).length === 0 ? <p className="px-4 pb-6 text-small text-fg-faint">{t('lab.bots.none')}</p> : (
+          {(me.lab?.bots ?? []).length === 0 ? (
+            <div className="flex flex-col items-start gap-2 px-4 pb-6" data-testid="lab-bots-empty">
+              <p className="text-small text-fg-faint">{t('lab.bots.none')}</p>
+              <Button size="sm" variant="outline" onClick={onTrain} testId="lab-bots-to-train">{t('lab.bots.toTrain')}</Button>
+            </div>
+          ) : (
             <ul>
               {me.lab!.bots.map((b) => (
                 <li key={b.id} className="flex flex-wrap items-center gap-3 border-t border-ink-2 px-4 py-3 text-small">
