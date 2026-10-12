@@ -44,12 +44,13 @@ test.describe('stage 6 ticket and toasts', () => {
 test.describe('stage 6 terminal at 1280 x 720', () => {
   test.use({ viewport: { width: 1280, height: 720 } });
 
-  test('@s6_short_screen the dock starts at 140 px with a grip, the chart keeps 45% of the body, and the ticket summary is on screen (weakness 12)', async ({ page }) => {
+  test('@s6_short_screen the dock starts at its least (two notices, 220 px) with a grip, the chart keeps 45% of the body, and the ticket summary is on screen (weakness 12)', async ({ page }) => {
     onlyIn('desktop');
     await boot(page);
     const dock = await rect(page, 'terminal-dock');
     const chart = await rect(page, 'terminal-chart');
-    expect(Math.abs(dock.h - 140)).toBeLessThanOrEqual(2);
+    // the dock is DOCK_NOTICE_H: two notices and the "more" row fit over a maximized Broker (toastPlace)
+    expect(Math.abs(dock.h - 220)).toBeLessThanOrEqual(2);
     expect(chart.h / (chart.h + dock.h)).toBeGreaterThanOrEqual(0.45);
     await expect(page.getByTestId('dock-grip')).toBeVisible();
     const cash = await rect(page, 'order-cash-after');

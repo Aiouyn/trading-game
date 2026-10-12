@@ -1,7 +1,7 @@
 'use client';
 
 // Toasts (P2-085..P2-095, V:137-143): under the strip at the top right, or the top left when a Broker
-// sits under the column (P2-088). At most three are drawn, the oldest leaving first. The store owns the
+// sits under the column (P2-088). At most two are drawn (TOAST_MAX), the oldest leaving first. The store owns the
 // hold timers (src/shell/holds.ts), so each notice expires on time even when it is queued behind others.
 // A pointer or keyboard focus on a toast pauses its hold (P2-086). Warnings and margin calls stay until
 // read (P2-090). A click opens the window the notice is about and dismisses it. In focus mode the
@@ -25,10 +25,9 @@ export function OsToasts({ focusMode, place, phone = false }: { focusMode: boole
   // On the phone the trade sheet covers the bar the banner sits above, so notices wait (in the bell) while it is open.
   const sheetOpen = useGame((s) => s.tradeSheetOpen);
   const held = phone && sheetOpen;
-  // A column in a Broker's dock (a maximized Broker, toastPlace) shows one notice at a time, as the phone does: the dock is short,
-  // and the rest wait in turn (the count opens the notification center).
-  const single = phone || place.side === 'at';
-  const shown = held ? [] : visibleToasts(toasts, focusMode).slice(0, single ? 1 : undefined);
+  // The phone draws one notice at a time (P2-095). The desktop column draws two, in the corner or in a maximized Broker's dock
+  // (the dock is sized for two, TerminalLayout); the rest wait behind the count, which opens the notification center.
+  const shown = held ? [] : visibleToasts(toasts, focusMode).slice(0, phone ? 1 : undefined);
   // Notices past the drawn ones are not lost: the count opens the notification center behind the bell (UX 3).
   const queued = (focusMode ? toasts.filter(allowedInFocus) : toasts).length;
   const more = held ? 0 : queued - shown.length;

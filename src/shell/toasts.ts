@@ -10,7 +10,7 @@ import { SHELF_H, type Rect, type Size } from './geometry';
 
 /** At most two notices draw at once (UX stage 6, weakness 3): a third would cover the positions table or the watchlist. */
 export const TOAST_MAX = 2;
-/** The queue keeps this many notices, so a long run of sticky warnings cannot grow without bound. Only three draw. */
+/** The queue keeps this many notices, so a long run of sticky warnings cannot grow without bound. Only TOAST_MAX draw. */
 export const TOAST_QUEUE_MAX = 12;
 export const TOAST_HOLD_MS = 4000;
 /** Column geometry from V:143: 332 px wide, 14 px from the right, 10 px under the strip. */
@@ -20,11 +20,17 @@ export const TOAST_EDGE = 14;
 export const TOAST_BOTTOM = 12;
 /** Height a toast takes in the column, used only to decide whether it covers a Broker. */
 export const TOAST_ROW_H = 96;
+/** The gap between the column's rows (tokens.css --os-toast-gap). */
+export const TOAST_GAP = 10;
+/** The tallest notice (a label and two lines of text), and the "more" row under the notices (os.css .os-toast-more). */
+export const NOTICE_MAX_H = 80;
+export const MORE_ROW_H = 28;
 /**
- * The least a Broker's dock may be, so one notice over a maximized Broker fits inside the dock and never over its plot: the
- * largest notice (a label and two lines, 80 px), the "more" row (28 px) and the gaps. TerminalLayout clamps its dock to it.
+ * The least a Broker's dock may be, so the notices over a maximized Broker fit inside its dock and never reach its plot: two
+ * tallest notices, a gap under each row (the second notice and the "more" row) and the column's bottom inset. TerminalLayout
+ * clamps its dock to it, and starts a short screen's dock at it.
  */
-export const DOCK_NOTICE_H = 80 + 8 + 28 + TOAST_BOTTOM;
+export const DOCK_NOTICE_H = TOAST_MAX * NOTICE_MAX_H + TOAST_MAX * TOAST_GAP + MORE_ROW_H + TOAST_BOTTOM;
 
 export type ToastKind = 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'pending' | 'other';
 export type ToastTone = 'gain' | 'loss' | 'warn' | 'info' | 'brass';
@@ -79,9 +85,9 @@ export type ToastPlace = { side: 'right' } | { side: 'at'; left: number; bottom:
 
 /**
  * The column's place (P2-088, UX stage 6). The default is the bottom-right corner above the shelf. When the focused Broker sits
- * under that corner, the column moves into the Broker's dock, at its bottom-right and clear of the ticket, and it shows one notice
- * at a time (OsToasts). The plot is never covered, so no notice sits over a draggable level (a stop-loss or take-profit pill) or
- * a price line; the dock (at least DOCK_NOTICE_H tall, TerminalLayout) holds the column. A Broker too narrow for a clear chart
+ * under that corner, the column moves into the Broker's dock, at its bottom-right and clear of the ticket, and it shows the same
+ * two notices as the corner (OsToasts). The plot is never covered, so no notice sits over a draggable level (a stop-loss or
+ * take-profit pill) or a price line; the dock (at least DOCK_NOTICE_H tall, TerminalLayout) holds the column. A Broker too narrow for a clear chart
  * keeps the corner. Rects are relative to the work area, which starts below the strip.
  */
 export function toastPlace(vp: Size, broker: Rect | null, stripH: number, shelfH: number = SHELF_H, watchlistOpenW = 1100): ToastPlace {

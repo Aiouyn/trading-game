@@ -126,10 +126,19 @@ test.describe('tiling, side panels and toasts (stage 2)', () => {
     for (let i = 1; i <= 5; i++) {
       await page.evaluate((n) => window.__tg!.state().toast({ tone: 'info', text: `notice ${n}` }), i);
     }
-    // two notices draw at once (UX stage 6), so three of the five wait behind the count
+    // Two notices draw at once, in the corner and in a maximized Broker's dock alike (UX stage 6), so three of the five wait behind
+    // the count. A notice lasts TOAST_HOLD_MS (4 s), so these checks run at once, before the holds lapse.
     await expect(page.getByTestId('os-toast-more')).toHaveText(/\+3/);
     await expect(page.locator('[data-testid^="os-toast-"][data-tone]')).toHaveCount(2);
+    await expect(page.locator('[data-testid^="os-toast-"][data-tone]').first()).toBeVisible();
     const col = await page.getByTestId('os-toasts').boundingBox();
+    // Over a maximized Broker the column is in its dock (an inline left sets the place): the notices stay between the dock's edges.
+    const inDock = ((await page.getByTestId('os-toasts').getAttribute('style')) ?? '').includes('left:');
+    const dockBox = inDock ? await page.getByTestId('terminal-dock').boundingBox() : null;
+    if (col !== null && dockBox !== null) {
+      expect(col.y, 'toast column top above the dock').toBeGreaterThanOrEqual(dockBox.y - 1);
+      expect(col.y + col.height, 'toast column bottom below the dock').toBeLessThanOrEqual(dockBox.y + dockBox.height + 1);
+    }
     // The ticket column exists on the desktop only; below 900 px the trade bar holds the Buy button.
     const submit = (await page.getByTestId('order-submit').count()) > 0 ? await page.getByTestId('order-submit').boundingBox() : null;
     if (col !== null && submit !== null) {

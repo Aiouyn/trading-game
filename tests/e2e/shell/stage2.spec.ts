@@ -33,7 +33,7 @@ test.describe('the trade surface is never blocked (stage 2)', () => {
       await page.setViewportSize({ width: w, height: h });
       watchErrors(page);
       await boot(page);
-      // notices draw over the desk: two at once, or one at a time when a maximized Broker's dock holds the column (UX stage 6)
+      // notices draw over the desk: two at once, in the corner or in a maximized Broker's dock (UX stage 6)
       await pushToasts(page, 2);
       const col = page.getByTestId('os-toasts');
       await expect(page.locator('[data-testid^="os-toast-"][data-tone]').first()).toBeVisible();
