@@ -256,8 +256,6 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
         </Card>
       </div>
 
-      <StressPanel />
-
       <LuckCard />
 
       <ClosesCard />
@@ -291,7 +289,11 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
           </div>
         )}
       </Card>
-      <p className="text-center text-caption text-fg-faint">{t('portfolio.universe', { count: config.assets.filter((a) => a.listed !== false).length, worth: compactMoney(b.total) })}</p>
+
+      {/* The stress test comes last (UX stage 6, item 5): net worth and its chart, then the positions, then the rest. */}
+      <StressPanel />
+
+      <p className="text-center text-caption text-fg-faint">{t('portfolio.universe',{ count: config.assets.filter((a) => a.listed !== false).length, worth: compactMoney(b.total) })}</p>
     </div>
   );
 }
