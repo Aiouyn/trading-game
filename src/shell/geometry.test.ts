@@ -150,7 +150,7 @@ describe('min-size checks and nearest slot', () => {
     expect(fitsMin(APPS.portfolio, slotRect('R3B', VP_1920, false))).toBe(true);
   });
 
-  it('refuses the Portfolio in a third at 1200 (331 px < 400), and fits the Broker in a half at 1000', () => {
+  it('refuses the Portfolio in a third at 1200 (331 px < 350), and fits the Broker in a half at 1000', () => {
     expect(fitsMin(APPS.portfolio, slotRect('R3', { w: 1200, h: 800 }, false))).toBe(false);
     expect(fitsMin(APPS.broker, slotRect('L2', VP_1000, false))).toBe(true);
   });

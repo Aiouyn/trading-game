@@ -391,7 +391,7 @@ describe('snap', () => {
     refused(s, { type: 'snap', id: 'broker-1', slot: 'R3' }, 'too-small');
   });
 
-  it('refuses a Portfolio third below its 400 px minimum (a 1200 wide side column is 331 px) and allows Broker and Wire halves', () => {
+  it('refuses a Portfolio third below its 350 px minimum (a 1200 wide side column is 331 px) and allows Broker and Wire halves', () => {
     const s = go(fresh({ w: 1200, h: 800 }), { type: 'open', app: 'portfolio' });
     refused(s, { type: 'snap', id: 'portfolio', slot: 'R3' }, 'too-small');
     const ok = go(fresh(VP_1000), { type: 'open', app: 'portfolio' });

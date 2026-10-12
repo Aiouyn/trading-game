@@ -62,18 +62,18 @@ test.describe('window rules', () => {
     await page.mouse.move(grip.x - 900, grip.y - 900, { steps: 12 });
     await page.mouse.up();
     const r = await box(page, 'portfolio');
-    // Portfolio: 400 x 220 (apps.ts). The drag asks for far less, so the window stops at its minimum.
-    expect(r.w).toBeGreaterThanOrEqual(399);
+    // Portfolio: 350 x 220 (apps.ts). The drag asks for far less, so the window stops at its minimum.
+    expect(r.w).toBeGreaterThanOrEqual(349);
     expect(r.h).toBeGreaterThanOrEqual(219);
   });
 
-  test('@snap_halves under 1000 px a half that is at least the app minimum is taken: Portfolio (400 px) and Wire snap to the right half', async ({ page }) => {
+  test('@snap_halves under 1000 px a half that is at least the app minimum is taken: Portfolio and Wire snap to the right half', async ({ page }) => {
     onlyIn('desktop-1000');
     const vp = viewport(page);
     await boot(page);
     await page.getByTestId('shelf-app-portfolio').click();
     await settle(page);
-    // A right half is 488 px at 1000 wide, above Portfolio's 400 px minimum (UX stage 6): the snap is taken.
+    // A right half is 488 px at 1000 wide, above Portfolio's 350 px minimum (UX stage 6): the snap is taken.
     await dispatchKey(page, { code: 'ArrowRight', key: 'ArrowRight', ctrl: true, shift: true });
     await settle(page);
     expectRect(await box(page, 'portfolio'), slotBox('R2', vp));
