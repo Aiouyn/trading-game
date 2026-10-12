@@ -56,6 +56,22 @@ describe('the daily close card (D-7)', () => {
     }
   });
 
+  it('the card equals the ledger to the cent on each of 30 game days of one seeded run (tape-acceptance M07 unit: 30 days)', { timeout: 180_000 }, () => {
+    const g = joined('close-sweep');
+    cmd(g, 'u1', { type: 'order.place', order: { assetId: 'HLCN', side: 'buy', type: 'market', qty: 3 } });
+    runTo(g, 31 * TPD);
+    const days = g.ledgers!.u1!.days;
+    let checked = 0;
+    for (let d = 1; d <= 30; d++) {
+      const card = dayClose(g, 'u1', d);
+      if (!card) continue;
+      checked++;
+      expect(Math.abs(card.nwClose - days[d]!.nw), `day ${d} close`).toBeLessThan(0.005);
+      expect(card.nwChange, `day ${d} change`).toBeCloseTo(days[d]!.nw - days[d - 1]!.nw, 9);
+    }
+    expect(checked, 'days with a card').toBe(30);
+  });
+
   it('best and worst positions use the quantity held at the open and the day price change', { timeout: 60_000 }, () => {
     const g = joined('close-best');
     // bought in day 1, so the day-1 close records the position and day 2 has it at the open
