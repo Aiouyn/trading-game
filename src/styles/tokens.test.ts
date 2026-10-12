@@ -115,6 +115,7 @@ describe('every var(--x) in src resolves', () => {
     '--font-jetbrains-mono',
     '--ring-length', // set inline by TickRing (ui.tsx)
     '--os-origin', // set per window by WindowFrame (the open animation origin)
+    '--phone-trade-h', // set on the root by TerminalLayout (the height of the phone trade bar; os-phone.css reads it)
   ]);
 
   it('finds only declared tokens or known runtime variables', () => {
