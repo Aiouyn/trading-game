@@ -47,14 +47,14 @@ describe('toast rules (P2-085..P2-090)', () => {
     expect(isSticky({ tone: 'gain', kind: 'fill' })).toBe(false);
   });
 
-  it('the column stays bottom-right, and when a maximized Broker covers it, sits over its chart above the dock (UX stage 6)', () => {
+  it('the column stays bottom-right, and when a maximized Broker covers it, moves into the dock beside the ticket (UX stage 6)', () => {
     const vp = { w: 1440, h: 900 };
     expect(toastPlace(vp, null, 34)).toEqual({ side: 'right' });
     // A Broker in the left two-thirds does not reach the column.
     expect(toastPlace(vp, { x: 8, y: 8, w: 940, h: 700 }, 34)).toEqual({ side: 'right' });
-    // A maximized Broker covers the corner: the column moves to the chart's bottom-right, clear of the ticket (344 px) and above
-    // the dock (220 px): left = right edge - 344 - 14 - 332, bottom = viewport bottom - dock top + 12.
-    expect(toastPlace(vp, { x: 8, y: 8, w: 1424, h: 840 }, 34)).toEqual({ side: 'at', left: 742, bottom: 250 });
+    // A maximized Broker covers the corner: the column moves into its dock, clear of the ticket (344 px): left = right edge - 344 -
+    // 14 - 332, bottom = viewport bottom - window bottom + 12. The plot above the dock is never covered.
+    expect(toastPlace(vp, { x: 8, y: 8, w: 1424, h: 840 }, 34)).toEqual({ side: 'at', left: 742, bottom: 30 });
     // A Broker too narrow for a clear chart keeps the corner (its watchlist and ticket leave no room).
     expect(toastPlace(vp, { x: 900, y: 8, w: 520, h: 700 }, 34)).toEqual({ side: 'right' });
     // A window that ends above the column does not cover it.

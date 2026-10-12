@@ -2,13 +2,18 @@
 
 import { type KeyboardEvent, type PointerEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
+import { DOCK_NOTICE_H } from '@/shell/toasts';
 
 /** The dock's height at the start, and the least it may shrink to (spec 1.1: resizable, default 220 px). */
 export const DOCK_DEFAULT = 220;
 /** Below this window height the dock starts shorter, so the chart keeps its room (UX stage 6, weakness 12: 1280 x 720). */
 export const DOCK_SHORT_H = 800;
 export const DOCK_SHORT = 140;
-const DOCK_MIN = 120;
+/**
+ * The least the dock may be. A notice over a maximized Broker sits in the dock (toastPlace), so the dock keeps the room one
+ * notice needs: it never shrinks to where the notice would reach the chart's plot (the level pills are draggable there).
+ */
+const DOCK_MIN = DOCK_NOTICE_H;
 /** The chart keeps at least this much height when the dock grows. */
 const CHART_MIN = 180;
 /** The chart keeps at least this share of the body's height (UX stage 6): the dock takes at most the rest. */

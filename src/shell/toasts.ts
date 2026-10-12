@@ -17,8 +17,14 @@ export const TOAST_HOLD_MS = 4000;
 export const TOAST_W = 332;
 export const TOAST_EDGE = 14;
 /** The column sits this far above the shelf (UX 3: bottom-right, above the dock). */
-export const TOAST_BOTTOM = 12;/** Height a toast takes in the column, used only to decide whether it covers a Broker. */
+export const TOAST_BOTTOM = 12;
+/** Height a toast takes in the column, used only to decide whether it covers a Broker. */
 export const TOAST_ROW_H = 96;
+/**
+ * The least a Broker's dock may be, so one notice over a maximized Broker fits inside the dock and never over its plot: the
+ * largest notice (a label and two lines, 80 px), the "more" row (28 px) and the gaps. TerminalLayout clamps its dock to it.
+ */
+export const DOCK_NOTICE_H = 80 + 8 + 28 + TOAST_BOTTOM;
 
 export type ToastKind = 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'pending' | 'other';
 export type ToastTone = 'gain' | 'loss' | 'warn' | 'info' | 'brass';
@@ -65,18 +71,18 @@ export function withoutPending<T extends Pick<ShellToast, 'kind' | 'ref'>>(list:
   return list.filter((t) => !(t.kind === 'pending' && t.ref !== undefined && filled.has(t.ref)));
 }
 
-/** The Broker's ticket column (TerminalLayout: w-[344px]) and the dock height a Broker starts with (DOCK_DEFAULT). */
+/** The Broker's ticket column (TerminalLayout: w-[344px]). */
 export const BROKER_TICKET_W = 344;
-export const BROKER_DOCK_H = 220;
 
 /** Where the toast column sits: the default corner (`right`), or a point in the viewport (`at`, left and bottom in px). */
 export type ToastPlace = { side: 'right' } | { side: 'at'; left: number; bottom: number };
 
 /**
  * The column's place (P2-088, UX stage 6). The default is the bottom-right corner above the shelf. When the focused Broker sits
- * under that corner, the column moves to the chart's bottom-right, just above the Broker's dock and clear of its ticket: a
- * toast then never covers the watchlist, the positions table or the ticket. A Broker too narrow for a clear chart keeps the
- * corner. Rects are relative to the work area, which starts below the strip.
+ * under that corner, the column moves into the Broker's dock, at its bottom-right and clear of the ticket, and it shows one notice
+ * at a time (OsToasts). The plot is never covered, so no notice sits over a draggable level (a stop-loss or take-profit pill) or
+ * a price line; the dock (at least DOCK_NOTICE_H tall, TerminalLayout) holds the column. A Broker too narrow for a clear chart
+ * keeps the corner. Rects are relative to the work area, which starts below the strip.
  */
 export function toastPlace(vp: Size, broker: Rect | null, stripH: number, shelfH: number = SHELF_H, watchlistOpenW = 1100): ToastPlace {
   if (broker === null) return { side: 'right' };
@@ -94,6 +100,6 @@ export function toastPlace(vp: Size, broker: Rect | null, stripH: number, shelfH
   const left = bx1 - BROKER_TICKET_W - TOAST_EDGE - TOAST_W;
   const chartLeft = bx0 + (broker.w >= watchlistOpenW ? 256 : 32) + TOAST_EDGE;
   if (left < chartLeft) return { side: 'right' };
-  const dockTop = by1 - BROKER_DOCK_H;
-  return { side: 'at', left, bottom: vp.h - dockTop + TOAST_BOTTOM };
+  // The dock is the Broker's bottom band: the column sits TOAST_BOTTOM above the window's bottom edge, inside the dock.
+  return { side: 'at', left, bottom: vp.h - by1 + TOAST_BOTTOM };
 }

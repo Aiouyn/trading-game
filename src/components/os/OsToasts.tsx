@@ -25,7 +25,10 @@ export function OsToasts({ focusMode, place, phone = false }: { focusMode: boole
   // On the phone the trade sheet covers the bar the banner sits above, so notices wait (in the bell) while it is open.
   const sheetOpen = useGame((s) => s.tradeSheetOpen);
   const held = phone && sheetOpen;
-  const shown = held ? [] : visibleToasts(toasts, focusMode).slice(0, phone ? 1 : undefined);
+  // A column in a Broker's dock (a maximized Broker, toastPlace) shows one notice at a time, as the phone does: the dock is short,
+  // and the rest wait in turn (the count opens the notification center).
+  const single = phone || place.side === 'at';
+  const shown = held ? [] : visibleToasts(toasts, focusMode).slice(0, single ? 1 : undefined);
   // Notices past the drawn ones are not lost: the count opens the notification center behind the bell (UX 3).
   const queued = (focusMode ? toasts.filter(allowedInFocus) : toasts).length;
   const more = held ? 0 : queued - shown.length;
