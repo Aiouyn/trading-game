@@ -6,7 +6,7 @@
  * in the bell. A warning and a margin warning stay until they are read (P2-090).
  */
 
-import { SHELF_H, type Rect, type Size } from './geometry';
+import { BROKER_TERMINAL_W, SHELF_H, type Rect, type Size } from './geometry';
 
 /** At most two notices draw at once (UX stage 6, weakness 3): a third would cover the positions table or the watchlist. */
 export const TOAST_MAX = 2;
@@ -79,16 +79,30 @@ export function withoutPending<T extends Pick<ShellToast, 'kind' | 'ref'>>(list:
 
 /** The Broker's ticket column (TerminalLayout: w-[344px]). */
 export const BROKER_TICKET_W = 344;
+/** The narrow banner's inset from the Broker's left and right edges (the phone banner's 12 px side gutter). */
+export const TOAST_BAR_INSET = 12;
+/** The gap between the narrow banner and the trade bar's top edge (the phone banner's 6 px). */
+export const TOAST_BAR_GAP = 6;
 
-/** Where the toast column sits: the default corner (`right`), or a point in the viewport (`at`, left and bottom in px). */
-export type ToastPlace = { side: 'right' } | { side: 'at'; left: number; bottom: number };
+/**
+ * Where the toast column sits. `right`: the default bottom-right corner. `at`: a point in a terminal Broker's dock (left and bottom
+ * in px). `bar`: a narrow Broker's trade bar (UX stage 6, narrow notices): one slim notice above the bar, spanning the Broker's
+ * width. `left` and `right` are its insets; `bottom` is the gap above the Broker's bottom edge, to which the bar's height is added
+ * in CSS (--phone-trade-h, published by TerminalNarrow).
+ */
+export type ToastPlace =
+  | { side: 'right' }
+  | { side: 'at'; left: number; bottom: number }
+  | { side: 'bar'; left: number; right: number; bottom: number };
 
 /**
  * The column's place (P2-088, UX stage 6). The default is the bottom-right corner above the shelf. When the focused Broker sits
- * under that corner, the column moves into the Broker's dock, at its bottom-right and clear of the ticket, and it shows the same
- * two notices as the corner (OsToasts). The plot is never covered, so no notice sits over a draggable level (a stop-loss or
- * take-profit pill) or a price line; the dock (at least DOCK_NOTICE_H tall, TerminalLayout) holds the column. A Broker too narrow for a clear chart
- * keeps the corner. Rects are relative to the work area, which starts below the strip.
+ * under that corner, the column moves: a terminal Broker (TerminalLayout, 900 px and wider) takes the column into its dock, at its
+ * bottom-right and clear of the ticket, with the same two notices as the corner (OsToasts). The plot is never covered, so no
+ * notice sits over a draggable level (a stop-loss or take-profit pill) or a price line; the dock (at least DOCK_NOTICE_H tall,
+ * TerminalLayout) holds the column. A narrow Broker (under 900 px, its trade bar at the foot) takes one slim notice above that bar,
+ * so the bar is never covered (the phone's banner rule). A terminal Broker too narrow for a clear chart keeps the corner.
+ * Rects are relative to the work area, which starts below the strip.
  */
 export function toastPlace(vp: Size, broker: Rect | null, stripH: number, shelfH: number = SHELF_H, watchlistOpenW = 1100): ToastPlace {
   if (broker === null) return { side: 'right' };
@@ -102,6 +116,10 @@ export function toastPlace(vp: Size, broker: Rect | null, stripH: number, shelfH
   const by1 = by0 + broker.h;
   const hit = bx0 < colX1 && bx1 > colX0 && by0 < colY1 && by1 > colY0;
   if (!hit) return { side: 'right' };
+  // A narrow Broker has no dock: its trade bar holds the notices (one at a time, above the bar, never over it).
+  if (broker.w < BROKER_TERMINAL_W) {
+    return { side: 'bar', left: bx0 + TOAST_BAR_INSET, right: vp.w - bx1 + TOAST_BAR_INSET, bottom: vp.h - by1 + TOAST_BAR_GAP };
+  }
   // The chart's right edge is the ticket's left edge; the chart's left edge is the watchlist (open) or its rail.
   const left = bx1 - BROKER_TICKET_W - TOAST_EDGE - TOAST_W;
   const chartLeft = bx0 + (broker.w >= watchlistOpenW ? 256 : 32) + TOAST_EDGE;

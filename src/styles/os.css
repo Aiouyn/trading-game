@@ -246,6 +246,8 @@
     position: fixed; bottom: calc(var(--os-shelf-h) + 12px); right: 14px; z-index: 6;
     display: flex; flex-direction: column; gap: var(--os-toast-gap); width: var(--os-toast-w); pointer-events: none;
   }
+  /* A narrow Broker's banner (toastPlace 'bar'): one slim notice, no gap, as on the phone (os-phone.css). Its place is inline. */
+  .os-root .os-toasts.bar { gap: 0; }
   .os-root .os-toast-more {
     pointer-events: auto; align-self: flex-end; height: 28px; padding: 0 10px; border-radius: var(--radius-sm);
     background: var(--os-window-bg); border: 1px solid var(--os-window-border); color: var(--color-fg-muted);

@@ -55,8 +55,13 @@ describe('toast rules (P2-085..P2-090)', () => {
     // A maximized Broker covers the corner: the column moves into its dock, clear of the ticket (344 px): left = right edge - 344 -
     // 14 - 332, bottom = viewport bottom - window bottom + 12. The plot above the dock is never covered.
     expect(toastPlace(vp, { x: 8, y: 8, w: 1424, h: 840 }, 34)).toEqual({ side: 'at', left: 742, bottom: 30 });
-    // A Broker too narrow for a clear chart keeps the corner (its watchlist and ticket leave no room).
-    expect(toastPlace(vp, { x: 900, y: 8, w: 520, h: 700 }, 34)).toEqual({ side: 'right' });
+    // A narrow Broker (under 900 px) has no dock: under the corner its one slim notice sits above the trade bar, inset 12 px from
+    // the Broker's edges and 6 px above the bar (the bar's height is added in CSS). Here: left = 900 + 12, right = 1440 - 1420 + 12.
+    expect(toastPlace(vp, { x: 900, y: 8, w: 520, h: 700 }, 34)).toEqual({ side: 'bar', left: 912, right: 32, bottom: 164 });
+    // The right half of a 1440 x 900 desk, with the Broker's bottom at 882: the notice sits 24 px up.
+    expect(toastPlace(vp, { x: 730, y: 8, w: 702, h: 840 }, 34)).toEqual({ side: 'bar', left: 742, right: 20, bottom: 24 });
+    // A narrow Broker that the corner does not reach keeps the corner.
+    expect(toastPlace(vp, { x: 8, y: 8, w: 500, h: 700 }, 34)).toEqual({ side: 'right' });
     // A window that ends above the column does not cover it.
     expect(toastPlace(vp, { x: 900, y: 8, w: 520, h: 400 }, 34)).toEqual({ side: 'right' });
   });

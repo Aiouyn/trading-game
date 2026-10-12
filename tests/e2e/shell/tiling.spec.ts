@@ -127,10 +127,18 @@ test.describe('tiling, side panels and toasts (stage 2)', () => {
       await page.evaluate((n) => window.__tg!.state().toast({ tone: 'info', text: `notice ${n}` }), i);
     }
     // Two notices draw at once, in the corner and in a maximized Broker's dock alike (UX stage 6), so three of the five wait behind
-    // the count. A notice lasts TOAST_HOLD_MS (4 s), so these checks run at once, before the holds lapse.
-    await expect(page.getByTestId('os-toast-more')).toHaveText(/\+3/);
-    await expect(page.locator('[data-testid^="os-toast-"][data-tone]')).toHaveCount(2);
+    // the count. A notice lasts TOAST_HOLD_MS (4 s), so these checks run at once, before the holds lapse. A narrow Broker under the
+    // corner (desktop-900 boots with one) takes the banner instead: one notice, above its trade bar (toastPlace 'bar').
+    const banner = await page.getByTestId('os-toasts').evaluate((el) => el.classList.contains('bar'));
+    await expect(page.getByTestId('os-toast-more')).toHaveText(banner ? /\+4/ : /\+3/);
+    await expect(page.locator('[data-testid^="os-toast-"][data-tone]')).toHaveCount(banner ? 1 : 2);
     await expect(page.locator('[data-testid^="os-toast-"][data-tone]').first()).toBeVisible();
+    if (banner) {
+      const bar = await page.locator('.os-win.active').getByTestId('trade-bar-slot').boundingBox();
+      const note = await page.getByTestId('os-toasts').boundingBox();
+      if (bar === null || note === null) throw new Error('no box for the banner or the trade bar');
+      expect(note.y + note.height, 'the banner ends above the trade bar').toBeLessThanOrEqual(bar.y + 1);
+    }
     const col = await page.getByTestId('os-toasts').boundingBox();
     // Over a maximized terminal Broker the column is in its dock (an inline left sets the place): the notices stay between the
     // dock's edges. A narrow Broker (under 900 px, no terminal ticket) has its dock above the trade bar, so the check is the terminal's.
@@ -149,6 +157,32 @@ test.describe('tiling, side panels and toasts (stage 2)', () => {
     }
     await page.getByTestId('os-toast-more').click();
     await expect(page.getByTestId('bell-panel')).toBeVisible();
+  });
+
+  test('@toast_corner narrow Broker: one notice, above its trade bar and never over it', async ({ page }) => {
+    onlyIn('desktop', 'desktop-900');
+    watchErrors(page);
+    await boot(page);
+    // Two Brokers tile into halves on the desk, so the focused right one is narrow (under 900 px) and the corner reaches it; on
+    // 900 px one Broker fills the width and is narrow too. The notices are the narrow banner: one at a time, above the trade bar.
+    await newBroker(page);
+    await newBroker(page);
+    await settle(page);
+    const win = page.locator('.os-win.active[data-testid^="win-broker"]');
+    await expect(win).toHaveCount(1);
+    await expect(win.getByTestId('trade-bar-slot')).toBeVisible();
+    for (let i = 1; i <= 5; i++) {
+      await page.evaluate((n) => window.__tg!.state().toast({ tone: 'info', text: `narrow notice ${n}` }), i);
+    }
+    await expect(page.getByTestId('os-toast-more')).toHaveText(/\+4/);
+    await expect(page.locator('[data-testid^="os-toast-"][data-tone]')).toHaveCount(1);
+    const col = await page.getByTestId('os-toasts').boundingBox();
+    const slot = await win.getByTestId('trade-bar-slot').boundingBox();
+    const winBox = await win.boundingBox();
+    if (col === null || slot === null || winBox === null) throw new Error('no box for the narrow banner, trade bar or window');
+    expect(col.y + col.height, 'the banner ends above the trade bar').toBeLessThanOrEqual(slot.y + 1);
+    expect(col.x, 'the banner starts inside the Broker').toBeGreaterThanOrEqual(winBox.x);
+    expect(col.x + col.width, 'the banner ends inside the Broker').toBeLessThanOrEqual(winBox.x + winBox.width);
   });
 
   test('@bell_panel the bell opens the notification center and closes again', async ({ page }) => {

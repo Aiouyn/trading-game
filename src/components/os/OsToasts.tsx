@@ -7,7 +7,7 @@
 // read (P2-090). A click opens the window the notice is about and dismisses it. In focus mode the
 // notices it hides are removed from the queue, so they wait in the bell instead of coming back when focus
 // mode ends (P2-069). Fills and world events are announced at once (P2-094).
-import { type PointerEvent, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type PointerEvent, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
 import { isAppId } from '@/shell/apps';
@@ -24,10 +24,13 @@ export function OsToasts({ focusMode, place, phone = false }: { focusMode: boole
   // On the phone one notice at a time drops from the status bar (P2-095).
   // On the phone the trade sheet covers the bar the banner sits above, so notices wait (in the bell) while it is open.
   const sheetOpen = useGame((s) => s.tradeSheetOpen);
-  const held = phone && sheetOpen;
-  // The phone draws one notice at a time (P2-095). The desktop column draws two, in the corner or in a maximized Broker's dock
-  // (the dock is sized for two, TerminalLayout); the rest wait behind the count, which opens the notification center.
-  const shown = held ? [] : visibleToasts(toasts, focusMode).slice(0, phone ? 1 : undefined);
+  // A narrow Broker's notice is the same banner, above its trade bar (toastPlace 'bar'): one at a time, held while its sheet is open.
+  const bar = place.side === 'bar';
+  const banner = phone || bar;
+  const held = banner && sheetOpen;
+  // The phone and a narrow Broker draw one notice at a time (P2-095). The desktop column draws two, in the corner or in a maximized
+  // Broker's dock (the dock is sized for two, TerminalLayout); the rest wait behind the count, which opens the notification center.
+  const shown = held ? [] : visibleToasts(toasts, focusMode).slice(0, banner ? 1 : undefined);
   // Notices past the drawn ones are not lost: the count opens the notification center behind the bell (UX 3).
   const queued = (focusMode ? toasts.filter(allowedInFocus) : toasts).length;
   const more = held ? 0 : queued - shown.length;
@@ -39,14 +42,20 @@ export function OsToasts({ focusMode, place, phone = false }: { focusMode: boole
     if (hidden.length > 0) dismissMany(hidden);
   }, [focusMode, toasts, dismissMany]);
 
+  // The column's inline place: a terminal dock (`at`), or a narrow Broker's bar (`bar`). The bar adds the trade bar's height (--phone-trade-h).
+  const style: CSSProperties | undefined = phone ? undefined
+    : place.side === 'at' ? { left: place.left, bottom: place.bottom, right: 'auto' }
+    : place.side === 'bar' ? { left: place.left, right: place.right, width: 'auto', bottom: `calc(${place.bottom}px + var(--phone-trade-h, 0px))` }
+    : undefined;
+
   return (
     <div
-      className={`os-toasts${phone ? ' phone' : ''}`}
-      style={!phone && place.side === 'at' ? { left: place.left, bottom: place.bottom, right: 'auto' } : undefined}
+      className={`os-toasts${phone ? ' phone' : ''}${bar ? ' bar' : ''}`}
+      style={style}
       aria-live="polite" data-testid="os-toasts"
     >
       {shown.map((x, i) => (
-        <OsToast key={x.id} toast={x} n={i + 1} phone={phone} />
+        <OsToast key={x.id} toast={x} n={i + 1} phone={phone} slim={banner} />
       ))}
       {more > 0 && (
         <button
@@ -62,7 +71,7 @@ export function OsToasts({ focusMode, place, phone = false }: { focusMode: boole
   );
 }
 
-function OsToast({ toast, n, phone }: { toast: ShellToast; n: number; phone: boolean }) {
+function OsToast({ toast, n, phone, slim }: { toast: ShellToast; n: number; phone: boolean; slim: boolean }) {
   const dismiss = useGame((s) => s.dismissToast);
   const pause = useGame((s) => s.pauseToast);
   const resume = useGame((s) => s.resumeToast);
@@ -144,7 +153,7 @@ function OsToast({ toast, n, phone }: { toast: ShellToast; n: number; phone: boo
   return (
     <button
       type="button"
-      className={`os-toast text-left${phone ? ' slim' : ''}`}
+      className={`os-toast text-left${slim ? ' slim' : ''}`}
       style={phone && dx !== 0 ? { transform: `translateX(${dx}px)`, opacity: Math.max(0.3, 1 - Math.abs(dx) / 160) } : undefined}
       data-testid={`os-toast-${n}`}
       data-tone={toast.tone}
