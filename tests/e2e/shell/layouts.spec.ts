@@ -119,14 +119,14 @@ test.describe('named layouts', () => {
     await expect(page.getByTestId('os-launcher')).toHaveCount(0);
   });
 
-  test('@layouts Trade at 1440 leaves the Broker on the left half, Wire top right and Portfolio bottom right', async ({ page }) => {
+  test('@layouts Trade at 1440 is thirds: the Broker left, Wire top right and Portfolio bottom right, in the 400 px side column (UX stage 6)', async ({ page }) => {
     onlyIn('desktop');
     await boot(page);
     const vp = viewport(page);
     await page.getByTestId('shelf-layout').click();
     await settle(page);
-    // 1440 is below the thirds width for Portfolio, so the halves variant holds: the left half and two quarters.
-    expectRect(await box(page, 'broker-1'), placedBox('L2', vp));
-    expect(await windowIds(page)).toEqual(expect.arrayContaining(['broker-1', 'wire', 'portfolio']));
+    expectRect(await box(page, 'broker-1'), placedBox('L23', vp));
+    expectRect(await box(page, 'wire'), placedBox('R3T', vp));
+    expectRect(await box(page, 'portfolio'), placedBox('R3B', vp));
   });
 });

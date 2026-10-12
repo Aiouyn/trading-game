@@ -119,15 +119,16 @@ test.describe('tiling, side panels and toasts (stage 2)', () => {
     expectRect(await box(page, 'broker-2'), slotBox('R2', vp));
   });
 
-  test('@toast_corner toasts stay off the ticket, show at most three, and the overflow opens the bell', async ({ page }) => {
+  test('@toast_corner toasts stay off the ticket, show at most two, and the overflow opens the bell', async ({ page }) => {
     onlyIn(...DESKTOPS);
     watchErrors(page);
     await boot(page);
     for (let i = 1; i <= 5; i++) {
       await page.evaluate((n) => window.__tg!.state().toast({ tone: 'info', text: `notice ${n}` }), i);
     }
-    await expect(page.getByTestId('os-toast-more')).toHaveText(/\+2/);
-    await expect(page.locator('[data-testid^="os-toast-"][data-tone]')).toHaveCount(3);
+    // two notices draw at once (UX stage 6), so three of the five wait behind the count
+    await expect(page.getByTestId('os-toast-more')).toHaveText(/\+3/);
+    await expect(page.locator('[data-testid^="os-toast-"][data-tone]')).toHaveCount(2);
     const col = await page.getByTestId('os-toasts').boundingBox();
     // The ticket column exists on the desktop only; below 900 px the trade bar holds the Buy button.
     const submit = (await page.getByTestId('order-submit').count()) > 0 ? await page.getByTestId('order-submit').boundingBox() : null;
