@@ -217,7 +217,10 @@ export function updateContracts(g: GameState, p: Player, out: StepOutput | null)
     const { value, target } = contractProgress(g, p, c.defId);
     if (value >= target) {
       c.done = true;
-      notify(g, out, p.id, { kind: 'contract', tone: 'brass', text: `Contract done: ${c.text}. Claim $${c.reward.toLocaleString('en-US')}.` });
+      notify(g, out, p.id, {
+        kind: 'contract', tone: 'brass', text: `Contract done: ${c.text}. Claim $${c.reward.toLocaleString('en-US')}.`,
+        msg: { key: 'inbox.contract', vars: { text: `@contract.text.${c.defId}`, reward: `#n:${c.reward},0,0` } },
+      });
     }
   }
 }

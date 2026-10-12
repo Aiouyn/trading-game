@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import en from './en.json';
 import fr from './fr.json';
+import { ENGINE_FR } from './engineFr';
 
 /**
  * Translations (ROADMAP M03). Every user-facing string goes through t(key, vars).
@@ -87,10 +88,18 @@ export function t(key: string, vars?: Record<string, MsgVar>): string {
   return translate(current, key, vars);
 }
 
+/**
+ * An engine sentence (a refusal toast, a notice without a message key) in the current locale: French when the table has it
+ * (engineFr.ts), otherwise the English the world sent. Never a raw key.
+ */
+export function engineText(s: string): string {
+  return current === 'fr' ? (ENGINE_FR[s] ?? s) : s;
+}
+
 /** Render a server-made message descriptor (or plain legacy text). */
 export function tm(m: Msg | string | undefined, fallback = ''): string {
-  if (!m) return fallback;
-  if (typeof m === 'string') return m;
+  if (!m) return engineText(fallback);
+  if (typeof m === 'string') return engineText(m);
   return t(m.key, m.vars);
 }
 

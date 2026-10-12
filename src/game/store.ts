@@ -6,7 +6,7 @@ import { createHolds } from '@/shell/holds';
 import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky } from '@/shell/toasts';
 import { universeConfig, type DepthFrame, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
-import { tm } from '@/i18n';
+import { engineText, tm } from '@/i18n';
 import type { HistoryPayload, NwHistoryPayload, ServerMsg, TextOverlayMap, VisitPayload } from '@/net/protocol';
 import type { LpPage } from '@/world/launchpad/view';
 import { mirrorWorld, type DirectoryRow, type MarketFrame, type PlayerView, type PublicState } from '@/world/view';
@@ -408,11 +408,11 @@ export const useGame = create<GameStore>((set, get) => {
       const refused = delistedRefusal(get().config, cmd);
       if (refused) {
         const r = { ok: false, error: refused };
-        if (!opts?.silent) get().toast({ tone: 'loss', text: r.error });
+        if (!opts?.silent) get().toast({ tone: 'loss', text: engineText(r.error ?? '') });
         return r;
       }
       const r = await client.command(cmd);
-      if (!r.ok && !opts?.silent) get().toast({ tone: 'loss', text: capitalize(r.error ?? 'That did not work') });
+      if (!r.ok && !opts?.silent) get().toast({ tone: 'loss', text: capitalize(engineText(r.error ?? 'That did not work')) });
       if (r.ok && opts?.success) get().toast({ tone: 'gain', text: opts.success });
       return r;
     },
