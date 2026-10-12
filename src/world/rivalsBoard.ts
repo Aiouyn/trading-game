@@ -1,4 +1,5 @@
 import { RIVAL_HIST_DAYS, rivalEquity } from '@/engine';
+import { rankBasisOf } from './social';
 import type { GameState } from './types';
 
 /**
@@ -52,7 +53,7 @@ export function rivalsBoard(g: GameState, pid: string, startCash: number): Rival
   const defs = g.market.config.rivals ?? [];
   const books = g.market.ecology?.rivals ?? [];
   if (!p || defs.length === 0 || books.length === 0) return null;
-  const you = p.netWorth;
+  const you = rankBasisOf(g, p); // R-9-4: the rivals board ranks on the rank basis, as every board does
   const base = p.rivalBase ?? {};
   const rows: RivalRowView[] = [];
   const chart: RivalsBoardView['chart'] = {};

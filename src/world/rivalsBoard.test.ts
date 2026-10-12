@@ -19,6 +19,7 @@ function run(g: GameState, n: number) {
 /** Sets the player's net worth (test helper: the board reads the stored figure). */
 function setWorth(g: GameState, pid: string, amount: number) {
   g.players[pid]!.netWorth = amount;
+  g.players[pid]!.markNetWorth = amount; // the rank basis reads the mark (R-9-4), which the game refreshes with the raw value
 
 }
 
@@ -54,6 +55,7 @@ describe('the Rivals board (velvet-rivals-board.md)', () => {
     // a player just under the top rival: the next-up chip is that rival, and the gap is the difference
     const top = low.rows[0]!;
     g.players.u1!.netWorth = top.equity - 1240;
+    g.players.u1!.markNetWorth = top.equity - 1240;
     const mid = rivalsBoard(g, 'u1', 5000)!;
     expect(mid.you.rank).toBe(1 + mid.rows.filter((r) => r.equity > mid.you.netWorth).length);
     expect(mid.you.rank).toBeGreaterThan(1);
@@ -66,6 +68,7 @@ describe('the Rivals board (velvet-rivals-board.md)', () => {
     const g = game('rank');
     run(g, 1);
     g.players.u1!.netWorth = 1e12;
+    g.players.u1!.markNetWorth = 1e12;
     const b = rivalsBoard(g, 'u1', 5000)!;
     expect(b.you.rank).toBe(1);
     // unique ranks: a rival sits under the rivals above it in the sort, and under the player when the player is above it
