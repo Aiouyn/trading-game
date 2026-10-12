@@ -177,9 +177,83 @@ Rank-time table, **Partial**: days to first reach each rank (game days, p10, p50
 | managed | 5 of 20: 79, 89, 114 | censored (0 of 20) | censored (0 of 20) | censored (0 of 20) |
 | excellent | 13 of 20: 52, 74, 107 | censored (0 of 20) | censored (0 of 20) | censored (0 of 20) |
 
-Reading: within 120 game days, the greedy wealth bot reaches R1 in most seeds only with the excellent style, and no seed reaches R2 ($250k). R2 to R4 are censored, not measured. **The 365-day table is not built.** The spec's table is 20 seeds in four styles, 80 runs; a 120-day run took about ten minutes per seed with three runs in parallel on this shared machine, so 365 days is roughly 13 hours of wall time here. That is the next step for Ledger, with the same seeds.
+Reading: within 120 game days, the greedy wealth bot reaches R1 in most seeds only with the excellent style, and no seed reaches R2 ($250k). R2 to R4 are censored, not measured. **The 365-day table is not built here (the 365-day curves are in 9B.4a).** The spec's table is 20 seeds in four styles, 80 runs; a 120-day run took about ten minutes per seed with three runs in parallel on this shared machine, so 365 days is roughly 13 hours of wall time here. That is the next step for Ledger, with the same seeds.
 
 Raw per-seed rows: the scratchpad `p9/wealth/` folder. The per-seed rows are the `out-<style>-<k>.json` files, one object per seed. The `<style>.jsonl` files are concurrent appends from the parallel runs, and their lines are interleaved (5 bad lines in `neglected`). `summarize.cjs` reads both, skips a line it cannot parse (counts it as bad) and keeps one row per seed. The table reproduces from the `out-*.json` rows alone (R1 days and percentiles match). The earlier claim of one JSON line per seed was wrong and is withdrawn.
+
+#### 9B.4a Wealth curve at 365 days (track p9/e)
+
+**The VM run that opened this track** (lead, 365 game days, 20 seeds x 4 styles, `bot wealth-K 365 <style>`, before any change
+here). Net worth at day 365, p50 over the seeds, and the rank reached by the seeds:
+
+| Style | Net worth p50, day 365 | Rank reached | Shape |
+|---|---|---|---|
+| average | $70.8k | R1 20/20 at p50 day 137 | steady growth |
+| managed | $40.7k | | |
+| excellent | $6.5k | R1 14/20 | wealth-1 peaks $13.2k near day 88 to 168, then $0.8k by day 328 (valued income 46) |
+| neglected | -$7.4k | | wealth-1 falls from $6.1k (day 88) to -$6.0k (day 328), income 0 |
+
+Against the locked payback (about 10 game days well run, 7 to 8 excellent, 20 to 30 neglected), excellent was not the best style
+and neglected was ruinous. Raw rows: the scratchpad `p9/` folder (`trace-*-1.jsonl`, `census-*.jsonl`, `v2-*.jsonl`).
+
+**Diagnosis** (per-day trace, `bot ... --trace`, and the NPC census, `census wealth-1 365`; numbers in
+`scratchpad/p9/NOTES-wealth.md`):
+
+- The bot put its four tier-1 shops into Avalon, three of them in one city-sector pool, `avalon:compute` (the densest pool, and
+  the neglected bot had all four there). Its site rule scored income per dollar only, with the city fixed to `CITIES[0]`, and
+  the ties went to the same definition. The pool held 12 NPC shops at day 50 and 20 by day 330 (NPC shops are bought and never sold; their location levels rise from
+  mean 0.24 at day 30 to 1.27 at day 364, and location adds 0.2 logit per level). The share of each bot shop fell from 0.14 to 0.03,
+  and demand from 0.82 to 0.59 at the same price, which is the share-factor floor (0.35) in all but name.
+- Excellent's cost stack (crew 1.25 held by the 3-star autopilot, quality 3, marketing 2, the manager, maintenance) is about 1.24
+  x the target a day. Revenue at the crowded share is about 1.75 x demand, so excellent breaks even at demand 0.71 and was at
+  0.55 to 0.65. Costs ran on: 869 a day against 650 to 900 of income from day 90, cash +$8.9k at day 120 and -$8.0k at day 364.
+  The bot never reacted, and it never sold a shop.
+- Neglected sat on the same floor, its condition fell to 0 by day 150 (revenue halved below 50), and its cash went to -$12.4k. Its
+  check-in every 24 game days restarts the offline window, so its average offline rate is about 0.54, not the 0.25 floor.
+
+**Which rule is the culprit.** The bot. The world rules are right and are unchanged: the logit share dilutes each shop by the
+pool's mass (a shop among 20 competitors earns a small share, which is what the probe's `rivals` column measures); the
+costs are obligations paid whatever the revenue, as property upkeep is (`propertyDay`), and the overdraft is a notice; the
+offline ramp is S4, locked. A real owner in that pool would lose money too; the bot had no site rule that priced the
+competition and no exit, so it sat in the worst pool for a year. The NPC census is a world question for the lead, not
+changed here: NPC shops keep their location levels and their pool mass, and the 40-day probe (S6) sees about half of the
+densest pool's day-330 mass.
+
+**Fix (commit `e95d107`, bot only, no world rule changed).** `scripts/balance/wealth-rules.ts`:
+- `siteScore`: a candidate scores its income per dollar times the share factor it would earn in its pool, given every
+  business already there (the world's formula, `shareFactorFor`). `buyGreedy` picks the best score over the unlocked cities.
+- `shouldExit` (14 game days of negative net, summed): a checked-in owner sells that shop (`biz.sell`), then sets the
+  style's levers. The sale is the owner's choice on the books, so every style makes it.
+- The crew setting gets the shop's own demand (`setupFor(style, id, demand)`); the 3-star autopilot still holds the crew floor.
+- Regression test: `scripts/balance/wealth-rules.test.ts` (9 tests: the share factor alone and crowded, the marketing lift, an
+  empty pool beats a crowded one even at a 10% better return, the exit window and its edges).
+
+**After (the same command, `bot wealth-K 365 <style>`, after the fix):**
+
+| Style | wealth-1 | wealth-2 | wealth-3 | Rank days (seed 1 / 2 / 3) |
+|---|---|---|---|---|
+| excellent | $129.0M | $117.5M | $122.4M | R1 26 / 32 / 25; R2 85 / 92 / 82; R3 198 / 206 / 199; R4 338 / 342 / 340 |
+| average | $23.7M | $9.9M | $25.9M | R1 38 / 36 / 35; R2 118 / 112 / 109; R3 272 / 317 / 272 |
+| neglected | $6.4k | $5.8k | $12.7k | R1 never / never / 83 |
+
+Gates after the fix: excellent above average on every seed; neglected positive on every seed and far slower.
+
+**Residuals for the lead (not done here):**
+1. **Scale.** Once the bot runs in sparse pools, the best style compounds to $120M to $130M in a game year and reaches R4 at day
+   338 to 342. The old bot never got there. That is the locked ladder (payback 7 to 10 game days) running until the tier caps
+   bind (4, 6, 8, 10, 12, 15 shops), and the rank table will now show R3 and R4 within the year. Part of the money is new cash:
+   business income is a faucet (`credit(..., 'business income')`), and O-6 already flagged supply growth (13.5x to 19.1x in
+   five years). Not re-checked here: `scripts/balance/economy.ts` on this bot. Lead ruling: is the compounding in budget, and
+   should the tier caps or the share cap (1.8) be the bound?
+2. **Neglected is flat, not growing.** Positive and slower, but cash drifts down (about $6.7k at day 160 to $3.1k at day 326 on
+   seed 1) because the bot's exits need two negative weeks in a row and the on-off income hovers near the cost. A ruling on
+   whether a neglected shop should sell sooner is open.
+3. **NPC density is not calibrated to a year.** NPC shops are bought and never sold, and their location levels ratchet. The
+   probe's 40-day calibration (S6) is blind to it. A world change (NPC purchases spread across pools, or NPC exits) would change
+   every world with NPCs, so it is a ruling, not made here.
+4. **Balance gate (unchanged).** `npm run balance:shops` (the probe, 20 seeds, 40 days) passes on this commit: every gate holds on
+   every tier, and the medians are the 2.2b table (average T1 10.94, excellent 8.00, neglected 25.77). The probe code path is
+   untouched by this track.
 
 ### 9B.5 Deviations, rulings and residuals
 
