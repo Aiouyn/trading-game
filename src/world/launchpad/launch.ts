@@ -1,6 +1,6 @@
 import { Rng } from '@/engine';
 import { rankIndex } from '@/content/lifestyle';
-import { TPD, credit, debit, notify } from '../core';
+import { TPD, credit, debit, notify, spendableCash } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { LP, NPC, curveAccountId } from './constants';
 import { quoteBuy, spotAt } from './curve';
@@ -105,6 +105,9 @@ export function launchToken(g: GameState, pid: string, input: LaunchInput, out: 
   const need = LP.LAUNCH_FEE + dev / 100;
   const cash = g.market.accounts[pid]?.cash ?? 0;
   if (cash < need) return refuse('cash', { need: need.toLocaleString('en-US', { minimumFractionDigits: 2 }) });
+  // R-9-6 (Phase 9 rulings): the launch fee is an op, and restricted (ad or fresh-start) cash cannot pay it. The dev buy is a
+  // trade and is checked below like any buy.
+  if (spendableCash(g, pid) < LP.LAUNCH_FEE) return refuse('adCashOps', { need: LP.LAUNCH_FEE.toLocaleString('en-US', { minimumFractionDigits: 2 }), name: input.name });
   if (dev > 0) {
     const q = quoteBuy(LP.Y0, dev);
     if (!q.ok) return refuse('devBuy', {});
