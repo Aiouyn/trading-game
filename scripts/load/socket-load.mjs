@@ -3,6 +3,8 @@
 // Start the server with REGISTER_LIMIT high, e.g.:
 //   PORT=8899 DATA_DIR=./load-data TICK_MS=1000 WARMUP_DAYS=1 REGISTER_LIMIT=100000 npx tsx server/index.ts
 // then: node scripts/load/socket-load.mjs [http://localhost:8899] [clients=2000] [seconds=30]
+// The exit code is the gate: 0 when every client welcomed and the tick spacing p99 is under 2.5 s, 1 otherwise (V1-PHASE9 9C.1).
+// The env RAMP=batch/ms (default 200/250) sets the connect ramp.
 // the `ws` client: Node's built-in WebSocket caps concurrent connections per origin in a single process
 import WebSocket from 'ws';
 
@@ -92,8 +94,13 @@ const pct = (a, q) => a[Math.min(a.length - 1, Math.floor(a.length * q))] ?? 0;
 console.log(`connect retries ${closes} (socket errors ${errors})`, JSON.stringify(closeCodes));
 console.log(`clients ${welcomed}/${N} · tick messages ${ticks} · ${(bytes / secs / 1e6).toFixed(1)} MB/s total, ${(bytes / secs / Math.max(1, welcomed) / 1e3).toFixed(1)} kB/s per client`);
 console.log(`fan-out time per tick (first → last client): p50 ${pct(spans, 0.5)} ms, p99 ${pct(spans, 0.99)} ms`);
-console.log(`tick spacing: p50 ${pct(gaps, 0.5)} ms, p99 ${pct(gaps, 0.99)} ms`);
+console.log(`tick spacing: p50 ${pct(gaps, 0.5)} ms, p99 ${pct(gaps, 0.99)} ms, max ${gaps.at(-1) ?? 0} ms over ${gaps.length} gaps`);
+// the machine gate (V1-PHASE9 9C.1): every client welcomed (the settle loop gives up at 240 s), and the tick spacing p99 under 2.5 s
+const allWelcomed = welcomed === N;
+const p99 = pct(gaps, 0.99);
+const pass = allWelcomed && gaps.length > 0 && p99 < 2500;
+console.log(`GATE ${pass ? 'PASS' : 'FAIL'}: welcomed ${welcomed}/${N} (need ${N}); tick spacing p99 ${p99} ms (need < 2500 ms, ${gaps.length} gaps)`);
 for (const s of sockets) s.close();
 const health = await fetch(`${base}/health`).then((r) => r.json());
 console.log('server', JSON.stringify(health));
-process.exit(0);
+process.exit(pass ? 0 : 1);

@@ -1,15 +1,18 @@
 /**
  * The rho probe for one listed seed (V1-PHASE9 9C, O-2; Quant G22, rho_residual; quant-company-building.md section 6.2 (c)).
  *
- * A listed company runs on the engine's own path (the b1fixture listing: real orders, the engine's ticks and the sector factor
- * of sectorFactor.ts). Each post-listing filing carries its residual surprise s (company.ts surpriseAtFiling: the actuals
- * against the consensus of the closing quarter at the close, over D = max(EV_20, 0.25 mcap_20)). s_quarter is the same
- * expression with the consensus replaced by the previous quarter's filed actuals, over the same D.
+ * A listed company runs on the engine path: the IPO is ordered by the founder and buyer A, and from the listing day every tick
+ * is a real stepGame (the engine's matching and day-boundary bars, the company step, the company day, and the sector factor of
+ * sectorFactor.ts). The engine's only order flow after the listing is the engine's own; no bot trades the stock. The rest of
+ * the world is the fixture's (no NPCs, no other players). Each post-listing filing carries its residual surprise s
+ * (company.ts surpriseAtFiling: the actuals against the consensus of the closing quarter at the close, over
+ * D = max(EV_20, 0.25 mcap_20), with mcap_20 read from the engine's bars). s_quarter is the same expression with the consensus
+ * replaced by the previous quarter's filed actuals, over the same D.
  *
  * rho for the seed = sd(s_filing) / sd(s_quarter) across the quarters. The gate is a median <= 0.15 and a p90 <= 0.25 across
  * seeds (a hard ceiling of 0.25). The three terms of s_filing are reported too, so a reader can see which one carries it.
  */
-import { advanceTo, listedWorld } from './b1fixture';
+import { listedWorld, stepEngineTo } from './b1fixture';
 import { surprise } from './valuation';
 import { today } from '../core';
 import type { FilingPublic } from './types';
@@ -39,13 +42,13 @@ export function quantile(xs: number[], q: number): number {
 }
 
 /**
- * Runs one listed seed until `quarters` filings carry a surprise, and returns its rho row. Throws when the company cannot file
- * that many quarters within the day cap (a fixture problem, not a measurement).
+ * Runs one listed seed on the engine path until `quarters` filings carry a surprise, and returns its rho row. Throws when the
+ * company cannot file that many quarters within the day cap (a fixture problem, not a measurement).
  */
-export function rhoOfListedSeed(seed: string, quarters = 8): RhoRow {
-  const { g, c } = listedWorld(seed);
-  let guard = 0;
-  while (c.filings.filter((f) => f.surprise).length < quarters && guard++ < 2_000) advanceTo(g, today(g) + 1);
+export function rhoOfListedSeed(seed: string, quarters = 8, maxDays = 1_200): RhoRow {
+  const { g, c } = listedWorld(seed, { engine: true });
+  const dayCap = today(g) + maxDays;
+  while (c.filings.filter((f) => f.surprise).length < quarters && today(g) < dayCap) stepEngineTo(g, today(g) + 1);
   const fs = c.filings.filter((f) => f.surprise).slice(0, quarters);
   if (fs.length < quarters) throw new Error(`${seed}: only ${fs.length} filings with a surprise`);
   const sFiling: number[] = [];

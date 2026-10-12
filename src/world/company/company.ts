@@ -644,8 +644,10 @@ function fileQuarter(c: Company, day: number, events: CompanyEvent[], env: Compa
   const rev = reversal(c.resolved, fairBySig, sharesBySig);
   const line = { nonConversion: rev.nonConversion, baseRate: rev.baseRate, excessLift: rev.excessLift, repayment: rev.repayment };
   const filing = filingOf(pf.statements, pf.hash, day, line, pf.statements.heads);
-  // O-2: the filing's residual surprise against the consensus at the close (only a company with a consensus has one)
-  const sur = surpriseAtFiling(c, pf.consensus !== undefined ? pf.consensus : c.consensus, pf.statements, day, env);
+  // O-2: the filing's residual surprise against the consensus snapshot taken at the close. A pending filing saved before O-2
+  // has no snapshot (the field is absent, not null): it carries no surprise, rather than reading c.consensus, which by filing
+  // day holds the next quarter's read. A private company's snapshot is null: no surprise.
+  const sur = pf.consensus === undefined ? undefined : surpriseAtFiling(c, pf.consensus, pf.statements, day, env);
   if (sur) filing.surprise = sur;
   c.filings.push(filing);
   if (c.filings.length > 16) c.filings.splice(0, c.filings.length - 16);

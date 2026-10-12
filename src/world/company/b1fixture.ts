@@ -1,11 +1,12 @@
 /**
  * Test fixture for the B1 market path: a world with one founder (rank R2, then R3 for an IPO), two old buyers, one young
- * account, and a founded tech company. Days are advanced with the company day step (no engine ticks), which is exact for
- * everything that is a day-boundary action. Tests that need fills step the engine explicitly.
+ * account, and a founded tech company. Days are advanced with the company day step and the engine's sector streams (jump, no
+ * engine ticks), which is exact for everything that is a day-boundary action. Tests that need fills or bars step the engine
+ * (stepEngineTo, or listedWorld with { engine: true }).
  */
 
 import { COMPANY } from '@/content/company';
-import { applyCommand, createGame } from '../game';
+import { applyCommand, createGame, stepGame } from '../game';
 import { credit, today, TPD } from '../core';
 import type { GameState } from '../types';
 import { companyDay } from './bridge';
@@ -74,8 +75,21 @@ export function totalMoney(g: GameState): number {
 /** Three filed quarters: closes on days 63, 126 and 189, filed three days later (66, 129, 192). Day 200 is past the third. */
 export const THREE_FILINGS_DAY = 200;
 
-/** A listed company: the IPO done with the founder and buyer A at R3, advanced to the listing day. */
-export function listedWorld(seed: string): { g: GameState; c: Company; assetId: string } {
+/**
+ * Advance the world to the first tick of `toDay` on the engine path: every tick is a real stepGame (the engine's matching, its
+ * day-boundary bars, the company step and the company day on each day boundary, as the server runs it). advanceTo jumps the
+ * clock and never steps the engine, so a listed asset has no bars under it; the O-2 probe needs this path (rho.ts).
+ */
+export function stepEngineTo(g: GameState, toDay: number): void {
+  const target = toDay * TPD + 1;
+  while (g.market.tick < target) stepGame(g);
+}
+
+/**
+ * A listed company: the IPO done with the founder and buyer A at R3, advanced to the listing day. With `engine`, the days from
+ * the listing on (and the listing day itself) run on the engine path (stepEngineTo), so the listed asset trades and books bars.
+ */
+export function listedWorld(seed: string, opts: { engine?: boolean } = {}): { g: GameState; c: Company; assetId: string } {
   const { g } = founded(seed);
   advanceTo(g, THREE_FILINGS_DAY);
   const c = companyOf(g);
@@ -85,6 +99,7 @@ export function listedWorld(seed: string): { g: GameState; c: Company; assetId: 
   g.players[BUYER_B]!.rankId = 'R3';
   applyCommand(g, FOUNDER, { type: 'company.ipo', companyId: c.id, floatPct: 0.2 });
   applyCommand(g, BUYER_A, { type: 'company.ipoOrder', companyId: c.id, shares: 10_000 });
-  advanceTo(g, (c.ipo as IpoBook).listDay);
+  if (opts.engine) stepEngineTo(g, (c.ipo as IpoBook).listDay);
+  else advanceTo(g, (c.ipo as IpoBook).listDay);
   return { g, c, assetId: c.listed!.assetId };
 }

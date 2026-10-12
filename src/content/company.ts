@@ -7,7 +7,8 @@
  * Settled readings (Ledger rulings and lead decisions, Phase 4):
  * - G22 passing reading (DECISIONS C1): F_s is the unit-variance sector shock (sum of z*sqrt(dt)), and there are no
  *   unobserved working-capital or cost surprises. Under this reading the engine's rho probe passes (median 0.1012,
- *   p90 0.1824). The F_s scale is `sectorShockScale` below; the world layer draws it per sector.
+ *   p90 0.1824). The F_s shock is the engine's sector factor return per day (O-12, src/world/company/sectorFactor.ts): its scale
+ *   comes from the engine's tick rate (dt = 1 / (ticksPerDay * daysPerYear)), so there is no sector-shock constant here.
  * - Ledger rulings G15-G23 (spec v1.7 changelog) are all implemented; each knob that they name is marked.
  *
  * Proposals and gaps (numbers the spec does not give, flagged for Ledger and Tape, not settled):
@@ -161,11 +162,9 @@ export const COMPANY = {
      * across sectors is the margin structure: a high-margin sector needs less volume for the same yield.
      */
     d0BySector: { tech: 790, health: 1000, staples: 1750, discretionary: 1340, industrials: 2100, security: 1600 } as Record<CompanySector, number>,
-    /**
-     * F_s moves by z * sqrt(dt) per gd with dt = 1/252 year (the engine's sum of z sqrt(dt), unit variance per game year:
-     * G22 unit reading). Quarterly sd of ln demand is then kappaD * sqrt(63/252) = 0.25.
-     */
-    sectorShockScale: 1 / Math.sqrt(252),
+    // the sector shock F_s is the engine's sector factor return: the sum of its per-tick sector draws over the day, on the G22
+    // unit reading (z * sqrt(dt), dt = 1 / (ticksPerDay * daysPerYear)). Quarterly sd of ln demand is then kappaD * sqrt(63/252)
+    // = 0.25. There is no sector-shock constant: O-12 (V1-PHASE9 9C.3) replaced the old per-company scale and stream.
   },
   /** NPC competitors (§2): 3-5 per market, weekly reaction, quarterly entry and exit */
   npc: {
