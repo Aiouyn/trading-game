@@ -20,9 +20,11 @@ async function foundCompany(page: Page, name: string, sector?: string): Promise<
   await expect(page.getByTestId('company-found')).toBeVisible();
   await page.getByTestId('company-name').fill(name);
   if (sector) await page.getByTestId('company-sector').selectOption(sector);
+  // the founding is ready once the name is in (under load the submit can lag the fill): wait for it, then review and confirm
+  await expect(page.getByTestId('company-found-submit')).toBeEnabled({ timeout: 15_000 });
   await page.getByTestId('company-found-submit').click();
   await page.getByTestId('company-found-submit-review-confirm').click();
-  await expect(page.getByTestId('company-overview')).toBeVisible();
+  await expect(page.getByTestId('company-overview')).toBeVisible({ timeout: 15_000 });
 }
 
 test('a founder at Owner founds a company, sees the starting numbers, and the market side hides every private field', async ({ page }) => {
