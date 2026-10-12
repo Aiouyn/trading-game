@@ -22,6 +22,16 @@ export interface HostOptions {
 
 const NW_EVERY = 12;
 const NW_RING = 600;
+/** the tick-time readout's window (one real hour) and the most ticks it keeps (an hour is 720 ticks at the default pace) */
+const TICK_WINDOW_MS = 60 * 60 * 1000;
+const TICK_KEEP = 1000;
+
+/** The nearest-rank percentile of an ascending list (null when empty). */
+export function percentile(sorted: number[], p: number): number | null {
+  if (sorted.length === 0) return null;
+  const rank = Math.min(sorted.length, Math.max(1, Math.ceil(p * sorted.length)));
+  return sorted[rank - 1]!;
+}
 
 interface NwSeries { samples: number[]; lastTick: number; daily: { day: number; value: number }[] }
 
@@ -40,8 +50,21 @@ export class WorldHost {
   private ticksSinceSnapshot = 0;
   /** the last game day whose explain archive row is in the store (the archive is written day by day, not in snapshots) */
   private archivedThrough = -Infinity;
+  /** the tick loop's function, kept so resume() can start it again */
+  private loopFn: (() => void) | null = null;
+  private paused = false;
+  /** the wall time and length (ms) of the recent ticks, for the admin readout (an hour, at most TICK_KEEP entries) */
+  private tickTimes: { at: number; ms: number }[] = [];
 
   constructor(private store: Store, private opts: HostOptions) {}
+
+  private noteTickTime(at: number, ms: number): void {
+    this.tickTimes.push({ at, ms });
+    const cut = at - TICK_WINDOW_MS;
+    let drop = 0;
+    while (drop < this.tickTimes.length && (this.tickTimes[drop]!.at < cut || this.tickTimes.length - drop > TICK_KEEP)) drop++;
+    if (drop > 0) this.tickTimes.splice(0, drop);
+  }
 
   private log(msg: string) {
     this.opts.log?.(msg);
@@ -168,8 +191,9 @@ export class WorldHost {
   }
 
   start(): void {
+    this.paused = false;
     this.nextAt = Date.now() + this.opts.tickMs;
-    const loop = () => {
+    this.loopFn = () => {
       const now = Date.now();
       // catch up at most a few ticks if the process was busy; never run the world faster than real time
       let n = 0;
@@ -179,9 +203,40 @@ export class WorldHost {
         n++;
       }
       if (now - this.nextAt > this.opts.tickMs * 10) this.nextAt = now + this.opts.tickMs;
-      this.timer = setTimeout(loop, Math.max(5, this.nextAt - Date.now()));
+      this.timer = setTimeout(this.loopFn!, Math.max(5, this.nextAt - Date.now()));
     };
-    this.timer = setTimeout(loop, this.opts.tickMs);
+    this.timer = setTimeout(this.loopFn, this.opts.tickMs);
+  }
+
+  /** Stops the tick loop (admin). The world keeps its tick and its state; resume() goes on from that tick. */
+  pause(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.paused = true;
+  }
+
+  /** Restarts the tick loop after pause(), at the tick the world stopped at. */
+  resume(): void {
+    if (!this.paused) return;
+    if (!this.loopFn) return this.start();
+    this.paused = false;
+    this.nextAt = Date.now() + this.opts.tickMs;
+    this.timer = setTimeout(this.loopFn, this.opts.tickMs);
+  }
+
+  isPaused(): boolean {
+    return this.paused;
+  }
+
+  tickMs(): number {
+    return this.opts.tickMs;
+  }
+
+  /** The tick times over the last hour: how many ticks, and the 50th and 99th percentile in ms (null before a tick). */
+  tickStats(now: number = Date.now()): { ticks: number; p50Ms: number | null; p99Ms: number | null } {
+    const cut = now - TICK_WINDOW_MS;
+    const ms = this.tickTimes.filter((t) => t.at >= cut).map((t) => t.ms).sort((a, b) => a - b);
+    return { ticks: ms.length, p50Ms: percentile(ms, 0.5), p99Ms: percentile(ms, 0.99) };
   }
 
   stop(): void {
@@ -200,6 +255,7 @@ export class WorldHost {
     this.ticksSinceSnapshot++;
     if (this.ticksSinceSnapshot >= this.opts.snapshotEvery) this.snapshot();
     const ms = performance.now() - t0;
+    this.noteTickTime(Date.now(), ms);
     if (ms > this.opts.tickMs * 0.5) this.log(`slow tick ${this.g.market.tick}: ${ms.toFixed(0)} ms`);
     return out;
   }

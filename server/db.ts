@@ -84,6 +84,11 @@ export class Store {
     return row ?? null;
   }
 
+  /** How many accounts have ever registered (the admin readout's count; no names). */
+  accountCount(): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM accounts').get() as { n: number }).n;
+  }
+
   handleTaken(handle: string): boolean {
     return !!this.db.prepare('SELECT 1 FROM accounts WHERE handle = ?').get(handle);
   }

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
 import { BACKUP_EVERY_MS, Backups } from './backup';
+import { ADMIN_PATHS, AdminLog, adminRoute, type AdminDeps } from './admin';
 import { acquireLock } from './lock';
 import { textConfigFromEnv } from './text/config';
 import { TextEnricher } from './text/enricher';
@@ -105,6 +106,21 @@ function allowRegister(ip: string): boolean {
   registrations.set(ip, arr);
   return true;
 }
+
+/** the admin page's dependencies (server/admin.ts): the readouts and the two actions */
+const adminLog = new AdminLog(join(DATA_DIR, 'admin.log'), log);
+const adminDeps: AdminDeps = {
+  token: ADMIN_TOKEN,
+  host,
+  store,
+  backups,
+  dataDir: DATA_DIR,
+  tournament: tournamentJob,
+  text: textEnricher,
+  online: () => new Set([...conns].filter((c) => c.pid).map((c) => c.pid)).size,
+  adminLog,
+  now: () => Date.now(),
+};
 
 const http = createServer(async (req, res) => {
   try {
@@ -229,6 +245,12 @@ const http = createServer(async (req, res) => {
       const n = Math.max(1, Math.min(20_000, Number(url.searchParams.get('n') ?? 1)));
       host.advance(n);
       return json(res, 200, { ok: true, tick: host.g.market.tick });
+    }
+    // the admin page's API (server/admin.ts): the token is checked there, in constant time
+    if ((ADMIN_PATHS as readonly string[]).includes(url.pathname)) {
+      const b = req.method === 'POST' ? await body(req) : {};
+      const r = adminRoute(req.method ?? 'GET', url.pathname, req.headers.authorization, b, req.socket.remoteAddress ?? '?', adminDeps);
+      return json(res, r.code, r.body);
     }
     json(res, 404, { ok: false });
   } catch (e) {

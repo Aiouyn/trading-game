@@ -24,6 +24,11 @@ export class TournamentJob {
     private readonly script: string = path.resolve(process.cwd(), 'scripts/tournament-run.ts'),
   ) {}
 
+  /** The job's state for the admin readout: the week whose run is in flight (or null), and the ms until a failed run may retry. */
+  status(now: number = Date.now()): { running: number | null; retryInMs: number } {
+    return { running: this.running, retryInMs: Math.max(0, this.retryAt - now) };
+  }
+
   /** The week whose run is in flight, or null. */
   get inFlight(): number | null {
     return this.running;
