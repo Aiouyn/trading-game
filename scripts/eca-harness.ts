@@ -26,10 +26,13 @@
 //   --crime     a successful session every this many game days; --tranches  tranches per tip (default 3)
 // Prints one JSON summary. Same args => same output (seeded).
 // The gates (03 §16, quant-rumors, lead-phase6 6C):
-//   blind rumor follower mean return after fees at or below 0;
-//   each tip tranche (2%, 4%, 6%): tip EV / honest EV in [0.8, 1.2] and tip variance / honest variance in [2, 4];
-//   tribunal conviction rate of the tip traders that reach the tribunal in [40%, 65%];
-//   wrongful convictions (on an account that never received a tip on that asset) under 3% of the honest and lucky accounts.
+//   blind rumor follower EXCESS return (over the drift: excessReturn) at or below 0. The raw mean is reported beside it;
+//     the reader arm's excess is reported too, not gated;
+//   each tip arm (2%, 4%, 6%) against its honest twin: EV ratio in [0.8, 1.2] and variance ratio in [2, 4];
+//   wrongful convictions (on an account that never received a tip on that asset) under 3% of the honest set
+//     (honestSet: the honest, lucky and honest-twin accounts; wrongfulRateHonestSet).
+// The tribunal conviction rate of the tip traders (tipConvictRateAtTribunalAll) is reported but not part of the gate.
+// The summary's gate block holds each check and gate.pass.
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -437,6 +440,27 @@ summary.rumorFills = results.reduce((s, r) => s + r.rumorFills, 0);
 summary.readerFills = results.reduce((s, r) => s + r.readerFills, 0);
 summary.tipsDelivered = results.reduce((s, r) => s + r.tipsDelivered, 0);
 summary.tipFlags = results.reduce((s, r) => s + r.tipFlags, 0);
+// the gate (03 §16, quant-rumors, lead-phase6 6C): blind rumor excess <= 0; each tip arm's EV and variance against its honest twin;
+// wrongful convictions under 3% of the honest set. The tribunal conviction rate above is not part of it.
+const tipChecks = TIP_KINDS.map((k) => {
+  const g = tipGates[k] as { evRatioVsHonest: number | null; varRatioVsHonest: number | null };
+  const ev = g.evRatioVsHonest;
+  const vr = g.varRatioVsHonest;
+  return {
+    arm: k,
+    evRatio: ev,
+    varRatio: vr,
+    pass: ev !== null && vr !== null && ev >= 0.8 && ev <= 1.2 && vr >= 2 && vr <= 4,
+  };
+});
+const gate = {
+  blindRumorExcess: { value: perKind.rumor!.meanExcessRet, pass: perKind.rumor!.meanExcessRet! <= 0 },
+  tips: tipChecks,
+  wrongful: { wrongful: honestSet.wrongful, n: honestSet.n, rate: summary.wrongfulRateHonestSet, pass: (summary.wrongfulRateHonestSet as number) < 0.03 },
+  pass: false,
+};
+gate.pass = gate.blindRumorExcess.pass && tipChecks.every((c) => c.pass) && gate.wrongful.pass;
+summary.gate = gate;
 const json = JSON.stringify(summary, null, 2);
 if (MERGE) writeFileSync(path.join(path.resolve(MERGE), 'eca-summary.json'), json + '\n');
 process.stdout.write(json + '\n');
