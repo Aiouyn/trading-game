@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { goTo, grant, isPhone, noHorizontalOverflow, proof, register, skipRankUp, skipTips, watchErrors } from './helpers';
 
@@ -48,10 +48,11 @@ test('the close card opens after a game day, its numbers match the server, and D
   // the card reads the server's close, to the cent
   const server = await page.evaluate(() => window.__tg!.state().me!.trading.closes[0]!);
   await expect(page.getByTestId('close-masthead')).toHaveText(`Day ${server.day + 1}`);
-  const headline = Math.abs(server.nwChange) < 1
-    ? 'A flat day.'
-    : `${server.nwChange > 0 ? 'Up' : 'Down'} ${usd(Math.abs(server.nwChange))} today.`;
-  await expect(page.getByTestId('close-headline')).toHaveText(headline);
+  // the narrator (Phase 7) picks one of 8 phrasings per kind of day by a stable hash: accept any of them, with the server's amount
+  const en = JSON.parse(readFileSync('src/i18n/en.json', 'utf8')) as Record<string, string>;
+  const move = Math.abs(server.nwChange) < 1 ? 'flat' : server.nwChange > 0 ? 'up' : 'down';
+  const headlines = Array.from({ length: 8 }, (_, i) => en[`txt.narr.head.${move}.${i}`]!.replace('{amount}', usd(Math.abs(server.nwChange))));
+  expect(headlines).toContain((await page.getByTestId('close-headline').textContent())?.trim());
   const ghosts = (await page.getByTestId('close-ghosts').textContent()) ?? '';
   for (const v of [server.ghosts.basket, server.ghosts.random, server.ghosts.momentum, server.ghosts.player]) {
     expect(ghosts).toContain(usd(v));
