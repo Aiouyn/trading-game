@@ -30,13 +30,13 @@ describe('app registry', () => {
     expect(Object.keys(APPS).sort()).toEqual([...APP_IDS].sort());
   });
 
-  it('keeps the minimum sizes from the specs (Broker 480x420, Wire 360x280, Portfolio 520x220, others 420x300)', () => {
+  it('keeps the minimum sizes from the specs (Broker 480x420, Wire 360x280, Portfolio 400x220, others 400x300)', () => {
     expect([APPS.broker.minW, APPS.broker.minH]).toEqual([480, 420]);
     expect([APPS.wire.minW, APPS.wire.minH]).toEqual([360, 280]);
-    expect([APPS.portfolio.minW, APPS.portfolio.minH]).toEqual([520, 220]);
+    expect([APPS.portfolio.minW, APPS.portfolio.minH]).toEqual([400, 220]);
     for (const id of APP_IDS) {
       if (['broker', 'wire', 'portfolio'].includes(id)) continue;
-      expect([APPS[id].minW, APPS[id].minH], id).toEqual([420, 300]);
+      expect([APPS[id].minW, APPS[id].minH], id).toEqual([400, 300]);
     }
   });
 

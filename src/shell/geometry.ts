@@ -67,8 +67,14 @@ export type ViewportClass = 'phone' | 'compact' | 'desktop';
 export type LayoutMode = 'phone' | 'single' | 'halves' | 'full';
 
 const THIRD = 1 / 3;
-/** The Broker's share of a Trade side layout: a side panel takes the other 30% (UX fix: the panel never takes more). */
-const BROKER_SHARE = 0.7;
+/**
+ * The Trade side column (UX stage 6, weakness 1): every app docked beside the Broker is a 400 px right column at 1440, the
+ * Empire side-panel rule. The Broker keeps the rest of the width, so its order ticket column (320-360 px) is never covered.
+ * The share is derived from the 1440 reference, so the column scales with the width above it (about 533 px at 1920).
+ */
+export const SIDE_COL_PX = 400;
+/** The gutters around the split (8 px at the outer edge, half of 8 px on the inner boundary), so the column's rect is 400 px. */
+const BROKER_SHARE = (1440 - SIDE_COL_PX - GUTTER - GUTTER / 2) / 1440;
 
 export const SLOT_FRAC: Readonly<Record<SlotName, FracRect>> = {
   L2: { x0: 0, y0: 0, x1: 0.5, y1: 1 },

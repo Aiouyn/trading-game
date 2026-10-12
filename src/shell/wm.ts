@@ -414,18 +414,30 @@ function sidePanel(state: ShellState, id: string): ShellState | null {
   if (!broker || !fitsMin(APPS.broker, fracToRect(SLOT_FRAC.L23, wa, g))) return null;
   const app = state.wins.find((w) => w.id === id);
   if (!app) return null;
+  // Open panels in z-order, oldest first (wins is kept in raise order). One panel takes the whole column; two share it as
+  // halves (UX stage 6: the second panel reflows the first into the top half instead of overlapping it). A third panel
+  // collapses the oldest and takes its half.
   const panels = state.wins.filter(
     (w) => w.ws === 0 && w.state === 'open' && w.id !== id && w.app !== 'broker' && w.slot !== null && SIDE_SLOTS.includes(w.slot as SlotName),
   );
-  const used = new Set(panels.map((w) => w.slot));
-  const free = SIDE_SLOTS.find((s) => !used.has(s));
-  const slot = free ?? SIDE_SLOTS[0]!;
+  let slot: SlotName = 'R3';
+  let reslot: { id: string; slot: SlotName } | null = null;
+  let collapse: string | null = null;
+  if (panels.length === 1) {
+    slot = 'R3B';
+    reslot = { id: panels[0]!.id, slot: 'R3T' };
+  } else if (panels.length >= 2) {
+    const oldest = panels[0]!;
+    slot = oldest.slot as SlotName;
+    collapse = oldest.id;
+  }
   if (!fitsMin(APPS[app.app], fracToRect(SLOT_FRAC[slot], wa, g))) return null;
+  if (reslot !== null && !fitsMin(APPS[panels[0]!.app], fracToRect(SLOT_FRAC[reslot.slot], wa, g))) return null;
   const wins = state.wins.map((w) => {
     if (w.id === broker.id) return { ...w, slot: 'L23' as SlotName, filled: false };
     if (w.id === id) return { ...w, slot, filled: false };
-    // The oldest panel gives its slot up when every slot is taken.
-    if (!free && panels[0] !== undefined && w.id === panels[0].id) return { ...w, state: 'collapsed' as const };
+    if (reslot !== null && w.id === reslot.id) return { ...w, slot: reslot.slot, filled: false };
+    if (collapse !== null && w.id === collapse) return { ...w, state: 'collapsed' as const };
     return w;
   });
   return { ...state, wins: raise(wins, id) };

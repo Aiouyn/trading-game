@@ -99,12 +99,12 @@ function rng(seed: number): () => number {
 // ---------------------------------------------------------------- start
 
 describe('initial shell', () => {
-  it('opens the Trade layout with the Broker focused on a fresh save (halves at 1440 x 900)', () => {
+  it('opens the Trade layout with the Broker focused on a fresh save (thirds at 1440 x 900: a 400 px side column)', () => {
     const s = fresh(VP_1440);
     expect(s.wins.map((w) => [w.id, w.app, w.slot])).toEqual([
-      ['wire', 'wire', 'TR'],
-      ['portfolio', 'portfolio', 'BR'],
-      ['broker-1', 'broker', 'L2'],
+      ['wire', 'wire', 'R3T'],
+      ['portfolio', 'portfolio', 'R3B'],
+      ['broker-1', 'broker', 'L23'],
     ]);
     expect(focusedId(s)).toBe('broker-1');
     expect(s.wins.find((w) => w.app === 'broker')!.props).toEqual({ ticker: 'HLCN' });
@@ -214,7 +214,9 @@ describe('open', () => {
     const s = go(fresh(), { type: 'open', app: 'ailab' });
     const w = s.wins.find((x) => x.app === 'ailab')!;
     expect(w.ws).toBe(0);
-    expect(w.slot).toBe('R3');
+    // Two panels are open (Wire and Portfolio), so the oldest (Wire) collapses and Ailab takes its half.
+    expect(w.slot).toBe('R3T');
+    expect(s.wins.find((x) => x.app === 'wire')!.state).toBe('collapsed');
     expect(focusedId(s)).toBe('ailab');
     const off = go(emptyShell(VP_1440), { type: 'open', app: 'ailab' });
     expect(off.wins.find((x) => x.app === 'ailab')!.slot).toBeNull();
@@ -282,15 +284,18 @@ describe('open', () => {
     s = go(s, { type: 'open', app: 'wire' });
     s = go(s, { type: 'open', app: 'portfolio' });
     expect(s.wins.find((w) => w.app === 'broker')!.slot).toBe('L23');
-    expect(s.wins.find((w) => w.app === 'wire')!.slot).toBe('R3');
-    expect(s.wins.find((w) => w.app === 'portfolio')!.slot).toBe('R3T');
+    // One panel takes the whole column; the second reflows the first into the top half (no overlap).
+    expect(s.wins.find((w) => w.app === 'wire')!.slot).toBe('R3T');
+    expect(s.wins.find((w) => w.app === 'portfolio')!.slot).toBe('R3B');
     s = go(s, { type: 'open', app: 'learn' });
-    expect(s.wins.find((w) => w.app === 'learn')!.slot).toBe('R3B');
+    expect(s.wins.find((w) => w.app === 'learn')!.slot).toBe('R3T');
     expect(s.wins.find((w) => w.app === 'broker')!.slot).toBe('L23');
-    // With every side slot taken, the oldest panel collapses to the shelf.
+    // Learn took Wire's half, so Wire is on the shelf. With both halves taken again, the oldest open panel (Portfolio) collapses
+    // and the newcomer takes its half.
     s = go(s, { type: 'open', app: 'calendar' });
-    expect(s.wins.find((w) => w.app === 'wire')!.state).toBe('collapsed');
-    expect(s.wins.find((w) => w.app === 'calendar')!.slot).toBe('R3');
+    expect(s.wins.find((w) => w.app === 'portfolio')!.state).toBe('collapsed');
+    expect(s.wins.find((w) => w.app === 'calendar')!.slot).toBe('R3B');
+    expect(s.wins.find((w) => w.app === 'learn')!.slot).toBe('R3T');
   });
 
   it('closing one of three tiled windows reflows the other two into halves (UX stage 2)', () => {
@@ -386,11 +391,12 @@ describe('snap', () => {
     refused(s, { type: 'snap', id: 'broker-1', slot: 'R3' }, 'too-small');
   });
 
-  it('refuses a Portfolio half at 1000 (488 px < 520) and allows Broker and Wire halves', () => {
-    const s = go(fresh(VP_1000), { type: 'open', app: 'portfolio' });
-    refused(s, { type: 'snap', id: 'portfolio', slot: 'R2' }, 'too-small');
-    const ok = go(s, { type: 'snap', id: 'wire', slot: 'R2' });
-    expect(ok.wins.find((w) => w.app === 'wire')!.slot).toBe('R2');
+  it('refuses a Portfolio third below its 400 px minimum (a 1200 wide side column is 331 px) and allows Broker and Wire halves', () => {
+    const s = go(fresh({ w: 1200, h: 800 }), { type: 'open', app: 'portfolio' });
+    refused(s, { type: 'snap', id: 'portfolio', slot: 'R3' }, 'too-small');
+    const ok = go(fresh(VP_1000), { type: 'open', app: 'portfolio' });
+    expect(go(ok, { type: 'snap', id: 'portfolio', slot: 'R2' }).wins.find((w) => w.app === 'portfolio')!.slot).toBe('R2');
+    expect(go(ok, { type: 'snap', id: 'wire', slot: 'R2' }).wins.find((w) => w.app === 'wire')!.slot).toBe('R2');
   });
 
   it('cycles Ctrl Left through 1/2, 1/3, 2/3 and back', () => {
@@ -613,7 +619,7 @@ describe('focus mode', () => {
   });
 
   it('takes the Trade slots on an unsnapped workspace at 1200+, and restores the free rects after', () => {
-    const base = go(fresh(VP_1920), { type: 'open', app: 'calendar' });
+    const base = fresh(VP_1920);
     const free = { ...base, wins: base.wins.map((w) => ({ ...w, slot: null })) };
     const on = go(deepFreeze(free), { type: 'focusMode', on: true });
     expect(on.wins.find((w) => w.app === 'broker')!.slot).toBe('L23');
@@ -651,18 +657,19 @@ describe('viewport', () => {
     expect(Object.keys(project(fresh(VP_390)).rects)).toHaveLength(0);
   });
 
-  it('shows the two windows on halves at 1000 (Broker and Wire), each exactly on its half', () => {
+  it('shows the Trade windows at 1000 on halves: Broker left, Wire on the right half, Portfolio tabbed away', () => {
     const p = project(fresh(VP_1000));
     expect(Object.keys(p.rects).sort()).toEqual(['broker-1', 'wire'].sort());
     expect(p.rects['broker-1']).toEqual(slotRect('L2', VP_1000, false));
     expect(p.rects.wire).toEqual(slotRect('R2', VP_1000, false));
   });
 
-  it('shows the Trade fallback at 1440 exactly on its halves: Broker left, Wire and Portfolio stacked right', () => {
+  it('shows Trade at 1440 as thirds: Broker left at 1016 px, Wire and Portfolio in the 400 px side column', () => {
     const p = project(fresh(VP_1440));
-    expect(p.rects['broker-1']).toEqual(slotRect('L2', VP_1440, false));
-    expect(p.rects.wire).toEqual(slotRect('TR', VP_1440, false));
-    expect(p.rects.portfolio).toEqual(slotRect('BR', VP_1440, false));
+    expect(p.rects['broker-1']).toEqual(slotRect('L23', VP_1440, false));
+    expect(p.rects.wire).toEqual(slotRect('R3T', VP_1440, false));
+    expect(p.rects.portfolio).toEqual(slotRect('R3B', VP_1440, false));
+    expect(slotRect('R3', VP_1440, false).w).toBe(400);
   });
 
   it('refuses a non-positive viewport', () => {
