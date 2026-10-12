@@ -11,6 +11,7 @@ import { capBaseOf, openingNotionalOf } from '@/world/orders';
 import { t } from '@/i18n';
 import { getDraft, setDraft } from '@/components/os/drafts';
 import { isPhoneViewport } from '@/components/os/phoneStore';
+import { useMedia } from '@/game/useMedia';
 import { Button, Card, KV, LockGlyph, NumberField, Segmented } from '@/components/ui';
 import { RefusalBox } from '@/components/apps/exchange/Shared';
 import { type RefusalCopy, refusalCopy, rejectVars } from '@/components/apps/exchange/copy';
@@ -30,12 +31,15 @@ const TYPE_OPTS: { value: OrderType; key: string; testId: string }[] = [
 type Unit = 'shares' | 'usd';
 
 /** Native controls keep their own Enter (a button clicks, a checkbox toggles), so the ticket leaves that Enter alone. */
-/** A summary line: the dense ticket packs them two to a row (caption type, one line each); the full ticket keeps KV. */
+/**
+ * A summary line. The dense ticket (the desktop terminal) runs them as one column of label and value rows: a label never wraps,
+ * and the value is right-aligned in tabular figures, so the rows line up. The full ticket keeps KV.
+ */
 function SumRow({ dense, k, v, className = '' }: { dense: boolean; k: ReactNode; v: ReactNode; className?: string }) {
   if (!dense) return <KV className={className} k={k} v={v} />;
   return (
-    <div className={`flex items-baseline justify-between gap-2 text-caption leading-4 ${className}`}>
-      <span className="min-w-0 text-fg-muted">{k}</span>
+    <div className={`flex items-baseline justify-between gap-3 whitespace-nowrap text-caption leading-4 ${className}`}>
+      <span className="min-w-0 truncate text-fg-muted" title={typeof k === 'string' ? k : undefined}>{k}</span>
       <span className="num shrink-0 text-right text-fg">{v}</span>
     </div>
   );
@@ -72,6 +76,9 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const quick = useGame((s) => s.quickEnter);
   const setQuick = useGame((s) => s.setQuickEnter);
   const rootRef = useRef<HTMLDivElement>(null);
+  // A short screen (under 800 px tall, the dock's short-screen rule) keeps the summary in two columns: one column of nine rows does not
+  // fit 1280 x 720 beside the fields for every order type (UX stage 6). A taller screen runs it as one column.
+  const tall = useMedia('(min-height: 800px)', true);
   // A ticket reopened after its window or phone app closed restores what was typed. A preset still wins (P2-161).
   const saved = getDraft(selected);
   const [side, setSide] = useState<Side>(preset?.side ?? saved?.side ?? 'buy');
@@ -533,8 +540,9 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
               )}
 
               <div className={dense ? 'mt-1 border-t border-ink-2 pt-0.5' : 'mt-4 border-t border-ink-2 pt-3'} data-testid="order-summary">
-                {/* the dense ticket packs the summary two to a row, so the whole block fits 1280 x 720 without a scroll */}
-                <div className={dense ? 'grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-x-2' : undefined}>
+                {/* the dense ticket on a tall screen runs the summary as one column (the empty space above the Buy/Sell button holds it);
+                    on a short screen it keeps two columns, so the whole block fits 1280 x 720 without a scroll */}
+                <div className={dense ? (tall ? 'flex flex-col' : 'grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-x-3') : undefined}>
                 <SumRow dense={dense} k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(d.price)} />
                 <SumRow dense={dense} k={t('broker.notional')} v={money(notional)} />
                 <SumRow dense={dense} k={feeText} v={money(fee)} />
@@ -546,8 +554,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   dense={dense} k={t('broker.cashAfter')}
                   v={<span className="text-fg-muted" data-testid="order-cash-after">{cashAfter < -0.005 ? '—' : money(cashAfter)}</span>}
                 />
-                {/* buying power after takes the whole row: its label wrapped to three lines in the dense summary (UX stage 6) */}
-                <SumRow dense={dense} className={dense ? 'col-span-2' : ''} k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
+                <SumRow dense={dense} className={dense && !tall ? 'col-span-2' : ''} k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
                 </div>
                 {shorting && (
                   <div className={dense ? 'mt-0.5 grid grid-cols-2 gap-x-3' : 'mt-1 grid gap-1'} data-testid="order-short-terms">
