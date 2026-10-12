@@ -10,6 +10,9 @@ import { markShares, recomputeShares } from './assets';
 import {
   attrition, autopilotFor, dailyCosts, isCrew, isLevel, managerPrepaid, managerPrepayCost, moraleTarget, reviewsTarget, wellRunShop,
 } from './shopRules';
+import { rankBasisOf } from './social';
+import { rateOf, taxOf } from './tax';
+import type { BizDay } from './ledger-types';
 import type { Business, CommandResult, Command, GameState, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -148,10 +151,16 @@ const SINKS = {
  * Day boundary: a pending price takes effect; attrition and the condition decay (a manager keeps the
  * shop on autopilot within its skill); the day's operating costs are paid out; reviews and morale move
  * toward their targets; the day's net income joins the trailing window that values the shop (S5).
+ * R-9-10: each business's day net (after costs) is taxed once, at its owner's bracket, on a positive net only, and booked
+ * to the `businessTax` sink. The returned map holds each taxed owner's day totals for the close card (the day's shops are
+ * settled at the game day's close, before its card; game.ts calls this on the closing tick).
  */
-export function shopsDay(g: GameState, out: StepOutput | null): void {
+export function shopsDay(g: GameState, out: StepOutput | null): Map<string, BizDay> {
   const tick = g.market.tick;
   const day = today(g);
+  const shift = g.economy.stabilizer.taxShift ?? 0;
+  const bases = new Map<string, number>();
+  const taxed = new Map<string, BizDay>();
   for (const b of Object.values(g.businesses)) {
     const s = b.shop;
     const target = bizDef(b).income;
@@ -196,10 +205,25 @@ export function shopsDay(g: GameState, out: StepOutput | null): void {
     s.reviews = clamp(s.reviews, SHOP.reviews.min, SHOP.reviews.max);
     const earnedToday = b.earned - s.earnedMark;
     s.earnedMark = b.earned;
-    s.net.push(earnedToday - total);
+    const net = earnedToday - total;
+    s.net.push(net);
     if (s.net.length > SHOP.value.window) s.net.splice(0, s.net.length - SHOP.value.window);
+    // R-9-10: the day's net is taxed at the owner's bracket (the basis is read once per owner per day); a loss earns no credit
+    if (owner) {
+      let basis = bases.get(b.ownerId);
+      if (basis === undefined) { basis = rankBasisOf(g, owner); bases.set(b.ownerId, basis); }
+      const tax = taxOf(net, basis, shift);
+      if (tax > 0) debit(g, b.ownerId, tax, 'businessTax');
+      const acc = taxed.get(b.ownerId) ?? { businesses: 0, net: 0, tax: 0, rate: rateOf(basis, shift) };
+      acc.businesses++;
+      acc.net += net;
+      acc.tax += tax;
+      taxed.set(b.ownerId, acc);
+    }
   }
   recomputeShares(g);
+  for (const acc of taxed.values()) { acc.net = Math.round(acc.net * 100) / 100; acc.tax = Math.round(acc.tax * 100) / 100; }
+  return taxed;
 }
 
 /**

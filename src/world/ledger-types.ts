@@ -123,6 +123,16 @@ export interface DayRecord {
   ghosts: { basket: number; random: number; momentum: number };
   /** the player's cumulative external cash at this close (grants, transfers, loans; see core.ts shiftBaselines): a day's change leaves out what came in */
   ext?: number;
+  /** R-9-10: the owner's businesses for the day (absent when the player owns none); the close card's tax line reads it */
+  biz?: BizDay;
+}
+
+/** One owner's business day at the close (R-9-10): the settled net of its businesses, the tax on the positive nets, and the bracket rate. */
+export interface BizDay {
+  businesses: number;
+  net: number;
+  tax: number;
+  rate: number;
 }
 
 /** The daily close card (velvet-daily-close.md): the day's facts, and the lines rendered from them by the text provider. */
@@ -146,6 +156,8 @@ export interface DailyClose {
   ghosts: { player: number; basket: number; random: number; momentum: number; beaten: number; percentile: number | null };
   /** the world event line: an active event (headline only) or the ended line (duration, given only once it ends) */
   event: { phase: 'active' | 'ended'; headline: string; headlineMsg?: Msg; lastedDays?: number } | null;
+  /** R-9-10: the owner's business day (absent in a card saved before the tax, null when the player owns no business); the card's tax line */
+  biz?: BizDay | null;
   lines: Msg[];
 }
 

@@ -138,6 +138,13 @@ function CloseSheet({ card }: { card: DailyClose }) {
         </p>
       )}
 
+      {card.biz && card.biz.businesses > 0 && (
+        <p className="flex items-baseline justify-between gap-3 text-small" data-testid="close-tax">
+          <span className="text-fg-muted">{t('close.tax', { rate: Math.round(card.biz.rate * 100) })}</span>
+          <span className="num text-fg">{money(-card.biz.tax)}</span>
+        </p>
+      )}
+
       <section className="rounded-md border border-ink-3 p-3" data-testid="close-ghosts">
         <h3 className="label">{t('close.ghosts')}</h3>
         <ul className="mt-2 flex flex-col gap-1 text-small">

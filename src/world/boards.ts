@@ -1,5 +1,6 @@
 import { boardNetWorth } from './comeback';
 import { rankBasisOf } from './social';
+import { stabilizerTaxShift } from './tax';
 import { bizValuedIncome, CHAPTER_TICKS, notify, playerBusinesses, playerProperties, propValue, pushWire } from './core';
 import { textProvider } from './text';
 import type { BoardRow, Boards, GameState, Player, StepOutput } from './types';
@@ -92,6 +93,8 @@ export function stabilizerDay(g: GameState): void {
       const err = growth - STABILIZER_TARGET;
       st.integral = Math.max(-0.5, Math.min(0.5, st.integral * 0.9 + err));
       st.sinkMult = Math.max(1, Math.min(1.6, 1 + 2 * Math.max(0, err) + 0.5 * Math.max(0, st.integral)));
+      // R-9-10 lever 2: the tax brackets move with the same error, only while the levy is engaged (sinkMult above 1)
+      st.taxShift = stabilizerTaxShift(err, st.sinkMult > 1);
     }
   }
   st.hist = [...hist, supply].slice(-STABILIZER_WINDOW);

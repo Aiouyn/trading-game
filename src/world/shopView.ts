@@ -10,6 +10,8 @@ import {
   autopilotFor, crewSteps, dailyCosts, managerFireOpenDay, managerForfeit, managerPrepayCost, managerPrepaid,
   reviewStars, servedOf, wellRunShop,
 } from './shopRules';
+import { rankBasisOf } from './social';
+import { rateOf, taxOf } from './tax';
 import type { Business, GameState } from './types';
 
 export interface ManagerOffer {
@@ -80,6 +82,9 @@ export interface ShopView {
     maintenance: number;
     manager: number;
     costs: number;
+    /** R-9-10: the day's tax at the owner's bracket (a cost, money out: negative or zero) and the bracket rate */
+    tax: number;
+    taxRate: number;
     net: number;
   };
   /** payback on what was invested, at these settings (null when the net is not positive) */
@@ -115,7 +120,13 @@ export function shopView(g: GameState, b: Business, cash: number): ShopView {
   const costs = dailyCosts(target, s, maintained, managerPrepaid(s.managerStars, s.managerDay, day));
   const costTotal = costs.wages + costs.opex + costs.marketing + costs.quality + costs.maintenance + costs.manager;
   const revenue = b.incomePerDay;
-  const net = revenue - costTotal;
+  // R-9-10: the day's tax at the owner's bracket on the positive net (the projection of what the day step books), and the net after it
+  const owner = g.players[b.ownerId];
+  const basis = owner ? rankBasisOf(g, owner) : 0;
+  const shift = g.economy.stabilizer.taxShift ?? 0;
+  const pretax = revenue - costTotal;
+  const taxAmount = taxOf(pretax, basis, shift);
+  const net = pretax - taxAmount;
   // money out is negative on the view; zero stays a plain zero (never -0)
   const out = (x: number) => (x === 0 ? 0 : -x);
   const auto = managed ? autopilotFor(s.managerStars) : null;
@@ -174,6 +185,8 @@ export function shopView(g: GameState, b: Business, cash: number): ShopView {
       maintenance: out(costs.maintenance),
       manager: out(costs.manager),
       costs: out(costTotal),
+      tax: out(taxAmount),
+      taxRate: rateOf(basis, shift),
       net,
     },
     payback: {
