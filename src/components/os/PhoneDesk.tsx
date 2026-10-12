@@ -76,7 +76,7 @@ export function PhoneDesk({ rank }: { rank: Rank }) {
       <RecentSheetGate />
       <EventPanel />
       <EventTakeover />
-      <OsToasts focusMode={false} side="right" phone />
+      <OsToasts focusMode={false} place={{ side: 'right' }} phone />
     </div>
   );
 }

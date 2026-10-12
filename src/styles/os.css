@@ -248,8 +248,8 @@
   .os-root .os-toast-t2 { margin-top: 4px; font-size: 13.5px; }
   .os-root .os-toast-t3 { margin-top: 2px; font-size: var(--text-caption); color: var(--color-fg-muted); }
   .os-root .os-toast-x { margin-left: auto; color: var(--color-fg-faint); }
-  /* Toast column at the top left, when a Broker sits under the right column (P2-088). */
-  .os-root .os-toasts.left { left: 14px; right: auto; }
+
+  /* (the column over a maximized Broker's chart sets its own left and bottom inline, OsToasts.tsx) */
   /* A warning and a margin call carry a 2 px warn edge (P2-090). */
   .os-root .os-toast[data-tone="warn"] { border-left: 2px solid var(--color-warn); }
   .os-root .os-toast-body { display: flex; flex-direction: column; min-width: 0; }
