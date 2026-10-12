@@ -124,7 +124,8 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
         </ul>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-small">
+          {/* the cells pack tighter (px-2): the Close button stays whole in the Broker dock (UX stage 6) */}
+          <table className="w-full text-small [&_td]:px-2 [&_th]:px-2">
             <thead>
               <tr>
                 <SortTh k="asset" sort={sort} onSort={onSort} /><SortTh k="qty" sort={sort} onSort={onSort} right /><Th right>{t('holdings.col.avg')}</Th><Th right>{t('holdings.col.last')}</Th>
@@ -150,14 +151,17 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
                   <Td right num>{pct(p.weight)}</Td>
                   <Td right><Sparkline data={sparkline(h, p.assetId, 5)} /></Td>
                   <Td><DripToggle assetId={p.assetId} /></Td>
-                  <Td right>
-                    <ConfirmButton
-                      confirm={t('holdings.close')}
-                      onConfirm={() => act({ type: 'position.close', assetId: p.assetId }, { success: t('holdings.closing', { ticker: p.assetId }) })}
-                      testId={`close-${p.assetId}`}
-                    >
-                      {t('holdings.close')}
-                    </ConfirmButton>
+                  <Td right className="whitespace-nowrap">
+                    {/* the button keeps its width in a narrow dock: its label is never cut to "Clo" (UX stage 6) */}
+                    <span className="inline-block min-w-[4.75rem] text-right">
+                      <ConfirmButton
+                        confirm={t('holdings.close')}
+                        onConfirm={() => act({ type: 'position.close', assetId: p.assetId }, { success: t('holdings.closing', { ticker: p.assetId }) })}
+                        testId={`close-${p.assetId}`}
+                      >
+                        {t('holdings.close')}
+                      </ConfirmButton>
+                    </span>
                   </Td>
                 </tr>
               ))}

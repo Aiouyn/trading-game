@@ -458,7 +458,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
               {/* Dense (the desktop terminal): the price field of the order type shares a row with Good till, so the TP and SL
                   fields and the summary fit a 720 px screen without scrolling (UX 1.4). The full ticket keeps the stacked fields. */}
               {dense && type !== 'market' ? (
-                <div className={`mt-2 grid items-end gap-2 ${type === 'stop_limit' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                <div className="mt-2 grid grid-cols-2 items-end gap-2">
                   {(type === 'stop' || type === 'stop_limit') && (
                     <div>
                       <NumberField label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />
@@ -478,7 +478,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                     </div>
                   )}
                   {!simple && !fundMode && (
-                    <Segmented label={t('broker.tif')} size="sm" className="w-full" value={tif} onChange={(v) => setTif(v as 'gtc' | 'day')} options={[{ value: 'gtc', label: t('broker.gtc') }, { value: 'day', label: t('broker.day') }]} />
+                    // a stop-limit has two prices, so its time in force takes a second line (UX stage 6: the Limit pill no longer runs into it)
+                    <Segmented label={t('broker.tif')} size="sm" className={`w-full${type === 'stop_limit' ? ' col-span-2' : ''}`} value={tif} onChange={(v) => setTif(v as 'gtc' | 'day')} options={[{ value: 'gtc', label: t('broker.gtc') }, { value: 'day', label: t('broker.day') }]} />
                   )}
                 </div>
               ) : (
