@@ -1,15 +1,26 @@
 'use client';
 
 // Palette choice (P2-175, P2-184): saved per device, and the choice is made by the player only; nothing switches by itself.
-// Each button names its palette and its one-line character. The three accent palettes are earned on the daily streak (6D.4,
-// streak.ts milestones at 3, 7 and 14 days): until the player holds the accent, its button is shown disabled with the streak
+// Each card names its palette and its one-line character, and shows a 40 px wallpaper thumbnail, a four-colour strip and a
+// check on the selected card (UX stage 6, item 13). The three accent palettes are earned on the daily streak (6D.4,
+// streak.ts milestones at 3, 7 and 14 days): until the player holds the accent, its card is shown disabled with the streak
 // it needs. Ink & Brass, the default, is always open.
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
+import { Glyph } from './glyphs';
 import { paletteLocked, paletteStreakDays, PALETTE_KEYS, PALETTE_SLUGS, type PaletteSlug } from './palette';
 import { usePalette } from './shellStore';
+import { type ArtSlug, WALLPAPER_PALETTES, wallpaperSvg } from './wallpaper';
 
 const NO_ACCENTS: readonly string[] = [];
+
+/** One wallpaper thumbnail per palette, built once (the SVG is pure, so the data URI never changes). */
+const THUMBS: Record<PaletteSlug, string> = Object.fromEntries(
+  PALETTE_SLUGS.map((slug) => [
+    slug,
+    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(wallpaperSvg({ slug: slug as ArtSlug, w: 80, h: 80, fonts: 'literal' }))}`,
+  ]),
+) as Record<PaletteSlug, string>;
 
 export function PalettePicker() {
   const current = usePalette((s) => s.palette);
@@ -23,17 +34,34 @@ export function PalettePicker() {
         {PALETTE_SLUGS.map((slug: PaletteSlug) => {
           const days = paletteStreakDays(slug);
           const locked = paletteLocked(slug, accents);
+          const selected = current === slug;
+          const colours = WALLPAPER_PALETTES[slug as ArtSlug];
           return (
             <button
               key={slug}
               type="button"
-              aria-pressed={current === slug}
+              aria-pressed={selected}
               disabled={locked}
               onClick={() => setPalette(slug)}
-              className={`os-choice ${current === slug ? 'text-brass' : ''}`}
+              className={`os-choice os-pal ${selected ? 'text-brass' : ''}`}
               data-testid={`palette-${slug}`}
               data-locked={locked ? 'true' : 'false'}
+              data-selected={selected ? 'true' : 'false'}
             >
+              <span className="os-pal-top">
+                <img className="os-pal-thumb" src={THUMBS[slug]} alt="" width={40} height={40} aria-hidden />
+                <span className="os-pal-strip" aria-hidden data-testid={`palette-${slug}-strip`}>
+                  <i style={{ background: colours.bg0 }} />
+                  <i style={{ background: colours.acc }} />
+                  <i style={{ background: colours.faint }} />
+                  <i style={{ background: colours.line }} />
+                </span>
+                {selected && (
+                  <span className="os-pal-check" data-testid={`palette-${slug}-check`}>
+                    <Glyph name="check" size={14} />
+                  </span>
+                )}
+              </span>
               <span className="text-body text-fg">{t(PALETTE_KEYS[slug].name)}</span>
               <span className="text-caption text-fg-muted">
                 {locked && days !== null ? t('settings.palette.locked', { days }) : t(PALETTE_KEYS[slug].line)}
