@@ -4,6 +4,9 @@ import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from
 import { money, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { t } from '@/i18n';
 
+/** The round glyph on the narrow info button (UX stage 6, item 7). */
+const INFO_GLYPH = 'i';
+
 /** Background flash when a value changes; motion explains the change (DESIGN.md §6). */
 export function Flash({ value, children, className = '' }: { value: number; children: ReactNode; className?: string }) {
   const [prev, setPrev] = useState(value);
@@ -463,7 +466,7 @@ export function StatStrip({ intro, items, testId, children }: {
       <Card className="flex items-center gap-2 px-3 py-2" data-testid={testId}>
         <button type="button" onClick={() => setSheet(true)} className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left text-small text-fg-muted" data-testid={testId ? `${testId}-info` : undefined}>
           <span className="truncate">{t('common.infoOpen')}</span>
-          <span aria-hidden className="num h-6 w-6 shrink-0 rounded-full border border-ink-3 text-center leading-6 text-fg-faint">i</span>
+          <span aria-hidden className="num h-6 w-6 shrink-0 rounded-full border border-ink-3 text-center leading-6 text-fg-faint">{INFO_GLYPH}</span>
         </button>
         {children && <div className="flex shrink-0 items-center gap-2">{children}</div>}
         {sheet ? (

@@ -44,7 +44,10 @@ export function TerminalLayout({ chart, dock, watchlist, ticket, watchlistOpen =
   const drag = useRef<{ y: number; h: number } | null>(null);
   // A short screen starts the dock at 140 px (set after mount, so the server markup and the first paint agree).
   useEffect(() => {
-    if (window.innerHeight < DOCK_SHORT_H) setDockH(DOCK_SHORT);
+    const h = window.setTimeout(() => {
+      if (window.innerHeight < DOCK_SHORT_H) setDockH(DOCK_SHORT);
+    }, 0);
+    return () => window.clearTimeout(h);
   }, []);
   const clamp = (h: number) => {
     const body0 = body.current?.clientHeight ?? DOCK_DEFAULT + CHART_MIN;
