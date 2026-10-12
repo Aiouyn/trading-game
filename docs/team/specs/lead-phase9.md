@@ -28,3 +28,28 @@ Binding for Phase 9 on the tech fork (`v1`). Visual polish and the four-palette 
 - **9D Docs (last).** `README.md` for V1 (play, LAN, admin, backups, tests), `docs/TYCOON.md` becomes `docs/V1.md` (what V1 is,
   systems, rules, numbers, links to the phase docs), `docs/V1-PHASE9.md` (this phase's status), and every open item from the
   phase docs gathered into one "Known limits" list.
+
+## Rulings after the 9B and 9C reviews (lead)
+
+- **R-9-1 Clip.** Splitting one order into 720 one-tick clips costs about half the impact of the whole order (upper bound 2.04
+  against the 1.5 gate). Impact becomes path-independent per account: a fill of q in an asset is charged
+  I(cum + q) - I(cum), where cum is the account's same-direction filled quantity in that asset over the current game day
+  and I is the existing square-root law. Gate `self_impact_clip_ratio` (720 clips against 1 order, 20 seeds, one-sided 95%)
+  <= 1.5. Worlds with no player orders keep their fingerprints; worlds with player orders move, and the commit says so.
+- **R-9-2 Unlinked alts: DEFERRED past V1.** An alt with its own device and no money, trade or alliance link cannot be told
+  apart without an account identity layer. Keep the three `it.fails` gates, tag them DEFERRED with this ruling, and list it
+  in Known limits. The per-IP registration limit stays.
+- **R-9-3 Collusion groups.** Device and alliance links are transitive (union-find). Funding links (gifts, loans, fund
+  deposits) and the trade-mirroring score link the two accounts directly only: a third party is not pooled through them.
+- **R-9-4 One basis for rank and boards.** Leaderboards rank on the rank basis (marked net worth minus loans owed and net gifts
+  received), the same as rank-ups. The ECA fine cap and the comeback card keep raw net worth (conservative, no money moves).
+- **R-9-5 Partial defaults stay owed.** A default collected in part keeps the remainder open as a debt the lender can pursue
+  again; it is not written off.
+- **R-9-6 Ops.** Launchpad buzz items and the launch fee are ops: restricted (ad and fresh-start) cash cannot pay them.
+- **R-9-7 Retry lottery from R0: DEFERRED** (Mathis's decision, post-V1). The insider roster's use of the collusion graph
+  (9B.5 item 13) is confirmed.
+- **R-9-8 Load gate at the production tick.** The gate runs at the game's real tick (one game day = one real hour = 720 ticks,
+  5 s a tick), three repeats, all 4,000 welcomed and tick p99 < 2.5 s each time. The 1 s tick is a stress run, reported
+  beside it, not gated.
+- **R-9-9 Rank-time table.** Run the 365-day wealth bot (four styles x 20 seeds, sharded) for days to R1..R4 at p10/p50/p90;
+  a style that never reaches a rank is reported as censored with the share reached.
