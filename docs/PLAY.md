@@ -39,8 +39,8 @@ Accounts, passwords (hashed), the world's history and the command log are all in
 
 ## Backups and restore
 
-- The world makes a backup every real hour and one when it stops, into `world-data/backups/`. Each backup is a complete copy of
-  the database taken at a tick, with the world's latest state saved first, so restoring it brings the world back to that tick.
+- The world makes a backup every real hour and one when it stops, into `world-data/backups/`. Each backup is a copy of the
+  database taken at a tick (the file name says which); restoring it brings the world back to exactly that tick.
 - The folder keeps the newest 48 backups (about two days of hours) and, for each of the last 14 UTC days, the newest backup of
   that day. Older files are removed when a new backup is written.
 - The administrator's page (`/admin`) lists the backups and has a "back up now" button.
@@ -103,8 +103,7 @@ pour repartir d'un monde neuf.
 ## Copies de secours et restauration
 
 - Le monde fait une copie de secours chaque heure réelle et une à l'arrêt, dans `world-data/backups/`. Chaque copie est une
-  image complète de la base prise à un tick, l'état le plus récent étant enregistré d'abord ; la restaurer ramène le monde à ce
-  tick.
+  image de la base prise à un tick (le nom du fichier indique lequel) ; la restaurer ramène le monde exactement à ce tick.
 - Le dossier garde les 48 copies les plus récentes (environ deux jours d'heures) et, pour chacun des 14 derniers jours UTC, la
   copie la plus récente de ce jour. Les fichiers plus anciens sont supprimés à l'écriture d'une nouvelle copie.
 - La page de l'administrateur (`/admin`) liste les copies et propose le bouton « back up now ».

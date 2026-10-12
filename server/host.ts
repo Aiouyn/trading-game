@@ -60,8 +60,8 @@ export class WorldHost {
     this.archivedThrough = days[days.length - 1]!.day;
   }
 
-  /** Load the world from disk, or create it (with warmup history) on first start. */
-  boot(): void {
+  /** Load the world, or create it. `until` (a restored backup) steps the saved world forward to that tick. */
+  boot(opts: { until?: number } = {}): void {
     const snap = this.store.latestSnapshot();
     if (snap) {
       this.g = JSON.parse(snap.data) as GameState;
@@ -84,6 +84,17 @@ export class WorldHost {
         if (this.g.market.tick >= lastTick) break;
         stepGame(this.g);
         this.recordTick();
+      }
+      if (opts.until !== undefined) {
+        // a restored backup: the commands in it are all at or before its tick, so the world steps forward with none to reach it
+        if (opts.until < this.g.market.tick) throw new Error(`cannot go back to tick ${opts.until}: the saved world is at ${this.g.market.tick}`);
+        if (opts.until > this.g.market.tick) {
+          while (this.g.market.tick < opts.until) {
+            stepGame(this.g);
+            this.recordTick();
+          }
+          this.snapshot();
+        }
       }
       this.log(`world loaded at tick ${this.g.market.tick} (${Object.keys(this.g.players).length} players, replayed ${cmds.length} commands)`);
     } else {

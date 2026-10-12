@@ -16,7 +16,8 @@
     "balance:shops": "tsx scripts/balance/shop-gates.ts",
     "world": "tsx server/index.ts",
     "dev:all": "node scripts/dev-all.mjs",
-    "play": "node scripts/play.mjs"
+    "play": "node scripts/play.mjs",
+    "world:restore": "tsx scripts/world-restore.ts"
   },
   "dependencies": {
     "lightweight-charts": "^5.2.1",
