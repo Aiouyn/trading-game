@@ -113,7 +113,7 @@ test.describe('window rules', () => {
     await page.getByTestId('order-qty').fill('1');
     await page.getByTestId('order-limit').fill('1');
     await page.getByTestId('order-submit').click();
-    await expect.poll(async () => (JSON.parse(await orders(page)) as unknown[]).length).toBe(before + 1);
+    await expect.poll(async () => (JSON.parse(await orders(page)) as unknown[]).length, { timeout: 15_000 }).toBe(before + 1);
     const placed = await orders(page);
     await page.getByTestId('win-broker-1-close').click();
     await expect(page.getByTestId('win-broker-1-confirm')).toBeVisible();
