@@ -1,3 +1,4 @@
+import type { Msg } from '@/i18n';
 import { ANALYST_TIERS, DESK, WEEK_DAYS, type AnalystTier } from '@/content/learning';
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { overhead, spendableCash, today } from './core';
@@ -13,7 +14,7 @@ import type { CommandResult, GameState, Player, StepOutput } from './types';
  */
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
-const fail = (error: string): CommandResult => ({ ok: false, error });
+const fail = (error: string, msg?: Msg): CommandResult => ({ ok: false, error, ...(msg ? { msg } : {}) });
 
 const tierName = (t: AnalystTier): string => (t === 'junior' ? 'Junior' : 'Senior');
 const rankName = (id: string): string => RANKS.find((r) => r.id === id)?.name ?? id;
@@ -22,7 +23,7 @@ const rankName = (id: string): string => RANKS.find((r) => r.id === id)?.name ??
 export function hireAnalyst(g: GameState, p: Player, tier: AnalystTier, out: StepOutput | null): CommandResult {
   const spec = ANALYST_TIERS[tier];
   if (!spec) return fail('unknown analyst tier');
-  if (rankIndex(p.rankId) < rankIndex(spec.minRank)) return fail(`analysts open at ${rankName(spec.minRank)}`);
+  if (rankIndex(p.rankId) < rankIndex(spec.minRank)) return fail(`analysts open at ${rankName(spec.minRank)}`, { key: 'work.refuse.analystRank', vars: { rank: `@rank.${spec.minRank}` } });
   if (p.analyst) return fail('you already have an analyst: let them go first');
   if (spendableCash(g, p.id) < spec.weeklyCost) return fail('not enough spendable cash for the first week');
   overhead(g, p.id, spec.weeklyCost, 'analyst salary');
@@ -42,7 +43,7 @@ export function fireAnalyst(g: GameState, p: Player, out: StepOutput | null): Co
 
 /** Unlock the Research Desk once at Operator: the one-time fee and the first week's upkeep, both now. */
 export function unlockDesk(g: GameState, p: Player, out: StepOutput | null): CommandResult {
-  if (rankIndex(p.rankId) < rankIndex(DESK.minRank)) return fail(`the Research Desk opens at ${rankName(DESK.minRank)}`);
+  if (rankIndex(p.rankId) < rankIndex(DESK.minRank)) return fail(`the Research Desk opens at ${rankName(DESK.minRank)}`, { key: 'desk.refuse.opensAt', vars: { rank: `@rank.${DESK.minRank}` } });
   if (p.desk) return fail(p.desk.lapsed ? 'the desk is locked: resume it instead' : 'the desk is already unlocked');
   const total = DESK.unlockCost + DESK.weeklyUpkeep;
   if (spendableCash(g, p.id) < total) return fail('not enough spendable cash to unlock the desk');
@@ -57,7 +58,7 @@ export function unlockDesk(g: GameState, p: Player, out: StepOutput | null): Com
 export function resumeDesk(g: GameState, p: Player, out: StepOutput | null): CommandResult {
   if (!p.desk) return fail('the desk is not unlocked');
   if (!p.desk.lapsed) return fail('the desk is not locked');
-  if (rankIndex(p.rankId) < rankIndex(DESK.minRank)) return fail(`the Research Desk opens at ${rankName(DESK.minRank)}`);
+  if (rankIndex(p.rankId) < rankIndex(DESK.minRank)) return fail(`the Research Desk opens at ${rankName(DESK.minRank)}`, { key: 'desk.refuse.opensAt', vars: { rank: `@rank.${DESK.minRank}` } });
   if (spendableCash(g, p.id) < DESK.weeklyUpkeep) return fail('not enough spendable cash for the week');
   overhead(g, p.id, DESK.weeklyUpkeep, 'research desk');
   p.desk = { ...p.desk, paidThroughDay: today(g) + WEEK_DAYS, lapsed: false };

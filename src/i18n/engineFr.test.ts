@@ -16,7 +16,8 @@ function sources(dir: string): string[] {
 }
 
 describe('engine French table', () => {
-  const world = sources(fileURLToPath(new URL('../world', import.meta.url))).map((f) => readFileSync(f, 'utf8')).join('\n');
+  // a sentence the world or the engine sends (the order reasons come from src/engine/trading.ts)
+  const world = ['../world', '../engine'].flatMap((d) => sources(fileURLToPath(new URL(d, import.meta.url)))).map((f) => readFileSync(f, 'utf8')).join('\n');
 
   it('every key is a sentence the world still sends', () => {
     const stale = Object.keys(ENGINE_FR).filter((k) => !world.includes(k));

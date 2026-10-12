@@ -54,7 +54,7 @@ export function enrichItemOf(item: WireItem, handles?: ReadonlySet<string>): Enr
   if (item.msg) {
     // a nested Msg (7A) is flattened to its key: the prompt only carries flat facts (no number or handle hides inside it)
     const vars = item.msg.vars
-      ? Object.fromEntries(Object.entries(item.msg.vars).map(([k, v]) => [k, typeof v === "object" && v !== null ? v.key : v]))
+      ? Object.fromEntries(Object.entries(item.msg.vars).map(([k, v]) => [k, Array.isArray(v) ? (v as readonly { key: string }[]).map((x) => x.key).join(' · ') : typeof v === "object" && v !== null ? (v as { key: string }).key : v]))
       : undefined;
     facts.msg = vars ? { key: item.msg.key, vars } : { key: item.msg.key };
   }

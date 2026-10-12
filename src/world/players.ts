@@ -244,7 +244,7 @@ export function checkAlerts(g: GameState, p: Player, out: StepOutput): void {
   p.alerts = p.alerts.filter((a) => {
     const px = a.assetId === 'GX' ? gx(g) : priceOf(g, a.assetId);
     const hit = a.above ? px >= a.price : px <= a.price;
-    if (hit) notify(g, out, p.id, { kind: 'alert', tone: 'info', text: `Alert: ${a.assetId} is ${a.above ? 'above' : 'below'} ${a.price.toLocaleString('en-US')} (now ${px.toLocaleString('en-US', { maximumFractionDigits: 4 })})` });
+    if (hit) notify(g, out, p.id, { kind: 'alert', tone: 'info', text: `Alert: ${a.assetId} is ${a.above ? 'above' : 'below'} ${a.price.toLocaleString('en-US')} (now ${px.toLocaleString('en-US', { maximumFractionDigits: 4 })})`, msg: { key: a.above ? 'alert.hit.above' : 'alert.hit.below', vars: { asset: a.assetId, price: `#n:${a.price},0,3`, now: `#n:${px},0,4` } } });
     return !hit;
   });
 }

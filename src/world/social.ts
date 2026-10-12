@@ -1,3 +1,4 @@
+import type { Msg } from '@/i18n';
 import { recordGift } from './collusion';
 import { rankIndex } from '@/content/lifestyle';
 import {
@@ -6,7 +7,7 @@ import {
 import type { ChatMessage, CommandResult, Deal, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
-const fail = (error: string): CommandResult => ({ ok: false, error });
+const fail = (error: string, msg?: Msg): CommandResult => ({ ok: false, error, ...(msg ? { msg } : {}) });
 
 // ================================================================ chat
 
@@ -41,7 +42,7 @@ export function postChat(g: GameState, p: Player, channel: string, textIn: strin
   out?.chat.push({ ...m, ...{ channel } } as ChatMessage);
   if (channel.startsWith('dm:')) {
     const [, a, b] = channel.split(':');
-    notify(g, out, a === p.id ? b! : a!, { kind: 'system', tone: 'info', text: `Message from ${p.handle}: ${text.slice(0, 80)}` });
+    notify(g, out, a === p.id ? b! : a!, { kind: 'system', tone: 'info', text: `Message from ${p.handle}: ${text.slice(0, 80)}`, msg: { key: 'social.msg.dm', vars: { handle: p.handle, text: text.slice(0, 80) } } });
   }
   return ok(m);
 }
@@ -59,7 +60,7 @@ export function createAlliance(g: GameState, p: Player, name: string, tag: strin
   if (n.length < 3) return fail('name: 3+ characters');
   if (!/^[A-Z0-9]{2,5}$/.test(t)) return fail('tag: 2-5 letters or digits');
   if (Object.values(g.alliances).some((a) => a.name.toLowerCase() === n.toLowerCase() || a.tag === t)) return fail('name or tag taken');
-  if (cashOf(g, p.id) < ALLIANCE_COST) return fail(`founding costs $${ALLIANCE_COST.toLocaleString('en-US')}`);
+  if (cashOf(g, p.id) < ALLIANCE_COST) return fail(`founding costs $${ALLIANCE_COST.toLocaleString('en-US')}`, { key: 'social.refuse.foundCost', vars: { cost: `#n:${ALLIANCE_COST},0,0` } });
   debit(g, p.id, ALLIANCE_COST, 'alliance charters');
   g.allianceSeq++;
   const id = `al${g.allianceSeq}`;
@@ -76,7 +77,7 @@ export function joinAlliance(g: GameState, p: Player, allianceId: string, out: S
   if (Object.keys(a.members).length >= ALLIANCE_MAX) return fail('the alliance is full');
   a.members[p.id] = 'member';
   p.allianceId = allianceId;
-  for (const m of Object.keys(a.members)) if (m !== p.id) notify(g, out, m, { kind: 'alliance', tone: 'info', text: `${p.handle} joined ${a.name}.` });
+  for (const m of Object.keys(a.members)) if (m !== p.id) notify(g, out, m, { kind: 'alliance', tone: 'info', text: `${p.handle} joined ${a.name}.`, msg: { key: 'social.msg.joined', vars: { handle: p.handle, alliance: a.name } } });
   return ok();
 }
 
@@ -116,7 +117,7 @@ export function allianceWithdraw(g: GameState, p: Player, amount: number): Comma
   a.treasury -= amt;
   const acct = g.market.accounts[p.id]!;
   g.market.accounts[p.id] = { ...acct, cash: acct.cash + amt, startingCash: acct.startingCash + amt };
-  for (const m of Object.keys(a.members)) if (m !== p.id) notify(g, null, m, { kind: 'alliance', tone: 'warn', text: `${p.handle} withdrew $${Math.round(amt).toLocaleString('en-US')} from the ${a.name} treasury.` });
+  for (const m of Object.keys(a.members)) if (m !== p.id) notify(g, null, m, { kind: 'alliance', tone: 'warn', text: `${p.handle} withdrew $${Math.round(amt).toLocaleString('en-US')} from the ${a.name} treasury.`, msg: { key: 'social.msg.withdrew', vars: { handle: p.handle, amount: `#n:${Math.round(amt)},0,0`, alliance: a.name } } });
   return ok();
 }
 
@@ -167,14 +168,17 @@ export function offerDeal(g: GameState, p: Player, kind: Deal['kind'], toId: str
   g.deals[id] = { id, kind, fromId: p.id, toId, amount, rate: kind === 'loan' ? rate : 0, termDays: kind === 'loan' ? Math.round(termDays) : 0, status: 'offered', createdTick: g.market.tick, paid: 0, note: sanitize(note, 120) };
   notify(g, out, toId, { kind: 'deal', tone: 'brass', text: kind === 'loan'
     ? `${p.handle} offers you a loan of $${amount.toLocaleString('en-US')} at ${(rate * 100).toFixed(1)}% for ${termDays} days.`
-    : `${p.handle} wants to send you $${amount.toLocaleString('en-US')}.` });
+    : `${p.handle} wants to send you $${amount.toLocaleString('en-US')}.`,
+    msg: kind === 'loan'
+      ? { key: 'deal.msg.loanOffer', vars: { handle: p.handle, amount: `#n:${amount},0,3`, rate: `#n:${(rate * 100).toFixed(1)},1,1`, days: termDays } }
+      : { key: 'deal.msg.giftOffer', vars: { handle: p.handle, amount: `#n:${amount},0,3` } } });
   return ok({ id });
 }
 
 export function respondDeal(g: GameState, p: Player, dealId: string, accept: boolean, out: StepOutput | null): CommandResult {
   const d = g.deals[dealId];
   if (!d || d.toId !== p.id || d.status !== 'offered') return fail('no such offer');
-  if (!accept) { d.status = 'declined'; notify(g, out, d.fromId, { kind: 'deal', tone: 'info', text: `${p.handle} declined your offer.` }); return ok(); }
+  if (!accept) { d.status = 'declined'; notify(g, out, d.fromId, { kind: 'deal', tone: 'info', text: `${p.handle} declined your offer.`, msg: { key: 'deal.msg.declined', vars: { handle: p.handle } } }); return ok(); }
   if (spendableCash(g, d.fromId) < d.amount) { d.status = 'cancelled'; return fail('the sender no longer has the cash'); }
   if (d.kind === 'transfer') {
     const tax = d.amount * TRANSFER_TAX;
@@ -183,14 +187,14 @@ export function respondDeal(g: GameState, p: Player, dealId: string, accept: boo
     debit(g, d.fromId, tax, 'transfer tax');
     shiftBaselines(g, d.fromId, -tax);
     d.status = 'repaid';
-    notify(g, out, d.fromId, { kind: 'deal', tone: 'info', text: `${p.handle} accepted your transfer.` });
+    notify(g, out, d.fromId, { kind: 'deal', tone: 'info', text: `${p.handle} accepted your transfer.`, msg: { key: 'deal.msg.transferAccepted', vars: { handle: p.handle } } });
     return ok();
   }
   transfer(g, d.fromId, d.toId, d.amount);
   d.status = 'active';
   d.startTick = g.market.tick;
   d.outstanding = d.amount;
-  notify(g, out, d.fromId, { kind: 'deal', tone: 'gain', text: `${p.handle} accepted your loan of $${d.amount.toLocaleString('en-US')}.` });
+  notify(g, out, d.fromId, { kind: 'deal', tone: 'gain', text: `${p.handle} accepted your loan of $${d.amount.toLocaleString('en-US')}.`, msg: { key: 'deal.msg.loanAccepted', vars: { handle: p.handle, amount: `#n:${d.amount},0,3` } } });
   return ok();
 }
 
@@ -211,7 +215,7 @@ export function repayDeal(g: GameState, p: Player, dealId: string, amount: numbe
   d.paid += amt;
   if (d.outstanding! <= 0.005) {
     d.status = 'repaid';
-    notify(g, out, d.fromId, { kind: 'deal', tone: 'gain', text: `${p.handle} repaid your loan in full.` });
+    notify(g, out, d.fromId, { kind: 'deal', tone: 'gain', text: `${p.handle} repaid your loan in full.`, msg: { key: 'deal.msg.repaidInFull', vars: { handle: p.handle } } });
     p.reputation += 1;
   }
   return ok();
@@ -229,12 +233,12 @@ export function dealsDay(g: GameState, out: StepOutput): void {
     if (can > 0) { transfer(g, d.toId, d.fromId, can); d.outstanding! -= can; d.paid += can; }
     if (d.outstanding! <= 0.005) {
       d.status = 'repaid';
-      notify(g, out, d.fromId, { kind: 'deal', tone: 'gain', text: `Loan to ${borrower?.handle ?? 'a player'} collected at maturity.` });
+      notify(g, out, d.fromId, { kind: 'deal', tone: 'gain', text: `Loan to ${borrower?.handle ?? 'a player'} collected at maturity.`, msg: { key: 'deal.msg.collected', vars: { borrower: borrower?.handle ?? '@deal.somePlayer' } } });
     } else {
       d.status = 'defaulted';
       if (borrower) borrower.reputation -= 5;
-      notify(g, out, d.fromId, { kind: 'deal', tone: 'loss', text: `${borrower?.handle ?? 'A player'} defaulted on $${Math.round(d.outstanding!).toLocaleString('en-US')}. You can take it to court.` });
-      notify(g, out, d.toId, { kind: 'deal', tone: 'loss', text: `You defaulted on a loan. The lender can sue.` });
+      notify(g, out, d.fromId, { kind: 'deal', tone: 'loss', text: `${borrower?.handle ?? 'A player'} defaulted on $${Math.round(d.outstanding!).toLocaleString('en-US')}. You can take it to court.`, msg: { key: 'deal.msg.defaulted', vars: { borrower: borrower?.handle ?? '@deal.somePlayerCap', amount: `#n:${Math.round(d.outstanding!)},0,0` } } });
+      notify(g, out, d.toId, { kind: 'deal', tone: 'loss', text: `You defaulted on a loan. The lender can sue.`, msg: { key: 'deal.msg.defaultedYou' } });
     }
   }
   void today;

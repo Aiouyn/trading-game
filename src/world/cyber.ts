@@ -39,6 +39,14 @@ const SCAN_S = [0, 0.15, 0.2, 0.25, 0.3, 0.35];
 const LEGIT_SIZE: [number, number][] = [[2, 4], [4, 8], [8, 15], [15, 30], [30, 60], [60, 120]];
 const LEGIT_CHURN = [0.5, 1, 2.5, 5, 10, 20];
 const KINDS: ConnectionEntry['kind'][] = ['data feed', 'broker API', 'analytics', 'backup', 'partner', 'monitoring'];
+/** a connection kind and a model kind as message keys (the notices name them in the viewer's language) */
+const CONNECTION_KEY: Record<ConnectionEntry['kind'], string> = {
+  'data feed': 'security.kind.feed', 'broker API': 'security.kind.broker', analytics: 'security.kind.analytics',
+  backup: 'security.kind.backup', partner: 'security.kind.partner', monitoring: 'security.kind.monitoring',
+};
+const MODEL_KEY: Record<'trading' | 'analyst' | 'security', string> = {
+  trading: 'security.modelKind.trading', analyst: 'security.modelKind.analyst', security: 'security.modelKind.security',
+};
 const CODE_A = ['amber', 'basalt', 'cobalt', 'delta', 'ember', 'fjord', 'granite', 'harbor', 'indigo', 'juniper', 'kestrel', 'lumen', 'meridian', 'nimbus', 'onyx', 'pallas', 'quartz', 'raven', 'sable', 'tundra', 'umber', 'vesper', 'willow', 'xenon', 'yarrow', 'zephyr'];
 const CODE_B = ['relay', 'node', 'gate', 'link', 'bridge', 'sync', 'mirror', 'vault', 'pipe', 'lens'];
 
@@ -172,7 +180,7 @@ function scan(g: GameState, pid: string, s: number, out: StepOutput | null): num
     if (rng.chance(odds)) {
       e.flagged = true;
       found++;
-      notify(g, out, pid, { kind: 'security', tone: 'warn', text: `Your defense AI flagged connection ${e.codename} as hostile.` });
+      notify(g, out, pid, { kind: 'security', tone: 'warn', text: `Your defense AI flagged connection ${e.codename} as hostile.`, msg: { key: 'security.msg.flagged', vars: { codename: e.codename } } });
     }
   }
   return found;
@@ -195,7 +203,7 @@ export function disconnect(g: GameState, pid: string, entryId: string, out: Step
   delete g.cyber.entries[entryId];
   touch(g);
   if (e.hostile) endSession(g, e, true, out);
-  else notify(g, out, pid, { kind: 'security', tone: 'info', text: `Disconnected ${e.codename}. It was a legit ${e.kind}; its partner contract ends.` });
+  else notify(g, out, pid, { kind: 'security', tone: 'info', text: `Disconnected ${e.codename}. It was a legit ${e.kind}; its partner contract ends.`, msg: { key: 'security.msg.disconnected', vars: { codename: e.codename, kind: `@${CONNECTION_KEY[e.kind]}` } } });
   return { ok: true, data: { hostile: !!e.hostile } };
 }
 
@@ -213,7 +221,7 @@ export function lockdown(g: GameState, pid: string, out: StepOutput | null): Com
   d.lockdownUntil = g.market.tick + 2 * TPD;
   d.shieldUntil = g.market.tick + 14 * TPD;
   for (const b of labFor(g, pid).bots) b.lastRunTick = d.lockdownUntil;
-  notify(g, out, pid, { kind: 'security', tone: 'warn', text: `Lockdown: every connection cut, your AIs pause for 2 days, then you are shielded from new sessions for 12.` });
+  notify(g, out, pid, { kind: 'security', tone: 'warn', text: `Lockdown: every connection cut, your AIs pause for 2 days, then you are shielded from new sessions for 12.`, msg: { key: 'security.msg.lockdown' } });
   return { ok: true };
 }
 
@@ -231,15 +239,15 @@ function endSession(g: GameState, e: ConnectionEntry, byVictim: boolean, out: St
     lab.modelSeq++;
     const residue = Math.max(0.03, 0.7 * (0.4 + 0.6 * h.progress / 0.85));
     lab.models.push({ id: `m${lab.modelSeq}`, name: `Distilled ${teacher.name}`, kind: teacher.kind, mcs: teacher.mcs * h.progress * 0.85, createdTick: g.market.tick, residue });
-    notify(g, out, h.attackerId, { kind: 'security', tone: 'gain', text: `Session ${e.codename} closed. You distilled ${(h.progress * 100).toFixed(0)}% of a ${teacher.kind} model.` });
+    notify(g, out, h.attackerId, { kind: 'security', tone: 'gain', text: `Session ${e.codename} closed. You distilled ${(h.progress * 100).toFixed(0)}% of a ${teacher.kind} model.`, msg: { key: 'security.msg.distilledOf', vars: { codename: e.codename, pct: `#n:${(h.progress * 100).toFixed(0)},0,0`, kind: `@${MODEL_KEY[teacher.kind]}` } } });
   } else {
-    notify(g, out, h.attackerId, { kind: 'security', tone: 'loss', text: `Session ${e.codename} was closed before it copied anything useful.` });
+    notify(g, out, h.attackerId, { kind: 'security', tone: 'loss', text: `Session ${e.codename} was closed before it copied anything useful.`, msg: { key: 'security.msg.closedEarlyOf', vars: { codename: e.codename } } });
   }
   if (byVictim) {
     const pts = st.evidence + (e.flagged ? 10 : 0);
     g.cyber.evidence[key] = (g.cyber.evidence[key] ?? 0) + pts;
     g.players[e.ownerId]!.stats.sessionsCut++;
-    notify(g, out, e.ownerId, { kind: 'security', tone: 'gain', text: `Cut hostile session ${e.codename}. Evidence +${pts} against ${g.players[h.attackerId]?.handle ?? 'the attacker'}; you can file in court.` });
+    notify(g, out, e.ownerId, { kind: 'security', tone: 'gain', text: `Cut hostile session ${e.codename}. Evidence +${pts} against ${g.players[h.attackerId]?.handle ?? 'the attacker'}; you can file in court.`, msg: { key: 'security.msg.cut', vars: { codename: e.codename, pts: `#n:${pts},0,0`, who: g.players[h.attackerId]?.handle ?? '@security.attacker' } } });
   }
 }
 
@@ -293,15 +301,15 @@ export function plantSession(g: GameState, pid: string, victimId: string, streng
     p.notoriety += 1;
     // a successful session on a covered insider of a listed stock hands the attacker a tip (M16 v1, tips.ts)
     queueInsiderTip(g, pid, victimId);
-    notify(g, out, pid, { kind: 'security', tone: 'gain', text: `${st.label} session planted on ${v.handle}'s systems as ${e.codename}.` });
+    notify(g, out, pid, { kind: 'security', tone: 'gain', text: `${st.label} session planted on ${v.handle}'s systems as ${e.codename}.`, msg: { key: 'security.msg.plantedAs', vars: { label: `@security.strength.${strength}.label`, target: v.handle, codename: e.codename } } });
   } else {
     const detected = rng.chance(0.5);
     g.cyber.ops.unshift({ id: opId, attackerId: pid, victimId, strength, modelId, tick, result: detected ? 'detected' : 'failed' });
-    notify(g, out, pid, { kind: 'security', tone: 'loss', text: `The operation against ${v.handle} failed${detected ? ' and was detected' : ''}.` });
+    notify(g, out, pid, { kind: 'security', tone: 'loss', text: `The operation against ${v.handle} failed${detected ? ' and was detected' : ''}.`, msg: { key: detected ? 'security.msg.failedDetected' : 'security.msg.failed', vars: { target: v.handle } } });
     if (detected) {
       const attributed = rng.chance(0.3);
       g.cyber.evidence[`${pid}>${victimId}`] = (g.cyber.evidence[`${pid}>${victimId}`] ?? 0) + 15;
-      notify(g, out, victimId, { kind: 'security', tone: 'warn', text: `Your defenses blocked an intrusion attempt${attributed ? ` traced to ${p.handle}` : ''}.` });
+      notify(g, out, victimId, { kind: 'security', tone: 'warn', text: `Your defenses blocked an intrusion attempt${attributed ? ` traced to ${p.handle}` : ''}.`, msg: attributed ? { key: 'security.msg.blockedTraced', vars: { who: p.handle } } : { key: 'security.msg.blocked' } });
     }
   }
   if (g.cyber.ops.length > 200) g.cyber.ops.length = 200;

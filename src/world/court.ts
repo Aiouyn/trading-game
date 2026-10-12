@@ -10,6 +10,7 @@ import { ECA_TUNE } from './eca-tune';
 import { usd } from './text/template';
 import { textProvider } from './text';
 import type { CommandResult, CourtCase, GameState, Player, StepOutput } from './types';
+import type { Msg } from '@/i18n';
 
 /**
  * Courts (bible 03 §8–§10). A case needs evidence points against a filing bar (civil 40,
@@ -23,6 +24,10 @@ export const COUNSEL_COST = [0, 5_000, 25_000, 120_000];
 /** The flat filing fee; counsel is added on top (COUNSEL_COST). The Legal CommitBar shows the same figure. */
 export const FILING_FEE = 2_000;
 const HEARING_DAYS = 2;
+/** the claim's name as a message key (the filing notice names it in the viewer's language) */
+const CLAIM_KEY: Record<string, string> = {
+  'cyber intrusion': 'court.claim.intrusion', 'model theft': 'court.claim.theft', 'loan default': 'court.claim.default', 'contract breach': 'court.claim.breach',
+};
 
 // the fine scale lives in court-scale.ts, so the Launchpad's rug verdict reads the same table (lead-launchpad.md L5)
 
@@ -82,7 +87,7 @@ export function fileCase(g: GameState, pid: string, defendantId: string, kind: C
   if (cashOf(g, pid) < filingFee) return { ok: false, error: 'not enough cash for fees' };
   const evidence = evidenceFor(g, pid, defendantId, kind);
   const bar = kind === 'model theft' ? 55 : 40;
-  if (evidence < bar * 0.5) return { ok: false, error: `not enough evidence (${Math.round(evidence)} of ${bar} points)` };
+  if (evidence < bar * 0.5) return { ok: false, error: `not enough evidence (${Math.round(evidence)} of ${bar} points)`, msg: { key: 'court.refuse.evidence', vars: { n: `#n:${Math.round(evidence)},0,0`, bar } } };
   debit(g, pid, filingFee, 'legal fees');
   g.court.seq++;
   const id = `case${g.court.seq}`;
@@ -92,7 +97,7 @@ export function fileCase(g: GameState, pid: string, defendantId: string, kind: C
   };
   // evidence is consumed by the case
   delete g.cyber.evidence[`${defendantId}>${pid}`];
-  notify(g, out, defendantId, { kind: 'court', tone: 'warn', text: `${g.players[pid]!.handle} is suing you for ${kind}. Hearing in ${HEARING_DAYS} game days. You can offer a settlement.` });
+  notify(g, out, defendantId, { kind: 'court', tone: 'warn', text: `${g.players[pid]!.handle} is suing you for ${kind}. Hearing in ${HEARING_DAYS} game days. You can offer a settlement.`, msg: { key: 'court.msg.suing', vars: { plaintiff: g.players[pid]!.handle, claim: `@${CLAIM_KEY[kind]!}`, days: HEARING_DAYS } } });
   pushWire(g, out, {
     kind: 'court', tag: 'Court', tone: 'warn', text: `${g.players[pid]!.handle} sues ${d.handle} for ${kind}`,
     msg: textProvider.newsroom({ kind: 'lawsuit', id: `${id}:filed`, handle: g.players[pid]!.handle, defendant: d.handle, law: kind }),
@@ -105,7 +110,7 @@ export function offerSettlement(g: GameState, pid: string, caseId: string, amoun
   if (!c || c.defendantId !== pid || c.status !== 'filed') return { ok: false, error: 'no open case against you' };
   if (!(amount > 0) || spendableCash(g, pid) < amount) return { ok: false, error: 'enter an amount you can pay' };
   c.settlementOffer = amount;
-  notify(g, out, c.plaintiffId, { kind: 'court', tone: 'info', text: `${g.players[pid]!.handle} offers $${Math.round(amount).toLocaleString('en-US')} to settle.` });
+  notify(g, out, c.plaintiffId, { kind: 'court', tone: 'info', text: `${g.players[pid]!.handle} offers $${Math.round(amount).toLocaleString('en-US')} to settle.`, msg: { key: 'court.msg.offer', vars: { offerer: g.players[pid]!.handle, amount: `#n:${Math.round(amount)},0,0` } } });
   return { ok: true };
 }
 
@@ -117,7 +122,8 @@ export function acceptSettlement(g: GameState, pid: string, caseId: string, out:
   c.status = 'settled';
   c.damages = amt;
   c.verdictText = `Settled for $${Math.round(amt).toLocaleString('en-US')}`;
-  notify(g, out, c.defendantId, { kind: 'court', tone: 'info', text: `Your settlement was accepted.` });
+  c.verdictMsg = { key: 'court.verdict.settled', vars: { amount: `#n:${Math.round(amt)},0,0` } };
+  notify(g, out, c.defendantId, { kind: 'court', tone: 'info', text: `Your settlement was accepted.`, msg: { key: 'court.msg.settlementAccepted' } });
   return { ok: true };
 }
 
@@ -136,8 +142,10 @@ export function courtTick(g: GameState, out: StepOutput): void {
     if (!won) {
       c.status = 'lost';
       c.verdictText = `Case dismissed (${Math.round(p * 100)}% odds on the evidence).`;
-      notify(g, out, c.plaintiffId, { kind: 'court', tone: 'loss', text: `You lost the case against ${df.handle}. ${c.verdictText}` });
-      notify(g, out, c.defendantId, { kind: 'court', tone: 'gain', text: `The case brought by ${pl.handle} was dismissed.` });
+      const dismissed: Msg = { key: 'court.verdict.dismissed', vars: { pct: `#n:${Math.round(p * 100)},0,0` } };
+      c.verdictMsg = dismissed;
+      notify(g, out, c.plaintiffId, { kind: 'court', tone: 'loss', text: `You lost the case against ${df.handle}. ${c.verdictText}`, msg: { key: 'court.msg.lostCase', vars: { handle: df.handle, verdict: dismissed } } });
+      notify(g, out, c.defendantId, { kind: 'court', tone: 'gain', text: `The case brought by ${pl.handle} was dismissed.`, msg: { key: 'court.msg.dismissedFor', vars: { handle: pl.handle } } });
       continue;
     }
     c.status = 'won';
@@ -169,9 +177,12 @@ export function courtTick(g: GameState, out: StepOutput): void {
     df.reputation -= 5;
     df.notoriety += 2;
     if (c.kind === 'model theft' && c.evidence >= 70) df.heldUntil = g.market.tick + 24 * TPD;
-    c.verdictText = `Liable: $${Math.round(damages).toLocaleString('en-US')} in damages and a $${Math.round(fine).toLocaleString('en-US')} fine${df.heldUntil > g.market.tick ? '; assets held for 24 game days' : ''}.`;
-    notify(g, out, c.plaintiffId, { kind: 'court', tone: 'gain', text: `You won against ${df.handle}. ${c.verdictText}` });
-    notify(g, out, c.defendantId, { kind: 'court', tone: 'loss', text: `Verdict for ${pl.handle}. ${c.verdictText}` });
+    const held = df.heldUntil > g.market.tick;
+    c.verdictText = `Liable: $${Math.round(damages).toLocaleString('en-US')} in damages and a $${Math.round(fine).toLocaleString('en-US')} fine${held ? '; assets held for 24 game days' : ''}.`;
+    const liable: Msg = { key: held ? 'court.verdict.liableHeld' : 'court.verdict.liable', vars: { damages: `#n:${Math.round(damages)},0,0`, fine: `#n:${Math.round(fine)},0,0` } };
+    c.verdictMsg = liable;
+    notify(g, out, c.plaintiffId, { kind: 'court', tone: 'gain', text: `You won against ${df.handle}. ${c.verdictText}`, msg: { key: 'court.msg.wonCase', vars: { handle: df.handle, verdict: liable } } });
+    notify(g, out, c.defendantId, { kind: 'court', tone: 'loss', text: `Verdict for ${pl.handle}. ${c.verdictText}`, msg: { key: 'court.msg.verdictAgainst', vars: { handle: pl.handle, verdict: liable } } });
     pushWire(g, out, {
       kind: 'court', tag: 'Verdict', tone: 'loss', text: `Court finds ${df.handle} liable for ${c.kind}; ${pl.handle} awarded damages`,
       msg: textProvider.newsroom({ kind: 'verdict', id: `${c.id}:verdict`, defendant: df.handle, plaintiff: pl.handle, law: c.kind }),
@@ -217,6 +228,7 @@ function fundVerdict(g: GameState, c: CourtCase, out: StepOutput | null, df: Pla
   say(g, out, c.plaintiffId, 'court', 'gain', { key: 'funds.verdict.won', vars: { player: df.handle, restored: usd(paid), fine: usd(fine) } });
   say(g, out, c.defendantId, 'court', 'loss', { key: 'funds.verdict.lost', vars: { player: pl.handle, restored: usd(paid), fine: usd(fine) } });
   c.verdictText = `Restored ${usd(paid)} to the fund and a ${usd(fine)} fine.`;
+  c.verdictMsg = { key: 'court.verdict.restored', vars: { restored: `#n:${paid},2,2`, fine: `#n:${fine},2,2` } };
 }
 
 /** R-6C-2: the insider fine's floor (the S5 scale's $100k floor does not apply to the ECA's insider penalty any more). */

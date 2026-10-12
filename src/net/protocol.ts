@@ -1,4 +1,5 @@
 import type { Bar } from '@/game/history';
+import type { Msg } from '@/i18n';
 import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
 import type { AssetDef } from '@/engine';
 import type { DirectoryRow, MarketFrame, PlayerView, PublicState } from '@/world/view';
@@ -83,7 +84,7 @@ export type ServerMsg =
     /** the overlay lines that landed since the last tick (absent when none did) */
     textOverlay?: TextOverlayMap;
   }
-  | { t: 'ack'; id: number; ok: boolean; error?: string; data?: unknown; me?: PlayerView }
+  | { t: 'ack'; id: number; ok: boolean; error?: string; msg?: Msg; data?: unknown; me?: PlayerView }
   | { t: 'history'; id: number; data: HistoryPayload | null }
   | { t: 'nw-history'; id: number; data: NwHistoryPayload }
   | { t: 'lp-page'; id: number; data: LpPage | null }

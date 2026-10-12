@@ -9,7 +9,7 @@ import { useGame } from '@/game/store';
 import { COUNSEL_COST, FILING_FEE } from '@/world/court';
 import type { EcaInquiryView } from '@/world/eca';
 import type { CourtCase } from '@/world/types';
-import { t } from '@/i18n';
+import { t, tm } from '@/i18n';
 import { Button, Card, CardHeader, Chip, CommitBar, NumberField, Select, SpendReview, StatStrip, ticksLabel } from '@/components/ui';
 
 const COUNSEL_FEES = ['0', '1', '2', '3'] as const;
@@ -155,7 +155,7 @@ function CaseRow({ c, me, name, tick }: { c: CourtCase; me: string; name: (id: s
         {t('legal.case.filed', { when: clockLabel(c.filedTick, 720), evidence: Math.round(c.evidence), bar: c.bar })}
         {c.status === 'filed' ? ` · ${t('legal.case.hearing', { when: ticksLabel(c.hearingTick - tick) })}` : ''}
       </p>
-      {c.verdictText && <p className="mt-1 text-small text-fg-muted">{c.verdictText}</p>}
+      {c.verdictText && <p className="mt-1 text-small text-fg-muted">{tm(c.verdictMsg, c.verdictText)}</p>}
       {c.status === 'filed' && !plaintiff && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <NumberField label={t('legal.settle.for')} value={offer} onChange={setOffer} suffix="$" className="h-9 w-56" testId={`case-offer-${c.id}`} />

@@ -15,7 +15,7 @@ import type { CommandResult, GameState, Player, WireItem } from './types';
  */
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
-const fail = (error: string): CommandResult => ({ ok: false, error });
+const fail = (error: string, msg?: Msg): CommandResult => ({ ok: false, error, ...(msg ? { msg } : {}) });
 
 /** The first archived day and the last closed day (null before the first close). The desk and the journal share it. */
 export interface DeskWindow {
@@ -89,7 +89,7 @@ function dossierOf(g: GameState, assetId: string, from: number, to: number, no: 
 export function deskQuery(g: GameState, p: Player, assetId: string, fromDay: number, toDay: number): CommandResult {
   if (!p.desk) return fail('unlock the Research Desk first');
   if (p.desk.lapsed) return fail('the Research Desk is locked: resume it first');
-  if (rankIndex(p.rankId) < rankIndex(DESK.minRank)) return fail(`the Research Desk opens at ${RANKS[rankIndex(DESK.minRank)]!.name}`);
+  if (rankIndex(p.rankId) < rankIndex(DESK.minRank)) return fail(`the Research Desk opens at ${RANKS[rankIndex(DESK.minRank)]!.name}`, { key: 'desk.refuse.opensAt', vars: { rank: `@rank.${DESK.minRank}` } });
   const w = deskWindow(g);
   if (w.lastClosed === null) return fail('no day has closed yet');
   if (!Number.isFinite(fromDay) || !Number.isFinite(toDay)) return fail('choose two game days');
@@ -102,7 +102,7 @@ export function deskQuery(g: GameState, p: Player, assetId: string, fromDay: num
   try {
     dossier = dossierOf(g, assetId, from, to, no);
   } catch {
-    return fail(`${assetId} has no closed days in that window`);
+    return fail(`${assetId} has no closed days in that window`, { key: 'desk.refuse.noDays', vars: { asset: assetId } });
   }
   L.deskSeq = no;
   const file: DeskFile = { no, assetId, from: dossier.from, to: dossier.to, move: dossier.move, dossier };
