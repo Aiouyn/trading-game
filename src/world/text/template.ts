@@ -21,7 +21,9 @@ export function renderMsg(m: Msg, locale: Locale): string {
   const plural = typeof count === 'number' ? `${m.key}_${count === 1 ? 'one' : 'other'}` : null;
   const s = (plural && (DICTS[locale][plural] ?? DICTS.en[plural])) || DICTS[locale][m.key] || DICTS.en[m.key] || m.key;
   const ref = (v: MsgVar): string => {
-    if (typeof v === 'object') return renderMsg(v, locale);
+    // a list of descriptors (the lab's signal picks) joins with the same separator the client uses
+    if (Array.isArray(v)) return (v as readonly Msg[]).map((x) => renderMsg(x, locale)).join(' · ');
+    if (typeof v === 'object') return renderMsg(v as Msg, locale);
     return typeof v === 'string' && v.startsWith('@') ? renderMsg({ key: v.slice(1) }, locale) : String(v);
   };
   return s.replace(/\{(\w+)\}/g, (whole, k: string) => (m.vars && m.vars[k] !== undefined ? ref(m.vars[k]!) : whole));

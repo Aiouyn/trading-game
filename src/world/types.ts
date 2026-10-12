@@ -883,6 +883,8 @@ export type Command =
 export interface CommandResult {
   ok: boolean;
   error?: string;
+  /** the refusal as a message descriptor (en.json / fr.json), so a refusal with a number or a name reads in the viewer's language */
+  msg?: Msg;
   /** e.g. the placed order, the new business id */
   data?: unknown;
 }

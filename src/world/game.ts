@@ -164,6 +164,9 @@ export function stepGame(g: GameState): StepOutput {
     notify(g, out, o.playerId, {
       kind: 'order', tone: o.status === 'expired' ? 'info' : 'loss',
       text: o.status === 'expired' ? `${what} expired at the close` : `${what} closed: ${o.rejectReason ?? o.status}`,
+      msg: o.status === 'expired'
+        ? { key: 'order.msg.expired', vars: { side: `@order.side.${o.side}`, qty: `#n:${+o.qty.toFixed(4)},0,4`, asset: o.assetId } }
+        : { key: 'order.msg.closedWith', vars: { side: `@order.side.${o.side}`, qty: `#n:${+o.qty.toFixed(4)},0,4`, asset: o.assetId, reason: `!${o.rejectReason ?? o.status}` } },
     });
   }
 
@@ -471,7 +474,7 @@ function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOut
       debit(g, pid, amt, 'philanthropy');
       p.stats.donations += amt;
       p.reputation += Math.log10(amt) - 1;
-      notify(g, out, pid, { kind: 'system', tone: 'brass', text: `You gave $${Math.round(amt).toLocaleString('en-US')} to ${sanitize(cmd.cause, 40) || 'charity'}. Reputation up.` });
+      notify(g, out, pid, { kind: 'system', tone: 'brass', text: `You gave $${Math.round(amt).toLocaleString('en-US')} to ${sanitize(cmd.cause, 40) || 'charity'}. Reputation up.`, msg: { key: 'charity.msg.gave', vars: { amount: `#n:${Math.round(amt)},0,0`, cause: sanitize(cmd.cause, 40) || '@charity.fallback' } } });
       return { ok: true };
     }
     case 'analyst.hire': return hireAnalyst(g, p, cmd.tier, out);

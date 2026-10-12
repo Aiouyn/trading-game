@@ -25,8 +25,12 @@ const DICTS: Record<Locale, Dict> = { en: en as Dict, fr: fr as Dict };
 
 let current: Locale = 'en';
 
-/** A message variable: a number, a string ("@key" names another key), or another message rendered in the same locale. */
-export type MsgVar = string | number | Msg;
+/**
+ * A message variable: a number, a string ("@key" names another key, "#n:v,min,max" is a number in the viewer's locale,
+ * "!text" is an engine sentence through engineFr.ts), another message rendered in the same locale, or a list of them
+ * joined with " · " (the lab's signal picks).
+ */
+export type MsgVar = string | number | Msg | readonly Msg[];
 
 export interface Msg {
   key: string;
@@ -63,10 +67,13 @@ export function resolveRefs(locale: Locale, vars?: Record<string, MsgVar>): Reco
   if (!vars) return undefined;
   const out: Record<string, string | number> = {};
   for (const [k, v] of Object.entries(vars)) {
-    if (typeof v === 'object') out[k] = translate(locale, v.key, v.vars);
-    else if (typeof v !== 'string') out[k] = v;
-    else if (v.startsWith('@')) out[k] = translate(locale, v.slice(1));
+    if (Array.isArray(v)) out[k] = (v as readonly Msg[]).map((m) => translate(locale, m.key, m.vars)).join(' · ');
+    else if (typeof v === 'object') out[k] = translate(locale, (v as Msg).key, (v as Msg).vars);
+    else if (typeof v !== 'string') out[k] = v as number;
+    // a typed name that starts with "@" or "!" stays as typed unless it really is a key (or an engine sentence)
+    else if (v.startsWith('@') && hasKey(v.slice(1))) out[k] = translate(locale, v.slice(1));
     else if (v.startsWith('#n:')) out[k] = formatNumberToken(locale, v);
+    else if (v.startsWith('!')) out[k] = locale === 'fr' ? (ENGINE_FR[v.slice(1)] ?? v.slice(1)) : v.slice(1);
     else out[k] = v;
   }
   return out;

@@ -418,7 +418,7 @@ export const useGame = create<GameStore>((set, get) => {
         return r;
       }
       const r = await client.command(cmd);
-      if (!r.ok && !opts?.silent) get().toast({ tone: 'loss', text: capitalize(engineText(r.error ?? 'That did not work')) });
+      if (!r.ok && !opts?.silent) get().toast({ tone: 'loss', text: r.msg ? capitalize(tm(r.msg)) : capitalize(engineText(r.error ?? 'That did not work')) });
       if (r.ok && opts?.success) get().toast({ tone: 'gain', text: opts.success });
       return r;
     },

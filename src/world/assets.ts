@@ -1,3 +1,4 @@
+import type { Msg } from '@/i18n';
 import { CITIES, districtAssetId, liquidationEquity } from '@/engine';
 import {
   BIZ_BY_ID, BIZ_EVENTS, BIZ_SECTOR_BY_ID, MAX_UPGRADE, RETIRED_UPGRADES, TIERS, UPGRADES, upgradeCost, type UpgradeAxis,
@@ -16,7 +17,7 @@ import { textProvider } from './text';
 import type { Business, CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
-const fail = (error: string): CommandResult => ({ ok: false, error });
+const fail = (error: string, msg?: Msg): CommandResult => ({ ok: false, error, ...(msg ? { msg } : {}) });
 
 /** City demand size: bigger cities pay more for the same business. */
 export const CITY_DEMAND: Record<string, number> = { avalon: 1, nordhaven: 1.1, meridia: 1.15, sundara: 1.2, kaiyo: 1.25, serena: 1.3 };
@@ -39,10 +40,10 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
   const def = BIZ_BY_ID.get(defId);
   if (!def) return fail('unknown business');
   const tier = TIERS[def.tier - 1]!;
-  if (rankIndex(p.rankId) < rankIndex(tier.rank)) return fail(`${tier.name} businesses unlock at a higher rank`);
+  if (rankIndex(p.rankId) < rankIndex(tier.rank)) return fail(`${tier.name} businesses unlock at a higher rank`, { key: 'biz.refuse.tierRank', vars: { tier: tier.name } });
   if (!cityUnlocked(p, cityId)) return fail('that city is locked at your rank');
   const owned = Object.values(g.businesses).filter((b) => b.ownerId === pid && bizDef(b).tier === def.tier).length;
-  if (owned >= tier.max) return fail(`you can run at most ${tier.max} ${tier.name} businesses: sell one or move up a tier`);
+  if (owned >= tier.max) return fail(`you can run at most ${tier.max} ${tier.name} businesses: sell one or move up a tier`, { key: 'biz.refuse.tierMax', vars: { max: tier.max, tier: tier.name } });
   if (p.heldUntil > g.market.tick) return fail('your assets are held by the court');
   // Old contacts (velvet-bankruptcy.md): the chapter's one T1 business at half price, used once
   const voucher = def.tier === 1 && !!p.comeback?.voucher;
@@ -75,7 +76,7 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
 export function upgradeBusiness(g: GameState, pid: string, bizId: string, axis: UpgradeAxis): CommandResult {
   const b = g.businesses[bizId];
   if (!b || b.ownerId !== pid) return fail('not your business');
-  if (RETIRED_UPGRADES.includes(axis)) return fail('biz.axis.retired');
+  if (RETIRED_UPGRADES.includes(axis)) return fail('biz.axis.retired', { key: 'biz.refuse.axisRetired' });
   if (!UPGRADES.some((u) => u.id === axis)) return fail('unknown upgrade');
   const lvl = b.levels[axis];
   if (lvl >= MAX_UPGRADE) return fail('already at the top level');
@@ -305,7 +306,7 @@ export function buyProperty(g: GameState, pid: string, cityId: string, districtI
   const city = CITIES.find((c) => c.id === cityId);
   const dist = city?.districts.find((d) => d.id === districtId);
   if (!t || !city || !dist) return fail('unknown property');
-  if (!t.tiers.includes(dist.tier)) return fail(`no ${t.name.toLowerCase()} in ${dist.name}`);
+  if (!t.tiers.includes(dist.tier)) return fail(`no ${t.name.toLowerCase()} in ${dist.name}`, { key: 'prop.refuse.noneIn', vars: { type: t.name.toLowerCase(), district: dist.name } });
   if (!cityUnlocked(p, cityId)) return fail('that city is locked at your rank');
   if (rankIndex(p.rankId) < rankIndex(t.rank)) return fail('unlocks at a higher rank');
   if (p.heldUntil > g.market.tick) return fail('your assets are held by the court');
