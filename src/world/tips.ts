@@ -5,6 +5,7 @@ import { say } from './say';
 import { rosterOf } from './company/insiders';
 import type { CompanyWorld } from './company/types';
 import { managedBy } from './funds/state';
+import { linkedAccounts } from './collusion';
 import type { CommandResult, GameState, StepOutput } from './types';
 
 /**
@@ -187,11 +188,18 @@ export function tipsDay(g: GameState, out: StepOutput | null): void {
   t.pending = keep;
 }
 
-/** The tip the account holds on an asset that is still open (after the tip, before its report). */
+/**
+ * The tips the account's collusion group holds on an asset that are still open (after the tip, before its report). A tip is
+ * information, so a linked account (an alt, a shared device, an alliance mate, a loan- or gift-funded account) trading on it is a
+ * trade on the tip: the group is read only when an open tip on the asset exists, so the common order is a scan of the tip list.
+ */
 function openTipsFor(g: GameState, pid: string, assetId: string, tick: number): InsiderTip[] {
   const t = g.tips;
   if (!t) return [];
-  return t.tips.filter((x) => x.playerId === pid && x.assetId === assetId && tick >= x.tick && tick < x.revealsTick);
+  const open = t.tips.filter((x) => x.assetId === assetId && tick >= x.tick && tick < x.revealsTick);
+  if (open.length === 0) return [];
+  const group = new Set(linkedAccounts(g, pid));
+  return open.filter((x) => group.has(x.playerId));
 }
 
 /** The median of the account's recent notionals before this trade, or a floor when it has none (the size factor's base). */

@@ -2,7 +2,8 @@ import { cancelOrder, type Side } from '@/engine';
 import { priceOf } from '../core';
 import { say } from '../say';
 import type { GameState, StepOutput } from '../types';
-import { controllerOf, fundByAccount, isFundAccount, linked } from './state';
+import { controllerOf, fundByAccount, isFundAccount } from './state';
+import { linked } from './link';
 import type { FundRefusal } from './types';
 
 /**

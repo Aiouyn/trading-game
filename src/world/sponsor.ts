@@ -1,4 +1,5 @@
 import { commission, type OrderRequest } from '@/engine';
+import { linkedAccounts } from './collusion';
 import { keyedRng, cashOf, creditExternal, notify, priceOf, realDayOf, REAL_DAY, RESTRICT_TICKS, restrictedNow, spendableCash } from './core';
 import type { CommandResult, GameState, Player, StepOutput } from './types';
 
@@ -13,8 +14,9 @@ import type { CommandResult, GameState, Player, StepOutput } from './types';
  * The cap and the day-start snapshot are keyed on the real day (24 game hours), not on the game day: a game day is one real
  * hour, so ten breaks a game day would be $60,000 a real day. Ten a real day is $2,500 (ROADMAP 2.7).
  *
- * The cap counts per player and per profile (the alliance owner when in an alliance, else the player alone) and takes the
- * larger of the two, so leaving an alliance cannot reset the count (exploit: alliance hopping).
+ * The cap is one count for the whole collusion group (collusion.ts linkedAccounts: the alliance, a shared device, funding by gifts
+ * or loans, and mirrored fills). Each account counts its own breaks, and the group's breaks are summed, so an alt or an alliance
+ * hop cannot reset the count (exploit: alt farming and alliance hopping). An unlinked alt is not counted with its owner.
  *
  * Ad cash is tagged and held 72 real hours (core.ts restrictedNow): it cannot pay for ops, margin, derivatives or transfers.
  * Every reward is a booked faucet line, `adCash` (economy.faucets), so the world money identity still closes.
@@ -42,26 +44,20 @@ export const SPONSOR = {
 export const SPONSOR_BRANDS = ['aurelle', 'fennick', 'marlow', 'pelican', 'corvid', 'tessel'] as const;
 export type SponsorBrand = (typeof SPONSOR_BRANDS)[number];
 
-/** The profile a sponsor cap is counted on: the alliance owner, or the player alone. */
+/** The alliance owner a player's alliance is headed by, or the player alone (the profile of the old per-profile count, kept for views). */
 export function profileKeyOf(g: GameState, pid: string): string {
   const p = g.players[pid];
   const a = p?.allianceId ? g.alliances[p.allianceId] : undefined;
   return a?.ownerId ?? pid;
 }
 
-/** The count keys of a player: their own account and their profile (one key when they are their own profile). */
-function countKeys(g: GameState, pid: string): string[] {
-  const k = profileKeyOf(g, pid);
-  return k === pid ? [pid] : [pid, k];
-}
-
-/** Rewarded breaks the player's profile has today (real day): the larger of the player's own count and the profile's. */
+/** Rewarded breaks the player's collusion group has today (real day): the sum of each linked account's own count. */
 export function adsUsedToday(g: GameState, pid: string): number {
   const day = realDayOf(g);
   let n = 0;
-  for (const k of countKeys(g, pid)) {
+  for (const k of linkedAccounts(g, pid)) {
     const c = g.sponsor?.counts[k];
-    if (c && c.day === day && c.n > n) n = c.n;
+    if (c && c.day === day) n += c.n;
   }
   return n;
 }
@@ -129,10 +125,8 @@ export function finishBreak(g: GameState, pid: string, id: string, skip: boolean
   const why = adRefusal(g, pid, { ignorePending: true });
   if (why) return { ok: false, error: why };
   const day = realDayOf(g);
-  for (const k of countKeys(g, pid)) {
-    const c = sp.counts[k];
-    sp.counts[k] = c && c.day === day ? { day, n: c.n + 1 } : { day, n: 1 };
-  }
+  const c = sp.counts[pid];
+  sp.counts[pid] = c && c.day === day ? { day, n: c.n + 1 } : { day, n: 1 };
   creditExternal(g, pid, SPONSOR.reward, 'adCash');
   const tick = g.market.tick;
   p.adLots = [...(p.adLots ?? []).filter((l) => l.untilTick > tick), { amount: SPONSOR.reward, untilTick: tick + SPONSOR.lotTicks, kind: 'ad' }];
