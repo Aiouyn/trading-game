@@ -5,8 +5,8 @@ import { halfSpread, impact, IMPACT_HALF_LIFE, marginalImpact, openAccount, plac
 import type { WorldState } from './types';
 
 /**
- * R-9-1b (Phase 9 rulings, lead-phase9.md): temporary impact runs on the filler's OWN impact tally, a same-direction
- * notional per account and asset at each fill's pre-trade mid, decayed by half every IMPACT_HALF_LIFE (360) ticks. There is
+ * R-9-1c (Phase 9 rulings, lead-phase9.md; amends R-9-1b): temporary impact runs on the asset's SHARED impact tally, a
+ * same-direction notional per asset over all flow at each fill's pre-trade mid, decayed by half every IMPACT_HALF_LIFE (360) ticks. There is
  * no calendar-day reset: the tally is a rolling window, so a fill pays the marginal of C(n) = n · impact(n) on what the
  * account's earlier fills still hold. These pin the rule on OSTV with 24 ticks a game day.
  */
@@ -28,8 +28,8 @@ function run(s: WorldState, n: number, orders: Record<number, { playerId: string
   return { state: cur, fills };
 }
 
-describe('R-9-1b: temporary impact is charged on the filler\'s own rolling tally', () => {
-  it('a second fill of the same account pays the marginal curve on its earlier fill, decayed to the second fill\'s tick', () => {
+describe('R-9-1c: temporary impact is charged on the asset\'s shared rolling tally', () => {
+  it('a second fill pays the marginal curve on its earlier fill, decayed to the second fill\'s tick', () => {
     const s = openAccount(createWorld('own-two', cfg), 'A', 1e7);
     const i = idx(s, 'OSTV');
     // A at tick 1, again at tick 5 (same game day: ticks 1..24)
@@ -46,14 +46,16 @@ describe('R-9-1b: temporary impact is charged on the filler\'s own rolling tally
     expect(expectImp).toBeGreaterThan(impact(st, i, x));
   });
 
-  it('another account is not charged on the first account\'s flow: each account has its own tally', () => {
+  it('another account pays on the first account\'s flow: the tally is shared per asset, not per account', () => {
     const s = openAccount(openAccount(createWorld('own-b', cfg), 'A', 1e7), 'B', 1e7);
     const i = idx(s, 'OSTV');
     const r = run(s, 6, { 0: { playerId: 'A', qty: 3000 }, 4: { playerId: 'B', qty: 3000 } });
+    const a = r.fills[0]!;
     const b = r.fills.find((f) => f.playerId === 'B')!;
-    expect(b.tick).toBeGreaterThan(r.fills[0]!.tick);
-    // B has no fills of its own yet: its fill prices exactly as a lone first order
-    expect(b.price / b.mid).toBeCloseTo(1 + halfSpread(b.state, i) + impact(b.state, i, b.qty * b.mid), 10);
+    expect(b.tick).toBeGreaterThan(a.tick);
+    const before = a.qty * a.mid * Math.pow(0.5, (b.tick - a.tick) / IMPACT_HALF_LIFE);
+    expect(b.price / b.mid).toBeCloseTo(1 + halfSpread(b.state, i) + marginalImpact(b.state, i, before, b.qty * b.mid), 10);
+    expect(b.price / b.mid).toBeGreaterThan(1 + halfSpread(b.state, i) + impact(b.state, i, b.qty * b.mid));
   });
 
   it('no calendar-day reset: the second fill one tick into the next game day still pays on the decayed first fill', () => {
@@ -83,6 +85,6 @@ describe('R-9-1b: temporary impact is charged on the filler\'s own rolling tally
     let s = createWorld('day-none', cfg);
     for (let t = 0; t < TPD * 5; t++) s = step(s).state;
     for (const a of s.assets) expect(a.dayTraded).toBeUndefined();
-    for (const acct of Object.values(s.accounts)) expect(acct.impactTally).toBeUndefined();
+    for (const a of s.assets) expect(a.impactTally).toBeUndefined();
   });
 });

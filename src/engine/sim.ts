@@ -1,6 +1,6 @@
 import { Rng, seedStream } from './rng';
 import { DEFAULT_VOLUME, defaultConfig, idioLoading, regimeShockSd } from './config';
-import { clearOrders, tallyToday } from './trading';
+import { clearOrders, impactAdd, tallyToday } from './trading';
 import { addOwnFlow, ECO_POOLS, ecoDayInput, ecologyDay, ecologyOn, ecologyWeight, FULL_MODE_DEFAULTS, initEcology, reanchorEcology } from './ecology';
 import { catalystDay, peadDrift } from './catalysts';
 import { carryOf, initRates, ratesDay } from './rates';
@@ -466,6 +466,8 @@ function ecologyStep(cleared: WorldState, tick: number, events: StepEvent[], fil
       if (w !== 1) { buy *= w; sell *= w; }
       const t = tallyToday(a.dayTraded, day);
       if (buy || sell) next.dayTraded = { day, buy: t.buy + buy, sell: t.sell + sell };
+      // the pools' flow joins the asset's shared impact tally too (R-9-1c: one tally over all flow); it reads at the close
+      if (buy || sell) next.impactTally = impactAdd(a, tick, buy, sell);
     }
     return next;
   });

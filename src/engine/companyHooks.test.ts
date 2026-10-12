@@ -61,7 +61,7 @@ const atDay = (s: WorldState, d: number) => run(s, d * TPD - s.tick);
  * The digest of a state. `streetCash` (O-3, the Street's running tally on an ordinary stock's fills) was added after these
  * digests were taken: it is bookkeeping, not dynamics, so it is dropped here and the digests still pin everything else.
  */
-// the digest keeps every other field, the account impact tallies included (R-9-1b): they are dynamics, the next fill pays on them
+// the digest keeps every other field, the asset impact tallies included (R-9-1c): they are dynamics, the next fill pays on them
 const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x, (k, v) => (k === 'streetCash' ? undefined : v))).digest('hex');
 /**
  * The Street tally on every account, pinned on its own (O-3 review): the digests above drop it, so this is what catches a
@@ -90,15 +90,18 @@ describe('bare engine is unchanged', () => {
     e = stepMany(e, 720 * 2).state;
     // the trades were Street fills (an ordinary stock), so the Street tally is set: the digest below ignores it, not the trades
     expect(s.accounts.p1!.streetCash).toBeDefined();
-    // an order-free world writes no impact tally (R-9-1b): pinned on the field itself, not only through the digest
+    // an order-free world writes no impact tally (R-9-1c): pinned on the asset field itself, not only through the digest
     const orderFree = openAccount(stepMany(createWorld('bare-0', cfg), 720 * 3).state, 'p9');
-    expect(Object.values(orderFree.accounts).every((a) => a.impactTally === undefined)).toBe(true);
-    expect(stepMany(orderFree, 720).state.accounts.p9!.impactTally).toBeUndefined();
-    // R-9-1b (the per-account impact tally): this world has player orders, so its prices move (the permanent move is charged
-    // on the account's own tally at mid, not on the day's fill-price notional). The pin moved from 61f445d2 by that ruling.
-    expect(sha(s)).toBe('b799f0b0405e0bf87225c727283e95fdb51f3fc4de5c2cbd1c9b26474dddf464');
-    // R-9-1b: the ecology world has one player buy too, so it moves for the same reason (e80f... -> ada9...)
-    expect(sha(e)).toBe('ada90663955020073c678fe7387ef94a3afbcbe33364b7feacb9b9dfd0c73e25');
+    expect(orderFree.assets.every((a) => a.impactTally === undefined)).toBe(true);
+    expect(stepMany(orderFree, 720).state.assets.every((a) => a.impactTally === undefined)).toBe(true);
+    // R-9-1b/c: this world has player orders, so its digest moves. Its prices do not: R-9-1c moved the impact tally from the
+    // account to the asset (one tally per asset), and the digest hashes where the field sits. Re-keyed to the R-9-1b layout
+    // (the tally on the account, none on the asset) the digest is the R-9-1b pin b799f0b0, so the single-account dynamics are
+    // unchanged. The pin moved from 61f445d2 by R-9-1b and from b799f0b0 by R-9-1c (representation only).
+    expect(sha(s)).toBe('e711a12b076e97e31bb37beecc968e4d19383b2dd012d4cb480925ab42a270cf');
+    // R-9-1b: the ecology world has one player buy too, so it moves for the same reason (e80f... -> ada9..., then 54dc...)
+    // R-9-1c: the pools' closing flow also joins the asset tally (read by no later fill here), so the digest moves again
+    expect(sha(e)).toBe('54dc4f794390549be5d0fb18a2e756b45f5560bf7a5fdfce79f6f725fb46ec29');
     // the Street tally of those trades, pinned on its own (the digests above ignore it)
     expect(s.accounts.p1!.streetCash).not.toBe(0);
     // the Street tally moves with the fill prices of the player's trades (R-9-1b, see the digest pins above)
