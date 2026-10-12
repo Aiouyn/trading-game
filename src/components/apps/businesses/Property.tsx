@@ -40,7 +40,7 @@ export function PropertyMarket() {
         </label>
         <span className="text-caption text-fg-faint">{maxLtv ? t('prop.rate', { rate: (me.mortgageRate * 100).toFixed(2) }) : t('prop.mortgageLocked', { rank: rankName('R1') })}</span>
       </div>
-      <p className="text-small text-fg-muted">{city.blurb}</p>
+      <p className="text-small text-fg-muted">{t(`city.blurb.${city.id}`)}</p>
       {cityLocked && <Card className="flex items-center gap-3 p-4"><LockGlyph /><span className="text-small text-fg-muted">{t('prop.cityLocked', { city: city.name, rank: rankName(city.unlockRank) })}</span></Card>}
       {city.districts.map((d) => {
         const idx = districtIndexOf(world, city.id, d.id);
@@ -50,7 +50,7 @@ export function PropertyMarket() {
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <div className="min-w-0">
                 <h3 className="font-serif text-title">{d.name}</h3>
-                <p className="text-caption text-fg-faint">{t('prop.district', { blurb: d.blurb, tier: t(`prop.tier.${d.tier}`) })}</p>
+                <p className="text-caption text-fg-faint">{t('prop.district', { blurb: t(`district.blurb.${d.id}`), tier: t(`prop.tier.${d.tier}`) })}</p>
               </div>
               <span className="num text-small text-fg-muted">{t('prop.index', { idx: idx.toFixed(1) })} <span className={idx >= 100 ? 'text-gain' : 'text-loss'}>{signedPct(idx / 100 - 1)}</span></span>
             </div>
@@ -65,7 +65,7 @@ export function PropertyMarket() {
                       <span className="text-small font-semibold">{ty.name}</span>
                       {ty.home && <Chip>{t('prop.home')}</Chip>}
                     </div>
-                    <p className="mt-1 flex-1 text-caption text-fg-faint">{ty.blurb}</p>
+                    <p className="mt-1 flex-1 text-caption text-fg-faint">{t(`ptype.blurb.${ty.id}`)}</p>
                     <div className="num mt-2 flex flex-wrap justify-between gap-x-2 text-caption">
                       <span className="text-fg">{compactMoney(price)}</span>
                       <span className="text-gain">{t('prop.rent', { x: (ty.rentYield * 100).toFixed(1) })}</span>

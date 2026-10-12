@@ -50,7 +50,7 @@ export function Catalog({ onBought }: { onBought: () => void }) {
                 </div>
                 {locked ? <span className="flex items-center gap-1 text-caption text-fg-faint"><LockGlyph size={14} /> {rankName(tier.rank)}</span> : <BrassChip>{t('biz.tierChip', { n: d.tier })}</BrassChip>}
               </div>
-              <p className="mt-2 flex-1 text-small text-fg-muted">{d.blurb}</p>
+              <p className="mt-2 flex-1 text-small text-fg-muted">{t(`biz.blurb.${d.id}`)}</p>
               <div className="mt-3 grid grid-cols-3 gap-2 text-caption">
                 <div><div className="label">{t('biz.cost')}</div><div className="num text-fg">{compactMoney(d.cost)}</div></div>
                 <div><div className="label">{t('biz.perDayLabel')}</div><div className="num text-gain">{compactMoney(inc)}</div></div>

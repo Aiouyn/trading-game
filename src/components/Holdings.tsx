@@ -218,7 +218,7 @@ export function LicenseLadder() {
               <span className="font-semibold">{l.name}</span>
               {have ? <span className="text-caption text-brass">{t('holdings.held')}</span> : <span className="flex items-center gap-1 text-caption text-fg-faint"><LockGlyph size={12} /> {l.rank}</span>}
             </div>
-            <p className="mt-1 text-caption text-fg-muted">{l.blurb}</p>
+            <p className="mt-1 text-caption text-fg-muted">{t(`license.blurb.${l.id}`)}</p>
           </li>
         );
       })}

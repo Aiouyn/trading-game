@@ -3,7 +3,7 @@
 // AI Lab (Velvet app 6, Owner and up): research, compute and data, training, models and bots. The tab
 // bodies live in LabTabs.tsx. Every action is an existing lab.* command (src/world/lab.ts).
 import { useState } from 'react';
-import { RESEARCH } from '@/content/research';
+
 import { pct, qty } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
@@ -40,7 +40,7 @@ export function LabApp() {
         </div>
         {lab?.researching && (
           <div className="mt-4">
-            <div className="flex justify-between gap-2 text-caption"><span>{t('lab.researching', { name: RESEARCH.find((r) => r.id === lab.researching!.nodeId)?.name ?? lab.researching.nodeId })}</span><span className="num">{ticksLabel(lab.researching.doneTick - tick)}</span></div>
+            <div className="flex justify-between gap-2 text-caption"><span>{t('lab.researching', { name: t(`ai.name.${lab.researching!.nodeId}`) })}</span><span className="num">{ticksLabel(lab.researching.doneTick - tick)}</span></div>
           </div>
         )}
         {lab?.training && (
