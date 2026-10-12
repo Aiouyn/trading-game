@@ -6,6 +6,7 @@ import { PROPERTY_TYPE_BY_ID } from '@/content/lifestyle';
 import { compactMoney, money, pct, price, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { assetDefOf, useGame } from '@/game/store';
+import type { Interval } from '@/game/history';
 import { t } from '@/i18n';
 import type { FillReason } from '@/engine/ledger-types';
 import { NetWorth } from './Header';
@@ -103,6 +104,9 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
     return s.map((v, k) => ({ time: nw.lastTick - (s.length - 1 - k) * nw.every, value: v }));
   }, [nw, range, nw?.samples.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The axis follows the range like the Broker's (PriceChart): the clock inside a day, the game day and clock on a week, the
+  // game day alone on the daily ranges. The daily ranges plot daily points, so their interval is the daily bar.
+  const nwInterval: Interval = range === '1M' || range === '1Y' || range === 'ALL' ? '1D' : '5m';
   // the chart ends at the header's figure: the samples are every few ticks, so the live net worth is the last point
   const liveTick = frame?.tick;
   const chartSeries = useMemo(() => {
@@ -190,7 +194,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
         {/* the last point of the line, as the header shows it (the spec compares the two) */}
         <div className={phone ? 'mt-3 h-48' : 'mt-3 h-64'} data-testid="networth-series" data-last-value={chartSeries.at(-1)?.value.toFixed(2) ?? ''}>
           {chartSeries.length > 1
-            ? <PriceChart assetId="NW" series={chartSeries} mode="area" testId="networth-chart" studies={false} overlays={overlays} />
+            ? <PriceChart assetId="NW" series={chartSeries} range={range} interval={nwInterval} mode="area" testId="networth-chart" studies={false} overlays={overlays} />
             : <div className="flex h-full items-center justify-center text-small text-fg-faint" data-testid="networth-chart">{t('portfolio.building')}</div>}
         </div>
         <p className="mt-2 text-caption text-fg-faint" data-testid="networth-chart-note">{t('portfolio.nwChartNote')}</p>

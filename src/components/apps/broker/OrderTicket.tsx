@@ -35,7 +35,7 @@ function SumRow({ dense, k, v, className = '' }: { dense: boolean; k: ReactNode;
   if (!dense) return <KV className={className} k={k} v={v} />;
   return (
     <div className={`flex items-baseline justify-between gap-2 text-caption leading-4 ${className}`}>
-      <span className="text-fg-muted">{k}</span>
+      <span className="whitespace-nowrap text-fg-muted">{k}</span>
       <span className="num text-right text-fg">{v}</span>
     </div>
   );
@@ -523,7 +523,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
               )}
 
               <div className={dense ? 'mt-1 border-t border-ink-2 pt-0.5' : 'mt-4 border-t border-ink-2 pt-3'} data-testid="order-summary">
-                <div className={dense ? 'grid grid-cols-2 gap-x-4' : undefined}>
+                <div>
                 <SumRow dense={dense} k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(d.price)} />
                 <SumRow dense={dense} k={t('broker.notional')} v={money(notional)} />
                 <SumRow dense={dense} k={feeText} v={money(fee)} />
@@ -535,7 +535,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   dense={dense} k={t('broker.cashAfter')}
                   v={<span className="text-fg-muted" data-testid="order-cash-after">{money(cashAfter)}</span>}
                 />
-                <SumRow dense={dense} className="col-span-2" k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
+                <SumRow dense={dense} k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
                 </div>
                 {shorting && (
                   <div className="mt-1 grid gap-1" data-testid="order-short-terms">

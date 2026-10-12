@@ -7,11 +7,11 @@
 // read (P2-090). A click opens the window the notice is about and dismisses it. In focus mode the
 // notices it hides are removed from the queue, so they wait in the bell instead of coming back when focus
 // mode ends (P2-069). Fills and world events are announced at once (P2-094).
-import { useEffect, useRef } from 'react';
+import { type PointerEvent, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
 import { isAppId } from '@/shell/apps';
-import { type ShellToast, allowedInFocus, isSticky, visibleToasts } from '@/shell/toasts';
+import { TOAST_HOLD_MS, type ShellToast, allowedInFocus, isSticky, visibleToasts } from '@/shell/toasts';
 import { Glyph, type GlyphName } from './glyphs';
 import { focusOrOpen } from './shellStore';
 import { phoneOpen } from './phoneStore';
@@ -22,10 +22,13 @@ export function OsToasts({ focusMode, side, phone = false }: { focusMode: boolea
   const toasts = useGame((s) => s.toasts);
   const dismissMany = useGame((s) => s.dismissToasts);
   // On the phone one notice at a time drops from the status bar (P2-095).
-  const shown = visibleToasts(toasts, focusMode).slice(0, phone ? 1 : undefined);
+  // On the phone the trade sheet covers the bar the banner sits above, so notices wait (in the bell) while it is open.
+  const sheetOpen = useGame((s) => s.tradeSheetOpen);
+  const held = phone && sheetOpen;
+  const shown = held ? [] : visibleToasts(toasts, focusMode).slice(0, phone ? 1 : undefined);
   // Notices past the drawn ones are not lost: the count opens the notification center behind the bell (UX 3).
   const queued = (focusMode ? toasts.filter(allowedInFocus) : toasts).length;
-  const more = queued - shown.length;
+  const more = held ? 0 : queued - shown.length;
   const setInbox = useGame((s) => s.setInbox);
 
   useEffect(() => {
@@ -61,6 +64,14 @@ function OsToast({ toast, n, phone }: { toast: ShellToast; n: number; phone: boo
   const hovered = useRef(false);
   const focused = useRef(false);
   const id = toast.id;
+  // Phone: a slim banner that leaves after the hold (4 s) or on a swipe away (the store's hold does not run for a sticky one).
+  const [dx, setDx] = useState(0);
+  const drag = useRef<{ x: number; off: number; moved: boolean } | null>(null);
+  useEffect(() => {
+    if (!phone) return;
+    const h = window.setTimeout(() => dismiss(id), TOAST_HOLD_MS);
+    return () => window.clearTimeout(h);
+  }, [phone, id, dismiss]);
 
   // A toast that leaves the column while it is held must release its holds, or it would never expire.
   useEffect(
@@ -90,10 +101,31 @@ function OsToast({ toast, n, phone }: { toast: ShellToast; n: number; phone: boo
 
   // A click runs the notice's own action (a coach tip), or opens the window it names, and dismisses the toast.
   const open = (): void => {
+    // a swipe that ended a drag is not a click
+    if (drag.current?.moved) { drag.current = null; return; }
     if (toast.run) toast.run();
     // on the phone the window is an app of the phone stack (the desktop windows are not drawn there)
     else if (toast.app !== undefined && isAppId(toast.app)) { if (phone) phoneOpen(toast.app, {}); else focusOrOpen(toast.app); }
     dismiss(id);
+  };
+
+  const onDown = (e: PointerEvent<HTMLButtonElement>): void => {
+    if (!phone) return;
+    drag.current = { x: e.clientX, off: 0, moved: false };
+  };
+  const onMove = (e: PointerEvent<HTMLButtonElement>): void => {
+    const d = drag.current;
+    if (!phone || !d) return;
+    d.off = e.clientX - d.x;
+    if (Math.abs(d.off) > 6) d.moved = true;
+    setDx(d.off);
+  };
+  const onUp = (): void => {
+    const d = drag.current;
+    if (!phone || !d) return;
+    // a swipe past 60 px in either direction dismisses; a short one springs back (the click that follows a moved drag is ignored)
+    if (Math.abs(d.off) > 60) dismiss(id);
+    else setDx(0);
   };
 
   const hold = (ref: { current: boolean }, on: boolean): void => {
@@ -106,13 +138,18 @@ function OsToast({ toast, n, phone }: { toast: ShellToast; n: number; phone: boo
   return (
     <button
       type="button"
-      className="os-toast text-left"
+      className={`os-toast text-left${phone ? ' slim' : ''}`}
+      style={phone && dx !== 0 ? { transform: `translateX(${dx}px)`, opacity: Math.max(0.3, 1 - Math.abs(dx) / 160) } : undefined}
       data-testid={`os-toast-${n}`}
       data-tone={toast.tone}
       data-kind={toast.kind ?? 'other'}
       data-sticky={sticky || undefined}
       role={urgent ? 'alert' : undefined}
       onClick={open}
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={onUp}
+      onPointerCancel={onUp}
       onPointerEnter={() => hold(hovered, true)}
       onPointerLeave={() => hold(hovered, false)}
       onFocus={() => hold(focused, true)}

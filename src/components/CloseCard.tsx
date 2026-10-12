@@ -14,6 +14,7 @@ import { closeMove } from '@/world/close-move';
 import type { DailyClose, MoveLine } from '@/world/ledger-types';
 import { useEventPanel } from './os/EventBanner';
 import { focusOrOpen } from './os/shellStore';
+import { isPhoneViewport, phoneOpen } from './os/phoneStore';
 import { Button, Chip } from './ui';
 
 const BAND_CHIP: Record<'early' | 'mid' | 'late', string> = {
@@ -102,7 +103,9 @@ export function CloseAnnouncer() {
     if (askedDay === card.day) {
       if (askedSeen.current !== card.day) {
         askedSeen.current = card.day;
-        focusOrOpen('wire');
+        // the phone draws its own stack (the desktop windows are not drawn there), so the Wire opens there
+        if (isPhoneViewport()) phoneOpen('wire', {});
+        else focusOrOpen('wire');
       }
       return;
     }

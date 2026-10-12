@@ -212,6 +212,20 @@
   .os-root .os-rw { z-index: 1; }
   .os-root .os-rw-close { cursor: pointer; }
 
-  /* One notice at a time under the status bar on the phone (P2-095). */
-  .os-root .os-toasts.phone { top: calc(var(--phone-status-h) + 6px); left: 14px; right: 14px; width: auto; }
+  /* One notice at a time, as a slim one-line banner just above the trade bar (or above the home edge when no bar shows). It never
+   * covers the status bar, the app bar or the trade bar. The bar publishes its height as --phone-trade-h (TerminalNarrow). */
+  .os-root .os-toasts.phone {
+    top: auto; bottom: calc(40px + env(safe-area-inset-bottom, 0px) + var(--phone-trade-h, 0px) + 6px);
+    left: 12px; right: 12px; width: auto; gap: 0;
+  }
+  .os-root .os-toast.slim {
+    height: 38px; padding: 0 12px; gap: 8px; align-items: center; border-radius: var(--radius-md);
+  }
+  .os-root .os-toast.slim .os-toast-ic { width: 22px; height: 22px; margin-top: 0; }
+  .os-root .os-toast.slim .os-toast-body { flex-direction: row; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+  .os-root .os-toast.slim .os-toast-t1 { flex: none; font-size: 10px; letter-spacing: 0.06em; }
+  .os-root .os-toast.slim .os-toast-t2 {
+    margin-top: 0; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .os-root .os-toast.slim { transition: transform 150ms ease-out, opacity 150ms ease-out; touch-action: pan-y; }
 }

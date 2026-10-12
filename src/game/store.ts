@@ -11,7 +11,7 @@ import type { HistoryPayload, NwHistoryPayload, ServerMsg } from '@/net/protocol
 import type { LpPage } from '@/world/launchpad/view';
 import { mirrorWorld, type DirectoryRow, type MarketFrame, type PlayerView, type PublicState } from '@/world/view';
 import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
-import { CHART_RANGES, INTERVALS, createHistory, loadSeries, rangeIsIntraday, type ChartRange, type History, type Interval } from './history';
+import { CHART_RANGES, INTERVALS, createHistory, fitInterval, loadSeries, type ChartRange, type History, type Interval } from './history';
 import type { IndicatorId } from './indicators';
 import { absorbFrame, delistedRefusal, type MirrorMe } from './universe';
 
@@ -184,6 +184,9 @@ function readPrefs(): Partial<Pick<GameStore, 'indicators' | 'range' | 'interval
   if (p.chart.indicators) out.indicators = Object.fromEntries(p.chart.indicators.map((id) => [id, true])) as GameStore['indicators'];
   if ((CHART_RANGES as readonly string[]).includes(p.chart.range ?? "")) out.range = p.chart.range as ChartRange;
   if ((INTERVALS as readonly string[]).includes(p.chart.interval ?? "")) out.interval = p.chart.interval as Interval;
+  // a stored pair the range no longer offers (a 1D candle on 1D, say) opens on the interval the range fits
+  const range = out.range ?? '1D';
+  out.interval = fitInterval(range, out.interval ?? '5m');
   if (p.chart.chartMode === 'candles' || p.chart.chartMode === 'line') out.chartMode = p.chart.chartMode;
   if (p.lastTicker) out.selected = p.lastTicker;
   return out;
@@ -435,8 +438,8 @@ export const useGame = create<GameStore>((set, get) => {
       writePrefs(get());
     },
     setScreen(screen) { set({ screen, screenNonce: get().screenNonce + 1, tradeSheetOpen: false, moreOpen: false }); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); },
-    // a daily range draws the daily bar, so the interval moves to 1D there (an intraday one is kept on the tick ring)
-    setRange(range) { set({ range, interval: rangeIsIntraday(range) ? get().interval : "1D" }); writePrefs(get()); },
+    // the interval follows the range: one the range does not offer (too few candles) moves to the one it fits (fitInterval)
+    setRange(range) { set({ range, interval: fitInterval(range, get().interval) }); writePrefs(get()); },
     setInterval(interval) { set({ interval }); writePrefs(get()); },
     setChartMode(chartMode) { set({ chartMode }); writePrefs(get()); },
     toggleIndicator(id) { set({ indicators: { ...get().indicators, [id]: !get().indicators[id] } }); writePrefs(get()); },

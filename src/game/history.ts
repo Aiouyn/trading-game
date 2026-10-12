@@ -176,9 +176,33 @@ export function rangeIsIntraday(range: ChartRange): boolean {
   return range === '1D' || range === '1W';
 }
 
-/** The intervals a range offers: every interval on the tick ring, the daily bar alone on a longer range. */
+/** The fewest candles a chart draws for a range: one candle on a range is a block, not a chart (UX fix). */
+export const MIN_CANDLES = 20;
+
+/**
+ * How many candles an interval draws over a range. Intraday intervals cut the range's session minutes into candles (a
+ * 1D range is 390 minutes; a candle never spans two days). The daily bar draws one candle per game day of the range. A
+ * daily range draws no intraday candle at all.
+ */
+export function candleCount(range: ChartRange, interval: Interval): number {
+  if (interval === '1D') return RANGE_DAYS[range];
+  if (!rangeIsIntraday(range)) return 0;
+  return Math.floor((RANGE_DAYS[range] * SESSION_MINUTES) / INTERVAL_MINUTES[interval]);
+}
+
+/** The intervals a range offers: those that draw at least MIN_CANDLES candles (1D: 1m, 5m, 15m; 1W adds 1h; 1M and up: 1D). */
 export function intervalsFor(range: ChartRange): Interval[] {
-  return rangeIsIntraday(range) ? [...INTERVALS] : ['1D'];
+  return INTERVALS.filter((i) => candleCount(range, i) >= MIN_CANDLES);
+}
+
+/**
+ * The interval a range opens with when the current one is not offered: the current one if it fits, else 5m (the default)
+ * if the range offers it, else the range's first interval. Used when the range changes (UX fix: the interval follows).
+ */
+export function fitInterval(range: ChartRange, current: Interval): Interval {
+  const allowed = intervalsFor(range);
+  if (allowed.includes(current)) return current;
+  return allowed.includes('5m') ? '5m' : allowed[0]!;
 }
 
 /**

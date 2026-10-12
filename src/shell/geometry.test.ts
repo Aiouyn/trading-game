@@ -99,11 +99,11 @@ describe('slot rects', () => {
     }
   });
 
-  it('gives exact thirds at 1920: Broker 2/3 left, right third at 1280 + 4', () => {
+  it('gives the Broker 70% at 1920 and a side panel the right 30% (1344 + 4)', () => {
     const l23 = slotRect('L23', VP_1920, false);
     const r3 = slotRect('R3', VP_1920, false);
-    expect(l23.w).toBe(1280 - 4 - GUTTER);
-    expect(r3.x).toBe(1280 + 4);
+    expect(l23.w).toBe(1344 - 4 - GUTTER);
+    expect(r3.x).toBe(1344 + 4);
     expect(r3.x + r3.w).toBe(1920 - GUTTER);
   });
 

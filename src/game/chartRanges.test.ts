@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { candleRealSeconds, axisTimeLabel, barsFor, createHistory, intervalsFor, rangeIsIntraday, realSecondsPerMinute, record, type Interval } from './history';
+import { candleCount, candleRealSeconds, axisTimeLabel, barsFor, createHistory, fitInterval, intervalsFor, rangeIsIntraday, realSecondsPerMinute, record } from './history';
 import { latestValues } from './indicators';
 
 const TPD = 720;
@@ -29,11 +29,26 @@ describe('game-time intervals and ranges', () => {
     expect(intervalsFor('1M')).toEqual(['1D']);
     expect(intervalsFor('1Y')).toEqual(['1D']);
     expect(intervalsFor('ALL')).toEqual(['1D']);
-    const intraday: Interval[] = ['1m', '5m', '15m', '1h', '4h', '1D'];
-    expect(intervalsFor('1D')).toEqual(intraday);
-    expect(intervalsFor('1W')).toEqual(intraday);
     expect(rangeIsIntraday('1W')).toBe(true);
     expect(rangeIsIntraday('1M')).toBe(false);
+  });
+
+  it('an interval is offered only when it draws at least 20 candles over the range (no one-candle chart)', () => {
+    // a day is 390 session minutes: 1m, 5m and 15m give 390, 78 and 26 candles; 1h gives 6, 4h 1 and 1D 1
+    expect(intervalsFor('1D')).toEqual(['1m', '5m', '15m']);
+    // a week is five days: 1h gives 32 candles, 4h 8 and the daily bar 5
+    expect(intervalsFor('1W')).toEqual(['1m', '5m', '15m', '1h']);
+    for (const r of ['1D', '1W', '1M', '1Y', 'ALL'] as const) {
+      for (const i of intervalsFor(r)) expect(candleCount(r, i)).toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it('the interval follows a range change: one the range does not offer moves to 5m (or the range\'s own bar)', () => {
+    expect(fitInterval('1D', '1D')).toBe('5m');
+    expect(fitInterval('1D', '15m')).toBe('15m');
+    expect(fitInterval('1W', '1h')).toBe('1h');
+    expect(fitInterval('1M', '5m')).toBe('1D');
+    expect(fitInterval('1D', '4h')).toBe('5m');
   });
 
   it('a candle never spans two game days, so each day opens its own bucket', () => {

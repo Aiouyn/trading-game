@@ -50,8 +50,8 @@ export interface FracRect {
 }
 
 /**
- * Named slots (C-04, C-05, C-06). L3/R3 are the outer thirds, L23/R23 the two-thirds, R3T and
- * R3B the top and bottom halves of the right third. Fill is not a slot: it is `filled`.
+ * Named slots (C-04, C-05, C-06). L3 is the left third, L23 the left 70% (the Broker beside a side panel), R3 the right
+ * 30% (a side panel; R3 is kept as its name), R23 the right two-thirds, R3T and R3B the halves of that right 30%. Fill is not a slot: it is `filled`.
  */
 export const SLOT_NAMES = [
   'L2', 'R2', 'L3', 'L23', 'R3', 'R23', 'R3T', 'R3B', 'TL', 'TR', 'BL', 'BR',
@@ -67,17 +67,18 @@ export type ViewportClass = 'phone' | 'compact' | 'desktop';
 export type LayoutMode = 'phone' | 'single' | 'halves' | 'full';
 
 const THIRD = 1 / 3;
-const TWO_THIRDS = 2 / 3;
+/** The Broker's share of a Trade side layout: a side panel takes the other 30% (UX fix: the panel never takes more). */
+const BROKER_SHARE = 0.7;
 
 export const SLOT_FRAC: Readonly<Record<SlotName, FracRect>> = {
   L2: { x0: 0, y0: 0, x1: 0.5, y1: 1 },
   R2: { x0: 0.5, y0: 0, x1: 1, y1: 1 },
   L3: { x0: 0, y0: 0, x1: THIRD, y1: 1 },
-  L23: { x0: 0, y0: 0, x1: TWO_THIRDS, y1: 1 },
-  R3: { x0: TWO_THIRDS, y0: 0, x1: 1, y1: 1 },
+  L23: { x0: 0, y0: 0, x1: BROKER_SHARE, y1: 1 },
+  R3: { x0: BROKER_SHARE, y0: 0, x1: 1, y1: 1 },
   R23: { x0: THIRD, y0: 0, x1: 1, y1: 1 },
-  R3T: { x0: TWO_THIRDS, y0: 0, x1: 1, y1: 0.5 },
-  R3B: { x0: TWO_THIRDS, y0: 0.5, x1: 1, y1: 1 },
+  R3T: { x0: BROKER_SHARE, y0: 0, x1: 1, y1: 0.5 },
+  R3B: { x0: BROKER_SHARE, y0: 0.5, x1: 1, y1: 1 },
   TL: { x0: 0, y0: 0, x1: 0.5, y1: 0.5 },
   TR: { x0: 0.5, y0: 0, x1: 1, y1: 0.5 },
   BL: { x0: 0, y0: 0.5, x1: 0.5, y1: 1 },

@@ -402,7 +402,7 @@ const SIDE_SLOTS: readonly SlotName[] = ['R3', 'R3T', 'R3B'];
 
 /**
  * Trade is the terminal (UX stage 2): an app opened from the dock while the Broker is on Trade opens as a right side panel
- * beside the chart, not over it. The Broker takes the left two thirds and each panel one of the right third's slots; with
+ * beside the chart, not over it. The Broker takes the left 70% and each panel one slot of the right 30%; with
  * more panels than slots the oldest panel collapses to the shelf. Null when no Broker sits on Trade, or when a slot does not
  * fit (the caller falls back to the ordinary placement).
  */

@@ -162,7 +162,7 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
     <div title={candleTip} data-testid="interval-group" className="flex shrink-0 items-center gap-2">
       <Segmented
         label={t('broker.chart.interval')} size="sm"
-        options={INTERVALS.map((i) => ({ value: i, label: i, testId: `interval-${i}`, disabled: !allowed.includes(i) }))}
+        options={INTERVALS.filter((i) => allowed.includes(i)).map((i) => ({ value: i, label: i, testId: `interval-${i}` }))}
         value={interval} onChange={(v) => setInterval(v as Interval)}
       />
       <span className="num text-caption text-fg-faint" data-testid="candle-real">{t('broker.chart.candleReal', { candle: candleName, real: realText })}</span>
