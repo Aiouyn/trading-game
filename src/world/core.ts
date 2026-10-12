@@ -34,6 +34,12 @@ export function today(g: GameState): number {
   return t <= 0 ? 0 : Math.floor((t - 1) / TPD);
 }
 
+/** The real day (24 game hours) a tick falls in: the window of the sponsor cap and of the ad offer's day-start snapshot. */
+export function realDayOf(g: GameState): number {
+  const t = g.market.tick;
+  return t <= 0 ? 0 : Math.floor((t - 1) / (24 * TPD));
+}
+
 export function newOutput(): StepOutput {
   return { wire: [], inbox: {}, fills: [], closed: [], chat: [], rankUps: [] };
 }
@@ -84,9 +90,34 @@ export function bump(g: GameState, playerId: string, delta: number): void {
   for (const gp of [L.ghosts?.basket, L.ghosts?.random, L.ghosts?.momentum]) if (gp) gp.cash += delta;
 }
 
-/** Cash a player can spend on analysts, desk upkeep and plans: cash less restricted cash (ad grants, fresh start). */
+/** A tagged lot of ad or fresh-start cash is restricted for 72 real hours (ROADMAP C5): 72 game days at one game day an hour. */
+export const RESTRICT_TICKS = 72 * TPD;
+/** a real day (24 game hours), and a real week (7 game days), in ticks */
+export const REAL_DAY = 24 * TPD;
+export const REAL_WEEK = 7 * REAL_DAY;
+
+/**
+ * The restricted cash of a player at this tick: the unexpired ad and fresh-start lots, plus any older flat restriction
+ * (`restrictedCash`, kept for saves that carry it). A lot releases on its untilTick; no money moves when it does.
+ */
+export function restrictedOf(p: { adLots?: { amount: number; untilTick: number }[]; restrictedCash?: number } | undefined, tick: number): number {
+  if (!p) return 0;
+  let r = p.restrictedCash ?? 0;
+  for (const l of p.adLots ?? []) if (l.untilTick > tick) r += l.amount;
+  return r;
+}
+
+/**
+ * The restricted cash a player holds now (see restrictedOf), never more than the cash in the account: a lot spent on a trade
+ * takes its restriction with it, so the restricted amount is min(lots, cash), never negative.
+ */
+export function restrictedNow(g: GameState, playerId: string): number {
+  return Math.max(0, Math.min(restrictedOf(g.players[playerId], g.market.tick), cashOf(g, playerId)));
+}
+
+/** Cash a player can spend on analysts, desk upkeep, plans, funds and transfers: cash less restricted cash (ad and fresh-start cash). */
 export function spendableCash(g: GameState, playerId: string): number {
-  return cashOf(g, playerId) - (g.players[playerId]?.restrictedCash ?? 0);
+  return cashOf(g, playerId) - restrictedNow(g, playerId);
 }
 
 export function credit(g: GameState, playerId: string, amount: number, source: string): void {

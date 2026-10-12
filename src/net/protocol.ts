@@ -3,6 +3,13 @@ import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
 import type { AssetDef } from '@/engine';
 import type { DirectoryRow, MarketFrame, PlayerView, PublicState } from '@/world/view';
 import type { LpPage } from '@/world/launchpad/view';
+import type { CollectionView, HomeView } from '@/world/home';
+
+/** A visitor's view of another player (home.ts visitView). */
+export interface VisitPayload {
+  home: HomeView | null;
+  collection: CollectionView | null;
+}
 
 /** Messages from the browser to the world server. */
 export type ClientMsg =
@@ -12,6 +19,8 @@ export type ClientMsg =
   | { t: 'nw-history'; id: number }
   /** one Launchpad token page, read on demand (the view carries none) */
   | { t: 'lp-page'; id: number; ticker: string }
+  /** another player's home room and collection, each only when its owner has opened it (home.ts visitView) */
+  | { t: 'visit'; id: number; playerId: string }
   | { t: 'ping' };
 
 export interface HistoryPayload {
@@ -36,6 +45,12 @@ export interface NwHistoryPayload {
   ghosts: { day: number; player: number; basket: number; random: number; momentum: number }[];
 }
 
+/**
+ * The model text overlay (server/text): the item id to its line in each language. Presentation only: it never enters the
+ * world state, a snapshot or the command log, and a client shows it in place of the template line when present.
+ */
+export type TextOverlayMap = Record<string, { en: string; fr: string }>;
+
 /** Messages from the world server to the browser. */
 export type ServerMsg =
   | {
@@ -50,6 +65,8 @@ export type ServerMsg =
     directory: DirectoryRow[];
     chat: Record<string, ChatMessage[]>;
     serverTime: number;
+    /** the model text overlay, all lines kept (absent when the text slot is off) */
+    textOverlay?: TextOverlayMap;
   }
   | {
     t: 'tick';
@@ -63,11 +80,14 @@ export type ServerMsg =
     pub?: PublicState;
     directory?: DirectoryRow[];
     serverTime: number;
+    /** the overlay lines that landed since the last tick (absent when none did) */
+    textOverlay?: TextOverlayMap;
   }
   | { t: 'ack'; id: number; ok: boolean; error?: string; data?: unknown; me?: PlayerView }
   | { t: 'history'; id: number; data: HistoryPayload | null }
   | { t: 'nw-history'; id: number; data: NwHistoryPayload }
   | { t: 'lp-page'; id: number; data: LpPage | null }
+  | { t: 'visit'; id: number; data: VisitPayload | null }
   | { t: 'chat'; chat: (ChatMessage & { channel: string })[] }
   | { t: 'error'; message: string }
   | { t: 'pong' };

@@ -1,3 +1,4 @@
+import { ecaViewOf, type EcaInquiryView } from './eca';
 import {
   indexLevel, indexMembers, worldEventView, type Account, type AssetDef, type AssetState, type Order, type RatesState, type RegimeId,
   type WorldConfig, type WorldEventView, type WorldState, type DepthFrame, tradingConfig,
@@ -20,7 +21,9 @@ import { CITY_DEMAND, mortgageRate, noteCost } from './assets';
 import { decoyCodename, defenseOf, defensePoints, defenseTier, entriesOf } from './cyber';
 import { algorithmA, dataPrice, ownedPflopPerDay, spotPflopPrice } from './lab';
 import { exchangeView, type ExchangeView } from './exchange/view';
+import { comebackView, type ComebackView } from './comeback';
 import { launchpadView, type LaunchpadView } from './launchpad/view';
+import { sixdView, type SixdView } from './sixd';
 import type {
   Alliance, BoardRow, Boards, Business, ChatMessage, ConnectionEntry, CourtCase, CyberOp, Deal, GameState, InboxItem,
   LabState, Player, Property, WireItem,
@@ -217,6 +220,8 @@ export interface PlayerView {
     honeypot: { kind: string; placedTick: number } | null;
   };
   cases: CourtCase[];
+  /** the market regulator's inquiries against this player (letters and stage only: never the score or the evidence) */
+  regulator: EcaInquiryView[];
   deals: Deal[];
   alliance: Alliance | null;
   noteCost: number;
@@ -244,6 +249,10 @@ export interface PlayerView {
   exchange: ExchangeView;
   /** the Launchpad app (lead-launchpad.md L7): the feeds, token pages, the viewer's holdings and the creator console */
   launchpad: LaunchpadView;
+  /** the comeback (velvet-bankruptcy.md): the low-cash card, the chapter screen, the perks and the sponsor break offer (private) */
+  comeback: ComebackView | null;
+  /** the 6D surfaces: insurance, streak, this week's auction lots, the tournament board, the stress test and the home room (sixd.ts) */
+  sixd: SixdView | null;
 }
 
 export function playerView(g: GameState, pid: string): PlayerView | null {
@@ -293,6 +302,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
       honeypot: d.honeypot ? { kind: d.honeypot.kind, placedTick: d.honeypot.placedTick } : null,
     },
     cases: Object.values(g.court.cases).filter((c) => c.plaintiffId === pid || c.defendantId === pid),
+    regulator: ecaViewOf(g, pid),
     deals: Object.values(g.deals).filter((x) => x.fromId === pid || x.toId === pid).slice(-50),
     alliance: p.allianceId ? g.alliances[p.allianceId] ?? null : null,
     noteCost: noteCost(g, pid),
@@ -301,7 +311,9 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
     trading: tradingView(g, pid),
     exchange: exchangeView(g, pid),
     launchpad: launchpadView(g, pid),
+    sixd: sixdView(g, pid),
     capital: capitalViewOf(g, pid),
+    comeback: comebackView(g, pid),
   };
 }
 

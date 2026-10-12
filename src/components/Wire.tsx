@@ -2,10 +2,12 @@
 
 import { useState, type ReactNode } from 'react';
 import { newsBand, type NewsBand } from '@/engine';
-import { t, tm } from '@/i18n';
+import { t, tm, useLocale } from '@/i18n';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
+import { wireTagMsg } from '@/world/text/wireTags';
 import type { WireItem } from '@/world/types';
+import { overlayText } from '@/world/text/overlay';
 import { TONE_TEXT } from './Shell';
 import { CloseBrief } from './CloseCard';
 import { openFromShell } from './os/openApp';
@@ -38,6 +40,10 @@ const BAND_CLASS: Record<Exclude<NewsBand, 'done'>, string> = {
 export function WireView() {
   const wire = useGame((s) => s.wire);
   const config = useGame((s) => s.config);
+  const overlay = useGame((s) => s.textOverlay);
+  const locale = useLocale((s) => s.locale);
+  /** the model line in this language when the text slot wrote one, else the world's own line */
+  const line = (w: WireItem) => overlayText(overlay, w.id, locale) ?? tm(w.msg, w.text);
   const now = useGame((s) => s.frame?.tick ?? 0);
   const [f, setF] = useState('all');
   const [limit, setLimit] = useState(PAGE);
@@ -52,7 +58,7 @@ export function WireView() {
       <li key={w.id} className="flex gap-3 border-t border-ink-2 py-1.5" data-testid="wire-row">
         <span className="num w-20 shrink-0 text-caption text-fg-faint">{clockLabel(w.tick, 720)}</span>
         <div className="min-w-0">
-          <span className={`mr-2 text-caption font-semibold uppercase ${TONE_TEXT[w.tone]}`}>{w.tag}</span>
+          <span className={`mr-2 text-caption font-semibold uppercase ${TONE_TEXT[w.tone]}`}>{tm(wireTagMsg(w.tag), w.tag)}</span>
           {w.assetId ? (
             <button
               type="button"
@@ -60,10 +66,10 @@ export function WireView() {
               title={t('wire.openBroker', { ticker: w.assetId })}
               onClick={() => openFromShell('broker', { ticker: w.assetId })}
             >
-              {tm(w.msg, w.text)}
+              {line(w)}
             </button>
           ) : (
-            <span className="text-small text-fg">{tm(w.msg, w.text)}</span>
+            <span className="text-small text-fg">{line(w)}</span>
           )}
           {chip !== null && (
             <span className="ml-2 align-middle" data-testid={`news-band-${chip}`}>

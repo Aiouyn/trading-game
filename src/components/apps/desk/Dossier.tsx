@@ -77,7 +77,7 @@ export function Dossier({ d, upkeepDay }: { d: DeskDossier; upkeepDay?: number }
             {d.headlines.map((h, i) => (
               <li key={`${h.day}-${i}`} className="flex gap-3 text-small">
                 <span className="num shrink-0 text-fg-faint">{t('desk.day', { day: h.day })}</span>
-                <span className="text-fg">{h.text}</span>
+                <span className="text-fg">{tm(h.msg, h.text)}</span>
               </li>
             ))}
           </ul>

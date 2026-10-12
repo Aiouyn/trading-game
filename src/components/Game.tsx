@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { initLocale, useLocale } from '@/i18n';
 import { CloseAnnouncer } from './CloseCard';
+import { ComebackHost } from './comeback/ComebackScreens';
 import { Coach, ConnectionBanner, DigestAnnouncer } from './Overlays';
 import { ProfileModal } from './Social';
 import { OsRoot } from './os/OsRoot';
@@ -43,6 +44,7 @@ export function Game() {
       <OsUpdate />
       <DigestAnnouncer />
       <CloseAnnouncer />
+      <ComebackHost />
       <ProfileModal />
       <ConnectionBanner />
       <Coach />

@@ -1,9 +1,10 @@
 import en from '@/i18n/en.json';
 import fr from '@/i18n/fr.json';
 import { sectorName } from '@/engine';
-import type { Locale, Msg } from '@/i18n';
+import type { Locale, Msg, MsgVar } from '@/i18n';
 import { closeMove } from '../close-move';
 import type { TextProvider } from './index';
+import { analystMsg, executivesMsg, moderatorMsg, narratorMsg, newsroomMsg, rivalMsg, rumorMsg, vkey } from './roles';
 
 /**
  * The template provider: the daily close, written from fixed sentences in en.json and fr.json (keys `dayclose.*`). The
@@ -15,8 +16,14 @@ const DICTS: Record<Locale, Dict> = { en: en as Dict, fr: fr as Dict };
 
 /** Fill `{name}` slots from a descriptor. A missing key falls back to English, then to the key itself. A var "@key" names another key. */
 export function renderMsg(m: Msg, locale: Locale): string {
-  const s = DICTS[locale][m.key] ?? DICTS.en[m.key] ?? m.key;
-  const ref = (v: string | number): string => (typeof v === 'string' && v.startsWith('@') ? renderMsg({ key: v.slice(1) }, locale) : String(v));
+  // a count picks the plural form first (key_one / key_other), as the client's t() does
+  const count = m.vars?.count;
+  const plural = typeof count === 'number' ? `${m.key}_${count === 1 ? 'one' : 'other'}` : null;
+  const s = (plural && (DICTS[locale][plural] ?? DICTS.en[plural])) || DICTS[locale][m.key] || DICTS.en[m.key] || m.key;
+  const ref = (v: MsgVar): string => {
+    if (typeof v === 'object') return renderMsg(v, locale);
+    return typeof v === 'string' && v.startsWith('@') ? renderMsg({ key: v.slice(1) }, locale) : String(v);
+  };
   return s.replace(/\{(\w+)\}/g, (whole, k: string) => (m.vars && m.vars[k] !== undefined ? ref(m.vars[k]!) : whole));
 }
 
@@ -49,58 +56,65 @@ export function absPct(x: number): string {
 
 export const templateTextProvider: TextProvider = {
   dailyClose(c) {
+    // the masthead is a label; every other line is a narrator variant (roles.ts narratorMsg), keyed by the close's day
     const out: Msg[] = [{ key: 'dayclose.title' }];
     // the headline is trading alone; valuation and income are their own lines, so a marked-up business never reads as a gain made today
     const trade = closeMove(c.trading);
-    out.push(trade === 'flat'
-      ? { key: 'dayclose.trade.flat' }
-      : { key: `dayclose.trade.${trade}`, vars: { change: usd(Math.abs(c.trading)) } });
+    const day = `${c.day}`;
+    out.push(narratorMsg({ id: `${day}:head`, kind: 'head', move: trade, amount: usd(Math.abs(c.trading)) }));
     out.push({ key: 'dayclose.valuation', vars: { change: signedUsd(c.valuation) } });
     out.push({ key: 'dayclose.income', vars: { change: signedUsd(c.income) } });
     const move = closeMove(c.nwChange);
     if (move === 'flat') {
-      out.push({ key: 'dayclose.nw.flat', vars: { now: usd(c.nwClose) } });
+      out.push({ key: vkey('txt.narr.nw.flat', `${c.day}:nw`), vars: { now: usd(c.nwClose) } });
     } else {
       out.push({
-        key: `dayclose.nw.${move}`,
+        key: vkey(`txt.narr.nw.${move}`, `${c.day}:nw`),
         vars: { change: usd(Math.abs(c.nwChange)), pct: absPct(c.nwChangePct), now: usd(c.nwClose) },
       });
     }
     if (c.best && c.worst) {
-      out.push({ key: 'dayclose.best', vars: { asset: c.best.assetId, pct: signedPct(c.best.pct), usd: usd(c.best.usd) } });
+      out.push(narratorMsg({ id: `${day}:best`, kind: 'best', asset: c.best.assetId, pct: signedPct(c.best.pct), usd: usd(c.best.usd) }));
       if (c.worst.assetId !== c.best.assetId) {
-        out.push({ key: 'dayclose.worst', vars: { asset: c.worst.assetId, pct: signedPct(c.worst.pct), usd: usd(c.worst.usd) } });
+        out.push(narratorMsg({ id: `${day}:worst`, kind: 'worst', asset: c.worst.assetId, pct: signedPct(c.worst.pct), usd: usd(c.worst.usd) }));
       }
     } else {
-      out.push({ key: 'dayclose.noPositions' });
+      out.push(narratorMsg({ id: `${day}:none`, kind: 'noPositions' }));
     }
-    out.push({ key: 'dayclose.gx', vars: { pct: signedPct(c.gx.pct) } });
+    out.push(narratorMsg({ id: `${day}:gx`, kind: 'gx', pct: signedPct(c.gx.pct) }));
     if (c.sectors) {
-      out.push({ key: 'dayclose.sectorBest', vars: { sector: sectorName(c.sectors.best.sector), pct: signedPct(c.sectors.best.pct) } });
-      out.push({ key: 'dayclose.sectorWorst', vars: { sector: sectorName(c.sectors.worst.sector), pct: signedPct(c.sectors.worst.pct) } });
+      out.push(narratorMsg({ id: `${day}:sector:best`, kind: 'sector', which: 'best', sector: sectorName(c.sectors.best.sector), pct: signedPct(c.sectors.best.pct) }));
+      out.push(narratorMsg({ id: `${day}:sector:worst`, kind: 'sector', which: 'worst', sector: sectorName(c.sectors.worst.sector), pct: signedPct(c.sectors.worst.pct) }));
     }
     for (const s of c.stories) {
-      out.push({ key: `dayclose.story.${s.band}`, vars: { headline: s.headline, asset: s.assetId } });
+      out.push({ key: vkey(`txt.narr.story.${s.band}`, `${c.day}:${s.assetId}`), vars: { headline: s.headlineMsg ?? s.headline, asset: s.assetId } });
     }
     if (c.event) {
-      if (c.event.phase === 'active') out.push({ key: 'dayclose.event.active', vars: { headline: c.event.headline } });
-      else out.push({ key: 'dayclose.event.ended', vars: { headline: c.event.headline, days: c.event.lastedDays ?? 0 } });
+      const headline = c.event.headlineMsg ?? c.event.headline;
+      if (c.event.phase === 'active') out.push({ key: vkey('txt.narr.event.active', `${c.day}:event`), vars: { headline } });
+      else out.push({ key: vkey('txt.narr.event.ended', `${c.day}:event`), vars: { headline, days: c.event.lastedDays ?? 0 } });
     }
-    out.push({
-      key: 'dayclose.ghosts',
-      vars: { basket: usd(c.ghosts.basket), random: usd(c.ghosts.random), momentum: usd(c.ghosts.momentum), player: usd(c.ghosts.player) },
-    });
-    if (c.ghosts.percentile === null) out.push({ key: 'dayclose.noTrades' });
-    else out.push({ key: 'dayclose.rank', vars: { beaten: c.ghosts.beaten } });
+    out.push(narratorMsg({
+      id: `${day}:ghosts`, kind: 'ghosts', basket: usd(c.ghosts.basket), random: usd(c.ghosts.random), momentum: usd(c.ghosts.momentum), player: usd(c.ghosts.player),
+    }));
+    if (c.ghosts.percentile === null) out.push(narratorMsg({ id: `${day}:rank`, kind: 'noTrades' }));
+    else out.push(narratorMsg({ id: `${day}:rank`, kind: 'rank', beaten: c.ghosts.beaten }));
     return out;
   },
   deskMemo(f) {
     const dir = f.move > MOVE_FLAT ? 'up' : f.move < -MOVE_FLAT ? 'down' : 'flat';
-    const out: Msg[] = [{ key: `desk.memo.${dir}`, vars: { asset: f.assetId, pct: absPct(f.move), from: f.from, to: f.to } }];
-    if (dir !== 'flat' && f.dominant) out.push({ key: 'desk.memo.did', vars: { part: `@journal.part.${f.dominant}` } });
-    if (f.pool) out.push({ key: `desk.memo.flow.${f.pool.buying ? 'buy' : 'sell'}`, vars: { pool: `@desk.pool.${f.pool.id}` } });
+    const id = `${f.assetId}:${f.from}:${f.to}`;
+    const out: Msg[] = [analystMsg({ id, kind: 'move', dir, asset: f.assetId, pct: f.move, from: f.from, to: f.to })];
+    if (dir !== 'flat' && f.dominant) out.push(analystMsg({ id, kind: 'did', part: f.dominant }));
+    if (f.pool) out.push(analystMsg({ id, kind: 'flow', buying: f.pool.buying, pool: f.pool.id }));
     return out.slice(0, 3);
   },
+  newsroom: newsroomMsg,
+  executives: executivesMsg,
+  rumor: rumorMsg,
+  narrator: narratorMsg,
+  rival: rivalMsg,
+  moderator: moderatorMsg,
   tripLine(f) {
     if (Math.abs(f.realized) < 1) return { key: 'journal.line.even' };
     const parts = Object.entries(f.rows).filter((e): e is [string, number] => (e[1] ?? 0) !== 0);

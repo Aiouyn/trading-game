@@ -8,7 +8,8 @@ import { portfolio } from '@/engine';
 import { price, signedMoney, signedPct } from '@/game/format';
 import { assetDefOf, useGame } from '@/game/store';
 import { useIsPhone } from '@/game/useMedia';
-import { t } from '@/i18n';
+import { t, tm } from '@/i18n';
+import { wireTagMsg } from '@/world/text/wireTags';
 import { usePhone } from './os/phoneStore';
 import { Progress } from './ui';
 
@@ -27,7 +28,7 @@ export function DigestAnnouncer() {
     if (!open || !digest || !me) return;
     const change = me.netWorth.total - digest.netWorthThen;
     toast({ tone: change < 0 ? 'loss' : 'info', kind: 'other', text: `${t('digest.title')}: ${signedMoney(change)}`, app: 'wire' });
-    notify(digest.items.map((n) => ({ tone: 'info' as const, text: n.text })));
+    notify(digest.items.map((n) => ({ tone: 'info' as const, text: tm(n.msg, n.text) })));
     close();
     // the digest is announced once per open; the store clears digestOpen in closeDigest
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,7 +79,7 @@ export function Coach() {
     if (step < 1 && firstNews) {
       const ticker = firstNews.assetId ?? '';
       card = {
-        key: 1, title: firstNews.tag, body: firstNews.text,
+        key: 1, title: tm(wireTagMsg(firstNews.tag), firstNews.tag), body: tm(firstNews.msg, firstNews.text),
         action: { label: t('coach.look', { ticker }), run: () => { select(ticker); setScreen('market'); void advance(1); } },
       };
     } else if (step < 2 && trades > 0) {

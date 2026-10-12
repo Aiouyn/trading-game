@@ -2,9 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from '../game';
 import { playerView } from '../view';
 import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
-import { LP, bookAccountId } from './constants';
+import { LP, LP_K, NPC, bookAccountId } from './constants';
 import { launchpadView, lpPageOf } from './view';
 import { tokenOf } from './state';
+
+/**
+ * The share of the curve a launch buys at once: the launch cohort's demand (constant product, the fee left out, so an upper bound)
+ * plus the largest sniper buy. The launch buzz is BASE0 * (u^(-1/alpha) - 1) (launch.ts launchBuzz), so its 99th percentile is
+ * BASE0 * (0.01^(-1/alpha) - 1) buzz. The mean cohort is $3,000 (24.8% of the curve with the sniper); the measured runs are in
+ * docs/V1-PHASE5.md section 8.5.
+ */
+const curveShareFor = (demand: number) => (LP.Y0 - LP_K / (LP.X0 + demand)) / LP.CURVE_SUPPLY;
+const cohortShareBound = curveShareFor(NPC.BASE0 * (Math.pow(0.01, -1 / NPC.BASE0_ALPHA) - 1) * NPC.DEMAND_PER_BUZZ + 400);
 
 describe('the Launchpad view (L1, L7)', () => {
   it('no-reveal: the view carries holder buckets and the tape, never a holder’s handle; the tape flags only the creator’s own trades', () => {
@@ -53,9 +62,10 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(v.feeds.graduated).toHaveLength(0);
     expect(v.gate).toBeNull();
     expect(v.feeds.newest[0]!.icon.startsWith('<svg')).toBe(true);
-    // the launch's own buzz and the NPC sniper (at most $400, about 3% of the curve) are bought at once (L6.4, sniperEnter)
+    // the v1.4 launch cohort (L6.9) and the NPC sniper are bought at once (L6.4, sniperEnter); the bound is what a 99th-percentile
+    // launch buys (cohortShareBound above), not a fixed guess
     expect(v.feeds.newest[0]!.progress).toBeGreaterThan(0);
-    expect(v.feeds.newest[0]!.progress).toBeLessThan(0.05);
+    expect(v.feeds.newest[0]!.progress).toBeLessThan(cohortShareBound);
     const cr = launchpadView(g, CREATOR);
     expect(cr.gate).toBe('cooldown');
   });

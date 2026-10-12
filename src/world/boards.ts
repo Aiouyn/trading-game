@@ -1,4 +1,6 @@
+import { boardNetWorth } from './comeback';
 import { bizValuedIncome, CHAPTER_TICKS, notify, playerBusinesses, playerProperties, propValue, pushWire } from './core';
+import { textProvider } from './text';
 import type { BoardRow, Boards, GameState, Player, StepOutput } from './types';
 
 const TOP = 100;
@@ -24,7 +26,7 @@ function top(rows: BoardRow[]): BoardRow[] {
  */
 export function computeBoards(g: GameState): void {
   const ps = Object.values(g.players);
-  const all = ps.map((p) => row(p, p.markNetWorth ?? p.netWorth)).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+  const all = ps.map((p) => row(p, boardNetWorth(p))).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
   const nwRank: Record<string, number> = {};
   all.forEach((r, i) => { nwRank[r.id] = i + 1; });
   const country: Record<string, BoardRow[]> = {};
@@ -100,8 +102,15 @@ export function chapterCheck(g: GameState, out: StepOutput): void {
   const climber = g.boards.climber.slice(0, 10);
   g.hallOfFame.unshift({ chapter: g.chapter.number, tick: g.market.tick, richest, climber });
   const w = richest[0];
-  pushWire(g, out, { kind: 'chapter', tag: 'Chapter', tone: 'brass', text: `Chapter ${g.chapter.number} closes. ${w ? `${w.name} wins the chapter.` : ''} Chapter ${g.chapter.number + 1} begins.` });
-  richest.slice(0, 3).forEach((r, i) => notify(g, out, r.id, { kind: 'system', tone: 'brass', text: `You finished #${i + 1} in Chapter ${g.chapter.number}. Your portrait hangs in the Hall of Fame.` }));
+  const number = g.chapter.number;
+  pushWire(g, out, {
+    kind: 'chapter', tag: 'Chapter', tone: 'brass', text: `Chapter ${number} closes. ${w ? `${w.name} wins the chapter.` : ''} Chapter ${number + 1} begins.`,
+    msg: textProvider.newsroom({ kind: 'chapter', id: `${number}:chapter`, number, winner: w ? w.name : null }),
+  });
+  richest.slice(0, 3).forEach((r, i) => notify(g, out, r.id, {
+    kind: 'system', tone: 'brass', text: `You finished #${i + 1} in Chapter ${number}. Your portrait hangs in the Hall of Fame.`,
+    msg: textProvider.newsroom({ kind: 'hallOfFame', id: `${number}:hof:${r.id}`, rank: i + 1, number }),
+  }));
   for (const p of Object.values(g.players)) p.chapterStartNetWorth = p.netWorth;
   g.chapter = { number: g.chapter.number + 1, startTick: g.market.tick, endTick: g.market.tick + CHAPTER_TICKS };
 }

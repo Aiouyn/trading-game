@@ -291,7 +291,7 @@ describe('the canary and the honeypot in play (M29)', () => {
     }
     expect(flaggedWithoutCanary).toBe(0); // only the canary can flag
     expect(flagged + decoyNoCanary).toBeGreaterThan(0);
-  });
+  }, 180_000); // 120 game setups: past the 60 s default on a loaded machine
 
   it('a fund runs its honeypot in the model list only when the quarter draw hits (fundModelList)', () => {
     const g = createGame('fund-list', { warmupDays: 1 });

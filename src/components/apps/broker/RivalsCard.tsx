@@ -7,9 +7,10 @@
 import { useState } from 'react';
 import { money, signedPct, tone, toneText } from '@/game/format';
 import { useGame } from '@/game/store';
-import { t } from '@/i18n';
+import { t, tm } from '@/i18n';
 import { Card, Sparkline } from '@/components/ui';
 import type { RivalRowView, RivalsBoardView } from '@/world/rivalsBoard';
+import { rivalMsg } from '@/world/text/roles';
 
 /** The ampersand of the Hale & Ward mark (a constant, so the JSX has no string literal). */
 const AMPERSAND = String.fromCharCode(38);
@@ -36,9 +37,9 @@ function Mark({ id }: { id: string }) {
   );
 }
 
-/** The flavour line: who the fund is, never how it trades. */
-function flavour(id: string): string {
-  return t(`rivals.flavour.${id}`);
+/** The persona line: one voice per fund, from its past change since the player joined (never a position or an intention). */
+function persona(row: RivalRowView, day: number): string {
+  return tm(rivalMsg({ id: row.id, day, pastPct: row.sinceStart }));
 }
 
 /** Days the fund sat ahead of the player and behind, over the days both have a close (the last quarter). */
@@ -143,13 +144,13 @@ function RivalProfile({ board, id, youDaily, onClose }: { board: RivalsBoardView
   if (!row) return null;
   const { ahead, behind } = daysAheadBehind(chart, youDaily);
   return (
-    <section className="mt-4 border-t border-ink-2 pt-4" data-testid="rival-profile" aria-label={row.name}>
+    <section className="mt-4 rounded-md border border-ink-2 bg-ink-1 p-4" data-testid="rival-profile" aria-label={row.name}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Mark id={row.id} />
           <div>
             <div className="font-serif text-title">{row.name}</div>
-            <div className="text-small text-fg-muted">{flavour(row.id)}</div>
+            <div className="text-small text-fg-muted" data-testid="rival-persona">{persona(row, chart[chart.length - 1]?.day ?? 0)}</div>
           </div>
         </div>
         <button type="button" className="rounded-sm px-2 py-1 text-caption text-fg-muted hover:text-fg" onClick={onClose}>{t('common.close')}</button>
@@ -159,13 +160,19 @@ function RivalProfile({ board, id, youDaily, onClose }: { board: RivalsBoardView
         <dd className="num text-right">{money(row.equity)}</dd>
         <dt className="text-fg-muted">{t('rivals.profile.since')}</dt>
         <dd className={`num text-right ${toneText[tone(row.sinceStart)]}`}>{signedPct(row.sinceStart)}</dd>
-        <dt className="text-fg-muted">{t('rivals.profile.days')}</dt>
-        <dd className="num text-right" data-testid="rival-days">{t('rivals.profile.daysValue', { ahead, behind })}</dd>
+        <dt className="text-fg-muted">{t('rivals.profile.daysAhead')}</dt>
+        <dd className="num text-right" data-testid="rival-days-ahead">{ahead}</dd>
+        <dt className="text-fg-muted">{t('rivals.profile.daysBehind')}</dt>
+        <dd className="num text-right" data-testid="rival-days-behind">{behind}</dd>
       </dl>
       <div className="label mt-3">{t('rivals.profile.chart')}</div>
-      <div className="mt-1">
-        <Sparkline data={chart.map((c) => c.equity)} width={280} height={56} className="text-fg-muted" />
-      </div>
+      {chart.length < 2 ? (
+        <p className="mt-2 text-small text-fg-faint" data-testid="rival-chart-empty">{t('rivals.profile.chartEmpty')}</p>
+      ) : (
+        <div className="mt-1">
+          <Sparkline data={chart.map((c) => c.equity)} width={280} height={56} className="text-fg-muted" />
+        </div>
+      )}
     </section>
   );
 }

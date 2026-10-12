@@ -246,7 +246,7 @@ describe('memo_past_tense (every memo sentence, both languages)', () => {
   });
 
   it('memo_past_tense: every French desk memo, journal line and daily close line is past tense, never a present forecast', () => {
-    const frKeys = Object.keys(fr as Record<string, string>).filter((k) => k.startsWith('desk.memo') || k.startsWith('journal.line') || k.startsWith('dayclose.'));
+    const frKeys = Object.keys(fr as Record<string, string>).filter((k) => k.startsWith('desk.memo') || k.startsWith('journal.line') || k.startsWith('dayclose.') || /^txt\.narr\.(head|best|worst|noPositions|gx|sector|ghosts|noTrades|rank)\./.test(k));
     expect(frKeys.length).toBeGreaterThan(10);
     const vars = { asset: 'HLCN', pct: '1.2%', from: 4, to: 9, day: 9, part: 'du marché', pool: 'Les particuliers', change: '$1.00', now: '$2.00', usd: '$3.00', sector: 'Tech', headline: 'Taux', days: 2, player: '$4.00', basket: '$1.00', random: '$2.00', momentum: '$3.00', beaten: 1 };
     const offending = frKeys.map((k) => ({ k, text: renderMsg({ key: k, vars }, 'fr') })).filter((x) => PRESENT_FR.test(x.text));

@@ -359,6 +359,8 @@ export interface AssetState {
   surprise?: number | null;
   /** direction of the rumor about the next report, if one went out */
   rumor?: 1 | -1 | null;
+  /** log move the rumor printed at publication (R-6C-1); the report's gap is smaller by this much (catalysts.ts) */
+  rumorPrinted?: number;
   /** post-earnings drift: log move added each tick until peadUntil */
   peadPerTick?: number;
   peadUntil?: number;
@@ -388,6 +390,12 @@ export interface CatalystConfig {
   /** extra drift after the report, as a share of the report move */
   peadShare: number;
   peadDays: number;
+  /**
+   * R-6C-1: the share of a rumor's expected report move that prints at publication (priced in, the same path as the news
+   * bands). E[move | rumor] = (2p - 1) × the typical surprise move of the stock. The report gap is reduced by the part already
+   * printed, so the total move is unchanged. Absent = 0 (no price-in).
+   */
+  rumorPriceIn?: number;
 }
 
 /** Macro layer: inflation and growth follow the business cycle; a Taylor-rule central bank sets the policy rate. */

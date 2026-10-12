@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { boot, box, ensureShellRecord, expectRect, frame, gotoShell, onlyIn, storedShell, windowIds } from './support';
 import { watchErrors } from '../helpers';
 
-const ALLOWED_KEYS = ['tg-prefs', 'tg-token'];
+const ALLOWED_KEYS = ['tg-prefs', 'tg-token', 'tg-device']; // tg-device: the random per-browser id (V1-PRIVACY.md section 4)
 /** The fields of ShellState (wm.ts) as saved: window and layout data only. */
 const ALLOWED_SHELL_KEYS = ['v', 'wins', 'activeWs', 'focusWs', 'focusRestore', 'layouts', 'shelf', 'vp', 'look'];
 

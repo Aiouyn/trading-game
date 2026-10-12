@@ -4,6 +4,7 @@ import { EXPLAIN_ROWS, FLOW_POOLS, ecoArchive, explainMove, impactShares, type M
 import { TPD } from './core';
 import { ensureLedger, ledgerOf } from './ledger';
 import { textProvider } from './text';
+import type { Msg } from '@/i18n';
 import type { DeskDossier, DeskFile, DeskPool, DeskRow } from './ledger-types';
 import type { CommandResult, GameState, Player, WireItem } from './types';
 
@@ -35,14 +36,14 @@ const HEADLINE_KINDS: ReadonlySet<WireItem['kind']> = new Set(['move', 'earnings
  * The asset's headlines over closed days from..to, oldest first (a day covers the ticks after its open up to its close).
  * Only what the Wire still holds: a window older than the Wire's retention shows fewer headlines.
  */
-export function headlinesFor(g: GameState, assetId: string, from: number, to: number): { day: number; text: string }[] {
+export function headlinesFor(g: GameState, assetId: string, from: number, to: number): { day: number; text: string; msg?: Msg }[] {
   const lo = from * TPD;
   const hi = (to + 1) * TPD;
   return g.wire
     .filter((w) => w.assetId === assetId && HEADLINE_KINDS.has(w.kind) && w.tick > lo && w.tick <= hi)
     .reverse()
     .slice(0, 12)
-    .map((w) => ({ day: Math.floor((w.tick - 1) / TPD), text: w.text }));
+    .map((w) => ({ day: Math.floor((w.tick - 1) / TPD), text: w.text, ...(w.msg ? { msg: w.msg } : {}) }));
 }
 
 const clampDay = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);

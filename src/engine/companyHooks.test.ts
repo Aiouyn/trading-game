@@ -72,14 +72,18 @@ describe('bare engine is unchanged', () => {
   it('a world with no company stocks and no restrictions steps to the same state as before the company hooks', () => {
     // digests taken from the engine before the company hooks (src/engine at 76e4b0a): gameConfig and gameConfig with
     // the full ecology, both with one order and a sell, 3 + 2 game days
-    const cfg = defaultConfig({ ticksPerDay: 720, catalysts: DEFAULT_CATALYSTS });
+    // R-6C-1 (the rumor price-in) moves prices on a rumor day by design, so the pin is taken with the price-in off: the digests
+    // stay a pin of the pre-hook dynamics, and the price-in has its own tests in catalysts.test.ts
+    const pre = { ...DEFAULT_CATALYSTS };
+    delete pre.rumorPriceIn;
+    const cfg = defaultConfig({ ticksPerDay: 720, catalysts: pre });
     const id = cfg.assets[0]!.id;
     let s = openAccount(createWorld('bare-1', cfg), 'p1');
     s = placeOrder(s, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: 5 }).state;
     s = stepMany(s, 720 * 3).state;
     s = placeOrder(s, { playerId: 'p1', assetId: id, side: 'sell', type: 'market', qty: 2 }).state;
     s = stepMany(s, 720 * 2).state;
-    const eco = defaultConfig({ ticksPerDay: 720, catalysts: DEFAULT_CATALYSTS, ecology: { mode: 'full' } });
+    const eco = defaultConfig({ ticksPerDay: 720, catalysts: pre, ecology: { mode: 'full' } });
     let e = openAccount(createWorld('bare-2', eco), 'p1');
     e = placeOrder(e, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: 5 }).state;
     e = stepMany(e, 720 * 2).state;

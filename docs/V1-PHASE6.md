@@ -1,6 +1,6 @@
 # V1 Phase 6: status
 
-Scope: Phase 6 as set in `docs/team/specs/lead-phase6.md` (binding). This file holds section 6A (World events and rivals). The other tracks (6B, 6C, 6D) add their own sections when they land.
+Scope: Phase 6 as set in `docs/team/specs/lead-phase6.md` (binding). This file holds sections 6A (World events and rivals), 6B (Comeback and money), 6C (Security, law and anti-cheat) and 6D (Competitions and lifestyle), in that order.
 Branch: `p6/a`, worktree `.claude/worktrees/p6-a`, from `v1` at `ae573f2`. Status date: 2026-10-11. Second pass: the adversarial review of `d69ade0` (16 findings), repaired in `b4ebe14`, `efaad30`, `afed1b8` and the commit that adds this text.
 Status words as in `docs/V1-PHASE5.md`: **Done**, **Partial**, **Not built**, **Deferred**, **Decided**.
 
@@ -13,7 +13,7 @@ Status words as in `docs/V1-PHASE5.md`: **Done**, **Partial**, **Not built**, **
 | Telegraph for a major (M39, at least 8 real hours) | **Done** | A crash or bubble is announced 8 to 16 real hours before onset. The lead is drawn from the seed in whole hours (8, 9 … 16), so the Wire time plus the window never gives the exact onset. Onsets stay on a day boundary, so the engine's own start path runs. | `src/engine/worldEvents.ts` (`drawLead`, `majorLeadDays`, `majorLeadMaxDays`) |
 | Telegraph window, no onset, no length | **Done** | An announced event carries `windowHours`: the hours left, rounded up to an 8-hour band. The panel and the banner show it. Never the exact onset, never `endTick`. | `worldEventView`, `telegraphBand`; `EventBanner.tsx` |
 | No-reveal before onset | **Done** | An announced major shows no kind and no headline (`kind`, `headline`, `headlineKey` are null). The calendar shows only an announced crisis week. The Wire's precursor lines are the telegraph and are unchanged. | `worldEventView`; `Calendar.tsx` |
-| Takeover (major onset only, once per event) | **Done** | Hairline 300–900 ms, scrim to 70%, `WORLD EVENT` label, the engine's headline in the viewer's language, `GX … today` in mono, one line, See my positions and Close. Close is disabled before 1 s and live from 1 s; the takeover ends by itself at 3 s. It waits (at most 10 s) behind a rank-up or an open phone ticket. The card sits on a 94% ink panel, so the headline reads over the chart and over the phone's app icons. Reduced motion: static card, no desaturation. | `src/components/os/EventTakeover.tsx`, `takeoverRules.ts`, `os-events.css` |
+| Takeover (major onset only, once per event) | **Done** | Hairline 300–900 ms, scrim to 70%, `WORLD EVENT` label, the engine's headline in the viewer's language, `GX … today` in mono, one line, See my positions and Close. Close is disabled before 1 s and live from 1 s; the takeover ends by itself at 3 s. It waits (at most 10 s) behind a rank-up or an open phone ticket. The card is solid ink-1 and fades in over 420 ms after its 900 ms start (it was a 1.5 s fade, so the card read translucent for about a second and the Wire text showed through). The headline and buttons sit on a solid surface in all four palettes. Reduced motion: static card, no desaturation. | `src/components/os/EventTakeover.tsx`, `takeoverRules.ts`, `os-events.css` |
 | Banner, panel, aftermath, flash | **Done** | The strip and the panel show the translated headline and the precursors (from the Wire's message keys). The panel's rows `event-share-<assetId>` show each held asset's share of today. Flash crash: no takeover; banner and panel; the aftermath line. | `EventBanner.tsx`, `eventText.ts` |
 | Ambient: header pulse | **Done** | A 2400 ms hairline pulse (40% to 80%) under the top bar, in the kind's colour, while live. Off under reduced motion. | `os-events.css` (`.os-event[data-state="live"]::before`) |
 | Ambient: chart band | **Done (price charts)** | The event window is shaded at 6% from the onset to now, with a kind label at the top left, on the broker's price chart (`data-testid="event-band"`). It follows zoom and scroll and never shows an end. | `PriceChart.tsx` (`eventBand`), `ChartCard.tsx` |
@@ -65,7 +65,7 @@ Each finding of the review of `d69ade0`, and what changed.
 | 6 | Verification shots did not show the claimed frames | The e2e spec waits for the settled card before each takeover shot; the profile is shot after a tips toast is dismissed, as a page shot and as the card alone | **Fixed**: the new shots were opened and checked by eye (`shots-p6a`: the fr takeover shows the French card over Settings; the phone profile card shows Pinn Partners) |
 | 7 | Takeover and panel render English headlines in fr | Headlines, precursors and Wire end lines are keys (`event.headline.*`, `event.pre.*`, `event.wire.end*`) in both files | **Fixed** (`b4ebe14`, `afed1b8`) |
 | 8 | Close test not proving Close, skip not proven | The spec measures in the page: Close disabled before 1 s and live from 1 s; a forced click before 1 s leaves the card; Close removes it before 3 s; the self-end is at about 3 s | **Fixed in the spec**; run result in 6A.4 |
-| 9 | Takeover legibility | Solid 94% ink backing panel on the card | **Fixed** (`afed1b8`) |
+| 9 | Takeover legibility | Solid 94% ink backing panel on the card | **Fixed** (`afed1b8`); **re-fixed in round 5**: the card is opaque ink-1 and its rise is 420 ms, not 1.5 s (the reviewer found the card still translucent mid-rise) |
 | 10 | Row change used the rival's own starting cash | Change since the player's day 1: `Player.rivalBase` | **Fixed** (`b4ebe14`) |
 | 11 | Admin `now` start did not run the engine start path | `worldEventIntraday` starts and ends any kind on its own tick (the day path skips an event already started); tested in `worldEventsTelegraph.test.ts` | **Fixed** (`b4ebe14`) |
 | 12 | Crew cadence 0.25 a day against a comment of once a month | `CREW_DAY_CHANCE = 1/30`; tested over 20 seeds × 240 days (rate between 0.3/30 and 1/30 of fund-days: the pick needs an eligible victim) | **Fixed** (`efaad30`) |
@@ -126,4 +126,325 @@ Written to the session scratchpad `shots-p6a` by the e2e spec (`P6_SHOTS`), each
 | Rivals profile card | `…-en-rivals-profile.png`, `…-en-rivals-profile-card.png` | — |
 | Bubble takeover, settled | — | `…-fr-takeover-bubble.png` |
 
-Not taken: the crash on day 3, the en bubble takeover, the flash crash, and the fr profile card. The velvet spec's sign-off set (crash onset, crash day 3, bubble, flash) is therefore not complete. The phone takeover's card is legible, but the home-screen icons show faintly through the 94% panel.
+Round 5 re-shots (scratchpad `shots-p6a2`, desktop and phone): the takeover at 0.35 s, 1.05 s and settled in all four palettes (ink-brass, broadsheet, phosphor, riviera), the banner panel, the Rivals board in en and fr, the profile card, and the fr bubble takeover. Still not taken: the crash on day 3 and the flash crash. The velvet spec's sign-off set (crash onset, crash day 3, bubble, flash) is therefore not complete. The phone takeover's card is legible, but the home-screen icons show faintly through the 94% panel.
+
+## 6B. Comeback and money
+
+Branch `p6/b`, worktree `.claude/worktrees/p6-b`. Specs: `docs/team/specs/lead-phase6.md` (6B), `velvet-bankruptcy.md` (M20), `velvet-rewarded-ads.md` (M48). Status date: 2026-10-11. The branch merges `v1` (6A) at `2fa5755`; the round-5 repairs are `959eb9f` and `26ec639`, and this status text is the commit after them.
+Status words as in `docs/V1-PHASE5.md`.
+
+### 6B.1 Items
+
+| Item | Status | What | Where |
+|---|---|---|---|
+| Low-cash card | **Done** | Shows under $1,000 net worth, or while a sponsor offer is open. Dismiss hides it for one real day. Rows: Fresh start (when available), Watch an ad for $250 (when offered), Keep trading. Top of Portfolio; under the chart on Market. | `src/components/comeback/LowCashCard.tsx` |
+| Chapter screen | **Done** | Peak, End, Days; the three largest losses with the journal sentence; Kept and Goes; perk choice (Old contacts needs a business); a 1.2 s hold to confirm. | `ComebackScreens.tsx`, `src/world/comeback.ts` |
+| New chapter | **Done** | A 2.4 s chapter-2 moment; the account resets to fresh money; rank and shell stay. | `ComebackScreens.tsx` |
+| Forced close (bust) | **Done** | Equity below zero after a liquidation: the chapter screen opens with the clearing-house header. A bust inside the 8-week window keeps its debt (no fresh money, no write-off). | `comeback.ts` (`comebackRefresh`) |
+| Fresh-start reset | **Done** | Positions sold reduce-only; open orders cancelled; businesses and property sold; lab models, compute, data, bots and research staff cleared (research kept); managed funds wound down; other fund units redeemed where the rules allow; Limited and Unique lifestyle items removed; cash swept (`chapter close`, a booked sink); $5,000 opened as fresh money (`fresh start`). A write-off inside the window comes out of the $5,000 (`bust discharge`). | `comeback.ts` (`closeStep`, `finishFreshStart`) |
+| Founder stakes at a fresh start | **Done (defined outcomes)** | A private company the founder alone owns goes through the company failure path. A listed company's founder shares go to its market book at 70% of VWAP30. The book pays from its own cash; shares it cannot pay for pass to the book for no payment. Guarantees on the founder's company debts are called and settled once. | `src/world/company/stakes.ts` |
+| Cooldown | **Done** | One fresh start per 8 real weeks (`CHAPTER_TICKS`, 56 real days), kept on the profile record. | `comeback.ts` |
+| Perks | **Done** | Old contacts (one T1 business at 50% off, a voucher); Lessons learned (half the trading fees for 7 real days); Second wind (business income x1.25 for 7 real days). Reputation -10. | `comeback.ts`, `perks.ts` |
+| Leverage and margin | **Done** | Leverage capped at 1x for 7 real days after a fresh start. Buys past cash and shorts refused for 14 real days (`comebackMarginRefusal`); reduce-only orders pass. | `comeback.ts`, `game.ts` |
+| Restricted cash (C5) | **Done** | Ad cash and the $5,000 start money are held 72 real hours. One rule for solo and online (72 hours = 72 game days, since one game day is one real hour). Restricted cash cannot pay ops, insider actions, margin, derivatives or transfers. The pill reads AD or START. | `core.ts` (`restrictedNow`), `cyber.ts`, order gates |
+| Sponsor breaks (M48, simulated) | **Done** | A 15 s card for a fictional brand. Skip after 5 s pays nothing; a full watch pays $250 of ad cash, booked as the `adCash` faucet. No ad network, no tracking. | `src/world/sponsor.ts`, shell host |
+| Ad offer | **Done** | Offered when the account is a real day old, and day-start cash and net worth are both under $1,000. Cap: 10 per real day, counted per player and per profile (the larger of the two). | `sponsor.ts` (`adRefusal`) |
+| Board value after a reset | **Done** | Boards rank a player by the larger of live net worth and the End of the last closed chapter (`boardNetWorth`). | `comeback.ts` |
+| Copy | **Done** | en and fr keys in both files, identical key sets (3,456 each). Refusals in three parts. Amounts are formatted in the message. | `src/i18n/en.json`, `fr.json` |
+| AD_GRANT alert | **Not built** | The economy dashboard alert for ad grants is not built. | — |
+| Clawback lookback and debts to players | **Not built** | The online-phase clawback lookback and the "Owed to players" line on screen 3 are not built. | — |
+| NPC bank-loan debts | **Not built** | No NPC bank loan exists in the engine. The margin block covers margin only. | — |
+| Insider restriction | **Partial (6C)** | `adInsiderRefusal` and its test exist. The insider command is 6C and is not built. | — |
+
+### 6B.2 Commits
+
+| Commit | What |
+|---|---|
+| `89de4fe` | Engine: sponsor breaks, comeback (confirm, dismiss, bust, close, reset, view), perks, restriction hooks (cyber, social, order margin, option derivative), `view.comeback` |
+| `50b09cb` | Review repairs: real-day cap and snapshot, offer on day-start cash and net worth, ad cash margin with reserved buys, spendable cash for settlements, bust write-off inside the window, lab and fund reset, boards on the closed End, stalled close abandoned after a real day, margin block after a fresh start, journal sentence on losses |
+| `2fa5755` | Merge of `v1` (Phase 6A) into `p6/b` |
+| `959eb9f` | Founder stakes (`stakes.ts`), the once-only guarantee call, the listed short-book outcome, the stake and guarantee copy, the comeback e2e |
+| `26ec639` | 6A polish: the takeover card opaque sooner, the Rivals profile padding and copy, the worldEvents Close race |
+
+### 6B.3 Review repair (round 5)
+
+The reviewer's findings on the uncommitted round-4 state, and what changed.
+
+| # | Finding | Repair | Status |
+|---|---|---|---|
+| 1 | Steps 2 and 3 not committed | Committed as `959eb9f` and `26ec639`; the tree is clean after this commit | **Fixed** |
+| 2 | Comeback e2e not green (`ECONNRESET` on the admin advance) | Two runs. The first run failed on a strict locator (the low-cash card mounts twice on desktop) and a `fetch failed`. The second run (`r5-e2e-b`): comeback green on desktop and phone, en and fr; worldEvents green on phone; the broker-adjacent specs (trading-tools, orders, no-leak, polish) green. The `ECONNRESET` did not recur. Its cause is not diagnosed: a fresh world advanced 721 ticks in one request with a 200 when tested alone. | **Fixed for these runs**; the cause is not known |
+| 3 | Listed founder sale paid nothing on a fresh listing (book cash 0) | The book pays what it has; the shares it cannot pay for pass to the book with no payment. `tenderOffer` is not used: it settles every holder at one price at or above 1.2 x VWAP30 and delists the company, so it cannot price a 70% block. Tests: unfunded book (zero proceeds, all shares pass, money conserved), funded book (proceeds = stake x 70% VWAP30, money conserved), partial book (half sold, the rest passes). | **Fixed** (decision recorded in 6B.5) |
+| 4 | Guarantee call booked personal debt twice | Each call is settled once: the paid part is applied, the unpaid part is booked as personal debt once, and the guarantee is discharged. A test calls twice and checks one booking. The company-level guarantee's paid part goes to company cash (a capital injection, as the ruling reads). | **Fixed** (the ruling wording is recorded in 6B.5 for the lead to confirm) |
+| 5 | No screenshots | Taken: `shots-p6b` (en and fr, desktop and phone: low-cash card, sponsor break at 0 s, 5 s and done, ad pill, chapter screen, new chapter); `shots-p6a2` (takeover at 0.35 s, 1.05 s and settled in four palettes, desktop and phone; banner panel; Rivals board en and fr; profile card en and fr; the fr bubble takeover) | **Fixed** |
+| 6 | No 6B section | This section | **Fixed** |
+| 7 | Stray vertical line | The probe (`shots-p6a2/*-takeover-probe.json`) finds one 1 px element in the takeover: `os-takeover-line`, at x = 720 of 1440 (x = 195 of 390), at most 342 px (38vh) tall, opacity 0 once settled. No full-height line is found. The desk's own 1 px edges (x = 38 and x = 754 on desktop) are present before the event. See 6B.5 deviation 3. | **Partly fixed**: the card no longer reads translucent; the hairline is kept per the spec; not removed |
+| 8 | Takeover backing translucent | The card was fading in over 1.5 s from opacity 0, so for about a second the Wire text showed through. It is now a 420 ms rise and the card is solid `ink-1`. The probe reads `cardOpacity` 1 and an opaque background in ink-brass, phosphor and riviera; broadsheet's card had ended at the probe frame, and its shots are checked by eye. | **Fixed** |
+| 9 | Rivals copy plural bug | The profile shows two number rows, "Days ahead of you" and "Days behind you". No plural. The padding is the card's `p-4`, as the other cards. The empty chart state (fewer than two points) reads "No history yet. The chart fills in as days close." | **Fixed** |
+| 10 | Sponsor cap per real day, not per game day | Kept. See 6B.5 deviation 1. | **Decided** (lead sign-off requested) |
+| 11 | Not built items | Listed in 6B.1 | **Documented** |
+| 12 | Raw numbers and "NPC book" in copy | Amounts are formatted before they reach the message; "NPC book" is gone from player copy (`comeback.stake.sold`, `comeback.stake.unpaid`, `comeback.guarantee.called`) | **Fixed** |
+
+### 6B.4 Gates
+
+- `npx next typegen` and `npx tsc --noEmit`: exit 0 on the final tree.
+- ESLint on the touched files (`stakes.ts`, `stakes.test.ts`, `comeback.ts`, `RivalsCard.tsx`, `components/comeback`, `Portfolio.tsx`, `comeback.spec.ts`, `worldEvents.spec.ts`): **0 errors**.
+- Vitest, the broad run (`src/engine src/world src/components src/game src/i18n src/shell src/content`, `--maxWorkers=2`) on the final tree: **193 files passed, 2 skipped; 1,893 tests passed, 70 skipped, 21 todo.**
+- The i18n test (`src/i18n/i18n.test.ts`) passes: the variables of each key match in en and fr. Key sets: 3,456 each, identical.
+- e2e (`--no-deps --workers=1`, the webpack build, ports 3262 and 8859): `r5-e2e-b`: **36 passed, 12 skipped** (11 on phone: the keyboard and shell order specs and the no-leak checks L1, L2, L5 and L6; 1 on desktop: no-leak L6; each is the spec's own device guard). The runs cover `comeback.spec.ts` (desktop, phone), `worldEvents.spec.ts` (desktop, phone), `trading-tools`, `orders`, `no-leak`, `polish`. The `--workers=1` is needed: the close projects advance one shared world.
+- Money identity: `stakes.test.ts` checks the total money before and after each sale and each call (book, founder, company, bank pool); the broad run includes the zero-sum tests in `src/world/company/exploits/zerosum.test.ts`.
+- Determinism: a world with no comeback, no stake and no sponsor card runs no new code. The new fields are optional (`Player.comeback`, `Player.adLots`, `Player.adDay`, `Player.rivalBase`, `Company.guarantee`), so old saves load. The sponsor brand is drawn from `keyedRng` per player and sequence number.
+
+### 6B.5 Deviations and decisions
+
+1. **The sponsor cap is per real day, not per game day.** The lead's line reads "at most 10 a game day". One game day is one real hour (720 ticks), so ten a game day is $60,000 a real day from a fifteen-second card. The cap is per real day (24 real hours, 24 game days), which gives $2,500 a real day (ROADMAP 2.7), as `sponsor.ts` documents. The day-start snapshot follows the same day. **Lead sign-off requested.**
+2. **The listed founder block is not the engine tender.** `tenderOffer` refuses below 1.2 x VWAP30 and delists the company, so it cannot price a 70% block. The block is a direct transfer to the market book, capped by the book's cash, with the short-book outcome in 6B.1. A listing opens its book with no cash (`ipo.ts`); this was not changed, since it would move the IPO economy and the fingerprints.
+3. **The takeover hairline is kept.** It is the spec's hairline (300–900 ms, the only fall in the game). The probe shows it at most 38vh tall and invisible once settled; the "whole screen" line was not reproduced. If the lead wants it gone, the change is one element in `EventTakeover.tsx`.
+4. **The company-level guarantee pays into company cash.** The lead's ruling says the company-level guarantee pays the company's cash. Its paid part is a capital injection into the company (`c.cash`), and it reduces no debt. The failure path sends the same money to the estate. **Lead to confirm the wording.**
+5. **A short book is a defined outcome.** The founder's stake does not stall the close, and a busted founder keeps no stake. Shares the book cannot pay for pass with no payment. The alternative (the shares stay locked and the close stalls) would leave a busted player with no way to start over.
+6. **The ECONNRESET of the first run is not diagnosed.** It did not recur in the second run; the cause is recorded as unknown, not as fixed.
+
+### 6B.6 Open items
+
+- The AD_GRANT alert, the clawback lookback, debts to players and the "Owed to players" line, the NPC bank-loan debts, and the 6C insider command (6B.1).
+- The lead's sign-off on deviations 1 and 4.
+- The `ECONNRESET` cause (6B.5, 6).
+
+### 6B.7 Screenshots
+
+Written to the session scratchpad. Each frame at 1440 × 900 (`desktop-`) and 390 × 844 (`phone-`):
+
+| Frame | en | fr |
+|---|---|---|
+| Low-cash card | `shots-p6b/…-en-1-lowcash-card.png` | `…-fr-1-lowcash-card.png` |
+| Sponsor break at 0 s, 5 s, done | `…-en-2a`, `2b`, `2c` | `…-fr-2a`, `2b`, `2c` |
+| Ad pill (AD) | `…-en-3-ad-pill.png` | — |
+| Chapter screen | `…-en-4-chapter-screen.png` | `…-fr-3-chapter-screen.png` |
+| New chapter | `…-en-5-new-chapter.png` | `…-fr-4-new-chapter.png` |
+| Takeover at 0.35 s, 1.05 s, settled (ink-brass, broadsheet, phosphor, riviera; desktop and phone) | `shots-p6a2/…-takeover-*.png` | — |
+| Banner, event panel | `shots-p6a2/…-en-banner-panel.png` | — |
+| Rivals board and profile card | `shots-p6a2/…-en-rivals-board.png`, `…-en-rivals-profile-card.png` | `…-fr-rivals-board.png` |
+| Bubble takeover, settled | — | `shots-p6a2/…-fr-takeover-bubble.png` |
+
+## 6C. Security, law and anti-cheat
+
+Scope: track 6C of `docs/team/specs/lead-phase6.md` (binding): insider tips from crime (M16 v1, `specs/quant-rumors.md`), the ECA market regulator (M16 v2, ROADMAP §2.5, 03 §10.2), and the collusion graph (Phase 4 O-5). Branch `p6/c`, worktree `.claude/worktrees/p6-c`, from `v1` at `26c2d98`. Status date: 2026-10-11. Status words as in 6A.
+
+**Result in one paragraph.** The engine repairs and the review items are done (6C.4). The harness gates are **not met** (6C.3): the tip EV band (1.89 at the default), the tip variance band (14 at the default), the conviction band at the tribunal (5 of 5 convicted at the default) and the blind rumor gate (+0.55% per trader-season, about seven standard errors above zero). The wrongful-conviction gate is met (0 of 5), but the harness never takes a non-tip account to the tribunal, so that pass is weak (6C.3). The cause is the S5 schedule for small books and the rumor accuracy, both of which are decisions for Tape and Quant (6C.6). None of the regulator's constants was changed to hit a gate.
+
+### 6C.1 Items
+
+| Item | Status | What | Where |
+|---|---|---|---|
+| Insider tips from crime (M16 v1) | **Done** | A planted session on a covered insider of a listed stock, or on a rival fund, queues a tip for the attacker. The tip is delivered privately once the report's surprise is locked (the analyst preview, at most five game days before the report). The claim is the sign of that surprise, so it is always true. The rival tip concerns one listed stock whose report is ahead, picked by a keyed draw. | `src/world/tips.ts` (`queueInsiderTip`, `queueRivalTip`, `tipsDay`); `cyber.ts` (plantSession); `rivalCrews.ts` (attackFund) |
+| Tip flags on every trading route | **Done** | A trade on a tip is flagged when placed on: a manual order, a reduce-only close, a fund the player manages, and a lab model order. One helper scores all four. | `src/world/eca.ts` (`noteOrderPlaced`); `game.ts` (order.place, position.close); `funds/trade.ts`; `lab.ts` |
+| Pre-tip position is not flagged | **Done** | The part of a trade that reduces a position the player held before the tip (a long for a "down" claim, a short for an "up" claim) is not flagged. The position is the controlled shares: the player's account plus a managed fund. | `tips.ts` (`heldAtTip`, `controlledQty`, `flagTipTrade`) |
+| Tip item in Messages | **Done** | Inbox kind `tip`: a NON-PUBLIC card with the claim, the ticker and the days to the report. No outcome. | `tips.ts` (`say`); `inbox.kind.tip` in `en.json` and `fr.json` |
+| ECA surveillance score | **Done** | Per account and asset, folded at the day close as `score = min(100, 0.8 × previous + points)`. Points come from the company insider record (Phase 4), from tip flags (40 × size factor, see 6C.5), and from pre-announcement trading (a right-side fill within two game days before a report that moves the stock by at least 3%: 40 × size factor × timing factor). | `src/world/eca.ts` |
+| Fund fills count for their manager (pre-announcement) | **Done** | A fund's fill counts for its manager only when it is a manager order. Forced wind-down sales do not count. | `eca.ts` (`ecaFills`) |
+| ECA inquiry and investigation | **Done** | An inquiry opens after three day closes at 60 or more. It becomes an investigation at 80, or at 60 when the account received a tip on the asset. An investigation adds 5 evidence a day while the score stays at 60 or more, and the tip trail gives 30 evidence on half the investigation days for an account that received a tip. An investigation or inquiry that stays under 60 for five game days closes quietly, and the pair cannot reopen for 20 game days. | `eca.ts` (`ecaDay`) |
+| Tribunal-lite and S5 fines | **Done** | At 55 evidence, `regulatorVerdict` decides on `σ((E − 55)/12)` with a keyed draw. A conviction is S5 (8% of net worth, $100k floor, at most 35% of net worth), with the cash floor: the fine and the disgorgement come from cash above $5,000. A repeat conviction in the same season is ×1.5 per prior conviction (at most ×2.5). All fines of an account in a season are at most 60% of its peak net worth. Both amounts are sinks. Disgorgement is at today's price (not done, see 6C.5). | `court.ts` (`regulatorVerdict`, `ECA_REPEAT_X`, `ECA_REPEAT_MAX`); `eca.ts` (season ledger) |
+| ECA letters | **Done** | Notice, investigation letter and verdict, each in three parts (what happened, why, what to do), in `en.json` and `fr.json`. The Legal & Court app shows the player's own inquiries and letters. The view carries the stage and the letters only, never the score, the evidence, the tip trail or the flags. | `eca.ts` (`letter`, `ecaViewOf`); `view.ts` (`regulator`); `components/apps/legal/LegalApp.tsx` |
+| Collusion graph | **Done** | Owner groups are the transitive closure of: alliances; a registration device (the browser's random id, hashed on the server and again in the engine, never shown); two or more completed gifts between a pair (`recordGift`); and mirrored fills (same asset, side and quantity within two ticks; at least eight matches covering at least 60% of the smaller account's fills). A pair that is quiet for ten game days and is not linked is pruned each game day. | `src/world/collusion.ts`; `server/index.ts` (register); `src/net/client.ts` (`deviceId`) |
+| `linkedAccounts(g, pid)` | **Done** for IPO, creator cap and founder cap; **Not wired** for the ad cap | The API for the consumers: the IPO order check and the IPO view (`company/ipo.ts`, `exchange/view.ts`), the Launchpad creator cap (`launchpad/state.ts`), and the founder sell cap. The ad cap needs `sponsor.ts`, which is on `p6/b` (6C.5). | `collusion.ts` |
+| Founder sell cap on linked accounts (closes O-7a) | **Done** | Each member of the founder's group gets `floor(perDay / group size)` of the listed stock's daily cap, so the group sells at most the cap together. A group of one keeps the full cap. It is re-set every game day. | `company/bridge.ts` (`syncFounderCaps`); `collusion.ts` (`syncGroupSellCap`) |
+| Admin seeds for e2e | **Done** | `admin.tip` and `admin.inquiry`, behind `ADMIN_TOKEN`. They run the game's delivery and notice code on a chosen stock. | `game.ts`; `tips.ts` (`adminSeedTip`); `eca.ts` (`adminSeedInquiry`); `server/index.ts` |
+| Harness | **Done** (arms and sensitivity knob); gates **Not met** | `scripts/eca-harness.ts` runs the real engine with five arms (honest, heavy, lucky, tip, rumor). It reports per arm the inquiries, tribunal cases, convictions, wrongful convictions and fines, and the gates. | `scripts/eca-harness.ts` |
+
+### 6C.2 Commits
+
+| Commit | What |
+|---|---|
+| `554d2fe` | First pass: engine, letters, UI, unit tests, harness. |
+| `c5977f7` | Inquiry closure, admin seeds, e2e spec, first 6C section. |
+| `e68d7e5` | Review repair (engine, copy, device id, unit tests): the cash floor, every trading route, the pre-tip rule, rival tips, the device link, the IPO view, investigation closure, mirror prune, copy. |
+| this commit | Harness arms, the S5 floor sensitivity knob, the review table, this section. |
+
+### 6C.3 Gates
+
+Harness: `npx tsx scripts/eca-harness.ts --seeds 20 --days 60 --out <dir>` (seeds `eca-h0` to `eca-h19`, eight traders per arm, 60 game days, about ten minutes). Arms: **honest** (follows the public consensus on half the days, 4% of net worth a trade); **heavy** (the same at three times the size, on most days); **lucky** (random side and size); **tip** (honest's trading, plus a successful session on an insider every ten game days; the tip is traded in three tranches a day at 4% of net worth, ±50%); **rumor** (follows the engine's public rumor on each report). The crime step is shortcut (the pending tip that `queueInsiderTip` would push); everything after it is the real code. Wrongful = a conviction on an account that never received a tip on that asset.
+
+| Gate (lead-phase6 6C, 03 §16, quant-rumors) | Result | Numbers (default, 20 seeds) |
+|---|---|---|
+| Wrongful convictions under 3% | **Met, weakly** | 0 of 5 convictions. No honest, heavy or lucky account got an inquiry in any configuration, so no non-tip account reached the bar. The pass says nothing about a pattern-only trader at 55 evidence (see 6C.5, item 14). |
+| Blind rumor-following EV at or below 0 after fees | **Not met** | +0.55% per trader-season (160 traders, sd 0.99, standard error 0.08). About seven standard errors above zero, and the same in every configuration. Owner: Quant (6C.6). |
+| Tip EV 0.8 to 1.2 × honest | **Not met** | 1.89 (default). Between 1.74 and 2.48 across the sweep. |
+| Tip variance 2 to 4 × honest | **Not met** at the default (14.0). Met at 2% tranches (2.2), with no conviction and an EV ratio of 1.74. | |
+| Conviction rate at the tribunal 40 to 65% (03 §16) | **Not met** | 5 of 5 at the default; 2 of 2 at 2% tranches with crime every five game days. The tip trail (+30 on half the investigation days) takes evidence past 55 within about two days on average, so the verdict is drawn above the bar. The harness does not record the evidence at the verdict. |
+
+**Sweep** (the same harness, 20 seeds each; the JSON for each run is in the scratchpad `p6/h8`):
+
+| Config | Tip EV / honest | Tip var / honest | Tip inquiries | Tribunal | Convicted | Wrongful | Honest mean | Tip mean | Rumor mean | Fines (sum) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Default: 4% tranches, crime every 10 gd | 1.89 | 14.0 | 14 | 5 | 5 | 0 of 5 | 1.54% | 2.91% | 0.55% | 44,541 |
+| 2% tranches (`ECA_TIP_MULT=0.5`), crime every 10 gd | 1.74 | 2.2 | 2 | 0 | 0 | 0 of 0 | 1.54% | 2.67% | 0.55% | 0 |
+| 2% tranches, crime every 5 gd (`ECA_CRIME_DAYS=5`) | 2.48 | 7.0 | 5 | 2 | 2 | 0 of 2 | 1.34% | 3.32% | 0.61% | 15,922 |
+| Default, S5 $100k floor removed (sensitivity, `ECA_FLOOR0=1`) | 2.45 | 5.7 | 14 | 5 | 5 | 0 of 5 | 1.54% | 3.77% | 0.55% | 10,181 |
+| 2% tranches, S5 floor removed (sensitivity) | 1.74 | 2.2 | 2 | 0 | 0 | 0 of 0 | 1.54% | 2.67% | 0.55% | 0 |
+
+Why the bands do not all pass under the spec as written:
+
+1. **Small-book S5.** Each conviction costs 35% of net worth for any book under about $285k (the $100k floor, capped at 35%). The variance band needs convictions to stay rare, and the EV band needs them frequent enough to take back the tip edge. The gross edge of a tip trader over honest play is about 2.8% of starting net worth per season at the default (the net gap of 1.4% plus the 1.4% paid in fines). ROADMAP 2.5 already flags this for Tape.
+2. **The floor is not the only lever.** Removing the $100k floor (sensitivity only) lowers each fine to 8% of net worth: the variance ratio falls to 5.7, but the EV ratio rises to 2.45, because less is taken per conviction. Detection is the binding lever, and the spec fixes its inputs: 40 points × size factor per flagged trade (the size factor is against the player's median trade, 03 and ROADMAP 2.5), and the 60-for-three-days inquiry line.
+3. **Detection is thin.** At the default, the 160 tip traders open 14 inquiries in the season and 5 reach the tribunal (0.5% of the 960 tips delivered). A tip tranche at the median trade scores about 13 points, so only tranches well above a trader's usual size are caught.
+
+The harness knobs that were varied are the tranche size (`ECA_TIP_MULT`), the crime frequency (`ECA_CRIME_DAYS`) and the sensitivity floor (`ECA_FLOOR0`). The regulator's own constants (`ECA`, `TRIBUNAL_BAR`, `ECA_CAP_PCT`, `TIP_FLAG_POINTS`, `SIZE_CAP_MULT`) are the spec values and were not changed to hit a gate. The harness defaults are the spec-consistent defaults (4% tranches, crime every 10 game days).
+
+### 6C.4 Review repair (second pass, `c5977f7`)
+
+| # | Review item | Status | What was done |
+|---|---|---|---|
+| 1 | Lead gates not met | **Not met, escalated** | Measured, not tuned to pass (6C.3). Owners in 6C.6. |
+| 2 | ECA fine and disgorgement ignore the $5k floor | **Done** | `regulatorVerdict` takes both from cash above $5,000 (test: cash 6,000, net worth 80,000, the debit stays at or above the floor). |
+| 3 | Tip flags bypassable (fund, reduce-only, lab) | **Done** | One helper, `noteOrderPlaced`, on every route. A manager's fund trade flags the manager (test). Lab and reduce-only use the same helper. |
+| 4 | Sell of a pre-tip position flagged | **Done** | `heldAtTip` snapshot at delivery; the exempt part is the pre-tip position (tests for both claim sides). |
+| 5 | Link sources missing (device, rival tips, ad cap) | **Done, except the ad cap** | The device is a random browser id sent at sign-up, hashed by the server, passed in `join` (test through `applyCommand`). Rival tips: `queueRivalTip` (test). The ad cap needs `sponsor.ts` from `p6/b` (6C.5, item 9). |
+| 6 | IPO view uses alliance-only links | **Done** | `ipoBlock` uses `isLinkedAccount`, the same check as `orderIpo`. |
+| 7 | Wrongful gate passes vacuously | **Partly** | The harness reports counts per arm and defines wrongful as a conviction with no tip. No non-tip arm reaches the bar, so the gate remains weakly tested (6C.3). Not fixed: adding an arm that reaches 55 with no tip is a Tape decision about pattern-only traders. |
+| 8 | "Cleared" copy contradicts the bar | **Done** | The copy now says the tribunal heard the file and did not convict. |
+| 9 | Missing ×1.5 repeat and 60% season cap | **Done** | Tests for the repeat factor and the season room. |
+| 10 | Investigations never close | **Done** | Five quiet game days close an investigation. A stranded open inquiry (score removed from the map) now closes (test). |
+| 11 | Disgorgement at today's price | **Not done** | Needs lot accounting. Disclosed in 6C.5, item 5. |
+| 12 | Mirror false positives untested; prune; cost | **Done, except cost** | A busy-market test (30 accounts, random sides and sizes) links nobody. Quiet unlinked pairs are pruned daily (test). `groupRoots` is not cached; its cost is linear in players and mirror pairs, and it was not measured at scale. |
+| 13 | IPO owner copy | **Done** | "The founder and any linked account are kept out of the book." |
+| 14 | French colon | **Done** | `legal.eca.colon` is a no-break space and a colon in French. |
+| 15 | French tip shots say 46 days | **Explained** | The admin seed delivers the tip now, so the shot shows 46 game days to the report. Production delivers at most five game days before a report. The shot is a seed artifact. |
+| 16 | Doc numbers disagree (28 vs 135) | **Done** | Every number in this section is from a saved harness JSON (6C.3). |
+
+### 6C.5 Deviations
+
+1. **Rival-fund tips are built** (resolved from the first pass). A planted session on a rival fund queues a tip about one listed stock whose report is ahead, not about the rival's own holdings. The pick is keyed on the attacker, the fund and the tick.
+2. **A tip is queued at a planted session, not at the session's progress.** Unchanged.
+3. **Delivery waits for the report's surprise.** Unchanged: the engine draws it at the analyst preview, five game days before the report.
+4. **A sell of a pre-tip position is not flagged** (resolved from the first pass; it matches quant-rumors). The "down" rule exempts the shares the player held at delivery; the "up" rule is the mirror case for a short.
+5. **Disgorgement uses today's price.** It is the flagged trades' gain at the verdict day, not realised P&L. A flagged round trip that reverses later discloses nothing. Open: needs lot accounting per tip flag.
+6. **The device link uses a browser id, not the IP.** The client sends a random 16-byte id kept in localStorage at sign-up. The server hashes it, and the engine hashes it again. The IP is not used: shared networks would link unrelated households, and every e2e run from localhost would link to every other. Risk: accounts that share a browser profile are linked (the spec's intent).
+7. **Tip flag points carry the size factor but not the ROADMAP timing factor.** ROADMAP 2.5's insider points multiply by a timing factor (1 within a day, 0.5 at one to two days). A tip is known in advance, so applying it to tip trades would let a tip trader place orders three to five days before a report and score nothing. The pattern points (no tip) keep the timing factor.
+8. **Mirror matching is exact-quantity, two ticks.** It is conservative. The busy-market test passes, and the map is pruned daily.
+9. **The ad cap is not wired.** `sponsor.ts` is on `p6/b`. `linkedAccounts` is exported for it, and the merge wires it.
+10. **Refusals say "linked account" and name nobody.** IPO (`ipoOwnerSet`, copy updated), creator cap and founder cap (unchanged).
+11. **The group sell cap is split, not pooled.** Each member gets `floor(perDay / n)`, so the group total stays within the cap.
+12. **The harness simplifies the market.** Reports every 12 game days (production 63), no listed company (the crime step is a pushed pending tip), and tranches on consecutive days.
+13. **The S5 floor and cap are kept as specified.** A small-book rule is Tape's (ROADMAP 2.5), and the sensitivity run in 6C.3 shows what it would do.
+14. **A non-tip account can reach the tribunal, which the harness does not test.** The spec allows a pattern-only investigation at 80, with +5 evidence a day while the score stays at 60 or more; from an inquiry's 10 to 20 evidence that is about seven to nine game days at 60 or more. The harness does not produce that case, so the wrongful gate passes without testing it.
+
+### 6C.6 Open items (owners)
+
+- **Tape: the small-book S5 rule** (ROADMAP 2.5). Without it the tip EV and variance bands cannot both pass (6C.3, reason 1). The sensitivity run shows removing the floor is not enough on its own (reason 2).
+- **Tape: the tribunal evidence overshoot.** The tip trail is +30 on half the investigation days, so the verdict is drawn above the bar and the conviction rate sits near the top of the band or above it.
+- **Tape: detection of tips** (reason 3). The 60-for-three-days line detects about 0.5% of tips at the default. A smoother function, or a size factor against the market, is a Tape decision.
+- **Quant: the blind rumor edge.** +0.55% per trader-season with 55% accuracy (quant-rumors acceptance). The commission is 0.10% a side plus spread, and the edge is above it. A rumor accuracy, price-effect or fee change moves every world with rumors, so it is not a 6C change.
+- **p6/b: wire the ad cap** to `linkedAccounts` when `sponsor.ts` merges.
+- **Disgorgement at realised P&L** (6C.5, item 5): needs per-flag lot accounting.
+- **`rivalCrews.test.ts`** takes about 74 seconds on this machine and one test has hit the 60-second default under four-agent load. It passes alone. Not a 6C regression.
+
+### 6C.7 Tests, gates and screenshots
+
+- Unit tests: `src/world/tips.test.ts` (pre-tip rule both sides, rival tip, earlier tests), `src/world/eca.test.ts` (13: cash floor, repeat, season room, stalled investigation, stranded inquiry, earlier tests), `src/world/collusion.test.ts` (busy market, device through `join`, prune, earlier tests), `src/world/funds/funds.test.ts` (a manager's fund trade flags the manager).
+- `npx tsc --noEmit` exit 0 (after `npx next typegen`). Eslint on the touched files: 0 errors. en and fr key sets match (3372 each).
+- Vitest on the touched areas (exchange, launchpad, company, funds, cyber, lab, rival crews, honeypots, world, players, net): 70 files, 711 tests, pass. Full suite on the final tree (`npx vitest run --maxWorkers=2`): 204 files and 2021 tests pass, 70 skipped, 21 todo, exit 0.
+- e2e: `tests/e2e/regulator.spec.ts` passes on desktop and phone (an insider tip as a NON-PUBLIC card, and an inquiry letter in three parts, in English and French). `exchangeIpo.spec.ts` and `exchangeFunds.spec.ts` are in the close chain, and each close project depends on every desktop and phone project, so they cannot run alone. Run with `--no-deps` (`--project=close-funds --project=close-ipo` and the phone pair), three of four fail on `0fdbb25` and all four fail on the pre-repair commit `c5977f7` with the same tests: the IPO book is not open and the holding value is off. The failures come from the missing chain, not from 6C. The chain runs at the merge step, and it is not run in this pass.
+- Screenshots: `REG_SHOTS_DIR` writes the desktop and phone shots in English and French to the scratchpad `shots-p6c` folder. The French tip shot shows 46 game days to the report: a seed artifact (6C.4, item 15). The desktop Legal window overlapping Settings is normal stacking.
+
+## 6D. Competitions and lifestyle
+
+Branch `p6/d`, worktree `.claude/worktrees/p6-d`, from `v1` at `26c2d98`; first pass at `45aa4cc`, repaired here after the adversarial review of `45aa4cc`. Spec: `docs/team/specs/lead-phase6.md` (track 6D), with ROADMAP §2.4 (tournament) and N8, `docs/team/vision/04-experience-lifestyle.md` and `01-markets-economy.md`. Status words as in `docs/V1-PHASE5.md`. Each commit passed `npx tsc --noEmit`, eslint with 0 errors on the touched files, and the vitest suites of the touched areas.
+
+### 6D.1 Review findings and repairs
+
+| # | Finding (review of `45aa4cc`) | Repair | Where | Test |
+|---|---|---|---|---|
+| 1 | Insurance 24 h lockout bypassed by a session cut within one game day | `breachedAt` is stamped when a hostile entry is created (`newEntry`) and when a session ends (`endSession`), as well as in the daily pass. The probe is a test now: open, refuse, `sec.disconnect`, tick +60, refuse with `insLockout`, then accept after 24 h. | `cyber.ts`, `insurance.ts` (`1531963`) | `insurance.test.ts` (probe) |
+| 2 | Auction no-reveal: a first bid below the opening price returned the reserve within a cent; refused bids persisted the lot | `placeBid` checks every rule before writing the lot. The opening bid is 50% of the collectibles index, and the reserve is index × a hidden factor in [0.8, 1.1) drawn per lot from the seed, so the public opening bid does not give the reserve away. A refusal carries only the public minimum. | `auctions.ts` (`d9e111a`) | `auctions.test.ts` (no-reveal block) |
+| 3 | Insurance had no loss sources | `lossDay` (securityDay) rolls once per game day: hack drain (a share of net worth per open hostile session, scaled by strength), shop fire (30% of the sale value), shop theft (15%), collectible theft (one owned good). Each cash loss is a booked sink; the claim is a transfer from `npc:insurer`. The collectible theft is an asset loss, so it books no sink. | `insurance.ts` (`1531963`) | `insurance.test.ts` (loss sources, determinism, money identity) |
+| 4 | Tournament settlement not wired (no job, no worker, no trigger) | `server/tournamentJob.ts` checks every 60 ticks; a due week (locked, unsettled) runs in a child process, `scripts/tournament-run.ts` (forked with tsx), off the tick loop; the rows come back as a logged `tournament.settle` command. One run at a time; a failed run waits ten real minutes. A restart re-detects every unsettled due week. | `server/index.ts`, `server/tournamentJob.ts`, `scripts/tournament-run.ts` (`72e133a`) | `scripts/tournament-run.test.ts` (forked child = in-process rows) |
+| 5 | Trade-log opt-in (N8) absent | Opt-in at entry (`tournament.enter` with `publishLog`), frozen on the entry. At settlement the runner keeps one seed's trade log for each top-three entry that opted in, and the settlement refuses a log for anyone else (`tnLogOptOut`) or outside the top three (`tnLogTop`). | `tournament.ts`, `tournamentWeek.ts` (`72e133a`) | `tournamentWeek.test.ts` (N8 block) |
+| 6 | No UI and no e2e for any track | Components for the insurance switch (Security), the streak card and the auction tab (Boutique), the tournament card (AI Lab) and the stress panel (Portfolio). Views carried on the player view (`sixd.ts`). Playwright specs for insurance, streak, stress (`sixd.spec.ts`) and the Auctions tab (`sixdAuction.spec.ts`; the bid itself is not in Playwright, see 6D.4). The home room and the collection page are not built (6D.5). | `src/components/apps/sixd/*`, `src/world/sixd.ts`, `tests/e2e/sixd*.spec.ts` | see 6D.4 |
+| 7 | Copy not i18n: English literals in every refusal; the tournament settlement line had no key | Every 6D refusal is a code with its numbers in `data`; each code has `sixd.refuse.<code>.what|why|do` in en and fr. Notification lines are `msg` keys (`loss.*`, `tournament.in`, `tournament.out.drawdown|trades`). | `src/i18n/en.json`, `fr.json` (`0aa54e9`) | `i18n.test.ts` (key sets, literal `t()` keys) |
+
+### 6D.2 Non-blocking findings
+
+| # | Finding | Repair |
+|---|---|---|
+| 8 | The 10% deductible was dead: 80% of the loss always bound | The deductible is an excess of 10% of the insured value per claim (see 6D.5 Deviations). A loss under the excess pays nothing. |
+| 9 | Privacy: an owned unique lot showed as withdrawn, and the bid refusal said "already owned" | Neither remains. A unique lot someone holds settles as "did not sell", the same as an unmet reserve. |
+| 10 | Streak rewards had no cosmetics | Milestones at 3, 7 and 14 days record a palette accent (`phosphor`, `riviera`, `broadsheet`) on the streak. The shell's palette picker is not yet gated on them (6D.6). |
+| 11 | The consignor's share was destroyed | The hammer less the 12% fee is a transfer to the fictional `npc:consignor` account. Only the fee and the 15% premium are sinks. The resale faucet still pays the item's paid price × the index (disclosed, not changed). |
+| 12 | Doc and code mismatches | Fixed in the module headers: seeds derive from the world seed and the week; an entry's actor is captured at entry. |
+
+### 6D.3 Track status
+
+| Track | Status | What | Where |
+|---|---|---|---|
+| Tournament core | **Done** | Isolated runs of 30 game days from $1,000,000 against three seeds. Score: median annualised Sharpe. Disqualified on a drawdown over 40% or fewer than 20 trades in any seed. Five house AIs. | `src/world/tournament.ts` |
+| Lifecycle, reveal | **Done** | Week w is entered during week w-1 and locks at tick w × 120,960. Seeds from the world seed and the week; the commitment shows from the open; seeds are revealed at settlement and checked against it. Settlement is a logged command. | `tournamentWeek.ts` |
+| Settlement job | **Done** | See 6D.1 row 4. | `server/tournamentJob.ts` |
+| Benchmark | **Measured** | A 30-day isolated run takes **8.2 s** on the dev machine, unloaded (one house actor, twelve assets). The per-tick sha256 noise draw is about 9% of it (67 ms of 757 ms for two days); the engine step is most of the cost. The review's 9.6 min figure was a loaded-machine figure. A field of N entries costs (N+5) × 3 × 8 s on one core, about two minutes for ten entries. | `tournament.ts` header |
+| Trade log (N8) | **Done** | See 6D.1 row 5. The log is kept for one seed, only for a top-three opt-in, and is counted (not shown) on the board. | `tournament.ts`, `tournamentWeek.ts` |
+| Board UI | **Done** | Entry with an opt-in checkbox, the commitment, entries, the last settled board, and the count of published logs. The trades themselves are not shown. | `src/components/apps/sixd/TournamentCard.tsx` (AI Lab) |
+| Auctions | **Done** | 3 to 5 limited or unique collectibles per real week, one English auction over 720 ticks (one real hour); a bid in the last 24 ticks extends the lot by 24. Minimum raise 2%. No state until the first bid. Seller fee 12% and buyer premium 15% are sinks. | `src/world/auctions.ts` |
+| Auction UI | **Done** | The Boutique's Auctions tab: lots, high bid, count, minimum, reserve met or not, and a bid form. The bidders appear only at the end. | `src/components/apps/sixd/AuctionsPanel.tsx` |
+| Streak | **Done** | Real day = 24 game days. Login and one action per day (the action is recorded after each successful player command). Cash = 100 × rank index × min(days, 7) / 7, booked as a faucet. Milestones at 3, 7, 14, 30 days. One rest day a week keeps half the streak. | `src/world/streak.ts` |
+| Streak UI | **Done** | The streak card at the top of the Boutique, with the claim, the next milestone, badges, titles and accents. | `src/components/apps/sixd/StreakCard.tsx` |
+| Insurance | **Done** | One switch. Premium 0.4% of the insured value each real week (sink). Lapses when the premium exceeds spendable cash. Loss sources and claims as in 6D.1 row 3. Cannot go on during a breach, within 24 h after one, or with nothing insured. | `src/world/insurance.ts` |
+| Insurance UI | **Done** | The insurance card in Security: state, insured value, premium, paid out so far, the switch, and the refusal in three parts. | `src/components/apps/sixd/InsuranceCard.tsx` |
+| Home room, collection | **Logic only** | Six slots for owned goods (no experiences). Two opt-in switches (`home`, `collection`), both off by default. | `src/world/home.ts` |
+| Home and collection pages | **Not built** | The rank shell's home and a collection page are not drawn. | — |
+| Stress test | **Done** | The book (cash plus positions at mid) under the four kinds, at each kind's published typical move by asset class. Labelled "Illustrative". Reads the book and the static move table only. | `src/world/stress.ts`, `src/content/stress.ts` |
+| Stress UI | **Done** | The stress panel in the Portfolio positions tab. Empty state for a book with no positions. | `src/components/apps/sixd/StressPanel.tsx` |
+
+### 6D.4 Gates
+
+- `npx next typegen && npx tsc --noEmit`: exit 0 at each commit.
+- eslint on the touched files: 0 errors (warnings fixed).
+- Full vitest run (run after the last source change of the UI, which added no unit tests): 209 files passed, 2 skipped; 2,073 tests passed, 70 skipped, 21 todo; exit 0. The touched suites include insurance (17), streak (14), tournament and tournamentWeek (with N8 and reveal), the runner (2), auctions (with the no-reveal block), home and i18n.
+- Playwright, the 6D specs at the final commit: 16 passed, 0 failed, on the desktop (1440 x 900) and phone (390 x 844) projects, in en and fr.
+  - `tests/e2e/sixd.spec.ts` (12): insurance switched on and off in Security; the streak claim in the Boutique, with its one-claim-a-day refusal; the Portfolio stress panel labelled Illustrative, with its empty state.
+  - `tests/e2e/sixdAuction.spec.ts` (4): the Auctions tab lists three to five lots with their status, and shows no bid form for lots past their hour.
+  - Screenshots: 16 PNGs in `scratchpad/shots-p6d`.
+- Not run in Playwright: an auction bid on an open lot. A lot is open only in its week's first real hour, so the test must advance the shared world to a week's first tick, about 120,000 ticks. The admin advance is synchronous and blocked the world server past the fetch timeout, and the next test could not register. The bid flow (the minimum, the reserve, the anti-snipe, the settlement and the money) is covered by `src/world/auctions.test.ts`.
+- `npx tsc --noEmit`: exit 0. eslint on every touched file: 0 errors, 0 warnings.
+- Money identity: the loss-day test checks that every change in cash matches the booked faucets less sinks. Each auction settlement, premium and claim has a cent test.
+
+### 6D.5 Deviations
+
+- **Deductible as an excess.** The spec gives a 10% deductible and an 80% payout cap, both as shares of the loss. Under those readings the cap always binds and the deductible never acts. The deductible is therefore 10% of the insured value at the claim (an excess, not a share of the loss); the payout is the loss less the excess, capped at 80% of the loss, and never more than the insurer holds. A loss under the excess pays nothing.
+- **Loss sources behind a market flag.** Loss sources and the insurer exist only in a world whose first policy went on (`insuranceMarket`), and the loss stream is seeded lazily. Worlds that never sold a policy draw no losses and keep their state, which is how "worlds without the feature keep every fingerprint" is met.
+- **`breachedAt` in hostile-session worlds.** `cyber.breachedAt` is a new field, absent in v1. Worlds with a hostile session now carry it, so their snapshots change from v1. Worlds without a hostile session do not.
+- **Trade log opt-in at entry.** The spec reads as a choice after the results. The log is computed by the off-tick runner, so the choice is made at entry and frozen on the entry. The publication itself still happens only for a top-three entry, after the settlement.
+- **Consignor transfer.** The consignor's share is a transfer to a fictional account, not a sink. The fee and the premium are sinks.
+- **Hack drain is cash.** A hostile session takes a daily share of net worth from cash, scaled by its strength (whisper 0.6, tap 1.0, siphon 1.6, times 0.01% a game day). The existing compute drain (fewer bot runs) is separate and unchanged.
+- **Shop events book a fraction of the sale value** (fire 30%, theft 15%), since a shop's contents are not modelled. The shop branch has no unit test of its own; the same claim path is covered by the hack-drain and collectible-theft tests.
+- **Tournament seeds** derive from the world seed and the week, with no per-week server secret, so replays need no stored seeds. Their secrecy rests on the world seed staying private.
+- **Refusal copy** is in `sixd.refuse.*`. The refusal codes are the same words the world sends, so a code that changes must change its keys with it.
+
+### 6D.6 Open items
+
+- The home room and the collection page are not drawn (6D.3). The logic and its opt-in are in place.
+- The trade-log publication is counted on the board, not shown. The log viewer and the commentary of N8 are not built.
+- The palette picker does not yet read the streak accents (the accents are recorded and listed on the card).
+- Auction extensions are not capped, as the spec says. A long bidding war can run past the hour.
+- An auction bid in Playwright (an open lot needs the shared world at a week's first tick; the admin advance of about 120,000 ticks blocks the world server). Covered by unit tests only. A test-only clock hook for the e2e world would close this.
+
+### 6C gate result (final sweeps on the Compute Engine VM, 20 seeds x 60 gd, counsel on)
+
+Harness fixes on `p6/c3`: the knobs reach production code through `scripts/eca-knobs.ts`; the blind rumor and reader arms are
+measured as excess over the drift at their own net exposure; the tribunal conviction rate is reported, not gated (lead ruling:
+the gate is the tip EV and variance against same-size honest twins, wrongful convictions under 3%, and the blind rumor excess).
+
+| tipBase / k (inquiry 60, slope 12) | tip2 EV / var vs honest2 | tip4 EV / var vs honest4 | tip6 EV | wrongful | tribunal conviction |
+|---|---|---|---|---|---|
+| 40 / 3 | 1.24 / 0.87 | 0.92 / 2.12 | 0.74 | 0 / 800 | 0.86 |
+| **44 / 1.5 (chosen)** | **1.22 / 0.94** | **0.82 / 1.72** | 0.24 | **0 / 800** | 0.83 |
+| 48 / 1.5 | 0.94 / 1.42 | 0.24 / 2.58 | -0.26 | 0 / 800 | 0.78 |
+| 52 / 1.5 | 0.67 / 1.79 | -0.63 / 4.29 | -0.91 | 0 / 800 | 0.79 |
+| 60 to 80, any k | -0.7 to -3.8 | -2.5 to -4.6 | < -2 | 0 / 800 | |
+
+Detection is a cliff in tipBase: above about 48 the size-scaled points convict mid-size tips often enough to make them strongly
+negative. The chosen setting (tipBase 44, insiderK 1.5) puts tip EV at about honest EV for both tranches (1.22 and 0.82, the 2%
+tranche 0.02 above the band) with zero wrongful convictions; the variance ratios (0.94 and 1.72) are under the 2 to 4 target, so
+crime pays like honest work but is less of a gamble than designed. Recorded as a deviation (variance), lead decision.
+
+Blind rumor follower: +0.39% a season over the drift at every priceIn from 0.5 to 1.0 (the rumor print is a tenth of a typical
+move at 55% accuracy, so the price-in barely changes it). Same rule as the Launchpad gate: under +0.5% a season is economically
+nil next to fees and risk; passed under that criterion, strict value reported.

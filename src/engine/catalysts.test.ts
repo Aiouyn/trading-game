@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, step } from './sim';
 import { DEFAULT_REGIMES, defaultConfig, gameConfig, normalizeLoadings } from './config';
-import { DEFAULT_CATALYSTS, earningsCalendar, earningsInfo } from './catalysts';
-import type { AssetDef, RegimeDef, RegimeId, StepEvent, WorldConfig, WorldState } from './types';
+import { catalystDay, DEFAULT_CATALYSTS, earningsCalendar, earningsInfo, rumorPrint } from './catalysts';
+import type { AssetDef, CatalystConfig, RegimeDef, RegimeId, StepEvent, WorldConfig, WorldState } from './types';
 
 const TPD = 24;
 
@@ -137,5 +137,92 @@ describe('catalysts', () => {
     expect(earningsInfo(s, 'AUC')).toBeNull();
     expect(earningsInfo(s, 'GOLD')).toBeNull();
     expect(earningsInfo(s, 'HLCN')).not.toBeNull();
+  });
+});
+
+describe('the rumor price-in (R-6C-1)', () => {
+  // one stock, a preview already out, a rumor certain to go out in the right direction, and a report two days later
+  function rumorDays(priceIn: number, surprise: number) {
+    const def = stock('R0');
+    const c = { ...DEFAULT_CATALYSTS, rumorProb: 1, rumorAccuracy: 1, rumorPriceIn: priceIn };
+    const a = { nextEarnings: 12, consensus: 0.5, surprise, rumor: null, erng: undefined } as Parameters<typeof catalystDay>[0];
+    const pub = catalystDay(a, def, c, 'rumor-day', 10, 10 * TPD + 1, TPD);
+    const rep = catalystDay(a, def, c, 'rumor-day', 12, 12 * TPD + 1, TPD);
+    return { def, a, c, pub, rep, full: c.moveScale * (def.vol / 0.3) * surprise };
+  }
+
+  it('a rumor prints priceIn times (2p - 1) times the typical move on publication, in its direction', () => {
+    const { def, pub, c } = rumorDays(0.5, 1.2);
+    const typical = c.moveScale * (def.vol / 0.3) * Math.sqrt(2 / Math.PI);
+    const ev = pub.events.find((e) => e.type === 'rumor');
+    expect(ev).toBeDefined();
+    expect(pub.jump).toBeCloseTo(0.5 * 1 * typical, 12);
+    expect(rumorPrint(def, c, -1)).toBeCloseTo(-0.5 * typical, 12);
+  });
+
+  it('the report takes the rest: the printed rumor and the report gap add up to the full move', () => {
+    const { pub, rep, full } = rumorDays(0.5, 1.2);
+    expect(pub.jump + rep.jump).toBeCloseTo(full, 12);
+    const earn = rep.events.find((e) => e.type === 'earnings');
+    expect(earn && earn.type === 'earnings' ? earn.move : NaN).toBeCloseTo(Math.exp(full) - 1, 12);
+  });
+
+  it('priceIn 0 (or unset) prints nothing on publication, so the report carries the whole move', () => {
+    const off = rumorDays(0, -0.8);
+    expect(off.pub.jump).toBe(0);
+    expect(off.pub.events.some((e) => e.type === 'rumor')).toBe(true);
+    expect(off.pub.jump + off.rep.jump).toBeCloseTo(off.full, 12);
+  });
+
+  it('a coin-flip rumor (accuracy 50%) moves no price on publication', () => {
+    const def = stock('R1');
+    expect(rumorPrint(def, { ...DEFAULT_CATALYSTS, rumorAccuracy: 0.5, rumorPriceIn: 0.8 }, 1)).toBe(0);
+  });
+
+  it('an always-wrong source (accuracy 0) prints its expectation, and the report still makes the total follow the surprise', () => {
+    const def = stock('R2');
+    const c = { ...DEFAULT_CATALYSTS, rumorProb: 1, rumorAccuracy: 0, rumorPriceIn: 0.8 };
+    const a = { nextEarnings: 12, consensus: 0.5, surprise: 1, rumor: null } as Parameters<typeof catalystDay>[0];
+    const pub = catalystDay(a, def, c, 'rumor-wrong', 10, 10 * TPD + 1, TPD);
+    const rep = catalystDay(a, def, c, 'rumor-wrong', 12, 12 * TPD + 1, TPD);
+    // the rumor says down (always wrong here), so the market prices the expected move: up, by priceIn of the typical move
+    const dir = pub.events.find((e) => e.type === 'rumor');
+    expect(dir && dir.type === 'rumor' ? dir.direction : 0).toBe(-1);
+    expect(pub.jump).toBeGreaterThan(0);
+    expect(pub.jump + rep.jump).toBeCloseTo(c.moveScale * (def.vol / 0.3) * 1, 12);
+  });
+});
+
+describe('the rumor price-in at the world level (the harness knob reaches the publication print)', () => {
+  // two worlds on one seed: the catalyst stream is its own, so the rumor comes out on the same tick with the same direction in both;
+  // only the publication print differs. The first rumor of the run is read at its tick.
+  function firstRumorAt(priceIn: number) {
+    const c: CatalystConfig = { ...DEFAULT_CATALYSTS, rumorProb: 1, rumorAccuracy: 1, everyDays: 12, jitterDays: 0, rumorPriceIn: priceIn };
+    const assets = Array.from({ length: 8 }, (_, i) => stock(`S${i}`));
+    let s = createWorld('rumor-knob', defaultConfig({ ticksPerDay: TPD, regimes: regimes(), indices: [], assets, catalysts: c }));
+    for (let k = 0; k < TPD * 40; k++) {
+      const r = step(s);
+      s = r.state;
+      const ev = r.events.find((e) => e.type === 'rumor');
+      if (ev && ev.type === 'rumor') {
+        const i = s.assets.findIndex((a) => a.id === ev.assetId);
+        return { direction: ev.direction, tick: ev.tick, lnP: s.assets[i]!.lnP };
+      }
+    }
+    throw new Error('no rumor in 40 days');
+  }
+
+  it('a larger priceIn moves the price further in the rumor direction at publication, and priceIn 0 leaves that move out', () => {
+    const off = firstRumorAt(0);
+    const low = firstRumorAt(0.3);
+    const high = firstRumorAt(1.0);
+    expect(low.tick).toBe(off.tick);
+    expect(high.tick).toBe(off.tick);
+    expect(high.direction).toBe(off.direction);
+    // the price gap between a priceIn of 1 and of 0 is the print: in the rumor's direction, and larger than the 0.3 gap
+    const gapHigh = (high.lnP - off.lnP) * high.direction;
+    const gapLow = (low.lnP - off.lnP) * low.direction;
+    expect(gapHigh).toBeGreaterThan(gapLow);
+    expect(gapLow).toBeGreaterThan(0);
   });
 });

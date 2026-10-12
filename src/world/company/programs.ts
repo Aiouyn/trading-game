@@ -15,6 +15,7 @@ import { notify, priceOf, pushWire, today } from '../core';
 import type { GameState, StepOutput } from '../types';
 import { moveTreasury, syncWindow } from './insiders';
 import { treasuryIdOf } from './ipo';
+import { textProvider } from '../text';
 import { annualEbitdaOf } from './debt';
 import type { Company, CompanyReject } from './types';
 
@@ -45,7 +46,10 @@ export function commitPlanFor(g: GameState, playerId: string, c: Company, terms:
   const toDay = days[days.length - 1]!;
   c.planRows.push({ id, fromDay, toDay });
   if (c.planRows.length > 64) c.planRows.splice(0, c.planRows.length - 64);
-  pushWire(g, out, { kind: 'filing', tag: 'Filing', tone: 'info', text: `${c.name}: a trading plan exists, days ${fromDay} to ${toDay}.`, assetId: c.listed.assetId });
+  pushWire(g, out, {
+    kind: 'filing', tag: 'Filing', tone: 'info', text: `${c.name}: a trading plan exists, days ${fromDay} to ${toDay}.`, assetId: c.listed.assetId,
+    msg: textProvider.newsroom({ kind: 'tradePlan', id: `${id}:wire`, name: c.name, from: fromDay, to: toDay }),
+  });
   return { ok: true, value: { planId: id, fromDay, toDay } };
 }
 
@@ -106,7 +110,10 @@ export function fileBuyback(g: GameState, playerId: string, c: Company, spec: { 
   c.buybacks.push({ id, size, fromDay, toDay });
   if (c.buybacks.length > 32) c.buybacks.splice(0, c.buybacks.length - 32);
   syncWindow(g, c);
-  pushWire(g, out, { kind: 'filing', tag: 'Filing', tone: 'brass', text: `${c.name}: buyback of ${size} shares, days ${fromDay} to ${toDay}.`, assetId: c.listed.assetId });
+  pushWire(g, out, {
+    kind: 'filing', tag: 'Filing', tone: 'brass', text: `${c.name}: buyback of ${size} shares, days ${fromDay} to ${toDay}.`, assetId: c.listed.assetId,
+    msg: textProvider.newsroom({ kind: 'buyback', id: `${id}:wire`, name: c.name, size, from: fromDay, to: toDay }),
+  });
   notify(g, out, playerId, { kind: 'system', tone: 'info', text: `${c.name}: buyback filed for ${size} shares.`, msg: { key: 'company.note.buyback', vars: { name: c.name, size } } });
   return { ok: true, value: { programId: id, qtyPerDay, reserve } };
 }

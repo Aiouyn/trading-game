@@ -9,7 +9,7 @@
  */
 
 import { bizDef, priceOf } from '../core';
-import { bump, cashOf, notify, today } from '../core';
+import { bump, notify, spendableCash, today } from '../core';
 import { sellBusiness } from '../assets';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import type { Fill, StepEvent } from '@/engine';
@@ -26,6 +26,7 @@ import { covenantAtFiling, debtDay, drawLoan, repayLoan } from './debt';
 import { applyProgramEvents, cancelPlanFor, commitPlanFor, fileBuyback } from './programs';
 import { declareDividend, sweepPoolCash } from './payouts';
 import { migrateCompany } from './migrate';
+import { syncGroupSellCap } from '../collusion';
 
 /** The owner links of the company world follow the alliances (V1, owners.ts): read before any owner-set rule runs. */
 function syncLinks(g: GameState): void {
@@ -71,7 +72,7 @@ export function companyEnvOf(g: GameState): CompanyEnv {
       return Math.max(0, g.market.accounts[pid]?.positions[c.listed.assetId]?.qty ?? 0) / c.shares;
     },
     money: {
-      cash: (pid) => cashOf(g, pid),
+      cash: (pid) => spendableCash(g, pid),
       // founding and rounds are transfers between real parties, booked like any other non-trading cash move
       take: (pid, amount) => bump(g, pid, -amount),
       give: (pid, amount) => bump(g, pid, amount),
@@ -140,9 +141,24 @@ export function companyNotes(g: GameState, out: StepOutput | null, events: Compa
 }
 
 /** The day step: runs only when a company world exists, so worlds without companies are untouched. */
+/**
+ * The founder sell cap covers the owner group (closes Phase 4 O-7a): every account in the founder's group (alliances, devices,
+ * gifts and mirrored trades, collusion.ts) shares the day's cap in equal parts, so the group sells at most the cap together.
+ */
+function syncFounderCaps(g: GameState): void {
+  for (const c of Object.values(g.companies?.companies ?? {})) {
+    if (!c.listed) continue;
+    const r = restrictionsOf(g.market);
+    if (sellCapOf(r, c.listed.assetId, c.ownerId) === undefined) continue;
+    const perDay = Math.floor(COMPANY.insiders.sellCapPct * c.listed.sharesOut);
+    g.market = { ...g.market, restrictions: { ...r, sellCaps: syncGroupSellCap(g, c.listed.assetId, c.ownerId, perDay, r) } };
+  }
+}
+
 export function companyDay(g: GameState, out: StepOutput | null): void {
   if (!g.companies) return;
   migrateAll(g);
+  syncFounderCaps(g);
   const day = today(g);
   const events = companyTick(g.companies, companyEnvOf(g), day);
   companyNotes(g, out, events);

@@ -106,7 +106,7 @@ function OwnedPanel({ b }: { b: Business }) {
           )}
           <p className="text-caption text-fg-faint">{t('biz.meta', { name: def.name, sector: sec.name, tier: def.tier, tierName, city: cityName })}</p>
         </div>
-        {ev && <Chip className={ev.good ? 'border-gain/50 text-gain' : 'border-loss/50 text-loss'}>{ev.title} · {ev.mult >= 1 ? '+' : '−'}{Math.round(Math.abs(ev.mult - 1) * 100)}%</Chip>}
+        {ev && <Chip className={ev.good ? 'border-gain/50 text-gain' : 'border-loss/50 text-loss'}>{t(`biz.event.${ev.id}.title`)} · {ev.mult >= 1 ? '+' : '−'}{Math.round(Math.abs(ev.mult - 1) * 100)}%</Chip>}
       </div>
       <div className="grid grid-cols-2 gap-2 @2xl:grid-cols-4">
         {UPGRADES.map((u) => {
@@ -114,9 +114,9 @@ function OwnedPanel({ b }: { b: Business }) {
           const cost = upgradeCost(def.cost, lvl);
           const maxed = lvl >= MAX_UPGRADE;
           return (
-            <div key={u.id} className="flex flex-col gap-2 rounded-md border border-ink-3 p-2.5" title={u.blurb}>
+            <div key={u.id} className="flex flex-col gap-2 rounded-md border border-ink-3 p-2.5" title={t(`biz.upgrade.${u.id}.blurb`)}>
               <div className="flex items-center justify-between">
-                <span className="text-small font-medium">{u.name}</span>
+                <span className="text-small font-medium">{t(`biz.upgrade.${u.id}.name`)}</span>
                 <span className="flex gap-0.5" aria-label={t('biz.level', { lvl, max: MAX_UPGRADE })}>
                   {Array.from({ length: MAX_UPGRADE }, (_, k) => <span key={k} className={`h-1.5 w-1.5 rounded-full ${k < lvl ? 'bg-brass' : 'bg-ink-3'}`} />)}
                 </span>
@@ -127,7 +127,7 @@ function OwnedPanel({ b }: { b: Business }) {
                 className="w-full"
                 testId={`upgrade-${b.id}-${u.id}`}
                 label={maxed ? t('biz.maxed') : compactMoney(cost)}
-                title={u.name}
+                title={t(`biz.upgrade.${u.id}.name`)}
                 rows={spendRows(cost, cash)}
                 disabled={maxed || cash < cost}
                 onConfirm={() => act({ type: 'biz.upgrade', bizId: b.id, axis: u.id })}

@@ -7,7 +7,7 @@ import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky } from '@/shell/toasts';
 import { universeConfig, type DepthFrame, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
 import { tm } from '@/i18n';
-import type { HistoryPayload, NwHistoryPayload, ServerMsg } from '@/net/protocol';
+import type { HistoryPayload, NwHistoryPayload, ServerMsg, TextOverlayMap, VisitPayload } from '@/net/protocol';
 import type { LpPage } from '@/world/launchpad/view';
 import { mirrorWorld, type DirectoryRow, type MarketFrame, type PlayerView, type PublicState } from '@/world/view';
 import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
@@ -70,6 +70,8 @@ export interface GameStore {
   chat: Record<string, ChatMessage[]>;
   chatUnread: number;
   wire: WireItem[];
+  /** the model text overlay by wire item id (presentation only; see TextOverlayMap) */
+  textOverlay: TextOverlayMap;
   history: History;
   historyRev: number;
   loaded: Record<string, true>;
@@ -115,6 +117,8 @@ export interface GameStore {
   loadNw: () => Promise<void>;
   /** one Launchpad token page for the viewer, or null (no such token, or offline) */
   loadLpPage: (ticker: string) => Promise<LpPage | null>;
+  /** another player's home room and collection (null when the world is not connected) */
+  loadVisit: (playerId: string) => Promise<VisitPayload | null>;
   select: (assetId: string) => void;
   setScreen: (s: Screen) => void;
   setRange: (r: ChartRange) => void;
@@ -228,6 +232,7 @@ export const useGame = create<GameStore>((set, get) => {
           shortInterest: msg.frame.shortInterest ?? null, depth: msg.frame.depth ?? null,
           config, cfgSeq: msg.frame.cfgSeq, history: h, loaded: {},
           pub: msg.pub, directory: msg.directory, chat: msg.chat, wire: msg.pub.wire, historyRev: get().historyRev + 1,
+          textOverlay: msg.textOverlay ?? {},
           digestOpen: !!msg.me.digest && msg.me.digest.items.length > 0,
         });
         void get().ensureHistory(get().selected);
@@ -261,6 +266,7 @@ export const useGame = create<GameStore>((set, get) => {
           ...(msg.frame.shortInterest ? { shortInterest: msg.frame.shortInterest } : {}),
           ...(msg.frame.depth ? { depth: msg.frame.depth } : {}),
           wire: msg.wire.length ? [...[...msg.wire].reverse(), ...get().wire].slice(0, WIRE_KEEP) : get().wire,
+          ...(msg.textOverlay ? { textOverlay: { ...get().textOverlay, ...msg.textOverlay } } : {}),
           ...(msg.pub ? { pub: msg.pub } : {}), ...(msg.directory ? { directory: msg.directory } : {}),
           ...(msg.chat.length ? { chat, chatUnread: get().chatOpen ? 0 : unread } : {}),
           ...(mine ? { rankUp: mine.rankId, rankUpFrom: get().me?.rank.id ?? null } : {}),
@@ -326,6 +332,7 @@ export const useGame = create<GameStore>((set, get) => {
     chat: {},
     chatUnread: 0,
     wire: [],
+    textOverlay: {},
     history: freshHistory(BASE_CONFIG),
     historyRev: 0,
     loaded: {},
@@ -417,6 +424,11 @@ export const useGame = create<GameStore>((set, get) => {
       if (!p || !(p as HistoryPayload).daily) { const l = { ...get().loaded }; delete l[series]; set({ loaded: l }); return; }
       loadSeries(get().history, series, p as HistoryPayload);
       set({ historyRev: get().historyRev + 1 });
+    },
+
+    async loadVisit(playerId) {
+      if (!client) return null;
+      return client.visit(playerId);
     },
 
     async loadLpPage(ticker) {

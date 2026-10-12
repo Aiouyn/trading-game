@@ -51,7 +51,7 @@ These are deeds and registries, not market positions:
 
 ## 4. Client storage (L1)
 
-Only two localStorage keys are allowed: `tg-prefs` (shell layout, palette, language, cosmetic) and `tg-token` (the session token).
+Only three localStorage keys are allowed: `tg-prefs` (shell layout, palette, language, cosmetic), `tg-token` (the session token) and `tg-device` (a random per-browser id, sent once at sign-up, hashed on the server (sha256) for the collusion check; it is not a market value and no view shows it).
 Nothing else is written to localStorage, and no position, trade or replay value is written to any browser storage.
 
 ## 5. World seed

@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { goTo, grant, isPhone, noHorizontalOverflow, proof, register, skipRankUp, skipTips, watchErrors } from './helpers';
 
@@ -52,12 +52,11 @@ test('the close is a toast after a game day, the Wire card matches the server, a
   // the card reads the server's close, to the cent
   const server = await page.evaluate(() => window.__tg!.state().me!.trading.closes[0]!);
   await expect(page.getByTestId('close-masthead')).toHaveText(`Day ${server.day + 1}`);
-  // the headline counts trading alone (price moves, realized P&L, fees); valuation and income sit in the split below
-  const trade = server.trading;
-  const headline = Math.abs(trade) < 1
-    ? 'Trading was flat today.'
-    : `Trading ${trade > 0 ? 'made' : 'lost'} ${usd(Math.abs(trade))} today.`;
-  await expect(page.getByTestId('close-headline')).toHaveText(headline);
+  // the headline counts trading alone (price moves, realized P&L, fees); the narrator (Phase 7) picks one of 8 phrasings per kind of day by a stable hash: accept any of them, with the trading amount
+  const en = JSON.parse(readFileSync('src/i18n/en.json', 'utf8')) as Record<string, string>;
+  const move = Math.abs(server.trading) < 1 ? 'flat' : server.trading > 0 ? 'up' : 'down';
+  const headlines = Array.from({ length: 8 }, (_, i) => en[`txt.narr.head.${move}.${i}`]!.replace('{amount}', usd(Math.abs(server.trading))));
+  expect(headlines).toContain((await page.getByTestId('close-headline').textContent())?.trim());
   const ghosts = (await page.getByTestId('close-ghosts').textContent()) ?? '';
   for (const v of [server.ghosts.basket, server.ghosts.random, server.ghosts.momentum, server.ghosts.player]) {
     expect(ghosts).toContain(usd(v));

@@ -6,6 +6,7 @@ import {
 import { canaryFlagChance, HONEYPOT_POISON, honeypotEvidence, inheritedPoison } from './honeypots';
 import type { HoneypotKind } from './honeypots';
 import { labFor } from './lab';
+import { queueRivalTip } from './tips';
 import { mcsTier } from '@/content/research';
 import type { GameState, Model, Player, SessionStrength, StepOutput } from './types';
 
@@ -211,6 +212,8 @@ export function attackFund(g: GameState, pid: string, fundId: string, strength: 
     openDecoy(g, { attackerId: pid, targetId: fundId, on: 'fund', strength, bait: d.ap, poisonTier: list.honeypot?.poison ?? 0 });
     g.cyber.ops.unshift({ id: opId, attackerId: pid, victimId: fundId, strength, modelId, tick, result: 'decoy' });
     notify(g, out, pid, { kind: 'security', tone: 'gain', text: `${st.label} session planted on ${def.name}'s systems.`, msg: { key: 'security.msg.planted', vars: { label: `@security.strength.${strength}.label`, target: def.name } } });
+    // a planted session on a rival fund hands the attacker its research: a tip on one listed stock (M16 v1, tips.ts)
+    queueRivalTip(g, pid, fundId);
   } else {
     const detected = rng.chance(0.5);
     g.cyber.ops.unshift({ id: opId, attackerId: pid, victimId: fundId, strength, modelId, tick, result: detected ? 'detected' : 'failed' });

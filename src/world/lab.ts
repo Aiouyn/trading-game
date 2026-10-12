@@ -1,4 +1,4 @@
-import { placeOrder, portfolio, type OrderRequest } from '@/engine';
+import { placeOrder, portfolio, type AssetState, type OrderRequest } from '@/engine';
 import { BIZ_BY_ID, BIZ_SECTOR_BY_ID } from '@/content/businesses';
 import { rankIndex } from '@/content/lifestyle';
 import { BOT_CADENCE, DATA_SOURCES, RESEARCH_BY_ID, mcsTier } from '@/content/research';
@@ -6,6 +6,8 @@ import {
   GPU_TIERS, TPD, cashOf, clamp, credit, debit, keyedRng, notify, playerBusinesses, priceOf, today,
 } from './core';
 import { crossRefusal } from './funds/guard';
+import { noteOrderPlaced } from './eca';
+import { controlledQty } from './tips';
 import type { CommandResult, GameState, LabState, Model, StepOutput, TradingBot } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -312,6 +314,28 @@ export function labTick(g: GameState, out: StepOutput, newDay: boolean): void {
 }
 
 /**
+ * A strategy block's raw signal for one asset, before the model's noise (bible 02). Pure apart from the trend bot's EMA
+ * memory, which it updates in place. Shared by the live bots (runBot) and the isolated tournament runs (tournament.ts),
+ * so a model in a tournament trades the same rules it trades in the game.
+ */
+export function strategySignal(strategy: TradingBot['strategy'], assetId: string, a: AssetState, memory: Record<string, number>, tick: number, held: number): number {
+  switch (strategy) {
+    case 'momentum': return (a.lnP - a.lnOpen) * 40;
+    case 'meanrev': return -(a.lnP - a.lnOpen) * 40;
+    case 'value': return (a.lnV - a.lnP) * 15;
+    case 'trend': {
+      const ema = memory[assetId] ?? a.lnP;
+      memory[assetId] = ema + 0.05 * (a.lnP - ema);
+      return (a.lnP - ema) * 60;
+    }
+    case 'earnings': {
+      const c = a.consensus ?? 0;
+      return a.nextEarnings !== undefined && a.nextEarnings - Math.floor(tick / TPD) <= 2 ? c * 2 + (a.rumor ?? 0) : -Math.sign(held);
+    }
+  }
+}
+
+/**
  * Trading bots run on the same order API as humans (bible 02: no player code on the server, only
  * strategy blocks). Better models see a less noisy market; crowded strategies decay.
  */
@@ -328,23 +352,7 @@ function runBot(g: GameState, pid: string, bot: TradingBot, m: Model, out: StepO
     const def = g.market.config.assets[i]!;
     const px = Math.exp(a.lnP);
     const held = g.market.accounts[pid]?.positions[assetId]?.qty ?? 0;
-    let signal = 0;
-    switch (bot.strategy) {
-      case 'momentum': signal = (a.lnP - a.lnOpen) * 40; break;
-      case 'meanrev': signal = -(a.lnP - a.lnOpen) * 40; break;
-      case 'value': signal = (a.lnV - a.lnP) * 15; break;
-      case 'trend': {
-        const ema = bot.memory[assetId] ?? a.lnP;
-        bot.memory[assetId] = ema + 0.05 * (a.lnP - ema);
-        signal = (a.lnP - ema) * 60;
-        break;
-      }
-      case 'earnings': {
-        const c = a.consensus ?? 0;
-        signal = a.nextEarnings !== undefined && a.nextEarnings - Math.floor(g.market.tick / TPD) <= 2 ? c * 2 + (a.rumor ?? 0) : -Math.sign(held);
-        break;
-      }
-    }
+    let signal = strategySignal(bot.strategy, assetId, a, bot.memory, g.market.tick, held);
     signal += noise * 10 * rng.normal();
     const step = def.qtyStep ?? (def.assetClass === 'stock' ? 1 : 0);
     const round = (q: number) => (step === 1 ? Math.floor(q) : Math.floor(q * 1e4) / 1e4);
@@ -358,10 +366,13 @@ function runBot(g: GameState, pid: string, bot: TradingBot, m: Model, out: StepO
     if (!req) continue;
     // a lab order is a personal order: it may not match a fund's open order that the player or a linked account controls
     if (crossRefusal(g, pid, req.assetId, req.side, { fund: false })) continue;
+    const posBefore = controlledQty(g, pid, req.assetId);
     const r = placeOrder(g.market, { ...req, playerId: pid });
     if (r.order.status === 'open') {
       g.market = r.state;
       bot.trades++;
+      // the model's order is the player's trade: the tip rules score it on the player's account (eca.ts noteOrderPlaced)
+      noteOrderPlaced(g, pid, req.assetId, req.side, req.qty, posBefore, r.order.id);
     }
   }
   void out; void credit;

@@ -11,8 +11,12 @@ import { t } from '@/i18n';
 import { isAppUnlocked } from '@/shell/ctx';
 import { Button, Card, Chip, CommitBar, ConfirmButton, EmptyNext, StatStrip, Tabs } from '@/components/ui';
 import { unlockLine } from '../unlock';
+import { AuctionsPanel } from '@/components/apps/sixd/AuctionsPanel';
+import { StreakCard } from '@/components/apps/sixd/StreakCard';
+import { HomeRoomPanel } from '@/components/apps/sixd/HomeRoom';
+import { CollectionOwnerCard } from '@/components/apps/sixd/CollectionPage';
 
-type Tab = 'shop' | 'collection';
+type Tab = 'shop' | 'home' | 'collection' | 'auctions';
 
 export function BoutiqueApp() {
   const me = useGame((s) => s.me)!;
@@ -30,15 +34,18 @@ export function BoutiqueApp() {
           { label: t('boutique.stat.shell'), value: rank.shell },
         ]}
       />
+      <StreakCard />
       <Tabs<Tab>
         tabs={[
           { id: 'shop', label: t('boutique.tab.shop') },
+          { id: 'home', label: t('boutique.tab.home') },
           { id: 'collection', label: t('boutique.tab.collection'), badge: me.player.lifestyle.length },
+          { id: 'auctions', label: t('sixd.auc.tab') },
         ]}
         value={tab}
         onChange={setTab}
       />
-      {tab === 'shop' ? <Shop /> : <Collection onShop={() => setTab('shop')} />}
+      {tab === 'auctions' ? <AuctionsPanel /> : tab === 'shop' ? <Shop /> : tab === 'home' ? <HomeRoomPanel /> : <Collection onShop={() => setTab('shop')} />}
     </div>
   );
 }
@@ -71,7 +78,7 @@ function Shop() {
         <div className="sticky top-0 z-10">
           <CommitBar
             testId="boutique-commit"
-            title={t('commit.itemTitle', { name: picked.name })}
+            title={t('commit.itemTitle', { name: t(`lux.name.${picked.id}`) })}
             rows={[
               { label: t('commit.cost'), value: money(picked.price), testId: 'boutique-commit-cost' },
               { label: t('commit.cashNow'), value: money(cash) },
@@ -81,7 +88,7 @@ function Shop() {
             disabled={pickedLocked || pickedTaken || cash < picked.price}
             onCancel={() => setPick(null)}
             onConfirm={async () => {
-              const r = await act({ type: 'life.buy', itemId: picked.id }, { success: t('boutique.yours', { name: picked.name }) });
+              const r = await act({ type: 'life.buy', itemId: picked.id }, { success: t('boutique.yours', { name: t(`lux.name.${picked.id}`) }) });
               if (r.ok) setPick(null);
             }}
           />
@@ -95,11 +102,11 @@ function Shop() {
           return (
             <Card key={i.id} className={`flex flex-col p-4 ${locked ? 'opacity-70' : ''}`} data-testid={`item-${i.id}`}>
               <div className="flex items-start justify-between gap-2">
-                <h3 className="text-body font-semibold">{i.name}</h3>
+                <h3 className="text-body font-semibold">{t(`lux.name.${i.id}`)}</h3>
                 <Chip className={i.cls === 'unique' ? 'border-brass/50 text-brass-hi' : i.cls === 'limited' ? 'border-info/50 text-info' : ''}>{clsLabel(i.cls)}</Chip>
               </div>
-              <p className="mt-1 flex-1 text-small text-fg-muted">{i.blurb}</p>
-              {i.perk && <p className="mt-1 text-caption text-brass">{i.perk}</p>}
+              <p className="mt-1 flex-1 text-small text-fg-muted">{t(`lux.blurb.${i.id}`)}</p>
+              {i.perk && <p className="mt-1 text-caption text-brass">{t(`lux.perk.${i.id}`)}</p>}
               <div className="num mt-3 flex flex-wrap justify-between gap-x-2 text-caption">
                 <span className="text-fg">{money(i.price)}</span>
                 <span className="text-brass-hi">{t('boutique.pp', { n: Math.round(itemPrestige(i, 0)) })}</span>
@@ -129,23 +136,28 @@ function Collection({ onShop }: { onShop: () => void }) {
   const coll = useGame((s) => s.pub?.collectibles ?? 1);
   if (!me.player.lifestyle.length) {
     return (
-      <EmptyNext
-        testId="boutique-collection-empty"
-        title={t('boutique.empty')}
-        body={t('boutique.empty.body')}
-        cta={<Button variant="brass" onClick={onShop} testId="boutique-to-shop">{t('boutique.empty.cta')}</Button>}
-      />
+      <div className="flex flex-col gap-4">
+        <CollectionOwnerCard />
+        <EmptyNext
+          testId="boutique-collection-empty"
+          title={t('boutique.empty')}
+          body={t('boutique.empty.body')}
+          cta={<Button variant="brass" onClick={onShop} testId="boutique-to-shop">{t('boutique.empty.cta')}</Button>}
+        />
+      </div>
     );
   }
   return (
-    <div className="grid gap-3 @md:grid-cols-2 @4xl:grid-cols-3">
+    <div className="flex flex-col gap-4">
+      <CollectionOwnerCard />
+      <div className="grid gap-3 @md:grid-cols-2 @4xl:grid-cols-3">
       {me.player.lifestyle.map((o) => {
         const i = LIFE_ITEMS.find((x) => x.id === o.itemId)!;
         const age = (tick - o.boughtTick) / 720;
         const v = resaleValue(i, o.paid, age, coll);
         return (
           <Card key={o.uid} className="p-4">
-            <div className="flex items-start justify-between gap-2"><h3 className="text-body font-semibold">{i.name}</h3><span className="num text-caption text-brass-hi">{t('boutique.pp', { n: Math.round(itemPrestige(i, age)) })}</span></div>
+            <div className="flex items-start justify-between gap-2"><h3 className="text-body font-semibold">{t(`lux.name.${i.id}`)}</h3><span className="num text-caption text-brass-hi">{t('boutique.pp', { n: Math.round(itemPrestige(i, age)) })}</span></div>
             <p className="num mt-1 text-caption text-fg-faint">{t('boutique.paid', { paid: money(o.paid), resale: money(v), days: age.toFixed(1) })}</p>
             {i.cls !== 'consumed' ? (
               <div className="mt-3"><ConfirmButton confirm={t('boutique.sellFor', { amount: compactMoney(v) })} onConfirm={() => act({ type: 'life.sell', uid: o.uid })}>{t('common.sell')}</ConfirmButton></div>
@@ -153,6 +165,7 @@ function Collection({ onShop }: { onShop: () => void }) {
           </Card>
         );
       })}
+      </div>
     </div>
   );
 }

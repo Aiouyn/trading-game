@@ -5,6 +5,9 @@ import type { Msg } from '@/i18n';
 import type { AnalystTier } from '@/content/learning';
 import type { DayClose, PlayerLedger } from './ledger-types';
 import type { CompanyWorld } from './company/types';
+import type { TipState } from './tips';
+import type { EcaState } from './eca';
+import type { CollusionState } from './collusion';
 import type { CompanyAction } from './company/company';
 import type { CompanySector } from '@/content/company';
 import type { FundFees, FundMandate, FundsState } from './funds/types';
@@ -16,6 +19,8 @@ import type { LaunchpadState } from './launchpad/types';
  * the command log, so the server can rebuild any moment from a snapshot plus the commands since.
  * Unlike the engine, the world layer mutates its state in place (the server owns one copy).
  */
+import type { AuctionState } from './auctions';
+
 export interface GameState {
   version: 2;
   seed: string;
@@ -50,7 +55,8 @@ export interface GameState {
   lab: Record<string, LabState>;
   cyber: CyberState;
   court: CourtState;
-  rng: { biz: RngState; npc: RngState; world: RngState; cyber: RngState; court: RngState; lab: RngState };
+  /** `losses` is created lazily when the insurance market opens (insurance.ts); older worlds never have it. */
+  rng: { biz: RngState; npc: RngState; world: RngState; cyber: RngState; court: RngState; lab: RngState; losses?: RngState };
   /** per human player: trade ledger, ghosts, plans and day records (Phase 3). Absent in older saves; created on join. */
   ledgers?: Record<string, PlayerLedger>;
   /** the closing record of each game day (GX level and every asset's close), newest kept 400 days */
@@ -61,6 +67,107 @@ export interface GameState {
   funds?: FundsState;
   /** the Launchpad (player-created memecoins, lead-launchpad.md). Absent until the first launch; worlds without one keep every fingerprint. */
   launchpad?: LaunchpadState;
+  /** sponsor breaks (velvet-rewarded-ads.md, ROADMAP 2.7): the open breaks and the rewarded count per profile per game day. Absent until the first break. */
+  sponsor?: SponsorState;
+  /** insider tips from crime (M16 v1, tips.ts). Absent until the first tip; worlds without one keep every fingerprint. */
+  tips?: TipState;
+  /** the market regulator (M16 v2, eca.ts). Absent until a score or a pattern exists. */
+  eca?: EcaState;
+  /** the collusion graph inputs (collusion.ts): devices (hashed), gifts, mirror matches. Absent until one is recorded. */
+  collusion?: CollusionState;
+  /** the weekly AI tournament (ROADMAP §2.4). Absent until the first entry; worlds without one keep every fingerprint. */
+  tournament?: TournamentState;
+  /** the weekly live auctions (auctions.ts). Absent until the first bid; worlds without one keep every fingerprint. */
+  auctions?: AuctionState;
+  /** the insurance market is open: a first policy went on, so the insurer exists and the loss sources roll (insurance.ts). Absent in worlds that never sold one. */
+  insuranceMarket?: boolean;
+}
+
+/** A simulated sponsor break (ROADMAP 2.7): one open card per player, and rewarded breaks counted per profile per game day. */
+export interface SponsorState {
+  /** rewarded breaks per profile key (the alliance owner, or the player alone), with the game day they were counted on */
+  counts: Record<string, { day: number; n: number }>;
+  /** the break a player has open (one at a time) */
+  pending: Record<string, { id: string; startTick: number; brand: string }>;
+  seq: number;
+}
+
+/** One frozen entry in a week (tournament.ts): the strategy parameters stay here, and the view never shows them. */
+export interface TournamentEntryRecord {
+  playerId: string;
+  handle: string;
+  modelName: string;
+  mcs: number;
+  division: 'laptop' | 'startup' | 'frontier';
+  /** sha256 of the frozen fields at lock */
+  hash: string;
+  lockedTick: number;
+  actor: { id: string; strategy: TradingBot['strategy']; assets: string[]; allocation: number; mcs: number };
+  /** opted in at entry (N8): if this entry finishes top three, its trade log is published with the settlement */
+  publishLog?: boolean;
+}
+
+/** One fill of an isolated tournament run, as a trade log publishes it (N8). */
+export interface TradeLogRecord {
+  tick: number;
+  assetId: string;
+  side: string;
+  qty: number;
+  price: number;
+}
+
+/** One row of a settled week: an entry or a house AI, with its scores. No weights; a trade log only when published (N8). */
+export interface TournamentRowRecord {
+  id: string;
+  kind: 'entry' | 'house';
+  handle: string;
+  division?: 'laptop' | 'startup' | 'frontier';
+  mcs: number;
+  sharpe: number;
+  totalReturn: number;
+  qualified: boolean;
+  reason?: 'drawdown' | 'trades';
+  /** the trade log of one seed, for a top-three entry that opted in (N8). Absent otherwise. */
+  log?: { seed: string; trades: TradeLogRecord[] };
+}
+
+export interface TournamentWeekRecord {
+  /** the week number: its entries lock at tick week * TOURNAMENT_WEEK_TICKS */
+  week: number;
+  entries: TournamentEntryRecord[];
+  /** set when the off-tick runner settles the week; the seeds are revealed here and nowhere before */
+  settled?: { seeds: string[]; rows: TournamentRowRecord[]; settledTick: number };
+}
+
+/** The one-switch insurance of one player (insurance.ts). */
+export interface InsuranceState {
+  on: boolean;
+  /** the tick the policy last went on, or -1 */
+  sinceTick: number;
+  /** premiums paid over the life of the policy */
+  premiums: number;
+  /** payouts received */
+  paidOut: number;
+}
+
+/** The daily streak of one player (streak.ts). */
+export interface StreakState {
+  /** consecutive real days claimed */
+  count: number;
+  /** the real day of the last claim, or -1 */
+  lastDay: number;
+  /** the week (of real days) whose rest day was used, or -1 */
+  restWeek: number;
+  /** the real day of the last successful action, or -1 */
+  actedDay: number;
+  badges: string[];
+  titles: string[];
+  /** palette accents unlocked by the milestones (shell palette ids). Absent in older saves. */
+  accents?: string[];
+}
+
+export interface TournamentState {
+  weeks: Record<string, TournamentWeekRecord>;
 }
 
 export interface Player {
@@ -93,7 +200,10 @@ export interface Player {
   contracts: ActiveContract[];
   contractsDay: number;
   /** snapshot used by contracts and day summaries */
-  dayStart: { day: number; netWorth: number; gx: number; stats: PlayerStats };
+  /** the game day's snapshot (the day change, the contracts). Its cash is informational; the ad offer reads adDay. */
+  dayStart: { day: number; netWorth: number; gx: number; stats: PlayerStats; cash?: number };
+  /** the ad offer's snapshot of the real day: cash and net worth at its start (velvet-rewarded-ads.md); absent in older saves */
+  adDay?: { day: number; cash: number; netWorth: number };
   chapterStartNetWorth: number;
   watchlist: string[];
   alerts: PriceAlert[];
@@ -125,6 +235,14 @@ export interface Player {
   digestNetWorth: number;
   /** cash that cannot pay for analysts or desk upkeep (ad grants, fresh start) */
   restrictedCash?: number;
+  /** the daily streak (streak.ts). Absent until the first action; old saves load unchanged. */
+  streak?: StreakState;
+  /** the one-switch insurance (insurance.ts). Absent until the first switch-on; old saves load unchanged. */
+  insurance?: InsuranceState;
+  /** the home room: the owned item uid in each of the six slots (home.ts). Absent until the first placement. */
+  homeSlots?: (string | null)[];
+  /** the opt-in public surfaces (home.ts). Off by default; absent means off. */
+  visibility?: { home: boolean; collection: boolean };
   /**
    * Cumulative cash from outside trading and income (sign-up and admin grants, transfers and loans, both sides). The day
    * baseline and the arrival baseline move with it (core.ts shiftBaselines), so both show trading and income only.
@@ -140,7 +258,41 @@ export interface Player {
   goals?: { optIn: boolean; done: Record<string, number> };
   /** weekly challenge: the ISO weeks this player has used their one attempt (the attempt is claimed here, durably) */
   challengeWeeks?: string[];
+  /** cash from ads and the fresh start, tagged and held 72 real hours (core.ts restrictedOf): it cannot pay for ops, margin, derivatives or transfers */
+  adLots?: { amount: number; untilTick: number; kind: 'ad' | 'start' }[];
+  /** the comeback (velvet-bankruptcy.md, ROADMAP 2.6): chapters, the fresh start, perks and the low-cash card. Absent until a comeback or a dismissal. */
+  comeback?: ComebackState;
 }
+
+/** A player's chapter state (ROADMAP 2.6). The fresh start comes at most once per 8 real weeks, kept here so a save cannot reset it. */
+export interface ComebackState {
+  /** the player's chapter number (1 at the start, +1 per fresh start) */
+  chapter: number;
+  /** the tick the current chapter began */
+  chapterStartTick: number;
+  /** the highest net worth in the current chapter */
+  peak: number;
+  /** the tick of the last fresh start (absent before the first) */
+  freshTick?: number;
+  /** a close in progress: the positions are sold, then the account is reset once it is flat */
+  closing?: { tick: number; perk: ComebackPerk; forced: boolean; netWorth: number };
+  /** a forced close (equity below zero): the chapter screen opens; `blocked` when the cooldown stops a fresh start */
+  bust?: { tick: number; blocked: boolean };
+  /** the perk for the new chapter: lessons (fee rebate) and wind (business income) run for 7 real days */
+  perk?: { id: ComebackPerk; untilTick: number };
+  /** Old contacts: one T1 business at 50% off, used once */
+  voucher?: boolean;
+  /** leverage is capped at 1x until this tick (7 real days after a fresh start) */
+  leverageUntil?: number;
+  /** margin and borrowing are blocked until this tick (14 real days after a fresh start, ROADMAP 2.6) */
+  marginBlockUntil?: number;
+  /** the low-cash card is hidden until this tick (a dismissal lasts a real day) */
+  dismissedUntil?: number;
+  /** the chapter that closed last: its peak, end value and the three largest realized losses */
+  last?: { chapter: number; startTick: number; endTick: number; peak: number; end: number; losses: { id: string; assetId: string; pnl: number }[] };
+}
+
+export type ComebackPerk = 'contacts' | 'lessons' | 'wind';
 
 export interface OwnedItem {
   uid: string;
@@ -171,7 +323,7 @@ export interface AnalystNote {
 export interface InboxItem {
   id: string;
   tick: number;
-  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan' | 'fund';
+  kind: 'fill' | 'order' | 'biz' | 'prop' | 'rank' | 'achievement' | 'contract' | 'alert' | 'margin' | 'deal' | 'alliance' | 'security' | 'court' | 'lab' | 'system' | 'close' | 'work' | 'plan' | 'fund' | 'tip' | 'auction';
   text: string;
   /** the same line as a message descriptor (en.json / fr.json key), rendered in the viewer's language */
   msg?: Msg;
@@ -488,6 +640,8 @@ export interface CyberState {
   defense: Record<string, { budget: number; tier: number; lastScanTick: number; lockdownUntil: number; shieldUntil: number; honeypot?: HoneypotState }>;
   /** attacker cooldowns: `${attacker}>${victim}` → tick */
   cooldowns: Record<string, number>;
+  /** the last tick a hostile session was open on each player (absent until a breach; insurance waits 24 h after one) */
+  breachedAt?: Record<string, number>;
   /** evidence points on (attacker, victim) */
   evidence: Record<string, number>;
   /** attacker's ops in flight for the UI */
@@ -565,7 +719,7 @@ export interface CourtCase {
   fine: number;
   verdictText?: string;
   /** the verdict as an i18n descriptor (the rug verdict is through the keys; verdictText is its English for old clients) */
-  verdictMsg?: { key: string; vars?: Record<string, string | number> };
+  verdictMsg?: Msg;
   settlementOffer?: number;
 }
 
@@ -576,7 +730,8 @@ export interface CourtState {
 
 // ---- Commands (everything a player can do) ----
 export type Command =
-  | { type: 'join'; handle: string; country: string }
+  /** `device` is the registration device hash (collusion.ts), set by the server at sign-up; never a raw identifier */
+  | { type: 'join'; handle: string; country: string; device?: string }
   | { type: 'presence'; online: boolean }
   | { type: 'order.place'; order: Omit<OrderRequest, 'playerId'> }
   | { type: 'order.cancel'; orderId: string }
@@ -632,6 +787,13 @@ export type Command =
   | { type: 'lab.bot'; modelId: string; strategy: TradingBot['strategy']; assets: string[]; allocation: number }
   | { type: 'lab.botToggle'; botId: string; active: boolean }
   | { type: 'lab.signal' }
+  | { type: 'tournament.enter'; publishLog?: boolean }
+  | { type: 'auction.bid'; lot: string; amount: number }
+  | { type: 'streak.claim' }
+  | { type: 'insurance.set'; on: boolean }
+  | { type: 'home.place'; slot: number; uid: string | null }
+  | { type: 'visibility.set'; surface: 'home' | 'collection'; on: boolean }
+  | { type: 'tournament.settle'; week: number; seeds: string[]; rows: TournamentRowRecord[] }
   | { type: 'sec.budget'; budget: number }
   | { type: 'sec.scan' }
   | { type: 'sec.tag'; entryId: string; tag: 'trusted' | 'watch' | null }
@@ -687,6 +849,13 @@ export type Command =
   | { type: 'lp.buzz'; ticker: string; kind: 'board' | 'wire' }
   | { type: 'lp.cancel'; ticker: string }
   | { type: 'lp.file'; ticker: string }
+  /** sponsor breaks (velvet-rewarded-ads.md): open a 15-second card, then finish it (a full watch pays; a skip after 5 s pays nothing) */
+  | { type: 'ad.start' }
+  | { type: 'ad.finish'; id: string; skip: boolean }
+  /** the fresh start (chapter screen, held to confirm): closes the positions and starts the next chapter with $5,000 */
+  | { type: 'comeback.confirm'; perk: ComebackPerk }
+  /** the low-cash card is dismissed for a real day */
+  | { type: 'comeback.dismiss' }
   | { type: 'admin.advance'; ticks: number }
   /** dev and tests only: the server refuses admin.* from clients */
   | { type: 'admin.grant'; amount: number }
@@ -702,8 +871,14 @@ export type Command =
   | { type: 'admin.filedLate'; playerId: string }
   /** dev and tests only: a next-gen launch credit at a quality score (adminLaunchCredit, the R&D launch block) */
   | { type: 'admin.launchCredit'; playerId: string; score: number }
+  /** e2e seed (ADMIN_TOKEN): an insider tip on a stock with a report ahead (tips.ts adminSeedTip) */
+  | { type: 'admin.tip'; playerId: string; assetId: string }
+  /** e2e seed (ADMIN_TOKEN): an open regulator inquiry with its notice (eca.ts adminSeedInquiry) */
+  | { type: 'admin.inquiry'; playerId: string; assetId: string }
   /** dev and tests only: fills a token's curve up to graduation (the e2e seam for the graduation path) */
-  | { type: 'admin.lpFill'; ticker: string };
+  | { type: 'admin.lpFill'; ticker: string }
+  | { type: 'admin.auctionOpen'; week?: number; ticksLeft?: number }
+  | { type: 'admin.streakAccent'; playerId: string; accent: string };
 
 export interface CommandResult {
   ok: boolean;

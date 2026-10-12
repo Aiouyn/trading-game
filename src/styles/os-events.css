@@ -65,15 +65,15 @@
  */
 @layer components {
   .os-takeover { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; overflow: hidden; }
-  .os-takeover-scrim { position: absolute; inset: 0; background: rgb(0 0 0 / 0.3); animation: os-takeover-fade 600ms ease-in 300ms both; }
+  .os-takeover-scrim { position: absolute; inset: 0; background: rgb(0 0 0 / 0.3); backdrop-filter: blur(3px); animation: os-takeover-fade 600ms ease-in 300ms both; }
   .os-takeover-line {
     position: absolute; top: 0; left: 50%; width: 1px; height: 0; background: var(--color-fg-muted);
-    animation: os-takeover-drop 600ms ease-in 300ms forwards;
+    animation: os-takeover-drop 600ms ease-in 300ms both;
   }
   .os-takeover-card {
     position: relative; width: min(640px, calc(100vw - 32px)); padding: 28px 24px; color: var(--color-fg);
-    background: color-mix(in srgb, var(--color-ink-1) 94%, transparent); border-radius: var(--radius-sm); box-shadow: 0 8px 32px rgb(0 0 0 / 0.35);
-    animation: os-takeover-rise 1500ms ease-out 900ms both;
+    background: var(--color-ink-1); border-radius: var(--radius-sm); box-shadow: 0 8px 32px rgb(0 0 0 / 0.35);
+    animation: os-takeover-rise 420ms ease-out 900ms both;
   }
   .os-takeover-headline {
     margin-top: 8px; font-family: var(--font-serif, serif); font-size: 56px; line-height: 1.05; max-width: 18ch;
@@ -100,7 +100,7 @@
 }
 
 @keyframes os-takeover-fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes os-takeover-drop { from { height: 0; } to { height: 38vh; } }
+@keyframes os-takeover-drop { from { height: 0; opacity: 1; } 70% { opacity: 1; } to { height: 38vh; opacity: 0; } }
 @keyframes os-takeover-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /*

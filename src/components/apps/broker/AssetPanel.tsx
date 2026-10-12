@@ -62,7 +62,7 @@ export function AssetPanel({ ticker, onOptions, chainOpen }: { ticker: string; o
           {t(def.delisted ? 'broker.delisted.note' : 'broker.notTradable.note')}
         </p>
       )}
-      <p className="text-small text-fg-muted">{def.blurb}</p>
+      <p className="text-small text-fg-muted">{t(`asset.blurb.${def.id}`)}</p>
       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-small sm:grid-cols-3">
         {cap && <Mini k={t('broker.fund.cap')} v={compactMoney(cap)} />}
         <Mini k={t('broker.fund.vol')} v={t('broker.perYear', { v: `${Math.round(def.vol * 100)}%` })} />

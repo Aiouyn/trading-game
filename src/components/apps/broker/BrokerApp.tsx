@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { OpenOrders } from '@/components/Holdings';
+import { LowCashCard } from '@/components/comeback/LowCashCard';
 import { notify, openApp, useShell } from '@/components/os/shellStore';
 import { Button, Card } from '@/components/ui';
 import { knownSeries, useGame } from '@/game/store';
@@ -105,6 +106,7 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
         {pane === 'chart' ? (
           <>
             <div className="h-80"><ChartCard ticker={name} narrow /></div>
+            <LowCashCard />
             <Universe ticker={name} onPick={pick} />
             <RivalsCard />
           </>
@@ -125,7 +127,12 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
 
   const openSheet = () => setStoreSheet(true);
   const closeSheet = () => { setStoreSheet(false); setBarKey((k) => k + 1); };
-  const chart = <ChartCard ticker={name} narrow={!view.terminal} />;
+  const chart = (
+    <>
+      <ChartCard ticker={name} narrow={!view.terminal} />
+      <LowCashCard />
+    </>
+  );
   const dock = <BrokerDock ticker={name} tab={dockTab} onTab={setDockTab} narrow={!view.terminal} onPick={pick} />;
 
   if (view.terminal) {

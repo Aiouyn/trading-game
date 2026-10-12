@@ -1,4 +1,4 @@
-import { cashOf, debit, notify, priceOf, transfer, TPD } from '../core';
+import { cashOf, debit, notify, priceOf, spendableCash, transfer, TPD } from '../core';
 import type { CommandResult, CourtCase, GameState, Player, StepOutput } from '../types';
 import { SEVERITY } from '../court-scale';
 import { textProvider } from '../text';
@@ -179,7 +179,7 @@ export function rugVerdict(g: GameState, c: CourtCase, out: StepOutput | null, d
   const headroom = Math.max(0, df.netWorth - FLOOR);
   const sev = SEVERITY[LP.RUG_SEVERITY]!;
   const fine = Math.min(headroom * 0.5, Math.min(sev.cap, Math.max(sev.floor, df.netWorth * sev.pct)));
-  const damages = Math.max(0, Math.min(loss, cap, Math.max(0, cashOf(g, c.defendantId) - FLOOR)));
+  const damages = Math.max(0, Math.min(loss, cap, Math.max(0, spendableCash(g, c.defendantId) - FLOOR)));
   transfer(g, c.defendantId, c.plaintiffId, damages);
   debit(g, c.defendantId, fine, 'fines');
   c.damages = damages;

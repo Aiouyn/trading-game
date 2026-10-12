@@ -36,8 +36,8 @@ describe('the daily close card (D-7)', () => {
     expect(card.best).toBeNull();
     expect(card.worst).toBeNull();
     expect(card.ghosts.percentile).toBeNull();
-    expect(card.lines.map((m) => m.key)).toContain('dayclose.noTrades');
-    expect(card.lines.map((m) => m.key)).toContain('dayclose.nw.flat');
+    expect(card.lines.some((m) => /^txt\.narr\.noTrades\.\d$/.test(m.key))).toBe(true);
+    expect(card.lines.map((m) => m.key.replace(/\.\d$/, ''))).toContain('txt.narr.nw.flat');
     expect(card.lines[0]!.key).toBe('dayclose.title');
   });
 
@@ -127,6 +127,6 @@ describe('the daily close card (D-7)', () => {
       expect(fr).not.toMatch(/\{\w+\}/);
       expect(fr.length).toBeGreaterThan(0);
     }
-    expect(textProvider.render({ key: 'dayclose.nw.up', vars: { change: '$1.00', pct: '0.10%', now: '$5,001.00' } }, 'fr')).toMatch(/valeur nette/);
+    expect(textProvider.render({ key: 'txt.narr.nw.up.0', vars: { change: '$1.00', pct: '0.10%', now: '$5,001.00' } }, 'fr')).toMatch(/valeur nette/);
   });
 });

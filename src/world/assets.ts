@@ -11,6 +11,8 @@ import {
   notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
 } from './core';
 import { offlineRate, purchaseShop, queueShare, servedOf } from './shopRules';
+import { PERK_RULES, windMultOf } from './perks';
+import { textProvider } from './text';
 import type { Business, CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -42,21 +44,31 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
   const owned = Object.values(g.businesses).filter((b) => b.ownerId === pid && bizDef(b).tier === def.tier).length;
   if (owned >= tier.max) return fail(`you can run at most ${tier.max} ${tier.name} businesses: sell one or move up a tier`);
   if (p.heldUntil > g.market.tick) return fail('your assets are held by the court');
-  if (cashOf(g, pid) < def.cost) return fail('not enough cash');
-  bump(g, pid, -def.cost); // cash becomes the business: a conversion, not a sink
+  // Old contacts (velvet-bankruptcy.md): the chapter's one T1 business at half price, used once
+  const voucher = def.tier === 1 && !!p.comeback?.voucher;
+  const cost = voucher ? def.cost * PERK_RULES.contactsOff : def.cost;
+  if (cashOf(g, pid) < cost) return fail('not enough cash');
+  bump(g, pid, -cost); // cash becomes the business: a conversion, not a sink
+  if (voucher) delete p.comeback!.voucher;
   g.bizSeq++;
   const id = `b${g.bizSeq}`;
   const levels = { staff: 0, marketing: 0, equipment: 0, location: 0, automation: 0, research: 0 } as Record<UpgradeAxis, number>;
   const shop = purchaseShop(g.market.tick);
   const b: Business = {
-    id, defId, ownerId: pid, cityId, name: sanitize(name || def.name, 40), boughtTick: g.market.tick, invested: def.cost,
+    id, defId, ownerId: pid, cityId, name: sanitize(name || def.name, 40), boughtTick: g.market.tick, invested: cost,
     levels, event: null, incomePerDay: SHOP.revenueMult * def.income * Math.min(1, shop.crew), share: 0, earned: 0, shop,
   };
   g.businesses[id] = b;
   touch(g);
   p.stats.bizBought++;
   markShares(g);
-  if (def.tier >= 3) pushWire(g, out, { kind: 'biz', tag: 'Deal', tone: 'brass', text: `${p.handle} buys ${def.name} in ${cityName(cityId)}`, playerId: pid });
+  if (def.tier >= 3) {
+    const city = cityName(cityId);
+    pushWire(g, out, {
+      kind: 'biz', tag: 'Deal', tone: 'brass', text: `${p.handle} buys ${def.name} in ${city}`, playerId: pid,
+      msg: textProvider.newsroom({ kind: 'deal', id: `${g.market.tick}:${id}`, handle: p.handle, biz: def.name, city }),
+    });
+  }
   return ok({ id });
 }
 
@@ -88,7 +100,10 @@ export function sellBusiness(g: GameState, pid: string, bizId: string, out: Step
   touch(g);
   g.players[pid]!.stats.bizSold++;
   markShares(g);
-  notify(g, out, pid, { kind: 'biz', tone: 'info', text: `Sold ${b.name} for $${price.toLocaleString('en-US')}` });
+  notify(g, out, pid, {
+    kind: 'biz', tone: 'info', text: `Sold ${b.name} for $${price.toLocaleString('en-US')}`,
+    msg: textProvider.newsroom({ kind: 'sale', id: `${g.market.tick}:${bizId}`, name: b.name, price }),
+  });
   return ok({ price });
 }
 
@@ -184,7 +199,8 @@ export function accrueBusinesses(g: GameState, credit_: boolean, out: StepOutput
     if (!p) continue;
     let rate = 1;
     if (!p.online && !p.npc) rate = offlineRate((tick - p.lastSeenTick) / TPD, b.shop.managerStars, b.levels.automation);
-    const inc = (b.incomePerDay * rate) / TPD;
+    // Second wind (velvet-bankruptcy.md): business income x1.25 for 7 real days after a fresh start
+    const inc = (b.incomePerDay * rate * windMultOf(p, tick)) / TPD;
     b.earned += inc;
     p.pendingIncome += inc;
   }
@@ -221,6 +237,9 @@ export function businessEvents(g: GameState, out: StepOutput): void {
     notify(g, out, b.ownerId, {
       kind: 'biz', tone: ev.good ? 'gain' : 'loss',
       text: `${ev.text.replace('{biz}', b.name).replace('{city}', cityName(b.cityId))} Income ${ev.mult >= 1 ? '+' : '−'}${Math.round(Math.abs(ev.mult - 1) * 100)}% for ${ev.days} day${ev.days > 1 ? 's' : ''}.`,
+      msg: textProvider.newsroom({
+        kind: 'bizEvent', id: `${tick}:${b.id}`, event: ev.id, biz: b.name, city: cityName(b.cityId), mult: ev.mult, days: ev.days,
+      }),
     });
   }
   save();
@@ -308,7 +327,12 @@ export function buyProperty(g: GameState, pid: string, cityId: string, districtI
   };
   touch(g);
   p.stats.propsBought++;
-  if (price >= 5_000_000) pushWire(g, out, { kind: 'purchase', tag: 'Property', tone: 'brass', text: `${p.handle} buys a ${t.name.toLowerCase()} in ${dist.name}, ${city.name}`, playerId: pid });
+  if (price >= 5_000_000) {
+    pushWire(g, out, {
+      kind: 'purchase', tag: 'Property', tone: 'brass', text: `${p.handle} buys a ${t.name.toLowerCase()} in ${dist.name}, ${city.name}`, playerId: pid,
+      msg: textProvider.newsroom({ kind: 'property', id: `${g.market.tick}:${id}`, handle: p.handle, type: t.name.toLowerCase(), district: dist.name, city: city.name }),
+    });
+  }
   return ok({ id, price, mortgage });
 }
 

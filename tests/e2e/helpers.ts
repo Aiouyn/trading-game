@@ -175,3 +175,22 @@ export async function bodySidewaysOverflow(page: Page, app: string): Promise<num
     return body ? body.scrollWidth - body.clientWidth : 0;
   });
 }
+
+/** The e2e seam for a streak palette accent (admin.streakAccent): records it as if its milestone had been reached. */
+export async function grantAccent(handle: string, accent: 'phosphor' | 'riviera' | 'broadsheet'): Promise<void> {
+  const r = await fetch(`${WORLD}/api/admin/streak-accent`, {
+    method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, accent }),
+  });
+  expect(r.status).toBe(200);
+  expect((await r.json()).ok).toBe(true);
+}
+
+/** The e2e seam for the weekly auction: opens the current week's lots now, with `ticksLeft` ticks to run (default: the hour). */
+export async function openAuctions(ticksLeft?: number): Promise<void> {
+  const r = await fetch(`${WORLD}/api/admin/auction-open`, {
+    method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
+    body: JSON.stringify(ticksLeft === undefined ? {} : { ticksLeft }),
+  });
+  expect(r.status).toBe(200);
+  expect((await r.json()).ok).toBe(true);
+}

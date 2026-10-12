@@ -1,9 +1,10 @@
 import { rankIndex } from '@/content/lifestyle';
 import { mcsTier } from '@/content/research';
 import {
-  TPD, cashOf, clamp, debit, drawFrom, keyedRng, notify, ownerIndex, pushWire, touch,
+  TPD, cashOf, clamp, debit, drawFrom, keyedRng, notify, ownerIndex, pushWire, spendableCash, touch,
 } from './core';
 import { bestModel, labFor } from './lab';
+import { queueInsiderTip } from './tips';
 import {
   BAIT_RANGE, HONEYPOT_COST, HONEYPOT_MIN_TIER, HONEYPOT_PLANT_EVIDENCE, HONEYPOT_POISON, baitMcs, canaryFlagChance, copyStep,
   honeypotEvidence, inheritedPoison,
@@ -94,6 +95,8 @@ function newEntry(g: GameState, ownerId: string, rng: { uniform(): number }, hos
     firstSeenTick: t, lastHandshakeTick: t, load, tag: null, flagged: false, ...(hostile ? { hostile } : {}),
   };
   g.cyber.entries[id] = e;
+  // a hostile session stamps the breach as it opens, so the insurance switch waits 24 h after it ends (insurance.ts)
+  if (hostile) (g.cyber.breachedAt ??= {})[ownerId] = t;
   touch(g);
   return e;
 }
@@ -219,6 +222,8 @@ function endSession(g: GameState, e: ConnectionEntry, byVictim: boolean, out: St
   const st = STRENGTHS[h.strength];
   const key = `${h.attackerId}>${e.ownerId}`;
   g.cyber.cooldowns[key] = g.market.tick + 24 * TPD;
+  // a session that ends stamps the breach too: the insurance switch waits 24 h after the last one (insurance.ts)
+  (g.cyber.breachedAt ??= {})[e.ownerId] = g.market.tick;
   // the attacker keeps what was copied: a distilled student, capped below the teacher, with residue
   const teacher = g.lab[e.ownerId] ? bestModel(g.lab[e.ownerId]!, 'trading') ?? bestModel(g.lab[e.ownerId]!, 'analyst') : null;
   if (teacher && h.progress > 0.05) {
@@ -266,7 +271,8 @@ export function plantSession(g: GameState, pid: string, victimId: string, streng
   const base = 15_000 * 2 ** mcsTier(model.mcs);
   const cost0 = v.netWorth * 10 < p.netWorth ? base * 5 : base;
   const cost = canary ? Math.round(cost0 * 1.2) : cost0;
-  if (cashOf(g, pid) < cost) return { ok: false, error: 'not enough cash for the operation' };
+  // ad cash cannot fund an operation (velvet-rewarded-ads.md, ROADMAP 2.7): only unrestricted cash pays for it
+  if (spendableCash(g, pid) < cost) return { ok: false, error: cashOf(g, pid) >= cost ? 'adCashOps' : 'not enough cash for the operation' };
   debit(g, pid, cost, 'operations');
   if (p.shieldUntil > tick) p.shieldUntil = tick; // protection ends on your first attack
   const st = STRENGTHS[strength];
@@ -285,6 +291,8 @@ export function plantSession(g: GameState, pid: string, victimId: string, streng
     const e = newEntry(g, victimId, rng, { attackerId: pid, strength, progress: 0, modelId });
     g.cyber.ops.unshift({ id: opId, attackerId: pid, victimId, strength, modelId, tick, result: 'planted', entryId: e.id });
     p.notoriety += 1;
+    // a successful session on a covered insider of a listed stock hands the attacker a tip (M16 v1, tips.ts)
+    queueInsiderTip(g, pid, victimId);
     notify(g, out, pid, { kind: 'security', tone: 'gain', text: `${st.label} session planted on ${v.handle}'s systems as ${e.codename}.` });
   } else {
     const detected = rng.chance(0.5);
@@ -312,6 +320,8 @@ export function cyberDay(g: GameState, out: StepOutput | null): void {
   const securityPlayers = Object.values(g.players).filter((p) => rankIndex(p.rankId) >= rankIndex(SECURITY_RANK) || withEntries.has(p.id));
   for (const p of securityPlayers) {
     ensureLegit(g, p.id, rng);
+    // the last tick a hostile session was open on this player (the insurance switch waits 24 h after one)
+    if (entriesOf(g, p.id).some((e) => !!e.hostile)) (g.cyber.breachedAt ??= {})[p.id] = tick;
     const tier = defenseTier(g, p.id);
     // legit churn
     const churn = LEGIT_CHURN[tier]! / 24;
@@ -399,7 +409,7 @@ export function plantCrewSession(g: GameState, crewId: string, victimId: string,
   g.cyber.ops.unshift({ id: opId, attackerId: crewId, victimId, strength, modelId: model.id, tick, result: detected ? 'detected' : 'failed' });
   if (detected) {
     g.cyber.evidence[`${crewId}>${victimId}`] = (g.cyber.evidence[`${crewId}>${victimId}`] ?? 0) + 15;
-    notify(g, out, victimId, { kind: 'security', tone: 'warn', text: 'Your defenses blocked an intrusion attempt.' });
+    notify(g, out, victimId, { kind: 'security', tone: 'warn', text: 'Your defenses blocked an intrusion attempt.', msg: { key: 'security.msg.blocked' } });
   }
   if (g.cyber.ops.length > 200) g.cyber.ops.length = 200;
   return false;

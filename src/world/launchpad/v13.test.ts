@@ -5,7 +5,7 @@ import { spotAt } from './curve';
 import { lpTick } from './flow';
 import { absorbPending } from './absorb';
 import { arrive, bleedPerTick, viralPerTick } from './demand';
-import { buyCurve } from './trade';
+import { buyCurve, liquidateCohort } from './trade';
 import { cohortsOf } from './cohorts';
 import { CREATOR, TRADER, launch, lpWorld, run } from './fixture';
 
@@ -155,8 +155,10 @@ describe('L6.8 each NPC cohort bleeds on a half-life tied to tau (v1.3)', () => 
       const start = t.npcBal;
       expect(start).toBeGreaterThan(100);
       const halfTicks = NPC.BLEED_HALF_TAU * NPC.VIRAL_TAU_DAYS * TPD;
-      for (let k = 1; k <= halfTicks; k++) at(g, g.market.tick + 1);
-      expect(Math.abs(t.npcBal - start / 2)).toBeLessThanOrEqual(1);
+      // the half-life need not be a whole number of ticks (0.3 x 0.35 gd = 75.6): step a whole number and compare with the exact decay
+      const n = Math.round(halfTicks);
+      for (let k = 1; k <= n; k++) at(g, g.market.tick + 1);
+      expect(Math.abs(t.npcBal - start * Math.pow(0.5, n / halfTicks))).toBeLessThanOrEqual(1);
     });
   });
 
@@ -259,6 +261,7 @@ describe('L3.1 the cash clock counts game-day closes (v1.3)', () => {
     withNpc({ VIRAL_PER_DAY: 0 }, () => {
       const g = lpWorld('l31-early');
       launch(g, CREATOR, 'EARL');
+      liquidateCohort(g, g.launchpad!.tokens.EARL!, null); // the launch cohort sells back: the curve's cash is under the line (v1.4)
       const t = quiet(g, 'EARL');
       // the world starts on day 2: its close (tick 3 TPD) does not count; the close of day 3 (tick 4 TPD) is the first
       at(g, 3 * TPD);
@@ -297,6 +300,7 @@ describe('L3.1 the cash clock counts game-day closes (v1.3)', () => {
     withNpc({ VIRAL_PER_DAY: 0 }, () => {
       const g = lpWorld('l31-intraday');
       launch(g, CREATOR, 'INTR');
+      liquidateCohort(g, g.launchpad!.tokens.INTR!, null); // the launch cohort sells back: the curve's cash is under the line (v1.4)
       const t = quiet(g, 'INTR');
       for (let d = 3; d <= 9; d++) {
         // mid-day the curve is funded (a buy inside the day), then the holder sells it all before the close

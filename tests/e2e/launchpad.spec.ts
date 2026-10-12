@@ -61,22 +61,27 @@ test('a creator launches a token: it is in New, and in Holdings with the allocat
 
   await page.getByTestId('tab-new').click();
   await expect(page.getByTestId(`lp-row-${ticker}`)).toBeVisible({ timeout: 20_000 });
-  // the launch's own buzz and the NPC sniper are bought at once (L6.4, sniperEnter): the bar is a small share of the curve, not zero
+  // the launch cohort (v1.4 L6.9: launch buzz 21 x (u^(-1/8) - 1), a heavy-tailed draw with a mean of $3,000) and the NPC sniper
+  // (at most $400) are bought at once (L6.4, sniperEnter): the bar is a share of the curve, not zero. The bound is what a
+  // 99th-percentile launch buys through the constant product (about 70.7% of the curve); the measured runs are in
+  // docs/V1-PHASE5.md section 8.5 (mean 21% of the curve, median 15%, max 79%)
   const bar = (await page.getByTestId(`lp-progress-${ticker}`).textContent()) ?? '';
   const share = Number(bar.match(/([\d.]+)%/)?.[1]);
+  const p99Dollars = 21 * (Math.pow(0.01, -1 / 8) - 1) * 1000 + 400;
+  const p99Share = ((1073e6 - (15000 * 1073e6) / (15000 + p99Dollars)) / 800e6) * 100;
   expect(share).toBeGreaterThan(0);
-  expect(share).toBeLessThan(5);
+  expect(share).toBeLessThan(p99Share);
 
   await page.getByTestId('tab-holdings').click();
   await expect(page.getByTestId(`lp-hold-${ticker}`)).toBeVisible();
-  // 2% of a billion is 20 million tokens, all locked on day zero (the cliff is two game days after launch)
+  // 2% of a billion is 20 million tokens, all locked until graduation (v1.4: the schedule starts at the graduation tick)
   await expect(page.getByTestId(`lp-hold-qty-${ticker}`)).toContainText('20,000,000');
   await expect(page.getByTestId(`lp-hold-locked-${ticker}`)).toContainText('20,000,000');
   await expect(page.getByTestId(`lp-hold-vest-${ticker}`)).toBeVisible();
 
   await page.getByTestId('tab-create').click();
   await expect(page.getByTestId(`lp-console-${ticker}`)).toBeVisible();
-  await expect(page.getByTestId(`lp-console-unlocked-${ticker}`)).toContainText('0');
+  await expect(page.getByTestId(`lp-console-unlocked-${ticker}`)).toContainText('Unlocks after graduation');
   expect(errors).toEqual([]);
 });
 

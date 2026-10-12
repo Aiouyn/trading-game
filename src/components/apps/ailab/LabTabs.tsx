@@ -35,15 +35,15 @@ export function Research() {
               return (
                 <Card key={r.id} className={`flex flex-col p-4 ${have ? 'border-brass/40' : ''}`} data-testid={`research-${r.id}`}>
                   <div className="flex items-start justify-between gap-2">
-                    <h3 className="text-body font-semibold">{r.name}</h3>
+                    <h3 className="text-body font-semibold">{t(`ai.name.${r.id}`)}</h3>
                     {have ? <BrassChip>{t('lab.done')}</BrassChip> : <Chip>×{r.aMult.toFixed(2)}</Chip>}
                   </div>
-                  <p className="mt-1 flex-1 text-small text-fg-muted">{r.blurb}</p>
-                  {r.unlocks && <p className="mt-1 text-caption text-brass">{t('lab.unlocks', { what: r.unlocks })}</p>}
-                  {!ready && !have && <p className="mt-1 text-caption text-fg-faint">{t('lab.needs', { names: r.requires.map((x) => RESEARCH.find((y) => y.id === x)?.name ?? x).join(', ') })}</p>}
+                  <p className="mt-1 flex-1 text-small text-fg-muted">{t(`ai.blurb.${r.id}`)}</p>
+                  {r.unlocks && <p className="mt-1 text-caption text-brass">{t('lab.unlocks', { what: t(`ai.unlock.${r.id}`) })}</p>}
+                  {!ready && !have && <p className="mt-1 text-caption text-fg-faint">{t('lab.needs', { names: r.requires.map((x) => t(`ai.name.${x}`)).join(', ') })}</p>}
                   {!have && (
                     <Button size="sm" className="mt-3" variant={ready && !busy ? 'brass' : 'outline'} disabled={!ready || busy || (me.account?.cash ?? 0) < r.cost}
-                      onClick={() => act({ type: 'lab.research', nodeId: r.id }, { success: t('lab.research.started', { name: r.name }) })} testId={`start-${r.id}`}>
+                      onClick={() => act({ type: 'lab.research', nodeId: r.id }, { success: t('lab.research.started', { name: t(`ai.name.${r.id}`) }) })} testId={`start-${r.id}`}>
                       {current ? t('lab.inProgress') : t('lab.researchCost', { cost: compactMoney(r.cost), days: r.days })}
                     </Button>
                   )}
@@ -112,12 +112,12 @@ export function Compute() {
           <div className="mt-2 grid gap-2">
             {DATA_SOURCES.filter((s) => s.id !== 'partnership').map((s) => (
               <div key={s.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-ink-3 p-2.5">
-                <div className="min-w-0"><div className="text-small font-medium">{s.name}</div><div className="text-caption text-fg-faint">{s.blurb}</div></div>
+                <div className="min-w-0"><div className="text-small font-medium">{t(`src.name.${s.id}`)}</div><div className="text-caption text-fg-faint">{t(`src.blurb.${s.id}`)}</div></div>
                 <SpendReview
                   size="sm"
                   testId={`lab-data-${s.id}`}
                   label={money(Number(dq) * (lab?.dataPrice ?? 0.05) * s.priceMult)}
-                  title={s.name}
+                  title={t(`src.name.${s.id}`)}
                   rows={spendRows(Number(dq) * (lab?.dataPrice ?? 0.05) * s.priceMult, me.account?.cash ?? 0)}
                   onConfirm={() => act({ type: 'lab.data', source: s.id, qty: Number(dq) }, { success: t('lab.data.bought', { qty: dq }) })}
                 />

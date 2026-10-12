@@ -33,7 +33,10 @@ describe('the day close splits the change into trading, valuation and income (St
     expect(card.trading).toBeCloseTo(-3.51, 6);
     expect(card.trading + card.valuation + card.income + card.external).toBeCloseTo(card.nwChange + card.external, 6);
     const copy = textProvider.dailyClose(card).map((m) => m.key);
-    expect(copy.slice(0, 4)).toEqual(['dayclose.title', 'dayclose.trade.down', 'dayclose.valuation', 'dayclose.income']);
+    // the headline is the narrator's trading line (a down day), then the valuation and income lines
+    expect(copy[0]).toBe('dayclose.title');
+    expect(copy[1]).toMatch(/^txt\.narr\.head\.down\.\d+$/);
+    expect(copy.slice(2, 4)).toEqual(['dayclose.valuation', 'dayclose.income']);
   });
 
   it('a day with no stored split counts the whole change as trading, as before', () => {

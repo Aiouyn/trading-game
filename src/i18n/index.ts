@@ -24,9 +24,12 @@ const DICTS: Record<Locale, Dict> = { en: en as Dict, fr: fr as Dict };
 
 let current: Locale = 'en';
 
+/** A message variable: a number, a string ("@key" names another key), or another message rendered in the same locale. */
+export type MsgVar = string | number | Msg;
+
 export interface Msg {
   key: string;
-  vars?: Record<string, string | number>;
+  vars?: Record<string, MsgVar>;
 }
 
 function format(s: string, vars?: Record<string, string | number>): string {
@@ -55,11 +58,12 @@ export function formatNumberToken(locale: Locale, token: string): string {
  * A variable that starts with "@" names another key (e.g. {part: "@journal.part.market"}): it is translated in the same
  * locale first, so a sentence built on the server reads in the viewer's language. A "#n:" token is a number in that locale.
  */
-export function resolveRefs(locale: Locale, vars?: Record<string, string | number>): Record<string, string | number> | undefined {
-  if (!vars) return vars;
+export function resolveRefs(locale: Locale, vars?: Record<string, MsgVar>): Record<string, string | number> | undefined {
+  if (!vars) return undefined;
   const out: Record<string, string | number> = {};
   for (const [k, v] of Object.entries(vars)) {
-    if (typeof v !== 'string') out[k] = v;
+    if (typeof v === 'object') out[k] = translate(locale, v.key, v.vars);
+    else if (typeof v !== 'string') out[k] = v;
     else if (v.startsWith('@')) out[k] = translate(locale, v.slice(1));
     else if (v.startsWith('#n:')) out[k] = formatNumberToken(locale, v);
     else out[k] = v;
@@ -67,7 +71,7 @@ export function resolveRefs(locale: Locale, vars?: Record<string, string | numbe
   return out;
 }
 
-export function translate(locale: Locale, key: string, rawVars?: Record<string, string | number>): string {
+export function translate(locale: Locale, key: string, rawVars?: Record<string, MsgVar>): string {
   const vars = resolveRefs(locale, rawVars);
   if (vars && typeof vars.count === 'number') {
     const form = vars.count === 1 ? `${key}_one` : `${key}_other`;
@@ -79,7 +83,7 @@ export function translate(locale: Locale, key: string, rawVars?: Record<string, 
 }
 
 /** Translate with the current locale. */
-export function t(key: string, vars?: Record<string, string | number>): string {
+export function t(key: string, vars?: Record<string, MsgVar>): string {
   return translate(current, key, vars);
 }
 

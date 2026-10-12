@@ -157,13 +157,17 @@ function buyPreview(y: number, ticker: string, spendText: string, slip: number, 
 }
 
 function sellPreview(
-  y: number, ticker: string, text: string, slip: number, slipValid: boolean, held: number, locked: number, endDay: number,
+  y: number, ticker: string, text: string, slip: number, slipValid: boolean, held: number, locked: number, endDay: number | null,
 ): Preview {
   if (!slipValid) return { refusal: refusalCopy('maxSlip'), figures: null };
   const n = Number(text);
   if (text.trim() === '' || !Number.isInteger(n) || n <= 0) return { refusal: refusalCopy('zero', { ticker }), figures: null };
   if (n > held) return { refusal: refusalCopy('holdings', { have: fmtTokens(held) }), figures: null };
-  if (held - n < locked) return { refusal: refusalCopy('locked', { locked: fmtTokens(locked), day: endDay }), figures: null };
+  if (held - n < locked) {
+    // v1.4: before graduation the allocation has no unlock day, so the refusal says it unlocks after graduation
+    const refusal = endDay === null ? refusalCopy('lockedGrad', { locked: fmtTokens(locked) }) : refusalCopy('locked', { locked: fmtTokens(locked), day: endDay });
+    return { refusal, figures: null };
+  }
   const q = quoteSell(y, n);
   if (!q.ok) return { refusal: refusalCopy(q.code === 'tooLarge' ? 'tooLarge' : 'zero', { ticker }), figures: null };
   if (q.slippage > slip) return { refusal: refusalCopy('slippage', { slip: oneDp(q.slippage), max: oneDp(slip) }), figures: null };

@@ -2,14 +2,17 @@ import { LP, TPD } from './constants';
 import type { LpToken } from './types';
 
 /**
- * Vesting of the creator's allocation (lead-launchpad.md L5): nothing unlocks before the cliff at 2 game days after launch,
- * then the allocation unlocks linearly to all of it at 14 game days. Locked tokens cannot be sold. The curve checks it at every
+ * Vesting of the creator's allocation (lead-launchpad.md L5, v1.4): nothing unlocks before the cliff at 2 game days after
+ * graduation (the schedule starts at gradTick), then the allocation unlocks linearly to all of it at 14 game days. Locked tokens cannot be sold. The curve checks it at every
  * sell, and after graduation the engine order path checks the same figure against the creator's position (game.ts).
  */
 
 /** The unlocked share of the allocation at a tick, from 0 to 1. */
 export function vestFraction(t: LpToken, tick: number): number {
-  const days = (tick - t.createdTick) / TPD;
+  // v1.4 (lead): the allocation stays locked until graduation and vests from the graduation tick; a token that never graduates
+  // keeps it locked for good (burned in effect)
+  if (t.gradTick === undefined) return 0;
+  const days = (tick - t.gradTick) / TPD;
   if (days < LP.VEST_CLIFF_DAYS) return 0;
   if (days >= LP.VEST_END_DAYS) return 1;
   return (days - LP.VEST_CLIFF_DAYS) / (LP.VEST_END_DAYS - LP.VEST_CLIFF_DAYS);
@@ -27,12 +30,20 @@ export function lockedOf(t: LpToken, pid: string, tick: number): number {
   return Math.min(lockedAmount(t, tick), t.bal[pid] ?? 0);
 }
 
-/** The game day the allocation is fully unlocked (the launch day plus the end of the schedule). */
-export function vestEndDay(t: LpToken): number {
-  return t.day0 + LP.VEST_END_DAYS;
+/** The game day of a tick, the same count as state.ts dayOf (kept local: state.ts imports the core, and a cycle here reads TPD too early). */
+const gameDayOf = (tick: number): number => (tick <= 0 ? 0 : Math.floor((tick - 1) / TPD));
+
+/**
+ * The game day the allocation is fully unlocked: the graduation day plus the end of the schedule. Null before graduation (v1.4: the
+ * schedule starts at the graduation tick, so there is no day to show yet; the UI says "unlocks after graduation").
+ */
+export function vestEndDay(t: LpToken): number | null {
+  if (t.gradTick === undefined) return null;
+  return gameDayOf(t.gradTick) + LP.VEST_END_DAYS;
 }
 
-/** The game day the cliff ends (the first day anything unlocks). */
-export function vestCliffDay(t: LpToken): number {
-  return t.day0 + LP.VEST_CLIFF_DAYS;
+/** The game day the cliff ends (the first day anything unlocks), or null before graduation. */
+export function vestCliffDay(t: LpToken): number | null {
+  if (t.gradTick === undefined) return null;
+  return gameDayOf(t.gradTick) + LP.VEST_CLIFF_DAYS;
 }

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ecaOf } from '../eca';
+import { tipsOf } from '../tips';
 import { applyCommand, createGame, stepGame } from '../game';
 import { cashOf, credit, debit, netWorthBreakdown, newOutput, priceOf, today, TPD } from '../core';
 import { refreshNetWorth } from '../assets';
@@ -821,5 +823,27 @@ describe('admin.age (the test seam for the account-age rules)', () => {
     expect(applyCommand(g, 'admin', { type: 'admin.age', playerId: 'm', ticks: 5_000 }).ok).toBe(true);
     expect(g.players.m!.joinedTick).toBe(before - 5_000);
     expect(applyCommand(g, 'admin', { type: 'admin.age', playerId: 'nobody', ticks: 1 }).ok).toBe(false);
+  });
+});
+
+describe('a manager trade on an insider tip is scored on the manager (6C review repair)', () => {
+  it('a fund trade in the tip direction flags the manager and adds surveillance points; a trade with no tip adds none', () => {
+    const g = world('fund-tip');
+    const f = openFund(g);
+    const s = stockId(g);
+    const t = tipsOf(g);
+    t.tips.push({
+      id: 'tp1', tick: g.market.tick, playerId: 'm', assetId: s, claim: 'up', truth: true, insider: true, source: 'insider',
+      revealsTick: g.market.tick + 4 * TPD, companyId: 'co', heldAtTip: 0,
+    });
+    t.received[`m|${s}`] = 1;
+    expect(errOf(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: s, side: 'buy', qty: 1 })).toBeUndefined();
+    expect(t.flags.some((x) => x.playerId === 'm' && x.assetId === s)).toBe(true);
+    expect(ecaOf(g).pts[`m|${s}`] ?? 0).toBeGreaterThan(0);
+    // a trade with no tip on that stock (the other stock) is not flagged
+    const other = assetOf(g, 'crypto');
+    const before = t.flags.length;
+    errOf(g, 'm', { type: 'fund.trade', fundId: f.id, assetId: other, side: 'buy', qty: 1 });
+    expect(t.flags.length).toBe(before);
   });
 });

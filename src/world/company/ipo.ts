@@ -19,8 +19,9 @@ import { rankIndex } from '@/content/lifestyle';
 import { grantLockedShares, listCompanyStock, openAccount, restrictionsOf, setSellCap, type AssetDef, type WorldState } from '@/engine';
 import { TPD, notify, pushWire, today } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
-import { linked } from '../funds/state';
+import { isLinkedAccount, linkedAccounts } from '../collusion';
 import { post } from './books';
+import { textProvider } from '../text';
 import { syncWindow } from './insiders';
 import { headcountBand } from './signals';
 import type { Company, CompanyReject, FilingPublic, IpoBook } from './types';
@@ -50,9 +51,9 @@ export function ipoEligibility(g: GameState, c: Company, playerId: string): Comp
   return null;
 }
 
-/** The accounts a founder controls or is linked to (the owner set and alliance mates, §6.1): they cannot buy in the book. */
+/** The accounts a founder controls or is linked to (the owner group: alliances, devices, gifts and mirrored trades, §6.1): they cannot buy in the book. */
 export function allianceSetOf(g: GameState, c: Company): string[] {
-  return Object.keys(g.players).filter((pid) => linked(g, c.ownerId, pid)).sort();
+  return linkedAccounts(g, c.ownerId);
 }
 
 /** Round every holder's shares to whole shares (the engine's quantities are whole), and keep c.shares as their sum. */
@@ -87,7 +88,7 @@ export function requestIpo(g: GameState, playerId: string, c: Company, floatPct:
 /** A subscription to the book. Only on the request day (the book is one game day). Owner-set accounts and young ones are refused. */
 export function orderIpo(g: GameState, playerId: string, c: Company, shares: number): { ok: true; value: Record<string, unknown> } | { ok: false; reject: CompanyReject } {
   if (!c.ipo || today(g) >= c.ipo.listDay || today(g) < c.ipo.requestDay) return { ok: false, reject: { code: 'ipoBookClosed' } };
-  if (linked(g, c.ownerId, playerId)) return { ok: false, reject: { code: 'ipoOwnerSet' } };
+  if (isLinkedAccount(g, c.ownerId, playerId)) return { ok: false, reject: { code: 'ipoOwnerSet' } };
   const p = g.players[playerId];
   if (!p || !g.market.accounts[playerId]) return { ok: false, reject: { code: 'unknownCompany' } };
   if (g.market.tick - p.joinedTick < COMPANY.ipo.minAccountAgeDays * TPD) {
@@ -270,5 +271,8 @@ export function listIpo(g: GameState, c: Company, out: StepOutput | null): void 
   c.ipo = null;
   syncWindow(g, c);
   notify(g, out, c.ownerId, { kind: 'system', tone: 'brass', text: `${c.name} is listed as ${assetId} at $${P.toFixed(2)}. Your shares are locked for ${COMPANY.ipo.lockupDays} game days.`, msg: { key: 'company.note.listed', vars: { name: c.name, ticker: assetId, price: P.toFixed(2), days: COMPANY.ipo.lockupDays } } });
-  pushWire(g, out, { kind: 'listing', tag: 'IPO', tone: 'brass', text: `${c.name} lists as ${assetId} at $${P.toFixed(2)}`, assetId });
+  pushWire(g, out, {
+    kind: 'listing', tag: 'IPO', tone: 'brass', text: `${c.name} lists as ${assetId} at $${P.toFixed(2)}`, assetId,
+    msg: textProvider.newsroom({ kind: 'priced', id: `${day}:${assetId}:priced`, name: c.name, ticker: assetId, price: P }),
+  });
 }

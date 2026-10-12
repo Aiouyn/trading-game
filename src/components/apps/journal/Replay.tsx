@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { t } from '@/i18n';
+import { t, tm, type Msg } from '@/i18n';
 import { signedMoney } from '@/game/format';
 import { useMedia } from '@/game/useMedia';
 import { Button } from '@/components/ui';
@@ -21,6 +21,7 @@ const PLAY_MS = 4000;
 
 /** A headline pin: a dot on the line at its day (Senior only; the headlines of the holding window). */
 export interface ReplayPin {
+  msg?: Msg;
   day: number;
   text: string;
 }
@@ -105,7 +106,7 @@ export function Replay({ replay, pins = [] }: { replay: JournalReplay; pins?: Re
         {pins.map((pin, i) => {
           const at = series.find((p) => p.day === pin.day);
           if (!at) return null;
-          return <circle key={`${pin.day}-${i}`} cx={x(at.day)} cy={y(at.px)} r={3} className="fill-info" data-testid="replay-pin"><title>{pin.text}</title></circle>;
+          return <circle key={`${pin.day}-${i}`} cx={x(at.day)} cy={y(at.px)} r={3} className="fill-info" data-testid="replay-pin"><title>{tm(pin.msg, pin.text)}</title></circle>;
         })}
         {/* if held: the continuation from the exit to the last closed day */}
         {exitShown && replay.held.length > 1 && (

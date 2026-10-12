@@ -131,7 +131,7 @@ export function Catalog({ onBought }: { onBought: () => void }) {
                   <tr key={d.id} className={`border-b border-ink-2 last:border-0 ${locked ? 'text-fg-faint' : ''} ${pick === d.id ? 'bg-brass/10' : ''}`} data-testid={`catalog-${d.id}`}>
                     <Td className="max-w-[14rem]">
                       <span className="block truncate font-semibold text-fg">{d.name}</span>
-                      <span className="block truncate text-caption text-fg-faint">{d.blurb}</span>
+                      <span className="block truncate text-caption text-fg-faint">{t(`biz.blurb.${d.id}`)}</span>
                     </Td>
                     <Td className="hidden @2xl:table-cell">{sec.name}</Td>
                     <Td className="hidden @xl:table-cell">{t('biz.tierChip', { n: d.tier })} {tier.name}</Td>

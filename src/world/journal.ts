@@ -60,7 +60,7 @@ export interface JournalDetail {
   /** Senior only: the flow row by pool type */
   flow: { pool: FlowPool; value: number }[] | null;
   /** Senior only: the asset's headlines over the holding window */
-  headlines: { day: number; text: string }[] | null;
+  headlines: { day: number; text: string; msg?: Msg }[] | null;
   replay: JournalReplay | null;
   /** GX's move over the holding window (from the close before the open to the close), the same days the waterfall explains; null before the closes exist */
   gx: number | null;
@@ -122,7 +122,7 @@ export function tripDetail(g: GameState, p: Player, tripId: string): CommandResu
   let rows: JournalRow[] | null = null;
   let total: number | null = null;
   let flow: { pool: FlowPool; value: number }[] | null = null;
-  let headlines: { day: number; text: string }[] | null = null;
+  let headlines: { day: number; text: string; msg?: Msg }[] | null = null;
   if (ex !== null && tier !== null) {
     rows = ROW_ORDER.filter((k) => (ex!.rows[k] ?? 0) !== 0).map((k) => ({ row: k, value: ex!.rows[k]! }));
     total = ex.total;

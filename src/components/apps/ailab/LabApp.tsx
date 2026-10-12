@@ -3,7 +3,7 @@
 // AI Lab (Velvet app 6, Owner and up): research, compute and data, training, models and bots. The tab
 // bodies live in LabTabs.tsx. Every action is an existing lab.* command (src/world/lab.ts).
 import { useState } from 'react';
-import { RESEARCH } from '@/content/research';
+
 import { pct, qty } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
@@ -11,6 +11,7 @@ import { isAppUnlocked } from '@/shell/ctx';
 import { AppLocked } from '@/components/apps/AppLocked';
 import { Card, Progress, StatStrip, Tabs, ticksLabel } from '@/components/ui';
 import { Bots, Compute, Models, Research, Train } from './LabTabs';
+import { TournamentCard } from '@/components/apps/sixd/TournamentCard';
 
 type Tab = 'research' | 'compute' | 'train' | 'models' | 'bots';
 
@@ -37,7 +38,7 @@ export function LabApp() {
       <Card className="p-4">
         {lab?.researching && (
           <div className="mt-4">
-            <div className="flex justify-between gap-2 text-caption"><span>{t('lab.researching', { name: RESEARCH.find((r) => r.id === lab.researching!.nodeId)?.name ?? lab.researching.nodeId })}</span><span className="num">{ticksLabel(lab.researching.doneTick - tick)}</span></div>
+            <div className="flex justify-between gap-2 text-caption"><span>{t('lab.researching', { name: t(`ai.name.${lab.researching!.nodeId}`) })}</span><span className="num">{ticksLabel(lab.researching.doneTick - tick)}</span></div>
           </div>
         )}
         {lab?.training && (
@@ -69,6 +70,7 @@ export function LabApp() {
       {tab === 'train' && <Train />}
       {tab === 'models' && <Models onTrain={() => setTab('train')} />}
       {tab === 'bots' && <Bots />}
+      <TournamentCard />
     </div>
   );
 }

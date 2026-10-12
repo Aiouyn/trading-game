@@ -1,11 +1,21 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
+import { BACKUP_EVERY_MS, Backups } from './backup';
+import { ADMIN_PATHS, AdminLog, adminRoute, type AdminDeps } from './admin';
+import { acquireLock } from './lock';
+import { textConfigFromEnv } from './text/config';
+import { TextEnricher } from './text/enricher';
+import { enrichItemOf } from './text/facts';
 import { WorldHost } from './host';
 import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
 import { lpPageOf } from '../src/world/launchpad/view';
+import { visitView } from '../src/world/home';
 import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
+import { TournamentJob } from './tournamentJob';
+import { TOURNAMENT_SYSTEM } from '../src/world/tournamentWeek';
 import { validHandle, COUNTRIES } from '../src/world/players';
 import { freshWorldSeed } from '../src/world/seed';
 import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type ServerMsg } from '../src/net/protocol';
@@ -15,6 +25,7 @@ import type { ChatMessage } from '../src/world/types';
  * The world server: one persistent world, a 5-second tick, a WebSocket per player.
  *   PORT (8787) · DATA_DIR (./world-data) · SEED (random at first boot, then kept in the database) · TICK_MS (5000) · WARMUP_DAYS (63)
  *   ADMIN_TOKEN (enables POST /api/admin/advance for dev and tests)
+ *   Backups: DATA_DIR/backups, hourly and at shutdown (server/backup.ts). The data folder is locked while the server runs (server/lock.ts).
  */
 const PORT = Number(process.env.PORT ?? DEFAULT_WORLD_PORT);
 const DATA_DIR = process.env.DATA_DIR ?? './world-data';
@@ -26,19 +37,40 @@ const MAX_MSG = 16 * 1024;
 const REGISTER_LIMIT = Number(process.env.REGISTER_LIMIT ?? 20);
 
 const log = (m: string) => console.log(`[world ${new Date().toISOString()}] ${m}`);
+// one world per data folder: a second server (or a restore) on the same folder would corrupt the replay
+let releaseLock: () => void;
+try {
+  releaseLock = acquireLock(DATA_DIR);
+} catch (e) {
+  console.error(`[world] ${(e as Error).message}`);
+  process.exit(1);
+}
 const store = new Store(DATA_DIR);
 /** an explicit SEED (tests, e2e, a dev world) wins; otherwise the live world keeps the random seed drawn at its first boot */
 const SEED = process.env.SEED ?? store.worldSeed(freshWorldSeed);
 const host = new WorldHost(store, { seed: SEED, tickMs: TICK_MS, warmupDays: WARMUP_DAYS, snapshotEvery: 60, log });
 host.boot();
+/** the world's backups: hourly (between ticks, see the timer below) and at shutdown */
+const backups = new Backups(host, store.db, join(DATA_DIR, 'world.db'), join(DATA_DIR, 'backups'), log);
 /** the asset list wire: the version the tick stream last sent, and the cached defs (see server/wire.ts) */
 const listWire = new ListWire(host.g);
+/** the weekly tournament settlement: a due week runs in a child process and comes back as a logged settle command */
+const tournamentJob = new TournamentJob(
+  (week, seeds, rows) => {
+    const r = host.command(TOURNAMENT_SYSTEM, { type: 'tournament.settle', week, seeds, rows });
+    if (!r.ok) log(`tournament week ${week} settle refused: ${r.error}`);
+  },
+  log,
+);
 /** the public short interest on the tick stream: slow cadence, sent on change (see server/wire.ts) */
 const shortInterest = new ShortInterestWire();
 /** the order depth of the latest closed day, on the tick that closed it and in every welcome (see server/wire.ts DepthWire) */
 const depthWire = new DepthWire();
+/** the model text slot (server/text): off unless TEXT_PROVIDER=claude and ANTHROPIC_API_KEY are set; its overlay is presentation only */
+const textEnricher = new TextEnricher(textConfigFromEnv(), store);
 
-interface Conn { ws: WebSocket; pid: string | null; budget: number; last: number }
+/** textSeq: the model overlay version this connection was last sent (its welcome, then each tick's lines after it) */
+interface Conn { ws: WebSocket; pid: string | null; budget: number; last: number; textSeq: number }
 const conns = new Set<Conn>();
 
 function send(ws: WebSocket, msg: ServerMsg): void {
@@ -75,6 +107,21 @@ function allowRegister(ip: string): boolean {
   return true;
 }
 
+/** the admin page's dependencies (server/admin.ts): the readouts and the two actions */
+const adminLog = new AdminLog(join(DATA_DIR, 'admin.log'), log);
+const adminDeps: AdminDeps = {
+  token: ADMIN_TOKEN,
+  host,
+  store,
+  backups,
+  dataDir: DATA_DIR,
+  tournament: tournamentJob,
+  text: textEnricher,
+  online: () => new Set([...conns].filter((c) => c.pid).map((c) => c.pid)).size,
+  adminLog,
+  now: () => Date.now(),
+};
+
 const http = createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') return json(res, 204, {});
@@ -92,7 +139,10 @@ const http = createServer(async (req, res) => {
         return json(res, 409, { ok: false, error: 'That handle is taken' } satisfies AuthRes);
       }
       const id = `u_${randomUUID().slice(0, 12)}`;
-      const r = host.command(id, { type: 'join', handle, country });
+      // the browser's device id is hashed here and only the hash goes into the world (collusion.ts), never the raw id
+      const rawDevice = typeof b.device === 'string' ? b.device.slice(0, 128) : '';
+      const device = rawDevice.length >= 16 ? createHash('sha256').update(`device|${rawDevice}`).digest('hex') : undefined;
+      const r = host.command(id, { type: 'join', handle, country, ...(device ? { device } : {}) });
       if (!r.ok) return json(res, 400, { ok: false, error: r.error } satisfies AuthRes);
       const token = store.createAccount(id, handle);
       log(`new player ${handle} (${country})`);
@@ -144,6 +194,17 @@ const http = createServer(async (req, res) => {
         : { type: 'admin.launchCredit' as const, playerId: p.id, score: Number(b.score) };
       return json(res, 200, host.command(p.id, cmd));
     }
+    if (req.method === 'POST' && (url.pathname === '/api/admin/tip' || url.pathname === '/api/admin/inquiry')) {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      const p = Object.values(host.g.players).find((x) => x.handle.toLowerCase() === String(b.handle ?? '').toLowerCase());
+      if (!p) return json(res, 404, { ok: false });
+      const assetId = String(b.assetId ?? '');
+      const cmd = url.pathname === '/api/admin/tip'
+        ? { type: 'admin.tip' as const, playerId: p.id, assetId }
+        : { type: 'admin.inquiry' as const, playerId: p.id, assetId };
+      return json(res, 200, host.command(p.id, cmd));
+    }
     if (req.method === 'POST' && url.pathname === '/api/admin/shock') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const b = await body(req);
@@ -160,11 +221,36 @@ const http = createServer(async (req, res) => {
       const b = await body(req);
       return json(res, 200, host.command('admin', { type: 'admin.lpFill', ticker: String(b.ticker ?? '') }));
     }
+    if (req.method === 'POST' && url.pathname === '/api/admin/streak-accent') {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      const p = Object.values(host.g.players).find((x) => x.handle.toLowerCase() === String(b.handle ?? '').toLowerCase());
+      if (!p) return json(res, 404, { ok: false });
+      return json(res, 200, host.command(p.id, { type: 'admin.streakAccent', playerId: p.id, accent: String(b.accent ?? '') }));
+    }
+    if (req.method === 'POST' && url.pathname === '/api/admin/auction-open') {
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      const b = await body(req);
+      const week = b.week === undefined ? undefined : Number(b.week);
+      const ticksLeft = b.ticksLeft === undefined ? undefined : Number(b.ticksLeft);
+      return json(res, 200, host.command('admin', { type: 'admin.auctionOpen', ...(week !== undefined ? { week } : {}), ...(ticksLeft !== undefined ? { ticksLeft } : {}) }));
+    }
+    if (req.method === 'GET' && url.pathname === '/api/admin/text') {
+      // the model text readout: calls, cache hits, rejects by reason, spend today and the cap (admin token only)
+      if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
+      return json(res, 200, { ok: true, ...textEnricher.readout() });
+    }
     if (req.method === 'POST' && url.pathname === '/api/admin/advance') {
       if (!ADMIN_TOKEN || req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 403, { ok: false });
       const n = Math.max(1, Math.min(20_000, Number(url.searchParams.get('n') ?? 1)));
       host.advance(n);
       return json(res, 200, { ok: true, tick: host.g.market.tick });
+    }
+    // the admin page's API (server/admin.ts): the token is checked there, in constant time
+    if ((ADMIN_PATHS as readonly string[]).includes(url.pathname)) {
+      const b = req.method === 'POST' ? await body(req) : {};
+      const r = adminRoute(req.method ?? 'GET', url.pathname, req.headers.authorization, b, req.socket.remoteAddress ?? '?', adminDeps);
+      return json(res, r.code, r.body);
     }
     json(res, 404, { ok: false });
   } catch (e) {
@@ -176,7 +262,7 @@ const http = createServer(async (req, res) => {
 const wss = new WebSocketServer({ server: http, maxPayload: MAX_MSG });
 
 wss.on('connection', (ws) => {
-  const c: Conn = { ws, pid: null, budget: 30, last: Date.now() };
+  const c: Conn = { ws, pid: null, budget: 30, last: Date.now(), textSeq: 0 };
   conns.add(c);
   ws.on('message', (raw) => {
     // token bucket: 20 messages per second sustained, bursts of 30
@@ -196,10 +282,13 @@ wss.on('connection', (ws) => {
         host.command(acct.id, { type: 'presence', online: true });
         const shared = publicCache();
         const dir = shared.topJson ?? JSON.stringify(directoryFor(host.g, shared.all, shared.top, acct.id));
+        // the welcome carries every kept overlay line, so this connection's cursor starts at the current version
+        if (textEnricher.enabled) c.textSeq = textEnricher.version();
         ws.send(welcomeJson({
           playerId: acct.id, tickMs: TICK_MS, frameJson: shared.frameJson, defsJson: listWire.defsJson(host.g),
           meJson: JSON.stringify(playerView(host.g, acct.id)), pubJson: shared.pubJson, directoryJson: dir,
           chatJson: JSON.stringify(chatFor(host.g, acct.id)), serverTime: Date.now(),
+          ...(textEnricher.enabled ? { textOverlayJson: JSON.stringify(textEnricher.overlay()) } : {}),
         }));
         return;
       }
@@ -232,6 +321,14 @@ wss.on('connection', (ws) => {
           log(`lp-page error: ${(e as Error).message}`);
           return send(ws, { t: 'lp-page', id: msg.id, data: null });
         }
+      case 'visit': {
+        // another player's home room and collection: each is null unless its owner has opened it (no note that anything is hidden)
+        // an unauthenticated socket gets the null answer too, so the client's request always settles
+        if (!c.pid) return send(ws, { t: 'visit', id: msg.id, data: null });
+        const owner = typeof msg.playerId === 'string' ? msg.playerId : '';
+        if (!host.g.players[owner]) return send(ws, { t: 'visit', id: msg.id, data: null });
+        return send(ws, { t: 'visit', id: msg.id, data: visitView(host.g, c.pid, owner) });
+      }
       case 'ping':
         return send(ws, { t: 'pong' });
     }
@@ -270,6 +367,9 @@ function canSee(pid: string, channel: string): boolean {
 }
 
 host.onTick((out, publicTick) => {
+  // the weekly tournament's settlement runs off the tick loop: a due week is checked every 60 ticks (5 real minutes), and its
+  // rows come back as a logged command (server/tournamentJob.ts)
+  if (host.g.market.tick % 60 === 0) tournamentJob.check(host.g);
   // the asset list moves on an IPO, a delisting or a spin-off: the frame of that tick carries it once. Clients connected
   // since then got it in their welcome, so a normal tick carries only the small cfgSeq.
   // shared parts are serialized once per tick, not once per socket
@@ -284,25 +384,45 @@ host.onTick((out, publicTick) => {
   const top = all ? topDirectory(all) : null;
   const topJson = top && all!.length <= top.length ? JSON.stringify(top) : null;
   const chat = out.chat as (ChatMessage & { channel?: string })[];
+  // the model text slot: this tick's new items are offered (never inside the step), and the overlay lines that landed since the last tick go out
+  // the handles of every player are passed too, so an item that names one (of any player) is never offered
+  if (textEnricher.enabled && out.wire.length > 0) {
+    const handles = new Set(Object.values(host.g.players).map((p) => p.handle));
+    for (const w of out.wire) {
+      const item = enrichItemOf(w, handles);
+      if (item) textEnricher.offer(item);
+    }
+  }
   const now = Date.now();
   for (const c of conns) {
     if (!c.pid || c.ws.readyState !== c.ws.OPEN) continue;
     const me = playerView(host.g, c.pid);
     if (!me) continue;
+    // each connection gets the overlay lines that landed after its own cursor, so a line is never lost to a socket that was skipped
+    const overlayDelta = textEnricher.enabled ? textEnricher.since(c.textSeq) : null;
+    if (textEnricher.enabled) c.textSeq = textEnricher.version();
+    const overlayPart = overlayDelta ? `,"textOverlay":${JSON.stringify(overlayDelta)}` : '';
     const myChat = chat.filter((m) => canSee(c.pid!, m.channel ?? 'world')).map((m) => ({ ...m, channel: m.channel ?? 'world' }));
     let extra = '';
     if (pubJson) extra = `,"pub":${pubJson},"directory":${topJson ?? JSON.stringify(directoryFor(host.g, all!, top!, c.pid))}`;
-    c.ws.send(`{"t":"tick","frame":${frameJson},"me":${JSON.stringify(me)},"wire":${wireJson},"inbox":${JSON.stringify(out.inbox[c.pid] ?? [])},"chat":${JSON.stringify(myChat)},"rankUps":${rankJson}${extra},"serverTime":${now}}`);
+    c.ws.send(`{"t":"tick","frame":${frameJson},"me":${JSON.stringify(me)},"wire":${wireJson},"inbox":${JSON.stringify(out.inbox[c.pid] ?? [])},"chat":${JSON.stringify(myChat)},"rankUps":${rankJson}${extra}${overlayPart},"serverTime":${now}}`);
   }
 });
+
+const hourly = setInterval(() => {
+  try { backups.take('hourly'); } catch (e) { log(`backup failed: ${(e as Error).message}`); }
+}, BACKUP_EVERY_MS);
 
 http.listen(PORT, undefined, 4096, () => log(`listening on :${PORT} (tick ${TICK_MS} ms, data ${DATA_DIR})`));
 host.start();
 
 const shutdown = () => {
   log('saving and shutting down…');
-  host.stop();
+  clearInterval(hourly);
+  host.stop(); // saves the world at its tick
+  try { backups.take('shutdown'); } catch (e) { log(`shutdown backup failed: ${(e as Error).message}`); }
   store.close();
+  releaseLock();
   process.exit(0);
 };
 process.on('SIGINT', shutdown);

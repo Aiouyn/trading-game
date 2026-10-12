@@ -7,6 +7,7 @@ import {
 import { playerBizSectors, refreshNetWorth } from './assets';
 import { computeBoards } from './boards';
 import { seedConnections } from './cyber';
+import { registerDevice } from './collusion';
 import { ensureLedger } from './ledger';
 import type { CommandResult, GameState, InboxItem, Player, StepOutput } from './types';
 import { rivalBaseline } from './rivalsBoard';
@@ -54,20 +55,22 @@ export function createPlayer(g: GameState, id: string, handle: string, country: 
   return p;
 }
 
-export function join(g: GameState, id: string, handleIn: string, countryIn: string, out: StepOutput | null): CommandResult {
+export function join(g: GameState, id: string, handleIn: string, countryIn: string, out: StepOutput | null, device?: string): CommandResult {
   if (g.players[id]) return fail('already joined');
   const handle = validHandle(handleIn);
   if (!handle) return fail('handle: 3-18 letters, digits, _ . -');
   if (Object.values(g.players).some((p) => p.handle.toLowerCase() === handle.toLowerCase())) return fail('handle taken');
   const country = COUNTRIES.some((c) => c.code === countryIn) ? countryIn : 'XX';
   const p = createPlayer(g, id, handle, country);
+  // the registration device feeds the collusion graph (a hash only; collusion.ts). Absent for worlds and tests that send none.
+  if (device) registerDevice(g, id, device);
   creditExternal(g, id, ONBOARDING_GRANT, 'onboarding grant');
   refreshNetWorth(g, p);
   p.netWorthPeak = Math.max(p.netWorthPeak, p.markNetWorth ?? p.netWorth);
   // the trade ledger and the benchmark start here, from the cash the player actually has after the sign-up grant
   ensureLedger(g, id);
   pickRival(g, p);
-  notify(g, out, id, { kind: 'system', tone: 'brass', text: `Welcome to Port Avalon, ${handle}. Your broker added a $${ONBOARDING_GRANT} sign-up bonus. Rent is due Friday.` });
+  notify(g, out, id, { kind: 'system', tone: 'brass', text: `Welcome to Port Avalon, ${handle}. Your broker added a $${ONBOARDING_GRANT} sign-up bonus. Rent is due Friday.`, msg: { key: 'inbox.welcome', vars: { handle, amount: ONBOARDING_GRANT } } });
   // No account-opening story on the public Wire: every guest account would make one (the player sees the welcome).
   if (Object.keys(g.players).length < 500) computeBoards(g); // big worlds refresh boards on their own schedule
   return ok({ id });
@@ -102,13 +105,16 @@ export function pickRival(g: GameState, p: Player): void {
 function syncLicense(g: GameState, p: Player): void {
   const lic = licenseFor(p.rankId);
   p.licenseId = lic.id;
+  // a fresh start caps leverage at 1x for 7 real days (velvet-bankruptcy.md): the license is applied under that cap
+  const capped = (p.comeback?.leverageUntil ?? 0) > g.market.tick;
   // the R0 short is a human player's permission: the NPC crowd keeps its old R0 permissions, so the price paths it drives
   // (and the seeded runs) do not move
-  const canShort = lic.canShort && !(p.npc && lic.maxLeverage <= 1);
+  const canShort = !capped && lic.canShort && !(p.npc && lic.maxLeverage <= 1);
+  const maxLeverage = capped ? 1 : lic.maxLeverage;
   // in place: the world owns its market copy (the pure helper would copy every account)
   const acct = g.market.accounts[p.id];
-  if (acct && (acct.maxLeverage !== lic.maxLeverage || acct.canShort !== canShort || acct.canOptions !== lic.canOptions)) {
-    g.market.accounts[p.id] = { ...acct, maxLeverage: lic.maxLeverage, canShort, canOptions: lic.canOptions };
+  if (acct && (acct.maxLeverage !== maxLeverage || acct.canShort !== canShort || acct.canOptions !== lic.canOptions)) {
+    g.market.accounts[p.id] = { ...acct, maxLeverage, canShort, canOptions: lic.canOptions };
   }
 }
 
@@ -127,7 +133,7 @@ export function applyRank(g: GameState, p: Player, out: StepOutput | null, silen
   out?.rankUps.push({ playerId: p.id, rankId: r.id });
   notify(g, out, p.id, { kind: 'rank', tone: 'brass', text: `Rank up: you are now ${r.name}. ${r.unlocks.join(' · ')}.`, msg: { key: `rank.note.up.${r.id}`, vars: { name: r.name } } });
   // The public Wire names rank milestones from R3 up only; lower ranks are the player's own news.
-  if (rankIndex(r.id) >= 3) pushWire(g, out, { kind: 'milestone', tag: 'Milestone', tone: 'brass', playerId: p.id, text: `${p.handle} reaches ${r.name}` });
+  if (rankIndex(r.id) >= 3) pushWire(g, out, { kind: 'milestone', tag: 'Milestone', tone: 'brass', playerId: p.id, text: `${p.handle} reaches ${r.name}`, msg: { key: 'wire.milestone.reaches', vars: { handle: p.handle, name: `@rank.${r.id}` } } });
 }
 
 export function rankName(id: string): string {
@@ -153,7 +159,7 @@ export function checkAchievements(g: GameState, p: Player, out: StepOutput | nul
     if (p.achievements[a.id] !== undefined) continue;
     if (!a.check(ctx)) continue;
     p.achievements[a.id] = g.market.tick;
-    notify(g, out, p.id, { kind: 'achievement', tone: 'brass', text: `Achievement unlocked: ${a.name}. ${a.text}` });
+    notify(g, out, p.id, { kind: 'achievement', tone: 'brass', text: `Achievement unlocked: ${a.name}. ${a.text}`, msg: { key: 'inbox.achievement', vars: { name: `@ach.name.${a.id}`, text: `@ach.text.${a.id}` } } });
     if (p.npc) continue;
     g.firstUnlocks ??= {};
     const first = g.firstUnlocks[a.id] === undefined;
@@ -161,7 +167,7 @@ export function checkAchievements(g: GameState, p: Player, out: StepOutput | nul
     // Public only when rare or the first in the world. Common unlocks stay in the player's own inbox.
     if (first || isRareAchievement(a)) {
       const text = first && !isRareAchievement(a) ? `${p.handle} unlocks ${a.name}, the first in Port Avalon` : `${p.handle} unlocks ${a.name}`;
-      pushWire(g, out, { kind: 'milestone', tag: 'Achievement', tone: 'brass', playerId: p.id, text });
+      pushWire(g, out, { kind: 'milestone', tag: 'Achievement', tone: 'brass', playerId: p.id, text, msg: first && !isRareAchievement(a) ? { key: 'wire.achievement.first', vars: { handle: p.handle, name: `@ach.name.${a.id}` } } : { key: 'wire.achievement', vars: { handle: p.handle, name: `@ach.name.${a.id}` } } });
     }
   }
 }

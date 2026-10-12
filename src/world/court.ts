@@ -1,4 +1,4 @@
-import { TPD, cashOf, creditExternal, debit, keyedRng, notify, pushWire, transfer } from './core';
+import { TPD, cashOf, spendableCash, creditExternal, debit, keyedRng, notify, pushWire, transfer } from './core';
 import { FUND_RULES, FUND_TIME } from '@/content/funds';
 import { advanceToInvestors, cancelStake } from './funds/flows';
 import { emptyFunds, fundById } from './funds/state';
@@ -6,7 +6,9 @@ import { startWindDown } from './funds/risk';
 import { say } from './say';
 import { rugVerdict } from './launchpad/rug';
 import { SEVERITY } from './court-scale';
+import { ECA_TUNE } from './eca-tune';
 import { usd } from './text/template';
+import { textProvider } from './text';
 import type { CommandResult, CourtCase, GameState, Player, StepOutput } from './types';
 
 /**
@@ -25,6 +27,13 @@ const HEARING_DAYS = 2;
 // the fine scale lives in court-scale.ts, so the Launchpad's rug verdict reads the same table (lead-launchpad.md L5)
 
 export const FLOOR = 5_000;
+/** The tribunal bar (03 §4.4, §8.1): a regulator's file needs 55 evidence points before a tribunal decides. */
+export const TRIBUNAL_BAR = 55;
+/** The ECA's S5 cap: one verdict's fine is at most 35% of net worth (03 §1). */
+export const ECA_CAP_PCT = 0.35;
+/** The S5 repeat modifier (03 §1): x1.5 per prior conviction in the same season, at most x2.5. */
+export const ECA_REPEAT_X = 1.5;
+export const ECA_REPEAT_MAX = 2.5;
 
 function evidenceFor(g: GameState, plaintiffId: string, defendantId: string, kind: CourtCase['kind']): number {
   if (kind === 'loan default') {
@@ -84,14 +93,17 @@ export function fileCase(g: GameState, pid: string, defendantId: string, kind: C
   // evidence is consumed by the case
   delete g.cyber.evidence[`${defendantId}>${pid}`];
   notify(g, out, defendantId, { kind: 'court', tone: 'warn', text: `${g.players[pid]!.handle} is suing you for ${kind}. Hearing in ${HEARING_DAYS} game days. You can offer a settlement.` });
-  pushWire(g, out, { kind: 'court', tag: 'Court', tone: 'warn', text: `${g.players[pid]!.handle} sues ${d.handle} for ${kind}` });
+  pushWire(g, out, {
+    kind: 'court', tag: 'Court', tone: 'warn', text: `${g.players[pid]!.handle} sues ${d.handle} for ${kind}`,
+    msg: textProvider.newsroom({ kind: 'lawsuit', id: `${id}:filed`, handle: g.players[pid]!.handle, defendant: d.handle, law: kind }),
+  });
   return { ok: true, data: { id } };
 }
 
 export function offerSettlement(g: GameState, pid: string, caseId: string, amount: number, out: StepOutput | null): CommandResult {
   const c = g.court.cases[caseId];
   if (!c || c.defendantId !== pid || c.status !== 'filed') return { ok: false, error: 'no open case against you' };
-  if (!(amount > 0) || cashOf(g, pid) < amount) return { ok: false, error: 'enter an amount you can pay' };
+  if (!(amount > 0) || spendableCash(g, pid) < amount) return { ok: false, error: 'enter an amount you can pay' };
   c.settlementOffer = amount;
   notify(g, out, c.plaintiffId, { kind: 'court', tone: 'info', text: `${g.players[pid]!.handle} offers $${Math.round(amount).toLocaleString('en-US')} to settle.` });
   return { ok: true };
@@ -100,7 +112,7 @@ export function offerSettlement(g: GameState, pid: string, caseId: string, amoun
 export function acceptSettlement(g: GameState, pid: string, caseId: string, out: StepOutput | null): CommandResult {
   const c = g.court.cases[caseId];
   if (!c || c.plaintiffId !== pid || c.status !== 'filed' || !c.settlementOffer) return { ok: false, error: 'no settlement on the table' };
-  const amt = Math.min(c.settlementOffer, cashOf(g, c.defendantId));
+  const amt = Math.max(0, Math.min(c.settlementOffer, spendableCash(g, c.defendantId)));
   transfer(g, c.defendantId, c.plaintiffId, amt);
   c.status = 'settled';
   c.damages = amt;
@@ -160,7 +172,10 @@ export function courtTick(g: GameState, out: StepOutput): void {
     c.verdictText = `Liable: $${Math.round(damages).toLocaleString('en-US')} in damages and a $${Math.round(fine).toLocaleString('en-US')} fine${df.heldUntil > g.market.tick ? '; assets held for 24 game days' : ''}.`;
     notify(g, out, c.plaintiffId, { kind: 'court', tone: 'gain', text: `You won against ${df.handle}. ${c.verdictText}` });
     notify(g, out, c.defendantId, { kind: 'court', tone: 'loss', text: `Verdict for ${pl.handle}. ${c.verdictText}` });
-    pushWire(g, out, { kind: 'court', tag: 'Verdict', tone: 'loss', text: `Court finds ${df.handle} liable for ${c.kind}; ${pl.handle} awarded damages` });
+    pushWire(g, out, {
+      kind: 'court', tag: 'Verdict', tone: 'loss', text: `Court finds ${df.handle} liable for ${c.kind}; ${pl.handle} awarded damages`,
+      msg: textProvider.newsroom({ kind: 'verdict', id: `${c.id}:verdict`, defendant: df.handle, plaintiff: pl.handle, law: c.kind }),
+    });
   }
 }
 
@@ -185,7 +200,7 @@ function fundVerdict(g: GameState, c: CourtCase, out: StepOutput | null, df: Pla
   const f = c.fundId ? fundById(g, c.fundId) : undefined;
   if (f) {
     paid = cancelStake(g, f, owed);
-    const room = Math.max(0, cashOf(g, c.defendantId) - FLOOR);
+    const room = Math.max(0, spendableCash(g, c.defendantId) - FLOOR);
     const cash = Math.min(owed - paid, room);
     if (cash > 0) { transfer(g, c.defendantId, f.accountId, cash); paid += cash; }
     advance = advanceToInvestors(g, f, Math.max(0, s5.vcfAdvancePct * (owed - paid)), out);
@@ -202,4 +217,49 @@ function fundVerdict(g: GameState, c: CourtCase, out: StepOutput | null, df: Pla
   say(g, out, c.plaintiffId, 'court', 'gain', { key: 'funds.verdict.won', vars: { player: df.handle, restored: usd(paid), fine: usd(fine) } });
   say(g, out, c.defendantId, 'court', 'loss', { key: 'funds.verdict.lost', vars: { player: pl.handle, restored: usd(paid), fine: usd(fine) } });
   c.verdictText = `Restored ${usd(paid)} to the fund and a ${usd(fine)} fine.`;
+}
+
+/** R-6C-2: the insider fine's floor (the S5 scale's $100k floor does not apply to the ECA's insider penalty any more). */
+export const ECA_FINE_FLOOR = 1_000;
+/** R-6C-4: the counsel term is at most this many logits, for each side (the M30 counsel rule, as in courtTick). */
+export const COUNSEL_LOGIT_MAX = 0.75;
+
+/**
+ * The ECA tribunal (ROADMAP 2.5, 03 §9.2, §10.2, R-6C-2 and R-6C-4). The regulator is the plaintiff. At the tribunal bar the verdict
+ * is a logistic on (evidence − bar) over the slope ECA_TUNE.tribunalSlope, with the counsel term (at most ±0.75 logit, the regulator's
+ * counsel less the defence's, at 0.25 a level as in courtTick) added before the draw, from a keyed stream so replays agree. It is
+ * uncertain by design: far above the bar convicts, the bar is a coin flip, and the counsel can move it, but not far.
+ *
+ * A conviction is the insider penalty: the gain is disgorged in full (the FIFO realized gain on the tipped lots, from cash above
+ * the $5k floor), and the fine is k × gain (ECA_TUNE.insiderK) with the $1,000 floor, times the season repeat factor, capped at 35%
+ * of net worth (ECA_CAP_PCT) and at what the season has left. Both are sinks: an insider trade has no identifiable victim to pay
+ * (03 §1). Nothing here moves cash to another player. The S5 scale (court-scale.ts) is unchanged for the other offences.
+ */
+export function regulatorVerdict(
+  g: GameState,
+  c: {
+    id: string; evidence: number; playerId: string; gain: number; priorConvictions?: number; seasonFinesLeft?: number;
+    /** counsel levels (0 to 3, as for a case); both 0 when unset */
+    counsel?: { regulator?: number; defence?: number };
+  },
+): { convicted: boolean; fine: number; disgorged: number; p: number } {
+  const counsel = Math.max(-COUNSEL_LOGIT_MAX, Math.min(COUNSEL_LOGIT_MAX, 0.25 * ((c.counsel?.regulator ?? 0) - (c.counsel?.defence ?? 0))));
+  const z = (c.evidence - TRIBUNAL_BAR) / ECA_TUNE.tribunalSlope + counsel;
+  const p = 1 / (1 + Math.exp(-z));
+  const won = keyedRng(g, `eca:verdict:${c.id}`).chance(p);
+  const df = g.players[c.playerId];
+  if (!won || !df) return { convicted: false, fine: 0, disgorged: 0, p };
+  const nw = df.netWorth;
+  // the debit comes from cash, never below the floor (03 §13.5, ROADMAP 2.6): the disgorgement is owed first, then the fine
+  const cashRoom = Math.max(0, cashOf(g, c.playerId) - FLOOR);
+  const gain = Math.max(0, c.gain);
+  const disgorged = Math.min(cashRoom, gain);
+  // the repeat modifier (03 §1): x1.5 per prior conviction in the season, at most x2.5; then the per-verdict cap of 35% of net worth
+  const repeat = Math.min(ECA_REPEAT_MAX, ECA_REPEAT_X ** Math.max(0, c.priorConvictions ?? 0));
+  const scheduled = Math.max(ECA_FINE_FLOOR, ECA_TUNE.insiderK * gain) * repeat;
+  const fine = Math.max(0, Math.min(cashRoom - disgorged, ECA_CAP_PCT * nw, scheduled, c.seasonFinesLeft ?? Infinity));
+  debit(g, c.playerId, disgorged, 'eca disgorgement');
+  debit(g, c.playerId, fine, 'eca fines');
+  df.reputation -= 10;
+  return { convicted: true, fine, disgorged, p };
 }

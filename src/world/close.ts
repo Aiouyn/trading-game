@@ -103,7 +103,7 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
     if (!w.news || !w.assetId) continue;
     const band: NewsBand = newsBand(cfg, w.assetId, w.news, closeTick - w.tick);
     if (band === 'done') continue;
-    stories.push({ assetId: w.assetId, headline: w.text, band });
+    stories.push({ assetId: w.assetId, headline: w.text, ...(w.msg ? { headlineMsg: w.msg } : {}), band });
     if (stories.length >= CLOSE_STORIES) break;
   }
 
@@ -112,8 +112,8 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
   const ev = wires.find((w) => w.ev?.type === 'world' && (w.ev.phase === 'start' || w.ev.phase === 'end'));
   if (ev?.ev) {
     event = ev.ev.phase === 'end'
-      ? { phase: 'ended', headline: ev.text, lastedDays: ev.ev.lastedDays ?? 0 }
-      : { phase: 'active', headline: ev.text };
+      ? { phase: 'ended', headline: ev.text, ...(ev.msg ? { headlineMsg: ev.msg } : {}), lastedDays: ev.ev.lastedDays ?? 0 }
+      : { phase: 'active', headline: ev.text, ...(ev.msg ? { headlineMsg: ev.msg } : {}) };
   }
 
   const ghosts = cur.ghosts;

@@ -1,6 +1,6 @@
 'use client';
 
-import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type HistoryPayload, type NwHistoryPayload, type ServerMsg } from './protocol';
+import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type HistoryPayload, type NwHistoryPayload, type ServerMsg, type VisitPayload } from './protocol';
 import type { Command } from '@/world/types';
 import type { PlayerView } from '@/world/view';
 import type { LpPage } from '@/world/launchpad/view';
@@ -10,11 +10,36 @@ export interface Ack { ok: boolean; error?: string; data?: unknown; me?: PlayerV
 const TOKEN_KEY = 'tg-token'; // migrated from tycoon.token on boot (shell/prefs migrateLegacy)
 
 /** The world server lives next to the web app (same host, its own port), unless configured. */
+const DEVICE_KEY = 'tg-device'; // a random id for this browser, sent once at sign-up (collusion.ts hashes it on the server)
+
+/** This browser's device id: random, kept in localStorage, never shown to a player. Empty when storage and crypto are unavailable. */
+export function deviceId(): string {
+  try {
+    const have = window.localStorage.getItem(DEVICE_KEY);
+    if (have && have.length >= 16) return have;
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    const id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    window.localStorage.setItem(DEVICE_KEY, id);
+    return id;
+  } catch {
+    return '';
+  }
+}
+
+/** The world port the server rendered for this page (layout.tsx, TG_WORLD_PORT), when the app runs with a non-default world port. */
+function renderedWorldPort(): string | null {
+  const v = (window as unknown as { __TG_WORLD_PORT__?: unknown }).__TG_WORLD_PORT__;
+  return typeof v === 'number' || typeof v === 'string' ? String(v) : null;
+}
+
 export function worldHttpUrl(): string {
   const env = process.env.NEXT_PUBLIC_WORLD_URL;
   if (env) return env.replace(/\/$/, '');
   if (typeof window === 'undefined') return `http://localhost:${DEFAULT_WORLD_PORT}`;
-  const port = new URLSearchParams(window.location.search).get('world') ?? String(DEFAULT_WORLD_PORT);
+  // ?world= wins (a dev override), then the port the server rendered, then the default. The host is the page's own, so a phone
+  // that opened the web app by its LAN address talks to the world on that same machine.
+  const port = new URLSearchParams(window.location.search).get('world') ?? renderedWorldPort() ?? String(DEFAULT_WORLD_PORT);
   return `${window.location.protocol}//${window.location.hostname}:${port}`;
 }
 
@@ -35,7 +60,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const api = {
-  register: (handle: string, country: string) => post<AuthRes>('/api/register', { handle, country }),
+  register: (handle: string, country: string) => post<AuthRes>('/api/register', { handle, country, device: deviceId() }),
   login: (handle: string, password: string) => post<AuthRes>('/api/login', { handle, password }),
   setPassword: (token: string, password: string) => post<{ ok: boolean; error?: string }>('/api/password', { token, password }),
 };
@@ -70,7 +95,7 @@ export class WorldClient {
       try { msg = JSON.parse(String(ev.data)) as ServerMsg; } catch { return; }
       if (msg.t === 'welcome') this.onState('open');
       if (msg.t === 'error' && msg.message === 'auth') { this.closed = true; this.onState('auth-failed'); ws.close(); return; }
-      if ((msg.t === 'ack' || msg.t === 'history' || msg.t === 'nw-history' || msg.t === 'lp-page') && this.pending.has(msg.id)) {
+      if ((msg.t === 'ack' || msg.t === 'history' || msg.t === 'nw-history' || msg.t === 'lp-page' || msg.t === 'visit') && this.pending.has(msg.id)) {
         const resolve = this.pending.get(msg.id)!;
         this.pending.delete(msg.id);
         resolve(msg.t === 'ack' ? msg : msg.data);
@@ -117,6 +142,10 @@ export class WorldClient {
 
   nwHistory(): Promise<NwHistoryPayload> {
     return this.request<NwHistoryPayload>((id) => ({ t: 'nw-history', id }));
+  }
+
+  visit(playerId: string): Promise<VisitPayload | null> {
+    return this.request<VisitPayload | null>((id) => ({ t: 'visit', id, playerId }));
   }
 
   lpPage(ticker: string): Promise<LpPage | null> {

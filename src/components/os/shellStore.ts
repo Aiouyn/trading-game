@@ -13,7 +13,7 @@ import { type KeyValueStore, loadShell, readPrefs, saveShell, updatePrefs } from
 import { createShellStore } from '@/shell/store';
 import { BP_PHONE, type Rect } from '@/shell/geometry';
 import { type ShellState, type WmAction, type WmReason, type WmResult, focusedId, initialShell, normalize, project } from '@/shell/wm';
-import { DEFAULT_PALETTE, type PaletteSlug, applyPalette, isPaletteSlug, readPalette } from './palette';
+import { DEFAULT_PALETTE, type PaletteSlug, applyPalette, isPaletteSlug, paletteLocked, readPalette } from './palette';
 import { bannerBand, selectEventBanner } from './eventSelect';
 
 const INIT_VP = { w: 1440, h: 900 };
@@ -305,6 +305,18 @@ export function loadPalette(): void {
   const p = readPalette();
   applyPalette(p, document.documentElement);
   usePalette.setState({ palette: p });
+}
+
+/**
+ * Applies the palette this player may use (6D.4). A saved accent palette that the player's streak has not earned shows as
+ * Ink & Brass until it is earned; the saved choice stays on the device, so the accent returns once it is earned. The palette
+ * is per device, and a second player on the same device may not hold the accent. Runs when the streak accents arrive.
+ */
+export function applyEarnedPalette(accents: readonly string[]): void {
+  const saved = readPalette();
+  const shown = paletteLocked(saved, accents) ? DEFAULT_PALETTE : saved;
+  applyPalette(shown, document.documentElement);
+  usePalette.setState({ palette: shown });
 }
 
 // ---------------------------------------------------------------- motion

@@ -1,10 +1,11 @@
+import { isLinkedAccount } from '../collusion';
 import { openAccount, seedStream, type RngState } from '@/engine';
 import { TPD, cashOf, pushWire } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { textProvider } from '../text';
+import { moderatorLine } from './moderatorLine';
 import { curveAccountId, tokenStream } from './constants';
 import type { LaunchpadState, LpLot, LpToken } from './types';
-import { linked } from '../funds/state';
 import type { Msg } from '@/i18n';
 
 /** The state, created on first use. Worlds that never launch have none, so their fingerprints do not change. */
@@ -92,18 +93,21 @@ export function openCurve(g: GameState, ticker: string): void {
   if (!g.market.accounts[id]) g.market = openAccount(g.market, id, 0);
 }
 
-/** The owner-linked accounts of a creator: the creator and their alliance members (the 10% cap counts them, L3). */
+/** The owner-linked accounts of a creator: the owner group (alliances, devices, gifts and mirrored trades, collusion.ts). The 10% cap counts them (L3). */
 export function isCreatorLinked(g: GameState, creatorId: string, pid: string): boolean {
-  return linked(g, creatorId, pid);
+  return isLinkedAccount(g, creatorId, pid);
 }
 
 /**
  * The three-part refusal (lead-launchpad.md L2): what happened, why, and what to do. The English line is the command's error; the
- * descriptors go to the viewer's language. Keys are `lp.refuse.<code>.what|why|do` in en.json and fr.json.
+ * descriptors go to the viewer's language. Keys are `lp.refuse.<code>.what|why|do` in en.json and fr.json. A name or ticker the
+ * moderator refuses says its first part in the moderator's line (moderatorLine.ts, txt.mod.*).
  */
 export function refuse(code: string, vars?: Record<string, string | number>): CommandResult {
+  const subject = code === 'tickerCrypto' ? vars?.ticker : vars?.name;
+  const what = moderatorLine(code, subject === undefined ? undefined : String(subject)) ?? { key: `lp.refuse.${code}.what`, vars };
   const parts: Msg[] = [
-    { key: `lp.refuse.${code}.what`, vars },
+    what,
     { key: `lp.refuse.${code}.why`, vars },
     { key: `lp.refuse.${code}.do`, vars },
   ];
