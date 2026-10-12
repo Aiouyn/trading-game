@@ -108,7 +108,14 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   await page.goto('/broker?e2e&intro=off');
   await clearSheets(page);
   await skipTips(page);
-  // the deep link opens a second Broker window beside the one restored from the last visit: the newest one is last
+  // the deep link opens a second Broker window beside the one restored from the last visit: the newest one is last.
+  // Two Brokers share a 1440 px desktop, so each is under 900 px wide: the narrow Broker keeps its full ticket (with the
+  // selector) in the trade sheet, opened from the trade bar's review button. A terminal-width Broker shows the ticket at once.
+  await expect(page.getByTestId('order-account').last().or(page.getByTestId('bar-qty').last())).toBeVisible({ timeout: 30_000 });
+  if ((await page.getByTestId('order-account').count()) === 0) {
+    await page.getByTestId('bar-qty').last().fill('1');
+    await page.getByTestId('bar-review').last().click();
+  }
   await expect(page.getByTestId('order-account').last()).toBeVisible({ timeout: 30_000 });
   await page.getByTestId('account-fund').last().click();
   await expect(page.getByTestId('account-fund-note').last()).toBeVisible();
