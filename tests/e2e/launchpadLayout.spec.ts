@@ -84,7 +84,7 @@ test('the Launchpad at its minimum window, on the desktop: its figures stay insi
   await skipTips(page);
   await goTo(page, 'launchpad');
   await expect(page.getByTestId('launchpad-view')).toBeVisible();
-  // drag the south-east grip far up and left: the window stops at its minimum (420 x 300)
+  // drag the south-east grip far up and left: the window stops at its minimum (350 x 300, UX stage 6 side column)
   const grip = await page.getByTestId('win-launchpad-resize-se').boundingBox();
   if (grip === null) throw new Error('no south-east grip');
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
@@ -92,7 +92,7 @@ test('the Launchpad at its minimum window, on the desktop: its figures stay insi
   await page.mouse.move(grip.x - 900, grip.y - 900, { steps: 12 });
   await page.mouse.up();
   const r = await box(page, 'launchpad');
-  expect(r.w).toBeGreaterThanOrEqual(419);
+  expect(r.w).toBeGreaterThanOrEqual(349);
   expect(r.h).toBeGreaterThanOrEqual(299);
   const f = await frame(page, 'launchpad').boundingBox();
   if (f === null) throw new Error('no launchpad window');

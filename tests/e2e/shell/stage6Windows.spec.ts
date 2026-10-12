@@ -62,7 +62,8 @@ test.describe('stage 6 windows', () => {
     const dialogs = page.locator('[role="dialog"][data-testid^="win-"]');
     const boxes = (await dialogs.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ x: r.x, y: r.y, w: r.width, h: r.height })))).filter((r) => r.w > 0);
     expect(boxes.length).toBeGreaterThanOrEqual(2);
-    expect(boxes.length).toBeLessThanOrEqual(4);
+    // six windows fit at the 350 px minimum (UX stage 6), so all may tile; the rule under test is that none overlaps
+    expect(boxes.length).toBeLessThanOrEqual(6);
     for (let i = 0; i < boxes.length; i += 1) {
       for (let j = i + 1; j < boxes.length; j += 1) {
         const a = boxes[i]!;
