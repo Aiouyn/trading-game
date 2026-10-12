@@ -7,11 +7,11 @@ import { imitateDaily, demandPerDay, npcQuarterly, npcWeeklyReaction, seedNpcs, 
 import { capacityPerDay, depreciationPerDay, inputIndex, materialUnitCost, overtimePerUnit, plantCost, rdEffort, shipCeiling } from './economics';
 import { completeProject, frontierStep, startProject } from './rd';
 import { ROLES, emptyStaff, fireHeads, headcountCap, landHires, queueHire, totalHeads, wagesPerDay, pendingHeads } from './staff';
-import { vEngine, lnPerShare, type ValuationInputs } from './valuation';
+import { clippedMargin, surprise, surpriseDenominator, vEngine, lnPerShare, type ValuationInputs } from './valuation';
 import { totalDebt } from './debt';
 import { filedInputs } from './signals';
 import type { EngineSectors } from './sectorFactor';
-import type { CompanyReject, CompanyWorld, Company, ExecRole, ExecTrait, Holder, InvestorPool, Order, Product, ProjectKind, Resolved, Statements } from './types';
+import type { CompanyReject, CompanyWorld, Company, Consensus, ExecRole, ExecTrait, FilingPublic, Holder, InvestorPool, Order, Product, ProjectKind, Resolved, Statements } from './types';
 import { post } from './books';
 import { announceCeoChange, boardVote, ceoDay, execDay, fireExec, hireExec, setGuarantee } from './governance';
 import { bankrupt, insolvencyStep } from './failure';
@@ -58,6 +58,8 @@ export interface CompanyEnv {
   stakeOf?(playerId: string, companyId: string): number;
   /** the day's engine sector factor return per company sector (sectorFactor.ts, O-12); absent with no engine */
   sectorFactor?: Record<string, number>;
+  /** O-2: the market cap averaged over the 20 closed days ending `lag` days before now, for a listed company (undefined when none) */
+  mcap20?(companyId: string, lag: number): number | undefined;
   money: {
     cash(playerId: string): number;
     /** moves cash out of a player's account into a company (a transfer, not a sink) */
@@ -599,7 +601,9 @@ function closeQuarter(w: CompanyWorld, c: Company, closeDay: number, events: Com
   c.retained += statements.netIncome;
   c.closed.push(statements);
   if (c.closed.length > 16) c.closed.splice(0, c.closed.length - 16);
-  c.pendingFile = { statements, hash: statementsHash(statements), filingDay: closeDay + COMPANY.filingLagDays };
+  // O-2: the consensus of the closing quarter as it stood at the close (the signals before this day; this day's signal reads the
+  // next quarter), kept for the filing's residual surprise
+  c.pendingFile = { statements, hash: statementsHash(statements), filingDay: closeDay + COMPANY.filingLagDays, consensus: c.consensus ? { ...c.consensus } : null };
   c.qtd = emptyQtd(closeDay);
   events.push({ kind: 'closed', companyId: c.id, quarter, day: closeDay });
 }
@@ -608,7 +612,26 @@ function closeQuarter(w: CompanyWorld, c: Company, closeDay: number, events: Com
  * The filing (§6.1, CB-075): publish the frozen statements, check their hash, re-anchor lnV, and settle the reversal. The
  * tier and the public distress flag move here, on the filed statements: nothing public changes at the close itself.
  */
-function fileQuarter(c: Company, day: number, events: CompanyEvent[]): void {
+/**
+ * O-2 (Quant 6.2): the residual surprise s of a filing, the actuals against the consensus at the period close, over
+ * D = max(EV_20, 0.25 mcap_20). mcap_20 is the market's average over the 20 closed days ending at the close (env.mcap20); with no
+ * bars yet it falls back to the filed fair value. The margin and net debt are the TTM values with this filing in (filedInputs).
+ * Undefined for a company with no consensus (a private company) or with no positive denominator.
+ */
+function surpriseAtFiling(c: Company, cons: Consensus | null, st: Statements, day: number, env: CompanyEnv): FilingPublic['surprise'] {
+  if (!cons || cons.ocf === undefined) return undefined;
+  const x = filedInputs(c, 0);
+  const mcap = env.mcap20?.(c.id, Math.max(0, day - st.periodCloseDay)) ?? c.filedV;
+  const d = surpriseDenominator(mcap + x.netDebt, mcap);
+  if (!(d > 0)) return undefined;
+  const s = surprise({
+    revActual: st.revenue, revCons: cons.revQtd, ocfActual: st.ocf, ocfCons: cons.ocf,
+    cbActual: st.backlogContribution, cbCons: cons.backlogContribution, margin: x.margin, d,
+  });
+  return { s, d, margin: clippedMargin(x.margin) };
+}
+
+function fileQuarter(c: Company, day: number, events: CompanyEvent[], env: CompanyEnv): void {
   const pf = c.pendingFile;
   if (!pf) return;
   if (statementsHash(pf.statements) !== pf.hash) throw new Error(`filing hash mismatch for ${c.id}`);
@@ -620,7 +643,11 @@ function fileQuarter(c: Company, day: number, events: CompanyEvent[]): void {
   }
   const rev = reversal(c.resolved, fairBySig, sharesBySig);
   const line = { nonConversion: rev.nonConversion, baseRate: rev.baseRate, excessLift: rev.excessLift, repayment: rev.repayment };
-  c.filings.push(filingOf(pf.statements, pf.hash, day, line, pf.statements.heads));
+  const filing = filingOf(pf.statements, pf.hash, day, line, pf.statements.heads);
+  // O-2: the filing's residual surprise against the consensus at the close (only a company with a consensus has one)
+  const sur = surpriseAtFiling(c, pf.consensus !== undefined ? pf.consensus : c.consensus, pf.statements, day, env);
+  if (sur) filing.surprise = sur;
+  c.filings.push(filing);
   if (c.filings.length > 16) c.filings.splice(0, c.filings.length - 16);
   c.filingCount++;
   const prevCB = c.cbFiled;
@@ -705,7 +732,7 @@ export function companyTick(w: CompanyWorld, env: CompanyEnv, day: number): Comp
     if (c.bankrupt) continue;
     const ceoNow = ceoDay(c, day);
     if (ceoNow) events.push({ kind: 'ceo', companyId: c.id, day, holder: ceoNow });
-    if (day > 0 && c.pendingFile && day === c.pendingFile.filingDay) fileQuarter(c, day, events);
+    if (day > 0 && c.pendingFile && day === c.pendingFile.filingDay) fileQuarter(c, day, events, env);
     if (day - 1 >= c.foundedDay) {
       // O-17: a decision confirmed on day - 1 is applied at its close, before that day's operations
       applyStaged(c, day - 1, events);
