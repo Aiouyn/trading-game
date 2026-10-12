@@ -33,7 +33,8 @@ import { usePalette, useShell } from './shellStore';
 export const BOTTOM_ROW: readonly AppId[] = ['broker', 'portfolio', 'wire', 'messages'];
 
 /** The window size an app body lays itself out by on the phone: the full screen under the bars. */
-const APP_BAR_H = 44;
+/** The phone app bar: 52 px under 600 px wide (UX stage 6, item 7), 44 px above; the CSS in os-phone.css sets the same heights. */
+const appBarH = (w: number): number => (w < 600 ? 52 : 44);
 const EDGE_H = 40;
 
 /** The status bar's clock: the day and the time, "D4 · 09:44" (V:148). */
@@ -328,7 +329,7 @@ function PhoneScreen({ app, props, visible, vp }: { app: AppId; props: WinProps;
         </button>
         <span className="os-phone-title">{title}</span>
       </header>
-      <AppBody win={win} size={{ w: vp.w, h: Math.max(0, vp.h - APP_BAR_H - EDGE_H) }} />
+      <AppBody win={win} size={{ w: vp.w, h: Math.max(0, vp.h - appBarH(vp.w) - EDGE_H) }} />
     </section>
   );
 }

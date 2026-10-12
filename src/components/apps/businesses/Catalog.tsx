@@ -10,7 +10,7 @@ import { compactMoney, money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { CITY_DEMAND } from '@/world/assets';
 import { t } from '@/i18n';
-import { Button, Card, CommitBar, Segmented, Select, Td, TextField, Th } from '@/components/ui';
+import { Button, Card, CommitBar, Segmented, Select, TextField } from '@/components/ui';
 import { unlockLine } from '../unlock';
 
 type SortKey = 'payback' | 'perDay' | 'cost';
@@ -108,51 +108,56 @@ export function Catalog({ onBought }: { onBought: () => void }) {
       {rows.length === 0 ? (
         <Card className="p-6 text-center text-small text-fg-faint" data-testid="catalog-none">{t('biz.none')}</Card>
       ) : (
-        <Card className="overflow-x-auto">
-          <table className="w-full min-w-[20rem] border-collapse text-small" data-testid="catalog-table">
-            <thead>
-              <tr className="border-b border-ink-2 text-left">
-                <Th>{t('biz.col.business')}</Th>
-                <Th className="hidden @2xl:table-cell">{t('biz.col.sector')}</Th>
-                <Th className="hidden @xl:table-cell">{t('biz.col.tier')}</Th>
-                <Th right>{t('biz.cost')}</Th>
-                <Th right>{t('biz.col.perDay')}</Th>
-                <Th right className="hidden @md:table-cell">{t('biz.col.payback')}</Th>
-                <Th right>{t('biz.col.action')}</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ d, tier, inc, payback, locked }) => {
-                const sec = BIZ_SECTORS.find((s) => s.id === d.sector)!;
-                const used = me.businesses.filter((b) => BIZ_BY_ID.get(b.defId)?.tier === d.tier).length;
-                const full = used >= tier.max;
-                const unlock = locked ? unlockLine(tier.rank, me.player.netWorthPeak) : null;
-                return (
-                  <tr key={d.id} className={`border-b border-ink-2 last:border-0 ${locked ? 'text-fg-faint' : ''} ${pick === d.id ? 'bg-brass/10' : ''}`} data-testid={`catalog-${d.id}`}>
-                    <Td className="max-w-[14rem]">
-                      <span className="block truncate font-semibold text-fg">{d.name}</span>
-                      <span className="block truncate text-caption text-fg-faint">{t(`biz.blurb.${d.id}`)}</span>
-                    </Td>
-                    <Td className="hidden @2xl:table-cell">{sec.name}</Td>
-                    <Td className="hidden @xl:table-cell">{t('biz.tierChip', { n: d.tier })} {tier.name}</Td>
-                    <Td right num className="whitespace-nowrap text-fg">{compactMoney(d.cost)}</Td>
-                    <Td right num className="whitespace-nowrap text-gain">{compactMoney(inc)}</Td>
-                    <Td right num className="hidden whitespace-nowrap @md:table-cell">{t('biz.paybackValue', { n: payback.toFixed(1) })}</Td>
-                    <Td right>
-                      {unlock ? (
-                        <span className="block max-w-[15rem] text-caption text-fg-faint" data-testid={`catalog-unlock-${d.id}`}>{unlock.text}</span>
-                      ) : (
-                        <Button size="sm" variant={pick === d.id ? 'brass' : 'outline'} disabled={full || cash < d.cost}
-                          onClick={() => setPick(d.id)} testId={`buy-biz-${d.id}`}>
-                          {full ? t('biz.full') : cash < d.cost ? t('biz.needMore', { amount: compactMoney(d.cost - cash) }) : t('biz.buyFor', { price: compactMoney(d.cost) })}
-                        </Button>
-                      )}
-                    </Td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        // A row is a grid. In a narrow panel (under the container's xl, about 576 px) the name sits on top and the cost beside
+        // it, with the Buy button full width below, so no text depends on the panel's width (UX stage 6, item 5).
+        <Card className="overflow-hidden">
+          <div className="flex flex-col" data-testid="catalog-table" role="list">
+            <div aria-hidden className="hidden border-b border-ink-2 px-4 py-2 text-caption text-fg-faint @xl:grid @xl:grid-cols-[minmax(0,2fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_auto] @xl:gap-x-4">
+              <span>{t('biz.col.business')}</span>
+              <span>{t('biz.col.tier')}</span>
+              <span className="text-right">{t('biz.cost')}</span>
+              <span className="text-right">{t('biz.col.perDay')}</span>
+              <span className="text-right">{t('biz.col.action')}</span>
+            </div>
+            {rows.map(({ d, tier, inc, payback, locked }) => {
+              const sec = BIZ_SECTORS.find((s) => s.id === d.sector)!;
+              const used = me.businesses.filter((b) => BIZ_BY_ID.get(b.defId)?.tier === d.tier).length;
+              const full = used >= tier.max;
+              const unlock = locked ? unlockLine(tier.rank, me.player.netWorthPeak) : null;
+              return (
+                <div
+                  key={d.id}
+                  role="listitem"
+                  className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-ink-2 px-4 py-3 last:border-0 @xl:grid-cols-[minmax(0,2fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_auto] @xl:gap-x-4 @xl:py-2.5 ${locked ? 'text-fg-faint' : ''} ${pick === d.id ? 'bg-brass/10' : ''}`}
+                  data-testid={`catalog-${d.id}`}
+                >
+                  <div className="min-w-0">
+                    <span className="block truncate font-semibold text-fg">{d.name}</span>
+                    <span className="block truncate text-caption text-fg-faint">{sec.name} · {t(`biz.blurb.${d.id}`)}</span>
+                  </div>
+                  <div className="hidden text-small @xl:block">{t('biz.tierChip', { n: d.tier })} {tier.name}</div>
+                  <div className="num whitespace-nowrap text-right text-small text-fg">
+                    {compactMoney(d.cost)}
+                    <span className="block text-caption text-gain @xl:hidden">{t('biz.perDayShort', { amount: compactMoney(inc) })}</span>
+                  </div>
+                  <div className="num hidden whitespace-nowrap text-right text-small text-gain @xl:block">
+                    {compactMoney(inc)}
+                    <span className="block text-caption text-fg-faint">{t('biz.paybackValue', { n: payback.toFixed(1) })}</span>
+                  </div>
+                  <div className="col-span-2 @xl:col-auto @xl:justify-self-end">
+                    {unlock ? (
+                      <span className="block text-caption text-fg-faint" data-testid={`catalog-unlock-${d.id}`}>{unlock.text}</span>
+                    ) : (
+                      <Button size="sm" className="w-full @xl:w-auto" variant={pick === d.id ? 'brass' : 'outline'} disabled={full || cash < d.cost}
+                        onClick={() => setPick(d.id)} testId={`buy-biz-${d.id}`}>
+                        {full ? t('biz.full') : cash < d.cost ? t('biz.needMore', { amount: compactMoney(d.cost - cash) }) : t('biz.buyFor', { price: compactMoney(d.cost) })}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </Card>
       )}
     </div>

@@ -53,7 +53,7 @@ test('the Research Desk is locked below Operator, then opens with an empty Files
   const handle = await register(page);
   await skipTips(page);
   await expect(page.getByTestId('shelf-app-research')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByTestId('shelf-app-research')).toHaveAttribute('aria-label', /opens at Operator/);
+  await expect(page.getByTestId('shelf-app-research')).toHaveAttribute('aria-label', /opens at Operator/i);
   await grant(handle, 8_000_000);
   await skipRankUp(page);
   await goTo(page, 'research');

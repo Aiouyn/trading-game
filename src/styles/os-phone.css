@@ -196,6 +196,11 @@
     display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--radius-md); color: var(--color-fg);
   }
   .os-root .os-phone-title { font-size: 15px; font-weight: 600; color: var(--color-fg); }
+  /* Under 600 px the bar is 52 px, with the app's name read clearly (UX stage 6, item 7). */
+  @media (max-width: 599px) {
+    .os-root .os-phone-bar { height: 52px; }
+    .os-root .os-phone-title { font-size: 17px; }
+  }
   /* The home indicator (.os-home-edge, bottom 9 px, about 30 px tall) sits in a reserved band at the foot of
    * every full-screen app, so no control is ever under it. The band is padding, so the app body scrolls
    * above it and the wallpaper never shows through the app. */

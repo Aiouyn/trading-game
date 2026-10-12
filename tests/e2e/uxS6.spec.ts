@@ -94,17 +94,92 @@ for (const lang of ['en', 'fr'] as const) {
       await goTo(page, 'ailab');
       const stats = page.getByTestId('lab-stats');
       await expect(stats).toBeVisible();
+      // on the phone the intro and the figures are in the info sheet (UX stage 6, item 7): open it first
+      if (isPhone(page)) await page.getByTestId('lab-stats-info').click();
+      const scope = isPhone(page) ? page.getByTestId('lab-stats-sheet') : stats;
       // the formula is not in the header text: it sits in a closed disclosure until it is opened
-      const score = page.getByTestId('lab-score');
+      const score = scope.getByTestId('lab-score');
       await expect(score.locator('p')).toBeHidden();
 
       await score.locator('summary').click();
       await expect(score.locator('p')).toBeVisible();
       await expect(score.locator('p')).toContainText(lang === 'fr' ? 'Capacité =' : 'Capability =');
       // each unit carries a tooltip (a title attribute on its label)
-      await expect(stats.locator('[title]')).toHaveCount(4);
+      await expect(scope.locator('[title]')).toHaveCount(4);
       await shot(page, 's10-ailab', lang);
       await at1280(page, 's10-ailab', lang);
+      await noHorizontalOverflow(page);
+      expect(errors).toEqual([]);
+    });
+
+    test('item 6: the French top bar says Courtage, and the Wire counts launches in French', async ({ page }) => {
+      test.setTimeout(120_000);
+      test.skip(lang !== 'fr', 'French text only');
+      const errors = watchErrors(page);
+      await register(page);
+      await skipTips(page);
+      if (!isPhone(page)) {
+        const nav = page.getByTestId('ws-tabs');
+        await expect(nav).toContainText('Courtage');
+        await expect(nav).not.toContainText('Trading');
+      }
+      await shot(page, 's6-nav', lang);
+      await at1280(page, 's6-nav', lang);
+      await noHorizontalOverflow(page);
+      expect(errors).toEqual([]);
+    });
+
+    test('item 5: the catalogue rows keep their names and Buy buttons inside the side panel', async ({ page }) => {
+      test.setTimeout(120_000);
+      const errors = watchErrors(page);
+      await register(page);
+      await skipTips(page);
+      await goTo(page, 'businesses');
+      const table = page.getByTestId('catalog-table');
+      await expect(table).toBeVisible();
+      const row = page.getByTestId('catalog-food.street-food-cart');
+      await expect(row).toBeVisible();
+      const card = await table.boundingBox();
+      const buy = page.getByTestId('buy-biz-food.street-food-cart');
+      if (await buy.count()) {
+        const b = await buy.boundingBox();
+        // the Buy button sits inside the panel's width, not cut at its edge
+        expect(b!.x).toBeGreaterThanOrEqual(card!.x - 1);
+        expect(b!.x + b!.width).toBeLessThanOrEqual(card!.x + card!.width + 1);
+      }
+      // the table never scrolls sideways: its content fits its box
+      const fits = await table.evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+      expect(fits).toBe(true);
+      await shot(page, 's5-businesses', lang);
+      await at1280(page, 's5-businesses', lang);
+      await noHorizontalOverflow(page);
+      expect(errors).toEqual([]);
+    });
+
+    test('item 7: the phone app bar is 52 px, and the info sheet and the tab row hold the screen', async ({ page }) => {
+      test.setTimeout(120_000);
+      test.skip(!isPhone(page), 'the phone app bar and the info sheet are phone-only');
+      const errors = watchErrors(page);
+      await register(page);
+      await skipTips(page);
+      await goTo(page, 'businesses');
+      const bar = page.locator('.os-phone-app .os-phone-bar').first();
+      await expect(bar).toBeVisible();
+      expect((await bar.boundingBox())!.height).toBe(52);
+      // the intro and the figures are one tap away, in a sheet (not on the first screen)
+      await expect(page.getByTestId('biz-stats-info')).toBeVisible();
+      await expect(page.getByTestId('biz-stats-sheet')).toHaveCount(0);
+      await shot(page, 's7-businesses-phone', lang);
+      await page.getByTestId('biz-stats-info').click();
+      await expect(page.getByTestId('biz-stats-sheet')).toBeVisible();
+      await expect(page.getByTestId('biz-stats-sheet')).toContainText(lang === 'fr' ? /entreprise/i : /business/i);
+      await shot(page, 's7-businesses-sheet', lang);
+      await page.keyboard.press('Escape');
+      // the tab row sticks to the top and scrolls sideways, with its edge fade
+      const tabs = page.getByRole('tablist').first();
+      await expect(tabs).toBeVisible();
+      expect(await tabs.evaluate((el) => getComputedStyle(el.parentElement!).position)).toBe('sticky');
+      expect(await tabs.evaluate((el) => el.scrollWidth >= el.clientWidth)).toBe(true);
       await noHorizontalOverflow(page);
       expect(errors).toEqual([]);
     });

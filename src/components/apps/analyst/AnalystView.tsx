@@ -32,10 +32,17 @@ function LastTradeSample() {
   useEffect(() => {
     if (!tripId) return;
     let live = true;
-    void act({ type: 'journal.detail', tripId }, { silent: true }).then((r) => {
-      if (live && r.ok && r.data) setGot({ key, d: r.data as JournalDetail });
-    });
-    return () => { live = false; };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // a detail asked for before the world answers is asked again (up to five times), as the journal does
+    const ask = (n: number) => {
+      void act({ type: 'journal.detail', tripId }, { silent: true }).then((r) => {
+        if (!live) return;
+        if (r.ok && r.data) setGot({ key, d: r.data as JournalDetail });
+        else if (n < 5) timer = setTimeout(() => ask(n + 1), 1000);
+      });
+    };
+    ask(0);
+    return () => { live = false; if (timer) clearTimeout(timer); };
   }, [act, tripId, key]);
   if (!trip) {
     return <p className="rounded-md border border-dashed border-ink-3 p-3 text-small text-fg-muted" data-testid="analyst-sample-none">{t('analyst.sample.none')}</p>;
