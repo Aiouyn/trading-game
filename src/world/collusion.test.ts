@@ -58,13 +58,15 @@ describe('the collusion graph (6C)', () => {
     expect(isLinkedAccount(g, 'a', 'b')).toBe(true);
   });
 
-  it('links are transitive: a gift pair and a device pair make one group', () => {
+  it('funding links are direct (R-9-3): a gift pair and a device pair do not pool the gifter with the device-mate', () => {
     const g = world('col-trans', ['a', 'b', 'c']);
     recordGift(g, 'a', 'b');
     recordGift(g, 'a', 'b');
     registerDevice(g, 'b', 'd');
     registerDevice(g, 'c', 'd');
-    expect(linkedAccounts(g, 'c')).toEqual(['a', 'b', 'c']);
+    expect(linkedAccounts(g, 'c')).toEqual(['b', 'c']);
+    expect(linkedAccounts(g, 'a')).toEqual(['a', 'b']);
+    expect(isLinkedAccount(g, 'a', 'c')).toBe(false);
   });
 
   it('mirrored fills link a pair at the match minimum; a few coincidences do not', () => {

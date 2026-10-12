@@ -4,12 +4,12 @@ import { TPD } from './core';
 import type { GameState } from './types';
 
 /**
- * The collusion graph (lead-phase6.md 6C, Phase 4 O-5). Two human accounts are linked when any of these holds, and the link is
- * transitive (one owner group):
- *  - alliance: they are in the same alliance (the Phase 4 owner link, unchanged);
- *  - device: they registered from the same device, kept only as a salted hash (never sent to a client);
- *  - funding: they completed at least FUNDING_MIN_GIFTS player-to-player gifts (a transfer deal between them);
- *  - mirror: their fills copy each other. A fill of the same asset, side and quantity within MIRROR_WINDOW_TICKS of another
+ * The collusion graph (lead-phase6.md 6C, Phase 4 O-5). Two human accounts are linked when any of these holds:
+ *  - alliance: they are in the same alliance (the Phase 4 owner link, unchanged). Transitive: one owner group (R-9-3);
+ *  - device: they registered from the same device, kept only as a salted hash (never sent to a client). Transitive (R-9-3);
+ *  - funding: they completed at least FUNDING_MIN_GIFTS player-to-player gifts (a transfer deal between them). Direct only (R-9-3):
+ *    the pair is linked and no third party is pooled through it;
+ *  - mirror: their fills copy each other (direct only, R-9-3). A fill of the same asset, side and quantity within MIRROR_WINDOW_TICKS of another
  *    account's fill is a match. The pair is linked at MIRROR_MIN_MATCHES matches that cover at least MIRROR_MIN_SCORE of the
  *    smaller account's fills. The exact quantity and the short window keep ordinary busy-market coincidences out.
  *
@@ -128,8 +128,11 @@ export function collusionDay(g: GameState): void {
   }
 }
 
-/** The union-find root of every human account in the graph (sorted input, so the roots are deterministic). */
-function groupRoots(g: GameState): Map<string, string> {
+/**
+ * The union-find root of every human account over the OWNER links only (R-9-3, Phase 9 rulings): an alliance and a shared
+ * registration device are transitive, so a chain of them is one owner group. Sorted input, so the roots are deterministic.
+ */
+function ownerRoots(g: GameState): Map<string, string> {
   const parent = new Map<string, string>();
   const find = (x: string): string => {
     let r = x;
@@ -163,36 +166,56 @@ function groupRoots(g: GameState): Map<string, string> {
     const f = byDevice.get(h);
     if (f === undefined) byDevice.set(h, pid); else union(f, pid);
   }
-  // gifts and mirror matches, pair by pair (keys are sorted, so the order is fixed)
-  for (const k of Object.keys(c?.funding ?? {}).sort()) {
-    if ((c!.funding![k] ?? 0) < FUNDING_MIN_GIFTS) continue;
-    const [a, b] = k.split('|') as [string, string];
-    if (parent.has(a) && parent.has(b)) union(a, b);
-  }
-  for (const k of Object.keys(c?.mirror ?? {}).sort()) {
-    const [a, b] = k.split('|') as [string, string];
-    if (!parent.has(a) || !parent.has(b)) continue;
-    if ((c!.mirror![k] ?? 0) < MIRROR_MIN_MATCHES) continue;
-    if (mirrorScore(g, a, b) < MIRROR_MIN_SCORE) continue;
-    union(a, b);
-  }
   const roots = new Map<string, string>();
   for (const pid of humans) roots.set(pid, find(pid));
   return roots;
 }
 
-/** Every human account in the owner group of `pid`, `pid` included, sorted. An unlinked account is alone. */
-export function linkedAccounts(g: GameState, pid: string): string[] {
-  if (!g.players[pid]) return [pid];
-  const roots = groupRoots(g);
-  const r = roots.get(pid);
-  if (r === undefined) return [pid];
+/**
+ * The accounts one account is linked to by a DIRECT funding link (two completed gifts or accepted loans) or a DIRECT mirror link
+ * (the match minimum and score). R-9-3: such a link joins the two accounts it names and nobody else. A third party is not pooled
+ * through it, so a gifted pair does not pull in the gifter's other accounts.
+ */
+function directPartners(g: GameState, pid: string): string[] {
+  const c = g.collusion;
   const out: string[] = [];
-  for (const [id, root] of roots) if (root === r) out.push(id);
-  return out.sort();
+  const other = (k: string): string | null => {
+    const [a, b] = k.split('|') as [string, string];
+    if (a === pid) return b;
+    if (b === pid) return a;
+    return null;
+  };
+  for (const k of Object.keys(c?.funding ?? {}).sort()) {
+    if ((c!.funding![k] ?? 0) < FUNDING_MIN_GIFTS) continue;
+    const o = other(k);
+    if (o !== null && isHuman(g, o)) out.push(o);
+  }
+  for (const k of Object.keys(c?.mirror ?? {}).sort()) {
+    const o = other(k);
+    if (o === null || !isHuman(g, o)) continue;
+    if ((c!.mirror![k] ?? 0) < MIRROR_MIN_MATCHES) continue;
+    if (mirrorScore(g, pid, o) < MIRROR_MIN_SCORE) continue;
+    out.push(o);
+  }
+  return out;
 }
 
-/** True when `b` is `a` or in its owner group. The link is never named to a player. */
+/**
+ * Every human account linked to `pid`, `pid` included, sorted (R-9-3). The owner group of `pid` (alliance and device, transitive)
+ * plus the accounts `pid` is linked to by a direct funding or mirror link. Funding and mirror links do not chain: a link between
+ * two other accounts does not link `pid` to either of them. An unlinked account is alone.
+ */
+export function linkedAccounts(g: GameState, pid: string): string[] {
+  if (!g.players[pid]) return [pid];
+  const out = new Set<string>([pid]);
+  const roots = ownerRoots(g);
+  const r = roots.get(pid);
+  if (r !== undefined) for (const [id, root] of roots) if (root === r) out.add(id);
+  for (const o of directPartners(g, pid)) out.add(o);
+  return [...out].sort();
+}
+
+/** True when `b` is `a` or linked to it (linkedAccounts). Symmetric. The link is never named to a player. */
 export function isLinkedAccount(g: GameState, a: string, b: string): boolean {
   if (a === b) return true;
   return linkedAccounts(g, a).includes(b);
