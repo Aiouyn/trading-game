@@ -42,8 +42,8 @@ test.describe('phone desktop', () => {
       await expect(page.getByTestId(`home-app-${app}`)).toBeVisible();
     }
     await expect(page.getByTestId('home-row')).toBeVisible();
-    // Company has no tile before Owner (C-11); Security shows locked with its rank tag.
-    await expect(page.getByTestId('home-app-company')).toHaveCount(0);
+    // Company shows a locked tile before Owner, like Security, with its rank tag (UX stage 6).
+    await expect(page.getByTestId('home-app-company')).toHaveClass(/locked/);
     await expect(page.getByTestId('home-app-security')).toHaveClass(/locked/);
     // The R0 hardware is on the phone too: the bezel, the hairline crack and the sticker (P2-193).
     await expect(page.getByTestId('os-bezel')).toHaveCount(1);

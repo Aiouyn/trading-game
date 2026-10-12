@@ -20,6 +20,7 @@ import type { Rank } from './hardware';
 import { RankHardware } from './RankHardware';
 import { APP_GLYPH } from './appMap';
 import { Glyph } from './glyphs';
+import { unlockLine } from '../apps/unlock';
 import { NetWorthFigures } from './NetWorthFigures';
 import { OsToasts } from './OsToasts';
 import { EventBannerStrip, EventPanel, useBannerOn } from './EventBanner';
@@ -193,16 +194,20 @@ function PhoneHome() {
 function PhoneAppTile({ app }: { app: AppId }) {
   const unlocked = useShell((s) => s.ctx.unlocked);
   const unread = useGame((s) => (s.me?.player.inboxUnread ?? 0) > 0 || s.chatUnread > 0);
+  const peak = useGame((s) => s.me?.player.netWorthPeak ?? 0);
   const verdict = phoneCanOpen(app, unlocked);
   const locked = verdict !== 'ok';
   const tag = APPS[app].minRank;
   const label = t(APPS[app].titleKey);
+  // A locked tile names its unlock: the rank and the peak net worth it needs (UX stage 6, item 11).
+  const unlock = locked && tag !== null ? unlockLine(tag, peak).text : null;
   return (
     <button
       type="button"
       className={`os-app${locked ? ' locked' : ''}`}
       data-testid={`home-app-${app}`}
-      aria-label={locked ? `${label}: ${t('shell.phone.locked')}` : label}
+      aria-label={locked ? `${label}: ${t('shell.phone.locked')}${unlock ? `. ${unlock}` : ''}` : label}
+      title={unlock ?? undefined}
       onClick={() => phoneOpen(app, homeProps(app))}
     >
       <span className="os-app-ic">

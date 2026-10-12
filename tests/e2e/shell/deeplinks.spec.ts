@@ -54,7 +54,7 @@ test.describe('deep links', () => {
       expect(await windowIds(page)).not.toContain(`research-tape-locked`);
     }
     await expect(page.getByTestId('shelf-app-security')).toHaveAttribute('aria-disabled', 'true');
-    await expect(page.getByTestId('shelf-app-company')).toHaveCount(0);
+    await expect(page.getByTestId('shelf-app-company')).toHaveAttribute('aria-disabled', 'true');
   });
 
   test('@route_launchpad Launchpad is on the shelf after the Exchange, and a link to it opens its window', async ({ page }) => {

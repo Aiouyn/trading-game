@@ -36,13 +36,17 @@ export function ResearchDesk() {
       <p className="text-small text-fg-muted">{t('research.intro')}</p>
 
       {!desk && !atOperator && (
-        <p className="text-small text-fg-muted" data-testid="research-locked">{t('research.locked', { rank: t('rank.R3') })}</p>
+        <div className="flex flex-col gap-3">
+          <p className="text-small text-fg-muted" data-testid="research-locked">{t('research.locked', { rank: t('rank.R3') })}</p>
+          <DeskSample />
+        </div>
       )}
 
       {!desk && atOperator && (
         <Card className="flex flex-col gap-3 p-4" data-testid="desk-unlock">
           <h2 className="font-serif text-title text-fg">{t('desk.unlock.title')}</h2>
           <p className="text-small text-fg-muted">{t('desk.unlock.sub', { cost: money(DESK.unlockCost), upkeep: money(DESK.weeklyUpkeep) })}</p>
+          <DeskSample />
           {!confirmUnlock ? (
             <Button variant="brass" size="md" onClick={() => setConfirmUnlock(true)} testId="desk-unlock-run">
               {t('desk.unlock.run', { total: money(DESK.unlockCost + DESK.weeklyUpkeep) })}
@@ -114,6 +118,21 @@ export function ResearchDesk() {
       </section>
       <p className="text-caption text-fg-faint" data-testid="research-note">{t('research.note')}</p>
     </div>
+  );
+}
+
+/** One sample file on the paywall, so a player sees what the desk writes before paying (UX stage 6, item 11). Fixed text, not game data. */
+function DeskSample() {
+  const from = 12;
+  const to = 14;
+  return (
+    <figure className="flex flex-col gap-2 rounded-md border border-dashed border-ink-3 p-3" data-testid="desk-sample">
+      <figcaption className="label text-fg-faint">{t('desk.sample.label')}</figcaption>
+      <p className="font-serif text-body text-fg">{t('desk.header', { asset: 'HLCN', from, to })}</p>
+      <p className="text-small text-fg-muted">{t('desk.memo.down', { asset: 'HLCN', pct: '4.2%', from, to })}</p>
+      <p className="text-small text-fg-muted">{t('desk.memo.flow.sell', { pool: t('desk.pool.trend') })}</p>
+      <p className="text-caption text-fg-faint">{t('desk.sample.note')}</p>
+    </figure>
   );
 }
 
