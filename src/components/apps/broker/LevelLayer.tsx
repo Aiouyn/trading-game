@@ -120,7 +120,7 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
             )}
             <div
               className={`pointer-events-auto absolute flex items-center gap-1 rounded-chip border bg-ink-1 px-1.5 py-0.5 text-micro ${LINE[level.tone]} ${dragging ? 'z-[5]' : ''} ${level.draggable ? 'cursor-ns-resize touch-none' : ''}`}
-              style={{ top: row, right: axisW + 4, transform: 'translateY(-50%)', maxWidth: `calc(100% - ${axisW + 12}px)` }}
+              style={{ top: row, right: axisW + 8, transform: 'translateY(-50%)', maxWidth: `calc(100% - ${axisW + 16}px)` }}
               onPointerDown={level.draggable ? (e) => start(e, level) : undefined}
               onPointerMove={level.draggable ? move : undefined}
               onPointerUp={level.draggable ? () => end(level) : undefined}

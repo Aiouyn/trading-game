@@ -5,9 +5,14 @@ import { t } from '@/i18n';
 
 /** The dock's height at the start, and the least it may shrink to (spec 1.1: resizable, default 220 px). */
 export const DOCK_DEFAULT = 220;
+/** Below this window height the dock starts shorter, so the chart keeps its room (UX stage 6, weakness 12: 1280 x 720). */
+export const DOCK_SHORT_H = 800;
+export const DOCK_SHORT = 140;
 const DOCK_MIN = 120;
 /** The chart keeps at least this much height when the dock grows. */
 const CHART_MIN = 180;
+/** The chart keeps at least this share of the body's height (UX stage 6): the dock takes at most the rest. */
+export const CHART_SHARE_MIN = 0.45;
 const SPLIT = 6;
 /**
  * The watchlist column opens by default from this window width. Below it the column starts as an icon rail, so the chart and
@@ -37,8 +42,13 @@ export function TerminalLayout({ chart, dock, watchlist, ticket, watchlistOpen =
   const [dockH, setDockH] = useState(DOCK_DEFAULT);
   const body = useRef<HTMLDivElement>(null);
   const drag = useRef<{ y: number; h: number } | null>(null);
+  // A short screen starts the dock at 140 px (set after mount, so the server markup and the first paint agree).
+  useEffect(() => {
+    if (window.innerHeight < DOCK_SHORT_H) setDockH(DOCK_SHORT);
+  }, []);
   const clamp = (h: number) => {
-    const max = (body.current?.clientHeight ?? DOCK_DEFAULT + CHART_MIN) - CHART_MIN - SPLIT;
+    const body0 = body.current?.clientHeight ?? DOCK_DEFAULT + CHART_MIN;
+    const max = Math.min(body0 - CHART_MIN - SPLIT, body0 * (1 - CHART_SHARE_MIN) - SPLIT);
     return Math.round(Math.max(DOCK_MIN, Math.min(h, Math.max(DOCK_MIN, max))));
   };
   const onDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -86,9 +96,12 @@ export function TerminalLayout({ chart, dock, watchlist, ticket, watchlistOpen =
         <div
           role="separator" aria-orientation="horizontal" aria-label={t('broker.dock.resize')} aria-valuenow={dockH} tabIndex={0}
           onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onKeyDown={onKey}
-          className="touch-none bg-ink-2 hover:bg-brass/40 focus-visible:bg-brass/40" style={{ height: SPLIT, cursor: 'ns-resize' }}
+          className="flex touch-none items-center justify-center bg-ink-2 hover:bg-brass/40 focus-visible:bg-brass/40" style={{ height: SPLIT, cursor: 'ns-resize' }}
           data-testid="dock-split"
-        />
+        >
+          {/* the drag handle: a short grip, so the splitter reads as something to pull */}
+          <span aria-hidden className="block h-[3px] w-10 rounded-full bg-fg-faint/60" data-testid="dock-grip" />
+        </div>
         <div className="flex min-h-0 shrink-0 flex-col" style={{ height: dockH }} data-testid="terminal-dock">{dock}</div>
       </div>
       <aside className="flex min-h-0 w-[344px] shrink-0 flex-col overflow-hidden border-l border-ink-2 p-2" data-testid="terminal-ticket">{ticket}</aside>

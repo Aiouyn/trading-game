@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { APPS } from './apps';
 import {
+  SIDE_COL_PX,
   GUTTER,
   brokerView,
   GUTTER_FOCUS,
@@ -99,12 +100,16 @@ describe('slot rects', () => {
     }
   });
 
-  it('gives the Broker 70% at 1920 and a side panel the right 30% (1344 + 4)', () => {
-    const l23 = slotRect('L23', VP_1920, false);
-    const r3 = slotRect('R3', VP_1920, false);
-    expect(l23.w).toBe(1344 - 4 - GUTTER);
-    expect(r3.x).toBe(1344 + 4);
-    expect(r3.x + r3.w).toBe(1920 - GUTTER);
+  it('gives a side panel a 400 px column at 1440 (UX stage 6) and the Broker the width left of it', () => {
+    const l23 = slotRect('L23', VP_1440, false);
+    const r3 = slotRect('R3', VP_1440, false);
+    expect(r3.w).toBe(SIDE_COL_PX);
+    expect(r3.x + r3.w).toBe(1440 - GUTTER);
+    expect(l23.x + l23.w).toBeLessThan(r3.x);
+    // at 1920 the column scales with the width (the share is fixed), so it stays right of the Broker
+    const wide = slotRect('R3', VP_1920, false);
+    expect(wide.w).toBeGreaterThan(SIDE_COL_PX);
+    expect(wide.x + wide.w).toBe(1920 - GUTTER);
   });
 
   it('stacks R3T above R3B with one gutter between them', () => {
@@ -139,14 +144,14 @@ describe('slot rects', () => {
 });
 
 describe('min-size checks and nearest slot', () => {
-  it('refuses the Broker in a right third at 1440 (468 px < 480), and the Portfolio in one at 1440 (< 520)', () => {
+  it('refuses the Broker in a right half at 1440 (its 480 px minimum), and fits the Portfolio in the 400 px column', () => {
     expect(fitsMin(APPS.broker, slotRect('R3T', VP_1440, false))).toBe(false);
-    expect(fitsMin(APPS.portfolio, slotRect('R3B', VP_1440, false))).toBe(false);
+    expect(fitsMin(APPS.portfolio, slotRect('R3B', VP_1440, false))).toBe(true);
     expect(fitsMin(APPS.portfolio, slotRect('R3B', VP_1920, false))).toBe(true);
   });
 
-  it('refuses the Portfolio in a half at 1000 (488 px < 520)', () => {
-    expect(fitsMin(APPS.portfolio, slotRect('R2', VP_1000, false))).toBe(false);
+  it('refuses the Portfolio in a third at 1200 (331 px < 350), and fits the Broker in a half at 1000', () => {
+    expect(fitsMin(APPS.portfolio, slotRect('R3', { w: 1200, h: 800 }, false))).toBe(false);
     expect(fitsMin(APPS.broker, slotRect('L2', VP_1000, false))).toBe(true);
   });
 
@@ -161,7 +166,7 @@ describe('min-size checks and nearest slot', () => {
     const nearLeft = { x: 8, y: 8, w: 940, h: 978 };
     expect(nearestSlot(nearLeft, wa, GUTTER, APPS.broker, 'full')).toBe('L2');
     expect(nearestSlot(nearLeft, wa, GUTTER, { minW: 5000, minH: 5000 }, 'full')).toBeNull();
-    expect(nearestSlot(nearLeft, workArea(VP_1000, false), GUTTER, APPS.portfolio, 'halves')).toBeNull();
+    expect(nearestSlot(nearLeft, workArea(VP_1000, false), GUTTER, { minW: 900, minH: 300 }, 'halves')).toBeNull();
   });
 });
 

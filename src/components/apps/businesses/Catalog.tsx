@@ -118,7 +118,7 @@ export function Catalog({ onBought }: { onBought: () => void }) {
                 <Th right>{t('biz.cost')}</Th>
                 <Th right>{t('biz.col.perDay')}</Th>
                 <Th right className="hidden @md:table-cell">{t('biz.col.payback')}</Th>
-                <Th right>{t('biz.col.action')}</Th>
+                <Th right className="min-w-[8.5rem]">{t('biz.col.action')}</Th>
               </tr>
             </thead>
             <tbody>
@@ -138,7 +138,7 @@ export function Catalog({ onBought }: { onBought: () => void }) {
                     <Td right num className="whitespace-nowrap text-fg">{compactMoney(d.cost)}</Td>
                     <Td right num className="whitespace-nowrap text-gain">{compactMoney(inc)}</Td>
                     <Td right num className="hidden whitespace-nowrap @md:table-cell">{t('biz.paybackValue', { n: payback.toFixed(1) })}</Td>
-                    <Td right>
+                    <Td right className="min-w-[8.5rem] whitespace-nowrap">
                       {unlock ? (
                         <span className="block max-w-[15rem] text-caption text-fg-faint" data-testid={`catalog-unlock-${d.id}`}>{unlock.text}</span>
                       ) : (

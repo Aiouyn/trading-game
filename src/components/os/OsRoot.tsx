@@ -12,7 +12,7 @@ import { rankOrdinal } from '@/shell/ctx';
 import { useIsPhone } from '@/game/useMedia';
 import { cycleTarget, keyIntent } from '@/shell/keys';
 import { BP_HALVES, BP_PHONE, SHELF_H, STRIP_H, STRIP_H_FOCUS, layoutMode, slotFrac, viewportClass } from '@/shell/geometry';
-import { toastSide, visibleToasts } from '@/shell/toasts';
+import { toastPlace, visibleToasts } from '@/shell/toasts';
 import { focusedId, isFocused, project } from '@/shell/wm';
 import { APPS } from '@/shell/apps';
 import { SCREEN_APP } from './appMap';
@@ -316,9 +316,9 @@ export function OsRoot() {
   const shelfH = focusMode ? 0 : SHELF_H;
   // The event band sits under the status strip and pushes the workspace down by the same 34 px (desktop only).
   const band = bannerOn && shell.vp.w >= BP_PHONE ? EVENT_BAND_H : 0;
-  // The toast column moves to the top left when a Broker sits under it (P2-088).
+  // The toast column moves over the chart when a maximized Broker covers its corner (P2-088, UX stage 6).
   const brokerRect = focusWin?.app === 'broker' && focus !== null ? (proj.rects[focus] ?? null) : null;
-  const toastCol = toastSide(shell.vp, brokerRect, stripH, shelfH);
+  const toastCol = toastPlace(shell.vp, brokerRect, stripH, shelfH);
   // Shared edges exist only in the full mode (the reducer refuses a split below it).
   const tiles: Tile[] = shell.wins.flatMap((w) =>
     w.id in proj.rects && !w.filled && w.slot !== null ? [{ id: w.id, f: slotFrac(w.slot) }] : [],
@@ -375,7 +375,7 @@ export function OsRoot() {
       {bound && <BellPanel />}
       {bound && <EventPanel />}
       {bound && <EventTakeover />}
-      <OsToasts focusMode={focusMode} side={toastCol} />
+      <OsToasts focusMode={focusMode} place={toastCol} />
     </div>
   );
 }

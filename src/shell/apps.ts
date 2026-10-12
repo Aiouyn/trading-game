@@ -50,7 +50,10 @@ export interface AppDef {
   pref: { w: number; h: number };
 }
 
-/** Budgets from V:55 and F:98: Broker 480x420, Wire 360x280, Portfolio 520x220, the rest 420x300. */
+/**
+ * Budgets from V:55 and F:98: Broker 480x420, the rest 350 wide (UX stage 6: a Trade side column is 354 px at 1280 and 400 px at
+ * 1440, so Wire, Portfolio and the Empire apps fit it; Wire 350x280, Portfolio 350x220, the others 350x300).
+ */
 const app = (
   id: AppId,
   minW: number,
@@ -75,28 +78,28 @@ export const APPS: Readonly<Record<AppId, AppDef>> = {
   // Preferred sizes (fractions of the work area). The Broker is the large window (two thirds wide);
   // Wire and Portfolio are the trading side panels; Settings, Learn and Messages are medium.
   broker: app('broker', 480, 420, { instances: { kind: 'per-ticker', max: 4 }, pref: { w: 2 / 3, h: 0.92 } }),
-  portfolio: app('portfolio', 520, 220, {
+  portfolio: app('portfolio', 350, 220, {
     views: ['journal', 'analyst'],
     secondInstance: { layout: 'review', view: 'journal', max: 2 },
     pref: { w: 0.5, h: 0.6 },
   }),
-  wire: app('wire', 360, 280, { pref: { w: 0.36, h: 0.7 } }),
-  calendar: app('calendar', 420, 300),
-  messages: app('messages', 420, 300, { views: ['inbox', 'chat', 'social'] }),
-  businesses: app('businesses', 420, 300),
-  company: app('company', 420, 300, { views: ['overview', 'products', 'rd', 'people', 'deals', 'capital', 'public'], minRank: 'R2', hideWhenLocked: true }),
-  boutique: app('boutique', 420, 300),
-  ailab: app('ailab', 420, 300, { minRank: 'R2', pref: { w: 0.5, h: 0.7 } }),
-  security: app('security', 420, 300, { minRank: 'R3' }),
-  legal: app('legal', 420, 300),
-  bank: app('bank', 420, 300),
-  research: app('research', 420, 300, { instances: { kind: 'per-file' }, minRank: 'R3', pref: { w: 0.6, h: 0.8 } }),
+  wire: app('wire', 350, 280, { pref: { w: 0.36, h: 0.7 } }),
+  calendar: app('calendar', 350, 300),
+  messages: app('messages', 350, 300, { views: ['inbox', 'chat', 'social'] }),
+  businesses: app('businesses', 350, 300),
+  company: app('company', 350, 300, { views: ['overview', 'products', 'rd', 'people', 'deals', 'capital', 'public'], minRank: 'R2', hideWhenLocked: true }),
+  boutique: app('boutique', 350, 300),
+  ailab: app('ailab', 350, 300, { minRank: 'R2', pref: { w: 0.5, h: 0.7 } }),
+  security: app('security', 350, 300, { minRank: 'R3' }),
+  legal: app('legal', 350, 300),
+  bank: app('bank', 350, 300),
+  research: app('research', 350, 300, { instances: { kind: 'per-file' }, minRank: 'R3', pref: { w: 0.6, h: 0.8 } }),
   // Phase 4: player stocks and player-run funds (the Exchange app, velvet-company-app.md and ROADMAP 2.2)
-  exchange: app('exchange', 420, 300, { pref: { w: 0.5, h: 0.72 } }),
+  exchange: app('exchange', 350, 300, { pref: { w: 0.5, h: 0.72 } }),
   // Phase 5: the Launchpad (memecoins, lead-launchpad.md L7). Open from the start, like the Exchange.
-  launchpad: app('launchpad', 420, 300, { pref: { w: 0.6, h: 0.8 } }),
-  learn: app('learn', 420, 300, { pref: { w: 0.45, h: 0.66 } }),
-  settings: app('settings', 420, 300, { views: ['about'], pref: { w: 0.5, h: 0.72 } }),
+  launchpad: app('launchpad', 350, 300, { pref: { w: 0.6, h: 0.8 } }),
+  learn: app('learn', 350, 300, { pref: { w: 0.45, h: 0.66 } }),
+  settings: app('settings', 350, 300, { views: ['about'], pref: { w: 0.5, h: 0.72 } }),
 };
 
 /**

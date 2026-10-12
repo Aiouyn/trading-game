@@ -395,6 +395,8 @@
   "broker.proLicense": "Pro license",
   "broker.quantity": "Quantity",
   "broker.refuse.bp": "Not enough buying power: this needs {need}, you have {bp}.",
+  "broker.refuse.bpMax": "Not enough buying power: this needs {need}, you have {bp}. Max = {max}.",
+  "broker.refuse.cashMax": "Not enough cash: this costs {total}, you have {cash}. Max = {max}.",
   "broker.refuse.bracket": "Enter a price above zero.",
   "broker.refuse.bracketSide": "Take-profit must be on the profit side.",
   "broker.refuse.cash": "Not enough cash: this costs {total}, you have {cash}.",

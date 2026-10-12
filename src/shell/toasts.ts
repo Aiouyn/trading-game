@@ -8,7 +8,8 @@
 
 import { SHELF_H, type Rect, type Size } from './geometry';
 
-export const TOAST_MAX = 3;
+/** At most two notices draw at once (UX stage 6, weakness 3): a third would cover the positions table or the watchlist. */
+export const TOAST_MAX = 2;
 /** The queue keeps this many notices, so a long run of sticky warnings cannot grow without bound. Only three draw. */
 export const TOAST_QUEUE_MAX = 12;
 export const TOAST_HOLD_MS = 4000;
@@ -19,7 +20,7 @@ export const TOAST_EDGE = 14;
 export const TOAST_BOTTOM = 12;/** Height a toast takes in the column, used only to decide whether it covers a Broker. */
 export const TOAST_ROW_H = 96;
 
-export type ToastKind = 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'other';
+export type ToastKind = 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'pending' | 'other';
 export type ToastTone = 'gain' | 'loss' | 'warn' | 'info' | 'brass';
 
 /** A toast as the desktop reads it. The game store holds the same shape with a few more fields. */
@@ -28,6 +29,8 @@ export interface ShellToast {
   tone: ToastTone;
   text: string;
   kind?: ToastKind;
+  /** The asset an order notice is about: a pending notice is replaced by the fill of the same asset (one toast per order). */
+  ref?: string;
   /** The app whose window a click opens (a window id is never stored here). */
   app?: string;
   /** What a click does besides dismissing (a coach tip performs its action). Not stored in the shell. */
@@ -53,20 +56,44 @@ export function isSticky(t: Pick<ShellToast, 'tone' | 'kind'>): boolean {
 }
 
 /**
- * The column's side (P2-088, UX 3): the bottom-right corner above the shelf by default, the bottom-left when a
- * Broker's window sits under it, so a toast never covers the ticket column. The check is on the column's full height.
+ * One toast per order (UX stage 6, weakness 3): a pending notice ("fills at the next tick", "order working") leaves the queue when
+ * the fill of its asset arrives, so the order shows as one filled notice. Pure: returns the queue without those pending notices.
  */
-export function toastSide(vp: Size, broker: Rect | null, stripH: number, shelfH: number = SHELF_H): 'right' | 'left' {
-  if (broker === null) return 'right';
+export function withoutPending<T extends Pick<ShellToast, 'kind' | 'ref'>>(list: readonly T[], incoming: readonly T[]): T[] {
+  const filled = new Set(incoming.filter((t) => t.kind === 'fill' && t.ref !== undefined).map((t) => t.ref));
+  if (filled.size === 0) return list.slice();
+  return list.filter((t) => !(t.kind === 'pending' && t.ref !== undefined && filled.has(t.ref)));
+}
+
+/** The Broker's ticket column (TerminalLayout: w-[344px]) and the dock height a Broker starts with (DOCK_DEFAULT). */
+export const BROKER_TICKET_W = 344;
+export const BROKER_DOCK_H = 220;
+
+/** Where the toast column sits: the default corner (`right`), or a point in the viewport (`at`, left and bottom in px). */
+export type ToastPlace = { side: 'right' } | { side: 'at'; left: number; bottom: number };
+
+/**
+ * The column's place (P2-088, UX stage 6). The default is the bottom-right corner above the shelf. When the focused Broker sits
+ * under that corner, the column moves to the chart's bottom-right, just above the Broker's dock and clear of its ticket: a
+ * toast then never covers the watchlist, the positions table or the ticket. A Broker too narrow for a clear chart keeps the
+ * corner. Rects are relative to the work area, which starts below the strip.
+ */
+export function toastPlace(vp: Size, broker: Rect | null, stripH: number, shelfH: number = SHELF_H, watchlistOpenW = 1100): ToastPlace {
+  if (broker === null) return { side: 'right' };
   const colX0 = vp.w - TOAST_EDGE - TOAST_W;
   const colX1 = vp.w - TOAST_EDGE;
   const colY1 = vp.h - shelfH - TOAST_BOTTOM;
   const colY0 = colY1 - TOAST_MAX * TOAST_ROW_H;
-  // Rects are relative to the work area, which starts below the strip.
   const bx0 = broker.x;
   const bx1 = broker.x + broker.w;
   const by0 = stripH + broker.y;
   const by1 = by0 + broker.h;
   const hit = bx0 < colX1 && bx1 > colX0 && by0 < colY1 && by1 > colY0;
-  return hit ? 'left' : 'right';
+  if (!hit) return { side: 'right' };
+  // The chart's right edge is the ticket's left edge; the chart's left edge is the watchlist (open) or its rail.
+  const left = bx1 - BROKER_TICKET_W - TOAST_EDGE - TOAST_W;
+  const chartLeft = bx0 + (broker.w >= watchlistOpenW ? 256 : 32) + TOAST_EDGE;
+  if (left < chartLeft) return { side: 'right' };
+  const dockTop = by1 - BROKER_DOCK_H;
+  return { side: 'at', left, bottom: vp.h - dockTop + TOAST_BOTTOM };
 }

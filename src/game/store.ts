@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { type KeyValueStore, migrateLegacy, readPrefs as readPrefsFrom, updatePrefs } from '@/shell/prefs';
 import { createHolds } from '@/shell/holds';
-import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky } from '@/shell/toasts';
+import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky, withoutPending } from '@/shell/toasts';
 import { universeConfig, type DepthFrame, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
 import { tm } from '@/i18n';
@@ -22,7 +22,9 @@ export interface Toast {
   tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';
   text: string;
   /** What the notice is, for focus mode and the sticky rules (src/shell/toasts.ts). */
-  kind?: 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'other';
+  kind?: 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'pending' | 'other';
+  /** The asset an order notice is about (a pending notice leaves when that asset fills). */
+  ref?: string;
   /** The app a click opens (a shell app id), when the notice has one. */
   app?: string;
   /** What a click does besides dismissing (a coach tip performs its action). */
@@ -162,7 +164,10 @@ const toastHolds = createHolds(
 /** Adds toasts to the queue, starts their holds, and drops the oldest past the queue cap. */
 function queueToasts(incoming: readonly Toast[]): void {
   if (incoming.length === 0) return;
-  const all = [...useGame.getState().toasts, ...incoming];
+  // a fill replaces the pending notice of its order (one toast per order): that notice leaves now, with its holds
+  const queue = useGame.getState().toasts;
+  for (const t of queue) if (t.kind === 'pending' && !withoutPending([t], incoming).length) toastHolds.cancel(t.id);
+  const all = [...withoutPending(queue, incoming), ...incoming];
   const keep = all.slice(-TOAST_QUEUE_MAX);
   for (const t of all.slice(0, all.length - keep.length)) toastHolds.cancel(t.id);
   for (const t of incoming) if (keep.includes(t) && !isSticky(t)) toastHolds.start(t.id, TOAST_HOLD_MS);
@@ -250,6 +255,7 @@ export const useGame = create<GameStore>((set, get) => {
           text: tm(n.msg, n.text),
           kind: n.kind === 'fill' ? 'fill' as const : n.kind === 'margin' ? 'margin' as const : 'other' as const,
           app: n.kind === 'fill' ? 'broker' : undefined,
+          ref: n.kind === 'fill' && typeof n.msg?.vars?.asset === 'string' ? n.msg.vars.asset : undefined,
         }));
         const chat = { ...get().chat };
         let unread = get().chatUnread;

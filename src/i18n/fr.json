@@ -395,6 +395,8 @@
   "broker.proLicense": "Licence Pro",
   "broker.quantity": "Quantité",
   "broker.refuse.bp": "Pouvoir d’achat insuffisant : il faut {need}, vous avez {bp}.",
+  "broker.refuse.bpMax": "Pouvoir d’achat insuffisant : il faut {need}, vous avez {bp}. Max = {max}.",
+  "broker.refuse.cashMax": "Liquidités insuffisantes : cela coûte {total}, vous avez {cash}. Max = {max}.",
   "broker.refuse.bracket": "Saisissez un prix supérieur à zéro.",
   "broker.refuse.bracketSide": "Le take-profit doit être du côté du gain.",
   "broker.refuse.cash": "Liquidités insuffisantes : cela coûte {total}, vous avez {cash}.",

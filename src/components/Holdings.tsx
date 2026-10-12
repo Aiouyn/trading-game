@@ -124,11 +124,12 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
         </ul>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-small">
+          {/* the cells pack tighter (px-2): the Close button stays whole in the Broker dock (UX stage 6) */}
+          <table className="w-full text-small [&_td]:px-2 [&_th]:px-2">
             <thead>
               <tr>
                 <SortTh k="asset" sort={sort} onSort={onSort} /><SortTh k="qty" sort={sort} onSort={onSort} right /><Th right>{t('holdings.col.avg')}</Th><Th right>{t('holdings.col.last')}</Th>
-                <SortTh k="value" sort={sort} onSort={onSort} right /><SortTh k="pnl" sort={sort} onSort={onSort} right /><SortTh k="ifSold" sort={sort} onSort={onSort} right /><SortTh k="weight" sort={sort} onSort={onSort} right /><Th right>{t('holdings.col.fiveDay')}</Th><Th>{t('holdings.col.drip')}</Th><Th />
+                <SortTh k="value" sort={sort} onSort={onSort} right /><SortTh k="pnl" sort={sort} onSort={onSort} right /><SortTh k="ifSold" sort={sort} onSort={onSort} right />{/* the Broker dock is narrow: its weight and five-day columns are left to the Portfolio, so the Close button stays on screen */}{!bare && <SortTh k="weight" sort={sort} onSort={onSort} right />}{!bare && <Th right>{t('holdings.col.fiveDay')}</Th>}<Th>{t('holdings.col.drip')}</Th><Th />
               </tr>
             </thead>
             <tbody>
@@ -147,17 +148,20 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
                   <Td right num>{money(p.marketValue)}</Td>
                   <Td right num className={`whitespace-nowrap ${toneText[tone(p.unrealizedPnl)]}`}>{signedMoney(p.unrealizedPnl)}<div className="text-caption">{signedPct(p.unrealizedPct)}</div></Td>
                   <Td right num className={`whitespace-nowrap ${toneText[tone(ifSold)]}`}><span data-testid={`position-ifsold-${p.assetId}`} title={t('holdings.ifSoldHint')}>{signedMoney(ifSold)}</span></Td>
-                  <Td right num>{pct(p.weight)}</Td>
-                  <Td right><Sparkline data={sparkline(h, p.assetId, 5)} /></Td>
+                  {!bare && <Td right num>{pct(p.weight)}</Td>}
+                  {!bare && <Td right><Sparkline data={sparkline(h, p.assetId, 5)} /></Td>}
                   <Td><DripToggle assetId={p.assetId} /></Td>
-                  <Td right>
-                    <ConfirmButton
-                      confirm={t('holdings.close')}
-                      onConfirm={() => act({ type: 'position.close', assetId: p.assetId }, { success: t('holdings.closing', { ticker: p.assetId }) })}
-                      testId={`close-${p.assetId}`}
-                    >
-                      {t('holdings.close')}
-                    </ConfirmButton>
+                  <Td right className="whitespace-nowrap">
+                    {/* the button keeps its width in a narrow dock: its label is never cut to "Clo" (UX stage 6) */}
+                    <span className="inline-block min-w-[4.75rem] text-right">
+                      <ConfirmButton
+                        confirm={t('holdings.close')}
+                        onConfirm={() => act({ type: 'position.close', assetId: p.assetId }, { success: t('holdings.closing', { ticker: p.assetId }) })}
+                        testId={`close-${p.assetId}`}
+                      >
+                        {t('holdings.close')}
+                      </ConfirmButton>
+                    </span>
                   </Td>
                 </tr>
               ))}

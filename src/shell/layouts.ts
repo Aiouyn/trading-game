@@ -202,7 +202,9 @@ export function planLayout(name: BuiltinLayout, vp: Size, unlocked: Unlocked, op
       // Two stack as quarters when both fit. Otherwise the first one shows and the second is
       // tabbed away (skipped). A third entry is skipped.
       const [top, bottom] = fit as [Cur, Cur];
+      // Quarters exist only in the full mode (the reducer's slotAllowedInMode): below 1200 the second window is tabbed away.
       const stack =
+        layoutMode(vp.w) === 'full' &&
         fitsMin(APPS[top.app], slotRect(quarters[0], vp, false)) &&
         fitsMin(APPS[bottom.app], slotRect(quarters[1], vp, false));
       if (stack) {

@@ -71,6 +71,11 @@ export interface OrderCheck {
   shortCollateral: number;
   /** the commission on this order */
   fee: number;
+  /**
+   * The largest size a buy affords at this price (cash or buying power after the minimum fee), in the units of qty. Optional:
+   * when it is above zero, a refused buy says "Max = X" under the field (UX stage 6, weakness 2).
+   */
+  max?: number;
 }
 
 /** A refusal and a warning (a warning never disables the CTA). */
@@ -92,11 +97,14 @@ export function checkOrder(c: OrderCheck): CheckResult {
   if ((c.side === 'buy' || c.shorting) && c.simpleCap && c.committed + c.opening * c.mid > c.capCash + 1e-6) {
     return { refusal: { field: 'qty', key: 'broker.firstCap', cta: 'broker.cta.firstCap', vars: { pct: c.capPct, rank: c.capRank } }, warning: null };
   }
+  const hasMax = c.max !== undefined && c.max > 0;
   if (c.side === 'buy' && !c.margin && c.total > c.cash + 1e-6) {
-    return { refusal: { field: 'qty', key: 'broker.refuse.cash', cta: 'broker.cta.cash', vars: { total: c.total, cash: c.cash } }, warning: null };
+    const vars: Record<string, number> = hasMax ? { total: c.total, cash: c.cash, max: c.max! } : { total: c.total, cash: c.cash };
+    return { refusal: { field: 'qty', key: hasMax ? 'broker.refuse.cashMax' : 'broker.refuse.cash', cta: 'broker.cta.cash', vars }, warning: null };
   }
   if (c.side === 'buy' && c.margin && c.total > c.bp + Math.max(0, -c.held) * c.ref + 1e-6) {
-    return { refusal: { field: 'qty', key: 'broker.refuse.bp', cta: 'broker.cta.bp', vars: { need: c.total, bp: c.bp } }, warning: null };
+    const vars: Record<string, number> = hasMax ? { need: c.total, bp: c.bp, max: c.max! } : { need: c.total, bp: c.bp };
+    return { refusal: { field: 'qty', key: hasMax ? 'broker.refuse.bpMax' : 'broker.refuse.bp', cta: 'broker.cta.bp', vars }, warning: null };
   }
   if (c.shorting && !c.canShort) {
     return c.held > 0
@@ -137,6 +145,28 @@ export function checkOrder(c: OrderCheck): CheckResult {
   // a limit on the marketable side of the mid fills at once: allowed, but said
   const marketable = limitType && c.limit > 0 && (c.side === 'buy' ? c.limit >= c.mid : c.limit <= c.mid);
   return none(marketable ? 'broker.warn.marketable' : null);
+}
+
+/** The variables of a refusal that are money (shown with the ticket's money formatter), and the one that is a size. */
+const MONEY_VARS: readonly string[] = ['total', 'cash', 'bp', 'need'];
+
+/**
+ * A refusal's variables as the reader sees them: money as $1,234.56 (never a raw float), the max size as a quantity. Other
+ * variables pass through. The formatters are the ticket's own (src/game/format.ts), so the copy matches the summary.
+ */
+export function formatRefusalVars(
+  vars: Record<string, string | number> | undefined,
+  fmt: { money: (n: number) => string; qty: (n: number) => string },
+): Record<string, string | number> | undefined {
+  if (!vars) return undefined;
+  const out: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    if (typeof v !== 'number') out[k] = v;
+    else if (MONEY_VARS.includes(k)) out[k] = fmt.money(v);
+    else if (k === 'max') out[k] = fmt.qty(v);
+    else out[k] = v;
+  }
+  return out;
 }
 
 /** The engine's refusal (a plain code from placeOrder) mapped to the field it belongs to and its copy. */

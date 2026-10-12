@@ -11,14 +11,14 @@ import { type PointerEvent, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
 import { isAppId } from '@/shell/apps';
-import { TOAST_HOLD_MS, type ShellToast, allowedInFocus, isSticky, visibleToasts } from '@/shell/toasts';
+import { TOAST_HOLD_MS, type ShellToast, type ToastPlace, allowedInFocus, isSticky, visibleToasts } from '@/shell/toasts';
 import { Glyph, type GlyphName } from './glyphs';
 import { focusOrOpen } from './shellStore';
 import { phoneOpen } from './phoneStore';
 
 const ICON: Record<string, GlyphName> = { gain: 'check', loss: 'close', warn: 'bell', info: 'bell', brass: 'bell' };
 
-export function OsToasts({ focusMode, side, phone = false }: { focusMode: boolean; side: 'right' | 'left'; phone?: boolean }) {
+export function OsToasts({ focusMode, place, phone = false }: { focusMode: boolean; place: ToastPlace; phone?: boolean }) {
   const toasts = useGame((s) => s.toasts);
   const dismissMany = useGame((s) => s.dismissToasts);
   // On the phone one notice at a time drops from the status bar (P2-095).
@@ -38,7 +38,11 @@ export function OsToasts({ focusMode, side, phone = false }: { focusMode: boolea
   }, [focusMode, toasts, dismissMany]);
 
   return (
-    <div className={`os-toasts${side === 'left' && !phone ? ' left' : ''}${phone ? ' phone' : ''}`} aria-live="polite" data-testid="os-toasts">
+    <div
+      className={`os-toasts${phone ? ' phone' : ''}`}
+      style={!phone && place.side === 'at' ? { left: place.left, bottom: place.bottom, right: 'auto' } : undefined}
+      aria-live="polite" data-testid="os-toasts"
+    >
       {shown.map((x, i) => (
         <OsToast key={x.id} toast={x} n={i + 1} phone={phone} />
       ))}
