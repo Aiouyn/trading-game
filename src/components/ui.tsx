@@ -434,7 +434,7 @@ export function StatStrip({ intro, items, testId, children }: {
 }) {
   return (
     <Card className="p-3" data-testid={testId}>
-      {intro && <p className="mb-2 max-w-3xl text-caption text-fg-muted">{intro}</p>}
+      {intro && <div className="mb-2 max-w-3xl text-caption text-fg-muted">{intro}</div>}
       <div className="grid grid-cols-2 gap-x-6 gap-y-2 @md:flex @md:flex-wrap @md:items-end">
         {items.map((it, i) => <Stat key={i} label={it.label} value={it.value} sub={it.sub} testId={it.testId} figure className="@md:min-w-[7rem]" />)}
         {children && <div className="col-span-2 ml-auto @md:col-auto">{children}</div>}
