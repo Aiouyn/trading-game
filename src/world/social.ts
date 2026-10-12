@@ -183,6 +183,15 @@ export function unearnedCashOf(g: GameState, pid: string): number {
   return loansOwedOf(g, pid) + (g.players[pid]?.giftsNet ?? 0);
 }
 
+/**
+ * The rank basis of a player now (R-9-4, Phase 9 rulings): the marked net worth minus the loans owed and the net gifts received.
+ * Rank-ups key off its peak (assets.ts refreshNetWorth), and the leaderboards rank on this same value. The ECA fine cap and the
+ * comeback card keep raw net worth (no money moves).
+ */
+export function rankBasisOf(g: GameState, p: Player): number {
+  return (p.markNetWorth ?? p.netWorth) - unearnedCashOf(g, p.id);
+}
+
 /** Gift bookkeeping (Player.giftsNet): the receiver gains what arrives; the giver gives up the gross it sent (never below zero). */
 function noteGift(g: GameState, fromId: string, toId: string, received: number, gross: number): void {
   const to = g.players[toId];

@@ -324,11 +324,18 @@ export interface AssetState {
   /** attention after news, jumps and halts: extra volume multiplier that decays */
   heat: number;
   /**
-   * Notional ALL accounts traded TODAY on this asset, per side (shared permanent-impact tally, Ledger 2026-10-09):
-   * the day's permanent move is charged on the running total, so N accounts or 720 clips move the price like one
-   * order of the same total. Absent, or stamped with an earlier day = nothing traded yet today.
+   * Notional ALL accounts traded TODAY on this asset, per side: the crowd flow the C5 mark guard reads (rule C5, alt-peak).
+   * It charges no impact (the shared rolling tally is `impactTally`). Pools and the fills of every account add to it. Absent,
+   * or stamped with an earlier day = nothing traded yet today.
    */
   dayTraded?: DayTraded;
+  /**
+   * The asset's shared impact tally (R-9-1c, Phase 9 rulings): the notional of ALL flow on this asset per side (every account's
+   * fills and the pools' closing flow) at each flow's pre-trade mid, decayed by half every IMPACT_HALF_LIFE (360) ticks, with no
+   * calendar-day reset. Temporary and permanent impact are charged on the marginal of this running total, so a window of clips
+   * costs what one order of the same total costs, at any start tick, and N accounts share one tally. Absent = nothing traded.
+   */
+  impactTally?: ImpactTally;
   /**
    * Notional (at the tick's pre-trade mid) ALL accounts already filled THIS tick on this asset, per side, plus that
    * mid. Temporary impact and the maxAdvPerTick cap are charged on it, so splitting inside one tick costs what one
@@ -602,6 +609,15 @@ export interface Account {
   marginCallTick?: number;
   /** an NPC persona's account: its flow clears as Retail and never counts toward Players or You (P1). Absent = a human. */
   npc?: boolean;
+}
+
+/** One asset's same-direction notional (both sides), stamped at the tick it was last updated (R-9-1c). */
+export interface ImpactTally {
+  /** tick these totals were last updated; the values decay from here */
+  tick: number;
+  /** notional at each fill's pre-trade mid, undecayed as of `tick` */
+  buy: number;
+  sell: number;
 }
 
 export interface WorldState {

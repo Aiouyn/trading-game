@@ -154,7 +154,10 @@ describe('X3 huge money: a game year at $1e12 and $1e15 stays finite and balance
       // peak), so it is replaced by this bound. The two samples differ only on a day's close tick (the engine marks before the
       // ecology reprices the close, this loop after), so this is a check on tape-01, not an identity.
       expect(p.peakEquity).toBeLessThanOrEqual(Math.max(a.startingCash, r.peakLiq) * (1 + 1e-9) + 1e-6);
-      expect(r.minCash).toBeGreaterThanOrEqual(0);
+      // the lowest cash of the year. A buy may overdraw by the engine's EPS (1e-9 $, trading.ts clearOrders, the same
+      // tolerance as the cash check): at $1e12 the year's lowest tick is -7.7e-10 after the R-9-1b fill prices (was >= 0 by
+      // rounding). Money below -EPS would still fail.
+      expect(r.minCash).toBeGreaterThanOrEqual(-1e-9);
       const { drift, scale } = driftOf(r.state);
       expect(drift / scale).toBeLessThanOrEqual(1e-9);
       // liquidation equity is finite on every tick, not only at year end

@@ -171,6 +171,7 @@ $$ P_{exec} = P_{mid}\,\big(1 \pm (s/2 + Y\,\sigma_{daily}\sqrt{Q P / ADV})\big)
 
 - `s/2` is half of the asset's `spreadBps`, scaled by current vol (`regime.volMult · √h`), so spreads widen in crises.
 - `Y = 0.8`; `σ_daily = vol · volMult · √h / √252`; `ADV` is the asset's `advNotional` in dollars.
+- Impact is charged on one rolling tally per asset (R-9-1c, Phase 9, amending R-9-1b): `AssetState.impactTally`, the notional of ALL flow on the asset per side (every account's fills, the option hedge, and the pools' closing flow) at each flow's pre-trade mid, decayed by half every 360 ticks (`IMPACT_HALF_LIFE`), no calendar-day reset. Temporary impact is the marginal of C(n) = n · impact(n) on that tally, and the permanent move is `permanentMove` on it. A window of fills costs what one order of the same total costs, at any start tick, and N accounts splitting one block pay what one account pays (one tally). The clip gate's reading after a daily close is a separate open item (docs/V1-PHASE9.md 9B.5 item 15).
 - Half of the impact (`permanentImpactShare`) moves the price for everyone; the pull to value decays it.
 - Each order fills at most `3 × ADV` of notional per tick; the rest stays open and continues next tick.
 - Phase 0 fills sequentially in order-id order inside a tick. The uniform-price batch auction between players arrives with multiplayer.
