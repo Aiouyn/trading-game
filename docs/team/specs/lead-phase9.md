@@ -68,3 +68,22 @@ Binding for Phase 9 on the tech fork (`v1`). Visual polish and the four-palette 
   clients welcomed; tick fan-out p99 (tick start to the last client's receipt) < 2.5 s; tick overrun p99 (spacing minus the
   nominal tick) < 0.5 s; three repeats. The 1 s stress run is reported, not gated; its regression against the earlier
   record is investigated and written down.
+
+## R-9-10 Progressive business tax (lead, after the 504-day wealth table)
+
+The 504-game-day wealth bot (21 real days, 4 styles x 20 seeds, VM) against 01 §8.4: week 1 is on target (managed $621k and
+average $801k at real day 7, target median $500k), but week 3 overshoots: managed $110M and average $128M at day 21 (target
+median $20M) and excellent $957M (top 1% target $400M) from shops alone at low risk. Growth does not decelerate (about 33% a
+real day in week 3). 01 §8.2 and §8.3 name the missing lever: progressive tax brackets. None exists in the code.
+
+- Business net income (per business, per game day, after its costs) is taxed in brackets of the owner's rank basis (marked
+  net worth minus loans owed, R-9-4). Starting brackets (tunable): 0% up to $250k, 10% to $2.5M, 20% to $25M, 30% to $250M,
+  40% above (top bracket inside 01 §8.2's 25-45%). The marginal rate applies to the whole day's business income of an owner
+  in that bracket (no slicing): simple to read on the close card. Losses are not taxed and earn no credit.
+- The tax is a booked sink (`businessTax`); the world money identity still closes. The stabilizer may scale every bracket
+  by its lever within +-5 points (01 §8.2 lever 2), public on the money supply report.
+- Copy: the Businesses card and the day-close card show "Tax (bracket N%)" as its own line, en and fr.
+- Trading gains are not taxed in V1 (they are transfers with the market, not a faucet). Recorded as a V1 limit.
+- Gate (for the tuning): with the 504-day bot on 20 seeds, managed p50 at real day 21 in [$15M, $60M] and at real day 7 in
+  [$300k, $1.5M]; excellent p50 at day 21 <= $400M (the top-1% path) and at day 7 <= $5M; neglected unchanged in week 1.
+  Tune brackets only on seed prefix `wealth`, then confirm on prefix `wealthH` (held out).
