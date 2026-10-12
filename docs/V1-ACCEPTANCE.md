@@ -12,12 +12,12 @@ X and N rows in the company and STONKS specs take the worst status of the gates 
 
 | status | rows |
 |---|---|
-| PASS | 167 |
-| PARTIAL | 5 |
-| FAIL | 0 |
+| PASS | 166 |
+| PARTIAL | 6 |
+| FAIL | 3 |
 | NOT RUN | 63 |
-| NOT BUILT | 264 |
-| DEFERRED | 17 |
+| NOT BUILT | 262 |
+| DEFERRED | 16 |
 | N/A | 6 |
 | **total** | **522** |
 
@@ -193,7 +193,7 @@ Source: `docs/team/specs/tape-ecology-hunts.md`
 | `ad_clock_rollback` | moving the device clock back or across timezones doesn't add a new day's 10 · 0 extra grants | NOT BUILT | —. no test or harness found for this row | — |
 | `ad_gate_on_networth` | a player with $900 cash and $5,000 in positions is **not** eligible; a player with $900 NW is · 0 violations | NOT BUILT | —. no test or harness found for this row | — |
 | `ad_eligibility_q3` | Q3 = A: the offer disappears once NW ≥ $1,000. Q3 = B: eligibility is fixed at the start of the local day · per Q3 | NOT BUILT | —. no test or harness found for this row | — |
-| `ad_cash_restricted_use` | `AD_GRANT` cash inside the window can't fund margin, derivatives, P2P, ops or an insider action (FIFO) · 0 accepted | NOT BUILT | —. no test or harness found for this row | — |
+| `ad_cash_restricted_use` | `AD_GRANT` cash inside the window can't fund margin, derivatives, P2P, ops or an insider action (FIFO) · 0 accepted | PARTIAL | src/world/exploits/launchpad-ops.test.ts: a Launchpad buzz and the launch fee paid from a whole ad lot are refused `adCashOps` (R-9-6). Not written: margin, derivatives, P2P and insider refusals with AD_GRANT cash | npx vitest run src/world/exploits/launchpad-ops.test.ts |
 | `ad_fixed_reward` | no random amount, multiplier, spin or chest in any reward path (code audit + e2e) · 0 | NOT BUILT | —. no test or harness found for this row | — |
 | `ad_faucet_share` | `AD_GRANT` / daily net mint, world-level (online) · alert > 0.0001 | NOT BUILT | —. no test or harness found for this row | — |
 | `ad_plus_bust_stack` | fresh start + ads stack at most once each when broke, in that order (fresh start offered first) · 0 violations | NOT BUILT | —. no test or harness found for this row | — |
@@ -207,8 +207,8 @@ Source: `docs/team/specs/tape-ecology-hunts.md`
 | `learn_stacked_under_cap` | under `max_strategy_beats_bh_share` 0.7 (equity multiples) · unchanged | NOT BUILT | —. no test or harness found for this row | — |
 | `eco_off_fingerprint` | current Phase 0 bands + price fingerprint · Quant: 20-seed harness still PASS | NOT RUN | harness scripts/ecology/learnability.ts. harness band exists; not re-run in this pass | npx tsx scripts/ecology/learnability.ts |
 | `mom63_refined` | 0.500 · −0.015 · contraction 0.553; info-only for gate | NOT RUN | harness scripts/ecology/learnability.ts. harness band exists; not re-run in this pass | npx tsx scripts/ecology/learnability.ts |
-| `temp_impact_split_saving` | execution cost over mid: N accounts (or N clips in one tick) vs one order of the same total, same asset, same tick · ratio ≥ ~0.9 · ~~OPEN~~ **CLOSED 2026-10-09** (per-tick shared temp impact, see below). Was about 0.28–0.45. Matt | PASS | src/engine/impact-tally.test.ts: "temp_split_same_tick" (N = 2, 10, 100 accounts, 720 clips), "temp_split_across_ticks", "temp_cap_shared", "temp_whale_alt_same_tick" | npx vitest run src/engine/impact-tally.test.ts |
-| `alt_lifts_whale_mark_peak` | Liquidation value is worked out per account. When an alt buys after a whale, the shared tally lifts the whale's mark and peak. The summed peaks of whale + alt can sit above one account holding the same block: Quant SYN hunt-3 exit | DEFERRED | open hunt: Ledger to decide (ecology spec: online-only, ROADMAP must-fix before online ranking). altpeak.test.ts asserts the 'never beats' form and passes in this pass; the ruling on the spec's OPEN status is not in the record | npx vitest run src/engine/altpeak.test.ts |
+| `temp_impact_split_saving` | execution cost over mid: N accounts (or N clips in one tick) vs one order of the same total, same asset, same tick · ratio ≥ ~0.9 · ~~OPEN~~ **CLOSED 2026-10-09** (per-tick shared temp impact), then reopened by R-9-1b: per-account tallies. Was about 0.28–0.45. Matt | FAIL | ROUTED (R-9-1b): N accounts in one tick pay about 1/sqrt(N) of one order's temporary cost on the impact part (src/engine/impact-tally.test.ts: "temp_split_same_tick ... [ROUTED]", it.fails). PASS for one account: 720 clips in one tick (temp_split_same_tick), and over a day (temp_split_across_ticks, band 0.85 to 1.0, the decay); src/engine/impact-day.test.ts (per-account tally, half-life 360) | npx vitest run src/engine/impact-tally.test.ts src/engine/impact-day.test.ts |
+| `alt_lifts_whale_mark_peak` | Liquidation value is worked out per account. When an alt buys after a whale, the shared tally lifts the whale's mark and peak. The summed peaks of whale + alt can sit above one account holding the same block: Quant SYN hunt-3 exit | FAIL | ROUTED (R-9-1b): an alt's fills run on a fresh per-account tally, so its buy moves the price more than the same buy on the whale's tally, and whale + alt can beat one account. src/engine/altpeak.test.ts: "[ROUTED]" it.fails cases (plain and guard, SYN and AURH) and "one account holding Q marks the same per unit as N accounts" [ROUTED]. Was DEFERRED (Ledger, open hunt); altpeak.test.ts passed on the shared tally. | npx vitest run src/engine/altpeak.test.ts |
 | `vol_ratio_median:HLCN` | 0.85–1.4 · 0.908 · 0.949 · PASS | NOT BUILT | —. no test or harness found for this row | — |
 | `vol_ratio_median:NMBS` | 0.85–1.4 · 0.950 · 0.942 · PASS | NOT BUILT | —. no test or harness found for this row | — |
 | `vol_ratio_median:VRDN` | 0.85–1.4 · 0.914 · 0.900 · PASS | NOT BUILT | —. no test or harness found for this row | — |
@@ -567,7 +567,7 @@ Source: `docs/team/specs/tape-stonks-exploits.md`
 
 | id | claim | status | covering test (file: name) or ruling | command |
 |---|---|---|---|---|
-| `X1` | Manipulate any stock you can trade > 5% of a day · **Now** (long side) + later (shorts) · `self_impact_clip_ratio`, `self_mark_peak_pump`, `ladder_roundtrip_ev`, `pump_dump_ev` | NOT BUILT | gates: self_impact_clip_ratio, self_mark_peak_pump, ladder_roundtrip_ev (PASS); pump_dump_ev (NOT BUILT) | npx vitest run src/engine/selfimpact.test.ts src/engine/exploits.test.ts |
+| `X1` | Manipulate any stock you can trade > 5% of a day · **Now** (long side) + later (shorts) · `self_impact_clip_ratio`, `self_mark_peak_pump`, `ladder_roundtrip_ev`, `pump_dump_ev` | FAIL | gate self_impact_clip_ratio at the world layer: FAIL, routed (R-9-1b review, docs/V1-PHASE9.md 9B.3 and items 14 and 15). One-sided 95% bound over 20 seeds: 1.02 (720 clips from the day's first tick) and 1.04 (one tick later), and 5.5 to 30.1 at the starts that straddle the game's daily close (gate 1.5). The closing auction erases most of a day's permanent move, so the reading after the window is a residual. Probe and gate: src/world/exploits/clip.test.ts (probe PASS, gate it.fails). The engine-layer rows (src/engine/selfimpact.test.ts) read the day-aligned window only. self_mark_peak_pump, ladder_roundtrip_ev (PASS, engine); pump_dump_ev (NOT BUILT). The worst gate sets the row. | npx vitest run src/world/exploits/clip.test.ts src/engine/selfimpact.test.ts src/engine/exploits.test.ts |
 | `X2` | Price detached from fundamentals · **Now** · `value_gap_halflife`, `value_gap_p95`, `earnings_surprise_ic` | PARTIAL | src/engine/valuegap.test.ts: value_gap_halflife, value_gap_p95, earnings_surprise_ic. the ecology-on gate unexplained_big_move is not written (tape-stonks-exploits.md section 2 row) | npx vitest run src/engine/valuegap.test.ts |
 | `X3` | Money overflow at absurd scale · **Now** · `huge_money_invalid`, e2e `huge-nw` | NOT BUILT | harness huge_money_invalid: src/engine/huge.test.ts (PASS); e2e huge-nw.spec.ts not written. half of the Now item: the e2e huge-nw spec is missing | npx vitest run src/engine/huge.test.ts |
 | `X4` | Split rally · Later: corporate actions · `split_cosmetic_*` | DEFERRED | wait-register.test.ts [WAIT-DEFERRED]: no split action in v1. splits are not in v1 (Quant 9) | — |

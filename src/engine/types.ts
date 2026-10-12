@@ -324,9 +324,10 @@ export interface AssetState {
   /** attention after news, jumps and halts: extra volume multiplier that decays */
   heat: number;
   /**
-   * Notional ALL accounts traded TODAY on this asset, per side (shared permanent-impact tally, Ledger 2026-10-09):
-   * the day's permanent move is charged on the running total, so N accounts or 720 clips move the price like one
-   * order of the same total. Absent, or stamped with an earlier day = nothing traded yet today.
+   * Notional ALL accounts traded TODAY on this asset, per side: the crowd flow the C5 mark guard reads (rule C5, alt-peak).
+   * It no longer charges impact: a player's permanent and temporary impact run on that account's own rolling tally
+   * (Account.impactTally, R-9-1b). Pools and the player fills both add to it. Absent, or stamped with an earlier day =
+   * nothing traded yet today.
    */
   dayTraded?: DayTraded;
   /**
@@ -335,13 +336,6 @@ export interface AssetState {
    * order would. Absent, or stamped with another tick = nothing filled yet this tick.
    */
   tickTraded?: TickTraded;
-  /**
-   * Notional at each fill's pre-trade mid that PLAYER fills have taken TODAY on this asset, per side (R-9-1, Phase 9
-   * rulings). Temporary impact is charged on this running day total by the marginal of C(n) = n · impact(n), so a day of
-   * clips costs what one order of the same total costs, whichever tick the clips land in. Pools and the close are not in
-   * it. Absent, or stamped with an earlier day = nothing filled yet today.
-   */
-  dayMidTraded?: DayTraded;
   /**
    * Alt-peak mark guard (config.markGuard): after a day (or a rolling 5 days) of one-sided crowd flow, peak / rank /
    * licence marks value longs at min(mid, anchor) (dir 1, buy pump) or shorts at max(mid, anchor) (dir −1, dump),
@@ -609,6 +603,22 @@ export interface Account {
   marginCallTick?: number;
   /** an NPC persona's account: its flow clears as Retail and never counts toward Players or You (P1). Absent = a human. */
   npc?: boolean;
+  /**
+   * This account's own impact tally per asset (R-9-1b, Phase 9 rulings): the notional of its same-direction fills at each
+   * fill's pre-trade mid, decayed by half every IMPACT_HALF_LIFE ticks. Temporary and permanent impact are charged on the
+   * marginal of this running total, so a window of clips costs what one order of the same total costs, at any start tick.
+   * Absent = nothing filled (an account with no fills, and every account in an order-free world).
+   */
+  impactTally?: Record<string, ImpactTally>;
+}
+
+/** One account's same-direction notional on one asset, stamped at the tick it was last updated (R-9-1b). */
+export interface ImpactTally {
+  /** tick these totals were last updated; the values decay from here */
+  tick: number;
+  /** notional at each fill's pre-trade mid, undecayed as of `tick` */
+  buy: number;
+  sell: number;
 }
 
 export interface WorldState {

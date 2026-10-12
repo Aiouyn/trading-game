@@ -23,8 +23,8 @@ import {
 } from './restrictions';
 import { dayOfTick } from './catalysts';
 import type {
-  Account, AssetDef, CrowdHold, DayTraded, Fill, FillEstimate, MarginConfig, Order, OrderRequest, PortfolioView, PositionView,
-  Side, SqueezeConfig, StepEvent, TickTraded, TradingConfig, WorldConfig, WorldState,
+  Account, AssetDef, CrowdHold, DayTraded, Fill, FillEstimate, ImpactTally, MarginConfig, Order, OrderRequest, PortfolioView,
+  PositionView, Side, SqueezeConfig, StepEvent, TickTraded, TradingConfig, WorldConfig, WorldState,
 } from './types';
 
 const EPS = 1e-9;
@@ -106,12 +106,32 @@ function execPrice(state: WorldState, i: number, side: Side, qty: number): { pri
   return { price: fillPrice(p, side, halfSpread(state, i) + imp), imp };
 }
 
-// ---------------------------------------------------------------- shared impact tallies (engine-staging, Ledger 2026-10-09)
+// ---------------------------------------------------------------- impact tallies (R-9-1b, Phase 9 rulings)
 
 /**
- * Permanent price move of a fill, in log price. The notional ALL accounts already traded today on this asset
- * and side (AssetState.dayTraded) is `before`; the fill adds `notional`. The move is sign · log1p(f(before + notional) − f(before))
- * with f(n) = permanentImpactShare · impact(n), so a day's clips (or alts) add up to what one order of the same total would do.
+ * Half-life of an account's impact tally, in ticks: half a game day at the default 720 ticks a day (R-9-1b). A rolling
+ * window, not a calendar day: no boundary resets it, so a window of clips costs the same whichever tick it starts on.
+ */
+export const IMPACT_HALF_LIFE = 360;
+
+/** An account's same-direction notional on one asset, both sides, decayed to `tick`. Absent tally = nothing. */
+export function impactDecayed(acct: Account, assetId: string, tick: number): { buy: number; sell: number } {
+  const t = acct.impactTally?.[assetId];
+  if (!t) return { buy: 0, sell: 0 };
+  const k = Math.pow(0.5, Math.max(0, tick - t.tick) / IMPACT_HALF_LIFE);
+  return { buy: t.buy * k, sell: t.sell * k };
+}
+
+/** The account's impact tally on `assetId` after a fill of `x` notional (at its pre-trade mid) on `side` at `tick`. */
+export function impactAfter(acct: Account, assetId: string, side: Side, tick: number, x: number): Record<string, ImpactTally> {
+  const d = impactDecayed(acct, assetId, tick);
+  return { ...(acct.impactTally ?? {}), [assetId]: { tick, buy: d.buy + (side === 'buy' ? x : 0), sell: d.sell + (side === 'sell' ? x : 0) } };
+}
+
+/**
+ * Permanent price move of a fill, in log price. `before` is the filler's own same-direction notional at mid (its impact
+ * tally, decayed to now); the fill adds `notional`. The move is sign · log1p(f(before + notional) − f(before)) with
+ * f(n) = permanentImpactShare · impact(n), so a window of clips adds up to what one order of the same total would do.
  */
 export function permanentMove(state: WorldState, i: number, side: Side, before: number, notional: number): number {
   const share = tradingConfig(state).permanentImpactShare;
@@ -119,7 +139,7 @@ export function permanentMove(state: WorldState, i: number, side: Side, before: 
   return sign(side) * Math.log1p(f(before + notional) - f(before));
 }
 
-/** The asset's shared tally for game day `today`: absent or stamped with another day = nothing traded yet. */
+/** The asset's shared day tally (crowd flow for the C5 guard): absent or stamped with another day = nothing traded yet. */
 export function tallyToday(t: DayTraded | undefined, today: number): DayTraded {
   return t && t.day === today ? t : { day: today, buy: 0, sell: 0 };
 }
@@ -130,9 +150,9 @@ export function tallyTick(t: TickTraded | undefined, tick: number, lnP: number):
 }
 
 /**
- * Temporary impact per unit of a fill of `x` notional when `before` notional was already filled this tick on this
- * asset and side, across all accounts: (C(before + x) − C(before)) / x with C(n) = n · impact(n). Splitting a tick's
- * total into any number of fills adds up to C(total). With nothing before it is exactly impact(x).
+ * Temporary impact per unit of a fill of `x` notional when `before` notional is already on the filler's impact tally
+ * (same asset and side, decayed to now): (C(before + x) − C(before)) / x with C(n) = n · impact(n). A window of fills
+ * adds up to C(total) of what the tally holds. With nothing before it is exactly impact(x).
  */
 export function marginalImpact(state: WorldState, i: number, before: number, x: number): number {
   if (!(before > 0)) return impact(state, i, x);
@@ -145,12 +165,17 @@ export function tallyDay(state: WorldState): number {
   return Math.floor((state.tick - 1) / state.config.ticksPerDay);
 }
 
-/** Print a fill on the tape: volume, the shared day tally and its permanent move. Mutates `assets` at i. */
-function printFill(state: WorldState, assets: WorldState['assets'], i: number, side: Side, q: number, price: number, atMid?: number): void {
+/**
+ * Print a fill on the tape: volume, the crowd day tally (C5) and the permanent move on the filler's own tally. `before` is
+ * the filler's same-direction notional at mid (decayed to now) and `atMid` the fill's notional at its pre-trade mid, which
+ * the fill adds. `onTick` also books it on the asset's tick tally (the per-tick cap and the tick's pre-trade mid). Mutates
+ * `assets` at i.
+ */
+function printFill(state: WorldState, assets: WorldState['assets'], i: number, side: Side, q: number, price: number, before: number, atMid: number, onTick: boolean): void {
   const a = assets[i]!;
   const traded = tallyToday(a.dayTraded, tallyDay(state));
   const notional = q * price;
-  const move = permanentMove(state, i, side, traded[side], notional);
+  const move = permanentMove(state, i, side, before, atMid);
   const next = {
     ...a,
     dayTraded: { ...traded, [side]: traded[side] + notional },
@@ -161,11 +186,9 @@ function printFill(state: WorldState, assets: WorldState['assets'], i: number, s
     dayNotional: (a.dayNotional ?? 0) + notional,
     cumVolume: (a.cumVolume ?? 0) + q,
   };
-  if (atMid !== undefined) {
+  if (onTick) {
     const tt = tallyTick(a.tickTraded, state.tick, a.lnP);
     next.tickTraded = { ...tt, [side]: tt[side] + atMid };
-    const dm = tallyToday(a.dayMidTraded, tallyDay(state));
-    next.dayMidTraded = { ...dm, [side]: dm[side] + atMid };
   }
   assets[i] = next;
 }
@@ -925,14 +948,18 @@ export function tradeOption(state: WorldState, playerId: string, contractId: str
   const q = optionQuote(state, c);
   if (q.expired) return { state, error: 'contract has expired' };
   const fee = cfg.feePerContract * qty;
-  // the dealer on the other side hedges the contract's delta in the underlying: that flow joins the asset's
-  // shared day tally like any fill, so options can't move (or dodge moving) a stock more cheaply than shares
+  // the dealer on the other side hedges the contract's delta in the underlying: that flow is the trader's own, so it
+  // runs on the trader's impact tally like any of its fills, and options can't move (or dodge moving) a stock more
+  // cheaply than shares
   const hedge = (st: WorldState): WorldState => {
     const units = q.delta * cfg.multiplier * qty * (side === 'buy' ? 1 : -1);
     if (!(Math.abs(units) > EPS)) return st;
+    const hSide: Side = units > 0 ? 'buy' : 'sell';
     const assets = st.assets.slice();
-    printFill(st, assets, i, units > 0 ? 'buy' : 'sell', Math.abs(units), mid(st, i));
-    return { ...st, assets };
+    const who = st.accounts[playerId]!;
+    const x = Math.abs(units) * mid(st, i);
+    printFill(st, assets, i, hSide, Math.abs(units), mid(st, i), impactDecayed(who, c.underlying, st.tick)[hSide], x, false);
+    return { ...st, assets, accounts: { ...st.accounts, [playerId]: { ...who, impactTally: impactAfter(who, c.underlying, hSide, st.tick, x) } } };
   };
   const acct: Account = { ...acct0, options: { ...(acct0.options ?? {}) } };
   const held = acct.options![contractId];
@@ -1002,18 +1029,22 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
   const tpd = state.config.ticksPerDay;
   const s: WorldState = { ...state, orders: state.orders.slice(), assets: state.assets.slice(), accounts: { ...state.accounts } };
 
-  // permanent share of impact moves the price (the pull to value decays it), charged on the asset's shared day
-  // tally across every account, so splitting into clips or across accounts doesn't multiply or dodge it
-  const printTape = (i: number, side: Side, q: number, price: number, p0: number) => printFill(s, s.assets, i, side, q, price, q * p0);
-  // every fill this tick prices off the tick's pre-trade mid. Temporary impact is charged on the notional the player fills
-  // have taken TODAY on that side (R-9-1, Phase 9 rulings: path-independent over the game day, so clips across ticks cost
-  // what one order costs). A lone first fill of a day prices exactly as before.
-  const tickPrice = (i: number, side: Side, q: number) => {
+  // every fill this tick prices off the tick's pre-trade mid. Temporary impact is charged on the filler's own impact tally
+  // (R-9-1b, Phase 9 rulings: per account, a rolling half-life of 360 ticks, so a window of clips costs what one order of
+  // the same total costs, whichever tick it starts on). A lone first fill prices exactly as before.
+  const tickPrice = (i: number, side: Side, q: number, acct: Account) => {
     const tt = tallyTick(s.assets[i]!.tickTraded, tick, s.assets[i]!.lnP);
     const p0 = Math.exp(tt.lnMid);
-    const before = tallyToday(s.assets[i]!.dayMidTraded, tallyDay(s))[side];
+    const before = impactDecayed(acct, s.config.assets[i]!.id, tick)[side];
     const imp = marginalImpact(s, i, before, q * p0);
     return { price: fillPrice(p0, side, halfSpread(s, i) + imp), p0 };
+  };
+  // a fill on the tape for `acct`: the permanent share of its impact moves the price (the pull to value decays it), charged
+  // on the account's own tally. Returns the account with the fill booked on its tally.
+  const printTape = (i: number, acct: Account, side: Side, q: number, price: number, p0: number): Account => {
+    const id = s.config.assets[i]!.id;
+    printFill(s, s.assets, i, side, q, price, impactDecayed(acct, id, tick)[side], q * p0, true);
+    return { ...acct, impactTally: impactAfter(acct, id, side, tick, q * p0) };
   };
 
   if (hasOpen) {
@@ -1115,7 +1146,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         if (q <= EPS) continue; // no float to take this tick: the order waits (a sell brings shares back to the book)
       }
 
-      let { price, p0 } = tickPrice(i, o.side, q);
+      let { price, p0 } = tickPrice(i, o.side, q, acct0);
       // a bounded book (a Launchpad token, lead-launchpad.md L4) pays for a sell only from the cash it holds: the fill is cut to what
       // the book can pay, and the order waits when it cannot pay for any (the book is never in overdraft, nothing is minted)
       if (supplyId !== undefined && o.side === 'sell' && def.bookCashBound === true) {
@@ -1123,7 +1154,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         for (let pass = 0; pass < 4 && q > EPS && q * price > bookCash + EPS; pass++) {
           q = roundQty(def, Math.max(0, bookCash / price));
           if (q <= EPS) break;
-          ({ price, p0 } = tickPrice(i, o.side, q));
+          ({ price, p0 } = tickPrice(i, o.side, q, acct0));
         }
         if (q <= EPS || q * price > bookCash + EPS) continue;
       }
@@ -1146,7 +1177,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           s.orders[k] = { ...o, status: o.filledQty > 0 ? 'cancelled' : 'rejected', rejectReason: 'insufficient cash', closedTick: tick };
           continue;
         }
-        ({ price, p0 } = tickPrice(i, o.side, q));
+        ({ price, p0 } = tickPrice(i, o.side, q, acct0));
         fee = commission(s, def, q * price);
         if (q * price + fee > acct0.cash + EPS) {
           s.orders[k] = { ...o, status: o.filledQty > 0 ? 'cancelled' : 'rejected', rejectReason: 'insufficient cash', closedTick: tick };
@@ -1176,7 +1207,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         ...(prog?.kind === 'plan' ? { priceMissed: false } : {}),
       };
       fills.push({ orderId: o.id, playerId: o.playerId, assetId: o.assetId, side: o.side, qty: q, price, fee, tick, mid: p0 });
-      printTape(i, o.side, q, price, p0);
+      s.accounts[o.playerId] = printTape(i, acct, o.side, q, price, p0);
       if (cap !== undefined) s.restrictions = addSold(restrictionsOf(s), o.assetId, o.playerId, dayNow, q);
       if (prog?.kind === 'plan' && s.restrictions) s.restrictions = programFill(restrictionsOf(s), prog.id, q, sessionDayAt(o.placedTick, tpd), tick, events);
 
@@ -1295,7 +1326,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           // a company stock with no book in the state has no counterparty to take the shares: the liquidation waits (X11)
           const liqSupply = supplyOf(s, assetId);
           if (liqSupply === null) continue;
-          const { price, p0 } = tickPrice(i, side, q);
+          const { price, p0 } = tickPrice(i, side, q, a);
           // a bounded book (a Launchpad token) cannot pay a forced sale past its cash: the liquidation waits (L4)
           if (liqSupply !== undefined && side === 'sell' && s.config.assets[i]!.bookCashBound === true && s.accounts[liqSupply]!.cash < q * price) continue;
           const fee = commission(s, s.config.assets[i]!, q * price);
@@ -1309,7 +1340,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           s.orders.push(forcedOrder);
           fills.push({ orderId: forcedOrder.id, playerId: id, assetId, side, qty: q, price, fee, tick, mid: p0 });
           events.push({ type: 'liquidation', tick, playerId: id, assetId, qty: q, price });
-          printTape(i, side, q, price, p0);
+          a = printTape(i, a, side, q, price, p0);
           if (side === 'buy' && squeeze) recordCover(s, i, q * price, tick, squeeze, events);
           gross = grossExposure(s, a);
           eq = collateralEquityOf(s, a, liqDay);

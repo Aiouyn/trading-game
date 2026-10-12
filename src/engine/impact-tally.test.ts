@@ -5,12 +5,13 @@ import { halfSpread, impact, liquidationEquity, marginalImpact, openAccount, per
 import type { WorldState } from './types';
 
 /**
- * Shared permanent-impact tally (Ledger, 2026-10-09): permanent impact is charged on the ASSET's notional traded
- * today per side across ALL accounts, so one order, N accounts and 720 clips of the same total lift the price the
- * same, and a whale plus an alt can't beat one account trading the same total.
- * Tolerances: same-tick splits across accounts, |ratio - 1| <= 0.01 (orders in one tick differ only in their
- * per-order temporary impact, which moves the notional, not the curve); 720 clips over a day, |ratio - 1| <= 0.05
- * (the pull to value decays early clips during the day: 0.979 on SYN).
+ * Impact tallies (R-9-1b, Phase 9 rulings). Permanent and temporary impact are charged on the FILLER's own rolling tally
+ * (Account.impactTally, per asset and side, half-life 360 ticks). The ruling is per account; the Ledger 2026-10-09 rule
+ * (one shared tally across accounts, so one order, N accounts and 720 clips of the same total cost the same) is what
+ * these tests used to pin. Per account, splitting one block across N accounts is NOT neutral: each account starts on a
+ * fresh tally, so the temporary cost falls by about sqrt(N) and the permanent move grows by about sqrt(N). Those cases are
+ * recorded as it.fails (routed to the lead, see docs/V1-PHASE9.md 9B.5). The same-account rules still hold and are pinned
+ * here: a window of clips in one tick is one order, and a window of clips over a day pays on the decayed tally.
  */
 const cfg = defaultConfig(); // 720 ticks per game day
 const idx = (s: WorldState, id: string) => s.config.assets.findIndex((a) => a.id === id);
@@ -42,9 +43,11 @@ function lift(id: string, accounts: number, clips = false): number {
   return s.assets[i]!.lnP - n.assets[i]!.lnP;
 }
 
-describe('shared impact tally: splitting across accounts or clips saves nothing', () => {
+describe('impact tally: splitting one block over accounts (per-account ruling, routed)', () => {
   for (const id of ['SYN', 'AURH']) {
-    it(`impact_split_accounts (${id}): one order vs N = 2, 10, 100 accounts vs 720 clips`, { timeout: 120_000 }, () => {
+    // ROUTED (R-9-1b review): per account, N accounts each start on a fresh tally, so the lift grows by about sqrt(N).
+    // Recorded as a known failure until the lead rules; the ratio printed is the measured gap.
+    it.fails(`impact_split_accounts (${id}) [ROUTED]: one order vs N = 2, 10, 100 accounts move the price the same`, { timeout: 120_000 }, () => {
       const one = lift(id, 1);
       expect(one).toBeGreaterThan(0);
       const rows: string[] = [`one ${one.toExponential(4)}`];
@@ -53,28 +56,38 @@ describe('shared impact tally: splitting across accounts or clips saves nothing'
         rows.push(`N=${N} ratio ${r.toFixed(4)}`);
         expect(Math.abs(r - 1)).toBeLessThanOrEqual(0.01);
       }
-      const c = lift(id, 1, true) / one;
-      rows.push(`720 clips ratio ${c.toFixed(4)}`);
-      expect(Math.abs(c - 1)).toBeLessThanOrEqual(0.05);
       console.log(`impact_split_accounts ${id}: ${rows.join(', ')}`);
     });
   }
 
-  it('the second account pays the marginal curve on top of the first: D is the asset total, not the account total', () => {
+  it('a second account starts on its own tally: it pays no part of the first account\'s, the permanent move is the lone one', () => {
     let s = openAccount(openAccount(createWorld('tally-d', defaultConfig({ ticksPerDay: 24 })), 'A', 1e7), 'B', 1e7);
     const i = idx(s, 'OSTV');
     s = placeOrder(s, { playerId: 'A', assetId: 'OSTV', side: 'buy', type: 'market', qty: 3000 }).state;
     s = step(s).state;
-    const dA = s.assets[i]!.dayTraded!.buy;
     s = placeOrder(s, { playerId: 'B', assetId: 'OSTV', side: 'buy', type: 'market', qty: 3000 }).state;
     const r = step(s);
     const noFill = step({ ...s, orders: s.orders.filter((o) => o.status !== 'open') }).state;
     const f = r.fills[0]!;
     expect(f.playerId).toBe('B');
-    expect(r.state.assets[i]!.lnP - noFill.assets[i]!.lnP).toBeCloseTo(permanentMove(r.state, i, 'buy', dA, f.qty * f.price), 14);
-    expect(r.state.assets[i]!.dayTraded!.buy).toBeCloseTo(dA + f.qty * f.price, 6);
+    expect(r.state.assets[i]!.lnP - noFill.assets[i]!.lnP).toBeCloseTo(permanentMove(r.state, i, 'buy', 0, f.qty * f.mid), 14);
+    expect(r.state.accounts.B!.impactTally!.OSTV!.buy).toBeCloseTo(f.qty * f.mid, 6);
+    expect(r.state.accounts.A!.impactTally!.OSTV!.buy).toBeGreaterThan(0);
   });
+});
 
+describe('impact tally: 720 clips of one account', () => {
+  for (const id of ['SYN', 'AURH']) {
+    // The lift after the day's last tick, against one order: the clips' charges land later in the window, so less of their
+    // permanent move has decayed by the reading (measured 1.095 SYN, 1.122 AURH). The window gate is clip.test.ts (<= 1.5).
+    it(`720 clips over one game day (${id}): lift ratio stays in a band around one order (the window gate is clip.test.ts)`, { timeout: 120_000 }, () => {
+      const one = lift(id, 1);
+      const c = lift(id, 1, true) / one;
+      console.log(`clips over a day ${id}: lift ratio ${c.toFixed(4)}`);
+      expect(c).toBeGreaterThan(0.9);
+      expect(c).toBeLessThan(1.25);
+    });
+  }
 });
 
 /** Whale A buys, alt B buys right after (same asset, same day); both sell out. Compare with ONE account doing the
@@ -108,7 +121,8 @@ function hunt(seed: string, id: string, exitTick: number, accts: [string, string
 
 describe('whale + alt hunt', () => {
   for (const id of ['SYN', 'AURH']) {
-    it(`impact_alt_hunt (${id}): whale A then alt B never beats one account with the same total`, { timeout: 120_000 }, () => {
+    // ROUTED (R-9-1b review): alt B's buy pays on its own tally, so the whale-plus-alt path differs from one account's.
+    it.fails(`impact_alt_hunt (${id}) [ROUTED]: whale A then alt B never beats one account with the same total`, { timeout: 120_000 }, () => {
       for (const seed of ['hunt-1', 'hunt-2', 'hunt-3']) {
         for (const exitTick of [10, 720 + 1]) { // same-day exit, and next game day's open
           const two = hunt(seed, id, exitTick, ['A', 'B']);
@@ -154,16 +168,25 @@ function sameTick(id: string, accounts: number, ordersEach: number, seed = 'temp
 
 describe('shared per-tick temporary impact', () => {
   for (const id of ['SYN', 'AURH']) {
-    it(`temp_split_same_tick (${id}): one order = N accounts (2, 10, 100) = 720 clips, total temporary cost`, { timeout: 60_000 }, () => {
+    it(`temp_split_same_tick (${id}): one order = 720 clips in one tick, one account, total temporary cost`, { timeout: 60_000 }, () => {
+      const one = sameTick(id, 1, 1);
+      const r = sameTick(id, 1, 720);
+      const ratio = r.cost / one.cost;
+      console.log(`temp_split_same_tick ${id}: one order ${(1e4 * one.cost / one.notional).toFixed(3)} bp, 720 clips in one tick ratio ${ratio.toFixed(4)}`);
+      expect(Math.abs(ratio - 1)).toBeLessThanOrEqual(0.01);
+    });
+
+    // ROUTED (R-9-1b review): N accounts in one tick each price on a fresh tally, so they pay about 1/sqrt(N) of one order.
+    it.fails(`temp_split_same_tick (${id}) [ROUTED]: one order = N accounts (2, 10, 100), total temporary cost`, { timeout: 60_000 }, () => {
       const one = sameTick(id, 1, 1);
       const rows = [`one order ${(1e4 * one.cost / one.notional).toFixed(3)} bp`];
-      for (const [n, c] of [[2, 1], [10, 1], [100, 1], [1, 720]] as const) {
-        const r = sameTick(id, n, c);
+      for (const n of [2, 10, 100]) {
+        const r = sameTick(id, n, 1);
         const ratio = r.cost / one.cost;
-        rows.push(`${c > 1 ? `${c} clips` : `N=${n}`} ratio ${ratio.toFixed(4)}`);
+        rows.push(`N=${n} ratio ${ratio.toFixed(4)}`);
         expect(Math.abs(ratio - 1)).toBeLessThanOrEqual(0.01);
       }
-      console.log(`temp_split_same_tick ${id}: ${rows.join(', ')}`);
+      console.log(`temp_split_same_tick ${id} [routed]: ${rows.join(', ')}`);
     });
   }
 
@@ -195,10 +218,12 @@ describe('shared per-tick temporary impact', () => {
       }
       const ratio = (cost / notional) / (one.cost / one.notional);
       console.log(`temp_split_across_ticks ${id}: one order ${(1e4 * one.cost / one.notional).toFixed(3)} bp over mid, 720 ticks ${(1e4 * cost / notional).toFixed(3)} bp, ratio ${ratio.toFixed(4)}`);
-      // was ratio < 0.75 (the per-tick tally let a day of clips dodge the impact: about 1/sqrt(720) of one order). R-9-1 charges
-      // the day's marginal curve, so the day costs what one order costs. The residue is the mid drifting through the day (each
-      // fill's cost is measured against its own mid).
-      expect(Math.abs(ratio - 1)).toBeLessThanOrEqual(0.03);
+      // was ratio < 0.75 (the per-tick tally let a day of clips dodge the impact: about 1/sqrt(720) of one order). R-9-1b keeps
+      // the window on the account's own tally, decayed by half every 360 ticks: a day of clips pays on what the tally still
+      // holds, so it costs about 8-10% less than one order (the decay is the discount, measured 0.92 SYN, 0.91 AURH). Pinned
+      // as a band, not as equality: below one order, never above it.
+      expect(ratio).toBeGreaterThanOrEqual(0.85);
+      expect(ratio).toBeLessThanOrEqual(1.0);
     });
   }
 
@@ -228,7 +253,8 @@ describe('shared per-tick temporary impact', () => {
     expect(two.filled2).toBeGreaterThan(0.9 * adv);
   });
 
-  it('temp_whale_alt_same_tick: whale A plus alt B in one tick cost no less than one account', () => {
+  // ROUTED (R-9-1b review): alt B's fills start on its own tally, so whale plus alt in one tick cost less than one account.
+  it.fails('temp_whale_alt_same_tick [ROUTED]: whale A plus alt B in one tick cost no less than one account', () => {
     for (const id of ['SYN', 'AURH', 'OSTV']) {
       for (const seed of ['hunt-1', 'hunt-2', 'tape-01']) {
         const def = cfg.assets.find((a) => a.id === id)!;

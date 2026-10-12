@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, step } from './sim';
 import { defaultConfig } from './config';
-import { halfSpread, impact, marginalImpact, openAccount, placeOrder } from './trading';
+import { halfSpread, impact, IMPACT_HALF_LIFE, marginalImpact, openAccount, placeOrder } from './trading';
 import type { WorldState } from './types';
 
 /**
- * R-9-1 (Phase 9 rulings, lead-phase9.md): temporary impact is path-independent over the game day. A fill's impact is the marginal
- * of C(n) = n · impact(n) at the notional the player fills have already taken today on that side (dayMidTraded, at each fill's
- * pre-trade mid), so the day's total cost is C(day total) whatever the tick or account that took it. These pin the rule on
- * OSTV with 24 ticks a game day.
+ * R-9-1b (Phase 9 rulings, lead-phase9.md): temporary impact runs on the filler's OWN impact tally, a same-direction
+ * notional per account and asset at each fill's pre-trade mid, decayed by half every IMPACT_HALF_LIFE (360) ticks. There is
+ * no calendar-day reset: the tally is a rolling window, so a fill pays the marginal of C(n) = n · impact(n) on what the
+ * account's earlier fills still hold. These pin the rule on OSTV with 24 ticks a game day.
  */
 const cfg = defaultConfig({ ticksPerDay: 24 });
 const idx = (s: WorldState, id: string) => s.config.assets.findIndex((a) => a.id === id);
@@ -28,40 +28,61 @@ function run(s: WorldState, n: number, orders: Record<number, { playerId: string
   return { state: cur, fills };
 }
 
-describe('R-9-1: temporary impact is charged on the day total, not the tick total', () => {
-  it('a second account later the same day pays the marginal curve on the first account\'s day total', () => {
-    const s = openAccount(openAccount(createWorld('day-two', cfg), 'A', 1e7), 'B', 1e7);
+describe('R-9-1b: temporary impact is charged on the filler\'s own rolling tally', () => {
+  it('a second fill of the same account pays the marginal curve on its earlier fill, decayed to the second fill\'s tick', () => {
+    const s = openAccount(createWorld('own-two', cfg), 'A', 1e7);
     const i = idx(s, 'OSTV');
-    const qA = 3000, qB = 3000;
-    // A at tick 1, B at tick 5 (same game day: ticks 1..24)
-    const r = run(s, 6, { 0: { playerId: 'A', qty: qA }, 4: { playerId: 'B', qty: qB } });
-    const a = r.fills.find((f) => f.playerId === 'A')!;
-    const b = r.fills.find((f) => f.playerId === 'B')!;
-    expect(b.tick).toBeGreaterThan(a.tick);
-    // A's notional at its mid (the day tally holds the notional of A's fill at its pre-trade mid)
-    const beforeB = a.qty * a.mid;
+    // A at tick 1, again at tick 5 (same game day: ticks 1..24)
+    const r = run(s, 6, { 0: { playerId: 'A', qty: 3000 }, 4: { playerId: 'A', qty: 3000 } });
+    const [a, b] = r.fills as [typeof r.fills[number], typeof r.fills[number]];
+    expect(b.tick - a.tick).toBe(4);
+    const decay = Math.pow(0.5, (b.tick - a.tick) / IMPACT_HALF_LIFE);
+    const before = a.qty * a.mid * decay;
     const x = b.qty * b.mid;
-    // B's fill price is its mid times (1 + half spread + the marginal impact on A's day total)
     const st = b.state;
-    const expectImp = marginalImpact(st, i, beforeB, x);
+    const expectImp = marginalImpact(st, i, before, x);
     expect(b.price / b.mid).toBeCloseTo(1 + halfSpread(st, i) + expectImp, 10);
-    // the marginal is larger than the lone-order impact of B's notional (C(n) = n · impact(n) is convex)
+    // the marginal is larger than the lone-order impact of this notional (C(n) = n · impact(n) is convex)
     expect(expectImp).toBeGreaterThan(impact(st, i, x));
   });
 
-  it('the day tally resets at the next game day: the first fill of day 2 pays the lone-order impact again', () => {
-    const s = openAccount(createWorld('day-reset', cfg), 'A', 1e7);
+  it('another account is not charged on the first account\'s flow: each account has its own tally', () => {
+    const s = openAccount(openAccount(createWorld('own-b', cfg), 'A', 1e7), 'B', 1e7);
     const i = idx(s, 'OSTV');
-    // A buys on day 0 (tick 1), then again on day 1 (tick 25, the first tick of day 1)
-    const r = run(s, TPD + 2, { 0: { playerId: 'A', qty: 3000 }, [TPD]: { playerId: 'A', qty: 3000 } });
-    const second = r.fills.find((f) => f.tick === TPD + 1)!;
-    expect(second).toBeDefined();
-    expect(second.price / second.mid).toBeCloseTo(1 + halfSpread(second.state, i) + impact(second.state, i, second.qty * second.mid), 10);
+    const r = run(s, 6, { 0: { playerId: 'A', qty: 3000 }, 4: { playerId: 'B', qty: 3000 } });
+    const b = r.fills.find((f) => f.playerId === 'B')!;
+    expect(b.tick).toBeGreaterThan(r.fills[0]!.tick);
+    // B has no fills of its own yet: its fill prices exactly as a lone first order
+    expect(b.price / b.mid).toBeCloseTo(1 + halfSpread(b.state, i) + impact(b.state, i, b.qty * b.mid), 10);
   });
 
-  it('a world with no player orders writes no day tally (the fingerprint of an order-free world is unchanged)', () => {
+  it('no calendar-day reset: the second fill one tick into the next game day still pays on the decayed first fill', () => {
+    const s = openAccount(createWorld('own-roll', cfg), 'A', 1e7);
+    const i = idx(s, 'OSTV');
+    // A buys on day 0 (tick 24, the last tick of day 0) and on day 1 (tick 25, the first tick of day 1)
+    const r = run(s, TPD + 2, { [TPD - 1]: { playerId: 'A', qty: 3000 }, [TPD]: { playerId: 'A', qty: 3000 } });
+    const [first, second] = r.fills.slice(-2) as [typeof r.fills[number], typeof r.fills[number]];
+    expect(second.tick - first.tick).toBe(1);
+    const before = first.qty * first.mid * Math.pow(0.5, 1 / IMPACT_HALF_LIFE);
+    expect(second.price / second.mid).toBeCloseTo(1 + halfSpread(second.state, i) + marginalImpact(second.state, i, before, second.qty * second.mid), 10);
+    // and it is not the lone-order price: the earlier fill still counts
+    expect(second.price / second.mid).toBeGreaterThan(1 + halfSpread(second.state, i) + impact(second.state, i, second.qty * second.mid));
+  });
+
+  it('the tally halves every IMPACT_HALF_LIFE ticks: a fill that many ticks later pays on half of the first', () => {
+    const s = openAccount(createWorld('own-half', cfg), 'A', 1e7);
+    const i = idx(s, 'OSTV');
+    const r = run(s, IMPACT_HALF_LIFE + 3, { 0: { playerId: 'A', qty: 3000 }, [IMPACT_HALF_LIFE]: { playerId: 'A', qty: 3000 } });
+    const [first, second] = r.fills as [typeof r.fills[number], typeof r.fills[number]];
+    expect(second.tick - first.tick).toBe(IMPACT_HALF_LIFE);
+    const before = first.qty * first.mid * 0.5;
+    expect(second.price / second.mid).toBeCloseTo(1 + halfSpread(second.state, i) + marginalImpact(second.state, i, before, second.qty * second.mid), 10);
+  });
+
+  it('a world with no player orders writes no impact tally (the fingerprint of an order-free world is unchanged)', () => {
     let s = createWorld('day-none', cfg);
-    for (let t = 0; t < TPD * 2; t++) s = step(s).state;
-    for (const a of s.assets) expect(a.dayMidTraded).toBeUndefined();
+    for (let t = 0; t < TPD * 5; t++) s = step(s).state;
+    for (const a of s.assets) expect(a.dayTraded).toBeUndefined();
+    for (const acct of Object.values(s.accounts)) expect(acct.impactTally).toBeUndefined();
   });
 });

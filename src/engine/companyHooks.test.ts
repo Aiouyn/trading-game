@@ -61,9 +61,8 @@ const atDay = (s: WorldState, d: number) => run(s, d * TPD - s.tick);
  * The digest of a state. `streetCash` (O-3, the Street's running tally on an ordinary stock's fills) was added after these
  * digests were taken: it is bookkeeping, not dynamics, so it is dropped here and the digests still pin everything else.
  */
-// dayMidTraded is the R-9-1 per-day tally of player fills at mid (an optional field written by the first fill of a day): the digest
-// leaves it out, so the pin still covers prices, cash and positions, which R-9-1 does not move for this one-order-a-day world.
-const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x, (k, v) => (k === 'streetCash' || k === 'dayMidTraded' ? undefined : v))).digest('hex');
+// the digest keeps every other field, the account impact tallies included (R-9-1b): they are dynamics, the next fill pays on them
+const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x, (k, v) => (k === 'streetCash' ? undefined : v))).digest('hex');
 /**
  * The Street tally on every account, pinned on its own (O-3 review): the digests above drop it, so this is what catches a
  * regression in the Street side of a fill or a settlement.
@@ -91,11 +90,19 @@ describe('bare engine is unchanged', () => {
     e = stepMany(e, 720 * 2).state;
     // the trades were Street fills (an ordinary stock), so the Street tally is set: the digest below ignores it, not the trades
     expect(s.accounts.p1!.streetCash).toBeDefined();
-    expect(sha(s)).toBe('61f445d2d39954626952ba005b7059361efe4a5ef931a94d8b4ba15de7311726');
-    expect(sha(e)).toBe('e80f9cd00f42cbc14f9af5d55817999b6dc7146e0e194d2c3ea2eea9e5d0846d');
+    // an order-free world writes no impact tally (R-9-1b): pinned on the field itself, not only through the digest
+    const orderFree = openAccount(stepMany(createWorld('bare-0', cfg), 720 * 3).state, 'p9');
+    expect(Object.values(orderFree.accounts).every((a) => a.impactTally === undefined)).toBe(true);
+    expect(stepMany(orderFree, 720).state.accounts.p9!.impactTally).toBeUndefined();
+    // R-9-1b (the per-account impact tally): this world has player orders, so its prices move (the permanent move is charged
+    // on the account's own tally at mid, not on the day's fill-price notional). The pin moved from 61f445d2 by that ruling.
+    expect(sha(s)).toBe('b799f0b0405e0bf87225c727283e95fdb51f3fc4de5c2cbd1c9b26474dddf464');
+    // R-9-1b: the ecology world has one player buy too, so it moves for the same reason (e80f... -> ada9...)
+    expect(sha(e)).toBe('ada90663955020073c678fe7387ef94a3afbcbe33364b7feacb9b9dfd0c73e25');
     // the Street tally of those trades, pinned on its own (the digests above ignore it)
     expect(s.accounts.p1!.streetCash).not.toBe(0);
-    expect(streetSha(s)).toBe('8878a8d3aa53ea71a4ea4868a63a2893323f01f10c7aeaabf41d4c2a4f2b34ec');
+    // the Street tally moves with the fill prices of the player's trades (R-9-1b, see the digest pins above)
+    expect(streetSha(s)).toBe('4d0bf1d87331c29fe19f4867b9dbab201c88bfca11af52a61ba86c9fe6358fd2');
     expect(streetSha(e)).toBe('e6f00313b539f1a87b186b14be0380f715faa525fa99a37a225d848b28d60d12');
   });
 });
