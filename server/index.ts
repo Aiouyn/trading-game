@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Store } from './db';
+import { BACKUP_EVERY_MS, Backups } from './backup';
+import { ADMIN_PATHS, AdminLog, adminRoute, type AdminDeps } from './admin';
+import { acquireLock } from './lock';
 import { textConfigFromEnv } from './text/config';
 import { TextEnricher } from './text/enricher';
 import { enrichItemOf } from './text/facts';
@@ -21,6 +25,7 @@ import type { ChatMessage } from '../src/world/types';
  * The world server: one persistent world, a 5-second tick, a WebSocket per player.
  *   PORT (8787) · DATA_DIR (./world-data) · SEED (random at first boot, then kept in the database) · TICK_MS (5000) · WARMUP_DAYS (63)
  *   ADMIN_TOKEN (enables POST /api/admin/advance for dev and tests)
+ *   Backups: DATA_DIR/backups, hourly and at shutdown (server/backup.ts). The data folder is locked while the server runs (server/lock.ts).
  */
 const PORT = Number(process.env.PORT ?? DEFAULT_WORLD_PORT);
 const DATA_DIR = process.env.DATA_DIR ?? './world-data';
@@ -32,11 +37,21 @@ const MAX_MSG = 16 * 1024;
 const REGISTER_LIMIT = Number(process.env.REGISTER_LIMIT ?? 20);
 
 const log = (m: string) => console.log(`[world ${new Date().toISOString()}] ${m}`);
+// one world per data folder: a second server (or a restore) on the same folder would corrupt the replay
+let releaseLock: () => void;
+try {
+  releaseLock = acquireLock(DATA_DIR);
+} catch (e) {
+  console.error(`[world] ${(e as Error).message}`);
+  process.exit(1);
+}
 const store = new Store(DATA_DIR);
 /** an explicit SEED (tests, e2e, a dev world) wins; otherwise the live world keeps the random seed drawn at its first boot */
 const SEED = process.env.SEED ?? store.worldSeed(freshWorldSeed);
 const host = new WorldHost(store, { seed: SEED, tickMs: TICK_MS, warmupDays: WARMUP_DAYS, snapshotEvery: 60, log });
 host.boot();
+/** the world's backups: hourly (between ticks, see the timer below) and at shutdown */
+const backups = new Backups(host, store.db, join(DATA_DIR, 'world.db'), join(DATA_DIR, 'backups'), log);
 /** the asset list wire: the version the tick stream last sent, and the cached defs (see server/wire.ts) */
 const listWire = new ListWire(host.g);
 /** the weekly tournament settlement: a due week runs in a child process and comes back as a logged settle command */
@@ -91,6 +106,21 @@ function allowRegister(ip: string): boolean {
   registrations.set(ip, arr);
   return true;
 }
+
+/** the admin page's dependencies (server/admin.ts): the readouts and the two actions */
+const adminLog = new AdminLog(join(DATA_DIR, 'admin.log'), log);
+const adminDeps: AdminDeps = {
+  token: ADMIN_TOKEN,
+  host,
+  store,
+  backups,
+  dataDir: DATA_DIR,
+  tournament: tournamentJob,
+  text: textEnricher,
+  online: () => new Set([...conns].filter((c) => c.pid).map((c) => c.pid)).size,
+  adminLog,
+  now: () => Date.now(),
+};
 
 const http = createServer(async (req, res) => {
   try {
@@ -215,6 +245,12 @@ const http = createServer(async (req, res) => {
       const n = Math.max(1, Math.min(20_000, Number(url.searchParams.get('n') ?? 1)));
       host.advance(n);
       return json(res, 200, { ok: true, tick: host.g.market.tick });
+    }
+    // the admin page's API (server/admin.ts): the token is checked there, in constant time
+    if ((ADMIN_PATHS as readonly string[]).includes(url.pathname)) {
+      const b = req.method === 'POST' ? await body(req) : {};
+      const r = adminRoute(req.method ?? 'GET', url.pathname, req.headers.authorization, b, req.socket.remoteAddress ?? '?', adminDeps);
+      return json(res, r.code, r.body);
     }
     json(res, 404, { ok: false });
   } catch (e) {
@@ -373,13 +409,20 @@ host.onTick((out, publicTick) => {
   }
 });
 
+const hourly = setInterval(() => {
+  try { backups.take('hourly'); } catch (e) { log(`backup failed: ${(e as Error).message}`); }
+}, BACKUP_EVERY_MS);
+
 http.listen(PORT, undefined, 4096, () => log(`listening on :${PORT} (tick ${TICK_MS} ms, data ${DATA_DIR})`));
 host.start();
 
 const shutdown = () => {
   log('saving and shutting down…');
-  host.stop();
+  clearInterval(hourly);
+  host.stop(); // saves the world at its tick
+  try { backups.take('shutdown'); } catch (e) { log(`shutdown backup failed: ${(e as Error).message}`); }
   store.close();
+  releaseLock();
   process.exit(0);
 };
 process.on('SIGINT', shutdown);

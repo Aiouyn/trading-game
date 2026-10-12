@@ -78,7 +78,8 @@ function Ceremony({ rankId, from }: { rankId: string; from: string | null }) {
       {t(`ceremony.hw.${rankId}`)}
       {also.length > 0 && <span className="mt-2 block text-fg-muted">{t('ceremony.also', { rank: also.join(' · ') })}</span>}
     </>,
-    r.unlocks[0] ?? '',
+    // the first unlock of the rank (rank.unlocks.<id> joins them with ' · ')
+    t(`rank.unlocks.${rankId}`).split(' · ')[0] ?? '',
     next ? t('ceremony.next', { name: next.name, amount: compactMoney(next.threshold) }) : t('ceremony.top'),
   ];
 

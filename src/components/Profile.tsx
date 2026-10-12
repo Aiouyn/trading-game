@@ -46,7 +46,7 @@ export function ProfileView() {
           {me.contracts.map((c) => (
             <li key={c.id} className="border-t border-ink-2 px-4 py-3">
               <div className="flex items-center justify-between gap-3 text-small">
-                <span className={c.claimed ? 'text-fg-faint line-through' : ''}>{c.text}</span>
+                <span className={c.claimed ? 'text-fg-faint line-through' : ''}>{t(`contract.text.${c.defId}`)}</span>
                 {c.done && !c.claimed
                   ? <Button size="sm" variant="brass" onClick={() => act({ type: 'contract.claim', contractId: c.id }, { success: `+${money(c.reward)}` })} testId={`claim-${c.defId}`}>{t('profile.claim', { amount: compactMoney(c.reward) })}</Button>
                   : <span className="num text-caption text-fg-faint">{c.claimed ? t('profile.claimed') : compactMoney(c.reward)}</span>}
@@ -62,7 +62,7 @@ export function ProfileView() {
         <ul className="mt-2">
           {RANKS.map((r, i) => (
             <li key={r.id} className={`flex items-center justify-between border-t border-ink-2 py-2 text-small ${i <= rIdx ? 'text-fg' : 'text-fg-faint'}`}>
-              <span>{r.id} · {r.name} <span className="text-caption text-fg-faint">({r.shell})</span></span>
+              <span>{r.id} · {r.name} <span className="text-caption text-fg-faint">({t(`rank.shell.${r.id}`)})</span></span>
               <span className="num">{r.threshold ? compactMoney(r.threshold) : t('profile.start')}</span>
             </li>
           ))}
@@ -78,8 +78,8 @@ export function ProfileView() {
             const got = me.player.achievements[a.id] !== undefined;
             return (
               <div key={a.id} className={`rounded-md border p-3 ${got ? TIER_CLS[a.tier] : 'border-ink-3 text-fg-disabled'}`}>
-                <div className="text-small font-semibold">{a.name}</div>
-                <div className="text-caption text-fg-faint">{a.text}</div>
+                <div className="text-small font-semibold">{t(`ach.name.${a.id}`)}</div>
+                <div className="text-caption text-fg-faint">{t(`ach.text.${a.id}`)}</div>
               </div>
             );
           })}

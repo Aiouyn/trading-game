@@ -79,18 +79,18 @@ function Shop() {
           return (
             <Card key={i.id} className={`flex flex-col p-4 ${locked ? 'opacity-70' : ''}`} data-testid={`item-${i.id}`}>
               <div className="flex items-start justify-between gap-2">
-                <h3 className="text-body font-semibold">{i.name}</h3>
+                <h3 className="text-body font-semibold">{t(`lux.name.${i.id}`)}</h3>
                 <Chip className={i.cls === 'unique' ? 'border-brass/50 text-brass-hi' : i.cls === 'limited' ? 'border-info/50 text-info' : ''}>{clsLabel(i.cls)}</Chip>
               </div>
-              <p className="mt-1 flex-1 text-small text-fg-muted">{i.blurb}</p>
-              {i.perk && <p className="mt-1 text-caption text-brass">{i.perk}</p>}
+              <p className="mt-1 flex-1 text-small text-fg-muted">{t(`lux.blurb.${i.id}`)}</p>
+              {i.perk && <p className="mt-1 text-caption text-brass">{t(`lux.perk.${i.id}`)}</p>}
               <div className="num mt-3 flex flex-wrap justify-between gap-x-2 text-caption">
                 <span className="text-fg">{money(i.price)}</span>
                 <span className="text-brass-hi">{t('boutique.pp', { n: Math.round(itemPrestige(i, 0)) })}</span>
                 <span className="text-fg-faint">{i.upkeep ? t('boutique.upkeep', { x: (i.upkeep * 100).toFixed(1) }) : t('boutique.noUpkeep')}</span>
               </div>
               <Button size="sm" variant={locked || taken ? 'outline' : 'brass'} className="mt-3" disabled={locked || taken || cash < i.price}
-                onClick={() => act({ type: 'life.buy', itemId: i.id }, { success: t('boutique.yours', { name: i.name }) })} testId={`buy-item-${i.id}`}>
+                onClick={() => act({ type: 'life.buy', itemId: i.id }, { success: t('boutique.yours', { name: t(`lux.name.${i.id}`) }) })} testId={`buy-item-${i.id}`}>
                 {taken ? t('boutique.taken') : locked ? t('common.unlocksAt', { rank: t(`rank.${i.rank}`) }) : t('boutique.buyFor', { price: compactMoney(i.price) })}
               </Button>
             </Card>
@@ -118,7 +118,7 @@ function Collection() {
         const v = resaleValue(i, o.paid, age, coll);
         return (
           <Card key={o.uid} className="p-4">
-            <div className="flex items-start justify-between gap-2"><h3 className="text-body font-semibold">{i.name}</h3><span className="num text-caption text-brass-hi">{t('boutique.pp', { n: Math.round(itemPrestige(i, age)) })}</span></div>
+            <div className="flex items-start justify-between gap-2"><h3 className="text-body font-semibold">{t(`lux.name.${i.id}`)}</h3><span className="num text-caption text-brass-hi">{t('boutique.pp', { n: Math.round(itemPrestige(i, age)) })}</span></div>
             <p className="num mt-1 text-caption text-fg-faint">{t('boutique.paid', { paid: money(o.paid), resale: money(v), days: age.toFixed(1) })}</p>
             {i.cls !== 'consumed' ? (
               <div className="mt-3"><ConfirmButton confirm={t('boutique.sellFor', { amount: compactMoney(v) })} onConfirm={() => act({ type: 'life.sell', uid: o.uid })}>{t('common.sell')}</ConfirmButton></div>

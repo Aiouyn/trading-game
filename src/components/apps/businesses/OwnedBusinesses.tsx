@@ -57,16 +57,16 @@ function BizCard({ b }: { b: Business }) {
           <div className="num text-caption text-fg-faint">{t('biz.share', { share: pct(b.share), earned: compactMoney(b.earned) })}</div>
         </div>
       </div>
-      {ev && <div className="mt-2"><Chip className={ev.good ? 'border-gain/50 text-gain' : 'border-loss/50 text-loss'}>{ev.title} · {ev.mult >= 1 ? '+' : '−'}{Math.round(Math.abs(ev.mult - 1) * 100)}%</Chip></div>}
+      {ev && <div className="mt-2"><Chip className={ev.good ? 'border-gain/50 text-gain' : 'border-loss/50 text-loss'}>{t(`biz.event.${ev.id}.title`)} · {ev.mult >= 1 ? '+' : '−'}{Math.round(Math.abs(ev.mult - 1) * 100)}%</Chip></div>}
       <div className="mt-3 grid grid-cols-2 gap-2 @2xl:grid-cols-3">
         {UPGRADES.map((u) => {
           const lvl = b.levels[u.id];
           const cost = upgradeCost(def.cost, lvl);
           const maxed = lvl >= MAX_UPGRADE;
           return (
-            <div key={u.id} className="rounded-md border border-ink-3 p-2.5" title={u.blurb}>
+            <div key={u.id} className="rounded-md border border-ink-3 p-2.5" title={t(`biz.upgrade.${u.id}.blurb`)}>
               <div className="flex items-center justify-between">
-                <span className="text-small font-medium">{u.name}</span>
+                <span className="text-small font-medium">{t(`biz.upgrade.${u.id}.name`)}</span>
                 <span className="flex gap-0.5" aria-label={t('biz.level', { lvl, max: MAX_UPGRADE })}>
                   {Array.from({ length: MAX_UPGRADE }, (_, k) => <span key={k} className={`h-1.5 w-1.5 rounded-full ${k < lvl ? 'bg-brass' : 'bg-ink-3'}`} />)}
                 </span>
