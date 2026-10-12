@@ -3,6 +3,21 @@ import { expect, type Page } from '@playwright/test';
 export const WORLD = `http://localhost:${process.env.E2E_WORLD_PORT ?? 8797}`;
 export const ADMIN = 'e2e-admin';
 
+/**
+ * A world call from a helper. A socket the world closed while idle fails the next call with "fetch failed" under load, so a
+ * call that fails at the socket is sent once more on a fresh connection.
+ */
+export async function worldFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const once = () => fetch(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), connection: 'close' } });
+  try {
+    return await once();
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+    await new Promise((r) => setTimeout(r, 300));
+    return once();
+  }
+}
+
 export const isPhone = (page: Page) => (page.viewportSize()?.width ?? 1440) < 768;
 
 /** Collect console errors and uncaught exceptions for the whole test. */
@@ -25,7 +40,7 @@ export async function register(page: Page, prefix = 'e2e'): Promise<string> {
 }
 
 export async function grant(handle: string, amount: number): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/grant`, {
+  const r = await worldFetch(`${WORLD}/api/admin/grant`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, amount }),
   });
   expect(r.status).toBe(200);
@@ -101,7 +116,7 @@ export async function dismissCloseCard(page: Page, appearWithin = 0): Promise<vo
 
 /** Backdates a player's account by `ticks` (the admin seam for the account-age rules, admin.age). */
 export async function ageAccount(handle: string, ticks: number): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/age`, {
+  const r = await worldFetch(`${WORLD}/api/admin/age`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, ticks }),
   });
   expect(r.status).toBe(200);
@@ -112,7 +127,7 @@ export async function advanceWorld(ticks: number): Promise<void> {
   let left = ticks;
   while (left > 0) {
     const n = Math.min(20_000, left);
-    const r = await fetch(`${WORLD}/api/admin/advance?n=${n}`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}` } });
+    const r = await worldFetch(`${WORLD}/api/admin/advance?n=${n}`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}` } });
     expect(r.status).toBe(200);
     left -= n;
   }
@@ -123,7 +138,7 @@ export async function advanceWorld(ticks: number): Promise<void> {
  * minimum). The request, the book and the listing stay real. See admin.ipoReady in src/world/company/ipo.ts.
  */
 export async function makeIpoReady(handle: string): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/ipo-ready`, {
+  const r = await worldFetch(`${WORLD}/api/admin/ipo-ready`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle }),
   });
   expect(r.status).toBe(200);
@@ -135,7 +150,7 @@ export async function makeIpoReady(handle: string): Promise<void> {
  * the filed ones). See admin.filedLate in src/world/company/seams.ts.
  */
 export async function makeFiledLate(handle: string): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/filed-late`, {
+  const r = await worldFetch(`${WORLD}/api/admin/filed-late`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle }),
   });
   expect(r.status).toBe(200);
@@ -144,7 +159,7 @@ export async function makeFiledLate(handle: string): Promise<void> {
 
 /** Gives a founder's company a next-gen launch credit that reads `score` on the R&D launch block (admin.launchCredit). */
 export async function grantLaunchCredit(handle: string, score: number): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/launch-credit`, {
+  const r = await worldFetch(`${WORLD}/api/admin/launch-credit`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, score }),
   });
   expect(r.status).toBe(200);
@@ -178,7 +193,7 @@ export async function bodySidewaysOverflow(page: Page, app: string): Promise<num
 
 /** The e2e seam for a streak palette accent (admin.streakAccent): records it as if its milestone had been reached. */
 export async function grantAccent(handle: string, accent: 'phosphor' | 'riviera' | 'broadsheet'): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/streak-accent`, {
+  const r = await worldFetch(`${WORLD}/api/admin/streak-accent`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, accent }),
   });
   expect(r.status).toBe(200);
@@ -187,7 +202,7 @@ export async function grantAccent(handle: string, accent: 'phosphor' | 'riviera'
 
 /** The e2e seam for the weekly auction: opens the current week's lots now, with `ticksLeft` ticks to run (default: the hour). */
 export async function openAuctions(ticksLeft?: number): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/auction-open`, {
+  const r = await worldFetch(`${WORLD}/api/admin/auction-open`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
     body: JSON.stringify(ticksLeft === undefined ? {} : { ticksLeft }),
   });
