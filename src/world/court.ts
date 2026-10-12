@@ -4,6 +4,7 @@ import { advanceToInvestors, cancelStake } from './funds/flows';
 import { emptyFunds, fundById } from './funds/state';
 import { startWindDown } from './funds/risk';
 import { say } from './say';
+import { bumpDeals } from './social';
 import { rugVerdict } from './launchpad/rug';
 import { SEVERITY } from './court-scale';
 import { ECA_TUNE } from './eca-tune';
@@ -150,7 +151,7 @@ export function courtTick(g: GameState, out: StepOutput): void {
     if (c.kind === 'loan default') {
       const d = Object.values(g.deals).find((x) => x.status === 'defaulted' && x.fromId === c.plaintiffId && x.toId === c.defendantId);
       damages = Math.min(headroom - fine, d?.outstanding ?? 0);
-      if (d) { d.status = 'repaid'; d.paid += damages; d.outstanding = 0; }
+      if (d) { d.status = 'repaid'; d.paid += damages; d.outstanding = 0; bumpDeals(g); }
     } else {
       damages = Math.min(headroom - fine, Math.max(10_000, df.netWorth * 0.01));
     }

@@ -186,6 +186,11 @@ export interface Player {
   netWorth: number;
   /** net worth with markets at their crowd-exit liquidation value (alt-pump proof); peak, rank and boards use it */
   markNetWorth?: number;
+  /**
+   * Gift cash received net of gift cash given (transfer deals, social.ts). The rank basis leaves it out (refreshNetWorth), so a gift
+   * cannot lift an alt's rank peak. Optional: absent in older saves, which read as 0.
+   */
+  giftsNet?: number;
   rankId: string;
   licenseId: string;
   prestige: number;

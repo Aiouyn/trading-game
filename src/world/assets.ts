@@ -12,6 +12,7 @@ import {
 } from './core';
 import { offlineRate, purchaseShop, queueShare, servedOf } from './shopRules';
 import { PERK_RULES, windMultOf } from './perks';
+import { unearnedCashOf } from './social';
 import { textProvider } from './text';
 import type { Business, CommandResult, GameState, Player, StepOutput } from './types';
 
@@ -531,7 +532,9 @@ export function refreshNetWorth(g: GameState, p: Player): number {
   const acct = g.market.accounts[p.id];
   const mark = acct && (Object.keys(acct.positions).length || acct.options) ? b.total - (b.cash + b.markets) + liquidationEquity(g.market, p.id) : b.total;
   p.markNetWorth = mark;
-  if (mark > p.netWorthPeak) p.netWorthPeak = mark;
+  // the rank basis leaves out borrowed and gifted cash (social.ts unearnedCashOf): a loan or gift buys no peak (ROADMAP R5, alt-peak)
+  const basis = mark - unearnedCashOf(g, p.id);
+  if (basis > p.netWorthPeak) p.netWorthPeak = basis;
   return b.total;
 }
 

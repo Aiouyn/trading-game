@@ -33,13 +33,6 @@ export function fundByAccount(g: GameState, accountId: string): Fund | undefined
   return Object.values(g.funds?.funds ?? {}).find((f) => f.accountId === accountId);
 }
 
-/** Two accounts are linked when they are the same player, or members of one alliance (the rule the investor and self-match checks use). */
-export function linked(g: GameState, a: string, b: string): boolean {
-  if (a === b) return true;
-  const pa = g.players[a];
-  const pb = g.players[b];
-  return !!pa?.allianceId && pa.allianceId === pb?.allianceId;
-}
 
 /** A fund's custody account (the engine account the manager trades). */
 export function isFundAccount(accountId: string): boolean {

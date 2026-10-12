@@ -146,6 +146,50 @@ export const TRANSFER_TAX = 0.05;
 /** Lowest rank that may offer or receive a deal (loan or transfer). The Bank app gates its form on this too. */
 export const DEALS_RANK = 'R1';
 
+/**
+ * The loans each borrower owes (active or defaulted: a default is still a debt), built once per change of the deal book. Every
+ * deal mutation calls bumpDeals (here and in court.ts), so the index is never stale; a rebuild is O(deals) and a read is O(1).
+ */
+const dealVersion = new WeakMap<object, number>();
+const owedIndex = new WeakMap<object, { ver: number; owed: Map<string, number> }>();
+
+/** Marks the deal book changed. Every deal mutation calls it, including the court's loan-default verdict (court.ts). */
+export function bumpDeals(g: GameState): void {
+  dealVersion.set(g, (dealVersion.get(g) ?? 0) + 1);
+}
+
+/** Principal and interest a player owes on the loans it borrowed (the lender's receivable is not counted here). */
+export function loansOwedOf(g: GameState, pid: string): number {
+  const ver = dealVersion.get(g) ?? 0;
+  let ix = owedIndex.get(g);
+  if (!ix || ix.ver !== ver) {
+    const owed = new Map<string, number>();
+    for (const d of Object.values(g.deals)) {
+      if (d.kind !== 'loan' || (d.status !== 'active' && d.status !== 'defaulted')) continue;
+      owed.set(d.toId, (owed.get(d.toId) ?? 0) + (d.outstanding ?? d.amount));
+    }
+    ix = { ver, owed };
+    owedIndex.set(g, ix);
+  }
+  return ix.owed.get(pid) ?? 0;
+}
+
+/**
+ * Cash a player holds that it does not own outright: the loans it owes and the gifts it has received, net of gifts it gave.
+ * The rank basis subtracts it (assets.ts refreshNetWorth), so borrowing or being gifted money buys no rank peak (ROADMAP R5).
+ */
+export function unearnedCashOf(g: GameState, pid: string): number {
+  return loansOwedOf(g, pid) + (g.players[pid]?.giftsNet ?? 0);
+}
+
+/** Gift bookkeeping (Player.giftsNet): the receiver gains what arrives; the giver gives up the gross it sent (never below zero). */
+function noteGift(g: GameState, fromId: string, toId: string, received: number, gross: number): void {
+  const to = g.players[toId];
+  const from = g.players[fromId];
+  if (to && !to.npc) to.giftsNet = (to.giftsNet ?? 0) + received;
+  if (from && !from.npc) from.giftsNet = Math.max(0, (from.giftsNet ?? 0) - gross);
+}
+
 export function offerDeal(g: GameState, p: Player, kind: Deal['kind'], toId: string, amount: number, rate: number, termDays: number, note: string, out: StepOutput | null): CommandResult {
   const to = g.players[toId];
   if (!to || toId === p.id) return fail('pick another player');
@@ -165,6 +209,7 @@ export function offerDeal(g: GameState, p: Player, kind: Deal['kind'], toId: str
   g.dealSeq++;
   const id = `d${g.dealSeq}`;
   g.deals[id] = { id, kind, fromId: p.id, toId, amount, rate: kind === 'loan' ? rate : 0, termDays: kind === 'loan' ? Math.round(termDays) : 0, status: 'offered', createdTick: g.market.tick, paid: 0, note: sanitize(note, 120) };
+  bumpDeals(g);
   notify(g, out, toId, { kind: 'deal', tone: 'brass', text: kind === 'loan'
     ? `${p.handle} offers you a loan of $${amount.toLocaleString('en-US')} at ${(rate * 100).toFixed(1)}% for ${termDays} days.`
     : `${p.handle} wants to send you $${amount.toLocaleString('en-US')}.` });
@@ -180,6 +225,8 @@ export function respondDeal(g: GameState, p: Player, dealId: string, accept: boo
     const tax = d.amount * TRANSFER_TAX;
     transfer(g, d.fromId, d.toId, d.amount - tax);
     recordGift(g, d.fromId, d.toId);
+    noteGift(g, d.fromId, d.toId, d.amount - tax, d.amount);
+    bumpDeals(g);
     debit(g, d.fromId, tax, 'transfer tax');
     shiftBaselines(g, d.fromId, -tax);
     d.status = 'repaid';
@@ -187,7 +234,10 @@ export function respondDeal(g: GameState, p: Player, dealId: string, accept: boo
     return ok();
   }
   transfer(g, d.fromId, d.toId, d.amount);
+  // a loan is player-to-player money too: it counts toward the funding link (collusion.ts), so a loan-funded alt is linked
+  recordGift(g, d.fromId, d.toId);
   d.status = 'active';
+  bumpDeals(g);
   d.startTick = g.market.tick;
   d.outstanding = d.amount;
   notify(g, out, d.fromId, { kind: 'deal', tone: 'gain', text: `${p.handle} accepted your loan of $${d.amount.toLocaleString('en-US')}.` });
@@ -198,6 +248,7 @@ export function cancelDeal(g: GameState, p: Player, dealId: string): CommandResu
   const d = g.deals[dealId];
   if (!d || d.fromId !== p.id || d.status !== 'offered') return fail('no such offer');
   d.status = 'cancelled';
+  bumpDeals(g);
   return ok();
 }
 
@@ -207,6 +258,7 @@ export function repayDeal(g: GameState, p: Player, dealId: string, amount: numbe
   const amt = Math.min(amount, d.outstanding ?? 0, spendableCash(g, p.id));
   if (!(amt > 0)) return fail('nothing to repay');
   transfer(g, p.id, d.fromId, amt);
+  bumpDeals(g);
   d.outstanding! -= amt;
   d.paid += amt;
   if (d.outstanding! <= 0.005) {
@@ -220,6 +272,7 @@ export function repayDeal(g: GameState, p: Player, dealId: string, amount: numbe
 /** Day boundary: interest accrues on loans; at maturity the lender collects or the loan defaults. */
 export function dealsDay(g: GameState, out: StepOutput): void {
   const dpy = g.market.config.daysPerYear;
+  bumpDeals(g);
   for (const d of Object.values(g.deals)) {
     if (d.status !== 'active' || d.kind !== 'loan') continue;
     d.outstanding! *= 1 + d.rate / dpy;
