@@ -148,12 +148,13 @@ export const DEALS_RANK = 'R1';
 
 /**
  * The loans each borrower owes (active or defaulted: a default is still a debt), built once per change of the deal book. Every
- * deal mutation calls bumpDeals, so the index is never stale; a rebuild is O(deals) and a read is O(1).
+ * deal mutation calls bumpDeals (here and in court.ts), so the index is never stale; a rebuild is O(deals) and a read is O(1).
  */
 const dealVersion = new WeakMap<object, number>();
 const owedIndex = new WeakMap<object, { ver: number; owed: Map<string, number> }>();
 
-function bumpDeals(g: GameState): void {
+/** Marks the deal book changed. Every deal mutation calls it, including the court's loan-default verdict (court.ts). */
+export function bumpDeals(g: GameState): void {
   dealVersion.set(g, (dealVersion.get(g) ?? 0) + 1);
 }
 

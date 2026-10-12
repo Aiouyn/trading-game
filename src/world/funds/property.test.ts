@@ -6,7 +6,8 @@ import { equityOf, grossExposure, openAccount, Rng, seedStream, step, universeCo
 import { shockPrice } from '@/engine/sim';
 import type { GameState, Player } from '../types';
 import { applyFundCommand, fundsBeforeStep, fundsDay, fundsFills } from './index';
-import { fundClaimsOf, fundEquity, linked, navOf, controllerOf, isFundAccount, unitsOf } from './state';
+import { fundClaimsOf, fundEquity, navOf, controllerOf, isFundAccount, unitsOf } from './state';
+import { linked } from './link';
 import { mandateAt } from './rules';
 import type { Fund, FundMandate } from './types';
 

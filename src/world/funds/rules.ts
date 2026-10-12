@@ -2,7 +2,8 @@ import { FUND_RULES, FUND_TIME } from '@/content/funds';
 import { rankIndex } from '@/content/lifestyle';
 import { netWorthBreakdown, sanitize, spendableCash } from '../core';
 import type { GameState, Player } from '../types';
-import { fundsOf, linked, navOf, navPerUnitOf, ownedValue, unitsHeld } from './state';
+import { fundsOf, navOf, navPerUnitOf, ownedValue, unitsHeld } from './state';
+import { linked } from './link';
 import type { Fund, FundFees, FundMandate, FundRefusal } from './types';
 
 /**
