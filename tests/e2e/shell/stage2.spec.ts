@@ -98,11 +98,23 @@ test.describe('the trade surface is never blocked (stage 2)', () => {
     }
   });
 
-  test('@ticket_fit_1280 the ticket fits 1280 x 720 without internal scroll for every order type, and its TP and SL fields do not overlap', async ({ page }) => {
+  for (const lang of ['en', 'fr'] as const) {
+  test(`@ticket_fit_1280 (${lang}) the ticket fits 1280 x 720 without internal scroll for every order type, and its TP and SL fields do not overlap`, async ({ page }) => {
     onlyIn('desktop', 'desktop-1920', 'desktop-1000', 'desktop-900');
     await page.setViewportSize({ width: 1280, height: 720 });
     watchErrors(page);
     await boot(page);
+    if (lang === 'fr') {
+      // the saved language, then a reload of the same save: the French ticket is the one measured
+      await page.evaluate(() => {
+        const p = JSON.parse(window.localStorage.getItem('tg-prefs') ?? '{}');
+        window.localStorage.setItem('tg-prefs', JSON.stringify({ ...p, lang: 'fr' }));
+      });
+      await page.reload();
+      await expect(page.locator('html')).toHaveAttribute('data-game', 'ready', { timeout: 30_000 });
+      await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
+      await expect(page.getByTestId('os-desktop')).toBeVisible();
+    }
     const ticket = page.getByTestId('terminal-ticket');
     await expect(ticket).toBeVisible();
     // the order-type picker is hidden on a first trade (simple mode): one fill first, so every type is offered
@@ -132,6 +144,7 @@ test.describe('the trade surface is never blocked (stage 2)', () => {
       }
     }
   });
+  }
 });
 
 test.describe('the Review layout and the desk (stage 2)', () => {

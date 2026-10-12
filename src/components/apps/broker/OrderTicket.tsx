@@ -27,6 +27,9 @@ const TYPE_OPTS: { value: OrderType; key: string; testId: string }[] = [
   { value: 'trailing', key: 'order.trailing', testId: 'type-trailing' },
 ];
 
+/** The order-type help on a short screen is a "?" control: the glyph is data, not copy (the strings are t() keys). */
+const HELP_MARK = '?';
+
 /** The size is typed in shares, or in dollars and converted at the reference price (spec 1.4). */
 type Unit = 'shares' | 'usd';
 
@@ -82,6 +85,9 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const tall = useMedia('(min-height: 800px)', true);
   // The two columns are narrow: their labels are the short forms (the full wording stays in the title). One column keeps the full labels.
   const shortLabels = dense && !tall;
+  // On the same short screen the order-type help is a "?" control beside the picker, and the first-trade cap is one line: the
+  // full wording is one hover away (UX stage 6, 1280 x 720 with a stop or stop-limit order).
+  const shortScreen = shortLabels;
   // A ticket reopened after its window or phone app closed restores what was typed. A preset still wins (P2-161).
   const saved = getDraft(selected);
   const [side, setSide] = useState<Side>(preset?.side ?? saved?.side ?? 'buy');
@@ -418,7 +424,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   label={t('broker.side')} size={dense ? 'sm' : 'md'} className={dense ? 'min-w-0 flex-1' : 'mt-3 w-full'} value={side} onChange={(v) => setSide(v as Side)}
                   options={[
                     { value: 'buy', label: fundMode ? t('common.buy') : t('broker.side.long'), testId: 'side-buy' },
-                    { value: 'sell', label: fundMode ? t('common.sell') : t('broker.side.short'), testId: 'side-sell' },
+                    { value: 'sell', label: fundMode ? t('common.sell') : shortScreen ? t('broker.sideTab.short') : t('broker.side.short'), testId: 'side-sell' },
                   ]}
                 />
                 {showType && (
@@ -427,14 +433,20 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                     <select
                       value={type} onChange={(e) => setType(e.target.value as OrderType)} data-testid="order-type"
                       aria-label={t('broker.orderType')}
-                      className={`rounded-md border border-ink-3 bg-ink-0 px-2 text-small text-fg outline-none focus:border-brass/60 ${dense ? 'h-8 w-36' : 'h-9'}`}
+                      className={`rounded-md border border-ink-3 bg-ink-0 px-2 text-small text-fg outline-none focus:border-brass/60 ${dense ? (shortScreen ? 'h-8 w-28' : 'h-8 w-36') : 'h-9'}`}
                     >
                       {typeOpts.map((o) => <option key={o.value} value={o.value} data-testid={o.testId}>{t(o.key)}</option>)}
                     </select>
                   </label>
                 )}
+                {shortScreen && (
+                  <button
+                    type="button" data-testid="order-type-help-tip" title={t(`broker.help.${type}`)} aria-label={t(`broker.help.${type}`)}
+                    className="grid h-8 w-7 shrink-0 place-items-center rounded-md border border-ink-3 text-caption text-fg-muted hover:border-brass/50 hover:text-fg"
+                  >{HELP_MARK}</button>
+                )}
               </div>
-              <p className={`${dense ? 'mt-0' : 'mt-1.5'} text-caption text-fg-faint`} data-testid="order-type-help">{t(`broker.help.${type}`)}</p>
+              {!shortScreen && <p className={`${dense ? 'mt-0' : 'mt-1.5'} text-caption text-fg-faint`} data-testid="order-type-help">{t(`broker.help.${type}`)}</p>}
 
               <div className={dense ? 'mt-1 flex items-end gap-2' : undefined}>
                 <NumberField
@@ -464,7 +476,9 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   </button>
                 ))}
               </div>
-              {simpleCap && (side === 'buy' || shorting) && <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap', firstCapVars)}</p>}
+              {simpleCap && (side === 'buy' || shorting) && (shortScreen
+                ? <p className="mt-1.5 truncate whitespace-nowrap text-caption text-fg-muted" title={t('broker.firstCap', firstCapVars)} data-testid="first-trade-cap">{t('broker.firstCap.short', { pct: firstCapVars.pct })}</p>
+                : <p className="mt-1.5 text-caption text-fg-muted" data-testid="first-trade-cap">{t('broker.firstCap', firstCapVars)}</p>)}
 
               {/* Dense (the desktop terminal): the price field of the order type shares a row with Good till, so the TP and SL
                   fields and the summary fit a 720 px screen without scrolling (UX 1.4). The full ticket keeps the stacked fields. */}
