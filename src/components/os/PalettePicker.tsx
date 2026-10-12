@@ -49,6 +49,8 @@ export function PalettePicker() {
               data-selected={selected ? 'true' : 'false'}
             >
               <span className="os-pal-top">
+                {/* a data-URI thumbnail of a pure SVG: next/image would only add a loader for it */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img className="os-pal-thumb" src={THUMBS[slug]} alt="" width={40} height={40} aria-hidden />
                 <span className="os-pal-strip" aria-hidden data-testid={`palette-${slug}-strip`}>
                   <i style={{ background: colours.bg0 }} />

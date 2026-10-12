@@ -25,6 +25,7 @@ import { EventTakeover } from './EventTakeover';
 import { EVENT_BAND_H } from './eventSelect';
 import { Launcher } from './Launcher';
 import { OsToasts } from './OsToasts';
+import { FocusPill } from './FocusPill';
 import { openFromShell } from './openApp';
 import { RankHardware } from './RankHardware';
 import { parseLocation, routeUrl, type UrlBase } from './routing';
@@ -371,6 +372,7 @@ export function OsRoot() {
         {bound && <SplitHandles edges={edges} wa={proj.wa} />}
       </div>
       <Shelf />
+      <FocusPill />
       {bound && <Launcher />}
       {bound && <BellPanel />}
       {bound && <EventPanel />}

@@ -111,6 +111,7 @@
   "shell.layout.trade": "Disposition Trading",
   "shell.focus": "Mode concentration",
   "shell.apps": "Applications",
+  "shell.focus.exit": "Quitter le mode concentration",
   "shell.dock.pinned": "Épinglées",
   "shell.dock.apps": "Applications",
   "shell.dock.tools": "Outils",

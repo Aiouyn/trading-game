@@ -205,6 +205,13 @@
   .os-root .os-ctl { margin-left: auto; display: flex; gap: 2px; color: var(--color-fg-faint); }
   .os-root .os-ctl-btn { display: grid; place-items: center; width: 26px; height: 22px; border-radius: var(--radius-sm); }
   .os-root .os-win-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  /* The focus-mode exit pill (UX stage 6, item 4): top centre, above the windows, for three seconds after entry. */
+  .os-root .os-focus-pill {
+    position: fixed; top: 12px; left: 50%; z-index: 45; transform: translateX(-50%);
+    display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; white-space: nowrap;
+    border: 1px solid var(--color-brass); border-radius: var(--radius-chip);
+    background: var(--color-ink-1); color: var(--color-fg); font-size: var(--text-small); box-shadow: var(--os-window-shadow);
+  }
   .os-root .os-snap {
     position: fixed; z-index: 4; pointer-events: none;
     border: 1px solid var(--os-snap-preview-border); background: var(--os-snap-preview-fill);

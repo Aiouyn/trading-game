@@ -111,6 +111,7 @@
   "shell.layout.trade": "Trade layout",
   "shell.focus": "Focus mode",
   "shell.apps": "Apps",
+  "shell.focus.exit": "Exit focus",
   "shell.dock.pinned": "Pinned",
   "shell.dock.apps": "Apps",
   "shell.dock.tools": "Tools",
