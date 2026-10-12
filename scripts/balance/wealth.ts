@@ -26,11 +26,14 @@
 import { BIZ_SECTORS, BUSINESSES, TIERS } from '../../src/content/businesses';
 import { applyCommand, createGame, stepGame } from '../../src/world/game';
 import { rankIndex } from '../../src/content/lifestyle';
-import { TPD, bizDef, bizValuedIncome, cashOf, credit, netWorthBreakdown } from '../../src/world/core';
+import { TPD, bizDef, bizValue, bizValuedIncome, cashOf, credit, netWorthBreakdown, today } from '../../src/world/core';
 import { SHOP } from '../../src/content/shops';
 import { wellRunCommands } from '../../src/world/shops';
-import { managerPrepayCost } from '../../src/world/shopRules';
+import { appeal, cityUnlocked } from '../../src/world/assets';
+import { siteScore, shouldExit, startAppeal, type PoolMass } from './wealth-rules';
+import { dailyCosts, managerPrepayCost, managerPrepaid, offlineRate } from '../../src/world/shopRules';
 import type { Command, GameState } from '../../src/world/types';
+import type { BizDef } from '../../src/content/businesses';
 
 export type Style = 'neglected' | 'casual' | 'average' | 'excellent' | 'idle' | 'managed';
 const STYLES: Style[] = ['neglected', 'casual', 'average', 'excellent', 'idle', 'managed'];
@@ -62,12 +65,12 @@ function presence(style: Style, gameDay: number): { online: boolean; checkIn: bo
   return { online: hourOfDay < 16, checkIn: style !== 'idle' && hourOfDay < 16 };
 }
 
-function argv(): { mode: string; seed: string; days: number; style: Style; first?: number; seeds?: number } {
+function argv(): { mode: string; seed: string; days: number; style: Style; first?: number; seeds?: number; trace: boolean } {
   const flags = process.argv.slice(2).filter((a) => a.startsWith('--'));
   const pos = process.argv.slice(2).filter((a) => !a.startsWith('--'));
   const [mode = 'probe', seed = 'wealth', days = '40', style = 'average'] = pos;
   const flag = (name: string) => { const f = flags.find((x) => x.startsWith(`--${name}=`)); return f === undefined ? undefined : Number(f.split('=')[1]); };
-  return { mode, seed, days: Number(days), style: style as Style, first: flag('first'), seeds: flag('seeds') };
+  return { mode, seed, days: Number(days), style: style as Style, first: flag('first'), seeds: flag('seeds'), trace: flags.includes('--trace') };
 }
 
 function hash(x: string): number {
@@ -149,7 +152,7 @@ function probe(seed: string, days: number): void {
 }
 
 /** A greedy investor (the old wealth bot) in one style and presence pattern. */
-function bot(seed: string, days: number, style: Style): void {
+function bot(seed: string, days: number, style: Style, trace = false): void {
   const g: GameState = createGame(seed, { warmupDays: 2, npcs: true });
   applyCommand(g, 'bot', { type: 'join', handle: 'median', country: 'AV' });
   const p = g.players.bot!;
@@ -158,6 +161,8 @@ function bot(seed: string, days: number, style: Style): void {
   const checkpoints: Record<number, number> = {};
   const start = g.market.tick;
   let lastDayActed = -1;
+  const prevEarned: Record<string, number> = {};
+  let sold = 0;
   for (let t = 0; t < days * TPD; t++) {
     const gameDay = Math.floor((g.market.tick - start) / TPD);
     if ((g.market.tick - start) % TPD === 0 && gameDay !== lastDayActed) {
@@ -165,33 +170,105 @@ function bot(seed: string, days: number, style: Style): void {
       const pres = presence(style, gameDay);
       if (p.online !== pres.online) applyCommand(g, 'bot', { type: 'presence', online: pres.online });
       if (pres.online) buyGreedy(g, style);
-      if (pres.checkIn) for (const b of Object.values(g.businesses)) if (b.ownerId === 'bot') for (const c of setupFor(style, b.id)) applyCommand(g, 'bot', c);
+      if (pres.checkIn) sold += checkIn(g, style);
       if (ranks[p.rankId] === undefined) ranks[p.rankId] = gameDay;
     }
     stepGame(g);
+    if ((g.market.tick - start) % TPD === 0 && trace) {
+      console.log(JSON.stringify(traceRow(g, style, (g.market.tick - start) / TPD - 1, prevEarned)));
+    }
     if ((g.market.tick - start) % (TPD * 8) === 0) checkpoints[Math.floor((g.market.tick - start) / TPD)] = netWorthBreakdown(g, 'bot').total;
   }
   const income = Object.values(g.businesses).filter((b) => b.ownerId === 'bot').reduce((s, b) => s + bizValuedIncome(b), 0);
-  console.log(JSON.stringify({ mode: 'bot', seed, style, days, rankFirstSeenGameDay: ranks, netWorth: Math.round(p.netWorth), valuedIncome: Math.round(income), checkpoints }));
+  const bizCount = Object.values(g.businesses).filter((b) => b.ownerId === 'bot').length;
+  console.log(JSON.stringify({ mode: 'bot', seed, style, days, rankFirstSeenGameDay: ranks, netWorth: Math.round(p.netWorth), valuedIncome: Math.round(income), bizCount, sold, checkpoints }));
 }
 
 /**
- * Buy the best net income per dollar the cash and rank allow, within each tier's slot cap (up to four a check-in).
- * A managed purchase only happens when the cash also covers the prepaid manager salary, so the hire is asserted.
+ * One day of the bot's books, after the day boundary: cash, net worth, and per business the lever settings, the
+ * demand and what was served, the income rate, the day's earnings and each operating cost line (the same
+ * `dailyCosts` the day step pays), the trailing net and the valuation. Diagnostic only; reads state, changes nothing.
+ */
+function traceRow(g: GameState, style: Style, day: number, prevEarned: Record<string, number>) {
+  const p = g.players.bot!;
+  const nw = netWorthBreakdown(g, 'bot');
+  const d = today(g);
+  const biz = Object.values(g.businesses).filter((b) => b.ownerId === 'bot').map((b) => {
+    const s = b.shop;
+    const target = bizDef(b).income;
+    const managed = s.managerStars > 0;
+    const maintainedNow = s.maintained || managed;
+    const c = dailyCosts(target, s, maintainedNow, managerPrepaid(s.managerStars, s.managerDay, d - 1));
+    const rate = p.online ? 1 : offlineRate((g.market.tick - p.lastSeenTick) / TPD, s.managerStars, b.levels.automation);
+    const earnedToday = b.earned - (prevEarned[b.id] ?? b.earned);
+    prevEarned[b.id] = b.earned;
+    const r = (x: number) => Math.round(x * 100) / 100;
+    return {
+      id: b.id, tier: bizDef(b).tier, sector: bizDef(b).sector, city: b.cityId, invested: b.invested, target: r(target),
+      crew: s.crew, price: s.price, quality: s.quality, marketing: s.marketing, maintained: s.maintained, mgr: s.managerStars,
+      condition: r(s.condition), reviews: r(s.reviews), morale: r(s.morale), demand: r(s.demand), queue: r(s.queue),
+      share: r(b.share), incPerDay: r(b.incomePerDay), rate: r(rate), event: b.event?.id ?? null, earnedToday: r(earnedToday),
+      costs: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, r(v)])), costTotal: r(Object.values(c).reduce((a, x) => a + x, 0)),
+      net: r(s.net[s.net.length - 1] ?? 0), valuedIncome: r(bizValuedIncome(b)), value: r(bizValue(b)), lastAttendedAgeDays: r((g.market.tick - s.lastAttendedTick) / TPD),
+    };
+  });
+  return { mode: 'trace', style, day, cash: r2(nw.cash), netWorth: r2(nw.total), businesses: r2(nw.businesses), markets: r2(nw.markets), bizCount: biz.length, online: p.online, biz };
+}
+function r2(x: number): number { return Math.round(x * 100) / 100; }
+
+/** The mass of every city-sector pool (all owners, NPCs included), by `city:sector`. */
+function poolMasses(g: GameState): Map<string, PoolMass> {
+  const out = new Map<string, PoolMass>();
+  for (const b of Object.values(g.businesses)) {
+    const key = `${b.cityId}:${bizDef(b).sector}`;
+    const m = out.get(key) ?? { count: 0, expAppeal: 0 };
+    m.count++;
+    m.expAppeal += Math.exp(appeal(b));
+    out.set(key, m);
+  }
+  return out;
+}
+
+/**
+ * The owner's check-in: sell any shop that has lost money for two weeks (`shouldExit`), then set the style's levers on
+ * what is kept. The sale is a choice the owner makes on the books, not a lever, so every style makes it.
+ */
+export function checkIn(g: GameState, style: Style): number {
+  const mine = Object.values(g.businesses).filter((b) => b.ownerId === 'bot');
+  let sold = 0;
+  for (const b of mine) if (shouldExit(b.shop.net) && applyCommand(g, 'bot', { type: 'biz.sell', bizId: b.id }).ok) sold++;
+  for (const b of Object.values(g.businesses)) if (b.ownerId === 'bot') for (const c of setupFor(style, b.id, b.shop.demand)) applyCommand(g, 'bot', c);
+  return sold;
+}
+
+/**
+ * Buy the site with the best expected return per dollar: income per dollar of cost times the share factor the site would earn
+ * in its city-sector pool, given every business already there (`siteScore`). Within the cash, the rank, the tier slot cap and
+ * the unlocked cities (up to four a check-in). A managed purchase only happens when the cash also covers the prepaid manager
+ * salary, so the hire is asserted.
  */
 function buyGreedy(g: GameState, style: Style): void {
   const p = g.players.bot!;
   const r = rankIndex(p.rankId);
   const stars = starsFor(style);
+  const newAppeal = startAppeal(style === 'excellent' ? 2 : 0);
+  const cities = CITIES.filter((c) => cityUnlocked(p, c));
   for (let k = 0; k < 4; k++) {
     const cash = cashOf(g, 'bot') * 0.9;
     const mine = Object.values(g.businesses).filter((b) => b.ownerId === 'bot');
     const count = (tier: number) => mine.filter((b) => bizDef(b).tier === tier).length;
     const affordable = (d: { cost: number; income: number }) => d.cost + managerPrepayCost(stars, d.income) <= cash;
-    const best = BUSINESSES.filter((d) => affordable(d) && rankIndex(TIERS[d.tier - 1]!.rank) <= r && count(d.tier) < TIERS[d.tier - 1]!.max)
-      .sort((a, b) => b.income / b.cost - a.income / a.cost || a.id.localeCompare(b.id))[0];
+    const masses = poolMasses(g);
+    let best: { def: BizDef; cityId: string; score: number } | null = null;
+    for (const d of BUSINESSES) {
+      if (!affordable(d) || rankIndex(TIERS[d.tier - 1]!.rank) > r || count(d.tier) >= TIERS[d.tier - 1]!.max) continue;
+      for (const c of cities) {
+        const score = siteScore(d.income, d.cost, newAppeal, masses.get(`${c}:${d.sector}`) ?? { count: 0, expAppeal: 0 });
+        if (!best || score > best.score) best = { def: d, cityId: c, score };
+      }
+    }
     if (!best) return;
-    const r2 = applyCommand(g, 'bot', { type: 'biz.buy', defId: best.id, cityId: CITIES[0]! });
+    const r2 = applyCommand(g, 'bot', { type: 'biz.buy', defId: best.def.id, cityId: best.cityId });
     if (!r2.ok) return;
     // managed hires a 2-star manager and excellent a 3-star one, at purchase (S3); the others run without one
     if (stars > 0) {
@@ -208,10 +285,52 @@ function starsFor(style: Style): number {
   return 0;
 }
 
-const { mode, seed, days, style, first, seeds } = argv();
-if (mode === 'probe') probe(seed, days);
-else if (first !== undefined) {
-  // a shard: seeds first..first+seeds-1 (one run per style, styles inner); `all` runs the four styles of the wealth table
-  const styles: Style[] = style === ('all' as Style) ? ['neglected', 'average', 'managed', 'excellent'] : [style];
-  for (let k = first; k < first + (seeds ?? 1); k++) for (const st of styles) bot(`${seed}-${k}`, days, st);
-} else bot(seed, days, style);
+function r3(x: number): number { return Math.round(x * 1000) / 1000; }
+
+/**
+ * Census (diagnostic): the NPC world alone, no bot. Every game day: businesses by owner kind, and the pool sizes (city:sector)
+ * of the densest pools and of avalon:compute, so the 365-day crowding of a pool can be read against the 40-day probe.
+ *   npx tsx scripts/balance/wealth.ts census wealth-1 365
+ */
+function census(seed: string, days: number): void {
+  const g: GameState = createGame(seed, { warmupDays: 2, npcs: true });
+  const start = g.market.tick;
+  let last = -1;
+  for (let t = 0; t < days * TPD; t++) {
+    const gameDay = Math.floor((g.market.tick - start) / TPD);
+    if (gameDay !== last && (g.market.tick - start) % TPD === 0) {
+      last = gameDay;
+      const all = Object.values(g.businesses);
+      const pools = new Map<string, number>();
+      for (const b of all) { const k = `${b.cityId}:${bizDef(b).sector}`; pools.set(k, (pools.get(k) ?? 0) + 1); }
+      const sizes = [...pools.values()].sort((a, b) => b - a);
+      const npc = all.filter((b) => g.players[b.ownerId]?.npc).length;
+      const byTier: Record<number, number> = {};
+      for (const b of all) byTier[bizDef(b).tier] = (byTier[bizDef(b).tier] ?? 0) + 1;
+      console.log(JSON.stringify({
+        mode: 'census', seed, day: gameDay, businesses: all.length, npcOwned: npc, byTier, pools: pools.size,
+        poolMax: sizes[0] ?? 0, poolTop5: sizes.slice(0, 5), poolMedian: sizes[Math.floor(sizes.length / 2)] ?? 0,
+        avalonCompute: pools.get('avalon:compute') ?? 0,
+        avalonComputeSumExpAppeal: r3(all.filter((b) => b.cityId === 'avalon' && bizDef(b).sector === 'compute').reduce((a, b) => a + Math.exp(appeal(b)), 0)),
+        allNpcMeanLocation: r3(all.reduce((a, b) => a + b.levels.location, 0) / Math.max(1, all.length)),
+        allNpcMeanMarketing: r3(all.reduce((a, b) => a + b.shop.marketing, 0) / Math.max(1, all.length)),
+        allNpcMeanReviews: r3(all.reduce((a, b) => a + b.shop.reviews, 0) / Math.max(1, all.length)),
+        npcCrew: r3(all.reduce((a, b) => a + b.shop.crew, 0) / Math.max(1, all.length)),
+      }));
+    }
+    stepGame(g);
+  }
+}
+
+// the CLI runs only when this file is the entry point, so the owner's check-in is importable by the tests (clip.ts pattern)
+if (process.argv[1] && /wealth\.ts$/.test(process.argv[1])) {
+  const { mode, seed, days, style, first, seeds, trace } = argv();
+  if (mode === 'census') census(seed, days);
+  else if (mode === 'probe') probe(seed, days);
+  else if (trace) bot(seed, days, style, true);
+  else if (first !== undefined) {
+    // a shard: seeds first..first+seeds-1 (one run per style, styles inner); `all` runs the four styles of the wealth table
+    const styles: Style[] = style === ('all' as Style) ? ['neglected', 'average', 'managed', 'excellent'] : [style];
+    for (let k = first; k < first + (seeds ?? 1); k++) for (const st of styles) bot(`${seed}-${k}`, days, st);
+  } else bot(seed, days, style);
+}
