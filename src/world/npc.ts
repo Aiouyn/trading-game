@@ -1,4 +1,4 @@
-import { NPCS, type NpcPersona, type NpcStyle } from '@/content/progression';
+import { NPCS, type NpcPersona } from '@/content/progression';
 import { BUSINESSES, TIERS } from '@/content/businesses';
 import { LIFE_ITEMS, PROPERTY_TYPES, rankIndex } from '@/content/lifestyle';
 import { CITIES } from '@/engine';
@@ -6,22 +6,10 @@ import { cashOf, drawFrom, playerBusinesses } from './core';
 import { cityUnlocked, maxLtvFor, propertyPrice } from './assets';
 import { wellRunCommands } from './shops';
 import { createPlayer } from './players';
+import { CHATTER } from './text/npcChat';
 import type { Command, CommandResult, GameState, Player } from './types';
 
 type Apply = (g: GameState, pid: string, cmd: Command) => CommandResult;
-
-const CHATTER: Record<NpcStyle, string[]> = {
-  momentum: ['Trend is your friend. Riding {a} today.', 'If it is going up, I want it.', '{a} breaking out. Who else is in?'],
-  value: ['Everyone hates {a}. That is why I am buying.', 'Price is what you pay, value is what you get.', 'Patience pays. Mostly.'],
-  dividend: ['Another coupon in the bank.', 'Dividends do not lie.', 'Boring is beautiful.'],
-  crypto: ['{a} to the moon!!', 'Have fun staying poor.', 'Bought the dip. Then the other dip.'],
-  tycoon: ['Just opened another shop. Never stop building.', 'Businesses pay while you sleep.', 'Who needs stocks when you own the street?'],
-  whale: ['…', 'Interesting market.', 'We are accumulating.'],
-  contrarian: ['Sold the rip. Easy.', 'Everyone is too bullish on {a}.', 'When they panic, I buy.'],
-  macro: ['Watch the central bank. Nothing else matters.', 'Inflation print tomorrow. Positioned.', 'Long gold, short hope.'],
-  landlord: ['Bought another flat. Rent is king.', 'Real estate never goes to zero.', 'Tenants are the best customers.'],
-  gambler: ['All in on {a}.', 'Up 40% or down 40%, no in-between.', 'YOLO.'],
-};
 
 /** Seed the NPC rivals into a new world. */
 export function seedNpcs(g: GameState): void {

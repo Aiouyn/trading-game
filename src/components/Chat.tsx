@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { t } from '@/i18n';
+import { npcChatMsg } from '@/world/text/npcChat';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import { Button, TextField } from './ui';
@@ -62,13 +63,17 @@ export function ChatPanel() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {msgs.length === 0 && <p className="text-center text-small text-fg-faint">{t('chat.empty')}</p>}
-        {msgs.map((m) => (
-          <div key={m.id} className="mb-2">
-            <span className={`text-small font-semibold ${m.playerId === me.player.id ? 'text-brass' : 'text-fg'}`}>{m.handle}</span>
-            <span className="num ml-2 text-caption text-fg-faint">{clockLabel(m.tick, 720).split(' · ')[1]}</span>
-            <p className="text-small break-words text-fg-muted">{m.text}</p>
-          </div>
-        ))}
+        {msgs.map((m) => {
+          // a stored NPC line is shown in the viewer's language; the chat text itself stays English
+          const line = directory.find((d) => d.id === m.playerId)?.npc ? npcChatMsg(m.text) : undefined;
+          return (
+            <div key={m.id} className="mb-2">
+              <span className={`text-small font-semibold ${m.playerId === me.player.id ? 'text-brass' : 'text-fg'}`}>{m.handle}</span>
+              <span className="num ml-2 text-caption text-fg-faint">{clockLabel(m.tick, 720).split(' · ')[1]}</span>
+              <p className="text-small break-words text-fg-muted">{line ? t(line.key, line.vars) : m.text}</p>
+            </div>
+          );
+        })}
         <div ref={end} />
       </div>
       <div className="flex gap-2 border-t border-ink-2 p-3">
