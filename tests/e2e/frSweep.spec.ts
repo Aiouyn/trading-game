@@ -44,3 +44,32 @@ test('French sweep: no visible English sentence in any app', async ({ page }) =>
   expect(found, found.join('\n')).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+// The top bar's money in French (lead review of the 1280 shot): the desktop figures read 8 000 000,00 $ with the decimal
+// comma and the dollar sign after the figure, and the phone's compact figures read 8 M$. No figure reads $8.
+test('French top bar: cash and net worth use the French money format', async ({ page }) => {
+  const errors = watchErrors(page);
+  const handle = await register(page, 'frt');
+  await skipTips(page);
+  await grant(handle, 8_000_000);
+  await skipRankUp(page);
+  await goTo(page, 'profile');
+  await page.getByTestId('settings-lang-fr').click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
+
+  const cash = page.locator('[data-testid="os-cash"], [data-testid="os-phone-cash"]').first();
+  const networth = page.locator('[data-testid="os-networth"], [data-testid="os-phone-networth"]').first();
+  const phone = (page.viewportSize()?.width ?? 1440) < 768;
+  if (phone) {
+    // the phone's status bar is compact: "8 M$" (a no-break space, then the unit and the dollar sign)
+    await expect(cash).toContainText(/\d\u00a0(k|M|Md)\$/);
+    await expect(networth).toContainText(/\d\u00a0(k|M|Md)\$/);
+  } else {
+    // the desktop top bar keeps the cents: "8 000 000,00 $" (a decimal comma, the dollar sign after the figure)
+    await expect(cash).toContainText(/\d,\d{2}\u00a0\$/);
+    await expect(networth).toContainText(/\d,\d{2}\u00a0\$/);
+  }
+  await expect(cash).not.toContainText(/\$\d/);
+  await expect(networth).not.toContainText(/\$\d/);
+  expect(errors).toEqual([]);
+});

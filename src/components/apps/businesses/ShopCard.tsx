@@ -4,8 +4,9 @@
 // away window and what well run means. Every figure comes from the shop view on the server; this file only formats.
 import { useState, type ReactNode } from 'react';
 import { BIZ_SECTORS, TIERS } from '@/content/businesses';
+import { bizSectorLabel } from '@/game/sectorLabel';
 import { CITIES } from '@/engine';
-import { money, pct } from '@/game/format';
+import { money, pct, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import type { ShopView } from '@/world/shopView';
@@ -16,12 +17,12 @@ import { refusalVars } from './shopPlan';
 
 interface Refusal { code: string; vars: Record<string, string | number> }
 
-const fx = (n: number, d = 2) => n.toFixed(d);
+const fx = (n: number, d = 2) => dec(n, d);
 
 export function ShopCard({ v }: { v: ShopView }) {
   const act = useGame((s) => s.act);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
-  const sector = BIZ_SECTORS.find((s) => s.id === v.sector)?.name ?? v.sector;
+  const sector = bizSectorLabel(v.sector, BIZ_SECTORS.find((s) => s.id === v.sector)?.name ?? v.sector);
   const tierName = TIERS[v.tier - 1]?.name ?? '';
   const cityName = CITIES.find((c) => c.id === v.cityId)?.name ?? v.cityId;
   const st = v.settings;

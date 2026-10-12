@@ -4,7 +4,7 @@
 // bodies live in LabTabs.tsx. Every action is an existing lab.* command (src/world/lab.ts).
 import { useState } from 'react';
 
-import { pct, qty } from '@/game/format';
+import { pct, qty, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { isAppUnlocked } from '@/shell/ctx';
@@ -38,10 +38,10 @@ export function LabApp() {
           </>
         )}
         items={[
-          { label: <span title={t('lab.stat.algorithmTip')}>{t('lab.stat.algorithm')}</span>, value: `×${(lab?.a ?? 1).toFixed(2)}` },
-          { label: <span title={t('lab.stat.computeTip')}>{t('lab.stat.compute')}</span>, value: t('lab.stat.computeValue', { n: (lab?.pflopPerDay ?? 0).toFixed(1) }) },
+          { label: <span title={t('lab.stat.algorithmTip')}>{t('lab.stat.algorithm')}</span>, value: `×${dec(lab?.a ?? 1, 2)}` },
+          { label: <span title={t('lab.stat.computeTip')}>{t('lab.stat.compute')}</span>, value: t('lab.stat.computeValue', { n: dec(lab?.pflopPerDay ?? 0, 1) }) },
           { label: <span title={t('lab.stat.dataTip')}>{t('lab.stat.data')}</span>, value: t('lab.stat.dataValue', { n: qty(Math.round(lab?.data ?? 0)) }), sub: lab && lab.dataSynth > 0 ? t('lab.stat.synthetic', { pct: pct(lab.dataSynth) }) : undefined },
-          { label: <span title={t('lab.stat.spotTip')}>{t('lab.stat.spot')}</span>, value: t('lab.stat.spotValue', { n: (lab?.spotPrice ?? 1.2).toFixed(2) }) },
+          { label: <span title={t('lab.stat.spotTip')}>{t('lab.stat.spot')}</span>, value: t('lab.stat.spotValue', { n: dec(lab?.spotPrice ?? 1.2, 2) }) },
         ]}
       />
       {/* the progress card is drawn only while a run or a study is under way: an empty card read as a gap (UX stage 6, item 10) */}
@@ -54,7 +54,7 @@ export function LabApp() {
         )}
         {lab?.training && (
           <div className="mt-3">
-            <div className="flex justify-between gap-2 text-caption"><span>{t('lab.training', { name: lab.training.name, mcs: lab.training.expectedMcs.toFixed(0), odds: pct(lab.training.failOdds) })}</span><span className="num">{ticksLabel(lab.training.doneTick - tick)}</span></div>
+            <div className="flex justify-between gap-2 text-caption"><span>{t('lab.training', { name: lab.training.name, mcs: dec(lab.training.expectedMcs, 0), odds: pct(lab.training.failOdds) })}</span><span className="num">{ticksLabel(lab.training.doneTick - tick)}</span></div>
             <Progress value={(tick - lab.training.startTick) / Math.max(1, lab.training.doneTick - lab.training.startTick)} className="mt-1" label={t('lab.training.progress')} />
           </div>
         )}

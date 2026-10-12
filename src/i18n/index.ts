@@ -25,6 +25,11 @@ const DICTS: Record<Locale, Dict> = { en: en as Dict, fr: fr as Dict };
 
 let current: Locale = 'en';
 
+/** The locale the viewer reads in now: number and money formatting (src/game/format.ts) follows it. */
+export function currentLocale(): Locale {
+  return current;
+}
+
 /**
  * A message variable: a number, a string ("@key" names another key, "#n:v,min,max" is a number in the viewer's locale,
  * "!text" is an engine sentence through engineFr.ts), another message rendered in the same locale, or a list of them

@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { CITIES } from '@/engine';
 import { BIZ_BY_ID, BIZ_EVENTS, BIZ_SECTORS, MAX_UPGRADE, TIERS, UPGRADES, upgradeCost } from '@/content/businesses';
+import { bizSectorLabel } from '@/game/sectorLabel';
 import { compactMoney, money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { businessSalePrice } from '@/world/assets';
@@ -104,7 +105,7 @@ function OwnedPanel({ b }: { b: Business }) {
               <Button size="sm" onClick={rename}>{t('common.save')}</Button>
             </div>
           )}
-          <p className="text-caption text-fg-faint">{t('biz.meta', { name: def.name, sector: sec.name, tier: def.tier, tierName, city: cityName })}</p>
+          <p className="text-caption text-fg-faint">{t('biz.meta', { name: def.name, sector: bizSectorLabel(sec.id, sec.name), tier: def.tier, tierName, city: cityName })}</p>
         </div>
         {ev && <Chip className={ev.good ? 'border-gain/50 text-gain' : 'border-loss/50 text-loss'}>{t(`biz.event.${ev.id}.title`)} · {ev.mult >= 1 ? '+' : '−'}{Math.round(Math.abs(ev.mult - 1) * 100)}%</Chip>}
       </div>

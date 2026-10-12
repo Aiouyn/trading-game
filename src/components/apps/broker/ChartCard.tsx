@@ -1,9 +1,10 @@
 'use client';
 
-import { earningsInfo, estimateFill, liquidationPrice, REGIONS, sectorName, type OrderType, type Side } from '@/engine';
+import { earningsInfo, estimateFill, liquidationPrice, REGIONS, type OrderType, type Side } from '@/engine';
+import { sectorLabel } from '@/game/sectorLabel';
 import { CHART_RANGES, INTERVALS, candleRealSeconds, intervalsFor, type ChartRange, type Interval } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
-import { money, price, qty as fmtQty, signedChange, signedMoney, signedPct, tone, toneText } from '@/game/format';
+import { fmtNumber, money, pctUnit, price, qty as fmtQty, signedChange, signedMoney, signedPct, tone, toneText, dec } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { type MouseEvent, useEffect, useState } from 'react';
@@ -42,7 +43,7 @@ function levelFormat(): LevelFormat {
 /** The real time a candle takes, as the caption and the tooltip say it: seconds under a minute, minutes after. */
 export function realTimeText(seconds: number): string {
   if (seconds < 60) return t('broker.real.seconds', { n: Math.round(seconds) });
-  return t('broker.real.minutes', { n: (seconds / 60).toFixed(1) });
+  return t('broker.real.minutes', { n: dec(seconds / 60, 1) });
 }
 
 /**
@@ -199,7 +200,7 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
           <div className="flex flex-wrap items-center gap-2">
             <span className="num text-body font-semibold text-fg" data-testid="chart-ticker">{info.id}</span>
             <span className="truncate text-small text-fg-muted">{info.name}</span>
-            <Chip>{info.cls === 'index' ? t('broker.index') : sectorName(info.sector)}</Chip>
+            <Chip>{info.cls === 'index' ? t('broker.index') : sectorLabel(info.sector)}</Chip>
             {region && <Chip title={region.name}>{region.flag}</Chip>}
             {info.halted && <Chip className="border-warn/60 text-warn">{t('broker.halted')}</Chip>}
             {info.delisted && <Chip className="border-loss/60 text-loss">{t('broker.delisted')}</Chip>}
@@ -310,14 +311,14 @@ export function IndicatorMenu() {
 /** How far a price sits from the current price, as a whole percent of the current price (27900 for 280 times it). */
 export function distancePct(level: number, now: number): string {
   if (!(now > 0)) return '';
-  return `${Math.round(Math.abs(level / now - 1) * 100).toLocaleString('en-US')}%`;
+  return `${fmtNumber(Math.round(Math.abs(level / now - 1) * 100), 0, 0)}${pctUnit()}`;
 }
 
 export function compactNum(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
-  return n.toFixed(n < 10 ? 2 : 0);
+  if (n >= 1e9) return `${dec(n / 1e9, 2)}B`;
+  if (n >= 1e6) return `${dec(n / 1e6, 2)}M`;
+  if (n >= 1e3) return `${dec(n / 1e3, 1)}k`;
+  return dec(n, n < 10 ? 2 : 0);
 }
 
 /** A report inside the next ten game days, shown on the chart header (never for an index). */

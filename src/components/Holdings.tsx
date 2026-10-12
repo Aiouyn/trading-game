@@ -3,7 +3,7 @@
 import { commission, optionQuote, parseContract, portfolio, type WorldConfig, type WorldState } from '@/engine';
 import { LICENSES, rankIndex } from '@/content/lifestyle';
 import { sparkline } from '@/game/history';
-import { price, pct, qty, signedMoney, signedPct, tone, toneText, money } from '@/game/format';
+import { price, pct, qty, signedMoney, signedPct, tone, toneText, money, dec } from '@/game/format';
 import { assetDefOf, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
@@ -205,7 +205,7 @@ function OptionRows({ rows, world, config, onClose }: { rows: [string, { qty: nu
                 ticker: c.underlying, strike: c.strike, kind: t(c.kind === 'call' ? 'holdings.call' : 'holdings.put'), day: c.expiryDay + 1, qty: pos.qty,
               })}
             </span>
-            <span className="num text-fg-muted">{t('holdings.bid', { p: price(q.bid), d: q.daysLeft.toFixed(1) })}</span>
+            <span className="num text-fg-muted">{t('holdings.bid', { p: price(q.bid), d: dec(q.daysLeft, 1) })}</span>
             <span className={`num ${toneText[tone(pnl)]}`}>{signedMoney(pnl)}</span>
             {dead
               ? <span className="text-caption text-loss" data-testid={`option-delisted-${id}`}>{t(isDelisted(config, c.underlying) ? 'holdings.optionDelisted' : 'holdings.optionUntradable', { ticker: c.underlying })}</span>
@@ -236,7 +236,7 @@ export function OpenOrders({ assetId, bare = false }: { assetId?: string; bare?:
             <span className="text-fg-muted">{typeLabel(o.type)}{o.ocoGroup ? t('holdings.bracketTag') : ''}</span>
             {o.limitPrice !== undefined && <span className="num text-fg-muted">{t('holdings.limitAt', { p: price(o.limitPrice) })}</span>}
             {o.stopPrice !== undefined && <span className="num text-fg-muted">{t('holdings.stopAt', { p: price(o.stopPrice) })}</span>}
-            {o.type === 'trailing' && <span className="num text-fg-muted">{t('holdings.trail', { pct: (o.trailPct! * 100).toFixed(1), p: price(o.trailRef ?? 0) })}</span>}
+            {o.type === 'trailing' && <span className="num text-fg-muted">{t('holdings.trail', { pct: dec(o.trailPct! * 100, 1), p: price(o.trailRef ?? 0) })}</span>}
             {o.filledQty > 0 && <span className="num text-brass">{t('holdings.filled', { filled: qty(o.filledQty), qty: qty(o.qty) })}</span>}
             <span className="text-caption text-fg-faint">{o.tif === 'day' ? t('broker.day') : t('broker.gtcShort')}</span>
             <button type="button" onClick={() => act({ type: 'order.cancel', orderId: o.id })} className="ml-auto text-caption text-fg-muted underline hover:text-fg" data-testid="cancel-order">

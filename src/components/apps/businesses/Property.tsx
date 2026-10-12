@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { CITIES, districtAssetId } from '@/engine';
 import { PROPERTY_TYPE_BY_ID, PROPERTY_TYPES, rankIndex } from '@/content/lifestyle';
-import { compactMoney, money, signedPct } from '@/game/format';
+import { compactMoney, money, signedPct, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { maxLtvFor, priceAt, propertyDeposit, propertySaleNet, renovateCost } from '@/world/assets';
 import { t } from '@/i18n';
@@ -40,7 +40,7 @@ export function PropertyMarket() {
           <input type="range" min={0} max={maxLtv * 100} step={5} value={ltv * 100} disabled={!maxLtv} onChange={(e) => setLtv(Number(e.target.value) / 100)} data-testid="ltv" aria-label={t('prop.mortgage')} />
           <span className="num w-10 text-fg">{Math.round(ltv * 100)}%</span>
         </label>
-        <span className="text-caption text-fg-faint">{maxLtv ? t('prop.rate', { rate: (me.mortgageRate * 100).toFixed(2) }) : t('prop.mortgageLocked', { rank: rankName('R1') })}</span>
+        <span className="text-caption text-fg-faint">{maxLtv ? t('prop.rate', { rate: dec(me.mortgageRate * 100, 2) }) : t('prop.mortgageLocked', { rank: rankName('R1') })}</span>
       </div>
       <p className="text-small text-fg-muted">{t(`city.blurb.${city.id}`)}</p>
       {pick && (() => {
@@ -84,7 +84,7 @@ export function PropertyMarket() {
                 <h3 className="font-serif text-title">{d.name}</h3>
                 <p className="text-caption text-fg-faint">{t('prop.district', { blurb: t(`district.blurb.${d.id}`), tier: t(`prop.tier.${d.tier}`) })}</p>
               </div>
-              <span className="num text-small text-fg-muted">{t('prop.index', { idx: idx.toFixed(1) })} <span className={idx >= 100 ? 'text-gain' : 'text-loss'}>{signedPct(idx / 100 - 1)}</span></span>
+              <span className="num text-small text-fg-muted">{t('prop.index', { idx: dec(idx, 1) })} <span className={idx >= 100 ? 'text-gain' : 'text-loss'}>{signedPct(idx / 100 - 1)}</span></span>
             </div>
             <div className="mt-3 grid gap-2 @md:grid-cols-2 @4xl:grid-cols-3">
               {types.map((ty) => {
@@ -100,8 +100,8 @@ export function PropertyMarket() {
                     <p className="mt-1 flex-1 text-caption text-fg-faint">{t(`ptype.blurb.${ty.id}`)}</p>
                     <div className="num mt-2 flex flex-wrap justify-between gap-x-2 text-caption">
                       <span className="text-fg">{compactMoney(price)}</span>
-                      <span className="text-gain">{t('prop.rent', { x: (ty.rentYield * 100).toFixed(1) })}</span>
-                      <span className="text-fg-faint">{t('prop.upkeep', { x: (ty.upkeep * 100).toFixed(1) })}</span>
+                      <span className="text-gain">{t('prop.rent', { x: dec(ty.rentYield * 100, 1) })}</span>
+                      <span className="text-fg-faint">{t('prop.upkeep', { x: dec(ty.upkeep * 100, 1) })}</span>
                     </div>
                     {locked ? (
                       <p className="mt-2 text-caption text-fg-faint" data-testid={`prop-unlock-${d.id}-${ty.id}`}>{cityLocked ? t('common.unlocksAt', { rank: rankName(city.unlockRank) }) : unlockLine(ty.rank, me.player.netWorthPeak).text}</p>
@@ -141,13 +141,13 @@ export function OwnedProperty({ onBrowse }: { onBrowse: () => void }) {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <h3 className="font-serif text-title">{ty.name}</h3>
-                <p className="text-caption text-fg-faint">{t('prop.where', { district: d.name, city: city.name })}{p.improvement > 1.01 ? ` · ${t('prop.renovatedX', { x: p.improvement.toFixed(2) })}` : ''}</p>
+                <p className="text-caption text-fg-faint">{t('prop.where', { district: d.name, city: city.name })}{p.improvement > 1.01 ? ` · ${t('prop.renovatedX', { x: dec(p.improvement, 2) })}` : ''}</p>
               </div>
               {home ? <BrassChip>{t('prop.yourHome')}</BrassChip> : <Chip>{t('prop.rented')}</Chip>}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-3 @md:grid-cols-4">
               <Stat label={t('prop.stat.value')} value={compactMoney(p.value)} sub={<span className={gain >= 0 ? 'text-gain' : 'text-loss'}>{signedPct(gain)}</span>} />
-              <Stat label={t('prop.stat.mortgage')} value={compactMoney(p.mortgage)} sub={p.mortgage ? `${(p.mortgageRate * 100).toFixed(2)}%` : undefined} />
+              <Stat label={t('prop.stat.mortgage')} value={compactMoney(p.mortgage)} sub={p.mortgage ? `${dec(p.mortgageRate * 100, 2)}%` : undefined} />
               <Stat label={t('prop.stat.equity')} value={compactMoney(p.value - p.mortgage)} />
               <Stat label={t('prop.stat.rent')} value={compactMoney(p.rentEarned)} />
             </div>

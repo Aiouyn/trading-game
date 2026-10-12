@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { assetIndex, buyingPower, commission, estimateFill, halfSpread, marginConfig, marginRuleApplies, mayShort, tradingConfig, type OrderType, type Side } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { QUICK_ENTER, SIMPLE_MODE } from '@/content/learning';
-import { money, price, qty as fmtQty, signedMoney, signedPct } from '@/game/format';
+import { money, price, qty as fmtQty, signedMoney, signedPct, dec } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { capBaseOf, openingNotionalOf } from '@/world/orders';
@@ -336,13 +336,13 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   // The cost summary (spec 1.4): the fee at its rate and its minimum, the spread, the round trip and the break-even.
   const feeTable = tradingConfig(world).fees;
   const feeRule = feeTable[def.assetClass] ?? feeTable.stock;
-  const feeText = t('broker.feeMin', { rate: `${(feeRule.rate * 100).toFixed(2)}%`, min: money(feeRule.min) });
+  const feeText = t('broker.feeMin', { rate: `${dec(feeRule.rate * 100, 2)}%`, min: money(feeRule.min) });
   const summary = tradeSummary({
     side, qty: qtyN, price: d.price, mid: ctx.mid, fee, halfSpreadFrac: halfSpread(world, ctx.idx),
     cash: cashNow, bp, margin, shorting, total, notional,
   });
   const cashAfter = summary.cashAfter;
-  const spreadText = `${money(summary.spread)} (${(summary.spreadPct * 100).toFixed(2)}%)`;
+  const spreadText = `${money(summary.spread)} (${dec(summary.spreadPct * 100, 2)}%)`;
   // a take-profit or stop-loss shows its move on the position, once it is typed (the same rule the chart's lines use)
   const legMove = (v: string) => {
     const n = parseDecimal(v);
@@ -585,7 +585,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                 {shorting && (
                   <div className={dense ? 'mt-0.5 grid grid-cols-2 gap-x-3' : 'mt-1 grid gap-1'} data-testid="order-short-terms">
                     <KV className="!py-0" k={t('broker.collateral')} v={<span className="text-fg-muted" data-testid="order-collateral">{money(shortCollateral)}</span>} />
-                    <KV className="!py-0" k={t('broker.borrowFee')} v={<span className="text-fg-muted" data-testid="order-borrow-fee">{t('broker.borrowFee.rate', { rate: (borrowRate * 100).toFixed(2) })}</span>} />
+                    <KV className="!py-0" k={t('broker.borrowFee')} v={<span className="text-fg-muted" data-testid="order-borrow-fee">{t('broker.borrowFee.rate', { rate: dec(borrowRate * 100, 2) })}</span>} />
                   </div>
                 )}
                 {shorting && <p className="mt-1 text-caption text-warn">{t('broker.shortWarn')}</p>}

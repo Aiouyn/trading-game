@@ -6,7 +6,7 @@
 // number comes from the founder view; the screen only formats it and draws the lines.
 import { useState } from 'react';
 import { COMPANY } from '@/content/company';
-import { compactMoney, money } from '@/game/format';
+import { compactMoney, money, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Button, Segmented, Stat } from '@/components/ui';
@@ -128,7 +128,7 @@ function DecisionCard({ co }: { co: CompanyFounderView }) {
             <Figure label={t('company.ui.decision.odds')} value={t('company.ui.decision.oddsRange', { low: wholePct(chosen.pLow), high: wholePct(chosen.pHigh) })} testId="company-decision-odds" />
             <Figure
               label={t('company.ui.rd.gainLabel')}
-              value={t('company.ui.decision.gainValues', { bear: chosen.gainPoints[0].toFixed(1), base: chosen.gainPoints[1].toFixed(1), bull: chosen.gainPoints[2].toFixed(1) })}
+              value={t('company.ui.decision.gainValues', { bear: dec(chosen.gainPoints[0], 1), base: dec(chosen.gainPoints[1], 1), bull: dec(chosen.gainPoints[2], 1) })}
               note={t('company.ui.decision.gainCaption')}
               testId="company-decision-gain"
             />

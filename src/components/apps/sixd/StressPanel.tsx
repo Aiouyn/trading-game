@@ -2,7 +2,7 @@
 
 // The Portfolio stress test (6D.6): the book under the four world-event kinds at each kind's published typical move, by asset
 // class. It is labelled illustrative and never shows the hidden schedule of any event.
-import { money } from '@/game/format';
+import { money, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Card, CardHeader, Chip } from '@/components/ui';
@@ -31,7 +31,7 @@ export function StressPanel() {
                 <tr key={row.kind} data-testid={`stress-row-${row.kind}`} className="text-fg">
                   <td className="text-left">{t(`sixd.stress.kind.${row.kind}`)}</td>
                   <td className={`text-right ${row.delta < 0 ? 'text-loss' : 'text-gain'}`}>{money(row.delta)}</td>
-                  <td className="text-right">{(row.pct * 100).toFixed(1)}%</td>
+                  <td className="text-right">{dec(row.pct * 100, 1)}%</td>
                 </tr>
               ))}
             </tbody>

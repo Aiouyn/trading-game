@@ -5,7 +5,7 @@
 // first and spent only from the CommitBar (review, then confirm).
 import { useState } from 'react';
 import { LIFE_CATEGORIES, LIFE_ITEMS, RANKS, itemPrestige, rankIndex, resaleValue, type LifeCategory } from '@/content/lifestyle';
-import { compactMoney, money, qty } from '@/game/format';
+import { compactMoney, money, qty, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { isAppUnlocked } from '@/shell/ctx';
@@ -110,7 +110,7 @@ function Shop() {
               <div className="num mt-3 flex flex-wrap justify-between gap-x-2 text-caption">
                 <span className="text-fg">{money(i.price)}</span>
                 <span className="text-brass-hi">{t('boutique.pp', { n: Math.round(itemPrestige(i, 0)) })}</span>
-                <span className="text-fg-faint">{i.upkeep ? t('boutique.upkeep', { x: (i.upkeep * 100).toFixed(1) }) : t('boutique.noUpkeep')}</span>
+                <span className="text-fg-faint">{i.upkeep ? t('boutique.upkeep', { x: dec(i.upkeep * 100, 1) }) : t('boutique.noUpkeep')}</span>
               </div>
               {unlock ? (
                 <p className="mt-3 text-caption text-fg-faint" data-testid={`item-unlock-${i.id}`}>{unlock.text}</p>
@@ -124,7 +124,7 @@ function Shop() {
           );
         })}
       </div>
-      <p className="text-caption text-fg-faint">{t('boutique.prestigeNote', { index: (coll).toFixed(2) })}</p>
+      <p className="text-caption text-fg-faint">{t('boutique.prestigeNote', { index: dec(coll, 2) })}</p>
     </div>
   );
 }
@@ -158,7 +158,7 @@ function Collection({ onShop }: { onShop: () => void }) {
         return (
           <Card key={o.uid} className="p-4">
             <div className="flex items-start justify-between gap-2"><h3 className="text-body font-semibold">{t(`lux.name.${i.id}`)}</h3><span className="num text-caption text-brass-hi">{t('boutique.pp', { n: Math.round(itemPrestige(i, age)) })}</span></div>
-            <p className="num mt-1 text-caption text-fg-faint">{t('boutique.paid', { paid: money(o.paid), resale: money(v), days: age.toFixed(1) })}</p>
+            <p className="num mt-1 text-caption text-fg-faint">{t('boutique.paid', { paid: money(o.paid), resale: money(v), days: dec(age, 1) })}</p>
             {i.cls !== 'consumed' ? (
               <div className="mt-3"><ConfirmButton confirm={t('boutique.sellFor', { amount: compactMoney(v) })} onConfirm={() => act({ type: 'life.sell', uid: o.uid })}>{t('common.sell')}</ConfirmButton></div>
             ) : <p className="mt-3 text-caption text-fg-faint">{t('boutique.experience')}</p>}

@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { buyingPower } from '@/engine';
 import { LICENSES, licenseFor, rankIndex } from '@/content/lifestyle';
-import { compactMoney, money } from '@/game/format';
+import { compactMoney, money, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { DEALS_RANK } from '@/world/social';
 import type { Command, Deal } from '@/world/types';
@@ -77,7 +77,7 @@ export function BankApp() {
           <ul className="mt-2 flex flex-col">
             {mortgages.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-2 py-3 text-small" data-testid={`bank-mortgage-${p.id}`}>
-                <span className="min-w-0 text-fg-muted">{t('bank.mortgage.line', { value: compactMoney(p.value), rate: (p.mortgageRate * 100).toFixed(2) })}</span>
+                <span className="min-w-0 text-fg-muted">{t('bank.mortgage.line', { value: compactMoney(p.value), rate: dec(p.mortgageRate * 100, 2) })}</span>
                 <span className="flex items-center gap-3">
                   <span className="num text-fg">{money(p.mortgage)}</span>
                   <SpendReview size="sm" testId={`bank-repay-mortgage-${p.id}`} label={t('bank.mortgage.repay')} title={t('bank.mortgage.repay')} rows={spendRows(p.mortgage, cash)} disabled={cash <= 0} onConfirm={() => run({ type: 'prop.repay', propId: p.id, amount: p.mortgage }, t('bank.mortgage.repaid'))} />
@@ -103,10 +103,10 @@ export function BankApp() {
             <ul className="mt-2 flex flex-col">
               {offersIn.map((d) => (
                 <li key={d.id} className="flex flex-col gap-2 border-t border-ink-2 py-3 text-small" data-testid={`bank-offer-${d.id}`}>
-                  <span className="text-fg">{t('bank.offer.line', { from: name(d.fromId), amount: money(d.amount), rate: (d.rate * 100).toFixed(1), days: d.termDays })}</span>
+                  <span className="text-fg">{t('bank.offer.line', { from: name(d.fromId), amount: money(d.amount), rate: dec(d.rate * 100, 1), days: d.termDays })}</span>
                   {d.note && <span className="text-caption text-fg-faint">{t('bank.offer.note', { note: d.note })}</span>}
                   <span className="flex gap-2">
-                    <SpendReview variant="brass" testId={`bank-accept-${d.id}`} label={t('bank.offer.accept')} title={t('bank.offer.accept')} rows={[{ label: t('commit.amount'), value: money(d.amount) }, { label: t('commit.rate'), value: `${(d.rate * 100).toFixed(1)}%` }]} onConfirm={() => run({ type: 'deal.respond', dealId: d.id, accept: true }, t('bank.offer.accepted'))} />
+                    <SpendReview variant="brass" testId={`bank-accept-${d.id}`} label={t('bank.offer.accept')} title={t('bank.offer.accept')} rows={[{ label: t('commit.amount'), value: money(d.amount) }, { label: t('commit.rate'), value: `${dec(d.rate * 100, 1)}%` }]} onConfirm={() => run({ type: 'deal.respond', dealId: d.id, accept: true }, t('bank.offer.accepted'))} />
                     <Button size="sm" onClick={() => run({ type: 'deal.respond', dealId: d.id, accept: false }, t('bank.offer.declined'))} testId={`bank-decline-${d.id}`}>{t('bank.offer.decline')}</Button>
                   </span>
                 </li>
@@ -123,7 +123,7 @@ export function BankApp() {
             <ul className="mt-2 flex flex-col">
               {lent.map((d) => (
                 <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-2 py-3 text-small">
-                  <span className="text-fg-muted">{t('bank.lent.line', { to: name(d.toId), rate: (d.rate * 100).toFixed(1) })}</span>
+                  <span className="text-fg-muted">{t('bank.lent.line', { to: name(d.toId), rate: dec(d.rate * 100, 1) })}</span>
                   <span className="num text-fg">{money(d.outstanding ?? d.amount)}</span>
                   <span className="text-caption text-fg-faint">{t('bank.matures', { when: ticksLabel((d.startTick ?? tick) + d.termDays * TPD - tick) })}</span>
                 </li>
@@ -165,7 +165,7 @@ function OwedRow({ d, from, tick, cash }: { d: Deal; from: string; tick: number;
   return (
     <li className="flex flex-col gap-2 border-t border-ink-2 py-3 text-small" data-testid={`bank-loan-${d.id}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-fg-muted">{t('bank.owed.line', { from, rate: (d.rate * 100).toFixed(1) })}</span>
+        <span className="text-fg-muted">{t('bank.owed.line', { from, rate: dec(d.rate * 100, 1) })}</span>
         <span className="num text-fg">{money(owed)}</span>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 text-caption text-fg-faint">

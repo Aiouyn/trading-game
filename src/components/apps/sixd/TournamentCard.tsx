@@ -9,6 +9,7 @@ import { t } from '@/i18n';
 import { Button, Card, CardHeader, Chip } from '@/components/ui';
 import { refusalVars, sixdRefusal, type SixdRefusal } from './copy';
 import { TradeLogViewer } from './TradeLogViewer';
+import { dec } from '@/game/format';
 
 export function TournamentCard() {
   const me = useGame((s) => s.me)!;
@@ -64,8 +65,8 @@ export function TournamentCard() {
                   {latest.board.slice(0, 12).map((row) => (
                     <tr key={`${row.kind}-${row.handle}`} className={row.mine ? 'text-brass-hi' : 'text-fg'} data-testid="tournament-row">
                       <td className="truncate text-left">{row.handle}</td>
-                      <td className="text-right">{row.sharpe.toFixed(2)}</td>
-                      <td className="text-right">{(row.totalReturn * 100).toFixed(1)}%</td>
+                      <td className="text-right">{dec(row.sharpe, 2)}</td>
+                      <td className="text-right">{dec(row.totalReturn * 100, 1)}%</td>
                       <td className="text-right">{row.qualified ? t('sixd.tn.qualified') : t('sixd.tn.disqualified')}</td>
                     </tr>
                   ))}

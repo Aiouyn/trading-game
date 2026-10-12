@@ -6,7 +6,7 @@
 // click opens the Wire), the notification center keeps it, and the Wire shows the latest close at its top (CloseBrief).
 // The announcement waits behind the digest, a rank-up, the trade ticket, the event panel and any pending order.
 import { useEffect, useRef } from 'react';
-import { sectorName } from '@/engine';
+import { sectorLabel } from '@/game/sectorLabel';
 import { money, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { useGame, type GameStore } from '@/game/store';
 import { t, tm, useLocale } from '@/i18n';
@@ -177,8 +177,8 @@ function CloseBody({ card }: { card: DailyClose }) {
       {card.sectors && (
         <p className="text-caption text-fg-muted" data-testid="close-sectors">
           {t('close.sectors', {
-            best: sectorName(card.sectors.best.sector), bestPct: signedPct(card.sectors.best.pct),
-            worst: sectorName(card.sectors.worst.sector), worstPct: signedPct(card.sectors.worst.pct),
+            best: sectorLabel(card.sectors.best.sector), bestPct: signedPct(card.sectors.best.pct),
+            worst: sectorLabel(card.sectors.worst.sector), worstPct: signedPct(card.sectors.worst.pct),
           })}
         </p>
       )}

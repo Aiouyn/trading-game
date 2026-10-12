@@ -4,7 +4,7 @@
 // against rivals. Calm by default: red appears only when your defense flags an entry, and Lockdown is the
 // only loud control. Every action shows its cost before you confirm (bible 03, 04 section 10.5).
 import { useState } from 'react';
-import { compactMoney, money, pct } from '@/game/format';
+import { compactMoney, money, pct, dec } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import type { SessionStrength } from '@/world/types';
@@ -181,7 +181,7 @@ function Operations() {
               </button>
             ))}
           </div>
-          <Select label={t('security.ops.model')} value={modelId} onChange={(v) => setModel(v)} options={models.length ? models.map((m) => ({ value: m.id, label: t('security.ops.modelLine', { name: m.name, mcs: m.mcs.toFixed(0) }) })) : [{ value: '', label: t('security.ops.noModel') }]} />
+          <Select label={t('security.ops.model')} value={modelId} onChange={(v) => setModel(v)} options={models.length ? models.map((m) => ({ value: m.id, label: t('security.ops.modelLine', { name: m.name, mcs: dec(m.mcs, 0) }) })) : [{ value: '', label: t('security.ops.noModel') }]} />
           <button type="button" aria-pressed={canary} data-testid="canary" onClick={() => setCanary(!canary)} className={`rounded-md border p-2 text-left text-small ${canary ? 'border-brass/60 bg-ink-2' : 'border-ink-3'}`}>
             <div className="font-semibold">{t('security.ops.canary')}</div>
             <div className="text-caption text-fg-faint">{t('security.ops.canary.text')}</div>

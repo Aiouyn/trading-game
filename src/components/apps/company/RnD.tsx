@@ -6,7 +6,7 @@
 // engine, which refuses it (projectBusy), and the refusal is shown inline.
 import { useState } from 'react';
 import { COMPANY, PHARMA_GATES } from '@/content/company';
-import { money, pct } from '@/game/format';
+import { money, pct, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { NumberField, Select, SpendReview, spendRows, TextField } from '@/components/ui';
@@ -53,7 +53,7 @@ export function RnD({ co }: { co: CompanyFounderView }) {
                   {t('company.ui.rd.odds', { low: Math.round(p.pBand[0] * 100), high: Math.round(p.pBand[1] * 100) })}
                 </p>
                 <p className="text-caption text-fg-muted" data-testid="company-project-gain">
-                  {t('company.ui.rd.gain', { bear: p.gainPoints[0].toFixed(1), base: p.gainPoints[1].toFixed(1), bull: p.gainPoints[2].toFixed(1) })}
+                  {t('company.ui.rd.gain', { bear: dec(p.gainPoints[0], 1), base: dec(p.gainPoints[1], 1), bull: dec(p.gainPoints[2], 1) })}
                 </p>
                 {p.gateOdds.length > 0 ? (
                   <div className="mt-2" data-testid="company-project-gates">
@@ -82,7 +82,7 @@ export function RnD({ co }: { co: CompanyFounderView }) {
           <ul className="flex flex-col gap-2">
             {patented.flatMap((p) => p.patents.map((pt, i) => (
               <li key={`${p.id}-${i}`} className="text-small text-fg" data-testid="company-patent">
-                {t('company.ui.rd.patentRow', { product: p.name, points: pt.points.toFixed(1), until: pt.until })}
+                {t('company.ui.rd.patentRow', { product: p.name, points: dec(pt.points, 1), until: pt.until })}
               </li>
             )))}
           </ul>

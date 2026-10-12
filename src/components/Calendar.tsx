@@ -7,6 +7,7 @@ import { useGame } from '@/game/store';
 import { openFromShell } from './os/openApp';
 import { headlineText, kindLabel } from './os/eventText';
 import { Chip } from './ui';
+import { dec } from '@/game/format';
 
 /** A shared empty list, so a selector that has no calendar returns the same value each time. */
 const NO_ITEMS: never[] = [];
@@ -73,9 +74,9 @@ export function CalendarView() {
       </div>
       {r && (
         <p className="num text-caption text-fg-muted" data-testid="calendar-macro">
-          {t('calendar.policy', { rate: (r.policy * 100).toFixed(2), expect: expectText(r.expectedMove) })}
+          {t('calendar.policy', { rate: dec(r.policy * 100, 2), expect: expectText(r.expectedMove) })}
           {' · '}
-          {t('calendar.curve', { y2: (r.y2 * 100).toFixed(2), y10: (r.y10 * 100).toFixed(2), y30: (r.y30 * 100).toFixed(2) })}
+          {t('calendar.curve', { y2: dec(r.y2 * 100, 2), y10: dec(r.y10 * 100, 2), y30: dec(r.y30 * 100, 2) })}
           {r.y2 > r.y10 ? ` · ${t('calendar.inverted')}` : ''}
         </p>
       )}

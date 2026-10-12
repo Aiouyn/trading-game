@@ -7,6 +7,7 @@ import { clockParts } from '@/game/clock';
 import { hasKey, t } from '@/i18n';
 import { TPD } from '@/world/core';
 import type { TradeLogRecord } from '@/world/types';
+import { dec } from '@/game/format';
 
 export const TRADE_LOG_ROWS = 200;
 
@@ -67,7 +68,7 @@ export function TradeLogTable({ trades, index }: { trades: TradeLogRecord[]; ind
               <td>{tr.assetId}</td>
               <td>{hasKey(`sixd.tn.logs.side.${tr.side}`) ? t(`sixd.tn.logs.side.${tr.side}`) : tr.side}</td>
               <td className="text-right">{tr.qty}</td>
-              <td className="text-right">{tr.price.toFixed(2)}</td>
+              <td className="text-right">{dec(tr.price, 2)}</td>
             </tr>
           ))}
         </tbody>

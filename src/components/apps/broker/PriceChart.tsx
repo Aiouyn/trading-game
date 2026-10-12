@@ -9,7 +9,7 @@ import {
 import { useGame } from '@/game/store';
 import { axisTimeLabel, barTimeLabel, barsFor, rangeIsIntraday, type Bar, type ChartRange, type Interval } from '@/game/history';
 import { INDICATORS, bollinger, ema, latestValues, rsi, sma, vwap, type IndicatorId } from '@/game/indicators';
-import { price as fmtPrice, signedPct } from '@/game/format';
+import { price as fmtPrice, signedPct, dec } from '@/game/format';
 import { t } from '@/i18n';
 import { type ChartLevel, type PriceScale, priceOfY, roundPrice, yOfPrice } from './chartLevels';
 import { LevelLayer } from './LevelLayer';
@@ -244,7 +244,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     const c = chart.current;
     if (!c) return;
     c.priceScale('right').applyOptions({ mode: percent ? PriceScaleMode.Percentage : PriceScaleMode.Normal });
-    c.applyOptions({ localization: { priceFormatter: (v: number) => (percent ? `${v.toFixed(2)}%` : fmtPrice(v)) } });
+    c.applyOptions({ localization: { priceFormatter: (v: number) => (percent ? `${dec(v, 2)}%` : fmtPrice(v)) } });
     probe.current();
   }, [percent]);
 
@@ -557,7 +557,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
 function legendText(id: IndicatorId, v: number[] | undefined): string {
   if (!v || v.length === 0) return '–';
   if (id === 'bb') return `${fmtPrice(v[0]!)} / ${fmtPrice(v[1] ?? v[0]!)}`;
-  if (id === 'rsi') return v[0]!.toFixed(1);
+  if (id === 'rsi') return dec(v[0]!, 1);
   return fmtPrice(v[0]!);
 }
 

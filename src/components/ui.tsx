@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from 'react';
-import { money, signedMoney, signedPct, tone, toneText } from '@/game/format';
+import { money, signedMoney, signedPct, tone, toneText, dec } from '@/game/format';
 import { t } from '@/i18n';
 
 /** The round glyph on the narrow info button (UX stage 6, item 7). */
@@ -564,9 +564,9 @@ export function ConfirmButton({ children, confirm, onConfirm, variant = 'outline
 export function ticksLabel(ticks: number, tpd = 720): string {
   if (ticks <= 0) return t('time.now');
   const days = ticks / tpd;
-  if (days >= 1) return t('time.days', { n: days.toFixed(days >= 10 ? 0 : 1) });
+  if (days >= 1) return t('time.days', { n: dec(days, days >= 10 ? 0 : 1) });
   const min = Math.round((ticks * 5) / 60);
-  return min >= 60 ? t('time.hours', { n: (min / 60).toFixed(1) }) : t('time.minutes', { n: Math.max(1, min) });
+  return min >= 60 ? t('time.hours', { n: dec(min / 60, 1) }) : t('time.minutes', { n: Math.max(1, min) });
 }
 
 /** The three rows every spend review shows: what it costs, the cash now, and the cash after it. */

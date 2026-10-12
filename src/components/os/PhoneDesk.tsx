@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
 import { clockParts } from '@/game/clock';
-import { compactMoney, money, signedMoney, signedPct, tone, toneText } from '@/game/format';
+import { compactMoney, money, moneyParts, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { APPS, type AppId, type WinProps, SHELF_ORDER } from '@/shell/apps';
 import { phoneCanOpen } from '@/shell/phone';
 import type { Win } from '@/shell/wm';
@@ -229,9 +229,7 @@ function PhoneWidget() {
   const dayStart = me?.player.dayStart.netWorth ?? nw;
   const today = nw - dayStart;
   const todayPct = dayStart ? today / dayStart : 0;
-  const abs = Math.abs(nw);
-  const whole = Math.floor(abs).toLocaleString('en-US');
-  const cents = (abs % 1).toFixed(2).slice(1);
+  const hero = moneyParts(nw);
   const r = me?.rank;
   const pct = Math.max(0, Math.min(100, (r?.progress ?? 0) * 100));
   return (
@@ -247,7 +245,7 @@ function PhoneWidget() {
         {r && <span className="num ml-auto rounded-chip border border-brass/40 px-2 text-micro text-brass">{r.id} · {t(`rank.${r.id}`)}</span>}
       </span>
       <span className="os-widget-big block text-fg" data-testid="os-networth">
-        {nw < 0 ? '−' : ''}${whole}<small>{cents}</small>
+        {hero.prefix}{hero.whole}<small>{hero.cents}</small>{hero.suffix}
       </span>
       <span className="flex items-center justify-between gap-3">
         <span className={`num mt-1 text-small ${toneText[tone(today)]}`} title={t('shell.nw.today')}>{signedMoney(today)} {signedPct(todayPct)}</span>

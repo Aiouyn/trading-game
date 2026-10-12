@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { DATA_SOURCES, MCS_TIERS, RESEARCH, mcsTier } from '@/content/research';
 import { rankIndex } from '@/content/lifestyle';
-import { compactMoney, money, pct, qty } from '@/game/format';
+import { compactMoney, money, pct, qty, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { GPU_TIERS } from '@/world/core';
 import { reserveCost, trainingPlan } from '@/world/lab';
@@ -36,7 +36,7 @@ export function Research() {
                 <Card key={r.id} className={`flex flex-col p-4 ${have ? 'border-brass/40' : ''}`} data-testid={`research-${r.id}`}>
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="text-body font-semibold">{t(`ai.name.${r.id}`)}</h3>
-                    {have ? <BrassChip>{t('lab.done')}</BrassChip> : <Chip>×{r.aMult.toFixed(2)}</Chip>}
+                    {have ? <BrassChip>{t('lab.done')}</BrassChip> : <Chip>×{dec(r.aMult, 2)}</Chip>}
                   </div>
                   <p className="mt-1 flex-1 text-small text-fg-muted">{t(`ai.blurb.${r.id}`)}</p>
                   {r.unlocks && <p className="mt-1 text-caption text-brass">{t('lab.unlocks', { what: t(`ai.unlock.${r.id}`) })}</p>}
@@ -170,9 +170,9 @@ export function Train() {
         <div className="rounded-md border border-ink-3 p-3 text-small">
           <div className="flex justify-between gap-2"><span className="text-fg-muted" title={t('lab.train.pfTip')}>{t('lab.train.compute')}</span><span className="num" title={t('lab.train.pfTip')}>{t('lab.train.pf', { n: qty(Math.round(pflop)) })}</span></div>
           <div className="flex justify-between gap-2"><span className="text-fg-muted" title={t('lab.train.dquTip')}>{t('lab.train.data')}</span><span className="num" title={t('lab.train.dquTip')}>{t('lab.train.dqu', { n: qty(Math.round(dqu)) })}</span></div>
-          <div className="flex justify-between gap-2"><span className="text-fg-muted">{t('lab.train.duration')}</span><span className="num">{t('lab.train.days', { x: days.toFixed(1) })}</span></div>
+          <div className="flex justify-between gap-2"><span className="text-fg-muted">{t('lab.train.duration')}</span><span className="num">{t('lab.train.days', { x: dec(days, 1) })}</span></div>
           <div className="flex justify-between gap-2"><span className="text-fg-muted">{t('lab.train.failure')}</span><span className="num text-warn">{pct(fail)}</span></div>
-          <div className="mt-2 flex justify-between gap-2 border-t border-ink-2 pt-2"><span className="font-semibold" title={t('lab.train.mcsTip')}>{t('lab.train.expected')}</span><span className="num font-semibold text-brass-hi">{expected.toFixed(0)} · {tier.name}</span></div>
+          <div className="mt-2 flex justify-between gap-2 border-t border-ink-2 pt-2"><span className="font-semibold" title={t('lab.train.mcsTip')}>{t('lab.train.expected')}</span><span className="num font-semibold text-brass-hi">{dec(expected, 0)} · {tier.name}</span></div>
           {dqu < pflop * 0.5 && <p className="mt-2 text-caption text-warn">{t('lab.train.starved')}</p>}
         </div>
       </div>
@@ -194,7 +194,7 @@ export function Models({ onTrain }: { onTrain: () => void }) {
       {models.map((m) => (
         <Card key={m.id} className="p-4" data-testid={`model-${m.id}`}>
           <div className="flex items-start justify-between gap-2"><h3 className="text-body font-semibold">{m.name}</h3><Chip>{t(`lab.kind.${m.kind}`)}</Chip></div>
-          <div className="num mt-2 text-title text-brass-hi">{t('lab.mcs', { x: m.mcs.toFixed(0) })}</div>
+          <div className="num mt-2 text-title text-brass-hi">{t('lab.mcs', { x: dec(m.mcs, 0) })}</div>
           <p className="text-caption text-fg-faint">{MCS_TIERS[mcsTier(m.mcs)]!.name}{m.residue > 0 ? ` · ${t('lab.residue', { pct: pct(m.residue) })}` : ''}</p>
         </Card>
       ))}
@@ -218,7 +218,7 @@ export function Bots({ onTrain }: { onTrain: () => void }) {
         <h2 className="font-serif text-title">{t('lab.bot.title')}</h2>
         <p className="mt-1 text-small text-fg-muted">{t('lab.bot.sub')}</p>
         <div className="mt-3 flex flex-col gap-2">
-          <Select label={t('lab.bot.model')} value={modelId} onChange={setModel} options={trading.length ? trading.map((m) => ({ value: m.id, label: t('lab.bot.modelLine', { name: m.name, mcs: m.mcs.toFixed(0) }) })) : [{ value: '', label: t('lab.bot.needModel') }]} />
+          <Select label={t('lab.bot.model')} value={modelId} onChange={setModel} options={trading.length ? trading.map((m) => ({ value: m.id, label: t('lab.bot.modelLine', { name: m.name, mcs: dec(m.mcs, 0) }) })) : [{ value: '', label: t('lab.bot.needModel') }]} />
           {!trading.length && <Button size="sm" variant="outline" className="self-start" onClick={onTrain} testId="lab-bot-to-train">{t('lab.bot.goTrain')}</Button>}
           <Select label={t('lab.bot.strategy')} value={strategy} onChange={setStrategy} options={STRATEGIES.map((s) => ({ value: s, label: t(`lab.strategy.${s}`) }))} />
           <TextField value={assets} onChange={setAssets} placeholder={t('lab.bot.tickers')} />

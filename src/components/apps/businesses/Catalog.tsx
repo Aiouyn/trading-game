@@ -6,7 +6,8 @@ import { useState } from 'react';
 import { CITIES } from '@/engine';
 import { BIZ_BY_ID, BIZ_SECTORS, BUSINESSES, TIERS, type BizSectorId } from '@/content/businesses';
 import { rankIndex } from '@/content/lifestyle';
-import { compactMoney, money } from '@/game/format';
+import { compactMoney, money, dec } from '@/game/format';
+import { bizSectorLabel } from '@/game/sectorLabel';
 import { useGame } from '@/game/store';
 import { CITY_DEMAND } from '@/world/assets';
 import { t } from '@/i18n';
@@ -55,7 +56,7 @@ export function Catalog({ onBought }: { onBought: () => void }) {
     <div className="flex flex-col gap-3" data-testid="catalog">
       <div className="flex flex-wrap items-center gap-2">
         <TextField value={q} onChange={setQ} placeholder={t('biz.search')} className="w-56" testId="biz-search" />
-        <Select label={t('biz.filter.sector')} value={sector} onChange={(v) => setSector(v)} options={[{ value: 'all', label: t('biz.filter.allSectors', { n: BIZ_SECTORS.length }) }, ...BIZ_SECTORS.map((s) => ({ value: s.id, label: s.name }))]} testId="biz-sector" />
+        <Select label={t('biz.filter.sector')} value={sector} onChange={(v) => setSector(v)} options={[{ value: 'all', label: t('biz.filter.allSectors', { n: BIZ_SECTORS.length }) }, ...BIZ_SECTORS.map((s) => ({ value: s.id, label: bizSectorLabel(s.id, s.name) }))]} testId="biz-sector" />
         <Select label={t('biz.filter.tier')} value={tierF} onChange={setTierF} options={[{ value: 'all', label: t('biz.filter.allTiers') }, ...TIERS.map((x) => ({ value: String(x.tier), label: `T${x.tier} ${x.name}` }))]} />
         <Select label={t('biz.filter.city')} value={city} onChange={setCity} options={cities} testId="biz-city" />
         <Select<SortKey> label={t('biz.sort.label')} value={sort} onChange={setSort} testId="biz-sort" options={[
@@ -63,7 +64,7 @@ export function Catalog({ onBought }: { onBought: () => void }) {
           { value: 'perDay', label: t('biz.sort.perDay') },
           { value: 'cost', label: t('biz.sort.cost') },
         ]} />
-        <span className="text-caption text-fg-faint">{t('biz.demand', { x: demand.toFixed(2) })} · {t('biz.count', { n: rows.length })}</span>
+        <span className="text-caption text-fg-faint">{t('biz.demand', { x: dec(demand, 2) })} · {t('biz.count', { n: rows.length })}</span>
       </div>
       {picked && (
         <div className="sticky top-0 z-10 flex flex-col gap-2">
@@ -133,7 +134,7 @@ export function Catalog({ onBought }: { onBought: () => void }) {
                 >
                   <div className="min-w-0">
                     <span className="block truncate font-semibold text-fg">{d.name}</span>
-                    <span className="block truncate text-caption text-fg-faint">{sec.name} · {t(`biz.blurb.${d.id}`)}</span>
+                    <span className="block truncate text-caption text-fg-faint">{bizSectorLabel(sec.id, sec.name)} · {t(`biz.blurb.${d.id}`)}</span>
                   </div>
                   <div className="hidden text-small @xl:block">{t('biz.tierChip', { n: d.tier })} {tier.name}</div>
                   <div className="num whitespace-nowrap text-right text-small text-fg">
@@ -142,7 +143,7 @@ export function Catalog({ onBought }: { onBought: () => void }) {
                   </div>
                   <div className="num hidden whitespace-nowrap text-right text-small text-gain @xl:block">
                     {compactMoney(inc)}
-                    <span className="block text-caption text-fg-faint">{t('biz.paybackValue', { n: payback.toFixed(1) })}</span>
+                    <span className="block text-caption text-fg-faint">{t('biz.paybackValue', { n: dec(payback, 1) })}</span>
                   </div>
                   <div className="col-span-2 @xl:col-auto @xl:justify-self-end">
                     {unlock ? (

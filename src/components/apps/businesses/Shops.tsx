@@ -4,6 +4,7 @@
 // management card per owned shop. Each change goes through the shop commands; refusals show inline with their copy.
 import { useState } from 'react';
 import { BIZ_SECTORS } from '@/content/businesses';
+import { bizSectorLabel } from '@/game/sectorLabel';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import type { ShopView } from '@/world/shopView';
@@ -11,6 +12,7 @@ import { Button, Card, EmptyNext, Select } from '@/components/ui';
 import { ShopCard } from './ShopCard';
 import { ShopRefusal } from './ShopRefusal';
 import { NO_BULK, bulkCommands, bulkPicked, bulkResult, bulkScope, type BulkResult, type BulkSettings } from './shopPlan';
+import { dec } from '@/game/format';
 
 export function ShopsTab({ onBuy }: { onBuy: () => void }) {
   const me = useGame((s) => s.me)!;
@@ -55,7 +57,7 @@ function BulkPanel({ shops }: { shops: ShopView[] }) {
   const levels = shops[0]!.levels;
   const scope = bulkScope(shops, sector);
   const sectors = [...new Set(shops.map((s) => s.sector))];
-  const sectorName = (id: string) => BIZ_SECTORS.find((s) => s.id === id)?.name ?? id;
+  const sectorName = (id: string) => bizSectorLabel(id, BIZ_SECTORS.find((s) => s.id === id)?.name ?? id);
   const keepOr = <T extends number | string>(xs: T[], fmt: (x: T) => string) => [
     { value: KEEP, label: t('shop.bulk.keep') },
     ...xs.map((x) => ({ value: String(x), label: fmt(x) })),
@@ -90,8 +92,8 @@ function BulkPanel({ shops }: { shops: ShopView[] }) {
           ]}
           testId="shops-bulk-sector"
         />
-        <Select label={t('shop.crew')} value={String(picks.crew ?? KEEP)} onChange={(x) => set('crew', toNum(x))} options={keepOr(levels.crew, (c) => c.toFixed(2))} testId="shops-bulk-crew" />
-        <Select label={t('shop.price')} value={String(picks.price ?? KEEP)} onChange={(x) => set('price', toNum(x))} options={keepOr(levels.price, (p) => `${p.toFixed(2)}x`)} testId="shops-bulk-price" />
+        <Select label={t('shop.crew')} value={String(picks.crew ?? KEEP)} onChange={(x) => set('crew', toNum(x))} options={keepOr(levels.crew, (c) => dec(c, 2))} testId="shops-bulk-crew" />
+        <Select label={t('shop.price')} value={String(picks.price ?? KEEP)} onChange={(x) => set('price', toNum(x))} options={keepOr(levels.price, (p) => `${dec(p, 2)}x`)} testId="shops-bulk-price" />
         <Select label={t('shop.quality')} value={String(picks.quality ?? KEEP)} onChange={(x) => set('quality', toNum(x))} options={keepOr(levels.quality, (k) => String(k))} testId="shops-bulk-quality" />
         <Select label={t('shop.marketing')} value={String(picks.marketing ?? KEEP)} onChange={(x) => set('marketing', toNum(x))} options={keepOr(levels.marketing, (k) => String(k))} testId="shops-bulk-marketing" />
         <Select

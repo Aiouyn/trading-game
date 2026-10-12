@@ -4,7 +4,7 @@
 // world runs), so the figures match the fill. A fill the max slippage would refuse is refused here, before it is sent, in the
 // three-part copy; the world refuses it again on the command. Every refusal shows inline, next to the ticket.
 import { useState } from 'react';
-import { money, pct } from '@/game/format';
+import { money, pct, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Button, NumberField } from '@/components/ui';
@@ -33,7 +33,7 @@ interface Preview {
 }
 
 /** A fraction as a percent with one decimal: the world's wording for a slippage refusal. */
-const oneDp = (f: number) => `${(f * 100).toFixed(1)}%`;
+const oneDp = (f: number) => `${dec(f * 100, 1)}%`;
 
 /** A dead token takes no buys (the world refuses them), so its ticket is sell-only: the curve still pays sellers. */
 export function Ticket({ page, held, locked, dead = false }: { page: LpPage; held: number; locked: number; dead?: boolean }) {

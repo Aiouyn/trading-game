@@ -4,12 +4,12 @@
 // distress flag), the takeover stance (the tender floor and antitrust), and the failure record with the clawback box.
 import { useState } from 'react';
 import { t } from '@/i18n';
-import { money, pct, qty, price } from '@/game/format';
+import { money, pct, qty, price, dec } from '@/game/format';
 import { NumberField, Segmented, SpendReview } from '@/components/ui';
 import type { CapitalView } from '@/world/company/capital';
 import { HoldButton, Line, Note, Panel, RefusalBox, numOf, useAct, type Refusal } from './shared';
 
-const ratio = (x: number | null) => (x === null ? '—' : `${x.toFixed(2)}×`);
+const ratio = (x: number | null) => (x === null ? '—' : `${dec(x, 2)}×`);
 
 export function DebtPanel({ cap }: { cap: CapitalView }) {
   const d = cap.debt;
@@ -34,7 +34,7 @@ export function DebtPanel({ cap }: { cap: CapitalView }) {
       {d.loans.map((l) => (
         <div key={l.id} className="flex flex-col gap-1 border-t border-ink-2 pt-2 text-small" data-testid="company-loan">
           <Line k={t('company.capital.debt.loan', { day: l.drawnDay })} v={money(l.principal)} />
-          <Line k={t('company.capital.debt.rate')} v={t('company.capital.debt.perDay', { rate: (l.ratePerDay * 100).toFixed(4) })} />
+          <Line k={t('company.capital.debt.rate')} v={t('company.capital.debt.perDay', { rate: dec(l.ratePerDay * 100, 4) })} />
           {l.guaranteed && <Note testId="company-loan-guaranteed">{t('company.capital.debt.guaranteedBy', { amount: money(l.guaranteedAmount) })}</Note>}
           <div>
             <SpendReview
@@ -83,8 +83,8 @@ export function DebtPanel({ cap }: { cap: CapitalView }) {
         />
         <p className="text-caption text-fg-muted" data-testid="company-guarantee-rate">
           {guaranteed
-            ? t('company.capital.debt.rateWith', { rate: (d.guaranteedRatePerDay * 100).toFixed(4) })
-            : t('company.capital.debt.rateWithout', { rate: (d.ratePerDay * 100).toFixed(4) })}
+            ? t('company.capital.debt.rateWith', { rate: dec(d.guaranteedRatePerDay * 100, 4) })
+            : t('company.capital.debt.rateWithout', { rate: dec(d.ratePerDay * 100, 4) })}
         </p>
         <label className="flex items-start gap-2 text-small text-fg-muted">
           <input

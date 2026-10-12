@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { sectorName } from '@/engine';
+import { sectorLabel } from '@/game/sectorLabel';
 import { sparkline } from '@/game/history';
 import { price, signedPct, tone, toneText } from '@/game/format';
 import { useGame } from '@/game/store';
@@ -46,7 +47,7 @@ export function Universe({ ticker, onPick, bare = false }: { ticker: string; onP
         const d = config.assets.find((a) => a.id === id);
         const idx = config.indices.find((i) => i.id === id);
         return id.toLowerCase().includes(s) || d?.name.toLowerCase().includes(s) || idx?.name.toLowerCase().includes(s)
-          || (d && sectorName(d.sector).toLowerCase().includes(s));
+          || (d && (sectorName(d.sector).toLowerCase().includes(s) || sectorLabel(d.sector).toLowerCase().includes(s)));
       });
     }
     if (tab === 'watch') return watch;

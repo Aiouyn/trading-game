@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { tone, toneText } from '@/game/format';
+import { tone, toneText, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
@@ -26,7 +26,7 @@ export function ShortInterestRow({ ticker }: { ticker: string }) {
       <div className="flex justify-between gap-2 py-0.5 text-small">
         <span className="text-fg-faint">{t('broker.short.label')}</span>
         <span className="num text-fg-muted" data-testid="short-interest-value">
-          {v === null || v === undefined ? t('broker.short.withheld') : v === 0 ? t('broker.short.none') : t('broker.short.pct', { p: (v * 100).toFixed(2) })}
+          {v === null || v === undefined ? t('broker.short.withheld') : v === 0 ? t('broker.short.none') : t('broker.short.pct', { p: dec(v * 100, 2) })}
         </span>
       </div>
       {v === null && <p className="text-caption text-fg-faint" data-testid="short-interest-why">{t('broker.short.why')}</p>}
@@ -52,7 +52,7 @@ export function DepthByPool({ ticker }: { ticker: string }) {
     <div data-testid="depth-by-pool">
       <div className="flex justify-between gap-2 py-0.5 text-small">
         <span className="text-fg-faint">{t('broker.depth.factor')}</span>
-        <span className="num text-fg-muted" data-testid="depth-factor">{d.depth.toFixed(2)}</span>
+        <span className="num text-fg-muted" data-testid="depth-factor">{dec(d.depth, 2)}</span>
       </div>
       <p className="text-caption text-fg-faint">{t('broker.depth.day', { day: d.day + 1 })} · {t('broker.depth.explain')}</p>
       <ul className="mt-1.5 flex flex-col gap-0.5">
@@ -62,7 +62,7 @@ export function DepthByPool({ ticker }: { ticker: string }) {
           return (
             <li key={k} className="flex justify-between gap-2 text-small" data-testid={`depth-${k}`}>
               <span className="text-fg-faint">{t(`broker.pool.${k}`)}</span>
-              <span className={`num ${toneText[tone(v)]}`}>{t('broker.depth.flow', { v: `${sign}${Math.abs(v).toFixed(2)}` })}</span>
+              <span className={`num ${toneText[tone(v)]}`}>{t('broker.depth.flow', { v: `${sign}${dec(Math.abs(v), 2)}` })}</span>
             </li>
           );
         })}

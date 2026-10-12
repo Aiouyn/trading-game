@@ -6,6 +6,9 @@ import { closeMove } from '../close-move';
 import type { TextProvider } from './index';
 import { analystMsg, executivesMsg, moderatorMsg, narratorMsg, newsroomMsg, rivalMsg, rumorMsg, vkey } from './roles';
 
+/** A sector as a message variable: "@sector.<id>" (the viewer's language names it) when the dictionaries carry it. */
+const sectorRef = (id: string): string => (`sector.${id}` in en ? `@sector.${id}` : sectorName(id));
+
 /**
  * The template provider: the daily close, written from fixed sentences in en.json and fr.json (keys `dayclose.*`). The
  * sentences are facts in the past tense. Numbers are formatted here, once, so every viewer sees the same figures.
@@ -85,8 +88,8 @@ export const templateTextProvider: TextProvider = {
     }
     out.push(narratorMsg({ id: `${day}:gx`, kind: 'gx', pct: signedPct(c.gx.pct) }));
     if (c.sectors) {
-      out.push(narratorMsg({ id: `${day}:sector:best`, kind: 'sector', which: 'best', sector: sectorName(c.sectors.best.sector), pct: signedPct(c.sectors.best.pct) }));
-      out.push(narratorMsg({ id: `${day}:sector:worst`, kind: 'sector', which: 'worst', sector: sectorName(c.sectors.worst.sector), pct: signedPct(c.sectors.worst.pct) }));
+      out.push(narratorMsg({ id: `${day}:sector:best`, kind: 'sector', which: 'best', sector: sectorRef(c.sectors.best.sector), pct: signedPct(c.sectors.best.pct) }));
+      out.push(narratorMsg({ id: `${day}:sector:worst`, kind: 'sector', which: 'worst', sector: sectorRef(c.sectors.worst.sector), pct: signedPct(c.sectors.worst.pct) }));
     }
     for (const s of c.stories) {
       out.push({ key: vkey(`txt.narr.story.${s.band}`, `${c.day}:${s.assetId}`), vars: { headline: s.headlineMsg ?? s.headline, asset: s.assetId } });
