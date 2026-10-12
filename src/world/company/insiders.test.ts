@@ -5,6 +5,7 @@ import { TPD, today } from '../core';
 import { advanceTo, BUYER_A, companyOf, FOUNDER, founded, listedWorld } from './b1fixture';
 import { publicCompanyView } from './views';
 import { rosterOf, windowAt } from './insiders';
+import { jumpEngineTicks } from './sectorFactor';
 
 // The insider roster, the trading window and the insider filings (sections 6.1, 6.5 and Q18). The window is F+2..F+21
 // after each filing; the engine refuses a covered account's orders outside it; founder trades are filed the next day.
@@ -53,7 +54,7 @@ describe('the trading window (F+2 to F+21 after each filing)', () => {
     expect(today(g)).toBeLessThanOrEqual(213);
     const inside = applyCommand(g, FOUNDER, { type: 'order.place', order: farBid(assetId) });
     expect(inside.ok).toBe(true);
-    g.market = { ...g.market, tick: 215 * TPD + 1 };
+    g.market = jumpEngineTicks(g.market, 215 * TPD + 1);
     const outside = applyCommand(g, FOUNDER, { type: 'order.place', order: farBid(assetId) });
     expect(outside.ok).toBe(false);
     expect(outside.error).toBe('closedWindow');
@@ -61,7 +62,7 @@ describe('the trading window (F+2 to F+21 after each filing)', () => {
 
   it('leaves a buyer who is not covered free to trade in the same closed window', () => {
     const { g, assetId } = listedWorld('win-buyer');
-    g.market = { ...g.market, tick: 215 * TPD + 1 };
+    g.market = jumpEngineTicks(g.market, 215 * TPD + 1);
     const r = applyCommand(g, BUYER_A, { type: 'order.place', order: farBid(assetId) });
     expect(r.ok).toBe(true);
   });

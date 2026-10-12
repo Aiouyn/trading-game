@@ -10,6 +10,7 @@ import { ROLES, emptyStaff, fireHeads, headcountCap, landHires, queueHire, total
 import { vEngine, lnPerShare, type ValuationInputs } from './valuation';
 import { totalDebt } from './debt';
 import { filedInputs } from './signals';
+import type { EngineSectors } from './sectorFactor';
 import type { CompanyReject, CompanyWorld, Company, ExecRole, ExecTrait, Holder, InvestorPool, Order, Product, ProjectKind, Resolved, Statements } from './types';
 import { post } from './books';
 import { announceCeoChange, boardVote, ceoDay, execDay, fireExec, hireExec, setGuarantee } from './governance';
@@ -55,6 +56,8 @@ export interface CompanyEnv {
   rankOf(playerId: string): string;
   /** the share of a listed company's shares a player holds (0 for a private company): the insider test (spec 5.3) */
   stakeOf?(playerId: string, companyId: string): number;
+  /** the day's engine sector factor return per company sector (sectorFactor.ts, O-12); absent with no engine */
+  sectorFactor?: Record<string, number>;
   money: {
     cash(playerId: string): number;
     /** moves cash out of a player's account into a company (a transfer, not a sink) */
@@ -102,12 +105,15 @@ function rngOf(seed: string, key: string): RngState {
 }
 
 /**
- * A fresh company world: the NPC investor pools and the sector shock streams (G22 unit reading), at level 0. The pools'
- * cash is money the world creates at its start, so it is booked as a faucet (the conservation identity counts it).
+ * A fresh company world: the NPC investor pools and the sector shock cursors (G22 unit reading, O-12: the engine's sector factor),
+ * at level 0. The cursors start at the engine's sector state at the founding tick (`engine`), or at tick 0 of the seed when there
+ * is no engine (scripts and unit tests). The pools' cash is money the world creates at its start, so it is booked as a faucet.
  */
-export function emptyCompanyWorld(seed: string): CompanyWorld {
+export function emptyCompanyWorld(seed: string, engine?: EngineSectors): CompanyWorld {
   const sectors = {} as CompanyWorld['sectors'];
-  for (const s of Object.keys(SECTORS) as CompanySector[]) sectors[s] = { level: 0, rng: rngOf(seed, `co:sector:${s}`) };
+  for (const s of Object.keys(SECTORS) as CompanySector[]) {
+    sectors[s] = { level: 0, rng: engine?.sectorRng[s] ?? rngOf(seed, `sector:${s}`), tick: engine?.tick ?? 0 };
+  }
   const investors: Record<string, InvestorPool> = {};
   let seeded = 0;
   for (const kind of INVESTOR_KINDS) {
@@ -687,16 +693,12 @@ function checkGoals(w: CompanyWorld, c: Company, day: number, events: CompanyEve
 /**
  * The day-boundary step of the company world (called once per game day, at the open). Order (G19): the filing of the
  * day runs first, then the day's operations and the distress check, then the quarter close and the signal, then the NPC
- * weekly reaction and the quarterly entry and exit, then the goals. Sector shocks are drawn first, once per day per sector.
+ * weekly reaction and the quarterly entry and exit, then the goals. The sector levels move first, by the day's engine
+ * sector factor (`env.sectorFactor`, O-12; sectorFactor.ts); with no factor (no engine) they do not move.
  */
 export function companyTick(w: CompanyWorld, env: CompanyEnv, day: number): CompanyEvent[] {
   const events: CompanyEvent[] = [];
-  for (const s of Object.keys(w.sectors) as CompanySector[]) {
-    const sec = w.sectors[s];
-    const r = new Rng(sec.rng);
-    sec.level += COMPANY.demand.sectorShockScale * r.normal();
-    sec.rng = r.state();
-  }
+  for (const s of Object.keys(w.sectors) as CompanySector[]) w.sectors[s].level += env.sectorFactor?.[s] ?? 0;
   const ids = Object.keys(w.companies).sort();
   for (const id of ids) {
     const c = w.companies[id]!;

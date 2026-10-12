@@ -664,8 +664,12 @@ export interface CompanyWorld {
   companies: Record<string, Company>;
   seq: number;
   investors: Record<string, InvestorPool>;
-  /** cumulative unit sector shock per sector (F_s), and its own stream (G22 reading) */
-  sectors: Record<CompanySector, { level: number; rng: RngState }>;
+  /**
+   * cumulative unit sector shock per sector (F_s, G22 reading). `rng` is the engine's sector stream at the last company day and
+   * `tick` the engine tick it was read at: the day's factor is the engine's own draws since (sectorFactor.ts, O-12). `tick` is
+   * optional for a save from before O-12 (bridge.ts migrates it to the engine's state at that save's tick).
+   */
+  sectors: Record<CompanySector, { level: number; rng: RngState; tick?: number }>;
   flows: CompanyFlows;
   /** the cash the founders put in at founding (the in-world transfers are checked against this) */
   founded: number;

@@ -9,6 +9,7 @@ import { applyCommand, createGame } from '../game';
 import { credit, today, TPD } from '../core';
 import type { GameState } from '../types';
 import { companyDay } from './bridge';
+import { jumpEngineTicks, reanchorSectors } from './sectorFactor';
 import type { Company, IpoBook } from './types';
 
 export const FOUNDER = 'f';
@@ -23,7 +24,7 @@ export function unfounded(seed: string): GameState {
     const r = applyCommand(g, id, { type: 'join', handle, country: 'AV' });
     if (!r.ok) throw new Error(r.error);
   }
-  g.market = { ...g.market, tick: 1 };
+  g.market = jumpEngineTicks(g.market, 1);
   for (const id of [FOUNDER, BUYER_A, BUYER_B]) g.players[id]!.joinedTick = -1000 * TPD;
   g.players[FOUNDER]!.rankId = 'R2';
   g.players[YOUNG]!.joinedTick = 1;
@@ -46,10 +47,14 @@ export function founded(seed: string): { g: GameState; c: Company } {
 /** Advance the world to the first tick of `toDay` (the company day step runs on each day boundary in between). */
 export function advanceTo(g: GameState, toDay: number): void {
   for (let d = today(g) + 1; d <= toDay; d++) {
-    g.market = { ...g.market, tick: d * TPD + 1 };
+    g.market = jumpEngineTicks(g.market, d * TPD + 1);
     companyDay(g, null);
   }
-  g.market = { ...g.market, tick: toDay * TPD + 1 };
+  const target = toDay * TPD + 1;
+  const back = target < g.market.tick;
+  g.market = jumpEngineTicks(g.market, target);
+  // a test that revisits an earlier day moves the clock back: the company sector cursors re-anchor there (sectorFactor.ts)
+  if (back && g.companies) reanchorSectors(g.companies, g.market);
 }
 
 /** The company object by its id (the world keeps companies by id). */
