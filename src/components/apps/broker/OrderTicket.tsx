@@ -364,7 +364,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
       <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex items-baseline justify-between">
-            <h2 className="font-serif text-title">{t('broker.trade')}</h2>
+            <h2 className={dense ? 'font-serif text-body' : 'font-serif text-title'}>{t('broker.trade')}</h2>
             <span className="text-caption text-fg-faint">
               {margin ? t('broker.licenseMargin', { name: lic.name, lev: acct.maxLeverage ?? 1 }) : t('broker.license', { name: lic.name })}
             </span>
@@ -458,23 +458,21 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
               {/* Dense (the desktop terminal): the price field of the order type shares a row with Good till, so the TP and SL
                   fields and the summary fit a 720 px screen without scrolling (UX 1.4). The full ticket keeps the stacked fields. */}
               {dense && type !== 'market' ? (
+                <>
                 <div className="mt-2 grid grid-cols-2 items-end gap-2">
                   {(type === 'stop' || type === 'stop_limit') && (
                     <div>
                       <NumberField label={t('order.stop')} value={stop} onChange={setStop} suffix="$" testId="order-stop" />
-                      {under('stop')}
                     </div>
                   )}
                   {(type === 'limit' || type === 'stop_limit') && (
                     <div>
                       <NumberField label={t('order.limit')} value={limit} onChange={setLimit} suffix="$" testId="order-limit" />
-                      {under('limit')}
                     </div>
                   )}
                   {type === 'trailing' && (
                     <div>
                       <NumberField label={t('broker.trail')} value={trail} onChange={setTrail} suffix="%" testId="order-trail" />
-                      {under('trail')}
                     </div>
                   )}
                   {!simple && !fundMode && (
@@ -482,6 +480,11 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                     <Segmented label={t('broker.tif')} size="sm" className={`w-full${type === 'stop_limit' ? ' col-span-2' : ''}`} value={tif} onChange={(v) => setTif(v as 'gtc' | 'day')} options={[{ value: 'gtc', label: t('broker.gtc') }, { value: 'day', label: t('broker.day') }]} />
                   )}
                 </div>
+                {/* the price refusals sit under the whole price row, so the row stays one line tall (UX stage 6, 1280 x 720) */}
+                {under('stop')}
+                {under('limit')}
+                {under('trail')}
+                </>
               ) : (
                 <>
                   {(type === 'limit' || type === 'stop_limit') && (
@@ -530,7 +533,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
 
               <div className={dense ? 'mt-1 border-t border-ink-2 pt-0.5' : 'mt-4 border-t border-ink-2 pt-3'} data-testid="order-summary">
                 {/* the dense ticket packs the summary two to a row, so the whole block fits 1280 x 720 without a scroll */}
-                <div className={dense ? 'grid grid-cols-2 gap-x-3' : undefined}>
+                <div className={dense ? 'grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-x-2' : undefined}>
                 <SumRow dense={dense} k={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')} v={price(d.price)} />
                 <SumRow dense={dense} k={t('broker.notional')} v={money(notional)} />
                 <SumRow dense={dense} k={feeText} v={money(fee)} />
@@ -542,7 +545,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   dense={dense} k={t('broker.cashAfter')}
                   v={<span className="text-fg-muted" data-testid="order-cash-after">{cashAfter < -0.005 ? '—' : money(cashAfter)}</span>}
                 />
-                <SumRow dense={dense} k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
+                {/* buying power after takes the whole row: its label wrapped to three lines in the dense summary (UX stage 6) */}
+                <SumRow dense={dense} className={dense ? 'col-span-2' : ''} k={t('broker.bpAfter')} v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>} />
                 </div>
                 {shorting && (
                   <div className={dense ? 'mt-0.5 grid grid-cols-2 gap-x-3' : 'mt-1 grid gap-1'} data-testid="order-short-terms">

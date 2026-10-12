@@ -33,9 +33,10 @@ test.describe('the trade surface is never blocked (stage 2)', () => {
       await page.setViewportSize({ width: w, height: h });
       watchErrors(page);
       await boot(page);
-      await pushToasts(page, 3);
+      // two notices draw at once (UX stage 6)
+      await pushToasts(page, 2);
       const col = page.getByTestId('os-toasts');
-      await expect(page.locator('[data-testid^="os-toast-"][data-tone]')).toHaveCount(3);
+      await expect(page.locator('[data-testid^="os-toast-"][data-tone]')).toHaveCount(2);
       const colBox = await boxOf(col);
       const ticket = page.getByTestId('terminal-ticket');
       await expect(ticket).toBeVisible();
