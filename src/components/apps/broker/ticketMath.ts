@@ -99,11 +99,11 @@ export function checkOrder(c: OrderCheck): CheckResult {
   }
   const hasMax = c.max !== undefined && c.max > 0;
   if (c.side === 'buy' && !c.margin && c.total > c.cash + 1e-6) {
-    const vars = hasMax ? { total: c.total, cash: c.cash, max: c.max! } : { total: c.total, cash: c.cash };
+    const vars: Record<string, number> = hasMax ? { total: c.total, cash: c.cash, max: c.max! } : { total: c.total, cash: c.cash };
     return { refusal: { field: 'qty', key: hasMax ? 'broker.refuse.cashMax' : 'broker.refuse.cash', cta: 'broker.cta.cash', vars }, warning: null };
   }
   if (c.side === 'buy' && c.margin && c.total > c.bp + Math.max(0, -c.held) * c.ref + 1e-6) {
-    const vars = hasMax ? { need: c.total, bp: c.bp, max: c.max! } : { need: c.total, bp: c.bp };
+    const vars: Record<string, number> = hasMax ? { need: c.total, bp: c.bp, max: c.max! } : { need: c.total, bp: c.bp };
     return { refusal: { field: 'qty', key: hasMax ? 'broker.refuse.bpMax' : 'broker.refuse.bp', cta: 'broker.cta.bp', vars }, warning: null };
   }
   if (c.shorting && !c.canShort) {
