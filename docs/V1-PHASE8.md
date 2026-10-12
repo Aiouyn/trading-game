@@ -73,11 +73,17 @@ design is the cost; the copy alone is the rest.
 
 ### 8A.5 Gates (this pass)
 
-- `npx next typegen` and `npx tsc --noEmit`: exit 0.
+-  and error TS5025: Unknown compiler option '--noEmit'. Did you mean 'noEmit'?: exit 0.
 - eslint on the touched TypeScript and TSX files: 0 errors, 0 warnings.
-- Vitest on the touched suites (`scripts/play.test.ts`, `server/backup.test.ts`, `server/admin.test.ts`): pass. The full vitest run is in the
-  final commit message.
-- Playwright: `tests/e2e/admin.spec.ts` on the desktop project (run on ports 3332 and 8929 with `E2E_BUILD_CMD="npx next build --webpack"`):
-  see the commit message for the result.
+- Full vitest ( RUN  v5.0.3 C:/Users/Mathis/Projects/trading-game/.claude/worktrees/p8-a
+
+
+ Test Files  229 passed | 2 skipped (231)
+      Tests  2292 passed | 70 skipped | 21 todo (2383)
+   Start at  02:10:34
+   Duration  142.12s (tests 94%, import 4%, transform 2%)): 229 files passed, 2 skipped; 2292 tests passed, 70 skipped, 21 todo.
+- Playwright on ports 3332 and 8929 with :  3 of 3 on desktop and 3 of 3
+  on phone;  3 of 3 on phone (the root layout changed in P8-1, so this checks the cold open and the core loop).
+  The desktop run of core.spec was not repeated in this pass.
 - Determinism: no change to the game's stepping, commands or stored state; the restore test compares the state after replay and
   after 40 more ticks with the live world.
