@@ -1,7 +1,7 @@
 # V1 Phase 8: status
 
 Scope: Phase 8 as set in `docs/team/specs/lead-phase8.md` (binding). This file holds section 8A, the tech track (P8-1 play,
-P8-2 backups and restore, P8-3 admin page). P8-4 (the French completeness audit) is a separate track and is not in this section.
+P8-2 backups and restore, P8-3 admin page). Section 8B below is the French completeness track (P8-4), merged from `p8/b`.
 Branch: `p8/a`, worktree `.claude/worktrees/p8-a`. Status words as in `docs/V1-PHASE7.md`: **Done**, **Partial**, **Not built**,
 **Deferred**, **Decided**.
 
@@ -36,8 +36,9 @@ Branch: `p8/a`, worktree `.claude/worktrees/p8-a`. Status words as in `docs/V1-P
 - `server/admin.test.ts` (8): the bearer check, 403 without the token (and with an empty admin token), the readout carries counts and
   no player name, the tick percentiles and the one-hour window, back up now (file, log, readout), pause and resume (checked body, logged,
   405 on the wrong method), and a paused world holds its tick and resumes from it.
-- `tests/e2e/admin.spec.ts` (3): the token prompt refuses a wrong token and stores nothing; the API refuses without the token; with the
-  token, the readouts show, back up now writes a backup, pause holds the tick and resume restarts it, and the actions are listed.
+- `tests/e2e/admin.spec.ts` (4): the token prompt refuses a wrong token and stores nothing; the API refuses without the token; with the
+  token, the readouts show, back up now writes a backup, pause holds the tick and resume restarts it, and the actions are listed; in
+  French the prompt and the readouts read in French and the visible text has no English sentence.
 
 ### 8A.3 Deviations (reasoned)
 
@@ -47,16 +48,12 @@ Branch: `p8/a`, worktree `.claude/worktrees/p8-a`. Status words as in `docs/V1-P
   300 to 400 ms at the default size (see 8A.4). The backup now checkpoints the write-ahead log and copies the file (4 to 15 ms). The
   copy holds the last snapshot and the commands since; its name carries its tick, and the restore steps the world forward to that tick
   with no commands (there are none after it) and saves a snapshot there. The restore test is the proof.
-- **Ctrl+C on Windows.** Windows sends Ctrl+C to the console's processes, so the world server and the web app each receive it and stop
-  themselves (the world saves and backs up). The play script does not send signals on Windows (`process.kill` there is a hard kill). This
-  session could not send a console Ctrl+C to a process started from Git Bash, so the play script was smoke-tested (both servers answered,
-  the page carried the world port) and stopped with `taskkill /F /T` on its own process tree. The graceful path is covered by the
-  world server's own SIGINT handler and the backup test, not by a console run.
+- **Ctrl+C on Windows (verified).** A console Ctrl+C reaches the world server and the web app together (they share the console), and the world saves and writes its shutdown backup before it exits. Run on this machine: `npm run play` started hidden on ports 3411 and 8811 with its own data folder, a Ctrl+C was sent to its console, and both servers exited; the folder held `world-…-t45360-shutdown.db` (held 23.3 ms, 34 MB at the default size) and no `world.lock`, and the database checkpoint left no `-wal` file. The play script itself does not send signals on Windows (`process.kill` there is a hard kill). If only the play script is stopped (not the console), its 30 s fallback ends the children with a hard kill, which can leave `world.lock` behind; the next start and `world:restore` treat a dead process id in the lock as stale, so this is safe to recover from, but it skips the shutdown backup.
 - **Lock.** A second world on the same folder now refuses to start (`world.lock` holds the running process id). This protects the
   replay from a second writer; a stale lock from a crash is ignored.
 - **Root layout is per request.** `connection()` in the root layout makes the app render per request (it was static). The cost is
   small for a local server; it is what lets the world port come from the environment at run time.
-- **Admin page language.** English only: an operator tool, not part of the player's game (the P8-4 audit covers the player apps).
+- **Admin page language.** The page is in English and French like the rest (P8-4): every string is an `admin.*` key, the page reads the player's saved language (`tg-prefs`), and a French test checks the visible text for English sentences. The action log's details carry no English prose (`tick N`, `name · pause X ms`); a failed backup's message is the server's own error text.
 - **Tick time.** Measured in the tick (the same timer as the existing slow-tick log); the window is the last hour, at most 1000 ticks.
 
 ### 8A.4 Measurements
@@ -71,23 +68,14 @@ Backup pause, held between ticks (the time the world waits for the backup), meas
 The world is the same size class as the e2e world (3 days, 24 players at boot in the smoke run). The snapshot inside the first
 design is the cost; the copy alone is the rest.
 
-### 8A.5 Gates (this pass)
+### 8A.5 Gates (this pass, after the merge of `p8/b` and the admin fixes)
 
--  and error TS5025: Unknown compiler option '--noEmit'. Did you mean 'noEmit'?: exit 0.
-- eslint on the touched TypeScript and TSX files: 0 errors, 0 warnings.
-- Full vitest ( RUN  v5.0.3 C:/Users/Mathis/Projects/trading-game/.claude/worktrees/p8-a
-
-
- Test Files  229 passed | 2 skipped (231)
-      Tests  2292 passed | 70 skipped | 21 todo (2383)
-   Start at  02:10:34
-   Duration  142.12s (tests 94%, import 4%, transform 2%)): 229 files passed, 2 skipped; 2292 tests passed, 70 skipped, 21 todo.
-- Playwright on ports 3332 and 8929 with :  3 of 3 on desktop and 3 of 3
-  on phone;  3 of 3 on phone (the root layout changed in P8-1, so this checks the cold open and the core loop).
-  The desktop run of core.spec was not repeated in this pass.
-- Determinism: no change to the game's stepping, commands or stored state; the restore test compares the state after replay and
-  after 40 more ticks with the live world.
-
+- `npx next typegen && npx tsc --noEmit`: exit 0.
+- eslint on the touched TypeScript and TSX files (admin page, admin API, admin spec, play, backup, restore): 0 errors, 0 warnings.
+- Full vitest (`npx vitest run --maxWorkers=3`): 230 files passed, 2 skipped; 2297 tests passed, 70 skipped, 21 todo.
+- Playwright (`E2E_PORT=3332 E2E_WORLD_PORT=8929 E2E_BUILD_CMD="npx next build --webpack" npx playwright test tests/e2e/admin.spec.ts tests/e2e/frSweep.spec.ts --workers=1 --no-deps`): 10 passed, the admin spec (4) and the French sweep (1) on desktop and phone.
+- Ctrl+C on Windows: run by hand, see 8A.3.
+- Determinism: no change to the game's stepping, commands or stored state; the restore test compares the state after replay and after 40 more ticks with the live world.
 
 ## 8B. French completeness (P8-4)
 
