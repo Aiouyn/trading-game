@@ -37,7 +37,7 @@ function floorPinned(alive: number): VolBand {
  * for 13 names). (2) GARCH standardized by volMult alone, so idio-heavy names had E[h] 0.86-0.95 (regimeShockSd adds the
  * loading split). (3) expectedVol counted the full jump, but the close prints closePrint (ecology). The eight F1 names pass
  * the general 0.85-1.4 band now (20 seeds, medians 0.92-1.11). FLUX passes it too (median 0.976), so its old class band is
- * gone. AUSD passes it too, on the RMS across seeds (V1-PHASE1 F13), so it has no class band of its own.
+ * gone. AUSD passes it too, on the RMS across seeds (V1-PHASE1 F13); its class band came later (V1-PHASE9 9C.4, below).
  *
  * Round 6 (V1-PHASE1 round 6): expectedVol adds the diffusion regime mix (vol x volMult x regimeShockSd, time-averaged), the
  * earnings gap of stocks (catalysts.ts) and, for option horizons, the rate variance ratio. Realized vol moved down with it: at 20
@@ -53,6 +53,15 @@ function floorPinned(alive: number): VolBand {
  * every other asset.
  */
 export const UNIVERSE_VOL_BANDS: Record<string, VolBand> = {
+  /**
+   * V1-PHASE9 9C.4 (the stablecoin ruling). AUSD's RMS over 300 seeds at 720 ticks a day (one game year per seed) is 1.032, with a
+   * 2 s.e. interval [0.725, 1.340]: it straddles the general 0.85 edge, so the general band is undecided. The mechanism is the
+   * depeg: a stablecoin's variance is set by its rare depeg jumps (AUSD 0.25 a year, down 6% on average), so 78% of the seeds
+   * have no depeg in the year and sit on the no-jump shoulder (ratio below 0.3), while the seeds that depeg carry the RMS (max
+   * 9.2). The class band is [0.6, 1.1] on the RMS ratio, which holds the point estimate and the lower edge. FLUX is the other
+   * stablecoin (0.5 jumps a year); it has no 300-seed run here and keeps the general band.
+   */
+  AUSD: { min: 0.6, max: 1.1, why: "stablecoin: the RMS is set by rare depeg jumps (0.25 a year); 78% of seeds sit on the no-jump shoulder (V1-PHASE9 9C.4)" },
   BONK: floorPinned(0.2),
   FROG: floorPinned(0.296),
   MOON: floorPinned(0.442),

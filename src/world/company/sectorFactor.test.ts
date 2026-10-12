@@ -3,7 +3,8 @@ import { createWorld, defaultConfig, seedStream, stepMany } from '@/engine';
 import { companyDay } from './bridge';
 import { emptyCompanyWorld } from './company';
 import { advanceSectorCursors, jumpEngineTicks, replaySector, seedSectorSource, tickDt } from './sectorFactor';
-import { unfounded } from './b1fixture';
+import { founded, unfounded } from './b1fixture';
+import { stepGame } from '../game';
 
 /**
  * O-12 (V1-PHASE9 9C): the company sector shock is the engine's sector factor return. These tests hold the binding to the
@@ -80,6 +81,22 @@ describe('O-12: the company sector factor is the engine sector stream (sectorFac
     const s0 = Object.keys(co.sectors).find((x) => eng.sectorRng[x])!;
     expect(day[s0]).toBeCloseTo(replaySector(eng.sectorRng[s0]!, TPD, tickDt(TPD, DPY)).factor, 12);
   });
+
+  it('the real game loop: stepGame through two day boundaries with a founded company keeps the cursors on the engine', () => {
+    const { g } = founded('sf-loop');
+    const start = g.market.tick;
+    for (let k = 0; k < 2 * 720 + 5; k++) stepGame(g);
+    // a day boundary ran the company day with the engine's own draws: the replay would have thrown if it were out of step
+    expect(g.market.tick - start).toBeGreaterThan(2 * 720);
+    const w = g.companies!;
+    for (const s of Object.keys(w.sectors)) {
+      const sec = w.sectors[s as keyof typeof w.sectors];
+      if (!g.market.sectorRng[s]) continue;
+      expect(sec.tick).toBeGreaterThan(start);
+      expect(sec.tick).toBeLessThanOrEqual(g.market.tick);
+    }
+    expect(Object.values(w.sectors).some((sec) => sec.level !== 0)).toBe(true);
+  }, 120_000);
 
   it('a world without player companies is not moved by the company day (no company world, so no sector draw)', () => {
     const g = unfounded('sf-nocompany');
