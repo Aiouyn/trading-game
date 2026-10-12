@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { honestArmOf, honestDirection, pairedPlayerId, tipArmOf, tipGateRow, TIP_ARMS, TIP_PCT } from './eca-arms';
+import { excessOverDrift, honestArmOf, honestDirection, pairedPlayerId, tipArmOf, tipGateRow, TIP_ARMS, TIP_PCT } from './eca-arms';
 
 describe('6C arm pairing (R-6C-6)', () => {
   it('pairs each tip arm with the honest arm of the same size', () => {
@@ -49,5 +49,40 @@ describe('6C arm pairing (R-6C-6)', () => {
 
   it('refuses a gate with a missing arm', () => {
     expect(() => tipGateRow('tip2', { tip2: { meanRet: 0, sdRet: 0 } })).toThrow();
+  });
+});
+
+describe('the excess return over the drift (the blind rumor gate)', () => {
+  it('a long-only follower in a rising market has no excess: the drift is the benchmark', () => {
+    // 1000 bought, the stock up 5%: the raw return is 50 of 20,000, and the long benchmark is the same 50
+    expect(excessOverDrift(50 / 20_000, 20_000, [{ side: 1, notional: 1000, ret: 0.05 }])).toBeCloseTo(0, 12);
+  });
+
+  it('a follower who is always wrong (short in a rising stock) is not rescued by the drift: its excess is the loss', () => {
+    // short 1000 of a stock up 5%: the raw return is -50 of 20,000; the benchmark is the short's own exposure (ebar -1 times +50)
+    expect(excessOverDrift(-50 / 20_000, 20_000, [{ side: -1, notional: 1000, ret: 0.05 }])).toBeCloseTo(0, 12);
+  });
+
+  it('a coin-flip follower has zero expected excess whatever the drift: the side mix cancels the benchmark', () => {
+    // a long and a short of equal size in a stock up 5%: raw 0, ebar 0, excess 0
+    expect(excessOverDrift(0, 20_000, [{ side: 1, notional: 1000, ret: 0.05 }, { side: -1, notional: 1000, ret: 0.05 }])).toBeCloseTo(0, 12);
+  });
+
+  it('a follower with real edge keeps it: a short that beats a falling stock shows positive excess over its own exposure', () => {
+    // a pure short in a falling stock: the raw +50 is all benchmark (ebar -1), so no excess
+    const pureShort = excessOverDrift(50 / 20_000, 20_000, [{ side: -1, notional: 1000, ret: -0.05 }]);
+    expect(pureShort).toBeCloseTo(0, 12);
+    // long 1000 in a stock up 10% and short 1000 in a stock down 5%: raw +50; ebar 0, so the whole +50 is excess
+    const mixed = excessOverDrift(50 / 20_000, 20_000, [{ side: 1, notional: 1000, ret: 0.1 }, { side: -1, notional: 1000, ret: -0.05 }]);
+    expect(mixed).toBeCloseTo(50 / 20_000, 12);
+  });
+
+  it('fees stay in the excess: a round trip that loses to fees with no drift is negative', () => {
+    // a raw -0.25% of nw0 with the stock flat: nothing is benchmark, so the excess is the fee loss
+    expect(excessOverDrift(-0.0025, 20_000, [{ side: 1, notional: 1000, ret: 0 }])).toBeCloseTo(-0.0025, 12);
+  });
+
+  it('a trader with no fills has its raw return as the excess', () => {
+    expect(excessOverDrift(0.01, 20_000, [])).toBe(0.01);
   });
 });

@@ -53,3 +53,25 @@ export function tipGateRow(tip: TipArm, perKind: Record<string, { meanRet: numbe
     varRatio: h.sdRet > 0 ? (t.sdRet / h.sdRet) ** 2 : null,
   };
 }
+
+/** one fill of a trader, marked at the season end: its side, its entry notional and its stock's simple return since entry */
+export interface FillMark {
+  side: 1 | -1;
+  notional: number;
+  ret: number;
+}
+
+/**
+ * The excess return of one trader-season over the drift, the direction-neutral measure of a rumor follower's edge. The raw return
+ * (raw, a share of the starting net worth nw0) counts the market's drift: a follower who is long more often than short earns the
+ * drift whatever the rumors say. The benchmark is the same stocks held at the trader's own net exposure over the same window: its
+ * notional-weighted side ebar times the long holding return of each fill. With no information the expected excess is zero whatever
+ * the drift. Fees stay in (they are in the raw return and not in the benchmark).
+ */
+export function excessOverDrift(raw: number, nw0: number, fills: FillMark[]): number {
+  const notional = fills.reduce((s, f) => s + f.notional, 0);
+  if (!(notional > 0) || !(nw0 > 0)) return raw;
+  const ebar = fills.reduce((s, f) => s + f.side * f.notional, 0) / notional;
+  const longGain = fills.reduce((s, f) => s + f.notional * f.ret, 0);
+  return raw - (ebar * longGain) / nw0;
+}

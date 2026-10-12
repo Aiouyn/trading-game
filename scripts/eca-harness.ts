@@ -39,7 +39,7 @@ import { credit, netWorthBreakdown, priceOf, TPD } from '../src/world/core';
 import { receivedTip, tipsOf, type InsiderTip } from '../src/world/tips';
 import { ecaOf } from '../src/world/eca';
 import { applyEcaTune, harnessCatalysts, numArg, parseKnobs } from './eca-knobs';
-import { honestArmOf, honestDirection, pairedPlayerId, tipGateRow, TIP_ARMS, TIP_PCT, type TipArm } from './eca-arms';
+import { excessOverDrift, honestArmOf, honestDirection, pairedPlayerId, tipGateRow, TIP_ARMS, TIP_PCT, type TipArm } from './eca-arms';
 import { Rng, seedStream } from '../src/engine/rng';
 import type { GameState } from '../src/world/types';
 
@@ -108,8 +108,18 @@ interface ShadowRecord {
   closed: boolean;
 }
 
+/** one fill of a rumor or reader trader: the stock, the side (+1 buy, -1 sell), the entry notional and entry price */
+interface FillRecord {
+  assetId: string;
+  side: 1 | -1;
+  notional: number;
+  entryPrice: number;
+}
+
 interface SeedResult {
   ret: Record<Kind, number[]>;
+  /** the excess return per trader-season for the rumor and reader arms (see excessReturn) */
+  excess: Partial<Record<Kind, number[]>>;
   counts: Record<Kind, KindCount>;
   tipsDelivered: number;
   tipFlags: number;
@@ -135,6 +145,12 @@ function order(g: GameState, id: string, assetId: string, side: 'buy' | 'sell', 
   return placeQty(g, id, assetId, side, Math.floor(notionalUsd / Math.max(1e-6, price)));
 }
 
+/** the excess return of one trader-season over the drift (excessOverDrift in eca-arms.ts), marking its fills at the season end */
+function excessReturn(g: GameState, id: string, nw0: number, fs: FillRecord[]): number {
+  const raw = (netWorthBreakdown(g, id).total - nw0) / nw0;
+  return excessOverDrift(raw, nw0, fs.map((f) => ({ side: f.side, notional: f.notional, ret: priceOf(g, f.assetId) / f.entryPrice - 1 })));
+}
+
 function runSeed(seed: string): SeedResult {
   const cfg = { catalysts: harnessCatalysts(KNOBS) };
   const g: GameState = createGame(seed, { warmupDays: 1, npcs: false, config: cfg });
@@ -155,6 +171,14 @@ function runSeed(seed: string): SeedResult {
   const tipTradesByKind: Record<string, number> = {};
   let rumorFills = 0;
   let readerFills = 0;
+  // the fills of the rumor and reader traders, for the excess return (drift-neutral; see excessReturn)
+  const fills = new Map<string, FillRecord[]>();
+  const noteFill = (id: string, assetId: string, dir: 1 | -1, p0: number, qty: number) => {
+    if (qty < 1) return;
+    const list = fills.get(id) ?? [];
+    list.push({ assetId, side: dir, notional: qty * p0, entryPrice: p0 });
+    fills.set(id, list);
+  };
   // the public view of each stock's next report (the harness reads only what the Wire shows)
   const info = (a: string) => earningsInfo(g.market, a);
   // a sizing of `pct` of net worth with the same floor as the honest arm
@@ -265,7 +289,9 @@ function runSeed(seed: string): SeedResult {
       const a = stocks[Math.floor(rng.uniform() * stocks.length)]!;
       const e = info(a);
       if (!e || e.rumor === null) continue;
-      if (order(g, id, a, e.rumor > 0 ? 'buy' : 'sell', sizeOf(id, 0.04)) > 0) rumorFills++;
+      const p0 = priceOf(g, a);
+      const q = order(g, id, a, e.rumor > 0 ? 'buy' : 'sell', sizeOf(id, 0.04));
+      if (q > 0) { rumorFills++; noteFill(id, a, e.rumor > 0 ? 1 : -1, p0, q); }
     }
     for (const id of ids.reader) {
       const a = stocks[Math.floor(rng.uniform() * stocks.length)]!;
@@ -273,7 +299,9 @@ function runSeed(seed: string): SeedResult {
       if (!e || e.rumor === null) continue;
       // the reader follows the rumor once the pooled record has READER_MIN resolved rumors at READER_BAR or better
       if (record.n < READER_MIN || record.hits / record.n < READER_BAR) continue;
-      if (order(g, id, a, e.rumor > 0 ? 'buy' : 'sell', sizeOf(id, 0.04)) > 0) readerFills++;
+      const p0 = priceOf(g, a);
+      const q = order(g, id, a, e.rumor > 0 ? 'buy' : 'sell', sizeOf(id, 0.04));
+      if (q > 0) { readerFills++; noteFill(id, a, e.rumor > 0 ? 1 : -1, p0, q); }
     }
     // one game day of the market
     for (let k = 0; k < TPD; k++) stepGame(g);
@@ -281,6 +309,11 @@ function runSeed(seed: string): SeedResult {
   // results: the net worth return per trader-season, and the regulator's counts per arm
   const ret = Object.fromEntries(KINDS.map((k) => [k, [] as number[]])) as Record<Kind, number[]>;
   for (const id of all) ret[kindOf.get(id)!].push((netWorthBreakdown(g, id).total - start.get(id)!) / start.get(id)!);
+  const excess: Partial<Record<Kind, number[]>> = { rumor: [], reader: [] };
+  for (const id of all) {
+    const k = kindOf.get(id)!;
+    if (k === 'rumor' || k === 'reader') excess[k]!.push(excessReturn(g, id, start.get(id)!, fills.get(id) ?? []));
+  }
   const counts = Object.fromEntries(KINDS.map((k) => [k, emptyCount()])) as Record<Kind, KindCount>;
   for (const q of Object.values(ecaOf(g).inquiries)) {
     const c = counts[kindOf.get(q.playerId)!];
@@ -295,7 +328,7 @@ function runSeed(seed: string): SeedResult {
     }
   }
   return {
-    ret, counts, tipsDelivered: tipsOf(g).tips.length, tipFlags: (g.tips?.flags ?? []).length, rumorFills, readerFills, tipTradesByKind,
+    ret, excess, counts, tipsDelivered: tipsOf(g).tips.length, tipFlags: (g.tips?.flags ?? []).length, rumorFills, readerFills, tipTradesByKind,
   };
 }
 
@@ -324,6 +357,7 @@ if (MERGE) {
     if (JSON.stringify(raw.knobs) !== JSON.stringify(KNOBS) || raw.days !== DAYS || raw.crime !== CRIME_EVERY_DAYS || raw.tranches !== TRANCHES) {
       throw new Error(`${f} was run with other knobs`);
     }
+    if (raw.results.some((r) => !r.excess)) throw new Error(`${f} predates the excess return: rerun that chunk`);
     results.push(...raw.results);
   }
   firstSeed = Number(files[0]?.split('-')[2] ?? 0);
@@ -358,6 +392,11 @@ for (const k of KINDS) {
     disgorged: sum((c) => c.disgorged),
     tipTrades: results.reduce((s, r) => s + (r.tipTradesByKind[k] ?? 0), 0),
   };
+  if (k === 'rumor' || k === 'reader') {
+    const ex = results.flatMap((r) => r.excess[k] ?? []);
+    perKind[k]!.meanExcessRet = mean(ex);
+    perKind[k]!.sdExcessRet = sd(ex);
+  }
 }
 summary.perKind = perKind;
 // the wrongful gate (R-6C-4): the honest, lucky and honest-twin accounts together (none of them ever receives a tip)
@@ -386,11 +425,14 @@ for (const k of TIP_KINDS) {
   };
 }
 summary.tipGates = tipGates;
+// the tribunal conviction rate is reported (informational, not in the gate)
 const tipAll = TIP_KINDS.reduce((s, k) => s + perKind[k]!.tribunal!, 0);
 const tipConv = TIP_KINDS.reduce((s, k) => s + perKind[k]!.convicted!, 0);
 summary.tipConvictRateAtTribunalAll = tipAll ? tipConv / tipAll : null;
 summary.rumorMeanRet = perKind.rumor!.meanRet;
+summary.rumorMeanExcessRet = perKind.rumor!.meanExcessRet;
 summary.readerMeanRet = perKind.reader!.meanRet;
+summary.readerMeanExcessRet = perKind.reader!.meanExcessRet;
 summary.rumorFills = results.reduce((s, r) => s + r.rumorFills, 0);
 summary.readerFills = results.reduce((s, r) => s + r.readerFills, 0);
 summary.tipsDelivered = results.reduce((s, r) => s + r.tipsDelivered, 0);
