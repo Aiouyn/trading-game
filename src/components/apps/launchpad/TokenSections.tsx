@@ -49,9 +49,9 @@ export function TradesTable({ tape, tick }: { tape: LpTape[]; tick: number }) {
                 )}
               </td>
               <td className={`whitespace-nowrap py-1.5 pr-3 ${r.side === 'buy' ? 'text-gain' : 'text-loss'}`}>{t(r.side === 'buy' ? 'lp.side.buy' : 'lp.side.sell')}</td>
-              <td className="num whitespace-nowrap py-1.5 pr-3 text-right text-fg" data-testid="lp-tape-usd">{money(r.usd)}</td>
-              <td className="num hidden whitespace-nowrap py-1.5 pr-3 text-right text-fg-muted @md:table-cell">{fmtTokens(r.qty)}</td>
-              <td className="num hidden whitespace-nowrap py-1.5 text-right text-fg-muted @md:table-cell">{lpPrice(r.price)}</td>
+              <td className="whitespace-nowrap py-1.5 pr-3 text-right text-fg" data-testid="lp-tape-usd"><span className="num">{money(r.usd)}</span></td>
+              <td className="hidden whitespace-nowrap py-1.5 pr-3 text-right text-fg-muted @md:table-cell"><span className="num">{fmtTokens(r.qty)}</span></td>
+              <td className="hidden whitespace-nowrap py-1.5 text-right text-fg-muted @md:table-cell"><span className="num">{lpPrice(r.price)}</span></td>
             </tr>
           ))}
         </tbody>

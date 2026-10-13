@@ -119,7 +119,8 @@ test('the board shows the card, the trades bar and the king; the token page has 
   // back on the board, the trades bar carries the buy and the card the reply count
   await page.getByTestId('lp-back').click();
   await expect(page.getByTestId('lp-bar')).toBeVisible();
-  await expect(page.getByTestId(`lp-card-replies-${ticker}`)).toContainText('1');
+  // the NPC thread may have added a line of its own, so the card shows at least the one reply
+  await expect(page.getByTestId(`lp-card-replies-${ticker}`)).toContainText(/[1-9]\d* repl/);
   expect(errors).toEqual([]);
 });
 
