@@ -5,6 +5,7 @@
 import { rng, makeNoise, hash2, clamp, lerp, smoothstep } from './noise.js';
 import { COMPANIES } from './companies.js';
 import { Parts, buildArchetype, buildLandmark, buildTree, buildCrane, buildShip, buildBoat, CONTAINER_COLORS } from './archetypes.js';
+import { sampleOutskirts, outskirtsHeight, traceHighways, borderSurface, nearestNode } from './outskirts.js';
 
 const RES = 2;   // fine raster, metres per cell
 const R4 = 4;    // coarse raster (terrain, districts, land value)
@@ -193,14 +194,17 @@ export async function generateCity(P, progress = () => {}) {
 
   // the urban edge: an organic line between city and countryside, from land value plus correlated noise
   const urban = P.urban ?? { vMin: 0, soft: 0 };
-  const urbanAt = (x, y) => VAt(x, y) + urban.soft * n.fbm(x / 320 + 9, y / 320 - 3, 3);
+  // the urban edge before the countryside penalty: arterials use it, so they still reach the square's border
+  const urbanCore = (x, y) => VAt(x, y) + urban.soft * n.fbm(x / 320 + 9, y / 320 - 3, 3);
+  // collectors, locals and blocks thin out over the last 400 m before the border
+  const urbanAt = (x, y) => urbanCore(x, y) - 0.5 * smoothstep(half - 450, half - 60, Math.max(Math.abs(x), Math.abs(y)));
   const bridges = P.bridges ?? { arterial: 240, collector: 40, local: 0 };
   const maxSlope = P.maxSlope ?? 0.33;
   const levels = [];
   if (P.canals) levels.push({ name: 'canal', cls: -1, dsep: P.canals.dsep, step: 4, maxLen: 900, minLen: 60, bridge: 0, dtest: 0.55,
     valid: (x, y) => distAt(x, y).id === P.canals.district && dWaterAt(x, y) > 14 });
   levels.push({ name: 'arterial', cls: 4, dsep: P.roads.arterial, step: 7, maxLen: 4200, minLen: 260, bridge: bridges.arterial, dtest: 0.5, slope: 0.5,
-    valid: (x, y) => urbanAt(x, y) > urban.vMin - 0.16 });
+    valid: (x, y) => urbanCore(x, y) > urban.vMin - 0.16 });
   levels.push({ name: 'collector', cls: 3, dsep: P.roads.collector, step: 5, maxLen: 1800, minLen: 90, bridge: bridges.collector, dtest: 0.5, sepPow: 0.5, slope: maxSlope + 0.05,
     valid: (x, y) => urbanAt(x, y) > urban.vMin - 0.07 });
   levels.push({ name: 'local', cls: 2, dsep: P.roads.local, step: 4, maxLen: 800, minLen: 22, bridge: bridges.local, dtest: 0.52, sepPow: 1, slope: maxSlope,
@@ -661,6 +665,33 @@ export async function generateCity(P, progress = () => {}) {
     return 99;
   }
 
+  // ------------------------------------------------------------------ outskirts: woods, and highways that leave the city
+  const outskirts = sampleOutskirts(P, n, half, heightAt, dWaterAt);
+  borderSurface(outskirts, surf, N, RES, half, SURF);
+  const outH = (x, y) => outskirtsHeight(outskirts, x, y);
+  const highways = traceHighways(lines.filter((l) => l.cls === 4), { P, n, half, outH });
+  // woods beyond the square where the forest noise is high, and where the inner woods reach the border; never on
+  // water, beaches or the highways
+  const hwCells = new Set();
+  const cellKey = (x, y) => (Math.floor(x / 8) + 4096) * 8192 + Math.floor(y / 8) + 4096;
+  for (const ln of highways) for (const [x, y] of ln.pts) for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) hwCells.add(cellKey(x + a * 8, y + b * 8));
+  const outCtx = { ...ctx, heightAt: outH };
+  const band = half + 1400;
+  let outTrees = 0;
+  for (let t = 0; t < 80000 && outTrees < 12000; t++) {
+    const x = R.range(-band, band), y = R.range(-band, band);
+    if (Math.abs(x) <= half && Math.abs(y) <= half) continue;
+    if (outH(x, y) < 1) continue;
+    const edge = Math.max(Math.abs(x), Math.abs(y)) - half;
+    const f = n.fbm(x / 300 + 61, y / 300 - 17, 3) - 0.06;
+    const woodsIn = nearestNode(outskirts, outskirts.frs, x, y) * (1 - smoothstep(0, 450, edge));
+    const p = Math.max(smoothstep(0, 0.2, f), woodsIn * 0.5);
+    if (p <= 0 || R.next() > p) continue;
+    if (hwCells.has(cellKey(x, y))) continue;
+    buildTree(P.forestTree ?? 'round', x, y, -1, outCtx, 1);
+    outTrees++;
+  }
+
   // ------------------------------------------------------------------ elevated rail
   if (rail) {
     const pth = rail.path;
@@ -697,9 +728,9 @@ export async function generateCity(P, progress = () => {}) {
   for (const b of buildings) b.order = cdf(b.key);
   parts.mapOrders(cdf);
 
-  // roads: ribbons with per-vertex order (arterials lead, locals follow)
+  // roads: ribbons with per-vertex order (arterials lead, locals follow); the highways always show (order 0)
   const lead = { 4: 0.16, 3: 0.08, 2: 0.025 };
-  const ribbons = buildRibbons(roads, { heightAt, isWater, keyOf, cdf, lead, parts, P, bridgeSpans });
+  const ribbons = buildRibbons([...roads, ...highways], { heightAt, outH, isWater, keyOf, cdf, lead, parts, P, bridgeSpans });
 
   // ------------------------------------------------------------------ ground data textures
   await step('Painting the ground');
@@ -738,12 +769,16 @@ export async function generateCity(P, progress = () => {}) {
   await step('Done');
   const tallest = buildings.reduce((m, b) => (b.h > (m?.h ?? 0) ? b : m), null);
   return {
+<<<<<<< HEAD
     P, S, N, RES, H, texA, texB, parts: parts.finish(), ribbons, buildings, labels, rail,
     // coarse rasters for the map lenses: land value (0..1) and district index into P.districts, on a R4 grid
     value: { n: N4, res: R4, data: V4 }, districts: { n: N4, res: R4, data: D4 },
+=======
+    P, S, N, RES, H, texA, texB, parts: parts.finish(), ribbons, buildings, labels, rail, outskirts,
+>>>>>>> cities/endless
     popCurve, timings, ms: Math.round(performance.now() - t0),
     stats: {
-      buildings: buildings.length, lots: lots.length, roads: roads.length, trees, boats,
+      buildings: buildings.length, lots: lots.length, roads: roads.length, trees, outTrees, boats, highways: highways.length,
       roadKm: Math.round(roads.reduce((s, l) => s + polyLen(l.pts), 0) / 100) / 10,
       tallest: tallest ? { h: Math.round(tallest.h), label: tallest.label ?? tallest.kind } : null,
       hqs: buildings.filter((b) => b.company).length,
@@ -1045,15 +1080,17 @@ function fillConvex(poly, N, res, half, fn) {
 }
 
 /** Road ribbons: triangle strips with side, distance and order attributes. Bridges get decks and towers. */
-function buildRibbons(roads, { heightAt, isWater, keyOf, cdf, lead, parts, P, bridgeSpans }) {
+function buildRibbons(roads, { heightAt, outH, isWater, keyOf, cdf, lead, parts, P, bridgeSpans }) {
   const pos = [], side = [], dist = [], order = [], cls = [], idx = [];
   let vbase = 0;
   for (const ln of roads) {
     const pts = ln.pts, m = pts.length;
     if (m < 2) continue;
+    // highways run over the outskirts ring (their own height, never wet: they stop at the water)
+    const hAt = ln.outer ? outH : heightAt;
     // deck heights with ramps
-    const ground = pts.map(([x, y]) => Math.max(0, heightAt(x, y)));
-    const wet = pts.map(([x, y]) => isWater(x, y));
+    const ground = pts.map(([x, y]) => Math.max(0, hAt(x, y)));
+    const wet = pts.map(([x, y]) => (ln.outer ? false : isWater(x, y)));
     const deck = ln.cls === 4 ? 8 : ln.cls === 3 ? 4.5 : 2.4;
     const r = wet.map((w, i) => (w ? deck + ground[i] : -1e9));
     const stepLen = polyLen(pts) / (m - 1);
@@ -1068,7 +1105,7 @@ function buildRibbons(roads, { heightAt, isWater, keyOf, cdf, lead, parts, P, br
       const [nx, ny] = norm2(-(y1 - y0), x1 - x0);
       if (i > 0) along += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
       const hw = ln.width[i] / 2;
-      const o = Math.max(0, cdf(keyOf(pts[i][0], pts[i][1], 0.1)) - (lead[ln.cls] ?? 0));
+      const o = ln.outer ? 0 : Math.max(0, cdf(keyOf(pts[i][0], pts[i][1], 0.1)) - (lead[ln.cls] ?? 0));
       for (const s of [-1, 1]) {
         pos.push(pts[i][0] + nx * hw * s, y[i] + lift, pts[i][1] + ny * hw * s);
         side.push(s); dist.push(along); order.push(o); cls.push(ln.rail ? 1 : ln.cls);
