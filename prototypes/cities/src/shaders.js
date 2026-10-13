@@ -70,6 +70,7 @@ export const partFrag = /* glsl */ `
 ${COMMON}
 uniform float uMood;
 uniform float uHover;
+uniform float uLens;
 uniform vec3 uLit0;
 uniform vec3 uLit1;
 uniform vec3 uLit2;
@@ -215,6 +216,13 @@ void main() {
   }
 
   if (abs(bid - uHover) < 0.5 && bid > 0.5) base = mix(base, uBrass * 1.15, 0.38);
+
+  // map lens (lenses.js): an emphasised building takes its tint; the rest fade to grey and sink toward the ink.
+  // Trees and boats are bid 0, never emphasised.
+  if (uLens > 0.5) {
+    if (mod(floor(vState.a * 255.0 + 0.5), 2.0) >= 1.0) base = mix(base, vState.rgb, 0.55);
+    else base = mix(uInk, mix(base, vec3(dot(base, vec3(0.299, 0.587, 0.114))), 0.75), 0.72);
+  }
   gl_FragColor = vec4(base + emissive, 1.0);
 }`;
 
@@ -240,6 +248,12 @@ uniform vec3 cLand; uniform vec3 cNatural; uniform vec3 cPark; uniform vec3 cSan
 uniform vec3 cWater0; uniform vec3 cWater1;
 uniform float uSnow;
 uniform vec3 uLit0;
+uniform float uLensGround;
+uniform float uLensDim;
+uniform sampler2D uLandV;
+uniform sampler2D uDistT;
+uniform vec3 uRamp0; uniform vec3 uRamp1; uniform vec3 uRamp2;
+uniform vec3 uDistCol[12];
 varying vec2 vUv;
 varying vec3 vN;
 varying float vH;
@@ -299,6 +313,19 @@ void main() {
     wl = mix(wl, wl * 1.12 + 0.02, shore * 0.6);
     lit = mix(lit, wl, smoothstep(0.35, 0.65, water));
   }
+  // map lens (lenses.js): the land takes its land value ramp or its district colour; the whole ground dims a little
+  if (uLensGround > 0.5) {
+    float landM = 1.0 - smoothstep(0.35, 0.65, water);
+    if (uLensGround < 1.5) {
+      float v = texture2D(uLandV, vUv).r;
+      vec3 ramp = v < 0.5 ? mix(uRamp0, uRamp1, v * 2.0) : mix(uRamp1, uRamp2, (v - 0.5) * 2.0);
+      lit = mix(lit, ramp, 0.6 * landM);
+    } else {
+      int di = int(mod(floor(texture2D(uDistT, vUv).r * 255.0 + 0.5), 12.0));
+      lit = mix(lit, uDistCol[di], 0.35 * landM);
+    }
+  }
+  lit *= 1.0 - uLensDim;
   gl_FragColor = vec4(lit, 1.0);
 }`;
 
@@ -322,6 +349,7 @@ export const roadFrag = /* glsl */ `
 ${COMMON}
 uniform vec3 cRoad0; uniform vec3 cRoad1; uniform vec3 cRoad2;
 uniform vec3 uLit0;
+uniform float uLensDim;
 varying float vSide;
 varying float vDist;
 varying float vCls;
@@ -360,5 +388,6 @@ void main() {
     vec3 lights = dir * (f - 0.15) > 0.0 ? vec3(1.0, 0.95, 0.8) * 1.4 : vec3(1.0, 0.18, 0.12) * 1.1;
     col = mix(col, mix(light(body, vec3(0.0, 1.0, 0.0)), lights, uNight), car);
   }
+  col *= 1.0 - uLensDim;
   gl_FragColor = vec4(col, 1.0);
 }`;

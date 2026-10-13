@@ -4,9 +4,12 @@ import * as THREE from 'three';
 import { makeGeoms } from './geoms.js';
 import { GEOMS, STRIDE } from './archetypes.js';
 import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag } from './shaders.js';
+import { PALETTE, RAMP } from './lenses.js';
 
 const PITCH = Math.atan(0.5) * 2 > 1 ? Math.PI / 6 : Math.PI / 6; // 30 degrees: a 2:1 dimetric diamond
 const col = (hex) => new THREE.Color(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
+const distCol = new Float32Array(PALETTE.length * 3);
+PALETTE.forEach((h, i) => distCol.set([((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255], i * 3));
 
 export class CityView {
   constructor(canvas, labelLayer) {
@@ -25,6 +28,10 @@ export class CityView {
       uInk: { value: col(0x15171b) }, uMood: { value: 0 }, uHover: { value: -1 },
       uLit0: { value: col(0xffcf7a) }, uLit1: { value: col(0xffe2a8) }, uLit2: { value: col(0xffb85c) },
       uBrass: { value: col(0xc9a45c) }, uSkyRefl: { value: col(0x9fb4c4) },
+      // map lenses (lenses.js): uLens emphasis on, uLensGround 0 none / 1 land value / 2 districts, uLensDim ground dim
+      uLens: { value: 0 }, uLensGround: { value: 0 }, uLensDim: { value: 0 },
+      uRamp0: { value: col(RAMP[0]) }, uRamp1: { value: col(RAMP[1]) }, uRamp2: { value: col(RAMP[2]) },
+      uDistCol: { value: distCol },
     };
     this.yaw = Math.PI / 4; this.yawTarget = this.yaw;
     this.target = new THREE.Vector3();
@@ -65,6 +72,18 @@ export class CityView {
     this.stateTex.needsUpdate = true;
     this.uniforms.uState = { value: this.stateTex };
     this.uniforms.uStateW = { value: STATE_W };
+
+    // lens rasters on the generator's coarse grid (same layout as the heights): land value as bytes, and the
+    // district index per cell (a byte, read back as idx / 255 in groundFrag)
+    const grid = (data, filter) => {
+      const t = new THREE.DataTexture(data, city.value.n, city.value.n, THREE.RedFormat, THREE.UnsignedByteType);
+      t.magFilter = filter; t.minFilter = filter; t.unpackAlignment = 1; t.needsUpdate = true;
+      return t;
+    };
+    const landBytes = new Uint8Array(city.value.data.length);
+    for (let i = 0; i < landBytes.length; i++) landBytes[i] = Math.round(Math.min(1, Math.max(0, city.value.data[i])) * 255);
+    this.uniforms.uLandV = { value: grid(landBytes, THREE.LinearFilter) };
+    this.uniforms.uDistT = { value: grid(city.districts.data, THREE.NearestFilter) };
 
     // parts: one instanced draw per geometry
     const partMat = new THREE.ShaderMaterial({ vertexShader: partVert, fragmentShader: partFrag, uniforms: this.uniforms });
