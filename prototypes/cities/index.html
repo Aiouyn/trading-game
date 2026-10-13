@@ -30,7 +30,7 @@
   .lbl-hq { font: 600 10.5px/1 var(--sans); color: var(--ink); background: rgba(236,230,218,0.9); padding: 2px 5px; border-radius: 2px; letter-spacing: 0.04em; }
   .lbl-crown { font: 500 11px/1 var(--mono); color: var(--ink); background: var(--brass); padding: 3px 6px; border-radius: 2px; }
   .lbl-crown::before { content: '♛ '; }
-  .lbl-mine { font: 600 11px/1 var(--sans); color: var(--ink); background: var(--brass-hi); padding: 3px 7px; border-radius: 2px; box-shadow: 0 0 0 1px var(--ink); }
+  .lbl-mine, .lbl-focus { font: 600 11px/1 var(--sans); color: var(--ink); background: var(--brass-hi); padding: 3px 7px; border-radius: 2px; box-shadow: 0 0 0 1px var(--ink); }
 
   /* status strip */
   #strip { position: fixed; top: 0; left: 0; right: 0; height: calc(44px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px) !important; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: rgba(13,15,18,0.86); border-bottom: 1px solid var(--line); backdrop-filter: blur(6px); z-index: 5; }
@@ -207,6 +207,12 @@
   <div class="row">
     <div class="row-head"><span class="label">Map lens</span><span class="val" id="v-lens">Normal</span></div>
     <div class="chips" id="lens-chips"></div>
+    <div class="row-head"><span class="label">See through</span></div>
+    <div class="chips" role="group" aria-label="See through">
+      <button class="chip" data-see="off">Off</button><button class="chip" data-see="selected">Selected</button><button class="chip on" data-see="mine">Selected + mine</button>
+    </div>
+    <div class="pop">Towers in front of the selected building and yours turn to glass. <kbd>X</kbd> cycles.</div>
+    <button class="btn ghost" id="find" style="margin-top:10px">Find my buildings</button>
   </div>
   <div class="row btns">
     <button class="btn" id="play">▶ Watch it grow</button>
@@ -219,7 +225,7 @@
   </div>
 </aside>
 
-<div id="help" class="panel">Drag to pan · Scroll to zoom · <kbd>Q</kbd> <kbd>E</kbd> rotate · <kbd>L</kbd> labels · <kbd>V</kbd> lens · <kbd>/</kbd> search</div>
+<div id="help" class="panel">Drag to pan · Scroll to zoom · <kbd>Q</kbd> <kbd>E</kbd> rotate · <kbd>L</kbd> labels · <kbd>V</kbd> lens · <kbd>X</kbd> see through · <kbd>/</kbd> search</div>
 <section id="legend" class="panel" aria-live="polite"></section>
 
 <div id="loading"><div class="city" id="l-city">Port Avalon</div><div class="bar"><i id="l-bar"></i></div><div class="step" id="l-step">Surveying the land</div></div>
