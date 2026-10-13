@@ -83,8 +83,9 @@ WINDOW_ALIGN=60 NEED_PUBLIC=2 node scripts/load/socket-load.mjs http://localhost
 The window is 330 seconds and holds the public ticks 780 and 840. The 1 s stress run is reported, not gated
 (`scripts/load/socket-load.mjs` header).
 
-Counts. On `36a8642`: Vitest, 281 test files and 2,613 tests. Playwright, the final run: 438 passed and 4 failed. Three of the
-four pass when run alone (timing only). The fourth is real: the close-card phone toast, whose fix is pending in the UX fork.
+Counts. On `f5115ee`: Vitest, 282 test files and 2,626 tests (4 expected failures: the recorded FAIL gates). Playwright, the
+final sharded run on the VM (`scripts/cloud/e2e-shards.sh`, 5 min): 438 passed, 6 failed, 0 did not run; all 6 pass when
+run alone (`--rerun-failed`: timing only, 0 real).
 The balance and ecology gates are not re-run for this README. Their last recorded results are in
 [docs/V1-PHASE1.md](docs/V1-PHASE1.md) (sections 3g to 3o), [docs/V1-PHASE4.md](docs/V1-PHASE4.md) (O-19) and
 [docs/V1-PHASE9.md](docs/V1-PHASE9.md) (9B.4 and 9C.4).

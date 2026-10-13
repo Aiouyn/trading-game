@@ -23,7 +23,7 @@ are under "Known limits" in `docs/V1.md`.
 | 9C O-2 (R-9-11) | FAIL, recorded as a V1 limit. Median rho 0.597 against 0.15, p90 0.927 against 0.25, 0 of 200 seeds at or below 0.15. Owner Quant, post-V1. The test stays `it.fails`. |
 | 9C O-12 | Done. A player company's sector shock is the engine's sector factor (9C.3). |
 | 9C AUSD | UNDECIDED. RMS ratio 1.032, 2 s.e. interval [0.725, 1.340], against the stablecoin class band [0.6, 1.1] (ruled). Not a pass. |
-| Final e2e, `36a8642` | 438 passed, 4 failed. Three failures are timing only (each passes alone on rerun). One is REAL: the close-card phone toast. It is owned by the UX fork, and its fix is pending. |
+| Final e2e, `f5115ee` | Sharded run on the VM: 438 passed, 6 failed, 0 did not run (5 min). All 6 pass alone on rerun: timing only, 0 REAL (desktop-1920 window and toast shell specs, sixdHome en, worldEvents auto-end). The close-card phone failure seen on `36a8642` is fixed by the UX fork (`d2b957f`: one hold clock per notice, started on display; the bell keeps the unread close). |
 
 The four expected-failure tests in the Vitest suite are the four FAIL gates above (the three unlinked-identity gates and
 `rho_residual`).
