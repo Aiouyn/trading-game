@@ -219,7 +219,7 @@ void main() {
     float fade = smoothstep(5.0, 16.0, px);
     lineV = (1.0 - smoothstep(0.55, 1.35, e)) * fade;
     vec3 edgeC = isFocus ? uBrass : uInk * (0.6 + 0.4 * (1.0 - uNight));
-    base = mix(base, edgeC, lineV * 0.55);
+    base = mix(base, edgeC, lineV * (isFocus ? 0.9 : 0.55));
   }
 
   // ---- construction: a scaffold lattice while the building rises
