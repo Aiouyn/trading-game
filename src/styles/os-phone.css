@@ -250,4 +250,7 @@
   .os-root .os-phone[data-current="home"] .os-toasts.phone {
     bottom: calc(134px + env(safe-area-inset-bottom, 0px));
   }
+
+  /* The Wire's filter row (the .os-seg group) wraps where it is narrow; its chips are never clipped at the 24 px segment height. */
+  .os-root .os-seg.os-seg-wrap { height: auto; overflow: visible; }
 }
