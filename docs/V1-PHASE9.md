@@ -4,15 +4,35 @@ This file records each Phase 9 track's status. Track 9A (acceptance matrix) is r
 `docs/V1-ACCEPTANCE.md`; its counts and per-row commands are the source of truth for the acceptance state.
 
 
-Scope: Phase 9 as set in `docs/team/specs/lead-phase9.md` (binding). This file holds section 9B (Exploits and the wealth curve). Tracks 9A (acceptance matrix), 9C (load and calibration residuals) and 9D (docs) add their own sections when they land.
-Branch: `p9/b`, worktree `.claude/worktrees/p9-b`, from `v1` at `deae39c`. Status date: 2026-10-12.
+Scope: Phase 9 as set in `docs/team/specs/lead-phase9.md` (binding). Section 9.0 is the final status of each track on `v1` at `36a8642` (2026-10-13). Sections 9A (acceptance matrix), 9B (exploits and the wealth curve) and 9C (load and calibration residuals) are the records of each track. They were written on the track branches (`p9/a` to `p9/j`) and merged into `v1`. The docs refresh (track 9D) updates `README.md`, `docs/V1.md` and this file.
 Status words as in `docs/V1-PHASE6.md`: **Done**, **Partial**, **Not built**, **Deferred**, **Decided**. Gate results are **PASS** or **FAIL**. A FAIL is routed to the owner named in its row and is not passed by changing a constant.
 
+
+## 9.0 Phase 9 status
+
+Final state of each track on `v1` at `36a8642` (2026-10-13). The rulings are in `docs/team/specs/lead-phase9.md`. The open items
+are under "Known limits" in `docs/V1.md`.
+
+| Track | Final outcome |
+|---|---|
+| 9A acceptance matrix | `docs/V1-ACCEPTANCE.md`, 522 rows. Row tally on `36a8642`: 168 PASS, 7 PARTIAL, 1 FAIL (`rho_residual`, R-9-11), 63 NOT RUN, 261 NOT BUILT, 16 DEFERRED, 6 N/A. The count block in that file's header (166 PASS, 6 PARTIAL, 4 FAIL) does not match its rows and needs a regeneration. |
+| 9B exploit fixes | Fixed and tested: alt-peak through loans, gifts and funding links; the linked ad-farm cap; linked insider alts; the fund investor link on the collusion graph; the court's default verdict bumps the deal index. Open: the unlinked-alt FAILs (ad farm, insider alt, fund-tip investor), deferred under R-9-2 and written as `it.fails`. |
+| 9B clip (R-9-1c) | PASS. One impact tally per asset over all flow. 720 clips against one order: worst one-sided 95% bound 1.406 at window start 719, against the gate of 1.5 (20 seeds). |
+| 9B wealth | The bot is fixed: a site rule and the 7-day exit window (9B.4a, 9B.4b). The progressive business tax, set B (R-9-10), is tuned on `wealth` and confirmed on the held-out `wealthH`: PASS. At real day 21, managed p50 $53.0M and excellent p50 $198.7M. At real day 7, managed $552k and excellent $2.5M. |
+| 9C load (R-9-8b) | PASS, 3 of 3 at the 5 s tick: all 4,000 clients welcomed, 330 s windows that hold public ticks 780 and 840. Fan-out p99 643 to 697 ms, overrun p99 74 to 82 ms. Reached after the per-view memos and the link index (9C.1) and the public panels on demand (R-9-12, 9C.1b). |
+| 9C O-2 (R-9-11) | FAIL, recorded as a V1 limit. Median rho 0.597 against 0.15, p90 0.927 against 0.25, 0 of 200 seeds at or below 0.15. Owner Quant, post-V1. The test stays `it.fails`. |
+| 9C O-12 | Done. A player company's sector shock is the engine's sector factor (9C.3). |
+| 9C AUSD | UNDECIDED. RMS ratio 1.032, 2 s.e. interval [0.725, 1.340], against the stablecoin class band [0.6, 1.1] (ruled). Not a pass. |
+| Final e2e, `36a8642` | 438 passed, 4 failed. Three failures are timing only (each passes alone on rerun). One is REAL: the close-card phone toast. It is owned by the UX fork, and its fix is pending. |
+
+The four expected-failure tests in the Vitest suite are the four FAIL gates above (the three unlinked-identity gates and
+`rho_residual`).
 
 ## 9A acceptance matrix
 
 **Counts** (regenerated from the tape spec tables and the Vitest title index): see the header of `docs/V1-ACCEPTANCE.md`.
-At the last regeneration: PASS 167, PARTIAL 5, NOT RUN 63, NOT BUILT 264, DEFERRED 17, N/A 6 (total 522).
+At the last regeneration in this section: PASS 167, PARTIAL 5, NOT RUN 63, NOT BUILT 264, DEFERRED 17, N/A 6 (total 522). These
+are superseded by the counts in 9.0.
 
 **Runs of this pass (last commit of track 9A):**
 - Full Vitest (`npx vitest run --maxWorkers=3`): 236 files passed, 2 skipped (238); 2333 tests passed, 70 skipped, 21 todo;
