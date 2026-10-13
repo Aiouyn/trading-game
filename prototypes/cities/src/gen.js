@@ -666,7 +666,7 @@ export async function generateCity(P, progress = () => {}) {
   }
 
   // ------------------------------------------------------------------ outskirts: woods, and highways that leave the city
-  const outskirts = sampleOutskirts(P, n, half, heightAt);
+  const outskirts = sampleOutskirts(P, n, half, heightAt, dWaterAt);
   borderSurface(outskirts, surf, N, RES, half, SURF);
   const outH = (x, y) => outskirtsHeight(outskirts, x, y);
   const highways = traceHighways(lines.filter((l) => l.cls === 4), { P, n, half, outH });

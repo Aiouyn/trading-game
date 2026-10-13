@@ -29,6 +29,7 @@ Then open http://localhost:3610 (add `?city=kaiyo&t=21` to jump to a city and an
 | `src/personalities.js` | The six places: terrain functions, districts, street fields, palettes, landmarks |
 | `src/gen.js` | The generator pipeline |
 | `src/archetypes.js` | Building archetypes, landmarks, trees, cranes, ships |
+| `src/outskirts.js` | The land and sea beyond the square: coarse ring grid, woods, highways to the horizon |
 | `src/render.js`, `src/shaders.js`, `src/geoms.js` | Orthographic dimetric renderer, instanced parts, ground, roads |
 | `src/main.js`, `index.html` | The Quay-style interface |
 | `src/companies.js` | Listed companies by home city (from `src/engine/universe.ts`) |

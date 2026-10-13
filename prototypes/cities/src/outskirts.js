@@ -1,7 +1,7 @@
 // The outskirts: the land and sea beyond the city square, on a coarse grid. The city's own heights sit on the
 // square's border, so the ground runs on to the haze with no map edge. Also the highways that leave the city.
 
-import { clamp } from './noise.js';
+import { clamp, smoothstep } from './noise.js';
 
 export const OUT_STEP = 50;      // metres per grid cell
 export const OUT_EXTENT = 7200;  // the grid covers |x| and |y| <= extent
@@ -28,7 +28,11 @@ export function sampleOutskirts(P, n, half, heightAt, dWaterAt) {
         if (t < 0) v = t;
         else {
           const cx = clamp(x, -half, half), cy = clamp(y, -half, half);
-          v = Math.min(t, 0.35 + 0.09 * (dWaterAt(cx, cy) + dOut));
+          const cap = 0.35 + 0.09 * (dWaterAt(cx, cy) + dOut);
+          // a soft minimum, blended in past the border, so the cap's crease with raw terrain rounds off
+          const k = 12, soft = -k * Math.log(Math.exp(-t / k) + Math.exp(-cap / k));
+          const w = smoothstep(0, 150, dOut);
+          v = Math.min(t, cap) * (1 - w) + soft * w;
         }
       }
       h[j * np + i] = v;
