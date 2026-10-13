@@ -4,6 +4,7 @@ import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type HistoryPayload, 
 import type { Msg } from '@/i18n';
 import type { PublicPanel } from '@/world/view';
 import type { Command } from '@/world/types';
+import type { ChartDrawing } from '@/world/drawings';
 import type { PlayerView } from '@/world/view';
 import type { LpPage } from '@/world/launchpad/view';
 
@@ -97,7 +98,7 @@ export class WorldClient {
       try { msg = JSON.parse(String(ev.data)) as ServerMsg; } catch { return; }
       if (msg.t === 'welcome') this.onState('open');
       if (msg.t === 'error' && msg.message === 'auth') { this.closed = true; this.onState('auth-failed'); ws.close(); return; }
-      if ((msg.t === 'ack' || msg.t === 'history' || msg.t === 'nw-history' || msg.t === 'lp-page' || msg.t === 'visit' || msg.t === 'panel') && this.pending.has(msg.id)) {
+      if ((msg.t === 'ack' || msg.t === 'history' || msg.t === 'nw-history' || msg.t === 'drawings' || msg.t === 'lp-page' || msg.t === 'visit' || msg.t === 'panel') && this.pending.has(msg.id)) {
         const resolve = this.pending.get(msg.id)!;
         this.pending.delete(msg.id);
         // a panel answer keeps its version stamp, so the store records the tick its data was taken at
@@ -137,6 +138,10 @@ export class WorldClient {
 
   command(cmd: Command): Promise<Ack> {
     return this.request<Ack>((id) => ({ t: 'cmd', id, cmd }));
+  }
+
+  drawings(assetId: string): Promise<ChartDrawing[]> {
+    return this.request<ChartDrawing[]>((id) => ({ t: 'drawings', id, assetId }));
   }
 
   history(series: string): Promise<HistoryPayload | null> {

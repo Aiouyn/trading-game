@@ -322,6 +322,11 @@ wss.on('connection', (ws) => {
       }
       case 'history':
         return send(ws, { t: 'history', id: msg.id, data: typeof msg.series === 'string' ? host.historyFor(msg.series) : null });
+      case 'drawings': {
+        // the player's own drawings on one symbol (world/drawings.ts): nothing for an unsigned socket, and never another player's
+        const asset = typeof msg.assetId === 'string' ? msg.assetId : '';
+        return send(ws, { t: 'drawings', id: msg.id, data: c.pid ? host.g.players[c.pid]?.drawings?.[asset] ?? [] : [] });
+      }
       case 'nw-history':
         if (!c.pid) return;
         return send(ws, { t: 'nw-history', id: msg.id, data: host.nwHistoryFor(c.pid) });

@@ -1,3 +1,4 @@
+import type { ChartDrawing } from './drawings';
 import type { Order, OrderRequest, RngState, Side, WorldState } from '@/engine';
 import type { UpgradeAxis } from '@/content/businesses';
 import type { PlayerStats } from '@/content/progression';
@@ -215,6 +216,8 @@ export interface Player {
   watchlist: string[];
   alerts: PriceAlert[];
   alertSeq: number;
+  /** the chart drawings this player keeps, per symbol (drawings.ts): private, capped; absent until the player draws */
+  drawings?: Record<string, ChartDrawing[]>;
   /** analyst notes bought: asset → note */
   notes: Record<string, AnalystNote>;
   /** private notifications (fills, attacks, verdicts...), newest first */
@@ -775,6 +778,8 @@ export type Command =
   | { type: 'watch.set'; assetIds: string[] }
   | { type: 'alert.add'; assetId: string; above: boolean; price: number }
   | { type: 'alert.remove'; alertId: string }
+  /** the symbol's whole drawing list, replaced (drawings.ts checks and caps it) */
+  | { type: 'drawings.save'; assetId: string; drawings: ChartDrawing[] }
   | { type: 'contract.claim'; contractId: string }
   | { type: 'onboarding'; step: number; skipped?: boolean; done?: boolean }
   | { type: 'profile'; bio?: string; country?: string; title?: string; mostWantedOptIn?: boolean }

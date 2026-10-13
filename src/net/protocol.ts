@@ -6,6 +6,7 @@ import type { Boards } from '@/world/types';
 import type { DirectoryRow, MarketFrame, PanelStamps, PlayerView, PublicCore, PublicPanel, PublicState } from '@/world/view';
 import type { LpPage } from '@/world/launchpad/view';
 import type { CollectionView, HomeView } from '@/world/home';
+import type { ChartDrawing } from '@/world/drawings';
 
 /** A visitor's view of another player (home.ts visitView). */
 export interface VisitPayload {
@@ -19,6 +20,8 @@ export type ClientMsg =
   | { t: 'cmd'; id: number; cmd: Command }
   | { t: 'history'; id: number; series: string }
   | { t: 'nw-history'; id: number }
+  /** the player's own chart drawings on one symbol (private: only the owner's request reads them) */
+  | { t: 'drawings'; id: number; assetId: string }
   /** one Launchpad token page, read on demand (the view carries none) */
   | { t: 'lp-page'; id: number; ticker: string }
   /** another player's home room and collection, each only when its owner has opened it (home.ts visitView) */
@@ -91,6 +94,7 @@ export type ServerMsg =
   | { t: 'ack'; id: number; ok: boolean; error?: string; msg?: Msg; data?: unknown; me?: PlayerView }
   | { t: 'history'; id: number; data: HistoryPayload | null }
   | { t: 'nw-history'; id: number; data: NwHistoryPayload }
+  | { t: 'drawings'; id: number; data: ChartDrawing[] }
   | { t: 'lp-page'; id: number; data: LpPage | null }
   | { t: 'visit'; id: number; data: VisitPayload | null }
   /** a public panel: v is the tick the data was taken at; data is null when the viewer is not signed in */

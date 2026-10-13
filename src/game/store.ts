@@ -1,5 +1,6 @@
 'use client';
 
+import type { ChartDrawing } from '@/world/drawings';
 import { create } from 'zustand';
 import { type KeyValueStore, migrateLegacy, readPrefs as readPrefsFrom, updatePrefs } from '@/shell/prefs';
 import { createHolds } from '@/shell/holds';
@@ -133,6 +134,8 @@ export interface GameStore {
   loadLpPage: (ticker: string) => Promise<LpPage | null>;
   /** another player's home room and collection (null when the world is not connected) */
   loadVisit: (playerId: string) => Promise<VisitPayload | null>;
+  /** the viewer's own chart drawings on one symbol (private; [] when signed out or offline) */
+  loadDrawings: (assetId: string) => Promise<ChartDrawing[]>;
   /** reads a public panel (the boards or the directory) for the viewer; a read in flight is not doubled (R-9-12) */
   loadPanel: (panel: PublicPanel) => Promise<void>;
   select: (assetId: string) => void;
@@ -462,6 +465,11 @@ export const useGame = create<GameStore>((set, get) => {
       if (!p || !(p as HistoryPayload).daily) { const l = { ...get().loaded }; delete l[series]; set({ loaded: l }); return; }
       loadSeries(get().history, series, p as HistoryPayload);
       set({ historyRev: get().historyRev + 1 });
+    },
+
+    async loadDrawings(assetId) {
+      if (!client) return [];
+      return client.drawings(assetId);
     },
 
     async loadVisit(playerId) {

@@ -46,6 +46,7 @@ import { addRecurring, cancelBlock, cancelRecurring, dripDay, planDay, planTick,
 import { checkGoals, claimChallenge, completeLesson, setGoalsOptIn } from './learn';
 import { applyFundCommand, crossRefusal, fundsBeforeStep, fundsDay, fundsFills, type FundCommand } from './funds';
 import { orderError } from './orders';
+import { DRAWING_CAPS, sanitizeDrawings } from './drawings';
 import { comebackCommand, comebackMarginRefusal, comebackRefresh, comebackTick } from './comeback';
 import { adOptionRefusal, adOrderRefusal, finishBreak, pruneAdLots, sponsorDayStart, startBreak } from './sponsor';
 import { lessonsRebateOf } from './perks';
@@ -54,7 +55,8 @@ import { companyCommand, companyDay, companyFinanceCommand, companyStep, type Co
 import { adminIpoReady } from './company/ipo';
 import { scorePlanAbuse, scoreWindowAttempt } from './company/backstop';
 import { adminFiledLate, adminLaunchCredit } from './company/seams';
-import type { Command, CommandResult, GameState, StepOutput } from './types';
+import type { ChartDrawing } from './drawings';
+import type { Command, CommandResult, GameState, Player, StepOutput } from './types';
 
 export interface CreateOptions {
   /** game days simulated before the world opens, so charts have history (default 63) */
@@ -280,6 +282,25 @@ const STREAK_ACTIONS = new Set<Command['type']>([
   'alliance.deposit', 'alliance.withdraw', 'deal.offer', 'deal.respond', 'deal.repay', 'watch.set', 'alert.add', 'alert.remove',
 ]);
 
+/**
+ * The player's chart drawings on one symbol, replaced as a whole. Private to the player (the drawings request reads them) and
+ * capped (drawings.ts). An empty list drops the symbol; the field is removed when no symbol keeps drawings, so a save with no
+ * drawings is the same as one before drawings existed.
+ */
+function saveDrawings(g: GameState, p: Player, assetId: string, input: unknown): CommandResult {
+  const known = g.market.config.assets.some((a) => a.id === assetId && a.listed !== false) || g.market.config.indices.some((x) => x.id === assetId);
+  if (!known) return fail('unknown asset');
+  const r = sanitizeDrawings(input);
+  if (!r.ok) return fail(r.error);
+  const all: Record<string, ChartDrawing[]> = { ...(p.drawings ?? {}) };
+  if (r.value.length === 0) delete all[assetId];
+  else all[assetId] = r.value;
+  if (Object.keys(all).length > DRAWING_CAPS.symbols) return fail('drawingsSymbols');
+  if (Object.keys(all).length === 0) delete p.drawings;
+  else p.drawings = all;
+  return { ok: true };
+}
+
 function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOutput | null = null): CommandResult {
   if (cmd.type === 'join') return join(g, pid, cmd.handle, cmd.country, out, cmd.device);
   // the server settles a tournament week as TOURNAMENT_SYSTEM, which is not a player; a player's own call is refused here
@@ -420,6 +441,7 @@ function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOut
     }
     case 'alert.add': return addAlert(p, cmd.assetId, cmd.above, cmd.price);
     case 'alert.remove': p.alerts = p.alerts.filter((a) => a.id !== cmd.alertId); return { ok: true };
+    case 'drawings.save': return saveDrawings(g, p, cmd.assetId, cmd.drawings);
     case 'contract.claim': return claimContract(g, p, cmd.contractId);
     case 'onboarding':
       p.onboarding = { step: Math.max(p.onboarding.step, cmd.step), done: cmd.done ?? p.onboarding.done, skipped: cmd.skipped ?? p.onboarding.skipped };
