@@ -22,7 +22,7 @@ import {
   normalizeTicker,
 } from './apps';
 import { type Rect, type Size, type Slot, isSlotName } from './geometry';
-import { type LayoutEntry, type SavedLayout, type ShellState, type Snapshot, type Win, type WmCtx, initialShell, normalize } from './wm';
+import { type LayoutEntry, type SavedLayout, type ShellState, type Snapshot, type Win, type WmCtx, firstRunShell, initialShell, normalize } from './wm';
 
 export const PREFS_KEY = 'tg-prefs';
 export const TOKEN_KEY = 'tg-token';
@@ -50,6 +50,7 @@ export type Palette = (typeof PALETTES)[number];
 export interface ChartPrefs {
   indicators?: string[];
   range?: string;
+  interval?: string;
   chartMode?: string;
 }
 
@@ -124,6 +125,7 @@ function sanitizeChart(x: unknown): ChartPrefs {
       .slice(0, 16);
   }
   if (typeof x.range === 'string' && x.range.length <= 16) out.range = x.range;
+  if (typeof x.interval === 'string' && x.interval.length <= 8) out.interval = x.interval;
   if (typeof x.chartMode === 'string' && x.chartMode.length <= 16) out.chartMode = x.chartMode;
   return out;
 }
@@ -351,7 +353,7 @@ export function validateShell(raw: unknown, ctx: WmCtx, vp: Size, ticker?: strin
 /** Shell for a save: the stored one, validated, or the Trade layout for a save without one. */
 export function loadShell(kv: KeyValueStore, saveId: string, ctx: WmCtx, vp: Size, ticker?: string): ShellState {
   const p = readPrefs(kv);
-  if (!hasOwn(p.shells, saveId)) return initialShell(vp, ctx, ticker);
+  if (!hasOwn(p.shells, saveId)) return firstRunShell(vp, ctx, ticker);
   return validateShell(p.shells[saveId], ctx, vp, ticker);
 }
 

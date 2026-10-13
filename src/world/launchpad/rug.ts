@@ -21,7 +21,7 @@ import type { LpToken, LpLot } from './types';
 // the flag's fine level and the ban are constants.ts RUG_SEVERITY and RUG_BAN_TICKS; the court's scale is court-scale.ts
 /** the court's floor: a verdict never takes a player below this cash (court.ts FLOOR) */
 const FLOOR = 5_000;
-const FILING_FEE = 2_000;
+export const FILING_FEE = 2_000;
 const HEARING_DAYS = 2;
 
 /** The creator-side set of a token: the creator and owner-linked accounts, which the rules read together. */

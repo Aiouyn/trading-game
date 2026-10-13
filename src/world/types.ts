@@ -255,6 +255,12 @@ export interface Player {
    * baseline and the arrival baseline move with it (core.ts shiftBaselines), so both show trading and income only.
    */
   externalCash?: number;
+  /**
+   * Cumulative cash converted into (+) or out of (-) the valuation holdings at book: a purchase, an upgrade, a renovation, a
+   * repaid mortgage, a deposit into a fund, or the book value of what was sold (core.ts assetFlow). The close and the arrival
+   * split take it out of valuation, so a conversion is neither trading nor a re-mark. Absent in older saves, which read as 0.
+   */
+  assetFlow?: number;
   /** hired analyst (one at a time), null or absent when none */
   analyst?: { tier: AnalystTier; hiredDay: number; paidThroughDay: number } | null;
   /** Research Desk: unlocked once at Operator; lapsed when upkeep is not covered (files are kept) */
@@ -892,6 +898,8 @@ export type Command =
 export interface CommandResult {
   ok: boolean;
   error?: string;
+  /** the refusal as a message descriptor (en.json / fr.json), so a refusal with a number or a name reads in the viewer's language */
+  msg?: Msg;
   /** e.g. the placed order, the new business id */
   data?: unknown;
 }

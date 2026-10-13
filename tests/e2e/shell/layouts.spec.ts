@@ -12,8 +12,11 @@ import { WIDE, boot, box, expectRect, launcher, onlyIn, reachRank, sameRect, sel
  * the rule gives at that width.
  */
 
-/** Trade is thirds where Portfolio's third (520 px minimum) fits: about 1580 px and up (critic item). */
-const TRADE_VARIANT: Record<number, LayoutPlan['variant']> = { 1920: 'thirds', 1440: 'halves' };
+/**
+ * Trade is thirds at 1440 and up: the Broker takes the left width and Wire and Portfolio stack in the 400 px side column
+ * (UX stage 6, geometry.ts SIDE_COL_PX). Below 1200 the layout falls back to halves.
+ */
+const TRADE_VARIANT: Record<number, LayoutPlan['variant']> = { 1920: 'thirds', 1440: 'thirds' };
 
 async function settle(page: Page): Promise<void> {
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
@@ -60,6 +63,36 @@ test.describe('named layouts', () => {
     }
   });
 
+  test('@ticket_clear at 1440 the Trade preset and three open windows never cover the Broker order ticket (UX stage 6)', async ({ page }) => {
+    onlyIn('desktop');
+    const handle = await boot(page);
+    await reachRank(page, handle, 8_000_000);
+    await page.getByTestId('shelf-layout-menu').click();
+    await page.getByTestId('layout-trade').click();
+    await settle(page);
+    const overlaps = async (): Promise<string[]> => {
+      const cta = await page.getByTestId('order-submit').boundingBox();
+      if (cta === null) throw new Error('no order button on the ticket');
+      const hits: string[] = [];
+      for (const id of await windowIds(page)) {
+        if (id.startsWith('broker')) continue;
+        const r = await box(page, id);
+        const apart = r.x + r.w <= cta.x || cta.x + cta.width <= r.x || r.y + r.h <= cta.y || cta.y + cta.height <= r.y;
+        if (!apart) hits.push(id);
+      }
+      return hits;
+    };
+    expect(await overlaps()).toEqual([]);
+    // The Trade preset's side column is 400 px at 1440 (the Broker keeps the rest); the ticket column sits inside the Broker.
+    const broker = await box(page, 'broker-1');
+    expect(broker.w).toBeGreaterThan(900);
+    for (const id of ['wire', 'portfolio', 'exchange']) {
+      await page.getByTestId(`shelf-app-${id}`).click();
+      await settle(page);
+    }
+    expect(await overlaps()).toEqual([]);
+  });
+
   test('@layouts Research places no Research window without a file, and the Broker takes the freed space', async ({ page }) => {
     onlyIn(...WIDE);
     const handle = await boot(page);
@@ -86,14 +119,14 @@ test.describe('named layouts', () => {
     await expect(page.getByTestId('os-launcher')).toHaveCount(0);
   });
 
-  test('@layouts Trade at 1440 leaves the Broker on the left half, Wire top right and Portfolio bottom right', async ({ page }) => {
+  test('@layouts Trade at 1440 is thirds: the Broker left, Wire top right and Portfolio bottom right, in the 400 px side column (UX stage 6)', async ({ page }) => {
     onlyIn('desktop');
     await boot(page);
     const vp = viewport(page);
     await page.getByTestId('shelf-layout').click();
     await settle(page);
-    // 1440 is below the thirds width for Portfolio, so the halves variant holds: the left half and two quarters.
-    expectRect(await box(page, 'broker-1'), placedBox('L2', vp));
-    expect(await windowIds(page)).toEqual(expect.arrayContaining(['broker-1', 'wire', 'portfolio']));
+    expectRect(await box(page, 'broker-1'), placedBox('L23', vp));
+    expectRect(await box(page, 'wire'), placedBox('R3T', vp));
+    expectRect(await box(page, 'portfolio'), placedBox('R3B', vp));
   });
 });

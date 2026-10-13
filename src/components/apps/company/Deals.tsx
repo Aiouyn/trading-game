@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, NumberField, Select, Td, Th } from '@/components/ui';
+import { NumberField, Select, SpendReview, Td, Th } from '@/components/ui';
 import type { CompanyFounderView } from '@/world/company/views';
 import { RefusalNote, Section } from './Shared';
 import { numberOrNull, percentOf, refusalOf, type Refusal } from './model';
@@ -41,7 +41,7 @@ function Franchising({ co }: { co: CompanyFounderView }) {
       </p>
       <div className="mt-3 grid gap-3 @md:grid-cols-[1fr_auto] @md:items-end">
         <NumberField value={rate} onChange={setRate} min={percentOf(co.limits.franchiseRateMin)} step={0.5} testId="company-licence-rate" label={t('company.ui.deals.licence.rate')} suffix="%" className="h-11" />
-        <Button variant="brass" disabled={busy || value === null} onClick={grant} testId="company-licence-grant">{t('company.ui.deals.licence.grant')}</Button>
+        <SpendReview variant="brass" testId="company-licence-grant" label={t('company.ui.deals.licence.grant')} title={t('company.ui.deals.licence.grant')} rows={[{ label: t('company.ui.deals.licence.rate'), value: value === null ? '—' : pct(value / 100) }]} disabled={busy || value === null} onConfirm={grant} />
       </div>
       <div className="mt-3"><RefusalNote refusal={refusal} /></div>
       {co.licences.length === 0 ? (
@@ -92,7 +92,7 @@ function Supply({ co }: { co: CompanyFounderView }) {
           />
           <NumberField value={units} onChange={setUnits} min={1} step={1} testId="company-supply-units" label={t('company.ui.deals.supply.units')} className="h-11" />
           <NumberField value={price} onChange={setPrice} min={0} step={0.01} testId="company-supply-price" label={t('company.ui.deals.supply.price')} className="h-11" />
-          <Button variant="brass" disabled={busy || unitsValue === null || priceValue === null} onClick={sign} testId="company-supply-sign">{t('company.ui.deals.supply.sign')}</Button>
+          <SpendReview variant="brass" testId="company-supply-sign" label={t('company.ui.deals.supply.sign')} title={t('company.ui.deals.supply.sign')} rows={[{ label: t('company.ui.deals.supply.units'), value: unitsValue === null ? '—' : String(unitsValue) }, { label: t('company.ui.deals.supply.price'), value: priceValue === null ? '—' : money(priceValue) }]} disabled={busy || unitsValue === null || priceValue === null} onConfirm={sign} />
         </div>
       )}
       <div className="mt-3"><RefusalNote refusal={refusal} /></div>

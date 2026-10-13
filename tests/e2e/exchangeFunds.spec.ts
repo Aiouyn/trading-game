@@ -19,6 +19,8 @@ async function dismissRankUp(page: Page): Promise<void> {
 
 test('a manager opens a fund; an investor deposits, sees the holding, redeems and is paid', async ({ page, browser }) => {
   test.setTimeout(420_000);
+  // the phone's trade bar has no fund-account selector (the full ticket does), so the fund trade below is a desktop check
+  test.skip(isPhone(page), 'the phone trade bar has no fund-account selector; the desktop ticket carries the fund trade');
   const errors = watchErrors(page);
 
   // the investor registers first: their account must be 7 real days old before it can invest in a fund
@@ -44,6 +46,7 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   await page.getByTestId('exchange-open-name').fill('Harbour Test Fund');
   await expect(page.getByTestId('exchange-open-submit')).toBeEnabled();
   await page.getByTestId('exchange-open-submit').click();
+  await page.getByTestId('exchange-open-submit-review-confirm').click();
   await expect(page.getByTestId('exchange-console')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId('exchange-console-name')).toHaveText('Harbour Test Fund');
   await expect(page.getByTestId('exchange-stat-stake')).toContainText('250,000.00');
@@ -61,6 +64,7 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   await invPage.getByTestId(/^exchange-fund-card-/).first().click();
   await invPage.getByTestId('exchange-invest-amount').fill('50000');
   await invPage.getByTestId('exchange-invest').click();
+  await invPage.getByTestId('exchange-invest-review-confirm').click();
   await expect(invPage.getByTestId('exchange-invest-sent')).toBeVisible({ timeout: 20_000 });
 
   // the deposit settles at the next day close: after two game days the investor holds units at NAV
@@ -76,6 +80,7 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   await invPage.getByTestId('exchange-redeem-units').fill('20000');
   await expect(invPage.getByTestId('exchange-early-exit')).toBeVisible();
   await invPage.getByTestId('exchange-redeem').click();
+  await invPage.getByTestId('exchange-redeem-review-confirm').click();
   await expect(invPage.getByTestId('exchange-redeem-sent')).toBeVisible({ timeout: 20_000 });
 
   // the redemption pays at the next day close: the holding falls to the units left
@@ -103,7 +108,14 @@ test('a manager opens a fund; an investor deposits, sees the holding, redeems an
   await page.goto('/broker?e2e&intro=off');
   await clearSheets(page);
   await skipTips(page);
-  // the deep link opens a second Broker window beside the one restored from the last visit: the newest one is last
+  // the deep link opens a second Broker window beside the one restored from the last visit: the newest one is last.
+  // Two Brokers share a 1440 px desktop, so each is under 900 px wide: the narrow Broker keeps its full ticket (with the
+  // selector) in the trade sheet, opened from the trade bar's review button. A terminal-width Broker shows the ticket at once.
+  await expect(page.getByTestId('order-account').last().or(page.getByTestId('bar-qty').last())).toBeVisible({ timeout: 30_000 });
+  if ((await page.getByTestId('order-account').count()) === 0) {
+    await page.getByTestId('bar-qty').last().fill('1');
+    await page.getByTestId('bar-review').last().click();
+  }
   await expect(page.getByTestId('order-account').last()).toBeVisible({ timeout: 30_000 });
   await page.getByTestId('account-fund').last().click();
   await expect(page.getByTestId('account-fund-note').last()).toBeVisible();

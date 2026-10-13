@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { t, tm, type Msg } from '@/i18n';
 import { signedMoney } from '@/game/format';
-import { useMedia } from '@/game/useMedia';
+import { useReducedMotion } from '@/components/os/motion';
 import { Button } from '@/components/ui';
 import type { JournalReplay } from '@/world/journal';
 
@@ -27,7 +27,7 @@ export interface ReplayPin {
 }
 
 export function Replay({ replay, pins = [] }: { replay: JournalReplay; pins?: ReplayPin[] }) {
-  const reduce = useMedia('(prefers-reduced-motion: reduce)');
+  const reduce = useReducedMotion();
   const series = replay.series;
   const n = series.length;
   const entryIdx = Math.max(0, series.findIndex((p) => p.day >= replay.entryDay));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resizeRect, sharedEdges, snapFits, snapTargetAt, targetRect } from './windowMath';
+import { clampDelta, resizeRect, sharedEdges, snapFits, snapTargetAt, targetRect } from './windowMath';
 
 const wa = { w: 1440, h: 900 };
 const min = { minW: 420, minH: 300 };
@@ -78,5 +78,23 @@ describe('shared edges between tiles (P2-025)', () => {
       { id: 'b', f: { x0: 0.5, y0: 0.5, x1: 1, y1: 1 } },
     ]);
     expect(edges).toEqual([]);
+  });
+});
+
+describe('the drag stays on the work area', () => {
+  it('clamps a window dragged past any edge back to the edge', () => {
+    const r = { x: 300, y: 200, w: 500, h: 400 };
+    expect(clampDelta(r, -900, 0, wa)).toEqual({ dx: -300, dy: 0 });
+    expect(clampDelta(r, 2000, 0, wa)).toEqual({ dx: 640, dy: 0 });
+    expect(clampDelta(r, 0, -500, wa)).toEqual({ dx: 0, dy: -200 });
+    expect(clampDelta(r, 0, 900, wa)).toEqual({ dx: 0, dy: 300 });
+  });
+
+  it('passes a move that stays inside', () => {
+    expect(clampDelta({ x: 10, y: 10, w: 200, h: 200 }, 25, -4, wa)).toEqual({ dx: 25, dy: -4 });
+  });
+
+  it('keeps the top-left corner on screen for a window bigger than the work area', () => {
+    expect(clampDelta({ x: 0, y: 0, w: 2000, h: 100 }, -50, 0, wa)).toEqual({ dx: 0, dy: 0 });
   });
 });

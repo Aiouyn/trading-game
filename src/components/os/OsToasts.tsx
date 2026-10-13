@@ -1,27 +1,40 @@
 'use client';
 
 // Toasts (P2-085..P2-095, V:137-143): under the strip at the top right, or the top left when a Broker
-// sits under the column (P2-088). At most three are drawn, the oldest leaving first. The store owns the
+// sits under the column (P2-088). At most two are drawn (TOAST_MAX), the oldest leaving first. The store owns the
 // hold timers (src/shell/holds.ts), so each notice expires on time even when it is queued behind others.
 // A pointer or keyboard focus on a toast pauses its hold (P2-086). Warnings and margin calls stay until
 // read (P2-090). A click opens the window the notice is about and dismisses it. In focus mode the
 // notices it hides are removed from the queue, so they wait in the bell instead of coming back when focus
 // mode ends (P2-069). Fills and world events are announced at once (P2-094).
-import { useEffect, useRef } from 'react';
+import { type CSSProperties, type PointerEvent, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
 import { isAppId } from '@/shell/apps';
-import { type ShellToast, allowedInFocus, isSticky, visibleToasts } from '@/shell/toasts';
+import { TOAST_HOLD_MS, type ShellToast, type ToastPlace, allowedInFocus, isSticky, visibleToasts } from '@/shell/toasts';
 import { Glyph, type GlyphName } from './glyphs';
 import { focusOrOpen } from './shellStore';
+import { phoneOpen } from './phoneStore';
 
 const ICON: Record<string, GlyphName> = { gain: 'check', loss: 'close', warn: 'bell', info: 'bell', brass: 'bell' };
 
-export function OsToasts({ focusMode, side, phone = false }: { focusMode: boolean; side: 'right' | 'left'; phone?: boolean }) {
+export function OsToasts({ focusMode, place, phone = false }: { focusMode: boolean; place: ToastPlace; phone?: boolean }) {
   const toasts = useGame((s) => s.toasts);
   const dismissMany = useGame((s) => s.dismissToasts);
   // On the phone one notice at a time drops from the status bar (P2-095).
-  const shown = visibleToasts(toasts, focusMode).slice(0, phone ? 1 : undefined);
+  // On the phone the trade sheet covers the bar the banner sits above, so notices wait (in the bell) while it is open.
+  const sheetOpen = useGame((s) => s.tradeSheetOpen);
+  // A narrow Broker's notice is the same banner, above its trade bar (toastPlace 'bar'): one at a time, held while its sheet is open.
+  const bar = place.side === 'bar';
+  const banner = phone || bar;
+  const held = banner && sheetOpen;
+  // The phone and a narrow Broker draw one notice at a time (P2-095). The desktop column draws two, in the corner or in a maximized
+  // Broker's dock (the dock is sized for two, TerminalLayout); the rest wait behind the count, which opens the notification center.
+  const shown = held ? [] : visibleToasts(toasts, focusMode).slice(0, banner ? 1 : undefined);
+  // Notices past the drawn ones are not lost: the count opens the notification center behind the bell (UX 3).
+  const queued = (focusMode ? toasts.filter(allowedInFocus) : toasts).length;
+  const more = held ? 0 : queued - shown.length;
+  const setInbox = useGame((s) => s.setInbox);
 
   useEffect(() => {
     if (!focusMode) return;
@@ -29,16 +42,36 @@ export function OsToasts({ focusMode, side, phone = false }: { focusMode: boolea
     if (hidden.length > 0) dismissMany(hidden);
   }, [focusMode, toasts, dismissMany]);
 
+  // The column's inline place: a terminal dock (`at`), or a narrow Broker's bar (`bar`). The bar adds the trade bar's height (--phone-trade-h).
+  const style: CSSProperties | undefined = phone ? undefined
+    : place.side === 'at' ? { left: place.left, bottom: place.bottom, right: 'auto' }
+    : place.side === 'bar' ? { left: place.left, right: place.right, width: 'auto', bottom: `calc(${place.bottom}px + var(--phone-trade-h, 0px))` }
+    : undefined;
+
   return (
-    <div className={`os-toasts${side === 'left' && !phone ? ' left' : ''}${phone ? ' phone' : ''}`} aria-live="polite" data-testid="os-toasts">
+    <div
+      className={`os-toasts${phone ? ' phone' : ''}${bar ? ' bar' : ''}`}
+      style={style}
+      aria-live="polite" data-testid="os-toasts"
+    >
       {shown.map((x, i) => (
-        <OsToast key={x.id} toast={x} n={i + 1} />
+        <OsToast key={x.id} toast={x} n={i + 1} phone={phone} slim={banner} />
       ))}
+      {more > 0 && (
+        <button
+          type="button"
+          className="os-toast-more"
+          data-testid="os-toast-more"
+          onClick={() => setInbox(true)}
+        >
+          {t('shell.toast.more', { n: more })}
+        </button>
+      )}
     </div>
   );
 }
 
-function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
+function OsToast({ toast, n, phone, slim }: { toast: ShellToast; n: number; phone: boolean; slim: boolean }) {
   const dismiss = useGame((s) => s.dismissToast);
   const pause = useGame((s) => s.pauseToast);
   const resume = useGame((s) => s.resumeToast);
@@ -46,6 +79,14 @@ function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
   const hovered = useRef(false);
   const focused = useRef(false);
   const id = toast.id;
+  // Phone: a slim banner that leaves after the hold (4 s) or on a swipe away (the store's hold does not run for a sticky one).
+  const [dx, setDx] = useState(0);
+  const drag = useRef<{ x: number; off: number; moved: boolean } | null>(null);
+  useEffect(() => {
+    if (!phone) return;
+    const h = window.setTimeout(() => dismiss(id), TOAST_HOLD_MS);
+    return () => window.clearTimeout(h);
+  }, [phone, id, dismiss]);
 
   // A toast that leaves the column while it is held must release its holds, or it would never expire.
   useEffect(
@@ -59,7 +100,12 @@ function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
   );
 
   const label =
-    toast.kind === 'fill' ? t('shell.toast.fill') : toast.kind === 'margin' ? t('shell.toast.margin') : toast.kind === 'world' ? t('shell.toast.world') : undefined;
+    toast.kind === 'fill' ? t('shell.toast.fill')
+      : toast.kind === 'margin' ? t('shell.toast.margin')
+      : toast.kind === 'world' ? t('shell.toast.world')
+      : toast.kind === 'close' ? t('shell.toast.close')
+      : toast.kind === 'coach' ? t('shell.toast.coach')
+      : undefined;
   const urgent = toast.kind === 'fill' || toast.kind === 'world';
   const sticky = isSticky(toast);
   // A fill is news about an order, not an error: a neutral check, and the buy or sell colour on the text only. Errors keep the red X.
@@ -68,9 +114,33 @@ function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
   const iconColor = fill ? 'var(--color-fg-muted)' : toast.tone === 'loss' ? 'var(--color-loss)' : undefined;
   const textTone = fill ? (toast.tone === 'gain' ? 'text-gain' : toast.tone === 'loss' ? 'text-loss' : 'text-fg') : 'text-fg';
 
+  // A click runs the notice's own action (a coach tip), or opens the window it names, and dismisses the toast.
   const open = (): void => {
-    if (toast.app !== undefined && isAppId(toast.app)) focusOrOpen(toast.app);
+    // a swipe that ended a drag is not a click
+    if (drag.current?.moved) { drag.current = null; return; }
+    if (toast.run) toast.run();
+    // on the phone the window is an app of the phone stack (the desktop windows are not drawn there)
+    else if (toast.app !== undefined && isAppId(toast.app)) { if (phone) phoneOpen(toast.app, {}); else focusOrOpen(toast.app); }
     dismiss(id);
+  };
+
+  const onDown = (e: PointerEvent<HTMLButtonElement>): void => {
+    if (!phone) return;
+    drag.current = { x: e.clientX, off: 0, moved: false };
+  };
+  const onMove = (e: PointerEvent<HTMLButtonElement>): void => {
+    const d = drag.current;
+    if (!phone || !d) return;
+    d.off = e.clientX - d.x;
+    if (Math.abs(d.off) > 6) d.moved = true;
+    setDx(d.off);
+  };
+  const onUp = (): void => {
+    const d = drag.current;
+    if (!phone || !d) return;
+    // a swipe past 60 px in either direction dismisses; a short one springs back (the click that follows a moved drag is ignored)
+    if (Math.abs(d.off) > 60) dismiss(id);
+    else setDx(0);
   };
 
   const hold = (ref: { current: boolean }, on: boolean): void => {
@@ -83,13 +153,18 @@ function OsToast({ toast, n }: { toast: ShellToast; n: number }) {
   return (
     <button
       type="button"
-      className="os-toast text-left"
+      className={`os-toast text-left${slim ? ' slim' : ''}`}
+      style={phone && dx !== 0 ? { transform: `translateX(${dx}px)`, opacity: Math.max(0.3, 1 - Math.abs(dx) / 160) } : undefined}
       data-testid={`os-toast-${n}`}
       data-tone={toast.tone}
       data-kind={toast.kind ?? 'other'}
       data-sticky={sticky || undefined}
       role={urgent ? 'alert' : undefined}
       onClick={open}
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={onUp}
+      onPointerCancel={onUp}
       onPointerEnter={() => hold(hovered, true)}
       onPointerLeave={() => hold(hovered, false)}
       onFocus={() => hold(focused, true)}

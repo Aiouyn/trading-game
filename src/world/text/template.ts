@@ -2,9 +2,13 @@ import en from '@/i18n/en.json';
 import fr from '@/i18n/fr.json';
 import { sectorName } from '@/engine';
 import type { Locale, Msg, MsgVar } from '@/i18n';
+import { formatToken, isNumberToken, pctToken, signedPctToken, signedUsdToken, usdToken } from '@/i18n/tokens';
 import { closeMove } from '../close-move';
 import type { TextProvider } from './index';
 import { analystMsg, executivesMsg, moderatorMsg, narratorMsg, newsroomMsg, rivalMsg, rumorMsg, vkey } from './roles';
+
+/** A sector as a message variable: "@sector.<id>" (the viewer's language names it) when the dictionaries carry it. */
+const sectorRef = (id: string): string => (`sector.${id}` in en ? `@sector.${id}` : sectorName(id));
 
 /**
  * The template provider: the daily close, written from fixed sentences in en.json and fr.json (keys `dayclose.*`). The
@@ -21,7 +25,10 @@ export function renderMsg(m: Msg, locale: Locale): string {
   const plural = typeof count === 'number' ? `${m.key}_${count === 1 ? 'one' : 'other'}` : null;
   const s = (plural && (DICTS[locale][plural] ?? DICTS.en[plural])) || DICTS[locale][m.key] || DICTS.en[m.key] || m.key;
   const ref = (v: MsgVar): string => {
-    if (typeof v === 'object') return renderMsg(v, locale);
+    // a list of descriptors (the lab's signal picks) joins with the same separator the client uses
+    if (Array.isArray(v)) return (v as readonly Msg[]).map((x) => renderMsg(x, locale)).join(' · ');
+    if (typeof v === 'object') return renderMsg(v as Msg, locale);
+    if (typeof v === 'string' && isNumberToken(v)) return formatToken(locale, v);
     return typeof v === 'string' && v.startsWith('@') ? renderMsg({ key: v.slice(1) }, locale) : String(v);
   };
   return s.replace(/\{(\w+)\}/g, (whole, k: string) => (m.vars && m.vars[k] !== undefined ? ref(m.vars[k]!) : whole));
@@ -44,6 +51,11 @@ export function signedPct(x: number): string {
   return `${x > 0 ? '+' : ''}${(x * 100).toFixed(2)}%`;
 }
 
+/** A dollar amount with an explicit sign (+$12.00, -$3.51). */
+export function signedUsd(x: number): string {
+  return `${x > 0 ? '+' : ''}${usd(x)}`;
+}
+
 /** An unsigned percentage, from a fraction. */
 export function absPct(x: number): string {
   return `${Math.abs(x * 100).toFixed(2)}%`;
@@ -53,30 +65,35 @@ export const templateTextProvider: TextProvider = {
   dailyClose(c) {
     // the masthead is a label; every other line is a narrator variant (roles.ts narratorMsg), keyed by the close's day
     const out: Msg[] = [{ key: 'dayclose.title' }];
-    const change = c.nwChange;
-    const move = closeMove(change);
+    // the headline is trading alone; valuation and income are their own lines, so a marked-up business never reads as a gain made today
+    const trade = closeMove(c.trading);
     const day = `${c.day}`;
-    out.push(narratorMsg({ id: `${day}:head`, kind: 'head', move, amount: usd(Math.abs(change)) }));
+    // every figure is a number token: the reader's locale formats it (en $1,500.00, fr 1 500,00 $)
+    out.push(narratorMsg({ id: `${day}:head`, kind: 'head', move: trade, amount: usdToken(Math.abs(c.trading)) }));
+    out.push({ key: 'dayclose.valuation', vars: { change: signedUsdToken(c.valuation) } });
+    out.push({ key: 'dayclose.income', vars: { change: signedUsdToken(c.income) } });
+    if (c.biz && c.biz.businesses > 0) out.push({ key: 'dayclose.tax', vars: { change: signedUsdToken(c.tax), rate: Math.round(c.biz.rate * 100) } });
+    const move = closeMove(c.nwChange);
     if (move === 'flat') {
-      out.push({ key: vkey('txt.narr.nw.flat', `${c.day}:nw`), vars: { now: usd(c.nwClose) } });
+      out.push({ key: vkey('txt.narr.nw.flat', `${c.day}:nw`), vars: { now: usdToken(c.nwClose) } });
     } else {
       out.push({
         key: vkey(`txt.narr.nw.${move}`, `${c.day}:nw`),
-        vars: { change: usd(Math.abs(change)), pct: absPct(c.nwChangePct), now: usd(c.nwClose) },
+        vars: { change: usdToken(Math.abs(c.nwChange)), pct: pctToken(Math.abs(c.nwChangePct)), now: usdToken(c.nwClose) },
       });
     }
     if (c.best && c.worst) {
-      out.push(narratorMsg({ id: `${day}:best`, kind: 'best', asset: c.best.assetId, pct: signedPct(c.best.pct), usd: usd(c.best.usd) }));
+      out.push(narratorMsg({ id: `${day}:best`, kind: 'best', asset: c.best.assetId, pct: signedPctToken(c.best.pct), usd: usdToken(c.best.usd) }));
       if (c.worst.assetId !== c.best.assetId) {
-        out.push(narratorMsg({ id: `${day}:worst`, kind: 'worst', asset: c.worst.assetId, pct: signedPct(c.worst.pct), usd: usd(c.worst.usd) }));
+        out.push(narratorMsg({ id: `${day}:worst`, kind: 'worst', asset: c.worst.assetId, pct: signedPctToken(c.worst.pct), usd: usdToken(c.worst.usd) }));
       }
     } else {
       out.push(narratorMsg({ id: `${day}:none`, kind: 'noPositions' }));
     }
-    out.push(narratorMsg({ id: `${day}:gx`, kind: 'gx', pct: signedPct(c.gx.pct) }));
+    out.push(narratorMsg({ id: `${day}:gx`, kind: 'gx', pct: signedPctToken(c.gx.pct) }));
     if (c.sectors) {
-      out.push(narratorMsg({ id: `${day}:sector:best`, kind: 'sector', which: 'best', sector: sectorName(c.sectors.best.sector), pct: signedPct(c.sectors.best.pct) }));
-      out.push(narratorMsg({ id: `${day}:sector:worst`, kind: 'sector', which: 'worst', sector: sectorName(c.sectors.worst.sector), pct: signedPct(c.sectors.worst.pct) }));
+      out.push(narratorMsg({ id: `${day}:sector:best`, kind: 'sector', which: 'best', sector: sectorRef(c.sectors.best.sector), pct: signedPctToken(c.sectors.best.pct) }));
+      out.push(narratorMsg({ id: `${day}:sector:worst`, kind: 'sector', which: 'worst', sector: sectorRef(c.sectors.worst.sector), pct: signedPctToken(c.sectors.worst.pct) }));
     }
     for (const s of c.stories) {
       out.push({ key: vkey(`txt.narr.story.${s.band}`, `${c.day}:${s.assetId}`), vars: { headline: s.headlineMsg ?? s.headline, asset: s.assetId } });
@@ -87,7 +104,7 @@ export const templateTextProvider: TextProvider = {
       else out.push({ key: vkey('txt.narr.event.ended', `${c.day}:event`), vars: { headline, days: c.event.lastedDays ?? 0 } });
     }
     out.push(narratorMsg({
-      id: `${day}:ghosts`, kind: 'ghosts', basket: usd(c.ghosts.basket), random: usd(c.ghosts.random), momentum: usd(c.ghosts.momentum), player: usd(c.ghosts.player),
+      id: `${day}:ghosts`, kind: 'ghosts', basket: usdToken(c.ghosts.basket), random: usdToken(c.ghosts.random), momentum: usdToken(c.ghosts.momentum), player: usdToken(c.ghosts.player),
     }));
     if (c.ghosts.percentile === null) out.push(narratorMsg({ id: `${day}:rank`, kind: 'noTrades' }));
     else out.push(narratorMsg({ id: `${day}:rank`, kind: 'rank', beaten: c.ghosts.beaten }));

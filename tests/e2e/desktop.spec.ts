@@ -71,6 +71,9 @@ test.describe('desktop shell', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await register(page);
     await settle(page);
+    // the R0 desk opens the Broker alone: the tiled windows (and their shared edge) are the Trade layout
+    await page.getByTestId('shelf-layout-menu').click();
+    await page.getByTestId('layout-trade').click();
     const broker = page.getByTestId('win-broker-1');
     await expect(broker).toBeVisible();
     const before = await broker.boundingBox();

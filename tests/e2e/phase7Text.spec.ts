@@ -61,8 +61,9 @@ test('French: the Wire, the Research Desk and the Rivals profile show no English
   expect(tags.length).toBeGreaterThan(0);
   for (const tag of tags) expect(ENGLISH_TAGS, `wire tag: ${tag}`).not.toContain(tag.trim().toLowerCase());
 
-  // the Rivals profile: the persona line is French (the card sits in the Market app, under the watchlist)
+  // the Rivals profile: the persona line is French. The card sits in the Broker's Asset tab of the dock (desktop and phone alike).
   await goTo(page, 'market');
+  await page.getByTestId('dock-tab-asset').first().click();
   const show = page.getByRole('button', { name: fr['rivals.show'] });
   if (await show.isVisible().catch(() => false)) await show.click();
   const firstRival = page.getByRole('button', { name: new RegExp(fr['rivals.open'].replace('{name}', '.*')) }).first();
@@ -98,8 +99,13 @@ test('French: the close card lines are French after a game day (desktop and phon
   const next = (Math.floor(tick / 720) + 1) * 720;
   await page.evaluate((n) => window.__tg!.advance(n), next - tick);
 
+  // UX stage 2: the close is a non-blocking toast (in French); its click opens the Wire, where the card is (CloseBrief)
+  const toast = page.locator('[data-testid^="os-toast-"][data-kind="close"]');
+  await expect(toast).toBeVisible({ timeout: 25_000 });
+  for (const line of await toast.allTextContents()) expect(line).not.toMatch(ENGLISH_STORY);
+  await toast.click();
   const card = page.getByTestId('close-card');
-  await expect(card).toBeVisible({ timeout: 25_000 });
+  await expect(card).toBeVisible();
   for (const line of await page.getByTestId('close-story').allTextContents()) expect(line).not.toMatch(ENGLISH_STORY);
   const event = page.getByTestId('close-event');
   if (await event.isVisible().catch(() => false)) expect(await event.textContent()).not.toMatch(ENGLISH_STORY);

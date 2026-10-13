@@ -70,6 +70,7 @@ async function homeAndCollectionFlow(page: Page, browser: Browser, lang: 'en' | 
   const buy = page.getByTestId('buy-item-sneakers');
   await expect(buy).toBeEnabled({ timeout: 15_000 });
   await buy.click();
+  await page.getByTestId('boutique-commit-confirm').click();
   await page.getByTestId('tab-home').click();
   await expect(page.getByTestId('home-room')).toBeVisible();
   await expect(page.getByTestId('home-visibility-state')).toHaveText(lang === 'fr' ? 'Désactivé' : 'Off');

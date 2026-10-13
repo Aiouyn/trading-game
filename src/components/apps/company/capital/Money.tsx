@@ -4,12 +4,12 @@
 // distress flag), the takeover stance (the tender floor and antitrust), and the failure record with the clawback box.
 import { useState } from 'react';
 import { t } from '@/i18n';
-import { money, pct, qty, price } from '@/game/format';
-import { Button, NumberField, Segmented } from '@/components/ui';
+import { money, pct, qty, price, dec } from '@/game/format';
+import { NumberField, Segmented, SpendReview } from '@/components/ui';
 import type { CapitalView } from '@/world/company/capital';
 import { HoldButton, Line, Note, Panel, RefusalBox, numOf, useAct, type Refusal } from './shared';
 
-const ratio = (x: number | null) => (x === null ? '—' : `${x.toFixed(2)}×`);
+const ratio = (x: number | null) => (x === null ? '—' : `${dec(x, 2)}×`);
 
 export function DebtPanel({ cap }: { cap: CapitalView }) {
   const d = cap.debt;
@@ -34,17 +34,18 @@ export function DebtPanel({ cap }: { cap: CapitalView }) {
       {d.loans.map((l) => (
         <div key={l.id} className="flex flex-col gap-1 border-t border-ink-2 pt-2 text-small" data-testid="company-loan">
           <Line k={t('company.capital.debt.loan', { day: l.drawnDay })} v={money(l.principal)} />
-          <Line k={t('company.capital.debt.rate')} v={t('company.capital.debt.perDay', { rate: (l.ratePerDay * 100).toFixed(4) })} />
+          <Line k={t('company.capital.debt.rate')} v={t('company.capital.debt.perDay', { rate: dec(l.ratePerDay * 100, 4) })} />
           {l.guaranteed && <Note testId="company-loan-guaranteed">{t('company.capital.debt.guaranteedBy', { amount: money(l.guaranteedAmount) })}</Note>}
           <div>
-            <Button
+            <SpendReview
               size="sm"
-              disabled={repay.busy}
-              onClick={() => repay.run({ type: 'company.repay', companyId: cap.companyId, debtId: l.id, amount: l.principal }, t('company.capital.debt.repaid'))}
               testId="company-loan-repay"
-            >
-              {t('company.capital.debt.repay')}
-            </Button>
+              label={t('company.capital.debt.repay')}
+              title={t('company.capital.debt.repay')}
+              rows={[{ label: t('commit.amount'), value: money(l.principal) }]}
+              disabled={repay.busy}
+              onConfirm={() => repay.run({ type: 'company.repay', companyId: cap.companyId, debtId: l.id, amount: l.principal }, t('company.capital.debt.repaid'))}
+            />
           </div>
         </div>
       ))}
@@ -82,8 +83,8 @@ export function DebtPanel({ cap }: { cap: CapitalView }) {
         />
         <p className="text-caption text-fg-muted" data-testid="company-guarantee-rate">
           {guaranteed
-            ? t('company.capital.debt.rateWith', { rate: (d.guaranteedRatePerDay * 100).toFixed(4) })
-            : t('company.capital.debt.rateWithout', { rate: (d.ratePerDay * 100).toFixed(4) })}
+            ? t('company.capital.debt.rateWith', { rate: dec(d.guaranteedRatePerDay * 100, 4) })
+            : t('company.capital.debt.rateWithout', { rate: dec(d.ratePerDay * 100, 4) })}
         </p>
         <label className="flex items-start gap-2 text-small text-fg-muted">
           <input
@@ -138,14 +139,15 @@ export function DividendPanel({ cap }: { cap: CapitalView }) {
       {dv.distress && <Note testId="company-div-distress">{t('company.capital.div.distress')}</Note>}
       <NumberField value={perShare} onChange={setPerShare} label={t('company.capital.div.perShare')} suffix="$" min={0} step="any" testId="company-div-amount" />
       {overCeiling && <Note testId="company-div-over">{t('company.capital.div.over', { max: price(dv.maxPerShare) })}</Note>}
-      <Button
+      <SpendReview
         variant="brass"
-        disabled={!amountOk || overCeiling || dv.maxPerShare <= 0 || act.busy}
-        onClick={() => act.run({ type: 'company.dividend', companyId: cap.companyId, perShare: v }, t('company.capital.div.declared'))}
         testId="company-div-declare"
-      >
-        {t('company.capital.div.declare')}
-      </Button>
+        label={t('company.capital.div.declare')}
+        title={t('company.capital.div.declare')}
+        rows={[{ label: t('company.capital.div.perShare'), value: price(amountOk ? v : 0) }]}
+        disabled={!amountOk || overCeiling || dv.maxPerShare <= 0 || act.busy}
+        onConfirm={() => act.run({ type: 'company.dividend', companyId: cap.companyId, perShare: v }, t('company.capital.div.declared'))}
+      />
       {act.refusal && <RefusalBox refusal={act.refusal} testId="company-div-refusal" />}
     </Panel>
   );

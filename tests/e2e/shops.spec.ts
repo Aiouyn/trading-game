@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { dismissCloseCard, goTo, isPhone, noHorizontalOverflow, proof, register, skipTips, watchErrors } from './helpers';
 
@@ -37,6 +38,7 @@ async function buyFoodCart(page: import('@playwright/test').Page): Promise<strin
   await goTo(page, 'empire');
   await page.getByTestId('tab-buy').click();
   await page.getByTestId('buy-biz-food.street-food-cart').click();
+  await page.getByTestId('biz-commit-confirm').click();
   await expect(page.getByTestId('empire-income')).not.toContainText('$0.00', { timeout: 10_000 });
   return shopId(page);
 }
@@ -112,6 +114,7 @@ test('a manager is hired with its prepay shown, and letting go before the term r
 
   await expect(page.getByTestId(`shop-${id}-hire-1`)).toBeVisible();
   await page.getByTestId(`shop-${id}-hire-1`).click();
+  await page.getByTestId(`shop-${id}-hire-1-review-confirm`).click();
   await expect(page.getByTestId(`shop-${id}-fire`)).toBeVisible({ timeout: 5_000 });
   await expect(page.getByTestId(`shop-${id}-manager`)).toContainText('forfeits');
 
@@ -205,9 +208,10 @@ test('shop figures stay on one line in the window the player opens', async ({ pa
   // R-9-10: the day's tax line is in the day block, on its own line, at the owner's bracket
   await expect(page.getByTestId(`shop-${sid}-line-tax`)).toContainText(/Tax \(bracket \d+%\)/);
   await noHorizontalOverflow(page);
-  // and the Businesses card (the owned tab) carries the same tax line for the same business
+  // and the owned table's Tax column carries the same business's tax for the day, the bracket in its tooltip
   await page.getByTestId('tab-owned').click();
-  await expect(page.getByTestId(`biz-${sid}-tax`)).toContainText(/Tax \(bracket \d+%\)/);
+  await expect(page.getByTestId(`biz-${sid}-tax`)).toHaveAttribute('title', /Tax \(bracket \d+%\)/);
+  await expect(page.getByTestId(`biz-${sid}-tax`)).toContainText(/\$\d/);
   await noHorizontalOverflow(page);
 });
 
@@ -236,3 +240,97 @@ async function expectFiguresOnOneLine(page: Page, sid: string): Promise<void> {
   const bad = figures.filter((f) => f.lines !== 1 || f.overflow > 1 || f.text.includes('…') || f.text === '');
   expect(bad.map((f) => `${f.k || f.text}: ${f.lines} lines, overflow ${f.overflow}`)).toEqual([]);
 }
+
+// The business tax in the UI (R-9-10): the close card's split carries a business tax row at the owner's bracket, and the owned
+// table's Tax column carries the same business's tax for the day, the bracket in its tooltip. The split adds up to the change.
+// In English and in French, on the desktop and the phone. The shots go to TAX_SHOTS (default test-results/shots-tax).
+const TAX_SHOTS = process.env.TAX_SHOTS ?? 'test-results/shots-tax';
+
+/** The owned table starts at the left edge (scrollLeft 0) and its name column is in view at the scroller's left edge (sticky). */
+async function expectOwnedTableAtStart(page: import('@playwright/test').Page, id: string): Promise<void> {
+  const scroller = page.getByTestId('biz-owned-scroll');
+  await expect(scroller).toBeVisible();
+  expect(await scroller.evaluate((el) => el.scrollLeft)).toBe(0);
+  const box = await scroller.boundingBox();
+  const name = await page.getByTestId(`biz-${id}`).locator('td').first().boundingBox();
+  expect(box && name).toBeTruthy();
+  expect(name!.x).toBeGreaterThanOrEqual(box!.x - 0.5);
+}
+
+/** The owned table at 1280 wide (a laptop's side panel), then back to the page's own size: the name column still starts at the edge. */
+async function at1280(page: import('@playwright/test').Page, name: string, id: string): Promise<void> {
+  if (isPhone(page)) return;
+  // a table scrolled to its tax column keeps that scroll through a resize: the check starts again from the left edge
+  await page.getByTestId('biz-owned-scroll').evaluate((el) => { el.scrollLeft = 0; });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expectOwnedTableAtStart(page, id);
+  await noHorizontalOverflow(page);
+  await taxShot(page, name);
+  await page.setViewportSize({ width: 1440, height: 900 });
+}
+
+async function taxShot(page: import('@playwright/test').Page, name: string): Promise<void> {
+  // the toasts (4 s each) sit over the Wire's bottom corner: the shot waits for them to leave
+  await expect(page.locator('[data-testid^="os-toast-"]')).toHaveCount(0, { timeout: 15_000 }).catch(() => {});
+  mkdirSync(TAX_SHOTS, { recursive: true });
+  await page.screenshot({ path: `${TAX_SHOTS}/${isPhone(page) ? 'phone' : 'desktop'}-${name}.png` });
+}
+
+test('the business tax is a row of the close card split and a column of the owned table, in English and French', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => { window.__tgE2eAdmin = 'e2e-admin'; });
+  await register(page, 'btx');
+  await skipTips(page);
+  const id = await buyFoodCart(page);
+
+  // a game day closes with the shop in the books: the close card's split has the business tax row, at the bracket
+  await nextGameDay(page);
+  await goTo(page, 'wire');
+  const split = page.getByTestId('close-split-tax');
+  await expect(split).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('close-split')).toContainText('Business tax (bracket');
+  await expect(page.getByTestId('close-tax')).toHaveCount(0);
+  const sum = await page.evaluate(() => {
+    const c = window.__tg!.state().me!.trading.closes[0]!;
+    return { parts: c.trading + c.valuation + c.income + c.tax, change: c.nwChange, tax: c.tax, trading: c.trading };
+  });
+  expect(sum.tax).toBeLessThanOrEqual(0);
+  expect(Math.abs(sum.parts - sum.change)).toBeLessThan(0.01);
+  // the shop was bought with cash: the purchase is a conversion, so the day's trading is flat (0) and the headline is not a loss
+  expect(Math.abs(sum.trading)).toBeLessThan(0.01);
+  await noHorizontalOverflow(page);
+  await taxShot(page, 'close-tax-en');
+
+  // the owned table: a Tax column, the day's tax for this business, the bracket in the tooltip
+  await goTo(page, 'empire');
+  await page.getByTestId('tab-owned').click();
+  await expect(page.getByTestId('biz-owned-table')).toContainText('Tax per day');
+  await expect(page.getByTestId(`biz-${id}-tax`)).toHaveAttribute('title', /Tax \(bracket \d+%\)/);
+  await expectOwnedTableAtStart(page, id);
+  await noHorizontalOverflow(page);
+  await taxShot(page, 'owned-tax-en');
+  // scrolled to the tax column, the business name stays at the left edge
+  await page.getByTestId(`biz-${id}-tax`).scrollIntoViewIfNeeded();
+  await taxShot(page, 'owned-tax-scrolled-en');
+  await at1280(page, 'owned-tax-1280-en', id);
+
+  // French: the same two places, the French labels and the French money
+  await goTo(page, 'profile');
+  await page.getByTestId('settings-lang-fr').click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
+  await goTo(page, 'wire');
+  await expect(page.getByTestId('close-split')).toContainText('Impôt sur les entreprises (tranche');
+  await noHorizontalOverflow(page);
+  await taxShot(page, 'close-tax-fr');
+  await goTo(page, 'empire');
+  await page.getByTestId('tab-owned').click();
+  await expect(page.getByTestId('biz-owned-table')).toContainText('Impôt par jour');
+  await expect(page.getByTestId(`biz-${id}-tax`)).toHaveAttribute('title', /Impôt \(tranche \d+/);
+  await expectOwnedTableAtStart(page, id);
+  await noHorizontalOverflow(page);
+  await taxShot(page, 'owned-tax-fr');
+  await page.getByTestId(`biz-${id}-tax`).scrollIntoViewIfNeeded();
+  await taxShot(page, 'owned-tax-scrolled-fr');
+  await at1280(page, 'owned-tax-1280-fr', id);
+  expect(errors).toEqual([]);
+});

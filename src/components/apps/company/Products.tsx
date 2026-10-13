@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, NumberField, Td, Th } from '@/components/ui';
+import { Button, NumberField, SpendReview, spendRows, Td, Th } from '@/components/ui';
 import type { CompanyFounderView } from '@/world/company/views';
 import { PrivateChip, PublicChip, RefusalNote, Section } from './Shared';
 import { numberOrNull, refusalOf, type Refusal } from './model';
@@ -67,6 +67,7 @@ function ProductRow({ p, companyId, priceMin, priceMax, ready }: {
   p: Product; companyId: string; priceMin: number; priceMax: number; ready: number;
 }) {
   const act = useGame((s) => s.act);
+  const cash = useGame((s) => s.me?.account?.cash ?? 0);
   const [price, setPrice] = useState(String(p.price));
   const [marketing, setMarketing] = useState(String(p.marketing));
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -103,9 +104,7 @@ function ProductRow({ p, companyId, priceMin, priceMax, ready }: {
         <Td right num>
           <span className="flex items-center justify-end gap-2">
             <NumberField value={marketing} onChange={setMarketing} min={0} step={1} testId={`company-marketing-${p.id}`} label="$" className="h-9 w-28" />
-            <Button size="sm" disabled={busy || marketingValue === null} onClick={() => { if (marketingValue !== null) void submit({ kind: 'setMarketing', productId: p.id, amount: marketingValue }); }} testId={`company-marketing-set-${p.id}`}>
-              {t('company.ui.products.setMarketing')}
-            </Button>
+            <SpendReview size="sm" testId={`company-marketing-set-${p.id}`} label={t('company.ui.products.setMarketing')} title={t('company.ui.products.setMarketing')} rows={spendRows(marketingValue ?? 0, cash)} disabled={busy || marketingValue === null} onConfirm={() => { if (marketingValue !== null) void submit({ kind: 'setMarketing', productId: p.id, amount: marketingValue }); }} />
           </span>
         </Td>
       </tr>

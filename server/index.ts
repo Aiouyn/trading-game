@@ -312,7 +312,7 @@ wss.on('connection', (ws) => {
           return send(ws, { t: 'ack', id: msg.id, ok: false, error: 'bad command' });
         }
         const r = host.command(c.pid, cmd);
-        send(ws, { t: 'ack', id: msg.id, ok: r.ok, ...(r.error ? { error: r.error } : {}), ...(r.data !== undefined ? { data: r.data } : {}), me: playerView(host.g, c.pid)! });
+        send(ws, { t: 'ack', id: msg.id, ok: r.ok, ...(r.error ? { error: r.error } : {}), ...(r.msg ? { msg: r.msg } : {}), ...(r.data !== undefined ? { data: r.data } : {}), me: playerView(host.g, c.pid)! });
         // chat is delivered right away, not on the next tick
         if (cmd.type === 'chat.send' && r.ok) {
           const m = { ...(r.data as ChatMessage), channel: cmd.channel };

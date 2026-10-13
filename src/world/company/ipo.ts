@@ -17,10 +17,11 @@
 import { COMPANY } from '@/content/company';
 import { rankIndex } from '@/content/lifestyle';
 import { grantLockedShares, listCompanyStock, openAccount, restrictionsOf, setSellCap, type AssetDef, type WorldState } from '@/engine';
-import { TPD, notify, pushWire, today } from '../core';
+import { TPD, assetFlow, notify, pushWire, today } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { isLinkedAccount, linkedAccounts } from '../collusion';
 import { post } from './books';
+import { companyNetWorth } from './networth';
 import { textProvider } from '../text';
 import { syncWindow } from './insiders';
 import { headcountBand } from './signals';
@@ -263,7 +264,11 @@ export function listIpo(g: GameState, c: Company, out: StepOutput | null): void 
   post(w, c, day, 'ipo', npcShares * P);
   post(w, c, day, 'underwriting', -COMPANY.ipo.underwritingFee * ipo.ipoShares * P);
 
+  // the founder's private stake leaves valuation at its book value and becomes listed shares (markets): the gap to the
+  // listing price is a trading result, as a sale is
+  const privateBefore = companyNetWorth(w, c.ownerId, day);
   c.listed = { assetId, ipoDay: day, sharesOut: ipo.sharesPost, floatShares: ipo.ipoShares, floatCap: ipo.ipoShares * P };
+  assetFlow(g, c.ownerId, companyNetWorth(w, c.ownerId, day) - privateBefore);
   c.shares = ipo.sharesPost;
   c.capTable[`float:${assetId}`] = ipo.ipoShares;
   c.treasuryId = treasuryId;

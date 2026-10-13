@@ -1,6 +1,6 @@
 import { placeOrder, type WorldState } from '@/engine';
 import { FUND_RULES, FUND_TIME } from '@/content/funds';
-import { cashOf, creditExternal, transfer } from '../core';
+import { assetFlow, cashOf, creditExternal, transfer } from '../core';
 import { say } from '../say';
 import { usd } from '../text/template';
 import type { CommandResult, GameState, StepOutput } from '../types';
@@ -27,6 +27,7 @@ export function requestDeposit(g: GameState, pid: string, f: Fund, amount: numbe
   const err = depositRefusal(g, f, pid, amount);
   if (err) return fail(err);
   transfer(g, pid, f.accountId, amount);
+  assetFlow(g, pid, amount); // a pending deposit is in the claims at its amount: a conversion, not trading
   f.requests.push({ id: requestSeq(f), kind: 'deposit', investorId: pid, amount, units: 0, tick: g.market.tick });
   say(g, out, pid, 'fund', 'info', { key: 'funds.deposit.requested', vars: { fund: f.name, amount: usd(amount) } });
   return ok({ fundId: f.id });
@@ -104,6 +105,7 @@ export function payOut(g: GameState, f: Fund, out: StepOutput | null): void {
     const pay = Math.min(owed, avail);
     if (!(pay > 1e-9)) continue;
     transfer(g, f.accountId, pid, pay);
+    assetFlow(g, pid, -pay); // the payable (a claim in valuation) becomes cash: a conversion, not trading
     f.paidOut[pid] = (f.paidOut[pid] ?? 0) + pay;
     avail -= pay;
     if (owed - pay > 1e-9) f.payable[pid] = owed - pay; else delete f.payable[pid];
@@ -113,6 +115,7 @@ export function payOut(g: GameState, f: Fund, out: StepOutput | null): void {
   if (f.feePayable > 1e-9 && avail > 1e-9) {
     const pay = Math.min(f.feePayable, avail);
     transfer(g, f.accountId, f.managerId, pay);
+    assetFlow(g, f.managerId, -pay); // the accrued fee (a claim in valuation) becomes cash: a conversion, not trading
     f.paidOut[f.managerId] = (f.paidOut[f.managerId] ?? 0) + pay;
     f.feePayable -= pay;
     if (f.feePayable <= 1e-9) f.feePayable = 0;

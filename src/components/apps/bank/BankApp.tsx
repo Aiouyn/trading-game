@@ -7,13 +7,13 @@
 import { useState } from 'react';
 import { buyingPower } from '@/engine';
 import { LICENSES, licenseFor, rankIndex } from '@/content/lifestyle';
-import { compactMoney, money } from '@/game/format';
+import { compactMoney, money, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { usePublicPanel } from '@/game/usePublicPanel';
 import { DEALS_RANK } from '@/world/social';
 import type { Command, Deal } from '@/world/types';
 import { t } from '@/i18n';
-import { Button, Card, CardHeader, NumberField, Stat, TextField, ticksLabel } from '@/components/ui';
+import { Button, Card, CardHeader, NumberField, SpendReview, StatStrip, TextField, spendRows, ticksLabel } from '@/components/ui';
 import { RestrictedNote } from '@/components/comeback/LowCashCard';
 
 const TPD = 720;
@@ -37,20 +37,15 @@ export function BankApp() {
   const bp = world ? buyingPower(world, me.player.id) : null;
   return (
     <div className="flex flex-col gap-4" data-testid="bank-view">
-      <Card className="p-4">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="font-serif text-hero text-fg">{t('shell.app.bank')}</h1>
-            <p className="text-small text-fg-muted">{t('bank.intro')}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-2 @md:grid-cols-4">
-            <Stat label={t('common.cash')} value={money(cash)} testId="bank-cash" />
-            <Stat label={t('bank.stat.owed')} value={compactMoney(owed.reduce((s, d) => s + (d.outstanding ?? 0), 0))} testId="bank-owed" />
-            <Stat label={t('bank.stat.mortgages')} value={compactMoney(me.properties.reduce((s, p) => s + p.mortgage, 0))} />
-            <Stat label={t('bank.stat.license')} value={lic.name} />
-          </div>
-        </div>
-      </Card>
+      <StatStrip
+        intro={t('bank.intro')}
+        items={[
+          { label: t('common.cash'), value: money(cash), testId: 'bank-cash' },
+          { label: t('bank.stat.owed'), value: compactMoney(owed.reduce((s, d) => s + (d.outstanding ?? 0), 0)), testId: 'bank-owed' },
+          { label: t('bank.stat.mortgages'), value: compactMoney(me.properties.reduce((s, p) => s + p.mortgage, 0)) },
+          { label: t('bank.stat.license'), value: lic.name },
+        ]}
+      />
 
       <RestrictedNote />
       <div className="grid gap-4 @3xl:grid-cols-2 [&>*]:min-w-0">
@@ -60,7 +55,7 @@ export function BankApp() {
             <p className="mt-2 rounded-md border border-warn/50 px-3 py-2 text-small text-warn" role="status">{t('bank.margin.call')}</p>
           )}
           <dl className="mt-2 flex flex-col gap-1 text-small">
-            <Row k={t('bank.margin.license')} v={`${lic.name} · ${t(`license.blurb.${lic.id}`)}`} />
+            <Row k={t('bank.margin.license')} v={`${lic.name} · ${t(`license.${lic.id}.blurb`)}`} />
             <Row k={t('bank.margin.leverage')} v={`${acct?.maxLeverage ?? 1}×`} />
             <Row k={t('bank.margin.buyingPower')} v={bp === null ? '—' : money(bp)} />
             <Row k={t('bank.margin.shorting')} v={acct?.canShort ? t('bank.yes') : t('bank.no')} />
@@ -84,10 +79,10 @@ export function BankApp() {
           <ul className="mt-2 flex flex-col">
             {mortgages.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-2 py-3 text-small" data-testid={`bank-mortgage-${p.id}`}>
-                <span className="min-w-0 text-fg-muted">{t('bank.mortgage.line', { value: compactMoney(p.value), rate: (p.mortgageRate * 100).toFixed(2) })}</span>
+                <span className="min-w-0 text-fg-muted">{t('bank.mortgage.line', { value: compactMoney(p.value), rate: dec(p.mortgageRate * 100, 2) })}</span>
                 <span className="flex items-center gap-3">
                   <span className="num text-fg">{money(p.mortgage)}</span>
-                  <Button size="sm" disabled={cash <= 0} onClick={() => run({ type: 'prop.repay', propId: p.id, amount: p.mortgage }, t('bank.mortgage.repaid'))} testId={`bank-repay-mortgage-${p.id}`}>{t('bank.mortgage.repay')}</Button>
+                  <SpendReview size="sm" testId={`bank-repay-mortgage-${p.id}`} label={t('bank.mortgage.repay')} title={t('bank.mortgage.repay')} rows={spendRows(p.mortgage, cash)} disabled={cash <= 0} onConfirm={() => run({ type: 'prop.repay', propId: p.id, amount: p.mortgage }, t('bank.mortgage.repaid'))} />
                 </span>
               </li>
             ))}
@@ -110,10 +105,10 @@ export function BankApp() {
             <ul className="mt-2 flex flex-col">
               {offersIn.map((d) => (
                 <li key={d.id} className="flex flex-col gap-2 border-t border-ink-2 py-3 text-small" data-testid={`bank-offer-${d.id}`}>
-                  <span className="text-fg">{t('bank.offer.line', { from: name(d.fromId), amount: money(d.amount), rate: (d.rate * 100).toFixed(1), days: d.termDays })}</span>
+                  <span className="text-fg">{t('bank.offer.line', { from: name(d.fromId), amount: money(d.amount), rate: dec(d.rate * 100, 1), days: d.termDays })}</span>
                   {d.note && <span className="text-caption text-fg-faint">{t('bank.offer.note', { note: d.note })}</span>}
                   <span className="flex gap-2">
-                    <Button size="sm" variant="brass" onClick={() => run({ type: 'deal.respond', dealId: d.id, accept: true }, t('bank.offer.accepted'))} testId={`bank-accept-${d.id}`}>{t('bank.offer.accept')}</Button>
+                    <SpendReview variant="brass" testId={`bank-accept-${d.id}`} label={t('bank.offer.accept')} title={t('bank.offer.accept')} rows={[{ label: t('commit.amount'), value: money(d.amount) }, { label: t('commit.rate'), value: `${dec(d.rate * 100, 1)}%` }]} onConfirm={() => run({ type: 'deal.respond', dealId: d.id, accept: true }, t('bank.offer.accepted'))} />
                     <Button size="sm" onClick={() => run({ type: 'deal.respond', dealId: d.id, accept: false }, t('bank.offer.declined'))} testId={`bank-decline-${d.id}`}>{t('bank.offer.decline')}</Button>
                   </span>
                 </li>
@@ -130,7 +125,7 @@ export function BankApp() {
             <ul className="mt-2 flex flex-col">
               {lent.map((d) => (
                 <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-2 py-3 text-small">
-                  <span className="text-fg-muted">{t('bank.lent.line', { to: name(d.toId), rate: (d.rate * 100).toFixed(1) })}</span>
+                  <span className="text-fg-muted">{t('bank.lent.line', { to: name(d.toId), rate: dec(d.rate * 100, 1) })}</span>
                   <span className="num text-fg">{money(d.outstanding ?? d.amount)}</span>
                   <span className="text-caption text-fg-faint">{t('bank.matures', { when: ticksLabel((d.startTick ?? tick) + d.termDays * TPD - tick) })}</span>
                 </li>
@@ -172,7 +167,7 @@ function OwedRow({ d, from, tick, cash }: { d: Deal; from: string; tick: number;
   return (
     <li className="flex flex-col gap-2 border-t border-ink-2 py-3 text-small" data-testid={`bank-loan-${d.id}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-fg-muted">{t('bank.owed.line', { from, rate: (d.rate * 100).toFixed(1) })}</span>
+        <span className="text-fg-muted">{t('bank.owed.line', { from, rate: dec(d.rate * 100, 1) })}</span>
         <span className="num text-fg">{money(owed)}</span>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 text-caption text-fg-faint">
@@ -181,8 +176,8 @@ function OwedRow({ d, from, tick, cash }: { d: Deal; from: string; tick: number;
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <NumberField label={t('bank.repay.amount')} value={amount} onChange={setAmount} suffix="$" className="h-9 w-52" testId={`bank-repay-amount-${d.id}`} />
-        <Button size="sm" disabled={!(Number(amount) > 0) || cash <= 0} onClick={() => pay(Number(amount))} testId={`bank-repay-${d.id}`}>{t('bank.repay.button')}</Button>
-        <Button size="sm" variant="brass" disabled={cash <= 0} onClick={() => pay(owed)} testId={`bank-repay-all-${d.id}`}>{t('bank.repay.all')}</Button>
+        <SpendReview size="sm" testId={`bank-repay-${d.id}`} label={t('bank.repay.button')} title={t('bank.repay.button')} rows={spendRows(Number(amount) || 0, cash)} disabled={!(Number(amount) > 0) || cash <= 0} onConfirm={() => pay(Number(amount))} />
+        <SpendReview variant="brass" size="sm" testId={`bank-repay-all-${d.id}`} label={t('bank.repay.all')} title={t('bank.repay.all')} rows={spendRows(owed, cash)} disabled={cash <= 0} onConfirm={() => pay(owed)} />
       </div>
     </li>
   );
@@ -233,9 +228,7 @@ function OfferLoan() {
           </div>
           <TextField value={note} onChange={setNote} label={t('bank.offer.form.note')} placeholder={t('bank.offer.form.note')} maxLength={120} className="w-full" testId="bank-offer-note" />
           <p className="text-caption text-fg-faint">{t('bank.offer.form.cash', { cash: money(cash) })}</p>
-          <Button variant="brass" disabled={!valid} testId="bank-offer-send" onClick={() => run({ type: 'deal.offer', kind: 'loan', toId: to, amount: Number(amount), rate: Number(rate) / 100, termDays: Number(days), note }, t('bank.offer.sent'))}>
-            {t('bank.offer.form.send')}
-          </Button>
+          <SpendReview variant="brass" testId="bank-offer-send" label={t('bank.offer.form.send')} title={t('bank.offer.form.send')} rows={[{ label: t('commit.amount'), value: money(Number(amount) || 0) }, { label: t('commit.cashAfter'), value: money(cash - (Number(amount) || 0)) }]} disabled={!valid} onConfirm={() => run({ type: 'deal.offer', kind: 'loan', toId: to, amount: Number(amount), rate: Number(rate) / 100, termDays: Number(days), note }, t('bank.offer.sent'))} />
         </div>
       )}
     </Card>

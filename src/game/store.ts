@@ -3,14 +3,15 @@
 import { create } from 'zustand';
 import { type KeyValueStore, migrateLegacy, readPrefs as readPrefsFrom, updatePrefs } from '@/shell/prefs';
 import { createHolds } from '@/shell/holds';
-import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky } from '@/shell/toasts';
+import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky, withoutPending } from '@/shell/toasts';
 import { universeConfig, type DepthFrame, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
+import { engineText, tm } from '@/i18n';
 import type { HistoryPayload, NwHistoryPayload, ServerMsg, TextOverlayMap, VisitPayload } from '@/net/protocol';
 import type { LpPage } from '@/world/launchpad/view';
 import { mirrorWorld, type DirectoryRow, type MarketFrame, type PanelStamps, type PlayerView, type PublicPanel, type PublicState } from '@/world/view';
 import type { Boards, ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
-import { createHistory, loadSeries, type History, type RangeId } from './history';
+import { CHART_RANGES, INTERVALS, createHistory, fitInterval, loadSeries, type ChartRange, type History, type Interval } from './history';
 import type { IndicatorId } from './indicators';
 import { absorbFrame, delistedRefusal, type MirrorMe } from './universe';
 
@@ -21,10 +22,24 @@ export interface Toast {
   tone: 'gain' | 'loss' | 'warn' | 'info' | 'brass';
   text: string;
   /** What the notice is, for focus mode and the sticky rules (src/shell/toasts.ts). */
-  kind?: 'fill' | 'margin' | 'world' | 'other';
+  kind?: 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'pending' | 'other';
+  /** The asset an order notice is about (a pending notice leaves when that asset fills). */
+  ref?: string;
   /** The app a click opens (a shell app id), when the notice has one. */
   app?: string;
+  /** What a click does besides dismissing (a coach tip performs its action). */
+  run?: () => void;
 }
+
+/** A client notice kept for the notification center behind the bell (UX stage 2): the toasts the desktop raised. */
+export interface Notice {
+  id: string;
+  tone: Toast['tone'];
+  text: string;
+}
+
+/** The notification center keeps this many notices, newest last. */
+export const NOTICE_KEEP = 50;
 
 export const WIRE_KEEP = 300;
 /** The static universe, the starting point until the server's welcome sends its current asset list. */
@@ -70,11 +85,14 @@ export interface GameStore {
   loaded: Record<string, true>;
   nw: { samples: number[]; lastTick: number; every: number; daily: { day: number; value: number }[]; ghosts: NwHistoryPayload['ghosts'] } | null;
   toasts: Toast[];
+  /** Client notices for the notification center (the bell panel lists them with the inbox). */
+  notices: Notice[];
   screen: Screen;
   /** Counts every setScreen call, so the desktop opens the window even when the screen is unchanged. */
   screenNonce: number;
   selected: string;
-  range: RangeId;
+  range: ChartRange;
+  interval: Interval;
   chartMode: 'candles' | 'line';
   indicators: Partial<Record<IndicatorId, boolean>>;
   tradeSheetOpen: boolean;
@@ -113,7 +131,8 @@ export interface GameStore {
   loadPanel: (panel: PublicPanel) => Promise<void>;
   select: (assetId: string) => void;
   setScreen: (s: Screen) => void;
-  setRange: (r: RangeId) => void;
+  setRange: (r: ChartRange) => void;
+  setInterval: (i: Interval) => void;
   setChartMode: (m: 'candles' | 'line') => void;
   toggleIndicator: (id: IndicatorId) => void;
   setTradeSheet: (open: boolean) => void;
@@ -128,6 +147,8 @@ export interface GameStore {
   resumeToast: (id: string) => void;
   closeRankUp: () => void;
   closeDigest: () => void;
+  /** Adds client notices to the notification center without a toast (the While You Were Away items). */
+  notify: (items: readonly Pick<Notice, 'tone' | 'text'>[]) => void;
   openClose: (day: number | null) => void;
   /** Dismisses a close card: it stays in the closes list and the server remembers it was seen. */
   dismissClose: (day: number) => void;
@@ -156,7 +177,10 @@ const toastHolds = createHolds(
 /** Adds toasts to the queue, starts their holds, and drops the oldest past the queue cap. */
 function queueToasts(incoming: readonly Toast[]): void {
   if (incoming.length === 0) return;
-  const all = [...useGame.getState().toasts, ...incoming];
+  // a fill replaces the pending notice of its order (one toast per order): that notice leaves now, with its holds
+  const queue = useGame.getState().toasts;
+  for (const t of queue) if (t.kind === 'pending' && !withoutPending([t], incoming).length) toastHolds.cancel(t.id);
+  const all = [...withoutPending(queue, incoming), ...incoming];
   const keep = all.slice(-TOAST_QUEUE_MAX);
   for (const t of all.slice(0, all.length - keep.length)) toastHolds.cancel(t.id);
   for (const t of incoming) if (keep.includes(t) && !isSticky(t)) toastHolds.start(t.id, TOAST_HOLD_MS);
@@ -174,13 +198,17 @@ function prefsStore(): KeyValueStore | null {
 }
 
 /** Chart prefs live in tg-prefs (DECISIONS "Local storage"); the legacy tycoon.prefs key is migrated on boot. */
-function readPrefs(): Partial<Pick<GameStore, 'indicators' | 'range' | 'chartMode' | 'selected'>> {
+function readPrefs(): Partial<Pick<GameStore, 'indicators' | 'range' | 'interval' | 'chartMode' | 'selected'>> {
   const kv = prefsStore();
   if (!kv) return {};
   const p = readPrefsFrom(kv);
-  const out: Partial<Pick<GameStore, 'indicators' | 'range' | 'chartMode' | 'selected'>> = {};
+  const out: Partial<Pick<GameStore, 'indicators' | 'range' | 'interval' | 'chartMode' | 'selected'>> = {};
   if (p.chart.indicators) out.indicators = Object.fromEntries(p.chart.indicators.map((id) => [id, true])) as GameStore['indicators'];
-  if (p.chart.range) out.range = p.chart.range as RangeId;
+  if ((CHART_RANGES as readonly string[]).includes(p.chart.range ?? "")) out.range = p.chart.range as ChartRange;
+  if ((INTERVALS as readonly string[]).includes(p.chart.interval ?? "")) out.interval = p.chart.interval as Interval;
+  // a stored pair the range no longer offers (a 1D candle on 1D, say) opens on the interval the range fits
+  const range = out.range ?? '1D';
+  out.interval = fitInterval(range, out.interval ?? '5m');
   if (p.chart.chartMode === 'candles' || p.chart.chartMode === 'line') out.chartMode = p.chart.chartMode;
   if (p.lastTicker) out.selected = p.lastTicker;
   return out;
@@ -196,7 +224,7 @@ function writePrefs(s: GameStore): void {
   const kv = prefsStore();
   if (!kv) return;
   const indicators = Object.keys(s.indicators).filter((id) => s.indicators[id as IndicatorId]);
-  updatePrefs(kv, (p) => ({ ...p, lastTicker: s.selected, chart: { indicators, range: s.range, chartMode: s.chartMode } }));
+  updatePrefs(kv, (p) => ({ ...p, lastTicker: s.selected, chart: { indicators, range: s.range, interval: s.interval, chartMode: s.chartMode } }));
 }
 
 export const useGame = create<GameStore>((set, get) => {
@@ -239,9 +267,10 @@ export const useGame = create<GameStore>((set, get) => {
         const toasts = msg.inbox.filter((n) => TOAST_KINDS.has(n.kind)).map((n) => ({
           id: `t${++toastSeq}`,
           tone: n.tone,
-          text: n.text,
+          text: tm(n.msg, n.text),
           kind: n.kind === 'fill' ? 'fill' as const : n.kind === 'margin' ? 'margin' as const : 'other' as const,
           app: n.kind === 'fill' ? 'broker' : undefined,
+          ref: n.kind === 'fill' && typeof n.msg?.vars?.asset === 'string' ? n.msg.vars.asset : undefined,
         }));
         const chat = { ...get().chat };
         let unread = get().chatUnread;
@@ -271,8 +300,8 @@ export const useGame = create<GameStore>((set, get) => {
         if (absorbed.behind) resync();
         const nw = get().nw;
         if (nw && msg.frame.tick % nw.every === 0) {
-          // the same trading-and-income basis as the server's samples (grants and transfers taken out)
-          nw.samples.push(msg.me.netWorth.total - msg.me.arrival.external);
+          // the same basis as the server's samples: the net worth the header shows, grants and transfers included
+          nw.samples.push(msg.me.netWorth.total);
           if (nw.samples.length > 600) nw.samples.shift();
           nw.lastTick = msg.frame.tick;
         }
@@ -333,10 +362,12 @@ export const useGame = create<GameStore>((set, get) => {
     loaded: {},
     nw: null,
     toasts: [],
+    notices: [],
     screen: 'market',
     screenNonce: 0,
     selected: 'HLCN',
     range: '1D',
+    interval: '5m',
     chartMode: 'candles',
     indicators: {},
     tradeSheetOpen: false,
@@ -401,11 +432,11 @@ export const useGame = create<GameStore>((set, get) => {
       const refused = delistedRefusal(get().config, cmd);
       if (refused) {
         const r = { ok: false, error: refused };
-        if (!opts?.silent) get().toast({ tone: 'loss', text: r.error });
+        if (!opts?.silent) get().toast({ tone: 'loss', text: engineText(r.error ?? '') });
         return r;
       }
       const r = await client.command(cmd);
-      if (!r.ok && !opts?.silent) get().toast({ tone: 'loss', text: capitalize(r.error ?? 'That did not work') });
+      if (!r.ok && !opts?.silent) get().toast({ tone: 'loss', text: r.msg ? capitalize(tm(r.msg)) : capitalize(engineText(r.error ?? 'That did not work')) });
       if (r.ok && opts?.success) get().toast({ tone: 'gain', text: opts.success });
       return r;
     },
@@ -466,7 +497,9 @@ export const useGame = create<GameStore>((set, get) => {
       writePrefs(get());
     },
     setScreen(screen) { set({ screen, screenNonce: get().screenNonce + 1, tradeSheetOpen: false, moreOpen: false }); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); },
-    setRange(range) { set({ range }); writePrefs(get()); },
+    // the interval follows the range: one the range does not offer (too few candles) moves to the one it fits (fitInterval)
+    setRange(range) { set({ range, interval: fitInterval(range, get().interval) }); writePrefs(get()); },
+    setInterval(interval) { set({ interval }); writePrefs(get()); },
     setChartMode(chartMode) { set({ chartMode }); writePrefs(get()); },
     toggleIndicator(id) { set({ indicators: { ...get().indicators, [id]: !get().indicators[id] } }); writePrefs(get()); },
     setTradeSheet(tradeSheetOpen) { set({ tradeSheetOpen }); },
@@ -481,7 +514,12 @@ export const useGame = create<GameStore>((set, get) => {
       if (inboxOpen && (get().me?.player.inboxUnread ?? 0) > 0) void get().act({ type: 'inbox.read' }, { silent: true });
     },
     setChat(chatOpen) { set({ chatOpen, ...(chatOpen ? { chatUnread: 0 } : {}) }); },
-    toast(t) { queueToasts([{ ...t, id: `t${++toastSeq}` }]); },
+    toast(t) {
+      const id = `t${++toastSeq}`;
+      queueToasts([{ ...t, id }]);
+      // The same notice waits in the notification center once its toast has gone (UX stage 2).
+      set({ notices: [...get().notices, { id, tone: t.tone, text: t.text }].slice(-NOTICE_KEEP) });
+    },
     dismissToast(id) { get().dismissToasts([id]); },
     dismissToasts(ids) {
       for (const id of ids) toastHolds.cancel(id);
@@ -490,6 +528,10 @@ export const useGame = create<GameStore>((set, get) => {
     pauseToast(id) { toastHolds.pause(id); },
     resumeToast(id) { toastHolds.resume(id); },
     closeRankUp() { set({ rankUp: null }); },
+    notify(items) {
+      const add = items.map((x) => ({ id: `n${++toastSeq}`, tone: x.tone, text: x.text }));
+      set({ notices: [...get().notices, ...add].slice(-NOTICE_KEEP) });
+    },
     closeDigest() {
       set({ digestOpen: false });
       void get().act({ type: 'digest.seen' }, { silent: true });
@@ -502,7 +544,9 @@ export const useGame = create<GameStore>((set, get) => {
       set({ closeOpen: null, closeDismissed: Math.max(get().closeDismissed, day) });
       void get().act({ type: 'close.seen', day }, { silent: true });
     },
-    presetTicket(p) { set({ ticketPreset: { ...p, nonce: Date.now() }, screen: 'market', tradeSheetOpen: true }); },
+    // The preset fills the ticket only. The trade sheet is the narrow layout's own (BrokerApp opens it on a new preset there);
+    // it is not raised here, because a desktop terminal never draws it, and a flag nobody clears would hold CloseCard back.
+    presetTicket(p) { set({ ticketPreset: { ...p, nonce: Date.now() }, screen: 'market' }); },
     openProfile(profileId) { set({ profileId }); },
     openDm(channel) { set({ dmTarget: channel, profileId: null, chatOpen: true, chatUnread: 0 }); },
   };

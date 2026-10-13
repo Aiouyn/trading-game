@@ -26,14 +26,15 @@ export function isAppUnlocked(app: AppId, rank: string): boolean {
 }
 
 /**
- * Workspaces from the earned rank (F:60, V:79, DECISIONS C-03): R0 and R1 have one, R2 has two,
- * R3 and up have three. The rank's look never changes this.
+ * Workspace slots from the earned rank (F:60, V:79, DECISIONS C-03), in tab order: 0 Trade, 1 News, 2 Portfolio,
+ * 3 Empire. R0 and R1 have Trade and News (the Wire is open to everyone), R2 adds Portfolio, R3 and up adds Empire.
+ * The slots are a prefix, so every index below the count is open. The rank's look never changes this.
  */
 export function workspaceCount(rank: string): number {
   const i = rankOrdinal(rank);
-  if (i >= 3) return 3;
-  if (i >= 2) return 2;
-  return 1;
+  if (i >= 3) return 4;
+  if (i >= 2) return 3;
+  return 2;
 }
 
 /**

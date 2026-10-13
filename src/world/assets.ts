@@ -1,3 +1,4 @@
+import type { Msg } from '@/i18n';
 import { CITIES, districtAssetId, liquidationEquity } from '@/engine';
 import {
   BIZ_BY_ID, BIZ_EVENTS, BIZ_SECTOR_BY_ID, MAX_UPGRADE, RETIRED_UPGRADES, TIERS, UPGRADES, upgradeCost, type UpgradeAxis,
@@ -7,8 +8,8 @@ import {
 } from '@/content/lifestyle';
 import { SHOP } from '@/content/shops';
 import {
-  TPD, bizDef, bump, cashOf, touch, clamp, credit, debit, districtIndex, districtTier, drawFrom, keyedRng, netWorthBreakdown,
-  notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
+  TPD, assetFlow, bizDef, bizValue, bump, cashOf, touch, clamp, credit, debit, overhead, districtIndex, districtTier, drawFrom, keyedRng,
+  netWorthBreakdown, notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
 } from './core';
 import { offlineRate, purchaseShop, queueShare, servedOf } from './shopRules';
 import { PERK_RULES, windMultOf } from './perks';
@@ -18,7 +19,7 @@ import { textProvider } from './text';
 import type { Business, CommandResult, GameState, Player, StepOutput } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
-const fail = (error: string): CommandResult => ({ ok: false, error });
+const fail = (error: string, msg?: Msg): CommandResult => ({ ok: false, error, ...(msg ? { msg } : {}) });
 
 /** City demand size: bigger cities pay more for the same business. */
 export const CITY_DEMAND: Record<string, number> = { avalon: 1, nordhaven: 1.1, meridia: 1.15, sundara: 1.2, kaiyo: 1.25, serena: 1.3 };
@@ -41,10 +42,10 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
   const def = BIZ_BY_ID.get(defId);
   if (!def) return fail('unknown business');
   const tier = TIERS[def.tier - 1]!;
-  if (rankIndex(p.rankId) < rankIndex(tier.rank)) return fail(`${tier.name} businesses unlock at a higher rank`);
+  if (rankIndex(p.rankId) < rankIndex(tier.rank)) return fail(`${tier.name} businesses unlock at a higher rank`, { key: 'biz.refuse.tierRank', vars: { tier: tier.name } });
   if (!cityUnlocked(p, cityId)) return fail('that city is locked at your rank');
   const owned = Object.values(g.businesses).filter((b) => b.ownerId === pid && bizDef(b).tier === def.tier).length;
-  if (owned >= tier.max) return fail(`you can run at most ${tier.max} ${tier.name} businesses: sell one or move up a tier`);
+  if (owned >= tier.max) return fail(`you can run at most ${tier.max} ${tier.name} businesses: sell one or move up a tier`, { key: 'biz.refuse.tierMax', vars: { max: tier.max, tier: tier.name } });
   if (p.heldUntil > g.market.tick) return fail('your assets are held by the court');
   // Old contacts (velvet-bankruptcy.md): the chapter's one T1 business at half price, used once
   const voucher = def.tier === 1 && !!p.comeback?.voucher;
@@ -61,6 +62,7 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
     levels, event: null, incomePerDay: SHOP.revenueMult * def.income * Math.min(1, shop.crew), share: 0, earned: 0, shop,
   };
   g.businesses[id] = b;
+  assetFlow(g, pid, bizValue(b)); // the shop enters valuation at its book value: the cash that bought it is not trading
   touch(g);
   p.stats.bizBought++;
   markShares(g);
@@ -77,14 +79,16 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
 export function upgradeBusiness(g: GameState, pid: string, bizId: string, axis: UpgradeAxis): CommandResult {
   const b = g.businesses[bizId];
   if (!b || b.ownerId !== pid) return fail('not your business');
-  if (RETIRED_UPGRADES.includes(axis)) return fail('biz.axis.retired');
+  if (RETIRED_UPGRADES.includes(axis)) return fail('biz.axis.retired', { key: 'biz.refuse.axisRetired' });
   if (!UPGRADES.some((u) => u.id === axis)) return fail('unknown upgrade');
   const lvl = b.levels[axis];
   if (lvl >= MAX_UPGRADE) return fail('already at the top level');
   const cost = upgradeCost(bizDef(b).cost, lvl);
   if (cashOf(g, pid) < cost) return fail('not enough cash');
+  const before = bizValue(b);
   debit(g, pid, cost, 'business upgrades');
   b.invested += cost;
+  assetFlow(g, pid, bizValue(b) - before);
   b.levels[axis] = lvl + 1;
   g.players[pid]!.stats.bizUpgrades++;
   markShares(g);
@@ -98,6 +102,7 @@ export function sellBusiness(g: GameState, pid: string, bizId: string, out: Step
   // credit, and would otherwise be credited untaxed); the tax reads the owner's basis before the sale proceeds land
   settleSoldBusiness(g, b, g.economy.stabilizer.taxShift ?? 0);
   const price = businessSalePrice(b.invested);
+  assetFlow(g, pid, -bizValue(b)); // the shop leaves valuation at its book value; the gap to the price is a trading result
   bump(g, pid, price);
   // the 30% haircut is destroyed money
   g.economy.sinks['business sale haircut'] = (g.economy.sinks['business sale haircut'] ?? 0) + (b.invested - price);
@@ -310,7 +315,7 @@ export function buyProperty(g: GameState, pid: string, cityId: string, districtI
   const city = CITIES.find((c) => c.id === cityId);
   const dist = city?.districts.find((d) => d.id === districtId);
   if (!t || !city || !dist) return fail('unknown property');
-  if (!t.tiers.includes(dist.tier)) return fail(`no ${t.name.toLowerCase()} in ${dist.name}`);
+  if (!t.tiers.includes(dist.tier)) return fail(`no ${t.name.toLowerCase()} in ${dist.name}`, { key: 'prop.refuse.noneIn', vars: { type: t.name.toLowerCase(), district: dist.name } });
   if (!cityUnlocked(p, cityId)) return fail('that city is locked at your rank');
   if (rankIndex(p.rankId) < rankIndex(t.rank)) return fail('unlocks at a higher rank');
   if (p.heldUntil > g.market.tick) return fail('your assets are held by the court');
@@ -330,6 +335,7 @@ export function buyProperty(g: GameState, pid: string, cityId: string, districtI
     id, ownerId: pid, cityId, districtId, typeId, baseValue: price, baseIndex: districtIndex(g, cityId, districtId),
     improvement: 1, mortgage, mortgageRate: mortgageRate(g), boughtTick: g.market.tick, paid: price, rentEarned: 0,
   };
+  assetFlow(g, pid, propValue(g, g.properties[id]!) - mortgage); // at book: the equity bought, less the mortgage it carries
   touch(g);
   p.stats.propsBought++;
   if (price >= 5_000_000) {
@@ -347,7 +353,8 @@ export function sellProperty(g: GameState, pid: string, propId: string): Command
   const v = propValue(g, pr);
   const fees = v * PROPERTY_FEE;
   const net = propertySaleNet(v, pr.mortgage);
-  // proceeds: the property converts back to cash; the fee is a sink
+  // proceeds: the property converts back to cash; the fee is a sink. Its book equity leaves valuation; the gap is trading
+  assetFlow(g, pid, -(v - pr.mortgage));
   bump(g, pid, v - pr.mortgage);
   debit(g, pid, fees, 'transaction fees');
   const p = g.players[pid]!;
@@ -363,8 +370,10 @@ export function renovateProperty(g: GameState, pid: string, propId: string): Com
   if (pr.improvement >= 1.5) return fail('fully renovated');
   const cost = renovateCost(propValue(g, pr));
   if (cashOf(g, pid) < cost) return fail('not enough cash');
+  const before = propValue(g, pr);
   debit(g, pid, cost, 'renovations');
   pr.improvement = Math.min(1.52, pr.improvement * 1.15);
+  assetFlow(g, pid, propValue(g, pr) - before);
   return ok({ cost });
 }
 
@@ -386,6 +395,7 @@ export function repayMortgage(g: GameState, pid: string, propId: string, amount:
   if (!(a > 0)) return fail('nothing to repay');
   bump(g, pid, -a); // repays debt: net worth unchanged
   pr.mortgage -= a;
+  assetFlow(g, pid, a); // the debt it clears is valuation's (a liability), so the cash is a conversion, not trading
   return ok({ repaid: a });
 }
 
@@ -406,10 +416,10 @@ export function propertyDay(g: GameState, out: StepOutput): void {
       pr.rentEarned += rent;
       owner.stats.rentCollected += rent;
     }
-    debit(g, pr.ownerId, (v * t.upkeep * g.economy.stabilizer.sinkMult) / dpy, 'property upkeep');
+    overhead(g, pr.ownerId, (v * t.upkeep * g.economy.stabilizer.sinkMult) / dpy, 'property upkeep');
     if (pr.mortgage > 0) {
       const interest = (pr.mortgage * pr.mortgageRate) / dpy;
-      debit(g, pr.ownerId, interest, 'mortgage interest');
+      overhead(g, pr.ownerId, interest, 'mortgage interest');
     }
   }
   save();
@@ -425,7 +435,15 @@ export function buyItem(g: GameState, pid: string, itemId: string): CommandResul
   if (rankIndex(p.rankId) < rankIndex(item.rank)) return fail('unlocks at a higher rank');
   if (item.cls === 'unique' && Object.values(g.players).some((x) => x.lifestyle.some((o) => o.itemId === itemId))) return fail('someone already owns it');
   if (cashOf(g, pid) < item.price) return fail('not enough cash');
-  debit(g, pid, item.price, item.category === 'philanthropy' ? 'philanthropy' : 'lifestyle');
+  const sink = item.category === 'philanthropy' ? 'philanthropy' : 'lifestyle';
+  if (item.cls === 'consumed') {
+    // an experience, a gift or a case that is used up is a cost of living, not an asset: it reads in income and costs
+    overhead(g, pid, item.price, sink);
+  } else {
+    debit(g, pid, item.price, sink);
+    // a purchase converts the cash paid into the holding (trading 0); the drop from the price to its resale value is a re-mark
+    assetFlow(g, pid, item.price);
+  }
   if (item.category === 'philanthropy') {
     p.stats.donations += item.price;
     p.reputation += Number(item.perk?.match(/\+(\d+)/)?.[1] ?? 1);
@@ -448,6 +466,7 @@ export function sellItem(g: GameState, pid: string, uid: string): CommandResult 
   const item = LIFE_BY_ID.get(o.itemId)!;
   const v = resaleValue(item, o.paid, (g.market.tick - o.boughtTick) / TPD, g.collectibles);
   if (item.cls === 'consumed') return fail('experiences cannot be resold');
+  assetFlow(g, pid, -v); // the item leaves valuation at its resale value
   credit(g, pid, v, 'lifestyle resale');
   p.lifestyle.splice(k, 1);
   refreshPrestige(g, p);
@@ -473,7 +492,7 @@ export function lifestyleDay(g: GameState): void {
       const item = LIFE_BY_ID.get(o.itemId);
       if (item) upkeep += (o.paid * item.upkeep) / dpy;
     }
-    debit(g, p.id, upkeep * g.economy.stabilizer.sinkMult, 'lifestyle upkeep');
+    overhead(g, p.id, upkeep * g.economy.stabilizer.sinkMult, 'lifestyle upkeep');
     p.lifestyle = p.lifestyle.filter((o) => {
       const item = LIFE_BY_ID.get(o.itemId);
       return !(item?.cls === 'consumed' && g.market.tick - o.boughtTick > 30 * TPD);

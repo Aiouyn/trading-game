@@ -3,6 +3,11 @@ import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { advanceWorld, ageAccount, clearSheets, goTo, isPhone, noHorizontalOverflow, register, skipTips, watchErrors } from './helpers';
 
+/** The Portfolio's own card. On the desktop the Broker window draws a copy of the low-cash card too, so the click is scoped to the Portfolio window. */
+function portfolioCard(page: Page, id: string) {
+  return (isPhone(page) ? page : page.getByTestId('win-portfolio')).getByTestId(id).first();
+}
+
 // The comeback (velvet-bankruptcy.md, ROADMAP 2.6) and the sponsor break (velvet-rewarded-ads.md, ROADMAP 2.7) in the app:
 // the low-cash card, a sponsor break (a skip after 5 s pays nothing; a full watch pays $250), the chapter screen with its
 // 1.2-second hold, and the new chapter. The day-start rule needs a game day to pass, so the spec advances the shared world
@@ -83,8 +88,8 @@ test('the low-cash card, a sponsor break, and the fresh start', async ({ page })
   // the fresh start: the net worth is under the line again, the chapter screen opens and the hold confirms it
   await setCashTo(page, 400);
   await goTo(page, 'portfolio');
-  await expect(page.getByTestId('lowcash-fresh').first()).toBeVisible({ timeout: 10_000 });
-  await page.getByTestId('lowcash-fresh').first().click();
+  await expect(portfolioCard(page, 'lowcash-fresh')).toBeVisible({ timeout: 10_000 });
+  await portfolioCard(page, 'lowcash-fresh').click();
   await expect(page.getByTestId('chapter-screen')).toBeVisible();
   await expect(page.getByTestId('chapter-label')).toContainText('CHAPTER 1');
   await expect(page.getByTestId('chapter-peak')).not.toHaveText('');
@@ -141,7 +146,7 @@ test('a sponsor break and the low-cash card read in French', async ({ page }) =>
   // the chapter screen and the new chapter, in French
   await setCashTo(page, 400);
   await goTo(page, 'portfolio');
-  await page.getByTestId('lowcash-fresh').first().click();
+  await portfolioCard(page, 'lowcash-fresh').click();
   await expect(page.getByTestId('chapter-screen')).toBeVisible();
   await page.getByTestId('perk-lessons').click();
   await shot(page, 'fr-3-chapter-screen');

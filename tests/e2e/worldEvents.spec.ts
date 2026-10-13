@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { ADMIN, WORLD, advanceWorld, clearSheets, goTo, isPhone, noHorizontalOverflow, register, skipTips, watchErrors } from './helpers';
+import { ADMIN, advanceWorld, worldUrl, clearSheets, goTo, isPhone, noHorizontalOverflow, register, skipTips, watchErrors } from './helpers';
 
 // Phase 6A (velvet-world-events.md, velvet-rivals-board.md): the world event takeover, the banner and its panel, and the
 // Rivals board. A forced crash starts one tick after the request (admin.event, a one-day event), so the shared world is quiet
@@ -19,7 +19,7 @@ function shot(page: Page, name: string): Promise<void> {
 }
 
 async function forceEvent(kind: 'crash' | 'bubble' | 'crisis' | 'flash', days = 1): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/event`, {
+  const r = await fetch(`${worldUrl()}/api/admin/event`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ kind, days }),
   });
   expect(r.status).toBe(200);
@@ -141,6 +141,8 @@ test('the banner opens the event panel, and the Rivals board lists the funds bes
   await noHorizontalOverflow(page);
 
   await goTo(page, 'market');
+  // the rivals board sits in the Broker's Asset tab (the dock)
+  await page.getByTestId('dock-tab-asset').click();
   const board = page.getByTestId('rivals-board');
   await board.scrollIntoViewIfNeeded();
   await expect(board).toBeVisible({ timeout: 15_000 });
@@ -185,6 +187,8 @@ test('in French, the takeover reads in French (headline, label, the See my posit
   await shot(page, 'fr-takeover-bubble');
   await page.getByTestId('event-close').click();
   await goTo(page, 'market');
+  // the rivals board sits in the Broker's Asset tab (the dock)
+  await page.getByTestId('dock-tab-asset').click();
   const board = page.getByTestId('rivals-board');
   await board.scrollIntoViewIfNeeded();
   await expect(board).toContainText('Rivaux');

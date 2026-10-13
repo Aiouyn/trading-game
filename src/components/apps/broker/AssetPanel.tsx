@@ -3,7 +3,7 @@
 import { earningsInfo, indexMembers, newsBand, type WorldConfig, type WorldState } from '@/engine';
 import { consensusLabel, earningsGrade } from '@/content/news';
 import { rankIndex } from '@/content/lifestyle';
-import { compactMoney, money, price, signedPct } from '@/game/format';
+import { compactMoney, money, price, signedPct, dec } from '@/game/format';
 import { assetDefOf, isIndex, useGame } from '@/game/store';
 import { isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
@@ -66,8 +66,8 @@ export function AssetPanel({ ticker, onOptions, chainOpen }: { ticker: string; o
       <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-small sm:grid-cols-3">
         {cap && <Mini k={t('broker.fund.cap')} v={compactMoney(cap)} />}
         <Mini k={t('broker.fund.vol')} v={t('broker.perYear', { v: `${Math.round(def.vol * 100)}%` })} />
-        {!!def.dividendYield && <Mini k={t('broker.fund.dividend')} v={t('broker.perYear', { v: `${(def.dividendYield * 100).toFixed(1)}%` })} />}
-        {def.duration !== undefined && <Mini k={t('broker.fund.duration')} v={`${def.duration.toFixed(1)}×`} />}
+        {!!def.dividendYield && <Mini k={t('broker.fund.dividend')} v={t('broker.perYear', { v: `${dec(def.dividendYield * 100, 1)}%` })} />}
+        {def.duration !== undefined && <Mini k={t('broker.fund.duration')} v={`${dec(def.duration, 1)}×`} />}
         <Mini k={t('broker.fund.spread')} v={t('broker.bp', { v: def.spreadBps ?? 10 })} />
         <Mini k={t('broker.fund.adv')} v={compactMoney(def.advNotional ?? 1e9)} />
       </div>

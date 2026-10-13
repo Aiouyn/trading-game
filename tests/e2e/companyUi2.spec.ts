@@ -25,6 +25,7 @@ async function foundCompany(page: Page, name: string): Promise<void> {
   await expect(page.getByTestId('company-found')).toBeVisible();
   await page.getByTestId('company-name').fill(name);
   await page.getByTestId('company-found-submit').click();
+  await page.getByTestId('company-found-submit-review-confirm').click();
   await expect(page.getByTestId('company-overview')).toBeVisible();
 }
 

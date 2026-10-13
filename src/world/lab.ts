@@ -1,9 +1,10 @@
+import type { Msg } from '@/i18n';
 import { placeOrder, portfolio, type AssetState, type OrderRequest } from '@/engine';
 import { BIZ_BY_ID, BIZ_SECTOR_BY_ID } from '@/content/businesses';
 import { rankIndex } from '@/content/lifestyle';
 import { BOT_CADENCE, DATA_SOURCES, RESEARCH_BY_ID, mcsTier } from '@/content/research';
 import {
-  GPU_TIERS, TPD, cashOf, clamp, credit, debit, keyedRng, notify, playerBusinesses, priceOf, today,
+  GPU_TIERS, TPD, assetFlow, cashOf, clamp, credit, debit, keyedRng, labValue, notify, playerBusinesses, priceOf, today,
 } from './core';
 import { crossRefusal } from './funds/guard';
 import { noteOrderPlaced } from './eca';
@@ -11,7 +12,7 @@ import { controlledQty } from './tips';
 import type { CommandResult, GameState, LabState, Model, StepOutput, TradingBot } from './types';
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
-const fail = (error: string): CommandResult => ({ ok: false, error });
+const fail = (error: string, msg?: Msg): CommandResult => ({ ok: false, error, ...(msg ? { msg } : {}) });
 
 export const LAB_RANK = 'R2';
 const ALPHA = 0.34;
@@ -76,14 +77,17 @@ export function buyGpus(g: GameState, pid: string, tierId: string, qty: number):
   if (n < 0) {
     const have = lab.gpus[t.id] ?? 0;
     if (-n > have) return fail('you have fewer');
+    const before = labValue(g, pid);
     lab.gpus[t.id] = have + n;
     credit(g, pid, -n * t.price * 0.6, 'GPU resale');
+    assetFlow(g, pid, labValue(g, pid) - before); // the cards leave the lab at resale value
     return ok();
   }
   const cost = n * t.price;
   if (cashOf(g, pid) < cost) return fail('not enough cash');
   debit(g, pid, cost, 'GPUs');
   lab.gpus[t.id] = (lab.gpus[t.id] ?? 0) + n;
+  assetFlow(g, pid, cost); // the cash paid converts into the cards (trading 0); their drop to resale value is a re-mark
   return ok();
 }
 
@@ -114,7 +118,7 @@ export function buyData(g: GameState, pid: string, sourceId: string, qty: number
     if (rng.chance(s.legalRisk)) {
       const fine = Math.max(1000, cost * 4);
       debit(g, pid, fine, 'fines');
-      notify(g, out, pid, { kind: 'lab', tone: 'loss', text: `The data regulator fined your lab $${Math.round(fine).toLocaleString('en-US')} for scraping without a license.` });
+      notify(g, out, pid, { kind: 'lab', tone: 'loss', text: `The data regulator fined your lab $${Math.round(fine).toLocaleString('en-US')} for scraping without a license.`, msg: { key: 'lab.msg.fined', vars: { fine: `#n:${Math.round(fine)},0,0` } } });
     }
   }
   return ok({ cost });
@@ -208,7 +212,7 @@ export function deployBot(g: GameState, pid: string, modelId: string, strategy: 
   const m = lab.models.find((x) => x.id === modelId && x.kind === 'trading');
   if (!m) return fail('pick a trading model');
   const need: Record<TradingBot['strategy'], string> = { momentum: 'rules', meanrev: 'rules', value: 'trees', earnings: 'nlp', trend: 'rl' };
-  if (!lab.research.includes(need[strategy])) return fail(`research ${RESEARCH_BY_ID.get(need[strategy])!.name} first`);
+  if (!lab.research.includes(need[strategy])) return fail(`research ${RESEARCH_BY_ID.get(need[strategy])!.name} first`, { key: 'lab.refuse.researchFirst', vars: { name: RESEARCH_BY_ID.get(need[strategy])!.name } });
   const list = [...new Set(assets)].filter((a) => g.market.config.assets.some((d) => d.id === a && d.listed !== false)).slice(0, 12);
   if (!list.length) return fail('pick at least one asset');
   if (lab.bots.length >= 8) return fail('8 bots at most');
@@ -247,7 +251,7 @@ export function analystSignal(g: GameState, pid: string, out: StepOutput | null)
     .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))
     .slice(0, 5);
   const text = picks.map((x) => `${x.d.id} ${x.gap > 0 ? 'undervalued' : 'overvalued'} ~${(Math.abs(x.gap) * 100).toFixed(0)}%`).join(' · ');
-  notify(g, out, pid, { kind: 'lab', tone: 'info', text: `${m.name} signal pack: ${text}` });
+  notify(g, out, pid, { kind: 'lab', tone: 'info', text: `${m.name} signal pack: ${text}`, msg: { key: 'lab.msg.signalPack', vars: { model: m.name, picks: picks.map((x) => ({ key: 'lab.msg.pick', vars: { asset: x.d.id, dir: `@${x.gap > 0 ? 'lab.msg.undervalued' : 'lab.msg.overvalued'}`, pct: `#n:${(Math.abs(x.gap) * 100).toFixed(0)},0,0` } })) } } });
   return ok(picks.map((x) => ({ assetId: x.d.id, gap: x.gap })));
 }
 
@@ -261,20 +265,20 @@ export function labTick(g: GameState, out: StepOutput, newDay: boolean): void {
       lab.research.push(n.id);
       lab.researching = null;
       g.players[pid]!.stats.researchDone++;
-      notify(g, out, pid, { kind: 'lab', tone: 'brass', text: `Research complete: ${n.name}.${n.unlocks ? ` Unlocked: ${n.unlocks}.` : ''}` });
+      notify(g, out, pid, { kind: 'lab', tone: 'brass', text: `Research complete: ${n.name}.${n.unlocks ? ` Unlocked: ${n.unlocks}.` : ''}`, msg: n.unlocks ? { key: 'lab.msg.researchUnlocked', vars: { name: n.name, unlocks: n.unlocks } } : { key: 'lab.msg.researchDone', vars: { name: n.name } } });
     }
     if (lab.training && tick >= lab.training.doneTick) {
       const t = lab.training;
       lab.training = null;
       const rng = keyedRng(g, `train:${pid}:${t.startTick}`);
       if (rng.chance(t.failOdds)) {
-        notify(g, out, pid, { kind: 'lab', tone: 'loss', text: `Training run "${t.name}" diverged and failed. The compute is gone.${t.careful ? '' : ' Careful runs fail less often.'}` });
+        notify(g, out, pid, { kind: 'lab', tone: 'loss', text: `Training run "${t.name}" diverged and failed. The compute is gone.${t.careful ? '' : ' Careful runs fail less often.'}`, msg: { key: t.careful ? 'lab.msg.diverged' : 'lab.msg.divergedHint', vars: { name: t.name } } });
       } else {
         lab.modelSeq++;
         const mcs = t.expectedMcs * Math.exp(0.1 * rng.normal());
         lab.models.push({ id: `m${lab.modelSeq}`, name: t.name, kind: t.kind, mcs, createdTick: tick, residue: 0 });
         g.players[pid]!.stats.trainingRuns++;
-        notify(g, out, pid, { kind: 'lab', tone: 'gain', text: `Training run "${t.name}" finished: MCS ${mcs.toFixed(0)} (tier ${mcsTier(mcs)}).` });
+        notify(g, out, pid, { kind: 'lab', tone: 'gain', text: `Training run "${t.name}" finished: MCS ${mcs.toFixed(0)} (tier ${mcsTier(mcs)}).`, msg: { key: 'lab.msg.trained', vars: { name: t.name, mcs: `#n:${mcs.toFixed(0)},0,0`, tier: mcsTier(mcs) } } });
       }
     }
     for (const bot of lab.bots) {

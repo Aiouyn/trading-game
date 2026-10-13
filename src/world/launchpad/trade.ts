@@ -1,4 +1,4 @@
-import { cashOf } from '../core';
+import { assetFlow, cashOf } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { LP } from './constants';
 import { quoteBuy, quoteSell } from './curve';
@@ -9,6 +9,7 @@ import { lockedOf, vestEndDay } from './vest';
 import { cohortsOf } from './cohorts';
 import type { LpLot, LpToken, LpTrade } from './types';
 import { recordCreatorSale } from './rug';
+import { curveHoldingsValue } from './value';
 import { graduate } from './graduate';
 import type { GameState as G } from '../types';
 
@@ -196,12 +197,19 @@ export function lpBuy(g: G, pid: string, ticker: string, spendCents: number, max
   const ms = maxSlip ?? LP.MAX_SLIP;
   if (!(ms > 0 && ms <= 0.5)) return refuse('maxSlip', {});
   if (!Number.isInteger(spendCents) || spendCents <= 0) return refuse('zero', { ticker });
-  return buyCurve(g, pid, ticker, spendCents, ms, out, false);
+  // the cash paid converts into the tokens (trading 0); the tokens' drop to their sale quote is a re-mark
+  const cashBefore = cashOf(g, pid);
+  const r = buyCurve(g, pid, ticker, spendCents, ms, out, false);
+  assetFlow(g, pid, cashBefore - cashOf(g, pid));
+  return r;
 }
 
 /** A player's sell from the command (whole tokens; the max slippage is a fraction, default 5%). */
 export function lpSell(g: G, pid: string, ticker: string, tokens: number, maxSlip: number | undefined, out: StepOutput | null): CommandResult {
   const ms = maxSlip ?? LP.MAX_SLIP;
   if (!(ms > 0 && ms <= 0.5)) return refuse('maxSlip', {});
-  return sellCurve(g, pid, ticker, tokens, ms, out, false);
+  const before = curveHoldingsValue(g, pid);
+  const r = sellCurve(g, pid, ticker, tokens, ms, out, false);
+  assetFlow(g, pid, curveHoldingsValue(g, pid) - before); // the tokens leave valuation at the quote they sold for
+  return r;
 }

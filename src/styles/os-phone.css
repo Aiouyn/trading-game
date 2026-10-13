@@ -16,6 +16,12 @@
   }
   .os-root .os-phone-qm.on { background: color-mix(in srgb, var(--color-brass) 16%, transparent); }
   .os-root .os-phone-r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  /* the phone strip: cash and net worth, labelled, compact; the breakdown drops below the bar */
+  .os-root .os-phone-r .os-figs { gap: 8px; }
+  .os-root .os-phone-r .os-fig,
+  .os-root .os-phone-r .os-nw { font-size: 12px; gap: 4px; }
+  .os-root .os-phone-r .os-fig-k { font-size: 10px; }
+  .os-root .os-phone-r .os-nw-pop { position: fixed; top: calc(var(--phone-status-h) + 6px); left: 12px; right: 12px; width: auto; }
 
   /* ---------- Home widget: net worth card ---------- */
   .os-root .os-widget {
@@ -113,7 +119,7 @@
   }
   .os-root .os-rtime { font-family: var(--font-mono); font-size: var(--text-micro); color: var(--color-fg-faint); }
   .os-root .os-home-btn {
-    display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; margin-top: 12px;
+    display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 44px; margin-top: 12px;
     border: 1px solid var(--color-ink-3); border-radius: var(--radius-md);
     font-size: 13.5px; font-weight: 500; color: var(--color-fg);
   }
@@ -190,6 +196,11 @@
     display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--radius-md); color: var(--color-fg);
   }
   .os-root .os-phone-title { font-size: 15px; font-weight: 600; color: var(--color-fg); }
+  /* Under 600 px the bar is 52 px, with the app's name read clearly (UX stage 6, item 7). */
+  @media (max-width: 599px) {
+    .os-root .os-phone-bar { height: 52px; }
+    .os-root .os-phone-title { font-size: 17px; }
+  }
   /* The home indicator (.os-home-edge, bottom 9 px, about 30 px tall) sits in a reserved band at the foot of
    * every full-screen app, so no control is ever under it. The band is padding, so the app body scrolls
    * above it and the wallpaper never shows through the app. */
@@ -206,6 +217,20 @@
   .os-root .os-rw { z-index: 1; }
   .os-root .os-rw-close { cursor: pointer; }
 
-  /* One notice at a time under the status bar on the phone (P2-095). */
-  .os-root .os-toasts.phone { top: calc(var(--phone-status-h) + 6px); left: 14px; right: 14px; width: auto; }
+  /* One notice at a time, as a slim one-line banner just above the trade bar (or above the home edge when no bar shows). It never
+   * covers the status bar, the app bar or the trade bar. The bar publishes its height as --phone-trade-h (TerminalNarrow). */
+  .os-root .os-toasts.phone {
+    top: auto; bottom: calc(40px + env(safe-area-inset-bottom, 0px) + var(--phone-trade-h, 0px) + 6px);
+    left: 12px; right: 12px; width: auto; gap: 0;
+  }
+  .os-root .os-toast.slim {
+    height: 38px; padding: 0 12px; gap: 8px; align-items: center; border-radius: var(--radius-md);
+  }
+  .os-root .os-toast.slim .os-toast-ic { width: 22px; height: 22px; margin-top: 0; }
+  .os-root .os-toast.slim .os-toast-body { flex-direction: row; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+  .os-root .os-toast.slim .os-toast-t1 { flex: none; font-size: 10px; letter-spacing: 0.06em; }
+  .os-root .os-toast.slim .os-toast-t2 {
+    margin-top: 0; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .os-root .os-toast.slim { transition: transform 150ms ease-out, opacity 150ms ease-out; touch-action: pan-y; }
 }

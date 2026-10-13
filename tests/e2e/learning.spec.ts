@@ -8,15 +8,25 @@ test('a closed trade lands in the journal as a row, with its replay and its free
   const errors = watchErrors(page);
   await register(page);
   await skipTips(page);
-  if (isPhone(page)) await page.getByTestId('home-app-broker').click();
-  await page.getByTestId('order-qty').fill('2');
+  // the phone trades from the trade bar and its Review sheet (the ticket is the sheet); the desktop ticket is in the window
+  if (isPhone(page)) {
+    await page.getByTestId('home-app-broker').click();
+    // the first-session coach tip covers the bar until it is dismissed
+    await skipTips(page);
+    await page.getByTestId('bar-qty').fill('2');
+    await page.getByTestId('bar-review').click();
+  } else {
+    await page.getByTestId('order-qty').fill('2');
+  }
   await page.getByTestId('order-submit').click();
   await goTo(page, 'portfolio');
-  await expect(page.getByTestId('position-HLCN')).toBeVisible({ timeout: 15_000 });
+  // the Broker's dock lists the same position, so the Portfolio's own rows are named
+  const portfolio = page.getByTestId('portfolio-view');
+  await expect(portfolio.getByTestId('position-HLCN')).toBeVisible({ timeout: 15_000 });
   await dismissCloseCard(page);
-  await page.getByTestId('close-HLCN').click();
+  await portfolio.getByTestId('close-HLCN').click();
   await page.getByTestId('close-HLCN-yes').click();
-  await expect(page.getByTestId('position-HLCN')).toHaveCount(0, { timeout: 15_000 });
+  await expect(portfolio.getByTestId('position-HLCN')).toHaveCount(0, { timeout: 15_000 });
   // a fill toast over the Portfolio tabs (the phone drops them from the top) blocks the click while the pointer rests on it: wait for it to go
   await expect(page.getByTestId('os-toasts')).toBeEmpty({ timeout: 15_000 });
   await dismissCloseCard(page);

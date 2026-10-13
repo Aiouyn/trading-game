@@ -172,9 +172,9 @@ export class WorldHost {
       for (const pl of Object.values(g.players)) {
         if (pl.npc) continue;
         const s = (this.nw[pl.id] ??= { samples: [], lastTick: g.market.tick, daily: [] });
-        // the line is trading and income only: the grants, transfers and loans received so far are taken out, so a grant
-        // draws no jump (the same basis as the day and arrival figures; each point keeps the basis of its own tick)
-        const trading = pl.netWorth - (pl.externalCash ?? 0);
+        // the line is the net worth the header shows (grants and transfers included), so its last point is the header's figure;
+        // the change since arrival splits out the grants and transfers (arrival.external) on the view
+        const trading = pl.netWorth;
         s.samples.push(trading);
         if (s.samples.length > NW_RING) s.samples.splice(0, s.samples.length - NW_RING);
         s.lastTick = g.market.tick;

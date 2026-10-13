@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import { listedExpiries, optionChain } from '@/engine';
-import { money, price } from '@/game/format';
+import { money, price, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
 import { Button, NumberField, Segmented, Td, Th } from '@/components/ui';
 
-const prem = (v: number) => v.toFixed(2);
+const prem = (v: number) => dec(v, 2);
 
 /**
  * The option chain (Derivatives license), shown inline in the Broker. Buy calls if you think the price goes
@@ -62,7 +62,7 @@ export function OptionChain({ underlying }: { underlying: string }) {
                 <tr key={r.strike} className="border-t border-ink-2">
                   <Td right num className={itmCall ? 'bg-ink-2' : ''}>{prem(r.call.bid)}</Td>
                   <Td right num className={itmCall ? 'bg-ink-2' : ''}>{prem(r.call.ask)}</Td>
-                  <Td right num className="text-fg-faint">{r.call.delta.toFixed(2)}</Td>
+                  <Td right num className="text-fg-faint">{dec(r.call.delta, 2)}</Td>
                   <Td>
                     <Button size="sm" onClick={() => buy(r.call.id, `${underlying} ${r.strike} ${t('broker.chain.callsWord')}`)} testId={`buy-call-${r.strike}`}>
                       {t('broker.chain.callBtn', { cost: money(r.call.ask * 100 * contracts) })}
@@ -72,7 +72,7 @@ export function OptionChain({ underlying }: { underlying: string }) {
                   <Td />
                   <Td right num className={!itmCall ? 'bg-ink-2' : ''}>{prem(r.put.bid)}</Td>
                   <Td right num className={!itmCall ? 'bg-ink-2' : ''}>{prem(r.put.ask)}</Td>
-                  <Td right num className="text-fg-faint">{r.put.delta.toFixed(2)}</Td>
+                  <Td right num className="text-fg-faint">{dec(r.put.delta, 2)}</Td>
                   <Td>
                     <Button size="sm" onClick={() => buy(r.put.id, `${underlying} ${r.strike} ${t('broker.chain.putsWord')}`)} testId={`buy-put-${r.strike}`}>
                       {t('broker.chain.putBtn', { cost: money(r.put.ask * 100 * contracts) })}

@@ -3,7 +3,7 @@
 // The one-switch insurance (6D.4): a single toggle in Security. Switching on is refused during a breach or the 24 hours after
 // one, and with nothing insured; the refusal says why, in three parts.
 import { useState } from 'react';
-import { money } from '@/game/format';
+import { money, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Button, Card, CardHeader, Chip } from '@/components/ui';
@@ -31,7 +31,7 @@ export function InsuranceCard() {
       <div className="flex flex-col gap-3 px-4 pb-4">
         <div className="num grid grid-cols-2 gap-x-6 gap-y-1 text-caption text-fg-muted">
           <span>{t('sixd.ins.insured')}</span><span className="text-right text-fg" data-testid="insurance-insured">{money(v.insuredValue)}</span>
-          <span>{t('sixd.ins.premium', { rate: (v.premiumRate * 100).toFixed(1) })}</span><span className="text-right text-fg">{money(v.insuredValue * v.premiumRate)}</span>
+          <span>{t('sixd.ins.premium', { rate: dec(v.premiumRate * 100, 1) })}</span><span className="text-right text-fg">{money(v.insuredValue * v.premiumRate)}</span>
           <span>{t('sixd.ins.paidOut')}</span><span className="text-right text-fg" data-testid="insurance-paid">{money(v.paidOut)}</span>
         </div>
         {blockCopy && (

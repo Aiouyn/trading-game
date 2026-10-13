@@ -2,15 +2,18 @@
 
 // THE PORT AVALON CLOSE (velvet-daily-close.md, Phase 3 B1): the player's front page at each game-day close. The card
 // is built from the stored facts the server sends (DailyClose, computed by src/world/close.ts): nothing is worked out
-// here. It is a sheet over the desktop (a bottom sheet on the phone), not a page overlay. It waits behind the digest,
-// a rank-up, the trade ticket, the event panel and any pending order, and never stacks two cards.
-import { sectorName } from '@/engine';
+// here. UX stage 2: the close is no longer a sheet over the desktop. CloseAnnouncer raises one non-blocking toast (a
+// click opens the Wire), the notification center keeps it, and the Wire shows the latest close at its top (CloseBrief).
+// The announcement waits behind the digest, a rank-up, the trade ticket, the event panel and any pending order.
+import { useEffect, useRef } from 'react';
+import { sectorLabel } from '@/game/sectorLabel';
 import { money, signedMoney, signedPct, tone, toneText } from '@/game/format';
-import { type GameStore, useGame } from '@/game/store';
+import { useGame, type GameStore } from '@/game/store';
 import { t, tm, useLocale } from '@/i18n';
 import type { DailyClose, MoveLine } from '@/world/ledger-types';
 import { useEventPanel } from './os/EventBanner';
-import { OsSheet } from './os/OsSheet';
+import { focusOrOpen } from './os/shellStore';
+import { isPhoneViewport, phoneOpen } from './os/phoneStore';
 import { Button, Chip } from './ui';
 
 const BAND_CHIP: Record<'early' | 'mid' | 'late', string> = {
@@ -22,7 +25,6 @@ const BAND_CHIP: Record<'early' | 'mid' | 'late', string> = {
 /**
  * The card the player should see now: the close they asked for (Messages, the closes list), else the latest close not yet
  * seen, once nothing is in the way. The seen day is the server's (closeSeenDay) or this session's dismissal, whichever is later.
- * One selector, so the coach waits for exactly the cards this one shows.
  */
 export function shownClose(s: GameStore, eventOpen: boolean): DailyClose | null {
   const me = s.me;
@@ -35,25 +37,13 @@ export function shownClose(s: GameStore, eventOpen: boolean): DailyClose | null 
   if (!latest) return null;
   const seen = Math.max(me.trading.closeSeenDay ?? -1, s.closeDismissed);
   const pending = me.orders.some((o) => o.status === 'open');
-  // While You Were Away replaces the card (it marks the latest close seen when it closes), and the rank-up always goes first
+  // While You Were Away waits its turn (it marks the latest close seen when it closes), and the rank-up always goes first
   const waiting = s.digestOpen || s.rankUp !== null || s.tradeSheetOpen || eventOpen || pending;
   // a close the player was away for waits in Messages (its notice opens it); it never pops up on connect
   return latest.offline || latest.day <= seen || waiting ? null : latest;
 }
 
-/** Whether a close card is on screen now (the coach waits behind it). */
-export function useCloseCardShowing(): boolean {
-  const eventOpen = useEventPanel((s) => s.open);
-  return useGame((s) => shownClose(s, eventOpen) !== null);
-}
-
-export function CloseCard() {
-  const eventOpen = useEventPanel((s) => s.open);
-  const card = useGame((s) => shownClose(s, eventOpen));
-  return card ? <CloseSheet key={card.day} card={card} /> : null;
-}
-
-/** The headline: the same direction rule as the Copy summary (closeMove), so a sub-dollar day reads flat in both. */
+/** The headline: trading alone (the same direction rule as the Copy summary, so a sub-dollar day reads flat in both). */
 function headline(c: DailyClose): string {
   return tm(c.lines.find((m) => m.key.startsWith('txt.narr.head.')));
 }
@@ -63,17 +53,100 @@ function rankLine(c: DailyClose): string {
   return tm(c.lines.find((m) => m.key.startsWith('txt.narr.rank.') || m.key.startsWith('txt.narr.noTrades.')));
 }
 
+/**
+ * Where the net worth change came from: trading first, then valuation, income and costs, the business tax (R-9-10, shown when the
+ * player owns a business that day, at its bracket), and the grants left out. The rows sum to the change.
+ */
+function SplitRows({ card }: { card: DailyClose }) {
+  const rows: { key: string; label: string; value: number; testId: string }[] = [
+    { key: 'trading', label: t('close.split.trading'), value: card.trading, testId: 'close-split-trading' },
+    { key: 'valuation', label: t('close.split.valuation'), value: card.valuation, testId: 'close-split-valuation' },
+    { key: 'income', label: t('close.split.income'), value: card.income, testId: 'close-split-income' },
+  ];
+  if (card.biz && card.biz.businesses > 0) {
+    rows.push({ key: 'tax', label: t('close.split.tax', { rate: Math.round(card.biz.rate * 100) }), value: card.tax, testId: 'close-split-tax' });
+  }
+  return (
+    <section className="flex flex-col gap-1" aria-label={t('close.split.title')} data-testid="close-split">
+      <p className="label">{t('close.split.title')}</p>
+      <dl className="num grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-small">
+        {rows.map((r) => (
+          <div key={r.key} className="contents">
+            <dt className="text-fg-muted">{r.label}</dt>
+            <dd className={toneText[tone(r.value)]} data-testid={r.testId}>{signedMoney(r.value)}</dd>
+          </div>
+        ))}
+        <div className="col-span-2 mt-1 border-t border-ink-2 pt-1 text-caption text-fg-muted">
+          <span>{t('close.split.external')}: {signedMoney(card.external)}</span>
+        </div>
+        <div className="contents">
+          <dt className="font-medium text-fg">{t('close.split.net')}</dt>
+          <dd className={`font-medium ${toneText[tone(card.nwChange)]}`} data-testid="close-split-net">{signedMoney(card.nwChange)}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
 /** The plain-text summary the Copy button puts on the clipboard: the card's descriptors, in the viewer's language. */
 export function closeSummary(c: DailyClose): string {
   return c.lines.map((m) => tm(m)).join('\n');
 }
 
-function CloseSheet({ card }: { card: DailyClose }) {
+/**
+ * Announces a close without blocking anything (UX stage 2): one toast, and the card is marked seen. The notification center
+ * keeps the toast, and the Wire shows the card. A close the player asked for opens the Wire at once.
+ */
+export function CloseAnnouncer() {
+  const eventOpen = useEventPanel((s) => s.open);
+  const card = useGame((s) => shownClose(s, eventOpen));
+  const askedDay = useGame((s) => s.closeOpen);
+  const toast = useGame((s) => s.toast);
   const dismiss = useGame((s) => s.dismissClose);
+  const announced = useRef<number | null>(null);
+  const askedSeen = useRef<number | null>(null);
+  useLocale((s) => s.locale);
+  useEffect(() => {
+    if (!card) return;
+    // A close the player asked for opens the Wire once, and stays the one the Wire shows (closeOpen).
+    if (askedDay === card.day) {
+      if (askedSeen.current !== card.day) {
+        askedSeen.current = card.day;
+        // the phone draws its own stack (the desktop windows are not drawn there), so the Wire opens there
+        if (isPhoneViewport()) phoneOpen('wire', {});
+        else focusOrOpen('wire');
+      }
+      return;
+    }
+    askedSeen.current = null;
+    if (announced.current === card.day) return;
+    announced.current = card.day;
+    toast({ tone: 'brass', kind: 'close', text: headline(card), app: 'wire' });
+    dismiss(card.day);
+  }, [card, askedDay, toast, dismiss]);
+  return null;
+}
+
+/** The latest close as a block at the top of the Wire (UX stage 2): the same card, with no sheet and no Done button. */
+export function CloseBrief() {
+  // The close the player asked for (closeOpen) stays on top; otherwise the latest close.
+  const card = useGame((s) => {
+    const closes = s.me?.trading.closes ?? [];
+    return closes.find((c) => c.day === s.closeOpen) ?? closes[0] ?? null;
+  });
+  useLocale((s) => s.locale);
+  if (!card) return null;
+  return (
+    <section className="rounded-md border border-ink-3 p-3" data-testid="close-card" aria-label={t('dayclose.title')}>
+      <CloseBody card={card} />
+    </section>
+  );
+}
+
+function CloseBody({ card }: { card: DailyClose }) {
   const toast = useGame((s) => s.toast);
   const handle = useGame((s) => s.me?.player.handle ?? '');
   useLocale((s) => s.locale);
-  const done = () => dismiss(card.day);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(closeSummary(card));
@@ -84,17 +157,19 @@ function CloseSheet({ card }: { card: DailyClose }) {
   };
   const solo = !!card.best && !!card.worst && card.best.assetId === card.worst.assetId;
   return (
-    <OsSheet title={t('dayclose.title')} testId="close-card" onClose={done}>
+    <div className="flex flex-col gap-4">
       <div>
         <p className="label" data-testid="close-masthead">{t('close.day', { n: card.day + 1 })}</p>
         <p className="text-caption text-fg-muted" data-testid="close-player">{handle}</p>
       </div>
-      <p className="font-serif text-[40px] leading-tight text-fg" data-testid="close-headline">{headline(card)}</p>
+      <p className="font-serif text-[32px] leading-tight text-fg" data-testid="close-headline">{headline(card)}</p>
       <p className="num text-small text-fg-muted" data-testid="close-rates">
         <span className={toneText[tone(card.nwChangePct)]}>{signedPct(card.nwChangePct)}</span>
         <span className="mx-2">·</span>
         <span className={toneText[tone(card.gx.pct)]}>{t('close.gx', { pct: signedPct(card.gx.pct) })}</span>
       </p>
+
+      <SplitRows card={card} />
 
       {card.best ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -108,8 +183,8 @@ function CloseSheet({ card }: { card: DailyClose }) {
       {card.sectors && (
         <p className="text-caption text-fg-muted" data-testid="close-sectors">
           {t('close.sectors', {
-            best: sectorName(card.sectors.best.sector), bestPct: signedPct(card.sectors.best.pct),
-            worst: sectorName(card.sectors.worst.sector), worstPct: signedPct(card.sectors.worst.pct),
+            best: sectorLabel(card.sectors.best.sector), bestPct: signedPct(card.sectors.best.pct),
+            worst: sectorLabel(card.sectors.worst.sector), worstPct: signedPct(card.sectors.worst.pct),
           })}
         </p>
       )}
@@ -138,13 +213,6 @@ function CloseSheet({ card }: { card: DailyClose }) {
         </p>
       )}
 
-      {card.biz && card.biz.businesses > 0 && (
-        <p className="flex items-baseline justify-between gap-3 text-small" data-testid="close-tax">
-          <span className="text-fg-muted">{t('close.tax', { rate: Math.round(card.biz.rate * 100) })}</span>
-          <span className="num text-fg">{money(-card.biz.tax)}</span>
-        </p>
-      )}
-
       <section className="rounded-md border border-ink-3 p-3" data-testid="close-ghosts">
         <h3 className="label">{t('close.ghosts')}</h3>
         <ul className="mt-2 flex flex-col gap-1 text-small">
@@ -158,11 +226,10 @@ function CloseSheet({ card }: { card: DailyClose }) {
         </p>
       </section>
 
-      <div className="os-sheet-actions">
+      <div className="flex justify-end">
         <Button size="sm" variant="ghost" onClick={copy} testId="close-share">{t('close.copy')}</Button>
-        <Button size="sm" variant="brass" className="ml-auto" onClick={done} testId="close-done">{t('close.done')}</Button>
       </div>
-    </OsSheet>
+    </div>
   );
 }
 

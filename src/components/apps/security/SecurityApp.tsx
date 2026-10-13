@@ -4,7 +4,7 @@
 // against rivals. Calm by default: red appears only when your defense flags an entry, and Lockdown is the
 // only loud control. Every action shows its cost before you confirm (bible 03, 04 section 10.5).
 import { useState } from 'react';
-import { compactMoney, money, pct } from '@/game/format';
+import { compactMoney, money, pct, dec } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import { usePublicPanel } from '@/game/usePublicPanel';
@@ -56,7 +56,7 @@ function Connections() {
   const lockdownActive = sec.lockdownUntil > tick;
   return (
     <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,360px)] [&>*]:min-w-0">
-      <Card data-testid="connections-panel">
+      <Card data-testid="connections-panel" className="order-2 @3xl:order-1">
         <CardHeader title={t('security.conn.title')} sub={t('security.conn.sub')} right={
           <label className="flex items-center gap-2 text-caption text-fg-muted"><input type="checkbox" checked={onlyUntagged} onChange={(e) => setOnlyUntagged(e.target.checked)} /> {t('security.conn.untagged')}</label>
         } />
@@ -96,9 +96,9 @@ function Connections() {
           </table>
         </div>
       </Card>
-      <div className="flex flex-col gap-4">
-        <Card className="p-4">
-          <h2 className="font-serif text-title">{t('security.defense.title')}</h2>
+      <div className="order-1 flex flex-col gap-4 @3xl:order-2">
+        <Card className="p-4" data-testid="defense-panel">
+          <h2 className="text-body font-semibold text-fg">{t('security.defense.title')}</h2>
           <div className="mt-2 grid grid-cols-2 gap-3">
             <Stat label={t('security.defense.tier')} value={`T${sec.tier}`} sub={sec.tier ? t('security.defense.autoScan', { days: DEFENSE_SCAN_DAYS[sec.tier] ?? 0 }) : t('security.defense.noScan')} />
             <Stat label={t('security.defense.points')} value={Math.round(sec.dp)} />
@@ -110,7 +110,7 @@ function Connections() {
           <div className="mt-3 rounded-md border border-ink-3 p-3" data-testid="honeypot">
             <div className="text-small font-semibold">{t('security.honeypot.title')}</div>
             <p className="mt-1 text-caption text-fg-faint" data-testid="honeypot-state">{sec.honeypot ? t('security.honeypot.placed', { kind: t(`security.honeypot.kind.${sec.honeypot.kind}`) }) : t('security.honeypot.none')}</p>
-            <div className="mt-2 grid grid-cols-1 gap-2 @md:grid-cols-3">
+            <div className="mt-2 flex flex-col gap-2">
               {HONEYPOT_KINDS.map((k) => (
                 <ConfirmButton key={k} size="sm" confirm={t('security.honeypot.confirm', { kind: t(`security.honeypot.kind.${k}`), amount: money(HONEYPOT_COST[k]) })} onConfirm={() => act({ type: 'sec.honeypot', kind: k }, { success: t('security.honeypot.done') })} testId={`honeypot-${k}`}>
                   {t('security.honeypot.button', { kind: t(`security.honeypot.kind.${k}`), amount: money(HONEYPOT_COST[k]) })}
@@ -132,7 +132,7 @@ function Connections() {
           <p className="mt-1 text-caption text-fg-faint">{t('security.lockdown.hint')}</p>
         </Card>
         <Card className="p-4" data-testid="anomaly-feed">
-          <h2 className="font-serif text-title">{t('security.anomalies.title')}</h2>
+          <h2 className="text-body font-semibold text-fg">{t('security.anomalies.title')}</h2>
           <p className="mt-1 text-caption text-fg-faint">{t('security.anomalies.sub')}</p>
           <ul className="mt-2 flex flex-col gap-2">
             {sec.clues.slice().reverse().slice(0, 12).map((c) => (
@@ -171,7 +171,7 @@ function Operations() {
   return (
     <div className="grid gap-4 @3xl:grid-cols-2 [&>*]:min-w-0">
       <Card className="p-4">
-        <h2 className="font-serif text-title">{t('security.ops.new')}</h2>
+        <h2 className="text-body font-semibold text-fg">{t('security.ops.new')}</h2>
         <p className="mt-1 text-small text-fg-muted">{t('security.ops.intro')}</p>
         <div className="mt-3 flex flex-col gap-2">
           <Select label={t('security.ops.target')} value={victim} onChange={(v) => setVictim(v)} options={[...targets.map((x) => ({ value: x.id, label: x.npc ? t('security.ops.targetNpc', { handle: x.handle, amount: compactMoney(x.netWorth) }) : t('security.ops.target.line', { handle: x.handle, amount: compactMoney(x.netWorth) }) })), ...funds]} />
@@ -183,7 +183,7 @@ function Operations() {
               </button>
             ))}
           </div>
-          <Select label={t('security.ops.model')} value={modelId} onChange={(v) => setModel(v)} options={models.length ? models.map((m) => ({ value: m.id, label: t('security.ops.modelLine', { name: m.name, mcs: m.mcs.toFixed(0) }) })) : [{ value: '', label: t('security.ops.noModel') }]} />
+          <Select label={t('security.ops.model')} value={modelId} onChange={(v) => setModel(v)} options={models.length ? models.map((m) => ({ value: m.id, label: t('security.ops.modelLine', { name: m.name, mcs: dec(m.mcs, 0) }) })) : [{ value: '', label: t('security.ops.noModel') }]} />
           <button type="button" aria-pressed={canary} data-testid="canary" onClick={() => setCanary(!canary)} className={`rounded-md border p-2 text-left text-small ${canary ? 'border-brass/60 bg-ink-2' : 'border-ink-3'}`}>
             <div className="font-semibold">{t('security.ops.canary')}</div>
             <div className="text-caption text-fg-faint">{t('security.ops.canary.text')}</div>

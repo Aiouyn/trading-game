@@ -130,3 +130,13 @@ export function sharedEdges(tiles: readonly Tile[]): SharedEdge[] {
   }
   return out;
 }
+
+/**
+ * The drag offset that keeps a window inside the work area (UX stage 6, item 4): the title bar never leaves the
+ * viewport while the pointer moves. A window larger than the work area keeps its top-left corner on screen.
+ */
+export function clampDelta(r: Rect, dx: number, dy: number, wa: Size): { dx: number; dy: number } {
+  const x = clamp(r.x + dx, 0, Math.max(0, wa.w - r.w));
+  const y = clamp(r.y + dy, 0, Math.max(0, wa.h - r.h));
+  return { dx: x - r.x, dy: y - r.y };
+}

@@ -21,7 +21,7 @@ export function Dossier({ d, upkeepDay }: { d: DeskDossier; upkeepDay?: number }
     <article className="flex flex-col gap-5" data-testid="desk-dossier">
       <header className="flex flex-col gap-1">
         <span className="label" data-testid="desk-file">{t('desk.file.title', { no: String(d.no).padStart(4, '0') })}</span>
-        <h2 className="font-serif text-[40px] leading-tight text-fg" data-testid="desk-header">
+        <h2 className="font-serif text-title text-fg" data-testid="desk-header">
           {t('desk.header', { asset: d.assetId, from: d.from, to: d.to })}
         </h2>
         <p className="num flex flex-wrap gap-x-4 text-small">

@@ -30,13 +30,13 @@ describe('app registry', () => {
     expect(Object.keys(APPS).sort()).toEqual([...APP_IDS].sort());
   });
 
-  it('keeps the minimum sizes from the specs (Broker 480x420, Wire 360x280, Portfolio 520x220, others 420x300)', () => {
+  it('keeps the minimum sizes from the specs (Broker 480x420, Wire 350x280, Portfolio 350x220, others 350x300)', () => {
     expect([APPS.broker.minW, APPS.broker.minH]).toEqual([480, 420]);
-    expect([APPS.wire.minW, APPS.wire.minH]).toEqual([360, 280]);
-    expect([APPS.portfolio.minW, APPS.portfolio.minH]).toEqual([520, 220]);
+    expect([APPS.wire.minW, APPS.wire.minH]).toEqual([350, 280]);
+    expect([APPS.portfolio.minW, APPS.portfolio.minH]).toEqual([350, 220]);
     for (const id of APP_IDS) {
       if (['broker', 'wire', 'portfolio'].includes(id)) continue;
-      expect([APPS[id].minW, APPS[id].minH], id).toEqual([420, 300]);
+      expect([APPS[id].minW, APPS[id].minH], id).toEqual([350, 300]);
     }
   });
 
@@ -60,9 +60,9 @@ describe('app registry', () => {
     expect(secondWindowReady('wire')).toBe(false);
   });
 
-  it('keeps unlock ranks as data, Company hidden until R2 and Research at R3', () => {
+  it('keeps unlock ranks as data, Company locked until R2 and Research at R3', () => {
     expect(APPS.company.minRank).toBe('R2');
-    expect(APPS.company.hideWhenLocked).toBe(true);
+    expect(APPS.company.hideWhenLocked).toBe(false);
     expect(APPS.research.minRank).toBe('R3');
     expect(APPS.research.hideWhenLocked).toBe(false);
     expect(APPS.broker.minRank).toBeNull();

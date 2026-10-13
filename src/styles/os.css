@@ -66,15 +66,17 @@
     color: var(--color-fg); margin-top: -1px;
   }
   .os-root .os-rel { font-family: var(--font-mono); font-size: var(--text-micro); color: var(--color-fg-faint); }
+  .os-root .os-strip > * { flex-shrink: 0; white-space: nowrap; }
   .os-root .os-launch {
-    display: flex; align-items: center; gap: 8px; height: 24px; width: 312px; padding: 0 6px 0 9px;
+    display: flex; align-items: center; gap: 8px; height: 24px; width: 240px; padding: 0 6px 0 9px;
     border: 1px solid var(--color-ink-3); border-radius: var(--radius-sm); background: var(--color-ink-1);
     color: var(--color-fg-faint); font-size: var(--text-small);
   }
   .os-root .os-launch-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The clock and market state sit in the flow after the workspace tabs (UX stage 2): an absolutely centred clock
+     overlapped the tabs once the strip held four of them. */
   .os-root .os-mid {
-    position: absolute; left: 50%; transform: translateX(-50%);
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: 14px; margin-left: auto;
   }
   .os-root .os-clock { font-family: var(--font-mono); font-size: var(--text-small); color: var(--color-fg); }
   .os-root .os-seg {
@@ -90,8 +92,22 @@
   .os-root .os-seg-item.on {
     background: var(--color-ink-2); color: var(--color-fg); box-shadow: inset 0 -1.5px 0 var(--color-brass);
   }
-  .os-root .os-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
-  .os-root .os-nw { font-family: var(--font-mono); font-size: var(--text-small); }
+  .os-root .os-right { display: flex; align-items: center; gap: 14px; }
+  .os-root .os-nw { font-family: var(--font-mono); font-size: var(--text-small); display: flex; align-items: baseline; gap: 6px; color: var(--color-fg); }
+  /* Cash and net worth in the strip: labelled figures (the label in caption type, the value in mono). */
+  .os-root .os-figs { position: relative; display: flex; align-items: center; gap: 14px; }
+  .os-root .os-fig { display: flex; align-items: baseline; gap: 6px; font-family: var(--font-mono); font-size: var(--text-small); color: var(--color-fg); }
+  .os-root .os-fig-k { font-family: var(--font-sans, inherit); font-size: var(--text-caption); color: var(--color-fg-faint); }
+  .os-root .os-nw:hover .os-fig-k { color: var(--color-fg-muted); }
+  .os-root .os-nw-pop {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 9; width: 264px; padding: 12px 14px;
+    background: var(--os-window-bg); border: 1px solid var(--os-window-border); border-radius: var(--os-window-radius);
+    box-shadow: var(--os-window-shadow); font-family: var(--font-mono);
+  }
+  .os-root .os-nw-pop .label { margin-bottom: 8px; }
+  .os-root .os-nw-rows { display: grid; gap: 5px; }
+  .os-root .os-nw-row { display: flex; justify-content: space-between; gap: 12px; }
+  .os-root .os-nw-total { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--color-ink-3); }
   .os-root .os-bell { position: relative; color: var(--color-fg-muted); }
   .os-root .os-bell-dot {
     position: absolute; right: 0; top: 1px; width: 5px; height: 5px; border-radius: 50%;
@@ -124,6 +140,17 @@
   }
   .os-root .os-tile.on .os-tile-dot { width: 12px; height: 2px; margin-left: -6px; bottom: 3px; border-radius: var(--radius-chip); background: var(--color-brass); }
   .os-root .os-sep { width: 1px; height: 24px; margin: 0 8px; background: var(--color-ink-3); }
+  /* The dock's groups (UX stage 6, item 15): Pinned and Apps are rows of tiles; a tile's name shows above it on hover or focus. */
+  .os-root .os-tiles { display: flex; align-items: center; gap: 4px; }
+  .os-root .os-tile-tip {
+    position: absolute; bottom: calc(100% + 10px); left: 50%; z-index: 7; transform: translateX(-50%);
+    padding: 3px 8px; border: 1px solid var(--color-ink-3); border-radius: var(--radius-sm);
+    background: var(--color-ink-2); color: var(--color-fg); font-size: var(--text-caption); line-height: 1.3;
+    white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 120ms ease;
+  }
+  .os-root .os-tile:is(:hover, :focus-visible) .os-tile-tip { opacity: 1; }
+  .os-root .os-tile.locked .os-tile-tip { color: var(--color-fg-muted); }
+  @media (prefers-reduced-motion: reduce) { .os-root .os-tile-tip { transition: none; } }
   .os-root .os-tools { position: relative; margin-left: auto; display: flex; align-items: center; gap: 10px; }
   .os-root .os-tool {
     display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; white-space: nowrap;
@@ -131,15 +158,15 @@
     background: color-mix(in srgb, var(--color-ink-1) 70%, transparent);
     color: var(--color-fg-muted); font-size: var(--text-small);
   }
-  .os-root .os-ws { display: flex; align-items: center; gap: 5px; padding-left: 4px; }
-  .os-root .os-ws-box {
-    display: grid; place-items: center; width: 30px; height: 20px;
-    border: 1px solid var(--color-ink-3); border-radius: var(--radius-sm);
-    font-family: var(--font-mono); font-size: var(--text-micro); color: var(--color-fg-faint);
+  /* Workspaces as tabs in the top bar (UX stage 2): a tab per workspace, the active one underlined in brass. */
+  .os-root .os-wstabs { display: flex; align-items: stretch; gap: 2px; height: 100%; }
+  .os-root .os-wstab {
+    display: inline-flex; align-items: center; padding: 0 10px; font-size: var(--text-caption);
+    color: var(--color-fg-faint); border-bottom: 2px solid transparent;
   }
-  .os-root .os-ws-box.on { border-color: var(--color-brass); color: var(--color-brass); }
-  /* R3 three-screen rig: hairline bezel on each workspace box (velvet-desktop-os.md 185) */
-  .os-root.shell-r3 .os-ws-box:not(.on) { border-color: var(--os-ws-bezel); box-shadow: inset 0 0 0 1px var(--color-chrome); }
+  .os-root .os-wstab:hover:not(:disabled) { color: var(--color-fg-muted); }
+  .os-root .os-wstab.on { color: var(--color-fg); border-bottom-color: var(--color-brass); }
+  .os-root .os-wstab:disabled { color: var(--color-fg-disabled); cursor: default; }
 
   /* R5 glass: strip and shelf at 86% with a blur. Reduced transparency falls back to R4 (below). */
   .os-root.shell-r5 .os-strip,
@@ -178,6 +205,13 @@
   .os-root .os-ctl { margin-left: auto; display: flex; gap: 2px; color: var(--color-fg-faint); }
   .os-root .os-ctl-btn { display: grid; place-items: center; width: 26px; height: 22px; border-radius: var(--radius-sm); }
   .os-root .os-win-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  /* The focus-mode exit pill (UX stage 6, item 4): top centre, above the windows, for three seconds after entry. */
+  .os-root .os-focus-pill {
+    position: fixed; top: 12px; left: 50%; z-index: 45; transform: translateX(-50%);
+    display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; white-space: nowrap;
+    border: 1px solid var(--color-brass); border-radius: var(--radius-chip);
+    background: var(--color-ink-1); color: var(--color-fg); font-size: var(--text-small); box-shadow: var(--os-window-shadow);
+  }
   .os-root .os-snap {
     position: fixed; z-index: 4; pointer-events: none;
     border: 1px solid var(--os-snap-preview-border); background: var(--os-snap-preview-fill);
@@ -207,11 +241,19 @@
   .os-root .os-launcher-row[aria-selected="true"] { background: var(--color-ink-2); color: var(--color-fg); }
   .os-root .os-launcher-price { margin-left: auto; font-family: var(--font-mono); color: var(--color-fg); }
 
-  /* ---------- Toasts (top-right, 10 px under the strip, max 3 stacked) ---------- */
+  /* ---------- Toasts (bottom-right, above the shelf, max 3 stacked; the overflow count opens the bell) ---------- */
   .os-root .os-toasts {
-    position: fixed; top: calc(var(--os-strip-h) + var(--os-toast-gap)); right: 14px; z-index: 6;
+    position: fixed; bottom: calc(var(--os-shelf-h) + 12px); right: 14px; z-index: 6;
     display: flex; flex-direction: column; gap: var(--os-toast-gap); width: var(--os-toast-w); pointer-events: none;
   }
+  /* A narrow Broker's banner (toastPlace 'bar'): one slim notice, no gap, as on the phone (os-phone.css). Its place is inline. */
+  .os-root .os-toasts.bar { gap: 0; }
+  .os-root .os-toast-more {
+    pointer-events: auto; align-self: flex-end; height: 28px; padding: 0 10px; border-radius: var(--radius-sm);
+    background: var(--os-window-bg); border: 1px solid var(--os-window-border); color: var(--color-fg-muted);
+    font-size: var(--text-caption); box-shadow: var(--os-window-shadow);
+  }
+  .os-root .os-toast-more:hover { color: var(--color-fg); }
   .os-root .os-toast {
     display: flex; gap: 11px; padding: 11px 12px 12px 14px; pointer-events: auto;
     background: var(--os-window-bg); border: 1px solid var(--os-window-border);
@@ -226,8 +268,8 @@
   .os-root .os-toast-t2 { margin-top: 4px; font-size: 13.5px; }
   .os-root .os-toast-t3 { margin-top: 2px; font-size: var(--text-caption); color: var(--color-fg-muted); }
   .os-root .os-toast-x { margin-left: auto; color: var(--color-fg-faint); }
-  /* Toast column at the top left, when a Broker sits under the right column (P2-088). */
-  .os-root .os-toasts.left { left: 14px; right: auto; }
+
+  /* (the column over a maximized Broker's chart sets its own left and bottom inline, OsToasts.tsx) */
   /* A warning and a margin call carry a 2 px warn edge (P2-090). */
   .os-root .os-toast[data-tone="warn"] { border-left: 2px solid var(--color-warn); }
   .os-root .os-toast-body { display: flex; flex-direction: column; min-width: 0; }
@@ -414,6 +456,19 @@
   }
   .os-root .os-sheet-x:hover { background: var(--color-ink-2); color: var(--color-fg); }
   .os-root .os-sheet-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  /* Stage 2: the top bar holds four workspace tabs. Below 1500 px the release and the market words give way (the dot stays),
+     below 1200 px the launcher narrows, and below 1100 px the cash figure goes too (net worth and the bell stay in view). */
+  @media (max-width: 1499px) {
+    .os-root .os-rel,
+    .os-root .os-market-text { display: none; }
+  }
+  @media (max-width: 1199px) {
+    .os-root .os-launch { width: 200px; }
+  }
+  @media (max-width: 1099px) {
+    .os-root .os-fig[data-testid="os-cash"] { display: none; }
+    .os-root .os-launch { width: 160px; }
+  }
   @media (max-width: 767px) {
     .os-root .os-prompt {
       left: 0; right: 0; bottom: 0; width: auto; max-height: 70dvh;

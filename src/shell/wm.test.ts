@@ -99,12 +99,12 @@ function rng(seed: number): () => number {
 // ---------------------------------------------------------------- start
 
 describe('initial shell', () => {
-  it('opens the Trade layout with the Broker focused on a fresh save (halves at 1440 x 900)', () => {
+  it('opens the Trade layout with the Broker focused on a fresh save (thirds at 1440 x 900: a 400 px side column)', () => {
     const s = fresh(VP_1440);
     expect(s.wins.map((w) => [w.id, w.app, w.slot])).toEqual([
-      ['wire', 'wire', 'TR'],
-      ['portfolio', 'portfolio', 'BR'],
-      ['broker-1', 'broker', 'L2'],
+      ['wire', 'wire', 'R3T'],
+      ['portfolio', 'portfolio', 'R3B'],
+      ['broker-1', 'broker', 'L23'],
     ]);
     expect(focusedId(s)).toBe('broker-1');
     expect(s.wins.find((w) => w.app === 'broker')!.props).toEqual({ ticker: 'HLCN' });
@@ -210,11 +210,16 @@ describe('open', () => {
   });
 
   it('opens an app that is unlocked and places it on the active workspace, focused', () => {
+    // On Trade with the Broker open, the app is a right side panel (UX stage 2), so it is placed and focused.
     const s = go(fresh(), { type: 'open', app: 'ailab' });
     const w = s.wins.find((x) => x.app === 'ailab')!;
     expect(w.ws).toBe(0);
-    expect(w.slot).toBeNull();
+    // Two panels are open (Wire and Portfolio), so the oldest (Wire) collapses and Ailab takes its half (UX stage 6 reflow).
+    expect(w.slot).toBe('R3T');
+    expect(s.wins.find((x) => x.app === 'wire')!.state).toBe('collapsed');
     expect(focusedId(s)).toBe('ailab');
+    const off = go(emptyShell(VP_1440), { type: 'open', app: 'ailab' });
+    expect(off.wins.find((x) => x.app === 'ailab')!.slot).toBeNull();
   });
 
   it('opens the Broker alone on an empty 1440 x 900 workspace on the left two thirds (defect A)', () => {
@@ -246,19 +251,62 @@ describe('open', () => {
     expect(s.wins.find((w) => w.app === 'learn')!.rect).toEqual(openRect(APPS.learn, wa, 2));
   });
 
-  it('does not snap a Broker that opens beside another window; it is a free window', () => {
+  it('a Broker that opens beside another window tiles with it: the older window keeps the left half (UX 2)', () => {
     let s = go(emptyShell(VP_1440), { type: 'open', app: 'wire' });
     s = go(s, { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
-    const b = s.wins.find((w) => w.app === 'broker')!;
-    expect(b.slot).toBeNull();
-    expect(b.rect).toEqual(openRect(APPS.broker, workArea(VP_1440, false), 1));
+    expect(s.wins.find((w) => w.app === 'wire')!.slot).toBe('L2');
+    expect(s.wins.find((w) => w.app === 'broker')!.slot).toBe('R2');
   });
 
-  it('keeps the first Broker snap when a later Broker opens on the same workspace', () => {
+  it('a later Broker on the same workspace retiles: the first Broker moves to the left half, the new one to the right', () => {
     let s = go(emptyShell(VP_1440), { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
     s = go(s, { type: 'open', app: 'broker', props: { ticker: 'BRNT' }, fresh: true });
-    expect(s.wins.find((w) => w.id === 'broker-1')!.slot).toBe('L23');
-    expect(s.wins.find((w) => w.id === 'broker-2')!.slot).toBeNull();
+    expect(s.wins.find((w) => w.id === 'broker-1')!.slot).toBe('L2');
+    expect(s.wins.find((w) => w.id === 'broker-2')!.slot).toBe('R2');
+  });
+
+  it('three windows tile as one large window plus two stacked; four as quarters (UX 2), on a non-Trade workspace', () => {
+    // Empire (workspace 3) has no default app, so its windows tile from empty; Trade uses side panels (next test).
+    let s = go(emptyShell(VP_1920), { type: 'switchWs', ws: 3 }, R3);
+    s = go(s, { type: 'open', app: 'learn' }, R3);
+    s = go(s, { type: 'open', app: 'calendar' }, R3);
+    s = go(s, { type: 'open', app: 'settings' }, R3);
+    expect(s.wins.find((w) => w.app === 'learn')!.slot).toBe('L23');
+    expect(s.wins.find((w) => w.app === 'calendar')!.slot).toBe('R3T');
+    expect(s.wins.find((w) => w.app === 'settings')!.slot).toBe('R3B');
+    s = go(s, { type: 'open', app: 'ailab' }, R3);
+    const slots = s.wins.filter((w) => w.ws === s.activeWs && w.state === 'open').map((w) => w.slot);
+    expect(slots).toEqual(['TL', 'TR', 'BL', 'BR']);
+  });
+
+  it('on Trade, apps opened beside the Broker are right side panels, not tiles over the chart (UX stage 2)', () => {
+    let s = go(emptyShell(VP_1920), { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
+    s = go(s, { type: 'open', app: 'wire' });
+    s = go(s, { type: 'open', app: 'portfolio' });
+    expect(s.wins.find((w) => w.app === 'broker')!.slot).toBe('L23');
+    // One panel takes the whole column; the second reflows the first into the top half (no overlap).
+    expect(s.wins.find((w) => w.app === 'wire')!.slot).toBe('R3T');
+    expect(s.wins.find((w) => w.app === 'portfolio')!.slot).toBe('R3B');
+    s = go(s, { type: 'open', app: 'learn' });
+    expect(s.wins.find((w) => w.app === 'learn')!.slot).toBe('R3T');
+    expect(s.wins.find((w) => w.app === 'broker')!.slot).toBe('L23');
+    // Learn took Wire's half, so Wire is on the shelf. With both halves taken again, the oldest open panel (Portfolio) collapses
+    // and the newcomer takes its half.
+    s = go(s, { type: 'open', app: 'calendar' });
+    expect(s.wins.find((w) => w.app === 'portfolio')!.state).toBe('collapsed');
+    expect(s.wins.find((w) => w.app === 'calendar')!.slot).toBe('R3B');
+    expect(s.wins.find((w) => w.app === 'learn')!.slot).toBe('R3T');
+  });
+
+  it('closing one of three tiled windows reflows the other two into halves (UX stage 2)', () => {
+    let s = go(emptyShell(VP_1920), { type: 'switchWs', ws: 3 }, R3);
+    s = go(s, { type: 'open', app: 'learn' }, R3);
+    s = go(s, { type: 'open', app: 'calendar' }, R3);
+    s = go(s, { type: 'open', app: 'settings' }, R3);
+    expect(s.wins.find((w) => w.app === 'learn')!.slot).toBe('L23');
+    s = go(s, { type: 'close', id: 'settings' }, R3);
+    const slots = s.wins.filter((w) => w.ws === 3 && w.state === 'open').map((w) => w.slot);
+    expect(slots).toEqual(['L2', 'R2']);
   });
 
   it('keeps a window opened on top visible in halves, even when a filled window is below it', () => {
@@ -343,11 +391,12 @@ describe('snap', () => {
     refused(s, { type: 'snap', id: 'broker-1', slot: 'R3' }, 'too-small');
   });
 
-  it('refuses a Portfolio half at 1000 (488 px < 520) and allows Broker and Wire halves', () => {
-    const s = go(fresh(VP_1000), { type: 'open', app: 'portfolio' });
-    refused(s, { type: 'snap', id: 'portfolio', slot: 'R2' }, 'too-small');
-    const ok = go(s, { type: 'snap', id: 'wire', slot: 'R2' });
-    expect(ok.wins.find((w) => w.app === 'wire')!.slot).toBe('R2');
+  it('refuses a Portfolio third below its 350 px minimum (a 1200 wide side column is 331 px) and allows Broker and Wire halves', () => {
+    const s = go(fresh({ w: 1200, h: 800 }), { type: 'open', app: 'portfolio' });
+    refused(s, { type: 'snap', id: 'portfolio', slot: 'R3' }, 'too-small');
+    const ok = go(fresh(VP_1000), { type: 'open', app: 'portfolio' });
+    expect(go(ok, { type: 'snap', id: 'portfolio', slot: 'R2' }).wins.find((w) => w.app === 'portfolio')!.slot).toBe('R2');
+    expect(go(ok, { type: 'snap', id: 'wire', slot: 'R2' }).wins.find((w) => w.app === 'wire')!.slot).toBe('R2');
   });
 
   it('cycles Ctrl Left through 1/2, 1/3, 2/3 and back', () => {
@@ -439,20 +488,33 @@ describe('move and resize', () => {
 // ---------------------------------------------------------------- workspaces, focus mode
 
 describe('workspaces', () => {
-  it('derives the workspace count from the earned rank: R0 and R1 one, R2 two, R3 three', () => {
+  it('derives the workspace count from the earned rank: R0 and R1 Trade and News, R2 adds Portfolio, R3 adds Empire', () => {
     const s = fresh(VP_1440, R0);
-    refused(s, { type: 'switchWs', ws: 1 }, 'no-workspace', R0);
+    refused(s, { type: 'switchWs', ws: 2 }, 'no-workspace', R0);
     expect(go(s, { type: 'switchWs', ws: 0 }, R0)).toBe(s);
     const s2 = fresh(VP_1440, R2);
     expect(go(s2, { type: 'switchWs', ws: 1 }, R2).activeWs).toBe(1);
-    refused(s2, { type: 'switchWs', ws: 2 }, 'no-workspace', R2);
+    expect(go(s2, { type: 'switchWs', ws: 2 }, R2).activeWs).toBe(2);
+    refused(s2, { type: 'switchWs', ws: 3 }, 'no-workspace', R2);
+  });
+
+  it('a workspace with no windows opens its default app (Trade the Broker, News the Wire), once per visit', () => {
+    const news = go(emptyShell(VP_1440), { type: 'switchWs', ws: 1 }, R0);
+    expect(news.activeWs).toBe(1);
+    expect(news.wins.filter((w) => w.ws === 1).map((w) => w.app)).toEqual(['wire']);
+    expect(focusedId(news)).toBe('wire');
+    const back = go(news, { type: 'switchWs', ws: 0 }, R0);
+    expect(back.wins.filter((w) => w.ws === 0).map((w) => w.app)).toEqual(['broker']);
+    // Switching again does not open a second copy: the workspace already holds its window.
+    const again = go(go(back, { type: 'switchWs', ws: 1 }, R0), { type: 'switchWs', ws: 0 }, R0);
+    expect(again.wins.filter((w) => w.ws === 0)).toHaveLength(1);
   });
 
   it('moves windows off a removed workspace to 0 on load, without losing any', () => {
-    let s = go(fresh(VP_1440, R3), { type: 'switchWs', ws: 2 }, R3);
+    let s = go(fresh(VP_1440, R3), { type: 'switchWs', ws: 3 }, R3);
     s = go(s, { type: 'open', app: 'calendar' }, R3);
-    expect(s.wins.every((w) => w.app === 'calendar' ? w.ws === 2 : true)).toBe(true);
-    const lower = normalize({ ...s, activeWs: 2 }, R1);
+    expect(s.wins.every((w) => w.app === 'calendar' ? w.ws === 3 : true)).toBe(true);
+    const lower = normalize({ ...s, activeWs: 3 }, R1);
     expect(lower.wins.length).toBe(s.wins.length);
     expect(lower.wins.find((w) => w.app === 'calendar')!.ws).toBe(0);
     expect(lower.activeWs).toBe(0);
@@ -486,38 +548,38 @@ describe('workspaces', () => {
 
   it('focus mode is per workspace: a switch keeps each workspace its own mode', () => {
     let s = go(fresh(VP_1920, R2), { type: 'focusMode', on: true }, R2);
-    s = go(s, { type: 'switchWs', ws: 1 }, R2);
+    s = go(s, { type: 'switchWs', ws: 2 }, R2);
     expect(s.focusWs).toEqual([0]);
     expect(isFocused(s)).toBe(false);
     s = go(s, { type: 'focusMode', on: true }, R2);
-    expect(s.focusWs).toEqual([0, 1]);
+    expect(s.focusWs).toEqual([0, 2]);
     s = go(s, { type: 'switchWs', ws: 0 }, R2);
     expect(isFocused(s)).toBe(true);
     s = go(s, { type: 'focusMode', on: false }, R2);
-    expect(s.focusWs).toEqual([1]);
+    expect(s.focusWs).toEqual([2]);
   });
 
   it('opening a window on one workspace leaves the other workspace in focus mode', () => {
     let s = go(fresh(VP_1920, R2), { type: 'focusMode', on: true }, R2);
-    s = go(s, { type: 'switchWs', ws: 1 }, R2);
+    s = go(s, { type: 'switchWs', ws: 2 }, R2);
     s = go(s, { type: 'focusMode', on: true }, R2);
     s = go(s, { type: 'open', app: 'calendar' }, R2);
     expect(s.focusWs).toEqual([0]);
-    expect(s.wins.find((w) => w.app === 'calendar')!.ws).toBe(1);
+    expect(s.wins.find((w) => w.app === 'calendar')!.ws).toBe(2);
   });
 
   it('leaving focus on one workspace restores its windows and not the other workspace', () => {
     const base = go(fresh(VP_1920, R2), { type: 'open', app: 'calendar' }, R2);
     let s = go(base, { type: 'focusMode', on: true }, R2);
-    s = go(s, { type: 'switchWs', ws: 1 }, R2);
+    s = go(s, { type: 'switchWs', ws: 2 }, R2);
     s = go(s, { type: 'open', app: 'ailab' }, R2);
     s = go(s, { type: 'focusMode', on: true }, R2);
     s = go(s, { type: 'switchWs', ws: 0 }, R2);
     s = go(s, { type: 'focusMode', on: false }, R2);
-    expect(s.focusWs).toEqual([1]);
+    expect(s.focusWs).toEqual([2]);
     const back = (ws: ShellState['wins']) => ws.filter((w) => w.ws === 0).map((w) => [w.id, w.rect, w.slot, w.filled]);
     expect(back(s.wins)).toEqual(back(base.wins));
-    expect(s.focusRestore && Object.values(s.focusRestore).every((x) => x.ws === 1)).toBe(true);
+    expect(s.focusRestore && Object.values(s.focusRestore).every((x) => x.ws === 2)).toBe(true);
   });
 
   it('refuses a move into or out of a workspace in focus mode, and a close drops its snapshot', () => {
@@ -557,7 +619,7 @@ describe('focus mode', () => {
   });
 
   it('takes the Trade slots on an unsnapped workspace at 1200+, and restores the free rects after', () => {
-    const base = go(fresh(VP_1920), { type: 'open', app: 'calendar' });
+    const base = fresh(VP_1920);
     const free = { ...base, wins: base.wins.map((w) => ({ ...w, slot: null })) };
     const on = go(deepFreeze(free), { type: 'focusMode', on: true });
     expect(on.wins.find((w) => w.app === 'broker')!.slot).toBe('L23');
@@ -595,18 +657,19 @@ describe('viewport', () => {
     expect(Object.keys(project(fresh(VP_390)).rects)).toHaveLength(0);
   });
 
-  it('shows the two windows on halves at 1000 (Broker and Wire), each exactly on its half', () => {
+  it('shows the Trade windows at 1000 on halves: Broker left, Wire on the right half, Portfolio tabbed away', () => {
     const p = project(fresh(VP_1000));
     expect(Object.keys(p.rects).sort()).toEqual(['broker-1', 'wire'].sort());
     expect(p.rects['broker-1']).toEqual(slotRect('L2', VP_1000, false));
     expect(p.rects.wire).toEqual(slotRect('R2', VP_1000, false));
   });
 
-  it('shows the Trade fallback at 1440 exactly on its halves: Broker left, Wire and Portfolio stacked right', () => {
+  it('shows Trade at 1440 as thirds: Broker left at 1016 px, Wire and Portfolio in the 400 px side column', () => {
     const p = project(fresh(VP_1440));
-    expect(p.rects['broker-1']).toEqual(slotRect('L2', VP_1440, false));
-    expect(p.rects.wire).toEqual(slotRect('TR', VP_1440, false));
-    expect(p.rects.portfolio).toEqual(slotRect('BR', VP_1440, false));
+    expect(p.rects['broker-1']).toEqual(slotRect('L23', VP_1440, false));
+    expect(p.rects.wire).toEqual(slotRect('R3T', VP_1440, false));
+    expect(p.rects.portfolio).toEqual(slotRect('R3B', VP_1440, false));
+    expect(slotRect('R3', VP_1440, false).w).toBe(400);
   });
 
   it('refuses a non-positive viewport', () => {
@@ -654,30 +717,29 @@ describe('named layouts', () => {
     expect(focusedId(s)).toBe(open[0]!.id);
   });
 
-  it('applies Review as Portfolio on the left and the journal Portfolio on the right, now the journal view is built', () => {
+  it('applies Review as one Portfolio on the left and the Wire on the right, even with the journal view built (UX stage 2)', () => {
     const s = go(fresh(VP_1920), { type: 'applyLayout', name: 'review' });
-    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id).sort()).toEqual(['portfolio', 'portfolio-2']);
+    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id)).toEqual(['portfolio']);
     expect(s.wins.find((w) => w.id === 'portfolio')!.slot).toBe('L2');
-    expect(s.wins.find((w) => w.id === 'portfolio-2')!.props).toEqual({ view: 'journal' });
-    expect(focusedId(s)).toBe('portfolio');
+    expect(s.wins.find((w) => w.app === 'wire')!.slot).toBe('R2');
+    expect(s.wins.some((w) => w.id === 'portfolio-2')).toBe(false);
   });
 
-  it('applies Review after the Portfolio was closed: a plain Portfolio on the left and the journal on the right', () => {
+  it('applies Review after the Portfolio was closed: a plain Portfolio on the left and the Wire on the right', () => {
     let s = go(fresh(VP_1920), { type: 'close', id: 'portfolio' });
     s = go(s, { type: 'applyLayout', name: 'review' });
     const pf = s.wins.find((w) => w.id === 'portfolio')!;
     expect(pf.slot).toBe('L2');
     expect(pf.props).toEqual({});
-    expect(s.wins.find((w) => w.id === 'portfolio-2')!.props).toEqual({ view: 'journal' });
-    expect(focusedId(s)).toBe('portfolio');
+    expect(s.wins.some((w) => w.id === 'portfolio-2')).toBe(false);
   });
 
-  it('a user open of Portfolio focuses the one Portfolio window there is, the journal included (the shelf never opens a third)', () => {
+  it('a user open of Portfolio opens the one Portfolio window again after Review closed it (the shelf never opens a second)', () => {
     let s = go(fresh(VP_1920), { type: 'applyLayout', name: 'review' });
     s = go(s, { type: 'close', id: 'portfolio' });
     s = go(s, { type: 'open', app: 'portfolio' });
-    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id)).toEqual(['portfolio-2']);
-    expect(focusedId(s)).toBe('portfolio-2');
+    expect(s.wins.filter((w) => w.app === 'portfolio').map((w) => w.id)).toEqual(['portfolio']);
+    expect(focusedId(s)).toBe('portfolio');
   });
 
   it('applies the Research layout with the open Research file, and without one skips the slot', () => {
@@ -787,7 +849,7 @@ describe('reducer properties (seeded)', () => {
       return { type: 'move', id, rect: { x: Math.floor(rnd() * 1500) - 100, y: Math.floor(rnd() * 900) - 50, w: 400 + Math.floor(rnd() * 300), h: 300 + Math.floor(rnd() * 300) } };
     }
     if (roll < 0.7) return { type: 'resize', id, rect: { x: 0, y: 0, w: 300 + Math.floor(rnd() * 900), h: 200 + Math.floor(rnd() * 700) } };
-    if (roll < 0.73) return { type: 'switchWs', ws: Math.floor(rnd() * 3) };
+    if (roll < 0.73) return { type: 'switchWs', ws: Math.floor(rnd() * 4) };
     if (roll < 0.76) return { type: 'moveToWs', id, ws: Math.floor(rnd() * 3) };
     if (roll < 0.79) return { type: 'focusMode', on: rnd() < 0.5 };
     if (roll < 0.83) return { type: 'viewport', ...pick(VPS) };
@@ -856,6 +918,32 @@ describe('rect helpers', () => {
     const s = fresh(VP_1440);
     for (const r of Object.values(project(s).rects) as Rect[]) {
       expect(Number.isInteger(r.x) && Number.isInteger(r.w) && Number.isInteger(r.y) && Number.isInteger(r.h)).toBe(true);
+    }
+  });
+});
+
+describe('six windows on a workspace never cascade over each other (UX stage 6)', () => {
+  it('on News at 1440, six opens leave the open windows tiled with no two overlapping; the rest collapse to the shelf', () => {
+    let s = go(emptyShell(VP_1440), { type: 'switchWs', ws: 1 }, R3);
+    for (const app of ['wire', 'messages', 'portfolio', 'exchange', 'launchpad', 'calendar'] as const) {
+      s = go(s, { type: 'open', app }, R3);
+    }
+    const open = s.wins.filter((w) => w.ws === s.activeWs && w.state === 'open');
+    const wa = workArea(s.vp, false);
+    const rects = project(s).rects;
+    // Every window is either open (tiled) or on the shelf; the 350 px minimum (UX stage 6) lets a six-window News tile fit, so
+    // the count of open windows is not fixed. Overlap is the rule under test.
+    expect(open.length).toBeGreaterThanOrEqual(2);
+    expect(open.length + s.wins.filter((w) => w.state === 'collapsed').length).toBe(6);
+    for (const a of open) {
+      for (const b of open) {
+        if (a === b) continue;
+        const ra = rects[a.id]!;
+        const rb = rects[b.id]!;
+        const overlap = ra.x < rb.x + rb.w && rb.x < ra.x + ra.w && ra.y < rb.y + rb.h && rb.y < ra.y + ra.h;
+        expect(overlap, `${a.app} over ${b.app}`).toBe(false);
+      }
+      expect(rects[a.id]!.x + rects[a.id]!.w).toBeLessThanOrEqual(wa.w);
     }
   });
 });

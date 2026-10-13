@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ADMIN, goTo, grant, register, watchErrors } from './helpers';
+import { frame } from './shell/support';
 
 // Phase 3 B3 (Broker trading tools): keyboard trading, recurring buys, DRIP. Desktop only: keyboard trading is off on
 // touch screens, and the DRIP toggle and plans are covered by the unit tests on the phone.
@@ -87,6 +88,8 @@ test.describe('keyboard trading, recurring buys and DRIP (Phase 3 B3)', () => {
     const handle = await register(page, 'rb');
     await grant(handle, 50_000);
     await goTo(page, 'market');
+    // the plans card sits in the Broker's Asset tab (the dock)
+    await page.getByTestId('dock-tab-asset').click();
 
     const plans = page.getByTestId('plans-card');
     await plans.getByTestId('plan-recurring-dollars').fill('5000');
@@ -109,7 +112,8 @@ test.describe('keyboard trading, recurring buys and DRIP (Phase 3 B3)', () => {
     await expect.poll(() => orderCount(page)).toBeGreaterThan(0);
 
     await goTo(page, 'portfolio');
-    const drip = page.getByTestId(`drip-${ticker}`);
+    // the Portfolio window's own positions (the Broker's dock lists the same positions with the same toggle)
+    const drip = frame(page, 'portfolio').getByTestId(`drip-${ticker}`);
     await expect(drip).toBeVisible({ timeout: 20_000 });
     await expect(drip).toHaveAttribute('aria-pressed', 'false');
     await drip.click();
@@ -118,6 +122,6 @@ test.describe('keyboard trading, recurring buys and DRIP (Phase 3 B3)', () => {
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-game', 'ready', { timeout: 30_000 });
     await goTo(page, 'portfolio');
-    await expect(page.getByTestId(`drip-${ticker}`)).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 });
+    await expect(frame(page, 'portfolio').getByTestId(`drip-${ticker}`)).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 });
   });
 });

@@ -8,7 +8,7 @@ import { COMPANY } from '@/content/company';
 import { money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, ConfirmButton, NumberField, Select, Td, Th } from '@/components/ui';
+import { ConfirmButton, NumberField, Select, SpendReview, Td, Th } from '@/components/ui';
 import type { CompanyFounderView } from '@/world/company/views';
 import type { ExecutiveView } from '@/world/company/operations';
 import type { CompanyRole } from '@/content/company';
@@ -92,8 +92,23 @@ function Staff({ co }: { co: CompanyFounderView }) {
           options={ROLE_IDS.map((id) => ({ value: id, label: roleLabel(id) }))}
         />
         <NumberField value={count} onChange={setCount} min={1} step={1} testId="company-staff-count" label={t('company.ui.team.count')} className="h-11" />
-        <Button variant="brass" disabled={busy || n === null || n < 1} onClick={() => submit('hire')} testId="company-hire">{t('company.ui.team.hire')}</Button>
-        <Button disabled={busy || n === null || n < 1} onClick={() => submit('fire')} testId="company-fire">{t('company.ui.team.fire')}</Button>
+        <SpendReview
+          variant="brass"
+          testId="company-hire"
+          label={t('company.ui.team.hire')}
+          title={t('company.ui.team.hire')}
+          rows={[{ label: t('company.ui.team.heads'), value: String(n ?? 0) }, { label: t('company.ui.team.title'), value: roleLabel(role) }]}
+          disabled={busy || n === null || n < 1}
+          onConfirm={() => submit('hire')}
+        />
+        <SpendReview
+          testId="company-fire"
+          label={t('company.ui.team.fire')}
+          title={t('company.ui.team.fire')}
+          rows={[{ label: t('company.ui.team.heads'), value: String(n ?? 0) }, { label: t('company.ui.team.title'), value: roleLabel(role) }]}
+          disabled={busy || n === null || n < 1}
+          onConfirm={() => submit('fire')}
+        />
       </div>
       <div className="mt-3"><RefusalNote refusal={refusal} /></div>
     </Section>
@@ -179,7 +194,15 @@ function ExecSeat({ role, exec, companyId }: { role: ExecRole; exec: ExecutiveVi
             className="h-10 w-full"
             options={[{ value: 'you', label: t('company.ui.exec.holderYou') }, { value: 'npc', label: t('company.ui.exec.holderNpc') }]}
           />
-          <Button size="sm" disabled={busy} onClick={appoint} testId={`company-exec-hire-${role}`}>{t('company.ui.exec.hire')}</Button>
+          <SpendReview
+            size="sm"
+            testId={`company-exec-hire-${role}`}
+            label={t('company.ui.exec.hire')}
+            title={t('company.ui.exec.hire')}
+            rows={[{ label: t('company.ui.exec.trait'), value: traitLabel(trait) }, { label: t('company.ui.exec.holder'), value: who === 'you' ? t('company.ui.exec.holderYou') : t('company.ui.exec.holderNpc') }]}
+            disabled={busy}
+            onConfirm={appoint}
+          />
         </div>
       )}
       <p className="mt-2 text-caption text-fg-faint">{t('company.ui.exec.traitHint', { size: Math.round(Math.abs(COMPANY.governance.exec.traits[trait].size) * 100) })}</p>

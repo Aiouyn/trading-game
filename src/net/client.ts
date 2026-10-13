@@ -1,12 +1,13 @@
 'use client';
 
 import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type HistoryPayload, type NwHistoryPayload, type ServerMsg, type VisitPayload } from './protocol';
+import type { Msg } from '@/i18n';
 import type { PublicPanel } from '@/world/view';
 import type { Command } from '@/world/types';
 import type { PlayerView } from '@/world/view';
 import type { LpPage } from '@/world/launchpad/view';
 
-export interface Ack { ok: boolean; error?: string; data?: unknown; me?: PlayerView }
+export interface Ack { ok: boolean; error?: string; msg?: Msg; data?: unknown; me?: PlayerView }
 
 const TOKEN_KEY = 'tg-token'; // migrated from tycoon.token on boot (shell/prefs migrateLegacy)
 

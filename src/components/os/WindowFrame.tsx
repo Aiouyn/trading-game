@@ -13,11 +13,13 @@ import type { Win } from '@/shell/wm';
 import { APP_GLYPH } from './appMap';
 import { AppBody } from './appViews';
 import { Glyph } from './glyphs';
-import { type Edge, type SnapTarget, resizeRect, snapFits, snapTargetAt, targetRect } from './windowMath';
+import { type Edge, type SnapTarget, clampDelta, resizeRect, snapFits, snapTargetAt, targetRect } from './windowMath';
 import { useMoreBelow } from './scrollMore';
 import { WIN_OPEN_MS, closeWindow, dispatchWm, useCloseAsk, useFocusHint } from './shellStore';
 
 const EDGES: readonly Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+/** The drop-zone outline sits above every window (their z is 2 + index), so a drag always previews the snap (UX stage 6, item 4). */
+const SNAP_Z = 40;
 
 /** Window ids already drawn this session. Only a first draw opens with the open animation (P2-215), so a
  *  workspace switch does not replay it. OsRoot drops an id once its window is gone (pruneDrawn). */
@@ -93,8 +95,10 @@ export function WindowFrame({ win, rect, active, z, mode, wa, gutter }: WindowFr
     let dy = 0;
     let cur: SnapTarget | null = null;
     const move = (ev: PointerEvent): void => {
-      dx = ev.clientX - sx;
-      dy = ev.clientY - sy;
+      // the live follow stays inside the work area: a window dragged past an edge stops at it (UX stage 6, item 4)
+      const c = clampDelta(rect, ev.clientX - sx, ev.clientY - sy, wa);
+      dx = c.dx;
+      dy = c.dy;
       if (free) frame.style.transform = `translate(${dx}px, ${dy}px)`;
       // A snap the app cannot fit (the Broker in a 403 px quarter) is not offered: no preview, and release moves freely.
       const raw = snapTargetAt(ev.clientX - box.left, ev.clientY - box.top, box.width, box.height, mode);
@@ -152,12 +156,15 @@ export function WindowFrame({ win, rect, active, z, mode, wa, gutter }: WindowFr
 
   const keepOpen = (): void => useCloseAsk.setState({ id: null });
 
-  const preview = target !== null && (
+  // The drop zone is drawn where the window will land. targetRect gives x, y, w, h; the CSS needs left, top, width and
+  // height (a Rect spread into style drew a 2 px square, UX stage 6, item 4).
+  const dropAt = target === null ? null : targetRect(target, wa, gutter);
+  const preview = dropAt !== null && (
     <div
       className="os-snap"
       data-testid="snap-preview"
       aria-hidden
-      style={{ ...targetRect(target, wa, gutter), position: 'absolute' }}
+      style={{ left: dropAt.x, top: dropAt.y, width: dropAt.w, height: dropAt.h, position: 'absolute', zIndex: SNAP_Z }}
     />
   );
 
@@ -175,7 +182,16 @@ export function WindowFrame({ win, rect, active, z, mode, wa, gutter }: WindowFr
         style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h, zIndex: z }}
         onPointerDown={focusWin}
       >
-        <div className="os-tb" onPointerDown={onTitleDown} data-testid={`win-${win.id}-title`}>
+        <div
+          className="os-tb select-none"
+          onPointerDown={onTitleDown}
+          // Double-click on the title bar maximizes, and restores when already filled (the Fill toggle).
+          onDoubleClick={(e) => {
+            if ((e.target as HTMLElement).closest('button')) return;
+            dispatchWm({ type: 'fill', id: win.id });
+          }}
+          data-testid={`win-${win.id}-title`}
+        >
           <span className="os-tb-gl"><Glyph name={APP_GLYPH[win.app]} size={15} /></span>
           <span id={titleId} className="os-tb-nm">{name}</span>
           {sub !== undefined && <span className="os-tb-sub">{sub}</span>}

@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Card, Stat, Tabs } from '@/components/ui';
+import { StatStrip, Tabs } from '@/components/ui';
 import { FundsTab } from './FundsTab';
 import { HoldingsTab } from './HoldingsTab';
 import { IposTab } from './IposTab';
@@ -27,20 +27,16 @@ export function ExchangeApp() {
   };
   return (
     <div className="flex flex-col gap-4" data-testid="exchange-view">
-      <Card className="p-4">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="font-serif text-hero text-fg">{t('exchange.title')}</h1>
-            <p className="text-small text-fg-muted">{t('exchange.intro')}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-2 @xl:grid-cols-4">
-            <Stat figure label={t('exchange.stat.stocks')} value={x.stocks.length} testId="exchange-stat-stocks" />
-            <Stat figure label={t('exchange.stat.ipos')} value={x.ipos.length} testId="exchange-stat-ipos" />
-            <Stat figure label={t('exchange.stat.funds')} value={x.funds.length} testId="exchange-stat-funds" />
-            <Stat figure label={t('exchange.stat.mine')} value={money(x.holdingsValue)} testId="exchange-stat-mine" />
-          </div>
-        </div>
-      </Card>
+      <StatStrip
+        testId="exchange-stats"
+        intro={t('exchange.intro')}
+        items={[
+          { label: t('exchange.stat.stocks'), value: x.stocks.length, testId: 'exchange-stat-stocks' },
+          { label: t('exchange.stat.ipos'), value: x.ipos.length, testId: 'exchange-stat-ipos' },
+          { label: t('exchange.stat.funds'), value: x.funds.length, testId: 'exchange-stat-funds' },
+          { label: t('exchange.stat.mine'), value: money(x.holdingsValue), testId: 'exchange-stat-mine' },
+        ]}
+      />
       <Tabs<Tab>
         tabs={[
           { id: 'stocks', label: t('exchange.tab.stocks') },
@@ -53,9 +49,9 @@ export function ExchangeApp() {
         onChange={setTab}
       />
       {tab === 'stocks' && <StocksTab stocks={x.stocks} />}
-      {tab === 'ipos' && <IposTab ipos={x.ipos} />}
+      {tab === 'ipos' && <IposTab ipos={x.ipos} onTab={setTab} />}
       {tab === 'funds' && <FundsTab x={x} selected={fundId} onSelect={setFundId} onOpenManage={() => setTab('manage')} />}
-      {tab === 'mine' && <HoldingsTab holdings={x.holdings} ticksPerDay={x.rules.ticksPerDay} onOpen={openFund} />}
+      {tab === 'mine' && <HoldingsTab holdings={x.holdings} ticksPerDay={x.rules.ticksPerDay} onOpen={openFund} onTab={setTab} />}
       {tab === 'manage' && <ManageTab x={x} />}
     </div>
   );

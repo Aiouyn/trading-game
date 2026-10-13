@@ -5,7 +5,7 @@
  */
 import { SHOP, SHOP_REFUSAL } from '@/content/shops';
 import type { UpgradeAxis } from '@/content/businesses';
-import { bizDef, cashOf, clamp, debit, notify, today, TPD } from './core';
+import { overhead, bizDef, cashOf, clamp, notify, today, TPD } from './core';
 import { markShares, recomputeShares } from './assets';
 import {
   attrition, autopilotFor, dailyCosts, isCrew, isLevel, managerPrepaid, managerPrepayCost, moraleTarget, reviewsTarget, wellRunShop,
@@ -97,7 +97,7 @@ export function hireManager(g: GameState, pid: string, bizId: string, stars: num
   const target = bizDef(b).income;
   const prepay = managerPrepayCost(stars, target);
   if (cashOf(g, pid) < prepay) return refuse(SHOP_REFUSAL.cash);
-  debit(g, pid, prepay, 'shop manager');
+  overhead(g, pid, prepay, 'shop manager');
   b.shop.costs += prepay;
   b.shop.managerStars = stars;
   b.shop.managerDay = today(g);

@@ -3,9 +3,9 @@
 import { useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { initLocale, useLocale } from '@/i18n';
-import { CloseCard } from './CloseCard';
+import { CloseAnnouncer } from './CloseCard';
 import { ComebackHost } from './comeback/ComebackScreens';
-import { Coach, ConnectionBanner, DigestModal } from './Overlays';
+import { Coach, ConnectionBanner, DigestAnnouncer } from './Overlays';
 import { ProfileModal } from './Social';
 import { OsRoot } from './os/OsRoot';
 import { OsUpdate } from './os/OsUpdate';
@@ -42,9 +42,9 @@ export function Game() {
     <>
       <OsRoot />
       <OsUpdate />
-      <DigestModal />
+      <DigestAnnouncer />
+      <CloseAnnouncer />
       <ComebackHost />
-      <CloseCard />
       <ProfileModal />
       <ConnectionBanner />
       <Coach />

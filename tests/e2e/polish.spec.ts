@@ -142,7 +142,7 @@ test('settings switch the game to French, and the shell and the settings speak i
   // a few strings from the portfolio in French: the arrival line and the chart note (both say what the figures leave out)
   await goTo(page, 'portfolio');
   await expect(page.getByTestId('networth-total')).toContainText('depuis votre arrivée');
-  await expect(page.getByTestId('networth-chart-note')).toContainText('La courbe exclut les dons, virements et prêts');
+  await expect(page.getByTestId('networth-chart-note')).toContainText('La courbe est votre valeur nette, comme l’affiche l’en-tête');
   // back to English so the rest of the run is not in French
   await goTo(page, 'profile');
   await page.getByTestId('settings-lang-en').click();

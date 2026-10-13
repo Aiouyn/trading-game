@@ -3,6 +3,10 @@
 import { create } from 'zustand';
 import en from './en.json';
 import fr from './fr.json';
+import { ENGINE_FR } from './engineFr';
+import { formatToken, isNumberToken } from './tokens';
+
+export { formatNumberToken, formatToken, isNumberToken } from './tokens';
 
 /**
  * Translations (ROADMAP M03). Every user-facing string goes through t(key, vars).
@@ -24,8 +28,17 @@ const DICTS: Record<Locale, Dict> = { en: en as Dict, fr: fr as Dict };
 
 let current: Locale = 'en';
 
-/** A message variable: a number, a string ("@key" names another key), or another message rendered in the same locale. */
-export type MsgVar = string | number | Msg;
+/** The locale the viewer reads in now: number and money formatting (src/game/format.ts) follows it. */
+export function currentLocale(): Locale {
+  return current;
+}
+
+/**
+ * A message variable: a number, a string ("@key" names another key, "#n:v,min,max" is a number in the viewer's locale,
+ * "!text" is an engine sentence through engineFr.ts), another message rendered in the same locale, or a list of them
+ * joined with " · " (the lab's signal picks).
+ */
+export type MsgVar = string | number | Msg | readonly Msg[];
 
 export interface Msg {
   key: string;
@@ -43,14 +56,20 @@ function lookup(locale: Locale, key: string): string | undefined {
 
 /**
  * A variable that starts with "@" names another key (e.g. {part: "@journal.part.market"}): it is translated in the same
- * locale first, so a sentence built on the server reads in the viewer's language.
+ * locale first, so a sentence built on the server reads in the viewer's language. A "#n:" token is a number in that locale.
  */
 export function resolveRefs(locale: Locale, vars?: Record<string, MsgVar>): Record<string, string | number> | undefined {
   if (!vars) return undefined;
   const out: Record<string, string | number> = {};
   for (const [k, v] of Object.entries(vars)) {
-    if (typeof v === 'object') out[k] = translate(locale, v.key, v.vars);
-    else out[k] = typeof v === 'string' && v.startsWith('@') ? translate(locale, v.slice(1)) : v;
+    if (Array.isArray(v)) out[k] = (v as readonly Msg[]).map((m) => translate(locale, m.key, m.vars)).join(' · ');
+    else if (typeof v === 'object') out[k] = translate(locale, (v as Msg).key, (v as Msg).vars);
+    else if (typeof v !== 'string') out[k] = v as number;
+    // a typed name that starts with "@" or "!" stays as typed unless it really is a key (or an engine sentence)
+    else if (v.startsWith('@') && hasKey(v.slice(1))) out[k] = translate(locale, v.slice(1));
+    else if (isNumberToken(v)) out[k] = formatToken(locale, v);
+    else if (v.startsWith('!')) out[k] = locale === 'fr' ? (ENGINE_FR[v.slice(1)] ?? v.slice(1)) : v.slice(1);
+    else out[k] = v;
   }
   return out;
 }
@@ -71,10 +90,18 @@ export function t(key: string, vars?: Record<string, MsgVar>): string {
   return translate(current, key, vars);
 }
 
+/**
+ * An engine sentence (a refusal toast, a notice without a message key) in the current locale: French when the table has it
+ * (engineFr.ts), otherwise the English the world sent. Never a raw key.
+ */
+export function engineText(s: string): string {
+  return current === 'fr' ? (ENGINE_FR[s] ?? s) : s;
+}
+
 /** Render a server-made message descriptor (or plain legacy text). */
 export function tm(m: Msg | string | undefined, fallback = ''): string {
-  if (!m) return fallback;
-  if (typeof m === 'string') return m;
+  if (!m) return engineText(fallback);
+  if (typeof m === 'string') return engineText(m);
   return t(m.key, m.vars);
 }
 

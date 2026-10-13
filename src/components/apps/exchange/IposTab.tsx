@@ -6,17 +6,16 @@ import { useState } from 'react';
 import { pct, price, qty } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { Button, Card, NumberField } from '@/components/ui';
+import { Button, Card, EmptyNext, NumberField, SpendReview, spendRows } from '@/components/ui';
 import type { IpoRow } from '@/world/exchange/view';
 import { Fact, PublicChip, RefusalBox, Section } from './Shared';
 import { type RefusalCopy, refusalCopy, rejectVars, sectorKey } from './copy';
 
-export function IposTab({ ipos }: { ipos: IpoRow[] }) {
+export function IposTab({ ipos, onTab }: { ipos: IpoRow[]; onTab: (tab: 'stocks') => void }) {
   if (ipos.length === 0) {
     return (
-      <Card className="p-6" data-testid="exchange-ipos-empty">
-        <p className="text-center text-fg-muted">{t('exchange.empty.ipos')}</p>
-      </Card>
+      <EmptyNext testId="exchange-ipos-empty" title={t('exchange.empty.ipos')} body={t('exchange.empty.ipos.body')}
+        cta={<Button variant="outline" onClick={() => onTab('stocks')} testId="exchange-ipos-cta">{t('exchange.empty.ipos.cta')}</Button>} />
     );
   }
   return (
@@ -29,6 +28,7 @@ export function IposTab({ ipos }: { ipos: IpoRow[] }) {
 
 function IpoCard({ row }: { row: IpoRow }) {
   const act = useGame((s) => s.act);
+  const cash = useGame((s) => s.me?.account?.cash ?? 0);
   const [shares, setShares] = useState('');
   const [refusal, setRefusal] = useState<RefusalCopy | null>(null);
   const [sent, setSent] = useState<string | null>(null);
@@ -91,9 +91,15 @@ function IpoCard({ row }: { row: IpoRow }) {
               className="w-44"
               testId={`exchange-ipo-shares-${row.companyId}`}
             />
-            <Button variant="brass" disabled={!valid || over} onClick={subscribe} testId={`exchange-ipo-subscribe-${row.companyId}`}>
-              {t('exchange.ipo.subscribe')}
-            </Button>
+            <SpendReview
+              variant="brass"
+              testId={`exchange-ipo-subscribe-${row.companyId}`}
+              label={t('exchange.ipo.subscribe')}
+              title={t('exchange.ipo.subscribe')}
+              rows={[{ label: t('commit.amount'), value: qty(valid ? n : 0) }, ...spendRows(valid ? n * row.price : 0, cash)]}
+              disabled={!valid || over}
+              onConfirm={subscribe}
+            />
           </div>
         )}
         {!blocked && over && <RefusalBox copy={overCap} testId={`exchange-ipo-overcap-${row.companyId}`} />}

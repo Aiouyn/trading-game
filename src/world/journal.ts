@@ -57,6 +57,11 @@ export interface JournalDetail {
   rows: JournalRow[] | null;
   /** explainTrade's total: the realized P&L the rows sum to (the screen shows this, never its own sum) */
   total: number | null;
+  /**
+   * The free sample (UX stage 6, item 9): without an analyst, the newest closed trade's parts and total, so the Analyst tab can
+   * show one breakdown before any hire. Null for every other trade and for an analyst's own journal (rows carry those).
+   */
+  sample: { rows: JournalRow[]; total: number } | null;
   /** Senior only: the flow row by pool type */
   flow: { pool: FlowPool; value: number }[] | null;
   /** Senior only: the asset's headlines over the holding window */
@@ -123,8 +128,12 @@ export function tripDetail(g: GameState, p: Player, tripId: string): CommandResu
   let total: number | null = null;
   let flow: { pool: FlowPool; value: number }[] | null = null;
   let headlines: { day: number; text: string; msg?: Msg }[] | null = null;
+  const parts = (x: TradeExplain): JournalRow[] => ROW_ORDER.filter((k) => (x.rows[k] ?? 0) !== 0).map((k) => ({ row: k, value: x.rows[k]! }));
+  // the free sample is the newest closed trade only, and only its parts (flow and headlines stay with the analyst)
+  const newest = ledgerOf(g, p.id)?.trips.at(-1)?.id === tripId;
+  const sample = ex !== null && tier === null && newest ? { rows: parts(ex), total: ex.total } : null;
   if (ex !== null && tier !== null) {
-    rows = ROW_ORDER.filter((k) => (ex!.rows[k] ?? 0) !== 0).map((k) => ({ row: k, value: ex!.rows[k]! }));
+    rows = parts(ex);
     total = ex.total;
     if (tier === 'senior') {
       // the flow row split by pool, with the engine's own sign-following split of the trade's flow dollars
@@ -139,7 +148,7 @@ export function tripDetail(g: GameState, p: Player, tripId: string): CommandResu
   return ok({
     id: trip.id, assetId: trip.assetId, side: trip.side, qty: trip.qty, openDay, closeDay,
     realized: trip.realizedPnl,
-    line, analyst: tier, rows, total, flow, headlines, avgEntry: trip.avgEntry, avgExit: trip.avgExit,
+    line, analyst: tier, rows, total, sample, flow, headlines, avgEntry: trip.avgEntry, avgExit: trip.avgExit,
     replay: w.lastClosed === null ? null : replayOf(g, trip, openDay, closeDay, w.lastClosed),
     gx: gxMoveOver(g, openDay, closeDay),
   } satisfies JournalDetail);

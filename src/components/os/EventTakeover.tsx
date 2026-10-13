@@ -15,6 +15,7 @@ import type { WorldEventFrame } from '@/world/view';
 import { openFromShell } from './openApp';
 import { useEventPanel } from './EventBanner';
 import { headlineText } from './eventText';
+import { reducedMotion } from './motion';
 import {
   TAKEOVER_END_MS, TAKEOVER_SKIP_MS, takeoverDue, takeoverGate,
 } from './takeoverRules';
@@ -99,7 +100,7 @@ export function EventTakeover() {
 
   useEffect(() => watch(), []);
 
-  const reduced = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const reduced = reducedMotion();
 
   // the desk's brass accents go grey while the takeover runs (not under reduced motion)
   useEffect(() => {

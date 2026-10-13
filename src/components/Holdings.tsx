@@ -1,15 +1,31 @@
 'use client';
 
-import { optionQuote, parseContract, portfolio, type WorldConfig, type WorldState } from '@/engine';
+import { commission, optionQuote, parseContract, portfolio, type WorldConfig, type WorldState } from '@/engine';
 import { LICENSES, rankIndex } from '@/content/lifestyle';
 import { sparkline } from '@/game/history';
-import { price, pct, qty, signedMoney, signedPct, tone, toneText, money } from '@/game/format';
+import { price, pct, qty, signedMoney, signedPct, tone, toneText, money, dec } from '@/game/format';
 import { assetDefOf, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
 import type { FillReason } from '@/engine/ledger-types';
 import type { LedgerFill } from '@/world/ledger-types';
+import { useState } from 'react';
 import { Button, Card, CardHeader, ConfirmButton, Flash, LockGlyph, Sparkline, Td, Th } from './ui';
+
+/** The columns the positions table sorts by. */
+type PosSortKey = 'asset' | 'qty' | 'value' | 'pnl' | 'ifSold' | 'weight';
+
+/** A sortable column header: a button inside the header cell, with the direction on aria-sort. */
+function SortTh({ k, sort, onSort, right = false }: { k: PosSortKey; sort: { key: PosSortKey; dir: 1 | -1 }; onSort: (k: PosSortKey) => void; right?: boolean }) {
+  const active = sort.key === k;
+  return (
+    <th className={`label whitespace-nowrap px-3 py-2 font-medium ${right ? 'text-right' : 'text-left'}`} aria-sort={active ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" data-testid={`pos-sort-${k}`} onClick={() => onSort(k)} className={`label ${active ? 'text-fg' : 'text-fg-muted'} hover:text-fg`}>
+        {t(`holdings.col.${k}`)}{active ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}
+      </button>
+    </th>
+  );
+}
 
 /** The reason label for a fill (M13): what put the units on the books. */
 export function reasonLabel(r: FillReason): string {
@@ -43,33 +59,54 @@ export function DripToggle({ assetId }: { assetId: string }) {
  * list (all open orders, or one ticker's when `assetId` is given), and the license ladder for Profile.
  * Moved here from the old Market screen module (Phase 2 step 3); no rule changed.
  */
-export function Positions({ phone = false }: { phone?: boolean }) {
+export function Positions({ phone = false, bare = false }: { phone?: boolean; bare?: boolean }) {
   const world = useGame((s) => s.world)!;
   const me = useGame((s) => s.me)!;
   const playerId = useGame((s) => s.playerId)!;
   useGame((s) => s.historyRev);
   const select = useGame((s) => s.select);
   const act = useGame((s) => s.act);
+  const [sort, setSort] = useState<{ key: PosSortKey; dir: 1 | -1 }>({ key: 'value', dir: -1 });
   if (!me.account) return null;
   const pf = portfolio(world, playerId);
+  // what the position would bank if sold now: the mark-to-market P&L less the exit fee on its value (after fees)
+  const rows = pf.positions.map((p) => {
+    const def = assetDefOf(p.assetId);
+    const exitFee = def ? commission(world, def, Math.abs(p.marketValue)) : 0;
+    return { p, ifSold: p.unrealizedPnl - exitFee };
+  });
+  const keyOf = (r: (typeof rows)[number], k: PosSortKey) => (k === 'asset' ? r.p.assetId : k === 'qty' ? r.p.qty : k === 'value' ? r.p.marketValue : k === 'pnl' ? r.p.unrealizedPnl : k === 'ifSold' ? r.ifSold : r.p.weight);
+  rows.sort((a, b) => {
+    const x = keyOf(a, sort.key);
+    const y = keyOf(b, sort.key);
+    const c = typeof x === 'string' ? x.localeCompare(y as string) : (x as number) - (y as number);
+    return c * sort.dir || a.p.assetId.localeCompare(b.p.assetId);
+  });
+  const onSort = (k: PosSortKey) => setSort((s) => (s.key === k ? { key: k, dir: s.dir === 1 ? -1 : 1 } : { key: k, dir: k === 'asset' ? 1 : -1 }));
   const h = useGame.getState().history;
   const reasons = lastReasonByAsset(me.trading?.fills ?? []);
   const lastFill = (assetId: string) => (reasons.has(assetId) ? t('holdings.lastFill', { reason: reasonLabel(reasons.get(assetId)!) }) : null);
+  const cash = (
+    <span className="num text-caption text-fg-faint" data-testid="cash">
+      {t('holdings.cash', { cash: money(pf.cash) })} · {t('holdings.unrealized')} <span className={toneText[tone(pf.unrealizedPnl)]}>{signedMoney(pf.unrealizedPnl)}</span>
+    </span>
+  );
   return (
     <Card data-testid="positions">
-      <CardHeader
-        title={t('holdings.positions')}
-        right={(
-          <span className="num text-caption text-fg-faint" data-testid="cash">
-            {t('holdings.cash', { cash: money(pf.cash) })} · {t('holdings.unrealized')} <span className={toneText[tone(pf.unrealizedPnl)]}>{signedMoney(pf.unrealizedPnl)}</span>
-          </span>
-        )}
-      />
+      {/* bare (the Broker dock): the dock tab names the list, so only the cash line stays, with no second serif title */}
+      {bare ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 pt-3">
+          <span className="label">{t('holdings.positions')}</span>
+          {cash}
+        </div>
+      ) : (
+        <CardHeader title={t('holdings.positions')} right={cash} />
+      )}
       {pf.positions.length === 0 ? (
         <p className="px-4 pb-6 text-small text-fg-faint">{t('holdings.empty')}</p>
       ) : phone ? (
         <ul>
-          {pf.positions.map((p) => (
+          {rows.map(({ p, ifSold }) => (
             <li key={p.assetId} className="flex flex-wrap items-center gap-3 border-t border-ink-2 px-4 py-3" data-testid={`position-${p.assetId}`}>
               <button type="button" onClick={() => select(p.assetId)} className="min-w-0 flex-1 text-left">
                 <div className="num text-small font-semibold">{p.assetId} {p.qty < 0 && <span className="text-loss">{t('holdings.short')}</span>}</div>
@@ -79,6 +116,7 @@ export function Positions({ phone = false }: { phone?: boolean }) {
               <div className="text-right">
                 <div className="num text-small">{money(p.marketValue)}</div>
                 <div className={`num text-caption ${toneText[tone(p.unrealizedPnl)]}`}>{signedMoney(p.unrealizedPnl)} {signedPct(p.unrealizedPct)}</div>
+                <div className={`num text-caption ${toneText[tone(ifSold)]}`} data-testid={`position-ifsold-${p.assetId}`}>{t('holdings.ifSoldShort')} {signedMoney(ifSold)}</div>
               </div>
               <DripToggle assetId={p.assetId} />
             </li>
@@ -86,15 +124,16 @@ export function Positions({ phone = false }: { phone?: boolean }) {
         </ul>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-small">
+          {/* the cells pack tighter (px-2): the Close button stays whole in the Broker dock (UX stage 6) */}
+          <table className="w-full text-small [&_td]:px-2 [&_th]:px-2">
             <thead>
               <tr>
-                <Th>{t('holdings.col.asset')}</Th><Th right>{t('holdings.col.qty')}</Th><Th right>{t('holdings.col.avg')}</Th><Th right>{t('holdings.col.last')}</Th>
-                <Th right>{t('holdings.col.value')}</Th><Th right>{t('holdings.col.pnl')}</Th><Th right>{t('holdings.col.weight')}</Th><Th right>{t('holdings.col.fiveDay')}</Th><Th>{t('holdings.col.drip')}</Th><Th />
+                <SortTh k="asset" sort={sort} onSort={onSort} /><SortTh k="qty" sort={sort} onSort={onSort} right /><Th right>{t('holdings.col.avg')}</Th><Th right>{t('holdings.col.last')}</Th>
+                <SortTh k="value" sort={sort} onSort={onSort} right /><SortTh k="pnl" sort={sort} onSort={onSort} right /><SortTh k="ifSold" sort={sort} onSort={onSort} right />{/* the Broker dock is narrow: its weight and five-day columns are left to the Portfolio, so the Close button stays on screen */}{!bare && <SortTh k="weight" sort={sort} onSort={onSort} right />}{!bare && <Th right>{t('holdings.col.fiveDay')}</Th>}<Th>{t('holdings.col.drip')}</Th><Th />
               </tr>
             </thead>
             <tbody>
-              {pf.positions.map((p) => (
+              {rows.map(({ p, ifSold }) => (
                 <tr key={p.assetId} className="border-t border-ink-2 hover:bg-ink-2" data-testid={`position-${p.assetId}`}>
                   <Td>
                     <button type="button" onClick={() => select(p.assetId)} className="text-left">
@@ -107,18 +146,22 @@ export function Positions({ phone = false }: { phone?: boolean }) {
                   <Td right num>{price(p.avgCost)}</Td>
                   <Td right num><Flash value={p.price}>{price(p.price)}</Flash></Td>
                   <Td right num>{money(p.marketValue)}</Td>
-                  <Td right num className={toneText[tone(p.unrealizedPnl)]}>{signedMoney(p.unrealizedPnl)}<div className="text-caption">{signedPct(p.unrealizedPct)}</div></Td>
-                  <Td right num>{pct(p.weight)}</Td>
-                  <Td right><Sparkline data={sparkline(h, p.assetId, 5)} /></Td>
+                  <Td right num className={`whitespace-nowrap ${toneText[tone(p.unrealizedPnl)]}`}>{signedMoney(p.unrealizedPnl)}<div className="text-caption">{signedPct(p.unrealizedPct)}</div></Td>
+                  <Td right num className={`whitespace-nowrap ${toneText[tone(ifSold)]}`}><span data-testid={`position-ifsold-${p.assetId}`} title={t('holdings.ifSoldHint')}>{signedMoney(ifSold)}</span></Td>
+                  {!bare && <Td right num>{pct(p.weight)}</Td>}
+                  {!bare && <Td right><Sparkline data={sparkline(h, p.assetId, 5)} /></Td>}
                   <Td><DripToggle assetId={p.assetId} /></Td>
-                  <Td right>
-                    <ConfirmButton
-                      confirm={t('holdings.close')}
-                      onConfirm={() => act({ type: 'position.close', assetId: p.assetId }, { success: t('holdings.closing', { ticker: p.assetId }) })}
-                      testId={`close-${p.assetId}`}
-                    >
-                      {t('holdings.close')}
-                    </ConfirmButton>
+                  <Td right className="whitespace-nowrap">
+                    {/* the button keeps its width in a narrow dock: its label is never cut to "Clo" (UX stage 6) */}
+                    <span className="inline-block min-w-[4.75rem] text-right">
+                      <ConfirmButton
+                        confirm={t('holdings.close')}
+                        onConfirm={() => act({ type: 'position.close', assetId: p.assetId }, { success: t('holdings.closing', { ticker: p.assetId }) })}
+                        testId={`close-${p.assetId}`}
+                      >
+                        {t('holdings.close')}
+                      </ConfirmButton>
+                    </span>
                   </Td>
                 </tr>
               ))}
@@ -162,7 +205,7 @@ function OptionRows({ rows, world, config, onClose }: { rows: [string, { qty: nu
                 ticker: c.underlying, strike: c.strike, kind: t(c.kind === 'call' ? 'holdings.call' : 'holdings.put'), day: c.expiryDay + 1, qty: pos.qty,
               })}
             </span>
-            <span className="num text-fg-muted">{t('holdings.bid', { p: price(q.bid), d: q.daysLeft.toFixed(1) })}</span>
+            <span className="num text-fg-muted">{t('holdings.bid', { p: price(q.bid), d: dec(q.daysLeft, 1) })}</span>
             <span className={`num ${toneText[tone(pnl)]}`}>{signedMoney(pnl)}</span>
             {dead
               ? <span className="text-caption text-loss" data-testid={`option-delisted-${id}`}>{t(isDelisted(config, c.underlying) ? 'holdings.optionDelisted' : 'holdings.optionUntradable', { ticker: c.underlying })}</span>
@@ -175,7 +218,7 @@ function OptionRows({ rows, world, config, onClose }: { rows: [string, { qty: nu
 }
 
 /** Open orders: every open order, or only one ticker's when `assetId` is given (the Broker shows its own). */
-export function OpenOrders({ assetId }: { assetId?: string } = {}) {
+export function OpenOrders({ assetId, bare = false }: { assetId?: string; bare?: boolean } = {}) {
   const me = useGame((s) => s.me)!;
   const act = useGame((s) => s.act);
   const open = me.orders.filter((o) => o.status === 'open' && (assetId === undefined || o.assetId === assetId));
@@ -183,7 +226,8 @@ export function OpenOrders({ assetId }: { assetId?: string } = {}) {
   const typeLabel = (ty: string) => ({ market: t('order.market'), limit: t('order.limit'), stop: t('order.stop'), stop_limit: t('order.stop_limit'), trailing: t('order.trailing') } as Record<string, string>)[ty] ?? ty;
   return (
     <Card data-testid="open-orders">
-      <CardHeader title={t('holdings.openOrders')} />
+      {/* bare (the Broker dock): the dock tab already names the list and its count */}
+      {!bare && <CardHeader title={t('holdings.openOrders')} />}
       <ul>
         {open.map((o) => (
           <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-ink-2 px-4 py-2.5 text-small" data-testid={`order-${o.id}`}>
@@ -192,7 +236,7 @@ export function OpenOrders({ assetId }: { assetId?: string } = {}) {
             <span className="text-fg-muted">{typeLabel(o.type)}{o.ocoGroup ? t('holdings.bracketTag') : ''}</span>
             {o.limitPrice !== undefined && <span className="num text-fg-muted">{t('holdings.limitAt', { p: price(o.limitPrice) })}</span>}
             {o.stopPrice !== undefined && <span className="num text-fg-muted">{t('holdings.stopAt', { p: price(o.stopPrice) })}</span>}
-            {o.type === 'trailing' && <span className="num text-fg-muted">{t('holdings.trail', { pct: (o.trailPct! * 100).toFixed(1), p: price(o.trailRef ?? 0) })}</span>}
+            {o.type === 'trailing' && <span className="num text-fg-muted">{t('holdings.trail', { pct: dec(o.trailPct! * 100, 1), p: price(o.trailRef ?? 0) })}</span>}
             {o.filledQty > 0 && <span className="num text-brass">{t('holdings.filled', { filled: qty(o.filledQty), qty: qty(o.qty) })}</span>}
             <span className="text-caption text-fg-faint">{o.tif === 'day' ? t('broker.day') : t('broker.gtcShort')}</span>
             <button type="button" onClick={() => act({ type: 'order.cancel', orderId: o.id })} className="ml-auto text-caption text-fg-muted underline hover:text-fg" data-testid="cancel-order">

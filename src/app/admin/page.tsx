@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import type { AdminStatus } from '../../../server/admin';
 import { worldHttpUrl } from '@/net/client';
 import { initLocale, useT } from '@/i18n';
+import { dec } from '@/game/format';
 
 /**
  * The admin page (lead-phase8.md P8-3): the world's readouts and two actions, behind the admin token. The token is typed once and
@@ -32,11 +33,11 @@ async function call(path: string, token: string, method: 'GET' | 'POST', body?: 
 }
 
 function size(t: T, n: number): string {
-  return n >= 1024 * 1024 ? t('admin.size.mb', { n: (n / (1024 * 1024)).toFixed(1) }) : t('admin.size.kb', { n: (n / 1024).toFixed(0) });
+  return n >= 1024 * 1024 ? t('admin.size.mb', { n: dec(n / (1024 * 1024), 1) }) : t('admin.size.kb', { n: dec(n / 1024, 0) });
 }
 
 function ms(n: number | null): string {
-  return n === null ? '–' : `${n.toFixed(1)} ms`;
+  return n === null ? '–' : `${dec(n, 1)} ms`;
 }
 
 function when(at: number): string {
@@ -199,7 +200,7 @@ export default function AdminPage() {
               {t('admin.text.calls', { calls: s.text.calls, hits: s.text.hits, fallbacks: s.text.fallbacks, cap: s.text.stops.cap, rate: s.text.stops.rate })}
             </p>
             <p style={{ margin: '6px 0' }}>
-              {t('admin.text.spent', { spent: `$${s.text.spentToday.toFixed(2)}`, cap: `$${s.text.dailyUsdCap.toFixed(2)}`, reserved: `$${s.text.reservedToday.toFixed(2)}`, day: s.text.day })}
+              {t('admin.text.spent', { spent: `$${dec(s.text.spentToday, 2)}`, cap: `$${dec(s.text.dailyUsdCap, 2)}`, reserved: `$${dec(s.text.reservedToday, 2)}`, day: s.text.day })}
             </p>
             <p style={{ margin: '6px 0', opacity: 0.8 }}>
               {t('admin.text.rejects')} {Object.entries(s.text.rejects).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(', ') || t('admin.none')}

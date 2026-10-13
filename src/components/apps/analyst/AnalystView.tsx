@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ANALYST_TIERS, type AnalystTier } from '@/content/learning';
-import { rankIndex } from '@/content/lifestyle';
-import { money } from '@/game/format';
+import { RANKS, rankIndex } from '@/content/lifestyle';
+import { money, signedMoney, tone, toneText } from '@/game/format';
 import { useGame } from '@/game/store';
-import { t } from '@/i18n';
+import { t, tm } from '@/i18n';
 import { Button, Card } from '@/components/ui';
+import type { JournalDetail } from '@/world/journal';
+import { Waterfall, type WaterfallRow } from './Waterfall';
 
 /**
  * The hired analyst (velvet-research-desk.md section 2, D-19). One at a time. The first week is paid now from cash, and a week
@@ -15,6 +17,60 @@ import { Button, Card } from '@/components/ui';
  */
 
 const TIERS: AnalystTier[] = ['junior', 'senior'];
+
+/**
+ * The free sample (UX stage 6, item 9): the newest closed trade's breakdown, above the tiers, for a player with no analyst. The
+ * journal.detail action returns its parts with the sentence; the screen only places them (the total is the server's).
+ */
+function LastTradeSample() {
+  const me = useGame((s) => s.me)!;
+  const act = useGame((s) => s.act);
+  const trip = me.trading.trips.at(-1) ?? null;
+  const tripId = trip?.id ?? '';
+  const key = `${tripId}|${me.trading.desk.lastClosed ?? 'none'}`;
+  const [got, setGot] = useState<{ key: string; d: JournalDetail } | null>(null);
+  useEffect(() => {
+    if (!tripId) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // a detail asked for before the world answers is asked again (up to five times), as the journal does
+    const ask = (n: number) => {
+      void act({ type: 'journal.detail', tripId }, { silent: true }).then((r) => {
+        if (!live) return;
+        if (r.ok && r.data) setGot({ key, d: r.data as JournalDetail });
+        else if (n < 5) timer = setTimeout(() => ask(n + 1), 1000);
+      });
+    };
+    ask(0);
+    return () => { live = false; if (timer) clearTimeout(timer); };
+  }, [act, tripId, key]);
+  if (!trip) {
+    return <p className="rounded-md border border-dashed border-ink-3 p-3 text-small text-fg-muted" data-testid="analyst-sample-none">{t('analyst.sample.none')}</p>;
+  }
+  const d = got?.key === key ? got.d : null;
+  const rows: WaterfallRow[] = d?.sample ? d.sample.rows.map((r) => ({ key: r.row, label: t(`why.${r.row}`), value: r.value })) : [];
+  const side = trip.side === 'long' ? t('journal.side.long') : t('journal.side.short');
+  return (
+    <Card className="flex flex-col gap-3 p-4" data-testid="analyst-sample">
+      <div className="flex flex-col gap-0.5">
+        <span className="label">{t('analyst.sample.title')}</span>
+        <span className="text-small text-fg-muted">{trip.assetId} · {side} · <span className={toneText[tone(trip.realizedPnl)]}>{signedMoney(trip.realizedPnl)}</span></span>
+      </div>
+      {d && <p className="font-serif text-body text-fg" data-testid="analyst-sample-line">{tm(d.line)}</p>}
+      {d?.sample ? (
+        <Waterfall
+          rows={rows}
+          total={d.sample.total}
+          totalLabel={t('why.total')}
+          format={signedMoney}
+          testId="analyst-sample-waterfall"
+          note={rows.some((r) => r.key === 'market') ? t('why.market.note') : undefined}
+        />
+      ) : null}
+      <p className="text-caption text-fg-faint">{t('analyst.sample.note')}</p>
+    </Card>
+  );
+}
 
 export function AnalystView() {
   const me = useGame((s) => s.me)!;
@@ -54,13 +110,19 @@ export function AnalystView() {
 
   return (
     <section className="flex flex-col gap-4" data-testid="analyst">
-      <header className="flex flex-col gap-1">
-        <span className="label">{t('analyst.title')}</span>
-        <h2 className="font-serif text-title text-fg">{t('analyst.lede')}</h2>
-        <p className="text-small text-fg-faint">{t('analyst.sub')}</p>
+      <header className="flex flex-col gap-0.5">
+        <p className="label">{t('analyst.title')}</p>
+        <p className="text-small text-fg-muted">{t('analyst.sub')}</p>
       </header>
+      <LastTradeSample />
       {locked && (
-        <p className="text-small text-fg-muted" data-testid="analyst-locked">{t('analyst.locked', { rank: t(`rank.${ANALYST_TIERS.junior.minRank}`) })}</p>
+        <p className="rounded-md border border-ink-3 bg-ink-1 p-3 text-small text-fg-muted" data-testid="analyst-locked">
+          {t('analyst.locked', {
+            rank: t(`rank.${ANALYST_TIERS.junior.minRank}`),
+            threshold: money(RANKS.find((r) => r.id === ANALYST_TIERS.junior.minRank)?.threshold ?? 0),
+            now: money(me.netWorth.total),
+          })}
+        </p>
       )}
       <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t('analyst.title')}>
         {TIERS.map((tier) => {

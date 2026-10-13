@@ -133,6 +133,27 @@ export function debit(g: GameState, playerId: string, amount: number, sink: stri
 }
 
 /**
+ * A conversion between cash and the valuation holdings, at book: `delta` is what the holdings gained (a purchase, an upgrade,
+ * a deposit, a repaid mortgage: positive) or lost (a sale: the book value it carried, negative). The cash side is booked by the
+ * caller as usual. The close takes it out of valuation (close.ts), so a purchase is neither trading nor a re-mark: only what
+ * the holding is marked below its price the moment it is bought, or after a sale, reads as a fee or a re-mark.
+ */
+export function assetFlow(g: GameState, playerId: string, delta: number): void {
+  const p = g.players[playerId];
+  if (!p || !Number.isFinite(delta) || delta === 0) return;
+  p.assetFlow = (p.assetFlow ?? 0) + delta;
+}
+
+/** A cost of owning (upkeep, salaries, desk fees): a debit that also counts toward the player's overheads, so the day's
+ * trading figure leaves it out. Trading fees are not overheads; they stay in the trade's realized P&L. */
+export function overhead(g: GameState, playerId: string, amount: number, sink: string): void {
+  if (!(amount > 0)) return;
+  debit(g, playerId, amount, sink);
+  const p = g.players[playerId];
+  if (p) p.stats.overheads = (p.stats.overheads ?? 0) + amount;
+}
+
+/**
  * Moves the day, digest and arrival baselines by a cash move from outside trading and income (a grant, a transfer, a loan or
  * its tax). The day change (dayStart.netWorth), the "while you were away" change (digestNetWorth) and "since you arrived"
  * (startingCash + externalCash) then read trading and income only.

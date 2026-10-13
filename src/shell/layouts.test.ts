@@ -22,18 +22,19 @@ describe('built-in layouts: feasibility fallback', () => {
     expect(p.skipped).toEqual([]);
   });
 
-  it('Trade at 1440x900 falls back to halves: the right third is 468 px, below the Portfolio minimum of 520', () => {
+  it('Trade at 1440x900 is thirds: the Broker takes the left width and Wire and Portfolio stack in the 400 px side column (UX stage 6)', () => {
     const p = planLayout('trade', VP_1440, all, { ticker: 'HLCN' });
-    expect(p.variant).toBe('halves');
-    expect(shape(p)).toEqual(['wire:TR', 'portfolio:BR', 'broker:L2']);
+    expect(p.variant).toBe('thirds');
+    expect(shape(p)).toEqual(['wire:R3T', 'portfolio:R3B', 'broker:L23']);
   });
 
-  it('Trade at 1000x800 falls back to halves with Broker and Wire: the Portfolio cannot fit a 488 px half', () => {
+  it('Trade at 1000x800 falls back to halves: the Broker on the left half, the Wire on the right, the Portfolio tabbed away (no quarters below 1200)', () => {
     const p = planLayout('trade', VP_1000, all, { ticker: 'HLCN' });
     expect(p.variant).toBe('halves');
     expect(shape(p)).toEqual(['wire:R2', 'broker:L2']);
     expect(p.skipped).toEqual(['portfolio']);
   });
+
 
   it('Trade at 900x800 (single mode) falls back to one window filled', () => {
     const p = planLayout('trade', VP_900, all, { ticker: 'HLCN' });
@@ -79,18 +80,17 @@ describe('built-in layouts: feasibility fallback', () => {
     expect(p.placements[0]!.props).toEqual({});
   });
 
-  it('Review with the journal view built is Portfolio left and the journal Portfolio (second instance) right', () => {
+  it('Review is one Portfolio and the Wire even with the journal view built (UX stage 2)', () => {
     const p = planLayout('review', VP_1440, all, { views: ['journal'] });
     expect(p.variant).toBe('thirds');
-    expect(shape(p)).toEqual(['portfolio#2:R2', 'portfolio:L2']);
-    expect(p.placements[0]!.props).toEqual({ view: 'journal' });
-    expect(p.placements[1]!.props).toEqual({});
+    expect(shape(p)).toEqual(['wire:R2', 'portfolio:L2']);
+    expect(p.placements.some((x) => x.second)).toBe(false);
   });
 
-  it('Review at 1000x800 cannot fit two Portfolios in halves, so it falls back to Portfolio filled', () => {
+  it('Review at 1000x800 is halves: Portfolio on the left, the Wire on the right (both fit a 400 px minimum)', () => {
     const p = planLayout('review', VP_1000, all);
-    expect(p.variant).toBe('filled');
-    expect(shape(p)).toEqual(['portfolio:L2:filled']);
+    expect(p.variant).toBe('halves');
+    expect(shape(p)).toEqual(['wire:R2', 'portfolio:L2']);
   });
 
   it('never places a locked app, and the main window always comes last', () => {

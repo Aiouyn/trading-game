@@ -1,3 +1,4 @@
+import type { Msg } from '@/i18n';
 import { estimateFill, type Side, type StepEvent } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { BLOCK, DRIP, RECURRING, SIMPLE_MODE } from '@/content/learning';
@@ -16,7 +17,7 @@ import type { CommandResult, GameState, Player, StepOutput } from './types';
  */
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
-const fail = (error: string): CommandResult => ({ ok: false, error });
+const fail = (error: string, msg?: Msg): CommandResult => ({ ok: false, error, ...(msg ? { msg } : {}) });
 
 /** The simple-mode cap in whole percent, for the plan lines that name it (the same constant the gate reads). */
 const CAP_PCT = Math.round(SIMPLE_MODE.capFraction * 100);
@@ -64,11 +65,11 @@ export function addRecurring(g: GameState, p: Player, assetId: string, dollars: 
   const L = ensureLedger(g, p.id);
   if (!L) return fail('join the world first');
   if (!tradable(g, assetId)) return fail('unknown asset');
-  if (!(dollars >= RECURRING.minDollars) || !Number.isFinite(dollars)) return fail(`at least $${RECURRING.minDollars} a buy`);
+  if (!(dollars >= RECURRING.minDollars) || !Number.isFinite(dollars)) return fail(`at least $${RECURRING.minDollars} a buy`, { key: 'plans.refuse.minBuy', vars: { min: `#n:${RECURRING.minDollars},0,0` } });
   if (!Number.isInteger(everyDays) || everyDays < RECURRING.minEveryDays || everyDays > RECURRING.maxEveryDays) {
-    return fail(`every ${RECURRING.minEveryDays} to ${RECURRING.maxEveryDays} game days`);
+    return fail(`every ${RECURRING.minEveryDays} to ${RECURRING.maxEveryDays} game days`, { key: 'plans.refuse.everyDays', vars: { min: RECURRING.minEveryDays, max: RECURRING.maxEveryDays } });
   }
-  if (L.plans.recurring.length >= RECURRING.maxPlans) return fail(`${RECURRING.maxPlans} recurring buys at most`);
+  if (L.plans.recurring.length >= RECURRING.maxPlans) return fail(`${RECURRING.maxPlans} recurring buys at most`, { key: 'plans.refuse.maxRecurring', vars: { max: RECURRING.maxPlans } });
   L.plans.seq++;
   const plan = { id: `r${L.plans.seq}`, assetId, dollars, everyDays, nextDay: today(g) + 1 };
   L.plans.recurring.push(plan);
@@ -95,7 +96,7 @@ export function setDrip(g: GameState, p: Player, assetId: string, on: boolean): 
   const q = g.market.accounts[p.id]?.positions[assetId]?.qty ?? 0;
   if (!(q > 0)) return fail('turn DRIP on for a position you hold');
   if (!L.plans.drip.includes(assetId)) {
-    if (L.plans.drip.length >= DRIP.maxPositions) return fail(`${DRIP.maxPositions} DRIP positions at most`);
+    if (L.plans.drip.length >= DRIP.maxPositions) return fail(`${DRIP.maxPositions} DRIP positions at most`, { key: 'plans.refuse.maxDrip', vars: { max: DRIP.maxPositions } });
     L.plans.drip.push(assetId);
   }
   return ok();
@@ -110,7 +111,7 @@ export function startBlock(g: GameState, p: Player, assetId: string, side: Side,
   if (!L) return fail('join the world first');
   if (rankIndex(p.rankId) < rankIndex(BLOCK.minRank) || licenseFor(p.rankId).id !== 'institutional') return fail('block trades need the Institutional license');
   if (!tradable(g, assetId)) return fail('unknown asset');
-  if (!Number.isInteger(slices) || slices < BLOCK.minSlices || slices > BLOCK.maxSlices) return fail(`${BLOCK.minSlices} to ${BLOCK.maxSlices} slices`);
+  if (!Number.isInteger(slices) || slices < BLOCK.minSlices || slices > BLOCK.maxSlices) return fail(`${BLOCK.minSlices} to ${BLOCK.maxSlices} slices`, { key: 'plans.refuse.slices', vars: { min: BLOCK.minSlices, max: BLOCK.maxSlices } });
   if (!(qty > 0) || !Number.isFinite(qty)) return fail('enter a quantity');
   const total = roundUnits(g, assetId, qty);
   if (!(total > 0) || total < slices) return fail('each slice needs at least one unit');

@@ -1,57 +1,50 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+// Desktop prompts that never block (UX stage 2, principle 6): While You Were Away and the first-session coach are
+// announced as toasts, and their detail goes to the notification center behind the bell. Nothing here draws a sheet
+// over the trade surface. The phone keeps its own rules (the coach only over the apps it talks about).
+import { useEffect, useMemo, useRef } from 'react';
 import { portfolio } from '@/engine';
-import { money, price, signedMoney, signedPct, tone, toneText } from '@/game/format';
-import { clockLabel } from '@/game/clock';
+import { price, signedMoney, signedPct } from '@/game/format';
 import { assetDefOf, useGame } from '@/game/store';
 import { useIsPhone } from '@/game/useMedia';
 import { t, tm } from '@/i18n';
 import { wireTagMsg } from '@/world/text/wireTags';
-import { OsSheet } from './os/OsSheet';
 import { usePhone } from './os/phoneStore';
-import { useCloseCardShowing } from './CloseCard';
-import { Button, Progress } from './ui';
+import { Progress } from './ui';
 
 /**
- * While You Were Away (bible core loop step 6). A sheet over the desktop, not a page overlay: the strip,
- * the shelf and the windows stay in view (P2-069). On the phone it rises as a bottom sheet.
+ * While You Were Away (bible core loop step 6). Announced as one toast; its items go to the notification center. The Wire
+ * keeps the close card, so nothing the digest says is lost when the toast leaves.
  */
-export function DigestModal() {
+export function DigestAnnouncer() {
   const open = useGame((s) => s.digestOpen);
   const close = useGame((s) => s.closeDigest);
+  const notify = useGame((s) => s.notify);
+  const toast = useGame((s) => s.toast);
   const me = useGame((s) => s.me);
-  if (!open || !me?.digest) return null;
-  const d = me.digest;
-  const change = me.netWorth.total - d.netWorthThen;
-  const income = me.businesses.reduce((s, b) => s + b.incomePerDay, 0);
-  return (
-    <OsSheet title={t('digest.title')} testId="digest" onClose={close}>
-      <div className="flex items-baseline justify-between">
-        <span className="text-small text-fg-muted">{t('digest.since', { time: clockLabel(d.since, 720) })}</span>
-        <span className={`num text-title ${toneText[tone(change)]}`}>{signedMoney(change)}</span>
-      </div>
-      {income > 0 && <p className="text-small text-fg-muted">{t('digest.income', { amount: money(income) })}</p>}
-      <ul className="flex max-h-[40dvh] flex-col gap-2 overflow-y-auto">
-        {d.items.map((n) => (
-          <li key={n.id} className="rounded-md border border-ink-3 px-3 py-2 text-small">
-            <span className="num mr-2 text-caption text-fg-faint">{clockLabel(n.tick, 720)}</span>{tm(n.msg, n.text)}
-          </li>
-        ))}
-      </ul>
-      <Button variant="brass" className="w-full" onClick={close}>{t('digest.close')}</Button>
-    </OsSheet>
-  );
+  const digest = me?.digest;
+  useEffect(() => {
+    if (!open || !digest || !me) return;
+    const change = me.netWorth.total - digest.netWorthThen;
+    toast({ tone: change < 0 ? 'loss' : 'info', kind: 'other', text: `${t('digest.title')}: ${signedMoney(change)}`, app: 'wire' });
+    notify(digest.items.map((n) => ({ tone: 'info' as const, text: tm(n.msg, n.text) })));
+    close();
+    // the digest is announced once per open; the store clears digestOpen in closeDigest
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  return null;
 }
 
-/** The phone apps the coach may sit over: Broker, Portfolio and Businesses (the old market, portfolio and empire screens). */
+/** The phone apps the coach may talk about: Broker, Portfolio and Businesses (the old market, portfolio and empire screens). */
 const COACH_PHONE_APPS: ReadonlySet<string> = new Set(['broker', 'portfolio', 'businesses']);
 
 /**
- * First-session coach (DESIGN §6b), one sentence per prompt, everything skippable, nothing
- * scripted: the first news card points at the biggest real move on a stock; after the first fill
- * it points at businesses; when the first position is down 1% the stop-loss explainer appears and
- * only pre-fills the ticket. It is a sheet on the desktop, and the actions open the window they name.
+ * First-session coach (DESIGN §6b), one sentence per prompt, everything skippable, nothing scripted: the first news card
+ * points at the biggest real move on a stock; after the first fill it points at businesses; when the first position is
+ * down 1% the stop-loss explainer appears and only pre-fills the ticket. UX stage 2: each tip is a toast whose click
+ * performs its action, and the tip waits in the notification center. No tip before the first trade on the desktop, so the
+ * first-run Broker stays clear.
  */
 export function Coach() {
   const me = useGame((s) => s.me);
@@ -62,17 +55,11 @@ export function Coach() {
   const setScreen = useGame((s) => s.setScreen);
   const preset = useGame((s) => s.presetTicket);
   const act = useGame((s) => s.act);
-  const [hidden, setHidden] = useState<number | null>(null);
-  // A close card is a sheet too: the tip waits behind it (one sheet at a time, the card first).
-  const closeUp = useCloseCardShowing();
-  // The Recent sheet on the phone sits over everything but the status bar: the tip waits for it to close.
-  const recentOpen = usePhone((s) => s.recentOpen);
-  // The tip waits while a trade ticket is open (the old gate). On the phone it shows only over the three apps
-  // it talks about (the old screen gate): a full-width sheet over home or Chat would cover their tiles and inputs.
-  // Over the desktop it never blocks the shelf: the sheet sits above it.
-  const sheetOpen = useGame((s) => s.tradeSheetOpen);
+  const toast = useGame((s) => s.toast);
   const phone = useIsPhone();
+  const recentOpen = usePhone((s) => s.recentOpen);
   const phoneApp = usePhone((s) => s.current);
+  const emitted = useRef<number | null>(null);
   const step = me?.player.onboarding.step ?? 0;
   const done = me?.player.onboarding.done || me?.player.onboarding.skipped;
   const trades = me?.player.stats.trades ?? 0;
@@ -85,52 +72,51 @@ export function Coach() {
     return pf.positions.find((p) => p.qty > 0 && p.unrealizedPct <= -0.01) ?? null;
   }, [world, playerId, me?.account]);
 
-  if (!me || done) return null;
   const advance = (s: number, extra: { done?: boolean } = {}) => act({ type: 'onboarding', step: s, ...extra }, { silent: true });
 
   let card: { key: number; title: string; body: string; action?: { label: string; run: () => void } } | null = null;
-  if (step < 1 && firstNews) {
-    const ticker = firstNews.assetId ?? '';
-    card = {
-      key: 1, title: tm(wireTagMsg(firstNews.tag), firstNews.tag), body: tm(firstNews.msg, firstNews.text),
-      action: { label: t('coach.look', { ticker }), run: () => { select(ticker); setScreen('market'); void advance(1); } },
-    };
-  } else if (step < 2 && trades > 0) {
-    card = {
-      key: 2, title: t('coach.tradeDone.title'), body: t('coach.tradeDone.body'),
-      action: { label: t('coach.tradeDone.action'), run: () => { setScreen('empire'); void advance(2); } },
-    };
-  } else if (step < 3 && losing) {
-    const stop = Math.round(losing.avgCost * 0.95 * 100) / 100;
-    card = {
-      key: 3, title: t('coach.protect.title'), body: t('coach.protect.body', { ticker: losing.assetId, pct: signedPct(losing.unrealizedPct) }),
-      action: { label: t('coach.protect.action', { price: price(stop) }), run: () => { preset({ side: 'sell', type: 'stop', qty: losing.qty, stopPrice: stop }); void advance(3); } },
-    };
-  } else if (step >= 2 && bizCount > 0 && step < 4) {
-    card = {
-      key: 4, title: t('coach.business.title'),
-      body: t('coach.business.body', { amount: t('coach.business.amount'), rank: t('rank.R1') }),
-      action: { label: t('coach.gotIt'), run: () => { void advance(4, { done: true }); } },
-    };
+  if (me && !done) {
+    if (step < 1 && firstNews) {
+      const ticker = firstNews.assetId ?? '';
+      card = {
+        key: 1, title: tm(wireTagMsg(firstNews.tag), firstNews.tag), body: tm(firstNews.msg, firstNews.text),
+        action: { label: t('coach.look', { ticker }), run: () => { select(ticker); setScreen('market'); void advance(1); } },
+      };
+    } else if (step < 2 && trades > 0) {
+      card = {
+        key: 2, title: t('coach.tradeDone.title'), body: t('coach.tradeDone.body'),
+        action: { label: t('coach.tradeDone.action'), run: () => { setScreen('empire'); void advance(2); } },
+      };
+    } else if (step < 3 && losing) {
+      const stop = Math.round(losing.avgCost * 0.95 * 100) / 100;
+      card = {
+        key: 3, title: t('coach.protect.title'), body: t('coach.protect.body', { ticker: losing.assetId, pct: signedPct(losing.unrealizedPct) }),
+        action: { label: t('coach.protect.action', { price: price(stop) }), run: () => { preset({ side: 'sell', type: 'stop', qty: losing.qty, stopPrice: stop }); void advance(3); } },
+      };
+    } else if (step >= 2 && bizCount > 0 && step < 4) {
+      card = {
+        key: 4, title: t('coach.business.title'),
+        body: t('coach.business.body', { amount: t('coach.business.amount'), rank: t('rank.R1') }),
+        action: { label: t('coach.gotIt'), run: () => { void advance(4, { done: true }); } },
+      };
+    }
   }
-  if (!card || hidden === card.key || recentOpen || sheetOpen || closeUp || (phone && !COACH_PHONE_APPS.has(phoneApp ?? ''))) return null;
-  const c = card;
-  return (
-    <OsSheet title={c.title} testId="coach" onClose={() => setHidden(c.key)}>
-      <p className="text-small text-fg">{c.body}</p>
-      <div className="os-sheet-actions">
-        {c.action && <Button size="sm" variant="brass" onClick={c.action.run} testId="coach-action">{c.action.label}</Button>}
-        <Button size="sm" variant="ghost" onClick={() => setHidden(c.key)}>{t('coach.notNow')}</Button>
-        <button
-          type="button"
-          className="ml-auto text-caption text-fg-faint hover:text-fg-muted"
-          onClick={() => act({ type: 'onboarding', step: 9, skipped: true, done: true }, { silent: true })}
-        >
-          {t('coach.skip')}
-        </button>
-      </div>
-    </OsSheet>
-  );
+  // The first-run desktop keeps its Broker clear: no tip before the first trade. The phone shows tips only over the apps they name.
+  const firstRunDesktop = !phone && trades === 0;
+  const gated = !card || recentOpen || firstRunDesktop || (phone && !COACH_PHONE_APPS.has(phoneApp ?? ''));
+  const key = card?.key ?? null;
+  const run = card?.action?.run;
+  const title = card?.title ?? '';
+  const body = card?.body ?? '';
+  useEffect(() => {
+    if (gated || key === null) return;
+    if (emitted.current === key) return;
+    emitted.current = key;
+    toast({ tone: 'brass', kind: 'coach', text: `${title}. ${body}`, run });
+    // The tip is announced once per step: the toast's click runs the action and the step advances.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gated, key]);
+  return null;
 }
 
 export function ConnectionBanner() {

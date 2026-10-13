@@ -9,7 +9,7 @@ import { money } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { isAppUnlocked } from '@/shell/ctx';
-import { Button, Card, NumberField, Select, TextField } from '@/components/ui';
+import { Card, NumberField, Select, SpendReview, spendRows, TextField } from '@/components/ui';
 import { RefusalNote, Section } from './Shared';
 import { numberOrNull, refusalOf, type Refusal } from './model';
 import { SECTOR_IDS, sectorLabel } from './labels';
@@ -85,7 +85,7 @@ export function Found() {
         <div className="mt-4 flex flex-col gap-2">
           <RefusalNote refusal={refusal} />
           <div className="flex justify-end">
-            <Button variant="brass" disabled={!ready || busy} onClick={found} testId="company-found-submit">{t('company.ui.found.submit')}</Button>
+            <SpendReview variant="brass" testId="company-found-submit" label={t('company.ui.found.submit')} title={t('company.ui.found.submit')} rows={spendRows(amount ?? 0, me.account?.cash ?? 0)} disabled={!ready || busy} onConfirm={found} />
           </div>
         </div>
       </Section>

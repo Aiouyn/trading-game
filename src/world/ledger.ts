@@ -1,7 +1,7 @@
 import type { Fill, Side, StepEvent } from '@/engine';
 import { equityOf } from '@/engine';
 import { LEDGER } from '@/content/learning';
-import { findOrder, today } from './core';
+import { findOrder, netWorthBreakdown, today } from './core';
 import { explainTrade, type RoundTrip, type TradeExplain, type TradeLedgerReader } from '@/engine';
 import type {
   FillReason, FlowTotals, LedgerFill, OpenTrip, PlanState, PlayerLedger, PosMirror,
@@ -80,6 +80,21 @@ export function priceEquity(g: GameState, pid: string, L: PlayerLedger): number 
   return equityOf(g.market, acct) - nonPrice;
 }
 
+/**
+ * The valuation and the cumulative income of one player, as the day records keep them: valuation is every part of net worth
+ * but cash and markets (businesses, property, companies, funds, tokens, lifestyle and lab, less mortgages); income is the cash
+ * the holdings earned since the player joined, less borrow costs (business income, rent, dividends and interest).
+ */
+export function valuationAndIncome(g: GameState, pid: string): { val: number; inc: number } {
+  const acct = g.market.accounts[pid];
+  const p = g.players[pid];
+  const b = netWorthBreakdown(g, pid);
+  const val = b.total - b.cash - b.markets;
+  const inc = (p?.stats.bizIncome ?? 0) + (p?.stats.rentCollected ?? 0) + (acct?.dividends ?? 0) + (acct?.interestEarned ?? 0)
+    - (acct?.interestPaid ?? 0) - (acct?.borrowPaid ?? 0) - (p?.stats.overheads ?? 0);
+  return { val, inc };
+}
+
 /** The ledger for a human player, created on first need (join, or the first tick of an older save). Null for NPCs. */
 export function ensureLedger(g: GameState, pid: string): PlayerLedger | null {
   const p = g.players[pid];
@@ -96,7 +111,9 @@ export function ensureLedger(g: GameState, pid: string): PlayerLedger | null {
   // the open record of the first day: the net worth and equity the player started with
   L.days[d - 1] = {
     day: d - 1, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty: {},
-    ghosts: { basket: acct.cash, random: acct.cash, momentum: acct.cash }, ext: p.externalCash ?? 0,
+    ghosts: { basket: acct.cash, random: acct.cash, momentum: acct.cash }, ext: p.externalCash ?? 0, ...valuationAndIncome(g, pid),
+    // the assetFlow baseline: a purchase made on the first day is a conversion, so the first close needs this record's flow
+    flow: p.assetFlow ?? 0,
   };
   g.ledgers[pid] = L;
   return L;

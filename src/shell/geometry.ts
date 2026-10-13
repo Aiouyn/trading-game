@@ -19,12 +19,14 @@ export const BP_HALVES = 1000;
 export const BP_FULL = 1200;
 /** Broker below this width uses the narrow layout (V:41). It is presentation only. */
 export const BROKER_NARROW_W = 720;
+/** Broker at or above this width is the terminal (chart, watchlist, ticket column, bottom dock). Below it: the phone layout (spec 1.1). */
+export const BROKER_TERMINAL_W = 900;
 /** Broker shorter than this shows the Chart / Ticket toggle instead of both panes (V:41, C-37). */
 export const BROKER_SHORT_H = 560;
 
 /** How a Broker window of this size lays out. Presentation only; the reducer never reads it. */
-export function brokerView(size: Size): { narrow: boolean; short: boolean } {
-  return { narrow: size.w < BROKER_NARROW_W, short: size.h < BROKER_SHORT_H };
+export function brokerView(size: Size): { narrow: boolean; short: boolean; terminal: boolean } {
+  return { narrow: size.w < BROKER_NARROW_W, short: size.h < BROKER_SHORT_H, terminal: size.w >= BROKER_TERMINAL_W };
 }
 
 export interface Size {
@@ -48,8 +50,8 @@ export interface FracRect {
 }
 
 /**
- * Named slots (C-04, C-05, C-06). L3/R3 are the outer thirds, L23/R23 the two-thirds, R3T and
- * R3B the top and bottom halves of the right third. Fill is not a slot: it is `filled`.
+ * Named slots (C-04, C-05, C-06). L3 is the left third, L23 the left 70% (the Broker beside a side panel), R3 the right
+ * 30% (a side panel; R3 is kept as its name), R23 the right two-thirds, R3T and R3B the halves of that right 30%. Fill is not a slot: it is `filled`.
  */
 export const SLOT_NAMES = [
   'L2', 'R2', 'L3', 'L23', 'R3', 'R23', 'R3T', 'R3B', 'TL', 'TR', 'BL', 'BR',
@@ -65,17 +67,24 @@ export type ViewportClass = 'phone' | 'compact' | 'desktop';
 export type LayoutMode = 'phone' | 'single' | 'halves' | 'full';
 
 const THIRD = 1 / 3;
-const TWO_THIRDS = 2 / 3;
+/**
+ * The Trade side column (UX stage 6, weakness 1): every app docked beside the Broker is a 400 px right column at 1440, the
+ * Empire side-panel rule. The Broker keeps the rest of the width, so its order ticket column (320-360 px) is never covered.
+ * The share is derived from the 1440 reference, so the column scales with the width above it (about 533 px at 1920).
+ */
+export const SIDE_COL_PX = 400;
+/** The gutters around the split (8 px at the outer edge, half of 8 px on the inner boundary), so the column's rect is 400 px. */
+const BROKER_SHARE = (1440 - SIDE_COL_PX - GUTTER - GUTTER / 2) / 1440;
 
 export const SLOT_FRAC: Readonly<Record<SlotName, FracRect>> = {
   L2: { x0: 0, y0: 0, x1: 0.5, y1: 1 },
   R2: { x0: 0.5, y0: 0, x1: 1, y1: 1 },
   L3: { x0: 0, y0: 0, x1: THIRD, y1: 1 },
-  L23: { x0: 0, y0: 0, x1: TWO_THIRDS, y1: 1 },
-  R3: { x0: TWO_THIRDS, y0: 0, x1: 1, y1: 1 },
+  L23: { x0: 0, y0: 0, x1: BROKER_SHARE, y1: 1 },
+  R3: { x0: BROKER_SHARE, y0: 0, x1: 1, y1: 1 },
   R23: { x0: THIRD, y0: 0, x1: 1, y1: 1 },
-  R3T: { x0: TWO_THIRDS, y0: 0, x1: 1, y1: 0.5 },
-  R3B: { x0: TWO_THIRDS, y0: 0.5, x1: 1, y1: 1 },
+  R3T: { x0: BROKER_SHARE, y0: 0, x1: 1, y1: 0.5 },
+  R3B: { x0: BROKER_SHARE, y0: 0.5, x1: 1, y1: 1 },
   TL: { x0: 0, y0: 0, x1: 0.5, y1: 0.5 },
   TR: { x0: 0.5, y0: 0, x1: 1, y1: 0.5 },
   BL: { x0: 0, y0: 0.5, x1: 0.5, y1: 1 },
@@ -213,4 +222,29 @@ export function nearestSlot(
     }
   }
   return best;
+}
+
+/**
+ * Tiles for n windows on a workspace (UX stage 2): 2 = halves, 3 = one large plus two stacked on the right,
+ * 4 = quarters, 5 and more = a grid whose last row takes the leftover cells at equal width. The first tile is the
+ * main one (the newest window). Pure: wm.ts checks each tile against its app's minimum size.
+ */
+export function tileSlots(n: number): Slot[] {
+  if (n <= 0) return [];
+  if (n === 1) return ['L23'];
+  if (n === 2) return ['L2', 'R2'];
+  if (n === 3) return ['L23', 'R3T', 'R3B'];
+  if (n === 4) return ['TL', 'TR', 'BL', 'BR'];
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  const out: Slot[] = [];
+  for (let i = 0; i < n; i++) {
+    const row = Math.floor(i / cols);
+    const inRow = row === rows - 1 ? n - (rows - 1) * cols : cols;
+    const col = i - row * cols;
+    out.push({
+      custom: { x0: col / inRow, y0: row / rows, x1: (col + 1) / inRow, y1: (row + 1) / rows },
+    });
+  }
+  return out;
 }

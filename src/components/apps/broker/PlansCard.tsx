@@ -8,6 +8,7 @@ import { money, qty as fmtQty } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Button, Card, CardHeader, Locked, NumberField, Segmented } from '@/components/ui';
+import { unlockLine } from '../unlock';
 
 /** Whole units for a stock, six decimals otherwise: the same rounding the server applies to a block slice. */
 function unitsFor(assetClass: string, units: number, qtyStep: number | undefined): number {
@@ -102,7 +103,7 @@ export function PlansCard({ ticker }: { ticker: string }) {
         <h3 id="plans-block" className="text-small font-semibold text-fg">{t('broker.plans.block')}</h3>
         {blockLocked ? (
           <div className="mt-2" data-testid="block-locked">
-            <Locked what={t('broker.plans.block')} need={t('broker.plans.blockLocked', { rank: t('rank.' + BLOCK.minRank) })} />
+            <Locked what={t('broker.plans.block')} need={<>{t('broker.plans.blockLocked', { rank: t('rank.' + BLOCK.minRank) })}<span className="mt-1 block text-caption text-fg-faint">{unlockLine(BLOCK.minRank, me?.player.netWorthPeak ?? 0).text}</span></>} />
           </div>
         ) : (
           <>

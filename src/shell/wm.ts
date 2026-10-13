@@ -15,6 +15,7 @@
 
 import {
   APPS,
+  WORKSPACE_DEFAULT_APP,
   MAX_BROKERS,
   MAX_CUSTOM_LAYOUTS,
   MAX_LAYOUT_NAME,
@@ -47,6 +48,7 @@ import {
   sideOfFrac,
   slotAllowedInMode,
   slotFrac,
+  tileSlots,
   workArea,
 } from './geometry';
 
@@ -395,6 +397,94 @@ function placeAlone(state: ShellState, id: string): ShellState {
   return state;
 }
 
+/** The right-hand slots a Trade side panel takes, in order (UX stage 2): the whole column first, then its two halves. */
+const SIDE_SLOTS: readonly SlotName[] = ['R3', 'R3T', 'R3B'];
+
+/**
+ * Trade is the terminal (UX stage 2): an app opened from the dock while the Broker is on Trade opens as a right side panel
+ * beside the chart, not over it. The Broker takes the left 70% and each panel one slot of the right 30%; with
+ * more panels than slots the oldest panel collapses to the shelf. Null when no Broker sits on Trade, or when a slot does not
+ * fit (the caller falls back to the ordinary placement).
+ */
+function sidePanel(state: ShellState, id: string): ShellState | null {
+  if (layoutMode(state.vp.w) !== 'full') return null;
+  const wa = workArea(state.vp, false);
+  const g = gutterFor(false);
+  const broker = state.wins.find((w) => w.app === 'broker' && w.ws === 0 && w.state === 'open' && w.id !== id);
+  if (!broker || !fitsMin(APPS.broker, fracToRect(SLOT_FRAC.L23, wa, g))) return null;
+  const app = state.wins.find((w) => w.id === id);
+  if (!app) return null;
+  // Only side panels may share the Trade with the Broker. A window tiled into the halves (UX stage 6, six-window state) would
+  // stay where it is under the Broker's new 70%, so the caller tiles the whole workspace instead.
+  const others = state.wins.filter((w) => w.ws === 0 && w.state === 'open' && w.id !== id && w.id !== broker.id && w.app !== 'broker');
+  if (others.some((w) => w.slot === null || !SIDE_SLOTS.includes(w.slot as SlotName))) return null;
+  // Open panels in z-order, oldest first (wins is kept in raise order). One panel takes the whole column; two share it as
+  // halves (UX stage 6: the second panel reflows the first into the top half instead of overlapping it). A third panel
+  // collapses the oldest and takes its half.
+  const panels = state.wins.filter(
+    (w) => w.ws === 0 && w.state === 'open' && w.id !== id && w.app !== 'broker' && w.slot !== null && SIDE_SLOTS.includes(w.slot as SlotName),
+  );
+  let slot: SlotName = 'R3';
+  let reslot: { id: string; slot: SlotName } | null = null;
+  let collapse: string | null = null;
+  if (panels.length === 1) {
+    slot = 'R3B';
+    reslot = { id: panels[0]!.id, slot: 'R3T' };
+  } else if (panels.length >= 2) {
+    const oldest = panels[0]!;
+    slot = oldest.slot as SlotName;
+    collapse = oldest.id;
+  }
+  if (!fitsMin(APPS[app.app], fracToRect(SLOT_FRAC[slot], wa, g))) return null;
+  if (reslot !== null && !fitsMin(APPS[panels[0]!.app], fracToRect(SLOT_FRAC[reslot.slot], wa, g))) return null;
+  const wins = state.wins.map((w) => {
+    if (w.id === broker.id) return { ...w, slot: 'L23' as SlotName, filled: false };
+    if (w.id === id) return { ...w, slot, filled: false };
+    if (reslot !== null && w.id === reslot.id) return { ...w, slot: reslot.slot, filled: false };
+    if (collapse !== null && w.id === collapse) return { ...w, state: 'collapsed' as const };
+    return w;
+  });
+  return { ...state, wins: raise(wins, id) };
+}
+
+/**
+ * Tiles the open windows of the active workspace when a new one opens (UX stage 2): 2 = halves, 3 = one large plus
+ * two stacked, 4 = quarters, 5+ = grid, in z-order. Only in the full mode (and halves for two
+ * windows), and only when every window fits its tile; otherwise the cascade stays as it was. Filled windows are
+ * restored to their tile, because tiling is the layout the user asked for by opening another window.
+ */
+function tileWorkspace(state: ShellState, ws: number = state.activeWs): ShellState {
+  const open = state.wins.filter((w) => w.ws === ws && w.state === 'open');
+  if (open.length < 2) return state;
+  const mode = layoutMode(state.vp.w);
+  if (mode === 'phone' || mode === 'single') return state;
+  if (mode === 'halves' && open.length !== 2) return state;
+  const wa = workArea(state.vp, false);
+  const g = gutterFor(false);
+  const fitsAll = (list: readonly Win[]): boolean => {
+    const slots = tileSlots(list.length);
+    return list.every((w, i) => fitsMin(APPS[w.app], fracToRect(slotFrac(slots[i]!), wa, g)));
+  };
+  // UX stage 6 (six-window state): a crowded workspace never cascades over itself. When the tiles do not fit, the oldest
+  // window that is not the Broker and not the newest one gives up its tile and collapses to the shelf (its state is kept),
+  // until the rest fit or two windows are left. A workspace with two or fewer windows keeps the old rule.
+  let keep: Win[] = [...open];
+  while (keep.length > 2 && !fitsAll(keep)) {
+    const drop = keep.slice(0, -1).find((w) => w.app !== 'broker') ?? keep[0]!;
+    keep = keep.filter((w) => w.id !== drop.id);
+  }
+  if (!fitsAll(keep)) return state;
+  const kept = new Set(keep.map((w) => w.id));
+  // Z-order: the oldest window takes the main tile and the newest the last one, so a new window lands on the right.
+  const tiles = tileSlots(keep.length);
+  const wins = state.wins.map((w) => {
+    if (w.ws === ws && w.state === 'open' && !kept.has(w.id)) return { ...w, state: 'collapsed' as const };
+    const i = keep.findIndex((x) => x.id === w.id);
+    return i < 0 ? w : { ...w, slot: tiles[i]!, filled: false };
+  });
+  return { ...state, wins };
+}
+
 function nextBrokerId(wins: Win[]): string {
   for (let n = 1; ; n++) {
     const id = `broker-${n}`;
@@ -530,7 +620,7 @@ function applyPlacements(state: ShellState, placements: Placement[]): ShellState
 
 // ---------------------------------------------------------------- start and load
 
-/** A fresh save: the Trade layout with the Broker focused (F:119). Also the fallback for a corrupt shell. */
+/** A fresh shell: the Trade layout with the Broker focused (F:119). Also the fallback for a corrupt shell. */
 export function initialShell(vp: Size, ctx: WmCtx, ticker?: string): ShellState {
   const base: ShellState = {
     v: 1,
@@ -543,6 +633,26 @@ export function initialShell(vp: Size, ctx: WmCtx, ticker?: string): ShellState 
     vp: { w: vp.w, h: vp.h },
   };
   return applyPlacements(base, ctx.plan('trade', vp, { ticker }));
+}
+
+/**
+ * The first-run desktop (spec 1.1, UX redesign): a save with no stored shell opens the Broker alone, maximized to the work
+ * area as the Trade workspace, not the Trade layout's three windows and a tip card. The Trade layout stays a named layout
+ * the launcher offers.
+ */
+export function firstRunShell(vp: Size, ctx: WmCtx, ticker?: string): ShellState {
+  const base: ShellState = {
+    v: 1,
+    wins: [],
+    activeWs: 0,
+    focusWs: [],
+    focusRestore: null,
+    layouts: [],
+    shelf: defaultShelf(),
+    vp: { w: vp.w, h: vp.h },
+  };
+  const broker = ctx.plan('trade', vp, { ticker }).filter((p) => p.app === 'broker');
+  return applyPlacements(base, broker.map((p) => ({ ...p, filled: true })));
 }
 
 /**
@@ -599,6 +709,8 @@ function openAction(state: ShellState, app: AppId, rawProps: unknown, ctx: WmCtx
   if (r.created) {
     s = exitFocus(s, state.activeWs);
     if (app === 'broker') s = placeAlone(s, r.id);
+    const panel = state.activeWs === 0 && app !== 'broker' ? sidePanel(s, r.id) : null;
+    s = panel ?? tileWorkspace(s);
   } else if (restored) {
     const landing = s.wins.find((w) => w.id === r.id);
     if (landing !== undefined) s = exitFocus(s, landing.ws);
@@ -775,6 +887,19 @@ function reorderAction(state: ShellState, order: AppId[]): WmResult {
   return ok({ ...state, shelf: [...order] });
 }
 
+/**
+ * Snapping reflows (UX stage 2): when a tiled workspace loses a window, the windows left on it, all tiled, take the new
+ * tiles. Trade keeps its terminal layout (the Broker stays on the left two thirds), and a workspace with a free or
+ * filled window is left as it is.
+ */
+function reflow(state: ShellState, ws: number): ShellState {
+  if (ws === 0) return state;
+  const open = state.wins.filter((w) => w.ws === ws && w.state === 'open');
+  // Only named slots reflow: a custom split (a dragged edge) is the user's own layout and stays.
+  if (open.length < 2 || !open.every((w) => typeof w.slot === 'string' && !w.filled)) return state;
+  return tileWorkspace(state, ws);
+}
+
 /** Applies one action. Refusals return { ok: false, reason } and never touch the input. */
 export function reduce(state: ShellState, action: WmAction, ctx: WmCtx): WmResult {
   switch (action.type) {
@@ -793,11 +918,12 @@ export function reduce(state: ShellState, action: WmAction, ctx: WmCtx): WmResul
       if (w.app === 'broker' && !action.force && w.props.ticker !== undefined && ctx.hasPendingOrder(w.props.ticker)) {
         return fail('confirm');
       }
-      return ok({
+      const closed: ShellState = {
         ...state,
         wins: state.wins.filter((x) => x.id !== action.id),
         focusRestore: snapWithout(state.focusRestore, action.id),
-      });
+      };
+      return ok(reflow(closed, w.ws));
     }
 
     case 'collapse': {
@@ -846,7 +972,19 @@ export function reduce(state: ShellState, action: WmAction, ctx: WmCtx): WmResul
       if (!isWsIndex(action.ws, ctx)) return fail('no-workspace');
       if (action.ws === state.activeWs) return ok(state);
       // Focus mode is per workspace: switching does not change either workspace's focus.
-      return ok({ ...state, activeWs: action.ws });
+      const next: ShellState = { ...state, activeWs: action.ws };
+      // A workspace that has never held a window opens its default app (Trade the Broker, News the Wire, Portfolio the
+      // Portfolio). A workspace that holds no window yet is the one that opens it.
+      const app = WORKSPACE_DEFAULT_APP[action.ws] ?? null;
+      // A single-window app that is already open on another workspace is not opened twice (one window per app).
+      const empty = !state.wins.some((w) => w.ws === action.ws);
+      const taken = state.wins.some((w) => w.app === app);
+      if (app === null || !empty || taken || !ctx.unlocked(app)) return ok(next);
+      const opened = openAction(next, app, {}, ctx);
+      if (!opened.ok) return ok(next);
+      // News and Portfolio open their app maximized, as Trade opens the Broker maximized: the workspace is the app's own desk.
+      if (app === 'wire' || app === 'portfolio') return ok({ ...opened.state, wins: patchWin(opened.state.wins, app, { filled: true }) });
+      return opened;
     }
 
     case 'moveToWs': {

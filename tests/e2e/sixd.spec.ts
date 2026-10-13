@@ -31,6 +31,8 @@ async function buyFirstGood(page: Page): Promise<void> {
   const buy = page.locator('[data-testid^="buy-item-"]').first();
   await expect(buy).toBeVisible({ timeout: 15_000 });
   await buy.click();
+  // the Boutique reviews a purchase in its CommitBar first: nothing is spent until Confirm
+  await page.getByTestId('boutique-commit-confirm').click();
   await expect.poll(async () => (await sixd(page))?.insurance.insuredValue ?? 0, { timeout: 15_000 }).toBeGreaterThan(0);
 }
 

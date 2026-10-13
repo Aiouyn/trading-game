@@ -1,6 +1,7 @@
 // The Launchpad app's copy helpers: which i18n key a refusal code, a status, a reason or a tagline maps to, the three-part
 // refusal text, the client's own checks of a name (the world checks it again at launch), and the price figures. Pure functions
 // (no React), so copy.test.ts can check that every key they can return exists in English and French.
+import { fmtNumber } from '@/game/format';
 import { hasKey, t, tm, type Msg } from '@/i18n';
 import { LP, TPD } from '@/world/launchpad/constants';
 import { moderateName, nameFormatOk, tickerFormatOk, type NameRefusal } from '@/world/launchpad/moderate';
@@ -108,17 +109,17 @@ export const GRAD_RAISE = (LP.X0 * LP.Y0) / LP.GRAD_Y - LP.X0;
  * 1,284.10 above a dollar, 0.0342 above a cent, and 0.00001398 below that (at least six decimals).
  */
 export function lpPrice(n: number): string {
-  if (!(n > 0)) return '0.00';
-  if (n >= 1) return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (n >= 0.01) return n.toFixed(4);
-  const s = n.toFixed(10).replace(/0+$/, '');
-  const dec = s.split('.')[1] ?? '';
-  return dec.length < 6 ? n.toFixed(6) : s;
+  if (!(n > 0)) return fmtNumber(0, 2, 2);
+  if (n >= 1) return fmtNumber(n, 2, 2);
+  if (n >= 0.01) return fmtNumber(n, 4, 4);
+  const dec = (n.toFixed(10).replace(/0+$/, '').split('.')[1] ?? '').length;
+  const digits = Math.max(dec, 6);
+  return fmtNumber(n, digits, digits);
 }
 
 /** Whole tokens with separators, for the figures of a token (never abbreviated). */
 export function tokens(n: number): string {
-  return Math.round(n).toLocaleString('en-US');
+  return fmtNumber(Math.round(n), 0, 0);
 }
 
 /** The allocation in tokens from a percent of supply (1% is 10M), or null when the figure is not a number. */

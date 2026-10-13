@@ -39,7 +39,15 @@ test('late game: options and the AI lab work after reaching Operator', async ({ 
   await grant(handle, 8_000_000);
   await skipRankUp(page);
   await skipTips(page);
-  await page.getByTestId('open-chain').click();
+  // the chain is opened from the Asset tab of an underlying that lists options (AUC is one)
+  await page.getByTestId('watch-AUC').click();
+  // the HLCN Broker holds the watchlist; the AUC Broker opened beside it tiles, and a half-width Broker does not list the watchlist,
+  // so the chain is opened from the HLCN window by its title
+  const win = page.locator('[data-testid^="win-broker-"]').filter({ hasText: /HLCN/ }).first();
+  // the desk can hold a second Broker over this one: its title brings this window to the front before its tabs are used
+  await win.locator('[data-testid$="-title"]').first().click();
+  await win.getByTestId('dock-tab-asset').click();
+  await win.getByTestId('open-chain').click();
   await expect(page.getByTestId('option-chain')).toBeVisible();
   const buy = page.locator('[data-testid^=buy-call-]').nth(5);
   await buy.click();

@@ -1,7 +1,34 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+import { slotPort } from './worlds';
 
+/** The base world (the main projects'). A close project talks to its own world: worldUrl() picks it. */
 export const WORLD = `http://localhost:${process.env.E2E_WORLD_PORT ?? 8797}`;
 export const ADMIN = 'e2e-admin';
+
+/**
+ * The world the running test talks to: the close projects each have their own (worlds.ts), every other project shares the base
+ * world. Called from a test or a hook, where the project name is known; outside a test it is the base world.
+ */
+export function worldUrl(): string {
+  let project = '';
+  try { project = test.info().project.name; } catch { /* outside a test: the base world */ }
+  return `http://localhost:${slotPort(Number(process.env.E2E_WORLD_PORT ?? 8797), project)}`;
+}
+
+/**
+ * A world call from a helper. A socket the world closed while idle fails the next call with "fetch failed" under load, so a
+ * call that fails at the socket is sent once more on a fresh connection.
+ */
+export async function worldFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const once = () => fetch(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), connection: 'close' } });
+  try {
+    return await once();
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+    await new Promise((r) => setTimeout(r, 300));
+    return once();
+  }
+}
 
 export const isPhone = (page: Page) => (page.viewportSize()?.width ?? 1440) < 768;
 
@@ -25,7 +52,7 @@ export async function register(page: Page, prefix = 'e2e'): Promise<string> {
 }
 
 export async function grant(handle: string, amount: number): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/grant`, {
+  const r = await worldFetch(`${worldUrl()}/api/admin/grant`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, amount }),
   });
   expect(r.status).toBe(200);
@@ -43,12 +70,8 @@ export async function grant(handle: string, amount: number): Promise<void> {
 export async function clearSheets(page: Page): Promise<void> {
   const quick = { timeout: 2_000 };
   for (let i = 0; i < 4; i++) {
-    const tips = page.getByTestId('coach').getByText('Skip tips');
     const back = page.getByText('Back to the desktop');
-    const done = page.getByTestId('close-done');
-    if (await tips.isVisible().catch(() => false)) await tips.click(quick).catch(() => undefined);
-    else if (await back.isVisible().catch(() => false)) await back.click(quick).catch(() => undefined);
-    else if (await done.isVisible().catch(() => false)) await done.click(quick).catch(() => undefined);
+    if (await back.isVisible().catch(() => false)) await back.click(quick).catch(() => undefined);
     else return;
   }
 }
@@ -88,28 +111,24 @@ export async function proof(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: `test-results/proof/${project}-${name}.png` });
 }
 
+/** The coach tips are toasts now (UX stage 2): they never cover the desktop, so there is nothing to skip. Kept as a no-op for the specs. */
 export async function skipTips(page: Page): Promise<void> {
-  const skip = page.getByTestId('coach').getByText('Skip tips');
-  if (await skip.isVisible().catch(() => false)) await skip.click();
+  void page;
 }
 
 /**
- * The day-close card (velvet-daily-close.md) opens over the screen when a game day ends, and on the phone it covers the
- * tabs. If it is up, Done closes it; either way the caller goes on only once the card has left the screen. With
- * `appearWithin`, the helper first waits that long for the card to show (it opens a moment after the day step).
+ * The day close (velvet-daily-close.md) is a toast now (UX stage 2): it never covers the screen, so there is nothing to
+ * close. The helper waits for the close toast when `appearWithin` asks for it, and otherwise returns at once. The toast
+ * leaves by itself after its hold; a spec that needs the card opens the Wire.
  */
 export async function dismissCloseCard(page: Page, appearWithin = 0): Promise<void> {
-  const card = page.getByTestId('close-card');
-  if (appearWithin) await card.waitFor({ state: 'visible', timeout: appearWithin }).catch(() => {});
-  await expect(async () => {
-    if (await card.isVisible()) await page.getByTestId('close-done').click({ timeout: 2_000 });
-    await expect(card).toHaveCount(0, { timeout: 2_000 });
-  }).toPass({ timeout: 15_000 });
+  if (!appearWithin) return;
+  await page.locator('[data-testid^="os-toast-"][data-kind="close"]').first().waitFor({ state: 'visible', timeout: appearWithin }).catch(() => {});
 }
 
 /** Backdates a player's account by `ticks` (the admin seam for the account-age rules, admin.age). */
 export async function ageAccount(handle: string, ticks: number): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/age`, {
+  const r = await worldFetch(`${worldUrl()}/api/admin/age`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, ticks }),
   });
   expect(r.status).toBe(200);
@@ -120,7 +139,7 @@ export async function advanceWorld(ticks: number): Promise<void> {
   let left = ticks;
   while (left > 0) {
     const n = Math.min(20_000, left);
-    const r = await fetch(`${WORLD}/api/admin/advance?n=${n}`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}` } });
+    const r = await worldFetch(`${worldUrl()}/api/admin/advance?n=${n}`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}` } });
     expect(r.status).toBe(200);
     left -= n;
   }
@@ -131,7 +150,7 @@ export async function advanceWorld(ticks: number): Promise<void> {
  * minimum). The request, the book and the listing stay real. See admin.ipoReady in src/world/company/ipo.ts.
  */
 export async function makeIpoReady(handle: string): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/ipo-ready`, {
+  const r = await worldFetch(`${worldUrl()}/api/admin/ipo-ready`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle }),
   });
   expect(r.status).toBe(200);
@@ -143,7 +162,7 @@ export async function makeIpoReady(handle: string): Promise<void> {
  * the filed ones). See admin.filedLate in src/world/company/seams.ts.
  */
 export async function makeFiledLate(handle: string): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/filed-late`, {
+  const r = await worldFetch(`${worldUrl()}/api/admin/filed-late`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle }),
   });
   expect(r.status).toBe(200);
@@ -152,7 +171,7 @@ export async function makeFiledLate(handle: string): Promise<void> {
 
 /** Gives a founder's company a next-gen launch credit that reads `score` on the R&D launch block (admin.launchCredit). */
 export async function grantLaunchCredit(handle: string, score: number): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/launch-credit`, {
+  const r = await worldFetch(`${worldUrl()}/api/admin/launch-credit`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, score }),
   });
   expect(r.status).toBe(200);
@@ -186,7 +205,7 @@ export async function bodySidewaysOverflow(page: Page, app: string): Promise<num
 
 /** The e2e seam for a streak palette accent (admin.streakAccent): records it as if its milestone had been reached. */
 export async function grantAccent(handle: string, accent: 'phosphor' | 'riviera' | 'broadsheet'): Promise<void> {
-  const r = await fetch(`${WORLD}/api/admin/streak-accent`, {
+  const r = await worldFetch(`${worldUrl()}/api/admin/streak-accent`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ handle, accent }),
   });
   expect(r.status).toBe(200);
@@ -198,7 +217,7 @@ export async function grantAccent(handle: string, accent: 'phosphor' | 'riviera'
  * Resolves to the seam's answer: the week, its open tick and the end tick every lot without a bid now has.
  */
 export async function openAuctions(ticksLeft?: number): Promise<{ week: number; openTick: number; endTick: number }> {
-  const r = await fetch(`${WORLD}/api/admin/auction-open`, {
+  const r = await worldFetch(`${worldUrl()}/api/admin/auction-open`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
     body: JSON.stringify(ticksLeft === undefined ? {} : { ticksLeft }),
   });

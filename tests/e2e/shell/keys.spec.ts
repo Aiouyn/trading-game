@@ -83,6 +83,8 @@ test.describe('keyboard', () => {
   test('@kbd_cycle Alt Backquote moves the focus to the next window on the workspace, and Shift reverses it', async ({ page }) => {
     onlyIn('desktop');
     await boot(page);
+    // the first run opens the Broker alone (UX redesign 1.1); this test cycles the Trade layout's three windows, so it applies it
+    await page.getByTestId('shelf-layout').click();
     await dispatchKey(page, { code: 'Digit2', key: 'é', alt: true });
     await expect(frame(page, 'portfolio')).toHaveClass(/active/);
     // Forward takes the bottom-most window on screen (the stack is z-order: wire, broker, portfolio). Repeated

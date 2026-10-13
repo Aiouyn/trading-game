@@ -4,21 +4,21 @@
 // notice that applies (a front-running case, a verdict, the early-exit window). Only the viewer's own numbers appear here.
 import { money, qty } from '@/game/format';
 import { t } from '@/i18n';
-import { Button, Card, Chip, ticksLabel } from '@/components/ui';
+import { Button, Card, Chip, EmptyNext, ticksLabel } from '@/components/ui';
 import type { FundHolding } from '@/world/exchange/view';
 import { Fact } from './Shared';
 import { statusKey, unitNav } from './copy';
 
-export function HoldingsTab({ holdings, ticksPerDay, onOpen }: {
+export function HoldingsTab({ holdings, ticksPerDay, onOpen, onTab }: {
+  onTab: (tab: 'funds') => void;
   holdings: FundHolding[];
   ticksPerDay: number;
   onOpen: (fundId: string) => void;
 }) {
   if (holdings.length === 0) {
     return (
-      <Card className="p-6" data-testid="exchange-holdings-empty">
-        <p className="text-center text-fg-muted">{t('exchange.empty.mine')}</p>
-      </Card>
+      <EmptyNext testId="exchange-holdings-empty" title={t('exchange.empty.mine')} body={t('exchange.empty.mine.body')}
+        cta={<Button variant="brass" onClick={() => onTab('funds')} testId="exchange-holdings-cta">{t('exchange.empty.mine.cta')}</Button>} />
     );
   }
   return (

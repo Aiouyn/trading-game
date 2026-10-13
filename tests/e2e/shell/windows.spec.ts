@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { watchErrors } from '../helpers';
+import { skipTips, watchErrors } from '../helpers';
 import { DESKTOPS, WIDE, box, boot, brokerCount, dispatchKey, expectRect, frame, gotoShell, launcher, newBroker, onlyIn, orders, reachRank, slotBox, viewport, windowIds, toastText } from './support';
 
 /** Waits until no window animation runs: a snap, a layout or an open has landed (tape: reduced motion is instant). */
@@ -62,22 +62,21 @@ test.describe('window rules', () => {
     await page.mouse.move(grip.x - 900, grip.y - 900, { steps: 12 });
     await page.mouse.up();
     const r = await box(page, 'portfolio');
-    // Portfolio: 520 x 220 (apps.ts). The drag asks for far less, so the window stops at its minimum.
-    expect(r.w).toBeGreaterThanOrEqual(519);
+    // Portfolio: 350 x 220 (apps.ts). The drag asks for far less, so the window stops at its minimum.
+    expect(r.w).toBeGreaterThanOrEqual(349);
     expect(r.h).toBeGreaterThanOrEqual(219);
   });
 
-  test('@snap_refused under 1000 px a half that is too narrow for the app is refused and leaves the window still', async ({ page }) => {
+  test('@snap_halves under 1000 px a half that is at least the app minimum is taken: Portfolio and Wire snap to the right half', async ({ page }) => {
     onlyIn('desktop-1000');
     const vp = viewport(page);
     await boot(page);
     await page.getByTestId('shelf-app-portfolio').click();
     await settle(page);
-    const before = await box(page, 'portfolio');
-    // Portfolio needs 520 px and a right half is 488 px at 1000 wide: the snap is refused (tape: halves refused on min width).
+    // A right half is 488 px at 1000 wide, above Portfolio's 350 px minimum (UX stage 6): the snap is taken.
     await dispatchKey(page, { code: 'ArrowRight', key: 'ArrowRight', ctrl: true, shift: true });
     await settle(page);
-    expectRect(await box(page, 'portfolio'), before, 0.5);
+    expectRect(await box(page, 'portfolio'), slotBox('R2', vp));
     // Wire (360 px) fits a right half and snaps to it.
     await page.getByTestId('shelf-app-wire').click();
     await settle(page);
@@ -103,11 +102,17 @@ test.describe('window rules', () => {
   test('@wm_close_pending_broker closing a Broker with a pending order asks first, and the order survives', async ({ page }) => {
     onlyIn('desktop');
     await boot(page);
-    await page.getByTestId('type-limit').click();
+    // the first trade is a market buy: the order-type picker shows once a trade is done (the first trade is simple mode)
+    await page.getByTestId('order-qty').fill('1');
+    await page.getByTestId('order-submit').click();
+    await expect(page.getByTestId('order-type')).toBeVisible({ timeout: 20_000 });
+    await skipTips(page);
+    const before = (JSON.parse(await orders(page)) as unknown[]).length;
+    await page.getByTestId('order-type').selectOption('limit');
     await page.getByTestId('order-qty').fill('1');
     await page.getByTestId('order-limit').fill('1');
     await page.getByTestId('order-submit').click();
-    await expect.poll(async () => JSON.parse(await orders(page)) as unknown[]).toHaveLength(1);
+    await expect.poll(async () => (JSON.parse(await orders(page)) as unknown[]).length, { timeout: 15_000 }).toBe(before + 1);
     const placed = await orders(page);
     await page.getByTestId('win-broker-1-close').click();
     await expect(page.getByTestId('win-broker-1-confirm')).toBeVisible();
