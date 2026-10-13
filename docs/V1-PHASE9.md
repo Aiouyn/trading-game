@@ -421,12 +421,14 @@ Commits: `6b378a0` (load: backlog, connect ramp, retry), `f127566` (O-12 sector 
 
 | Item | Verdict |
 |---|---|
-| 9C.1 Load, R-9-8b (5 s tick, 4,000 clients, 3 repeats, gate: all welcomed, fan-out p99 < 2.5 s, overrun p99 < 0.5 s) | **PASS in the gate windows, 3 of 3, on `7a4f146`** (fan-out p99 429 to 446 ms, overrun p99 23 to 45 ms, 4,000 welcomed in 1 to 5 s); the windows exclude the public ticks (720, 780). **FAIL in a window that includes tick 780**: fan-out p99 3,174 ms (330 s window). The 1 s stress fails (not gated). Re-scope or the public-tick payload: lead decision (9C.1). |
+| 9C.1 Load, R-9-8b (5 s tick, 4,000 clients, 3 repeats, gate: all welcomed, fan-out p99 < 2.5 s, overrun p99 < 0.5 s) | **PASS in the gate windows, 3 of 3, on `7a4f146`** (fan-out p99 429 to 446 ms, overrun p99 23 to 45 ms, 4,000 welcomed in 1 to 5 s); the windows exclude the public ticks (720, 780). **FAIL in a window that includes tick 780**: fan-out p99 3,174 ms (330 s window). The 1 s stress fails (not gated). Re-scope or the public-tick payload: lead decision (9C.1). **Superseded by 9C.1b (R-9-12, `p9/h`): the tick-780 stall is fixed; PASS 3 of 3 in 330 s windows that hold public ticks 780 and 840 (fan-out p99 643 to 697 ms), and the 1 s stress passes.** |
 | 9C.2 O-2 residual rho, engine path, 200 seeds | **FAIL, known V1 limit (R-9-11)**: median 0.597 and p90 0.927 by the probe's quantile (0.596 and 0.925 by the average-of-two-middles and interpolated definitions), 0 of 200 seeds at or below 0.15. Owner Quant, post-V1. |
 | 9C.3 O-12 sector shock from the engine's factor | **Done** (see 9C.3). |
 | 9C.4 AUSD stablecoin band | **UNDECIDED** at 2 s.e. under the class band `[0.6, 1.1]` applied by ruling. Not a pass. |
 
 ### 9C.1 Load under R-9-8b: 4,000 clients, production tick
+
+*Superseded by 9C.1b (R-9-12, branch `p9/h`): the public-tick payload left the push, and the window that holds tick 780 now passes. The text below is the record on `7a4f146`, before R-9-12.*
 
 **Status, qualified.** R-9-8b as written (5 s tick, 4,000 clients, three 60 s windows, the gate) **passes 3 of 3** on `7a4f146`, and every one of those windows excludes the public ticks. A window that includes the public tick at tick 780 **fails**: fan-out p99 3,174 ms in the 330 s window (`c2-long780`), against the 2.5 s bound. The 1 s stress fails (not gated). As written, the gate does not cover the public-tick stall. Re-scoping the gate or changing the public-tick payload is the lead's decision (see "Public tick" below); this record does not decide it.
 
@@ -466,6 +468,53 @@ CPU profile of the view loop (`perf/subtree.cjs`, 12 ticks) before `7a4f146`: `s
 **Not done, and why.** (1) `rivalsBoard` is not cached: about 9 us a view, it depends on the market at the tick, and a cache would need an invalidation rule; recorded as the next per-view cost. (2) The public-tick payload (protocol). (3) The mirror map grows with the square of same-tick buyers (40,740 keys at 400 buyers): a match-window or prune rule question, not changed here. (4) The gate windows exclude the public tick because of `WARMUP_DAYS=1`; a window that starts at another tick would change the gate script, which this pass does not do.
 
 **Environment.** The worktree's `node_modules` is a real directory of junctions to each package of the main install, plus `ws` 8.22.0 and `@types/ws` 8.18.2 from the npm cache (integrity checked against `package-lock.json`). No `npm install` was run.
+
+### 9C.1b Public panels on demand (R-9-12, track 9C, branch `p9/h`)
+
+Worktree `.claude/worktrees/p9-h`, branch `p9/h` from `v1` at `eff8da1` (the ruling). Spec: `docs/team/specs/lead-phase9.md`, R-9-12, with its implementation notes. Commits: `eff8da1` (the ruling), `9a9ed5b` (the change), `e55d3a0` (the panel reply types), `8dd0aa8` (the review pass: per-tick caches, in-flight reads, the no-leak check, Profile, the worldEvents timing, the load script), and the commit that carries this section. All times are UTC.
+
+**Verdict.** R-9-8b passes with the public ticks in the window: three repeats at the 5 s tick with 4,000 clients, each a 330 s window that holds the public ticks 780 and 840 (the gate's `NEED_PUBLIC=2`), all pass. The 1 s stress (not gated) passes too, with six public ticks in its window. The public-tick limit is removed from `docs/V1.md`.
+
+**What changed.**
+- The public tick (every 60th tick, `BOARD_EVERY`) carries the public state without the boards (`publicCore`), and a version stamp per public panel: `panels: {boards: T, directory: T}`. It no longer sends the 134 kB boards and the 130 kB directory to every socket.
+- A client reads a panel with `{t: 'panel', id, panel}` when the panel mounts, and again when its stamp moves while it is mounted (`usePublicPanel` and `loadPanel` in `src/game/store.ts`). The reply is `{t: 'panel', id, panel, v, data}`: the content the push carried for that viewer (the boards, or the directory with the viewer's own rows), taken at tick `v`.
+- The server serializes each panel once per tick (`publicCache` in `server/index.ts`): the boards JSON, the top directory JSON, and the row index for `directoryWire`. `directoryWire` gives the same text as `directoryFor`, byte for byte (`src/world/view-directory.test.ts`). A read costs the viewer's own rows, not a stringify of the panel.
+- Profile reads its position through a store subscription (it read the store in render before).
+
+**Deviations (also in the spec, R-9-12).**
+1. **No rivals stamp.** The ruling names boards, directory and rivals. Rivals are not on the public tick (`me.rivals` is per tick and private, and the public extras never carried them), so there is no rivals panel to read. The Rivals board is unchanged.
+2. **`v` is the answer tick.** A reply carries the tick it was answered at, and its boards and directory are taken at that tick. The content is what the push carried for that viewer; the tick is not the stamp's tick. A reply answered after its stamp is fresher than the stamp, and the store never applies a reply older than the data on screen.
+3. **One round trip of staleness.** When a stamp moves, the panel keeps its last read until the new reply arrives. The ruling asks that a stale version is never shown while the panel is open; this is kept only to one round trip (milliseconds on a healthy socket). Before the review pass a read in flight held a newer stamp back until its reply, up to the 15 s request timeout; it no longer does. Blanking the panel while a read is pending is the stricter option, not built: lead decision.
+4. **No limit of its own.** A `panel` request takes the per-socket token bucket (20 messages a second, burst 30), as `lp-page` does, and a reply can be up to about 264 kB. The bound is per socket: N sockets can read 20 N panels a second. The reads in the probes below show the cost; a global or per-panel limit (for example one reply per panel per tick per socket) is the follow-up.
+
+**Measurements.** The R-9-8b script (`scripts/load/socket-load.mjs`) with the production tick (`TICK_MS=5000`), 4,000 clients, the default connect ramp, `WINDOW_ALIGN=60` (the window starts at tick 780) and a 330 s window, `NEED_PUBLIC=2`. The gate runs have no panel readers. The probes add readers (`PANEL_READERS=k`): the first k clients read the boards and the directory on each public tick of the window, as a Social screen does. Runner: `$S/run-load-p9h-v2.sh` and `run-load-p9h-v3.sh` (scratch, not committed). Logs: `r912-*.txt` in the scratch folder.
+
+| Run | Tick | Public ticks in window | Ticks in window | Fan-out p50 / p99 | Overrun p99 | Welcomed | Gate |
+|---|---|---|---|---|---|---|---|
+| repeat 1 (`r912-prod-r1`) | 5,000 | 2 (780, 840) | 67 | 483 / 697 ms | 82 ms | 4,000 in 0.5 s | **PASS** |
+| repeat 2 (`r912-prod-r2`) | 5,000 | 2 (780, 840) | 67 | 457 / 680 ms | 74 ms | 4,000 in 4.9 s | **PASS** |
+| repeat 3 (`r912-prod-r3`) | 5,000 | 2 (780, 840) | 67 | 439 / 643 ms | 78 ms | 4,000 in 4.3 s | **PASS** |
+| 1 s stress (`r912-stress-1s`, not gated) | 1,000 | 6 (780 to 1,080) | 331 | 491 / 651 ms | 69 ms | 4,000 in 5.6 s | PASS (not gated) |
+| probe: 400 readers (`r912-panel-probe-5s`) | 5,000 | 2 | 67 | 464 / 645 ms | 82 ms | 4,000 in 4.1 s | PASS |
+| probe: 4,000 readers (`r912-panel-all-5s`) | 5,000 | 2 | 67 | 473 / 548 ms | 77 ms | 4,000 in 1.0 s | PASS |
+
+The fan-out p99 is the worst of 67 ticks, and the overrun p99 the worst of 66 gaps: read them as worst samples, not population percentiles. The connect retries (closes with code 1006, all before the welcome) are the reconnects of the 200-per-250 ms ramp, as in 9C.1. The welcomed count is 4,000 of 4,000 in every run.
+
+**The reader probes.** 400 readers: 1,600 panel replies in the window (400 clients, 2 panels, 2 public ticks), 246.8 MB. 4,000 readers: 16,000 replies, 2,463.7 MB, about 1.2 GB per public tick. That is the bytes the old push sent to every socket at each public tick, now sent as replies after the tick frame. The fan-out of the tick frame stays at 0.55 to 0.65 s p99 in both probes. The all-readers case is the worst case (every client with a public panel open at once); the gate does not include it.
+
+**Tests and gates.** `npx next typegen` and `npx tsc --noEmit`: exit 0. `npx eslint` on the touched files: 0 errors. Vitest on the touched suites (`store-panels`, `public-core`, `view-directory`): 11 of 11. Full vitest (`npx vitest run --maxWorkers=3`, after the final code change): 263 files passed, 2 skipped; 2,466 tests passed, 4 expected fail, 70 skipped, 20 todo; exit 0.
+
+e2e (Playwright, `E2E_PORT=3362 E2E_WORLD_PORT=8959`, `E2E_BUILD_CMD="npx next build --webpack"`):
+- `worldEvents.spec.ts`, projects `close-events` (desktop) and `close-events-phone` (phone), `--no-deps --workers=1 --repeat-each=3`: 24 of 24 (4 tests, two projects, three repeats). The Close timing is taken in a MutationObserver on the takeover and on the Close button's `disabled` attribute, and the assertion (enabled at least 950 ms after the appearance) is unchanged. The 20 ms poll of the earlier record missed the enable on the phone project.
+- Regression, projects `desktop` and `phone` with `--no-deps`: `no-leak`, `sixdHome`, `regulator`, `screens`, `apps-group3`, `systemApps`, `company`: 49 passed, 11 skipped (by design: the phone-only and desktop-only checks), 0 failed.
+- `phase7Text.spec.ts`, projects `close-text` and `close-text-phone`, `--no-deps --workers=1`: 4 of 4.
+- Not a result: a first run of `worldEvents` with the default six workers ran the desktop and phone close projects against one shared world at once (forceEvent refused, ECONNRESET on the admin advance). The close projects must run one at a time, as the chain's dependencies require, so the run used `--workers=1`.
+
+The `no-leak` check: a panel reply's `data` (the public boards and directory) is left out of the search for the viewer's id, as the tick's `pub` and `directory` are; its envelope is searched, and `privateKeysIn` still reads its `data`.
+
+**Ports.** Ports 3352 (`next start`) and 8949 (a world server) were in use before this pass, from earlier runs; they were not killed, since their owner was not known. The e2e runs used the free ports above.
+
+**Not done.** (1) A global or per-panel limit on `panel` replies (deviation 4). (2) Blanking a panel while its read is pending (deviation 3). (3) Readers in the gate: the gate stays as ruled, and the reader probes are reported beside it.
 
 ### 9C.2 O-2: the residual surprise s and the rho gate (engine path, R-9-11)
 
@@ -548,8 +597,9 @@ CPU profile of the view loop (`perf/subtree.cjs`, 12 ticks) before `7a4f146`: `s
 
 ### 9C. Not done and open
 
-- **R-9-8b load gate: PASS in the gate windows, 3 of 3, on `7a4f146` (9C.1); FAIL in a window that includes the public tick at tick 780** (fan-out p99 3,174 ms over 330 s). The gate windows exclude public ticks by construction (`WARMUP_DAYS=1`). Lead decision: re-scope the gate, or change the public-tick payload.
-- **Public tick stall (9C.1, lead decision).** Every 60th tick (`BOARD_EVERY`) sends each socket 264 kB (the public part and the directory): tick 780 takes 3.1 to 3.5 s of fan-out in every window that holds it, and the snapshot in that tick (220 to 232 ms) is not the cause. Fix options are a protocol change (send the public part on change, or spread it over ticks) or a smaller boards payload. Not done here.
+- **R-9-8b load gate: PASS 3 of 3 on `p9/h` (9C.1b), in 330 s windows that include the public ticks 780 and 840.** The public-tick stall is fixed by R-9-12: the boards and the directory are read on demand, not pushed every 60th tick. The record on `7a4f146` (9C.1) failed in a window with tick 780 (fan-out p99 3,174 ms).
+- **Panel reads have no limit of their own (9C.1b, deviation 4).** A `panel` request takes the per-socket bucket (20 a second). Bound per socket, not in total. Follow-up: a per-panel per-tick limit per socket. Owner: lead.
+- **Panel staleness (9C.1b, deviation 3).** A panel keeps its last read for one round trip after its stamp moves. Blanking while the read is pending is not built. Owner: lead.
 - **Server end at about 5 minutes (9C.1):** not reproduced on `7a4f146` (the instrumented runs stay alive past 5 min with no exit or uncaught event; heap flat at 73 to 90 MB). Two HEAD anomalies stay **unexplained**: the r910 log stops at tick 740 with no error, and in r911-r1 the health fetch was refused while the process was alive and ticking.
 - **Mirror map growth (9C.1):** 400 same-tick buyers give 40,740 mirror keys, so the map and the snapshot grow with the square of the buyers. A match-window or prune rule question, not changed here.
 - **Per-view cost still open (9C.1):** `rivalsBoard` costs about 9 us a view (rival equities, market-dependent), not cached. The impact tally and the rank basis are profiled per tick, not per view, and are not on the gated path.

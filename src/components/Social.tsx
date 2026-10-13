@@ -5,6 +5,7 @@ import { RANKS } from '@/content/lifestyle';
 import { ACHIEVEMENTS } from '@/content/progression';
 import { compactMoney, money } from '@/game/format';
 import { useGame } from '@/game/store';
+import { usePublicPanel } from '@/game/usePublicPanel';
 import { t, useLocale } from '@/i18n';
 import { COUNTRIES } from '@/world/players';
 import type { BoardRow } from '@/world/types';
@@ -50,6 +51,7 @@ function shiftPoints(shift: number, locale: string): string {
 
 export function SocialView() {
   const [tab, setTab] = useState<'boards' | 'players' | 'alliances' | 'deals' | 'hall'>('boards');
+  usePublicPanel('directory');
   const me = useGame((s) => s.me)!;
   const offers = me.deals.filter((d) => d.status === 'offered' && d.toId === me.player.id).length;
   return (
@@ -75,6 +77,7 @@ export function SocialView() {
 }
 
 function Boards() {
+  usePublicPanel('boards');
   const pub = useGame((s) => s.pub);
   const me = useGame((s) => s.me)!;
   const openProfile = useGame((s) => s.openProfile);
@@ -146,6 +149,7 @@ function Players() {
 }
 
 export function ProfileModal() {
+  usePublicPanel('directory');
   const id = useGame((s) => s.profileId);
   const openProfile = useGame((s) => s.openProfile);
   const directory = useGame((s) => s.directory);

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { LIFE_CATEGORIES, LIFE_ITEMS, RANKS, itemPrestige, rankIndex, resaleValue, type LifeCategory } from '@/content/lifestyle';
 import { compactMoney, money, qty } from '@/game/format';
 import { useGame } from '@/game/store';
+import { usePublicPanel } from '@/game/usePublicPanel';
 import { t } from '@/i18n';
 import { isAppUnlocked } from '@/shell/ctx';
 import { Button, Card, Chip, ConfirmButton, Stat, Tabs } from '@/components/ui';
@@ -17,6 +18,7 @@ import { CollectionOwnerCard } from '@/components/apps/sixd/CollectionPage';
 type Tab = 'shop' | 'home' | 'collection' | 'auctions';
 
 export function BoutiqueApp() {
+  usePublicPanel('directory');
   const me = useGame((s) => s.me)!;
   const [tab, setTab] = useState<Tab>('shop');
   const rank = RANKS.find((r) => r.id === me.player.rankId)!;
