@@ -270,6 +270,12 @@ export class CityView {
   setMood(m) { this.uniforms.uMood.value = m; this.dirty = true; }
   setGrowth(g) { this.uniforms.uGrowth.value = g; this.dirty = true; }
   rotate(dir) { this.yawTarget += (dir * Math.PI) / 2; this.dirty = true; }
+  /** Smoothly move the camera to map point (x, z) at an optional scale (metres per pixel); instant under reduced motion. */
+  flyTo(x, z, scale = null, seconds = 0.7) {
+    const to = { x, z, scale: scale ?? this.scale };
+    if (!this.motion) { this.target.set(x, 0, z); this.scale = to.scale; this.dirty = true; return; }
+    this.fly = { from: { x: this.target.x, z: this.target.z, scale: this.scale }, to, t: 0, dur: seconds };
+  }
 
   // ------------------------------------------------------------------ camera
   updateCamera() {
@@ -348,6 +354,14 @@ export class CityView {
 
   // ------------------------------------------------------------------ frame
   frame(dt) {
+    if (this.fly) {
+      const f = this.fly; f.t = Math.min(1, f.t + dt / f.dur);
+      const e = f.t < 0.5 ? 4 * f.t ** 3 : 1 - (-2 * f.t + 2) ** 3 / 2;
+      this.target.set(f.from.x + (f.to.x - f.from.x) * e, 0, f.from.z + (f.to.z - f.from.z) * e);
+      this.scale = f.from.scale * Math.pow(f.to.scale / f.from.scale, e);
+      this.dirty = true;
+      if (f.t >= 1) this.fly = null;
+    }
     if (Math.abs(this.yawTarget - this.yaw) > 1e-4) {
       this.yaw += (this.yawTarget - this.yaw) * Math.min(1, dt * (this.motion ? 7 : 60));
       if (Math.abs(this.yawTarget - this.yaw) < 1e-3) this.yaw = this.yawTarget;
