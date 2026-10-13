@@ -121,7 +121,7 @@ export function CloseAnnouncer() {
     askedSeen.current = null;
     if (announced.current === card.day) return;
     announced.current = card.day;
-    toast({ tone: 'brass', kind: 'close', text: headline(card), app: 'wire' });
+    toast({ tone: 'brass', kind: 'close', day: card.day, text: headline(card), app: 'wire' });
     dismiss(card.day);
   }, [card, askedDay, toast, dismiss]);
   return null;
@@ -135,6 +135,15 @@ export function CloseBrief() {
     return closes.find((c) => c.day === s.closeOpen) ?? closes[0] ?? null;
   });
   useLocale((s) => s.locale);
+  // The Wire shows the card, so its close notice is read: the notice leaves on screen, and the bell's unread mark clears.
+  const cardDay = card?.day ?? null;
+  const dismissMany = useGame((s) => s.dismissToasts);
+  const markRead = useGame((s) => s.markCloseRead);
+  useEffect(() => {
+    const ids = useGame.getState().toasts.filter((x) => x.kind === 'close').map((x) => x.id);
+    if (ids.length > 0) dismissMany(ids);
+    if (cardDay !== null) markRead(cardDay);
+  }, [cardDay, dismissMany, markRead]);
   if (!card) return null;
   return (
     <section className="rounded-md border border-ink-3 p-3" data-testid="close-card" aria-label={t('dayclose.title')}>

@@ -98,6 +98,41 @@ test('the close is a toast after a game day, the Wire card matches the server, a
   expect(errors).toEqual([]);
 });
 
+test('a day close whose toast has left is still marked, and the mark leads to the card', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = watchErrors(page);
+  await page.addInitScript(() => { window.__tgE2eAdmin = 'e2e-admin'; });
+  await register(page);
+  await skipTips(page);
+
+  const tick = await page.evaluate(() => window.__tg!.state().frame?.tick ?? 0);
+  const next = (Math.floor(tick / 720) + 1) * 720;
+  await page.evaluate((n) => window.__tg!.advance(n), next - tick);
+
+  // the toast shows for its hold and leaves on its own; the close stays unread until the Wire has shown it
+  const toast = page.locator('[data-testid^="os-toast-"][data-kind="close"]');
+  await expect(toast).toBeVisible({ timeout: 25_000 });
+  await expect(toast).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.getByTestId('close-card')).toHaveCount(0);
+
+  if (isPhone(page)) {
+    // the phone has no bell: the Wire's tile carries the mark, and opening the Wire shows the card
+    await expect(page.getByTestId('home-app-wire-close')).toBeAttached();
+    await goTo(page, 'wire');
+  } else {
+    // the bell carries the mark; its item opens that day's card in the Wire
+    const bell = page.getByTestId('os-bell');
+    await expect(bell).toHaveAttribute('data-close-unread', 'true');
+    await bell.click();
+    await page.getByTestId('bell-close-item').first().click();
+  }
+  await expect(page.getByTestId('close-card')).toBeVisible();
+  // the Wire read the close: the mark is gone
+  await expect.poll(() => page.evaluate(() => window.__tg!.state().closeUnread), { timeout: 10_000 }).toBeNull();
+  if (!isPhone(page)) await expect(page.getByTestId('os-bell')).not.toHaveAttribute('data-close-unread');
+  expect(errors).toEqual([]);
+});
+
 test('the luck card says where you stand in plain words, and its label stays on one line', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = watchErrors(page);
@@ -160,7 +195,8 @@ test('the journal waterfall shows GX over the trade\'s days next to its parts', 
   await page.evaluate((n) => window.__tg!.advance(n), next - tick);
 
   await goTo(page, 'portfolio');
-  await expect(page.getByTestId('os-toasts')).toBeEmpty({ timeout: 15_000 });
+  // the burst of notices (fills, a tip, achievements, the close) shows two at a time, each for its full hold, so the column drains in turn
+  await expect(page.getByTestId('os-toasts')).toBeEmpty({ timeout: 40_000 });
   await page.getByTestId('portfolio-tab-journal').click();
   const row = page.locator('[data-testid^="journal-row-"]').first();
   await expect(row).toBeVisible({ timeout: 25_000 });

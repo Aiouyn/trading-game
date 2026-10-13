@@ -24,6 +24,9 @@ export function StatusStrip() {
   const chatUnread = useGame((s) => s.chatUnread);
   const rankId = me?.rank.id ?? 'R0';
   const unread = me?.player.inboxUnread ?? 0;
+  // A day close the Wire has not shown yet marks the bell too (the toast may have gone before it was read)
+  const closeUnread = useGame((s) => s.closeUnread !== null);
+  const marked = unread > 0 || closeUnread;
   const ready = status === 'ready';
   return (
     <header className="os-strip" data-testid="os-strip">
@@ -75,13 +78,14 @@ export function StatusStrip() {
           type="button"
           className="os-bell os-soft"
           data-testid="os-bell"
-          aria-label={unread > 0 ? t('shell.bell', { n: unread }) : t('shell.bell.none')}
+          aria-label={unread > 0 ? t('shell.bell', { n: unread }) : closeUnread ? t('shell.bell.close') : t('shell.bell.none')}
+          data-close-unread={closeUnread || undefined}
           aria-expanded={inboxOpen}
           aria-haspopup="dialog"
           onClick={() => setInbox(!inboxOpen)}
         >
           <Glyph name="bell" size={18} />
-          {unread > 0 && <span className="os-bell-dot" aria-hidden />}
+          {marked && <span className="os-bell-dot" aria-hidden />}
         </button>
       </div>
     </header>

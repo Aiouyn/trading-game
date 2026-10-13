@@ -27,8 +27,9 @@ test('a closed trade lands in the journal as a row, with its replay and its free
   await portfolio.getByTestId('close-HLCN').click();
   await page.getByTestId('close-HLCN-yes').click();
   await expect(portfolio.getByTestId('position-HLCN')).toHaveCount(0, { timeout: 15_000 });
-  // a fill toast over the Portfolio tabs (the phone drops them from the top) blocks the click while the pointer rests on it: wait for it to go
-  await expect(page.getByTestId('os-toasts')).toBeEmpty({ timeout: 15_000 });
+  // a fill toast over the Portfolio tabs (the phone drops them from the top) blocks the click while the pointer rests on it: wait for it to go.
+  // The phone shows one notice at a time, each for its full hold, so a burst of them (fills, achievements) clears in turn.
+  await expect(page.getByTestId('os-toasts')).toBeEmpty({ timeout: 40_000 });
   await dismissCloseCard(page);
   await page.getByTestId('portfolio-tab-journal').click();
   await expect(page.getByTestId('journal')).toBeVisible();

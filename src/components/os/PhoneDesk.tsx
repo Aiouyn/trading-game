@@ -195,6 +195,8 @@ function PhoneHome() {
 function PhoneAppTile({ app }: { app: AppId }) {
   const unlocked = useShell((s) => s.ctx.unlocked);
   const unread = useGame((s) => (s.me?.player.inboxUnread ?? 0) > 0 || s.chatUnread > 0);
+  // the Wire's dot: a day close it has not shown yet (the phone has no bell; the close is in the Wire)
+  const closeUnread = useGame((s) => s.closeUnread !== null);
   const peak = useGame((s) => s.me?.player.netWorthPeak ?? 0);
   const verdict = phoneCanOpen(app, unlocked);
   const locked = verdict !== 'ok';
@@ -215,6 +217,7 @@ function PhoneAppTile({ app }: { app: AppId }) {
         <Glyph name={APP_GLYPH[app]} size={26} />
         {tag !== null && locked && <span className="os-app-tag">{tag}</span>}
         {app === 'messages' && unread && <span className="os-app-badge" aria-hidden />}
+        {app === 'wire' && closeUnread && <span className="os-app-badge" data-testid="home-app-wire-close" aria-hidden />}
       </span>
       <span className="os-app-nm">{label}</span>
     </button>

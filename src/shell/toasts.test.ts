@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TOAST_MAX, type ShellToast, allowedInFocus, isSticky, toastPlace, visibleToasts, withoutPending } from './toasts';
+import { TOAST_MAX, type ShellToast, allowedInFocus, holdPlan, isSticky, toastPlace, visibleToasts, withoutPending, withoutSuperseded } from './toasts';
 
 const t = (id: string, over: Partial<ShellToast> = {}): ShellToast => ({ id, tone: 'info', text: id, ...over });
 
@@ -45,6 +45,41 @@ describe('toast rules (P2-085..P2-090)', () => {
     expect(isSticky({ tone: 'warn' })).toBe(true);
     expect(isSticky({ tone: 'info', kind: 'margin' })).toBe(true);
     expect(isSticky({ tone: 'gain', kind: 'fill' })).toBe(false);
+  });
+
+  it('no notice is sticky except warnings and margin calls: the day close is a normal notice with its hold', () => {
+    expect(isSticky({ tone: 'brass', kind: 'close' })).toBe(false);
+    expect(isSticky({ tone: 'info', kind: 'other' })).toBe(false);
+    expect(isSticky({ tone: 'loss', kind: 'fill' })).toBe(false);
+    expect(isSticky({ tone: 'warn', kind: 'close' })).toBe(true);
+  });
+
+  it('a hold clock runs only while its notice is on screen: a notice that shows starts one, one that leaves gives it up', () => {
+    // a queued notice (b) has no clock; a warning never gets one
+    expect(holdPlan([], [t('a'), t('w', { tone: 'warn' })])).toEqual({ start: ['a'], stop: [] });
+    // a holding notice that is still shown keeps its clock (not restarted)
+    expect(holdPlan(['a'], [t('a'), t('b')])).toEqual({ start: ['b'], stop: [] });
+    // the first leaves the screen (it expired, or the sheet covers the banner): its clock stops, the queued one starts
+    expect(holdPlan(['a'], [t('b')])).toEqual({ start: ['b'], stop: ['a'] });
+    // the sheet is open: nothing is on screen, every clock stops
+    expect(holdPlan(['a', 'b'], [])).toEqual({ start: [], stop: ['a', 'b'] });
+  });
+
+  it('a new day-close notice replaces the one still queued; other notices are kept', () => {
+    const queue = [t('close-d4', { kind: 'close', tone: 'brass' }), t('plain'), t('fill', { kind: 'fill' })];
+    const close5 = [t('close-d5', { kind: 'close', tone: 'brass' })];
+    expect(withoutSuperseded(queue, close5).map((x) => x.id)).toEqual(['plain', 'fill']);
+    // a notice that is not a close leaves the queued close in place
+    expect(withoutSuperseded(queue, [t('other', { kind: 'other' })]).map((x) => x.id)).toEqual(['close-d4', 'plain', 'fill']);
+  });
+
+  it("a fill still drops its order's pending notice, and the survivors keep their identity for the store's holds", () => {
+    const queue = [t('pending-hlcn', { kind: 'pending', ref: 'HLCN' }), t('close-d4', { kind: 'close' })];
+    const fill = [t('fill-hlcn', { kind: 'fill', ref: 'HLCN' })];
+    expect(withoutSuperseded(queue, fill).map((x) => x.id)).toEqual(['close-d4']);
+    const kept = withoutSuperseded(queue, [t('close-d5', { kind: 'close' })]);
+    expect(kept[0]).toBe(queue[0]);
+    expect(kept).toHaveLength(1);
   });
 
   it('the column stays bottom-right, and when a maximized Broker covers it, moves into the dock beside the ticket (UX stage 6)', () => {
