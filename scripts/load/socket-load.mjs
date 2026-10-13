@@ -8,6 +8,9 @@
 // consecutive tick starts minus the nominal tick, the welcome's tickMs) is under 0.5 s; 1 otherwise. A 1 s stress run gets the
 // same printout, and its exit code is reported as a stress number, not as the gate (R-9-8b). Client and server share one clock.
 // The env RAMP=batch/ms (default 200/250) sets the connect ramp.
+// Sample size: the window is 60 s, so a 5 s tick gives 7 to 11 gaps (a healthy server: 11 or 12 ticks) and the p99 of the
+// overrun or fan-out is the maximum of those few samples. A 1 s stress gives about 54 gaps. The printout states the count
+// (N ticks, N gaps); read the p99 as the worst sample of the window, not as a population percentile.
 // the `ws` client: Node's built-in WebSocket caps concurrent connections per origin in a single process
 import WebSocket from 'ws';
 
