@@ -15,6 +15,10 @@ import { seriesInfo } from './seriesInfo';
 import { alertDir, alertFired, buildLevels, defaultExitPrice, priceSideRefusal, type ChartLevel, type LevelFormat } from './chartLevels';
 import { changeRefusal } from './ticketMath';
 import { useAlerts } from './alerts';
+import { DrawingToolbar } from './chart/DrawingToolbar';
+import { DrawingPanel } from './chart/DrawingPanel';
+import { useDrawingKeys } from './chart/useDrawingKeys';
+import { useDrawings } from './chart/drawingStore';
 
 /** A refusal's copy as a toast (the line says why, in the reader's language). */
 function refusedToast(key: string, vars?: Record<string, string | number>) {
@@ -112,8 +116,15 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   };
   // +TP and +SL place the leg the position lacks, reduce-only, at the default distance (1% beyond the price when that distance
   // has already been passed); the line then drags like any other
-  const addLeg = async (_l: ChartLevel, key: 'addTp' | 'addSl') => {
+  const addLeg = async (_l: ChartLevel, key: 'addTp' | 'addSl' | 'close') => {
     if (!pos || pos.qty === 0) return;
+    if (key === 'close') {
+      // the position line's close: a reduce-only market order for the whole position
+      const r = await act({ type: 'position.close', assetId: info.id }, { silent: true });
+      if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.closeSent', { ticker: info.id }) });
+      else { const c = changeRefusal(r.error ?? '', pos.qty > 0 ? 'sell' : 'buy', canShort); refusedToast(c.key, c.vars); }
+      return;
+    }
     const kind = key === 'addTp' ? 'tp' : 'sl';
     const p = defaultExitPrice(kind, pos.qty, pos.avgCost, info.price);
     const type: OrderType = kind === 'tp' ? 'limit' : 'stop';
@@ -151,6 +162,14 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   // the side the line sits off the visible range, or null when it is drawn on the chart
   const [offSide, setOffSide] = useState<'above' | 'below' | null>(null);
   const [percent, setPercent] = useState(false);
+  // the drawings: the player's saved list for this symbol is read once; the keys act on the chart the pointer is over
+  const drawAsset = info.id;
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  useDrawingKeys(drawAsset, hover || focus);
+  const drawingsUndo = useDrawings((s) => (s.past[drawAsset]?.length ?? 0) > 0);
+  const drawingsRedo = useDrawings((s) => (s.future[drawAsset]?.length ?? 0) > 0);
+  useEffect(() => { void useDrawings.getState().load(drawAsset); }, [drawAsset]);
   // the log scale switch (the bottom-right row of the chart); a percent axis wins over it
   const [log, setLog] = useState(false);
   const day = useGame.getState().history.series[ticker]?.daily.at(-1);
@@ -185,7 +204,11 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
     />
   );
   return (
-    <section className="flex h-full min-h-0 flex-col" data-testid="chart-card">
+    <section
+      className="flex h-full min-h-0 flex-col" data-testid="chart-card"
+      onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}
+      onFocus={() => setFocus(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocus(false); }}
+    >
       {/* The header: the ticker and price, then the controls. Phone widths keep one line of price and one scrolling toolbar,
           so the chart keeps its share of the height. */}
       <div className={narrow ? "px-3 pt-2" : "flex flex-wrap items-start justify-between gap-x-6 gap-y-2 px-3 pt-2.5"}>
@@ -215,10 +238,14 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
             </div>
           )}
         </div>
+        {/* one row beside the price: the sizes and presets scroll sideways in a narrow window instead of wrapping under the
+            price and taking the chart's height */}
         {!narrow && (
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {intervalGroup}
-            {rangeSeg}
+          <div className="min-w-0 flex-1 basis-0 overflow-x-auto">
+            <div className="ml-auto flex w-max items-center gap-2">
+              {intervalGroup}
+              {rangeSeg}
+            </div>
           </div>
         )}
       </div>
@@ -237,13 +264,24 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
           <IndicatorMenu />
         </div>
       )}
-      <div className="relative min-h-0 flex-1 px-1 pb-1">
+      <div className="relative flex min-h-0 flex-1 pb-1 pl-1 pr-1">
+        {!narrow && (
+          <DrawingToolbar
+            onDeleteAll={() => { const st = useDrawings.getState(); st.commit(drawAsset, []); st.select(null); }}
+            onUndo={() => useDrawings.getState().undo(drawAsset)} onRedo={() => useDrawings.getState().redo(drawAsset)}
+            canUndo={drawingsUndo} canRedo={drawingsRedo}
+          />
+        )}
+        <div className="relative min-h-0 min-w-0 flex-1">
         <PriceChart
+          drawings
           assetId={info.id} marks={marks} onMarkOff={setOffSide} eventBand={eventBand} percent={percent} log={log}
           onScaleMode={(m) => (m === 'percent' ? setPercent((p) => !p) : setLog((l) => !l))}
           levels={levels} onLevelCommit={commitLevel} onLevelCancel={cancelLevel} onLevelAction={addLeg}
           onMenuPick={isIndex(info.id) ? undefined : menuPick}
         />
+        <DrawingPanel assetId={drawAsset} />
+        </div>
       </div>
       {liq !== null && offSide !== null && (
         <p className="px-3 pb-1 text-caption text-fg-faint" data-testid="liquidation-off">

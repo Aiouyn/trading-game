@@ -42,7 +42,7 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
   toY: (price: number) => number | null;
   onCommit: (level: ChartLevel, price: number) => void;
   onCancel: (level: ChartLevel) => void;
-  onAction: (level: ChartLevel, key: 'addTp' | 'addSl') => void;
+  onAction: (level: ChartLevel, key: 'addTp' | 'addSl' | 'close') => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -141,6 +141,14 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
                   {a.label}
                 </button>
               ))}
+              {level.closable && (
+                <button
+                  type="button" onClick={() => onAction(level, 'close')} data-testid="level-close"
+                  className="rounded-sm border border-loss/50 px-1 text-micro text-loss hover:bg-loss/10"
+                >
+                  {t('broker.level.close')}
+                </button>
+              )}
               {level.cancelable && (
                 <button
                   type="button" aria-label={t('common.cancel')} title={t('common.cancel')} onClick={() => onCancel(level)}

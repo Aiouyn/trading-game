@@ -159,6 +159,8 @@ export interface ChartLevel {
   cancelable: boolean;
   /** the buttons on the average line: "+ TP" and "+ SL", for the legs the position lacks */
   actions?: { key: 'addTp' | 'addSl'; label: string }[];
+  /** the position line can be closed from its pill (a market close of the whole position, reduce-only) */
+  closable?: boolean;
   /** the pill's text at another price, while the line is dragged (a leg shows its $ and % move at that price too) */
   labelAt?: (price: number) => string;
 }
@@ -229,7 +231,7 @@ export function buildLevels(input: LevelInput): ChartLevel[] {
     if (!hasSl) actions.push({ key: 'addSl', label: fmt.addSl });
     out.push({
       id: 'avg', kind: 'avg', price: avgCost, label: fmt.avg(avgCost, pnl.usd, pnl.pct), tone: pnl.usd >= 0 ? 'gain' : 'loss',
-      dashed: true, draggable: false, cancelable: false, ...(actions.length ? { actions } : {}),
+      dashed: true, draggable: false, cancelable: false, ...(actions.length ? { actions } : {}), closable: true,
     });
   }
   out.push(...legs, ...working);

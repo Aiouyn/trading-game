@@ -4,7 +4,7 @@ import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import {
   AreaSeries, CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, PriceScaleMode, createChart,
   type AutoscaleInfoProvider, type CandlestickData, type HandleScaleOptions, type IChartApi, type IPriceLine, type ISeriesApi, type LineData,
-  type MouseEventParams, type Time, type UTCTimestamp,
+  type Coordinate, type Logical, type MouseEventParams, type Time, type UTCTimestamp,
 } from 'lightweight-charts';
 import { useGame } from '@/game/store';
 import { MIN_VIEW_CANDLES, axisTimeLabel, barTimeLabel, barsFor, rangeFromTick, type Bar, type ChartRange, type Interval } from '@/game/history';
@@ -13,6 +13,7 @@ import { price as fmtPrice, signedPct, dec } from '@/game/format';
 import { t } from '@/i18n';
 import { type ChartLevel, type PriceScale, priceOfY, roundPrice, wheelZoomRange, yOfPrice } from './chartLevels';
 import { LevelLayer } from './LevelLayer';
+import { DrawingLayer, type ChartGeo } from './chart/DrawingLayer';
 
 /**
  * Colors come from the design tokens at runtime: a hidden probe uses the token classes and we
@@ -122,7 +123,7 @@ const MENU_PICKS: { kind: 'buyLimit' | 'sellStop' | 'alert'; key: string }[] = [
   { kind: 'alert', key: 'broker.menu.alert' },
 ];
 
-export function PriceChart({ assetId, range: rangeOverride, interval: intervalOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand, percent = false, log = false, onScaleMode, levels, onLevelCommit, onLevelCancel, onLevelAction, onMenuPick }: {
+export function PriceChart({ assetId, range: rangeOverride, interval: intervalOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand, percent = false, log = false, onScaleMode, levels, onLevelCommit, onLevelCancel, onLevelAction, onMenuPick, drawings = false }: {
   assetId: string;
   range?: ChartRange;
   interval?: Interval;
@@ -150,9 +151,11 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   levels?: ChartLevel[];
   onLevelCommit?: (level: ChartLevel, price: number) => void;
   onLevelCancel?: (level: ChartLevel) => void;
-  onLevelAction?: (level: ChartLevel, key: 'addTp' | 'addSl') => void;
+  onLevelAction?: (level: ChartLevel, key: 'addTp' | 'addSl' | 'close') => void;
   /** the chart menu (right-click or Alt+click at a price): the pick and the price it was made at */
   onMenuPick?: (kind: 'buyLimit' | 'sellStop' | 'alert', price: number) => void;
+  /** the drawing layer (the Broker chart): the player's shapes are drawn over the plot and edited there */
+  drawings?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -185,6 +188,10 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   const [legend, setLegend] = useState<LegendRow[]>([]);
   // the level lines' pixel rows, the price axis's width and the plot height: re-read after every render and on zoom or resize
   const [placed, setPlaced] = useState<{ y: Record<string, number | null>; axisW: number; h: number }>({ y: {}, axisW: 0, h: 0 });
+  // the drawing layer's view: its geometry and the bars it maps, rebuilt when the visible window, the price range, the axis or
+  // the bars change (the key below), so a pan or zoom redraws the shapes on their candles
+  const [view, setView] = useState<{ geo: ChartGeo | null; bars: Bar[] }>({ geo: null, bars: [] });
+  const viewKey = useRef('');
   // the chart menu, opened at a price by a right-click or an Alt+click; its position is inside the chart
   const [menu, setMenu] = useState<{ x: number; y: number; price: number } | null>(null);
   const levelsRef = useRef<ChartLevel[]>([]);
@@ -509,6 +516,53 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     const s = activeSeries();
     return s ? priceOfY(scaleOf(s), y) : null;
   };
+  /**
+   * The chart's own scales as the drawing layer maps them. Time goes through the candles' logical index (a tick between two
+   * candles lies between their indexes, and a tick past the last candle extends at the average candle spacing), so a drawing
+   * stays on its tick when the candle size changes. Price goes through the series' scale.
+   */
+  const geoOf = (): ChartGeo | null => {
+    const c = chart.current;
+    const sr = activeSeries();
+    const bars = shownBars.current;
+    if (!c || !sr || bars.length === 0) return null;
+    const ts = c.timeScale();
+    const n = bars.length;
+    const step = n > 1 ? (bars[n - 1]!.time - bars[0]!.time) / (n - 1) || 1 : 1;
+    const tickToLogical = (tk: number): number => {
+      if (tk <= bars[0]!.time) return (tk - bars[0]!.time) / step;
+      if (tk >= bars[n - 1]!.time) return n - 1 + (tk - bars[n - 1]!.time) / step;
+      let lo = 0;
+      let hi = n - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (bars[mid]!.time <= tk) lo = mid; else hi = mid;
+      }
+      const a = bars[lo]!.time;
+      const b = bars[hi]!.time;
+      return lo + (b > a ? (tk - a) / (b - a) : 0);
+    };
+    const logicalToTick = (l: number): number => {
+      if (l <= 0) return bars[0]!.time + l * step;
+      if (l >= n - 1) return bars[n - 1]!.time + (l - (n - 1)) * step;
+      const i = Math.floor(l);
+      const a = bars[i]!.time;
+      const b = bars[i + 1]!.time;
+      return a + (l - i) * (b - a);
+    };
+    return {
+      width: ts.width(),
+      height: c.paneSize().height,
+      tickToX: (tk) => Number(ts.logicalToCoordinate(tickToLogical(tk) as Logical) ?? 0),
+      xToTick: (x) => {
+        const l = ts.coordinateToLogical(x as Coordinate);
+        return logicalToTick(l === null ? 0 : Number(l));
+      },
+      priceToY: (pr) => { const y = sr.priceToCoordinate(pr); return y === null ? null : Number(y); },
+      yToPrice: (y) => sr.coordinateToPrice(y as Coordinate),
+    };
+  };
+
   // each line's row, the axis width and the plot height: set only when one of them moved
   const placeOverlay = () => {
     const c = chart.current;
@@ -531,6 +585,12 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     }
     const scale = scaleOf(s);
     setAutoOn(right.options().autoScale);
+    const view = c.timeScale().getVisibleLogicalRange();
+    const vkey = `${view?.from}|${view?.to}|${shown?.from}|${shown?.to}|${right.width()}|${c.paneSize().height}|${shownBars.current.length}|${shownBars.current.at(-1)?.time}`;
+    if (vkey !== viewKey.current) {
+      viewKey.current = vkey;
+      setView({ geo: geoOf(), bars: shownBars.current });
+    }
     const y: Record<string, number | null> = {};
     for (const l of levelsRef.current) y[l.id] = yOfPrice(scale, l.price);
     const axisW = Math.round(right.width());
@@ -631,6 +691,12 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
             </>
           )}
         </div>
+      )}
+      {showOverlay && drawings && (
+        <DrawingLayer
+          assetId={assetId} geo={view.geo} bars={view.bars}
+          onWheel={(e) => host.current?.dispatchEvent(new WheelEvent('wheel', e))}
+        />
       )}
       {band && eventBand && (
         <div className="os-event-band" data-testid="event-band" data-kind={eventBand.kind} style={{ left: band.left, width: band.width }} aria-hidden>
