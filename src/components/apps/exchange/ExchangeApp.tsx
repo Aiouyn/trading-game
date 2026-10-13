@@ -37,7 +37,9 @@ export function ExchangeApp() {
           { label: t('exchange.stat.mine'), value: money(x.holdingsValue), testId: 'exchange-stat-mine' },
         ]}
       />
+      {/* the five tabs wrap onto a second row on a phone: a scrolling row under the edge fade hid the last label ("Gérer") */}
       <Tabs<Tab>
+        wrap
         tabs={[
           { id: 'stocks', label: t('exchange.tab.stocks') },
           { id: 'ipos', label: t('exchange.tab.ipos'), badge: x.ipos.length },

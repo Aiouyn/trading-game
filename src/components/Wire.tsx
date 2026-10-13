@@ -83,7 +83,7 @@ export function WireView() {
   return (
     <div className="os-body" data-testid="wire-view">
       <CloseBrief />
-      <div className="os-seg flex flex-wrap gap-1 pb-1" role="group" aria-label={t('wire.filters')}>
+      <div className="os-seg os-seg-wrap flex flex-wrap gap-1 pb-1" role="group" aria-label={t('wire.filters')}>
         {FILTERS.map((x) => (
           <button
             key={x.id}

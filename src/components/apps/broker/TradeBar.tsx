@@ -48,10 +48,11 @@ export function TradeBar({ ticker, onReview }: { ticker: string; onReview: () =>
         value={q} onChange={(v) => write(side, v)}
         step={def?.assetClass === 'stock' ? 1 : 'any'} testId="bar-qty" className="h-9 min-w-[4.5rem] flex-1 px-2"
       />
-      {/* no unit suffix and no field label in the bar: the input keeps its room, and the Review label truncates before it squeezes
+      {/* no unit suffix and no field label in the bar: the input keeps its room, and the Review label wraps before it squeezes
           the input out (French labels are longer). The unit is in the sheet and in the summary. */}
-      <Button variant="brass" size="md" className="min-w-0 max-w-[42%] shrink" disabled={!(n > 0) || !est} onClick={onReview} testId="bar-review">
-        <span className="truncate">{n > 0 && est ? t('broker.bar.review', { verb, qty: fmtQty(n), total: money(total) }) : t('broker.bar.enter')}</span>
+      {/* The label wraps onto a second line instead of truncating ("Saisissez la quantité"): the height is the label's, not the 40 px button's. */}
+      <Button variant="brass" size="md" className="min-w-0 max-w-[42%] shrink h-auto! min-h-10 py-1.5 leading-tight" disabled={!(n > 0) || !est} onClick={onReview} testId="bar-review">
+        <span className="text-center">{n > 0 && est ? t('broker.bar.review', { verb, qty: fmtQty(n), total: money(total) }) : t('broker.bar.enter')}</span>
       </Button>
     </div>
   );
