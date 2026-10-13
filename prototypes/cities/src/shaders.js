@@ -33,6 +33,7 @@ attribute vec4 iStyle;
 attribute vec4 iMeta;
 uniform sampler2D uState;
 uniform float uStateW;
+uniform float uGhostPass;
 varying vec4 vState;
 varying vec3 vN;
 varying vec3 vFace;
@@ -46,9 +47,13 @@ varying float vBaseAbs;
 varying float vProg;
 varying vec3 vLN;
 void main() {
+  // per-building state (render.js load): rgb = lens tint, a = flags (1 emphasis, 2 see-through occluder, 4 focus)
+  vState = texelFetch(uState, ivec2(int(mod(iStyle.w, uStateW)), int(floor(iStyle.w / uStateW))), 0);
+  bool isOccluder = mod(floor(floor(vState.a * 255.0 + 0.5) / 2.0), 2.0) >= 1.0;
   float p = clamp((uGrowth - iMeta.x) / uBand, 0.0, 1.0);
   vProg = p;
-  if (p <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  // the opaque pass draws what is built (occluders are cut out in the fragment); the ghost pass draws only occluders
+  if (p <= 0.0 || (uGhostPass > 0.5 && !isOccluder)) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   vec3 lp = position * iSize;
   vMetric = lp;
   float c = cos(iRot), s = sin(iRot);
@@ -61,8 +66,6 @@ void main() {
   vLN = normal;
   vFace = aFace; vInfo = aInfo; vColor = iColor; vStyle = iStyle; vMeta = iMeta; vSize = iSize;
   vBaseAbs = iPos.y - g;
-  // per-building state (render.js load): rgb = lens tint, a = flags (1 emphasis, 2 see-through, 4 focus)
-  vState = texelFetch(uState, ivec2(int(mod(iStyle.w, uStateW)), int(floor(iStyle.w / uStateW))), 0);
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
 }`;
 
@@ -75,6 +78,7 @@ uniform vec3 uLit1;
 uniform vec3 uLit2;
 uniform vec3 uBrass;
 uniform vec3 uSkyRefl;
+uniform float uGhostPass;
 varying vec4 vState;
 varying vec3 vN;
 varying vec3 vFace;
@@ -102,6 +106,13 @@ void main() {
   bool hq = mod(flags, 2.0) >= 1.0;
   bool crown = mod(floor(flags / 2.0), 2.0) >= 1.0;
   bool ghost = mod(floor(flags / 4.0), 2.0) >= 1.0;
+
+  // see-through state (bits 2 and 4 of the per-building flags): occluders are drawn by the ghost pass only,
+  // focus buildings get brass edges and a lifted colour
+  float stateBits = floor(vState.a * 255.0 + 0.5);
+  bool isOccluder = mod(floor(stateBits / 2.0), 2.0) >= 1.0;
+  bool isFocus = mod(floor(stateBits / 4.0), 2.0) >= 1.0;
+  if (isOccluder && uGhostPass < 0.5) discard;
 
   // the day's return of a headquarters' company (same formula as the info card)
   float ret = 0.0;
@@ -187,7 +198,11 @@ void main() {
     base = light(vColor, n);
   }
 
-  // ---- ink edges, faded out when the face is tiny on screen
+  // ---- focus buildings lift a little towards brass
+  if (isFocus) base = mix(base, uBrass, 0.12);
+
+  // ---- ink edges, faded out when the face is tiny on screen (brass on focus buildings)
+  float lineV = 0.0;
   if (kind < 2.5 && style != 8) {
     float e;
     vec2 fwf = fwidth(vFace.xy);
@@ -202,8 +217,9 @@ void main() {
     }
     float px = 1.0 / max(max(fwf.x, fwf.y), 1e-5);
     float fade = smoothstep(5.0, 16.0, px);
-    float line = (1.0 - smoothstep(0.55, 1.35, e)) * fade;
-    base = mix(base, uInk * (0.6 + 0.4 * (1.0 - uNight)), line * 0.55);
+    lineV = (1.0 - smoothstep(0.55, 1.35, e)) * fade;
+    vec3 edgeC = isFocus ? uBrass : uInk * (0.6 + 0.4 * (1.0 - uNight));
+    base = mix(base, edgeC, lineV * 0.55);
   }
 
   // ---- construction: a scaffold lattice while the building rises
@@ -215,6 +231,12 @@ void main() {
   }
 
   if (abs(bid - uHover) < 0.5 && bid > 0.5) base = mix(base, uBrass * 1.15, 0.38);
+  if (uGhostPass > 0.5) {
+    // see-through: the lit face mixed 35% towards a cool blue-grey and faint; the ink edges stay visible
+    vec3 glass = mix(base, vec3(0.52, 0.62, 0.72), 0.35);
+    gl_FragColor = vec4(mix(glass, uInk, lineV), mix(0.16, 0.55, lineV));
+    return;
+  }
   gl_FragColor = vec4(base + emissive, 1.0);
 }`;
 

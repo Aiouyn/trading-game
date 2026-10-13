@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { makeGeoms } from './geoms.js';
 import { GEOMS, STRIDE } from './archetypes.js';
 import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag } from './shaders.js';
+import { BIT_OCCLUDER, BIT_FOCUS, projectBoxes, findSeeThrough } from './seethrough.js';
 
 const PITCH = Math.atan(0.5) * 2 > 1 ? Math.PI / 6 : Math.PI / 6; // 30 degrees: a 2:1 dimetric diamond
 const col = (hex) => new THREE.Color(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
@@ -24,7 +25,7 @@ export class CityView {
       uNight: { value: 0 }, uGrowth: { value: 1.04 }, uBand: { value: 0.035 }, uTime: { value: 0 },
       uInk: { value: col(0x15171b) }, uMood: { value: 0 }, uHover: { value: -1 },
       uLit0: { value: col(0xffcf7a) }, uLit1: { value: col(0xffe2a8) }, uLit2: { value: col(0xffb85c) },
-      uBrass: { value: col(0xc9a45c) }, uSkyRefl: { value: col(0x9fb4c4) },
+      uBrass: { value: col(0xc9a45c) }, uSkyRefl: { value: col(0x9fb4c4) }, uGhostPass: { value: 0 },
     };
     this.yaw = Math.PI / 4; this.yawTarget = this.yaw;
     this.target = new THREE.Vector3();
@@ -34,6 +35,10 @@ export class CityView {
     this.objects = [];
     this.labels = [];
     this.hoverId = -1;
+    // see-through: focus set (building ids), its occluder count, and the screen boxes for the yaw they were made at
+    this.focusIds = []; this.focusSet = new Set();
+    this.ghosts = []; this.seeCount = 0; this.seeDirty = false;
+    this.seeBoxes = null; this.boxYaw = NaN; this.seeYaw = NaN; this.seeScale = NaN; this.seeMs = 0; this.seeBoxMs = 0;
     this.motion = !matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.resize();
     addEventListener('resize', () => this.resize());
@@ -65,9 +70,17 @@ export class CityView {
     this.stateTex.needsUpdate = true;
     this.uniforms.uState = { value: this.stateTex };
     this.uniforms.uStateW = { value: STATE_W };
+    this.focusIds = []; this.focusSet = new Set();
+    this.seeBoxes = null; this.boxYaw = NaN; this.seeYaw = NaN; this.seeScale = NaN; this.seeCount = 0; this.seeDirty = true;
 
-    // parts: one instanced draw per geometry
+    // parts: one instanced draw per geometry, plus a ghost draw of the same geometry for the see-through occluders
     const partMat = new THREE.ShaderMaterial({ vertexShader: partVert, fragmentShader: partFrag, uniforms: this.uniforms });
+    // the ghost material shares the uniform objects (cloning would freeze the numbers), with uGhostPass = 1
+    const ghostMat = new THREE.ShaderMaterial({
+      vertexShader: partVert, fragmentShader: partFrag, uniforms: { ...this.uniforms, uGhostPass: { value: 1 } },
+      transparent: true, depthWrite: false,
+    });
+    this.ghosts = [];
     for (const k of GEOMS) {
       const arr = city.parts[k];
       const count = arr.length / STRIDE;
@@ -86,6 +99,9 @@ export class CityView {
       const m = new THREE.Mesh(g, partMat);
       m.frustumCulled = false;
       this.add(m);
+      const gm = new THREE.Mesh(g, ghostMat);
+      gm.frustumCulled = false; gm.renderOrder = 2; gm.visible = false;
+      this.add(gm); this.ghosts.push(gm);
     }
 
     // ground
@@ -268,7 +284,7 @@ export class CityView {
     this.dirty = true;
   }
   setMood(m) { this.uniforms.uMood.value = m; this.dirty = true; }
-  setGrowth(g) { this.uniforms.uGrowth.value = g; this.dirty = true; }
+  setGrowth(g) { this.uniforms.uGrowth.value = g; this.seeDirty = true; this.dirty = true; }
   rotate(dir) { this.yawTarget += (dir * Math.PI) / 2; this.dirty = true; }
   /** Smoothly move the camera to map point (x, z) at an optional scale (metres per pixel); instant under reduced motion. */
   flyTo(x, z, scale = null, seconds = 0.7) {
@@ -330,7 +346,7 @@ export class CityView {
     this.updateCamera();
     const { o, dir } = this.ray(px, py);
     const g = this.uniforms.uGrowth.value - this.uniforms.uBand.value * 0.5;
-    let best = null, bt = Infinity;
+    let best = null, bt = Infinity, bestFocus = null, btFocus = Infinity;
     for (const b of this.city.buildings) {
       if (b.order > g) continue;
       const c = Math.cos(-b.rot), s = Math.sin(-b.rot);
@@ -345,12 +361,75 @@ export class CityView {
         if (a > bb) [a, bb] = [bb, a];
         t0 = Math.max(t0, a); t1 = Math.min(t1, bb);
       }
-      if (t0 <= t1 && t0 < bt) { bt = t0; best = b; }
+      if (t0 > t1) continue;
+      if (t0 < bt) { bt = t0; best = b; }
+      // a focus building the ray passes through wins the click, so it stays reachable behind the glass in front of it
+      if (t0 < btFocus && this.focusSet.has(b.id)) { btFocus = t0; bestFocus = b; }
     }
-    return best;
+    return bestFocus ?? best;
   }
 
   setHover(id) { if (id !== this.hoverId) { this.hoverId = id; this.uniforms.uHover.value = id; this.dirty = true; } }
+
+  // ------------------------------------------------------------------ see-through
+  /** The focus set (building ids): drawn with brass edges, and the built buildings that hide them are ghosted. */
+  setFocus(ids) {
+    const next = [...new Set(ids)];
+    if (next.length === this.focusIds.length && next.every((id, i) => id === this.focusIds[i])) return;
+    this.focusIds = next;
+    this.focusSet = new Set(next);
+    this.syncFocusLabels();
+    this.seeDirty = true; this.dirty = true;
+  }
+
+  /** A label for each focus building that has none of its own, so the focus building always has a label. */
+  syncFocusLabels() {
+    const keep = [];
+    for (const l of this.labels) { if (l.focusOnly) l.el.remove(); else keep.push(l); }
+    this.labels = keep;
+    if (!this.city) return;
+    for (const id of this.focusIds) {
+      if (this.labels.some((l) => l.bid === id)) continue;
+      const b = this.city.buildings[id - 1];
+      const el = document.createElement('div');
+      el.className = 'lbl lbl-focus';
+      el.textContent = b.label ?? b.kind;
+      this.labelLayer.appendChild(el);
+      this.labels.push({ kind: 'focus', text: el.textContent, bid: id, el, order: b.order, pos: new THREE.Vector3(b.x, b.gz + b.h + 8, b.y), focusOnly: true });
+    }
+  }
+
+  /**
+   * The see-through pass, on the CPU and only when something changed (focus, growth, a settled yaw), never per frame:
+   * bit 4 on the focus buildings, bit 2 on the built buildings that stand in front of them. Other bits are kept.
+   */
+  applySeeThrough() {
+    const t0 = performance.now();
+    this.seeDirty = false;
+    this.seeYaw = this.yaw;
+    this.seeScale = this.scale;
+    this.clearState(BIT_OCCLUDER | BIT_FOCUS);
+    this.seeCount = 0;
+    if (this.focusIds.length && this.city) {
+      this.updateCamera();
+      if (this.boxYaw !== this.yaw) {
+        // the view basis from the camera: columns are right, up and back (the camera looks along -back)
+        const t1 = performance.now();
+        const e = this.camera.matrixWorld.elements;
+        this.seeBoxes = projectBoxes(this.city.buildings, [e[0], e[1], e[2]], [e[4], e[5], e[6]], [-e[8], -e[9], -e[10]], this.seeBoxes);
+        this.boxYaw = this.yaw;
+        this.seeBoxMs = performance.now() - t1;
+      }
+      const margin = 4 * this.scale; // four CSS pixels, in metres
+      const { focus, occluders } = findSeeThrough(this.city.buildings, this.seeBoxes, this.focusIds, this.uniforms.uGrowth.value, margin);
+      for (const id of focus) this.setFlags(id, this.getFlags(id) | BIT_FOCUS);
+      for (const id of occluders) this.setFlags(id, this.getFlags(id) | BIT_OCCLUDER);
+      this.seeCount = occluders.length;
+    }
+    for (const gm of this.ghosts) gm.visible = this.seeCount > 0;
+    this.commitState();
+    this.seeMs = performance.now() - t0;
+  }
 
   // ------------------------------------------------------------------ frame
   frame(dt) {
@@ -367,6 +446,11 @@ export class CityView {
       if (Math.abs(this.yawTarget - this.yaw) < 1e-3) this.yaw = this.yawTarget;
       this.dirty = true;
     }
+    // the camera settled on a new yaw: the screen boxes, and so the occluders, changed
+    if (this.yaw === this.yawTarget && this.yaw !== this.seeYaw) this.seeDirty = true;
+    // the 4 px margin is in metres, so a zoom of more than a quarter also redoes the test (not on every wheel tick)
+    if (this.focusIds.length && Math.abs(Math.log(this.scale / this.seeScale)) > Math.log(1.25)) this.seeDirty = true;
+    if (this.seeDirty && this.city) this.applySeeThrough();
     if (this.motion) { this.uniforms.uTime.value += dt; this.dirty = true; if (this.train) this.moveTrain(dt); }
     if (!this.dirty || !this.city) return;
     this.updateCamera();
@@ -383,10 +467,13 @@ export class CityView {
       v.copy(l.pos).project(this.camera);
       const x = (v.x * 0.5 + 0.5) * this.w, y = (-v.y * 0.5 + 0.5) * this.h;
       let show = x > -60 && x < this.w + 60 && y > -20 && y < this.h + 20 && l.order <= g;
-      if (l.kind === 'minor' && zoom < 0.55) show = false;
-      if ((l.kind === 'hq' || l.kind === 'crown') && zoom < 0.9) show = false;
-      if (l.kind === 'mine' && zoom < 0.45) show = false;
-      if ((l.kind === 'landmark' || l.kind === 'park' || l.kind === 'station') && zoom < 0.7) show = false;
+      // the label of a focus building (the selected one, yours) shows at any zoom
+      if (!this.focusSet.has(l.bid)) {
+        if (l.kind === 'minor' && zoom < 0.55) show = false;
+        if ((l.kind === 'hq' || l.kind === 'crown') && zoom < 0.9) show = false;
+        if (l.kind === 'mine' && zoom < 0.45) show = false;
+        if ((l.kind === 'landmark' || l.kind === 'park' || l.kind === 'station') && zoom < 0.7) show = false;
+      }
       if (!this.showLabels) show = false;
       l.el.style.display = show ? '' : 'none';
       if (show) l.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
