@@ -143,9 +143,16 @@ test('L3 and L4: no frame a rival or another player receives carries a position,
     // the world attaches them to some ticks only, so they are left out of the search, and every other part of a tick is checked.
     const aId = (framesA.find((f) => (f as { t?: string }).t === 'welcome') as { playerId?: string } | undefined)?.playerId;
     expect(aId, 'A received a welcome').toBeTruthy();
+    // A panel reply (R-9-12) is a public record in its `data` (the boards, or the directory with B's rows), so its `data` is left out of
+    // the id search exactly as `pub` and `directory` are on a tick. Its envelope (t, id, panel, v) is searched, and privateKeysIn above
+    // still reads its `data` for private keys.
     const publicRecords = new Set(['pub', 'directory']);
-    const withoutPublic = (f: unknown) => Object.fromEntries(Object.entries(f as object).filter(([k]) => !publicRecords.has(k)));
-    const aIdHits = framesB.filter((f) => !['welcome', 'panel'].includes((f as { t?: string }).t ?? '') && JSON.stringify(withoutPublic(f)).includes(`"${aId}"`));
+    const withoutPublic = (f: unknown) => {
+      const m = f as { t?: string };
+      if (m.t === 'panel') return Object.fromEntries(Object.entries(f as object).filter(([k]) => k !== 'data'));
+      return Object.fromEntries(Object.entries(f as object).filter(([k]) => !publicRecords.has(k)));
+    };
+    const aIdHits = framesB.filter((f) => (f as { t?: string }).t !== 'welcome' && JSON.stringify(withoutPublic(f)).includes(`"${aId}"`));
     expect(aIdHits.map((f) => (f as { t?: string }).t)).toEqual([]);
     expect(errorsB).toEqual([]);
   } finally {

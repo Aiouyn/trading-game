@@ -138,9 +138,11 @@ export interface GameStore {
 
 let client: WorldClient | null = null;
 let toastSeq = 0;
-/** a public panel's read in flight, and a stamp that moved during it (the panel reads again when it settles) */
-const panelBusy: Record<PublicPanel, boolean> = { boards: false, directory: false };
-const panelAgain: Record<PublicPanel, boolean> = { boards: false, directory: false };
+/**
+ * The stamp each public panel's read in flight asked for (-1 when none). A read is sent only when no read in flight already asks for
+ * the panel's stamp or a later one; a stamp that moves during a read is sent at once, not after the old read settles (R-9-12).
+ */
+const panelAsked: Record<PublicPanel, number> = { boards: -1, directory: -1 };
 
 /**
  * The toast hold timers (P2-086). The store owns them, so a notice expires on time even when it sits
@@ -424,13 +426,15 @@ export const useGame = create<GameStore>((set, get) => {
 
     async loadPanel(panel) {
       if (!client) return;
-      if (panelBusy[panel]) { panelAgain[panel] = true; return; }
-      panelBusy[panel] = true;
+      const want = get().panelStamp[panel];
+      if (want < 0 || panelAsked[panel] >= want) return;
+      panelAsked[panel] = want;
       try {
         const r = await client.panel(panel);
-        // an offline or timed-out read answers without a version: the data and its tick stay as they were
-        if (typeof r.v === 'number' && r.data !== undefined && r.data !== null) {
-          const panelLoaded = { ...get().panelLoaded, [panel]: Math.max(get().panelLoaded[panel], r.v) };
+        // an offline or timed-out read answers without a version: the data and its tick stay as they were. A reply older than the
+        // data on screen (replies can come back out of order) is not applied, so a panel never goes back in time.
+        if (typeof r.v === 'number' && r.data !== undefined && r.data !== null && r.v >= get().panelLoaded[panel]) {
+          const panelLoaded = { ...get().panelLoaded, [panel]: r.v };
           if (panel === 'boards') {
             const pub = get().pub;
             set({ panelLoaded, ...(pub ? { pub: { ...pub, boards: r.data as Boards } } : {}) });
@@ -439,8 +443,7 @@ export const useGame = create<GameStore>((set, get) => {
           }
         }
       } finally {
-        panelBusy[panel] = false;
-        if (panelAgain[panel]) { panelAgain[panel] = false; void get().loadPanel(panel); }
+        if (panelAsked[panel] === want) panelAsked[panel] = -1;
       }
     },
 

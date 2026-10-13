@@ -8,6 +8,12 @@
 // consecutive tick starts minus the nominal tick, the welcome's tickMs) is under 0.5 s; 1 otherwise. A 1 s stress run gets the
 // same printout, and its exit code is reported as a stress number, not as the gate (R-9-8b). Client and server share one clock.
 // The env RAMP=batch/ms (default 200/250) sets the connect ramp.
+// The env WINDOW_ALIGN=N (V1-PHASE9 R-9-12) starts the measured window at the first tick whose number is a multiple of N (N=60, the
+// public tick BOARD_EVERY), and the window then lasts the same SECONDS. The window is not started early: a window that starts at a
+// public tick holds it, so the record reads the stall the public tick causes. NEED_PUBLIC=k (default 0) makes the gate also need k
+// public ticks (tick % PUBLIC_EVERY === 0, default 60) in the window; the printout always states the count.
+// The env PANEL_READERS=k (R-9-12) makes the first k clients read the boards and the directory ('panel' requests) on every public tick of
+// the window, as a Social screen does; their replies are counted and printed. The gate does not include them (the default is 0).
 // Sample size: the window is 60 s, so a 5 s tick gives 7 to 11 gaps (a healthy server: 11 or 12 ticks) and the p99 of the
 // overrun or fan-out is the maximum of those few samples. A 1 s stress gives about 54 gaps. The printout states the count
 // (N ticks, N gaps); read the p99 as the worst sample of the window, not as a population percentile.
@@ -17,6 +23,14 @@ import WebSocket from 'ws';
 const base = process.argv[2] ?? 'http://localhost:8899';
 const N = Number(process.argv[3] ?? 2000);
 const SECONDS = Number(process.argv[4] ?? 30);
+const ALIGN = Number(process.env.WINDOW_ALIGN ?? 0);
+const PUBLIC_EVERY = Number(process.env.PUBLIC_EVERY ?? 60);
+const NEED_PUBLIC = Number(process.env.NEED_PUBLIC ?? 0);
+// PANEL_READERS=k (V1-PHASE9 R-9-12): k of the clients read the public panels on every public tick of the window (see onmessage)
+const PANEL_READERS = Number(process.env.PANEL_READERS ?? 0);
+let panelReplies = 0;
+let panelBytes = 0;
+let panelSeq = 1000;
 const ws = base.replace(/^http/, 'ws');
 
 const t0 = Date.now();
@@ -35,6 +49,9 @@ console.log(`registered ${tokens.length} in ${((Date.now() - t0) / 1000).toFixed
 
 let bytes = 0;
 let ticks = 0;
+// the measured window: open from the start (WINDOW_ALIGN unset), or from the first aligned tick (WINDOW_ALIGN=N)
+let windowOn = ALIGN === 0;
+let windowStart = 0;
 const arrivals = new Map(); // frame tick → { first, last } client receipt (ms), and st: the server's serverTime stamp of that tick
 let nominal = null; // the server's tick period (ms), from the welcome's tickMs
 let welcomed = 0;
@@ -54,7 +71,11 @@ function open(token, i, attempt = 0) {
   s.onopen = () => s.send(JSON.stringify({ t: 'hello', token }));
   s.onmessage = (ev) => {
     const data = String(ev.data);
-    bytes += data.length;
+    if (windowOn) bytes += data.length;
+    if (data.startsWith('{"t":"panel"')) {
+      if (windowOn) { panelReplies++; panelBytes += data.length; }
+      return;
+    }
     if (data.startsWith('{"t":"welcome"')) {
       welcomed++;
       got = true;
@@ -63,10 +84,18 @@ function open(token, i, attempt = 0) {
       return;
     }
     if (!data.startsWith('{"t":"tick"')) return;
-    ticks++;
     const m = /"frame":\{"tick":(\d+)/.exec(data);
     if (!m) return;
     const t = Number(m[1]);
+    if (!windowOn) {
+      // the window opens at the first aligned tick (WINDOW_ALIGN); before it nothing is counted or recorded
+      if (t % ALIGN !== 0) return;
+      windowOn = true;
+      windowStart = Date.now();
+      bytes = 0;
+      ticks = 0;
+    }
+    ticks++;
     const now = Date.now();
     const a = arrivals.get(t);
     if (a) a.last = now;
@@ -74,6 +103,12 @@ function open(token, i, attempt = 0) {
       // serverTime is the last field of a tick message: the server's stamp at the tick's broadcast (the tick start)
       const si = data.lastIndexOf('"serverTime":');
       arrivals.set(t, { first: now, last: now, st: si >= 0 ? parseInt(data.slice(si + 13), 10) : NaN });
+    }
+    // PANEL_READERS (R-9-12): the first k clients read the boards and the directory on each public tick of the window, as a client
+    // with Social open does (usePublicPanel). Their replies are counted and reported; the gate does not read them.
+    if (i < PANEL_READERS && windowOn && data.includes('"panels":')) {
+      s.send(JSON.stringify({ t: 'panel', id: ++panelSeq, panel: 'boards' }));
+      s.send(JSON.stringify({ t: 'panel', id: ++panelSeq, panel: 'directory' }));
     }
   };
   s.onerror = (e) => { if (errors++ === 0) console.log('first socket error:', e?.message, e?.error?.code, e?.error?.message); };
@@ -93,11 +128,19 @@ const settleStart = Date.now();
 while (welcomed < N && Date.now() - settleStart < 240_000) await new Promise((r) => setTimeout(r, 250));
 console.log(`settled after ${((Date.now() - settleStart) / 1000).toFixed(1)} s: welcomed ${welcomed} of ${N}`);
 // the window's own counters: the settle period (clients still in backoff) is not part of the tick numbers
-arrivals.clear();
-bytes = 0;
-ticks = 0;
-const start = Date.now();
-await new Promise((r) => setTimeout(r, SECONDS * 1000));
+if (ALIGN === 0) {
+  arrivals.clear();
+  bytes = 0;
+  ticks = 0;
+  windowStart = Date.now();
+} else {
+  // the aligned start: wait for the first tick whose number is a multiple of ALIGN (at most 15 min), then the same length
+  while (!windowOn && Date.now() - settleStart < 900_000) await new Promise((r) => setTimeout(r, 50));
+  if (!windowOn) console.log(`no tick aligned to ${ALIGN} arrived in 15 min: the window is empty`);
+}
+const start = windowStart || Date.now();
+await new Promise((r) => setTimeout(r, Math.max(0, start + SECONDS * 1000 - Date.now())));
+windowOn = false;
 const secs = (Date.now() - start) / 1000;
 stopping = true;
 // per tick of the window, sorted by the frame tick: tick start (the server's serverTime stamp) and the client receipts
@@ -115,7 +158,9 @@ const arrivalGaps = firsts.slice(1).map((v, k) => v - firsts[k]).sort((x, y) => 
 const pct = (a, q) => a[Math.min(a.length - 1, Math.floor(a.length * q))] ?? 0;
 console.log(`connect retries ${closes} (socket errors ${errors})`, JSON.stringify(closeCodes));
 console.log(`clients ${welcomed}/${N} · tick messages ${ticks} · ${(bytes / secs / 1e6).toFixed(1)} MB/s total, ${(bytes / secs / Math.max(1, welcomed) / 1e3).toFixed(1)} kB/s per client`);
-console.log(`ticks in window ${perTick.length} · nominal tick ${nominal} ms (welcome tickMs)`);
+const publicCount = perTick.filter((k) => k.t % PUBLIC_EVERY === 0).length;
+console.log(`ticks in window ${perTick.length} · public ticks in window ${publicCount} (tick % ${PUBLIC_EVERY}, first tick ${perTick[0]?.t ?? '-'}) · nominal tick ${nominal} ms (welcome tickMs)`);
+if (PANEL_READERS > 0) console.log(`panel readers ${PANEL_READERS} · panel replies in window ${panelReplies} · ${(panelBytes / 1e6).toFixed(1)} MB (boards and directory)`);
 console.log(`fan-out per tick (tick start to last client receipt, ${fanOut.length} ticks): p50 ${pct(fanOut, 0.5)} ms, p99 ${pct(fanOut, 0.99)} ms, max ${fanOut.at(-1) ?? 0} ms`);
 console.log(`tick overrun (spacing minus nominal, ${overrun.length} gaps): p50 ${pct(overrun, 0.5)} ms, p99 ${pct(overrun, 0.99)} ms, max ${overrun.at(-1) ?? 0} ms`);
 console.log(`reference: client first→last receipt per tick p50 ${pct(spans, 0.5)} ms, p99 ${pct(spans, 0.99)} ms; client arrival spacing p50 ${pct(arrivalGaps, 0.5)} ms, p99 ${pct(arrivalGaps, 0.99)} ms`);
@@ -123,8 +168,9 @@ console.log(`reference: client first→last receipt per tick p50 ${pct(spans, 0.
 const allWelcomed = welcomed === N;
 const fanP99 = pct(fanOut, 0.99);
 const overP99 = pct(overrun, 0.99);
-const pass = allWelcomed && fanOut.length > 0 && overrun.length > 0 && fanP99 < 2500 && overP99 < 500;
-console.log(`GATE ${pass ? 'PASS' : 'FAIL'}: welcomed ${welcomed}/${N} (need ${N}); fan-out p99 ${fanP99} ms (need < 2500); overrun p99 ${overP99} ms (need < 500)`);
+const publicOk = publicCount >= NEED_PUBLIC;
+const pass = allWelcomed && fanOut.length > 0 && overrun.length > 0 && fanP99 < 2500 && overP99 < 500 && publicOk;
+console.log(`GATE ${pass ? 'PASS' : 'FAIL'}: welcomed ${welcomed}/${N} (need ${N}); fan-out p99 ${fanP99} ms (need < 2500); overrun p99 ${overP99} ms (need < 500); public ticks ${publicCount} (need ${NEED_PUBLIC})`);
 for (const s of sockets) s.close();
 const health = await fetch(`${base}/health`).then((r) => r.json());
 console.log('server', JSON.stringify(health));

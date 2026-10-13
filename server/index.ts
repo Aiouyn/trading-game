@@ -10,7 +10,7 @@ import { textConfigFromEnv } from './text/config';
 import { TextEnricher } from './text/enricher';
 import { enrichItemOf } from './text/facts';
 import { WorldHost } from './host';
-import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicCore, publicState, topDirectory } from '../src/world/view';
+import { chatFor, configSeq, directory, directoryFor, directoryWire, marketFrame, playerView, publicCore, publicState, topDirectory } from '../src/world/view';
 import { lpPageOf } from '../src/world/launchpad/view';
 import { visitView } from '../src/world/home';
 import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
@@ -341,8 +341,9 @@ wss.on('connection', (ws) => {
         const v = host.g.market.tick;
         if (!c.pid || !panel) return send(ws, { t: 'panel', id: msg.id, panel: panel ?? 'boards', v, data: null });
         try {
+          // both bodies are serialized once per tick (publicCache): a read costs the viewer's own rows, not a stringify of the panel
           const shared = publicCache();
-          const body = panel === 'boards' ? JSON.stringify(host.g.boards) : (shared.topJson ?? JSON.stringify(directoryFor(host.g, shared.all, shared.top, c.pid)));
+          const body = panel === 'boards' ? shared.boardsJson : (shared.topJson ?? directoryWire(host.g, shared.all, shared.top, shared.topBody, shared.pos, c.pid));
           return sendText(ws, `{"t":"panel","id":${Number(msg.id)},"panel":"${panel}","v":${v},"data":${body}}`);
         } catch (e) {
           log(`panel error: ${(e as Error).message}`);
@@ -368,16 +369,25 @@ wss.on('connection', (ws) => {
 });
 
 /** Public state, directory and the full market frame, built at most once per tick and shared by every welcome. */
-let pubCache: { tick: number; cfgSeq: number; pubJson: string; all: ReturnType<typeof directory>; top: ReturnType<typeof directory>; topJson: string | null; frameJson: string } | null = null;
+let pubCache: {
+  tick: number; cfgSeq: number; pubJson: string; all: ReturnType<typeof directory>; top: ReturnType<typeof directory>; topJson: string | null;
+  /** the top list without its brackets and the index of every row, for directoryWire (a big world only; empty otherwise) */
+  topBody: string; pos: Map<string, number>;
+  /** the boards panel's body (R-9-12): the same text for every viewer */
+  boardsJson: string; frameJson: string;
+} | null = null;
 function publicCache() {
   // keyed by the asset list version too, so a welcome's frame and defs always describe the same list
   if (!pubCache || pubCache.tick !== host.g.market.tick || pubCache.cfgSeq !== configSeq(host.g)) {
     const all = directory(host.g);
     const top = topDirectory(all);
+    const topJson = all.length <= top.length ? JSON.stringify(top) : null;
     const depth = depthWire.frame(host.g);
     pubCache = {
-      tick: host.g.market.tick, cfgSeq: configSeq(host.g), pubJson: JSON.stringify(publicState(host.g)), all, top,
-      topJson: all.length <= top.length ? JSON.stringify(top) : null,
+      tick: host.g.market.tick, cfgSeq: configSeq(host.g), pubJson: JSON.stringify(publicState(host.g)), all, top, topJson,
+      topBody: topJson ? '' : JSON.stringify(top).slice(1, -1),
+      pos: topJson ? new Map() : new Map(all.map((r, i) => [r.id, i] as const)),
+      boardsJson: JSON.stringify(host.g.boards),
       frameJson: JSON.stringify({ ...marketFrame(host.g, true), shortInterest: welcomeShortInterest(host.g), ...(depth ? { depth } : {}) }),
     };
   }

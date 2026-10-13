@@ -139,16 +139,34 @@ describe('the public panels on the store (R-9-12)', () => {
     expect(useGame.getState().panelLoaded.directory).toBe(781);
   });
 
-  it('a read asked for while one is in flight is not doubled, and runs once more when the first settles', async () => {
+  it('a read asked for the same stamp while one is in flight is not doubled', async () => {
     net.handler!(welcome(781, []));
-    // the first read is in flight when the second and third asks come: they do not send, they ask for one more read
-    net.panelReplies.push({ v: 790, data: [] }, { v: 900, data: [rowA] });
+    net.panelReplies.push({ v: 790, data: [rowA] });
     const first = useGame.getState().loadPanel('directory');
     void useGame.getState().loadPanel('directory');
     void useGame.getState().loadPanel('directory');
     await first;
-    await new Promise((r) => setTimeout(r, 0));
-    expect(net.panelCalls).toEqual(['directory', 'directory']);
+    expect(net.panelCalls).toEqual(['directory']);
     expect(useGame.getState().directory).toEqual([rowA]);
+  });
+
+  it('a stamp that moves during a read is read at once, not after the old read settles', async () => {
+    net.handler!(welcome(781, []));
+    // the read for 781 is still in flight (its reply is held) when the public tick 840 arrives: the new read goes out now
+    let releaseOld: (v: unknown) => void = () => undefined;
+    net.panelReplies.push(new Promise((r) => { releaseOld = r; }) as never);
+    const first = useGame.getState().loadPanel('directory');
+    net.handler!(tick(840, { panels: { boards: 840, directory: 840 } }));
+    net.panelReplies.push({ v: 841, data: [rowA] });
+    void useGame.getState().loadPanel('directory');
+    expect(net.panelCalls).toEqual(['directory', 'directory']);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(useGame.getState().directory).toEqual([rowA]);
+    expect(useGame.getState().panelLoaded.directory).toBe(841);
+    // the old read's reply lands last, at an older tick: it is not applied (the panel never goes back in time)
+    releaseOld({ v: 790, data: [] });
+    await first;
+    expect(useGame.getState().directory).toEqual([rowA]);
+    expect(useGame.getState().panelLoaded.directory).toBe(841);
   });
 });
