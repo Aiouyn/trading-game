@@ -1,10 +1,10 @@
 'use client';
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { assetIndex, buyingPower, commission, estimateFill, halfSpread, marginConfig, marginRuleApplies, mayShort, tradingConfig, type OrderType, type Side } from '@/engine';
+import { assetIndex, buyingPower, commission, estimateFill, halfSpread, marginConfig, marginRuleApplies, mayShort, qtyStep, tradingConfig, type OrderType, type Side } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { QUICK_ENTER, SIMPLE_MODE } from '@/content/learning';
-import { money, price, qty as fmtQty, signedMoney, signedPct, dec } from '@/game/format';
+import { assetPrice, money, qty as fmtQty, signedMoney, signedPct, dec } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { capBaseOf, openingNotionalOf } from '@/world/orders';
@@ -134,24 +134,28 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const cashNow = fundMode && managed ? managed.cash : (acct?.cash ?? 0);
   const held = fundMode && managed ? (managed.positions.find((p) => p.assetId === selected)?.qty ?? 0) : (acct?.positions[selected]?.qty ?? 0);
   const outside = fundMode && !!ctx && !!managed && !managed.mandate.classes.includes(ctx.def.assetClass);
-  const whole = ctx?.def.assetClass === 'stock';
+  // a share (stocks, ETFs) trades in 0.0001 steps (R-10-4): the step is the asset's own, a fraction for the rest
+  const shares = ctx?.def.assetClass === 'stock';
+  const step = ctx ? qtyStep(ctx.def) : 0;
   const firstTrade = !!me && me.player.stats.trades === 0 && !me.player.onboarding.skipped;
   const simple = firstTrade && !fundMode;
   // The order-type picker is hidden on a first trade (simple mode), except in the narrow layout (the trade sheet, UX 4).
   const showType = !simple || !dense;
   const typeOpts = fundMode ? TYPE_OPTS.filter((o) => o.value === 'market' || o.value === 'limit') : TYPE_OPTS;
-  const roundQ = (x: number) => (whole ? Math.floor(x) : Math.floor(x * 1e4) / 1e4);
+  const roundQ = (x: number) => (step > 0 ? Number((Math.floor(x / step + 1e-9) * step).toFixed(8)) : Math.floor(x * 1e4) / 1e4);
+  // a size chip never rounds to zero (R-10-4): a chip that is affordable at all sizes to the smallest step, and the refusal says why
+  const chipQty = (x: number) => { const r = roundQ(x); return r > 0 || !(x > 0) ? r : (step > 0 ? step : x); };
   // the size in units: the typed number, or a dollar amount converted at the price (the estimate at mid guesses the units)
   const typed = parseDecimal(q);
   const mid = ctx?.mid ?? 0;
   const guessQty = unit === 'shares' ? typed : (mid > 0 ? typed / mid : 0);
-  const est = world && ctx ? estimateFill(world, { assetId: selected, side, qty: Math.max(guessQty, whole ? 1 : 0.0001) }) : null;
+  const est = world && ctx ? estimateFill(world, { assetId: selected, side, qty: Math.max(guessQty, step > 0 ? step : 0.0001), playerId: playerId ?? undefined }) : null;
   const refPrice = est ? (type === 'limit' || type === 'stop_limit' ? parseDecimal(limit) || est.price : type === 'stop' ? parseDecimal(stop) || est.price : est.price) : 0;
   const qtyN = unit === 'shares' ? typed : (refPrice > 0 ? roundQ(typed / refPrice) : 0);
   // a dollar amount that does not reach one whole share at this price: said under the size, never sent as zero
-  const tooSmall = unit === 'usd' && whole && typed > 0 && qtyN === 0;
+  const tooSmall = unit === 'usd' && shares && typed > 0 && qtyN === 0;
   const notional = qtyN * refPrice;
-  const fee = world && ctx ? commission(world, ctx.def, notional) : 0;
+  const fee = world && ctx ? commission(world, ctx.def, notional, qtyN) : 0;
   const total = side === 'buy' ? notional + fee : notional - fee;
   const bp = world && playerId ? buyingPower(world, playerId) : 0;
   // the margin rules bite for an account that borrows or holds a short; a cash-secured long account buys with its cash
@@ -184,7 +188,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
 
   // The rules (ticketMath.ts): the first failing rule is the refusal, under its field. A fund trade keeps its own short list.
   const check = !ctx || !acct || !est || fundMode ? null : checkOrder({
-    side, type, qty: qtyN, whole: !!whole, mid: ctx?.mid ?? 0, ref: refPrice,
+    side, type, qty: qtyN, whole: false, mid: ctx?.mid ?? 0, ref: refPrice,
     limit: parseDecimal(limit), stop: parseDecimal(stop), trail: parseDecimal(trail),
     tp: tp.trim() === '' ? null : parseDecimal(tp), sl: sl.trim() === '' ? null : parseDecimal(sl),
     cash: acct?.cash ?? 0, bp, margin, total, notional, held, simpleCap, capCash, capPct: firstCapVars.pct, capRank: firstCapVars.rank,
@@ -198,7 +202,6 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
     // the mandate and the fund's cash and limits are the world's to refuse (the refusal shows after the send)
     if (!ctx || !acct || !est) invalid = null;
     else if (outside) invalid = { field: 'general', key: 'broker.fund.outside', vars: { name: managed!.name }, cta: 'broker.fund.outside' };
-    else if (qtyN > 0 && whole && !Number.isInteger(qtyN)) invalid = { field: 'qty', key: 'broker.refuse.whole', cta: 'broker.cta.whole' };
     else if (qtyN > 0 && type === 'limit' && parseDecimal(limit) <= 0) invalid = { field: 'limit', key: 'broker.refuse.limit', cta: 'broker.cta.limit' };
   } else {
     invalid = check?.refusal ?? null;
@@ -336,9 +339,12 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   // The cost summary (spec 1.4): the fee at its rate and its minimum, the spread, the round trip and the break-even.
   const feeTable = tradingConfig(world).fees;
   const feeRule = feeTable[def.assetClass] ?? feeTable.stock;
-  const feeText = t('broker.feeMin', { rate: `${dec(feeRule.rate * 100, 2)}%`, min: money(feeRule.min) });
+  // R-10-2: a per-share schedule (stocks, ETFs) reads as its own rule; a rate schedule reads as its rate and minimum
+  const feeText = feeRule.perUnit !== undefined
+    ? t('broker.feeShare', { perShare: dec(feeRule.perUnit, 3), min: money(feeRule.min), max: `${dec((feeRule.max ?? 0) * 100, 0)}%` })
+    : t('broker.feeMin', { rate: `${dec(feeRule.rate * 100, 2)}%`, min: money(feeRule.min) });
   const summary = tradeSummary({
-    side, qty: qtyN, price: d.price, mid: ctx.mid, fee, halfSpreadFrac: halfSpread(world, ctx.idx),
+    side, qty: qtyN, price: d.price, mid: ctx.mid, fee, halfSpreadFrac: halfSpread(world, ctx.idx), impactFrac: d.impactBps / 1e4,
     cash: cashNow, bp, margin, shorting, total, notional,
   });
   const cashAfter = summary.cashAfter;
@@ -387,7 +393,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
             </span>
           </div>
           <div className={`${dense ? 'mt-0.5' : 'mt-1'} flex items-baseline justify-between text-caption`}>
-            <span className="num text-fg-muted">{t('broker.mid', { ticker: selected, price: price(ctx.mid) })}</span>
+            <span className="num text-fg-muted">{t('broker.mid', { ticker: selected, price: assetPrice(ctx.def, ctx.mid) })}</span>
             {held !== 0 && <span className="num text-fg-faint">{t('broker.youHold', { qty: fmtQty(held) })}</span>}
           </div>
 
@@ -451,12 +457,12 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
               <div className={dense ? 'mt-1 flex items-end gap-2' : undefined}>
                 <NumberField
                   className={dense ? 'min-w-0 flex-1' : 'mt-2'} label={t('broker.quantity')} value={q} onChange={setQ}
-                  suffix={unit === 'usd' ? '$' : whole ? t('broker.unit.shares') : t('broker.unit.units')} step={unit === 'usd' ? 'any' : whole ? 1 : 'any'} testId="order-qty"
+                  suffix={unit === 'usd' ? '$' : shares ? t('broker.unit.shares') : t('broker.unit.units')} step="any" testId="order-qty"
                 />
                 <Segmented
                   label={t('broker.unit.label')} size="sm" className={dense ? 'shrink-0' : 'mt-3 w-full'} value={unit} onChange={(v) => setUnit(v as Unit)}
                   options={[
-                    { value: 'shares', label: whole ? t('broker.unit.shares') : t('broker.unit.units'), testId: 'unit-shares' },
+                    { value: 'shares', label: shares ? t('broker.unit.shares') : t('broker.unit.units'), testId: 'unit-shares' },
                     { value: 'usd', label: t('broker.unit.dollars'), testId: 'unit-usd' },
                   ]}
                 />
@@ -468,7 +474,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                 {[0.1, 0.25, 0.5, 1].map((f) => (
                   <button
                     key={f} type="button"
-                    onClick={() => setQ(unit === 'usd' ? String(Math.floor(maxQty * f * d.price * 100) / 100) : String(roundQ(maxQty * f)))}
+                    onClick={() => setQ(unit === 'usd' ? String(Math.floor(maxQty * f * d.price * 100) / 100) : String(chipQty(maxQty * f)))}
                     className={`${dense ? 'h-7' : 'h-9'} rounded-md border border-ink-3 text-caption text-fg-muted hover:border-brass/50 hover:text-fg`}
                     data-testid={`chip-${f === 1 ? 'Max' : Math.round(f * 100)}`}
                   >
@@ -565,14 +571,17 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   dense={dense}
                   full={side === 'buy' ? t('broker.askEst') : t('broker.bidEst')}
                   k={shortLabels ? (side === 'buy' ? t('broker.sum.buyPrice') : t('broker.sum.sellPrice')) : (side === 'buy' ? t('broker.askEst') : t('broker.bidEst'))}
-                  v={price(d.price)}
+                  v={assetPrice(ctx.def, d.price)}
                 />
                 <SumRow dense={dense} full={t('broker.notional')} k={shortLabels ? t('broker.sum.notional') : t('broker.notional')} v={money(notional)} />
                 <SumRow dense={dense} full={feeText} k={shortLabels ? t('broker.sum.fee') : feeText} v={money(fee)} />
                 <SumRow dense={dense} full={t('broker.spread')} k={shortLabels ? t('broker.sum.spread') : t('broker.spread')} v={<span data-testid="order-spread">{spreadText}</span>} />
+                {/* R-10-1: the spread the order pays and its own impact are separate lines; other accounts' flow is in neither */}
+                <SumRow dense={dense} full={t('broker.spreadCost')} k={shortLabels ? t('broker.sum.spreadCost') : t('broker.spreadCost')} v={<span data-testid="order-spread-cost">{money(summary.spreadCost)}</span>} />
+                <SumRow dense={dense} full={t('broker.impactCost')} k={shortLabels ? t('broker.sum.impactCost') : t('broker.impactCost')} v={<span data-testid="order-impact-cost">{money(summary.impactCost)}</span>} />
                 <SumRow dense={dense} k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
                 <SumRow dense={dense} full={t('broker.roundTrip')} k={shortLabels ? t('broker.sum.roundTrip') : t('broker.roundTrip')} v={<span data-testid="order-roundtrip">{money(summary.roundTrip)}</span>} />
-                <SumRow dense={dense} full={t('broker.breakEven')} k={shortLabels ? t('broker.sum.breakEven') : t('broker.breakEven')} v={<span data-testid="order-breakeven">{price(summary.breakEven)}</span>} />
+                <SumRow dense={dense} full={t('broker.breakEven')} k={shortLabels ? t('broker.sum.breakEven') : t('broker.breakEven')} v={<span data-testid="order-breakeven">{assetPrice(ctx.def, summary.breakEven)}</span>} />
                 <SumRow
                   dense={dense} full={t('broker.cashAfter')} k={shortLabels ? t('broker.sum.cashAfter') : t('broker.cashAfter')}
                   v={<span className="text-fg-muted" data-testid="order-cash-after">{cashAfter < -0.005 ? '—' : money(cashAfter)}</span>}
@@ -581,6 +590,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   dense={dense} className={dense && !tall ? 'col-span-2' : ''} full={t('broker.bpAfter')} k={shortLabels ? t('broker.sum.bpAfter') : t('broker.bpAfter')}
                   v={<span className="text-fg-muted" data-testid="order-bp-after">{money(summary.bpAfter)}</span>}
                 />
+                {type === 'market' && <p className={`col-span-2 text-caption text-fg-faint ${dense ? 'mt-1' : 'mt-2'}`} data-testid="order-fills-tick">{t('broker.fillsNextTick')}</p>}
                 </div>
                 {shorting && (
                   <div className={dense ? 'mt-0.5 grid grid-cols-2 gap-x-3' : 'mt-1 grid gap-1'} data-testid="order-short-terms">

@@ -1,4 +1,5 @@
 import { currentLocale, type Locale } from '@/i18n';
+import { dexDigits, priceRule, type AssetClass } from '@/engine';
 
 /**
  * Number formatting per DESIGN.md: separators, 2 decimals, real minus U+2212. Every figure follows the viewer's locale
@@ -62,10 +63,26 @@ function decimalsFor(price: number): number {
   return 6;
 }
 
-/** Plain price, no currency sign: 1,284.10 or 0.0342 for sub-dollar assets (1 284,10 in French). */
+/** Plain price, no currency sign: 1,284.10 or 0.0342 for sub-dollar assets (1 284,10 in French). Prefer assetPrice. */
 export function price(n: number): string {
   const d = decimalsFor(n);
   return fixMinus(fmtNumber(n, d, d));
+}
+
+const SUBSCRIPT = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
+
+/**
+ * A price in its asset's own precision (R-10-3): the one formatter every price display uses (ticket, watchlist, chart axis and
+ * legend, positions, tape). The rules are priceRule in the engine (tick and decimals per class); a memecoin below a tenth of
+ * a cent is written in the DEX subscript form, 0.0₅82, with the zeros counted in a subscript. No currency sign.
+ */
+export function assetPrice(def: { assetClass: AssetClass }, n: number): string {
+  const r = priceRule(def.assetClass, n);
+  if (r.dex && n > 0) {
+    const zeros = String(r.dex.zeros).split('').map((c) => SUBSCRIPT[Number(c)]).join('');
+    return `${isFr() ? '0,0' : '0.0'}${zeros}${dexDigits(n, r.dex.zeros, r.dex.digits)}`;
+  }
+  return fixMinus(fmtNumber(n, r.decimals, r.decimals));
 }
 
 /** Signed change in the quote's own precision: +0.04 on a $141 stock, not +0.0394. */

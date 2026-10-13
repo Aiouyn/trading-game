@@ -118,14 +118,15 @@ describe('checkOrder: the first failing rule wins and sits under its field', () 
 });
 
 describe('tradeSummary: the cost before the trade', () => {
-  it('a round trip pays two fees and crosses the gap to mid twice; the break-even moves up by that per unit', () => {
+  it('a round trip pays two fees and crosses the gap to mid twice; the break-even is the mid a close needs (no double count)', () => {
     const s = tradeSummary({
       side: 'buy', qty: 10, price: 100.05, mid: 100, fee: 1, halfSpreadFrac: 0.0005, cash: 5000, bp: 5000,
       margin: false, shorting: false, total: 1002.5, notional: 1000.5,
     });
     // slippage 0.05 a unit: round trip = 2 fees + 2 × 10 × 0.05 = 2 + 1
     expect(s.roundTrip).toBeCloseTo(3, 6);
-    expect(s.breakEven).toBeCloseTo(100.05 + 0.3, 6);
+    // the fill already sits one gap (0.05) above mid: the break-even adds the exit gap once and the two fees (0.2)
+    expect(s.breakEven).toBeCloseTo(100 + 2 * 0.05 + 0.2, 6);
     expect(s.spreadPct).toBeCloseTo(0.001, 6);
     expect(s.spread).toBeCloseTo(0.1, 6);
     expect(s.cashAfter).toBeCloseTo(5000 - 1002.5, 6);
@@ -137,9 +138,18 @@ describe('tradeSummary: the cost before the trade', () => {
       side: 'sell', qty: 10, price: 99.95, mid: 100, fee: 1, halfSpreadFrac: 0.0005, cash: 5000, bp: 5000,
       margin: false, shorting: true, total: 997.5, notional: 999.5,
     });
-    expect(s.breakEven).toBeCloseTo(99.95 - 0.3, 6);
+    expect(s.breakEven).toBeCloseTo(100 - 2 * 0.05 - 0.2, 6);
     expect(s.cashAfter).toBeCloseTo(5000 + 997.5, 6);
     expect(s.bpAfter).toBeCloseTo(5000 - 999.5, 6);
+  });
+
+  it('the spread and the impact are separate lines (R-10-1): half spread on the size, and the own impact on the size', () => {
+    const s = tradeSummary({
+      side: 'buy', qty: 10, price: 100.06, mid: 100, fee: 1, halfSpreadFrac: 0.0005, impactFrac: 0.0001, cash: 5000, bp: 5000,
+      margin: false, shorting: false, total: 1002.5, notional: 1000.6,
+    });
+    expect(s.spreadCost).toBeCloseTo(10 * 100 * 0.0005, 9);
+    expect(s.impactCost).toBeCloseTo(10 * 100 * 0.0001, 9);
   });
 
   it('an empty size costs nothing to go in and out of', () => {

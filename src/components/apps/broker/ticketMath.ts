@@ -217,6 +217,8 @@ export interface SummaryInput {
   fee: number;
   /** half the quoted spread as a fraction of mid, from the engine */
   halfSpreadFrac: number;
+  /** this order's own temporary impact as a fraction of mid (R-10-1), from the same estimate */
+  impactFrac?: number;
   cash: number;
   bp: number;
   margin: boolean;
@@ -229,25 +231,30 @@ export interface Summary {
   /** the full quoted spread in dollars per unit, and as a fraction of mid */
   spread: number;
   spreadPct: number;
-  /** the cost of going in and out at once: two fees and two crossings of the gap to mid */
+  /** the half spread the order pays on its size, in dollars (R-10-1: a separate line from the impact) */
+  spreadCost: number;
+  /** this order's own impact on its size, in dollars (R-10-1: other accounts' flow is never in it) */
+  impactCost: number;
+  /** the cost of going in and out at once: two fees and two crossings of the gap to mid (the spread and the impact, once each way) */
   roundTrip: number;
-  /** the price the position must reach to close even (the exit fee and the gap to mid included) */
+  /** the mid the position must reach to close even: the two fees and the exit's own gap to mid, added once (the fill already carries the entry's gap) */
   breakEven: number;
   cashAfter: number;
   bpAfter: number;
 }
 
 /**
- * The cost summary of the ticket. A round trip pays the fee twice and crosses the gap between the fill and the mid twice;
- * the break-even is the fill moved by the round trip per unit, up for a long and down for a short.
+ * The cost summary of the ticket (R-10-1). Going in pays the gap from the mid to the fill (half spread plus own impact); going
+ * out pays the same gap again, so a round trip is two fees and two gaps. The break-even is the mid a close needs: the fill
+ * already sits one gap from the mid, so the break-even adds only the exit's gap and the two fees, once each.
  */
 export function tradeSummary(i: SummaryInput): Summary {
   const q = Math.max(0, i.qty);
   const slip = Math.abs(i.price - i.mid);
   const roundTrip = q > 0 ? 2 * i.fee + 2 * q * slip : 0;
-  const perUnit = q > 0 ? roundTrip / q : 0;
+  const toBreakEven = q > 0 ? (2 * i.fee) / q + slip : 0;
   const long = i.side === 'buy';
-  const breakEven = i.price + (long ? perUnit : -perUnit);
+  const breakEven = i.price + (long ? toBreakEven : -toBreakEven);
   const cashAfter = i.side === 'buy' ? i.cash - i.total : i.cash + i.total;
   let bpAfter = i.bp;
   if (i.side === 'buy') bpAfter = i.margin ? i.bp - i.notional : i.bp - i.total;
@@ -255,6 +262,8 @@ export function tradeSummary(i: SummaryInput): Summary {
   return {
     spread: 2 * i.halfSpreadFrac * i.mid,
     spreadPct: 2 * i.halfSpreadFrac,
+    spreadCost: q * i.mid * i.halfSpreadFrac,
+    impactCost: q * i.mid * (i.impactFrac ?? 0),
     roundTrip,
     breakEven,
     cashAfter,
