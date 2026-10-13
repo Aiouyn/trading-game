@@ -14,6 +14,13 @@
  *   styles when style is `all` (one JSON line per run, styles inner, seeds outer). Four shards of five seeds cover 20 seeds.
  *       npx tsx scripts/balance/wealth.ts bot wealth 365 all --first=1 --seeds=5
  *
+ * Tax brackets (Phase 9 R-9-10): the env var TAX_BRACKETS replaces the progressive business tax brackets for this run, with no
+ * code edit. It is a JSON array of [threshold, rate] pairs on the owner group's tax basis (social.ts taxBasisOf), first threshold 0,
+ * thresholds ascending,
+ * rates in [0, 0.45]; an invalid value stops the run at startup. Default (src/content/tax.ts, set B): 0% to $250k, 10% to $2.5M,
+ * 25% to $25M, 35% to $250M, 45% above. Tune on the seed prefix `wealth`, confirm on `wealthH` (held out).
+ *       TAX_BRACKETS='[[0,0],[250000,0.1],[2500000,0.2],[25000000,0.3],[250000000,0.4]]' npx tsx scripts/balance/wealth.ts bot wealth 504 managed --first=1 --seeds=2
+ *
  * Styles (shops.md 7.1): neglected (buy, set nothing, check in once per 24 game days), casual (well-run
  * settings, check in once per 24 game days, no manager), average (well-run settings, online 16 of every 24
  * game days), excellent (3-star manager; crew tracks demand; price 1.05, quality 3, marketing 2; online 16 of 24),
@@ -30,6 +37,7 @@ import { TPD, bizDef, bizValue, bizValuedIncome, cashOf, credit, netWorthBreakdo
 import { SHOP } from '../../src/content/shops';
 import { wellRunCommands } from '../../src/world/shops';
 import { appeal, cityUnlocked } from '../../src/world/assets';
+import { ledgerOf } from '../../src/world/ledger';
 import { siteScore, shouldExit, startAppeal, type PoolMass } from './wealth-rules';
 import { dailyCosts, managerPrepayCost, managerPrepaid, offlineRate } from '../../src/world/shopRules';
 import type { Command, GameState } from '../../src/world/types';
@@ -163,6 +171,8 @@ function bot(seed: string, days: number, style: Style, trace = false): void {
   let lastDayActed = -1;
   const prevEarned: Record<string, number> = {};
   let sold = 0;
+  // R-9-10: the bot's own business tax, read from its settled day records at each close (the ledger keeps only recent days)
+  let taxPaid = 0;
   for (let t = 0; t < days * TPD; t++) {
     const gameDay = Math.floor((g.market.tick - start) / TPD);
     if ((g.market.tick - start) % TPD === 0 && gameDay !== lastDayActed) {
@@ -177,11 +187,12 @@ function bot(seed: string, days: number, style: Style, trace = false): void {
     if ((g.market.tick - start) % TPD === 0 && trace) {
       console.log(JSON.stringify(traceRow(g, style, (g.market.tick - start) / TPD - 1, prevEarned)));
     }
+    if ((g.market.tick - start) % TPD === 0) taxPaid += ledgerOf(g, 'bot')?.days[today(g)]?.biz?.tax ?? 0;
     if ((g.market.tick - start) % (TPD * 8) === 0) checkpoints[Math.floor((g.market.tick - start) / TPD)] = netWorthBreakdown(g, 'bot').total;
   }
   const income = Object.values(g.businesses).filter((b) => b.ownerId === 'bot').reduce((s, b) => s + bizValuedIncome(b), 0);
   const bizCount = Object.values(g.businesses).filter((b) => b.ownerId === 'bot').length;
-  console.log(JSON.stringify({ mode: 'bot', seed, style, days, rankFirstSeenGameDay: ranks, netWorth: Math.round(p.netWorth), valuedIncome: Math.round(income), bizCount, sold, checkpoints }));
+  console.log(JSON.stringify({ mode: 'bot', seed, style, days, rankFirstSeenGameDay: ranks, netWorth: Math.round(p.netWorth), valuedIncome: Math.round(income), bizCount, sold, checkpoints, taxPaid: Math.round(taxPaid), businessTaxSink: Math.round(g.economy.sinks.businessTax ?? 0) }));
 }
 
 /**

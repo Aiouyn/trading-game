@@ -202,7 +202,14 @@ test('shop figures stay on one line in the window the player opens', async ({ pa
   await skipTips(page);
   await buyFoodCart(page);
   await page.getByTestId('tab-shops').click();
-  await expectFiguresOnOneLine(page, await shopId(page));
+  const sid = await shopId(page);
+  await expectFiguresOnOneLine(page, sid);
+  // R-9-10: the day's tax line is in the day block, on its own line, at the owner's bracket
+  await expect(page.getByTestId(`shop-${sid}-line-tax`)).toContainText(/Tax \(bracket \d+%\)/);
+  await noHorizontalOverflow(page);
+  // and the Businesses card (the owned tab) carries the same tax line for the same business
+  await page.getByTestId('tab-owned').click();
+  await expect(page.getByTestId(`biz-${sid}-tax`)).toContainText(/Tax \(bracket \d+%\)/);
   await noHorizontalOverflow(page);
 });
 

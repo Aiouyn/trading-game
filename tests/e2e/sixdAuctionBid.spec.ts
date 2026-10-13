@@ -37,8 +37,11 @@ test('an auction bid on an open lot: the refusal below the minimum, the anti-sni
   await goTo(page, 'estate');
   await page.getByTestId('tab-auctions').click();
   await expect(page.getByTestId('auctions-panel')).toBeVisible();
-  await openAuctions(22);
+  const opened = await openAuctions(22);
   const idx = isPhone(page) ? 1 : 0;
+  // The page reads the seam's open on its next tick. The desktop project runs first in the shared world and opens the same week,
+  // so a status of 'open' alone passes on the desktop's lots before this open lands: wait for this open's end tick, then the status.
+  await expect.poll(async () => (await lots(page))[idx]?.endTick, { timeout: 20_000 }).toBe(opened.endTick);
   await expect.poll(async () => (await lots(page))[idx]?.status, { timeout: 20_000 }).toBe('open');
   const lot = (await lots(page))[idx]!;
   const id = lot.itemId;

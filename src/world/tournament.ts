@@ -2,6 +2,7 @@ import { createWorld, equityOf, openAccount, placeOrder, step, universeConfig, t
 import { BOT_CADENCE, mcsTier } from '@/content/research';
 import { sha256Hex } from './company/hash';
 import { strategySignal } from './lab';
+import { pureMemo } from './pure-memo';
 import type { TradeLogRecord, TradingBot } from './types';
 
 /**
@@ -104,6 +105,14 @@ export function houseActor(strategy: TradingBot['strategy'], config: WorldConfig
  * carries them (the commitment is a hash over them). The world seed itself is never sent to a client.
  */
 export function weekSeeds(weekId: string, secret: string, count: number = TOURNAMENT.seeds): string[] {
+  // a pure function of its three inputs, read by every view (V1-PHASE9 9C.1): memoized, the copy keeps the memo unchanged
+  return seedMemo(JSON.stringify([weekId, secret, count]), () => computeWeekSeeds(weekId, secret, count)).slice();
+}
+
+const seedMemo = pureMemo<string[]>(64);
+
+/** The uncached seeds (weekSeeds is this, memoized). */
+export function computeWeekSeeds(weekId: string, secret: string, count: number = TOURNAMENT.seeds): string[] {
   const out: string[] = [];
   for (let k = 0; k < count; k++) out.push(sha256Hex(`tournament|${secret}|${weekId}|${k}`).slice(0, 24));
   return out;

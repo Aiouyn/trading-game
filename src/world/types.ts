@@ -543,6 +543,8 @@ export interface EconomyState {
     lastSupply: number;
     /** the last supplies, oldest first (ruling O-6: the 7-day window); optional, so an old save loads */
     hist?: number[];
+    /** R-9-10: the shift on every tax bracket (points, clamped to +-5), moved only while the stabilizer is engaged; optional, absent = 0 */
+    taxShift?: number;
   };
 }
 

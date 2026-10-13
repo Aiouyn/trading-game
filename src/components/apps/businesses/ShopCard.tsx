@@ -53,6 +53,8 @@ export function ShopCard({ v }: { v: ShopView }) {
     { key: 'quality', label: t('shop.line.quality'), value: v.daily.quality },
     { key: 'maintenance', label: t('shop.line.maintenance'), value: v.daily.maintenance },
     { key: 'manager', label: t('shop.line.manager'), value: v.daily.manager },
+    // R-9-10: the tax on the day's positive net, at the owner's bracket (the rate on the label)
+    { key: 'tax', label: t('shop.line.tax', { rate: Math.round(v.daily.taxRate * 100) }), value: v.daily.tax },
   ];
 
   return (

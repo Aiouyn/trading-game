@@ -3,6 +3,7 @@ import { openAccount } from '@/engine';
 import { TPD, debit, notify, spendableCash, transfer } from './core';
 import { refreshPrestige } from './assets';
 import { sha256Hex } from './company/hash';
+import { pureMemo } from './pure-memo';
 import { TOURNAMENT_WEEK_TICKS } from './tournamentWeek';
 import type { CommandResult, GameState, StepOutput } from './types';
 
@@ -111,8 +112,19 @@ export function adminOpenLots(g: GameState, week: number, ticksLeft: number = AU
   return ok({ week, openTick, endTick: openTick + AUCTION.hourTicks });
 }
 
-/** The auction lots of a week: 3 to 5 limited or unique collectibles, chosen by a hash of the world seed and the week. */
+/**
+ * The auction lots of a week: 3 to 5 limited or unique collectibles, chosen by a hash of the world seed and the week. The answer
+ * is a pure function of (seed, week), so it is memoized (V1-PHASE9 9C.1: every view of every socket read it, with about thirty
+ * hashes a call). The copy keeps a caller from changing the memo.
+ */
+const lotMemo = pureMemo<LifeItem[]>(64);
+
 export function weekLots(seed: string, week: number): LifeItem[] {
+  return lotMemo(JSON.stringify([seed, week]), () => computeWeekLots(seed, week)).slice();
+}
+
+/** The uncached lot choice (weekLots is this, memoized). The reference the memo is tested against. */
+export function computeWeekLots(seed: string, week: number): LifeItem[] {
   const pool = LIFE_ITEMS.filter((i) => i.cls === 'limited' || i.cls === 'unique');
   const h = sha256Hex(`auction-count|${seed}|${week}`);
   const n = AUCTION.lotsMin + (parseInt(h.slice(0, 8), 16) % (AUCTION.lotsMax - AUCTION.lotsMin + 1));
@@ -139,7 +151,14 @@ export function minimumBid(lot: AuctionLotRecord): number {
 }
 
 /** The hidden reserve factor of a lot, in [reserveLow, reserveHigh): a hash of the world seed, the week and the item. */
+const reserveMemo = pureMemo<number>(4096);
+
 export function reserveFactor(seed: string, week: number, itemId: string): number {
+  return reserveMemo(JSON.stringify([seed, week, itemId]), () => computeReserveFactor(seed, week, itemId));
+}
+
+/** The uncached reserve factor (reserveFactor is this, memoized). */
+export function computeReserveFactor(seed: string, week: number, itemId: string): number {
   const h = sha256Hex(`auction-reserve|${seed}|${week}|${itemId}`);
   return AUCTION.reserveLow + (AUCTION.reserveHigh - AUCTION.reserveLow) * (parseInt(h.slice(0, 8), 16) / 0x100000000);
 }

@@ -301,6 +301,73 @@ re-buy after a sale. The bot's buy rule is not changed here.
 4. **Post-fix trace.** The per-day trace of the 9B.4a diagnosis (`bot ... --trace`) is not re-run after the fix. The sold count
    and the bizCount above are the evidence; a trace is the next step if the lead wants the mechanism of each sale.
 
+#### 9B.4c Progressive business tax (R-9-10, track p9/f): effect on the 504-day curve
+
+The tax is on the day step (commit `2c03eef`): each business's settled day net, after its costs, is taxed once per game day at its owner's bracket (rank basis, R-9-4), positive net only, booked to the `businessTax` sink. Default brackets (`src/content/tax.ts`): 0% to $250k, 10% to $2.5M, 20% to $25M, 30% to $250M, 40% above. The stabilizer shifts every rate by its error, at most 5 points, only while its levy is engaged, and keeps each rate in [0, 0.45].
+
+Run: `scripts/balance/wealth.ts bot wealth 504 <style> --first=1 --seeds=2`, defaults, local machine, two seeds (`wealth-1`, `wealth-2`) per style. Each 504-game-day run took about 4 to 5 minutes here.
+
+| Style | Game day (real day) | Pre-tax, `wealth-1` / `wealth-2` (3900f23) | With tax, `wealth-1` / `wealth-2` | Tax paid by the bot (504 days) |
+|---|---|---|---|---|
+| managed | 168 (day 7) | $559k / $708k | $595k / $559k | $25.9M / $24.2M |
+| managed | 504 (day 21) | $99.3M / $116.6M | $64.3M / $60.2M | |
+| excellent | 168 (day 7) | $3.39M / $3.50M | $3.54M / $2.26M | $147.3M / $111.0M |
+| excellent | 504 (day 21) | $957M / $872M | $247M / $197M | |
+
+Rank first seen, game days (with tax, `wealth-1` / `wealth-2`): managed R1 49 / 49, R2 124 / 124, R3 274 / 282; excellent R1 24 / 24, R2 79 / 82, R3 186 / 219, R4 376 / 407.
+
+Reading against the R-9-10 gate (two seeds only; the gate is 20 seeds, tuned on prefix `wealth` and confirmed on `wealthH`, the lead's VM run):
+- managed day 21 in [$15M, $60M]: $64.3M and $60.2M, at or just above the top. Not yet inside the gate.
+- managed day 7 in [$300k, $1.5M]: $595k and $559k, inside.
+- excellent day 21 at or below $400M: $247M and $197M, inside. Excellent day 7 at or below $5M: $3.5M and $2.3M, inside.
+- neglected in week 1 unchanged: not run in this step (the gate's 20-seed table, neglected included, is the lead's VM run).
+
+Caveats, recorded as V1 limits:
+- The pre-tax column is the same bot at commit 3900f23, which settled each shop one tick after the day close. The tax commit settles shops on the closing tick (before the card), so the pre-tax column differs from the tax column by that one-tick shift as well as by the tax.
+- A business sold partway through a day is removed without its day settlement, so that day's partial income is neither taxed nor costed (sale is a choice the owner makes, as before).
+- Trading gains are not taxed in V1 (R-9-10). Business valuation (`bizValuedIncome`, the trailing shop net) stays pre-tax, so a tax cut does not change a shop's mark; only cash moves.
+- NPC shops pay the same tax (the rule is uniform over every business owner), so the NPC economy moves too.
+- The displayed rate is rounded to a whole percent, so a stabilizer shift of 0.4 points reads as the same bracket.
+- Tuning knob: `TAX_BRACKETS` (JSON `[[threshold, rate], ...]`, validated at startup), documented in the header of `scripts/balance/wealth.ts`.
+
+#### 9B.4d Bracket tuning on the VM and the held-out confirmation (lead, R-9-10)
+
+Runs on the 56-core VM, 504 game days (21 real days), one process per run, branch p9/f at d7e2fa9 (owner-group basis,
+sold-shop settlement). Real day 7 is game day 168 and day 21 is game day 504. Gate (R-9-10): managed p50 at day 21 in
+[$15M, $60M] and at day 7 in [$300k, $1.5M]; excellent p50 at day 21 <= $400M and at day 7 <= $5M; neglected unchanged in
+week 1.
+
+Tuning, seed prefix `wealth`, 20 seeds per style (managed and excellent), three bracket sets:
+
+| Set | Brackets (threshold: rate) | Managed d7 p50 | Managed d21 p50 (p90) | Excellent d7 p50 | Excellent d21 p50 (p90) |
+|---|---|---|---|---|---|
+| Pre-tax (v1 3204e66) | none | $621k | $110.4M ($119.7M) | $3.6M | $957.3M ($1.16B) |
+| A | 0: 0%, $250k: 10%, $2.5M: 20%, $25M: 30%, $250M: 40% | $553k | $59.0M ($63.9M) | $2.6M | $267.4M ($289.5M) |
+| **B (chosen)** | 0: 0%, $250k: 10%, $2.5M: 25%, $25M: 35%, $250M: 45% | $547k | **$52.3M** ($55.2M) | $2.3M | **$183.2M** ($230.5M) |
+| C | 0: 0%, $100k: 10%, $1M: 20%, $10M: 30%, $100M: 40% | $547k | $55.7M ($60.1M) | $2.1M | $198.7M ($223.3M) |
+
+A passes on the edge (managed $59.0M against the $60M top). B passes with margin and keeps the top bracket inside the 25 to
+45% of 01 §8.2. B is the default in `src/content/tax.ts`.
+
+Held-out confirmation, set B, seed prefix `wealthH` (never used for tuning), 20 seeds per style:
+
+| Style | d1 p50 | d7 p50 (p90) | d21 p50 (p90) | R1 | R2 | R3 | R4 |
+|---|---|---|---|---|---|---|---|
+| neglected | $6k | $30k ($30k) | $247k ($253k) | 20/20, gd 99 | 20/20, gd 486 | 0/20 | 0/20 |
+| average | $15k | $669k ($734k) | $53.3M ($72.9M) | 20/20, gd 35 | 20/20, gd 109 | 20/20, gd 321 | 0/20 |
+| managed | $8k | $552k ($583k) | $53.0M ($55.4M) | 20/20, gd 42 | 20/20, gd 125 | 20/20, gd 292 | 0/20 |
+| excellent | $19k | $2.5M ($2.9M) | $198.7M ($247.0M) | 20/20, gd 24 | 20/20, gd 83 | 20/20, gd 211 | 20/20, gd 415 |
+
+Gate on the held-out seeds: **PASS** (managed $552k at day 7 and $53.0M at day 21; excellent $2.5M and $198.7M; neglected
+$30k at day 7 against $29k pre-tax).
+
+Against 01 §8.4 (median $500k at day 7 and $20M at day 21; top 1% $5M and $400M): week 1 sits on the median. At day 21 the
+managed and average bots, both far more present than the 1 to 2 hours a day of the §8.4 engaged player, sit at about 2.6x the
+median and well under the top-1% path; the excellent bot (online 16 of 24 hours) sits at half the top-1% path. Growth
+decelerates week by week (median net worth, compounded per real day): managed 101%, 44%, 33%; average 88%, 36%, 37%;
+excellent 125%, 53%, 22%. Week 3 is still faster than the §8.4 path implies after day 21 (about 8% a real day from day 21 to
+day 56); the runs stop at day 21, so the deceleration after it is not measured here (open item).
+
 ### 9B.5 Deviations, rulings and residuals
 
 1. **The rank basis subtracts loans owed and net gifts received, not the boards.** `netWorthPeak` (rank) follows the basis; `netWorth` and the boards still count borrowed cash. A loan can still lift an alt on a board until it is repaid. Ledger to decide whether boards use the basis too.
@@ -345,3 +412,227 @@ re-buy after a sale. The bot's buy rule is not changed here.
 - **X4 to X15:** land with the systems they test.
 16. **R-9-1c: one impact tally per asset over all flow (amends item 14's per-account key).** (a) Built as ruled: `AssetState.impactTally` (tick, buy, sell) is the one rolling tally per asset, half-life `IMPACT_HALF_LIFE` = 360, no calendar-day reset. Every printed fill (every account, and the option dealer's hedge) reads it for its permanent move and its temporary marginal, then joins it. The pools' closing flow (`sim.ts` `ecologyStep`) joins it at the close. `Account.impactTally` is removed. (b) Deviation fixed (reviewer item 4): pool and Street flows now enter the tally that a player fill's permanent move reads; fc64a21 dropped them. (c) Pins: a world with player orders moves by representation (the tally sits on the asset, the digest hashes it). `companyHooks.test.ts`: the player-order digest is b799f0b0 in the R-9-1b layout and e711a12b now (re-keyed to the R-9-1b layout it reproduces b799f0b0, so the single-account dynamics are unchanged); the ecology-full digest moves to 54dc4f79 (the pools' closing write). A world with no player orders and no ecology writes no tally and keeps its fingerprint (`companyHooks.test.ts`, `impact-day.test.ts`). (d) N-account splits are neutral: `impact-tally.test.ts` (`impact_split_accounts`, `temp_split_same_tick` N = 2, 10, 100, `temp_whale_alt_same_tick`, `impact_alt_hunt`) and `altpeak.test.ts` (whale plus alt, alt's buy, the N-account marks) are passing gates now (were `it.fails`, ROUTED by item 14). (e) **The clip gate passes at every window start** (`clip.test.ts`, one normal test per start, worst 1.4061 at 719). Measured: with the pools' closing flow outside the tally (the R-9-1b layout) the straddling starts read 5.5 to 30.1; with it inside, they read 0.99 to 1.41. A single account's key (per account or per asset) does not change this; the pools' write does, because a post-close clip then pays on a tally that already holds the day's close flow. This is the reading that R-9-1c asked for, not a change of the reading point or of the close. Caveat for the lead: the pass rests on the pools' flow entering the tally, and the 1.41 at start 719 is close to the 1.5 gate over 20 seeds.
 
+
+## 9C. Load and calibration residuals
+
+Worktree `.claude/worktrees/p9-c`, branch `p9/c`. Binding spec: `docs/team/specs/lead-phase9.md`, track 9C, with the rulings R-9-8b (the load gate) and R-9-11 (O-2). The branch merged `v1` at `b342164` to take those rulings. All times in this section are UTC.
+
+Commits: `6b378a0` (load: backlog, connect ramp, retry), `f127566` (O-12 sector factor), `149c760` (O-2 wiring, first probe), `60bc0be` and `4803ec2` (first record, O-2 on the engine path, review repairs), `2470bd2` (record before the rulings), `b342164` (merge of `v1`), `83ab191` (the `mcap_20` window fix), `de0739a` (the R-9-8b script and a first record, superseded by this section), and the commit that carries this section.
+
+| Item | Verdict |
+|---|---|
+| 9C.1 Load, R-9-8b (5 s tick, 4,000 clients, 3 repeats, gate: all welcomed, fan-out p99 < 2.5 s, overrun p99 < 0.5 s) | **PASS in the gate windows, 3 of 3, on `7a4f146`** (fan-out p99 429 to 446 ms, overrun p99 23 to 45 ms, 4,000 welcomed in 1 to 5 s); the windows exclude the public ticks (720, 780). **FAIL in a window that includes tick 780**: fan-out p99 3,174 ms (330 s window). The 1 s stress fails (not gated). Re-scope or the public-tick payload: lead decision (9C.1). **Superseded by 9C.1b (R-9-12, `p9/h`): the tick-780 stall is fixed; PASS 3 of 3 in 330 s windows that hold public ticks 780 and 840 (fan-out p99 643 to 697 ms), and the 1 s stress passes.** |
+| 9C.2 O-2 residual rho, engine path, 200 seeds | **FAIL, known V1 limit (R-9-11)**: median 0.597 and p90 0.927 by the probe's quantile (0.596 and 0.925 by the average-of-two-middles and interpolated definitions), 0 of 200 seeds at or below 0.15. Owner Quant, post-V1. |
+| 9C.3 O-12 sector shock from the engine's factor | **Done** (see 9C.3). |
+| 9C.4 AUSD stablecoin band | **UNDECIDED** at 2 s.e. under the class band `[0.6, 1.1]` applied by ruling. Not a pass. |
+
+### 9C.1 Load under R-9-8b: 4,000 clients, production tick
+
+*Superseded by 9C.1b (R-9-12, branch `p9/h`): the public-tick payload left the push, and the window that holds tick 780 now passes. The text below is the record on `7a4f146`, before R-9-12.*
+
+**Status, qualified.** R-9-8b as written (5 s tick, 4,000 clients, three 60 s windows, the gate) **passes 3 of 3** on `7a4f146`, and every one of those windows excludes the public ticks. A window that includes the public tick at tick 780 **fails**: fan-out p99 3,174 ms in the 330 s window (`c2-long780`), against the 2.5 s bound. The 1 s stress fails (not gated). As written, the gate does not cover the public-tick stall. Re-scoping the gate or changing the public-tick payload is the lead's decision (see "Public tick" below); this record does not decide it.
+
+**Gate (R-9-8b, unchanged).** At the production tick (`TICK_MS=5000`) all 4,000 clients welcomed, the fan-out p99 (the server's tick start, the `serverTime` stamp of each tick message, to the last client's receipt) under 2.5 s, and the overrun p99 (the gap between consecutive tick starts minus the nominal tick, from the welcome's `tickMs`) under 0.5 s. Three repeats, each with a 60 s measured window after a settle of up to 240 s, the default connect ramp (200 per 250 ms). The script is `scripts/load/socket-load.mjs`, unchanged; its exit code is the gate. Each run starts a fresh world server from this worktree on port 8919 with `WARMUP_DAYS=1`, under node with `--trace-uncaught`, `--max-old-space-size=2048`, `--report-on-fatalerror` and a process observer (exit and uncaught events, memory every 10 s). The runner (`queue-c2.sh` and `run-gate2.sh`, scratch, not committed) keeps one server per run and stops it itself at the client's end.
+
+**Window coverage.** `WARMUP_DAYS=1` puts the server near tick 720 when the gate starts. The health tick read after each 60 s window (the window's last tick) was 734, 735 and 735, so the windows cover ticks 723 to 734 and 724 to 735. The public ticks are every 60th tick (`BOARD_EVERY`): 720 and 780. Neither is in a gate window. The 330 s window of `c2-long780` covers ticks 724 to 789 and contains tick 780, the one public tick it holds.
+
+**Result, code `7a4f146` (the review pass; the memo changes below are in it).**
+
+| Run (scratch file) | Tick | Welcomed (settle) | Ticks (gaps) in window | Health tick at window end | Fan-out p50 / p99 | Overrun p50 / p99 | Gate |
+|---|---|---|---|---|---|---|---|
+| repeat 1 (`c2-r1.out`) | 5,000 | 4,000 in 1.0 s | 12 (11) | 734 | 399 / 446 ms | -4 / 45 ms | **PASS** |
+| repeat 2 (`c2-r2.out`) | 5,000 | 4,000 in 4.6 s | 12 (11) | 735 | 397 / 429 ms | -2 / 23 ms | **PASS** |
+| repeat 3 (`c2-r3.out`) | 5,000 | 4,000 in 4.6 s | 12 (11) | 735 | 401 / 424 ms | 1 / 28 ms | **PASS** |
+| 330 s window, covers tick 780 (`c2-long780.out`) | 5,000 | 4,000 in 4.3 s | 66 (65) | 789 | 423 / 3,174 ms | 1 / 96 ms | **FAIL** (fan-out) |
+| 1 s stress, covers tick 780 (`c2-stress-1s.out`) | 1,000 | 4,000 in 7.6 s | 60 (59) | 799 | 419 / 3,117 ms | 1 / 2,371 ms | FAIL (not gated) |
+
+The 330 s window has 66 ticks, so its p99 is its maximum (3,174 ms). Its one public tick, 780, is the only sample that large; the other 65 ticks stay near 400 ms (p50 423 ms). The 1 s stress has 60 ticks and one public tick, 780, in its window; its overrun p99 of 2,371 ms is the gap around it. Each 60 s window has 12 ticks, so its p99 is the worst of 11 gaps: read it as the worst sample, not as a population percentile.
+
+**The per-view cost.** On `da1f724` the same three repeats gave fan-out p99 934, 921 and 896 ms (`final-r1..3.out`). The fan-out runs from the tick start to the last receipt, and the server builds each socket's view inside that span, so the view cost is part of the fan-out. Probe (`probe-view.ts`: the load-script world, 4,000 joins, 1 in 10 buying HLCN 1, then `playerView` for every account each tick), per view at 4,000 players:
+
+- `f3730f2` (link index): 0.20 ms a view, about 0.8 s a tick. Before the link index: 13.3 ms a view.
+- `7a4f146` (memos, below): 0.075 ms a view, about 0.3 s a tick.
+
+CPU profile of the view loop (`perf/subtree.cjs`, 12 ticks) before `7a4f146`: `sixdView` 3.7 s (the auction lots, `weekLots`, hashed about thirty sha256 a call for every view, and the tournament seeds), `tradingView` 3.4 s (the calendar: `earningsCalendar` searched the asset ids once per asset), `rivalsBoard` 0.7 s, all inside `playerView`. The link groups were not the dominant per-view cost after the link index (`linkedAccounts` took about 0.5 us a call). After `7a4f146` the remaining view cost is `rivalsBoard` (about 9 us a view: `rivalEquity` per rival over the assets; market-dependent, not cached) and the object spreads of `playerView`.
+
+**What changed in the code.** `src/world/pure-memo.ts` is a bounded memo for pure functions (the key carries every input). It serves `weekLots` and `reserveFactor` (`auctions.ts`) and `weekSeeds` (`tournament.ts`); each has an uncached reference (`computeWeekLots`, `computeReserveFactor`, `computeWeekSeeds`). `earningsCalendar` (`engine/catalysts.ts`) searches the asset ids in one pass with the same answer, duplicate ids included. Tests: `view-memo.test.ts` (the memo equals the reference over seeds and weeks; the calendar equals an independent reference over seeded worlds and a world with a duplicated id; a player view is the same with the memos cold and warm).
+
+**The link index (`f3730f2`), re-measured.** Load-script world (4,000 accounts, 400 same-tick buyers): 40,740 mirror keys after tick 1, still 40,740 at tick 780. An index rebuild (one `touchLinks`, one read) takes 5.3 ms, once per tick that has a human fill, linear in the mirror keys. A cached `linkedAccounts` call takes 0.52 us. The uncached rule (`linkedAccountsUncached`, the R-9-3 rules computed on every call) takes 13.35 ms a call: the 13.3 ms of the earlier record, re-run. Mutation probe: with `touchLinks` disabled, the two tests of `collusion-cache.test.ts` and `tax-basis-cache.test.ts` fail. That test now changes owner groups (alliance join and leave, devices), as its header says; before this pass it did not.
+
+**Rank basis, tax basis, impact tally (profiled, not per view).** Trade-heavy probe (`probe-trade.ts`: 4,000 accounts, 400 market orders a tick, 20 ticks, 5,192 fills): `stepGame` about 115 ms a tick under the profiler (2.3 s over 20 ticks). `noteFills` (the mirror tally, a scan of up to 120 recent fills per fill) took 188 ms in total, about 9 ms a tick. `computeBoards` (every board, the rank basis on the boards, once a tick) took 210 ms in total, about 10.5 ms a tick; `rankBasisOf` took 3 ms in total (O(1) through the owed index). `impactAdd` and `impactDecayed` are below the profiler's resolution: the impact tally is charged per fill in the engine, not per view. `taxBasisOf` took 3 ms in the view profile (shops only). None of these is on the per-view path that the gate measures.
+
+**Server life (the "about 5 minutes" end).** The fixed code keeps the server alive past 5 minutes in the instrumented runs. `c2-long780` ran 340 s after its start; the server answered `/health` at tick 789 when the client ended, with no exit event, no uncaught exception and no unhandled rejection in its log. Its heap stayed between 73 and 90 MB (`heapUsed`, 34 samples, flat; heap limit 2,048 MB). The four other runs were alive at the client's end too. The HEAD ends have a different history. The r911 "gone" times were the runner's own kill (the earlier record). Two HEAD anomalies are **unexplained**: the r910 server log stops at tick 740, 2 min 30 s after start, with no error (`r910-server-prod-r1.log`); and in r911-r1 the health fetch was refused at the client's end while the watched process was still alive and ticking (RSS sampled at 01:17:12, last slow tick at 01:17:12.7). Neither is reproduced on `7a4f146`, and neither is isolated. The connect retries of the settle (272 to 4,352 closes with code 1006, all before the welcome) are the reconnects of the 200-per-250 ms ramp; every run welcomed 4,000.
+
+**Public tick (every 60 ticks; in the 780 window).** Each 60th tick (`BOARD_EVERY`) sends every socket the public part (`pub`: boards, economy, alliances, 134 kB) and the directory (130 kB). That is 264 kB to each of 4,000 sockets, about 1.06 GB in one tick. The host snapshot in that tick takes 220 to 232 ms (`instrument-snap.mjs`), so the snapshot is not the stall; the payload is. Fan-out is 3.1 to 3.5 s at tick 780 in every window that holds it. Changing the payload (send the public part on change, or spread it over ticks) is a protocol decision for the lead, not changed here.
+
+**Not done, and why.** (1) `rivalsBoard` is not cached: about 9 us a view, it depends on the market at the tick, and a cache would need an invalidation rule; recorded as the next per-view cost. (2) The public-tick payload (protocol). (3) The mirror map grows with the square of same-tick buyers (40,740 keys at 400 buyers): a match-window or prune rule question, not changed here. (4) The gate windows exclude the public tick because of `WARMUP_DAYS=1`; a window that starts at another tick would change the gate script, which this pass does not do.
+
+**Environment.** The worktree's `node_modules` is a real directory of junctions to each package of the main install, plus `ws` 8.22.0 and `@types/ws` 8.18.2 from the npm cache (integrity checked against `package-lock.json`). No `npm install` was run.
+
+### 9C.1b Public panels on demand (R-9-12, track 9C, branch `p9/h`)
+
+Worktree `.claude/worktrees/p9-h`, branch `p9/h` from `v1` at `eff8da1` (the ruling). Spec: `docs/team/specs/lead-phase9.md`, R-9-12, with its implementation notes. Commits: `eff8da1` (the ruling), `9a9ed5b` (the change), `e55d3a0` (the panel reply types), `8dd0aa8` (the review pass: per-tick caches, in-flight reads, the no-leak check, Profile, the worldEvents timing, the load script), and the commit that carries this section. All times are UTC.
+
+**Verdict.** R-9-8b passes with the public ticks in the window: three repeats at the 5 s tick with 4,000 clients, each a 330 s window that holds the public ticks 780 and 840 (the gate's `NEED_PUBLIC=2`), all pass. The 1 s stress (not gated) passes too, with six public ticks in its window. The public-tick limit is removed from `docs/V1.md`.
+
+**What changed.**
+- The public tick (every 60th tick, `BOARD_EVERY`) carries the public state without the boards (`publicCore`), and a version stamp per public panel: `panels: {boards: T, directory: T}`. It no longer sends the 134 kB boards and the 130 kB directory to every socket.
+- A client reads a panel with `{t: 'panel', id, panel}` when the panel mounts, and again when its stamp moves while it is mounted (`usePublicPanel` and `loadPanel` in `src/game/store.ts`). The reply is `{t: 'panel', id, panel, v, data}`: the content the push carried for that viewer (the boards, or the directory with the viewer's own rows), taken at tick `v`.
+- The server serializes each panel once per tick (`publicCache` in `server/index.ts`): the boards JSON, the top directory JSON, and the row index for `directoryWire`. `directoryWire` gives the same text as `directoryFor`, byte for byte (`src/world/view-directory.test.ts`). A read costs the viewer's own rows, not a stringify of the panel.
+- Profile reads its position through a store subscription (it read the store in render before).
+
+**Deviations (also in the spec, R-9-12).**
+1. **No rivals stamp.** The ruling names boards, directory and rivals. Rivals are not on the public tick (`me.rivals` is per tick and private, and the public extras never carried them), so there is no rivals panel to read. The Rivals board is unchanged.
+2. **`v` is the answer tick.** A reply carries the tick it was answered at, and its boards and directory are taken at that tick. The content is what the push carried for that viewer; the tick is not the stamp's tick. A reply answered after its stamp is fresher than the stamp, and the store never applies a reply older than the data on screen.
+3. **One round trip of staleness.** When a stamp moves, the panel keeps its last read until the new reply arrives. The ruling asks that a stale version is never shown while the panel is open; this is kept only to one round trip (milliseconds on a healthy socket). Before the review pass a read in flight held a newer stamp back until its reply, up to the 15 s request timeout; it no longer does. Blanking the panel while a read is pending is the stricter option, not built: lead decision.
+4. **No limit of its own.** A `panel` request takes the per-socket token bucket (20 messages a second, burst 30), as `lp-page` does, and a reply can be up to about 264 kB. The bound is per socket: N sockets can read 20 N panels a second. The reads in the probes below show the cost; a global or per-panel limit (for example one reply per panel per tick per socket) is the follow-up.
+
+**Measurements.** The R-9-8b script (`scripts/load/socket-load.mjs`) with the production tick (`TICK_MS=5000`), 4,000 clients, the default connect ramp, `WINDOW_ALIGN=60` (the window starts at tick 780) and a 330 s window, `NEED_PUBLIC=2`. The gate runs have no panel readers. The probes add readers (`PANEL_READERS=k`): the first k clients read the boards and the directory on each public tick of the window, as a Social screen does. Runner: `$S/run-load-p9h-v2.sh` and `run-load-p9h-v3.sh` (scratch, not committed). Logs: `r912-*.txt` in the scratch folder.
+
+| Run | Tick | Public ticks in window | Ticks in window | Fan-out p50 / p99 | Overrun p99 | Welcomed | Gate |
+|---|---|---|---|---|---|---|---|
+| repeat 1 (`r912-prod-r1`) | 5,000 | 2 (780, 840) | 67 | 483 / 697 ms | 82 ms | 4,000 in 0.5 s | **PASS** |
+| repeat 2 (`r912-prod-r2`) | 5,000 | 2 (780, 840) | 67 | 457 / 680 ms | 74 ms | 4,000 in 4.9 s | **PASS** |
+| repeat 3 (`r912-prod-r3`) | 5,000 | 2 (780, 840) | 67 | 439 / 643 ms | 78 ms | 4,000 in 4.3 s | **PASS** |
+| 1 s stress (`r912-stress-1s`, not gated) | 1,000 | 6 (780 to 1,080) | 331 | 491 / 651 ms | 69 ms | 4,000 in 5.6 s | PASS (not gated) |
+| probe: 400 readers (`r912-panel-probe-5s`) | 5,000 | 2 | 67 | 464 / 645 ms | 82 ms | 4,000 in 4.1 s | PASS |
+| probe: 4,000 readers (`r912-panel-all-5s`) | 5,000 | 2 | 67 | 473 / 548 ms | 77 ms | 4,000 in 1.0 s | PASS |
+
+The fan-out p99 is the worst of 67 ticks, and the overrun p99 the worst of 66 gaps: read them as worst samples, not population percentiles. The connect retries (closes with code 1006, all before the welcome) are the reconnects of the 200-per-250 ms ramp, as in 9C.1. The welcomed count is 4,000 of 4,000 in every run.
+
+**The reader probes.** 400 readers: 1,600 panel replies in the window (400 clients, 2 panels, 2 public ticks), 246.8 MB. 4,000 readers: 16,000 replies, 2,463.7 MB, about 1.2 GB per public tick. That is the bytes the old push sent to every socket at each public tick, now sent as replies after the tick frame. The fan-out of the tick frame stays at 0.55 to 0.65 s p99 in both probes. The all-readers case is the worst case (every client with a public panel open at once); the gate does not include it.
+
+**Tests and gates.** `npx next typegen` and `npx tsc --noEmit`: exit 0. `npx eslint` on the touched files: 0 errors. Vitest on the touched suites (`store-panels`, `public-core`, `view-directory`): 11 of 11. Full vitest (`npx vitest run --maxWorkers=3`, after the final code change): 263 files passed, 2 skipped; 2,466 tests passed, 4 expected fail, 70 skipped, 20 todo; exit 0.
+
+e2e (Playwright, `E2E_PORT=3362 E2E_WORLD_PORT=8959`, `E2E_BUILD_CMD="npx next build --webpack"`):
+- `worldEvents.spec.ts`, projects `close-events` (desktop) and `close-events-phone` (phone), `--no-deps --workers=1 --repeat-each=3`: 24 of 24 (4 tests, two projects, three repeats). The Close timing is taken in a MutationObserver on the takeover and on the Close button's `disabled` attribute, and the assertion (enabled at least 950 ms after the appearance) is unchanged. The 20 ms poll of the earlier record missed the enable on the phone project.
+- Regression, projects `desktop` and `phone` with `--no-deps`: `no-leak`, `sixdHome`, `regulator`, `screens`, `apps-group3`, `systemApps`, `company`: 49 passed, 11 skipped (by design: the phone-only and desktop-only checks), 0 failed.
+- `phase7Text.spec.ts`, projects `close-text` and `close-text-phone`, `--no-deps --workers=1`: 4 of 4.
+- Not a result: a first run of `worldEvents` with the default six workers ran the desktop and phone close projects against one shared world at once (forceEvent refused, ECONNRESET on the admin advance). The close projects must run one at a time, as the chain's dependencies require, so the run used `--workers=1`.
+
+The `no-leak` check: a panel reply's `data` (the public boards and directory) is left out of the search for the viewer's id, as the tick's `pub` and `directory` are; its envelope is searched, and `privateKeysIn` still reads its `data`.
+
+**Ports.** Ports 3352 (`next start`) and 8949 (a world server) were in use before this pass, from earlier runs; they were not killed, since their owner was not known. The e2e runs used the free ports above.
+
+**Not done.** (1) A global or per-panel limit on `panel` replies (deviation 4). (2) Blanking a panel while its read is pending (deviation 3). (3) Readers in the gate: the gate stays as ruled, and the reader probes are reported beside it.
+
+### 9C.1c Auction bid spec on the shared world (track 9C, branch `p9/i`)
+
+**Verdict.** Not an R-9-12 regression and not a product bug. The failure is in the spec's assumption about the shared e2e world, and it predates R-9-12: the pair fails the same way on `57b01be`, the base of `p9/h`. Fixed in the test (`b0d29ed`); no product code changed. The verdict covers the pair configuration below (`close-auction`, then `close-auction-phone`, in one invocation). The full-run desktop symptom is **open** (see below) and is not covered.
+
+**Reproduction (projects `close-auction` and `close-auction-phone`, `--no-deps --workers=1`, a fresh world; the desktop runs first, as in the chain).** On `57b01be` (the spec as it was then) the desktop passes and the phone fails at line 63: Expected 2234, Received 2249 (+15). On `daea911` (the spec as it was then) the desktop passes and the phone fails at line 63: Expected 2240, Received 2255 (+15). Earlier runs gave 2246 and 2261 on `daea911`, and the reviewer's run gave 2234 and 2248 (+14). The gap is the length of the desktop test in ticks.
+
+**Bisect: inconclusive, and not needed.** Both ends of the range fail, so the failure is already present at the base and no commit in between introduces it. The commits were not bisected one by one: the test reads `me.sixd.auctions` from the tick, and the server diff of R-9-12 leaves the per-socket tick `me` unchanged, so no commit of the range is the suspect. This is the reading of the diff, not a bisect result.
+
+**Cause.** The admin seam opens the current week's lots for every player, and the desktop project runs first in the shared world. Its open at tick T_d sets each lot without a bid to end at T_d + 22. The phone page loads after that, so its first status poll reads `open` from the desktop's open, before the phone's own open reaches the page. The spec then reads `before = lot.endTick` = T_d + 22 (2222). The phone's own open at T_p moves the end to T_p + 22, and the bid extends it by 24 to T_p + 46. The spec expects before + 24 = T_d + 46, so the gap is T_p - T_d = 15, the length of the desktop test. The page reads the seam's open on its next tick (one second in the e2e world) by design; only the spec's status-only wait assumed a fresh world.
+
+**Fix.** `openAuctions()` (`tests/e2e/helpers.ts`) resolves to the seam's answer (week, open tick, end tick). The spec waits until the page's lot shows that end tick, then until its status is `open`, and only then reads `before`. Lots without a bid take the seam's end tick, so the wait holds for both projects.
+
+**Runs (after the fix, `close-auction` and `close-auction-phone`, three invocations, each with its own fresh world).** Desktop 3 of 3, phone 3 of 3 (`b0d29ed`, `952d2d0`).
+
+**Desktop close chain (`close-card` to `close-text`, one invocation, `--no-deps --workers=1`, the spec as it was at each commit).** Four runs: `57b01be` twice and `daea911` twice.
+
+- `closeCard:137` (the journal waterfall) fails in all four. After the test advances past a day boundary, the day-close card (`os-prompt`, `close-card`) intercepts the click on the Journal tab, and the test does not dismiss it. It fails identically on `57b01be`, so it predates R-9-12 and is not a regression. Test defect in `closeCard.spec.ts`, not fixed here (own follow-up).
+- `exchangeFunds:20` fails once in two on `daea911` (the holding value read `Value$49,998.76` at its assertion) and in none of two on `57b01be`. The sample is too small to decide. **Open.**
+- `worldEvents:116` and `comeback` (the reviewer's failures on `daea911`) did not reproduce: they passed in all four runs. The auction spec passed on the desktop in all four.
+
+**Full-run desktop symptom (the input never appeared after a status `open` read): open, not explained.** Not reproduced: the desktop auction spec passed in every chain run above and in every pair run. The likely mechanism is the window itself. The lot is open for 22 ticks (22 s in the e2e world) from the seam's open, and the spec's steps after the open (two polls, a screenshot, the refusal round trip) must finish inside it; a stall longer than the window closes the lot, and the input then never shows. This fix does not change that window. Opening with 24 ticks, the largest that still lands in the snipe window, would add two seconds; not changed. A full e2e run was not repeated for this symptom.
+
+**No-leak L3 and L4 (the flake the reviewer saw on `daea911`).** The check searched every frame of B, excluding only `pub` and `directory`. Four keys carry a player's id by design, as public records: `wire` (the Wire's filings and purchases with the filer's handle, V1-PRIVACY.md section 1), `rankUps` (`{ playerId, rankId }`, server/index.ts), and `pub` and `directory`. A panel reply's `data` is public as well (R-9-12). The check now excludes those keys explicitly and names the frame and key of any other hit. **The key that carried A's id was not observed:** the old check passed in all 33 repeats on desktop (8 and 25), so the exclusion of `wire` and `rankUps` rests on the design, not on a captured failure. After the change: 24 of 24 (12 repeats on each of `desktop` and `phone`).
+
+**Other specs on the same data (`sixd`, `sixdAuction`, `sixdHome`, `no-leak`, `desktop` and `phone`, `--no-deps --workers=1`).** 27 passed, 7 skipped (the phone minimum-window tests are desktop-only).
+
+### 9C.2 O-2: the residual surprise s and the rho gate (engine path, R-9-11)
+
+**Wiring (done).** A filing of a company with a consensus carries its residual surprise (`FilingPublic.surprise = { s, d, margin }`, optional):
+
+- the actuals (`revenue`, `ocf`, `backlogContribution`) against the consensus snapshotted at the close (`pendingFile.consensus`), over `D = max(EV_20, 0.25 mcap_20)`;
+- a pending filing saved before O-2 has no snapshot and carries no surprise (it does not read the next quarter's `c.consensus`); a private company's snapshot is null and carries none;
+- `consensus.ocf` is the annualized E* read scaled to the quarter (`eStar * 63 / 252`), a proxy: the consensus carries OCF only through E*;
+- `mcap_20` is the mean of the 20 closed bars of the engine (`bridge.ts` `mcap20`, the engine's bars times shares out), falling back to the filed fair value with no bars. **Fixed in `83ab191`:** the window ended one bar before the close. The engine pushes a day's bar at the next day's start, so the close bar sits at index `len - lag`; the window now ends there, inclusive. The test is `rho.test.ts`, "mcap_20 is the mean of the 20 bars ending at the close".
+
+**The engine path.** `rhoOfListedSeed` (`src/world/company/rho.ts`, used by `scripts/balance/rho-probe.ts`) runs each seed on the engine path: the IPO orders, then `listedWorld(seed, { engine: true })` and `stepEngineTo` step every tick with `stepGame` (the engine's matching and day-boundary bars, the company step and day, the sector factor of 9C.3). No bot trades the listed stock.
+
+**The probe.** `rho = sd(s_filing) / sd(s_quarter)` over the 7 pairs of 8 post-listing quarters, where `s_quarter` is the same expression with the consensus replaced by the previous quarter's filed actuals, over the same D. Gate (Quant 6.2 (c)): median <= 0.15 and p90 <= 0.25 across seeds. The probe's quantile is `quantile()` in `rho.ts`: the value at index `floor(n q)` with no interpolation.
+
+**Result on the fixed code: FAIL, a known V1 limit (R-9-11).** 200 seeds (`rho-1` to `rho-200`), four processes of 50 (`--first 1, 51, 101, 151`), one sector (`tech`), 8 quarters each, on the engine path. The probes ran after the window fix was made in the working tree (`bridge.ts` edited 21:18 UTC, probes started 21:26 UTC); the fix was committed as `83ab191`. The four `rho.json` files (scratch `p9/rho-engine-fix/p1` to `p4`) were combined and recomputed for this record:
+
+| Measure (200 seeds) | Value | Gate |
+|---|---|---|
+| Median, the probe's quantile (0-based index floor(200 x 0.5) = 100) | **0.5972** | <= 0.15 **FAIL** |
+| Median, average of the two middle values | 0.5964 | |
+| p90, the probe's quantile (index 180) | **0.9271** | <= 0.25 **FAIL** |
+| p90, linear interpolation | 0.9254 | |
+| p95, linear interpolation | 1.0553 | reported |
+| Mean, min, max | 0.6313, 0.1618, 1.6718 | |
+| Seeds with rho <= 0.15 | **0 of 200** | |
+| Seeds with rho <= 0.25 | 5 of 200 | |
+| Non-finite s or rho | 0 | must be 0 |
+| True median per process (50 seeds each) | 0.5968, 0.5586, 0.5778, 0.6180 | |
+
+**The ruling's numbers.** R-9-11 quotes "median 0.597, p90 0.925". The median matches the probe's quantile (0.5972). The p90 of 0.925 is the interpolated value; the probe's own p90 is 0.927. The verdict does not depend on the definition: both p90 values and both medians fail their gates, and 0 of 200 seeds are at or below 0.15. The earlier probe on `4803ec2` (before the window fix, the same 200 seeds) gave 0.5955 and 0.9281 by the probe's quantile; the fix moves the median by +0.002 and the p90 by -0.001, so the residual is not sensitive to the `mcap_20` window in this configuration.
+
+**Source of the residual: a hypothesis, not isolated.** The OCF term is the likely largest source (its consensus is the E* proxy, which lags a quarter in which revenue falls). This was not measured; a decomposition needs the per-term rows in `rho.json` (`sdRev`, `sdOcf`, `sdCb`, which were recorded), and a targeted run, which was not done. R-9-11: O-2 is a known V1 limit, owner Quant, post-V1 (isolate the term, then retune the weekly signal noise or the consensus update). Player companies list late (R2, $50M filed value), so the exposure in V1 is small. No further compute on it in Phase 9.
+
+**Test status.** `src/world/company/rho.test.ts`: the wiring is tested directly (a listed filing's `s` equals `valuation.surprise` on the closing snapshot, finite and with a positive D; a private company's filings carry no surprise; a pre-O-2 pending filing carries none; `mcap_20` ends at the close bar). On the engine path the listed asset books bars (the engine keeps the last 30). `rho_residual` runs over 3 seeds on the engine path: its probe-is-finite check is a plain test and passes; its gate assertion is `it.fails` with the title "(R-9-11: known V1 limit, owner Quant, post-V1; measured FAIL in 9C.2)". The `V1-ACCEPTANCE.md` row `rho_residual` is FAIL with this ruling.
+
+**Known limit of the `mcap_20` test (non-blocking).** The "close bar at index `len - lag`" test restates the formula that `bridge.ts` uses. It guards the index against a later edit, but it cannot catch a change in the engine's bar timing: a `DayBar` carries no day stamp (`c`, `n`, `u` only), so an independent check of which bar is the close needs a stamp or a known price path. Not built.
+
+**Not run.** The six-sector sweep (`rho_engine` of the Quant probe; this covers one sector), `rho_ev_robust` and `rho_by_spread` (the `fx_close_payout` twin and the spread-bucket fixtures are not built), `alt_prefiling_edge` and `signal_joint_v15` (the bot harnesses are not in this worktree).
+
+### 9C.3 O-12: the company sector shock is the engine's sector factor
+
+**Done (commit `f127566`).** A company sector's level moves each day by the engine's sector factor return: the sum of the engine's per-tick sector draws over the day, on the G22 unit reading `F_s = sum z * sqrt(dt)`, `dt = 1 / (ticksPerDay * daysPerYear)`. The company's own stream (`co:sector:*`) is gone.
+
+- There is no second stream. Each company sector holds a cursor: the engine's sector state and tick at the last company day (`src/world/company/sectorFactor.ts`). The factor is the engine's own draws replayed with the same `Rng` calls as `sim.ts` (`new Rng(state)`, one `normal()`, `state()`), and the replay must land on the engine's current state, or the day throws. No engine change: the engine's fingerprints do not move.
+- Founding takes the engine's sector state as the cursor. A save from before O-12 is migrated (`bridge.ts` `migrateAll`) to the engine state at its tick.
+- Worlds without player companies never run `companyDay` (the company world is created by founding), so their fingerprints do not move. The engine fingerprint suites (`src/engine/calibration.test.ts`, `ecology.test.ts`, `src/world/funds/property.test.ts`) pass unchanged.
+- `scripts/balance/company-calibrate.ts` uses `seedSectorSource`, the engine's sector streams for the seed at the release rate (720 ticks a day).
+- The company constant `sectorShockScale` is removed (`src/content/company.ts`); the comment in its place points here.
+
+**Tests.** No test asserted a numeric value of the old stream, so no assertion was changed. Fixtures that moved the clock without drawing the engine's sector streams (`b1fixture.ts`, `backstop.test.ts`, `insiders.test.ts`, and the trade ticks of `exploits/sequences.ts`) now draw them through `jumpEngineTicks`. A test that revisits an earlier day (the tape window tests) moves the clock back: `advanceTo` re-anchors the cursors there (`reanchorSectors`). The server never rewinds. `sectorFactor.test.ts` (9 tests): the replay equals the engine's state after N steps; `jumpEngineTicks` equals `stepMany`; a day's factor is the engine's and the cursor lands on the engine; a foreign stream is refused; a cursor ahead of the clock is refused; the day factor has unit variance per year (6,000 days, within 15%); the no-engine source starts at tick 0 on the seed streams; the real game loop (`stepGame` through two day boundaries with a founded company) keeps the cursors on the engine and moves a sector level; a world without companies is not moved by `companyDay`. `determinism.test.ts` (commit `4803ec2`): the same seed run twice on the engine path gives an identical company world, with the cursors at the engine's tick; a different seed differs.
+
+
+**Runs.** Touched company suites on `83ab191` (`src/world/company` and `scripts/balance/bands.test.ts`, `npx vitest run --maxWorkers=2`): 56 files passed, 2 skipped (58); 504 tests passed, 1 expected failure, 69 skipped, 20 todo. Gates before the commit: `npx next typegen` and `npx tsc --noEmit` exit 0; ESLint on the touched files 0 errors. **Full suite** (`npx vitest run --maxWorkers=2`, once, on the tree of this record: `de0739a` plus the script header and this section; no source change since `83ab191`): 254 files passed, 2 skipped (256); 2,414 tests passed, 4 expected failures, 70 skipped, 20 todo (2,508); exit 0 (746 s; the log is `t5-full-vitest.log` in the scratch folder). The earlier run on `83ab191` gave the same counts (`t4-full-vitest.log`).
+
+
+### 9C.4 AUSD: the stablecoin volatility band at 300 seeds x 720 ticks
+
+**Ruling: the stablecoin class band `[0.6, 1.1]` on the RMS ratio, applied to AUSD** (`scripts/balance/bands.ts`, `UNIVERSE_VOL_BANDS.AUSD`, with its mechanism written next to the number). The ruling follows the lead's rule for a band that still straddles. A ruling is a band, not a verdict: the verdict below is UNDECIDED.
+
+**Run.** `scripts/balance/run.ts --universe --assets AUSD --seeds 50 --first K --tpd 720 --years 1` in six processes (K = 1, 51, 101, 151, 201, 251), 300 seeds in all, started 19:03, finished about 20:17. **Deviation:** one game year per seed, not the default five. A seed-year took about 82 s on this machine under load, so five years at 300 seeds would be about 34 CPU-hours; this was not run. The RMS and its standard error are combined over the six parts with the delta method `se = se(mean x²) / (2 RMS)` that `run.ts` uses.
+
+| Measure | Value |
+|---|---|
+| Seeds | 300 |
+| RMS of the AUSD vol ratio | **1.032** |
+| Standard error (delta method) | 0.154 |
+| 2 s.e. interval | **[0.725, 1.340]** |
+| Median seed ratio | 0.070 |
+| Seeds with ratio below 0.3 | 78% |
+| Largest seed ratio | 9.23 (27% of the mean square; the RMS without it is 0.886) |
+| Per-part RMS (50 seeds each), with s.e. | 0.524 ± 0.160; 1.122 ± 0.180; 1.584 ± 0.554; 0.910 ± 0.187; 0.783 ± 0.189; 0.954 ± 0.200 |
+
+**Verdict (the verdict code is `bands.ts` `verdictOf`, PASS only when estimate ± 2 s.e. lies inside the band; `run.ts` lists UNDECIDED and does not count it as a failure).**
+- Under the general band `[0.85, 1.4]`: the 2 s.e. interval straddles 0.85, so it is **UNDECIDED**.
+- Under the class band `[0.6, 1.1]`: the point estimate 1.032 is inside, but the 2 s.e. interval straddles 1.1 (upper edge 1.340), so it is **UNDECIDED** as well. It is not a FAIL under either band and is not a PASS.
+
+**Mechanism.** AUSD's variance is set by its rare depeg jumps (0.25 a year, down 6% on average). In 78% of the seeds the year has no depeg and the ratio sits on the no-jump shoulder, below 0.3. The seeds that depeg carry the RMS, which is why the per-part RMS ranges from 0.52 to 1.58. The 50-seed parts are noisy for this reason; a 5-year run would sample more depegs per seed, but this run does not do that.
+
+**Not done.** FLUX, the other stablecoin (0.5 jumps a year, undecided at 8 seeds with 0.778), has no 300-seed run here and keeps the general band. The 5-year, 300-seed AUSD run is not done (cost above). A 2-s.e. verdict within the class band needs more depeg samples than 300 one-year seeds give.
+
+### 9C. Not done and open
+
+- **R-9-8b load gate: PASS 3 of 3 on `p9/h` (9C.1b), in 330 s windows that include the public ticks 780 and 840.** The public-tick stall is fixed by R-9-12: the boards and the directory are read on demand, not pushed every 60th tick. The record on `7a4f146` (9C.1) failed in a window with tick 780 (fan-out p99 3,174 ms).
+- **Panel reads have no limit of their own (9C.1b, deviation 4).** A `panel` request takes the per-socket bucket (20 a second). Bound per socket, not in total. Follow-up: a per-panel per-tick limit per socket. Owner: lead.
+- **Panel staleness (9C.1b, deviation 3).** A panel keeps its last read for one round trip after its stamp moves. Blanking while the read is pending is not built. Owner: lead.
+- **Auction spec, full-run desktop symptom (9C.1c):** open. The input never appeared after a status `open` read in one full run; not reproduced in the chain or pair runs. Owner: lead.
+- **`exchangeFunds:20` (9C.1c):** open. One failure in two chain runs on `daea911`, none in two on `57b01be`. Owner: lead.
+- **`closeCard:137`, the journal test (9C.1c):** a test defect (the day-close card blocks the Journal tab), present on `57b01be` too. Owner: test follow-up.
+- **Server end at about 5 minutes (9C.1):** not reproduced on `7a4f146` (the instrumented runs stay alive past 5 min with no exit or uncaught event; heap flat at 73 to 90 MB). Two HEAD anomalies stay **unexplained**: the r910 log stops at tick 740 with no error, and in r911-r1 the health fetch was refused while the process was alive and ticking.
+- **Mirror map growth (9C.1):** 400 same-tick buyers give 40,740 mirror keys, so the map and the snapshot grow with the square of the buyers. A match-window or prune rule question, not changed here.
+- **Per-view cost still open (9C.1):** `rivalsBoard` costs about 9 us a view (rival equities, market-dependent), not cached. The impact tally and the rank basis are profiled per tick, not per view, and are not on the gated path.
+- **O-2 gate (R-9-11):** FAIL, a known V1 limit, owner Quant, post-V1. The OCF term is a hypothesis that was not isolated.
+- **The `mcap_20` test restates the formula (9C.2):** non-blocking; an independent bar-timing check needs a day stamp on `DayBar`.
+- The six-sector rho sweep, `rho_ev_robust`, `rho_by_spread`, `alt_prefiling_edge` and `signal_joint_v15` (9C.2).
+- The 5-year AUSD run at 300 seeds and the FLUX run (9C.4).

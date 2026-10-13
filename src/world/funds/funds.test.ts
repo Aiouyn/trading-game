@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { touchLinks } from '../collusion';
 import { ecaOf } from '../eca';
 import { tipsOf } from '../tips';
 import { applyCommand, createGame, stepGame } from '../game';
@@ -228,7 +229,9 @@ describe('related-party and insider rules', () => {
     // a linked account (an alliance mate) does the same in another asset
     const other = stockId(g, [s]);
     g.players.m!.allianceId = 'AL1';
+    touchLinks(g);
     g.players.x!.allianceId = 'AL1';
+    touchLinks(g);
     expect(cmd(g, 'x', { type: 'order.place', order: { assetId: other, side: 'buy', type: 'market', qty: 1 } }).ok).toBe(true);
     ticks(g, 1);
     expect(cmd(g, 'x', { type: 'order.place', order: { assetId: other, side: 'sell', type: 'limit', qty: 1, limitPrice: priceOf(g, other) * 100 } }).ok).toBe(true);
@@ -254,7 +257,9 @@ describe('related-party and insider rules', () => {
     const g = world('f-investor-gates');
     const f = openFund(g);
     g.players.x!.allianceId = 'AL2';
+    touchLinks(g);
     g.players.m!.allianceId = 'AL2';
+    touchLinks(g);
     expect(errOf(g, 'x', { type: 'fund.deposit', fundId: f.id, amount: 1000 })).toBe('fundInvestorLink');
     g.players.i1!.joinedTick = g.market.tick - 6 * 24 * TPD;
     expect(errOf(g, 'i1', { type: 'fund.deposit', fundId: f.id, amount: 1000 })).toBe('fundInvestorAge');
@@ -643,7 +648,9 @@ describe('related party: the fund and the linked accounts', () => {
     expect(errOf(g, 'm', { type: 'order.place', order: { assetId: s, side: 'sell', type: 'limit', qty: 1, limitPrice: low } })).toBe('fundSelfMatch');
     // an alliance mate is linked to the manager: the same refusal; an unlinked player is not refused by this rule
     g.players.m!.allianceId = 'AL4';
+    touchLinks(g);
     g.players.x!.allianceId = 'AL4';
+    touchLinks(g);
     expect(errOf(g, 'x', { type: 'order.place', order: { assetId: s, side: 'sell', type: 'limit', qty: 1, limitPrice: low } })).toBe('fundSelfMatch');
     expect(errOf(g, 'i1', { type: 'order.place', order: { assetId: s, side: 'sell', type: 'limit', qty: 1, limitPrice: low } })).not.toBe('fundSelfMatch');
   });
@@ -672,7 +679,9 @@ describe('related party: the fund and the linked accounts', () => {
     expect(cmd(g, 'x', { type: 'order.place', order: { assetId: s, side: 'buy', type: 'limit', qty: 1, limitPrice: priceOf(g, s) * 0.01 } }).ok).toBe(true);
     // x and the manager become alliance mates: the fund's sell now stands opposite a linked order
     g.players.m!.allianceId = 'AL5';
+    touchLinks(g);
     g.players.x!.allianceId = 'AL5';
+    touchLinks(g);
     ticks(g, 1);
     // the fund's sell is no longer open (cancelled before the step: it left the open book, and the manager is told)
     expect(g.market.orders.some((o) => o.playerId === f.accountId && o.side === 'sell' && o.status === 'open')).toBe(false);

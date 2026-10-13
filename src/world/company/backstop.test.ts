@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { touchLinks } from '../collusion';
 import { applyCommand, createGame } from '../game';
 import { credit, newOutput, TPD } from '../core';
 import { courtTick } from '../court';
@@ -8,6 +9,7 @@ import { addSurveillance } from './failure';
 import { linkOwner } from './owners';
 import { COMPANY } from '@/content/company';
 import type { GameState } from '../types';
+import { jumpEngineTicks } from './sectorFactor';
 
 // Each case runs the day step and the court: give them room under a parallel run.
 vi.setConfig({ testTimeout: 60_000 });
@@ -19,7 +21,7 @@ function world(seed: string): { g: GameState; assetId: string; companyId: string
     const r = applyCommand(g, id, { type: 'join', handle, country: 'AV' });
     if (!r.ok) throw new Error(r.error);
   }
-  g.market = { ...g.market, tick: 1 };
+  g.market = jumpEngineTicks(g.market, 1);
   for (const id of ['m', 'v']) {
     g.players[id]!.joinedTick = -1000 * TPD;
     g.players[id]!.lastSeenTick = 1;
@@ -41,7 +43,7 @@ function world(seed: string): { g: GameState; assetId: string; companyId: string
 
 /** The first tick of a game day (today() is floor((tick - 1) / TPD)). */
 function atDay(g: GameState, day: number): void {
-  g.market = { ...g.market, tick: day * TPD + 1 };
+  g.market = jumpEngineTicks(g.market, day * TPD + 1);
 }
 
 describe('the insider backstop (spec 6.2, the court insider case)', () => {
@@ -97,7 +99,7 @@ describe('the insider backstop (spec 6.2, the court insider case)', () => {
       c = Object.values(g.court.cases)[0];
     }
     expect(c).toBeDefined();
-    g.market = { ...g.market, tick: c!.hearingTick };
+    g.market = jumpEngineTicks(g.market, c!.hearingTick);
     courtTick(g, out);
     expect(['won', 'lost', 'dismissed']).toContain(g.court.cases[c!.id]!.status);
   });
@@ -110,7 +112,9 @@ describe('the bridge: the CEO freeze, the bid route and the bankruptcy delisting
     const alt = applyCommand(g, 'alt', { type: 'join', handle: 'alt_one', country: 'AV' });
     expect(alt.ok).toBe(true);
     g.players.alt!.allianceId = 'ALLY';
+    touchLinks(g);
     g.players.m!.allianceId = 'ALLY';
+    touchLinks(g);
     atDay(g, 5);
     const r = applyCommand(g, 'm', { type: 'company.act', companyId, action: { kind: 'changeCEO', successor: { kind: 'npc' } } });
     expect(r.ok).toBe(true);

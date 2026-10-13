@@ -7,10 +7,11 @@ import { imitateDaily, demandPerDay, npcQuarterly, npcWeeklyReaction, seedNpcs, 
 import { capacityPerDay, depreciationPerDay, inputIndex, materialUnitCost, overtimePerUnit, plantCost, rdEffort, shipCeiling } from './economics';
 import { completeProject, frontierStep, startProject } from './rd';
 import { ROLES, emptyStaff, fireHeads, headcountCap, landHires, queueHire, totalHeads, wagesPerDay, pendingHeads } from './staff';
-import { vEngine, lnPerShare, type ValuationInputs } from './valuation';
+import { clippedMargin, surprise, surpriseDenominator, vEngine, lnPerShare, type ValuationInputs } from './valuation';
 import { totalDebt } from './debt';
 import { filedInputs } from './signals';
-import type { CompanyReject, CompanyWorld, Company, ExecRole, ExecTrait, Holder, InvestorPool, Order, Product, ProjectKind, Resolved, Statements } from './types';
+import type { EngineSectors } from './sectorFactor';
+import type { CompanyReject, CompanyWorld, Company, Consensus, ExecRole, ExecTrait, FilingPublic, Holder, InvestorPool, Order, Product, ProjectKind, Resolved, Statements } from './types';
 import { post } from './books';
 import { announceCeoChange, boardVote, ceoDay, execDay, fireExec, hireExec, setGuarantee } from './governance';
 import { bankrupt, insolvencyStep } from './failure';
@@ -55,6 +56,10 @@ export interface CompanyEnv {
   rankOf(playerId: string): string;
   /** the share of a listed company's shares a player holds (0 for a private company): the insider test (spec 5.3) */
   stakeOf?(playerId: string, companyId: string): number;
+  /** the day's engine sector factor return per company sector (sectorFactor.ts, O-12); absent with no engine */
+  sectorFactor?: Record<string, number>;
+  /** O-2: the market cap averaged over the 20 closed days ending `lag` days before now, for a listed company (undefined when none) */
+  mcap20?(companyId: string, lag: number): number | undefined;
   money: {
     cash(playerId: string): number;
     /** moves cash out of a player's account into a company (a transfer, not a sink) */
@@ -102,12 +107,15 @@ function rngOf(seed: string, key: string): RngState {
 }
 
 /**
- * A fresh company world: the NPC investor pools and the sector shock streams (G22 unit reading), at level 0. The pools'
- * cash is money the world creates at its start, so it is booked as a faucet (the conservation identity counts it).
+ * A fresh company world: the NPC investor pools and the sector shock cursors (G22 unit reading, O-12: the engine's sector factor),
+ * at level 0. The cursors start at the engine's sector state at the founding tick (`engine`), or at tick 0 of the seed when there
+ * is no engine (scripts and unit tests). The pools' cash is money the world creates at its start, so it is booked as a faucet.
  */
-export function emptyCompanyWorld(seed: string): CompanyWorld {
+export function emptyCompanyWorld(seed: string, engine?: EngineSectors): CompanyWorld {
   const sectors = {} as CompanyWorld['sectors'];
-  for (const s of Object.keys(SECTORS) as CompanySector[]) sectors[s] = { level: 0, rng: rngOf(seed, `co:sector:${s}`) };
+  for (const s of Object.keys(SECTORS) as CompanySector[]) {
+    sectors[s] = { level: 0, rng: engine?.sectorRng[s] ?? rngOf(seed, `sector:${s}`), tick: engine?.tick ?? 0 };
+  }
   const investors: Record<string, InvestorPool> = {};
   let seeded = 0;
   for (const kind of INVESTOR_KINDS) {
@@ -593,7 +601,9 @@ function closeQuarter(w: CompanyWorld, c: Company, closeDay: number, events: Com
   c.retained += statements.netIncome;
   c.closed.push(statements);
   if (c.closed.length > 16) c.closed.splice(0, c.closed.length - 16);
-  c.pendingFile = { statements, hash: statementsHash(statements), filingDay: closeDay + COMPANY.filingLagDays };
+  // O-2: the consensus of the closing quarter as it stood at the close (the signals before this day; this day's signal reads the
+  // next quarter), kept for the filing's residual surprise
+  c.pendingFile = { statements, hash: statementsHash(statements), filingDay: closeDay + COMPANY.filingLagDays, consensus: c.consensus ? { ...c.consensus } : null };
   c.qtd = emptyQtd(closeDay);
   events.push({ kind: 'closed', companyId: c.id, quarter, day: closeDay });
 }
@@ -602,7 +612,26 @@ function closeQuarter(w: CompanyWorld, c: Company, closeDay: number, events: Com
  * The filing (§6.1, CB-075): publish the frozen statements, check their hash, re-anchor lnV, and settle the reversal. The
  * tier and the public distress flag move here, on the filed statements: nothing public changes at the close itself.
  */
-function fileQuarter(c: Company, day: number, events: CompanyEvent[]): void {
+/**
+ * O-2 (Quant 6.2): the residual surprise s of a filing, the actuals against the consensus at the period close, over
+ * D = max(EV_20, 0.25 mcap_20). mcap_20 is the market's average over the 20 closed days ending at the close (env.mcap20); with no
+ * bars yet it falls back to the filed fair value. The margin and net debt are the TTM values with this filing in (filedInputs).
+ * Undefined for a company with no consensus (a private company) or with no positive denominator.
+ */
+function surpriseAtFiling(c: Company, cons: Consensus | null, st: Statements, day: number, env: CompanyEnv): FilingPublic['surprise'] {
+  if (!cons || cons.ocf === undefined) return undefined;
+  const x = filedInputs(c, 0);
+  const mcap = env.mcap20?.(c.id, Math.max(0, day - st.periodCloseDay)) ?? c.filedV;
+  const d = surpriseDenominator(mcap + x.netDebt, mcap);
+  if (!(d > 0)) return undefined;
+  const s = surprise({
+    revActual: st.revenue, revCons: cons.revQtd, ocfActual: st.ocf, ocfCons: cons.ocf,
+    cbActual: st.backlogContribution, cbCons: cons.backlogContribution, margin: x.margin, d,
+  });
+  return { s, d, margin: clippedMargin(x.margin) };
+}
+
+function fileQuarter(c: Company, day: number, events: CompanyEvent[], env: CompanyEnv): void {
   const pf = c.pendingFile;
   if (!pf) return;
   if (statementsHash(pf.statements) !== pf.hash) throw new Error(`filing hash mismatch for ${c.id}`);
@@ -614,7 +643,13 @@ function fileQuarter(c: Company, day: number, events: CompanyEvent[]): void {
   }
   const rev = reversal(c.resolved, fairBySig, sharesBySig);
   const line = { nonConversion: rev.nonConversion, baseRate: rev.baseRate, excessLift: rev.excessLift, repayment: rev.repayment };
-  c.filings.push(filingOf(pf.statements, pf.hash, day, line, pf.statements.heads));
+  const filing = filingOf(pf.statements, pf.hash, day, line, pf.statements.heads);
+  // O-2: the filing's residual surprise against the consensus snapshot taken at the close. A pending filing saved before O-2
+  // has no snapshot (the field is absent, not null): it carries no surprise, rather than reading c.consensus, which by filing
+  // day holds the next quarter's read. A private company's snapshot is null: no surprise.
+  const sur = pf.consensus === undefined ? undefined : surpriseAtFiling(c, pf.consensus, pf.statements, day, env);
+  if (sur) filing.surprise = sur;
+  c.filings.push(filing);
   if (c.filings.length > 16) c.filings.splice(0, c.filings.length - 16);
   c.filingCount++;
   const prevCB = c.cbFiled;
@@ -687,23 +722,19 @@ function checkGoals(w: CompanyWorld, c: Company, day: number, events: CompanyEve
 /**
  * The day-boundary step of the company world (called once per game day, at the open). Order (G19): the filing of the
  * day runs first, then the day's operations and the distress check, then the quarter close and the signal, then the NPC
- * weekly reaction and the quarterly entry and exit, then the goals. Sector shocks are drawn first, once per day per sector.
+ * weekly reaction and the quarterly entry and exit, then the goals. The sector levels move first, by the day's engine
+ * sector factor (`env.sectorFactor`, O-12; sectorFactor.ts); with no factor (no engine) they do not move.
  */
 export function companyTick(w: CompanyWorld, env: CompanyEnv, day: number): CompanyEvent[] {
   const events: CompanyEvent[] = [];
-  for (const s of Object.keys(w.sectors) as CompanySector[]) {
-    const sec = w.sectors[s];
-    const r = new Rng(sec.rng);
-    sec.level += COMPANY.demand.sectorShockScale * r.normal();
-    sec.rng = r.state();
-  }
+  for (const s of Object.keys(w.sectors) as CompanySector[]) w.sectors[s].level += env.sectorFactor?.[s] ?? 0;
   const ids = Object.keys(w.companies).sort();
   for (const id of ids) {
     const c = w.companies[id]!;
     if (c.bankrupt) continue;
     const ceoNow = ceoDay(c, day);
     if (ceoNow) events.push({ kind: 'ceo', companyId: c.id, day, holder: ceoNow });
-    if (day > 0 && c.pendingFile && day === c.pendingFile.filingDay) fileQuarter(c, day, events);
+    if (day > 0 && c.pendingFile && day === c.pendingFile.filingDay) fileQuarter(c, day, events, env);
     if (day - 1 >= c.foundedDay) {
       // O-17: a decision confirmed on day - 1 is applied at its close, before that day's operations
       applyStaged(c, day - 1, events);

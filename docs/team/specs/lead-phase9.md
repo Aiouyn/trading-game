@@ -68,3 +68,43 @@ Binding for Phase 9 on the tech fork (`v1`). Visual polish and the four-palette 
   clients welcomed; tick fan-out p99 (tick start to the last client's receipt) < 2.5 s; tick overrun p99 (spacing minus the
   nominal tick) < 0.5 s; three repeats. The 1 s stress run is reported, not gated; its regression against the earlier
   record is investigated and written down.
+
+## R-9-10 Progressive business tax (lead, after the 504-day wealth table)
+
+The 504-game-day wealth bot (21 real days, 4 styles x 20 seeds, VM) against 01 §8.4: week 1 is on target (managed $621k and
+average $801k at real day 7, target median $500k), but week 3 overshoots: managed $110M and average $128M at day 21 (target
+median $20M) and excellent $957M (top 1% target $400M) from shops alone at low risk. Growth does not decelerate (about 33% a
+real day in week 3). 01 §8.2 and §8.3 name the missing lever: progressive tax brackets. None exists in the code.
+
+- Business net income (per business, per game day, after its costs) is taxed in brackets of the owner's rank basis (marked
+  net worth minus loans owed, R-9-4). Starting brackets (tunable): 0% up to $250k, 10% to $2.5M, 20% to $25M, 30% to $250M,
+  40% above (top bracket inside 01 §8.2's 25-45%). The marginal rate applies to the whole day's business income of an owner
+  in that bracket (no slicing): simple to read on the close card. Losses are not taxed and earn no credit.
+- The tax is a booked sink (`businessTax`); the world money identity still closes. The stabilizer may scale every bracket
+  by its lever within +-5 points (01 §8.2 lever 2), public on the money supply report.
+- Copy: the Businesses card and the day-close card show "Tax (bracket N%)" as its own line, en and fr.
+- Trading gains are not taxed in V1 (they are transfers with the market, not a faucet). Recorded as a V1 limit.
+- Gate (for the tuning): with the 504-day bot on 20 seeds, managed p50 at real day 21 in [$15M, $60M] and at real day 7 in
+  [$300k, $1.5M]; excellent p50 at day 21 <= $400M (the top-1% path) and at day 7 <= $5M; neglected unchanged in week 1.
+  Tune brackets only on seed prefix `wealth`, then confirm on prefix `wealthH` (held out).
+
+## R-9-11 O-2 after the engine-path probe (lead)
+
+`rho_residual` measured on the engine path after the mcap_20 window fix, 200 seeds x 8 quarters: median 0.597, p90 0.925,
+0 of 200 seeds at or below 0.15 (gate median <= 0.15, p90 <= 0.25). FAIL, recorded. The probe's consensus is a proxy
+(annualised E*), so the term that carries the correlation is not isolated. Ruling: O-2 is a known limit of V1, owner Quant,
+post-V1 (isolate the term, then retune the weekly signal noise or the consensus update). Player companies list late (R2,
+$50M filed value), so the exposure in V1 is small. The test stays `it.fails` with this ruling in its title. No further
+compute on it in Phase 9.
+
+## R-9-12 Public-tick payload (lead, after the 9C.1 perf pass)
+
+Every 60th tick (BOARD_EVERY) the server pushes the public boards (about 134 kB) and the player directory (about 130 kB) to
+every socket: about 1 GB for 4,000 clients, and that tick takes 3 to 4 s (fan-out p99 3.2 s in a window that includes tick
+780), which fails R-9-8b. Ruling: the public tick carries only a small version stamp per public panel (boards, directory,
+rivals). A client fetches a panel's data on demand (a request like 'lp-page', through the existing rate limit) when the panel
+is open and its version moved, and once when it opens. Nothing else changes in the panels' content. Gate: R-9-8b with a window
+that includes at least two public ticks (e.g. 330 s from the start of a game day), three repeats, plus the 1 s stress reported.
+The e2e specs that read the boards or the directory keep passing.
+
+**Implementation notes and deviations (track 9C.1b, branch p9/h; the ruling above is unchanged).** (a) No rivals stamp. The rivals are not on the public tick (`me.rivals` is per tick and private, and no rivals data was in the public extras), so there is no rivals panel to read, and the Rivals board is unchanged. The stamps are `boards` and `directory`. (b) The reply's `v` is the tick the reply is answered at, and the directory is taken at that tick. The content is what the push carried for that viewer (the same text, `directoryWire` equals `directoryFor`); the tick is the answer tick, not the stamp's tick. (c) After a stamp moves, the panel may show its last read for one round trip: a read in flight does not hold the newer stamp back, and an older reply is never applied. The panel reads are rate-limited by the per-socket bucket of 20 messages a second (burst 30), as `lp-page` is; there is no separate limit, so the reads are bounded per socket, not in total. Record: `docs/V1-PHASE9.md` 9C.1b.

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { touchLinks } from './collusion';
 import { applyCommand, createGame, stepGame } from './game';
 import { cashOf, credit, RESTRICT_TICKS, realDayOf, restrictedNow, spendableCash, REAL_DAY, TPD } from './core';
 import { refreshNetWorth } from './assets';
@@ -144,7 +145,9 @@ describe('sponsor breaks: the card', () => {
     })();
     g.alliances.a1 = { id: 'a1', name: 'Ring', tag: 'R', ownerId: 'u1', members: { u1: 'owner', u2: 'member' }, treasury: 0, createdTick: 0, motto: '', sharedDefense: 0 };
     g.players.u1!.allianceId = 'a1';
+    touchLinks(g);
     p2.allianceId = 'a1';
+    touchLinks(g);
     expect(profileKeyOf(g, 'u2')).toBe('u1');
     g.sponsor = { counts: { u1: { day: realDayOf(g), n: SPONSOR.dailyCap } }, pending: {}, seq: 0 };
     g.players.u2!.joinedTick -= 2 * REAL_DAY;

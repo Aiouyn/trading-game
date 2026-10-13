@@ -27,22 +27,26 @@ async function forceEvent(kind: 'crash' | 'bubble' | 'crisis' | 'flash', days = 
 }
 
 /**
- * Times the takeover from the page itself (performance.now, polled every 20 ms): when it appears, when Close becomes enabled, and
- * when it leaves the DOM. A browser-side clock, so the test does not measure its own round trips.
+ * Times the takeover from the page itself: when it appears, when Close becomes enabled, and when it leaves the DOM. A browser-side
+ * clock, so the test does not measure its own round trips. The times are taken in a MutationObserver on the takeover and on the
+ * Close button's disabled attribute, not in a poll: a 20 ms poll missed the moment Close became enabled on the phone project
+ * (the reading was null, and the assertion read -appear), so the record now follows every change that matters, as it happens.
  */
 async function recordTakeover(page: Page): Promise<void> {
   await page.evaluate(() => {
     const w = window as unknown as { __tk?: { appear: number | null; enabled: number | null; gone: number | null } };
     w.__tk = { appear: null, enabled: null, gone: null };
-    window.setInterval(() => {
+    const sample = () => {
       const el = document.querySelector('[data-testid="event-takeover"]');
       const close = document.querySelector('[data-testid="event-close"]') as HTMLButtonElement | null;
       const now = performance.now();
       const s = w.__tk!;
       if (el && s.appear === null) s.appear = now;
-      if (el && close && !close.disabled && s.enabled === null) s.enabled = now;
+      if (el && close && !close.disabled && s.appear !== null && s.enabled === null) s.enabled = now;
       if (!el && s.appear !== null && s.gone === null) s.gone = now;
-    }, 20);
+    };
+    new MutationObserver(sample).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled'] });
+    sample();
   });
 }
 

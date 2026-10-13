@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { compactMoney, money } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
+import { usePublicPanel } from '@/game/usePublicPanel';
 import { COUNSEL_COST, FILING_FEE } from '@/world/court';
 import type { EcaInquiryView } from '@/world/eca';
 import type { CourtCase } from '@/world/types';
@@ -18,6 +19,7 @@ const COUNSEL_NAME = ['selfRep', 'junior', 'senior', 'star'] as const;
 type Kind = CourtCase['kind'];
 
 export function LegalApp() {
+  usePublicPanel('directory');
   const me = useGame((s) => s.me)!;
   const directory = useGame((s) => s.directory);
   const act = useGame((s) => s.act);

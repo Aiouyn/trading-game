@@ -9,6 +9,7 @@ import { buyingPower } from '@/engine';
 import { LICENSES, licenseFor, rankIndex } from '@/content/lifestyle';
 import { compactMoney, money, dec } from '@/game/format';
 import { useGame } from '@/game/store';
+import { usePublicPanel } from '@/game/usePublicPanel';
 import { DEALS_RANK } from '@/world/social';
 import type { Command, Deal } from '@/world/types';
 import { t } from '@/i18n';
@@ -18,6 +19,7 @@ import { RestrictedNote } from '@/components/comeback/LowCashCard';
 const TPD = 720;
 
 export function BankApp() {
+  usePublicPanel('directory');
   const me = useGame((s) => s.me)!;
   const world = useGame((s) => s.world);
   const tick = useGame((s) => s.frame?.tick ?? 0);

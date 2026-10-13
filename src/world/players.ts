@@ -7,7 +7,7 @@ import {
 import { playerBizSectors, refreshNetWorth } from './assets';
 import { computeBoards } from './boards';
 import { seedConnections } from './cyber';
-import { registerDevice } from './collusion';
+import { registerDevice, touchLinks } from './collusion';
 import { ensureLedger } from './ledger';
 import type { CommandResult, GameState, InboxItem, Player, StepOutput } from './types';
 import { rivalBaseline } from './rivalsBoard';
@@ -51,6 +51,7 @@ export function createPlayer(g: GameState, id: string, handle: string, country: 
     ...(g.market.config.rivals?.length ? { rivalBase: rivalBaseline(g) } : {}),
   };
   g.players[id] = p;
+  touchLinks(g); // a new account joins the owner-group and link sets
   applyRank(g, p, null, true);
   return p;
 }

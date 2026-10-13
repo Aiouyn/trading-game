@@ -212,12 +212,17 @@ export async function grantAccent(handle: string, accent: 'phosphor' | 'riviera'
   expect((await r.json()).ok).toBe(true);
 }
 
-/** The e2e seam for the weekly auction: opens the current week's lots now, with `ticksLeft` ticks to run (default: the hour). */
-export async function openAuctions(ticksLeft?: number): Promise<void> {
+/**
+ * The e2e seam for the weekly auction: opens the current week's lots now, with `ticksLeft` ticks to run (default: the hour).
+ * Resolves to the seam's answer: the week, its open tick and the end tick every lot without a bid now has.
+ */
+export async function openAuctions(ticksLeft?: number): Promise<{ week: number; openTick: number; endTick: number }> {
   const r = await worldFetch(`${worldUrl()}/api/admin/auction-open`, {
     method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
     body: JSON.stringify(ticksLeft === undefined ? {} : { ticksLeft }),
   });
   expect(r.status).toBe(200);
-  expect((await r.json()).ok).toBe(true);
+  const body = (await r.json()) as { ok: boolean; data?: { week: number; openTick: number; endTick: number } };
+  expect(body.ok).toBe(true);
+  return body.data!;
 }

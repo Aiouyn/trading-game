@@ -59,6 +59,7 @@ export function registerDevice(g: GameState, pid: string, device: string): void 
   c.devices ??= {};
   if (c.devices[pid] !== undefined) return;
   c.devices[pid] = sha256Hex(`device:${device.slice(0, 256)}`);
+  touchLinks(g);
 }
 
 /** Records one completed gift between two human accounts (called when a transfer deal is accepted). */
@@ -68,15 +69,18 @@ export function recordGift(g: GameState, a: string, b: string): void {
   c.funding ??= {};
   const k = pairKey(a, b);
   c.funding[k] = (c.funding[k] ?? 0) + 1;
+  touchLinks(g);
 }
 
 /** Records this tick's fills for the mirror score. Fund and curve accounts are not players and are skipped. */
 export function noteFills(g: GameState, fills: Fill[]): void {
   if (fills.length === 0) return;
   let c: CollusionState | undefined;
+  let touched = false;
   for (const fl of fills) {
     if (!isHuman(g, fl.playerId)) continue;
     c ??= (g.collusion ??= {});
+    touched = true;
     c.fills ??= {};
     c.recent ??= {};
     c.fills[fl.playerId] = (c.fills[fl.playerId] ?? 0) + 1;
@@ -98,6 +102,8 @@ export function noteFills(g: GameState, fills: Fill[]): void {
     while (k0 < list.length && list[k0]!.tick < cut) k0++;
     if (k0 > 0) list.splice(0, k0);
   }
+  // the fill counts and the mirror map feed the direct links (directPartners), so a recorded fill changes the links
+  if (touched) touchLinks(g);
 }
 
 /** The mirror score of a pair: matched fills over the smaller account's fills (0 when there are no fills). */
@@ -119,13 +125,15 @@ export function collusionDay(g: GameState): void {
   const c = g.collusion;
   if (!c?.mirror || !c.last) return;
   const now = g.market.tick;
+  let dropped = false;
   for (const k of Object.keys(c.mirror).sort()) {
     const [a, b] = k.split('|') as [string, string];
     const quiet = (c.last[a] ?? 0) < now - MIRROR_PRUNE_TICKS && (c.last[b] ?? 0) < now - MIRROR_PRUNE_TICKS;
     if (!quiet) continue;
     const linked = (c.mirror[k] ?? 0) >= MIRROR_MIN_MATCHES && mirrorScore(g, a, b) >= MIRROR_MIN_SCORE;
-    if (!linked) delete c.mirror[k];
+    if (!linked) { delete c.mirror[k]; dropped = true; }
   }
+  if (dropped) touchLinks(g);
 }
 
 /**
@@ -207,12 +215,96 @@ function directPartners(g: GameState, pid: string): string[] {
  */
 export function linkedAccounts(g: GameState, pid: string): string[] {
   if (!g.players[pid]) return [pid];
+  const ix = linkIndex(g);
+  const out = new Set<string>([pid]);
+  const r = ix.root.get(pid);
+  if (r !== undefined) for (const id of ix.members.get(r)!) out.add(id);
+  for (const o of ix.partners.get(pid) ?? []) out.add(o);
+  return [...out].sort();
+}
+
+/**
+ * The uncached answer of linkedAccounts, computed from the links on every call (ownerRoots and directPartners, the R-9-3 rules
+ * as written). It is the reference the link index is checked against (collusion-cache.test.ts). Not used by the game.
+ */
+export function linkedAccountsUncached(g: GameState, pid: string): string[] {
+  if (!g.players[pid]) return [pid];
   const out = new Set<string>([pid]);
   const roots = ownerRoots(g);
   const r = roots.get(pid);
   if (r !== undefined) for (const [id, root] of roots) if (root === r) out.add(id);
   for (const o of directPartners(g, pid)) out.add(o);
   return [...out].sort();
+}
+
+// ================================================================ the link index (V1-PHASE9 9C.1)
+
+/**
+ * The link version of a game state. Every write to a link source calls touchLinks: an alliance join, leave or kick (the
+ * allianceId of a player), a registration device, a completed gift or loan, a recorded fill (the mirror counts), the mirror
+ * prune, a new account. A test that writes a link field directly must call touchLinks too.
+ */
+const linkVersion = new WeakMap<object, number>();
+
+export function touchLinks(g: GameState): void {
+  linkVersion.set(g, (linkVersion.get(g) ?? 0) + 1);
+}
+
+/**
+ * Every link answer for one link version, built once: the owner group of each human account (root and members) and the direct
+ * partners of each account. linkedAccounts reads it, so a view costs a set and a sort of one group, not a scan of every account
+ * and every link (the 4,000-player view was about 13 ms a view before this index).
+ */
+interface LinkIndex {
+  /** the owner-group root of each human account */
+  root: Map<string, string>;
+  /** the members of each owner group, by root, in sorted order */
+  members: Map<string, string[]>;
+  /** the accounts each account is directly linked to (funding or mirror); may repeat, linkedAccounts takes a set */
+  partners: Map<string, string[]>;
+}
+
+/** the index of each game state, kept with the versions and the collections it was built from (a replaced map rebuilds it) */
+const linkCache = new WeakMap<object, { ver: number; players: object; collusion: object | undefined; ix: LinkIndex }>();
+
+function linkIndex(g: GameState): LinkIndex {
+  const ver = linkVersion.get(g) ?? 0;
+  const hit = linkCache.get(g);
+  if (hit && hit.ver === ver && hit.players === g.players && hit.collusion === g.collusion) return hit.ix;
+  const ix = buildLinkIndex(g);
+  linkCache.set(g, { ver, players: g.players, collusion: g.collusion, ix });
+  return ix;
+}
+
+function buildLinkIndex(g: GameState): LinkIndex {
+  const root = ownerRoots(g);
+  const members = new Map<string, string[]>();
+  // ownerRoots inserts the humans in sorted order, so each group's list is sorted too
+  for (const [pid, r] of root) {
+    const list = members.get(r);
+    if (list) list.push(pid); else members.set(r, [pid]);
+  }
+  const partners = new Map<string, string[]>();
+  const edge = (x: string, y: string) => {
+    if (!isHuman(g, y)) return;
+    const list = partners.get(x);
+    if (list) list.push(y); else partners.set(x, [y]);
+  };
+  const c = g.collusion;
+  for (const k of Object.keys(c?.funding ?? {})) {
+    if ((c!.funding![k] ?? 0) < FUNDING_MIN_GIFTS) continue;
+    const [a, b] = k.split('|') as [string, string];
+    edge(a, b);
+    edge(b, a);
+  }
+  for (const k of Object.keys(c?.mirror ?? {})) {
+    if ((c!.mirror![k] ?? 0) < MIRROR_MIN_MATCHES) continue;
+    const [a, b] = k.split('|') as [string, string];
+    if (mirrorScore(g, a, b) < MIRROR_MIN_SCORE) continue;
+    edge(a, b);
+    edge(b, a);
+  }
+  return { root, members, partners };
 }
 
 /** True when `b` is `a` or linked to it (linkedAccounts). Symmetric. The link is never named to a player. */

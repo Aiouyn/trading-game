@@ -4,7 +4,7 @@ import { TPD, notify, today } from './core';
 import { advanceGhosts, beatenCount, ghostValues, percentileOf } from './ghosts';
 import { ensureLedger, hasTrades, ledgerOf, priceEquity, valuationAndIncome } from './ledger';
 import { textProvider, type Msg } from './text';
-import type { DailyClose, DayClose, DayRecord, PlayerLedger } from './ledger-types';
+import type { BizDay, DailyClose, DayClose, DayRecord, PlayerLedger } from './ledger-types';
 import type { GameState, StepOutput, WireItem } from './types';
 
 /**
@@ -121,6 +121,7 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
   const noTrades = !hasTrades(g, playerId);
   const base: Omit<DailyClose, 'lines'> = {
     day, offline: !g.players[playerId]?.online, nwOpen, nwClose: cur.nw, nwChange, nwChangePct, trading, valuation, income, external: extDay, best, worst, gx: { pct: gxPct }, sectors, stories, event,
+    biz: cur.biz ?? null,
     ghosts: {
       player: cur.equity, basket: ghosts.basket, random: ghosts.random, momentum: ghosts.momentum, beaten,
       percentile: noTrades ? null : percentileOf(beaten),
@@ -134,20 +135,20 @@ function capped<T>(xs: T[], keep: number): void {
 }
 
 /** The record of one player's day: the mark, the equity, the positions at the close and the ghost values. */
-function dayRecord(g: GameState, L: PlayerLedger, pid: string, day: number): DayRecord | null {
+function dayRecord(g: GameState, L: PlayerLedger, pid: string, day: number, biz?: BizDay): DayRecord | null {
   const p = g.players[pid];
   const acct: Account | undefined = g.market.accounts[pid];
   if (!p || !acct) return null;
   const qty: Record<string, number> = {};
   for (const [id, pos] of Object.entries(acct.positions)) if (pos.qty !== 0) qty[id] = pos.qty;
-  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0, ...valuationAndIncome(g, pid) };
+  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0, ...valuationAndIncome(g, pid), ...(biz ? { biz } : {}) };
 }
 
 /**
  * The close hook, run once per game day at the day's last tick (after the net worth refresh): record the day, advance
  * the ghosts, store each human player's day and card, and queue a line to the inbox for an offline player.
  */
-export function closeDay(g: GameState, out: StepOutput | null): void {
+export function closeDay(g: GameState, out: StepOutput | null, bizTax?: Map<string, BizDay>): void {
   const day = today(g);
   recordDayClose(g, day, g.market.tick);
   const humans = Object.values(g.players).filter((p) => !p.npc);
@@ -159,7 +160,7 @@ export function closeDay(g: GameState, out: StepOutput | null): void {
     ledgers.push([p.id, L]);
   }
   for (const [pid, L] of ledgers) {
-    const rec = dayRecord(g, L, pid, day);
+    const rec = dayRecord(g, L, pid, day, bizTax?.get(pid));
     if (rec) L.days[day] = rec;
     // kept for the ghost lines on the net worth chart (the view shows the last 60 closed days)
     for (const k of Object.keys(L.days)) if (Number(k) < day - LEDGER.dayCloseKeep) delete L.days[Number(k)];

@@ -8,6 +8,7 @@ import { ACHIEVEMENTS } from '@/content/progression';
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { compactMoney, money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
+import { usePublicPanel } from '@/game/usePublicPanel';
 import { t } from '@/i18n';
 import { api, getToken } from '@/net/client';
 import { COUNTRIES } from '@/world/players';
@@ -17,7 +18,10 @@ import { BrassChip, Button, Card, CardHeader, Progress, Select, TextField } from
 const TIER_CLS = { bronze: 'border-brass-lo/50 text-brass-lo', silver: 'border-fg-muted/50 text-fg-muted', gold: 'border-brass/60 text-brass-hi', legend: 'border-brass-hi text-brass-hi' } as const;
 
 export function ProfileView() {
+  usePublicPanel('boards');
   const me = useGame((s) => s.me)!;
+  // the position reads the public state as a subscription, so it moves when the boards are read (not one render later)
+  const pub = useGame((s) => s.pub);
   const act = useGame((s) => s.act);
   const [bio, setBio] = useState(me.player.bio);
   const [country, setCountry] = useState(me.player.country);
@@ -35,7 +39,7 @@ export function ProfileView() {
           <div className="text-right text-small text-fg-muted">
             {t('profile.peak')} <span className="num text-fg">{compactMoney(me.player.netWorthPeak)}</span>
             <br />
-            {t('profile.position')} <span className="num text-fg">#{useGame.getState().pub?.boards.nwRank[me.player.id] ?? '—'}</span>
+            {t('profile.position')} <span className="num text-fg">#{pub?.boards.nwRank[me.player.id] ?? '—'}</span>
           </div>
         </div>
       </Card>

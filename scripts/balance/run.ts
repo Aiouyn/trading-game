@@ -261,7 +261,10 @@ function main() {
     const m = mean(xs), sdv = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / Math.max(1, xs.length - 1));
     se[id] = sdv / Math.sqrt(xs.length) / (2 * Math.sqrt(m));
   }
-  const allBands = check(phase0Bands(volIds, universe ? UNIVERSE_VOL_BANDS : {}), stats);
+  // the verdict of each vol-ratio band uses its standard error (V1-PHASE1 F13): PASS, FAIL or UNDECIDED at 2 s.e.
+  const seByBand: Record<string, number> = {};
+  for (const id of volIds) seByBand[`vol_ratio_rms:${id}`] = se[id]!;
+  const allBands = check(phase0Bands(volIds, universe ? UNIVERSE_VOL_BANDS : {}), stats, seByBand);
   const checked = volOnly ? allBands.filter((b) => b.id.startsWith("vol_ratio_rms:")) : allBands;
   mkdirSync(out, { recursive: true });
   writeFileSync(path.join(out, "summary.json"), JSON.stringify({ seeds: nSeeds, years, ticksPerDay: tpd, stats, results: checked, perSeed: results }, null, 2));
@@ -270,15 +273,18 @@ function main() {
   console.log(`balance: ${nSeeds} seeds x ${years} game years, ticksPerDay=${tpd}, wall ${(wall / 1000).toFixed(1)} s, ${mean(results.map((r) => r.msPerTick * 1000)).toFixed(1)} us/tick`);
   for (const r of checked) {
     const v = r.value === undefined ? "n/a" : Number.isInteger(r.value) ? String(r.value) : r.value.toFixed(3);
-    console.log(`${r.pass ? "PASS" : "FAIL"}  ${r.id.padEnd(30)} ${v.padStart(8)}   [${r.min}, ${r.max}]`);
+    const band = r.se === undefined ? "" : `  (2 s.e. [${(r.value! - 2 * r.se).toFixed(3)}, ${(r.value! + 2 * r.se).toFixed(3)}])`;
+    console.log(`${r.verdict.padEnd(9)} ${r.id.padEnd(30)} ${v.padStart(8)}   [${r.min}, ${r.max}]${band}`);
   }
-  const fails = checked.filter((r) => !r.pass).length;
+  // UNDECIDED is listed, not a failure: only a FAIL (the interval wholly outside, or the point outside a point-only band) fails the run
+  const fails = checked.filter((r) => r.verdict === "FAIL").length;
   const skipped = ids.filter((id) => !volIds.includes(id));
   if (skipped.length && !volOnly) console.log(`info  vol-ratio bands skipped (not listed the whole run in any seed): ${skipped.join(", ")}`);
   if (!volOnly) for (const [k, v] of Object.entries(stats)) if (k.startsWith("info_")) console.log(`info  ${k.padEnd(40)} ${v.toFixed(3)}`);
   if (volOnly) for (const id of volIds) console.log(`info  ${id.padEnd(30)} RMS ${stats[`vol_ratio_rms:${id}`]!.toFixed(3)} ± ${se[id]!.toFixed(3)} (${nSeeds} seeds, ticksPerDay ${tpd})`);
   for (const id of pinned) console.log(`info  floor-pinned, vol ratio on alive days only: ${id} (median alive share ${median(results.filter((r) => r.aliveShare[id] !== undefined).map((r) => r.aliveShare[id]!)).toFixed(3)})`);
-  console.log(fails ? `balance: ${fails} band(s) FAILED` : "balance: all bands PASS");
+  const undecided = checked.filter((r) => r.verdict === "UNDECIDED").length;
+  console.log(fails ? `balance: ${fails} band(s) FAILED` : `balance: all bands PASS${undecided ? `; ${undecided} UNDECIDED at 2 s.e. (not a pass)` : ""}`);
   if (fails) process.exitCode = 1;
 }
 

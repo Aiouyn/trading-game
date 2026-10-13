@@ -187,7 +187,8 @@ export function publishSignal(a: SignalInputs): { signal: WeeklySignal; dLnV: nu
   const dLnV = lnNow - prevLn;
 
   const idx = c.signalSeq++;
-  c.consensus = { revQtd: revCons, backlog: bkCons, backlogContribution: cbCons, v: vNow, lnV: lnNow };
+  // O-2: the consensus OCF for the quarter is the consensus E* (annualized) over the quarter's share of a 252-day year
+  c.consensus = { revQtd: revCons, backlog: bkCons, backlogContribution: cbCons, v: vNow, lnV: lnNow, ocf: (inputs.eStar * COMPANY.quarterDays) / 252 };
   for (const o of c.orders) {
     if (o.reportedSig >= 0) continue;
     o.reportedSig = idx;

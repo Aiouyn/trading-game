@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { compactMoney, money, pct, dec } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
+import { usePublicPanel } from '@/game/usePublicPanel';
 import type { SessionStrength } from '@/world/types';
 import { deepScanCost, disconnectCost, scanCooldownLeft } from '@/world/cyber';
 import { HONEYPOT_COST, type HoneypotKind } from '@/world/honeypots';
@@ -26,6 +27,7 @@ type Tab = 'connections' | 'ops';
 
 /** Security is one app: below its rank (APPS.security.minRank) the whole window is the lock screen. */
 export function SecurityApp() {
+  usePublicPanel('directory');
   const me = useGame((s) => s.me)!;
   const [tab, setTab] = useState<Tab>('connections');
   if (!isAppUnlocked('security', me.player.rankId)) {

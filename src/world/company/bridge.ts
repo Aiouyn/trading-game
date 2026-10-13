@@ -15,6 +15,7 @@ import type { CommandResult, GameState, StepOutput } from '../types';
 import type { Fill, StepEvent } from '@/engine';
 import { failCompanyStock, printCompanyValue, programsDay, restrictionsOf, sellCapOf, setFreeze, setSellCap } from '@/engine';
 import { companyAction, companyTick, foundCompany, emptyCompanyWorld, type CompanyAction, type CompanyEnv, type CompanyEvent } from './company';
+import { advanceSectorCursors, tickDt } from './sectorFactor';
 import { bid, marketShareOf, observeStakes, recordTape } from './takeover';
 import { ownerSetOf, syncAllianceLinks } from './owners';
 import { insiderBackstop, scorePlanAbuse } from './backstop';
@@ -42,6 +43,15 @@ function syncLinks(g: GameState): void {
  */
 function migrateAll(g: GameState): void {
   syncLinks(g);
+  // a company world from before O-12 has no sector cursor: it starts at the engine's sector state now (sectorFactor.ts)
+  const sw = g.companies;
+  if (sw) {
+    for (const s of Object.keys(sw.sectors) as (keyof typeof sw.sectors)[]) {
+      const sec = sw.sectors[s];
+      const now = g.market.sectorRng[s];
+      if (sec.tick === undefined && now) { sec.rng = now; sec.tick = g.market.tick; }
+    }
+  }
   for (const c of Object.values(g.companies?.companies ?? {})) {
     migrateCompany(c);
     // a listed save from before the insider was named on the stock (O-14): the founder is its insider
@@ -70,6 +80,20 @@ export function companyEnvOf(g: GameState): CompanyEnv {
       const c = g.companies?.companies[companyId];
       if (!c?.listed || c.shares <= 0) return 0;
       return Math.max(0, g.market.accounts[pid]?.positions[c.listed.assetId]?.qty ?? 0) / c.shares;
+    },
+    /**
+     * O-2: mcap_20 for the surprise denominator: the 20 closed bars ending at the close, times the shares out. The engine
+     * pushes a day's bar at the next day's start (sim.ts), so at `lag` days after the close the last bar is the day before
+     * now and the close's own bar sits at index len - lag. The window therefore ends at that bar, inclusive.
+     */
+    mcap20: (companyId, lag) => {
+      const c = g.companies?.companies[companyId];
+      if (!c?.listed) return undefined;
+      const bars = g.market.assets.find((a) => a.id === c.listed!.assetId)?.bars ?? [];
+      const end = Math.min(bars.length, bars.length - lag + 1);
+      const window = bars.slice(Math.max(0, end - 20), Math.max(0, end));
+      if (window.length === 0) return undefined;
+      return (window.reduce((s, b) => s + b.c, 0) / window.length) * c.listed.sharesOut;
     },
     money: {
       cash: (pid) => spendableCash(g, pid),
@@ -160,7 +184,9 @@ export function companyDay(g: GameState, out: StepOutput | null): void {
   migrateAll(g);
   syncFounderCaps(g);
   const day = today(g);
-  const events = companyTick(g.companies, companyEnvOf(g), day);
+  // the day's sector factor: the engine's own sector draws since the last company day (O-12, sectorFactor.ts)
+  const sectorFactor = advanceSectorCursors(g.companies, g.market, tickDt(g.market.config.ticksPerDay, g.market.config.daysPerYear));
+  const events = companyTick(g.companies, { ...companyEnvOf(g), sectorFactor }, day);
   companyNotes(g, out, events);
   // a company that went bankrupt this day leaves the market: its stock fails with it (B2, failure.ts)
   for (const e of events) {
@@ -260,7 +286,7 @@ export function companyCommand(g: GameState, pid: string, cmd: { type: 'company.
   syncLinks(g);
   if (cmd.type === 'company.bid') return companyBid(g, pid, cmd);
   if (cmd.type === 'company.found') {
-    const w = g.companies ?? emptyCompanyWorld(g.seed);
+    const w = g.companies ?? emptyCompanyWorld(g.seed, g.market);
     const r = foundCompany(w, companyEnvOf(g), pid, { name: cmd.name, sector: cmd.sector, cityId: cmd.cityId, capital: cmd.capital });
     if (!r.ok) return fail(r.reject);
     g.companies = w;

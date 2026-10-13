@@ -5,7 +5,8 @@ import { RANKS } from '@/content/lifestyle';
 import { ACHIEVEMENTS } from '@/content/progression';
 import { compactMoney, fmtNumber, money, dec } from '@/game/format';
 import { useGame } from '@/game/store';
-import { t } from '@/i18n';
+import { usePublicPanel } from '@/game/usePublicPanel';
+import { t, useLocale } from '@/i18n';
 import { COUNTRIES } from '@/world/players';
 import type { BoardRow } from '@/world/types';
 import type { DirectoryRow } from '@/world/view';
@@ -41,8 +42,16 @@ const BOARDS: { id: BoardId; fmt: (v: number) => string }[] = [
  * it on its Social tab (velvet-desktop-os.md, Messages: contacts, offers, rivals), so deals, alliances and the
  * profile modal stay reachable from the shell.
  */
+/** The stabilizer's bracket shift in signed points (0.012 becomes +1.2), in the viewer's number format. */
+function shiftPoints(shift: number, locale: string): string {
+  const pts = shift * 100;
+  const n = pts.toLocaleString(locale === 'fr' ? 'fr-FR' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return pts > 0 ? '+' + n : n;
+}
+
 export function SocialView() {
   const [tab, setTab] = useState<'boards' | 'players' | 'alliances' | 'deals' | 'hall'>('boards');
+  usePublicPanel('directory');
   const me = useGame((s) => s.me)!;
   const offers = me.deals.filter((d) => d.status === 'offered' && d.toId === me.player.id).length;
   return (
@@ -68,6 +77,7 @@ export function SocialView() {
 }
 
 function Boards() {
+  usePublicPanel('boards');
   const pub = useGame((s) => s.pub);
   const me = useGame((s) => s.me)!;
   const openProfile = useGame((s) => s.openProfile);
@@ -139,6 +149,7 @@ function Players() {
 }
 
 export function ProfileModal() {
+  usePublicPanel('directory');
   const id = useGame((s) => s.profileId);
   const openProfile = useGame((s) => s.openProfile);
   const directory = useGame((s) => s.directory);
@@ -299,6 +310,7 @@ function Deals() {
 function Hall() {
   const pub = useGame((s) => s.pub);
   const tick = useGame((s) => s.frame?.tick ?? 0);
+  const locale = useLocale((s) => s.locale);
   if (!pub) return null;
   const left = pub.chapter.endTick - tick;
   return (
@@ -316,6 +328,7 @@ function Hall() {
       <Card className="p-4">
         <h3 className="font-serif text-title">{t('social.economy')}</h3>
         <p className="text-small text-fg-muted">{t('social.economy.body', { mult: dec(pub.economy.stabilizer.sinkMult, 2), index: dec(pub.economy.moneyIndex, 3) })}</p>
+        <p className="text-small text-fg-muted" data-testid="social-tax-shift">{t('social.economy.tax', { shift: shiftPoints(pub.economy.stabilizer.taxShift ?? 0, locale) })}</p>
         <EconomyTable pub={pub} />
       </Card>
       <p className="text-center text-caption text-fg-faint">{t('social.hall.footer', { achievements: ACHIEVEMENTS.length, players: pub.players, online: pub.online })}</p>

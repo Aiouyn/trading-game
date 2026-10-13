@@ -177,7 +177,6 @@ export function stepGame(g: GameState): StepOutput {
 
   if (newDay) {
     businessEvents(g, out);
-    shopsDay(g, out);
     propertyDay(g, out);
     lifestyleDay(g);
     dealsDay(g, out);
@@ -201,6 +200,10 @@ export function stepGame(g: GameState): StepOutput {
     collusionDay(g);
   }
 
+  // R-9-10: the closing day's shops settle here (the day's costs, then its business tax), before the marks and the card, so
+  // the card holds the whole day's books. Before this, the settlement ran at the next day's first tick, one tick after the card.
+  const closing = tick % TPD === 0;
+  const bizTax = closing ? shopsDay(g, out) : null;
   if (tick % NW_EVERY === 0 || newDay) {
     for (const p of Object.values(g.players)) {
       refreshNetWorth(g, p);
@@ -229,7 +232,7 @@ export function stepGame(g: GameState): StepOutput {
   insuranceWeek(g, out);
   chapterCheck(g, out);
   // the close: after the net worth refresh of this tick, so the card and the ghosts read the day's final marks
-  if (tick % TPD === 0) closeDay(g, out);
+  if (closing) closeDay(g, out, bizTax ?? undefined);
   return out;
 }
 
