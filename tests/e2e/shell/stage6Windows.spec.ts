@@ -35,16 +35,18 @@ test.describe('stage 6 windows', () => {
     expect(box && box.x < 40).toBe(true);
   });
 
-  test('@focus_exit entering focus mode shows Exit focus at the top centre for about three seconds, and the pill leaves focus', async ({ page }) => {
+  test('@focus_exit entering focus mode shows Exit focus for about three seconds, then a small control in the corner that stays', async ({ page }) => {
     onlyIn('desktop');
     await boot(page);
     await page.getByTestId('shelf-focus').click();
     const pill = page.getByTestId('focus-exit');
     await expect(pill).toBeVisible();
+    // The full pill names the way out in the bottom-right corner, clear of the focused window's title (UX evaluation 11)
     const pb = await pill.boundingBox();
     const vp = viewport(page);
-    expect(pb && Math.abs(pb.x + pb.width / 2 - vp.w / 2) < 6).toBe(true);
-    await expect(pill).toBeHidden({ timeout: 4500 });
+    expect(pb && pb.x > vp.w / 2 && pb.y > vp.h / 2).toBe(true);
+    await expect(pill).toHaveAttribute('data-quiet', 'true', { timeout: 4500 });
+    await expect(pill).toBeVisible();
     await expect(page.locator('html')).toHaveClass(/focus-mode/);
     // the pill is a button too: it leaves focus mode
     await page.keyboard.press('Control+Period');

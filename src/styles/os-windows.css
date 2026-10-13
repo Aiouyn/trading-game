@@ -1,0 +1,63 @@
+/*
+ * Window management on the desktop (UX evaluation, track B): the minimized tray, the layout undo, the window tab strip, the
+ * empty workspace, the dock's minimized count and state, and the focus-mode control in its corner. Same layer and scope as os.css.
+ */
+@layer components {
+  .os-root .os-tray {
+    position: absolute; left: 12px; bottom: calc(var(--os-shelf-h) + 10px); z-index: 6;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: min(520px, calc(100vw - 24px));
+    padding: 6px 8px; border: 1px solid var(--color-ink-3); border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-ink-1) 92%, transparent); color: var(--color-fg-muted);
+    font-size: var(--text-caption);
+  }
+  /* In the dock row the tray is a flex item beside the app tiles, not a float over the desk. */
+  .os-root .os-shelf .os-tray {
+    position: relative; left: auto; bottom: auto; z-index: auto; flex-wrap: nowrap; overflow-x: auto;
+    max-width: 380px; margin-left: 8px; padding: 4px 6px; border-radius: var(--radius-chip);
+  }
+  .os-root .os-tray-title { color: var(--color-fg-faint); margin-right: 4px; white-space: nowrap; }
+  .os-root .os-tray-count { color: var(--color-brass); }
+  .os-root .os-tray-item {
+    display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px;
+    border: 1px solid var(--color-ink-3); border-radius: var(--radius-chip); color: var(--color-fg);
+    font-size: var(--text-caption);
+  }
+  .os-root .os-tray-item:hover, .os-root .os-tray-item:focus-visible { border-color: var(--color-brass); }
+  .os-root .os-tray-ws { color: var(--color-fg-faint); }
+  .os-root .os-undo {
+    position: absolute; left: 50%; bottom: calc(var(--os-shelf-h) + 12px); transform: translateX(-50%); z-index: 6;
+    height: 30px; padding: 0 12px; border: 1px solid var(--color-brass); border-radius: var(--radius-md);
+    background: var(--color-ink-1); color: var(--color-fg); font-size: var(--text-small);
+  }
+  .os-root .os-wintabs {
+    display: flex; align-items: stretch; gap: 2px; padding: 0 6px; overflow-x: auto;
+    background: color-mix(in srgb, var(--color-ink-1) 88%, transparent); border-top: 1px solid var(--color-ink-3);
+  }
+  .os-root .os-wintab {
+    display: inline-flex; align-items: center; max-width: 220px; padding: 0 10px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; font-size: var(--text-caption); color: var(--color-fg-faint);
+    border-bottom: 2px solid transparent;
+  }
+  .os-root .os-wintab:hover { color: var(--color-fg-muted); }
+  .os-root .os-wintab.on { color: var(--color-fg); border-bottom-color: var(--color-brass); }
+  .os-root .os-wsempty {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+    color: var(--color-fg-muted); font-size: var(--text-small);
+  }
+  .os-root .os-tile-count {
+    position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 3px;
+    border-radius: 7px; background: var(--color-brass); color: var(--color-ink-1);
+    font-size: 10px; line-height: 14px; text-align: center;
+  }
+  .os-root .os-tile.col .os-tile-dot { width: 4px; height: 4px; background: transparent; border: 1px solid var(--color-fg-muted); }
+  .os-root .os-menu-item:disabled { color: var(--color-fg-disabled); cursor: default; }
+  .os-root .os-menu-hint { color: var(--color-fg-faint); font-size: var(--text-caption); }
+  .os-root .os-focus-pill { top: auto; bottom: 12px; left: auto; right: 12px; transform: none; }
+  .os-root .os-focus-pill.quiet { height: 22px; padding: 0 8px; opacity: 0.7; }
+  /* The open-window count of a workspace tab, drawn from data-count so the tab's text stays its name. */
+  .os-root .os-wstab[data-count]:not([data-count="0"])::after {
+    content: attr(data-count); margin-left: 6px; min-width: 14px; color: var(--color-brass);
+    font-size: 10px; line-height: 14px; text-align: center;
+  }
+}

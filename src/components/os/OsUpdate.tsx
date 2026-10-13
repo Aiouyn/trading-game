@@ -14,6 +14,7 @@ import { alsoRanks, ceremonyBeat, ceremonyMayStart } from '@/shell/ceremony';
 import { rankOrdinal } from '@/shell/ctx';
 import { idleMs, listenActivity } from './idle';
 import { reducedMotion } from './motion';
+import { useLauncher } from './shellStore';
 
 /** The ceremony for the player's own rank-up. The listener for idle time runs whenever the shell is up. */
 export function OsUpdate() {
@@ -30,6 +31,8 @@ function Ceremony({ rankId, from }: { rankId: string; from: string | null }) {
   const [reduced] = useState(reducedMotion);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  // The launcher (Ctrl K) stays above the desk and usable: while it is open the takeover steps aside, and its beats keep running.
+  const launcherOpen = useLauncher((s) => s.open);
 
   // The calm moment (P2-201): checked every quarter second until the gate opens.
   useEffect(() => {
@@ -52,17 +55,17 @@ function Ceremony({ rankId, from }: { rankId: string; from: string | null }) {
   const beat = ceremonyBeat(elapsed, reduced);
   const skippable = beat.skippable;
 
-  // Esc skips once the skip has opened (C-31). Before then it does nothing.
+  // Esc skips once the skip has opened (C-31). Before then it does nothing. With the launcher open, Esc closes the launcher only.
   useEffect(() => {
     if (!skippable) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') useGame.getState().closeRankUp();
+      if (e.key === 'Escape' && !useLauncher.getState().open) useGame.getState().closeRankUp();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [skippable]);
 
-  if (startedAt === null) return null;
+  if (startedAt === null || launcherOpen) return null;
 
   const r = RANKS.find((x) => x.id === rankId) ?? RANKS[0]!;
   const idx = rankOrdinal(rankId);

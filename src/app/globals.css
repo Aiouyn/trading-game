@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "../styles/tokens.css";
 @import "../styles/os.css";
+@import "../styles/os-windows.css";
 @import "../styles/os-phone.css";
 @import "../styles/os-events.css";
 @import "../styles/os-desktop.css";

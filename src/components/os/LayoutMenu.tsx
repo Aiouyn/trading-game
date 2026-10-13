@@ -12,6 +12,8 @@ import { applyNamedLayout, dispatchWm, notify, refusalText, useLayoutMenu, useSh
 export function LayoutMenu() {
   const selected = useGame((s) => s.selected);
   const layouts = useShell((s) => s.shell.layouts);
+  // Research places a research file: without one open on this workspace the entry is off, and says why (UX evaluation 6).
+  const hasFile = useShell((s) => s.shell.wins.some((w) => w.app === 'research' && w.props.fileId !== undefined && w.ws === s.shell.activeWs));
   const [name, setName] = useState('');
 
   const apply = (n: string): void => {
@@ -40,9 +42,21 @@ export function LayoutMenu() {
       <button type="button" className="os-menu-item" data-testid="layout-review" onClick={() => apply('review')}>
         {t('shell.layout.review')}
       </button>
-      <button type="button" className="os-menu-item" data-testid="layout-research" onClick={() => apply('research')}>
+      <button
+        type="button"
+        className="os-menu-item"
+        data-testid="layout-research"
+        disabled={!hasFile}
+        aria-describedby={hasFile ? undefined : 'layout-research-why'}
+        onClick={() => apply('research')}
+      >
         {t('shell.layout.research')}
       </button>
+      {!hasFile && (
+        <p id="layout-research-why" className="os-menu-hint" data-testid="layout-research-why">
+          {t('shell.layout.researchNoFile')}
+        </p>
+      )}
       <p className="os-label mt-2">{t('shell.layout.custom')}</p>
       {layouts.length === 0 && <p className="text-caption text-fg-faint">{t('shell.layout.none')}</p>}
       {layouts.map((l, i) => (

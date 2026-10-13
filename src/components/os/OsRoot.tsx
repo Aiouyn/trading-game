@@ -24,6 +24,9 @@ import { EventBannerStrip, EventPanel, useBannerOn, useEventPanel } from './Even
 import { EventTakeover } from './EventTakeover';
 import { EVENT_BAND_H } from './eventSelect';
 import { Launcher } from './Launcher';
+import { LayoutUndo } from './LayoutUndo';
+import { WindowTabs } from './WindowTabs';
+import { WorkspaceEmpty } from './WorkspaceEmpty';
 import { OsToasts } from './OsToasts';
 import { FocusPill } from './FocusPill';
 import { openFromShell } from './openApp';
@@ -370,8 +373,11 @@ export function OsRoot() {
             </div>
           ))}
         {bound && <SplitHandles edges={edges} wa={proj.wa} />}
+        {bound && proj.tabs && <WindowTabs />}
+        {bound && !focusMode && <WorkspaceEmpty />}
       </div>
       <Shelf />
+      {bound && <LayoutUndo />}
       <FocusPill />
       {bound && <Launcher />}
       {bound && <BellPanel />}
