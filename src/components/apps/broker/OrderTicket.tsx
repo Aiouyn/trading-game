@@ -343,6 +343,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const feeText = feeRule.perUnit !== undefined
     ? t('broker.feeShare', { perShare: dec(feeRule.perUnit, 3), min: money(feeRule.min), max: `${dec((feeRule.max ?? 0) * 100, 0)}%` })
     : t('broker.feeMin', { rate: `${dec(feeRule.rate * 100, 2)}%`, min: money(feeRule.min) });
+  // the label keeps to one line; the full rule (max, value) is the row's hover text
+  const feeShort = feeRule.perUnit !== undefined ? t('broker.feeShareShort', { perShare: dec(feeRule.perUnit, 3), min: money(feeRule.min) }) : feeText;
   const summary = tradeSummary({
     side, qty: qtyN, price: d.price, mid: ctx.mid, fee, halfSpreadFrac: halfSpread(world, ctx.idx), impactFrac: d.impactBps / 1e4,
     cash: cashNow, bp, margin, shorting, total, notional,
@@ -574,7 +576,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                   v={assetPrice(ctx.def, d.price)}
                 />
                 <SumRow dense={dense} full={t('broker.notional')} k={shortLabels ? t('broker.sum.notional') : t('broker.notional')} v={money(notional)} />
-                <SumRow dense={dense} full={feeText} k={shortLabels ? t('broker.sum.fee') : feeText} v={money(fee)} />
+                <SumRow dense={dense} full={feeText} k={shortLabels ? t('broker.sum.fee') : feeShort} v={money(fee)} />
                 <SumRow dense={dense} full={t('broker.spread')} k={shortLabels ? t('broker.sum.spread') : t('broker.spread')} v={<span data-testid="order-spread">{spreadText}</span>} />
                 {/* R-10-1: the spread the order pays and its own impact are separate lines; other accounts' flow is in neither */}
                 <SumRow dense={dense} full={t('broker.spreadCost')} k={shortLabels ? t('broker.sum.spreadCost') : t('broker.spreadCost')} v={<span data-testid="order-spread-cost">{money(summary.spreadCost)}</span>} />

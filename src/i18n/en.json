@@ -2445,6 +2445,7 @@
   "broker.cta.whole": "Whole shares only",
   "broker.feeMin": "Fee {rate}, min {min}",
   "broker.feeShare": "Fee ${perShare} a share, min {min}, max {max} of value",
+  "broker.feeShareShort": "Fee ${perShare}/share, min {min}",
   "broker.spreadCost": "Spread paid",
   "broker.sum.spreadCost": "Spread",
   "broker.impactCost": "Impact of your order",

@@ -2445,6 +2445,7 @@
   "broker.cta.whole": "Actions entières seulement",
   "broker.feeMin": "Frais {rate}, min. {min}",
   "broker.feeShare": "Frais {perShare} $ par action, min. {min}, max. {max} de la valeur",
+  "broker.feeShareShort": "Frais {perShare} $/action, min. {min}",
   "broker.spreadCost": "Écart payé",
   "broker.sum.spreadCost": "Écart",
   "broker.impactCost": "Impact de votre ordre",
