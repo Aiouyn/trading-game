@@ -29,7 +29,7 @@ export function TradeBar({ ticker, onReview }: { ticker: string; onReview: () =>
   const def = config.assets.find((a) => a.id === ticker);
   const est = world && def && !isIndex(ticker) && n > 0 ? estimateFill(world, { assetId: ticker, side, qty: n }) : null;
   const notional = est ? n * est.price : 0;
-  const fee = est && world && def ? commission(world, def, notional) : 0;
+  const fee = est && world && def ? commission(world, def, notional, n) : 0;
   const total = side === 'buy' ? notional + fee : notional - fee;
   const write = (nextSide: Side, nextQ: string) => {
     setSide(nextSide);

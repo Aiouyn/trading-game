@@ -14,7 +14,7 @@
  * (take-profit + stop-loss) whose legs cancel each other. Options trade immediately at the quoted
  * bid/ask (see options.ts) and settle in cash at expiry.
  */
-import { DEFAULT_TRADING } from './config';
+import { DEFAULT_TRADING, FRACTIONAL_SHARE } from './config';
 import { ecologyWeight, PUBLIC_MAX_TRADER_SHARE, PUBLIC_MIN_TRADERS } from './ecology';
 import { optionQuote, optionsValue, parseContract, underlyingDelisted } from './options';
 import {
@@ -100,26 +100,46 @@ function fillPrice(p: number, side: Side, c: number): number {
   return side === 'sell' ? Math.max(0, p * (1 - c)) : p * (1 + c);
 }
 
-function execPrice(state: WorldState, i: number, side: Side, qty: number): { price: number; imp: number } {
+/** The quote and the fill's own temporary impact: `before` is the account's own same-direction notional (R-10-1). */
+function execPrice(state: WorldState, i: number, side: Side, qty: number, before = 0): { price: number; imp: number } {
   const p = mid(state, i);
-  const imp = impact(state, i, qty * p);
+  const imp = marginalImpact(state, i, before, qty * p);
   return { price: fillPrice(p, side, halfSpread(state, i) + imp), imp };
 }
 
-// ---------------------------------------------------------------- impact tallies (R-9-1c, Phase 9 rulings)
+// ---------------------------------------------------------------- impact tallies (R-9-1c, R-10-1)
 
 /**
- * Half-life of an asset's impact tally, in ticks: half a game day at the default 720 ticks a day (R-9-1b). A rolling
+ * Half-life of an impact tally, in ticks: half a game day at the default 720 ticks a day (R-9-1b). A rolling
  * window, not a calendar day: no boundary resets it, so a window of clips costs the same whichever tick it starts on.
  */
 export const IMPACT_HALF_LIFE = 360;
 
-/** An asset's same-direction notional, both sides, decayed to `tick` (R-9-1c). Absent tally = nothing. */
-export function impactDecayed(a: AssetState | undefined, tick: number): { buy: number; sell: number } {
-  const t = a?.impactTally;
+/** A same-direction notional tally, both sides, decayed to `tick`. Absent tally = nothing. */
+export function decayTally(t: ImpactTally | undefined, tick: number): { buy: number; sell: number } {
   if (!t) return { buy: 0, sell: 0 };
   const k = Math.pow(0.5, Math.max(0, tick - t.tick) / IMPACT_HALF_LIFE);
   return { buy: t.buy * k, sell: t.sell * k };
+}
+
+/** The asset's shared tally (every account and the pools), decayed to `tick`: it moves the mid (permanent impact), R-9-1c. */
+export function impactDecayed(a: AssetState | undefined, tick: number): { buy: number; sell: number } {
+  return decayTally(a?.impactTally, tick);
+}
+
+/**
+ * R-10-1: the account's OWN same-direction notional in one asset, decayed to `tick`. A fill's temporary impact is charged
+ * on this alone, so other accounts' flow never costs this account anything, and one account cannot dodge its own impact by
+ * clipping (its clips stack on its own tally).
+ */
+export function ownDecayed(acct: Account | undefined, assetId: string, tick: number): { buy: number; sell: number } {
+  return decayTally(acct?.ownImpact?.[assetId], tick);
+}
+
+/** The account's own tally after `notional` at its pre-trade mid on `side` flows through it at `tick` (R-10-1). */
+export function ownImpactAdd(prev: ImpactTally | undefined, tick: number, side: Side, notional: number): ImpactTally {
+  const d = decayTally(prev, tick);
+  return { tick, buy: d.buy + (side === 'buy' ? notional : 0), sell: d.sell + (side === 'sell' ? notional : 0) };
 }
 
 /** The asset's impact tally after `buy` and `sell` notional at their pre-trade mids flow through it at `tick` (R-9-1c). */
@@ -341,7 +361,9 @@ function liquidationOf(state: WorldState, acct: Account, crowd: Record<string, C
     // F7 (Phase 1 huge money): selling shares never pays negative money. A long's exit price floors at 0, so at a size
     // where the impact term passes 1 the proceeds are 0, not a negative sum. A short keeps its cover cost, which is what it is.
     const price = long ? Math.max(0, p * (1 - cost)) : p * (1 + cost);
-    eq += pos.qty * price - commission(state, def, Math.abs(pos.qty) * price);
+    // a long sells at no less than zero (F7): its exit fee cannot make the proceeds negative (R-10-2 per-share fees)
+    const exitFee = commission(state, def, Math.abs(pos.qty) * price, Math.abs(pos.qty));
+    eq += pos.qty > 0 ? Math.max(0, pos.qty * price - exitFee) : pos.qty * price - exitFee;
   }
   if (acct.options) eq += optionsValue(state, acct.options);
   return eq;
@@ -357,19 +379,48 @@ export function liquidationEquity(state: WorldState, playerId: string): number {
   return liquidationOf(state, acct);
 }
 
-export function commission(state: WorldState, def: AssetDef, notional: number): number {
+/**
+ * The commission on one fill (R-10-2). A per-unit schedule (stocks, ETFs: $0.005 a share) pays perUnit · units, never less than
+ * the minimum and never more than `max` of the notional; a rate schedule pays rate · notional, never less than the minimum.
+ * `units` is the fill's quantity in the asset's own unit (shares, coins, lots).
+ */
+export function commission(state: WorldState, def: AssetDef, notional: number, units: number): number {
   if (notional <= 0) return 0;
   const fees = tradingConfig(state).fees;
   const f = fees[def.assetClass] ?? fees.stock;
+  if (f.perUnit !== undefined) {
+    const raw = f.perUnit * Math.max(0, units);
+    return Math.max(f.min, Math.min(raw, (f.max ?? Infinity) * notional));
+  }
   return Math.max(f.min, f.rate * notional);
 }
 
-function qtyStep(def: AssetDef): number {
-  return def.qtyStep ?? (def.assetClass === 'stock' ? 1 : 0);
+/** The asset's quantity step (R-10-4): stocks and ETFs trade in 0.0001 shares; 0 = any fraction (crypto, FX, bonds, commodities). */
+export function qtyStep(def: AssetDef): number {
+  return def.qtyStep ?? (def.assetClass === 'stock' ? FRACTIONAL_SHARE : 0);
 }
 
-function roundQty(def: AssetDef, q: number): number {
-  return qtyStep(def) === 1 ? Math.floor(q + EPS) : q;
+/**
+ * The largest size, at the asset's step, whose cost and commission fit `cash` (a buy shrunk to its cash). The commission is
+ * the schedule's own, per unit or by rate, so the search iterates on it rather than assuming a rate.
+ */
+function fitToCash(state: WorldState, def: AssetDef, q: number, price: number, cash: number): number {
+  let x = q;
+  // a relative margin under the cash (1e-12): a fee that is a few cents must not sit on the float edge of a billion-dollar book
+  const c = cash * (1 - 1e-12);
+  for (let pass = 0; pass < 6 && x > EPS; pass++) {
+    if (x * price + commission(state, def, x * price, x) <= c) return x;
+    x = roundQty(def, Math.max(0, (c - commission(state, def, x * price, x)) / price));
+  }
+  return x > EPS && x * price + commission(state, def, x * price, x) <= c ? x : 0;
+}
+
+/** q rounded down to the asset's step (0 when the step is 0): a size that rounds to nothing is 0, never a fraction of a step. */
+export function roundQty(def: AssetDef, q: number): number {
+  const step = qtyStep(def);
+  if (!(step > 0)) return q;
+  const d = Math.max(0, Math.round(-Math.log10(step)));
+  return Number((Math.floor(q / step + 1e-9) * step).toFixed(d));
 }
 
 export function isMarginAccount(acct: Account): boolean {
@@ -511,26 +562,38 @@ export function liquidationPrice(state: WorldState, playerId: string, assetId: s
 // ---------------------------------------------------------------- orders
 
 /** Live preview for the trade ticket: what this order would cost if it filled at the current price. */
-export function estimateFill(state: WorldState, req: Pick<OrderRequest, 'assetId' | 'side' | 'qty' | 'limitPrice'>): FillEstimate {
+/**
+ * The ticket's preview (R-10-1): the same arithmetic the fill runs, on the same state. Given a playerId, the impact is that
+ * account's own tally; the estimate equals the fill on a still mid (the fill prices off the tick's pre-trade mid, which is
+ * this mid when nothing else has moved it this tick).
+ */
+export function estimateFill(state: WorldState, req: Pick<OrderRequest, 'assetId' | 'side' | 'qty' | 'limitPrice'> & { playerId?: string }): FillEstimate {
   const i = assetIndex(state, req.assetId);
   if (i < 0) throw new Error(`unknown asset ${req.assetId}`);
   const def = state.config.assets[i]!;
   const p = mid(state, i);
   const qty = Math.max(0, req.qty);
-  const price = execPrice(state, i, req.side, qty).price;
-  const fee = commission(state, def, qty * price);
+  const before = req.playerId !== undefined ? ownDecayed(state.accounts[req.playerId], req.assetId, state.tick)[req.side] : 0;
+  const hs = halfSpread(state, i);
+  const imp = marginalImpact(state, i, before, qty * p);
+  const price = fillPrice(p, req.side, hs + imp);
+  const fee = commission(state, def, qty * price, qty);
   return {
     price,
     fee,
     slippageBps: Math.abs(price / p - 1) * 1e4,
     total: req.side === 'buy' ? qty * price + fee : qty * price - fee,
+    mid: p,
+    halfSpreadBps: hs * 1e4,
+    impactBps: imp * 1e4,
   };
 }
 
-/** worst-case price used to reserve cash for an open order */
+/** worst-case price used to reserve cash for an open order (the account's own tally, as the fill will charge it) */
 function reservePrice(state: WorldState, i: number, o: OrderRequest, remaining: number): number {
   if ((o.type === 'limit' || o.type === 'stop_limit') && o.limitPrice) return o.limitPrice;
-  const est = execPrice(state, i, o.side, remaining).price;
+  const before = ownDecayed(state.accounts[o.playerId], o.assetId, state.tick)[o.side];
+  const est = execPrice(state, i, o.side, remaining, before).price;
   if (o.type === 'stop' && o.stopPrice) {
     return o.side === 'buy' ? Math.max(est, o.stopPrice * (est / mid(state, i))) : est;
   }
@@ -544,7 +607,7 @@ function reservedCash(state: WorldState, playerId: string): number {
     const i = assetIndex(state, o.assetId);
     const remaining = o.qty - o.filledQty;
     const px = reservePrice(state, i, o, remaining);
-    r += remaining * px + commission(state, state.config.assets[i]!, remaining * px);
+    r += remaining * px + commission(state, state.config.assets[i]!, remaining * px, remaining);
   }
   return r;
 }
@@ -596,7 +659,10 @@ function validate(state: WorldState, req: OrderRequest): string | null {
   // X3 (Tape, hunts v1): above 2^53 a unit count is not exact (a share count rounds, a fraction is lost), so an order
   // that large is refused whatever the cash. Huge balances size down to this cap, they do not get a silent rounding.
   if (req.qty > Number.MAX_SAFE_INTEGER) return 'quantity above 2^53 units';
-  if (qtyStep(def) === 1 && !Number.isInteger(req.qty)) return 'whole units only';
+  const step = qtyStep(def);
+  // on the step grid (a size past 2^40 steps is a float grid of its own: the check passes it, the fill rounds it)
+  if (step > 0 && req.qty / step < 2 ** 40 && Math.abs(req.qty / step - Math.round(req.qty / step)) > 1e-6 + Math.abs(req.qty / step) * 1e-12) return 'quantity step';
+  if (step > 0 && roundQty(def, req.qty) <= 0) return 'below the share step';
   if ((req.type === 'limit' || req.type === 'stop_limit') && !(req.limitPrice !== undefined && req.limitPrice > 0)) return 'limit price required';
   if ((req.type === 'stop' || req.type === 'stop_limit') && !(req.stopPrice !== undefined && req.stopPrice > 0)) return 'stop price required';
   if (req.type === 'trailing' && !(req.trailPct !== undefined && req.trailPct > 0 && req.trailPct < 0.5)) return 'trail between 0% and 50%';
@@ -629,7 +695,7 @@ function validate(state: WorldState, req: OrderRequest): string | null {
   if (!isMarginAccount(acct)) {
     if (req.side === 'buy') {
       const px = reservePrice(state, i, req, req.qty);
-      const need = req.qty * px + commission(state, def, req.qty * px);
+      const need = req.qty * px + commission(state, def, req.qty * px, req.qty);
       if (need > acct.cash - reservedCash(state, req.playerId) + EPS) return 'insufficient cash';
     } else if (req.qty > held - reservedQty(state, req.playerId, req.assetId) - locked + EPS) {
       // locked shares are the stacking rule's limit (position plus same-side open orders may not exceed what is free)
@@ -648,7 +714,8 @@ function validate(state: WorldState, req: OrderRequest): string | null {
   const after = held + sign(req.side) * req.qty;
   const addExposure = Math.max(0, Math.abs(after) - Math.abs(held)) * px;
   // the fee comes out of the same buying power (a cash-secured account cannot spend its last dollar on the fee)
-  if (addExposure + commission(state, def, addExposure) > buyingPower(state, req.playerId) + EPS) return 'insufficient buying power';
+  const addUnits = Math.max(0, Math.abs(after) - Math.abs(held));
+  if (addExposure + commission(state, def, addExposure, addUnits) > buyingPower(state, req.playerId) + EPS) return 'insufficient buying power';
   return null;
 }
 
@@ -1053,13 +1120,12 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
   const tpd = state.config.ticksPerDay;
   const s: WorldState = { ...state, orders: state.orders.slice(), assets: state.assets.slice(), accounts: { ...state.accounts } };
 
-  // every fill this tick prices off the tick's pre-trade mid. Temporary impact is charged on the asset's shared impact tally
-  // (R-9-1c, Phase 9 rulings: one tally per asset over all flow, a rolling half-life of 360 ticks, so a window of clips
-  // costs what one order of the same total costs, whichever tick it starts on). A lone first fill prices exactly as before.
-  const tickPrice = (i: number, side: Side, q: number) => {
+  // every fill this tick prices off the tick's pre-trade mid, plus the quote's half spread and the fill's OWN temporary impact
+  // (R-10-1: the account's own same-direction tally, half-life 360 ticks, so a window of its clips costs what one order of the
+  // same total costs, and no other account's flow is ever charged here). `before` is that own tally, decayed to now.
+  const tickPrice = (i: number, side: Side, q: number, before: number) => {
     const tt = tallyTick(s.assets[i]!.tickTraded, tick, s.assets[i]!.lnP);
     const p0 = Math.exp(tt.lnMid);
-    const before = impactDecayed(s.assets[i], tick)[side];
     const imp = marginalImpact(s, i, before, q * p0);
     return { price: fillPrice(p0, side, halfSpread(s, i) + imp), p0 };
   };
@@ -1106,6 +1172,8 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
       // a buy is shrunk to the cash it has unless the account borrows (maxLeverage above 1): a cash-secured short account too
       const borrows = (acct0.maxLeverage ?? 1) > 1;
       const held = acct0.positions[o.assetId]?.qty ?? 0;
+      // the temporary impact this fill pays: the account's own same-direction tally (R-10-1), decayed to this tick
+      const ownBefore = ownDecayed(acct0, o.assetId, tick)[o.side];
 
       // windows and lockups hold at the fill too: an open covered order is cancelled when its window shuts (v1.7)
       const r0 = s.restrictions ? restrictionsOf(s) : undefined;
@@ -1170,7 +1238,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         if (q <= EPS) continue; // no float to take this tick: the order waits (a sell brings shares back to the book)
       }
 
-      let { price, p0 } = tickPrice(i, o.side, q);
+      let { price, p0 } = tickPrice(i, o.side, q, ownBefore);
       // a bounded book (a Launchpad token, lead-launchpad.md L4) pays for a sell only from the cash it holds: the fill is cut to what
       // the book can pay, and the order waits when it cannot pay for any (the book is never in overdraft, nothing is minted)
       if (supplyId !== undefined && o.side === 'sell' && def.bookCashBound === true) {
@@ -1178,7 +1246,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
         for (let pass = 0; pass < 4 && q > EPS && q * price > bookCash + EPS; pass++) {
           q = roundQty(def, Math.max(0, bookCash / price));
           if (q <= EPS) break;
-          ({ price, p0 } = tickPrice(i, o.side, q));
+          ({ price, p0 } = tickPrice(i, o.side, q, ownBefore));
         }
         if (q <= EPS || q * price > bookCash + EPS) continue;
       }
@@ -1189,27 +1257,31 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           continue; // not marketable yet
         }
       }
-      let fee = commission(s, def, q * price);
+      let fee = commission(s, def, q * price, q);
 
       let shrunk = false;
       if (!borrows && o.side === 'buy' && q * price + fee > acct0.cash + EPS) {
         shrunk = true;
-        // shrink to what the cash covers (prices moved since placement)
-        const f = t.fees[def.assetClass] ?? t.fees.stock;
-        q = roundQty(def, Math.max(0, (acct0.cash - f.min) / (price * (1 + f.rate))));
+        // shrink to what the cash covers (prices moved since placement), the fee of the schedule included
+        q = fitToCash(s, def, q, price, acct0.cash);
         if (q <= EPS) {
           s.orders[k] = { ...o, status: o.filledQty > 0 ? 'cancelled' : 'rejected', rejectReason: 'insufficient cash', closedTick: tick };
           continue;
         }
-        ({ price, p0 } = tickPrice(i, o.side, q));
-        fee = commission(s, def, q * price);
+        ({ price, p0 } = tickPrice(i, o.side, q, ownBefore));
+        fee = commission(s, def, q * price, q);
         if (q * price + fee > acct0.cash + EPS) {
           s.orders[k] = { ...o, status: o.filledQty > 0 ? 'cancelled' : 'rejected', rejectReason: 'insufficient cash', closedTick: tick };
           continue;
         }
       }
 
-      const acct: Account = { ...acct0, positions: { ...acct0.positions } };
+      // the fill joins the account's own tally at its pre-trade mid (R-10-1); the shared tally takes it in printFill
+      const acct: Account = {
+        ...acct0,
+        positions: { ...acct0.positions },
+        ownImpact: { ...acct0.ownImpact, [o.assetId]: ownImpactAdd(acct0.ownImpact?.[o.assetId], tick, o.side, q * p0) },
+      };
       book(acct, o.assetId, o.side, q, price, fee);
       // an asset with no company book fills against the Street: the trader's cash is the Street's flow (O-3)
       if (supplyId === undefined) tallyStreet(acct, -(sign(o.side) * q * price + fee));
@@ -1350,10 +1422,11 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           // a company stock with no book in the state has no counterparty to take the shares: the liquidation waits (X11)
           const liqSupply = supplyOf(s, assetId);
           if (liqSupply === null) continue;
-          const { price, p0 } = tickPrice(i, side, q);
+          const { price, p0 } = tickPrice(i, side, q, ownDecayed(a, assetId, tick)[side]);
           // a bounded book (a Launchpad token) cannot pay a forced sale past its cash: the liquidation waits (L4)
           if (liqSupply !== undefined && side === 'sell' && s.config.assets[i]!.bookCashBound === true && s.accounts[liqSupply]!.cash < q * price) continue;
-          const fee = commission(s, s.config.assets[i]!, q * price);
+          const fee = commission(s, s.config.assets[i]!, q * price, q);
+          a.ownImpact = { ...a.ownImpact, [assetId]: ownImpactAdd(a.ownImpact?.[assetId], tick, side, q * p0) };
           book(a, assetId, side, q, price, fee);
           if (liqSupply === undefined) tallyStreet(a, -(sign(side) * q * price + fee)); // a forced fill with the Street (O-3)
           if (liqSupply !== undefined) routeToSupply(s, liqSupply, assetId, side, q, price, fee);

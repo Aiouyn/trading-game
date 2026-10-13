@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, step } from './sim';
 import { defaultConfig } from './config';
-import { halfSpread, impact, IMPACT_HALF_LIFE, liquidationEquity, marginalImpact, openAccount, permanentMove, placeOrder } from './trading';
+import { halfSpread, impact, IMPACT_HALF_LIFE, liquidationEquity, marginalImpact, openAccount, permanentMove, placeOrder, roundQty } from './trading';
 import type { WorldState } from './types';
 
 /**
@@ -18,7 +18,7 @@ const idx = (s: WorldState, id: string) => s.config.assets.findIndex((a) => a.id
 function units(id: string): number {
   const def = cfg.assets.find((a) => a.id === id)!;
   const u = 1e6 / def.initialPrice;
-  return def.qtyStep === 1 ? Math.max(7200, Math.floor(u / 7200) * 7200) : u;
+  return def.qtyStep === 1 ? Math.max(7200, Math.floor(u / 7200) * 7200) : roundQty(def, u);
 }
 
 /** lift of lnP at the end of game day 0 vs a no-trade world: `accounts` accounts each buy Q/accounts at tick 1,
@@ -41,9 +41,11 @@ function lift(id: string, accounts: number, clips = false): number {
   return s.assets[i]!.lnP - n.assets[i]!.lnP;
 }
 
+// R-10-1 (Phase 10) superseded the shared per-asset tally that these laws pin: an account pays its own impact. The skipped
+// laws are kept for the record; the per-account laws are in fill-realism.test.ts. The lead rules on any re-pin (V1-PHASE10 10A).
 describe('impact tally: splitting one block over accounts (R-9-1c, one shared tally per asset)', () => {
   for (const id of ['SYN', 'AURH']) {
-    it(`impact_split_accounts (${id}): one order vs N = 2, 10, 100 accounts move the price the same`, { timeout: 120_000 }, () => {
+    it.skip(`impact_split_accounts (${id}): one order vs N = 2, 10, 100 accounts move the price the same`, { timeout: 120_000 }, () => {
       const one = lift(id, 1);
       expect(one).toBeGreaterThan(0);
       const rows: string[] = [`one ${one.toExponential(4)}`];
@@ -56,7 +58,7 @@ describe('impact tally: splitting one block over accounts (R-9-1c, one shared ta
     });
   }
 
-  it('a second account pays on the flow of the first account: the asset tally holds both fills, and the move of B is charged on the notional of A', () => {
+  it.skip('a second account pays on the flow of the first account: the asset tally holds both fills, and the move of B is charged on the notional of A', () => {
     let s = openAccount(openAccount(createWorld('tally-d', defaultConfig({ ticksPerDay: 24 })), 'A', 1e7), 'B', 1e7);
     const i = idx(s, 'OSTV');
     s = placeOrder(s, { playerId: 'A', assetId: 'OSTV', side: 'buy', type: 'market', qty: 3000 }).state;
@@ -79,7 +81,7 @@ describe('impact tally: 720 clips of one account', () => {
   for (const id of ['SYN', 'AURH']) {
     // The lift after the day's last tick, against one order: the clips' charges land later in the window, so less of their
     // permanent move has decayed by the reading (measured 1.095 SYN, 1.122 AURH). The window gate is clip.test.ts (<= 1.5).
-    it(`720 clips over one game day (${id}): lift ratio stays in a band around one order (the window gate is clip.test.ts)`, { timeout: 120_000 }, () => {
+    it.skip(`720 clips over one game day (${id}): lift ratio stays in a band around one order (the window gate is clip.test.ts)`, { timeout: 120_000 }, () => {
       const one = lift(id, 1);
       const c = lift(id, 1, true) / one;
       console.log(`clips over a day ${id}: lift ratio ${c.toFixed(4)}`);
@@ -94,7 +96,7 @@ describe('impact tally: 720 clips of one account', () => {
 function hunt(seed: string, id: string, exitTick: number, accts: [string, string]) {
   const def = cfg.assets.find((a) => a.id === id)!;
   const adv = def.advNotional ?? 1e9;
-  const qty = (usd: number) => (def.qtyStep === 1 ? Math.floor(usd / def.initialPrice) : usd / def.initialPrice);
+  const qty = (usd: number) => roundQty(def, usd / def.initialPrice);
   const qA = qty(0.05 * adv), qB = qty(0.02 * adv);
   const cash = 0.2 * adv;
   let s = createWorld(seed, cfg);
@@ -120,7 +122,7 @@ function hunt(seed: string, id: string, exitTick: number, accts: [string, string
 
 describe('whale + alt hunt', () => {
   for (const id of ['SYN', 'AURH']) {
-    it(`impact_alt_hunt (${id}): whale A then alt B never beats one account with the same total`, { timeout: 120_000 }, () => {
+    it.skip(`impact_alt_hunt (${id}): whale A then alt B never beats one account with the same total`, { timeout: 120_000 }, () => {
       for (const seed of ['hunt-1', 'hunt-2', 'hunt-3']) {
         for (const exitTick of [10, 720 + 1]) { // same-day exit, and next game day's open
           const two = hunt(seed, id, exitTick, ['A', 'B']);
@@ -165,7 +167,7 @@ function sameTick(id: string, accounts: number, ordersEach: number, seed = 'temp
 
 describe('shared per-tick temporary impact', () => {
   for (const id of ['SYN', 'AURH']) {
-    it(`temp_split_same_tick (${id}): one order = 720 clips in one tick, one account, total temporary cost`, { timeout: 60_000 }, () => {
+    it.skip(`temp_split_same_tick (${id}): one order = 720 clips in one tick, one account, total temporary cost`, { timeout: 60_000 }, () => {
       const one = sameTick(id, 1, 1);
       const r = sameTick(id, 1, 720);
       const ratio = r.cost / one.cost;
@@ -173,7 +175,7 @@ describe('shared per-tick temporary impact', () => {
       expect(Math.abs(ratio - 1)).toBeLessThanOrEqual(0.01);
     });
 
-    it(`temp_split_same_tick (${id}): one order = N accounts (2, 10, 100), total temporary cost`, { timeout: 60_000 }, () => {
+    it.skip(`temp_split_same_tick (${id}): one order = N accounts (2, 10, 100), total temporary cost`, { timeout: 60_000 }, () => {
       const one = sameTick(id, 1, 1);
       const rows = [`one order ${(1e4 * one.cost / one.notional).toFixed(3)} bp`];
       for (const n of [2, 10, 100]) {
@@ -200,7 +202,7 @@ describe('shared per-tick temporary impact', () => {
   });
 
   for (const id of ['SYN', 'AURH']) {
-    it(`temp_split_across_ticks (${id}): R-9-1, the same total over the 720 ticks of one day pays the same temporary impact as one order`, { timeout: 60_000 }, () => {
+    it.skip(`temp_split_across_ticks (${id}): R-9-1, the same total over the 720 ticks of one day pays the same temporary impact as one order`, { timeout: 60_000 }, () => {
       const one = sameTick(id, 1, 1);
       const Q = units(id);
       let s = openAccount(createWorld('temp', cfg), 'a0', 3e6);
@@ -249,12 +251,12 @@ describe('shared per-tick temporary impact', () => {
     expect(two.filled2).toBeGreaterThan(0.9 * adv);
   });
 
-  it('temp_whale_alt_same_tick: whale A plus alt B in one tick cost no less than one account', () => {
+  it.skip('temp_whale_alt_same_tick: whale A plus alt B in one tick cost no less than one account', () => {
     for (const id of ['SYN', 'AURH', 'OSTV']) {
       for (const seed of ['hunt-1', 'hunt-2', 'tape-01']) {
         const def = cfg.assets.find((a) => a.id === id)!;
         const adv = def.advNotional!;
-        const qty = (usd: number) => (def.qtyStep === 1 ? Math.floor(usd / def.initialPrice) : usd / def.initialPrice);
+        const qty = (usd: number) => roundQty(def, usd / def.initialPrice);
         const run = (ids: [string, string]) => {
           let s = createWorld(seed, cfg);
           for (const p of new Set(ids)) s = openAccount(s, p, adv);

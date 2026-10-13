@@ -1,7 +1,8 @@
 export * from './types';
 export { Rng, seedStream } from './rng';
 export type { RngState } from './rng';
-export { defaultConfig, gameConfig, DEFAULT_TRADING, DEFAULT_VOLUME, DEFAULT_ASSETS, DEFAULT_INDICES, DEFAULT_REGIMES, DEFAULT_REGIME_SHARES, expectedVol, expectedVolOf, yieldVarianceRatio, ratePassThrough, idioLoading, normalizeLoadings } from './config';
+export { priceRule, dexDigits, DEX_BELOW, type PriceRule } from './priceRules';
+export { defaultConfig, gameConfig, DEFAULT_TRADING, FRACTIONAL_SHARE, spreadForCap, DEFAULT_VOLUME, DEFAULT_ASSETS, DEFAULT_INDICES, DEFAULT_REGIMES, DEFAULT_REGIME_SHARES, expectedVol, expectedVolOf, yieldVarianceRatio, ratePassThrough, idioLoading, normalizeLoadings } from './config';
 export { createWorld, step, stepMany, quote, prices, volumes, indexLevel, gameDay } from './sim';
 export { DEFAULT_WORLD_EVENTS, EVENT_COPY_COUNTS, forceWorldEvent, headlineKey, precursorKey, telegraphBand, worldEventView, worldEventAftermath } from './worldEvents';
 export type { WorldEventKind, WorldEventView, WorldEventsConfig, WorldEventsState } from './worldEvents';
@@ -25,7 +26,7 @@ export { appendAsset } from './listings';
 export type { RivalRow } from './rivals';
 export type { NewsBand, NewsKind } from './news';
 export {
-  openAccount, placeOrder, cancelOrder, cancelOrderResult, modifyOrder, estimateFill, openOrders, orderHistory, portfolio,
+  openAccount, placeOrder, cancelOrder, cancelOrderResult, modifyOrder, estimateFill, qtyStep, roundQty, openOrders, orderHistory, portfolio,
   halfSpread, impact, commission, tradingConfig, marginConfig, buyingPower, grossExposure, equityOf,
   isMarginAccount, marginRuleApplies, mayShort, setAccountPermissions, adjustCash, tradeOption, assetIndex, DEFAULT_MARGIN,
   liquidationEquity, crowdHoldings, publicShortInterest, guardedMark, permanentMove, marginalImpact, tallyToday, tallyTick, tallyDay,

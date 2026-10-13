@@ -72,7 +72,7 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
   // what the position would bank if sold now: the mark-to-market P&L less the exit fee on its value (after fees)
   const rows = pf.positions.map((p) => {
     const def = assetDefOf(p.assetId);
-    const exitFee = def ? commission(world, def, Math.abs(p.marketValue)) : 0;
+    const exitFee = def ? commission(world, def, Math.abs(p.marketValue), Math.abs(p.qty)) : 0;
     return { p, ifSold: p.unrealizedPnl - exitFee };
   });
   const keyOf = (r: (typeof rows)[number], k: PosSortKey) => (k === 'asset' ? r.p.assetId : k === 'qty' ? r.p.qty : k === 'value' ? r.p.marketValue : k === 'pnl' ? r.p.unrealizedPnl : k === 'ifSold' ? r.ifSold : r.p.weight);

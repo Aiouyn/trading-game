@@ -6,7 +6,7 @@
 import { createWorld, shockPrice, step } from './sim';
 import { defaultConfig } from './config';
 import { newsPricedIn } from './news';
-import { cancelOrder, estimateFill, openAccount, openOrders, placeOrder, portfolio } from './trading';
+import { cancelOrder, estimateFill, openAccount, openOrders, placeOrder, portfolio, roundQty } from './trading';
 import type { WorldConfig, WorldState } from './types';
 
 export const LN2 = Math.log(2);
@@ -187,7 +187,6 @@ export function pumpDump(seed: string, id: string, advShare: number, D: number, 
   const base = createWorld(seed, cfg);
   const i = assetIndex(base, id);
   const def = base.config.assets[i]!;
-  const whole = def.qtyStep === 1;
   const dayNotional = advShare * (def.advNotional ?? 1e9);
   const start = 1.1 * dayNotional * D;
   let s = openAccount(base, 'p', start);
@@ -211,7 +210,7 @@ export function pumpDump(seed: string, id: string, advShare: number, D: number, 
       for (const f of r.fills) if (f.playerId === 'p' && f.assetId === id) fills.push({ side, qty: f.qty, mid: Math.exp(n.assets[i]!.lnP) });
     }
   };
-  for (let d = 0; d < D; d++) run('buy', TPD, () => (whole ? Math.floor(perBuy) : perBuy));
+  for (let d = 0; d < D; d++) run('buy', TPD, () => roundQty(def, perBuy));
   const held = s.accounts.p!.positions[id]?.qty ?? 0;
   run('sell', D * TPD, () => held / (D * TPD));
   const raw = s.accounts.p!.cash - start;
@@ -278,7 +277,7 @@ export function newsDriftVsBh(seed: string, cfg: WorldConfig, opts: { years?: nu
   const sizeOf = (st: WorldState, id: string, budget: number) => {
     const i = st.config.assets.findIndex((a) => a.id === id);
     const q = budget / Math.exp(st.assets[i]!.lnP);
-    return st.config.assets[i]!.qtyStep === 1 ? Math.floor(q) : q;
+    return roundQty(st.config.assets[i]!, q);
   };
   for (let t = 0; t < endTick; t++) {
     if (news.tick === startTick) {
@@ -345,8 +344,7 @@ export function clipDay(id: string, clips: number, c: WorldConfig, seed: string,
   const base = createWorld(seed, c);
   const i = base.config.assets.findIndex((a) => a.id === id);
   const def = c.assets[i]!;
-  const whole = def.qtyStep === 1;
-  const per = whole ? Math.floor(notional / def.initialPrice / c.ticksPerDay) : notional / def.initialPrice / c.ticksPerDay;
+  const per = roundQty(def, notional / def.initialPrice / c.ticksPerDay);
   const total = per * c.ticksPerDay;
   let s = openAccount(base, 'p1', 3 * notional);
   let n = base;
@@ -387,7 +385,7 @@ export function realizeToFlat(start: WorldState, playerId: string, maxDays: numb
       for (const a of s.config.assets) {
         const q = freeQty(s, playerId, a.id);
         if (q <= 0) continue;
-        const want = a.qtyStep === 1 ? Math.floor(q / ticksLeft) : q / ticksLeft;
+        const want = roundQty(a, q / ticksLeft);
         if (want > 0) s = placeOrder(s, { playerId, assetId: a.id, side: 'sell', type: 'market', qty: want }).state;
       }
       s = step(s).state;
