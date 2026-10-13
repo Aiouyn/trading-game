@@ -31,6 +31,13 @@ export interface SectorEcon {
   label: string;
   /** gross margin at the reference load, §2 table */
   grossMargin: number;
+  /**
+   * Receivable days: how long the buyers take to pay, in days of sales (R-10-7). Consumer goods are paid by card and settle in
+   * about a day. The B2B figure stays at the old 10 days until the lead rules on the 30-day terms (docs/V1-PHASE10.md 10D.2):
+   * 30 days of today's sales booked at once puts a new company into deficit on its first day, and moves the IPO, pool and
+   * related-supply outcomes in the company suite.
+   */
+  receivableDays: number;
   /** NPC cancellation rate c_s, deterministic per order (v1.6, tunable for Tape) */
   cancelRate: number;
   /** R&D success scale p_s, §3 (pharma uses its gate odds instead) */
@@ -48,12 +55,12 @@ export interface SectorEcon {
 }
 
 export const SECTORS: Record<CompanySector, SectorEcon> = {
-  tech: { id: 'tech', label: 'software', grossMargin: 0.80, cancelRate: 0.02, pSuccess: 0.80, rdDays: 15, frontierDrift: 0.0010, cycleBeta: 1.3, inputIndex: 'none', patents: false },
-  health: { id: 'health', label: 'pharma', grossMargin: 0.70, cancelRate: 0.04, pSuccess: 0.29, rdDays: 60, frontierDrift: 0.0002, cycleBeta: 0.4, inputIndex: 'none', patents: true },
-  staples: { id: 'staples', label: 'food', grossMargin: 0.35, cancelRate: 0.03, pSuccess: 0.85, rdDays: 10, frontierDrift: 0.0002, cycleBeta: 0.3, inputIndex: 'oil_food', patents: false },
-  discretionary: { id: 'discretionary', label: 'consumer goods', grossMargin: 0.45, cancelRate: 0.05, pSuccess: 0.75, rdDays: 15, frontierDrift: 0.0005, cycleBeta: 1.5, inputIndex: 'none', patents: false },
-  industrials: { id: 'industrials', label: 'industrial', grossMargin: 0.25, cancelRate: 0.06, pSuccess: 0.70, rdDays: 25, frontierDrift: 0.0003, cycleBeta: 1.1, inputIndex: 'oil_sqrt', patents: true },
-  security: { id: 'security', label: 'security services', grossMargin: 0.40, cancelRate: 0.03, pSuccess: 0.80, rdDays: 10, frontierDrift: 0.0005, cycleBeta: 0.2, inputIndex: 'none', patents: false },
+  tech: { id: 'tech', label: 'software', grossMargin: 0.80, receivableDays: 10, cancelRate: 0.02, pSuccess: 0.80, rdDays: 15, frontierDrift: 0.0010, cycleBeta: 1.3, inputIndex: 'none', patents: false },
+  health: { id: 'health', label: 'pharma', grossMargin: 0.70, receivableDays: 10, cancelRate: 0.04, pSuccess: 0.29, rdDays: 60, frontierDrift: 0.0002, cycleBeta: 0.4, inputIndex: 'none', patents: true },
+  staples: { id: 'staples', label: 'food', grossMargin: 0.35, receivableDays: 10, cancelRate: 0.03, pSuccess: 0.85, rdDays: 10, frontierDrift: 0.0002, cycleBeta: 0.3, inputIndex: 'oil_food', patents: false },
+  discretionary: { id: 'discretionary', label: 'consumer goods', grossMargin: 0.45, receivableDays: 1, cancelRate: 0.05, pSuccess: 0.75, rdDays: 15, frontierDrift: 0.0005, cycleBeta: 1.5, inputIndex: 'none', patents: false },
+  industrials: { id: 'industrials', label: 'industrial', grossMargin: 0.25, receivableDays: 10, cancelRate: 0.06, pSuccess: 0.70, rdDays: 25, frontierDrift: 0.0003, cycleBeta: 1.1, inputIndex: 'oil_sqrt', patents: true },
+  security: { id: 'security', label: 'security services', grossMargin: 0.40, receivableDays: 10, cancelRate: 0.03, pSuccess: 0.80, rdDays: 10, frontierDrift: 0.0005, cycleBeta: 0.2, inputIndex: 'none', patents: false },
 };
 
 /** Pharma gate odds (§3): three gates of 20 gd each, p = 0.65 * 0.55 * 0.80 = 0.286 (spec: about 0.29 overall). */
@@ -70,8 +77,7 @@ export const COMPANY = {
   depreciationDays: 504,
   /** tax (§1) */
   taxRate: 0.20,
-  /** working capital in days (§1) */
-  dso: 10,
+  /** working capital in days (§1): receivables are per sector (SectorEcon.receivableDays) */
   dio: 15,
   dpo: 12,
   /** the reference "$ per gd" wages (§4) and hiring/ramp timing */

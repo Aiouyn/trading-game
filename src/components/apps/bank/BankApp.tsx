@@ -43,7 +43,7 @@ export function BankApp() {
           { label: t('common.cash'), value: money(cash), testId: 'bank-cash' },
           { label: t('bank.stat.owed'), value: compactMoney(owed.reduce((s, d) => s + (d.outstanding ?? 0), 0)), testId: 'bank-owed' },
           { label: t('bank.stat.mortgages'), value: compactMoney(me.properties.reduce((s, p) => s + p.mortgage, 0)) },
-          { label: t('bank.stat.license'), value: lic.name },
+          { label: t('bank.stat.license'), value: t(`license.name.${lic.id}`) },
         ]}
       />
 
@@ -55,7 +55,7 @@ export function BankApp() {
             <p className="mt-2 rounded-md border border-warn/50 px-3 py-2 text-small text-warn" role="status">{t('bank.margin.call')}</p>
           )}
           <dl className="mt-2 flex flex-col gap-1 text-small">
-            <Row k={t('bank.margin.license')} v={`${lic.name} · ${t(`license.${lic.id}.blurb`)}`} />
+            <Row k={t('bank.margin.license')} v={`${t(`license.name.${lic.id}`)} · ${t(`license.${lic.id}.blurb`)}`} />
             <Row k={t('bank.margin.leverage')} v={`${acct?.maxLeverage ?? 1}×`} />
             <Row k={t('bank.margin.buyingPower')} v={bp === null ? '—' : money(bp)} />
             <Row k={t('bank.margin.shorting')} v={acct?.canShort ? t('bank.yes') : t('bank.no')} />
@@ -64,7 +64,7 @@ export function BankApp() {
             <Row k={t('bank.margin.interestPaid')} v={money(acct?.interestPaid ?? 0)} />
             <Row k={t('bank.margin.borrowPaid')} v={money(acct?.borrowPaid ?? 0)} />
           </dl>
-          <p className="mt-3 text-caption text-fg-faint">{t('bank.margin.licenses', { list: LICENSES.map((l) => `${l.name} ${l.maxLeverage}×`).join(' · ') })}</p>
+          <p className="mt-3 text-caption text-fg-faint">{t('bank.margin.licenses', { list: LICENSES.map((l) => `${t(`license.name.${l.id}`)} ${l.maxLeverage}×`).join(' · ') })}</p>
         </Card>
 
         <Card className="p-4" data-testid="bank-credit">

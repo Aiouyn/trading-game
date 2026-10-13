@@ -7,6 +7,7 @@
  *   "#susd:<value>"           the same with an explicit '+' when positive        +$12.00 / +12,00 $
  *   "#pct:<fraction>"         a percent from a fraction, two decimals           1.23% / 1,23 %
  *   "#spct:<fraction>"        the same with an explicit '+' when positive       +1.23% / +1,23 %
+ *   "#mpct:<fraction>"        a market move: one decimal, '+' or the true minus sign '−' (the wire's form)  +3.5% / −3,5 %
  * The French forms follow src/game/format.ts: a decimal comma, a no-break space before the dollar sign or the percent sign.
  */
 
@@ -28,7 +29,7 @@ function formatterFor(locale: TokenLocale, min: number, max: number): Intl.Numbe
 
 /** True for a string that is a number token (the "#" forms above). */
 export function isNumberToken(v: string): boolean {
-  return /^#(n|usd|susd|pct|spct):/.test(v);
+  return /^#(n|usd|susd|pct|spct|mpct):/.test(v);
 }
 
 /** A "#n:" token: a plain number with the given decimals, in the locale's separators. */
@@ -47,10 +48,13 @@ export function formatToken(locale: TokenLocale, token: string): string {
   const x = Number(token.slice(colon + 1));
   if (!Number.isFinite(x)) return token.slice(colon + 1);
   const signed = kind === 'susd' || kind === 'spct';
-  const sign = x < 0 ? '-' : signed && x > 0 ? '+' : '';
+  const move = kind === 'mpct';
+  // a market move always carries its sign: '+' when zero or up, the true minus sign when down (the wire has always printed that)
+  const sign = move ? (x < 0 ? '−' : '+') : x < 0 ? '-' : signed && x > 0 ? '+' : '';
   const a = Math.abs(x);
-  const figure = formatterFor(locale, 2, 2).format(kind === 'pct' || kind === 'spct' ? a * 100 : a);
-  if (kind === 'pct' || kind === 'spct') return locale === 'fr' ? `${sign}${figure}${NBSP}%` : `${sign}${figure}%`;
+  const dec = move ? 1 : 2;
+  const figure = formatterFor(locale, dec, dec).format(kind === 'pct' || kind === 'spct' || move ? a * 100 : a);
+  if (kind === 'pct' || kind === 'spct' || move) return locale === 'fr' ? `${sign}${figure}${NBSP}%` : `${sign}${figure}%`;
   return locale === 'fr' ? `${sign}${figure}${NBSP}$` : `${sign}$${figure}`;
 }
 

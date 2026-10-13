@@ -12,8 +12,12 @@ export const ANALYST_TIERS: Record<AnalystTier, { weeklyCost: number; minRank: s
   senior: { weeklyCost: 2000, minRank: 'R1', features: ['oneLiner', 'parts', 'headlines', 'flow'] },
 };
 
-/** Research Desk: unlocked once at Operator, then paid a game week ahead. */
-export const DESK = { minRank: 'R3', unlockCost: 50_000, weeklyUpkeep: 5_000, filesKeep: 40 };
+/**
+ * Research Desk (R-10-7): opens at Operator as a monthly subscription. The first `trialDays` are free (no card, no charge), then
+ * `monthlyFee` is paid from cash every `periodDays`. A month that cannot be paid locks the desk; the files are kept.
+ * The fee is about four weeks of the old weekly upkeep (5,000), and the $50,000 set-up fee is gone.
+ */
+export const DESK = { minRank: 'R3', monthlyFee: 20_000, trialDays: 7, periodDays: 30, filesKeep: 40 };
 
 /** A game week, in game days: the period for analyst salary, desk upkeep and recurring buys' default cadence. */
 export const WEEK_DAYS = 7;

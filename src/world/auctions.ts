@@ -123,14 +123,33 @@ export function weekLots(seed: string, week: number): LifeItem[] {
   return lotMemo(JSON.stringify([seed, week]), () => computeWeekLots(seed, week)).slice();
 }
 
+/**
+ * The rank bands the week's lots are drawn from (R-10-7): an item belongs to the band of its own minimum rank, so a lot's
+ * price sits in the range of the players who can bid on it. Each band is drawn in turn, one lot each, so every week offers
+ * a lot in each band that has items, and the rest of the count goes round the bands again.
+ */
+export const AUCTION_BANDS: readonly (readonly string[])[] = [['R0', 'R1'], ['R2', 'R3'], ['R4', 'R5', 'R6']];
+
 /** The uncached lot choice (weekLots is this, memoized). The reference the memo is tested against. */
 export function computeWeekLots(seed: string, week: number): LifeItem[] {
   const pool = LIFE_ITEMS.filter((i) => i.cls === 'limited' || i.cls === 'unique');
   const h = sha256Hex(`auction-count|${seed}|${week}`);
   const n = AUCTION.lotsMin + (parseInt(h.slice(0, 8), 16) % (AUCTION.lotsMax - AUCTION.lotsMin + 1));
-  const keyed = pool.map((item) => ({ item, k: sha256Hex(`auction-pick|${seed}|${week}|${item.id}`) }));
-  keyed.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
-  return keyed.slice(0, n).map((x) => x.item);
+  const bands = AUCTION_BANDS.map((ranks) => pool
+    .filter((item) => ranks.includes(item.rank))
+    .map((item) => ({ item, k: sha256Hex(`auction-pick|${seed}|${week}|${item.id}`) }))
+    .sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0)));
+  const picks: LifeItem[] = [];
+  for (let round = 0; picks.length < n; round++) {
+    let drew = false;
+    for (const band of bands) {
+      if (picks.length >= n) break;
+      const x = band[round];
+      if (x) { picks.push(x.item); drew = true; }
+    }
+    if (!drew) break;
+  }
+  return picks;
 }
 
 function ownedByAnyone(g: GameState, itemId: string): boolean {
@@ -284,6 +303,8 @@ export interface AuctionLotView {
   itemId: string;
   name: string;
   category: string;
+  /** the lowest rank that may bid on the lot (the item's rank; the bid refuses below it) */
+  minRank: string;
   cls: string;
   rarity: number;
   blurb: string;
@@ -321,7 +342,7 @@ export function auctionsView(g: GameState, pid: string | null, week: number): Au
     const hi = lot ? highBid(lot) : null;
     const bidders = lot && lot.status !== 'open' ? [...new Set(lot.bids.map((b) => g.players[b.playerId]?.handle ?? '?'))] : null;
     return {
-      key, itemId: item.id, name: item.name, category: item.category, cls: item.cls, rarity: item.rarity, blurb: item.blurb, status,
+      key, itemId: item.id, name: item.name, category: item.category, minRank: item.rank, cls: item.cls, rarity: item.rarity, blurb: item.blurb, status,
       openTick: open, endTick: lot?.endTick ?? open + AUCTION.hourTicks,
       bidCount: lot?.bids.length ?? 0,
       high: hi ? hi.amount : null,

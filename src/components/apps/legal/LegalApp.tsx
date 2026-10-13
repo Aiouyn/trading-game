@@ -7,7 +7,7 @@ import { compactMoney, money } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import { usePublicPanel } from '@/game/usePublicPanel';
-import { COUNSEL_COST, FILING_FEE } from '@/world/court';
+import { COUNSEL_COST, FILING_FEE, filingMinimum } from '@/world/court';
 import type { EcaInquiryView } from '@/world/eca';
 import type { CourtCase } from '@/world/types';
 import { t, tm } from '@/i18n';
@@ -41,6 +41,15 @@ export function LegalApp() {
   const cash = me.account?.cash ?? 0;
   const counselCost = COUNSEL_COST[Number(counsel)] ?? 0;
   const fee = FILING_FEE + counselCost;
+  // the filing is refused below the evidence minimum (court.ts fileCase) and above the cash it needs; the reason is shown here. A
+  // model theft against a player with no evidence in view has no known count, so the server decides it.
+  const evidenceNow = me.filing[def]?.[kind];
+  const evidenceShort = (evidenceNow !== undefined || kind !== 'model theft') && (evidenceNow ?? 0) < filingMinimum(kind);
+  const cashShort = cash < fee;
+  // no reason until a defendant is chosen: the button is off for that, and a reason would name nobody
+  const blockReason = !def ? null : evidenceShort
+    ? t('legal.file.needEvidence', { min: Math.round(filingMinimum(kind)), name: name(def), points: Math.round(evidenceNow ?? 0) })
+    : cashShort ? t('legal.file.needCash', { fee: money(fee), cash: money(cash) }) : null;
   const open = me.cases.filter((c) => c.status === 'filed').length;
   const won = me.cases.filter((c) => (c.status === 'won' && c.plaintiffId === me.player.id) || (c.status === 'lost' && c.defendantId === me.player.id)).length;
   return (
@@ -73,17 +82,20 @@ export function LegalApp() {
               label: t(`legal.counsel.${COUNSEL_NAME[Number(c)]}`, { cost: compactMoney(COUNSEL_COST[Number(c)]!) }),
             }))} />
             <p className="text-caption text-fg-faint">{t('legal.file.evidence', { name: name(def), points, fee: money(FILING_FEE) })}</p>
+            {blockReason && <p className="text-caption text-loss" data-testid="court-block-reason">{blockReason}</p>}
             {filing ? (
               <CommitBar
                 testId="court-commit"
                 title={t('commit.fileTitle', { name: name(def) })}
                 rows={[
-                  { label: t('commit.filingFee'), value: money(fee), testId: 'court-commit-fee' },
-                  { label: t('commit.counsel'), value: money(counselCost) },
-                  { label: t('commit.cashAfter'), value: money(cash - fee), testId: 'court-commit-after' },
+                  { label: t('commit.filingFee'), value: money(FILING_FEE), testId: 'court-commit-filing' },
+                  { label: t('commit.counsel'), value: money(counselCost), testId: 'court-commit-counsel' },
+                  { label: t('commit.total'), value: money(fee), testId: 'court-commit-fee' },
+                  // a balance never reads negative: the line appears only when the filing is affordable
+                  ...(cashShort ? [] : [{ label: t('commit.cashAfter'), value: money(cash - fee), testId: 'court-commit-after' }]),
                 ]}
                 confirmLabel={t('commit.confirmFile')}
-                disabled={!def || cash < fee}
+                disabled={!def || !!blockReason}
                 onCancel={() => setFiling(false)}
                 onConfirm={async () => {
                   const r = await act({ type: 'court.file', defendantId: def, kind, counsel: Number(counsel) }, { success: t('legal.filed') });
@@ -91,7 +103,7 @@ export function LegalApp() {
                 }}
               />
             ) : (
-              <Button variant="brass" disabled={!def} onClick={() => setFiling(true)} testId="file-case">{t('legal.file.button')}</Button>
+              <Button variant="brass" disabled={!def || !!blockReason} onClick={() => setFiling(true)} testId="file-case">{t('legal.file.button')}</Button>
             )}
           </div>
         </Card>

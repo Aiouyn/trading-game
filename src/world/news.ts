@@ -3,7 +3,7 @@ import type { Msg } from '@/i18n';
 import {
   earningsHeadline, macroHeadline, moveHeadline, previewHeadline, ratesHeadline, regimeHeadline, rumorHeadline,
 } from '@/content/news';
-import { notify, pushWire } from './core';
+import { REAL_WEEK, notify, pushWire } from './core';
 import { textProvider } from './text';
 import type { GameState, StepOutput } from './types';
 
@@ -82,7 +82,7 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
           text: earningsHeadline(d.name, e.surprise, e.move),
           msg: textProvider.newsroom({
             kind: 'earnings', id, name: d.name, surprise: e.surprise, move: e.move,
-            quote: textProvider.executives({ id: `${id}:ceo`, name: d.name, surprise: e.surprise }),
+            quote: textProvider.executives({ id: `${id}:ceo`, name: d.name, surprise: e.surprise, avoid: quotesThisWeek(g, e.tick) }),
           }),
         });
         break;
@@ -159,7 +159,8 @@ export function newsFromEvents(g: GameState, events: StepEvent[], out: StepOutpu
           const gx = e.gxMove !== undefined ? ` · GX ${pctText(e.gxMove)}` : '';
           // the end line is a message descriptor too, so French readers get "Krach ended" in their language
           const kindRef = `@event.kind.${e.kind}`;
-          const move = pctText(e.gxMove ?? 0);
+          // the move is a number token, so French readers get a decimal comma; the English keeps the wire's one decimal and minus sign
+          const move = `#mpct:${e.gxMove ?? 0}`;
           const msg: Msg = e.kind === 'flash'
             ? { key: 'event.wire.endFlash', vars: { kind: kindRef, move } }
             : { key: 'event.wire.end', vars: { kind: kindRef, count: e.lastedDays ?? 0, days: e.lastedDays ?? 0, move } };
@@ -242,6 +243,21 @@ function worldLabel(kind: WorldEventKind): string {
 
 function worldTone(kind: WorldEventKind): 'gain' | 'loss' | 'warn' | 'info' {
   return kind === 'crash' ? 'loss' : kind === 'bubble' ? 'gain' : kind === 'crisis' ? 'warn' : 'info';
+}
+
+/**
+ * The CEO quote keys the Wire already printed in this real week (R-10-7): a firm never gets the quote another firm was
+ * given. The earnings lines on the wire carry their quote's key, so the list is read from the wire itself.
+ */
+function quotesThisWeek(g: GameState, tick: number): string[] {
+  const lo = Math.floor(tick / REAL_WEEK) * REAL_WEEK;
+  const keys: string[] = [];
+  for (const w of g.wire) {
+    if (w.kind !== 'earnings' || w.tick < lo || w.tick > tick) continue;
+    const q = w.msg?.vars?.quote;
+    if (q && typeof q === 'object' && !Array.isArray(q) && 'key' in q) keys.push((q as Msg).key);
+  }
+  return keys;
 }
 
 function pctText(f: number): string {

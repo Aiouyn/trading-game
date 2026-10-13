@@ -263,7 +263,7 @@ export interface Player {
   assetFlow?: number;
   /** hired analyst (one at a time), null or absent when none */
   analyst?: { tier: AnalystTier; hiredDay: number; paidThroughDay: number } | null;
-  /** Research Desk: unlocked once at Operator; lapsed when upkeep is not covered (files are kept) */
+  /** Research Desk: a trial, then a monthly fee at Operator; lapsed when the month is not covered (files are kept) */
   desk?: { unlockedDay: number; paidThroughDay: number; lapsed: boolean } | null;
   /** Learn: lesson ids completed, server-side */
   lessons?: string[];

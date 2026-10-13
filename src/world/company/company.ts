@@ -521,7 +521,9 @@ function operateDay(w: CompanyWorld, c: Company, env: CompanyEnv, day: number): 
   // 8. costs and cash: working capital from the day's sales and materials (DSO, DIO, DPO)
   const wages = wagesPerDay(c);
   const wagesAll = wages.ops + wages.sales + wages.rd + wages.ga;
-  const arNew = COMPANY.dso * revenue;
+  // receivables by the buyer's terms (SectorEcon.receivableDays); the day's sales are booked in full, and the build-up of
+  // receivables is its own line, so a first sale never reads as cash out for sales
+  const arNew = SECTORS[c.sector].receivableDays * revenue;
   const invNew = COMPANY.dio * matCost;
   const apNew = COMPANY.dpo * matCost;
   const dAR = arNew - c.ar;
@@ -531,7 +533,8 @@ function operateDay(w: CompanyWorld, c: Company, env: CompanyEnv, day: number): 
   c.inv = invNew;
   c.ap = apNew;
   const mandatory: Record<string, number> = {
-    sales: revenue - dAR,
+    sales: revenue,
+    'receivables build-up': -dAR,
     materials: -(matCost + dInv - dAP),
     payroll: -wagesAll,
     overtime: -overtimeCost,

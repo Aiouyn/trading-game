@@ -132,7 +132,7 @@ export function applyRank(g: GameState, p: Player, out: StepOutput | null, silen
   if (rankIndex(r.id) >= 3) seedConnections(g, p.id);
   if (silent || prev === r.id) return;
   out?.rankUps.push({ playerId: p.id, rankId: r.id });
-  notify(g, out, p.id, { kind: 'rank', tone: 'brass', text: `Rank up: you are now ${r.name}. ${r.unlocks.join(' · ')}.`, msg: { key: `rank.note.up.${r.id}`, vars: { name: r.name } } });
+  notify(g, out, p.id, { kind: 'rank', tone: 'brass', text: `Rank up: you are now ${r.name}. ${r.unlocks.join(' · ')}.`, msg: { key: `rank.note.up.${r.id}`, vars: { name: `@rank.${r.id}` } } });
   // The public Wire names rank milestones from R3 up only; lower ranks are the player's own news.
   if (rankIndex(r.id) >= 3) pushWire(g, out, { kind: 'milestone', tag: 'Milestone', tone: 'brass', playerId: p.id, text: `${p.handle} reaches ${r.name}`, msg: { key: 'wire.milestone.reaches', vars: { handle: p.handle, name: `@rank.${r.id}` } } });
 }

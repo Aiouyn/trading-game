@@ -259,7 +259,7 @@ export function LicenseLadder() {
         return (
           <li key={l.id} className={`rounded-md border p-3 ${have ? 'border-brass/40' : 'border-ink-3'}`}>
             <div className="flex items-center justify-between">
-              <span className="font-semibold">{l.name}</span>
+              <span className="font-semibold">{t(`license.name.${l.id}`)}</span>
               {have ? <span className="text-caption text-brass">{t('holdings.held')}</span> : <span className="flex items-center gap-1 text-caption text-fg-faint"><LockGlyph size={12} /> {l.rank}</span>}
             </div>
             <p className="mt-1 text-caption text-fg-muted">{t(`license.blurb.${l.id}`)}</p>

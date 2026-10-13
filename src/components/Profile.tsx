@@ -34,7 +34,7 @@ export function ProfileView() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="font-serif text-title">{me.player.handle}</h2>
-            <div className="mt-1 flex flex-wrap gap-2"><BrassChip>{me.rank.id} · {me.rank.name}</BrassChip>{me.player.title && <BrassChip>{me.player.title}</BrassChip>}</div>
+            <div className="mt-1 flex flex-wrap gap-2"><BrassChip>{me.rank.id} · {t(`rank.${me.rank.id}`)}</BrassChip>{me.player.title && <BrassChip>{me.player.title}</BrassChip>}</div>
           </div>
           <div className="text-right text-small text-fg-muted">
             {t('profile.peak')} <span className="num text-fg">{compactMoney(me.player.netWorthPeak)}</span>
@@ -66,7 +66,7 @@ export function ProfileView() {
         <ul className="mt-2">
           {RANKS.map((r, i) => (
             <li key={r.id} className={`flex items-center justify-between border-t border-ink-2 py-2 text-small ${i <= rIdx ? 'text-fg' : 'text-fg-faint'}`}>
-              <span>{r.id} · {r.name} <span className="text-caption text-fg-faint">({t(`rank.shell.${r.id}`)})</span></span>
+              <span>{r.id} · {t(`rank.${r.id}`)} <span className="text-caption text-fg-faint">({t(`rank.shell.${r.id}`)})</span></span>
               <span className="num">{r.threshold ? compactMoney(r.threshold) : t('profile.start')}</span>
             </li>
           ))}

@@ -167,7 +167,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
             <div className="label">{t('common.netWorth')}</div>
             <NetWorth value={b.total} />
             <div className={`num mt-1 text-small ${toneText[tone(me.arrival.change)]}`} data-testid="networth-total">
-              {t('portfolio.sinceArrival', { delta: signedMoney(me.arrival.change), pct: signedPct(me.arrival.changePct), start: money(me.arrival.cash) })}
+              {t('portfolio.sinceArrival', { delta: signedMoney(me.arrival.change), pct: signedPct(me.arrival.changePct), start: money(me.arrival.invested) })}
             </div>
             <dl className="num mt-2 flex flex-wrap gap-x-4 gap-y-1 text-caption" data-testid="arrival-split">
               <SplitItem label={t('portfolio.split.trading')} value={me.arrival.split.trading} testId="arrival-trading" />

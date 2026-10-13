@@ -1,5 +1,6 @@
 import type { Msg } from '@/i18n';
 import { earningsGrade, hashStr } from '@/content/news';
+import { pctToken } from '@/i18n/tokens';
 
 /**
  * The text roles' copy rules (Phase 7, P7-1). A role takes typed FACTS (ids, names, numbers and signs the world already
@@ -234,12 +235,29 @@ export function narratorMsg(f: NarratorFacts): Msg {
 // ---------------------------------------------------------------------------------------------------------------------
 // executives: a CEO's quote on an earnings print, from the surprise's sign and size band
 
-export interface ExecFacts { id: string; name: string; surprise: number }
+export interface ExecFacts { id: string; name: string; surprise: number; /** keys already quoted to another firm in the same real week */ avoid?: readonly string[] }
+
+/**
+ * The variant key of a message type for a fact id, moved on to the next variant when the id's own one is already in `avoid`
+ * (R-10-7: no quote is reused across two firms in a week). With every variant taken, the id's own one stands.
+ */
+export function distinctVkey(base: string, factId: string, avoid: readonly string[]): string {
+  const start = variantOf(factId);
+  for (let i = 0; i < VARIANTS; i++) {
+    const k = `${base}.${(start + i) % VARIANTS}`;
+    if (!avoid.includes(k)) return k;
+  }
+  return `${base}.${start}`;
+}
 
 export function executivesMsg(f: ExecFacts): Msg {
   const s = f.surprise;
   const tone = s >= 0.75 ? 'great' : s >= 0.25 ? 'good' : s > -0.25 ? 'flat' : s > -0.75 ? 'bad' : 'awful';
-  return { key: vkey(`txt.exec.${tone}`, f.id), vars: { name: f.name } };
+  const base = `txt.exec.${tone}`;
+  const avoid = f.avoid ?? [];
+  // every quote of this tone is already on the wire this real week: the print runs with no CEO quote, never a repeat (R-10-7)
+  if (Array.from({ length: VARIANTS }, (_, i) => `${base}.${i}`).every((k) => avoid.includes(k))) return { key: 'txt.exec.none', vars: {} };
+  return { key: distinctVkey(base, f.id, avoid), vars: { name: f.name } };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -257,9 +275,14 @@ export function rumorMsg(f: RumorFacts): Msg {
 
 export interface RivalFacts { id: string; day: number; pastPct: number }
 
+/** The three funds with their own voices (the engine's rivals); every other fund on the rival ladder shares the generic voice. */
+const NAMED_RIVALS = ['hale', 'pinn', 'vetch'];
+
 export function rivalMsg(f: RivalFacts): Msg {
   const dir = f.pastPct >= 0 ? 'up' : 'down';
-  return { key: vkey(`txt.rival.${f.id}.${dir}`, `${f.id}:${f.day}`), vars: { pct: `${Math.abs(f.pastPct * 100).toFixed(1)}%` } };
+  const stem = NAMED_RIVALS.includes(f.id) ? `txt.rival.${f.id}` : 'txt.rival.fund';
+  // a number token, so the French voice prints a decimal comma and a no-break space before the percent sign
+  return { key: vkey(`${stem}.${dir}`, `${f.id}:${f.day}`), vars: { pct: pctToken(Math.abs(f.pastPct)) } };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

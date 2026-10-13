@@ -10,6 +10,15 @@ export const TRAIT_IDS: ExecTrait[] = ['Operator', 'Visionary', 'Cost-cutter', '
 export const PROJECT_IDS: ProjectKind[] = ['quality', 'cost', 'nextgen'];
 export const GOAL_IDS = ['firstHire', 'firstRevenue', 'breakEven', 'firstRound'] as const;
 
+/** The ledger's reasons, as the engine writes them (company/company.ts, books.ts); any other reason reads as 'other'. */
+const LEDGER_KEY: Record<string, string> = {
+  sales: 'sales', 'receivables build-up': 'receivables', materials: 'materials', payroll: 'payroll', overtime: 'overtime', rd: 'rd',
+  marketing: 'marketing', tax: 'tax', contract: 'contract', dividend: 'dividend', execSalary: 'execSalary', goalReward: 'goalReward', ipo: 'ipo',
+  loanIn: 'loanIn', loanOut: 'loanOut', loanPrepay: 'loanPrepay', loanRepaid: 'loanRepaid', loanRepay: 'loanRepay', plant: 'plant',
+  round: 'round', royalty: 'royalty', severance: 'severance', underwriting: 'underwriting',
+};
+export const ledgerLabel = (reason: string): string => t(`company.label.ledger.${LEDGER_KEY[reason] ?? 'other'}`);
+
 export const sectorLabel = (id: CompanySector): string => t(`company.label.sector.${id}`);
 export const roleLabel = (id: CompanyRole): string => t(`company.label.role.${id}`);
 export const tierLabel = (id: CompanyTierId): string => t(`company.label.tier.${id}`);

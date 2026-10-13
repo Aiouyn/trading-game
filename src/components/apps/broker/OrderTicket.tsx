@@ -383,7 +383,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
           <div className="flex items-baseline justify-between">
             <h2 className={dense ? 'font-serif text-body' : 'font-serif text-title'}>{t('broker.trade')}</h2>
             <span className="text-caption text-fg-faint">
-              {margin ? t('broker.licenseMargin', { name: lic.name, lev: acct.maxLeverage ?? 1 }) : t('broker.license', { name: lic.name })}
+              {margin ? t('broker.licenseMargin', { name: t(`license.name.${lic.id}`), lev: acct.maxLeverage ?? 1 }) : t('broker.license', { name: t(`license.name.${lic.id}`) })}
             </span>
           </div>
           <div className={`${dense ? 'mt-0.5' : 'mt-1'} flex items-baseline justify-between text-caption`}>

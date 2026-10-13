@@ -45,17 +45,17 @@ export function ResearchDesk() {
       {!desk && atOperator && (
         <Card className="flex flex-col gap-3 p-4" data-testid="desk-unlock">
           <h2 className="font-serif text-title text-fg">{t('desk.unlock.title')}</h2>
-          <p className="text-small text-fg-muted">{t('desk.unlock.sub', { cost: money(DESK.unlockCost), upkeep: money(DESK.weeklyUpkeep) })}</p>
+          <p className="text-small text-fg-muted">{t('desk.unlock.sub', { days: DESK.trialDays, fee: money(DESK.monthlyFee) })}</p>
           <DeskSample />
           {!confirmUnlock ? (
             <Button variant="brass" size="md" onClick={() => setConfirmUnlock(true)} testId="desk-unlock-run">
-              {t('desk.unlock.run', { total: money(DESK.unlockCost + DESK.weeklyUpkeep) })}
+              {t('desk.unlock.run')}
             </Button>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
-              <p className="w-full text-small text-fg-muted">{t('desk.unlock.confirm', { total: money(DESK.unlockCost + DESK.weeklyUpkeep) })}</p>
+              <p className="w-full text-small text-fg-muted">{t('desk.unlock.confirm', { fee: money(DESK.monthlyFee) })}</p>
               <Button variant="brass" size="md" onClick={async () => { await act({ type: 'desk.unlock' }); setConfirmUnlock(false); }} testId="desk-unlock-confirm">
-                {t('desk.unlock.run', { total: money(DESK.unlockCost + DESK.weeklyUpkeep) })}
+                {t('desk.unlock.run')}
               </Button>
               <Button variant="ghost" size="md" onClick={() => setConfirmUnlock(false)}>{t('common.cancel')}</Button>
             </div>
@@ -68,7 +68,7 @@ export function ResearchDesk() {
           <p className="text-small text-fg-muted" data-testid="desk-locked">{t('desk.lapsed')}</p>
           <p className="text-small text-fg-faint">{t('desk.locked.files')}</p>
           <Button variant="outline" size="md" onClick={() => void act({ type: 'desk.resume' })} testId="desk-resume">
-            {t('desk.resume', { upkeep: money(DESK.weeklyUpkeep) })}
+            {t('desk.resume', { fee: money(DESK.monthlyFee) })}
           </Button>
         </Card>
       )}
