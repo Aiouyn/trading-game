@@ -140,8 +140,8 @@ test('L3 and L4: no frame a rival or another player receives carries a position,
     expect(leaks).toEqual([]);
     // the viewer's own player id is B's; A's id is never in a frame B receives unless it is inside a public record.
     // The search is per top-level key, so a hit names the frame and the key that carried A's id. The public records are left out,
-    // and each is sent the same way to every socket (server/index.ts), so an id in one is public by design, not a leak:
-    //   pub, directory   the public state and the public directory (every player's row, protocol.ts)
+    // and an id in one is public by design, not a leak (server/index.ts):
+    //   pub, directory   the public state and the public directory (every player's row, protocol.ts; a socket's directory marks its own rows)
     //   wire             the Wire's public lines, filings and purchases with the filer's handle (V1-PRIVACY.md section 1)
     //   rankUps          the rank-ups of the tick, { playerId, rankId } (players.ts)
     // A panel reply's `data` is the public boards or directory (R-9-12), so it is left out the same way. Every other key of every
