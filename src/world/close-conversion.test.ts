@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
 import { dayClose, recordDayClose } from './close';
-import { GPU_TIERS, TPD, bump, netWorthBreakdown } from './core';
+import { GPU_TIERS, TPD, bump, netWorthBreakdown, today } from './core';
 import { valuationAndIncome } from './ledger';
 import { textProvider } from './text';
 import { PROPERTY_FEE, propertyPrice } from './assets';
@@ -49,6 +49,27 @@ function cardAround(g: GameState, act: () => void): DailyClose {
 function expectSplitSums(card: DailyClose): void {
   expect(card.trading + card.valuation + card.income + card.tax).toBeCloseTo(card.nwChange, 6);
 }
+
+describe('the first close after joining: the join record is the open of the day, so it carries the assetFlow baseline', () => {
+  it('a shop bought on the day the player joins reads as trading 0 and valuation 0 at that day close', () => {
+    const g = createGame('conv-first-day', { warmupDays: 1, npcs: false });
+    for (let k = 0; k < 10; k++) stepGame(g);
+    const r = applyCommand(g, 'u1', { type: 'join', handle: 'buyer', country: 'AV' });
+    if (!r.ok) throw new Error(r.error);
+    g.players.u1!.onboarding.skipped = true;
+    const day = today(g);
+    const def = BUSINESSES.find((b) => b.tier === 1 && b.sector === 'food')!;
+    const buy = applyCommand(g, 'u1', { type: 'biz.buy', defId: def.id, cityId: 'avalon' });
+    expect(buy.ok).toBe(true);
+    // the join wrote the open record of this day (day - 1); the day's own close writes the day, and the card reads both
+    while (!g.ledgers!.u1!.days[day]) stepGame(g);
+    const card = dayClose(g, 'u1', day);
+    if (!card) throw new Error('no card');
+    expect(card.valuation).toBeCloseTo(0, 6);
+    expect(card.trading).toBeCloseTo(0, 6);
+    expectSplitSums(card);
+  });
+});
 
 describe('a purchase is a conversion of cash into holdings: it is neither trading nor valuation', () => {
   it('a shop bought at cost reads as trading 0 and valuation 0, and the split still sums to the change', () => {

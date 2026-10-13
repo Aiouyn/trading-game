@@ -260,6 +260,8 @@ async function expectOwnedTableAtStart(page: import('@playwright/test').Page, id
 /** The owned table at 1280 wide (a laptop's side panel), then back to the page's own size: the name column still starts at the edge. */
 async function at1280(page: import('@playwright/test').Page, name: string, id: string): Promise<void> {
   if (isPhone(page)) return;
+  // a table scrolled to its tax column keeps that scroll through a resize: the check starts again from the left edge
+  await page.getByTestId('biz-owned-scroll').evaluate((el) => { el.scrollLeft = 0; });
   await page.setViewportSize({ width: 1280, height: 800 });
   await expectOwnedTableAtStart(page, id);
   await noHorizontalOverflow(page);
