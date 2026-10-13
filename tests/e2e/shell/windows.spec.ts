@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { skipTips, watchErrors } from '../helpers';
-import { DESKTOPS, WIDE, box, boot, brokerCount, dispatchKey, expectRect, frame, gotoShell, launcher, newBroker, onlyIn, orders, reachRank, slotBox, viewport, windowIds, toastText } from './support';
+import { TAB_H } from '../../../src/shell/geometry';
+import { DESKTOPS, WIDE, box, boot, brokerCount, dispatchKey, expectRect, frame, gotoShell, launcher, newBroker, onlyIn, orders, reachRank, slotBox, viewport, windowIds } from './support';
 
 /** Waits until no window animation runs: a snap, a layout or an open has landed (tape: reduced motion is instant). */
 async function settle(page: import('@playwright/test').Page): Promise<void> {
@@ -18,7 +19,8 @@ test.describe('window rules', () => {
     for (let i = 0; i < 3; i++) await newBroker(page);
     await expect.poll(() => brokerCount(page)).toBe(4);
     await newBroker(page);
-    await expect(page.getByTestId('os-toasts')).toContainText('4 Brokers are open');
+    // The fourth Broker pushed one out with its own notice (UX evaluation 4), which holds for a few seconds before the refusal shows.
+    await expect(page.getByTestId('os-toasts')).toContainText('4 Brokers are open', { timeout: 12_000 });
     expect(await brokerCount(page)).toBe(4);
   });
 
@@ -76,15 +78,17 @@ test.describe('window rules', () => {
     await page.getByTestId('shelf-app-portfolio').click();
     await settle(page);
     // A right half is 488 px at 1000 wide, above Portfolio's 350 px minimum (UX stage 6): the snap is taken.
+    // Two windows open here, so the tab strip takes its TAB_H foot and the halves are that much shorter.
+    const halves = { w: vp.w, h: vp.h - TAB_H };
     await dispatchKey(page, { code: 'ArrowRight', key: 'ArrowRight', ctrl: true, shift: true });
     await settle(page);
-    expectRect(await box(page, 'portfolio'), slotBox('R2', vp));
+    expectRect(await box(page, 'portfolio'), slotBox('R2', halves));
     // Wire (360 px) fits a right half and snaps to it.
     await page.getByTestId('shelf-app-wire').click();
     await settle(page);
     await dispatchKey(page, { code: 'ArrowRight', key: 'ArrowRight', ctrl: true, shift: true });
     await settle(page);
-    expectRect(await box(page, 'wire'), slotBox('R2', vp));
+    expectRect(await box(page, 'wire'), slotBox('R2', halves));
   });
 
   test('@mode_single_900 at 900 px one window fills the desktop, snaps are refused, and no layout is offered', async ({ page }) => {
@@ -132,6 +136,6 @@ test.describe('window rules', () => {
     const before = await windowIds(page);
     await newBroker(page);
     expect(await windowIds(page)).toEqual(before);
-    expect(await toastText(page)).toContain('4 Brokers');
+    await expect(page.getByTestId('os-toasts')).toContainText('4 Brokers', { timeout: 12_000 });
   });
 });

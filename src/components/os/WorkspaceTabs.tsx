@@ -12,6 +12,7 @@ export const WORKSPACE_NAMES = ['trade', 'news', 'portfolio', 'empire'] as const
 export function WorkspaceTabs() {
   const activeWs = useShell((s) => s.shell.activeWs);
   const count = useShell((s) => s.ctx.workspaces);
+  const wins = useShell((s) => s.shell.wins);
   return (
     <div className="os-wstabs os-soft" role="tablist" aria-label={t('shell.workspaces')} data-testid="ws-tabs">
       {WORKSPACE_NAMES.map((name, n) => {
@@ -24,9 +25,10 @@ export function WorkspaceTabs() {
             role="tab"
             aria-selected={on}
             disabled={!open}
-            title={open ? t(`shell.ws.${name}`) : t('shell.ws.locked')}
             data-testid={`ws-${n}`}
             data-ws={name}
+            data-count={open ? wins.filter((w) => w.ws === n && w.state === 'open').length : 0}
+            title={open ? `${t(`shell.ws.${name}`)}: ${t('shell.ws.count', { n: wins.filter((w) => w.ws === n && w.state === 'open').length })}` : t('shell.ws.locked')}
             className={`os-wstab${on ? ' on' : ''}`}
             onClick={() => dispatchWm({ type: 'switchWs', ws: n })}
           >

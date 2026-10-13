@@ -156,7 +156,8 @@ test.describe('the Review layout and the desk (stage 2)', () => {
     await boot(page);
     await page.getByTestId('shelf-layout-menu').click();
     await page.getByTestId('layout-review').click();
-    await expect.poll(async () => (await windowIds(page)).sort().join(',')).toBe('portfolio,wire');
+    // The Broker is not placed by Review, so it stays open behind the two (a layout never closes a window, UX evaluation 6).
+    await expect.poll(async () => (await windowIds(page)).sort().join(',')).toBe('broker-1,portfolio,wire');
   });
 });
 

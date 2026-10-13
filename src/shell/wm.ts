@@ -29,7 +29,9 @@ import {
   secondWindowReady,
 } from './apps';
 import {
+  CASCADE_WRAP,
   FULL_FRAC,
+  type FracRect,
   SLOT_FRAC,
   type LayoutMode,
   type Rect,
@@ -42,6 +44,8 @@ import {
   fracToRect,
   gutterFor,
   isSlotName,
+  SLOT_NAMES,
+  TAB_H,
   layoutMode,
   nearestSlot,
   openRect,
@@ -131,6 +135,8 @@ export interface WmCtx {
    * viewport, the unlocked apps and the options. The reducer never reads the layout tables.
    */
   plan(name: BuiltinLayout, vp: Size, opts: { ticker?: string; fileId?: string }): Placement[];
+  /** The apps a built-in layout names but does not place (locked, or no Research file). Wired like `plan`. */
+  skipped(name: BuiltinLayout, vp: Size, opts: { ticker?: string; fileId?: string }): AppId[];
 }
 
 export type WmReason =
@@ -156,7 +162,20 @@ export type WmReason =
   | 'bad-size'
   | 'instance';
 
-export type WmResult = { ok: true; state: ShellState } | { ok: false; reason: WmReason };
+/**
+ * What an accepted action did besides the change. The desktop turns these into notices and the minimized tray lists the
+ * windows. Only present when there is something to say.
+ */
+export interface WmNotes {
+  /** Windows the action collapsed by itself (never the window acted on): a Broker window pushed out by a fourth one. */
+  pushed?: string[];
+  /** Open windows a layout did not place. They stay open as free windows, behind the placed ones. */
+  kept?: string[];
+  /** Apps a layout names that it could not place (locked, or no Research file). */
+  skipped?: AppId[];
+}
+
+export type WmResult = { ok: true; state: ShellState; notes?: WmNotes } | { ok: false; reason: WmReason };
 
 export type CycleDir = 'left' | 'right' | 'up' | 'down';
 
@@ -186,13 +205,27 @@ export type WmAction =
 /** What is shown: rects for the windows on the active workspace, in z-order. */
 export interface Projection {
   mode: LayoutMode;
+  /** The area the windows are placed in. It is shorter by TAB_H when the tab strip shows. */
   wa: Size;
   gutter: number;
   rects: Record<string, Rect>;
   order: string[];
+  /** The window tab strip shows at the foot of the work area (single and halves modes, two or more windows, no focus). */
+  tabs: boolean;
 }
 
-const ok = (state: ShellState): WmResult => ({ ok: true, state });
+/** Whether the window tab strip shows: a narrow mode with two or more windows open on the active workspace, not in focus mode. */
+export function tabsShown(state: ShellState): boolean {
+  const mode = layoutMode(state.vp.w);
+  if (mode !== 'single' && mode !== 'halves') return false;
+  if (isFocused(state)) return false;
+  return state.wins.filter((w) => w.ws === state.activeWs && w.state === 'open').length >= 2;
+}
+
+const ok = (state: ShellState, notes?: WmNotes): WmResult =>
+  notes !== undefined && (notes.kept?.length || notes.skipped?.length || notes.pushed?.length)
+    ? { ok: true, state, notes }
+    : { ok: true, state };
 const fail = (reason: WmReason): WmResult => ({ ok: false, reason });
 
 const hasOwn = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
@@ -245,11 +278,20 @@ function placeFull(w: Win, wa: Size, g: number): Rect {
 export function project(state: ShellState): Projection {
   const mode = layoutMode(state.vp.w);
   const foc = isFocused(state);
-  const wa = workArea(state.vp, foc);
+  const wa0 = workArea(state.vp, foc);
   const g = gutterFor(foc);
   const rects: Record<string, Rect> = {};
   const on = state.wins.filter((w) => w.ws === state.activeWs && w.state === 'open');
-  if (mode === 'phone' || on.length === 0) return { mode, wa, gutter: g, rects, order: [] };
+  const tabs = tabsShown(state);
+  const wa = tabs ? { w: wa0.w, h: Math.max(0, wa0.h - TAB_H) } : wa0;
+  if (mode === 'phone' || on.length === 0) return { mode, wa, gutter: g, rects, order: [], tabs: false };
+
+  // Focus mode isolates the focused window (UX stage 6, item 4): the others on the workspace are not shown, and it fills the work area.
+  if (foc) {
+    const top = on[on.length - 1]!;
+    rects[top.id] = fracToRect(FULL_FRAC, wa, g);
+    return { mode, wa, gutter: g, rects, order: [top.id], tabs: false };
+  }
 
   if (mode === 'single') {
     rects[on[on.length - 1]!.id] = fracToRect(FULL_FRAC, wa, g);
@@ -270,7 +312,7 @@ export function project(state: ShellState): Projection {
   } else {
     for (const w of on) rects[w.id] = placeFull(w, wa, g);
   }
-  return { mode, wa, gutter: g, rects, order: on.map((w) => w.id).filter((id) => hasOwn(rects, id)) };
+  return { mode, wa, gutter: g, rects, order: on.map((w) => w.id).filter((id) => hasOwn(rects, id)), tabs };
 }
 
 // ---------------------------------------------------------------- helpers
@@ -364,17 +406,14 @@ const failAcq = (reason: WmReason): Acq => ({ ok: false, reason });
  */
 function newWin(state: ShellState, id: string, app: AppId, props: WinProps): Win {
   const wa = workArea(state.vp, false);
-  const open = state.wins.filter((x) => x.ws === state.activeWs && x.state === 'open').length;
-  return {
-    id,
-    app,
-    ws: state.activeWs,
-    rect: openRect(APPS[app], wa, open),
-    slot: null,
-    state: 'open',
-    filled: false,
-    props,
-  };
+  const onWs = state.wins.filter((x) => x.ws === state.activeWs && x.state === 'open');
+  // The cascade step is skipped when it would land exactly on another open free window (the 1000 px third window, UX evaluation 10).
+  const taken = (r: Rect): boolean => onWs.some((x) => x.slot === null && x.rect.x === r.x && x.rect.y === r.y);
+  let rect = openRect(APPS[app], wa, onWs.length);
+  for (let k = onWs.length + 1; taken(rect) && k < onWs.length + CASCADE_WRAP; k++) {
+    rect = openRect(APPS[app], wa, k);
+  }
+  return { id, app, ws: state.activeWs, rect, slot: null, state: 'open', filled: false, props };
 }
 
 /**
@@ -586,7 +625,7 @@ function brokerToReuse(s: ShellState, ticker: string | undefined, placed: string
     .find((w) => w.app === 'broker' && w.ws === s.activeWs && !placed.includes(w.id));
 }
 
-function applyPlacements(state: ShellState, placements: Placement[]): ShellState {
+function applyPlacements(state: ShellState, placements: Placement[]): { state: ShellState; kept: string[] } {
   let s = state;
   const placedIds: string[] = [];
   for (const p of placements) {
@@ -611,11 +650,17 @@ function applyPlacements(state: ShellState, placements: Placement[]): ShellState
     };
     placedIds.push(r.id);
   }
-  // Windows on this workspace that the layout does not use go to the shelf. Their state is kept.
-  const wins = s.wins.map((w) =>
-    w.ws === s.activeWs && w.state === 'open' && !placedIds.includes(w.id) ? { ...w, state: 'collapsed' as const } : w,
+  // A window the layout does not place is never closed or collapsed (UX evaluation 6). It stays open as a free window at the
+  // rect it shows now, behind the placed windows, and is reported as kept so the desktop can say so.
+  const shown = project(state).rects;
+  const keptIds = s.wins.filter((w) => w.ws === s.activeWs && w.state === 'open' && !placedIds.includes(w.id)).map((w) => w.id);
+  const freed = s.wins.map((w) =>
+    keptIds.includes(w.id)
+      ? { ...w, slot: null, filled: false, rect: hasOwn(shown, w.id) ? shown[w.id]! : w.rect }
+      : w,
   );
-  return { ...s, wins };
+  const wins = [...freed.filter((w) => keptIds.includes(w.id)), ...freed.filter((w) => !keptIds.includes(w.id))];
+  return { state: { ...s, wins }, kept: keptIds };
 }
 
 // ---------------------------------------------------------------- start and load
@@ -632,7 +677,7 @@ export function initialShell(vp: Size, ctx: WmCtx, ticker?: string): ShellState 
     shelf: defaultShelf(),
     vp: { w: vp.w, h: vp.h },
   };
-  return applyPlacements(base, ctx.plan('trade', vp, { ticker }));
+  return applyPlacements(base, ctx.plan('trade', vp, { ticker })).state;
 }
 
 /**
@@ -652,7 +697,7 @@ export function firstRunShell(vp: Size, ctx: WmCtx, ticker?: string): ShellState
     vp: { w: vp.w, h: vp.h },
   };
   const broker = ctx.plan('trade', vp, { ticker }).filter((p) => p.app === 'broker');
-  return applyPlacements(base, broker.map((p) => ({ ...p, filled: true })));
+  return applyPlacements(base, broker.map((p) => ({ ...p, filled: true }))).state;
 }
 
 /**
@@ -718,16 +763,85 @@ function openAction(state: ShellState, app: AppId, rawProps: unknown, ctx: WmCtx
   return ok(focusId(s, r.id));
 }
 
+const EPS = 1e-6;
+
+/** The fractions a window takes in its work area: its slot, its custom split, or its free rect. A filled window takes all of it. */
+function fracOfWin(w: Win, wa: Size): FracRect {
+  if (w.filled) return FULL_FRAC;
+  if (w.slot !== null) return slotFrac(w.slot);
+  return fracOfRect(w.rect, wa);
+}
+
+/** A named slot when the fractions match one (reflow works on names), else a custom split. */
+function asSlot(f: FracRect): Slot {
+  for (const name of SLOT_NAMES) {
+    const s = SLOT_FRAC[name];
+    if (Math.abs(s.x0 - f.x0) < EPS && Math.abs(s.y0 - f.y0) < EPS && Math.abs(s.x1 - f.x1) < EPS && Math.abs(s.y1 - f.y1) < EPS) {
+      return name;
+    }
+  }
+  return { custom: f };
+}
+
+function overlapsFrac(a: FracRect, b: FracRect): boolean {
+  return a.x0 < b.x1 - EPS && b.x0 < a.x1 - EPS && a.y0 < b.y1 - EPS && b.y0 < a.y1 - EPS;
+}
+
+/** The whole-rectangle strips of `n` that lie outside `t` (left, right, above, below). Only the strips that are real area. */
+function stripsOutside(n: FracRect, t: FracRect): FracRect[] {
+  const out: FracRect[] = [];
+  if (n.x0 < t.x0) out.push({ ...n, x1: Math.min(n.x1, t.x0) });
+  if (n.x1 > t.x1) out.push({ ...n, x0: Math.max(n.x0, t.x1) });
+  if (n.y0 < t.y0) out.push({ ...n, y1: Math.min(n.y1, t.y0) });
+  if (n.y1 > t.y1) out.push({ ...n, y0: Math.max(n.y0, t.y1) });
+  return out.filter((f) => f.x1 - f.x0 > EPS && f.y1 - f.y0 > EPS);
+}
+
+/**
+ * A snap never leaves two windows on top of each other (UX evaluation 2). Each other open window on the workspace that the
+ * target overlaps is re-tiled: it keeps the largest strip outside the target that its minimum still fits (a window on the
+ * left of a half becomes the other half). A window with no such strip (fully covered, or too small) is pushed out to the
+ * shelf, and the caller reports it.
+ */
+function clearForSnap(state: ShellState, id: string, target: FracRect, wa: Size, g: number): Win[] {
+  const ws = state.wins.find((x) => x.id === id)!.ws;
+  let wins = state.wins;
+  for (const n of state.wins) {
+    if (n.id === id || n.ws !== ws || n.state !== 'open') continue;
+    const nf = fracOfWin(n, wa);
+    if (!overlapsFrac(nf, target)) continue;
+    let best: FracRect | null = null;
+    let bestArea = -1;
+    for (const c of stripsOutside(nf, target)) {
+      if (!fitsMin(APPS[n.app], fracToRect(c, wa, g))) continue;
+      const area = (c.x1 - c.x0) * (c.y1 - c.y0);
+      if (area > bestArea) {
+        best = c;
+        bestArea = area;
+      }
+    }
+    wins = best === null
+      ? patchWin(wins, n.id, { state: 'collapsed' })
+      : patchWin(wins, n.id, { slot: asSlot(best), filled: false });
+  }
+  return wins;
+}
+
 function snapTo(state: ShellState, id: string, slot: SlotName): WmResult {
   const w = state.wins.find((x) => x.id === id);
   if (!w) return fail('no-window');
   const mode = layoutMode(state.vp.w);
   if (!slotAllowedInMode(slot, mode)) return fail('mode');
   const foc = isFocused(state, w.ws);
-  const wa = workArea(state.vp, foc);
-  const r = fracToRect(SLOT_FRAC[slot], wa, gutterFor(foc));
+  // The active workspace's area is the one the windows are drawn in (the tab strip takes its foot), so the fit matches what shows.
+  const wa = w.ws === state.activeWs ? project(state).wa : workArea(state.vp, foc);
+  const g = gutterFor(foc);
+  const r = fracToRect(SLOT_FRAC[slot], wa, g);
   if (!fitsMin(APPS[w.app], r)) return fail('too-small');
-  return ok({ ...state, wins: raise(state.wins, id, { slot, filled: false }) });
+  // In focus mode the other windows are hidden, and leaving focus restores every window's rect and slot from the snapshot,
+  // so a snap there never re-tiles or pushes out a neighbour (it would not come back).
+  const cleared = foc ? state.wins : clearForSnap(state, id, SLOT_FRAC[slot], wa, g);
+  return ok({ ...state, wins: raise(cleared, id, { slot, filled: false }) });
 }
 
 const CYCLE_LEFT: readonly SlotName[] = ['L2', 'L3', 'L23'];
@@ -834,19 +948,25 @@ function splitEdgeAction(state: ShellState, a: string, b: string, axis: 'x' | 'y
 function applyLayoutAction(state: ShellState, name: string, ticker: string | undefined, ctx: WmCtx): WmResult {
   if (layoutMode(state.vp.w) !== 'full') return fail('mode');
   let placements: Placement[];
+  let skipped: AppId[];
   if (isBuiltinLayout(name)) {
     // Research needs a file: the Research window on this workspace, if one is open (top-most).
     const fileId = [...state.wins]
       .reverse()
       .find((w) => w.app === 'research' && w.ws === state.activeWs && w.props.fileId !== undefined)?.props.fileId;
     placements = ctx.plan(name, state.vp, { ticker, fileId });
+    skipped = ctx.skipped(name, state.vp, { ticker, fileId });
   } else {
+    skipped = [];
     const saved = state.layouts.find((l) => l.name === name);
     if (!saved) return fail('no-layout');
     placements = [];
     const wa = workArea(state.vp, false);
     for (const e of saved.wins) {
-      if (!APPS[e.app].available || !ctx.unlocked(e.app)) continue;
+      if (!APPS[e.app].available || !ctx.unlocked(e.app)) {
+        skipped.push(e.app);
+        continue;
+      }
       const r = e.slot !== null ? fracToRect(slotFrac(e.slot), wa, gutterFor(false)) : e.rect;
       if (!fitsMin(APPS[e.app], r)) return fail('too-small');
       placements.push({
@@ -859,7 +979,8 @@ function applyLayoutAction(state: ShellState, name: string, ticker: string | und
       });
     }
   }
-  return ok(applyPlacements(exitFocus(state, state.activeWs), placements));
+  const placed = applyPlacements(exitFocus(state, state.activeWs), placements);
+  return ok(placed.state, { kept: placed.kept, skipped });
 }
 
 function saveLayoutAction(state: ShellState, rawName: string): WmResult {
@@ -900,8 +1021,22 @@ function reflow(state: ShellState, ws: number): ShellState {
   return tileWorkspace(state, ws);
 }
 
-/** Applies one action. Refusals return { ok: false, reason } and never touch the input. */
+/**
+ * Applies one action. Refusals return { ok: false, reason } and never touch the input. An accepted action also reports the
+ * windows it collapsed by itself, other than the one it acted on (WmNotes.pushed), so the desktop can say where they went.
+ */
 export function reduce(state: ShellState, action: WmAction, ctx: WmCtx): WmResult {
+  const r = reduceAction(state, action, ctx);
+  if (!r.ok) return r;
+  const acted = 'id' in action ? action.id : null;
+  const pushed = r.state.wins
+    .filter((w) => w.state === 'collapsed' && w.id !== acted && state.wins.some((o) => o.id === w.id && o.state === 'open'))
+    .map((w) => w.id);
+  if (pushed.length === 0 || action.type === 'collapse' || action.type === 'close') return r;
+  return { ok: true, state: r.state, notes: { ...(r.notes ?? {}), pushed } };
+}
+
+function reduceAction(state: ShellState, action: WmAction, ctx: WmCtx): WmResult {
   switch (action.type) {
     case 'open':
       return openAction(state, action.app, action.props, ctx, action.fresh === true);

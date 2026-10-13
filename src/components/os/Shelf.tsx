@@ -15,6 +15,7 @@ import { APP_GLYPH } from './appMap';
 import { Glyph } from './glyphs';
 import { unlockLine } from '../apps/unlock';
 import { LayoutMenu } from './LayoutMenu';
+import { MinimizedTray } from './MinimizedTray';
 import { applyNamedLayout, dispatchWm, openApp, useLayoutMenu, useShell } from './shellStore';
 
 /** The pinned group, in the order the dock shows it (UX stage 6, item 15). Everything else is under Apps. */
@@ -29,6 +30,10 @@ export function Shelf() {
   const focus = focusedId(shell);
   const activeApp: AppId | null = shell.wins.find((w) => w.id === focus)?.app ?? null;
   const running = new Set(shell.wins.map((w) => w.app));
+  // A tile shows what its app's windows do (UX evaluation 13): open on this workspace, in front, or only minimized (with a count).
+  const shownApps = new Set(shell.wins.filter((w) => w.ws === shell.activeWs && w.state === 'open').map((w) => w.app));
+  const minimized = new Map<AppId, number>();
+  for (const w of shell.wins) if (w.state === 'collapsed') minimized.set(w.app, (minimized.get(w.app) ?? 0) + 1);
   const tiles = shell.shelf.filter((a) => APPS[a].available && (!APPS[a].hideWhenLocked || ctx.unlocked(a)));
   const focusOn = isFocused(shell);
   const wide = shell.vp.w >= BP_FULL;
@@ -49,9 +54,15 @@ export function Shelf() {
     const def = APPS[a];
     const name = t(def.titleKey);
     const locked = !ctx.unlocked(a);
-    // A locked tile says what opens it: its rank and the peak net worth it needs (UX stage 6, item 11).
-    const tip = locked ? `${name}. ${unlockLine(def.minRank ?? 'R0', peak).text}` : name;
-    const cls = ['os-tile', running.has(a) ? 'run' : '', activeApp === a ? 'on' : '', locked ? 'locked' : '']
+    const count = minimized.get(a) ?? 0;
+    const state: 'focused' | 'open' | 'collapsed' | null = locked
+      ? null
+      : activeApp === a ? 'focused' : shownApps.has(a) ? 'open' : running.has(a) ? 'collapsed' : null;
+    // A locked tile says what opens it: its rank and the peak net worth it needs (UX stage 6, item 11). A running one says its state.
+    const tip = locked
+      ? `${name}. ${unlockLine(def.minRank ?? 'R0', peak).text}`
+      : state !== null ? t(`shell.tile.${state}`, { name }) : name;
+    const cls = ['os-tile', running.has(a) ? 'run' : '', activeApp === a ? 'on' : '', state === 'collapsed' ? 'col' : '', locked ? 'locked' : '']
       .filter(Boolean)
       .join(' ');
     return (
@@ -60,6 +71,7 @@ export function Shelf() {
         type="button"
         className={cls}
         data-testid={`shelf-app-${a}`}
+        data-state={state ?? 'none'}
         aria-label={tip}
         aria-disabled={locked || undefined}
         title={tip}
@@ -70,6 +82,11 @@ export function Shelf() {
       >
         <Glyph name={APP_GLYPH[a]} size={22} />
         {running.has(a) && <span className="os-tile-dot" aria-hidden />}
+        {count > 0 && (
+          <span className="os-tile-count" data-testid={`shelf-count-${a}`} aria-hidden>
+            {count}
+          </span>
+        )}
         <span className="os-tile-tip" role="presentation" aria-hidden data-testid={`shelf-tip-${a}`}>
           {tip}
         </span>
@@ -89,6 +106,8 @@ export function Shelf() {
       {group(pinned, 'pinned')}
       {pinned.length > 0 && apps.length > 0 && <span className="os-sep" aria-hidden />}
       {group(apps, 'apps')}
+      {/* The minimized tray sits in the dock row, after the tiles, so it never covers a window (UX evaluation 4). */}
+      {!focusOn && <MinimizedTray />}
       {menuOpen && <LayoutMenu />}
       <div className="os-tools" role="group" aria-label={t('shell.dock.tools')} data-testid="shelf-group-tools">
         {wide && (

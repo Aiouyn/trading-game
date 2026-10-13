@@ -12,7 +12,7 @@ import { makeWmCtx } from '@/shell/ctx';
 import { type KeyValueStore, loadShell, readPrefs, saveShell, updatePrefs } from '@/shell/prefs';
 import { createShellStore } from '@/shell/store';
 import { BP_PHONE, type Rect } from '@/shell/geometry';
-import { type ShellState, type WmAction, type WmReason, type WmResult, focusedId, initialShell, normalize, project } from '@/shell/wm';
+import { type ShellState, type WmAction, type WmNotes, type WmReason, type WmResult, focusedId, initialShell, normalize, project } from '@/shell/wm';
 import { DEFAULT_PALETTE, type PaletteSlug, applyPalette, isPaletteSlug, paletteLocked, readPalette } from './palette';
 import { bannerBand, selectEventBanner } from './eventSelect';
 import { announceMotion, finishRunningMotion } from './motion';
@@ -119,9 +119,45 @@ export function notify(text: string, tone: 'gain' | 'loss' | 'warn' | 'info' | '
   useGame.getState().toast({ tone, text });
 }
 
-/** Runs one reducer action. Settled by default, so the change is saved (P2-125). */
+/** Runs one reducer action. Settled by default, so the change is saved (P2-125). An accepted action's notes become notices. */
 export function dispatchWm(action: WmAction, settled = true): WmResult {
-  return useShell.getState().dispatch(action, { settled });
+  const before = useShell.getState().shell;
+  const r = useShell.getState().dispatch(action, { settled });
+  if (r.ok && r.notes) announceNotes(before, r.notes);
+  return r;
+}
+
+function appName(app: AppId): string {
+  return t(APPS[app].titleKey);
+}
+
+/**
+ * Says what an action did to the other windows (UX evaluation 4 and 6): a window pushed to the tray, the windows a layout kept
+ * open behind it, and the apps it could not place. Nothing is hidden silently.
+ */
+function announceNotes(before: ShellState, notes: WmNotes): void {
+  const nameOf = (id: string): string => {
+    const w = before.wins.find((x) => x.id === id);
+    return w ? appName(w.app) : id;
+  };
+  for (const id of notes.pushed ?? []) notify(t('shell.pushed', { name: nameOf(id) }), 'info');
+  if (notes.kept?.length) notify(t('shell.layout.kept', { names: notes.kept.map(nameOf).join(', ') }), 'info');
+  if (notes.skipped?.length) notify(t('shell.layout.skipped', { names: notes.skipped.map(appName).join(', ') }), 'warn');
+}
+
+/** The layout a player may undo (UX evaluation 6): the shell as it was before the last layout, for 10 seconds. */
+export const LAYOUT_UNDO_MS = 10_000;
+export const useLayoutUndo = create<{ prev: ShellState | null; seq: number }>(() => ({ prev: null, seq: 0 }));
+
+/** Puts back the shell from before the last layout. The viewport stays the current one. */
+export function undoLayout(): void {
+  const prev = useLayoutUndo.getState().prev;
+  if (prev === null) return;
+  useLayoutUndo.setState({ prev: null });
+  const cur = useShell.getState().shell;
+  const next: ShellState = { ...prev, vp: cur.vp };
+  useShell.getState().replace(next);
+  persist(next);
 }
 
 const REFUSAL_TEXT: Partial<Record<WmReason, () => string>> = {
@@ -191,11 +227,14 @@ export const useLayoutMenu = create<{ open: boolean }>(() => ({ open: false }));
 
 /** Applies a built-in layout on the active workspace. A refusal says why; a layout never orders anything. */
 export function applyNamedLayout(name: 'trade' | 'review' | 'research' | string, ticker: string): void {
+  const before = useShell.getState().shell;
   const r = dispatchWm({ type: 'applyLayout', name, ticker });
   if (!r.ok) {
     const text = refusalText(r.reason);
     if (text) notify(text, 'warn');
+    return;
   }
+  if (r.state !== before) useLayoutUndo.setState((s) => ({ prev: before, seq: s.seq + 1 }));
 }
 
 /** Runs a launcher command (P2-077). Pause and speed need a clock control the world does not have yet. */

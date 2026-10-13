@@ -45,7 +45,8 @@ test.describe('named layouts', () => {
     const vp = viewport(page);
     const ticker = await selectedTicker(page);
     const unlocked = () => true;
-    for (const name of ['trade', 'review', 'research'] as const) {
+    // Research needs a research file, so its entry is off with no file open (checked below): this loop covers the other two.
+    for (const name of ['trade', 'review'] as const) {
       await page.getByTestId('shelf-layout-menu').click();
       await page.getByTestId(`layout-${name}`).click();
       await settle(page);
@@ -93,19 +94,15 @@ test.describe('named layouts', () => {
     expect(await overlaps()).toEqual([]);
   });
 
-  test('@layouts Research places no Research window without a file, and the Broker takes the freed space', async ({ page }) => {
+  test('@layouts Research is off with no research file open, and the menu says why (UX evaluation 6)', async ({ page }) => {
     onlyIn(...WIDE);
     const handle = await boot(page);
     await reachRank(page, handle, 8_000_000);
-    const vp = viewport(page);
     await page.getByTestId('shelf-layout-menu').click();
-    await page.getByTestId('layout-research').click();
-    await settle(page);
-    // No file is open, so the Research entry is skipped (layouts.ts). The Broker moves to the main slot.
+    await expect(page.getByTestId('layout-research')).toBeDisabled();
+    await expect(page.getByTestId('layout-research-why')).toBeVisible();
+    // No research window opens from the menu, and no entry is refused silently.
     expect((await windowIds(page)).some((id) => id.startsWith('research'))).toBe(false);
-    const broker = placedBox('L23', vp);
-    const actual = await allBoxes(page);
-    expect(actual.some((a) => sameRect(a, broker))).toBe(true);
   });
 
   test('@layouts below 1200 px the layouts are hidden, not greyed, and the launcher offers no layout command', async ({ page }) => {

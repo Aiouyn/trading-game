@@ -51,5 +51,6 @@ export function makeWmCtx(
     workspaces: workspaceCount(rank),
     hasPendingOrder,
     plan: (name, vp, opts) => planLayout(name, vp, unlocked, opts).placements,
+    skipped: (name, vp, opts) => planLayout(name, vp, unlocked, opts).skipped,
   };
 }

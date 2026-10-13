@@ -31,7 +31,8 @@ test.describe('dock', () => {
     const broker = page.getByTestId('shelf-app-broker');
     await broker.hover();
     await expect(page.getByTestId('shelf-tip-broker')).toHaveCSS('opacity', '1');
-    await expect(page.getByTestId('shelf-tip-broker')).toHaveText('Broker');
+    // The tip names the tile and its window's state: the Broker is open in front on this desk (UX evaluation 13).
+    await expect(page.getByTestId('shelf-tip-broker')).toHaveText(/^Broker/);
     const locked = page.locator('[data-testid^="shelf-app-"][aria-disabled="true"]').first();
     if ((await locked.count()) > 0) {
       const id = (await locked.getAttribute('data-testid'))!.replace('shelf-app-', '');

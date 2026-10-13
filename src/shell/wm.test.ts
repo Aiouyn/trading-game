@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { APPS, APP_IDS, type AppId } from './apps';
 import { makeWmCtx } from './ctx';
-import { type Rect, openRect, slotRect, workArea, SLOT_NAMES, type SlotName } from './geometry';
+import { type Rect, TAB_H, openRect, slotRect, workArea, SLOT_NAMES, type SlotName } from './geometry';
 import {
   type ShellState,
   type WmAction,
@@ -314,7 +314,8 @@ describe('open', () => {
     s = go(s, { type: 'open', app: 'wire' });
     const p = project(s);
     expect(Object.keys(p.rects)).toContain('wire');
-    expect(p.rects.wire).toEqual(slotRect('R2', VP_1000, false));
+    // Two windows open in halves: the tab strip takes its foot, so the windows are placed above it.
+    expect(p.rects.wire).toEqual(slotRect('R2', { w: 1000, h: 800 - TAB_H }, false));
   });
 });
 
@@ -660,8 +661,8 @@ describe('viewport', () => {
   it('shows the Trade windows at 1000 on halves: Broker left, Wire on the right half, Portfolio tabbed away', () => {
     const p = project(fresh(VP_1000));
     expect(Object.keys(p.rects).sort()).toEqual(['broker-1', 'wire'].sort());
-    expect(p.rects['broker-1']).toEqual(slotRect('L2', VP_1000, false));
-    expect(p.rects.wire).toEqual(slotRect('R2', VP_1000, false));
+    expect(p.rects['broker-1']).toEqual(slotRect('L2', { w: 1000, h: 800 - TAB_H }, false));
+    expect(p.rects.wire).toEqual(slotRect('R2', { w: 1000, h: 800 - TAB_H }, false));
   });
 
   it('shows Trade at 1440 as thirds: Broker left at 1016 px, Wire and Portfolio in the 400 px side column', () => {
@@ -681,10 +682,12 @@ describe('viewport', () => {
 // ---------------------------------------------------------------- layouts
 
 describe('named layouts', () => {
-  it('applies Trade on a wide screen and collapses windows the layout does not use', () => {
+  it('applies Trade on a wide screen and keeps a window the layout does not place open, as a free window', () => {
     let s = go(fresh(VP_1920), { type: 'open', app: 'calendar' });
     s = go(s, { type: 'applyLayout', name: 'trade', ticker: 'BRNT' });
-    expect(s.wins.find((w) => w.app === 'calendar')!.state).toBe('collapsed');
+    const cal = s.wins.find((w) => w.app === 'calendar')!;
+    expect(cal.state).toBe('open');
+    expect(cal.slot).toBeNull();
     expect(s.wins.find((w) => w.app === 'broker')!.props).toEqual({ ticker: 'BRNT' });
     expect(focusedId(s)).toBe('broker-1');
   });
@@ -711,10 +714,10 @@ describe('named layouts', () => {
     s = go(s, { type: 'applyLayout', name: 'trade' });
     expect(brokers(s)).toHaveLength(4);
     expect(brokers(s).map((w) => [w.id, w.props.ticker]).sort()).toEqual(before);
-    // The layout's Broker is the top-most one on this workspace; the others go to the shelf.
-    const open = brokers(s).filter((w) => w.state === 'open');
-    expect(open).toHaveLength(1);
-    expect(focusedId(s)).toBe(open[0]!.id);
+    // The layout's Broker is focused. The three it does not place stay open behind it (kept, never collapsed).
+    expect(brokers(s).filter((w) => w.state === 'open')).toHaveLength(4);
+    const main = brokers(s).find((w) => w.slot === 'L23')!;
+    expect(focusedId(s)).toBe(main.id);
   });
 
   it('applies Review as one Portfolio on the left and the Wire on the right, even with the journal view built (UX stage 2)', () => {

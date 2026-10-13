@@ -10,6 +10,8 @@ import type { AppDef } from './apps';
 export const STRIP_H = 34;
 export const STRIP_H_FOCUS = 24;
 export const SHELF_H = 52;
+/** The window tab strip at the foot of the work area in the single and halves modes (wm.ts project). */
+export const TAB_H = 30;
 export const GUTTER = 8;
 export const GUTTER_FOCUS = 1;
 export const TITLE_H = 32;
