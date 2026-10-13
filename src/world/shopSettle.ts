@@ -4,7 +4,7 @@
  * sellBusiness, through settleSoldBusiness) both settle here, so every business's income is taxed before it leaves its owner.
  * Deterministic: no randomness is drawn here.
  */
-import { bizDef, debit, today, TPD } from './core';
+import { bizDef, debit, overhead, today, TPD } from './core';
 import { dailyCosts, managerPrepaid, managerPrepayCost } from './shopRules';
 import { taxBasisOf } from './social';
 import { taxOf } from './tax';
@@ -19,12 +19,12 @@ export const COST_SINKS = {
 export type CostLine = keyof typeof COST_SINKS;
 export type CostBill = Record<CostLine, number>;
 
-/** Debits each cost line of a bill to its sink (costs are obligations: they are paid even when cash runs out). Returns the total. */
+/** Charges each cost line of a bill as an overhead to its sink (costs are obligations: they are paid even when cash runs out, and they count toward the owner's overheads). Returns the total. */
 export function chargeCosts(g: GameState, b: Business, bill: CostBill): number {
   let total = 0;
   for (const line of Object.keys(COST_SINKS) as CostLine[]) {
     const amt = bill[line];
-    if (amt > 0) { debit(g, b.ownerId, amt, COST_SINKS[line]); total += amt; }
+    if (amt > 0) { overhead(g, b.ownerId, amt, COST_SINKS[line]); total += amt; }
   }
   return total;
 }
