@@ -12,6 +12,7 @@ import { moderateName, moderateText, nameFormatOk, normalizeName, tickerFormatOk
 import { dayOf, ensureLaunchpad, hasOtherTrader, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
 
 import type { LpToken } from './types';
+import { touchBar } from './bars';
 
 
 /**
@@ -203,10 +204,12 @@ export function createToken(g: GameState, ticker: string, name: string, tagline:
     buzz: { base: 0, board: 0, wire: 0 }, buzzDay: { day: dayOf(tick), n: 0 }, promos: [],
     status: 'live', lastTradeTick: tick, lowCloses: 0, npcCohorts: [],
     creatorSoldSinceGrad: 0, creatorProceedsSinceGrad: 0, creatorDay: { day: dayOf(tick), qty: 0, proceeds: 0, startPrice: price, wired: false },
-    creatorFees: 0, allocSold: 0, realized: {}, lots: {}, buyLog: [], tape: [], chart: [[tick, price]],
+    creatorFees: 0, allocSold: 0, realized: {}, lots: {}, buyLog: [], tape: [],
     volToday: 0, volPrev: 0, volDay: dayOf(tick), rng: streamOf(g, ticker),
     flows: { npcBuy: 0, npcSell: 0, playerBuy: 0, playerSell: 0, fee: 0 }, sued: {},
   };
+  // the launch's first candle opens at the launch price (review fix, Phase 10: the chart is built from the trades and the carried prices)
+  touchBar(t, tick, price);
   t.buzz.base = launchBuzz(t);
   // the launch's own buzz is the first arrival: it starts the NPC demand (L6.1)
   arrive(t, t.buzz.base);

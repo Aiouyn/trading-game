@@ -4,6 +4,7 @@ import { cashOf, priceOf } from '../core';
 import { LP, TPD } from './constants';
 import { iconSvg } from './icon';
 import { moderateText } from './moderate';
+import { barsOf } from './bars';
 import { anonOf } from './anon';
 import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
 import { cardOf, launchpadView, lpPageOf } from './view';
@@ -74,7 +75,7 @@ describe('graduated tokens read the engine (R-10-6)', () => {
     for (let k = 0; k < 2 * 12 + 1; k++) stepGame(g);
     const now = cardOf(g, t);
     expect(now.price).toBe(priceOf(g, 'GPRC'));
-    expect(t.chart.some(([tick]) => tick > t.gradTick!)).toBe(true);
+    expect(barsOf(t).m.some(([tk]) => tk > t.gradTick!)).toBe(true);
     expect(now.progress).toBe(1);
   });
 });
@@ -221,7 +222,8 @@ describe('the replies thread (R-10-6)', () => {
     const page = lpPageOf(g, TRADER, 'KEEP')!;
     expect(page.thread.length).toBe(LP.REPLY_KEEP);
     expect(page.thread.at(-1)!.text).toBe(`line ${LP.REPLY_KEEP + 4}`);
-    expect(page.replies).toBe(LP.REPLY_KEEP);
+    // the count is the posts ever made, not the kept lines (review fix, Phase 10: the board and the header read it)
+    expect(page.replies).toBe(LP.REPLY_KEEP + 5);
     expect(TPD).toBe(720);
   });
 });
@@ -249,7 +251,7 @@ describe('old snapshots load (R-10-6 optional fields)', () => {
     const page = lpPageOf(loaded, TRADER, 'OLDS')!;
     expect(page.description).toBeNull();
     expect(page.thread).toEqual([]);
-    expect(page.icon).toBe(iconSvg('OLDS'));
+    expect(iconSvg('OLDS', page.art)).toBe(iconSvg('OLDS'));
     for (const row of page.tape) expect(row.usd).toBeCloseTo(row.qty * row.price, 6);
     expect(v.bar.length).toBeGreaterThan(0);
     // the pre-Phase-10 snapshot is still a snapshot the engine can step

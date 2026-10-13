@@ -7,6 +7,7 @@ import { spotAt } from './curve';
 import { dayOf, lpWire, moveCents, sinkCents } from './state';
 import { lockedAmount } from './vest';
 import type { LpToken } from './types';
+import { touchBar } from './bars';
 
 /**
  * Graduation (lead-launchpad.md L4). When the curve has sold its 800M tokens, the token leaves the curve at the end of that fill:
@@ -96,9 +97,8 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
   t.gradTick = tick;
   t.gradPrice = price;
   t.gradRaise = raisedCents / 100;
-  // the chart ends at the graduation price: it is sampled only while live, so a token that graduated between two samples had one point
-  t.chart.push([tick, price]);
-  if (t.chart.length > 400) t.chart.splice(0, t.chart.length - 400);
+  // the candles end at the graduation price: the graduating fill is a touch (its tape line is pushed by buyCurve before this runs)
+  touchBar(t, tick, price);
   t.creatorHeldAtGrad = t.creatorId ? (t.bal[t.creatorId] ?? 0) : 0;
   // the day's sweep test starts from the graduation price (not the launch price the day was opened at)
   t.creatorDay = { day: dayOf(tick), qty: 0, proceeds: 0, startPrice: price, wired: false };

@@ -5,6 +5,7 @@ import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
 import { LP, LP_K, NPC, bookAccountId } from './constants';
 import { launchpadView, lpPageOf } from './view';
 import { tokenOf } from './state';
+import { iconSvg } from './icon';
 
 /**
  * The share of the curve a launch buys at once: the launch cohort's demand (constant product, the fee left out, so an upper bound)
@@ -68,7 +69,7 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(v.feeds.trending.map((c) => c.ticker)).toEqual(['FEED']);
     expect(v.feeds.graduated).toHaveLength(0);
     expect(v.gate).toBeNull();
-    expect(v.feeds.newest[0]!.icon.startsWith('<svg')).toBe(true);
+    expect(iconSvg(v.feeds.newest[0]!.ticker, v.feeds.newest[0]!.art).startsWith('<svg')).toBe(true);
     // the v1.4 launch cohort (L6.9) and the NPC sniper are bought at once (L6.4, sniperEnter); the bound is what a 99th-percentile
     // launch buys (cohortShareBound above), not a fixed guess
     expect(v.feeds.newest[0]!.progress).toBeGreaterThan(0);

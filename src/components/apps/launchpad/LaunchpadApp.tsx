@@ -77,8 +77,8 @@ export function LaunchpadApp() {
           />
           {tab !== 'holdings' && tab !== 'create' && <TradesBar rows={lp.bar} tick={tick} onOpen={openToken} />}
           {tab === 'new' && <KingBanner king={lp.king} tick={tick} onOpen={openToken} />}
+          {/* no wrap: the row scrolls with its fade cue, so the last tab never sits alone on a second line on a phone (review item 11) */}
           <Tabs<Tab>
-            wrap
             tabs={[
               { id: 'new', label: t('lp.tab.new') },
               { id: 'trending', label: t('lp.tab.trending') },

@@ -1,21 +1,23 @@
 'use client';
 
-// The token's candle chart (R-10-6, Phase 10). The world keeps one price sample a real minute (12 ticks) for a token; the candles are built
-// here on the game clock: a candle opens at the first sample of its bucket and its bucket starts on a multiple of the timeframe, so the
-// candles line up with the clock. The axis reads the price or the market cap in dollars. A local SVG, because the Broker's chart reads
-// the engine's asset history and a curve token has none yet (see docs/V1-PHASE10.md section 10C for the shared-engine note).
+// The token's candle chart (R-10-6, Phase 10; review fix: real candles). The world keeps the candles on the game clock: a minute bar is
+// one real minute (12 ticks) and an hour bar is one game day (720 ticks), each with its open, high, low and close from the trades (a
+// minute with no trade carries its last price flat). The timeframes are built here from those bars: 1m and 5m, 15m from the minute bars,
+// 1h from the hour bars. The axis reads the price or the market cap in dollars. A local SVG, because the Broker's chart reads the engine's
+// asset history and a curve token has none (see docs/V1-PHASE10.md section 10C for the shared-engine note).
 import { useMemo, useState } from 'react';
 import { money } from '@/game/format';
 import { t } from '@/i18n';
 import { LP } from '@/world/launchpad/constants';
+import type { LpBar } from '@/world/launchpad/types';
 import { lpPrice } from './copy';
 
-/** The timeframes, in ticks of the game clock (12 ticks is a real minute, 720 a game day). */
+/** The timeframes, in ticks of the game clock (12 ticks is a real minute, 720 a game day), and the bars each is built from. */
 export const TIMEFRAMES = [
-  { id: '1m', ticks: 12 },
-  { id: '5m', ticks: 60 },
-  { id: '15m', ticks: 180 },
-  { id: '1h', ticks: 720 },
+  { id: '1m', ticks: 12, src: 'm' },
+  { id: '5m', ticks: 60, src: 'm' },
+  { id: '15m', ticks: 180, src: 'm' },
+  { id: '1h', ticks: 720, src: 'h' },
 ] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number]['id'];
 
@@ -28,24 +30,21 @@ export interface Candle {
   c: number;
 }
 
-/** The candles of the samples, one bucket per `ticks` on the game clock. Pure, so the tests read it without a DOM. */
-export function candlesOf(points: [number, number][], ticks: number): Candle[] {
+/**
+ * The candles of a series of bars, one per bucket of `ticks` on the game clock: the bucket's open is its first bar's open, its high and
+ * low the extremes of its bars, its close the last bar's close. Pure, so the tests read it without a DOM.
+ */
+export function candlesOf(bars: LpBar[], ticks: number): Candle[] {
   const out: Candle[] = [];
-  let cur: Candle | null = null;
-  let bucket = Number.NaN;
-  for (const [tick, p] of points) {
-    const b = Math.floor(tick / ticks);
-    if (b !== bucket) {
-      if (cur) out.push(cur);
-      cur = { t: b * ticks, o: p, h: p, l: p, c: p };
-      bucket = b;
-    } else if (cur) {
-      cur.h = Math.max(cur.h, p);
-      cur.l = Math.min(cur.l, p);
-      cur.c = p;
-    }
+  for (const [t0, o, h, l, c] of bars) {
+    const b = Math.floor(t0 / ticks) * ticks;
+    const cur = out[out.length - 1];
+    if (cur && cur.t === b) {
+      cur.h = Math.max(cur.h, h);
+      cur.l = Math.min(cur.l, l);
+      cur.c = c;
+    } else out.push({ t: b, o, h, l, c });
   }
-  if (cur) out.push(cur);
   return out;
 }
 
@@ -55,14 +54,14 @@ const PAD = 8;
 /** the candles shown at most (the newest) */
 const SHOW = 90;
 
-export function CandleChart({ points, testId = 'lp-candles' }: { points: [number, number][]; testId?: string }) {
+export function CandleChart({ bars, testId = 'lp-candles' }: { bars: { m: LpBar[]; h: LpBar[] }; testId?: string }) {
   const [tf, setTf] = useState<Timeframe>('1m');
   const [axis, setAxis] = useState<'price' | 'mcap'>('price');
   const scale = axis === 'mcap' ? LP.SUPPLY : 1;
   const candles = useMemo(() => {
-    const ticks = TIMEFRAMES.find((x) => x.id === tf)!.ticks;
-    return candlesOf(points, ticks).slice(-SHOW);
-  }, [points, tf]);
+    const frame = TIMEFRAMES.find((x) => x.id === tf)!;
+    return candlesOf(frame.src === 'h' ? bars.h : bars.m, frame.ticks).slice(-SHOW);
+  }, [bars, tf]);
   const last = candles[candles.length - 1];
   const fmt = (v: number) => (axis === 'mcap' ? money(v * scale) : lpPrice(v));
 
@@ -110,7 +109,7 @@ export function CandleChart({ points, testId = 'lp-candles' }: { points: [number
         </div>
       </div>
 
-      {candles.length < 2 || !last ? (
+      {!last ? (
         <p className="text-small text-fg-muted" data-testid="lp-chart-empty">{t('lp.chart.empty')}</p>
       ) : (
         <>

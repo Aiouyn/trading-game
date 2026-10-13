@@ -3,12 +3,14 @@ import type { GameState } from '../types';
 import { LP, bookAccountId, npcAccountId } from './constants';
 import { anonOf } from './anon';
 import { curveProgress, spotAt } from './curve';
-import { iconSvg, tickerHash } from './icon';
+import { tickerHash } from './icon';
+import { barsOf } from './bars';
+import { repliesOf } from './reply';
 import { canCancel, launchGate } from './launch';
 import { lockedAmount, vestCliffDay, vestEndDay, vestFraction } from './vest';
 import { dayOf } from './state';
 import { LP_NPC_HANDLES } from '../text/lpReplies';
-import type { LpReply, LpToken, LpTrade } from './types';
+import type { LpBar, LpReply, LpToken, LpTrade } from './types';
 
 /**
  * The Launchpad view (lead-launchpad.md L1 and L7, R-10-6 as Phase 10). What a player sees of the tokens, and nothing of anyone else's
@@ -20,7 +22,6 @@ export interface LpCard {
   ticker: string;
   name: string;
   tagline: string;
-  icon: string;
   creatorHandle: string | null;
   status: 'live' | 'graduated' | 'dead';
   deadReason: string | null;
@@ -45,7 +46,7 @@ export interface LpCard {
   lastTrade: number;
   /** R-10-6: the replies on the thread */
   replies: number;
-  /** R-10-6: the generated image variant the creator picked */
+  /** R-10-6: the generated image variant the creator picked (the client draws the image from the ticker and this) */
   art: number;
 }
 
@@ -86,15 +87,16 @@ export interface LpPage extends LpCard {
   vesting: { cliffDay: number | null; endDay: number | null; unlocked: number };
   /** the creator's fees earned on this token: present only for the creator (the figure is not public) */
   creatorFees?: number;
-  chart: [number, number][];
+  /** the candles on the game clock (review fix, Phase 10): minute and hour bars, [tick, open, high, low, close] in dollars per token */
+  bars: { m: LpBar[]; h: LpBar[] };
   tape: LpTape[];
   buckets: { top10Share: number; holders: number };
   /** R-10-6: the top holders (HOLDERS_SHOWN), the curve, the dev and the NPC cohort marked, anonymous ids */
   holders: LpHolder[];
   /** R-10-6: the replies thread, newest last (the card's count is `replies`) */
   thread: LpReply[];
-  /** the spot price and the default maximum slippage the ticket starts from */
-  ticket: { spot: number; maxSlip: number };
+  /** the default maximum slippage the ticket starts from */
+  ticket: { maxSlip: number };
   /** the viewer may file a rug case on this token (a flag exists and they are an eligible holder) */
   canFile: boolean;
 }
@@ -141,7 +143,7 @@ export function cardOf(g: GameState, t: LpToken): LpCard {
   const promosToday = t.promos.filter((p) => dayOf(p.tick) === day).length;
   const last = t.tape[t.tape.length - 1];
   return {
-    ticker: t.ticker, name: t.name, tagline: t.tagline, icon: iconSvg(t.ticker, t.art ?? 0),
+    ticker: t.ticker, name: t.name, tagline: t.tagline,
     creatorHandle: t.creatorId ? g.players[t.creatorId]?.handle ?? null : null,
     status: t.status, deadReason: t.deadReason ?? null, createdTick: t.createdTick,
     progress: t.status === 'graduated' ? 1 : curveProgress(t.y), price,
@@ -149,7 +151,7 @@ export function cardOf(g: GameState, t: LpToken): LpCard {
     flag: flagOf(t), sponsored: promosToday,
     gradTick: t.gradTick ?? null, gradPrice: t.gradPrice ?? null,
     lastTrade: last ? last.tick : t.createdTick,
-    replies: t.replies?.length ?? 0,
+    replies: repliesOf(t),
     art: t.art ?? 0,
   };
 }
@@ -210,7 +212,6 @@ function tapeOf(tr: LpTrade): LpTape {
 /** A token page: the card plus the chart, the public tape, the holders, and the replies. */
 export function pageOf(g: GameState, t: LpToken, pid: string): LpPage {
   const card = cardOf(g, t);
-  const chart = t.chart.slice(-LP.PAGE_CHART);
   const isCreator = t.creatorId === pid;
   const h = holdersOf(g, t, pid);
   return {
@@ -219,12 +220,12 @@ export function pageOf(g: GameState, t: LpToken, pid: string): LpPage {
     allocation: t.allocation,
     vesting: { cliffDay: vestCliffDay(t), endDay: vestEndDay(t), unlocked: vestFraction(t, g.market.tick) },
     ...(isCreator ? { creatorFees: t.creatorFees } : {}),
-    chart,
+    bars: barsOf(t),
     tape: t.tape.slice(-PAGE_TAPE).map(tapeOf),
     buckets: { top10Share: h.top10Share, holders: h.holders },
     holders: h.top,
     thread: (t.replies ?? []).slice(-LP.REPLY_KEEP),
-    ticket: { spot: spotAt(t.y), maxSlip: LP.MAX_SLIP },
+    ticket: { maxSlip: LP.MAX_SLIP },
     canFile: !!t.flag && !!t.creatorId && !isCreator && (t.sued[pid] === undefined) && (t.flag?.buyers[pid] ?? 0) > 0,
   };
 }
@@ -273,7 +274,10 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
   if (!s) return { ...empty, gate: gateCode, gateData };
   const all = s.order.map((k) => s.tokens[k]!).filter(Boolean);
   const live = all.filter((t) => t.status === 'live');
-  const newestTokens = [...live].reverse().slice(0, FEED);
+  // the New feed is in bump order (review fix, Phase 10): the live tokens sorted by their last trade, so a token with a fresh trade is
+  // in it whatever its age. The newest launch wins a tie (the reversed list is newest first, and the sort is stable)
+  const lastTickOf = (t: LpToken) => t.tape[t.tape.length - 1]?.tick ?? t.createdTick;
+  const newestTokens = [...live].reverse().sort((a, b) => lastTickOf(b) - lastTickOf(a)).slice(0, FEED);
   const newest = newestTokens.map((t) => cardOf(g, t));
   // the trending order: each token's volume is read once (a card builds an icon, so it is not made inside the comparator)
   const vols = new Map(live.map((t) => [t, t.volPrev > 0 ? t.volPrev : t.volToday] as const));
@@ -308,7 +312,7 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
     capUsed: t.allocation + t.creatorBought, capMax: LP.CREATOR_CAP,
     // the same predicate as cancelLaunch (review item 5): the tape of a v1.2 launch always holds its NPC buzz rows, so "no tape" is wrong
     cancellable: canCancel(t, pid),
-    replies: t.replies?.length ?? 0,
+    replies: repliesOf(t),
     art: t.art ?? 0,
   }));
   return {

@@ -11,6 +11,7 @@ import { absorbPending } from './absorb';
 import { openSellQty } from './graduate';
 import { priceNow } from './rug';
 import { npcReplyTick } from './reply';
+import { carryBar, touchBar } from './bars';
 import { dayOf, ensureLaunchpad, lpWire, refuse, sinkCents, tokenOf } from './state';
 import { placeOrder } from '@/engine';
 import type { LpToken } from './types';
@@ -214,19 +215,15 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
         if (t.lowCloses >= LP.DEAD_CASH_DAYS) kill(g, t, 'cash', out);
       }
     }
-    if (t.status === 'live' && tick % LP.CHART_EVERY === 0) {
-      t.chart.push([tick, spotAt(t.y)]);
-      if (t.chart.length > 400) t.chart.splice(0, t.chart.length - 400);
-    }
   }
-  // R-10-6: a graduated token's chart keeps sampling, at the engine's live mid (the frozen curve price is gone), and every token that is
-  // not dead may get an NPC reply (reply.ts: deterministic, rate-limited)
+  // the candles keep their minute: a live token with no trade carries its last price flat, and a graduated token takes the engine's live mid
+  // (its curve is frozen and its trades are on the engine, not the tape). Every token that is not dead may get an NPC reply (reply.ts)
   for (const ticker of s.order) {
     const t = s.tokens[ticker];
     if (!t || t.status === 'dead') continue;
-    if (t.status === 'graduated' && tick % LP.CHART_EVERY === 0) {
-      t.chart.push([tick, priceNow(g, t)]);
-      if (t.chart.length > 400) t.chart.splice(0, t.chart.length - 400);
+    if (tick % LP.CHART_EVERY === 0) {
+      if (t.status === 'graduated') touchBar(t, tick, priceNow(g, t));
+      else carryBar(t, tick, spotAt(t.y));
     }
     npcReplyTick(g, t);
   }

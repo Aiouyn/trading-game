@@ -102,8 +102,10 @@ export const LP = {
   HOLDERS_SHOWN: 20,
   /** the live trades bar: the newest this many trades across tokens */
   TRADE_BAR: 12,
-  /** the page keeps this many chart samples (one every CHART_EVERY ticks) */
-  PAGE_CHART: 400,
+  /** the candles a token keeps (review fix, Phase 10): the minute bars (one real minute each, CHART_EVERY ticks) and the hour bars
+   *  (one game day each, TPD ticks). A minute with no trade carries the last price flat; trades set the high and the low */
+  BAR_MINUTES: 240,
+  BAR_HOURS: 24,
 } as const;
 
 /** the curve's constant product k = X0 * Y0 */

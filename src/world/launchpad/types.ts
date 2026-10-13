@@ -25,6 +25,12 @@ export interface LpTrade {
 }
 
 /**
+ * One candle on the game clock (review fix, Phase 10): [start tick of the bucket, open, high, low, close], dollars per token. The
+ * open is the previous bar's close; the high and low are the trade prices and the carried price inside the bucket.
+ */
+export type LpBar = [number, number, number, number, number];
+
+/**
  * R-10-6 (Phase 10): one line of a token's replies thread. A player's reply is their own text (moderated, plain, up to 140 characters)
  * under an anonymous id; the creator's replies are marked as the creator's. An NPC reply is a template key from the text layer with a
  * fictional handle, so the viewer's language renders it.
@@ -138,8 +144,11 @@ export interface LpToken {
   lots: Record<string, LpLot[]>;
   /** the public tape, newest last */
   tape: LpTrade[];
-  /** sampled price history: [tick, price] */
-  chart: [number, number][];
+  /** the candles on the game clock: minute bars (CHART_EVERY ticks) and hour bars (TPD ticks), newest last (review fix, Phase 10).
+   *  Absent in an old token: barsOf reads its chart samples as flat bars */
+  bars?: { m: LpBar[]; h: LpBar[] };
+  /** the price samples of the first Phase 5 to Phase 10 saves, [tick, price]. Read only (barsOf); no new sample is written here */
+  chart?: [number, number][];
   /** volume of the current game day and the last whole game day (dollars of notional) */
   volToday: number;
   volPrev: number;
@@ -160,6 +169,10 @@ export interface LpToken {
   replyLast?: Record<string, number>;
   /** R-10-6: the tick of the last NPC reply (the five-minute gap). Absent: none yet */
   npcReplyAt?: number;
+  /** review fix (Phase 10): the replies ever posted on the token (the thread keeps only REPLY_KEEP). Absent: the thread's length */
+  replyCount?: number;
+  /** review fix (Phase 10): the tick of the last trade by a player or the creator (the NPC replies need one in the window). Absent: none */
+  playerTradeAt?: number;
 }
 
 export interface LaunchpadState {

@@ -14,6 +14,7 @@ import { LP } from '@/world/launchpad/constants';
 import { spotAt } from '@/world/launchpad/curve';
 import type { LpPage } from '@/world/launchpad/view';
 import { FILING_FEE } from '@/world/launchpad/rug';
+import { iconSvg } from '@/world/launchpad/icon';
 import { GRAD_RAISE, deadReasonKey, gameDayOf, lpPrice, refusalOf, taglineKey, tokens as fmtTokens, type RefusalCopy } from './copy';
 import { BuzzButtons } from './Buzz';
 import { CandleChart } from './CandleChart';
@@ -57,7 +58,7 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack, onChang
 
       <Card className="p-4">
         <div className="flex flex-wrap items-start gap-4">
-          <TokenIcon svg={page.icon} size={96} />
+          <TokenIcon svg={iconSvg(page.ticker, page.art)} size={96} />
           <div className="min-w-0 flex-1">
             <h1 className="break-words text-title font-semibold text-fg" data-testid="lp-page-name">{page.name}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -84,7 +85,7 @@ export function TokenPage({ page, held, locked, isCreator, tick, onBack, onChang
       <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1fr)_340px] [&>*]:min-w-0">
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3 p-4">
-            <CandleChart points={page.chart} />
+            <CandleChart bars={page.bars} />
           </Card>
 
           <Card className="flex flex-col gap-3 p-4">

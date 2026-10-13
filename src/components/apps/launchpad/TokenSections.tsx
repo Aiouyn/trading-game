@@ -25,7 +25,7 @@ export function TradesTable({ tape, tick }: { tape: LpTape[]; tick: number }) {
         <thead>
           <tr className="border-b border-ink-2 text-left text-caption text-fg-faint">
             <th className="py-1.5 pr-3 font-normal">{t('lp.trades.time')}</th>
-            <th className="hidden py-1.5 pr-3 font-normal @md:table-cell">{t('lp.trades.trader')}</th>
+            <th className="py-1.5 pr-3 font-normal">{t('lp.trades.trader')}</th>
             <th className="py-1.5 pr-3 font-normal">{t('lp.trades.side')}</th>
             <th className="py-1.5 pr-3 text-right font-normal">{t('lp.trades.usd')}</th>
             <th className="hidden py-1.5 pr-3 text-right font-normal @md:table-cell">{t('lp.trades.tokens')}</th>
@@ -36,7 +36,7 @@ export function TradesTable({ tape, tick }: { tape: LpTape[]; tick: number }) {
           {[...tape].reverse().map((r, i) => (
             <tr key={`${r.tick}-${i}`} className="border-b border-ink-2 last:border-0" data-testid="lp-tape-row">
               <td className="whitespace-nowrap py-1.5 pr-3 text-fg-muted">{tick - r.tick > 0 ? t('lp.tape.ago', { when: ticksLabel(tick - r.tick) }) : t('lp.tape.now')}</td>
-              <td className="hidden whitespace-nowrap py-1.5 pr-3 @md:table-cell">
+              <td className="whitespace-nowrap py-1.5 pr-3">
                 {r.anon ? (
                   <span className="num text-fg-muted">{r.anon}</span>
                 ) : (

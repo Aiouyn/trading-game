@@ -10,6 +10,7 @@ import { lockedOf, vestEndDay } from './vest';
 import { cohortsOf } from './cohorts';
 import type { LpLot, LpToken, LpTrade } from './types';
 import { recordCreatorSale } from './rug';
+import { touchBar } from './bars';
 import { curveHoldingsValue } from './value';
 import { graduate } from './graduate';
 import type { GameState as G } from '../types';
@@ -25,9 +26,12 @@ import type { GameState as G } from '../types';
 
 const tickOf = (g: GameState) => g.market.tick;
 
+/** The public tape: the line is kept, the candles take its fill price (review fix, Phase 10), and a player's trade is noted for the NPC replies. */
 function pushTape(t: LpToken, tr: LpTrade): void {
   t.tape.push(tr);
   if (t.tape.length > LP.TAPE_KEEP) t.tape.splice(0, t.tape.length - LP.TAPE_KEEP);
+  touchBar(t, tr.tick, tr.price);
+  if (!tr.npc) t.playerTradeAt = tr.tick;
 }
 
 /** The creator's account, when the token has a player creator (a world launch has none). */
@@ -196,8 +200,9 @@ export function liquidateCohort(g: GameState, t: LpToken, out: StepOutput | null
   if (t.npcBal > 0) sellCurve(g, null, t.ticker, t.npcBal, 1, out, true);
 }
 
+/** A percentage as the viewer typed it: up to four decimals, no trailing zeros (a 0.01% limit reads 0.01%, not 0.0%). */
 function pct(x: number): string {
-  return `${(x * 100).toFixed(1)}%`;
+  return `${Number((x * 100).toFixed(4))}%`;
 }
 
 /** A player's buy from the command (spend in whole cents; the max slippage is a fraction, default 5%). */

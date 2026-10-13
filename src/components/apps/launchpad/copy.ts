@@ -20,7 +20,7 @@ export const REFUSAL_CODES = [
   'live', 'locked', 'lockedEngine', 'lockedGrad', 'maxSlip', 'nameAbuse', 'nameBrand', 'nameCrypto', 'nameFigure', 'nameFormat', 'nameTaken',
   'noFlag', 'noPlayer', 'noToken', 'notCreator', 'notEligible', 'ownFlag', 'rank', 'slippage', 'sold', 'tagline', 'tickerCrypto',
   'tickerFormat', 'tickerRecent', 'tickerTaken', 'tooLarge', 'tooSmall', 'traded', 'zero',
-  'art', 'descEmpty', 'descLong', 'descLink', 'descAbuse', 'replyEmpty', 'replyLong', 'replyLink', 'replyAbuse', 'replyCooldown',
+  'art', 'descEmpty', 'descLong', 'descLink', 'descAbuse', 'replyEmpty', 'replyLong', 'replyLink', 'replyAbuse', 'replyCooldown', 'replyDead',
 ] as const;
 
 /**
@@ -115,17 +115,33 @@ export function curveYOf(progress: number): number {
 /** The cash the curve raises from the start to graduation, in dollars (about $43,950, lead-launchpad.md L3). */
 export const GRAD_RAISE = (LP.X0 * LP.Y0) / LP.GRAD_Y - LP.X0;
 
+const SUBSCRIPT = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
+
 /**
- * A token price in dollars. A launch price is a few millionths of a dollar, so the figure keeps enough digits to show a move:
- * 1,284.10 above a dollar, 0.0342 above a cent, and 0.00001398 below that (at least six decimals).
+ * A token price in dollars, as a memecoin screen shows it (R-10-3, Phase 10). Above a cent: 1,284.10 above a dollar and 0.0342 above a
+ * cent. From a hundredth down to a hundredth of a cent: four significant digits (0.000216). Below that, DEX subscript-zero notation: the
+ * zeros after the point are a subscript, then the four significant digits (0.00001398 reads 0.0₄1398, 0.000004123 reads 0.0₅4123).
+ * The decimal mark is the viewer's.
  */
 export function lpPrice(n: number): string {
   if (!(n > 0)) return fmtNumber(0, 2, 2);
   if (n >= 1) return fmtNumber(n, 2, 2);
   if (n >= 0.01) return fmtNumber(n, 4, 4);
-  const dec = (n.toFixed(10).replace(/0+$/, '').split('.')[1] ?? '').length;
-  const digits = Math.max(dec, 6);
-  return fmtNumber(n, digits, digits);
+  const sep = fmtNumber(1.5, 1, 1).replace(/\d/g, '');
+  const zeros = -Math.floor(Math.log10(n)) - 1; // zeros after the decimal point
+  if (n >= 0.0001) {
+    const dp = zeros + 4;
+    return fmtNumber(n, dp, dp).replace(/0+$/, '');
+  }
+  let z = zeros;
+  let sig = Math.round(n * 10 ** (z + 4));
+  if (sig >= 10000) {
+    // a rounding carry (9.9996e-5 is 0.0001): one zero fewer, the four digits are 1000
+    sig = Math.round(sig / 10);
+    z -= 1;
+  }
+  const sub = String(z).split('').map((d) => SUBSCRIPT[Number(d)]).join('');
+  return `0${sep}0${sub}${String(sig).replace(/0+$/, '')}`;
 }
 
 /** Whole tokens with separators, for the figures of a token (never abbreviated). */

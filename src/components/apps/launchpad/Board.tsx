@@ -22,7 +22,7 @@ export function KingBanner({ king, tick, onOpen }: { king: LpCard | null; tick: 
       className="flex w-full flex-wrap items-center gap-3 rounded-md border border-brass/50 bg-brass/10 p-3 text-left hover:bg-brass/15"
       data-testid="lp-king"
     >
-      <TokenIcon svg={king.icon} size={44} />
+      <TokenIcon svg={iconSvg(king.ticker, king.art)} size={44} />
       <span className="min-w-0 flex-1">
         <span className="block text-micro uppercase tracking-wide text-brass">{t('lp.king.title')}</span>
         <span className="flex flex-wrap items-baseline gap-2">
