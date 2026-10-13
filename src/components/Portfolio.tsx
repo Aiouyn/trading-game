@@ -5,6 +5,7 @@ import { portfolio, type AssetClass } from '@/engine';
 import { PROPERTY_TYPE_BY_ID } from '@/content/lifestyle';
 import { compactMoney, money, pct, price, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { clockLabel } from '@/game/clock';
+import { accountOpenPnl } from '@/game/accountPnl';
 import { assetDefOf, useGame } from '@/game/store';
 import type { Interval } from '@/game/history';
 import { t } from '@/i18n';
@@ -95,6 +96,8 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
   useEffect(() => { void loadNw(); }, [loadNw, latestClose]);
 
   const pf = portfolio(world, playerId);
+  // the account's open P&L after the exit fee: the same figure as the top strip and each Broker's Positions line
+  const openPnl = accountOpenPnl(world, playerId, assetDefOf);
   const b = me.netWorth;
   const series = useMemo(() => {
     if (!nw) return [];
@@ -244,7 +247,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
           <h3 className="mt-5 font-serif text-title">{t('portfolio.trading')}</h3>
           <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
             <Stat label={t('portfolio.realized')} value={<span className={toneText[tone(pf.realizedPnl)]}>{signedMoney(pf.realizedPnl)}</span>} testId="stat-realized" />
-            <Stat label={t('portfolio.unrealized')} value={<span className={toneText[tone(pf.unrealizedPnl)]}>{signedMoney(pf.unrealizedPnl)}</span>} testId="stat-unrealized" />
+            <Stat label={t('portfolio.unrealized')} value={<span className={toneText[tone(openPnl)]}>{signedMoney(openPnl)}</span>} testId="stat-unrealized" />
             <Stat label={t('portfolio.fees')} value={money(pf.feesPaid)} testId="stat-fees" />
             <Stat label={t('portfolio.dividends')} value={money(me.account?.dividends ?? 0)} />
             <Stat label={t('portfolio.interest')} value={signedMoney((me.account?.interestEarned ?? 0) - (me.account?.interestPaid ?? 0))} />

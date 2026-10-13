@@ -458,7 +458,8 @@
   .os-root .os-sheet-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   /* Stage 2: the top bar holds four workspace tabs. Below 1500 px the release and the market words give way (the dot stays),
      below 1200 px the launcher narrows, and below 1100 px the cash figure goes too (net worth and the bell stay in view). */
-  @media (max-width: 1499px) {
+  /* The release and the market words are left out below 1700 px: the account figures (track A, problem 10) need the room. */
+  @media (max-width: 1699px) {
     .os-root .os-rel,
     .os-root .os-market-text { display: none; }
   }
@@ -467,7 +468,27 @@
   }
   @media (max-width: 1099px) {
     .os-root .os-fig[data-testid="os-cash"] { display: none; }
-    .os-root .os-launch { width: 160px; }
+    .os-root.os-compact:not(.os-narrow) .os-launch { width: 160px; }
+  }
+  /* The account figures (track A, problem 10): the strip fits from 900 to 1920 px without cropping. The least important figure
+     goes first. Below 1500 px net worth and open P&L show in whole dollars (the full figure with cents shows above that);
+     below 1400 px the since-arrival change and the wordmark go (the Portfolio keeps the change); below 1200 px the day's
+     percentage goes; below 1000 px the launcher's Ctrl K hint goes too (the breakdown keeps the day's change). Cash, net worth
+     and open P&L stay labelled in every band that shows them. */
+  .os-root .os-val-short { display: none; }
+  @media (max-width: 1499px) {
+    .os-root .os-val-full { display: none; }
+    .os-root .os-val-short { display: inline; }
+  }
+  @media (max-width: 1399px) {
+    .os-root .os-fig-arrival { display: none; }
+    .os-root .os-wm { display: none; }
+  }
+  @media (max-width: 1199px) {
+    .os-root [data-testid="os-today"] { display: none; }
+  }
+  @media (max-width: 999px) {
+    .os-root .os-launch .os-kbd { display: none; }
   }
   @media (max-width: 767px) {
     .os-root .os-prompt {
