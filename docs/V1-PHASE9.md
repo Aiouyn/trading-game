@@ -345,3 +345,157 @@ re-buy after a sale. The bot's buy rule is not changed here.
 - **X4 to X15:** land with the systems they test.
 16. **R-9-1c: one impact tally per asset over all flow (amends item 14's per-account key).** (a) Built as ruled: `AssetState.impactTally` (tick, buy, sell) is the one rolling tally per asset, half-life `IMPACT_HALF_LIFE` = 360, no calendar-day reset. Every printed fill (every account, and the option dealer's hedge) reads it for its permanent move and its temporary marginal, then joins it. The pools' closing flow (`sim.ts` `ecologyStep`) joins it at the close. `Account.impactTally` is removed. (b) Deviation fixed (reviewer item 4): pool and Street flows now enter the tally that a player fill's permanent move reads; fc64a21 dropped them. (c) Pins: a world with player orders moves by representation (the tally sits on the asset, the digest hashes it). `companyHooks.test.ts`: the player-order digest is b799f0b0 in the R-9-1b layout and e711a12b now (re-keyed to the R-9-1b layout it reproduces b799f0b0, so the single-account dynamics are unchanged); the ecology-full digest moves to 54dc4f79 (the pools' closing write). A world with no player orders and no ecology writes no tally and keeps its fingerprint (`companyHooks.test.ts`, `impact-day.test.ts`). (d) N-account splits are neutral: `impact-tally.test.ts` (`impact_split_accounts`, `temp_split_same_tick` N = 2, 10, 100, `temp_whale_alt_same_tick`, `impact_alt_hunt`) and `altpeak.test.ts` (whale plus alt, alt's buy, the N-account marks) are passing gates now (were `it.fails`, ROUTED by item 14). (e) **The clip gate passes at every window start** (`clip.test.ts`, one normal test per start, worst 1.4061 at 719). Measured: with the pools' closing flow outside the tally (the R-9-1b layout) the straddling starts read 5.5 to 30.1; with it inside, they read 0.99 to 1.41. A single account's key (per account or per asset) does not change this; the pools' write does, because a post-close clip then pays on a tally that already holds the day's close flow. This is the reading that R-9-1c asked for, not a change of the reading point or of the close. Caveat for the lead: the pass rests on the pools' flow entering the tally, and the 1.41 at start 719 is close to the 1.5 gate over 20 seeds.
 
+
+## 9C. Load and calibration residuals
+
+Worktree `.claude/worktrees/p9-c`, branch `p9/c`. Binding spec: `docs/team/specs/lead-phase9.md`, track 9C, with the rulings R-9-8b (the load gate) and R-9-11 (O-2). The branch merged `v1` at `b342164` to take those rulings. All times in this section are UTC.
+
+Commits: `6b378a0` (load: backlog, connect ramp, retry), `f127566` (O-12 sector factor), `149c760` (O-2 wiring, first probe), `60bc0be` and `4803ec2` (first record, O-2 on the engine path, review repairs), `2470bd2` (record before the rulings), `b342164` (merge of `v1`), `83ab191` (the `mcap_20` window fix), `de0739a` (the R-9-8b script and a first record, superseded by this section), and the commit that carries this section.
+
+| Item | Verdict |
+|---|---|
+| 9C.1 Load, R-9-8b (5 s tick, 4,000 clients, 3 repeats, gate: all welcomed, fan-out p99 < 2.5 s, overrun p99 < 0.5 s) | **FAIL** on HEAD in all 11 runs of the server source at `83ab191` (the final record `r911`: 3 repeats and a 1 s stress; `r910`: 7 earlier runs). The same script on the pre-merge control `2470bd2` **PASSES**. The HEAD failure is measured as a per-player view cost added by the merge (9C.1). Why the HEAD server ended in each run is not isolated. |
+| 9C.2 O-2 residual rho, engine path, 200 seeds | **FAIL, known V1 limit (R-9-11)**: median 0.597 and p90 0.927 by the probe's quantile (0.596 and 0.925 by the average-of-two-middles and interpolated definitions), 0 of 200 seeds at or below 0.15. Owner Quant, post-V1. |
+| 9C.3 O-12 sector shock from the engine's factor | **Done** (see 9C.3). |
+| 9C.4 AUSD stablecoin band | **UNDECIDED** at 2 s.e. under the class band `[0.6, 1.1]` applied by ruling. Not a pass. |
+
+### 9C.1 Load under R-9-8b: 4,000 clients, production tick
+
+**Gate (R-9-8b).** At the production tick (`TICK_MS=5000`) all 4,000 clients welcomed, and two tick metrics pass: the **fan-out p99** (the server's tick start, the `serverTime` stamp of each tick message, to the last client's receipt) under 2.5 s, and the **overrun p99** (the gap between consecutive tick starts minus the nominal tick, read from the welcome's `tickMs`) under 0.5 s. Three repeats, each with a 60 s measured window after a settle of up to 240 s, and the default connect ramp (200 per 250 ms, retry until welcome). The 1 s stress run is printed with the same numbers and is not gated. The script is `scripts/load/socket-load.mjs` (its exit code is the gate). Each run starts a fresh world server from this worktree on port 8919 (`run-load-r911.sh` for the final record, `run-load-r910.sh` for the one before; both in the scratch folder, not committed).
+
+**Sample size.** The 60 s window holds 7 tick gaps at 5 s in the HEAD runs (8 ticks: the server ticks take 8 s), or 11 gaps on a healthy 5 s server (the control: 12 ticks). At 1 s it holds 16 gaps (17 ticks) in the HEAD stress run, or about 54 in a healthy one. A p99 over that many samples is the maximum of the window. The gate is applied as the ruling wrote it; each file prints its count.
+
+**Results on HEAD (server source `83ab191`).** Every run failed. Column "settle end" is the welcomed count when the settle ends (240 s after the connects start); "window end" is the count when the 60 s window closes. Fan-out and overrun are in milliseconds.
+
+| Run (scratch file) | Tick | Settle end: welcomed | Window end: welcomed | Ticks (gaps) in window | Fan-out p50 / p99 | Overrun p50 / p99 | Gate |
+|---|---|---|---|---|---|---|---|
+| r911 repeat 1 (`r911-prod-r1.txt`) | 5,000 | 1,638 | 1,702 | 8 (7) | 8,016 / 8,213 | 3,119 / 3,298 | FAIL |
+| r911 repeat 2 (`r911-prod-r2.txt`) | 5,000 | 1,663 | 1,727 | 8 (7) | 8,034 / 8,210 | 3,070 / 3,260 | FAIL |
+| r911 repeat 3 (`r911-prod-r3.txt`) | 5,000 | 1,632 | 1,728 | 8 (7) | 8,596 / 8,798 | 3,749 / 3,967 | FAIL |
+| r911 stress, 1 s, not gated (`r911-stress-1s.txt`) | 1,000 | 1,667 | 1,827 | 17 (16) | 3,745 / 3,972 | 2,819 / 3,040 | FAIL (not gated) |
+| r910 repeat 1 (`r910-prod-r1.txt`) | 5,000 | 1,452 | 1,452 | 0 | n/a | n/a | FAIL |
+| r910 repeat 2 (`r910-prod-r2.txt`) | 5,000 | 1,478 | 1,478 | 0 | n/a | n/a | FAIL |
+| r910 repeat 3 (`r910-prod-r3.txt`) | 5,000 | 1,404 | 1,404 | 0 | n/a | n/a | FAIL |
+| r910 repeat 3, rerun (`r910-prod-r3b.txt`) | 5,000 | 1,358 | 1,358 | 0 | n/a | n/a | FAIL |
+| r910 stress, 1 s, not gated (`r910-stress-1s.txt`) | 1,000 | 1,200 | 1,200 | 0 | n/a | n/a | FAIL (not gated) |
+| r910 attempt 1, repeat 1 (`r910-attempt1-prod-r1.txt`) | 5,000 | 1,590 | 1,654 | 7 (6) | 8,619 / 8,736 | 3,746 / 3,937 | FAIL |
+| r910 attempt 1, repeat 2 (`r910-attempt1-prod-r2.txt`) | 5,000 | 1,297 | 1,297 | 0 | n/a | n/a | FAIL |
+
+The record has no file for attempt 1, repeat 3. The r910 repeat 3 has two files: the first (`r910-prod-r3.txt`, 1,404) is repeat 3, and its rerun (`r910-prod-r3b.txt`, 1,358) is an extra run.
+
+**Control and the pre-merge runs (same script for the control).**
+
+| Run (scratch file) | Code | Tick | Welcomed | Ticks (gaps) | Overrun p99 | Fan-out p99 | Result |
+|---|---|---|---|---|---|---|---|
+| Control (`ctrl-pre.txt`) | `2470bd2`, before the merge | 5,000 | 4,000 in 5.0 s | 12 (11) | 26 ms (p50 -1 ms) | 1,005 ms (tick start to last receipt) | **PASS** (R-9-8b, the same script). The server logged no slow tick. |
+| r89 repeats 1 to 3 (`r89-prod-r1.txt` to `r3.txt`) | pre-merge tree (below) | 5,000 | 4,000 in 4.8 to 5.3 s | 11 (each) | 46, 27, 26 ms (from spacing p99 5,046, 5,027, 5,026) | 966, 957, 998 ms, first to last receipt | Not a gate run: these files use the superseded gate (spacing p99 < 2.5 s, which a 5 s tick cannot meet). Under R-9-8b the overrun and fan-out figures pass. |
+| r89 stress, 1 s (`r89-stress-1s.txt`) | pre-merge tree | 1,000 | 4,000 in 35.1 s | 54 | 4,441 ms (from spacing p99 5,441) | 5,169 ms, first to last receipt | Not a gate run (superseded gate). |
+
+In the r89 files the fan-out is measured from the first client's receipt, not from the tick start; on the control the two differ by 1 ms (1,004 against 1,005 ms, `ctrl-pre.txt`). **Code of the r89 runs.** They ran on the pre-merge tree between 21:01 and 21:08 UTC: `4803ec2` plus working-tree edits that were neither committed nor recorded. `2470bd2` was committed at 21:17 UTC, after them. The two server files the merge changed (`src/world/collusion.ts`, `server/index.ts`) match `2470bd2`. The r89 files are therefore not labelled `2470bd2`; the control `ctrl-pre.txt` is the `2470bd2` record.
+
+**Cause of the HEAD failure (measured in this track, not fixed).** The merged code makes a player view about four times more expensive. Probe on 4,024 players, no sockets (temporary script, not committed): `playerView` for 200 accounts takes 46 ms on `2470bd2` (0.27 ms a view) and 210 ms on HEAD (1.05 ms a view). The engine tick itself is cheap (about 8 ms with no sockets). A CPU profile of 2,000 views on HEAD puts 1,398 ms of 2,295 ms under `ownerRoots` (`src/world/collusion.ts`), which `linkedAccounts` calls and rebuilds on every call over every human account (the R-9-3 owner groups, commit `0e3f3f9`, now on `v1`). At 4,000 clients the view alone is about 4.2 s a tick on HEAD, against about 1.1 s before the merge. The 8 s ticks match that plus the broadcast. The 4,000 joins took 3.3 s on both trees, so the regression is in the view path only. A task to cache the owner roots is flagged (it changes no result). HEAD cannot pass R-9-8b until that cost is fixed, and that fix is outside this track.
+
+**The server ended in every HEAD run (cause not isolated).** Each server process ended without an error line in its log. The log holds only the slow-tick lines and the startup; a signal would print `saving and shutting down`, and none did. The r911 runs have a watcher (`r911-watch-*.txt`, sampled every 10 s) that records the start, the RSS and the time the process was gone:
+
+- The four r911 servers lived 5 min 4 s to 5 min 18 s from their start. That is the end of the client's run: registration about 6 s, settle up to 240 s, window 60 s. The last slow-tick line came 8 to 14 s before the next watcher sample found the process gone, and the client's `/health` fetch then failed with ECONNREFUSED. At the window's end the client closes all 4,000 sockets; this is the one event that coincides with the death, and it is not tested.
+- The r910 servers' last slow-tick lines came 2 min 17 s to 2 min 49 s after their start. Earlier runs logged a slow tick every 8 s until their last line, so the tick loop most likely stopped there. Their death time is not recorded (r910 had no watcher).
+- The exit code is 1. `node node_modules/tsx/dist/cli.mjs` runs the server in a child process, so the status is the tsx wrapper's. The Windows Application log has no crash report for node.exe in the three hours before the runs. The watcher's RSS (about 41 MB) is the wrapper's, not the server's, so memory was not measured.
+- The client driver's flag 'server alive at client end' reads `yes` in all four r911 runs, which contradicts the watcher. The flag is not used.
+
+Not tested: a client that keeps its sockets open at the end; the server run without the tsx wrapper; the memory of the server child. No window tick is affected by this, since every window tick was logged before the server ended.
+
+**Why the 1 s stress differs from the r89 record (investigated).** The r89 stress run (pre-merge: 4,000 of 4,000 welcomed in 35 s, spacing p99 5,441 ms, first-to-last p99 5,169 ms) and the HEAD stress runs (r910 and r911: 1,200 and 1,827 welcomed in 240 s, 0 and 17 ticks) differ first in the code. The HEAD tick is 3 to 4 s at 1 s and 8 s at 5 s, so the HEAD server cannot welcome the 4,000 clients in the settle, and the HEAD stress measures a server that is not ready. Second, the scripts differ only in logging and in the watcher. The r89 and r911 `run-load` scripts have the same clients, ramp, `WARMUP_DAYS=1`, `REGISTER_LIMIT`, 60 s window, and tick (`diff run-load-r89.sh run-load-r911.sh`). Third, the r89 window holds one stall: a 5,502 ms tick at tick 780 (`r89-server-stress-1s.log`, 21:06:55 UTC; the server logs 122 slow ticks in all). The server takes a snapshot every 60 ticks (`snapshotEvery: 60`, `server/index.ts`), and tick 780 is the first after the boot's tick 720. The log has no snapshot line, so the match is by configuration, not observed. That one stall is the maximum of the 54 gaps, so it sets the r89 p99. The earlier 1.75 s spacing record (`load-gate2`) had its stall during the settle, before its window. So the r89 p99 is a snapshot stall in its window, not the typical tick. The HEAD 1 s stress cannot be compared with it until HEAD settles.
+
+**The production-tick snapshot is not measured.** The snapshot at tick 780 is 60 ticks after the boot, so at 5 s it falls 300 s after the boot and inside a 5 s window. No HEAD run reached it: the servers ended at ticks 738 to 763 (the last line of each). The control's window did not reach it either (its server ended at tick 735 in the health line). A 5 s run that keeps ticking past tick 780 would measure its cost at 4,000 clients (lead decision).
+
+**Changes in this record.** `scripts/load/socket-load.mjs`: the gate is R-9-8b (all welcomed, fan-out p99, overrun p99, nominal tick from the welcome), and its header states the sample size (7 to 11 gaps at 5 s, the p99 is the maximum). `server/index.ts` is unchanged from `6b378a0` (`LISTEN_BACKLOG`). The record stands on the numbers above: the R-9-8b gate FAILs on every HEAD run and PASSes on the pre-merge control.
+
+### 9C.2 O-2: the residual surprise s and the rho gate (engine path, R-9-11)
+
+**Wiring (done).** A filing of a company with a consensus carries its residual surprise (`FilingPublic.surprise = { s, d, margin }`, optional):
+
+- the actuals (`revenue`, `ocf`, `backlogContribution`) against the consensus snapshotted at the close (`pendingFile.consensus`), over `D = max(EV_20, 0.25 mcap_20)`;
+- a pending filing saved before O-2 has no snapshot and carries no surprise (it does not read the next quarter's `c.consensus`); a private company's snapshot is null and carries none;
+- `consensus.ocf` is the annualized E* read scaled to the quarter (`eStar * 63 / 252`), a proxy: the consensus carries OCF only through E*;
+- `mcap_20` is the mean of the 20 closed bars of the engine (`bridge.ts` `mcap20`, the engine's bars times shares out), falling back to the filed fair value with no bars. **Fixed in `83ab191`:** the window ended one bar before the close. The engine pushes a day's bar at the next day's start, so the close bar sits at index `len - lag`; the window now ends there, inclusive. The test is `rho.test.ts`, "mcap_20 is the mean of the 20 bars ending at the close".
+
+**The engine path.** `rhoOfListedSeed` (`src/world/company/rho.ts`, used by `scripts/balance/rho-probe.ts`) runs each seed on the engine path: the IPO orders, then `listedWorld(seed, { engine: true })` and `stepEngineTo` step every tick with `stepGame` (the engine's matching and day-boundary bars, the company step and day, the sector factor of 9C.3). No bot trades the listed stock.
+
+**The probe.** `rho = sd(s_filing) / sd(s_quarter)` over the 7 pairs of 8 post-listing quarters, where `s_quarter` is the same expression with the consensus replaced by the previous quarter's filed actuals, over the same D. Gate (Quant 6.2 (c)): median <= 0.15 and p90 <= 0.25 across seeds. The probe's quantile is `quantile()` in `rho.ts`: the value at index `floor(n q)` with no interpolation.
+
+**Result on the fixed code: FAIL, a known V1 limit (R-9-11).** 200 seeds (`rho-1` to `rho-200`), four processes of 50 (`--first 1, 51, 101, 151`), one sector (`tech`), 8 quarters each, on the engine path. The probes ran after the window fix was made in the working tree (`bridge.ts` edited 21:18 UTC, probes started 21:26 UTC); the fix was committed as `83ab191`. The four `rho.json` files (scratch `p9/rho-engine-fix/p1` to `p4`) were combined and recomputed for this record:
+
+| Measure (200 seeds) | Value | Gate |
+|---|---|---|
+| Median, the probe's quantile (0-based index floor(200 x 0.5) = 100) | **0.5972** | <= 0.15 **FAIL** |
+| Median, average of the two middle values | 0.5964 | |
+| p90, the probe's quantile (index 180) | **0.9271** | <= 0.25 **FAIL** |
+| p90, linear interpolation | 0.9254 | |
+| p95, linear interpolation | 1.0553 | reported |
+| Mean, min, max | 0.6313, 0.1618, 1.6718 | |
+| Seeds with rho <= 0.15 | **0 of 200** | |
+| Seeds with rho <= 0.25 | 5 of 200 | |
+| Non-finite s or rho | 0 | must be 0 |
+| True median per process (50 seeds each) | 0.5968, 0.5586, 0.5778, 0.6180 | |
+
+**The ruling's numbers.** R-9-11 quotes "median 0.597, p90 0.925". The median matches the probe's quantile (0.5972). The p90 of 0.925 is the interpolated value; the probe's own p90 is 0.927. The verdict does not depend on the definition: both p90 values and both medians fail their gates, and 0 of 200 seeds are at or below 0.15. The earlier probe on `4803ec2` (before the window fix, the same 200 seeds) gave 0.5955 and 0.9281 by the probe's quantile; the fix moves the median by +0.002 and the p90 by -0.001, so the residual is not sensitive to the `mcap_20` window in this configuration.
+
+**Source of the residual: a hypothesis, not isolated.** The OCF term is the likely largest source (its consensus is the E* proxy, which lags a quarter in which revenue falls). This was not measured; a decomposition needs the per-term rows in `rho.json` (`sdRev`, `sdOcf`, `sdCb`, which were recorded), and a targeted run, which was not done. R-9-11: O-2 is a known V1 limit, owner Quant, post-V1 (isolate the term, then retune the weekly signal noise or the consensus update). Player companies list late (R2, $50M filed value), so the exposure in V1 is small. No further compute on it in Phase 9.
+
+**Test status.** `src/world/company/rho.test.ts`: the wiring is tested directly (a listed filing's `s` equals `valuation.surprise` on the closing snapshot, finite and with a positive D; a private company's filings carry no surprise; a pre-O-2 pending filing carries none; `mcap_20` ends at the close bar). On the engine path the listed asset books bars (the engine keeps the last 30). `rho_residual` runs over 3 seeds on the engine path: its probe-is-finite check is a plain test and passes; its gate assertion is `it.fails` with the title "(R-9-11: known V1 limit, owner Quant, post-V1; measured FAIL in 9C.2)". The `V1-ACCEPTANCE.md` row `rho_residual` is FAIL with this ruling.
+
+**Known limit of the `mcap_20` test (non-blocking).** The "close bar at index `len - lag`" test restates the formula that `bridge.ts` uses. It guards the index against a later edit, but it cannot catch a change in the engine's bar timing: a `DayBar` carries no day stamp (`c`, `n`, `u` only), so an independent check of which bar is the close needs a stamp or a known price path. Not built.
+
+**Not run.** The six-sector sweep (`rho_engine` of the Quant probe; this covers one sector), `rho_ev_robust` and `rho_by_spread` (the `fx_close_payout` twin and the spread-bucket fixtures are not built), `alt_prefiling_edge` and `signal_joint_v15` (the bot harnesses are not in this worktree).
+
+### 9C.3 O-12: the company sector shock is the engine's sector factor
+
+**Done (commit `f127566`).** A company sector's level moves each day by the engine's sector factor return: the sum of the engine's per-tick sector draws over the day, on the G22 unit reading `F_s = sum z * sqrt(dt)`, `dt = 1 / (ticksPerDay * daysPerYear)`. The company's own stream (`co:sector:*`) is gone.
+
+- There is no second stream. Each company sector holds a cursor: the engine's sector state and tick at the last company day (`src/world/company/sectorFactor.ts`). The factor is the engine's own draws replayed with the same `Rng` calls as `sim.ts` (`new Rng(state)`, one `normal()`, `state()`), and the replay must land on the engine's current state, or the day throws. No engine change: the engine's fingerprints do not move.
+- Founding takes the engine's sector state as the cursor. A save from before O-12 is migrated (`bridge.ts` `migrateAll`) to the engine state at its tick.
+- Worlds without player companies never run `companyDay` (the company world is created by founding), so their fingerprints do not move. The engine fingerprint suites (`src/engine/calibration.test.ts`, `ecology.test.ts`, `src/world/funds/property.test.ts`) pass unchanged.
+- `scripts/balance/company-calibrate.ts` uses `seedSectorSource`, the engine's sector streams for the seed at the release rate (720 ticks a day).
+- The company constant `sectorShockScale` is removed (`src/content/company.ts`); the comment in its place points here.
+
+**Tests.** No test asserted a numeric value of the old stream, so no assertion was changed. Fixtures that moved the clock without drawing the engine's sector streams (`b1fixture.ts`, `backstop.test.ts`, `insiders.test.ts`, and the trade ticks of `exploits/sequences.ts`) now draw them through `jumpEngineTicks`. A test that revisits an earlier day (the tape window tests) moves the clock back: `advanceTo` re-anchors the cursors there (`reanchorSectors`). The server never rewinds. `sectorFactor.test.ts` (9 tests): the replay equals the engine's state after N steps; `jumpEngineTicks` equals `stepMany`; a day's factor is the engine's and the cursor lands on the engine; a foreign stream is refused; a cursor ahead of the clock is refused; the day factor has unit variance per year (6,000 days, within 15%); the no-engine source starts at tick 0 on the seed streams; the real game loop (`stepGame` through two day boundaries with a founded company) keeps the cursors on the engine and moves a sector level; a world without companies is not moved by `companyDay`. `determinism.test.ts` (commit `4803ec2`): the same seed run twice on the engine path gives an identical company world, with the cursors at the engine's tick; a different seed differs.
+
+
+**Runs.** Touched company suites on `83ab191` (`src/world/company` and `scripts/balance/bands.test.ts`, `npx vitest run --maxWorkers=2`): 56 files passed, 2 skipped (58); 504 tests passed, 1 expected failure, 69 skipped, 20 todo. Gates before the commit: `npx next typegen` and `npx tsc --noEmit` exit 0; ESLint on the touched files 0 errors. **Full suite** (`npx vitest run --maxWorkers=2`, once, on the tree of this record: `de0739a` plus the script header and this section; no source change since `83ab191`): 254 files passed, 2 skipped (256); 2,414 tests passed, 4 expected failures, 70 skipped, 20 todo (2,508); exit 0 (746 s; the log is `t5-full-vitest.log` in the scratch folder). The earlier run on `83ab191` gave the same counts (`t4-full-vitest.log`).
+
+
+### 9C.4 AUSD: the stablecoin volatility band at 300 seeds x 720 ticks
+
+**Ruling: the stablecoin class band `[0.6, 1.1]` on the RMS ratio, applied to AUSD** (`scripts/balance/bands.ts`, `UNIVERSE_VOL_BANDS.AUSD`, with its mechanism written next to the number). The ruling follows the lead's rule for a band that still straddles. A ruling is a band, not a verdict: the verdict below is UNDECIDED.
+
+**Run.** `scripts/balance/run.ts --universe --assets AUSD --seeds 50 --first K --tpd 720 --years 1` in six processes (K = 1, 51, 101, 151, 201, 251), 300 seeds in all, started 19:03, finished about 20:17. **Deviation:** one game year per seed, not the default five. A seed-year took about 82 s on this machine under load, so five years at 300 seeds would be about 34 CPU-hours; this was not run. The RMS and its standard error are combined over the six parts with the delta method `se = se(mean x²) / (2 RMS)` that `run.ts` uses.
+
+| Measure | Value |
+|---|---|
+| Seeds | 300 |
+| RMS of the AUSD vol ratio | **1.032** |
+| Standard error (delta method) | 0.154 |
+| 2 s.e. interval | **[0.725, 1.340]** |
+| Median seed ratio | 0.070 |
+| Seeds with ratio below 0.3 | 78% |
+| Largest seed ratio | 9.23 (27% of the mean square; the RMS without it is 0.886) |
+| Per-part RMS (50 seeds each), with s.e. | 0.524 ± 0.160; 1.122 ± 0.180; 1.584 ± 0.554; 0.910 ± 0.187; 0.783 ± 0.189; 0.954 ± 0.200 |
+
+**Verdict (the verdict code is `bands.ts` `verdictOf`, PASS only when estimate ± 2 s.e. lies inside the band; `run.ts` lists UNDECIDED and does not count it as a failure).**
+- Under the general band `[0.85, 1.4]`: the 2 s.e. interval straddles 0.85, so it is **UNDECIDED**.
+- Under the class band `[0.6, 1.1]`: the point estimate 1.032 is inside, but the 2 s.e. interval straddles 1.1 (upper edge 1.340), so it is **UNDECIDED** as well. It is not a FAIL under either band and is not a PASS.
+
+**Mechanism.** AUSD's variance is set by its rare depeg jumps (0.25 a year, down 6% on average). In 78% of the seeds the year has no depeg and the ratio sits on the no-jump shoulder, below 0.3. The seeds that depeg carry the RMS, which is why the per-part RMS ranges from 0.52 to 1.58. The 50-seed parts are noisy for this reason; a 5-year run would sample more depegs per seed, but this run does not do that.
+
+**Not done.** FLUX, the other stablecoin (0.5 jumps a year, undecided at 8 seeds with 0.778), has no 300-seed run here and keeps the general band. The 5-year, 300-seed AUSD run is not done (cost above). A 2-s.e. verdict within the class band needs more depeg samples than 300 one-year seeds give.
+
+### 9C. Not done and open
+
+- **R-9-8b load gate on HEAD: FAIL in all 11 runs (9C.1).** The HEAD tick takes 8 s at 5 s with 4,000 clients (the per-view cost of `ownerRoots`); the gate cannot pass until that is fixed. A task is flagged; the pre-merge control passes.
+- **The HEAD server ends in each long run (9C.1):** it ends at the end of the client's run in the four r911 runs (cause not isolated; the client's close of its sockets is the one coinciding event, untested), and between its last slow tick and the end in the r910 runs. Exit code 1 from the tsx wrapper, no logged error, no Windows crash report.
+- **Snapshot at the production tick (9C.1):** the tick-780 snapshot has not been measured at 5 s; no HEAD run reached it. A 5 s run that keeps ticking past tick 780 would measure it (lead decision).
+- **1 s stress (9C.1):** the r89 record's 5.4 s spacing p99 is one snapshot stall in its window; HEAD's 1 s stress does not settle, so it is not a comparison.
+- **O-2 gate (R-9-11):** FAIL, a known V1 limit, owner Quant, post-V1. The OCF term is a hypothesis that was not isolated.
+- **The `mcap_20` test restates the formula (9C.2):** non-blocking; an independent bar-timing check needs a day stamp on `DayBar`.
+- The six-sector rho sweep, `rho_ev_robust`, `rho_by_spread`, `alt_prefiling_edge` and `signal_joint_v15` (9C.2).
+- The 5-year AUSD run at 300 seeds and the FLUX run (9C.4).

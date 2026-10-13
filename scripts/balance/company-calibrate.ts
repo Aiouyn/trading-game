@@ -9,6 +9,7 @@
 
 import { COMPANY, type CompanySector } from '../../src/content/company';
 import { companyTick, emptyCompanyWorld, foundCompany, type CompanyEnv } from '../../src/world/company';
+import { seedSectorSource } from '../../src/world/company/sectorFactor';
 
 function arg(name: string, dflt: number): number {
   const i = process.argv.indexOf(`--${name}`);
@@ -39,9 +40,11 @@ function runOne(seed: string, d0: number, sector: CompanySector) {
   const c = w.companies[r.value.id]!;
   c.d0 = d0;
   const sample: { units: number; revenue: number; ebitda: number; fcf: number }[] = [];
+  // no engine here: the sector factor is the engine's own sector stream for this seed, at the release rate (720 ticks a day)
+  const sectorDay = seedSectorSource(seed, 720, 252);
   for (let d = 1; d <= days; d++) {
     env.day = d;
-    companyTick(w, env, d);
+    companyTick(w, { ...env, sectorFactor: sectorDay() }, d);
     if (d % COMPANY.quarterDays === 0 && d >= 2 * COMPANY.quarterDays) {
       const q = c.closed[c.closed.length - 1]!;
       sample.push({ units: q.unitsShipped / COMPANY.quarterDays, revenue: q.revenue / COMPANY.quarterDays, ebitda: q.ebitda / COMPANY.quarterDays, fcf: q.fcf / COMPANY.quarterDays });

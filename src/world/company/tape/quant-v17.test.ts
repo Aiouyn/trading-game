@@ -55,7 +55,7 @@ describe('Quant v1.7: rows not run in this build (recorded as skipped; none is a
   it.skip('revenue_noise_quarterly [B-HARNESS: one eps per component per quarter; the lag-aware bot is not in this repo; modelled -1.370% is Quant\'s number, not measured here]', () => {});
   it.skip('hiring_full_print [B-HARNESS: hiring moves print in full, carry 0; the cap bots are not in this repo]', () => {});
   it.skip('company_print_full_npc_untouched (binding) [EN: engine-staging gate, fingerprint c5dd6665...dfab35c; not in this worktree]', () => {});
-  it.skip('rho_engine [BLK-G22: the residual surprise s is not computed by the engine (valuation.surprise has no caller); probe absent]', () => {});
+  it.skip('rho_engine [BLK-G22, 9C: s is wired (V1-PHASE9 9C); the six-sector engine sweep is not run; scripts/balance/rho-probe.ts measures the listed path for one sector]', () => {});
   it.skip('repay_derivative_delta [WAIT-INSTR: Quant 6.5 derivatives not built]', () => {});
   it.skip('one_list_price [BLK-LEDGER: the repricing cost of shipped units is not in the -30% row; Ledger decision D3 open]', () => {});
   it.skip('consensus_converges_defn [BLK-LEDGER: convergence under once-per-quarter noise, decision D2 open]', () => {});

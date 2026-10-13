@@ -24,6 +24,7 @@ import type { ChatMessage } from '../src/world/types';
 /**
  * The world server: one persistent world, a 5-second tick, a WebSocket per player.
  *   PORT (8787) · DATA_DIR (./world-data) · SEED (random at first boot, then kept in the database) · TICK_MS (5000) · WARMUP_DAYS (63)
+ *   LISTEN_BACKLOG (4096, the TCP accept queue; see the note at its definition) · REGISTER_LIMIT (20 accounts per IP per hour)
  *   ADMIN_TOKEN (enables POST /api/admin/advance for dev and tests)
  *   Backups: DATA_DIR/backups, hourly and at shutdown (server/backup.ts). The data folder is locked while the server runs (server/lock.ts).
  */
@@ -35,6 +36,12 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const MAX_MSG = 16 * 1024;
 /** new accounts per IP per hour (raise it for load tests) */
 const REGISTER_LIMIT = Number(process.env.REGISTER_LIMIT ?? 20);
+/**
+ * the TCP accept queue (listen backlog). Set explicitly, not left to the OS default: a burst of connects past the queue is refused
+ * (ECONNREFUSED), which is what the 4,000-client load run showed (V1-PHASE9 9C). Windows may clip a large value to its own maximum,
+ * so the load script also ramps its connects (scripts/load/socket-load.mjs, RAMP).
+ */
+const LISTEN_BACKLOG = Math.max(1, Math.min(65535, Number(process.env.LISTEN_BACKLOG ?? 4096) || 4096));
 
 const log = (m: string) => console.log(`[world ${new Date().toISOString()}] ${m}`);
 // one world per data folder: a second server (or a restore) on the same folder would corrupt the replay
@@ -413,7 +420,7 @@ const hourly = setInterval(() => {
   try { backups.take('hourly'); } catch (e) { log(`backup failed: ${(e as Error).message}`); }
 }, BACKUP_EVERY_MS);
 
-http.listen(PORT, undefined, 4096, () => log(`listening on :${PORT} (tick ${TICK_MS} ms, data ${DATA_DIR})`));
+http.listen(PORT, undefined, LISTEN_BACKLOG, () => log(`listening on :${PORT} (tick ${TICK_MS} ms, data ${DATA_DIR}, backlog ${LISTEN_BACKLOG})`));
 host.start();
 
 const shutdown = () => {

@@ -34,7 +34,7 @@ describe('Tape WAIT rows (instruments, deferred features, Mathis decisions)', ()
 });
 
 describe('Tape BLK rows (rho, and open Ledger rulings)', () => {
-  it.skip('[BLK-G22] rho_residual, rho_ev_robust, rho_by_spread, rho_engine: the residual surprise s is not computed in the engine (valuation.surprise has no caller) and the probe is not in this repo. The C1 reading cannot be measured until s exists', () => {});
+  it.skip('[BLK-G22, O-2 partly run in 9C] rho_ev_robust, rho_by_spread: need the fx_close_payout twin and the spread-bucket fixtures (not built). rho_residual is a running expected failure in src/world/company/rho.test.ts (measured FAIL, docs/V1-PHASE9.md 9C.2). rho_engine is the six-sector sweep, not run (scripts/balance/rho-probe.ts covers one sector)', () => {});
   it.skip('[BLK-G22] alt_prefiling_edge: needs rho (above) and the G21 baseline definition', () => {});
   it.skip('[BLK-G22] signal_joint_v15: needs rho (above); the joint pass cannot count without it', () => {});
   it.skip('[BLK-LEDGER] consensus_converges, consensus_converges_defn (D2): convergence under once-per-quarter noise is not defined', () => {});

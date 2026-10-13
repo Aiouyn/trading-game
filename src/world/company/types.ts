@@ -352,6 +352,11 @@ export interface FilingPublic {
   periodCloseDay: number;
   filedDay: number;
   hash: string;
+  /**
+   * O-2: the residual surprise of this filing against the consensus at the close (Quant 6.2): s, its denominator D and the
+   * margin it used. Absent for a filing with no consensus (a private company). The probe's s_quarter reads the same fields.
+   */
+  surprise?: { s: number; d: number; margin: number };
   income: { revUnrelated: number; relatedPartyIncome: number; cogs: number; opex: number; ebitda: number; netIncome: number; niAdj: number; interest: number };
   balance: { cash: number; receivables: number; inventory: number; ppe: number; debt: number; equity: number; retainedEarnings: number; loansOut?: number };
   /** the cumulative related-party cash at the close: net debt for the valuation leaves it out (N1) */
@@ -386,6 +391,8 @@ export interface WeeklySignal {
 }
 
 export interface Consensus {
+  /** O-2: the consensus OCF of the quarter, the annualized E* read scaled to the quarter (the surprise's OCF_cons; optional for a save from before O-2) */
+  ocf?: number;
   /** bias-corrected estimates from public signals only */
   revQtd: number;
   backlog: number;
@@ -487,7 +494,8 @@ export interface Company {
   closed: Statements[];
   filings: FilingPublic[];
   /** frozen statements awaiting their filing day */
-  pendingFile: { statements: Statements; hash: string; filingDay: number } | null;
+  /** `consensus` (O-2): the consensus of the closing quarter at the close; absent in a save from before O-2 */
+  pendingFile: { statements: Statements; hash: string; filingDay: number; consensus?: Consensus | null } | null;
   filingCount: number;
   signals: WeeklySignal[];
   noise: NoiseDraw | null;
@@ -664,8 +672,12 @@ export interface CompanyWorld {
   companies: Record<string, Company>;
   seq: number;
   investors: Record<string, InvestorPool>;
-  /** cumulative unit sector shock per sector (F_s), and its own stream (G22 reading) */
-  sectors: Record<CompanySector, { level: number; rng: RngState }>;
+  /**
+   * cumulative unit sector shock per sector (F_s, G22 reading). `rng` is the engine's sector stream at the last company day and
+   * `tick` the engine tick it was read at: the day's factor is the engine's own draws since (sectorFactor.ts, O-12). `tick` is
+   * optional for a save from before O-12 (bridge.ts migrates it to the engine's state at that save's tick).
+   */
+  sectors: Record<CompanySector, { level: number; rng: RngState; tick?: number }>;
   flows: CompanyFlows;
   /** the cash the founders put in at founding (the in-world transfers are checked against this) */
   founded: number;

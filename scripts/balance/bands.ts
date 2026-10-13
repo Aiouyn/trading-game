@@ -37,7 +37,7 @@ function floorPinned(alive: number): VolBand {
  * for 13 names). (2) GARCH standardized by volMult alone, so idio-heavy names had E[h] 0.86-0.95 (regimeShockSd adds the
  * loading split). (3) expectedVol counted the full jump, but the close prints closePrint (ecology). The eight F1 names pass
  * the general 0.85-1.4 band now (20 seeds, medians 0.92-1.11). FLUX passes it too (median 0.976), so its old class band is
- * gone. AUSD passes it too, on the RMS across seeds (V1-PHASE1 F13), so it has no class band of its own.
+ * gone. AUSD passes it too, on the RMS across seeds (V1-PHASE1 F13); its class band came later (V1-PHASE9 9C.4, below).
  *
  * Round 6 (V1-PHASE1 round 6): expectedVol adds the diffusion regime mix (vol x volMult x regimeShockSd, time-averaged), the
  * earnings gap of stocks (catalysts.ts) and, for option horizons, the rate variance ratio. Realized vol moved down with it: at 20
@@ -53,6 +53,18 @@ function floorPinned(alive: number): VolBand {
  * every other asset.
  */
 export const UNIVERSE_VOL_BANDS: Record<string, VolBand> = {
+  /**
+   * V1-PHASE9 9C.4 (the stablecoin ruling). AUSD's RMS over 300 seeds at 720 ticks a day (one game year per seed) is 1.032, with a
+   * 2 s.e. interval [0.725, 1.340]: it straddles the general 0.85 edge, so the general band is undecided. The mechanism is the
+   * depeg: a stablecoin's variance is set by its rare depeg jumps (AUSD 0.25 a year, down 6% on average), so 78% of the seeds
+   * have no depeg in the year and sit on the no-jump shoulder (ratio below 0.3), while the seeds that depeg carry the RMS (max
+   * 9.2). The class band is [0.6, 1.1] on the RMS ratio: the lead's ruling for a band that still straddles (V1-PHASE9 lead
+   * decisions, track 9C). The ruling is a band, not a verdict: at 2 s.e. the interval [0.725, 1.340] straddles 1.1 as well, so
+   * the AUSD verdict is UNDECIDED (run.ts prints it so; it is not a PASS). One seed (max 9.2) supplies 27% of the mean square; the
+   * RMS without it is 0.886. The 300 seeds are one game year each, not the default five (about 34 CPU-hours for five; not run).
+   * FLUX is the other stablecoin (0.5 jumps a year); it has no 300-seed run here and keeps the general band.
+   */
+  AUSD: { min: 0.6, max: 1.1, why: "stablecoin: the RMS is set by rare depeg jumps (0.25 a year); 78% of seeds sit on the no-jump shoulder (V1-PHASE9 9C.4)" },
   BONK: floorPinned(0.2),
   FROG: floorPinned(0.296),
   MOON: floorPinned(0.442),
@@ -85,10 +97,29 @@ export function phase0Bands(assetIds: string[], overrides: Record<string, VolBan
   ];
 }
 
-export function check(bands: Band[], stats: Record<string, number>) {
+/** A band's verdict: PASS, FAIL, or UNDECIDED (the estimate's interval straddles a band edge; listed, not a pass). */
+export type Verdict = "PASS" | "FAIL" | "UNDECIDED";
+
+/**
+ * The verdict of one value against [min, max]. With no standard error it is the point estimate (PASS inside, FAIL outside). With
+ * a standard error it is the 2 s.e. rule of gates.ts (V1-PHASE1 F13): PASS only when estimate ± 2 s.e. lies wholly inside the
+ * band, FAIL only when it lies wholly outside, and UNDECIDED when the interval straddles an edge.
+ */
+export function verdictOf(v: number | undefined, min: number, max: number, se?: number): Verdict {
+  if (typeof v !== "number" || !Number.isFinite(v)) return "FAIL";
+  if (se === undefined) return v >= min && v <= max ? "PASS" : "FAIL";
+  const lo = v - 2 * se;
+  const hi = v + 2 * se;
+  if (lo >= min && hi <= max) return "PASS";
+  if (hi < min || lo > max) return "FAIL";
+  return "UNDECIDED";
+}
+
+/** Checks every band; `se` gives the standard error of each band's value where one exists (keyed by band id). */
+export function check(bands: Band[], stats: Record<string, number>, se: Record<string, number> = {}) {
   return bands.map((b) => {
     const v = stats[b.id];
-    const pass = typeof v === "number" && Number.isFinite(v) && v >= b.min && v <= b.max;
-    return { ...b, value: v, pass };
+    const verdict = verdictOf(v, b.min, b.max, se[b.id]);
+    return { ...b, value: v, se: se[b.id], verdict, pass: verdict === "PASS" };
   });
 }
