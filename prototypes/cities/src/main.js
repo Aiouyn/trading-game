@@ -7,6 +7,9 @@ const view = new CityView($('view'), $('labels'));
 view.showLabels = true;
 const cache = new Map();
 let city = null, current = null, loadingToken = 0;
+let mineList = []; // your buildings in the current city (demo ownership)
+const SEE_ORDER = ['off', 'selected', 'mine'];
+let seeMode = 'mine'; // see through: off, the selected building, or the selected building plus yours
 
 // ------------------------------------------------------------------ tabs
 for (const id of CITY_ORDER) {
@@ -41,6 +44,7 @@ async function open(id) {
   }
   if (token !== loadingToken) return;
   city = c;
+  mineList = c.buildings.filter((b) => b.mine);
   view.load(c);
   $('loading').classList.add('hide');
   fillCard();
@@ -115,12 +119,39 @@ $('rotr').onclick = () => view.rotate(1);
 $('home').onclick = () => view.fit();
 $('lbls').onclick = () => { view.showLabels = !view.showLabels; view.dirty = true; };
 $('toggle').onclick = () => $('controls').classList.toggle('open');
+
+// ------------------------------------------------------------------ see through
+/** The focus set: the selected building, and in "Selected + mine" your buildings too. */
+function syncFocus() {
+  const ids = [];
+  if (seeMode !== 'off') {
+    if (selected) ids.push(selected.id);
+    if (seeMode === 'mine') for (const b of mineList) ids.push(b.id);
+  }
+  view.setFocus(ids);
+}
+function setSee(mode) {
+  seeMode = mode;
+  for (const c of document.querySelectorAll('.chip[data-see]')) c.classList.toggle('on', c.dataset.see === mode);
+  syncFocus();
+}
+for (const c of document.querySelectorAll('.chip[data-see]')) c.onclick = () => setSee(c.dataset.see);
+let findAt = -1;
+$('find').onclick = () => {
+  if (!mineList.length) return;
+  findAt = (findAt + 1) % mineList.length;
+  const b = mineList[findAt];
+  view.flyTo(b.x, b.y, 0.35);
+  select(b);
+};
+
 addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT') return;
   if (e.key === 'q' || e.key === 'Q') view.rotate(-1);
   else if (e.key === 'e' || e.key === 'E') view.rotate(1);
   else if (e.key === 'l' || e.key === 'L') { view.showLabels = !view.showLabels; view.dirty = true; }
   else if (e.key === 'h' || e.key === 'H') view.fit();
+  else if (e.key === 'x' || e.key === 'X') setSee(SEE_ORDER[(SEE_ORDER.indexOf(seeMode) + 1) % SEE_ORDER.length]);
   else if (e.key === 'Escape') closeInfo();
   else if (/^[1-6]$/.test(e.key)) open(CITY_ORDER[+e.key - 1]);
 });
@@ -156,10 +187,7 @@ const up = (e) => {
   if (pointers.size < 2) pinch = null;
   if (!pointers.size) canvas.classList.remove('dragging');
   if (dragDist < 5 && e.type === 'pointerup') {
-    const b = view.pick(e.clientX, e.clientY);
-    selected = b;
-    if (b) showInfo(b); else closeInfo();
-    view.setHover(b ? b.id : -1);
+    select(view.pick(e.clientX, e.clientY));
   }
 };
 canvas.addEventListener('pointerup', up);
@@ -172,11 +200,21 @@ function hover(x, y) {
   hoverPending = [x, y];
 }
 
+/** Select a building (or nothing): its info card opens and it becomes the focus of see-through. */
+function select(b) {
+  if (!b) { closeInfo(); return; }
+  selected = b;
+  showInfo(b);
+  view.setHover(b.id);
+  syncFocus();
+}
+
 function closeInfo() {
   selected = null;
   $('info').style.display = 'none';
   document.body.classList.remove('info-open');
   view.setHover(-1);
+  syncFocus();
 }
 
 function showInfo(b) {
@@ -234,6 +272,8 @@ if (q.get('t')) setTime(+q.get('t'));
 open(PERSONALITIES[first] ? first : 'avalon');
 window.__cities = {
   view, get city() { return city; }, open, setTime, setGrowth: (v) => { $('growth').value = v; setGrowth(v); },
+  /** test hooks: select a building by id (0 or null clears), set the see-through mode, read it */
+  select: (id) => select(id ? city.buildings[id - 1] : null), setSee, get seeMode() { return seeMode; },
   /** dev: render one frame with a given camera and save it through the dev server */
   async shot(name, { x = 0, z = 0, scale = null, yaw = null, t = null } = {}) {
     if (t !== null) setTime(t);
