@@ -79,14 +79,16 @@ function OsToast({ toast, n, phone, slim }: { toast: ShellToast; n: number; phon
   const hovered = useRef(false);
   const focused = useRef(false);
   const id = toast.id;
-  // Phone: a slim banner that leaves after the hold (4 s) or on a swipe away (the store's hold does not run for a sticky one).
+  const sticky = isSticky(toast);
+  // Phone: a slim banner that leaves after the hold (4 s) or on a swipe away. A sticky notice (the day close) has no hold: it leaves
+  // on a tap, a swipe, or when the Wire reads it, so the phone timer skips it too.
   const [dx, setDx] = useState(0);
   const drag = useRef<{ x: number; off: number; moved: boolean } | null>(null);
   useEffect(() => {
-    if (!phone) return;
+    if (!phone || sticky) return;
     const h = window.setTimeout(() => dismiss(id), TOAST_HOLD_MS);
     return () => window.clearTimeout(h);
-  }, [phone, id, dismiss]);
+  }, [phone, sticky, id, dismiss]);
 
   // A toast that leaves the column while it is held must release its holds, or it would never expire.
   useEffect(
@@ -107,7 +109,6 @@ function OsToast({ toast, n, phone, slim }: { toast: ShellToast; n: number; phon
       : toast.kind === 'coach' ? t('shell.toast.coach')
       : undefined;
   const urgent = toast.kind === 'fill' || toast.kind === 'world';
-  const sticky = isSticky(toast);
   // A fill is news about an order, not an error: a neutral check, and the buy or sell colour on the text only. Errors keep the red X.
   const fill = toast.kind === 'fill';
   const iconName: GlyphName = fill ? 'check' : (ICON[toast.tone] ?? 'bell');

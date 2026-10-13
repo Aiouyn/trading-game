@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { type KeyValueStore, migrateLegacy, readPrefs as readPrefsFrom, updatePrefs } from '@/shell/prefs';
 import { createHolds } from '@/shell/holds';
-import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky, withoutPending } from '@/shell/toasts';
+import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky, withoutSuperseded } from '@/shell/toasts';
 import { universeConfig, type DepthFrame, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
 import { engineText, tm } from '@/i18n';
@@ -174,13 +174,18 @@ const toastHolds = createHolds(
   (id) => useGame.setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 );
 
-/** Adds toasts to the queue, starts their holds, and drops the oldest past the queue cap. */
+/**
+ * Adds toasts to the queue, starts their holds, and drops the oldest past the queue cap. A non-sticky notice starts its hold when it
+ * is queued, even behind others, so it expires on time. A sticky notice (a warning, a margin call, the day close) gets no hold and
+ * stays until it is read.
+ */
 function queueToasts(incoming: readonly Toast[]): void {
   if (incoming.length === 0) return;
-  // a fill replaces the pending notice of its order (one toast per order): that notice leaves now, with its holds
+  // a fill replaces the pending notice of its order (one toast per order), and a new close replaces the last one: those leave now, with their holds
   const queue = useGame.getState().toasts;
-  for (const t of queue) if (t.kind === 'pending' && !withoutPending([t], incoming).length) toastHolds.cancel(t.id);
-  const all = [...withoutPending(queue, incoming), ...incoming];
+  const base = withoutSuperseded(queue, incoming);
+  for (const t of queue) if (!base.includes(t)) toastHolds.cancel(t.id);
+  const all = [...base, ...incoming];
   const keep = all.slice(-TOAST_QUEUE_MAX);
   for (const t of all.slice(0, all.length - keep.length)) toastHolds.cancel(t.id);
   for (const t of incoming) if (keep.includes(t) && !isSticky(t)) toastHolds.start(t.id, TOAST_HOLD_MS);

@@ -62,9 +62,12 @@ export function visibleToasts<T extends Pick<ShellToast, 'kind'>>(list: readonly
   return pool.slice(-TOAST_MAX);
 }
 
-/** Sticky toasts stay until they are read, not for the hold time (P2-090). */
+/**
+ * Sticky toasts stay until they are read, not for the hold time (P2-090): warnings, margin calls, and the day-close notice (its
+ * tap opens the Wire, which reads it; a newer close replaces it, see withoutSuperseded).
+ */
 export function isSticky(t: Pick<ShellToast, 'tone' | 'kind'>): boolean {
-  return t.tone === 'warn' || t.kind === 'margin';
+  return t.tone === 'warn' || t.kind === 'margin' || t.kind === 'close';
 }
 
 /**
@@ -75,6 +78,15 @@ export function withoutPending<T extends Pick<ShellToast, 'kind' | 'ref'>>(list:
   const filled = new Set(incoming.filter((t) => t.kind === 'fill' && t.ref !== undefined).map((t) => t.ref));
   if (filled.size === 0) return list.slice();
   return list.filter((t) => !(t.kind === 'pending' && t.ref !== undefined && filled.has(t.ref)));
+}
+
+/**
+ * The queue after `incoming` arrives: a fill drops its order's pending notice (withoutPending), and a new day-close notice replaces
+ * the one still queued (a close is news about the latest day only). Pure: returns the surviving notices, by reference.
+ */
+export function withoutSuperseded<T extends Pick<ShellToast, 'kind' | 'ref'>>(list: readonly T[], incoming: readonly T[]): T[] {
+  const newClose = incoming.some((t) => t.kind === 'close');
+  return withoutPending(list, incoming).filter((t) => !(newClose && t.kind === 'close'));
 }
 
 /** The Broker's ticket column (TerminalLayout: w-[344px]). */

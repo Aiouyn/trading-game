@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TOAST_MAX, type ShellToast, allowedInFocus, isSticky, toastPlace, visibleToasts, withoutPending } from './toasts';
+import { TOAST_MAX, type ShellToast, allowedInFocus, isSticky, toastPlace, visibleToasts, withoutPending, withoutSuperseded } from './toasts';
 
 const t = (id: string, over: Partial<ShellToast> = {}): ShellToast => ({ id, tone: 'info', text: id, ...over });
 
@@ -45,6 +45,28 @@ describe('toast rules (P2-085..P2-090)', () => {
     expect(isSticky({ tone: 'warn' })).toBe(true);
     expect(isSticky({ tone: 'info', kind: 'margin' })).toBe(true);
     expect(isSticky({ tone: 'gain', kind: 'fill' })).toBe(false);
+  });
+
+  it('the day-close notice is sticky: it has no hold and stays until it is read (UX ruling)', () => {
+    expect(isSticky({ tone: 'brass', kind: 'close' })).toBe(true);
+    expect(isSticky({ tone: 'info', kind: 'other' })).toBe(false);
+  });
+
+  it('a new day-close notice replaces the one still queued; other notices are kept', () => {
+    const queue = [t('close-d4', { kind: 'close', tone: 'brass' }), t('plain'), t('fill', { kind: 'fill' })];
+    const close5 = [t('close-d5', { kind: 'close', tone: 'brass' })];
+    expect(withoutSuperseded(queue, close5).map((x) => x.id)).toEqual(['plain', 'fill']);
+    // a notice that is not a close leaves the queued close in place
+    expect(withoutSuperseded(queue, [t('other', { kind: 'other' })]).map((x) => x.id)).toEqual(['close-d4', 'plain', 'fill']);
+  });
+
+  it("a fill still drops its order's pending notice, and the survivors keep their identity for the store's holds", () => {
+    const queue = [t('pending-hlcn', { kind: 'pending', ref: 'HLCN' }), t('close-d4', { kind: 'close' })];
+    const fill = [t('fill-hlcn', { kind: 'fill', ref: 'HLCN' })];
+    expect(withoutSuperseded(queue, fill).map((x) => x.id)).toEqual(['close-d4']);
+    const kept = withoutSuperseded(queue, [t('close-d5', { kind: 'close' })]);
+    expect(kept[0]).toBe(queue[0]);
+    expect(kept).toHaveLength(1);
   });
 
   it('the column stays bottom-right, and when a maximized Broker covers it, moves into the dock beside the ticket (UX stage 6)', () => {

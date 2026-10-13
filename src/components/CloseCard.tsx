@@ -135,6 +135,13 @@ export function CloseBrief() {
     return closes.find((c) => c.day === s.closeOpen) ?? closes[0] ?? null;
   });
   useLocale((s) => s.locale);
+  // The Wire shows the card, so its close notice is read: the notice leaves when the Wire opens on it (a day close notice is sticky).
+  const cardDay = card?.day ?? null;
+  const dismissMany = useGame((s) => s.dismissToasts);
+  useEffect(() => {
+    const ids = useGame.getState().toasts.filter((x) => x.kind === 'close').map((x) => x.id);
+    if (ids.length > 0) dismissMany(ids);
+  }, [cardDay, dismissMany]);
   if (!card) return null;
   return (
     <section className="rounded-md border border-ink-3 p-3" data-testid="close-card" aria-label={t('dayclose.title')}>
