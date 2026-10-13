@@ -29,27 +29,30 @@ export function KingBanner({ king, tick, onOpen }: { king: LpCard | null; tick: 
           <span className="break-words font-medium text-fg" data-testid="lp-king-name">{king.name}</span>
           <span className="num text-caption text-brass">{king.ticker}</span>
         </span>
-        <span className="num block text-caption text-fg-muted" data-testid="lp-king-cap">{t('lp.king.cap', { cap: money(king.marketCap), pct: pct(king.progress) })}</span>
+        <span className="flex flex-wrap gap-x-2 text-caption text-fg-muted" data-testid="lp-king-cap">
+          <span className="num whitespace-nowrap">{t('lp.king.capOnly', { cap: money(king.marketCap) })}</span>
+          <span className="num whitespace-nowrap">{t('lp.king.soldOnly', { pct: pct(king.progress) })}</span>
+        </span>
       </span>
       <span className="text-caption text-fg-faint">{t('lp.king.age', { when: ticksLabel(Math.max(0, tick - king.createdTick)) })}</span>
     </button>
   );
 }
 
-/** The live trades bar: the newest trades across the tokens, one line each, in a single scrolling row. */
+/** The live trades bar: the newest trades across the tokens, one line each (a line wraps as a whole, never sideways). */
 export function TradesBar({ rows, tick, onOpen }: { rows: LpBarRow[]; tick: number; onOpen: (ticker: string) => void }) {
   if (rows.length === 0) return null;
   return (
-    <div className="flex items-center gap-3 overflow-hidden rounded-md border border-ink-2 bg-ink-1 px-3 py-2" data-testid="lp-bar" aria-label={t('lp.bar.label')}>
-      <span className="shrink-0 text-micro uppercase tracking-wide text-fg-faint">{t('lp.bar.title')}</span>
-      <ul className="flex min-w-0 flex-1 gap-4 overflow-x-auto whitespace-nowrap text-caption" data-testid="lp-bar-rows">
-        {rows.map((r, i) => (
-          <li key={`${r.ticker}-${r.tick}-${r.who}-${i}`} className="flex shrink-0 items-center gap-1.5">
-            <button type="button" onClick={() => onOpen(r.ticker)} className="flex items-center gap-1.5" data-testid="lp-bar-row">
+    <div className="flex flex-col gap-2 rounded-md border border-ink-2 bg-ink-1 px-3 py-2" data-testid="lp-bar" aria-label={t('lp.bar.label')}>
+      <span className="text-micro uppercase tracking-wide text-fg-faint">{t('lp.bar.title')}</span>
+      <ul className="flex flex-col gap-1 text-caption" data-testid="lp-bar-rows">
+        {rows.slice(0, 5).map((r, i) => (
+          <li key={`${r.ticker}-${r.tick}-${r.who}-${i}`}>
+            <button type="button" onClick={() => onOpen(r.ticker)} className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-left" data-testid="lp-bar-row">
               <span className={r.creator ? 'text-brass' : 'text-fg-muted'}>{r.who}</span>
               <span className={r.side === 'buy' ? 'text-gain' : 'text-loss'}>{t(r.side === 'buy' ? 'lp.bar.bought' : 'lp.bar.sold')}</span>
-              <span className="num text-fg">{money(r.usd)}</span>
-              <span className="num text-brass">{r.ticker}</span>
+              <span className="num whitespace-nowrap text-fg">{money(r.usd)}</span>
+              <span className="num whitespace-nowrap text-brass">{r.ticker}</span>
               <span className="text-fg-faint">{tick - r.tick > 0 ? t('lp.bar.ago', { when: ticksLabel(tick - r.tick) }) : t('time.now')}</span>
             </button>
           </li>

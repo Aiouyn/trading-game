@@ -3786,6 +3786,8 @@
   "lp.npcreply.17": "Bought the dip. Then the other dip.",
   "lp.npcreply.18": "The thread is wild, I am out.",
   "lp.npcreply.19": "Holding until graduation, then I think again.",
+  "lp.king.capOnly": "Market cap {cap}",
+  "lp.king.soldOnly": "{pct} of the curve sold",
   "ad.toast.added": "+${amount} of ad cash added.",
   "ad.toast.none": "No ad finished, so no cash.",
   "ad.pill": "AD",

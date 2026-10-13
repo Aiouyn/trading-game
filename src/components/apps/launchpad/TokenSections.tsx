@@ -20,23 +20,23 @@ import { RefusalBox, Section } from './Shared';
 export function TradesTable({ tape, tick }: { tape: LpTape[]; tick: number }) {
   if (tape.length === 0) return <p className="text-small text-fg-muted" data-testid="lp-tape-empty">{t('lp.page.tapeEmpty')}</p>;
   return (
-    <div className="overflow-x-auto" data-testid="lp-tape">
-      <table className="w-full min-w-[30rem] border-collapse text-small" data-testid="lp-tape-rows">
+    <div data-testid="lp-tape">
+      <table className="w-full border-collapse text-small" data-testid="lp-tape-rows">
         <thead>
           <tr className="border-b border-ink-2 text-left text-caption text-fg-faint">
             <th className="py-1.5 pr-3 font-normal">{t('lp.trades.time')}</th>
-            <th className="py-1.5 pr-3 font-normal">{t('lp.trades.trader')}</th>
+            <th className="hidden py-1.5 pr-3 font-normal @md:table-cell">{t('lp.trades.trader')}</th>
             <th className="py-1.5 pr-3 font-normal">{t('lp.trades.side')}</th>
             <th className="py-1.5 pr-3 text-right font-normal">{t('lp.trades.usd')}</th>
-            <th className="py-1.5 pr-3 text-right font-normal">{t('lp.trades.tokens')}</th>
-            <th className="py-1.5 text-right font-normal">{t('lp.trades.price')}</th>
+            <th className="hidden py-1.5 pr-3 text-right font-normal @md:table-cell">{t('lp.trades.tokens')}</th>
+            <th className="hidden py-1.5 text-right font-normal @md:table-cell">{t('lp.trades.price')}</th>
           </tr>
         </thead>
         <tbody>
           {[...tape].reverse().map((r, i) => (
             <tr key={`${r.tick}-${i}`} className="border-b border-ink-2 last:border-0" data-testid="lp-tape-row">
               <td className="whitespace-nowrap py-1.5 pr-3 text-fg-muted">{tick - r.tick > 0 ? t('lp.tape.ago', { when: ticksLabel(tick - r.tick) }) : t('lp.tape.now')}</td>
-              <td className="whitespace-nowrap py-1.5 pr-3">
+              <td className="hidden whitespace-nowrap py-1.5 pr-3 @md:table-cell">
                 {r.anon ? (
                   <span className="num text-fg-muted">{r.anon}</span>
                 ) : (
@@ -50,8 +50,8 @@ export function TradesTable({ tape, tick }: { tape: LpTape[]; tick: number }) {
               </td>
               <td className={`whitespace-nowrap py-1.5 pr-3 ${r.side === 'buy' ? 'text-gain' : 'text-loss'}`}>{t(r.side === 'buy' ? 'lp.side.buy' : 'lp.side.sell')}</td>
               <td className="num whitespace-nowrap py-1.5 pr-3 text-right text-fg" data-testid="lp-tape-usd">{money(r.usd)}</td>
-              <td className="num whitespace-nowrap py-1.5 pr-3 text-right text-fg-muted">{fmtTokens(r.qty)}</td>
-              <td className="num whitespace-nowrap py-1.5 text-right text-fg-muted">{lpPrice(r.price)}</td>
+              <td className="num hidden whitespace-nowrap py-1.5 pr-3 text-right text-fg-muted @md:table-cell">{fmtTokens(r.qty)}</td>
+              <td className="num hidden whitespace-nowrap py-1.5 text-right text-fg-muted @md:table-cell">{lpPrice(r.price)}</td>
             </tr>
           ))}
         </tbody>
@@ -80,9 +80,9 @@ export function HolderList({ holders }: { holders: LpHolder[] }) {
               <span className="absolute inset-y-0 left-0 bg-brass/60" style={{ width: `${Math.max(2, (h.share / most) * 100)}%` }} />
             </span>
           </span>
-          <span className="num whitespace-nowrap text-right">
-            <span className="text-fg">{pct(h.share)}</span>
-            <span className="block text-caption text-fg-faint">{fmtTokens(h.qty)}</span>
+          <span className="text-right">
+            <span className="num block whitespace-nowrap text-fg">{pct(h.share)}</span>
+            <span className="num block whitespace-nowrap text-caption text-fg-faint">{fmtTokens(h.qty)}</span>
           </span>
         </li>
       ))}

@@ -114,11 +114,11 @@ export function CandleChart({ points, testId = 'lp-candles' }: { points: [number
         <p className="text-small text-fg-muted" data-testid="lp-chart-empty">{t('lp.chart.empty')}</p>
       ) : (
         <>
-          <p className="num flex flex-wrap gap-x-3 text-caption text-fg-muted" data-testid="lp-ohlc">
-            <span>{t('lp.chart.o')} {fmt(last.o)}</span>
-            <span>{t('lp.chart.h')} {fmt(last.h)}</span>
-            <span>{t('lp.chart.l')} {fmt(last.l)}</span>
-            <span className={last.c >= last.o ? 'text-gain' : 'text-loss'}>{t('lp.chart.c')} {fmt(last.c)}</span>
+          <p className="flex flex-wrap gap-x-3 gap-y-1 text-caption text-fg-muted" data-testid="lp-ohlc">
+            <span className="num whitespace-nowrap">{t('lp.chart.o')} {fmt(last.o)}</span>
+            <span className="num whitespace-nowrap">{t('lp.chart.h')} {fmt(last.h)}</span>
+            <span className="num whitespace-nowrap">{t('lp.chart.l')} {fmt(last.l)}</span>
+            <span className={`num whitespace-nowrap ${last.c >= last.o ? 'text-gain' : 'text-loss'}`}>{t('lp.chart.c')} {fmt(last.c)}</span>
           </p>
           <div className="flex items-stretch gap-2">
             <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={t('lp.chart.label')} className="h-56 min-w-0 flex-1" data-testid="lp-candle-svg">
@@ -135,9 +135,9 @@ export function CandleChart({ points, testId = 'lp-candles' }: { points: [number
                 );
               })}
             </svg>
-            <div className="num flex w-20 shrink-0 flex-col justify-between py-1 text-right text-micro text-fg-faint" aria-hidden>
-              <span className="whitespace-nowrap">{fmt(hi)}</span>
-              <span className="whitespace-nowrap">{fmt(lo)}</span>
+            <div className="flex w-20 shrink-0 flex-col justify-between py-1 text-right text-micro text-fg-faint" aria-hidden>
+              <span className="num whitespace-nowrap">{fmt(hi)}</span>
+              <span className="num whitespace-nowrap">{fmt(lo)}</span>
             </div>
           </div>
         </>

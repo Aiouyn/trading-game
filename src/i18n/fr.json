@@ -3786,6 +3786,8 @@
   "lp.npcreply.17": "Acheté le creux. Puis l’autre creux.",
   "lp.npcreply.18": "Le fil s’emballe, je sors.",
   "lp.npcreply.19": "Je garde jusqu’au diplôme, puis je réfléchirai.",
+  "lp.king.capOnly": "Capitalisation {cap}",
+  "lp.king.soldOnly": "{pct} de la courbe vendue",
   "ad.toast.added": "+{amount} $ de liquidités publicitaires ajoutées.",
   "ad.toast.none": "Aucune publicité n’a été regardée jusqu’au bout, donc aucun argent.",
   "ad.pill": "PUB",
