@@ -74,10 +74,21 @@ function volScale(state: WorldState, i: number): number {
   return state.config.regimes[state.regime].volMult * Math.sqrt(state.assets[i]!.h);
 }
 
-/** half spread as a fraction of mid; widens with current volatility (01 §7.2) */
+/**
+ * R-10-2 halt widening: a halted asset quotes twice its spread (its orders wait, and the quote says why it is wide). After
+ * the reopening auction the spread stays one and a half times wide for the rest of that day (`haltedToday`), since the first
+ * fills after the reopen pay it. A decaying clock would need a persisted tick on every halt; the day is the approximation.
+ */
+export function haltWidening(state: WorldState, i: number): number {
+  const a = state.assets[i]!;
+  if (a.haltUntil !== -1) return 2;
+  return a.haltedToday ? 1.5 : 1;
+}
+
+/** half spread as a fraction of mid; widens with current volatility (01 §7.2) and in and after a halt (R-10-2) */
 export function halfSpread(state: WorldState, i: number): number {
   const def = state.config.assets[i]!;
-  return ((def.spreadBps ?? 10) / 2 / 1e4) * volScale(state, i);
+  return ((def.spreadBps ?? 10) / 2 / 1e4) * volScale(state, i) * haltWidening(state, i);
 }
 
 /** temporary impact as a fraction of mid: Y · σ_daily · √(notional / ADV) (01 §7.3) */

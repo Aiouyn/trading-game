@@ -5,7 +5,7 @@
 // float a day). Rules are the world's (Quant 5.2, 6.1); the forms only send the terms.
 import { useState } from 'react';
 import { t } from '@/i18n';
-import { money, price, qty } from '@/game/format';
+import { money, sharePrice, qty } from '@/game/format';
 import { NumberField, SpendReview } from '@/components/ui';
 import { buybackFit, buybackRoomOver, type CapitalView } from '@/world/company/capital';
 import { HoldButton, Line, Note, Panel, PublChip, RefusalBox, numOf, useAct, type Refusal } from './shared';
@@ -97,7 +97,7 @@ export function PlansPanel({ cap }: { cap: CapitalView }) {
             <NumberField value={minPrice} onChange={setMinPrice} label={t('company.capital.plan.minPrice')} min={0} step="any" testId="company-plan-minprice" />
           </div>
           <Note>{t('company.capital.plan.earliest', { day: p.earliestDay })}</Note>
-          {p.floorMax !== null && <Note>{t('company.capital.plan.floorMax', { max: price(p.floorMax) })}</Note>}
+          {p.floorMax !== null && <Note>{t('company.capital.plan.floorMax', { max: sharePrice(p.floorMax) })}</Note>}
           {p.lockUntil !== null && p.lockUntil > firstDay && <Note>{t('company.capital.plan.lockEnds', { day: p.lockUntil })}</Note>}
           <p className="text-small text-fg" data-testid="company-plan-cant">{t('company.capital.plan.cantChange')}</p>
           <Note>{t('company.capital.plan.filedNextDay')}</Note>
@@ -116,7 +116,7 @@ export function PlansPanel({ cap }: { cap: CapitalView }) {
         {p.rows.map((r) => (
           <div key={r.id} className="flex flex-col gap-1 border-t border-ink-2 pt-3 text-small" data-testid="company-plan-row">
             <Line k={t('company.capital.plan.rowDays', { from: r.fromDay, to: r.toDay })} v={t('company.capital.plan.rowQty', { qty: qty(r.qtyPerDay) })} />
-            <Line k={t('company.capital.plan.rowMin')} v={price(r.minSellPrice)} testId="company-plan-min" />
+            <Line k={t('company.capital.plan.rowMin')} v={sharePrice(r.minSellPrice)} testId="company-plan-min" />
             <Line k={t('company.capital.plan.rowCommitted')} v={t('company.capital.day', { day: r.committedDay })} />
             {r.escrow > 0 && <Line k={t('company.capital.plan.rowLocked')} v={qty(r.escrow)} testId="company-plan-locked" />}
             {r.priceHold > 0 && r.holdUntil !== null && (
@@ -171,7 +171,7 @@ export function BuybackPanel({ cap }: { cap: CapitalView }) {
     >
       <Line k={t('company.capital.buyback.filingDay')} v={b.filingDay === null ? '—' : t('company.capital.day', { day: b.filingDay })} testId="company-buyback-filing" />
       <Line k={t('company.capital.buyback.cash')} v={money(b.cash)} />
-      {b.reservePerShare !== null && <Line k={t('company.capital.buyback.reserve')} v={price(b.reservePerShare)} />}
+      {b.reservePerShare !== null && <Line k={t('company.capital.buyback.reserve')} v={sharePrice(b.reservePerShare)} />}
       {b.programs.map((p) => (
         <p key={p.id} className="text-small text-fg-muted" data-testid="company-buyback-program">
           {t('company.capital.buyback.program', { size: qty(p.size), from: p.fromDay, to: p.toDay })}

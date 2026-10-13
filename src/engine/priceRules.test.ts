@@ -16,7 +16,9 @@ describe('price precision by asset class (R-10-3)', () => {
     expect(priceRule('forex', 1.08123).tick).toBeCloseTo(1e-5, 12);
     expect(priceRule('forex', 149.123).decimals).toBe(3);
     expect(priceRule('forex', 0.66123).decimals).toBe(5);
-    expect(priceRule('forex', 0.0068).decimals).toBe(5);
+    expect(priceRule('forex', 0.0068).decimals).toBe(6);
+    expect(priceRule('forex', 0.006671).decimals).toBe(6);
+    expect(priceRule('forex', 0.00068).decimals).toBe(7);
   });
 
   it('crypto: 2 decimals from a dollar up, 4 significant digits below it', () => {

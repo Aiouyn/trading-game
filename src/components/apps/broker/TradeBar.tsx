@@ -22,12 +22,13 @@ function num(s: string): number {
 export function TradeBar({ ticker, onReview }: { ticker: string; onReview: () => void }) {
   const world = useGame((s) => s.world);
   const config = useGame((s) => s.config);
+  const playerId = useGame((s) => s.playerId);
   const saved = getDraft(ticker);
   const [side, setSide] = useState<Side>(saved?.side ?? 'buy');
   const [q, setQ] = useState(saved?.q ?? '');
   const n = num(q);
   const def = config.assets.find((a) => a.id === ticker);
-  const est = world && def && !isIndex(ticker) && n > 0 ? estimateFill(world, { assetId: ticker, side, qty: n }) : null;
+  const est = world && def && !isIndex(ticker) && n > 0 ? estimateFill(world, { assetId: ticker, side, qty: n, playerId: playerId ?? undefined }) : null;
   const notional = est ? n * est.price : 0;
   const fee = est && world && def ? commission(world, def, notional, n) : 0;
   const total = side === 'buy' ? notional + fee : notional - fee;

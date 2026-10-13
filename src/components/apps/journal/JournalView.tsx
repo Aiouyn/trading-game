@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { JOURNAL } from '@/content/learning';
-import { money, price, qty as qtyText, signedMoney, signedPct, toneText, tone } from '@/game/format';
-import { useGame } from '@/game/store';
+import { money, assetPrice, qty as qtyText, signedMoney, signedPct, toneText, tone } from '@/game/format';
+import { useGame, assetDefOf } from '@/game/store';
 import { t, tm } from '@/i18n';
 import { Button, Card, Segmented, Td, Th } from '@/components/ui';
 import type { JournalDetail } from '@/world/journal';
@@ -164,8 +164,8 @@ function JournalRowLine({ trip, tpd, onOpen }: { trip: RoundTrip; tpd: number; o
       </Td>
       <Td className="text-fg-muted">{side}</Td>
       <Td right num>{qtyText(trip.qty)}</Td>
-      <Td right num>{price(trip.avgEntry)}</Td>
-      <Td right num>{price(trip.avgExit)}</Td>
+      <Td right num>{assetPrice(assetDefOf(trip.assetId) ?? { assetClass: 'stock' }, trip.avgEntry)}</Td>
+      <Td right num>{assetPrice(assetDefOf(trip.assetId) ?? { assetClass: 'stock' }, trip.avgExit)}</Td>
       <Td right num className={toneText[tone(move)]}>{signedPct(move)}</Td>
       <Td right num className={even ? 'text-fg-muted' : toneText[tone(trip.realizedPnl)]}>
         <span data-testid={`journal-pnl-${trip.id}`}>{even ? t('journal.even') : signedMoney(trip.realizedPnl)}</span>

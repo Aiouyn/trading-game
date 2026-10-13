@@ -28,8 +28,6 @@ export interface OrderCheck {
   type: OrderType;
   /** the quantity in shares or units (already converted from dollars) */
   qty: number;
-  /** stocks trade whole shares only */
-  whole: boolean;
   /** the mid price now */
   mid: number;
   /** the price the order would trade at now (the estimate) */
@@ -93,7 +91,6 @@ export function checkOrder(c: OrderCheck): CheckResult {
   const none = (warning: string | null = null): CheckResult => ({ refusal: null, warning });
   if (c.locked) return { refusal: { field: 'general', key: 'broker.refuse.license', cta: 'broker.refuse.license', vars: { tier: c.lockedTier } }, warning: null };
   if (!(c.qty > 0)) return { refusal: { field: 'qty', cta: 'broker.cta.size' }, warning: null };
-  if (c.whole && !Number.isInteger(c.qty)) return { refusal: { field: 'qty', key: 'broker.refuse.whole', cta: 'broker.cta.whole' }, warning: null };
   if ((c.side === 'buy' || c.shorting) && c.simpleCap && c.committed + c.opening * c.mid > c.capCash + 1e-6) {
     return { refusal: { field: 'qty', key: 'broker.firstCap', cta: 'broker.cta.firstCap', vars: { pct: c.capPct, rank: c.capRank } }, warning: null };
   }
@@ -185,7 +182,6 @@ export function engineRefusal(reason: string, side: Side, canShort: boolean, var
     return side === 'sell' && !canShort ? { field: 'qty', key: 'broker.refuse.short' } : { field: 'qty', key: 'broker.refuse.fewer' };
   }
   if (r === 'stacking') return { field: 'qty', key: 'broker.refuse.stacking' };
-  if (r.startsWith('whole units')) return { field: 'qty', key: 'broker.refuse.whole' };
   if (r.startsWith('limit price')) return { field: 'limit', key: 'broker.refuse.limit' };
   if (r.startsWith('stop price')) return { field: 'stop', key: 'broker.refuse.stop' };
   if (r.startsWith('trail between')) return { field: 'trail', key: 'broker.refuse.trail' };

@@ -4,7 +4,7 @@
 // distress flag), the takeover stance (the tender floor and antitrust), and the failure record with the clawback box.
 import { useState } from 'react';
 import { t } from '@/i18n';
-import { money, pct, qty, price, dec } from '@/game/format';
+import { money, pct, qty, sharePrice, dec } from '@/game/format';
 import { NumberField, Segmented, SpendReview } from '@/components/ui';
 import type { CapitalView } from '@/world/company/capital';
 import { HoldButton, Line, Note, Panel, RefusalBox, numOf, useAct, type Refusal } from './shared';
@@ -126,7 +126,7 @@ export function DividendPanel({ cap }: { cap: CapitalView }) {
             <span className={c.ok ? 'text-gain' : 'text-warn'}>
               {t(c.ok ? 'company.capital.div.ok' : 'company.capital.div.no')}
               {c.ok && c.maxPerShare !== null && (
-                <span className="ml-2 text-fg-faint" data-testid={`company-div-max-${c.rule}`}>{t('company.capital.div.upTo', { max: price(c.maxPerShare) })}</span>
+                <span className="ml-2 text-fg-faint" data-testid={`company-div-max-${c.rule}`}>{t('company.capital.div.upTo', { max: sharePrice(c.maxPerShare) })}</span>
               )}
             </span>
           </li>
@@ -135,16 +135,16 @@ export function DividendPanel({ cap }: { cap: CapitalView }) {
       <Line k={t('company.capital.div.retained')} v={money(dv.retainedEarnings)} />
       <Line k={t('company.capital.div.cashNeeded')} v={money(dv.cashCoverNeeded)} />
       <Line k={t('company.capital.div.fcf')} v={money(dv.fcfTtm)} />
-      <Line k={t('company.capital.div.maxLabel')} v={dv.maxPerShare > 0 ? price(dv.maxPerShare) : t('company.capital.div.closed')} testId="company-div-max" />
+      <Line k={t('company.capital.div.maxLabel')} v={dv.maxPerShare > 0 ? sharePrice(dv.maxPerShare) : t('company.capital.div.closed')} testId="company-div-max" />
       {dv.distress && <Note testId="company-div-distress">{t('company.capital.div.distress')}</Note>}
       <NumberField value={perShare} onChange={setPerShare} label={t('company.capital.div.perShare')} suffix="$" min={0} step="any" testId="company-div-amount" />
-      {overCeiling && <Note testId="company-div-over">{t('company.capital.div.over', { max: price(dv.maxPerShare) })}</Note>}
+      {overCeiling && <Note testId="company-div-over">{t('company.capital.div.over', { max: sharePrice(dv.maxPerShare) })}</Note>}
       <SpendReview
         variant="brass"
         testId="company-div-declare"
         label={t('company.capital.div.declare')}
         title={t('company.capital.div.declare')}
-        rows={[{ label: t('company.capital.div.perShare'), value: price(amountOk ? v : 0) }]}
+        rows={[{ label: t('company.capital.div.perShare'), value: sharePrice(amountOk ? v : 0) }]}
         disabled={!amountOk || overCeiling || dv.maxPerShare <= 0 || act.busy}
         onConfirm={() => act.run({ type: 'company.dividend', companyId: cap.companyId, perShare: v }, t('company.capital.div.declared'))}
       />
@@ -169,7 +169,7 @@ export function TakeoverPanel({ cap }: { cap: CapitalView }) {
         ]}
       />
       {tk.stance === null && <Note testId="company-stance-unset">{t('company.capital.take.unset')}</Note>}
-      <Line k={t('company.capital.take.floor')} v={tk.floor === null ? t('company.capital.take.noVolume') : price(tk.floor)} testId="company-take-floor" />
+      <Line k={t('company.capital.take.floor')} v={tk.floor === null ? t('company.capital.take.noVolume') : sharePrice(tk.floor)} testId="company-take-floor" />
       <Line k={t('company.capital.take.share')} v={pct(tk.share)} testId="company-take-share" />
       <div className="flex flex-col gap-1 rounded-md border border-ink-3 px-3 py-2 text-small" data-testid="company-take-board">
         <p className="text-fg-muted">{t('company.capital.take.boardHead')}</p>
@@ -184,7 +184,7 @@ export function TakeoverPanel({ cap }: { cap: CapitalView }) {
             </p>
           </>
         )}
-        {tk.fairPerShare !== null && <Note testId="company-take-npc">{t('company.capital.take.npcRule', { fair: price(tk.fairPerShare) })}</Note>}
+        {tk.fairPerShare !== null && <Note testId="company-take-npc">{t('company.capital.take.npcRule', { fair: sharePrice(tk.fairPerShare) })}</Note>}
         <Note>{t('company.capital.take.boardVotes', { founder: qty(cap.voting.founderShares) })}</Note>
       </div>
       <Note>{t('company.capital.take.antitrust', { limit: Math.round(tk.antitrustLimit * 100) })}</Note>

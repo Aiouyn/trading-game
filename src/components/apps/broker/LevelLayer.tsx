@@ -1,7 +1,8 @@
 'use client';
 
 import { type PointerEvent, useRef, useState } from 'react';
-import { price as fmtPrice } from '@/game/format';
+import type { AssetClass } from '@/engine';
+import { assetPrice } from '@/game/format';
 import { t } from '@/i18n';
 import { roundPrice, type ChartLevel } from './chartLevels';
 
@@ -31,7 +32,7 @@ interface Drag { id: string; price: number | null; base: number; startP: number 
  * the pill follows the new price through the chart's own scale (toY), and the new price is committed on release. The pills
  * are the only pointer targets, so the chart under them still pans and zooms.
  */
-export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCancel, onAction }: {
+export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCancel, onAction, assetClass }: {
   placed: PlacedLevel[];
   /** the price axis's width in pixels: the pills sit just left of it */
   axisW: number;
@@ -43,6 +44,8 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
   onCommit: (level: ChartLevel, price: number) => void;
   onCancel: (level: ChartLevel) => void;
   onAction: (level: ChartLevel, key: 'addTp' | 'addSl') => void;
+  /** the asset's class: its prices are written at its own precision and dragged to its tick (R-10-3) */
+  assetClass: AssetClass;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -75,7 +78,7 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
     if (!cur || cur.id !== level.id || cur.price === null || cur.startP === null) return;
     // a press without a move is a click, not a drag: it must not move an off-tick level to the tick
     if (Math.abs(cur.price - cur.base) < 1e-9) return;
-    const next = roundPrice(cur.price);
+    const next = roundPrice(cur.price, assetClass);
     if (Math.abs(next - level.price) > 1e-9) onCommit(level, next);
   };
 
@@ -130,7 +133,7 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
             >
               <span className={`num truncate ${TEXT[level.tone]}`}>
                 {edge === 'up' ? `${ARROW_UP} ` : edge === 'down' ? `${ARROW_DOWN} ` : ''}
-                {dragging ? (level.labelAt?.(shown) ?? fmtPrice(shown)) : level.label}
+                {dragging ? (level.labelAt?.(shown) ?? assetPrice({ assetClass }, shown)) : level.label}
               </span>
               {level.actions?.map((a) => (
                 <button

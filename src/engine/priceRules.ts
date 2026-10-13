@@ -3,8 +3,8 @@
  * is written by one formatter (src/game/format.ts assetPrice) that reads these rules. Pure: no locale here.
  *
  * - Stocks, ETFs, bonds, property, commodities: 2 decimals (4 below $1, a sub-dollar share).
- * - FX: 5 decimals below 10 (1.08123, 0.66123), then one fewer per factor of ten: 149.123 (3 decimals near 100, the
- *   JPY-like convention).
+ * - FX: 5 decimals from 0.1 to 10 (1.08123, 0.66123), 6 from 0.001 (0.006670, a yen quoted in dollars), 7 below; above 10,
+ *   one fewer per factor of ten: 149.123 (3 decimals near 100, the JPY-like convention).
  * - Crypto: 2 decimals from $1 up; below $1, 4 significant digits (0.5123, 0.03420, 0.002100).
  * - Memecoins (crypto below $0.001): the DEX subscript notation, 0.0₅82 for 0.0000082: the zeros after the point counted in a
  *   subscript, then 4 significant digits (trailing zeros dropped). The tick is the last of those digits.
@@ -31,7 +31,8 @@ export function priceRule(assetClass: AssetClass, value: number): PriceRule {
   if (!(v > 0) || !Number.isFinite(v)) return { decimals: 2, tick: 0.01 };
   const mag = Math.floor(Math.log10(v));
   if (assetClass === 'forex') {
-    const d = v < 1 ? 5 : Math.max(3, 5 - mag);
+    // below a dollar: 5 decimals from 0.1 up, 6 from 0.001 (a yen-in-dollars quote 0.00667 needs them), 7 below that
+    const d = v < 1 ? (v >= 0.1 ? 5 : v >= 0.001 ? 6 : 7) : Math.max(3, 5 - mag);
     return { decimals: d, tick: Number(`1e-${d}`) };
   }
   if (assetClass === 'crypto') {

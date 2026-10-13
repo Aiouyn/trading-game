@@ -4,7 +4,7 @@ import { changeRefusal, checkOrder, engineRefusal, formatRefusalVars, parseDecim
 /** A buy of 10 shares at 100 with a 1-share cash account that can pay for it: a clean base for each rule. */
 function base(over: Partial<OrderCheck> = {}): OrderCheck {
   return {
-    side: 'buy', type: 'market', qty: 10, whole: true, mid: 100, ref: 100.05, limit: 0, stop: 0, trail: 5, tp: null, sl: null,
+    side: 'buy', type: 'market', qty: 10, mid: 100, ref: 100.05, limit: 0, stop: 0, trail: 5, tp: null, sl: null,
     cash: 5000, bp: 5000, margin: false, total: 1001, notional: 1000.5, held: 0,
     simpleCap: false, capCash: Infinity, capPct: 20, capRank: 'Hustler', locked: false, lockedTier: 'retail',
     shorting: false, opening: 10, committed: 0, canShort: true, shortOk: true, shortCollateral: 0, fee: 1, ...over,
@@ -33,11 +33,6 @@ describe('checkOrder: the first failing rule wins and sits under its field', () 
     expect(r.field).toBe('qty');
     expect(r.key).toBeUndefined();
     expect(r.cta).toBe('broker.cta.size');
-  });
-
-  it('whole shares only for a stock', () => {
-    const r = checkOrder(base({ qty: 1.5 })).refusal!;
-    expect(r).toMatchObject({ field: 'qty', key: 'broker.refuse.whole' });
   });
 
   it('a cash account refuses a buy that its fee-included total does not cover, with both numbers', () => {
@@ -164,7 +159,6 @@ describe('engineRefusal: the engine says why, under the field that caused it', (
     expect(engineRefusal('insufficient cash', 'buy', true, { cash: 12 })).toEqual({ field: 'qty', key: 'broker.refuse.cashNow', vars: { cash: 12 } });
     expect(engineRefusal('insufficient buying power', 'buy', true, { bp: 3 })).toMatchObject({ field: 'qty', key: 'broker.refuse.bpNow' });
     expect(engineRefusal('stacking', 'sell', true)).toEqual({ field: 'qty', key: 'broker.refuse.stacking' });
-    expect(engineRefusal('whole units only', 'buy', true)).toMatchObject({ field: 'qty', key: 'broker.refuse.whole' });
     expect(engineRefusal('limit price required', 'buy', true)).toMatchObject({ field: 'limit' });
     expect(engineRefusal('stop price required', 'buy', true)).toMatchObject({ field: 'stop' });
     expect(engineRefusal('bad stop-loss', 'buy', true)).toMatchObject({ field: 'sl' });

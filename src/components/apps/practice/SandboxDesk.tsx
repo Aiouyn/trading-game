@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { LessonOrderType } from '@/content/lessons';
-import { money, price, qty, signedMoney, signedPct } from '@/game/format';
+import { money, assetPrice, qty, signedMoney, signedPct } from '@/game/format';
+import { assetDefOf } from '@/game/store';
 import { t } from '@/i18n';
 import type { ActResult, SandboxCommand, SandboxView } from '@/sandbox/sandbox';
 import { Button, Card, NumberField, Segmented, Select } from '@/components/ui';
@@ -267,7 +268,7 @@ export function PracticeDesk({ sb, prefix, assets, defaultAsset, types, defaultQ
           )}
         </div>
         <p className="text-caption text-fg-faint" data-testid={`${prefix}-now`}>
-          {priceNow !== undefined ? `${t('practice.price.now')} ${price(priceNow)}` : ''}
+          {priceNow !== undefined ? `${t('practice.price.now')} ${assetPrice(assetDefOf(asset) ?? { assetClass: 'stock' }, priceNow)}` : ''}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="brass" onClick={place} disabled={busy || finished} testId={`${prefix}-place`}>{t('practice.place')}</Button>
@@ -285,7 +286,7 @@ export function PracticeDesk({ sb, prefix, assets, defaultAsset, types, defaultQ
           <div key={p.assetId} className="flex items-center justify-between gap-2 border-t border-ink-2 py-1 text-small" data-testid={`${prefix}-position-${p.assetId}`}>
             <span className="font-semibold">{p.assetId}</span>
             <span className="num text-fg-muted">{qty(p.qty)}</span>
-            <span className="num">{price(p.price)}</span>
+            <span className="num">{assetPrice(assetDefOf(p.assetId) ?? { assetClass: 'stock' }, p.price)}</span>
             <span className={`num ${p.unrealizedPnl < 0 ? 'text-loss' : 'text-gain'}`}>{signedMoney(p.unrealizedPnl)}</span>
           </div>
         ))}

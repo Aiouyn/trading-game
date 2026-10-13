@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { portfolio, type AssetClass } from '@/engine';
 import { PROPERTY_TYPE_BY_ID } from '@/content/lifestyle';
-import { compactMoney, money, pct, price, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
+import { compactMoney, money, pct, assetPrice, qty, signedMoney, signedPct, tone, toneText } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { assetDefOf, useGame } from '@/game/store';
 import type { Interval } from '@/game/history';
@@ -277,7 +277,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
                         <span className="text-fg-faint">{t(`order.${o.type}`)}{o.forced ? ` · ${t('portfolio.liquidation')}` : ''}</span>
                       </Td>
                       <Td right num>{qty(o.filledQty)}</Td>
-                      <Td right num>{o.filledQty ? price(o.avgFillPrice) : '—'}</Td>
+                      <Td right num>{o.filledQty ? assetPrice(assetDefOf(o.assetId) ?? { assetClass: 'stock' }, o.avgFillPrice) : '—'}</Td>
                       <Td right num>{money(o.feesPaid)}</Td>
                       <Td className="text-fg-muted"><span data-testid={`order-reason-${o.id}`}>{reason ? reasonLabel(reason) : '—'}</span></Td>
                       <Td className="text-fg-muted">{o.status}{o.rejectReason ? ` · ${o.rejectReason}` : ''}</Td>

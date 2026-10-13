@@ -306,17 +306,18 @@ export const DEFAULT_INDICES: IndexDef[] = [
 
 /**
  * $5,000 start. R-10-2 fee schedule, close to a real retail broker: stocks and ETFs $0.005 a share, $1 minimum, at most 1% of
- * the value (IBKR-like); crypto 0.10% taker; FX $2 per $100k (0.2 bps); bonds and commodities 2 bps. Options pay
+ * the value (IBKR-like); crypto 0.10% taker; FX $2 per $100k (0.2 bps); bonds and commodities 2 bps with no minimum (R-10-2 as
+ * ruled; a $1k bond order pays $0.20). Options pay
  * feePerContract (options.ts). The fees are a booked sink (the Street or the book takes them), never a spread.
  */
 export const DEFAULT_TRADING: TradingConfig = {
   startingCash: 5000,
   fees: {
     stock: { rate: 0, min: 1, perUnit: 0.005, max: 0.01 },
-    commodity: { rate: 0.0002, min: 1 },
+    commodity: { rate: 0.0002, min: 0 },
     crypto: { rate: 0.001, min: 0 },
     forex: { rate: 0.00002, min: 0 },
-    bond: { rate: 0.0002, min: 1 },
+    bond: { rate: 0.0002, min: 0 },
     realestate: { rate: 0.01, min: 1 },
   },
   impactY: 0.8,

@@ -2,7 +2,7 @@
 
 // Player stocks (the listed companies). Every row here is what a real company files or signals: CompanyPublic, nothing
 // else. Trade opens the Broker on the ticker. The founder's private state never reaches this file.
-import { compactMoney, money, price, qty } from '@/game/format';
+import { compactMoney, money, sharePrice, qty } from '@/game/format';
 import { t } from '@/i18n';
 import { openFromShell } from '@/components/os/openApp';
 import { Button, Card, Chip, EmptyNext } from '@/components/ui';
@@ -66,7 +66,7 @@ function StockCard({ s }: { s: ListedStock }) {
         <div className="flex items-center gap-3">
           <div className="text-right">
             <div className="label">{t('exchange.stock.price')}</div>
-            <div className="num text-title text-fg" data-testid={`exchange-stock-price-${s.ticker}`}>{price(s.price)}</div>
+            <div className="num text-title text-fg" data-testid={`exchange-stock-price-${s.ticker}`}>{sharePrice(s.price)}</div>
           </div>
           <Button variant="brass" size="sm" onClick={() => openFromShell('broker', { ticker: s.ticker })} testId={`exchange-trade-${s.ticker}`}>
             {t('exchange.stock.trade', { ticker: s.ticker })}

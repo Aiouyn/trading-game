@@ -30,11 +30,11 @@ describe('R-10-2 fee schedule: stocks $0.005 a share, $1 minimum, 1% maximum; cr
     expect(commission(s, stock, 10_000, 2000)).toBeCloseTo(10, 9); // 2,000 x $0.005 = $10 (0.1% of $10k)
     expect(commission(s, stock, 1000, 1e6)).toBeCloseTo(10, 9); // 5,000 raw, capped at 1% of $1,000
   });
-  it('crypto 0.10% of notional, FX $2 per $100k, bonds and commodities 2 bps (their minimum holds)', () => {
+  it('crypto 0.10% of notional, FX $2 per $100k, bonds and commodities 2 bps (no minimum, as ruled)', () => {
     expect(commission(s, def('AUC'), 100_000, 2.5)).toBeCloseTo(100, 9);
     expect(commission(s, def('MRE'), 100_000, 90_000)).toBeCloseTo(2, 9);
     expect(commission(s, def('AV10'), 50_000, 5000)).toBeCloseTo(10, 9);
-    expect(commission(s, def('AV10'), 1000, 100)).toBeCloseTo(1, 9); // 2 bps is $0.20, the $1 minimum applies
+    expect(commission(s, def('AV10'), 1000, 100)).toBeCloseTo(0.2, 9); // 2 bps of $1,000 is $0.20: no minimum on bonds
   });
 });
 

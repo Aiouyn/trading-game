@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { useLocale } from '@/i18n';
 import { clockLabel, clockParts, dayIndex } from './clock';
-import { compactMoney, money, price, signedChange, signedMoney, signedPct } from './format';
+import { assetPrice, compactMoney, money, signedChange, signedMoney, signedPct } from './format';
 import { barTimeLabel, barsFor, createHistory, dayOpen, ensureVolume, record, sparkline } from './history';
 
 const M = '\u2212';
@@ -15,8 +15,8 @@ describe('format', () => {
     expect(signedMoney(0.001)).toBe('$0.00');
     expect(signedPct(0.0274)).toBe('+2.74%');
     expect(signedPct(-0.0105)).toBe(`${M}1.05%`);
-    expect(price(41000)).toBe('41,000.00');
-    expect(price(0.034)).toBe('0.0340');
+    expect(assetPrice({ assetClass: 'stock' }, 41000)).toBe('41,000.00');
+    expect(assetPrice({ assetClass: 'stock' }, 0.034)).toBe('0.0340');
     expect(compactMoney(5000)).toBe('$5k');
     expect(compactMoney(20000)).toBe('$20k');
     expect(compactMoney(1_400_000)).toBe('$1.4M');

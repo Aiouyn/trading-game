@@ -1,7 +1,7 @@
 // The chart's lines for a position and its orders (spec 1.3): the average-cost line with its P&L, the take-profit and
 // stop-loss legs, the working orders and the viewer's alerts. Pure functions only: the price and pixel helpers, the P&L
 // math and the builder that turns the account into lines. The chart draws them (PriceChart, ChartLevels).
-import type { Order, OrderType, Side } from '@/engine';
+import { priceRule, type AssetClass, type Order, type OrderType, type Side } from '@/engine';
 
 /** The chart's view of its price scale: a price to a pixel row and back (lightweight-charts' series does both). */
 export interface PriceScale {
@@ -9,9 +9,12 @@ export interface PriceScale {
   yToPrice(y: number): number | null;
 }
 
-/** The tick a price is typed and dragged to: cents at a dollar and up, four decimals below (as the quote shows them). */
-export function roundPrice(p: number): number {
-  const d = p >= 1 ? 2 : 4;
+/**
+ * The tick a price is typed and dragged to: the asset's own precision (R-10-3), so a EURUSD level is 1.08123 and a memecoin
+ * level keeps its digits. Stocks take cents from a dollar up and four decimals below.
+ */
+export function roundPrice(p: number, assetClass: AssetClass = 'stock'): number {
+  const d = priceRule(assetClass, p).decimals;
   return Math.round(p * 10 ** d) / 10 ** d;
 }
 
@@ -23,10 +26,10 @@ export function yOfPrice(scale: PriceScale, price: number): number | null {
 }
 
 /** The price under a pixel row, rounded to the tick; null when the row is off the scale or does not give a positive price. */
-export function priceOfY(scale: PriceScale, y: number): number | null {
+export function priceOfY(scale: PriceScale, y: number, assetClass: AssetClass = 'stock'): number | null {
   const p = scale.yToPrice(y);
   if (p === null || !Number.isFinite(p) || p <= 0) return null;
-  return roundPrice(p);
+  return roundPrice(p, assetClass);
 }
 
 /**
@@ -106,12 +109,12 @@ export function priceSideRefusal(o: { side: Side; type: OrderType }, leg: 'tp' |
  * The price a new take-profit (+TP) or stop-loss (+SL) starts at, before it is dragged: 5% up or 3% down for a long, mirrored
  * for a short. When the price has already passed that level (it would fire at once), the leg starts 1% beyond the price.
  */
-export function defaultExitPrice(kind: 'tp' | 'sl', qty: number, avgCost: number, mid = 0): number {
+export function defaultExitPrice(kind: 'tp' | 'sl', qty: number, avgCost: number, mid = 0, assetClass: AssetClass = 'stock'): number {
   const long = qty > 0;
   const k = kind === 'tp' ? (long ? 1.05 : 0.95) : (long ? 0.97 : 1.03);
-  const at = roundPrice(avgCost * k);
+  const at = roundPrice(avgCost * k, assetClass);
   if (priceSideRefusal({ side: long ? 'sell' : 'buy', type: kind === 'tp' ? 'limit' : 'stop' }, kind, at, mid)) {
-    return roundPrice(mid * (kind === 'tp' ? (long ? 1.01 : 0.99) : (long ? 0.99 : 1.01)));
+    return roundPrice(mid * (kind === 'tp' ? (long ? 1.01 : 0.99) : (long ? 0.99 : 1.01)), assetClass);
   }
   return at;
 }

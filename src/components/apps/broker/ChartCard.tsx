@@ -1,10 +1,10 @@
 'use client';
 
-import { earningsInfo, estimateFill, liquidationPrice, REGIONS, type OrderType, type Side } from '@/engine';
+import { earningsInfo, estimateFill, liquidationPrice, REGIONS, type AssetClass, type OrderType, type Side } from '@/engine';
 import { sectorLabel } from '@/game/sectorLabel';
 import { CHART_RANGES, INTERVALS, candleRealSeconds, intervalsFor, type ChartRange, type Interval } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
-import { assetPrice, fmtNumber, money, pctUnit, price, qty as fmtQty, signedChange, signedMoney, signedPct, tone, toneText, dec } from '@/game/format';
+import { assetPrice, fmtNumber, money, pctUnit, qty as fmtQty, signedChange, signedMoney, signedPct, tone, toneText, dec } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { type MouseEvent, useEffect, useState } from 'react';
@@ -27,14 +27,14 @@ const ORDER_LABEL: Record<OrderType, string> = {
 };
 
 /** The text of the chart's lines (spec 1.3): the pills of the average line, the take-profit and stop-loss, orders and alerts. */
-function levelFormat(): LevelFormat {
+function levelFormat(fmtP: (n: number) => string): LevelFormat {
   return {
-    avg: (p, usd, pct) => t('broker.level.avg', { price: price(p), usd: signedMoney(usd), pct: signedPct(pct) }),
-    exit: (k, p, usd, pct) => t(k === 'tp' ? 'broker.level.tp' : 'broker.level.sl', { price: price(p), usd: signedMoney(usd), pct: signedPct(pct) }),
+    avg: (p, usd, pct) => t('broker.level.avg', { price: fmtP(p), usd: signedMoney(usd), pct: signedPct(pct) }),
+    exit: (k, p, usd, pct) => t(k === 'tp' ? 'broker.level.tp' : 'broker.level.sl', { price: fmtP(p), usd: signedMoney(usd), pct: signedPct(pct) }),
     order: (side, type, p, q) => t('broker.level.order', {
-      side: t(side === 'buy' ? 'common.buy' : 'common.sell'), type: t(ORDER_LABEL[type]), price: price(p), qty: fmtQty(q),
+      side: t(side === 'buy' ? 'common.buy' : 'common.sell'), type: t(ORDER_LABEL[type]), price: fmtP(p), qty: fmtQty(q),
     }),
-    alert: (p) => t('broker.level.alert', { price: price(p) }),
+    alert: (p) => t('broker.level.alert', { price: fmtP(p) }),
     addTp: t('broker.level.addTp'),
     addSl: t('broker.level.addSl'),
   };
@@ -70,7 +70,8 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const playerId = useGame((s) => s.playerId);
   const info = seriesInfo(world, ticker, rankId);
   /** the chart's prices in the asset's own precision (R-10-3), the one formatter the ticket uses */
-  const fmtP = (n: number) => assetPrice({ assetClass: info.cls === 'index' ? 'stock' : info.cls }, n);
+  const acls: AssetClass = info.cls === 'index' ? 'stock' : info.cls;
+  const fmtP = (n: number) => assetPrice({ assetClass: acls }, n);
   // the engine's own margin trigger for a held margin or short position (null when none applies): the chart draws it
   const liq = !isIndex(info.id) && world && playerId ? liquidationPrice(world, playerId, info.id) : null;
   const marks = liq === null ? [] : [{ price: liq, title: t('broker.liquidation') }];
@@ -83,12 +84,12 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const canShort = useGame((s) => s.me?.account?.canShort ?? false);
   const heldQty = pos?.qty ?? 0;
   // the cash the closing order would move now (a sell's proceeds, or a cover's cost), so the average line's P&L is what closing books
-  const closeTotal = world && heldQty !== 0 && !isIndex(info.id) ? estimateFill(world, { assetId: info.id, side: heldQty > 0 ? 'sell' : 'buy', qty: Math.abs(heldQty) }).total : 0;
+  const closeTotal = world && heldQty !== 0 && !isIndex(info.id) ? estimateFill(world, { assetId: info.id, side: heldQty > 0 ? 'sell' : 'buy', qty: Math.abs(heldQty), playerId: playerId ?? undefined }).total : 0;
   const levels = buildLevels({
     qty: heldQty, avgCost: pos?.avgCost ?? 0, closeTotal,
     orders: (orders ?? []).filter((o) => o.assetId === info.id && o.status === 'open'),
     alerts: alerts.filter((a) => a.assetId === info.id).map((a) => ({ id: a.id, price: a.price, dir: a.dir })),
-    fmt: levelFormat(),
+    fmt: levelFormat(fmtP),
   });
   // Dragging a working order's line modifies that order: a stop moves its stop price, any other order its limit (spec 1.3).
   // A leg or stop that would sit on the wrong side of the mid is refused before it is sent (it would fire at once); the
@@ -102,7 +103,7 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
     if (why) { refusedToast(why.key, why.vars); return; }
     const patch = o.type === 'stop' || o.type === 'stop_limit' ? { stopPrice: p } : { limitPrice: p };
     const r = await act({ type: 'order.modify', orderId: o.id, ...patch }, { silent: true });
-    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.moved', { price: price(p) }) });
+    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.moved', { price: fmtP(p) }) });
     else { const c = changeRefusal(r.error ?? '', o.side, canShort); refusedToast(c.key, c.vars); }
   };
   const cancelLevel = async (l: ChartLevel) => {
@@ -117,14 +118,14 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const addLeg = async (_l: ChartLevel, key: 'addTp' | 'addSl') => {
     if (!pos || pos.qty === 0) return;
     const kind = key === 'addTp' ? 'tp' : 'sl';
-    const p = defaultExitPrice(kind, pos.qty, pos.avgCost, info.price);
+    const p = defaultExitPrice(kind, pos.qty, pos.avgCost, info.price, acls);
     const type: OrderType = kind === 'tp' ? 'limit' : 'stop';
     const side: Side = pos.qty > 0 ? 'sell' : 'buy';
     const r = await act({
       type: 'order.place',
       order: { assetId: info.id, side, type, qty: Math.abs(pos.qty), reduceOnly: true, tif: 'gtc', ...(kind === 'tp' ? { limitPrice: p } : { stopPrice: p }) },
     }, { silent: true });
-    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.placed', { price: price(p) }) });
+    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.placed', { price: fmtP(p) }) });
     else { const c = changeRefusal(r.error ?? '', side, canShort); refusedToast(c.key, c.vars); }
   };
   // The chart menu: a buy limit or sell stop fills the ticket at that price for the player to send (it never sends itself);
@@ -132,7 +133,7 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const menuPick = (kind: 'buyLimit' | 'sellStop' | 'alert', p: number) => {
     if (kind === 'alert') {
       useAlerts.getState().add({ assetId: info.id, price: p, dir: alertDir(p, info.price) });
-      useGame.getState().toast({ tone: 'info', text: t('broker.alert.set', { ticker: info.id, price: price(p) }) });
+      useGame.getState().toast({ tone: 'info', text: t('broker.alert.set', { ticker: info.id, price: fmtP(p) }) });
       return;
     }
     const g = useGame.getState();
@@ -147,9 +148,9 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
     for (const a of st.alerts) {
       if (a.assetId !== info.id || !alertFired(a, info.price)) continue;
       st.remove(a.id);
-      useGame.getState().toast({ tone: 'info', text: t('broker.alert.fired', { ticker: a.assetId, price: price(a.price) }) });
+      useGame.getState().toast({ tone: 'info', text: t('broker.alert.fired', { ticker: a.assetId, price: assetPrice({ assetClass: acls }, a.price) }) });
     }
-  }, [info.price, info.id]);
+  }, [info.price, info.id, acls]);
   // the side the line sits off the visible range, or null when it is drawn on the chart
   const [offSide, setOffSide] = useState<'above' | 'below' | null>(null);
   const [percent, setPercent] = useState(false);
@@ -210,8 +211,8 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
             {info.locked && <Chip className="border-steel/60 text-steel"><LockGlyph size={12} /> {t('broker.proLicense')}</Chip>}
           </div>
           <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3">
-            <Flash value={info.price} className="num text-price text-fg"><span data-testid="chart-price">{price(info.price)}</span></Flash>
-            <span className={`num text-small ${toneCls}`}>{signedChange(info.change, info.price)} ({signedPct(info.changePct)})</span>
+            <Flash value={info.price} className="num text-price text-fg"><span data-testid="chart-price">{fmtP(info.price)}</span></Flash>
+            <span className={`num text-small ${toneCls}`}>{signedChange(info.change, info.price, acls)} ({signedPct(info.changePct)})</span>
             <span className="text-caption text-fg-faint">{t('broker.todayPct')}</span>
           </div>
           {day && !narrow && (
@@ -260,7 +261,7 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
           {t(offSide === 'above' ? 'broker.liquidationOff.above' : 'broker.liquidationOff.below', { price: money(liq), pct: distancePct(liq, info.price) })}
         </p>
       )}
-      {liq !== null && offSide === null && <p className="px-3 pb-1 text-caption text-fg-faint" data-testid="liquidation-note">{t('broker.liquidationNote', { price: price(liq) })}</p>}
+      {liq !== null && offSide === null && <p className="px-3 pb-1 text-caption text-fg-faint" data-testid="liquidation-note">{t('broker.liquidationNote', { price: fmtP(liq) })}</p>}
     </section>
   );
 }

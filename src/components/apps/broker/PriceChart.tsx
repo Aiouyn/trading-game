@@ -6,10 +6,11 @@ import {
   type AutoscaleInfoProvider, type CandlestickData, type HandleScaleOptions, type IChartApi, type IPriceLine, type ISeriesApi, type LineData,
   type MouseEventParams, type Time, type UTCTimestamp,
 } from 'lightweight-charts';
-import { useGame } from '@/game/store';
+import { assetDefOf, useGame } from '@/game/store';
 import { axisTimeLabel, barTimeLabel, barsFor, rangeIsIntraday, type Bar, type ChartRange, type Interval } from '@/game/history';
 import { INDICATORS, bollinger, ema, latestValues, rsi, sma, vwap, type IndicatorId } from '@/game/indicators';
-import { price as fmtPrice, signedPct, dec } from '@/game/format';
+import { assetPrice, dec, signedPct } from '@/game/format';
+import { priceRule, type AssetClass } from '@/engine';
 import { t } from '@/i18n';
 import { type ChartLevel, type PriceScale, priceOfY, roundPrice, wheelZoomRange, yOfPrice } from './chartLevels';
 import { LevelLayer } from './LevelLayer';
@@ -185,6 +186,11 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   const bandFrom = eventBand?.sinceTick ?? null;
   const daily = interval === '1D' || !rangeIsIntraday(range);
   const tpd = useGame((s) => s.history.ticksPerDay);
+  // the asset's class sets its price precision and tick (R-10-3); an index or the net-worth series is priced as a stock
+  const assetCls: AssetClass = assetDefOf(assetId)?.assetClass ?? 'stock';
+  const fmtAsset = (v: number) => assetPrice({ assetClass: assetCls }, v);
+  // the axis's format inputs: the class, the percent toggle and the last price (its tick is the price's own)
+  const axis = useRef({ cls: assetCls, percent: false, px: 0 });
 
   // the event window: from the first bar at or after the onset to the right edge; it follows zoom and scroll
   useEffect(() => {
@@ -214,7 +220,6 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       rightPriceScale: { borderVisible: false, scaleMargins: PRICE_MARGINS },
       timeScale: { borderVisible: false, rightOffset: 4, timeVisible: true, secondsVisible: false },
       crosshair: { mode: CrosshairMode.Normal, vertLine: { color: p.cross, labelBackgroundColor: p.grid }, horzLine: { color: p.cross, labelBackgroundColor: p.grid } },
-      localization: { priceFormatter: (v: number) => fmtPrice(v) },
       handleScale: { ...SCALE_GESTURES },
     });
     const floor = spanFloor();
@@ -298,13 +303,25 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   }, []);
 
   // the percent axis: the scale shows change from the first visible value, and the labels carry a %
+  // The axis labels, the crosshair label and the series' price format follow the asset's own precision and tick (R-10-3), and
+  // a percent axis reads 2 decimals. Called after the data (the tick is the price's own) and on a change of asset or percent.
+  const applyAxis = () => {
+    const c = chart.current;
+    if (!c) return;
+    const a = axis.current;
+    const formatter = (v: number) => (a.percent ? `${dec(v, 2)}%` : assetPrice({ assetClass: a.cls }, v));
+    const priceFormat = { type: 'custom' as const, formatter, minMove: a.percent ? 0.01 : priceRule(a.cls, a.px).tick };
+    c.applyOptions({ localization: { priceFormatter: formatter } });
+    for (const s of [candleS.current, lineS.current, areaS.current]) s?.applyOptions({ priceFormat });
+  };
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
+    axis.current = { ...axis.current, cls: assetCls, percent };
     c.priceScale('right').applyOptions({ mode: percent ? PriceScaleMode.Percentage : PriceScaleMode.Normal });
-    c.applyOptions({ localization: { priceFormatter: (v: number) => (percent ? `${dec(v, 2)}%` : fmtPrice(v)) } });
+    applyAxis();
     probe.current();
-  }, [percent]);
+  }, [percent, assetCls]);
 
   // the crosshair readout: the candle under the pointer, and its change against the range's first open
   useEffect(() => {
@@ -391,6 +408,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     if (series) {
       const key = `series|${testId}|${series.length > 0 ? series[0]!.time : 0}`;
       const pts = series.map((x) => ({ time: toTime(x.time), value: x.value }));
+      if (pts.length) { axis.current = { ...axis.current, cls: assetCls, px: pts[pts.length - 1]!.value }; applyAxis(); }
       if (key !== last.current.key || Math.abs(series.length - last.current.len) > 1) {
         as.setData(pts);
         ls.setData(pts);
@@ -407,6 +425,8 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     const bars: Bar[] = barsFor(h, assetId, interval, range);
     if (bars.length === 0) return;
     baseOpen.current = bars[0]!.open;
+    axis.current = { ...axis.current, cls: assetCls, px: bars[bars.length - 1]!.close };
+    applyAxis();
     const vs = volS.current;
     const hasVolume = bars[bars.length - 1]!.volume !== undefined;
     const volPoint = (b: Bar) => ({ time: toTime(b.time), value: b.volume ?? 0, color: b.close >= b.open ? volColors.current.up : volColors.current.down });
@@ -449,8 +469,8 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     // the legend shows the latest value of each active indicator
     const ids = (Object.keys(indicators) as IndicatorId[]).filter((id) => indicators[id] && studies);
     const vals = latestValues(bars, ids, h.ticksPerDay);
-    setLegend(ids.map((id) => ({ id, label: INDICATORS.find((i) => i.id === id)?.label ?? id, value: legendText(id, vals[id]) })));
-  }, [assetId, interval, range, rev, loaded, series, testId, indicators, studies]);
+    setLegend(ids.map((id) => ({ id, label: INDICATORS.find((i) => i.id === id)?.label ?? id, value: legendText(id, vals[id], assetCls) })));
+  }, [assetId, assetCls, interval, range, rev, loaded, series, testId, indicators, studies]);
 
   // The marks are redrawn when their text or prices change (keyed by value, so a caller need not memoize them). The palette
   // loss colour reads the chart host.
@@ -478,7 +498,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   /** the price under a pixel row of the chart, rounded to the tick; null off the scale */
   const toPrice = (y: number): number | null => {
     const s = activeSeries();
-    return s ? priceOfY(scaleOf(s), y) : null;
+    return s ? priceOfY(scaleOf(s), y, assetCls) : null;
   };
   // each line's row, the axis width and the plot height: set only when one of them moved
   const placeOverlay = () => {
@@ -554,9 +574,9 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
             <div className="num text-micro text-fg-muted" data-testid="chart-readout">
               <span className="text-fg-faint">{barTimeLabel(readout.time, tpd, daily)}</span>
               {readout.o !== undefined && readout.h !== undefined && readout.l !== undefined && (
-                <span className="ml-2">{t('broker.ohlc.open')} {fmtPrice(readout.o)} {t('broker.ohlc.high')} {fmtPrice(readout.h)} {t('broker.ohlc.low')} {fmtPrice(readout.l)}</span>
+                <span className="ml-2">{t('broker.ohlc.open')} {fmtAsset(readout.o)} {t('broker.ohlc.high')} {fmtAsset(readout.h)} {t('broker.ohlc.low')} {fmtAsset(readout.l)}</span>
               )}
-              <span className="ml-2 text-fg">{t('broker.ohlc.close')} {fmtPrice(readout.c)}</span>
+              <span className="ml-2 text-fg">{t('broker.ohlc.close')} {fmtAsset(readout.c)}</span>
               <span className={`ml-2 ${readout.change >= 0 ? 'text-gain' : 'text-loss'}`} data-testid="chart-readout-change">{signedPct(readout.change)}</span>
             </div>
           )}
@@ -589,6 +609,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
           axisW={placed.axisW}
           height={placed.h}
           toPrice={toPrice}
+          assetClass={assetCls}
           toY={(p) => { const s = activeSeries(); return s ? yOfPrice(scaleOf(s), p) : null; }}
           onCommit={(l, p) => onLevelCommit?.(l, p)}
           onCancel={(l) => onLevelCancel?.(l)}
@@ -607,10 +628,10 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
               <li key={p.kind} role="none">
                 <button
                   type="button" role="menuitem" data-testid={`menu-${p.kind}`}
-                  onClick={() => { const at = roundPrice(menu.price); setMenu(null); onMenuPick(p.kind, at); }}
+                  onClick={() => { const at = roundPrice(menu.price, assetCls); setMenu(null); onMenuPick(p.kind, at); }}
                   className="w-full rounded-sm px-2 py-1.5 text-left text-small text-fg-muted hover:bg-ink-2 hover:text-fg"
                 >
-                  {t(p.key, { price: fmtPrice(roundPrice(menu.price)) })}
+                  {t(p.key, { price: fmtAsset(roundPrice(menu.price, assetCls)) })}
                 </button>
               </li>
             ))}
@@ -622,11 +643,12 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
 }
 
 /** The text a legend row shows for an indicator's latest value. */
-function legendText(id: IndicatorId, v: number[] | undefined): string {
+function legendText(id: IndicatorId, v: number[] | undefined, assetClass: AssetClass): string {
   if (!v || v.length === 0) return '–';
-  if (id === 'bb') return `${fmtPrice(v[0]!)} / ${fmtPrice(v[1] ?? v[0]!)}`;
+  const fmt = (x: number) => assetPrice({ assetClass }, x);
+  if (id === 'bb') return `${fmt(v[0]!)} / ${fmt(v[1] ?? v[0]!)}`;
   if (id === 'rsi') return dec(v[0]!, 1);
-  return fmtPrice(v[0]!);
+  return fmt(v[0]!);
 }
 
 export type { IndicatorId };

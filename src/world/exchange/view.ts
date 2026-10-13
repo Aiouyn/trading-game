@@ -82,6 +82,8 @@ export interface FundHolding {
 /** The manager's console: the fund's private state. Built only for the fund's manager. */
 export interface ManagedFund {
   id: string;
+  /** the fund's own market account: its trades fill there, so its ticket preview prices there too (R-10-1) */
+  accountId: string;
   name: string;
   status: FundStatus;
   createdTick: number;
@@ -303,6 +305,7 @@ export function managedView(g: GameState, pid: string): ManagedFund | null {
     : [];
   return {
     id: f.id,
+    accountId: f.accountId,
     name: f.name,
     status: f.status,
     createdTick: f.createdTick,
