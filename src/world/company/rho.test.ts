@@ -3,6 +3,7 @@ import { advanceTo, founded, listedWorld, stepEngineTo } from './b1fixture';
 import { quantile, rhoOfListedSeed, type RhoRow } from './rho';
 import { surprise } from './valuation';
 import { today } from '../core';
+import { companyEnvOf } from './bridge';
 
 /**
  * O-2 (V1-PHASE9 9C): the residual surprise s is wired into the filing path, and the rho check (rho_residual) runs on the engine
@@ -45,6 +46,18 @@ describe('O-2: the residual surprise s is computed at the filing (Quant 6.2)', (
     for (const b of bars) expect(Number.isFinite(b.c) && b.c > 0).toBe(true);
   });
 
+  it('mcap_20 is the mean of the 20 bars ending at the close: the close bar sits at index len - lag (bridge.ts)', () => {
+    const { g, c, assetId } = listedWorld('rho-mcap-1', { engine: true });
+    stepEngineTo(g, today(g) + 30);
+    const bars = g.market.assets.find((a) => a.id === assetId)?.bars ?? [];
+    const lag = 3;
+    const closeIdx = bars.length - lag;
+    const window = bars.slice(closeIdx - 19, closeIdx + 1);
+    expect(window.length).toBe(20);
+    const want = (window.reduce((x, b) => x + b.c, 0) / 20) * c.listed!.sharesOut;
+    expect(companyEnvOf(g).mcap20!(c.id, lag)).toBeCloseTo(want, 6);
+  });
+
   it('a private company has no consensus, so its filings carry no surprise', () => {
     const { g, c } = founded('rho-private-1');
     advanceTo(g, 200);
@@ -85,7 +98,7 @@ describe('rho_residual (G22, Quant 6.2 (c)): median <= 0.15 and p90 <= 0.25 over
     }
   });
 
-  it.fails('rho gate: median rho <= 0.15 and p90 <= 0.25 over the 3 seeds (expected failure, measured FAIL in 9C.2)', () => {
+  it.fails('rho gate: median rho <= 0.15 and p90 <= 0.25 over the 3 seeds (R-9-11: known V1 limit, owner Quant, post-V1; measured FAIL in 9C.2)', () => {
     const rhos = rows.map((r) => r.rho);
     expect(quantile(rhos, 0.5)).toBeLessThanOrEqual(0.15);
     expect(quantile(rhos, 0.9)).toBeLessThanOrEqual(0.25);

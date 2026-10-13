@@ -81,12 +81,16 @@ export function companyEnvOf(g: GameState): CompanyEnv {
       if (!c?.listed || c.shares <= 0) return 0;
       return Math.max(0, g.market.accounts[pid]?.positions[c.listed.assetId]?.qty ?? 0) / c.shares;
     },
-    /** O-2: mcap_20 for the surprise denominator: the 20 closed bars ending `lag` days before now, times the shares out */
+    /**
+     * O-2: mcap_20 for the surprise denominator: the 20 closed bars ending at the close, times the shares out. The engine
+     * pushes a day's bar at the next day's start (sim.ts), so at `lag` days after the close the last bar is the day before
+     * now and the close's own bar sits at index len - lag. The window therefore ends at that bar, inclusive.
+     */
     mcap20: (companyId, lag) => {
       const c = g.companies?.companies[companyId];
       if (!c?.listed) return undefined;
       const bars = g.market.assets.find((a) => a.id === c.listed!.assetId)?.bars ?? [];
-      const end = bars.length - lag;
+      const end = Math.min(bars.length, bars.length - lag + 1);
       const window = bars.slice(Math.max(0, end - 20), Math.max(0, end));
       if (window.length === 0) return undefined;
       return (window.reduce((s, b) => s + b.c, 0) / window.length) * c.listed.sharesOut;
