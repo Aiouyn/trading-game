@@ -516,6 +516,22 @@ The `no-leak` check: a panel reply's `data` (the public boards and directory) is
 
 **Not done.** (1) A global or per-panel limit on `panel` replies (deviation 4). (2) Blanking a panel while its read is pending (deviation 3). (3) Readers in the gate: the gate stays as ruled, and the reader probes are reported beside it.
 
+### 9C.1c Auction bid spec on the shared world (track 9C, branch `p9/i`)
+
+**Verdict.** Not a product regression. The failure is in the spec's assumption about the shared e2e world, and it predates R-9-12: it fails the same way on `57b01be`. Fixed in the test (`b0d29ed`); no product code changed.
+
+**Reproduction (projects `close-auction` and `close-auction-phone`, `--no-deps --workers=1`, a fresh world).** On `daea911` the desktop passes and the phone fails at line 63: Expected 2246, Received 2261. On `57b01be` the same run fails the same way: Expected 2241, Received 2256. Both are +15 ticks, the length of the desktop test. So a bisect over this configuration has no signal: both ends are bad. A chain run of the desktop close projects up to this spec (`close-card` to `close-auction`) passes the auction spec on `daea911` (16.2 s).
+
+**Cause.** The admin seam opens the current week's lots for every player, and the desktop project runs first in the shared world. Its open at tick T_d sets each lot without a bid to end at T_d + 22. The phone page loads after that, so its first status poll reads `open` from the desktop's open, before the phone's own open reaches the page. The spec then reads `before = lot.endTick` = T_d + 22 (2222). The phone's own open at T_p moves the end to T_p + 22, and the bid extends it by 24 to T_p + 46. The spec expects before + 24 = T_d + 46, so the gap is T_p - T_d = 15, the length of the desktop test. The page reads the seam's open on its next tick (one second in the e2e world) by design; only the spec's status-only wait assumed a fresh world.
+
+**Fix.** `openAuctions()` (`tests/e2e/helpers.ts`) resolves to the seam's answer (week, open tick, end tick). The spec waits until the page's lot shows that end tick, then until its status is `open`, and only then reads `before`. Lots without a bid take the seam's end tick, so the wait holds for both projects.
+
+**Runs (after the fix, `close-auction` and `close-auction-phone`, three invocations, each with its own fresh world).** Desktop 3 of 3, phone 3 of 3.
+
+**Other specs on the same data (`desktop` and `phone`, `--no-deps --workers=1`).** `sixd`, `sixdAuction`, `sixdHome` pass. `no-leak` L3 and L4 failed once on the first run (desktop; the phone passed in the same run), and passed 6 of 6 on a repeat (`--repeat-each=3` on both projects). The failing frame was a tick that carried player A's id outside `pub` and `directory`: public wire milestones (`wire` items with `playerId`) and `rankUps` carry the id by design, and the test excludes only `pub` and `directory`. The likely cause is timing: A's rank-up landed in a tick that B had already joined. Not changed here; a follow-up can exclude the public `wire` and `rankUps` records explicitly, or keep A's rank-up before B connects.
+
+**Not reproduced.** The full-run desktop failure (the input never appeared after a status `open` read) did not reproduce. The lot is 22 ticks (22 s in the e2e world) from the open, so a slow step between the open and the bid can close it; this fix does not change that window. Only this spec opens auctions, so no earlier spec in the full run leaves an open week behind for it.
+
 ### 9C.2 O-2: the residual surprise s and the rho gate (engine path, R-9-11)
 
 **Wiring (done).** A filing of a company with a consensus carries its residual surprise (`FilingPublic.surprise = { s, d, margin }`, optional):
