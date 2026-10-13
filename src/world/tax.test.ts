@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_TAX_BRACKETS, TAX_RATE_MAX, TAX_SHIFT_MAX, parseTaxBrackets } from '@/content/tax';
 import { bracketOf, rateOf, stabilizerTaxShift, taxOf } from './tax';
 
-// R-9-10: the progressive business tax rules (pure). The default brackets: 0% to $250k, 10% to $2.5M, 20% to $25M,
-// 30% to $250M, 40% above; the stabilizer's shift moves every rate by at most 5 points and keeps each within [0, 0.45].
+// R-9-10: the progressive business tax rules (pure). The default brackets: 0% to $250k, 10% to $2.5M, 25% to $25M,
+// 35% to $250M, 45% above (set B); the stabilizer's shift moves every rate by at most 5 points and keeps each within [0, 0.45].
 
 const B = DEFAULT_TAX_BRACKETS;
 
@@ -29,9 +29,9 @@ describe('rateOf: the bracket rate, shifted by the stabilizer and clamped', () =
   it('is the bracket rate with no shift', () => {
     expect(rateOf(0, 0, B)).toBe(0);
     expect(rateOf(300_000, 0, B)).toBe(0.1);
-    expect(rateOf(3_000_000, 0, B)).toBe(0.2);
-    expect(rateOf(30_000_000, 0, B)).toBe(0.3);
-    expect(rateOf(300_000_000, 0, B)).toBe(0.4);
+    expect(rateOf(3_000_000, 0, B)).toBe(0.25);
+    expect(rateOf(30_000_000, 0, B)).toBe(0.35);
+    expect(rateOf(300_000_000, 0, B)).toBe(0.45);
   });
 
   it('shifts every bracket by the same amount, clamped to plus or minus 5 points', () => {
@@ -43,8 +43,8 @@ describe('rateOf: the bracket rate, shifted by the stabilizer and clamped', () =
   });
 
   it('keeps every rate within [0, 0.45], so the top bracket cannot pass 45% and no bracket goes below zero', () => {
-    expect(rateOf(300_000_000, 0.05, B)).toBe(TAX_RATE_MAX); // 40% + 5 points
-    expect(rateOf(300_000_000, -0.05, B)).toBeCloseTo(0.35, 12);
+    expect(rateOf(300_000_000, 0.05, B)).toBe(TAX_RATE_MAX); // 45% + 5 points, clamped to 45%
+    expect(rateOf(300_000_000, -0.05, B)).toBeCloseTo(0.4, 12);
     expect(rateOf(0, -0.05, B)).toBe(0); // 0% - 5 points is still 0%
     expect(rateOf(0, 0.05, B)).toBeCloseTo(0.05, 12);
   });
@@ -53,7 +53,7 @@ describe('rateOf: the bracket rate, shifted by the stabilizer and clamped', () =
 describe('taxOf: the day tax on one business', () => {
   it('taxes a positive net at the owner bracket, to the cent', () => {
     expect(taxOf(1000, 300_000, 0, B)).toBe(100);
-    expect(taxOf(1000, 3_000_000, 0, B)).toBe(200);
+    expect(taxOf(1000, 3_000_000, 0, B)).toBe(250);
     expect(taxOf(333.335, 300_000, 0, B)).toBe(33.33);
   });
 

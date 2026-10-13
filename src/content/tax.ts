@@ -4,7 +4,7 @@
  * owed and net gifts received, R-9-4). Losses are not taxed and earn no credit. Pure rules live in src/world/tax.ts.
  *
  * Tuning without a code edit: the env var TAX_BRACKETS, a JSON array of [threshold, rate] pairs, replaces the brackets at
- * startup, e.g. TAX_BRACKETS='[[0,0],[250000,0.1],[2500000,0.2],[25000000,0.3],[250000000,0.4]]'. The first threshold is 0,
+ * startup (the comment above names the default), e.g. TAX_BRACKETS='[[0,0],[250000,0.1],[2500000,0.2],[25000000,0.3],[250000000,0.4]]'. The first threshold is 0,
  * thresholds ascend, and each rate is in [0, TAX_RATE_MAX]. An invalid value throws at startup (it never falls back silently).
  * The browser build has no env, so it always uses the defaults; only the server and the balance scripts read the env.
  */
@@ -12,13 +12,13 @@
 /** [rank-basis threshold in dollars, marginal rate of the bracket] */
 export type TaxBracket = readonly [threshold: number, rate: number];
 
-/** Starting brackets (tunable, R-9-10): 0% up to $250k, 10% to $2.5M, 20% to $25M, 30% to $250M, 40% above. */
+/** Brackets (R-9-10, tuned on the 504-day wealth bot, set B, confirmed on held-out seeds): 0% up to $250k, 10% to $2.5M, 25% to $25M, 35% to $250M, 45% above. The owner group basis is social.ts taxBasisOf. */
 export const DEFAULT_TAX_BRACKETS: readonly TaxBracket[] = [
   [0, 0],
   [250_000, 0.1],
-  [2_500_000, 0.2],
-  [25_000_000, 0.3],
-  [250_000_000, 0.4],
+  [2_500_000, 0.25],
+  [25_000_000, 0.35],
+  [250_000_000, 0.45],
 ];
 
 /** The highest rate any bracket can reach, after the stabilizer's shift (01 §8.2: the top bracket is 25 to 45%). */

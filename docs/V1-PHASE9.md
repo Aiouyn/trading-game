@@ -330,6 +330,44 @@ Caveats, recorded as V1 limits:
 - The displayed rate is rounded to a whole percent, so a stabilizer shift of 0.4 points reads as the same bracket.
 - Tuning knob: `TAX_BRACKETS` (JSON `[[threshold, rate], ...]`, validated at startup), documented in the header of `scripts/balance/wealth.ts`.
 
+#### 9B.4d Bracket tuning on the VM and the held-out confirmation (lead, R-9-10)
+
+Runs on the 56-core VM, 504 game days (21 real days), one process per run, branch p9/f at d7e2fa9 (owner-group basis,
+sold-shop settlement). Real day 7 is game day 168 and day 21 is game day 504. Gate (R-9-10): managed p50 at day 21 in
+[$15M, $60M] and at day 7 in [$300k, $1.5M]; excellent p50 at day 21 <= $400M and at day 7 <= $5M; neglected unchanged in
+week 1.
+
+Tuning, seed prefix `wealth`, 20 seeds per style (managed and excellent), three bracket sets:
+
+| Set | Brackets (threshold: rate) | Managed d7 p50 | Managed d21 p50 (p90) | Excellent d7 p50 | Excellent d21 p50 (p90) |
+|---|---|---|---|---|---|
+| Pre-tax (v1 3204e66) | none | $621k | $110.4M ($119.7M) | $3.6M | $957.3M ($1.16B) |
+| A | 0: 0%, $250k: 10%, $2.5M: 20%, $25M: 30%, $250M: 40% | $553k | $59.0M ($63.9M) | $2.6M | $267.4M ($289.5M) |
+| **B (chosen)** | 0: 0%, $250k: 10%, $2.5M: 25%, $25M: 35%, $250M: 45% | $547k | **$52.3M** ($55.2M) | $2.3M | **$183.2M** ($230.5M) |
+| C | 0: 0%, $100k: 10%, $1M: 20%, $10M: 30%, $100M: 40% | $547k | $55.7M ($60.1M) | $2.1M | $198.7M ($223.3M) |
+
+A passes on the edge (managed $59.0M against the $60M top). B passes with margin and keeps the top bracket inside the 25 to
+45% of 01 §8.2. B is the default in `src/content/tax.ts`.
+
+Held-out confirmation, set B, seed prefix `wealthH` (never used for tuning), 20 seeds per style:
+
+| Style | d1 p50 | d7 p50 (p90) | d21 p50 (p90) | R1 | R2 | R3 | R4 |
+|---|---|---|---|---|---|---|---|
+| neglected | $6k | $30k ($30k) | $247k ($253k) | 20/20, gd 99 | 20/20, gd 486 | 0/20 | 0/20 |
+| average | $15k | $669k ($734k) | $53.3M ($72.9M) | 20/20, gd 35 | 20/20, gd 109 | 20/20, gd 321 | 0/20 |
+| managed | $8k | $552k ($583k) | $53.0M ($55.4M) | 20/20, gd 42 | 20/20, gd 125 | 20/20, gd 292 | 0/20 |
+| excellent | $19k | $2.5M ($2.9M) | $198.7M ($247.0M) | 20/20, gd 24 | 20/20, gd 83 | 20/20, gd 211 | 20/20, gd 415 |
+
+Gate on the held-out seeds: **PASS** (managed $552k at day 7 and $53.0M at day 21; excellent $2.5M and $198.7M; neglected
+$30k at day 7 against $29k pre-tax).
+
+Against 01 §8.4 (median $500k at day 7 and $20M at day 21; top 1% $5M and $400M): week 1 sits on the median. At day 21 the
+managed and average bots, both far more present than the 1 to 2 hours a day of the §8.4 engaged player, sit at about 2.6x the
+median and well under the top-1% path; the excellent bot (online 16 of 24 hours) sits at half the top-1% path. Growth
+decelerates week by week (median net worth, compounded per real day): managed 101%, 44%, 33%; average 88%, 36%, 37%;
+excellent 125%, 53%, 22%. Week 3 is still faster than the §8.4 path implies after day 21 (about 8% a real day from day 21 to
+day 56); the runs stop at day 21, so the deceleration after it is not measured here (open item).
+
 ### 9B.5 Deviations, rulings and residuals
 
 1. **The rank basis subtracts loans owed and net gifts received, not the boards.** `netWorthPeak` (rank) follows the basis; `netWorth` and the boards still count borrowed cash. A loan can still lift an alt on a board until it is repaid. Ledger to decide whether boards use the basis too.
