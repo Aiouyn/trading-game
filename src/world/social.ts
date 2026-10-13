@@ -1,4 +1,4 @@
-import { recordGift } from './collusion';
+import { linkedAccounts, recordGift } from './collusion';
 import { rankIndex } from '@/content/lifestyle';
 import {
   CHAT_KEEP, TPD, cashOf, debit, notify, pushWire, sanitize, shiftBaselines, spendableCash, today, transfer,
@@ -189,6 +189,29 @@ export function unearnedCashOf(g: GameState, pid: string): number {
  */
 export function rankBasisOf(g: GameState, p: Player): number {
   return (p.markNetWorth ?? p.netWorth) - unearnedCashOf(g, p.id);
+}
+
+/**
+ * The tax basis of an owner (R-9-10, the bracket of its business income): the marked net worth of its owner group (every
+ * account linkedAccounts returns, the owner included) plus what that group lends to accounts outside it (the receivable on
+ * each active loan). Loans owed and gifts received are NOT taken off: a shop bought with borrowed or gifted money is taxed at
+ * the wealth it adds, so it never runs at a lower bracket than the same shop bought with the owner's own cash. Money moved
+ * inside the group nets to zero, so a gift or a loan between linked accounts moves no bracket. The rank basis (rankBasisOf,
+ * R-9-4) keeps its own rule.
+ */
+export function taxBasisOf(g: GameState, pid: string): number {
+  const group = linkedAccounts(g, pid);
+  const inside = new Set(group);
+  let basis = 0;
+  for (const id of group) {
+    const p = g.players[id];
+    if (p) basis += p.markNetWorth ?? p.netWorth;
+  }
+  for (const d of Object.values(g.deals)) {
+    if (d.kind !== 'loan' || d.status !== 'active') continue;
+    if (inside.has(d.fromId) && !inside.has(d.toId)) basis += d.outstanding ?? d.amount;
+  }
+  return basis;
 }
 
 /** Gift bookkeeping (Player.giftsNet): the receiver gains what arrives; the giver gives up the gross it sent (never below zero). */

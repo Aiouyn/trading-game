@@ -31,6 +31,8 @@ function BizCard({ b }: { b: Business }) {
   const act = useGame((s) => s.act);
   const cash = useGame((s) => s.me?.account?.cash ?? 0);
   const tick = useGame((s) => s.frame?.tick ?? 0);
+  // the day's tax comes from the shop view (the same figure the shop card and the day-close card book)
+  const shop = useGame((s) => s.me?.shops.find((x) => x.id === b.id));
   const def = BIZ_BY_ID.get(b.defId)!;
   const sec = BIZ_SECTORS.find((s) => s.id === def.sector)!;
   const tierName = TIERS[def.tier - 1]!.name;
@@ -58,6 +60,12 @@ function BizCard({ b }: { b: Business }) {
         </div>
       </div>
       {ev && <div className="mt-2"><Chip className={ev.good ? 'border-gain/50 text-gain' : 'border-loss/50 text-loss'}>{t(`biz.event.${ev.id}.title`)} · {ev.mult >= 1 ? '+' : '−'}{Math.round(Math.abs(ev.mult - 1) * 100)}%</Chip></div>}
+      {shop && (
+        <div className="mt-2 flex items-baseline justify-between gap-3 text-small" data-testid={`biz-${b.id}-tax`}>
+          <span className="text-fg-muted">{t('shop.line.tax', { rate: Math.round(shop.daily.taxRate * 100) })}</span>
+          <span className="num text-fg">{money(shop.daily.tax)}</span>
+        </div>
+      )}
       <div className="mt-3 grid grid-cols-2 gap-2 @2xl:grid-cols-3">
         {UPGRADES.map((u) => {
           const lvl = b.levels[u.id];

@@ -13,6 +13,7 @@ import {
 import { offlineRate, purchaseShop, queueShare, servedOf } from './shopRules';
 import { PERK_RULES, windMultOf } from './perks';
 import { unearnedCashOf } from './social';
+import { settleSoldBusiness } from './shopSettle';
 import { textProvider } from './text';
 import type { Business, CommandResult, GameState, Player, StepOutput } from './types';
 
@@ -93,6 +94,9 @@ export function upgradeBusiness(g: GameState, pid: string, bizId: string, axis: 
 export function sellBusiness(g: GameState, pid: string, bizId: string, out: StepOutput | null): CommandResult {
   const b = g.businesses[bizId];
   if (!b || b.ownerId !== pid) return fail('not your business');
+  // R-9-10: the part of the day the shop ran is settled and taxed before it leaves (its income since the last close is pending
+  // credit, and would otherwise be credited untaxed); the tax reads the owner's basis before the sale proceeds land
+  settleSoldBusiness(g, b, g.economy.stabilizer.taxShift ?? 0);
   const price = businessSalePrice(b.invested);
   bump(g, pid, price);
   // the 30% haircut is destroyed money
