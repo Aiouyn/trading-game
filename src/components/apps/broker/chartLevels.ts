@@ -30,6 +30,20 @@ export function priceOfY(scale: PriceScale, y: number): number | null {
 }
 
 /**
+ * The price range after one wheel step over the price axis: the range scales about its middle (as a drag on the axis does),
+ * a step up (negative deltaY) zooms in and a step down zooms out. One notch moves the span by about a fifth; a large delta
+ * (a trackpad's) is capped at one notch's worth. The span never falls below a ten-thousandth of the price, so it never closes.
+ */
+export function wheelZoomRange(range: { from: number; to: number }, deltaY: number): { from: number; to: number } {
+  const mid = (range.from + range.to) / 2;
+  const half = (range.to - range.from) / 2;
+  const step = Math.max(-1, Math.min(1, deltaY / 100));
+  const minHalf = Math.abs(mid) * 0.0001;
+  const next = Math.max(minHalf, half * Math.exp(step * 0.2));
+  return { from: mid - next, to: mid + next };
+}
+
+/**
  * What the position would book if it closed now: closeTotal is the cash the closing order moves (a sell's proceeds net of
  * its fee, a buy-to-cover's cost with its fee), so a long books proceeds minus cost and a short the reverse. The average
  * cost already carries the entry fee (the engine's Position.avgCost), so the P&L is after fees and spread.
