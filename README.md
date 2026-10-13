@@ -64,6 +64,7 @@ npm run typecheck        # next typegen, then tsc --noEmit
 npm run lint             # eslint
 npm test                 # vitest run (unit and integration tests)
 npm run e2e              # Playwright, desktop (1440 x 900) and phone (390 x 844) projects
+scripts/cloud/e2e-shards.sh [options] [spec files or regexes...]   # sharded e2e run (bash; --help for options; --rerun-failed)
 npm run balance          # engine calibration bands; the default (24 ticks a game day) is a smoke run
 npm run balance:shops    # shop payback bands by management style and tier
 npm run sim              # headless simulation
@@ -71,10 +72,22 @@ npx tsx scripts/ecology/gates.ts full --seeds 60 --tpd 720   # ecology gates, re
 npx tsx scripts/balance/wealth.ts bot <name> 120 <style>     # wealth curve for one management style (see the script header)
 ```
 
-Counts. Vitest: 245 test files passed and 2 skipped; 2,354 tests passed, 4 expected failures (the open FAIL gates), 70 skipped and 21 todo. This is the full run on this branch, 2026-10-12. Playwright: 620 tests in 45 files
-(listed, not run). No full e2e run is recorded on `v1`. The balance and ecology gates are not re-run for this README. Their last
-recorded results are in [docs/V1-PHASE1.md](docs/V1-PHASE1.md) (sections 3g to 3o) and [docs/V1-PHASE4.md](docs/V1-PHASE4.md)
-(O-19).
+The load gate (not in package.json) runs the world at the production tick, 5 s. Start a fresh world, then run the client. The exit
+code is the gate: all 4,000 clients welcomed, tick fan-out p99 under 2.5 s, and tick overrun p99 under 0.5 s. Repeat it three times.
+
+```bash
+PORT=8919 DATA_DIR=./load-data TICK_MS=5000 WARMUP_DAYS=1 REGISTER_LIMIT=100000 npx tsx server/index.ts
+WINDOW_ALIGN=60 NEED_PUBLIC=2 node scripts/load/socket-load.mjs http://localhost:8919 4000 330
+```
+
+The window is 330 seconds and holds the public ticks 780 and 840. The 1 s stress run is reported, not gated
+(`scripts/load/socket-load.mjs` header).
+
+Counts. On `36a8642`: Vitest, 281 test files and 2,613 tests. Playwright, the final run: 438 passed and 4 failed. Three of the
+four pass when run alone (timing only). The fourth is real: the close-card phone toast, whose fix is pending in the UX fork.
+The balance and ecology gates are not re-run for this README. Their last recorded results are in
+[docs/V1-PHASE1.md](docs/V1-PHASE1.md) (sections 3g to 3o), [docs/V1-PHASE4.md](docs/V1-PHASE4.md) (O-19) and
+[docs/V1-PHASE9.md](docs/V1-PHASE9.md) (9B.4 and 9C.4).
 
 ## Where things are
 
