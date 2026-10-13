@@ -96,3 +96,13 @@ real day in week 3). 01 §8.2 and §8.3 name the missing lever: progressive tax 
 post-V1 (isolate the term, then retune the weekly signal noise or the consensus update). Player companies list late (R2,
 $50M filed value), so the exposure in V1 is small. The test stays `it.fails` with this ruling in its title. No further
 compute on it in Phase 9.
+
+## R-9-12 Public-tick payload (lead, after the 9C.1 perf pass)
+
+Every 60th tick (BOARD_EVERY) the server pushes the public boards (about 134 kB) and the player directory (about 130 kB) to
+every socket: about 1 GB for 4,000 clients, and that tick takes 3 to 4 s (fan-out p99 3.2 s in a window that includes tick
+780), which fails R-9-8b. Ruling: the public tick carries only a small version stamp per public panel (boards, directory,
+rivals). A client fetches a panel's data on demand (a request like 'lp-page', through the existing rate limit) when the panel
+is open and its version moved, and once when it opens. Nothing else changes in the panels' content. Gate: R-9-8b with a window
+that includes at least two public ticks (e.g. 330 s from the start of a game day), three repeats, plus the 1 s stress reported.
+The e2e specs that read the boards or the directory keep passing.
