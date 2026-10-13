@@ -87,6 +87,8 @@ This file records the track that owns R-10-7 (the realism fixes outside trading 
 - `npx vitest run --maxWorkers=3`, full suite on the tree before the audit fix: 2,671 passed, 4 expected-fail, 70 skipped, 20 todo.
   The one failure was the French screens audit; the BankApp line was a false positive in its pattern. The pattern is tightened and
   carries controls; `src/i18n` then runs 7 files and 28 tests, all passing.
+- A later full run under load (23:36, other sessions on the machine): 2,666 passed; 6 failed by timeout in five files
+  (10D.6 item 2). Those five files were rerun alone: 31 passed, the same six timed out (60 to 157 s against 60 to 120 s limits).
 - Determinism: the engine is untouched (`git diff a38fbb6 -- src/engine` lists no files), so the engine sim output is unchanged by
   construction. The same-seed world tests (`src/world/company/determinism.test.ts` and the rest) pass. The world-state changes are
   intended and limited to the features they touch: the auction lot draw, the desk billing, the company working capital, and the
@@ -108,5 +110,26 @@ edited. `NetWorthFigures.tsx` and `StatusStrip.tsx` are read only (10D.1 and 10D
 
 ### 10D.5 Screens
 
-Pending: the Playwright run of `tests/e2e/p10Fix.spec.ts` at 1440x900 and 390x844, en and fr, into
-`scratchpad/p10/shots-p10-fix/`. This section is filled from that run.
+`tests/e2e/p10Fix.spec.ts` passes on the desktop (1440x900) and phone (390x844) projects (2 passed). It shoots the desk, the
+rivals board, the portfolio, the legal app and the auctions in en and fr, 20 shots, into
+`scratchpad/p10/shots-p10-fix/`. The shots were read by hand:
+
+- Desk (en): "A free 7-day trial, then $20,000.00 a month from cash. It locks if a month cannot be covered; your files are kept."
+  Fr: "Essai gratuit de 7 jours, puis 20 000,00 $ par mois". The fee's thousands separator is a U+202F in the DOM; the body font
+  draws it with no gap, so the French copy reads "20000,00 $" on screen. A rendering issue, not a formatting one (see 10D.6).
+- Rivals (en and fr, desktop and phone): the Asset tab lists the player's row between the engine's funds and the ladder funds
+  (Calloway Peak Partners, Tessel Ward Investments), with the "next up" gap above the player.
+- Portfolio: "$0.00 (0.00%) since you arrived, on $8,005,250.00 invested. Grants and transfers are left out." The grant is in the base.
+- Legal (en, phone fr): with a defendant chosen, the evidence line, the fee line, and the block reason ("Filing needs 20 evidence
+  points against mika_q. You have 0.") in red; File is disabled while the reason shows.
+- Auctions (en desktop, en and fr phone): each lot reads "Minimum rank: Hustler" beside its category.
+
+### 10D.6 Residuals found in the screens
+
+1. **French thousands separator.** `Intl` (fr-FR) groups with U+202F. The DOM is right; the body and hero fonts draw no gap for it, so
+   "8 005 250,00 $" shows as "8005250,00 $" in the Portfolio hero and the desk copy. A global fix (use U+00A0 for grouping) changes
+   every French figure and its tests, so it is left to the lead.
+2. **Test timeouts under load.** The full vitest run on this machine (80 % CPU, other sessions' vitest and Playwright runs active)
+   timed out in the tournament tests, `company/determinism.test.ts` (120 s limit; 157 s on the rerun) and `company/rho.test.ts`
+   (a 25-minute hook). On the earlier run the same files passed; the rerun of these five files still timed out. Not confirmed as
+   a regression of this track; a quiet machine run is still needed to close it.
