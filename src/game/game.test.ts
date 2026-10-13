@@ -39,13 +39,13 @@ describe('clock', () => {
     try {
       expect(clockLabel(0, 720)).toBe('Jour 1 · 09:30');
       expect(clockLabel(721, 720)).toBe('Jour 2 · 09:30');
-      expect(barTimeLabel(721, 720, true)).toBe('Jour 2');
-      expect(barTimeLabel(721, 720, false)).toBe('J2 09:30');
+      expect(barTimeLabel(721, 720, '1D')).toBe('Jour 2');
+      expect(barTimeLabel(721, 720, '1h')).toBe('J2 09:30');
     } finally {
       fr.setLocale('en');
     }
     expect(clockLabel(0, 720)).toBe('Day 1 · 09:30');
-    expect(barTimeLabel(721, 720, false)).toBe('D2 09:30');
+    expect(barTimeLabel(721, 720, '1h')).toBe('D2 09:30');
   });
 });
 
@@ -69,7 +69,7 @@ describe('history and candles', () => {
   it('aggregates intraday bars on game-time buckets with continuous opens', () => {
     const h = filled(tpd * 3);
     // the last game day is 390 session minutes: 1h candles give seven (six full, and the half hour to the close)
-    const bars = barsFor(h, 'X', '1h', '1D');
+    const bars = barsFor(h, 'X', '1h').filter((b) => b.time > tpd * 2);
     expect(bars).toHaveLength(7);
     for (let i = 1; i < bars.length; i++) {
       expect(bars[i]!.time).toBeGreaterThan(bars[i - 1]!.time);
@@ -82,8 +82,8 @@ describe('history and candles', () => {
   it('keeps only the last five days of ticks in the ring', () => {
     const h = filled(tpd * 7);
     expect(h.series.X!.size).toBe(tpd * 5);
-    expect(barsFor(h, 'X', '1h', '1W').length).toBeLessThanOrEqual(5 * 7 + 1);
-    expect(barsFor(h, 'X', '1D', '1W')).toHaveLength(5);
+    expect(barsFor(h, 'X', '1h').length).toBeLessThanOrEqual(5 * 7);
+    expect(barsFor(h, 'X', '1D')).toHaveLength(h.series.X!.daily.length);
     expect(sparkline(h, 'X', 5, 48)).toHaveLength(48);
   });
 });
@@ -102,7 +102,7 @@ describe('volume bars', () => {
     const sum = (a: number, b: number) => a + (b > 0 ? b : 0);
     const total = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i).reduce(sum, 0);
     // intraday candles sum the same tick deltas (the first tick in the ring has no baseline)
-    const intraday = barsFor(every, 'A', '5m', '1D');
+    const intraday = barsFor(every, 'A', '5m');
     expect(intraday.reduce((a, b) => a + (b.volume ?? 0), 0)).toBe(total(2, 48));
     expect(every.series.A!.daily.at(-1)!.volume).toBe(total(2, 48)); // first reading has no baseline
     // the skipped history attributes each 3-tick chunk to the tick that recorded it
@@ -112,7 +112,7 @@ describe('volume bars', () => {
   it('indices carry no volume and old saves gain volume rings', () => {
     const h = createHistory(['GX', 'A'], 720, ['A']);
     record(h, 1, { GX: 1000, A: 10 }, { A: 5 });
-    expect(barsFor(h, 'GX', '5m', '1D')[0]!.volume).toBeUndefined();
+    expect(barsFor(h, 'GX', '5m')[0]!.volume).toBeUndefined();
     const old = createHistory(['A'], 720);
     ensureVolume(old, ['A']);
     record(old, 1, { A: 10 }, { A: 5 });
