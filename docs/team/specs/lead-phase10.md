@@ -81,3 +81,8 @@ button always says why.
 - Auctions: the week's lots are drawn per rank band; a lot shows its minimum rank.
 - Research Desk: a monthly subscription with a one-week trial instead of $55k up front.
 - Wire: no verbatim quote reused across two firms in a week.
+
+## R-10-1b Splitting across accounts (lead, after the 10A track)
+Measured on p10/fill: a $2M HLCN buy costs 5.55 bps of temporary impact in one account, 2.33 across 10 accounts, 1.32 across
+100. Accepted: it needs alt accounts (R-9-2, a recorded V1 limit), the permanent part still moves the mid for everyone, and
+linked accounts (the collusion graph) remain visible to surveillance. Real markets have the same property across brokers.
