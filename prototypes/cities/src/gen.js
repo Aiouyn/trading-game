@@ -739,6 +739,8 @@ export async function generateCity(P, progress = () => {}) {
   const tallest = buildings.reduce((m, b) => (b.h > (m?.h ?? 0) ? b : m), null);
   return {
     P, S, N, RES, H, texA, texB, parts: parts.finish(), ribbons, buildings, labels, rail,
+    // coarse rasters for the map lenses: land value (0..1) and district index into P.districts, on a R4 grid
+    value: { n: N4, res: R4, data: V4 }, districts: { n: N4, res: R4, data: D4 },
     popCurve, timings, ms: Math.round(performance.now() - t0),
     stats: {
       buildings: buildings.length, lots: lots.length, roads: roads.length, trees, boats,
