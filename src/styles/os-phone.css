@@ -15,7 +15,12 @@
     border-radius: var(--radius-sm); color: var(--color-brass);
   }
   .os-root .os-phone-qm.on { background: color-mix(in srgb, var(--color-brass) 16%, transparent); }
-  .os-root .os-phone-r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .os-root .os-phone-r { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  /* The clock is one line in every language ("J4 · 10:44", "D4 · 09:44"); the money figures never wrap inside their pair. */
+  .os-root .os-phone-clock { flex: none; white-space: nowrap; }
+  .os-root .os-phone-r .os-figs,
+  .os-root .os-phone-r .os-fig,
+  .os-root .os-phone-r .os-nw { white-space: nowrap; }
   /* the phone strip: cash and net worth, labelled, compact; the breakdown drops below the bar */
   .os-root .os-phone-r .os-figs { gap: 8px; }
   .os-root .os-phone-r .os-fig,
@@ -40,17 +45,20 @@
 
   /* ---------- Home grid (4 across) and the bottom row ---------- */
   .os-root .os-home-grid {
-    display: grid; grid-template-columns: repeat(4, 1fr); row-gap: 20px; column-gap: 0;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 20px; column-gap: 0;
     padding: 0 14px;
   }
-  .os-root .os-app { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .os-root .os-app { display: flex; flex-direction: column; align-items: center; gap: 7px; width: 100%; min-width: 0; }
   .os-root .os-app-ic {
     position: relative; display: grid; place-items: center; width: var(--phone-icon); height: var(--phone-icon);
     border-radius: var(--phone-icon-radius); background: var(--color-ink-1); border: 1px solid var(--color-ink-3);
     color: var(--color-brass); box-shadow: var(--phone-icon-shadow);
   }
+  /* Each home label has its own box, one column wide: two lines at most, then an ellipsis, so no label runs into its neighbour. */
   .os-root .os-app-nm {
-    font-size: var(--text-caption); color: var(--color-fg); white-space: nowrap; text-shadow: var(--phone-label-shadow);
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+    width: 100%; min-width: 0; padding: 0 4px; text-align: center; line-height: 1.25; overflow-wrap: break-word;
+    font-size: var(--text-caption); color: var(--color-fg); text-shadow: var(--phone-label-shadow);
   }
   .os-root .os-app.locked .os-app-ic {
     color: var(--color-fg-disabled); background: color-mix(in srgb, var(--color-ink-1) 80%, transparent);
@@ -67,7 +75,7 @@
   }
   .os-root .os-home-row {
     position: fixed; left: 14px; right: 14px; bottom: 34px; height: 92px;
-    display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; padding-top: 2px;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: center; padding-top: 2px;
     border-radius: var(--phone-row-radius); border: 1px solid var(--color-ink-3);
     background: color-mix(in srgb, var(--color-chrome) 88%, transparent);
   }
@@ -233,4 +241,13 @@
     margin-top: 0; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .os-root .os-toast.slim { transition: transform 150ms ease-out, opacity 150ms ease-out; touch-action: pan-y; }
+}
+
+/* Fit on the phone (windows evaluation, problems 14 and 15). */
+@layer components {
+  /* On the home screen the pinned row is the foot of the screen (34 px up, 92 px tall, so its top is 126 px up): a notice
+   * sits above it, and never over the dock labels. Inside an app the notice keeps its place above the trade bar or the edge. */
+  .os-root .os-phone[data-current="home"] .os-toasts.phone {
+    bottom: calc(134px + env(safe-area-inset-bottom, 0px));
+  }
 }

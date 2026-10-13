@@ -92,6 +92,9 @@ function RecentSheetGate() {
 function PhoneStatus() {
   const tick = useGame((s) => s.frame?.tick ?? 0);
   const ready = useGame((s) => s.status === 'ready');
+  const me = useGame((s) => s.me);
+  // The bar's money is compact ("5 M$"); the full figures are its tooltip, so no amount is lost to the bar's width.
+  const fullMoney = me ? `${t('common.netWorth')} ${money(me.netWorth.total)} · ${t('common.cash')} ${money(me.netWorth.cash)}` : undefined;
   const timer = useRef<number | null>(null);
   const fired = useRef(false);
   const [pressing, setPressing] = useState(false);
@@ -132,8 +135,8 @@ function PhoneStatus() {
       >
         <Glyph name="quay" size={18} />
       </button>
-      <span className="num text-caption text-fg" data-testid="phone-clock">{shortClock(tick)}</span>
-      <span className="os-phone-r">
+      <span className="num text-caption text-fg os-phone-clock" data-testid="phone-clock">{shortClock(tick)}</span>
+      <span className="os-phone-r" title={fullMoney} data-testid="phone-money">
         <span className={`os-dot ${ready ? 'bg-gain' : 'bg-warn'}`} aria-hidden />
         <NetWorthFigures phone />
       </span>
