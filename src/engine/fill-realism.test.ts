@@ -123,3 +123,20 @@ describe('R-10-1 own impact: the quote plus the order\'s own tally, decaying ove
     expect(bps).toBeLessThanOrEqual(3);
   });
 });
+
+describe('old snapshots load (the new fields are optional)', () => {
+  it('a save with no account ownImpact and no asset impactTally steps, fills and prices like a fresh world', () => {
+    const s = busy('p10-old');
+    const old = JSON.parse(JSON.stringify(s)) as WorldState;
+    for (const a of Object.values(old.accounts)) delete (a as { ownImpact?: unknown }).ownImpact;
+    for (const a of old.assets) delete (a as { impactTally?: unknown }).impactTally;
+    const i = idx(old, 'HLCN');
+    const q = roundQty(def('HLCN'), 500 / Math.exp(old.assets[i]!.lnP));
+    const placed = placeOrder(old, { playerId: 'buyer', assetId: 'HLCN', side: 'buy', type: 'market', qty: q }).state;
+    const r = step(placed);
+    const fill = r.fills.find((f) => f.playerId === 'buyer');
+    expect(fill).toBeDefined();
+    expect(fill!.price).toBeGreaterThan(fill!.mid);
+    expect(r.state.accounts.buyer!.ownImpact!.HLCN!.buy).toBeGreaterThan(0);
+  });
+});
