@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { touchLinks } from '../collusion';
 import { applyCommand, createGame } from '../game';
 import { newOutput, priceOf, TPD } from '../core';
 import { courtTick } from '../court';
@@ -95,6 +96,7 @@ export function runSequence(seq: number, tally: Tally | null): string {
   for (const id of IDS) {
     g.market = openAccount(g.market, id, id === 'm' ? 3_000_000 : 300_000);
     g.players[id] = { ...structuredClone(TEMPLATE), id, handle: `p_${id}`, joinedTick: -1000 * TPD, lastSeenTick: 1, rankId: id === 'm' ? 'R3' : 'R0', allianceId: null };
+    touchLinks(g);
   }
   const assets = g.market.config.assets.map((a) => a.id);
   const fundOf = (): Fund | undefined => {
@@ -209,7 +211,9 @@ export function runSequence(seq: number, tally: Tally | null): string {
         // the manager and the investor i3 become alliance mates, or part again: the rule must hold across the change
         const al = g.players.m!.allianceId ? null : ALLY;
         g.players.m!.allianceId = al;
+        touchLinks(g);
         g.players.i3!.allianceId = al;
+        touchLinks(g);
         ok = true;
         break;
       }
@@ -392,7 +396,7 @@ function opening(g: GameState, seq: number, tally: Tally | null): void {
     scripted(g, 'fundRest', () => { applyFundCommand(g, 'm', {
       type: 'fund.trade', fundId: f.id, assetId: s, side: 'sell', qty: 1, orderType: 'limit', limitPrice: priceOf(g, s) * 5,
     }, null); });
-    scripted(g, 'ally', () => { g.players.m!.allianceId = ALLY; g.players.i3!.allianceId = ALLY; });
+    scripted(g, 'ally', () => { g.players.m!.allianceId = ALLY; g.players.i3!.allianceId = ALLY; touchLinks(g); });
     // a second buy from the newly linked investor is refused at entry while the fund's sell stands
     scripted(g, 'allyOrder', () => {
       const r = applyCommand(g, 'i3', { type: 'order.place', order: { assetId: s, side: 'buy', type: 'limit', qty: 1, limitPrice: priceOf(g, s) * 0.02 } });

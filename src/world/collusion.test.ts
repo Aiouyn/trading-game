@@ -6,7 +6,7 @@ import { restrictionsOf, sellCapOf } from '@/engine';
 import { companyDay } from './company/bridge';
 import { BUYER_A, FOUNDER, listedWorld } from './company/b1fixture';
 import { Rng, seedStream } from '@/engine/rng';
-import { collusionDay, isLinkedAccount, linkedAccounts, MIRROR_MIN_MATCHES, MIRROR_PRUNE_TICKS, noteFills, recordGift, registerDevice, syncGroupSellCap } from './collusion';
+import { collusionDay, isLinkedAccount, linkedAccounts, MIRROR_MIN_MATCHES, MIRROR_PRUNE_TICKS, noteFills, recordGift, registerDevice, syncGroupSellCap, touchLinks } from './collusion';
 import type { GameState } from './types';
 
 // The collusion graph (lead-phase6 6C, Phase 4 O-5): owner groups from alliances, devices (hashed), gifts and mirrored fills.
@@ -33,7 +33,9 @@ describe('the collusion graph (6C)', () => {
   it('alliance members are one group (the Phase 4 owner link, unchanged)', () => {
     const g = world('col-ally', ['a', 'b', 'c']);
     g.players.a!.allianceId = 'al1';
+    touchLinks(g);
     g.players.b!.allianceId = 'al1';
+    touchLinks(g);
     expect(linkedAccounts(g, 'a')).toEqual(['a', 'b']);
     expect(linkedAccounts(g, 'c')).toEqual(['c']);
   });
@@ -106,7 +108,9 @@ describe('the collusion graph (6C)', () => {
   it('the founder sell cap is shared by the owner group in equal parts, and a group of one keeps it whole', () => {
     const g = world('col-cap', ['f', 'm', 'z']);
     g.players.f!.allianceId = 'al2';
+    touchLinks(g);
     g.players.m!.allianceId = 'al2';
+    touchLinks(g);
     const caps = syncGroupSellCap(g, 'ACME', 'f', 100, { sellCaps: {} });
     expect(caps.ACME).toEqual({ f: 50, m: 50 });
     const solo = syncGroupSellCap(g, 'ACME', 'z', 100, { sellCaps: {} });
@@ -117,12 +121,15 @@ describe('the collusion graph (6C)', () => {
     const { g, c, assetId } = listedWorld('col-ipo-cap');
     const perDay = Math.floor(COMPANY.insiders.sellCapPct * c.listed!.sharesOut);
     g.players[FOUNDER]!.allianceId = 'alcap';
+    touchLinks(g);
     g.players[BUYER_A]!.allianceId = 'alcap';
+    touchLinks(g);
     companyDay(g, null);
     expect(sellCapOf(restrictionsOf(g.market), assetId, FOUNDER)).toBe(Math.floor(perDay / 2));
     expect(sellCapOf(restrictionsOf(g.market), assetId, BUYER_A)).toBe(Math.floor(perDay / 2));
     // the link ends with the alliance: the founder keeps the whole cap again
     g.players[BUYER_A]!.allianceId = null;
+    touchLinks(g);
     companyDay(g, null);
     expect(sellCapOf(restrictionsOf(g.market), assetId, FOUNDER)).toBe(perDay);
     expect(sellCapOf(restrictionsOf(g.market), assetId, BUYER_A)).toBeUndefined();

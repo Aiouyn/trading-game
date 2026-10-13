@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { touchLinks } from './collusion';
 import { applyCommand, createGame, stepGame } from './game';
 import { cashOf, priceOf, realDayOf, REAL_DAY, RESTRICT_TICKS, restrictedNow, spendableCash } from './core';
 import { refreshNetWorth } from './assets';
@@ -48,9 +49,11 @@ describe('6B review: the sponsor cap and the offer', () => {
     cmd(g, 'u2', { type: 'join', handle: 'player_u2', country: 'AV' });
     g.alliances.a1 = { id: 'a1', name: 'Ring', tag: 'R', ownerId: 'u2', members: { u1: 'member', u2: 'owner' }, treasury: 0, createdTick: 0, motto: '', sharedDefense: 0 };
     g.players.u1!.allianceId = 'a1';
+    touchLinks(g);
     for (let k = 0; k < SPONSOR.dailyCap; k++) expect(breakOnce(g, 'u1').ok).toBe(true);
     // leave the alliance: the player's own count still holds the ten
     g.players.u1!.allianceId = null;
+    touchLinks(g);
     expect(adsUsedToday(g, 'u1')).toBe(SPONSOR.dailyCap);
     expect(cmd(g, 'u1', { type: 'ad.start' }).error).toBe('adCap');
   });
