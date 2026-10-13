@@ -31,7 +31,7 @@ describe('the daily close card (D-7)', () => {
     runTo(g, 2 * TPD);
     const card = dayClose(g, 'u1', 1)!;
     const p = g.players.u1!;
-    expect(card.nwClose).toBe(p.markNetWorth);
+    expect(card.nwClose).toBeCloseTo(p.netWorth, 6);
     expect(card.nwChange).toBeCloseTo(0, 6);
     expect(card.best).toBeNull();
     expect(card.worst).toBeNull();
@@ -41,14 +41,14 @@ describe('the daily close card (D-7)', () => {
     expect(card.lines[0]!.key).toBe('dayclose.title');
   });
 
-  it('the net worth change is the liquidation-value change to the cent, over several seeds', { timeout: 120_000 }, () => {
+  it('the net worth change is the mid-total change to the cent, over several seeds (mid basis)', { timeout: 120_000 }, () => {
     for (const seed of ['close-a', 'close-b', 'close-c']) {
       const g = joined(seed);
       cmd(g, 'u1', { type: 'order.place', order: { assetId: 'HLCN', side: 'buy', type: 'market', qty: 3 } });
       runTo(g, 2 * TPD);
       const card = dayClose(g, 'u1', 1)!;
       const p = g.players.u1!;
-      expect(Math.abs(card.nwClose - p.markNetWorth!)).toBeLessThan(0.005);
+      expect(Math.abs(card.nwClose - p.netWorth)).toBeLessThan(0.005);
       // the change against the stored day records, not the card's own fields
       const days = g.ledgers!.u1!.days;
       expect(card.nwChange).toBeCloseTo(days[1]!.nw - days[0]!.nw, 9);
