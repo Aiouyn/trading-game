@@ -131,5 +131,6 @@ rivals board, the portfolio, the legal app and the auctions in en and fr, 20 sho
    every French figure and its tests, so it is left to the lead.
 2. **Test timeouts under load.** The full vitest run on this machine (80 % CPU, other sessions' vitest and Playwright runs active)
    timed out in the tournament tests, `company/determinism.test.ts` (120 s limit; 157 s on the rerun) and `company/rho.test.ts`
-   (a 25-minute hook). On the earlier run the same files passed; the rerun of these five files still timed out. Not confirmed as
-   a regression of this track; a quiet machine run is still needed to close it.
+   (a 25-minute hook). The rerun of the same five files with a 10-minute test timeout passes: 37 passed, 1 expected fail. So the
+   failures are timing under the machine's load (102 node processes from other sessions), not assertions. A run on a quiet
+   machine with the default timeouts is still wanted to close it.
