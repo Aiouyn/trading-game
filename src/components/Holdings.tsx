@@ -3,7 +3,8 @@
 import { commission, optionQuote, parseContract, portfolio, type WorldConfig, type WorldState } from '@/engine';
 import { LICENSES, rankIndex } from '@/content/lifestyle';
 import { sparkline } from '@/game/history';
-import { price, pct, qty, signedMoney, signedPct, tone, toneText, money, dec } from '@/game/format';
+import { assetPrice, pct, qty, signedMoney, signedPct, tone, toneText, money, dec } from '@/game/format';
+
 import { assetDefOf, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
@@ -11,6 +12,9 @@ import type { FillReason } from '@/engine/ledger-types';
 import type { LedgerFill } from '@/world/ledger-types';
 import { useState } from 'react';
 import { Button, Card, CardHeader, ConfirmButton, Flash, LockGlyph, Sparkline, Td, Th } from './ui';
+
+/** A price in its asset's own precision (R-10-3); an unknown asset reads as a stock (2 decimals). */
+const pp = (assetId: string, n: number) => assetPrice({ assetClass: assetDefOf(assetId)?.assetClass ?? 'stock' }, n);
 
 /** The columns the positions table sorts by. */
 type PosSortKey = 'asset' | 'qty' | 'value' | 'pnl' | 'ifSold' | 'weight';
@@ -110,7 +114,7 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
             <li key={p.assetId} className="flex flex-wrap items-center gap-3 border-t border-ink-2 px-4 py-3" data-testid={`position-${p.assetId}`}>
               <button type="button" onClick={() => select(p.assetId)} className="min-w-0 flex-1 text-left">
                 <div className="num text-small font-semibold">{p.assetId} {p.qty < 0 && <span className="text-loss">{t('holdings.short')}</span>}</div>
-                <div className="num text-caption text-fg-faint">{qty(p.qty)} @ {price(p.avgCost)}</div>
+                <div className="num text-caption text-fg-faint">{qty(p.qty)} @ {pp(p.assetId, p.avgCost)}</div>
                 {lastFill(p.assetId) && <div className="text-caption text-fg-faint" data-testid={`position-reason-${p.assetId}`}>{lastFill(p.assetId)}</div>}
               </button>
               <div className="text-right">
@@ -143,8 +147,8 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
                     </button>
                   </Td>
                   <Td right num>{qty(p.qty)}</Td>
-                  <Td right num>{price(p.avgCost)}</Td>
-                  <Td right num><Flash value={p.price}>{price(p.price)}</Flash></Td>
+                  <Td right num>{pp(p.assetId, p.avgCost)}</Td>
+                  <Td right num><Flash value={p.price}>{pp(p.assetId, p.price)}</Flash></Td>
                   <Td right num>{money(p.marketValue)}</Td>
                   <Td right num className={`whitespace-nowrap ${toneText[tone(p.unrealizedPnl)]}`}>{signedMoney(p.unrealizedPnl)}<div className="text-caption">{signedPct(p.unrealizedPct)}</div></Td>
                   <Td right num className={`whitespace-nowrap ${toneText[tone(ifSold)]}`}><span data-testid={`position-ifsold-${p.assetId}`} title={t('holdings.ifSoldHint')}>{signedMoney(ifSold)}</span></Td>
@@ -205,7 +209,7 @@ function OptionRows({ rows, world, config, onClose }: { rows: [string, { qty: nu
                 ticker: c.underlying, strike: c.strike, kind: t(c.kind === 'call' ? 'holdings.call' : 'holdings.put'), day: c.expiryDay + 1, qty: pos.qty,
               })}
             </span>
-            <span className="num text-fg-muted">{t('holdings.bid', { p: price(q.bid), d: dec(q.daysLeft, 1) })}</span>
+            <span className="num text-fg-muted">{t('holdings.bid', { p: pp(c.underlying, q.bid), d: dec(q.daysLeft, 1) })}</span>
             <span className={`num ${toneText[tone(pnl)]}`}>{signedMoney(pnl)}</span>
             {dead
               ? <span className="text-caption text-loss" data-testid={`option-delisted-${id}`}>{t(isDelisted(config, c.underlying) ? 'holdings.optionDelisted' : 'holdings.optionUntradable', { ticker: c.underlying })}</span>
@@ -234,9 +238,9 @@ export function OpenOrders({ assetId, bare = false }: { assetId?: string; bare?:
             <span className={`num font-semibold ${o.side === 'buy' ? 'text-gain' : 'text-loss'}`}>{o.side === 'buy' ? t('common.buy') : t('common.sell')}</span>
             <span className="num">{qty(o.qty - o.filledQty)} {o.assetId}</span>
             <span className="text-fg-muted">{typeLabel(o.type)}{o.ocoGroup ? t('holdings.bracketTag') : ''}</span>
-            {o.limitPrice !== undefined && <span className="num text-fg-muted">{t('holdings.limitAt', { p: price(o.limitPrice) })}</span>}
-            {o.stopPrice !== undefined && <span className="num text-fg-muted">{t('holdings.stopAt', { p: price(o.stopPrice) })}</span>}
-            {o.type === 'trailing' && <span className="num text-fg-muted">{t('holdings.trail', { pct: dec(o.trailPct! * 100, 1), p: price(o.trailRef ?? 0) })}</span>}
+            {o.limitPrice !== undefined && <span className="num text-fg-muted">{t('holdings.limitAt', { p: pp(o.assetId, o.limitPrice) })}</span>}
+            {o.stopPrice !== undefined && <span className="num text-fg-muted">{t('holdings.stopAt', { p: pp(o.assetId, o.stopPrice) })}</span>}
+            {o.type === 'trailing' && <span className="num text-fg-muted">{t('holdings.trail', { pct: dec(o.trailPct! * 100, 1), p: pp(o.assetId, o.trailRef ?? 0) })}</span>}
             {o.filledQty > 0 && <span className="num text-brass">{t('holdings.filled', { filled: qty(o.filledQty), qty: qty(o.qty) })}</span>}
             <span className="text-caption text-fg-faint">{o.tif === 'day' ? t('broker.day') : t('broker.gtcShort')}</span>
             <button type="button" onClick={() => act({ type: 'order.cancel', orderId: o.id })} className="ml-auto text-caption text-fg-muted underline hover:text-fg" data-testid="cancel-order">

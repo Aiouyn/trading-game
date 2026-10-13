@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { sectorName } from '@/engine';
 import { sectorLabel } from '@/game/sectorLabel';
 import { sparkline } from '@/game/history';
-import { price, signedPct, tone, toneText } from '@/game/format';
+import { assetPrice, signedPct, tone, toneText } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Card, Flash, LockGlyph, Sparkline, TextField } from '@/components/ui';
@@ -104,7 +104,7 @@ export function Universe({ ticker, onPick, bare = false }: { ticker: string; onP
                 </div>
                 <Sparkline data={sparkline(h, id, 1, 32)} width={36} height={18} className="hidden sm:block" />
                 <div className="text-right">
-                  <Flash value={info.price} className="num text-small text-fg">{price(info.price)}</Flash>
+                  <Flash value={info.price} className="num text-small text-fg">{assetPrice({ assetClass: info.cls === 'index' ? 'stock' : info.cls }, info.price)}</Flash>
                   <div className={`num text-caption ${toneText[tone(info.changePct)]}`}>{signedPct(info.changePct)}</div>
                 </div>
               </button>

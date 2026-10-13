@@ -4,7 +4,7 @@ import { earningsInfo, estimateFill, liquidationPrice, REGIONS, type OrderType, 
 import { sectorLabel } from '@/game/sectorLabel';
 import { CHART_RANGES, INTERVALS, candleRealSeconds, intervalsFor, type ChartRange, type Interval } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
-import { fmtNumber, money, pctUnit, price, qty as fmtQty, signedChange, signedMoney, signedPct, tone, toneText, dec } from '@/game/format';
+import { assetPrice, fmtNumber, money, pctUnit, price, qty as fmtQty, signedChange, signedMoney, signedPct, tone, toneText, dec } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { type MouseEvent, useEffect, useState } from 'react';
@@ -69,6 +69,8 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const setMode = useGame((s) => s.setChartMode);
   const playerId = useGame((s) => s.playerId);
   const info = seriesInfo(world, ticker, rankId);
+  /** the chart's prices in the asset's own precision (R-10-3), the one formatter the ticket uses */
+  const fmtP = (n: number) => assetPrice({ assetClass: info.cls === 'index' ? 'stock' : info.cls }, n);
   // the engine's own margin trigger for a held margin or short position (null when none applies): the chart draws it
   const liq = !isIndex(info.id) && world && playerId ? liquidationPrice(world, playerId, info.id) : null;
   const marks = liq === null ? [] : [{ price: liq, title: t('broker.liquidation') }];
@@ -214,9 +216,9 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
           </div>
           {day && !narrow && (
             <div className="num mt-0.5 flex flex-wrap gap-4 text-caption text-fg-faint">
-              <span>{t('broker.ohlc.open')} <span className="text-fg-muted">{price(day.open)}</span></span>
-              <span>{t('broker.ohlc.high')} <span className="text-fg-muted">{price(day.high)}</span></span>
-              <span>{t('broker.ohlc.low')} <span className="text-fg-muted">{price(day.low)}</span></span>
+              <span>{t('broker.ohlc.open')} <span className="text-fg-muted">{fmtP(day.open)}</span></span>
+              <span>{t('broker.ohlc.high')} <span className="text-fg-muted">{fmtP(day.high)}</span></span>
+              <span>{t('broker.ohlc.low')} <span className="text-fg-muted">{fmtP(day.low)}</span></span>
               {day.volume !== undefined && <span>{t('broker.ohlc.volume')} <span className="text-fg-muted">{compactNum(day.volume)}</span></span>}
               <EarningsBadge assetId={info.id} />
             </div>
