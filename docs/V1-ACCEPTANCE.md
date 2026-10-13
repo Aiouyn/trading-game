@@ -12,9 +12,9 @@ X and N rows in the company and STONKS specs take the worst status of the gates 
 
 | status | rows |
 |---|---|
-| PASS | 166 |
-| PARTIAL | 6 |
-| FAIL | 4 |
+| PASS | 168 |
+| PARTIAL | 7 |
+| FAIL | 1 |
 | NOT RUN | 63 |
 | NOT BUILT | 261 |
 | DEFERRED | 16 |
