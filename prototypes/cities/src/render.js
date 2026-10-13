@@ -1,12 +1,13 @@
-// Three.js scene: orthographic dimetric camera, instanced parts, ground, roads, skirt, labels, picking.
+// Three.js scene: orthographic dimetric camera, instanced parts, ground, outskirts ring, roads, labels, picking.
 
 import * as THREE from 'three';
 import { makeGeoms } from './geoms.js';
 import { GEOMS, STRIDE } from './archetypes.js';
-import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag } from './shaders.js';
+import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag, outVert, outFrag } from './shaders.js';
 
 const PITCH = Math.atan(0.5) * 2 > 1 ? Math.PI / 6 : Math.PI / 6; // 30 degrees: a 2:1 dimetric diamond
 const col = (hex) => new THREE.Color(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
 export class CityView {
   constructor(canvas, labelLayer) {
@@ -25,6 +26,7 @@ export class CityView {
       uInk: { value: col(0x15171b) }, uMood: { value: 0 }, uHover: { value: -1 },
       uLit0: { value: col(0xffcf7a) }, uLit1: { value: col(0xffe2a8) }, uLit2: { value: col(0xffb85c) },
       uBrass: { value: col(0xc9a45c) }, uSkyRefl: { value: col(0x9fb4c4) },
+      uHazeColor: { value: new THREE.Color(0.83, 0.6, 0.48) }, uHaze0: { value: 1000 }, uHaze1: { value: 4000 },
     };
     this.yaw = Math.PI / 4; this.yawTarget = this.yaw;
     this.target = new THREE.Vector3();
@@ -156,8 +158,20 @@ export class CityView {
       this.moveTrain(0);
     }
 
-    // the diorama skirt: the city as a model on a desk
-    this.add(this.makeSkirt(city, G));
+    // the outskirts: land and sea beyond the square, and a seam skirt that hides the join to the inner ground
+    const outMat = new THREE.ShaderMaterial({
+      vertexShader: outVert, fragmentShader: outFrag, side: THREE.DoubleSide,
+      uniforms: {
+        ...this.uniforms, uHalf: { value: half }, uBeach: { value: P.beach ? 1 : 0 },
+        cNatural: { value: col(pal.natural) }, cPark: { value: col(pal.park) }, cSand: { value: col(pal.sand) },
+        cWater0: { value: col(pal.water[0]) }, cWater1: { value: col(pal.water[1]) },
+        uSnow: { value: P.id === 'nordhaven' ? 55 : P.id === 'kaiyo' ? 150 : 9999 },
+      },
+    });
+    this.add(this.makeOutskirts(city, half, outMat));
+    this.add(this.makeSeam(half, G, outMat));
+    this.uniforms.uHaze0.value = half * 1.05;
+    this.uniforms.uHaze1.value = half * 3.4;
 
     // labels
     this.labelLayer.innerHTML = '';
@@ -203,30 +217,70 @@ export class CityView {
     T.ib.needsUpdate = true;
   }
 
-  makeSkirt(city, G) {
-    const half = city.S / 2, bottom = -46;
-    const pos = [], colr = [];
-    const top = [0.24, 0.2, 0.17], mid = [0.16, 0.14, 0.12], low = [0.09, 0.09, 0.1], wat = [0.12, 0.2, 0.25];
-    const edge = (fx, fz) => {
-      const pts = [];
-      for (let i = 0; i <= G; i++) { const t = -half + (city.S * i) / G; const [x, z] = fx(t), [zz] = [fz]; pts.push([x, z]); }
-      return pts;
-    };
-    const sides = [
-      edge((t) => [t, half]), edge((t) => [half, -t]), edge((t) => [-t, -half]), edge((t) => [-half, t]),
-    ];
-    for (const pts of sides) for (let i = 0; i < pts.length - 1; i++) {
-      const [x0, z0] = pts[i], [x1, z1] = pts[i + 1];
-      const y0 = Math.max(-0.15, this.heightAt(x0, z0)), y1 = Math.max(-0.15, this.heightAt(x1, z1));
-      const w0 = this.heightAt(x0, z0) < 0, w1 = this.heightAt(x1, z1) < 0;
-      const quad = [[x0, y0, z0, w0 ? wat : top], [x1, y1, z1, w1 ? wat : top], [x1, bottom, z1, low], [x0, bottom, z0, low]];
-      for (const k of [0, 1, 2, 0, 2, 3]) { const q = quad[k]; pos.push(q[0], q[1], q[2]); colr.push(...q[3]); }
+  /**
+   * The outskirts ring: one quad per grid cell outside the square (the square's own cells are the inner ground).
+   * Vertices on the square's border sit 0.3 m low, so the inner ground's edge covers the join.
+   * Normals come from the relief exaggerated x2.6, like the inner ground, so hills read in the flat projection.
+   */
+  makeOutskirts(city, half, mat) {
+    const out = city.outskirts, np = out.n, step = out.step, ext = out.extent;
+    const count = np * np;
+    const pos = new Float32Array(count * 3), aH = new Float32Array(count);
+    const onBorder = (x, z) => (Math.abs(Math.abs(x) - half) < 1e-3 && Math.abs(z) <= half + 1e-3) || (Math.abs(Math.abs(z) - half) < 1e-3 && Math.abs(x) <= half + 1e-3);
+    for (let j = 0; j < np; j++) for (let i = 0; i < np; i++) {
+      const k = j * np + i, x = -ext + i * step, z = -ext + j * step, h = out.h[k];
+      pos[k * 3] = x;
+      pos[k * 3 + 1] = (h < 0 ? -0.15 : h) - (onBorder(x, z) ? 0.3 : 0);
+      pos[k * 3 + 2] = z;
+      aH[k] = h;
     }
-    // a bottom slab line for the model base
+    const idx = [];
+    for (let j = 0; j < np - 1; j++) for (let i = 0; i < np - 1; i++) {
+      const x0 = -ext + i * step, z0 = -ext + j * step;
+      if (x0 >= -half - 1e-3 && x0 + step <= half + 1e-3 && z0 >= -half - 1e-3 && z0 + step <= half + 1e-3) continue;
+      const a = j * np + i, b = a + 1, d = a + np, c = d + 1;
+      idx.push(a, d, c, a, c, b); // counter-clockwise seen from above, so the normals point up
+    }
+    const exag = new Float32Array(pos);
+    for (let k = 0; k < count; k++) exag[k * 3 + 1] *= 2.6;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(exag, 3));
+    g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
+    g.computeVertexNormals(); // the normals stay; the positions go back to true heights
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('aH', new THREE.BufferAttribute(aH, 1));
+    g.setAttribute('aFld', new THREE.BufferAttribute(out.fld, 1)); // farmland and woods just inside the border
+    g.setAttribute('aFrs', new THREE.BufferAttribute(out.frs, 1));
+    const m = new THREE.Mesh(g, mat);
+    m.frustumCulled = false;
+    return m;
+  }
+
+  /**
+   * Vertical strip hanging 40 m from the inner ground's four edges: hides any crack to the ring. It is shaded as
+   * ground (normal up), so the 0.3 m step at the border reads as the same land and no dark line shows.
+   */
+  makeSeam(half, G, mat) {
+    const pos = [], nor = [], ah = [];
+    const drop = 40;
+    const edges = [
+      { at: (t) => [t, -half] }, { at: (t) => [half, t] }, { at: (t) => [t, half] }, { at: (t) => [-half, t] },
+    ];
+    for (const e of edges) for (let i = 0; i < G; i++) {
+      const [x0, z0] = e.at(-half + (2 * half * i) / G), [x1, z1] = e.at(-half + (2 * half * (i + 1)) / G);
+      const h0 = this.heightAt(x0, z0), h1 = this.heightAt(x1, z1);
+      const y0 = h0 < 0 ? -0.15 : h0, y1 = h1 < 0 ? -0.15 : h1;
+      const q = [[x0, y0, z0, h0], [x1, y1, z1, h1], [x1, y1 - drop, z1, h1], [x0, y0 - drop, z0, h0]];
+      for (const k of [0, 1, 2, 0, 2, 3]) {
+        const v = q[k];
+        pos.push(v[0], v[1], v[2]); nor.push(0, 1, 0); ah.push(v[3]);
+      }
+    }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(colr, 3));
-    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    g.setAttribute('aH', new THREE.Float32BufferAttribute(ah, 1));
+    const m = new THREE.Mesh(g, mat);
     m.frustumCulled = false;
     return m;
   }
@@ -242,7 +296,7 @@ export class CityView {
   fit() {
     const S = this.city.S;
     this.target.set(0, 0, 0);
-    this.scale = (S * 1.22) / Math.max(320, Math.min(this.w, this.h * 1.75));
+    this.scale = Math.min(this.maxScale(), (S * 1.22) / Math.max(320, Math.min(this.w, this.h * 1.75)));
     this.dirty = true;
   }
 
@@ -265,15 +319,37 @@ export class CityView {
     this.uniforms.uNightAmb.value.set(0.22, 0.25, 0.38);
     this.uniforms.uSkyRefl.value.copy(new THREE.Color(0.62, 0.72, 0.8).lerp(new THREE.Color(0.95, 0.66, 0.5), warm * 0.8));
     this.sky = skyFor(el, warm, night);
+    // the haze is the sky's bottom colour, so the land and sea melt into the page's gradient
+    const [hr, hg, hb] = this.sky.haze;
+    this.uniforms.uHazeColor.value.setRGB(hr, hg, hb);
     this.dirty = true;
   }
   setMood(m) { this.uniforms.uMood.value = m; this.dirty = true; }
   setGrowth(g) { this.uniforms.uGrowth.value = g; this.dirty = true; }
   rotate(dir) { this.yawTarget += (dir * Math.PI) / 2; this.dirty = true; }
+  /** Camera target limit: within 0.8 of the half-size on each axis, so the view stays on the city and its ring. */
+  targetLimit() { return this.city ? this.city.S * 0.4 : 960; }
+  clampTarget() {
+    const lim = this.targetLimit();
+    this.target.x = clamp(this.target.x, -lim, lim);
+    this.target.z = clamp(this.target.z, -lim, lim);
+  }
+  /**
+   * The most zoomed-out scale (metres per pixel) that keeps every visible ground point inside the outskirts ring:
+   * the view covers w*s/2 across and h*s along the ground at this pitch, around a target at most 0.8 half out.
+   */
+  maxScale() {
+    if (!this.city) return 6;
+    const half = this.city.S / 2, reach = this.city.outskirts.extent - 300;
+    const span = Math.hypot(this.w / 2, this.h); // bounds the visible ground's reach on either axis, at any yaw
+    return clamp((reach - 0.8 * half) / Math.max(1, span), 0.5, 6);
+  }
+
   /** Smoothly move the camera to map point (x, z) at an optional scale (metres per pixel); instant under reduced motion. */
   flyTo(x, z, scale = null, seconds = 0.7) {
-    const to = { x, z, scale: scale ?? this.scale };
-    if (!this.motion) { this.target.set(x, 0, z); this.scale = to.scale; this.dirty = true; return; }
+    const lim = this.targetLimit();
+    const to = { x: clamp(x, -lim, lim), z: clamp(z, -lim, lim), scale: Math.min(this.maxScale(), scale ?? this.scale) };
+    if (!this.motion) { this.target.set(to.x, 0, to.z); this.scale = to.scale; this.dirty = true; return; }
     this.fly = { from: { x: this.target.x, z: this.target.z, scale: this.scale }, to, t: 0, dur: seconds };
   }
 
@@ -296,18 +372,17 @@ export class CityView {
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     this.target.addScaledVector(right, -dx * s);
     this.target.addScaledVector(fwd, (dy * s) / Math.sin(PITCH));
-    const lim = this.city ? this.city.S * 0.6 : 2000;
-    this.target.x = Math.max(-lim, Math.min(lim, this.target.x));
-    this.target.z = Math.max(-lim, Math.min(lim, this.target.z));
+    this.clampTarget();
     this.dirty = true;
   }
 
   zoomAt(factor, px, py) {
     const before = this.groundAt(px, py);
-    this.scale = Math.max(0.08, Math.min(6, this.scale * factor));
+    this.scale = Math.max(0.08, Math.min(this.maxScale(), this.scale * factor));
     this.updateCamera();
     const after = this.groundAt(px, py);
     if (before && after) { this.target.add(before.sub(after)); }
+    this.clampTarget();
     this.dirty = true;
   }
 
@@ -401,5 +476,5 @@ function skyFor(el, warm, night) {
   let top = [118, 150, 178], bot = [212, 222, 226];
   top = mix(top, [74, 76, 112], warm); bot = mix(bot, [236, 176, 128], warm);
   top = mix(top, [10, 12, 20], night); bot = mix(bot, [28, 30, 46], night);
-  return { top: `rgb(${top})`, bot: `rgb(${bot})` };
+  return { top: `rgb(${top})`, bot: `rgb(${bot})`, haze: bot.map((v) => v / 255) };
 }

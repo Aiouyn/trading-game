@@ -10,6 +10,9 @@ uniform float uGrowth;
 uniform float uBand;
 uniform float uTime;
 uniform vec3 uInk;
+uniform vec3 uHazeColor;
+uniform float uHaze0;
+uniform float uHaze1;
 float h11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
 float h31(vec3 p3) { p3 = fract(p3 * 0.1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }
 vec3 light(vec3 base, vec3 n) {
@@ -19,6 +22,8 @@ vec3 light(vec3 base, vec3 n) {
   vec3 night = base * uNightAmb * (0.75 + 0.25 * n.y);
   return mix(day, night, uNight);
 }
+// distance haze: far from the map centre, everything melts into the sky's bottom colour
+vec3 haze(vec3 c, vec2 xz) { return mix(c, uHazeColor, smoothstep(uHaze0, uHaze1, length(xz))); }
 `;
 
 export const partVert = /* glsl */ `
@@ -45,6 +50,7 @@ varying vec3 vSize;
 varying float vBaseAbs;
 varying float vProg;
 varying vec3 vLN;
+varying vec2 vXZ;
 void main() {
   float p = clamp((uGrowth - iMeta.x) / uBand, 0.0, 1.0);
   vProg = p;
@@ -63,6 +69,7 @@ void main() {
   vBaseAbs = iPos.y - g;
   // per-building state (render.js load): rgb = lens tint, a = flags (1 emphasis, 2 see-through, 4 focus)
   vState = texelFetch(uState, ivec2(int(mod(iStyle.w, uStateW)), int(floor(iStyle.w / uStateW))), 0);
+  vXZ = wp.xz;
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
 }`;
 
@@ -87,6 +94,7 @@ varying vec3 vSize;
 varying float vBaseAbs;
 varying float vProg;
 varying vec3 vLN;
+varying vec2 vXZ;
 
 float rectAA(vec2 f, vec2 lo, vec2 hi, vec2 fw) {
   vec2 a = smoothstep(lo - fw, lo + fw, f) * (1.0 - smoothstep(hi - fw, hi + fw, f));
@@ -215,7 +223,7 @@ void main() {
   }
 
   if (abs(bid - uHover) < 0.5 && bid > 0.5) base = mix(base, uBrass * 1.15, 0.38);
-  gl_FragColor = vec4(base + emissive, 1.0);
+  gl_FragColor = vec4(haze(base + emissive, vXZ), 1.0);
 }`;
 
 export const groundVert = /* glsl */ `
@@ -224,10 +232,12 @@ uniform float uHalf;
 varying vec2 vUv;
 varying vec3 vN;
 varying float vH;
+varying vec2 vXZ;
 void main() {
   vUv = (position.xz + uHalf) / (2.0 * uHalf);
   vN = normal;
   vH = position.y;
+  vXZ = position.xz;
   gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
 }`;
 
@@ -243,6 +253,7 @@ uniform vec3 uLit0;
 varying vec2 vUv;
 varying vec3 vN;
 varying float vH;
+varying vec2 vXZ;
 void main() {
   vec4 A = texture2D(uA, vUv);
   vec4 B = texture2D(uB, vUv);
@@ -299,7 +310,98 @@ void main() {
     wl = mix(wl, wl * 1.12 + 0.02, shore * 0.6);
     lit = mix(lit, wl, smoothstep(0.35, 0.65, water));
   }
-  gl_FragColor = vec4(lit, 1.0);
+  gl_FragColor = vec4(haze(lit, vXZ), 1.0);
+}`;
+
+// The outskirts: land and sea beyond the square, drawn from the coarse ring mesh. Same lighting as the ground.
+export const outVert = /* glsl */ `
+${COMMON}
+attribute float aH;
+attribute float aFld;
+attribute float aFrs;
+varying vec2 vXZ;
+varying vec3 vN;
+varying float vH;
+varying float vFld;
+varying float vFrs;
+void main() {
+  vXZ = position.xz;
+  vN = normal;
+  vH = aH;
+  vFld = aFld;
+  vFrs = aFrs;
+  gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
+}`;
+
+export const outFrag = /* glsl */ `
+${COMMON}
+uniform float uHalf;
+uniform float uSnow;
+uniform float uBeach;
+uniform vec3 cNatural; uniform vec3 cPark; uniform vec3 cSand;
+uniform vec3 cWater0; uniform vec3 cWater1;
+uniform vec3 uLit0;
+varying vec2 vXZ;
+varying vec3 vN;
+varying float vH;
+varying float vFld;
+varying float vFrs;
+
+// smooth value noise on a lattice, range [0, 1]
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = h31(vec3(i, 1.0)), b = h31(vec3(i + vec2(1.0, 0.0), 1.0));
+  float c = h31(vec3(i + vec2(0.0, 1.0), 1.0)), d = h31(vec3(i + vec2(1.0, 1.0), 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fnoise(vec2 p) { return 0.6 * vnoise(p) + 0.3 * vnoise(p * 2.07 + 17.3) + 0.1 * vnoise(p * 4.13 + 5.9); }
+
+void main() {
+  vec3 n = normalize(vN);
+  vec2 w = vXZ + uHalf; // the ground's world frame, so the field patchwork runs on across the seam
+  float varn = vnoise(vXZ / 45.0);
+
+  // ---- land: meadow, farmland patchwork, woods, beach, snow
+  vec3 col = mix(cNatural, cPark, 0.42) * (0.94 + 0.12 * varn);
+  float slope = 1.0 - n.y;
+  col = mix(col, cNatural * 0.8, smoothstep(0.1, 0.35, slope) * 0.6);
+  // farmland and woods: broad noise patches on the lowland, and the city's own fields and woods carry on across
+  // the border, thinning out over 450 m, so no line marks the square's edge
+  float outside = max(abs(vXZ.x), abs(vXZ.y)) - uHalf;
+  float carry = 1.0 - smoothstep(0.0, 450.0, outside);
+  float fieldM = max(smoothstep(0.52, 0.6, fnoise(vXZ / 700.0 + 13.0)) * (1.0 - smoothstep(12.0, 30.0, vH)), vFld * carry * 0.92);
+  if (fieldM > 0.0) {
+    vec2 q = vec2(w.x * 0.96 + w.y * 0.28, -w.x * 0.28 + w.y * 0.96) + 30.0 * vec2(sin(w.y / 170.0), cos(w.x / 150.0));
+    vec2 cell = floor(q / vec2(74.0, 46.0));
+    float h1 = h31(vec3(cell, 3.0)), h2 = h31(vec3(cell, 7.0));
+    vec3 crop = h1 < 0.3 ? mix(cNatural, cPark, 0.65) : h1 < 0.55 ? mix(cNatural, cSand, 0.7) : h1 < 0.8 ? mix(cNatural, cPark, 0.25) : cNatural * 0.92;
+    crop *= 0.9 + 0.18 * h2;
+    float furrow = 0.96 + 0.04 * step(0.5, fract(q.x / 3.0 + h2 * 4.0));
+    vec2 fq = fract(q / vec2(74.0, 46.0));
+    float hedge = 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.025, min(min(fq.x, 1.0 - fq.x), min(fq.y, 1.0 - fq.y))));
+    col = mix(col, crop * furrow * hedge, fieldM);
+  }
+  float forestM = max(smoothstep(0.56, 0.64, fnoise(vXZ / 480.0 + 41.0)), vFrs * carry * 0.9);
+  col = mix(col, cPark * 0.62 * (0.92 + 0.16 * varn), forestM * 0.9);
+  col = mix(col, cSand * (0.96 + 0.06 * varn), uBeach * (1.0 - smoothstep(1.0, 1.5, vH)));
+  col = mix(col, vec3(0.93, 0.95, 0.97), smoothstep(uSnow, uSnow + 25.0, vH) * (0.6 + 0.4 * n.y));
+  vec3 land = light(col, n);
+
+  // ---- sea: the ground's water, shallow to deep from the depth
+  float d = clamp(-vH * 0.19, 0.0, 1.0);
+  vec3 wc = mix(cWater0, cWater1, smoothstep(0.0, 1.0, d));
+  vec2 p = w * (450.0 / uHalf); // the ground's wave pattern
+  float wave = sin(p.x * 0.9 + p.y * 0.35 + uTime * 0.9) * sin(p.y * 0.7 - uTime * 0.6 + p.x * 0.2);
+  wc *= 0.985 + 0.025 * wave;
+  float spec = pow(max(0.0, wave), 10.0) * 0.06 * (1.0 - uNight);
+  vec3 wl = wc * (uAmb * 0.95 + uSunCol * 0.25) + spec;
+  wl = mix(wl, wc * uNightAmb * 0.9 + uLit0 * 0.012, uNight);
+  float shore = 1.0 - smoothstep(0.0, 1.2, -vH);
+  wl = mix(wl, wl * 1.12 + 0.02, shore * 0.6);
+
+  vec3 lit = mix(land, wl, 1.0 - smoothstep(-0.4, 0.4, vH));
+  gl_FragColor = vec4(haze(lit, vXZ), 1.0);
 }`;
 
 export const roadVert = /* glsl */ `
@@ -312,9 +414,11 @@ varying float vSide;
 varying float vDist;
 varying float vCls;
 varying float vProg;
+varying vec2 vXZ;
 void main() {
   vSide = aSide; vDist = aDist; vCls = aCls;
   vProg = (uGrowth - aOrder) / (uBand * 0.6);
+  vXZ = position.xz;
   gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
 }`;
 
@@ -326,6 +430,7 @@ varying float vSide;
 varying float vDist;
 varying float vCls;
 varying float vProg;
+varying vec2 vXZ;
 void main() {
   if (vProg <= 0.0) discard;
   vec3 c = vCls > 3.5 ? cRoad2 : vCls > 2.5 ? cRoad1 : cRoad0;
@@ -360,5 +465,5 @@ void main() {
     vec3 lights = dir * (f - 0.15) > 0.0 ? vec3(1.0, 0.95, 0.8) * 1.4 : vec3(1.0, 0.18, 0.12) * 1.1;
     col = mix(col, mix(light(body, vec3(0.0, 1.0, 0.0)), lights, uNight), car);
   }
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(haze(col, vXZ), 1.0);
 }`;
