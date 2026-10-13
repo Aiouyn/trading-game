@@ -42,6 +42,8 @@ test.describe('window management', () => {
     const tray = page.getByTestId('os-tray');
     await expect(tray).toBeVisible();
     await expect(page.getByTestId('tray-wire')).toBeVisible();
+    // The push also says so in a short notice, not silently (UX evaluation 4).
+    await expect(page.getByTestId('os-toasts')).toContainText('minimized to the tray');
     expect(await windowIds(page)).not.toContain('wire');
     await page.getByTestId('tray-wire').click();
     await expect.poll(() => windowIds(page)).toContain('wire');
