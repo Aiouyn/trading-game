@@ -10,7 +10,7 @@ import { textConfigFromEnv } from './text/config';
 import { TextEnricher } from './text/enricher';
 import { enrichItemOf } from './text/facts';
 import { WorldHost } from './host';
-import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
+import { chatFor, configSeq, directory, directoryFor, directoryWire, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
 import { lpPageOf } from '../src/world/launchpad/view';
 import { visitView } from '../src/world/home';
 import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
@@ -390,6 +390,9 @@ host.onTick((out, publicTick) => {
   const all = publicTick ? directory(host.g) : null;
   const top = all ? topDirectory(all) : null;
   const topJson = top && all!.length <= top.length ? JSON.stringify(top) : null;
+  // the directory of a big world: the top list is serialized once for the tick, and each socket adds only its own rows (directoryWire)
+  const topBody = top && !topJson ? JSON.stringify(top).slice(1, -1) : '';
+  const pos = all && !topJson ? new Map(all.map((r, i) => [r.id, i] as const)) : null;
   const chat = out.chat as (ChatMessage & { channel?: string })[];
   // the model text slot: this tick's new items are offered (never inside the step), and the overlay lines that landed since the last tick go out
   // the handles of every player are passed too, so an item that names one (of any player) is never offered
@@ -411,7 +414,7 @@ host.onTick((out, publicTick) => {
     const overlayPart = overlayDelta ? `,"textOverlay":${JSON.stringify(overlayDelta)}` : '';
     const myChat = chat.filter((m) => canSee(c.pid!, m.channel ?? 'world')).map((m) => ({ ...m, channel: m.channel ?? 'world' }));
     let extra = '';
-    if (pubJson) extra = `,"pub":${pubJson},"directory":${topJson ?? JSON.stringify(directoryFor(host.g, all!, top!, c.pid))}`;
+    if (pubJson) extra = `,"pub":${pubJson},"directory":${topJson ?? directoryWire(host.g, all!, top!, topBody, pos!, c.pid)}`;
     c.ws.send(`{"t":"tick","frame":${frameJson},"me":${JSON.stringify(me)},"wire":${wireJson},"inbox":${JSON.stringify(out.inbox[c.pid] ?? [])},"chat":${JSON.stringify(myChat)},"rankUps":${rankJson}${extra}${overlayPart},"serverTime":${now}}`);
   }
 });

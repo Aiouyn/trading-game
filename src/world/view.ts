@@ -382,6 +382,42 @@ export function directoryFor(g: GameState, all: DirectoryRow[], top: DirectoryRo
   return extra.length ? [...top, ...extra] : top;
 }
 
+/**
+ * The rows of `all` a viewer gets beyond `top` (the same extras as directoryFor, in `all`'s order). `pos` maps an id to its index in
+ * `all`, built once per tick, so a viewer costs its own relevant ids and not a scan of every row (V1-PHASE9 9C.1).
+ */
+function directoryExtraOf(g: GameState, all: DirectoryRow[], top: DirectoryRow[], pid: string, pos: Map<string, number>): DirectoryRow[] {
+  const p = g.players[pid];
+  if (!p || all.length <= top.length) return [];
+  const want = new Set<string>([pid]);
+  if (p.rivalId) want.add(p.rivalId);
+  if (p.allianceId) for (const m of Object.keys(g.alliances[p.allianceId]?.members ?? {})) want.add(m);
+  for (const d of Object.values(g.deals)) if (d.fromId === pid || d.toId === pid) { want.add(d.fromId); want.add(d.toId); }
+  for (const c of Object.values(g.court.cases)) if (c.plaintiffId === pid || c.defendantId === pid) { want.add(c.plaintiffId); want.add(c.defendantId); }
+  for (const ch of Object.keys(g.chat)) if (ch.startsWith('dm:') && ch.includes(pid)) for (const x of ch.split(':').slice(1)) want.add(x);
+  const inTop = new Set(top.map((r) => r.id));
+  const idx: number[] = [];
+  for (const id of want) {
+    if (inTop.has(id)) continue;
+    const i = pos.get(id);
+    if (i !== undefined) idx.push(i);
+  }
+  idx.sort((a, b) => a - b);
+  return idx.map((i) => all[i]!);
+}
+
+/**
+ * The directory of a public tick as JSON text, for one viewer: the same text as JSON.stringify(directoryFor(g, all, top, pid)).
+ * `topBody` is the JSON of `top` without its brackets and `pos` the index of each id in `all`; the server builds both once per tick
+ * (server/index.ts), so the top list is serialized once and not once per socket. The viewer's rows are serialized here.
+ */
+export function directoryWire(g: GameState, all: DirectoryRow[], top: DirectoryRow[], topBody: string, pos: Map<string, number>, pid: string): string {
+  if (!g.players[pid]) return JSON.stringify(all);
+  const extra = directoryExtraOf(g, all, top, pid, pos);
+  if (extra.length === 0) return `[${topBody}]`;
+  return `[${topBody}${top.length > 0 ? ',' : ''}${JSON.stringify(extra).slice(1, -1)}]`;
+}
+
 export function topDirectory(all: DirectoryRow[], limit = 500): DirectoryRow[] {
   return all.length <= limit ? all : all.slice().sort((a, b) => b.netWorth - a.netWorth).slice(0, limit);
 }

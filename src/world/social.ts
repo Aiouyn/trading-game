@@ -1,4 +1,4 @@
-import { linkedAccounts, recordGift } from './collusion';
+import { linkedAccounts, recordGift, touchLinks } from './collusion';
 import { rankIndex } from '@/content/lifestyle';
 import {
   CHAT_KEEP, TPD, cashOf, debit, notify, pushWire, sanitize, shiftBaselines, spendableCash, today, transfer,
@@ -65,6 +65,7 @@ export function createAlliance(g: GameState, p: Player, name: string, tag: strin
   const id = `al${g.allianceSeq}`;
   g.alliances[id] = { id, name: n, tag: t, ownerId: p.id, members: { [p.id]: 'owner' }, treasury: 0, createdTick: g.market.tick, motto: sanitize(motto, 80), sharedDefense: 0 };
   p.allianceId = id;
+  touchLinks(g);
   pushWire(g, out, { kind: 'alliance', tag: 'Alliance', tone: 'brass', playerId: p.id, text: `${p.handle} founds the alliance ${n} [${t}]` });
   return ok({ id });
 }
@@ -76,6 +77,7 @@ export function joinAlliance(g: GameState, p: Player, allianceId: string, out: S
   if (Object.keys(a.members).length >= ALLIANCE_MAX) return fail('the alliance is full');
   a.members[p.id] = 'member';
   p.allianceId = allianceId;
+  touchLinks(g);
   for (const m of Object.keys(a.members)) if (m !== p.id) notify(g, out, m, { kind: 'alliance', tone: 'info', text: `${p.handle} joined ${a.name}.` });
   return ok();
 }
@@ -85,6 +87,7 @@ export function leaveAlliance(g: GameState, p: Player): CommandResult {
   if (!a) return fail('not in an alliance');
   delete a.members[p.id];
   p.allianceId = null;
+  touchLinks(g);
   const left = Object.keys(a.members);
   if (!left.length) {
     // the treasury of a dissolved alliance returns to its last member (none left: it is lost)
@@ -135,6 +138,7 @@ export function allianceKick(g: GameState, p: Player, target: string): CommandRe
   delete a.members[target];
   const t = g.players[target];
   if (t) t.allianceId = null;
+  touchLinks(g);
   return ok();
 }
 
@@ -175,6 +179,31 @@ export function loansOwedOf(g: GameState, pid: string): number {
 }
 
 /**
+ * The active loans of the deal book, in the book's order, with the receivable each has now (outstanding, else the amount), and
+ * the indexes into that list by lender. Built once per change of the deal book (bumpDeals), like the owed index above, so the
+ * tax basis reads the loans of a group, not every deal.
+ */
+const receivableIdx = new WeakMap<object, { ver: number; loans: { fromId: string; toId: string; amt: number }[]; byFrom: Map<string, number[]> }>();
+
+function receivableIndex(g: GameState): { loans: { fromId: string; toId: string; amt: number }[]; byFrom: Map<string, number[]> } {
+  const ver = dealVersion.get(g) ?? 0;
+  const hit = receivableIdx.get(g);
+  if (hit && hit.ver === ver) return hit;
+  const loans: { fromId: string; toId: string; amt: number }[] = [];
+  const byFrom = new Map<string, number[]>();
+  for (const d of Object.values(g.deals)) {
+    if (d.kind !== 'loan' || d.status !== 'active') continue;
+    const list = byFrom.get(d.fromId);
+    const i = loans.length;
+    loans.push({ fromId: d.fromId, toId: d.toId, amt: d.outstanding ?? d.amount });
+    if (list) list.push(i); else byFrom.set(d.fromId, [i]);
+  }
+  const ix = { ver, loans, byFrom };
+  receivableIdx.set(g, ix);
+  return ix;
+}
+
+/**
  * Cash a player holds that it does not own outright: the loans it owes and the gifts it has received, net of gifts it gave.
  * The rank basis subtracts it (assets.ts refreshNetWorth), so borrowing or being gifted money buys no rank peak (ROADMAP R5).
  */
@@ -207,10 +236,12 @@ export function taxBasisOf(g: GameState, pid: string): number {
     const p = g.players[id];
     if (p) basis += p.markNetWorth ?? p.netWorth;
   }
-  for (const d of Object.values(g.deals)) {
-    if (d.kind !== 'loan' || d.status !== 'active') continue;
-    if (inside.has(d.fromId) && !inside.has(d.toId)) basis += d.outstanding ?? d.amount;
-  }
+  // the receivables that leave the group, in the deal book's own order (the sum is the same as a scan of every deal)
+  const ix = receivableIndex(g);
+  const leaving: number[] = [];
+  for (const id of group) for (const i of ix.byFrom.get(id) ?? []) if (!inside.has(ix.loans[i]!.toId)) leaving.push(i);
+  leaving.sort((x, y) => x - y);
+  for (const i of leaving) basis += ix.loans[i]!.amt;
   return basis;
 }
 
@@ -269,9 +300,9 @@ export function respondDeal(g: GameState, p: Player, dealId: string, accept: boo
   // a loan is player-to-player money too: it counts toward the funding link (collusion.ts), so a loan-funded alt is linked
   recordGift(g, d.fromId, d.toId);
   d.status = 'active';
-  bumpDeals(g);
   d.startTick = g.market.tick;
   d.outstanding = d.amount;
+  bumpDeals(g);
   notify(g, out, d.fromId, { kind: 'deal', tone: 'gain', text: `${p.handle} accepted your loan of $${d.amount.toLocaleString('en-US')}.` });
   return ok();
 }
@@ -298,6 +329,7 @@ export function repayDeal(g: GameState, p: Player, dealId: string, amount: numbe
     notify(g, out, d.fromId, { kind: 'deal', tone: 'gain', text: `${p.handle} repaid your loan in full.` });
     p.reputation += 1;
   }
+  bumpDeals(g);
   return ok();
 }
 
@@ -322,5 +354,6 @@ export function dealsDay(g: GameState, out: StepOutput): void {
       notify(g, out, d.toId, { kind: 'deal', tone: 'loss', text: `You defaulted on a loan. The lender can sue.` });
     }
   }
+  bumpDeals(g);
   void today;
 }

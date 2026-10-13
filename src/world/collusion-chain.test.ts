@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame } from './game';
-import { isLinkedAccount, linkedAccounts, recordGift, registerDevice } from './collusion';
+import { isLinkedAccount, linkedAccounts, recordGift, registerDevice, touchLinks } from './collusion';
 import type { GameState } from './types';
 
 /**
@@ -44,7 +44,9 @@ describe('funding links are direct, owner links are transitive (R-9-3)', () => {
     registerDevice(g, 'a', 'dev-1');
     registerDevice(g, 'b', 'dev-1');
     g.players.b!.allianceId = 'al-chain';
+    touchLinks(g);
     g.players.c!.allianceId = 'al-chain';
+    touchLinks(g);
     expect(linkedAccounts(g, 'a')).toEqual(['a', 'b', 'c']);
     expect(isLinkedAccount(g, 'a', 'c')).toBe(true);
   });

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { touchLinks } from '../collusion';
 import { applyCommand, createGame } from '../game';
 import { credit, newOutput, TPD } from '../core';
 import { courtTick } from '../court';
@@ -111,7 +112,9 @@ describe('the bridge: the CEO freeze, the bid route and the bankruptcy delisting
     const alt = applyCommand(g, 'alt', { type: 'join', handle: 'alt_one', country: 'AV' });
     expect(alt.ok).toBe(true);
     g.players.alt!.allianceId = 'ALLY';
+    touchLinks(g);
     g.players.m!.allianceId = 'ALLY';
+    touchLinks(g);
     atDay(g, 5);
     const r = applyCommand(g, 'm', { type: 'company.act', companyId, action: { kind: 'changeCEO', successor: { kind: 'npc' } } });
     expect(r.ok).toBe(true);
