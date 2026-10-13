@@ -19,7 +19,7 @@ $100. The world side is in `src/world/launchpad/*` (view, reply, anon, flow, tra
 | Board | Cards in a grid; sorts: last trade (New), volume (Trending), market cap (Graduated), created, replies, curve; search | `FeedTab.tsx`, `Board.tsx` |
 | King of the hill | The live token with the most curve progress, as a banner | `view.ts` `king`, `Board.tsx` `KingBanner` |
 | Live trades bar | The newest 12 trades across tokens; a player line under its anonymous id, NPC flow under a fictional handle | `view.ts` `bar`, `Board.tsx` `TradesBar` |
-| Candle chart | 1m, 5m, 15m, 1h on the game clock (12, 60, 180, 720 ticks); price or market-cap axis | `CandleChart.tsx` |
+| Candle chart | 1m, 5m, 15m, 1h on the game clock (12, 60, 180, 720 ticks); each candle's open, high, low and close come from the trades (a minute with no trade carries the last price flat); price or market-cap axis | `bars.ts` (the world's minute and hour bars), `CandleChart.tsx` (the timeframes) |
 | Trades table | Time, trader (anonymous id, creator marked), side, dollars, tokens, price | `TokenSections.tsx` |
 | Holders | Top 20 by tokens; the curve, the dev, the NPC cohort and the viewer marked; anonymous ids | `view.ts` `holdersOf`, `TokenSections.tsx` |
 | Replies | Player text (140 characters, moderated: empty, long, link, abuse; one a real minute); NPC replies (fictional handles, text keys) | `reply.ts`, `moderate.ts` `moderateText`, `TokenSections.tsx` |
@@ -32,6 +32,20 @@ $100. The world side is in `src/world/launchpad/*` (view, reply, anon, flow, tra
 | {hours} | The gate's refusal data (its parts with their numbers) reaches the Create form; it had been sent without them | `view.ts` `gateData`, `CreateTab.tsx` |
 | Launch fee | $100 (`LP.LAUNCH_FEE`), down from $1,000 | `constants.ts` |
 
+### 10C.1b Review pass (commit 38db430)
+A review of the first pass found these and they are fixed:
+- Candles were drawn from 1-minute samples that did not move with the trades; they are now built from the trades (10C.2).
+- The reply count saturated at the kept thread length (60); it is now a running total (`replyCount`) on the board and the header.
+- Links: the refusal now also catches a host with a path under any top-level domain (`pump.fun/x`, `dapp.dev/mint`), shorteners
+  (`bit.ly`, `linktr.ee`), defanged hosts (`pump[.]fun`), and a bare host under a common domain. Profanity is on the abuse list too.
+- A dead token refuses a reply (`replyDead`). NPC replies on a live token need a player trade in the window (the cohort's own fills
+  no longer count, or the gate was always true). NPC lines come from a per-status pool, so a graduated token never talks about the
+  curve or the creator.
+- The New feed is in bump order (live tokens sorted by their last trade before the 40 are taken).
+- Price notation (R-10-3): DEX subscript zeros below a hundredth of a cent (`0.0₅4123`), four significant digits above.
+- Slippage limits read at their typed precision (0.01%, not 0.0%).
+- The NPC cohort's holder role reads "Retail" (en) and "Detail" (fr). Dead code removed: `CurveChart.tsx`, `LpCard.icon`, `ticket.spot`.
+
 ### 10C.2 Rulings taken here (deviations, for the lead)
 - **Anonymous trader ids, not handles, on the bar.** The brief said "handle bought $X". The bar and the tape show a six-hex id
   hashed from the ticker and the account (`anon.ts`), so an account cannot be followed across tokens and no handle appears. Creator
@@ -40,18 +54,29 @@ $100. The world side is in `src/world/launchpad/*` (view, reply, anon, flow, tra
 - **Replies are anonymous too.** A player's reply shows the anonymous id; the creator's reply is marked as the creator's. The
   creator's handle stays public on the card and the header (a founder's name is public).
 - **NPC replies are drawn by hash, not from the token's stream**, so no other draw moves and a replay is byte-identical.
-- **Candles are built on the client** from the 1-minute samples (one per 12 ticks). `PriceChart` reads engine history by asset id,
-  and a curve token has no asset, so a local candle view is used (see 10C.5).
+- **Candles are built from the trades, in the world** (review fix, 38db430): `bars.ts` keeps a minute bar per real minute (240 kept)
+  and an hour bar per game day (720 ticks, which is one real hour, 24 kept). Each trade's fill price touches its bars (high, low,
+  close); a minute with no trade carries the last price flat, and a bar opens at the previous close. The client groups these bars into
+  the timeframes. The old 1-minute chart samples are read as flat bars for a token saved before Phase 10. `PriceChart` reads engine
+  history by asset id, and a curve token has no asset, so a local candle view is used (see 10C.5).
 - **Sells in 25 to 100 %** replace the old 25, 50, max chips; the buy chips are $10 to $500 and max (the account's cash).
 
 ### 10C.3 Gates and checks
 - Typecheck: `npx tsc --noEmit` exit 0 at every commit. Lint: `eslint` on the touched files, 0 errors.
 - Vitest, touched areas: `src/i18n`, `src/components/apps/launchpad`, `src/world/launchpad` (incl. the new `pump.test.ts`, 16 tests):
   161 green before `pump.test.ts` was added, the new file green after.
-- Vitest, full suite (the tree at `c881c72` plus the diagnostics): 284 files passed, 2 skipped (as on v1); 2,647 tests passed,
-  4 expected fail, 70 skipped, 20 todo; exit 0. This includes every fingerprint and determinism test (the company, ecology, funds and
-  launchpad determinism files) with their hard-coded values unchanged. Two view expectations changed on purpose: the holder count
-  of a launch now includes the NPC sniper's cohort as an anonymous holder (`view.test.ts`).
+- Vitest, touched areas on 38db430 (this pass): `src/i18n`, `src/components/apps/launchpad`, `src/world/launchpad`,
+  `src/world/text`: 30 files, 276 passed.
+- Vitest, full suite on 38db430 (this pass, 288 files): 284 files passed, 2 skipped; 2,662 tests passed, 4 failed, 4 expected fail,
+  70 skipped, 20 todo. The 4 failures are all `Test timed out` (60 s, and 120 s for the company determinism run), not assertions:
+  `src/world/tournamentWeek.test.ts` (3 tests: N8 trade logs and the reveal) and
+  `src/world/company/determinism.test.ts` (1 test: the engine-path company world). The machine ran about ten vitest suites at once
+  from other tracks. Rerun alone on 38db430: both files pass, 2 files and 16 tests green. So the four are load timeouts, not
+  regressions. None of them imports the Launchpad or the `lp.reply` path.
+- Earlier full-suite run (at `c881c72`, before the review commit): 284 files passed, 2 skipped; 2,647 tests passed, 4 expected fail,
+  70 skipped, 20 todo; exit 0. This includes every fingerprint and determinism test (the company, ecology, funds and launchpad
+  determinism files) with their hard-coded values unchanged. Two view expectations changed on purpose: the holder count of a launch
+  now includes the NPC sniper's cohort as an anonymous holder (`view.test.ts`).
 - Tests added (`src/world/launchpad/pump.test.ts`): the $100 fee (sink and totals); description and variant refusals and storage;
   the {hours} data; icon variant 0 equals the old icon; the graduated card price equals `priceOf` and the chart keeps sampling;
   holders incl. the NPC cohort, the curve and the dev, anonymous ids, no handle; per-token ids; tape dollars and the anonymous id;
@@ -71,8 +96,14 @@ $100. The world side is in `src/world/launchpad/*` (view, reply, anon, flow, tra
   graduated tokens, the tape fields); the lead re-runs the launchpad gate with the $100 fee.
 
 ### 10C.4 Playwright
-Run on the final tree with a fresh build (`npx next build --webpack`), ports 3422 and 9022, `--workers=2`, the desktop (1440x900)
-and phone (390x844) projects:
+Run on 38db430 (the review commit) with a fresh build (`npx next build --webpack`), ports 3422 and 9022, `--workers=2`, the desktop
+(1440x900) and phone (390x844) projects, with `E2E_PROJECTS=desktop,phone`:
+- `tests/e2e/launchpad*.spec.ts`: 17 passed, 3 skipped (the screenshot spec, which runs only with `LP_SHOTS_DIR`; the desktop-only
+  minimum-window check on phone). Log: session scratchpad `p10/e2e-lp-h3.log`.
+- `launchpadShots.spec.ts` with `LP_SHOTS_DIR` set: 2 passed (desktop and phone). Screens: `p10/shots-p10-lp/`
+  (`{desktop,phone}-{en,fr}-{new,trending,graduated,holdings,create,token,token-graduated,token-dead}.png`).
+
+Earlier run (on 70b3f2f, before the review commit; kept for the record):
 - `launchpad.spec.ts` (the v1 Launchpad specs, all still green on the new board; the tab and testid names it uses are kept): green on desktop and phone.
 - `launchpadPump.spec.ts` (new): the board, the king and the trades bar; the token page (description, candles, trades, holder
   roles, the thread); a $100 quick buy sent from the ticket; a link refused inline before it is sent; a reply posted and shown,
