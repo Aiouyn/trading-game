@@ -11,10 +11,11 @@ import { Button, Card, CardHeader, Locked, NumberField, Segmented } from '@/comp
 import { unlockLine } from '../unlock';
 
 /** Whole units for a stock, six decimals otherwise: the same rounding the server applies to a block slice. */
-function unitsFor(assetClass: string, units: number, qtyStep: number | undefined): number {
+function unitsFor(assetClass: string, units: number, stepOf: number | undefined): number {
   if (!(units > 0)) return 0;
-  const step = qtyStep ?? (assetClass === 'stock' ? 1 : 0);
-  return step === 1 ? Math.floor(units + 1e-9) : Math.floor(units * 1e6) / 1e6;
+  // the asset's own step (R-10-4): stocks in 0.0001 shares, the rest in six decimals (the same rounding the server applies)
+  const step = stepOf ?? (assetClass === 'stock' ? 0.0001 : 0);
+  return step > 0 ? Number((Math.floor(units / step + 1e-9) * step).toFixed(8)) : Math.floor(units * 1e6) / 1e6;
 }
 
 function num(s: string): number {
