@@ -137,11 +137,10 @@ export interface EarningsInfo {
   last: { day: number; surprise: number; move: number } | null;
 }
 
-/** What the public knows about a stock's next report, or null (not a stock, catalysts off, or not scheduled yet). */
-export function earningsInfo(state: WorldState, assetId: string): EarningsInfo | null {
+/** The report of the asset at index `i` (the body of earningsInfo, with the index known). */
+function earningsAt(state: WorldState, i: number, assetId: string): EarningsInfo | null {
   if (!state.config.catalysts) return null;
-  const i = state.config.assets.findIndex((d) => d.id === assetId);
-  if (i < 0 || state.config.assets[i]!.assetClass !== 'stock') return null;
+  if (state.config.assets[i]!.assetClass !== 'stock') return null;
   const a = state.assets[i]!;
   if (a.nextEarnings === undefined) return null;
   const today = dayOfTick(state.tick, state.config.ticksPerDay);
@@ -156,11 +155,25 @@ export function earningsInfo(state: WorldState, assetId: string): EarningsInfo |
   };
 }
 
-/** Upcoming reports within `withinDays`, soonest first. */
+/** What the public knows about a stock's next report, or null (not a stock, catalysts off, or not scheduled yet). */
+export function earningsInfo(state: WorldState, assetId: string): EarningsInfo | null {
+  if (!state.config.catalysts) return null;
+  const i = state.config.assets.findIndex((d) => d.id === assetId);
+  if (i < 0) return null;
+  return earningsAt(state, i, assetId);
+}
+
+/**
+ * Upcoming reports within `withinDays`, soonest first. Every view reads it (calendarFor), so the id-to-index search is one pass
+ * over the assets rather than one search per asset (V1-PHASE9 9C.1). The answer is the same as earningsInfo per asset, duplicate
+ * ids included (each asset takes the first index of its id, as findIndex does).
+ */
 export function earningsCalendar(state: WorldState, withinDays = 10): EarningsInfo[] {
   const out: EarningsInfo[] = [];
+  const first = new Map<string, number>();
+  state.config.assets.forEach((d, i) => { if (!first.has(d.id)) first.set(d.id, i); });
   for (const d of state.config.assets) {
-    const e = earningsInfo(state, d.id);
+    const e = earningsAt(state, first.get(d.id)!, d.id);
     if (e && e.daysAway >= 0 && e.daysAway <= withinDays) out.push(e);
   }
   return out.sort((x, y) => x.daysAway - y.daysAway || x.assetId.localeCompare(y.assetId));
