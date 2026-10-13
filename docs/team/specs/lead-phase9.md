@@ -87,3 +87,12 @@ real day in week 3). 01 §8.2 and §8.3 name the missing lever: progressive tax 
 - Gate (for the tuning): with the 504-day bot on 20 seeds, managed p50 at real day 21 in [$15M, $60M] and at real day 7 in
   [$300k, $1.5M]; excellent p50 at day 21 <= $400M (the top-1% path) and at day 7 <= $5M; neglected unchanged in week 1.
   Tune brackets only on seed prefix `wealth`, then confirm on prefix `wealthH` (held out).
+
+## R-9-11 O-2 after the engine-path probe (lead)
+
+`rho_residual` measured on the engine path after the mcap_20 window fix, 200 seeds x 8 quarters: median 0.597, p90 0.925,
+0 of 200 seeds at or below 0.15 (gate median <= 0.15, p90 <= 0.25). FAIL, recorded. The probe's consensus is a proxy
+(annualised E*), so the term that carries the correlation is not isolated. Ruling: O-2 is a known limit of V1, owner Quant,
+post-V1 (isolate the term, then retune the weekly signal noise or the consensus update). Player companies list late (R2,
+$50M filed value), so the exposure in V1 is small. The test stays `it.fails` with this ruling in its title. No further
+compute on it in Phase 9.
