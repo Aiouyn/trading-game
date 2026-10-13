@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
 import { TPD, cashOf, credit } from './core';
 import { ledgerOf } from './ledger';
-import { rankBasisOf } from './social';
+import { taxBasisOf } from './social';
 import { bookedNet, engineTallyOf, netWorldMoney } from './company/exploits/sequences';
 import { playerView } from './view';
 import { taxOf } from './tax';
@@ -48,7 +48,7 @@ describe('the business tax on the day step', () => {
   it('taxes a positive day net once, at the owner bracket, and books it to businessTax', () => {
     const g = joined('tax-book');
     const id = buyWellRun(g);
-    const basis = rankBasisOf(g, g.players.u1!);
+    const basis = taxBasisOf(g, 'u1');
     expect(basis).toBeGreaterThanOrEqual(DEFAULT_TAX_BRACKETS[1]![0]);
     expect(basis).toBeLessThan(DEFAULT_TAX_BRACKETS[2]![0]);
     // the settlement reads the pre-tax net from the shop's trailing window (the valuation window is pre-tax)

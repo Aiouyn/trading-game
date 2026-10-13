@@ -5,13 +5,14 @@
  */
 import { SHOP, SHOP_REFUSAL } from '@/content/shops';
 import type { UpgradeAxis } from '@/content/businesses';
-import { debit, bizDef, cashOf, clamp, notify, today, TPD } from './core';
+import { bizDef, cashOf, clamp, debit, notify, today, TPD } from './core';
 import { markShares, recomputeShares } from './assets';
 import {
   attrition, autopilotFor, dailyCosts, isCrew, isLevel, managerPrepaid, managerPrepayCost, moraleTarget, reviewsTarget, wellRunShop,
 } from './shopRules';
-import { rankBasisOf } from './social';
-import { rateOf, taxOf } from './tax';
+import { taxBasisOf } from './social';
+import { rateOf } from './tax';
+import { chargeCosts, prepayOnDay, taxDay } from './shopSettle';
 import type { BizDay } from './ledger-types';
 import type { Business, CommandResult, Command, GameState, StepOutput } from './types';
 
@@ -141,12 +142,6 @@ export function wellRunCommands(bizId: string): Command[] {
   ];
 }
 
-/** Money sinks for the day's operating costs, by line. */
-const SINKS = {
-  wages: 'shop wages', opex: 'shop opex', marketing: 'shop marketing', quality: 'shop quality',
-  maintenance: 'shop maintenance', manager: 'shop manager',
-} as const;
-
 /**
  * Day boundary: a pending price takes effect; attrition and the condition decay (a manager keeps the
  * shop on autopilot within its skill); the day's operating costs are paid out; reviews and morale move
@@ -181,12 +176,8 @@ export function shopsDay(g: GameState, out: StepOutput | null): Map<string, BizD
     const maintainedNow = s.maintained || managed;
     s.condition = maintainedNow ? SHOP.maintenance.condition : Math.max(0, s.condition - SHOP.maintenance.decayPerDay);
     const k = dailyCosts(target, s, maintainedNow, managerPrepaid(s.managerStars, s.managerDay, day));
-    let total = 0;
     const cashBefore = cashOf(g, b.ownerId);
-    for (const line of Object.keys(SINKS) as (keyof typeof SINKS)[]) {
-      const amt = k[line];
-      if (amt > 0) { debit(g, b.ownerId, amt, SINKS[line]); total += amt; }
-    }
+    const total = chargeCosts(g, b, k);
     // costs are obligations, paid even when cash runs out (as property upkeep is). The owner is told once, on the
     // costs that take cash from zero or above to below zero; the Shops tab keeps the notice up while cash stays negative.
     if (total > 0 && owner && !owner.npc && cashBefore >= 0 && cashOf(g, b.ownerId) < 0) {
@@ -208,15 +199,17 @@ export function shopsDay(g: GameState, out: StepOutput | null): Map<string, BizD
     const net = earnedToday - total;
     s.net.push(net);
     if (s.net.length > SHOP.value.window) s.net.splice(0, s.net.length - SHOP.value.window);
-    // R-9-10: the day's net is taxed at the owner's bracket (the basis is read once per owner per day); a loss earns no credit
+    // R-9-10: the day's taxable net (after its costs, and the manager's prepay if it was paid today) is taxed at the owner's
+    // bracket. The basis is the owner group's (social.ts taxBasisOf), read once per owner per day. A loss earns no credit.
+    // A business with no owner record earns nothing (accrueBusinesses skips it), so it has no tax to book.
     if (owner) {
+      const taxable = net - prepayOnDay(s, target, day);
       let basis = bases.get(b.ownerId);
-      if (basis === undefined) { basis = rankBasisOf(g, owner); bases.set(b.ownerId, basis); }
-      const tax = taxOf(net, basis, shift);
-      if (tax > 0) debit(g, b.ownerId, tax, 'businessTax');
+      if (basis === undefined) { basis = taxBasisOf(g, b.ownerId); bases.set(b.ownerId, basis); }
+      const tax = taxDay(g, b.ownerId, taxable, basis, shift);
       const acc = taxed.get(b.ownerId) ?? { businesses: 0, net: 0, tax: 0, rate: rateOf(basis, shift) };
       acc.businesses++;
-      acc.net += net;
+      acc.net += taxable;
       acc.tax += tax;
       taxed.set(b.ownerId, acc);
     }

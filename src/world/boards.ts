@@ -85,18 +85,22 @@ export function stabilizerDay(g: GameState): void {
   for (const p of Object.values(g.players)) supply += Math.max(0, p.netWorth);
   const st = g.economy.stabilizer;
   const hist = st.hist ?? [];
+  let err = 0;
   if (hist.length >= STABILIZER_WINDOW) {
     const base = hist[hist.length - STABILIZER_WINDOW]!;
     if (base > 0 && supply > 0) {
       // growth per player, so new players joining do not look like inflation
       const growth = Math.pow(supply / base, 1 / STABILIZER_WINDOW) - 1;
-      const err = growth - STABILIZER_TARGET;
+      err = growth - STABILIZER_TARGET;
       st.integral = Math.max(-0.5, Math.min(0.5, st.integral * 0.9 + err));
       st.sinkMult = Math.max(1, Math.min(1.6, 1 + 2 * Math.max(0, err) + 0.5 * Math.max(0, st.integral)));
-      // R-9-10 lever 2: the tax brackets move with the same error, only while the levy is engaged (sinkMult above 1)
-      st.taxShift = stabilizerTaxShift(err, st.sinkMult > 1);
     }
   }
+  // R-9-10 lever 2: the tax brackets move with the error, only while the levy is engaged (sinkMult above 1). The shift is
+  // recomputed every day (zero while the controller is not running), so it never goes stale. It is written only in a world
+  // with businesses, so a business-free save keeps its keys and fingerprint; a save that has lost its last business clears it.
+  if (Object.keys(g.businesses).length > 0) st.taxShift = stabilizerTaxShift(err, st.sinkMult > 1);
+  else delete st.taxShift;
   st.hist = [...hist, supply].slice(-STABILIZER_WINDOW);
   st.lastSupply = supply;
   const created = Object.values(g.economy.faucets).reduce((s, v) => s + v, 0);

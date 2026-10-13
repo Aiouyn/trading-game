@@ -10,8 +10,9 @@ import {
   autopilotFor, crewSteps, dailyCosts, managerFireOpenDay, managerForfeit, managerPrepayCost, managerPrepaid,
   reviewStars, servedOf, wellRunShop,
 } from './shopRules';
-import { rankBasisOf } from './social';
+import { taxBasisOf } from './social';
 import { rateOf, taxOf } from './tax';
+import { prepayOnDay } from './shopSettle';
 import type { Business, GameState } from './types';
 
 export interface ManagerOffer {
@@ -118,11 +119,13 @@ export function shopView(g: GameState, b: Business, cash: number): ShopView {
   const managed = s.managerStars > 0;
   const maintained = s.maintained || managed;
   const costs = dailyCosts(target, s, maintained, managerPrepaid(s.managerStars, s.managerDay, day));
-  const costTotal = costs.wages + costs.opex + costs.marketing + costs.quality + costs.maintenance + costs.manager;
+  // the manager's prepay is a cost of the day it was paid: the hire day shows it on the manager line (shops.ts settles it)
+  const managerCost = costs.manager + prepayOnDay(s, target, day);
+  const costTotal = costs.wages + costs.opex + costs.marketing + costs.quality + costs.maintenance + managerCost;
   const revenue = b.incomePerDay;
   // R-9-10: the day's tax at the owner's bracket on the positive net (the projection of what the day step books), and the net after it
   const owner = g.players[b.ownerId];
-  const basis = owner ? rankBasisOf(g, owner) : 0;
+  const basis = owner ? taxBasisOf(g, b.ownerId) : 0;
   const shift = g.economy.stabilizer.taxShift ?? 0;
   const pretax = revenue - costTotal;
   const taxAmount = taxOf(pretax, basis, shift);
@@ -183,7 +186,7 @@ export function shopView(g: GameState, b: Business, cash: number): ShopView {
       marketing: out(costs.marketing),
       quality: out(costs.quality),
       maintenance: out(costs.maintenance),
-      manager: out(costs.manager),
+      manager: out(managerCost),
       costs: out(costTotal),
       tax: out(taxAmount),
       taxRate: rateOf(basis, shift),
