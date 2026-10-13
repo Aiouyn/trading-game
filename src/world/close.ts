@@ -4,6 +4,7 @@ import { TPD, notify, today } from './core';
 import { advanceGhosts, beatenCount, ghostValues, percentileOf } from './ghosts';
 import { ensureLedger, hasTrades, ledgerOf, priceEquity, valuationAndIncome } from './ledger';
 import { textProvider, type Msg } from './text';
+import { signedUsdToken, usdToken } from '@/i18n/tokens';
 import type { BizDay, DailyClose, DayClose, DayRecord, PlayerLedger } from './ledger-types';
 import type { GameState, StepOutput, WireItem } from './types';
 
@@ -59,9 +60,11 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
   // the split of that change: valuation and income come from the stored day records (both closes must carry them, else the
   // day predates the split and all of it counts as trading); the business tax is booked to its own sink, so it sits in the
   // rest of the change: it is taken out of trading and shown as its own row (R-9-10). Trading is what is left, so the four
-  // parts sum to the change
+  // parts sum to the change. Valuation is a re-mark only: the cash the day converted into holdings (a purchase, a deposit)
+  // or took out of them (a sale) is taken out of it, so a conversion is neither trading nor valuation (Player.assetFlow)
   const split = !!prev && prev.val !== undefined && prev.inc !== undefined && cur.val !== undefined && cur.inc !== undefined;
-  const valuation = split ? cur.val! - prev!.val! : 0;
+  const converted = split && prev!.flow !== undefined && cur.flow !== undefined ? cur.flow - prev!.flow : 0;
+  const valuation = split ? cur.val! - prev!.val! - converted : 0;
   const income = split ? cur.inc! - prev!.inc! : 0;
   const bizTax = cur.biz?.tax ?? 0;
   const trading = nwChange - valuation - income + bizTax;
@@ -144,7 +147,7 @@ function dayRecord(g: GameState, L: PlayerLedger, pid: string, day: number, biz?
   if (!p || !acct) return null;
   const qty: Record<string, number> = {};
   for (const [id, pos] of Object.entries(acct.positions)) if (pos.qty !== 0) qty[id] = pos.qty;
-  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0, ...valuationAndIncome(g, pid), ...(biz ? { biz } : {}) };
+  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0, ...valuationAndIncome(g, pid), flow: p.assetFlow ?? 0, ...(biz ? { biz } : {}) };
 }
 
 /**
@@ -177,7 +180,7 @@ export function closeDay(g: GameState, out: StepOutput | null, bizTax?: Map<stri
     capped(L.closes, LEDGER.closesKeep);
     const p = g.players[pid]!;
     if (!p.online) {
-      const vars = { day: day + 1, now: card.nwClose.toFixed(2), change: card.nwChange.toFixed(2) };
+      const vars = { day: day + 1, now: usdToken(card.nwClose), change: signedUsdToken(card.nwChange) };
       const msg: Msg = { key: 'dayclose.inbox', vars };
       notify(g, out, pid, { kind: 'close', tone: card.nwChange >= 0 ? 'gain' : 'loss', text: textProvider.render(msg, 'en'), msg, day });
     }

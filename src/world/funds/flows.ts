@@ -1,6 +1,6 @@
 import { placeOrder, type WorldState } from '@/engine';
 import { FUND_RULES, FUND_TIME } from '@/content/funds';
-import { cashOf, creditExternal, transfer } from '../core';
+import { assetFlow, cashOf, creditExternal, transfer } from '../core';
 import { say } from '../say';
 import { usd } from '../text/template';
 import type { CommandResult, GameState, StepOutput } from '../types';
@@ -27,6 +27,7 @@ export function requestDeposit(g: GameState, pid: string, f: Fund, amount: numbe
   const err = depositRefusal(g, f, pid, amount);
   if (err) return fail(err);
   transfer(g, pid, f.accountId, amount);
+  assetFlow(g, pid, amount); // a pending deposit is in the claims at its amount: a conversion, not trading
   f.requests.push({ id: requestSeq(f), kind: 'deposit', investorId: pid, amount, units: 0, tick: g.market.tick });
   say(g, out, pid, 'fund', 'info', { key: 'funds.deposit.requested', vars: { fund: f.name, amount: usd(amount) } });
   return ok({ fundId: f.id });

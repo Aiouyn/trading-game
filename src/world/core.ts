@@ -132,6 +132,18 @@ export function debit(g: GameState, playerId: string, amount: number, sink: stri
   g.economy.sinks[sink] = (g.economy.sinks[sink] ?? 0) + amount;
 }
 
+/**
+ * A conversion between cash and the valuation holdings, at book: `delta` is what the holdings gained (a purchase, an upgrade,
+ * a deposit, a repaid mortgage: positive) or lost (a sale: the book value it carried, negative). The cash side is booked by the
+ * caller as usual. The close takes it out of valuation (close.ts), so a purchase is neither trading nor a re-mark: only what
+ * the holding is marked below its price the moment it is bought, or after a sale, reads as a fee or a re-mark.
+ */
+export function assetFlow(g: GameState, playerId: string, delta: number): void {
+  const p = g.players[playerId];
+  if (!p || !Number.isFinite(delta) || delta === 0) return;
+  p.assetFlow = (p.assetFlow ?? 0) + delta;
+}
+
 /** A cost of owning (upkeep, salaries, desk fees): a debit that also counts toward the player's overheads, so the day's
  * trading figure leaves it out. Trading fees are not overheads; they stay in the trade's realized P&L. */
 export function overhead(g: GameState, playerId: string, amount: number, sink: string): void {

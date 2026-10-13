@@ -1,6 +1,6 @@
-import { rankIndex, LIFE_BY_ID, LIFE_ITEMS, type LifeItem } from '@/content/lifestyle';
+import { rankIndex, LIFE_BY_ID, LIFE_ITEMS, resaleValue, type LifeItem } from '@/content/lifestyle';
 import { openAccount } from '@/engine';
-import { TPD, debit, notify, spendableCash, transfer } from './core';
+import { TPD, assetFlow, debit, notify, spendableCash, transfer } from './core';
 import { refreshPrestige } from './assets';
 import { sha256Hex } from './company/hash';
 import { pureMemo } from './pure-memo';
@@ -256,6 +256,8 @@ export function settleLot(g: GameState, lot: AuctionLotRecord, out: StepOutput |
   debit(g, winner.playerId, premium, 'auction buyer premium');
   const w = g.players[winner.playerId]!;
   w.lifestyle.push({ uid: `${winner.playerId}-auction-${lot.key}`, itemId: lot.itemId, paid: hammer, boughtTick: tick });
+  // the lot enters valuation at its resale value; the hammer's gap to it, and the fee and premium, are trading costs
+  if (item) assetFlow(g, winner.playerId, resaleValue(item, hammer, 0, g.collectibles));
   w.stats.lifeBought++;
   refreshPrestige(g, w);
   lot.status = 'sold';

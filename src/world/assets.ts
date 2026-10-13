@@ -8,8 +8,8 @@ import {
 } from '@/content/lifestyle';
 import { SHOP } from '@/content/shops';
 import {
-  TPD, bizDef, bump, cashOf, touch, clamp, credit, debit, overhead, districtIndex, districtTier, drawFrom, keyedRng, netWorthBreakdown,
-  notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
+  TPD, assetFlow, bizDef, bizValue, bump, cashOf, touch, clamp, credit, debit, overhead, districtIndex, districtTier, drawFrom, keyedRng,
+  netWorthBreakdown, notify, playerBusinesses, priceOf, propType, propValue, pushWire, sanitize, today,
 } from './core';
 import { offlineRate, purchaseShop, queueShare, servedOf } from './shopRules';
 import { PERK_RULES, windMultOf } from './perks';
@@ -62,6 +62,7 @@ export function buyBusiness(g: GameState, pid: string, defId: string, cityId: st
     levels, event: null, incomePerDay: SHOP.revenueMult * def.income * Math.min(1, shop.crew), share: 0, earned: 0, shop,
   };
   g.businesses[id] = b;
+  assetFlow(g, pid, bizValue(b)); // the shop enters valuation at its book value: the cash that bought it is not trading
   touch(g);
   p.stats.bizBought++;
   markShares(g);
@@ -84,8 +85,10 @@ export function upgradeBusiness(g: GameState, pid: string, bizId: string, axis: 
   if (lvl >= MAX_UPGRADE) return fail('already at the top level');
   const cost = upgradeCost(bizDef(b).cost, lvl);
   if (cashOf(g, pid) < cost) return fail('not enough cash');
+  const before = bizValue(b);
   debit(g, pid, cost, 'business upgrades');
   b.invested += cost;
+  assetFlow(g, pid, bizValue(b) - before);
   b.levels[axis] = lvl + 1;
   g.players[pid]!.stats.bizUpgrades++;
   markShares(g);
@@ -99,6 +102,7 @@ export function sellBusiness(g: GameState, pid: string, bizId: string, out: Step
   // credit, and would otherwise be credited untaxed); the tax reads the owner's basis before the sale proceeds land
   settleSoldBusiness(g, b, g.economy.stabilizer.taxShift ?? 0);
   const price = businessSalePrice(b.invested);
+  assetFlow(g, pid, -bizValue(b)); // the shop leaves valuation at its book value; the gap to the price is a trading result
   bump(g, pid, price);
   // the 30% haircut is destroyed money
   g.economy.sinks['business sale haircut'] = (g.economy.sinks['business sale haircut'] ?? 0) + (b.invested - price);
@@ -331,6 +335,7 @@ export function buyProperty(g: GameState, pid: string, cityId: string, districtI
     id, ownerId: pid, cityId, districtId, typeId, baseValue: price, baseIndex: districtIndex(g, cityId, districtId),
     improvement: 1, mortgage, mortgageRate: mortgageRate(g), boughtTick: g.market.tick, paid: price, rentEarned: 0,
   };
+  assetFlow(g, pid, propValue(g, g.properties[id]!) - mortgage); // at book: the equity bought, less the mortgage it carries
   touch(g);
   p.stats.propsBought++;
   if (price >= 5_000_000) {
@@ -348,7 +353,8 @@ export function sellProperty(g: GameState, pid: string, propId: string): Command
   const v = propValue(g, pr);
   const fees = v * PROPERTY_FEE;
   const net = propertySaleNet(v, pr.mortgage);
-  // proceeds: the property converts back to cash; the fee is a sink
+  // proceeds: the property converts back to cash; the fee is a sink. Its book equity leaves valuation; the gap is trading
+  assetFlow(g, pid, -(v - pr.mortgage));
   bump(g, pid, v - pr.mortgage);
   debit(g, pid, fees, 'transaction fees');
   const p = g.players[pid]!;
@@ -364,8 +370,10 @@ export function renovateProperty(g: GameState, pid: string, propId: string): Com
   if (pr.improvement >= 1.5) return fail('fully renovated');
   const cost = renovateCost(propValue(g, pr));
   if (cashOf(g, pid) < cost) return fail('not enough cash');
+  const before = propValue(g, pr);
   debit(g, pid, cost, 'renovations');
   pr.improvement = Math.min(1.52, pr.improvement * 1.15);
+  assetFlow(g, pid, propValue(g, pr) - before);
   return ok({ cost });
 }
 
@@ -387,6 +395,7 @@ export function repayMortgage(g: GameState, pid: string, propId: string, amount:
   if (!(a > 0)) return fail('nothing to repay');
   bump(g, pid, -a); // repays debt: net worth unchanged
   pr.mortgage -= a;
+  assetFlow(g, pid, a); // the debt it clears is valuation's (a liability), so the cash is a conversion, not trading
   return ok({ repaid: a });
 }
 
@@ -426,7 +435,14 @@ export function buyItem(g: GameState, pid: string, itemId: string): CommandResul
   if (rankIndex(p.rankId) < rankIndex(item.rank)) return fail('unlocks at a higher rank');
   if (item.cls === 'unique' && Object.values(g.players).some((x) => x.lifestyle.some((o) => o.itemId === itemId))) return fail('someone already owns it');
   if (cashOf(g, pid) < item.price) return fail('not enough cash');
-  debit(g, pid, item.price, item.category === 'philanthropy' ? 'philanthropy' : 'lifestyle');
+  const sink = item.category === 'philanthropy' ? 'philanthropy' : 'lifestyle';
+  if (item.cls === 'consumed') {
+    // an experience, a gift or a case that is used up is a cost of living, not an asset: it reads in income and costs
+    overhead(g, pid, item.price, sink);
+  } else {
+    debit(g, pid, item.price, sink);
+    assetFlow(g, pid, resaleValue(item, item.price, 0, g.collectibles)); // at book: resale value on the day it is bought
+  }
   if (item.category === 'philanthropy') {
     p.stats.donations += item.price;
     p.reputation += Number(item.perk?.match(/\+(\d+)/)?.[1] ?? 1);
@@ -449,6 +465,7 @@ export function sellItem(g: GameState, pid: string, uid: string): CommandResult 
   const item = LIFE_BY_ID.get(o.itemId)!;
   const v = resaleValue(item, o.paid, (g.market.tick - o.boughtTick) / TPD, g.collectibles);
   if (item.cls === 'consumed') return fail('experiences cannot be resold');
+  assetFlow(g, pid, -v); // the item leaves valuation at its resale value
   credit(g, pid, v, 'lifestyle resale');
   p.lifestyle.splice(k, 1);
   refreshPrestige(g, p);

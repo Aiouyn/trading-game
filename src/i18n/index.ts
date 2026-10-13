@@ -4,6 +4,9 @@ import { create } from 'zustand';
 import en from './en.json';
 import fr from './fr.json';
 import { ENGINE_FR } from './engineFr';
+import { formatToken, isNumberToken } from './tokens';
+
+export { formatNumberToken, formatToken, isNumberToken } from './tokens';
 
 /**
  * Translations (ROADMAP M03). Every user-facing string goes through t(key, vars).
@@ -51,19 +54,6 @@ function lookup(locale: Locale, key: string): string | undefined {
   return DICTS[locale][key];
 }
 
-const NUMBER_LOCALE: Record<Locale, string> = { en: 'en-US', fr: 'fr-FR' };
-
-/**
- * A number token "#n:<value>,<min>,<max>" is formatted in the viewer's locale (decimal comma in French): the server builds
- * the message with the number itself, so the same descriptor reads right in either language.
- */
-export function formatNumberToken(locale: Locale, token: string): string {
-  const [value = '', min = '0', max = '2'] = token.slice(3).split(',');
-  const n = Number(value);
-  if (!Number.isFinite(n)) return value;
-  return n.toLocaleString(NUMBER_LOCALE[locale], { minimumFractionDigits: Number(min), maximumFractionDigits: Number(max) });
-}
-
 /**
  * A variable that starts with "@" names another key (e.g. {part: "@journal.part.market"}): it is translated in the same
  * locale first, so a sentence built on the server reads in the viewer's language. A "#n:" token is a number in that locale.
@@ -77,7 +67,7 @@ export function resolveRefs(locale: Locale, vars?: Record<string, MsgVar>): Reco
     else if (typeof v !== 'string') out[k] = v as number;
     // a typed name that starts with "@" or "!" stays as typed unless it really is a key (or an engine sentence)
     else if (v.startsWith('@') && hasKey(v.slice(1))) out[k] = translate(locale, v.slice(1));
-    else if (v.startsWith('#n:')) out[k] = formatNumberToken(locale, v);
+    else if (isNumberToken(v)) out[k] = formatToken(locale, v);
     else if (v.startsWith('!')) out[k] = locale === 'fr' ? (ENGINE_FR[v.slice(1)] ?? v.slice(1)) : v.slice(1);
     else out[k] = v;
   }

@@ -125,6 +125,9 @@ export interface DayRecord {
   ext?: number;
   /** valuation at this close: businesses, property, companies, funds, tokens, lifestyle and lab, less mortgages (not cash, not markets) */
   val?: number;
+  /** the player's cumulative cash converted into or out of the holdings at book (Player.assetFlow) at this close: a day's change in
+   * valuation less this one is a re-mark, and the rest of the change is trading */
+  flow?: number;
   /** cumulative income at this close: business income, rent, dividends and interest, less borrow and margin interest */
   inc?: number;
   /** R-9-10: the owner's businesses for the day (absent when the player owns none); the close card's tax line reads it */

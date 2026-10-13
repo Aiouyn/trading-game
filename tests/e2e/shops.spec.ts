@@ -246,6 +246,27 @@ async function expectFiguresOnOneLine(page: Page, sid: string): Promise<void> {
 // In English and in French, on the desktop and the phone. The shots go to TAX_SHOTS (default test-results/shots-tax).
 const TAX_SHOTS = process.env.TAX_SHOTS ?? 'test-results/shots-tax';
 
+/** The owned table starts at the left edge (scrollLeft 0) and its name column is in view at the scroller's left edge (sticky). */
+async function expectOwnedTableAtStart(page: import('@playwright/test').Page, id: string): Promise<void> {
+  const scroller = page.getByTestId('biz-owned-scroll');
+  await expect(scroller).toBeVisible();
+  expect(await scroller.evaluate((el) => el.scrollLeft)).toBe(0);
+  const box = await scroller.boundingBox();
+  const name = await page.getByTestId(`biz-${id}`).locator('td').first().boundingBox();
+  expect(box && name).toBeTruthy();
+  expect(name!.x).toBeGreaterThanOrEqual(box!.x - 0.5);
+}
+
+/** The owned table at 1280 wide (a laptop's side panel), then back to the page's own size: the name column still starts at the edge. */
+async function at1280(page: import('@playwright/test').Page, name: string, id: string): Promise<void> {
+  if (isPhone(page)) return;
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expectOwnedTableAtStart(page, id);
+  await noHorizontalOverflow(page);
+  await taxShot(page, name);
+  await page.setViewportSize({ width: 1440, height: 900 });
+}
+
 async function taxShot(page: import('@playwright/test').Page, name: string): Promise<void> {
   // the toasts (4 s each) sit over the Wire's bottom corner: the shot waits for them to leave
   await expect(page.locator('[data-testid^="os-toast-"]')).toHaveCount(0, { timeout: 15_000 }).catch(() => {});
@@ -281,9 +302,13 @@ test('the business tax is a row of the close card split and a column of the owne
   await page.getByTestId('tab-owned').click();
   await expect(page.getByTestId('biz-owned-table')).toContainText('Tax per day');
   await expect(page.getByTestId(`biz-${id}-tax`)).toHaveAttribute('title', /Tax \(bracket \d+%\)/);
-  await page.getByTestId(`biz-${id}-tax`).scrollIntoViewIfNeeded();
+  await expectOwnedTableAtStart(page, id);
   await noHorizontalOverflow(page);
   await taxShot(page, 'owned-tax-en');
+  // scrolled to the tax column, the business name stays at the left edge
+  await page.getByTestId(`biz-${id}-tax`).scrollIntoViewIfNeeded();
+  await taxShot(page, 'owned-tax-scrolled-en');
+  await at1280(page, 'owned-tax-1280-en', id);
 
   // French: the same two places, the French labels and the French money
   await goTo(page, 'profile');
@@ -297,8 +322,11 @@ test('the business tax is a row of the close card split and a column of the owne
   await page.getByTestId('tab-owned').click();
   await expect(page.getByTestId('biz-owned-table')).toContainText('Impôt par jour');
   await expect(page.getByTestId(`biz-${id}-tax`)).toHaveAttribute('title', /Impôt \(tranche \d+/);
-  await page.getByTestId(`biz-${id}-tax`).scrollIntoViewIfNeeded();
+  await expectOwnedTableAtStart(page, id);
   await noHorizontalOverflow(page);
   await taxShot(page, 'owned-tax-fr');
+  await page.getByTestId(`biz-${id}-tax`).scrollIntoViewIfNeeded();
+  await taxShot(page, 'owned-tax-scrolled-fr');
+  await at1280(page, 'owned-tax-1280-fr', id);
   expect(errors).toEqual([]);
 });

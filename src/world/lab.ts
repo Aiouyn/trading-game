@@ -4,7 +4,7 @@ import { BIZ_BY_ID, BIZ_SECTOR_BY_ID } from '@/content/businesses';
 import { rankIndex } from '@/content/lifestyle';
 import { BOT_CADENCE, DATA_SOURCES, RESEARCH_BY_ID, mcsTier } from '@/content/research';
 import {
-  GPU_TIERS, TPD, cashOf, clamp, credit, debit, keyedRng, notify, playerBusinesses, priceOf, today,
+  GPU_TIERS, TPD, assetFlow, cashOf, clamp, credit, debit, keyedRng, labValue, notify, playerBusinesses, priceOf, today,
 } from './core';
 import { crossRefusal } from './funds/guard';
 import { noteOrderPlaced } from './eca';
@@ -77,14 +77,18 @@ export function buyGpus(g: GameState, pid: string, tierId: string, qty: number):
   if (n < 0) {
     const have = lab.gpus[t.id] ?? 0;
     if (-n > have) return fail('you have fewer');
+    const before = labValue(g, pid);
     lab.gpus[t.id] = have + n;
     credit(g, pid, -n * t.price * 0.6, 'GPU resale');
+    assetFlow(g, pid, labValue(g, pid) - before); // the cards leave the lab at resale value
     return ok();
   }
   const cost = n * t.price;
   if (cashOf(g, pid) < cost) return fail('not enough cash');
+  const before = labValue(g, pid);
   debit(g, pid, cost, 'GPUs');
   lab.gpus[t.id] = (lab.gpus[t.id] ?? 0) + n;
+  assetFlow(g, pid, labValue(g, pid) - before); // the cards enter the lab at resale value; the gap to the price is a trading cost
   return ok();
 }
 

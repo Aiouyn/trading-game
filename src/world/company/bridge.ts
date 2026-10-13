@@ -9,7 +9,8 @@
  */
 
 import { bizDef, priceOf } from '../core';
-import { bump, notify, spendableCash, today } from '../core';
+import { assetFlow, bump, notify, spendableCash, today } from '../core';
+import { companyNetWorth } from './networth';
 import { sellBusiness } from '../assets';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import type { Fill, StepEvent } from '@/engine';
@@ -287,8 +288,11 @@ export function companyCommand(g: GameState, pid: string, cmd: { type: 'company.
   if (cmd.type === 'company.bid') return companyBid(g, pid, cmd);
   if (cmd.type === 'company.found') {
     const w = g.companies ?? emptyCompanyWorld(g.seed, g.market);
+    const nwBefore = companyNetWorth(w, pid, today(g));
     const r = foundCompany(w, companyEnvOf(g), pid, { name: cmd.name, sector: cmd.sector, cityId: cmd.cityId, capital: cmd.capital });
     if (!r.ok) return fail(r.reject);
+    // the capital enters valuation at the company's book value (the founder's share, less the private haircut)
+    assetFlow(g, pid, companyNetWorth(w, pid, today(g)) - nwBefore);
     g.companies = w;
     notify(g, out, pid, { kind: 'system', tone: 'brass', text: `${cmd.name} is founded.`, msg: { key: 'company.note.founded', vars: { name: cmd.name } } });
     return { ok: true, data: r.value };

@@ -15,6 +15,9 @@ import type { ShopView } from '@/world/shopView';
 import { t } from '@/i18n';
 import { Button, Card, Chip, ConfirmButton, EmptyNext, SpendReview, TextField, Td, Th, spendRows } from '@/components/ui';
 
+/** The sticky name column: opaque (the card's own background), so the columns that scroll under it do not show through. */
+const NAME_COL = 'sticky left-0 z-[1] bg-ink-1';
+
 export function OwnedBusinesses({ onBrowse }: { onBrowse: () => void }) {
   const me = useGame((s) => s.me)!;
   if (!me.businesses.length) {
@@ -27,11 +30,13 @@ export function OwnedBusinesses({ onBrowse }: { onBrowse: () => void }) {
   const shops = new Map(me.shops.map((v) => [v.id, v] as const));
   return (
     <Card className="overflow-hidden" data-testid="biz-owned-table">
-      <div className="overflow-x-auto">
+      {/* the table scrolls sideways in a narrow panel; the business name stays at the left edge (sticky), so a scrolled table
+          still names each row. The scroller starts at 0: its first column is the first thing on the left. */}
+      <div className="overflow-x-auto" data-testid="biz-owned-scroll">
         <table className="w-full min-w-[720px] text-small">
           <thead>
             <tr>
-              <Th>{t('biz.col.business')}</Th>
+              <Th className={NAME_COL}>{t('biz.col.business')}</Th>
               <Th>{t('biz.col.city')}</Th>
               <Th right>{t('biz.col.income')}</Th>
               <Th right className="whitespace-nowrap">{t('biz.col.tax')}</Th>
@@ -58,7 +63,7 @@ function OwnedRow({ b, shop }: { b: Business; shop?: ShopView }) {
   return (
     <>
       <tr className="border-t border-ink-2" data-testid={`biz-${b.id}`}>
-        <Td>
+        <Td className={NAME_COL}>
           <span className="block font-medium text-fg">{b.name}</span>
           {def.name !== b.name && <span className="block text-caption text-fg-faint">{def.name}</span>}
         </Td>

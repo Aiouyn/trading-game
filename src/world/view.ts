@@ -335,7 +335,9 @@ function arrivalView(g: GameState, pid: string): PlayerView['arrival'] {
   const L = ledgerOf(g, pid);
   const open = L?.days[(L.startDay) - 1];
   const now = valuationAndIncome(g, pid);
-  const valuation = open?.val !== undefined ? now.val - open.val : 0;
+  // a conversion since the join (a purchase, a sale, a deposit) is not a re-mark, as at the close
+  const converted = open?.flow !== undefined ? (g.players[pid]?.assetFlow ?? 0) - open.flow : 0;
+  const valuation = open?.val !== undefined ? now.val - open.val - converted : 0;
   const income = open?.inc !== undefined ? now.inc - open.inc : 0;
   return { cash, change, changePct: changeOf(total, cash), external, split: { trading: change - valuation - income, valuation, income } };
 }
