@@ -553,13 +553,20 @@ export async function generateCity(P, progress = () => {}) {
       continue;
     }
     if (ci < companies.length && !P.static) {
-      const [ticker, name, cap] = companies[ci++];
-      t.company = { ticker, name, cap };
+      const [ticker, name, cap, sector] = companies[ci++];
+      t.company = { ticker, name, cap, sector };
       t.label = name;
       parts.setFlag(t.id, 1);
       if (ci <= 6) labels.push({ text: ticker, x: t.x, y: t.y, z: t.gz + t.h + 10, kind: 'hq', bid: t.id });
     }
   }
+
+  // building categories, used by map lenses and the info card
+  for (const b of buildings) b.cat = categoryOf(b);
+
+  // demo ownership (prototype only, stands in for live game data): "you" own a company office, three shops
+  // and a home; other players own a few shops; a few buildings are for sale
+  if (!P.static) seatDemoOwners(buildings, R, labels);
 
   // ------------------------------------------------------------------ life: trees, ships, cranes
   await step('Planting trees');
@@ -750,6 +757,63 @@ const CROWNS = {
   sundara: [{ handle: 'tiago.m', rank: 3 }, { handle: 'lua', rank: 15 }],
   kaiyo: [{ handle: 'ren.k', rank: 5 }, { handle: 'mei', rank: 7 }, { handle: 'oda', rank: 11 }],
 };
+
+// ------------------------------------------------------------------ categories and demo owners
+
+const RESIDENTIAL_TYPES = new Set(['row', 'house', 'gabled', 'midrise', 'loft', 'palazzo', 'condo', 'micro', 'hut']);
+const ESTATE_TYPES = new Set(['mansion', 'villa', 'glassvilla']);
+/** One category per building: hq, crown, landmark, office, shop, home, estate, industry. */
+function categoryOf(b) {
+  if (b.company) return 'hq';
+  if (b.crown) return 'crown';
+  if (b.kind === 'Landmark' || b.kind === 'Island estate') return 'landmark';
+  if (b.type === 'tower' || b.type === 'ghost') return 'office';
+  if (b.type === 'strip') return 'shop';
+  if (b.type === 'warehouse' || b.type === 'containers') return 'industry';
+  if (ESTATE_TYPES.has(b.type)) return 'estate';
+  if (RESIDENTIAL_TYPES.has(b.type)) return 'home';
+  return 'home';
+}
+
+const OTHER_PLAYERS = ['mika_a', 'lena.v', 'hale.ward', 'tiago.m', 'ren.k', 'solveig', 'oda'];
+
+function seatDemoOwners(buildings, R, labels) {
+  const free = (b) => !b.company && !b.crown && b.cat !== 'landmark' && !b.mine;
+  const near = (a, b, r) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 < r * r;
+  // your company office: a mid-height building that taller neighbours hide (it shows why see-through matters)
+  const offices = buildings.filter((b) => free(b) && ['midrise', 'tower', 'loft'].includes(b.type) && b.h > 22 && b.h < 80 && ['cbd', 'mid'].includes(b.d.tier));
+  let best = null, bestScore = -1;
+  for (const o of offices) {
+    let score = 0;
+    for (const t of buildings) if (t.h > o.h * 1.8 && near(t, o, 110)) score++;
+    if (score > bestScore) { bestScore = score; best = o; }
+  }
+  const mine = [];
+  if (best) { Object.assign(best, { mine: true, mineRole: 'company', label: 'Halyard Robotics', owner: 'you', cat: 'office' }); mine.push(best); }
+  // three shops in different districts, and a home
+  const shopTypes = ['strip', 'micro', 'row', 'palazzo', 'midrise', 'hut', 'gabled', 'house'];
+  const shopNames = ['Corner Cart', 'Halyard Coffee', 'Night Clean'];
+  const used = new Set();
+  for (const name of shopNames) {
+    const c = buildings.filter((b) => free(b) && shopTypes.includes(b.type) && !used.has(b.d.id) && b.d.tier !== 'prime');
+    if (!c.length) break;
+    const s = c[Math.floor(R.next() * c.length)];
+    used.add(s.d.id);
+    Object.assign(s, { mine: true, mineRole: 'shop', label: name, owner: 'you', cat: 'shop' });
+    mine.push(s);
+  }
+  const homes = buildings.filter((b) => free(b) && RESIDENTIAL_TYPES.has(b.type) && b.d.tier !== 'cbd');
+  if (homes.length) { const h = homes[Math.floor(R.next() * homes.length)]; Object.assign(h, { mine: true, mineRole: 'home', label: 'Your home', owner: 'you', cat: 'home' }); mine.push(h); }
+  for (const b of mine) labels.push({ text: b.label, x: b.x, y: b.y, z: b.gz + b.h + 8, kind: 'mine', bid: b.id });
+  // other players' shops and buildings for sale
+  for (const b of buildings) {
+    if (!free(b)) continue;
+    const r = R.next();
+    if ((b.cat === 'shop' || b.cat === 'home') && r < 0.025) { b.owner = OTHER_PLAYERS[Math.floor(R.next() * OTHER_PLAYERS.length)]; b.cat = 'shop'; }
+    else if ((b.cat === 'home' || b.cat === 'office' || b.cat === 'estate') && r > 0.97) b.forSale = true;
+  }
+  for (const b of buildings) if (b.crown) b.owner = b.crown.handle;
+}
 
 // ------------------------------------------------------------------ helpers
 

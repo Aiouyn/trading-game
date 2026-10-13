@@ -54,6 +54,18 @@ export class CityView {
     const P = city.P, pal = P.palette, half = city.S / 2;
     this.uniforms.uLit0.value = col(pal.lit[0]); this.uniforms.uLit1.value = col(pal.lit[1]); this.uniforms.uLit2.value = col(pal.lit[2]);
 
+    // per-building state, one RGBA texel per building id (bid), read by the part shaders.
+    // rgb = lens tint (0..255), a = bit flags: 1 lens emphasis, 2 see-through (ghost), 4 focus.
+    // Writers: lenses set rgb + bit 1; see-through sets bits 2 and 4. Row 0 / bid 0 = trees, boats, cranes.
+    const STATE_W = 256;
+    const stateH = Math.max(1, Math.ceil((city.buildings.length + 1) / STATE_W));
+    this.state = new Uint8Array(STATE_W * stateH * 4);
+    this.stateTex = new THREE.DataTexture(this.state, STATE_W, stateH, THREE.RGBAFormat);
+    this.stateTex.magFilter = THREE.NearestFilter; this.stateTex.minFilter = THREE.NearestFilter;
+    this.stateTex.needsUpdate = true;
+    this.uniforms.uState = { value: this.stateTex };
+    this.uniforms.uStateW = { value: STATE_W };
+
     // parts: one instanced draw per geometry
     const partMat = new THREE.ShaderMaterial({ vertexShader: partVert, fragmentShader: partFrag, uniforms: this.uniforms });
     for (const k of GEOMS) {
@@ -163,6 +175,13 @@ export class CityView {
   }
 
   add(o) { this.scene.add(o); this.objects.push(o); }
+
+  /** Per-building state (see load): set one building's texel; call commitState() once after a batch. */
+  setState(bid, r, g, b, a) { const o = bid * 4; this.state[o] = r; this.state[o + 1] = g; this.state[o + 2] = b; this.state[o + 3] = a; }
+  getFlags(bid) { return this.state[bid * 4 + 3]; }
+  setFlags(bid, a) { this.state[bid * 4 + 3] = a; }
+  clearState(mask = 255) { for (let i = 3; i < this.state.length; i += 4) this.state[i] &= ~mask & 255; }
+  commitState() { this.stateTex.needsUpdate = true; this.dirty = true; }
 
   moveTrain(dt) {
     const T = this.train;
@@ -352,6 +371,7 @@ export class CityView {
       let show = x > -60 && x < this.w + 60 && y > -20 && y < this.h + 20 && l.order <= g;
       if (l.kind === 'minor' && zoom < 0.55) show = false;
       if ((l.kind === 'hq' || l.kind === 'crown') && zoom < 0.9) show = false;
+      if (l.kind === 'mine' && zoom < 0.45) show = false;
       if ((l.kind === 'landmark' || l.kind === 'park' || l.kind === 'station') && zoom < 0.7) show = false;
       if (!this.showLabels) show = false;
       l.el.style.display = show ? '' : 'none';

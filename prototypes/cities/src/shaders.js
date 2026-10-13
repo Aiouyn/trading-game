@@ -31,6 +31,9 @@ attribute float iRot;
 attribute vec3 iColor;
 attribute vec4 iStyle;
 attribute vec4 iMeta;
+uniform sampler2D uState;
+uniform float uStateW;
+varying vec4 vState;
 varying vec3 vN;
 varying vec3 vFace;
 varying vec2 vInfo;
@@ -58,6 +61,8 @@ void main() {
   vLN = normal;
   vFace = aFace; vInfo = aInfo; vColor = iColor; vStyle = iStyle; vMeta = iMeta; vSize = iSize;
   vBaseAbs = iPos.y - g;
+  // per-building state (render.js load): rgb = lens tint, a = flags (1 emphasis, 2 see-through, 4 focus)
+  vState = texelFetch(uState, ivec2(int(mod(iStyle.w, uStateW)), int(floor(iStyle.w / uStateW))), 0);
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
 }`;
 
@@ -70,6 +75,7 @@ uniform vec3 uLit1;
 uniform vec3 uLit2;
 uniform vec3 uBrass;
 uniform vec3 uSkyRefl;
+varying vec4 vState;
 varying vec3 vN;
 varying vec3 vFace;
 varying vec2 vInfo;
