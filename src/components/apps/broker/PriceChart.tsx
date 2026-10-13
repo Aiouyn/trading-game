@@ -3,15 +3,15 @@
 import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import {
   AreaSeries, CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, PriceScaleMode, createChart,
-  type AutoscaleInfoProvider, type CandlestickData, type IChartApi, type IPriceLine, type ISeriesApi, type LineData, type MouseEventParams,
-  type Time, type UTCTimestamp,
+  type AutoscaleInfoProvider, type CandlestickData, type HandleScaleOptions, type IChartApi, type IPriceLine, type ISeriesApi, type LineData,
+  type MouseEventParams, type Time, type UTCTimestamp,
 } from 'lightweight-charts';
 import { useGame } from '@/game/store';
 import { axisTimeLabel, barTimeLabel, barsFor, rangeIsIntraday, type Bar, type ChartRange, type Interval } from '@/game/history';
 import { INDICATORS, bollinger, ema, latestValues, rsi, sma, vwap, type IndicatorId } from '@/game/indicators';
 import { price as fmtPrice, signedPct, dec } from '@/game/format';
 import { t } from '@/i18n';
-import { type ChartLevel, type PriceScale, priceOfY, roundPrice, yOfPrice } from './chartLevels';
+import { type ChartLevel, type PriceScale, priceOfY, roundPrice, wheelZoomRange, yOfPrice } from './chartLevels';
 import { LevelLayer } from './LevelLayer';
 
 /**
@@ -66,6 +66,16 @@ const VOLUME_MARGINS = { top: 0.8, bottom: 0.02 };
  * plot in % mode than in price mode.
  */
 export const MIN_SPAN_SHARE = 0.005;
+
+/**
+ * The mouse gestures on the scales, as TradingView has them: a press and drag on either axis scales it (the price axis
+ * stretches or squeezes the candles, the time axis the bars), and a double-click on an axis resets it to auto. The plot's own
+ * drag still scrolls and its wheel still zooms the time scale (handleScroll and handleScale.mouseWheel keep their defaults).
+ */
+export const SCALE_GESTURES: Pick<HandleScaleOptions, 'axisPressedMouseMove' | 'axisDoubleClickReset'> = {
+  axisPressedMouseMove: { time: true, price: true },
+  axisDoubleClickReset: { time: true, price: true },
+};
 
 /** The autoscale rule for a price series: widen a too-narrow visible range about its middle. */
 export function spanFloor(): AutoscaleInfoProvider {
@@ -205,7 +215,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       timeScale: { borderVisible: false, rightOffset: 4, timeVisible: true, secondsVisible: false },
       crosshair: { mode: CrosshairMode.Normal, vertLine: { color: p.cross, labelBackgroundColor: p.grid }, horzLine: { color: p.cross, labelBackgroundColor: p.grid } },
       localization: { priceFormatter: (v: number) => fmtPrice(v) },
-      handleScale: { axisPressedMouseMove: false },
+      handleScale: { ...SCALE_GESTURES },
     });
     const floor = spanFloor();
     candleS.current = c.addSeries(CandlestickSeries, {
@@ -226,9 +236,57 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     // a resize moves every row, so the lines are placed again
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => probe.current());
     ro?.observe(el);
+
+    // The price scale moves without a visible-range change (an axis drag, a wheel step on the axis, a double-click reset), so
+    // the lines are placed again on those gestures too, once per frame. A wheel step over the price axis zooms the price
+    // scale, as TradingView's does; the library would zoom the time scale for it.
+    let frame = 0;
+    const kick = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; probe.current(); }); };
+    const right = () => c.priceScale('right');
+    const onAxis = (e: { clientX: number }) => e.clientX - el.getBoundingClientRect().left >= el.clientWidth - right().width();
+    const onWheel = (e: WheelEvent) => {
+      if (!onAxis(e)) { kick(); return; }
+      e.preventDefault();
+      e.stopPropagation();
+      const range = right().getVisibleRange();
+      if (range && e.deltaY !== 0 && right().options().mode !== PriceScaleMode.Percentage) right().setVisibleRange(wheelZoomRange(range, e.deltaY));
+      kick();
+    };
+    // a press starts the watch of the pointer until release; a drag that began on the axis leaves the scale as the player set it
+    let pressedOnAxis: boolean | null = null;
+    const onMove = () => kick();
+    const onRelease = () => {
+      if (pressedOnAxis === null) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onRelease);
+      if (pressedOnAxis && !right().options().autoScale) {
+        // the range is set through the API, so the next data does not refit a scale the player set
+        const range = right().getVisibleRange();
+        if (range) right().setVisibleRange(range);
+      }
+      pressedOnAxis = null;
+      kick();
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      pressedOnAxis = onAxis(e);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onRelease);
+      kick();
+    };
+    el.addEventListener('wheel', onWheel, { capture: true, passive: false });
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('dblclick', kick);
+
     return () => {
       ro?.disconnect();
       c.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
+      el.removeEventListener('wheel', onWheel, { capture: true });
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('dblclick', kick);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onRelease);
+      if (frame) cancelAnimationFrame(frame);
       c.remove();
       chart.current = null;
       candleS.current = null; lineS.current = null; areaS.current = null; volS.current = null;
@@ -364,6 +422,8 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       return d;
     };
     if (key !== last.current.key || Math.abs(bars.length - last.current.len) > 1) {
+      // a new asset, interval or range opens on the auto scale: a zoom the player made on the last view does not carry over
+      if (key !== last.current.key) chart.current?.priceScale('right').applyOptions({ autoScale: true });
       cs.setData(bars.map((b) => ({ ...b, time: toTime(b.time) })));
       ls.setData(bars.map((b) => ({ time: toTime(b.time), value: b.close })));
       as.setData(bars.map((b) => ({ time: toTime(b.time), value: b.close })));
@@ -425,10 +485,18 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     const c = chart.current;
     const s = activeSeries();
     if (!c || !s) return;
+    // the right scale's state for the page (the e2e reads it): whether it follows the data, and the range it shows now
+    const right = c.priceScale('right');
+    const shown = right.getVisibleRange();
+    if (host.current) {
+      host.current.dataset.priceAuto = String(right.options().autoScale);
+      host.current.dataset.priceFrom = shown ? String(shown.from) : '';
+      host.current.dataset.priceTo = shown ? String(shown.to) : '';
+    }
     const scale = scaleOf(s);
     const y: Record<string, number | null> = {};
     for (const l of levelsRef.current) y[l.id] = yOfPrice(scale, l.price);
-    const axisW = Math.round(c.priceScale('right').width());
+    const axisW = Math.round(right.width());
     const h = c.paneSize().height;
     setPlaced((prev) => (sameRows(prev.y, y) && prev.axisW === axisW && prev.h === h ? prev : { y, axisW, h }));
   };
