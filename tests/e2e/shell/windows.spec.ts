@@ -32,6 +32,8 @@ test.describe('window rules', () => {
       return s.config.assets.find((a) => a.id !== s.selected && a.listed !== false)?.id ?? null;
     });
     expect(other).not.toBeNull();
+    // Wire holds the focus: the Broker in focus would change in place instead, so the cap's retarget rule is the one under test
+    await page.getByTestId('shelf-app-wire').click();
     await launcher(page, other!);
     await page.getByTestId('os-launcher-list').getByRole('option').filter({ hasText: other! }).first().click();
     await expect(page.getByTestId('os-toasts')).toContainText('least recently used');

@@ -55,7 +55,8 @@ export const SHORTCUTS: readonly { id: string; keys: string }[] = [
   { id: 'snap', keys: 'Ctrl Shift Arrow' },
   { id: 'workspace', keys: 'Ctrl Alt Left / Right' },
   { id: 'shelf-open', keys: 'Alt 1..9' },
-  { id: 'new-broker', keys: 'Alt N' },
+  { id: 'broker', keys: 'Alt N' },
+  { id: 'new-broker', keys: 'Alt Shift N' },
   { id: 'close', keys: 'Alt W' },
   { id: 'cycle', keys: 'Alt `' },
   { id: 'help', keys: '?' },
@@ -103,10 +104,16 @@ export function keyIntent(e: KeyEvt, env: KeyEnv): KeyIntent | null {
       const app = env.shelf[Number(digit[1]) - 1];
       return app === undefined ? null : { kind: 'wm', action: { type: 'open', app } };
     }
-    // Alt N is a new Broker window, even when one already shows the selected ticker (Velvet: a second Broker opens with Alt N).
-    if (e.code === 'KeyN') return { kind: 'wm', action: { type: 'open', app: 'broker', fresh: true } };
+    // Alt N puts the selected ticker in the focused Broker (or focuses the Broker that shows it): no window opens by accident.
+    if (e.code === 'KeyN') return { kind: 'wm', action: { type: 'open', app: 'broker' } };
     // Alt W closes the focused window: Ctrl W is reserved for the browser (C-17, Alt W is the V1 path).
     if (e.code === 'KeyW' && focused !== null) return { kind: 'wm', action: { type: 'close', id: focused } };
+    return null;
+  }
+
+  // Alt Shift N is the explicit new Broker window (a second window of the same ticker is allowed).
+  if (mods(false, true, true)) {
+    if (e.code === 'KeyN') return { kind: 'wm', action: { type: 'open', app: 'broker', fresh: true } };
     return null;
   }
 

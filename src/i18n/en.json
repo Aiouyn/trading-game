@@ -140,6 +140,7 @@
   "shell.shortcut.snap": "Snap window",
   "shell.shortcut.workspace": "Switch workspace",
   "shell.shortcut.shelf-open": "Open a shelf app",
+  "shell.shortcut.broker": "Broker on the selected ticker (changes the focused Broker)",
   "shell.shortcut.new-broker": "New Broker window",
   "shell.shortcut.close": "Close window",
   "shell.shortcut.escape": "Dismiss, cancel",

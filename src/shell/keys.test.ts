@@ -64,8 +64,12 @@ describe('keyboard bindings (section I)', () => {
     expect(keyIntent(key('Digit0', { alt: true }), env())).toBeNull();
   });
 
-  it('Alt N opens a new Broker', () => {
-    expect(keyIntent(key('KeyN', { alt: true }), env())).toEqual({ kind: 'wm', action: { type: 'open', app: 'broker', fresh: true } });
+  it('Alt N opens the Broker for the selected ticker, which changes the focused Broker in place (no fresh window)', () => {
+    expect(keyIntent(key('KeyN', { alt: true }), env())).toEqual({ kind: 'wm', action: { type: 'open', app: 'broker' } });
+  });
+
+  it('Alt Shift N is the one key that opens a new Broker window, even on a shown ticker', () => {
+    expect(keyIntent(key('KeyN', { alt: true, shift: true }), env())).toEqual({ kind: 'wm', action: { type: 'open', app: 'broker', fresh: true } });
   });
 
   it('Alt W closes the focused window and does nothing with no focus', () => {

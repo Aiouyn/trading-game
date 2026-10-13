@@ -72,7 +72,7 @@ test.describe('focus mode', () => {
     await boot(page);
     await page.keyboard.press('Control+Period');
     await expect(page.locator('html')).toHaveClass(/focus-mode/);
-    await dispatchKey(page, { code: 'KeyN', key: 'n', alt: true });
+    await dispatchKey(page, { code: 'KeyN', key: 'n', alt: true, shift: true });
     await expect(page.locator('html')).not.toHaveClass(/focus-mode/);
     await expect.poll(() => brokerCount(page)).toBe(2);
   });

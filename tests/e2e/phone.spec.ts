@@ -132,6 +132,24 @@ test.describe('phone desktop', () => {
     await expect(page.getByTestId('bar-review')).toBeVisible();
   });
 
+  test('a Markets row changes the Broker on screen at once, in the same stack place, and opens no second Broker (track A)', async ({ page }) => {
+    await register(page);
+    await page.getByTestId('home-app-broker').click();
+    await page.getByTestId('dock-tab-markets').click();
+    const before = await page.evaluate(() => window.__tg!.state().selected);
+    const other = await page.evaluate((b) => window.__tg!.state().config.assets.find((a) => a.assetClass === 'stock' && a.id !== b && a.listed !== false)?.id ?? null, before);
+    expect(other).not.toBeNull();
+    await page.getByTestId('uni-stock').click();
+    await page.getByTestId(`watch-${other}`).click();
+    // the visible Broker shows the picked ticker straight away: no second stack entry, no wait for a re-render
+    await expect(page.getByTestId('phone-app-broker').getByTestId('chart-ticker')).toHaveText(other!);
+    await expect(page.locator('[data-testid="phone-app-broker"]')).toHaveCount(1);
+    await page.getByTestId('phone-back').click();
+    await holdQuay(page);
+    await expect(page.getByTestId('recents-row-broker')).toHaveCount(1);
+    await expect(page.getByTestId('recents-row-broker')).toContainText(other!);
+  });
+
   test('a rank-up plays the OS update, skippable after a second; the e2e hooks exist only under ?e2e', async ({ page }) => {
     const errors = watchErrors(page);
     await page.addInitScript(() => { window.__tgE2eAdmin = 'e2e-admin'; });

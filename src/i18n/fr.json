@@ -140,6 +140,7 @@
   "shell.shortcut.snap": "Aligner la fenêtre",
   "shell.shortcut.workspace": "Changer d’espace",
   "shell.shortcut.shelf-open": "Ouvrir une application de la barre",
+  "shell.shortcut.broker": "Courtage sur le titre choisi (change le Courtage au premier plan)",
   "shell.shortcut.new-broker": "Nouvelle fenêtre Courtage",
   "shell.shortcut.close": "Fermer la fenêtre",
   "shell.shortcut.escape": "Fermer, annuler",
