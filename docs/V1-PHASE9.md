@@ -301,6 +301,35 @@ re-buy after a sale. The bot's buy rule is not changed here.
 4. **Post-fix trace.** The per-day trace of the 9B.4a diagnosis (`bot ... --trace`) is not re-run after the fix. The sold count
    and the bizCount above are the evidence; a trace is the next step if the lead wants the mechanism of each sale.
 
+#### 9B.4c Progressive business tax (R-9-10, track p9/f): effect on the 504-day curve
+
+The tax is on the day step (commit `2c03eef`): each business's settled day net, after its costs, is taxed once per game day at its owner's bracket (rank basis, R-9-4), positive net only, booked to the `businessTax` sink. Default brackets (`src/content/tax.ts`): 0% to $250k, 10% to $2.5M, 20% to $25M, 30% to $250M, 40% above. The stabilizer shifts every rate by its error, at most 5 points, only while its levy is engaged, and keeps each rate in [0, 0.45].
+
+Run: `scripts/balance/wealth.ts bot wealth 504 <style> --first=1 --seeds=2`, defaults, local machine, two seeds (`wealth-1`, `wealth-2`) per style. Each 504-game-day run took about 4 to 5 minutes here.
+
+| Style | Game day (real day) | Pre-tax, `wealth-1` / `wealth-2` (3900f23) | With tax, `wealth-1` / `wealth-2` | Tax paid by the bot (504 days) |
+|---|---|---|---|---|
+| managed | 168 (day 7) | $559k / $708k | $595k / $559k | $25.9M / $24.2M |
+| managed | 504 (day 21) | $99.3M / $116.6M | $64.3M / $60.2M | |
+| excellent | 168 (day 7) | $3.39M / $3.50M | $3.54M / $2.26M | $147.3M / $111.0M |
+| excellent | 504 (day 21) | $957M / $872M | $247M / $197M | |
+
+Rank first seen, game days (with tax, `wealth-1` / `wealth-2`): managed R1 49 / 49, R2 124 / 124, R3 274 / 282; excellent R1 24 / 24, R2 79 / 82, R3 186 / 219, R4 376 / 407.
+
+Reading against the R-9-10 gate (two seeds only; the gate is 20 seeds, tuned on prefix `wealth` and confirmed on `wealthH`, the lead's VM run):
+- managed day 21 in [$15M, $60M]: $64.3M and $60.2M, at or just above the top. Not yet inside the gate.
+- managed day 7 in [$300k, $1.5M]: $595k and $559k, inside.
+- excellent day 21 at or below $400M: $247M and $197M, inside. Excellent day 7 at or below $5M: $3.5M and $2.3M, inside.
+- neglected in week 1 unchanged: not run in this step (the gate's 20-seed table, neglected included, is the lead's VM run).
+
+Caveats, recorded as V1 limits:
+- The pre-tax column is the same bot at commit 3900f23, which settled each shop one tick after the day close. The tax commit settles shops on the closing tick (before the card), so the pre-tax column differs from the tax column by that one-tick shift as well as by the tax.
+- A business sold partway through a day is removed without its day settlement, so that day's partial income is neither taxed nor costed (sale is a choice the owner makes, as before).
+- Trading gains are not taxed in V1 (R-9-10). Business valuation (`bizValuedIncome`, the trailing shop net) stays pre-tax, so a tax cut does not change a shop's mark; only cash moves.
+- NPC shops pay the same tax (the rule is uniform over every business owner), so the NPC economy moves too.
+- The displayed rate is rounded to a whole percent, so a stabilizer shift of 0.4 points reads as the same bracket.
+- Tuning knob: `TAX_BRACKETS` (JSON `[[threshold, rate], ...]`, validated at startup), documented in the header of `scripts/balance/wealth.ts`.
+
 ### 9B.5 Deviations, rulings and residuals
 
 1. **The rank basis subtracts loans owed and net gifts received, not the boards.** `netWorthPeak` (rank) follows the basis; `netWorth` and the boards still count borrowed cash. A loan can still lift an alt on a board until it is repaid. Ledger to decide whether boards use the basis too.
