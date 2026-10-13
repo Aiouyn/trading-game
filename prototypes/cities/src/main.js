@@ -1,12 +1,17 @@
 import { PERSONALITIES, CITY_ORDER } from './personalities.js';
 import { generateCity } from './gen.js';
 import { CityView } from './render.js';
+import { LENS_IDS, LENS_NAMES, RAMP, SECTOR_NAMES, makeLenses, applyLens, dayReturn } from './lenses.js';
+import { buildSearch, searchCity } from './search.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new CityView($('view'), $('labels'));
 view.showLabels = true;
 const cache = new Map();
 let city = null, current = null, loadingToken = 0;
+let lenses = null, lensId = 'normal', searchItems = [], lastLensMs = 0;
+const sIn = $('search'), sRes = $('results');
+let hits = [], active = -1;
 
 // ------------------------------------------------------------------ tabs
 for (const id of CITY_ORDER) {
@@ -46,6 +51,10 @@ async function open(id) {
   fillCard();
   setGrowth(+$('growth').value);
   closeInfo();
+  lenses = makeLenses(c);
+  searchItems = buildSearch(c);
+  renderLens();
+  if (sIn.value.trim()) runSearch();
 }
 
 function fillCard() {
@@ -97,6 +106,7 @@ function setMood(v) {
   $('v-mood').textContent = Math.abs(pct) < 0.4 ? 'Calm' : `${pct > 0 ? 'Rally +' : 'Sell-off −'}${Math.abs(pct).toFixed(1)}%`;
   $('v-mood').className = `val ${pct > 0.4 ? 'up' : pct < -0.4 ? 'down' : ''}`;
   if (selected) showInfo(selected);
+  if (lensId === 'market') renderLens();
 }
 $('mood').oninput = (e) => setMood(+e.target.value);
 for (const c of document.querySelectorAll('.chip[data-m]')) c.onclick = () => { $('mood').value = c.dataset.m; setMood(+c.dataset.m); };
@@ -117,7 +127,9 @@ $('lbls').onclick = () => { view.showLabels = !view.showLabels; view.dirty = tru
 $('toggle').onclick = () => $('controls').classList.toggle('open');
 addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT') return;
-  if (e.key === 'q' || e.key === 'Q') view.rotate(-1);
+  if (e.key === '/') { e.preventDefault(); sIn.focus(); sIn.select(); }
+  else if (e.key === 'v' || e.key === 'V') setLens(LENS_IDS[(LENS_IDS.indexOf(lensId) + 1) % LENS_IDS.length]);
+  else if (e.key === 'q' || e.key === 'Q') view.rotate(-1);
   else if (e.key === 'e' || e.key === 'E') view.rotate(1);
   else if (e.key === 'l' || e.key === 'L') { view.showLabels = !view.showLabels; view.dirty = true; }
   else if (e.key === 'h' || e.key === 'H') view.fit();
@@ -179,17 +191,21 @@ function closeInfo() {
   view.setHover(-1);
 }
 
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
 function showInfo(b) {
   const el = $('info');
   const rows = [];
   const district = b.d?.name ?? '';
   let title = b.label ?? b.kind;
   if (b.company) {
-    const h1 = (b.id * 0.61803398875) % 1, h2 = (b.id * 0.75487766625) % 1;
-    const ret = (+$('mood').value / 100) * 0.06 * (0.5 + h1) + (h2 - 0.5) * 0.024;
+    const ret = dayReturn(b.id, +$('mood').value / 100);
     rows.push(['Ticker', b.company.ticker], ['Market cap', `$${b.company.cap}B`], ['Today', `<span class="${ret >= 0 ? 'up' : 'down'}">${ret >= 0 ? '+' : '−'}${Math.abs(ret * 100).toFixed(2)}%</span>`]);
+    rows.push(['Sector', esc(SECTOR_NAMES[b.company.sector] ?? b.company.sector), true]);
   }
-  if (b.crown) rows.push(['Net Worth board', `#${b.crown.rank}`], ['Holder', b.crown.handle]);
+  if (b.crown) rows.push(['Net Worth board', `#${b.crown.rank}`], ['Holder', esc(b.crown.handle)]);
+  if (b.owner && !b.crown) rows.push(['Owner', b.owner === 'you' ? 'You' : esc(b.owner)]);
+  if (b.forSale) rows.push(['For sale', '<span class="brass">Yes</span>']);
   const minor = rows.length >= 3;
   rows.push(['Type', b.kind, minor], ['District', district], ['Height', `${Math.round(b.h)} m`]);
   if (b.floors) rows.push(['Floors', b.floors, true]);
@@ -201,6 +217,156 @@ function showInfo(b) {
   document.body.classList.add('info-open');
   el.querySelector('.x').onclick = () => closeInfo();
 }
+
+// ------------------------------------------------------------------ map lenses
+const css = (h) => `#${h.toString(16).padStart(6, '0')}`;
+const lensChips = $('lens-chips');
+for (const id of LENS_IDS) {
+  const c = document.createElement('button');
+  c.className = 'chip'; c.dataset.lens = id; c.textContent = LENS_NAMES[id];
+  c.onclick = () => setLens(id);
+  lensChips.appendChild(c);
+}
+
+/** Switch the lens (it starts without a filter). V cycles through them. */
+function setLens(id) {
+  lensId = id;
+  if (lenses) lenses[id].filter = null;
+  renderLens();
+}
+
+/** Paint the current lens into the state texture and refresh the chips, the legend and the help line. */
+function renderLens() {
+  if (!city || !lenses) return 0;
+  const lens = lenses[lensId];
+  lastLensMs = applyLens(view, city, lens, { mood: +$('mood').value / 100 });
+  $('v-lens').textContent = lens.name;
+  for (const c of lensChips.children) c.classList.toggle('on', c.dataset.lens === lensId);
+  $('help').style.display = lensId === 'normal' ? '' : 'none';
+  drawLegend();
+  view.dirty = true;
+  return lastLensMs;
+}
+
+function drawLegend() {
+  const lens = lenses[lensId], el = $('legend');
+  const L = lens.legend({ mood: +$('mood').value / 100 });
+  el.classList.toggle('show', !!L);
+  el.replaceChildren();
+  if (!L) return;
+  const cap = document.createElement('div');
+  cap.className = 'label'; cap.textContent = 'Legend';
+  const h = document.createElement('h2'); h.textContent = lens.name;
+  el.append(cap, h);
+  if (L.ramp) {
+    const bar = document.createElement('div');
+    bar.className = 'ramp'; bar.style.background = `linear-gradient(90deg, ${RAMP.map(css).join(', ')})`;
+    const ends = document.createElement('div');
+    ends.className = 'ramp-ends';
+    ends.innerHTML = '<span>Low</span><span>High</span>';
+    el.append(bar, ends);
+  }
+  for (const r of L.rows) {
+    if (r.head) {
+      const hd = document.createElement('div'); hd.className = 'head'; hd.textContent = r.head; el.appendChild(hd);
+      continue;
+    }
+    if (r.empty) {
+      const none = document.createElement('div'); none.className = 'lg empty'; none.textContent = r.empty; el.appendChild(none);
+      continue;
+    }
+    const actionable = r.filter !== undefined || r.bid !== undefined || r.fly !== undefined;
+    const row = document.createElement(actionable ? 'button' : 'div');
+    if (actionable) row.type = 'button';
+    row.className = `lg${r.filter !== undefined && lens.filter === r.filter ? ' on' : ''}`;
+    if (r.swatch !== undefined) {
+      const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = css(r.swatch);
+      row.appendChild(sw);
+    }
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.label;
+    if (r.sub) { const s = document.createElement('span'); s.className = 'sub'; s.textContent = r.sub; nm.appendChild(s); }
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = r.value ?? '';
+    row.append(nm, n);
+    if (actionable) row.onclick = () => legendAct(r);
+    el.appendChild(row);
+  }
+  if (L.note) {
+    const note = document.createElement('div'); note.className = 'note'; note.textContent = L.note; el.appendChild(note);
+  }
+}
+
+function legendAct(r) {
+  const lens = lenses[lensId];
+  if (r.filter !== undefined) { lens.filter = lens.filter === r.filter ? null : r.filter; renderLens(); }
+  else if (r.bid !== undefined) focusBuilding(city.buildings[r.bid - 1]);
+  else if (r.fly) view.flyTo(r.fly[0], r.fly[1], r.fly[2]);
+}
+
+/** Fly to a building and open its card. A building not raised yet brings the growth to the full city first. */
+function focusBuilding(b, scale = 0.35) {
+  if (b.order > (+$('growth').value / 1000) * 1.035) { playing = false; $('growth').value = 1000; setGrowth(1000); }
+  view.flyTo(b.x, b.y, scale);
+  selected = b;
+  showInfo(b);
+  view.setHover(b.id);
+}
+
+// ------------------------------------------------------------------ search
+function runSearch() {
+  hits = city ? searchCity(searchItems, sIn.value) : [];
+  active = hits.length ? 0 : -1;
+  drawHits();
+}
+
+function drawHits() {
+  const q = sIn.value.trim();
+  sRes.replaceChildren();
+  sRes.classList.toggle('open', !!q);
+  sIn.setAttribute('aria-expanded', String(!!q));
+  if (!q) return;
+  if (!hits.length) {
+    const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No matches';
+    sRes.appendChild(li);
+    return;
+  }
+  hits.forEach((hit, i) => {
+    const li = document.createElement('li');
+    li.setAttribute('role', 'option'); li.setAttribute('aria-selected', String(i === active));
+    const t = document.createElement('span'); t.className = 't'; t.textContent = hit.title;
+    const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = hit.hint;
+    li.append(t, hint);
+    li.onmousedown = (e) => e.preventDefault(); // keep the field focused until the click lands
+    li.onclick = () => openHit(i);
+    sRes.appendChild(li);
+  });
+}
+
+function openHit(i) {
+  const hit = hits[i];
+  if (!hit) return;
+  sRes.classList.remove('open');
+  sIn.blur();
+  if (hit.bid !== undefined) focusBuilding(city.buildings[hit.bid - 1]);
+  else view.flyTo(hit.fly[0], hit.fly[1], hit.fly[2]);
+}
+
+sIn.addEventListener('input', runSearch);
+sIn.addEventListener('focus', () => { if (sIn.value.trim()) runSearch(); });
+sIn.addEventListener('blur', () => setTimeout(() => sRes.classList.remove('open'), 150));
+sIn.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!hits.length) return;
+    active = (active + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % hits.length;
+    drawHits();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (hits.length) openHit(Math.max(0, active));
+  } else if (e.key === 'Escape') {
+    if (sRes.classList.contains('open')) sRes.classList.remove('open');
+    else { sIn.value = ''; runSearch(); sIn.blur(); }
+  }
+});
 
 // ------------------------------------------------------------------ loop
 let last = performance.now();
@@ -234,6 +400,11 @@ if (q.get('t')) setTime(+q.get('t'));
 open(PERSONALITIES[first] ? first : 'avalon');
 window.__cities = {
   view, get city() { return city; }, open, setTime, setGrowth: (v) => { $('growth').value = v; setGrowth(v); },
+  /** dev: the map lenses. setLens returns the time the lens took to paint, in ms. */
+  setLens: (id) => { setLens(id); return lastLensMs; }, get lens() { return lensId; }, lensMs: () => lastLensMs,
+  setMood: (v) => { $('mood').value = v; setMood(v); },
+  search: (q) => { sIn.value = q; runSearch(); return hits.map((h) => `${h.title} | ${h.hint}`); },
+  openHit: (i) => openHit(i),
   /** dev: render one frame with a given camera and save it through the dev server */
   async shot(name, { x = 0, z = 0, scale = null, yaw = null, t = null } = {}) {
     if (t !== null) setTime(t);

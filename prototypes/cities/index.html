@@ -83,6 +83,39 @@
   #help { right: 12px; bottom: 12px; padding: 8px 10px; font: 400 11.5px/1.5 var(--sans); color: var(--fg-muted); }
   #help kbd { font: 500 10.5px/1 var(--mono); background: var(--ink-2); border: 1px solid var(--line); border-radius: 3px; padding: 2px 5px; color: var(--fg); }
 
+  /* search: a field in the status strip, results drop down from it */
+  #search-wrap { position: relative; flex: 0 1 260px; min-width: 120px; }
+  #search { width: 100%; height: 32px; font: 13px/1 var(--sans); color: var(--fg); background: rgba(27,31,36,0.9); border: 1px solid var(--line); border-radius: 4px; padding: 0 34px 0 10px; outline: none; }
+  #search::placeholder { color: var(--fg-faint); }
+  #search:focus { border-color: var(--brass); }
+  #search-key { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font: 500 10.5px/1 var(--mono); color: var(--fg-faint); border: 1px solid var(--line); border-radius: 3px; padding: 2px 5px; pointer-events: none; }
+  #search:focus + #search-key { display: none; }
+  #results { position: absolute; top: calc(100% + 6px); right: 0; width: min(340px, calc(100vw - 24px)); max-height: 60vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; display: none; background: rgba(20,23,27,0.97); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 12px 32px rgba(0,0,0,0.45); z-index: 6; }
+  #results.open { display: block; }
+  #results li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 9px; border-radius: 4px; cursor: pointer; font-size: 13px; color: var(--fg); }
+  #results li:hover, #results li[aria-selected="true"] { background: var(--ink-2); }
+  #results li .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #results li .hint { flex: none; max-width: 52%; font: 400 11px/1.3 var(--sans); color: var(--fg-faint); text-align: right; }
+  #results li.empty, #results li.empty:hover { color: var(--fg-faint); background: none; cursor: default; }
+
+  /* map lens legend: replaces the help line while a lens is on */
+  #legend { right: 12px; bottom: 12px; width: 272px; max-height: clamp(160px, calc(100vh - 600px), 330px); overflow-y: auto; padding: 12px 12px 10px; display: none; }
+  #legend.show { display: block; }
+  #legend h2 { font: italic 24px/1.05 var(--serif); margin: 3px 0 8px; }
+  #legend .lg { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 28px; margin: 0; padding: 4px 6px; border: 0; border-radius: 3px; background: none; color: var(--fg-muted); font: 12.5px/1.25 var(--sans); text-align: left; }
+  #legend button.lg { cursor: pointer; }
+  #legend button.lg:hover { background: var(--ink-2); color: var(--fg); }
+  #legend .lg.on { background: var(--ink-2); color: var(--fg); box-shadow: inset 2px 0 0 var(--brass); }
+  #legend .sw { flex: none; width: 12px; height: 12px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,0.35); }
+  #legend .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #legend .sub { margin-left: 6px; font-size: 11.5px; color: var(--fg-faint); }
+  #legend .n { flex: none; font: 500 12px/1 var(--mono); color: var(--fg); white-space: nowrap; }
+  #legend .head { margin: 10px 0 2px; font: 500 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-faint); }
+  #legend .ramp { height: 10px; border-radius: 2px; margin: 4px 0 5px; }
+  #legend .ramp-ends { display: flex; justify-content: space-between; font: 500 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-faint); }
+  #legend .note { margin-top: 9px; font: 400 11.5px/1.4 var(--sans); color: var(--fg-faint); }
+  .brass { color: var(--brass-hi) !important; }
+
   #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; background: rgba(13,15,18,0.78); z-index: 10; transition: opacity 0.4s; }
   #loading.hide { opacity: 0; pointer-events: none; }
   #loading .city { font: italic 44px/1 var(--serif); }
@@ -106,6 +139,11 @@
     #info .l.minor { display: none; }
     body.info-open #card { display: none; }
     #help { display: none; }
+    #search-wrap { flex: 0 1 150px; min-width: 96px; }
+    #search { padding-right: 10px; }
+    #search-key { display: none; }
+    #legend { left: 16px; right: 16px; width: auto; bottom: calc(56px + env(safe-area-inset-bottom, 0px)); max-height: 36vh; }
+    body.info-open #legend { display: none !important; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -121,6 +159,11 @@
     Quay <small>Cities · prototype</small>
   </div>
   <nav id="tabs" role="tablist"></nav>
+  <div id="search-wrap">
+    <input id="search" type="text" role="combobox" aria-expanded="false" aria-controls="results" aria-label="Search the city" placeholder="Search companies, owners, places" autocomplete="off" spellcheck="false">
+    <kbd id="search-key">/</kbd>
+    <ul id="results" role="listbox"></ul>
+  </div>
   <div class="clock"><span class="dot"></span><span id="clock">19:12</span></div>
 </header>
 
@@ -161,6 +204,10 @@
     <div class="chips"><button class="chip" data-m="-100">Crash</button><button class="chip" data-m="0">Calm</button><button class="chip" data-m="100">Rally</button></div>
     <div class="pop">Headquarters light up on a good day and go dark in a sell-off.</div>
   </div>
+  <div class="row">
+    <div class="row-head"><span class="label">Map lens</span><span class="val" id="v-lens">Normal</span></div>
+    <div class="chips" id="lens-chips"></div>
+  </div>
   <div class="row btns">
     <button class="btn" id="play">▶ Watch it grow</button>
   </div>
@@ -172,7 +219,8 @@
   </div>
 </aside>
 
-<div id="help" class="panel">Drag to pan · Scroll to zoom · <kbd>Q</kbd> <kbd>E</kbd> rotate · <kbd>L</kbd> labels</div>
+<div id="help" class="panel">Drag to pan · Scroll to zoom · <kbd>Q</kbd> <kbd>E</kbd> rotate · <kbd>L</kbd> labels · <kbd>V</kbd> lens · <kbd>/</kbd> search</div>
+<section id="legend" class="panel" aria-live="polite"></section>
 
 <div id="loading"><div class="city" id="l-city">Port Avalon</div><div class="bar"><i id="l-bar"></i></div><div class="step" id="l-step">Surveying the land</div></div>
 

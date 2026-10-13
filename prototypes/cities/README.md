@@ -21,6 +21,9 @@ Then open http://localhost:3610 (add `?city=kaiyo&t=21` to jump to a city and an
 - **The market**: listed companies of each region sit in their home city's tallest towers. The market slider lights
   headquarters on a rally and darkens them in a sell-off. Three crown towers per city stand for top players.
 - **Time of day**, traffic, streetlights, a train on Kaiyo's loop line.
+- **Map lenses** (the "Map lens" chips, or `V` to cycle): Mine, Market, Sectors, Owners, Land value, Districts and Use. One
+  is on at a time: it tints the emphasised buildings and the ground, fades the rest, and lists a legend. `/` searches
+  companies and tickers, owners, named buildings, districts and buildings for sale.
 
 ## Files
 
@@ -30,5 +33,7 @@ Then open http://localhost:3610 (add `?city=kaiyo&t=21` to jump to a city and an
 | `src/gen.js` | The generator pipeline |
 | `src/archetypes.js` | Building archetypes, landmarks, trees, cranes, ships |
 | `src/render.js`, `src/shaders.js`, `src/geoms.js` | Orthographic dimetric renderer, instanced parts, ground, roads |
+| `src/lenses.js` | Map lenses: palettes, the eight lenses, their legends, and `applyLens` (writes the state texture) |
+| `src/search.js` | Search index and ranking |
 | `src/main.js`, `index.html` | The Quay-style interface |
 | `src/companies.js` | Listed companies by home city (from `src/engine/universe.ts`) |
