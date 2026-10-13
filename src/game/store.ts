@@ -8,8 +8,8 @@ import { universeConfig, type DepthFrame, type WorldConfig, type WorldState } fr
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
 import type { HistoryPayload, NwHistoryPayload, ServerMsg, TextOverlayMap, VisitPayload } from '@/net/protocol';
 import type { LpPage } from '@/world/launchpad/view';
-import { mirrorWorld, type DirectoryRow, type MarketFrame, type PlayerView, type PublicState } from '@/world/view';
-import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
+import { mirrorWorld, type DirectoryRow, type MarketFrame, type PanelStamps, type PlayerView, type PublicPanel, type PublicState } from '@/world/view';
+import type { Boards, ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
 import { createHistory, loadSeries, type History, type RangeId } from './history';
 import type { IndicatorId } from './indicators';
 import { absorbFrame, delistedRefusal, type MirrorMe } from './universe';
@@ -52,8 +52,14 @@ export interface GameStore {
   /** the asset list version `config` matches (MarketFrame.cfgSeq) */
   cfgSeq: number;
   me: PlayerView | null;
+  /** the public state; its boards are read on demand (loadPanel), so they are the last read, not the last tick's */
   pub: PublicState | null;
+  /** the public directory: the viewer's rows, read on demand (loadPanel) */
   directory: DirectoryRow[];
+  /** the latest version stamp of each public panel the server has sent (welcome, then each public tick) */
+  panelStamp: PanelStamps;
+  /** the tick each public panel's data was read at (-1 before a read): a panel reads again when its stamp is past this */
+  panelLoaded: PanelStamps;
   chat: Record<string, ChatMessage[]>;
   chatUnread: number;
   wire: WireItem[];
@@ -103,6 +109,8 @@ export interface GameStore {
   loadLpPage: (ticker: string) => Promise<LpPage | null>;
   /** another player's home room and collection (null when the world is not connected) */
   loadVisit: (playerId: string) => Promise<VisitPayload | null>;
+  /** reads a public panel (the boards or the directory) for the viewer; a read in flight is not doubled (R-9-12) */
+  loadPanel: (panel: PublicPanel) => Promise<void>;
   select: (assetId: string) => void;
   setScreen: (s: Screen) => void;
   setRange: (r: RangeId) => void;
@@ -130,6 +138,9 @@ export interface GameStore {
 
 let client: WorldClient | null = null;
 let toastSeq = 0;
+/** a public panel's read in flight, and a stamp that moved during it (the panel reads again when it settles) */
+const panelBusy: Record<PublicPanel, boolean> = { boards: false, directory: false };
+const panelAgain: Record<PublicPanel, boolean> = { boards: false, directory: false };
 
 /**
  * The toast hold timers (P2-086). The store owns them, so a notice expires on time even when it sits
@@ -209,6 +220,8 @@ export const useGame = create<GameStore>((set, get) => {
           shortInterest: msg.frame.shortInterest ?? null, depth: msg.frame.depth ?? null,
           config, cfgSeq: msg.frame.cfgSeq, history: h, loaded: {},
           pub: msg.pub, directory: msg.directory, chat: msg.chat, wire: msg.pub.wire, historyRev: get().historyRev + 1,
+          // the welcome's boards and directory are the state at the welcome's tick (R-9-12)
+          panelStamp: { boards: msg.frame.tick, directory: msg.frame.tick }, panelLoaded: { boards: msg.frame.tick, directory: msg.frame.tick },
           textOverlay: msg.textOverlay ?? {},
           digestOpen: !!msg.me.digest && msg.me.digest.items.length > 0,
         });
@@ -244,7 +257,8 @@ export const useGame = create<GameStore>((set, get) => {
           ...(msg.frame.depth ? { depth: msg.frame.depth } : {}),
           wire: msg.wire.length ? [...[...msg.wire].reverse(), ...get().wire].slice(0, WIRE_KEEP) : get().wire,
           ...(msg.textOverlay ? { textOverlay: { ...get().textOverlay, ...msg.textOverlay } } : {}),
-          ...(msg.pub ? { pub: msg.pub } : {}), ...(msg.directory ? { directory: msg.directory } : {}),
+          // the public tick: the public state without the boards (kept), and the version stamps of the public panels
+          ...(msg.pub && get().pub ? { pub: { ...get().pub!, ...msg.pub } } : {}), ...(msg.panels ? { panelStamp: msg.panels } : {}),
           ...(msg.chat.length ? { chat, chatUnread: get().chatOpen ? 0 : unread } : {}),
           ...(mine ? { rankUp: mine.rankId, rankUpFrom: get().me?.rank.id ?? null } : {}),
           ...(msg.inbox.some((n) => n.kind === 'fill') ? { tradeSheetOpen: false } : {}),
@@ -306,6 +320,8 @@ export const useGame = create<GameStore>((set, get) => {
     me: null,
     pub: null,
     directory: [],
+    panelStamp: { boards: -1, directory: -1 },
+    panelLoaded: { boards: -1, directory: -1 },
     chat: {},
     chatUnread: 0,
     wire: [],
@@ -404,6 +420,28 @@ export const useGame = create<GameStore>((set, get) => {
     async loadVisit(playerId) {
       if (!client) return null;
       return client.visit(playerId);
+    },
+
+    async loadPanel(panel) {
+      if (!client) return;
+      if (panelBusy[panel]) { panelAgain[panel] = true; return; }
+      panelBusy[panel] = true;
+      try {
+        const r = await client.panel(panel);
+        // an offline or timed-out read answers without a version: the data and its tick stay as they were
+        if (typeof r.v === 'number' && r.data !== undefined && r.data !== null) {
+          const panelLoaded = { ...get().panelLoaded, [panel]: Math.max(get().panelLoaded[panel], r.v) };
+          if (panel === 'boards') {
+            const pub = get().pub;
+            set({ panelLoaded, ...(pub ? { pub: { ...pub, boards: r.data as Boards } } : {}) });
+          } else {
+            set({ panelLoaded, directory: r.data as DirectoryRow[] });
+          }
+        }
+      } finally {
+        panelBusy[panel] = false;
+        if (panelAgain[panel]) { panelAgain[panel] = false; void get().loadPanel(panel); }
+      }
     },
 
     async loadLpPage(ticker) {

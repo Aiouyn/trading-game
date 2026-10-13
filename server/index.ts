@@ -10,7 +10,7 @@ import { textConfigFromEnv } from './text/config';
 import { TextEnricher } from './text/enricher';
 import { enrichItemOf } from './text/facts';
 import { WorldHost } from './host';
-import { chatFor, configSeq, directory, directoryFor, directoryWire, marketFrame, playerView, publicState, topDirectory } from '../src/world/view';
+import { chatFor, configSeq, directory, directoryFor, marketFrame, playerView, publicCore, publicState, topDirectory } from '../src/world/view';
 import { lpPageOf } from '../src/world/launchpad/view';
 import { visitView } from '../src/world/home';
 import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
@@ -82,6 +82,11 @@ const conns = new Set<Conn>();
 
 function send(ws: WebSocket, msg: ServerMsg): void {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+}
+
+/** a message whose JSON is already built (a panel's data text, which is large and built once) */
+function sendText(ws: WebSocket, text: string): void {
+  if (ws.readyState === ws.OPEN) ws.send(text);
 }
 
 function json(res: ServerResponse, code: number, body: unknown): void {
@@ -291,6 +296,7 @@ wss.on('connection', (ws) => {
         const dir = shared.topJson ?? JSON.stringify(directoryFor(host.g, shared.all, shared.top, acct.id));
         // the welcome carries every kept overlay line, so this connection's cursor starts at the current version
         if (textEnricher.enabled) c.textSeq = textEnricher.version();
+        // the welcome carries the boards and the directory at its tick (the frame's tick is their stamp, R-9-12)
         ws.send(welcomeJson({
           playerId: acct.id, tickMs: TICK_MS, frameJson: shared.frameJson, defsJson: listWire.defsJson(host.g),
           meJson: JSON.stringify(playerView(host.g, acct.id)), pubJson: shared.pubJson, directoryJson: dir,
@@ -328,6 +334,21 @@ wss.on('connection', (ws) => {
           log(`lp-page error: ${(e as Error).message}`);
           return send(ws, { t: 'lp-page', id: msg.id, data: null });
         }
+      case 'panel': {
+        // a public panel's data for this viewer, read on demand (R-9-12): the same content the welcome carries and the push used to
+        // carry on a public tick, at the tick it is answered (v). An unauthenticated or unknown request answers null, so it settles.
+        const panel = msg.panel === 'boards' || msg.panel === 'directory' ? msg.panel : null;
+        const v = host.g.market.tick;
+        if (!c.pid || !panel) return send(ws, { t: 'panel', id: msg.id, panel: panel ?? 'boards', v, data: null });
+        try {
+          const shared = publicCache();
+          const body = panel === 'boards' ? JSON.stringify(host.g.boards) : (shared.topJson ?? JSON.stringify(directoryFor(host.g, shared.all, shared.top, c.pid)));
+          return sendText(ws, `{"t":"panel","id":${Number(msg.id)},"panel":"${panel}","v":${v},"data":${body}}`);
+        } catch (e) {
+          log(`panel error: ${(e as Error).message}`);
+          return send(ws, { t: 'panel', id: msg.id, panel, v, data: null });
+        }
+      }
       case 'visit': {
         // another player's home room and collection: each is null unless its owner has opened it (no note that anything is hidden)
         // an unauthenticated socket gets the null answer too, so the client's request always settles
@@ -386,13 +407,10 @@ host.onTick((out, publicTick) => {
   const frameJson = JSON.stringify({ ...frame, ...(si ? { shortInterest: si } : {}), ...(dep ? { depth: dep } : {}) });
   const wireJson = JSON.stringify(out.wire);
   const rankJson = JSON.stringify(out.rankUps);
-  const pubJson = publicTick ? JSON.stringify(publicState(host.g)) : null;
-  const all = publicTick ? directory(host.g) : null;
-  const top = all ? topDirectory(all) : null;
-  const topJson = top && all!.length <= top.length ? JSON.stringify(top) : null;
-  // the directory of a big world: the top list is serialized once for the tick, and each socket adds only its own rows (directoryWire)
-  const topBody = top && !topJson ? JSON.stringify(top).slice(1, -1) : '';
-  const pos = all && !topJson ? new Map(all.map((r, i) => [r.id, i] as const)) : null;
+  // the public tick carries the public state without the boards, and a version stamp per public panel (R-9-12): the boards and the
+  // directory (about 264 kB, to every socket) are read on demand through the 'panel' request
+  const pubJson = publicTick ? JSON.stringify(publicCore(host.g)) : null;
+  const stampJson = publicTick ? JSON.stringify({ boards: host.g.market.tick, directory: host.g.market.tick }) : null;
   const chat = out.chat as (ChatMessage & { channel?: string })[];
   // the model text slot: this tick's new items are offered (never inside the step), and the overlay lines that landed since the last tick go out
   // the handles of every player are passed too, so an item that names one (of any player) is never offered
@@ -414,7 +432,7 @@ host.onTick((out, publicTick) => {
     const overlayPart = overlayDelta ? `,"textOverlay":${JSON.stringify(overlayDelta)}` : '';
     const myChat = chat.filter((m) => canSee(c.pid!, m.channel ?? 'world')).map((m) => ({ ...m, channel: m.channel ?? 'world' }));
     let extra = '';
-    if (pubJson) extra = `,"pub":${pubJson},"directory":${topJson ?? directoryWire(host.g, all!, top!, topBody, pos!, c.pid)}`;
+    if (pubJson) extra = `,"pub":${pubJson},"panels":${stampJson}`;
     c.ws.send(`{"t":"tick","frame":${frameJson},"me":${JSON.stringify(me)},"wire":${wireJson},"inbox":${JSON.stringify(out.inbox[c.pid] ?? [])},"chat":${JSON.stringify(myChat)},"rankUps":${rankJson}${extra}${overlayPart},"serverTime":${now}}`);
   }
 });

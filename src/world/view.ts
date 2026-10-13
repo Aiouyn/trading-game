@@ -458,6 +458,22 @@ export function publicState(g: GameState): PublicState {
   };
 }
 
+/**
+ * The public state the public tick pushes: everything in publicState but the boards, which a client reads on demand (R-9-12).
+ * The boards and the directory leave the push; each carries only a version stamp on the public tick.
+ */
+export type PublicCore = Omit<PublicState, 'boards'>;
+
+export function publicCore(g: GameState): PublicCore {
+  const { boards: _boards, ...core } = publicState(g);
+  void _boards;
+  return core;
+}
+
+/** The two public panels that are read on demand (R-9-12). A stamp is the tick the panel's data was taken at. */
+export type PublicPanel = 'boards' | 'directory';
+export type PanelStamps = Record<PublicPanel, number>;
+
 export function chatFor(g: GameState, pid: string): Record<string, ChatMessage[]> {
   const p = g.players[pid];
   const out: Record<string, ChatMessage[]> = {};

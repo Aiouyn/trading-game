@@ -5,6 +5,7 @@ import { t } from '@/i18n';
 import { npcChatMsg } from '@/world/text/npcChat';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
+import { usePublicPanel } from '@/game/usePublicPanel';
 import { Button, TextField } from './ui';
 
 /**
@@ -12,6 +13,7 @@ import { Button, TextField } from './ui';
  * Messages app shows it on its Chat tab; the strip's chat button and a profile's Message button open that tab.
  */
 export function ChatPanel() {
+  usePublicPanel('directory');
   const me = useGame((s) => s.me);
   const chat = useGame((s) => s.chat);
   const directory = useGame((s) => s.directory);

@@ -127,12 +127,13 @@ test('L3 and L4: no frame a rival or another player receives carries a position,
     await goTo(b, 'portfolio');
     await b.waitForTimeout(3_000);
     expect(framesB.length).toBeGreaterThan(0);
-    // every server message type B receives is checked in full (welcome, tick, ack, chat, history, nw-history, pong, error,
+    // every server message type B receives is checked in full (welcome, tick, ack, chat, history, nw-history, panel, pong, error,
     // daily). A reply (ack, history, nw-history) answers B's own request, so its own subtree (`me`, `inbox`) is B's to see,
-    // and the rest of it is public. The types seen are listed so a new type cannot slip past unexamined.
+    // and the rest of it is public. A panel reply is the public boards or directory (R-9-12), the same content the push carried.
+    // The types seen are listed so a new type cannot slip past unexamined.
     const types = [...new Set(framesB.map((f) => (f as { t?: string }).t ?? '?'))].sort();
     expect(types).toEqual(expect.arrayContaining(['welcome', 'tick']));
-    for (const t of types) expect(['welcome', 'tick', 'ack', 'chat', 'history', 'nw-history', 'pong', 'error', 'daily'], `frame type ${t}`).toContain(t);
+    for (const t of types) expect(['welcome', 'tick', 'ack', 'chat', 'history', 'nw-history', 'panel', 'pong', 'error', 'daily'], `frame type ${t}`).toContain(t);
     // an nw-history reply goes only to the socket that asked (server/index.ts, nwHistoryFor(c.pid)), and its ghosts are the
     // requester's own equity and benchmark series (protocol.ts): B's own data, not a leak to B. Every other key is checked.
     const leaks = framesB.flatMap((f) => privateKeysIn(ownFrameView(f)));
@@ -144,7 +145,7 @@ test('L3 and L4: no frame a rival or another player receives carries a position,
     expect(aId, 'A received a welcome').toBeTruthy();
     const publicRecords = new Set(['pub', 'directory']);
     const withoutPublic = (f: unknown) => Object.fromEntries(Object.entries(f as object).filter(([k]) => !publicRecords.has(k)));
-    const aIdHits = framesB.filter((f) => (f as { t?: string }).t !== 'welcome' && JSON.stringify(withoutPublic(f)).includes(`"${aId}"`));
+    const aIdHits = framesB.filter((f) => !['welcome', 'panel'].includes((f as { t?: string }).t ?? '') && JSON.stringify(withoutPublic(f)).includes(`"${aId}"`));
     expect(aIdHits.map((f) => (f as { t?: string }).t)).toEqual([]);
     expect(errorsB).toEqual([]);
   } finally {

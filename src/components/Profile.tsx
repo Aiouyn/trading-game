@@ -8,6 +8,7 @@ import { ACHIEVEMENTS } from '@/content/progression';
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { compactMoney, money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
+import { usePublicPanel } from '@/game/usePublicPanel';
 import { t } from '@/i18n';
 import { api, getToken } from '@/net/client';
 import { COUNTRIES } from '@/world/players';
@@ -17,6 +18,7 @@ import { BrassChip, Button, Card, CardHeader, Progress, Select, TextField } from
 const TIER_CLS = { bronze: 'border-brass-lo/50 text-brass-lo', silver: 'border-fg-muted/50 text-fg-muted', gold: 'border-brass/60 text-brass-hi', legend: 'border-brass-hi text-brass-hi' } as const;
 
 export function ProfileView() {
+  usePublicPanel('boards');
   const me = useGame((s) => s.me)!;
   const act = useGame((s) => s.act);
   const [bio, setBio] = useState(me.player.bio);

@@ -1,7 +1,8 @@
 import type { Bar } from '@/game/history';
 import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
 import type { AssetDef } from '@/engine';
-import type { DirectoryRow, MarketFrame, PlayerView, PublicState } from '@/world/view';
+import type { Boards } from '@/world/types';
+import type { DirectoryRow, MarketFrame, PanelStamps, PlayerView, PublicCore, PublicPanel, PublicState } from '@/world/view';
 import type { LpPage } from '@/world/launchpad/view';
 import type { CollectionView, HomeView } from '@/world/home';
 
@@ -21,6 +22,8 @@ export type ClientMsg =
   | { t: 'lp-page'; id: number; ticker: string }
   /** another player's home room and collection, each only when its owner has opened it (home.ts visitView) */
   | { t: 'visit'; id: number; playerId: string }
+  /** a public panel's data for this viewer (the boards, or the directory), read on demand (R-9-12) */
+  | { t: 'panel'; id: number; panel: PublicPanel }
   | { t: 'ping' };
 
 export interface HistoryPayload {
@@ -76,9 +79,10 @@ export type ServerMsg =
     inbox: InboxItem[];
     chat: (ChatMessage & { channel: string })[];
     rankUps: { playerId: string; rankId: string }[];
-    /** public state and directory, every few ticks */
-    pub?: PublicState;
-    directory?: DirectoryRow[];
+    /** the public state without the boards, every public tick (BOARD_EVERY); the boards and the directory come on demand */
+    pub?: PublicCore;
+    /** the version stamps of the public panels, on the public tick: a panel whose stamp moved is read again when it is open */
+    panels?: PanelStamps;
     serverTime: number;
     /** the overlay lines that landed since the last tick (absent when none did) */
     textOverlay?: TextOverlayMap;
@@ -88,6 +92,8 @@ export type ServerMsg =
   | { t: 'nw-history'; id: number; data: NwHistoryPayload }
   | { t: 'lp-page'; id: number; data: LpPage | null }
   | { t: 'visit'; id: number; data: VisitPayload | null }
+  /** a public panel: v is the tick the data was taken at; data is null when the viewer is not signed in */
+  | { t: 'panel'; id: number; panel: PublicPanel; v: number; data: Boards | DirectoryRow[] | null }
   | { t: 'chat'; chat: (ChatMessage & { channel: string })[] }
   | { t: 'error'; message: string }
   | { t: 'pong' };

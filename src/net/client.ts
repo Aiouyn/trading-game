@@ -1,6 +1,7 @@
 'use client';
 
 import { DEFAULT_WORLD_PORT, type AuthRes, type ClientMsg, type HistoryPayload, type NwHistoryPayload, type ServerMsg, type VisitPayload } from './protocol';
+import type { PublicPanel } from '@/world/view';
 import type { Command } from '@/world/types';
 import type { PlayerView } from '@/world/view';
 import type { LpPage } from '@/world/launchpad/view';
@@ -95,10 +96,11 @@ export class WorldClient {
       try { msg = JSON.parse(String(ev.data)) as ServerMsg; } catch { return; }
       if (msg.t === 'welcome') this.onState('open');
       if (msg.t === 'error' && msg.message === 'auth') { this.closed = true; this.onState('auth-failed'); ws.close(); return; }
-      if ((msg.t === 'ack' || msg.t === 'history' || msg.t === 'nw-history' || msg.t === 'lp-page' || msg.t === 'visit') && this.pending.has(msg.id)) {
+      if ((msg.t === 'ack' || msg.t === 'history' || msg.t === 'nw-history' || msg.t === 'lp-page' || msg.t === 'visit' || msg.t === 'panel') && this.pending.has(msg.id)) {
         const resolve = this.pending.get(msg.id)!;
         this.pending.delete(msg.id);
-        resolve(msg.t === 'ack' ? msg : msg.data);
+        // a panel answer keeps its version stamp, so the store records the tick its data was taken at
+        resolve(msg.t === 'ack' || msg.t === 'panel' ? msg : msg.data);
       }
       this.onMsg(msg);
     };
@@ -150,5 +152,10 @@ export class WorldClient {
 
   lpPage(ticker: string): Promise<LpPage | null> {
     return this.request<LpPage | null>((id) => ({ t: 'lp-page', id, ticker }));
+  }
+
+  /** A public panel's data and the tick it was taken at (R-9-12); a failed or offline request answers without `v`. */
+  panel(panel: PublicPanel): Promise<{ v?: number; data?: unknown; ok?: boolean; error?: string }> {
+    return this.request<{ v?: number; data?: unknown; ok?: boolean; error?: string }>((id) => ({ t: 'panel', id, panel }));
   }
 }
