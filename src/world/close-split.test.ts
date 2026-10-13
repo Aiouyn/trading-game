@@ -60,3 +60,39 @@ describe('the day close splits the change into trading, valuation and income (St
     expect(g.players.u1!.stats.overheads).toBe(40);
   });
 });
+
+describe('the business tax is its own split row (R-9-10): the four parts sum to the change', () => {
+  it('a day with a business tax takes the tax out of trading and shows it as a row, the headline still reads trading', () => {
+    const g = joined('close-split-tax');
+    const L = g.ledgers!.u1!;
+    const prev = L.days[1]!;
+    const cur = L.days[2]!;
+    // the same day as above, plus a 20 business tax booked at the close: the tax lowers net worth, not valuation or income
+    prev.val = 100; prev.inc = 0;
+    cur.val = 400; cur.inc = 10;
+    cur.biz = { businesses: 1, net: 200, tax: 20, rate: 0.1 };
+    cur.nw = prev.nw + 300 + 10 - 3.51 - 20;
+    const card = dayClose(g, 'u1', 2)!;
+    expect(card.tax).toBeCloseTo(-20, 6);
+    expect(card.trading).toBeCloseTo(-3.51, 6);
+    expect(card.valuation).toBeCloseTo(300, 6);
+    expect(card.income).toBeCloseTo(10, 6);
+    expect(card.trading + card.valuation + card.income + card.tax).toBeCloseTo(card.nwChange, 6);
+    expect(card.biz).toEqual({ businesses: 1, net: 200, tax: 20, rate: 0.1 });
+    const keys = textProvider.dailyClose(card).map((m) => m.key);
+    expect(keys.slice(2, 5)).toEqual(['dayclose.valuation', 'dayclose.income', 'dayclose.tax']);
+    expect(keys[1]).toMatch(/^txt\.narr\.head\.down\.\d+$/);
+  });
+
+  it('a day with no business has no tax row and no tax line', () => {
+    const g = joined('close-split-tax-none');
+    const L = g.ledgers!.u1!;
+    const prev = L.days[1]!;
+    const cur = L.days[2]!;
+    cur.nw = prev.nw + 25;
+    const card = dayClose(g, 'u1', 2)!;
+    expect(card.tax).toBe(0);
+    expect(card.biz ?? null).toBeNull();
+    expect(textProvider.dailyClose(card).map((m) => m.key)).not.toContain('dayclose.tax');
+  });
+});

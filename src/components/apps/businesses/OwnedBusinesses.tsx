@@ -1,7 +1,7 @@
 'use client';
 
-// Owned businesses (Stage 4, item 2): a dense table, one row per shop. A row shows the name, city, income per day, what it
-// has earned, its share and how many upgrade levels it carries. Manage opens the row's panel: the rename, the four upgrades
+// Owned businesses (Stage 4, item 2): a dense table, one row per shop. A row shows the name, city, income per day, the tax that
+// day (R-9-10; the bracket is in its tooltip), what it has earned, its share and how many upgrade levels it carries. Manage opens the row's panel: the rename, the four upgrades
 // (each one a CommitBar review) and the sale. An empty list is a next-step card with one CTA.
 import { useState } from 'react';
 import { CITIES } from '@/engine';
@@ -11,6 +11,7 @@ import { compactMoney, money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
 import { businessSalePrice } from '@/world/assets';
 import type { Business } from '@/world/types';
+import type { ShopView } from '@/world/shopView';
 import { t } from '@/i18n';
 import { Button, Card, Chip, ConfirmButton, EmptyNext, SpendReview, TextField, Td, Th, spendRows } from '@/components/ui';
 
@@ -23,15 +24,17 @@ export function OwnedBusinesses({ onBrowse }: { onBrowse: () => void }) {
     );
   }
   const rows = me.businesses.slice().sort((a, b) => b.incomePerDay - a.incomePerDay);
+  const shops = new Map(me.shops.map((v) => [v.id, v] as const));
   return (
     <Card className="overflow-hidden" data-testid="biz-owned-table">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-small">
+        <table className="w-full min-w-[720px] text-small">
           <thead>
             <tr>
               <Th>{t('biz.col.business')}</Th>
               <Th>{t('biz.col.city')}</Th>
               <Th right>{t('biz.col.income')}</Th>
+              <Th right className="whitespace-nowrap">{t('biz.col.tax')}</Th>
               <Th right>{t('biz.col.earned')}</Th>
               <Th right>{t('biz.col.share')}</Th>
               <Th right>{t('biz.col.upgrades')}</Th>
@@ -39,7 +42,7 @@ export function OwnedBusinesses({ onBrowse }: { onBrowse: () => void }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((b) => <OwnedRow key={b.id} b={b} />)}
+            {rows.map((b) => <OwnedRow key={b.id} b={b} shop={shops.get(b.id)} />)}
           </tbody>
         </table>
       </div>
@@ -47,7 +50,7 @@ export function OwnedBusinesses({ onBrowse }: { onBrowse: () => void }) {
   );
 }
 
-function OwnedRow({ b }: { b: Business }) {
+function OwnedRow({ b, shop }: { b: Business; shop?: ShopView }) {
   const [open, setOpen] = useState(false);
   const def = BIZ_BY_ID.get(b.defId)!;
   const cityName = CITIES.find((c) => c.id === b.cityId)?.name ?? b.cityId;
@@ -61,6 +64,11 @@ function OwnedRow({ b }: { b: Business }) {
         </Td>
         <Td className="whitespace-nowrap text-fg-muted">{cityName}</Td>
         <Td right num className="whitespace-nowrap"><span className="text-gain">{money(b.incomePerDay)}</span><span className="text-caption text-fg-faint"> {t('biz.perDay')}</span></Td>
+        <Td right num className="whitespace-nowrap">
+          {shop ? (
+            <span className="text-fg" title={t('shop.line.tax', { rate: Math.round(shop.daily.taxRate * 100) })} data-testid={`biz-${b.id}-tax`}>{money(shop.daily.tax)}</span>
+          ) : <span className="text-fg-faint">—</span>}
+        </Td>
         <Td right num className="whitespace-nowrap">{compactMoney(b.earned)}</Td>
         <Td right num className="whitespace-nowrap">{pct(b.share)}</Td>
         <Td right num className="whitespace-nowrap">{t('biz.upgrades.count', { n: levels, max: UPGRADES.length * MAX_UPGRADE })}</Td>
@@ -72,7 +80,7 @@ function OwnedRow({ b }: { b: Business }) {
       </tr>
       {open && (
         <tr className="border-t border-ink-2 bg-ink-0/40">
-          <td colSpan={7} className="px-4 pb-4 pt-3">
+          <td colSpan={8} className="px-4 pb-4 pt-3">
             <OwnedPanel b={b} />
           </td>
         </tr>

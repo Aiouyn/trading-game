@@ -53,13 +53,19 @@ function rankLine(c: DailyClose): string {
   return tm(c.lines.find((m) => m.key.startsWith('txt.narr.rank.') || m.key.startsWith('txt.narr.noTrades.')));
 }
 
-/** Where the net worth change came from: trading first, then valuation, income and costs, and the grants left out. */
+/**
+ * Where the net worth change came from: trading first, then valuation, income and costs, the business tax (R-9-10, shown when the
+ * player owns a business that day, at its bracket), and the grants left out. The rows sum to the change.
+ */
 function SplitRows({ card }: { card: DailyClose }) {
   const rows: { key: string; label: string; value: number; testId: string }[] = [
     { key: 'trading', label: t('close.split.trading'), value: card.trading, testId: 'close-split-trading' },
     { key: 'valuation', label: t('close.split.valuation'), value: card.valuation, testId: 'close-split-valuation' },
     { key: 'income', label: t('close.split.income'), value: card.income, testId: 'close-split-income' },
   ];
+  if (card.biz && card.biz.businesses > 0) {
+    rows.push({ key: 'tax', label: t('close.split.tax', { rate: Math.round(card.biz.rate * 100) }), value: card.tax, testId: 'close-split-tax' });
+  }
   return (
     <section className="flex flex-col gap-1" aria-label={t('close.split.title')} data-testid="close-split">
       <p className="label">{t('close.split.title')}</p>
@@ -204,13 +210,6 @@ function CloseBody({ card }: { card: DailyClose }) {
       {card.event && (
         <p className="text-small text-fg" data-testid="close-event">
           {tm(card.lines.find((m) => m.key.startsWith('txt.narr.event.')), card.event.headline)}
-        </p>
-      )}
-
-      {card.biz && card.biz.businesses > 0 && (
-        <p className="flex items-baseline justify-between gap-3 text-small" data-testid="close-tax">
-          <span className="text-fg-muted">{t('close.tax', { rate: Math.round(card.biz.rate * 100) })}</span>
-          <span className="num text-fg">{money(-card.biz.tax)}</span>
         </p>
       )}
 

@@ -69,6 +69,7 @@ export const templateTextProvider: TextProvider = {
     out.push(narratorMsg({ id: `${day}:head`, kind: 'head', move: trade, amount: usd(Math.abs(c.trading)) }));
     out.push({ key: 'dayclose.valuation', vars: { change: signedUsd(c.valuation) } });
     out.push({ key: 'dayclose.income', vars: { change: signedUsd(c.income) } });
+    if (c.biz && c.biz.businesses > 0) out.push({ key: 'dayclose.tax', vars: { change: signedUsd(c.tax), rate: Math.round(c.biz.rate * 100) } });
     const move = closeMove(c.nwChange);
     if (move === 'flat') {
       out.push({ key: vkey('txt.narr.nw.flat', `${c.day}:nw`), vars: { now: usd(c.nwClose) } });

@@ -57,11 +57,14 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
   const nwChange = cur.nw - nwOpen - extDay;
   const nwChangePct = nwOpen > 0 ? nwChange / nwOpen : 0;
   // the split of that change: valuation and income come from the stored day records (both closes must carry them, else the
-  // day predates the split and all of it counts as trading); trading is the rest, so the three parts sum to the change
+  // day predates the split and all of it counts as trading); the business tax is booked to its own sink, so it sits in the
+  // rest of the change: it is taken out of trading and shown as its own row (R-9-10). Trading is what is left, so the four
+  // parts sum to the change
   const split = !!prev && prev.val !== undefined && prev.inc !== undefined && cur.val !== undefined && cur.inc !== undefined;
   const valuation = split ? cur.val! - prev!.val! : 0;
   const income = split ? cur.inc! - prev!.inc! : 0;
-  const trading = nwChange - valuation - income;
+  const bizTax = cur.biz?.tax ?? 0;
+  const trading = nwChange - valuation - income + bizTax;
 
   // best and worst positions: the quantity held at the open (the previous close), and the day's price change on it
   let best: DailyClose['best'] = null;
@@ -120,7 +123,7 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
   const beaten = beatenCount(cur.equity, ghosts);
   const noTrades = !hasTrades(g, playerId);
   const base: Omit<DailyClose, 'lines'> = {
-    day, offline: !g.players[playerId]?.online, nwOpen, nwClose: cur.nw, nwChange, nwChangePct, trading, valuation, income, external: extDay, best, worst, gx: { pct: gxPct }, sectors, stories, event,
+    day, offline: !g.players[playerId]?.online, nwOpen, nwClose: cur.nw, nwChange, nwChangePct, trading, valuation, income, tax: bizTax ? -bizTax : 0, external: extDay, best, worst, gx: { pct: gxPct }, sectors, stories, event,
     biz: cur.biz ?? null,
     ghosts: {
       player: cur.equity, basket: ghosts.basket, random: ghosts.random, momentum: ghosts.momentum, beaten,

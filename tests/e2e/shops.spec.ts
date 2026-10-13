@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { dismissCloseCard, goTo, isPhone, noHorizontalOverflow, proof, register, skipTips, watchErrors } from './helpers';
 
@@ -207,9 +208,10 @@ test('shop figures stay on one line in the window the player opens', async ({ pa
   // R-9-10: the day's tax line is in the day block, on its own line, at the owner's bracket
   await expect(page.getByTestId(`shop-${sid}-line-tax`)).toContainText(/Tax \(bracket \d+%\)/);
   await noHorizontalOverflow(page);
-  // and the Businesses card (the owned tab) carries the same tax line for the same business
+  // and the owned table's Tax column carries the same business's tax for the day, the bracket in its tooltip
   await page.getByTestId('tab-owned').click();
-  await expect(page.getByTestId(`biz-${sid}-tax`)).toContainText(/Tax \(bracket \d+%\)/);
+  await expect(page.getByTestId(`biz-${sid}-tax`)).toHaveAttribute('title', /Tax \(bracket \d+%\)/);
+  await expect(page.getByTestId(`biz-${sid}-tax`)).toContainText(/\$\d/);
   await noHorizontalOverflow(page);
 });
 
@@ -238,3 +240,65 @@ async function expectFiguresOnOneLine(page: Page, sid: string): Promise<void> {
   const bad = figures.filter((f) => f.lines !== 1 || f.overflow > 1 || f.text.includes('…') || f.text === '');
   expect(bad.map((f) => `${f.k || f.text}: ${f.lines} lines, overflow ${f.overflow}`)).toEqual([]);
 }
+
+// The business tax in the UI (R-9-10): the close card's split carries a business tax row at the owner's bracket, and the owned
+// table's Tax column carries the same business's tax for the day, the bracket in its tooltip. The split adds up to the change.
+// In English and in French, on the desktop and the phone. The shots go to TAX_SHOTS (default test-results/shots-tax).
+const TAX_SHOTS = process.env.TAX_SHOTS ?? 'test-results/shots-tax';
+
+async function taxShot(page: import('@playwright/test').Page, name: string): Promise<void> {
+  // the toasts (4 s each) sit over the Wire's bottom corner: the shot waits for them to leave
+  await expect(page.locator('[data-testid^="os-toast-"]')).toHaveCount(0, { timeout: 15_000 }).catch(() => {});
+  mkdirSync(TAX_SHOTS, { recursive: true });
+  await page.screenshot({ path: `${TAX_SHOTS}/${isPhone(page) ? 'phone' : 'desktop'}-${name}.png` });
+}
+
+test('the business tax is a row of the close card split and a column of the owned table, in English and French', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => { window.__tgE2eAdmin = 'e2e-admin'; });
+  await register(page, 'btx');
+  await skipTips(page);
+  const id = await buyFoodCart(page);
+
+  // a game day closes with the shop in the books: the close card's split has the business tax row, at the bracket
+  await nextGameDay(page);
+  await goTo(page, 'wire');
+  const split = page.getByTestId('close-split-tax');
+  await expect(split).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('close-split')).toContainText('Business tax (bracket');
+  await expect(page.getByTestId('close-tax')).toHaveCount(0);
+  const sum = await page.evaluate(() => {
+    const c = window.__tg!.state().me!.trading.closes[0]!;
+    return { parts: c.trading + c.valuation + c.income + c.tax, change: c.nwChange, tax: c.tax };
+  });
+  expect(sum.tax).toBeLessThanOrEqual(0);
+  expect(Math.abs(sum.parts - sum.change)).toBeLessThan(0.01);
+  await noHorizontalOverflow(page);
+  await taxShot(page, 'close-tax-en');
+
+  // the owned table: a Tax column, the day's tax for this business, the bracket in the tooltip
+  await goTo(page, 'empire');
+  await page.getByTestId('tab-owned').click();
+  await expect(page.getByTestId('biz-owned-table')).toContainText('Tax per day');
+  await expect(page.getByTestId(`biz-${id}-tax`)).toHaveAttribute('title', /Tax \(bracket \d+%\)/);
+  await page.getByTestId(`biz-${id}-tax`).scrollIntoViewIfNeeded();
+  await noHorizontalOverflow(page);
+  await taxShot(page, 'owned-tax-en');
+
+  // French: the same two places, the French labels and the French money
+  await goTo(page, 'profile');
+  await page.getByTestId('settings-lang-fr').click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
+  await goTo(page, 'wire');
+  await expect(page.getByTestId('close-split')).toContainText('Impôt sur les entreprises (tranche');
+  await noHorizontalOverflow(page);
+  await taxShot(page, 'close-tax-fr');
+  await goTo(page, 'empire');
+  await page.getByTestId('tab-owned').click();
+  await expect(page.getByTestId('biz-owned-table')).toContainText('Impôt par jour');
+  await expect(page.getByTestId(`biz-${id}-tax`)).toHaveAttribute('title', /Impôt \(tranche \d+/);
+  await page.getByTestId(`biz-${id}-tax`).scrollIntoViewIfNeeded();
+  await noHorizontalOverflow(page);
+  await taxShot(page, 'owned-tax-fr');
+  expect(errors).toEqual([]);
+});

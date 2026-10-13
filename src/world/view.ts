@@ -343,7 +343,7 @@ function arrivalView(g: GameState, pid: string): PlayerView['arrival'] {
 /** A stored close with its lines. Closes saved before the trading split carry only the net change, so all of it counts as trading. */
 function closeView(c: StoredClose): DailyClose {
   const full: StoredClose = {
-    ...c, trading: c.trading ?? c.nwChange, valuation: c.valuation ?? 0, income: c.income ?? 0, external: c.external ?? 0,
+    ...c, trading: c.trading ?? c.nwChange, valuation: c.valuation ?? 0, income: c.income ?? 0, tax: c.tax ?? 0, external: c.external ?? 0,
   };
   return { ...full, lines: textProvider.dailyClose(full) };
 }

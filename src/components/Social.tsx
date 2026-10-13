@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { RANKS } from '@/content/lifestyle';
 import { ACHIEVEMENTS } from '@/content/progression';
-import { compactMoney, fmtNumber, money, dec } from '@/game/format';
+import { MINUS, compactMoney, fmtNumber, money, dec } from '@/game/format';
 import { useGame } from '@/game/store';
 import { usePublicPanel } from '@/game/usePublicPanel';
 import { t, useLocale } from '@/i18n';
@@ -42,11 +42,11 @@ const BOARDS: { id: BoardId; fmt: (v: number) => string }[] = [
  * it on its Social tab (velvet-desktop-os.md, Messages: contacts, offers, rivals), so deals, alliances and the
  * profile modal stay reachable from the shell.
  */
-/** The stabilizer's bracket shift in signed points (0.012 becomes +1.2), in the viewer's number format. */
-function shiftPoints(shift: number, locale: string): string {
+/** The stabilizer's bracket shift in signed points (0.012 becomes +1.2), in the viewer's number format (format.ts). */
+function shiftPoints(shift: number): string {
   const pts = shift * 100;
-  const n = pts.toLocaleString(locale === 'fr' ? 'fr-FR' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  return pts > 0 ? '+' + n : n;
+  const n = fmtNumber(Math.abs(pts), 1, 1);
+  return pts > 0 ? '+' + n : pts < 0 ? MINUS + n : n;
 }
 
 export function SocialView() {
@@ -310,7 +310,7 @@ function Deals() {
 function Hall() {
   const pub = useGame((s) => s.pub);
   const tick = useGame((s) => s.frame?.tick ?? 0);
-  const locale = useLocale((s) => s.locale);
+  useLocale((s) => s.locale);
   if (!pub) return null;
   const left = pub.chapter.endTick - tick;
   return (
@@ -328,7 +328,7 @@ function Hall() {
       <Card className="p-4">
         <h3 className="font-serif text-title">{t('social.economy')}</h3>
         <p className="text-small text-fg-muted">{t('social.economy.body', { mult: dec(pub.economy.stabilizer.sinkMult, 2), index: dec(pub.economy.moneyIndex, 3) })}</p>
-        <p className="text-small text-fg-muted" data-testid="social-tax-shift">{t('social.economy.tax', { shift: shiftPoints(pub.economy.stabilizer.taxShift ?? 0, locale) })}</p>
+        <p className="text-small text-fg-muted" data-testid="social-tax-shift">{t('social.economy.tax', { shift: shiftPoints(pub.economy.stabilizer.taxShift ?? 0) })}</p>
         <EconomyTable pub={pub} />
       </Card>
       <p className="text-center text-caption text-fg-faint">{t('social.hall.footer', { achievements: ACHIEVEMENTS.length, players: pub.players, online: pub.online })}</p>

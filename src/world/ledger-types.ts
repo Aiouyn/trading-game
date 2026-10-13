@@ -157,6 +157,8 @@ export interface DailyClose {
   valuation: number;
   /** the change in income and costs: business income, rent, dividends and interest, less borrow costs */
   income: number;
+  /** R-9-10: the business tax the owner's businesses paid today (money out: zero or negative). A split row of its own: trading is the rest of the change without it. */
+  tax: number;
   /** the grants, transfers and loans that came in during the day (taken out of every change above) */
   external: number;
   best: MoveLine | null;
