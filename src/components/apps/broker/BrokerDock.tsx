@@ -71,7 +71,8 @@ export function BrokerDock({ ticker, tab, onTab, narrow = false, onPick }: {
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="broker-dock">
-      <div role="tablist" aria-label={t('broker.dock.label')} className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-ink-2 px-2">
+      {/* Narrow (the phone): the six tabs sit in a three-by-two grid, so Markets is on screen at load and no tab scrolls out of reach. */}
+      <div role="tablist" aria-label={t('broker.dock.label')} className={`shrink-0 border-b border-ink-2 px-2 ${narrow ? 'grid grid-cols-3 gap-x-1' : 'flex items-center gap-1 overflow-x-auto'}`}>
         {tabs.map((id) => {
           const on = id === tab;
           const count = id === 'orders' && openCount > 0 ? ` (${openCount})` : '';
