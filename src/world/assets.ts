@@ -441,7 +441,8 @@ export function buyItem(g: GameState, pid: string, itemId: string): CommandResul
     overhead(g, pid, item.price, sink);
   } else {
     debit(g, pid, item.price, sink);
-    assetFlow(g, pid, resaleValue(item, item.price, 0, g.collectibles)); // at book: resale value on the day it is bought
+    // a purchase converts the cash paid into the holding (trading 0); the drop from the price to its resale value is a re-mark
+    assetFlow(g, pid, item.price);
   }
   if (item.category === 'philanthropy') {
     p.stats.donations += item.price;

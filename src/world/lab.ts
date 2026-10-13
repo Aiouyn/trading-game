@@ -85,10 +85,9 @@ export function buyGpus(g: GameState, pid: string, tierId: string, qty: number):
   }
   const cost = n * t.price;
   if (cashOf(g, pid) < cost) return fail('not enough cash');
-  const before = labValue(g, pid);
   debit(g, pid, cost, 'GPUs');
   lab.gpus[t.id] = (lab.gpus[t.id] ?? 0) + n;
-  assetFlow(g, pid, labValue(g, pid) - before); // the cards enter the lab at resale value; the gap to the price is a trading cost
+  assetFlow(g, pid, cost); // the cash paid converts into the cards (trading 0); their drop to resale value is a re-mark
   return ok();
 }
 

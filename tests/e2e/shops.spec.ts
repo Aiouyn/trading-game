@@ -290,10 +290,12 @@ test('the business tax is a row of the close card split and a column of the owne
   await expect(page.getByTestId('close-tax')).toHaveCount(0);
   const sum = await page.evaluate(() => {
     const c = window.__tg!.state().me!.trading.closes[0]!;
-    return { parts: c.trading + c.valuation + c.income + c.tax, change: c.nwChange, tax: c.tax };
+    return { parts: c.trading + c.valuation + c.income + c.tax, change: c.nwChange, tax: c.tax, trading: c.trading };
   });
   expect(sum.tax).toBeLessThanOrEqual(0);
   expect(Math.abs(sum.parts - sum.change)).toBeLessThan(0.01);
+  // the shop was bought with cash: the purchase is a conversion, so the day's trading is flat (0) and the headline is not a loss
+  expect(Math.abs(sum.trading)).toBeLessThan(0.01);
   await noHorizontalOverflow(page);
   await taxShot(page, 'close-tax-en');
 

@@ -105,6 +105,7 @@ export function payOut(g: GameState, f: Fund, out: StepOutput | null): void {
     const pay = Math.min(owed, avail);
     if (!(pay > 1e-9)) continue;
     transfer(g, f.accountId, pid, pay);
+    assetFlow(g, pid, -pay); // the payable (a claim in valuation) becomes cash: a conversion, not trading
     f.paidOut[pid] = (f.paidOut[pid] ?? 0) + pay;
     avail -= pay;
     if (owed - pay > 1e-9) f.payable[pid] = owed - pay; else delete f.payable[pid];
@@ -114,6 +115,7 @@ export function payOut(g: GameState, f: Fund, out: StepOutput | null): void {
   if (f.feePayable > 1e-9 && avail > 1e-9) {
     const pay = Math.min(f.feePayable, avail);
     transfer(g, f.accountId, f.managerId, pay);
+    assetFlow(g, f.managerId, -pay); // the accrued fee (a claim in valuation) becomes cash: a conversion, not trading
     f.paidOut[f.managerId] = (f.paidOut[f.managerId] ?? 0) + pay;
     f.feePayable -= pay;
     if (f.feePayable <= 1e-9) f.feePayable = 0;

@@ -197,10 +197,10 @@ export function lpBuy(g: G, pid: string, ticker: string, spendCents: number, max
   const ms = maxSlip ?? LP.MAX_SLIP;
   if (!(ms > 0 && ms <= 0.5)) return refuse('maxSlip', {});
   if (!Number.isInteger(spendCents) || spendCents <= 0) return refuse('zero', { ticker });
-  // the tokens enter valuation at their sale quote: the cash paid for them is a conversion, the spread a trading cost
-  const before = curveHoldingsValue(g, pid);
+  // the cash paid converts into the tokens (trading 0); the tokens' drop to their sale quote is a re-mark
+  const cashBefore = cashOf(g, pid);
   const r = buyCurve(g, pid, ticker, spendCents, ms, out, false);
-  assetFlow(g, pid, curveHoldingsValue(g, pid) - before);
+  assetFlow(g, pid, cashBefore - cashOf(g, pid));
   return r;
 }
 

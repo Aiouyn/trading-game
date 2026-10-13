@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, createGame, stepGame } from './game';
 import { dayClose, recordDayClose } from './close';
-import { TPD, bump, netWorthBreakdown } from './core';
+import { GPU_TIERS, TPD, bump, netWorthBreakdown } from './core';
 import { valuationAndIncome } from './ledger';
 import { textProvider } from './text';
 import { PROPERTY_FEE, propertyPrice } from './assets';
 import { BUSINESSES } from '@/content/businesses';
 import { LIFE_ITEMS, PROPERTY_TYPES, RANKS, resaleValue, rankIndex } from '@/content/lifestyle';
 import { CITIES } from '@/engine';
-import type { DailyClose, DayRecord, GameState } from './types';
+import type { GameState } from './types';
+import type { DailyClose, DayRecord } from './ledger-types';
 
 /** A joined player, run past a few closes, with cash to spend. */
 function joined(seed: string): GameState {
@@ -82,7 +83,7 @@ describe('a purchase is a conversion of cash into holdings: it is neither tradin
     expectSplitSums(card);
   });
 
-  it('a lifestyle item bought (resale-marked) is valued at its resale the moment it is bought: the rest is the cost of buying', () => {
+  it('a lifestyle item bought is trading 0: its drop from the price to its resale value the moment it is bought is a re-mark', () => {
     const g = joined('conv-life');
     g.players.u1!.rankId = RANKS[RANKS.length - 1]!.id;
     const item = LIFE_ITEMS.find((i) => i.cls === 'mass' && rankIndex(i.rank) <= rankIndex(g.players.u1!.rankId))!;
@@ -91,8 +92,23 @@ describe('a purchase is a conversion of cash into holdings: it is neither tradin
       const r = applyCommand(g, 'u1', { type: 'life.buy', itemId: item.id });
       expect(r.ok).toBe(true);
     });
-    expect(card.valuation).toBeCloseTo(0, 6);
-    expect(card.trading).toBeCloseTo(resale - item.price, 6);
+    expect(card.trading).toBeCloseTo(0, 6);
+    expect(card.valuation).toBeCloseTo(resale - item.price, 6);
+    expect(card.nwChange).toBeCloseTo(resale - item.price, 6);
+    expectSplitSums(card);
+  });
+
+  it('a GPU bought is trading 0: its drop from the price to its 60% resale value is a re-mark', () => {
+    const g = joined('conv-gpu');
+    g.players.u1!.rankId = RANKS[RANKS.length - 1]!.id;
+    const tier = GPU_TIERS[0]!;
+    const card = cardAround(g, () => {
+      const r = applyCommand(g, 'u1', { type: 'lab.gpu', tier: tier.id, qty: 1 });
+      expect(r.ok).toBe(true);
+    });
+    expect(card.trading).toBeCloseTo(0, 6);
+    expect(card.valuation).toBeCloseTo(-tier.price * 0.4, 6);
+    expect(card.nwChange).toBeCloseTo(-tier.price * 0.4, 6);
     expectSplitSums(card);
   });
 
