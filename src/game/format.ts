@@ -1,4 +1,5 @@
 import { currentLocale, type Locale } from '@/i18n';
+import { groupSpace } from '@/i18n/tokens';
 
 /**
  * Number formatting per DESIGN.md: separators, 2 decimals, real minus U+2212. Every figure follows the viewer's locale
@@ -20,7 +21,7 @@ export function fmtNumber(n: number, min: number, max: number): string {
     f = new Intl.NumberFormat(TAG[loc], { minimumFractionDigits: min, maximumFractionDigits: max });
     formatters.set(key, f);
   }
-  return f.format(n);
+  return groupSpace(f.format(n));
 }
 
 const isFr = () => currentLocale() === 'fr';
@@ -47,7 +48,7 @@ export function dec(n: number, d: number): string {
     f = new Intl.NumberFormat(TAG[loc], { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: false });
     formatters.set(key, f);
   }
-  return f.format(n);
+  return groupSpace(f.format(n));
 }
 
 /** The percent sign alone, for a figure built outside this module (a whole percent on a chart label). */
