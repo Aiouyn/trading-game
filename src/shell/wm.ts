@@ -838,7 +838,9 @@ function snapTo(state: ShellState, id: string, slot: SlotName): WmResult {
   const g = gutterFor(foc);
   const r = fracToRect(SLOT_FRAC[slot], wa, g);
   if (!fitsMin(APPS[w.app], r)) return fail('too-small');
-  const cleared = clearForSnap(state, id, SLOT_FRAC[slot], wa, g);
+  // In focus mode the other windows are hidden, and leaving focus restores every window's rect and slot from the snapshot,
+  // so a snap there never re-tiles or pushes out a neighbour (it would not come back).
+  const cleared = foc ? state.wins : clearForSnap(state, id, SLOT_FRAC[slot], wa, g);
   return ok({ ...state, wins: raise(cleared, id, { slot, filled: false }) });
 }
 

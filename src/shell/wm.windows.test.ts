@@ -168,3 +168,18 @@ describe('the window tab strip in the narrow modes', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 });
+
+describe('a snap in focus mode', () => {
+  it('leaves the hidden neighbours alone, and leaving focus restores every slot', () => {
+    const before = fresh(VP_1920);
+    let s = go(before, { type: 'focusMode', on: true });
+    s = go(s, { type: 'snap', id: 'wire', slot: 'R2' });
+    expect(s.wins.find((w) => w.id === 'broker-1')!.slot).toBe('L23');
+    expect(s.wins.find((w) => w.id === 'portfolio')!.state).toBe('open');
+    s = go(s, { type: 'focusMode', on: false });
+    for (const w of before.wins) {
+      expect(s.wins.find((x) => x.id === w.id)!.slot, w.id).toEqual(w.slot);
+      expect(s.wins.find((x) => x.id === w.id)!.state, w.id).toBe(w.state);
+    }
+  });
+});
