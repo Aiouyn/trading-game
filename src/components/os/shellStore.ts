@@ -235,8 +235,44 @@ export function closeWindow(id: string, force = false): void {
 export interface OpenOpts {
   /** Move DOM focus into the window once it is on screen. Keyboard, shelf and launcher opens do; a screen call does not. */
   focus?: boolean;
-  /** A Broker always opens a new window, even when one already shows the ticker (P2-078, New Broker). */
+  /** A Broker always opens a new window, even when one already shows the ticker (New Broker, Alt Shift N, Shift+Enter). */
   fresh?: boolean;
+}
+
+/**
+ * Changes a Broker window's ticker in place: the window keeps its place, its size and its stacking, and the game's selection
+ * follows it. Returns false when the window is not a Broker or already shows the ticker. The save is written at once.
+ */
+export function retargetBroker(id: string, ticker: string): boolean {
+  const store = useShell.getState();
+  const w = store.shell.wins.find((x) => x.id === id);
+  if (w === undefined || w.app !== 'broker' || w.props.ticker === ticker) return false;
+  const next: ShellState = {
+    ...store.shell,
+    wins: store.shell.wins.map((x) => (x.id === id ? { ...x, props: { ...x.props, ticker } } : x)),
+  };
+  store.replace(next);
+  persist(next);
+  useGame.getState().select(ticker);
+  noteRecent({ app: 'broker', ticker });
+  return true;
+}
+
+/**
+ * A ticker picked from inside a Broker (its watchlist, its markets tab, a row): the Broker that holds the pick changes its
+ * ticker in place. A ticker another Broker already shows focuses that Broker instead, as the Broker rules say (no duplicate).
+ */
+export function pickBroker(winId: string, ticker: string): void {
+  const wins = useShell.getState().shell.wins;
+  const holder = wins.find((w) => w.app === 'broker' && w.props.ticker === ticker);
+  const self = wins.find((w) => w.id === winId && w.app === 'broker');
+  if (holder === undefined && self !== undefined) {
+    retargetBroker(self.id, ticker);
+    dispatchWm({ type: 'focus', id: self.id });
+    useFocusHint.setState({ id: self.id });
+    return;
+  }
+  openApp('broker', { ticker }, { focus: true });
 }
 
 /** Opens an app, or focuses the window that holds it. A refusal shows a toast, never a silent no-op. */
@@ -251,9 +287,22 @@ export function openApp(app: AppId, props: WinProps = {}, opts: OpenOpts = {}): 
     notify(t('shell.ticker.unknown', { ticker: props.ticker }), 'warn');
     p = { ticker: useGame.getState().selected };
   }
-  // At the Broker cap a plain open of a new ticker hands the least-recently-focused Broker that ticker. That
-  // window is not the one the player is in, so the change is announced.
-  const brokers = useShell.getState().shell.wins.filter((w) => w.app === 'broker');
+  const shell = useShell.getState().shell;
+  const brokers = shell.wins.filter((w) => w.app === 'broker');
+  // A plain Broker open of a ticker no Broker shows changes the focused Broker in place (the launcher's ticker row, Alt N, the
+  // shelf's Broker): the window the player is in keeps its place and no second window opens. With no Broker in focus the
+  // open follows the window rules below.
+  if (app === 'broker' && opts.fresh !== true && p.ticker !== undefined && !brokers.some((w) => w.props.ticker === p.ticker)) {
+    const top = focusedId(shell);
+    const focused = shell.wins.find((w) => w.id === top && w.app === 'broker');
+    if (focused !== undefined) {
+      retargetBroker(focused.id, p.ticker);
+      if (opts.focus) useFocusHint.setState({ id: focused.id });
+      return;
+    }
+  }
+  // At the Broker cap a plain open of a new ticker, with no Broker in focus, hands the least-recently-focused Broker that
+  // ticker. That window is not the one the player is in, so the change is announced.
   const retargets = app === 'broker' && opts.fresh !== true && p.ticker !== undefined
     && brokers.length >= MAX_BROKERS && !brokers.some((w) => w.props.ticker === p.ticker);
   const r = dispatchWm({ type: 'open', app, props: p, fresh: opts.fresh === true });

@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { OpenOrders } from '@/components/Holdings';
 import { LowCashCard } from '@/components/comeback/LowCashCard';
-import { notify, openApp, useShell } from '@/components/os/shellStore';
+import { isPhoneViewport, phoneOpen } from '@/components/os/phoneStore';
+import { pickBroker } from '@/components/os/shellStore';
 import { Button, Card } from '@/components/ui';
 import { knownSeries, useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { MAX_BROKERS } from '@/shell/apps';
 import { brokerView, type Size } from '@/shell/geometry';
 import { AssetPanel } from './AssetPanel';
 import { BrokerDock, type DockTab } from './BrokerDock';
@@ -28,7 +28,7 @@ import { Universe } from './Universe';
  *     full ticket as a bottom sheet.
  *   short (under 560 px tall): a Chart / Ticket toggle, one pane at a time (V:41).
  */
-export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
+export function BrokerApp({ ticker, size, winId }: { ticker?: string; size: Size; winId?: string }) {
   const selected = useGame((s) => s.selected);
   const config = useGame((s) => s.config);
   const storeSheet = useGame((s) => s.tradeSheetOpen);
@@ -54,6 +54,17 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
   useEffect(() => {
     if (terminalLayout && useGame.getState().tradeSheetOpen) setStoreSheet(false);
   }, [terminalLayout, storeSheet, setStoreSheet]);
+  // A store sheet (a preset) belongs to the narrow layout. In the short layout the ticket pane is that sheet: the raised flag
+  // opens the ticket pane during render (the React pattern for a value that changes), and then the flag clears.
+  const shortLayout = brokerView(size).short;
+  const [sheetSeen, setSheetSeen] = useState(storeSheet);
+  if (storeSheet !== sheetSeen) {
+    setSheetSeen(storeSheet);
+    if (storeSheet && shortLayout) setPane('ticket');
+  }
+  useEffect(() => {
+    if (shortLayout && storeSheet) setStoreSheet(false);
+  }, [shortLayout, storeSheet, setStoreSheet]);
   const name = ticker ?? selected;
   if (!knownSeries(config, name)) {
     return (
@@ -63,15 +74,15 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
     );
   }
   const view = brokerView(size);
-  // Picking a row opens that ticker in a Broker, or focuses the Broker that already has it. At the cap a new
-  // ticker is refused with a notice: no other window is retargeted.
+  // A pick (a watchlist row, a markets row) changes the ticker of this Broker in place, so the player keeps the window they
+  // are in. A ticker another Broker shows focuses that Broker. On the phone the Broker is the stack's app: its entry changes.
   const pick = (id: string) => {
-    const brokers = useShell.getState().shell.wins.filter((w) => w.app === 'broker');
-    if (brokers.length >= MAX_BROKERS && !brokers.some((w) => w.props.ticker === id)) {
-      notify(t('broker.cap', { n: MAX_BROKERS }), 'warn');
+    if (isPhoneViewport()) {
+      phoneOpen('broker', { ticker: id }, false);
+      useGame.getState().select(id);
       return;
     }
-    openApp('broker', { ticker: id }, { focus: true });
+    pickBroker(winId ?? '', id);
   };
   const toggleChain = () => setChain((c) => !c);
   const chainCard = chain ? (
@@ -121,6 +132,11 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
             <PlansCard ticker={name} />
           </>
         )}
+        {/* The trade bar stays in both panes, so a short Broker (a 628 x 485 tile had none) can still Buy or Sell. Its Review
+            opens the ticket pane, where the full order is. */}
+        <div className="sticky bottom-0 z-[2] -mx-3 -mb-3 border-t border-ink-2 bg-ink-1 px-3 py-2" data-testid="trade-bar-slot">
+          <TradeBar ticker={name} onReview={() => setPane('ticket')} />
+        </div>
       </div>
     );
   }

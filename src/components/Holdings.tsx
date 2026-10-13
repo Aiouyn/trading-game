@@ -4,6 +4,7 @@ import { commission, optionQuote, parseContract, portfolio, type WorldConfig, ty
 import { LICENSES, rankIndex } from '@/content/lifestyle';
 import { sparkline } from '@/game/history';
 import { price, pct, qty, signedMoney, signedPct, tone, toneText, money, dec } from '@/game/format';
+import { accountOpenPnl } from '@/game/accountPnl';
 import { assetDefOf, useGame } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
@@ -69,6 +70,8 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
   const [sort, setSort] = useState<{ key: PosSortKey; dir: 1 | -1 }>({ key: 'value', dir: -1 });
   if (!me.account) return null;
   const pf = portfolio(world, playerId);
+  // the account's open P&L after the exit fee (the same figure the top strip and the Portfolio show)
+  const openPnl = accountOpenPnl(world, playerId, assetDefOf);
   // what the position would bank if sold now: the mark-to-market P&L less the exit fee on its value (after fees)
   const rows = pf.positions.map((p) => {
     const def = assetDefOf(p.assetId);
@@ -88,7 +91,7 @@ export function Positions({ phone = false, bare = false }: { phone?: boolean; ba
   const lastFill = (assetId: string) => (reasons.has(assetId) ? t('holdings.lastFill', { reason: reasonLabel(reasons.get(assetId)!) }) : null);
   const cash = (
     <span className="num text-caption text-fg-faint" data-testid="cash">
-      {t('holdings.cash', { cash: money(pf.cash) })} · {t('holdings.unrealized')} <span className={toneText[tone(pf.unrealizedPnl)]}>{signedMoney(pf.unrealizedPnl)}</span>
+      {t('holdings.cash', { cash: money(pf.cash) })} · {t('holdings.unrealized')} <span className={toneText[tone(openPnl)]}>{signedMoney(openPnl)}</span>
     </span>
   );
   return (

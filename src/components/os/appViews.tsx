@@ -32,7 +32,7 @@ const LaunchpadApp = dynamic(() => import('@/components/apps/launchpad/Launchpad
 export function AppBody({ win, size }: { win: Win; size: Size }) {
   switch (win.app) {
     case 'broker':
-      return <BrokerApp ticker={win.props.ticker} size={size} />;
+      return <BrokerApp ticker={win.props.ticker} size={size} winId={win.id} />;
     case 'portfolio':
       return <div className="os-body"><PortfolioView view={win.props.view} /></div>;
     case 'wire':

@@ -7,7 +7,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
-import { compactMoney, money, signedPct, tone, toneText } from '@/game/format';
+import { accountOpenPnl } from '@/game/accountPnl';
+import { compactMoney, money, signedMoney, signedPct, tone, toneText } from '@/game/format';
+import { assetDefOf } from '@/game/store';
 import type { NetWorthBreakdown } from '@/world/core';
 
 export type NetWorthRow = 'cash' | 'markets' | 'businesses' | 'property' | 'companies' | 'funds' | 'tokens' | 'lab' | 'lifestyle' | 'debts';
@@ -28,8 +30,23 @@ export function netWorthRows(nw: NetWorthBreakdown): { key: NetWorthRow; value: 
   ];
 }
 
+/**
+ * The strip's narrow band (from 1500 px down): whole dollars without cents, so a figure keeps its digits, and compact money
+ * from a million up. The full figure with cents shows wherever the strip has room for it.
+ */
+function shortMoney(n: number): string {
+  return Math.abs(n) >= 1e6 ? compactMoney(n) : money(Math.round(n)).replace(/[.,]00(?!\d)/, '');
+}
+
+/** The short money with its sign: +$37 or a minus sign then $37. */
+function shortSigned(n: number): string {
+  return (n > 0 ? '+' : '') + shortMoney(n);
+}
+
 export function NetWorthFigures({ phone = false }: { phone?: boolean }) {
   const me = useGame((s) => s.me);
+  const world = useGame((s) => s.world);
+  const playerId = useGame((s) => s.playerId);
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   const breakdown = me?.netWorth;
@@ -39,6 +56,10 @@ export function NetWorthFigures({ phone = false }: { phone?: boolean }) {
   const today = nw - dayStart;
   const todayPct = dayStart ? today / dayStart : 0;
   const fmt = phone ? compactMoney : money;
+  // The account figures of the desktop strip (the phone keeps cash and net worth): the open P&L after the exit fee, and the
+  // total change since arrival. The same figures the Portfolio and each Broker's Positions show.
+  const arrival = me?.arrival ?? null;
+  const openPnl = !phone && world && playerId && me ? accountOpenPnl(world, playerId, assetDefOf) : null;
 
   useEffect(() => {
     if (!open) return;
@@ -66,9 +87,22 @@ export function NetWorthFigures({ phone = false }: { phone?: boolean }) {
         title={t('shell.nw.today')}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className="os-fig-k">{t('common.netWorth')}</span> <span className="num">{fmt(nw)}</span>{' '}
+        <span className="os-fig-k">{t('common.netWorth')}</span> {phone ? <span className="num">{fmt(nw)}</span> : <><span className="num os-val-full">{money(nw)}</span><span className="num os-val-short">{shortMoney(nw)}</span></>}{' '}
         <span className={`num ${toneText[tone(today)]}`} data-testid={phone ? 'os-phone-today' : 'os-today'}>{signedPct(todayPct)}</span>
       </button>
+      {openPnl !== null && (
+        <span className="os-fig os-soft os-fig-pnl" data-testid="os-open-pnl" title={t('shell.pnl.openHint')}>
+          <span className="os-fig-k">{t('shell.pnl.open')}</span>{' '}
+          <span className={`num os-val-full ${toneText[tone(openPnl)]}`}>{signedMoney(openPnl)}</span>
+          <span className={`num os-val-short ${toneText[tone(openPnl)]}`}>{shortSigned(openPnl)}</span>
+        </span>
+      )}
+      {arrival !== null && !phone && (
+        <span className="os-fig os-soft os-fig-arrival" data-testid="os-arrival-pnl" title={t('shell.pnl.arrivalHint', { pct: signedPct(arrival.changePct) })}>
+          <span className="os-fig-k">{t('shell.pnl.arrival')}</span>{' '}
+          <span className={`num ${toneText[tone(arrival.change)]}`}>{signedMoney(arrival.change)}</span>
+        </span>
+      )}
       {open && breakdown && (
         <section className="os-nw-pop" role="dialog" aria-label={t('shell.nw.breakdown')} data-testid="nw-breakdown">
           <h2 className="label">{t('shell.nw.breakdown')}</h2>
