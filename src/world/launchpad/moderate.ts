@@ -98,3 +98,23 @@ export function nameFormatOk(raw: string): boolean {
   const s = raw.trim();
   return s.length >= 3 && s.length <= 24 && /^[\p{L}\p{N} .'-]+$/u.test(s);
 }
+
+/** R-10-6 (Phase 10): why a piece of free text (a description, a reply) is refused. */
+export type TextRefusal = 'empty' | 'long' | 'link' | 'abuse';
+
+/** A link is a scheme, a www prefix or a bare domain: a scam vector on a token thread, so no link goes through. */
+const LINK_RE = /https?:\/\/|www\.|[a-z0-9-]+\.(?:com|net|org|io|xyz|gg|me|app|finance|click|site)\b/i;
+
+/**
+ * The moderator's check of free text a player writes on a token (a description, a reply). The text is plain: whitespace is
+ * collapsed and trimmed, and the length counts characters (code points), so an accented or emoji character is one character. A link
+ * and an abusive word are refused with the same blocklist as a name (ABUSE_TERMS). Returns the cleaned text, or the refusal.
+ */
+export function moderateText(raw: string, max: number): { ok: true; text: string } | { ok: false; reason: TextRefusal } {
+  const text = raw.replace(/\s+/g, ' ').trim();
+  if (text.length === 0) return { ok: false, reason: 'empty' };
+  if ([...text].length > max) return { ok: false, reason: 'long' };
+  if (LINK_RE.test(text)) return { ok: false, reason: 'link' };
+  if (matchIn(normalizeName(text), ABUSE_TERMS)) return { ok: false, reason: 'abuse' };
+  return { ok: true, text };
+}

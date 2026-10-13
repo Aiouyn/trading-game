@@ -522,6 +522,7 @@ function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOut
     case 'lp.buy':
     case 'lp.sell':
     case 'lp.buzz':
+    case 'lp.reply':
     case 'lp.cancel':
     case 'lp.file': return launchpadCommand(g, pid, cmd, out) ?? fail('unknown command');
     case 'ad.start': return startBreak(g, pid);

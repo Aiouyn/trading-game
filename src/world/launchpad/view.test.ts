@@ -27,10 +27,17 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(v).not.toContain('zed_holder_x');
     const page = lpPageOf(g, CREATOR, 'REVL')!;
     expect(Object.keys(page.buckets).sort()).toEqual(['holders', 'top10Share']);
-    expect(page.buckets.holders).toBe(3);
+    // R-10-6: the NPC sniper's cohort is an anonymous holder too, so the three players and the cohort are four holders
+    expect(page.buckets.holders).toBe(4);
     for (const tr of page.tape) {
-      expect(Object.keys(tr).sort()).toEqual(['creator', 'npc', 'price', 'qty', 'side', 'tick']);
+      const keys = Object.keys(tr).sort();
+      expect(keys.filter((k) => k !== 'anon')).toEqual(['creator', 'npc', 'price', 'qty', 'side', 'tick', 'usd']);
+      // a player's line carries an anonymous id, never a handle
+      if (tr.anon !== undefined) expect(tr.anon).toMatch(/^[0-9a-f]{6}$/);
     }
+    expect(JSON.stringify(page)).not.toContain('trader_two');
+    expect(page.holders.some((h) => h.role === 'npc')).toBe(true);
+    expect(page.holders.some((h) => h.role === 'curve')).toBe(true);
     expect(page.tape.some((tr) => tr.creator)).toBe(true);
     expect(page.tape.filter((tr) => tr.creator).length).toBe(1);
     // the other player's view of the same token: the same no-reveal
@@ -98,7 +105,8 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(JSON.stringify(v)).not.toContain('"chart"');
     expect(JSON.stringify(v)).not.toContain('"tape"');
     // the creator launched with no allocation, so the trader is the one holder of PGAA: the page counts holders, never names them
-    expect(lpPageOf(g, TRADER, 'PGAA')!.buckets.holders).toBe(1);
+    // R-10-6: the NPC sniper's cohort counts as an anonymous holder, so the trader and the cohort are two
+    expect(lpPageOf(g, TRADER, 'PGAA')!.buckets.holders).toBe(2);
   });
 
   it('creator fees are on the page for the creator only (the figure is not public)', () => {

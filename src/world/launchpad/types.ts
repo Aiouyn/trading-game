@@ -18,6 +18,27 @@ export interface LpTrade {
   creator: boolean;
   /** NPC retail flow, shown as anonymous flow */
   npc: boolean;
+  /** R-10-6: the notional in dollars (the outlay with the fee on a buy, the gross proceeds on a sell). Absent in an old tape: qty times price */
+  usd?: number;
+  /** R-10-6: the anonymous trader id of a player's trade (a hash of the token and the player; never the handle). Absent for NPC flow */
+  anon?: string;
+}
+
+/**
+ * R-10-6 (Phase 10): one line of a token's replies thread. A player's reply is their own text (moderated, plain, up to 140 characters)
+ * under an anonymous id; the creator's replies are marked as the creator's. An NPC reply is a template key from the text layer with a
+ * fictional handle, so the viewer's language renders it.
+ */
+export interface LpReply {
+  tick: number;
+  /** the anonymous id (a player) or the fictional handle (an NPC) */
+  who: string;
+  role: 'player' | 'creator' | 'npc';
+  /** a player's text (plain, moderated) */
+  text?: string;
+  /** an NPC reply's message key (the text layer's template) and its variables */
+  key?: string;
+  vars?: Record<string, string | number>;
 }
 
 /** A FIFO lot a holder bought (for the realised P&L and the rug case): quantity and the cash paid per token. */
@@ -129,6 +150,16 @@ export interface LpToken {
   flows: { npcBuy: number; npcSell: number; playerBuy: number; playerSell: number; fee: number };
   /** a rug case filed on this token (the holders' suits), by player id */
   sued: Record<string, string>;
+  /** R-10-6: the generated image variant the creator picked (0 to ART_VARIANTS - 1). Absent in an old token: variant 0 */
+  art?: number;
+  /** R-10-6: the description the creator wrote (plain text, at most 140 characters, moderated). Absent in an old token */
+  description?: string;
+  /** R-10-6: the replies thread, newest last (the last REPLY_KEEP are kept). Absent in an old token: none */
+  replies?: LpReply[];
+  /** R-10-6: the tick of each player's last reply on this token (the one-a-minute brake). Absent: no reply yet */
+  replyLast?: Record<string, number>;
+  /** R-10-6: the tick of the last NPC reply (the five-minute gap). Absent: none yet */
+  npcReplyAt?: number;
 }
 
 export interface LaunchpadState {

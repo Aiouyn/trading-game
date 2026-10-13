@@ -20,6 +20,7 @@ export const REFUSAL_CODES = [
   'live', 'locked', 'lockedEngine', 'lockedGrad', 'maxSlip', 'nameAbuse', 'nameBrand', 'nameCrypto', 'nameFigure', 'nameFormat', 'nameTaken',
   'noFlag', 'noPlayer', 'noToken', 'notCreator', 'notEligible', 'ownFlag', 'rank', 'slippage', 'sold', 'tagline', 'tickerCrypto',
   'tickerFormat', 'tickerRecent', 'tickerTaken', 'tooLarge', 'tooSmall', 'traded', 'zero',
+  'art', 'descEmpty', 'descLong', 'descLink', 'descAbuse', 'replyEmpty', 'replyLong', 'replyLink', 'replyAbuse', 'replyCooldown',
 ] as const;
 
 /**
@@ -59,6 +60,16 @@ function partsOf(data: unknown): [Msg, Msg, Msg] | null {
   if (!Array.isArray(p) || p.length !== 3) return null;
   const ok = p.every((m) => m && typeof m === 'object' && typeof (m as Msg).key === 'string');
   return ok ? (p as [Msg, Msg, Msg]) : null;
+}
+
+/** R-10-6: the refusal code of a description the moderator stops (the same codes the world sends from launch.ts). */
+export function descRefusalCode(reason: 'empty' | 'long' | 'link' | 'abuse'): string {
+  return { empty: 'descEmpty', long: 'descLong', link: 'descLink', abuse: 'descAbuse' }[reason];
+}
+
+/** R-10-6: the refusal code of a reply the moderator stops (the same codes the world sends from reply.ts). */
+export function replyRefusalCode(reason: 'empty' | 'long' | 'link' | 'abuse'): string {
+  return { empty: 'replyEmpty', long: 'replyLong', link: 'replyLink', abuse: 'replyAbuse' }[reason];
 }
 
 /** The key of a token status (live, graduated, dead). */

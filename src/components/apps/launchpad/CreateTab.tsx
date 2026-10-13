@@ -1,9 +1,9 @@
 'use client';
 
-// Create (lead-launchpad.md L2, L5, L6): the launch form, then the creator console for the viewer's own tokens (the vesting
-// schedule, the creator fees, the buzz items with their cost and the daily cap, the rug status, and cancel while it is allowed).
-// The form shows the fee, the limits and the generated icon, and checks the name and the ticker as the viewer types. The world
-// checks everything again at launch and refuses in three parts.
+// Create (lead-launchpad.md L2, L5, L6; R-10-6 as Phase 10): the launch form, then the creator console for the viewer's own tokens (the
+// vesting schedule, the creator fees, the buzz items with their cost and the daily cap, the rug status, and cancel while it is allowed).
+// The form picks one of the generated images (no uploads), takes a name, a ticker and a description of up to 140 characters, and
+// checks each as the viewer types. The launch fee is $100. The world checks everything again at launch and refuses in three parts.
 import { useState } from 'react';
 import { money, pct } from '@/game/format';
 import { useGame } from '@/game/store';
@@ -11,8 +11,9 @@ import { t } from '@/i18n';
 import { Button, Card, Empty, NumberField, TextField } from '@/components/ui';
 import { LP } from '@/world/launchpad/constants';
 import { iconSvg } from '@/world/launchpad/icon';
+import { moderateText } from '@/world/launchpad/moderate';
 import type { LaunchpadView } from '@/world/launchpad/view';
-import { TAGLINES, allocationFromPct, centsFromDollars, clientCheck, refusalCopy, refusalOf, taglineKey, tokens as fmtTokens, type RefusalCopy } from './copy';
+import { TAGLINES, allocationFromPct, centsFromDollars, clientCheck, descRefusalCode, refusalCopy, refusalOf, taglineKey, tokens as fmtTokens, type RefusalCopy } from './copy';
 import { BuzzButtons } from './Buzz';
 import { Fact, FlagChip, RefusalBox, Section, StatusChip, TokenIcon } from './Shared';
 
@@ -34,6 +35,8 @@ function LaunchForm({ lp, takenNames, onOpen }: { lp: LaunchpadView; takenNames:
   const [name, setName] = useState('');
   const [ticker, setTicker] = useState('');
   const [tagline, setTagline] = useState<string>(TAGLINES[0]);
+  const [art, setArt] = useState(0);
+  const [desc, setDesc] = useState('');
   const [alloc, setAlloc] = useState('0');
   const [dev, setDev] = useState('');
   const [sent, setSent] = useState<{ name: string; ticker: string } | null>(null);
@@ -47,16 +50,19 @@ function LaunchForm({ lp, takenNames, onOpen }: { lp: LaunchpadView; takenNames:
   const nameOk = name.trim().length >= LP.NAME_MIN && name.trim().length <= LP.NAME_MAX;
   const tickerOk = /^[A-Z]{3,5}$/.test(ticker);
   const check = clientCheck(name.trim(), ticker, takenNames);
-  const gate = lp.gate ? refusalCopy(lp.gate) : null;
-  const canSubmit = gate === null && nameOk && tickerOk && check === null && allocOk && devOk;
-  const icon = tickerOk ? iconSvg(ticker) : null;
+  // the description is optional; when it is written, the same filter the world runs checks it here, before it is sent
+  const descMod = desc.trim() === '' ? null : moderateText(desc, LP.DESC_MAX);
+  const descCheck = descMod && !descMod.ok ? refusalCopy(descRefusalCode(descMod.reason), { max: LP.DESC_MAX }) : null;
+  const gate = lp.gate ? refusalOf(lp.gateData, lp.gate) : null;
+  const canSubmit = gate === null && nameOk && tickerOk && check === null && allocOk && devOk && descCheck === null;
   const total = LP.LAUNCH_FEE + (devCents ?? 0) / 100;
 
   const submit = async () => {
     setSent(null);
     setRefusal(null);
     const input = {
-      type: 'lp.launch' as const, name: name.trim(), ticker, tagline, allocation: allocTokens ?? 0,
+      type: 'lp.launch' as const, name: name.trim(), ticker, tagline, allocation: allocTokens ?? 0, art,
+      ...(desc.trim() !== '' ? { description: desc.trim() } : {}),
       ...(devCents ? { devBuyCents: devCents } : {}),
     };
     const r = await act(input, { silent: true });
@@ -64,6 +70,8 @@ function LaunchForm({ lp, takenNames, onOpen }: { lp: LaunchpadView; takenNames:
       setSent({ name: name.trim(), ticker });
       setName('');
       setTicker('');
+      setDesc('');
+      setArt(0);
       setAlloc('0');
       setDev('');
     } else setRefusal(refusalOf(r.data, r.error ? undefined : 'unknown'));
@@ -77,8 +85,8 @@ function LaunchForm({ lp, takenNames, onOpen }: { lp: LaunchpadView; takenNames:
       </div>
 
       <div className="grid grid-cols-[auto_1fr] items-start gap-4">
-        {icon ? (
-          <TokenIcon svg={icon} size={72} />
+        {tickerOk ? (
+          <TokenIcon svg={iconSvg(ticker, art)} size={72} />
         ) : (
           <span className="flex h-[72px] w-[72px] items-center justify-center rounded-md border border-dashed border-ink-3 text-center text-micro text-fg-faint" data-testid="lp-icon-empty">
             {t('lp.create.iconEmpty')}
@@ -102,6 +110,32 @@ function LaunchForm({ lp, takenNames, onOpen }: { lp: LaunchpadView; takenNames:
 
       {check && <RefusalBox copy={refusalCopy(check, { name: name.trim(), ticker })} testId="lp-check" />}
       {!check && name.trim() && tickerOk && <p className="text-caption text-gain" data-testid="lp-check-ok">{t('lp.create.checkOk')}</p>}
+
+      <div className="flex flex-col gap-2" data-testid="lp-art">
+        <span className="label">{t('lp.create.art')}</span>
+        <div role="group" aria-label={t('lp.create.art')} className="grid grid-cols-4 gap-2">
+          {Array.from({ length: LP.ART_VARIANTS }, (_, k) => (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={art === k}
+              data-testid={`lp-art-${k}`}
+              onClick={() => setArt(k)}
+              className={`flex flex-col items-center gap-1 rounded-md border p-2 ${art === k ? 'border-brass/60 bg-brass/10' : 'border-ink-3 hover:border-brass/40'}`}
+            >
+              <TokenIcon svg={iconSvg(tickerOk ? ticker : 'LIVE', k)} size={48} />
+              <span className="text-micro text-fg-faint">{t('lp.create.artN', { n: k + 1 })}</span>
+            </button>
+          ))}
+        </div>
+        <p className="text-caption text-fg-faint">{t('lp.create.artHint')}</p>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <TextField value={desc} onChange={setDesc} placeholder={t('lp.create.desc')} label={t('lp.create.desc')} maxLength={LP.DESC_MAX} testId="lp-desc" />
+        <p className="text-caption text-fg-faint" data-testid="lp-desc-count">{t('lp.create.descCount', { n: [...desc].length, max: LP.DESC_MAX })}</p>
+        {descCheck && <RefusalBox copy={descCheck} testId="lp-desc-refusal" />}
+      </div>
 
       <div className="flex flex-col gap-2">
         <span className="label">{t('lp.create.tagline')}</span>
@@ -181,7 +215,7 @@ function CreatorConsole({ lp, onOpen }: { lp: LaunchpadView; onOpen: (ticker: st
             return (
               <li key={c.ticker} className="flex flex-col gap-3 rounded-md border border-ink-2 p-3" data-testid={`lp-console-${c.ticker}`}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <TokenIcon svg={iconSvg(c.ticker)} size={36} />
+                  <TokenIcon svg={iconSvg(c.ticker, c.art)} size={36} />
                   <span className="break-words font-medium text-fg">{c.name}</span>
                   <span className="num text-caption text-brass">{c.ticker}</span>
                   <StatusChip status={c.status} />

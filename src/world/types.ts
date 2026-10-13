@@ -858,10 +858,12 @@ export type Command =
   | { type: 'fund.deposit'; fundId: string; amount: number }
   | { type: 'fund.redeem'; fundId: string; units: number }
   /** the Launchpad (lead-launchpad.md): launch a token (cents of dev buy optional), buy and sell on its curve, buy a buzz item, cancel an untraded launch, file a rug case */
-  | { type: 'lp.launch'; name: string; ticker: string; tagline: string; allocation: number; devBuyCents?: number }
+  | { type: 'lp.launch'; name: string; ticker: string; tagline: string; allocation: number; devBuyCents?: number; description?: string; art?: number }
   | { type: 'lp.buy'; ticker: string; spendCents: number; maxSlip?: number }
   | { type: 'lp.sell'; ticker: string; tokens: number; maxSlip?: number }
   | { type: 'lp.buzz'; ticker: string; kind: 'board' | 'wire' }
+  /** R-10-6: a reply on a token's thread (plain text, at most 140 characters, moderated) */
+  | { type: 'lp.reply'; ticker: string; text: string }
   | { type: 'lp.cancel'; ticker: string }
   | { type: 'lp.file'; ticker: string }
   /** sponsor breaks (velvet-rewarded-ads.md): open a 15-second card, then finish it (a full watch pays; a skip after 5 s pays nothing) */
