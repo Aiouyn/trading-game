@@ -16,11 +16,20 @@ export const BELL_MAX = 50;
 export function BellPanel() {
   const open = useGame((s) => s.inboxOpen);
   const setInbox = useGame((s) => s.setInbox);
+  const openClose = useGame((s) => s.openClose);
+  const markCloseRead = useGame((s) => s.markCloseRead);
   const inbox = useGame((s) => s.me?.inbox);
   const notices = useGame((s) => s.notices);
   if (!open) return null;
   const items = (inbox ?? []).slice(-BELL_MAX).reverse();
   const desk = notices.slice().reverse();
+  // A day-close notice opens that day's card in the Wire (the notice may have left the screen long ago)
+  const openDay = (day: number) => {
+    setInbox(false);
+    openClose(day);
+    markCloseRead(day);
+    openFromShell('wire', {}, { focus: true });
+  };
   return (
     <section className="os-bell-panel" role="dialog" aria-labelledby="bell-panel-title" data-testid="bell-panel">
       <header className="os-bell-head">
@@ -32,9 +41,15 @@ export function BellPanel() {
         {desk.map((n) => (
           <li key={n.id} className="os-bell-item" data-testid="bell-desk-item">
             <span className={`os-bell-tone ${TONE_BAR[n.tone]}`} aria-hidden />
-            <div className="min-w-0">
-              <p className="text-small text-fg">{n.text}</p>
-            </div>
+            {n.day !== undefined ? (
+              <button type="button" className="min-w-0 text-left" data-testid="bell-close-item" onClick={() => openDay(n.day!)}>
+                <p className="text-small text-fg">{n.text}</p>
+              </button>
+            ) : (
+              <div className="min-w-0">
+                <p className="text-small text-fg">{n.text}</p>
+              </div>
+            )}
           </li>
         ))}
         {items.map((n) => (

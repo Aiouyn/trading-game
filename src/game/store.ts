@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { type KeyValueStore, migrateLegacy, readPrefs as readPrefsFrom, updatePrefs } from '@/shell/prefs';
 import { createHolds } from '@/shell/holds';
-import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, isSticky, withoutSuperseded } from '@/shell/toasts';
+import { TOAST_HOLD_MS, TOAST_QUEUE_MAX, holdPlan, withoutSuperseded } from '@/shell/toasts';
 import { universeConfig, type DepthFrame, type WorldConfig, type WorldState } from '@/engine';
 import { api, getToken, setToken, WorldClient, type Ack } from '@/net/client';
 import { engineText, tm } from '@/i18n';
@@ -23,6 +23,8 @@ export interface Toast {
   text: string;
   /** What the notice is, for focus mode and the sticky rules (src/shell/toasts.ts). */
   kind?: 'fill' | 'margin' | 'world' | 'close' | 'coach' | 'pending' | 'other';
+  /** The closed game day a close notice is about (the bell's unread mark, and its item, open that card). */
+  day?: number;
   /** The asset an order notice is about (a pending notice leaves when that asset fills). */
   ref?: string;
   /** The app a click opens (a shell app id), when the notice has one. */
@@ -36,6 +38,8 @@ export interface Notice {
   id: string;
   tone: Toast['tone'];
   text: string;
+  /** The closed game day, for a day-close notice: its bell item opens that card. */
+  day?: number;
 }
 
 /** The notification center keeps this many notices, newest last. */
@@ -110,6 +114,8 @@ export interface GameStore {
   closeOpen: number | null;
   /** The latest close card dismissed this session (the server's closeSeenDay catches up on the ack). -1 before any. */
   closeDismissed: number;
+  /** The day of the latest close the Wire has not shown this session (the bell's unread mark); null once the Wire reads it. */
+  closeUnread: number | null;
   /** a prefilled ticket (from the stop-loss explainer, a note, the option chain…) */
   ticketPreset: { side: 'buy' | 'sell'; type: 'market' | 'limit' | 'stop' | 'stop_limit' | 'trailing'; qty?: number; stopPrice?: number; limitPrice?: number; nonce: number } | null;
   profileId: string | null;
@@ -142,6 +148,8 @@ export interface GameStore {
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: string) => void;
   dismissToasts: (ids: readonly string[]) => void;
+  /** The notices on screen now (the desktop column or the phone banner): their clocks run from now; the rest hold none. */
+  syncVisibleToasts: (ids: readonly string[]) => void;
   /** A pointer or keyboard hold on a toast (P2-086). Each pause needs its own resume. */
   pauseToast: (id: string) => void;
   resumeToast: (id: string) => void;
@@ -152,6 +160,8 @@ export interface GameStore {
   openClose: (day: number | null) => void;
   /** Dismisses a close card: it stays in the closes list and the server remembers it was seen. */
   dismissClose: (day: number) => void;
+  /** The Wire shows the close of this day: the bell's unread mark clears once it has shown the latest one. */
+  markCloseRead: (day: number) => void;
   presetTicket: (p: Omit<NonNullable<GameStore['ticketPreset']>, 'nonce'>) => void;
   openProfile: (id: string | null) => void;
   openDm: (channel: string) => void;
@@ -166,8 +176,9 @@ let toastSeq = 0;
 const panelAsked: Record<PublicPanel, number> = { boards: -1, directory: -1 };
 
 /**
- * The toast hold timers (P2-086). The store owns them, so a notice expires on time even when it sits
- * behind three newer ones and never reaches the screen. Sticky notices (warnings, margin calls) get none.
+ * The toast hold timers (P2-086). The store owns them, and one clock runs per notice only while it is on screen
+ * (syncVisibleToasts): a notice queued behind others has no clock until it shows, so it gets its full hold. Sticky
+ * notices (warnings, margin calls) get none.
  */
 const toastHolds = createHolds(
   { now: () => Date.now(), set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
@@ -175,9 +186,8 @@ const toastHolds = createHolds(
 );
 
 /**
- * Adds toasts to the queue, starts their holds, and drops the oldest past the queue cap. A non-sticky notice starts its hold when it
- * is queued, even behind others, so it expires on time. A sticky notice (a warning, a margin call, the day close) gets no hold and
- * stays until it is read.
+ * Adds toasts to the queue and drops the oldest past the queue cap. No clock starts here: a notice's hold starts when it shows,
+ * so a notice queued behind others is not lost before it reaches the screen.
  */
 function queueToasts(incoming: readonly Toast[]): void {
   if (incoming.length === 0) return;
@@ -188,7 +198,6 @@ function queueToasts(incoming: readonly Toast[]): void {
   const all = [...base, ...incoming];
   const keep = all.slice(-TOAST_QUEUE_MAX);
   for (const t of all.slice(0, all.length - keep.length)) toastHolds.cancel(t.id);
-  for (const t of incoming) if (keep.includes(t) && !isSticky(t)) toastHolds.start(t.id, TOAST_HOLD_MS);
   useGame.setState({ toasts: keep });
 }
 
@@ -368,6 +377,7 @@ export const useGame = create<GameStore>((set, get) => {
     nw: null,
     toasts: [],
     notices: [],
+    closeUnread: null,
     screen: 'market',
     screenNonce: 0,
     selected: 'HLCN',
@@ -522,13 +532,24 @@ export const useGame = create<GameStore>((set, get) => {
     toast(t) {
       const id = `t${++toastSeq}`;
       queueToasts([{ ...t, id }]);
-      // The same notice waits in the notification center once its toast has gone (UX stage 2).
-      set({ notices: [...get().notices, { id, tone: t.tone, text: t.text }].slice(-NOTICE_KEEP) });
+      // The same notice waits in the notification center once its toast has gone (UX stage 2). A day close is unread there until
+      // the Wire shows it (markCloseRead), so a close whose toast was missed keeps its mark and its item.
+      const day = t.kind === 'close' ? t.day : undefined;
+      set({
+        notices: [...get().notices, { id, tone: t.tone, text: t.text, ...(day !== undefined ? { day } : {}) }].slice(-NOTICE_KEEP),
+        ...(day !== undefined ? { closeUnread: Math.max(get().closeUnread ?? day, day) } : {}),
+      });
     },
     dismissToast(id) { get().dismissToasts([id]); },
     dismissToasts(ids) {
       for (const id of ids) toastHolds.cancel(id);
       set({ toasts: get().toasts.filter((t) => !ids.includes(t.id)) });
+    },
+    syncVisibleToasts(ids) {
+      const shown = get().toasts.filter((t) => ids.includes(t.id));
+      const plan = holdPlan(toastHolds.pending(), shown);
+      for (const id of plan.stop) toastHolds.cancel(id);
+      for (const id of plan.start) toastHolds.start(id, TOAST_HOLD_MS);
     },
     pauseToast(id) { toastHolds.pause(id); },
     resumeToast(id) { toastHolds.resume(id); },
@@ -548,6 +569,10 @@ export const useGame = create<GameStore>((set, get) => {
     dismissClose(day) {
       set({ closeOpen: null, closeDismissed: Math.max(get().closeDismissed, day) });
       void get().act({ type: 'close.seen', day }, { silent: true });
+    },
+    markCloseRead(day) {
+      const unread = get().closeUnread;
+      if (unread !== null && day >= unread) set({ closeUnread: null });
     },
     // The preset fills the ticket only. The trade sheet is the narrow layout's own (BrokerApp opens it on a new preset there);
     // it is not raised here, because a desktop terminal never draws it, and a flag nobody clears would hold CloseCard back.

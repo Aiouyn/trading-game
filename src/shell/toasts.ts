@@ -62,12 +62,27 @@ export function visibleToasts<T extends Pick<ShellToast, 'kind'>>(list: readonly
   return pool.slice(-TOAST_MAX);
 }
 
-/**
- * Sticky toasts stay until they are read, not for the hold time (P2-090): warnings, margin calls, and the day-close notice (its
- * tap opens the Wire, which reads it; a newer close replaces it, see withoutSuperseded).
- */
+/** Sticky toasts stay until they are read, not for the hold time (P2-090): warnings and margin calls. */
 export function isSticky(t: Pick<ShellToast, 'tone' | 'kind'>): boolean {
-  return t.tone === 'warn' || t.kind === 'margin' || t.kind === 'close';
+  return t.tone === 'warn' || t.kind === 'margin';
+}
+
+/**
+ * Which hold clocks change when the notices on screen change. There is one clock per notice, and it runs only while the notice is
+ * on screen: a notice that shows starts its clock, and a notice that leaves the screen gives its clock up, so a notice queued
+ * behind others runs its full hold from when it shows. A sticky notice gets no clock. Pure: returns the ids to start and to stop.
+ */
+export function holdPlan(
+  holding: readonly string[],
+  shown: readonly Pick<ShellToast, 'id' | 'tone' | 'kind'>[],
+): { start: string[]; stop: string[] } {
+  const clocked = shown.filter((t) => !isSticky(t)).map((t) => t.id);
+  const have = new Set(holding);
+  const want = new Set(clocked);
+  return {
+    start: clocked.filter((id) => !have.has(id)),
+    stop: holding.filter((id) => !want.has(id)),
+  };
 }
 
 /**

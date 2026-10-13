@@ -108,6 +108,7 @@
   "shell.market.reconnect": "Reconnecting…",
   "shell.bell": "Notifications, {n} unread",
   "shell.bell.none": "Notifications",
+  "shell.bell.close": "Notifications, day close unread",
   "shell.layout.trade": "Trade layout",
   "shell.focus": "Focus mode",
   "shell.apps": "Apps",

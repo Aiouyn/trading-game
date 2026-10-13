@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TOAST_MAX, type ShellToast, allowedInFocus, isSticky, toastPlace, visibleToasts, withoutPending, withoutSuperseded } from './toasts';
+import { TOAST_MAX, type ShellToast, allowedInFocus, holdPlan, isSticky, toastPlace, visibleToasts, withoutPending, withoutSuperseded } from './toasts';
 
 const t = (id: string, over: Partial<ShellToast> = {}): ShellToast => ({ id, tone: 'info', text: id, ...over });
 
@@ -47,9 +47,22 @@ describe('toast rules (P2-085..P2-090)', () => {
     expect(isSticky({ tone: 'gain', kind: 'fill' })).toBe(false);
   });
 
-  it('the day-close notice is sticky: it has no hold and stays until it is read (UX ruling)', () => {
-    expect(isSticky({ tone: 'brass', kind: 'close' })).toBe(true);
+  it('no notice is sticky except warnings and margin calls: the day close is a normal notice with its hold', () => {
+    expect(isSticky({ tone: 'brass', kind: 'close' })).toBe(false);
     expect(isSticky({ tone: 'info', kind: 'other' })).toBe(false);
+    expect(isSticky({ tone: 'loss', kind: 'fill' })).toBe(false);
+    expect(isSticky({ tone: 'warn', kind: 'close' })).toBe(true);
+  });
+
+  it('a hold clock runs only while its notice is on screen: a notice that shows starts one, one that leaves gives it up', () => {
+    // a queued notice (b) has no clock; a warning never gets one
+    expect(holdPlan([], [t('a'), t('w', { tone: 'warn' })])).toEqual({ start: ['a'], stop: [] });
+    // a holding notice that is still shown keeps its clock (not restarted)
+    expect(holdPlan(['a'], [t('a'), t('b')])).toEqual({ start: ['b'], stop: [] });
+    // the first leaves the screen (it expired, or the sheet covers the banner): its clock stops, the queued one starts
+    expect(holdPlan(['a'], [t('b')])).toEqual({ start: ['b'], stop: ['a'] });
+    // the sheet is open: nothing is on screen, every clock stops
+    expect(holdPlan(['a', 'b'], [])).toEqual({ start: [], stop: ['a', 'b'] });
   });
 
   it('a new day-close notice replaces the one still queued; other notices are kept', () => {

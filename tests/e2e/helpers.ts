@@ -118,8 +118,8 @@ export async function skipTips(page: Page): Promise<void> {
 
 /**
  * The day close (velvet-daily-close.md) is a toast now (UX stage 2): it never covers the screen, so there is nothing to
- * close. The helper waits for the close toast when `appearWithin` asks for it, and otherwise returns at once. The toast is
- * sticky (no hold): it stays until a tap, a swipe, or the Wire reads it, so a spec that needs the card taps the toast.
+ * close. The helper waits for the close toast when `appearWithin` asks for it, and otherwise returns at once. The toast
+ * leaves by itself after its hold; a spec that needs the card opens the Wire.
  */
 export async function dismissCloseCard(page: Page, appearWithin = 0): Promise<void> {
   if (!appearWithin) return;

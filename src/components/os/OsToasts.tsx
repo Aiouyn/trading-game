@@ -1,8 +1,9 @@
 'use client';
 
 // Toasts (P2-085..P2-095, V:137-143): under the strip at the top right, or the top left when a Broker
-// sits under the column (P2-088). At most two are drawn (TOAST_MAX), the oldest leaving first. The store owns the
-// hold timers (src/shell/holds.ts), so each notice expires on time even when it is queued behind others.
+// sits under the column (P2-088). At most two are drawn (TOAST_MAX), the oldest leaving first. One hold clock per
+// notice runs only while it is on screen: this component reports the notices it draws (syncVisibleToasts), and the
+// store starts or stops their clocks, so a notice queued behind others gets its full hold when it shows.
 // A pointer or keyboard focus on a toast pauses its hold (P2-086). Warnings and margin calls stay until
 // read (P2-090). A click opens the window the notice is about and dismisses it. In focus mode the
 // notices it hides are removed from the queue, so they wait in the bell instead of coming back when focus
@@ -11,7 +12,7 @@ import { type CSSProperties, type PointerEvent, useEffect, useRef, useState } fr
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
 import { isAppId } from '@/shell/apps';
-import { TOAST_HOLD_MS, type ShellToast, type ToastPlace, allowedInFocus, isSticky, visibleToasts } from '@/shell/toasts';
+import { type ShellToast, type ToastPlace, allowedInFocus, isSticky, visibleToasts } from '@/shell/toasts';
 import { Glyph, type GlyphName } from './glyphs';
 import { focusOrOpen } from './shellStore';
 import { phoneOpen } from './phoneStore';
@@ -35,12 +36,22 @@ export function OsToasts({ focusMode, place, phone = false }: { focusMode: boole
   const queued = (focusMode ? toasts.filter(allowedInFocus) : toasts).length;
   const more = held ? 0 : queued - shown.length;
   const setInbox = useGame((s) => s.setInbox);
+  const syncVisible = useGame((s) => s.syncVisibleToasts);
 
   useEffect(() => {
     if (!focusMode) return;
     const hidden = toasts.filter((x) => !allowedInFocus(x)).map((x) => x.id);
     if (hidden.length > 0) dismissMany(hidden);
   }, [focusMode, toasts, dismissMany]);
+
+  // The notices on screen start their clocks; a notice that leaves the screen (expired, trimmed, covered by the sheet) gives its clock
+  // up. The ids are joined into a key so the effect runs when the set changes, not on every render.
+  const shownKey = shown.map((x) => x.id).join(' ');
+  useEffect(() => {
+    syncVisible(shownKey === '' ? [] : shownKey.split(' '));
+  }, [shownKey, syncVisible]);
+  // Leaving the screen (a switch between the phone and the desktop) gives up every clock: nothing is on screen.
+  useEffect(() => () => syncVisible([]), [syncVisible]);
 
   // The column's inline place: a terminal dock (`at`), or a narrow Broker's bar (`bar`). The bar adds the trade bar's height (--phone-trade-h).
   const style: CSSProperties | undefined = phone ? undefined
@@ -80,15 +91,9 @@ function OsToast({ toast, n, phone, slim }: { toast: ShellToast; n: number; phon
   const focused = useRef(false);
   const id = toast.id;
   const sticky = isSticky(toast);
-  // Phone: a slim banner that leaves after the hold (4 s) or on a swipe away. A sticky notice (the day close) has no hold: it leaves
-  // on a tap, a swipe, or when the Wire reads it, so the phone timer skips it too.
+  // Phone: a slim banner that a swipe takes away; it leaves after its hold (the store's clock, which runs while it is on screen).
   const [dx, setDx] = useState(0);
   const drag = useRef<{ x: number; off: number; moved: boolean } | null>(null);
-  useEffect(() => {
-    if (!phone || sticky) return;
-    const h = window.setTimeout(() => dismiss(id), TOAST_HOLD_MS);
-    return () => window.clearTimeout(h);
-  }, [phone, sticky, id, dismiss]);
 
   // A toast that leaves the column while it is held must release its holds, or it would never expire.
   useEffect(

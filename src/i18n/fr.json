@@ -108,6 +108,7 @@
   "shell.market.reconnect": "Reconnexion…",
   "shell.bell": "Notifications, {n} non lues",
   "shell.bell.none": "Notifications",
+  "shell.bell.close": "Notifications, clôture du jour non lue",
   "shell.layout.trade": "Disposition Trading",
   "shell.focus": "Mode concentration",
   "shell.apps": "Applications",
