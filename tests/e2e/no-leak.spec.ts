@@ -139,21 +139,25 @@ test('L3 and L4: no frame a rival or another player receives carries a position,
     const leaks = framesB.flatMap((f) => privateKeysIn(ownFrameView(f)));
     expect(leaks).toEqual([]);
     // the viewer's own player id is B's; A's id is never in a frame B receives unless it is inside a public record.
-    // The public directory (every player's row, protocol.ts `directory`) and the public state (`pub`) are such records:
-    // the world attaches them to some ticks only, so they are left out of the search, and every other part of a tick is checked.
+    // The search is per top-level key, so a hit names the frame and the key that carried A's id. The public records are left out,
+    // and an id in one is public by design, not a leak (server/index.ts):
+    //   pub, directory   the public state and the public directory (every player's row, protocol.ts; a socket's directory marks its own rows)
+    //   wire             the Wire's public lines, filings and purchases with the filer's handle (V1-PRIVACY.md section 1)
+    //   rankUps          the rank-ups of the tick, { playerId, rankId } (players.ts)
+    // A panel reply's `data` is the public boards or directory (R-9-12), so it is left out the same way. Every other key of every
+    // frame is searched, and privateKeysIn above reads every key for the private ones.
+    const PUBLIC_RECORD_KEYS = new Set(['pub', 'directory', 'wire', 'rankUps']);
     const aId = (framesA.find((f) => (f as { t?: string }).t === 'welcome') as { playerId?: string } | undefined)?.playerId;
     expect(aId, 'A received a welcome').toBeTruthy();
-    // A panel reply (R-9-12) is a public record in its `data` (the boards, or the directory with B's rows), so its `data` is left out of
-    // the id search exactly as `pub` and `directory` are on a tick. Its envelope (t, id, panel, v) is searched, and privateKeysIn above
-    // still reads its `data` for private keys.
-    const publicRecords = new Set(['pub', 'directory']);
-    const withoutPublic = (f: unknown) => {
-      const m = f as { t?: string };
-      if (m.t === 'panel') return Object.fromEntries(Object.entries(f as object).filter(([k]) => k !== 'data'));
-      return Object.fromEntries(Object.entries(f as object).filter(([k]) => !publicRecords.has(k)));
-    };
-    const aIdHits = framesB.filter((f) => (f as { t?: string }).t !== 'welcome' && JSON.stringify(withoutPublic(f)).includes(`"${aId}"`));
-    expect(aIdHits.map((f) => (f as { t?: string }).t)).toEqual([]);
+    const aIdKeys = framesB.flatMap((f) => {
+      const m = f as Record<string, unknown> & { t?: string };
+      if (m.t === 'welcome') return [];
+      return Object.keys(m)
+        .filter((k) => !PUBLIC_RECORD_KEYS.has(k) && !(m.t === 'panel' && k === 'data'))
+        .filter((k) => JSON.stringify(m[k]).includes(`"${aId}"`))
+        .map((k) => `${m.t ?? '?'}.${k}`);
+    });
+    expect(aIdKeys, "A's id in a frame B receives, outside the public records").toEqual([]);
     expect(errorsB).toEqual([]);
   } finally {
     await ctxA.close();

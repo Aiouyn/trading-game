@@ -516,6 +516,32 @@ The `no-leak` check: a panel reply's `data` (the public boards and directory) is
 
 **Not done.** (1) A global or per-panel limit on `panel` replies (deviation 4). (2) Blanking a panel while its read is pending (deviation 3). (3) Readers in the gate: the gate stays as ruled, and the reader probes are reported beside it.
 
+### 9C.1c Auction bid spec on the shared world (track 9C, branch `p9/i`)
+
+**Verdict.** Not an R-9-12 regression and not a product bug. The failure is in the spec's assumption about the shared e2e world, and it predates R-9-12: the pair fails the same way on `57b01be`, the base of `p9/h`. Fixed in the test (`b0d29ed`); no product code changed. The verdict covers the pair configuration below (`close-auction`, then `close-auction-phone`, in one invocation). The full-run desktop symptom is **open** (see below) and is not covered.
+
+**Reproduction (projects `close-auction` and `close-auction-phone`, `--no-deps --workers=1`, a fresh world; the desktop runs first, as in the chain).** On `57b01be` (the spec as it was then) the desktop passes and the phone fails at line 63: Expected 2234, Received 2249 (+15). On `daea911` (the spec as it was then) the desktop passes and the phone fails at line 63: Expected 2240, Received 2255 (+15). Earlier runs gave 2246 and 2261 on `daea911`, and the reviewer's run gave 2234 and 2248 (+14). The gap is the length of the desktop test in ticks.
+
+**Bisect: inconclusive, and not needed.** Both ends of the range fail, so the failure is already present at the base and no commit in between introduces it. The commits were not bisected one by one: the test reads `me.sixd.auctions` from the tick, and the server diff of R-9-12 leaves the per-socket tick `me` unchanged, so no commit of the range is the suspect. This is the reading of the diff, not a bisect result.
+
+**Cause.** The admin seam opens the current week's lots for every player, and the desktop project runs first in the shared world. Its open at tick T_d sets each lot without a bid to end at T_d + 22. The phone page loads after that, so its first status poll reads `open` from the desktop's open, before the phone's own open reaches the page. The spec then reads `before = lot.endTick` = T_d + 22 (2222). The phone's own open at T_p moves the end to T_p + 22, and the bid extends it by 24 to T_p + 46. The spec expects before + 24 = T_d + 46, so the gap is T_p - T_d = 15, the length of the desktop test. The page reads the seam's open on its next tick (one second in the e2e world) by design; only the spec's status-only wait assumed a fresh world.
+
+**Fix.** `openAuctions()` (`tests/e2e/helpers.ts`) resolves to the seam's answer (week, open tick, end tick). The spec waits until the page's lot shows that end tick, then until its status is `open`, and only then reads `before`. Lots without a bid take the seam's end tick, so the wait holds for both projects.
+
+**Runs (after the fix, `close-auction` and `close-auction-phone`, three invocations, each with its own fresh world).** Desktop 3 of 3, phone 3 of 3 (`b0d29ed`, `952d2d0`).
+
+**Desktop close chain (`close-card` to `close-text`, one invocation, `--no-deps --workers=1`, the spec as it was at each commit).** Four runs: `57b01be` twice and `daea911` twice.
+
+- `closeCard:137` (the journal waterfall) fails in all four. After the test advances past a day boundary, the day-close card (`os-prompt`, `close-card`) intercepts the click on the Journal tab, and the test does not dismiss it. It fails identically on `57b01be`, so it predates R-9-12 and is not a regression. Test defect in `closeCard.spec.ts`, not fixed here (own follow-up).
+- `exchangeFunds:20` fails once in two on `daea911` (the holding value read `Value$49,998.76` at its assertion) and in none of two on `57b01be`. The sample is too small to decide. **Open.**
+- `worldEvents:116` and `comeback` (the reviewer's failures on `daea911`) did not reproduce: they passed in all four runs. The auction spec passed on the desktop in all four.
+
+**Full-run desktop symptom (the input never appeared after a status `open` read): open, not explained.** Not reproduced: the desktop auction spec passed in every chain run above and in every pair run. The likely mechanism is the window itself. The lot is open for 22 ticks (22 s in the e2e world) from the seam's open, and the spec's steps after the open (two polls, a screenshot, the refusal round trip) must finish inside it; a stall longer than the window closes the lot, and the input then never shows. This fix does not change that window. Opening with 24 ticks, the largest that still lands in the snipe window, would add two seconds; not changed. A full e2e run was not repeated for this symptom.
+
+**No-leak L3 and L4 (the flake the reviewer saw on `daea911`).** The check searched every frame of B, excluding only `pub` and `directory`. Four keys carry a player's id by design, as public records: `wire` (the Wire's filings and purchases with the filer's handle, V1-PRIVACY.md section 1), `rankUps` (`{ playerId, rankId }`, server/index.ts), and `pub` and `directory`. A panel reply's `data` is public as well (R-9-12). The check now excludes those keys explicitly and names the frame and key of any other hit. **The key that carried A's id was not observed:** the old check passed in all 33 repeats on desktop (8 and 25), so the exclusion of `wire` and `rankUps` rests on the design, not on a captured failure. After the change: 24 of 24 (12 repeats on each of `desktop` and `phone`).
+
+**Other specs on the same data (`sixd`, `sixdAuction`, `sixdHome`, `no-leak`, `desktop` and `phone`, `--no-deps --workers=1`).** 27 passed, 7 skipped (the phone minimum-window tests are desktop-only).
+
 ### 9C.2 O-2: the residual surprise s and the rho gate (engine path, R-9-11)
 
 **Wiring (done).** A filing of a company with a consensus carries its residual surprise (`FilingPublic.surprise = { s, d, margin }`, optional):
@@ -600,6 +626,9 @@ The `no-leak` check: a panel reply's `data` (the public boards and directory) is
 - **R-9-8b load gate: PASS 3 of 3 on `p9/h` (9C.1b), in 330 s windows that include the public ticks 780 and 840.** The public-tick stall is fixed by R-9-12: the boards and the directory are read on demand, not pushed every 60th tick. The record on `7a4f146` (9C.1) failed in a window with tick 780 (fan-out p99 3,174 ms).
 - **Panel reads have no limit of their own (9C.1b, deviation 4).** A `panel` request takes the per-socket bucket (20 a second). Bound per socket, not in total. Follow-up: a per-panel per-tick limit per socket. Owner: lead.
 - **Panel staleness (9C.1b, deviation 3).** A panel keeps its last read for one round trip after its stamp moves. Blanking while the read is pending is not built. Owner: lead.
+- **Auction spec, full-run desktop symptom (9C.1c):** open. The input never appeared after a status `open` read in one full run; not reproduced in the chain or pair runs. Owner: lead.
+- **`exchangeFunds:20` (9C.1c):** open. One failure in two chain runs on `daea911`, none in two on `57b01be`. Owner: lead.
+- **`closeCard:137`, the journal test (9C.1c):** a test defect (the day-close card blocks the Journal tab), present on `57b01be` too. Owner: test follow-up.
 - **Server end at about 5 minutes (9C.1):** not reproduced on `7a4f146` (the instrumented runs stay alive past 5 min with no exit or uncaught event; heap flat at 73 to 90 MB). Two HEAD anomalies stay **unexplained**: the r910 log stops at tick 740 with no error, and in r911-r1 the health fetch was refused while the process was alive and ticking.
 - **Mirror map growth (9C.1):** 400 same-tick buyers give 40,740 mirror keys, so the map and the snapshot grow with the square of the buyers. A match-window or prune rule question, not changed here.
 - **Per-view cost still open (9C.1):** `rivalsBoard` costs about 9 us a view (rival equities, market-dependent), not cached. The impact tally and the rank basis are profiled per tick, not per view, and are not on the gated path.
