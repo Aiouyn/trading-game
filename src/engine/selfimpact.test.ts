@@ -157,17 +157,18 @@ describe('daily cumulative impact accounting', () => {
     expect(t3.buy).toBeLessThan(t1.buy / 100);
   });
 
-  it('a fill moves lnP by exactly sign · log1p(f(after) − f(before))', () => {
+  it('a fill moves lnP by exactly sign · log1p(f(after) − f(before)), on the filler\'s own tally at mid (R-9-1b)', () => {
     let s = small();
     const i = idx(s, 'OSTV');
     s = placeOrder(s, { playerId: 'p1', assetId: 'OSTV', side: 'buy', type: 'market', qty: 2000 }).state;
     const withFill = step(s);
     const noFill = step({ ...s, orders: [] }).state;
     const f = withFill.fills[0]!;
-    const expected = permanentMove(withFill.state, i, 'buy', 0, f.qty * f.price);
+    // a first fill of the account: its tally was empty, so `before` is 0; the notional is the fill's own at the pre-trade mid
+    const expected = permanentMove(withFill.state, i, 'buy', 0, f.qty * f.mid);
     expect(withFill.state.assets[i]!.lnP - noFill.assets[i]!.lnP).toBeCloseTo(expected, 14);
     const share = tradingConfig(s).permanentImpactShare;
-    expect(expected).toBeCloseTo(Math.log1p(share * impact(withFill.state, i, f.qty * f.price)), 14);
+    expect(expected).toBeCloseTo(Math.log1p(share * impact(withFill.state, i, f.qty * f.mid)), 14);
   });
 
   it('an old save without dayTraded trades as if nothing was traded today; a stale account-keyed field is ignored', () => {

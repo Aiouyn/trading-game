@@ -10,7 +10,8 @@ import { COMPANY } from '@/content/company';
 import { restrictionsOf, setWindow, type WorldState } from '@/engine';
 import { notify, today } from '../core';
 import type { GameState, StepOutput } from '../types';
-import { fundsOf, linked } from '../funds/state';
+import { fundsOf } from '../funds/state';
+import { linked } from '../funds/link';
 import { treasuryIdOf } from './ipo';
 import type { Company, InsiderTradeRow } from './types';
 

@@ -61,6 +61,7 @@ const atDay = (s: WorldState, d: number) => run(s, d * TPD - s.tick);
  * The digest of a state. `streetCash` (O-3, the Street's running tally on an ordinary stock's fills) was added after these
  * digests were taken: it is bookkeeping, not dynamics, so it is dropped here and the digests still pin everything else.
  */
+// the digest keeps every other field, the asset impact tallies included (R-9-1c): they are dynamics, the next fill pays on them
 const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x, (k, v) => (k === 'streetCash' ? undefined : v))).digest('hex');
 /**
  * The Street tally on every account, pinned on its own (O-3 review): the digests above drop it, so this is what catches a
@@ -89,11 +90,22 @@ describe('bare engine is unchanged', () => {
     e = stepMany(e, 720 * 2).state;
     // the trades were Street fills (an ordinary stock), so the Street tally is set: the digest below ignores it, not the trades
     expect(s.accounts.p1!.streetCash).toBeDefined();
-    expect(sha(s)).toBe('61f445d2d39954626952ba005b7059361efe4a5ef931a94d8b4ba15de7311726');
-    expect(sha(e)).toBe('e80f9cd00f42cbc14f9af5d55817999b6dc7146e0e194d2c3ea2eea9e5d0846d');
+    // an order-free world writes no impact tally (R-9-1c): pinned on the asset field itself, not only through the digest
+    const orderFree = openAccount(stepMany(createWorld('bare-0', cfg), 720 * 3).state, 'p9');
+    expect(orderFree.assets.every((a) => a.impactTally === undefined)).toBe(true);
+    expect(stepMany(orderFree, 720).state.assets.every((a) => a.impactTally === undefined)).toBe(true);
+    // R-9-1b/c: this world has player orders, so its digest moves. Its prices do not: R-9-1c moved the impact tally from the
+    // account to the asset (one tally per asset), and the digest hashes where the field sits. Re-keyed to the R-9-1b layout
+    // (the tally on the account, none on the asset) the digest is the R-9-1b pin b799f0b0, so the single-account dynamics are
+    // unchanged. The pin moved from 61f445d2 by R-9-1b and from b799f0b0 by R-9-1c (representation only).
+    expect(sha(s)).toBe('e711a12b076e97e31bb37beecc968e4d19383b2dd012d4cb480925ab42a270cf');
+    // R-9-1b: the ecology world has one player buy too, so it moves for the same reason (e80f... -> ada9..., then 54dc...)
+    // R-9-1c: the pools' closing flow also joins the asset tally (read by no later fill here), so the digest moves again
+    expect(sha(e)).toBe('54dc4f794390549be5d0fb18a2e756b45f5560bf7a5fdfce79f6f725fb46ec29');
     // the Street tally of those trades, pinned on its own (the digests above ignore it)
     expect(s.accounts.p1!.streetCash).not.toBe(0);
-    expect(streetSha(s)).toBe('8878a8d3aa53ea71a4ea4868a63a2893323f01f10c7aeaabf41d4c2a4f2b34ec');
+    // the Street tally moves with the fill prices of the player's trades (R-9-1b, see the digest pins above)
+    expect(streetSha(s)).toBe('4d0bf1d87331c29fe19f4867b9dbab201c88bfca11af52a61ba86c9fe6358fd2');
     expect(streetSha(e)).toBe('e6f00313b539f1a87b186b14be0380f715faa525fa99a37a225d848b28d60d12');
   });
 });

@@ -119,10 +119,10 @@ describe('6B review: the margin block and the boards', () => {
     p.comeback = { chapter: 2, chapterStartTick: 0, peak: 5000, last: { chapter: 1, startTick: 0, endTick: 10, peak: 14880.2, end: 612.4, losses: [] } };
     p.netWorth = 300;
     p.markNetWorth = 300;
-    expect(boardNetWorth(p)).toBe(612.4);
+    expect(boardNetWorth(g, p)).toBe(612.4);
     p.netWorth = 5000;
     p.markNetWorth = 5000;
-    expect(boardNetWorth(p)).toBe(5000);
+    expect(boardNetWorth(g, p)).toBe(5000);
   });
 });
 

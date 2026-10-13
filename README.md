@@ -1,40 +1,86 @@
-# Port Avalon (working title "Tycoon")
+# Port Avalon
 
-A multiplayer finance tycoon in one persistent world. Start with $5,000 and a cracked phone; trade 155 fictional assets with real tools, build businesses across 13 sectors, buy property in six cities, flex your wealth, train AI models, fight rivals in the shadows and in court, and climb from Broke to Dynasty. One game day is one real hour; the world never stops.
+Port Avalon is a multiplayer finance tycoon in one persistent world. Players start with $5,000 and a cracked phone. They trade
+183 fictional assets, build businesses in 13 sectors, buy property in six cities, train AI models, rival other players and
+climb from Broke to Dynasty. One game day is one real hour, and the world keeps running while players are away. All
+companies, cities, currencies and people are fictional. There is no real money and no financial advice.
 
-All companies, cities, currencies and people are fictional. No real money, no financial advice.
-
-## Run it
+## Play
 
 ```bash
 npm install
-npm run dev:all        # world server on :8787 + web app on :3000
+npm run play
 ```
 
-Open http://localhost:3000, press **Start**, pick a handle. Other players on your network can join at `http://<your-ip>:3000`.
+Node 22.13 or newer is required. The first run builds the web app (a minute or two), then starts the world server and the web app. The console prints where to open the game:
 
-Separately: `npm run world` (world server only) and `npm run dev` (web app only). The world lives in `./world-data` (SQLite); delete that folder for a brand-new world.
+- This computer: `http://localhost:3000`
+- A phone on the same Wi-Fi: `http://<your-LAN-address>:3000`. The phone needs no setup.
 
-World server settings (environment variables): `PORT` (8787), `DATA_DIR` (`./world-data`), `SEED` (unset: a random seed drawn at the world's first boot and kept in `world.db`; set it to pin a world), `TICK_MS` (5000 = one game day per real hour), `WARMUP_DAYS` (63 days of history before the world opens), `ADMIN_TOKEN` (enables the dev-only `/api/admin/grant` and `/api/admin/advance`). The web app finds the world on the same host, port 8787; override with `NEXT_PUBLIC_WORLD_URL`.
+Ctrl+C stops both. The world saves and makes a backup on the way out. Options: `npm run play -- --build` (always rebuild),
+`--no-build` (never build) and `--help`. The ports come from `PLAY_WEB_PORT` (3000) and `PLAY_WORLD_PORT` (8797). Details are in
+[docs/PLAY.md](docs/PLAY.md).
+
+For development, `npm run dev:all` runs the world server on port 8787 and the Next.js dev server on port 3000. `npm run world`
+and `npm run dev` run them separately. The save is in `./world-data`; delete that folder for a new world.
+
+## Admin
+
+1. Set `ADMIN_TOKEN` in the environment before the world starts. `npm run play` passes its environment on. For example,
+   PowerShell: `$env:ADMIN_TOKEN = "<long random token>"; npm run play`. Bash: `ADMIN_TOKEN="<token>" npm run play`.
+2. Open `/admin` (for example `http://localhost:3000/admin`) and type the token. The page keeps it in memory only.
+
+The page shows the tick and day, players online and registered, tick times, the database size, the backups on disk and the
+recent admin actions. It has two buttons: back up now, and pause or resume the world. With no `ADMIN_TOKEN` set, the admin API
+refuses every request.
+
+A token also unlocks dev and test endpoints under `/api/admin/`. They can grant cash, advance time and seed events. Keep the
+world port on a network you trust.
+
+## Backups and restore
+
+- The world writes a backup every real hour and one at shutdown, into `world-data/backups/`. Each file is a copy taken between
+  ticks, and its name carries the tick.
+- The folder keeps the newest 48 backups, plus the newest backup of each of the last 14 UTC days.
+- To restore, stop the world (Ctrl+C in the `npm run play` window), then run:
+
+  ```bash
+  npm run world:restore -- world-data/backups/<file>.db
+  ```
+
+  The command refuses while a world is running. It keeps the replaced database as `world.db.before-restore-<time>` in the same
+  folder. Start again with `npm run play`.
+
+## Languages
+
+The game is in English and French. Choose the language in Settings. A sweep checks the French in the default app views; deeper
+views are covered by unit tests only. The [V1 overview](docs/V1.md#known-limits) lists the open items, including English text
+still in some notices.
 
 ## Checks
 
 ```bash
-npm run typecheck && npm run lint && npm test   # 119 unit tests: engine, world, replay
-npm run e2e                                     # Playwright against a fresh world + production build
-npx tsx scripts/balance/wealth.ts seed 21       # wealth-curve balance sim (3 weeks of play)
-npm run balance                                 # engine calibration bands
-node scripts/tour.mjs http://localhost:3000     # screenshot tour of every screen
+npm run typecheck        # next typegen, then tsc --noEmit
+npm run lint             # eslint
+npm test                 # vitest run (unit and integration tests)
+npm run e2e              # Playwright, desktop (1440 x 900) and phone (390 x 844) projects
+npm run balance          # engine calibration bands; the default (24 ticks a game day) is a smoke run
+npm run balance:shops    # shop payback bands by management style and tier
+npm run sim              # headless simulation
+npx tsx scripts/ecology/gates.ts full --seeds 60 --tpd 720   # ecology gates, release run (not in package.json)
+npx tsx scripts/balance/wealth.ts bot <name> 120 <style>     # wealth curve for one management style (see the script header)
 ```
 
-## How it is built
+Counts. Vitest: 245 test files passed and 2 skipped; 2,354 tests passed, 4 expected failures (the open FAIL gates), 70 skipped and 21 todo. This is the full run on this branch, 2026-10-12. Playwright: 620 tests in 45 files
+(listed, not run). No full e2e run is recorded on `v1`. The balance and ecology gates are not re-run for this README. Their last
+recorded results are in [docs/V1-PHASE1.md](docs/V1-PHASE1.md) (sections 3g to 3o) and [docs/V1-PHASE4.md](docs/V1-PHASE4.md)
+(O-19).
 
-| Layer | Where | What |
-|---|---|---|
-| Market engine | `src/engine` | Pure, seeded, deterministic: factor-correlated prices with fat tails, GARCH, jumps, regimes, circuit breakers, volume, quarterly earnings, a Taylor-rule central bank with CPI/jobs releases and a yield curve, order execution (market/limit/stop/stop-limit/trailing, brackets), shorting, margin and liquidation, listed options. See `docs/ENGINE.md`. |
-| Game world | `src/world` | Everything around the market, also deterministic: players, ranks and licenses, businesses, property, lifestyle and Prestige, news, analyst notes, contracts, achievements, leaderboards, chapters, the economy stabilizer, chat, alliances, loans, the AI Lab, Security Ops, courts and 24 NPC rivals. Every player action is a `Command`; `stepGame` advances one tick. |
-| Content | `src/content` | The catalogs: 156 businesses, 49 lifestyle items, 13 property types, 120+ headline templates, 19 research projects, 51 achievements, 15 contract types, 24 rival personas. The asset universe is `src/engine/universe.ts`. |
-| World server | `server/` | One Node process owns the world: a drift-corrected 5 s tick, WebSocket sync, guest accounts with hashed tokens and optional passwords, SQLite snapshots plus a command log (a restart replays commands for an exact recovery). |
-| Client | `src/components`, `src/game`, `src/net` | Next.js app in the Ink & Brass design system (`docs/DESIGN.md`). The server sends a public market frame and your private view every tick; a client-side mirror of the engine powers ticket previews without ever seeing hidden values. |
+## Where things are
 
-Design documents: `docs/TYCOON.md` (what was built and the numbers), `docs/DESIGN.md` (visual system), `docs/ENGINE.md` (market model). The design bible this implements is `docs/MASTER-BIBLE.md` (Ledger, Quant, Forge, Tape, Velvet).
+- [docs/V1.md](docs/V1.md): what V1 is, its systems, the locked decisions, the key numbers and the known limits.
+- [docs/PLAY.md](docs/PLAY.md): playing on your computer and your LAN, backups and restore.
+- `docs/V1-PHASE*.md`: the phase records. [docs/V1-ACCEPTANCE.md](docs/V1-ACCEPTANCE.md) is the acceptance matrix.
+  [docs/V1-PRIVACY.md](docs/V1-PRIVACY.md) says what the world shows to other players.
+- [docs/ENGINE.md](docs/ENGINE.md) (market model), [docs/DESIGN.md](docs/DESIGN.md) (visual system) and
+  [docs/MASTER-BIBLE.md](docs/MASTER-BIBLE.md) (the design bible).
