@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const net = vi.hoisted(() => {
   const state = {
     handler: null as null | ((msg: unknown) => void),
-    panelReplies: [] as Array<{ v?: number; data?: unknown } | null>,
+    panelReplies: [] as Array<{ v?: number; data?: unknown; ok?: boolean; error?: string } | null>,
     panelCalls: [] as string[],
     token: 'tok' as string | null,
   };
@@ -18,7 +18,7 @@ vi.mock('@/net/client', () => {
     connect(): void { /* the stub connects nothing */ }
     close(): void { /* nothing to close */ }
     history(): Promise<null> { return Promise.resolve(null); }
-    panel(panel: string): Promise<{ v?: number; data?: unknown }> {
+    panel(panel: string): Promise<{ v?: number; data?: unknown; ok?: boolean; error?: string }> {
       net.panelCalls.push(panel);
       const next = net.panelReplies.shift();
       return Promise.resolve(next ?? { ok: false, error: 'offline' });
