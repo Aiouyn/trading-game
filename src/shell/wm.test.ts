@@ -138,21 +138,30 @@ describe('open', () => {
     expect(s.wins.filter((w) => w.app === 'wire')).toHaveLength(1);
   });
 
-  it('caps Brokers at 4: a fifth switches the least-recently-focused Broker ticker, and no ticker is duplicated', () => {
+  it('caps Brokers at 4: a plain open replaces the focused chart and does not open a fifth window', () => {
     let s = fresh();
-    for (const t of ['AAA', 'BBB', 'CCC']) s = go(s, { type: 'open', app: 'broker', props: { ticker: t } });
+    for (const t of ['AAA', 'BBB', 'CCC']) s = go(s, { type: 'open', app: 'broker', props: { ticker: t }, fresh: true });
     expect(brokers(s)).toHaveLength(4);
-    const lru = brokers(s)[0]!; // bottom-most Broker in z-order
-    expect(lru.props.ticker).toBe('HLCN');
+    const focused = focusedId(s)!;
     s = go(s, { type: 'open', app: 'broker', props: { ticker: 'BRNT' } });
     expect(brokers(s)).toHaveLength(4);
-    expect(brokers(s).map((w) => w.props.ticker).sort()).toEqual(['AAA', 'BBB', 'BRNT', 'CCC']);
-    expect(focusedId(s)).toBe(lru.id);
+    expect(brokers(s).find((w) => w.id === focused)!.props.ticker).toBe('BRNT');
+    expect(focusedId(s)).toBe(focused);
+    expect(new Set(brokers(s).map((w) => w.props.ticker)).size).toBe(4);
+  });
+
+  it('a plain open of a new ticker replaces the focused Broker instead of opening a window', () => {
+    let s = fresh();
+    const id = focusedId(s);
+    s = go(s, { type: 'open', app: 'broker', props: { ticker: 'AAA' } });
+    expect(brokers(s)).toHaveLength(1);
+    expect(brokers(s)[0]!.props.ticker).toBe('AAA');
+    expect(focusedId(s)).toBe(id);
   });
 
   it('refuses a fresh Broker at the cap and leaves every other window alone', () => {
     let s = fresh();
-    for (const t of ['AAA', 'BBB', 'CCC']) s = go(s, { type: 'open', app: 'broker', props: { ticker: t } });
+    for (const t of ['AAA', 'BBB', 'CCC']) s = go(s, { type: 'open', app: 'broker', props: { ticker: t }, fresh: true });
     expect(brokers(s)).toHaveLength(4);
     const before = JSON.stringify(s.wins);
     const r = reduce(s, { type: 'open', app: 'broker', props: { ticker: 'BRNT' }, fresh: true }, R3);
@@ -163,7 +172,7 @@ describe('open', () => {
 
   it('focuses the existing Broker when the ticker already has one (C-12)', () => {
     let s = fresh();
-    s = go(s, { type: 'open', app: 'broker', props: { ticker: 'AAA' } });
+    s = go(s, { type: 'open', app: 'broker', props: { ticker: 'AAA' }, fresh: true });
     s = go(s, { type: 'open', app: 'broker', props: { ticker: 'HLCN' } });
     expect(brokers(s)).toHaveLength(2);
     expect(focusedId(s)).toBe('broker-1');
@@ -706,7 +715,7 @@ describe('named layouts', () => {
 
   it('at the Broker cap, a Trade without a ticker keeps every ticker and does not collapse a Broker', () => {
     let s = fresh(VP_1920);
-    for (const t of ['AAA', 'BBB', 'CCC']) s = go(s, { type: 'open', app: 'broker', props: { ticker: t } });
+    for (const t of ['AAA', 'BBB', 'CCC']) s = go(s, { type: 'open', app: 'broker', props: { ticker: t }, fresh: true });
     const before = brokers(s).map((w) => [w.id, w.props.ticker]).sort();
     s = go(s, { type: 'applyLayout', name: 'trade' });
     expect(brokers(s)).toHaveLength(4);

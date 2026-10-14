@@ -38,7 +38,7 @@ interface DrawingState {
   setLocked(on: boolean): void;
   setHidden(on: boolean): void;
   select(id: string | null): void;
-  /** reads the symbol's saved drawings once, and keeps any the player drew while the read was on the way */
+  /** reads the symbol once; local edits made during the read take precedence over its snapshot */
   load(assetId: string): Promise<void>;
   /** a change that is one undo step: the list before it (the current one, or `before` for a gesture that began earlier) is kept, and the change is saved */
   commit(assetId: string, list: ChartDrawing[], before?: ChartDrawing[]): void;
@@ -51,16 +51,50 @@ interface DrawingState {
 /** The debounce timers of the saves, per symbol. */
 const timers: Record<string, ReturnType<typeof setTimeout>> = {};
 
-/** Sends a symbol's drawings to the server after the pause; a refused save says so, and the list stays on the chart. */
+/**
+ * The text a refused save shows: the server's reason when it has one (the cap that was hit), the generic line otherwise. The list
+ * stays on the chart either way.
+ */
+export function refusalText(code: string | undefined): string {
+  switch (code) {
+    case 'drawingBad': case 'drawingsFull': case 'drawingsTooLarge': case 'drawingsSymbols':
+      return t(`broker.drawings.refused.${code}`);
+    default:
+      return t('broker.drawings.refused');
+  }
+}
+
+/** Sends a symbol's drawings to the server now; a refused save says why, and the list stays on the chart. */
+function send(assetId: string): void {
+  const list = useDrawings.getState().byAsset[assetId] ?? [];
+  void useGame.getState().act({ type: 'drawings.save', assetId, drawings: list }, { silent: true }).then((r) => {
+    if (!r.ok) useGame.getState().toast({ tone: 'loss', text: refusalText(r.error) });
+  }).catch(() => useGame.getState().toast({ tone: 'loss', text: refusalText(undefined) }));
+}
+
+/** Sends a symbol's drawings after the pause (a drag does not send one save per pointer move). */
 function persist(assetId: string): void {
   clearTimeout(timers[assetId]);
   timers[assetId] = setTimeout(() => {
     delete timers[assetId];
-    const list = useDrawings.getState().byAsset[assetId] ?? [];
-    void useGame.getState().act({ type: 'drawings.save', assetId, drawings: list }, { silent: true }).then((r) => {
-      if (!r.ok) useGame.getState().toast({ tone: 'loss', text: t('broker.drawings.refused') });
-    });
+    send(assetId);
   }, SAVE_DELAY_MS);
+}
+
+/** Flush pending debounces on hide. Delivery at page unload is best effort over the existing WebSocket. */
+export function flushDrawingSaves(): void {
+  for (const assetId of Object.keys(timers)) {
+    clearTimeout(timers[assetId]);
+    delete timers[assetId];
+    send(assetId);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushDrawingSaves);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushDrawingSaves();
+  });
 }
 
 export const useDrawings = create<DrawingState>()((set, get) => ({
@@ -82,12 +116,29 @@ export const useDrawings = create<DrawingState>()((set, get) => ({
 
   async load(assetId) {
     if (get().loaded[assetId]) return;
+    const before = get().byAsset[assetId];
     set({ loaded: { ...get().loaded, [assetId]: true } });
-    const saved = await useGame.getState().loadDrawings(assetId);
-    // a drawing made while the read was on the way is kept after the saved ones
-    const now = get().byAsset[assetId] ?? [];
-    const ids = new Set(saved.map((d) => d.id));
-    set({ byAsset: { ...get().byAsset, [assetId]: [...saved, ...now.filter((d) => !ids.has(d.id))] } });
+    try {
+      const saved = await useGame.getState().loadDrawings(assetId);
+      // The wire can return an offline/timeout acknowledgement instead of a drawing list.
+      if (!Array.isArray(saved)) throw new Error('drawings unavailable');
+      const now = get().byAsset[assetId];
+      // A local clear wins. Otherwise merge untouched saved objects with local edits and additions.
+      if (now !== before) {
+        if (!now?.length) return;
+        const localIds = new Set(now.map((d) => d.id));
+        const removedIds = new Set((before ?? []).filter((d) => !localIds.has(d.id)).map((d) => d.id));
+        const merged = [...saved.filter((d) => !localIds.has(d.id) && !removedIds.has(d.id)), ...now];
+        set({ byAsset: { ...get().byAsset, [assetId]: merged } });
+        persist(assetId);
+        return;
+      }
+      set({ byAsset: { ...get().byAsset, [assetId]: saved } });
+    } catch {
+      const loaded = { ...get().loaded };
+      delete loaded[assetId];
+      set({ loaded });
+    }
   },
 
   commit(assetId, list, prior) {

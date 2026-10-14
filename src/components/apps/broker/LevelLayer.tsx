@@ -3,7 +3,7 @@
 import { type PointerEvent, useRef, useState } from 'react';
 import { price as fmtPrice } from '@/game/format';
 import { t } from '@/i18n';
-import { roundPrice, type ChartLevel } from './chartLevels';
+import { draggedLevelPrice, roundPrice, type ChartLevel } from './chartLevels';
 
 /** A line and the pixel row it sits on (null when the price is off the visible scale: the line is not drawn). */
 export interface PlacedLevel { level: ChartLevel; y: number | null }
@@ -53,7 +53,7 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
     return r ? e.clientY - r.top : 0;
   };
   const start = (e: PointerEvent<HTMLDivElement>, level: ChartLevel) => {
-    if ((e.target as HTMLElement).closest('button')) return;
+    if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const p0 = toPrice(rowOf(e));
     live.current = { id: level.id, price: level.price, base: level.price, startP: p0 };
@@ -64,7 +64,7 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
     if (!cur) return;
     const p = toPrice(rowOf(e));
     // the pointer's move in price since the press, applied to the level's own price
-    const price = p !== null && cur.startP !== null ? cur.base + (p - cur.startP) : null;
+    const price = draggedLevelPrice(cur.base, cur.startP, p);
     live.current = { ...cur, price };
     setDrag(live.current);
   };
@@ -76,6 +76,7 @@ export function LevelLayer({ placed, axisW, height, toPrice, toY, onCommit, onCa
     // a press without a move is a click, not a drag: it must not move an off-tick level to the tick
     if (Math.abs(cur.price - cur.base) < 1e-9) return;
     const next = roundPrice(cur.price);
+    if (!(next > 0) || !Number.isFinite(next)) return;
     if (Math.abs(next - level.price) > 1e-9) onCommit(level, next);
   };
 

@@ -17,11 +17,11 @@ export interface RankDef {
 }
 
 export const RANKS: RankDef[] = [
-  { id: 'R0', name: 'Broke', threshold: 0, shell: 'Cracked phone', unlocks: ['Stocks and crypto, and short selling with cash (Retail license)', 'Hustle businesses (T1)', 'Port Avalon property'] },
+  { id: 'R0', name: 'Broke', threshold: 0, shell: 'Cracked phone', unlocks: ['Stocks and crypto at 10× (Retail license), and short selling', 'Hustle businesses (T1)', 'Port Avalon property'] },
   { id: 'R1', name: 'Hustler', threshold: 20_000, shell: 'New phone', unlocks: ['Small businesses (T2)', 'Mortgages', 'Analyst notes', 'Alliances'] },
-  { id: 'R2', name: 'Owner', threshold: 250_000, shell: 'Laptop desk', unlocks: ['Pro license: 2× margin, forex, bonds, commodities', 'Companies (T3)', 'Nordhaven and Meridia property', 'The AI Lab'] },
-  { id: 'R3', name: 'Operator', threshold: 5_000_000, shell: 'Trading floor', unlocks: ['Derivatives license: options and 5× margin', 'Enterprises (T4)', 'Sundara and Kaiyo property', 'Security Ops'] },
-  { id: 'R4', name: 'Mogul', threshold: 100_000_000, shell: 'Penthouse office', unlocks: ['Institutional license: 10× margin', 'Conglomerates (T5)', 'Isla Serena'] },
+  { id: 'R2', name: 'Owner', threshold: 250_000, shell: 'Laptop desk', unlocks: ['Pro license: 20× margin, forex, bonds, commodities', 'Companies (T3)', 'Nordhaven and Meridia property', 'The AI Lab'] },
+  { id: 'R3', name: 'Operator', threshold: 5_000_000, shell: 'Trading floor', unlocks: ['Derivatives license: options and 25× margin', 'Enterprises (T4)', 'Sundara and Kaiyo property', 'Security Ops'] },
+  { id: 'R4', name: 'Mogul', threshold: 100_000_000, shell: 'Penthouse office', unlocks: ['Institutional license: 30× margin', 'Conglomerates (T5)', 'Isla Serena'] },
   { id: 'R5', name: 'Titan', threshold: 2_000_000_000, shell: 'Tower command', unlocks: ['Megaprojects (T6)', 'Your name on a tower'] },
   { id: 'R6', name: 'Dynasty', threshold: 50_000_000_000, shell: 'Island control room', unlocks: ['A seat at the top of the world'] },
 ];
@@ -49,11 +49,13 @@ export interface LicenseDef {
 }
 
 export const LICENSES: LicenseDef[] = [
-  // Retail may short from R0, cash-secured at 1x (the short's full notional is held back from your cash). Pro adds 2x margin.
-  { id: 'retail', name: 'Retail', rank: 'R0', maxLeverage: 1, canShort: true, canOptions: false, classes: ['stock', 'crypto'], blurb: 'Buy and sell stocks and crypto with your own cash. Shorts are secured by your cash.' },
-  { id: 'pro', name: 'Pro', rank: 'R2', maxLeverage: 2, canShort: true, canOptions: false, classes: ['stock', 'crypto', 'commodity', 'forex', 'bond'], blurb: '2× margin, commodities, currencies and bonds.' },
-  { id: 'derivatives', name: 'Derivatives', rank: 'R3', maxLeverage: 5, canShort: true, canOptions: true, classes: ['stock', 'crypto', 'commodity', 'forex', 'bond'], blurb: 'Options and up to 5× margin.' },
-  { id: 'institutional', name: 'Institutional', rank: 'R4', maxLeverage: 10, canShort: true, canOptions: true, classes: ['stock', 'crypto', 'commodity', 'forex', 'bond'], blurb: 'Up to 10× margin and block trades.' },
+  // Intraday size from the first session. The margin floor (trading.ts, liquidation 0.02) still closes a full
+  // 10× position after about an 8% adverse move, a full 20× after about 3%, and a full 30× after about 1.4%.
+  // 50× and above sit on that floor and would be liquidated on the next tick, so they are not offered.
+  { id: 'retail', name: 'Retail', rank: 'R0', maxLeverage: 10, canShort: true, canOptions: false, classes: ['stock', 'crypto'], blurb: '10× margin on stocks and crypto from the start. Shorts use the same buying power.' },
+  { id: 'pro', name: 'Pro', rank: 'R2', maxLeverage: 20, canShort: true, canOptions: false, classes: ['stock', 'crypto', 'commodity', 'forex', 'bond'], blurb: '20× margin, commodities, currencies and bonds.' },
+  { id: 'derivatives', name: 'Derivatives', rank: 'R3', maxLeverage: 25, canShort: true, canOptions: true, classes: ['stock', 'crypto', 'commodity', 'forex', 'bond'], blurb: 'Options and up to 25× margin.' },
+  { id: 'institutional', name: 'Institutional', rank: 'R4', maxLeverage: 30, canShort: true, canOptions: true, classes: ['stock', 'crypto', 'commodity', 'forex', 'bond'], blurb: 'Up to 30× margin and block trades.' },
 ];
 
 export function licenseFor(rankId: string): LicenseDef {

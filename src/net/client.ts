@@ -160,6 +160,11 @@ export class WorldClient {
     return this.request<LpPage | null>((id) => ({ t: 'lp-page', id, ticker }));
   }
 
+  /** Asks the world to run at one of the clock speeds. The server broadcasts the new tick length. */
+  setSpeed(speed: number): void {
+    this.raw({ t: 'speed', speed });
+  }
+
   /** A public panel's data and the tick it was taken at (R-9-12); a failed or offline request answers without `v`. */
   panel(panel: PublicPanel): Promise<{ v?: number; data?: unknown; ok?: boolean; error?: string }> {
     return this.request<{ v?: number; data?: unknown; ok?: boolean; error?: string }>((id) => ({ t: 'panel', id, panel }));

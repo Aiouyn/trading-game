@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createWorld, step, stepMany } from './sim';
 import { DEFAULT_REGIMES, defaultConfig, normalizeLoadings } from './config';
 import {
-  cancelOrder, commission, estimateFill, halfSpread, openAccount, openOrders, orderHistory, placeOrder, portfolio,
+  cancelOrder, commission, estimateFill, HALF_SPREAD_CAP, halfSpread, openAccount, openOrders, orderHistory, placeOrder, portfolio,
 } from './trading';
 import type { AssetDef, OrderRequest, RegimeDef, RegimeId, WorldState } from './types';
 
@@ -290,5 +290,19 @@ describe('determinism with orders', () => {
     const plain = stepMany(createWorld('d'), 1000).state;
     const withIdle = stepMany(openAccount(createWorld('d'), 'p1'), 1000).state;
     expect(withIdle.assets).toEqual(plain.assets);
+  });
+});
+
+describe('the quote cap', () => {
+  it('a wide meme in a vol spike still quotes at most 15 bps a side', () => {
+    const s = world([flat('MEME', { spreadBps: 110, vol: 1.9 })]);
+    s.assets[0]!.h = 9; // sqrt(h) = 3, so the raw half is 55 bps × 3 = 165 bps
+    expect(halfSpread(s, 0)).toBe(HALF_SPREAD_CAP);
+  });
+
+  it('a tight name in a calm book stays under that cap', () => {
+    const s = world();
+    expect(halfSpread(s, 0)).toBeCloseTo(0.0005, 10);
+    expect(halfSpread(s, 0)).toBeLessThan(HALF_SPREAD_CAP);
   });
 });

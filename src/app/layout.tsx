@@ -19,7 +19,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   await connection();
   const worldPort = /^\d{1,5}$/.test(process.env.TG_WORLD_PORT ?? "") ? process.env.TG_WORLD_PORT! : "";
   return (
-    <html lang="en" className={`${serif.variable} ${sans.variable} ${mono.variable} h-full antialiased`}>
+    // The boot script below sets data-palette from this browser's saved theme before hydrate. The server cannot
+    // know that value, so the attribute is allowed to differ. It suppresses only this tag.
+    <html lang="en" className={`${serif.variable} ${sans.variable} ${mono.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
         {worldPort ? <script dangerouslySetInnerHTML={{ __html: `window.__TG_WORLD_PORT__=${worldPort};` }} /> : null}
         <script dangerouslySetInnerHTML={{ __html: PALETTE_BOOT_SCRIPT }} />

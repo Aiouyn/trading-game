@@ -25,9 +25,13 @@ export interface IconSpec {
   glyph: string;
 }
 
-/** The icon's parts, from the hash: the shape, a hue pair, and the glyph (the ticker's first letter). */
-export function iconSpec(ticker: string): IconSpec {
-  const h = tickerHash(ticker);
+/**
+ * The icon's parts, from the hash: the shape, a hue pair, and the glyph (the ticker's first letter). R-10-6: the creator picks one of
+ * the generated variants at launch. Variant 0 hashes the ticker alone (every icon made before Phase 10 is unchanged); variant k > 0
+ * hashes the ticker and k, so the same ticker has a fresh shape and palette for each variant.
+ */
+export function iconSpec(ticker: string, art = 0): IconSpec {
+  const h = tickerHash(art > 0 ? `${ticker}#${art}` : ticker);
   const shape = SHAPES[h % SHAPES.length]!;
   const hue = (h >>> 3) % 360;
   const hue2 = (hue + 150 + ((h >>> 11) % 60)) % 360;
@@ -48,9 +52,9 @@ function shapePath(shape: IconShape): string {
   }
 }
 
-/** The icon as a standalone SVG string (64 by 64). */
-export function iconSvg(ticker: string): string {
-  const s = iconSpec(ticker);
+/** The icon as a standalone SVG string (64 by 64), in the given variant (0 when none is picked). */
+export function iconSvg(ticker: string, art = 0): string {
+  const s = iconSpec(ticker, art);
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="${s.glyph}">`
     + `<g fill="${s.bg}">${shapePath(s.shape)}</g>`
     + `<text x="32" y="43" text-anchor="middle" font-family="Georgia, serif" font-size="30" font-weight="700" fill="${s.fg}">${s.glyph}</text>`

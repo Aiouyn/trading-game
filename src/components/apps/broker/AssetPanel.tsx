@@ -72,6 +72,8 @@ export function AssetPanel({ ticker, onOptions, chainOpen }: { ticker: string; o
         <Mini k={t('broker.fund.adv')} v={compactMoney(def.advNotional ?? 1e9)} />
       </div>
 
+      <Tape ticker={ticker} />
+
       {e && (
         <div className="mt-4 rounded-md border border-ink-3 p-3" data-testid="earnings-card">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -146,6 +148,30 @@ export function AssetPanel({ ticker, onOptions, chainOpen }: { ticker: string; o
         </div>
       </div>
     </Card>
+  );
+}
+
+/** The last few NPC prints on this name. A human's own fills stay on the blotter, not here. */
+function Tape({ ticker }: { ticker: string }) {
+  const rows = (useGame((s) => s.frame?.tape) ?? []).filter((r) => r.assetId === ticker).slice(-12).reverse();
+  return (
+    <div className="mt-4" data-testid="broker-tape">
+      <div className="label">{t('broker.tape.title')}</div>
+      {rows.length === 0 ? (
+        <p className="mt-1 text-caption text-fg-faint" data-testid="broker-tape-empty">{t('broker.tape.empty')}</p>
+      ) : (
+        <ul className="mt-1.5 flex flex-col gap-0.5">
+          {rows.map((r, i) => (
+            <li key={`${r.tick}-${r.who}-${r.side}-${i}`} className="grid grid-cols-4 gap-2 text-caption" data-testid="broker-tape-row">
+              <span className="truncate text-fg-muted">{r.who}</span>
+              <span className={r.side === 'buy' ? 'text-gain' : 'text-loss'}>{t(r.side === 'buy' ? 'broker.tape.buy' : 'broker.tape.sell')}</span>
+              <span className="num text-right text-fg-muted">{dec(r.qty, r.qty >= 100 ? 0 : r.qty >= 1 ? 2 : 4)}</span>
+              <span className="num text-right text-fg">{price(r.price)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

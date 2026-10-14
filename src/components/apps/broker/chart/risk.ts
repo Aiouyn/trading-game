@@ -56,13 +56,13 @@ export interface RiskResult {
 
 /** Rounds a quantity down to the step (never up: a quantity that rounds up would carry more risk than the player accepted). */
 export function floorQty(q: number, step = QTY_STEP): number {
-  if (!Number.isFinite(q) || q <= 0) return 0;
+  if (!Number.isFinite(q) || q <= 0 || !Number.isFinite(step) || step <= 0) return 0;
   return Number((Math.floor(q / step + 1e-9) * step).toFixed(8));
 }
 
 /** The stop sits on the losing side of the entry and the target on the winning side (a long: stop below, target above). */
 export function sidesValid(direction: Direction, entry: number, stop: number, target: number): boolean {
-  if (!(entry > 0) || !(stop > 0) || !(target > 0)) return false;
+  if (![entry, stop, target].every((p) => Number.isFinite(p) && p > 0)) return false;
   return direction === 'long' ? stop < entry && target > entry : stop > entry && target < entry;
 }
 

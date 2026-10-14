@@ -139,6 +139,8 @@ export interface GameStore {
   /** reads a public panel (the boards or the directory) for the viewer; a read in flight is not doubled (R-9-12) */
   loadPanel: (panel: PublicPanel) => Promise<void>;
   select: (assetId: string) => void;
+  /** Asks the world to run at 1×, 4×, 20× or 60×. The strip updates when the server confirms. */
+  setSpeed: (speed: number) => void;
   setScreen: (s: Screen) => void;
   setRange: (r: ChartRange) => void;
   setInterval: (i: Interval) => void;
@@ -333,6 +335,9 @@ export const useGame = create<GameStore>((set, get) => {
         set({ chat, chatUnread: get().chatOpen ? 0 : unread });
         break;
       }
+      case 'clock':
+        set({ tickMs: msg.tickMs });
+        break;
       case 'ack':
         if (msg.me && get().me && msg.me.rank.id > get().me!.rank.id) set({ rankUp: msg.me.rank.id, rankUpFrom: get().me!.rank.id });
         if (msg.me) set({ me: msg.me, world: get().frame ? mirrorWorld(get().config, get().frame!, mirrorMe(get().playerId, msg.me), get().world ?? undefined) : get().world });
@@ -441,6 +446,10 @@ export const useGame = create<GameStore>((set, get) => {
       client = null;
       setToken(null);
       set({ status: 'welcome', me: null, playerId: null, frame: null, world: null, shortInterest: null, depth: null });
+    },
+
+    setSpeed(speed) {
+      client?.setSpeed(speed);
     },
 
     async act(cmd, opts) {

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Bar } from '@/game/history';
 import type { ChartDrawing } from '@/world/drawings';
 import {
-  FIB_LEVELS, barAt, extendLine, fibPrices, handlesOf, magnetPrice, movePoint, pointsToPlace, positionLevels, positionPoints,
-  positionValid, shiftDrawing,
+  FIB_LEVELS, barAt, extendLine, fibPrices, handlesOf, logicalPixelScale, magnetPrice, movePoint, pointsToPlace, positionLevels, positionPoints,
+  placementLevels, positionSpanTicks, positionValid, shiftDrawing,
 } from './geometry';
 import { floorQty, riskOf, riskPctOf, riskUsdOf, sidesValid } from './risk';
 
@@ -37,6 +37,18 @@ describe('drawing tools', () => {
     expect(positionValid({ kind: 'short', points: sh })).toBe(true);
     expect(sh[1]!.p).toBeLessThan(50);
     expect(sh[2]!.p).toBeGreaterThan(50);
+  });
+
+  it('a new position spans a dozen of the last candle, and a fractional index rides the line through two integer samples', () => {
+    expect(positionSpanTicks([])).toBe(60);
+    expect(positionSpanTicks([{ time: 0 }, { time: 10 }, { time: 12 }])).toBe(24);
+    expect(positionPoints('long', 100, 50, 24)[1]!.t).toBe(124);
+    const scale = logicalPixelScale(10, 30)!;
+    expect(scale.toX(0)).toBe(10);
+    expect(scale.toX(1.5)).toBe(40);
+    expect(scale.toX(-1)).toBe(-10);
+    expect(scale.toLogical(40)).toBeCloseTo(1.5, 10);
+    expect(logicalPixelScale(5, 5)).toBeNull();
   });
 
   it('dragging the entry or the target moves that point; the extent handle moves the far end for both legs', () => {
@@ -154,5 +166,47 @@ describe('the position tool arithmetic', () => {
     expect(floorQty(1.23456)).toBe(1.2345);
     expect(floorQty(-3)).toBe(0);
     expect(floorQty(Number.NaN)).toBe(0);
+  });
+});
+
+describe('placing a position at the market (R-10-5 bracket)', () => {
+  it('moves the drawing to the live mid with the same distances, so the orders are the drawn prices', () => {
+    const lv = { entry: 181.14, target: 184.77, stop: 179.33 };
+    const at = placementLevels(lv, 'market', 183.77);
+    expect(at.entry).toBeCloseTo(183.77, 9);
+    expect(at.target).toBeCloseTo(187.40, 9);
+    expect(at.stop).toBeCloseTo(181.96, 9);
+    expect(at.shift).toBeCloseTo(2.63, 9);
+    // the distances are the drawn ones
+    expect(at.target - at.entry).toBeCloseTo(lv.target - lv.entry, 9);
+    expect(at.entry - at.stop).toBeCloseTo(lv.entry - lv.stop, 9);
+  });
+
+  it('keeps the drawn levels for a limit or a stop entry, and when there is no mid', () => {
+    const lv = { entry: 181.14, target: 184.77, stop: 179.33 };
+    expect(placementLevels(lv, 'limit', 183.77)).toEqual({ ...lv, shift: 0 });
+    expect(placementLevels(lv, 'stop', 183.77)).toEqual({ ...lv, shift: 0 });
+    expect(placementLevels(lv, 'market', 0)).toEqual({ ...lv, shift: 0 });
+    expect(placementLevels(lv, 'market', Infinity)).toEqual({ ...lv, shift: 0 });
+  });
+
+  it('sizes from the market placement reference and its buying-power cap for both directions', () => {
+    for (const direction of ['long', 'short'] as const) {
+      const lv = direction === 'long' ? { entry: 100, stop: 98, target: 104 } : { entry: 100, stop: 102, target: 96 };
+      const at = placementLevels(lv, 'market', 200);
+      const r = riskOf({ direction, ...at, riskUsd: 100, equity: 10_000, spreadBps: 0, feePerLeg: 0, qtyStep: 0.0001, maxQty: 1000 / at.entry });
+      expect(r.qty).toBe(5);
+      expect(r.riskUsd).toBe(10);
+      expect(r.riskPct).toBe(0.1);
+      expect(r.netAtStop).toBe(-10);
+    }
+  });
+
+  it('rounds sent levels before sizing; a rounded-away stop distance cannot place a position', () => {
+    const at = placementLevels({ entry: 100, target: 101, stop: 99.99999999 }, 'limit', 100);
+    expect(sidesValid('long', at.entry, at.stop, at.target)).toBe(false);
+    expect(floorQty(10, 0)).toBe(0);
+    expect(floorQty(10, Infinity)).toBe(0);
+    expect(sidesValid('long', 100, 98, Infinity)).toBe(false);
   });
 });

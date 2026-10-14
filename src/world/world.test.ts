@@ -177,7 +177,7 @@ describe('ranks, contracts and notes', () => {
     boost(g, 'u1', 6_000_000);
     expect(g.players.u1!.rankId).toBe('R3');
     expect(g.market.accounts.u1!.canOptions).toBe(true);
-    expect(g.market.accounts.u1!.maxLeverage).toBe(5);
+    expect(g.market.accounts.u1!.maxLeverage).toBe(25);
     g.market.accounts.u1!.cash = 10;
     refreshNetWorth(g, g.players.u1!);
     applyRank(g, g.players.u1!, null);

@@ -7,7 +7,7 @@ import { quoteSell, spotAt } from './curve';
 import { lpTick } from './flow';
 import { buyCurve, liquidateCohort } from './trade';
 import { absorbPending } from './absorb';
-import { arrivalCap, arrive, bleedPerTick, buzzOf } from './demand';
+import { arrivalCap, arrive, buzzOf } from './demand';
 import { curveHoldingsValue } from './value';
 import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
 
@@ -84,19 +84,17 @@ describe('L6.4 instant arrivals, L6.5 no copycat (v1.2)', () => {
     expect(t.npcPending).toBe(0);
   });
 
-  it('the cohort sells into the fade at any price: a buzz below its peak is sold even under the cohort\'s cost', () => {
+  it('a loss and a fallen buzz do not dump the bag while the story is alive', () => {
     const g = lpWorld('fade');
     launch(g, CREATOR, 'FADE');
     const t = quiet(g, 'FADE');
     buyCurve(g, null, 'FADE', 100_000, 1, null, true);
     expect(t.npcBal).toBeGreaterThan(0);
-    // the cohort's cost basis is far above the price (a loss), and the buzz fell from its peak: the fade sells, profit taking does not
     t.npcCost = t.npcCost * 3;
     t.npcPeak = 1;
     const before = t.npcBal;
     lpTick(g, null);
-    // v1.3 (L6.8): the cohort sells its bleed (the half-life share) plus the capitulation share, with no instant exit
-    expect(t.npcBal).toBe(before - Math.floor(before * (NPC.CAPIT_PER_TICK + bleedPerTick())));
+    expect(t.npcBal).toBe(before);
   });
 
   it('the cohort never sells tokens it does not hold', () => {

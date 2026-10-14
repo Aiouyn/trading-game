@@ -71,3 +71,43 @@ words as in `docs/V1-PHASE6.md`.
   `TerminalLayout.tsx` are not touched. Symbol switching and the Broker's window rules are the UX fork's.
 - Known display quirk: Chromium shows a decimal comma in the percent input when the browser locale is French. The value is
   correct.
+
+### 10B.5 Bounded reviewer repair pass (2026-10-14, uncommitted)
+
+Resumed the seven interrupted dirty chart/i18n files in this worktree and retained their changes. This pass also changes
+`LevelLayer`, `DrawingLayer`, `useDrawingKeys`, `risk`, `chartLevels` and their focused tests; it does not touch the UX fork,
+engine, server, other worktrees or dependencies. The earlier gates above describe their original commits, not this pass.
+
+- The position panel previews the same rounded placement levels and buying-power-capped quantity that it sends. Accepted
+  placements update the drawing; refusals leave it alone. Market placement uses the live mid as a reference, while the actual
+  fill is on the next auction tick with execution costs. Both long and short market/limit/stop command payloads have focused
+  panel tests with mocked account/transport dependencies; these are not browser or fill-integration evidence.
+- Enter routes to the owning chart's matching position panel. Right-click on a selected long/short drawing uses that same
+  placement action and the panel's selected entry type. Disabled placement stays disabled. Keyboard deletion honours locks.
+- Order-line drags ignore secondary-button presses and reject invalid prices. The existing `order.modify` path remains;
+  pinned-order price arithmetic has regression coverage. Cancelled drawing drags restore their starting points.
+- Pending drawing saves can flush on page hide/visibility change and show translated cap-specific refusals. Flush on unload
+  remains best effort over the existing WebSocket. Failed drawing reads can retry; stale reads preserve local edits/clears.
+  The store tests cover debounce/flush, undo/redo, refusals, rejected transport, merging and read retries.
+- The intraday caption now states the actual retention bounds: up to five game days of ticks and 400 daily bars. Capped
+  position risk is labelled as price-distance risk before costs, rather than realised execution risk.
+
+Validation in this pass:
+
+- `node -e "process.env.LOCALAPPDATA=process.env.TEMP; import('./node_modules/vitest/vitest.mjs')" run
+  src/components/apps/broker/chart src/components/apps/broker/chartLevels.test.ts src/game/chartRanges.test.ts
+  src/world/drawings.test.ts src/world/drawings-command.test.ts src/world/orders.test.ts --maxWorkers=2
+  --configLoader=runner --cache=false`: **9 files, 83 tests passed**, exit 0. The initial normal invocation failed because
+  Vitest tried to write its API token outside the sandbox. The process-local Temp override and runner loader avoid changing
+  dependencies or writing the token/config cache into `node_modules`.
+- `node node_modules/next/dist/bin/next typegen`, `node node_modules/typescript/bin/tsc --noEmit`: exit 0 each.
+- `node node_modules/eslint/bin/eslint.js` on all 14 changed TypeScript/TSX files: exit 0, no diagnostics.
+- JSON parse/key/changed-placeholder check: English and French each have **5,960 keys**, identical sets and matching checked
+  placeholders. `git diff --check`: exit 0.
+
+Remaining gaps: no new browser e2e/visual review or direct server-book drag assertion was run (the normal Playwright harness
+starts background world/web servers). Phone drawings and the over-plot panel layout remain unresolved. Buying-power sizing
+still caps notional at the reference entry and can be refused after fees/spread/impact; spread and exit-fee P&L are estimates.
+The shared order-line rounding still uses its legacy magnitude rule, not per-asset tick precision. Immediate reload delivery
+and account-switch isolation of the singleton client drawing store need further integration review. This is a bounded repair,
+not full TradingView equivalence or a new sign-off of all Phase 10 gates.

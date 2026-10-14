@@ -79,12 +79,19 @@ describe('labels and keys', () => {
 });
 
 describe('prices and figures', () => {
-  it('a launch price keeps enough digits to show a move', () => {
-    expect(lpPrice(LP_K / (LP.Y0 * LP.Y0))).toBe('0.0000139795');
+  it('a launch price keeps enough digits to show a move, in DEX subscript-zero notation below a hundredth of a cent (R-10-3)', () => {
+    // the launch price is 1.3979e-5: four zeros after the point, then the four significant digits
+    expect(lpPrice(LP_K / (LP.Y0 * LP.Y0))).toBe('0.0₄1398');
     expect(lpPrice(0.000216)).toBe('0.000216');
     expect(lpPrice(0.0342)).toBe('0.0342');
     expect(lpPrice(1284.1)).toBe('1,284.10');
     expect(lpPrice(0)).toBe('0.00');
+  });
+
+  it('subscript-zero notation counts the zeros after the point, and a rounding carry takes one zero off', () => {
+    expect(lpPrice(0.000004123)).toBe('0.0₅4123');
+    expect(lpPrice(0.0001234)).toBe('0.0001234');
+    expect(lpPrice(0.0000999996)).toBe('0.0₃1');
   });
 
   it('the curve progress maps back to the token reserve exactly', () => {

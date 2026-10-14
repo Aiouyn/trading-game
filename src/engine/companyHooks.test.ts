@@ -94,14 +94,19 @@ describe('bare engine is unchanged', () => {
     const orderFree = openAccount(stepMany(createWorld('bare-0', cfg), 720 * 3).state, 'p9');
     expect(orderFree.assets.every((a) => a.impactTally === undefined)).toBe(true);
     expect(stepMany(orderFree, 720).state.assets.every((a) => a.impactTally === undefined)).toBe(true);
+    expect(orderFree.accounts.p9!.ownImpact).toBeUndefined();
     // R-9-1b/c: this world has player orders, so its digest moves. Its prices do not: R-9-1c moved the impact tally from the
     // account to the asset (one tally per asset), and the digest hashes where the field sits. Re-keyed to the R-9-1b layout
     // (the tally on the account, none on the asset) the digest is the R-9-1b pin b799f0b0, so the single-account dynamics are
     // unchanged. The pin moved from 61f445d2 by R-9-1b and from b799f0b0 by R-9-1c (representation only).
-    expect(sha(s)).toBe('e711a12b076e97e31bb37beecc968e4d19383b2dd012d4cb480925ab42a270cf');
+    // R-10-1 adds Account.ownImpact, the account's own temporary-impact memory. These two runs are a lone buy and, in the
+    // bare world, a later sell with nothing already on that side, so the fill prices do not move: the Street hashes below hold.
+    // The digest moves because the new field is on the account.
+    expect(sha(s)).toBe('65cbe269c8f7fff882c05bbfee03d9baf2cd3dc46b7dcb4f8315d8e4ce3113e8');
     // R-9-1b: the ecology world has one player buy too, so it moves for the same reason (e80f... -> ada9..., then 54dc...)
-    // R-9-1c: the pools' closing flow also joins the asset tally (read by no later fill here), so the digest moves again
-    expect(sha(e)).toBe('54dc4f794390549be5d0fb18a2e756b45f5560bf7a5fdfce79f6f725fb46ec29');
+    // R-9-1c: the pools' closing flow also joins the asset tally (read by no later fill here), so the digest moves again.
+    // R-10-1 moves it once more, for the same ownImpact field. The Street hash of this run holds, so the fill price holds.
+    expect(sha(e)).toBe('7e28e2207986b90be94df622896ed22914ab14d0302c619e6de9ede8dc674589');
     // the Street tally of those trades, pinned on its own (the digests above ignore it)
     expect(s.accounts.p1!.streetCash).not.toBe(0);
     // the Street tally moves with the fill prices of the player's trades (R-9-1b, see the digest pins above)
@@ -610,18 +615,19 @@ describe('review: a plan\'s escrow is never sold by a liquidation, and locked sh
     ...s, assets: s.assets.map((a) => (a.id === 'CO' ? { ...a, lnP: Math.log(p), lnOpen: Math.log(p) } : a)),
   });
 
-  it('the liquidation line counts only unlocked shares as collateral; with no plan the same account breaks at 62.5', () => {
-    // with 20 locked: collateral = -5000 + 80x and gross = 100x, so liquidation at 0.2 is at 60x = 5000
-    expect(liquidationPrice(marginWithPlan(), 'p1', 'CO')).toBeCloseTo(5000 / 60, 6);
+  it('the liquidation line counts only unlocked shares as collateral; with no plan the same account breaks at 5000/98', () => {
+    // liquidation ratio is 0.02. With 20 locked, the long's slope is (1 − 0.02) × 100 − 20 = 78, so the line is 5000/78.
+    // With nothing locked the slope is 98, so the line is 5000/98.
+    expect(liquidationPrice(marginWithPlan(), 'p1', 'CO')).toBeCloseTo(5000 / 78, 6);
     let n = openAccount(world([coStock('CO')]), 'p1', 0);
     n = adjustCash(n, 'p1', -5000);
     n = setAccountPermissions(n, 'p1', { maxLeverage: 2 });
     n = grantLockedShares(n, 'p1', 'CO', 100, 100, 0);
-    expect(liquidationPrice(n, 'p1', 'CO')).toBeCloseTo(62.5, 6);
+    expect(liquidationPrice(n, 'p1', 'CO')).toBeCloseTo(5000 / 98, 6);
   });
 
   it('a margin liquidation sells only the unlocked shares; the escrow is kept, the plan sells it once, and nothing goes short', () => {
-    const r = runAll(setPrice(marginWithPlan(), 80), 1);
+    const r = runAll(setPrice(marginWithPlan(), 60), 1);
     expect(r.events).toContainEqual(expect.objectContaining({ type: 'liquidation', playerId: 'p1', assetId: 'CO', qty: 80 }));
     expect(heldOf(r.state, 'p1', 'CO')).toBe(20);
     expect(restrictionsOf(r.state).programs.pl1!.escrow).toBe(20);
@@ -646,11 +652,16 @@ describe('review: a plan\'s price hold follows its own limit check, not the mid'
   it('a limit missed after the spread is a price hold, though the mid is above the minimum', () => {
     let s = openAccount(world([coStock('CO', { spreadBps: 4000 }), flat('STK')]), 'p1');
     s = grantLockedShares(s, 'p1', 'CO', 100, 100, 0);
-    s = commitPlan(s, { id: 'pl1', playerId: 'p1', assetId: 'CO', side: 'sell', qtyPerDay: 10, days: [70, 71, 72], minPrice: 80 }).state;
+    // A floor may be at most 80% of the commit-day close, so the close is lifted to 110 (80% is 88). The sell day marks 85.
+    // halfSpread caps a side at 15 bps, so that sell fills near 84.87. 84.95 sits between the fill and the mid.
+    s = { ...s, assets: s.assets.map((a) => (a.id === 'CO' ? { ...a, lnP: Math.log(110), lnOpen: Math.log(110) } : a)) };
+    const committed = commitPlan(s, { id: 'pl1', playerId: 'p1', assetId: 'CO', side: 'sell', qtyPerDay: 10, days: [70, 71, 72], minPrice: 84.95 });
+    expect(committed.reject).toBeUndefined();
+    s = committed.state;
     s = atDay(s, 70);
     s = { ...s, assets: s.assets.map((a) => (a.id === 'CO' ? { ...a, lnP: Math.log(85), lnOpen: Math.log(85) } : a)) };
-    // the precondition: the mid (85) clears the minimum (80), the sell after the spread does not
-    expect(estimateFill(s, { assetId: 'CO', side: 'sell', qty: 10 }).price).toBeLessThan(80);
+    // the precondition: the mid (85) clears the minimum, the sell after the capped spread does not
+    expect(estimateFill(s, { assetId: 'CO', side: 'sell', qty: 10 }).price).toBeLessThan(84.95);
     let state = programsDay(s).state;
     const events: StepEvent[] = [];
     for (let k = 0; k < 3 * TPD && restrictionsOf(state).programs.pl1!.priceHold === 0; k++) {

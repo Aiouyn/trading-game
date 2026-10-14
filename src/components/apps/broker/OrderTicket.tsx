@@ -145,7 +145,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const typed = parseDecimal(q);
   const mid = ctx?.mid ?? 0;
   const guessQty = unit === 'shares' ? typed : (mid > 0 ? typed / mid : 0);
-  const est = world && ctx ? estimateFill(world, { assetId: selected, side, qty: Math.max(guessQty, whole ? 1 : 0.0001) }) : null;
+  const estPlayer = fundMode && managed ? managed.id : playerId;
+  const est = world && ctx && estPlayer ? estimateFill(world, { assetId: selected, side, qty: Math.max(guessQty, whole ? 1 : 0.0001), playerId: estPlayer }) : null;
   const refPrice = est ? (type === 'limit' || type === 'stop_limit' ? parseDecimal(limit) || est.price : type === 'stop' ? parseDecimal(stop) || est.price : est.price) : 0;
   const qtyN = unit === 'shares' ? typed : (refPrice > 0 ? roundQ(typed / refPrice) : 0);
   // a dollar amount that does not reach one whole share at this price: said under the size, never sent as zero
@@ -156,8 +157,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const bp = world && playerId ? buyingPower(world, playerId) : 0;
   // the margin rules bite for an account that borrows or holds a short; a cash-secured long account buys with its cash
   const margin = !fundMode && !!acct && marginRuleApplies(acct);
-  // the server's rule (orders.ts): every buy below R1 is capped, not only the first trade
-  const simpleCap = !fundMode && !!me && rankIndex(me.player.rankId) < rankIndex(SIMPLE_MODE.untilRank);
+  // the server's rule (orders.ts): the first trade is capped until it fills, and until Hustler
+  const simpleCap = !fundMode && !!me && me.player.stats.trades === 0 && rankIndex(me.player.rankId) < rankIndex(SIMPLE_MODE.untilRank);
   // the cap is a share of cash the short proceeds do not inflate (orders.ts capBaseOf, the same rule the server reads)
   const capCash = acct && simpleCap ? capBaseOf(acct.cash, acct.positions) * SIMPLE_MODE.capFraction : Infinity;
   // a short the rules allow this account (a covered insider on a cash-secured account may not short its own company)
@@ -343,6 +344,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   });
   const cashAfter = summary.cashAfter;
   const spreadText = `${money(summary.spread)} (${dec(summary.spreadPct * 100, 2)}%)`;
+  // the gap past the quoted half-spread is this account's own impact (R-10-1). The ticket shows it on its own line.
+  const impactUsd = Math.max(0, qtyN * Math.abs(d.price - ctx.mid) - qtyN * (summary.spread / 2));
   // a take-profit or stop-loss shows its move on the position, once it is typed (the same rule the chart's lines use)
   const legMove = (v: string) => {
     const n = parseDecimal(v);
@@ -570,6 +573,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                 <SumRow dense={dense} full={t('broker.notional')} k={shortLabels ? t('broker.sum.notional') : t('broker.notional')} v={money(notional)} />
                 <SumRow dense={dense} full={feeText} k={shortLabels ? t('broker.sum.fee') : feeText} v={money(fee)} />
                 <SumRow dense={dense} full={t('broker.spread')} k={shortLabels ? t('broker.sum.spread') : t('broker.spread')} v={<span data-testid="order-spread">{spreadText}</span>} />
+                <SumRow dense={dense} full={t('broker.impact')} k={shortLabels ? t('broker.sum.impact') : t('broker.impact')} v={<span data-testid="order-impact">{money(impactUsd)}</span>} />
                 <SumRow dense={dense} k={<span className="font-semibold text-fg">{t('broker.total')}</span>} v={<span className="font-semibold" data-testid="order-total">{money(total)}</span>} />
                 <SumRow dense={dense} full={t('broker.roundTrip')} k={shortLabels ? t('broker.sum.roundTrip') : t('broker.roundTrip')} v={<span data-testid="order-roundtrip">{money(summary.roundTrip)}</span>} />
                 <SumRow dense={dense} full={t('broker.breakEven')} k={shortLabels ? t('broker.sum.breakEven') : t('broker.breakEven')} v={<span data-testid="order-breakeven">{price(summary.breakEven)}</span>} />

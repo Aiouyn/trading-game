@@ -22,6 +22,16 @@ import type { LaunchpadState } from './launchpad/types';
  */
 import type { AuctionState } from './auctions';
 
+/** One public print on a listed name. `who` is an NPC handle. A human fill is never a row. */
+export interface MarketPrint {
+  tick: number;
+  assetId: string;
+  side: Side;
+  qty: number;
+  price: number;
+  who: string;
+}
+
 export interface GameState {
   version: 2;
   seed: string;
@@ -68,6 +78,11 @@ export interface GameState {
   funds?: FundsState;
   /** the Launchpad (player-created memecoins, lead-launchpad.md). Absent until the first launch; worlds without one keep every fingerprint. */
   launchpad?: LaunchpadState;
+  /**
+   * Recent NPC prints on listed names, per asset, oldest first. The broker tape. Humans are never written here.
+   * Absent until the first NPC fill, so a world that has not traded keeps its old shape.
+   */
+  marketTape?: Record<string, MarketPrint[]>;
   /** sponsor breaks (velvet-rewarded-ads.md, ROADMAP 2.7): the open breaks and the rewarded count per profile per game day. Absent until the first break. */
   sponsor?: SponsorState;
   /** insider tips from crime (M16 v1, tips.ts). Absent until the first tip; worlds without one keep every fingerprint. */
@@ -863,10 +878,12 @@ export type Command =
   | { type: 'fund.deposit'; fundId: string; amount: number }
   | { type: 'fund.redeem'; fundId: string; units: number }
   /** the Launchpad (lead-launchpad.md): launch a token (cents of dev buy optional), buy and sell on its curve, buy a buzz item, cancel an untraded launch, file a rug case */
-  | { type: 'lp.launch'; name: string; ticker: string; tagline: string; allocation: number; devBuyCents?: number }
+  | { type: 'lp.launch'; name: string; ticker: string; tagline: string; allocation: number; devBuyCents?: number; description?: string; art?: number }
   | { type: 'lp.buy'; ticker: string; spendCents: number; maxSlip?: number }
   | { type: 'lp.sell'; ticker: string; tokens: number; maxSlip?: number }
   | { type: 'lp.buzz'; ticker: string; kind: 'board' | 'wire' }
+  /** a reply on a token's thread (plain text, at most 140 characters, moderated) */
+  | { type: 'lp.reply'; ticker: string; text: string }
   | { type: 'lp.cancel'; ticker: string }
   | { type: 'lp.file'; ticker: string }
   /** sponsor breaks (velvet-rewarded-ads.md): open a 15-second card, then finish it (a full watch pays; a skip after 5 s pays nothing) */

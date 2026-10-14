@@ -7,7 +7,7 @@
 // reads the game store, and its buttons only open a panel or a drawer.
 import { t } from '@/i18n';
 import { useGame } from '@/game/store';
-import { clockLabel } from '@/game/clock';
+import { SPEEDS, clockLabel, speedOf } from '@/game/clock';
 import { rankOrdinal } from '@/shell/ctx';
 import { Glyph } from './glyphs';
 import { NetWorthFigures } from './NetWorthFigures';
@@ -27,6 +27,9 @@ export function StatusStrip() {
   // A day close the Wire has not shown yet marks the bell too (the toast may have gone before it was read)
   const closeUnread = useGame((s) => s.closeUnread !== null);
   const marked = unread > 0 || closeUnread;
+  const tickMsNow = useGame((s) => s.tickMs);
+  const setSpeed = useGame((s) => s.setSpeed);
+  const speed = speedOf(tickMsNow);
   const ready = status === 'ready';
   return (
     <header className="os-strip" data-testid="os-strip">
@@ -49,6 +52,17 @@ export function StatusStrip() {
       <WorkspaceTabs />
       <div className="os-mid">
         <span className="os-clock" data-testid="os-clock">{clockLabel(frame?.tick ?? 0, 720)}</span>
+        <span className="os-soft flex items-center gap-0.5" role="group" aria-label={t('shell.speed')}>
+          {SPEEDS.map((s) => (
+            <button
+              key={s} type="button" data-testid={`os-speed-${s}`} aria-pressed={speed === s}
+              className={`rounded-sm px-1 text-caption ${speed === s ? 'text-brass-hi' : 'text-fg-muted hover:text-fg'}`}
+              onClick={() => setSpeed(s)}
+            >
+              {s}×
+            </button>
+          ))}
+        </span>
         <span className="os-soft os-market items-center gap-1.5 text-caption text-fg-muted">
           <span className={`os-dot ${ready ? 'bg-gain' : 'bg-warn'}`} aria-hidden />
           <span className="os-market-text">{ready ? t('shell.market.open') : t('shell.market.reconnect')}</span>

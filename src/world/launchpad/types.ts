@@ -7,7 +7,7 @@ import type { RngState } from '@/engine';
 
 export type TokenStatus = 'live' | 'graduated' | 'dead';
 
-/** One public tape line. `who` is set only for the creator's own trades (public and flagged); everyone else is anonymous. */
+/** One public tape line: anonymous ids only, with the creator's public role flagged. */
 export interface LpTrade {
   tick: number;
   side: 'buy' | 'sell';
@@ -18,6 +18,38 @@ export interface LpTrade {
   creator: boolean;
   /** NPC retail flow, shown as anonymous flow */
   npc: boolean;
+  /** R-10-6: the notional in dollars (the outlay with the fee on a buy, the gross proceeds on a sell). Absent in an old tape: qty times price */
+  usd?: number;
+  /** R-10-6: the anonymous trader id of a player's trade (a hash of the token and the player; never the handle). Absent for NPC flow */
+  anon?: string;
+  /**
+   * The $7–$10 chatter round trip. It did trade the curve, so it stays on the tape, but it is not a last trade:
+   * counting it puts a different half of the board first on every tick. The page tape does not copy this field.
+   */
+  chatter?: boolean;
+}
+
+/**
+ * One candle on the game clock (review fix, Phase 10): [start tick of the bucket, open, high, low, close], dollars per token. The
+ * open is the previous bar's close; the high and low are the trade prices and the carried price inside the bucket.
+ */
+export type LpBar = [number, number, number, number, number];
+
+/**
+ * R-10-6 (Phase 10): one line of a token's replies thread. A player's reply is their own text (moderated, plain, up to 140 characters)
+ * under an anonymous id; the creator's replies are marked as the creator's. An NPC reply is a template key from the text layer with a
+ * fictional handle, so the viewer's language renders it.
+ */
+export interface LpReply {
+  tick: number;
+  /** the anonymous id (a player) or the fictional handle (an NPC) */
+  who: string;
+  role: 'player' | 'creator' | 'npc';
+  /** a player's text (plain, moderated) */
+  text?: string;
+  /** an NPC reply's message key (the text layer's template) and its variables */
+  key?: string;
+  vars?: Record<string, string | number>;
 }
 
 /** A FIFO lot a holder bought (for the realised P&L and the rug case): quantity and the cash paid per token. */
@@ -39,6 +71,45 @@ export interface NpcCohort {
   carry?: number;
   /** the NPC sniper's cohort (launch.ts sniperEnter): its exit sells this cohort's tokens, not the oldest cohort's (v1.2 review item 5) */
   sniper?: boolean;
+  /** which personality bought this bag. Absent means a holder (an arrival, or a snapshot from before the crowd) */
+  role?: 'hold' | 'scalp' | 'fomo' | 'news';
+}
+
+/**
+ * The crowd on one coin (crowd.ts). One story price, three cash budgets, and a seeded personality. Absent on an old token: the
+ * first tick builds it and ignores the tape already printed, so a reload does not replay history as a new signal.
+ */
+export interface CrowdState {
+  story: number;
+  /** the story from before the last jump. Faders sell against this, not against the headline */
+  fadeStory: number;
+  vwap: number;
+  high: number;
+  /** exponential average of per-tick notional, dollars */
+  volEma: number;
+  scalpCash: number;
+  fomoCash: number;
+  newsCash: number;
+  /** a delayed response to a player print. due 0 means none. The timer is not refreshed by a later clip */
+  due: number;
+  dueSide: 'buy' | 'sell';
+  dueUsd: number;
+  /** headline dollars still to drip, and the first tick a drip is allowed */
+  newsLeft: number;
+  newsNext: number;
+  /** how large a chase the faders are currently leaning against, dollars, decaying */
+  chaseUsd: number;
+  seen: string[];
+  /** tape index already read */
+  tapeAt: number;
+  /** fraction of a holder sale that did not make a whole token yet */
+  holdCarry: number;
+  /** seeded once, from lp:crowd:<ticker>, so two coins do not share a temperament */
+  band: number;
+  delay: number;
+  fear: number;
+  greed: number;
+  newsLag: number;
 }
 
 export interface LpToken {
@@ -47,6 +118,8 @@ export interface LpToken {
   name: string;
   /** one of the fixed tagline ids (no free text in V1) */
   tagline: string;
+  /** the sector this coin trades as (news of that sector pulls the crowd). Absent on an old token: derived from the tagline */
+  theme?: string;
   /** the creator's player id, or null for a world-launched (NPC) token */
   creatorId: string | null;
   createdTick: number;
@@ -68,6 +141,8 @@ export interface LpToken {
   playerTraded?: boolean;
   /** the cash the cohort paid for the tokens it holds (its cost basis) */
   npcCost: number;
+  /** the crowd's story, budgets and temperament (crowd.ts). Absent on an old token */
+  crowd?: CrowdState;
   /** L6.8 (v1.3): the NPC cohorts, oldest first. Their tokens sum to npcBal and their cost to npcCost (cohorts.ts keeps them in step;
    *  absent in a snapshot from before v1.3, when the whole holding reads as one cohort). */
   npcCohorts?: NpcCohort[];
@@ -115,10 +190,19 @@ export interface LpToken {
   realized: Record<string, number>;
   /** the cash taken by the buzz items, the launch fee is in the state's flows */
   lots: Record<string, LpLot[]>;
-  /** the public tape, newest last */
+  /** the public tape, newest last. Economic: readPrints, the trade bar and the candles read this. */
   tape: LpTrade[];
-  /** sampled price history: [tick, price] */
-  chart: [number, number][];
+  /**
+   * Display prints for the trades table, replaced every tick. Not orders: they are not on `tape`, so they do not arm
+   * FOMO, move the story, or enter a candle. Absent on an old save, and cleared once the coin is no longer live.
+   */
+  wall?: LpTrade[];
+  /** the candles on the game clock: tick bars (one tick, 5 real seconds at 1×), minute bars (CHART_EVERY ticks) and hour
+   *  bars (TPD ticks), newest last. Absent in an old token: barsOf reads its chart samples as flat bars. `s` is absent until
+   *  the next trade or carry writes it. */
+  bars?: { m: LpBar[]; h: LpBar[]; s?: LpBar[] };
+  /** the price samples of the first Phase 5 to Phase 10 saves, [tick, price]. Read only (barsOf); no new sample is written here */
+  chart?: [number, number][];
   /** volume of the current game day and the last whole game day (dollars of notional) */
   volToday: number;
   volPrev: number;
@@ -129,6 +213,20 @@ export interface LpToken {
   flows: { npcBuy: number; npcSell: number; playerBuy: number; playerSell: number; fee: number };
   /** a rug case filed on this token (the holders' suits), by player id */
   sued: Record<string, string>;
+  /** R-10-6: the generated image variant the creator picked (0 to ART_VARIANTS - 1). Absent in an old token: variant 0 */
+  art?: number;
+  /** R-10-6: the description the creator wrote (plain text, at most 140 characters, moderated). Absent in an old token */
+  description?: string;
+  /** R-10-6: the replies thread, newest last (the last REPLY_KEEP are kept). Absent in an old token: none */
+  replies?: LpReply[];
+  /** R-10-6: the tick of each player's last reply on this token (the one-a-minute brake). Absent: no reply yet */
+  replyLast?: Record<string, number>;
+  /** R-10-6: the tick of the last NPC reply (the five-minute gap). Absent: none yet */
+  npcReplyAt?: number;
+  /** review fix (Phase 10): the replies ever posted on the token (the thread keeps only REPLY_KEEP). Absent: the thread's length */
+  replyCount?: number;
+  /** review fix (Phase 10): the tick of the last trade by a player or the creator (the NPC replies need one in the window). Absent: none */
+  playerTradeAt?: number;
 }
 
 export interface LaunchpadState {

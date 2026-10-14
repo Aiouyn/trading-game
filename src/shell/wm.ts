@@ -495,10 +495,10 @@ function nextBrokerId(wins: Win[]): string {
 /**
  * Finds or creates the window an app and its props name. Does not focus or switch workspace;
  * callers do that. Rules (F:55, C-12, C-02, C-27):
- *   Broker: same ticker focuses that Broker. Otherwise a new one (up to 4). At the cap a fresh
- *           open (New Broker, Shift+Enter) is refused, so no other window changes. A plain open at
- *           the cap lets the least-recently-focused Broker (bottom-most) take the ticker. No ticker:
- *           no change.
+ *   Broker: same ticker focuses that Broker. A plain open of a new ticker replaces the chart the
+ *           player is looking at (the top-most open Broker on this workspace). It does not open a
+ *           window. A fresh open (New Broker, Shift+Enter, Alt+N) opens a window, up to 4, and
+ *           refuses a fifth so no other window changes. No brokers yet: the first open creates one.
  *   Research: one window per file id. A file id is required.
  *   Second Portfolio (Review only, and only once its journal view is built: apps.ts READY_VIEWS):
  *           id portfolio-2, at most two Portfolio windows.
@@ -528,19 +528,22 @@ function acquire(state: ShellState, app: AppId, props: WinProps, role: 'user' | 
       if (hit) return { ok: true, wins, id: hit.id, created: false };
     }
     const brokers = wins.filter((w) => w.app === 'broker');
-    if (brokers.length < MAX_BROKERS) {
+    // A fresh window never retargets another one: the user asked for a new window, so the cap refuses it.
+    if (fresh || brokers.length === 0) {
+      if (brokers.length >= MAX_BROKERS) return failAcq('instance');
       const id = nextBrokerId(wins);
       wins.push(newWin(state, id, 'broker', props));
       return { ok: true, wins, id, created: true };
     }
-    // A fresh window never retargets another one: the user asked for a new window, so the cap refuses it.
-    if (fresh) return failAcq('instance');
-    const lru = brokers[0]!;
+    // A plain open changes the chart in front of the player. The watchlist focuses its window first,
+    // so that Broker is the top-most open one here. A buried chart is left alone.
+    const here = (w: Win) => w.app === 'broker' && w.ws === state.activeWs && w.state === 'open';
+    const target = [...wins].reverse().find(here) ?? [...wins].reverse().find((w) => w.app === 'broker')!;
     if (props.ticker !== undefined) {
-      const i = wins.findIndex((w) => w.id === lru.id);
+      const i = wins.findIndex((w) => w.id === target.id);
       wins[i] = { ...wins[i]!, props: { ticker: props.ticker } };
     }
-    return { ok: true, wins, id: lru.id, created: false };
+    return { ok: true, wins, id: target.id, created: false };
   }
 
   if (app === 'research') {

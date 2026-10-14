@@ -22,6 +22,8 @@ export function pointsToPlace(kind: DrawingKind): number | 'stroke' {
 
 /** The default candle span of a new position tool, in ticks (the target and stop handles start at its far end). */
 export const POSITION_SPAN_TICKS = 60;
+/** How many local candles a new position tool spans when the chart knows the last candle's width. */
+export const POSITION_BARS = 12;
 /** The default distances of a new position tool, as a share of its entry: the target and the stop. */
 export const POSITION_TARGET_SHARE = 0.02;
 export const POSITION_STOP_SHARE = 0.01;
@@ -30,12 +32,36 @@ export const POSITION_STOP_SHARE = 0.01;
  * The points of a new position tool placed at `entry` on tick `t`: the entry, then the target and the stop at the far end of the
  * span (points[1] and points[2] share the extent's tick, which the extent handle moves).
  */
-export function positionPoints(direction: 'long' | 'short', t: number, entry: number): DrawingPoint[] {
+export function positionPoints(direction: 'long' | 'short', t: number, entry: number, span = POSITION_SPAN_TICKS): DrawingPoint[] {
   const long = direction === 'long';
   const target = entry * (long ? 1 + POSITION_TARGET_SHARE : 1 - POSITION_TARGET_SHARE);
   const stop = entry * (long ? 1 - POSITION_STOP_SHARE : 1 + POSITION_STOP_SHARE);
-  const end = t + POSITION_SPAN_TICKS;
+  const end = t + Math.max(1, span);
   return [{ t, p: entry }, { t: end, p: target }, { t: end, p: stop }];
+}
+
+/**
+ * The tick span of a new position tool: a dozen of the last candle's widths, so the box is a few bars on a 1-minute chart
+ * and a few bars on a daily chart. With no candle width, the fixed default span is used.
+ */
+export function positionSpanTicks(bars: { time: number }[]): number {
+  if (bars.length < 2) return POSITION_SPAN_TICKS;
+  const width = bars[bars.length - 1]!.time - bars[bars.length - 2]!.time;
+  return Math.max(1, Math.round((width > 0 ? width : 1) * POSITION_BARS));
+}
+
+/**
+ * A pixel map through two samples one logical index apart. Lightweight Charts returns 0 for a non-integer index, so a
+ * fractional index (a tick between two candles, or a drawing past the last candle) has to ride this line instead.
+ */
+export function logicalPixelScale(x0: number, x1: number): { toX: (logical: number) => number; toLogical: (x: number) => number } | null {
+  if (!Number.isFinite(x0) || !Number.isFinite(x1)) return null;
+  const d = x1 - x0;
+  if (d === 0) return null;
+  return {
+    toX: (logical) => x0 + logical * d,
+    toLogical: (x) => (x - x0) / d,
+  };
 }
 
 /** The position tool's direction, from its kind. */
@@ -56,6 +82,20 @@ export function positionValid(d: Pick<ChartDrawing, 'kind' | 'points'>): boolean
   const l = positionLevels(d);
   const dir = directionOf(d);
   return !!l && !!dir && sidesValid(dir, l.entry, l.stop, l.target);
+}
+
+/**
+ * A market entry uses the live mid as its placement reference, preserving the drawn distances. The actual fill happens on the
+ * next auction tick and includes execution costs. Round all sent levels alike so sizing, the preview and the bracket agree.
+ */
+export function placementLevels(
+  lv: { entry: number; target: number; stop: number },
+  type: 'market' | 'limit' | 'stop',
+  mid: number,
+): { entry: number; target: number; stop: number; shift: number } {
+  const shift = type === 'market' && Number.isFinite(mid) && mid > 0 ? mid - lv.entry : 0;
+  const round = (p: number) => Number(p.toPrecision(7));
+  return { entry: round(lv.entry + shift), target: round(lv.target + shift), stop: round(lv.stop + shift), shift };
 }
 
 /**

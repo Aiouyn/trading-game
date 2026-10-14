@@ -4,6 +4,7 @@ import { LEDGER } from '../src/content/learning';
 import { ghostSeries } from '../src/world/ghosts';
 import { applyCommand, createGame, stepGame } from '../src/world/game';
 import { flagNpcAccounts } from '../src/world/players';
+import { seedRetail } from '../src/world/retail';
 import { migrateShops } from '../src/world/shops';
 import { BOARD_EVERY } from '../src/world/core';
 import type { Command, CommandResult, GameState, StepOutput } from '../src/world/types';
@@ -119,6 +120,8 @@ export class WorldHost {
           this.snapshot();
         }
       }
+      // after the replay, so the gap since the snapshot still matches the save. The next live ticks are the ones they trade.
+      seedRetail(this.g);
       this.log(`world loaded at tick ${this.g.market.tick} (${Object.keys(this.g.players).length} players, replayed ${cmds.length} commands)`);
     } else {
       this.log(`creating world "${this.opts.seed}" with ${this.opts.warmupDays} days of history…`);
@@ -133,6 +136,8 @@ export class WorldHost {
           this.recordTick();
         },
       });
+      // after warmup. The warmup itself steps the engine only, so these accounts do not trade into the history.
+      seedRetail(this.g);
       this.recordTick();
       this.snapshot();
       this.log(`world created at tick ${this.g.market.tick}`);
@@ -230,6 +235,19 @@ export class WorldHost {
 
   tickMs(): number {
     return this.opts.tickMs;
+  }
+
+  /**
+   * Changes how long the world waits between ticks and restarts the current wait, so a speed button takes effect
+   * on the next tick instead of after the old interval. Pause stays paused.
+   */
+  setTickMs(ms: number): void {
+    if (!(ms > 0) || !Number.isFinite(ms)) return;
+    this.opts.tickMs = ms;
+    if (this.paused || !this.timer || !this.loopFn) return;
+    clearTimeout(this.timer);
+    this.nextAt = Date.now() + ms;
+    this.timer = setTimeout(this.loopFn, ms);
   }
 
   /** The tick times over the last hour: how many ticks, and the 50th and 99th percentile in ms (null before a tick). */

@@ -12,17 +12,23 @@ const LEET: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '
  * `tokens` are the words; `joined` is them concatenated (so "Doge Coin" and "dogecoin" compare equal).
  */
 export function normalizeName(raw: string): { tokens: string[]; joined: string } {
-  const folded = raw.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase();
+  const folded = raw.normalize('NFD').replace(/[\p{M}\p{Cf}]+/gu, '').toLowerCase();
   let mapped = '';
   for (const ch of folded) mapped += LEET[ch] ?? ch;
   const tokens = mapped.split(/[^a-z]+/).filter((t) => t.length > 0);
   return { tokens, joined: tokens.join('') };
 }
 
-/** Plainly abusive words (a blocklist: slurs and abuse). Matched as a whole token, or inside the joined word when six letters or more. */
+/**
+ * Plainly abusive words (a blocklist: slurs, abuse and common profanity; review fix, Phase 10 added the profanity). Matched as a whole
+ * token, or inside the joined word when six letters or more.
+ */
 export const ABUSE_TERMS: readonly string[] = [
   'nigger', 'nigga', 'faggot', 'retard', 'kike', 'spic', 'chink', 'tranny', 'nazi', 'hitler', 'kkk', 'rapist', 'pedo',
   'killyourself', 'kys',
+  'fuck', 'fucker', 'fuckers', 'fucking', 'fucked', 'motherfucker', 'shit', 'shitty', 'shitcoin', 'shitcoins', 'bullshit',
+  'bitch', 'bitches', 'asshole', 'assholes', 'cunt', 'dickhead', 'dumbass',
+  'putain', 'merde', 'connard', 'connards', 'connasse', 'connasses', 'encule', 'encules', 'salope', 'salopes', 'foutre',
 ];
 
 /** Real cryptocurrency names and tickers (the lists in L2: BTC, ETH, SOL, DOGE, SHIB, PEPE, BONK and their names). */
@@ -58,10 +64,10 @@ export interface ModerationResult {
 /** Whether a normalised name matches a list: a whole token, or the joined word equals the term or contains a long term. */
 function matchIn(n: { tokens: string[]; joined: string }, terms: readonly string[]): string | null {
   for (const term of terms) {
-    // a run of up to three whole tokens ("Ap-ple" reads as "apple"), or the joined word equal to the term
+    // Whole tokens, including a letter-by-letter spelling ("f u c k"), or the joined word equal to the term.
     for (let i = 0; i < n.tokens.length; i++) {
       let run = '';
-      for (let j = i; j < Math.min(n.tokens.length, i + 3); j++) {
+      for (let j = i; j < Math.min(n.tokens.length, i + term.length); j++) {
         run += n.tokens[j]!;
         if (run === term) return term;
       }
@@ -97,4 +103,59 @@ export function tickerFormatOk(raw: string): boolean {
 export function nameFormatOk(raw: string): boolean {
   const s = raw.trim();
   return s.length >= 3 && s.length <= 24 && /^[\p{L}\p{N} .'-]+$/u.test(s);
+}
+
+/** R-10-6 (Phase 10): why a piece of free text (a description, a reply) is refused. */
+export type TextRefusal = 'empty' | 'long' | 'link' | 'abuse';
+
+/**
+ * A link on a token thread is a scam vector, so no link goes through (review fix, Phase 10). Three shapes are refused:
+ *   - a scheme or a www prefix (http://, hxxp://, www.);
+ *   - a host with a path under ANY top-level domain ("bit.ly/x", "pump.fun/x", "dapp.dev/mint", "linktr.ee/x", "a.b.zz/q");
+ *   - a bare host under a common domain or a link shortener ("pump.fun", "t.co", "bit.ly").
+ * A defanged host ("pump[.]fun", "pump(.)fun", "pump[dot]fun") is read with its dot first.
+ *
+ * Review item 2 (Phase 10): the spelled-out forms are refused too: "pump dot fun", "pump . fun", "dexscreener .com", "buy at pumpfun
+ * com", "telegram t me slash moon", and a contact handle with a platform name ("telegram: @moonclub"). The spaced forms are read only
+ * before a known top-level domain (or, for a space instead of a dot, only before com, io and xyz), so ordinary words such as
+ * "Moon. Win big", "have fun" or "my net worth" stay clean. A dot followed by a space is also refused for known link hosts.
+ * Ambiguous plain words such as "pump fun" remain plain text; arbitrary sentences separated by a full stop are not links.
+ */
+const TLD = '(?:com|net|org|io|xyz|gg|me|app|finance|click|site|fun|dev|ly|gl|co|cc|ee|link|live|pro|info|biz|tech|shop|store|online|world|space|cloud|tv|ai|eth|sol|bio|page|vip|win|bet|top|pw|tk|ml|ga|cf|gq|xxx|crypto|nft|exchange|trade|bot|city|land|one|sh|fi|bid|cash|zone)';
+const SCHEME_RE = /\b(?:hxxps?|https?|ftp):\/\/|\bwww\./i;
+const HOST_PATH_RE = /(?:^|[^\w@./-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?\/\S/i;
+const BARE_HOST_RE = new RegExp(`(?:^|[^\\w@./-])[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.${TLD}(?![a-z0-9-])`, 'i');
+const SHORTENER_RE = /(?:^|[^\w@./-])(?:bit\.ly|t\.co|goo\.gl|tinyurl\.com|is\.gd|cutt\.ly|rb\.gy|linktr\.ee|tiny\.cc|ow\.ly|buff\.ly|rebrand\.ly|shorturl\.at)(?![a-z0-9-])/i;
+const CONTACT_RE = /\b(?:telegram|tg|discord|whatsapp|signal|wechat)\b\s*(?:[:=]\s*\S{3,}|@[a-z0-9_]{3,})/i;
+/** A spelled-out dot ("pump dot fun", "pump . fun") before a top-level domain. */
+const SPACED_DOT_RE = new RegExp(`([a-z0-9-])\\s+(?:dot|\\.)\\s*(?=${TLD}(?![a-z0-9-]))`, 'gi');
+/** A space instead of a dot before com, io or xyz ("pumpfun com"). */
+const SPACE_TLD_RE = /([a-z0-9-]{3,})\s+(?=(?:com|io|xyz)(?![a-z0-9-]))/gi;
+/** Known link hosts with a space after the dot; does not turn "Moon. Win big" into a host. */
+const KNOWN_SPACED_HOST_RE = /\b(pump|dexscreener|bit|t|linktr|tinyurl|discord|telegram)\.\s+(?=(?:fun|com|ly|co|ee|gg|me|org)(?![a-z0-9-]))/gi;
+
+/** True when the text carries a link in one of the shapes above. */
+export function hasLink(text: string): boolean {
+  let read = text.normalize('NFKC')
+    .replace(/\p{Cf}+/gu, '')
+    .replace(/\s*[\[(]\s*(?:\.|dot)\s*[\])]\s*/gi, '.')
+    .replace(KNOWN_SPACED_HOST_RE, '$1.')
+    .replace(/\bt\s+me\b/gi, 't.me')
+    .replace(/\s+slash\s+/gi, '/');
+  read = read.replace(SPACED_DOT_RE, '$1.').replace(SPACE_TLD_RE, '$1.');
+  return SCHEME_RE.test(read) || HOST_PATH_RE.test(read) || BARE_HOST_RE.test(read) || SHORTENER_RE.test(read) || CONTACT_RE.test(read);
+}
+
+/**
+ * The moderator's check of free text a player writes on a token (a description, a reply). The text is plain: whitespace is
+ * collapsed and trimmed, and the length counts characters (code points), so an accented or emoji character is one character. A link
+ * and an abusive word are refused with the same blocklist as a name (ABUSE_TERMS). Returns the cleaned text, or the refusal.
+ */
+export function moderateText(raw: string, max: number): { ok: true; text: string } | { ok: false; reason: TextRefusal } {
+  const text = raw.replace(/\s+/g, ' ').trim();
+  if (text.length === 0) return { ok: false, reason: 'empty' };
+  if ([...text].length > max) return { ok: false, reason: 'long' };
+  if (hasLink(text)) return { ok: false, reason: 'link' };
+  if (matchIn(normalizeName(text), ABUSE_TERMS)) return { ok: false, reason: 'abuse' };
+  return { ok: true, text };
 }

@@ -22,8 +22,8 @@ export const LP = {
   CREATOR_CAP: 100_000_000,
   /** trading fee on notional, each way (L3), split half to the creator and half to a sink */
   FEE_RATE: 0.01,
-  /** the launch fee, a booked sink (L2) */
-  LAUNCH_FEE: 1_000,
+  /** the launch fee, a booked sink (L2). R-10-6 (Phase 10): $100, down from $1,000; the lead re-runs the held-out launchpad gate */
+  LAUNCH_FEE: 100,
   /** the graduation fee on the raised cash, a booked sink (L4) */
   GRAD_FEE_RATE: 0.015,
   /** the ticket's default maximum slippage (L3) */
@@ -85,6 +85,29 @@ export const LP = {
   TAPE_KEEP: 80,
   /** a feed shows at most this many tokens */
   FEED_KEEP: 60,
+  /** R-10-6 (Phase 10): the description and a reply are at most this many characters (plain text, moderated) */
+  DESC_MAX: 140,
+  REPLY_MAX: 140,
+  /** the replies a token keeps (newest last) */
+  REPLY_KEEP: 60,
+  /** a player may reply once a real minute on a token (12 ticks): the one spam brake the world needs */
+  REPLY_COOLDOWN_TICKS: 12,
+  /** NPC replies: at most one a token every this many ticks (five real minutes), and only while the token traded in the window */
+  NPC_REPLY_GAP_TICKS: 60,
+  NPC_REPLY_WINDOW_TICKS: 60,
+  NPC_REPLY_ODDS: 0.2,
+  /** the generated image: the creator picks one of this many variants at launch (no uploads) */
+  ART_VARIANTS: 4,
+  /** the holder distribution on a token page: the top this many rows (the curve, the dev and the NPC cohort are rows too) */
+  HOLDERS_SHOWN: 20,
+  /** the live trades bar: the newest this many trades across tokens */
+  TRADE_BAR: 28,
+  /** the candles a token keeps (review fix, Phase 10): one bar per tick (5 real seconds at 1×), the minute bars (one real
+   *  minute each, CHART_EVERY ticks) and the hour bars (one game day each, TPD ticks). A tick with no trade carries the last
+   *  price flat; trades set the high and the low. The tick series is the last real hour. */
+  BAR_TICKS: 720,
+  BAR_MINUTES: 240,
+  BAR_HOURS: 24,
 } as const;
 
 /** the curve's constant product k = X0 * Y0 */
@@ -139,6 +162,58 @@ export const NPC = {
   /** the tail exponent floor of the viral and launch-buzz laws (L6.6: Pareto alpha >= 2.2, or a lognormal) */
   TAIL_ALPHA_MIN: 2.2,
 } as const;
+
+/**
+ * The launch-coin crowd (personalities on top of the arrival rule). Arrivals still buy in the tick they arrive. Everything else is
+ * these caps. A discretionary buy is at most IMPACT_CAP of the virtual cash, which is under the 2% round trip, so a player who buys
+ * to be copied, or sells into the copy, loses the fee. Sells may be a little larger (SELL_CAP) so a red tape is visible. The cash
+ * budgets refill slowly and never rise above the cap: fear and greed spend the budget, they do not create it.
+ */
+export const CROWD = {
+  /** the story price decays toward the curve floor with this half-life, in game days */
+  STORY_HALF_DAYS: 0.5,
+  /** the price faders still believe eases toward the new story with this half-life */
+  FADE_HALF_DAYS: 0.35,
+  /** a story above the floor by this fraction is alive: holders keep the bag. At the floor they abandon it */
+  STORY_ALIVE: 1.02,
+  /** once the story has died, the holder bag halves in this many game days */
+  ABANDON_HALF_DAYS: 1,
+  /** a holder sitting far above what they paid sells this share of that bag per tick, before the sell cap */
+  TAKE_SHARE: 0.04,
+  /** recent-high memory, as a half-life in game days */
+  HIGH_HALF_DAYS: 0.5,
+  /** cash each active type may still spend, and the most a scalper spends on one tick (kept under the print floor) */
+  SCALP_BUDGET: 300,
+  SCALP_TICK: 25,
+  FOMO_BUDGET: 700,
+  NEWS_BUDGET: 500,
+  /** dollars added back to each budget every tick, up to the cap */
+  REFILL: 0.04,
+  /** a print smaller than this, or smaller than PRINT_MULT times recent volume, is not a signal */
+  PRINT_FLOOR: 50,
+  PRINT_MULT: 2.5,
+  /** a chase is this fraction of the player print, then cut by the impact cap */
+  FOMO_FRAC: 0.3,
+  /** faders sell this fraction of the chase they are leaning against */
+  FADE_RATIO: 0.45,
+  /** one discretionary buy may move the virtual reserve by at most this fraction */
+  IMPACT_CAP: 0.008,
+  /** one sell may move it by at most this fraction */
+  SELL_CAP: 0.012,
+  /** a matching headline is this fresh, in ticks, and lifts the story by this factor */
+  NEWS_WINDOW: 180,
+  NEWS_LIFT: 1.15,
+  /** dollars one headline may unlock, before the impact cap drips them out */
+  BURST: 260,
+  /** a headline with no sector (a macro line, a bubble) spends this instead, on every theme */
+  WORLD_BURST: 80,
+  /** extra buzz on an NPC launch that is tagged to a live headline (demand is this times DEMAND_PER_BUZZ) */
+  LAUNCH_BUZZ: 0.35,
+  /** a crash or a halt cuts the story's premium by this factor */
+  SCARE_DROP: 0.72,
+  /** wire ids a token remembers, so a headline is bought once */
+  SEEN_KEEP: 16,
+};
 
 /** the half-life decay per tick of each buzz part */
 export const BUZZ_DECAY = {

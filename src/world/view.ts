@@ -26,7 +26,7 @@ import { launchpadView, type LaunchpadView } from './launchpad/view';
 import { sixdView, type SixdView } from './sixd';
 import type {
   Alliance, BoardRow, Boards, Business, ChatMessage, ConnectionEntry, CourtCase, CyberOp, Deal, GameState, InboxItem,
-  LabState, Player, Property, WireItem,
+  LabState, MarketPrint, Player, Property, WireItem,
 } from './types';
 
 /**
@@ -100,6 +100,11 @@ export interface MarketFrame {
    * welcome and on the tick that closed a new day (server/wire.ts DepthWire). Absent on other ticks and before the first close.
    */
   depth?: DepthFrame;
+  /**
+   * Recent NPC prints, assets in config order and each name oldest first. Omitted when nobody has traded.
+   * A human fill is never here.
+   */
+  tape?: MarketPrint[];
 }
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -145,11 +150,26 @@ export function marketFrame(g: GameState, withEarnings = false, withDefs = false
     } : null,
     worldEvent: worldEventFrame(m),
   };
+  const tape = tapeForFrame(g);
+  if (tape.length) frame.tape = tape;
   if (withEarnings) {
     frame.lastEarnings = {};
     m.assets.forEach((a, i) => { if (a.lastEarnings) frame.lastEarnings![m.config.assets[i]!.id] = a.lastEarnings; });
   }
   return frame;
+}
+
+/** NPC prints for the public frame. Config order, then oldest first, so the JSON does not depend on object key order. */
+function tapeForFrame(g: GameState): MarketPrint[] {
+  const tape = g.marketTape;
+  if (!tape) return [];
+  const out: MarketPrint[] = [];
+  for (const a of g.market.config.assets) {
+    const rows = tape[a.id];
+    if (!rows) continue;
+    for (const row of rows) out.push(row);
+  }
+  return out;
 }
 
 /**

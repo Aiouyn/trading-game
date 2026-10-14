@@ -7,11 +7,12 @@
  * drawing stays on its candle when the view moves, and the magnet snaps a point to the candle's OHLC.
  */
 import { useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
+import { placeSelectedPosition } from './useDrawingKeys';
 import type { Bar } from '@/game/history';
 import type { ChartDrawing, DrawingColor, DrawingPoint } from '@/world/drawings';
 import { t } from '@/i18n';
 import { price as fmtPrice, signedPct } from '@/game/format';
-import { barAt, changePct, extendLine, fibPrices, handlesOf, magnetPrice, movePoint, pointsToPlace, positionExtentIndices, positionLevels, positionPoints, shiftDrawing } from './geometry';
+import { barAt, changePct, extendLine, fibPrices, handlesOf, magnetPrice, movePoint, pointsToPlace, positionExtentIndices, positionLevels, positionPoints, positionSpanTicks, shiftDrawing } from './geometry';
 import { newDrawingId, useDrawings, type Tool } from './drawingStore';
 
 /** How the chart maps time and price to pixels (PriceChart builds it from the chart's own scales on each render). */
@@ -95,7 +96,7 @@ export function DrawingLayer({ assetId, geo, bars, onWheel }: {
     const cur = useDrawings.getState().byAsset[assetId] ?? [];
     const id = newDrawingId(cur);
     const isPos = kind === 'long' || kind === 'short';
-    const pts = isPos ? positionPoints(kind, points[0]!.t, points[0]!.p) : points;
+    const pts = isPos ? positionPoints(kind, points[0]!.t, points[0]!.p, positionSpanTicks(bars)) : points;
     const d: ChartDrawing = { id, kind: kind as ChartDrawing['kind'], points: pts, color: 'brass', width: 2, style: 'solid' };
     liveDraft.current = null;
     setDraft(null);
@@ -231,13 +232,17 @@ export function DrawingLayer({ assetId, geo, bars, onWheel }: {
       width={geo?.width ?? 0} height={geo?.height ?? 0}
       style={{ pointerEvents: drawing ? 'auto' : 'none', cursor: drawing ? 'crosshair' : undefined, touchAction: 'none' }}
       onPointerDown={onRootDown} onPointerMove={onRootMove} onPointerUp={onRootUp}
-      onPointerCancel={() => { liveDrag.current = null; setDrag(null); liveDraft.current = null; setDraft(null); }}
+      onPointerCancel={() => {
+        const dr = liveDrag.current;
+        if (dr) useDrawings.getState().preview(assetId, dr.start);
+        liveDrag.current = null; setDrag(null); liveDraft.current = null; setDraft(null);
+      }}
       onContextMenu={(e) => { if (drawing) e.preventDefault(); }}
       onWheel={(e) => { if (drawing) onWheel?.(e.nativeEvent); }}
     >
       {geo && onScreen.map((d) => (
         <DrawingNode
-          key={d.id} d={d} geo={geo} selected={selected === d.id && !drawing}
+          key={d.id} d={d} assetId={assetId} geo={geo} selected={selected === d.id && !drawing}
           onPress={pressShape} onHandle={pressHandle}
         />
       ))}
@@ -252,12 +257,19 @@ type Press = (e: RPointerEvent<SVGElement>, d: ChartDrawing) => void;
 type HandlePress = (e: RPointerEvent<SVGElement>, d: ChartDrawing, index: number, axis: 'both' | 'price' | 'tick') => void;
 
 /** One drawing on the plot: its shape, and its handles while it is selected. */
-function DrawingNode({ d, geo, selected, onPress, onHandle }: { d: ChartDrawing; geo: ChartGeo; selected: boolean; onPress: Press; onHandle: HandlePress }) {
+function DrawingNode({ d, assetId, geo, selected, onPress, onHandle }: { d: ChartDrawing; assetId: string; geo: ChartGeo; selected: boolean; onPress: Press; onHandle: HandlePress }) {
   const px = d.points.map((p) => ({ x: geo.tickToX(p.t), y: geo.priceToY(p.p) }));
   if (px.some((p) => p.y === null)) return null;
   const pts = px as Px[];
   return (
-    <g data-testid={`drawing-${d.id}`} data-kind={d.kind} data-selected={selected || undefined} className={TONE[d.color ?? 'brass']} onPointerDown={(e) => onPress(e, d)}>
+    <g data-testid={`drawing-${d.id}`} data-kind={d.kind} data-selected={selected || undefined} className={TONE[d.color ?? 'brass']} onPointerDown={(e) => onPress(e, d)}
+      onContextMenu={(e) => {
+        if (!selected || (d.kind !== 'long' && d.kind !== 'short')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        placeSelectedPosition(e.currentTarget.closest('[data-testid="chart-card"]'), assetId, d.id);
+      }}
+    >
       {shape(d, pts, geo)}
       {selected && handles(d, pts, (e, index, axis) => onHandle(e, d, index, axis))}
     </g>
@@ -431,7 +443,10 @@ function shapeBody(d: ChartDrawing, px: Px[], geo: ChartGeo): ReactNode {
       const lv = positionLevels(d);
       if (!lv || !px[1] || !px[2]) return null;
       const x0 = a!.x;
-      const x1 = Math.max(px[1].x, x0 + 2);
+      const xFar = px[1].x;
+      const left = Math.min(x0, xFar);
+      const right = Math.max(x0, xFar);
+      const boxW = Math.max(right - left, 2);
       const yE = a!.y;
       const yT = px[1].y;
       const yS = px[2].y;
@@ -441,14 +456,14 @@ function shapeBody(d: ChartDrawing, px: Px[], geo: ChartGeo): ReactNode {
       const pct = (p: number) => signedPct(changePct(lv.entry, p) / 100);
       return (
         <g data-position={up ? 'long' : 'short'}>
-          <rect x={x0} y={profitTop} width={x1 - x0} height={Math.abs(yT - yE)} fill="currentColor" fillOpacity={0.1} className="text-gain" style={{ pointerEvents: 'all' }} />
-          <rect x={x0} y={lossTop} width={x1 - x0} height={Math.abs(yS - yE)} fill="currentColor" fillOpacity={0.1} className="text-loss" style={{ pointerEvents: 'all' }} />
-          <line x1={x0} x2={x1} y1={yE} y2={yE} {...common} strokeWidth={w} />
-          <line x1={x0} x2={x1} y1={yT} y2={yT} stroke="currentColor" strokeWidth={1} className="text-gain" />
-          <line x1={x0} x2={x1} y1={yS} y2={yS} stroke="currentColor" strokeWidth={1} className="text-loss" />
-          {label(x1 + 6, yT + 4, `${t('broker.position.target')} ${fmtPrice(lv.target)} ${pct(lv.target)}`)}
-          {label(x1 + 6, yS + 4, `${t('broker.position.stop')} ${fmtPrice(lv.stop)} ${pct(lv.stop)}`)}
-          {label(x0 + 6, yE - 6, `${t('broker.position.entry')} ${fmtPrice(lv.entry)}`)}
+          <rect x={left} y={profitTop} width={boxW} height={Math.abs(yT - yE)} fill="currentColor" fillOpacity={0.1} className="text-gain" style={{ pointerEvents: 'all' }} />
+          <rect x={left} y={lossTop} width={boxW} height={Math.abs(yS - yE)} fill="currentColor" fillOpacity={0.1} className="text-loss" style={{ pointerEvents: 'all' }} />
+          <line x1={left} x2={left + boxW} y1={yE} y2={yE} {...common} strokeWidth={w} />
+          <line x1={left} x2={left + boxW} y1={yT} y2={yT} stroke="currentColor" strokeWidth={1} className="text-gain" />
+          <line x1={left} x2={left + boxW} y1={yS} y2={yS} stroke="currentColor" strokeWidth={1} className="text-loss" />
+          {label(right + 6, yT + 4, `${t('broker.position.target')} ${fmtPrice(lv.target)} ${pct(lv.target)}`)}
+          {label(right + 6, yS + 4, `${t('broker.position.stop')} ${fmtPrice(lv.stop)} ${pct(lv.stop)}`)}
+          {label(left + 6, yE - 6, `${t('broker.position.entry')} ${fmtPrice(lv.entry)}`)}
         </g>
       );
     }

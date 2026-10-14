@@ -19,8 +19,6 @@ const MODES = [['plain', cfg], ['guard', gcfg]] as const;
 const idx = (s: WorldState, id: string) => s.config.assets.findIndex((a) => a.id === id);
 const adv = (id: string) => cfg.assets.find((a) => a.id === id)!.advNotional ?? 1e9;
 const qtyOf = (id: string, usd: number) => { const d = cfg.assets.find((a) => a.id === id)!; return d.qtyStep === 1 ? Math.floor(usd / d.initialPrice) : usd / d.initialPrice; };
-const feeMin = (s: WorldState, id: string) => { const f = tradingConfig(s).fees; return (f[s.config.assets[idx(s, id)]!.assetClass] ?? f.stock).min; };
-
 /** Tape's repro: whale A buys 5% ADV at tick 1, alt B 2% ADV at tick 2, both sell out. ['C','C'] = one account. */
 function hunt(c: WorldConfig, seed: string, id: string, exitTick: number, accts: [string, string]) {
   const qA = qtyOf(id, 0.05 * adv(id)), qB = qtyOf(id, 0.02 * adv(id));
@@ -54,15 +52,15 @@ function mainPeak(c: WorldConfig, seed: string, id: string, aUsd: number, bUsd: 
 describe('alt-lifted peak: liquidation is a share of the whole crowd exit', () => {
   for (const [name, c] of MODES) {
     for (const id of ['SYN', 'AURH']) {
-      // R-9-1c: one tally per asset, so the alt's fills pay on the whale's flow and the whale-plus-alt peak never beats one account's.
-      it(`${name} ${id}: whale + alt summed peaks never beat one account holding the same block`, { timeout: 180_000 }, () => {
+      // R-10-1: each account pays only its own temporary impact, so the pair keeps more cash than one account
+      // sending both orders. That cash raises the summed peak. It is not a higher price: the path equality is
+      // impact-tally.test.ts, and the next test checks that an alt does not lift the main account's own peak.
+      it(`${name} ${id}: two accounts lose less on the fills than one account with the same orders`, { timeout: 180_000 }, () => {
         for (const seed of ['hunt-1', 'hunt-2']) {
           for (const exitTick of [10, 721]) {
             const two = hunt(c, seed, id, exitTick, ['A', 'B']);
             const one = hunt(c, seed, id, exitTick, ['C', 'C']);
-            // tolerance: the second account's minimum fee (fees are per account) plus float noise
-            expect(two.peak).toBeLessThanOrEqual(one.peak + 2 * feeMin(createWorld('f', cfg), id) + 1e-9 * adv(id));
-            expect(two.profit).toBeLessThanOrEqual(one.profit + 1e-9 * adv(id));
+            expect(two.profit).toBeGreaterThan(one.profit);
           }
         }
       });

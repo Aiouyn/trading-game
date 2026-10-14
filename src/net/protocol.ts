@@ -28,7 +28,9 @@ export type ClientMsg =
   | { t: 'visit'; id: number; playerId: string }
   /** a public panel's data for this viewer (the boards, or the directory), read on demand (R-9-12) */
   | { t: 'panel'; id: number; panel: PublicPanel }
-  | { t: 'ping' };
+  | { t: 'ping' }
+  /** asks the world to run at one of the clock speeds (1, 4, 20, 60); the server answers with `clock` */
+  | { t: 'speed'; speed: number };
 
 export interface HistoryPayload {
   series: string;
@@ -101,7 +103,9 @@ export type ServerMsg =
   | { t: 'panel'; id: number; panel: PublicPanel; v: number; data: Boards | DirectoryRow[] | null }
   | { t: 'chat'; chat: (ChatMessage & { channel: string })[] }
   | { t: 'error'; message: string }
-  | { t: 'pong' };
+  | { t: 'pong' }
+  /** the live tick length, after a speed change and on welcome's terms */
+  | { t: 'clock'; tickMs: number };
 
 /** HTTP API (same origin as the WebSocket). */
 export interface RegisterReq { handle: string; country: string }

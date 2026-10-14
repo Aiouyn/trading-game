@@ -14,6 +14,7 @@ import { t } from '@/i18n';
 import { type ChartLevel, type PriceScale, priceOfY, roundPrice, wheelZoomRange, yOfPrice } from './chartLevels';
 import { LevelLayer } from './LevelLayer';
 import { DrawingLayer, type ChartGeo } from './chart/DrawingLayer';
+import { logicalPixelScale } from './chart/geometry';
 
 /**
  * Colors come from the design tokens at runtime: a hidden probe uses the token classes and we
@@ -58,8 +59,8 @@ function withAlpha(color: string, alpha: number): string {
 }
 
 const PRICE_MARGINS = { top: 0.08, bottom: 0.26 };
-/** the empty bars the chart keeps to the right of the newest candle (the time scale's rightOffset) */
-const RIGHT_OFFSET = 4;
+/** the empty bars the chart keeps to the right of the newest candle (room to draw past the live bar) */
+const RIGHT_OFFSET = 18;
 const VOLUME_MARGINS = { top: 0.8, bottom: 0.02 };
 
 /**
@@ -123,7 +124,15 @@ const MENU_PICKS: { kind: 'buyLimit' | 'sellStop' | 'alert'; key: string }[] = [
   { kind: 'alert', key: 'broker.menu.alert' },
 ];
 
-export function PriceChart({ assetId, range: rangeOverride, interval: intervalOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand, percent = false, log = false, onScaleMode, levels, onLevelCommit, onLevelCancel, onLevelAction, onMenuPick, drawings = false }: {
+/** The price scale of a series whose prices may be far below a cent (a curve token). Stocks stay on the library default. */
+function seriesPriceFormat(last: number): { type: 'price'; precision: number; minMove: number } {
+  const a = Math.abs(last);
+  if (!(a > 0) || a >= 1) return { type: 'price', precision: 2, minMove: 0.01 };
+  const precision = Math.min(12, Math.max(4, -Math.floor(Math.log10(a)) + 3));
+  return { type: 'price', precision, minMove: 10 ** -precision };
+}
+
+export function PriceChart({ assetId, range: rangeOverride, interval: intervalOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand, percent = false, log = false, onScaleMode, levels, onLevelCommit, onLevelCancel, onLevelAction, onMenuPick, drawings = false, candles, formatPrice }: {
   assetId: string;
   range?: ChartRange;
   interval?: Interval;
@@ -156,6 +165,10 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   onMenuPick?: (kind: 'buyLimit' | 'sellStop' | 'alert', price: number) => void;
   /** the drawing layer (the Broker chart): the player's shapes are drawn over the plot and edited there */
   drawings?: boolean;
+  /** candles from outside the engine history (a curve token). When set, the chart does not read the asset's history. */
+  candles?: Bar[];
+  /** the price labels, for a series whose prices the stock formatter would round away (a curve token) */
+  formatPrice?: (n: number) => string;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -201,6 +214,8 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   // the bars on the chart now: the range presets move the visible window over them
   const shownBars = useRef<Bar[]>([]);
   const tpd = useGame((s) => s.history.ticksPerDay);
+  const lastCandle = candles?.at(-1);
+  const candleStamp = candles ? `${candles.length}|${lastCandle?.time}|${lastCandle?.open}|${lastCandle?.high}|${lastCandle?.low}|${lastCandle?.close}` : '';
 
   // the event window: from the first bar at or after the onset to the right edge; it follows zoom and scroll
   useEffect(() => {
@@ -228,7 +243,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       layout: { background: { type: ColorType.Solid, color: p.bg }, textColor: p.text, fontFamily: p.font, fontSize: 11, attributionLogo: false, panes: { separatorColor: p.grid } },
       grid: { vertLines: { color: p.grid }, horzLines: { color: p.grid } },
       rightPriceScale: { borderVisible: false, scaleMargins: PRICE_MARGINS },
-      timeScale: { borderVisible: false, rightOffset: 4, timeVisible: true, secondsVisible: false },
+      timeScale: { borderVisible: false, rightOffset: RIGHT_OFFSET, timeVisible: true, secondsVisible: false },
       crosshair: { mode: CrosshairMode.Normal, vertLine: { color: p.cross, labelBackgroundColor: p.grid }, horzLine: { color: p.cross, labelBackgroundColor: p.grid } },
       localization: { priceFormatter: (v: number) => fmtPrice(v) },
       handleScale: { ...SCALE_GESTURES },
@@ -320,9 +335,9 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     if (!c) return;
     const scaleMode = percent ? PriceScaleMode.Percentage : log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal;
     c.priceScale('right').applyOptions({ mode: scaleMode });
-    c.applyOptions({ localization: { priceFormatter: (v: number) => (percent ? `${dec(v, 2)}%` : fmtPrice(v)) } });
+    c.applyOptions({ localization: { priceFormatter: (v: number) => (percent ? `${dec(v, 2)}%` : (formatPrice ? formatPrice(v) : fmtPrice(v))) } });
     probe.current();
-  }, [percent, log]);
+  }, [percent, log, formatPrice]);
 
   // the crosshair readout: the candle under the pointer, and its change against the range's first open
   useEffect(() => {
@@ -384,7 +399,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     c.timeScale().setVisibleLogicalRange({ from: start - 0.5, to: n - 1 + RIGHT_OFFSET });
   };
   useEffect(() => {
-    if (!series) viewPreset();
+    if (!series && !candles) viewPreset();
   }, [range, interval]); // eslint-disable-line react-hooks/exhaustive-deps -- the preset is read from the range and the bars it was set on
 
   useEffect(() => {
@@ -439,14 +454,29 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       return;
     }
     const h = useGame.getState().history;
-    const bars: Bar[] = barsFor(h, assetId, interval);
+    const bars: Bar[] = candles ?? barsFor(h, assetId, interval);
     shownBars.current = bars;
-    if (bars.length === 0) return;
+    if (bars.length === 0) {
+      if (candles) {
+        cs.setData([]);
+        ls.setData([]);
+        as.setData([]);
+        volS.current?.setData([]);
+        last.current = { key: `candles|${assetId}|empty`, len: 0 };
+      }
+      return;
+    }
+    if (formatPrice) {
+      const spec = seriesPriceFormat(bars[bars.length - 1]!.close);
+      cs.applyOptions({ priceFormat: spec });
+      ls.applyOptions({ priceFormat: spec });
+      as.applyOptions({ priceFormat: spec });
+    }
     baseOpen.current = bars[0]!.open;
     const vs = volS.current;
     const hasVolume = bars[bars.length - 1]!.volume !== undefined;
     const volPoint = (b: Bar) => ({ time: toTime(b.time), value: b.volume ?? 0, color: b.close >= b.open ? volColors.current.up : volColors.current.down });
-    const key = `${assetId}|${interval}|${loaded}`;
+    const key = candles ? `candles|${assetId}|${interval}` : `${assetId}|${interval}|${loaded}`;
     const studyData = (): Partial<Record<LineKey, number[]>> => {
       const d: Partial<Record<LineKey, number[]>> = {};
       if (lines.current.sma20) d.sma20 = sma(bars, 20);
@@ -468,7 +498,8 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       for (const [k, vals] of Object.entries(studyData()) as [LineKey, number[]][]) {
         lines.current[k]?.setData(bars.map((b, i) => (Number.isFinite(vals[i]) ? { time: toTime(b.time), value: vals[i]! } : { time: toTime(b.time) })));
       }
-      viewPreset();
+      if (candles) chart.current?.timeScale().setVisibleLogicalRange({ from: Math.max(-0.5, bars.length - 90), to: bars.length - 1 + RIGHT_OFFSET });
+      else viewPreset();
       last.current = { key, len: bars.length };
     } else {
       const lb = bars[bars.length - 1]!;
@@ -486,7 +517,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     const ids = (Object.keys(indicators) as IndicatorId[]).filter((id) => indicators[id] && studies);
     const vals = latestValues(bars, ids, h.ticksPerDay);
     setLegend(ids.map((id) => ({ id, label: INDICATORS.find((i) => i.id === id)?.label ?? id, value: legendText(id, vals[id]) })));
-  }, [assetId, interval, rev, loaded, series, testId, indicators, studies]); // eslint-disable-line react-hooks/exhaustive-deps -- viewPreset reads the range it is set on each render
+  }, [assetId, interval, rev, loaded, series, testId, indicators, studies, candleStamp, formatPrice]); // eslint-disable-line react-hooks/exhaustive-deps -- viewPreset reads the range it is set on each render; candleStamp stands for `candles`
 
   // The marks are redrawn when their text or prices change (keyed by value, so a caller need not memoize them). The palette
   // loss colour reads the chart host.
@@ -517,9 +548,10 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     return s ? priceOfY(scaleOf(s), y) : null;
   };
   /**
-   * The chart's own scales as the drawing layer maps them. Time goes through the candles' logical index (a tick between two
-   * candles lies between their indexes, and a tick past the last candle extends at the average candle spacing), so a drawing
-   * stays on its tick when the candle size changes. Price goes through the series' scale.
+   * The chart's own scales as the drawing layer maps them. Time goes through the candles' logical index. A tick between two
+   * candles lies between their indexes, and a tick past the last candle extends at that candle's own width (not the average,
+   * which a short last session bar would stretch). The library only converts integer indexes, so the pixel map is the line
+   * through logical 0 and logical 1. Price goes through the series' scale.
    */
   const geoOf = (): ChartGeo | null => {
     const c = chart.current;
@@ -528,10 +560,16 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     if (!c || !sr || bars.length === 0) return null;
     const ts = c.timeScale();
     const n = bars.length;
-    const step = n > 1 ? (bars[n - 1]!.time - bars[0]!.time) / (n - 1) || 1 : 1;
+    const gap = (i: number): number => {
+      if (n < 2) return 1;
+      const d = bars[i + 1]!.time - bars[i]!.time;
+      return d > 0 ? d : 1;
+    };
+    const stepBefore = gap(0);
+    const stepAfter = gap(n - 2);
     const tickToLogical = (tk: number): number => {
-      if (tk <= bars[0]!.time) return (tk - bars[0]!.time) / step;
-      if (tk >= bars[n - 1]!.time) return n - 1 + (tk - bars[n - 1]!.time) / step;
+      if (tk <= bars[0]!.time) return (tk - bars[0]!.time) / stepBefore;
+      if (tk >= bars[n - 1]!.time) return n - 1 + (tk - bars[n - 1]!.time) / stepAfter;
       let lo = 0;
       let hi = n - 1;
       while (hi - lo > 1) {
@@ -543,21 +581,21 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       return lo + (b > a ? (tk - a) / (b - a) : 0);
     };
     const logicalToTick = (l: number): number => {
-      if (l <= 0) return bars[0]!.time + l * step;
-      if (l >= n - 1) return bars[n - 1]!.time + (l - (n - 1)) * step;
+      if (l <= 0) return bars[0]!.time + l * stepBefore;
+      if (l >= n - 1) return bars[n - 1]!.time + (l - (n - 1)) * stepAfter;
       const i = Math.floor(l);
       const a = bars[i]!.time;
-      const b = bars[i + 1]!.time;
+      const b = bars[Math.min(i + 1, n - 1)]!.time;
       return a + (l - i) * (b - a);
     };
+    const x0 = ts.logicalToCoordinate(0 as Logical);
+    const x1 = ts.logicalToCoordinate(1 as Logical);
+    const scale = x0 === null || x1 === null ? null : logicalPixelScale(Number(x0), Number(x1));
     return {
       width: ts.width(),
       height: c.paneSize().height,
-      tickToX: (tk) => Number(ts.logicalToCoordinate(tickToLogical(tk) as Logical) ?? 0),
-      xToTick: (x) => {
-        const l = ts.coordinateToLogical(x as Coordinate);
-        return logicalToTick(l === null ? 0 : Number(l));
-      },
+      tickToX: (tk) => (scale ? scale.toX(tickToLogical(tk)) : 0),
+      xToTick: (x) => logicalToTick(scale ? scale.toLogical(x) : 0),
       priceToY: (pr) => { const y = sr.priceToCoordinate(pr); return y === null ? null : Number(y); },
       yToPrice: (y) => sr.coordinateToPrice(y as Coordinate),
     };

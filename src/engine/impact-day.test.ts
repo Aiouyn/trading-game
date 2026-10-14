@@ -5,10 +5,10 @@ import { halfSpread, impact, IMPACT_HALF_LIFE, marginalImpact, openAccount, plac
 import type { WorldState } from './types';
 
 /**
- * R-9-1c (Phase 9 rulings, lead-phase9.md; amends R-9-1b): temporary impact runs on the asset's SHARED impact tally, a
- * same-direction notional per asset over all flow at each fill's pre-trade mid, decayed by half every IMPACT_HALF_LIFE (360) ticks. There is
- * no calendar-day reset: the tally is a rolling window, so a fill pays the marginal of C(n) = n · impact(n) on what the
- * account's earlier fills still hold. These pin the rule on OSTV with 24 ticks a game day.
+ * R-10-1 (supersedes the temporary half of R-9-1c): a fill pays the marginal of C(n) = n · impact(n) on that account's
+ * own same-side notional, decayed by half every IMPACT_HALF_LIFE (360) ticks. There is no calendar-day reset. Another
+ * account's flow is not in the price. The asset's shared tally still takes every fill, and the permanent move still
+ * reads it. These pin the rule on OSTV with 24 ticks a game day.
  */
 const cfg = defaultConfig({ ticksPerDay: 24 });
 const idx = (s: WorldState, id: string) => s.config.assets.findIndex((a) => a.id === id);
@@ -28,7 +28,7 @@ function run(s: WorldState, n: number, orders: Record<number, { playerId: string
   return { state: cur, fills };
 }
 
-describe('R-9-1c: temporary impact is charged on the asset\'s shared rolling tally', () => {
+describe('R-10-1: temporary impact is the account\'s own rolling memory', () => {
   it('a second fill pays the marginal curve on its earlier fill, decayed to the second fill\'s tick', () => {
     const s = openAccount(createWorld('own-two', cfg), 'A', 1e7);
     const i = idx(s, 'OSTV');
@@ -46,16 +46,42 @@ describe('R-9-1c: temporary impact is charged on the asset\'s shared rolling tal
     expect(expectImp).toBeGreaterThan(impact(st, i, x));
   });
 
-  it('another account pays on the first account\'s flow: the tally is shared per asset, not per account', () => {
+  it('another account pays only its own impact: the first account\'s flow is not a hidden cost (R-10-1)', () => {
     const s = openAccount(openAccount(createWorld('own-b', cfg), 'A', 1e7), 'B', 1e7);
     const i = idx(s, 'OSTV');
     const r = run(s, 6, { 0: { playerId: 'A', qty: 3000 }, 4: { playerId: 'B', qty: 3000 } });
     const a = r.fills[0]!;
     const b = r.fills.find((f) => f.playerId === 'B')!;
     expect(b.tick).toBeGreaterThan(a.tick);
-    const before = a.qty * a.mid * Math.pow(0.5, (b.tick - a.tick) / IMPACT_HALF_LIFE);
-    expect(b.price / b.mid).toBeCloseTo(1 + halfSpread(b.state, i) + marginalImpact(b.state, i, before, b.qty * b.mid), 10);
-    expect(b.price / b.mid).toBeGreaterThan(1 + halfSpread(b.state, i) + impact(b.state, i, b.qty * b.mid));
+    const x = b.qty * b.mid;
+    expect(b.price / b.mid).toBeCloseTo(1 + halfSpread(b.state, i) + impact(b.state, i, x), 10);
+    // A's flow is still on the shared tally, which is what moves the mid. It is not in B's fill.
+    const crowd = a.qty * a.mid * Math.pow(0.5, (b.tick - a.tick) / IMPACT_HALF_LIFE);
+    expect(marginalImpact(b.state, i, crowd, x)).toBeGreaterThan(impact(b.state, i, x));
+    expect(b.state.assets[i]!.impactTally!.buy).toBeGreaterThan(crowd);
+    expect(b.state.accounts.B!.ownImpact?.OSTV?.buy).toBeCloseTo(x, 4);
+    expect(b.state.accounts.A!.ownImpact?.OSTV?.buy).toBeGreaterThan(0);
+  });
+
+  it('a small buy ignores a large crowd tally and pays its own impact (R-10-1)', () => {
+    let s = openAccount(createWorld('crowd-ignore', cfg), 'p', 1e7);
+    const i = idx(s, 'OSTV');
+    const assets = s.assets.slice();
+    assets[i] = { ...assets[i]!, impactTally: { tick: s.tick, buy: 200e6, sell: 240e6 } };
+    s = { ...s, assets };
+    const qty = 200;
+    s = placeOrder(s, { playerId: 'p', assetId: 'OSTV', side: 'buy', type: 'market', qty }).state;
+    // the tick moves the mid before the fill; a copy with the order removed is that pre-trade mid
+    const pre = step({ ...s, orders: [] }).state;
+    const r = step(s);
+    const m = Math.exp(pre.assets[i]!.lnP);
+    const own = impact(pre, i, qty * m);
+    const crowd = marginalImpact(pre, i, 200e6, qty * m);
+    expect(crowd).toBeGreaterThan(own * 10);
+    const want = m * (1 + halfSpread(pre, i) + own);
+    expect(Math.abs(r.fills[0]!.price - want) / want).toBeLessThan(1e-12);
+    const overQuoteBps = (r.fills[0]!.price / (m * (1 + halfSpread(pre, i))) - 1) * 1e4;
+    expect(overQuoteBps).toBeLessThan(3);
   });
 
   it('no calendar-day reset: the second fill one tick into the next game day still pays on the decayed first fill', () => {

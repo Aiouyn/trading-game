@@ -198,7 +198,7 @@ export function applyNamedLayout(name: 'trade' | 'review' | 'research' | string,
   }
 }
 
-/** Runs a launcher command (P2-077). Pause and speed need a clock control the world does not have yet. */
+/** Runs a launcher command (P2-077). Speed is the status strip; pause is still not wired. */
 export function runCommand(cmd: 'trade' | 'review' | 'research' | 'focus' | 'new-broker', ticker: string): void {
   if (cmd === 'focus') {
     dispatchWm({ type: 'toggleFocusMode' });
@@ -251,18 +251,12 @@ export function openApp(app: AppId, props: WinProps = {}, opts: OpenOpts = {}): 
     notify(t('shell.ticker.unknown', { ticker: props.ticker }), 'warn');
     p = { ticker: useGame.getState().selected };
   }
-  // At the Broker cap a plain open of a new ticker hands the least-recently-focused Broker that ticker. That
-  // window is not the one the player is in, so the change is announced.
-  const brokers = useShell.getState().shell.wins.filter((w) => w.app === 'broker');
-  const retargets = app === 'broker' && opts.fresh !== true && p.ticker !== undefined
-    && brokers.length >= MAX_BROKERS && !brokers.some((w) => w.props.ticker === p.ticker);
   const r = dispatchWm({ type: 'open', app, props: p, fresh: opts.fresh === true });
   if (!r.ok) {
     const text = app === 'broker' && r.reason === 'instance' ? t('broker.cap', { n: MAX_BROKERS }) : refusalText(r.reason);
     if (text) notify(text, 'warn');
     return;
   }
-  if (retargets) notify(t('broker.cap.retarget', { n: MAX_BROKERS, ticker: p.ticker! }), 'info');
   const id = focusedId(r.state);
   const w = r.state.wins.find((x) => x.id === id);
   if (w !== undefined) noteRecent({ app: w.app, ticker: w.props.ticker });

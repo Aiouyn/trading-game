@@ -2,7 +2,7 @@
 
 import { earningsInfo, estimateFill, liquidationPrice, REGIONS, type OrderType, type Side } from '@/engine';
 import { sectorLabel } from '@/game/sectorLabel';
-import { CHART_RANGES, INTERVALS, candleRealSeconds, type ChartRange, type Interval } from '@/game/history';
+import { CHART_RANGES, INTERVALS, MAX_DAILY_BARS, RING_DAYS, candleRealSeconds, isIntraday, type ChartRange, type Interval } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
 import { fmtNumber, money, pctUnit, price, qty as fmtQty, signedChange, signedMoney, signedPct, tone, toneText, dec } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
@@ -166,7 +166,8 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const drawAsset = info.id;
   const [hover, setHover] = useState(false);
   const [focus, setFocus] = useState(false);
-  useDrawingKeys(drawAsset, hover || focus);
+  const chartRoot = useRef<HTMLElement>(null);
+  useDrawingKeys(drawAsset, hover || focus, chartRoot);
   const drawingsUndo = useDrawings((s) => (s.past[drawAsset]?.length ?? 0) > 0);
   const drawingsRedo = useDrawings((s) => (s.future[drawAsset]?.length ?? 0) > 0);
   useEffect(() => { void useDrawings.getState().load(drawAsset); }, [drawAsset]);
@@ -187,6 +188,9 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
         value={interval} onChange={(v) => setInterval(v as Interval)}
       />
       <span className="num text-caption text-fg-faint" data-testid="candle-real">{t('broker.chart.candleReal', { candle: candleName, real: realText })}</span>
+      {isIntraday(interval) && (
+        <span className="text-caption text-fg-faint" data-testid="intraday-limit">{t('broker.chart.intradayLimit', { days: RING_DAYS, daily: MAX_DAILY_BARS })}</span>
+      )}
     </div>
   );
   const rangeSeg = (
@@ -205,7 +209,7 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   );
   return (
     <section
-      className="flex h-full min-h-0 flex-col" data-testid="chart-card"
+      ref={chartRoot} className="flex h-full min-h-0 flex-col" data-testid="chart-card"
       onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}
       onFocus={() => setFocus(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocus(false); }}
     >

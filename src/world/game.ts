@@ -36,6 +36,7 @@ import { adminSeedInquiry, ecaDay, ecaEvents, ecaFills, noteOrderPlaced } from '
 import { adminSeedTip, controlledQty, tipsDay } from './tips';
 import { collusionDay, noteFills } from './collusion';
 import { npcTick, seedNpcs } from './npc';
+import { recordNpcTape, retailTick } from './retail';
 import { shockPrice } from '@/engine/sim';
 import { ensureLedger, ledgerTick, recordOptionTrade } from './ledger';
 import { closeDay, recordDayClose } from './close';
@@ -140,6 +141,8 @@ export function stepGame(g: GameState): StepOutput {
 
   newsFromEvents(g, r.events, out);
   for (const f of r.fills) out.fills.push({ playerId: f.playerId, assetId: f.assetId, side: f.side, qty: f.qty, price: f.price, fee: f.fee, orderId: f.orderId });
+  // the broker tape names NPC fills only. A human fill stays on that player's own blotter.
+  recordNpcTape(g, r.fills);
   ledgerTick(g, r.events, r.fills);
   fundsFills(g, r.fills, out);
   // the collusion graph (fills only feed the mirror score), then the ECA's pre-announcement window (eca.ts)
@@ -228,6 +231,7 @@ export function stepGame(g: GameState): StepOutput {
   }
   planTick(g, out);
   npcTick(g, (gg, pid, cmd) => applyCommand(gg, pid, cmd, out));
+  retailTick(g);
   lpTick(g, out);
   comebackTick(g, out);
   auctionTick(g, out);
@@ -288,7 +292,9 @@ const STREAK_ACTIONS = new Set<Command['type']>([
  * drawings is the same as one before drawings existed.
  */
 function saveDrawings(g: GameState, p: Player, assetId: string, input: unknown): CommandResult {
-  const known = g.market.config.assets.some((a) => a.id === assetId && a.listed !== false) || g.market.config.indices.some((x) => x.id === assetId);
+  const known = g.market.config.assets.some((a) => a.id === assetId && a.listed !== false)
+    || g.market.config.indices.some((x) => x.id === assetId)
+    || !!g.launchpad?.tokens[assetId];
   if (!known) return fail('unknown asset');
   const r = sanitizeDrawings(input);
   if (!r.ok) return fail(r.error);
@@ -544,6 +550,7 @@ function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOut
     case 'lp.buy':
     case 'lp.sell':
     case 'lp.buzz':
+    case 'lp.reply':
     case 'lp.cancel':
     case 'lp.file': return launchpadCommand(g, pid, cmd, out) ?? fail('unknown command');
     case 'ad.start': return startBreak(g, pid);

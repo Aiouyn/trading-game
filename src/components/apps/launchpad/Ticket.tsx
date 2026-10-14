@@ -32,12 +32,16 @@ interface Preview {
   figures: Figures | null;
 }
 
-/** A fraction as a percent with one decimal: the world's wording for a slippage refusal. */
-const oneDp = (f: number) => `${dec(f * 100, 1)}%`;
+/** R-10-6: the quick buy amounts in dollars (the chips), and the sell fractions (the chips). */
+const QUICK_BUYS = [10, 50, 100, 500] as const;
+
+/** The slippage the fill would have: two decimals (the setting itself is shown as typed). */
+const fillSlip = (f: number) => `${dec(f * 100, 2)}%`;
 
 /** A dead token takes no buys (the world refuses them), so its ticket is sell-only: the curve still pays sellers. */
-export function Ticket({ page, held, locked, dead = false }: { page: LpPage; held: number; locked: number; dead?: boolean }) {
+export function Ticket({ page, held, locked, dead = false, onDone }: { page: LpPage; held: number; locked: number; dead?: boolean; onDone?: () => void }) {
   const act = useGame((s) => s.act);
+  const cash = useGame((s) => s.me?.account?.cash ?? 0);
   const [side, setSide] = useState<Side>(dead ? 'sell' : 'buy');
   const [spend, setSpend] = useState('100');
   const [sell, setSell] = useState('');
@@ -52,8 +56,8 @@ export function Ticket({ page, held, locked, dead = false }: { page: LpPage; hel
   const slipValid = Number.isFinite(slip) && slip > 0 && slip <= 0.5;
   const available = Math.max(0, held - locked);
   const pre = side === 'buy'
-    ? buyPreview(y, ticker, spend, slip, slipValid)
-    : sellPreview(y, ticker, sell, slip, slipValid, held, locked, page.vesting.endDay);
+    ? buyPreview(y, ticker, spend, slip, slipValid, slipText)
+    : sellPreview(y, ticker, sell, slip, slipValid, held, locked, page.vesting.endDay, slipText);
   const inputsKey = [side, spend, sell, slipText].join('|');
   const refusal = pre.refusal ?? (sentRefusal && sentRefusal.key === inputsKey ? sentRefusal.copy : null);
 
@@ -68,6 +72,7 @@ export function Ticket({ page, held, locked, dead = false }: { page: LpPage; hel
         const d = (r.data ?? {}) as { tokens?: number };
         setSent(t('lp.ticket.sent.buy', { tokens: fmtTokens(d.tokens ?? 0), ticker }));
         setSpend('100');
+        onDone?.();
       } else setSentRefusal({ key: inputsKey, copy: refusalOf(r.data, r.error ? undefined : 'unknown') });
       return;
     }
@@ -78,6 +83,7 @@ export function Ticket({ page, held, locked, dead = false }: { page: LpPage; hel
       const d = (r.data ?? {}) as { netCents?: number };
       setSent(t('lp.ticket.sent.sell', { tokens: fmtTokens(n), ticker, amount: money((d.netCents ?? 0) / 100) }));
       setSell('');
+      onDone?.();
     } else setSentRefusal({ key: inputsKey, copy: refusalOf(r.data, r.error ? undefined : 'unknown') });
   };
 
@@ -99,12 +105,20 @@ export function Ticket({ page, held, locked, dead = false }: { page: LpPage; hel
       </div>
 
       {side === 'buy' && !dead ? (
-        <NumberField value={spend} onChange={setSpend} label={t('lp.ticket.spend')} suffix="$" min={0} step={1} testId="lp-spend" />
+        <div className="flex flex-col gap-2">
+          <NumberField value={spend} onChange={setSpend} label={t('lp.ticket.spend')} suffix="$" min={0} step={1} testId="lp-spend" />
+          <div className="flex flex-wrap items-center gap-2" data-testid="lp-quick">
+            {QUICK_BUYS.map((d) => (
+              <Button key={d} size="sm" variant="quiet" testId={`lp-quick-${d}`} onClick={() => setSpend(String(d))}>{money(d)}</Button>
+            ))}
+            <Button size="sm" variant="quiet" testId="lp-quick-max" onClick={() => setSpend(String(Math.floor(cash * 100) / 100))}>{t('lp.ticket.max')}</Button>
+          </div>
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
           <NumberField value={sell} onChange={setSell} label={t('lp.ticket.tokens')} suffix={t('lp.ticket.tokensSuffix')} min={0} step={1} testId="lp-sell-qty" />
           <div className="flex flex-wrap items-center gap-2">
-            {[0.25, 0.5, 1].map((f) => (
+            {[0.25, 0.5, 0.75, 1].map((f) => (
               <Button key={f} size="sm" variant="quiet" testId={`lp-sell-${f * 100}`} onClick={() => setSell(String(Math.floor(available * f)))}>
                 {f === 1 ? t('lp.ticket.max') : pct(f)}
               </Button>
@@ -140,13 +154,13 @@ export function Ticket({ page, held, locked, dead = false }: { page: LpPage; hel
   );
 }
 
-function buyPreview(y: number, ticker: string, spendText: string, slip: number, slipValid: boolean): Preview {
+function buyPreview(y: number, ticker: string, spendText: string, slip: number, slipValid: boolean, slipText: string): Preview {
   if (!slipValid) return { refusal: refusalCopy('maxSlip'), figures: null };
   const cents = centsFromDollars(spendText);
   if (cents === null) return { refusal: refusalCopy('zero', { ticker }), figures: null };
   const q = quoteBuy(y, cents);
   if (!q.ok) return { refusal: refusalCopy(q.code, { ticker }), figures: null };
-  if (q.slippage > slip) return { refusal: refusalCopy('slippage', { slip: oneDp(q.slippage), max: oneDp(slip) }), figures: null };
+  if (q.slippage > slip) return { refusal: refusalCopy('slippage', { slip: fillSlip(q.slippage), max: `${slipText}%` }), figures: null };
   return {
     refusal: null,
     figures: {
@@ -157,7 +171,7 @@ function buyPreview(y: number, ticker: string, spendText: string, slip: number, 
 }
 
 function sellPreview(
-  y: number, ticker: string, text: string, slip: number, slipValid: boolean, held: number, locked: number, endDay: number | null,
+  y: number, ticker: string, text: string, slip: number, slipValid: boolean, held: number, locked: number, endDay: number | null, slipText: string,
 ): Preview {
   if (!slipValid) return { refusal: refusalCopy('maxSlip'), figures: null };
   const n = Number(text);
@@ -170,7 +184,7 @@ function sellPreview(
   }
   const q = quoteSell(y, n);
   if (!q.ok) return { refusal: refusalCopy(q.code === 'tooLarge' ? 'tooLarge' : 'zero', { ticker }), figures: null };
-  if (q.slippage > slip) return { refusal: refusalCopy('slippage', { slip: oneDp(q.slippage), max: oneDp(slip) }), figures: null };
+  if (q.slippage > slip) return { refusal: refusalCopy('slippage', { slip: fillSlip(q.slippage), max: `${slipText}%` }), figures: null };
   return {
     refusal: null,
     figures: {

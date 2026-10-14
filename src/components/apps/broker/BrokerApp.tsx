@@ -3,11 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { OpenOrders } from '@/components/Holdings';
 import { LowCashCard } from '@/components/comeback/LowCashCard';
-import { notify, openApp, useShell } from '@/components/os/shellStore';
+import { openApp } from '@/components/os/shellStore';
 import { Button, Card } from '@/components/ui';
 import { knownSeries, useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { MAX_BROKERS } from '@/shell/apps';
 import { brokerView, type Size } from '@/shell/geometry';
 import { AssetPanel } from './AssetPanel';
 import { BrokerDock, type DockTab } from './BrokerDock';
@@ -63,14 +62,9 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
     );
   }
   const view = brokerView(size);
-  // Picking a row opens that ticker in a Broker, or focuses the Broker that already has it. At the cap a new
-  // ticker is refused with a notice: no other window is retargeted.
+  // Picking a row changes this chart, or focuses the Broker that already shows the ticker. A new window is the
+  // explicit New Window button, not a symbol change.
   const pick = (id: string) => {
-    const brokers = useShell.getState().shell.wins.filter((w) => w.app === 'broker');
-    if (brokers.length >= MAX_BROKERS && !brokers.some((w) => w.props.ticker === id)) {
-      notify(t('broker.cap', { n: MAX_BROKERS }), 'warn');
-      return;
-    }
     openApp('broker', { ticker: id }, { focus: true });
   };
   const toggleChain = () => setChain((c) => !c);

@@ -22,7 +22,7 @@ test.describe('window rules', () => {
     expect(await brokerCount(page)).toBe(4);
   });
 
-  test('@wm_broker_cap a plain open of another ticker at the cap retargets the least recently used Broker', async ({ page }) => {
+  test('@wm_broker_cap a plain open of another ticker changes the focused chart and does not open a fifth', async ({ page }) => {
     onlyIn(...DESKTOPS);
     await boot(page);
     for (let i = 0; i < 3; i++) await newBroker(page);
@@ -34,8 +34,8 @@ test.describe('window rules', () => {
     expect(other).not.toBeNull();
     await launcher(page, other!);
     await page.getByTestId('os-launcher-list').getByRole('option').filter({ hasText: other! }).first().click();
-    await expect(page.getByTestId('os-toasts')).toContainText('least recently used');
     expect(await brokerCount(page)).toBe(4);
+    await expect(page.getByTestId('os-toasts')).not.toContainText('least recently used');
   });
 
   test('@wm_one_file_one_window a research file opens one window, and a second open focuses it', async ({ page }) => {

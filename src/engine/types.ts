@@ -330,10 +330,10 @@ export interface AssetState {
    */
   dayTraded?: DayTraded;
   /**
-   * The asset's shared impact tally (R-9-1c, Phase 9 rulings): the notional of ALL flow on this asset per side (every account's
-   * fills and the pools' closing flow) at each flow's pre-trade mid, decayed by half every IMPACT_HALF_LIFE (360) ticks, with no
-   * calendar-day reset. Temporary and permanent impact are charged on the marginal of this running total, so a window of clips
-   * costs what one order of the same total costs, at any start tick, and N accounts share one tally. Absent = nothing traded.
+   * The asset's shared impact tally (R-9-1c for the permanent move, R-10-1 for who pays the temporary charge): the notional of
+   * ALL flow on this asset per side (every account's fills and the pools' closing flow) at each flow's pre-trade mid, decayed by
+   * half every IMPACT_HALF_LIFE (360) ticks, with no calendar-day reset. The permanent move is the marginal of this total, so
+   * other accounts' flow moves the mid. Temporary impact is not charged on it (that is Account.ownImpact). Absent = nothing traded.
    */
   impactTally?: ImpactTally;
   /**
@@ -609,6 +609,11 @@ export interface Account {
   marginCallTick?: number;
   /** an NPC persona's account: its flow clears as Retail and never counts toward Players or You (P1). Absent = a human. */
   npc?: boolean;
+  /**
+   * This account's own temporary-impact memory (R-10-1), per asset. Same half-life as the asset's shared tally, but only
+   * this account's fills. Other accounts' flow moves the mid and is not a cost on this fill. Absent = nothing filled yet.
+   */
+  ownImpact?: Record<string, ImpactTally>;
 }
 
 /** One asset's same-direction notional (both sides), stamped at the tick it was last updated (R-9-1c). */

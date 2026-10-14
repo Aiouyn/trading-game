@@ -31,6 +31,8 @@ import type { ChatMessage } from '../src/world/types';
 const PORT = Number(process.env.PORT ?? DEFAULT_WORLD_PORT);
 const DATA_DIR = process.env.DATA_DIR ?? './world-data';
 const TICK_MS = Number(process.env.TICK_MS ?? 5000);
+/** Status-strip speeds (src/game/clock.ts SPEEDS). The env default stays 5000 so load tests and e2e keep their own tick. */
+const SPEEDS = [1, 4, 20, 60];
 const WARMUP_DAYS = Number(process.env.WARMUP_DAYS ?? 63);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const MAX_MSG = 16 * 1024;
@@ -298,7 +300,7 @@ wss.on('connection', (ws) => {
         if (textEnricher.enabled) c.textSeq = textEnricher.version();
         // the welcome carries the boards and the directory at its tick (the frame's tick is their stamp, R-9-12)
         ws.send(welcomeJson({
-          playerId: acct.id, tickMs: TICK_MS, frameJson: shared.frameJson, defsJson: listWire.defsJson(host.g),
+          playerId: acct.id, tickMs: host.tickMs(), frameJson: shared.frameJson, defsJson: listWire.defsJson(host.g),
           meJson: JSON.stringify(playerView(host.g, acct.id)), pubJson: shared.pubJson, directoryJson: dir,
           chatJson: JSON.stringify(chatFor(host.g, acct.id)), serverTime: Date.now(),
           ...(textEnricher.enabled ? { textOverlayJson: JSON.stringify(textEnricher.overlay()) } : {}),
@@ -365,6 +367,13 @@ wss.on('connection', (ws) => {
       }
       case 'ping':
         return send(ws, { t: 'pong' });
+      case 'speed': {
+        if (!c.pid || !SPEEDS.includes(msg.speed)) return;
+        host.setTickMs(5000 / msg.speed);
+        const clock: ServerMsg = { t: 'clock', tickMs: host.tickMs() };
+        for (const o of conns) send(o.ws, clock);
+        return;
+      }
     }
   });
   ws.on('close', () => {

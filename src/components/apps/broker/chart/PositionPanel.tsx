@@ -11,15 +11,17 @@ import { buyingPower, estimateFill, type OrderType, type Side } from '@/engine';
 import { useGame } from '@/game/store';
 import { fmtNumber, money, pctUnit, price as fmtPrice, signedMoney } from '@/game/format';
 import { t } from '@/i18n';
-import type { ChartDrawing } from '@/world/drawings';
+import type { ChartDrawing, DrawingPoint } from '@/world/drawings';
 import { changeRefusal } from '../ticketMath';
 import { seriesInfo } from '../seriesInfo';
-import { positionLevels, positionValid } from './geometry';
+import { placementLevels, positionLevels, positionValid } from './geometry';
 import { riskOf, riskPctOf, riskUsdOf, type Direction } from './risk';
 import { useDrawings } from './drawingStore';
 
 /** The default risk when the position has none yet: 1% of equity (the retail rule of thumb). */
 export const DEFAULT_RISK_PCT = 1;
+/** One-click risk sizes. The fields stay editable; these only fill them. */
+const RISK_PRESETS = [1, 2, 5, 10] as const;
 
 /** How the entry is sent: at the market, or a limit or stop order at the entry price. */
 export type EntryType = 'market' | 'limit' | 'stop';
@@ -34,6 +36,7 @@ export function PositionPanel({ assetId, drawing, onPlaced }: { assetId: string;
   const act = useGame((s) => s.act);
   const [entry, setEntry] = useState<EntryType>('market');
   const [busy, setBusy] = useState(false);
+  const [costs, setCosts] = useState(false);
   // the last refusal the engine gave the placement, shown under the button until the next attempt
   const [refusal, setRefusal] = useState<string | null>(null);
   const lv = positionLevels(drawing);
@@ -43,6 +46,8 @@ export function PositionPanel({ assetId, drawing, onPlaced }: { assetId: string;
   const equity = me?.player.netWorth ?? 0;
   const pos = drawing.position ?? { riskUsd: riskUsdOf(DEFAULT_RISK_PCT, equity), riskPct: DEFAULT_RISK_PCT };
   if (!lv) return null;
+  // Preview the same levels and size that placement sends, including the live market-entry cap.
+  const at = placementLevels(lv, entry, mid);
 
   const side: Side = dir === 'long' ? 'buy' : 'sell';
   const spreadBps = def?.spreadBps ?? 10;
@@ -54,12 +59,12 @@ export function PositionPanel({ assetId, drawing, onPlaced }: { assetId: string;
   const qtyStep = def?.qtyStep ?? 1;
   // the buying power caps the size: a position the account cannot pay for is sized down, not sent to be refused
   const bp = world && playerId ? buyingPower(world, playerId) : 0;
-  const maxQty = lv.entry > 0 ? bp / lv.entry : 0;
-  const base = { direction: dir, entry: lv.entry, stop: lv.stop, target: lv.target, equity, riskUsd: pos.riskUsd, spreadBps, qtyStep, maxQty } as const;
+  const maxQty = at.entry > 0 ? bp / at.entry : 0;
+  const base = { direction: dir, entry: at.entry, stop: at.stop, target: at.target, equity, riskUsd: pos.riskUsd, spreadBps, qtyStep, maxQty } as const;
   const provisional = riskOf({ ...base, feePerLeg: 0 });
   const r = riskOf({ ...base, feePerLeg: feeFor(provisional.qty) });
-  const capped = provisional.qty > 0 && r.qty < floorQtyOf(dir, pos.riskUsd, lv, spreadBps, qtyStep);
-  const valid = positionValid(drawing);
+  const capped = r.qty < floorQtyOf(dir, pos.riskUsd, at, spreadBps, qtyStep);
+  const valid = positionValid(drawing) && r.valid;
 
   /** The risk is one of two synced fields: a dollar edit sets the percent, and a percent edit the dollars. */
   const setRisk = (patch: { riskUsd: number } | { riskPct: number }) => {
@@ -69,24 +74,39 @@ export function PositionPanel({ assetId, drawing, onPlaced }: { assetId: string;
     st.commit(assetId, (st.byAsset[assetId] ?? []).map((x) => (x.id === drawing.id ? { ...x, position: { riskUsd, riskPct, feePerUnit: r.qty > 0 ? r.fees / 2 / r.qty : 0 } } : x)));
   };
 
-  /** Places the position: a market, limit or stop entry for the quantity, with the target and the stop as the bracket. */
+  /**
+   * Places the position: a market, limit or stop entry for the quantity, with the target and the stop as the bracket. A market entry
+   * moves the drawing to the live mid first (same distances), so the orders are the prices the drawing shows; the move is kept only
+   * when the engine accepts the order.
+   */
   const place = async () => {
     if (!valid || r.qty <= 0 || busy) return;
-    const price = roundTick(lv.entry);
     const type: OrderType = entry === 'market' ? 'market' : entry === 'limit' ? 'limit' : 'stop';
-    const shift = entry === 'market' && mid > 0 ? mid - lv.entry : 0;
+    const qty = r.qty;
+    const price = at.entry;
     const order = {
-      assetId, side, type, qty: r.qty, tif: 'gtc' as const,
+      assetId, side, type, qty, tif: 'gtc' as const,
       ...(type === 'limit' ? { limitPrice: price } : {}),
       ...(type === 'stop' ? { stopPrice: price } : {}),
-      takeProfit: roundTick(lv.target + shift), stopLoss: roundTick(lv.stop + shift),
+      takeProfit: at.target, stopLoss: at.stop,
     };
     setBusy(true);
-    const res = await act({ type: 'order.place', order }, { silent: true });
-    setBusy(false);
+    let res;
+    try {
+      res = await act({ type: 'order.place', order }, { silent: true });
+    } catch {
+      res = { ok: false, error: 'offline' };
+    } finally {
+      setBusy(false);
+    }
     if (res.ok) {
       setRefusal(null);
-      useGame.getState().toast({ tone: 'info', text: t('broker.position.placed', { ticker: assetId, qty: fmtNumber(r.qty, 0, 4) }) });
+      if (drawing.points.some((pt, i) => i < 3 && pt.p !== [at.entry, at.target, at.stop][i])) {
+        const st = useDrawings.getState();
+        const moved = (st.byAsset[assetId] ?? []).map((x) => (x.id === drawing.id ? { ...x, points: movedPoints(x.points, at) } : x));
+        st.commit(assetId, moved);
+      }
+      useGame.getState().toast({ tone: 'info', text: t('broker.position.placed', { ticker: assetId, qty: fmtNumber(qty, 0, 4) }) });
       onPlaced?.();
     } else {
       const c = changeRefusal(res.error ?? '', side, canShort);
@@ -97,9 +117,19 @@ export function PositionPanel({ assetId, drawing, onPlaced }: { assetId: string;
   };
 
   const why = !valid ? t('broker.position.badSides') : r.qty <= 0 ? t('broker.position.noQty') : null;
-  const pct = (p: number) => `${fmtNumber(((p / lv.entry) - 1) * 100, 2, 2)}${pctUnit()}`;
+  const pct = (p: number) => `${fmtNumber(((p / at.entry) - 1) * 100, 2, 2)}${pctUnit()}`;
   return (
-    <div className="space-y-1.5" data-testid="position-panel" data-direction={dir}>
+    <div className="space-y-1.5" data-testid="position-panel" data-direction={dir} data-asset-id={assetId} data-drawing-id={drawing.id}>
+      <div className="flex gap-1" role="group" aria-label={t('broker.position.presets')}>
+        {RISK_PRESETS.map((n) => (
+          <button
+            key={n} type="button" data-testid={`position-risk-preset-${n}`} onClick={() => setRisk({ riskPct: n })}
+            className={`h-6 flex-1 rounded-sm border text-micro ${Math.abs(pos.riskPct - n) < 0.05 ? 'border-brass/60 text-brass-hi' : 'border-ink-3 text-fg-muted hover:text-fg'}`}
+          >
+            {n}%
+          </button>
+        ))}
+      </div>
       <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-caption">
         <label className="text-fg-faint">
           {t('broker.position.riskUsd')}
@@ -120,14 +150,9 @@ export function PositionPanel({ assetId, drawing, onPlaced }: { assetId: string;
       </div>
       <dl className="num grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-caption">
         <dt className="text-fg-faint">{t('broker.position.qty')}</dt><dd data-testid="position-qty" className="text-fg">{fmtNumber(r.qty, 0, 4)}</dd>
-        <dt className="text-fg-faint">{t('broker.position.entry')}</dt><dd className="text-fg">{fmtPrice(lv.entry)}</dd>
-        <dt className="text-fg-faint">{t('broker.position.target')}</dt><dd className="text-gain" data-testid="position-target">{fmtPrice(lv.target)} <span className="text-fg-faint">{pct(lv.target)}</span></dd>
-        <dt className="text-fg-faint">{t('broker.position.stop')}</dt><dd className="text-loss" data-testid="position-stop">{fmtPrice(lv.stop)} <span className="text-fg-faint">{pct(lv.stop)}</span></dd>
-        <dt className="text-fg-faint">{t('broker.position.rr')}</dt><dd data-testid="position-rr" className="text-fg">{fmtNumber(r.rr, 0, 2)}</dd>
-        <dt className="text-fg-faint">{t('broker.position.spread')}</dt><dd className="text-fg-muted">{money(r.spreadCost)}</dd>
-        <dt className="text-fg-faint">{t('broker.position.fees')}</dt><dd className="text-fg-muted">{money(r.fees)}</dd>
-        <dt className="text-fg-faint">{t('broker.position.netTarget')}</dt><dd data-testid="position-net-target" className={r.netAtTarget >= 0 ? 'text-gain' : 'text-loss'}>{signedMoney(r.netAtTarget)}</dd>
-        <dt className="text-fg-faint">{t('broker.position.netStop')}</dt><dd data-testid="position-net-stop" className={r.netAtStop >= 0 ? 'text-gain' : 'text-loss'}>{signedMoney(r.netAtStop)}</dd>
+        <dt className="text-fg-faint">{t('broker.position.entry')}</dt><dd className="text-fg">{fmtPrice(at.entry)}</dd>
+        <dt className="text-fg-faint">{t('broker.position.target')}</dt><dd className="text-gain" data-testid="position-target">{fmtPrice(at.target)} <span className="text-fg-faint">{pct(at.target)}</span></dd>
+        <dt className="text-fg-faint">{t('broker.position.stop')}</dt><dd className="text-loss" data-testid="position-stop">{fmtPrice(at.stop)} <span className="text-fg-faint">{pct(at.stop)}</span></dd>
       </dl>
       <div role="radiogroup" aria-label={t('broker.position.entryType')} className="flex gap-1">
         {(['market', 'limit', 'stop'] as const).map((k) => (
@@ -145,8 +170,30 @@ export function PositionPanel({ assetId, drawing, onPlaced }: { assetId: string;
       >
         {t(dir === 'long' ? 'broker.position.placeLong' : 'broker.position.placeShort', { type: t(`broker.position.entry.${entry}`) })}
       </button>
+      <button
+        type="button" data-testid="position-costs" aria-expanded={costs} onClick={() => setCosts((v) => !v)}
+        className="text-micro text-fg-faint hover:text-fg"
+      >
+        {t('broker.position.costs')}
+      </button>
+      {costs && (
+        <dl className="num grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-caption">
+          <dt className="text-fg-faint">{t('broker.position.rr')}</dt><dd data-testid="position-rr" className="text-fg">{fmtNumber(r.rr, 0, 2)}</dd>
+          <dt className="text-fg-faint">{t('broker.position.spread')}</dt><dd className="text-fg-muted">{money(r.spreadCost)}</dd>
+          <dt className="text-fg-faint">{t('broker.position.fees')}</dt><dd className="text-fg-muted">{money(r.fees)}</dd>
+          <dt className="text-fg-faint">{t('broker.position.netTarget')}</dt><dd data-testid="position-net-target" className={r.netAtTarget >= 0 ? 'text-gain' : 'text-loss'}>{signedMoney(r.netAtTarget)}</dd>
+          <dt className="text-fg-faint">{t('broker.position.netStop')}</dt><dd data-testid="position-net-stop" className={r.netAtStop >= 0 ? 'text-gain' : 'text-loss'}>{signedMoney(r.netAtStop)}</dd>
+        </dl>
+      )}
       {why && <p className="text-micro text-fg-faint" data-testid="position-why">{why}</p>}
-      {capped && <p className="text-micro text-fg-faint" data-testid="position-capped">{t('broker.position.capped')}</p>}
+      {capped && (
+        <p className="text-micro text-fg-faint" data-testid="position-capped">
+          {t('broker.position.capped')}{' '}
+          <span data-testid="position-real-risk" className="num text-fg-muted">
+            {t('broker.position.realised', { usd: money(r.riskUsd), pct: `${fmtNumber(r.riskPct, 0, 2)}${pctUnit()}` })}
+          </span>
+        </p>
+      )}
       {entry === 'market' && mid > 0 && Math.abs(mid - lv.entry) > 1e-9 && (
         <p className="text-micro text-fg-faint" data-testid="position-shift">{t('broker.position.shifted', { price: fmtPrice(mid) })}</p>
       )}
@@ -160,7 +207,7 @@ function floorQtyOf(dir: Direction, riskUsd: number, lv: { entry: number; stop: 
   return riskOf({ direction: dir, entry: lv.entry, stop: lv.stop, target: lv.target, equity: 0, riskUsd, spreadBps, feePerLeg: 0, qtyStep }).qty;
 }
 
-/** A level as it is sent: seven significant figures, so the float noise of a drag never reaches the order. */
-function roundTick(p: number): number {
-  return Number(p.toPrecision(7));
+/** The drawing's points at placed levels: the entry, the target and the stop move; the extent tick stays where it is. */
+function movedPoints(points: DrawingPoint[], at: { entry: number; target: number; stop: number }): DrawingPoint[] {
+  return points.map((pt, i) => (i === 0 ? { ...pt, p: at.entry } : i === 1 ? { ...pt, p: at.target } : i === 2 ? { ...pt, p: at.stop } : pt));
 }

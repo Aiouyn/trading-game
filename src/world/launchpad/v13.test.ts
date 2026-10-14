@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TPD } from '../core';
-import { LP, NPC } from './constants';
+import { CROWD, LP, NPC } from './constants';
+import { abandonShare } from './crowd';
 import { spotAt } from './curve';
 import { lpTick } from './flow';
 import { absorbPending } from './absorb';
@@ -116,7 +117,7 @@ describe('L6.8 each NPC cohort bleeds on a half-life tied to tau (v1.3)', () => 
     expect(Math.pow(1 - bleedPerTick(), halfTicks)).toBeCloseTo(0.5, 9);
   });
 
-  it('the instant exit is withdrawn: the time share constant is gone, and one tick sells only the bleed share', () => {
+  it('the instant exit is withdrawn: a living story does not sell the bag on the clock', () => {
     expect('TIME_SELL_PER_TICK' in NPC).toBe(false);
     withNpc({ VIRAL_PER_DAY: 0 }, () => {
       const g = lpWorld('l68-exit');
@@ -124,45 +125,76 @@ describe('L6.8 each NPC cohort bleeds on a half-life tied to tau (v1.3)', () => 
       const t = quiet(g, 'EXIT');
       buyCurve(g, null, 'EXIT', 100_000, 1, null, true);
       const before = t.npcBal;
-      // the cohort's cost is far above the price (no profit taking), and the buzz is at its peak (no capitulation)
       scaleCost(t, 3);
       at(g, g.market.tick + 1);
-      expect(t.npcBal).toBe(before - Math.floor(before * bleedPerTick()));
+      expect(t.npcBal).toBe(before);
     });
   });
 
-  it('a holding bleeds to half in one half-life (no capitulation, no profit taking, no arrivals)', () => {
-    withNpc({ VIRAL_PER_DAY: 0, CAPIT_PER_TICK: 0, PROFIT_PER_TICK: 0 }, () => {
+  it('a dead story abandons the bag on its own half-life, and a living story keeps it', () => {
+    withNpc({ VIRAL_PER_DAY: 0 }, () => {
       const g = lpWorld('l68-half');
       launch(g, CREATOR, 'HALF');
       const t = quiet(g, 'HALF');
       buyCurve(g, null, 'HALF', 100_000, 1, null, true);
+      at(g, g.market.tick + 1);
+      const held = t.npcBal;
+      for (let k = 0; k < 12; k++) at(g, g.market.tick + 1);
+      expect(t.npcBal).toBe(held);
+      t.crowd!.story = spotAt(LP.Y0);
+      t.crowd!.fadeStory = t.crowd!.story;
       const start = t.npcBal;
-      const halfTicks = NPC.BLEED_HALF_TAU * NPC.VIRAL_TAU_DAYS * TPD;
-      for (let k = 1; k <= halfTicks; k++) at(g, g.market.tick + 1);
-      expect(t.status).toBe('live');
-      expect(t.npcBal / start).toBeCloseTo(0.5, 2);
+      const n = 40;
+      const saved = CROWD.ABANDON_HALF_DAYS;
+      const savedTick = CROWD.SCALP_TICK;
+      const savedRefill = CROWD.REFILL;
+      CROWD.ABANDON_HALF_DAYS = n / TPD;
+      CROWD.SCALP_TICK = 0;
+      CROWD.REFILL = 0;
+      try {
+        for (let k = 0; k < n; k++) at(g, g.market.tick + 1);
+        expect(t.status).toBe('live');
+        expect(t.npcBal / start).toBeCloseTo(0.5, 1);
+      } finally {
+        CROWD.ABANDON_HALF_DAYS = saved;
+        CROWD.SCALP_TICK = savedTick;
+        CROWD.REFILL = savedRefill;
+      }
     });
   });
 
-  it('a small cohort is not lost to rounding: its carry sells the fraction a whole token does not cover', () => {
-    withNpc({ VIRAL_PER_DAY: 0, CAPIT_PER_TICK: 0, PROFIT_PER_TICK: 0 }, () => {
+  it('a small cohort keeps the fraction of a sale that does not make a whole token', () => {
+    withNpc({ VIRAL_PER_DAY: 0 }, () => {
       const g = lpWorld('l68-small');
       launch(g, CREATOR, 'SMAL');
       const t = quiet(g, 'SMAL');
-      // one cent: a cohort of about 700 tokens, far too small for a whole-token share of the bleed per tick
       buyCurve(g, null, 'SMAL', 100, 1, null, true);
+      at(g, g.market.tick + 1);
+      t.crowd!.story = spotAt(LP.Y0);
+      t.crowd!.fadeStory = t.crowd!.story;
       const start = t.npcBal;
       expect(start).toBeGreaterThan(100);
-      const halfTicks = NPC.BLEED_HALF_TAU * NPC.VIRAL_TAU_DAYS * TPD;
-      // the half-life need not be a whole number of ticks (0.3 x 0.35 gd = 75.6): step a whole number and compare with the exact decay
-      const n = Math.round(halfTicks);
-      for (let k = 1; k <= n; k++) at(g, g.market.tick + 1);
-      expect(Math.abs(t.npcBal - start * Math.pow(0.5, n / halfTicks))).toBeLessThanOrEqual(1);
+      const saved = CROWD.ABANDON_HALF_DAYS;
+      const savedTick = CROWD.SCALP_TICK;
+      // the coin's price is a fraction of a cent, so a one-dollar bag is tens of thousands of tokens. The half-life has to be
+      // long before a single tick sells less than one token; the carry then sells that token once it adds up.
+      CROWD.ABANDON_HALF_DAYS = 400;
+      CROWD.SCALP_TICK = 0;
+      try {
+        expect(start * abandonShare()).toBeLessThan(1);
+        at(g, g.market.tick + 1);
+        expect(t.npcBal).toBe(start);
+        t.crowd!.holdCarry = 0.9;
+        at(g, g.market.tick + 1);
+        expect(t.npcBal).toBe(start - 1);
+      } finally {
+        CROWD.ABANDON_HALF_DAYS = saved;
+        CROWD.SCALP_TICK = savedTick;
+      }
     });
   });
 
-  it('each cohort sells on its own profit test: a cohort above its cost sells the profit share, one below it sells only the bleed', () => {
+  it('a cohort far above its cost takes profit; one below its cost does not', () => {
     withNpc({ VIRAL_PER_DAY: 0 }, () => {
       const g = lpWorld('l68-profit');
       launch(g, CREATOR, 'PROF');
@@ -172,37 +204,43 @@ describe('L6.8 each NPC cohort bleeds on a half-life tied to tau (v1.3)', () => 
       buyCurve(g, null, 'PROF', 100_000, 1, null, true);
       const cs = cohortsOf(t);
       expect(cs.length).toBe(2);
-      // cohort 0 cost a tenth of its tokens' price now (a large gain), cohort 1 cost three times it (a loss)
       cs[0]!.cost *= 0.1;
       cs[1]!.cost *= 3;
       t.npcCost = cs[0]!.cost + cs[1]!.cost;
-      const spot = spotAt(t.y);
-      const T0 = cs[0]!.tokens;
-      const T1 = cs[1]!.tokens;
-      const gain0 = spot / (cs[0]!.cost / T0) - 1;
-      expect(gain0).toBeGreaterThan(1);
-      // the first cohort also carries the fraction it was left with at the last tick (flow.ts carry)
-      const carry0 = cs[0]!.carry ?? 0;
-      const sold0 = Math.min(T0, Math.floor(T0 * Math.min(1, bleedPerTick() + NPC.PROFIT_PER_TICK * gain0) + carry0));
-      const sold1 = Math.floor(T1 * bleedPerTick());
-      const before = t.npcBal;
-      at(g, g.market.tick + 1);
-      expect(before - t.npcBal).toBe(sold0 + sold1);
-      expect(cohortsOf(t).reduce((a, c) => a + c.tokens, 0)).toBe(t.npcBal);
+      t.crowd!.greed = 1.5;
+      const savedTick = CROWD.SCALP_TICK;
+      CROWD.SCALP_TICK = 0;
+      const t0 = cs[0]!.tokens;
+      const t1 = cs[1]!.tokens;
+      try {
+        at(g, g.market.tick + 1);
+        const after = cohortsOf(t);
+        expect(after[1]!.tokens).toBe(t1);
+        expect(after[0]!.tokens).toBeLessThan(t0);
+        expect(after[0]!.tokens).toBeGreaterThan(t0 * 0.5);
+        expect(after.reduce((a, c) => a + c.tokens, 0)).toBe(t.npcBal);
+      } finally {
+        CROWD.SCALP_TICK = savedTick;
+      }
     });
   });
 
-  it('the capitulation stays: a fall of the buzz below its peak adds the capitulation share on top of the bleed', () => {
-    withNpc({ VIRAL_PER_DAY: 0, PROFIT_PER_TICK: 0 }, () => {
+  it('a fall of the buzz below its peak does not sell; a story that has died does', () => {
+    withNpc({ VIRAL_PER_DAY: 0 }, () => {
       const g = lpWorld('l68-capit');
       launch(g, CREATOR, 'CAPI');
       const t = quiet(g, 'CAPI');
       buyCurve(g, null, 'CAPI', 100_000, 1, null, true);
       scaleCost(t, 3);
       t.npcPeak = 1;
+      at(g, g.market.tick + 1);
       const before = t.npcBal;
       at(g, g.market.tick + 1);
-      expect(t.npcBal).toBe(before - Math.floor(before * (NPC.CAPIT_PER_TICK + bleedPerTick())));
+      expect(t.npcBal).toBe(before);
+      t.crowd!.story = spotAt(LP.Y0);
+      t.crowd!.fadeStory = t.crowd!.story;
+      at(g, g.market.tick + 1);
+      expect(t.npcBal).toBeLessThan(before);
     });
   });
 
@@ -218,11 +256,11 @@ describe('L6.8 each NPC cohort bleeds on a half-life tied to tau (v1.3)', () => 
       const cs = cohortsOf(t);
       expect(cs.reduce((a, c) => a + c.tokens, 0)).toBe(t.npcBal);
       expect(cs.reduce((a, c) => a + c.cost, 0)).toBeCloseTo(t.npcCost, 6);
-      // an old snapshot: no cohorts field, the holding is one cohort, and it sells on the same bleed
+      // an old snapshot: no cohorts field, the holding is one cohort, and a living story does not dump it
       delete t.npcCohorts;
       const before = t.npcBal;
       at(g, g.market.tick + 1);
-      expect(t.npcBal).toBeLessThan(before);
+      expect(t.npcBal).toBe(before);
       expect(cohortsOf(t).length).toBe(1);
       expect(cohortsOf(t)[0]!.tokens).toBe(t.npcBal);
     });

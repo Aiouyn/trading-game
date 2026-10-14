@@ -17,7 +17,7 @@ export const SWATCH: Record<DrawingColor, string> = {
 };
 
 /** The selected drawing's panel, or nothing when no drawing is selected (or a drawing tool is in hand). */
-export function DrawingPanel({ assetId, onPlaced }: { assetId: string; onPlaced?: () => void }) {
+export function DrawingPanel({ assetId, onPlaced, orders = true }: { assetId: string; onPlaced?: () => void; /** a curve token has no broker book until it graduates */ orders?: boolean }) {
   const selected = useDrawings((s) => s.selected);
   const tool = useDrawings((s) => s.tool);
   const list = useDrawings((s) => s.byAsset[assetId]) ?? [];
@@ -35,15 +35,17 @@ export function DrawingPanel({ assetId, onPlaced }: { assetId: string; onPlaced?
   const isPosition = d.kind === 'long' || d.kind === 'short';
   return (
     <div
-      className="pointer-events-auto absolute left-2 top-2 z-[7] max-h-[calc(100%-1rem)] w-56 overflow-y-auto rounded-md border border-ink-3 bg-ink-1/95 p-2 text-small shadow-lg"
+      className={`pointer-events-auto absolute z-[7] max-h-[calc(100%-1rem)] overflow-y-auto rounded-md border border-ink-3 bg-ink-1/95 p-2 text-small shadow-lg ${isPosition ? 'bottom-2 left-2 w-60' : 'left-2 top-2 w-56'}`}
       data-testid="drawing-panel" role="dialog" aria-label={t('broker.props.title')}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-micro uppercase tracking-wide text-fg-faint">{t(`broker.tool.${d.kind}`)}</span>
         <button type="button" onClick={() => useDrawings.getState().select(null)} className="px-1 text-fg-faint hover:text-fg" aria-label={t('common.close')}>×</button>
       </div>
-      {isPosition ? (
+      {isPosition && orders ? (
         <PositionPanel assetId={assetId} drawing={d} onPlaced={onPlaced} />
+      ) : isPosition ? (
+        <p className="mb-2 text-caption text-fg-muted" data-testid="lp-position-note">{t('lp.chart.positionNote')}</p>
       ) : (
         <>
           <div className="mb-2 flex items-center gap-1" role="radiogroup" aria-label={t('broker.props.color')}>

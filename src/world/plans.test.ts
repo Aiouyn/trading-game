@@ -242,7 +242,7 @@ describe('block accounting follows the fills (a slice the engine cuts short leav
 
 describe('plan refusal reasons (each reason has its own line in both languages)', () => {
   it('maps every known refusal to a reason, and anything else to the generic one', () => {
-    expect(refusal('Simple mode caps a buy at 20% of cash until Hustler.')).toBe('cap');
+    expect(refusal('Your first trade is capped at 20% of cash.')).toBe('cap');
     expect(refusal('your assets are held by the court')).toBe('court');
     expect(refusal('Owner needs the Pro license (Owner, $250k)')).toBe('license');
     expect(refusal('insufficient cash')).toBe('cash');

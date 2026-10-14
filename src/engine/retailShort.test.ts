@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { createWorld, step, stepMany } from './sim';
 import { DEFAULT_REGIMES, defaultConfig, normalizeLoadings } from './config';
 import { DEFAULT_RATES } from './rates';
-import { buyingPower, marginRuleApplies, mayShort, openAccount, placeOrder, portfolio, setAccountPermissions } from './trading';
+import { buyingPower, equityOf, grossExposure, marginConfig, marginRuleApplies, mayShort, openAccount, placeOrder, portfolio, setAccountPermissions } from './trading';
 import { restrictionsOf, setWindow } from './restrictions';
 import type { AssetDef, OrderRequest, RegimeDef, RegimeId, StepEvent, WorldState } from './types';
 
@@ -65,15 +65,22 @@ describe('shorting from R0 (cash-secured at 1x)', () => {
     expect(place(s, { side: 'buy', qty: 149 }).order.status).toBe('open');
   });
 
-  it('a margin call fires at 30% equity and the broker covers at 20%', () => {
+  it('a margin call fires below maintenance and the broker covers below liquidation', () => {
     let s = step(place(world(RETAIL), { side: 'sell', qty: 50 }).state).state;
-    // equity = cash - shares x price; the short is 50 shares: at 240 the ratio is under 30% but over 20%
-    s = setPrice(s, 'STK', 240);
+    const mc = marginConfig(s);
+    const cash = s.accounts.p1!.cash;
+    // equity = cash - 50 * price, gross = 50 * price, so price = cash / (50 * (ratio + 1))
+    const priceFor = (ratio: number) => cash / (50 * (ratio + 1));
+    const between = (mc.maintenance + mc.liquidation) / 2;
+    s = setPrice(s, 'STK', priceFor(between));
+    const calledRatio = equityOf(s, s.accounts.p1!) / grossExposure(s, s.accounts.p1!);
+    expect(calledRatio).toBeLessThan(mc.maintenance);
+    expect(calledRatio).toBeGreaterThan(mc.liquidation);
     const call = stepMany(s, 2);
     const kinds = (evs: StepEvent[]) => evs.map((e) => e.type);
     expect(kinds(call.events)).toContain('margin_call');
     expect(kinds(call.events)).not.toContain('liquidation');
-    s = setPrice(call.state, 'STK', 270);
+    s = setPrice(call.state, 'STK', priceFor(mc.liquidation / 2));
     const liq = stepMany(s, 2);
     expect(kinds(liq.events)).toContain('liquidation');
     expect(portfolio(liq.state, 'p1').positions).toHaveLength(0);

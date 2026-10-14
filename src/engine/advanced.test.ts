@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createWorld, step, stepMany } from './sim';
 import { DEFAULT_REGIMES, defaultConfig, normalizeLoadings } from './config';
 import {
-  buyingPower, cancelOrder, openAccount, placeOrder, portfolio, setAccountPermissions, tradeOption,
+  buyingPower, cancelOrder, equityOf, grossExposure, marginConfig, openAccount, placeOrder, portfolio, setAccountPermissions, tradeOption,
 } from './trading';
 import { blackScholes, listedExpiries, optionChain, optionQuote, parseContract } from './options';
 import { DEFAULT_OPTIONS } from './options';
@@ -82,13 +82,27 @@ describe('margin', () => {
   it('issues a margin call, then liquidates a leveraged long that collapses', () => {
     let s = step(place(world({ maxLeverage: 2 }), { qty: 190 }).state).state;
     expect(portfolio(s, 'p1').cash).toBeLessThan(0); // borrowed
-    s = setPrice(s, 'STK', 72); // equity ≈ 10k − 190·28 ≈ 4.7k vs 13.7k exposure: 34%, fine
+    const mc = marginConfig(s);
+    const cash = s.accounts.p1!.cash;
+    const qty = 190;
+    // equity = cash + qty * price (cash is negative), gross = qty * price
+    const priceFor = (ratio: number) => cash / (qty * (ratio - 1));
+    const ratioAt = (price: number) => {
+      const next = setPrice(s, 'STK', price);
+      return equityOf(next, next.accounts.p1!) / grossExposure(next, next.accounts.p1!);
+    };
+    const fine = priceFor(mc.maintenance + 0.02);
+    expect(ratioAt(fine)).toBeGreaterThan(mc.maintenance);
+    s = setPrice(s, 'STK', fine);
     let r = step(s);
     expect(r.events.some((e) => e.type === 'margin_call' || e.type === 'liquidation')).toBe(false);
-    s = setPrice(r.state, 'STK', 64); // equity ≈ 3.2k vs 12.2k: 26% → margin call
+    const between = (mc.maintenance + mc.liquidation) / 2;
+    expect(ratioAt(priceFor(between))).toBeLessThan(mc.maintenance);
+    expect(ratioAt(priceFor(between))).toBeGreaterThan(mc.liquidation);
+    s = setPrice(r.state, 'STK', priceFor(between));
     r = step(s);
     expect(r.events.some((e) => e.type === 'margin_call')).toBe(true);
-    s = setPrice(r.state, 'STK', 58); // 2.0k / 11.0k ≈ 18% → liquidation
+    s = setPrice(r.state, 'STK', priceFor(mc.liquidation / 2));
     r = step(s);
     const liq = r.events.filter((e): e is Extract<StepEvent, { type: 'liquidation' }> => e.type === 'liquidation');
     expect(liq).toHaveLength(1);

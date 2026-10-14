@@ -5,11 +5,10 @@ import { halfSpread, impact, IMPACT_HALF_LIFE, liquidationEquity, marginalImpact
 import type { WorldState } from './types';
 
 /**
- * Impact tallies (R-9-1c, Phase 9 rulings). Permanent and temporary impact are charged on the ASSET's shared rolling tally
- * (AssetState.impactTally, per side, half-life 360 ticks), which every account's flow and the pools' closing flow feed. So
- * one order, N accounts splitting the same block, and 720 clips of the same total all pay the same, and a second account
- * pays on the first account's flow (the N-account dodge of R-9-1b is closed). The same-account rules still hold: a window of
- * clips in one tick is one order, and a window of clips over a day pays on the decayed tally.
+ * Impact tallies. The permanent move stays on the asset's shared rolling tally (R-9-1c): every account's flow and the
+ * pools' closing flow, half-life 360 ticks. One order and N accounts splitting the same block move the price the same.
+ * Temporary impact is the account's own memory (R-10-1): one account's clips still cost one order, and another account
+ * does not pay the first account's flow. A window of clips over a day pays on the decayed own tally.
  */
 const cfg = defaultConfig(); // 720 ticks per game day
 const idx = (s: WorldState, id: string) => s.config.assets.findIndex((a) => a.id === id);
@@ -120,17 +119,17 @@ function hunt(seed: string, id: string, exitTick: number, accts: [string, string
 
 describe('whale + alt hunt', () => {
   for (const id of ['SYN', 'AURH']) {
-    it(`impact_alt_hunt (${id}): whale A then alt B never beats one account with the same total`, { timeout: 120_000 }, () => {
+    it(`impact_alt_hunt (${id}): two accounts move the price like one and pay only their own impact (R-10-1)`, { timeout: 120_000 }, () => {
       for (const seed of ['hunt-1', 'hunt-2', 'hunt-3']) {
         for (const exitTick of [10, 720 + 1]) { // same-day exit, and next game day's open
           const two = hunt(seed, id, exitTick, ['A', 'B']);
           const one = hunt(seed, id, exitTick, ['C', 'C']);
           const tol = 1e-9 * cfgAdv(id);
           console.log(`impact_alt_hunt ${id} ${seed} exit@${exitTick}: realized A+B ${two.profit.toFixed(2)} vs one ${one.profit.toFixed(2)}; best summed liquidation mark ${two.bestLiq.toFixed(2)} vs ${one.bestLiq.toFixed(2)}; summed peaks over start ${two.peak.toFixed(2)} vs ${one.peak.toFixed(2)}`);
-          // the price path is the same tick for tick: B's buy pays the marginal curve on top of A's
+          // the price path is the same tick for tick: the permanent move still stacks on the shared tally (R-10-1)
           expect(two.path).toEqual(one.path);
-          // realized profit after selling out can't beat one account with the same total
-          expect(two.profit).toBeLessThanOrEqual(one.profit + tol);
+          // each account pays only its own temporary impact, so the pair loses less on the fills than one account
+          expect(two.profit).toBeGreaterThan(one.profit);
           // liquidationEquity is per account, so two accounts' marks each assume only their own exit and their sum sits
           // above one account selling the whole block. That is a mark, not realized profit (above).
           expect(two.peak).toBeLessThanOrEqual(Math.max(0, two.bestLiq) + tol);
@@ -142,10 +141,11 @@ describe('whale + alt hunt', () => {
 function cfgAdv(id: string) { return cfg.assets.find((a) => a.id === id)!.advNotional ?? 1e9; }
 
 /**
- * Temporary impact is charged on the asset's shared rolling tally (R-9-1c, one per asset over all flow; the same-tick tally
- * is the pre-trade mid). The 3x ADV cap stays on the per-tick tally.
+ * Temporary impact is the account's own memory (R-10-1). One account's clips in one tick still cost one order.
+ * N accounts do not: each pays only its own slice, so splitting across accounts is cheaper on the fill. The permanent
+ * move stays shared (the lift tests above). The 3x ADV cap stays on the per-tick tally.
  * Cost = sum over fills of qty * |price - mid| where mid is the tick's pre-trade mid (tickTraded.lnMid):
- * half spread plus temporary impact, all in. Tolerance for same-tick splits: |ratio - 1| <= 0.01.
+ * half spread plus temporary impact, all in. Tolerance for one account's same-tick splits: |ratio - 1| <= 0.01.
  */
 function sameTick(id: string, accounts: number, ordersEach: number, seed = 'temp') {
   const Q = units(id);
@@ -173,16 +173,21 @@ describe('shared per-tick temporary impact', () => {
       expect(Math.abs(ratio - 1)).toBeLessThanOrEqual(0.01);
     });
 
-    it(`temp_split_same_tick (${id}): one order = N accounts (2, 10, 100), total temporary cost`, { timeout: 60_000 }, () => {
+    it(`temp_split_same_tick (${id}): N accounts pay only their own impact, so the total is below one order (R-10-1)`, { timeout: 60_000 }, () => {
       const one = sameTick(id, 1, 1);
       const rows = [`one order ${(1e4 * one.cost / one.notional).toFixed(3)} bp`];
+      let prev = 1;
       for (const n of [2, 10, 100]) {
         const r = sameTick(id, n, 1);
         const ratio = r.cost / one.cost;
         rows.push(`N=${n} ratio ${ratio.toFixed(4)}`);
-        expect(Math.abs(ratio - 1)).toBeLessThanOrEqual(0.01);
+        // half the cost is the spread, which does not shrink, so the ratio stays above 1/sqrt(N). It stays under one order.
+        expect(ratio).toBeLessThan(prev);
+        expect(ratio).toBeGreaterThan(1 / Math.sqrt(n) * 0.5);
+        expect(ratio).toBeLessThan(0.95);
+        prev = ratio;
       }
-      console.log(`temp_split_same_tick ${id} [routed]: ${rows.join(', ')}`);
+      console.log(`temp_split_same_tick ${id} [own only]: ${rows.join(', ')}`);
     });
   }
 
@@ -249,7 +254,7 @@ describe('shared per-tick temporary impact', () => {
     expect(two.filled2).toBeGreaterThan(0.9 * adv);
   });
 
-  it('temp_whale_alt_same_tick: whale A plus alt B in one tick cost no less than one account', () => {
+  it('temp_whale_alt_same_tick: two accounts pay only their own impact; one account\'s two orders still cost one order (R-10-1)', () => {
     for (const id of ['SYN', 'AURH', 'OSTV']) {
       for (const seed of ['hunt-1', 'hunt-2', 'tape-01']) {
         const def = cfg.assets.find((a) => a.id === id)!;
@@ -268,8 +273,10 @@ describe('shared per-tick temporary impact', () => {
         let s = openAccount(createWorld(seed, cfg), 'C', adv);
         s = placeOrder(s, { playerId: 'C', assetId: id, side: 'buy', type: 'market', qty: qty(0.05 * adv) + qty(0.02 * adv) }).state;
         const single = step(s).fills.reduce((x, f) => x + f.qty * f.price + f.fee, 0);
-        expect(two).toBeGreaterThanOrEqual(one * (1 - 1e-12));
-        expect(Math.abs(two / single - 1)).toBeLessThanOrEqual(1e-4); // fees differ only by a per-order minimum
+        // one account's two orders in one tick still cost the combined order
+        expect(Math.abs(one / single - 1)).toBeLessThanOrEqual(1e-4);
+        // two accounts do not pay each other's impact
+        expect(two).toBeLessThan(one);
       }
     }
   });

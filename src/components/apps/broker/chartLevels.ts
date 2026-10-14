@@ -15,6 +15,13 @@ export function roundPrice(p: number): number {
   return Math.round(p * 10 ** d) / 10 ** d;
 }
 
+/** Move from the order's own price, even for a pill pinned off scale. Invalid pointer prices never become order edits. */
+export function draggedLevelPrice(base: number, start: number | null, pointer: number | null): number | null {
+  if (start === null || pointer === null || ![base, start, pointer].every(Number.isFinite)) return null;
+  const next = base + pointer - start;
+  return next > 0 && Number.isFinite(next) ? next : null;
+}
+
 /** The pixel row of a price, or null when the price is not a positive number or the scale has no row for it. */
 export function yOfPrice(scale: PriceScale, price: number): number | null {
   if (!(price > 0) || !Number.isFinite(price)) return null;

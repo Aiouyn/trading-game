@@ -38,12 +38,12 @@ describe('simple mode: the 20% cap until Hustler', () => {
     expect(cmd(g, 'u1', { type: 'order.place', order: FIVE }).ok).toBe(true);
   });
 
-  it('keeps the cap after the first trade, while the player is below Hustler', () => {
+  it('lifts the cap after the first fill, so the next order is sized by buying power', () => {
     const g = world('simple-after', true);
     expect(cmd(g, 'u1', { type: 'order.place', order: FIVE }).ok).toBe(true);
     stepGame(g);
     expect(g.players.u1!.stats.trades).toBe(1);
-    expect(cmd(g, 'u1', { type: 'order.place', order: SIX }).error).toMatch(/20%/);
+    expect(cmd(g, 'u1', { type: 'order.place', order: SIX }).ok).toBe(true);
   });
 
   it('lifts the cap at Hustler', () => {
@@ -88,8 +88,8 @@ describe('simple mode: the 20% cap until Hustler', () => {
     // the cap base is the starting cash (less the fee), not the cash the short added
     expect(Math.abs(capBaseOf(acct.cash, acct.positions) - acct.startingCash)).toBeLessThan(5);
     expect(acct.cash).toBeGreaterThan(acct.startingCash + 800);
-    // six more shares open about $1,060 of short, past 20% of the starting cash (about $1,050) but under 20% of the cash with proceeds
-    expect(orderError(g, g.players.u1!, { ...FIVE, qty: 6, side: 'sell' })).toMatch(/20%/);
+    // the first fill lifted the cap, so another short is sized by buying power, not by 20% of cash
+    expect(orderError(g, g.players.u1!, { ...FIVE, qty: 6, side: 'sell' })).toBeNull();
   });
 
   it('a short counts against the same cap as a buy, and a short that fits is accepted at R0', () => {

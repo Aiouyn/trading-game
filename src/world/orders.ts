@@ -1,5 +1,5 @@
 import { placeOrder, type Order, type OrderRequest, type Position } from '@/engine';
-import { RANKS, licenseFor, rankIndex } from '@/content/lifestyle';
+import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { SIMPLE_MODE } from '@/content/learning';
 import { cashOf, priceOf } from './core';
 import { crossRefusal } from './funds/guard';
@@ -47,10 +47,11 @@ export function openOpeningNotional(g: GameState, playerId: string): number {
 }
 
 /**
- * The checks an order must pass before it reaches the engine: the license class, the court hold, and simple mode's cap until
- * Hustler (SIMPLE_MODE). The cap is aggregate: the new order's opening notional (a buy, or a sell past the shares held, which
- * is a short) plus what the open orders already commit must stay within the cap share of cash (capBaseOf), so three orders in
- * one tick cannot pass it. Sells of held shares are never capped. The same gate serves a click, a keyboard order, and a plan the world places.
+ * The checks an order must pass before it reaches the engine: the license class, the court hold, and simple mode's cap on the
+ * first trade (SIMPLE_MODE), until Hustler. The cap is aggregate: the new order's opening notional (a buy, or a sell past the
+ * shares held, which is a short) plus what the open orders already commit must stay within the cap share of cash (capBaseOf),
+ * so three orders in one tick cannot pass it. The first fill lifts it, so later size is the license's buying power. Sells of
+ * held shares are never capped. The same gate serves a click, a keyboard order, and a plan the world places.
  */
 export function orderError(g: GameState, p: Player, req: Omit<OrderRequest, 'playerId'>): string | null {
   const def = g.market.config.assets.find((a) => a.id === req.assetId);
@@ -61,14 +62,13 @@ export function orderError(g: GameState, p: Player, req: Omit<OrderRequest, 'pla
   const lic = licenseFor(p.rankId);
   if (!lic.classes.includes(def.assetClass)) return `${def.name} needs the Pro license (Owner, $250k)`;
   if (p.heldUntil > g.market.tick && req.side === 'buy') return 'your assets are held by the court';
-  if (!p.npc && !req.reduceOnly && rankIndex(p.rankId) < rankIndex(SIMPLE_MODE.untilRank)) {
+  if (!p.npc && !req.reduceOnly && p.stats.trades === 0 && rankIndex(p.rankId) < rankIndex(SIMPLE_MODE.untilRank)) {
     const px = priceOf(g, req.assetId);
     const held = Math.max(0, g.market.accounts[p.id]?.positions[req.assetId]?.qty ?? 0);
     const opening = req.side === 'buy' ? req.qty : Math.max(0, req.qty - held);
     const cap = capBaseOf(cashOf(g, p.id), g.market.accounts[p.id]?.positions ?? {}) * SIMPLE_MODE.capFraction + 1e-6;
     if (opening > 0 && openOpeningNotional(g, p.id) + opening * px > cap) {
-      const to = RANKS.find((r) => r.id === SIMPLE_MODE.untilRank)?.name ?? SIMPLE_MODE.untilRank;
-      return `Simple mode caps your open buys and shorts at ${Math.round(SIMPLE_MODE.capFraction * 100)}% of cash until ${to}.`;
+      return `Your first trade is capped at ${Math.round(SIMPLE_MODE.capFraction * 100)}% of cash.`;
     }
   }
   return null;

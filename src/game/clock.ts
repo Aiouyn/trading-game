@@ -41,10 +41,22 @@ export function clockLabel(tick: number, ticksPerDay: number): string {
   return `${t('clock.day', { day: c.day })} \u00b7 ${c.hhmm}`;
 }
 
-export const SPEEDS = [1, 4, 20] as const;
+export const SPEEDS = [1, 4, 20, 60] as const;
 export type Speed = (typeof SPEEDS)[number];
 
-/** Real milliseconds per tick at a speed. */
+/** Real milliseconds per tick at a speed. One game day is one real hour at 1×, fifteen minutes at 4×, one minute at 60×. */
 export function tickMs(speed: number): number {
   return 5000 / speed;
+}
+
+/** The speed button that matches a live tick length (the nearest of SPEEDS). */
+export function speedOf(ms: number): Speed {
+  const raw = ms > 0 ? 5000 / ms : 1;
+  let best: Speed = SPEEDS[0];
+  let gap = Infinity;
+  for (const s of SPEEDS) {
+    const d = Math.abs(s - raw);
+    if (d < gap) { gap = d; best = s; }
+  }
+  return best;
 }

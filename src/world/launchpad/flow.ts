@@ -5,11 +5,14 @@ import { BUZZ_DECAY, LP, NPC, curveAccountId, npcAccountId } from './constants';
 import { formulaCashAt, spotAt } from './curve';
 import { liquidateCohort, sellCurve } from './trade';
 import { npcLaunchDraw } from './launch';
-import { buzzOf, arrive, bleedPerTick, viralPerTick } from './demand';
+import { arrive, viralPerTick } from './demand';
 import { cohortsOf } from './cohorts';
+import { crowdTick, writeWall } from './crowd';
 import { absorbPending } from './absorb';
 import { openSellQty } from './graduate';
 import { priceNow } from './rug';
+import { npcReplyTick } from './reply';
+import { carryBar } from './bars';
 import { dayOf, ensureLaunchpad, lpWire, refuse, sinkCents, tokenOf } from './state';
 import { placeOrder } from '@/engine';
 import type { LpToken } from './types';
@@ -22,8 +25,8 @@ import type { LpToken } from './types';
  *   - an arrival is bought by the NPC cohort in full in the tick it arrives (L6.4, absorb.ts), so no player can act before the top;
  *   - an NPC sniper buys inside the launch command (launch.ts sniperEnter) and sells here into the first hype (so players cannot
  *     farm the edge: no fill can sit between a launch and the sniper's price impact);
- *   - each NPC cohort (one absorbed arrival) sells on its own bleed, a half-life tied to tau (L6.8, v1.3), plus the capitulation
- *     share as the buzz falls below its peak since the last arrival, and profit taking above its cost. It never sells tokens it does not hold;
+ *   - the crowd (crowd.ts) then trades the coin: holders keep a bag until it is far above cost or the story has died, scalpers
+ *     fade the average, faders sell into a chase, and FOMO and news chasers buy late and small. A player buy is not an arrival;
  *   - a token dies with no trade for 24 game days, or with curve cash under 2% of the raise at the close of 7 game days in a row,
  *     the closes counted from day 3 (L3.1, v1.3). At death the cohorts sell what they hold to the curve, so the NPC side is flat in tokens;
  *   - a graduated token's cohort position is unwound into the liquidity book through the engine's order path, with a one-day
@@ -64,12 +67,9 @@ export function buyBuzz(g: GameState, pid: string, ticker: string, kind: 'board'
 }
 
 /**
- * One tick of the NPC cohort on a token (L6.1 as amended by v1.3). The sniper first (its exit, if it is in). Otherwise each cohort
- * (L6.8, cohorts.ts) sells its own share of its tokens: the bleed (half-life BLEED_HALF_TAU x tau, demand.ts bleedPerTick), plus the
- * capitulation NPC.CAPIT_PER_TICK times (1 - buzz / peak), where the peak is the buzz since the last arrival (it never falls below the
- * buzz now), plus profit taking NPC.PROFIT_PER_TICK times the gain of that cohort over its own cost. The sell is at any price and never
- * more than the cohort holds, and the cohorts' sells are one fill through the curve. The buy side is the arrivals, absorbed in full in
- * the tick they arrive (absorb.ts). There is no instant exit (the v1.1 time share is withdrawn in v1.3).
+ * One tick of the NPC side (L6, as amended). The sniper exits first, into the first hype or on its clock. Otherwise the crowd
+ * trades (crowd.ts): holders no longer sell on a timer while the story is alive. Arrivals left pending are absorbed here, which
+ * is only a fill the curve refused earlier (a fresh arrival is absorbed by its caller in the same tick, L6.4).
  */
 function npcFlow(g: GameState, t: LpToken, out: StepOutput | null): void {
   const tick = g.market.tick;
@@ -77,8 +77,7 @@ function npcFlow(g: GameState, t: LpToken, out: StepOutput | null): void {
   if (t.sniper) {
     const spot = spotAt(t.y);
     if (spot >= t.sniper.entry * NPC.SNIPER_EXIT_MULT || tick - t.sniper.tick >= NPC.SNIPER_EXIT_TICKS) {
-      // the sniper's tokens leave its own cohort (v1.2 review item 5), never the other cohorts. If the bleed has already taken the whole
-      // sniper cohort, there is nothing of the sniper's left to sell
+      // the sniper's tokens leave its own cohort (v1.2 review item 5), never the other cohorts
       const cs = cohortsOf(t);
       const si = cs.findIndex((c) => c.sniper);
       const entered = t.sniper.tokens;
@@ -92,34 +91,10 @@ function npcFlow(g: GameState, t: LpToken, out: StepOutput | null): void {
       return;
     }
   }
-  const buzz = buzzOf(t);
-  const peak = Math.max(t.npcPeak ?? buzz, buzz);
-  t.npcPeak = peak;
-  const spot = spotAt(t.y);
-  const fade = peak > 0 ? Math.max(0, 1 - buzz / peak) : 0;
-  const bleed = bleedPerTick();
-  const cs = cohortsOf(t);
-  // each cohort's share, with a fractional carry so a slow bleed on a small cohort is not lost to rounding
-  const plan: number[] = [];
-  const carry: number[] = [];
-  let total = 0;
-  for (const c of cs) {
-    const avg = c.tokens > 0 ? c.cost / c.tokens : 0;
-    const gain = avg > 0 ? spot / avg - 1 : 0;
-    const share = Math.min(1, bleed + NPC.CAPIT_PER_TICK * fade + (gain > 0 ? NPC.PROFIT_PER_TICK * gain : 0));
-    const want = c.tokens * share + (c.carry ?? 0);
-    const n = Math.min(c.tokens, Math.floor(want));
-    plan.push(n);
-    carry.push(Math.max(0, want - n));
-    total += n;
-  }
-  if (total > 0) {
-    const r = sellCurve(g, null, t.ticker, total, 1, out, true, plan);
-    if (r.ok) cs.forEach((c, i) => { if (c.tokens > 0) c.carry = carry[i]; });
-  } else {
-    cs.forEach((c, i) => { if (c.tokens > 0) c.carry = carry[i]; });
-  }
-  // the buy: arrivals are absorbed in full in the tick they arrive (L6.4), so only a demand a refused fill left pending waits here
+  const buzz = t.buzz.base + t.buzz.board + t.buzz.wire;
+  t.npcPeak = Math.max(t.npcPeak ?? buzz, buzz);
+  crowdTick(g, t, out);
+  // a demand a refused fill left pending waits here. A fresh arrival was absorbed by its caller (L6.4)
   absorbPending(g, t, out);
 }
 
@@ -213,10 +188,19 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
         if (t.lowCloses >= LP.DEAD_CASH_DAYS) kill(g, t, 'cash', out);
       }
     }
-    if (t.status === 'live' && tick % LP.CHART_EVERY === 0) {
-      t.chart.push([tick, spotAt(t.y)]);
-      if (t.chart.length > 400) t.chart.splice(0, t.chart.length - 400);
+    // the trades table's crowd. After the death check, so a coin that just died does not keep a wall.
+    if (t.status === 'live') writeWall(t, tick);
+    else if (t.wall) t.wall = undefined;
+  }
+  // Curve and graduated candles carry the last fill on idle minutes. Engine fills touch OHLC in lpFills; sampling the mid here
+  // would overwrite a boundary tick's closing fill. Every token that is not dead may get an NPC reply (reply.ts).
+  for (const ticker of s.order) {
+    const t = s.tokens[ticker];
+    if (!t || t.status === 'dead') continue;
+    if (tick % LP.CHART_EVERY === 0) {
+      carryBar(t, tick, priceNow(g, t));
     }
+    npcReplyTick(g, t);
   }
   unwindGraduated(g);
   if (newDay) rumorOfTheDay(g, out, day);

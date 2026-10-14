@@ -4,6 +4,7 @@ import { cancelLaunch, launchToken } from './launch';
 import { buyBuzz } from './flow';
 import { lpBuy, lpSell, buyCurve } from './trade';
 import { fileRugCase } from './rug';
+import { replyToken } from './reply';
 import { ensureLaunchpad, refuse, tokenOf } from './state';
 import { cashReserveAt } from './curve';
 
@@ -17,10 +18,13 @@ export function launchpadCommand(g: GameState, pid: string, cmd: Command, out: S
       return launchToken(g, pid, {
         name: cmd.name.trim(), ticker: cmd.ticker.trim().toUpperCase(), tagline: cmd.tagline, allocation: cmd.allocation,
         ...(cmd.devBuyCents !== undefined ? { devBuyCents: cmd.devBuyCents } : {}),
+        ...(cmd.description !== undefined ? { description: cmd.description } : {}),
+        ...(cmd.art !== undefined ? { art: cmd.art } : {}),
       }, out);
     case 'lp.buy': return lpBuy(g, pid, cmd.ticker.toUpperCase(), cmd.spendCents, cmd.maxSlip, out);
     case 'lp.sell': return lpSell(g, pid, cmd.ticker.toUpperCase(), cmd.tokens, cmd.maxSlip, out);
     case 'lp.buzz': return buyBuzz(g, pid, cmd.ticker.toUpperCase(), cmd.kind, out);
+    case 'lp.reply': return replyToken(g, pid, cmd.ticker.toUpperCase(), cmd.text, out);
     case 'lp.cancel': return cancelLaunch(g, pid, cmd.ticker.toUpperCase());
     case 'lp.file': return fileRugCase(g, pid, cmd.ticker.toUpperCase(), out);
     case 'admin.lpFill': return adminFill(g, cmd.ticker.toUpperCase(), out);

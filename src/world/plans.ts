@@ -31,7 +31,7 @@ export type Refusal = 'cash' | 'cap' | 'court' | 'license' | 'delisted' | 'posit
 
 export function refusal(error: string | undefined): Refusal {
   const e = error ?? '';
-  if (e.startsWith('Simple mode caps')) return 'cap';
+  if (e.startsWith('Simple mode caps') || e.startsWith('Your first trade is capped')) return 'cap';
   if (e.includes('held by the court')) return 'court';
   if (e.includes('needs the Pro license')) return 'license';
   if (e === 'insufficient cash') return 'cash';
