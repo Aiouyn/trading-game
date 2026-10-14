@@ -10,20 +10,27 @@ export const CONTAINER_COLORS = [0xb5452f, 0x2f6f8f, 0xd09a2b, 0x4f7f3f, 0x8a8f9
 const NEON = [0xff3d8b, 0x3de0ff, 0xffb23f, 0xa56bff, 0x39ff9a, 0xff5a3c, 0xfff06a];
 const BRASS = 0xc9a45c;
 
+/**
+ * The tree groups: a tree's trunk (box) and crown (ico) are kept apart from the buildings' parts, so the renderer can
+ * swap a crown for a billboard when zoomed out. Each group draws with the geometry named here.
+ */
+export const TREE_GEOM = { treeBox: 'box', treeIco: 'ico' };
+export const PART_KEYS = [...GEOMS, ...Object.keys(TREE_GEOM)];
+
 export class Parts {
-  constructor() { this.g = Object.fromEntries(GEOMS.map((k) => [k, []])); }
+  constructor() { this.g = Object.fromEntries(PART_KEYS.map((k) => [k, []])); }
   push(geom, x, y, z, w, h, d, rot, color, style, floorH, bayW, bid, key, lit, ground, flags) {
     this.g[geom].push(x, y, z, w, h, d, rot, ((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255,
       style, floorH, bayW, bid, key, lit, ground, flags);
   }
   box(...a) { this.push('box', ...a); }
   setFlag(bid, flag) {
-    for (const k of GEOMS) { const a = this.g[k]; for (let i = 0; i < a.length; i += STRIDE) if (a[i + 13] === bid) a[i + 17] |= flag; }
+    for (const k of PART_KEYS) { const a = this.g[k]; for (let i = 0; i < a.length; i += STRIDE) if (a[i + 13] === bid) a[i + 17] |= flag; }
   }
   mapOrders(cdf) {
-    for (const k of GEOMS) { const a = this.g[k]; for (let i = 0; i < a.length; i += STRIDE) a[i + 14] = cdf(a[i + 14]); }
+    for (const k of PART_KEYS) { const a = this.g[k]; for (let i = 0; i < a.length; i += STRIDE) a[i + 14] = cdf(a[i + 14]); }
   }
-  finish() { return Object.fromEntries(GEOMS.map((k) => [k, new Float32Array(this.g[k])])); }
+  finish() { return Object.fromEntries(PART_KEYS.map((k) => [k, new Float32Array(this.g[k])])); }
 }
 
 /** Builder bound to one building: local coordinates (ax along the lot frontage, az across, ay up from its base). */
@@ -520,12 +527,12 @@ export function buildTree(type, x, y, key, ctx, scale = 1) {
       break;
     }
     case 'cherry':
-      p.push('box', x, g, y, 0.4, 1.5, 0.4, 0, 0x6b5240, S.PLAIN, 3, 3, 0, key, 0, g, 0); // short trunk (a box: cheap to draw)
-      p.push('ico', x, g + 0.8, y, s, s * 0.95, s, 0, R.chance(0.45) ? pal[1] : R.pick([pal[0], pal[2]]), S.LEAF, 3, 3, 0, key, 0, g, 0);
+      p.push('treeBox', x, g, y, 0.4, 1.5, 0.4, 0, 0x6b5240, S.PLAIN, 3, 3, 0, key, 0, g, 0); // short trunk (a box: cheap to draw)
+      p.push('treeIco', x, g + 0.8, y, s, s * 0.95, s, 0, R.chance(0.45) ? pal[1] : R.pick([pal[0], pal[2]]), S.LEAF, 3, 3, 0, key, 0, g, 0);
       break;
     default:
-      p.push('box', x, g, y, 0.4, 1.5, 0.4, 0, 0x6b5240, S.PLAIN, 3, 3, 0, key, 0, g, 0); // short trunk
-      p.push('ico', x, g + 0.9, y, s, s * 1.05, s, 0, R.pick(pal), S.LEAF, 3, 3, 0, key, 0, g, 0);
+      p.push('treeBox', x, g, y, 0.4, 1.5, 0.4, 0, 0x6b5240, S.PLAIN, 3, 3, 0, key, 0, g, 0); // short trunk
+      p.push('treeIco', x, g + 0.9, y, s, s * 1.05, s, 0, R.pick(pal), S.LEAF, 3, 3, 0, key, 0, g, 0);
   }
 }
 

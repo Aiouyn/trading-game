@@ -2,8 +2,8 @@
 
 import * as THREE from 'three';
 import { makeGeoms } from './geoms.js';
-import { GEOMS, STRIDE } from './archetypes.js';
-import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag, outVert, outFrag } from './shaders.js';
+import { GEOMS, STRIDE, PART_KEYS, TREE_GEOM } from './archetypes.js';
+import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag, outVert, outFrag, billVert, billFrag } from './shaders.js';
 import { PALETTE, RAMP } from './lenses.js';
 import { BIT_OCCLUDER, BIT_FOCUS, projectBoxes, findSeeThrough, focusBoxes } from './seethrough.js';
 import { outskirtsHeight } from './outskirts.js';
@@ -16,6 +16,7 @@ PALETTE.forEach((h, i) => distCol.set([((h >> 16) & 255) / 255, ((h >> 8) & 255)
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const ANIM_FPS = 12; // water, neon and trains, while on screen
 const SAVER_FPS = 4; // the battery saver's animation rate
+const TREE_FAR_SCALE = 0.35; // metres per pixel: beyond this, tree crowns are billboards and trunks are not drawn
 // the glow under a focus building: uv = footprint-relative metres, aHalf = the footprint's half sizes
 const glowVert = /* glsl */ `
 attribute vec2 aHalf;
@@ -137,12 +138,19 @@ export class CityView {
       polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
       uniforms: { uBrass: this.uniforms.uBrass, uNight: this.uniforms.uNight },
     });
+    // trees: the full crowns and trunks draw when close; from TREE_FAR scale the crowns are billboards and the trunks go
+    this.treeFull = []; this.billboards = []; this.lodFar = null;
+    const quad = new THREE.BufferGeometry();
+    quad.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
+    quad.setIndex([0, 1, 2, 0, 2, 3]);
+    const billMat = new THREE.ShaderMaterial({ vertexShader: billVert, fragmentShader: billFrag, uniforms: this.uniforms, alphaToCoverage: true });
     this.outlines = [];
-    for (const k of GEOMS) {
+    for (const k of PART_KEYS) {
       const arr = city.parts[k];
       const count = arr.length / STRIDE;
       if (!count) continue;
-      const base = this.geoms[k];
+      const tree = k in TREE_GEOM;
+      const base = this.geoms[TREE_GEOM[k] ?? k];
       const g = new THREE.InstancedBufferGeometry();
       for (const name of ['position', 'normal', 'aFace', 'aInfo']) g.setAttribute(name, base.getAttribute(name));
       const ib = new THREE.InstancedInterleavedBuffer(arr, STRIDE);
@@ -156,6 +164,18 @@ export class CityView {
       const m = new THREE.Mesh(g, partMat);
       m.frustumCulled = false;
       this.add(m);
+      if (tree) this.treeFull.push(m);
+      if (k === 'treeIco') {
+        const bg = new THREE.InstancedBufferGeometry();
+        bg.setAttribute('position', quad.getAttribute('position'));
+        bg.setIndex(quad.getIndex());
+        for (const name of ['iPos', 'iSize', 'iColor', 'iStyle', 'iMeta']) bg.setAttribute(name, g.getAttribute(name));
+        bg.instanceCount = count;
+        const bm = new THREE.Mesh(bg, billMat);
+        bm.frustumCulled = false; bm.visible = false;
+        this.add(bm); this.billboards.push(bm);
+      }
+      if (tree) continue;
       const om = new THREE.Mesh(g, outlineMat);
       om.frustumCulled = false; om.renderOrder = 2; om.visible = false;
       this.add(om); this.outlines.push(om);
@@ -690,9 +710,19 @@ export class CityView {
     if (!this.dirty || !this.city) return;
     this.renders++;
     this.updateCamera();
+    this.applyLOD();
     this.renderer.render(this.scene, this.camera);
     this.placeLabels();
     this.dirty = false;
+  }
+
+  /** Tree level of detail by scale: full crowns and trunks when close, billboard crowns (no trunks) when far. */
+  applyLOD() {
+    const far = this.scale > TREE_FAR_SCALE;
+    if (far === this.lodFar) return;
+    this.lodFar = far;
+    for (const m of this.treeFull) m.visible = !far;
+    for (const m of this.billboards) m.visible = far;
   }
 
   /**
