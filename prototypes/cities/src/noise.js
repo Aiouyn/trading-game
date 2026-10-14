@@ -49,6 +49,31 @@ export function hash2(x, y, seed = 0) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
+// The open landscape's woods mask, a port of woodsNoise() in shaders.js (same lattice hash, same octaves), so the
+// trees are planted exactly where the ground is painted as woods.
+const fract = (v) => v - Math.floor(v);
+function latticeHash(x, y) {
+  let a = fract(x * 0.1031), b = fract(y * 0.1031), c = fract(1 * 0.1031);
+  const d = a * (c + 31.32) + b * (b + 31.32) + c * (a + 31.32);
+  a += d; b += d; c += d;
+  return fract((a + b) * c);
+}
+function valueNoise(px, py) {
+  const ix = Math.floor(px), iy = Math.floor(py), fx = px - ix, fy = py - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = latticeHash(ix, iy), b = latticeHash(ix + 1, iy), c = latticeHash(ix, iy + 1), d = latticeHash(ix + 1, iy + 1);
+  return (a + (b - a) * ux) + ((c + (d - c) * ux) - (a + (b - a) * ux)) * uy;
+}
+function fbmNoise(px, py) {
+  return 0.6 * valueNoise(px, py) + 0.3 * valueNoise(px * 2.07 + 17.3, py * 2.07 + 17.3) + 0.1 * valueNoise(px * 4.13 + 5.9, py * 4.13 + 5.9);
+}
+/** Woods of the open land, 0..1, at world (x, y): 1 deep in a patch. Mirrors woodsNoise() in shaders.js. */
+export function woodsMask(x, y) {
+  const t = fbmNoise(x / 480 + 41, y / 480 + 41);
+  const s = Math.min(1, Math.max(0, (t - 0.56) / 0.08));
+  return s * s * (3 - 2 * s);
+}
+
 /** 2D gradient noise (Perlin style), seeded, range about [-1, 1]. */
 export function makeNoise(seed) {
   const perm = new Uint16Array(512);

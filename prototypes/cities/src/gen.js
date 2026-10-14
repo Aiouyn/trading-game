@@ -2,10 +2,10 @@
 // Pure data out. Pipeline: terrain -> districts and land value -> tensor field -> streets (canals,
 // arterials, collectors, locals) -> blocks -> parcels -> buildings -> life -> development order.
 
-import { rng, makeNoise, hash2, clamp, lerp, smoothstep } from './noise.js';
+import { rng, makeNoise, hash2, clamp, lerp, smoothstep, woodsMask } from './noise.js';
 import { COMPANIES } from './companies.js';
 import { Parts, buildArchetype, buildLandmark, buildTree, buildCrane, buildShip, buildBoat, CONTAINER_COLORS } from './archetypes.js';
-import { sampleOutskirts, outskirtsHeight, traceHighways, borderSurface, nearestNode } from './outskirts.js';
+import { sampleOutskirts, outskirtsHeight, traceHighways } from './outskirts.js';
 
 const RES = 2;   // fine raster, metres per cell
 const R4 = 4;    // coarse raster (terrain, districts, land value)
@@ -576,6 +576,10 @@ export async function generateCity(P, progress = () => {}) {
   await step('Planting trees');
   let trees = 0;
   const treeOk = (k) => k >= 0 && !W[k] && !roadCls[k] && !occ[k];
+  // the square's woods thin out towards its border, down to EDGE_KEEP of the usual density, where the open land's
+  // trees (below) take over at the same density: no line of trees marks the edge
+  const EDGE_KEEP = 0.13;
+  const edgeIn = (x, y) => smoothstep(-500, 0, Math.max(Math.abs(x), Math.abs(y)) - half); // 0 inside, 1 at the border
   for (const b of blocks) {
     const d = b.d;
     let density = 0;
@@ -589,6 +593,8 @@ export async function generateCity(P, progress = () => {}) {
       if (!treeOk(k) || surf[k] === SURF.sand) continue;
       const x = cellX(k % N) + R.range(-1, 1), y = cellX((k / N) | 0) + R.range(-1, 1);
       if (b.kind === 'park' && hash2(Math.round(x / 9), Math.round(y / 9), 3) < 0.25) continue; // clearings
+      const e = edgeIn(x, y);
+      if (e > 0 && hash2(Math.round(x / 2), Math.round(y / 2), 21) > 1 - e * (1 - EDGE_KEEP)) continue;
       buildTree(b.kind === 'forest' ? P.forestTree ?? d.tree ?? 'round' : d.tree ?? 'round', x, y, keyOf(x, y) + 0.01, ctx, b.kind === 'forest' ? 1.2 : 1);
       occ[k] = 1; trees++;
     }
@@ -667,25 +673,25 @@ export async function generateCity(P, progress = () => {}) {
 
   // ------------------------------------------------------------------ outskirts: woods, and highways that leave the city
   const outskirts = sampleOutskirts(P, n, half, heightAt, dWaterAt);
-  borderSurface(outskirts, surf, N, RES, half, SURF);
   const outH = (x, y) => outskirtsHeight(outskirts, x, y);
   const highways = traceHighways(lines.filter((l) => l.cls === 4), { P, n, half, outH });
-  // woods beyond the square where the forest noise is high, and where the inner woods reach the border; never on
-  // water, beaches or the highways
+  // woods beyond the square: the forest noise's patches, and along the border the square's own density (EDGE_KEEP
+  // of the inner forest's, fading out over 450 m); never on water, beaches or the highways
   const hwCells = new Set();
   const cellKey = (x, y) => (Math.floor(x / 8) + 4096) * 8192 + Math.floor(y / 8) + 4096;
   for (const ln of highways) for (const [x, y] of ln.pts) for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) hwCells.add(cellKey(x + a * 8, y + b * 8));
   const outCtx = { ...ctx, heightAt: outH };
   const band = half + 1400;
   let outTrees = 0;
-  for (let t = 0; t < 80000 && outTrees < 12000; t++) {
+  for (let t = 0; t < 120000 && outTrees < 20000; t++) {
     const x = R.range(-band, band), y = R.range(-band, band);
     if (Math.abs(x) <= half && Math.abs(y) <= half) continue;
     if (outH(x, y) < 1) continue;
     const edge = Math.max(Math.abs(x), Math.abs(y)) - half;
-    const f = n.fbm(x / 300 + 61, y / 300 - 17, 3) - 0.06;
-    const woodsIn = nearestNode(outskirts, outskirts.frs, x, y) * (1 - smoothstep(0, 450, edge));
-    const p = Math.max(smoothstep(0, 0.2, f), woodsIn * 0.5);
+    // the trial density is about 1 tree per 225 m2 of ring, so an accept of 0.65 gives 1 tree per 346 m2 (the inner
+    // woods' EDGE_KEEP/45 density at the border); the open woods (the same mask the ground is painted with) and the
+    // band at the border use that one density, so trees and woods colour agree everywhere
+    const p = 0.65 * Math.max(woodsMask(x, y), 1 - smoothstep(0, 450, edge));
     if (p <= 0 || R.next() > p) continue;
     if (hwCells.has(cellKey(x, y))) continue;
     buildTree(P.forestTree ?? 'round', x, y, -1, outCtx, 1);
@@ -769,13 +775,9 @@ export async function generateCity(P, progress = () => {}) {
   await step('Done');
   const tallest = buildings.reduce((m, b) => (b.h > (m?.h ?? 0) ? b : m), null);
   return {
-<<<<<<< HEAD
-    P, S, N, RES, H, texA, texB, parts: parts.finish(), ribbons, buildings, labels, rail,
+    P, S, N, RES, H, texA, texB, parts: parts.finish(), ribbons, buildings, labels, rail, outskirts,
     // coarse rasters for the map lenses: land value (0..1) and district index into P.districts, on a R4 grid
     value: { n: N4, res: R4, data: V4 }, districts: { n: N4, res: R4, data: D4 },
-=======
-    P, S, N, RES, H, texA, texB, parts: parts.finish(), ribbons, buildings, labels, rail, outskirts,
->>>>>>> cities/endless
     popCurve, timings, ms: Math.round(performance.now() - t0),
     stats: {
       buildings: buildings.length, lots: lots.length, roads: roads.length, trees, outTrees, boats, highways: highways.length,

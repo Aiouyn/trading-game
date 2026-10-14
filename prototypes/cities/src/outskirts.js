@@ -42,31 +42,6 @@ export function sampleOutskirts(P, n, half, heightAt, dWaterAt) {
 }
 
 /**
- * The land use just inside the border, carried out over the ring: farmland and woods continue past the square
- * (fading over 450 m in the shader), so no straight line marks the edge. Reads the city's surface codes (surf:
- * SURF.fields, SURF.forest, SURF.park) at the nearest border cell. Fills out.fld and out.frs on the grid.
- */
-export function borderSurface(out, surf, N, res, half, SURF) {
-  const { n: np, extent: ext, step } = out;
-  out.fld = new Float32Array(np * np);
-  out.frs = new Float32Array(np * np);
-  for (let j = 0; j < np; j++) for (let i = 0; i < np; i++) {
-    const x = clamp(-ext + i * step, -half, half), z = clamp(-ext + j * step, -half, half);
-    const ci = clamp(Math.floor((x + half) / res), 0, N - 1), cj = clamp(Math.floor((z + half) / res), 0, N - 1);
-    const s = surf[cj * N + ci], k = j * np + i;
-    out.fld[k] = s === SURF.fields ? 1 : 0;
-    out.frs[k] = s === SURF.forest || s === SURF.park ? 1 : 0;
-  }
-}
-
-/** Value of a grid array (border flags) at the grid node nearest to (x, y). */
-export function nearestNode(out, arr, x, y) {
-  const { step, extent, n } = out;
-  const i = clamp(Math.round((x + extent) / step), 0, n - 1), j = clamp(Math.round((y + extent) / step), 0, n - 1);
-  return arr[j * n + i];
-}
-
-/**
  * Height of the ring mesh at (x, y): the same planar triangles the mesh is drawn with (split along a to c,
  * see render.js), so roads and trees sit exactly on the ground.
  */
