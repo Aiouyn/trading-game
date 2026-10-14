@@ -449,6 +449,8 @@ $('try-live').onclick = () => {
   const panel = $('inhabit');
   panel.classList.toggle('open');
   if (panel.classList.contains('open')) renderInhabitPanel();
+  updateLabelExclusions();
+  view.dirty = true;
 };
 
 // ------------------------------------------------------------------ controls
@@ -519,6 +521,67 @@ $('saver').onclick = () => setSaver(!saver);
 setSaver(saver);
 $('lbls').onclick = () => { view.showLabels = !view.showLabels; view.dirty = true; };
 $('toggle').onclick = () => $('controls').classList.toggle('open');
+
+function isCompactSheet() {
+  return matchMedia('(max-width: 900px), (max-height: 520px)').matches;
+}
+
+function setSheetTab(tab) {
+  const dock = $('right-dock');
+  dock.dataset.tab = tab;
+  dock.classList.remove('sheet-collapsed');
+  for (const b of document.querySelectorAll('.sheet-tab')) {
+    const on = b.dataset.sheetTab === tab;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', String(on));
+  }
+}
+
+function syncResponsivePlacement() {
+  const info = $('info');
+  const sheetBody = $('sheet-body');
+  if (isCompactSheet()) {
+    if (info.parentElement !== sheetBody) {
+      info.classList.add('in-sheet');
+      sheetBody.appendChild(info);
+    }
+  } else if (info.parentElement === sheetBody) {
+    info.classList.remove('in-sheet');
+    document.body.insertBefore(info, $('right-dock'));
+  }
+  updateLabelExclusions();
+}
+
+function updateLabelExclusions() {
+  const rects = [];
+  for (const id of ['strip', 'card', 'info', 'inhabit', 'right-dock']) {
+    const el = $(id);
+    if (!el || el.style.display === 'none') continue;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 4 && r.height > 4) {
+      rects.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    }
+  }
+  view.setExclusions(rects);
+}
+
+for (const b of document.querySelectorAll('.sheet-tab')) {
+  b.onclick = () => { setSheetTab(b.dataset.sheetTab); updateLabelExclusions(); view.dirty = true; };
+}
+$('sheet-close').onclick = () => {
+  if ($('right-dock').dataset.tab === 'selection' && selected) {
+    closeInfo();
+    setSheetTab('map');
+  } else {
+    $('right-dock').classList.toggle('sheet-collapsed');
+  }
+  updateLabelExclusions();
+  view.dirty = true;
+};
+addEventListener('resize', () => { syncResponsivePlacement(); view.dirty = true; });
+syncResponsivePlacement();
 
 // ------------------------------------------------------------------ see through
 /** The focus set: the selected building, and in "Selected + mine" your buildings too. */
@@ -613,16 +676,20 @@ function select(b) {
   if (!b) { closeInfo(); return; }
   selected = b;
   showInfo(b);
+  if (isCompactSheet()) setSheetTab('selection');
   view.setHover(b.id);
   syncFocus();
+  updateLabelExclusions();
 }
 
 function closeInfo() {
   selected = null;
   $('info').style.display = 'none';
   document.body.classList.remove('info-open');
+  if (isCompactSheet() && $('right-dock').dataset.tab === 'selection') setSheetTab('map');
   view.setHover(-1);
   syncFocus();
+  updateLabelExclusions();
 }
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -695,6 +762,7 @@ function renderLens() {
   for (const c of lensChips.children) c.classList.toggle('on', c.dataset.lens === lensId);
   $('help').style.display = lensId === 'normal' ? '' : 'none';
   drawLegend();
+  updateLabelExclusions();
   view.dirty = true;
   return lastLensMs;
 }
@@ -759,8 +827,10 @@ function focusBuilding(b, scale = 0.35) {
   view.flyTo(b.x, b.y, scale);
   selected = b;
   showInfo(b);
+  if (isCompactSheet()) setSheetTab('selection');
   view.setHover(b.id);
   syncFocus();
+  updateLabelExclusions();
 }
 
 // ------------------------------------------------------------------ search

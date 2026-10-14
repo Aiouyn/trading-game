@@ -8,6 +8,7 @@ import { PALETTE, RAMP } from './lenses.js';
 import { BIT_OCCLUDER, BIT_FOCUS, projectBoxes, findSeeThrough, focusBoxes } from './seethrough.js';
 import { outskirtsHeight } from './outskirts.js';
 import { smoothstep } from './noise.js';
+import { packLabels } from './label-layout.js';
 
 const PITCH = Math.atan(0.5) * 2 > 1 ? Math.PI / 6 : Math.PI / 6; // 30 degrees: a 2:1 dimetric diamond
 const col = (hex) => new THREE.Color(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
@@ -360,14 +361,17 @@ export class CityView {
 
     // labels
     this.labelLayer.innerHTML = '';
-    this.labels = city.labels.map((l) => {
+    this.labels = city.labels.map((l, idx) => {
       const el = document.createElement('div');
       el.className = `lbl lbl-${l.kind}`;
       el.textContent = l.text;
       this.labelLayer.appendChild(el);
       const b = l.bid ? city.buildings[l.bid - 1] : null;
-      return { ...l, el, order: b?.order ?? 0, pos: new THREE.Vector3(l.x, l.z, l.y) };
+      const w = el.offsetWidth || Math.max(40, l.text.length * 7 + 14);
+      const h = el.offsetHeight || (l.kind === 'district' ? 28 : 18);
+      return { ...l, id: `lbl:${idx}:${l.kind}:${l.text}`, el, w, h, order: b?.order ?? 0, pos: new THREE.Vector3(l.x, l.z, l.y) };
     });
+    this.exclusions = [];
 
     // what animates: the sea (water shimmer), neon signs (flicker) and the trains; their places say when a tick matters
     const signs = [];
@@ -741,7 +745,9 @@ export class CityView {
       el.textContent = [...full].length > 24 ? `${[...full].slice(0, 23).join('')}…` : full;
       el.title = full;
       this.labelLayer.appendChild(el);
-      this.labels.push({ kind: 'focus', text: el.textContent, bid: id, el, order: b.order, pos: new THREE.Vector3(b.x, b.gz + b.h + 8, b.y), focusOnly: true });
+      const w = el.offsetWidth || Math.max(44, el.textContent.length * 7 + 14);
+      const h = el.offsetHeight || 20;
+      this.labels.push({ id: `focus:${id}`, kind: 'focus', text: el.textContent, bid: id, el, w, h, order: b.order, pos: new THREE.Vector3(b.x, b.gz + b.h + 8, b.y), focusOnly: true });
     }
   }
 
@@ -760,7 +766,9 @@ export class CityView {
       el.textContent = [...full].length > 24 ? `${[...full].slice(0, 23).join('')}…` : full;
       el.title = full;
       this.labelLayer.appendChild(el);
-      this.labels.push({ kind: 'mine', text: el.textContent, bid: b.id, el, order: b.order, pos: new THREE.Vector3(b.x, b.gz + b.h + 8, b.y), leaseOnly: true });
+      const w = el.offsetWidth || Math.max(44, el.textContent.length * 7 + 14);
+      const h = el.offsetHeight || 20;
+      this.labels.push({ id: `lease:${b.id}`, kind: 'mine', text: el.textContent, bid: b.id, el, w, h, order: b.order, pos: new THREE.Vector3(b.x, b.gz + b.h + 8, b.y), leaseOnly: true });
     }
     this.syncFocusLabels();
     this.dirty = true;
@@ -989,24 +997,55 @@ export class CityView {
     return false;
   }
 
+  setExclusions(rects) {
+    this.exclusions = rects ?? [];
+  }
+
   placeLabels() {
+    if (!this.showLabels) {
+      for (const l of this.labels) l.el.style.display = 'none';
+      return;
+    }
     const g = this.uniforms.uGrowth.value;
     const v = new THREE.Vector3();
     const zoom = 1 / this.scale;
+    const candidates = [];
+    const projected = new Map();
     for (const l of this.labels) {
       v.copy(l.pos).project(this.camera);
       const x = (v.x * 0.5 + 0.5) * this.w, y = (-v.y * 0.5 + 0.5) * this.h;
-      let show = x > -60 && x < this.w + 60 && y > -20 && y < this.h + 20 && l.order <= g;
-      // the label of a focus building (the selected one, yours) shows at any zoom
-      if (!this.focusSet.has(l.bid)) {
+      const isFocused = this.focusSet.has(l.bid);
+      let show = l.order <= g;
+      if (!isFocused && !l.leaseOnly) {
         if (l.kind === 'minor' && zoom < 0.55) show = false;
         if ((l.kind === 'hq' || l.kind === 'crown') && zoom < 0.9) show = false;
         if (l.kind === 'mine' && zoom < 0.45) show = false;
         if ((l.kind === 'landmark' || l.kind === 'park' || l.kind === 'station') && zoom < 0.7) show = false;
       }
-      if (!this.showLabels) show = false;
-      l.el.style.display = show ? '' : 'none';
-      if (show) l.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+      if (!show) {
+        l.el.style.display = 'none';
+        continue;
+      }
+      const w = l.w || 64, h = l.h || 20;
+      const priority = isFocused ? 100
+        : l.leaseOnly ? 90
+        : l.kind === 'mine' ? 80
+        : (l.kind === 'landmark' || l.kind === 'park' || l.kind === 'station') ? 70
+        : l.kind === 'district' ? 60
+        : l.kind === 'crown' ? 50
+        : l.kind === 'hq' ? 40
+        : 20;
+      projected.set(l.id, { l, x, y });
+      candidates.push({ id: l.id, x: x - w * 0.5, y: y - h, w, h, priority });
+    }
+    const keptSet = new Set(packLabels(candidates, this.w, this.h, this.exclusions ?? []));
+    for (const [id, { l, x, y }] of projected) {
+      if (keptSet.has(id)) {
+        l.el.style.display = '';
+        l.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+      } else {
+        l.el.style.display = 'none';
+      }
     }
   }
 }

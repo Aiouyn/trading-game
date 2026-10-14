@@ -66,7 +66,8 @@ async function buildingRect(page, id) {
     }
     // drawing buffer is y-flipped relative to CSS pixels, and may be scaled by the pixel ratio
     const sx = (a.view.renderer.getPixelRatio() || 1);
-    return { x: x0 * sx, y: (v.h - y1) * sx, w: (x1 - x0) * sx, h: (y1 - y0) * sx };
+    const pad = 28; // include ground halo around footprint
+    return { x: (x0 - pad) * sx, y: (v.h - y1 - pad) * sx, w: (x1 - x0 + pad * 2) * sx, h: (y1 - y0 + pad * 2) * sx };
   }, id);
 }
 
