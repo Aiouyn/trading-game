@@ -1,22 +1,20 @@
 'use client';
 
 // The board (R-10-6, Phase 10, the pump.fun shape): the feed as a grid of cards, each with its image, its market cap in dollars, its
-// bonding curve, its replies and its last trade. A search, and sorts by bump (the last trade, the default on New), market cap, created,
-// replies, volume (the default on Trending) and curve progress. A card (or its name) opens the token's page; a graduated card opens the
+// bonding curve, its replies and its last trade. Most recent is the default; a selected sort is retained across feed/page visits.
+// Sorts also include last trade, market cap, replies, volume and curve progress. A card opens the token's page; a graduated card opens the
 // Broker. The king of the hill and the trades bar sit above the board in the app.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { money } from '@/game/format';
 import { t } from '@/i18n';
 import { Button, Card, EmptyNext, Select, TextField } from '@/components/ui';
 import { openFromShell } from '@/components/os/openApp';
 import type { LpCard } from '@/world/launchpad/view';
 import { BoardCard, QUICK_BUY_AMOUNTS } from './Board';
+import { useBoardPrefs, type BoardSort } from './boardPrefs';
 
 export type FeedKind = 'new' | 'trending' | 'graduated';
-export type BoardSort = 'bump' | 'cap' | 'created' | 'replies' | 'vol' | 'curve';
-
-/** The default sort of each feed: New bumps by the last trade, Trending by volume, Graduated by market cap. */
-const DEFAULT_SORT: Record<FeedKind, BoardSort> = { new: 'bump', trending: 'vol', graduated: 'cap' };
+export type { BoardSort } from './boardPrefs';
 
 /** The sort key of a card, largest first (created is the launch tick, so the newest launch is first). */
 function keyOf(sort: BoardSort, c: LpCard): number {
@@ -41,7 +39,10 @@ export function FeedTab({ rows, kind, tick, onOpen, onTab, quickBuy, onQuickBuy 
   onQuickBuy?: (dollars: number) => void;
 }) {
   const [q, setQ] = useState('');
-  const [sort, setSort] = useState<BoardSort>(DEFAULT_SORT[kind]);
+  const sort = useBoardPrefs((s) => s.sort);
+  const setSort = useBoardPrefs((s) => s.setSort);
+  const load = useBoardPrefs((s) => s.load);
+  useEffect(() => { load(); }, [load]);
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const list = rows.filter((c) => !needle || c.name.toLowerCase().includes(needle) || c.ticker.toLowerCase().includes(needle));

@@ -326,12 +326,10 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
   if (!s) return { ...empty, gate: gateCode, gateData };
   const all = s.order.map((k) => s.tokens[k]!).filter(Boolean);
   const live = all.filter((t) => t.status === 'live');
-  // the New feed is in bump order (review fix, Phase 10): the live tokens sorted by their last trade, so a token with a fresh trade is
-  // in it whatever its age. The newest launch wins a tie (the reversed list is newest first, and the sort is stable).
-  // Chatter is skipped: it prints on about half the coins every other tick, and counting it reshuffles both this slice and
-  // a client sort of it (Newest included) every tick.
-  const lastTickOf = (t: LpToken) => bumpTick(t);
-  const newestTokens = [...live].reverse().sort((a, b) => lastTickOf(b) - lastTickOf(a)).slice(0, FEED);
+  // Select by immutable launch time before applying the feed limit. Selecting by last trade here
+  // changed membership every tick even when the client selected Most recent.
+  const newestTokens = [...live].sort((a, b) => b.createdTick - a.createdTick ||
+    (a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0)).slice(0, FEED);
   const newest = newestTokens.map((t) => cardOf(g, t));
   // the trending order: each token's volume is read once (a card builds an icon, so it is not made inside the comparator)
   const vols = new Map(live.map((t) => [t, t.volPrev > 0 ? t.volPrev : t.volToday] as const));

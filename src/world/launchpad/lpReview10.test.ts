@@ -214,8 +214,8 @@ describe('a dead token takes no reply (review item 14)', () => {
   });
 });
 
-describe('the New feed is in bump order (review item 7)', () => {
-  it('a token with a fresh trade is in the feed although 40 newer launches exist, and it leads the feed', () => {
+describe('the New feed keeps the most recent launches', () => {
+  it('older coins trading cannot displace newer launches or reshuffle the limited feed', () => {
     const g = lpWorld('rv-bump');
     launch(g, CREATOR, 'BUMP');
     const lp = g.launchpad!;
@@ -229,8 +229,11 @@ describe('the New feed is in bump order (review item 7)', () => {
     base.tape.push({ tick: 9000, side: 'buy', qty: 1, price: 1e-5, creator: false, npc: false, usd: 1, anon: 'abc123' });
     const v = launchpadView(g, TRADER);
     expect(v.feeds.newest.length).toBe(FEED);
-    expect(v.feeds.newest[0]!.ticker).toBe('BUMP');
-    expect(v.feeds.newest.some((c) => c.ticker === 'BUMP')).toBe(true);
+    expect(v.feeds.newest[0]!.createdTick).toBe(3440);
+    expect(v.feeds.newest.some((c) => c.ticker === 'BUMP')).toBe(false);
+    const before = v.feeds.newest.map(c=>c.ticker);
+    for (const ticker of lp.order) lp.tokens[ticker]!.tape.push({tick:9001,side:'buy',qty:1,price:1e-5,creator:false,npc:true});
+    expect(launchpadView(g,TRADER).feeds.newest.map(c=>c.ticker)).toEqual(before);
   });
 });
 
