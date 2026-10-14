@@ -6,6 +6,11 @@ import { rng, makeNoise, hash2, clamp, lerp, smoothstep, woodsMask } from './noi
 import { COMPANIES } from './companies.js';
 import { Parts, buildArchetype, buildLandmark, buildTree, buildCrane, buildShip, buildBoat, CONTAINER_COLORS } from './archetypes.js';
 import { sampleOutskirts, outskirtsHeight, traceHighways } from './outskirts.js';
+import { buildRoadGraph, labelLand, SegGrid } from './roadgraph.js';
+
+const DRIVE_W = 3.4;   // driveways: narrow class-1 ribbons from the road to the building front
+const FARM_W = 4;      // farm tracks: unpaved, class 0
+const ACCESS_MAX = 5.5; // a building's footprint must sit this close to a road edge (the rule is 6 m)
 
 const RES = 2;   // fine raster, metres per cell
 const R4 = 4;    // coarse raster (terrain, districts, land value)
@@ -270,16 +275,25 @@ export async function generateCity(P, progress = () => {}) {
   // quays: land meets the water low, so shorelines stay smooth at any zoom
   for (let k = 0; k < N * N; k++) if (!W[k]) H[k] = Math.min(H[k], 0.35 + distWater[k] * 0.09);
 
+  // ------------------------------------------------------------------ road graph: planar, cleaned, one network per landmass
+  await step('Cleaning the road network');
+  const landId = labelLand(N, W);
+  const landAt = (x, y) => { const k = cellAt(x, y); return k < 0 ? -1 : landId[k]; };
+  const graph = buildRoadGraph(lines.filter((l) => l.cls > 0), { spacing: { 4: P.roads.arterial, 3: P.roads.collector, 2: P.roads.local }, isWater, landAt });
+  const roads = graph.edges.map((e) => ({ id: e.id, cls: e.cls, fam: 0, pts: e.pts, level: e.level, a: e.a, b: e.b }));
+  if (rail) roads.push({ cls: 3, fam: 0, pts: [...rail.path, rail.path[0]], level: 'rail', rail: true });
+
   // ------------------------------------------------------------------ rasterise roads, blocks
   await step('Cutting city blocks');
   const roadCls = new Uint8Array(N * N);
-  const roads = lines.filter((l) => l.cls > 0);
-  if (rail) roads.push({ cls: 3, fam: 0, pts: [...rail.path, rail.path[0]], level: 'rail', rail: true });
   for (const ln of roads) {
     ln.width = ln.pts.map(([x, y]) => roadWidth(ln.cls, distAt(x, y)));
+    // sidewalks: urban roads of class 2 and up carry a 2 m walk on each side (the ribbon shows it, the blocks keep off it)
+    const mid = ln.pts[ln.pts.length >> 1];
+    ln.walk = !ln.rail && !ln.outer && ln.cls >= 2 && urbanAt(mid[0], mid[1]) > urban.vMin + 0.05 ? 2 : 0;
     for (let i = 0; i < ln.pts.length - 1; i++) {
       const [ax, ay] = ln.pts[i], [bx, by] = ln.pts[i + 1];
-      stampSeg(ax, ay, bx, by, ln.width[i] / 2 + 0.6, N, RES, half, (k) => { if (!W[k] && roadCls[k] < ln.cls) roadCls[k] = ln.cls; });
+      stampSeg(ax, ay, bx, by, ln.width[i] / 2 + 0.6 + ln.walk, N, RES, half, (k) => { if (!W[k] && roadCls[k] < ln.cls) roadCls[k] = ln.cls; });
     }
   }
   const roadSrc = new Uint8Array(N * N);
@@ -437,6 +451,46 @@ export async function generateCity(P, progress = () => {}) {
 
   await step('Dividing parcels');
   const lots = [];
+  // frontage candidates: along each local and collector, the lot positions on either side that land in a built block
+  const frontBy = new Map();
+  for (const ln of roads) {
+    if (ln.rail || ln.cls < 2 || ln.cls > 3) continue;
+    for (let i = 0; i < ln.pts.length - 1; i++) {
+      const [ax, ay] = ln.pts[i], [bx, by] = ln.pts[i + 1];
+      const L = Math.hypot(bx - ax, by - ay);
+      if (L < 1e-6) continue;
+      const ux = (bx - ax) / L, uy = (by - ay) / L, nx = -uy, ny = ux;
+      const hw = ln.width[i] / 2 + ln.walk;
+      const m = Math.max(1, Math.round(L / 2));
+      for (let t = 0; t < m; t++) {
+        const f = (t + 0.5) / m, x = ax + (bx - ax) * f, y = ay + (by - ay) * f;
+        for (const side of [-1, 1]) {
+          const k = cellAt(x + nx * side * (hw + 1), y + ny * side * (hw + 1));
+          if (k < 0) continue;
+          const bid = blockId[k];
+          if (bid < 0 || blocks[bid].kind !== 'build') continue;
+          if (!frontBy.has(bid)) frontBy.set(bid, []);
+          frontBy.get(bid).push({ x, y, nx, ny, ux, uy, hw, side });
+        }
+      }
+    }
+  }
+  // scatter districts: lots line the local streets, set back by a front yard, in the order of the road
+  function frontageLots(b, d) {
+    for (const c of frontBy.get(b.id) ?? []) {
+      if (R.next() < 0.12) continue;
+      const hw = (d.lot[0] * R.range(0.8, 1.15)) / 2, hd = (d.lot[1] * R.range(0.8, 1.15)) / 2;
+      if (hw < 2.2 || hd < 2.2) continue;
+      const yard = R.range(3.5, 5.5);
+      const off = c.hw + yard + hd;
+      const x = c.x + c.nx * off * c.side, y = c.y + c.ny * off * c.side;
+      const rot = Math.atan2(c.uy, c.ux);
+      // the gap between neighbours runs along the road; the front yard keeps the road side clear
+      const m = (d.gap ?? 4) / 2;
+      if (!fits(b.id, x, y, rot, hw + m, hd)) continue;
+      place(b, d, x, y, rot, hw, hd);
+    }
+  }
   for (const b of blocks) {
     if (b.kind === 'fields' && b.area > 4000) {
       // the odd farmhouse and barn out in the fields
@@ -450,7 +504,7 @@ export async function generateCity(P, progress = () => {}) {
     const d = b.d;
     const theta = fieldAngle(b.cx, b.cy);
     if (P.estates) continue;
-    if (d.placement === 'scatter') scatterLots(b, d, 1);
+    if (d.placement === 'scatter') frontageLots(b, d);
     else rowLots(b, d, theta);
     if (d.placement !== 'scatter' && b.area > 250) scatterLots(b, d, 0.55, theta);
   }
@@ -516,6 +570,94 @@ export async function generateCity(P, progress = () => {}) {
     const dm = distRoad[cellAt(x - zx * o, y - zy * o)] ?? 99, dpl = distRoad[cellAt(x + zx * o, y + zy * o)] ?? 99;
     lots.push({ b, d, x, y, rot, hw, hd, front: dm <= dpl ? -1 : 1 });
   }
+
+  // ------------------------------------------------------------------ access: every lot reaches a road
+  // A footprint within ACCESS_MAX of a road edge (centre line less its half width, sidewalks included) is served. The
+  // others get a driveway (class 1) to the nearest road, or in the fields a farm track (class 0), routed over free
+  // ground; a lot that cannot be reached is not built.
+  const net = new SegGrid(12);
+  for (const ln of roads) {
+    if (ln.rail) continue;
+    for (let i = 0; i < ln.pts.length - 1; i++) {
+      const [ax, ay] = ln.pts[i], [bx, by] = ln.pts[i + 1];
+      net.add(ax, ay, bx, by, (ln.width[i] + ln.width[i + 1]) / 4 + ln.walk, { cls: ln.cls });
+    }
+  }
+  const lotPerim = (lot, pad) => {
+    const { x, y, rot, hw, hd } = lot;
+    const ux = Math.cos(rot), uy = Math.sin(rot);
+    const hwp = hw + pad, hdp = hd + pad;
+    const ns = Math.max(2, Math.ceil(hwp / 2)), nd = Math.max(2, Math.ceil(hdp / 2)); // a point every ~4 m
+    const pts = [];
+    for (let i = 0; i <= ns; i++) { const a = -hwp + (2 * hwp * i) / ns; pts.push([a, -hdp], [a, hdp]); }
+    for (let j = 0; j <= nd; j++) { const bb = -hdp + (2 * hdp * j) / nd; pts.push([-hwp, bb], [hwp, bb]); }
+    return pts.map(([a, bb]) => [x + ux * a - uy * bb, y + uy * a + ux * bb]);
+  };
+  const lotGap = (lot) => {
+    let g = Infinity;
+    for (const p of lotPerim(lot, 0)) {
+      // centre lines are measured to, so the search reaches past the widest road's half width
+      const q = net.nearest(p[0], p[1], ACCESS_MAX + 12);
+      if (q) g = Math.min(g, q.d - q.s.hw);
+      if (g <= ACCESS_MAX) break;
+    }
+    return g;
+  };
+  const drives = [];
+  const occMark = (x, y) => { const k = cellAt(x, y); if (k >= 0) occ[k] = 1; };
+  const routeTo = (lot, farm) => {
+    const reach = farm ? 400 : 60;
+    const cands = [];
+    const perim = lotPerim(lot, 0.6);
+    // a far search is costly: farm tracks look from every fourth point of the perimeter only
+    for (let k = 0; k < perim.length; k += farm ? 4 : 1) {
+      const p = perim[k];
+      const q = net.nearest(p[0], p[1], reach);
+      if (!q) continue;
+      cands.push({ cost: q.d - q.s.hw, p, q });
+    }
+    cands.sort((a, b) => a.cost - b.cost);
+    for (const { p, q } of cands.slice(0, 12)) {
+      const L = Math.hypot(p[0] - q.qx, p[1] - q.qy);
+      if (L < 0.5) continue;
+      const ux = (p[0] - q.qx) / L, uy = (p[1] - q.qy) / L;
+      const hw = q.s.hw;
+      const start = [q.qx + ux * hw, q.qy + uy * hw];
+      const len = Math.hypot(p[0] - start[0], p[1] - start[1]);
+      if (len < 0.5) continue;
+      // the route: free ground (no water, no other road or lot), except the first and last few metres
+      let ok = true;
+      const samples = [];
+      for (let t = 0; t <= len && ok; t += 0.8) {
+        const sx = start[0] + ((p[0] - start[0]) * t) / len, sy = start[1] + ((p[1] - start[1]) * t) / len;
+        samples.push([sx, sy]);
+        if (t < 3 || len - t < 2.5) continue;
+        const k = cellAt(sx, sy);
+        if (k < 0 || W[k] || occ[k] || roadCls[k]) ok = false;
+      }
+      if (!ok) continue;
+      for (const [sx, sy] of samples) for (const o of [-1.5, -0.75, 0, 0.75, 1.5]) occMark(sx - uy * o, sy + ux * o);
+      const cls = farm ? 0 : 1;
+      net.add(start[0], start[1], p[0], p[1], (farm ? FARM_W : DRIVE_W) / 2, { cls });
+      return { cls, pts: [start, [p[0], p[1]]], width: [farm ? FARM_W : DRIVE_W, farm ? FARM_W : DRIVE_W] };
+    }
+    return null;
+  };
+  let accessFail = 0, driveN = 0, trackN = 0, unreached = 0, driveKm = 0;
+  const served = [];
+  for (const lot of lots) {
+    if (lotGap(lot) <= ACCESS_MAX) { served.push(lot); continue; }
+    accessFail++;
+    const farm = lot.d.tier === 'rural';
+    const dv = routeTo(lot, farm);
+    if (!dv) { unreached++; continue; }
+    if (farm) trackN++; else driveN++;
+    driveKm += polyLen(dv.pts) / 1000;
+    drives.push({ cls: dv.cls, level: farm ? 'track' : 'drive', pts: dv.pts, width: dv.width, walk: 0, orderKey: keyOf(lot.x, lot.y) });
+    served.push(lot);
+  }
+  lots.splice(0, lots.length, ...served);
+  const access = { lots: lots.length, unservedAtStart: accessFail, driveways: driveN, farmTracks: trackN, unreached, driveKm: Math.round(driveKm * 10) / 10 };
 
   // ------------------------------------------------------------------ buildings
   await step(`Raising ${lots.length.toLocaleString('en')} buildings`);
@@ -674,7 +816,7 @@ export async function generateCity(P, progress = () => {}) {
   // ------------------------------------------------------------------ outskirts: woods, and highways that leave the city
   const outskirts = sampleOutskirts(P, n, half, heightAt, dWaterAt);
   const outH = (x, y) => outskirtsHeight(outskirts, x, y);
-  const highways = traceHighways(lines.filter((l) => l.cls === 4), { P, n, half, outH });
+  const highways = traceHighways(roads.filter((l) => l.cls === 4 && !l.rail), { P, n, half, outH });
   // woods beyond the square: the forest noise's patches, and along the border the square's own density (EDGE_KEEP
   // of the inner forest's, fading out over 450 m); never on water, beaches or the highways
   const hwCells = new Set();
@@ -736,7 +878,7 @@ export async function generateCity(P, progress = () => {}) {
 
   // roads: ribbons with per-vertex order (arterials lead, locals follow); the highways always show (order 0)
   const lead = { 4: 0.16, 3: 0.08, 2: 0.025 };
-  const ribbons = buildRibbons([...roads, ...highways], { heightAt, outH, isWater, keyOf, cdf, lead, parts, P, bridgeSpans });
+  const ribbons = buildRibbons([...roads, ...highways, ...drives], { heightAt, outH, isWater, keyOf, cdf, lead, parts, P, bridgeSpans, graph });
 
   // ------------------------------------------------------------------ ground data textures
   await step('Painting the ground');
@@ -776,6 +918,11 @@ export async function generateCity(P, progress = () => {}) {
   const tallest = buildings.reduce((m, b) => (b.h > (m?.h ?? 0) ? b : m), null);
   return {
     P, S, N, RES, H, texA, texB, parts: parts.finish(), ribbons, buildings, labels, rail, outskirts,
+    // the network the buildings' access is checked against (road and driveway centre lines, half widths)
+    network: [...roads.filter((l) => !l.rail), ...drives].map((l) => ({
+      cls: l.cls, pts: l.pts, hw: l.width.map((w) => w / 2 + (l.walk ?? 0)),
+    })),
+    access, graph: { nodes: graph.nodes.length, junctions: graph.stats.junctions, stats: graph.stats },
     // coarse rasters for the map lenses: land value (0..1) and district index into P.districts, on a R4 grid
     value: { n: N4, res: R4, data: V4 }, districts: { n: N4, res: R4, data: D4 },
     popCurve, timings, ms: Math.round(performance.now() - t0),
@@ -1081,10 +1228,34 @@ function fillConvex(poly, N, res, half, fn) {
   }
 }
 
-/** Road ribbons: triangle strips with side, distance and order attributes. Bridges get decks and towers. */
-function buildRibbons(roads, { heightAt, outH, isWater, keyOf, cdf, lead, parts, P, bridgeSpans }) {
+/**
+ * Road ribbons: triangle strips with side, distance and order attributes. The side runs from -1 to 1 across the
+ * carriageway and on past the kerb onto a sidewalk (side = offset / half width), so the shader reads kerb lines and
+ * walks from the one attribute. Junction patches (side 9) and paint (side 8: zebra and stop bars) are flat quads of
+ * their own. Bridges get decks and towers.
+ */
+function buildRibbons(roads, { heightAt, outH, isWater, keyOf, cdf, lead, parts, P, bridgeSpans, graph }) {
   const pos = [], side = [], dist = [], order = [], cls = [], idx = [];
-  let vbase = 0;
+  const V = () => pos.length / 3;
+  const push = (x, y, z, s, d, o, c) => { pos.push(x, y, z); side.push(s); dist.push(d); order.push(o); cls.push(c); };
+  // a flat quad: corners A, B (one end) and C, D (the other); triangles ABC and BDC
+  const quad = (A, B, C, D, s, o, c) => {
+    const v0 = V();
+    for (const [x, y, z] of [A, B, C, D]) push(x, y, z, s, 0, o, c);
+    idx.push(v0, v0 + 1, v0 + 2, v0 + 1, v0 + 3, v0 + 2);
+  };
+  const deg = graph ? graph.deg : new Int32Array(0);
+  const nodes = graph ? graph.nodes : [];
+  const nodeY = new Float64Array(nodes.length).fill(-1e9);
+  const nodeHw = new Float64Array(nodes.length);
+  const nodeCls = new Float64Array(nodes.length);
+  const nodeOrd = new Float64Array(nodes.length);
+  const seeNode = (node, h, hw, c, o) => {
+    if (h > nodeY[node]) nodeY[node] = h;
+    if (hw > nodeHw[node]) nodeHw[node] = hw;
+    if (c > nodeCls[node]) nodeCls[node] = c;
+    if (o > nodeOrd[node]) nodeOrd[node] = o;
+  };
   for (const ln of roads) {
     const pts = ln.pts, m = pts.length;
     if (m < 2) continue;
@@ -1100,19 +1271,24 @@ function buildRibbons(roads, { heightAt, outH, isWater, keyOf, cdf, lead, parts,
     for (let i = 1; i < m; i++) r[i] = Math.max(r[i], r[i - 1] - slope);
     for (let i = m - 2; i >= 0; i--) r[i] = Math.max(r[i], r[i + 1] - slope);
     const y = pts.map((_, i) => Math.max(ground[i] + 0.35 + ln.cls * 0.04, r[i]));
+    const ribbonCls = ln.rail ? 2 : ln.cls;
+    const walk = ln.walk ?? 0;
+    const ords = pts.map(([x, z]) => (ln.outer ? 0 : ln.orderKey !== undefined ? cdf(ln.orderKey) : Math.max(0, cdf(keyOf(x, z, 0.1)) - (lead[ln.cls] ?? 0))));
+    const cum = [0];
+    for (let i = 1; i < m; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
     let along = (ln.id ?? 0) * 7919 % 5000;
     const lift = ln.rail ? -0.02 : 0;
+    const v0 = V();
     for (let i = 0; i < m; i++) {
       const [x0, y0] = pts[Math.max(0, i - 1)], [x1, y1] = pts[Math.min(m - 1, i + 1)];
       const [nx, ny] = norm2(-(y1 - y0), x1 - x0);
       if (i > 0) along += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
       const hw = ln.width[i] / 2;
-      const o = ln.outer ? 0 : Math.max(0, cdf(keyOf(pts[i][0], pts[i][1], 0.1)) - (lead[ln.cls] ?? 0));
+      const reach = hw + walk; // the walk, if any, lies beyond the carriageway edge
       for (const s of [-1, 1]) {
-        pos.push(pts[i][0] + nx * hw * s, y[i] + lift, pts[i][1] + ny * hw * s);
-        side.push(s); dist.push(along); order.push(o); cls.push(ln.rail ? 1 : ln.cls);
+        push(pts[i][0] + nx * reach * s, y[i] + lift, pts[i][1] + ny * reach * s, (s * reach) / hw, along, ords[i], ribbonCls);
       }
-      if (i < m - 1) { const a = vbase + i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      if (i < m - 1) { const a = v0 + i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
       // bridge deck under elevated stretches
       if (i < m - 1 && y[i] > ground[i] + 1.2) {
         const [bx, by] = pts[i + 1];
@@ -1124,7 +1300,53 @@ function buildRibbons(roads, { heightAt, outH, isWater, keyOf, cdf, lead, parts,
         if (i % 7 === 0 && wet[i]) parts.box(mx, -3, my, 2.4, top - 1.6 + 3, hw * 1.4, rot, 0x6d6b67, 0, 4, 4, 0, key, 0, 0, 0);
       }
     }
-    vbase += m * 2;
+    if (ln.a !== undefined) seeNode(ln.a, y[0], ln.width[0] / 2, ribbonCls, ords[0]);
+    if (ln.b !== undefined) seeNode(ln.b, y[m - 1], ln.width[m - 1] / 2, ribbonCls, ords[m - 1]);
+    // paint at the junctions of collectors and arterials: a stop bar, then three zebra stripes across the carriageway
+    if (ln.cls >= 3 && cum[m - 1] > 14) {
+      const arms = [];
+      if (ln.a !== undefined && deg[ln.a] >= 3) arms.push({ fromEnd: false, o: ords[0] });
+      if (ln.b !== undefined && deg[ln.b] >= 3) arms.push({ fromEnd: true, o: ords[m - 1] });
+      for (const arm of arms) {
+        const total = cum[m - 1];
+        // the point at arc s from the node, with the arm's outward tangent and half width
+        const at = (s) => {
+          const t = arm.fromEnd ? total - s : s;
+          let i = 0;
+          while (i < m - 2 && cum[i + 1] < t) i++;
+          const f = (t - cum[i]) / Math.max(1e-9, cum[i + 1] - cum[i]);
+          const x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, z = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f;
+          const h = y[i] + (y[i + 1] - y[i]) * f;
+          const L = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) || 1;
+          const sg = arm.fromEnd ? -1 : 1;
+          const tx = (sg * (pts[i + 1][0] - pts[i][0])) / L, tz = (sg * (pts[i + 1][1] - pts[i][1])) / L;
+          return { x, z, h, nx: -tz, nz: tx, hw: ln.width[i] / 2 };
+        };
+        const bar = (s0, s1, frac) => {
+          const a = at(s0), b = at(s1);
+          const wa = a.hw * frac, wb = b.hw * frac;
+          quad([a.x - a.nx * wa, a.h + 0.05, a.z - a.nz * wa], [a.x + a.nx * wa, a.h + 0.05, a.z + a.nz * wa],
+            [b.x - b.nx * wb, b.h + 0.05, b.z - b.nz * wb], [b.x + b.nx * wb, b.h + 0.05, b.z + b.nz * wb], 8, arm.o, ribbonCls);
+        };
+        bar(6.0, 6.45, 0.95);
+        for (let k = 0; k < 3; k++) bar(7.5 + k * 1.4, 8.2 + k * 1.4, 0.85);
+      }
+    }
+  }
+  // junction patches: one asphalt disc per node where three or more roads meet, on top of the arms' ribbons
+  const SEG = 12;
+  for (let n = 0; n < nodes.length; n++) {
+    if (deg[n] < 3 || nodeY[n] < -1e8) continue;
+    const [x, z] = nodes[n];
+    if (isWater(x, z)) continue;
+    const R = nodeHw[n] + 0.3, yy = nodeY[n] + 0.04;
+    const v0 = V();
+    push(x, yy, z, 9, 0, nodeOrd[n], nodeCls[n]);
+    for (let k = 0; k <= SEG; k++) {
+      const a = (k / SEG) * Math.PI * 2;
+      push(x + Math.cos(a) * R, yy, z + Math.sin(a) * R, 9, 0, nodeOrd[n], nodeCls[n]);
+    }
+    for (let k = 0; k < SEG; k++) idx.push(v0, v0 + 1 + k, v0 + 2 + k);
   }
   // suspension towers on long arterial bridges
   for (const sp of bridgeSpans) {
