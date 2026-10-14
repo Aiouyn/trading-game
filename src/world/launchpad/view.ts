@@ -328,8 +328,8 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
   const live = all.filter((t) => t.status === 'live');
   // Select by immutable launch time before applying the feed limit. Selecting by last trade here
   // changed membership every tick even when the client selected Most recent.
-  const newestTokens = [...live].sort((a, b) => b.createdTick - a.createdTick ||
-    (a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0)).slice(0, FEED);
+  // Stable sort preserves reverse launch order when several launches share one game tick.
+  const newestTokens = [...live].reverse().sort((a, b) => b.createdTick - a.createdTick).slice(0, FEED);
   const newest = newestTokens.map((t) => cardOf(g, t));
   // the trending order: each token's volume is read once (a card builds an icon, so it is not made inside the comparator)
   const vols = new Map(live.map((t) => [t, t.volPrev > 0 ? t.volPrev : t.volToday] as const));

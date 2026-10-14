@@ -46,7 +46,9 @@ export function FeedTab({ rows, kind, tick, onOpen, onTab, quickBuy, onQuickBuy 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const list = rows.filter((c) => !needle || c.name.toLowerCase().includes(needle) || c.ticker.toLowerCase().includes(needle));
-    return [...list].sort((a, b) => keyOf(sort, b) - keyOf(sort, a) || (a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0));
+    // Equal launch ticks retain the server's actual launch order, rather than switching to alphabetical order.
+    return [...list].sort((a, b) => keyOf(sort, b) - keyOf(sort, a) ||
+      (sort === 'created' ? 0 : a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0));
   }, [rows, q, sort]);
   if (rows.length === 0) {
     return (

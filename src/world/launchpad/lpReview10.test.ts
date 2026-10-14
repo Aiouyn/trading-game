@@ -234,6 +234,9 @@ describe('the New feed keeps the most recent launches', () => {
     const before = v.feeds.newest.map(c=>c.ticker);
     for (const ticker of lp.order) lp.tokens[ticker]!.tape.push({tick:9001,side:'buy',qty:1,price:1e-5,creator:false,npc:true});
     expect(launchpadView(g,TRADER).feeds.newest.map(c=>c.ticker)).toEqual(before);
+    const newestTicker = lp.order.at(-1)!;
+    lp.tokens[lp.order.at(-2)!]!.createdTick = lp.tokens[newestTicker]!.createdTick;
+    expect(launchpadView(g,TRADER).feeds.newest[0]!.ticker).toBe(newestTicker);
   });
 });
 
