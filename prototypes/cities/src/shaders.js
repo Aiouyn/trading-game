@@ -741,6 +741,7 @@ void main() {
 // Class: 0 farm track (dirt), 1 driveway (pale), 2 local, 3 collector, 4 arterial. No traffic: the roads are static.
 export const roadFrag = /* glsl */ `
 ${COMMON}
+${MATERIALS}
 uniform vec3 cRoad0; uniform vec3 cRoad1; uniform vec3 cRoad2;
 uniform vec3 uLit0;
 uniform float uLensDim;
@@ -752,44 +753,145 @@ varying vec2 vXZ;
 void main() {
   if (vProg <= 0.0) discard;
   float a = abs(vSide);
-  float fw = fwidth(vSide);
+  float fw = max(fwidth(vSide), 1e-4);
+  float pxR = max(fwidth(vXZ.x), fwidth(vXZ.y));
+  float farR = smoothstep(0.32, 0.75, pxR);
   bool junction = a > 8.5 && a < 9.5;
   bool paint = a > 7.5 && a < 8.5;
   bool dirt = vCls < 0.5;
   bool drive = vCls > 0.5 && vCls < 1.5;
   vec3 asphalt = vCls > 3.5 ? cRoad2 : vCls > 2.5 ? cRoad1 : cRoad0;
   vec3 c = asphalt;
-  if (dirt) c = vec3(0.5, 0.44, 0.34);
-  if (drive) c = mix(cRoad0, vec3(0.68, 0.66, 0.62), 0.5);
-  // asphalt grain from world-space noise, so it does not swim with the camera
+  vec3 norm = vec3(0.0, 1.0, 0.0);
+
+  // World-space asphalt aggregate grain + subtle weathering patches (gated by uDetail and distance)
   float grain = 1.0;
-  if (uDetail > 0.01) grain = mix(1.0, 0.95 + 0.06 * vnoise(vXZ * 0.9) + 0.03 * vnoise(vXZ * 3.7), uDetail);
-  if (paint) {
-    c = vec3(0.86, 0.85, 0.8);
+  float patchW = 0.0;
+  if (uDetail > 0.01) {
+    float gFine = 0.94 + 0.07 * vnoise(vXZ * 0.85) + 0.04 * vnoise(vXZ * 3.6) * (1.0 - farR);
+    grain = mix(1.0, gFine, uDetail);
+    patchW = smoothstep(0.58, 0.72, vnoise(vXZ * 0.09 + 11.0)) * (1.0 - farR) * uDetail;
+  }
+
+  if (dirt) {
+    c = vec3(0.5, 0.44, 0.34) * grain;
+    // Wheel ruts along rural farm tracks
+    float rut = exp(-pow((a - 0.48) * 6.5, 2.0));
+    c *= 1.0 - 0.14 * rut * (1.0 - farR);
+    float edgeSoft = 1.0 - smoothstep(0.82, 1.0, a);
+    c = mix(c * 0.86, c, edgeSoft);
+  } else if (drive) {
+    // Paved driveway apron with subtle stone/concrete joints
+    c = mix(cRoad0, vec3(0.7, 0.67, 0.62), 0.52) * grain;
+    if (uDetail > 0.01 && farR < 0.99) {
+      float dj = max(lineX(vXZ.x, 1.5, 0.018, pxR), lineX(vXZ.y, 1.5, 0.018, pxR)) * (1.0 - farR) * uDetail;
+      c *= 1.0 - 0.08 * dj;
+    }
+    float dBorder = 1.0 - smoothstep(0.0, fw * 1.4 + 0.03, abs(a - 0.94));
+    c *= 1.0 - 0.16 * dBorder;
+  } else if (paint) {
+    // Crisp road markings with faint asphalt wear showing through
+    c = vec3(0.89, 0.87, 0.81) * (0.94 + 0.06 * grain);
   } else if (junction) {
-    c *= grain;
+    // Intersection plaza: crowned center, subtle turning wear, and kerb ring at rim (vDist = 0 at center, 1 at rim)
+    c = asphalt * grain * (1.0 - 0.06 * patchW);
+    float rJ = clamp(vDist, 0.0, 1.0);
+    float turnWear = exp(-pow((rJ - 0.55) * 3.5, 2.0));
+    c *= 1.03 - 0.07 * turnWear;
+    float rimGutter = smoothstep(0.82, 0.98, rJ) * (1.0 - smoothstep(0.98, 1.0, rJ));
+    c *= 1.0 - 0.14 * rimGutter;
+    // Manhole cover near intersection center on urban streets
+    if (uDetail > 0.01 && farR < 0.85 && vCls > 2.5) {
+      float mh = 1.0 - smoothstep(0.07, 0.11, rJ);
+      float mhRim = smoothstep(0.05, 0.07, rJ) * mh;
+      c = mix(c, vec3(0.24, 0.25, 0.27), mh * 0.75 * (1.0 - farR));
+      c = mix(c, vec3(0.15, 0.16, 0.17), mhRim * (1.0 - farR));
+    }
   } else {
-    c *= grain;
-    if (!dirt && !drive) {
-      // the walk: lighter, from the kerb out to the edge of the strip
-      float walk = smoothstep(1.0 - fw, 1.0 + fw, a) * (1.0 - smoothstep(1.95 - fw, 1.95 + fw, a));
-      c = mix(c, vec3(0.7, 0.68, 0.64) * grain, walk * 0.85);
-      // a dark kerb line where the carriageway meets the walk (or the verge)
-      float kerb = 1.0 - smoothstep(0.0, fw * 1.5 + 0.015, abs(a - 1.0));
-      c = mix(c, c * 0.6, kerb * 0.9);
-      // centre lines, muted: solid on arterials, long dashes on collectors
-      if (vCls > 2.5) {
-        float cl = 1.0 - smoothstep(0.02, 0.02 + fw * 1.2, a);
-        float dash = vCls > 3.5 ? 1.0 : step(0.5, fract(vDist / 14.0));
-        c = mix(c, vec3(0.78, 0.74, 0.6), cl * dash * 0.6);
+    c = asphalt * grain * (1.0 - 0.06 * patchW);
+    if (a <= 1.0) {
+      // Carriageway crown & wheel-track wear (twin dark tracks per lane, lighter oil-polished lane center)
+      float laneCenter = vCls > 3.5 ? (a < 0.5 ? 0.25 : 0.75) : 0.48;
+      float track = exp(-pow((abs(a - laneCenter) - 0.14) * 14.0, 2.0));
+      float crown = 1.0 - 0.06 * (a * a);
+      c *= crown * (1.0 - 0.085 * track * (1.0 - farR * 0.5));
+
+      // Concrete storm gutter apron & drainage grates along the kerb (a = 0.86 .. 1.0)
+      float gutter = smoothstep(0.85 - fw, 0.89 + fw, a) * (1.0 - smoothstep(1.0 - fw, 1.0 + fw, a));
+      vec3 gutterCol = mix(c, vec3(0.56, 0.54, 0.50) * grain, 0.38) * 0.86;
+      if (uDetail > 0.01 && farR < 0.85) {
+        // World-space storm grates every ~20 m along the gutter so grates never shear across the road
+        vec2 gLocal = fract((vXZ + 3.0) / 20.0) * 20.0 - 10.0;
+        float grateHit = (1.0 - smoothstep(0.45, 0.65, length(gLocal))) * smoothstep(0.88, 0.92, a) * (1.0 - smoothstep(0.97, 0.99, a));
+        float bars = step(0.45, fract((vXZ.x + vXZ.y) * 3.5));
+        gutterCol = mix(gutterCol, vec3(0.14, 0.15, 0.16) * (0.65 + 0.35 * bars), grateHit * (1.0 - farR));
+      }
+      c = mix(c, gutterCol, gutter);
+
+      // Periodic manhole covers along collector/arterial carriageways (world-space circular discs, never sheared)
+      if (uDetail > 0.01 && farR < 0.8 && vCls > 2.2) {
+        vec2 mGrid = fract((vXZ + 7.5) / 28.0) * 28.0 - 14.0;
+        float mhR = length(mGrid);
+        float mhCenter = smoothstep(0.12, 0.35, a) * (1.0 - smoothstep(0.38, 0.55, a));
+        float mhMask = (1.0 - smoothstep(0.36 - pxR, 0.40 + pxR, mhR)) * mhCenter * (1.0 - farR);
+        c = mix(c, vec3(0.24, 0.25, 0.27), mhMask * 0.8);
+      }
+
+      // Lane & centerline markings (kept clear of junction approaches via vDist doesn't know end, so we use a clean inset)
+      float markFade = 1.0 - smoothstep(0.45, 0.95, pxR);
+      vec3 whitePaint = vec3(0.88, 0.86, 0.80);
+      vec3 brassDivider = vec3(0.84, 0.71, 0.44);
+      if (vCls > 3.5) {
+        // Arterial: double solid warm-brass center median + dashed white lane dividers + crisp edge lines
+        float dbl = (1.0 - smoothstep(0.008, 0.014 + fw * 0.9, abs(a - 0.022)));
+        c = mix(c, brassDivider, dbl * 0.78);
+        float laneDiv = (1.0 - smoothstep(0.008, 0.015 + fw, abs(a - 0.5))) * step(0.55, fract(vDist / 12.0));
+        c = mix(c, whitePaint, laneDiv * 0.65 * markFade);
+        float edgeLine = 1.0 - smoothstep(0.007, 0.014 + fw, abs(a - 0.84));
+        c = mix(c, whitePaint, edgeLine * 0.42 * markFade);
+      } else if (vCls > 2.5) {
+        // Collector: dashed center line + faint edge line
+        float cl = (1.0 - smoothstep(0.012, 0.02 + fw * 1.1, a)) * step(0.48, fract(vDist / 13.0));
+        c = mix(c, brassDivider, cl * 0.68);
+        float edgeLine = 1.0 - smoothstep(0.008, 0.016 + fw, abs(a - 0.85));
+        c = mix(c, whitePaint, edgeLine * 0.32 * markFade);
+      } else if (vCls > 1.5 && uDetail > 0.01 && farR < 0.9) {
+        // Local urban streets: subtle stone-sett / cobblestone course texture
+        float cobble = max(lineX(vXZ.x, 0.45, 0.014, pxR), lineX(vXZ.y, 0.45, 0.014, pxR)) * (1.0 - farR) * uDetail;
+        c *= 1.0 - 0.07 * cobble;
       }
     }
+
+    // Sidewalk & granite kerb (a >= 1.0)
+    float walk = smoothstep(1.0 - fw, 1.0 + fw, a) * (1.0 - smoothstep(1.96 - fw, 1.96 + fw, a));
+    if (walk > 0.001) {
+      vec3 swCol = vec3(0.73, 0.70, 0.65) * grain;
+      if (uDetail > 0.01 && farR < 0.95) {
+        // 1.25 m flagstone paving grid + individual slab tone variation
+        float slabJ = max(lineX(vXZ.x, 1.25, 0.016, pxR), lineX(vXZ.y, 1.25, 0.016, pxR)) * (1.0 - farR) * uDetail;
+        float slabV = h31(vec3(floor(vXZ / 1.25), 5.0));
+        swCol *= (0.96 + 0.08 * slabV) * (1.0 - 0.13 * slabJ);
+      }
+      // Subtle outer building-edge shadow & raised kerb top highlight
+      float outerEdge = smoothstep(1.75, 1.95, a);
+      float kerbTop = 1.0 - smoothstep(1.0, 1.14, a);
+      swCol = swCol * (1.0 - 0.10 * outerEdge) + vec3(0.05, 0.045, 0.04) * kerbTop * (1.0 - farR);
+      c = mix(c, swCol, walk * 0.92);
+    }
+
+    // Sharp 3D kerb step & shadow line at |vSide| == 1.0
+    float kerbFace = 1.0 - smoothstep(0.0, fw * 1.4 + 0.018, abs(a - 1.0));
+    c = mix(c, c * 0.48, kerbFace * 0.92);
+    // Tilt normal slightly on the kerb face so sunlight catches one side of the street and shades the other
+    norm = normalize(vec3(0.0, 1.0, 0.0) + vec3(sign(vSide) * 0.22 * kerbFace, 0.0, 0.0));
   }
+
   if (vProg < 1.0) c = mix(c, vec3(0.55, 0.47, 0.38), (1.0 - vProg) * 0.7);
-  vec3 col = light(c, vec3(0.0, 1.0, 0.0));
-  // street lights at night: a faint pool between the poles
-  float lamp = exp(-pow((fract(vDist / 26.0) - 0.5) * 6.0, 2.0)) * (0.55 + 0.45 * min(a, 1.0));
-  col += uLit0 * uNight * (0.012 + lamp * (vCls > 2.5 ? 0.05 : 0.03));
+  vec3 col = light(c, norm);
+  // Streetlights at night: warm pools along the kerbs and intersections
+  float lamp = exp(-pow((fract(vDist / 26.0) - 0.5) * 5.2, 2.0)) * (0.5 + 0.5 * smoothstep(0.3, 1.1, a));
+  if (junction) lamp = 0.75;
+  col += uLit0 * uNight * (0.015 + lamp * (vCls > 3.5 ? 0.075 : vCls > 2.5 ? 0.055 : 0.035));
   col *= 1.0 - uLensDim;
   gl_FragColor = vec4(haze(col, vXZ), 1.0);
 }`;

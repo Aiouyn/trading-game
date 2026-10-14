@@ -1472,9 +1472,9 @@ function buildRibbons(roads, { heightAt, outH, isWater, distAt, keyOf, cdf, lead
   const V = () => pos.length / 3;
   const push = (x, y, z, s, d, o, c) => { pos.push(x, y, z); side.push(s); dist.push(d); order.push(o); cls.push(c); };
   // a flat quad: corners A, B (one end) and C, D (the other); triangles ABC and BDC
-  const quad = (A, B, C, D, s, o, c) => {
+  const quad = (A, B, C, D, s, o, c, d = 0) => {
     const v0 = V();
-    for (const [x, y, z] of [A, B, C, D]) push(x, y, z, s, 0, o, c);
+    for (const [x, y, z] of [A, B, C, D]) push(x, y, z, s, d, o, c);
     idx.push(v0, v0 + 1, v0 + 2, v0 + 1, v0 + 3, v0 + 2);
   };
   const deg = graph ? graph.deg : new Int32Array(0);
@@ -1522,20 +1522,29 @@ function buildRibbons(roads, { heightAt, outH, isWater, distAt, keyOf, cdf, lead
         push(pts[i][0] + nx * reach * s, y[i] + lift, pts[i][1] + ny * reach * s, (s * reach) / hw, along, ords[i], ribbonCls);
       }
       if (i < m - 1) { const a = v0 + i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-      // bridge deck under elevated stretches
+      // bridge deck, concrete parapets and expansion joints under elevated stretches
       if (i < m - 1 && y[i] > ground[i] + 1.2) {
         const [bx, by] = pts[i + 1];
         const mx = (pts[i][0] + bx) / 2, my = (pts[i][1] + by) / 2;
+        const segLen = Math.hypot(bx - pts[i][0], by - pts[i][1]);
         const rot = Math.atan2(by - pts[i][1], bx - pts[i][0]);
-        const top = (y[i] + y[i + 1]) / 2;
+        const top = Math.min(y[i], y[i + 1]);
         const key = keyOf(mx, my, 0.1) - 0.2;
-        parts.box(mx, top - 1.6, my, Math.hypot(bx - pts[i][0], by - pts[i][1]) + 0.4, 1.55, hw * 2 + 1.2, rot, 0x8c8a86, 0, 4, 4, 0, key, 0, Math.max(0, ground[i]), 0);
-        if (i % 7 === 0 && wet[i]) parts.box(mx, -3, my, 2.4, top - 1.6 + 3, hw * 1.4, rot, 0x6d6b67, 0, 4, 4, 0, key, 0, 0, 0);
+        const deckW = (hw + walk) * 2 + 0.6;
+        parts.box(mx, top - 1.65, my, segLen + 0.35, 1.55, deckW, rot, 0x8c8a86, 0, 4, 4, 0, key, 0, Math.max(0, ground[i]), 0);
+        // Raised stone/concrete bridge parapets along both outer edges of the span
+        const rOff = hw + walk + 0.22;
+        const sn = Math.sin(rot), cs = Math.cos(rot);
+        for (const s of [-1, 1]) {
+          const rx = mx - sn * rOff * s, ry = my + cs * rOff * s;
+          parts.box(rx, top - 0.05, ry, segLen + 0.35, 0.72, 0.34, rot, 0xb8b2a6, 0, 4, 4, 0, key, 0, Math.max(0, ground[i]), 0);
+        }
+        if (i % 7 === 0 && wet[i]) parts.box(mx, -3, my, 2.4, top - 1.65 + 3, hw * 1.4, rot, 0x6d6b67, 0, 4, 4, 0, key, 0, 0, 0);
       }
     }
     if (ln.a !== undefined) seeNode(ln.a, y[0], ln.width[0] / 2, ribbonCls, ords[0]);
     if (ln.b !== undefined) seeNode(ln.b, y[m - 1], ln.width[m - 1] / 2, ribbonCls, ords[m - 1]);
-    // paint at the junctions of collectors and arterials: a stop bar, then three zebra stripes across the carriageway
+    // paint at the junctions of collectors and arterials: a stop bar, then a longitudinal zebra crosswalk
     if (ln.cls >= 3 && cum[m - 1] > 14) {
       const arms = [];
       const total = cum[m - 1];
@@ -1552,8 +1561,8 @@ function buildRibbons(roads, { heightAt, outH, isWater, distAt, keyOf, cdf, lead
         const tx = (sg * (pts[i + 1][0] - pts[i][0])) / L, tz = (sg * (pts[i + 1][1] - pts[i][1])) / L;
         return { x, z, h, nx: -tz, nz: tx, hw: ln.width[i] / 2, ground: ground[i] };
       };
-      // The paint spans roughly 6..11 m along the arm: judge the arm on that stretch, not at the node.
-      const PAINT = 12;
+      // The paint spans roughly 5.5..10.5 m along the arm: judge the arm on that stretch, not at the node.
+      const PAINT = 11;
       const checkArm = (nodeId, fromEnd, o) => {
         let raised = false, wetPaint = false;
         for (let s = 0; s <= PAINT; s += 2) {
@@ -1584,29 +1593,63 @@ function buildRibbons(roads, { heightAt, outH, isWater, distAt, keyOf, cdf, lead
       if (ln.b !== undefined) checkArm(ln.b, true, ords[m - 1]);
       for (const arm of arms) {
         const atArm = (s) => at(arm.fromEnd, s);
-        const bar = (s0, s1, frac) => {
-          const a = atArm(s0), b = atArm(s1);
-          const wa = a.hw * frac, wb = b.hw * frac;
-          quad([a.x - a.nx * wa, a.h + 0.05, a.z - a.nz * wa], [a.x + a.nx * wa, a.h + 0.05, a.z + a.nz * wa],
-            [b.x - b.nx * wb, b.h + 0.05, b.z - b.nz * wb], [b.x + b.nx * wb, b.h + 0.05, b.z + b.nz * wb], 8, arm.o, ribbonCls);
-        };
-        bar(6.0, 6.45, 0.95);
-        for (let k = 0; k < 3; k++) bar(7.5 + k * 1.4, 8.2 + k * 1.4, 0.85);
+        // Dark asphalt collar from node center (s = 0.5) out to behind the stop bar (s = 10.9)
+        // so the road's centerline and lane dashes never appear in front of the crosswalk or inside the junction.
+        const a0 = atArm(0.5), b0 = atArm(10.9);
+        let maxArmH = Math.max(a0.h, b0.h);
+        for (let s = 1; s <= 10.5; s += 1.5) maxArmH = Math.max(maxArmH, atArm(s).h);
+        const hCollar = maxArmH + 0.08;
+        const wCollar = a0.hw * 0.96;
+        quad([a0.x - a0.nx * wCollar, hCollar, a0.z - a0.nz * wCollar], [a0.x + a0.nx * wCollar, hCollar, a0.z + a0.nz * wCollar],
+          [b0.x - b0.nx * wCollar, hCollar, b0.z - b0.nz * wCollar], [b0.x + b0.nx * wCollar, hCollar, b0.z + b0.nz * wCollar], 9, arm.o, ribbonCls, 0.5);
+        // Stop bar across the carriageway (s = 10.0 .. 10.48 m from node)
+        {
+          const a = atArm(10.0), b = atArm(10.48);
+          const sh = maxArmH + 0.11;
+          const wa = a.hw * 0.92, wb = b.hw * 0.92;
+          quad([a.x - a.nx * wa, sh, a.z - a.nz * wa], [a.x + a.nx * wa, sh, a.z + a.nz * wa],
+            [b.x - b.nx * wb, sh, b.z - b.nz * wb], [b.x + b.nx * wb, sh, b.z + b.nz * wb], 8, arm.o, ribbonCls);
+        }
+        // Longitudinal continental zebra stripes (s = 6.2 .. 8.8 m from node, spaced every 1.05 m across road width)
+        {
+          const a = atArm(6.2), b = atArm(8.8);
+          const zh = maxArmH + 0.11;
+          const spanW = a.hw * 0.84;
+          const stepW = 1.05, barHalf = 0.25;
+          const nBars = Math.max(3, Math.floor((spanW * 2) / stepW));
+          const startW = -((nBars - 1) * stepW) * 0.5;
+          for (let k = 0; k < nBars; k++) {
+            const cOff = startW + k * stepW;
+            const w0 = cOff - barHalf, w1 = cOff + barHalf;
+            quad([a.x + a.nx * w0, zh, a.z + a.nz * w0], [a.x + a.nx * w1, zh, a.z + a.nz * w1],
+              [b.x + b.nx * w0, zh, b.z + b.nz * w0], [b.x + b.nx * w1, zh, b.z + b.nz * w1], 8, arm.o, ribbonCls);
+          }
+        }
       }
     }
   }
-  // junction patches: one asphalt disc per node where three or more roads meet, on top of the arms' ribbons
-  const SEG = 12;
+  // junction patches: raised sidewalk corner collar + flush asphalt plaza with radial variation in vDist
+  const SEG = 16;
   for (let n = 0; n < nodes.length; n++) {
     if (deg[n] < 3 || nodeY[n] < -1e8) continue;
     const [x, z] = nodes[n];
     if (isWater(x, z)) continue;
-    const R = nodeHw[n] + 0.3, yy = nodeY[n] + 0.04;
+    const R = nodeHw[n] + 0.4, yy = nodeY[n] + 0.085;
+    if (nodeCls[n] >= 2) {
+      const walkR = R + 1.9, walkY = nodeY[n] - 0.02;
+      const vw = V();
+      push(x, walkY, z, 1.5, 0, nodeOrd[n], nodeCls[n]);
+      for (let k = 0; k <= SEG; k++) {
+        const a = (k / SEG) * Math.PI * 2;
+        push(x + Math.cos(a) * walkR, walkY, z + Math.sin(a) * walkR, 1.5, 1, nodeOrd[n], nodeCls[n]);
+      }
+      for (let k = 0; k < SEG; k++) idx.push(vw, vw + 1 + k, vw + 2 + k);
+    }
     const v0 = V();
     push(x, yy, z, 9, 0, nodeOrd[n], nodeCls[n]);
     for (let k = 0; k <= SEG; k++) {
       const a = (k / SEG) * Math.PI * 2;
-      push(x + Math.cos(a) * R, yy, z + Math.sin(a) * R, 9, 0, nodeOrd[n], nodeCls[n]);
+      push(x + Math.cos(a) * R, yy, z + Math.sin(a) * R, 9, 1, nodeOrd[n], nodeCls[n]);
     }
     for (let k = 0; k < SEG; k++) idx.push(v0, v0 + 1 + k, v0 + 2 + k);
   }

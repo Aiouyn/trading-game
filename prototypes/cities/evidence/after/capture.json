@@ -1,7 +1,7 @@
 {
-  "date": "2026-10-14T18:09:31.562Z",
+  "date": "2026-10-14T18:32:38.814Z",
   "base": "http://127.0.0.1:3650",
-  "toolCommit": "8c4b4513acb075cfebb5e9f5683093416ed0c4d0",
+  "toolCommit": "ce952e5f5e94021ce5880814174facf76bee2a7b",
   "browser": "153.0.8010.12",
   "viewport": {
     "width": 1600,
@@ -20,7 +20,7 @@
       "yaw": 0.7853981633974483,
       "pixelRatio": 1,
       "calls": 176,
-      "triangles": 569608
+      "triangles": 582332
     },
     {
       "file": "oldharbor-15.png",
@@ -38,7 +38,7 @@
       "yaw": 0.7853981633974483,
       "pixelRatio": 1,
       "calls": 55,
-      "triangles": 566476
+      "triangles": 578700
     },
     {
       "file": "midtown-15.png",
@@ -56,7 +56,7 @@
       "yaw": 0.7853981633974483,
       "pixelRatio": 1,
       "calls": 62,
-      "triangles": 610302
+      "triangles": 622746
     },
     {
       "file": "gilthill-15.png",
@@ -74,7 +74,7 @@
       "yaw": 0.7853981633974483,
       "pixelRatio": 1,
       "calls": 62,
-      "triangles": 704440
+      "triangles": 716184
     },
     {
       "file": "westbank-15.png",
@@ -92,7 +92,7 @@
       "yaw": 0.7853981633974483,
       "pixelRatio": 1,
       "calls": 39,
-      "triangles": 503026
+      "triangles": 514370
     },
     {
       "file": "docks-15.png",
@@ -110,7 +110,7 @@
       "yaw": 0.7853981633974483,
       "pixelRatio": 1,
       "calls": 45,
-      "triangles": 516486
+      "triangles": 528310
     },
     {
       "file": "oldharbor-rot1-15.png",
@@ -128,7 +128,7 @@
       "yaw": 2.356194490192345,
       "pixelRatio": 1,
       "calls": 57,
-      "triangles": 574732
+      "triangles": 586976
     },
     {
       "file": "oldharbor-rot2-15.png",
@@ -146,7 +146,7 @@
       "yaw": 3.9269908169872414,
       "pixelRatio": 1,
       "calls": 58,
-      "triangles": 638134
+      "triangles": 650358
     },
     {
       "file": "oldharbor-rot3-15.png",
@@ -164,7 +164,7 @@
       "yaw": 5.497787143782138,
       "pixelRatio": 1,
       "calls": 50,
-      "triangles": 567950
+      "triangles": 579694
     },
     {
       "file": "gilthill-rot1-15.png",
@@ -182,7 +182,7 @@
       "yaw": 2.356194490192345,
       "pixelRatio": 1,
       "calls": 54,
-      "triangles": 643208
+      "triangles": 654552
     },
     {
       "file": "gilthill-rot2-15.png",
@@ -200,7 +200,7 @@
       "yaw": 3.9269908169872414,
       "pixelRatio": 1,
       "calls": 57,
-      "triangles": 690938
+      "triangles": 702562
     },
     {
       "file": "gilthill-rot3-15.png",
@@ -218,7 +218,7 @@
       "yaw": 5.497787143782138,
       "pixelRatio": 1,
       "calls": 59,
-      "triangles": 648858
+      "triangles": 660202
     },
     {
       "file": "overview-21.png",
@@ -232,7 +232,7 @@
       "yaw": 0.7853981633974483,
       "pixelRatio": 1,
       "calls": 176,
-      "triangles": 569608
+      "triangles": 582332
     },
     {
       "file": "oldharbor-21.png",
@@ -250,7 +250,7 @@
       "yaw": 0.7853981633974483,
       "pixelRatio": 1,
       "calls": 55,
-      "triangles": 566476
+      "triangles": 578700
     },
     {
       "file": "midtown-21.png",
@@ -268,7 +268,7 @@
       "yaw": 0.7853981633974483,
       "pixelRatio": 1,
       "calls": 62,
-      "triangles": 610302
+      "triangles": 622746
     }
   ],
   "errors": []
