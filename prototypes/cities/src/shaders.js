@@ -15,6 +15,19 @@ uniform float uHaze0;
 uniform float uHaze1;
 float h11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
 float h31(vec3 p3) { p3 = fract(p3 * 0.1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }
+// smooth value noise on a lattice, range [0, 1]
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = h31(vec3(i, 1.0)), b = h31(vec3(i + vec2(1.0, 0.0), 1.0));
+  float c = h31(vec3(i + vec2(0.0, 1.0), 1.0)), d = h31(vec3(i + vec2(1.0, 1.0), 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fnoise(vec2 p) { return 0.6 * vnoise(p) + 0.3 * vnoise(p * 2.07 + 17.3) + 0.1 * vnoise(p * 4.13 + 5.9); }
+// the land use of the open landscape, the same function inside and outside the square (the square's own
+// farms and woods blend into it near the border, see groundFrag): fields on the lowland, woods in patches
+float fieldNoise(vec2 xz) { return smoothstep(0.52, 0.6, fnoise(xz / 700.0 + 13.0)); }
+float woodsNoise(vec2 xz) { return smoothstep(0.56, 0.64, fnoise(xz / 480.0 + 41.0)); }
 vec3 light(vec3 base, vec3 n) {
   float hemi = 0.62 + 0.38 * n.y;
   float d = max(dot(n, uSunDir), 0.0);
@@ -39,6 +52,7 @@ attribute vec4 iMeta;
 uniform sampler2D uState;
 uniform float uStateW;
 uniform float uGhostPass;
+uniform float uFocusPass;
 varying vec4 vState;
 varying vec3 vN;
 varying vec3 vFace;
@@ -59,7 +73,8 @@ void main() {
   float p = clamp((uGrowth - iMeta.x) / uBand, 0.0, 1.0);
   vProg = p;
   // the opaque pass draws what is built (occluders are cut out in the fragment); the ghost pass draws only occluders
-  if (p <= 0.0 || (uGhostPass > 0.5 && !isOccluder)) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  bool isFocusV = mod(floor(floor(vState.a * 255.0 + 0.5) / 4.0), 2.0) >= 1.0;
+  if (p <= 0.0 || (uGhostPass > 0.5 && !isOccluder) || (uFocusPass > 0.5 && !isFocusV)) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   vec3 lp = position * iSize;
   vMetric = lp;
   float c = cos(iRot), s = sin(iRot);
@@ -87,6 +102,7 @@ uniform vec3 uLit2;
 uniform vec3 uBrass;
 uniform vec3 uSkyRefl;
 uniform float uGhostPass;
+uniform float uFocusPass;
 varying vec4 vState;
 varying vec3 vN;
 varying vec3 vFace;
@@ -240,6 +256,12 @@ void main() {
   }
 
   if (abs(bid - uHover) < 0.5 && bid > 0.5) base = mix(base, uBrass * 1.15, 0.38);
+  if (uFocusPass > 0.5) {
+    // focus overlay, drawn on top with depth off: a brass outline at full strength and a faint brass veil over the
+    // hidden parts, so the focus building reads at any zoom and behind other towers
+    gl_FragColor = vec4(uBrass * 1.15, 0.12 + 0.88 * lineV);
+    return;
+  }
   if (uGhostPass > 0.5) {
     // see-through: the lit face mixed 35% towards a cool blue-grey and faint; the ink edges stay visible
     vec3 glass = mix(base, vec3(0.52, 0.62, 0.72), 0.35);
@@ -297,15 +319,19 @@ void main() {
   float water = A.r, green = A.g, sand = A.b, depth = A.a;
   float shadowO = B.r, lotO = B.g, plaza = B.b, varn = B.a;
   float g = uGrowth;
+  // near the border the square's ground is the open landscape's again (see the edge blend below)
+  float edgeIn = smoothstep(uHalf - 500.0, uHalf, max(abs(vXZ.x), abs(vXZ.y)));
   // bare land, lawns and parks; urban blocks are meadow until the city reaches them
   float blockO = water > 0.5 ? 0.0 : depth;
-  float dev = 1.0 - smoothstep(g - uBand * 0.6, g, blockO + 0.002);
+  float dev = (1.0 - smoothstep(g - uBand * 0.6, g, blockO + 0.002)) * (1.0 - edgeIn);
   vec3 meadow = mix(cNatural, cPark, 0.42) * (0.94 + 0.12 * varn);
   vec3 col = mix(meadow, mix(cNatural, cLand, 0.35 + 0.3 * varn), dev);
   float slope = 1.0 - n.y;
   col = mix(col, cNatural * 0.8, smoothstep(0.1, 0.35, slope) * 0.6);
   // farmland: a patchwork of plots, each its own crop
+  // near the border the square's own farms and woods fade into the open landscape's (outFrag), so no edge shows
   float fieldM = smoothstep(0.13, 0.2, green) * (1.0 - smoothstep(0.3, 0.4, green));
+  fieldM = mix(fieldM, fieldNoise(vXZ) * (1.0 - smoothstep(12.0, 30.0, vH)), edgeIn);
   if (fieldM > 0.0) {
     vec2 w = vUv * 2.0 * uHalf;
     vec2 q = vec2(w.x * 0.96 + w.y * 0.28, -w.x * 0.28 + w.y * 0.96) + 30.0 * vec2(sin(w.y / 170.0), cos(w.x / 150.0));
@@ -318,16 +344,16 @@ void main() {
     float hedge = 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.025, min(min(fq.x, 1.0 - fq.x), min(fq.y, 1.0 - fq.y))));
     col = mix(col, crop * furrow * hedge, fieldM);
   }
-  float forestM = smoothstep(0.7, 0.75, green) * (1.0 - smoothstep(0.85, 0.9, green));
-  col = mix(col, cPark * (0.92 + 0.16 * varn), smoothstep(0.42, 0.6, green));
-  col = mix(col, cPark * 0.62, forestM);
+  float forestM = mix(smoothstep(0.7, 0.75, green) * (1.0 - smoothstep(0.85, 0.9, green)), woodsNoise(vXZ), edgeIn);
+  col = mix(col, cPark * (0.92 + 0.16 * varn), smoothstep(0.42, 0.6, green) * (1.0 - edgeIn));
+  col = mix(col, cPark * 0.62 * (0.92 + 0.16 * varn), forestM * 0.9);
   // built lots appear with the city
-  float built = (1.0 - smoothstep(g - uBand * 0.2, g, lotO + 0.002)) * step(lotO, 0.995);
+  float built = (1.0 - smoothstep(g - uBand * 0.2, g, lotO + 0.002)) * step(lotO, 0.995) * (1.0 - edgeIn);
   col = mix(col, cPave * (0.94 + 0.1 * varn), built * (1.0 - smoothstep(0.4, 0.6, green)) * 0.92);
   col = mix(col, cPlaza, smoothstep(0.4, 0.6, plaza));
   col = mix(col, cSand * (0.96 + 0.06 * varn), smoothstep(0.4, 0.6, sand));
-  // snow on high ground
-  col = mix(col, vec3(0.93, 0.95, 0.97), smoothstep(uSnow, uSnow + 25.0, vH) * (0.6 + 0.4 * n.y));
+  // snow on high ground: by height alone, the same rule as the outskirts (normals differ between the two meshes)
+  col = mix(col, vec3(0.93, 0.95, 0.97), smoothstep(uSnow, uSnow + 25.0, vH));
   // baked building shadows (only for what has been built)
   float sh = (1.0 - smoothstep(g - uBand, g - uBand * 0.5, shadowO + 0.002)) * step(shadowO, 0.995);
   col *= 1.0 - sh * 0.28 * (1.0 - uNight);
@@ -366,19 +392,13 @@ void main() {
 export const outVert = /* glsl */ `
 ${COMMON}
 attribute float aH;
-attribute float aFld;
-attribute float aFrs;
 varying vec2 vXZ;
 varying vec3 vN;
 varying float vH;
-varying float vFld;
-varying float vFrs;
 void main() {
   vXZ = position.xz;
   vN = normal;
   vH = aH;
-  vFld = aFld;
-  vFrs = aFrs;
   gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
 }`;
 
@@ -393,18 +413,6 @@ uniform vec3 uLit0;
 varying vec2 vXZ;
 varying vec3 vN;
 varying float vH;
-varying float vFld;
-varying float vFrs;
-
-// smooth value noise on a lattice, range [0, 1]
-float vnoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  float a = h31(vec3(i, 1.0)), b = h31(vec3(i + vec2(1.0, 0.0), 1.0));
-  float c = h31(vec3(i + vec2(0.0, 1.0), 1.0)), d = h31(vec3(i + vec2(1.0, 1.0), 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-float fnoise(vec2 p) { return 0.6 * vnoise(p) + 0.3 * vnoise(p * 2.07 + 17.3) + 0.1 * vnoise(p * 4.13 + 5.9); }
 
 void main() {
   vec3 n = normalize(vN);
@@ -415,11 +423,8 @@ void main() {
   vec3 col = mix(cNatural, cPark, 0.42) * (0.94 + 0.12 * varn);
   float slope = 1.0 - n.y;
   col = mix(col, cNatural * 0.8, smoothstep(0.1, 0.35, slope) * 0.6);
-  // farmland and woods: broad noise patches on the lowland, and the city's own fields and woods carry on across
-  // the border, thinning out over 450 m, so no line marks the square's edge
-  float outside = max(abs(vXZ.x), abs(vXZ.y)) - uHalf;
-  float carry = 1.0 - smoothstep(0.0, 450.0, outside);
-  float fieldM = max(smoothstep(0.52, 0.6, fnoise(vXZ / 700.0 + 13.0)) * (1.0 - smoothstep(12.0, 30.0, vH)), vFld * carry * 0.92);
+  // farmland and woods: the same open-landscape noise as the square's edge (see groundFrag), so the land reads as one
+  float fieldM = fieldNoise(vXZ) * (1.0 - smoothstep(12.0, 30.0, vH));
   if (fieldM > 0.0) {
     vec2 q = vec2(w.x * 0.96 + w.y * 0.28, -w.x * 0.28 + w.y * 0.96) + 30.0 * vec2(sin(w.y / 170.0), cos(w.x / 150.0));
     vec2 cell = floor(q / vec2(74.0, 46.0));
@@ -431,10 +436,9 @@ void main() {
     float hedge = 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.025, min(min(fq.x, 1.0 - fq.x), min(fq.y, 1.0 - fq.y))));
     col = mix(col, crop * furrow * hedge, fieldM);
   }
-  float forestM = max(smoothstep(0.56, 0.64, fnoise(vXZ / 480.0 + 41.0)), vFrs * carry * 0.9);
-  col = mix(col, cPark * 0.62 * (0.92 + 0.16 * varn), forestM * 0.9);
+  col = mix(col, cPark * 0.62 * (0.92 + 0.16 * varn), woodsNoise(vXZ) * 0.9);
   col = mix(col, cSand * (0.96 + 0.06 * varn), uBeach * (1.0 - smoothstep(1.0, 1.5, vH)));
-  col = mix(col, vec3(0.93, 0.95, 0.97), smoothstep(uSnow, uSnow + 25.0, vH) * (0.6 + 0.4 * n.y));
+  col = mix(col, vec3(0.93, 0.95, 0.97), smoothstep(uSnow, uSnow + 25.0, vH));
   vec3 land = light(col, n);
 
   // ---- sea: the ground's water, shallow to deep from the depth

@@ -6,6 +6,8 @@ import { GEOMS, STRIDE } from './archetypes.js';
 import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag, outVert, outFrag } from './shaders.js';
 import { PALETTE, RAMP } from './lenses.js';
 import { BIT_OCCLUDER, BIT_FOCUS, projectBoxes, findSeeThrough } from './seethrough.js';
+import { outskirtsHeight } from './outskirts.js';
+import { smoothstep } from './noise.js';
 
 const PITCH = Math.atan(0.5) * 2 > 1 ? Math.PI / 6 : Math.PI / 6; // 30 degrees: a 2:1 dimetric diamond
 const col = (hex) => new THREE.Color(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
@@ -29,7 +31,7 @@ export class CityView {
       uNight: { value: 0 }, uGrowth: { value: 1.04 }, uBand: { value: 0.035 }, uTime: { value: 0 },
       uInk: { value: col(0x15171b) }, uMood: { value: 0 }, uHover: { value: -1 },
       uLit0: { value: col(0xffcf7a) }, uLit1: { value: col(0xffe2a8) }, uLit2: { value: col(0xffb85c) },
-      uBrass: { value: col(0xc9a45c) }, uSkyRefl: { value: col(0x9fb4c4) }, uGhostPass: { value: 0 },
+      uBrass: { value: col(0xc9a45c) }, uSkyRefl: { value: col(0x9fb4c4) }, uGhostPass: { value: 0 }, uFocusPass: { value: 0 },
       // map lenses (lenses.js): uLens emphasis on, uLensGround 0 none / 1 land value / 2 districts, uLensDim ground dim
       uLens: { value: 0 }, uLensGround: { value: 0 }, uLensDim: { value: 0 },
       uRamp0: { value: col(RAMP[0]) }, uRamp1: { value: col(RAMP[1]) }, uRamp2: { value: col(RAMP[2]) },
@@ -101,6 +103,12 @@ export class CityView {
       vertexShader: partVert, fragmentShader: partFrag, uniforms: { ...this.uniforms, uGhostPass: { value: 1 } },
       transparent: true, depthWrite: false,
     });
+    // the focus pass: the focus buildings again, on top of everything (depth test off), brass outline and veil
+    const focusMat = new THREE.ShaderMaterial({
+      vertexShader: partVert, fragmentShader: partFrag, uniforms: { ...this.uniforms, uGhostPass: { value: 0 }, uFocusPass: { value: 1 } },
+      transparent: true, depthWrite: false, depthTest: false,
+    });
+    this.focusMeshes = [];
     this.ghosts = [];
     for (const k of GEOMS) {
       const arr = city.parts[k];
@@ -123,6 +131,9 @@ export class CityView {
       const gm = new THREE.Mesh(g, ghostMat);
       gm.frustumCulled = false; gm.renderOrder = 2; gm.visible = false;
       this.add(gm); this.ghosts.push(gm);
+      const fm = new THREE.Mesh(g, focusMat);
+      fm.frustumCulled = false; fm.renderOrder = 3; fm.visible = false;
+      this.add(fm); this.focusMeshes.push(fm);
     }
 
     // ground
@@ -135,10 +146,18 @@ export class CityView {
       const hgt = this.heightAt(x, z);
       pa.setY(i, hgt < 0 ? -0.15 : hgt);
     }
-    // shade the relief with exaggerated normals so hills read in a flat projection
-    for (let i = 0; i < pa.count; i++) pa.setY(i, pa.getY(i) * 2.6);
+    // shade the relief with exaggerated normals so hills read in a flat projection. Near the border (the last 500 m)
+    // the normals come from the outskirts' coarse heights, the same surface the ring beyond is shaded with, so the
+    // lighting runs on across the border; the positions keep their true heights.
+    const trueH = new Float32Array(pa.count);
+    for (let i = 0; i < pa.count; i++) {
+      const x = pa.getX(i), z = pa.getZ(i), h = pa.getY(i);
+      trueH[i] = h;
+      const e = smoothstep(half - 500, half, Math.max(Math.abs(x), Math.abs(z)));
+      pa.setY(i, (h + (outskirtsHeight(city.outskirts, x, z) - h) * e) * 2.6);
+    }
     pg.computeVertexNormals();
-    for (let i = 0; i < pa.count; i++) pa.setY(i, pa.getY(i) / 2.6);
+    for (let i = 0; i < pa.count; i++) pa.setY(i, trueH[i]);
     const tex = (data) => { const t = new THREE.DataTexture(data, city.N, city.N, THREE.RGBAFormat); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.needsUpdate = true; return t; };
     const gu = {
       ...this.uniforms, uA: { value: tex(city.texA) }, uB: { value: tex(city.texB) }, uHalf: { value: half },
@@ -284,8 +303,6 @@ export class CityView {
     g.computeVertexNormals(); // the normals stay; the positions go back to true heights
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('aH', new THREE.BufferAttribute(aH, 1));
-    g.setAttribute('aFld', new THREE.BufferAttribute(out.fld, 1)); // farmland and woods just inside the border
-    g.setAttribute('aFrs', new THREE.BufferAttribute(out.frs, 1));
     const m = new THREE.Mesh(g, mat);
     m.frustumCulled = false;
     return m;
@@ -521,6 +538,7 @@ export class CityView {
       this.seeCount = occluders.length;
     }
     for (const gm of this.ghosts) gm.visible = this.seeCount > 0;
+    for (const fm of this.focusMeshes) fm.visible = this.focusIds.length > 0;
     this.commitState();
     this.seeMs = performance.now() - t0;
   }
