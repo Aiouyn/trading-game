@@ -39,6 +39,107 @@ vec3 light(vec3 base, vec3 n) {
 vec3 haze(vec3 c, vec2 xz) { return mix(c, uHazeColor, smoothstep(uHaze0, uHaze1, length(xz))); }
 `;
 
+// ===== MATERIALS (cities/textures) =========================================================================
+// Procedural surface detail: facades (brick, stone, concrete panels, render, timber), roofs (tiles, slates,
+// gravel), lawns, paving, car parks, sand and shore foam. Everything is anti-aliased: pxm is the world metres
+// one screen pixel covers, and a detail whose cells are only a few pixels fades to its average colour, so the
+// city shows no moire or shimmer when it is seen whole.
+const MATERIALS = /* glsl */ `
+// AA stripe at x = k * cell (metres): 1 on a joint of half-width hw, 0 elsewhere
+float lineX(float x, float cell, float hw, float pxm) {
+  float q = abs(fract(x / cell + 0.5) - 0.5) * cell;
+  return 1.0 - smoothstep(hw - pxm, hw + pxm, q);
+}
+float lumaOf(vec3 c) { return 0.5 * (max(c.r, max(c.g, c.b)) + min(c.r, min(c.g, c.b))); }
+// colour family -> facade kind: 0 brick, 1 limestone, 2 concrete or cladding panels, 3 painted render, 4 timber
+float facadeKind(vec3 c) {
+  float L = lumaOf(c), mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+  float S = (mx - mn) / max(mx, 1e-3), warm = c.r - c.b;
+  if (c.b > c.r + 0.04 && L < 0.6) return 2.0;          // cool glass and metal cladding
+  if (S < 0.16) return 2.0;                             // neutral greys and whites: concrete panels
+  if (warm > 0.16 && c.g < 0.66 * c.r && L < 0.6) return 0.0; // red-brown: brick
+  if (L < 0.4 && warm > 0.06) return 4.0;               // dark browns: timber boards
+  if (L > 0.6 && S < 0.35 && warm > 0.03 && warm < 0.22) return 1.0; // pale warm: limestone
+  return 3.0;                                           // painted render, pastels, ochres
+}
+// facade colour before lighting; p = (metres along the facade, metres above the ground)
+vec3 wallMat(vec3 c, vec2 p, float fh, float bid, float pxm) {
+  float k = facadeKind(c);
+  float hb = h11(fract(bid * 0.6180339) + 0.21);
+  float far = smoothstep(0.35, 0.7, pxm);
+  if (k < 0.5) {
+    // running bond: 0.8 m bricks in 0.4 m courses, every other course offset, a few darker bricks
+    vec2 cell = vec2(0.8, 0.4);
+    vec2 pp = vec2(p.x + 0.5 * cell.x * mod(floor(p.y / cell.y), 2.0), p.y);
+    float v = h31(vec3(floor(pp / cell), hb * 9.0 + 2.0));
+    vec3 bc = c * (0.84 + 0.26 * v) * mix(1.0, 0.7, step(0.94, v));
+    float jt = mix(max(lineX(p.y, cell.y, 0.03, pxm), lineX(pp.x, cell.x, 0.03, pxm)), 0.22, far);
+    return mix(bc, mix(c, vec3(0.86, 0.82, 0.74), 0.7), jt);
+  }
+  if (k < 1.5) {
+    // ashlar: 0.6 m courses with random block joints
+    float row = floor(p.y / 0.6);
+    vec2 pp = vec2(p.x + 1.3 * h31(vec3(row, hb * 4.0, 3.0)), p.y);
+    float v = h31(vec3(floor(pp / vec2(1.3, 0.6)), hb * 5.0));
+    float jt = mix(max(lineX(p.y, 0.6, 0.02, pxm), lineX(pp.x, 1.3, 0.02, pxm)), 0.2, far);
+    return mix(c * (0.93 + 0.12 * v), c * 0.78, jt * 0.8);
+  }
+  if (k < 2.5) {
+    // cladding panels: joints every 2.4 m and at each floor, a little tone per panel and a faint speckle
+    vec2 cell = vec2(2.4, max(fh, 2.0));
+    float v = h31(vec3(floor(p / cell), hb * 7.0));
+    float jt = mix(max(lineX(p.x, 2.4, 0.02, pxm), lineX(p.y, cell.y, 0.025, pxm)), 0.15, far);
+    float sp = 0.5;
+    if (far < 0.999) sp = mix(vnoise(p * 1.3 + hb * 13.0), 0.5, far);
+    return mix(c * (0.96 + 0.08 * v), c * 0.8, jt * 0.6) * (0.96 + 0.08 * sp);
+  }
+  if (k < 3.5) {
+    // painted render: soft grain and streaks of weathering (skipped when the pixel is too big to show them)
+    float g1 = 0.5, g2 = 0.5;
+    if (far < 0.999) {
+      g1 = mix(vnoise(p * 1.4 + hb * 17.0), 0.5, far);
+      g2 = mix(vnoise(vec2(p.x * 0.35, p.y * 0.09) + hb * 5.0), 0.5, far);
+    }
+    return c * (0.95 + 0.06 * g1) * (0.9 + 0.14 * g2);
+  }
+  // timber: vertical boards 0.22 m wide, seams and a little tone per board
+  float bd = floor(p.x / 0.22);
+  float v = h31(vec3(bd, hb * 7.0, 5.0));
+  float seam = mix(lineX(p.x, 0.22, 0.012, pxm), 0.1, far);
+  return mix(c * (0.9 + 0.18 * v), c * 0.6, seam * 0.7);
+}
+// tiled or slated slope; p = metres (across, up the slope); ridge is 1 on the ridge cap
+vec3 roofTiles(vec3 c, vec2 p, float pxm, float ridge, float bid) {
+  float L = lumaOf(c);
+  if (L > 0.8) return c * (0.97 + 0.03 * vnoise(p * 3.0)); // snow and white roofs stay smooth
+  float hb = h11(fract(bid * 0.6180339) + 0.21);
+  bool slate = c.b > c.r - 0.02 || max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b)) < 0.12;
+  vec2 cell = slate ? vec2(0.5, 0.25) : vec2(0.62, 0.36);
+  vec2 pp = vec2(p.x + 0.5 * cell.x * mod(floor(p.y / cell.y), 2.0), p.y);
+  float v = h31(vec3(floor(pp / cell), hb * 11.0 + 3.0));
+  vec2 fr = fract(pp / cell);
+  float far = smoothstep(0.3, 0.6, pxm);
+  // each tile is darker just above its lower edge (the shadow of the course below)
+  float course = mix(0.7 + 0.3 * smoothstep(0.0, 0.3, fr.y), 0.88, far);
+  vec3 tc = c * (0.9 + 0.16 * v) * course;
+  float jn = mix(max(lineX(p.y, cell.y, 0.02, pxm), lineX(pp.x, cell.x, 0.02, pxm)), 0.0, far);
+  tc *= 1.0 - 0.3 * jn * (slate ? 1.0 : 0.5);
+  return mix(tc, c * 0.7, ridge * (1.0 - far));
+}
+// flat roof: gravel grain, a lighter parapet cap and the shadow it throws inside; m = local xz, sz = size xz
+vec3 roofTop(vec3 c, vec2 m, vec2 sz, float pxm) {
+  if (lumaOf(c) > 0.8) return c;
+  float ed = min(sz.x * 0.5 - abs(m.x), sz.y * 0.5 - abs(m.y));
+  float gravel = 0.5;
+  if (pxm < 0.6) gravel = mix(vnoise(m * 4.0) * 0.6 + vnoise(m * 11.0) * 0.4, 0.5, smoothstep(0.25, 0.6, pxm));
+  vec3 g = c * (0.9 + 0.2 * gravel);
+  float rim = 1.0 - smoothstep(0.2 - pxm, 0.2 + pxm, ed);
+  g = mix(g, g * 1.12 + 0.02, rim);
+  float sh = (1.0 - smoothstep(0.2, 1.4, ed)) * (1.0 - rim) * (1.0 - smoothstep(0.25, 0.6, pxm));
+  return g * (1.0 - 0.14 * sh);
+}
+`;
+
 export const partVert = /* glsl */ `
 ${COMMON}
 attribute vec3 aFace;
@@ -66,7 +167,9 @@ varying float vBaseAbs;
 varying float vProg;
 varying vec3 vLN;
 varying vec2 vXZ;
+varying vec3 vCen; // instance origin (per tree: its hue and value)
 void main() {
+  vCen = iPos;
   // per-building state (render.js load): rgb = lens tint, a = flags (1 emphasis, 2 see-through occluder, 4 focus)
   vState = texelFetch(uState, ivec2(int(mod(iStyle.w, uStateW)), int(floor(iStyle.w / uStateW))), 0);
   bool isOccluder = mod(floor(floor(vState.a * 255.0 + 0.5) / 2.0), 2.0) >= 1.0;
@@ -93,6 +196,7 @@ void main() {
 
 export const partFrag = /* glsl */ `
 ${COMMON}
+${MATERIALS}
 uniform float uMood;
 uniform float uHover;
 uniform float uLens;
@@ -116,6 +220,7 @@ varying float vBaseAbs;
 varying float vProg;
 varying vec3 vLN;
 varying vec2 vXZ;
+varying vec3 vCen;
 
 float rectAA(vec2 f, vec2 lo, vec2 hi, vec2 fw) {
   vec2 a = smoothstep(lo - fw, lo + fw, f) * (1.0 - smoothstep(hi - fw, hi + fw, f));
@@ -152,8 +257,33 @@ void main() {
   vec3 emissive = vec3(0.0);
   float hAbs = vBaseAbs + vMetric.y;
 
-  // ---- windows on walls
+  // ---- MATERIALS (cities/textures): facade, roof and slope surfaces from the colour family and the form.
+  // Trees, boats and cranes (bid 0) and glass, signs, lamps, pools and containers keep their flat colour.
   bool wall = kind < 0.5 && abs(vLN.y) < 0.5;
+  float pxm = max(max(fwidth(vXZ.x), fwidth(vXZ.y)), fwidth(hAbs));
+  float matTop = vBaseAbs + vSize.y;
+  bool matStyle = style == 0 || style == 1 || style == 3 || style == 4 || style == 6;
+  if (bid > 0.5) {
+    float axM = vInfo.x;
+    float spanM = axM < 0.5 ? vSize.x : axM > 1.5 ? vSize.z : vSize.x * 0.26;
+    float uM = axM < 0.5 ? vMetric.x + vSize.x * 0.5 : axM > 1.5 ? vMetric.z + vSize.z * 0.5 : vFace.x * spanM;
+    float sAlong = axM < 0.5 ? vSize.x : vSize.z, sRun = axM < 0.5 ? vSize.z : vSize.x;
+    vec2 slopeP = vec2(vFace.x * sAlong, vFace.y * length(vec2(sRun * 0.5, vSize.y)));
+    if (wall && matStyle) {
+      base = wallMat(vColor, vec2(uM, hAbs), max(vStyle.y, 1.0), bid, pxm);
+    } else if (kind > 0.5 && abs(vLN.y) < 0.95 && style == 7) {
+      base = roofTiles(vColor, slopeP, pxm, smoothstep(0.93, 0.99, vFace.y), bid);
+    } else if (kind > 0.5 && vLN.y >= 0.95 && (matStyle || style == 7)) {
+      base = roofTop(vColor, vMetric.xz, vSize.xz, pxm);
+    }
+  }
+  if (wall && matStyle && bid > 0.5) {
+    // gentle vertical occlusion: darker near the pavement, a cornice shadow under the roof line, a darker plinth
+    base *= mix(0.8, 1.0, smoothstep(0.0, 9.0, hAbs)) * mix(0.8, 1.0, smoothstep(0.0, 0.8, matTop - hAbs));
+    base *= 1.0 - 0.07 * (1.0 - smoothstep(max(vStyle.y, 1.0) - 0.4, max(vStyle.y, 1.0) + 0.4, hAbs));
+  }
+
+  // ---- windows on walls
   if (wall && (style == 1 || style == 2 || style == 3 || style == 4 || style == 6 || style == 11)) {
     float axis = vInfo.x;
     float span = axis < 0.5 ? vSize.x : axis > 1.5 ? vSize.z : vSize.x * 0.26;
@@ -186,9 +316,21 @@ void main() {
     float far = smoothstep(0.22, 0.55, max(fwidth(hAbs / fh), fwidth(u / bays)));
     float cover = style == 2 ? 0.8 : style == 3 ? 0.42 : 0.24;
     m = mix(m, cover * edgeOk, far);
+    // MATERIALS: a light frame and a sill ledge round each punched opening (close up only)
+    float trimA = 0.0;
+    if (style == 1) trimA = max(rectAA(f, vec2(0.21, 0.23), vec2(0.79, 0.83), fw) - rectAA(f, vec2(0.26, 0.28), vec2(0.74, 0.78), fw), rectAA(f, vec2(0.2, 0.2), vec2(0.8, 0.27), fw));
+    trimA *= (1.0 - far) * edgeOk;
     // glass by day: sky reflection, darker towards the street
     vec3 glass = mix(base * 0.45 + uSkyRefl * 0.35, uSkyRefl * 0.7 + 0.08, clamp(hAbs / 220.0, 0.0, 1.0) * 0.6 + 0.2 * n.y);
     if (style == 2) glass = mix(base * 0.85, uSkyRefl * 0.9, 0.35 + 0.15 * h31(vec3(bid, fl * 0.3, 3.0)));
+    if (style == 2) {
+      // MATERIALS: each floor reflects its own piece of sky, a diagonal sheen runs down the tower, a few offices are blinded
+      float fl2 = h31(vec3(bid, fl, 7.0));
+      float sheen = smoothstep(0.55, 0.7, fract(u * 0.07 + hAbs * 0.035 + fl2 * 0.5));
+      glass = glass * (0.82 + 0.3 * fl2) * (1.0 + 0.22 * sheen) + vec3(0.0, 0.01, 0.02) * sheen;
+      float blind = step(0.92, h31(vec3(bid * 0.37, fl, bay * 1.9 + 2.0)));
+      glass = mix(glass, vec3(0.36, 0.38, 0.4), blind * (1.0 - uNight) * 0.75);
+    }
     // lights by night
     float r = h31(vec3(bid * 1.7 + float(axis), fl, bay + vLN.x * 13.0 + vLN.z * 29.0));
     float slow = h31(vec3(bid, fl + floor(uTime / 23.0 + r * 9.0), bay));
@@ -201,6 +343,7 @@ void main() {
     vec3 winNight = mix(base * 0.05 + vec3(0.02, 0.025, 0.04), lc * (0.85 + 0.3 * r), nightLit);
     vec3 win = mix(winDay, winNight, uNight);
     vec3 wallC = light(base, n);
+    wallC = mix(wallC, wallC * 1.18 + 0.03, trimA * 0.8);
     vec3 col = mix(wallC, win, m);
     emissive = vec3(0.0);
     base = col;
@@ -217,10 +360,15 @@ void main() {
   } else if (style == 9) {
     base = mix(light(vColor, n), vec3(0.15, 0.75, 0.8), uNight * 0.6);
   } else if (style == 8) {
-    float v = 0.85 + 0.3 * h11(vMetric.x * 3.1 + vMetric.z * 7.7 + bid);
-    base = light(vColor * v, n);
+    // MATERIALS: two-tone foliage (sunlit top, shaded underside), a hue and value per tree, leaf clumps up close
+    float tv = h11(vCen.x * 0.113 + vCen.z * 0.737);
+    float clump = 0.5;
+    if (pxm < 0.8) clump = mix(vnoise(vMetric.xz * 1.6 + vMetric.y * 1.1), 0.5, smoothstep(0.3, 0.8, pxm));
+    vec3 leaf = vColor * mix(0.58, 1.12, smoothstep(-0.5, 0.9, n.y)) * (0.84 + 0.3 * tv) * (0.92 + 0.16 * clump);
+    leaf *= vec3(1.0 + 0.08 * (tv - 0.5), 1.0, 1.0 - 0.08 * (tv - 0.5));
+    base = light(leaf, n);
   } else {
-    base = light(vColor, n);
+    base = light(base, n);
   }
 
   // ---- focus buildings lift a little towards brass

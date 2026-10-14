@@ -520,9 +520,11 @@ export function buildTree(type, x, y, key, ctx, scale = 1) {
       break;
     }
     case 'cherry':
+      p.push('box', x, g, y, 0.4, 1.5, 0.4, 0, 0x6b5240, S.PLAIN, 3, 3, 0, key, 0, g, 0); // short trunk (a box: cheap to draw)
       p.push('ico', x, g + 0.8, y, s, s * 0.95, s, 0, R.chance(0.45) ? pal[1] : R.pick([pal[0], pal[2]]), S.LEAF, 3, 3, 0, key, 0, g, 0);
       break;
     default:
+      p.push('box', x, g, y, 0.4, 1.5, 0.4, 0, 0x6b5240, S.PLAIN, 3, 3, 0, key, 0, g, 0); // short trunk
       p.push('ico', x, g + 0.9, y, s, s * 1.05, s, 0, R.pick(pal), S.LEAF, 3, 3, 0, key, 0, g, 0);
   }
 }
