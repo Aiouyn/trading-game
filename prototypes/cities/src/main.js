@@ -245,7 +245,9 @@ function showInfo(b) {
   if (b.owner && !b.crown) rows.push(['Owner', b.owner === 'you' ? 'You' : esc(b.owner)]);
   if (b.forSale) rows.push(['For sale', '<span class="brass">Yes</span>']);
   const minor = rows.length >= 3;
-  rows.push(['Type', b.kind, minor], ['District', district], ['Height', `${Math.round(b.h)} m`]);
+  // your own buildings show their role (the demo ownership), not the architectural kind
+  const role = { company: 'Company office', shop: 'Your shop', home: 'Your home' }[b.mineRole] ?? b.kind;
+  rows.push(['Type', role, minor], ['District', district], ['Height', `${Math.round(b.h)} m`]);
   if (b.floors) rows.push(['Floors', b.floors, true]);
   if (b.residents) rows.push(['Residents', b.residents.toLocaleString('en'), minor]);
   if (b.jobs) rows.push(['Jobs', b.jobs.toLocaleString('en'), true]);
