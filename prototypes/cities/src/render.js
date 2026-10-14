@@ -14,6 +14,8 @@ const col = (hex) => new THREE.Color(((hex >> 16) & 255) / 255, ((hex >> 8) & 25
 const distCol = new Float32Array(PALETTE.length * 3);
 PALETTE.forEach((h, i) => distCol.set([((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255], i * 3));
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const ANIM_FPS = 12; // water, neon and trains, while on screen
+const SAVER_FPS = 4; // the battery saver's animation rate
 // the glow under a focus building: uv = footprint-relative metres, aHalf = the footprint's half sizes
 const glowVert = /* glsl */ `
 attribute vec2 aHalf;
@@ -74,6 +76,8 @@ export class CityView {
     this.occ = []; this.cutP = 0; this.cutTo = 0; this.seeDirty = false; this.glows = [];
     this.seeBoxes = null; this.boxYaw = NaN; this.seeYaw = NaN; this.seeScale = NaN; this.seeMs = 0; this.seeBoxMs = 0;
     this.motion = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // animation (water, neon, trains) runs at ANIM_FPS, and only while an animated thing is on screen (see tickAnimation)
+    this.clock = 0; this.animT = -1; this.animKey = ''; this.animVisible = false; this.saver = false; this.renders = 0;
     this.resize();
     addEventListener('resize', () => this.resize());
     this.setTime(19.2);
@@ -259,8 +263,28 @@ export class CityView {
       return { ...l, el, order: b?.order ?? 0, pos: new THREE.Vector3(l.x, l.z, l.y) };
     });
 
+    // what animates: the sea (water shimmer), neon signs (flicker) and the trains; their places say when a tick matters
+    const signs = [];
+    for (const k of GEOMS) {
+      const a = city.parts[k];
+      for (let i = 0; i < a.length; i += STRIDE) if (Math.round(a[i + 10]) === 5) signs.push(a[i], a[i + 2]);
+    }
+    this.signXZ = new Float32Array(signs);
+    this.hasWater = this.hasSea();
+    this.animKey = '';
+
     this.fit();
     this.dirty = true;
+  }
+
+  /** True when some ground lies under the sea level (the water shader animates there). */
+  hasSea() {
+    const half = this.city.S / 2;
+    for (let j = 0; j <= 24; j++) for (let i = 0; i <= 24; i++) {
+      const x = -half + (i / 24) * 2 * half, z = -half + (j / 24) * 2 * half;
+      if (this.heightAt(x, z) < 0) return true;
+    }
+    return this.city.outskirts.h.some((h) => h < 0);
   }
 
   add(o) { this.scene.add(o); this.objects.push(o); }
@@ -661,12 +685,58 @@ export class CityView {
     if (this.seeDirty && this.city) this.applySeeThrough();
     this.animateCut(dt);
     this.uniforms.uOutlineM.value = 1.5 * this.scale; // the focus outline is 1.5 CSS pixels wide
-    if (this.motion) { this.uniforms.uTime.value += dt; this.dirty = true; if (this.train) this.moveTrain(dt); }
+    if (this.motion) { this.clock += dt; this.uniforms.uTime.value = this.clock; this.tickAnimation(); }
+    // nothing changed: no draw, no label work (zero renders while idle)
     if (!this.dirty || !this.city) return;
+    this.renders++;
     this.updateCamera();
     this.renderer.render(this.scene, this.camera);
     this.placeLabels();
     this.dirty = false;
+  }
+
+  /**
+   * Animation tick: while water, neon or a train is on screen (and the page is shown and motion is allowed), the view
+   * is marked dirty ANIM_FPS times a second, the train moves by the elapsed step. Otherwise nothing animates.
+   */
+  tickAnimation() {
+    const fps = this.saver ? SAVER_FPS : ANIM_FPS;
+    if (!fps || !this.animationOnScreen()) return;
+    if (this.animT >= 0 && this.clock - this.animT < 1 / fps) return;
+    const step = this.animT < 0 ? 0 : this.clock - this.animT;
+    this.animT = this.clock;
+    if (this.train && step > 0) this.moveTrain(step);
+    this.dirty = true;
+  }
+
+  /** Whether an animated thing is inside the visible ground (cached per camera position). */
+  animationOnScreen() {
+    if (!this.city || !(this.hasWater || this.train || this.signXZ.length)) return false;
+    const key = `${this.target.x},${this.target.z},${this.scale},${this.yaw},${this.w},${this.h}`;
+    if (key !== this.animKey) { this.animKey = key; this.animVisible = this.computeAnimVisible(); }
+    return this.animVisible;
+  }
+
+  computeAnimVisible() {
+    this.updateCamera();
+    const cs = [[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]].map(([x, y]) => this.groundAt(x, y)).filter(Boolean);
+    if (cs.length < 4) return true;
+    const pad = 40;
+    const x0 = Math.min(...cs.map((c) => c.x)) - pad, x1 = Math.max(...cs.map((c) => c.x)) + pad;
+    const z0 = Math.min(...cs.map((c) => c.z)) - pad, z1 = Math.max(...cs.map((c) => c.z)) + pad;
+    const inView = (x, z) => x >= x0 && x <= x1 && z >= z0 && z <= z1;
+    if (this.train && this.train.path.some(([x, y]) => inView(x, y))) return true;
+    const sx = this.signXZ;
+    for (let i = 0; i < sx.length; i += 2) if (inView(sx[i], sx[i + 1])) return true;
+    if (this.hasWater) {
+      const half = this.city.S / 2, out = this.city.outskirts;
+      for (let j = 0; j <= 12; j++) for (let i = 0; i <= 12; i++) {
+        const x = x0 + ((x1 - x0) * i) / 12, z = z0 + ((z1 - z0) * j) / 12;
+        const h = Math.abs(x) < half && Math.abs(z) < half ? this.heightAt(x, z) : outskirtsHeight(out, x, z);
+        if (h < 0) return true;
+      }
+    }
+    return false;
   }
 
   placeLabels() {
