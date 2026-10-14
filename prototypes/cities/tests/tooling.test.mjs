@@ -43,3 +43,12 @@ test('browser-ready fails fast on pageerror and console error with original text
   };
   await assert.rejects(() => ready(fakePage, 'http://127.0.0.1:3650', 2000), /CITY_TEST_FAILURE/);
 });
+
+test('deriveArtifact strips outer html/head/body/meta wrappers idempotently', async () => {
+  const { deriveArtifact } = await import('../tools/sync-artifact.mjs');
+  const sample = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width">\n<title>Living Cities</title>\n<style>body{}</style>\n</head>\n<body>\n<div id="sky"></div>\n</body>\n</html>\n`;
+  const once = deriveArtifact(sample);
+  const twice = deriveArtifact(once);
+  assert.equal(once, '<title>Living Cities</title>\n<style>body{}</style>\n<div id="sky"></div>\n');
+  assert.equal(twice, once);
+});
