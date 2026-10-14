@@ -475,6 +475,9 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
 }`;
 
+// Road surfaces. The side attribute runs -1..1 across the carriageway (|side| = 1 at the kerb), on past the kerb onto
+// a walk up to about 2 (sidewalks are part of the strip), 8 is paint (zebra, stop bars) and 9 a junction patch.
+// Class: 0 farm track (dirt), 1 driveway (pale), 2 local, 3 collector, 4 arterial. No traffic: the roads are static.
 export const roadFrag = /* glsl */ `
 ${COMMON}
 uniform vec3 cRoad0; uniform vec3 cRoad1; uniform vec3 cRoad2;
@@ -487,38 +490,44 @@ varying float vProg;
 varying vec2 vXZ;
 void main() {
   if (vProg <= 0.0) discard;
-  vec3 c = vCls > 3.5 ? cRoad2 : vCls > 2.5 ? cRoad1 : cRoad0;
   float a = abs(vSide);
   float fw = fwidth(vSide);
-  float curb = smoothstep(1.0 - fw * 2.5, 1.0 - fw * 0.8, a);
-  c = mix(c, c * 1.35 + 0.05, curb * 0.7);
-  if (vCls > 3.5) {
-    // centre line
-    float dash = step(0.5, fract(vDist / 9.0));
-    float lineM = (1.0 - smoothstep(0.03, 0.03 + fw * 1.5, a)) * dash;
-    c = mix(c, vec3(0.92, 0.86, 0.7), lineM * 0.8);
+  bool junction = a > 8.5 && a < 9.5;
+  bool paint = a > 7.5 && a < 8.5;
+  bool dirt = vCls < 0.5;
+  bool drive = vCls > 0.5 && vCls < 1.5;
+  vec3 asphalt = vCls > 3.5 ? cRoad2 : vCls > 2.5 ? cRoad1 : cRoad0;
+  vec3 c = asphalt;
+  if (dirt) c = vec3(0.5, 0.44, 0.34);
+  if (drive) c = mix(cRoad0, vec3(0.68, 0.66, 0.62), 0.5);
+  // asphalt grain from world-space noise, so it does not swim with the camera
+  float grain = 0.95 + 0.06 * vnoise(vXZ * 0.9) + 0.03 * vnoise(vXZ * 3.7);
+  if (paint) {
+    c = vec3(0.86, 0.85, 0.8);
+  } else if (junction) {
+    c *= grain;
+  } else {
+    c *= grain;
+    if (!dirt && !drive) {
+      // the walk: lighter, from the kerb out to the edge of the strip
+      float walk = smoothstep(1.0 - fw, 1.0 + fw, a) * (1.0 - smoothstep(1.95 - fw, 1.95 + fw, a));
+      c = mix(c, vec3(0.7, 0.68, 0.64) * grain, walk * 0.85);
+      // a dark kerb line where the carriageway meets the walk (or the verge)
+      float kerb = 1.0 - smoothstep(0.0, fw * 1.5 + 0.015, abs(a - 1.0));
+      c = mix(c, c * 0.6, kerb * 0.9);
+      // centre lines, muted: solid on arterials, long dashes on collectors
+      if (vCls > 2.5) {
+        float cl = 1.0 - smoothstep(0.02, 0.02 + fw * 1.2, a);
+        float dash = vCls > 3.5 ? 1.0 : step(0.5, fract(vDist / 14.0));
+        c = mix(c, vec3(0.78, 0.74, 0.6), cl * dash * 0.6);
+      }
+    }
   }
   if (vProg < 1.0) c = mix(c, vec3(0.55, 0.47, 0.38), (1.0 - vProg) * 0.7);
   vec3 col = light(c, vec3(0.0, 1.0, 0.0));
-  // streetlights at night
-  float lamp = exp(-pow((fract(vDist / 26.0) - 0.5) * 6.0, 2.0)) * (0.55 + 0.45 * a);
-  col += uLit0 * uNight * (0.07 + lamp * (vCls > 2.5 ? 0.3 : 0.17));
-  // traffic: cars in both lanes, headlights and tail lights after dark
-  if (vCls > 1.5 && vProg >= 1.0) {
-    float lane = 1.0 - smoothstep(0.12, 0.2, abs(a - 0.5));
-    float dir = vSide > 0.0 ? 1.0 : -1.0;
-    float spd = vCls > 3.5 ? 15.0 : vCls > 2.5 ? 11.0 : 7.0;
-    float pos = vDist - dir * uTime * spd;
-    float cellL = 15.0;
-    float cell = floor(pos / cellL);
-    float dens = vCls > 3.5 ? 0.55 : vCls > 2.5 ? 0.4 : 0.14;
-    float has = step(h31(vec3(cell, dir, vCls)), dens);
-    float f = fract(pos / cellL);
-    float car = lane * has * (1.0 - smoothstep(0.26, 0.3, f)) * smoothstep(0.0, 0.03, f);
-    vec3 body = mix(vec3(0.85, 0.83, 0.8), vec3(0.55, 0.15, 0.12), step(0.6, h31(vec3(cell, 2.0, dir))));
-    vec3 lights = dir * (f - 0.15) > 0.0 ? vec3(1.0, 0.95, 0.8) * 1.4 : vec3(1.0, 0.18, 0.12) * 1.1;
-    col = mix(col, mix(light(body, vec3(0.0, 1.0, 0.0)), lights, uNight), car);
-  }
+  // street lights at night: a faint pool between the poles
+  float lamp = exp(-pow((fract(vDist / 26.0) - 0.5) * 6.0, 2.0)) * (0.55 + 0.45 * min(a, 1.0));
+  col += uLit0 * uNight * (0.012 + lamp * (vCls > 2.5 ? 0.05 : 0.03));
   col *= 1.0 - uLensDim;
   gl_FragColor = vec4(haze(col, vXZ), 1.0);
 }`;
