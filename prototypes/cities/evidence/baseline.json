@@ -1,0 +1,65 @@
+{
+  "commit": "3119fd0895cc55b371f53d6a651bc7a098c9632a",
+  "date": "2026-10-14T14:32:00.002Z",
+  "node": "v22.13.1",
+  "os": "win32 10.0.26200",
+  "browser": "153.0.8010.12",
+  "cacheState": "cold-fresh-context",
+  "coldLoadMs": 1466,
+  "vendor": "Google Inc. (Google)",
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "software": true,
+  "dpr": 1.5,
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "cityMs": 917,
+  "timings": {
+    "Surveying the land": 0,
+    "Drawing districts": 128,
+    "Laying out the street grain": 166,
+    "Tracing arterial streets": 103,
+    "Tracing collector streets": 5,
+    "Tracing local streets": 4,
+    "Cleaning the road network": 20,
+    "Cutting city blocks": 84,
+    "Raising landmarks": 88,
+    "Dividing parcels": 8,
+    "Raising 1,928 buildings": 70,
+    "Seating the companies": 21,
+    "Planting trees": 12,
+    "Bringing in the ships": 17,
+    "Planning the growth": 80,
+    "Painting the ground": 24,
+    "Done": 81
+  },
+  "stats": {
+    "buildings": 1932,
+    "lots": 1928,
+    "roads": 1111,
+    "trees": 10944,
+    "outTrees": 10997,
+    "boats": 22,
+    "highways": 9,
+    "roadKm": 56.8,
+    "tallest": {
+      "h": 356,
+      "label": "Halcyon Systems"
+    },
+    "hqs": 58
+  },
+  "memory": {
+    "geometries": 202,
+    "textures": 5
+  },
+  "renderInfo": {
+    "frame": 61,
+    "calls": 192,
+    "triangles": 647128,
+    "points": 0,
+    "lines": 0
+  },
+  "panMedianMs": 638.8,
+  "panP95Ms": 662.9
+}
