@@ -1,8 +1,10 @@
 // Generated cities, kept in this browser's IndexedDB under a generator version. Every call is wrapped: when storage is
 // missing, blocked or full, the page simply generates the city again (readCity gives null, writeCity does nothing).
 
+import { cityCacheKey } from './cache-key.js';
+
 /** Bump when the generator's output changes, so stale cities are never read back. */
-export const GEN_VERSION = 'gen-1';
+export const GEN_VERSION = 'inhabitable-v2-1';
 const DB = 'cities-cache';
 const STORE = 'cities';
 
@@ -17,11 +19,11 @@ function openDB() {
 }
 
 /** The cached city for a personality id (without its personality object), or null. */
-export async function readCity(id) {
+export async function readCity(id, seed) {
   try {
     const db = await openDB();
     return await new Promise((resolve, reject) => {
-      const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(`${id}@${GEN_VERSION}`);
+      const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(cityCacheKey(id, seed, GEN_VERSION));
       req.onsuccess = () => { db.close(); resolve(req.result ?? null); };
       req.onerror = () => { db.close(); reject(req.error); };
     });
@@ -31,12 +33,12 @@ export async function readCity(id) {
 }
 
 /** Store a generated city (its data only). Resolves when the write is committed; failures are ignored. */
-export async function writeCity(id, city) {
+export async function writeCity(id, seed, city) {
   try {
     const db = await openDB();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).put(city, `${id}@${GEN_VERSION}`);
+      tx.objectStore(STORE).put(city, cityCacheKey(id, seed, GEN_VERSION));
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { db.close(); reject(tx.error); };
       tx.onabort = () => { db.close(); reject(tx.error); };

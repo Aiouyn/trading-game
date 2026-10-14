@@ -7,6 +7,7 @@ import { COMPANIES } from './companies.js';
 import { Parts, buildArchetype, buildLandmark, buildTree, buildCrane, buildShip, buildBoat, CONTAINER_COLORS } from './archetypes.js';
 import { sampleOutskirts, outskirtsHeight, traceHighways } from './outskirts.js';
 import { buildRoadGraph, labelLand, SegGrid } from './roadgraph.js';
+import { parcelId } from './parcel-id.js';
 
 const DRIVE_W = 3.4;   // driveways: narrow class-1 ribbons from the road to the building front
 const FARM_W = 4;      // farm tracks: unpaved, class 0
@@ -321,7 +322,7 @@ export async function generateCity(P, progress = () => {}) {
       }
       const count = used - start;
       const cx = cellX(Math.round(sx / count)), cy = cellX(Math.round(sy / count));
-      blocks.push({ id, start, count, area: count * RES * RES, cx, cy, border, d: distAt(cx, cy) });
+      blocks.push({ id, seedCell: k0, start, count, area: count * RES * RES, cx, cy, border, d: distAt(cx, cy) });
       function push(q) { if (!W[q] && !roadCls[q] && blockId[q] < 0) { blockId[q] = id; stack[sp++] = q; } }
     }
   }
@@ -580,7 +581,7 @@ export async function generateCity(P, progress = () => {}) {
     if (ln.rail) continue;
     for (let i = 0; i < ln.pts.length - 1; i++) {
       const [ax, ay] = ln.pts[i], [bx, by] = ln.pts[i + 1];
-      net.add(ax, ay, bx, by, (ln.width[i] + ln.width[i + 1]) / 4 + ln.walk, { cls: ln.cls });
+      net.add(ax, ay, bx, by, (ln.width[i] + ln.width[i + 1]) / 4 + ln.walk, { cls: ln.cls, edgeId: ln.id, a: ln.a, b: ln.b });
     }
   }
   const lotPerim = (lot, pad) => {
@@ -638,8 +639,9 @@ export async function generateCity(P, progress = () => {}) {
       if (!ok) continue;
       for (const [sx, sy] of samples) for (const o of [-1.5, -0.75, 0, 0.75, 1.5]) occMark(sx - uy * o, sy + ux * o);
       const cls = farm ? 0 : 1;
-      net.add(start[0], start[1], p[0], p[1], (farm ? FARM_W : DRIVE_W) / 2, { cls });
-      return { cls, pts: [start, [p[0], p[1]]], width: [farm ? FARM_W : DRIVE_W, farm ? FARM_W : DRIVE_W] };
+      const tag = q.s.tag ?? {};
+      net.add(start[0], start[1], p[0], p[1], (farm ? FARM_W : DRIVE_W) / 2, { cls, edgeId: tag.edgeId, a: tag.a, b: tag.b });
+      return { cls, pts: [start, [p[0], p[1]]], width: [farm ? FARM_W : DRIVE_W, farm ? FARM_W : DRIVE_W], edgeId: tag.edgeId, a: tag.a, b: tag.b };
     }
     return null;
   };
@@ -653,7 +655,7 @@ export async function generateCity(P, progress = () => {}) {
     if (!dv) { unreached++; continue; }
     if (farm) trackN++; else driveN++;
     driveKm += polyLen(dv.pts) / 1000;
-    drives.push({ cls: dv.cls, level: farm ? 'track' : 'drive', pts: dv.pts, width: dv.width, walk: 0, orderKey: keyOf(lot.x, lot.y) });
+    drives.push({ cls: dv.cls, level: farm ? 'track' : 'drive', pts: dv.pts, width: dv.width, walk: 0, orderKey: keyOf(lot.x, lot.y), edgeId: dv.edgeId, a: dv.a, b: dv.b });
     served.push(lot);
   }
   lots.splice(0, lots.length, ...served);
@@ -674,6 +676,8 @@ export async function generateCity(P, progress = () => {}) {
     const key = keyOf(x, y);
     const rec = buildArchetype(type, { x, y, rot, w: hw * 2, dp: hd * 2, h, d, key, V, front: lot.front }, ctx);
     if (!rec) continue;
+    rec.parcelId = parcelId(P.id, P.seed, lot.x, lot.y, lot.rot);
+    rec.blockKey = lot.b.seedCell;
     ctx.stampLot(x, y, rot, hw, hd, key);
     if (key < (lot.b.minKey ?? Infinity)) lot.b.minKey = key;
     if (rec.h > 5 && type !== 'containers') shadowOf(x, y, rot, hw * 0.95, hd * 0.95, rec.h, key);
@@ -920,9 +924,15 @@ export async function generateCity(P, progress = () => {}) {
     P, S, N, RES, H, texA, texB, parts: parts.finish(), ribbons, buildings, labels, rail, outskirts,
     // the network the buildings' access is checked against (road and driveway centre lines, half widths)
     network: [...roads.filter((l) => !l.rail), ...drives].map((l) => ({
-      cls: l.cls, pts: l.pts, hw: l.width.map((w) => w / 2 + (l.walk ?? 0)),
+      cls: l.cls, pts: l.pts, hw: l.width.map((w) => w / 2 + (l.walk ?? 0)), edgeId: l.edgeId ?? l.id, a: l.a, b: l.b,
     })),
     access, graph: { nodes: graph.nodes.length, junctions: graph.stats.junctions, stats: graph.stats },
+    roadGraph: {
+      nodes: graph.nodes.map(([x, y]) => [x, y]),
+      edges: graph.edges.map(({ id, a, b, cls, level, pts }) => ({
+        id, a, b, cls, level, pts: pts.map(([x, y]) => [x, y]),
+      })),
+    },
     // coarse rasters for the map lenses: land value (0..1) and district index into P.districts, on a R4 grid
     value: { n: N4, res: R4, data: V4 }, districts: { n: N4, res: R4, data: D4 },
     popCurve, timings, ms: Math.round(performance.now() - t0),

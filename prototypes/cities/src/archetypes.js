@@ -76,7 +76,7 @@ export function buildArchetype(type, L, ctx) {
   let { w, dp, h } = L;
   const gr = groundOf(ctx, x, y, rot, w / 2, dp / 2);
   const rec = {
-    kind: LABEL[type] ?? type, type, d, x, y, rot, w, dp, h: h + gr.extra, gz: gr.base, key: L.key,
+    kind: LABEL[type] ?? type, type, d, x, y, rot, w, dp, h: h + gr.extra, gz: gr.base, key: L.key, front: L.front ?? -1,
     lit: clamp(0.38 + 0.25 * R.normal() * 0.5 + (d.tier === 'cbd' ? 0.12 : 0) + (P.id === 'kaiyo' ? 0.15 : 0), 0.08, 0.9),
   };
   rec.id = ctx.addBuilding(rec);

@@ -17,14 +17,15 @@ function buffersOf(obj, out = new Set(), depth = 0) {
 self.onmessage = async ({ data: { id, reqId } }) => {
   const send = (msg, transfer = []) => self.postMessage({ reqId, ...msg }, transfer);
   try {
-    const cached = await readCity(id);
+    const P0 = PERSONALITIES[id];
+    const cached = await readCity(id, P0.seed);
     if (cached) {
       send({ type: 'done', city: cached, cached: true }, [...buffersOf(cached)]);
       return;
     }
-    const { P, ...city } = await generateCity(PERSONALITIES[id], (msg) => send({ type: 'progress', msg }));
+    const { P, ...city } = await generateCity(P0, (msg) => send({ type: 'progress', msg }));
     // the write clones the city before the buffers are handed over
-    await writeCity(id, city);
+    await writeCity(id, P0.seed, city);
     send({ type: 'done', city, cached: false }, [...buffersOf(city)]);
   } catch (err) {
     send({ type: 'error', message: String((err && err.stack) || err) });
