@@ -52,24 +52,30 @@ export function minRadius(pts) {
   return m;
 }
 
-/** Laplacian smoothing of the interior vertices; the ends (nodes) stay put. */
+/** Laplacian smoothing of the interior vertices; the ends (nodes) stay put. Works on flat arrays (it runs a lot). */
 export function laplace(pts, iters) {
-  let p = pts;
+  const n = pts.length;
+  if (iters <= 0 || n < 3) return pts;
+  let xs = new Float64Array(n), ys = new Float64Array(n);
+  for (let i = 0; i < n; i++) { xs[i] = pts[i][0]; ys[i] = pts[i][1]; }
   for (let it = 0; it < iters; it++) {
-    const q = p.slice();
-    for (let i = 1; i < p.length - 1; i++) {
-      q[i] = [(p[i - 1][0] + 2 * p[i][0] + p[i + 1][0]) / 4, (p[i - 1][1] + 2 * p[i][1] + p[i + 1][1]) / 4];
+    const nx = Float64Array.from(xs), ny = Float64Array.from(ys);
+    for (let i = 1; i < n - 1; i++) {
+      nx[i] = (xs[i - 1] + 2 * xs[i] + xs[i + 1]) / 4;
+      ny[i] = (ys[i - 1] + 2 * ys[i] + ys[i + 1]) / 4;
     }
-    p = q;
+    xs = nx; ys = ny;
   }
-  return p;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = [xs[i], ys[i]];
+  return out;
 }
 
 // ------------------------------------------------------------------ spatial hashes
 
 /** Segments in a uniform grid; nearest() returns the closest segment centre-line within a radius. */
 export class SegGrid {
-  constructor(cs) { this.cs = cs; this.cells = new Map(); this.segs = []; this.stamp = []; this.gen = 0; }
+  constructor(cs) { this.cs = cs; this.cells = new Map(); this.segs = []; this.stamp = new Int32Array(0); this.gen = 0; }
   add(ax, ay, bx, by, hw = 0, tag = null) {
     const id = this.segs.length;
     const s = { ax, ay, bx, by, hw, tag, id };
@@ -88,7 +94,10 @@ export class SegGrid {
   nearest(x, y, r, ok = null) {
     const cs = this.cs;
     const i0 = Math.floor((x - r) / cs), i1 = Math.floor((x + r) / cs), j0 = Math.floor((y - r) / cs), j1 = Math.floor((y + r) / cs);
-    let best = null;
+    // the projection is inline: this runs millions of times, so nothing is allocated per segment
+    const r2 = r * r;
+    let bestD2 = Infinity, best = null, bt = 0, bqx = 0, bqy = 0;
+    if (this.stamp.length < this.segs.length) { const n = new Int32Array(this.segs.length * 2); n.set(this.stamp); this.stamp = n; }
     const g = ++this.gen; // a segment spanning several cells is visited once per query
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
       const c = this.cells.get(cellKey(i, j));
@@ -98,20 +107,16 @@ export class SegGrid {
         this.stamp[id] = g;
         const s = this.segs[id];
         if (ok && !ok(s)) continue;
-        const p = project(x, y, s);
-        if (p.d <= r && (!best || p.d < best.d)) best = { d: p.d, qx: p.qx, qy: p.qy, t: p.t, s };
+        const dx = s.bx - s.ax, dy = s.by - s.ay, l2 = dx * dx + dy * dy;
+        let t = l2 > 0 ? ((x - s.ax) * dx + (y - s.ay) * dy) / l2 : 0;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const qx = s.ax + t * dx, qy = s.ay + t * dy;
+        const d2 = (x - qx) * (x - qx) + (y - qy) * (y - qy);
+        if (d2 <= r2 && d2 < bestD2) { bestD2 = d2; best = s; bt = t; bqx = qx; bqy = qy; }
       }
     }
-    return best;
+    return best ? { d: Math.sqrt(bestD2), qx: bqx, qy: bqy, t: bt, s: best } : null;
   }
-}
-
-function project(x, y, s) {
-  const dx = s.bx - s.ax, dy = s.by - s.ay, l2 = dx * dx + dy * dy;
-  let t = l2 > 0 ? ((x - s.ax) * dx + (y - s.ay) * dy) / l2 : 0;
-  t = t < 0 ? 0 : t > 1 ? 1 : t;
-  const qx = s.ax + t * dx, qy = s.ay + t * dy;
-  return { d: Math.hypot(x - qx, y - qy), qx, qy, t };
 }
 
 /**
@@ -239,7 +244,7 @@ export function planarize(edges, snap = SNAP) {
   const spot = new Map();
   const isRep = new Uint8Array(cand.length);
   cand.forEach(([x, y], i) => {
-    const key = `${Math.round(x * 2)},${Math.round(y * 2)}`;
+    const key = (Math.round(x * 2) + 100000) * 1000000 + (Math.round(y * 2) + 100000);
     const r = spot.get(key);
     if (r === undefined) { spot.set(key, i); isRep[i] = 1; } else parent[i] = r;
   });
