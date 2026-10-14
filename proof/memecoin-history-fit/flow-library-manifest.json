@@ -1,0 +1,600 @@
+{
+  "dataset": "Slinky21/Pumpfun_Memecoin_Corpus",
+  "revision": "13bec2bf3089d56d50c35e602616d1b993bb37f5",
+  "windowSeconds": 600,
+  "profiles": 96,
+  "episodes": [
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "3n4ipcFJzhTmvU7QzbgNqA8a25hygAsC2NVwxqdFLASA",
+      "kind": "hot",
+      "events": 1145
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "3eeqrQKVkgYuwPYKgcjcJq4EcqGk7S8ye9yYRBncpump",
+      "kind": "hot",
+      "events": 316
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "29JmcNuga6ykaenV3BcNJQQTbHqS6gY9idYhVbA6pump",
+      "kind": "hot",
+      "events": 217
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "4cxd1gXb5HyV2BCrbyNj6SU1c4WSjpBTDnKjjLuZpump",
+      "kind": "hot",
+      "events": 145
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "3MiAMBStTK3Q5YfiARwqe47Cy3yfDmBi5tnAoeHVpump",
+      "kind": "hot",
+      "events": 168
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5QfJ3nNURAoa9WHwMJD4mbDCG8XcUgb41ECSw5PKpump",
+      "kind": "hot",
+      "events": 171
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5qPm6W9T92ABwrUHyYDQUbyFgT7oL2MKZRuuFPcpump",
+      "kind": "hot",
+      "events": 116
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "27paZAQCMsQGt2igciVBd129enQvpckP1BMws4RYpump",
+      "kind": "hot",
+      "events": 113
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "3PntVM7ZopYBYCgQoYromd9d9w4FYmtmx5VhATVVpump",
+      "kind": "hot",
+      "events": 102
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "4ggdSqb6okbc7z3Zd4QQTZMH2CErR94Ww6SbrTh1pump",
+      "kind": "hot",
+      "events": 136
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "2NjvKMCaMmmrbCjd8GfTpiwgRHMdoZFZYs48icZipump",
+      "kind": "hot",
+      "events": 137
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5wpFq24HvaSsLcxz5SCVb2dU7W6vKvDSrzfYiSc1pump",
+      "kind": "hot",
+      "events": 308
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "6KVqRDRrd5CFSXZjec2o1HavY3gzzvhkD3gKheF1pump",
+      "kind": "hot",
+      "events": 114
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5GgSJb1aAC8M66cuk4brp4XfsHgoUVqXAXUcR4Q4pump",
+      "kind": "hot",
+      "events": 228
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "3NJhbQq1d79qdA3Skt4qpzJHT8fSyNVWV9Xi6G1Mpump",
+      "kind": "hot",
+      "events": 115
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "64eCFmEdDkGUXizXsEW7yusPW93oDP4mCj6HYr88pump",
+      "kind": "hot",
+      "events": 132
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "3PqardWwp6MHPfJcF6EDEu7DSN7eFxwEJkxqMBm5pump",
+      "kind": "hot",
+      "events": 210
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5U8Sb52J4npVwBKdTe4NrkyiPTFa2XnfCKLMvtapump",
+      "kind": "hot",
+      "events": 128
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "6TjQ1m9G6X8XMubTYBwVF7qWD3y35GckBwgHMg6pump",
+      "kind": "hot",
+      "events": 306
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "66iasM1SzyFYEgFF95LfeBhEC5TaznmqY5cQEWnQpump",
+      "kind": "hot",
+      "events": 100
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "29V5QXG7QYiqgq3CcoZqKBtT2pgEcSyXJCLLPd75pump",
+      "kind": "hot",
+      "events": 255
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "7NLqxrC6i5vf394SZ7EfSSsFhKRK662QwBFwMzSmpump",
+      "kind": "hot",
+      "events": 174
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "41PJ2haghUmK2upXnSKqazRowNjZ4WVso9qidXkLpump",
+      "kind": "hot",
+      "events": 111
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "6joguaf2cqjxzqY3VK7SPkMnRS539kWTFbceX6dopump",
+      "kind": "hot",
+      "events": 135
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "7cTmYs4j5JC5RVso1sP2j4zf1jNM33VCGKB1pB29pump",
+      "kind": "mixed",
+      "events": 22
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "2K3cM1hCrdznWcHEwD5i5VrkP32e7dMZc48rR1xwpump",
+      "kind": "mixed",
+      "events": 68
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5MPiKRnxYdgB7R3LdG6zVWyTiY7SxqnYvb6vAad1pump",
+      "kind": "mixed",
+      "events": 38
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5JrHDbjn9zBRXaimjN7jU1KPUMEX2kXCwNsWKqewpump",
+      "kind": "mixed",
+      "events": 98
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "3ex7iww1bpWZUKwNuiyC63KsASPwMcSRJCYaSpifpump",
+      "kind": "mixed",
+      "events": 35
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5nU1ydHJgwMEEfoQMtmkjMK31xkpVRm8KzXXPjGipump",
+      "kind": "mixed",
+      "events": 61
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "2Qk4gE9hDrYeUkgjYP9kssJy6y5ekmnCMLDLGrbSpump",
+      "kind": "mixed",
+      "events": 21
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5siWnY9RA8TTZawsa4xrdsncZfpeMtqbxQmRrnbvpump",
+      "kind": "mixed",
+      "events": 50
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5obMge1jGaH5GxChLJxHvLJkDQTpbNaDNQxzWeRMpump",
+      "kind": "mixed",
+      "events": 49
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "2R9snpKsHSbrZbgGvvvRer6TyompJxsceL68rgt9pump",
+      "kind": "mixed",
+      "events": 56
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "6YDKCVKjri9xmXJrXV4jtbCtch5q5yP1LUWbFYkDpump",
+      "kind": "mixed",
+      "events": 28
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "6H3UkBBJWkoLYxiS2VorYNuSAXywYfp7RofepyVapump",
+      "kind": "mixed",
+      "events": 28
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "6sfDtYAKpLbqjXFHYyGSs3CZAYL2Jm9e3zkuYUympump",
+      "kind": "mixed",
+      "events": 72
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "2RdHQ6xqFFqRf4t3VAF1ME9TG2uTNDTAV3rFVKkppump",
+      "kind": "mixed",
+      "events": 42
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5nowfAjJ7j99d5eYT5vxxXNkdctiUXWzuao3hD2ppump",
+      "kind": "mixed",
+      "events": 29
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "7EviwMEvXKxSoKUqXBCDFRfiZ8qAVerR5W2fDMGVpump",
+      "kind": "mixed",
+      "events": 25
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "2be6krcqspkLRMCqb5hvAnhhCzjL8soMjggxqRVQpump",
+      "kind": "quiet",
+      "events": 6
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "6zjUoDNAt9aSq25UdzTfvycbkg6YN5tUecvTM9jXqo6U",
+      "kind": "quiet",
+      "events": 7
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "2dGGSQmCfpgyFrGYG35Nz3XWBr1dZXGMuirxXBV5iGna",
+      "kind": "quiet",
+      "events": 11
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "78aemXj1VVsxkXR7hdCGZxKfFD9G9HkA3RgnwS2gpump",
+      "kind": "quiet",
+      "events": 2
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "4f7i9noJ2E9RfAgGNuEFNrBrcxmHvGbxKXKbtdSGpump",
+      "kind": "quiet",
+      "events": 8
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5wvY8EgJzLaPedzYDcjApFG9EeiNf23WNTmwCpVxpump",
+      "kind": "quiet",
+      "events": 4
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "5cgaqY9K9F9bGVQa9nouUU19CP686Avii6Sx5XMduviX",
+      "kind": "quiet",
+      "events": 3
+    },
+    {
+      "shard": "trades-00000.parquet",
+      "mint": "7JVhCy8114MQKSqvzr6KmLoHfha8B4PQc6wredqApump",
+      "kind": "quiet",
+      "events": 2
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "8z8Eq6YXLb1SLnznkNaoFnLb44SrwwTL82KTcBmXpump",
+      "kind": "hot",
+      "events": 177
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "Ah14UsBdVCtpeWy4FcKygWDZCaWwi6M3L8Gchqa4pump",
+      "kind": "hot",
+      "events": 100
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "AUvmKzaGRh1QpMN7A7K61bf53F4wVPJs15mX7JU4pump",
+      "kind": "hot",
+      "events": 234
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "AgTM8X7JtfSpZB1vMPHeBP5qmRwJUtw5WfdB8kTZpump",
+      "kind": "hot",
+      "events": 126
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "Cdt3De2jqZUBCzTbh8A7ChVN6KD9YqdYjU4fY9ovpump",
+      "kind": "hot",
+      "events": 110
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "8y6i796THmYPpd1J9KXXwVsYRcgHhY9N5f5x8pXRpump",
+      "kind": "hot",
+      "events": 128
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "9PjBFkD3HKXMXQjM4M7gKJsG3rHwAfqE5mtjUKCDpump",
+      "kind": "hot",
+      "events": 239
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "A7JfLXQECAMjUsEw5HALpur4pZRiuJ18gTaxohRepump",
+      "kind": "hot",
+      "events": 165
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "91VK4ugyLb9nX98JY9tKCGERi485xY7Yks3QN9dWpump",
+      "kind": "hot",
+      "events": 375
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "BvPPxqKUi5jXCoVXBEjDdDpGkgJHQHqUGs6VBdNjpump",
+      "kind": "hot",
+      "events": 110
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "ADT956hx41v9Y6rqn3dxT8Vgyf6X3Knha9KWVwFXpump",
+      "kind": "hot",
+      "events": 106
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "7WzmhA1aQcKyEneeTeWcwGGtwSuhZ5AfSn8FZVJopump",
+      "kind": "hot",
+      "events": 186
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "8SNjPbotDHi5fCzzu7bScMqG4z21o6GeD5ogRjQcpump",
+      "kind": "hot",
+      "events": 230
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "ApfCNBGA6qhiv9z7wSA9w3nHsFRyV5MegU7qQusjpump",
+      "kind": "hot",
+      "events": 123
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "Bs8iAYipyhyZ3P5xYGUoQ7FDcRXtUoUysQRfCU2spump",
+      "kind": "hot",
+      "events": 112
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "C24Rc9SqDEkkGZVA1DyDByrQbf9MXbgSMBufmC7xpump",
+      "kind": "hot",
+      "events": 108
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "8VwN2kzTyLBA9qK44AwiPHBbMwzMBRj1PARNsvJkpump",
+      "kind": "hot",
+      "events": 306
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "CdQ8R9wPJ9PfgwEY7BfCJRg8uWSR446jrgFvEpMeemNM",
+      "kind": "hot",
+      "events": 167
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "BdYcohY4qAYdaGs6bMEToD9YbVQZMYerx2WNaxgipump",
+      "kind": "hot",
+      "events": 124
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "BzQjJAdr5cRQ4tZXLA7A1Mu6med9XVcGs23a2EQtpump",
+      "kind": "hot",
+      "events": 149
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "ACfAq8zw2kXP8R7tGr6hS7W88FgE8N2x4yK4tpV6pump",
+      "kind": "hot",
+      "events": 185
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "9mGAwXSh1J9cNyKfmarPgQZ4LmUmhhsTbz16ERnypump",
+      "kind": "hot",
+      "events": 107
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "ALGjdKAPkhgjmRVWzxMYwfrp8xmyjdhYrTijVNzspump",
+      "kind": "hot",
+      "events": 106
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "Acd6Q5QYhGciygq1XxhjxBWv3KVWJUwWGEC7eNf9pump",
+      "kind": "hot",
+      "events": 113
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "7QiyxzZySaRFmfMLdrfJKFmRHCin86Dpx9qNeqfjpump",
+      "kind": "mixed",
+      "events": 21
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "BDUpf64i4FJcZ8PfoVjJbLRXMpJKDJEreFq2s1k2pump",
+      "kind": "mixed",
+      "events": 49
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "9BfJMYgejKYUqkMmd7fxzFe2iRejmnBK1EjcupnEpump",
+      "kind": "mixed",
+      "events": 41
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "Bh5wYtKHfGfvJhNVDp1eKBFvnfeBticg6TnsDELqpump",
+      "kind": "mixed",
+      "events": 29
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "BeqQXNPRyLFd5ZeBzo5ELPvTBVp6W9UuDcRjjC1Hpump",
+      "kind": "mixed",
+      "events": 31
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "87629YKt6J49UKmiYzEsajCpoKGTZKBdJCKyMaJKpump",
+      "kind": "mixed",
+      "events": 22
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "BLhkBugWfHmPsNp3uwxaarU5E7Q8bofFG8xiNXsHpump",
+      "kind": "mixed",
+      "events": 31
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "8ovW8YbT9pA5vJvANJPkHTucDVzqfr3ax5umasTopump",
+      "kind": "mixed",
+      "events": 71
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "8wjqoQy2oaYL261xrUupbTXjH7V335VVKy6wC9j6pump",
+      "kind": "mixed",
+      "events": 36
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "9wDDS35w7HdKzycEtdsj8ksQKySdpzMPR5UwRT7hpump",
+      "kind": "mixed",
+      "events": 52
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "9L5ramg4Kuyd8vXZrGn7ebuqwSwtz2nQT8bmt4FFMj4J",
+      "kind": "mixed",
+      "events": 34
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "8YHm6P3ymDNxuAJskB3XT8qzUqGbBWRenUTxdBV1pump",
+      "kind": "mixed",
+      "events": 23
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "7yeM5Ht5QmV2YksBPSFrKEf2PewtAaoEGo68i9tQpump",
+      "kind": "mixed",
+      "events": 41
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "CSvojCvr8rzkyLvsAm93xDYK66jyQbUH6feuYt4Lpump",
+      "kind": "mixed",
+      "events": 24
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "8bhoiVHS6EavzCrzsvwiiVLyG6akLaPXXsjPKesRpump",
+      "kind": "mixed",
+      "events": 38
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "9TnCLua7YWKqED1xq4tjBA9D2eU5LJ9ACqZ8Tgwppump",
+      "kind": "mixed",
+      "events": 21
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "9wykKkYFnpwUZ8uxGYjEG4RKhc32KYDE19KL2pr5pump",
+      "kind": "quiet",
+      "events": 17
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "AQSqZtStSyLGR95kuajw8Mp7bKHFnkn9KTwWYsCMpump",
+      "kind": "quiet",
+      "events": 2
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "BZzy5pZTagZZJCmP8X9tnqRaXpVFwhYpUkEzja7Hpump",
+      "kind": "quiet",
+      "events": 5
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "BjaFCfE8zTJGdHFWEv6ERq8CnAeZKeeE2a7ao7j6pump",
+      "kind": "quiet",
+      "events": 3
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "7uJT26MNjioPHHQgdy2EJojNoAZSPFCpCaQYBDzMpump",
+      "kind": "quiet",
+      "events": 6
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "9qSxcQhaEQKfxTyCQpukoLJ2JZftF3n8aSsg42xgpump",
+      "kind": "quiet",
+      "events": 13
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "8LyEzDiSXTKBTbnvTd8yZ1qC16mU6ngMCKLGEBQtpump",
+      "kind": "quiet",
+      "events": 9
+    },
+    {
+      "shard": "trades-00001.parquet",
+      "mint": "7rRTVy9tokGMfYRVSqkCpFMpux8s6kWwX845ggAppump",
+      "kind": "quiet",
+      "events": 4
+    }
+  ],
+  "inputs": [
+    {
+      "file": "trades-00000.parquet",
+      "sha256": "646f56bba13514a7aa2cdbaf5ac37499175d4e0a6d5bee07f7f7f96c7e481154"
+    },
+    {
+      "file": "trades-00001.parquet",
+      "sha256": "93da769636d25d5541301b98f1f7039282556de00dbcd6e3ea7ef736c2b8bde0"
+    }
+  ],
+  "limits": [
+    "collector time",
+    "active launches intentionally oversampled",
+    "24 anonymous actor slots can merge historical wallets",
+    "orders clipped to actual game cash and inventory; prices are not replayed"
+  ]
+}

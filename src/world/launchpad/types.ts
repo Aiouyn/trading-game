@@ -240,7 +240,7 @@ export interface LpToken {
 }
 
 export interface LaunchpadState {
-  /** Off-world NPC capital. Only actual buys/withdrawals enter the existing booked money ledger. */
+  /** Retired shared-funding field, retained only for reading older saves. New traders use their own engine accounts. */
   flowCapital?: { cents: number; fundedCents: number; fundingTick: number };
   /** a counter for the token ids of world launches (kept for the feed order) */
   seq: number;
@@ -268,16 +268,19 @@ export interface LaunchpadState {
 export interface MicroTrader {
   id: string;
   style: 'trend' | 'dip' | 'scalp' | 'holder' | 'whale';
+  /** Legacy external balance, migrated once to accountId. Zero on current traders. */
   cashCents: number;
   takeProfit: number;
   stop: number;
   patience: number;
   lastAction: number;
-  /** The same participant becomes a funded engine account at graduation. */
+  /** Sole persistent balance across curve and graduated coins. */
   accountId?: string;
 }
 
 export interface MicroState {
+  /** Historical order-flow episode, advanced on the game clock, never a target price path. */
+  episode?: { profile: number; startTick: number; cursor: number };
   rng: RngState;
   traders: MicroTrader[];
   lastPrice: number;

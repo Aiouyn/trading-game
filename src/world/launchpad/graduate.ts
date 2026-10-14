@@ -101,7 +101,7 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
       const bag = owned.filter(c => c.wallet === w.id);
       const qty = bag.reduce((sum, c) => sum + c.tokens, 0);
       const cost = bag.reduce((sum, c) => sum + c.cost, 0);
-      s = openAccount(s, w.id, 0);
+      if (!s.accounts[w.id]) s = openAccount(s, w.id, 0);
       if (qty > 0) s = addShares(s, w.id, t.ticker, qty, cost / qty);
       w.accountId = w.id;
     }

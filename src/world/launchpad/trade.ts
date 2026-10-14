@@ -1,4 +1,5 @@
 import { assetFlow, cashOf } from '../core';
+import { buyingPower } from '@/engine';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { LP } from './constants';
 import { quoteBuy, quoteSell } from './curve';
@@ -21,7 +22,8 @@ import type { GameState as G } from '../types';
  *   - a player buy: the trader pays the whole outlay; the curve gets the cash net of the fee; the creator gets half the fee
  *     (booked income, a transfer), and the other half is a sink;
  *   - a player sell: the curve pays the formula cash; the trader gets it less the fee; the fee splits as above;
- *   - an NPC fill: the NPC cash is the npcRetail faucet (in on a buy, out on a sell), and the fee splits as above.
+ *   - a funded NPC fill: cash transfers between its persistent account and the curve; the fee splits as above;
+ *   - a legacy arrival fill: outside cash is booked on npcRetail (in on a buy, out on a sell).
  */
 
 const tickOf = (g: GameState) => g.market.tick;
@@ -73,10 +75,14 @@ export function buyCurve(
   if (!q.ok) return refuse(q.code === 'sold' ? 'sold' : q.code === 'tooSmall' ? 'tooSmall' : 'zero', { ticker });
   const curve = curveAccountId(t.ticker);
   if (npc || !pid) {
-    if (wallet && wallet.cashCents < q.spendCents) return refuse('cash', { need: (q.spendCents / 100).toFixed(2) });
-    if (wallet) wallet.cashCents -= q.spendCents;
-    // an NPC's cash is a booked faucet (the npcRetail line): it enters the world into the curve, and the fee leaves it
-    faucetCents(g, curve, 'npcRetail', q.spendCents);
+    const cash = wallet?.accountId ? Math.floor(Math.min(g.market.accounts[wallet.accountId]?.cash ?? 0, buyingPower(g.market,wallet.accountId)) * 100) : wallet?.cashCents;
+    if (cash !== undefined && cash < q.spendCents) return refuse('cash', { need: (q.spendCents / 100).toFixed(2) });
+    if (wallet?.accountId) moveCents(g, wallet.accountId, curve, q.spendCents);
+    else {
+      if (wallet) wallet.cashCents -= q.spendCents;
+      // Legacy arrivals bring outside cash; funded traders transfer their own account balance above.
+      faucetCents(g, curve, 'npcRetail', q.spendCents);
+    }
     bookFee(g, t, true, q.creatorFeeCents, q.sinkFeeCents, true);
     // L6.8: the buy is one cohort (its own half-life and cost basis)
     addCohort(t, tickOf(g), q.tokens, q.cashCents / 100, wallet?.id);
@@ -171,11 +177,12 @@ export function sellCurve(
     t.buzz.base = Math.max(0, t.buzz.base - LP.SELL_BUZZ_PER_100 * (q.grossCents / 100) / 100);
     if (holder !== t.creatorId) t.playerTraded = true;
   } else {
-    // an NPC's cash leaves the world: the net is a booked sink (the npcRetail line), the fees split as above
-    g.economy.sinks.npcRetail = (g.economy.sinks.npcRetail ?? 0) + q.netCents / 100;
+    // Funded proceeds stay with their owner; only legacy external flow is a sink.
+    if (wallet?.accountId) addAccountCash(g, wallet.accountId, q.netCents);
+    else g.economy.sinks.npcRetail = (g.economy.sinks.npcRetail ?? 0) + q.netCents / 100;
     bookFee(g, t, false, q.creatorFeeCents, q.sinkFeeCents, true);
     takeFromCohorts(t, tokens, plan);
-    if (wallet) wallet.cashCents += q.netCents;
+    if (wallet && !wallet.accountId) wallet.cashCents += q.netCents;
     t.flows.npcSell += q.grossCents / 100;
   }
   t.y += tokens;

@@ -12,6 +12,7 @@ import { lpPageOf } from './view';
 import { anonOf } from './anon';
 import { buyCurve } from './trade';
 import { TPD } from './constants';
+import { npcLaunchDraw } from './launch';
 
 const make = (seed: string, ticker = 'WAVE') => {
   const g = lpWorld(seed);
@@ -70,21 +71,27 @@ describe('funded meme-coin price action', () => {
     expect(JSON.stringify(a.market.accounts)).toBe(JSON.stringify(b.market.accounts));
   });
 
-  it('uses a shared capital budget and refuses unfunded NPC buying', () => {
-    const {g,t} = make('shared-cash');
+  it('uses each persistent NPC account across coins, without treasury or per-coin funding', () => {
+    const {g,t} = make('own-wallet');
     microTick(g,t,null);
-    const treasury = g.launchpad!.flowCapital!;
-    const total = treasury.cents + t.micro!.traders.reduce((sum,w)=>sum+w.cashCents,0);
-    expect(total).toBeLessThanOrEqual(MICROFLOW.initialCapitalCents);
+    const funding = g.economy.faucets.npcRetail;
     const wallet = t.micro!.traders[0]!;
-    wallet.cashCents = 0;
-    const before = JSON.stringify(g.market.accounts);
+    expect(wallet.accountId).toBe(wallet.id);
+    expect(g.market.accounts[wallet.id]!.cash).toBeGreaterThan(0);
+    expect(g.launchpad!.flowCapital).toBeUndefined();
+    expect(npcLaunchDraw(g, null)).toBe(true);
+    const other = g.launchpad!.tokens[g.launchpad!.order.at(-1)!]!;
+    microTick(g,other,null);
+    // Population funding happens only once. A launch itself is a legacy arrival,
+    // but assigning another token does not replenish any persistent trader.
+    const before = g.economy.faucets.npcRetail;
+    microTick(g,other,null);
+    expect(g.economy.faucets.npcRetail).toBe(before);
+    expect(before).toBeGreaterThanOrEqual(funding);
+    g.market.accounts[wallet.id]!.cash = 0;
+    const accounts = JSON.stringify(g.market.accounts);
     expect(buyCurve(g,null,t.ticker,10_000,1,null,true,false,wallet).ok).toBe(false);
-    expect(JSON.stringify(g.market.accounts)).toBe(before);
-    expect(treasury.fundedCents).toBe(MICROFLOW.initialCapitalCents);
-    const expected = treasury.cents;
-    microTick(g,t,null);
-    expect(treasury.cents).toBe(expected); // no token-level refill
+    expect(JSON.stringify(g.market.accounts)).toBe(accounts);
   });
 
   it('keeps page wallets consistent with settled tape and actual held inventory', () => {
@@ -98,7 +105,8 @@ describe('funded meme-coin price action', () => {
       expect(cohortsOf(t).filter(c=>c.wallet).length).toBeLessThanOrEqual(MICROFLOW.traders);
       for (const w of t.micro!.traders) {
         const qty=cohortsOf(t).filter(c=>c.wallet===w.id).reduce((sum,c)=>sum+c.tokens,0);
-        if(qty>0) expect(page.holders.find(h=>h.anon===anonOf(t.ticker,w.id))?.qty).toBe(qty);
+        const shown = page.holders.find(h=>h.anon===anonOf(t.ticker,w.id));
+        if(shown) expect(shown.qty).toBe(qty); // only the largest holders are public
       }
     }
     const publicPage=JSON.stringify(page);
@@ -136,8 +144,10 @@ describe('funded meme-coin price action', () => {
   it('funds an already graduated old save once and preserves its money identity', () => {
     const {g,t}=make('old-graduated');
     expect(applyCommand(g,'admin',{type:'admin.lpFill',ticker:t.ticker}).ok).toBe(true);
+    g.market.config = {...g.market.config,assets:g.market.config.assets.map(a=>a.id===t.ticker?{...a,advNotional:400_000_000}:a)};
     const m0=netWorldMoney(g), b0=bookedNet(g), e0=engineTallyOf(g);
     microTick(g,t,null);
+    expect(g.market.config.assets.find(a=>a.id===t.ticker)!.advNotional).toBeLessThan(100_000);
     expect(t.micro!.traders.every(w=>w.accountId===w.id&&w.cashCents===0)).toBe(true);
     expect(t.micro!.traders.some(w=>(g.market.accounts[w.id]?.cash??0)>0)).toBe(true);
     const funding=g.economy.faucets.npcRetail;
@@ -146,15 +156,38 @@ describe('funded meme-coin price action', () => {
     expect(Math.abs((netWorldMoney(g)-m0)-(bookedNet(g)-b0)-(engineTallyOf(g)-e0))).toBeLessThan(.005);
   });
 
-  it('returns unspent cash and liquidation proceeds to the shared pool at cancellation', () => {
+  it('keeps each traders proceeds and spare cash after cancellation', () => {
     const {g,t}=make('cancel-funded');
     advance(g,20);
-    const treasury=g.launchpad!.flowCapital!;
-    const previous=treasury.cents;
+    const previous = new Map(t.micro!.traders.map(w => [w.id, g.market.accounts[w.id]!.cash]));
     expect(run(g,CREATOR,{type:'lp.cancel',ticker:t.ticker}).ok).toBe(true);
     expect(t.status).toBe('dead');
-    expect(t.micro!.traders.every(w=>w.cashCents===0)).toBe(true);
-    expect(treasury.cents).toBeGreaterThan(previous);
+    expect(t.micro!.traders.every(w=>g.market.accounts[w.id]!.cash >= previous.get(w.id)!)).toBe(true);
     expect(t.npcBal).toBe(0);
+  });
+
+  it('does not starve fresh launches in a mature world with hundreds of coins', () => {
+    const g = lpWorld('mature-population');
+    for (let i = 0; i < 200; i++) npcLaunchDraw(g, null);
+    const old = Object.values(g.launchpad!.tokens);
+    for (const t of old) microTick(g,t,null);
+    const funding = g.economy.faucets.npcRetail;
+    let overlap = false, buys = 0;
+    const oldIds = new Set(old.flatMap(t=>t.micro!.traders.map(w=>w.id)));
+    for (let i = 0; i < 10; i++) {
+      npcLaunchDraw(g,null);
+      const t = g.launchpad!.tokens[g.launchpad!.order.at(-1)!]!;
+      microTick(g,t,null);
+      overlap ||= t.micro!.traders.some(w=>oldIds.has(w.id));
+      const before = t.flows.npcBuy;
+      for (let k = 0; k < 24; k++) { g.market.tick++; microTick(g,t,null); }
+      buys += t.flows.npcBuy - before;
+      for (const w of t.micro!.traders) expect(g.market.accounts[w.id]!.cash).toBeGreaterThanOrEqual(0);
+    }
+    expect(overlap).toBe(true);
+    expect(buys).toBeGreaterThan(10_000);
+    // No new population grant on any of these ten fresh coins.
+    expect(Object.keys(g.market.accounts).filter(id=>id.startsWith('lp:npc:trader:'))).toHaveLength(240);
+    expect(g.economy.faucets.npcRetail - funding).toBeLessThan(500_000); // launch arrivals only
   });
 });

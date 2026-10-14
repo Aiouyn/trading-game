@@ -1,5 +1,7 @@
 # Funded meme-coin price action
 
+**Superseded by the persistent-account and historical-flow revision:** see [MEMECOIN-HISTORICAL-FLOW.md](MEMECOIN-HISTORICAL-FLOW.md). The shared fund described below starved new coins in a mature live save; these earlier small-world results did not establish live-world realism.
+
 Implemented from build `2cdbb97` in `codex/memecoin-price-action`.
 
 The launchpad now has a persistent, funded population of 12 traders per token: momentum traders, dip buyers, scalpers, holders and larger traders. They retain cash, weighted entry costs, profit targets, loss tolerance and patience. A bounded tick can contain up to ten participant orders, reacting to the reserves left by earlier fills. Prices remain the result of settlement; there is no imposed pump/crash chart.
