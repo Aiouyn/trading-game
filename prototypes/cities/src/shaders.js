@@ -237,6 +237,7 @@ export const partFrag = /* glsl */ `
 ${COMMON}
 ${MATERIALS}
 uniform float uMood;
+uniform float uMarketMode; // 1 only in the Market lens: Normal view follows time of day, not the tape
 uniform float uHover;
 uniform float uLens;
 uniform vec3 uLit0;
@@ -285,7 +286,7 @@ void main() {
   // the day's return of a headquarters' company (same formula as the info card)
   float ret = 0.0;
   float litRatio = vMeta.y;
-  if (hq) {
+  if (hq && uMarketMode > 0.5) {
     float h1 = fract(bid * 0.61803398875), h2 = fract(bid * 0.75487766625);
     ret = uMood * 0.06 * (0.5 + h1) + (h2 - 0.5) * 0.024;
     litRatio = clamp(0.36 + ret * 9.0, 0.03, 0.97);
@@ -409,8 +410,8 @@ void main() {
     base = light(base, n);
   }
 
-  // ---- focus buildings lift a little towards brass
-  if (isFocus) base = mix(base, uBrass, 0.08);
+  // Focus is communicated by the brass outline pass and the ground halo, not by tinting the
+  // building itself: a painted facade stops reading as masonry in the Normal lens.
 
   // ---- cutaway (occluders cut in partVert): the cut is a section plane, paper with fine hatching, and the wall line
   // at the cut is inked. Walls below the cut keep their look.
@@ -459,7 +460,9 @@ void main() {
     base = mix(base, mix(vec3(0.62, 0.55, 0.45), vec3(0.85, 0.55, 0.22), lat), sc * 0.75);
   }
 
-  if (abs(bid - uHover) < 0.5 && bid > 0.5) base = mix(base, uBrass * 1.15, 0.38);
+  // A hover is a pointer hint, not a highlight: it must not repaint the facade. Any tint
+  // measurable on the building's own pixels is a repaint, so hover stays geometric only.
+  // (The cursor, the focus outline and the ground halo already mark the hovered building.)
 
   // map lens (lenses.js): an emphasised building takes its tint; the rest fade to grey and sink toward the ink.
   // Trees and boats are bid 0, never emphasised.

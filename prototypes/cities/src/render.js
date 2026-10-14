@@ -33,13 +33,14 @@ void main() { vP = uv; vHalf = aHalf; gl_Position = projectionMatrix * modelView
 const glowFrag = /* glsl */ `
 uniform vec3 uBrass;
 uniform float uNight;
+uniform float uStrength; // 1 for the focus halo, less for a hover hint
 varying vec2 vP;
 varying vec2 vHalf;
 void main() {
   vec2 q = abs(vP) - vHalf;
   float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0); // metres outside the footprint
   float a = 1.0 - smoothstep(0.0, 14.0, sd);
-  a = a * a * smoothstep(-0.5, 0.5, sd) * 0.45;
+  a = a * a * smoothstep(-0.5, 0.5, sd) * 0.45 * uStrength;
   gl_FragColor = vec4(uBrass * (1.0 + 0.3 * uNight), a);
 }`;
 
@@ -58,6 +59,8 @@ export class CityView {
       uAmb: { value: new THREE.Color(0.5, 0.5, 0.55) }, uNightAmb: { value: new THREE.Color(0.1, 0.12, 0.2) },
       uNight: { value: 0 }, uGrowth: { value: 1.04 }, uBand: { value: 0.035 }, uTime: { value: 0 },
       uInk: { value: col(0x15171b) }, uMood: { value: 0 }, uHover: { value: -1 },
+      // Market lens only: headquarters light and dark with the tape. Normal view does not.
+      uMarketMode: { value: 0 },
       uLit0: { value: col(0xffcf7a) }, uLit1: { value: col(0xffe2a8) }, uLit2: { value: col(0xffb85c) },
       uBrass: { value: col(0xc9a45c) }, uSkyRefl: { value: col(0x9fb4c4) },
       // see-through: uCutT eases 0..1 (occluders cut at uCutH above their ground, from uFullH); the focus boxes for the trees
@@ -81,7 +84,7 @@ export class CityView {
     // see-through: focus set (building ids), the occluders (bit 2, cut in partVert), the cut's progress (cutP runs to
     // cutTo; uCutT is its eased value), the glows under the focus buildings, and the screen boxes for their yaw
     this.focusIds = []; this.focusSet = new Set(); this.focusKey = '';
-    this.occ = []; this.cutP = 0; this.cutTo = 0; this.seeDirty = false; this.glows = [];
+    this.occ = []; this.cutP = 0; this.cutTo = 0; this.seeDirty = false; this.glows = []; this.glowOwner = new Map();
     this.seeBoxes = null; this.boxYaw = NaN; this.seeYaw = NaN; this.seeScale = NaN; this.seeMs = 0; this.seeBoxMs = 0;
     this.motion = !matchMedia('(prefers-reduced-motion: reduce)').matches;
     // animation (water, neon, trains) runs at ANIM_FPS, and only while an animated thing is on screen (see tickAnimation)
@@ -198,11 +201,7 @@ export class CityView {
       vertexShader: partVert, fragmentShader: partFrag, side: THREE.BackSide, uniforms: { ...this.uniforms, uOutlinePass: { value: 1 } },
     });
     // the glow under a focus building: a soft brass halo on the ground around its footprint
-    this.glowMat = new THREE.ShaderMaterial({
-      vertexShader: glowVert, fragmentShader: glowFrag, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
-      uniforms: { uBrass: this.uniforms.uBrass, uNight: this.uniforms.uNight },
-    });
+    this.glowMat = null; // each halo owns its material, so a hover halo can be fainter
     // trees: the full crowns and trunks draw when close; from TREE_FAR scale the crowns are billboards and the trunks go
     // trees: the full crowns and trunks draw when close; from TREE_FAR scale the crowns are billboards and the trunks go.
     // Level of detail and culling: the instances are split into TILE-metre tiles (one draw per geometry, tile and size
@@ -683,7 +682,13 @@ export class CityView {
     return bestFocus ?? best;
   }
 
-  setHover(id) { if (id !== this.hoverId) { this.hoverId = id; this.uniforms.uHover.value = id; this.dirty = true; } }
+  // Hover marks the building on the ground, not on its facade.
+  setHover(id) {
+    if (id === this.hoverId) return;
+    this.hoverId = id;
+    if (this.city) this.syncGlows();
+    this.dirty = true;
+  }
 
   // ------------------------------------------------------------------ see-through
   /** The focus set (building ids): brass outline and glow, and the built buildings that hide them are cut. */
@@ -714,13 +719,27 @@ export class CityView {
     }
   }
 
-  /** One soft brass halo on the ground around each focus building's footprint. */
+  /**
+   * One soft brass halo on the ground around a focus building's footprint, and a fainter one
+   * under the hovered building. Hover and focus are marked on the ground, never by tinting
+   * the facade: a painted wall stops reading as masonry.
+   */
   syncGlows() {
-    this.clearGlows();
+    const wanted = this.focusIds.map((id) => [id, 1]);
+    if (this.hoverId >= 0 && !this.focusSet.has(this.hoverId)) wanted.push([this.hoverId, 0.35]);
+    this.applyGlows(wanted);
+  }
+  applyGlows(wanted) {
+    const kept = [];
+    for (const m of this.glows) if (wanted.some(([id]) => this.glowOwner.get(m) === id)) kept.push(m); else { this.scene.remove(m); m.geometry.dispose(); }
+    this.glows = kept;
     if (!this.city) return;
-    const R = 14; // metres, the halo's reach (matches glowFrag)
-    for (const id of this.focusIds) {
+    const present = new Set(kept.map((m) => this.glowOwner.get(m)));
+    for (const [id, strength] of wanted) {
+      if (present.has(id)) continue;
       const b = this.city.buildings[id - 1];
+      if (!b) continue;
+      const R = 14; // metres, the halo's reach (matches glowFrag)
       const c = Math.cos(b.rot), s = Math.sin(b.rot), hw = b.w / 2 + R, hd = b.dp / 2 + R, y = b.gz + 0.6;
       const pos = [], uv = [], half = [];
       for (const [la, lb] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
@@ -732,13 +751,18 @@ export class CityView {
       g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       g.setAttribute('aHalf', new THREE.Float32BufferAttribute(half, 2));
       g.setIndex([0, 1, 2, 0, 2, 3]);
-      const m = new THREE.Mesh(g, this.glowMat);
+      const mat = new THREE.ShaderMaterial({
+        vertexShader: glowVert, fragmentShader: glowFrag, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+        uniforms: { uBrass: this.uniforms.uBrass, uNight: this.uniforms.uNight, uStrength: { value: strength } },
+      });
+      const m = new THREE.Mesh(g, mat);
       m.frustumCulled = false; m.renderOrder = 3;
-      this.scene.add(m); this.glows.push(m);
+      this.scene.add(m); this.glows.push(m); this.glowOwner.set(m, id);
     }
   }
   clearGlows() {
-    for (const m of this.glows) { this.scene.remove(m); m.geometry.dispose(); }
+    for (const m of this.glows) { this.scene.remove(m); m.geometry.dispose(); m.material.dispose(); this.glowOwner.delete(m); }
     this.glows = [];
   }
 

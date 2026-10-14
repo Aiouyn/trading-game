@@ -320,6 +320,8 @@ for (const id of LENS_IDS) {
 /** Switch the lens (it starts without a filter). V cycles through them. */
 function setLens(id) {
   lensId = id;
+  // Market colours belong to the Market lens: Normal view follows the time of day.
+  view.uniforms.uMarketMode.value = id === 'market' ? 1 : 0;
   if (lenses) lenses[id].filter = null;
   renderLens();
 }
