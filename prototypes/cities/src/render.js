@@ -9,6 +9,7 @@ import { BIT_OCCLUDER, BIT_FOCUS, projectBoxes, findSeeThrough, focusBoxes } fro
 import { outskirtsHeight } from './outskirts.js';
 import { smoothstep } from './noise.js';
 import { packLabels } from './label-layout.js';
+import { QUALITY, qualityWindow } from './quality.js';
 
 const PITCH = Math.atan(0.5) * 2 > 1 ? Math.PI / 6 : Math.PI / 6; // 30 degrees: a 2:1 dimetric diamond
 const col = (hex) => new THREE.Color(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
@@ -97,12 +98,22 @@ export class CityView {
     // time of a draw, read back with a one-pixel read. Software renderers (SwiftShader, llvmpipe) never drop quality.
     const gl = this.renderer.getContext();
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-    this.software = /swiftshader|llvmpipe|software/i.test(String(gl.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : gl.RENDERER)));
+    this.glVendor = String(gl.getParameter(dbg ? dbg.UNMASKED_VENDOR_WEBGL : gl.VENDOR));
+    this.glRenderer = String(gl.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    this.software = /swiftshader|llvmpipe|software/i.test(this.glRenderer);
     this.tq = this.software ? null : gl.getExtension('EXT_disjoint_timer_query_webgl2');
-    this.tqPending = []; this.frameMs = []; this.dropped = false; this.px = new Uint8Array(4);
+    this.tqPending = []; this.frameMs = []; this.activeSamples = [];
+    this.qualityState = { tier: 'high', slow: 0 };
+    this.manualQuality = false;
+    this.dropped = false;
+    this.cityTextures = new Set();
+    this.cityGeometries = new Set();
+    this.cityMaterials = new Set();
+    this.loadMs = 0;
     this.applyPixelRatio();
     this.resize();
-    addEventListener('resize', () => this.resize());
+    this.onResize = () => this.resize();
+    addEventListener('resize', this.onResize);
     this.setTime(19.2);
   }
 
@@ -121,12 +132,21 @@ export class CityView {
   }
 
   /** Set the quality tier ('high' | 'balanced' | 'low'): gates microscopic shader noise and DPR. */
-  setQualityTier(tier) {
+  setQualityTier(tier, manual = true) {
     if (!['high', 'balanced', 'low'].includes(tier)) return;
     this.qualityTier = tier;
-    this.uniforms.uDetail.value = tier === 'high' ? 1 : tier === 'balanced' ? 0.5 : 0;
+    this.qualityState = { tier, slow: 0 };
+    this.manualQuality = Boolean(manual);
+    this.uniforms.uDetail.value = this.saver ? 0 : QUALITY[tier].detail;
     this.applyPixelRatio();
     this.dirty = true;
+  }
+
+  resetAutoQuality() {
+    this.manualQuality = false;
+    this.dropped = false;
+    this.activeSamples = [];
+    this.setQualityTier('high', false);
   }
 
   /** The battery saver: pixel ratio 1 and a slower animation. */
@@ -162,20 +182,67 @@ export class CityView {
       if (!disjoint) this.recordFrame(ns / 1e6);
     }
   }
-  /** Keep the last 20 draw times; a median above SLOW_MS on a real GPU drops the pixel ratio to 1 (once). */
+  /** Record GPU timer query results (diagnostic). */
   recordFrame(ms) {
-    if (this.software || this.saver || this.dropped) return;
     this.frameMs.push(ms);
-    if (this.frameMs.length > 20) this.frameMs.shift();
-    if (this.frameMs.length < 20) return;
-    const sorted = [...this.frameMs].sort((a, b) => a - b);
-    if (sorted[10] > SLOW_MS) { this.dropped = true; this.applyPixelRatio(); this.dirty = true; }
+    if (this.frameMs.length > 60) this.frameMs.shift();
+  }
+
+  /** Record active interaction cadence (60-frame window) and step qualityWindow. */
+  recordActiveInterval(ms, active) {
+    if (this.software || this.saver || !active || document.hidden || !Number.isFinite(ms)) return;
+    this.activeSamples.push(ms);
+    if (this.activeSamples.length < 60) return;
+    const sorted = [...this.activeSamples].sort((a, b) => a - b);
+    this.activeSamples = [];
+    const p95 = sorted[Math.floor(sorted.length * 0.95)];
+    const next = qualityWindow(this.qualityState, {
+      p95,
+      active: true,
+      hidden: document.hidden,
+      manual: this.manualQuality,
+    });
+    this.qualityState = next;
+    if (next.tier !== this.qualityTier) {
+      this.setQualityTier(next.tier, false);
+    }
+  }
+
+  disposeCity() {
+    for (const o of this.objects) {
+      this.scene.remove(o);
+      if (o.geometry) this.cityGeometries.add(o.geometry);
+      if (o.material) this.cityMaterials.add(o.material);
+    }
+    this.objects = [];
+    for (const g of this.cityGeometries) g.dispose?.();
+    this.cityGeometries.clear();
+    for (const m of this.cityMaterials) m.dispose?.();
+    this.cityMaterials.clear();
+    for (const t of this.cityTextures) t.dispose?.();
+    this.cityTextures.clear();
+    this.clearGlows();
+    if (this.tq && this.tqPending.length) {
+      const gl = this.renderer.getContext();
+      for (const q of this.tqPending) gl.deleteQuery(q);
+      this.tqPending = [];
+    }
+  }
+
+  dispose() {
+    this.disposeCity();
+    if (this.onResize) removeEventListener('resize', this.onResize);
+    for (const g of Object.values(this.geoms)) g.dispose?.();
+    this.renderer.dispose();
   }
 
   load(city) {
-    for (const o of this.objects) { this.scene.remove(o); o.geometry?.dispose?.(); o.material?.dispose?.(); }
-    this.objects = [];
+    const tLoad0 = performance.now();
+    this.disposeCity();
     this.city = city;
+    const trackTex = (t) => { if (t) this.cityTextures.add(t); return t; };
+    const trackGeom = (g) => { if (g) this.cityGeometries.add(g); return g; };
+    const trackMat = (m) => { if (m) this.cityMaterials.add(m); return m; };
     const P = city.P, pal = P.palette, half = city.S / 2;
     this.uniforms.uLit0.value = col(pal.lit[0]); this.uniforms.uLit1.value = col(pal.lit[1]); this.uniforms.uLit2.value = col(pal.lit[2]);
 
@@ -185,13 +252,13 @@ export class CityView {
     const STATE_W = 256;
     const stateH = Math.max(1, Math.ceil((city.buildings.length + 1) / STATE_W));
     this.state = new Uint8Array(STATE_W * stateH * 4);
-    this.stateTex = new THREE.DataTexture(this.state, STATE_W, stateH, THREE.RGBAFormat);
+    this.stateTex = trackTex(new THREE.DataTexture(this.state, STATE_W, stateH, THREE.RGBAFormat));
     this.stateTex.magFilter = THREE.NearestFilter; this.stateTex.minFilter = THREE.NearestFilter;
     this.stateTex.needsUpdate = true;
     this.uniforms.uState = { value: this.stateTex };
     this.uniforms.uStateW = { value: STATE_W };
     this.frontage = new Uint8Array(STATE_W * stateH);
-    this.frontageTex = new THREE.DataTexture(this.frontage, STATE_W, stateH, THREE.RedFormat, THREE.UnsignedByteType);
+    this.frontageTex = trackTex(new THREE.DataTexture(this.frontage, STATE_W, stateH, THREE.RedFormat, THREE.UnsignedByteType));
     this.frontageTex.magFilter = THREE.NearestFilter; this.frontageTex.minFilter = THREE.NearestFilter;
     this.frontageTex.unpackAlignment = 1;
     this.frontageTex.needsUpdate = true;
@@ -204,7 +271,7 @@ export class CityView {
     // lens rasters on the generator's coarse grid (same layout as the heights): land value as bytes, and the
     // district index per cell (a byte, read back as idx / 255 in groundFrag)
     const grid = (data, filter) => {
-      const t = new THREE.DataTexture(data, city.value.n, city.value.n, THREE.RedFormat, THREE.UnsignedByteType);
+      const t = trackTex(new THREE.DataTexture(data, city.value.n, city.value.n, THREE.RedFormat, THREE.UnsignedByteType));
       t.magFilter = filter; t.minFilter = filter; t.unpackAlignment = 1; t.needsUpdate = true;
       return t;
     };
@@ -215,10 +282,10 @@ export class CityView {
 
     // parts: one instanced draw per geometry; a second draw of the same geometry (inverted hull, back faces) outlines
     // the focus buildings. The outline material shares the uniform objects, so the numbers stay live.
-    const partMat = new THREE.ShaderMaterial({ vertexShader: partVert, fragmentShader: partFrag, uniforms: this.uniforms });
-    const outlineMat = new THREE.ShaderMaterial({
+    const partMat = trackMat(new THREE.ShaderMaterial({ vertexShader: partVert, fragmentShader: partFrag, uniforms: this.uniforms }));
+    const outlineMat = trackMat(new THREE.ShaderMaterial({
       vertexShader: partVert, fragmentShader: partFrag, side: THREE.BackSide, uniforms: { ...this.uniforms, uOutlinePass: { value: 1 } },
-    });
+    }));
     // the glow under a focus building: a soft brass halo on the ground around its footprint
     this.glowMat = null; // each halo owns its material, so a hover halo can be fainter
     // trees: the full crowns and trunks draw when close; from TREE_FAR scale the crowns are billboards and the trunks go
@@ -228,10 +295,10 @@ export class CityView {
     // drawn only up to SMALL_SCALE. The outline draw keeps one unsplit geometry per building geometry (it only shows
     // the focus buildings), so the draw count stays small.
     this.treeFull = []; this.billboards = []; this.lodFar = null; this.smallMeshes = []; this.lodSmall = null;
-    const quad = new THREE.BufferGeometry();
+    const quad = trackGeom(new THREE.BufferGeometry());
     quad.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
     quad.setIndex([0, 1, 2, 0, 2, 3]);
-    const billMat = new THREE.ShaderMaterial({ vertexShader: billVert, fragmentShader: billFrag, uniforms: this.uniforms, alphaToCoverage: true });
+    const billMat = trackMat(new THREE.ShaderMaterial({ vertexShader: billVert, fragmentShader: billFrag, uniforms: this.uniforms, alphaToCoverage: true }));
     this.outlines = [];
     for (const k of PART_KEYS) {
       const arr = city.parts[k];
@@ -290,7 +357,7 @@ export class CityView {
     pg.computeVertexNormals();
     for (let i = 0; i < pa.count; i++) pa.setY(i, trueH[i]);
     this.simplifyGround(pg, G);
-    const tex = (data) => { const t = new THREE.DataTexture(data, city.N, city.N, THREE.RGBAFormat); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.needsUpdate = true; return t; };
+    const tex = (data) => { const t = trackTex(new THREE.DataTexture(data, city.N, city.N, THREE.RGBAFormat)); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.needsUpdate = true; return t; };
     const gu = {
       ...this.uniforms, uA: { value: tex(city.texA) }, uB: { value: tex(city.texB) }, uHalf: { value: half },
       cLand: { value: col(pal.land) }, cNatural: { value: col(pal.natural) }, cPark: { value: col(pal.park) }, cSand: { value: col(pal.sand) },
@@ -385,6 +452,7 @@ export class CityView {
 
     this.fit();
     this.dirty = true;
+    this.loadMs = Math.round((performance.now() - tLoad0) * 100) / 100;
   }
 
   /**
@@ -786,7 +854,7 @@ export class CityView {
   }
   applyGlows(wanted) {
     const kept = [];
-    for (const m of this.glows) if (wanted.some(([id]) => this.glowOwner.get(m) === id)) kept.push(m); else { this.scene.remove(m); m.geometry.dispose(); }
+    for (const m of this.glows) if (wanted.some(([id]) => this.glowOwner.get(m) === id)) kept.push(m); else { this.scene.remove(m); m.geometry.dispose(); m.material.dispose(); this.glowOwner.delete(m); }
     this.glows = kept;
     if (!this.city) return;
     const present = new Set(kept.map((m) => this.glowOwner.get(m)));
@@ -923,17 +991,10 @@ export class CityView {
     this.renders++;
     this.updateCamera();
     this.applyLOD();
-    const gl = this.renderer.getContext();
     this.pollTimer();
-    const t0 = performance.now();
     const q = this.beginTimer();
     this.renderer.render(this.scene, this.camera);
     this.endTimer(q);
-    if (!this.tq && !this.software) {
-      // no timer query: a one-pixel read waits for the draw, so the wall time is the frame time
-      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.px);
-      this.recordFrame(performance.now() - t0);
-    }
     this.placeLabels();
     this.dirty = false;
   }

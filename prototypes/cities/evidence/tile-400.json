@@ -1,0 +1,18 @@
+{
+  "tile": 400,
+  "loadMs": 90.7,
+  "medianFrameSubmitMs": 0.2,
+  "p95FrameSubmitMs": 0.4,
+  "drawCalls": 57,
+  "triangles": 566596,
+  "memory": {
+    "geometries": 189,
+    "textures": 6
+  },
+  "renderer": {
+    "vendor": "Google Inc. (Google)",
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+    "software": true,
+    "dpr": 1
+  }
+}

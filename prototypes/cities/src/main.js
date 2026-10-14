@@ -7,11 +7,12 @@ import { preparePersonality } from './avalon-art.js';
 import { GEN_VERSION } from './citycache.js';
 import { buildDemoUnits } from './demo-units.js';
 import { initialState, lease, rename, upgrade, validateStoredState } from './inhabit.js';
+import { LRU } from './lru.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new CityView($('view'), $('labels'));
 view.showLabels = true;
-const cache = new Map();
+const cache = new LRU(2);
 let city = null, current = null, loadingToken = 0;
 let lenses = null, lensId = 'normal', searchItems = [], lastLensMs = 0;
 const sIn = $('search'), sRes = $('results');
@@ -73,7 +74,7 @@ async function loadCity(id, progress) {
 const STEPS = ['Surveying the land', 'Drawing districts', 'Laying out the street grain', 'Tracing canals', 'Tracing arterial streets', 'Tracing collector streets', 'Tracing local streets', 'Cutting city blocks', 'Raising landmarks', 'Dividing parcels', 'Raising', 'Seating the companies', 'Planting trees', 'Bringing in the ships', 'Planning the growth', 'Painting the ground', 'Done'];
 
 async function open(id) {
-  if (current === id) return;
+  if (current === id && city?.P?.id === id) return;
   current = id;
   const token = ++loadingToken;
   for (const t of document.querySelectorAll('.tab')) t.setAttribute('aria-selected', String(t.dataset.id === id));
@@ -83,16 +84,27 @@ async function open(id) {
   if (!c) {
     $('loading').classList.remove('hide');
     $('l-city').textContent = P.name;
-    c = await loadCity(id, (msg) => {
-      $('l-step').textContent = msg;
-      const i = STEPS.findIndex((s) => msg.startsWith(s));
-      $('l-bar').style.width = `${Math.round(((i < 0 ? 0 : i) / (STEPS.length - 1)) * 100)}%`;
-    });
+    try {
+      c = await loadCity(id, (msg) => {
+        if (token !== loadingToken) return;
+        $('l-step').textContent = msg;
+        const i = STEPS.findIndex((s) => msg.startsWith(s));
+        $('l-bar').style.width = `${Math.round(((i < 0 ? 0 : i) / (STEPS.length - 1)) * 100)}%`;
+      });
+    } catch (err) {
+      if (token === loadingToken) {
+        current = city?.P?.id ?? null;
+        $('l-step').textContent = 'Generation failed — click tab to retry';
+      }
+      throw err;
+    }
+    if (token !== loadingToken) return;
     cache.set(id, c);
     console.log(`${P.name}: ${c.ms} ms`, c.timings, c.stats);
   }
   if (token !== loadingToken) return;
   city = c;
+  cache.set(id, c); // ensure active city stays newest in LRU
   view.load(c);
   initInhabitForCity(c);
   $('loading').classList.add('hide');
@@ -893,8 +905,10 @@ sIn.addEventListener('keydown', (e) => {
 // ------------------------------------------------------------------ loop
 let last = performance.now();
 function loop(now) {
-  const dt = Math.min(0.1, (now - last) / 1000);
+  const rawMs = now - last;
+  const dt = Math.min(0.1, rawMs / 1000);
   last = now;
+  const wasActive = Boolean(pointers.size > 0 || view.fly || Math.abs(view.yawTarget - view.yaw) > 1e-4 || view.cutP !== view.cutTo || playing);
   if (playing) {
     playT += dt;
     const v = Math.min(1000, Math.round((playT / 16) * 1000));
@@ -910,7 +924,10 @@ function loop(now) {
       if (b) showInfo(b); else { $('info').style.display = 'none'; document.body.classList.remove('info-open'); }
     }
   }
-  if (!document.hidden) view.frame(dt);
+  if (!document.hidden) {
+    view.frame(dt);
+    view.recordActiveInterval(rawMs, wasActive);
+  }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
@@ -934,6 +951,39 @@ window.__cities = {
   select: (id) => select(id ? city.buildings[id - 1] : null), setSee, get seeMode() { return seeMode; },
   get demoOffers() { return demoOffers; }, get demoUnits() { return demoUnits; }, get inhabitState() { return inhabitState; },
   resetInhabitDemo, refreshOccupancy,
+  diagnostics() {
+    const info = view.renderer.info;
+    return {
+      cityId: city?.P?.id ?? null,
+      seed: city?.P?.seed ?? null,
+      version: GEN_VERSION,
+      renderer: {
+        vendor: view.glVendor,
+        renderer: view.glRenderer,
+        software: view.software,
+        dpr: view.renderer.getPixelRatio(),
+      },
+      quality: {
+        tier: view.qualityTier,
+        manual: view.manualQuality,
+        saver,
+        detail: view.uniforms.uDetail.value,
+      },
+      drawCalls: info.render.calls,
+      triangles: info.render.triangles,
+      renders: view.renders,
+      memory: {
+        geometries: info.memory.geometries,
+        textures: info.memory.textures,
+      },
+      loading: {
+        genMs: city?.ms ?? 0,
+        loadMs: view.loadMs ?? 0,
+        timings: city?.timings ?? {},
+      },
+      activeCacheIds: cache.keys(),
+    };
+  },
   /** dev: render one frame with a given camera and save it through the dev server */
   async shot(name, { x = 0, z = 0, scale = null, yaw = null, t = null } = {}) {
     if (t !== null) setTime(t);
