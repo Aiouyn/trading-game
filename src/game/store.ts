@@ -338,6 +338,9 @@ export const useGame = create<GameStore>((set, get) => {
       case 'clock':
         set({ tickMs: msg.tickMs });
         break;
+      case 'launchpad':
+        if (get().me) set({me:{...get().me!,launchpad:msg.data}});
+        break;
       case 'ack':
         if (msg.me && get().me && msg.me.rank.id > get().me!.rank.id) set({ rankUp: msg.me.rank.id, rankUpFrom: get().me!.rank.id });
         if (msg.me) set({ me: msg.me, world: get().frame ? mirrorWorld(get().config, get().frame!, mirrorMe(get().playerId, msg.me), get().world ?? undefined) : get().world });

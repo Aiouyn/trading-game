@@ -11,7 +11,7 @@ import { TextEnricher } from './text/enricher';
 import { enrichItemOf } from './text/facts';
 import { WorldHost } from './host';
 import { chatFor, configSeq, directory, directoryFor, directoryWire, marketFrame, playerView, publicCore, publicState, topDirectory } from '../src/world/view';
-import { lpPageOf } from '../src/world/launchpad/view';
+import { launchpadView, lpPageOf } from '../src/world/launchpad/view';
 import { visitView } from '../src/world/home';
 import { DepthWire, ListWire, ShortInterestWire, welcomeJson, welcomeShortInterest } from './wire';
 import { TournamentJob } from './tournamentJob';
@@ -315,6 +315,13 @@ wss.on('connection', (ws) => {
         }
         const r = host.command(c.pid, cmd);
         send(ws, { t: 'ack', id: msg.id, ok: r.ok, ...(r.error ? { error: r.error } : {}), ...(r.msg ? { msg: r.msg } : {}), ...(r.data !== undefined ? { data: r.data } : {}), me: playerView(host.g, c.pid)! });
+        // A creator's ack already contains the launch. Other traders must see it now too,
+        // including when the world is paused or a five-second market tick is still pending.
+        if (cmd.type === 'lp.launch' && r.ok) {
+          for (const o of conns) if (o.pid && o.ws.readyState === o.ws.OPEN) {
+            send(o.ws, {t:'launchpad',data:launchpadView(host.g,o.pid)});
+          }
+        }
         // chat is delivered right away, not on the next tick
         if (cmd.type === 'chat.send' && r.ok) {
           const m = { ...(r.data as ChatMessage), channel: cmd.channel };

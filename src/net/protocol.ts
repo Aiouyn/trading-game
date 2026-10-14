@@ -4,7 +4,7 @@ import type { ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
 import type { AssetDef } from '@/engine';
 import type { Boards } from '@/world/types';
 import type { DirectoryRow, MarketFrame, PanelStamps, PlayerView, PublicCore, PublicPanel, PublicState } from '@/world/view';
-import type { LpPage } from '@/world/launchpad/view';
+import type { LaunchpadView, LpPage } from '@/world/launchpad/view';
 import type { CollectionView, HomeView } from '@/world/home';
 import type { ChartDrawing } from '@/world/drawings';
 
@@ -94,6 +94,8 @@ export type ServerMsg =
     textOverlay?: TextOverlayMap;
   }
   | { t: 'ack'; id: number; ok: boolean; error?: string; msg?: Msg; data?: unknown; me?: PlayerView }
+  /** A launch reaches every signed-in viewer immediately, independently of the market clock. */
+  | { t: 'launchpad'; data: LaunchpadView }
   | { t: 'history'; id: number; data: HistoryPayload | null }
   | { t: 'nw-history'; id: number; data: NwHistoryPayload }
   | { t: 'drawings'; id: number; data: ChartDrawing[] }
