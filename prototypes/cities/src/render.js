@@ -20,6 +20,8 @@ const TREE_FAR_SCALE = 0.35; // metres per pixel: beyond this, tree crowns are b
 const SMALL_SCALE = 1.2; // metres per pixel: beyond this, the small building parts (footprint under SMALL_M) are not drawn
 const SMALL_M = 3; // metres: the footprint limit of a small part
 const TILE = 400; // metres: the side of a culling tile
+const PIXEL_CAP_LARGE = 1.5; // the pixel ratio cap on screens 1200 CSS px and wider
+const SLOW_MS = 24; // a median draw slower than this (on a real GPU) drops the pixel ratio to 1
 const GROUND_HEIGHT_TOL = 0.3; // metres: how far ground may sit off a block's corner plane to collapse (simplifyGround)
 const GROUND_NORMAL_TOL = 0.05; // the summed normal difference allowed inside a collapsed block
 // the glow under a focus building: uv = footprint-relative metres, aHalf = the footprint's half sizes
@@ -47,7 +49,7 @@ export class CityView {
     this.labelLayer = labelLayer;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // the pixel ratio is set once the quality fields exist (applyPixelRatio, below)
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -30000, 30000);
     this.geoms = makeGeoms();
@@ -84,6 +86,15 @@ export class CityView {
     this.motion = !matchMedia('(prefers-reduced-motion: reduce)').matches;
     // animation (water, neon, trains) runs at ANIM_FPS, and only while an animated thing is on screen (see tickAnimation)
     this.clock = 0; this.animT = -1; this.animKey = ''; this.animVisible = false; this.saver = false; this.renders = 0;
+    // quality: the pixel ratio is capped at 1.5 on large screens (2 on small ones); the battery saver and a sustained
+    // slow frame on a real GPU drop it to 1. Frame times: a GPU timer query where the browser has one, else the wall
+    // time of a draw, read back with a one-pixel read. Software renderers (SwiftShader, llvmpipe) never drop quality.
+    const gl = this.renderer.getContext();
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    this.software = /swiftshader|llvmpipe|software/i.test(String(gl.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : gl.RENDERER)));
+    this.tq = this.software ? null : gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    this.tqPending = []; this.frameMs = []; this.dropped = false; this.px = new Uint8Array(4);
+    this.applyPixelRatio();
     this.resize();
     addEventListener('resize', () => this.resize());
     this.setTime(19.2);
@@ -94,6 +105,55 @@ export class CityView {
     this.renderer.setSize(w, h, false);
     this.w = w; this.h = h;
     this.dirty = true;
+  }
+
+  /** The device pixel ratio the canvas renders at: capped by screen size, and 1 when saving or after a sustained slow frame. */
+  applyPixelRatio() {
+    const cap = this.saver || this.dropped ? 1 : window.innerWidth >= 1200 ? PIXEL_CAP_LARGE : 2;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
+    if (this.w !== undefined) this.resize();
+  }
+
+  /** The battery saver: pixel ratio 1 and a slower animation. */
+  setSaver(on) {
+    this.saver = on;
+    this.applyPixelRatio();
+    this.animKey = '';
+    this.dirty = true;
+  }
+
+  /** Start a GPU timer around the next draw (only with the timer query extension). */
+  beginTimer() {
+    if (!this.tq) return null;
+    const gl = this.renderer.getContext(), q = gl.createQuery();
+    gl.beginQuery(this.tq.TIME_ELAPSED_EXT, q);
+    return q;
+  }
+  endTimer(q) {
+    if (!q) return;
+    this.renderer.getContext().endQuery(this.tq.TIME_ELAPSED_EXT);
+    this.tqPending.push(q);
+  }
+  /** Read the finished timer queries (in order; a disjoint GPU result is thrown away). */
+  pollTimer() {
+    if (!this.tq) return;
+    const gl = this.renderer.getContext();
+    while (this.tqPending.length && gl.getQueryParameter(this.tqPending[0], gl.QUERY_RESULT_AVAILABLE)) {
+      const q = this.tqPending.shift();
+      const disjoint = gl.getParameter(this.tq.GPU_DISJOINT_EXT);
+      const ns = gl.getQueryParameter(q, gl.QUERY_RESULT);
+      gl.deleteQuery(q);
+      if (!disjoint) this.recordFrame(ns / 1e6);
+    }
+  }
+  /** Keep the last 20 draw times; a median above SLOW_MS on a real GPU drops the pixel ratio to 1 (once). */
+  recordFrame(ms) {
+    if (this.software || this.saver || this.dropped) return;
+    this.frameMs.push(ms);
+    if (this.frameMs.length > 20) this.frameMs.shift();
+    if (this.frameMs.length < 20) return;
+    const sorted = [...this.frameMs].sort((a, b) => a - b);
+    if (sorted[10] > SLOW_MS) { this.dropped = true; this.applyPixelRatio(); this.dirty = true; }
   }
 
   load(city) {
@@ -763,7 +823,17 @@ export class CityView {
     this.renders++;
     this.updateCamera();
     this.applyLOD();
+    const gl = this.renderer.getContext();
+    this.pollTimer();
+    const t0 = performance.now();
+    const q = this.beginTimer();
     this.renderer.render(this.scene, this.camera);
+    this.endTimer(q);
+    if (!this.tq && !this.software) {
+      // no timer query: a one-pixel read waits for the draw, so the wall time is the frame time
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.px);
+      this.recordFrame(performance.now() - t0);
+    }
     this.placeLabels();
     this.dirty = false;
   }

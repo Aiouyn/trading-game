@@ -163,6 +163,18 @@ let playT = 0;
 $('rotl').onclick = () => view.rotate(-1);
 $('rotr').onclick = () => view.rotate(1);
 $('home').onclick = () => view.fit();
+// battery saver: pixel ratio 1 and a slower animation (remembered on this device)
+let saver = false;
+try { saver = localStorage.getItem('cities.saver') === '1'; } catch {}
+function setSaver(on) {
+  saver = on;
+  view.setSaver(on);
+  $('saver').classList.toggle('on', on);
+  $('saver').setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem('cities.saver', on ? '1' : '0'); } catch {}
+}
+$('saver').onclick = () => setSaver(!saver);
+setSaver(saver);
 $('lbls').onclick = () => { view.showLabels = !view.showLabels; view.dirty = true; };
 $('toggle').onclick = () => $('controls').classList.toggle('open');
 
@@ -479,6 +491,7 @@ window.__cities = {
   /** dev: the map lenses. setLens returns the time the lens took to paint, in ms. */
   setLens: (id) => { setLens(id); return lastLensMs; }, get lens() { return lensId; }, lensMs: () => lastLensMs,
   setMood: (v) => { $('mood').value = v; setMood(v); },
+  setSaver: (on) => setSaver(!!on), get saver() { return saver; },
   search: (q) => { sIn.value = q; runSearch(); return hits.map((h) => `${h.title} | ${h.hint}`); },
   openHit: (i) => openHit(i),
   /** test hooks: select a building by id (0 or null clears), set the see-through mode, read it */
