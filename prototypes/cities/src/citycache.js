@@ -4,7 +4,7 @@
 import { cityCacheKey } from './cache-key.js';
 
 /** Bump when the generator's output changes, so stale cities are never read back. */
-export const GEN_VERSION = 'inhabitable-v2-11';
+export const GEN_VERSION = 'inhabitable-v2-12';
 const DB = 'cities-cache';
 const STORE = 'cities';
 

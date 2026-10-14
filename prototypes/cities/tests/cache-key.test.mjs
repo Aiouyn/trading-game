@@ -9,5 +9,5 @@ test('cityCacheKey distinguishes id, seed and version', () => {
   assert.notEqual(k1, cityCacheKey('avalon', 1702, 'inhabitable-v2-1'));
   assert.notEqual(k1, cityCacheKey('kaiyo', 1701, 'inhabitable-v2-1'));
   assert.notEqual(k1, cityCacheKey('avalon', 1701, 'gen-1'));
-  assert.equal(GEN_VERSION, 'inhabitable-v2-11');
+  assert.equal(GEN_VERSION, 'inhabitable-v2-12');
 });

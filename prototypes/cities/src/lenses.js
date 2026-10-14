@@ -62,13 +62,15 @@ export function makeLenses(city) {
   add('normal', { paint: () => null, legend: () => null });
 
   // Mine: your assets by role
-  const mine = B.filter((b) => b.mine).sort((a, b) => (ROLE_RANK[a.mineRole] ?? 9) - (ROLE_RANK[b.mineRole] ?? 9) || a.id - b.id);
   add('mine', {
     paint: (b) => (b.mine ? { rgb: hexRGB(BRASS) } : null),
-    legend: () => ({
-      rows: mine.map((b) => ({ swatch: BRASS, label: b.label ?? 'Asset', value: ROLE_NAME[b.mineRole] ?? '', bid: b.id })),
-      note: mine.length ? 'Click an asset to fly there and open its card.' : 'You own nothing in this city.',
-    }),
+    legend: () => {
+      const mine = B.filter((b) => b.mine).sort((a, b) => (ROLE_RANK[a.mineRole] ?? 9) - (ROLE_RANK[b.mineRole] ?? 9) || a.id - b.id);
+      return {
+        rows: mine.map((b) => ({ swatch: BRASS, label: b.label ?? 'Asset', value: ROLE_NAME[b.mineRole] ?? '', bid: b.id })),
+        note: mine.length ? 'Click an asset to fly there and open its card.' : 'You own nothing in this city.',
+      };
+    },
   });
 
   // Market: headquarters tinted by today's return

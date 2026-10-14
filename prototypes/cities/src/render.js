@@ -189,6 +189,12 @@ export class CityView {
     this.stateTex.needsUpdate = true;
     this.uniforms.uState = { value: this.stateTex };
     this.uniforms.uStateW = { value: STATE_W };
+    this.frontage = new Uint8Array(STATE_W * stateH);
+    this.frontageTex = new THREE.DataTexture(this.frontage, STATE_W, stateH, THREE.RedFormat, THREE.UnsignedByteType);
+    this.frontageTex.magFilter = THREE.NearestFilter; this.frontageTex.minFilter = THREE.NearestFilter;
+    this.frontageTex.unpackAlignment = 1;
+    this.frontageTex.needsUpdate = true;
+    this.uniforms.uFrontage = { value: this.frontageTex };
     this.focusIds = []; this.focusSet = new Set(); this.focusKey = ''; this.occ = []; this.cutP = 0; this.cutTo = 0;
     this.uniforms.uCutT.value = 0; this.uniforms.uFocusN.value = 0;
     this.clearGlows();
@@ -459,6 +465,12 @@ export class CityView {
   setFlags(bid, a) { this.state[bid * 4 + 3] = a; }
   clearState(mask = 255) { for (let i = 3; i < this.state.length; i += 4) this.state[i] &= ~mask & 255; }
   commitState() { this.stateTex.needsUpdate = true; this.dirty = true; }
+  setFrontageStage(bid, stage) {
+    if (!this.frontage || bid < 0 || bid >= this.frontage.length) return;
+    this.frontage[bid] = stage > 0 ? 255 : 0;
+    this.frontageTex.needsUpdate = true;
+    this.dirty = true;
+  }
 
   moveTrain(dt) {
     const T = this.train;
@@ -725,10 +737,33 @@ export class CityView {
       const b = this.city.buildings[id - 1];
       const el = document.createElement('div');
       el.className = 'lbl lbl-focus';
-      el.textContent = b.label ?? b.kind;
+      const full = b.label ?? b.kind;
+      el.textContent = [...full].length > 24 ? `${[...full].slice(0, 23).join('')}…` : full;
+      el.title = full;
       this.labelLayer.appendChild(el);
       this.labels.push({ kind: 'focus', text: el.textContent, bid: id, el, order: b.order, pos: new THREE.Vector3(b.x, b.gz + b.h + 8, b.y), focusOnly: true });
     }
+  }
+
+  /** Synchronize dynamic leased-unit map labels without rebuilding the entire scene. */
+  syncLeaseLabels(leasedItems) {
+    const keep = [];
+    for (const l of this.labels) { if (l.leaseOnly) l.el.remove(); else keep.push(l); }
+    this.labels = keep;
+    if (!this.city) return;
+    for (const item of leasedItems) {
+      const b = this.city.buildings[item.bid - 1];
+      if (!b) continue;
+      const el = document.createElement('div');
+      el.className = 'lbl lbl-mine';
+      const full = item.text;
+      el.textContent = [...full].length > 24 ? `${[...full].slice(0, 23).join('')}…` : full;
+      el.title = full;
+      this.labelLayer.appendChild(el);
+      this.labels.push({ kind: 'mine', text: el.textContent, bid: b.id, el, order: b.order, pos: new THREE.Vector3(b.x, b.gz + b.h + 8, b.y), leaseOnly: true });
+    }
+    this.syncFocusLabels();
+    this.dirty = true;
   }
 
   /**

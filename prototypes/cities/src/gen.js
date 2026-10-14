@@ -4,7 +4,7 @@
 
 import { rng, makeNoise, hash2, clamp, lerp, smoothstep, woodsMask } from './noise.js';
 import { COMPANIES } from './companies.js';
-import { Parts, buildArchetype, buildLandmark, buildTree, buildCrane, buildShip, buildBoat, CONTAINER_COLORS } from './archetypes.js';
+import { Parts, buildArchetype, buildLandmark, buildTree, buildCrane, buildShip, buildBoat, addShopFrontage, CONTAINER_COLORS } from './archetypes.js';
 import { sampleOutskirts, outskirtsHeight, traceHighways } from './outskirts.js';
 import { buildRoadGraph, labelLand, SegGrid } from './roadgraph.js';
 import { parcelId } from './parcel-id.js';
@@ -12,6 +12,7 @@ import { avalonHeight, preparePersonality } from './avalon-art.js';
 import { resolveEntranceAccess, thresholdOf, DEPTH_FACTOR } from './entrance-access.js';
 import { entranceOf } from './access.js';
 import { eligibleJunctionArm } from './junction-style.js';
+import { buildDemoUnits } from './demo-units.js';
 
 const DRIVE_W = 3.4;   // driveways: narrow class-1 ribbons from the road to the building front
 const FARM_W = 4;      // farm tracks: unpaved, class 0
@@ -920,6 +921,18 @@ export async function generateCity(P0, progress = () => {}) {
   // demo ownership (prototype only, stands in for live game data): "you" own a company office, three shops
   // and a home; other players own a few shops; a few buildings are for sale
   if (!P.static) seatDemoOwners(buildings, R, labels);
+  if (P.id === 'avalon') {
+    const { offers } = buildDemoUnits({ P, buildings });
+    for (const offer of offers) {
+      if (offer.available && offer.buildingId) {
+        const b = buildings[offer.buildingId - 1];
+        if (b) {
+          b.demoLeasable = true;
+          addShopFrontage(parts, b);
+        }
+      }
+    }
+  }
 
   // ------------------------------------------------------------------ life: trees, ships, cranes
   await step('Planting trees');

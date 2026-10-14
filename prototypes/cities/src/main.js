@@ -4,6 +4,9 @@ import { CityView } from './render.js';
 import { LENS_IDS, LENS_NAMES, RAMP, SECTOR_NAMES, makeLenses, applyLens, dayReturn } from './lenses.js';
 import { buildSearch, searchCity } from './search.js';
 import { preparePersonality } from './avalon-art.js';
+import { GEN_VERSION } from './citycache.js';
+import { buildDemoUnits } from './demo-units.js';
+import { initialState, lease, rename, upgrade, validateStoredState } from './inhabit.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new CityView($('view'), $('labels'));
@@ -15,7 +18,11 @@ const sIn = $('search'), sRes = $('results');
 let hits = [], active = -1;
 let mineList = []; // your buildings in the current city (demo ownership)
 const SEE_ORDER = ['off', 'selected', 'mine'];
-let seeMode = 'mine'; // see through: off, the selected building, or the selected building plus yours
+let seeMode = 'selected'; // see through: off, the selected building, or the selected building plus yours
+const INHABIT_KEY = 'cities.inhabit.v1';
+let demoOffers = [], demoUnits = [];
+let inhabitState = null, inhabitStale = false, inhabitStorageNotice = '';
+let inhabitError = '';
 
 // ------------------------------------------------------------------ tabs
 for (const id of CITY_ORDER) {
@@ -86,15 +93,13 @@ async function open(id) {
   }
   if (token !== loadingToken) return;
   city = c;
-  mineList = c.buildings.filter((b) => b.mine);
   view.load(c);
+  initInhabitForCity(c);
   $('loading').classList.add('hide');
   fillCard();
   setGrowth(+$('growth').value);
   closeInfo();
-  lenses = makeLenses(c);
-  searchItems = buildSearch(c);
-  renderLens();
+  refreshOccupancy();
   if (sIn.value.trim()) runSearch();
 }
 
@@ -108,7 +113,343 @@ function fillCard() {
   $('s-t').textContent = s.tallest ? `${s.tallest.h} m` : '–';
   $('s-k').textContent = `${s.roadKm} km`;
   $('s-ms').textContent = `${(city.ms / 1000).toFixed(1)} s`;
+  $('try-live').style.display = P.id === 'avalon' ? '' : 'none';
 }
+
+function currentWorldKey(c) {
+  return `${c.P.id}:${c.P.seed}:${GEN_VERSION}`;
+}
+
+function saveInhabitState() {
+  if (!city || !inhabitState) return;
+  try {
+    const wk = currentWorldKey(city);
+    localStorage.setItem(INHABIT_KEY, JSON.stringify({ schema: 1, worldKey: wk, state: inhabitState }));
+  } catch {
+    inhabitStorageNotice = 'Browser storage is blocked; this local demo runs in memory for this tab.';
+  }
+}
+
+function initInhabitForCity(c) {
+  inhabitError = '';
+  inhabitStale = false;
+  if (c.P.id !== 'avalon') {
+    demoOffers = [];
+    demoUnits = [];
+    $('inhabit').classList.remove('open');
+    return;
+  }
+  // Snapshot original building fields on first load so reset restores clean geography
+  for (const b of c.buildings) {
+    if (!b._orig) {
+      b._orig = { mine: Boolean(b.mine), mineRole: b.mineRole, label: b.label, owner: b.owner, cat: b.cat };
+    }
+  }
+  const built = buildDemoUnits(c);
+  demoOffers = built.offers;
+  demoUnits = built.units;
+  const wk = currentWorldKey(c);
+  let raw = null;
+  try {
+    const str = localStorage.getItem(INHABIT_KEY);
+    if (str) raw = JSON.parse(str);
+  } catch {
+    inhabitStorageNotice = 'Saved demo data could not be read; starting fresh in memory.';
+  }
+  const check = validateStoredState(raw, wk, demoUnits);
+  if (check.status === 'ok') {
+    inhabitState = check.state;
+  } else if (check.status === 'stale' || check.status === 'invalid') {
+    inhabitStale = true;
+    inhabitState = initialState(wk);
+  } else {
+    inhabitState = initialState(wk);
+  }
+}
+
+function resetInhabitDemo() {
+  if (!city) return;
+  try { localStorage.removeItem(INHABIT_KEY); } catch {}
+  inhabitStale = false;
+  inhabitError = '';
+  inhabitState = initialState(currentWorldKey(city));
+  refreshOccupancy();
+}
+
+function refreshOccupancy() {
+  if (!city) return;
+  const leasedLabels = [];
+  if (city.P.id === 'avalon' && demoUnits.length) {
+    for (const b of city.buildings) {
+      if (b._orig) {
+        b.mine = b._orig.mine;
+        b.mineRole = b._orig.mineRole;
+        b.label = b._orig.label;
+        b.owner = b._orig.owner;
+        b.cat = b._orig.cat;
+      }
+      b.demoUnits = [];
+      b.leasedUnit = null;
+      view.setFrontageStage(b.id, 0);
+    }
+    for (const u of demoUnits) {
+      const b = city.buildings[u.buildingId - 1];
+      if (!b) continue;
+      const held = inhabitState && !inhabitStale ? inhabitState.leases[u.id] : null;
+      const occupantName = held ? inhabitState.company.name : (u.occupantName ?? null);
+      const unitRecord = {
+        ...u,
+        leasedByYou: Boolean(held),
+        stage: held ? held.stage : 0,
+        occupantId: held ? inhabitState.company.id : (u.occupantId ?? null),
+        occupantName,
+      };
+      b.demoUnits.push(unitRecord);
+      if (!b.owner) b.owner = u.ownerId;
+      if (held) {
+        b.mine = true;
+        b.mineRole = 'shop';
+        b.label = inhabitState.company.name;
+        b.leasedUnit = unitRecord;
+        view.setFrontageStage(b.id, held.stage);
+        leasedLabels.push({ bid: b.id, text: inhabitState.company.name });
+      }
+    }
+  }
+  mineList = city.buildings.filter((b) => b.mine);
+  view.syncLeaseLabels(leasedLabels);
+  lenses = makeLenses(city);
+  searchItems = buildSearch(city);
+  renderLens();
+  syncFocus();
+  if (selected) showInfo(selected);
+  renderInhabitPanel();
+  view.dirty = true;
+}
+
+let actionLock = false;
+function renderInhabitPanel() {
+  const panel = $('inhabit');
+  if (!city || city.P.id !== 'avalon') {
+    panel.classList.remove('open');
+    panel.replaceChildren();
+    return;
+  }
+  panel.replaceChildren();
+  const closeBtn = document.createElement('button');
+  closeBtn.id = 'inhabit-close';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.textContent = '×';
+  closeBtn.onclick = () => panel.classList.remove('open');
+
+  const kick = document.createElement('div');
+  kick.className = 'label';
+  kick.textContent = 'Port Avalon · Local slice';
+
+  const h2 = document.createElement('h2');
+  h2.textContent = 'Local ownership demo';
+
+  panel.append(closeBtn, kick, h2);
+
+  if (inhabitStorageNotice) {
+    const note = document.createElement('div');
+    note.className = 'inhabit-note';
+    note.textContent = inhabitStorageNotice;
+    panel.appendChild(note);
+  }
+
+  if (inhabitStale) {
+    const staleBox = document.createElement('div');
+    staleBox.className = 'offer-card';
+    const msg = document.createElement('div');
+    msg.className = 'o-meta';
+    msg.textContent = 'This demo layout changed. Start a new local demo.';
+    const rst = document.createElement('button');
+    rst.className = 'btn';
+    rst.type = 'button';
+    rst.textContent = 'Reset local demo';
+    rst.onclick = () => resetInhabitDemo();
+    staleBox.append(msg, rst);
+    panel.appendChild(staleBox);
+    return;
+  }
+
+  const cashBar = document.createElement('div');
+  cashBar.className = 'cash-bar';
+  const cashLbl = document.createElement('span');
+  cashLbl.textContent = 'Demo cash';
+  const cashVal = document.createElement('b');
+  cashVal.id = 'inhabit-cash';
+  cashVal.textContent = `${inhabitState.cash.toLocaleString('en')} demo FDL`;
+  cashBar.append(cashLbl, cashVal);
+  panel.appendChild(cashBar);
+
+  for (const offer of demoOffers) {
+    const held = inhabitState.leases[offer.id];
+    const card = document.createElement('div');
+    card.className = 'offer-card';
+    card.dataset.unitId = offer.id;
+
+    const head = document.createElement('div');
+    head.className = 'o-head';
+    const addr = document.createElement('span');
+    addr.className = 'o-addr';
+    addr.textContent = offer.address;
+    const dist = document.createElement('span');
+    dist.className = 'o-dist';
+    dist.textContent = offer.districtName;
+    head.append(addr, dist);
+
+    const meta = document.createElement('div');
+    meta.className = 'o-meta';
+    meta.textContent = `${offer.premisesType} · ${offer.cost} demo FDL`;
+
+    const acts = document.createElement('div');
+    acts.className = 'o-actions';
+
+    if (offer.available && offer.buildingId) {
+      const viewBtn = document.createElement('button');
+      viewBtn.type = 'button';
+      viewBtn.className = 'btn ghost';
+      viewBtn.textContent = 'View premises';
+      viewBtn.onclick = () => {
+        const b = city.buildings[offer.buildingId - 1];
+        if (b) focusBuilding(b, 0.22);
+      };
+      acts.appendChild(viewBtn);
+
+      if (!held) {
+        const leaseBtn = document.createElement('button');
+        leaseBtn.type = 'button';
+        leaseBtn.className = 'btn';
+        leaseBtn.textContent = `Lease for ${offer.cost} demo FDL`;
+        leaseBtn.disabled = actionLock || inhabitState.cash < offer.cost;
+        leaseBtn.onclick = () => {
+          if (actionLock) return;
+          actionLock = true;
+          leaseBtn.disabled = true;
+          try {
+            inhabitError = '';
+            inhabitState = lease(inhabitState, demoUnits, offer.id);
+            saveInhabitState();
+            const b = city.buildings[offer.buildingId - 1];
+            refreshOccupancy();
+            if (b) focusBuilding(b, 0.22);
+          } catch (err) {
+            inhabitError = err.message;
+            renderInhabitPanel();
+          } finally {
+            actionLock = false;
+          }
+        };
+        acts.appendChild(leaseBtn);
+      } else {
+        const badge = document.createElement('button');
+        badge.type = 'button';
+        badge.className = 'btn';
+        badge.disabled = true;
+        badge.textContent = held.stage === 1 ? 'Leased · Frontage improved' : 'Leased by your business';
+        acts.appendChild(badge);
+      }
+    } else {
+      const unav = document.createElement('span');
+      unav.className = 'o-meta';
+      unav.textContent = 'Unavailable in this layout';
+      acts.appendChild(unav);
+    }
+
+    card.append(head, meta, acts);
+
+    if (held) {
+      const box = document.createElement('div');
+      box.className = 'inhabit-box';
+      const nameLbl = document.createElement('div');
+      nameLbl.className = 'label';
+      nameLbl.textContent = 'Business name';
+      const row = document.createElement('div');
+      row.className = 'inhabit-input-row';
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'inhabit-input';
+      inp.maxLength = 32;
+      inp.value = inhabitState.company.name;
+      inp.setAttribute('aria-label', 'Business name');
+      const saveNameBtn = document.createElement('button');
+      saveNameBtn.type = 'button';
+      saveNameBtn.className = 'btn ghost';
+      saveNameBtn.style.flex = '0 0 auto';
+      saveNameBtn.style.width = 'auto';
+      saveNameBtn.textContent = 'Name shop';
+      const applyRename = () => {
+        try {
+          inhabitError = '';
+          inhabitState = rename(inhabitState, inp.value);
+          saveInhabitState();
+          refreshOccupancy();
+        } catch {
+          inhabitError = 'Enter 1–32 plain characters (no < or >).';
+          renderInhabitPanel();
+        }
+      };
+      saveNameBtn.onclick = applyRename;
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); applyRename(); }
+      });
+      row.append(inp, saveNameBtn);
+      box.append(nameLbl, row);
+
+      if (held.stage === 0) {
+        const upgBtn = document.createElement('button');
+        upgBtn.type = 'button';
+        upgBtn.className = 'btn';
+        upgBtn.style.marginTop = '8px';
+        upgBtn.textContent = 'Improve frontage — 300 demo FDL';
+        upgBtn.disabled = actionLock || inhabitState.cash < 300;
+        upgBtn.onclick = () => {
+          if (actionLock) return;
+          actionLock = true;
+          upgBtn.disabled = true;
+          try {
+            inhabitError = '';
+            inhabitState = upgrade(inhabitState, offer.id);
+            saveInhabitState();
+            refreshOccupancy();
+          } catch (err) {
+            inhabitError = err.message;
+            renderInhabitPanel();
+          } finally {
+            actionLock = false;
+          }
+        };
+        box.appendChild(upgBtn);
+      }
+      card.appendChild(box);
+    }
+
+    panel.appendChild(card);
+  }
+
+  if (inhabitError) {
+    const errEl = document.createElement('div');
+    errEl.className = 'inhabit-err';
+    errEl.textContent = inhabitError;
+    panel.appendChild(errEl);
+  }
+
+  const rstBtn = document.createElement('button');
+  rstBtn.type = 'button';
+  rstBtn.className = 'btn ghost';
+  rstBtn.style.marginTop = '6px';
+  rstBtn.textContent = 'Reset local demo';
+  rstBtn.onclick = () => resetInhabitDemo();
+  panel.appendChild(rstBtn);
+}
+
+$('try-live').onclick = () => {
+  const panel = $('inhabit');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) renderInhabitPanel();
+};
 
 // ------------------------------------------------------------------ controls
 const fmtH = (h) => { const hh = Math.floor(h) % 24, mm = Math.floor((h % 1) * 60); return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`; };
@@ -205,7 +546,10 @@ $('find').onclick = () => {
 };
 
 addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    if (e.key === 'Escape' && e.target !== sIn) e.target.blur();
+    return;
+  }
   if (e.key === '/') { e.preventDefault(); sIn.focus(); sIn.select(); }
   else if (e.key === 'v' || e.key === 'V') setLens(LENS_IDS[(LENS_IDS.indexOf(lensId) + 1) % LENS_IDS.length]);
   else if (e.key === 'q' || e.key === 'Q') view.rotate(-1);
@@ -213,7 +557,10 @@ addEventListener('keydown', (e) => {
   else if (e.key === 'l' || e.key === 'L') { view.showLabels = !view.showLabels; view.dirty = true; }
   else if (e.key === 'h' || e.key === 'H') view.fit();
   else if (e.key === 'x' || e.key === 'X') setSee(SEE_ORDER[(SEE_ORDER.indexOf(seeMode) + 1) % SEE_ORDER.length]);
-  else if (e.key === 'Escape') closeInfo();
+  else if (e.key === 'Escape') {
+    if (selected) closeInfo();
+    else if ($('inhabit').classList.contains('open')) $('inhabit').classList.remove('open');
+  }
   else if (/^[1-6]$/.test(e.key)) open(CITY_ORDER[+e.key - 1]);
 });
 
@@ -287,21 +634,34 @@ function showInfo(b) {
   let title = b.label ?? b.kind;
   if (b.company) {
     const ret = dayReturn(b.id, +$('mood').value / 100);
-    rows.push(['Ticker', b.company.ticker], ['Market cap', `$${b.company.cap}B`], ['Today', `<span class="${ret >= 0 ? 'up' : 'down'}">${ret >= 0 ? '+' : '−'}${Math.abs(ret * 100).toFixed(2)}%</span>`]);
+    rows.push(['Ticker', esc(b.company.ticker)], ['Market cap', `$${b.company.cap}B`], ['Today', `<span class="${ret >= 0 ? 'up' : 'down'}">${ret >= 0 ? '+' : '−'}${Math.abs(ret * 100).toFixed(2)}%</span>`]);
     rows.push(['Sector', esc(SECTOR_NAMES[b.company.sector] ?? b.company.sector), true]);
   }
   if (b.crown) rows.push(['Net Worth board', `#${b.crown.rank}`], ['Holder', esc(b.crown.handle)]);
-  if (b.owner && !b.crown) rows.push(['Owner', b.owner === 'you' ? 'You' : esc(b.owner)]);
+  if (b.demoUnits?.length) {
+    const primary = b.demoUnits[0];
+    rows.push(['Address', esc(primary.address)]);
+    rows.push(['Property owner', esc(primary.ownerId)]);
+    for (const u of b.demoUnits) {
+      const occ = u.leasedByYou ? `${esc(u.occupantName)} (You)` : u.occupantName ? esc(u.occupantName) : 'Vacant (for lease)';
+      rows.push([u.use === 'shop' ? 'Ground shop' : 'Upper unit', occ]);
+    }
+    if (b.leasedUnit) {
+      rows.push(['Frontage', b.leasedUnit.stage === 1 ? 'Improved (Stage 1)' : 'Standard']);
+    }
+  } else if (b.owner && !b.crown) {
+    rows.push(['Owner', b.owner === 'you' ? 'You' : esc(b.owner)]);
+  }
   if (b.forSale) rows.push(['For sale', '<span class="brass">Yes</span>']);
   const minor = rows.length >= 3;
   // your own buildings show their role (the demo ownership), not the architectural kind
   const role = { company: 'Company office', shop: 'Your shop', home: 'Your home' }[b.mineRole] ?? b.kind;
-  rows.push(['Type', role, minor], ['District', district], ['Height', `${Math.round(b.h)} m`]);
+  rows.push(['Type', esc(role), minor], ['District', esc(district)], ['Height', `${Math.round(b.h)} m`]);
   if (b.floors) rows.push(['Floors', b.floors, true]);
   if (b.residents) rows.push(['Residents', b.residents.toLocaleString('en'), minor]);
   if (b.jobs) rows.push(['Jobs', b.jobs.toLocaleString('en'), true]);
-  el.innerHTML = `<button class="x" aria-label="Close">×</button><div class="label">${b.company ? 'Headquarters' : b.crown ? 'Crown tower' : b.kind === 'Landmark' ? 'Landmark' : 'Building'}</div><div class="t">${title}</div>` +
-    rows.map(([k, v, m]) => `<div class="l${m ? ' minor' : ''}"><span>${k}</span><span>${v}</span></div>`).join('');
+  el.innerHTML = `<button class="x" aria-label="Close">×</button><div class="label">${b.company ? 'Headquarters' : b.crown ? 'Crown tower' : b.kind === 'Landmark' ? 'Landmark' : 'Building'}</div><div class="t">${esc(title)}</div>` +
+    rows.map(([k, v, m]) => `<div class="l${m ? ' minor' : ''}"><span>${esc(k)}</span><span>${v}</span></div>`).join('');
   el.style.display = 'block';
   document.body.classList.add('info-open');
   el.querySelector('.x').onclick = () => closeInfo();
@@ -400,6 +760,7 @@ function focusBuilding(b, scale = 0.35) {
   selected = b;
   showInfo(b);
   view.setHover(b.id);
+  syncFocus();
 }
 
 // ------------------------------------------------------------------ search
@@ -473,9 +834,11 @@ function loop(now) {
   }
   if (hoverPending && !document.hidden) {
     const [x, y] = hoverPending; hoverPending = null;
-    const b = view.pick(x, y);
-    view.setHover(b ? b.id : -1);
-    if (b) showInfo(b); else { $('info').style.display = 'none'; document.body.classList.remove('info-open'); }
+    if (!selected) {
+      const b = view.pick(x, y);
+      view.setHover(b ? b.id : -1);
+      if (b) showInfo(b); else { $('info').style.display = 'none'; document.body.classList.remove('info-open'); }
+    }
   }
   if (!document.hidden) view.frame(dt);
   requestAnimationFrame(loop);
@@ -499,6 +862,8 @@ window.__cities = {
   openHit: (i) => openHit(i),
   /** test hooks: select a building by id (0 or null clears), set the see-through mode, read it */
   select: (id) => select(id ? city.buildings[id - 1] : null), setSee, get seeMode() { return seeMode; },
+  get demoOffers() { return demoOffers; }, get demoUnits() { return demoUnits; }, get inhabitState() { return inhabitState; },
+  resetInhabitDemo, refreshOccupancy,
   /** dev: render one frame with a given camera and save it through the dev server */
   async shot(name, { x = 0, z = 0, scale = null, yaw = null, t = null } = {}) {
     if (t !== null) setTime(t);

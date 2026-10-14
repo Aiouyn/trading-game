@@ -156,6 +156,7 @@ attribute vec3 iColor;
 attribute vec4 iStyle;
 attribute vec4 iMeta;
 uniform sampler2D uState;
+uniform sampler2D uFrontage;
 uniform float uStateW;
 // see-through (render.js): occluders are cut at uCutH above their ground (uCutT eases 0 -> 1 from uFullH); trees in
 // a focus building's screen box and nearer the camera are hidden; the outline pass is an inverted hull
@@ -171,6 +172,7 @@ uniform int uFocusN;
 uniform vec4 uFocusRect[12]; // view-plane metres: minR, minU, maxR, maxU of each focus box, widened by the margin
 uniform float uFocusDepth[12];
 varying vec4 vState;
+varying float vFrontage;
 varying vec3 vN;
 varying vec3 vFace;
 varying vec2 vInfo;
@@ -190,6 +192,7 @@ void main() {
   vCen = iPos;
   // per-building state (render.js load): rgb = lens tint, a = flags (1 emphasis, 2 see-through occluder, 4 focus)
   vState = texelFetch(uState, ivec2(int(mod(iStyle.w, uStateW)), int(floor(iStyle.w / uStateW))), 0);
+  vFrontage = texelFetch(uFrontage, ivec2(int(mod(iStyle.w, uStateW)), int(floor(iStyle.w / uStateW))), 0).r;
   float flags = floor(vState.a * 255.0 + 0.5);
   bool isOccluder = mod(floor(flags / 2.0), 2.0) >= 1.0;
   bool isFocusV = mod(floor(flags / 4.0), 2.0) >= 1.0;
@@ -254,6 +257,7 @@ uniform float uOutlinePass;
 varying float vWY;
 varying float vCutY;
 varying vec4 vState;
+varying float vFrontage;
 varying vec3 vN;
 varying vec3 vFace;
 varying vec2 vInfo;
@@ -282,6 +286,7 @@ void main() {
   bool hq = mod(flags, 2.0) >= 1.0;
   bool crown = mod(floor(flags / 2.0), 2.0) >= 1.0;
   bool ghost = mod(floor(flags / 4.0), 2.0) >= 1.0;
+  bool shopSign = mod(floor(flags / 8.0), 2.0) >= 1.0;
 
   // see-through (bit 4 of the per-building state): focus buildings get a lifted colour; their brass outline is the
   // hull pass, which returns here
@@ -298,6 +303,9 @@ void main() {
   }
 
   vec3 base = vColor;
+  if (shopSign && vFrontage > 0.5) {
+    base = lumaOf(vColor) > 0.3 ? vec3(0.79, 0.64, 0.36) : vec3(0.18, 0.28, 0.25);
+  }
   vec3 emissive = vec3(0.0);
   float hAbs = vBaseAbs + vMetric.y;
 
