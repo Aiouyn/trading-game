@@ -203,6 +203,7 @@ export class CityView {
     }
     pg.computeVertexNormals();
     for (let i = 0; i < pa.count; i++) pa.setY(i, trueH[i]);
+    this.simplifyGround(pg, G);
     const tex = (data) => { const t = new THREE.DataTexture(data, city.N, city.N, THREE.RGBAFormat); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.needsUpdate = true; return t; };
     const gu = {
       ...this.uniforms, uA: { value: tex(city.texA) }, uB: { value: tex(city.texB) }, uHalf: { value: half },
@@ -295,6 +296,45 @@ export class CityView {
 
     this.fit();
     this.dirty = true;
+  }
+
+  /**
+   * Adaptive ground resolution: a block of BLOCK x BLOCK cells whose heights stay within 0.1 m of a plane and whose
+   * normals agree within 0.01 (open sea and level ground, the most of the square) is drawn as two triangles. The
+   * vertices stay in the buffer, so the seams with full-resolution blocks share their edge corners (a T-junction over
+   * a flat plane, with no visible crack). Shading is unchanged where the surface is flat, and the rest keeps its cells.
+   */
+  simplifyGround(pg, G) {
+    const BLOCK = G % 4 === 0 ? 4 : 1;
+    const pa = pg.getAttribute('position'), na = pg.getAttribute('normal');
+    const V = (i, j) => j * (G + 1) + i;
+    const idx = [];
+    for (let bj = 0; bj < G; bj += BLOCK) for (let bi = 0; bi < G; bi += BLOCK) {
+      let flat = BLOCK > 1;
+      if (flat) {
+        const y0 = pa.getY(V(bi, bj)), n0x = na.getX(V(bi, bj)), n0y = na.getY(V(bi, bj)), n0z = na.getZ(V(bi, bj));
+        // the plane through the block's corners: heights must stay within 0.1 m of it, normals within 0.01
+        const y1 = pa.getY(V(bi + BLOCK, bj)), y2 = pa.getY(V(bi, bj + BLOCK)), y3 = pa.getY(V(bi + BLOCK, bj + BLOCK));
+        scan: for (let j = 0; j <= BLOCK; j++) for (let i = 0; i <= BLOCK; i++) {
+          const v = V(bi + i, bj + j), u = i / BLOCK, w = j / BLOCK;
+          const plane = (y0 * (1 - u) + y1 * u) * (1 - w) + (y2 * (1 - u) + y3 * u) * w;
+          if (Math.abs(pa.getY(v) - plane) > 0.1) { flat = false; break scan; }
+          if (Math.abs(na.getX(v) - n0x) + Math.abs(na.getY(v) - n0y) + Math.abs(na.getZ(v) - n0z) > 0.01) { flat = false; break scan; }
+        }
+      }
+      if (flat) {
+        const A = V(bi, bj), Bv = V(bi, bj + BLOCK), C = V(bi + BLOCK, bj + BLOCK), D = V(bi + BLOCK, bj);
+        idx.push(A, Bv, D, Bv, C, D);
+        continue;
+      }
+      for (let j = bj; j < Math.min(G, bj + BLOCK); j++) for (let i = bi; i < Math.min(G, bi + BLOCK); i++) {
+        const a = V(i, j), b = V(i, j + 1), c = V(i + 1, j + 1), d = V(i + 1, j);
+        idx.push(a, b, d, b, c, d);
+      }
+    }
+    pg.setIndex(idx);
+    this.groundTris = idx.length / 3;
+    this.groundTrisFull = G * G * 2;
   }
 
   /** True when some ground lies under the sea level (the water shader animates there). */
