@@ -1,0 +1,20 @@
+﻿{
+  "city": "avalon",
+  "seed": 1701,
+  "auditedRoadServed": 1828,
+  "specialModeCount": 4,
+  "occupiedInvalid": 0,
+  "access": {
+    "lots": 1828,
+    "candidateCount": 2320,
+    "servedCount": 1828,
+    "vacantCount": 6,
+    "rejectedCount": 486,
+    "unservedAtStart": 111,
+    "driveways": 70,
+    "farmTracks": 35,
+    "unreached": 6,
+    "driveKm": 2.9
+  },
+  "failures": []
+}

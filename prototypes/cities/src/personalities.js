@@ -87,7 +87,7 @@ export const PERSONALITIES = {
       { id: 'docks', name: 'Eastside Docks', game: true, x: 880, y: 230, r: 380, tier: 'working', snap: 0.95, theta: 0, jitter: 0, sep: 1.5,
         placement: 'rows', lot: [42, 48], gap: 6, interior: true, height: [11, 0.3, 7, 40],
         types: [['warehouse', 4], ['loft', 1], ['containers', 2]], facade: [0x8d5b45, 0x6e6a63, 0x9a8a72, 0x7b5a48, 0x5f6b72], roof: [0x5c5f62, 0x6d6a66], trees: 0.05, tree: 'round', port: true },
-      { id: 'gilthill', name: 'Gilt Hill', game: true, x: -660, y: -560, r: 420, tier: 'prime', snap: 0, theta: 0, jitter: 0.45, sep: 1.7,
+      { id: 'gilthill', name: 'Gilt Hill', game: true, x: -660, y: -560, r: 420, tier: 'prime', snap: 0, theta: 0, jitter: 0.18, sep: 1.7,
         placement: 'scatter', lot: [30, 24], gap: 10, interior: true, height: [10, 0.2, 8, 15],
         types: [['mansion', 1]], facade: [0xe2d9c6, 0xd6cbb4, 0xcfc2a6, 0xe8e2d4, 0xbfae8e], roof: [0x3f464c, 0x4a5157, 0x55504b], trees: 1.0, tree: 'round' },
       { id: 'northgate', name: 'Northgate', x: 250, y: -980, r: 480, tier: 'mid', snap: 0.8, theta: 0.12, jitter: 0.03, sep: 1.0,

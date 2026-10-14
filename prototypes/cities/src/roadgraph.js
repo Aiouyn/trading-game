@@ -286,7 +286,7 @@ export function planarize(edges, snap = SNAP) {
       for (let j = Math.floor(A.pos) + 1; j < B.pos; j++) if (j > A.pos) sub.push(p[j]);
       sub.push(nodes[B.node]);
       if (A.node === B.node && sub.length === 2) continue;
-      out.push({ cls: edges[e].cls, level: edges[e].level, pts: sub.map((q) => [q[0], q[1]]), a: A.node, b: B.node });
+      out.push({ cls: edges[e].cls, level: edges[e].level, requiredAccess: Boolean(edges[e].requiredAccess), pts: sub.map((q) => [q[0], q[1]]), a: A.node, b: B.node });
     }
   }
   return { nodes, edges: out };
@@ -347,7 +347,7 @@ export function cleanGraph(g, { spacing, isWater, smooth = true }) {
   edges = edges.filter((e) => {
     const L = polyLen(e.pts);
     if (L < 2) return false;
-    if (e.a === e.b && (L < 8 || (e.cls <= 2 && L < 200))) { stats.loops++; return false; }
+    if (e.a === e.b && (L < 45 || (e.cls <= 3 && L < 240))) { stats.loops++; return false; }
     return true;
   });
   const dd = dedupeParallel(edges, spacing);
@@ -361,6 +361,28 @@ export function cleanGraph(g, { spacing, isWater, smooth = true }) {
     edges = edges.filter((e) => !e.dead);
   }
   const nN = g.nodes.length;
+  // Prune tight small 2-edge lenses and short collector/local self-loops (tear-drops)
+  {
+    const pairGroups = new Map();
+    for (const e of edges) {
+      if (e.dead || e.a === e.b) continue;
+      const k = `${Math.min(e.a, e.b)}:${Math.max(e.a, e.b)}`;
+      let gList = pairGroups.get(k);
+      if (!gList) pairGroups.set(k, (gList = []));
+      gList.push(e);
+    }
+    for (const gList of pairGroups.values()) {
+      if (gList.length < 2) continue;
+      gList.sort((a, b) => b.cls - a.cls || polyLen(b.pts) - polyLen(a.pts));
+      for (const extra of gList.slice(1)) {
+        if (polyLen(extra.pts) < 160 && !extra.requiredAccess) {
+          extra.dead = true;
+          stats.loops++;
+        }
+      }
+    }
+    edges = edges.filter((e) => !e.dead);
+  }
   let changed = true;
   while (changed) {
     changed = false;
@@ -368,7 +390,7 @@ export function cleanGraph(g, { spacing, isWater, smooth = true }) {
     for (let n = 0; n < nN; n++) {
       if (inc[n].length !== 1) continue;
       const e = edges[inc[n][0]];
-      if (e.dead || e.cls > 2 || e.a === e.b || polyLen(e.pts) >= SPUR_MAX) continue;
+      if (e.dead || e.requiredAccess || e.cls > 2 || e.a === e.b || polyLen(e.pts) >= SPUR_MAX) continue;
       e.dead = true; stats.spurs++; changed = true;
     }
     edges = edges.filter((e) => !e.dead);
@@ -489,17 +511,18 @@ export function connectGraph(g, { landAt, isWater }) {
  */
 export function buildRoadGraph(lines, { spacing, isWater, landAt }) {
   const stats = { raw: lines.length };
-  let g = planarize(lines.map((l) => ({ cls: l.cls, level: l.level, pts: l.pts })));
+  let g = planarize(lines.map((l) => ({ cls: l.cls, level: l.level, requiredAccess: l.requiredAccess, pts: l.pts })));
   stats.split = g.edges.length;
   let c = cleanGraph(g, { spacing, isWater, smooth: true });
   stats.loops = c.stats.loops; stats.parallels = c.stats.parallels; stats.tight = c.stats.tight;
   stats.spurs = c.stats.spurs; stats.stubs = c.stats.stubs;
-  g = planarize(c.edges.map((e) => ({ cls: e.cls, level: e.level, pts: e.pts })));
+  g = planarize(c.edges.map((e) => ({ cls: e.cls, level: e.level, requiredAccess: e.requiredAccess, pts: e.pts })));
   c = cleanGraph(g, { spacing, isWater, smooth: false });
   const cn = connectGraph(c, { landAt, isWater });
   stats.linked = cn.stats.linked; stats.droppedComps = cn.stats.dropped;
-  g = planarize(cn.edges.map((e) => ({ cls: e.cls, level: e.level, pts: e.pts })));
-  const edges = g.edges.filter((e) => e.a !== e.b || polyLen(e.pts) >= 8);
+  g = planarize(cn.edges.map((e) => ({ cls: e.cls, level: e.level, requiredAccess: e.requiredAccess, pts: e.pts })));
+  const cFinal = connectGraph({ nodes: g.nodes, edges: g.edges.filter((e) => e.a !== e.b || polyLen(e.pts) >= 45) }, { landAt, isWater });
+  const edges = cFinal.edges;
   const deg = new Int32Array(g.nodes.length);
   edges.forEach((e, id) => { e.id = id; deg[e.a]++; deg[e.b]++; });
   stats.nodes = g.nodes.length;

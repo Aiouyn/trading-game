@@ -2,6 +2,13 @@ import { test, expect } from '@playwright/test';
 import { ready } from '../../tools/browser-ready.mjs';
 import { CITY_ORDER } from '../../src/personalities.js';
 
+test('readiness rejects a real throwing page immediately with its original error', async ({ page }) => {
+  const started = Date.now();
+  await expect(ready(page, 'data:text/html,<script>throw new Error("CITY_TEST_FAILURE")</script>', 5000))
+    .rejects.toThrow('CITY_TEST_FAILURE');
+  expect(Date.now() - started).toBeLessThan(5000);
+});
+
 test('Avalon produces a loaded canvas without page errors and all six cities load', async ({ page, baseURL }) => {
   const errors = await ready(page, `${baseURL}/?city=avalon&t=15`);
   const data = await page.evaluate(() => ({

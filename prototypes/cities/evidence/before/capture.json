@@ -1,0 +1,79 @@
+{
+  "browser": "153.0.8010.12",
+  "captures": [
+    {
+      "file": "overview-15.png",
+      "camera": null,
+      "hour": 15
+    },
+    {
+      "file": "oldharbor-15.png",
+      "camera": [
+        -60,
+        -60,
+        0.18
+      ],
+      "hour": 15
+    },
+    {
+      "file": "midtown-15.png",
+      "camera": [
+        300,
+        -400,
+        0.2
+      ],
+      "hour": 15
+    },
+    {
+      "file": "gilthill-15.png",
+      "camera": [
+        -650,
+        -500,
+        0.25
+      ],
+      "hour": 15
+    },
+    {
+      "file": "westbank-15.png",
+      "camera": [
+        -950,
+        150,
+        0.2
+      ],
+      "hour": 15
+    },
+    {
+      "file": "docks-15.png",
+      "camera": [
+        880,
+        230,
+        0.25
+      ],
+      "hour": 15
+    },
+    {
+      "file": "overview-21.png",
+      "camera": null,
+      "hour": 21
+    },
+    {
+      "file": "oldharbor-21.png",
+      "camera": [
+        -60,
+        -60,
+        0.18
+      ],
+      "hour": 21
+    },
+    {
+      "file": "midtown-21.png",
+      "camera": [
+        300,
+        -400,
+        0.2
+      ],
+      "hour": 21
+    }
+  ],
+  "errors": []
+}

@@ -56,3 +56,45 @@ test('generated driveways retain parent graph edge provenance', () => {
     assert.ok(Number.isInteger(d.edgeId) && edgeIds.has(d.edgeId), `driveway missing valid parent edgeId: ${d.edgeId}`);
   }
 });
+
+test('Avalon exports parcelDiagnostics and reconciled candidate/served/vacant/rejected counts', () => {
+  assert.ok(Array.isArray(avalon.parcelDiagnostics));
+  assert.ok(avalon.parcelDiagnostics.length > 0);
+  const a = avalon.access;
+  assert.ok(Number.isInteger(a.candidateCount) && a.candidateCount > 0);
+  assert.equal(a.servedCount + a.vacantCount + a.rejectedCount, a.candidateCount);
+  assert.equal(a.servedCount, avalon.stats.lots);
+});
+
+test('crossing paint never crosses water or sits on a bridge span', () => {
+  const r = avalon.ribbons;
+  const distToPolyline = (x, z, pts) => {
+    let best = Infinity;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+      const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+      let t = l2 > 0 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      best = Math.min(best, Math.hypot(x - (ax + t * dx), z - (az + t * dz)));
+    }
+    return best;
+  };
+  const cellAt = (x, z) => Math.floor((z + avalon.S / 2) / avalon.RES) * avalon.N + Math.floor((x + avalon.S / 2) / avalon.RES);
+  let paintCount = 0, overWater = 0, onBridge = 0;
+  for (let i = 0; i < r.side.length; i++) {
+    if (r.side[i] !== 8) continue;
+    paintCount++;
+    const x = r.position[i * 3], z = r.position[i * 3 + 2];
+    if (avalon.H[cellAt(x, z)] < 0) overWater++;
+  }
+  assert.ok(paintCount > 0, 'no junction paint was generated at all, so this proves nothing');
+  assert.equal(overWater, 0, 'crossing paint over water');
+  for (const b of avalon.bridges ?? []) {
+    for (let i = 0; i < r.side.length; i++) {
+      if (r.side[i] !== 8) continue;
+      const x = r.position[i * 3], z = r.position[i * 3 + 2];
+      if (distToPolyline(x, z, b.pts) <= 14) { onBridge++; break; }
+    }
+  }
+  assert.equal(onBridge, 0, 'crossing paint on a bridge span');
+});

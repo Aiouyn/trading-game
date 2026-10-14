@@ -8,6 +8,9 @@ import { Parts, buildArchetype, buildLandmark, buildTree, buildCrane, buildShip,
 import { sampleOutskirts, outskirtsHeight, traceHighways } from './outskirts.js';
 import { buildRoadGraph, labelLand, SegGrid } from './roadgraph.js';
 import { parcelId } from './parcel-id.js';
+import { resolveEntranceAccess, thresholdOf, DEPTH_FACTOR } from './entrance-access.js';
+import { entranceOf } from './access.js';
+import { eligibleJunctionArm } from './junction-style.js';
 
 const DRIVE_W = 3.4;   // driveways: narrow class-1 ribbons from the road to the building front
 const FARM_W = 4;      // farm tracks: unpaved, class 0
@@ -210,7 +213,7 @@ export async function generateCity(P, progress = () => {}) {
   if (P.canals) levels.push({ name: 'canal', cls: -1, dsep: P.canals.dsep, step: 4, maxLen: 900, minLen: 60, bridge: 0, dtest: 0.55,
     valid: (x, y) => distAt(x, y).id === P.canals.district && dWaterAt(x, y) > 14 });
   levels.push({ name: 'arterial', cls: 4, dsep: P.roads.arterial, step: 7, maxLen: 4200, minLen: 260, bridge: bridges.arterial, dtest: 0.5, slope: 0.5,
-    valid: (x, y) => urbanCore(x, y) > urban.vMin - 0.16 });
+    valid: (x, y) => urbanCore(x, y) > urban.vMin - 0.16 && !(P.id === 'avalon' && distAt(x, y).id === 'gilthill') });
   levels.push({ name: 'collector', cls: 3, dsep: P.roads.collector, step: 5, maxLen: 1800, minLen: 90, bridge: bridges.collector, dtest: 0.5, sepPow: 0.5, slope: maxSlope + 0.05,
     valid: (x, y) => urbanAt(x, y) > urban.vMin - 0.07 });
   levels.push({ name: 'local', cls: 2, dsep: P.roads.local, step: 4, maxLen: 800, minLen: 22, bridge: bridges.local, dtest: 0.52, sepPow: 1, slope: maxSlope,
@@ -411,6 +414,7 @@ export async function generateCity(P, progress = () => {}) {
     const rot = fieldAngle(x, y);
     const r = buildLandmark(lm, x, y, rot, ctx);
     if (!r) continue;
+    buildings[buildings.length - 1].accessMode = 'landmark';
     // reserve the footprint
     for (let a = -r.radius; a <= r.radius; a += RES) for (let b = -r.radius; b <= r.radius; b += RES) {
       if (a * a + b * b > r.radius * r.radius) continue;
@@ -434,6 +438,7 @@ export async function generateCity(P, progress = () => {}) {
         if (k >= 0 && !W[k]) { occ[k] = 1; surf[k] = SURF.lawn; }
       }
       buildings[buildings.length - 1].label = owner === 'Private' ? 'Private estate' : `${owner}'s estate`;
+      buildings[buildings.length - 1].accessMode = 'water';
       labels.push({ text: owner === 'Private' ? 'Private' : owner, x: f[0], y: f[1], z: heightAt(f[0], f[1]) + res.height + 10, kind: owner === 'Private' ? 'landmark' : 'crown', bid: buildings.length });
     }
   }
@@ -452,6 +457,25 @@ export async function generateCity(P, progress = () => {}) {
 
   await step('Dividing parcels');
   const lots = [];
+  const placementDiagnostics = [];
+  const net = new SegGrid(12);
+  for (const ln of roads) {
+    if (ln.rail) continue;
+    for (let i = 0; i < ln.pts.length - 1; i++) {
+      const [ax, ay] = ln.pts[i], [bx, by] = ln.pts[i + 1];
+      const bridge = isWater(ax, ay) || isWater(bx, by);
+      net.add(ax, ay, bx, by, (ln.width[i] + ln.width[i + 1]) / 4 + ln.walk,
+        { cls: ln.cls, edgeId: ln.id, a: ln.a, b: ln.b, bridge });
+    }
+  }
+  function proposeLot(lot) {
+    const proposalR = rng(Math.floor(hash2(Math.round(lot.x * 100), Math.round(lot.y * 100), P.seed) * 0xffffffff));
+    const V = VAt(lot.x, lot.y), [medH, sigma, minH, maxH] = lot.d.height;
+    const hn = Math.pow(2, 0.9 * n.fbm(lot.x / 230 + 50, lot.y / 230, 3));
+    lot.h = clamp(medH * (0.35 + 1.35 * Math.pow(V, 1.25)) * hn *
+      Math.exp(sigma * (lot.d.gap === 0 ? 0.4 : 1) * proposalR.normal()), minH, maxH);
+    lot.type = pickType(lot.d, lot.h, proposalR);
+  }
   // frontage candidates: along each local and collector, the lot positions on either side that land in a built block
   const frontBy = new Map();
   for (const ln of roads) {
@@ -489,7 +513,9 @@ export async function generateCity(P, progress = () => {}) {
       // the gap between neighbours runs along the road; the front yard keeps the road side clear
       const m = (d.gap ?? 4) / 2;
       if (!fits(b.id, x, y, rot, hw + m, hd)) continue;
-      place(b, d, x, y, rot, hw, hd);
+      // c.nx = -c.uy, c.ny = c.ux, which equals the local +z direction [-sin(rot), cos(rot)].
+      // The lot is offset by +c.side along local +z, so the street lies at -c.side along local +z.
+      place(b, d, x, y, rot, hw, hd, -c.side);
     }
   }
   for (const b of blocks) {
@@ -498,7 +524,11 @@ export async function generateCity(P, progress = () => {}) {
       for (let t = 0; t < Math.round(b.area / 30000) + 1; t++) {
         const k = blockCells[b.start + Math.floor(R.next() * b.count)];
         const x = cellX(k % N), y = cellX((k / N) | 0), rot = fieldAngle(x, y);
-        if (fits(b.id, x, y, rot, 9, 7)) { stampRect(x, y, rot, 6, 5, (q) => { occ[q] = 1; }); lots.push({ b, d: { ...b.d, types: [['house', 1]], height: [7, 0.1, 6, 9], tier: 'rural' }, x, y, rot, hw: 6, hd: 5, front: -1 }); }
+        if (fits(b.id, x, y, rot, 9, 7)) {
+          const d = { ...b.d, types: [['house', 1]], height: [7, 0.1, 6, 9], tier: 'rural' };
+          if (P.id === 'avalon') place(b, d, x, y, rot, 6, 5);
+          else { stampRect(x, y, rot, 6, 5, q => { occ[q] = 1; }); lots.push({ b, d, x, y, rot, hw: 6, hd: 5, front: -1 }); }
+        }
       }
     }
     if (b.kind !== 'build') continue;
@@ -540,8 +570,8 @@ export async function generateCity(P, progress = () => {}) {
           if (thw > 2.2 && thd > 2.2 && fits(b.id, x, y, theta, thw, thd)) {
             const dr = distRoad[cellAt(x, y)] ?? 0;
             if (!d.interior && dr > thd + 9) break;
-            place(b, d, x, y, theta, thw, thd);
-            ok = true; break;
+             ok = place(b, d, x, y, theta, thw, thd);
+             if (ok) break;
           }
         }
         u += ok ? f : 3;
@@ -564,26 +594,55 @@ export async function generateCity(P, progress = () => {}) {
     }
   }
 
-  function place(b, d, x, y, rot, hw, hd) {
-    stampRect(x, y, rot, hw, hd, (k) => { occ[k] = 1; });
+  function place(b, d, x, y, rot, hw, hd, explicitFront = null) {
     // which long side faces the street (signs and shopfronts go there)
     const zx = -Math.sin(rot), zy = Math.cos(rot), o = hd + 3;
     const dm = distRoad[cellAt(x - zx * o, y - zy * o)] ?? 99, dpl = distRoad[cellAt(x + zx * o, y + zy * o)] ?? 99;
-    lots.push({ b, d, x, y, rot, hw, hd, front: dm <= dpl ? -1 : 1 });
+    const front = explicitFront ?? (dm <= dpl ? -1 : 1);
+    if (P.id === 'avalon') {
+      const lot = { b, d, x, y, rot, hw, hd, front };
+      proposeLot(lot);
+      let result;
+      for (const chosenFront of explicitFront === null ? [front, -front] : [front]) {
+        lot.front = chosenFront;
+        result = resolveEntranceAccess({ lot, net, isWater, heightAt,
+          isBridgeAt: (px, py, tag) => Boolean(tag?.bridge),
+          isBlocked: (px, py) => {
+            const k = cellAt(px, py);
+            if (k < 0 || occ[k] === 1) return true;
+            const lx = Math.cos(rot) * (px - x) + Math.sin(rot) * (py - y);
+            const lz = -Math.sin(rot) * (px - x) + Math.cos(rot) * (py - y);
+            return Math.abs(lx) < hw && Math.abs(lz) < hd &&
+              lz * chosenFront < hd * (DEPTH_FACTOR[lot.type] ?? 1) - 1e-6;
+          } });
+        if (result.status === 'served') break;
+      }
+      if (result.status !== 'served') {
+        placementDiagnostics.push({ candidateId: parcelId(P.id, P.seed, x, y, rot), district: d.id,
+          status: 'rejected', reason: result.reason, pathOutcome: null });
+        return false;
+      }
+      stampRect(x, y, rot, hw, hd, (k) => { occ[k] = 1; });
+      for (let i = 1; i < result.path.pts.length; i++) {
+        const [ax, ay] = result.path.pts[i - 1], [bx, by] = result.path.pts[i];
+        stampSeg(ax, ay, bx, by, result.path.width / 2 + RES * 0.5, N, RES, half,
+          k => { if (!occ[k] && !roadCls[k]) occ[k] = 2; });
+      }
+      lot.accessPath = result.path;
+      lot.entryGate = result.entryGate;
+      lot.entryThreshold = result.entryThreshold;
+      lots.push(lot);
+      return true;
+    }
+    stampRect(x, y, rot, hw, hd, (k) => { occ[k] = 1; });
+    lots.push({ b, d, x, y, rot, hw, hd, front });
+    return true;
   }
 
   // ------------------------------------------------------------------ access: every lot reaches a road
   // A footprint within ACCESS_MAX of a road edge (centre line less its half width, sidewalks included) is served. The
   // others get a driveway (class 1) to the nearest road, or in the fields a farm track (class 0), routed over free
   // ground; a lot that cannot be reached is not built.
-  const net = new SegGrid(12);
-  for (const ln of roads) {
-    if (ln.rail) continue;
-    for (let i = 0; i < ln.pts.length - 1; i++) {
-      const [ax, ay] = ln.pts[i], [bx, by] = ln.pts[i + 1];
-      net.add(ax, ay, bx, by, (ln.width[i] + ln.width[i + 1]) / 4 + ln.walk, { cls: ln.cls, edgeId: ln.id, a: ln.a, b: ln.b });
-    }
-  }
   const lotPerim = (lot, pad) => {
     const { x, y, rot, hw, hd } = lot;
     const ux = Math.cos(rot), uy = Math.sin(rot);
@@ -646,20 +705,151 @@ export async function generateCity(P, progress = () => {}) {
     return null;
   };
   let accessFail = 0, driveN = 0, trackN = 0, unreached = 0, driveKm = 0;
+  const candidateCount = lots.length + placementDiagnostics.length;
+  const parcelDiagnostics = [...placementDiagnostics];
   const served = [];
-  for (const lot of lots) {
-    if (lotGap(lot) <= ACCESS_MAX) { served.push(lot); continue; }
-    accessFail++;
-    const farm = lot.d.tier === 'rural';
-    const dv = routeTo(lot, farm);
-    if (!dv) { unreached++; continue; }
-    if (farm) trackN++; else driveN++;
-    driveKm += polyLen(dv.pts) / 1000;
-    drives.push({ cls: dv.cls, level: farm ? 'track' : 'drive', pts: dv.pts, width: dv.width, walk: 0, orderKey: keyOf(lot.x, lot.y), edgeId: dv.edgeId, a: dv.a, b: dv.b });
-    served.push(lot);
+  if (P.id === 'avalon') {
+    // Resolve the architectural frontage BEFORE routing, not by moving a door after acceptance.
+    const spatial = new Map(), cellSize = 40;
+    const insert = (o) => {
+      const radius = Math.hypot(o.hw, o.hd);
+      for (let i = Math.floor((o.x - radius) / cellSize); i <= Math.floor((o.x + radius) / cellSize); i++) {
+        for (let j = Math.floor((o.y - radius) / cellSize); j <= Math.floor((o.y + radius) / cellSize); j++) {
+          const key = `${i},${j}`;
+          if (!spatial.has(key)) spatial.set(key, []);
+          spatial.get(key).push(o);
+        }
+      }
+    };
+    lots.forEach(insert);
+    buildings.forEach(b => insert({ ...b, hw: b.w / 2, hd: b.dp / 2 }));
+    for (let idx = 0; idx < lots.length; idx++) {
+      const lot = lots[idx];
+      const pid = parcelId(P.id, P.seed, lot.x, lot.y, lot.rot);
+      const insideThisLot = (px, py) => {
+        const c = Math.cos(-lot.rot), s = Math.sin(-lot.rot);
+        const dx = px - lot.x, dy = py - lot.y;
+        return Math.abs(c * dx - s * dy) <= lot.hw + 0.6 && Math.abs(s * dx + c * dy) <= lot.hd + 0.6;
+      };
+      const hitsOtherLot = (px, py) => {
+        for (const o of spatial.get(`${Math.floor(px / cellSize)},${Math.floor(py / cellSize)}`) ?? []) {
+          if (o === lot) continue;
+          const c = Math.cos(-o.rot), s = Math.sin(-o.rot);
+          const dx = px - o.x, dy = py - o.y;
+          if (Math.abs(c * dx - s * dy) < o.hw - 1e-6 && Math.abs(s * dx + c * dy) < o.hd - 1e-6) return true;
+        }
+        return false;
+      };
+      // Placement chooses the front. Never move it to the rear to make an audit pass.
+      let res = null;
+      for (const fTry of [lot.front ?? -1]) {
+        const attempt = resolveEntranceAccess({
+          lot: { ...lot, dp: lot.hd * 2, front: fTry },
+          net,
+          isWater,
+          heightAt,
+          isBridgeAt: (x, y, tag) => Boolean(tag?.bridge) || isWater(x, y),
+          isBlocked: (x, y) => {
+            const k = cellAt(x, y);
+            if (k < 0 || W[k]) return true;
+            if (hitsOtherLot(x, y)) return true;
+            if (insideThisLot(x, y)) {
+              const dz = -Math.sin(lot.rot) * (x - lot.x) + Math.cos(lot.rot) * (y - lot.y);
+              return dz * fTry < lot.hd * (DEPTH_FACTOR[lot.type] ?? 1) - 1e-6;
+            }
+            return false; // Exact spatial footprints above; reservations are passable.
+          },
+        });
+        if (attempt.status === 'served') {
+          lot.front = fTry;
+          res = attempt;
+          break;
+        }
+        if (!res) res = attempt;
+      }
+      if (res.status !== 'served') {
+        accessFail++;
+        unreached++;
+        parcelDiagnostics.push({
+          candidateId: pid,
+          district: lot.d.id,
+          status: 'vacant',
+          reason: res.reason,
+          pathOutcome: null,
+        });
+        continue;
+      }
+      const pth = res.path;
+      const len = polyLen(pth.pts);
+      lot.entryThreshold = res.entryThreshold;
+      lot.entryGate = res.entryGate;
+      lot.accessPath = pth;
+      if (pth.kind === 'driveway' || pth.kind === 'track') {
+        accessFail++;
+        const farm = pth.kind === 'track';
+        if (farm) trackN++; else driveN++;
+        driveKm += len / 1000;
+      }
+      if (len > 0.05) {
+        const w = pth.width;
+        drives.push({
+          cls: pth.kind === 'track' ? 0 : 1,
+          level: pth.kind === 'track' ? 'track' : pth.kind === 'pedestrian' ? 'footpath' : 'drive',
+          kind: pth.kind,
+          pts: pth.pts,
+          width: pth.pts.map(() => w),
+          walk: 0,
+          orderKey: keyOf(lot.x, lot.y),
+          edgeId: pth.edgeId,
+          parentA: pth.a,
+          parentB: pth.b,
+        });
+      }
+      for (let s = 0; s < pth.pts.length - 1; s++) {
+        const [ax, ay] = pth.pts[s], [bx, by] = pth.pts[s + 1];
+        stampSeg(ax, ay, bx, by, pth.width * 0.5, N, RES, half, (k) => { if (!occ[k]) occ[k] = 2; });
+      }
+      parcelDiagnostics.push({
+        candidateId: pid,
+        district: lot.d.id,
+        status: 'served',
+        reason: res.mode,
+        pathOutcome: { kind: pth.kind, edgeId: pth.edgeId, length: Math.round(len * 10) / 10 },
+      });
+      served.push(lot);
+    }
+  } else {
+    for (const lot of lots) {
+      if (lotGap(lot) <= ACCESS_MAX) { served.push(lot); continue; }
+      accessFail++;
+      const farm = lot.d.tier === 'rural';
+      const dv = routeTo(lot, farm);
+      if (!dv) { unreached++; continue; }
+      if (farm) trackN++; else driveN++;
+      driveKm += polyLen(dv.pts) / 1000;
+      drives.push({ cls: dv.cls, level: farm ? 'track' : 'drive', pts: dv.pts, width: dv.width, walk: 0, orderKey: keyOf(lot.x, lot.y), edgeId: dv.edgeId, a: dv.a, b: dv.b });
+      served.push(lot);
+    }
   }
   lots.splice(0, lots.length, ...served);
-  const access = { lots: lots.length, unservedAtStart: accessFail, driveways: driveN, farmTracks: trackN, unreached, driveKm: Math.round(driveKm * 10) / 10 };
+  const servedCount = served.length;
+  const vacantCount = P.id === 'avalon' ? unreached : 0;
+  const rejectedCount = candidateCount - servedCount - vacantCount;
+  if (servedCount + vacantCount + rejectedCount !== candidateCount) {
+    throw new Error('parcel diagnostics count mismatch');
+  }
+  const access = {
+    lots: lots.length,
+    candidateCount,
+    servedCount,
+    vacantCount,
+    rejectedCount,
+    unservedAtStart: accessFail,
+    driveways: driveN,
+    farmTracks: trackN,
+    unreached,
+    driveKm: Math.round(driveKm * 10) / 10,
+  };
 
   // ------------------------------------------------------------------ buildings
   await step(`Raising ${lots.length.toLocaleString('en')} buildings`);
@@ -671,13 +861,19 @@ export async function generateCity(P, progress = () => {}) {
     const [hMed, hSig, hMin, hMax] = d.height;
     const med = hMed * (0.35 + 1.35 * Math.pow(V, 1.25)) * hn;
     // attached rows (no gap) keep a steady cornice line; detached buildings vary freely
-    let h = clamp(med * Math.exp(hSig * (d.gap === 0 ? 0.4 : 1) * R.normal()), hMin, hMax);
-    const type = pickType(d, h, R);
+    let h = lot.h ?? clamp(med * Math.exp(hSig * (d.gap === 0 ? 0.4 : 1) * R.normal()), hMin, hMax);
+    const type = lot.type ?? pickType(d, h, R);
     const key = keyOf(x, y);
     const rec = buildArchetype(type, { x, y, rot, w: hw * 2, dp: hd * 2, h, d, key, V, front: lot.front }, ctx);
     if (!rec) continue;
     rec.parcelId = parcelId(P.id, P.seed, lot.x, lot.y, lot.rot);
     rec.blockKey = lot.b.seedCell;
+    rec.entryGate = lot.entryGate ?? entranceOf({ x, y, rot, dp: hd * 2, front: rec.front });
+    rec.entryThreshold = thresholdOf({ x, y, rot, hd, dp: hd * 2, front: rec.front, type });
+    if (lot.accessPath) {
+      rec.accessPath = lot.accessPath;
+      rec.accessMode = 'road';
+    }
     ctx.stampLot(x, y, rot, hw, hd, key);
     if (key < (lot.b.minKey ?? Infinity)) lot.b.minKey = key;
     if (rec.h > 5 && type !== 'containers') shadowOf(x, y, rot, hw * 0.95, hd * 0.95, rec.h, key);
@@ -882,7 +1078,7 @@ export async function generateCity(P, progress = () => {}) {
 
   // roads: ribbons with per-vertex order (arterials lead, locals follow); the highways always show (order 0)
   const lead = { 4: 0.16, 3: 0.08, 2: 0.025 };
-  const ribbons = buildRibbons([...roads, ...highways, ...drives], { heightAt, outH, isWater, keyOf, cdf, lead, parts, P, bridgeSpans, graph });
+  const ribbons = buildRibbons([...roads, ...highways, ...drives], { heightAt, outH, isWater, distAt, keyOf, cdf, lead, parts, P, bridgeSpans, graph });
 
   // ------------------------------------------------------------------ ground data textures
   await step('Painting the ground');
@@ -919,14 +1115,20 @@ export async function generateCity(P, progress = () => {}) {
   const popCurve = byOrder.map((b) => { res += b.residents ?? 0; jobs += b.jobs ?? 0; return [b.order, res, jobs]; });
 
   await step('Done');
+  // where roads cross water, for audits and tooling that must keep paint off the spans
+  const bridgeOutlines = bridgeSpans.map((s) => ({
+    cls: s.ln.cls, level: s.ln.level, edgeId: s.ln.id,
+    from: s.from, to: s.to, pts: s.ln.pts.slice(s.from, s.to + 1),
+  }));
   const tallest = buildings.reduce((m, b) => (b.h > (m?.h ?? 0) ? b : m), null);
   return {
     P, S, N, RES, H, texA, texB, parts: parts.finish(), ribbons, buildings, labels, rail, outskirts,
+    bridges: bridgeOutlines,
     // the network the buildings' access is checked against (road and driveway centre lines, half widths)
     network: [...roads.filter((l) => !l.rail), ...drives].map((l) => ({
       cls: l.cls, pts: l.pts, hw: l.width.map((w) => w / 2 + (l.walk ?? 0)), edgeId: l.edgeId ?? l.id, a: l.a, b: l.b,
     })),
-    access, graph: { nodes: graph.nodes.length, junctions: graph.stats.junctions, stats: graph.stats },
+    access, parcelDiagnostics, graph: { nodes: graph.nodes.length, junctions: graph.stats.junctions, stats: graph.stats },
     roadGraph: {
       nodes: graph.nodes.map(([x, y]) => [x, y]),
       edges: graph.edges.map(({ id, a, b, cls, level, pts }) => ({
@@ -1244,8 +1446,9 @@ function fillConvex(poly, N, res, half, fn) {
  * walks from the one attribute. Junction patches (side 9) and paint (side 8: zebra and stop bars) are flat quads of
  * their own. Bridges get decks and towers.
  */
-function buildRibbons(roads, { heightAt, outH, isWater, keyOf, cdf, lead, parts, P, bridgeSpans, graph }) {
+function buildRibbons(roads, { heightAt, outH, isWater, distAt, keyOf, cdf, lead, parts, P, bridgeSpans, graph }) {
   const pos = [], side = [], dist = [], order = [], cls = [], idx = [];
+  const seenCrossings = new Set();
   const V = () => pos.length / 3;
   const push = (x, y, z, s, d, o, c) => { pos.push(x, y, z); side.push(s); dist.push(d); order.push(o); cls.push(c); };
   // a flat quad: corners A, B (one end) and C, D (the other); triangles ABC and BDC
@@ -1315,25 +1518,54 @@ function buildRibbons(roads, { heightAt, outH, isWater, keyOf, cdf, lead, parts,
     // paint at the junctions of collectors and arterials: a stop bar, then three zebra stripes across the carriageway
     if (ln.cls >= 3 && cum[m - 1] > 14) {
       const arms = [];
-      if (ln.a !== undefined && deg[ln.a] >= 3) arms.push({ fromEnd: false, o: ords[0] });
-      if (ln.b !== undefined && deg[ln.b] >= 3) arms.push({ fromEnd: true, o: ords[m - 1] });
+      const total = cum[m - 1];
+      // the point at arc s from the end, with the arm's outward tangent and half width
+      const at = (fromEnd, s) => {
+        const t = fromEnd ? total - s : s;
+        let i = 0;
+        while (i < m - 2 && cum[i + 1] < t) i++;
+        const f = (t - cum[i]) / Math.max(1e-9, cum[i + 1] - cum[i]);
+        const x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, z = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f;
+        const h = y[i] + (y[i + 1] - y[i]) * f;
+        const L = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) || 1;
+        const sg = fromEnd ? -1 : 1;
+        const tx = (sg * (pts[i + 1][0] - pts[i][0])) / L, tz = (sg * (pts[i + 1][1] - pts[i][1])) / L;
+        return { x, z, h, nx: -tz, nz: tx, hw: ln.width[i] / 2, ground: ground[i] };
+      };
+      // The paint spans roughly 6..11 m along the arm: judge the arm on that stretch, not at the node.
+      const PAINT = 12;
+      const checkArm = (nodeId, fromEnd, o) => {
+        let raised = false, wetPaint = false;
+        for (let s = 0; s <= PAINT; s += 2) {
+          const p = at(fromEnd, s);
+          if (p.h > p.ground + 1.0) raised = true;
+          if (isWater(p.x, p.z)) wetPaint = true;
+        }
+        const node = fromEnd ? pts[m - 1] : pts[0];
+        const dHere = distAt ? distAt(node[0], node[1]) : null;
+        const portService = Boolean(dHere?.port && ln.cls === 3);
+        const armId = `${ln.id ?? 'road'}:${fromEnd ? 'b' : 'a'}`;
+        if (eligibleJunctionArm({
+          nodeId,
+          armId,
+          degree: deg[nodeId] ?? 0,
+          cls: ln.cls,
+          walk,
+          length: total,
+          rail: Boolean(ln.rail),
+          bridge: raised || wetPaint,
+          portService,
+          seen: seenCrossings,
+        })) {
+          arms.push({ fromEnd, o });
+        }
+      };
+      if (ln.a !== undefined) checkArm(ln.a, false, ords[0]);
+      if (ln.b !== undefined) checkArm(ln.b, true, ords[m - 1]);
       for (const arm of arms) {
-        const total = cum[m - 1];
-        // the point at arc s from the node, with the arm's outward tangent and half width
-        const at = (s) => {
-          const t = arm.fromEnd ? total - s : s;
-          let i = 0;
-          while (i < m - 2 && cum[i + 1] < t) i++;
-          const f = (t - cum[i]) / Math.max(1e-9, cum[i + 1] - cum[i]);
-          const x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, z = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f;
-          const h = y[i] + (y[i + 1] - y[i]) * f;
-          const L = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) || 1;
-          const sg = arm.fromEnd ? -1 : 1;
-          const tx = (sg * (pts[i + 1][0] - pts[i][0])) / L, tz = (sg * (pts[i + 1][1] - pts[i][1])) / L;
-          return { x, z, h, nx: -tz, nz: tx, hw: ln.width[i] / 2 };
-        };
+        const atArm = (s) => at(arm.fromEnd, s);
         const bar = (s0, s1, frac) => {
-          const a = at(s0), b = at(s1);
+          const a = atArm(s0), b = atArm(s1);
           const wa = a.hw * frac, wb = b.hw * frac;
           quad([a.x - a.nx * wa, a.h + 0.05, a.z - a.nz * wa], [a.x + a.nx * wa, a.h + 0.05, a.z + a.nz * wa],
             [b.x - b.nx * wb, b.h + 0.05, b.z - b.nz * wb], [b.x + b.nx * wb, b.h + 0.05, b.z + b.nz * wb], 8, arm.o, ribbonCls);
