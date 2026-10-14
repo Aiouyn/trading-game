@@ -72,7 +72,9 @@ export class CityView {
       uRamp0: { value: col(RAMP[0]) }, uRamp1: { value: col(RAMP[1]) }, uRamp2: { value: col(RAMP[2]) },
       uDistCol: { value: distCol },
       uHazeColor: { value: new THREE.Color(0.83, 0.6, 0.48) }, uHaze0: { value: 1000 }, uHaze1: { value: 4000 },
+      uDetail: { value: 1 },
     };
+    this.qualityTier = 'high';
     this.yaw = Math.PI / 4; this.yawTarget = this.yaw;
     this.target = new THREE.Vector3();
     this.scale = 2; // metres per CSS pixel
@@ -112,14 +114,24 @@ export class CityView {
 
   /** The device pixel ratio the canvas renders at: capped by screen size, and 1 when saving or after a sustained slow frame. */
   applyPixelRatio() {
-    const cap = this.saver || this.dropped ? 1 : window.innerWidth >= 1200 ? PIXEL_CAP_LARGE : 2;
+    const cap = this.saver || this.dropped || this.qualityTier !== 'high' ? 1 : window.innerWidth >= 1200 ? PIXEL_CAP_LARGE : 2;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
     if (this.w !== undefined) this.resize();
+  }
+
+  /** Set the quality tier ('high' | 'balanced' | 'low'): gates microscopic shader noise and DPR. */
+  setQualityTier(tier) {
+    if (!['high', 'balanced', 'low'].includes(tier)) return;
+    this.qualityTier = tier;
+    this.uniforms.uDetail.value = tier === 'high' ? 1 : tier === 'balanced' ? 0.5 : 0;
+    this.applyPixelRatio();
+    this.dirty = true;
   }
 
   /** The battery saver: pixel ratio 1 and a slower animation. */
   setSaver(on) {
     this.saver = on;
+    this.uniforms.uDetail.value = on ? 0 : this.qualityTier === 'high' ? 1 : this.qualityTier === 'balanced' ? 0.5 : 0;
     this.applyPixelRatio();
     this.animKey = '';
     this.dirty = true;

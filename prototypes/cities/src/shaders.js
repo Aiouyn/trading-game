@@ -13,6 +13,7 @@ uniform vec3 uInk;
 uniform vec3 uHazeColor;
 uniform float uHaze0;
 uniform float uHaze1;
+uniform float uDetail;
 float h11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
 float h31(vec3 p3) { p3 = fract(p3 * 0.1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }
 // smooth value noise on a lattice, range [0, 1]
@@ -64,9 +65,11 @@ float facadeKind(vec3 c) {
 }
 // facade colour before lighting; p = (metres along the facade, metres above the ground)
 vec3 wallMat(vec3 c, vec2 p, float fh, float bid, float pxm) {
+  if (uDetail <= 0.01) return c;
   float k = facadeKind(c);
   float hb = h11(fract(bid * 0.6180339) + 0.21);
   float far = smoothstep(0.35, 0.7, pxm);
+  vec3 res = c;
   if (k < 0.5) {
     // running bond: 0.8 m bricks in 0.4 m courses, every other course offset, a few darker bricks
     vec2 cell = vec2(0.8, 0.4);
@@ -74,44 +77,44 @@ vec3 wallMat(vec3 c, vec2 p, float fh, float bid, float pxm) {
     float v = h31(vec3(floor(pp / cell), hb * 9.0 + 2.0));
     vec3 bc = c * (0.84 + 0.26 * v) * mix(1.0, 0.7, step(0.94, v));
     float jt = mix(max(lineX(p.y, cell.y, 0.03, pxm), lineX(pp.x, cell.x, 0.03, pxm)), 0.22, far);
-    return mix(bc, mix(c, vec3(0.86, 0.82, 0.74), 0.7), jt);
-  }
-  if (k < 1.5) {
+    res = mix(bc, mix(c, vec3(0.86, 0.82, 0.74), 0.7), jt);
+  } else if (k < 1.5) {
     // ashlar: 0.6 m courses with random block joints
     float row = floor(p.y / 0.6);
     vec2 pp = vec2(p.x + 1.3 * h31(vec3(row, hb * 4.0, 3.0)), p.y);
     float v = h31(vec3(floor(pp / vec2(1.3, 0.6)), hb * 5.0));
     float jt = mix(max(lineX(p.y, 0.6, 0.02, pxm), lineX(pp.x, 1.3, 0.02, pxm)), 0.2, far);
-    return mix(c * (0.93 + 0.12 * v), c * 0.78, jt * 0.8);
-  }
-  if (k < 2.5) {
+    res = mix(c * (0.93 + 0.12 * v), c * 0.78, jt * 0.8);
+  } else if (k < 2.5) {
     // cladding panels: joints every 2.4 m and at each floor, a little tone per panel and a faint speckle
     vec2 cell = vec2(2.4, max(fh, 2.0));
     float v = h31(vec3(floor(p / cell), hb * 7.0));
     float jt = mix(max(lineX(p.x, 2.4, 0.02, pxm), lineX(p.y, cell.y, 0.025, pxm)), 0.15, far);
     float sp = 0.5;
     if (far < 0.999) sp = mix(vnoise(p * 1.3 + hb * 13.0), 0.5, far);
-    return mix(c * (0.96 + 0.08 * v), c * 0.8, jt * 0.6) * (0.96 + 0.08 * sp);
-  }
-  if (k < 3.5) {
+    res = mix(c * (0.96 + 0.08 * v), c * 0.8, jt * 0.6) * (0.96 + 0.08 * sp);
+  } else if (k < 3.5) {
     // painted render: soft grain and streaks of weathering (skipped when the pixel is too big to show them)
     float g1 = 0.5, g2 = 0.5;
     if (far < 0.999) {
       g1 = mix(vnoise(p * 1.4 + hb * 17.0), 0.5, far);
       g2 = mix(vnoise(vec2(p.x * 0.35, p.y * 0.09) + hb * 5.0), 0.5, far);
     }
-    return c * (0.95 + 0.06 * g1) * (0.9 + 0.14 * g2);
+    res = c * (0.95 + 0.06 * g1) * (0.9 + 0.14 * g2);
+  } else {
+    // timber: vertical boards 0.22 m wide, seams and a little tone per board
+    float bd = floor(p.x / 0.22);
+    float v = h31(vec3(bd, hb * 7.0, 5.0));
+    float seam = mix(lineX(p.x, 0.22, 0.012, pxm), 0.1, far);
+    res = mix(c * (0.9 + 0.18 * v), c * 0.6, seam * 0.7);
   }
-  // timber: vertical boards 0.22 m wide, seams and a little tone per board
-  float bd = floor(p.x / 0.22);
-  float v = h31(vec3(bd, hb * 7.0, 5.0));
-  float seam = mix(lineX(p.x, 0.22, 0.012, pxm), 0.1, far);
-  return mix(c * (0.9 + 0.18 * v), c * 0.6, seam * 0.7);
+  return mix(c, res, uDetail);
 }
 // tiled or slated slope; p = metres (across, up the slope); ridge is 1 on the ridge cap
 vec3 roofTiles(vec3 c, vec2 p, float pxm, float ridge, float bid) {
+  if (uDetail <= 0.01) return c;
   float L = lumaOf(c);
-  if (L > 0.8) return c * (0.97 + 0.03 * vnoise(p * 3.0)); // snow and white roofs stay smooth
+  if (L > 0.8) return c * (0.97 + 0.03 * vnoise(p * 3.0) * uDetail); // snow and white roofs stay smooth
   float hb = h11(fract(bid * 0.6180339) + 0.21);
   bool slate = c.b > c.r - 0.02 || max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b)) < 0.12;
   vec2 cell = slate ? vec2(0.5, 0.25) : vec2(0.62, 0.36);
@@ -124,11 +127,12 @@ vec3 roofTiles(vec3 c, vec2 p, float pxm, float ridge, float bid) {
   vec3 tc = c * (0.9 + 0.16 * v) * course;
   float jn = mix(max(lineX(p.y, cell.y, 0.02, pxm), lineX(pp.x, cell.x, 0.02, pxm)), 0.0, far);
   tc *= 1.0 - 0.3 * jn * (slate ? 1.0 : 0.5);
-  return mix(tc, c * 0.7, ridge * (1.0 - far));
+  vec3 res = mix(tc, c * 0.7, ridge * (1.0 - far));
+  return mix(c, res, uDetail);
 }
 // flat roof: gravel grain, a lighter parapet cap and the shadow it throws inside; m = local xz, sz = size xz
 vec3 roofTop(vec3 c, vec2 m, vec2 sz, float pxm) {
-  if (lumaOf(c) > 0.8) return c;
+  if (uDetail <= 0.01 || lumaOf(c) > 0.8) return c;
   float ed = min(sz.x * 0.5 - abs(m.x), sz.y * 0.5 - abs(m.y));
   float gravel = 0.5;
   if (pxm < 0.6) gravel = mix(vnoise(m * 4.0) * 0.6 + vnoise(m * 11.0) * 0.4, 0.5, smoothstep(0.25, 0.6, pxm));
@@ -136,7 +140,8 @@ vec3 roofTop(vec3 c, vec2 m, vec2 sz, float pxm) {
   float rim = 1.0 - smoothstep(0.2 - pxm, 0.2 + pxm, ed);
   g = mix(g, g * 1.12 + 0.02, rim);
   float sh = (1.0 - smoothstep(0.2, 1.4, ed)) * (1.0 - rim) * (1.0 - smoothstep(0.25, 0.6, pxm));
-  return g * (1.0 - 0.14 * sh);
+  vec3 res = g * (1.0 - 0.14 * sh);
+  return mix(c, res, uDetail);
 }
 `;
 
@@ -519,10 +524,10 @@ void main() {
   float edgeIn = smoothstep(uHalf - 500.0, uHalf, max(abs(vXZ.x), abs(vXZ.y)));
   // MATERIALS: metres per pixel on the ground; grass grain and mowing stripes fade out before they would shimmer
   float pxG = max(fwidth(vXZ.x), fwidth(vXZ.y));
-  float grassF = 1.0 - smoothstep(0.25, 0.7, pxG);
-  float stripeF = 1.0 - smoothstep(0.5, 1.2, pxG);
+  float grassF = (1.0 - smoothstep(0.25, 0.7, pxG)) * uDetail;
+  float stripeF = (1.0 - smoothstep(0.5, 1.2, pxG)) * uDetail;
   float grass = 0.5;
-  if (grassF > 0.001) grass = vnoise(vXZ * 1.3) * 0.6 + vnoise(vXZ * 3.7 + 7.0) * 0.4;
+  if (uDetail > 0.01 && grassF > 0.001) grass = vnoise(vXZ * 1.3) * 0.6 + vnoise(vXZ * 3.7 + 7.0) * 0.4;
   float mow = step(0.0, sin(vXZ.x * 0.5236));
   // bare land, lawns and parks; urban blocks are meadow until the city reaches them
   float blockO = water > 0.5 ? 0.0 : depth;
@@ -749,7 +754,8 @@ void main() {
   if (dirt) c = vec3(0.5, 0.44, 0.34);
   if (drive) c = mix(cRoad0, vec3(0.68, 0.66, 0.62), 0.5);
   // asphalt grain from world-space noise, so it does not swim with the camera
-  float grain = 0.95 + 0.06 * vnoise(vXZ * 0.9) + 0.03 * vnoise(vXZ * 3.7);
+  float grain = 1.0;
+  if (uDetail > 0.01) grain = mix(1.0, 0.95 + 0.06 * vnoise(vXZ * 0.9) + 0.03 * vnoise(vXZ * 3.7), uDetail);
   if (paint) {
     c = vec3(0.86, 0.85, 0.8);
   } else if (junction) {

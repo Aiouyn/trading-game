@@ -440,7 +440,7 @@ export function connectGraph(g, { landAt, isWater }) {
     }
     comps.push({ id, nodes, len: 0, label: -1, edges: [] });
   }
-  g.edges.forEach((e, i) => { const c = comp[e.a]; comps[c].edges.push(i); comps[c].len += polyLen(e.pts); });
+  g.edges.forEach((e, i) => { const c = comp[e.a]; comps[c].edges.push(i); comps[c].len += polyLen(e.pts); if (e.cls >= 4) comps[c].hasArterial = true; });
   for (const c of comps) {
     let longest = null, bl = -1;
     for (const ei of c.edges) { const L = polyLen(g.edges[ei].pts); if (L > bl) { bl = L; longest = g.edges[ei]; } }
@@ -459,7 +459,7 @@ export function connectGraph(g, { landAt, isWater }) {
   let dropped = 0, linked = 0;
   const cs = 100;
   for (const list of byLabel.values()) {
-    list.sort((a, b) => b.len - a.len);
+    list.sort((a, b) => Number(Boolean(b.hasArterial)) - Number(Boolean(a.hasArterial)) || b.len - a.len);
     const mainNodes = list[0].nodes.slice();
     for (const c of list.slice(1)) {
       // the shortest dry straight line from this component to the ones already kept on its landmass
@@ -522,7 +522,9 @@ export function buildRoadGraph(lines, { spacing, isWater, landAt }) {
   stats.linked = cn.stats.linked; stats.droppedComps = cn.stats.dropped;
   g = planarize(cn.edges.map((e) => ({ cls: e.cls, level: e.level, requiredAccess: e.requiredAccess, pts: e.pts })));
   const cFinal = connectGraph({ nodes: g.nodes, edges: g.edges.filter((e) => e.a !== e.b || polyLen(e.pts) >= 45) }, { landAt, isWater });
-  const edges = cFinal.edges;
+  g = planarize(cFinal.edges.map((e) => ({ cls: e.cls, level: e.level, requiredAccess: e.requiredAccess, pts: e.pts })));
+  const cPost = connectGraph({ nodes: g.nodes, edges: g.edges.filter((e) => e.a !== e.b || polyLen(e.pts) >= 45) }, { landAt, isWater });
+  const edges = cPost.edges;
   const deg = new Int32Array(g.nodes.length);
   edges.forEach((e, id) => { e.id = id; deg[e.a]++; deg[e.b]++; });
   stats.nodes = g.nodes.length;

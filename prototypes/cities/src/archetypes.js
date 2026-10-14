@@ -236,6 +236,7 @@ export function buildArchetype(type, L, ctx) {
     default:
       b.box(0, 0, 0, w, H, dp, fac, S.PUNCH);
   }
+  addEntrance(b, rec, front);
 
   const floors = Math.max(1, Math.round(rec.h / 3.3));
   rec.floors = floors;
@@ -245,6 +246,43 @@ export function buildArchetype(type, L, ctx) {
   else rec.jobs = Math.round(area / 60);
   if (type === 'midrise' || type === 'micro') rec.jobs = Math.round(area / 120);
   return rec;
+}
+
+function addEntrance(b, rec, front) {
+  const depthFactor = {
+    row: 1, house: 0.8, gabled: 0.92, midrise: 0.97,
+    loft: 0.97, warehouse: 0.96,
+  }[rec.type];
+  if (depthFactor === undefined) return;
+  const width = rec.type === 'warehouse' ? 3.2 : Math.min(1.5, rec.w * 0.22);
+  const height = rec.type === 'warehouse' ? 3.2 : Math.min(2.5, rec.h * 0.65);
+  const z = front * (rec.dp * depthFactor * 0.5 + 0.025);
+  b.box(0, 0.05, z, width, height, 0.06, 0x343936, S.PLAIN);
+  b.box(0, height + 0.05, z, width + 0.3, 0.18, 0.18, 0xb9ab90, S.PLAIN);
+}
+
+/**
+ * Attach a simple dark sign panel and slim frame above the entrance for selected lease-demo units.
+ * Flag bit 8 marks the sign/frame parts so Stage 1 renovation can warm the accent without regenerating the city.
+ */
+export function addShopFrontage(parts, rec) {
+  const depthFactor = {
+    row: 1, house: 0.8, gabled: 0.92, midrise: 0.97,
+    loft: 0.97, warehouse: 0.96, strip: 0.9, micro: 0.95, palazzo: 1,
+  }[rec.type] ?? 0.97;
+  const front = rec.front ?? -1;
+  const b = new B({ parts }, rec);
+  b.flags = 8;
+  const panelW = Math.min(Math.max(2.6, rec.w * 0.52), 5.6);
+  const panelH = 0.62;
+  const doorH = rec.type === 'warehouse' ? 3.2 : Math.min(2.5, rec.h * 0.65);
+  const y = doorH + 0.35;
+  const z = front * (rec.dp * depthFactor * 0.5 + 0.08);
+  // Dark sign panel
+  b.box(0, y, z, panelW, panelH, 0.1, 0x222629, S.PLAIN, 3.3, 3, 0, 0.5);
+  // Slim frame around sign and entrance canopy
+  b.box(0, y + panelH, z + front * 0.02, panelW + 0.24, 0.1, 0.16, 0x7b7263, S.PLAIN, 3.3, 3, 0, 0.6);
+  b.box(0, y - 0.08, z + front * 0.02, panelW + 0.24, 0.08, 0.16, 0x7b7263, S.PLAIN, 3.3, 3, 0, 0.6);
 }
 
 function roofProps(b, R, w, dp, top, P, chance) {

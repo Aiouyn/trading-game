@@ -37,7 +37,10 @@ const RECIPES = {
 export function preparePersonality(P) {
   if (P.id !== 'avalon') return P;
   const districts = P.districts.map((d) => (RECIPES[d.id] ? { ...d, ...RECIPES[d.id] } : { ...d }));
-  return { ...P, districts };
+  const centers = P.centers.some(([cx, cy]) => cx === -950 && cy === 150)
+    ? P.centers.map((c) => [...c])
+    : [...P.centers.map((c) => [...c]), [-950, 150, 0.24, 340]];
+  return { ...P, centers, districts };
 }
 
 /**

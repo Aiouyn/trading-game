@@ -204,3 +204,30 @@ test('repeated identical focus calls allocate no new glow geometry or labels', a
   expect(result.last.labels, 'repeated identical focus allocated new labels').toBe(result.first.labels);
   expect(result.last.geometries, 'repeated identical focus allocated new geometry').toBe(result.first.geometries);
 });
+
+test('all three quality detail tiers compile and preserve building and parcel counts', async ({ page, baseURL }) => {
+  await frozenPage(page, baseURL);
+  const res = await page.evaluate(() => {
+    const a = window.__cities, v = a.view;
+    const baseBuildings = a.city.buildings.length;
+    const baseParcels = a.city.buildings.filter((b) => b.parcelId).length;
+    const tiers = [];
+    for (const [tier, detail] of [['high', 1], ['balanced', 0.5], ['low', 0]]) {
+      v.setQualityTier(tier);
+      v.dirty = true;
+      v.frame(0);
+      tiers.push({
+        tier,
+        uDetail: v.uniforms.uDetail?.value,
+        buildings: a.city.buildings.length,
+        parcels: a.city.buildings.filter((b) => b.parcelId).length,
+      });
+    }
+    return { baseBuildings, baseParcels, tiers };
+  });
+  expect(res.tiers.map((t) => t.uDetail)).toEqual([1, 0.5, 0]);
+  for (const t of res.tiers) {
+    expect(t.buildings).toBe(res.baseBuildings);
+    expect(t.parcels).toBe(res.baseParcels);
+  }
+});

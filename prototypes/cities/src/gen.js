@@ -8,7 +8,7 @@ import { Parts, buildArchetype, buildLandmark, buildTree, buildCrane, buildShip,
 import { sampleOutskirts, outskirtsHeight, traceHighways } from './outskirts.js';
 import { buildRoadGraph, labelLand, SegGrid } from './roadgraph.js';
 import { parcelId } from './parcel-id.js';
-import { avalonHeight } from './avalon-art.js';
+import { avalonHeight, preparePersonality } from './avalon-art.js';
 import { resolveEntranceAccess, thresholdOf, DEPTH_FACTOR } from './entrance-access.js';
 import { entranceOf } from './access.js';
 import { eligibleJunctionArm } from './junction-style.js';
@@ -23,7 +23,8 @@ const FRES = 8;  // tensor field resolution
 
 const HALF_PI = Math.PI / 2;
 
-export async function generateCity(P, progress = () => {}) {
+export async function generateCity(P0, progress = () => {}) {
+  const P = preparePersonality(P0);
   const t0 = performance.now();
   const timings = {};
   let tLast = t0;
