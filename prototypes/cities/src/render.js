@@ -388,22 +388,43 @@ export class CityView {
       }
       return true;
     };
-    const idx = [];
-    const emit = (bi, bj, s) => {
-      if (s > 1 && flat(bi, bj, s)) {
-        idx.push(V(bi, bj), V(bi, bj + s), V(bi + s, bj), V(bi, bj + s), V(bi + s, bj + s), V(bi + s, bj));
-        return;
-      }
-      if (s === 1) {
-        const a = V(bi, bj), b = V(bi, bj + 1), c = V(bi + 1, bj + 1), d = V(bi + 1, bj);
-        idx.push(a, b, d, b, c, d);
-        return;
-      }
-      const h = s / 2;
-      emit(bi, bj, h); emit(bi + h, bj, h); emit(bi, bj + h, h); emit(bi + h, bj + h, h);
-    };
+    // the leaves of the quadtree: [i, j, size, collapsed] (size in cells; a size-1 leaf is one cell)
     const top = [16, 8, 4, 2, 1].find((s) => G % s === 0);
-    for (let bj = 0; bj < G; bj += top) for (let bi = 0; bi < G; bi += top) emit(bi, bj, top);
+    const leaves = [];
+    const walk = (bi, bj, s) => {
+      if (s > 1 && flat(bi, bj, s)) { leaves.push([bi, bj, s, true]); return; }
+      if (s === 1) { leaves.push([bi, bj, 1, false]); return; }
+      const h = s / 2;
+      walk(bi, bj, h); walk(bi + h, bj, h); walk(bi, bj + h, h); walk(bi + h, bj + h, h);
+    };
+    for (let bj = 0; bj < G; bj += top) for (let bi = 0; bi < G; bi += top) walk(bi, bj, top);
+    // A collapsed leaf keeps every vertex of an edge unless the leaf of the same size across that edge is collapsed
+    // too, then only the two corners meet there. Both sides of any edge therefore carry the same vertices (no cracks),
+    // and the fan over the perimeter shades like the flat cells did.
+    const key = (i, j, s) => `${i},${j},${s}`;
+    const collapsed = new Set(leaves.filter((l) => l[3]).map((l) => key(l[0], l[1], l[2])));
+    const idx = [];
+    for (const [x0, z0, s, isC] of leaves) {
+      if (!isC) {
+        const a = V(x0, z0), b = V(x0, z0 + 1), c = V(x0 + 1, z0 + 1), d = V(x0 + 1, z0);
+        idx.push(a, b, d, b, c, d);
+        continue;
+      }
+      // the sides in loop order (-z, +x, +z, -x), each starting at its first corner
+      const side = (ax, az, bx, bz, nk) => {
+        if (collapsed.has(nk)) return [V(ax, az)];
+        const pts = [], dx = Math.sign(bx - ax), dz = Math.sign(bz - az);
+        for (let t = 0; t < s; t++) pts.push(V(ax + dx * t, az + dz * t));
+        return pts;
+      };
+      const perim = [
+        ...side(x0, z0, x0, z0 + s, key(x0 - s, z0, s)),
+        ...side(x0, z0 + s, x0 + s, z0 + s, key(x0, z0 + s, s)),
+        ...side(x0 + s, z0 + s, x0 + s, z0, key(x0 + s, z0, s)),
+        ...side(x0 + s, z0, x0, z0, key(x0, z0 - s, s)),
+      ];
+      for (let k = 1; k < perim.length - 1; k++) idx.push(perim[0], perim[k], perim[k + 1]);
+    }
     pg.setIndex(idx);
     this.groundTris = idx.length / 3;
     this.groundTrisFull = G * G * 2;
