@@ -5,7 +5,7 @@ import { makeGeoms } from './geoms.js';
 import { GEOMS, STRIDE } from './archetypes.js';
 import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag, outVert, outFrag } from './shaders.js';
 import { PALETTE, RAMP } from './lenses.js';
-import { BIT_OCCLUDER, BIT_FOCUS, projectBoxes, findSeeThrough } from './seethrough.js';
+import { BIT_OCCLUDER, BIT_FOCUS, projectBoxes, findSeeThrough, focusBoxes } from './seethrough.js';
 import { outskirtsHeight } from './outskirts.js';
 import { smoothstep } from './noise.js';
 
@@ -14,6 +14,24 @@ const col = (hex) => new THREE.Color(((hex >> 16) & 255) / 255, ((hex >> 8) & 25
 const distCol = new Float32Array(PALETTE.length * 3);
 PALETTE.forEach((h, i) => distCol.set([((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255], i * 3));
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+// the glow under a focus building: uv = footprint-relative metres, aHalf = the footprint's half sizes
+const glowVert = /* glsl */ `
+attribute vec2 aHalf;
+varying vec2 vP;
+varying vec2 vHalf;
+void main() { vP = uv; vHalf = aHalf; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const glowFrag = /* glsl */ `
+uniform vec3 uBrass;
+uniform float uNight;
+varying vec2 vP;
+varying vec2 vHalf;
+void main() {
+  vec2 q = abs(vP) - vHalf;
+  float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0); // metres outside the footprint
+  float a = 1.0 - smoothstep(0.0, 14.0, sd);
+  a = a * a * smoothstep(-0.5, 0.5, sd) * 0.45;
+  gl_FragColor = vec4(uBrass * (1.0 + 0.3 * uNight), a);
+}`;
 
 export class CityView {
   constructor(canvas, labelLayer) {
@@ -31,7 +49,11 @@ export class CityView {
       uNight: { value: 0 }, uGrowth: { value: 1.04 }, uBand: { value: 0.035 }, uTime: { value: 0 },
       uInk: { value: col(0x15171b) }, uMood: { value: 0 }, uHover: { value: -1 },
       uLit0: { value: col(0xffcf7a) }, uLit1: { value: col(0xffe2a8) }, uLit2: { value: col(0xffb85c) },
-      uBrass: { value: col(0xc9a45c) }, uSkyRefl: { value: col(0x9fb4c4) }, uGhostPass: { value: 0 }, uFocusPass: { value: 0 },
+      uBrass: { value: col(0xc9a45c) }, uSkyRefl: { value: col(0x9fb4c4) },
+      // see-through: uCutT eases 0..1 (occluders cut at uCutH above their ground, from uFullH); the focus boxes for the trees
+      uCutT: { value: 0 }, uCutH: { value: 9 }, uFullH: { value: 60 }, uOutlinePass: { value: 0 }, uOutlineM: { value: 2 },
+      uRight: { value: new THREE.Vector3(1, 0, 0) }, uUp: { value: new THREE.Vector3(0, 1, 0) }, uFwd: { value: new THREE.Vector3(0, 0, -1) },
+      uFocusN: { value: 0 }, uFocusRect: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) }, uFocusDepth: { value: new Float32Array(12) },
       // map lenses (lenses.js): uLens emphasis on, uLensGround 0 none / 1 land value / 2 districts, uLensDim ground dim
       uLens: { value: 0 }, uLensGround: { value: 0 }, uLensDim: { value: 0 },
       uRamp0: { value: col(RAMP[0]) }, uRamp1: { value: col(RAMP[1]) }, uRamp2: { value: col(RAMP[2]) },
@@ -46,9 +68,10 @@ export class CityView {
     this.objects = [];
     this.labels = [];
     this.hoverId = -1;
-    // see-through: focus set (building ids), its occluder count, and the screen boxes for the yaw they were made at
-    this.focusIds = []; this.focusSet = new Set();
-    this.ghosts = []; this.seeCount = 0; this.seeDirty = false;
+    // see-through: focus set (building ids), the occluders (bit 2, cut in partVert), the cut's progress (cutP runs to
+    // cutTo; uCutT is its eased value), the glows under the focus buildings, and the screen boxes for their yaw
+    this.focusIds = []; this.focusSet = new Set(); this.focusKey = '';
+    this.occ = []; this.cutP = 0; this.cutTo = 0; this.seeDirty = false; this.glows = [];
     this.seeBoxes = null; this.boxYaw = NaN; this.seeYaw = NaN; this.seeScale = NaN; this.seeMs = 0; this.seeBoxMs = 0;
     this.motion = !matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.resize();
@@ -71,7 +94,7 @@ export class CityView {
     this.uniforms.uLit0.value = col(pal.lit[0]); this.uniforms.uLit1.value = col(pal.lit[1]); this.uniforms.uLit2.value = col(pal.lit[2]);
 
     // per-building state, one RGBA texel per building id (bid), read by the part shaders.
-    // rgb = lens tint (0..255), a = bit flags: 1 lens emphasis, 2 see-through (ghost), 4 focus.
+    // rgb = lens tint (0..255), a = bit flags: 1 lens emphasis, 2 see-through occluder (cut), 4 focus.
     // Writers: lenses set rgb + bit 1; see-through sets bits 2 and 4. Row 0 / bid 0 = trees, boats, cranes.
     const STATE_W = 256;
     const stateH = Math.max(1, Math.ceil((city.buildings.length + 1) / STATE_W));
@@ -81,8 +104,10 @@ export class CityView {
     this.stateTex.needsUpdate = true;
     this.uniforms.uState = { value: this.stateTex };
     this.uniforms.uStateW = { value: STATE_W };
-    this.focusIds = []; this.focusSet = new Set();
-    this.seeBoxes = null; this.boxYaw = NaN; this.seeYaw = NaN; this.seeScale = NaN; this.seeCount = 0; this.seeDirty = true;
+    this.focusIds = []; this.focusSet = new Set(); this.focusKey = ''; this.occ = []; this.cutP = 0; this.cutTo = 0;
+    this.uniforms.uCutT.value = 0; this.uniforms.uFocusN.value = 0;
+    this.clearGlows();
+    this.seeBoxes = null; this.boxYaw = NaN; this.seeYaw = NaN; this.seeScale = NaN; this.seeDirty = true;
 
     // lens rasters on the generator's coarse grid (same layout as the heights): land value as bytes, and the
     // district index per cell (a byte, read back as idx / 255 in groundFrag)
@@ -96,20 +121,19 @@ export class CityView {
     this.uniforms.uLandV = { value: grid(landBytes, THREE.LinearFilter) };
     this.uniforms.uDistT = { value: grid(city.districts.data, THREE.NearestFilter) };
 
-    // parts: one instanced draw per geometry, plus a ghost draw of the same geometry for the see-through occluders
+    // parts: one instanced draw per geometry; a second draw of the same geometry (inverted hull, back faces) outlines
+    // the focus buildings. The outline material shares the uniform objects, so the numbers stay live.
     const partMat = new THREE.ShaderMaterial({ vertexShader: partVert, fragmentShader: partFrag, uniforms: this.uniforms });
-    // the ghost material shares the uniform objects (cloning would freeze the numbers), with uGhostPass = 1
-    const ghostMat = new THREE.ShaderMaterial({
-      vertexShader: partVert, fragmentShader: partFrag, uniforms: { ...this.uniforms, uGhostPass: { value: 1 } },
-      transparent: true, depthWrite: false,
+    const outlineMat = new THREE.ShaderMaterial({
+      vertexShader: partVert, fragmentShader: partFrag, side: THREE.BackSide, uniforms: { ...this.uniforms, uOutlinePass: { value: 1 } },
     });
-    // the focus pass: the focus buildings again, on top of everything (depth test off), brass outline and veil
-    const focusMat = new THREE.ShaderMaterial({
-      vertexShader: partVert, fragmentShader: partFrag, uniforms: { ...this.uniforms, uGhostPass: { value: 0 }, uFocusPass: { value: 1 } },
-      transparent: true, depthWrite: false, depthTest: false,
+    // the glow under a focus building: a soft brass halo on the ground around its footprint
+    this.glowMat = new THREE.ShaderMaterial({
+      vertexShader: glowVert, fragmentShader: glowFrag, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+      uniforms: { uBrass: this.uniforms.uBrass, uNight: this.uniforms.uNight },
     });
-    this.focusMeshes = [];
-    this.ghosts = [];
+    this.outlines = [];
     for (const k of GEOMS) {
       const arr = city.parts[k];
       const count = arr.length / STRIDE;
@@ -128,12 +152,9 @@ export class CityView {
       const m = new THREE.Mesh(g, partMat);
       m.frustumCulled = false;
       this.add(m);
-      const gm = new THREE.Mesh(g, ghostMat);
-      gm.frustumCulled = false; gm.renderOrder = 2; gm.visible = false;
-      this.add(gm); this.ghosts.push(gm);
-      const fm = new THREE.Mesh(g, focusMat);
-      fm.frustumCulled = false; fm.renderOrder = 3; fm.visible = false;
-      this.add(fm); this.focusMeshes.push(fm);
+      const om = new THREE.Mesh(g, outlineMat);
+      om.frustumCulled = false; om.renderOrder = 2; om.visible = false;
+      this.add(om); this.outlines.push(om);
     }
 
     // ground
@@ -416,6 +437,11 @@ export class CityView {
     this.camera.left = -hw; this.camera.right = hw; this.camera.top = hh; this.camera.bottom = -hh;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
+    // the view basis for the tree rule in partVert (right, up, and the view direction: smaller depth = nearer)
+    const e = this.camera.matrixWorld.elements;
+    this.uniforms.uRight.value.set(e[0], e[1], e[2]);
+    this.uniforms.uUp.value.set(e[4], e[5], e[6]);
+    this.uniforms.uFwd.value.set(-e[8], -e[9], -e[10]);
   }
 
   pan(dx, dy) {
@@ -474,7 +500,7 @@ export class CityView {
       }
       if (t0 > t1) continue;
       if (t0 < bt) { bt = t0; best = b; }
-      // a focus building the ray passes through wins the click, so it stays reachable behind the glass in front of it
+      // a focus building the ray passes through wins the click, so it stays reachable behind the towers in front of it
       if (t0 < btFocus && this.focusSet.has(b.id)) { btFocus = t0; bestFocus = b; }
     }
     return bestFocus ?? best;
@@ -483,13 +509,14 @@ export class CityView {
   setHover(id) { if (id !== this.hoverId) { this.hoverId = id; this.uniforms.uHover.value = id; this.dirty = true; } }
 
   // ------------------------------------------------------------------ see-through
-  /** The focus set (building ids): drawn with brass edges, and the built buildings that hide them are ghosted. */
+  /** The focus set (building ids): brass outline and glow, and the built buildings that hide them are cut. */
   setFocus(ids) {
     const next = [...new Set(ids)];
     if (next.length === this.focusIds.length && next.every((id, i) => id === this.focusIds[i])) return;
     this.focusIds = next;
     this.focusSet = new Set(next);
     this.syncFocusLabels();
+    this.syncGlows();
     this.seeDirty = true; this.dirty = true;
   }
 
@@ -510,37 +537,106 @@ export class CityView {
     }
   }
 
+  /** One soft brass halo on the ground around each focus building's footprint. */
+  syncGlows() {
+    this.clearGlows();
+    if (!this.city) return;
+    const R = 14; // metres, the halo's reach (matches glowFrag)
+    for (const id of this.focusIds) {
+      const b = this.city.buildings[id - 1];
+      const c = Math.cos(b.rot), s = Math.sin(b.rot), hw = b.w / 2 + R, hd = b.dp / 2 + R, y = b.gz + 0.6;
+      const pos = [], uv = [], half = [];
+      for (const [la, lb] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
+        pos.push(b.x + c * la - s * lb, y, b.y + s * la + c * lb);
+        uv.push(la, lb); half.push(b.w / 2, b.dp / 2);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setAttribute('aHalf', new THREE.Float32BufferAttribute(half, 2));
+      g.setIndex([0, 1, 2, 0, 2, 3]);
+      const m = new THREE.Mesh(g, this.glowMat);
+      m.frustumCulled = false; m.renderOrder = 3;
+      this.scene.add(m); this.glows.push(m);
+    }
+  }
+  clearGlows() {
+    for (const m of this.glows) { this.scene.remove(m); m.geometry.dispose(); }
+    this.glows = [];
+  }
+
   /**
-   * The see-through pass, on the CPU and only when something changed (focus, growth, a settled yaw), never per frame:
-   * bit 4 on the focus buildings, bit 2 on the built buildings that stand in front of them. Other bits are kept.
+   * The see-through pass, on the CPU and only when something changed (focus, growth, a settled yaw, a zoom of 25%),
+   * never per frame: bit 4 on the focus buildings, bit 2 on the built buildings that stand in front of them (the
+   * occluders, cut in partVert). A changed set restarts the cut from full height. When the focus is cleared the
+   * occluder bits stay until the cut has retracted (animateCut).
    */
   applySeeThrough() {
     const t0 = performance.now();
     this.seeDirty = false;
     this.seeYaw = this.yaw;
     this.seeScale = this.scale;
-    this.clearState(BIT_OCCLUDER | BIT_FOCUS);
-    this.seeCount = 0;
-    if (this.focusIds.length && this.city) {
-      this.updateCamera();
-      if (this.boxYaw !== this.yaw) {
-        // the view basis from the camera: columns are right, up and back (the camera looks along -back)
-        const t1 = performance.now();
-        const e = this.camera.matrixWorld.elements;
-        this.seeBoxes = projectBoxes(this.city.buildings, [e[0], e[1], e[2]], [e[4], e[5], e[6]], [-e[8], -e[9], -e[10]], this.seeBoxes);
-        this.boxYaw = this.yaw;
-        this.seeBoxMs = performance.now() - t1;
-      }
-      const margin = 4 * this.scale; // four CSS pixels, in metres
-      const { focus, occluders } = findSeeThrough(this.city.buildings, this.seeBoxes, this.focusIds, this.uniforms.uGrowth.value, margin);
-      for (const id of focus) this.setFlags(id, this.getFlags(id) | BIT_FOCUS);
-      for (const id of occluders) this.setFlags(id, this.getFlags(id) | BIT_OCCLUDER);
-      this.seeCount = occluders.length;
+    this.clearState(BIT_FOCUS);
+    if (!this.focusIds.length || !this.city) {
+      this.cutTo = 0;
+      this.focusKey = '';
+      this.uniforms.uFocusN.value = 0;
+      for (const om of this.outlines) om.visible = false;
+      this.commitState();
+      this.seeMs = performance.now() - t0;
+      return;
     }
-    for (const gm of this.ghosts) gm.visible = this.seeCount > 0;
-    for (const fm of this.focusMeshes) fm.visible = this.focusIds.length > 0;
+    this.updateCamera();
+    if (this.boxYaw !== this.yaw) {
+      // the view basis from the camera: columns are right, up and back (the camera looks along -back)
+      const t1 = performance.now();
+      const e = this.camera.matrixWorld.elements;
+      this.seeBoxes = projectBoxes(this.city.buildings, [e[0], e[1], e[2]], [e[4], e[5], e[6]], [-e[8], -e[9], -e[10]], this.seeBoxes);
+      this.boxYaw = this.yaw;
+      this.seeBoxMs = performance.now() - t1;
+    }
+    const margin = 4 * this.scale; // four CSS pixels, in metres
+    const { focus, occluders } = findSeeThrough(this.city.buildings, this.seeBoxes, this.focusIds, this.uniforms.uGrowth.value, margin);
+    for (const id of focus) this.setFlags(id, this.getFlags(id) | BIT_FOCUS);
+    this.clearState(BIT_OCCLUDER);
+    for (const id of occluders) this.setFlags(id, this.getFlags(id) | BIT_OCCLUDER);
+
+    // a changed set (or a cut that was retracting) starts again from full height; an unchanged one keeps its progress
+    const key = focus.join(',');
+    const same = key === this.focusKey && occluders.length === this.occ.length && occluders.every((id, i) => id === this.occ[i]);
+    if (!same || this.cutTo === 0) this.cutP = 0;
+    this.focusKey = key; this.occ = occluders; this.cutTo = 1;
+    let top = 0;
+    for (const id of occluders) top = Math.max(top, this.city.buildings[id - 1].h);
+    this.uniforms.uFullH.value = top + 12;
+    // the trees' rule: the focus boxes widened by the margin, in the view plane, with their depths
+    const fb = focusBoxes(this.seeBoxes, focus, margin).slice(0, 12);
+    this.uniforms.uFocusN.value = fb.length;
+    fb.forEach((f, k) => { this.uniforms.uFocusRect.value[k].set(f.r0, f.u0, f.r1, f.u1); this.uniforms.uFocusDepth.value[k] = f.depth; });
+    for (const om of this.outlines) om.visible = true;
     this.commitState();
     this.seeMs = performance.now() - t0;
+  }
+
+  /**
+   * The cut eases between its two states over 0.35 s (instant under reduced motion), ease-out in uCutT. When the
+   * focus is gone and the cut has retracted, the occluder bits are dropped.
+   */
+  animateCut(dt) {
+    if (this.cutP !== this.cutTo) {
+      if (!this.motion) this.cutP = this.cutTo;
+      else {
+        const st = Math.min(1, dt / 0.35);
+        this.cutP = this.cutTo > this.cutP ? Math.min(this.cutTo, this.cutP + st) : Math.max(this.cutTo, this.cutP - st);
+      }
+      this.dirty = true;
+    }
+    this.uniforms.uCutT.value = 1 - (1 - this.cutP) ** 3;
+    if (this.cutTo === 0 && this.cutP === 0 && this.occ.length) {
+      this.occ = [];
+      this.clearState(BIT_OCCLUDER);
+      this.commitState();
+    }
   }
 
   // ------------------------------------------------------------------ frame
@@ -563,6 +659,8 @@ export class CityView {
     // the 4 px margin is in metres, so a zoom of more than a quarter also redoes the test (not on every wheel tick)
     if (this.focusIds.length && Math.abs(Math.log(this.scale / this.seeScale)) > Math.log(1.25)) this.seeDirty = true;
     if (this.seeDirty && this.city) this.applySeeThrough();
+    this.animateCut(dt);
+    this.uniforms.uOutlineM.value = 1.5 * this.scale; // the focus outline is 1.5 CSS pixels wide
     if (this.motion) { this.uniforms.uTime.value += dt; this.dirty = true; if (this.train) this.moveTrain(dt); }
     if (!this.dirty || !this.city) return;
     this.updateCamera();
