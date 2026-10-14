@@ -9,6 +9,8 @@ export type TokenStatus = 'live' | 'graduated' | 'dead';
 
 /** One public tape line: anonymous ids only, with the creator's public role flagged. */
 export interface LpTrade {
+  /** Monotonic settled-event id, independent of the bounded display tape. */
+  seq?: number;
   tick: number;
   side: 'buy' | 'sell';
   qty: number;
@@ -65,6 +67,8 @@ export interface LpLot {
  * slow bleed is not lost to rounding.
  */
 export interface NpcCohort {
+  /** Persistent flow trader owning this bag; absent for legacy arrival cohorts. */
+  wallet?: string;
   tick: number;
   tokens: number;
   cost: number;
@@ -113,6 +117,12 @@ export interface CrowdState {
 }
 
 export interface LpToken {
+  /** Number of settled trades, including trades no longer retained on the display tape. */
+  tradeSeq?: number;
+  /** Unconsumed economic prints; the UI retention limit cannot drop a crowd signal. */
+  crowdPrints?: { playerBuy: number; playerSell: number; npcBuy: number; npcSell: number };
+  /** Funded participants and their own replay stream. */
+  micro?: MicroState;
   /** the ticker, which is also the engine asset id once the token graduates */
   ticker: string;
   name: string;
@@ -230,6 +240,8 @@ export interface LpToken {
 }
 
 export interface LaunchpadState {
+  /** Off-world NPC capital. Only actual buys/withdrawals enter the existing booked money ledger. */
+  flowCapital?: { cents: number; fundedCents: number; fundingTick: number };
   /** a counter for the token ids of world launches (kept for the feed order) */
   seq: number;
   tokens: Record<string, LpToken>;
@@ -251,4 +263,30 @@ export interface LaunchpadState {
   rumorDay: number;
   /** the state's booked totals by line, for the balance report and the zero-sum tests (cents-exact) */
   totals: { launchFee: number; tradeFee: number; creatorFee: number; gradFee: number; buzz: number; npcNet: number; launches: number; graduations: number; deaths: number };
+}
+
+export interface MicroTrader {
+  id: string;
+  style: 'trend' | 'dip' | 'scalp' | 'holder' | 'whale';
+  cashCents: number;
+  takeProfit: number;
+  stop: number;
+  patience: number;
+  lastAction: number;
+  /** The same participant becomes a funded engine account at graduation. */
+  accountId?: string;
+}
+
+export interface MicroState {
+  rng: RngState;
+  traders: MicroTrader[];
+  lastPrice: number;
+  peak: number;
+  momentum: number;
+  activity: number;
+  affinity: number;
+  mood: number;
+  panic: number;
+  lastBuy: number;
+  lastSell: number;
 }

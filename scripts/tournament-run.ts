@@ -34,7 +34,7 @@ if (process.env.TOURNAMENT_RUNNER_CHILD === '1' && process.send) {
     } catch (e) {
       reply = { ok: false, error: (e as Error).message };
     }
-    process.send!(reply, () => process.disconnect());
+    process.send!(reply, () => process.disconnect?.());
   });
 } else if (!process.send && !process.env.VITEST && process.argv[2]) {
   const input = JSON.parse(readFileSync(process.argv[2], 'utf8')) as RunnerInput;

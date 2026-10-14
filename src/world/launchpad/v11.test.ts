@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MICROFLOW } from './microflow';
 import { applyCommand, createGame, stepGame } from '../game';
 import { cashOf, netWorthBreakdown, TPD } from '../core';
 import { bookedNet, netWorldMoney } from '../company/exploits/sequences';
@@ -17,6 +18,9 @@ import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
  */
 
 const grad = (g: ReturnType<typeof lpWorld>, ticker: string) => applyCommand(g, 'admin', { type: 'admin.lpFill', ticker });
+let micro = true;
+beforeEach(() => { micro = MICROFLOW.enabled; MICROFLOW.enabled = false; });
+afterEach(() => { MICROFLOW.enabled = micro; });
 
 /** the token with no sniper and no buzz, so the test drives the cohort alone */
 function quiet(g: ReturnType<typeof lpWorld>, ticker: string) {

@@ -377,7 +377,8 @@ describe('remaining interrupted Phase 10 findings', () => {
     expect(barsOf(t).m.at(-1)![2]).toBe(price);
     expect(t.lots[id]).toBeUndefined();
     expect(t.tape.at(-1)).toMatchObject({ price, npc: true });
-    expect(t.tape.at(-1)!.anon).toBeUndefined();
+    expect(t.tape.at(-1)!.anon).toBeDefined();
+    expect(t.tape.at(-1)!.anon).not.toBe(id);
     const publicRows = JSON.stringify({ tape: lpPageOf(g, CREATOR, 'NCPF')!.tape, bar: launchpadView(g, CREATOR).bar });
     expect(publicRows).not.toContain(id);
   });

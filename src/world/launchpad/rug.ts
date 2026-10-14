@@ -110,10 +110,17 @@ export function lpFills(g: GameState, fills: { playerId: string; assetId: string
       tick, side: f.side, qty: f.qty, price: f.price,
       usd: f.qty * f.price + (f.side === 'buy' ? f.fee : 0),
       creator: f.playerId === t.creatorId, npc,
-      ...(!npc ? { anon: anonOf(t.ticker, f.playerId) } : {}),
+      anon: anonOf(t.ticker, f.playerId),
     });
     // The cohort's unwind contributes a real candle touch but keeps no lots and feeds no anti-rug rule (L6.2).
-    if (isNpcAccount(f.playerId)) continue;
+    if (isNpcAccount(f.playerId)) {
+      if (t.micro?.traders.some(w => w.accountId === f.playerId)) {
+        if (f.side === 'buy') t.flows.npcBuy += f.qty * f.price + f.fee;
+        else t.flows.npcSell += f.qty * f.price;
+        t.lastTradeTick = tick;
+      }
+      continue;
+    }
     if (f.side === 'buy') {
       const L: LpLot[] = t.lots[f.playerId] ?? (t.lots[f.playerId] = []);
       pushLot(L, { qty: f.qty, cost: f.price + f.fee / f.qty, tick });

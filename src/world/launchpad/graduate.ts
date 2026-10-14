@@ -4,7 +4,8 @@ import type { GameState, StepOutput } from '../types';
 import { notify } from '../core';
 import { LP, bookAccountId, npcAccountId, curveAccountId } from './constants';
 import { spotAt } from './curve';
-import { dayOf, lpWire, moveCents, sinkCents } from './state';
+import { dayOf, lpWire, moveCents, sinkCents, faucetCents } from './state';
+import { cohortsOf } from './cohorts';
 import { lockedAmount } from './vest';
 import type { LpToken } from './types';
 import { touchBar } from './bars';
@@ -68,6 +69,8 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
     sharesOutstanding: LP.SUPPLY,
     vol,
     drift,
+    // Newly graduated liquidity is tens of thousands, not the template's hundreds of millions of ADV.
+    advNotional: Math.max(1000, restCents / 100),
     supplyAccount: bookId,
     // the book pays for what it buys: a sell the book cannot pay for is partial (never minted, trading.ts routeToSupply)
     bookCashBound: true,
@@ -89,9 +92,30 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
   if (t.npcBal > 0) {
     const npc = npcAccountId(t.ticker);
     s = openAccount(s, npc, 0);
-    s = addShares(s, npc, t.ticker, t.npcBal, t.npcCost / t.npcBal);
+    const cs = cohortsOf(t);
+    const owned = cs.filter(c => c.wallet);
+    const legacyQty = t.npcBal - owned.reduce((sum, c) => sum + c.tokens, 0);
+    const legacyCost = t.npcCost - owned.reduce((sum, c) => sum + c.cost, 0);
+    if (legacyQty > 0) s = addShares(s, npc, t.ticker, legacyQty, legacyCost / legacyQty);
+    for (const w of t.micro?.traders ?? []) {
+      const bag = owned.filter(c => c.wallet === w.id);
+      const qty = bag.reduce((sum, c) => sum + c.tokens, 0);
+      const cost = bag.reduce((sum, c) => sum + c.cost, 0);
+      s = openAccount(s, w.id, 0);
+      if (qty > 0) s = addShares(s, w.id, t.ticker, qty, cost / qty);
+      w.accountId = w.id;
+    }
   }
   g.market = s;
+  // External unspent wallet capital becomes account cash once, and is booked like every other NPC inflow.
+  for (const w of t.micro?.traders ?? []) {
+    if (!w.accountId) {
+      g.market = openAccount(g.market, w.id, 0);
+      w.accountId = w.id;
+    }
+    if (w.cashCents > 0) faucetCents(g, w.id, 'npcRetail', w.cashCents);
+    w.cashCents = 0;
+  }
 
   t.status = 'graduated';
   t.gradTick = tick;

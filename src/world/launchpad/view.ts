@@ -1,5 +1,6 @@
 import type { GameState } from '../types';
-import { LP, bookAccountId, npcAccountId } from './constants';
+import { LP, bookAccountId, npcAccountId, isNpcAccount } from './constants';
+import { cohortsOf } from './cohorts';
 import { anonOf } from './anon';
 import { curveProgress, spotAt } from './curve';
 import { priceNow } from './rug';
@@ -205,14 +206,21 @@ function holderRows(g: GameState, t: LpToken, pid: string): { anon: string; qty:
     for (const [id, a] of Object.entries(g.market.accounts)) {
       if (id === book) continue;
       const q = a.positions?.[t.ticker]?.qty ?? 0;
-      if (q > 0) rows.push({ anon: anonFor(t, id), qty: q, role: id === npc ? 'npc' : roleOf(id) });
+      if (q > 0) rows.push({ anon: anonFor(t, id), qty: q, role: id === npc || isNpcAccount(id) ? 'npc' : roleOf(id) });
     }
     return rows;
   }
   // the curve still holds the tokens it has not sold: the supply above the graduation reserve (Y - GRAD_Y, the real tokens)
   rows.push({ anon: anonFor(t, 'curve'), qty: Math.max(0, t.y - LP.GRAD_Y), role: 'curve' });
   for (const [id, q] of Object.entries(t.bal)) if (q > 0) rows.push({ anon: anonFor(t, id), qty: q, role: roleOf(id) });
-  if (t.npcBal > 0) rows.push({ anon: anonFor(t, npcAccountId(t.ticker)), qty: t.npcBal, role: 'npc' });
+  const wallets = new Map<string, number>();
+  let legacy = 0;
+  for (const c of cohortsOf(t)) {
+    if (c.wallet) wallets.set(c.wallet, (wallets.get(c.wallet) ?? 0) + c.tokens);
+    else legacy += c.tokens;
+  }
+  if (legacy > 0) rows.push({ anon: anonFor(t, npcAccountId(t.ticker)), qty: legacy, role: 'npc' });
+  for (const [id, qty] of wallets) if (qty > 0) rows.push({ anon: anonFor(t, id), qty, role: 'npc' });
   return rows;
 }
 
@@ -240,15 +248,10 @@ function tapeOf(tr: LpTrade): LpTape {
 }
 
 /**
- * The tape the page shows. A live coin appends its wall after the real prints, so the table (newest first) leads
- * with the crowd. The wall is display only: readPrints, the trade bar and the candles stay on `tape`. A graduated
- * or dead coin shows its tape alone.
+ * The page shows only settled trades. Old display-only walls are intentionally ignored.
  */
 function shownTape(t: LpToken): LpTrade[] {
-  const wall = t.status === 'live' ? t.wall ?? [] : [];
-  if (!wall.length) return t.tape.slice(-PAGE_TAPE);
-  const room = PAGE_TAPE - wall.length;
-  return [...(room > 0 ? t.tape.slice(-room) : []), ...wall];
+  return t.tape.slice(-PAGE_TAPE);
 }
 
 /** A token page: the card plus the chart, the public tape, the holders, and the replies. */

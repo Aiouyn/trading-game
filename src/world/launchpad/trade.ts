@@ -8,7 +8,7 @@ import { curveAccountId } from './constants';
 import { anonOf } from './anon';
 import { lockedOf, vestEndDay } from './vest';
 import { cohortsOf } from './cohorts';
-import type { LpLot, LpToken } from './types';
+import type { LpLot, LpToken, MicroTrader } from './types';
 import { recordCreatorSale } from './rug';
 import { pushTape } from './tape';
 import { curveHoldingsValue } from './value';
@@ -63,7 +63,7 @@ function bookFee(g: GameState, t: LpToken, fromCurve: boolean, creatorCents: num
 /** Buys `spendCents` (the whole outlay, fee included) of a token from its curve. Refusals are three-part. */
 export function buyCurve(
   g: GameState, pid: string | null, ticker: string, spendCents: number, maxSlip: number, out: StepOutput | null, npc = false,
-  chatter = false,
+  chatter = false, wallet?: MicroTrader,
 ): CommandResult {
   const t = tokenOf(g, ticker);
   if (!t) return refuse('noToken', { ticker });
@@ -73,11 +73,13 @@ export function buyCurve(
   if (!q.ok) return refuse(q.code === 'sold' ? 'sold' : q.code === 'tooSmall' ? 'tooSmall' : 'zero', { ticker });
   const curve = curveAccountId(t.ticker);
   if (npc || !pid) {
+    if (wallet && wallet.cashCents < q.spendCents) return refuse('cash', { need: (q.spendCents / 100).toFixed(2) });
+    if (wallet) wallet.cashCents -= q.spendCents;
     // an NPC's cash is a booked faucet (the npcRetail line): it enters the world into the curve, and the fee leaves it
     faucetCents(g, curve, 'npcRetail', q.spendCents);
     bookFee(g, t, true, q.creatorFeeCents, q.sinkFeeCents, true);
     // L6.8: the buy is one cohort (its own half-life and cost basis)
-    addCohort(t, tickOf(g), q.tokens, q.cashCents / 100);
+    addCohort(t, tickOf(g), q.tokens, q.cashCents / 100, wallet?.id);
     t.flows.npcBuy += q.spendCents / 100;
   } else {
     if (centsOf(cashOf(g, pid)) < q.spendCents) return refuse('cash', { need: (q.spendCents / 100).toFixed(2) });
@@ -106,7 +108,7 @@ export function buyCurve(
   // An NPC line is one of 64 recurring wallets for this ticker, never a handle and never a player id.
   pushTape(t, {
     tick: tickOf(g), side: 'buy', qty: q.tokens, price: q.avgPrice, creator: !!pid && pid === t.creatorId, npc: npc || !pid,
-    usd: q.spendCents / 100, anon: anonOf(t.ticker, npc || !pid ? `npc:${(tickOf(g) * 3 + t.tape.length) % 64}` : pid),
+    usd: q.spendCents / 100, anon: anonOf(t.ticker, wallet?.id ?? (npc || !pid ? `npc:${(tickOf(g) * 3 + t.tape.length) % 64}` : pid)),
     ...(chatter ? { chatter: true } : {}),
   });
   if (q.graduates) graduate(g, t, out);
@@ -119,7 +121,7 @@ export function buyCurve(
 /** Sells `tokens` back to a token's curve. The curve pays the formula cash; the trader gets it less the fee. */
 export function sellCurve(
   g: GameState, pid: string | null, ticker: string, tokens: number, maxSlip: number, out: StepOutput | null, npc = false,
-  plan?: number[], chatter = false,
+  plan?: number[], chatter = false, wallet?: MicroTrader,
 ): CommandResult {
   const t = tokenOf(g, ticker);
   if (!t) return refuse('noToken', { ticker });
@@ -173,6 +175,7 @@ export function sellCurve(
     g.economy.sinks.npcRetail = (g.economy.sinks.npcRetail ?? 0) + q.netCents / 100;
     bookFee(g, t, false, q.creatorFeeCents, q.sinkFeeCents, true);
     takeFromCohorts(t, tokens, plan);
+    if (wallet) wallet.cashCents += q.netCents;
     t.flows.npcSell += q.grossCents / 100;
   }
   t.y += tokens;
@@ -180,7 +183,7 @@ export function sellCurve(
   if (holder) t.lastTradeTick = tickOf(g);
   pushTape(t, {
     tick: tickOf(g), side: 'sell', qty: tokens, price: q.avgPrice, creator: !!holder && holder === t.creatorId, npc: !holder,
-    usd: q.grossCents / 100, anon: anonOf(t.ticker, holder ?? `npc:${(tickOf(g) * 3 + t.tape.length) % 64}`),
+    usd: q.grossCents / 100, anon: anonOf(t.ticker, wallet?.id ?? holder ?? `npc:${(tickOf(g) * 3 + t.tape.length) % 64}`),
     ...(chatter ? { chatter: true } : {}),
   });
   if (holder) recordCreatorSale(g, t, holder, tokens, q.netCents, out);
@@ -193,6 +196,12 @@ export function sellCurve(
  */
 export function liquidateCohort(g: GameState, t: LpToken, out: StepOutput | null): void {
   t.sniper = undefined;
+  for (const w of t.micro?.traders ?? []) {
+    const cs = cohortsOf(t);
+    const plan = cs.map(c => c.wallet === w.id ? c.tokens : 0);
+    const qty = plan.reduce((sum, n) => sum + n, 0);
+    if (qty > 0) sellCurve(g, null, t.ticker, qty, 1, out, true, plan, false, w);
+  }
   if (t.npcBal > 0) sellCurve(g, null, t.ticker, t.npcBal, 1, out, true);
 }
 

@@ -2,11 +2,11 @@ import { Rng, seedStream } from '@/engine';
 import type { GameState, StepOutput } from '../types';
 import { TPD } from '../core';
 import { CROWD, LP } from './constants';
-import { anonOf } from './anon';
 import { cashReserveAt, spotAt } from './curve';
 import { cohortsOf } from './cohorts';
 import { buyCurve, sellCurve } from './trade';
-import type { CrowdState, LpToken, LpTrade, NpcCohort } from './types';
+import type { CrowdState, LpToken, NpcCohort } from './types';
+import { MICROFLOW } from './microflow';
 
 /**
  * The crowd on a launch coin. Five temperaments, one order per side:
@@ -84,7 +84,8 @@ export function crowdTick(g: GameState, t: LpToken, out: StepOutput | null): voi
   const fresh = !t.crowd;
   const c = ensure(g, t, spot);
   // the first sight of a coin skips the tape it already has, so a reload is not a new signal
-  const prints = fresh ? EMPTY : readPrints(t, c.tapeAt, tapeEnd);
+  const prints = fresh ? EMPTY : t.crowdPrints ?? readPrints(t, c.tapeAt, tapeEnd);
+  t.crowdPrints = undefined;
   c.tapeAt = tapeEnd;
 
   const impactUsd = CROWD.IMPACT_CAP * cashReserveAt(t.y);
@@ -188,7 +189,7 @@ export function crowdTick(g: GameState, t: LpToken, out: StepOutput | null): voi
   c.scalpCash = Math.max(0, c.scalpCash);
   c.fomoCash = Math.max(0, c.fomoCash);
   c.newsCash = Math.max(0, c.newsCash);
-  chatter(g, t, out);
+  if (!MICROFLOW.enabled) chatter(g, t, out);
 }
 
 /**
@@ -223,46 +224,6 @@ function chatter(g: GameState, t: LpToken, out: StepOutput | null): void {
   sellCurve(g, null, t.ticker, tokens, 1, out, true, plan, true);
 }
 
-/** How many display prints a live coin shows, and how wide the anonymous wallet pool is. */
-const WALL_N = 20;
-const WALL_SLOTS = 4000;
-
-/**
- * The crowd on the trades table. Rebuilt every tick from the ticker and the tick, not from a stream, and stored on
- * `wall` rather than `tape`. A round trip that is not on the tape cannot refill the curve or arm a chase.
- */
-export function writeWall(t: LpToken, tick: number): void {
-  if (t.status !== 'live') {
-    t.wall = undefined;
-    return;
-  }
-  const spot = spotAt(t.y);
-  if (!(spot > 0)) {
-    t.wall = undefined;
-    return;
-  }
-  let h = 2166136261;
-  const key = t.ticker;
-  for (let i = 0; i < key.length; i++) {
-    h ^= key.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  h = Math.imul(h ^ (tick + 1), 2246822519) >>> 0;
-  const lines: LpTrade[] = [];
-  for (let i = 0; i < WALL_N; i++) {
-    h = Math.imul(h ^ (i + 1), 3266489917) >>> 0;
-    const side: 'buy' | 'sell' = (h & 1) === 0 ? 'buy' : 'sell';
-    const slot = (h >>> 1) % WALL_SLOTS;
-    const usd0 = 8 + ((h >>> 12) % 33);
-    const qty = Math.max(1, Math.round(usd0 / spot));
-    const price = spot;
-    lines.push({
-      tick, side, qty, price, usd: qty * price, creator: false, npc: true,
-      anon: anonOf(t.ticker, `npc:${slot}`),
-    });
-  }
-  t.wall = lines;
-}
 
 const EMPTY = { playerBuy: 0, playerSell: 0, npcBuy: 0, npcSell: 0 };
 
@@ -377,7 +338,7 @@ function tokensFor(spot: number, usd: number): number {
 }
 
 function isHold(c: NpcCohort): boolean {
-  return !c.sniper && (c.role === undefined || c.role === 'hold');
+  return !c.wallet && !c.sniper && (c.role === undefined || c.role === 'hold');
 }
 
 function bagTokens(t: LpToken, role: 'scalp' | 'fomo' | 'news'): number {

@@ -9,6 +9,7 @@ import { npcLaunchDraw } from './launch';
 import { CREATOR, TRADER, launch, lpWorld, run } from './fixture';
 import type { GameState } from '../types';
 import type { LpToken } from './types';
+import { MICROFLOW } from './microflow';
 
 /**
  * The crowd: holders, scalpers, faders, FOMO and news chasers. A player print is a delayed, capped signal. Copying it loses the fee.
@@ -42,8 +43,10 @@ describe('launch-coin crowd', () => {
   const npc = NPC as unknown as Record<string, number>;
   let viral = 0;
   // a viral shock is an arrival, not the crowd. These tests pin the crowd, so the shock stays off.
-  beforeEach(() => { viral = npc.VIRAL_PER_DAY!; npc.VIRAL_PER_DAY = 0; });
-  afterEach(() => { npc.VIRAL_PER_DAY = viral; });
+  let micro = true;
+  // Isolate the legacy response policy; the funded burst path has its own integration tests.
+  beforeEach(() => { viral = npc.VIRAL_PER_DAY!; npc.VIRAL_PER_DAY = 0; micro = MICROFLOW.enabled; MICROFLOW.enabled = false; });
+  afterEach(() => { npc.VIRAL_PER_DAY = viral; MICROFLOW.enabled = micro; });
 
   it('a tagline has a theme, and two coins do not draw the same temperament', () => {
     expect(themeOfTagline('tg1')).toBe('tech');
@@ -213,14 +216,10 @@ describe('launch-coin crowd', () => {
       expect(Math.abs(g.market.accounts[curveAccountId('CHAT')]!.cash - cash0)).toBeLessThan(5);
       const anons = new Set(t.tape.filter((tr) => tr.npc && tr.anon).map((tr) => tr.anon));
       expect(anons.size).toBeGreaterThanOrEqual(6);
-      // the wall is the crowd on the page. It is not a print the curve, the bag, or the candles read.
-      expect(t.wall).toHaveLength(20);
-      const wallAnons = new Set(t.wall!.map((w) => w.anon));
-      expect(wallAnons.size).toBeGreaterThanOrEqual(12);
-      expect(t.tape.some((tr) => t.wall!.includes(tr))).toBe(false);
+      // The page shows only settlement, including legacy chatter when that test mode is selected.
+      expect(t.wall).toBeUndefined();
       const page = lpPageOf(g, CREATOR, 'CHAT')!;
-      expect(page.tape.some((r) => r.anon === t.wall![0]!.anon)).toBe(true);
-      for (const w of t.wall!) expect(w.usd).toBeCloseTo(w.qty * w.price, 6);
+      for (const row of page.tape) expect(t.tape.some(tr => tr.tick === row.tick && tr.anon === row.anon && tr.qty === row.qty)).toBe(true);
     } finally {
       CROWD.SCALP_TICK = saved;
     }

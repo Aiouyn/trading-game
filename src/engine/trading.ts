@@ -1391,7 +1391,7 @@ export function clearOrders(state: WorldState, newDay: boolean): { state: WorldS
           // a company stock with no book in the state has no counterparty to take the shares: the liquidation waits (X11)
           const liqSupply = supplyOf(s, assetId);
           if (liqSupply === null) continue;
-          const { price, p0 } = tickPrice(i, side, q);
+          const { price, p0 } = tickPrice(i, side, q, id);
           // a bounded book (a Launchpad token) cannot pay a forced sale past its cash: the liquidation waits (L4)
           if (liqSupply !== undefined && side === 'sell' && s.config.assets[i]!.bookCashBound === true && s.accounts[liqSupply]!.cash < q * price) continue;
           const fee = commission(s, s.config.assets[i]!, q * price);

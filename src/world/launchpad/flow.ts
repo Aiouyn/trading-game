@@ -7,7 +7,8 @@ import { liquidateCohort, sellCurve } from './trade';
 import { npcLaunchDraw } from './launch';
 import { arrive, viralPerTick } from './demand';
 import { cohortsOf } from './cohorts';
-import { crowdTick, writeWall } from './crowd';
+import { crowdTick } from './crowd';
+import { microTick, MICROFLOW, releaseMicroCash } from './microflow';
 import { absorbPending } from './absorb';
 import { openSellQty } from './graduate';
 import { priceNow } from './rug';
@@ -27,6 +28,8 @@ import type { LpToken } from './types';
  *     farm the edge: no fill can sit between a launch and the sniper's price impact);
  *   - the crowd (crowd.ts) then trades the coin: holders keep a bag until it is far above cost or the story has died, scalpers
  *     fade the average, faders sell into a chase, and FOMO and news chasers buy late and small. A player buy is not an arrival;
+ *   - funded participants (microflow.ts) create bounded bursts of real orders with persistent cash, entry costs and exits;
+ *     their accounts survive graduation, and their tape identities match their holder rows;
  *   - a token dies with no trade for 24 game days, or with curve cash under 2% of the raise at the close of 7 game days in a row,
  *     the closes counted from day 3 (L3.1, v1.3). At death the cohorts sell what they hold to the curve, so the NPC side is flat in tokens;
  *   - a graduated token's cohort position is unwound into the liquidity book through the engine's order path, with a one-day
@@ -189,14 +192,14 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
       }
     }
     // the trades table's crowd. After the death check, so a coin that just died does not keep a wall.
-    if (t.status === 'live') writeWall(t, tick);
-    else if (t.wall) t.wall = undefined;
+    if (t.wall) t.wall = undefined;
   }
   // Curve and graduated candles carry the last fill on idle minutes. Engine fills touch OHLC in lpFills; sampling the mid here
   // would overwrite a boundary tick's closing fill. Every token that is not dead may get an NPC reply (reply.ts).
   for (const ticker of s.order) {
     const t = s.tokens[ticker];
     if (!t || t.status === 'dead') continue;
+    if (MICROFLOW.enabled) microTick(g, t, out);
     if (tick % LP.CHART_EVERY === 0) {
       carryBar(t, tick, priceNow(g, t));
     }
@@ -209,6 +212,7 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
 function kill(g: GameState, t: LpToken, reason: 'noTrade' | 'cash', out: StepOutput | null): void {
   // the cohort's tokens go back to the curve first (the dead token's curve still pays sellers), so the NPC side ends flat
   liquidateCohort(g, t, out);
+  releaseMicroCash(g, t);
   t.status = 'dead';
   t.deadTick = g.market.tick;
   t.deadReason = reason;

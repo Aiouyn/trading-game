@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MICROFLOW } from './microflow';
 import { TPD } from '../core';
 import { CROWD, LP, NPC } from './constants';
 import { abandonShare } from './crowd';
@@ -17,6 +18,9 @@ import { CREATOR, TRADER, launch, lpWorld, run } from './fixture';
  */
 
 type Mutable = Record<string, number>;
+let micro = true;
+beforeEach(() => { micro = MICROFLOW.enabled; MICROFLOW.enabled = false; });
+afterEach(() => { MICROFLOW.enabled = micro; });
 
 /** runs `fn` with some NPC constants overridden, and restores them after (the constants are the tuning knobs) */
 function withNpc<T>(over: Record<string, number>, fn: () => T): T {

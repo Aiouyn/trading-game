@@ -14,6 +14,7 @@ import { dayOf, ensureLaunchpad, hasOtherTrader, liveCountOf, lpWire, openCurve,
 
 import type { LpToken } from './types';
 import { touchBar } from './bars';
+import { releaseMicroCash } from './microflow';
 
 
 /**
@@ -234,6 +235,7 @@ export function cancelLaunch(g: GameState, pid: string, ticker: string): Command
   if (t.status !== 'live') return refuse('dead', { ticker });
   if (!canCancel(t, pid)) return refuse('traded', { ticker });
   liquidateCohort(g, t, null);
+  releaseMicroCash(g, t);
   t.status = 'dead';
   t.deadTick = g.market.tick;
   t.deadReason = 'cancelled';

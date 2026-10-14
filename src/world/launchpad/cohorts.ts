@@ -27,9 +27,14 @@ export function cohortsOf(t: LpToken): NpcCohort[] {
 }
 
 /** Adds one arrival's buy to the cohorts (the buy is a whole number of tokens; its cost is the cash paid, fee excluded). */
-export function addCohort(t: LpToken, tick: number, tokens: number, cost: number): void {
+export function addCohort(t: LpToken, tick: number, tokens: number, cost: number, wallet?: string): void {
   const cs = cohortsOf(t);
-  if (tokens > 0) cs.push({ tick, tokens, cost });
+  if (tokens > 0) {
+    // A persistent participant keeps one weighted-average bag, not an ever-growing list of tiny buys.
+    const held = wallet ? cs.find(c => c.wallet === wallet) : undefined;
+    if (held) { held.tokens += tokens; held.cost += cost; }
+    else cs.push({ tick, tokens, cost, ...(wallet ? { wallet } : {}) });
+  }
   syncTotals(t, cs);
 }
 

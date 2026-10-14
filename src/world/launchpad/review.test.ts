@@ -8,6 +8,7 @@ import { npcLaunchDraw, PREFIX, SUFFIX } from './launch';
 import { lockedEngineSell, openSellQty, vestingSweep } from './graduate';
 import { LOTS_KEPT, ensureLaunchpad, pushLot } from './state';
 import { lpTick } from './flow';
+import { MICROFLOW } from './microflow';
 import { liquidateCohort } from './trade';
 import { moderateName } from './moderate';
 import { curveHoldingsValue } from './value';
@@ -156,6 +157,9 @@ describe('the cost basis is kept past the lot cap (review 10)', () => {
 
 describe('the cash death starts on day 3 (review 6)', () => {
   it('a token launched on day 2 with no funding is alive on day 9 and dead on day 10', () => {
+    const enabled = MICROFLOW.enabled;
+    MICROFLOW.enabled = false;
+    try {
     const g = lpWorld('death-start');
     launch(g, CREATOR, 'DAYT');
     const t = g.launchpad!.tokens.DAYT!;
@@ -172,6 +176,7 @@ describe('the cash death starts on day 3 (review 6)', () => {
     lpTick(g, null);
     expect(t.status).toBe('dead');
     expect(t.deadTick! / TPD).toBeCloseTo(10, 0);
+    } finally { MICROFLOW.enabled = enabled; }
   });
 });
 
