@@ -443,6 +443,7 @@ void main() {
 
 export const groundFrag = /* glsl */ `
 ${COMMON}
+${MATERIALS}
 uniform sampler2D uA;
 uniform sampler2D uB;
 uniform float uHalf;
@@ -469,6 +470,13 @@ void main() {
   float g = uGrowth;
   // near the border the square's ground is the open landscape's again (see the edge blend below)
   float edgeIn = smoothstep(uHalf - 500.0, uHalf, max(abs(vXZ.x), abs(vXZ.y)));
+  // MATERIALS: metres per pixel on the ground; grass grain and mowing stripes fade out before they would shimmer
+  float pxG = max(fwidth(vXZ.x), fwidth(vXZ.y));
+  float grassF = 1.0 - smoothstep(0.25, 0.7, pxG);
+  float stripeF = 1.0 - smoothstep(0.5, 1.2, pxG);
+  float grass = 0.5;
+  if (grassF > 0.001) grass = vnoise(vXZ * 1.3) * 0.6 + vnoise(vXZ * 3.7 + 7.0) * 0.4;
+  float mow = step(0.0, sin(vXZ.x * 0.5236));
   // bare land, lawns and parks; urban blocks are meadow until the city reaches them
   float blockO = water > 0.5 ? 0.0 : depth;
   float dev = (1.0 - smoothstep(g - uBand * 0.6, g, blockO + 0.002)) * (1.0 - edgeIn);
@@ -476,6 +484,8 @@ void main() {
   vec3 col = mix(meadow, mix(cNatural, cLand, 0.35 + 0.3 * varn), dev);
   float slope = 1.0 - n.y;
   col = mix(col, cNatural * 0.8, smoothstep(0.1, 0.35, slope) * 0.6);
+  float landG = 1.0 - smoothstep(0.35, 0.65, water);
+  col *= 1.0 + landG * grassF * (grass - 0.5) * 0.2;
   // farmland: a patchwork of plots, each its own crop
   // near the border the square's own farms and woods fade into the open landscape's (outFrag), so no edge shows
   float fieldM = smoothstep(0.13, 0.2, green) * (1.0 - smoothstep(0.3, 0.4, green));
@@ -494,12 +504,42 @@ void main() {
   }
   float forestM = mix(smoothstep(0.7, 0.75, green) * (1.0 - smoothstep(0.85, 0.9, green)), woodsNoise(vXZ), edgeIn);
   col = mix(col, cPark * (0.92 + 0.16 * varn), smoothstep(0.42, 0.6, green) * (1.0 - edgeIn));
+  // MATERIALS: mown stripes on the parks (a 6 m band each way)
+  col *= 1.0 + smoothstep(0.42, 0.6, green) * (1.0 - edgeIn) * stripeF * (mow - 0.5) * 0.1;
   col = mix(col, cPark * 0.62 * (0.92 + 0.16 * varn), forestM * 0.9);
   // built lots appear with the city
   float built = (1.0 - smoothstep(g - uBand * 0.2, g, lotO + 0.002)) * step(lotO, 0.995) * (1.0 - edgeIn);
-  col = mix(col, cPave * (0.94 + 0.1 * varn), built * (1.0 - smoothstep(0.4, 0.6, green)) * 0.92);
-  col = mix(col, cPlaza, smoothstep(0.4, 0.6, plaza));
-  col = mix(col, cSand * (0.96 + 0.06 * varn), smoothstep(0.4, 0.6, sand));
+  // MATERIALS: lot surfaces. Paving slabs everywhere; car-park bays with white lines on the big lots (coarse
+  // noise, an approximation of lot size); a small planted courtyard on some lots. Joints fade to their average.
+  float lotM = built * (1.0 - smoothstep(0.4, 0.6, green)) * 0.92;
+  float farG = smoothstep(0.3, 0.6, pxG);
+  if (lotM > 0.001) {
+    // bays and courtyards are only drawn close up; far away the lot is plain paving
+    float car = 0.0, court = 0.0;
+    if (farG < 0.999) {
+      car = smoothstep(0.58, 0.66, vnoise(vXZ / 150.0 + 3.0)) * (1.0 - farG);
+      court = smoothstep(0.66, 0.72, vnoise(vXZ / 60.0 + 21.0)) * (1.0 - car) * (1.0 - farG);
+    }
+    float slab = mix(max(lineX(vXZ.x, 1.2, 0.012, pxG), lineX(vXZ.y, 1.2, 0.012, pxG)), 0.05, farG);
+    float bay = mix(max(lineX(vXZ.x, 2.6, 0.06, pxG), lineX(vXZ.y, 5.2, 0.06, pxG)), 0.1, farG);
+    vec3 pav = cPave * (0.94 + 0.1 * varn) * mix(1.0, 0.88, slab);
+    pav = mix(pav, vec3(0.9, 0.9, 0.86), bay * car * 0.85);
+    pav = mix(pav, mix(cPark, cNatural, 0.3) * (0.9 + 0.2 * grass), court * 0.85);
+    col = mix(col, pav, lotM);
+  }
+  // MATERIALS: plazas are stone slabs on a 4 m grid with joints
+  float plazaM = smoothstep(0.4, 0.6, plaza);
+  if (plazaM > 0.001) {
+    float pj = mix(max(lineX(vXZ.x, 4.0, 0.05, pxG), lineX(vXZ.y, 4.0, 0.05, pxG)), 0.15, farG);
+    vec3 plc = cPlaza * (0.93 + 0.12 * h31(vec3(floor(vXZ / 4.0), 2.0))) * mix(1.0, 0.8, pj);
+    col = mix(col, plc, plazaM);
+  }
+  // sand: small ripples, faded out at distance
+  float sandM = smoothstep(0.4, 0.6, sand);
+  if (sandM > 0.001) {
+    float rip = 1.0 + 0.05 * (1.0 - smoothstep(0.25, 0.6, pxG)) * sin(dot(vXZ, vec2(0.8, 0.6)) * 2.5 + 4.0 * vnoise(vXZ * 0.03));
+    col = mix(col, cSand * (0.96 + 0.06 * varn) * rip, sandM);
+  }
   // snow on high ground: by height alone, the same rule as the outskirts (normals differ between the two meshes)
   col = mix(col, vec3(0.93, 0.95, 0.97), smoothstep(uSnow, uSnow + 25.0, vH));
   // baked building shadows (only for what has been built)
@@ -518,6 +558,12 @@ void main() {
     wl = mix(wl, wc * uNightAmb * 0.9 + uLit0 * 0.012, uNight);
     float shore = 1.0 - smoothstep(0.0, 0.08, depth);
     wl = mix(wl, wl * 1.12 + 0.02, shore * 0.6);
+    // MATERIALS: soft shoreline foam, a band at the water's edge broken up by slow noise
+    float foamB = 1.0 - smoothstep(0.0, 0.035, depth);
+    if (foamB > 0.001) {
+      float foam = foamB * smoothstep(0.42, 0.7, vnoise(vXZ * 0.6 + vec2(uTime * 0.35, -uTime * 0.2)));
+      wl = mix(wl, wl * 1.2 + vec3(0.07, 0.08, 0.08) * (1.0 - uNight), foam * 0.55);
+    }
     lit = mix(lit, wl, smoothstep(0.35, 0.65, water));
   }
   // map lens (lenses.js): the land takes its land value ramp or its district colour; the whole ground dims a little
@@ -552,6 +598,7 @@ void main() {
 
 export const outFrag = /* glsl */ `
 ${COMMON}
+${MATERIALS}
 uniform float uHalf;
 uniform float uSnow;
 uniform float uBeach;
@@ -584,7 +631,13 @@ void main() {
     float hedge = 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.025, min(min(fq.x, 1.0 - fq.x), min(fq.y, 1.0 - fq.y))));
     col = mix(col, crop * furrow * hedge, fieldM);
   }
-  col = mix(col, cPark * 0.62 * (0.92 + 0.16 * varn), woodsNoise(vXZ) * 0.9);
+  // MATERIALS: grass grain on the land, canopy clumps in the woods (both fade out at distance, like the square's)
+  float pxO = max(fwidth(vXZ.x), fwidth(vXZ.y));
+  float grassO = 1.0 - smoothstep(0.25, 0.7, pxO);
+  if (grassO > 0.001) col *= 1.0 + grassO * (vnoise(vXZ * 1.3) * 0.6 + vnoise(vXZ * 3.7 + 7.0) * 0.4 - 0.5) * 0.2;
+  float canopy = 0.5;
+  if (pxO < 0.7) canopy = mix(vnoise(vXZ / 3.0 + 5.0), 0.5, smoothstep(0.3, 0.7, pxO));
+  col = mix(col, cPark * 0.62 * (0.92 + 0.16 * varn) * (0.86 + 0.28 * canopy), woodsNoise(vXZ) * 0.9);
   col = mix(col, cSand * (0.96 + 0.06 * varn), uBeach * (1.0 - smoothstep(1.0, 1.5, vH)));
   col = mix(col, vec3(0.93, 0.95, 0.97), smoothstep(uSnow, uSnow + 25.0, vH));
   vec3 land = light(col, n);
