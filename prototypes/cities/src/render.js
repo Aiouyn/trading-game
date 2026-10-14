@@ -2,8 +2,8 @@
 
 import * as THREE from 'three';
 import { makeGeoms } from './geoms.js';
-import { GEOMS, STRIDE } from './archetypes.js';
-import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag, outVert, outFrag } from './shaders.js';
+import { GEOMS, STRIDE, PART_KEYS, TREE_GEOM } from './archetypes.js';
+import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag, outVert, outFrag, billVert, billFrag } from './shaders.js';
 import { PALETTE, RAMP } from './lenses.js';
 import { BIT_OCCLUDER, BIT_FOCUS, projectBoxes, findSeeThrough, focusBoxes } from './seethrough.js';
 import { outskirtsHeight } from './outskirts.js';
@@ -14,6 +14,16 @@ const col = (hex) => new THREE.Color(((hex >> 16) & 255) / 255, ((hex >> 8) & 25
 const distCol = new Float32Array(PALETTE.length * 3);
 PALETTE.forEach((h, i) => distCol.set([((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255], i * 3));
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const ANIM_FPS = 12; // water, neon and trains, while on screen
+const SAVER_FPS = 4; // the battery saver's animation rate
+const TREE_FAR_SCALE = 0.35; // metres per pixel: beyond this, tree crowns are billboards and trunks are not drawn
+const SMALL_SCALE = 1.2; // metres per pixel: beyond this, the small building parts (footprint under SMALL_M) are not drawn
+const SMALL_M = 3; // metres: the footprint limit of a small part
+const TILE = 400; // metres: the side of a culling tile
+const PIXEL_CAP_LARGE = 1.5; // the pixel ratio cap on screens 1200 CSS px and wider
+const SLOW_MS = 24; // a median draw slower than this (on a real GPU) drops the pixel ratio to 1
+const GROUND_HEIGHT_TOL = 0.3; // metres: how far ground may sit off a block's corner plane to collapse (simplifyGround)
+const GROUND_NORMAL_TOL = 0.05; // the summed normal difference allowed inside a collapsed block
 // the glow under a focus building: uv = footprint-relative metres, aHalf = the footprint's half sizes
 const glowVert = /* glsl */ `
 attribute vec2 aHalf;
@@ -39,7 +49,7 @@ export class CityView {
     this.labelLayer = labelLayer;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // the pixel ratio is set once the quality fields exist (applyPixelRatio, below)
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -30000, 30000);
     this.geoms = makeGeoms();
@@ -74,6 +84,17 @@ export class CityView {
     this.occ = []; this.cutP = 0; this.cutTo = 0; this.seeDirty = false; this.glows = [];
     this.seeBoxes = null; this.boxYaw = NaN; this.seeYaw = NaN; this.seeScale = NaN; this.seeMs = 0; this.seeBoxMs = 0;
     this.motion = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // animation (water, neon, trains) runs at ANIM_FPS, and only while an animated thing is on screen (see tickAnimation)
+    this.clock = 0; this.animT = -1; this.animKey = ''; this.animVisible = false; this.saver = false; this.renders = 0;
+    // quality: the pixel ratio is capped at 1.5 on large screens (2 on small ones); the battery saver and a sustained
+    // slow frame on a real GPU drop it to 1. Frame times: a GPU timer query where the browser has one, else the wall
+    // time of a draw, read back with a one-pixel read. Software renderers (SwiftShader, llvmpipe) never drop quality.
+    const gl = this.renderer.getContext();
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    this.software = /swiftshader|llvmpipe|software/i.test(String(gl.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : gl.RENDERER)));
+    this.tq = this.software ? null : gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    this.tqPending = []; this.frameMs = []; this.dropped = false; this.px = new Uint8Array(4);
+    this.applyPixelRatio();
     this.resize();
     addEventListener('resize', () => this.resize());
     this.setTime(19.2);
@@ -84,6 +105,55 @@ export class CityView {
     this.renderer.setSize(w, h, false);
     this.w = w; this.h = h;
     this.dirty = true;
+  }
+
+  /** The device pixel ratio the canvas renders at: capped by screen size, and 1 when saving or after a sustained slow frame. */
+  applyPixelRatio() {
+    const cap = this.saver || this.dropped ? 1 : window.innerWidth >= 1200 ? PIXEL_CAP_LARGE : 2;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
+    if (this.w !== undefined) this.resize();
+  }
+
+  /** The battery saver: pixel ratio 1 and a slower animation. */
+  setSaver(on) {
+    this.saver = on;
+    this.applyPixelRatio();
+    this.animKey = '';
+    this.dirty = true;
+  }
+
+  /** Start a GPU timer around the next draw (only with the timer query extension). */
+  beginTimer() {
+    if (!this.tq) return null;
+    const gl = this.renderer.getContext(), q = gl.createQuery();
+    gl.beginQuery(this.tq.TIME_ELAPSED_EXT, q);
+    return q;
+  }
+  endTimer(q) {
+    if (!q) return;
+    this.renderer.getContext().endQuery(this.tq.TIME_ELAPSED_EXT);
+    this.tqPending.push(q);
+  }
+  /** Read the finished timer queries (in order; a disjoint GPU result is thrown away). */
+  pollTimer() {
+    if (!this.tq) return;
+    const gl = this.renderer.getContext();
+    while (this.tqPending.length && gl.getQueryParameter(this.tqPending[0], gl.QUERY_RESULT_AVAILABLE)) {
+      const q = this.tqPending.shift();
+      const disjoint = gl.getParameter(this.tq.GPU_DISJOINT_EXT);
+      const ns = gl.getQueryParameter(q, gl.QUERY_RESULT);
+      gl.deleteQuery(q);
+      if (!disjoint) this.recordFrame(ns / 1e6);
+    }
+  }
+  /** Keep the last 20 draw times; a median above SLOW_MS on a real GPU drops the pixel ratio to 1 (once). */
+  recordFrame(ms) {
+    if (this.software || this.saver || this.dropped) return;
+    this.frameMs.push(ms);
+    if (this.frameMs.length > 20) this.frameMs.shift();
+    if (this.frameMs.length < 20) return;
+    const sorted = [...this.frameMs].sort((a, b) => a - b);
+    if (sorted[10] > SLOW_MS) { this.dropped = true; this.applyPixelRatio(); this.dirty = true; }
   }
 
   load(city) {
@@ -133,28 +203,50 @@ export class CityView {
       polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
       uniforms: { uBrass: this.uniforms.uBrass, uNight: this.uniforms.uNight },
     });
+    // trees: the full crowns and trunks draw when close; from TREE_FAR scale the crowns are billboards and the trunks go
+    // trees: the full crowns and trunks draw when close; from TREE_FAR scale the crowns are billboards and the trunks go.
+    // Level of detail and culling: the instances are split into TILE-metre tiles (one draw per geometry, tile and size
+    // class, each culled by its bounding sphere), and buildings with parts under SMALL_M across form a small class,
+    // drawn only up to SMALL_SCALE. The outline draw keeps one unsplit geometry per building geometry (it only shows
+    // the focus buildings), so the draw count stays small.
+    this.treeFull = []; this.billboards = []; this.lodFar = null; this.smallMeshes = []; this.lodSmall = null;
+    const quad = new THREE.BufferGeometry();
+    quad.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
+    quad.setIndex([0, 1, 2, 0, 2, 3]);
+    const billMat = new THREE.ShaderMaterial({ vertexShader: billVert, fragmentShader: billFrag, uniforms: this.uniforms, alphaToCoverage: true });
     this.outlines = [];
-    for (const k of GEOMS) {
+    for (const k of PART_KEYS) {
       const arr = city.parts[k];
       const count = arr.length / STRIDE;
       if (!count) continue;
-      const base = this.geoms[k];
-      const g = new THREE.InstancedBufferGeometry();
-      for (const name of ['position', 'normal', 'aFace', 'aInfo']) g.setAttribute(name, base.getAttribute(name));
-      const ib = new THREE.InstancedInterleavedBuffer(arr, STRIDE);
-      g.setAttribute('iPos', new THREE.InterleavedBufferAttribute(ib, 3, 0));
-      g.setAttribute('iSize', new THREE.InterleavedBufferAttribute(ib, 3, 3));
-      g.setAttribute('iRot', new THREE.InterleavedBufferAttribute(ib, 1, 6));
-      g.setAttribute('iColor', new THREE.InterleavedBufferAttribute(ib, 3, 7));
-      g.setAttribute('iStyle', new THREE.InterleavedBufferAttribute(ib, 4, 10));
-      g.setAttribute('iMeta', new THREE.InterleavedBufferAttribute(ib, 4, 14));
-      g.instanceCount = count;
-      const m = new THREE.Mesh(g, partMat);
-      m.frustumCulled = false;
-      this.add(m);
-      const om = new THREE.Mesh(g, outlineMat);
-      om.frustumCulled = false; om.renderOrder = 2; om.visible = false;
-      this.add(om); this.outlines.push(om);
+      const tree = k in TREE_GEOM;
+      const base = this.geoms[TREE_GEOM[k] ?? k];
+      if (!tree) {
+        const og = partGeometry(base, new THREE.InstancedInterleavedBuffer(arr, STRIDE), count);
+        const om = new THREE.Mesh(og, outlineMat);
+        om.frustumCulled = false; om.renderOrder = 2; om.visible = false;
+        this.add(om); this.outlines.push(om);
+      }
+      for (const tile of splitTiles(arr, half, tree)) {
+        const g = partGeometry(base, new THREE.InstancedInterleavedBuffer(tile.data, STRIDE), tile.count);
+        g.boundingSphere = tile.sphere;
+        const m = new THREE.Mesh(g, partMat);
+        m.frustumCulled = true;
+        this.add(m);
+        if (tile.small) this.smallMeshes.push(m);
+        if (tree) this.treeFull.push(m);
+        if (k === 'treeIco') {
+          const bg = new THREE.InstancedBufferGeometry();
+          bg.setAttribute('position', quad.getAttribute('position'));
+          bg.setIndex(quad.getIndex());
+          for (const name of ['iPos', 'iSize', 'iColor', 'iStyle', 'iMeta']) bg.setAttribute(name, g.getAttribute(name));
+          bg.instanceCount = tile.count;
+          bg.boundingSphere = tile.sphere;
+          const bm = new THREE.Mesh(bg, billMat);
+          bm.frustumCulled = true; bm.visible = false;
+          this.add(bm); this.billboards.push(bm);
+        }
+      }
     }
 
     // ground
@@ -179,6 +271,7 @@ export class CityView {
     }
     pg.computeVertexNormals();
     for (let i = 0; i < pa.count; i++) pa.setY(i, trueH[i]);
+    this.simplifyGround(pg, G);
     const tex = (data) => { const t = new THREE.DataTexture(data, city.N, city.N, THREE.RGBAFormat); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.needsUpdate = true; return t; };
     const gu = {
       ...this.uniforms, uA: { value: tex(city.texA) }, uB: { value: tex(city.texB) }, uHalf: { value: half },
@@ -259,8 +352,92 @@ export class CityView {
       return { ...l, el, order: b?.order ?? 0, pos: new THREE.Vector3(l.x, l.z, l.y) };
     });
 
+    // what animates: the sea (water shimmer), neon signs (flicker) and the trains; their places say when a tick matters
+    const signs = [];
+    for (const k of GEOMS) {
+      const a = city.parts[k];
+      for (let i = 0; i < a.length; i += STRIDE) if (Math.round(a[i + 10]) === 5) signs.push(a[i], a[i + 2]);
+    }
+    this.signXZ = new Float32Array(signs);
+    this.hasWater = this.hasSea();
+    this.animKey = '';
+
     this.fit();
     this.dirty = true;
+  }
+
+  /**
+   * Adaptive ground resolution: a block of BLOCK x BLOCK cells whose heights stay within 0.1 m of a plane and whose
+   * normals agree within 0.01 (open sea and level ground, the most of the square) is drawn as two triangles. The
+   * vertices stay in the buffer, so the seams with full-resolution blocks share their edge corners (a T-junction over
+   * a flat plane, with no visible crack). Shading is unchanged where the surface is flat, and the rest keeps its cells.
+   */
+  simplifyGround(pg, G) {
+    const pa = pg.getAttribute('position'), na = pg.getAttribute('normal');
+    const V = (i, j) => j * (G + 1) + i;
+    // the quadtree: a block of size s cells is one quad when flat, else its four halves are tried in turn
+    const flat = (bi, bj, s) => {
+      const y0 = pa.getY(V(bi, bj)), n0x = na.getX(V(bi, bj)), n0y = na.getY(V(bi, bj)), n0z = na.getZ(V(bi, bj));
+      // the plane through the block's corners: heights must stay within 0.1 m of it, normals within 0.01
+      const y1 = pa.getY(V(bi + s, bj)), y2 = pa.getY(V(bi, bj + s)), y3 = pa.getY(V(bi + s, bj + s));
+      for (let j = 0; j <= s; j++) for (let i = 0; i <= s; i++) {
+        const v = V(bi + i, bj + j), u = i / s, w = j / s;
+        const plane = (y0 * (1 - u) + y1 * u) * (1 - w) + (y2 * (1 - u) + y3 * u) * w;
+        if (Math.abs(pa.getY(v) - plane) > GROUND_HEIGHT_TOL) return false;
+        if (Math.abs(na.getX(v) - n0x) + Math.abs(na.getY(v) - n0y) + Math.abs(na.getZ(v) - n0z) > GROUND_NORMAL_TOL) return false;
+      }
+      return true;
+    };
+    // the leaves of the quadtree: [i, j, size, collapsed] (size in cells; a size-1 leaf is one cell)
+    const top = [16, 8, 4, 2, 1].find((s) => G % s === 0);
+    const leaves = [];
+    const walk = (bi, bj, s) => {
+      if (s > 1 && flat(bi, bj, s)) { leaves.push([bi, bj, s, true]); return; }
+      if (s === 1) { leaves.push([bi, bj, 1, false]); return; }
+      const h = s / 2;
+      walk(bi, bj, h); walk(bi + h, bj, h); walk(bi, bj + h, h); walk(bi + h, bj + h, h);
+    };
+    for (let bj = 0; bj < G; bj += top) for (let bi = 0; bi < G; bi += top) walk(bi, bj, top);
+    // A collapsed leaf keeps every vertex of an edge unless the leaf of the same size across that edge is collapsed
+    // too, then only the two corners meet there. Both sides of any edge therefore carry the same vertices (no cracks),
+    // and the fan over the perimeter shades like the flat cells did.
+    const key = (i, j, s) => `${i},${j},${s}`;
+    const collapsed = new Set(leaves.filter((l) => l[3]).map((l) => key(l[0], l[1], l[2])));
+    const idx = [];
+    for (const [x0, z0, s, isC] of leaves) {
+      if (!isC) {
+        const a = V(x0, z0), b = V(x0, z0 + 1), c = V(x0 + 1, z0 + 1), d = V(x0 + 1, z0);
+        idx.push(a, b, d, b, c, d);
+        continue;
+      }
+      // the sides in loop order (-z, +x, +z, -x), each starting at its first corner
+      const side = (ax, az, bx, bz, nk) => {
+        if (collapsed.has(nk)) return [V(ax, az)];
+        const pts = [], dx = Math.sign(bx - ax), dz = Math.sign(bz - az);
+        for (let t = 0; t < s; t++) pts.push(V(ax + dx * t, az + dz * t));
+        return pts;
+      };
+      const perim = [
+        ...side(x0, z0, x0, z0 + s, key(x0 - s, z0, s)),
+        ...side(x0, z0 + s, x0 + s, z0 + s, key(x0, z0 + s, s)),
+        ...side(x0 + s, z0 + s, x0 + s, z0, key(x0 + s, z0, s)),
+        ...side(x0 + s, z0, x0, z0, key(x0, z0 - s, s)),
+      ];
+      for (let k = 1; k < perim.length - 1; k++) idx.push(perim[0], perim[k], perim[k + 1]);
+    }
+    pg.setIndex(idx);
+    this.groundTris = idx.length / 3;
+    this.groundTrisFull = G * G * 2;
+  }
+
+  /** True when some ground lies under the sea level (the water shader animates there). */
+  hasSea() {
+    const half = this.city.S / 2;
+    for (let j = 0; j <= 24; j++) for (let i = 0; i <= 24; i++) {
+      const x = -half + (i / 24) * 2 * half, z = -half + (j / 24) * 2 * half;
+      if (this.heightAt(x, z) < 0) return true;
+    }
+    return this.city.outskirts.h.some((h) => h < 0);
   }
 
   add(o) { this.scene.add(o); this.objects.push(o); }
@@ -661,12 +838,84 @@ export class CityView {
     if (this.seeDirty && this.city) this.applySeeThrough();
     this.animateCut(dt);
     this.uniforms.uOutlineM.value = 1.5 * this.scale; // the focus outline is 1.5 CSS pixels wide
-    if (this.motion) { this.uniforms.uTime.value += dt; this.dirty = true; if (this.train) this.moveTrain(dt); }
+    if (this.motion) { this.clock += dt; this.uniforms.uTime.value = this.clock; this.tickAnimation(); }
+    // nothing changed: no draw, no label work (zero renders while idle)
     if (!this.dirty || !this.city) return;
+    this.renders++;
     this.updateCamera();
+    this.applyLOD();
+    const gl = this.renderer.getContext();
+    this.pollTimer();
+    const t0 = performance.now();
+    const q = this.beginTimer();
     this.renderer.render(this.scene, this.camera);
+    this.endTimer(q);
+    if (!this.tq && !this.software) {
+      // no timer query: a one-pixel read waits for the draw, so the wall time is the frame time
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.px);
+      this.recordFrame(performance.now() - t0);
+    }
     this.placeLabels();
     this.dirty = false;
+  }
+
+  /** Tree level of detail by scale: full crowns and trunks when close, billboard crowns (no trunks) when far. */
+  applyLOD() {
+    const far = this.scale > TREE_FAR_SCALE;
+    if (far !== this.lodFar) {
+      this.lodFar = far;
+      for (const m of this.treeFull) m.visible = !far;
+      for (const m of this.billboards) m.visible = far;
+    }
+    const small = this.scale <= SMALL_SCALE;
+    if (small !== this.lodSmall) {
+      this.lodSmall = small;
+      for (const m of this.smallMeshes) m.visible = small;
+    }
+  }
+
+  /**
+   * Animation tick: while water, neon or a train is on screen (and the page is shown and motion is allowed), the view
+   * is marked dirty ANIM_FPS times a second, the train moves by the elapsed step. Otherwise nothing animates.
+   */
+  tickAnimation() {
+    const fps = this.saver ? SAVER_FPS : ANIM_FPS;
+    if (!fps || !this.animationOnScreen()) return;
+    if (this.animT >= 0 && this.clock - this.animT < 1 / fps) return;
+    const step = this.animT < 0 ? 0 : this.clock - this.animT;
+    this.animT = this.clock;
+    if (this.train && step > 0) this.moveTrain(step);
+    this.dirty = true;
+  }
+
+  /** Whether an animated thing is inside the visible ground (cached per camera position). */
+  animationOnScreen() {
+    if (!this.city || !(this.hasWater || this.train || this.signXZ.length)) return false;
+    const key = `${this.target.x},${this.target.z},${this.scale},${this.yaw},${this.w},${this.h}`;
+    if (key !== this.animKey) { this.animKey = key; this.animVisible = this.computeAnimVisible(); }
+    return this.animVisible;
+  }
+
+  computeAnimVisible() {
+    this.updateCamera();
+    const cs = [[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]].map(([x, y]) => this.groundAt(x, y)).filter(Boolean);
+    if (cs.length < 4) return true;
+    const pad = 40;
+    const x0 = Math.min(...cs.map((c) => c.x)) - pad, x1 = Math.max(...cs.map((c) => c.x)) + pad;
+    const z0 = Math.min(...cs.map((c) => c.z)) - pad, z1 = Math.max(...cs.map((c) => c.z)) + pad;
+    const inView = (x, z) => x >= x0 && x <= x1 && z >= z0 && z <= z1;
+    if (this.train && this.train.path.some(([x, y]) => inView(x, y))) return true;
+    const sx = this.signXZ;
+    for (let i = 0; i < sx.length; i += 2) if (inView(sx[i], sx[i + 1])) return true;
+    if (this.hasWater) {
+      const half = this.city.S / 2, out = this.city.outskirts;
+      for (let j = 0; j <= 12; j++) for (let i = 0; i <= 12; i++) {
+        const x = x0 + ((x1 - x0) * i) / 12, z = z0 + ((z1 - z0) * j) / 12;
+        const h = Math.abs(x) < half && Math.abs(z) < half ? this.heightAt(x, z) : outskirtsHeight(out, x, z);
+        if (h < 0) return true;
+      }
+    }
+    return false;
   }
 
   placeLabels() {
@@ -692,6 +941,45 @@ export class CityView {
 }
 
 function smooth(a, b, x) { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
+
+/** An instanced geometry over one interleaved part buffer, with the base geometry's vertex attributes. */
+function partGeometry(base, ib, count) {
+  const g = new THREE.InstancedBufferGeometry();
+  for (const name of ['position', 'normal', 'aFace', 'aInfo']) g.setAttribute(name, base.getAttribute(name));
+  g.setAttribute('iPos', new THREE.InterleavedBufferAttribute(ib, 3, 0));
+  g.setAttribute('iSize', new THREE.InterleavedBufferAttribute(ib, 3, 3));
+  g.setAttribute('iRot', new THREE.InterleavedBufferAttribute(ib, 1, 6));
+  g.setAttribute('iColor', new THREE.InterleavedBufferAttribute(ib, 3, 7));
+  g.setAttribute('iStyle', new THREE.InterleavedBufferAttribute(ib, 4, 10));
+  g.setAttribute('iMeta', new THREE.InterleavedBufferAttribute(ib, 4, 14));
+  g.instanceCount = count;
+  return g;
+}
+
+/**
+ * Split one part array into tiles (TILE metres square) and size classes: buildings (bid > 0) whose parts are under
+ * SMALL_M across are the small class. Each tile carries its instances' data and a bounding sphere over them.
+ */
+function splitTiles(arr, half, tree) {
+  const groups = new Map();
+  for (let o = 0; o < arr.length; o += STRIDE) {
+    const x = arr[o], y = arr[o + 1], z = arr[o + 2], sx = arr[o + 3], sy = arr[o + 4], sz = arr[o + 5];
+    const small = !tree && arr[o + 13] > 0 && Math.max(sx, sz) < SMALL_M;
+    const id = `${+small}|${Math.floor((x + half) / TILE)}|${Math.floor((z + half) / TILE)}`;
+    let t = groups.get(id);
+    if (!t) groups.set(id, t = { small, list: [], lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] });
+    for (let q = 0; q < STRIDE; q++) t.list.push(arr[o + q]);
+    const R = Math.hypot(sx, sz) / 2;
+    const lo = [x - R, y, z - R], hi = [x + R, y + sy, z + R];
+    for (let a = 0; a < 3; a++) { t.lo[a] = Math.min(t.lo[a], lo[a]); t.hi[a] = Math.max(t.hi[a], hi[a]); }
+  }
+  return [...groups.values()].map((t) => {
+    const data = Float32Array.from(t.list);
+    const c = [0, 1, 2].map((a) => (t.lo[a] + t.hi[a]) / 2);
+    const r = Math.hypot(t.hi[0] - t.lo[0], t.hi[1] - t.lo[1], t.hi[2] - t.lo[2]) / 2;
+    return { data, count: data.length / STRIDE, small: t.small, sphere: new THREE.Sphere(new THREE.Vector3(...c), r) };
+  });
+}
 
 function skyFor(el, warm, night) {
   const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));

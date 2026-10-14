@@ -26,6 +26,42 @@ for (const id of CITY_ORDER) {
   $('tabs').appendChild(b);
 }
 
+// Generation runs in a worker (cache first, see gen.worker.js); the page generates a city itself only when the worker fails.
+let genWorker = null, reqSeq = 0;
+const pending = new Map();
+function workerGen(id, progress) {
+  if (typeof Worker === 'undefined') return Promise.reject(new Error('no workers'));
+  if (!genWorker) {
+    const w = new Worker(new URL('./gen.worker.js', import.meta.url), { type: 'module' });
+    w.onmessage = (e) => {
+      const p = pending.get(e.data.reqId);
+      if (!p) return;
+      if (e.data.type === 'progress') { p.progress(e.data.msg); return; }
+      pending.delete(e.data.reqId);
+      if (e.data.type === 'done') p.resolve(e.data.city); else p.reject(new Error(e.data.message));
+    };
+    w.onerror = (e) => {
+      genWorker = null;
+      for (const [k, p] of pending) { pending.delete(k); p.reject(e.error ?? new Error('generation worker failed')); }
+    };
+    genWorker = w;
+  }
+  const reqId = ++reqSeq;
+  return new Promise((resolve, reject) => {
+    pending.set(reqId, { progress, resolve, reject });
+    genWorker.postMessage({ id, reqId });
+  });
+}
+
+/** A generated city for a personality id, with the personality attached. */
+async function loadCity(id, progress) {
+  let city = null;
+  try { city = await workerGen(id, progress); } catch (err) { console.warn('cities: worker generation failed, generating here', err); }
+  if (!city) return generateCity(PERSONALITIES[id], progress);
+  city.P = PERSONALITIES[id];
+  return city;
+}
+
 const STEPS = ['Surveying the land', 'Drawing districts', 'Laying out the street grain', 'Tracing canals', 'Tracing arterial streets', 'Tracing collector streets', 'Tracing local streets', 'Cutting city blocks', 'Raising landmarks', 'Dividing parcels', 'Raising', 'Seating the companies', 'Planting trees', 'Bringing in the ships', 'Planning the growth', 'Painting the ground', 'Done'];
 
 async function open(id) {
@@ -39,7 +75,7 @@ async function open(id) {
   if (!c) {
     $('loading').classList.remove('hide');
     $('l-city').textContent = P.name;
-    c = await generateCity(P, (msg) => {
+    c = await loadCity(id, (msg) => {
       $('l-step').textContent = msg;
       const i = STEPS.findIndex((s) => msg.startsWith(s));
       $('l-bar').style.width = `${Math.round(((i < 0 ? 0 : i) / (STEPS.length - 1)) * 100)}%`;
@@ -127,6 +163,18 @@ let playT = 0;
 $('rotl').onclick = () => view.rotate(-1);
 $('rotr').onclick = () => view.rotate(1);
 $('home').onclick = () => view.fit();
+// battery saver: pixel ratio 1 and a slower animation (remembered on this device)
+let saver = false;
+try { saver = localStorage.getItem('cities.saver') === '1'; } catch {}
+function setSaver(on) {
+  saver = on;
+  view.setSaver(on);
+  $('saver').classList.toggle('on', on);
+  $('saver').setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem('cities.saver', on ? '1' : '0'); } catch {}
+}
+$('saver').onclick = () => setSaver(!saver);
+setSaver(saver);
 $('lbls').onclick = () => { view.showLabels = !view.showLabels; view.dirty = true; };
 $('toggle').onclick = () => $('controls').classList.toggle('open');
 
@@ -443,6 +491,7 @@ window.__cities = {
   /** dev: the map lenses. setLens returns the time the lens took to paint, in ms. */
   setLens: (id) => { setLens(id); return lastLensMs; }, get lens() { return lensId; }, lensMs: () => lastLensMs,
   setMood: (v) => { $('mood').value = v; setMood(v); },
+  setSaver: (on) => setSaver(!!on), get saver() { return saver; },
   search: (q) => { sIn.value = q; runSearch(); return hits.map((h) => `${h.title} | ${h.hint}`); },
   openHit: (i) => openHit(i),
   /** test hooks: select a building by id (0 or null clears), set the see-through mode, read it */

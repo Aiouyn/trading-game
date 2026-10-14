@@ -776,3 +776,89 @@ void main() {
   col *= 1.0 - uLensDim;
   gl_FragColor = vec4(haze(col, vXZ), 1.0);
 }`;
+
+// ===== TREE BILLBOARDS (cities/perf) ===================================================================================
+// A tree's crown seen from far: one camera-facing disc per crown, shaded as the icosahedron crown is (same leaf colour,
+// hue, light and lens treatment), its normal taken from the disc's sphere. Used when zoomed out (render.js).
+export const billVert = /* glsl */ `
+${COMMON}
+attribute vec3 iPos;
+attribute vec3 iSize;
+attribute vec3 iColor;
+attribute vec4 iStyle;
+attribute vec4 iMeta;
+uniform sampler2D uState;
+uniform float uStateW;
+uniform vec3 uRight;
+uniform vec3 uUp;
+uniform vec3 uFwd;
+uniform int uFocusN;
+uniform vec4 uFocusRect[12];
+uniform float uFocusDepth[12];
+varying vec2 vQ;
+varying vec2 vRad;
+varying vec3 vCol;
+varying vec3 vCen;
+varying vec3 vWorld;
+varying vec4 vState;
+void main() {
+  vCen = iPos; vCol = iColor;
+  vState = texelFetch(uState, ivec2(int(mod(iStyle.w, uStateW)), int(floor(iStyle.w / uStateW))), 0);
+  float p = clamp((uGrowth - iMeta.x) / uBand, 0.0, 1.0);
+  if (p <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  // the same focus rule as partVert: a crown in a focus box and nearer the camera is hidden
+  if (uFocusN > 0) {
+    vec3 tc = iPos + vec3(0.0, 0.5 * iSize.y, 0.0);
+    float tr = dot(tc, uRight), tu = dot(tc, uUp), td = dot(tc, uFwd);
+    for (int k = 0; k < 12; k++) {
+      if (k >= uFocusN) break;
+      vec4 qf = uFocusRect[k];
+      if (tr > qf.x && tr < qf.z && tu > qf.y && tu < qf.w && td < uFocusDepth[k]) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+    }
+  }
+  float g = iMeta.z;
+  float pe = p * p * (3.0 - 2.0 * p);
+  vec3 cen = iPos + vec3(0.0, 0.5 * iSize.y, 0.0);
+  cen.y = g + (cen.y - g) * pe;
+  // the crown's silhouette radii: the icosahedron's faces sit a little inside its half-box vertices, so 0.48 of the box
+  vRad = vec2(0.24 * (iSize.x + iSize.z), 0.48 * iSize.y * pe);
+  vQ = position.xy;
+  vec3 wp = cen + uRight * (position.x * vRad.x) + uUp * (position.y * vRad.y);
+  vWorld = wp;
+  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+}`;
+
+export const billFrag = /* glsl */ `
+${COMMON}
+uniform vec3 uRight;
+uniform vec3 uUp;
+uniform vec3 uFwd;
+uniform float uLens;
+varying vec2 vQ;
+varying vec2 vRad;
+varying vec3 vCol;
+varying vec3 vCen;
+varying vec3 vWorld;
+varying vec4 vState;
+void main() {
+  float r = length(vQ);
+  float fw = max(fwidth(r), 1e-4);
+  float cov = clamp((1.0 - r) / fw + 0.5, 0.0, 1.0);
+  if (cov <= 0.0) discard;
+  float z = sqrt(max(0.0, 1.0 - dot(vQ, vQ)));
+  vec3 n = normalize(uRight * vQ.x + uUp * vQ.y - uFwd * z);
+  float tv = h11(vCen.x * 0.113 + vCen.z * 0.737);
+  float pxm = max(fwidth(vQ.x) * vRad.x, fwidth(vQ.y) * vRad.y);
+  float clump = 0.5;
+  if (pxm < 0.8) clump = mix(vnoise(vec2(vQ.x * vRad.x, vQ.y * vRad.y) * 1.6), 0.5, smoothstep(0.3, 0.8, pxm));
+  // 0.88: a disc's normals sit on the sphere's bright side; the facets of the real crown average darker (matched by eye)
+  vec3 leaf = vCol * 0.88 * mix(0.58, 1.12, smoothstep(-0.5, 0.9, n.y)) * (0.84 + 0.3 * tv) * (0.92 + 0.16 * clump);
+  leaf *= vec3(1.0 + 0.08 * (tv - 0.5), 1.0, 1.0 - 0.08 * (tv - 0.5));
+  vec3 base = light(leaf, n);
+  // the map lens, as partFrag does for a tree (bid 0: never emphasised)
+  if (uLens > 0.5) {
+    if (mod(floor(vState.a * 255.0 + 0.5), 2.0) >= 1.0) base = mix(base, vState.rgb, 0.55);
+    else base = mix(uInk, mix(base, vec3(dot(base, vec3(0.299, 0.587, 0.114))), 0.75), 0.72);
+  }
+  gl_FragColor = vec4(haze(base, vWorld.xz), cov);
+}`;
