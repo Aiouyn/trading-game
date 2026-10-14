@@ -4,6 +4,10 @@
 import { PERSONALITIES } from './personalities.js';
 import { generateCity } from './gen.js';
 import { readCity, writeCity } from './citycache.js';
+import { preparePersonality } from './avalon-art.js';
+
+/** The personality every generation path uses. Reattachment in main.js must match it exactly. */
+export { preparePersonality };
 
 /** The ArrayBuffers under a city's typed arrays, for transfer. */
 function buffersOf(obj, out = new Set(), depth = 0) {
@@ -17,7 +21,9 @@ function buffersOf(obj, out = new Set(), depth = 0) {
 self.onmessage = async ({ data: { id, reqId } }) => {
   const send = (msg, transfer = []) => self.postMessage({ reqId, ...msg }, transfer);
   try {
-    const P0 = PERSONALITIES[id];
+    // Both generation paths must use the same prepared personality, or a city silently
+    // differs depending on whether the worker was available.
+    const P0 = preparePersonality(PERSONALITIES[id]);
     const cached = await readCity(id, P0.seed);
     if (cached) {
       send({ type: 'done', city: cached, cached: true }, [...buffersOf(cached)]);

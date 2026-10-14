@@ -8,6 +8,7 @@ import { Parts, buildArchetype, buildLandmark, buildTree, buildCrane, buildShip,
 import { sampleOutskirts, outskirtsHeight, traceHighways } from './outskirts.js';
 import { buildRoadGraph, labelLand, SegGrid } from './roadgraph.js';
 import { parcelId } from './parcel-id.js';
+import { avalonHeight } from './avalon-art.js';
 import { resolveEntranceAccess, thresholdOf, DEPTH_FACTOR } from './entrance-access.js';
 import { entranceOf } from './access.js';
 import { eligibleJunctionArm } from './junction-style.js';
@@ -472,9 +473,14 @@ export async function generateCity(P, progress = () => {}) {
     const proposalR = rng(Math.floor(hash2(Math.round(lot.x * 100), Math.round(lot.y * 100), P.seed) * 0xffffffff));
     const V = VAt(lot.x, lot.y), [medH, sigma, minH, maxH] = lot.d.height;
     const hn = Math.pow(2, 0.9 * n.fbm(lot.x / 230 + 50, lot.y / 230, 3));
-    lot.h = clamp(medH * (0.35 + 1.35 * Math.pow(V, 1.25)) * hn *
-      Math.exp(sigma * (lot.d.gap === 0 ? 0.4 : 1) * proposalR.normal()), minH, maxH);
-    lot.type = pickType(lot.d, lot.h, proposalR);
+    // Ordinary masonry districts share a cornice line per block (avalonHeight). Landmarks,
+      // headquarters and towers keep their own proposed heights.
+      const proposed = clamp(medH * (0.35 + 1.35 * Math.pow(V, 1.25)) * hn *
+        Math.exp(sigma * (lot.d.gap === 0 ? 0.4 : 1) * proposalR.normal()), minH, maxH);
+      lot.h = P.id === 'avalon'
+        ? clamp(avalonHeight(lot.d.id, lot.b.seedCell, lot.x, lot.y, proposed, P.seed), minH, maxH)
+        : proposed;
+      lot.type = pickType(lot.d, lot.h, proposalR);
   }
   // frontage candidates: along each local and collector, the lot positions on either side that land in a built block
   const frontBy = new Map();

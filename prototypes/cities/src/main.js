@@ -3,6 +3,7 @@ import { generateCity } from './gen.js';
 import { CityView } from './render.js';
 import { LENS_IDS, LENS_NAMES, RAMP, SECTOR_NAMES, makeLenses, applyLens, dayReturn } from './lenses.js';
 import { buildSearch, searchCity } from './search.js';
+import { preparePersonality } from './avalon-art.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new CityView($('view'), $('labels'));
@@ -57,8 +58,8 @@ function workerGen(id, progress) {
 async function loadCity(id, progress) {
   let city = null;
   try { city = await workerGen(id, progress); } catch (err) { console.warn('cities: worker generation failed, generating here', err); }
-  if (!city) return generateCity(PERSONALITIES[id], progress);
-  city.P = PERSONALITIES[id];
+  if (!city) return generateCity(preparePersonality(PERSONALITIES[id]), progress);
+  city.P = preparePersonality(PERSONALITIES[id]);
   return city;
 }
 
