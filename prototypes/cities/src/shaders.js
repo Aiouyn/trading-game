@@ -820,8 +820,8 @@ void main() {
   float pe = p * p * (3.0 - 2.0 * p);
   vec3 cen = iPos + vec3(0.0, 0.5 * iSize.y, 0.0);
   cen.y = g + (cen.y - g) * pe;
-  // the crown's silhouette radii: the icosahedron's faces sit a little inside its half-box vertices, so 0.46 of the box
-  vRad = vec2(0.23 * (iSize.x + iSize.z), 0.46 * iSize.y * pe);
+  // the crown's silhouette radii: the icosahedron's faces sit a little inside its half-box vertices, so 0.48 of the box
+  vRad = vec2(0.24 * (iSize.x + iSize.z), 0.48 * iSize.y * pe);
   vQ = position.xy;
   vec3 wp = cen + uRight * (position.x * vRad.x) + uUp * (position.y * vRad.y);
   vWorld = wp;

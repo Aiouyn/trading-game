@@ -17,6 +17,11 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const ANIM_FPS = 12; // water, neon and trains, while on screen
 const SAVER_FPS = 4; // the battery saver's animation rate
 const TREE_FAR_SCALE = 0.35; // metres per pixel: beyond this, tree crowns are billboards and trunks are not drawn
+const SMALL_SCALE = 1.2; // metres per pixel: beyond this, the small building parts (footprint under SMALL_M) are not drawn
+const SMALL_M = 3; // metres: the footprint limit of a small part
+const TILE = 400; // metres: the side of a culling tile
+const GROUND_HEIGHT_TOL = 0.3; // metres: how far ground may sit off a block's corner plane to collapse (simplifyGround)
+const GROUND_NORMAL_TOL = 0.05; // the summed normal difference allowed inside a collapsed block
 // the glow under a focus building: uv = footprint-relative metres, aHalf = the footprint's half sizes
 const glowVert = /* glsl */ `
 attribute vec2 aHalf;
@@ -139,7 +144,12 @@ export class CityView {
       uniforms: { uBrass: this.uniforms.uBrass, uNight: this.uniforms.uNight },
     });
     // trees: the full crowns and trunks draw when close; from TREE_FAR scale the crowns are billboards and the trunks go
-    this.treeFull = []; this.billboards = []; this.lodFar = null;
+    // trees: the full crowns and trunks draw when close; from TREE_FAR scale the crowns are billboards and the trunks go.
+    // Level of detail and culling: the instances are split into TILE-metre tiles (one draw per geometry, tile and size
+    // class, each culled by its bounding sphere), and buildings with parts under SMALL_M across form a small class,
+    // drawn only up to SMALL_SCALE. The outline draw keeps one unsplit geometry per building geometry (it only shows
+    // the focus buildings), so the draw count stays small.
+    this.treeFull = []; this.billboards = []; this.lodFar = null; this.smallMeshes = []; this.lodSmall = null;
     const quad = new THREE.BufferGeometry();
     quad.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
     quad.setIndex([0, 1, 2, 0, 2, 3]);
@@ -151,34 +161,32 @@ export class CityView {
       if (!count) continue;
       const tree = k in TREE_GEOM;
       const base = this.geoms[TREE_GEOM[k] ?? k];
-      const g = new THREE.InstancedBufferGeometry();
-      for (const name of ['position', 'normal', 'aFace', 'aInfo']) g.setAttribute(name, base.getAttribute(name));
-      const ib = new THREE.InstancedInterleavedBuffer(arr, STRIDE);
-      g.setAttribute('iPos', new THREE.InterleavedBufferAttribute(ib, 3, 0));
-      g.setAttribute('iSize', new THREE.InterleavedBufferAttribute(ib, 3, 3));
-      g.setAttribute('iRot', new THREE.InterleavedBufferAttribute(ib, 1, 6));
-      g.setAttribute('iColor', new THREE.InterleavedBufferAttribute(ib, 3, 7));
-      g.setAttribute('iStyle', new THREE.InterleavedBufferAttribute(ib, 4, 10));
-      g.setAttribute('iMeta', new THREE.InterleavedBufferAttribute(ib, 4, 14));
-      g.instanceCount = count;
-      const m = new THREE.Mesh(g, partMat);
-      m.frustumCulled = false;
-      this.add(m);
-      if (tree) this.treeFull.push(m);
-      if (k === 'treeIco') {
-        const bg = new THREE.InstancedBufferGeometry();
-        bg.setAttribute('position', quad.getAttribute('position'));
-        bg.setIndex(quad.getIndex());
-        for (const name of ['iPos', 'iSize', 'iColor', 'iStyle', 'iMeta']) bg.setAttribute(name, g.getAttribute(name));
-        bg.instanceCount = count;
-        const bm = new THREE.Mesh(bg, billMat);
-        bm.frustumCulled = false; bm.visible = false;
-        this.add(bm); this.billboards.push(bm);
+      if (!tree) {
+        const og = partGeometry(base, new THREE.InstancedInterleavedBuffer(arr, STRIDE), count);
+        const om = new THREE.Mesh(og, outlineMat);
+        om.frustumCulled = false; om.renderOrder = 2; om.visible = false;
+        this.add(om); this.outlines.push(om);
       }
-      if (tree) continue;
-      const om = new THREE.Mesh(g, outlineMat);
-      om.frustumCulled = false; om.renderOrder = 2; om.visible = false;
-      this.add(om); this.outlines.push(om);
+      for (const tile of splitTiles(arr, half, tree)) {
+        const g = partGeometry(base, new THREE.InstancedInterleavedBuffer(tile.data, STRIDE), tile.count);
+        g.boundingSphere = tile.sphere;
+        const m = new THREE.Mesh(g, partMat);
+        m.frustumCulled = true;
+        this.add(m);
+        if (tile.small) this.smallMeshes.push(m);
+        if (tree) this.treeFull.push(m);
+        if (k === 'treeIco') {
+          const bg = new THREE.InstancedBufferGeometry();
+          bg.setAttribute('position', quad.getAttribute('position'));
+          bg.setIndex(quad.getIndex());
+          for (const name of ['iPos', 'iSize', 'iColor', 'iStyle', 'iMeta']) bg.setAttribute(name, g.getAttribute(name));
+          bg.instanceCount = tile.count;
+          bg.boundingSphere = tile.sphere;
+          const bm = new THREE.Mesh(bg, billMat);
+          bm.frustumCulled = true; bm.visible = false;
+          this.add(bm); this.billboards.push(bm);
+        }
+      }
     }
 
     // ground
@@ -305,33 +313,37 @@ export class CityView {
    * a flat plane, with no visible crack). Shading is unchanged where the surface is flat, and the rest keeps its cells.
    */
   simplifyGround(pg, G) {
-    const BLOCK = G % 4 === 0 ? 4 : 1;
     const pa = pg.getAttribute('position'), na = pg.getAttribute('normal');
     const V = (i, j) => j * (G + 1) + i;
+    // the quadtree: a block of size s cells is one quad when flat, else its four halves are tried in turn
+    const flat = (bi, bj, s) => {
+      const y0 = pa.getY(V(bi, bj)), n0x = na.getX(V(bi, bj)), n0y = na.getY(V(bi, bj)), n0z = na.getZ(V(bi, bj));
+      // the plane through the block's corners: heights must stay within 0.1 m of it, normals within 0.01
+      const y1 = pa.getY(V(bi + s, bj)), y2 = pa.getY(V(bi, bj + s)), y3 = pa.getY(V(bi + s, bj + s));
+      for (let j = 0; j <= s; j++) for (let i = 0; i <= s; i++) {
+        const v = V(bi + i, bj + j), u = i / s, w = j / s;
+        const plane = (y0 * (1 - u) + y1 * u) * (1 - w) + (y2 * (1 - u) + y3 * u) * w;
+        if (Math.abs(pa.getY(v) - plane) > GROUND_HEIGHT_TOL) return false;
+        if (Math.abs(na.getX(v) - n0x) + Math.abs(na.getY(v) - n0y) + Math.abs(na.getZ(v) - n0z) > GROUND_NORMAL_TOL) return false;
+      }
+      return true;
+    };
     const idx = [];
-    for (let bj = 0; bj < G; bj += BLOCK) for (let bi = 0; bi < G; bi += BLOCK) {
-      let flat = BLOCK > 1;
-      if (flat) {
-        const y0 = pa.getY(V(bi, bj)), n0x = na.getX(V(bi, bj)), n0y = na.getY(V(bi, bj)), n0z = na.getZ(V(bi, bj));
-        // the plane through the block's corners: heights must stay within 0.1 m of it, normals within 0.01
-        const y1 = pa.getY(V(bi + BLOCK, bj)), y2 = pa.getY(V(bi, bj + BLOCK)), y3 = pa.getY(V(bi + BLOCK, bj + BLOCK));
-        scan: for (let j = 0; j <= BLOCK; j++) for (let i = 0; i <= BLOCK; i++) {
-          const v = V(bi + i, bj + j), u = i / BLOCK, w = j / BLOCK;
-          const plane = (y0 * (1 - u) + y1 * u) * (1 - w) + (y2 * (1 - u) + y3 * u) * w;
-          if (Math.abs(pa.getY(v) - plane) > 0.1) { flat = false; break scan; }
-          if (Math.abs(na.getX(v) - n0x) + Math.abs(na.getY(v) - n0y) + Math.abs(na.getZ(v) - n0z) > 0.01) { flat = false; break scan; }
-        }
+    const emit = (bi, bj, s) => {
+      if (s > 1 && flat(bi, bj, s)) {
+        idx.push(V(bi, bj), V(bi, bj + s), V(bi + s, bj), V(bi, bj + s), V(bi + s, bj + s), V(bi + s, bj));
+        return;
       }
-      if (flat) {
-        const A = V(bi, bj), Bv = V(bi, bj + BLOCK), C = V(bi + BLOCK, bj + BLOCK), D = V(bi + BLOCK, bj);
-        idx.push(A, Bv, D, Bv, C, D);
-        continue;
-      }
-      for (let j = bj; j < Math.min(G, bj + BLOCK); j++) for (let i = bi; i < Math.min(G, bi + BLOCK); i++) {
-        const a = V(i, j), b = V(i, j + 1), c = V(i + 1, j + 1), d = V(i + 1, j);
+      if (s === 1) {
+        const a = V(bi, bj), b = V(bi, bj + 1), c = V(bi + 1, bj + 1), d = V(bi + 1, bj);
         idx.push(a, b, d, b, c, d);
+        return;
       }
-    }
+      const h = s / 2;
+      emit(bi, bj, h); emit(bi + h, bj, h); emit(bi, bj + h, h); emit(bi + h, bj + h, h);
+    };
+    const top = [16, 8, 4, 2, 1].find((s) => G % s === 0);
+    for (let bj = 0; bj < G; bj += top) for (let bi = 0; bi < G; bi += top) emit(bi, bj, top);
     pg.setIndex(idx);
     this.groundTris = idx.length / 3;
     this.groundTrisFull = G * G * 2;
@@ -759,10 +771,16 @@ export class CityView {
   /** Tree level of detail by scale: full crowns and trunks when close, billboard crowns (no trunks) when far. */
   applyLOD() {
     const far = this.scale > TREE_FAR_SCALE;
-    if (far === this.lodFar) return;
-    this.lodFar = far;
-    for (const m of this.treeFull) m.visible = !far;
-    for (const m of this.billboards) m.visible = far;
+    if (far !== this.lodFar) {
+      this.lodFar = far;
+      for (const m of this.treeFull) m.visible = !far;
+      for (const m of this.billboards) m.visible = far;
+    }
+    const small = this.scale <= SMALL_SCALE;
+    if (small !== this.lodSmall) {
+      this.lodSmall = small;
+      for (const m of this.smallMeshes) m.visible = small;
+    }
   }
 
   /**
@@ -832,6 +850,45 @@ export class CityView {
 }
 
 function smooth(a, b, x) { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
+
+/** An instanced geometry over one interleaved part buffer, with the base geometry's vertex attributes. */
+function partGeometry(base, ib, count) {
+  const g = new THREE.InstancedBufferGeometry();
+  for (const name of ['position', 'normal', 'aFace', 'aInfo']) g.setAttribute(name, base.getAttribute(name));
+  g.setAttribute('iPos', new THREE.InterleavedBufferAttribute(ib, 3, 0));
+  g.setAttribute('iSize', new THREE.InterleavedBufferAttribute(ib, 3, 3));
+  g.setAttribute('iRot', new THREE.InterleavedBufferAttribute(ib, 1, 6));
+  g.setAttribute('iColor', new THREE.InterleavedBufferAttribute(ib, 3, 7));
+  g.setAttribute('iStyle', new THREE.InterleavedBufferAttribute(ib, 4, 10));
+  g.setAttribute('iMeta', new THREE.InterleavedBufferAttribute(ib, 4, 14));
+  g.instanceCount = count;
+  return g;
+}
+
+/**
+ * Split one part array into tiles (TILE metres square) and size classes: buildings (bid > 0) whose parts are under
+ * SMALL_M across are the small class. Each tile carries its instances' data and a bounding sphere over them.
+ */
+function splitTiles(arr, half, tree) {
+  const groups = new Map();
+  for (let o = 0; o < arr.length; o += STRIDE) {
+    const x = arr[o], y = arr[o + 1], z = arr[o + 2], sx = arr[o + 3], sy = arr[o + 4], sz = arr[o + 5];
+    const small = !tree && arr[o + 13] > 0 && Math.max(sx, sz) < SMALL_M;
+    const id = `${+small}|${Math.floor((x + half) / TILE)}|${Math.floor((z + half) / TILE)}`;
+    let t = groups.get(id);
+    if (!t) groups.set(id, t = { small, list: [], lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] });
+    for (let q = 0; q < STRIDE; q++) t.list.push(arr[o + q]);
+    const R = Math.hypot(sx, sz) / 2;
+    const lo = [x - R, y, z - R], hi = [x + R, y + sy, z + R];
+    for (let a = 0; a < 3; a++) { t.lo[a] = Math.min(t.lo[a], lo[a]); t.hi[a] = Math.max(t.hi[a], hi[a]); }
+  }
+  return [...groups.values()].map((t) => {
+    const data = Float32Array.from(t.list);
+    const c = [0, 1, 2].map((a) => (t.lo[a] + t.hi[a]) / 2);
+    const r = Math.hypot(t.hi[0] - t.lo[0], t.hi[1] - t.lo[1], t.hi[2] - t.lo[2]) / 2;
+    return { data, count: data.length / STRIDE, small: t.small, sphere: new THREE.Sphere(new THREE.Vector3(...c), r) };
+  });
+}
 
 function skyFor(el, warm, night) {
   const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
