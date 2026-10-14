@@ -51,8 +51,19 @@ attribute vec4 iStyle;
 attribute vec4 iMeta;
 uniform sampler2D uState;
 uniform float uStateW;
-uniform float uGhostPass;
-uniform float uFocusPass;
+// see-through (render.js): occluders are cut at uCutH above their ground (uCutT eases 0 -> 1 from uFullH); trees in
+// a focus building's screen box and nearer the camera are hidden; the outline pass is an inverted hull
+uniform float uOutlinePass;
+uniform float uOutlineM;
+uniform float uCutT;
+uniform float uCutH;
+uniform float uFullH;
+uniform vec3 uRight;
+uniform vec3 uUp;
+uniform vec3 uFwd;
+uniform int uFocusN;
+uniform vec4 uFocusRect[12]; // view-plane metres: minR, minU, maxR, maxU of each focus box, widened by the margin
+uniform float uFocusDepth[12];
 varying vec4 vState;
 varying vec3 vN;
 varying vec3 vFace;
@@ -66,15 +77,29 @@ varying float vBaseAbs;
 varying float vProg;
 varying vec3 vLN;
 varying vec2 vXZ;
+varying float vWY;   // world height after the cut
+varying float vCutY; // the cut height of a cut occluder, -1e9 otherwise
 void main() {
   // per-building state (render.js load): rgb = lens tint, a = flags (1 emphasis, 2 see-through occluder, 4 focus)
   vState = texelFetch(uState, ivec2(int(mod(iStyle.w, uStateW)), int(floor(iStyle.w / uStateW))), 0);
-  bool isOccluder = mod(floor(floor(vState.a * 255.0 + 0.5) / 2.0), 2.0) >= 1.0;
+  float flags = floor(vState.a * 255.0 + 0.5);
+  bool isOccluder = mod(floor(flags / 2.0), 2.0) >= 1.0;
+  bool isFocusV = mod(floor(flags / 4.0), 2.0) >= 1.0;
   float p = clamp((uGrowth - iMeta.x) / uBand, 0.0, 1.0);
   vProg = p;
-  // the opaque pass draws what is built (occluders are cut out in the fragment); the ghost pass draws only occluders
-  bool isFocusV = mod(floor(floor(vState.a * 255.0 + 0.5) / 4.0), 2.0) >= 1.0;
-  if (p <= 0.0 || (uGhostPass > 0.5 && !isOccluder) || (uFocusPass > 0.5 && !isFocusV)) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  bool outline = uOutlinePass > 0.5;
+  // the normal pass draws what is built; the outline pass draws only the focus buildings
+  if (p <= 0.0 || (outline && !isFocusV)) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  // trees (bid 0, style LEAF) inside a focus box and nearer the camera than its centre are hidden
+  if (!outline && uFocusN > 0 && iStyle.w < 0.5 && abs(iStyle.x - 8.0) < 0.5) {
+    vec3 tc = iPos + vec3(0.0, 0.5 * iSize.y, 0.0);
+    float tr = dot(tc, uRight), tu = dot(tc, uUp), td = dot(tc, uFwd);
+    for (int k = 0; k < 12; k++) {
+      if (k >= uFocusN) break;
+      vec4 q = uFocusRect[k];
+      if (tr > q.x && tr < q.z && tu > q.y && tu < q.w && td < uFocusDepth[k]) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+    }
+  }
   vec3 lp = position * iSize;
   vMetric = lp;
   float c = cos(iRot), s = sin(iRot);
@@ -83,11 +108,25 @@ void main() {
   float g = iMeta.z;
   float pe = p * p * (3.0 - 2.0 * p);
   wp.y = g + (wp.y - g) * pe;
+  // cutaway: an occluder stops at its ground plus the cut height; roofs and crowns above it collapse onto the cut
+  vCutY = -1e9;
+  if (isOccluder && uCutT > 0.0) {
+    float cy = g + mix(uFullH, uCutH, uCutT);
+    wp.y = min(wp.y, cy);
+    vCutY = cy;
+  }
+  if (outline) {
+    // inverted hull: every vertex moves out from the middle of its building, so the silhouette shows as a thin rim
+    vec3 od = lp - vec3(0.0, 0.5 * iSize.y, 0.0);
+    od /= max(length(od), 1e-4);
+    wp += vec3(c * od.x - s * od.z, od.y, s * od.x + c * od.z) * uOutlineM;
+  }
   vN = vec3(c * normal.x - s * normal.z, normal.y, s * normal.x + c * normal.z);
   vLN = normal;
   vFace = aFace; vInfo = aInfo; vColor = iColor; vStyle = iStyle; vMeta = iMeta; vSize = iSize;
   vBaseAbs = iPos.y - g;
   vXZ = wp.xz;
+  vWY = wp.y;
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
 }`;
 
@@ -101,8 +140,9 @@ uniform vec3 uLit1;
 uniform vec3 uLit2;
 uniform vec3 uBrass;
 uniform vec3 uSkyRefl;
-uniform float uGhostPass;
-uniform float uFocusPass;
+uniform float uOutlinePass;
+varying float vWY;
+varying float vCutY;
 varying vec4 vState;
 varying vec3 vN;
 varying vec3 vFace;
@@ -132,12 +172,10 @@ void main() {
   bool crown = mod(floor(flags / 2.0), 2.0) >= 1.0;
   bool ghost = mod(floor(flags / 4.0), 2.0) >= 1.0;
 
-  // see-through state (bits 2 and 4 of the per-building flags): occluders are drawn by the ghost pass only,
-  // focus buildings get brass edges and a lifted colour
-  float stateBits = floor(vState.a * 255.0 + 0.5);
-  bool isOccluder = mod(floor(stateBits / 2.0), 2.0) >= 1.0;
-  bool isFocus = mod(floor(stateBits / 4.0), 2.0) >= 1.0;
-  if (isOccluder && uGhostPass < 0.5) discard;
+  // see-through (bit 4 of the per-building state): focus buildings get a lifted colour; their brass outline is the
+  // hull pass, which returns here
+  bool isFocus = mod(floor(floor(vState.a * 255.0 + 0.5) / 4.0), 2.0) >= 1.0;
+  if (uOutlinePass > 0.5) { gl_FragColor = vec4(mix(uBrass, vec3(1.0, 0.92, 0.7), 0.35) * 1.15, 1.0); return; }
 
   // the day's return of a headquarters' company (same formula as the info card)
   float ret = 0.0;
@@ -224,9 +262,27 @@ void main() {
   }
 
   // ---- focus buildings lift a little towards brass
-  if (isFocus) base = mix(base, uBrass, 0.12);
+  if (isFocus) base = mix(base, uBrass, 0.08);
 
-  // ---- ink edges, faded out when the face is tiny on screen (brass on focus buildings)
+  // ---- cutaway (occluders cut in partVert): the cut is a section plane, paper with fine hatching, and the wall line
+  // at the cut is inked. Walls below the cut keep their look.
+  float wyw = fwidth(vWY);
+  bool capFace = false;
+  if (vCutY > -1e8) {
+    float dc = abs(vWY - vCutY) / max(wyw, 1e-5);
+    if (n.y > 0.2) {
+      if (dc < 0.6) {
+        capFace = true;
+        vec3 paper = mix(vec3(0.914, 0.886, 0.824), vec3(0.2, 0.21, 0.25), uNight);
+        float hs = abs(fract((gl_FragCoord.x - gl_FragCoord.y) / 8.0) - 0.5);
+        base = mix(paper, uInk, (1.0 - smoothstep(0.03, 0.07, hs)) * 0.12);
+      }
+    } else {
+      base = mix(base, uInk, (1.0 - smoothstep(0.5, 1.5, dc)) * 0.9);
+    }
+  }
+
+  // ---- ink edges, faded out when the face is tiny on screen
   float lineV = 0.0;
   if (kind < 2.5 && style != 8) {
     float e;
@@ -243,8 +299,8 @@ void main() {
     float px = 1.0 / max(max(fwf.x, fwf.y), 1e-5);
     float fade = smoothstep(5.0, 16.0, px);
     lineV = (1.0 - smoothstep(0.55, 1.35, e)) * fade;
-    vec3 edgeC = isFocus ? uBrass : uInk * (0.6 + 0.4 * (1.0 - uNight));
-    base = mix(base, edgeC, lineV * (isFocus ? 0.9 : 0.55));
+    if (capFace) lineV = 0.0; // the cut face is drawn plain: its edge is the cut line, not the collapsed roof's edges
+    base = mix(base, uInk * (0.6 + 0.4 * (1.0 - uNight)), lineV * 0.55);
   }
 
   // ---- construction: a scaffold lattice while the building rises
@@ -256,18 +312,6 @@ void main() {
   }
 
   if (abs(bid - uHover) < 0.5 && bid > 0.5) base = mix(base, uBrass * 1.15, 0.38);
-  if (uFocusPass > 0.5) {
-    // focus overlay, drawn on top with depth off: a brass outline at full strength and a faint brass veil over the
-    // hidden parts, so the focus building reads at any zoom and behind other towers
-    gl_FragColor = vec4(uBrass * 1.15, 0.12 + 0.88 * lineV);
-    return;
-  }
-  if (uGhostPass > 0.5) {
-    // see-through: the lit face mixed 35% towards a cool blue-grey and faint; the ink edges stay visible
-    vec3 glass = mix(base, vec3(0.52, 0.62, 0.72), 0.35);
-    gl_FragColor = vec4(mix(glass, uInk, lineV), mix(0.16, 0.55, lineV));
-    return;
-  }
 
   // map lens (lenses.js): an emphasised building takes its tint; the rest fade to grey and sink toward the ink.
   // Trees and boats are bid 0, never emphasised.
