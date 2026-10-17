@@ -1,4 +1,5 @@
 'use client';
+import { showMyPlace } from '@/city/navigation';
 
 // Property (Estate's real-estate half, moved here by Velvet's app table): the market by city and
 // district, and the homes and rentals you own. Mortgages are the same commands the Bank app shows.
@@ -152,6 +153,7 @@ export function OwnedProperty({ onBrowse }: { onBrowse: () => void }) {
               <Stat label={t('prop.stat.rent')} value={compactMoney(p.rentEarned)} />
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={()=>showMyPlace(p.cityId,p.id)} testId={'prop-map-'+p.id}>{t('city.showOnMap')}</Button>
               {ty.home && !home && <Button size="sm" onClick={() => act({ type: 'prop.home', propId: p.id }, { success: t('prop.movedIn') })}>{t('prop.live')}</Button>}
               {home && <Button size="sm" onClick={() => act({ type: 'prop.home', propId: null })}>{t('prop.moveOut')}</Button>}
               <SpendReview size="sm" testId={`prop-renovate-${p.id}`} label={t('prop.renovate', { amount: compactMoney(renovateCost(p.value)) })} title={t('prop.renovate', { amount: compactMoney(renovateCost(p.value)) })} rows={spendRows(renovateCost(p.value), me.account?.cash ?? 0)} disabled={p.improvement >= 1.5} onConfirm={() => act({ type: 'prop.renovate', propId: p.id }, { success: t('prop.renovatedOk') })} />

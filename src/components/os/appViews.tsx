@@ -27,9 +27,10 @@ const CompanyApp = dynamic(() => import('@/components/apps/company/CompanyApp').
 const ExchangeApp = dynamic(() => import('@/components/apps/exchange/ExchangeApp').then((m) => m.ExchangeApp), { ssr: false });
 // The Launchpad (Phase 5, memecoins on a bonding curve). Its code loads on first open.
 const LaunchpadApp = dynamic(() => import('@/components/apps/launchpad/LaunchpadApp').then((m) => m.LaunchpadApp), { ssr: false });
+const CityApp = dynamic(() => import('@/city/CityApp').then((m) => m.CityApp), { ssr: false });
 
 /** A window's content. `size` is the window's current size, which the Broker lays itself out by. */
-export function AppBody({ win, size }: { win: Win; size: Size }) {
+export function AppBody({ win, size, active = true }: { win: Win; size: Size; active?: boolean }) {
   switch (win.app) {
     case 'broker':
       return <BrokerApp ticker={win.props.ticker} size={size} />;
@@ -42,7 +43,7 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
     case 'messages':
       return <MessagesView view={win.props.view} />;
     case 'businesses':
-      return <div className="os-body"><BusinessesApp /></div>;
+      return <div className="os-body"><BusinessesApp view={win.props.view} key={win.props.view} /></div>;
     case 'boutique':
       return <div className="os-body"><BoutiqueApp /></div>;
     case 'bank':
@@ -65,6 +66,8 @@ export function AppBody({ win, size }: { win: Win; size: Size }) {
       return <div className="os-body"><ExchangeApp /></div>;
     case 'launchpad':
       return <div className="os-body"><LaunchpadApp /></div>;
+    case 'city':
+      return <CityApp active={active} />;
     default:
       return <Stub />;
   }

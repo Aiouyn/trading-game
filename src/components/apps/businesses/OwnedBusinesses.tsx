@@ -4,6 +4,7 @@
 // day (R-9-10; the bracket is in its tooltip), what it has earned, its share and how many upgrade levels it carries. Manage opens the row's panel: the rename, the four upgrades
 // (each one a CommitBar review) and the sale. An empty list is a next-step card with one CTA.
 import { useState } from 'react';
+import { showMyPlace } from '@/city/navigation';
 import { CITIES } from '@/engine';
 import { BIZ_BY_ID, BIZ_EVENTS, BIZ_SECTORS, MAX_UPGRADE, TIERS, UPGRADES, upgradeCost } from '@/content/businesses';
 import { bizSectorLabel } from '@/game/sectorLabel';
@@ -66,6 +67,7 @@ function OwnedRow({ b, shop }: { b: Business; shop?: ShopView }) {
         <Td className={NAME_COL}>
           <span className="block font-medium text-fg">{b.name}</span>
           {def.name !== b.name && <span className="block text-caption text-fg-faint">{def.name}</span>}
+          <button className="block text-caption text-brass hover:underline mt-1" onClick={()=>showMyPlace(b.cityId,b.id)} data-testid={'biz-map-'+b.id}>{t('city.showOnMap')}</button>
         </Td>
         <Td className="whitespace-nowrap text-fg-muted">{cityName}</Td>
         <Td right num className="whitespace-nowrap"><span className="text-gain">{money(b.incomePerDay)}</span><span className="text-caption text-fg-faint"> {t('biz.perDay')}</span></Td>

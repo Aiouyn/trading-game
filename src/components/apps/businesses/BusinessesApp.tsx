@@ -16,9 +16,9 @@ import { ShopsTab } from './Shops';
 
 type Tab = 'owned' | 'shops' | 'buy' | 'property' | 'homes';
 
-export function BusinessesApp() {
+export function BusinessesApp({view}: {view?:string} = {}) {
   const me = useGame((s) => s.me)!;
-  const [tab, setTab] = useState<Tab>(me.businesses.length ? 'owned' : 'buy');
+  const [tab, setTab] = useState<Tab>(view==='homes'?'homes':view==='owned'?'owned':me.businesses.length ? 'owned' : 'buy');
   if (!isAppUnlocked('businesses', me.player.rankId)) return null;
   const income = me.businesses.reduce((s, b) => s + b.incomePerDay, 0);
   const invested = me.businesses.reduce((s, b) => s + b.invested, 0);

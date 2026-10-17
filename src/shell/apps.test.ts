@@ -35,9 +35,10 @@ describe('app registry', () => {
     expect([APPS.wire.minW, APPS.wire.minH]).toEqual([350, 280]);
     expect([APPS.portfolio.minW, APPS.portfolio.minH]).toEqual([350, 220]);
     for (const id of APP_IDS) {
-      if (['broker', 'wire', 'portfolio'].includes(id)) continue;
+      if (['broker', 'wire', 'portfolio', 'city'].includes(id)) continue;
       expect([APPS[id].minW, APPS[id].minH], id).toEqual([350, 300]);
     }
+    expect([APPS.city.minW, APPS.city.minH]).toEqual([620,500]);
   });
 
   it('caps Brokers at 4, one per ticker, and research one window per file', () => {

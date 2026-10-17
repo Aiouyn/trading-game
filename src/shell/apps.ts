@@ -6,7 +6,7 @@
 
 export const APP_IDS = [
   'broker', 'portfolio', 'wire', 'calendar', 'messages', 'businesses', 'company', 'boutique', 'ailab',
-  'security', 'legal', 'bank', 'research', 'exchange', 'launchpad', 'learn', 'settings',
+  'security', 'legal', 'bank', 'research', 'exchange', 'launchpad', 'learn', 'settings', 'city',
 ] as const;
 
 export type AppId = (typeof APP_IDS)[number];
@@ -86,7 +86,7 @@ export const APPS: Readonly<Record<AppId, AppDef>> = {
   wire: app('wire', 350, 280, { pref: { w: 0.36, h: 0.7 } }),
   calendar: app('calendar', 350, 300),
   messages: app('messages', 350, 300, { views: ['inbox', 'chat', 'social'] }),
-  businesses: app('businesses', 350, 300),
+  businesses: app('businesses', 350, 300, {views:['owned','homes']}),
   // Company shows a locked tile with its rank and peak net worth (UX stage 6, item 11), like the AI Lab and Security.
   company: app('company', 350, 300, { views: ['overview', 'products', 'rd', 'people', 'deals', 'capital', 'public'], minRank: 'R2', hideWhenLocked: false }),
   boutique: app('boutique', 350, 300),
@@ -101,6 +101,7 @@ export const APPS: Readonly<Record<AppId, AppDef>> = {
   launchpad: app('launchpad', 350, 300, { pref: { w: 0.6, h: 0.8 } }),
   learn: app('learn', 350, 300, { pref: { w: 0.45, h: 0.66 } }),
   settings: app('settings', 350, 300, { views: ['about'], pref: { w: 0.5, h: 0.72 } }),
+  city: app('city', 620, 500, { pref: { w: 0.9, h: 0.92 } }),
 };
 
 /**
@@ -125,7 +126,7 @@ export const WORKSPACE_DEFAULT_APP: readonly (AppId | null)[] = ['broker', 'wire
 /** Default shelf order (V:82): trading group first, Broker pinned first. Hidden apps are absent. */
 export const SHELF_ORDER: readonly AppId[] = [
   'broker', 'portfolio', 'exchange', 'launchpad', 'wire', 'messages', 'calendar', 'businesses', 'ailab', 'research', 'bank',
-  'legal', 'security', 'boutique', 'learn', 'settings', 'company',
+  'legal', 'security', 'boutique', 'learn', 'settings', 'company', 'city',
 ];
 
 export const MAX_BROKERS = 4;

@@ -37,4 +37,5 @@ export const APP_GLYPH: Record<AppId, GlyphName> = {
   launchpad: 'launchpad',
   learn: 'learn',
   settings: 'settings',
+  city: 'company',
 };

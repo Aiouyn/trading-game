@@ -242,7 +242,7 @@ export function WindowFrame({ win, rect, active, z, mode, wa, gutter }: WindowFr
           </div>
         )}
         <div className="os-win-body" ref={bodyRef}>
-          <AppBody win={win} size={{ w: shown.w, h: shown.h }} />
+          <AppBody win={win} size={{ w: shown.w, h: shown.h }} active={active} />
         </div>
         {free && EDGES.map((e) => (
           <div
