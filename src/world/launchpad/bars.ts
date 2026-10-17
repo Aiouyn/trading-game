@@ -44,7 +44,7 @@ export function barsOf(t: LpToken): { m: LpBar[]; h: LpBar[] } {
   return t.bars ?? migrate(t);
 }
 
-/** A trade or a graduated token's mid at a tick: the minute and the hour take the price (its high, low and close). */
+/** A settled trade or the initial launch/graduation price: update the minute and hour's high, low and close. */
 export function touchBar(t: LpToken, tick: number, price: number): void {
   const bars = t.bars ?? (t.bars = migrate(t));
   fold(barAt(bars.m, bucketOf(tick, LP.CHART_EVERY), LP.BAR_MINUTES, price), price);

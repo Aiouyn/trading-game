@@ -220,7 +220,7 @@ export function createToken(g: GameState, ticker: string, name: string, tagline:
  * Cancels the creator's own launch before any other player has traded it (ratified deviation, lead-launchpad.md v1.1). The token
  * dies; its curve stays and still pays sellers, so the creator's own dev buy (if any) remains sellable. The cohort's tokens go back
  * to the curve first (the NPC side is not an account, so the NPC's own early trades do not block a cancel). The creator gets half
- * the $1,000 launch fee back as a booked refund (`lpRefund`); the other half stays a sink. The ticker stays taken.
+ * the $100 launch fee back as a booked refund (`lpRefund`); the other half stays a sink. The ticker stays taken.
  */
 export function canCancel(t: LpToken, pid: string): boolean {
   return t.creatorId === pid && t.status === 'live' && !hasOtherTrader(t);

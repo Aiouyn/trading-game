@@ -3686,7 +3686,7 @@
   "lp.bar.sold": "sold",
   "lp.bar.ago": "{when} ago",
   "lp.card.by": "by {handle}",
-  "lp.card.worldLaunch": "World launch",
+  "lp.card.worldLaunch": "Community launch",
   "lp.card.marketCap": "Market cap",
   "lp.card.price": "Price {price}",
   "lp.card.graduated": "Graduated {when} ago",

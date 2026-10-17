@@ -7,7 +7,7 @@ import type { RngState } from '@/engine';
 
 export type TokenStatus = 'live' | 'graduated' | 'dead';
 
-/** One public tape line. `who` is set only for the creator's own trades (public and flagged); everyone else is anonymous. */
+/** One public tape line: anonymous ids only, with the creator's public role flagged. */
 export interface LpTrade {
   tick: number;
   side: 'buy' | 'sell';

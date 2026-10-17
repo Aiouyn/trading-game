@@ -1,8 +1,8 @@
-import { priceOf } from '../core';
 import type { GameState } from '../types';
 import { LP, bookAccountId, npcAccountId } from './constants';
 import { anonOf } from './anon';
 import { curveProgress, spotAt } from './curve';
+import { priceNow } from './rug';
 import { tickerHash } from './icon';
 import { barsOf } from './bars';
 import { repliesOf } from './reply';
@@ -14,8 +14,8 @@ import type { LpBar, LpReply, LpToken, LpTrade } from './types';
 
 /**
  * The Launchpad view (lead-launchpad.md L1 and L7, R-10-6 as Phase 10). What a player sees of the tokens, and nothing of anyone else's
- * holdings: the holder distribution is anonymous (an id per account and token, never a handle), and the tape has no handles except the
- * creator's own trades, which are public and flagged. The viewer's own holdings and creator console are theirs alone.
+ * holdings: the holder distribution and tape use anonymous ids per account and token, never handles. Creator trades carry a public
+ * role flag; the creator handle is public only on the card and header. The viewer's own holdings and creator console are theirs alone.
  */
 
 export interface LpCard {
@@ -136,7 +136,7 @@ function npcHandleOf(ticker: string, tick: number): string {
 
 export function cardOf(g: GameState, t: LpToken): LpCard {
   // a graduated token trades on the engine, so its price is the engine's live mid (the curve is frozen since graduation)
-  const price = t.status === 'graduated' ? priceOf(g, t.ticker) : spotAt(t.y);
+  const price = priceNow(g, t);
   const curveCash = t.status === 'graduated' ? t.gradRaise ?? 0 : (g.market.accounts[`lp:curve:${t.ticker}`]?.cash ?? 0);
   const day = dayOf(g.market.tick);
   const vol = t.volPrev > 0 ? t.volPrev : t.volToday;
@@ -295,7 +295,7 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
     if (t.status === 'graduated') {
       const pos = g.market.accounts[pid]?.positions[t.ticker];
       if (pos && pos.qty > 0) {
-        holdings.push({ ticker: t.ticker, name: t.name, qty: pos.qty, value: pos.qty * priceOf(g, t.ticker), locked: t.creatorId === pid ? Math.min(pos.qty, lockedAmount(t, g.market.tick)) : 0, status: 'graduated', vest: vestOf(g, t, pid) });
+        holdings.push({ ticker: t.ticker, name: t.name, qty: pos.qty, value: pos.qty * priceNow(g, t), locked: t.creatorId === pid ? Math.min(pos.qty, lockedAmount(t, g.market.tick)) : 0, status: 'graduated', vest: vestOf(g, t, pid) });
       }
       continue;
     }

@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { stepGame } from '../game';
 import en from '@/i18n/en.json';
-import { LP } from './constants';
+import fr from '@/i18n/fr.json';
+import { cashOf } from '../core';
+import { LP, npcAccountId } from './constants';
+import { tickerHash } from './icon';
 import { barsOf, carryBar, touchBar } from './bars';
 import { hasLink, moderateText } from './moderate';
-import { npcReplyTick, repliesOf } from './reply';
+import { npcReplyTick, pushReply, repliesOf, replyToken } from './reply';
+import { launchToken } from './launch';
+import { lpTick } from './flow';
+import { lpFills } from './rug';
+import { anonOf } from './anon';
 import { CREATOR, TRADER, launch, lpWorld, run } from './fixture';
 import { cardOf, launchpadView, lpPageOf } from './view';
 import { LP_NPC_REPLY_KEYS, LP_NPC_REPLY_POOLS } from '../text/lpReplies';
@@ -218,5 +225,176 @@ describe('slippage limits show at the precision typed (review item 13)', () => {
     expect(r.ok).toBe(false);
     const parts = (r.data as { parts: { vars?: Record<string, string> }[] }).parts;
     expect(parts[1]!.vars!.max).toBe('0.01%');
+  });
+});
+
+describe('spelled-out links and contact handles are refused (Phase 10 review, item 2)', () => {
+  it('refuses the spaced and spelled-out shapes the review probed', () => {
+    const links = [
+      'pump dot fun', 'pump . fun', 'dexscreener .com', 'buy at pumpfun com', 'telegram t me slash moon', 'telegram: @moonclub',
+      'join discord @moonclub', 'pump [dot] fun', 'the pump(.)fun page',
+    ];
+    for (const text of links) expect(hasLink(text), text).toBe(true);
+    for (const text of links) expect(moderateText(text, LP.REPLY_MAX), text).toMatchObject({ ok: false, reason: 'link' });
+  });
+
+  it('lets through ordinary sentences with dots, spaces and short words', () => {
+    const clean = ['Moon. Win big', 'have fun', 'my net worth', 'nice gg', 'the site is down', 'send me the chart', 'Let me see t tests', 'telegram is down today'];
+    for (const text of clean) expect(hasLink(text), text).toBe(false);
+    for (const text of clean) expect(moderateText(text, LP.REPLY_MAX).ok, text).toBe(true);
+  });
+});
+
+describe('remaining interrupted Phase 10 findings', () => {
+  it('refuses links hidden with invisible characters or spaced defanging, and known hosts with a trailing spaced dot', () => {
+    for (const text of ['pump. fun', 'PUMP. FUN', 'pump\u200b.fun', 'pump [ dot ] fun', 'pump ( dot ) fun', 'https://scam.zz/mint']) {
+      expect(moderateText(text, LP.REPLY_MAX), text).toEqual({ ok: false, reason: 'link' });
+    }
+    expect(moderateText('Moon. Win big', LP.REPLY_MAX).ok).toBe(true);
+  });
+
+  it('refuses common French profanity and split or invisible English profanity, while keeping clean text', () => {
+    for (const text of ['putain', 'merde', 'connard', 'connasse', 'enculé', 'salope', 'va te faire foutre', 'f u c k this coin', 'fu\u200bck this coin']) {
+      expect(moderateText(text, LP.REPLY_MAX), text).toEqual({ ok: false, reason: 'abuse' });
+    }
+    for (const text of ['merci pour le graphique', 'class of holders', 'assess the chart']) {
+      expect(moderateText(text, LP.REPLY_MAX).ok, text).toBe(true);
+    }
+  });
+
+  it('refuses descriptions and replies before changing money, tape or reply state', () => {
+    const g = lpWorld('rv-moderation-state');
+    expect(launch(g, CREATOR, 'CLEN').ok).toBe(true);
+    const before = JSON.stringify(g);
+    // Call the domain functions directly: the command dispatcher also updates the player's last-activity bookkeeping.
+    expect(launchToken(g, TRADER, { name: 'Coin BADL', ticker: 'BADL', tagline: 'tg1', allocation: 0, description: 'pump. fun' }, null).data).toMatchObject({ refusal: 'descLink' });
+    expect(replyToken(g, TRADER, 'CLEN', 'connard', null).data).toMatchObject({ refusal: 'replyAbuse' });
+    expect(JSON.stringify(g)).toBe(before);
+  });
+
+  it('migrates the kept reply count once, then counts NPC and player posts beyond the retained thread', () => {
+    const g = lpWorld('rv-count-legacy');
+    expect(launch(g, CREATOR, 'CNTO').ok).toBe(true);
+    const t = g.launchpad!.tokens.CNTO!;
+    t.replies = Array.from({ length: LP.REPLY_KEEP }, (_, tick) => ({ tick, who: 'abc123', role: 'player' as const, text: 'old' }));
+    delete t.replyCount;
+    expect(repliesOf(t)).toBe(LP.REPLY_KEEP);
+    pushReply(t, { tick: g.market.tick, who: 'fictional', role: 'npc', key: 'lp.npcreply.1', vars: {} });
+    expect(run(g, TRADER, { type: 'lp.reply', ticker: 'CNTO', text: 'new' }).ok).toBe(true);
+    expect(repliesOf(t)).toBe(LP.REPLY_KEEP + 2);
+    expect(t.replies).toHaveLength(LP.REPLY_KEEP);
+    expect(lpPageOf(g, TRADER, 'CNTO')!.replies).toBe(LP.REPLY_KEEP + 2);
+  });
+
+  it('uses actual graduated engine fills for OHLC and the anonymous tape, with idle minutes carrying the close', () => {
+    const g = lpWorld('rv-grad-ohlc');
+    expect(launch(g, CREATOR, 'GFIL').ok).toBe(true);
+    expect(run(g, 'admin', { type: 'admin.lpFill', ticker: 'GFIL' }).ok).toBe(true);
+    const t = g.launchpad!.tokens.GFIL!;
+    const tick = Math.ceil(g.market.tick / LP.CHART_EVERY) * LP.CHART_EVERY;
+    g.market = { ...g.market, tick };
+    const open = barsOf(t).m.at(-1)![4];
+    lpFills(g, [
+      { playerId: TRADER, assetId: 'GFIL', side: 'buy', qty: 100, price: open * 2, fee: 0.01 },
+      { playerId: TRADER, assetId: 'GFIL', side: 'sell', qty: 50, price: open / 2, fee: 0.01 },
+    ], null);
+    lpTick(g, null); // the minute boundary must not overwrite the last fill with a mid-price sample
+    expect(barsOf(t).m.at(-1)).toEqual([tick, open, open * 2, open / 2, open / 2]);
+    const page = lpPageOf(g, CREATOR, 'GFIL')!;
+    expect(page.tape.slice(-2).map((r) => r.anon)).toEqual([anonOf('GFIL', TRADER), anonOf('GFIL', TRADER)]);
+    expect(page.tape.at(-2)!.usd).toBeCloseTo(100 * open * 2 + 0.01, 12);
+    expect(page.tape.at(-1)!.usd).toBeCloseTo(50 * open / 2, 12);
+    expect(JSON.stringify(page.tape)).not.toContain(TRADER);
+    expect(JSON.stringify(page.tape)).not.toContain(g.players[TRADER]!.handle);
+    g.market = { ...g.market, tick: tick + LP.CHART_EVERY };
+    lpTick(g, null);
+    expect(barsOf(t).m.at(-1)).toEqual([tick + LP.CHART_EVERY, open / 2, open / 2, open / 2, open / 2]);
+  });
+
+  it('keeps the $100 fee and $50 cancellation refund balanced with separately booked creator income', () => {
+    const g = lpWorld('rv-fee-cash');
+    const before = cashOf(g, CREATOR);
+    expect(launch(g, CREATOR, 'FREF').ok).toBe(true);
+    const t = g.launchpad!.tokens.FREF!;
+    expect(cashOf(g, CREATOR)).toBeCloseTo(before - 100 + t.creatorFees, 8);
+    expect(run(g, CREATOR, { type: 'lp.cancel', ticker: 'FREF' }).ok).toBe(true);
+    expect(cashOf(g, CREATOR)).toBeCloseTo(before - 100 + 50 + t.creatorFees, 8);
+    expect(g.economy.sinks.lpLaunchFee).toBe(100);
+    expect(g.economy.faucets.lpRefund).toBe(50);
+    expect(g.launchpad!.totals.launchFee).toBe(100);
+  });
+
+  it('records fills from the actual Broker order path in the candle and tape without disclosing account identity', () => {
+    const g = lpWorld('rv-engine-path');
+    expect(launch(g, CREATOR, 'BRKR').ok).toBe(true);
+    expect(run(g, 'admin', { type: 'admin.lpFill', ticker: 'BRKR' }).ok).toBe(true);
+    const t = g.launchpad!.tokens.BRKR!;
+    expect(run(g, TRADER, { type: 'order.place', order: { assetId: 'BRKR', side: 'buy', type: 'market', qty: 100_000 } }).ok).toBe(true);
+    const bought = stepGame(g).fills.find((f) => f.playerId === TRADER && f.assetId === 'BRKR' && f.side === 'buy')!;
+    expect(bought).toBeDefined();
+    expect(run(g, TRADER, { type: 'order.place', order: { assetId: 'BRKR', side: 'sell', type: 'market', qty: 50_000 } }).ok).toBe(true);
+    const sold = stepGame(g).fills.find((f) => f.playerId === TRADER && f.assetId === 'BRKR' && f.side === 'sell')!;
+    expect(sold).toBeDefined();
+    for (const f of [bought, sold]) {
+      const line = t.tape.find((r) => r.tick === g.market.tick - (f === bought ? 1 : 0) && r.side === f.side && r.anon === anonOf('BRKR', TRADER))!;
+      expect(line).toMatchObject({ qty: f.qty, price: f.price, creator: false, npc: false });
+      expect(line.usd).toBeCloseTo(f.qty * f.price + (f.side === 'buy' ? f.fee : 0), 12);
+    }
+    const bar = barsOf(t).m.at(-1)!;
+    expect(bar[2]).toBeGreaterThanOrEqual(Math.max(bought.price, sold.price));
+    expect(bar[3]).toBeLessThanOrEqual(Math.min(bought.price, sold.price));
+    expect(bar[2]).toBeGreaterThan(bar[3]);
+    expect(bar[4]).toBe(t.tape.at(-1)!.price);
+    const publicRows = JSON.stringify({ tape: lpPageOf(g, CREATOR, 'BRKR')!.tape, bar: launchpadView(g, CREATOR).bar });
+    for (const identity of [TRADER, g.players[TRADER]!.handle, npcAccountId('BRKR')]) expect(publicRows).not.toContain(identity);
+  });
+
+  it('includes the cohort engine fill in OHLC without disclosing its internal identifier or changing its lots', () => {
+    const g = lpWorld('rv-engine-cohort');
+    expect(launch(g, CREATOR, 'NCPF').ok).toBe(true);
+    expect(run(g, 'admin', { type: 'admin.lpFill', ticker: 'NCPF' }).ok).toBe(true);
+    const t = g.launchpad!.tokens.NCPF!;
+    const id = npcAccountId('NCPF');
+    const price = t.gradPrice! * 2;
+    lpFills(g, [{ playerId: id, assetId: 'NCPF', side: 'sell', qty: 100, price, fee: 0.01 }], null);
+    expect(barsOf(t).m.at(-1)![2]).toBe(price);
+    expect(t.lots[id]).toBeUndefined();
+    expect(t.tape.at(-1)).toMatchObject({ price, npc: true });
+    expect(t.tape.at(-1)!.anon).toBeUndefined();
+    const publicRows = JSON.stringify({ tape: lpPageOf(g, CREATOR, 'NCPF')!.tape, bar: launchpadView(g, CREATOR).bar });
+    expect(publicRows).not.toContain(id);
+  });
+
+  it('opens the live NPC reply gate on player activity, applies its rate limit, and adds no replies after death', () => {
+    const g = lpWorld('rv-npc-activity');
+    expect(launch(g, CREATOR, 'ACTV').ok).toBe(true);
+    const t = g.launchpad!.tokens.ACTV!;
+    const eligible = (tick: number) => tickerHash(`ACTV:r:${tick}`) / 2 ** 32 < LP.NPC_REPLY_ODDS;
+    let tick = Math.ceil(g.market.tick / LP.CHART_EVERY) * LP.CHART_EVERY;
+    while (!eligible(tick)) tick += LP.CHART_EVERY;
+    g.market = { ...g.market, tick };
+    expect(run(g, TRADER, { type: 'lp.buy', ticker: 'ACTV', spendCents: 1_000 }).ok).toBe(true);
+    npcReplyTick(g, t);
+    expect(repliesOf(t)).toBe(1);
+    expect(LP_NPC_REPLY_POOLS.live.map((i) => `lp.npcreply.${i}`)).toContain(t.replies![0]!.key);
+    for (let next = tick + LP.CHART_EVERY; next < tick + LP.NPC_REPLY_GAP_TICKS; next += LP.CHART_EVERY) {
+      g.market = { ...g.market, tick: next };
+      npcReplyTick(g, t);
+    }
+    expect(repliesOf(t)).toBe(1);
+    t.status = 'dead';
+    const before = JSON.stringify(t);
+    g.market = { ...g.market, tick: tick + 10 * LP.NPC_REPLY_GAP_TICKS };
+    npcReplyTick(g, t);
+    expect(JSON.stringify(t)).toBe(before);
+  });
+
+  it('shows retail and community labels in both locales without revealing the simulation', () => {
+    expect(en['lp.holders.role.npc']).toBe('Retail');
+    expect(fr['lp.holders.role.npc']).toBe('Particulier');
+    expect(fr['lp.tape.flow']).toBe('Flux des particuliers');
+    for (const copy of [en, fr]) {
+      expect(copy['lp.card.worldLaunch']).not.toMatch(/world|monde|npc|simulation/i);
+    }
   });
 });

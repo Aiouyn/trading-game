@@ -11,7 +11,7 @@ import { absorbPending } from './absorb';
 import { openSellQty } from './graduate';
 import { priceNow } from './rug';
 import { npcReplyTick } from './reply';
-import { carryBar, touchBar } from './bars';
+import { carryBar } from './bars';
 import { dayOf, ensureLaunchpad, lpWire, refuse, sinkCents, tokenOf } from './state';
 import { placeOrder } from '@/engine';
 import type { LpToken } from './types';
@@ -216,14 +216,13 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
       }
     }
   }
-  // the candles keep their minute: a live token with no trade carries its last price flat, and a graduated token takes the engine's live mid
-  // (its curve is frozen and its trades are on the engine, not the tape). Every token that is not dead may get an NPC reply (reply.ts)
+  // Curve and graduated candles carry the last fill on idle minutes. Engine fills touch OHLC in lpFills; sampling the mid here
+  // would overwrite a boundary tick's closing fill. Every token that is not dead may get an NPC reply (reply.ts).
   for (const ticker of s.order) {
     const t = s.tokens[ticker];
     if (!t || t.status === 'dead') continue;
     if (tick % LP.CHART_EVERY === 0) {
-      if (t.status === 'graduated') touchBar(t, tick, priceNow(g, t));
-      else carryBar(t, tick, spotAt(t.y));
+      carryBar(t, tick, priceNow(g, t));
     }
     npcReplyTick(g, t);
   }

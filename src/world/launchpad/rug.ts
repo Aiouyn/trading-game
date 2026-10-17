@@ -5,6 +5,8 @@ import { textProvider } from '../text';
 import type { Msg } from '@/i18n';
 import { LP, isNpcAccount } from './constants';
 import { spotAt } from './curve';
+import { anonOf } from './anon';
+import { pushTape } from './tape';
 import { dayOf, isCreatorLinked, lpWire, pushBuy, pushLot, refuse, tokenOf } from './state';
 import { vestFraction } from './vest';
 import type { LpToken, LpLot } from './types';
@@ -100,11 +102,18 @@ export function lpFills(g: GameState, fills: { playerId: string; assetId: string
   const s = g.launchpad;
   if (!s) return;
   for (const f of fills) {
-    // the NPC cohort's post-graduation unwind is not a holder: it keeps no lots and feeds no rule (L6.2)
-    if (isNpcAccount(f.playerId)) continue;
     const t = s.tokens[f.assetId];
     if (!t || t.status !== 'graduated') continue;
     const tick = g.market.tick;
+    const npc = isNpcAccount(f.playerId) || !g.players[f.playerId] || Boolean(g.players[f.playerId]!.npc);
+    pushTape(t, {
+      tick, side: f.side, qty: f.qty, price: f.price,
+      usd: f.qty * f.price + (f.side === 'buy' ? f.fee : 0),
+      creator: f.playerId === t.creatorId, npc,
+      ...(!npc ? { anon: anonOf(t.ticker, f.playerId) } : {}),
+    });
+    // The cohort's unwind contributes a real candle touch but keeps no lots and feeds no anti-rug rule (L6.2).
+    if (isNpcAccount(f.playerId)) continue;
     if (f.side === 'buy') {
       const L: LpLot[] = t.lots[f.playerId] ?? (t.lots[f.playerId] = []);
       pushLot(L, { qty: f.qty, cost: f.price + f.fee / f.qty, tick });
