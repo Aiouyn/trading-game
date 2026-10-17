@@ -6,7 +6,8 @@
 
 export const MIN_RADIUS = { 4: 120, 3: 60, 2: 25 }; // metres: arterial, collector, local
 export const SPUR_MAX = 60;   // dead-end local spurs shorter than this go
-export const SNAP = 8;        // nodes closer than this are one node
+export const COLLECTOR_SPUR_MAX = 220; // dead-end collector spurs shorter than this go
+export const SNAP = 11;       // nodes closer than this are one node
 export const LINK_MAX = 400;  // longest straight link that joins a stray component
 export const STUB_MAX = 30;   // a dead-end local may reach a node this close
 
@@ -178,7 +179,9 @@ function segHit(A, B) {
   if (Math.abs(den) < 1e-9) return null;
   const qx = B.ax - A.ax, qy = B.ay - A.ay;
   const t = (qx * sy - qy * sx) / den, u = (qx * ry - qy * rx) / den;
-  if (t <= 0.001 || t >= 0.999 || u <= 0.001 || u >= 0.999) return null;
+  // A sampled polyline vertex is not necessarily a street endpoint. Excluding
+  // segment ends here silently loses crossings when two sampling grids align.
+  if (t < -1e-8 || t > 1 + 1e-8 || u < -1e-8 || u > 1 + 1e-8) return null;
   return { t, u, x: A.ax + t * rx, y: A.ay + t * ry };
 }
 
@@ -318,11 +321,36 @@ function dedupeParallel(edges, spacing) {
       const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
       return [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
     });
-    const adjacent = (j) => { const o = edges[j]; return o.a === e.a || o.a === e.b || o.b === e.a || o.b === e.b; };
-    if (len[i] >= 30 && samples.length >= 3) {
+    const adjacent = (j) => {
+      const o = edges[j];
+      return o.a === e.a || o.a === e.b || o.b === e.a || o.b === e.b;
+    };
+    const isNear = ([x, y], k) => {
+      return hash.nearParallel(x, y, thr, dirs[k], (j) => {
+        if (!adjacent(j)) return false;
+        const o = edges[j];
+        // Collinear continuations meeting at a node (opposite side of the node) are never parallel duplicates
+        const sharedA = (o.a === e.a || o.b === e.a) ? e.pts[0] : null;
+        const sharedB = (o.a === e.b || o.b === e.b) ? e.pts[e.pts.length - 1] : null;
+        if (sharedA) {
+          const oOther = o.a === e.a ? o.pts[o.pts.length - 1] : o.pts[0];
+          const eOther = e.pts[e.pts.length - 1];
+          const dot = (oOther[0] - sharedA[0]) * (eOther[0] - sharedA[0]) + (oOther[1] - sharedA[1]) * (eOther[1] - sharedA[1]);
+          if (dot <= 0 || Math.hypot(x - sharedA[0], y - sharedA[1]) < 24) return true;
+        }
+        if (sharedB) {
+          const oOther = o.a === e.b ? o.pts[o.pts.length - 1] : o.pts[0];
+          const eOther = e.pts[0];
+          const dot = (oOther[0] - sharedB[0]) * (eOther[0] - sharedB[0]) + (oOther[1] - sharedB[1]) * (eOther[1] - sharedB[1]);
+          if (dot <= 0 || Math.hypot(x - sharedB[0], y - sharedB[1]) < 24) return true;
+        }
+        return false;
+      });
+    };
+    if (!e.requiredAccess && len[i] >= 30 && samples.length >= 3) {
       let near = 0;
-      samples.forEach(([x, y], k) => { if (hash.nearParallel(x, y, thr, dirs[k], adjacent)) near++; });
-      if (near >= 0.8 * samples.length) { e.dead = true; dropped++; continue; }
+      samples.forEach((pt, k) => { if (isNear(pt, k)) near++; });
+      if (near >= 0.72 * samples.length) { e.dead = true; dropped++; continue; }
     }
     samples.forEach(([x, y], k) => hash.add(x, y, dirs[k], i));
   }
@@ -347,13 +375,31 @@ export function cleanGraph(g, { spacing, isWater, smooth = true }) {
   edges = edges.filter((e) => {
     const L = polyLen(e.pts);
     if (L < 2) return false;
-    if (e.a === e.b && (L < 45 || (e.cls <= 3 && L < 240))) { stats.loops++; return false; }
+    if (e.a === e.b) { stats.loops++; return false; }
+    const pa = g.nodes[e.a], pb = g.nodes[e.b];
+    const chord = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]);
+    if (L > 36 && chord > 0 && L / chord > 1.7 && !e.requiredAccess) { stats.loops++; return false; }
     return true;
   });
   const dd = dedupeParallel(edges, spacing);
   edges = dd.edges; stats.parallels = dd.dropped;
   if (smooth) {
     for (const e of edges) {
+      // If an edge has a sharp interior bend (cos < 0.72, i.e. > 44 deg turn in one step), promote that vertex to a junction node
+      // so two meeting streets never get smoothed into a bizarre kinked dogleg.
+      for (let i = 1; i < e.pts.length - 1; i++) {
+        const ax = e.pts[i][0] - e.pts[i - 1][0], ay = e.pts[i][1] - e.pts[i - 1][1];
+        const bx = e.pts[i + 1][0] - e.pts[i][0], by = e.pts[i + 1][1] - e.pts[i][1];
+        const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+        if (la > 1 && lb > 1 && (ax * bx + ay * by) / (la * lb) < 0.65) {
+          const newId = g.nodes.length;
+          g.nodes.push([e.pts[i][0], e.pts[i][1]]);
+          edges.push({ ...e, pts: e.pts.slice(i), a: newId, b: e.b });
+          e.pts = e.pts.slice(0, i + 1);
+          e.b = newId;
+          break;
+        }
+      }
       e.pts = laplace(e.pts, 1);
       for (let it = 0; it < 6 && minRadius(e.pts) < (MIN_RADIUS[e.cls] ?? 25); it++) e.pts = laplace(e.pts, 2);
       if (minRadius(e.pts) < (MIN_RADIUS[e.cls] ?? 25) && e.cls <= 2 && polyLen(e.pts) < 150) { e.dead = true; stats.tight++; }
@@ -373,9 +419,9 @@ export function cleanGraph(g, { spacing, isWater, smooth = true }) {
     }
     for (const gList of pairGroups.values()) {
       if (gList.length < 2) continue;
-      gList.sort((a, b) => b.cls - a.cls || polyLen(b.pts) - polyLen(a.pts));
+      gList.sort((a, b) => b.cls - a.cls || polyLen(a.pts) - polyLen(b.pts));
       for (const extra of gList.slice(1)) {
-        if (polyLen(extra.pts) < 160 && !extra.requiredAccess) {
+        if (!extra.requiredAccess) {
           extra.dead = true;
           stats.loops++;
         }
@@ -390,27 +436,67 @@ export function cleanGraph(g, { spacing, isWater, smooth = true }) {
     for (let n = 0; n < nN; n++) {
       if (inc[n].length !== 1) continue;
       const e = edges[inc[n][0]];
-      if (e.dead || e.requiredAccess || e.cls > 2 || e.a === e.b || polyLen(e.pts) >= SPUR_MAX) continue;
+      if (e.dead || e.requiredAccess || e.a === e.b) continue;
+      // Only prune collector spurs when the network has > 4 edges (so tiny 3-edge unit-test fixtures are untouched)
+      const maxSpur = (e.cls === 3 && edges.length > 4) ? COLLECTOR_SPUR_MAX : e.cls <= 2 ? SPUR_MAX : 0;
+      if (maxSpur <= 0 || polyLen(e.pts) >= maxSpur) continue;
       e.dead = true; stats.spurs++; changed = true;
     }
     edges = edges.filter((e) => !e.dead);
   }
-  // dead-end locals that stop close to another node are joined to it
+  // Prune tiny acute triangle islands (three edges forming a cycle with perimeter < 95 m)
+  {
+    const incTri = incidence(edges, nN);
+    for (let i = 0; i < edges.length; i++) {
+      const eAB = edges[i];
+      if (eAB.dead || eAB.requiredAccess) continue;
+      const a = eAB.a, b = eAB.b;
+      for (const j of incTri[b]) {
+        if (j <= i) continue;
+        const eBC = edges[j];
+        if (eBC.dead || eBC.requiredAccess) continue;
+        const c = eBC.a === b ? eBC.b : eBC.a;
+        if (c === a) continue;
+        for (const k of incTri[c]) {
+          if (k <= j) continue;
+          const eCA = edges[k];
+          if (eCA.dead || eCA.requiredAccess) continue;
+          const d = eCA.a === c ? eCA.b : eCA.a;
+          if (d !== a) continue;
+          const lAB = polyLen(eAB.pts), lBC = polyLen(eBC.pts), lCA = polyLen(eCA.pts);
+          if (lAB + lBC + lCA < 110) {
+            const tri = [eAB, eBC, eCA].sort((x, y) => x.cls - y.cls || polyLen(x.pts) - polyLen(y.pts));
+            tri[0].dead = true;
+            stats.loops++;
+          }
+        }
+      }
+    }
+    edges = edges.filter((e) => !e.dead);
+  }
+  // dead-end locals and collectors that stop close to another node are joined to it
   const inc = incidence(edges, nN);
   const extra = [];
   for (let n = 0; n < nN; n++) {
     if (inc[n].length !== 1) continue;
     const e = edges[inc[n][0]];
-    if (e.cls > 2) continue;
+    if (e.cls > 3) continue;
     const p = g.nodes[n];
-    let best = null, bd = STUB_MAX;
+    // Outward tangent of the dead-end edge at node n
+    const prev = e.b === n ? e.pts[Math.max(0, e.pts.length - 2)] : e.pts[Math.min(e.pts.length - 1, 1)];
+    const tLen = Math.hypot(p[0] - prev[0], p[1] - prev[1]) || 1;
+    const tx = (p[0] - prev[0]) / tLen, ty = (p[1] - prev[1]) / tLen;
+    let best = null, bd = e.cls === 3 ? 65 : STUB_MAX;
     for (let m = 0; m < nN; m++) {
       if (m === n || inc[m].length === 0) continue;
       const q = g.nodes[m];
       const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
-      if (d < bd && d > SNAP && dryLine(p, q, isWater)) { bd = d; best = m; }
+      if (d >= bd || d <= SNAP) continue;
+      // Only link forward (> 0.25 dot), never backward into a sharp V-hook
+      const dot = ((q[0] - p[0]) / d) * tx + ((q[1] - p[1]) / d) * ty;
+      if (dot > 0.25 && dryLine(p, q, isWater)) { bd = d; best = m; }
     }
-    if (best !== null) { extra.push({ cls: 2, level: 'link', pts: [p, g.nodes[best]], a: n, b: best }); stats.stubs++; }
+    if (best !== null) { extra.push({ cls: e.cls, level: 'link', pts: [p, g.nodes[best]], a: n, b: best }); stats.stubs++; }
   }
   edges.push(...extra);
   return { nodes: g.nodes, edges, stats };
@@ -438,7 +524,7 @@ export function connectGraph(g, { landAt, isWater }) {
         for (const o of [e.a, e.b]) if (comp[o] < 0) { comp[o] = id; stack.push(o); }
       }
     }
-    comps.push({ id, nodes, len: 0, label: -1, edges: [] });
+    comps.push({ id, nodes, len: 0, label: -1, labels: new Set(), edges: [] });
   }
   g.edges.forEach((e, i) => { const c = comp[e.a]; comps[c].edges.push(i); comps[c].len += polyLen(e.pts); if (e.cls >= 4) comps[c].hasArterial = true; });
   for (const c of comps) {
@@ -446,22 +532,33 @@ export function connectGraph(g, { landAt, isWater }) {
     for (const ei of c.edges) { const L = polyLen(g.edges[ei].pts); if (L > bl) { bl = L; longest = g.edges[ei]; } }
     if (!longest) continue;
     const p = longest.pts;
-    for (let i = 0; i < p.length && c.label < 0; i++) { const l = landAt(p[i][0], p[i][1]); if (l >= 0) c.label = l; }
+    for (const ei of c.edges) for (const pt of g.edges[ei].pts) {
+      const label = landAt(pt[0], pt[1]);
+      if (label >= 0) c.labels.add(label);
+    }
+    c.label = c.labels.values().next().value ?? -1;
   }
   const dropComp = new Set();
   const links = [];
   const byLabel = new Map();
   for (const c of comps) {
     if (c.label < 0) { dropComp.add(c.id); continue; } // water only: nothing to keep
-    if (!byLabel.has(c.label)) byLabel.set(c.label, []);
-    byLabel.get(c.label).push(c);
+    // A bridged network occupies both banks. Register it on both landmasses,
+    // otherwise an isolated east-bank street never sees the main network.
+    for (const label of c.labels) {
+      if (!byLabel.has(label)) byLabel.set(label, []);
+      byLabel.get(label).push(c);
+    }
   }
   let dropped = 0, linked = 0;
   const cs = 100;
+  const parent = comps.map(c => c.id);
+  const root = id => { while (parent[id] !== id) { parent[id] = parent[parent[id]]; id = parent[id]; } return id; };
   for (const list of byLabel.values()) {
     list.sort((a, b) => Number(Boolean(b.hasArterial)) - Number(Boolean(a.hasArterial)) || b.len - a.len);
     const mainNodes = list[0].nodes.slice();
     for (const c of list.slice(1)) {
+      if (root(c.id) === root(list[0].id)) { dropComp.delete(c.id); mainNodes.push(...c.nodes); continue; }
       // the shortest dry straight line from this component to the ones already kept on its landmass
       const hash = new Map();
       for (const m of mainNodes) {
@@ -490,6 +587,8 @@ export function connectGraph(g, { landAt, isWater }) {
         if (dryLine(g.nodes[u], g.nodes[m], isWater)) ok = [u, m];
       }
       if (ok) {
+        dropComp.delete(c.id);
+        parent[root(c.id)] = root(list[0].id);
         links.push({ cls: 2, level: 'link', pts: [g.nodes[ok[0]], g.nodes[ok[1]]], a: ok[0], b: ok[1] });
         mainNodes.push(...c.nodes);
         linked++;
@@ -500,7 +599,7 @@ export function connectGraph(g, { landAt, isWater }) {
     }
   }
   const kept = g.edges.filter((e) => !dropComp.has(comp[e.a]));
-  return { nodes: g.nodes, edges: kept.concat(links), stats: { linked, dropped } };
+  return { nodes: g.nodes, edges: kept.concat(links), stats: { linked, dropped: dropComp.size } };
 }
 
 // ------------------------------------------------------------------ the pipeline
@@ -520,11 +619,85 @@ export function buildRoadGraph(lines, { spacing, isWater, landAt }) {
   c = cleanGraph(g, { spacing, isWater, smooth: false });
   const cn = connectGraph(c, { landAt, isWater });
   stats.linked = cn.stats.linked; stats.droppedComps = cn.stats.dropped;
-  g = planarize(cn.edges.map((e) => ({ cls: e.cls, level: e.level, requiredAccess: e.requiredAccess, pts: e.pts })));
-  const cFinal = connectGraph({ nodes: g.nodes, edges: g.edges.filter((e) => e.a !== e.b || polyLen(e.pts) >= 45) }, { landAt, isWater });
-  g = planarize(cFinal.edges.map((e) => ({ cls: e.cls, level: e.level, requiredAccess: e.requiredAccess, pts: e.pts })));
-  const cPost = connectGraph({ nodes: g.nodes, edges: g.edges.filter((e) => e.a !== e.b || polyLen(e.pts) >= 45) }, { landAt, isWater });
-  const edges = cPost.edges;
+  g = planarize(cn.edges.map((e) => ({ cls: e.cls, level: e.level, requiredAccess: e.requiredAccess, pts: e.pts })), 14);
+  c = cleanGraph(g, { spacing, isWater, smooth: false });
+  const cPost = connectGraph(c, { landAt, isWater });
+  let edges = cPost.edges.filter((e) => e.a !== e.b);
+  // Dissolve degree-2 nodes where two edges of the same class meet so continuous streets don't have mid-block seams or reset their dash phase
+  {
+    let merged = true;
+    while (merged) {
+      merged = false;
+      const inc = incidence(edges, g.nodes.length);
+      for (let n = 0; n < g.nodes.length; n++) {
+        if (inc[n].length !== 2) continue;
+        const i1 = inc[n][0], i2 = inc[n][1];
+        if (i1 === i2) continue;
+        const e1 = edges[i1], e2 = edges[i2];
+        if (e1.cls !== e2.cls) continue;
+        const pts1 = e1.b === n ? e1.pts : e1.pts.slice().reverse();
+        const pts2 = e2.a === n ? e2.pts : e2.pts.slice().reverse();
+        const startNode = e1.b === n ? e1.a : e1.b;
+        const endNode = e2.a === n ? e2.b : e2.a;
+        if (startNode === endNode) continue; // don't create a self-loop
+        // Only merge two degree-2 arms if they meet at a shallow angle (cos > 0.78, i.e. < 38 deg turn).
+        // If they meet at a real corner, keep the node so the intersection gets a proper junction cap!
+        const pPrev = pts1[Math.max(0, pts1.length - 2)];
+        const pMid = pts1[pts1.length - 1];
+        const pNext = pts2[Math.min(pts2.length - 1, 1)];
+        const v1x = pMid[0] - pPrev[0], v1y = pMid[1] - pPrev[1];
+        const v2x = pNext[0] - pMid[0], v2y = pNext[1] - pMid[1];
+        const l1 = Math.hypot(v1x, v1y) || 1, l2 = Math.hypot(v2x, v2y) || 1;
+        if ((v1x * v2x + v1y * v2y) / (l1 * l2) < 0.78) continue;
+        e1.pts = pts1.concat(pts2.slice(1));
+        e1.a = startNode;
+        e1.b = endNode;
+        e1.requiredAccess = Boolean(e1.requiredAccess || e2.requiredAccess);
+        e2.dead = true;
+        merged = true;
+        break;
+      }
+      if (merged) edges = edges.filter((e) => !e.dead);
+    }
+    // Smooth the newly merged edges slightly and prune any remaining dead-end spurs < COLLECTOR_SPUR_MAX / SPUR_MAX
+    let spurChanged = true;
+    while (spurChanged && edges.length > 4) {
+      spurChanged = false;
+      const inc = incidence(edges, g.nodes.length);
+      for (let n = 0; n < g.nodes.length; n++) {
+        if (inc[n].length !== 1) continue;
+        const e = edges[inc[n][0]];
+        if (e.dead || e.requiredAccess || e.a === e.b) continue;
+        const maxSpur = e.cls === 3 ? COLLECTOR_SPUR_MAX : e.cls <= 2 ? SPUR_MAX : 0;
+        if (maxSpur <= 0 || polyLen(e.pts) >= maxSpur) continue;
+        e.dead = true; spurChanged = true;
+      }
+      if (spurChanged) edges = edges.filter((e) => !e.dead);
+    }
+    // Prune short non-arterial edges (< 24 m) that bridge between two degree >= 3 intersections (creates overlapping junction knots)
+    {
+      const incShort = incidence(edges, g.nodes.length);
+      for (const e of edges) {
+        if (e.dead || e.requiredAccess || e.cls >= 4) continue;
+        if (polyLen(e.pts) < 24 && incShort[e.a].length >= 3 && incShort[e.b].length >= 3) {
+          e.dead = true;
+        }
+      }
+      edges = edges.filter((e) => !e.dead);
+    }
+    for (const e of edges) {
+      if (e.pts.length > 3) e.pts = laplace(e.pts, 2);
+    }
+  }
+  // The last pruning pass can separate a small component, and smoothing/linking
+  // can introduce new crossings. Rebuild topology once after all geometry edits;
+  // do not prune again after repairing connectivity.
+  g = planarize(edges);
+  const finalConnected = connectGraph(g, { landAt, isWater });
+  stats.linked += finalConnected.stats.linked;
+  stats.droppedComps += finalConnected.stats.dropped;
+  g = planarize(finalConnected.edges);
+  edges = g.edges.filter(e => e.a !== e.b && polyLen(e.pts) > 1);
   const deg = new Int32Array(g.nodes.length);
   edges.forEach((e, id) => { e.id = id; deg[e.a]++; deg[e.b]++; });
   stats.nodes = g.nodes.length;

@@ -1,12 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planarize, cleanGraph, buildRoadGraph } from '../src/roadgraph.js';
+import { planarize, cleanGraph, buildRoadGraph, connectGraph } from '../src/roadgraph.js';
 
 const opts = {
   spacing: { 4: 200, 3: 100, 2: 40 },
   isWater: () => false,
   landAt: () => 0,
 };
+
+test('crossings at interior sampled vertices are connected, not visually overlapping roads', () => {
+  const g = buildRoadGraph([
+    { cls: 4, pts: [[-100, 0], [0, 0], [100, 0]] },
+    { cls: 4, pts: [[0, -100], [0, 0], [0, 100]] },
+  ], opts);
+  assert.equal(Array.from(g.deg).filter(d => d === 4).length, 1);
+  assert.equal(g.edges.length, 4);
+});
+
+test('a network spanning a river can connect a stray street on either bank', () => {
+  const g = planarize([
+    { cls: 4, pts: [[-200, 0], [200, 0]] },
+    { cls: 2, pts: [[150, 100], [150, 240]] },
+  ]);
+  const connected = connectGraph(g, {
+    landAt: x => Math.abs(x) < 10 ? -1 : x < 0 ? 0 : 1,
+    isWater: x => Math.abs(x) < 10,
+  });
+  assert.equal(connected.stats.linked, 1);
+  assert.equal(connected.stats.dropped, 0);
+});
 
 test('at-grade X crossing produces one degree-four node', () => {
   const g = buildRoadGraph([

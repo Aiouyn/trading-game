@@ -15,6 +15,8 @@ export async function ready(page, url, timeout = 60000) {
     (async () => {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
       await page.waitForFunction(() => !!window.__cities?.city, null, { timeout });
+      await page.evaluate(() => window.__cities.flushChunks?.());
+      await page.waitForFunction(() => window.__cities?.view?.chunksReady === true, null, { timeout });
     })(),
     fatal,
   ]);

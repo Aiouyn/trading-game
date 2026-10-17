@@ -1,0 +1,36 @@
+{
+  "buildings": 1930,
+  "roadKm": 44.7,
+  "components": 1,
+  "edges": 474,
+  "internalDeadEnds": 27,
+  "arterialDeadEnds": 15,
+  "acuteJunctionsUnder30Degrees": 3,
+  "bridges": 3,
+  "graph": {
+    "raw": 110,
+    "split": 1022,
+    "loops": 398,
+    "parallels": 72,
+    "tight": 13,
+    "spurs": 79,
+    "stubs": 2,
+    "linked": 0,
+    "droppedComps": 0,
+    "nodes": 367,
+    "junctions": 204,
+    "edges": 474
+  },
+  "access": {
+    "lots": 1926,
+    "candidateCount": 3405,
+    "servedCount": 1926,
+    "vacantCount": 11,
+    "rejectedCount": 1468,
+    "unservedAtStart": 132,
+    "driveways": 94,
+    "farmTracks": 27,
+    "unreached": 11,
+    "driveKm": 4
+  }
+}

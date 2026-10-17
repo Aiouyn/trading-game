@@ -1,0 +1,176 @@
+{
+  "readyMs": 4155,
+  "summary": {
+    "cityId": "avalon",
+    "seed": 1701,
+    "version": "inhabitable-v2-44-road-layout-2",
+    "renderer": {
+      "vendor": "Google Inc. (Google)",
+      "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+      "software": true,
+      "dpr": 1.5
+    },
+    "quality": {
+      "tier": "high",
+      "manual": false,
+      "saver": false,
+      "detail": 1
+    },
+    "drawCalls": 136,
+    "triangles": 509727,
+    "renders": 2,
+    "memory": {
+      "geometries": 136,
+      "textures": 6
+    },
+    "loading": {
+      "genMs": 2513,
+      "loadMs": 201.6,
+      "timings": {
+        "Surveying the land": 0,
+        "Drawing districts": 208,
+        "Laying out the street grain": 798,
+        "Tracing collector streets": 166,
+        "Tracing local streets": 10,
+        "Cleaning the road network": 70,
+        "Cutting city blocks": 75,
+        "Raising landmarks": 246,
+        "Dividing parcels": 6,
+        "Raising 1,683 buildings": 519,
+        "Seating the companies": 23,
+        "Planting trees": 13,
+        "Bringing in the ships": 14,
+        "Planning the growth": 87,
+        "Painting the ground": 36,
+        "Done": 233
+      }
+    },
+    "activeCacheIds": [
+      "avalon"
+    ],
+    "typedArrayBytes": 25291976,
+    "parts": {
+      "box": 11766,
+      "gable": 414,
+      "hip": 140,
+      "pyr": 84,
+      "cyl": 539,
+      "cone": 534,
+      "dome": 2,
+      "ico": 0,
+      "treeBox": 19168,
+      "treeIco": 19168
+    },
+    "roadVertices": 56488
+  },
+  "samples": [
+    {
+      "camera": "overview",
+      "tier": "high",
+      "submissionAndFinishMsMedian": 0.4000000059604645,
+      "submissionAndFinishMsP95": 0.699999988079071,
+      "drawCalls": 136,
+      "triangles": 509727,
+      "dpr": 1.5,
+      "visibleObjects": 138,
+      "memory": {
+        "geometries": 136,
+        "textures": 6
+      },
+      "frameCadence": {
+        "medianMs": 416.6999999999989,
+        "p95Ms": 433.39999999999964
+      }
+    },
+    {
+      "camera": "overview",
+      "tier": "balanced",
+      "submissionAndFinishMsMedian": 0.30000001192092896,
+      "submissionAndFinishMsP95": 0.5,
+      "drawCalls": 136,
+      "triangles": 509727,
+      "dpr": 1,
+      "visibleObjects": 138,
+      "memory": {
+        "geometries": 136,
+        "textures": 6
+      },
+      "frameCadence": {
+        "medianMs": 283.40000000000146,
+        "p95Ms": 300
+      }
+    },
+    {
+      "camera": "overview",
+      "tier": "low",
+      "submissionAndFinishMsMedian": 0.4000000059604645,
+      "submissionAndFinishMsP95": 0.5,
+      "drawCalls": 136,
+      "triangles": 509727,
+      "dpr": 1,
+      "visibleObjects": 138,
+      "memory": {
+        "geometries": 136,
+        "textures": 6
+      },
+      "frameCadence": {
+        "medianMs": 283.40000000000146,
+        "p95Ms": 300
+      }
+    },
+    {
+      "camera": "street",
+      "tier": "high",
+      "submissionAndFinishMsMedian": 0.29999999701976776,
+      "submissionAndFinishMsP95": 0.5,
+      "drawCalls": 43,
+      "triangles": 314561,
+      "dpr": 1.5,
+      "visibleObjects": 58,
+      "memory": {
+        "geometries": 149,
+        "textures": 6
+      },
+      "frameCadence": {
+        "medianMs": 366.70000000000437,
+        "p95Ms": 416.6000000000058
+      }
+    },
+    {
+      "camera": "street",
+      "tier": "balanced",
+      "submissionAndFinishMsMedian": 0.20000000298023224,
+      "submissionAndFinishMsP95": 0.4000000059604645,
+      "drawCalls": 43,
+      "triangles": 314561,
+      "dpr": 1,
+      "visibleObjects": 58,
+      "memory": {
+        "geometries": 149,
+        "textures": 6
+      },
+      "frameCadence": {
+        "medianMs": 216.6999999999971,
+        "p95Ms": 233.40000000000146
+      }
+    },
+    {
+      "camera": "street",
+      "tier": "low",
+      "submissionAndFinishMsMedian": 0.20000000298023224,
+      "submissionAndFinishMsP95": 0.30000001192092896,
+      "drawCalls": 43,
+      "triangles": 314561,
+      "dpr": 1,
+      "visibleObjects": 58,
+      "memory": {
+        "geometries": 149,
+        "textures": 6
+      },
+      "frameCadence": {
+        "medianMs": 216.6999999999971,
+        "p95Ms": 233.3000000000029
+      }
+    }
+  ]
+}

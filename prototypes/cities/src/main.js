@@ -12,7 +12,7 @@ import { LRU } from './lru.js';
 const $ = (id) => document.getElementById(id);
 const view = new CityView($('view'), $('labels'));
 view.showLabels = true;
-const cache = new LRU(2);
+const cache = new LRU(navigator.deviceMemory > 0 && navigator.deviceMemory <= 4 ? 1 : 2);
 let city = null, current = null, loadingToken = 0;
 let lenses = null, lensId = 'normal', searchItems = [], lastLensMs = 0;
 const sIn = $('search'), sRes = $('results');
@@ -941,6 +941,10 @@ if (q.get('t')) setTime(+q.get('t'));
 open(PERSONALITIES[first] ? first : 'avalon');
 window.__cities = {
   view, get city() { return city; }, open, setTime, setGrowth: (v) => { $('growth').value = v; setGrowth(v); },
+  setPlan: (on) => view.setPlan(on),
+  fitPlan: () => view.fitPlan(),
+  setLayers: (mode) => view.setLayers(mode),
+  flushChunks: () => view.flushChunks(),
   /** dev: the map lenses. setLens returns the time the lens took to paint, in ms. */
   setLens: (id) => { setLens(id); return lastLensMs; }, get lens() { return lensId; }, lensMs: () => lastLensMs,
   setMood: (v) => { $('mood').value = v; setMood(v); },

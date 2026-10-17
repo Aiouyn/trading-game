@@ -104,13 +104,20 @@ test('hovering a building does not repaint its facade, and focus leaves masonry 
     a.setLens('normal');
     a.setMood(0);
     // A masonry building in Old Harbor: the material a brass repaint would ruin.
-    const target = a.city.buildings.find((b) => b.d.id === 'oldharbor' && b.kind !== 'Landmark' && !b.mine && b.h > 10);
-    a.view.target.set(target.x, 0, target.y);
     a.view.scale = 0.18;
     a.view.yaw = a.view.yawTarget = Math.PI / 4;
     a.select(null);
     a.view.setHover(-1);
-    a.view.dirty = true; a.view.frame(0);
+    // Layout/parcel regeneration can put the first record behind a tower. A
+    // real pointer can only hover the frontmost picked building, so choose one
+    // visible through the same picking path instead of forcing a hidden ID.
+    const candidates = a.city.buildings.filter(b => b.d.id === 'oldharbor' && b.kind !== 'Landmark' && !b.mine && b.h > 10).sort((a, b) => a.x - b.x);
+    const target = candidates.find(b => {
+      a.view.target.set(b.x, 0, b.y); a.view.dirty = true; a.view.frame(0);
+      const p = a.view.target.clone().set(b.x, b.gz + b.h / 2, b.y).project(a.view.camera);
+      return a.view.pick((p.x * 0.5 + 0.5) * a.view.w, (0.5 - p.y * 0.5) * a.view.h)?.id === b.id;
+    });
+    if (!target) throw new Error('No visible pickable Old Harbor masonry building');
     return { id: target.id, h: target.h, type: target.type };
   });
   const rect = await buildingRect(page, data.id);

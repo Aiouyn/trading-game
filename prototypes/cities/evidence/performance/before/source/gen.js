@@ -1,0 +1,2046 @@
+// The city generator: seed + personality -> roads, blocks, lots, buildings, trees and ground data.
+// Pure data out. Pipeline: terrain -> districts and land value -> tensor field -> streets (canals,
+// arterials, collectors, locals) -> blocks -> parcels -> buildings -> life -> development order.
+
+import { rng, makeNoise, hash2, clamp, lerp, smoothstep, woodsMask } from './noise.js';
+import { COMPANIES } from './companies.js';
+import { Parts, buildArchetype, buildLandmark, buildTree, buildCrane, buildShip, buildBoat, addShopFrontage, CONTAINER_COLORS } from './archetypes.js';
+import { sampleOutskirts, outskirtsHeight, traceHighways } from './outskirts.js';
+import { buildRoadGraph, labelLand, SegGrid } from './roadgraph.js';
+import { parcelId } from './parcel-id.js';
+import { avalonHeight, preparePersonality } from './avalon-art.js';
+import { resolveEntranceAccess, thresholdOf, DEPTH_FACTOR, corridorStep, pathIsClear } from './entrance-access.js';
+import { entranceOf } from './access.js';
+import { eligibleJunctionArm } from './junction-style.js';
+import { buildDemoUnits } from './demo-units.js';
+import { avalonRoadPlan, extendStreetEnds, refineAvalonJunctions } from './avalon-roads.js';
+
+const DRIVE_W = 3.4;   // driveways: narrow class-1 ribbons from the road to the building front
+const FARM_W = 4;      // farm tracks: unpaved, class 0
+const ACCESS_MAX = 5.5; // a building's footprint must sit this close to a road edge (the rule is 6 m)
+
+const RES = 2;   // fine raster, metres per cell
+const R4 = 4;    // coarse raster (terrain, districts, land value)
+const FRES = 8;  // tensor field resolution
+
+const HALF_PI = Math.PI / 2;
+
+export async function generateCity(P0, progress = () => {}) {
+  const P = preparePersonality(P0);
+  const t0 = performance.now();
+  const timings = {};
+  let tLast = t0;
+  const step = async (label) => {
+    const now = performance.now();
+    timings[label] = Math.round(now - tLast);
+    tLast = now;
+    progress(label);
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  const S = P.size, half = S / 2;
+  const N = S / RES, N4 = S / R4, NF = S / FRES;
+  const n = makeNoise(P.seed);
+  const R = rng(P.seed * 7 + 3);
+
+  // ------------------------------------------------------------------ terrain
+  await step('Surveying the land');
+  const H4 = new Float32Array(N4 * N4);
+  for (let j = 0; j < N4; j++) {
+    const y = -half + (j + 0.5) * R4;
+    for (let i = 0; i < N4; i++) H4[j * N4 + i] = P.terrain(-half + (i + 0.5) * R4, y, n);
+  }
+  const H = new Float32Array(N * N);
+  for (let j = 0; j < N; j++) {
+    const y = -half + (j + 0.5) * RES;
+    for (let i = 0; i < N; i++) H[j * N + i] = bil(H4, N4, R4, half, -half + (i + 0.5) * RES, y);
+  }
+  const W = new Uint8Array(N * N);
+  for (let k = 0; k < N * N; k++) W[k] = H[k] < 0 ? 1 : 0;
+
+  const cellX = (i) => -half + (i + 0.5) * RES;
+  const toI = (x) => Math.floor((x + half) / RES);
+  const inMap = (x, y) => x > -half && x < half && y > -half && y < half;
+  const cellAt = (x, y) => { const i = toI(x), j = toI(y); return i < 0 || j < 0 || i >= N || j >= N ? -1 : j * N + i; };
+  const heightAt = (x, y) => bil(H, N, RES, half, x, y);
+  const isWater = (x, y) => { const c = cellAt(x, y); return c < 0 || W[c] === 1; };
+
+  // ------------------------------------------------------------------ districts and land value
+  await step('Drawing districts');
+  const DISTS = P.districts;
+  const D4 = new Uint8Array(N4 * N4);
+  const slope4 = new Float32Array(N4 * N4);
+  for (let j = 0; j < N4; j++) {
+    const y = -half + (j + 0.5) * R4;
+    for (let i = 0; i < N4; i++) {
+      const x = -half + (i + 0.5) * R4;
+      const wx = x + 110 * n.fbm(x / 420 + 11, y / 420, 3), wy = y + 110 * n.fbm(x / 420, y / 420 - 7, 3);
+      let best = 0, bs = -Infinity;
+      for (let k = 0; k < DISTS.length; k++) {
+        const d = DISTS[k];
+        const s = 1 - Math.hypot(wx - d.x, wy - d.y) / d.r;
+        if (s > bs) { bs = s; best = k; }
+      }
+      D4[j * N4 + i] = best;
+      const k = j * N4 + i;
+      const hx = H4[Math.min(N4 - 1, i + 1) + j * N4] - H4[Math.max(0, i - 1) + j * N4];
+      const hy = H4[i + Math.min(N4 - 1, j + 1) * N4] - H4[i + Math.max(0, j - 1) * N4];
+      slope4[k] = Math.hypot(hx, hy) / (2 * R4);
+    }
+  }
+  const distAt = (x, y) => { const i = clamp(Math.floor((x + half) / R4), 0, N4 - 1), j = clamp(Math.floor((y + half) / R4), 0, N4 - 1); return DISTS[D4[j * N4 + i]]; };
+  const slopeAt = (x, y) => bil(slope4, N4, R4, half, x, y);
+
+  const landSrc = new Uint8Array(N * N);
+  for (let k = 0; k < N * N; k++) landSrc[k] = W[k] ? 1 : 0;
+  let distWater = chamfer(N, landSrc, RES);
+  const dWaterAt = (x, y) => bil(distWater, N, RES, half, x, y);
+
+  // rail (Kaiyo): stations lift land value
+  let rail = null;
+  if (P.rail) {
+    const { cx, cy, rx, ry, stations, h } = P.rail;
+    const path = [];
+    const L = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2);
+    const m = Math.round(L / 6);
+    for (let i = 0; i < m; i++) {
+      const a = (i / m) * Math.PI * 2;
+      const wob = 1 + 0.06 * n.fbm(Math.cos(a) * 2 + 3, Math.sin(a) * 2, 2);
+      path.push([cx + rx * wob * Math.cos(a), cy + ry * wob * Math.sin(a)]);
+    }
+    const st = [];
+    for (let s = 0; s < stations; s++) st.push(path[Math.floor((s / stations) * m + m / (stations * 3)) % m]);
+    rail = { path, stations: st, h };
+  }
+
+  const V4 = new Float32Array(N4 * N4);
+  let vmax = 0;
+  for (let j = 0; j < N4; j++) {
+    const y = -half + (j + 0.5) * R4;
+    for (let i = 0; i < N4; i++) {
+      const x = -half + (i + 0.5) * R4;
+      let v = 0;
+      for (const [cx, cy, a, s] of P.centers) v += a * Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * s * s));
+      v += 0.22 * Math.exp(-dWaterAt(x, y) / 110);
+      if (rail) for (const [sx, sy] of rail.stations) v += 0.32 * Math.exp(-((x - sx) ** 2 + (y - sy) ** 2) / (2 * 110 * 110));
+      v += 0.07 * n.fbm(x / 140 + 40, y / 140, 3);
+      V4[j * N4 + i] = v;
+      if (v > vmax) vmax = v;
+    }
+  }
+  for (let k = 0; k < V4.length; k++) V4[k] = clamp(V4[k] / vmax, 0, 1);
+  const VAt = (x, y) => bil(V4, N4, R4, half, x, y);
+
+  // ------------------------------------------------------------------ tensor field
+  await step('Laying out the street grain');
+  const bases = [...P.fields];
+  if (P.patchwork) {
+    const pw = P.patchwork;
+    for (let k = 0; k < pw.count; k++) {
+      bases.push({ type: 'grid', x: R.range(pw.area[0], pw.area[2]), y: R.range(pw.area[1], pw.area[3]), theta: R.range(-0.8, 0.8), decay: pw.decay * R.range(0.7, 1.3), w: pw.w });
+    }
+  }
+  const Fc = new Float32Array(NF * NF), Fs = new Float32Array(NF * NF);
+  for (let j = 0; j < NF; j++) {
+    const y = -half + (j + 0.5) * FRES;
+    for (let i = 0; i < NF; i++) {
+      const x = -half + (i + 0.5) * FRES;
+      let tx = 0.08, ty = 0; // a weak global grid so the field never vanishes
+      for (const b of bases) {
+        const w = b.w * Math.exp(-((x - b.x) ** 2 + (y - b.y) ** 2) / (b.decay * b.decay));
+        if (w < 1e-4) continue;
+        const th = b.type === 'grid' ? b.theta : Math.atan2(y - b.y, x - b.x);
+        tx += w * Math.cos(2 * th); ty += w * Math.sin(2 * th);
+      }
+      if (P.boundary?.w) {
+        const dw = dWaterAt(x, y);
+        if (dw > 0) {
+          const w = P.boundary.w * Math.exp(-dw / P.boundary.decay);
+          const gx = dWaterAt(x + 8, y) - dWaterAt(x - 8, y), gy = dWaterAt(x, y + 8) - dWaterAt(x, y - 8);
+          if (gx * gx + gy * gy > 1e-6) { const th = Math.atan2(gy, gx) + HALF_PI; tx += w * Math.cos(2 * th); ty += w * Math.sin(2 * th); }
+        }
+      }
+      if (P.contour?.w) {
+        const gx = heightAt(x + 8, y) - heightAt(x - 8, y), gy = heightAt(x, y + 8) - heightAt(x, y - 8);
+        const s = Math.hypot(gx, gy) / 16;
+        if (s > 1e-3) {
+          const w = P.contour.w * clamp(s * 7, 0, 1.4);
+          const th = Math.atan2(gy, gx) + HALF_PI;
+          tx += w * Math.cos(2 * th); ty += w * Math.sin(2 * th);
+        }
+      }
+      let th = 0.5 * Math.atan2(ty, tx);
+      const d = distAt(x, y);
+      th += (d.jitter ?? 0) * 1.4 * n.fbm(x / 170 + 3, y / 170 - 5, 3);
+      if (d.snap > 0) {
+        const base = d.theta ?? 0;
+        const k = Math.round((th - base) / HALF_PI);
+        th += d.snap * (base + k * HALF_PI - th);
+      }
+      Fc[j * NF + i] = Math.cos(2 * th); Fs[j * NF + i] = Math.sin(2 * th);
+    }
+  }
+  const fieldAngle = (x, y) => 0.5 * Math.atan2(bil(Fs, NF, FRES, half, x, y), bil(Fc, NF, FRES, half, x, y));
+  const fieldDir = (x, y, fam) => { const a = fieldAngle(x, y) + (fam ? HALF_PI : 0); return [Math.cos(a), Math.sin(a)]; };
+
+  // ------------------------------------------------------------------ streets
+  const lines = []; // { cls, fam, pts: [[x,y],...], level }
+  const allHash = new Hash(24);
+  const addLine = (line) => {
+    line.id = lines.length;
+    lines.push(line);
+    for (let i = 0; i < line.pts.length; i += 2) allHash.add(line.pts[i][0], line.pts[i][1], line.id);
+  };
+  const famOf = (pts) => {
+    const m = Math.floor(pts.length / 2);
+    const a = pts[Math.max(0, m - 2)], b = pts[Math.min(pts.length - 1, m + 2)];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const [ux, uy] = fieldDir(a[0], a[1], 0);
+    return Math.abs(dx * ux + dy * uy) >= Math.abs(-dx * uy + dy * ux) ? 0 : 1;
+  };
+
+  // predefined avenues (densified)
+  const predefined = P.id === 'avalon' ? avalonRoadPlan(P, n) : P.predef?.(n) ?? [];
+  for (const pd of predefined) {
+    const pts = densify(pd.pts, 6).filter(([x, y]) => inMap(x, y));
+    if (pts.length > 2) addLine({ cls: pd.cls, fam: famOf(pts), pts, level: pd.level ?? 'predef', requiredAccess: pd.requiredAccess });
+  }
+
+  // the urban edge: an organic line between city and countryside, from land value plus correlated noise
+  const urban = P.urban ?? { vMin: 0, soft: 0 };
+  // the urban edge before the countryside penalty: arterials use it, so they still reach the square's border
+  const urbanCore = (x, y) => VAt(x, y) + urban.soft * n.fbm(x / 320 + 9, y / 320 - 3, 3);
+  // collectors, locals and blocks thin out over the last 400 m before the border
+  const urbanAt = (x, y) => urbanCore(x, y) - 0.5 * smoothstep(half - 450, half - 60, Math.max(Math.abs(x), Math.abs(y)));
+  const bridges = P.bridges ?? { arterial: 240, collector: 40, local: 0 };
+  const maxSlope = P.maxSlope ?? 0.33;
+  const levels = [];
+  if (P.canals) levels.push({ name: 'canal', cls: -1, dsep: P.canals.dsep, step: 4, maxLen: 900, minLen: 60, bridge: 0, dtest: 0.55,
+    valid: (x, y) => distAt(x, y).id === P.canals.district && dWaterAt(x, y) > 14 });
+  levels.push({ name: 'arterial', cls: 4, dsep: P.roads.arterial, step: 7, maxLen: 4200, minLen: 260, bridge: bridges.arterial, dtest: 0.5, slope: 0.5,
+    valid: (x, y) => urbanCore(x, y) > urban.vMin - 0.16 && !(P.id === 'avalon' && distAt(x, y).id === 'gilthill') && dWaterAt(x, y) > 16 });
+  levels.push({ name: 'collector', cls: 3, dsep: P.roads.collector, step: 5, maxLen: 1800, minLen: 90, bridge: bridges.collector, dtest: 0.5, sepPow: 0.5, slope: maxSlope + 0.05,
+    valid: (x, y) => urbanAt(x, y) > urban.vMin - 0.07 && dWaterAt(x, y) > 12 && !(P.id === 'avalon' && distAt(x, y).id === 'gilthill') });
+  levels.push({ name: 'local', cls: 2, dsep: P.roads.local, step: 4, maxLen: 800, minLen: 22, bridge: bridges.local, dtest: 0.52, sepPow: 1, slope: maxSlope,
+    valid: (x, y) => urbanAt(x, y) > urban.vMin - 0.025 && dWaterAt(x, y) > 9 });
+
+  for (const L of levels) {
+    if (P.id === 'avalon' && L.cls === 4) continue; // surveyed arterials, never random stubs
+    if (L.dsep >= S) continue;
+    await step(`Tracing ${L.name === 'canal' ? 'canals' : L.name + ' streets'}`);
+    const sepAt = (x, y) => L.dsep * Math.pow(distAt(x, y).sep ?? 1, L.sepPow ?? 0);
+    const cs = Math.max(10, L.dsep * 0.5);
+    const fam = [new Hash(cs), new Hash(cs)];
+    for (const ln of lines) for (let i = 0; i < ln.pts.length; i += 2) fam[ln.fam].add(ln.pts[i][0], ln.pts[i][1], ln.id);
+    const valid = (x, y) => inMap(x, y) && !isWater(x, y) && (!L.valid || L.valid(x, y)) && (!L.slope || slopeAt(x, y) < L.slope);
+
+    // seed candidates: random land points, biased to valuable land
+    const cands = [];
+    const want = Math.min(6000, Math.round((S * S) / (L.dsep * L.dsep) * 2.5));
+    for (let t = 0; t < want * 3 && cands.length < want; t++) {
+      const x = R.range(-half, half), y = R.range(-half, half);
+      if (valid(x, y)) cands.push([x, y, VAt(x, y) + R.next() * 0.6]);
+    }
+    cands.sort((a, b) => b[2] - a[2]);
+    const queue = [[], []];
+    let ci = 0, f = 0, fails = 0;
+    const lineId = { v: 100000 };
+    while (fails < 2) {
+      let seed = null;
+      while (queue[f].length && !seed) {
+        const q = queue[f].shift();
+        if (valid(q[0], q[1]) && !fam[f].near(q[0], q[1], sepAt(q[0], q[1]), -1)) seed = q;
+      }
+      while (!seed && ci < cands.length) {
+        const q = cands[ci++];
+        if (!fam[f].near(q[0], q[1], sepAt(q[0], q[1]), -1)) seed = q;
+      }
+      if (!seed) { fails++; f = 1 - f; continue; }
+      fails = 0;
+      const pts = traceStreamline(seed, f, L, { fieldDir, valid, isWater, inMap, fam, sepAt });
+      if (pts && polyLen(pts) >= L.minLen) {
+        if (P.id === 'avalon') extendStreetEnds(pts, lines, { isWater, slopeAt, maxDistance: Math.min(160, sepAt(...seed) * 1.2) });
+        else joinEnds(pts, L, allHash, isWater, sepAt);
+        const line = { cls: L.cls, fam: f, pts, level: L.name };
+        addLine(line);
+        for (let i = 0; i < pts.length; i += 2) fam[f].add(pts[i][0], pts[i][1], line.id);
+        // perpendicular seeds along the new line make proper intersections
+        const every = Math.max(2, Math.round(sepAt(seed[0], seed[1]) / L.step));
+        for (let i = every; i < pts.length - 1; i += every) queue[1 - f].push(pts[i]);
+      }
+      f = 1 - f;
+      lineId.v++;
+    }
+
+    if (L.cls === -1) {
+      // carve canals into water
+      for (const ln of lines) if (ln.cls === -1 && !ln.carved) {
+        ln.carved = true;
+        stampLine(ln.pts, P.canals.width / 2, N, RES, half, (k) => { W[k] = 1; H[k] = Math.min(H[k], -1.2); });
+      }
+      for (let k = 0; k < N * N; k++) landSrc[k] = W[k];
+      distWater = chamfer(N, landSrc, RES);
+    }
+  }
+
+  // quays: land meets the water low, so shorelines stay smooth at any zoom
+  for (let k = 0; k < N * N; k++) if (!W[k]) H[k] = Math.min(H[k], 0.35 + distWater[k] * 0.09);
+
+  // ------------------------------------------------------------------ road graph: planar, cleaned, one network per landmass
+  await step('Cleaning the road network');
+  const landId = labelLand(N, W);
+  const landAt = (x, y) => { const k = cellAt(x, y); return k < 0 ? -1 : landId[k]; };
+  const graph = buildRoadGraph(lines.filter((l) => l.cls > 0), { spacing: { 4: P.roads.arterial, 3: P.roads.collector, 2: P.roads.local }, isWater, landAt });
+  if (P.id === 'avalon') refineAvalonJunctions(graph);
+  const roads = graph.edges.map((e) => ({ id: e.id, cls: e.cls, fam: 0, pts: e.pts, level: e.level, a: e.a, b: e.b }));
+  if (rail) roads.push({ cls: 3, fam: 0, pts: [...rail.path, rail.path[0]], level: 'rail', rail: true });
+
+  // ------------------------------------------------------------------ rasterise roads, blocks
+  await step('Cutting city blocks');
+  const roadCls = new Uint8Array(N * N);
+  for (const ln of roads) {
+    ln.width = ln.pts.map(([x, y]) => roadWidth(ln.cls, distAt(x, y)));
+    // sidewalks: urban roads of class 2 and up carry a 2 m walk on each side (the ribbon shows it, the blocks keep off it)
+    const mid = ln.pts[ln.pts.length >> 1];
+    ln.walk = !ln.rail && !ln.outer && ln.cls >= 2 && urbanAt(mid[0], mid[1]) > urban.vMin + 0.05 ? 2 : 0;
+    for (let i = 0; i < ln.pts.length - 1; i++) {
+      const [ax, ay] = ln.pts[i], [bx, by] = ln.pts[i + 1];
+      stampSeg(ax, ay, bx, by, ln.width[i] / 2 + 0.6 + ln.walk, N, RES, half, (k) => { if (!W[k] && roadCls[k] < ln.cls) roadCls[k] = ln.cls; });
+    }
+  }
+  // Seat the carriageway in the heightfield (cut/fill plus a shoulder) before lots are placed, so
+  // buildings front a graded street and the 5 m ground mesh does not show through the ribbon.
+  gradeRoadBeds(roads, { H, W, N, res: RES, half, isWater, distWater });
+  const roadSrc = new Uint8Array(N * N);
+  for (let k = 0; k < N * N; k++) roadSrc[k] = roadCls[k] ? 1 : 0;
+  const distRoad = chamfer(N, roadSrc, RES);
+
+  const blockId = new Int32Array(N * N).fill(-1);
+  const blockCells = new Int32Array(N * N);
+  const blocks = [];
+  {
+    const stack = new Int32Array(N * N);
+    let used = 0;
+    for (let k0 = 0; k0 < N * N; k0++) {
+      if (W[k0] || roadCls[k0] || blockId[k0] >= 0) continue;
+      const id = blocks.length, start = used;
+      let sp = 0; stack[sp++] = k0; blockId[k0] = id;
+      let sx = 0, sy = 0, border = false;
+      while (sp) {
+        const k = stack[--sp];
+        blockCells[used++] = k;
+        const i = k % N, j = (k / N) | 0;
+        sx += i; sy += j;
+        if (i === 0 || j === 0 || i === N - 1 || j === N - 1) border = true;
+        if (i > 0) push(k - 1); if (i < N - 1) push(k + 1); if (j > 0) push(k - N); if (j < N - 1) push(k + N);
+      }
+      const count = used - start;
+      const cx = cellX(Math.round(sx / count)), cy = cellX(Math.round(sy / count));
+      blocks.push({ id, seedCell: k0, start, count, area: count * RES * RES, cx, cy, border, d: distAt(cx, cy) });
+      function push(q) { if (!W[q] && !roadCls[q] && blockId[q] < 0) { blockId[q] = id; stack[sp++] = q; } }
+    }
+  }
+
+  // ------------------------------------------------------------------ surfaces
+  const SURF = { natural: 0, park: 2, sand: 3, plaza: 4, lawn: 6, forest: 7, fields: 8 };
+  const surf = new Uint8Array(N * N);
+  const beachW = P.beach ?? 0;
+  for (let k = 0; k < N * N; k++) if (!W[k] && beachW && distWater[k] < beachW) surf[k] = SURF.sand;
+  const parkNames = [];
+  for (const b of blocks) {
+    let kind = null;
+    for (const [px, py, pr, name] of P.parks ?? []) if (Math.hypot(b.cx - px, b.cy - py) < pr) { kind = 'park'; if (name && !parkNames.includes(name)) parkNames.push(name); }
+    if (!kind && urbanAt(b.cx, b.cy) < urban.vMin) kind = n.fbm(b.cx / 260 + 2, b.cy / 260 + 7, 3) > (P.forest ?? 0.05) || slopeAt(b.cx, b.cy) > maxSlope * 0.8 ? 'forest' : 'fields';
+    if (!kind && b.area < 150) kind = 'plaza';
+    if (!kind && slopeAt(b.cx, b.cy) > maxSlope * 1.1) kind = 'forest';
+    if (!kind && b.area > 900 && b.area < 9000 && b.d.tier !== 'cbd' && hash2(b.id, 7, P.seed) < 0.05) kind = 'park';
+    if (!kind && b.d.tier === 'cbd' && b.area < 1800 && hash2(b.id, 9, P.seed) < 0.08) kind = 'plaza';
+    b.kind = kind ?? 'build';
+    const code = kind === 'park' ? SURF.park : kind === 'plaza' ? SURF.plaza : kind === 'forest' ? SURF.forest : kind === 'fields' ? SURF.fields : b.d.placement === 'scatter' ? SURF.lawn : 0;
+    if (code) for (let c = b.start; c < b.start + b.count; c++) { const k = blockCells[c]; if (surf[k] !== SURF.sand) surf[k] = code; }
+  }
+
+  // ------------------------------------------------------------------ parts, lots, landmarks
+  const parts = new Parts();
+  const buildings = [];
+  const labels = [];
+  const occ = new Uint8Array(N * N);
+  const lotKey = new Float32Array(N * N).fill(Infinity);
+  const shadowKey = new Float32Array(N * N).fill(Infinity);
+  const keyOf = (x, y, jit = 0.18) => (1 - VAt(x, y)) + jit * (hash2(Math.round(x * 3), Math.round(y * 3), P.seed) - 0.5);
+  const sun = norm2(0.62, -0.78); // baked shadows fall north-east
+
+  const ctx = { P, R, n, parts, buildings, labels, heightAt, VAt, dWaterAt, distAt, fieldAngle, keyOf, isWater, half };
+
+  const addBuilding = (rec) => {
+    rec.id = buildings.length + 1;
+    buildings.push(rec);
+    return rec.id;
+  };
+  ctx.addBuilding = addBuilding;
+
+  const stampRect = (cx, cy, rot, hw, hd, fn) => {
+    const ux = Math.cos(rot), uy = Math.sin(rot);
+    const stepA = RES * 0.7;
+    for (let a = -hw; a <= hw; a += stepA) for (let b = -hd; b <= hd; b += stepA) {
+      const k = cellAt(cx + ux * a - uy * b, cy + uy * a + ux * b);
+      if (k >= 0) fn(k);
+    }
+  };
+  const fits = (b, cx, cy, rot, hw, hd) => {
+    const ux = Math.cos(rot), uy = Math.sin(rot);
+    const na = Math.max(2, Math.ceil((2 * hw) / 2.5)), nb = Math.max(2, Math.ceil((2 * hd) / 2.5));
+    for (let ia = 0; ia <= na; ia++) {
+      const a = -hw + (2 * hw * ia) / na;
+      for (let ib = 0; ib <= nb; ib++) {
+        const bb = -hd + (2 * hd * ib) / nb;
+        const k = cellAt(cx + ux * a - uy * bb, cy + uy * a + ux * bb);
+        if (k < 0 || blockId[k] !== b || occ[k]) return false;
+      }
+    }
+    return true;
+  };
+  const shadowOf = (cx, cy, rot, hw, hd, h, key) => {
+    const ux = Math.cos(rot), uy = Math.sin(rot);
+    const len = Math.min(h * 0.85, 240);
+    const pts = [];
+    for (const [a, b] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
+      const x = cx + ux * a - uy * b, y = cy + uy * a + ux * b;
+      pts.push([x, y], [x + sun[0] * len, y + sun[1] * len]);
+    }
+    fillConvex(hull(pts), N, RES, half, (k) => { if (key < shadowKey[k]) shadowKey[k] = key; });
+  };
+  ctx.shadowOf = shadowOf;
+  ctx.stampLot = (cx, cy, rot, hw, hd, key) => stampRect(cx, cy, rot, hw + 1.5, hd + 1.5, (k) => { if (key < lotKey[k]) lotKey[k] = key; });
+
+  // landmarks first, so lots flow around them
+  await step('Raising landmarks');
+  for (const lm of P.landmarks ?? []) {
+    let x = lm.x, y = lm.y;
+    if (!lm.exact) {
+      const found = findLand(x, y, 260, (k) => !W[k] && !roadCls[k] && blockId[k] >= 0 && distRoad[k] > 6, N, RES, half);
+      if (!found) continue;
+      [x, y] = found;
+    }
+    const rot = fieldAngle(x, y);
+    const r = buildLandmark(lm, x, y, rot, ctx);
+    if (!r) continue;
+    buildings[buildings.length - 1].accessMode = 'landmark';
+    // reserve the footprint
+    for (let a = -r.radius; a <= r.radius; a += RES) for (let b = -r.radius; b <= r.radius; b += RES) {
+      if (a * a + b * b > r.radius * r.radius) continue;
+      const k = cellAt(x + a, y + b);
+      if (k >= 0) { occ[k] = 1; if (!W[k] && surf[k] !== SURF.park) { surf[k] = SURF.plaza; } }
+    }
+    labels.push({ text: lm.name, x, y, z: heightAt(x, y) + r.height + 8, kind: 'landmark' });
+  }
+
+  // Isla Serena: one estate per island, each with its owner
+  if (P.estates) {
+    for (const [i, [cx, cy, r]] of P.isles.entries()) {
+      const f = findLand(cx, cy, r, (k) => !W[k] && !roadCls[k] && blockId[k] >= 0, N, RES, half);
+      if (!f) continue;
+      const owner = P.estates[i % P.estates.length];
+      const res = buildLandmark({ type: r > 100 ? 'estate' : 'estateSmall', name: owner }, f[0], f[1], fieldAngle(f[0], f[1]), ctx);
+      if (!res) continue;
+      for (let a = -res.radius; a <= res.radius; a += RES) for (let bb = -res.radius; bb <= res.radius; bb += RES) {
+        if (a * a + bb * bb > res.radius * res.radius) continue;
+        const k = cellAt(f[0] + a, f[1] + bb);
+        if (k >= 0 && !W[k]) { occ[k] = 1; surf[k] = SURF.lawn; }
+      }
+      buildings[buildings.length - 1].label = owner === 'Private' ? 'Private estate' : `${owner}'s estate`;
+      buildings[buildings.length - 1].accessMode = 'water';
+      labels.push({ text: owner === 'Private' ? 'Private' : owner, x: f[0], y: f[1], z: heightAt(f[0], f[1]) + res.height + 10, kind: owner === 'Private' ? 'landmark' : 'crown', bid: buildings.length });
+    }
+  }
+
+  // bridges and their towers, from road polylines crossing water
+  const bridgeSpans = [];
+  for (const ln of roads) {
+    if (ln.rail) continue;
+    let run = [];
+    for (let i = 0; i < ln.pts.length; i++) {
+      const [x, y] = ln.pts[i];
+      if (isWater(x, y)) run.push(i);
+      else if (run.length) { bridgeSpans.push({ ln, from: run[0], to: run[run.length - 1] }); run = []; }
+    }
+  }
+
+  await step('Dividing parcels');
+  const lots = [];
+  const placementDiagnostics = [];
+  const net = new SegGrid(12);
+  for (const ln of roads) {
+    if (ln.rail) continue;
+    for (let i = 0; i < ln.pts.length - 1; i++) {
+      const [ax, ay] = ln.pts[i], [bx, by] = ln.pts[i + 1];
+      const bridge = isWater(ax, ay) || isWater(bx, by);
+      net.add(ax, ay, bx, by, (ln.width[i] + ln.width[i + 1]) / 4 + ln.walk,
+        { cls: ln.cls, edgeId: ln.id, a: ln.a, b: ln.b, bridge });
+    }
+  }
+  function proposeLot(lot) {
+    const proposalR = rng(Math.floor(hash2(Math.round(lot.x * 100), Math.round(lot.y * 100), P.seed) * 0xffffffff));
+    const V = VAt(lot.x, lot.y), [medH, sigma, minH, maxH] = lot.d.height;
+    const hn = Math.pow(2, 0.9 * n.fbm(lot.x / 230 + 50, lot.y / 230, 3));
+    // Ordinary masonry districts share a cornice line per block (avalonHeight). Landmarks,
+      // headquarters and towers keep their own proposed heights.
+      const proposed = clamp(medH * (0.35 + 1.35 * Math.pow(V, 1.25)) * hn *
+        Math.exp(sigma * (lot.d.gap === 0 ? 0.4 : 1) * proposalR.normal()), minH, maxH);
+      lot.h = P.id === 'avalon'
+        ? clamp(avalonHeight(lot.d.id, lot.b.seedCell, lot.x, lot.y, proposed, P.seed), minH, maxH)
+        : proposed;
+      lot.type = pickType(lot.d, lot.h, proposalR);
+  }
+  // frontage candidates: along each local and collector, the lot positions on either side that land in a built block
+  const frontBy = new Map();
+  for (const ln of roads) {
+    if (ln.rail || ln.cls < 2 || ln.cls > 3) continue;
+    for (let i = 0; i < ln.pts.length - 1; i++) {
+      const [ax, ay] = ln.pts[i], [bx, by] = ln.pts[i + 1];
+      const L = Math.hypot(bx - ax, by - ay);
+      if (L < 1e-6) continue;
+      const ux = (bx - ax) / L, uy = (by - ay) / L, nx = -uy, ny = ux;
+      const hw = ln.width[i] / 2 + ln.walk;
+      const m = Math.max(1, Math.round(L / 2));
+      for (let t = 0; t < m; t++) {
+        const f = (t + 0.5) / m, x = ax + (bx - ax) * f, y = ay + (by - ay) * f;
+        for (const side of [-1, 1]) {
+          const k = cellAt(x + nx * side * (hw + 1), y + ny * side * (hw + 1));
+          if (k < 0) continue;
+          const bid = blockId[k];
+          if (bid < 0 || blocks[bid].kind !== 'build') continue;
+          if (!frontBy.has(bid)) frontBy.set(bid, []);
+          frontBy.get(bid).push({ x, y, nx, ny, ux, uy, hw, side });
+        }
+      }
+    }
+  }
+  // scatter districts: lots line the local streets, set back by a front yard, in the order of the road
+  function frontageLots(b, d) {
+    let lastX = 1e9, lastY = 1e9;
+    for (const c of frontBy.get(b.id) ?? []) {
+      if (R.next() < 0.12) continue;
+      const hw = (d.lot[0] * R.range(0.8, 1.15)) / 2, hd = (d.lot[1] * R.range(0.8, 1.15)) / 2;
+      if (hw < 2.2 || hd < 2.2) continue;
+      if (Math.hypot(c.x - lastX, c.y - lastY) < hw * 2 + (d.gap ?? 4)) continue;
+      const yard = R.range(3.5, 5.5);
+      const off = c.hw + yard + hd;
+      const x = c.x + c.nx * off * c.side, y = c.y + c.ny * off * c.side;
+      const rot = Math.atan2(c.uy, c.ux);
+      // the gap between neighbours runs along the road; the front yard keeps the road side clear
+      const m = (d.gap ?? 4) / 2;
+      if (!fits(b.id, x, y, rot, hw + m, hd)) continue;
+      // c.nx = -c.uy, c.ny = c.ux, which equals the local +z direction [-sin(rot), cos(rot)].
+      // The lot is offset by +c.side along local +z, so the street lies at -c.side along local +z.
+      if (place(b, d, x, y, rot, hw, hd, -c.side)) {
+        lastX = c.x; lastY = c.y;
+      }
+    }
+  }
+  for (const b of blocks) {
+    if (b.kind === 'fields' && b.area > 4000) {
+      // the odd farmhouse and barn out in the fields
+      for (let t = 0; t < Math.round(b.area / 30000) + 1; t++) {
+        const k = blockCells[b.start + Math.floor(R.next() * b.count)];
+        const x = cellX(k % N), y = cellX((k / N) | 0), rot = fieldAngle(x, y);
+        if (fits(b.id, x, y, rot, 9, 7)) {
+          const d = { ...b.d, types: [['house', 1]], height: [7, 0.1, 6, 9], tier: 'rural' };
+          if (P.id === 'avalon') place(b, d, x, y, rot, 6, 5);
+          else { stampRect(x, y, rot, 6, 5, q => { occ[q] = 1; }); lots.push({ b, d, x, y, rot, hw: 6, hd: 5, front: -1 }); }
+        }
+      }
+    }
+    if (b.kind !== 'build') continue;
+    const d = b.d;
+    const theta = fieldAngle(b.cx, b.cy);
+    if (P.estates) continue;
+    if (d.placement === 'scatter') frontageLots(b, d);
+    else rowLots(b, d, theta);
+    if (d.placement !== 'scatter' && b.area > 250) scatterLots(b, d, 0.55, theta);
+  }
+
+  function rowLots(b, d, theta) {
+    const ux = Math.cos(theta), uy = Math.sin(theta);
+    let umin = Infinity, umax = -Infinity, vmin = Infinity, vmax = -Infinity;
+    for (let c = b.start; c < b.start + b.count; c++) {
+      const k = blockCells[c];
+      const x = cellX(k % N), y = cellX((k / N) | 0);
+      const u = x * ux + y * uy, v = -x * uy + y * ux;
+      if (u < umin) umin = u; if (u > umax) umax = u; if (v < vmin) vmin = v; if (v > vmax) vmax = v;
+    }
+    umin -= 1; vmin -= 1; umax += 1; vmax += 1;
+    const depth = d.lot[1] * R.range(0.85, 1.2);
+    const span = vmax - vmin;
+    const nrows = Math.max(1, Math.round(span / depth));
+    const rowD = span / nrows;
+    for (let r = 0; r < nrows; r++) {
+      const v0 = vmin + r * rowD;
+      let u = umin;
+      while (u < umax - 2) {
+        const f = clamp(d.lot[0] * Math.exp(0.28 * R.normal()), d.lot[0] * 0.55, d.lot[0] * 1.9);
+        const gap = d.gap;
+        let hw = f / 2 - gap / 2, hd = rowD / 2 - gap / 2 - 0.4;
+        let cu = u + f / 2, cv = v0 + rowD / 2;
+        let ok = false;
+        for (const [sf, sd, anchor] of [[1, 1, 0], [1, 0.62, -1], [1, 0.62, 1], [0.66, 0.62, -1], [0.66, 0.62, 1]]) {
+          const thw = hw * sf, thd = hd * sd;
+          const tcv = anchor === 0 ? cv : anchor < 0 ? v0 + gap / 2 + 0.4 + thd : v0 + rowD - gap / 2 - 0.4 - thd;
+          const x = cu * ux - tcv * uy, y = cu * uy + tcv * ux;
+          if (thw > 2.2 && thd > 2.2 && fits(b.id, x, y, theta, thw, thd)) {
+            const dr = distRoad[cellAt(x, y)] ?? 0;
+            if (!d.interior && dr > thd + 9) break;
+             ok = place(b, d, x, y, theta, thw, thd);
+             if (ok) break;
+          }
+        }
+        u += ok ? f : 3;
+      }
+    }
+  }
+
+  function scatterLots(b, d, scale, theta = null) {
+    const tries = Math.round((b.area / (d.lot[0] * d.lot[1] * scale * scale)) * (theta === null ? 2.2 : 1.2)) + 2;
+    for (let t = 0; t < tries; t++) {
+      const k = blockCells[b.start + Math.floor(R.next() * b.count)];
+      const x = cellX(k % N) + R.range(-1, 1), y = cellX((k / N) | 0) + R.range(-1, 1);
+      const rot = theta ?? fieldAngle(x, y) + R.range(-0.08, 0.08);
+      const hw = (d.lot[0] * scale * R.range(0.75, 1.25)) / 2, hd = (d.lot[1] * scale * R.range(0.75, 1.25)) / 2;
+      const m = (d.gap ?? 4) / 2 * (theta === null ? 1 : 0.3);
+      if (hw < 2.2 || hd < 2.2) continue;
+      if (!fits(b.id, x, y, rot, hw + m, hd + m)) continue;
+      if (theta !== null && !d.interior && (distRoad[k] ?? 0) > hd + 10) continue;
+      place(b, d, x, y, rot, hw, hd);
+    }
+  }
+
+  function place(b, d, x, y, rot, hw, hd, explicitFront = null) {
+    // which long side faces the street (signs and shopfronts go there)
+    const zx = -Math.sin(rot), zy = Math.cos(rot), o = hd + 3;
+    const dm = distRoad[cellAt(x - zx * o, y - zy * o)] ?? 99, dpl = distRoad[cellAt(x + zx * o, y + zy * o)] ?? 99;
+    const front = explicitFront ?? (dm <= dpl ? -1 : 1);
+    if (P.id === 'avalon') {
+      const lot = { b, d, x, y, rot, hw, hd, front };
+      proposeLot(lot);
+      let result;
+      for (const chosenFront of explicitFront === null ? [front, -front] : [front]) {
+        lot.front = chosenFront;
+        result = resolveEntranceAccess({ lot, net, isWater, heightAt,
+          isBridgeAt: (px, py, tag) => Boolean(tag?.bridge),
+          isBlocked: (px, py) => {
+            const k = cellAt(px, py);
+            if (k < 0 || occ[k] === 1) return true;
+            const lx = Math.cos(rot) * (px - x) + Math.sin(rot) * (py - y);
+            const lz = -Math.sin(rot) * (px - x) + Math.cos(rot) * (py - y);
+            return Math.abs(lx) < hw && Math.abs(lz) < hd &&
+              lz * chosenFront < hd * (DEPTH_FACTOR[lot.type] ?? 1) - 1e-6;
+          } });
+        if (result.status === 'served') break;
+      }
+      if (result.status !== 'served') {
+        placementDiagnostics.push({ candidateId: parcelId(P.id, P.seed, x, y, rot), district: d.id,
+          status: 'rejected', reason: result.reason, pathOutcome: null });
+        return false;
+      }
+      stampRect(x, y, rot, hw, hd, (k) => { occ[k] = 1; });
+      for (let i = 1; i < result.path.pts.length; i++) {
+        const [ax, ay] = result.path.pts[i - 1], [bx, by] = result.path.pts[i];
+        stampSeg(ax, ay, bx, by, result.path.width / 2 + RES * 0.5, N, RES, half,
+          k => { if (!occ[k] && !roadCls[k]) occ[k] = 2; });
+      }
+      lot.accessPath = result.path;
+      lot.entryGate = result.entryGate;
+      lot.entryThreshold = result.entryThreshold;
+      lots.push(lot);
+      return true;
+    }
+    stampRect(x, y, rot, hw, hd, (k) => { occ[k] = 1; });
+    lots.push({ b, d, x, y, rot, hw, hd, front });
+    return true;
+  }
+
+  // ------------------------------------------------------------------ access: every lot reaches a road
+  // A footprint within ACCESS_MAX of a road edge (centre line less its half width, sidewalks included) is served. The
+  // others get a driveway (class 1) to the nearest road, or in the fields a farm track (class 0), routed over free
+  // ground; a lot that cannot be reached is not built.
+  const lotPerim = (lot, pad) => {
+    const { x, y, rot, hw, hd } = lot;
+    const ux = Math.cos(rot), uy = Math.sin(rot);
+    const hwp = hw + pad, hdp = hd + pad;
+    const ns = Math.max(2, Math.ceil(hwp / 2)), nd = Math.max(2, Math.ceil(hdp / 2)); // a point every ~4 m
+    const pts = [];
+    for (let i = 0; i <= ns; i++) { const a = -hwp + (2 * hwp * i) / ns; pts.push([a, -hdp], [a, hdp]); }
+    for (let j = 0; j <= nd; j++) { const bb = -hdp + (2 * hdp * j) / nd; pts.push([-hwp, bb], [hwp, bb]); }
+    return pts.map(([a, bb]) => [x + ux * a - uy * bb, y + uy * a + ux * bb]);
+  };
+  const lotGap = (lot) => {
+    let g = Infinity;
+    for (const p of lotPerim(lot, 0)) {
+      // centre lines are measured to, so the search reaches past the widest road's half width
+      const q = net.nearest(p[0], p[1], ACCESS_MAX + 12);
+      if (q) g = Math.min(g, q.d - q.s.hw);
+      if (g <= ACCESS_MAX) break;
+    }
+    return g;
+  };
+  const drives = [];
+  const occMark = (x, y) => { const k = cellAt(x, y); if (k >= 0) occ[k] = 1; };
+  const routeTo = (lot, farm) => {
+    const reach = farm ? 400 : 60;
+    const cands = [];
+    const perim = lotPerim(lot, 0.6);
+    // a far search is costly: farm tracks look from every fourth point of the perimeter only
+    for (let k = 0; k < perim.length; k += farm ? 4 : 1) {
+      const p = perim[k];
+      const q = net.nearest(p[0], p[1], reach);
+      if (!q) continue;
+      cands.push({ cost: q.d - q.s.hw, p, q });
+    }
+    cands.sort((a, b) => a.cost - b.cost);
+    for (const { p, q } of cands.slice(0, 12)) {
+      const L = Math.hypot(p[0] - q.qx, p[1] - q.qy);
+      if (L < 0.5) continue;
+      const ux = (p[0] - q.qx) / L, uy = (p[1] - q.qy) / L;
+      const hw = q.s.hw;
+      const start = [q.qx + ux * hw, q.qy + uy * hw];
+      const len = Math.hypot(p[0] - start[0], p[1] - start[1]);
+      if (len < 0.5) continue;
+      // the route: free ground (no water, no other road or lot), except the first and last few metres
+      let ok = true;
+      const samples = [];
+      for (let t = 0; t <= len && ok; t += 0.8) {
+        const sx = start[0] + ((p[0] - start[0]) * t) / len, sy = start[1] + ((p[1] - start[1]) * t) / len;
+        samples.push([sx, sy]);
+        if (t < 3 || len - t < 2.5) continue;
+        const k = cellAt(sx, sy);
+        if (k < 0 || W[k] || occ[k] || roadCls[k]) ok = false;
+      }
+      if (!ok) continue;
+      for (const [sx, sy] of samples) for (const o of [-1.5, -0.75, 0, 0.75, 1.5]) occMark(sx - uy * o, sy + ux * o);
+      const cls = farm ? 0 : 1;
+      const tag = q.s.tag ?? {};
+      net.add(start[0], start[1], p[0], p[1], (farm ? FARM_W : DRIVE_W) / 2, { cls, edgeId: tag.edgeId, a: tag.a, b: tag.b });
+      return { cls, pts: [start, [p[0], p[1]]], width: [farm ? FARM_W : DRIVE_W, farm ? FARM_W : DRIVE_W], edgeId: tag.edgeId, a: tag.a, b: tag.b };
+    }
+    return null;
+  };
+  let accessFail = 0, driveN = 0, trackN = 0, unreached = 0, driveKm = 0;
+  const candidateCount = lots.length + placementDiagnostics.length;
+  const parcelDiagnostics = [...placementDiagnostics];
+  const served = [];
+  if (P.id === 'avalon') {
+    // Resolve the architectural frontage BEFORE routing, not by moving a door after acceptance.
+    const spatial = new Map(), cellSize = 40;
+    const cellKey = (i, j) => (i + 4096) * 8192 + (j + 4096);
+    const insert = (o) => {
+      o._c = Math.cos(-o.rot); o._s = Math.sin(-o.rot);
+      const radius = Math.hypot(o.hw, o.hd);
+      for (let i = Math.floor((o.x - radius) / cellSize); i <= Math.floor((o.x + radius) / cellSize); i++) {
+        for (let j = Math.floor((o.y - radius) / cellSize); j <= Math.floor((o.y + radius) / cellSize); j++) {
+          const key = cellKey(i, j);
+          let bucket = spatial.get(key);
+          if (!bucket) spatial.set(key, bucket = []);
+          bucket.push(o);
+        }
+      }
+    };
+    lots.forEach(insert);
+    buildings.forEach(b => insert({ ...b, hw: b.w / 2, hd: b.dp / 2 }));
+    for (let idx = 0; idx < lots.length; idx++) {
+      const lot = lots[idx];
+      const pid = parcelId(P.id, P.seed, lot.x, lot.y, lot.rot);
+      const insideThisLot = (px, py) => {
+        const c = Math.cos(-lot.rot), s = Math.sin(-lot.rot);
+        const dx = px - lot.x, dy = py - lot.y;
+        return Math.abs(c * dx - s * dy) <= lot.hw + 0.6 && Math.abs(s * dx + c * dy) <= lot.hd + 0.6;
+      };
+      const hitsOtherLot = (px, py) => {
+        const bucket = spatial.get(cellKey(Math.floor(px / cellSize), Math.floor(py / cellSize)));
+        if (!bucket) return false;
+        for (let n = 0; n < bucket.length; n++) {
+          const o = bucket[n];
+          if (o === lot) continue;
+          const dx = px - o.x, dy = py - o.y;
+          if (Math.abs(o._c * dx - o._s * dy) < o.hw - 1e-6 && Math.abs(o._s * dx + o._c * dy) < o.hd - 1e-6) return true;
+        }
+        return false;
+      };
+      // Placement already routed this lot. Keep that path when it still clears every footprint;
+      // only lots a later building closed off are routed again.
+      const kept = lot.accessPath;
+      const frontSign = lot.front ?? -1;
+      const blocksKept = (x, y) => {
+        if (isWater(x, y)) return true;
+        if (hitsOtherLot(x, y)) return true;
+        if (!insideThisLot(x, y)) return false;
+        const dz = -Math.sin(lot.rot) * (x - lot.x) + Math.cos(lot.rot) * (y - lot.y);
+        return dz * frontSign < lot.hd * (DEPTH_FACTOR[lot.type] ?? 1) - 1e-6;
+      };
+      const keptClear = kept && pathIsClear(kept.pts, (a, b) => corridorStep(a, b, {
+        canStand: (x, y) => !blocksKept(x, y),
+        heightAt,
+        maxGrade: kept.kind === 'pedestrian' ? 0.15 : 0.12,
+        width: kept.width ?? 1.8,
+      }));
+      let res = keptClear ? {
+        status: 'served', mode: kept.kind, path: kept,
+        entryGate: lot.entryGate, entryThreshold: lot.entryThreshold,
+      } : null;
+      for (const fTry of keptClear ? [] : [lot.front ?? -1]) {
+        const attempt = resolveEntranceAccess({
+          lot: { ...lot, dp: lot.hd * 2, front: fTry },
+          net,
+          isWater,
+          heightAt,
+          isBridgeAt: (x, y, tag) => Boolean(tag?.bridge) || isWater(x, y),
+          isBlocked: (x, y) => {
+            const k = cellAt(x, y);
+            if (k < 0 || W[k]) return true;
+            if (hitsOtherLot(x, y)) return true;
+            if (insideThisLot(x, y)) {
+              const dz = -Math.sin(lot.rot) * (x - lot.x) + Math.cos(lot.rot) * (y - lot.y);
+              return dz * fTry < lot.hd * (DEPTH_FACTOR[lot.type] ?? 1) - 1e-6;
+            }
+            return false; // Exact spatial footprints above; reservations are passable.
+          },
+        });
+        if (attempt.status === 'served') {
+          lot.front = fTry;
+          res = attempt;
+          break;
+        }
+        if (!res) res = attempt;
+      }
+      if (res.status !== 'served') {
+        accessFail++;
+        unreached++;
+        parcelDiagnostics.push({
+          candidateId: pid,
+          district: lot.d.id,
+          status: 'vacant',
+          reason: res.reason,
+          pathOutcome: null,
+        });
+        continue;
+      }
+      const pth = res.path;
+      const len = polyLen(pth.pts);
+      lot.entryThreshold = res.entryThreshold;
+      lot.entryGate = res.entryGate;
+      lot.accessPath = pth;
+      if (pth.kind === 'driveway' || pth.kind === 'track') {
+        accessFail++;
+        const farm = pth.kind === 'track';
+        if (farm) trackN++; else driveN++;
+        driveKm += len / 1000;
+        if (len > 0.05) {
+          const w = pth.width;
+          // Trim the first segment inside the building setback so the driveway ribbon starts at the front wall/gate, not inside the house
+          const drivePts = pth.pts.length > 2 && Math.hypot(pth.pts[0][0] - res.entryThreshold[0], pth.pts[0][1] - res.entryThreshold[1]) < 0.2
+            ? pth.pts.slice(1)
+            : pth.pts;
+          if (polyLen(drivePts) > 1.2) {
+            drives.push({
+              cls: farm ? 0 : 1,
+              level: farm ? 'track' : 'drive',
+              kind: pth.kind,
+              pts: drivePts,
+              width: drivePts.map(() => w),
+              walk: 0,
+              orderKey: keyOf(lot.x, lot.y),
+              edgeId: pth.edgeId,
+              parentA: pth.a,
+              parentB: pth.b,
+            });
+          }
+        }
+      }
+      for (let s = 0; s < pth.pts.length - 1; s++) {
+        const [ax, ay] = pth.pts[s], [bx, by] = pth.pts[s + 1];
+        stampSeg(ax, ay, bx, by, pth.width * 0.5, N, RES, half, (k) => { if (!occ[k]) occ[k] = 2; });
+      }
+      parcelDiagnostics.push({
+        candidateId: pid,
+        district: lot.d.id,
+        status: 'served',
+        reason: res.mode,
+        pathOutcome: { kind: pth.kind, edgeId: pth.edgeId, length: Math.round(len * 10) / 10 },
+      });
+      served.push(lot);
+    }
+  } else {
+    for (const lot of lots) {
+      if (lotGap(lot) <= ACCESS_MAX) { served.push(lot); continue; }
+      accessFail++;
+      const farm = lot.d.tier === 'rural';
+      const dv = routeTo(lot, farm);
+      if (!dv) { unreached++; continue; }
+      if (farm) trackN++; else driveN++;
+      driveKm += polyLen(dv.pts) / 1000;
+      drives.push({ cls: dv.cls, level: farm ? 'track' : 'drive', pts: dv.pts, width: dv.width, walk: 0, orderKey: keyOf(lot.x, lot.y), edgeId: dv.edgeId, a: dv.a, b: dv.b });
+      served.push(lot);
+    }
+  }
+  lots.splice(0, lots.length, ...served);
+  const servedCount = served.length;
+  const vacantCount = P.id === 'avalon' ? unreached : 0;
+  const rejectedCount = candidateCount - servedCount - vacantCount;
+  if (servedCount + vacantCount + rejectedCount !== candidateCount) {
+    throw new Error('parcel diagnostics count mismatch');
+  }
+  const access = {
+    lots: lots.length,
+    candidateCount,
+    servedCount,
+    vacantCount,
+    rejectedCount,
+    unservedAtStart: accessFail,
+    driveways: driveN,
+    farmTracks: trackN,
+    unreached,
+    driveKm: Math.round(driveKm * 10) / 10,
+  };
+
+  // ------------------------------------------------------------------ buildings
+  await step(`Raising ${lots.length.toLocaleString('en')} buildings`);
+  const towers = [];
+  for (const lot of lots) {
+    const { d, x, y, rot, hw, hd } = lot;
+    const V = VAt(x, y);
+    const hn = Math.pow(2, 0.9 * n.fbm(x / 230 + 50, y / 230, 3));
+    const [hMed, hSig, hMin, hMax] = d.height;
+    const med = hMed * (0.35 + 1.35 * Math.pow(V, 1.25)) * hn;
+    // attached rows (no gap) keep a steady cornice line; detached buildings vary freely
+    let h = lot.h ?? clamp(med * Math.exp(hSig * (d.gap === 0 ? 0.4 : 1) * R.normal()), hMin, hMax);
+    const type = lot.type ?? pickType(d, h, R);
+    const key = keyOf(x, y);
+    const rec = buildArchetype(type, { x, y, rot, w: hw * 2, dp: hd * 2, h, d, key, V, front: lot.front }, ctx);
+    if (!rec) continue;
+    rec.parcelId = parcelId(P.id, P.seed, lot.x, lot.y, lot.rot);
+    rec.blockKey = lot.b.seedCell;
+    rec.entryGate = lot.entryGate ?? entranceOf({ x, y, rot, dp: hd * 2, front: rec.front });
+    rec.entryThreshold = thresholdOf({ x, y, rot, hd, dp: hd * 2, front: rec.front, type });
+    if (lot.accessPath) {
+      rec.accessPath = lot.accessPath;
+      rec.accessMode = 'road';
+    }
+    ctx.stampLot(x, y, rot, hw, hd, key);
+    if (key < (lot.b.minKey ?? Infinity)) lot.b.minKey = key;
+    if (rec.h > 5 && type !== 'containers') shadowOf(x, y, rot, hw * 0.95, hd * 0.95, rec.h, key);
+    if (rec.tower) towers.push(rec);
+  }
+
+  // company headquarters and crown towers: the skyline is the leaderboard
+  await step('Seating the companies');
+  const cbdTowers = towers.filter((t) => t.d.tier === 'cbd').sort((a, b) => b.h - a.h);
+  const otherTall = buildings.filter((b) => !b.tower && b.h > 18 && b.kind !== 'Landmark').sort((a, b) => b.h - a.h);
+  const pool = [...cbdTowers, ...towers.filter((t) => t.d.tier !== 'cbd').sort((a, b) => b.h - a.h), ...otherTall];
+  const companies = (COMPANIES[P.region] ?? []).slice();
+  const crownSlots = new Set([1, 4, 8]);
+  const crownNames = CROWNS[P.id] ?? [];
+  let ci = 0, cn = 0;
+  for (let i = 0; i < pool.length && (ci < companies.length || cn < crownNames.length); i++) {
+    const t = pool[i];
+    if (crownSlots.has(i) && cn < crownNames.length && t.tower) {
+      t.crown = crownNames[cn++];
+      t.label = `${t.crown.handle} · crown tower`;
+      parts.setFlag(t.id, 2);
+      labels.push({ text: t.crown.handle, x: t.x, y: t.y, z: t.gz + t.h + 10, kind: 'crown', bid: t.id });
+      continue;
+    }
+    if (ci < companies.length && !P.static) {
+      const [ticker, name, cap, sector] = companies[ci++];
+      t.company = { ticker, name, cap, sector };
+      t.label = name;
+      parts.setFlag(t.id, 1);
+      if (ci <= 6) labels.push({ text: ticker, x: t.x, y: t.y, z: t.gz + t.h + 10, kind: 'hq', bid: t.id });
+    }
+  }
+
+  // building categories, used by map lenses and the info card
+  for (const b of buildings) b.cat = categoryOf(b);
+
+  // demo ownership (prototype only, stands in for live game data): "you" own a company office, three shops
+  // and a home; other players own a few shops; a few buildings are for sale
+  if (!P.static) seatDemoOwners(buildings, R, labels);
+  if (P.id === 'avalon') {
+    const { offers } = buildDemoUnits({ P, buildings });
+    for (const offer of offers) {
+      if (offer.available && offer.buildingId) {
+        const b = buildings[offer.buildingId - 1];
+        if (b) {
+          b.demoLeasable = true;
+          addShopFrontage(parts, b);
+        }
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------ life: trees, ships, cranes
+  await step('Planting trees');
+  let trees = 0;
+  const treeOk = (k) => k >= 0 && !W[k] && !roadCls[k] && !occ[k];
+  // the square's woods thin out towards its border, down to EDGE_KEEP of the usual density, where the open land's
+  // trees (below) take over at the same density: no line of trees marks the edge
+  const EDGE_KEEP = 0.13;
+  const edgeIn = (x, y) => smoothstep(-500, 0, Math.max(Math.abs(x), Math.abs(y)) - half); // 0 inside, 1 at the border
+  for (const b of blocks) {
+    const d = b.d;
+    let density = 0;
+    if (b.kind === 'park') density = 1 / 70;
+    else if (b.kind === 'forest') density = 1 / 45;
+    else if (b.kind === 'build') density = (d.trees ?? 0) / 260;
+    if (!density) continue;
+    const want = Math.round(b.area * density);
+    for (let t = 0; t < want * 2 && t < 4000; t++) {
+      const k = blockCells[b.start + Math.floor(R.next() * b.count)];
+      if (!treeOk(k) || surf[k] === SURF.sand) continue;
+      const x = cellX(k % N) + R.range(-1, 1), y = cellX((k / N) | 0) + R.range(-1, 1);
+      if (b.kind === 'park' && hash2(Math.round(x / 9), Math.round(y / 9), 3) < 0.25) continue; // clearings
+      const e = edgeIn(x, y);
+      if (e > 0 && hash2(Math.round(x / 2), Math.round(y / 2), 21) > 1 - e * (1 - EDGE_KEEP)) continue;
+      buildTree(b.kind === 'forest' ? P.forestTree ?? d.tree ?? 'round' : d.tree ?? 'round', x, y, keyOf(x, y) + 0.01, ctx, b.kind === 'forest' ? 1.2 : 1);
+      occ[k] = 1; trees++;
+    }
+  }
+  // street trees
+  for (const ln of roads) {
+    if (ln.cls < 2 || ln.rail) continue;
+    for (let i = 0; i < ln.pts.length - 1; i += 3) {
+      const [x, y] = ln.pts[i];
+      const d = distAt(x, y);
+      if ((d.trees ?? 0) < 0.25 || hash2(i, ln.id, 11) > d.trees * 0.8) continue;
+      const [x2, y2] = ln.pts[i + 1];
+      const [nx, ny] = norm2(-(y2 - y), x2 - x);
+      for (const s of [-1, 1]) {
+        const off = ln.width[i] / 2 + 2.2;
+        const tx = x + nx * off * s, ty = y + ny * off * s;
+        const k = cellAt(tx, ty);
+        if (!treeOk(k)) continue;
+        buildTree(d.tree ?? 'round', tx, ty, keyOf(tx, ty) + 0.02, ctx, 0.8);
+        occ[k] = 1; trees++;
+      }
+    }
+  }
+
+  await step('Bringing in the ships');
+  // gantry cranes and container ships at port districts
+  const portEdge = [];
+  for (let j = 2; j < N - 2; j += 3) for (let i = 2; i < N - 2; i += 3) {
+    const k = j * N + i;
+    if (W[k] || distWater[k] > 5) continue;
+    const x = cellX(i), y = cellX(j);
+    const d = distAt(x, y);
+    if (d.port) portEdge.push([x, y]);
+  }
+  shuffle(portEdge, R);
+  const cranes = [];
+  for (const [x, y] of portEdge) {
+    if (cranes.some(([cx, cy]) => Math.hypot(cx - x, cy - y) < 62)) continue;
+    const gx = dWaterAt(x + 4, y) - dWaterAt(x - 4, y), gy = dWaterAt(x, y + 4) - dWaterAt(x, y - 4);
+    const rot = Math.atan2(-gy, -gx); // pointing to the water
+    buildCrane('gantry', x, y, rot, keyOf(x, y) + 0.05, ctx);
+    cranes.push([x, y]);
+    if (cranes.length % 2 === 0) {
+      const sx = x + Math.cos(rot) * 38, sy = y + Math.sin(rot) * 38;
+      if (isWater(sx, sy) && isWater(sx + Math.sin(rot) * 60, sy - Math.cos(rot) * 60) && isWater(sx - Math.sin(rot) * 60, sy + Math.cos(rot) * 60)) {
+        buildShip(sx, sy, rot + HALF_PI, keyOf(x, y) + 0.06, ctx);
+      }
+    }
+  }
+  // construction cranes in booming districts
+  for (const t of towers) if (t.d.cranes && R.chance(t.d.cranes)) buildCrane('tower', t.x + t.w * 0.7, t.y + t.dp * 0.7, R.range(0, 6.28), t.key, ctx, t.h + 18);
+  for (const b of buildings) if (b.ghost) buildCrane('tower', b.x, b.y, R.range(0, 6.28), b.key, ctx, b.h + 26);
+
+  // boats in marinas
+  let boats = 0;
+  const boatAt = [];
+  for (let t = 0; t < 9000 && boats < (P.id === 'serena' ? 70 : 140); t++) {
+    const x = R.range(-half, half), y = R.range(-half, half);
+    const k = cellAt(x, y);
+    if (k < 0 || !W[k]) continue;
+    const dl = distLandAt(x, y);
+    if (dl < 7 || dl > 46) continue;
+    const d = distAt(x, y);
+    const marina = d.tier === 'prime' || d.tier === 'trophy' || d.id === 'oldharbor';
+    if (!marina || R.next() > 0.6) continue;
+    if (boatAt.some(([bx, by]) => Math.hypot(bx - x, by - y) < 26)) continue;
+    boatAt.push([x, y]);
+    buildBoat(x, y, fieldAngle(x, y) + R.range(-0.2, 0.2), keyOf(x, y) + 0.03, ctx, d.tier === 'trophy' || d.id === 'palmbay' ? 1.6 : 1);
+    boats++;
+  }
+  function distLandAt(x, y) {
+    // distance from water to land: sample outward rings (cheap, used rarely)
+    for (let r = 2; r <= 60; r += 3) for (let a = 0; a < 6.28; a += 0.5) if (!isWater(x + Math.cos(a) * r, y + Math.sin(a) * r)) return r;
+    return 99;
+  }
+
+  // ------------------------------------------------------------------ outskirts: woods, and highways that leave the city
+  const outskirts = sampleOutskirts(P, n, half, heightAt, dWaterAt);
+  const outH = (x, y) => outskirtsHeight(outskirts, x, y);
+  const highways = traceHighways(roads.filter((l) => l.cls === 4 && !l.rail), { P, n, half, outH });
+  // woods beyond the square: the forest noise's patches, and along the border the square's own density (EDGE_KEEP
+  // of the inner forest's, fading out over 450 m); never on water, beaches or the highways
+  const hwCells = new Set();
+  const cellKey = (x, y) => (Math.floor(x / 8) + 4096) * 8192 + Math.floor(y / 8) + 4096;
+  for (const ln of highways) for (const [x, y] of ln.pts) for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) hwCells.add(cellKey(x + a * 8, y + b * 8));
+  const outCtx = { ...ctx, heightAt: outH };
+  const band = half + 1400;
+  let outTrees = 0;
+  for (let t = 0; t < 120000 && outTrees < 20000; t++) {
+    const x = R.range(-band, band), y = R.range(-band, band);
+    if (Math.abs(x) <= half && Math.abs(y) <= half) continue;
+    if (outH(x, y) < 1) continue;
+    const edge = Math.max(Math.abs(x), Math.abs(y)) - half;
+    // the trial density is about 1 tree per 225 m2 of ring, so an accept of 0.65 gives 1 tree per 346 m2 (the inner
+    // woods' EDGE_KEEP/45 density at the border); the open woods (the same mask the ground is painted with) and the
+    // band at the border use that one density, so trees and woods colour agree everywhere
+    const p = 0.65 * Math.max(woodsMask(x, y), 1 - smoothstep(0, 450, edge));
+    if (p <= 0 || R.next() > p) continue;
+    if (hwCells.has(cellKey(x, y))) continue;
+    buildTree(P.forestTree ?? 'round', x, y, -1, outCtx, 1);
+    outTrees++;
+  }
+
+  // ------------------------------------------------------------------ elevated rail
+  if (rail) {
+    const pth = rail.path;
+    for (let i = 0; i < pth.length; i++) {
+      const [ax, ay] = pth[i], [bx, by] = pth[(i + 1) % pth.length];
+      const mx = (ax + bx) / 2, my = (ay + by) / 2;
+      const g = Math.max(0, heightAt(mx, my));
+      const rot = Math.atan2(by - ay, bx - ax);
+      const key = keyOf(mx, my) - 0.12;
+      parts.box(mx, g + rail.h, my, Math.hypot(bx - ax, by - ay) + 0.3, 1.6, 9, rot, 0x5f6266, 0, 4, 4, 0, key, 0, g, 0);
+      if (i % 5 === 0) parts.box(mx, g, my, 2.2, rail.h, 2.6, rot, 0x7d8083, 0, 4, 4, 0, key, 0, g, 0);
+    }
+    for (const [sx, sy] of rail.stations) {
+      const i = pth.findIndex((p) => p[0] === sx && p[1] === sy);
+      const [bx, by] = pth[(i + 3) % pth.length];
+      const rot = Math.atan2(by - sy, bx - sx);
+      const g = Math.max(0, heightAt(sx, sy));
+      const key = keyOf(sx, sy) - 0.12;
+      parts.box(sx, g + rail.h - 2, sy, 70, 7, 22, rot, 0xb9c3c8, 2, 3.5, 3, 0, key, 0.6, g, 0);
+      parts.box(sx, g + rail.h + 5, sy, 74, 1.2, 24, rot, 0x6b6e72, 0, 4, 4, 0, key, 0, g, 0);
+      labels.push({ text: 'Loop Line', x: sx, y: sy, z: g + rail.h + 12, kind: 'station' });
+    }
+  }
+
+  // ------------------------------------------------------------------ development order
+  await step('Planning the growth');
+  const allKeys = buildings.map((b) => b.key).filter((k) => k > -0.5).sort((a, b) => a - b);
+  const cdf = (key) => {
+    if (key <= -0.5) return 0;
+    let lo = 0, hi = allKeys.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (allKeys[m] < key) lo = m + 1; else hi = m; }
+    return (lo / Math.max(1, allKeys.length)) * 0.965;
+  };
+  for (const b of buildings) b.order = cdf(b.key);
+  parts.mapOrders(cdf);
+
+  // roads: ribbons with per-vertex order (arterials lead, locals follow); the highways always show (order 0)
+  const lead = { 4: 0.16, 3: 0.08, 2: 0.025 };
+  const ribbons = buildRibbons([...roads, ...highways, ...drives], { heightAt, outH, isWater, distAt, keyOf, cdf, lead, parts, P, bridgeSpans, graph });
+
+  // ------------------------------------------------------------------ ground data textures
+  await step('Painting the ground');
+  const texA = new Uint8Array(N * N * 4); // water, green, sand, depth
+  const texB = new Uint8Array(N * N * 4); // shadow order, lot order, plaza, variation
+  const toByte = (key) => (key === Infinity ? 255 : Math.min(254, Math.round(cdf(key) * 254)));
+  for (let k = 0; k < N * N; k++) {
+    const s = surf[k], o = k * 4;
+    texA[o] = W[k] ? 255 : 0;
+    texA[o + 1] = s === SURF.park ? 255 : s === SURF.forest ? 200 : s === SURF.lawn ? 130 : s === SURF.fields ? 60 : 0;
+    texA[o + 2] = s === SURF.sand ? 255 : 0;
+    // water: depth; land: when its block gets developed (0 = always, for parks, fields and forest)
+    texA[o + 3] = W[k] ? Math.min(255, Math.round(-H[k] * 12)) : blockId[k] >= 0 && blocks[blockId[k]].kind === 'build' ? toByte(blocks[blockId[k]].minKey ?? Infinity) : 0;
+    texB[o] = toByte(shadowKey[k]);
+    texB[o + 1] = toByte(lotKey[k]);
+    texB[o + 2] = s === SURF.plaza ? 255 : 0;
+    texB[o + 3] = Math.round(128 + 120 * n.noise(((k % N) * RES) / 9, (((k / N) | 0) * RES) / 9));
+  }
+
+  // districts labels
+  for (const d of DISTS) {
+    let x = d.x, y = d.y;
+    if (isWater(x, y) || !inMap(x, y)) { const f = findLand(x, y, 400, (k) => !W[k], N, RES, half); if (f) [x, y] = f; else continue; }
+    labels.push({ text: d.name, x, y, z: Math.max(0, heightAt(x, y)) + 40, kind: d.game ? 'district' : 'minor' });
+  }
+  for (const name of parkNames) {
+    const p = (P.parks ?? []).find((q) => q[3] === name);
+    labels.push({ text: name, x: p[0], y: p[1], z: Math.max(0, heightAt(p[0], p[1])) + 12, kind: 'park' });
+  }
+
+  // population curve along the growth order
+  const byOrder = buildings.slice().sort((a, b) => a.order - b.order);
+  let res = 0, jobs = 0;
+  const popCurve = byOrder.map((b) => { res += b.residents ?? 0; jobs += b.jobs ?? 0; return [b.order, res, jobs]; });
+
+  await step('Done');
+  // where roads cross water, for audits and tooling that must keep paint off the spans
+  const bridgeOutlines = bridgeSpans.map((s) => ({
+    cls: s.ln.cls, level: s.ln.level, edgeId: s.ln.id,
+    from: s.from, to: s.to, pts: s.ln.pts.slice(s.from, s.to + 1),
+  }));
+  const tallest = buildings.reduce((m, b) => (b.h > (m?.h ?? 0) ? b : m), null);
+  return {
+    P, S, N, RES, H, texA, texB, parts: parts.finish(), ribbons, buildings, labels, rail, outskirts,
+    bridges: bridgeOutlines,
+    // the network the buildings' access is checked against (road and driveway centre lines, half widths)
+    network: [...roads.filter((l) => !l.rail), ...drives].map((l) => ({
+      cls: l.cls, pts: l.pts, hw: l.width.map((w) => w / 2 + (l.walk ?? 0)), edgeId: l.edgeId ?? l.id, a: l.a, b: l.b,
+    })),
+    access, parcelDiagnostics, graph: { nodes: graph.nodes.length, junctions: graph.stats.junctions, stats: graph.stats },
+    roadGraph: {
+      nodes: graph.nodes.map(([x, y]) => [x, y]),
+      edges: graph.edges.map(({ id, a, b, cls, level, pts }) => ({
+        id, a, b, cls, level, pts: pts.map(([x, y]) => [x, y]),
+      })),
+    },
+    // coarse rasters for the map lenses: land value (0..1) and district index into P.districts, on a R4 grid
+    value: { n: N4, res: R4, data: V4 }, districts: { n: N4, res: R4, data: D4 },
+    popCurve, timings, ms: Math.round(performance.now() - t0),
+    stats: {
+      buildings: buildings.length, lots: lots.length, roads: roads.length, trees, outTrees, boats, highways: highways.length,
+      roadKm: Math.round(roads.reduce((s, l) => s + polyLen(l.pts), 0) / 100) / 10,
+      tallest: tallest ? { h: Math.round(tallest.h), label: tallest.label ?? tallest.kind } : null,
+      hqs: buildings.filter((b) => b.company).length,
+    },
+  };
+}
+
+// ------------------------------------------------------------------ crown towers (demo handles)
+const CROWNS = {
+  avalon: [{ handle: 'k.reyes', rank: 1 }, { handle: 'mira.okafor', rank: 4 }, { handle: 'dubreuil', rank: 9 }],
+  nordhaven: [{ handle: 'solveig', rank: 2 }, { handle: 'h.lind', rank: 12 }],
+  meridia: [{ handle: 'dubreuil', rank: 9 }, { handle: 'valentina.r', rank: 6 }],
+  sundara: [{ handle: 'tiago.m', rank: 3 }, { handle: 'lua', rank: 15 }],
+  kaiyo: [{ handle: 'ren.k', rank: 5 }, { handle: 'mei', rank: 7 }, { handle: 'oda', rank: 11 }],
+};
+
+// ------------------------------------------------------------------ categories and demo owners
+
+const RESIDENTIAL_TYPES = new Set(['row', 'house', 'gabled', 'midrise', 'loft', 'palazzo', 'condo', 'micro', 'hut']);
+const ESTATE_TYPES = new Set(['mansion', 'villa', 'glassvilla']);
+/** One category per building: hq, crown, landmark, office, shop, home, estate, industry. */
+function categoryOf(b) {
+  if (b.company) return 'hq';
+  if (b.crown) return 'crown';
+  if (b.kind === 'Landmark' || b.kind === 'Island estate') return 'landmark';
+  if (b.type === 'tower' || b.type === 'ghost') return 'office';
+  if (b.type === 'strip') return 'shop';
+  if (b.type === 'warehouse' || b.type === 'containers') return 'industry';
+  if (ESTATE_TYPES.has(b.type)) return 'estate';
+  if (RESIDENTIAL_TYPES.has(b.type)) return 'home';
+  return 'home';
+}
+
+const OTHER_PLAYERS = ['mika_a', 'lena.v', 'hale.ward', 'tiago.m', 'ren.k', 'solveig', 'oda'];
+
+function seatDemoOwners(buildings, R, labels) {
+  const free = (b) => !b.company && !b.crown && b.cat !== 'landmark' && !b.mine;
+  const near = (a, b, r) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 < r * r;
+  // your company office: a mid-height building that taller neighbours hide (it shows why see-through matters)
+  const offices = buildings.filter((b) => free(b) && ['midrise', 'tower', 'loft'].includes(b.type) && b.h > 22 && b.h < 80 && ['cbd', 'mid'].includes(b.d.tier));
+  let best = null, bestScore = -1;
+  for (const o of offices) {
+    let score = 0;
+    for (const t of buildings) if (t.h > o.h * 1.8 && near(t, o, 110)) score++;
+    if (score > bestScore) { bestScore = score; best = o; }
+  }
+  const mine = [];
+  if (best) { Object.assign(best, { mine: true, mineRole: 'company', label: 'Halyard Robotics', owner: 'you', cat: 'office' }); mine.push(best); }
+  // three shops in different districts, and a home
+  const shopTypes = ['strip', 'micro', 'row', 'palazzo', 'midrise', 'hut', 'gabled', 'house'];
+  const shopNames = ['Corner Cart', 'Halyard Coffee', 'Night Clean'];
+  const used = new Set();
+  for (const name of shopNames) {
+    const c = buildings.filter((b) => free(b) && shopTypes.includes(b.type) && !used.has(b.d.id) && b.d.tier !== 'prime');
+    if (!c.length) break;
+    const s = c[Math.floor(R.next() * c.length)];
+    used.add(s.d.id);
+    Object.assign(s, { mine: true, mineRole: 'shop', label: name, owner: 'you', cat: 'shop' });
+    mine.push(s);
+  }
+  const homes = buildings.filter((b) => free(b) && RESIDENTIAL_TYPES.has(b.type) && b.d.tier !== 'cbd');
+  if (homes.length) { const h = homes[Math.floor(R.next() * homes.length)]; Object.assign(h, { mine: true, mineRole: 'home', label: 'Your home', owner: 'you', cat: 'home' }); mine.push(h); }
+  for (const b of mine) labels.push({ text: b.label, x: b.x, y: b.y, z: b.gz + b.h + 8, kind: 'mine', bid: b.id });
+  // other players' shops and buildings for sale
+  for (const b of buildings) {
+    if (!free(b)) continue;
+    const r = R.next();
+    if ((b.cat === 'shop' || b.cat === 'home') && r < 0.025) { b.owner = OTHER_PLAYERS[Math.floor(R.next() * OTHER_PLAYERS.length)]; b.cat = 'shop'; }
+    else if ((b.cat === 'home' || b.cat === 'office' || b.cat === 'estate') && r > 0.97) b.forSale = true;
+  }
+  for (const b of buildings) if (b.crown) b.owner = b.crown.handle;
+}
+
+// ------------------------------------------------------------------ helpers
+
+function pickType(d, h, R) {
+  const fit = d.types.filter(([t]) => TYPE_RANGE[t] && h >= TYPE_RANGE[t][0] && h <= TYPE_RANGE[t][1]);
+  const pool = fit.length ? fit : d.types;
+  return R.weighted(pool);
+}
+const TYPE_RANGE = {
+  row: [6, 24], house: [3, 11], gabled: [5, 16], midrise: [12, 70], loft: [8, 40], warehouse: [5, 20], containers: [5, 30],
+  mansion: [6, 16], villa: [4, 14], glassvilla: [4, 16], palazzo: [8, 28], tower: [34, 500], condo: [24, 140], strip: [4, 14],
+  micro: [6, 60], hut: [2, 12], ghost: [40, 300],
+};
+
+function roadWidth(cls, d) {
+  if (cls === 4) return 15;
+  if (cls === 3) return 10;
+  const narrow = (d.sep ?? 1) < 0.7;
+  return narrow ? 4.6 : d.tier === 'prime' && d.placement === 'scatter' ? 6 : 7;
+}
+
+function traceStreamline(seed, f, L, { fieldDir, valid, isWater, inMap, fam, sepAt }) {
+  const both = [];
+  for (const sign of [1, -1]) {
+    const pts = [[seed[0], seed[1]]];
+    let [dx, dy] = fieldDir(seed[0], seed[1], f);
+    dx *= sign; dy *= sign;
+    let x = seed[0], y = seed[1], len = 0;
+    const h = L.step;
+    while (len < L.maxLen) {
+      const k1 = align(fieldDir(x, y, f), dx, dy);
+      const k2 = align(fieldDir(x + k1[0] * h * 0.5, y + k1[1] * h * 0.5, f), k1[0], k1[1]);
+      let nx = x + k2[0] * h, ny = y + k2[1] * h;
+      if (!inMap(nx, ny)) break;
+      if (!valid(nx, ny)) {
+        // try a bridge straight across the water
+        if (L.bridge > 0 && isWater(nx, ny)) {
+          let s = h, land = null;
+          while (s <= L.bridge) {
+            const bx = x + k2[0] * s, by = y + k2[1] * s;
+            if (!inMap(bx, by)) break;
+            if (!isWater(bx, by)) { land = [bx, by]; break; }
+            s += h;
+          }
+          if (land && valid(land[0] + k2[0] * h, land[1] + k2[1] * h)) {
+            for (let t = h; t < s; t += h) pts.push([x + k2[0] * t, y + k2[1] * t]);
+            x = land[0]; y = land[1]; pts.push([x, y]); len += s; dx = k2[0]; dy = k2[1];
+            continue;
+          }
+        }
+        break;
+      }
+      const sep = sepAt(nx, ny) * L.dtest;
+      if (len > h * 2 && fam[f].near(nx, ny, sep, -1)) { pts.push([nx, ny]); break; }
+      if (len > 40 && Math.hypot(nx - seed[0], ny - seed[1]) < h * 1.2) { pts.push([seed[0], seed[1]]); break; }
+      pts.push([nx, ny]);
+      x = nx; y = ny; dx = k2[0]; dy = k2[1]; len += h;
+    }
+    both.push(pts);
+  }
+  const back = both[1].reverse();
+  back.pop();
+  return back.concat(both[0]);
+}
+
+function align([x, y], dx, dy) { return x * dx + y * dy < 0 ? [-x, -y] : [x, y]; }
+
+function joinEnds(pts, L, allHash, isWater, sepAt) {
+  for (const atStart of [true, false]) {
+    if (pts.length < 3) return;
+    const e = atStart ? pts[0] : pts[pts.length - 1];
+    const p = atStart ? pts[2] : pts[pts.length - 3];
+    const [dx, dy] = norm2(e[0] - p[0], e[1] - p[1]);
+    const r = Math.max(24, sepAt(e[0], e[1]) * 0.85);
+    const q = allHash.nearest(e[0], e[1], r, (qx, qy) => {
+      const [vx, vy] = norm2(qx - e[0], qy - e[1]);
+      return vx * dx + vy * dy > 0.5;
+    });
+    if (!q) continue;
+    const dd = Math.hypot(q[0] - e[0], q[1] - e[1]);
+    let wet = false;
+    for (let t = 2; t < dd; t += 3) if (isWater(e[0] + (q[0] - e[0]) * (t / dd), e[1] + (q[1] - e[1]) * (t / dd))) { wet = true; break; }
+    if (wet) continue;
+    const extra = densify([e, q], L.step).slice(1);
+    if (atStart) pts.unshift(...extra.reverse()); else pts.push(...extra);
+  }
+}
+
+class Hash {
+  constructor(cs) { this.cs = cs; this.m = new Map(); }
+  key(i, j) { return (i + 4096) * 8192 + (j + 4096); }
+  add(x, y, id) {
+    const k = this.key(Math.floor(x / this.cs), Math.floor(y / this.cs));
+    let a = this.m.get(k);
+    if (!a) this.m.set(k, (a = []));
+    a.push(x, y, id);
+  }
+  near(x, y, r, exclude) {
+    const cs = this.cs, i0 = Math.floor((x - r) / cs), i1 = Math.floor((x + r) / cs), j0 = Math.floor((y - r) / cs), j1 = Math.floor((y + r) / cs);
+    const r2 = r * r;
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const a = this.m.get(this.key(i, j));
+      if (!a) continue;
+      for (let t = 0; t < a.length; t += 3) if (a[t + 2] !== exclude && (a[t] - x) ** 2 + (a[t + 1] - y) ** 2 < r2) return true;
+    }
+    return false;
+  }
+  nearest(x, y, r, ok) {
+    const cs = this.cs, i0 = Math.floor((x - r) / cs), i1 = Math.floor((x + r) / cs), j0 = Math.floor((y - r) / cs), j1 = Math.floor((y + r) / cs);
+    let best = null, bd = r * r;
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const a = this.m.get(this.key(i, j));
+      if (!a) continue;
+      for (let t = 0; t < a.length; t += 3) {
+        const d = (a[t] - x) ** 2 + (a[t + 1] - y) ** 2;
+        if (d < bd && d > 4 && ok(a[t], a[t + 1])) { bd = d; best = [a[t], a[t + 1]]; }
+      }
+    }
+    return best;
+  }
+}
+
+/** Bilinear sample of a cell-centred grid. */
+function bil(A, n, res, half, x, y) {
+  let fx = (x + half) / res - 0.5, fy = (y + half) / res - 0.5;
+  fx = clamp(fx, 0, n - 1.001); fy = clamp(fy, 0, n - 1.001);
+  const i = fx | 0, j = fy | 0, tx = fx - i, ty = fy - j;
+  const k = j * n + i;
+  return (A[k] * (1 - tx) + A[k + 1] * tx) * (1 - ty) + (A[k + n] * (1 - tx) + A[k + n + 1] * tx) * ty;
+}
+
+/** Two-pass 8-neighbour chamfer distance (metres) to source cells. */
+function chamfer(N, src, res) {
+  const d = new Float32Array(N * N);
+  for (let k = 0; k < N * N; k++) d[k] = src[k] ? 0 : 1e9;
+  const a = res, b = res * Math.SQRT2;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const k = j * N + i; let v = d[k]; if (v === 0) continue;
+    if (i > 0 && d[k - 1] + a < v) v = d[k - 1] + a;
+    if (j > 0) {
+      if (d[k - N] + a < v) v = d[k - N] + a;
+      if (i > 0 && d[k - N - 1] + b < v) v = d[k - N - 1] + b;
+      if (i < N - 1 && d[k - N + 1] + b < v) v = d[k - N + 1] + b;
+    }
+    d[k] = v;
+  }
+  for (let j = N - 1; j >= 0; j--) for (let i = N - 1; i >= 0; i--) {
+    const k = j * N + i; let v = d[k]; if (v === 0) continue;
+    if (i < N - 1 && d[k + 1] + a < v) v = d[k + 1] + a;
+    if (j < N - 1) {
+      if (d[k + N] + a < v) v = d[k + N] + a;
+      if (i < N - 1 && d[k + N + 1] + b < v) v = d[k + N + 1] + b;
+      if (i > 0 && d[k + N - 1] + b < v) v = d[k + N - 1] + b;
+    }
+    d[k] = v;
+  }
+  return d;
+}
+
+function stampSeg(ax, ay, bx, by, r, N, res, half, fn) {
+  const x0 = Math.floor((Math.min(ax, bx) - r + half) / res), x1 = Math.ceil((Math.max(ax, bx) + r + half) / res);
+  const y0 = Math.floor((Math.min(ay, by) - r + half) / res), y1 = Math.ceil((Math.max(ay, by) + r + half) / res);
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+  for (let j = Math.max(0, y0); j <= Math.min(N - 1, y1); j++) for (let i = Math.max(0, x0); i <= Math.min(N - 1, x1); i++) {
+    const px = -half + (i + 0.5) * res, py = -half + (j + 0.5) * res;
+    const t = clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1);
+    if ((px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2 <= r * r) fn(j * N + i);
+  }
+}
+function stampLine(pts, r, N, res, half, fn) { for (let i = 0; i < pts.length - 1; i++) stampSeg(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], r, N, res, half, fn); }
+
+/**
+ * Cuts and fills the heightfield so each road sits in a graded bed with an embankment, instead of
+ * floating as a ribbon over untouched hills. Water cells are left alone, and the quay cap is reapplied.
+ * A higher class wins a shared cell; `protectCls` skips cells already claimed by a real street.
+ */
+function limitSlope(h, pts, slope, res) {
+  const seg = [];
+  for (let i = 1; i < pts.length; i++) seg.push(Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]) || res);
+  for (let pass = 0; pass < 4; pass++) {
+    for (let i = 1; i < h.length; i++) {
+      const lim = slope * seg[i - 1];
+      if (h[i] > h[i - 1] + lim) h[i] = h[i - 1] + lim;
+      else if (h[i] < h[i - 1] - lim) h[i] = h[i - 1] - lim;
+    }
+    for (let i = h.length - 2; i >= 0; i--) {
+      const lim = slope * seg[i];
+      if (h[i] > h[i + 1] + lim) h[i] = h[i + 1] + lim;
+      else if (h[i] < h[i + 1] - lim) h[i] = h[i + 1] - lim;
+    }
+  }
+}
+
+function gradeRoadBeds(lines, { H, W, N, res, half, isWater, distWater, roadCls = null, protectCls = 0 }) {
+  const target = new Float32Array(N * N);
+  const rank = new Float32Array(N * N);
+  const slopeOf = (cls) => (cls >= 4 ? 0.055 : cls >= 3 ? 0.08 : cls >= 2 ? 0.12 : 0.22);
+  const shoulderOf = (cls) => (cls >= 4 ? 8 : cls >= 3 ? 6 : cls >= 2 ? 4.2 : 2.0);
+  const widthAt = (ln, i) => (Array.isArray(ln.width) ? (ln.width[Math.min(i, ln.width.length - 1)] ?? 7) : (ln.width ?? 7));
+  for (const ln of lines) {
+    if (!ln?.pts || ln.pts.length < 2 || ln.rail || ln.outer) continue;
+    const pts = ln.pts;
+    const h = pts.map(([x, y]) => (isWater(x, y) ? NaN : Math.max(0, bil(H, N, res, half, x, y))));
+    for (let i = 0; i < h.length; i++) if (Number.isNaN(h[i])) {
+      let v = 0, c = 0;
+      for (let k = 1; k < 6 && !c; k++) {
+        if (i - k >= 0 && !Number.isNaN(h[i - k])) { v += h[i - k]; c++; }
+        if (i + k < h.length && !Number.isNaN(h[i + k])) { v += h[i + k]; c++; }
+      }
+      h[i] = c ? v / c : 0;
+    }
+    for (let pass = 0; pass < 5; pass++) {
+      for (let i = 1; i < h.length - 1; i++) h[i] = 0.25 * h[i - 1] + 0.5 * h[i] + 0.25 * h[i + 1];
+    }
+    ln._slope = Math.min(slopeOf(ln.cls ?? 2), 0.09);
+    limitSlope(h, pts, ln._slope, res);
+    if (ln.a != null) {
+      // filled in below once every incident end is known
+      ln._grade = h;
+    } else ln._grade = h;
+  }
+  const nodeSum = new Map(), nodeCount = new Map();
+  for (const ln of lines) {
+    if (!ln._grade || ln.a == null) continue;
+    const h = ln._grade;
+    nodeSum.set(ln.a, (nodeSum.get(ln.a) ?? 0) + h[0]);
+    nodeCount.set(ln.a, (nodeCount.get(ln.a) ?? 0) + 1);
+    nodeSum.set(ln.b, (nodeSum.get(ln.b) ?? 0) + h[h.length - 1]);
+    nodeCount.set(ln.b, (nodeCount.get(ln.b) ?? 0) + 1);
+  }
+  for (const ln of lines) {
+    if (!ln._grade || ln.a == null || !nodeCount.get(ln.a) || !nodeCount.get(ln.b)) continue;
+    const h = ln._grade;
+    const ha = nodeSum.get(ln.a) / nodeCount.get(ln.a);
+    const hb = nodeSum.get(ln.b) / nodeCount.get(ln.b);
+    const cum = [0];
+    for (let i = 1; i < ln.pts.length; i++) cum.push(cum[i - 1] + Math.hypot(ln.pts[i][0] - ln.pts[i - 1][0], ln.pts[i][1] - ln.pts[i - 1][1]));
+    const total = cum[cum.length - 1] || 1;
+    for (let i = 0; i < h.length; i++) {
+      let y = h[i];
+      if (cum[i] < 16) { const t = 1 - cum[i] / 16, w = t * t * (3 - 2 * t); y = y * (1 - w) + ha * w; }
+      if (total - cum[i] < 16) { const t = 1 - (total - cum[i]) / 16, w = t * t * (3 - 2 * t); y = y * (1 - w) + hb * w; }
+      h[i] = Math.max(0, y);
+    }
+    // The blend can reintroduce a steep lip. The access audit rejects anything over 12%.
+    limitSlope(h, ln.pts, ln._slope ?? 0.09, res);
+  }
+  for (const ln of lines) {
+    if (!ln._grade) continue;
+    const pts = ln.pts, h = ln._grade;
+    const baseShoulder = shoulderOf(ln.cls ?? 2);
+    for (let i = 0; i < pts.length - 1; i++) {
+      if (isWater(pts[i][0], pts[i][1]) && isWater(pts[i + 1][0], pts[i + 1][1])) continue;
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+      const drop = Math.max(Math.abs(h[i] - Math.max(0, bil(H, N, res, half, ax, ay))), Math.abs(h[i + 1] - Math.max(0, bil(H, N, res, half, bx, by))));
+      const shoulder = Math.min(22, Math.max(baseShoulder, drop / 0.11));
+      const hw = widthAt(ln, i) / 2 + (ln.walk ?? 0);
+      const inner = hw + ((ln.cls ?? 2) <= 1 ? 1.8 : 0.5);
+      const rad = inner + shoulder;
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+      const x0 = Math.floor((Math.min(ax, bx) - rad + half) / res), x1 = Math.ceil((Math.max(ax, bx) + rad + half) / res);
+      const y0 = Math.floor((Math.min(ay, by) - rad + half) / res), y1 = Math.ceil((Math.max(ay, by) + rad + half) / res);
+      for (let j = Math.max(0, y0); j <= Math.min(N - 1, y1); j++) for (let ii = Math.max(0, x0); ii <= Math.min(N - 1, x1); ii++) {
+        const k = j * N + ii;
+        if (W[k]) continue;
+        if (protectCls && roadCls && roadCls[k] >= protectCls) continue;
+        const px = -half + (ii + 0.5) * res, py = -half + (j + 0.5) * res;
+        const t = clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1);
+        const d = Math.hypot(px - ax - t * dx, py - ay - t * dy);
+        if (d > rad) continue;
+        const inf = d <= inner ? 1 : (1 - (d - inner) / shoulder) ** 2;
+        const r = (ln.cls ?? 0) + inf * 0.01;
+        if (r > rank[k]) { rank[k] = r; target[k] = h[i] * (1 - t) + h[i + 1] * t; }
+      }
+    }
+    delete ln._grade;
+    delete ln._slope;
+  }
+  for (let k = 0; k < N * N; k++) {
+    if (rank[k] <= 0 || W[k]) continue;
+    const inf = Math.min(1, (rank[k] - Math.floor(rank[k])) / 0.01);
+    H[k] = H[k] * (1 - inf) + target[k] * inf;
+    if (distWater) H[k] = Math.min(H[k], 0.35 + distWater[k] * 0.09);
+  }
+}
+
+function densify(pts, step) {
+  const out = [pts[0]];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+    const L = Math.hypot(bx - ax, by - ay), m = Math.max(1, Math.round(L / step));
+    for (let t = 1; t <= m; t++) out.push([ax + ((bx - ax) * t) / m, ay + ((by - ay) * t) / m]);
+  }
+  return out;
+}
+function polyLen(pts) { let s = 0; for (let i = 0; i < pts.length - 1; i++) s += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); return s; }
+function norm2(x, y) { const l = Math.hypot(x, y) || 1; return [x / l, y / l]; }
+function shuffle(a, R) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(R.next() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } }
+
+function findLand(x, y, rmax, ok, N, res, half) {
+  for (let r = 0; r <= rmax; r += 4) {
+    const steps = Math.max(1, Math.round((2 * Math.PI * r) / 4));
+    for (let s = 0; s < steps; s++) {
+      const a = (s / steps) * Math.PI * 2;
+      const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+      const i = Math.floor((px + half) / res), j = Math.floor((py + half) / res);
+      if (i < 0 || j < 0 || i >= N || j >= N) continue;
+      if (ok(j * N + i)) return [px, py];
+    }
+  }
+  return null;
+}
+
+function hull(points) {
+  const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const q of p) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+  up.pop(); lo.pop();
+  return lo.concat(up);
+}
+
+function fillConvex(poly, N, res, half, fn) {
+  let ymin = Infinity, ymax = -Infinity;
+  for (const [, y] of poly) { if (y < ymin) ymin = y; if (y > ymax) ymax = y; }
+  const j0 = Math.max(0, Math.floor((ymin + half) / res)), j1 = Math.min(N - 1, Math.ceil((ymax + half) / res));
+  for (let j = j0; j <= j1; j++) {
+    const py = -half + (j + 0.5) * res;
+    let xa = Infinity, xb = -Infinity;
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
+      if ((y1 <= py && y2 > py) || (y2 <= py && y1 > py)) {
+        const x = x1 + ((py - y1) / (y2 - y1)) * (x2 - x1);
+        if (x < xa) xa = x; if (x > xb) xb = x;
+      }
+    }
+    if (xa > xb) continue;
+    const i0 = Math.max(0, Math.ceil((xa + half) / res - 0.5)), i1 = Math.min(N - 1, Math.floor((xb + half) / res - 0.5));
+    for (let i = i0; i <= i1; i++) fn(j * N + i);
+  }
+}
+
+/**
+ * Road ribbons: triangle strips with side, distance and order attributes. The side runs from -1 to 1 across the
+ * carriageway and on past the kerb onto a sidewalk (side = offset / half width), so the shader reads kerb lines and
+ * walks from the one attribute. Junction patches (side 9) and paint (side 8: zebra and stop bars) are flat quads of
+ * their own. Bridges get decks and towers.
+ */
+function buildRibbons(roads, { heightAt, outH, isWater, distAt, keyOf, cdf, lead, parts, P, bridgeSpans, graph }) {
+  const pos = [], side = [], dist = [], order = [], cls = [], idx = [];
+  const seenCrossings = new Set();
+  const V = () => pos.length / 3;
+  const push = (x, y, z, s, d, o, c) => { pos.push(x, y, z); side.push(s); dist.push(d); order.push(o); cls.push(c); };
+  // a flat quad: corners A, B (one end) and C, D (the other); triangles ABC and BDC
+  const quad = (A, B, C, D, s, o, c, d = 0) => {
+    const v0 = V();
+    for (const [x, y, z] of [A, B, C, D]) push(x, y, z, s, d, o, c);
+    idx.push(v0, v0 + 1, v0 + 2, v0 + 1, v0 + 3, v0 + 2);
+  };
+  const deg = graph ? graph.deg : new Int32Array(0);
+  const nodes = graph ? graph.nodes : [];
+  const nodeY = new Float64Array(nodes.length).fill(-1e9);
+  const nodeHw = new Float64Array(nodes.length);
+  const nodeReach = new Float64Array(nodes.length);
+  const nodeCls = new Float64Array(nodes.length);
+  const nodeOrd = new Float64Array(nodes.length);
+  const seeNode = (node, h, hw, reach, c, o) => {
+    if (h > nodeY[node]) nodeY[node] = h;
+    if (hw > nodeHw[node]) nodeHw[node] = hw;
+    if (reach > nodeReach[node]) nodeReach[node] = reach;
+    if (c > nodeCls[node]) nodeCls[node] = c;
+    if (o > nodeOrd[node]) nodeOrd[node] = o;
+  };
+  // 1st pass: compute true ground heights at every node
+  const nodeBaseH = new Float64Array(nodes.length);
+  for (let n = 0; n < nodes.length; n++) {
+    nodeBaseH[n] = Math.max(0, heightAt(nodes[n][0], nodes[n][1]));
+  }
+  for (const ln of roads) {
+    const pts = ln.pts, m = pts.length;
+    if (m < 2) continue;
+    const hAt = ln.outer ? outH : heightAt;
+    const ground = pts.map(([x, y]) => Math.max(0, hAt(x, y)));
+    for (let pass = 0; pass < 6; pass++) {
+      for (let i = 1; i < m - 1; i++) ground[i] = 0.25 * ground[i - 1] + 0.5 * ground[i] + 0.25 * ground[i + 1];
+    }
+    if (ln.a !== undefined) ground[0] = nodeBaseH[ln.a];
+    if (ln.b !== undefined) ground[m - 1] = nodeBaseH[ln.b];
+    const wet = pts.map(([x, y]) => (ln.outer ? false : isWater(x, y)));
+    const deck = ln.cls === 4 ? 8 : ln.cls === 3 ? 4.5 : 2.4;
+    const r = wet.map((w, i) => (w ? deck + ground[i] : -1e9));
+    const stepLen = polyLen(pts) / (m - 1);
+    const slope = 0.09 * stepLen;
+    for (let i = 1; i < m; i++) r[i] = Math.max(r[i], r[i - 1] - slope);
+    for (let i = m - 2; i >= 0; i--) r[i] = Math.max(r[i], r[i + 1] - slope);
+    const y = pts.map((_, i) => Math.max(ground[i] + 0.35 + ln.cls * 0.04, r[i]));
+    const ribbonCls = ln.rail ? 2 : ln.cls;
+    const walk = ln.walk ?? 0;
+    const ords = pts.map(([x, z]) => (ln.outer ? 0 : ln.orderKey !== undefined ? cdf(ln.orderKey) : Math.max(0, cdf(keyOf(x, z, 0.1)) - (lead[ln.cls] ?? 0))));
+    if (ln.a !== undefined) seeNode(ln.a, y[0], ln.width[0] / 2, ln.width[0] / 2 + walk, ribbonCls, ords[0]);
+    if (ln.b !== undefined) seeNode(ln.b, y[m - 1], ln.width[m - 1] / 2, ln.width[m - 1] / 2 + walk, ribbonCls, ords[m - 1]);
+  }
+  // 2nd pass: build ribbons in two clean depth layers:
+  //   Layer A (bottom, y - 0.03): full outer width (carriageway + sidewalk + kerb)
+  //   Layer B (top, y + 0.025): pure carriageway asphalt + lane lines (|side| <= 0.95)
+  // For every graph edge, densify its polyline to ~1.5 m vertex spacing BEFORE building the ribbon so that:
+  //   1. Smoothly mitered vertices follow curves without faceted kinks.
+  //   2. Any vertex within the intersection clearance zone (where another arm's carriageway overlaps) has its
+  //      vDist negated -> roadFrag suppresses centerline and lane dashes inside intersections, while keeping full
+  //      3D terrain-following height!
+  const nodeArms = Array.from({ length: nodes.length }, () => []);
+  for (const ln of roads) {
+    if (ln.cls < 2 || ln.pts.length < 2) continue;
+    const m = ln.pts.length;
+    if (ln.a !== undefined) {
+      const [dx, dy] = norm2(ln.pts[Math.min(m - 1, 2)][0] - ln.pts[0][0], ln.pts[Math.min(m - 1, 2)][1] - ln.pts[0][1]);
+      nodeArms[ln.a].push({ ln, dx, dy, hw: ln.width[0] / 2, reach: ln.width[0] / 2 + (ln.walk ?? 0) });
+    }
+    if (ln.b !== undefined) {
+      const [dx, dy] = norm2(ln.pts[Math.max(0, m - 3)][0] - ln.pts[m - 1][0], ln.pts[Math.max(0, m - 3)][1] - ln.pts[m - 1][1]);
+      nodeArms[ln.b].push({ ln, dx, dy, hw: ln.width[m - 1] / 2, reach: ln.width[m - 1] / 2 + (ln.walk ?? 0) });
+    }
+  }
+  // Compute exact clearance distance along each arm at each node so acute Y-merges and X/T crossings clear their full overlap
+  const clearDistAt = (nodeId, selfLn, selfDx, selfDy, selfHw) => {
+    if (nodeId === undefined || deg[nodeId] < 2) return 0;
+    let clear = nodeHw[nodeId] + 2.5;
+    for (const other of nodeArms[nodeId]) {
+      if (other.ln === selfLn) continue;
+      const cosA = Math.max(-0.99, Math.min(0.96, selfDx * other.dx + selfDy * other.dy));
+      const sinA = Math.sqrt(Math.max(0.06, 1 - cosA * cosA));
+      // Distance along self arm until the two carriageways separate
+      const overlap = (selfHw + other.hw + 1.2) / sinA;
+      if (overlap > clear) clear = Math.min(28, overlap);
+    }
+    return clear;
+  };
+  const filletArms = Array.from({ length: nodes.length }, () => []);
+  const controlArms = Array.from({ length: nodes.length }, () => []);
+
+  for (const ln of roads) {
+    const rawPts = ln.pts;
+    if (rawPts.length < 2) continue;
+    // Subdivide ordinary roads to ~1.5 m spacing so curves are silky smooth and intersection clearance boundaries are sharp
+    const pts = ln.cls >= 2 && !ln.outer ? densify(rawPts, ln.cls >= 4 ? 8 : ln.cls >= 3 ? 6 : 5) : rawPts;
+    const m = pts.length;
+    const w0 = ln.width[0] ?? 7;
+    const widthArr = pts.map(() => w0);
+    const hAt = ln.outer ? outH : heightAt;
+    const ground = pts.map(([x, y]) => Math.max(0, hAt(x, y)));
+    // The bed is already graded into the heightfield. One light pass only — a heavy smooth lifts the ribbon off the cut.
+    for (let pass = 0; pass < (ln.outer ? 4 : 1); pass++) {
+      for (let i = 1; i < m - 1; i++) ground[i] = 0.25 * ground[i - 1] + 0.5 * ground[i] + 0.25 * ground[i + 1];
+    }
+    if (ln.a !== undefined && !ln.outer) ground[0] = nodeBaseH[ln.a];
+    if (ln.b !== undefined && !ln.outer) ground[m - 1] = nodeBaseH[ln.b];
+    const wet = pts.map(([x, y]) => (ln.outer ? false : isWater(x, y)));
+    const deck = ln.cls === 4 ? 8 : ln.cls === 3 ? 4.5 : 2.4;
+    const r = wet.map((w, i) => (w ? deck + ground[i] : -1e9));
+    const stepLen = polyLen(pts) / Math.max(1, m - 1);
+    const slope = 0.09 * stepLen;
+    for (let i = 1; i < m; i++) r[i] = Math.max(r[i], r[i - 1] - slope);
+    for (let i = m - 2; i >= 0; i--) r[i] = Math.max(r[i], r[i + 1] - slope);
+    // The rendered ground can deviate 0.3 m from the sampled bed after mesh
+    // simplification. Keep a small margin above that envelope, shared by all
+    // street classes, so terrain cannot punch holes through the carriageway.
+    const y = pts.map((_, i) => Math.max(ground[i] + (ln.outer ? 0.28 : 0.38), r[i]));
+    const cum = [0];
+    for (let i = 1; i < m; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    const totalLen = cum[m - 1];
+    // Ends already sit on the shared graded node. Do not blend toward the first pass, which carried the old float.
+    const ribbonCls = ln.rail ? 2 : ln.cls;
+    const walk = ln.walk ?? 0;
+    const ords = pts.map(([x, z]) => (ln.outer ? 0 : ln.orderKey !== undefined ? cdf(ln.orderKey) : Math.max(0, cdf(keyOf(x, z, 0.1)) - (lead[ln.cls] ?? 0))));
+    const lift = ln.rail ? -0.02 : ln.cls <= 1 ? -0.045 : 0;
+
+    const [dxA, dyA] = norm2(pts[Math.min(m - 1, 2)][0] - pts[0][0], pts[Math.min(m - 1, 2)][1] - pts[0][1]);
+    const [dxB, dyB] = norm2(pts[Math.max(0, m - 3)][0] - pts[m - 1][0], pts[Math.max(0, m - 3)][1] - pts[m - 1][1]);
+    const clearA = clearDistAt(ln.a, ln, dxA, dyA, w0 / 2);
+    const clearB = clearDistAt(ln.b, ln, dxB, dyB, w0 / 2);
+
+    // Carriageway only. Sidewalks are a second strip that stops where another carriageway overlaps,
+    // so a kerb never slashes across an intersection.
+    const v0 = V();
+    let sinceBridge = 99;
+    for (let i = 0; i < m; i++) {
+      const [x0, y0] = pts[Math.max(0, i - 1)], [x1, y1] = pts[Math.min(m - 1, i + 1)];
+      const [nx, ny] = norm2(-(y1 - y0), x1 - x0);
+      const hw = widthArr[i] / 2;
+      const px = pts[i][0], pz = pts[i][1];
+      const inJunc = (cum[i] < clearA) || (totalLen - cum[i] < clearB);
+      const distAttr = inJunc ? -(cum[i] + 10.0) : cum[i];
+      for (const s of [-1, 1]) {
+        // Side stays under 0.9 so the kerb darkening (a ≈ 1) lives only on the sidewalk strip, which stops at junctions.
+        push(px + nx * hw * 1.06 * s, y[i] + lift, pz + ny * hw * s, s * 0.84, distAttr, ords[i], ribbonCls);
+      }
+      if (i < m - 1) { const a = v0 + i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      if (i < m - 1 && y[i] > ground[i] + 1.2) {
+        const segLen = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+        sinceBridge += segLen;
+        if (sinceBridge >= 8) {
+          const [bx, by] = pts[i + 1];
+          const mx = (pts[i][0] + bx) / 2, my = (pts[i][1] + by) / 2;
+          const rot = Math.atan2(by - pts[i][1], bx - pts[i][0]);
+          const top = Math.min(y[i], y[i + 1]);
+          const key = keyOf(mx, my, 0.1) - 0.2;
+          const deckW = (hw + walk) * 2 + 0.6;
+          parts.box(mx, top - 1.65, my, sinceBridge + 0.4, 1.55, deckW, rot, 0x8c8a86, 0, 4, 4, 0, key, 0, Math.max(0, ground[i]), 0);
+          const rOff = hw + walk + 0.22;
+          const sn = Math.sin(rot), cs = Math.cos(rot);
+          for (const s of [-1, 1]) {
+            parts.box(mx - sn * rOff * s, top - 0.05, my + cs * rOff * s, sinceBridge + 0.4, 0.72, 0.34, rot, 0xb8b2a6, 0, 4, 4, 0, key, 0, Math.max(0, ground[i]), 0);
+          }
+          if (wet[i]) parts.box(mx, -3, my, 2.4, top - 1.65 + 3, hw * 1.4, rot, 0x6d6b67, 0, 4, 4, 0, key, 0, 0, 0);
+          sinceBridge = 0;
+        }
+      } else sinceBridge = 99;
+    }
+    if (walk < 0.4 && ln.cls >= 2 && ln.cls <= 3 && !ln.rail && !ln.outer) {
+      let v0i = 0, v1i = m - 1;
+      while (v0i < m - 2 && cum[v0i] < clearA) v0i++;
+      while (v1i > 1 && totalLen - cum[v1i] < clearB) v1i--;
+      if (v1i > v0i) for (const s of [-1, 1]) {
+        const vs = V();
+        for (let i = v0i; i <= v1i; i++) {
+          const [x0, y0] = pts[Math.max(0, i - 1)], [x1, y1] = pts[Math.min(m - 1, i + 1)];
+          const [nx, ny] = norm2(-(y1 - y0), x1 - x0);
+          const hw = widthArr[i] / 2;
+          // side 3.1..3.6 is a dirt verge, not a sidewalk (see roadFrag)
+          push(pts[i][0] + nx * (hw - 0.15) * s, y[i] + lift - 0.012, pts[i][1] + ny * (hw - 0.15) * s, s * 3.15, cum[i], ords[i], ribbonCls);
+          push(pts[i][0] + nx * (hw + 1.7) * s, y[i] + lift - 0.012, pts[i][1] + ny * (hw + 1.7) * s, s * 3.55, cum[i], ords[i], ribbonCls);
+          if (i > v0i) { const a = vs + (i - v0i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        }
+      }
+    }
+    if (walk > 0.4 && !ln.rail && !ln.outer) {
+      let i0 = 0, i1 = m - 1;
+      while (i0 < m - 2 && cum[i0] < clearA) i0++;
+      while (i1 > 1 && totalLen - cum[i1] < clearB) i1--;
+      if (i1 > i0) {
+        for (const s of [-1, 1]) {
+          const vs = V();
+          for (let i = i0; i <= i1; i++) {
+            const [x0, y0] = pts[Math.max(0, i - 1)], [x1, y1] = pts[Math.min(m - 1, i + 1)];
+            const [nx, ny] = norm2(-(y1 - y0), x1 - x0);
+            const hw = widthArr[i] / 2;
+            const inner = hw + 0.08, outer = hw + walk;
+            push(pts[i][0] + nx * inner * s, y[i] + lift + 0.025, pts[i][1] + ny * inner * s, s * 1.08, cum[i], ords[i], ribbonCls);
+            push(pts[i][0] + nx * outer * s, y[i] + lift + 0.025, pts[i][1] + ny * outer * s, s * (outer / hw), cum[i], ords[i], ribbonCls);
+            if (i > i0) { const a = vs + (i - i0 - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+          }
+        }
+      }
+    }
+    if (ln.a !== undefined && deg[ln.a] >= 2 && walk > 0.4) filletArms[ln.a].push({ dx: dxA, dy: dyA, hw: w0 / 2, walk, h: y[0] + lift, back: Math.max(clearA, w0 / 2 + 1), o: ords[0], cls: ribbonCls });
+    if (ln.b !== undefined && deg[ln.b] >= 2 && walk > 0.4) filletArms[ln.b].push({ dx: dxB, dy: dyB, hw: w0 / 2, walk, h: y[m - 1] + lift, back: Math.max(clearB, w0 / 2 + 1), o: ords[m - 1], cls: ribbonCls });
+    if (ln.cls >= 2 && !ln.rail && !ln.outer) {
+      if (ln.a !== undefined) controlArms[ln.a].push({ dx: dxA, dy: dyA, hw: w0 / 2, h: y[0] + lift, cls: ln.cls });
+      if (ln.b !== undefined) controlArms[ln.b].push({ dx: dxB, dy: dyB, hw: w0 / 2, h: y[m - 1] + lift, cls: ln.cls });
+    }
+    // Turnaround at a dead-end local or collector, so the street does not end as a square cut.
+    for (const [nodeId, idxEnd] of [[ln.a, 0], [ln.b, m - 1]]) {
+      if (nodeId === undefined || deg[nodeId] !== 1 || ln.cls < 2 || ln.cls > 3 || wet[idxEnd] || isWater(pts[idxEnd][0], pts[idxEnd][1])) continue;
+      const cx = pts[idxEnd][0], cz = pts[idxEnd][1], cy = y[idxEnd] + lift, hwEnd = widthArr[idxEnd] / 2;
+      const disc = (rad, side, hy) => {
+        const SEG_T = 12, vt = V();
+        push(cx, hy, cz, side, 0, ords[idxEnd], ribbonCls);
+        for (let k = 0; k <= SEG_T; k++) {
+          const a = (k / SEG_T) * Math.PI * 2;
+          push(cx + Math.cos(a) * rad, hy, cz + Math.sin(a) * rad, side, 1, ords[idxEnd], ribbonCls);
+        }
+        for (let k = 0; k < SEG_T; k++) idx.push(vt, vt + 1 + k, vt + 2 + k);
+      };
+      if (walk > 0) disc(hwEnd * 1.15 + walk, 1.45, cy + 0.02);
+      disc(hwEnd * 1.15, 0.35, cy + 0.045);
+    }
+    // paint at the junctions of collectors and arterials: a stop bar, then a longitudinal zebra crosswalk
+    if (ln.cls >= 3 && cum[m - 1] > 14) {
+      const arms = [];
+      const total = cum[m - 1];
+      // the point at arc s from the end, with the arm's outward tangent and half width
+      const at = (fromEnd, s) => {
+        const t = fromEnd ? total - s : s;
+        let i = 0;
+        while (i < m - 2 && cum[i + 1] < t) i++;
+        const f = (t - cum[i]) / Math.max(1e-9, cum[i + 1] - cum[i]);
+        const x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, z = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f;
+        const h = y[i] + (y[i + 1] - y[i]) * f;
+        const L = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) || 1;
+        const sg = fromEnd ? -1 : 1;
+        const tx = (sg * (pts[i + 1][0] - pts[i][0])) / L, tz = (sg * (pts[i + 1][1] - pts[i][1])) / L;
+        return { x, z, h, nx: -tz, nz: tx, hw: widthArr[i] / 2, ground: ground[i] };
+      };
+      // The paint spans roughly 5.5..10.5 m along the arm: judge the arm on that stretch, not at the node.
+      const PAINT = 11;
+      const checkArm = (nodeId, fromEnd, o) => {
+        let raised = false, wetPaint = false;
+        for (let s = 0; s <= PAINT; s += 2) {
+          const p = at(fromEnd, s);
+          if (p.h > p.ground + 1.0) raised = true;
+          if (isWater(p.x, p.z)) wetPaint = true;
+        }
+        const node = fromEnd ? pts[m - 1] : pts[0];
+        const dHere = distAt ? distAt(node[0], node[1]) : null;
+        const portService = Boolean(dHere?.port && ln.cls === 3);
+        const hillyLowDensity = Boolean(dHere?.placement === 'scatter');
+        const armId = `${ln.id ?? 'road'}:${fromEnd ? 'b' : 'a'}`;
+        if (eligibleJunctionArm({
+          nodeId,
+          armId,
+          degree: deg[nodeId] ?? 0,
+          cls: ln.cls,
+          walk,
+          length: Math.max(0, total - 16),
+          rail: Boolean(ln.rail),
+          bridge: raised || wetPaint,
+          portService: portService || hillyLowDensity,
+          seen: seenCrossings,
+        })) {
+          arms.push({ fromEnd, o });
+        }
+      };
+      if (ln.a !== undefined) checkArm(ln.a, false, ords[0]);
+      if (ln.b !== undefined) checkArm(ln.b, true, ords[m - 1]);
+      for (const arm of arms) {
+        const atArm = (s) => at(arm.fromEnd, s);
+        // One tangent frame. A quad stretched along a curve shears the bars off the road axis.
+        const frame = (s, along) => {
+          const p = atArm(s);
+          const tx = p.nz, tz = -p.nx;
+          return { p, tx, tz, h: p.h + 0.06, along };
+        };
+        const bar = (s, along, w0, w1) => {
+          const f = frame(s, along);
+          const { p, tx, tz, h } = f;
+          const ax = tx * along, az = tz * along;
+          quad(
+            [p.x + p.nx * w0 - ax, h, p.z + p.nz * w0 - az],
+            [p.x + p.nx * w1 - ax, h, p.z + p.nz * w1 - az],
+            [p.x + p.nx * w0 + ax, h, p.z + p.nz * w0 + az],
+            [p.x + p.nx * w1 + ax, h, p.z + p.nz * w1 + az],
+            8, arm.o, ribbonCls,
+          );
+        };
+        // Sit the crossing on this arm, past the other road's kerb. A fixed 8 m lands inside a wide junction.
+        const nodeId = arm.fromEnd ? ln.b : ln.a;
+        const back = Math.max(9, (nodeHw[nodeId] ?? 5) + 2.4);
+        const hw = atArm(back).hw;
+        bar(back + 1.6, 0.22, -hw * 0.9, hw * 0.9);
+        {
+          const spanW = hw * 0.82, stepW = 1.05, barHalf = 0.22;
+          const nBars = Math.max(3, Math.floor((spanW * 2) / stepW));
+          const startW = -((nBars - 1) * stepW) * 0.5;
+          for (let k = 0; k < nBars; k++) {
+            const cOff = startW + k * stepW;
+            bar(back - 1.3, 1.15, cOff - barHalf, cOff + barHalf);
+          }
+        }
+      }
+    }
+  }
+  // Junction box: the kerb corners of the meeting arms, one asphalt surface, so ribbons do not read as a cut.
+  // Stop on the minor arm. A signal only where three or more collector-or-better arms meet.
+  for (let n = 0; n < nodes.length; n++) {
+    const arms = controlArms[n];
+    if (!arms || arms.length < 3 || isWater(nodes[n][0], nodes[n][1]) || nodeY[n] < -1e8) continue;
+    const [nx0, nz0] = nodes[n];
+    const sorted = arms.map((a) => ({ ...a, ang: Math.atan2(a.dy, a.dx) })).sort((p, q) => p.ang - q.ang);
+    const hh = Math.max(...sorted.map((a) => a.h)) + 0.035;
+    const corners = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const A = sorted[i], B = sorted[(i + 1) % sorted.length];
+      const nA = [-A.dy, A.dx];
+      const back = Math.max(A.hw, B.hw) * 0.55;
+      corners.push([nx0 + A.dx * back + nA[0] * A.hw * 0.92, nz0 + A.dy * back + nA[1] * A.hw * 0.92]);
+    }
+    if (corners.length >= 3) {
+      const v0 = V();
+      push(nx0, hh, nz0, 0.28, 2, nodeOrd[n] || 0.5, nodeCls[n] || sorted[0].cls);
+      for (const [px, pz] of corners) push(px, hh, pz, 0.28, 2, nodeOrd[n] || 0.5, nodeCls[n] || sorted[0].cls);
+      for (let i = 0; i < corners.length; i++) idx.push(v0, v0 + 1 + i, v0 + 1 + ((i + 1) % corners.length));
+    }
+    const maxCls = Math.max(...sorted.map((a) => a.cls));
+    const majors = sorted.filter((a) => a.cls >= 3).length;
+    const signal = sorted.length >= 4 && majors >= 3;
+    const allWay = !signal && sorted.length >= 4 && sorted.every((a) => a.cls === maxCls);
+    const hasOpposite = (arm) => sorted.some((o) => {
+      if (o === arm) return false;
+      const d = Math.abs(Math.atan2(Math.sin(o.ang - arm.ang - Math.PI), Math.cos(o.ang - arm.ang - Math.PI)));
+      return d < 0.45;
+    });
+    for (const arm of sorted) {
+      const minor = arm.cls < maxCls;
+      const stem = !minor && !hasOpposite(arm) && sorted.length === 3;
+      if (!signal && !allWay && !minor && !stem) continue;
+      const approach = [-arm.dx, -arm.dy];
+      const right = [-approach[1], approach[0]];
+      const back = Math.max(8, (nodeHw[n] || arm.hw) + 1.8);
+      const sx = nx0 + arm.dx * back + right[0] * (arm.hw + 0.85);
+      const sz = nz0 + arm.dy * back + right[1] * (arm.hw + 0.85);
+      if (isWater(sx, sz)) continue;
+      const gh = arm.h;
+      const face = Math.atan2(right[0], right[1]);
+      parts.box(sx, gh + 1.15, sz, 0.16, 2.3, 0.16, face, 0x2c2e32, 0, 4, 4, 0, 0, 0, gh, 0);
+      if (signal) {
+        parts.box(sx, gh + 3.15, sz, 0.42, 1.15, 0.28, face, 0x1b1d21, 0, 4, 4, 0, 0, 0.2, gh, 0);
+        parts.box(sx, gh + 3.45, sz, 0.22, 0.22, 0.32, face, 0xc4473a, 0, 4, 4, 0, 0, 0.85, gh, 0);
+        parts.box(sx, gh + 3.15, sz, 0.22, 0.22, 0.32, face, 0xd4a017, 0, 4, 4, 0, 0, 0.35, gh, 0);
+        parts.box(sx, gh + 2.85, sz, 0.22, 0.22, 0.32, face, 0x2f8f4e, 0, 4, 4, 0, 0, 0.55, gh, 0);
+      } else {
+        parts.box(sx, gh + 2.35, sz, 0.72, 0.72, 0.08, face, 0xb4332c, 0, 4, 4, 0, 0, 0, gh, 0);
+        parts.box(sx, gh + 2.35, sz, 0.28, 0.1, 0.1, face, 0xf4f1ea, 0, 4, 4, 0, 0, 0, gh, 0);
+      }
+    }
+  }
+  if (false) for (let n = 0; n < nodes.length; n++) {
+    const arms = filletArms[n];
+    if (!arms || arms.length < 2 || isWater(nodes[n][0], nodes[n][1])) continue;
+    const [nx0, nz0] = nodes[n];
+    const sorted = arms.map((a) => ({ ...a, ang: Math.atan2(a.dy, a.dx) })).sort((p, q) => p.ang - q.ang);
+    for (let i = 0; i < sorted.length; i++) {
+      const A = sorted[i], B = sorted[(i + 1) % sorted.length];
+      let da = B.ang - A.ang;
+      if (da <= 0) da += Math.PI * 2;
+      if (da < 0.55 || da > 2.5) continue;
+      const walk = Math.max(A.walk, B.walk);
+      const nA = [-A.dy, A.dx], nB = [B.dy, -B.dx];
+      const setA = Math.min(14, Math.max(A.hw + 0.8, Math.min(A.back, (A.hw + B.hw) / Math.max(0.45, Math.sin(da)))));
+      const setB = Math.min(14, Math.max(B.hw + 0.8, Math.min(B.back, (A.hw + B.hw) / Math.max(0.45, Math.sin(da)))));
+      const pA = [nx0 + A.dx * setA + nA[0] * A.hw, nz0 + A.dy * setA + nA[1] * A.hw];
+      const pB = [nx0 + B.dx * setB + nB[0] * B.hw, nz0 + B.dy * setB + nB[1] * B.hw];
+      const oA = [pA[0] + nA[0] * walk, pA[1] + nA[1] * walk];
+      const oB = [pB[0] + nB[0] * walk, pB[1] + nB[1] * walk];
+      const bis = A.ang + da / 2, bx = Math.cos(bis), bz = Math.sin(bis);
+      const midIn = [(pA[0] + pB[0]) / 2, (pA[1] + pB[1]) / 2];
+      const midOut = [(oA[0] + oB[0]) / 2 + bx * walk * 0.45, (oA[1] + oB[1]) / 2 + bz * walk * 0.45];
+      const h = Math.max(A.h, B.h) + 0.03;
+      const cls = Math.max(A.cls, B.cls), o = Math.max(A.o, B.o);
+      quad([pA[0], h, pA[1]], [oA[0], h, oA[1]], [midIn[0], h, midIn[1]], [midOut[0], h, midOut[1]], 1.4, o, cls);
+      quad([midIn[0], h, midIn[1]], [midOut[0], h, midOut[1]], [pB[0], h, pB[1]], [oB[0], h, oB[1]], 1.4, o, cls);
+    }
+  }
+  // suspension towers on long arterial bridges
+  for (const sp of bridgeSpans) {
+    if (sp.ln.cls !== 4) continue;
+    const pts = sp.ln.pts;
+    const span = polyLen(pts.slice(sp.from, sp.to + 1));
+    if (span < 110) continue;
+    for (const f of [0.22, 0.78]) {
+      const i = Math.round(sp.from + (sp.to - sp.from) * f);
+      const [x, y] = pts[i], [bx, by] = pts[Math.min(pts.length - 1, i + 1)];
+      const rot = Math.atan2(by - y, bx - x);
+      const key = keyOf(x, y, 0.1) - 0.2;
+      const hw = sp.ln.width[i] / 2 + 1.5;
+      for (const s of [-1, 1]) {
+        const tx = x + -Math.sin(rot) * hw * s, ty = y + Math.cos(rot) * hw * s;
+        parts.box(tx, -2, ty, 3.2, 52, 3.2, rot, 0xa8493a, 0, 4, 4, 0, key, 0, 0, 0);
+      }
+      parts.box(x, 40, y, 3, 3, hw * 2 + 3, rot, 0xa8493a, 0, 4, 4, 0, key, 0, 0, 0);
+      parts.box(x, 30, y, 2.4, 2.4, hw * 2 + 3, rot, 0xa8493a, 0, 4, 4, 0, key, 0, 0, 0);
+    }
+  }
+  return {
+    position: new Float32Array(pos), side: new Float32Array(side), dist: new Float32Array(dist),
+    order: new Float32Array(order), cls: new Float32Array(cls), index: new Uint32Array(idx),
+  };
+}
+
+export { CONTAINER_COLORS };

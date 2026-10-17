@@ -14,6 +14,8 @@ uniform vec3 uHazeColor;
 uniform float uHaze0;
 uniform float uHaze1;
 uniform float uDetail;
+uniform sampler2D uLandscape;
+uniform float uLandscapeExtent;
 float h11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
 float h31(vec3 p3) { p3 = fract(p3 * 0.1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }
 // smooth value noise on a lattice, range [0, 1]
@@ -27,8 +29,8 @@ float vnoise(vec2 p) {
 float fnoise(vec2 p) { return 0.6 * vnoise(p) + 0.3 * vnoise(p * 2.07 + 17.3) + 0.1 * vnoise(p * 4.13 + 5.9); }
 // the land use of the open landscape, the same function inside and outside the square (the square's own
 // farms and woods blend into it near the border, see groundFrag): fields on the lowland, woods in patches
-float fieldNoise(vec2 xz) { return smoothstep(0.52, 0.6, fnoise(xz / 700.0 + 13.0)); }
-float woodsNoise(vec2 xz) { return smoothstep(0.56, 0.64, fnoise(xz / 480.0 + 41.0)); }
+float fieldNoise(vec2 xz) { return texture2D(uLandscape, (xz + uLandscapeExtent) / (2.0 * uLandscapeExtent)).r; }
+float woodsNoise(vec2 xz) { return texture2D(uLandscape, (xz + uLandscapeExtent) / (2.0 * uLandscapeExtent)).g; }
 vec3 light(vec3 base, vec3 n) {
   float hemi = 0.62 + 0.38 * n.y;
   float d = max(dot(n, uSunDir), 0.0);
@@ -39,6 +41,32 @@ vec3 light(vec3 base, vec3 n) {
 // distance haze: far from the map centre, everything melts into the sky's bottom colour
 vec3 haze(vec3 c, vec2 xz) { return mix(c, uHazeColor, smoothstep(uHaze0, uHaze1, length(xz))); }
 `;
+
+// Static masks, baked once rather than evaluating lattice noise per landscape pixel.
+export const landscapeFrag = /* glsl */ `
+${COMMON}
+varying vec2 vBakeUv;
+void main() {
+  vec2 xz = (vBakeUv * 2.0 - 1.0) * uLandscapeExtent;
+  gl_FragColor = vec4(smoothstep(0.52, 0.6, fnoise(xz / 700.0 + 13.0)),
+    smoothstep(0.56, 0.64, fnoise(xz / 480.0 + 41.0)), 0.0, 1.0);
+}`;
+
+const WATER = /* glsl */ `
+vec3 waterSurface(vec2 xz, vec2 p, float depth, float shore, float foamB) {
+  vec3 wc = mix(cWater0, cWater1, smoothstep(0.0, 1.0, clamp(depth, 0.0, 1.0)));
+  float wave = sin(p.x * 0.9 + p.y * 0.35 + uTime * 0.9) * sin(p.y * 0.7 - uTime * 0.6 + p.x * 0.2);
+  wc *= 0.985 + 0.025 * wave;
+  float spec = pow(max(0.0, wave), 10.0) * 0.06 * (1.0 - uNight);
+  vec3 wl = wc * (uAmb * 0.95 + uSunCol * 0.25) + spec;
+  wl = mix(wl, wc * uNightAmb * 0.9 + uLit0 * 0.012, uNight);
+  wl = mix(wl, wl * 1.12 + 0.02, shore * 0.6);
+  if (foamB > 0.001) {
+    float foam = foamB * smoothstep(0.42, 0.7, vnoise(xz * 0.6 + vec2(uTime * 0.35, -uTime * 0.2)));
+    wl = mix(wl, wl * 1.2 + vec3(0.07, 0.08, 0.08) * (1.0 - uNight), foam * 0.55);
+  }
+  return wl;
+}`;
 
 // ===== MATERIALS (cities/textures) =========================================================================
 // Procedural surface detail: facades (brick, stone, concrete panels, render, timber), roofs (tiles, slates,
@@ -309,6 +337,26 @@ void main() {
   vec3 emissive = vec3(0.0);
   float hAbs = vBaseAbs + vMetric.y;
 
+  // Low power retains the roof/body geometry, lit windows, growth and lenses,
+  // while avoiding the close-up facade/material stack on ordinary buildings.
+  if (uDetail < 0.01 && bid > 0.5 && vProg >= 1.0 && !ghost && vCutY < -1e8 && style <= 4) {
+    vec3 cheap = light(base, n);
+    if (abs(vLN.y) < 0.5 && style >= 1) {
+      float along = vInfo.x < 0.5 ? vMetric.x + vSize.x * 0.5 : vMetric.z + vSize.z * 0.5;
+      vec2 cell = vec2(along / max(vStyle.z, 1.0), hAbs / max(vStyle.y, 1.0));
+      vec2 f = fract(cell);
+      float mask = rectAA(f, style == 2 ? vec2(0.08, 0.12) : vec2(0.25, 0.26), vec2(0.76, 0.8), fwidth(cell) * 0.7);
+      float on = step(h31(vec3(floor(cell), bid)), litRatio);
+      vec3 windowC = mix(light(uSkyRefl * 0.62 + base * 0.18, n), mix(base * 0.06, uLit0, on * 0.85), uNight);
+      cheap = mix(cheap, windowC, mask);
+    }
+    if (uLens > 0.5) {
+      if (mod(floor(vState.a * 255.0 + 0.5), 2.0) >= 1.0) cheap = mix(cheap, vState.rgb, 0.55);
+      else cheap = mix(uInk, mix(cheap, vec3(dot(cheap, vec3(0.299, 0.587, 0.114))), 0.75), 0.72);
+    }
+    gl_FragColor = vec4(haze(cheap, vXZ), 1.0); return;
+  }
+
   // ---- MATERIALS (cities/textures): facade, roof and slope surfaces from the colour family and the form.
   // Trees, boats and cranes (bid 0) and glass, signs, lamps, pools and containers keep their flat colour.
   bool wall = kind < 0.5 && abs(vLN.y) < 0.5;
@@ -521,8 +569,13 @@ varying vec2 vUv;
 varying vec3 vN;
 varying float vH;
 varying vec2 vXZ;
+${WATER}
 void main() {
   vec4 A = texture2D(uA, vUv);
+  if (A.r > 0.999) {
+    vec3 wl = waterSurface(vXZ, vUv * 900.0, A.a * 4.0, 1.0 - smoothstep(0.0, 0.08, A.a), 1.0 - smoothstep(0.0, 0.035, A.a));
+    gl_FragColor = vec4(haze(wl * (1.0 - uLensDim), vXZ), 1.0); return;
+  }
   vec4 B = texture2D(uB, vUv);
   vec3 n = normalize(vN);
   float water = A.r, green = A.g, sand = A.b, depth = A.a;
@@ -576,7 +629,7 @@ void main() {
   if (lotM > 0.001) {
     // bays and courtyards are only drawn close up; far away the lot is plain paving
     float car = 0.0, court = 0.0;
-    if (farG < 0.999) {
+    if (uDetail > 0.01 && farG < 0.999) {
       car = smoothstep(0.58, 0.66, vnoise(vXZ / 150.0 + 3.0)) * (1.0 - farG);
       court = smoothstep(0.66, 0.72, vnoise(vXZ / 60.0 + 21.0)) * (1.0 - car) * (1.0 - farG);
     }
@@ -669,7 +722,12 @@ varying vec2 vXZ;
 varying vec3 vN;
 varying float vH;
 
+${WATER}
 void main() {
+  if (vH < -0.4) {
+    vec3 wl = waterSurface(vXZ, (vXZ + uHalf) * (450.0 / uHalf), -vH * 0.19, 1.0 - smoothstep(0.0, 1.2, -vH), 0.0);
+    gl_FragColor = vec4(haze(wl, vXZ), 1.0); return;
+  }
   vec3 n = normalize(vN);
   vec2 w = vXZ + uHalf; // the ground's world frame, so the field patchwork runs on across the seam
   float varn = vnoise(vXZ / 45.0);
@@ -693,10 +751,10 @@ void main() {
   }
   // MATERIALS: grass grain on the land, canopy clumps in the woods (both fade out at distance, like the square's)
   float pxO = max(fwidth(vXZ.x), fwidth(vXZ.y));
-  float grassO = 1.0 - smoothstep(0.25, 0.7, pxO);
+  float grassO = (1.0 - smoothstep(0.25, 0.7, pxO)) * uDetail;
   if (grassO > 0.001) col *= 1.0 + grassO * (vnoise(vXZ * 1.3) * 0.6 + vnoise(vXZ * 3.7 + 7.0) * 0.4 - 0.5) * 0.2;
   float canopy = 0.5;
-  if (pxO < 0.7) canopy = mix(vnoise(vXZ / 3.0 + 5.0), 0.5, smoothstep(0.3, 0.7, pxO));
+  if (uDetail > 0.01 && pxO < 0.7) canopy = mix(vnoise(vXZ / 3.0 + 5.0), 0.5, smoothstep(0.3, 0.7, pxO));
   col = mix(col, cPark * 0.62 * (0.92 + 0.16 * varn) * (0.86 + 0.28 * canopy), woodsNoise(vXZ) * 0.9);
   col = mix(col, cSand * (0.96 + 0.06 * varn), uBeach * (1.0 - smoothstep(1.0, 1.5, vH)));
   col = mix(col, vec3(0.93, 0.95, 0.97), smoothstep(uSnow, uSnow + 25.0, vH));
@@ -745,6 +803,9 @@ ${MATERIALS}
 uniform vec3 cRoad0; uniform vec3 cRoad1; uniform vec3 cRoad2;
 uniform vec3 uLit0;
 uniform float uLensDim;
+uniform vec2 uFocusXZ;
+uniform float uLodNear;
+uniform float uLodMid;
 varying float vSide;
 varying float vDist;
 varying float vCls;
@@ -756,6 +817,9 @@ void main() {
   float fw = max(fwidth(vSide), 1e-4);
   float pxR = max(fwidth(vXZ.x), fwidth(vXZ.y));
   float farR = smoothstep(0.32, 0.75, pxR);
+  // Three road qualities by distance from the camera: full paint, plain asphalt, then no zebra.
+  float lodD = distance(vXZ, uFocusXZ);
+  float lodDetail = 1.0 - smoothstep(uLodNear, uLodMid, lodD);
   bool junction = a > 8.5 && a < 9.5;
   bool paint = a > 7.5 && a < 8.5;
   bool dirt = vCls < 0.5;
@@ -763,11 +827,20 @@ void main() {
   vec3 asphalt = vCls > 3.5 ? cRoad2 : vCls > 2.5 ? cRoad1 : cRoad0;
   vec3 c = asphalt;
   vec3 norm = vec3(0.0, 1.0, 0.0);
+  // A road pixel wider than about a metre is a colour, not a kerb and a manhole.
+  if (farR > 0.8 && !paint && !junction) {
+    if (dirt) c = vec3(0.48, 0.42, 0.32);
+    else if (drive) c = mix(cRoad0, vec3(0.7, 0.67, 0.62), 0.45);
+    vec3 col = light(c, norm);
+    col *= 1.0 - uLensDim;
+    gl_FragColor = vec4(haze(col, vXZ), 1.0);
+    return;
+  }
 
   // World-space asphalt aggregate grain + subtle weathering patches (gated by uDetail and distance)
   float grain = 1.0;
   float patchW = 0.0;
-  if (uDetail > 0.01) {
+  if (uDetail > 0.01 && farR < 0.55 && lodDetail > 0.35) {
     float gFine = 0.94 + 0.07 * vnoise(vXZ * 0.85) + 0.04 * vnoise(vXZ * 3.6) * (1.0 - farR);
     grain = mix(1.0, gFine, uDetail);
     patchW = smoothstep(0.58, 0.72, vnoise(vXZ * 0.09 + 11.0)) * (1.0 - farR) * uDetail;
@@ -790,23 +863,25 @@ void main() {
     float dBorder = 1.0 - smoothstep(0.0, fw * 1.4 + 0.03, abs(a - 0.94));
     c *= 1.0 - 0.16 * dBorder;
   } else if (paint) {
+    if (lodDetail < 0.2) discard;
     // Crisp road markings with faint asphalt wear showing through
     c = vec3(0.89, 0.87, 0.81) * (0.94 + 0.06 * grain);
   } else if (junction) {
-    // Intersection plaza: crowned center, subtle turning wear, and kerb ring at rim (vDist = 0 at center, 1 at rim)
+    // Intersection plaza: seamless asphalt matching the meeting arms so the circular cap blends invisibly into the road
     c = asphalt * grain * (1.0 - 0.06 * patchW);
     float rJ = clamp(vDist, 0.0, 1.0);
-    float turnWear = exp(-pow((rJ - 0.55) * 3.5, 2.0));
-    c *= 1.03 - 0.07 * turnWear;
-    float rimGutter = smoothstep(0.82, 0.98, rJ) * (1.0 - smoothstep(0.98, 1.0, rJ));
-    c *= 1.0 - 0.14 * rimGutter;
-    // Manhole cover near intersection center on urban streets
+    // Subtle manhole cover at center of major intersections only
     if (uDetail > 0.01 && farR < 0.85 && vCls > 2.5) {
-      float mh = 1.0 - smoothstep(0.07, 0.11, rJ);
-      float mhRim = smoothstep(0.05, 0.07, rJ) * mh;
-      c = mix(c, vec3(0.24, 0.25, 0.27), mh * 0.75 * (1.0 - farR));
-      c = mix(c, vec3(0.15, 0.16, 0.17), mhRim * (1.0 - farR));
+      float mh = 1.0 - smoothstep(0.06, 0.09, rJ);
+      c = mix(c, vec3(0.24, 0.25, 0.27), mh * 0.7 * (1.0 - farR));
     }
+  } else if (a > 2.9 && a < 4.0) {
+    // Dirt verge on roads that have no sidewalk. Outer edge fades toward grass so the ribbon does not end in a razor cut.
+    float vg = smoothstep(3.05, 3.25, a);
+    vec3 dirt = vec3(0.40, 0.36, 0.28);
+    vec3 grass = vec3(0.40, 0.46, 0.30);
+    c = mix(dirt, grass, smoothstep(3.25, 3.5, a)) * grain;
+    c = mix(asphalt, c, vg);
   } else {
     c = asphalt * grain * (1.0 - 0.06 * patchW);
     if (a <= 1.0) {
@@ -837,21 +912,23 @@ void main() {
         c = mix(c, vec3(0.24, 0.25, 0.27), mhMask * 0.8);
       }
 
-      // Lane & centerline markings (kept clear of junction approaches via vDist doesn't know end, so we use a clean inset)
-      float markFade = 1.0 - smoothstep(0.45, 0.95, pxR);
+      // Lane & centerline markings (suppressed inside intersections where vDist < 0)
+      float markAllowed = step(0.0, vDist);
+      float dAlong = abs(vDist);
+      float markFade = (1.0 - smoothstep(0.45, 0.95, pxR)) * markAllowed * lodDetail;
       vec3 whitePaint = vec3(0.88, 0.86, 0.80);
       vec3 brassDivider = vec3(0.84, 0.71, 0.44);
       if (vCls > 3.5) {
         // Arterial: double solid warm-brass center median + dashed white lane dividers + crisp edge lines
-        float dbl = (1.0 - smoothstep(0.008, 0.014 + fw * 0.9, abs(a - 0.022)));
+        float dbl = (1.0 - smoothstep(0.008, 0.014 + fw * 0.9, abs(a - 0.022))) * markAllowed;
         c = mix(c, brassDivider, dbl * 0.78);
-        float laneDiv = (1.0 - smoothstep(0.008, 0.015 + fw, abs(a - 0.5))) * step(0.55, fract(vDist / 12.0));
+        float laneDiv = (1.0 - smoothstep(0.008, 0.015 + fw, abs(a - 0.5))) * step(0.55, fract(dAlong / 12.0));
         c = mix(c, whitePaint, laneDiv * 0.65 * markFade);
         float edgeLine = 1.0 - smoothstep(0.007, 0.014 + fw, abs(a - 0.84));
         c = mix(c, whitePaint, edgeLine * 0.42 * markFade);
       } else if (vCls > 2.5) {
         // Collector: dashed center line + faint edge line
-        float cl = (1.0 - smoothstep(0.012, 0.02 + fw * 1.1, a)) * step(0.48, fract(vDist / 13.0));
+        float cl = (1.0 - smoothstep(0.012, 0.02 + fw * 1.1, a)) * step(0.48, fract(dAlong / 13.0)) * markAllowed;
         c = mix(c, brassDivider, cl * 0.68);
         float edgeLine = 1.0 - smoothstep(0.008, 0.016 + fw, abs(a - 0.85));
         c = mix(c, whitePaint, edgeLine * 0.32 * markFade);
@@ -879,9 +956,11 @@ void main() {
       c = mix(c, swCol, walk * 0.92);
     }
 
-    // Sharp 3D kerb step & shadow line at |vSide| == 1.0
-    float kerbFace = 1.0 - smoothstep(0.0, fw * 1.4 + 0.018, abs(a - 1.0));
+    // Kerb only on the sidewalk side of a = 1. Carriageway ribbons stop near 0.84, so a junction
+    // overlap is asphalt-on-asphalt and does not draw a dark line across the crossing road.
+    float kerbFace = (1.0 - smoothstep(0.0, fw * 1.4 + 0.018, abs(a - 1.02))) * step(1.0, a);
     c = mix(c, c * 0.48, kerbFace * 0.92);
+
     // Tilt normal slightly on the kerb face so sunlight catches one side of the street and shades the other
     norm = normalize(vec3(0.0, 1.0, 0.0) + vec3(sign(vSide) * 0.22 * kerbFace, 0.0, 0.0));
   }

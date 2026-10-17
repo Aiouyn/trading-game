@@ -111,6 +111,39 @@ export function collectGoalCandidates(pt, net, r, { isWater = () => false, isBri
   return out;
 }
 
+/**
+ * Corridor predicate. alongStep/acrossStep of 0.5 is the audit rule. Coarser steps are a relaxation:
+ * every edge they reject, the fine predicate also rejects, so a coarse search that finds nothing
+ * proves the fine search would find nothing too.
+ */
+export function corridorStep(a, b, { canStand, heightAt = () => 0, maxGrade = 0.12, width = 1.8, alongStep = 0.5, acrossStep = 0.5 }) {
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (length < 1e-8) return canStand(a[0], a[1]);
+  const nx = -(b[1] - a[1]) / length, ny = (b[0] - a[0]) / length;
+  const along = Math.max(1, Math.ceil(length / alongStep));
+  const across = Math.max(2, Math.ceil(width / acrossStep));
+  const dx = (b[0] - a[0]) / along, dy = (b[1] - a[1]) / along;
+  const stepLen = length / along;
+  for (let j = 0; j <= across; j++) {
+    const offset = width * (j / across - 0.5);
+    let px = a[0] + nx * offset, py = a[1] + ny * offset;
+    if (!canStand(px, py)) return false;
+    for (let i = 1; i <= along; i++) {
+      const sx = a[0] + dx * i + nx * offset, sy = a[1] + dy * i + ny * offset;
+      if (!canStand(sx, sy)) return false;
+      if (Math.abs(heightAt(sx, sy) - heightAt(px, py)) / stepLen > maxGrade + 1e-6) return false;
+      px = sx; py = sy;
+    }
+  }
+  return true;
+}
+
+export function pathIsClear(pts, stepFn) {
+  if (!pts || pts.length < 2) return false;
+  for (let i = 1; i < pts.length; i++) if (!stepFn(pts[i - 1], pts[i])) return false;
+  return true;
+}
+
 export function resolveEntranceAccess({
   lot,
   net,
@@ -133,6 +166,10 @@ export function resolveEntranceAccess({
 
   const kind = farm ? 'track' : ped ? 'pedestrian' : 'driveway';
   const width = farm ? 4.0 : ped ? 1.8 : 3.4;
+  // Direct checks stay cheap. A* is the expensive miss: two failed local searches almost never
+  // succeed on a farther road, so don't keep exploring the candidate list.
+  let routedTries = 0;
+  const routeBudget = 8;
   for (const cand of cands) {
     const goal = [cand.gx, cand.gy];
     const kinds = !farm && cand.edgeDist <= 6 ? ['pedestrian'] : kind === 'driveway' ? ['driveway', 'pedestrian'] : [kind];
@@ -140,38 +177,28 @@ export function resolveEntranceAccess({
       const kMaxGrade = tryKind === 'pedestrian' ? 0.15 : 0.12;
       const kWidth = tryKind === 'pedestrian' ? 1.8 : width;
       const canStand = (x, y) => !isWater(x, y) && !isBlocked(x, y);
-      // Validate perpendicular samples across the ENTIRE width, including endpoints.
-      // The caller permits only this lot's exterior setback, never another footprint.
-      const canStep = (a, b) => {
-        const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        if (length < 1e-8) return canStand(...a);
-        const nx = -(b[1] - a[1]) / length, ny = (b[0] - a[0]) / length;
-        const along = Math.max(1, Math.ceil(length / 0.5));
-        const across = Math.max(2, Math.ceil(kWidth / 0.5));
-        for (let i = 0; i <= along; i++) {
-          const x = a[0] + (b[0] - a[0]) * i / along, y = a[1] + (b[1] - a[1]) * i / along;
-          for (let j = 0; j <= across; j++) {
-            const offset = kWidth * (j / across - 0.5);
-            const sx = x + nx * offset, sy = y + ny * offset;
-            if (!canStand(sx, sy)) return false;
-            if (i > 0) {
-              const px = sx - (b[0] - a[0]) / along, py = sy - (b[1] - a[1]) / along;
-              if (Math.abs(heightAt(sx, sy) - heightAt(px, py)) / (length / along) > kMaxGrade + 1e-6) return false;
-            }
-          }
-        }
-        return true;
-      };
-      if (!canStep(entryThreshold, entryGate)) continue;
+      const full = (a, b) => corridorStep(a, b, { canStand, heightAt, maxGrade: kMaxGrade, width: kWidth });
+      if (!full(entryThreshold, entryGate)) continue;
       // Leave the frontage perpendicularly before turning; an oblique ribbon starting
       // on the door would otherwise clip the building with one of its corridor edges.
       const apron = [entryGate[0] - Math.sin(lot.rot) * front * kWidth / 2,
         entryGate[1] + Math.cos(lot.rot) * front * kWidth / 2];
-      if (!canStep(entryGate, apron)) continue;
-      let pts = [apron, goal], mode = 'direct';
-      if (!canStep(apron, goal)) {
-        pts = planEntranceAccess({ lot, entrance: apron, goal, canStand, canStep,
-          step: farm ? 4 : 2, maxVisited: farm ? 8192 : 4096 });
+      if (!full(entryGate, apron)) continue;
+      let pts, mode = 'direct';
+      if (full(apron, goal)) pts = [apron, goal];
+      else if (routedTries >= routeBudget) continue;
+      else {
+        routedTries++;
+        // Coarse search first. It rejects only edges the fine predicate would also reject, so a miss is final.
+        // A hit is accepted only if the fine corridor check agrees; otherwise one exact search.
+        const cheap = (a, b) => corridorStep(a, b, {
+          canStand, heightAt, maxGrade: kMaxGrade, width: kWidth, alongStep: farm ? 4 : 2, acrossStep: kWidth / 2,
+        });
+        const limits = { step: farm ? 4 : 2, maxVisited: farm ? 8192 : 4096 };
+        pts = planEntranceAccess({ lot, entrance: apron, goal, canStand, canStep: cheap, ...limits });
+        if (pts && !pathIsClear(pts, full)) {
+          pts = planEntranceAccess({ lot, entrance: apron, goal, canStand, canStep: full, ...limits });
+        }
         mode = 'routed';
       }
       if (!pts) continue;

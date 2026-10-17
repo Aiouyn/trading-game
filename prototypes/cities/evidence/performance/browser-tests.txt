@@ -1,0 +1,27 @@
+
+Running 22 tests using 1 worker
+
+  ok  1 prototypes\cities\tests\browser\appearance.spec.mjs:74:1 › Normal view does not change with market mood; Market lens does (9.0s)
+  ok  2 prototypes\cities\tests\browser\appearance.spec.mjs:99:1 › hovering a building does not repaint its facade, and focus leaves masonry as masonry (9.4s)
+  ok  3 prototypes\cities\tests\browser\appearance.spec.mjs:150:1 › no shader mixes brass into a building surface for focus or hover (2ms)
+  ok  4 prototypes\cities\tests\browser\appearance.spec.mjs:162:1 › focus changes no packed geometry, only render state (6.3s)
+  ok  5 prototypes\cities\tests\browser\appearance.spec.mjs:188:1 › repeated identical focus calls allocate no new glow geometry or labels (6.2s)
+  ok  6 prototypes\cities\tests\browser\appearance.spec.mjs:216:1 › all three quality detail tiers compile and preserve building and parcel counts (6.0s)
+  ok  7 prototypes\cities\tests\browser\inhabit.spec.mjs:4:1 › local ownership flow: lease, name, upgrade, persist across reload, find again, and safe from HTML injection (27.8s)
+  ok  8 prototypes\cities\tests\browser\performance.spec.mjs:4:1 › culled road and terrain tiles return when the camera pans back (5.5s)
+  ok  9 prototypes\cities\tests\browser\performance.spec.mjs:22:1 › deferred scene chunks finish without the capture-only flush hook (15.9s)
+  ok 10 prototypes\cities\tests\browser\performance.spec.mjs:29:1 › selection outlines submit only selected building instances (5.3s)
+  ok 11 prototypes\cities\tests\browser\performance.spec.mjs:40:1 › low quality caps a 4K framebuffer and preserves the same city data (5.7s)
+  ok 12 prototypes\cities\tests\browser\regression.spec.mjs:6:1 › all six scenes x all eight lenses smoke cleanly without page or WebGL errors (30.8s)
+  ok 13 prototypes\cities\tests\browser\regression.spec.mjs:31:1 › controls: time of day, generation preview, battery saver, legal pan corners, max zoom and rotation keep scene valid (5.3s)
+  ok 14 prototypes\cities\tests\browser\regression.spec.mjs:59:1 › idle view with animation disabled performs zero additional scene renders (4.7s)
+  ok 15 prototypes\cities\tests\browser\resources.spec.mjs:5:1 › diagnostics exposes serializable metrics and frame() has no synchronous readPixels call (4.6s)
+  ok 16 prototypes\cities\tests\browser\resources.spec.mjs:23:1 › cycling Avalon and Kaiyo ten times plateaus geometry and texture counts and bounds LRU cache to 2 cities (22.2s)
+  ok 17 prototypes\cities\tests\browser\resources.spec.mjs:54:1 › rapid Avalon -> Kaiyo -> Avalon switching settles cleanly on the latest requested city (18.1s)
+  ok 18 prototypes\cities\tests\browser\selection.spec.mjs:4:1 › default cutaway is selected-only; no buildings cut at initial load; Off clears occluders (5.5s)
+  ok 19 prototypes\cities\tests\browser\selection.spec.mjs:46:1 › Find my buildings is clickable with Market legend open at 1440x900, 390x844 and 844x390 with no horizontal overflow (6.6s)
+  ok 20 prototypes\cities\tests\browser\selection.spec.mjs:77:1 › pointer drag pans without selecting, Escape closes topmost panel, and action buttons meet 44x44 CSS px hit areas (7.2s)
+  ok 21 prototypes\cities\tests\browser\smoke.spec.mjs:5:1 › readiness rejects a real throwing page immediately with its original error (119ms)
+  ok 22 prototypes\cities\tests\browser\smoke.spec.mjs:12:1 › Avalon produces a loaded canvas without page errors and all six cities load (33.6s)
+
+  22 passed (4.0m)

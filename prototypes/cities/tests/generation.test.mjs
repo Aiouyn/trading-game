@@ -48,6 +48,23 @@ test('exported roadGraph has valid finite nodes and edge endpoints matching node
   }
 });
 
+test('Avalon has one connected road network and no internal arterial dead ends', () => {
+  const { nodes, edges } = avalon.roadGraph;
+  const inc = nodes.map(() => []);
+  for (const e of edges) { inc[e.a].push(e); inc[e.b].push(e); }
+  const start = edges[0].a, seen = new Set([start]), queue = [start];
+  while (queue.length) for (const e of inc[queue.pop()]) {
+    for (const id of [e.a, e.b]) if (!seen.has(id)) { seen.add(id); queue.push(id); }
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    if (inc[i].length) assert.ok(seen.has(i), `isolated road node ${i}`);
+    if (inc[i].length === 1 && inc[i][0].cls === 4) {
+      assert.ok(Math.max(...nodes[i].map(Math.abs)) >= avalon.S / 2 - 40, `arterial dead end ${nodes[i]}`);
+    }
+  }
+  assert.equal(avalon.bridges.length, 3);
+});
+
 test('generated driveways retain parent graph edge provenance', () => {
   const drives = avalon.network.filter((n) => n.cls <= 1);
   assert.ok(drives.length > 0);
@@ -97,4 +114,18 @@ test('crossing paint never crosses water or sits on a bridge span', () => {
     }
   }
   assert.equal(onBridge, 0, 'crossing paint on a bridge span');
+});
+
+test('shared junction surfaces are finite and stay above the terrain bed', () => {
+  const r = avalon.ribbons;
+  assert.ok(r.position.every(Number.isFinite));
+  let checked = 0;
+  for (let i = 0; i < r.side.length; i++) if (r.side[i] === 9) {
+    const x = r.position[i * 3], y = r.position[i * 3 + 1], z = r.position[i * 3 + 2];
+    const ix = Math.max(0, Math.min(avalon.N - 1, Math.floor((x + avalon.S / 2) / avalon.RES)));
+    const iz = Math.max(0, Math.min(avalon.N - 1, Math.floor((z + avalon.S / 2) / avalon.RES)));
+    assert.ok(y >= avalon.H[iz * avalon.N + ix] + 0.05, `junction vertex buried at ${x},${z}`);
+    checked++;
+  }
+  assert.ok(checked > 100);
 });

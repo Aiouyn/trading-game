@@ -88,9 +88,10 @@ export function makeNoise(seed) {
     const xi = Math.floor(x), yi = Math.floor(y);
     const xf = x - xi, yf = y - yi;
     const X = xi & 255, Y = yi & 255;
-    const g = (ix, iy, dx, dy) => { const h = perm[ix + perm[iy]]; return gx[h] * dx + gy[h] * dy; };
-    const n00 = g(X, Y, xf, yf), n10 = g(X + 1, Y, xf - 1, yf);
-    const n01 = g(X, Y + 1, xf, yf - 1), n11 = g(X + 1, Y + 1, xf - 1, yf - 1);
+    const h00 = perm[X + perm[Y]], h10 = perm[X + 1 + perm[Y]];
+    const h01 = perm[X + perm[Y + 1]], h11 = perm[X + 1 + perm[Y + 1]];
+    const n00 = gx[h00] * xf + gy[h00] * yf, n10 = gx[h10] * (xf - 1) + gy[h10] * yf;
+    const n01 = gx[h01] * xf + gy[h01] * (yf - 1), n11 = gx[h11] * (xf - 1) + gy[h11] * (yf - 1);
     const u = fade(xf), v = fade(yf);
     return 1.41 * ((n00 * (1 - u) + n10 * u) * (1 - v) + (n01 * (1 - u) + n11 * u) * v);
   }

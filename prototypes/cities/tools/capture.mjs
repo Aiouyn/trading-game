@@ -7,7 +7,7 @@ const [base = 'http://127.0.0.1:3650', dir = 'prototypes/cities/evidence/after']
 const out = resolve(dir);
 await mkdir(out, { recursive: true });
 const views = [
-  ['overview', null], ['oldharbor', [-60, -60, 0.18]],
+  ['overview', null], ['oldharbor', [-60, -60, 0.18]], ['oldharbor-close', [-40, -20, 0.07]], ['gilthill-close', [-650, -520, 0.07]],
   ['midtown', [300, -400, 0.2]], ['gilthill', [-650, -500, 0.25]],
   ['westbank', [-950, 150, 0.2]], ['docks', [880, 230, 0.25]],
 ];

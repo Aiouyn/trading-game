@@ -3,29 +3,28 @@
 import * as THREE from 'three';
 import { makeGeoms } from './geoms.js';
 import { GEOMS, STRIDE, PART_KEYS, TREE_GEOM } from './archetypes.js';
-import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag, outVert, outFrag, billVert, billFrag } from './shaders.js';
+import { partVert, partFrag, groundVert, groundFrag, roadVert, roadFrag, outVert, outFrag, billVert, billFrag, landscapeFrag } from './shaders.js';
 import { PALETTE, RAMP } from './lenses.js';
 import { BIT_OCCLUDER, BIT_FOCUS, projectBoxes, findSeeThrough, focusBoxes } from './seethrough.js';
-import { outskirtsHeight } from './outskirts.js';
+import { outskirtsHeight, OUT_EXTENT } from './outskirts.js';
 import { smoothstep } from './noise.js';
 import { packLabels } from './label-layout.js';
-import { QUALITY, qualityWindow } from './quality.js';
+import { QUALITY, qualityWindow, renderPixelRatio } from './quality.js';
+import { packInstanceTiles } from './instance-tiles.js';
+import { protectedGroundVertices } from './ground-lod.js';
 
 const PITCH = Math.atan(0.5) * 2 > 1 ? Math.PI / 6 : Math.PI / 6; // 30 degrees: a 2:1 dimetric diamond
 const col = (hex) => new THREE.Color(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
 const distCol = new Float32Array(PALETTE.length * 3);
 PALETTE.forEach((h, i) => distCol.set([((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255], i * 3));
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const ANIM_FPS = 12; // water, neon and trains, while on screen
 const SAVER_FPS = 4; // the battery saver's animation rate
-const TREE_FAR_SCALE = 0.35; // metres per pixel: beyond this, tree crowns are billboards and trunks are not drawn
-const SMALL_SCALE = 1.2; // metres per pixel: beyond this, the small building parts (footprint under SMALL_M) are not drawn
 const SMALL_M = 3; // metres: the footprint limit of a small part
-const TILE = 400; // metres: the side of a culling tile
-const PIXEL_CAP_LARGE = 1.5; // the pixel ratio cap on screens 1200 CSS px and wider
-const SLOW_MS = 24; // a median draw slower than this (on a real GPU) drops the pixel ratio to 1
+const TILE = 400; // metres: the side of a culling tile, also one load chunk
+const LOD_NEAR = 0.34; // fraction of the view radius drawn at full detail
+const LOD_MID = 0.72; // beyond this, far quality: massing only
 const GROUND_HEIGHT_TOL = 0.3; // metres: how far ground may sit off a block's corner plane to collapse (simplifyGround)
-const GROUND_NORMAL_TOL = 0.05; // the summed normal difference allowed inside a collapsed block
+const GROUND_NORMAL_TOL = 0.12; // preserve height accuracy while simplifying tiny lighting variations
 // the glow under a focus building: uv = footprint-relative metres, aHalf = the footprint's half sizes
 const glowVert = /* glsl */ `
 attribute vec2 aHalf;
@@ -75,6 +74,9 @@ export class CityView {
       uDistCol: { value: distCol },
       uHazeColor: { value: new THREE.Color(0.83, 0.6, 0.48) }, uHaze0: { value: 1000 }, uHaze1: { value: 4000 },
       uDetail: { value: 1 },
+      uLandscape: { value: null }, uLandscapeExtent: { value: OUT_EXTENT },
+      // distance LOD: camera focus in map metres, and the near/mid radii for this frame
+      uFocusXZ: { value: new THREE.Vector2() }, uLodNear: { value: 1e9 }, uLodMid: { value: 1e9 },
     };
     this.qualityTier = 'high';
     this.yaw = Math.PI / 4; this.yawTarget = this.yaw;
@@ -93,9 +95,8 @@ export class CityView {
     this.motion = !matchMedia('(prefers-reduced-motion: reduce)').matches;
     // animation (water, neon, trains) runs at ANIM_FPS, and only while an animated thing is on screen (see tickAnimation)
     this.clock = 0; this.animT = -1; this.animKey = ''; this.animVisible = false; this.saver = false; this.renders = 0;
-    // quality: the pixel ratio is capped at 1.5 on large screens (2 on small ones); the battery saver and a sustained
-    // slow frame on a real GPU drop it to 1. Frame times: a GPU timer query where the browser has one, else the wall
-    // time of a draw, read back with a one-pixel read. Software renderers (SwiftShader, llvmpipe) never drop quality.
+    // Quality uses actual interaction cadence, including software renderers.
+    // GPU timer queries are asynchronous diagnostics, never a blocking readback.
     const gl = this.renderer.getContext();
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
     this.glVendor = String(gl.getParameter(dbg ? dbg.UNMASKED_VENDOR_WEBGL : gl.VENDOR));
@@ -103,13 +104,17 @@ export class CityView {
     this.software = /swiftshader|llvmpipe|software/i.test(this.glRenderer);
     this.tq = this.software ? null : gl.getExtension('EXT_disjoint_timer_query_webgl2');
     this.tqPending = []; this.frameMs = []; this.activeSamples = [];
-    this.qualityState = { tier: 'high', slow: 0 };
+    const constrained = this.software || (navigator.deviceMemory > 0 && navigator.deviceMemory <= 4) || navigator.hardwareConcurrency <= 4;
+    if (constrained) this.qualityTier = 'balanced';
+    this.uniforms.uDetail.value = QUALITY[this.qualityTier].detail;
+    this.qualityState = { tier: this.qualityTier, slow: 0 };
     this.manualQuality = false;
     this.dropped = false;
     this.cityTextures = new Set();
     this.cityGeometries = new Set();
     this.cityMaterials = new Set();
     this.loadMs = 0;
+    this.bakeLandscape();
     this.applyPixelRatio();
     this.resize();
     this.onResize = () => this.resize();
@@ -118,17 +123,36 @@ export class CityView {
   }
 
   resize() {
-    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    const w = Math.max(1, this.canvas.clientWidth), h = Math.max(1, this.canvas.clientHeight);
+    const tier = this.saver ? 'low' : this.qualityTier;
+    this.renderer.setPixelRatio(renderPixelRatio(tier, w, h, window.devicePixelRatio || 1));
     this.renderer.setSize(w, h, false);
     this.w = w; this.h = h;
     this.dirty = true;
   }
 
-  /** The device pixel ratio the canvas renders at: capped by screen size, and 1 when saving or after a sustained slow frame. */
+  /** Apply the tier's DPR and total render-pixel budget to the actual canvas size. */
   applyPixelRatio() {
-    const cap = this.saver || this.dropped || this.qualityTier !== 'high' ? 1 : window.innerWidth >= 1200 ? PIXEL_CAP_LARGE : 2;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
-    if (this.w !== undefined) this.resize();
+    this.resize();
+  }
+
+  bakeLandscape() {
+    const target = new THREE.WebGLRenderTarget(512, 512, { depthBuffer: false, stencilBuffer: false });
+    const scene = new THREE.Scene();
+    const geometry = new THREE.PlaneGeometry(2, 2);
+    const material = new THREE.ShaderMaterial({
+      vertexShader: 'varying vec2 vBakeUv; void main(){ vBakeUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }',
+      fragmentShader: landscapeFrag,
+      uniforms: { uLandscapeExtent: { value: OUT_EXTENT } },
+      depthTest: false, depthWrite: false,
+    });
+    scene.add(new THREE.Mesh(geometry, material));
+    this.renderer.setRenderTarget(target);
+    this.renderer.render(scene, new THREE.Camera());
+    this.renderer.setRenderTarget(null);
+    geometry.dispose(); material.dispose();
+    this.landscapeTarget = target;
+    this.uniforms.uLandscape.value = target.texture;
   }
 
   /** Set the quality tier ('high' | 'balanced' | 'low'): gates microscopic shader noise and DPR. */
@@ -149,7 +173,7 @@ export class CityView {
     this.setQualityTier('high', false);
   }
 
-  /** The battery saver: pixel ratio 1 and a slower animation. */
+  /** Battery saver uses the low tier's pixel budget and a slower animation. */
   setSaver(on) {
     this.saver = on;
     this.uniforms.uDetail.value = on ? 0 : this.qualityTier === 'high' ? 1 : this.qualityTier === 'balanced' ? 0.5 : 0;
@@ -160,7 +184,7 @@ export class CityView {
 
   /** Start a GPU timer around the next draw (only with the timer query extension). */
   beginTimer() {
-    if (!this.tq) return null;
+    if (!this.tq || this.tqPending.length >= 4) return null;
     const gl = this.renderer.getContext(), q = gl.createQuery();
     gl.beginQuery(this.tq.TIME_ELAPSED_EXT, q);
     return q;
@@ -190,9 +214,9 @@ export class CityView {
 
   /** Record active interaction cadence (60-frame window) and step qualityWindow. */
   recordActiveInterval(ms, active) {
-    if (this.software || this.saver || !active || document.hidden || !Number.isFinite(ms)) return;
+    if (this.saver || !active || document.hidden || !Number.isFinite(ms)) return;
     this.activeSamples.push(ms);
-    if (this.activeSamples.length < 60) return;
+    if (this.activeSamples.length < 24) return;
     const sorted = [...this.activeSamples].sort((a, b) => a - b);
     this.activeSamples = [];
     const p95 = sorted[Math.floor(sorted.length * 0.95)];
@@ -215,6 +239,9 @@ export class CityView {
       if (o.material) this.cityMaterials.add(o.material);
     }
     this.objects = [];
+    this.lodTiles = [];
+    this.chunkQueue = [];
+    this.chunksReady = true;
     for (const g of this.cityGeometries) g.dispose?.();
     this.cityGeometries.clear();
     for (const m of this.cityMaterials) m.dispose?.();
@@ -222,6 +249,11 @@ export class CityView {
     for (const t of this.cityTextures) t.dispose?.();
     this.cityTextures.clear();
     this.clearGlows();
+    for (const label of this.labels) label.el?.remove();
+    this.labels = []; this.city = null;
+    this.billTiles = []; this.billBuffer = null; this.billMesh = null; this.outlines = [];
+    this.state = null; this.frontage = null;
+    for (const name of ['uState', 'uFrontage', 'uLandV', 'uDistT']) if (this.uniforms[name]) this.uniforms[name].value = null;
     if (this.tq && this.tqPending.length) {
       const gl = this.renderer.getContext();
       for (const q of this.tqPending) gl.deleteQuery(q);
@@ -233,6 +265,7 @@ export class CityView {
     this.disposeCity();
     if (this.onResize) removeEventListener('resize', this.onResize);
     for (const g of Object.values(this.geoms)) g.dispose?.();
+    this.landscapeTarget?.dispose();
     this.renderer.dispose();
   }
 
@@ -240,6 +273,7 @@ export class CityView {
     const tLoad0 = performance.now();
     this.disposeCity();
     this.city = city;
+    this.labelKey = null;
     const trackTex = (t) => { if (t) this.cityTextures.add(t); return t; };
     const trackGeom = (g) => { if (g) this.cityGeometries.add(g); return g; };
     const trackMat = (m) => { if (m) this.cityMaterials.add(m); return m; };
@@ -288,13 +322,16 @@ export class CityView {
     }));
     // the glow under a focus building: a soft brass halo on the ground around its footprint
     this.glowMat = null; // each halo owns its material, so a hover halo can be fainter
-    // trees: the full crowns and trunks draw when close; from TREE_FAR scale the crowns are billboards and the trunks go
-    // trees: the full crowns and trunks draw when close; from TREE_FAR scale the crowns are billboards and the trunks go.
+    // Close trees use full crowns; distant/low-power trees use shaded billboards.
     // Level of detail and culling: the instances are split into TILE-metre tiles (one draw per geometry, tile and size
-    // class, each culled by its bounding sphere), and buildings with parts under SMALL_M across form a small class,
-    // drawn only up to SMALL_SCALE. The outline draw keeps one unsplit geometry per building geometry (it only shows
-    // the focus buildings), so the draw count stays small.
+    // class, each culled by its bounding sphere). Only decorative parts can drop
+    // with distance; bodies and roof silhouettes stay. Outlines contain only focus instances.
     this.treeFull = []; this.billboards = []; this.lodFar = null; this.smallMeshes = []; this.lodSmall = null;
+    this.billTiles = []; this.billKey = null; this.billBuffer = null; this.billMesh = null;
+    this.billFrustum = new THREE.Frustum(); this.billMatrix = new THREE.Matrix4();
+    this.lodTiles = [];
+    this.chunkQueue = [];
+    this.chunksReady = false;
     const quad = trackGeom(new THREE.BufferGeometry());
     quad.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
     quad.setIndex([0, 1, 2, 0, 2, 3]);
@@ -307,32 +344,51 @@ export class CityView {
       const tree = k in TREE_GEOM;
       const base = this.geoms[TREE_GEOM[k] ?? k];
       if (!tree) {
-        const og = partGeometry(base, new THREE.InstancedInterleavedBuffer(arr, STRIDE), count);
+        const og = partGeometry(base, new THREE.InstancedInterleavedBuffer(new Float32Array(0), STRIDE), 0);
         const om = new THREE.Mesh(og, outlineMat);
+        om.userData.partKey = k;
         om.frustumCulled = false; om.renderOrder = 2; om.visible = false;
         this.add(om); this.outlines.push(om);
       }
-      for (const tile of splitTiles(arr, half, tree)) {
+      const tiles = splitTiles(arr, half, tree);
+      if (k === 'treeIco') {
+        // Compact only visible forest tiles into one draw. Repack only when the
+        // visible tile set changes, avoiding both per-tile draws and offscreen work.
+        const bg = new THREE.InstancedBufferGeometry();
+        bg.setAttribute('position', quad.getAttribute('position')); bg.setIndex(quad.getIndex());
+        const ib = new THREE.InstancedInterleavedBuffer(new Float32Array(arr.length), STRIDE);
+        ib.setUsage(THREE.DynamicDrawUsage);
+        const shared = partGeometry(base, ib, count);
+        for (const name of ['iPos', 'iSize', 'iColor', 'iStyle', 'iMeta']) bg.setAttribute(name, shared.getAttribute(name));
+        bg.instanceCount = 0;
+        const bm = new THREE.Mesh(bg, billMat); bm.frustumCulled = false;
+        bm.userData.layer = 'trees'; bm.userData.lod = { cx: 0, cz: 0, role: 'bill' };
+        this.lodTiles.push(bm); this.add(bm); this.billboards.push(bm);
+        this.billTiles = tiles; this.billBuffer = ib; this.billMesh = bm;
+      }
+      const spawn = (tile) => {
         const g = partGeometry(base, new THREE.InstancedInterleavedBuffer(tile.data, STRIDE), tile.count);
         g.boundingSphere = tile.sphere;
         const m = new THREE.Mesh(g, partMat);
         m.frustumCulled = true;
+        const cx = tile.sphere.center.x, cz = tile.sphere.center.z;
+        m.userData.layer = tree ? 'trees' : 'buildings';
+        m.userData.lod = { cx, cz, role: tree ? 'tree' : tile.small ? 'small' : tile.medium ? 'medium' : 'build' };
+        this.lodTiles.push(m);
         this.add(m);
         if (tile.small) this.smallMeshes.push(m);
         if (tree) this.treeFull.push(m);
-        if (k === 'treeIco') {
-          const bg = new THREE.InstancedBufferGeometry();
-          bg.setAttribute('position', quad.getAttribute('position'));
-          bg.setIndex(quad.getIndex());
-          for (const name of ['iPos', 'iSize', 'iColor', 'iStyle', 'iMeta']) bg.setAttribute(name, g.getAttribute(name));
-          bg.instanceCount = tile.count;
-          bg.boundingSphere = tile.sphere;
-          const bm = new THREE.Mesh(bg, billMat);
-          bm.frustumCulled = true; bm.visible = false;
-          this.add(bm); this.billboards.push(bm);
-        }
+      };
+      const deferred = [];
+      for (const tile of tiles) {
+        const d = Math.hypot(tile.sphere.center.x, tile.sphere.center.z);
+        if (d <= 480) spawn(tile);
+        else deferred.push([d, tile]);
       }
+      deferred.sort((a, b) => a[0] - b[0]);
+      for (const [, tile] of deferred) this.chunkQueue.push(() => spawn(tile));
     }
+    this.chunksReady = this.chunkQueue.length === 0;
 
     // ground
     const G = Math.min(480, city.N / 2);
@@ -357,6 +413,11 @@ export class CityView {
     pg.computeVertexNormals();
     for (let i = 0; i < pa.count; i++) pa.setY(i, trueH[i]);
     this.simplifyGround(pg, G);
+    const groundChunks = splitGeometry(pg, half, TILE);
+    const protection = protectedGroundVertices(city, G);
+    this.simplifyGround(pg, G, { protection, heightTolerance: 1, normalTolerance: 0.35 });
+    const coarseGroundChunks = splitGeometry(pg, half, TILE);
+    pg.dispose();
     const tex = (data) => { const t = trackTex(new THREE.DataTexture(data, city.N, city.N, THREE.RGBAFormat)); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.needsUpdate = true; return t; };
     const gu = {
       ...this.uniforms, uA: { value: tex(city.texA) }, uB: { value: tex(city.texB) }, uHalf: { value: half },
@@ -364,26 +425,42 @@ export class CityView {
       cPave: { value: col(pal.pave) }, cPlaza: { value: col(pal.plaza) }, cWater0: { value: col(pal.water[0]) }, cWater1: { value: col(pal.water[1]) },
       uSnow: { value: P.id === 'nordhaven' ? 55 : P.id === 'kaiyo' ? 150 : 9999 },
     };
-    this.add(new THREE.Mesh(pg, new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: gu })));
+    const groundMat = new THREE.ShaderMaterial({ vertexShader: groundVert, fragmentShader: groundFrag, uniforms: gu });
+    for (const [detail, chunks] of [['high', groundChunks], ['coarse', coarseGroundChunks]]) for (const chunk of chunks) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(chunk.position, 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(chunk.normal, 3));
+      g.setIndex(new THREE.BufferAttribute(chunk.index, 1));
+      g.boundingSphere = chunk.sphere;
+      const ground = new THREE.Mesh(g, groundMat);
+      ground.userData.terrainDetail = detail;
+      ground.userData.bounds = chunk.bounds;
+      ground.userData.layer = 'ground';
+      ground.frustumCulled = true;
+      this.add(ground);
+    }
 
-    // roads
-    const rb = city.ribbons;
-    const rg = new THREE.BufferGeometry();
-    rg.setAttribute('position', new THREE.BufferAttribute(rb.position, 3));
-    rg.setAttribute('aSide', new THREE.BufferAttribute(rb.side, 1));
-    rg.setAttribute('aDist', new THREE.BufferAttribute(rb.dist, 1));
-    rg.setAttribute('aOrder', new THREE.BufferAttribute(rb.order, 1));
-    rg.setAttribute('aCls', new THREE.BufferAttribute(rb.cls, 1));
-    rg.setIndex(new THREE.BufferAttribute(rb.index, 1));
+    // roads, one mesh per 400 m chunk so a street view does not transform the whole city
     const rm = new THREE.ShaderMaterial({
       vertexShader: roadVert, fragmentShader: roadFrag,
       uniforms: { ...this.uniforms, cRoad0: { value: col(pal.road[0]) }, cRoad1: { value: col(pal.road[1]) }, cRoad2: { value: col(pal.road[2]) } },
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4, side: THREE.DoubleSide,
     });
-    const road = new THREE.Mesh(rg, rm);
-    road.frustumCulled = false;
-    road.renderOrder = 1;
-    this.add(road);
+    for (const chunk of splitRoad(city.ribbons, half, TILE * 2)) {
+      const rg = new THREE.BufferGeometry();
+      rg.setAttribute('position', new THREE.BufferAttribute(chunk.position, 3));
+      rg.setAttribute('aSide', new THREE.BufferAttribute(chunk.side, 1));
+      rg.setAttribute('aDist', new THREE.BufferAttribute(chunk.dist, 1));
+      rg.setAttribute('aOrder', new THREE.BufferAttribute(chunk.order, 1));
+      rg.setAttribute('aCls', new THREE.BufferAttribute(chunk.cls, 1));
+      rg.setIndex(new THREE.BufferAttribute(chunk.index, 1));
+      rg.boundingSphere = chunk.sphere;
+      const road = new THREE.Mesh(rg, rm);
+      road.userData.layer = 'roads';
+      road.frustumCulled = true;
+      road.renderOrder = 1;
+      this.add(road);
+    }
 
     // trains on the elevated loop (Kaiyo)
     this.train = null;
@@ -421,8 +498,11 @@ export class CityView {
         uSnow: { value: P.id === 'nordhaven' ? 55 : P.id === 'kaiyo' ? 150 : 9999 },
       },
     });
-    this.add(this.makeOutskirts(city, half, outMat));
-    this.add(this.makeSeam(half, G, outMat));
+    const ring = this.makeOutskirts(city, half, outMat);
+    const seam = this.makeSeam(half, G, outMat);
+    for (const chunk of ring) { chunk.userData.layer = 'ground'; this.add(chunk); }
+    seam.userData.layer = 'ground';
+    this.add(seam);
     this.uniforms.uHaze0.value = half * 1.05;
     this.uniforms.uHaze1.value = half * 3.4;
 
@@ -461,19 +541,25 @@ export class CityView {
    * vertices stay in the buffer, so the seams with full-resolution blocks share their edge corners (a T-junction over
    * a flat plane, with no visible crack). Shading is unchanged where the surface is flat, and the rest keeps its cells.
    */
-  simplifyGround(pg, G) {
+  simplifyGround(pg, G, { protection = null, heightTolerance = GROUND_HEIGHT_TOL, normalTolerance = GROUND_NORMAL_TOL } = {}) {
     const pa = pg.getAttribute('position'), na = pg.getAttribute('normal');
     const V = (i, j) => j * (G + 1) + i;
     // the quadtree: a block of size s cells is one quad when flat, else its four halves are tried in turn
     const flat = (bi, bj, s) => {
+      let protectedBlock = false;
+      if (protection) for (let j = 0; j <= s && !protectedBlock; j++) for (let i = 0; i <= s; i++) {
+        if (protection[V(bi + i, bj + j)]) { protectedBlock = true; break; }
+      }
+      const heightError = protectedBlock ? GROUND_HEIGHT_TOL : heightTolerance;
+      const normalError = protectedBlock ? GROUND_NORMAL_TOL : normalTolerance;
       const y0 = pa.getY(V(bi, bj)), n0x = na.getX(V(bi, bj)), n0y = na.getY(V(bi, bj)), n0z = na.getZ(V(bi, bj));
       // the plane through the block's corners: heights must stay within 0.1 m of it, normals within 0.01
       const y1 = pa.getY(V(bi + s, bj)), y2 = pa.getY(V(bi, bj + s)), y3 = pa.getY(V(bi + s, bj + s));
       for (let j = 0; j <= s; j++) for (let i = 0; i <= s; i++) {
         const v = V(bi + i, bj + j), u = i / s, w = j / s;
         const plane = (y0 * (1 - u) + y1 * u) * (1 - w) + (y2 * (1 - u) + y3 * u) * w;
-        if (Math.abs(pa.getY(v) - plane) > GROUND_HEIGHT_TOL) return false;
-        if (Math.abs(na.getX(v) - n0x) + Math.abs(na.getY(v) - n0y) + Math.abs(na.getZ(v) - n0z) > GROUND_NORMAL_TOL) return false;
+        if (Math.abs(pa.getY(v) - plane) > heightError) return false;
+        if (Math.abs(na.getX(v) - n0x) + Math.abs(na.getY(v) - n0y) + Math.abs(na.getZ(v) - n0z) > normalError) return false;
       }
       return true;
     };
@@ -596,9 +682,19 @@ export class CityView {
     g.computeVertexNormals(); // the normals stay; the positions go back to true heights
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('aH', new THREE.BufferAttribute(aH, 1));
-    const m = new THREE.Mesh(g, mat);
-    m.frustumCulled = false;
-    return m;
+    const chunks = splitGeometry(g, half, TILE * 2);
+    g.dispose();
+    return chunks.map(chunk => {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(chunk.position, 3));
+      geometry.setAttribute('normal', new THREE.BufferAttribute(chunk.normal, 3));
+      geometry.setAttribute('aH', new THREE.BufferAttribute(chunk.height, 1));
+      geometry.setIndex(new THREE.BufferAttribute(chunk.index, 1));
+      geometry.boundingSphere = chunk.sphere;
+      const mesh = new THREE.Mesh(geometry, mat);
+      mesh.userData.bounds = chunk.bounds;
+      return mesh;
+    });
   }
 
   /**
@@ -701,9 +797,15 @@ export class CityView {
   // ------------------------------------------------------------------ camera
   updateCamera() {
     const d = 9000;
-    const cp = Math.cos(PITCH), sp = Math.sin(PITCH);
-    this.camera.position.set(this.target.x + d * cp * Math.sin(this.yaw), this.target.y + d * sp, this.target.z + d * cp * Math.cos(this.yaw));
-    this.camera.up.set(0, 1, 0);
+    if (this.plan) {
+      // True overhead. Up is -Z so north stays up; a near-vertical dimetric pitch flips the camera.
+      this.camera.up.set(0, 0, -1);
+      this.camera.position.set(this.target.x, d, this.target.z);
+    } else {
+      const cp = Math.cos(PITCH), sp = Math.sin(PITCH);
+      this.camera.up.set(0, 1, 0);
+      this.camera.position.set(this.target.x + d * cp * Math.sin(this.yaw), d * sp, this.target.z + d * cp * Math.cos(this.yaw));
+    }
     this.camera.lookAt(this.target);
     const hw = (this.w * this.scale) / 2, hh = (this.h * this.scale) / 2;
     this.camera.left = -hw; this.camera.right = hw; this.camera.top = hh; this.camera.bottom = -hh;
@@ -793,13 +895,32 @@ export class CityView {
     if (next.length === this.focusIds.length && next.every((id, i) => id === this.focusIds[i])) return;
     this.focusIds = next;
     this.focusSet = new Set(next);
+    this.syncOutlineInstances();
     this.syncFocusLabels();
     this.syncGlows();
     this.seeDirty = true; this.dirty = true;
   }
 
   /** A label for each focus building that has none of its own, so the focus building always has a label. */
+  syncOutlineInstances() {
+    if (!this.city) return;
+    for (const mesh of this.outlines) {
+      const key = mesh.userData.partKey, source = this.city.parts[key];
+      let count = 0;
+      for (let o = 0; o < source.length; o += STRIDE) if (this.focusSet.has(source[o + 13])) count++;
+      const data = new Float32Array(count * STRIDE);
+      let cursor = 0;
+      for (let o = 0; o < source.length; o += STRIDE) if (this.focusSet.has(source[o + 13])) {
+        for (let q = 0; q < STRIDE; q++) data[cursor++] = source[o + q];
+      }
+      mesh.geometry.dispose();
+      mesh.geometry = partGeometry(this.geoms[key], new THREE.InstancedInterleavedBuffer(data, STRIDE), count);
+      mesh.visible = count > 0;
+    }
+  }
+
   syncFocusLabels() {
+    this.labelKey = null;
     const keep = [];
     for (const l of this.labels) { if (l.focusOnly) l.el.remove(); else keep.push(l); }
     this.labels = keep;
@@ -821,6 +942,7 @@ export class CityView {
 
   /** Synchronize dynamic leased-unit map labels without rebuilding the entire scene. */
   syncLeaseLabels(leasedItems) {
+    this.labelKey = null;
     const keep = [];
     for (const l of this.labels) { if (l.leaseOnly) l.el.remove(); else keep.push(l); }
     this.labels = keep;
@@ -863,17 +985,23 @@ export class CityView {
       const b = this.city.buildings[id - 1];
       if (!b) continue;
       const R = 14; // metres, the halo's reach (matches glowFrag)
-      const c = Math.cos(b.rot), s = Math.sin(b.rot), hw = b.w / 2 + R, hd = b.dp / 2 + R, y = b.gz + 0.6;
-      const pos = [], uv = [], half = [];
-      for (const [la, lb] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
-        pos.push(b.x + c * la - s * lb, y, b.y + s * la + c * lb);
+      const c = Math.cos(b.rot), s = Math.sin(b.rot), hw = b.w / 2 + R, hd = b.dp / 2 + R;
+      const pos = [], uv = [], half = [], index = [];
+      const cols = Math.ceil(hw * 2 / 4), rows = Math.ceil(hd * 2 / 4);
+      for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
+        const la = -hw + hw * 2 * i / cols, lb = -hd + hd * 2 * j / rows;
+        const x = b.x + c * la - s * lb, z = b.y + s * la + c * lb;
+        pos.push(x, Math.max(0, this.heightAt(x, z)) + 0.6, z);
         uv.push(la, lb); half.push(b.w / 2, b.dp / 2);
+        if (i < cols && j < rows) {
+          const a = j * (cols + 1) + i; index.push(a, a + 1, a + cols + 1, a + 1, a + cols + 2, a + cols + 1);
+        }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       g.setAttribute('aHalf', new THREE.Float32BufferAttribute(half, 2));
-      g.setIndex([0, 1, 2, 0, 2, 3]);
+      g.setIndex(index);
       const mat = new THREE.ShaderMaterial({
         vertexShader: glowVert, fragmentShader: glowFrag, transparent: true, depthWrite: false, side: THREE.DoubleSide,
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
@@ -937,7 +1065,7 @@ export class CityView {
     const fb = focusBoxes(this.seeBoxes, focus, margin).slice(0, 12);
     this.uniforms.uFocusN.value = fb.length;
     fb.forEach((f, k) => { this.uniforms.uFocusRect.value[k].set(f.r0, f.u0, f.r1, f.u1); this.uniforms.uFocusDepth.value[k] = f.depth; });
-    for (const om of this.outlines) om.visible = true;
+    for (const om of this.outlines) om.visible = om.geometry.instanceCount > 0;
     this.commitState();
     this.seeMs = performance.now() - t0;
   }
@@ -990,27 +1118,154 @@ export class CityView {
     if (!this.dirty || !this.city) return;
     this.renders++;
     this.updateCamera();
+    this.pumpChunks();
     this.applyLOD();
     this.pollTimer();
     const q = this.beginTimer();
     this.renderer.render(this.scene, this.camera);
     this.endTimer(q);
     this.placeLabels();
-    this.dirty = false;
+    this.dirty = Boolean(this.chunkQueue?.length);
   }
 
-  /** Tree level of detail by scale: full crowns and trunks when close, billboard crowns (no trunks) when far. */
-  applyLOD() {
-    const far = this.scale > TREE_FAR_SCALE;
-    if (far !== this.lodFar) {
-      this.lodFar = far;
-      for (const m of this.treeFull) m.visible = !far;
-      for (const m of this.billboards) m.visible = far;
+  /** Upload a few deferred chunks per frame, nearest first, so the opening view is not one long hitch. */
+  pumpChunks(budget = 8, timeBudget = 4) {
+    let n = 0;
+    const start = performance.now();
+    while (this.chunkQueue?.length && n < budget && (n === 0 || performance.now() - start < timeBudget)) {
+      this.chunkQueue.shift()();
+      n++;
     }
-    const small = this.scale <= SMALL_SCALE;
-    if (small !== this.lodSmall) {
-      this.lodSmall = small;
-      for (const m of this.smallMeshes) m.visible = small;
+    if (this.chunkQueue && !this.chunkQueue.length) this.chunksReady = true;
+    else if (n) this.dirty = true;
+  }
+
+  /** Finish every deferred chunk. Captures and tests call this so a screenshot is not half loaded. */
+  flushChunks() {
+    this.pumpChunks(1e9, Infinity);
+    this.chunksReady = true;
+    this.dirty = true;
+  }
+
+  /** Orthographic plan, for measuring roads. The dimetric pitch is the normal view. */
+  setPlan(on) {
+    this.plan = !!on;
+    this.dirty = true;
+  }
+
+  /** Frame the whole city square from above. */
+  fitPlan() {
+    this.plan = true;
+    this.target.set(0, 0, 0);
+    const span = Math.min(this.w || 1, this.h || 1);
+    this.scale = ((this.city?.S ?? 2400) * 1.08) / span;
+    this.dirty = true;
+  }
+
+  /**
+   * Plan sheets. all = every layer. roads/buildings/trees keep the ground so the sheet is readable.
+   */
+  setLayers(mode) {
+    this.layerMode = mode || 'all';
+    this.dirty = true;
+  }
+
+  /**
+   * Three qualities by distance from the camera target, per 400 m chunk:
+   * near = full buildings and trees, mid = buildings plus billboard trees, far = massing only.
+   */
+  applyLOD() {
+    if (this.plan) {
+      const mode = this.layerMode || 'all';
+      const show = (layer) => mode === 'all' || layer === 'ground' || mode === layer;
+      this.uniforms.uFocusXZ.value.set(this.target.x, this.target.z);
+      this.uniforms.uLodNear.value = 1e9;
+      this.uniforms.uLodMid.value = 1e9;
+      for (const o of this.objects) {
+        const layer = o.userData.layer;
+        if (!layer) continue;
+        if (o.userData.terrainDetail) {
+          const high = !this.saver && this.qualityTier === 'high';
+          if ((o.userData.terrainDetail === 'high') !== high) { o.visible = false; continue; }
+        }
+        const role = o.userData.lod?.role;
+        if (role === 'bill') { o.visible = false; continue; }
+        o.visible = show(layer);
+      }
+      return;
+    }
+    const viewR = Math.max(90, Math.hypot(this.w || 1, this.h || 1) * this.scale * 0.5);
+    const nearR = viewR * LOD_NEAR, midR = viewR * LOD_MID;
+    this.uniforms.uFocusXZ.value.set(this.target.x, this.target.z);
+    this.uniforms.uLodNear.value = nearR;
+    this.uniforms.uLodMid.value = midR;
+    // Zoomed out, a window is a pixel. Do not draw crowns and chimneys across the whole city.
+    const floor = this.scale > 1.15 ? 2 : this.scale > 0.55 ? 1 : 0;
+    const tx = this.target.x, tz = this.target.z;
+    for (const m of this.lodTiles) {
+      const lod = m.userData.lod;
+      if (!lod) continue;
+      const d = Math.hypot(lod.cx - tx, lod.cz - tz);
+      const band = Math.max(floor, d <= nearR ? 0 : d <= midR ? 1 : 2);
+      const fullTrees = band === 0 && !this.saver && this.qualityTier === 'high';
+      if (lod.role === 'tree') m.visible = fullTrees;
+      else if (lod.role === 'bill') m.visible = this.scale < 1.8; // subpixel canopy becomes the baked woodland mask
+      else if (lod.role === 'small') m.visible = band === 0;
+      else if (lod.role === 'medium') m.visible = band < 2;
+      else m.visible = true;
+    }
+    this.updateBillboardInstances(floor, nearR);
+    this.cullToScreen();
+  }
+
+  updateBillboardInstances(floor, nearR) {
+    if (!this.billMesh || !this.billMesh.visible) return;
+    this.billMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    this.billFrustum.setFromProjectionMatrix(this.billMatrix);
+    const fullNear = !floor && !this.saver && this.qualityTier === 'high';
+    const stride = this.scale > 0.6 && (this.saver || this.qualityTier === 'low') ? 2 : 1;
+    const visible = [];
+    for (let i = 0; i < this.billTiles.length; i++) {
+      const tile = this.billTiles[i], c = tile.sphere.center;
+      if (fullNear && Math.hypot(c.x - this.target.x, c.z - this.target.z) <= nearR) continue;
+      if (this.billFrustum.intersectsSphere(tile.sphere)) visible.push(i);
+    }
+    const key = `${stride}:${visible.join(',')}`;
+    if (key === this.billKey) return;
+    this.billKey = key;
+    let cursor = 0;
+    for (const id of visible) {
+      const data = this.billTiles[id].data;
+      if (stride === 1) { this.billBuffer.array.set(data, cursor); cursor += data.length; }
+      else for (let o = 0; o < data.length; o += STRIDE * stride) for (let q = 0; q < STRIDE; q++) this.billBuffer.array[cursor++] = data[o + q];
+    }
+    this.billMesh.geometry.instanceCount = cursor / STRIDE;
+    this.billBuffer.clearUpdateRanges(); this.billBuffer.addUpdateRange(0, cursor);
+    this.billBuffer.needsUpdate = true;
+  }
+
+  /** The dimetric frustum is a long box. Drop chunks that are not on the ground the screen can see. */
+  cullToScreen() {
+    const cs = [[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]].map(([x, y]) => this.groundAt(x, y)).filter(Boolean);
+    if (cs.length < 3) return;
+    const pad = 60;
+    const x0 = Math.min(...cs.map((c) => c.x)) - pad, x1 = Math.max(...cs.map((c) => c.x)) + pad;
+    const z0 = Math.min(...cs.map((c) => c.z)) - pad, z1 = Math.max(...cs.map((c) => c.z)) + pad;
+    for (const o of this.objects) {
+      const layer = o.userData.layer;
+      if (layer !== 'ground' && layer !== 'roads' && !o.userData.lod) continue;
+      const s = o.geometry?.boundingSphere;
+      if (!s) continue;
+      // THREE's 3D frustum handles buildings (including tall crowns). For static
+      // terrain/roads reset visibility on every camera move so culled tiles return.
+      if (o.userData.lod) continue;
+      const bounds = o.userData.bounds;
+      const outside = bounds
+        ? bounds.maxX < x0 || bounds.minX > x1 || bounds.maxZ < z0 || bounds.minZ > z1
+        : s.center.x + s.radius < x0 || s.center.x - s.radius > x1 || s.center.z + s.radius < z0 || s.center.z - s.radius > z1;
+      const high = !this.saver && this.qualityTier === 'high';
+      const wanted = !o.userData.terrainDetail || ((o.userData.terrainDetail === 'high') === high);
+      o.visible = wanted && !outside;
     }
   }
 
@@ -1019,7 +1274,7 @@ export class CityView {
    * is marked dirty ANIM_FPS times a second, the train moves by the elapsed step. Otherwise nothing animates.
    */
   tickAnimation() {
-    const fps = this.saver ? SAVER_FPS : ANIM_FPS;
+    const fps = this.saver ? SAVER_FPS : QUALITY[this.qualityTier].animationFps;
     if (!fps || !this.animationOnScreen()) return;
     if (this.animT >= 0 && this.clock - this.animT < 1 / fps) return;
     const step = this.animT < 0 ? 0 : this.clock - this.animT;
@@ -1060,9 +1315,13 @@ export class CityView {
 
   setExclusions(rects) {
     this.exclusions = rects ?? [];
+    this.labelKey = null;
   }
 
   placeLabels() {
+    const key = `${this.showLabels}|${this.target.x}|${this.target.z}|${this.yaw}|${this.scale}|${this.plan}|${this.w}|${this.h}|${this.uniforms.uGrowth.value}|${this.labels.length}|${this.focusIds.join(',')}`;
+    if (key === this.labelKey) return;
+    this.labelKey = key;
     if (!this.showLabels) {
       for (const l of this.labels) l.el.style.display = 'none';
       return;
@@ -1127,31 +1386,109 @@ function partGeometry(base, ib, count) {
   return g;
 }
 
+/** Indexed position+normal mesh, split so a street view does not draw the whole terrain. */
+function splitGeometry(geo, half, tile) {
+  const pos = geo.getAttribute('position');
+  const nor = geo.getAttribute('normal');
+  const height = geo.getAttribute('aH');
+  const index = geo.getIndex().array;
+  const groups = new Map();
+  for (let i = 0; i < index.length; i += 3) {
+    const ia = index[i], ib = index[i + 1], ic = index[i + 2];
+    const x = (pos.getX(ia) + pos.getX(ib) + pos.getX(ic)) / 3;
+    const z = (pos.getZ(ia) + pos.getZ(ib) + pos.getZ(ic)) / 3;
+    const key = `${Math.floor((x + half) / tile)}|${Math.floor((z + half) / tile)}`;
+    let g = groups.get(key);
+    if (!g) groups.set(key, g = []);
+    g.push(ia, ib, ic);
+  }
+  const out = [];
+  for (const tris of groups.values()) {
+    const map = new Map();
+    const position = [], normal = [], heights = [], idx = [];
+    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    const use = (i) => {
+      let n = map.get(i);
+      if (n !== undefined) return n;
+      n = position.length / 3;
+      map.set(i, n);
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      position.push(x, y, z);
+      normal.push(nor.getX(i), nor.getY(i), nor.getZ(i));
+      if (height) heights.push(height.getX(i));
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      return n;
+    };
+    for (const i of tris) idx.push(use(i));
+    out.push({
+      position: new Float32Array(position), normal: new Float32Array(normal), index: new Uint32Array(idx),
+      height: height ? new Float32Array(heights) : null,
+      bounds: { minX, maxX, minZ, maxZ },
+      sphere: new THREE.Sphere(
+        new THREE.Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2),
+        Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) / 2 + 4,
+      ),
+    });
+  }
+  return out;
+}
+
+/** One culled mesh per tile. Vertices are copied so a chunk does not share an index with its neighbour. */
+function splitRoad(rb, half, tile) {
+  const pos = rb.position, side = rb.side, dist = rb.dist, order = rb.order, cls = rb.cls, index = rb.index;
+  const groups = new Map();
+  for (let i = 0; i < index.length; i += 3) {
+    const ia = index[i], ib = index[i + 1], ic = index[i + 2];
+    const x = (pos[ia * 3] + pos[ib * 3] + pos[ic * 3]) / 3;
+    const z = (pos[ia * 3 + 2] + pos[ib * 3 + 2] + pos[ic * 3 + 2]) / 3;
+    const key = `${Math.floor((x + half) / tile)}|${Math.floor((z + half) / tile)}`;
+    let g = groups.get(key);
+    if (!g) groups.set(key, g = []);
+    g.push(ia, ib, ic);
+  }
+  const out = [];
+  for (const tris of groups.values()) {
+    const map = new Map();
+    const position = [], sd = [], di = [], od = [], cl = [], idx = [];
+    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    const use = (i) => {
+      let n = map.get(i);
+      if (n !== undefined) return n;
+      n = position.length / 3;
+      map.set(i, n);
+      const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+      position.push(x, y, z);
+      sd.push(side[i]); di.push(dist[i]); od.push(order[i]); cl.push(cls[i]);
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      return n;
+    };
+    for (const i of tris) idx.push(use(i));
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+    const r = Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) / 2 + 2;
+    out.push({
+      position: new Float32Array(position), side: new Float32Array(sd), dist: new Float32Array(di),
+      order: new Float32Array(od), cls: new Float32Array(cl), index: new Uint32Array(idx),
+      sphere: new THREE.Sphere(new THREE.Vector3(cx, cy, cz), r),
+    });
+  }
+  return out;
+}
+
 /**
  * Split one part array into tiles (TILE metres square) and size classes: buildings (bid > 0) whose parts are under
  * SMALL_M across are the small class. Each tile carries its instances' data and a bounding sphere over them.
  */
 function splitTiles(arr, half, tree) {
-  const groups = new Map();
-  for (let o = 0; o < arr.length; o += STRIDE) {
-    const x = arr[o], y = arr[o + 1], z = arr[o + 2], sx = arr[o + 3], sy = arr[o + 4], sz = arr[o + 5];
-    const small = !tree && arr[o + 13] > 0 && Math.max(sx, sz) < SMALL_M;
-    const id = `${+small}|${Math.floor((x + half) / TILE)}|${Math.floor((z + half) / TILE)}`;
-    let t = groups.get(id);
-    if (!t) groups.set(id, t = { small, list: [], lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] });
-    for (let q = 0; q < STRIDE; q++) t.list.push(arr[o + q]);
-    const R = Math.hypot(sx, sz) / 2;
-    const lo = [x - R, y, z - R], hi = [x + R, y + sy, z + R];
-    for (let a = 0; a < 3; a++) { t.lo[a] = Math.min(t.lo[a], lo[a]); t.hi[a] = Math.max(t.hi[a], hi[a]); }
-  }
-  return [...groups.values()].map((t) => {
-    const data = Float32Array.from(t.list);
-    const c = [0, 1, 2].map((a) => (t.lo[a] + t.hi[a]) / 2);
-    const r = Math.hypot(t.hi[0] - t.lo[0], t.hi[1] - t.lo[1], t.hi[2] - t.lo[2]) / 2;
-    return { data, count: data.length / STRIDE, small: t.small, sphere: new THREE.Sphere(new THREE.Vector3(...c), r) };
-  });
+  return packInstanceTiles(arr, { half, tree, stride: STRIDE, tile: TILE, smallLimit: SMALL_M }).map(t => ({
+    data: t.data, count: t.count, small: t.small, medium: t.medium,
+    sphere: new THREE.Sphere(new THREE.Vector3((t.minX + t.maxX) / 2, (t.minY + t.maxY) / 2, (t.minZ + t.maxZ) / 2),
+      Math.hypot(t.maxX - t.minX, t.maxY - t.minY, t.maxZ - t.minZ) / 2),
+  }));
 }
-
 function skyFor(el, warm, night) {
   const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
   let top = [118, 150, 178], bot = [212, 222, 226];

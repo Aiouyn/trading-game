@@ -1,0 +1,45 @@
+TAP version 13
+# Subtest: cityCacheKey distinguishes id, seed and version
+ok 1 - cityCacheKey distinguishes id, seed and version
+  ---
+  duration_ms: 1.1457
+  ...
+# Subtest: ordinary buildings have unique stable parcelId and blockKey across repeat runs
+ok 2 - ordinary buildings have unique stable parcelId and blockKey across repeat runs
+  ---
+  duration_ms: 5496.914
+  ...
+# Subtest: exported roadGraph has valid finite nodes and edge endpoints matching nodes within 0.01 m
+ok 3 - exported roadGraph has valid finite nodes and edge endpoints matching nodes within 0.01 m
+  ---
+  duration_ms: 2.4072
+  ...
+# Subtest: Avalon has one connected road network and no internal arterial dead ends
+ok 4 - Avalon has one connected road network and no internal arterial dead ends
+  ---
+  duration_ms: 0.5107
+  ...
+# Subtest: generated driveways retain parent graph edge provenance
+ok 5 - generated driveways retain parent graph edge provenance
+  ---
+  duration_ms: 0.2048
+  ...
+# Subtest: Avalon exports parcelDiagnostics and reconciled candidate/served/vacant/rejected counts
+ok 6 - Avalon exports parcelDiagnostics and reconciled candidate/served/vacant/rejected counts
+  ---
+  duration_ms: 0.0956
+  ...
+# Subtest: crossing paint never crosses water or sits on a bridge span
+ok 7 - crossing paint never crosses water or sits on a bridge span
+  ---
+  duration_ms: 45.3354
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5692.7231

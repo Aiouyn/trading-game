@@ -1,0 +1,360 @@
+TAP version 13
+# Subtest: buildings without recorded access paths are reported as legacy, never as a pass
+ok 1 - buildings without recorded access paths are reported as legacy, never as a pass
+  ---
+  duration_ms: 3677.764
+  ...
+# Subtest: independent audit rejects water and footprints at the full corridor edge
+ok 2 - independent audit rejects water and footprints at the full corridor edge
+  ---
+  duration_ms: 2.393
+  ...
+# Subtest: vehicle grade limit is 0.12, without an extra permissive tolerance
+ok 3 - vehicle grade limit is 0.12, without an extra permissive tolerance
+  ---
+  duration_ms: 0.4014
+  ...
+# Subtest: Avalon passes independent access audit with occupiedInvalid = 0
+ok 4 - Avalon passes independent access audit with occupiedInvalid = 0
+  ---
+  duration_ms: 155.2451
+  ...
+# Subtest: audit catches broken path starting away from entrance, crossing water, or connecting to isolated road
+ok 5 - audit catches broken path starting away from entrance, crossing water, or connecting to isolated road
+  ---
+  duration_ms: 282.3039
+  ...
+# Subtest: entrance uses the front, not the nearest arbitrary wall
+ok 6 - entrance uses the front, not the nearest arbitrary wall
+  ---
+  duration_ms: 2.1548
+  ...
+# Subtest: routes around a wall deterministically without diagonal corner-cutting
+ok 7 - routes around a wall deterministically without diagonal corner-cutting
+  ---
+  duration_ms: 3.6687
+  ...
+# Subtest: unreachable entrance reports no route
+ok 8 - unreachable entrance reports no route
+  ---
+  duration_ms: 0.5737
+  ...
+# Subtest: corridor width and grade callbacks reject wet edges and steep grades
+ok 9 - corridor width and grade callbacks reject wet edges and steep grades
+  ---
+  duration_ms: 0.3504
+  ...
+# Subtest: buildArchetype retains entrance front orientation
+ok 10 - buildArchetype retains entrance front orientation
+  ---
+  duration_ms: 2.5908
+  ...
+# Subtest: addEntrance places door and lintel on supported ordinary building facades and skips containers
+ok 11 - addEntrance places door and lintel on supported ordinary building facades and skips containers
+  ---
+  duration_ms: 0.55
+  ...
+# Subtest: addShopFrontage attaches a dark sign panel and frame above the entrance without altering building footprint or ID
+ok 12 - addShopFrontage attaches a dark sign panel and frame above the entrance without altering building footprint or ID
+  ---
+  duration_ms: 2.423
+  ...
+# Subtest: preparePersonality returns other cities unchanged and never mutates its input
+ok 13 - preparePersonality returns other cities unchanged and never mutates its input
+  ---
+  duration_ms: 1.1607
+  ...
+# Subtest: Old Harbor keeps a masonry palette and a 3-5 storey band
+ok 14 - Old Harbor keeps a masonry palette and a 3-5 storey band
+  ---
+  duration_ms: 0.9128
+  ...
+# Subtest: Gilt Hill keeps scatter placement and low heights
+ok 15 - Gilt Hill keeps scatter placement and low heights
+  ---
+  duration_ms: 0.1612
+  ...
+# Subtest: recipes add no roof, interior or customization fields
+ok 16 - recipes add no roof, interior or customization fields
+  ---
+  duration_ms: 0.5026
+  ...
+# Subtest: avalonHeight is order independent, block correlated and bounded
+ok 17 - avalonHeight is order independent, block correlated and bounded
+  ---
+  duration_ms: 0.5418
+  ...
+# Subtest: districts without a masonry recipe keep the proposed height
+ok 18 - districts without a masonry recipe keep the proposed height
+  ---
+  duration_ms: 0.2652
+  ...
+# Subtest: street continuation intersects the actual carriageway at a right angle
+ok 19 - street continuation intersects the actual carriageway at a right angle
+  ---
+  duration_ms: 1.5697
+  ...
+# Subtest: street continuation refuses water, steep ground, and shallow-angle junctions
+ok 20 - street continuation refuses water, steep ground, and shallow-angle junctions
+  ---
+  duration_ms: 0.3923
+  ...
+# Subtest: surveyed plan crosses water only on the three designated inland crossings
+ok 21 - surveyed plan crosses water only on the three designated inland crossings
+  ---
+  duration_ms: 168.4739
+  ...
+# Subtest: acute-junction cleanup retains the sole route into a neighborhood
+ok 22 - acute-junction cleanup retains the sole route into a neighborhood
+  ---
+  duration_ms: 0.6725
+  ...
+# Subtest: cityCacheKey distinguishes id, seed and version
+ok 23 - cityCacheKey distinguishes id, seed and version
+  ---
+  duration_ms: 0.7653
+  ...
+# Subtest: driveway checks its full 3.4m width, including the goal and entrance
+ok 24 - driveway checks its full 3.4m width, including the goal and entrance
+  ---
+  duration_ms: 1.9158
+  ...
+# Subtest: a blocked street goal or threshold is never exempt from collision checks
+ok 25 - a blocked street goal or threshold is never exempt from collision checks
+  ---
+  duration_ms: 0.2584
+  ...
+# Subtest: rear wall near a road does not pass when front entrance faces away and is blocked
+ok 26 - rear wall near a road does not pass when front entrance faces away and is blocked
+  ---
+  duration_ms: 0.4062
+  ...
+# Subtest: excludes rail, open-water segments and elevated bridge decks as street goals
+ok 27 - excludes rail, open-water segments and elevated bridge decks as street goals
+  ---
+  duration_ms: 0.1903
+  ...
+# Subtest: direct entry, obstacle detour and shared public lane succeed with explicit path.kind and threshold-to-gate
+ok 28 - direct entry, obstacle detour and shared public lane succeed with explicit path.kind and threshold-to-gate
+  ---
+  duration_ms: 2.8883
+  ...
+# Subtest: reserving an entrance corridor prevents a second adjacent lot from blocking the first entrance
+ok 29 - reserving an entrance corridor prevents a second adjacent lot from blocking the first entrance
+  ---
+  duration_ms: 0.4483
+  ...
+# Subtest: ordinary buildings have unique stable parcelId and blockKey across repeat runs
+ok 30 - ordinary buildings have unique stable parcelId and blockKey across repeat runs
+  ---
+  duration_ms: 9335.0578
+  ...
+# Subtest: exported roadGraph has valid finite nodes and edge endpoints matching nodes within 0.01 m
+ok 31 - exported roadGraph has valid finite nodes and edge endpoints matching nodes within 0.01 m
+  ---
+  duration_ms: 2.7367
+  ...
+# Subtest: Avalon has one connected road network and no internal arterial dead ends
+ok 32 - Avalon has one connected road network and no internal arterial dead ends
+  ---
+  duration_ms: 0.9008
+  ...
+# Subtest: generated driveways retain parent graph edge provenance
+ok 33 - generated driveways retain parent graph edge provenance
+  ---
+  duration_ms: 0.3394
+  ...
+# Subtest: Avalon exports parcelDiagnostics and reconciled candidate/served/vacant/rejected counts
+ok 34 - Avalon exports parcelDiagnostics and reconciled candidate/served/vacant/rejected counts
+  ---
+  duration_ms: 0.1425
+  ...
+# Subtest: crossing paint never crosses water or sits on a bridge span
+ok 35 - crossing paint never crosses water or sits on a bridge span
+  ---
+  duration_ms: 35.8864
+  ...
+# Subtest: shared junction surfaces are finite and stay above the terrain bed
+ok 36 - shared junction surfaces are finite and stay above the terrain bed
+  ---
+  duration_ms: 11.5881
+  ...
+# Subtest: coarse terrain protects carriageways, junction interiors and building foundations
+ok 37 - coarse terrain protects carriageways, junction interiors and building foundations
+  ---
+  duration_ms: 1.0638
+  ...
+# Subtest: leasing changes occupancy and cash, never building ownership, and coexists with a second tenant in the same building
+ok 38 - leasing changes occupancy and cash, never building ownership, and coexists with a second tenant in the same building
+  ---
+  duration_ms: 3.5195
+  ...
+# Subtest: insufficient cash cannot partially mutate the state
+ok 39 - insufficient cash cannot partially mutate the state
+  ---
+  duration_ms: 0.6744
+  ...
+# Subtest: name is safe text and frontage improves once
+ok 40 - name is safe text and frontage improves once
+  ---
+  duration_ms: 1.2205
+  ...
+# Subtest: validateStoredState rejects corrupt or stale worldKey payloads
+ok 41 - validateStoredState rejects corrupt or stale worldKey payloads
+  ---
+  duration_ms: 0.2919
+  ...
+# Subtest: buildDemoUnits selects deterministic serviced shop premises in Old Harbor, Westbank and Northgate plus multi-tenant unit
+ok 42 - buildDemoUnits selects deterministic serviced shop premises in Old Harbor, Westbank and Northgate plus multi-tenant unit
+  ---
+  duration_ms: 3638.092
+  ...
+# Subtest: tile packing preserves every instance and stable ordering within a tile
+ok 43 - tile packing preserves every instance and stable ordering within a tile
+  ---
+  duration_ms: 1.9262
+  ...
+# Subtest: narrow building bodies and roof silhouettes are never discarded as small decorative parts
+ok 44 - narrow building bodies and roof silhouettes are never discarded as small decorative parts
+  ---
+  duration_ms: 0.2849
+  ...
+# Subtest: junction collars leave a drivable strip on short blocks and retain terminal ends
+ok 45 - junction collars leave a drivable strip on short blocks and retain terminal ends
+  ---
+  duration_ms: 2.4745
+  ...
+# Subtest: profile slicing gives exact shared mouth coordinates without modifying the source
+ok 46 - profile slicing gives exact shared mouth coordinates without modifying the source
+  ---
+  duration_ms: 1.3463
+  ...
+# Subtest: the shared crossing fan has finite consistently ordered triangles and four open mouths
+ok 47 - the shared crossing fan has finite consistently ordered triangles and four open mouths
+  ---
+  duration_ms: 0.8331
+  ...
+# Subtest: junction cut/fill creates a common bed on a slope and preserves water cells
+ok 48 - junction cut/fill creates a common bed on a slope and preserves water cells
+  ---
+  duration_ms: 7.4647
+  ...
+# Subtest: eligibleJunctionArm allows at-grade sidewalked class >= 3 junctions and rejects driveways, rail, bridges, docks and duplicates
+ok 49 - eligibleJunctionArm allows at-grade sidewalked class >= 3 junctions and rejects driveways, rail, bridges, docks and duplicates
+  ---
+  duration_ms: 6.3968
+  ...
+# Subtest: packLabels picks higher priority regardless of input order and respects viewport bounds and exclusions
+ok 50 - packLabels picks higher priority regardless of input order and respects viewport bounds and exclusions
+  ---
+  duration_ms: 13.739
+  ...
+# Subtest: LRU bounds size, refreshes order on get, and replaces existing keys without growing
+ok 51 - LRU bounds size, refreshes order on get, and replaces existing keys without growing
+  ---
+  duration_ms: 1.8968
+  ...
+# Subtest: allocation-free gradient sampling preserves the existing seeded noise exactly
+ok 52 - allocation-free gradient sampling preserves the existing seeded noise exactly
+  ---
+  duration_ms: 3.7764
+  ...
+# Subtest: parcel identity is deterministic and independent of array position
+ok 53 - parcel identity is deterministic and independent of array position
+  ---
+  duration_ms: 1.109
+  ...
+# Subtest: invalid geometry is rejected
+ok 54 - invalid geometry is rejected
+  ---
+  duration_ms: 0.419
+  ...
+# Subtest: render resolution respects both a device DPR and a framebuffer pixel budget
+ok 55 - render resolution respects both a device DPR and a framebuffer pixel budget
+  ---
+  duration_ms: 0.9437
+  ...
+# Subtest: qualityWindow drops tier only after 3 consecutive slow active windows and ignores idle, hidden or manual
+ok 56 - qualityWindow drops tier only after 3 consecutive slow active windows and ignores idle, hidden or manual
+  ---
+  duration_ms: 0.8761
+  ...
+# Subtest: crossings at interior sampled vertices are connected, not visually overlapping roads
+ok 57 - crossings at interior sampled vertices are connected, not visually overlapping roads
+  ---
+  duration_ms: 9.4938
+  ...
+# Subtest: a network spanning a river can connect a stray street on either bank
+ok 58 - a network spanning a river can connect a stray street on either bank
+  ---
+  duration_ms: 0.6494
+  ...
+# Subtest: at-grade X crossing produces one degree-four node
+ok 59 - at-grade X crossing produces one degree-four node
+  ---
+  duration_ms: 2.3154
+  ...
+# Subtest: T endpoint touching a segment produces one degree-three node
+ok 60 - T endpoint touching a segment produces one degree-three node
+  ---
+  duration_ms: 1.4877
+  ...
+# Subtest: disconnected parallel street separated beyond snap produces no accidental junction
+ok 61 - disconnected parallel street separated beyond snap produces no accidental junction
+  ---
+  duration_ms: 0.2158
+  ...
+# Subtest: short legitimate dead end serving a parcel is retained when tagged requiredAccess
+ok 62 - short legitimate dead end serving a parcel is retained when tagged requiredAccess
+  ---
+  duration_ms: 0.8312
+  ...
+# Subtest: ordinary self-loop with no frontage is rejected and counted
+ok 63 - ordinary self-loop with no frontage is rejected and counted
+  ---
+  duration_ms: 0.381
+  ...
+# Subtest: check-source rejects conflict markers in a temporary fixture directory
+ok 64 - check-source rejects conflict markers in a temporary fixture directory
+  ---
+  duration_ms: 93.7685
+  ...
+# Subtest: screenshot tools use portable playwright imports and valid syntax
+ok 65 - screenshot tools use portable playwright imports and valid syntax
+  ---
+  duration_ms: 142.728
+  ...
+# Subtest: browser-ready fails fast on pageerror and console error with original text
+ok 66 - browser-ready fails fast on pageerror and console error with original text
+  ---
+  duration_ms: 3.6631
+  ...
+# Subtest: deriveArtifact strips outer html/head/body/meta wrappers idempotently
+ok 67 - deriveArtifact strips outer html/head/body/meta wrappers idempotently
+  ---
+  duration_ms: 2.958
+  ...
+# Subtest: three deterministic Avalon seeds generate, and repeat runs match excluding timings
+ok 68 - three deterministic Avalon seeds generate, and repeat runs match excluding timings
+  ---
+  duration_ms: 28323.5238
+  ...
+# Subtest: the different seeds actually produce different cities
+ok 69 - the different seeds actually produce different cities
+  ---
+  duration_ms: 0.5773
+  ...
+# Subtest: all six personalities generate with prepared recipes
+ok 70 - all six personalities generate with prepared recipes
+  ---
+  duration_ms: 20576.6222
+  ...
+1..70
+# tests 70
+# suites 0
+# pass 70
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 50762.0637

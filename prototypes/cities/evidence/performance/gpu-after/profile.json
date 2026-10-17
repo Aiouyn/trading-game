@@ -1,0 +1,239 @@
+{
+  "readyMs": 4144,
+  "summary": {
+    "cityId": "avalon",
+    "seed": 1701,
+    "version": "inhabitable-v2-45-junction-surfaces",
+    "renderer": {
+      "vendor": "Google Inc. (NVIDIA)",
+      "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Ti (0x00002208) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "software": false,
+      "dpr": 1.5
+    },
+    "quality": {
+      "tier": "high",
+      "manual": false,
+      "saver": false,
+      "detail": 1
+    },
+    "drawCalls": 104,
+    "triangles": 323195,
+    "renders": 2,
+    "memory": {
+      "geometries": 104,
+      "textures": 7
+    },
+    "loading": {
+      "genMs": 2656,
+      "loadMs": 278.5,
+      "timings": {
+        "Surveying the land": 0,
+        "Drawing districts": 212,
+        "Laying out the street grain": 835,
+        "Tracing collector streets": 177,
+        "Tracing local streets": 13,
+        "Cleaning the road network": 69,
+        "Cutting city blocks": 79,
+        "Raising landmarks": 312,
+        "Dividing parcels": 8,
+        "Raising 1,724 buildings": 535,
+        "Seating the companies": 21,
+        "Planting trees": 13,
+        "Bringing in the ships": 15,
+        "Planning the growth": 80,
+        "Painting the ground": 43,
+        "Done": 237
+      }
+    },
+    "activeCacheIds": [
+      "avalon"
+    ],
+    "typedArrayBytes": 26484004,
+    "parts": {
+      "box": 12009,
+      "gable": 422,
+      "hip": 134,
+      "pyr": 65,
+      "cyl": 505,
+      "cone": 502,
+      "dome": 2,
+      "ico": 0,
+      "treeBox": 19236,
+      "treeIco": 19236
+    },
+    "roadVertices": 87591
+  },
+  "samples": [
+    {
+      "camera": "overview",
+      "tier": "high",
+      "layerTriangles": {
+        "buildings": 97520,
+        "ground": 197588,
+        "roads": 70629
+      },
+      "submissionAndFinishMsMedian": 0.5,
+      "submissionAndFinishMsP95": 1.2000000029802322,
+      "drawCalls": 191,
+      "triangles": 365737,
+      "dpr": 1.5,
+      "visibleObjects": 207,
+      "memory": {
+        "geometries": 191,
+        "textures": 7
+      },
+      "frameCadence": {
+        "medianMs": 16.699999999999818,
+        "p95Ms": 16.700000000000728
+      },
+      "gpuTiming": {
+        "samples": 16,
+        "medianMs": 3.688448,
+        "p95Ms": 4.117504
+      }
+    },
+    {
+      "camera": "overview",
+      "tier": "balanced",
+      "layerTriangles": {
+        "buildings": 97520,
+        "ground": 163750,
+        "roads": 70629
+      },
+      "submissionAndFinishMsMedian": 0.3999999910593033,
+      "submissionAndFinishMsP95": 0.5,
+      "drawCalls": 191,
+      "triangles": 331899,
+      "dpr": 1,
+      "visibleObjects": 207,
+      "memory": {
+        "geometries": 227,
+        "textures": 7
+      },
+      "frameCadence": {
+        "medianMs": 16.699999999999818,
+        "p95Ms": 16.800000000000182
+      },
+      "gpuTiming": {
+        "samples": 16,
+        "medianMs": 0.797696,
+        "p95Ms": 1.727488
+      }
+    },
+    {
+      "camera": "overview",
+      "tier": "low",
+      "layerTriangles": {
+        "buildings": 97520,
+        "ground": 163750,
+        "roads": 70629
+      },
+      "submissionAndFinishMsMedian": 0.4000000059604645,
+      "submissionAndFinishMsP95": 0.5999999940395355,
+      "drawCalls": 191,
+      "triangles": 331899,
+      "dpr": 0.75,
+      "visibleObjects": 207,
+      "memory": {
+        "geometries": 227,
+        "textures": 7
+      },
+      "frameCadence": {
+        "medianMs": 16.699999999999818,
+        "p95Ms": 16.800000000000182
+      },
+      "gpuTiming": {
+        "samples": 16,
+        "medianMs": 0.664576,
+        "p95Ms": 1.490944
+      }
+    },
+    {
+      "camera": "street",
+      "tier": "high",
+      "layerTriangles": {
+        "buildings": 46144,
+        "trees": 16482,
+        "ground": 65620,
+        "roads": 47021
+      },
+      "submissionAndFinishMsMedian": 0.29999999701976776,
+      "submissionAndFinishMsP95": 0.30000001192092896,
+      "drawCalls": 45,
+      "triangles": 175711,
+      "dpr": 1.5,
+      "visibleObjects": 133,
+      "memory": {
+        "geometries": 232,
+        "textures": 7
+      },
+      "frameCadence": {
+        "medianMs": 16.699999999999818,
+        "p95Ms": 16.799999999999272
+      },
+      "gpuTiming": {
+        "samples": 16,
+        "medianMs": 1.810432,
+        "p95Ms": 3.560448
+      }
+    },
+    {
+      "camera": "street",
+      "tier": "balanced",
+      "layerTriangles": {
+        "buildings": 46144,
+        "trees": 6290,
+        "ground": 63470,
+        "roads": 47021
+      },
+      "submissionAndFinishMsMedian": 0.19999998807907104,
+      "submissionAndFinishMsP95": 0.29999999701976776,
+      "drawCalls": 43,
+      "triangles": 163369,
+      "dpr": 1,
+      "visibleObjects": 131,
+      "memory": {
+        "geometries": 232,
+        "textures": 7
+      },
+      "frameCadence": {
+        "medianMs": 16.699999999999818,
+        "p95Ms": 16.700000000000728
+      },
+      "gpuTiming": {
+        "samples": 16,
+        "medianMs": 0.995328,
+        "p95Ms": 2.338816
+      }
+    },
+    {
+      "camera": "street",
+      "tier": "low",
+      "layerTriangles": {
+        "buildings": 46144,
+        "trees": 6290,
+        "ground": 63470,
+        "roads": 47021
+      },
+      "submissionAndFinishMsMedian": 0.20000000298023224,
+      "submissionAndFinishMsP95": 0.29999999701976776,
+      "drawCalls": 43,
+      "triangles": 163369,
+      "dpr": 0.75,
+      "visibleObjects": 131,
+      "memory": {
+        "geometries": 232,
+        "textures": 7
+      },
+      "frameCadence": {
+        "medianMs": 16.69999999999891,
+        "p95Ms": 16.80000000000109
+      },
+      "gpuTiming": {
+        "samples": 16,
+        "medianMs": 0.690176,
+        "p95Ms": 2.158592
+      }
+    }
+  ]
+}

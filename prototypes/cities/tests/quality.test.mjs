@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { QUALITY, qualityWindow } from '../src/quality.js';
+import { QUALITY, qualityWindow, renderPixelRatio } from '../src/quality.js';
+
+test('render resolution respects both a device DPR and a framebuffer pixel budget', () => {
+  for (const tier of Object.keys(QUALITY)) {
+    const dpr = renderPixelRatio(tier, 3840, 2160, 3);
+    assert.ok(3840 * 2160 * dpr * dpr <= QUALITY[tier].pixels + 0.001);
+    assert.ok(dpr <= QUALITY[tier].dpr);
+    assert.ok(renderPixelRatio(tier, 390, 844, 1) <= 1);
+  }
+  assert.ok(renderPixelRatio('low', 1280, 800, 2) < renderPixelRatio('balanced', 1280, 800, 2));
+});
 
 test('qualityWindow drops tier only after 3 consecutive slow active windows and ignores idle, hidden or manual', () => {
   assert.equal(QUALITY.high.dpr, 1.5);

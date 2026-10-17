@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Living Cities</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }</script>
+<style>
+  :root {
+    --ink: #0d0f12; --ink-1: #14171b; --ink-2: #1b1f24; --line: #2a2f36;
+    --fg: #ece6da; --fg-muted: #a59f93; --fg-faint: #6f6a62;
+    --brass: #c9a45c; --brass-hi: #e6cb8f; --gain: #6fb08a; --loss: #d0705c;
+    --sky-top: #2a3550; --sky-bot: #c99a7a;
+    color-scheme: dark;
+    --serif: 'Instrument Serif', Georgia, serif; --sans: 'Inter', system-ui, sans-serif; --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); color: var(--fg); font: 14px/1.4 var(--sans); }
+  #sky { position: fixed; inset: 0; background: linear-gradient(to bottom, var(--sky-top), var(--sky-bot)); transition: background 0.6s; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  #view.dragging { cursor: grabbing; }
+  #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  .lbl { position: absolute; left: 0; top: 0; white-space: nowrap; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.55), 0 0 8px rgba(0,0,0,0.35); }
+  .lbl-district { font: italic 26px/1 var(--serif); color: #fff8ea; letter-spacing: 0.01em; }
+  .lbl-minor { font: 500 10.5px/1 var(--sans); text-transform: uppercase; letter-spacing: 0.16em; color: rgba(255,248,234,0.82); }
+  .lbl-landmark, .lbl-park, .lbl-station { font: 500 11px/1 var(--sans); color: #fff3d6; background: rgba(13,15,18,0.55); padding: 3px 7px; border-radius: 3px; border: 1px solid rgba(201,164,92,0.35); }
+  .lbl-hq { font: 600 10.5px/1 var(--sans); color: var(--ink); background: rgba(236,230,218,0.9); padding: 2px 5px; border-radius: 2px; letter-spacing: 0.04em; }
+  .lbl-crown { font: 500 11px/1 var(--mono); color: var(--ink); background: var(--brass); padding: 3px 6px; border-radius: 2px; }
+  .lbl-crown::before { content: '♛ '; }
+  .lbl-mine, .lbl-focus { font: 600 11px/1 var(--sans); color: var(--ink); background: var(--brass-hi); padding: 3px 7px; border-radius: 2px; box-shadow: 0 0 0 1px var(--ink); }
+
+  /* status strip */
+  #strip { position: fixed; top: 0; left: 0; right: 0; height: calc(44px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px) !important; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: rgba(13,15,18,0.86); border-bottom: 1px solid var(--line); backdrop-filter: blur(6px); z-index: 5; }
+  .brand { display: flex; align-items: center; gap: 8px; font: 20px/1 var(--serif); white-space: nowrap; }
+  .brand small { font: 400 11px/1 var(--mono); color: var(--fg-faint); }
+  #tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; }
+  #tabs::-webkit-scrollbar { display: none; }
+  .tab { appearance: none; border: 0; background: transparent; color: var(--fg-muted); font: 500 13px/1 var(--sans); padding: 9px 11px; border-radius: 4px; cursor: pointer; white-space: nowrap; display: flex; gap: 6px; align-items: baseline; }
+  .tab:hover { background: var(--ink-2); color: var(--fg); }
+  .tab[aria-selected="true"] { color: var(--fg); background: var(--ink-2); box-shadow: inset 0 -2px 0 var(--brass); }
+  .tab .rk { font: 400 10px/1 var(--mono); color: var(--fg-faint); }
+  .clock { font: 500 13px/1 var(--mono); color: var(--fg); white-space: nowrap; }
+  .clock .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--gain); margin-right: 6px; vertical-align: 1px; }
+
+  /* panels */
+  .panel { position: fixed; background: rgba(20,23,27,0.92); border: 1px solid var(--line); border-radius: 6px; backdrop-filter: blur(8px); z-index: 4; }
+  #right-dock { position: fixed; top: 56px; right: 12px; bottom: 12px; width: 288px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; z-index: 4; }
+  #right-dock > * { pointer-events: auto; position: relative; top: auto; right: auto; bottom: auto; left: auto; width: 100%; }
+  #sheet-body { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1 1 auto; }
+  #controls { position: relative; padding: 14px 14px 10px; max-height: 100%; overflow-y: auto; flex: 0 1 auto; }
+  #sheet-head { display: none; }
+  .label { font: 500 10.5px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-faint); }
+  .row { margin-bottom: 14px; }
+  .row-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
+  .val { font: 500 12.5px/1 var(--mono); color: var(--fg); }
+  input[type=range] { width: 100%; accent-color: var(--brass); height: 22px; margin: 0; }
+  .chips { display: flex; gap: 4px; margin-top: 7px; flex-wrap: wrap; }
+  .chip { appearance: none; border: 1px solid var(--line); background: transparent; color: var(--fg-muted); font: 500 11.5px/1 var(--sans); padding: 6px 8px; min-height: 30px; border-radius: 3px; cursor: pointer; }
+  .chip:hover { color: var(--fg); border-color: #3a414a; }
+  .chip.on { color: var(--ink); background: var(--brass); border-color: var(--brass); }
+  .btn { appearance: none; width: 100%; min-height: 44px; border: 0; background: var(--brass); color: var(--ink); font: 600 13px/1 var(--sans); padding: 10px; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+  .btn:hover { background: var(--brass-hi); }
+  .btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  .btns { display: flex; gap: 6px; }
+  .btns .btn { min-width: 44px; }
+  .pop { font: 400 12px/1.4 var(--mono); color: var(--fg-muted); margin-top: 6px; }
+  .pop b { color: var(--fg); font-weight: 500; }
+
+  #card { left: 12px; bottom: 12px; width: 330px; padding: 14px 16px; }
+  #card h1 { font: 400 30px/1.05 var(--serif); margin: 2px 0 4px; }
+  #card .tag { color: var(--fg-muted); font-size: 13px; margin-bottom: 10px; }
+  #card .blurb { color: var(--fg-muted); font-size: 12.5px; margin-bottom: 10px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .stat .k { font: 500 10px/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-faint); }
+  .stat .v { font: 500 13px/1.5 var(--mono); }
+
+  #info { left: 354px; bottom: 12px; width: 292px; padding: 12px 14px; display: none; }
+  #info .t { font: 400 22px/1.1 var(--serif); margin: 2px 0 6px; padding-right: 36px; }
+  #info .x, #inhabit-close, #sheet-close { position: absolute; top: 6px; right: 6px; appearance: none; border: 0; background: transparent; color: var(--fg-muted); font: 18px/1 var(--sans); cursor: pointer; min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; }
+  #info .x:hover, #inhabit-close:hover, #sheet-close:hover { color: var(--fg); background: var(--ink-2); }
+  #info .l { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--fg-muted); padding: 2px 0; gap: 8px; }
+  #info .l span:last-child { font-family: var(--mono); color: var(--fg); text-align: right; }
+  .up { color: var(--gain) !important; } .down { color: var(--loss) !important; }
+
+  #inhabit { left: 12px; top: 56px; width: 330px; max-height: calc(100vh - 280px); overflow-y: auto; padding: 12px 14px; display: none; z-index: 6; }
+  #inhabit.open { display: block; }
+  #inhabit h2 { font: 400 22px/1.1 var(--serif); margin: 2px 0 6px; padding-right: 36px; }
+  #inhabit .cash-bar { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 8px; background: var(--ink-2); border: 1px solid var(--line); border-radius: 4px; margin-bottom: 10px; font-size: 12.5px; }
+  #inhabit .cash-bar b { font-family: var(--mono); color: var(--brass-hi); }
+  .offer-card { border: 1px solid var(--line); border-radius: 4px; padding: 9px 10px; margin-bottom: 8px; background: rgba(13,15,18,0.55); }
+  .offer-card .o-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+  .offer-card .o-addr { font: 600 13px/1.2 var(--sans); color: var(--fg); }
+  .offer-card .o-dist { font: 500 10.5px/1 var(--mono); color: var(--brass); }
+  .offer-card .o-meta { font-size: 11.5px; color: var(--fg-muted); margin-bottom: 7px; }
+  .offer-card .o-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .offer-card .btn { padding: 7px 9px; font-size: 12px; width: auto; flex: 1; min-height: 44px; }
+  .inhabit-box { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .inhabit-input-row { display: flex; gap: 6px; margin-top: 5px; }
+  .inhabit-input { flex: 1; min-width: 0; height: 44px; background: var(--ink-2); border: 1px solid var(--line); border-radius: 4px; color: var(--fg); padding: 0 8px; font: 12.5px/1 var(--sans); }
+  .inhabit-err { color: var(--loss); font-size: 11.5px; margin-top: 4px; }
+  .inhabit-note { color: var(--fg-muted); font-size: 11.5px; margin: 6px 0; }
+
+  #help { padding: 8px 10px; font: 400 11.5px/1.5 var(--sans); color: var(--fg-muted); margin-top: auto; flex: none; }
+  #help kbd { font: 500 10.5px/1 var(--mono); background: var(--ink-2); border: 1px solid var(--line); border-radius: 3px; padding: 2px 5px; color: var(--fg); }
+
+  /* search: a field in the status strip, results drop down from it */
+  #search-wrap { position: relative; flex: 0 1 260px; min-width: 120px; }
+  #search { width: 100%; height: 34px; font: 13px/1 var(--sans); color: var(--fg); background: rgba(27,31,36,0.9); border: 1px solid var(--line); border-radius: 4px; padding: 0 34px 0 10px; outline: none; }
+  #search::placeholder { color: var(--fg-faint); }
+  #search:focus { border-color: var(--brass); }
+  #search-key { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font: 500 10.5px/1 var(--mono); color: var(--fg-faint); border: 1px solid var(--line); border-radius: 3px; padding: 2px 5px; pointer-events: none; }
+  #search:focus + #search-key { display: none; }
+  #results { position: absolute; top: calc(100% + 6px); right: 0; width: min(340px, calc(100vw - 24px)); max-height: 60vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; display: none; background: rgba(20,23,27,0.97); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 12px 32px rgba(0,0,0,0.45); z-index: 6; }
+  #results.open { display: block; }
+  #results li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 9px; border-radius: 4px; cursor: pointer; font-size: 13px; color: var(--fg); }
+  #results li:hover, #results li[aria-selected="true"] { background: var(--ink-2); }
+  #results li .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #results li .hint { flex: none; max-width: 52%; font: 400 11px/1.3 var(--sans); color: var(--fg-faint); text-align: right; }
+  #results li.empty, #results li.empty:hover { color: var(--fg-faint); background: none; cursor: default; }
+
+  /* map lens legend: sits in the right dock flow below controls on desktop */
+  #legend { position: relative; max-height: 220px; overflow-y: auto; padding: 12px 12px 10px; display: none; flex: 0 1 auto; }
+  #legend.show { display: block; }
+  #legend h2 { font: italic 24px/1.05 var(--serif); margin: 3px 0 8px; }
+  #legend .lg { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 28px; margin: 0; padding: 4px 6px; border: 0; border-radius: 3px; background: none; color: var(--fg-muted); font: 12.5px/1.25 var(--sans); text-align: left; }
+  #legend button.lg { cursor: pointer; }
+  #legend button.lg:hover { background: var(--ink-2); color: var(--fg); }
+  #legend .lg.on { background: var(--ink-2); color: var(--fg); box-shadow: inset 2px 0 0 var(--brass); }
+  #legend .sw { flex: none; width: 12px; height: 12px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,0.35); }
+  #legend .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #legend .sub { margin-left: 6px; font-size: 11.5px; color: var(--fg-faint); }
+  #legend .n { flex: none; font: 500 12px/1 var(--mono); color: var(--fg); white-space: nowrap; }
+  #legend .head { margin: 10px 0 2px; font: 500 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-faint); }
+  #legend .ramp { height: 10px; border-radius: 2px; margin: 4px 0 5px; }
+  #legend .ramp-ends { display: flex; justify-content: space-between; font: 500 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-faint); }
+  #legend .note { margin-top: 9px; font: 400 11.5px/1.4 var(--sans); color: var(--fg-faint); }
+  .brass { color: var(--brass-hi) !important; }
+
+  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; background: rgba(13,15,18,0.78); z-index: 10; transition: opacity 0.4s; }
+  #loading.hide { opacity: 0; pointer-events: none; }
+  #loading .city { font: italic 44px/1 var(--serif); }
+  #loading .step { font: 400 13px/1 var(--mono); color: var(--fg-muted); }
+  #loading .bar { width: 220px; height: 2px; background: var(--line); overflow: hidden; }
+  #loading .bar i { display: block; height: 100%; width: 0; background: var(--brass); transition: width 0.25s; }
+
+  #toggle { display: none; }
+  @media (max-width: 900px), (max-height: 520px) {
+    #strip { height: calc(48px + env(safe-area-inset-top, 0px)); gap: 8px; padding: 0 12px; }
+    .brand small, .clock { display: none; }
+    .tab { min-height: 44px; align-items: center; }
+    #card { top: calc(54px + env(safe-area-inset-top, 0px)); bottom: auto; left: 12px; right: 12px; width: auto; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    #card h1 { font-size: 20px; margin: 0; }
+    #card .label, #card .tag, #card .blurb, #card .stats { display: none; }
+    #card #try-live { margin-top: 0 !important; width: auto; padding: 8px 12px; flex: none; }
+    #inhabit { top: calc(106px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; width: auto; max-height: 44dvh; }
+    #right-dock {
+      top: auto; left: 0; right: 0; bottom: 0; width: 100%; max-height: 45dvh;
+      background: rgba(20,23,27,0.96); border-top: 1px solid var(--line); border-radius: 10px 10px 0 0;
+      pointer-events: auto; gap: 0; overflow: hidden;
+    }
+    #right-dock.sheet-collapsed { max-height: 48px; }
+    #sheet-head {
+      display: flex; align-items: center; gap: 6px; padding: 4px 52px 4px 12px; border-bottom: 1px solid var(--line); min-height: 48px; flex: none; position: relative;
+    }
+    .sheet-tab {
+      appearance: none; border: 1px solid var(--line); background: transparent; color: var(--fg-muted);
+      font: 600 12px/1 var(--sans); min-height: 36px; padding: 6px 12px; border-radius: 4px; cursor: pointer;
+    }
+    .sheet-tab.on { background: var(--brass); color: var(--ink); border-color: var(--brass); }
+    #sheet-body { overflow-y: auto; flex: 1 1 auto; padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px)); }
+    #right-dock.sheet-collapsed #sheet-body { display: none; }
+    #controls, #legend, #info.in-sheet { border: 0; background: transparent; padding: 0; max-height: none; overflow: visible; }
+    #right-dock[data-tab="selection"] #controls,
+    #right-dock[data-tab="selection"] #legend { display: none !important; }
+    #right-dock[data-tab="map"] #info.in-sheet { display: none !important; }
+    #info { position: relative; left: auto; right: auto; bottom: auto; width: 100%; border: 0; background: transparent; padding: 0; }
+    #info .x { display: none; }
+    #help { display: none !important; }
+    #search-wrap { flex: 0 1 150px; min-width: 96px; }
+    #search { padding-right: 10px; }
+    #search-key { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div id="sky"></div>
+<canvas id="view" aria-label="City map"></canvas>
+<div id="labels"></div>
+
+<header id="strip">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c9a45c" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 9h18M7 9v6M17 9v6"/><path d="M4 19h3M10.5 19h3M17 19h3" opacity=".55"/></svg>
+    Quay <small>Cities · prototype</small>
+  </div>
+  <nav id="tabs" role="tablist"></nav>
+  <div id="search-wrap">
+    <input id="search" type="text" role="combobox" aria-expanded="false" aria-controls="results" aria-label="Search the city" placeholder="Search companies, owners, places" autocomplete="off" spellcheck="false">
+    <kbd id="search-key">/</kbd>
+    <ul id="results" role="listbox"></ul>
+  </div>
+  <div class="clock"><span class="dot"></span><span id="clock">19:12</span></div>
+</header>
+
+<section id="card" class="panel" aria-live="polite">
+  <div class="label" id="c-bloc">Federal Union · FDL</div>
+  <h1 id="c-name">Port Avalon</h1>
+  <div class="tag" id="c-tag"></div>
+  <div class="blurb" id="c-blurb"></div>
+  <div class="stats">
+    <div class="stat"><div class="k">Buildings</div><div class="v" id="s-b">0</div></div>
+    <div class="stat"><div class="k">Residents</div><div class="v" id="s-r">0</div></div>
+    <div class="stat"><div class="k">Headquarters</div><div class="v" id="s-h">0</div></div>
+    <div class="stat"><div class="k">Tallest</div><div class="v" id="s-t">0 m</div></div>
+    <div class="stat"><div class="k">Streets</div><div class="v" id="s-k">0 km</div></div>
+    <div class="stat"><div class="k">Generated in</div><div class="v" id="s-ms">0 ms</div></div>
+  </div>
+  <button class="btn" id="try-live" style="margin-top:10px">Try living here</button>
+</section>
+
+<section id="inhabit" class="panel" aria-label="Local ownership demo"></section>
+
+<section id="info" class="panel"></section>
+
+<div id="right-dock" data-tab="map">
+  <div id="sheet-head" role="tablist" aria-label="Bottom sheet">
+    <button type="button" class="sheet-tab on" data-sheet-tab="map" role="tab" aria-selected="true">Map</button>
+    <button type="button" class="sheet-tab" data-sheet-tab="selection" role="tab" aria-selected="false">Selection</button>
+    <button type="button" id="sheet-close" aria-label="Close sheet">×</button>
+  </div>
+  <div id="sheet-body">
+    <aside id="controls" class="panel">
+      <button id="toggle">Controls</button>
+      <div class="row">
+        <div class="row-head"><span class="label">Time of day</span><span class="val" id="v-time">19:12</span></div>
+        <input id="time" type="range" min="0" max="24" step="0.05" value="19.2" aria-label="Time of day">
+        <div class="chips">
+          <button class="chip" data-t="7">Dawn</button><button class="chip" data-t="13">Noon</button><button class="chip" data-t="18.6">Golden hour</button><button class="chip" data-t="22.5">Night</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="label">Generation preview</span><span class="val" id="v-growth">100%</span></div>
+        <input id="growth" type="range" min="0" max="1000" step="1" value="1000" aria-label="Generation preview">
+        <div class="pop" id="pop"></div>
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="label">Today's market</span><span class="val" id="v-mood">Calm</span></div>
+        <input id="mood" type="range" min="-100" max="100" step="1" value="0" aria-label="Today's market">
+        <div class="chips"><button class="chip" data-m="-100">Crash</button><button class="chip" data-m="0">Calm</button><button class="chip" data-m="100">Rally</button></div>
+        <div class="pop">Market lens shows simulated returns. Normal view follows time of day.</div>
+      </div>
+      <div class="row">
+        <div class="row-head"><span class="label">Map lens</span><span class="val" id="v-lens">Normal</span></div>
+        <div class="chips" id="lens-chips"></div>
+        <div class="row-head"><span class="label">See through</span></div>
+        <div class="chips" role="group" aria-label="See through">
+          <button class="chip" data-see="off">Off</button><button class="chip on" data-see="selected">Selected</button><button class="chip" data-see="mine">Selected + mine</button>
+        </div>
+        <div class="pop">Buildings in front of the selected one and yours are cut away. <kbd>X</kbd> cycles.</div>
+        <button class="btn ghost" id="find" style="margin-top:10px">Find my buildings</button>
+      </div>
+      <div class="row btns">
+        <button class="btn" id="play">▶ Watch it grow</button>
+      </div>
+      <div class="row btns" style="margin-bottom:4px">
+        <button class="btn ghost" id="rotl" title="Rotate left (Q)">⟲</button>
+        <button class="btn ghost" id="rotr" title="Rotate right (E)">⟳</button>
+        <button class="btn ghost" id="lbls" title="Labels (L)">Labels</button>
+        <button class="btn ghost" id="home" title="Reset view (H)">Fit</button>
+      </div>
+      <div class="chips" style="margin-top:6px"><button class="chip" id="saver" aria-pressed="false" title="Lower resolution on large screens, and a slower animation">Battery saver</button></div>
+    </aside>
+    <section id="legend" class="panel" aria-live="polite"></section>
+  </div>
+  <div id="help" class="panel">Drag to pan · Scroll to zoom · <kbd>Q</kbd> <kbd>E</kbd> rotate · <kbd>L</kbd> labels · <kbd>V</kbd> lens · <kbd>X</kbd> see through · <kbd>/</kbd> search</div>
+</div>
+
+<div id="loading"><div class="city" id="l-city">Port Avalon</div><div class="bar"><i id="l-bar"></i></div><div class="step" id="l-step">Surveying the land</div></div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
