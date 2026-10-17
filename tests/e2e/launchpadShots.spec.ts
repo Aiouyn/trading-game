@@ -9,8 +9,8 @@ import { frame } from './shell/support';
 // LP_SHOTS_DIR names a folder, so the normal run skips it.
 
 const TPD = 720;
-/** the launch gate's account age: three real days, which is 72 game days of ticks (LP.MIN_AGE_TICKS), plus a margin */
-const MIN_AGE_TICKS = 3 * 24 * TPD + 10;
+/** the launch gate's account age: one real day, which is 24 game days of ticks (LP.MIN_AGE_TICKS), plus a margin */
+const MIN_AGE_TICKS = 1 * 24 * TPD + 10;
 const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 function randomTicker(): string {

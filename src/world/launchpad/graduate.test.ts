@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { impact } from '@/engine';
 import { applyCommand, stepGame } from '../game';
 import { cashOf } from '../core';
 import { bookedNet, netWorldMoney } from '../company/exploits/sequences';
@@ -50,6 +51,45 @@ describe('graduation (L4)', () => {
     expect(total).toBe(LP.SUPPLY);
     expect(g.market.accounts[bookAccountId('SUPL')]!.positions.SUPL!.qty).toBe(LP.SUPPLY - LP.CURVE_SUPPLY - 20_000_000);
     expect(g.market.accounts[CREATOR]!.positions.SUPL!.qty).toBe(20_000_000);
+  });
+
+  it('listed ADV scales with the book float, so a $1,000 buy moves a 5% allocation more than a 0% allocation', () => {
+    const floatTokens = LP.SUPPLY - LP.CURVE_SUPPLY;
+    const g0 = lpWorld('grad-adv-0');
+    launch(g0, CREATOR, 'ZERO', { allocation: 0 });
+    expect(grad(g0, 'ZERO').ok).toBe(true);
+    const g5 = lpWorld('grad-adv-5');
+    launch(g5, CREATOR, 'FIVE', { allocation: LP.ALLOC_MAX });
+    expect(grad(g5, 'FIVE').ok).toBe(true);
+
+    const advOf = (g: ReturnType<typeof lpWorld>, ticker: string, alloc: number) => {
+      const def = g.market.config.assets.find((a) => a.id === ticker)!;
+      const bookCash = g.market.accounts[bookAccountId(ticker)]!.cash;
+      const frac = (floatTokens - alloc) / floatTokens;
+      expect(def.advNotional).toBeCloseTo(Math.max(1000, bookCash * frac), 6);
+      expect(g.market.accounts[bookAccountId(ticker)]!.positions[ticker]!.qty).toBe(floatTokens - alloc);
+      return def.advNotional!;
+    };
+    advOf(g0, 'ZERO', 0);
+    advOf(g5, 'FIVE', LP.ALLOC_MAX);
+
+    // Two tickers draw different sniper sizes, so the raises differ. Hold the raise fixed and equalize vol and h.
+    // Impact is Y · σ · √(notional / ADV). The 50M allocation is 5% of supply and 0.75 of the 200M float.
+    const raise = 40_000;
+    g5.market = { ...g5.market, regime: g0.market.regime };
+    const move = (g: ReturnType<typeof lpWorld>, ticker: string, adv: number) => {
+      const i = g.market.config.assets.findIndex((a) => a.id === ticker);
+      g.market.config = {
+        ...g.market.config,
+        assets: g.market.config.assets.map((a, k) => (k === i ? { ...a, vol: 1.9, advNotional: adv } : a)),
+      };
+      g.market.assets[i]!.h = 1;
+      return impact(g.market, i, 1000);
+    };
+    const full = move(g0, 'ZERO', raise);
+    const thin = move(g5, 'FIVE', raise * (floatTokens - LP.ALLOC_MAX) / floatTokens);
+    expect(thin).toBeGreaterThan(full);
+    expect(thin / full).toBeCloseTo(Math.sqrt(1 / 0.75), 8);
   });
 
   it('the fee is a sink of 1.5% of the raise, the book keeps the rest, and the money closes to the cent through the graduation', () => {

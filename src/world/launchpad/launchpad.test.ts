@@ -14,13 +14,15 @@ import { liquidateCohort } from './trade';
 const refusal = (r: { ok: boolean; data?: unknown }) => (r.data as { refusal?: string } | undefined)?.refusal;
 
 describe('launch gates (L2)', () => {
-  it('refuses a player below Hustler, and an account younger than three real days', () => {
+  it('refuses a player below Hustler, and an account younger than one real day', () => {
     const g = lpWorld('gate-rank');
     g.players[TRADER]!.rankId = 'R0';
     expect(refusal(launch(g, TRADER, 'ABCD'))).toBe('rank');
     const h = lpWorld('gate-age');
     h.players[TRADER]!.joinedTick = h.market.tick - 10 * TPD;
     expect(refusal(launch(h, TRADER, 'ABCD'))).toBe('age');
+    h.players[TRADER]!.joinedTick = h.market.tick - LP.MIN_AGE_TICKS;
+    expect(refusal(launch(h, TRADER, 'ABCD'))).not.toBe('age');
   });
 
   it('launches a live token: the fee is a booked sink, the curve opens, and the creator holds the allocation', () => {
@@ -273,6 +275,12 @@ describe('death (L3)', () => {
     launch(g, CREATOR, 'QUIE');
     const t = g.launchpad!.tokens.QUIE!;
     liquidateCohort(g, t, null); // the launch cohort sells back, so the curve's cash is what the death line reads (v1.4)
+    // This clock is the quiet coin. The launch crowd's orders are a different case: left in place, a jumped
+    // day would still print the overdue rally and hold the curve above the line.
+    if (t.micro?.episode) {
+      t.micro.episode.script = undefined;
+      t.micro.episode.cursor = Number.MAX_SAFE_INTEGER;
+    }
     t.buzz.base = 0;
     t.npcPending = 0; // no arrivals either: the launch buzz would fund a cohort buy above the cash line (L6.1)
     t.sniperDone = true; // no sniper: its buy would hold the curve above the cash line
@@ -289,6 +297,11 @@ describe('death (L3)', () => {
     expect(t.deadTick).toBe(10 * TPD);
     const h = lpWorld('death-none');
     launch(h, CREATOR, 'SLOW');
+    const slow = h.launchpad!.tokens.SLOW!;
+    if (slow.micro?.episode) {
+      slow.micro.episode.script = undefined;
+      slow.micro.episode.cursor = Number.MAX_SAFE_INTEGER;
+    }
     jumpDays(h, 25);
     lpTick(h, null);
     expect(h.launchpad!.tokens.SLOW!.status).toBe('dead');

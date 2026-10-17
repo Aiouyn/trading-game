@@ -1,3 +1,4 @@
+import { Rng, seedStream } from '@/engine';
 import type { GameState } from '../types';
 import { LP, bookAccountId, npcAccountId, isNpcAccount } from './constants';
 import { cohortsOf } from './cohorts';
@@ -11,6 +12,8 @@ import { canCancel, launchGate } from './launch';
 import { lockedAmount, vestCliffDay, vestEndDay, vestFraction } from './vest';
 import { dayOf } from './state';
 import { LP_NPC_HANDLES } from '../text/lpReplies';
+import { closesOf, followerCount } from './desk';
+import { MICROFLOW } from './microflow';
 import type { LpBar, LpReply, LpToken, LpTrade } from './types';
 
 /**
@@ -119,6 +122,18 @@ export interface LaunchpadView {
   console: { ticker: string; name: string; status: LpCard['status']; fees: number; allocation: number; unlocked: number; flag: LpCard['flag']; promos: number; capUsed: number; capMax: number; cancellable: boolean; replies: number; art: number }[];
   /** the viewer's live token count against the limit */
   live: { count: number; max: number };
+  /**
+   * The public desks. Closed result and followers only: no open bag, no cash.
+   * The viewer is always the first row. NPC rows are a mark against what those wallets paid.
+   */
+  desks: LpDesk[];
+}
+
+export interface LpDesk {
+  name: string;
+  realized: number;
+  followers: number;
+  you: boolean;
 }
 
 /**
@@ -319,7 +334,7 @@ function tradeBar(all: LpToken[]): LpBarRow[] {
 /** The viewer's Launchpad view. Empty (no feeds) in a world that has never launched a token. */
 export function launchpadView(g: GameState, pid: string): LaunchpadView {
   const s = g.launchpad;
-  const empty: LaunchpadView = { gate: null, gateData: null, feeds: { newest: [], trending: [], graduated: [] }, king: null, bar: [], holdings: [], console: [], live: { count: 0, max: LP.MAX_LIVE } };
+  const empty: LaunchpadView = { gate: null, gateData: null, feeds: { newest: [], trending: [], graduated: [] }, king: null, bar: [], holdings: [], console: [], live: { count: 0, max: LP.MAX_LIVE }, desks: [] };
   const gate = launchGate(g, pid);
   const gateCode = gate && !gate.ok ? (gate.data as { refusal?: string } | undefined)?.refusal ?? null : null;
   const gateData = gate && !gate.ok ? gate.data ?? null : null;
@@ -376,5 +391,63 @@ export function launchpadView(g: GameState, pid: string): LaunchpadView {
     holdings,
     console: consoleRows,
     live: { count: mine.filter((t) => t.status === 'live').length, max: LP.MAX_LIVE },
+    desks: desksOf(g, pid),
   };
+}
+
+/** Closed results for the board. One pass for humans, one for the NPC marks. */
+function desksOf(g: GameState, pid: string): LpDesk[] {
+  const s = g.launchpad;
+  if (!s) return [];
+  const realized = new Map<string, number>();
+  const npcScore = new Map<string, number>();
+  for (const ticker of s.order) {
+    const t = s.tokens[ticker];
+    if (!t) continue;
+    for (const [id, r] of Object.entries(t.realized)) realized.set(id, (realized.get(id) ?? 0) + r);
+    if (t.status === 'dead') continue;
+    const px = t.status === 'live' ? spotAt(t.y) : priceNow(g, t);
+    for (const c of cohortsOf(t)) {
+      if (!c.wallet?.startsWith('lp:npc:trader:') || c.tokens <= 0) continue;
+      npcScore.set(c.wallet, (npcScore.get(c.wallet) ?? 0) + c.tokens * px - c.cost);
+    }
+  }
+  const rng = new Rng(seedStream(g.seed, 'lp:population'));
+  for (let i = 0; i < MICROFLOW.population; i++) {
+    const id = `lp:npc:trader:${i}`;
+    const startCash = Math.round((2_000 + rng.uniform() * 22_000) * 100) / 100;
+    const acct = g.market.accounts[id];
+    if (!acct) continue;
+    let spent = 0;
+    for (const ticker of s.order) {
+      const t = s.tokens[ticker];
+      if (!t || t.status === 'dead') continue;
+      for (const c of cohortsOf(t)) if (c.wallet === id) spent += c.cost;
+    }
+    const closedPnl = acct.cash + spent - startCash + (acct.realizedPnl ?? 0);
+    if (Math.abs(closedPnl) >= 1) npcScore.set(id, (npcScore.get(id) ?? 0) + closedPnl);
+  }
+  const row = (id: string, name: string, pnl: number, you: boolean): LpDesk => ({
+    name, realized: pnl, you,
+    followers: you || g.players[id] ? followerCount(pnl, closesOf(g, id)) : followerCount(pnl, 3),
+  });
+  const you = g.players[pid];
+  const rows: LpDesk[] = [row(pid, you?.handle ?? pid, realized.get(pid) ?? 0, true)];
+  const humans = Object.values(g.players)
+    .filter((p) => !p.npc && p.id !== pid && (realized.get(p.id) ?? 0) !== 0)
+    .sort((a, b) => (realized.get(b.id)! - realized.get(a.id)!) || (a.handle < b.handle ? -1 : a.handle > b.handle ? 1 : 0))
+    .slice(0, 5);
+  for (const p of humans) rows.push(row(p.id, p.handle, realized.get(p.id) ?? 0, false));
+  const used = new Set(rows.map((r) => r.name));
+  const npcs = [...npcScore.entries()]
+    .filter(([, v]) => Math.abs(v) >= 50)
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  for (const [id, mark] of npcs) {
+    if (rows.length >= 10) break;
+    const name = LP_NPC_HANDLES[tickerHash(id) % LP_NPC_HANDLES.length]!;
+    if (used.has(name)) continue;
+    used.add(name);
+    rows.push(row(id, name, mark, false));
+  }
+  return rows;
 }

@@ -10,7 +10,7 @@ import { ageAccount, clearSheets, goTo, grant, isPhone, register, skipRankUp, sk
 // screenshots go to P10_SHOTS (default test-results/p10-shots) in English and French.
 
 const TPD = 720;
-const MIN_AGE_TICKS = 3 * 24 * TPD + 10;
+const MIN_AGE_TICKS = 1 * 24 * TPD + 10;
 const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const SHOTS = process.env.P10_SHOTS ?? 'test-results/p10-shots';
 

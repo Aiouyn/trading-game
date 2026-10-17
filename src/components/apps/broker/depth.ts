@@ -7,6 +7,8 @@ export interface DepthRow {
   day: number;
   depth: number;
   desired: DepthFrame['assets'][string]['desired'];
+  /** Fractional return of the last close auction. Absent before that close, and when the engine omitted a flat name. */
+  auctionMove?: number;
 }
 
 /**
@@ -17,5 +19,10 @@ export function depthRow(frame: DepthFrame | null | undefined, assetId: string):
   if (!frame) return null;
   const a = frame.assets[assetId];
   if (!a) return null;
-  return { day: frame.day, depth: a.depth, desired: a.desired };
+  return {
+    day: frame.day,
+    depth: a.depth,
+    desired: a.desired,
+    ...(a.auctionMove !== undefined ? { auctionMove: a.auctionMove } : {}),
+  };
 }

@@ -9,6 +9,7 @@ import { anonOf } from './anon';
 import { pushTape } from './tape';
 import { dayOf, isCreatorLinked, lpWire, pushBuy, pushLot, refuse, tokenOf } from './state';
 import { vestFraction } from './vest';
+import { noteClose } from './desk';
 import type { LpToken, LpLot } from './types';
 
 /**
@@ -140,6 +141,7 @@ export function lpFills(g: GameState, fills: { playerId: string; assetId: string
     }
     t.lots[f.playerId] = L;
     t.realized[f.playerId] = (t.realized[f.playerId] ?? 0) + f.qty * f.price - f.fee - cost;
+    noteClose(g, f.playerId);
     recordCreatorSale(g, t, f.playerId, f.qty, Math.round((f.qty * f.price - f.fee) * 100), out);
   }
 }

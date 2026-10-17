@@ -8,8 +8,8 @@ import { ADMIN, WORLD, ageAccount, clearSheets, goTo, grant, register, skipRankU
 // in the Create form. Every spec makes its own token, so the specs do not depend on each other. Nothing here advances the world.
 
 const TPD = 720;
-/** the launch gate's account age: three real days, which is 72 game days of ticks (LP.MIN_AGE_TICKS), plus a margin */
-const MIN_AGE_TICKS = 3 * 24 * TPD + 10;
+/** the launch gate's account age: one real day, which is 24 game days of ticks (LP.MIN_AGE_TICKS), plus a margin */
+const MIN_AGE_TICKS = 1 * 24 * TPD + 10;
 const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 /** A fresh ticker (three to five letters, never used in this world: four random letters). */

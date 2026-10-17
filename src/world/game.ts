@@ -284,6 +284,7 @@ const STREAK_ACTIONS = new Set<Command['type']>([
   'prop.renovate', 'prop.home', 'prop.repay', 'life.buy', 'life.sell', 'note.buy', 'contract.claim', 'chat.send', 'auction.bid',
   'lab.gpu', 'lab.reserve', 'lab.data', 'lab.research', 'lab.hire', 'lab.train', 'lab.bot', 'lab.botToggle', 'lab.signal', 'tournament.enter',
   'alliance.deposit', 'alliance.withdraw', 'deal.offer', 'deal.respond', 'deal.repay', 'watch.set', 'alert.add', 'alert.remove',
+  'lp.launch', 'lp.buy', 'lp.sell', 'lp.buzz',
 ]);
 
 /**
@@ -413,7 +414,10 @@ function applyCommandInner(g: GameState, pid: string, cmd: Command, out: StepOut
       g.market = r.state;
       p.stats.trades++;
       const realized = (g.market.accounts[pid]?.realizedPnl ?? 0) - before;
-      if (cmd.side === 'sell' && realized > 0) { p.stats.optionsWon++; p.stats.winningTrades++; }
+      if (cmd.side === 'sell' && Math.abs(realized) > 0.005) {
+        p.stats.closedTrades = (p.stats.closedTrades ?? 0) + 1;
+        if (realized > 0) { p.stats.optionsWon++; p.stats.winningTrades++; }
+      }
       if (r.fill) recordOptionTrade(g, pid, cmd.contractId, cmd.side, cmd.qty, r.fill.price, r.fill.fee, realized, g.market.tick);
       return { ok: true, data: r.fill };
     }

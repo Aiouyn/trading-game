@@ -881,6 +881,11 @@ export interface EcologyState {
   archive?: EcoArchiveDay[];
   /** NPC rival funds (their trades are slices of the pools, rivals.ts); absent when none are configured */
   rivals?: RivalState[];
+  /**
+   * The close auction's move from the pre-auction mid, as a fractional return per asset id (ecologyStep).
+   * Absent on a save from before it, and until the first close. Not recomputed from candles.
+   */
+  lastAuction?: { day: number; moves: Record<string, number> };
 }
 
 export type RivalStyle = 'value' | 'momentum' | 'degen';

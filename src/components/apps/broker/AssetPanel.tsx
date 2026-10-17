@@ -151,12 +151,13 @@ export function AssetPanel({ ticker, onOptions, chainOpen }: { ticker: string; o
   );
 }
 
-/** The last few NPC prints on this name. A human's own fills stay on the blotter, not here. */
+/** The last few displayed crowd names on this name. A human's own fills stay on the blotter, not here. */
 function Tape({ ticker }: { ticker: string }) {
   const rows = (useGame((s) => s.frame?.tape) ?? []).filter((r) => r.assetId === ticker).slice(-12).reverse();
   return (
     <div className="mt-4" data-testid="broker-tape">
       <div className="label">{t('broker.tape.title')}</div>
+      <p className="mt-1 text-caption text-fg-faint" data-testid="broker-tape-caption">{t('broker.tape.caption')}</p>
       {rows.length === 0 ? (
         <p className="mt-1 text-caption text-fg-faint" data-testid="broker-tape-empty">{t('broker.tape.empty')}</p>
       ) : (

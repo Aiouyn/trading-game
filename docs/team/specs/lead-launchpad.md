@@ -139,6 +139,8 @@ copycat buzz worth about 50x the launch base (a buy that pumps itself).
 
 - **L6.4 Instant arrivals.** A buzz arrival is bought by the NPC cohort in full within the tick it arrives (no half-life):
   no player can act before it. Followers buy the top; the edge belongs only to holders positioned before the shock.
+  Amendment 2026-10-15: the fill is still before the player can act, and only with cash the funded accounts already hold.
+  Unpaid demand is not minted. The sniper stays inside the launch command.
 - **L6.5 No copycat in V1.** Player buys add no buzz. (Copycat flow is a self-pump: removed.)
 - **L6.6 Finite tails.** The viral and launch-buzz laws must have a finite mean and variance (Pareto alpha >= 2.2, or a
   lognormal), with a hard cap on a single arrival (at most the cash to take the curve from its current point to graduation).

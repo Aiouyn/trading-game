@@ -483,6 +483,7 @@ function ecologyStep(cleared: WorldState, tick: number, events: StepEvent[], fil
   const moves: Record<string, number> = {};
   cleared.assets.forEach((a, i) => { const m = lnClose[i]! - a.lnP; if (Math.abs(m) > 1e-12) moves[cfg.assets[i]!.id] = Math.expm1(m); });
   events.push({ type: 'auction', tick, moves });
+  eco = { ...eco, lastAuction: { day, moves } };
   return { state: { ...cleared, assets, ecology: eco }, events, fills };
 }
 

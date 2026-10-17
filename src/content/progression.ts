@@ -7,6 +7,8 @@
 export interface PlayerStats {
   trades: number;
   winningTrades: number;
+  /** closed trades (sells, short covers, option closes) with a non-zero result, so win rate divides wins by closes */
+  closedTrades?: number;
   bestTrade: number;
   worstTrade: number;
   shortsWon: number;

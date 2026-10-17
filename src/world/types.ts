@@ -200,6 +200,11 @@ export interface Player {
   netWorthPeak: number;
   /** displayed net worth: markets mark-to-market */
   netWorth: number;
+  /**
+   * Public trailing average of lnP for the value-style NPC, keyed by asset id. Optional so an old save loads.
+   * It is not the engine's hidden fundamental.
+   */
+  valueEma?: Record<string, number>;
   /** net worth with markets at their crowd-exit liquidation value (alt-pump proof); peak, rank and boards use it */
   markNetWorth?: number;
   /**
@@ -567,6 +572,11 @@ export interface EconomyState {
     lastSupply: number;
     /** the last supplies, oldest first (ruling O-6: the 7-day window); optional, so an old save loads */
     hist?: number[];
+    /**
+     * What `hist` is measured in. Absent on a save from before per-player net worth: those samples are aggregate
+     * sums and must be dropped, or the next window compares a per-player reading with an aggregate base.
+     */
+    measure?: 'nw-per-player';
     /** R-9-10: the shift on every tax bracket (points, clamped to +-5), moved only while the stabilizer is engaged; optional, absent = 0 */
     taxShift?: number;
   };

@@ -30,6 +30,13 @@ export function centsOf(dollars: number): number {
   return Math.round(dollars * 100);
 }
 
+/** Whole cents `dollars` can pay. A float just under the next cent does not borrow it. */
+export function payableCents(dollars: number): number {
+  if (!(dollars > 0)) return 0;
+  const cents = Math.floor(dollars * 100 + 1e-6);
+  return cents / 100 > dollars ? Math.max(0, cents - 1) : cents;
+}
+
 export function tokenOf(g: GameState, ticker: string): LpToken | undefined {
   // an own-property check: a ticker such as "constructor" or "__proto__" is a client's string, not a token (review item 1)
   const s = g.launchpad;
@@ -63,7 +70,10 @@ export function addAccountCash(g: GameState, accountId: string, cents: number): 
   const a = g.market.accounts[accountId];
   if (!a) throw new Error(`launchpad: no account ${accountId}`);
   // in place on the one account: every curve has an account, so a copy of the whole map per fill made a month of trading quadratic
-  g.market.accounts[accountId] = { ...a, cash: a.cash + cents / 100 };
+  let cash = a.cash + cents / 100;
+  // A fully spent account can land a fraction of a cent below zero. That is dust, not an overdraft.
+  if (cash < 0 && cash > -1e-8) cash = 0;
+  g.market.accounts[accountId] = { ...a, cash };
 }
 
 /** Moves whole cents between two engine accounts (a zero-sum move). The sum of their cash does not change. */

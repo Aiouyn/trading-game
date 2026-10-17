@@ -104,7 +104,7 @@ export function ProfileView() {
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 text-small">
           <div><span className="label">{t('profile.stats.trades')}</span><div className="num">{me.player.stats.trades}</div></div>
-          <div><span className="label">{t('profile.stats.winRate')}</span><div className="num">{me.player.stats.trades ? pct(me.player.stats.winningTrades / me.player.stats.trades) : '—'}</div></div>
+          <div><span className="label">{t('profile.stats.winRate')}</span><div className="num">{(() => { const denom = me.player.stats.closedTrades ?? me.player.stats.trades; return denom ? pct(me.player.stats.winningTrades / denom) : '—'; })()}</div></div>
           <div><span className="label">{t('profile.stats.bizIncome')}</span><div className="num">{compactMoney(me.player.stats.bizIncome)}</div></div>
           <div><span className="label">{t('profile.stats.contracts')}</span><div className="num">{me.player.stats.contractsDone}</div></div>
         </div>

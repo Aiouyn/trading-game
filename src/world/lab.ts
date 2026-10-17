@@ -318,15 +318,29 @@ export function labTick(g: GameState, out: StepOutput, newDay: boolean): void {
 }
 
 /**
- * A strategy block's raw signal for one asset, before the model's noise (bible 02). Pure apart from the trend bot's EMA
- * memory, which it updates in place. Shared by the live bots (runBot) and the isolated tournament runs (tournament.ts),
- * so a model in a tournament trades the same rules it trades in the game.
+ * How far the public price sits under a trailing average of lnP, plus published earnings when a print is inside
+ * the same two-game-day window the earnings block uses. Updates `memory` in place. Does not read lnV.
+ */
+export function publicValueGap(a: AssetState, memory: Record<string, number>, assetId: string, tick: number, ticksPerDay: number): number {
+  const ema = memory[assetId] ?? a.lnP;
+  memory[assetId] = ema + 0.05 * (a.lnP - ema);
+  let gap = ema - a.lnP;
+  if (a.nextEarnings !== undefined && a.nextEarnings - Math.floor(tick / ticksPerDay) <= 2) {
+    gap += (a.consensus ?? 0) + (a.rumor ?? 0) * 0.5;
+  }
+  return gap;
+}
+
+/**
+ * A strategy block's raw signal for one asset, before the model's noise (bible 02). The trend and value blocks keep a
+ * trailing average of the public price in `memory` and update it in place. Shared by the live bots (runBot) and the
+ * isolated tournament runs (tournament.ts), so a model in a tournament trades the same rules it trades in the game.
  */
 export function strategySignal(strategy: TradingBot['strategy'], assetId: string, a: AssetState, memory: Record<string, number>, tick: number, held: number): number {
   switch (strategy) {
     case 'momentum': return (a.lnP - a.lnOpen) * 40;
     case 'meanrev': return -(a.lnP - a.lnOpen) * 40;
-    case 'value': return (a.lnV - a.lnP) * 15;
+    case 'value': return publicValueGap(a, memory, assetId, tick, TPD) * 15;
     case 'trend': {
       const ema = memory[assetId] ?? a.lnP;
       memory[assetId] = ema + 0.05 * (a.lnP - ema);

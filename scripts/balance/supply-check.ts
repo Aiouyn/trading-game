@@ -2,7 +2,7 @@
  * Five-year economy check for the money supply and the stabilizer (Phase 4, ruling O-6; docs/V1-PHASE4.md section 2.2b).
  *
  * Runs the full world (NPCs present, the app's own tick rate) for a number of game years on one seed, and reports:
- *  - supply growth: the players' money (the stabilizer's supply, boards.ts), its mean growth a game day over the run and
+ *  - supply growth: net worth per player (the stabilizer's supply, boards.ts stabilizerSupply), its mean growth a game day and
  *    the share of game days whose trailing 7-day growth is above the stabilizer target;
  *  - engagement: the game days on which the stabilizer's sink multiplier was above 1 (it engaged);
  *  - faucet and sink split: the booked totals over the run, and each side's top sources by share;
@@ -16,9 +16,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createGame, stepGame } from '../../src/world/game';
-import { STABILIZER_TARGET, STABILIZER_WINDOW } from '../../src/world/boards';
+import { STABILIZER_TARGET, STABILIZER_WINDOW, stabilizerSupply } from '../../src/world/boards';
 import { TPD, today } from '../../src/world/core';
-import type { GameState } from '../../src/world/types';
 
 const seed = process.argv[2] ?? 'economy-1';
 const years = Number(process.argv[3] ?? '5');
@@ -26,12 +25,6 @@ const outDir = process.argv[4] ?? '';
 const DAYS = Math.round(years * 365);
 
 interface DayRow { day: number; supply: number; sinkMult: number; faucets: number; sinks: number }
-
-function supplyOf(g: GameState): number {
-  let s = 0;
-  for (const p of Object.values(g.players)) s += Math.max(0, p.netWorth);
-  return s;
-}
 
 function totals(map: Record<string, number>): number {
   return Object.values(map).reduce((a, b) => a + b, 0);
@@ -50,7 +43,7 @@ function topShares(map: Record<string, number>, n: number): { key: string; share
 const g = createGame(seed);
 const rows: DayRow[] = [];
 let lastDay = today(g);
-const day0Supply = supplyOf(g);
+const day0Supply = stabilizerSupply(g);
 const endDay = lastDay + DAYS;
 const faucets0 = totals(g.economy.faucets);
 const sinks0 = totals(g.economy.sinks);
@@ -63,7 +56,7 @@ while (today(g) < endDay) {
     lastDay = d;
     rows.push({
       day: d,
-      supply: supplyOf(g),
+      supply: stabilizerSupply(g),
       sinkMult: g.economy.stabilizer.sinkMult,
       faucets: totals(g.economy.faucets),
       sinks: totals(g.economy.sinks),

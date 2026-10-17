@@ -77,7 +77,8 @@ describe('NPC rivals (spec 2, CB-018)', () => {
     expect(c.npcs[0]!.price).toBeCloseTo(50 * 0.92, 9);
     expect(c.npcs[0]!.marketing).toBeCloseTo(120, 9);
     for (let i = 0; i < 100; i++) npcWeeklyReaction(c, 0.4);
-    expect(c.npcs[0]!.price).toBeGreaterThanOrEqual(COMPANY.npc.priceFloor * COMPANY.demand.priceRef - 1e-9);
+    expect(c.npcs[0]!.price).toBeCloseTo(COMPANY.npc.priceFloor * COMPANY.demand.priceRef, 8);
+    expect(c.npcs[0]!.marketing).toBe(COMPANY.demand.marketingMax);
   });
 
   it('the entry probability is 0.25 max(0, m - 10%)/10% capped at 0.6 (software hits the cap)', () => {

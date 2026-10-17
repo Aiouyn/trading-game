@@ -2,7 +2,8 @@ import { NPCS, type NpcPersona } from '@/content/progression';
 import { BUSINESSES, TIERS } from '@/content/businesses';
 import { LIFE_ITEMS, PROPERTY_TYPES, rankIndex } from '@/content/lifestyle';
 import { CITIES } from '@/engine';
-import { cashOf, drawFrom, playerBusinesses } from './core';
+import { TPD, cashOf, drawFrom, playerBusinesses } from './core';
+import { publicValueGap } from './lab';
 import { cityUnlocked, maxLtvFor, propertyPrice } from './assets';
 import { wellRunCommands } from './shops';
 import { createPlayer } from './players';
@@ -77,15 +78,20 @@ export function npcTick(g: GameState, apply: Apply): void {
         break;
       }
       case 'value': {
-        const cands = stocks.map((id) => {
+        const ema = (p.valueEma ??= {});
+        const gaps = new Map<string, number>();
+        const read = (id: string): number => {
+          const hit = gaps.get(id);
+          if (hit !== undefined) return hit;
           const i = g.market.config.assets.findIndex((a) => a.id === id);
-          const a = g.market.assets[i]!;
-          return { id, gap: a.lnV - a.lnP + 0.06 * rng.normal() };
-        }).sort((a, b) => b.gap - a.gap);
-        for (const h of held) {
-          const i = g.market.config.assets.findIndex((a) => a.id === h);
-          if (g.market.assets[i] && g.market.assets[i]!.lnV - g.market.assets[i]!.lnP < -0.02) sellAll(h);
-        }
+          const a = g.market.assets[i];
+          if (!a) return 0;
+          const gap = publicValueGap(a, ema, id, tick, TPD);
+          gaps.set(id, gap);
+          return gap;
+        };
+        const cands = stocks.map((id) => ({ id, gap: read(id) + 0.06 * rng.normal() })).sort((a, b) => b.gap - a.gap);
+        for (const h of held) if (read(h) < -0.02) sellAll(h);
         if (cands[0] && cands[0].gap > 0.05) buy(cands[0].id, 0.15);
         break;
       }

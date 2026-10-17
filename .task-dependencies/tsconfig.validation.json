@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["src/*"],
+      "ws": [".task-dependencies/node_modules/@types/ws"]
+    }
+  },
+  "exclude": ["node_modules", "docs/team", "world-data", "tour-out", ".task-dependencies"]
+}

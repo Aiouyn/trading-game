@@ -27,13 +27,15 @@ export function cohortsOf(t: LpToken): NpcCohort[] {
 }
 
 /** Adds one arrival's buy to the cohorts (the buy is a whole number of tokens; its cost is the cash paid, fee excluded). */
-export function addCohort(t: LpToken, tick: number, tokens: number, cost: number, wallet?: string): void {
+export function addCohort(
+  t: LpToken, tick: number, tokens: number, cost: number, wallet?: string, role?: NpcCohort['role'],
+): void {
   const cs = cohortsOf(t);
   if (tokens > 0) {
-    // A persistent participant keeps one weighted-average bag, not an ever-growing list of tiny buys.
-    const held = wallet ? cs.find(c => c.wallet === wallet) : undefined;
+    // One weighted-average bag per owner and role. A hold bag and a scalp bag stay apart, and the sniper's bag is its own.
+    const held = wallet ? cs.find(c => c.wallet === wallet && !c.sniper && c.role === role) : undefined;
     if (held) { held.tokens += tokens; held.cost += cost; }
-    else cs.push({ tick, tokens, cost, ...(wallet ? { wallet } : {}) });
+    else cs.push({ tick, tokens, cost, ...(wallet ? { wallet } : {}), ...(role ? { role } : {}) });
   }
   syncTotals(t, cs);
 }

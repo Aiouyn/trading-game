@@ -10,7 +10,7 @@ import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Progress, ticksLabel } from '@/components/ui';
 import { iconSvg } from '@/world/launchpad/icon';
-import type { LpBarRow, LpCard } from '@/world/launchpad/view';
+import type { LpBarRow, LpCard, LpDesk } from '@/world/launchpad/view';
 import { lpPrice, refusalOf, taglineKey } from './copy';
 import { FlagChip, SponsoredChip, StatusChip, TokenIcon } from './Shared';
 
@@ -57,6 +57,38 @@ export function TradesBar({ rows, tick, onOpen }: { rows: LpBarRow[]; tick: numb
               <span className="num whitespace-nowrap text-brass">{r.ticker}</span>
               <span className="text-fg-faint">{tick - r.tick > 0 ? t('lp.bar.ago', { when: ticksLabel(tick - r.tick) }) : t('time.now')}</span>
             </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** The public desks: closed result and how many people follow that record. The viewer is the first card. */
+export function DeskStrip({ rows }: { rows: LpDesk[] | undefined }) {
+  if (!rows || rows.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-2" data-testid="lp-desk">
+      <span className="text-micro uppercase tracking-wide text-fg-faint">{t('lp.desk.title')}</span>
+      <ul className="flex gap-2 overflow-x-auto pb-1">
+        {rows.map((r) => (
+          <li
+            key={`${r.you ? 'you' : r.name}`}
+            data-testid="lp-desk-row"
+            data-you={r.you ? '1' : '0'}
+            className={r.you
+              ? 'min-w-[9.5rem] shrink-0 rounded-md border border-brass/50 bg-brass/10 px-2.5 py-2'
+              : 'min-w-[9.5rem] shrink-0 rounded-md border border-ink-2 bg-ink-1 px-2.5 py-2'}
+          >
+            <span className={r.you ? 'block truncate text-caption text-brass' : 'block truncate text-caption text-fg'}>
+              {r.you ? t('lp.desk.you', { name: r.name }) : r.name}
+            </span>
+            <span className={r.realized >= 0 ? 'num block text-small text-gain' : 'num block text-small text-loss'} data-testid="lp-desk-result">
+              {money(r.realized)}
+            </span>
+            {(r.you || r.followers > 0) && (
+              <span className="text-micro text-fg-faint" data-testid="lp-desk-followers">{t('lp.desk.followers', { n: r.followers })}</span>
+            )}
           </li>
         ))}
       </ul>

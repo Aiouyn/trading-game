@@ -8,14 +8,30 @@ import { barsOf } from './bars';
 import { anonOf } from './anon';
 import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
 import { cardOf, launchpadView, lpPageOf } from './view';
+import { cohortsOf } from './cohorts';
+import { SNIPER_ID } from './microflow';
 import { LP_NPC_HANDLES, LP_NPC_REPLY_KEYS } from '../text/lpReplies';
 import type { GameState } from '../types';
+import type { LpToken } from './types';
 
 // Phase 10 (R-10-6, the Launchpad like pump.fun): the world changes behind the board and the token page. Graduated tokens read the
 // engine's live price; holders include the NPC cohort as an anonymous holder; the tape carries dollars; a replies thread is moderated
 // and deterministic; a token's image variant and description are optional and old snapshots load.
 
 const grad = (g: GameState, ticker: string) => applyCommand(g, 'admin', { type: 'admin.lpFill', ticker });
+
+/** People who hold a live coin. Each funded wallet, including the sniper, is one holder. The curve is not. */
+function peopleHolding(t: LpToken): { count: number; wallets: Set<string> } {
+  const wallets = new Map<string, number>();
+  let legacy = 0;
+  for (const c of cohortsOf(t)) {
+    if (c.wallet) wallets.set(c.wallet, (wallets.get(c.wallet) ?? 0) + c.tokens);
+    else legacy += c.tokens;
+  }
+  const funded = [...wallets.entries()].filter(([, qty]) => qty > 0).map(([id]) => id);
+  const players = Object.values(t.bal).filter((q) => q > 0).length;
+  return { count: players + funded.length + (legacy > 0 ? 1 : 0), wallets: new Set(funded) };
+}
 /** The share of the curve sold on a token (its progress to graduation). */
 const priceProgress = (g: GameState, ticker: string): number => cardOf(g, g.launchpad!.tokens[ticker]!).progress;
 
@@ -93,8 +109,11 @@ describe('holders include the NPC cohort as an anonymous holder (R-10-6)', () =>
     expect(roles).toContain('dev');
     expect(roles).toContain('npc');
     expect(roles).toContain('you');
-    // the NPC cohort is counted; the curve is not
-    expect(page.buckets.holders).toBe(3);
+    // The curve is a row and is not a holder. The dev, the buyer, and each funded wallet are.
+    const held = peopleHolding(t);
+    expect(held.wallets.has(SNIPER_ID)).toBe(true);
+    expect(held.wallets.size).toBeGreaterThan(1);
+    expect(page.buckets.holders).toBe(held.count);
     for (const h of page.holders) expect(h.anon).toMatch(/^[0-9a-f]{6}$/);
     // the creator's handle is public (a founder's is); the holder rows never carry a handle or an account id
     expect(JSON.stringify(page.holders)).not.toContain('maker_one');

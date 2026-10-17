@@ -249,7 +249,7 @@ function PortfolioPositions({ phone = false }: { phone?: boolean }) {
             <Stat label={t('portfolio.dividends')} value={money(me.account?.dividends ?? 0)} />
             <Stat label={t('portfolio.interest')} value={signedMoney((me.account?.interestEarned ?? 0) - (me.account?.interestPaid ?? 0))} />
             <Stat label={t('portfolio.maxDrawdown')} value={<span className={pf.maxDrawdown < 0 ? 'text-loss' : 'text-fg-muted'}>{signedPct(pf.maxDrawdown)}</span>} testId="stat-maxdd" />
-            <Stat label={t('portfolio.winRate')} value={me.player.stats.trades ? pct(me.player.stats.winningTrades / Math.max(1, me.player.stats.trades)) : '—'} />
+            <Stat label={t('portfolio.winRate')} value={(() => { const denom = me.player.stats.closedTrades ?? me.player.stats.trades; return denom ? pct(me.player.stats.winningTrades / denom) : '—'; })()} />
             <Stat label={t('portfolio.bestTrade')} value={signedMoney(me.player.stats.bestTrade)} />
             <Stat label={t('portfolio.worstTrade')} value={<span className="text-loss">{signedMoney(me.player.stats.worstTrade)}</span>} />
           </div>

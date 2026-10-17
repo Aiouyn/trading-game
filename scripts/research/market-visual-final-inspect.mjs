@@ -1,0 +1,15 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({headless:true});
+const page = await browser.newPage({viewport:{width:1600,height:1050},locale:'fr-FR'});
+await page.goto('http://localhost:3010/?world=8794');
+await page.getByTestId('onboarding-start').click({timeout:20000});
+const handle = `visual${Date.now().toString().slice(-9)}`;
+await page.getByTestId('handle').fill(handle);
+await page.getByTestId('enter-world').click();
+await page.locator('html').waitFor({state:'attached'});
+await page.waitForFunction(()=>document.documentElement.getAttribute('data-game')==='ready',{timeout:30000});
+await page.getByTestId('shelf-app-launchpad').click();
+await page.waitForTimeout(700);
+console.log('window', await page.getByTestId('win-launchpad').evaluate(el=>({rect:el.getBoundingClientRect().toJSON(),text:el.innerText.slice(0,300),buttons:[...el.querySelectorAll('button')].map(b=>({text:b.innerText,title:b.title,aria:b.getAttribute('aria-label'),test:b.dataset.testid}))})));
+console.log('tickerbuttons', await page.locator('[data-testid^="lp-open-"]').evaluateAll(es=>es.map(e=>e.dataset.testid)));
+await browser.close();

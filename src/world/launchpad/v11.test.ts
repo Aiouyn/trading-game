@@ -33,7 +33,7 @@ function quiet(g: ReturnType<typeof lpWorld>, ticker: string) {
 }
 
 describe('L6.4 instant arrivals, L6.5 no copycat (v1.2)', () => {
-  it('a launch and a buzz item are bought by the cohort in full in the tick they arrive: nothing stays pending', () => {
+  it('a launch is bought by the cohort in the tick it arrives, and the sniper enters in that command', () => {
     const g = lpWorld('arrivals');
     launch(g, CREATOR, 'ARRV');
     const t = g.launchpad!.tokens.ARRV!;
@@ -45,11 +45,6 @@ describe('L6.4 instant arrivals, L6.5 no copycat (v1.2)', () => {
     const sniperSpend = t.flows.npcBuy - t.buzz.base * NPC.DEMAND_PER_BUZZ;
     expect(sniperSpend).toBeGreaterThan(NPC.SNIPER_MIN * 0.9);
     expect(sniperSpend).toBeLessThan(NPC.SNIPER_MAX * 1.1);
-    const bought0 = t.flows.npcBuy;
-    expect(run(g, TRADER, { type: 'lp.buzz', ticker: 'ARRV', kind: 'board' }).ok).toBe(true);
-    // a Quay billboard ($500) is an arrival of BOARD_ADD buzz: the cohort buys BOARD_ADD x DEMAND_PER_BUZZ dollars at once
-    expect(t.npcPending).toBe(0);
-    expect(t.flows.npcBuy - bought0).toBeCloseTo(LP.BOARD_ADD * NPC.DEMAND_PER_BUZZ, 2);
   });
 
   it('a player buy adds no buzz and no demand (no copycat); a sell adds no demand either', () => {

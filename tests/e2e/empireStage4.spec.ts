@@ -72,7 +72,7 @@ test('the catalog sorts by payback and filters by search', async ({ page }) => {
 // The Launchpad as a table (Stage 4): New is a dense table with a curve progress bar per token, search and sort; an empty
 // feed is a next-step card. The token is launched by this spec, so the table always has a live row to read.
 
-const MIN_AGE_TICKS = 3 * 24 * 720 + 10;
+const MIN_AGE_TICKS = 1 * 24 * 720 + 10;
 const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 test('the Launchpad New feed is a table with a curve bar, search and sort', async ({ page }) => {

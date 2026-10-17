@@ -17,6 +17,8 @@ describe('depthRow (the Broker depth rows, from the server frame)', () => {
     const direct = depthByPool(s, base.id, d.day);
     expect(d.depth).toBe(direct.depth);
     expect(d.desired).toEqual(direct.desired);
+    const moves = Object.values(depthFrame(s)!.assets).map((a) => a.auctionMove).filter((m) => m !== undefined);
+    expect(moves.some((m) => Number.isFinite(m))).toBe(true);
   });
 
   it('returns null for a listing that postdates the last close, and never throws', () => {

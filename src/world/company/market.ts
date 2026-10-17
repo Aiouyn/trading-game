@@ -115,13 +115,13 @@ export function seedNpcs(c: Company, count: number, rng: Rng): void {
   }
 }
 
-/** Weekly reaction (§2): above a 25% share the NPCs cut price by up to 8% and raise marketing by 20%, bounded. */
+/** Weekly reaction (§2): above a 25% share the NPCs cut price by up to 8% and raise marketing by 20%, capped at the player's marketing cap. */
 export function npcWeeklyReaction(c: Company, maxShare: number): void {
   if (!(maxShare > COMPANY.npc.reactShare)) return;
   const floor = COMPANY.npc.priceFloor * COMPANY.demand.priceRef;
   for (const n of c.npcs) {
     n.price = Math.max(floor, n.price * (1 - COMPANY.npc.reactPriceCut));
-    n.marketing *= 1 + COMPANY.npc.reactMarketing;
+    n.marketing = Math.min(COMPANY.demand.marketingMax, n.marketing * (1 + COMPANY.npc.reactMarketing));
   }
 }
 

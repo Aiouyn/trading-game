@@ -5,8 +5,9 @@ import { CROWD, LP } from './constants';
 import { cashReserveAt, spotAt } from './curve';
 import { cohortsOf } from './cohorts';
 import { buyCurve, sellCurve } from './trade';
-import type { CrowdState, LpToken, NpcCohort } from './types';
-import { MICROFLOW } from './microflow';
+import { tickerHash } from './icon';
+import type { CrowdState, LpToken, MicroTrader, NpcCohort } from './types';
+import { MICROFLOW, spendableCents, tokenTraders, walletById } from './microflow';
 
 /**
  * The crowd on a launch coin. Five temperaments, one order per side:
@@ -85,7 +86,9 @@ export function crowdTick(g: GameState, t: LpToken, out: StepOutput | null): voi
   const c = ensure(g, t, spot);
   // the first sight of a coin skips the tape it already has, so a reload is not a new signal
   const prints = fresh ? EMPTY : t.crowdPrints ?? readPrints(t, c.tapeAt, tapeEnd);
-  t.crowdPrints = undefined;
+  // Drop the key. Leaving it undefined keeps a key JSON will not save, so a reload
+  // inserts the next tally at a different place and the saved path no longer matches.
+  delete t.crowdPrints;
   c.tapeAt = tapeEnd;
 
   const impactUsd = CROWD.IMPACT_CAP * cashReserveAt(t.y);
@@ -274,8 +277,9 @@ function applyNews(g: GameState, t: LpToken, c: CrowdState, spot: number, tick: 
     if (!crash && !market && !broad) continue;
     c.seen.push(w.id);
     if (c.seen.length > CROWD.SEEN_KEEP) c.seen.splice(0, c.seen.length - CROWD.SEEN_KEEP);
-    if (crash) { scare = true; continue; }
-    if (armed) continue;
+    // Halt, crash, crisis and flash scare whatever the tone. A loss or a warn scares. Info and brass arm nothing. A gain may buy.
+    if (crash || w.tone === 'loss' || w.tone === 'warn') { scare = true; continue; }
+    if (w.tone !== 'gain' || armed) continue;
     const burst = themed ? CROWD.BURST : CROWD.WORLD_BURST;
     c.story = Math.max(c.story, Math.min(spot * CROWD.NEWS_LIFT, spot * 2.5));
     c.newsLeft = Math.min(c.newsCash, Math.max(c.newsLeft, burst));
@@ -297,6 +301,9 @@ function holderSell(t: LpToken, c: CrowdState, spot: number, alive: boolean, cap
   }
   if (!alive && bag > 0) {
     const want = bag * abandonShare() + c.holdCarry;
+    // Price action v2: with funded traders on, the abandoned bag leaves in lumps (5% of it, about every four minutes), so a dead
+    // coin prints now and then instead of a sliver every tick. The half-life is the same.
+    if (MICROFLOW.enabled && want < bag * 0.05 && bag * 0.05 >= 1) { c.holdCarry = want; return 0; }
     const n = Math.min(bag, capTokens, Math.floor(want));
     c.holdCarry = Math.max(0, want - n);
     return n;
@@ -338,7 +345,8 @@ function tokensFor(spot: number, usd: number): number {
 }
 
 function isHold(c: NpcCohort): boolean {
-  return !c.wallet && !c.sniper && (c.role === undefined || c.role === 'hold');
+  if (c.sniper || (c.wallet && c.role !== 'hold')) return false;
+  return c.role === undefined || c.role === 'hold';
 }
 
 function bagTokens(t: LpToken, role: 'scalp' | 'fomo' | 'news'): number {
@@ -347,20 +355,41 @@ function bagTokens(t: LpToken, role: 'scalp' | 'fomo' | 'news'): number {
   return n;
 }
 
+/** Wallets in a tick-stable order that does not draw the price stream. */
+function crowdOrder(t: LpToken, tick: number, role: string, traders: MicroTrader[]): MicroTrader[] {
+  return traders.slice().sort((a, b) =>
+    tickerHash(`${t.ticker}:${tick}:${role}:${a.id}`) - tickerHash(`${t.ticker}:${tick}:${role}:${b.id}`));
+}
+
 /** Spends up to `usd` and tags the cohort it bought. Returns the dollars actually spent. */
 function spend(g: GameState, t: LpToken, out: StepOutput | null, usd: number, role: 'scalp' | 'fomo' | 'news'): number {
   if (t.status !== 'live' || !(usd >= 0.01)) return 0;
   const cents = Math.round(usd * 100);
   if (cents < 1) return 0;
-  const r = buyCurve(g, null, t.ticker, cents, 1, out, true);
-  if (!r.ok) return 0;
-  const spent = ((r.data as { spendCents?: number }).spendCents ?? 0) / 100;
-  if (t.status === 'live') {
-    const cs = cohortsOf(t);
-    const last = cs[cs.length - 1];
-    if (last && !last.sniper && last.role === undefined) last.role = role;
+  if (!MICROFLOW.enabled) {
+    const r = buyCurve(g, null, t.ticker, cents, 1, out, true);
+    if (!r.ok) return 0;
+    const spent = ((r.data as { spendCents?: number }).spendCents ?? 0) / 100;
+    if (t.status === 'live') {
+      const cs = cohortsOf(t);
+      const last = cs[cs.length - 1];
+      if (last && !last.sniper && last.role === undefined) last.role = role;
+    }
+    return spent;
   }
-  return spent;
+  let left = cents;
+  let spentCents = 0;
+  for (const w of crowdOrder(t, g.market.tick, role, tokenTraders(g, t))) {
+    if (left < 1 || t.status !== 'live') break;
+    const slice = Math.min(left, spendableCents(g, w));
+    if (slice < 1) continue;
+    const r = buyCurve(g, null, t.ticker, slice, 1, out, true, false, w, role);
+    if (!r.ok) continue;
+    const got = (r.data as { spendCents?: number }).spendCents ?? 0;
+    left -= got;
+    spentCents += got;
+  }
+  return spentCents / 100;
 }
 
 function sellOf(g: GameState, t: LpToken, out: StepOutput | null, wants: { hold: number; scalp: number; fomo: number; news: number }): void {
@@ -381,6 +410,22 @@ function sellOf(g: GameState, t: LpToken, out: StepOutput | null, wants: { hold:
   take((row) => !row.sniper && row.role === 'scalp', wants.scalp);
   take((row) => !row.sniper && row.role === 'fomo', wants.fomo);
   take((row) => !row.sniper && row.role === 'news', wants.news);
-  const total = plan.reduce((a, b) => a + b, 0);
-  if (total > 0) sellCurve(g, null, t.ticker, total, 1, out, true, plan);
+  const groups = new Map<string, { row: NpcCohort; n: number }[]>();
+  cs.forEach((row, i) => {
+    const n = plan[i] ?? 0;
+    if (n <= 0) return;
+    const key = row.wallet ?? '';
+    const list = groups.get(key) ?? [];
+    list.push({ row, n });
+    groups.set(key, list);
+  });
+  for (const [key, items] of groups) {
+    if (t.status !== 'live') return;
+    const live = cohortsOf(t);
+    const livePlan = live.map(row => items.find(x => x.row === row)?.n ?? 0);
+    const total = livePlan.reduce((a, b) => a + b, 0);
+    if (total <= 0) continue;
+    const w = key ? walletById(t, key) : undefined;
+    sellCurve(g, null, t.ticker, total, 1, out, true, livePlan, false, w);
+  }
 }

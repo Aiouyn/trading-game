@@ -172,6 +172,29 @@ describe('launch-coin crowd', () => {
     expect(after / before).toBeCloseTo(CROWD.SCARE_DROP, 2);
   });
 
+  it('a gain earnings headline queues a buy and a loss does not', () => {
+    const floor = spotAt(LP.Y0);
+    const up = seen('tone-up', 'TUP');
+    up.g.wire.unshift({ id: 'w-up', tick: up.g.market.tick, kind: 'earnings', tag: 'Earnings', text: 'HLCN beats', tone: 'gain', assetId: 'HLCN' });
+    step(up.g, 1);
+    expect(up.t.crowd!.newsLeft).toBeGreaterThan(0);
+
+    const down = seen('tone-dn', 'TDN');
+    const downPrem = down.t.crowd!.story - floor;
+    down.g.wire.unshift({ id: 'w-dn', tick: down.g.market.tick, kind: 'earnings', tag: 'Earnings', text: 'HLCN misses', tone: 'loss', assetId: 'HLCN' });
+    step(down.g, 1);
+    expect(down.t.crowd!.newsLeft).toBe(0);
+    expect((down.t.crowd!.story - floor) / downPrem).toBeCloseTo(CROWD.SCARE_DROP, 2);
+
+    const quiet = seen('tone-info', 'INF');
+    const quietPrem = quiet.t.crowd!.story - floor;
+    quiet.g.wire.unshift({ id: 'w-info', tick: quiet.g.market.tick, kind: 'earnings', tag: 'Earnings', text: 'HLCN files', tone: 'info', assetId: 'HLCN' });
+    quiet.g.wire.unshift({ id: 'w-brass', tick: quiet.g.market.tick, kind: 'earnings', tag: 'Earnings', text: 'HLCN notes', tone: 'brass', assetId: 'HLCN' });
+    step(quiet.g, 1);
+    expect(quiet.t.crowd!.newsLeft).toBe(0);
+    expect((quiet.t.crowd!.story - floor) / quietPrem).toBeGreaterThan(0.99);
+  });
+
   it('a world launch during a headline takes that headline\'s sector', () => {
     const g = lpWorld('born');
     g.wire.unshift({ id: 'w-move', tick: g.market.tick, kind: 'move', tag: 'Move', text: 'HLCN jumps', tone: 'gain', assetId: 'HLCN' });
@@ -240,7 +263,7 @@ describe('launch-coin crowd', () => {
       expect(tailOf('NEWR').chatter).toBe(true);
       expect(tailOf('OLDR').chatter).toBe(true);
       expect(tailOf('NEWR').tick).toBeGreaterThan(tailOf('OLDR').tick);
-      expect(v.feeds.newest.map((c) => c.ticker)).toEqual(['OLDR', 'NEWR']);
+      expect(v.feeds.newest.map((c) => c.ticker)).toEqual(['NEWR', 'OLDR']);
       for (const id of ['OLDR', 'NEWR']) {
         const t = g.launchpad!.tokens[id]!;
         const card = v.feeds.newest.find((c) => c.ticker === id)!;

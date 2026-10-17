@@ -14,7 +14,7 @@ import type { LpPage } from '@/world/launchpad/view';
 import { CreateTab } from './CreateTab';
 import { FeedTab } from './FeedTab';
 import { HoldingsTab } from './HoldingsTab';
-import { KingBanner, TradesBar } from './Board';
+import { DeskStrip, KingBanner, TradesBar } from './Board';
 import { TokenPage } from './TokenPage';
 
 type Tab = 'new' | 'trending' | 'graduated' | 'holdings' | 'create';
@@ -78,6 +78,7 @@ export function LaunchpadApp() {
               { label: t('lp.app.stat.fees'), value: money(fees), testId: 'lp-stat-fees' },
             ]}
           />
+          {tab !== 'holdings' && tab !== 'create' && <DeskStrip rows={lp.desks ?? []} />}
           {tab !== 'holdings' && tab !== 'create' && <TradesBar rows={lp.bar} tick={tick} onOpen={openToken} />}
           {tab === 'new' && <KingBanner king={lp.king} tick={tick} onOpen={openToken} />}
           {/* no wrap: the row scrolls with its fade cue, so the last tab never sits alone on a second line on a phone (review item 11) */}

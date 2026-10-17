@@ -208,7 +208,7 @@ export function contractProgress(g: GameState, p: Player, defId: string): { valu
     const idx = p.dayStart.gx > 0 ? gx(g) / p.dayStart.gx - 1 : 0;
     return { value: mine - idx, target: c.target };
   }
-  const k = c.stat as Exclude<keyof PlayerStats, 'overheads'>;
+  const k = c.stat as Exclude<keyof PlayerStats, 'overheads' | 'closedTrades'>;
   return { value: p.stats[k] - p.dayStart.stats[k], target: c.target };
 }
 
@@ -278,6 +278,7 @@ export function tradeStats(g: GameState, fills: Fill[], realizedBefore: Record<s
     p.stats.trades += fs.length;
     const delta = acct.realizedPnl - (realizedBefore[pid] ?? acct.realizedPnl);
     if (Math.abs(delta) > 0.005) {
+      p.stats.closedTrades = (p.stats.closedTrades ?? 0) + 1;
       if (delta > 0) {
         p.stats.winningTrades++;
         if (fs.some((f) => f.side === 'buy')) p.stats.shortsWon += fs.every((f) => f.side === 'buy') ? 1 : 0;
@@ -360,5 +361,33 @@ export function flagNpcAccounts(g: GameState): void {
   for (const p of Object.values(g.players)) {
     const acct = g.market.accounts[p.id];
     if (p.npc && acct && !acct.npc) acct.npc = true;
+  }
+  if (!g.launchpad) return;
+  for (const p of Object.values(g.players)) {
+    if (p.npc || p.stats.closedTrades !== undefined) continue;
+    let lpCloses = 0;
+    let lpWins = 0;
+    let lpBest = 0;
+    let lpWorst = 0;
+    let lpOpenLots = 0;
+    for (const t of Object.values(g.launchpad.tokens)) {
+      const r = t.realized[p.id];
+      if (r !== undefined && Math.abs(r) > 0.005) {
+        lpCloses++;
+        if (r > 0) lpWins++;
+        if (r > lpBest) lpBest = r;
+        if (r < lpWorst) lpWorst = r;
+      }
+      lpOpenLots += (t.lots[p.id] ?? []).length;
+    }
+    if (lpCloses > 0 || lpOpenLots > 0) {
+      const L = g.ledgers?.[p.id];
+      const engineCloses = L ? L.trips.filter(tr => Math.abs(tr.realizedPnl) > 0.005).length : p.stats.trades;
+      p.stats.trades += lpCloses * 2 + lpOpenLots;
+      p.stats.closedTrades = engineCloses + lpCloses;
+      p.stats.winningTrades += lpWins;
+      p.stats.bestTrade = Math.max(p.stats.bestTrade, lpBest);
+      p.stats.worstTrade = Math.min(p.stats.worstTrade, lpWorst);
+    }
   }
 }

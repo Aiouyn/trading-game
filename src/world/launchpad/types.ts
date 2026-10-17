@@ -145,6 +145,8 @@ export interface LpToken {
   npcBal: number;
   /** L6.1: the NPC demand not yet bought (dollars). Each buzz arrival adds to it; it decays with the buy half-life. Absent in old snapshots (zero). */
   npcPending?: number;
+  /** Price action v2: buzz from viral shocks not yet arrived; it drips into npcPending over many ticks (flow.ts). Absent: none. */
+  viralDrip?: number;
   /** L6.1: the buzz peak since the last arrival (the capitulation's reference). Absent in old snapshots (the buzz then). */
   npcPeak?: number;
   /** true once a non-creator account has traded the token (a cancel is then refused, lead-launchpad.md L2 as ratified). */
@@ -237,6 +239,11 @@ export interface LpToken {
   replyCount?: number;
   /** review fix (Phase 10): the tick of the last trade by a player or the creator (the NPC replies need one in the window). Absent: none */
   playerTradeAt?: number;
+  /**
+   * A player fill to copy on a later tick. Deleted once that tick runs, so a save does not keep a key the reload would miss.
+   * A player with no closed record copies nobody. Absent means the queue is empty.
+   */
+  follow?: { due: number; side: 'buy' | 'sell'; usd: number; pid: string };
 }
 
 export interface LaunchpadState {
@@ -263,6 +270,8 @@ export interface LaunchpadState {
   rumorDay: number;
   /** the state's booked totals by line, for the balance report and the zero-sum tests (cents-exact) */
   totals: { launchFee: number; tradeFee: number; creatorFee: number; gradFee: number; buzz: number; npcNet: number; launches: number; graduations: number; deaths: number };
+  /** Closed sells per player. Absent until the first close, so an old save still loads. */
+  desks?: Record<string, { closes: number }>;
 }
 
 export interface MicroTrader {
@@ -276,11 +285,18 @@ export interface MicroTrader {
   lastAction: number;
   /** Sole persistent balance across curve and graduated coins. */
   accountId?: string;
+  /** Short-lived chat attention. Absent means none. A reply sets it; it is not an order. */
+  attn?: number;
+  attnUntil?: number;
 }
 
 export interface MicroState {
-  /** Historical order-flow episode, advanced on the game clock, never a target price path. */
-  episode?: { profile: number; startTick: number; cursor: number };
+  /**
+   * Order-flow episode, advanced on the game clock. Prices still come from settled orders.
+   * `script`, when present, is the coin's own launch crowd: [tick offset, buy cents or negative sell-bps of that wallet's bag, wallet slot].
+   * `echo` is the dollars spectators have already added on top of that script. Absent on an old save reads as zero.
+   */
+  episode?: { profile: number; startTick: number; cursor: number; script?: [number, number, number][]; echo?: number; lastScriptFillMinute?: number };
   rng: RngState;
   traders: MicroTrader[];
   lastPrice: number;
@@ -292,4 +308,8 @@ export interface MicroState {
   panic: number;
   lastBuy: number;
   lastSell: number;
+  lastPlayerBuy?: number;
+  lastPlayerSell?: number;
+  /** Price action v2 (attention.ts): the hidden archetype, tell profile and attention state. Never on a view. Absent on an old save until its next tick. */
+  pa?: import('./attention').PaState;
 }

@@ -14,7 +14,7 @@ import { dayOf, ensureLaunchpad, hasOtherTrader, liveCountOf, lpWire, openCurve,
 
 import type { LpToken } from './types';
 import { touchBar } from './bars';
-import { releaseMicroCash } from './microflow';
+import { MICROFLOW, releaseMicroCash, sniperWallet } from './microflow';
 
 
 /**
@@ -176,7 +176,9 @@ export function sniperEnter(g: GameState, t: LpToken, out: StepOutput | null): v
   const rng = new Rng(t.rng);
   const spendDollars = NPC.SNIPER_MIN + (NPC.SNIPER_MAX - NPC.SNIPER_MIN) * rng.uniform();
   t.rng = rng.state();
-  const r = buyCurve(g, null, t.ticker, Math.round(spendDollars * 100), 1, out, true);
+  // Funded worlds pay from the sniper account. A short account refuses the whole clip. The harness with micro off still faucets.
+  const wallet = MICROFLOW.enabled ? sniperWallet(g) : undefined;
+  const r = buyCurve(g, null, t.ticker, Math.round(spendDollars * 100), 1, out, true, false, wallet);
   if (r.ok) {
     const d = r.data as { tokens: number; avgPrice: number };
     t.sniper = { tick: g.market.tick, tokens: d.tokens, entry: d.avgPrice };

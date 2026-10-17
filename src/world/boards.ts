@@ -45,7 +45,12 @@ export function computeBoards(g: GameState): void {
   }
   const tycoon = ps.map((p) => row(p, playerBusinesses(g, p.id).reduce((s, b) => s + bizValuedIncome(b), 0)));
   const landlord = ps.map((p) => row(p, playerProperties(g, p.id).reduce((s, x) => s + propValue(g, x), 0)));
-  const trader = ps.map((p) => row(p, g.market.accounts[p.id]?.realizedPnl ?? 0));
+  const lpRealized: Record<string, number> = {};
+  for (const t of Object.values(g.launchpad?.tokens ?? {})) {
+    if (t.status === 'graduated') continue;
+    for (const [id, r] of Object.entries(t.realized)) lpRealized[id] = (lpRealized[id] ?? 0) + r;
+  }
+  const trader = ps.map((p) => row(p, (g.market.accounts[p.id]?.realizedPnl ?? 0) + (lpRealized[p.id] ?? 0)));
   const alliance: BoardRow[] = Object.values(g.alliances).map((a) => ({
     id: a.id, name: `${a.name} [${a.tag}]`,
     value: Object.keys(a.members).reduce((s, m) => s + (g.players[m] ? rankBasisOf(g, g.players[m]!) : 0), 0) + a.treasury,
@@ -67,29 +72,46 @@ export function computeBoards(g: GameState): void {
   };
 }
 
-/** The stabilizer's target: money growth per game day, measured on the trailing STABILIZER_WINDOW days (ruling O-6). */
+/** The stabilizer's target: net-worth growth per player per game day, over the trailing STABILIZER_WINDOW days (ruling O-6). */
 export const STABILIZER_TARGET = 0.01;
 /** The trailing window, in game days, that the growth is measured over (ruling O-6). */
 export const STABILIZER_WINDOW = 7;
+/** `hist` from this version is net worth per player. Older saves stored the aggregate sum and are discarded. */
+export const STABILIZER_MEASURE = 'nw-per-player' as const;
 
 /**
- * Stabilizer (bible 01 anti-inflation): a public PI controller on the growth of total money
- * held by players. When money grows faster than the target, upkeep and fees scale up (sinkMult,
- * shown in-world as the Treasury levy); when it is calm, the levy relaxes back to 1.
+ * The stabilizer's supply (bible 01 §8.2): positive net worth per player, over the same player records the
+ * controller has always summed (humans and NPC personas). A join at the current average does not move it.
+ * Cash alone is not the input. Marked assets are included on purpose.
+ */
+export function stabilizerSupply(g: GameState): number {
+  const ps = Object.values(g.players);
+  let sum = 0;
+  for (const p of ps) sum += Math.max(0, p.netWorth);
+  return sum / Math.max(1, ps.length);
+}
+
+/**
+ * Stabilizer (bible 01 anti-inflation): a public PI controller on net worth per player.
+ * When that grows faster than the target, upkeep and fees scale up (sinkMult, the Treasury levy);
+ * when it is calm, the levy relaxes back to 1.
  * Ruling O-6: the target is 1.0% a game day, on the average daily growth over the trailing 7 game days (the supply
  * seven days ago is the base). The old 4% a day never engaged. `hist` holds the last supplies, oldest first (optional,
  * so an old save loads with an empty history and the controller starts once a full window exists).
  */
 export function stabilizerDay(g: GameState): void {
-  let supply = 0;
-  for (const p of Object.values(g.players)) supply += Math.max(0, p.netWorth);
   const st = g.economy.stabilizer;
+  // An untagged history is an aggregate sum from before this measure. Drop it rather than compare it with a per-player reading.
+  if (st.measure !== STABILIZER_MEASURE) {
+    st.hist = [];
+    st.measure = STABILIZER_MEASURE;
+  }
+  const supply = stabilizerSupply(g);
   const hist = st.hist ?? [];
   let err = 0;
   if (hist.length >= STABILIZER_WINDOW) {
     const base = hist[hist.length - STABILIZER_WINDOW]!;
     if (base > 0 && supply > 0) {
-      // growth per player, so new players joining do not look like inflation
       const growth = Math.pow(supply / base, 1 / STABILIZER_WINDOW) - 1;
       err = growth - STABILIZER_TARGET;
       st.integral = Math.max(-0.5, Math.min(0.5, st.integral * 0.9 + err));

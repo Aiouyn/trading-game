@@ -33,6 +33,8 @@ describe('DepthWire: the order depth of the latest closed day on the wire (H8, P
     const next = wire.due(g);
     expect(next).not.toBeNull();
     expect(next!.day).toBe(lastDay(g));
+    const moves = Object.values(next!.assets).map((a) => a.auctionMove).filter((m) => m !== undefined);
+    expect(moves.some((m) => Number.isFinite(m))).toBe(true);
   });
 
   it('every asset in the frame equals depthByPool on that day: the server computes the same fold the explain uses', () => {
@@ -43,7 +45,10 @@ describe('DepthWire: the order depth of the latest closed day on the wire (H8, P
     expect(ids.length).toBeGreaterThan(0);
     for (const id of ids.slice(0, 40)) {
       const d = depthByPool(g.market, id, day);
-      expect(frame.assets[id]).toEqual({ depth: d.depth, desired: d.desired });
+      const row = frame.assets[id]!;
+      expect(row.depth).toBe(d.depth);
+      expect(row.desired).toEqual(d.desired);
+      if (row.auctionMove !== undefined) expect(Number.isFinite(row.auctionMove)).toBe(true);
     }
   });
 

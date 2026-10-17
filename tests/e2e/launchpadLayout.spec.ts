@@ -7,8 +7,8 @@ import { box, frame } from './shell/support';
 // apps.ts) and the same checks run inside it; on the phone (390) the tabs scroll sideways inside their own row, and the page does not.
 
 const TPD = 720;
-/** the launch gate's account age: three real days, which is 72 game days of ticks (LP.MIN_AGE_TICKS), plus a margin */
-const MIN_AGE_TICKS = 3 * 24 * TPD + 10;
+/** the launch gate's account age: one real day, which is 24 game days of ticks (LP.MIN_AGE_TICKS), plus a margin */
+const MIN_AGE_TICKS = 1 * 24 * TPD + 10;
 const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 /** A fresh ticker of four letters (the world refuses a ticker used in the last 30 game days). */
 function randomTicker(): string {

@@ -61,6 +61,11 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
     insiderId: _in, supplyAccount: _sa, ...rest
   } = tpl;
   void _dy; void _se; void _du; void _yk; void _cs; void _bl; void _de; void _li; void _in; void _sa;
+  // The book holds the 200M float minus the creator's allocation. Cash ADV is scaled by that share, so a thinner
+  // book takes more impact from the same dollar. The floor stays 1000. No-trade diffusion is unchanged.
+  const floatTokens = LP.SUPPLY - LP.CURVE_SUPPLY;
+  const bookTokens = floatTokens - t.allocation;
+  const floatFrac = floatTokens > 0 ? bookTokens / floatTokens : 1;
   const def: AssetDef = {
     ...rest,
     id: t.ticker,
@@ -69,8 +74,7 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
     sharesOutstanding: LP.SUPPLY,
     vol,
     drift,
-    // Newly graduated liquidity is tens of thousands, not the template's hundreds of millions of ADV.
-    advNotional: Math.max(1000, restCents / 100),
+    advNotional: Math.max(1000, (restCents / 100) * floatFrac),
     supplyAccount: bookId,
     // the book pays for what it buys: a sell the book cannot pay for is partial (never minted, trading.ts routeToSupply)
     bookCashBound: true,
@@ -79,7 +83,7 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
   };
   let s = appendAsset(g.market, def);
   // the LP tokens: the rest of the 200M after the creator's allocation (the book holds the float)
-  const lpQty = LP.SUPPLY - LP.CURVE_SUPPLY - t.allocation;
+  const lpQty = bookTokens;
   s = addShares(s, bookId, t.ticker, lpQty, price);
   // holders: their balances become positions at their cost basis (the creator's allocation cost nothing)
   for (const [pid, qty] of Object.entries(t.bal)) {
@@ -104,6 +108,20 @@ export function graduate(g: GameState, t: LpToken, out: StepOutput | null): void
       if (!s.accounts[w.id]) s = openAccount(s, w.id, 0);
       if (qty > 0) s = addShares(s, w.id, t.ticker, qty, cost / qty);
       w.accountId = w.id;
+    }
+    // A wallet that is not one of this token's traders (the dedicated sniper) still keeps the shares it paid for.
+    const listed = new Set((t.micro?.traders ?? []).map(w => w.id));
+    const extra = new Map<string, { qty: number; cost: number }>();
+    for (const c of owned) {
+      if (!c.wallet || listed.has(c.wallet) || !(c.tokens > 0)) continue;
+      const row = extra.get(c.wallet) ?? { qty: 0, cost: 0 };
+      row.qty += c.tokens;
+      row.cost += c.cost;
+      extra.set(c.wallet, row);
+    }
+    for (const [id, bag] of extra) {
+      if (!s.accounts[id]) s = openAccount(s, id, 0);
+      s = addShares(s, id, t.ticker, bag.qty, bag.cost / bag.qty);
     }
   }
   g.market = s;

@@ -28,8 +28,8 @@ export const LP = {
   GRAD_FEE_RATE: 0.015,
   /** the ticket's default maximum slippage (L3) */
   MAX_SLIP: 0.05,
-  /** launch gate: account age of at least 3 real days (72 game days), one launch per 24 real hours, at most 3 live tokens */
-  MIN_AGE_TICKS: 3 * 24 * TPD,
+  /** launch gate: account age of at least 1 real day (24 game days), one launch per 24 real hours, at most 3 live tokens */
+  MIN_AGE_TICKS: 24 * TPD,
   LAUNCH_COOLDOWN_TICKS: 24 * TPD,
   MAX_LIVE: 3,
   /** the rank a launch needs: R1 (Hustler) or higher */
@@ -151,7 +151,7 @@ export const NPC = {
   BASE0: 21,
   BASE0_ALPHA: 8,
   /** world launches per game day, when the world runs them */
-  LAUNCHES_PER_DAY: 20,
+  LAUNCHES_PER_DAY: 60,
   /** the NPC sniper: a buy of this many dollars in the first ticks, sold into the first hype (at this multiple of its entry, or after N ticks) */
   SNIPER_MIN: 100,
   SNIPER_MAX: 400,

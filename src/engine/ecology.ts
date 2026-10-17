@@ -725,21 +725,27 @@ export function depthByPool(state: WorldState, assetId: string, day: number): De
 /** The depth of the latest closed day for every asset that has a row that day: what the server sends the Broker (H8). */
 export interface DepthFrame {
   day: number;
-  assets: Record<string, Omit<DepthByPool, 'assetId' | 'day'>>;
+  assets: Record<string, Omit<DepthByPool, 'assetId' | 'day'> & { auctionMove?: number }>;
 }
 
 /**
  * The latest closed day's depth for every asset, by pool type (depthByPool, so the same fold). Null before the first close.
- * An asset listed after that close has no row and is left out. Computed on the server: a client never reads the log.
+ * An asset listed after that close has no row and is left out. `auctionMove` is the close auction's fractional return
+ * already computed by ecologyStep, and only when that auction is this closed day. Computed on the server: a client never reads the log.
  */
 export function depthFrame(state: WorldState): DepthFrame | null {
   const log = ecologyLog(state);
   const last = log[log.length - 1];
   if (!last) return null;
+  const auction = state.ecology?.lastAuction;
+  const moves = auction && auction.day === last.day ? auction.moves : undefined;
   const assets: DepthFrame['assets'] = {};
   for (const row of last.assets) {
     const d = depthByPool(state, row.id, last.day);
-    assets[row.id] = { depth: d.depth, desired: d.desired };
+    const move = moves?.[row.id];
+    assets[row.id] = move === undefined
+      ? { depth: d.depth, desired: d.desired }
+      : { depth: d.depth, desired: d.desired, auctionMove: move };
   }
   return { day: last.day, assets };
 }

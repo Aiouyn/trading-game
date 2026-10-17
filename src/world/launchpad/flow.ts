@@ -8,7 +8,7 @@ import { npcLaunchDraw } from './launch';
 import { arrive, viralPerTick } from './demand';
 import { cohortsOf } from './cohorts';
 import { crowdTick } from './crowd';
-import { microTick, MICROFLOW, releaseMicroCash } from './microflow';
+import { microTick, MICROFLOW, releaseMicroCash, walletById } from './microflow';
 import { absorbPending } from './absorb';
 import { openSellQty } from './graduate';
 import { priceNow } from './rug';
@@ -17,6 +17,7 @@ import { carryBar } from './bars';
 import { dayOf, ensureLaunchpad, lpWire, refuse, sinkCents, tokenOf } from './state';
 import { placeOrder } from '@/engine';
 import type { LpToken } from './types';
+import { PA } from './attention';
 
 /**
  * The hype and the NPC flow (lead-launchpad.md L6, as amended in v1.1 and v1.2), run once per tick by stepGame. Every live token:
@@ -38,6 +39,9 @@ import type { LpToken } from './types';
  */
 
 const RAISE_LINE = 0.02 * formulaCashAt(LP.GRAD_Y);
+/** Viral drip: the share of the remaining shock that arrives each tick (a half-life of about 14 ticks), and the smallest part. */
+const VIRAL_DRIP_SHARE = 1 - Math.pow(0.5, 1 / 14);
+const VIRAL_DRIP_MIN = 0.25;
 
 /** Buzz items: a Quay billboard or a Wire promo. Sinks; at most three per token per game day. */
 export function buyBuzz(g: GameState, pid: string, ticker: string, kind: 'board' | 'wire', out: StepOutput | null): CommandResult {
@@ -89,7 +93,10 @@ function npcFlow(g: GameState, t: LpToken, out: StepOutput | null): void {
         const sc = cs[si]!;
         delete sc.sniper;
         const qty = Math.min(entered, sc.tokens);
-        if (qty > 0) sellCurve(g, null, t.ticker, qty, 1, out, true, cs.map((_, i) => (i === si ? qty : 0)));
+        if (qty > 0) {
+          const w = sc.wallet ? walletById(t, sc.wallet) : undefined;
+          sellCurve(g, null, t.ticker, qty, 1, out, true, cs.map((_, i) => (i === si ? qty : 0)), false, w);
+        }
       }
       return;
     }
@@ -171,15 +178,29 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
     if (rng.chance(viralPerTick(tick - t.createdTick))) {
       const shock = NPC.VIRAL_SCALE * (Math.pow(Math.max(1e-9, rng.uniform()), -1 / NPC.VIRAL_ALPHA) - 1);
       t.buzz.base += shock;
-      arrive(t, shock);
+      // Price action v2: with funded traders on, the shock's demand drips in over many ticks (viralDrip below) instead of one fill.
+      if (MICROFLOW.enabled) t.viralDrip = (t.viralDrip ?? 0) + shock;
+      else arrive(t, shock);
       // L6.4: the shock is bought by the cohort in full in this tick. A graduation inside that fill advances the token's stream, so the
       // local stream is taken again from the token after it
       t.rng = rng.state();
       absorbPending(g, t, out);
       rng = new Rng(t.rng);
     }
-    if (t.status === 'live') npcFlow(g, t, out);
+    // The viral draw is saved before the crowd. An arrival inside the crowd advances the same stream and must keep that advance.
     t.rng = rng.state();
+    // The dripping part of earlier shocks arrives on a short half-life, so the cohort's buying spreads over many ticks.
+    if (t.status === 'live' && (t.viralDrip ?? 0) > 0) {
+      const drip = t.viralDrip!;
+      const part = drip <= VIRAL_DRIP_MIN ? drip : Math.max(VIRAL_DRIP_MIN, drip * VIRAL_DRIP_SHARE);
+      t.viralDrip = drip - part > 1e-9 ? drip - part : undefined;
+      // With the attention model on, the shock wakes traders (excitation) instead of buying outright: they trade the coin's
+      // current lean, so a viral shock on a dying coin is a two-sided burst, not free demand.
+      const pa = t.micro?.pa;
+      if (pa) pa.e = Math.min(PA.E_MAX, pa.e + part * PA.VIRAL_EXCITE);
+      else { arrive(t, part); absorbPending(g, t, out); }
+    }
+    if (t.status === 'live') npcFlow(g, t, out);
     // the death rules (L3, L3.1 as v1.3): no trade for 24 game days, or the cash clock. The cash clock counts CLOSES: at the close of each
     // game day (the day's last tick) from day 3 on, a close with curve cash under the line adds one, a close above it resets the count.
     // An intraday round trip does not reset it, so a token cannot be kept alive by a buy and sell inside one day.

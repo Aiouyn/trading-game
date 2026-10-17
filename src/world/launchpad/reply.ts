@@ -49,7 +49,24 @@ export function replyToken(g: GameState, pid: string, ticker: string, text: stri
   const creator = pid === t.creatorId;
   pushReply(t, { tick, who: anonOf(t.ticker, pid), role: creator ? 'creator' : 'player', text: m.text });
   t.replyLast = { ...(t.replyLast ?? {}), [pid]: tick };
+  // Attention only. This tick does not trade. A token with no funded traders changes nothing economic.
+  armAttention(t, tick, repliesOf(t));
   return { ok: true, data: { tick, text: m.text } };
+}
+
+/** How long a reply's attention lasts, and how hard it leans. A hash picks who listens. The price stream is not drawn. */
+const ATTENTION_TICKS = 24;
+const ATTENTION_BIAS = 0.35;
+
+function armAttention(t: LpToken, tick: number, replyId: number): void {
+  const traders = t.micro?.traders;
+  if (!traders || traders.length === 0) return;
+  for (const w of traders) {
+    if ((tickerHash(`${t.ticker}:${tick}:${replyId}:${w.id}`) & 1) === 0) {
+      w.attn = ATTENTION_BIAS;
+      w.attnUntil = tick + ATTENTION_TICKS;
+    }
+  }
 }
 
 /**

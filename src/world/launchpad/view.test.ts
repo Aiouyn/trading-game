@@ -6,6 +6,9 @@ import { LP, LP_K, NPC, bookAccountId } from './constants';
 import { launchpadView, lpPageOf } from './view';
 import { tokenOf } from './state';
 import { iconSvg } from './icon';
+import { cohortsOf } from './cohorts';
+import { SNIPER_ID } from './microflow';
+import type { LpToken } from './types';
 
 /**
  * The share of the curve a launch buys at once: the launch cohort's demand (constant product, the fee left out, so an upper bound)
@@ -15,6 +18,19 @@ import { iconSvg } from './icon';
  */
 const curveShareFor = (demand: number) => (LP.Y0 - LP_K / (LP.X0 + demand)) / LP.CURVE_SUPPLY;
 const cohortShareBound = curveShareFor(NPC.BASE0 * (Math.pow(0.01, -1 / NPC.BASE0_ALPHA) - 1) * NPC.DEMAND_PER_BUZZ + 400);
+
+/** People who hold a live coin: each positive player balance, each funded wallet that still holds (the sniper is its own wallet), and one row when a wallet-less bag remains. The curve is not a person. */
+function peopleHolding(t: LpToken): { count: number; wallets: Set<string> } {
+  const wallets = new Map<string, number>();
+  let legacy = 0;
+  for (const c of cohortsOf(t)) {
+    if (c.wallet) wallets.set(c.wallet, (wallets.get(c.wallet) ?? 0) + c.tokens);
+    else legacy += c.tokens;
+  }
+  const funded = [...wallets.entries()].filter(([, qty]) => qty > 0).map(([id]) => id);
+  const players = Object.values(t.bal).filter((q) => q > 0).length;
+  return { count: players + funded.length + (legacy > 0 ? 1 : 0), wallets: new Set(funded) };
+}
 
 describe('the Launchpad view (L1, L7)', () => {
   it('no-reveal: the view carries holder buckets and the tape, never a holder’s handle; the tape flags only the creator’s own trades', () => {
@@ -28,8 +44,11 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(v).not.toContain('zed_holder_x');
     const page = lpPageOf(g, CREATOR, 'REVL')!;
     expect(Object.keys(page.buckets).sort()).toEqual(['holders', 'top10Share']);
-    // R-10-6: the NPC sniper's cohort is an anonymous holder too, so the three players and the cohort are four holders
-    expect(page.buckets.holders).toBe(4);
+    // Each funded wallet that still holds, including the sniper, is its own anonymous holder. The curve is not counted.
+    const held = peopleHolding(tokenOf(g, 'REVL')!);
+    expect(held.wallets.has(SNIPER_ID)).toBe(true);
+    expect(held.wallets.size).toBeGreaterThan(1);
+    expect(page.buckets.holders).toBe(held.count);
     for (const tr of page.tape) {
       const keys = Object.keys(tr).sort();
       expect(keys.filter((k) => k !== 'anon')).toEqual(['creator', 'npc', 'price', 'qty', 'side', 'tick', 'usd']);
@@ -106,9 +125,11 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(lpPageOf(g, TRADER, 'NOPE')).toBeNull();
     expect(JSON.stringify(v)).not.toContain('"chart"');
     expect(JSON.stringify(v)).not.toContain('"tape"');
-    // the creator launched with no allocation, so the trader is the one holder of PGAA: the page counts holders, never names them
-    // R-10-6: the NPC sniper's cohort counts as an anonymous holder, so the trader and the cohort are two
-    expect(lpPageOf(g, TRADER, 'PGAA')!.buckets.holders).toBe(2);
+    // The creator kept no allocation. The trader holds, and each funded wallet that holds is its own anonymous holder.
+    const pgaa = peopleHolding(tokenOf(g, 'PGAA')!);
+    expect(pgaa.wallets.has(SNIPER_ID)).toBe(true);
+    expect(pgaa.wallets.size).toBeGreaterThan(1);
+    expect(lpPageOf(g, TRADER, 'PGAA')!.buckets.holders).toBe(pgaa.count);
   });
 
   it('creator fees are on the page for the creator only (the figure is not public)', () => {

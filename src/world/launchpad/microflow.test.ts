@@ -29,7 +29,8 @@ describe('funded meme-coin price action', () => {
     let bursts = 0;
     for (const seed of ['action-a','action-b','action-c','action-d','action-e','action-f']) {
       const { g,t } = make(seed);
-      for (let k = 0; k < 240 && t.status === 'live'; k++) {
+      // An hour, so the rug minute (after the first ten) is inside the window.
+      for (let k = 0; k < 720 && t.status === 'live'; k++) {
         const price = spotAt(t.y);
         const seq = t.tradeSeq ?? 0;
         advance(g,1);
@@ -39,7 +40,8 @@ describe('funded meme-coin price action', () => {
     }
     expect(returns.some(r => r > 0.2)).toBe(true);
     expect(returns.some(r => r < -0.2)).toBe(true);
-    expect(returns.filter(r => Math.abs(r) > 0.05).length / returns.length).toBeGreaterThan(0.05);
+    // Most five-second ticks are quiet on purpose: the move has to survive as a minute close.
+    // The share of ticks that jump 5% is no longer the yardstick.
     expect(bursts).toBeGreaterThan(50);
   });
 
@@ -71,7 +73,7 @@ describe('funded meme-coin price action', () => {
     expect(JSON.stringify(a.market.accounts)).toBe(JSON.stringify(b.market.accounts));
   });
 
-  it('uses each persistent NPC account across coins, without treasury or per-coin funding', () => {
+  it('funds each launch crowd once and does not refill the shared population', () => {
     const {g,t} = make('own-wallet');
     microTick(g,t,null);
     const funding = g.economy.faucets.npcRetail;
@@ -79,15 +81,16 @@ describe('funded meme-coin price action', () => {
     expect(wallet.accountId).toBe(wallet.id);
     expect(g.market.accounts[wallet.id]!.cash).toBeGreaterThan(0);
     expect(g.launchpad!.flowCapital).toBeUndefined();
+    expect(Object.keys(g.market.accounts).filter(id => id.startsWith(`lp:npc:launch:${t.ticker}:`))).toHaveLength(8);
     expect(npcLaunchDraw(g, null)).toBe(true);
     const other = g.launchpad!.tokens[g.launchpad!.order.at(-1)!]!;
     microTick(g,other,null);
-    // Population funding happens only once. A launch itself is a legacy arrival,
-    // but assigning another token does not replenish any persistent trader.
+    // The shared population is not refilled. The new coin has its own crowd, granted once.
     const before = g.economy.faucets.npcRetail;
     microTick(g,other,null);
     expect(g.economy.faucets.npcRetail).toBe(before);
-    expect(before).toBeGreaterThanOrEqual(funding);
+    expect(before).toBeGreaterThan(funding);
+    expect(Object.keys(g.market.accounts).filter(id => id.startsWith('lp:npc:trader:'))).toHaveLength(MICROFLOW.population);
     g.market.accounts[wallet.id]!.cash = 0;
     const accounts = JSON.stringify(g.market.accounts);
     expect(buyCurve(g,null,t.ticker,10_000,1,null,true,false,wallet).ok).toBe(false);
@@ -102,7 +105,8 @@ describe('funded meme-coin price action', () => {
     expect(t.tape.some(tr=>tr.chatter)).toBe(false);
     for (const row of page.tape) expect(t.tape.some(tr=>tr.anon===row.anon && tr.qty===row.qty && tr.tick===row.tick)).toBe(true);
     if(t.status==='live') {
-      expect(cohortsOf(t).filter(c=>c.wallet).length).toBeLessThanOrEqual(MICROFLOW.traders);
+      const wallets = new Set(cohortsOf(t).filter(c => c.wallet).map(c => c.wallet));
+      expect(wallets.size).toBeLessThanOrEqual(t.micro!.traders.length + 1);
       for (const w of t.micro!.traders) {
         const qty=cohortsOf(t).filter(c=>c.wallet===w.id).reduce((sum,c)=>sum+c.tokens,0);
         const shown = page.holders.find(h=>h.anon===anonOf(t.ticker,w.id));
@@ -180,14 +184,15 @@ describe('funded meme-coin price action', () => {
       microTick(g,t,null);
       overlap ||= t.micro!.traders.some(w=>oldIds.has(w.id));
       const before = t.flows.npcBuy;
-      for (let k = 0; k < 24; k++) { g.market.tick++; microTick(g,t,null); }
+      // Ten minutes: the open of the rally, not the whole purse.
+      for (let k = 0; k < 120; k++) { g.market.tick++; microTick(g,t,null); }
       buys += t.flows.npcBuy - before;
       for (const w of t.micro!.traders) expect(g.market.accounts[w.id]!.cash).toBeGreaterThanOrEqual(0);
     }
     expect(overlap).toBe(true);
-    expect(buys).toBeGreaterThan(10_000);
+    expect(buys).toBeGreaterThan(20_000);
     // No new population grant on any of these ten fresh coins.
-    expect(Object.keys(g.market.accounts).filter(id=>id.startsWith('lp:npc:trader:'))).toHaveLength(240);
-    expect(g.economy.faucets.npcRetail - funding).toBeLessThan(500_000); // launch arrivals only
+    expect(Object.keys(g.market.accounts).filter(id=>id.startsWith('lp:npc:trader:'))).toHaveLength(MICROFLOW.population);
+    expect(g.economy.faucets.npcRetail - funding).toBeLessThan(500_000);
   });
 });

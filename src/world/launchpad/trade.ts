@@ -3,17 +3,18 @@ import { buyingPower } from '@/engine';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { LP } from './constants';
 import { quoteBuy, quoteSell } from './curve';
-import { addAccountCash, centsOf, faucetCents, isCreatorLinked, moveCents, pushBuy, pushLot, refuse, tokenOf } from './state';
+import { addAccountCash, centsOf, faucetCents, isCreatorLinked, moveCents, payableCents, pushBuy, pushLot, refuse, tokenOf } from './state';
 import { addCohort, takeFromCohorts } from './cohorts';
 import { curveAccountId } from './constants';
 import { anonOf } from './anon';
 import { lockedOf, vestEndDay } from './vest';
 import { cohortsOf } from './cohorts';
-import type { LpLot, LpToken, MicroTrader } from './types';
+import type { LpLot, LpToken, MicroTrader, NpcCohort } from './types';
 import { recordCreatorSale } from './rug';
 import { pushTape } from './tape';
 import { curveHoldingsValue } from './value';
 import { graduate } from './graduate';
+import { noteClose, noteFollow } from './desk';
 import type { GameState as G } from '../types';
 
 /**
@@ -65,7 +66,7 @@ function bookFee(g: GameState, t: LpToken, fromCurve: boolean, creatorCents: num
 /** Buys `spendCents` (the whole outlay, fee included) of a token from its curve. Refusals are three-part. */
 export function buyCurve(
   g: GameState, pid: string | null, ticker: string, spendCents: number, maxSlip: number, out: StepOutput | null, npc = false,
-  chatter = false, wallet?: MicroTrader,
+  chatter = false, wallet?: MicroTrader, bagRole?: NpcCohort['role'],
 ): CommandResult {
   const t = tokenOf(g, ticker);
   if (!t) return refuse('noToken', { ticker });
@@ -75,7 +76,7 @@ export function buyCurve(
   if (!q.ok) return refuse(q.code === 'sold' ? 'sold' : q.code === 'tooSmall' ? 'tooSmall' : 'zero', { ticker });
   const curve = curveAccountId(t.ticker);
   if (npc || !pid) {
-    const cash = wallet?.accountId ? Math.floor(Math.min(g.market.accounts[wallet.accountId]?.cash ?? 0, buyingPower(g.market,wallet.accountId)) * 100) : wallet?.cashCents;
+    const cash = wallet?.accountId ? payableCents(Math.min(g.market.accounts[wallet.accountId]?.cash ?? 0, buyingPower(g.market, wallet.accountId))) : wallet?.cashCents;
     if (cash !== undefined && cash < q.spendCents) return refuse('cash', { need: (q.spendCents / 100).toFixed(2) });
     if (wallet?.accountId) moveCents(g, wallet.accountId, curve, q.spendCents);
     else {
@@ -85,7 +86,7 @@ export function buyCurve(
     }
     bookFee(g, t, true, q.creatorFeeCents, q.sinkFeeCents, true);
     // L6.8: the buy is one cohort (its own half-life and cost basis)
-    addCohort(t, tickOf(g), q.tokens, q.cashCents / 100, wallet?.id);
+    addCohort(t, tickOf(g), q.tokens, q.cashCents / 100, wallet?.id, bagRole);
     t.flows.npcBuy += q.spendCents / 100;
   } else {
     if (centsOf(cashOf(g, pid)) < q.spendCents) return refuse('cash', { need: (q.spendCents / 100).toFixed(2) });
@@ -103,7 +104,11 @@ export function buyCurve(
     pushBuy(t, pid, tickOf(g), q.tokens);
     t.bal[pid] = (t.bal[pid] ?? 0) + q.tokens;
     t.flows.playerBuy += q.spendCents / 100;
-    // L6.5: a player's buy adds no buzz and is no arrival (no copycat in V1)
+    const p = g.players[pid];
+    if (p && !p.npc) p.stats.trades++;
+    // L6.5: a player's buy adds no buzz and is no arrival. A copy, if this player already has a
+    // closed record, is a later order from other wallets. It is not demand and not a faucet.
+    noteFollow(t, tickOf(g), pid, 'buy', q.spendCents / 100);
     if (pid !== t.creatorId) t.playerTraded = true;
   }
   t.y -= q.tokens;
@@ -169,7 +174,20 @@ export function sellCurve(
       if (lot.qty <= 0) L.shift();
     }
     t.lots[holder] = L;
-    t.realized[holder] = (t.realized[holder] ?? 0) + q.netCents / 100 - cost;
+    const pnl = q.netCents / 100 - cost;
+    t.realized[holder] = (t.realized[holder] ?? 0) + pnl;
+    const p = g.players[holder];
+    if (p && !p.npc) {
+      p.stats.trades++;
+      if (Math.abs(pnl) > 0.005) {
+        p.stats.closedTrades = (p.stats.closedTrades ?? 0) + 1;
+        if (pnl > 0) p.stats.winningTrades++;
+        p.stats.bestTrade = Math.max(p.stats.bestTrade, pnl);
+        p.stats.worstTrade = Math.min(p.stats.worstTrade, pnl);
+      }
+    }
+    noteClose(g, holder);
+    noteFollow(t, tickOf(g), holder, 'sell', q.grossCents / 100);
     const left = (t.bal[holder] ?? 0) - tokens;
     if (left > 0) t.bal[holder] = left;
     else delete t.bal[holder];

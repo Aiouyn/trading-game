@@ -11,13 +11,14 @@
  *   npx tsx scripts/balance/economy.ts [seed=econ-1] [years=5]
  *
  * Output: one JSON line per game year (`kind: "year"`), a progress line every 28 game days (`kind: "progress"`) so a long
- * run shows it is moving, and a final line (`kind: "final"`). The supply is the stabilizer's measure: the sum of positive
- * net worth over all players. The stabilizer's own target growth is 4% per game day (boards.ts stabilizerDay).
+ * run shows it is moving, and a final line (`kind: "final"`). The supply is the stabilizer's measure: positive net worth
+ * per player (boards.ts stabilizerSupply). The target growth is 1% per game day (STABILIZER_TARGET).
  */
 import { BUSINESSES, TIERS } from '../../src/content/businesses';
 import { rankIndex } from '../../src/content/lifestyle';
 import { SHOP } from '../../src/content/shops';
 import { applyCommand, createGame, stepGame } from '../../src/world/game';
+import { STABILIZER_TARGET, stabilizerSupply } from '../../src/world/boards';
 import { TPD, bizDef, cashOf } from '../../src/world/core';
 import { wellRunCommands } from '../../src/world/shops';
 import { managerPrepayCost } from '../../src/world/shopRules';
@@ -28,8 +29,6 @@ const STYLES: Style[] = ['average', 'managed', 'neglected'];
 const CITIES = ['avalon', 'nordhaven', 'meridia', 'sundara', 'kaiyo', 'serena'];
 const YEAR_DAYS = 252;
 const PROGRESS_DAYS = 28;
-/** The stabilizer's growth target per game day (boards.ts stabilizerDay). */
-const TARGET_GROWTH_PER_DAY = 0.04;
 /** Managed style hires a 2-star manager at purchase (S3). */
 const MANAGED_STARS = 2;
 
@@ -86,7 +85,7 @@ for (const st of STYLES) {
   applyCommand(g, pids[st], { type: 'join', handle: pids[st], country: 'AV' });
   g.players[pids[st]]!.onboarding.skipped = true;
 }
-const supply = () => Object.values(g.players).reduce((s, p) => s + Math.max(0, p.netWorth), 0);
+const supply = () => stabilizerSupply(g);
 const sums = (rec: Record<string, number>) => Object.values(rec).reduce((a, b) => a + b, 0);
 const start = g.market.tick;
 let lastDay = -1;
@@ -125,7 +124,7 @@ for (let t = 0; t < DAYS * TPD; t++) {
     if (prevSupply > 0) {
       const growth = s / prevSupply - 1;
       maxDailyGrowth = Math.max(maxDailyGrowth, growth);
-      if (growth > TARGET_GROWTH_PER_DAY) daysOverTarget++;
+      if (growth > STABILIZER_TARGET) daysOverTarget++;
     }
     prevSupply = s;
     const engagedNow = g.economy.stabilizer.sinkMult > 1.0005;
@@ -181,7 +180,7 @@ const byRank = (ids: string[]) => {
 const humans = Object.values(pids);
 const npcs = Object.values(g.players).filter((p) => p.npc).map((p) => p.id);
 console.log(JSON.stringify({
-  kind: 'final', seed, years, days: DAYS, targetGrowthPerDay: TARGET_GROWTH_PER_DAY,
+  kind: 'final', seed, years, days: DAYS, targetGrowthPerDay: STABILIZER_TARGET,
   startSupply: Math.round(startSupply), endSupply: Math.round(supply()),
   overallGrowthPerDay: Number(((supply() / startSupply) ** (1 / DAYS) - 1).toFixed(5)),
   daysOverTarget, maxDailyGrowth: Number(maxDailyGrowth.toFixed(4)),

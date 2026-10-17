@@ -57,6 +57,7 @@ function rungMet(g: GameState, p: Player, rung: (typeof GOAL_LADDER)[number]): b
   // the same basis as the rank (markNetWorth, refreshed just before this check), so a goal never ticks ahead of a rank-up
   if (rung.nw !== undefined) return (p.markNetWorth ?? p.netWorth) >= rung.nw;
   if (rung.profit) {
+    if (p.stats.winningTrades > 0) return true;
     const L = ensureLedger(g, p.id);
     return !!L?.trips.some((t) => t.realizedPnl > 0);
   }
