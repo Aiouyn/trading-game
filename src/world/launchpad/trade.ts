@@ -5,10 +5,12 @@ import { quoteBuy, quoteSell } from './curve';
 import { addAccountCash, centsOf, faucetCents, isCreatorLinked, moveCents, pushBuy, pushLot, refuse, tokenOf } from './state';
 import { addCohort, takeFromCohorts } from './cohorts';
 import { curveAccountId } from './constants';
+import { anonOf } from './anon';
 import { lockedOf, vestEndDay } from './vest';
 import { cohortsOf } from './cohorts';
-import type { LpLot, LpToken, LpTrade } from './types';
+import type { LpLot, LpToken } from './types';
 import { recordCreatorSale } from './rug';
+import { pushTape } from './tape';
 import { curveHoldingsValue } from './value';
 import { graduate } from './graduate';
 import type { GameState as G } from '../types';
@@ -23,11 +25,6 @@ import type { GameState as G } from '../types';
  */
 
 const tickOf = (g: GameState) => g.market.tick;
-
-function pushTape(t: LpToken, tr: LpTrade): void {
-  t.tape.push(tr);
-  if (t.tape.length > LP.TAPE_KEEP) t.tape.splice(0, t.tape.length - LP.TAPE_KEEP);
-}
 
 /** The creator's account, when the token has a player creator (a world launch has none). */
 function creatorAccount(g: GameState, t: LpToken): string | null {
@@ -104,7 +101,11 @@ export function buyCurve(
   t.volToday += q.spendCents / 100;
   // the no-trade clock (L3) counts player fills only: the NPC cohort bleeds every tick (L6.8), which is not a trade by anyone
   if (!npc) t.lastTradeTick = tickOf(g);
-  pushTape(t, { tick: tickOf(g), side: 'buy', qty: q.tokens, price: q.avgPrice, creator: !!pid && pid === t.creatorId, npc: npc || !pid });
+  // R-10-6: the tape's notional is the outlay (the fee included) in dollars; a player's line carries the anonymous id, never the handle
+  pushTape(t, {
+    tick: tickOf(g), side: 'buy', qty: q.tokens, price: q.avgPrice, creator: !!pid && pid === t.creatorId, npc: npc || !pid,
+    usd: q.spendCents / 100, ...(!npc && pid ? { anon: anonOf(t.ticker, pid) } : {}),
+  });
   if (q.graduates) graduate(g, t, out);
   return {
     ok: true,
@@ -174,7 +175,10 @@ export function sellCurve(
   t.y += tokens;
   t.volToday += q.grossCents / 100;
   if (holder) t.lastTradeTick = tickOf(g);
-  pushTape(t, { tick: tickOf(g), side: 'sell', qty: tokens, price: q.avgPrice, creator: !!holder && holder === t.creatorId, npc: !holder });
+  pushTape(t, {
+    tick: tickOf(g), side: 'sell', qty: tokens, price: q.avgPrice, creator: !!holder && holder === t.creatorId, npc: !holder,
+    usd: q.grossCents / 100, ...(holder ? { anon: anonOf(t.ticker, holder) } : {}),
+  });
   if (holder) recordCreatorSale(g, t, holder, tokens, q.netCents, out);
   return { ok: true, data: { tokens, grossCents: q.grossCents, netCents: q.netCents, feeCents: q.feeCents, avgPrice: q.avgPrice, slippage: q.slippage } };
 }
@@ -188,8 +192,9 @@ export function liquidateCohort(g: GameState, t: LpToken, out: StepOutput | null
   if (t.npcBal > 0) sellCurve(g, null, t.ticker, t.npcBal, 1, out, true);
 }
 
+/** A percentage as the viewer typed it: up to four decimals, no trailing zeros (a 0.01% limit reads 0.01%, not 0.0%). */
 function pct(x: number): string {
-  return `${(x * 100).toFixed(1)}%`;
+  return `${Number((x * 100).toFixed(4))}%`;
 }
 
 /** A player's buy from the command (spend in whole cents; the max slippage is a fraction, default 5%). */

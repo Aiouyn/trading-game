@@ -239,6 +239,23 @@ export interface OpenOpts {
   fresh?: boolean;
 }
 
+/** Changes only this Broker's ticker, preserving its identity, placement and z-order. */
+export function retargetBroker(id: string, ticker: string): boolean {
+  const store = useShell.getState();
+  const win = store.shell.wins.find((w) => w.id === id);
+  if (win === undefined || win.app !== 'broker' || !knownSeries(useGame.getState().config, ticker)) return false;
+  if (win.props.ticker === ticker) return false;
+  const next: ShellState = {
+    ...store.shell,
+    wins: store.shell.wins.map((w) => w === win ? { ...w, props: { ...w.props, ticker } } : w),
+  };
+  store.replace(next);
+  persist(next);
+  useGame.getState().select(ticker);
+  noteRecent({ app: 'broker', ticker });
+  return true;
+}
+
 /** Opens an app, or focuses the window that holds it. A refusal shows a toast, never a silent no-op. */
 export function openApp(app: AppId, props: WinProps = {}, opts: OpenOpts = {}): void {
   if (!APPS[app].available) {

@@ -3,11 +3,11 @@
 // Legal & Court (Velvet app 9): file a case, follow your cases, settle. Evidence decides; counsel nudges
 // the odds a little but cannot buy a verdict (bible 03). Filing spends money, so it goes through the CommitBar.
 import { useState } from 'react';
-import { compactMoney, money } from '@/game/format';
+import { compactMoney, fmtNumber, money } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import { usePublicPanel } from '@/game/usePublicPanel';
-import { COUNSEL_COST, FILING_FEE } from '@/world/court';
+import { COUNSEL_COST, FILING_FEE, filingMinimum } from '@/world/court';
 import type { EcaInquiryView } from '@/world/eca';
 import type { CourtCase } from '@/world/types';
 import { t, tm } from '@/i18n';
@@ -25,7 +25,7 @@ export function LegalApp() {
   const act = useGame((s) => s.act);
   const tick = useGame((s) => s.frame?.tick ?? 0);
   const others = directory.filter((d) => d.id !== me.player.id);
-  const evidenceIds = me.security.evidence.map((e) => e.against);
+  const evidenceIds = Object.keys(me.filing);
   const defaulters = me.deals.filter((d) => d.status === 'defaulted' && d.fromId === me.player.id).map((d) => d.toId);
   const suggested = [...new Set([...evidenceIds, ...defaulters])];
   // The directory can arrive after mount, so the defendant is derived: the pick while it is still a valid
@@ -37,10 +37,18 @@ export function LegalApp() {
   const [filing, setFiling] = useState(false);
   const name = (id: string) => directory.find((d) => d.id === id)?.handle ?? id;
   const mine = me.cases.slice().sort((a, b) => b.filedTick - a.filedTick);
-  const points = Math.round(me.security.evidence.find((e) => e.against === def)?.points ?? (defaulters.includes(def) ? 80 : 0));
+  const evidenceNow = me.filing[def]?.[kind] ?? 0;
+  const points = fmtNumber(evidenceNow, 0, 1);
   const cash = me.account?.cash ?? 0;
   const counselCost = COUNSEL_COST[Number(counsel)] ?? 0;
   const fee = FILING_FEE + counselCost;
+  // The view carries the engine's count for each claim, including residue-only theft evidence. Absence means zero.
+  const evidenceShort = evidenceNow < filingMinimum(kind);
+  const cashShort = cash < fee;
+  // no reason until a defendant is chosen: the button is off for that, and a reason would name nobody
+  const blockReason = !def ? null : evidenceShort
+    ? t('legal.file.needEvidence', { min: fmtNumber(filingMinimum(kind), 0, 1), name: name(def), points })
+    : cashShort ? t('legal.file.needCash', { fee: money(fee), cash: money(cash) }) : null;
   const open = me.cases.filter((c) => c.status === 'filed').length;
   const won = me.cases.filter((c) => (c.status === 'won' && c.plaintiffId === me.player.id) || (c.status === 'lost' && c.defendantId === me.player.id)).length;
   return (
@@ -73,17 +81,20 @@ export function LegalApp() {
               label: t(`legal.counsel.${COUNSEL_NAME[Number(c)]}`, { cost: compactMoney(COUNSEL_COST[Number(c)]!) }),
             }))} />
             <p className="text-caption text-fg-faint">{t('legal.file.evidence', { name: name(def), points, fee: money(FILING_FEE) })}</p>
+            {blockReason && <p className="text-caption text-loss" data-testid="court-block-reason">{blockReason}</p>}
             {filing ? (
               <CommitBar
                 testId="court-commit"
                 title={t('commit.fileTitle', { name: name(def) })}
                 rows={[
-                  { label: t('commit.filingFee'), value: money(fee), testId: 'court-commit-fee' },
-                  { label: t('commit.counsel'), value: money(counselCost) },
-                  { label: t('commit.cashAfter'), value: money(cash - fee), testId: 'court-commit-after' },
+                  { label: t('commit.filingFee'), value: money(FILING_FEE), testId: 'court-commit-filing' },
+                  { label: t('commit.counsel'), value: money(counselCost), testId: 'court-commit-counsel' },
+                  { label: t('commit.total'), value: money(fee), testId: 'court-commit-fee' },
+                  // a balance never reads negative: the line appears only when the filing is affordable
+                  ...(cashShort ? [] : [{ label: t('commit.cashAfter'), value: money(cash - fee), testId: 'court-commit-after' }]),
                 ]}
                 confirmLabel={t('commit.confirmFile')}
-                disabled={!def || cash < fee}
+                disabled={!def || !!blockReason}
                 onCancel={() => setFiling(false)}
                 onConfirm={async () => {
                   const r = await act({ type: 'court.file', defendantId: def, kind, counsel: Number(counsel) }, { success: t('legal.filed') });
@@ -91,7 +102,7 @@ export function LegalApp() {
                 }}
               />
             ) : (
-              <Button variant="brass" disabled={!def} onClick={() => setFiling(true)} testId="file-case">{t('legal.file.button')}</Button>
+              <Button variant="brass" disabled={!def || !!blockReason} onClick={() => setFiling(true)} testId="file-case">{t('legal.file.button')}</Button>
             )}
           </div>
         </Card>

@@ -87,8 +87,13 @@ test('the Launchpad screens for the design review, en and fr, desktop and phone'
     // a token page opens at its top, not at the scroll of the list it was opened from
     if (name.includes('token')) await page.getByTestId('lp-token-page').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(400);
+    // the desktop window opens at a slot about 400 px wide, so the card grid never shows; the screen is widened for the shot only
     const win = isPhone(page) ? null : frame(page, 'launchpad');
-    if (win) await win.screenshot({ path: join(dir!, `${tag}-${name}.png`) });
+    if (win) {
+      await win.evaluate((el) => { (el as HTMLElement).style.width = '1100px'; });
+      await page.waitForTimeout(300);
+      await win.screenshot({ path: join(dir!, `${tag}-${name}.png`) });
+    }
     else await page.screenshot({ path: join(dir!, `${tag}-${name}.png`) });
   };
 

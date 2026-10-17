@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { LessonOrderType } from '@/content/lessons';
-import { money, price, qty, signedMoney, signedPct } from '@/game/format';
+import { money, assetPrice, qty, signedMoney, signedPct } from '@/game/format';
+import { assetDefOf } from '@/game/store';
 import { t } from '@/i18n';
 import type { ActResult, SandboxCommand, SandboxView } from '@/sandbox/sandbox';
 import { Button, Card, NumberField, Segmented, Select } from '@/components/ui';
 import { sandboxErrorCode, sandboxRpc, type OpenedSandbox } from './sandboxRpc';
+import { roundPrice } from '../broker/chartLevels';
 
 /**
  * A trading desk on one sandbox: the order form, the paper account and the step control. The lessons, the practice
@@ -139,7 +141,7 @@ export function PracticeDesk({ sb, prefix, assets, defaultAsset, types, defaultQ
   const { view, prices } = state;
   const finished = view.complete;
   const priceNow = prices[asset];
-  const suggested = priceNow !== undefined && type !== 'market' ? String(Number(startPrice(priceNow, side, type).toFixed(2))) : '';
+  const suggested = priceNow !== undefined && type !== 'market' ? String(roundPrice(startPrice(priceNow, side, type), assetDefOf(asset)?.assetClass)) : '';
   const priceText = priceEdit ?? suggested;
   const holdings = view.portfolio.positions.filter((p) => Math.abs(p.qty) > 1e-9);
   const needsPrice = type === 'limit' || type === 'stop';
@@ -267,7 +269,7 @@ export function PracticeDesk({ sb, prefix, assets, defaultAsset, types, defaultQ
           )}
         </div>
         <p className="text-caption text-fg-faint" data-testid={`${prefix}-now`}>
-          {priceNow !== undefined ? `${t('practice.price.now')} ${price(priceNow)}` : ''}
+          {priceNow !== undefined ? `${t('practice.price.now')} ${assetPrice(assetDefOf(asset) ?? { assetClass: 'stock' }, priceNow)}` : ''}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="brass" onClick={place} disabled={busy || finished} testId={`${prefix}-place`}>{t('practice.place')}</Button>
@@ -285,7 +287,7 @@ export function PracticeDesk({ sb, prefix, assets, defaultAsset, types, defaultQ
           <div key={p.assetId} className="flex items-center justify-between gap-2 border-t border-ink-2 py-1 text-small" data-testid={`${prefix}-position-${p.assetId}`}>
             <span className="font-semibold">{p.assetId}</span>
             <span className="num text-fg-muted">{qty(p.qty)}</span>
-            <span className="num">{price(p.price)}</span>
+            <span className="num">{assetPrice(assetDefOf(p.assetId) ?? { assetClass: 'stock' }, p.price)}</span>
             <span className={`num ${p.unrealizedPnl < 0 ? 'text-loss' : 'text-gain'}`}>{signedMoney(p.unrealizedPnl)}</span>
           </div>
         ))}

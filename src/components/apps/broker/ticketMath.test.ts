@@ -4,7 +4,7 @@ import { changeRefusal, checkOrder, engineRefusal, formatRefusalVars, parseDecim
 /** A buy of 10 shares at 100 with a 1-share cash account that can pay for it: a clean base for each rule. */
 function base(over: Partial<OrderCheck> = {}): OrderCheck {
   return {
-    side: 'buy', type: 'market', qty: 10, whole: true, mid: 100, ref: 100.05, limit: 0, stop: 0, trail: 5, tp: null, sl: null,
+    side: 'buy', type: 'market', qty: 10, mid: 100, ref: 100.05, limit: 0, stop: 0, trail: 5, tp: null, sl: null,
     cash: 5000, bp: 5000, margin: false, total: 1001, notional: 1000.5, held: 0,
     simpleCap: false, capCash: Infinity, capPct: 20, capRank: 'Hustler', locked: false, lockedTier: 'retail',
     shorting: false, opening: 10, committed: 0, canShort: true, shortOk: true, shortCollateral: 0, fee: 1, ...over,
@@ -24,6 +24,13 @@ describe('parseDecimal', () => {
 });
 
 describe('checkOrder: the first failing rule wins and sits under its field', () => {
+  it('FX and memecoin refusals retain their asset precision through the displayed copy', () => {
+    for (const [assetClass, mid] of [['forex', 1.08123], ['crypto', 0.0000082]] as const) {
+      const r = checkOrder(base({ assetClass, type: 'stop', mid, stop: mid, ref: mid })).refusal!;
+      expect(r.vars!.mid).toBeCloseTo(mid, 10);
+      expect(formatRefusalVars(r.vars, { money: String, qty: String, price: (n) => `price:${n}` })).toEqual({ mid: `price:${mid}` });
+    }
+  });
   it('a clean order has no refusal', () => {
     expect(checkOrder(base())).toEqual({ refusal: null, warning: null });
   });
@@ -33,11 +40,6 @@ describe('checkOrder: the first failing rule wins and sits under its field', () 
     expect(r.field).toBe('qty');
     expect(r.key).toBeUndefined();
     expect(r.cta).toBe('broker.cta.size');
-  });
-
-  it('whole shares only for a stock', () => {
-    const r = checkOrder(base({ qty: 1.5 })).refusal!;
-    expect(r).toMatchObject({ field: 'qty', key: 'broker.refuse.whole' });
   });
 
   it('a cash account refuses a buy that its fee-included total does not cover, with both numbers', () => {
@@ -118,14 +120,15 @@ describe('checkOrder: the first failing rule wins and sits under its field', () 
 });
 
 describe('tradeSummary: the cost before the trade', () => {
-  it('a round trip pays two fees and crosses the gap to mid twice; the break-even moves up by that per unit', () => {
+  it('a round trip pays two fees and crosses the gap to mid twice; the break-even is the mid a close needs (no double count)', () => {
     const s = tradeSummary({
       side: 'buy', qty: 10, price: 100.05, mid: 100, fee: 1, halfSpreadFrac: 0.0005, cash: 5000, bp: 5000,
       margin: false, shorting: false, total: 1002.5, notional: 1000.5,
     });
     // slippage 0.05 a unit: round trip = 2 fees + 2 × 10 × 0.05 = 2 + 1
     expect(s.roundTrip).toBeCloseTo(3, 6);
-    expect(s.breakEven).toBeCloseTo(100.05 + 0.3, 6);
+    // the fill already sits one gap (0.05) above mid: the break-even adds the exit gap once and the two fees (0.2)
+    expect(s.breakEven).toBeCloseTo(100 + 2 * 0.05 + 0.2, 6);
     expect(s.spreadPct).toBeCloseTo(0.001, 6);
     expect(s.spread).toBeCloseTo(0.1, 6);
     expect(s.cashAfter).toBeCloseTo(5000 - 1002.5, 6);
@@ -137,9 +140,18 @@ describe('tradeSummary: the cost before the trade', () => {
       side: 'sell', qty: 10, price: 99.95, mid: 100, fee: 1, halfSpreadFrac: 0.0005, cash: 5000, bp: 5000,
       margin: false, shorting: true, total: 997.5, notional: 999.5,
     });
-    expect(s.breakEven).toBeCloseTo(99.95 - 0.3, 6);
+    expect(s.breakEven).toBeCloseTo(100 - 2 * 0.05 - 0.2, 6);
     expect(s.cashAfter).toBeCloseTo(5000 + 997.5, 6);
     expect(s.bpAfter).toBeCloseTo(5000 - 999.5, 6);
+  });
+
+  it('the spread and the impact are separate lines (R-10-1): half spread on the size, and the own impact on the size', () => {
+    const s = tradeSummary({
+      side: 'buy', qty: 10, price: 100.06, mid: 100, fee: 1, halfSpreadFrac: 0.0005, impactFrac: 0.0001, cash: 5000, bp: 5000,
+      margin: false, shorting: false, total: 1002.5, notional: 1000.6,
+    });
+    expect(s.spreadCost).toBeCloseTo(10 * 100 * 0.0005, 9);
+    expect(s.impactCost).toBeCloseTo(10 * 100 * 0.0001, 9);
   });
 
   it('an empty size costs nothing to go in and out of', () => {
@@ -154,7 +166,6 @@ describe('engineRefusal: the engine says why, under the field that caused it', (
     expect(engineRefusal('insufficient cash', 'buy', true, { cash: 12 })).toEqual({ field: 'qty', key: 'broker.refuse.cashNow', vars: { cash: 12 } });
     expect(engineRefusal('insufficient buying power', 'buy', true, { bp: 3 })).toMatchObject({ field: 'qty', key: 'broker.refuse.bpNow' });
     expect(engineRefusal('stacking', 'sell', true)).toEqual({ field: 'qty', key: 'broker.refuse.stacking' });
-    expect(engineRefusal('whole units only', 'buy', true)).toMatchObject({ field: 'qty', key: 'broker.refuse.whole' });
     expect(engineRefusal('limit price required', 'buy', true)).toMatchObject({ field: 'limit' });
     expect(engineRefusal('stop price required', 'buy', true)).toMatchObject({ field: 'stop' });
     expect(engineRefusal('bad stop-loss', 'buy', true)).toMatchObject({ field: 'sl' });

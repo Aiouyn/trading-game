@@ -22,8 +22,8 @@ export const LP = {
   CREATOR_CAP: 100_000_000,
   /** trading fee on notional, each way (L3), split half to the creator and half to a sink */
   FEE_RATE: 0.01,
-  /** the launch fee, a booked sink (L2) */
-  LAUNCH_FEE: 1_000,
+  /** the launch fee, a booked sink (L2). R-10-6 (Phase 10): $100, down from $1,000; the lead re-runs the held-out launchpad gate */
+  LAUNCH_FEE: 100,
   /** the graduation fee on the raised cash, a booked sink (L4) */
   GRAD_FEE_RATE: 0.015,
   /** the ticket's default maximum slippage (L3) */
@@ -85,6 +85,27 @@ export const LP = {
   TAPE_KEEP: 80,
   /** a feed shows at most this many tokens */
   FEED_KEEP: 60,
+  /** R-10-6 (Phase 10): the description and a reply are at most this many characters (plain text, moderated) */
+  DESC_MAX: 140,
+  REPLY_MAX: 140,
+  /** the replies a token keeps (newest last) */
+  REPLY_KEEP: 60,
+  /** a player may reply once a real minute on a token (12 ticks): the one spam brake the world needs */
+  REPLY_COOLDOWN_TICKS: 12,
+  /** NPC replies: at most one a token every this many ticks (five real minutes), and only while the token traded in the window */
+  NPC_REPLY_GAP_TICKS: 60,
+  NPC_REPLY_WINDOW_TICKS: 60,
+  NPC_REPLY_ODDS: 0.2,
+  /** the generated image: the creator picks one of this many variants at launch (no uploads) */
+  ART_VARIANTS: 4,
+  /** the holder distribution on a token page: the top this many rows (the curve, the dev and the NPC cohort are rows too) */
+  HOLDERS_SHOWN: 20,
+  /** the live trades bar: the newest this many trades across tokens */
+  TRADE_BAR: 12,
+  /** the candles a token keeps (review fix, Phase 10): the minute bars (one real minute each, CHART_EVERY ticks) and the hour bars
+   *  (one game day each, TPD ticks). A minute with no trade carries the last price flat; trades set the high and the low */
+  BAR_MINUTES: 240,
+  BAR_HOURS: 24,
 } as const;
 
 /** the curve's constant product k = X0 * Y0 */

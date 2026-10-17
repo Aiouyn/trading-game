@@ -92,12 +92,17 @@ describe('market orders', () => {
     expect(p.positions[0]!.qty).toBe(18);
   });
 
-  it('commission follows the asset class: stocks 0.10% min $1, crypto 0.20%', () => {
+  it('commission follows the asset class (R-10-2): stocks $0.005 a share, min $1, max 1% of value; crypto 0.10%', () => {
     const s = world();
-    expect(commission(s, s.config.assets[0]!, 500)).toBe(1);
-    expect(commission(s, s.config.assets[0]!, 50_000)).toBeCloseTo(50, 9);
-    expect(commission(s, s.config.assets[1]!, 500)).toBeCloseTo(1, 9);
-    expect(commission(s, s.config.assets[1]!, 10)).toBeCloseTo(0.02, 9);
+    // stocks: 10 shares of $50 = $500 -> $0.05, lifted to the $1 minimum
+    expect(commission(s, s.config.assets[0]!, 500, 10)).toBe(1);
+    // 1,000 shares of $50 = $50,000 -> $5 (0.01%, under the 1% cap)
+    expect(commission(s, s.config.assets[0]!, 50_000, 1000)).toBeCloseTo(5, 9);
+    // On $1 of value the 1% maximum caps even the $1 minimum: the fee is $0.01.
+    expect(commission(s, s.config.assets[0]!, 1, 3)).toBeCloseTo(0.01, 9);
+    // crypto: 0.10% of notional, no minimum
+    expect(commission(s, s.config.assets[1]!, 500, 0.01)).toBeCloseTo(0.5, 9);
+    expect(commission(s, s.config.assets[1]!, 10, 0.0001)).toBeCloseTo(0.01, 9);
   });
 
   it('impact grows with the square root of size', () => {
@@ -134,7 +139,9 @@ describe('validation', () => {
   it('rejects bad requests with a reason and keeps them in history', () => {
     const s = world();
     expect(place(s, { qty: 0 }).order).toMatchObject({ status: 'rejected', rejectReason: 'qty must be > 0' });
-    expect(place(s, { qty: 1.5 }).order.rejectReason).toBe('whole units only');
+    expect(place(s, { qty: 1.00005 }).order.rejectReason).toBe('quantity step');
+    expect(place(s, { qty: 0.00001 }).order.rejectReason).toBe('quantity step');
+    expect(place(s, { qty: 1.5 }).order.rejectReason).toBe('quantity step'); // this world's stock is whole-share (qtyStep 1)
     expect(place(s, { assetId: 'COIN', qty: 1.5 }).order.status).toBe('open');
     expect(place(s, { assetId: 'NOPE' }).order.rejectReason).toBe('unknown asset');
     expect(place(s, { playerId: 'ghost' }).order.rejectReason).toBe('no account');

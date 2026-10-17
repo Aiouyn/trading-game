@@ -4,15 +4,17 @@ import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import {
   AreaSeries, CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, PriceScaleMode, createChart,
   type AutoscaleInfoProvider, type CandlestickData, type HandleScaleOptions, type IChartApi, type IPriceLine, type ISeriesApi, type LineData,
-  type MouseEventParams, type Time, type UTCTimestamp,
+  type Coordinate, type Logical, type MouseEventParams, type Time, type UTCTimestamp,
 } from 'lightweight-charts';
-import { useGame } from '@/game/store';
-import { axisTimeLabel, barTimeLabel, barsFor, rangeIsIntraday, type Bar, type ChartRange, type Interval } from '@/game/history';
+import { assetDefOf, useGame } from '@/game/store';
+import { MIN_VIEW_CANDLES, axisTimeLabel, barTimeLabel, barsFor, rangeFromTick, type Bar, type ChartRange, type Interval } from '@/game/history';
 import { INDICATORS, bollinger, ema, latestValues, rsi, sma, vwap, type IndicatorId } from '@/game/indicators';
-import { price as fmtPrice, signedPct, dec } from '@/game/format';
-import { t } from '@/i18n';
+import { assetPrice, dec, pctUnit, signedPct } from '@/game/format';
+import { priceRule, type AssetClass } from '@/engine';
+import { t, useLocale } from '@/i18n';
 import { type ChartLevel, type PriceScale, priceOfY, roundPrice, wheelZoomRange, yOfPrice } from './chartLevels';
 import { LevelLayer } from './LevelLayer';
+import { DrawingLayer, type ChartGeo } from './chart/DrawingLayer';
 
 /**
  * Colors come from the design tokens at runtime: a hidden probe uses the token classes and we
@@ -57,6 +59,8 @@ function withAlpha(color: string, alpha: number): string {
 }
 
 const PRICE_MARGINS = { top: 0.08, bottom: 0.26 };
+/** the empty bars the chart keeps to the right of the newest candle (the time scale's rightOffset) */
+const RIGHT_OFFSET = 4;
 const VOLUME_MARGINS = { top: 0.8, bottom: 0.02 };
 
 /**
@@ -120,8 +124,10 @@ const MENU_PICKS: { kind: 'buyLimit' | 'sellStop' | 'alert'; key: string }[] = [
   { kind: 'alert', key: 'broker.menu.alert' },
 ];
 
-export function PriceChart({ assetId, range: rangeOverride, interval: intervalOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand, percent = false, levels, onLevelCommit, onLevelCancel, onLevelAction, onMenuPick }: {
+export function PriceChart({ assetId, assetClass: assetClassOverride, range: rangeOverride, interval: intervalOverride, mode: modeOverride, testId = 'price-chart', series, studies = true, overlays, marks, onMarkOff, eventBand, percent = false, log = false, onScaleMode, levels, onLevelCommit, onLevelCancel, onLevelAction, onMenuPick, drawings = false }: {
   assetId: string;
+  /** explicit class for price series without an engine definition; takes precedence over the registry */
+  assetClass?: AssetClass;
   range?: ChartRange;
   interval?: Interval;
   mode?: 'candles' | 'line' | 'area';
@@ -140,13 +146,19 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   eventBand?: { sinceTick: number; kind: 'crash' | 'bubble' | 'crisis' | 'flash'; label: string };
   /** the price axis shows percent from the first visible value (spec 1.2, the optional % axis) */
   percent?: boolean;
+  /** the price axis is logarithmic (the bottom-right switch); a percent axis wins over it */
+  log?: boolean;
+  /** the bottom-right switches ask for a scale mode: the percent or the log switch was pressed */
+  onScaleMode?: (mode: 'percent' | 'log') => void;
   /** the position and order lines (spec 1.3): drawn over the chart, dragged and cancelled from their pills */
   levels?: ChartLevel[];
   onLevelCommit?: (level: ChartLevel, price: number) => void;
   onLevelCancel?: (level: ChartLevel) => void;
-  onLevelAction?: (level: ChartLevel, key: 'addTp' | 'addSl') => void;
+  onLevelAction?: (level: ChartLevel, key: 'addTp' | 'addSl' | 'close') => void;
   /** the chart menu (right-click or Alt+click at a price): the pick and the price it was made at */
   onMenuPick?: (kind: 'buyLimit' | 'sellStop' | 'alert', price: number) => void;
+  /** the drawing layer (the Broker chart): the player's shapes are drawn over the plot and edited there */
+  drawings?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -164,6 +176,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   // the first open of the loaded bars: the crosshair's change is measured from it
   const baseOpen = useRef(0);
 
+  const locale = useLocale((s) => s.locale);
   const storeRange = useGame((s) => s.range);
   const storeInterval = useGame((s) => s.interval);
   const storeMode = useGame((s) => s.chartMode);
@@ -179,12 +192,28 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   const [legend, setLegend] = useState<LegendRow[]>([]);
   // the level lines' pixel rows, the price axis's width and the plot height: re-read after every render and on zoom or resize
   const [placed, setPlaced] = useState<{ y: Record<string, number | null>; axisW: number; h: number }>({ y: {}, axisW: 0, h: 0 });
+  // the drawing layer's view: its geometry and the bars it maps, rebuilt when the visible window, the price range, the axis or
+  // the bars change (the key below), so a pan or zoom redraws the shapes on their candles
+  const [view, setView] = useState<{ geo: ChartGeo | null; bars: Bar[] }>({ geo: null, bars: [] });
+  const viewKey = useRef('');
   // the chart menu, opened at a price by a right-click or an Alt+click; its position is inside the chart
   const [menu, setMenu] = useState<{ x: number; y: number; price: number } | null>(null);
   const levelsRef = useRef<ChartLevel[]>([]);
   const bandFrom = eventBand?.sinceTick ?? null;
-  const daily = interval === '1D' || !rangeIsIntraday(range);
+  // the auto switch reads the right scale: a drag on the axis turns it off (the scale stays where the player put it)
+  const [autoOn, setAutoOn] = useState(true);
+  // the bars on the chart now: the range presets move the visible window over them
+  const shownBars = useRef<Bar[]>([]);
   const tpd = useGame((s) => s.history.ticksPerDay);
+  // the asset's class sets its price precision and tick (R-10-3); an index or the net-worth series is priced as a stock
+  const assetCls: AssetClass = assetClassOverride ?? assetDefOf(assetId)?.assetClass ?? 'stock';
+  const fmtAsset = (v: number) => assetPrice({ assetClass: assetCls }, v);
+  // the axis's format inputs: the class, the percent toggle and the last price (its tick is the price's own)
+  const axis = useRef({ cls: assetCls, px: 0 });
+  const axisPriceFormat = () => {
+    const { cls, px } = axis.current;
+    return { type: 'custom' as const, formatter: (v: number) => assetPrice({ assetClass: cls }, v), minMove: priceRule(cls, px).tick };
+  };
 
   // the event window: from the first bar at or after the onset to the right edge; it follows zoom and scroll
   useEffect(() => {
@@ -192,14 +221,14 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     const el = host.current;
     if (bandFrom === null || !c || !el) { setBand(null); return; }
     const place = () => {
-      const first = barsFor(useGame.getState().history, assetId, interval, range).find((b) => b.time >= bandFrom);
+      const first = barsFor(useGame.getState().history, assetId, interval).find((b) => b.time >= bandFrom);
       const x = first ? c.timeScale().timeToCoordinate(toTime(first.time)) : null;
       setBand(x === null ? null : { left: Math.max(0, x), width: Math.max(0, el.clientWidth - Math.max(0, x)) });
     };
     place();
     c.timeScale().subscribeVisibleLogicalRangeChange(place);
     return () => c.timeScale().unsubscribeVisibleLogicalRangeChange(place);
-  }, [bandFrom, rev, range, interval, loaded, assetId, mode]);
+  }, [bandFrom, rev, interval, loaded, assetId, mode]);
 
   useEffect(() => {
     const el = host.current;
@@ -214,7 +243,6 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       rightPriceScale: { borderVisible: false, scaleMargins: PRICE_MARGINS },
       timeScale: { borderVisible: false, rightOffset: 4, timeVisible: true, secondsVisible: false },
       crosshair: { mode: CrosshairMode.Normal, vertLine: { color: p.cross, labelBackgroundColor: p.grid }, horzLine: { color: p.cross, labelBackgroundColor: p.grid } },
-      localization: { priceFormatter: (v: number) => fmtPrice(v) },
       handleScale: { ...SCALE_GESTURES },
     });
     const floor = spanFloor();
@@ -297,14 +325,27 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     };
   }, []);
 
-  // the percent axis: the scale shows change from the first visible value, and the labels carry a %
+  // Every price series uses the asset's own format and tick. Percentage mode has its own localized formatter; a chart-wide
+  // price formatter would also turn the independent RSI scale and volume labels into asset prices.
+  const applyAxis = () => {
+    const c = chart.current;
+    if (!c) return;
+    const priceFormat = axisPriceFormat();
+    c.applyOptions({ localization: { percentageFormatter: (v: number) => `${dec(v, 2)}${pctUnit()}` } });
+    for (const s of [candleS.current, lineS.current, areaS.current, ...Object.entries(lines.current).filter(([key]) => key !== 'rsi').map(([, s]) => s), ...Object.values(overlayS.current)]) {
+      s?.applyOptions({ priceFormat });
+    }
+    lines.current.rsi?.applyOptions({ priceFormat: { type: 'custom', formatter: (v: number) => dec(v, 1), minMove: 0.1 } });
+  };
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
-    c.priceScale('right').applyOptions({ mode: percent ? PriceScaleMode.Percentage : PriceScaleMode.Normal });
-    c.applyOptions({ localization: { priceFormatter: (v: number) => (percent ? `${dec(v, 2)}%` : fmtPrice(v)) } });
+    axis.current = { ...axis.current, cls: assetCls };
+    const scaleMode = percent ? PriceScaleMode.Percentage : log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal;
+    c.priceScale('right').applyOptions({ mode: scaleMode });
+    applyAxis();
     probe.current();
-  }, [percent]);
+  }, [percent, log, assetCls, locale]);
 
   // the crosshair readout: the candle under the pointer, and its change against the range's first open
   useEffect(() => {
@@ -337,6 +378,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
         s = c.addSeries(LineSeries, {
           color: p[o.color], lineWidth: 1, lineStyle: o.dashed ? LineStyle.Dashed : LineStyle.Solid,
           lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+          priceFormat: axisPriceFormat(),
         });
         overlayS.current[o.id] = s;
       }
@@ -347,10 +389,27 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   // the axis labels follow the range: the clock on a day, the game day and clock on a week, the game day on the longer ranges
   useEffect(() => {
     chart.current?.applyOptions({
-      timeScale: { tickMarkFormatter: (t: Time) => axisTimeLabel(Number(t), tpd, range, daily) },
-      localization: { timeFormatter: (t: Time) => barTimeLabel(Number(t), tpd, daily) },
+      timeScale: { tickMarkFormatter: (t: Time) => axisTimeLabel(Number(t), tpd, interval) },
+      localization: { timeFormatter: (t: Time) => barTimeLabel(Number(t), tpd, interval) },
     });
-  }, [range, interval, daily, tpd]);
+  }, [interval, tpd]);
+
+  // The range preset moves the visible window over the candles (the candles do not change): the window starts at the first
+  // candle the preset covers, and it never shows fewer than MIN_VIEW_CANDLES when the history has that many.
+  const viewPreset = () => {
+    const c = chart.current;
+    const n = shownBars.current.length;
+    if (!c || n === 0) return;
+    if (range === 'ALL') { c.timeScale().fitContent(); return; }
+    const from = rangeFromTick(useGame.getState().history, range);
+    let start = shownBars.current.findIndex((b) => b.time >= from);
+    if (start < 0) start = n - 1;
+    start = Math.min(start, Math.max(0, n - MIN_VIEW_CANDLES));
+    c.timeScale().setVisibleLogicalRange({ from: start - 0.5, to: n - 1 + RIGHT_OFFSET });
+  };
+  useEffect(() => {
+    if (!series) viewPreset();
+  }, [range, interval]); // eslint-disable-line react-hooks/exhaustive-deps -- the preset is read from the range and the bars it was set on
 
   useEffect(() => {
     candleS.current?.applyOptions({ visible: mode === 'candles' });
@@ -377,6 +436,9 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       if (lines.current[k]) continue;
       lines.current[k] = c.addSeries(LineSeries, {
         color: spec.color, lineWidth: 1, lineStyle: spec.style ?? LineStyle.Solid, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+        priceFormat: k === 'rsi'
+          ? { type: 'custom', formatter: (v: number) => dec(v, 1), minMove: 0.1 }
+          : axisPriceFormat(),
       }, spec.pane);
     }
     if (want.rsi) c.panes()[1]?.setHeight(90);
@@ -391,6 +453,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     if (series) {
       const key = `series|${testId}|${series.length > 0 ? series[0]!.time : 0}`;
       const pts = series.map((x) => ({ time: toTime(x.time), value: x.value }));
+      if (pts.length) { axis.current = { ...axis.current, cls: assetCls, px: pts[pts.length - 1]!.value }; applyAxis(); }
       if (key !== last.current.key || Math.abs(series.length - last.current.len) > 1) {
         as.setData(pts);
         ls.setData(pts);
@@ -404,13 +467,16 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       return;
     }
     const h = useGame.getState().history;
-    const bars: Bar[] = barsFor(h, assetId, interval, range);
+    const bars: Bar[] = barsFor(h, assetId, interval);
+    shownBars.current = bars;
     if (bars.length === 0) return;
     baseOpen.current = bars[0]!.open;
+    axis.current = { ...axis.current, cls: assetCls, px: bars[bars.length - 1]!.close };
+    applyAxis();
     const vs = volS.current;
     const hasVolume = bars[bars.length - 1]!.volume !== undefined;
     const volPoint = (b: Bar) => ({ time: toTime(b.time), value: b.volume ?? 0, color: b.close >= b.open ? volColors.current.up : volColors.current.down });
-    const key = `${assetId}|${interval}|${range}|${loaded}`;
+    const key = `${assetId}|${interval}|${loaded}`;
     const studyData = (): Partial<Record<LineKey, number[]>> => {
       const d: Partial<Record<LineKey, number[]>> = {};
       if (lines.current.sma20) d.sma20 = sma(bars, 20);
@@ -432,7 +498,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       for (const [k, vals] of Object.entries(studyData()) as [LineKey, number[]][]) {
         lines.current[k]?.setData(bars.map((b, i) => (Number.isFinite(vals[i]) ? { time: toTime(b.time), value: vals[i]! } : { time: toTime(b.time) })));
       }
-      chart.current?.timeScale().fitContent();
+      viewPreset();
       last.current = { key, len: bars.length };
     } else {
       const lb = bars[bars.length - 1]!;
@@ -449,8 +515,8 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
     // the legend shows the latest value of each active indicator
     const ids = (Object.keys(indicators) as IndicatorId[]).filter((id) => indicators[id] && studies);
     const vals = latestValues(bars, ids, h.ticksPerDay);
-    setLegend(ids.map((id) => ({ id, label: INDICATORS.find((i) => i.id === id)?.label ?? id, value: legendText(id, vals[id]) })));
-  }, [assetId, interval, range, rev, loaded, series, testId, indicators, studies]);
+    setLegend(ids.map((id) => ({ id, label: INDICATORS.find((i) => i.id === id)?.label ?? id, value: legendText(id, vals[id], assetCls) })));
+  }, [assetId, assetCls, interval, rev, loaded, series, testId, indicators, studies, locale]); // eslint-disable-line react-hooks/exhaustive-deps -- viewPreset reads the range it is set on each render
 
   // The marks are redrawn when their text or prices change (keyed by value, so a caller need not memoize them). The palette
   // loss colour reads the chart host.
@@ -478,8 +544,55 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   /** the price under a pixel row of the chart, rounded to the tick; null off the scale */
   const toPrice = (y: number): number | null => {
     const s = activeSeries();
-    return s ? priceOfY(scaleOf(s), y) : null;
+    return s ? priceOfY(scaleOf(s), y, assetCls) : null;
   };
+  /**
+   * The chart's own scales as the drawing layer maps them. Time goes through the candles' logical index (a tick between two
+   * candles lies between their indexes, and a tick past the last candle extends at the average candle spacing), so a drawing
+   * stays on its tick when the candle size changes. Price goes through the series' scale.
+   */
+  const geoOf = (): ChartGeo | null => {
+    const c = chart.current;
+    const sr = activeSeries();
+    const bars = shownBars.current;
+    if (!c || !sr || bars.length === 0) return null;
+    const ts = c.timeScale();
+    const n = bars.length;
+    const step = n > 1 ? (bars[n - 1]!.time - bars[0]!.time) / (n - 1) || 1 : 1;
+    const tickToLogical = (tk: number): number => {
+      if (tk <= bars[0]!.time) return (tk - bars[0]!.time) / step;
+      if (tk >= bars[n - 1]!.time) return n - 1 + (tk - bars[n - 1]!.time) / step;
+      let lo = 0;
+      let hi = n - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (bars[mid]!.time <= tk) lo = mid; else hi = mid;
+      }
+      const a = bars[lo]!.time;
+      const b = bars[hi]!.time;
+      return lo + (b > a ? (tk - a) / (b - a) : 0);
+    };
+    const logicalToTick = (l: number): number => {
+      if (l <= 0) return bars[0]!.time + l * step;
+      if (l >= n - 1) return bars[n - 1]!.time + (l - (n - 1)) * step;
+      const i = Math.floor(l);
+      const a = bars[i]!.time;
+      const b = bars[i + 1]!.time;
+      return a + (l - i) * (b - a);
+    };
+    return {
+      width: ts.width(),
+      height: c.paneSize().height,
+      tickToX: (tk) => Number(ts.logicalToCoordinate(tickToLogical(tk) as Logical) ?? 0),
+      xToTick: (x) => {
+        const l = ts.coordinateToLogical(x as Coordinate);
+        return logicalToTick(l === null ? 0 : Number(l));
+      },
+      priceToY: (pr) => { const y = sr.priceToCoordinate(pr); return y === null ? null : Number(y); },
+      yToPrice: (y) => sr.coordinateToPrice(y as Coordinate),
+    };
+  };
+
   // each line's row, the axis width and the plot height: set only when one of them moved
   const placeOverlay = () => {
     const c = chart.current;
@@ -492,8 +605,22 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
       host.current.dataset.priceAuto = String(right.options().autoScale);
       host.current.dataset.priceFrom = shown ? String(shown.from) : '';
       host.current.dataset.priceTo = shown ? String(shown.to) : '';
+      // the candle size, the candles drawn and the visible candle window (logical indexes), and the scale mode, for the e2e checks
+      const view = c.timeScale().getVisibleLogicalRange();
+      host.current.dataset.interval = interval;
+      host.current.dataset.candles = String(shownBars.current.length);
+      host.current.dataset.viewFrom = view ? String(Math.round(view.from)) : '';
+      host.current.dataset.viewTo = view ? String(Math.round(view.to)) : '';
+      host.current.dataset.priceMode = String(right.options().mode);
     }
     const scale = scaleOf(s);
+    setAutoOn(right.options().autoScale);
+    const view = c.timeScale().getVisibleLogicalRange();
+    const vkey = `${view?.from}|${view?.to}|${shown?.from}|${shown?.to}|${right.width()}|${c.paneSize().height}|${shownBars.current.length}|${shownBars.current.at(-1)?.time}`;
+    if (vkey !== viewKey.current) {
+      viewKey.current = vkey;
+      setView({ geo: geoOf(), bars: shownBars.current });
+    }
     const y: Record<string, number | null> = {};
     for (const l of levelsRef.current) y[l.id] = yOfPrice(scale, l.price);
     const axisW = Math.round(right.width());
@@ -552,11 +679,11 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
         <div className="pointer-events-none absolute left-2 top-2 z-[3] flex max-w-[calc(100%-5rem)] flex-col gap-1">
           {readout && (
             <div className="num text-micro text-fg-muted" data-testid="chart-readout">
-              <span className="text-fg-faint">{barTimeLabel(readout.time, tpd, daily)}</span>
+              <span className="text-fg-faint">{barTimeLabel(readout.time, tpd, interval)}</span>
               {readout.o !== undefined && readout.h !== undefined && readout.l !== undefined && (
-                <span className="ml-2">{t('broker.ohlc.open')} {fmtPrice(readout.o)} {t('broker.ohlc.high')} {fmtPrice(readout.h)} {t('broker.ohlc.low')} {fmtPrice(readout.l)}</span>
+                <span className="ml-2">{t('broker.ohlc.open')} {fmtAsset(readout.o)} {t('broker.ohlc.high')} {fmtAsset(readout.h)} {t('broker.ohlc.low')} {fmtAsset(readout.l)}</span>
               )}
-              <span className="ml-2 text-fg">{t('broker.ohlc.close')} {fmtPrice(readout.c)}</span>
+              <span className="ml-2 text-fg">{t('broker.ohlc.close')} {fmtAsset(readout.c)}</span>
               <span className={`ml-2 ${readout.change >= 0 ? 'text-gain' : 'text-loss'}`} data-testid="chart-readout-change">{signedPct(readout.change)}</span>
             </div>
           )}
@@ -578,6 +705,29 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
           )}
         </div>
       )}
+      {showOverlay && (
+        <div
+          className="absolute bottom-0.5 z-[3] flex items-center gap-1 rounded-md bg-ink-1/90 p-0.5" style={{ right: placed.axisW + 4 }}
+          data-testid="scale-controls"
+        >
+          <ScaleSwitch
+            label={t('broker.chart.auto')} tip={t('broker.chart.autoTip')} on={autoOn} testId="auto-axis"
+            onClick={() => { chart.current?.priceScale('right').applyOptions({ autoScale: true }); setAutoOn(true); probe.current(); }}
+          />
+          {onScaleMode && (
+            <>
+              <ScaleSwitch label={t('broker.chart.log')} tip={t('broker.chart.logTip')} on={log && !percent} testId="log-axis" onClick={() => onScaleMode('log')} />
+              <ScaleSwitch label={t('broker.chart.pct')} tip={t('broker.chart.pctTip')} on={percent} testId="pct-axis" onClick={() => onScaleMode('percent')} />
+            </>
+          )}
+        </div>
+      )}
+      {showOverlay && drawings && (
+        <DrawingLayer
+          assetId={assetId} assetClass={assetCls} geo={view.geo} bars={view.bars}
+          onWheel={(e) => host.current?.dispatchEvent(new WheelEvent('wheel', e))}
+        />
+      )}
       {band && eventBand && (
         <div className="os-event-band" data-testid="event-band" data-kind={eventBand.kind} style={{ left: band.left, width: band.width }} aria-hidden>
           <span className="os-event-band-label">{eventBand.label}</span>
@@ -589,6 +739,7 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
           axisW={placed.axisW}
           height={placed.h}
           toPrice={toPrice}
+          assetClass={assetCls}
           toY={(p) => { const s = activeSeries(); return s ? yOfPrice(scaleOf(s), p) : null; }}
           onCommit={(l, p) => onLevelCommit?.(l, p)}
           onCancel={(l) => onLevelCancel?.(l)}
@@ -607,10 +758,10 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
               <li key={p.kind} role="none">
                 <button
                   type="button" role="menuitem" data-testid={`menu-${p.kind}`}
-                  onClick={() => { const at = roundPrice(menu.price); setMenu(null); onMenuPick(p.kind, at); }}
+                  onClick={() => { const at = roundPrice(menu.price, assetCls); setMenu(null); onMenuPick(p.kind, at); }}
                   className="w-full rounded-sm px-2 py-1.5 text-left text-small text-fg-muted hover:bg-ink-2 hover:text-fg"
                 >
-                  {t(p.key, { price: fmtPrice(roundPrice(menu.price)) })}
+                  {t(p.key, { price: fmtAsset(roundPrice(menu.price, assetCls)) })}
                 </button>
               </li>
             ))}
@@ -621,12 +772,25 @@ export function PriceChart({ assetId, range: rangeOverride, interval: intervalOv
   );
 }
 
+/** One of the chart's bottom-right scale switches (auto, log, %): a small button that shows whether it is on. */
+function ScaleSwitch({ label, tip, on, testId, onClick }: { label: string; tip: string; on: boolean; testId: string; onClick: () => void }) {
+  return (
+    <button
+      type="button" aria-pressed={on} onClick={onClick} data-testid={testId} title={tip}
+      className={`h-6 min-w-[2.25rem] rounded-sm px-1.5 text-micro ${on ? "bg-brass/15 text-brass-hi" : "text-fg-faint hover:text-fg-muted"}`}
+    >
+      {label}
+    </button>
+  );
+}
+
 /** The text a legend row shows for an indicator's latest value. */
-function legendText(id: IndicatorId, v: number[] | undefined): string {
+function legendText(id: IndicatorId, v: number[] | undefined, assetClass: AssetClass): string {
   if (!v || v.length === 0) return '–';
-  if (id === 'bb') return `${fmtPrice(v[0]!)} / ${fmtPrice(v[1] ?? v[0]!)}`;
+  const fmt = (x: number) => assetPrice({ assetClass }, x);
+  if (id === 'bb') return `${fmt(v[0]!)} / ${fmt(v[1] ?? v[0]!)}`;
   if (id === 'rsi') return dec(v[0]!, 1);
-  return fmtPrice(v[0]!);
+  return fmt(v[0]!);
 }
 
 export type { IndicatorId };

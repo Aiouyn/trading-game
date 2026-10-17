@@ -4,7 +4,7 @@ import fr from '@/i18n/fr.json';
 import en from '@/i18n/en.json';
 import { SECTORS, sectorName } from '@/engine';
 import { BIZ_SECTORS } from '@/content/businesses';
-import { compactMoney, dec, fmtNumber, money, moneyParts, price, pctUnit, signedMoney, signedPct, MINUS } from './format';
+import { assetPrice, compactMoney, dec, fmtNumber, money, moneyParts, pctUnit, signedMoney, signedPct, MINUS } from './format';
 import { bizSectorLabel, sectorLabel } from './sectorLabel';
 
 // The formatter follows the viewer's locale (src/i18n). The French figures use a decimal comma, a space before the
@@ -48,8 +48,8 @@ describe('format in French', () => {
 
   it('prices and decimals use the decimal comma', () => {
     inFrench(() => {
-      expect(price(0.034)).toBe('0,0340');
-      expect(price(41000)).toMatch(new RegExp(`^41${GROUP.source}000,00$`));
+      expect(assetPrice({ assetClass: 'stock' }, 0.034)).toBe('0,0340');
+      expect(assetPrice({ assetClass: 'stock' }, 41000)).toMatch(new RegExp(`^41${GROUP.source}000,00$`));
       expect(dec(2.5, 1)).toBe('2,5');
       expect(dec(1234.5, 2)).toBe('1234,50'); // no group separator, as toFixed printed it
       expect(fmtNumber(0.5, 2, 2)).toBe('0,50');

@@ -99,7 +99,7 @@ describe('the newsroom facts Phase 7 added (P7-1: the engine lines that had no d
     expect(one).toContain('+40%');
     const many = renderMsg(newsroomMsg({ kind: 'bizEvent', id: 'b-viral-down', event: 'viral', biz: 'X', city: 'Y', mult: 0.6, days: 3 }), 'fr');
     expect(many).toContain('3 jours');
-    expect(many).toContain('−40%');
+    expect(many).toContain('−40\u00a0%');
   });
 
   it('the court kind is a fragment in each language, and an unknown kind shows as it is', () => {

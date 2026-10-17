@@ -1,8 +1,8 @@
 'use client';
 
 import { type ReactNode, useMemo } from 'react';
-import { signedMoney, money, price, qty as fmtQty, tone, toneText } from '@/game/format';
-import { useGame } from '@/game/store';
+import { signedMoney, money, assetPrice, qty as fmtQty, tone, toneText } from '@/game/format';
+import { useGame, assetDefOf } from '@/game/store';
 import { clockLabel } from '@/game/clock';
 import { t } from '@/i18n';
 import { OpenOrders, Positions } from '@/components/Holdings';
@@ -45,7 +45,7 @@ export function BrokerDock({ ticker, tab, onTab, narrow = false, onPick }: {
   let panel: ReactNode;
   switch (tab) {
     case 'positions':
-      panel = <Positions bare />;
+      panel = <Positions bare onPick={onPick} />;
       break;
     case 'orders':
       panel = openCount > 0 ? <OpenOrders bare /> :<p className="px-1 text-small text-fg-faint" data-testid="orders-empty">{t('broker.dock.noOrders')}</p>;
@@ -119,7 +119,7 @@ export function FillHistory({ assetId }: { assetId: string }) {
               <Td className="num text-fg-muted">{clockLabel(f.tick, tpd)}</Td>
               <Td className={f.side === 'buy' ? 'text-gain' : 'text-loss'}>{f.side === 'buy' ? t('common.buy') : t('common.sell')}</Td>
               <Td right num>{fmtQty(f.qty)}</Td>
-              <Td right num>{price(f.price)}</Td>
+              <Td right num>{assetPrice(assetDefOf(f.assetId) ?? { assetClass: 'stock' }, f.price)}</Td>
               <Td right num className="text-fg-muted">{money(f.fee)}</Td>
               <Td right num className={toneText[tone(f.realizedPnl)]}>{f.side === 'sell' ? signedMoney(f.realizedPnl) : '–'}</Td>
             </tr>

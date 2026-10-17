@@ -90,9 +90,9 @@ describe('isolated runs', () => {
   });
 
   it('disqualify an entry that places fewer than the minimum trades in a seed', () => {
-    // an allocation of 0.01 cannot buy one share of a long-priced asset: the run places no orders
+    // R-10-4: stocks trade 0.0001 shares, so the premise is a size below one step: an allocation of 1e-7 of the bankroll is well under a step, and the run places no orders
     const seed = weekSeeds('w1', 'secret-a')[0]!;
-    const r = runIsolated(seed, actor({ allocation: 0.0001 }), SHORT);
+    const r = runIsolated(seed, actor({ allocation: 1e-7 }), SHORT);
     expect(r.trades).toBeLessThan(TOURNAMENT.minTrades);
     expect(r.qualified).toBe(false);
     expect(r.reason).toBe('trades');

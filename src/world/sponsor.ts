@@ -159,7 +159,7 @@ export function overdraws(g: GameState, pid: string, req: OrderRequest): boolean
     if (!Number.isFinite(px) || px <= 0) return false;
     const def = g.market.config.assets.find((a) => a.id === req.assetId);
     const cost = req.qty * px;
-    const need = cost + (def ? commission(g.market, def, cost) : 0);
+    const need = cost + (def ? commission(g.market, def, cost, req.qty) : 0);
     return need + reservedBuys(g, pid) > acct.cash + 1e-6;
   }
   const long = Math.max(0, acct.positions[req.assetId]?.qty ?? 0);
@@ -175,7 +175,7 @@ export function reservedBuys(g: GameState, pid: string): number {
     const px = o.limitPrice ?? o.stopPrice ?? priceOf(g, o.assetId);
     if (!Number.isFinite(px) || px <= 0 || remaining <= 0) continue;
     const def = g.market.config.assets.find((a) => a.id === o.assetId);
-    r += remaining * px + (def ? commission(g.market, def, remaining * px) : 0);
+    r += remaining * px + (def ? commission(g.market, def, remaining * px, remaining) : 0);
   }
   return r;
 }

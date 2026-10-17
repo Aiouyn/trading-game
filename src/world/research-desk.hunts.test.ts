@@ -346,9 +346,12 @@ describe('analyst and desk money (restricted cash, no refund, unpaid leaves, upk
     const p = g.players.u1!;
     p.restrictedCash = cashOf(g, 'u1');
     expect(cmd(g, 'u1', { type: 'analyst.hire', tier: 'junior' }).ok).toBe(false);
-    expect(unlockDesk(g, p, null).ok).toBe(false);
+    // the trial is free, so the desk opens; the first monthly fee falls due at the trial's end and cannot be paid from restricted cash
+    expect(unlockDesk(g, p, null).ok).toBe(true);
     expect(p.analyst).toBeFalsy();
-    expect(p.desk).toBeFalsy();
+    p.desk = { ...p.desk!, paidThroughDay: today(g) };
+    workDay(g, null);
+    expect(p.desk!.lapsed).toBe(true);
   });
 
   it('desk_upkeep_miss: a desk that cannot cover its week locks, keeps its files readable, and writes one note', () => {
@@ -366,7 +369,7 @@ describe('analyst and desk money (restricted cash, no refund, unpaid leaves, upk
     expect(p.inbox.filter((i) => i.kind === 'work').length - inboxBefore).toBe(1);
     expect(deskFileOf(g, p, file!.no).ok).toBe(true);
     expect(cmd(g, 'u1', { type: 'desk.query', assetId: 'HLCN', from: 0, to: 0 }).ok).toBe(false);
-    expect(DESK.weeklyUpkeep).toBeGreaterThan(0);
+    expect(DESK.monthlyFee).toBeGreaterThan(0);
   });
 });
 

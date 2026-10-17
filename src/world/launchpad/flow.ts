@@ -10,6 +10,8 @@ import { cohortsOf } from './cohorts';
 import { absorbPending } from './absorb';
 import { openSellQty } from './graduate';
 import { priceNow } from './rug';
+import { npcReplyTick } from './reply';
+import { carryBar } from './bars';
 import { dayOf, ensureLaunchpad, lpWire, refuse, sinkCents, tokenOf } from './state';
 import { placeOrder } from '@/engine';
 import type { LpToken } from './types';
@@ -213,10 +215,16 @@ export function lpTick(g: GameState, out: StepOutput | null): void {
         if (t.lowCloses >= LP.DEAD_CASH_DAYS) kill(g, t, 'cash', out);
       }
     }
-    if (t.status === 'live' && tick % LP.CHART_EVERY === 0) {
-      t.chart.push([tick, spotAt(t.y)]);
-      if (t.chart.length > 400) t.chart.splice(0, t.chart.length - 400);
+  }
+  // Curve and graduated candles carry the last fill on idle minutes. Engine fills touch OHLC in lpFills; sampling the mid here
+  // would overwrite a boundary tick's closing fill. Every token that is not dead may get an NPC reply (reply.ts).
+  for (const ticker of s.order) {
+    const t = s.tokens[ticker];
+    if (!t || t.status === 'dead') continue;
+    if (tick % LP.CHART_EVERY === 0) {
+      carryBar(t, tick, priceNow(g, t));
     }
+    npcReplyTick(g, t);
   }
   unwindGraduated(g);
   if (newDay) rumorOfTheDay(g, out, day);

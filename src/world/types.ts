@@ -1,3 +1,4 @@
+import type { ChartDrawing } from './drawings';
 import type { Order, OrderRequest, RngState, Side, WorldState } from '@/engine';
 import type { UpgradeAxis } from '@/content/businesses';
 import type { PlayerStats } from '@/content/progression';
@@ -79,6 +80,12 @@ export interface GameState {
   tournament?: TournamentState;
   /** the weekly live auctions (auctions.ts). Absent until the first bid; worlds without one keep every fingerprint. */
   auctions?: AuctionState;
+  /**
+   * The first week whose auction lots are drawn per rank band (auctions.ts, R-10-7). Weeks before it keep the lot draw they
+   * were opened with. A world created now sets 0; an older save has none and is pinned by stepGame to the week after its
+   * current one, so no lot that is open at the deploy changes. Absent in a save that has not stepped since the deploy.
+   */
+  auctionBandsFrom?: number;
   /** the insurance market is open: a first policy went on, so the insurer exists and the loss sources roll (insurance.ts). Absent in worlds that never sold one. */
   insuranceMarket?: boolean;
 }
@@ -215,6 +222,8 @@ export interface Player {
   watchlist: string[];
   alerts: PriceAlert[];
   alertSeq: number;
+  /** the chart drawings this player keeps, per symbol (drawings.ts): private, capped; absent until the player draws */
+  drawings?: Record<string, ChartDrawing[]>;
   /** analyst notes bought: asset → note */
   notes: Record<string, AnalystNote>;
   /** private notifications (fills, attacks, verdicts...), newest first */
@@ -263,7 +272,7 @@ export interface Player {
   assetFlow?: number;
   /** hired analyst (one at a time), null or absent when none */
   analyst?: { tier: AnalystTier; hiredDay: number; paidThroughDay: number } | null;
-  /** Research Desk: unlocked once at Operator; lapsed when upkeep is not covered (files are kept) */
+  /** Research Desk: a trial, then a monthly fee at Operator; lapsed when the month is not covered (files are kept) */
   desk?: { unlockedDay: number; paidThroughDay: number; lapsed: boolean } | null;
   /** Learn: lesson ids completed, server-side */
   lessons?: string[];
@@ -775,6 +784,8 @@ export type Command =
   | { type: 'watch.set'; assetIds: string[] }
   | { type: 'alert.add'; assetId: string; above: boolean; price: number }
   | { type: 'alert.remove'; alertId: string }
+  /** the symbol's whole drawing list, replaced (drawings.ts checks and caps it) */
+  | { type: 'drawings.save'; assetId: string; drawings: ChartDrawing[] }
   | { type: 'contract.claim'; contractId: string }
   | { type: 'onboarding'; step: number; skipped?: boolean; done?: boolean }
   | { type: 'profile'; bio?: string; country?: string; title?: string; mostWantedOptIn?: boolean }
@@ -858,10 +869,12 @@ export type Command =
   | { type: 'fund.deposit'; fundId: string; amount: number }
   | { type: 'fund.redeem'; fundId: string; units: number }
   /** the Launchpad (lead-launchpad.md): launch a token (cents of dev buy optional), buy and sell on its curve, buy a buzz item, cancel an untraded launch, file a rug case */
-  | { type: 'lp.launch'; name: string; ticker: string; tagline: string; allocation: number; devBuyCents?: number }
+  | { type: 'lp.launch'; name: string; ticker: string; tagline: string; allocation: number; devBuyCents?: number; description?: string; art?: number }
   | { type: 'lp.buy'; ticker: string; spendCents: number; maxSlip?: number }
   | { type: 'lp.sell'; ticker: string; tokens: number; maxSlip?: number }
   | { type: 'lp.buzz'; ticker: string; kind: 'board' | 'wire' }
+  /** R-10-6: a reply on a token's thread (plain text, at most 140 characters, moderated) */
+  | { type: 'lp.reply'; ticker: string; text: string }
   | { type: 'lp.cancel'; ticker: string }
   | { type: 'lp.file'; ticker: string }
   /** sponsor breaks (velvet-rewarded-ads.md): open a 15-second card, then finish it (a full watch pays; a skip after 5 s pays nothing) */

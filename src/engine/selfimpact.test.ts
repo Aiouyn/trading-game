@@ -200,7 +200,7 @@ describe('daily cumulative impact accounting', () => {
     // full ecology (the new-world default) caps the pre-exit mark at the public fair value: min(price, quote().fundamental)
     const i = idx(s, 'OSTV'), q = quote(s, 'OSTV'), p = Math.min(q.price, q.fundamental);
     const px = p * (1 - (halfSpread(s, i) + impact(s, i, qty * p)));
-    const capped = qty * px - commission(s, s.config.assets[i]!, qty * px);
+    const capped = qty * px - commission(s, s.config.assets[i]!, qty * px, qty);
     expect(liquidationEquity(s, 'p1')).toBeCloseTo(a.cash + (markCapOn(s) ? capped : sell.total), 9);
     expect(liquidationEquity(s, 'p1')).toBeLessThan(portfolio(s, 'p1').equity);
     expect(portfolio(s, 'p1').liquidationEquity).toBeCloseTo(liquidationEquity(s, 'p1'), 9);

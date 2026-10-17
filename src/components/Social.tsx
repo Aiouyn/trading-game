@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { RANKS } from '@/content/lifestyle';
 import { ACHIEVEMENTS } from '@/content/progression';
 import { MINUS, compactMoney, fmtNumber, money, dec } from '@/game/format';
 import { useGame } from '@/game/store';
@@ -106,7 +105,7 @@ function Boards() {
               <button type="button" onClick={() => board !== 'alliance' && openProfile(r.id)} className="min-w-0 flex-1 truncate text-left text-small hover:underline">
                 {r.name} {r.npc && <span className="text-caption text-fg-faint">{dot(t('social.npc'))}</span>}
               </button>
-              {r.rankId && <span className="text-caption text-fg-faint">{RANKS.find((x) => x.id === r.rankId)?.name}</span>}
+              {r.rankId && <span className="text-caption text-fg-faint">{t(`rank.${r.rankId}`)}</span>}
               {r.country && <span className="num text-caption text-fg-faint">{r.country}</span>}
               <span className="num w-28 text-right text-small">{spec.fmt(r.value)}</span>
             </li>
@@ -138,7 +137,7 @@ function Players() {
             <button type="button" onClick={() => openProfile(d.id)} className="flex w-full items-center gap-3 border-t border-ink-2 px-4 py-2.5 text-left hover:bg-ink-2" data-testid={`player-${d.handle}`}>
               <span className={`h-2 w-2 rounded-full ${d.online ? 'bg-gain' : 'bg-ink-3'}`} aria-hidden />
               <span className="min-w-0 flex-1 truncate text-small">{d.handle}{d.allianceTag ? <span className="text-fg-faint">{lead(br(d.allianceTag))}</span> : ''}{d.npc ? <span className="text-caption text-fg-faint">{lead(dot(t('social.npc')))}</span> : ''}</span>
-              <span className="text-caption text-fg-faint">{RANKS.find((r) => r.id === d.rankId)?.name}</span>
+              <span className="text-caption text-fg-faint">{t(`rank.${d.rankId}`)}</span>
               <span className="num w-24 text-right text-small">{compactMoney(d.netWorth)}</span>
             </button>
           </li>
@@ -166,7 +165,7 @@ export function ProfileModal() {
   return (
     <Modal open={!!id} onClose={() => openProfile(null)} title={<span>{d.handle}{d.title ? <span className="ml-2 text-small text-brass">{d.title}</span> : null}</span>} testId="profile-modal">
       <div className="flex flex-wrap gap-2">
-        <BrassChip>{RANKS.find((r) => r.id === d.rankId)?.name}</BrassChip>
+        <BrassChip>{t(`rank.${d.rankId}`)}</BrassChip>
         <Chip>{COUNTRIES.find((c) => c.code === d.country)?.name ?? d.country}</Chip>
         {d.allianceTag && <Chip>{br(d.allianceTag)}</Chip>}
         {d.npc && <Chip>{t('social.npc')}</Chip>}

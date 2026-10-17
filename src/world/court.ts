@@ -24,6 +24,16 @@ import type { Msg } from '@/i18n';
 export const COUNSEL_COST = [0, 5_000, 25_000, 120_000];
 /** The flat filing fee; counsel is added on top (COUNSEL_COST). The Legal CommitBar shows the same figure. */
 export const FILING_FEE = 2_000;
+/** The claim kinds, as the filing takes them. */
+export const COURT_KINDS: CourtCase['kind'][] = ['cyber intrusion', 'model theft', 'loan default', 'contract breach'];
+/** A claim's bar in evidence points (a model theft needs more). A case needs half the bar to be filed at all. */
+export function filingBar(kind: CourtCase['kind']): number {
+  return kind === 'model theft' ? 55 : 40;
+}
+/** The evidence points below which the filing is refused (half the bar): the Legal app disables File under it. */
+export function filingMinimum(kind: CourtCase['kind']): number {
+  return filingBar(kind) * 0.5;
+}
 const HEARING_DAYS = 2;
 /** the claim's name as a message key (the filing notice names it in the viewer's language) */
 const CLAIM_KEY: Record<string, string> = {
@@ -41,7 +51,8 @@ export const ECA_CAP_PCT = 0.35;
 export const ECA_REPEAT_X = 1.5;
 export const ECA_REPEAT_MAX = 2.5;
 
-function evidenceFor(g: GameState, plaintiffId: string, defendantId: string, kind: CourtCase['kind']): number {
+/** The evidence points a claim would rest on (the engine's count; the Legal app reads the same numbers through the view). */
+export function evidenceFor(g: GameState, plaintiffId: string, defendantId: string, kind: CourtCase['kind']): number {
   if (kind === 'loan default') {
     const d = Object.values(g.deals).find((x) => x.status === 'defaulted' && x.fromId === plaintiffId && x.toId === defendantId);
     return d ? 80 : 0;
@@ -87,8 +98,9 @@ export function fileCase(g: GameState, pid: string, defendantId: string, kind: C
   const filingFee = FILING_FEE + COUNSEL_COST[lvl]!;
   if (cashOf(g, pid) < filingFee) return { ok: false, error: 'not enough cash for fees' };
   const evidence = evidenceFor(g, pid, defendantId, kind);
-  const bar = kind === 'model theft' ? 55 : 40;
-  if (evidence < bar * 0.5) return { ok: false, error: `not enough evidence (${Math.round(evidence)} of ${bar} points)`, msg: { key: 'court.refuse.evidence', vars: { n: `#n:${Math.round(evidence)},0,0`, bar } } };
+  const bar = filingBar(kind);
+  const minimum = filingMinimum(kind);
+  if (evidence < minimum) return { ok: false, error: `not enough evidence (${evidence} of ${minimum} points)`, msg: { key: 'court.refuse.evidence', vars: { n: `#n:${evidence},0,1`, bar: `#n:${minimum},0,1` } } };
   debit(g, pid, filingFee, 'legal fees');
   g.court.seq++;
   const id = `case${g.court.seq}`;

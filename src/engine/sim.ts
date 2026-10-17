@@ -242,6 +242,7 @@ function advance(state: WorldState): StepResult {
       a.h = clamp(omega + cfg.garchAlpha * z * z + cfg.garchBeta * prev.h, cfg.garchMin, cfg.garchMax);
       a.lnOpen = prev.lnP;
       a.haltedToday = false;
+      a.reopenedToday = false;
       a.dayJump = 0;
       a.dayRate = 0;
       a.dayDiff = 0;
@@ -364,6 +365,8 @@ function advance(state: WorldState): StepResult {
         events.push({ type: 'reopen', tick, assetId: def.id, gap: Math.exp(a.pending) - 1 });
         a.pending = 0;
         a.haltUntil = -1;
+        // Spread widening must not consume the reopening day's circuit-breaker eligibility.
+        a.reopenedToday = true;
       }
     } else {
       a.lnP = Math.max(prev.lnP + r, Math.log(def.floor));

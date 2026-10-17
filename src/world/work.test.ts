@@ -117,15 +117,33 @@ describe('the analyst (D-19)', () => {
 });
 
 describe('the Research Desk (D-19)', () => {
-  it('opens at Operator, unlocks once for the fee and the first week, and refuses a second unlock', () => {
+  it('opens at Operator, starts a free trial with nothing charged, and refuses a second unlock', () => {
     const g = joined('work-desk');
     expect(unlockDesk(g, p1(g), null).error).toMatch(/Operator/);
     boost(g, 'u1', 5_000_000);
     const c = cashOf(g, 'u1');
     expect(unlockDesk(g, p1(g), null).ok).toBe(true);
-    expect(c - cashOf(g, 'u1')).toBeCloseTo(DESK.unlockCost + DESK.weeklyUpkeep, 6);
-    expect(p1(g).desk?.paidThroughDay).toBe(today(g) + WEEK_DAYS);
+    expect(c - cashOf(g, 'u1')).toBe(0);
+    expect(p1(g).desk?.paidThroughDay).toBe(today(g) + DESK.trialDays);
     expect(unlockDesk(g, p1(g), null).error).toMatch(/already/);
+  });
+
+  it('the first monthly fee falls due when the trial ends, and the next one a period later', () => {
+    const g = joined('work-desk-trial');
+    boost(g, 'u1', 5_000_000);
+    unlockDesk(g, p1(g), null);
+    const trialEnd = today(g) + DESK.trialDays;
+    const c = cashOf(g, 'u1');
+    setDay(g, trialEnd - 1);
+    workDay(g, null);
+    expect(cashOf(g, 'u1')).toBe(c);
+    expect(p1(g).inbox.some((n) => n.msg?.key === 'work.desk.billed')).toBe(false);
+    setDay(g, trialEnd);
+    workDay(g, null);
+    expect(c - cashOf(g, 'u1')).toBeCloseTo(DESK.monthlyFee, 6);
+    expect(p1(g).desk?.paidThroughDay).toBe(trialEnd + DESK.periodDays);
+    expect(p1(g).inbox.some((n) => n.msg?.key === 'work.desk.billed')).toBe(true);
+    expect(p1(g).desk?.lapsed).toBe(false);
   });
 
   it('locks when upkeep is not covered, keeps its files, and resumes for one week', () => {
@@ -138,11 +156,11 @@ describe('the Research Desk (D-19)', () => {
     expect(p1(g).desk?.lapsed).toBe(true);
     expect(p1(g).inbox.filter((n) => n.msg?.key === 'work.desk.lapsed').length).toBe(1);
     expect(resumeDesk(g, p1(g), null).error).toMatch(/spendable/);
-    credit(g, 'u1', 10_000, 'test');
+    credit(g, 'u1', 30_000, 'test');
     const c = cashOf(g, 'u1');
     expect(resumeDesk(g, p1(g), null).ok).toBe(true);
-    expect(c - cashOf(g, 'u1')).toBeCloseTo(DESK.weeklyUpkeep, 6);
+    expect(c - cashOf(g, 'u1')).toBeCloseTo(DESK.monthlyFee, 6);
     expect(p1(g).desk?.lapsed).toBe(false);
-    expect(p1(g).desk?.paidThroughDay).toBe(today(g) + WEEK_DAYS);
+    expect(p1(g).desk?.paidThroughDay).toBe(today(g) + DESK.periodDays);
   });
 });

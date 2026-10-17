@@ -110,7 +110,7 @@ export function ensureLedger(g: GameState, pid: string): PlayerLedger | null {
   };
   // the open record of the first day: the net worth and equity the player started with
   L.days[d - 1] = {
-    day: d - 1, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty: {},
+    day: d - 1, nw: p.netWorth, equity: priceEquity(g, pid, L), qty: {},
     ghosts: { basket: acct.cash, random: acct.cash, momentum: acct.cash }, ext: p.externalCash ?? 0, ...valuationAndIncome(g, pid),
     // the assetFlow baseline: a purchase made on the first day is a conversion, so the first close needs this record's flow
     flow: p.assetFlow ?? 0,

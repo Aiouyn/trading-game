@@ -58,7 +58,7 @@ function AuctionLot({ lot, tick, tickMs }: { lot: AuctionLotView; tick: number; 
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="text-body font-semibold">{lot.name}</h3>
-          <p className="text-caption text-fg-faint">{lot.category}</p>
+          <p className="text-caption text-fg-faint">{lot.category} · <span data-testid={`auction-min-rank-${lot.itemId}`}>{t('sixd.auc.minRank', { rank: t(`rank.${lot.minRank}`) })}</span></p>
         </div>
         <Chip><span data-testid={`auction-status-${lot.itemId}`}>{statusLabel}</span></Chip>
       </div>

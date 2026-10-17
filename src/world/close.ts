@@ -56,7 +56,11 @@ export function dayClose(g: GameState, playerId: string, day: number): DailyClos
   // a record saved before `ext` existed has no baseline to subtract from, so its day counts as before
   const extDay = prev && cur.ext !== undefined && prev.ext !== undefined ? cur.ext - prev.ext : 0;
   const nwChange = cur.nw - nwOpen - extDay;
-  const nwChangePct = nwOpen > 0 ? nwChange / nwOpen : 0;
+  // the return is against the prior close's equity plus the external cash in during the day (ruling in docs/V1-PHASE10.md,
+  // 10D.1): a grant credited mid-day is capital, and a base without it would turn the gains on that capital into a percentage
+  // of money the player never held. The header's day figure has the same base (dayStart moves with the grant).
+  const nwBase = nwOpen + extDay;
+  const nwChangePct = nwBase > 0 ? nwChange / nwBase : 0;
   // the split of that change: valuation and income come from the stored day records (both closes must carry them, else the
   // day predates the split and all of it counts as trading); the business tax is booked to its own sink, so it sits in the
   // rest of the change: it is taken out of trading and shown as its own row (R-9-10). Trading is what is left, so the four
@@ -147,7 +151,9 @@ function dayRecord(g: GameState, L: PlayerLedger, pid: string, day: number, biz?
   if (!p || !acct) return null;
   const qty: Record<string, number> = {};
   for (const [id, pos] of Object.entries(acct.positions)) if (pos.qty !== 0) qty[id] = pos.qty;
-  return { day, nw: p.markNetWorth ?? p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0, ...valuationAndIncome(g, pid), flow: p.assetFlow ?? 0, ...(biz ? { biz } : {}) };
+  // the mid total (p.netWorth): the same basis as the header and the Portfolio. The liquidation mark (markNetWorth) is the rank
+  // basis only; a day's return on it would charge the exit haircut to a day that did not trade
+  return { day, nw: p.netWorth, equity: priceEquity(g, pid, L), qty, ghosts: ghostValues(g, L, day), ext: p.externalCash ?? 0, ...valuationAndIncome(g, pid), flow: p.assetFlow ?? 0, ...(biz ? { biz } : {}) };
 }
 
 /**

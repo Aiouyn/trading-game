@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { OpenOrders } from '@/components/Holdings';
 import { LowCashCard } from '@/components/comeback/LowCashCard';
-import { notify, openApp, useShell } from '@/components/os/shellStore';
+import { retargetPhoneBroker } from '@/components/os/phoneStore';
+import { retargetBroker } from '@/components/os/shellStore';
 import { Button, Card } from '@/components/ui';
 import { knownSeries, useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { MAX_BROKERS } from '@/shell/apps';
 import { brokerView, type Size } from '@/shell/geometry';
 import { AssetPanel } from './AssetPanel';
 import { BrokerDock, type DockTab } from './BrokerDock';
@@ -28,7 +28,7 @@ import { Universe } from './Universe';
  *     full ticket as a bottom sheet.
  *   short (under 560 px tall): a Chart / Ticket toggle, one pane at a time (V:41).
  */
-export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
+export function BrokerApp({ ticker, size, winId, phone = false }: { ticker?: string; size: Size; winId: string; phone?: boolean }) {
   const selected = useGame((s) => s.selected);
   const config = useGame((s) => s.config);
   const storeSheet = useGame((s) => s.tradeSheetOpen);
@@ -63,15 +63,10 @@ export function BrokerApp({ ticker, size }: { ticker?: string; size: Size }) {
     );
   }
   const view = brokerView(size);
-  // Picking a row opens that ticker in a Broker, or focuses the Broker that already has it. At the cap a new
-  // ticker is refused with a notice: no other window is retargeted.
+  // Picks belong to this Broker, including when another Broker already shows the same ticker.
   const pick = (id: string) => {
-    const brokers = useShell.getState().shell.wins.filter((w) => w.app === 'broker');
-    if (brokers.length >= MAX_BROKERS && !brokers.some((w) => w.props.ticker === id)) {
-      notify(t('broker.cap', { n: MAX_BROKERS }), 'warn');
-      return;
-    }
-    openApp('broker', { ticker: id }, { focus: true });
+    if (phone) retargetPhoneBroker(id);
+    else retargetBroker(winId, id);
   };
   const toggleChain = () => setChain((c) => !c);
   const chainCard = chain ? (

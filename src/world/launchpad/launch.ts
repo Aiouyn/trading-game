@@ -8,20 +8,24 @@ import { buyCurve, liquidateCohort } from './trade';
 import { arrive } from './demand';
 import { absorbPending } from './absorb';
 import { cohortsOf } from './cohorts';
-import { moderateName, nameFormatOk, normalizeName, tickerFormatOk, type NameRefusal } from './moderate';
+import { moderateName, moderateText, nameFormatOk, normalizeName, tickerFormatOk, type NameRefusal } from './moderate';
 import { dayOf, ensureLaunchpad, hasOtherTrader, liveCountOf, lpWire, openCurve, refuse, streamOf, tokenOf } from './state';
 
 import type { LpToken } from './types';
+import { touchBar } from './bars';
 
 
 /**
  * Launch, cancel (lead-launchpad.md L2). A launch passes the gates (rank R1 or higher, the account age, the ban, one launch per
  * 24 real hours, at most three live tokens), the inputs (name, ticker, tagline from the template list, creator allocation 0 to 5%,
- * an optional dev buy within the creator cap), and the moderator filter. It pays the $1,000 fee (a sink) and opens the curve.
+ * an optional dev buy within the creator cap), and the moderator filter. It pays the $100 fee (a sink, R-10-6) and opens the curve.
  */
 
 /** The tagline templates (ids; the copy is in en.json and fr.json as lp.tagline.<id>). No free text in V1. */
 export const TAGLINE_IDS = ['tg1', 'tg2', 'tg3', 'tg4', 'tg5', 'tg6', 'tg7', 'tg8'] as const;
+
+/** R-10-6: the refusal of a description the moderator stops (an empty one is no description at all, so it is not refused). */
+const DESC_REFUSAL_CODE: Record<'empty' | 'long' | 'link' | 'abuse', string> = { empty: 'descEmpty', long: 'descLong', link: 'descLink', abuse: 'descAbuse' };
 
 const NAME_REFUSAL_CODE: Record<NameRefusal, string> = {
   abuse: 'nameAbuse', crypto: 'nameCrypto', brand: 'nameBrand', figure: 'nameFigure', taken: 'nameTaken',
@@ -46,6 +50,10 @@ export interface LaunchInput {
   tagline: string;
   allocation: number;
   devBuyCents?: number;
+  /** R-10-6: the description (plain text, at most 140 characters; optional) */
+  description?: string;
+  /** R-10-6: the generated image variant (0 to ART_VARIANTS - 1; optional, 0 when none is picked) */
+  art?: number;
 }
 
 /** The creator's gate checks (rank, age, ban, cooldown, live count). Null when the launch may proceed. */
@@ -76,6 +84,13 @@ export function launchInputError(g: GameState, input: LaunchInput): CommandResul
   if (!(TAGLINE_IDS as readonly string[]).includes(input.tagline)) return refuse('tagline', {});
   if (!Number.isInteger(input.allocation) || input.allocation < 0 || input.allocation > LP.ALLOC_MAX) {
     return refuse('allocation', { max: LP.ALLOC_MAX.toLocaleString('en-US') });
+  }
+  if (input.art !== undefined && (!Number.isInteger(input.art) || input.art < 0 || input.art >= LP.ART_VARIANTS)) {
+    return refuse('art', { max: LP.ART_VARIANTS - 1 });
+  }
+  if (input.description !== undefined && input.description.trim() !== '') {
+    const d = moderateText(input.description, LP.DESC_MAX);
+    if (!d.ok) return refuse(DESC_REFUSAL_CODE[d.reason], { max: LP.DESC_MAX });
   }
   if (g.market.config.assets.some((a) => a.id === input.ticker)) return refuse('tickerTaken', { ticker: input.ticker });
   const s = g.launchpad;
@@ -117,6 +132,9 @@ export function launchToken(g: GameState, pid: string, input: LaunchInput, out: 
   const s = ensureLaunchpad(g);
   const tick = g.market.tick;
   const t = createToken(g, input.ticker, input.name, input.tagline, pid, input.allocation, tick);
+  if (input.art) t.art = input.art;
+  const desc = input.description !== undefined ? moderateText(input.description, LP.DESC_MAX) : null;
+  if (desc && desc.ok) t.description = desc.text;
   s.tokens[t.ticker] = t;
   if (dev > 0) {
     const r = buyCurve(g, pid, t.ticker, dev, LP.MAX_SLIP, out, false);
@@ -186,10 +204,12 @@ export function createToken(g: GameState, ticker: string, name: string, tagline:
     buzz: { base: 0, board: 0, wire: 0 }, buzzDay: { day: dayOf(tick), n: 0 }, promos: [],
     status: 'live', lastTradeTick: tick, lowCloses: 0, npcCohorts: [],
     creatorSoldSinceGrad: 0, creatorProceedsSinceGrad: 0, creatorDay: { day: dayOf(tick), qty: 0, proceeds: 0, startPrice: price, wired: false },
-    creatorFees: 0, allocSold: 0, realized: {}, lots: {}, buyLog: [], tape: [], chart: [[tick, price]],
+    creatorFees: 0, allocSold: 0, realized: {}, lots: {}, buyLog: [], tape: [],
     volToday: 0, volPrev: 0, volDay: dayOf(tick), rng: streamOf(g, ticker),
     flows: { npcBuy: 0, npcSell: 0, playerBuy: 0, playerSell: 0, fee: 0 }, sued: {},
   };
+  // the launch's first candle opens at the launch price (review fix, Phase 10: the chart is built from the trades and the carried prices)
+  touchBar(t, tick, price);
   t.buzz.base = launchBuzz(t);
   // the launch's own buzz is the first arrival: it starts the NPC demand (L6.1)
   arrive(t, t.buzz.base);
@@ -200,7 +220,7 @@ export function createToken(g: GameState, ticker: string, name: string, tagline:
  * Cancels the creator's own launch before any other player has traded it (ratified deviation, lead-launchpad.md v1.1). The token
  * dies; its curve stays and still pays sellers, so the creator's own dev buy (if any) remains sellable. The cohort's tokens go back
  * to the curve first (the NPC side is not an account, so the NPC's own early trades do not block a cancel). The creator gets half
- * the $1,000 launch fee back as a booked refund (`lpRefund`); the other half stays a sink. The ticker stays taken.
+ * the $100 launch fee back as a booked refund (`lpRefund`); the other half stays a sink. The ticker stays taken.
  */
 export function canCancel(t: LpToken, pid: string): boolean {
   return t.creatorId === pid && t.status === 'live' && !hasOtherTrader(t);

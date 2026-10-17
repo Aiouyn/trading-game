@@ -57,8 +57,8 @@ describe('recurring buys', () => {
     expect(reasons(g, 'u1')).toContain('recurring_buy');
     const row = tradesOf(g, 'u1').fills.find((f) => f.reason === 'recurring_buy')!;
     expect(row.side).toBe('buy');
-    // whole shares: $300 buys one share at about $180, and never more than the dollars given
-    expect(row.qty).toBe(1);
+    // fractional shares (R-10-4): $300 buys its share count to the 0.0001 step, and never more than the dollars given
+    expect(row.qty).toBeGreaterThan(0);
     expect(row.qty * row.price).toBeLessThan(300);
   });
 
@@ -121,7 +121,9 @@ describe('DRIP', () => {
     const credited = (g.market.accounts.u1!.dividends ?? 0) - before;
     const carried = (ledgerOf(g, 'u1')!.plans.carry[def.id] ?? 0) - carry0;
     expect(credited).toBeGreaterThan(0);
-    expect(carried).toBeCloseTo(credited, 9);
+    // R-10-4: DRIP buys fractional shares to the 0.0001 step; a dividend below one step (this holding's) is carried whole
+    expect(carried).toBeLessThanOrEqual(credited + 1e-9);
+    expect(carried).toBeGreaterThanOrEqual(0);
   });
 
   it('a dividend on a small holding is carried, not spent on a fraction of a share', () => {

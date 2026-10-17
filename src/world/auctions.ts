@@ -119,18 +119,53 @@ export function adminOpenLots(g: GameState, week: number, ticksLeft: number = AU
  */
 const lotMemo = pureMemo<LifeItem[]>(64);
 
-export function weekLots(seed: string, week: number): LifeItem[] {
-  return lotMemo(JSON.stringify([seed, week]), () => computeWeekLots(seed, week)).slice();
+export function weekLots(seed: string, week: number, bands: boolean = true): LifeItem[] {
+  return lotMemo(JSON.stringify([seed, week, bands]), () => computeWeekLots(seed, week, bands)).slice();
 }
 
-/** The uncached lot choice (weekLots is this, memoized). The reference the memo is tested against. */
-export function computeWeekLots(seed: string, week: number): LifeItem[] {
+/**
+ * The draw a week uses (R-10-7): the rank-band draw from `g.auctionBandsFrom` on, and the draw of the earlier builds before it
+ * (an older save's open lots, see GameState.auctionBandsFrom). Every game-side read goes through here.
+ */
+export function lotsOf(g: GameState, week: number): LifeItem[] {
+  return weekLots(g.seed, week, g.auctionBandsFrom !== undefined && week >= g.auctionBandsFrom);
+}
+
+/**
+ * The rank bands the week's lots are drawn from (R-10-7): an item belongs to the band of its own minimum rank, so a lot's
+ * price sits in the range of the players who can bid on it. Each band is drawn in turn, one lot each, so every week offers
+ * a lot in each band that has items, and the rest of the count goes round the bands again.
+ */
+export const AUCTION_BANDS: readonly (readonly string[])[] = [['R0', 'R1'], ['R2', 'R3'], ['R4', 'R5', 'R6']];
+
+/**
+ * The uncached lot choice (weekLots is this, memoized). `bands` false is the draw before R-10-7: the count's n lowest hashes
+ * of the whole pool. It is kept for the weeks an older save had open, so their lots do not change at the deploy.
+ */
+export function computeWeekLots(seed: string, week: number, bands: boolean = true): LifeItem[] {
   const pool = LIFE_ITEMS.filter((i) => i.cls === 'limited' || i.cls === 'unique');
   const h = sha256Hex(`auction-count|${seed}|${week}`);
   const n = AUCTION.lotsMin + (parseInt(h.slice(0, 8), 16) % (AUCTION.lotsMax - AUCTION.lotsMin + 1));
-  const keyed = pool.map((item) => ({ item, k: sha256Hex(`auction-pick|${seed}|${week}|${item.id}`) }));
-  keyed.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
-  return keyed.slice(0, n).map((x) => x.item);
+  if (!bands) {
+    const keyed = pool.map((item) => ({ item, k: sha256Hex(`auction-pick|${seed}|${week}|${item.id}`) }));
+    keyed.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
+    return keyed.slice(0, n).map((x) => x.item);
+  }
+  const bandPools = AUCTION_BANDS.map((ranks) => pool
+    .filter((item) => ranks.includes(item.rank))
+    .map((item) => ({ item, k: sha256Hex(`auction-pick|${seed}|${week}|${item.id}`) }))
+    .sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0)));
+  const picks: LifeItem[] = [];
+  for (let round = 0; picks.length < n; round++) {
+    let drew = false;
+    for (const band of bandPools) {
+      if (picks.length >= n) break;
+      const x = band[round];
+      if (x) { picks.push(x.item); drew = true; }
+    }
+    if (!drew) break;
+  }
+  return picks;
 }
 
 function ownedByAnyone(g: GameState, itemId: string): boolean {
@@ -184,7 +219,7 @@ export function placeBid(g: GameState, pid: string, key: string, amount: number)
   const week = Number(weekStr);
   const itemId = rest.join(':');
   const item = LIFE_BY_ID.get(itemId);
-  if (!item || !Number.isInteger(week) || !weekLots(g.seed, week).some((x) => x.id === itemId)) return fail('auctionNoLot');
+  if (!item || !Number.isInteger(week) || !lotsOf(g, week).some((x) => x.id === itemId)) return fail('auctionNoLot');
   const open = openTickOf(g, week);
   const tick = g.market.tick;
   if (tick < open) return fail('auctionNotYet', { hours: Math.ceil((open - tick) / TPD) });
@@ -269,7 +304,7 @@ export function settleLot(g: GameState, lot: AuctionLotRecord, out: StepOutput |
   const pay = cents(hammer + premium);
   notify(g, out, winner.playerId, {
     kind: 'auction', tone: 'gain', text: `You won ${item.name} for $${pay.toFixed(2)}, buyer premium included.`,
-    msg: { key: 'auction.won', vars: { item: item.name, amount: pay.toFixed(2) } },
+    msg: { key: 'auction.won', vars: { item: item.name, amount: `#n:${pay},2,2` } },
   });
   const seen = new Set<string>([winner.playerId]);
   for (const b of lot.bids) {
@@ -284,6 +319,8 @@ export interface AuctionLotView {
   itemId: string;
   name: string;
   category: string;
+  /** the lowest rank that may bid on the lot (the item's rank; the bid refuses below it) */
+  minRank: string;
   cls: string;
   rarity: number;
   blurb: string;
@@ -311,7 +348,7 @@ export interface AuctionLotView {
  * cash or strategy appears.
  */
 export function auctionsView(g: GameState, pid: string | null, week: number): AuctionLotView[] {
-  return weekLots(g.seed, week).map((item) => {
+  return lotsOf(g, week).map((item) => {
     const key = lotKeyOf(week, item.id);
     const lot = g.auctions?.lots[key];
     const open = openTickOf(g, week);
@@ -321,7 +358,7 @@ export function auctionsView(g: GameState, pid: string | null, week: number): Au
     const hi = lot ? highBid(lot) : null;
     const bidders = lot && lot.status !== 'open' ? [...new Set(lot.bids.map((b) => g.players[b.playerId]?.handle ?? '?'))] : null;
     return {
-      key, itemId: item.id, name: item.name, category: item.category, cls: item.cls, rarity: item.rarity, blurb: item.blurb, status,
+      key, itemId: item.id, name: item.name, category: item.category, minRank: item.rank, cls: item.cls, rarity: item.rarity, blurb: item.blurb, status,
       openTick: open, endTick: lot?.endTick ?? open + AUCTION.hourTicks,
       bidCount: lot?.bids.length ?? 0,
       high: hi ? hi.amount : null,

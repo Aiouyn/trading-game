@@ -46,7 +46,8 @@ describe('R-9-1c: temporary impact is charged on the asset\'s shared rolling tal
     expect(expectImp).toBeGreaterThan(impact(st, i, x));
   });
 
-  it('another account pays on the first account\'s flow: the tally is shared per asset, not per account', () => {
+  // R-10-1 (Phase 10): the flow of another account is not on this account's fills (fill-realism.test.ts pins it), so this shared-tally law is skipped.
+  it.skip('another account pays on the first account\'s flow: the tally is shared per asset, not per account', () => {
     const s = openAccount(openAccount(createWorld('own-b', cfg), 'A', 1e7), 'B', 1e7);
     const i = idx(s, 'OSTV');
     const r = run(s, 6, { 0: { playerId: 'A', qty: 3000 }, 4: { playerId: 'B', qty: 3000 } });

@@ -14,6 +14,7 @@ import type { LpPage } from '@/world/launchpad/view';
 import { CreateTab } from './CreateTab';
 import { FeedTab } from './FeedTab';
 import { HoldingsTab } from './HoldingsTab';
+import { KingBanner, TradesBar } from './Board';
 import { TokenPage } from './TokenPage';
 
 type Tab = 'new' | 'trending' | 'graduated' | 'holdings' | 'create';
@@ -26,12 +27,15 @@ export function LaunchpadApp() {
   const [open, setOpen] = useState<string | null>(null);
   // the open token's page as the world read it, with the ticker it is for (a page for another ticker is never shown)
   const [read, setRead] = useState<{ ticker: string; page: LpPage | null } | null>(null);
+  // R-10-6: an action on the open page (a trade, a reply, a promotion, a case) reads the page again at once, not at the next tick
+  const [reread, setReread] = useState(0);
   useEffect(() => {
     if (!open) return;
     let live = true;
     void loadLpPage(open).then((p) => { if (live) setRead({ ticker: open, page: p }); });
     return () => { live = false; };
-  }, [open, tick, loadLpPage]);
+  }, [open, tick, reread, loadLpPage]);
+  const onChanged = () => setReread((n) => n + 1);
   if (!me) return null;
   const lp = me.launchpad;
   const shown = open !== null && read?.ticker === open ? read : null;
@@ -52,6 +56,7 @@ export function LaunchpadApp() {
           isCreator={page.creatorHandle !== null && page.creatorHandle === me.player.handle}
           tick={tick}
           onBack={() => setOpen(null)}
+          onChanged={onChanged}
         />
       ) : (
         <>
@@ -70,8 +75,10 @@ export function LaunchpadApp() {
               { label: t('lp.app.stat.fees'), value: money(fees), testId: 'lp-stat-fees' },
             ]}
           />
+          {tab !== 'holdings' && tab !== 'create' && <TradesBar rows={lp.bar} tick={tick} onOpen={openToken} />}
+          {tab === 'new' && <KingBanner king={lp.king} tick={tick} onOpen={openToken} />}
+          {/* no wrap: the row scrolls with its fade cue, so the last tab never sits alone on a second line on a phone (review item 11) */}
           <Tabs<Tab>
-            wrap
             tabs={[
               { id: 'new', label: t('lp.tab.new') },
               { id: 'trending', label: t('lp.tab.trending') },
@@ -82,9 +89,9 @@ export function LaunchpadApp() {
             value={tab}
             onChange={setTab}
           />
-          {tab === 'new' && <FeedTab rows={lp.feeds.newest} kind="new" onOpen={openToken} onTab={setTab} />}
-          {tab === 'trending' && <FeedTab rows={lp.feeds.trending} kind="trending" onOpen={openToken} onTab={setTab} />}
-          {tab === 'graduated' && <FeedTab rows={lp.feeds.graduated} kind="graduated" onOpen={openToken} onTab={setTab} />}
+          {tab === 'new' && <FeedTab rows={lp.feeds.newest} kind="new" tick={tick} onOpen={openToken} onTab={setTab} />}
+          {tab === 'trending' && <FeedTab rows={lp.feeds.trending} kind="trending" tick={tick} onOpen={openToken} onTab={setTab} />}
+          {tab === 'graduated' && <FeedTab rows={lp.feeds.graduated} kind="graduated" tick={tick} onOpen={openToken} onTab={setTab} />}
           {tab === 'holdings' && <HoldingsTab holdings={lp.holdings} console={lp.console} onOpen={openToken} onTab={setTab} />}
           {tab === 'create' && <CreateTab lp={lp} takenNames={takenNames} onOpen={openToken} />}
         </>

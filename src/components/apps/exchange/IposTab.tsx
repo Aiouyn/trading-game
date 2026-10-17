@@ -3,7 +3,7 @@
 // IPO books open today. The price, float and share counts are what the market sees. The viewer's own subscription is theirs
 // alone: the book's other orders are never listed here. A blocked account sees the reason in three parts, not a greyed button.
 import { useState } from 'react';
-import { pct, price, qty } from '@/game/format';
+import { pct, sharePrice, qty } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Button, Card, EmptyNext, NumberField, SpendReview, spendRows } from '@/components/ui';
@@ -68,7 +68,7 @@ function IpoCard({ row }: { row: IpoRow }) {
       </div>
 
       <div className="grid grid-cols-2 gap-3 @xl:grid-cols-4">
-        <Fact label={t('exchange.ipo.price')} value={price(row.price)} testId={`exchange-ipo-price-${row.companyId}`} />
+        <Fact label={t('exchange.ipo.price')} value={sharePrice(row.price)} testId={`exchange-ipo-price-${row.companyId}`} />
         <Fact label={t('exchange.ipo.float')} value={pct(row.floatPct)} />
         <Fact label={t('exchange.ipo.shares')} value={qty(row.ipoShares)} />
         <Fact label={t('exchange.ipo.cap')} value={qty(row.capShares)} testId={`exchange-ipo-cap-${row.companyId}`} />

@@ -1,5 +1,6 @@
 'use client';
 
+import type { ChartDrawing } from '@/world/drawings';
 import { create } from 'zustand';
 import { type KeyValueStore, migrateLegacy, readPrefs as readPrefsFrom, updatePrefs } from '@/shell/prefs';
 import { createHolds } from '@/shell/holds';
@@ -11,7 +12,7 @@ import type { HistoryPayload, NwHistoryPayload, ServerMsg, TextOverlayMap, Visit
 import type { LpPage } from '@/world/launchpad/view';
 import { mirrorWorld, type DirectoryRow, type MarketFrame, type PanelStamps, type PlayerView, type PublicPanel, type PublicState } from '@/world/view';
 import type { Boards, ChatMessage, Command, InboxItem, WireItem } from '@/world/types';
-import { CHART_RANGES, INTERVALS, createHistory, fitInterval, loadSeries, type ChartRange, type History, type Interval } from './history';
+import { CHART_RANGES, INTERVALS, createHistory, loadSeries, type ChartRange, type History, type Interval } from './history';
 import type { IndicatorId } from './indicators';
 import { absorbFrame, delistedRefusal, type MirrorMe } from './universe';
 
@@ -133,6 +134,8 @@ export interface GameStore {
   loadLpPage: (ticker: string) => Promise<LpPage | null>;
   /** another player's home room and collection (null when the world is not connected) */
   loadVisit: (playerId: string) => Promise<VisitPayload | null>;
+  /** the viewer's own chart drawings on one symbol (private; [] when signed out or offline) */
+  loadDrawings: (assetId: string) => Promise<ChartDrawing[]>;
   /** reads a public panel (the boards or the directory) for the viewer; a read in flight is not doubled (R-9-12) */
   loadPanel: (panel: PublicPanel) => Promise<void>;
   select: (assetId: string) => void;
@@ -220,9 +223,8 @@ function readPrefs(): Partial<Pick<GameStore, 'indicators' | 'range' | 'interval
   if (p.chart.indicators) out.indicators = Object.fromEntries(p.chart.indicators.map((id) => [id, true])) as GameStore['indicators'];
   if ((CHART_RANGES as readonly string[]).includes(p.chart.range ?? "")) out.range = p.chart.range as ChartRange;
   if ((INTERVALS as readonly string[]).includes(p.chart.interval ?? "")) out.interval = p.chart.interval as Interval;
-  // a stored pair the range no longer offers (a 1D candle on 1D, say) opens on the interval the range fits
-  const range = out.range ?? '1D';
-  out.interval = fitInterval(range, out.interval ?? '5m');
+  // the candle size does not depend on the range: a stored one is kept, and an unknown one opens on 5m
+  out.interval = out.interval ?? '5m';
   if (p.chart.chartMode === 'candles' || p.chart.chartMode === 'line') out.chartMode = p.chart.chartMode;
   if (p.lastTicker) out.selected = p.lastTicker;
   return out;
@@ -465,6 +467,11 @@ export const useGame = create<GameStore>((set, get) => {
       set({ historyRev: get().historyRev + 1 });
     },
 
+    async loadDrawings(assetId) {
+      if (!client) return [];
+      return client.drawings(assetId);
+    },
+
     async loadVisit(playerId) {
       if (!client) return null;
       return client.visit(playerId);
@@ -512,8 +519,8 @@ export const useGame = create<GameStore>((set, get) => {
       writePrefs(get());
     },
     setScreen(screen) { set({ screen, screenNonce: get().screenNonce + 1, tradeSheetOpen: false, moreOpen: false }); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); },
-    // the interval follows the range: one the range does not offer (too few candles) moves to the one it fits (fitInterval)
-    setRange(range) { set({ range, interval: fitInterval(range, get().interval) }); writePrefs(get()); },
+    // a range moves the view only: the candle size stays (TradingView's timeframes do not depend on the window)
+    setRange(range) { set({ range }); writePrefs(get()); },
     setInterval(interval) { set({ interval }); writePrefs(get()); },
     setChartMode(chartMode) { set({ chartMode }); writePrefs(get()); },
     toggleIndicator(id) { set({ indicators: { ...get().indicators, [id]: !get().indicators[id] } }); writePrefs(get()); },

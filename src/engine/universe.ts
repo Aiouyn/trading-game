@@ -1,5 +1,5 @@
 import { DEFAULT_CATALYSTS } from './catalysts';
-import { DEFAULT_INDICES, DEFAULT_REGIMES, DEFAULT_TRADING, DEFAULT_VOLUME, normalizeLoadings } from './config';
+import { DEFAULT_INDICES, DEFAULT_REGIMES, DEFAULT_TRADING, DEFAULT_VOLUME, FRACTIONAL_SHARE, normalizeLoadings, spreadForCap } from './config';
 import { DEFAULT_OPTIONS } from './options';
 import { DEFAULT_RATES } from './rates';
 import { DEFAULT_RIVALS } from './rivals';
@@ -211,9 +211,6 @@ const STOCKS: Record<string, Row[]> = {
   ],
 };
 
-function spreadForCap(marketCap: number): number {
-  return marketCap >= 100e9 ? 2 : marketCap >= 40e9 ? 6 : marketCap >= 15e9 ? 12 : marketCap >= 5e9 ? 20 : 35;
-}
 
 function stockDef(sectorId: string, r: Row): AssetDef {
   const sec = SECTOR_BY_ID.get(sectorId)!;
@@ -227,7 +224,7 @@ function stockDef(sectorId: string, r: Row): AssetDef {
     jumpsPerYear: sec.jumpsPerYear, jumpUpMean: sec.jumpUpMean, jumpDownMean: sec.jumpDownMean, jumpUpProb: 0.5,
     floor: 0.01, circuitBreaker: true,
     sharesOutstanding: marketCap / price,
-    spreadBps: spreadForCap(marketCap), advNotional: marketCap * 0.004, qtyStep: 1,
+    spreadBps: spreadForCap(marketCap), advNotional: marketCap * 0.004, qtyStep: FRACTIONAL_SHARE,
     dividendYield: sec.dividendYield,
     ...(sectorId === 'realestate' && !over?.duration ? { duration: 4 } : {}),
     ...(over ?? {}),
@@ -239,31 +236,31 @@ type CryptoRow = [string, string, number, number, number, string, Partial<AssetD
 /** [id, name, price, vol, supply (units), blurb] */
 const CRYPTO: CryptoRow[] = [
   ['AUC', 'Aurum Coin', 41000, 0.65, 19.5e6, 'The original coin; digital gold to its fans.', { spreadBps: 5, advNotional: 20e9, cycleBeta: 1.5 }],
-  ['LTX', 'Lattice', 2300, 0.8, 120e6, 'Smart-contract chain that runs most of DeFi.', { spreadBps: 8, advNotional: 8e9, cycleBeta: 1.8 }],
-  ['SYN', 'Synapse', 3.4, 1.1, 1.2e9, 'Token that pays for decentralized AI inference.', { cycleBeta: 2.2, wCrypto: 0.6, jumpsPerYear: 12, spreadBps: 60, advNotional: 300e6 }],
-  ['VLT', 'Voltchain', 88, 0.95, 450e6, 'A fast layer-one with a loud community.', { spreadBps: 15, advNotional: 1.5e9 }],
-  ['MRK', 'Merkle Root', 14, 0.9, 1e9, 'Bridges between chains.', { spreadBps: 25, advNotional: 500e6 }],
-  ['PXL', 'PixelPunk', 0.42, 1.2, 8e9, 'Gaming and collectibles token.', { spreadBps: 50, advNotional: 200e6, jumpsPerYear: 12 }],
-  ['HNY', 'HoneyDAO', 6.1, 1.1, 300e6, 'Lending protocol governance token.', { spreadBps: 40, advNotional: 250e6 }],
-  ['GPU', 'RenderNet', 7.8, 1.0, 500e6, 'Rent idle GPUs on a decentralized network.', { spreadBps: 30, advNotional: 400e6 }],
+  ['LTX', 'Lattice', 2300, 0.8, 120e6, 'Smart-contract chain that runs most of DeFi.', { spreadBps: 5, advNotional: 8e9, cycleBeta: 1.8 }],
+  ['SYN', 'Synapse', 3.4, 1.1, 1.2e9, 'Token that pays for decentralized AI inference.', { cycleBeta: 2.2, wCrypto: 0.6, jumpsPerYear: 12, spreadBps: 15, advNotional: 300e6 }],
+  ['VLT', 'Voltchain', 88, 0.95, 450e6, 'A fast layer-one with a loud community.', { spreadBps: 12, advNotional: 1.5e9 }],
+  ['MRK', 'Merkle Root', 14, 0.9, 1e9, 'Bridges between chains.', { spreadBps: 15, advNotional: 500e6 }],
+  ['PXL', 'PixelPunk', 0.42, 1.2, 8e9, 'Gaming and collectibles token.', { spreadBps: 20, advNotional: 200e6, jumpsPerYear: 12 }],
+  ['HNY', 'HoneyDAO', 6.1, 1.1, 300e6, 'Lending protocol governance token.', { spreadBps: 15, advNotional: 250e6 }],
+  ['GPU', 'RenderNet', 7.8, 1.0, 500e6, 'Rent idle GPUs on a decentralized network.', { spreadBps: 15, advNotional: 400e6 }],
   ['WOOF', 'Woofcoin', 0.0021, 1.6, 140e12, 'A meme with a dog on it. That is all.', { spreadBps: 80, advNotional: 600e6, jumpsPerYear: 16, jumpUpMean: 0.2, jumpDownMean: 0.2 }],
-  ['ORC', 'Oracle Net', 18, 1.0, 600e6, 'Price feeds for smart contracts.', { spreadBps: 25, advNotional: 450e6 }],
-  ['SHD', 'Shade', 160, 1.0, 18e6, 'Privacy coin; regulators hate it.', { spreadBps: 35, advNotional: 150e6, jumpsPerYear: 10 }],
-  ['KAI', 'Kaiyo Pay', 1.3, 0.9, 5e9, 'Payments token backed by Kaiyo banks.', { spreadBps: 20, advNotional: 300e6 }],
-  ['SUN', 'Sunbit', 0.88, 0.95, 6e9, 'Remittances across Sundara.', { spreadBps: 30, advNotional: 200e6 }],
-  ['BRK', 'Bricks', 52, 0.7, 40e6, 'Tokenized real estate.', { spreadBps: 30, advNotional: 120e6, cycleBeta: 1.2 }],
-  ['ZEN', 'Zenith', 260, 0.9, 50e6, 'Staking chain with a 6% yield.', { spreadBps: 20, advNotional: 700e6 }],
+  ['ORC', 'Oracle Net', 18, 1.0, 600e6, 'Price feeds for smart contracts.', { spreadBps: 12, advNotional: 450e6 }],
+  ['SHD', 'Shade', 160, 1.0, 18e6, 'Privacy coin; regulators hate it.', { spreadBps: 20, advNotional: 150e6, jumpsPerYear: 10 }],
+  ['KAI', 'Kaiyo Pay', 1.3, 0.9, 5e9, 'Payments token backed by Kaiyo banks.', { spreadBps: 10, advNotional: 300e6 }],
+  ['SUN', 'Sunbit', 0.88, 0.95, 6e9, 'Remittances across Sundara.', { spreadBps: 12, advNotional: 200e6 }],
+  ['BRK', 'Bricks', 52, 0.7, 40e6, 'Tokenized real estate.', { spreadBps: 15, advNotional: 120e6, cycleBeta: 1.2 }],
+  ['ZEN', 'Zenith', 260, 0.9, 50e6, 'Staking chain with a 6% yield.', { spreadBps: 12, advNotional: 700e6 }],
   // stablecoins: pinned to $1 by a fast pull; a rare depeg is the only real risk
   ['AUSD', 'Avalon Dollar Token', 1, 0.004, 60e9, 'A dollar stablecoin backed by Avalon T-bills. Boring on purpose, until it isn\'t.', { spreadBps: 2, advNotional: 30e9, cycleBeta: 0, wMarket: 0, wCrypto: 0.05, halfLifeDays: 0.5, jumpsPerYear: 0.25, jumpUpMean: 0.002, jumpUpProb: 0.05, jumpDownMean: 0.06, floor: 0.01 }],
   ['FLUX', 'FluxUSD', 1, 0.006, 8e9, 'An algorithmic stablecoin: keeps $1 with code, not reserves.', { spreadBps: 4, advNotional: 2e9, cycleBeta: 0, wMarket: 0, wCrypto: 0.1, halfLifeDays: 0.5, jumpsPerYear: 0.5, jumpUpMean: 0.002, jumpUpProb: 0.05, jumpDownMean: 0.15, floor: 0.001 }],
   // majors and alts
-  ['NOVA', 'Nova', 145, 0.85, 400e6, 'A high-throughput chain loved by traders and outage memes.', { spreadBps: 8, advNotional: 3e9, cycleBeta: 1.9 }],
+  ['NOVA', 'Nova', 145, 0.85, 400e6, 'A high-throughput chain loved by traders and outage memes.', { spreadBps: 10, advNotional: 3e9, cycleBeta: 1.9 }],
   ['STLR', 'Stellar Rail', 0.62, 0.8, 50e9, 'Cross-border settlement for banks that never adopted it.', { spreadBps: 12, advNotional: 1.2e9 }],
-  ['ATOL', 'Atoll', 9.4, 0.95, 380e6, 'An internet of chains that talk to each other.', { spreadBps: 20, advNotional: 500e6 }],
-  ['GRID', 'GridShare', 3.1, 1.05, 900e6, 'Peer-to-peer solar power trading on-chain.', { spreadBps: 35, advNotional: 180e6, cycleBeta: 1.4 }],
-  ['VAULT', 'Vaultline', 0.95, 1.0, 2e9, 'Decentralized exchange token; fees go to holders.', { spreadBps: 30, advNotional: 250e6 }],
-  ['ARC', 'Arcade', 0.31, 1.25, 4e9, 'Play-to-earn games. Mostly play, occasionally earn.', { spreadBps: 55, advNotional: 150e6, jumpsPerYear: 12 }],
-  ['MIND', 'Mindshare', 12.5, 1.15, 250e6, 'Pays people to label AI training data.', { spreadBps: 40, advNotional: 220e6, jumpsPerYear: 10 }],
+  ['ATOL', 'Atoll', 9.4, 0.95, 380e6, 'An internet of chains that talk to each other.', { spreadBps: 15, advNotional: 500e6 }],
+  ['GRID', 'GridShare', 3.1, 1.05, 900e6, 'Peer-to-peer solar power trading on-chain.', { spreadBps: 15, advNotional: 180e6, cycleBeta: 1.4 }],
+  ['VAULT', 'Vaultline', 0.95, 1.0, 2e9, 'Decentralized exchange token; fees go to holders.', { spreadBps: 15, advNotional: 250e6 }],
+  ['ARC', 'Arcade', 0.31, 1.25, 4e9, 'Play-to-earn games. Mostly play, occasionally earn.', { spreadBps: 20, advNotional: 150e6, jumpsPerYear: 12 }],
+  ['MIND', 'Mindshare', 12.5, 1.15, 250e6, 'Pays people to label AI training data.', { spreadBps: 15, advNotional: 220e6, jumpsPerYear: 10 }],
   // memecoins: huge vol, frequent jumps, they bleed between hype waves
   ['FROG', 'Frogcoin', 0.0000082, 1.9, 420e15, 'A frog. A movement. Mostly a frog.', { spreadBps: 90, advNotional: 400e6, jumpsPerYear: 20, jumpUpMean: 0.25, jumpDownMean: 0.22, drift: -0.15 }],
   ['MOON', 'MoonPup', 0.00041, 1.8, 1e15, 'Its roadmap is one word long.', { spreadBps: 100, advNotional: 150e6, jumpsPerYear: 18, jumpUpMean: 0.25, jumpDownMean: 0.25, drift: -0.2 }],
@@ -289,16 +286,16 @@ type CommodityRow = [string, string, string, number, number, string, Partial<Ass
 
 const COMMODITIES: CommodityRow[] = [
   ['GOLD', 'Gold', 'metals', 2100, 0.15, 'Per ounce. The safe haven when everything else burns.', { cycleBeta: -0.4, wMarket: -0.15, wSector: 0.7, drift: 0.03 }],
-  ['SILV', 'Silver', 'metals', 26, 0.28, 'Per ounce. Gold\'s jumpier cousin.', { cycleBeta: 0.2, wMarket: 0.05, wSector: 0.7, spreadBps: 6, advNotional: 6e9 }],
+  ['SILV', 'Silver', 'metals', 26, 0.28, 'Per ounce. Gold\'s jumpier cousin.', { cycleBeta: 0.2, wMarket: 0.05, wSector: 0.7, spreadBps: 5, advNotional: 6e9 }],
   ['OIL', 'Crude Oil', 'energy', 78, 0.35, 'Per barrel. Moves on wars, cartels and recessions. Firms into the summer driving season.', { cycleBeta: 0.8, wMarket: 0.3, wSector: 0.75, jumpsPerYear: 6, seasonal: { amp: 0.03, peakDay: 120 } }],
-  ['NGAS', 'Natural Gas', 'energy', 2.9, 0.55, 'Per million BTU. Weather is everything: heating demand peaks every winter.', { cycleBeta: 0.4, wMarket: 0.15, wSector: 0.5, jumpsPerYear: 8, spreadBps: 10, advNotional: 4e9, seasonal: { amp: 0.12, peakDay: 0 } }],
+  ['NGAS', 'Natural Gas', 'energy', 2.9, 0.55, 'Per million BTU. Weather is everything: heating demand peaks every winter.', { cycleBeta: 0.4, wMarket: 0.15, wSector: 0.5, jumpsPerYear: 8, spreadBps: 5, advNotional: 4e9, seasonal: { amp: 0.12, peakDay: 0 } }],
   ['COPR', 'Copper', 'basemetals', 4.1, 0.25, 'Per pound. "Doctor Copper" reads the economy.', { cycleBeta: 1.0, wMarket: 0.35, wSector: 0.7, spreadBps: 5, advNotional: 8e9 }],
-  ['LITH', 'Lithium', 'basemetals', 14, 0.45, 'Per kilo of carbonate. Battery boom and bust.', { cycleBeta: 1.2, wMarket: 0.25, wSector: 0.6, spreadBps: 20, advNotional: 1e9 }],
-  ['WHEA', 'Wheat', 'agri', 6.2, 0.28, 'Per bushel. Droughts and harvests: tight before the harvest, cheap right after.', { cycleBeta: 0.1, wMarket: 0.05, wSector: 0.6, jumpsPerYear: 5, spreadBps: 8, advNotional: 2e9, seasonal: { amp: 0.06, peakDay: 105 } }],
-  ['COFF', 'Coffee', 'agri', 1.9, 0.33, 'Per pound of arabica. Frost season in the growing belt keeps it bid.', { cycleBeta: 0.2, wMarket: 0.05, wSector: 0.5, jumpsPerYear: 5, spreadBps: 10, advNotional: 1e9, seasonal: { amp: 0.05, peakDay: 150 } }],
-  ['CMPT', 'Compute', 'semis', 120, 0.4, 'Per 1,000 GPU-hours on the spot market (bible C1: $0.12/GPUh). What AI labs burn.', { cycleBeta: 0.6, wMarket: 0.2, wSector: 0.55, jumpsPerYear: 6, spreadBps: 15, advNotional: 2e9, halfLifeDays: 30 }],
-  ['DATA', 'Data', 'tech', 50, 0.3, 'Per 1,000 data-quality units of licensed training data.', { cycleBeta: 0.5, wMarket: 0.2, wSector: 0.5, spreadBps: 20, advNotional: 800e6, halfLifeDays: 30 }],
-  ['PWR', 'Power', 'energy', 65, 0.4, 'Per megawatt-hour on the Avalon grid. Data centers are thirsty, and summer air-con peaks the load.', { cycleBeta: 0.5, wMarket: 0.15, wSector: 0.5, jumpsPerYear: 6, spreadBps: 12, advNotional: 1.5e9, halfLifeDays: 20, seasonal: { amp: 0.08, peakDay: 140 } }],
+  ['LITH', 'Lithium', 'basemetals', 14, 0.45, 'Per kilo of carbonate. Battery boom and bust.', { cycleBeta: 1.2, wMarket: 0.25, wSector: 0.6, spreadBps: 5, advNotional: 1e9 }],
+  ['WHEA', 'Wheat', 'agri', 6.2, 0.28, 'Per bushel. Droughts and harvests: tight before the harvest, cheap right after.', { cycleBeta: 0.1, wMarket: 0.05, wSector: 0.6, jumpsPerYear: 5, spreadBps: 5, advNotional: 2e9, seasonal: { amp: 0.06, peakDay: 105 } }],
+  ['COFF', 'Coffee', 'agri', 1.9, 0.33, 'Per pound of arabica. Frost season in the growing belt keeps it bid.', { cycleBeta: 0.2, wMarket: 0.05, wSector: 0.5, jumpsPerYear: 5, spreadBps: 5, advNotional: 1e9, seasonal: { amp: 0.05, peakDay: 150 } }],
+  ['CMPT', 'Compute', 'semis', 120, 0.4, 'Per 1,000 GPU-hours on the spot market (bible C1: $0.12/GPUh). What AI labs burn.', { cycleBeta: 0.6, wMarket: 0.2, wSector: 0.55, jumpsPerYear: 6, spreadBps: 5, advNotional: 2e9, halfLifeDays: 30 }],
+  ['DATA', 'Data', 'tech', 50, 0.3, 'Per 1,000 data-quality units of licensed training data.', { cycleBeta: 0.5, wMarket: 0.2, wSector: 0.5, spreadBps: 5, advNotional: 800e6, halfLifeDays: 30 }],
+  ['PWR', 'Power', 'energy', 65, 0.4, 'Per megawatt-hour on the Avalon grid. Data centers are thirsty, and summer air-con peaks the load.', { cycleBeta: 0.5, wMarket: 0.15, wSector: 0.5, jumpsPerYear: 6, spreadBps: 5, advNotional: 1.5e9, halfLifeDays: 20, seasonal: { amp: 0.08, peakDay: 140 } }],
 ];
 
 function commodityDef(r: CommodityRow): AssetDef {
@@ -319,13 +316,15 @@ const FOREX: [string, string, string, number, number, string][] = [
   ['KYN', 'Kaiyo yen', 'kaiyo', 0.0068, 0.09, 'Price of one yen in Avalon dollars. Rallies in a panic.'],
 ];
 
+const FX_SPREAD: Record<string, number> = { NHK: 2, SDR: 3 };
+
 function forexDef([id, name, region, price, vol, blurb]: (typeof FOREX)[number]): AssetDef {
   const haven = id === 'KYN';
   return normalizeLoadings({
     id, name, assetClass: 'forex', sector: 'fx', region, initialPrice: price, vol, blurb,
     drift: 0, cycleBeta: haven ? -0.2 : 0.1, wMarket: haven ? -0.25 : 0.15, wSector: 0.3, wCrypto: 0, wRegion: 0.55,
     halfLifeDays: 200, jumpsPerYear: 1.5, jumpUpMean: 0.02, jumpDownMean: 0.025, jumpUpProb: 0.5,
-    floor: 1e-6, circuitBreaker: false, spreadBps: 1, advNotional: 100e9, qtyStep: 0,
+    floor: 1e-6, circuitBreaker: false, spreadBps: FX_SPREAD[id] ?? 1, advNotional: 100e9, qtyStep: 0,
   });
 }
 

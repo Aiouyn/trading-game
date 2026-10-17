@@ -161,48 +161,39 @@ export function loadSeries(
   if (h.lastTick < payload.lastTick) h.lastTick = payload.lastTick;
 }
 
-/** Game-time candle sizes, in session minutes (a game day has 390 of them, 09:30 to 16:00). 1D is the daily bar. */
-export const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1D'] as const;
+/**
+ * Candle sizes, as TradingView lists them. The intraday ones cut a game day's 390 session minutes from 09:30, so a 1h candle is
+ * 09:30 to 10:30 and the day's last one is short (a US exchange's chart does the same). 1D is one game day; 1W is five game days
+ * and 1M twenty-one, counted from game day 1 (the game has no weekdays, so its week and month close on the same game day every
+ * time). The daily sizes are built from the daily bars. The size is independent of the range (the view presets below).
+ */
+export const INTERVALS = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1D', '1W', '1M'] as const;
 export type Interval = (typeof INTERVALS)[number];
-export const INTERVAL_MINUTES: Record<Interval, number> = { '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1D': 0 };
+/** Session minutes per intraday candle (0 for the daily sizes). */
+export const INTERVAL_MINUTES: Record<Interval, number> = {
+  '1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30, '1h': 60, '2h': 120, '4h': 240, '1D': 0, '1W': 0, '1M': 0,
+};
+/** Game days per candle of the daily sizes. */
+export const INTERVAL_DAYS: Record<'1D' | '1W' | '1M', number> = { '1D': 1, '1W': 5, '1M': 21 };
+/** True for a candle cut from the tick ring (1m to 4h). */
+export function isIntraday(interval: Interval): boolean {
+  return INTERVAL_MINUTES[interval] > 0;
+}
 
-/** Range presets, in game days. 1D and 1W come from the tick ring (5 game days); 1M and longer come from the daily bars. */
+/**
+ * View presets: game days back from the newest tick. A preset moves the visible window only; the data does not change with it.
+ */
 export const CHART_RANGES = ['1D', '1W', '1M', '1Y', 'ALL'] as const;
 export type ChartRange = (typeof CHART_RANGES)[number];
 export const RANGE_DAYS: Record<ChartRange, number> = { '1D': 1, '1W': RING_DAYS, '1M': 21, '1Y': 252, ALL: MAX_DAILY_BARS };
 
-/** Ranges that the tick ring covers. Intraday intervals need it, so the other ranges draw daily bars only. */
-export function rangeIsIntraday(range: ChartRange): boolean {
-  return range === '1D' || range === '1W';
-}
+/** A preset never shows fewer candles than this when the history has them (one candle on a range is a block, not a chart). */
+export const MIN_VIEW_CANDLES = 20;
 
-/** The fewest candles a chart draws for a range: one candle on a range is a block, not a chart (UX fix). */
-export const MIN_CANDLES = 20;
-
-/**
- * How many candles an interval draws over a range. Intraday intervals cut the range's session minutes into candles (a
- * 1D range is 390 minutes; a candle never spans two days). The daily bar draws one candle per game day of the range. A
- * daily range draws no intraday candle at all.
- */
-export function candleCount(range: ChartRange, interval: Interval): number {
-  if (interval === '1D') return RANGE_DAYS[range];
-  if (!rangeIsIntraday(range)) return 0;
-  return Math.floor((RANGE_DAYS[range] * SESSION_MINUTES) / INTERVAL_MINUTES[interval]);
-}
-
-/** The intervals a range offers: those that draw at least MIN_CANDLES candles (1D: 1m, 5m, 15m; 1W adds 1h; 1M and up: 1D). */
-export function intervalsFor(range: ChartRange): Interval[] {
-  return INTERVALS.filter((i) => candleCount(range, i) >= MIN_CANDLES);
-}
-
-/**
- * The interval a range opens with when the current one is not offered: the current one if it fits, else 5m (the default)
- * if the range offers it, else the range's first interval. Used when the range changes (UX fix: the interval follows).
- */
-export function fitInterval(range: ChartRange, current: Interval): Interval {
-  const allowed = intervalsFor(range);
-  if (allowed.includes(current)) return current;
-  return allowed.includes('5m') ? '5m' : allowed[0]!;
+/** The first tick a preset shows (ALL shows everything: tick 0). */
+export function rangeFromTick(h: History, range: ChartRange): number {
+  if (range === 'ALL') return 0;
+  return Math.max(1, h.lastTick - RANGE_DAYS[range] * h.ticksPerDay + 1);
 }
 
 /**
@@ -213,33 +204,55 @@ export function realSecondsPerMinute(ticksPerDay: number): number {
   return (ticksPerDay * tickMs(1)) / 1000 / SESSION_MINUTES;
 }
 
-/** The real time one candle of an interval spans, in seconds (a 1D bar is one game day). */
+/** The real time one candle of an interval spans, in seconds (a 1D candle is one game day, 1W five, 1M twenty-one). */
 export function candleRealSeconds(interval: Interval, ticksPerDay: number): number {
-  const minutes = interval === '1D' ? SESSION_MINUTES : INTERVAL_MINUTES[interval];
+  const minutes = isIntraday(interval) ? INTERVAL_MINUTES[interval] : SESSION_MINUTES * INTERVAL_DAYS[interval as '1D' | '1W' | '1M'];
   return minutes * realSecondsPerMinute(ticksPerDay);
 }
 
 /**
- * The index of the candle bucket a tick falls in. Buckets are whole session minutes inside a game day, so a 1h candle
- * is 09:30 to 10:30 and the day's last candle is short. Days never share a bucket.
+ * The index of the candle bucket a tick falls in. A tick's minute is the session minute its clock label shows (clock.ts), so a
+ * candle that starts at 13:30 opens on the first tick the clock reads 13:30. The close tick (16:00) belongs to the last minute
+ * of the session. A candle never spans two game days.
  */
 function bucketKey(tick: number, ticksPerDay: number, minutes: number): number {
   const day = dayIndex(tick, ticksPerDay);
-  const inDay = tick - day * ticksPerDay;
-  const minute = Math.floor((Math.max(0, inDay - 1) * SESSION_MINUTES) / ticksPerDay);
+  const inDay = Math.max(0, tick - day * ticksPerDay);
+  const minute = Math.min(SESSION_MINUTES - 1, Math.floor((inDay * SESSION_MINUTES) / ticksPerDay));
   return day * 10000 + Math.floor(minute / minutes);
 }
 
+/** Daily bars grouped into candles of `days` game days, each group counted from game day 1. */
+function groupDaily(h: History, daily: Bar[], days: number): Bar[] {
+  const out: Bar[] = [];
+  let key = NaN;
+  for (const b of daily) {
+    const g = Math.floor(dayIndex(b.time, h.ticksPerDay) / days);
+    const cur = out[out.length - 1];
+    if (cur && g === key) {
+      if (b.high > cur.high) cur.high = b.high;
+      if (b.low < cur.low) cur.low = b.low;
+      cur.close = b.close;
+      if (b.volume !== undefined) cur.volume = (cur.volume ?? 0) + b.volume;
+    } else {
+      out.push({ ...b });
+      key = g;
+    }
+  }
+  return out;
+}
+
 /**
- * OHLC bars for an interval over a range. Intraday bars come from the tick ring and open at the previous bar's close; a
- * bar's time is its first tick. Daily ranges and the 1D interval read the daily bars.
+ * OHLC candles of an interval, from the whole history the client holds. Intraday candles come from the tick ring and open at
+ * the previous candle's close; a candle's time is its first tick. The newest candle is still forming: it grows with every tick.
+ * The daily sizes group the daily bars. Nothing is read ahead of the newest tick.
  */
-export function barsFor(h: History, id: string, interval: Interval, range: ChartRange): Bar[] {
+export function barsFor(h: History, id: string, interval: Interval): Bar[] {
   const s = h.series[id];
   if (!s || s.size === 0) return [];
-  if (interval === '1D' || !rangeIsIntraday(range)) return s.daily.slice(-RANGE_DAYS[range]).map((b) => ({ ...b }));
+  if (!isIntraday(interval)) return groupDaily(h, s.daily, INTERVAL_DAYS[interval as '1D' | '1W' | '1M']);
   const minutes = INTERVAL_MINUTES[interval];
-  const { ticks, prices, cums } = lastTicks(h, id, RANGE_DAYS[range] * h.ticksPerDay);
+  const { ticks, prices, cums } = lastTicks(h, id, s.size);
   const bars: Bar[] = [];
   let key = NaN;
   for (let k = 0; k < ticks.length; k++) {
@@ -281,19 +294,18 @@ export function sparkline(h: History, id: string, days: number, points = 48): nu
   return out;
 }
 
-/** Axis and crosshair label for a bar time. */
-export function barTimeLabel(tick: number, ticksPerDay: number, daily: boolean): string {
+/** Crosshair label for a candle's time: the game day for the daily sizes, the day and clock for the intraday ones. */
+export function barTimeLabel(tick: number, ticksPerDay: number, interval: Interval): string {
   const c = clockParts(tick, ticksPerDay);
-  return daily ? t('clock.day', { day: c.day }) : `${t('clock.dayShort', { day: c.day })} ${c.hhmm}`;
+  return isIntraday(interval) ? `${t('clock.dayShort', { day: c.day })} ${c.hhmm}` : t('clock.day', { day: c.day });
 }
 
 /**
- * The time axis label for a range: the clock on a day (1D), the game day and clock on the week (1W), and the game day on
- * the daily ranges. Daily bars are labelled by day only.
+ * The time axis label: the clock inside a day, the game day and clock on a day's first candle, and the game day on the daily
+ * sizes.
  */
-export function axisTimeLabel(tick: number, ticksPerDay: number, range: ChartRange, daily: boolean): string {
+export function axisTimeLabel(tick: number, ticksPerDay: number, interval: Interval): string {
   const c = clockParts(tick, ticksPerDay);
-  if (daily) return t('clock.day', { day: c.day });
-  if (range === '1W') return `${t('clock.dayShort', { day: c.day })} ${c.hhmm}`;
-  return c.hhmm;
+  if (!isIntraday(interval)) return t('clock.day', { day: c.day });
+  return c.tickInDay <= 1 ? `${t('clock.dayShort', { day: c.day })} ${c.hhmm}` : c.hhmm;
 }

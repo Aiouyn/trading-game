@@ -7,10 +7,10 @@ import { usd } from './text/template';
 import type { CommandResult, GameState, Player, StepOutput } from './types';
 
 /**
- * The hired analyst and the Research Desk (D-19). Salary and upkeep are paid a game week ahead: at the hire (or unlock)
- * day, and then each week on its anniversary, from spendable cash only (restricted cash cannot pay). No refund. When the
- * cash is short at a due day, the analyst leaves or the desk locks, with one inbox line and no debt. The desk's files are
- * kept while it is locked, and resuming costs one week's upkeep.
+ * The hired analyst and the Research Desk (D-19). Salary is paid a game week ahead: at the hire day, and then each week on its anniversary. The Research Desk is a
+ * subscription: a free trial from the unlock, then a monthly fee on each period's anniversary (R-10-7). Both come from
+ * spendable cash only (restricted cash cannot pay). No refund. When the cash is short at a due day, the analyst leaves or
+ * the desk locks, with one inbox line and no debt. The desk's files are kept while it is locked, and resuming costs a month.
  */
 
 const ok = (data?: unknown): CommandResult => ({ ok: true, ...(data !== undefined ? { data } : {}) });
@@ -41,28 +41,28 @@ export function fireAnalyst(g: GameState, p: Player, out: StepOutput | null): Co
   return ok();
 }
 
-/** Unlock the Research Desk once at Operator: the one-time fee and the first week's upkeep, both now. */
+/**
+ * Start the Research Desk trial (R-10-7): free for `trialDays`, no charge now. The first monthly fee is due when the trial ends
+ * (workDay), so a player who does not want the desk simply lets the trial lapse without paying.
+ */
 export function unlockDesk(g: GameState, p: Player, out: StepOutput | null): CommandResult {
   if (rankIndex(p.rankId) < rankIndex(DESK.minRank)) return fail(`the Research Desk opens at ${rankName(DESK.minRank)}`, { key: 'desk.refuse.opensAt', vars: { rank: `@rank.${DESK.minRank}` } });
   if (p.desk) return fail(p.desk.lapsed ? 'the desk is locked: resume it instead' : 'the desk is already unlocked');
-  const total = DESK.unlockCost + DESK.weeklyUpkeep;
-  if (spendableCash(g, p.id) < total) return fail('not enough spendable cash to unlock the desk');
-  overhead(g, p.id, total, 'research desk');
   const d = today(g);
-  p.desk = { unlockedDay: d, paidThroughDay: d + WEEK_DAYS, lapsed: false };
-  say(g, out, p.id, 'work', 'brass', { key: 'work.desk.unlocked', vars: { unlock: usd(DESK.unlockCost), upkeep: usd(DESK.weeklyUpkeep) } });
+  p.desk = { unlockedDay: d, paidThroughDay: d + DESK.trialDays, lapsed: false };
+  say(g, out, p.id, 'work', 'brass', { key: 'work.desk.unlocked', vars: { days: DESK.trialDays, fee: usd(DESK.monthlyFee) } });
   return ok(p.desk);
 }
 
-/** Resume a locked desk: one week's upkeep now. The unlock fee is not paid again. */
+/** Resume a locked desk: the month's fee now, and the next month from today. */
 export function resumeDesk(g: GameState, p: Player, out: StepOutput | null): CommandResult {
   if (!p.desk) return fail('the desk is not unlocked');
   if (!p.desk.lapsed) return fail('the desk is not locked');
   if (rankIndex(p.rankId) < rankIndex(DESK.minRank)) return fail(`the Research Desk opens at ${rankName(DESK.minRank)}`, { key: 'desk.refuse.opensAt', vars: { rank: `@rank.${DESK.minRank}` } });
-  if (spendableCash(g, p.id) < DESK.weeklyUpkeep) return fail('not enough spendable cash for the week');
-  overhead(g, p.id, DESK.weeklyUpkeep, 'research desk');
-  p.desk = { ...p.desk, paidThroughDay: today(g) + WEEK_DAYS, lapsed: false };
-  say(g, out, p.id, 'work', 'brass', { key: 'work.desk.resumed', vars: { upkeep: usd(DESK.weeklyUpkeep) } });
+  if (spendableCash(g, p.id) < DESK.monthlyFee) return fail('not enough spendable cash for the month');
+  overhead(g, p.id, DESK.monthlyFee, 'research desk');
+  p.desk = { ...p.desk, paidThroughDay: today(g) + DESK.periodDays, lapsed: false };
+  say(g, out, p.id, 'work', 'brass', { key: 'work.desk.resumed', vars: { fee: usd(DESK.monthlyFee) } });
   return ok(p.desk);
 }
 
@@ -85,12 +85,13 @@ export function workDay(g: GameState, out: StepOutput | null): void {
       }
     }
     if (p.desk && !p.desk.lapsed && d >= p.desk.paidThroughDay) {
-      if (spendableCash(g, p.id) >= DESK.weeklyUpkeep) {
-        overhead(g, p.id, DESK.weeklyUpkeep, 'research desk');
-        p.desk = { ...p.desk, paidThroughDay: p.desk.paidThroughDay + WEEK_DAYS };
+      if (spendableCash(g, p.id) >= DESK.monthlyFee) {
+        overhead(g, p.id, DESK.monthlyFee, 'research desk');
+        p.desk = { ...p.desk, paidThroughDay: p.desk.paidThroughDay + DESK.periodDays };
+        say(g, out, p.id, 'work', 'info', { key: 'work.desk.billed', vars: { fee: usd(DESK.monthlyFee) } });
       } else {
         p.desk = { ...p.desk, lapsed: true };
-        say(g, out, p.id, 'work', 'warn', { key: 'work.desk.lapsed', vars: { upkeep: usd(DESK.weeklyUpkeep) } });
+        say(g, out, p.id, 'work', 'warn', { key: 'work.desk.lapsed', vars: { fee: usd(DESK.monthlyFee) } });
       }
     }
   }

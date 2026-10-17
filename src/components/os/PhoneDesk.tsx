@@ -330,8 +330,7 @@ function PhoneScreen({ app, props, visible, vp }: { app: AppId; props: WinProps;
         </button>
         <span className="os-phone-title">{title}</span>
       </header>
-      <AppBody win={win} size={{ w: vp.w, h: Math.max(0, vp.h - appBarH(vp.w) - EDGE_H) }} />
+      <AppBody win={win} size={{ w: vp.w, h: Math.max(0, vp.h - appBarH(vp.w) - EDGE_H) }} phone />
     </section>
   );
 }
-

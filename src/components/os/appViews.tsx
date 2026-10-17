@@ -29,10 +29,10 @@ const ExchangeApp = dynamic(() => import('@/components/apps/exchange/ExchangeApp
 const LaunchpadApp = dynamic(() => import('@/components/apps/launchpad/LaunchpadApp').then((m) => m.LaunchpadApp), { ssr: false });
 
 /** A window's content. `size` is the window's current size, which the Broker lays itself out by. */
-export function AppBody({ win, size }: { win: Win; size: Size }) {
+export function AppBody({ win, size, phone = false }: { win: Win; size: Size; phone?: boolean }) {
   switch (win.app) {
     case 'broker':
-      return <BrokerApp ticker={win.props.ticker} size={size} />;
+      return <BrokerApp ticker={win.props.ticker} size={size} winId={win.id} phone={phone} />;
     case 'portfolio':
       return <div className="os-body"><PortfolioView view={win.props.view} /></div>;
     case 'wire':

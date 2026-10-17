@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { listedExpiries, optionChain } from '@/engine';
-import { money, price, dec } from '@/game/format';
-import { useGame } from '@/game/store';
+import { money, assetPrice, dec } from '@/game/format';
+import { useGame, assetDefOf } from '@/game/store';
 import { isDelisted, isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
 import { Button, NumberField, Segmented, Td, Th } from '@/components/ui';
@@ -32,6 +32,8 @@ export function OptionChain({ underlying }: { underlying: string }) {
   const chain = optionChain(world, underlying, exp);
   const i = world.config.assets.findIndex((a) => a.id === underlying);
   const spot = Math.exp(world.assets[i]!.lnP);
+  // a strike and the spot are the underlying's prices: its class sets their precision (R-10-3)
+  const under = assetDefOf(underlying) ?? { assetClass: 'stock' };
   const contracts = Math.max(1, Math.floor(Number(n) || 1));
   const buy = (id: string, label: string) => act({ type: 'option.trade', contractId: id, side: 'buy', qty: contracts }, { success: t('broker.chain.bought', { n: contracts, label }) });
   const today = Math.ceil(world.tick / world.config.ticksPerDay);
@@ -44,7 +46,7 @@ export function OptionChain({ underlying }: { underlying: string }) {
           options={exps.map((e) => ({ value: String(e), label: t('broker.chain.expiryDay', { day: e + 1, d: Math.max(0, e + 1 - today) }) }))}
         />
         <NumberField label={t('broker.chain.contracts')} value={n} onChange={setN} className="w-44" step={1} />
-        <span className="num ml-auto text-small text-fg-muted">{t('broker.chain.spot', { p: price(spot) })}</span>
+        <span className="num ml-auto text-small text-fg-muted">{t('broker.chain.spot', { p: assetPrice(under, spot) })}</span>
       </div>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full text-small">
@@ -68,7 +70,7 @@ export function OptionChain({ underlying }: { underlying: string }) {
                       {t('broker.chain.callBtn', { cost: money(r.call.ask * 100 * contracts) })}
                     </Button>
                   </Td>
-                  <Td right num className="font-semibold text-fg">{price(r.strike)}</Td>
+                  <Td right num className="font-semibold text-fg">{assetPrice(under, r.strike)}</Td>
                   <Td />
                   <Td right num className={!itmCall ? 'bg-ink-2' : ''}>{prem(r.put.bid)}</Td>
                   <Td right num className={!itmCall ? 'bg-ink-2' : ''}>{prem(r.put.ask)}</Td>

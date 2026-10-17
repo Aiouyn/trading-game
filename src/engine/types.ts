@@ -108,10 +108,14 @@ export interface DayBar {
 }
 
 export interface FeeSchedule {
-  /** commission as a fraction of notional */
+  /** commission as a fraction of notional (used when `perUnit` is absent) */
   rate: number;
   /** minimum commission per fill, $ */
   min: number;
+  /** R-10-2: a commission per unit (a share), $; the fill pays perUnit · units, capped at `max` · notional when set */
+  perUnit?: number;
+  /** R-10-2: the largest commission as a fraction of notional (with perUnit) */
+  max?: number;
 }
 
 export interface TradingConfig {
@@ -276,6 +280,8 @@ export interface AssetState {
   /** tick at which an active halt ends (exclusive); -1 when not halted */
   haltUntil: number;
   haltedToday: boolean;
+  /** A reopening occurred today: widen spreads without suppressing a new circuit breaker. Absent in old saves. */
+  reopenedToday?: boolean;
   /** sum of today's jump log sizes; excluded from the GARCH input so jumps don't feed vol clustering */
   dayJump: number;
   /**
@@ -593,6 +599,11 @@ export interface Account {
   canOptions?: boolean;
   /** listed options held, by contract id */
   options?: Record<string, OptionPosition>;
+  /**
+   * R-10-1: this account's own same-direction notional per asset, decaying with the impact half-life. A fill's temporary
+   * impact is charged on it alone (other accounts' flow moves the mid, never this fill). Absent = nothing traded.
+   */
+  ownImpact?: Record<string, ImpactTally>;
   /** running totals */
   interestPaid?: number;
   interestEarned?: number;
@@ -993,6 +1004,12 @@ export interface FillEstimate {
   slippageBps: number;
   /** buy: cash out (qty·price + fee); sell: cash in (qty·price − fee) */
   total: number;
+  /** R-10-1: the mid the quote is struck from */
+  mid: number;
+  /** R-10-1: the half spread the fill pays, in bps of mid (the round trip pays it twice) */
+  halfSpreadBps: number;
+  /** R-10-1: this order's own temporary impact in bps of mid (its own share of the tally, not other accounts' flow) */
+  impactBps: number;
 }
 
 export interface PositionView {

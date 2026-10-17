@@ -69,14 +69,15 @@ function Ceremony({ rankId, from }: { rankId: string; from: string | null }) {
   const next = RANKS[idx + 1];
   const close = () => useGame.getState().closeRankUp();
   // A multi-rank update names the ranks it also passed on card 1, in fg-muted (P2-204).
-  const also = alsoRanks(from, rankId).map((id) => RANKS.find((x) => x.id === id)?.name ?? id);
+  // rank names come from the dictionary (rank.<id>), so the French ceremony never shows an English rank (R-10-7)
+  const also = alsoRanks(from, rankId).map((id) => t(`rank.${id}`));
   const cards: ReactNode[] = [
     <>
       {t(`ceremony.hw.${rankId}`)}
       {also.length > 0 && <span className="mt-2 block text-fg-muted">{t('ceremony.also', { rank: also.join(' · ') })}</span>}
     </>,
     t(`rank.unlock.${r.id}`),
-    next ? t('ceremony.next', { name: next.name, amount: compactMoney(next.threshold) }) : t('ceremony.top'),
+    next ? t('ceremony.next', { name: t(`rank.${next.id}`), amount: compactMoney(next.threshold) }) : t('ceremony.top'),
   ];
 
   return (

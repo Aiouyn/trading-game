@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Order } from '@/engine';
 import {
-  alertDir, alertFired, buildLevels, defaultExitPrice, exitRole, levelMove, orderPrice, pnlIfClosed, priceOfY, priceSideRefusal, roundPrice, yOfPrice,
+  alertDir, alertFired, buildLevels, defaultExitPrice, draggedLevelPrice, exitRole, levelMove, orderPrice, pnlIfClosed, priceOfY, priceSideRefusal, roundPrice, yOfPrice,
   type LevelFormat, type PriceScale,
 } from './chartLevels';
 
@@ -10,6 +10,19 @@ const scale: PriceScale = {
   priceToY: (p) => (200 - p) * 2,
   yToPrice: (y) => 200 - y / 2,
 };
+
+describe('order-line drag prices', () => {
+  it('moves a pinned order relative to its own price, not the edge price', () => {
+    expect(draggedLevelPrice(125, 110, 112)).toBe(127);
+  });
+
+  it('rejects missing, nonfinite and nonpositive prices rather than modifying an order', () => {
+    expect(draggedLevelPrice(100, null, 101)).toBeNull();
+    expect(draggedLevelPrice(100, 101, Number.NaN)).toBeNull();
+    expect(draggedLevelPrice(Infinity, 100, 101)).toBeNull();
+    expect(draggedLevelPrice(1, 100, 98)).toBeNull();
+  });
+});
 
 const fmt: LevelFormat = {
   avg: (p, usd, pct) => `avg ${p} ${usd.toFixed(2)} ${pct.toFixed(4)}`,
@@ -28,6 +41,15 @@ function order(over: Partial<Order>): Order {
 }
 
 describe('price and pixel helpers', () => {
+  it('FX and memecoin trailing lines and refusal prices use the asset tick', () => {
+    const fx = order({ type: 'trailing', side: 'sell', trailRef: 1.08123, trailPct: 0.01 });
+    expect(orderPrice(fx, 'forex')).toBe(1.07042);
+    const meme = order({ type: 'trailing', side: 'sell', trailRef: 0.0000082, trailPct: 0.01 });
+    expect(orderPrice(meme, 'crypto')).toBeCloseTo(0.000008118, 12);
+    expect(priceSideRefusal(fx, 'tp', 1, 1.08123, 'forex')!.vars.price).toBe(1.08123);
+    const levels = buildLevels({ assetClass: 'crypto', qty: 0, avgCost: 0, closeTotal: 0, orders: [meme], alerts: [], fmt });
+    expect(levels[0]!.price).toBeCloseTo(0.000008118, 12);
+  });
   it('a price and its pixel row convert both ways on a linear scale', () => {
     for (const p of [150, 179.37, 199.99]) {
       const y = yOfPrice(scale, p)!;

@@ -98,10 +98,15 @@ describe('bare engine is unchanged', () => {
     // account to the asset (one tally per asset), and the digest hashes where the field sits. Re-keyed to the R-9-1b layout
     // (the tally on the account, none on the asset) the digest is the R-9-1b pin b799f0b0, so the single-account dynamics are
     // unchanged. The pin moved from 61f445d2 by R-9-1b and from b799f0b0 by R-9-1c (representation only).
-    expect(sha(s)).toBe('e711a12b076e97e31bb37beecc968e4d19383b2dd012d4cb480925ab42a270cf');
+    // R-10-1 (Phase 10): the buy and sell of p1 now pay their own impact only, so this world's prices and digest move; the
+    // order-free worlds above are unchanged. The pin before R-10-1 was e711a12b (R-9-1c).
+    // re-pinned in p10/fill round 4: the digest hashes the world config, and the bond and commodity fee minimum is now 0 (R-10-2
+    // as ruled, 2 bps with no minimum). The fill path is otherwise unchanged; the pins above are the pre-hook dynamics.
+    expect(sha(s)).toBe('a17c2b34c8e70986ef27c2436414d2b2802a3e224f1c35dfa332bf2a25feb741');
     // R-9-1b: the ecology world has one player buy too, so it moves for the same reason (e80f... -> ada9..., then 54dc...)
     // R-9-1c: the pools' closing flow also joins the asset tally (read by no later fill here), so the digest moves again
-    expect(sha(e)).toBe('54dc4f794390549be5d0fb18a2e756b45f5560bf7a5fdfce79f6f725fb46ec29');
+    // R-10-1 re-pin (was 54dc4f79); p10/fill round 4 re-pin (the bond and commodity minimum, see the pin above)
+    expect(sha(e)).toBe('3acf376234c17cb54da98effc055e51062da56347c58b1ae37991598be8a6e15');
     // the Street tally of those trades, pinned on its own (the digests above ignore it)
     expect(s.accounts.p1!.streetCash).not.toBe(0);
     // the Street tally moves with the fill prices of the player's trades (R-9-1b, see the digest pins above)

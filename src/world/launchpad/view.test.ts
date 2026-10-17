@@ -5,6 +5,7 @@ import { CREATOR, HOLDER, TRADER, launch, lpWorld, run } from './fixture';
 import { LP, LP_K, NPC, bookAccountId } from './constants';
 import { launchpadView, lpPageOf } from './view';
 import { tokenOf } from './state';
+import { iconSvg } from './icon';
 
 /**
  * The share of the curve a launch buys at once: the launch cohort's demand (constant product, the fee left out, so an upper bound)
@@ -27,10 +28,17 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(v).not.toContain('zed_holder_x');
     const page = lpPageOf(g, CREATOR, 'REVL')!;
     expect(Object.keys(page.buckets).sort()).toEqual(['holders', 'top10Share']);
-    expect(page.buckets.holders).toBe(3);
+    // R-10-6: the NPC sniper's cohort is an anonymous holder too, so the three players and the cohort are four holders
+    expect(page.buckets.holders).toBe(4);
     for (const tr of page.tape) {
-      expect(Object.keys(tr).sort()).toEqual(['creator', 'npc', 'price', 'qty', 'side', 'tick']);
+      const keys = Object.keys(tr).sort();
+      expect(keys.filter((k) => k !== 'anon')).toEqual(['creator', 'npc', 'price', 'qty', 'side', 'tick', 'usd']);
+      // a player's line carries an anonymous id, never a handle
+      if (tr.anon !== undefined) expect(tr.anon).toMatch(/^[0-9a-f]{6}$/);
     }
+    expect(JSON.stringify(page)).not.toContain('trader_two');
+    expect(page.holders.some((h) => h.role === 'npc')).toBe(true);
+    expect(page.holders.some((h) => h.role === 'curve')).toBe(true);
     expect(page.tape.some((tr) => tr.creator)).toBe(true);
     expect(page.tape.filter((tr) => tr.creator).length).toBe(1);
     // the other player's view of the same token: the same no-reveal
@@ -61,7 +69,7 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(v.feeds.trending.map((c) => c.ticker)).toEqual(['FEED']);
     expect(v.feeds.graduated).toHaveLength(0);
     expect(v.gate).toBeNull();
-    expect(v.feeds.newest[0]!.icon.startsWith('<svg')).toBe(true);
+    expect(iconSvg(v.feeds.newest[0]!.ticker, v.feeds.newest[0]!.art).startsWith('<svg')).toBe(true);
     // the v1.4 launch cohort (L6.9) and the NPC sniper are bought at once (L6.4, sniperEnter); the bound is what a 99th-percentile
     // launch buys (cohortShareBound above), not a fixed guess
     expect(v.feeds.newest[0]!.progress).toBeGreaterThan(0);
@@ -98,7 +106,8 @@ describe('the Launchpad view (L1, L7)', () => {
     expect(JSON.stringify(v)).not.toContain('"chart"');
     expect(JSON.stringify(v)).not.toContain('"tape"');
     // the creator launched with no allocation, so the trader is the one holder of PGAA: the page counts holders, never names them
-    expect(lpPageOf(g, TRADER, 'PGAA')!.buckets.holders).toBe(1);
+    // R-10-6: the NPC sniper's cohort counts as an anonymous holder, so the trader and the cohort are two
+    expect(lpPageOf(g, TRADER, 'PGAA')!.buckets.holders).toBe(2);
   });
 
   it('creator fees are on the page for the creator only (the figure is not public)', () => {

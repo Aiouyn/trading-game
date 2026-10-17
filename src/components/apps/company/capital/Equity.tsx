@@ -4,7 +4,7 @@
 // (eligibility, the one-day book, the float slider, the lockup). Every number is the world's; the slider reads the previews.
 import { useState } from 'react';
 import { t } from '@/i18n';
-import { money, pct, price, qty } from '@/game/format';
+import { money, pct, sharePrice, qty } from '@/game/format';
 import { NumberField, Select, SpendReview } from '@/components/ui';
 import type { CapitalView, CapTableRow } from '@/world/company/capital';
 import { Line, Note, Panel, RefusalBox, numOf, useAct, type Refusal } from './shared';
@@ -55,7 +55,7 @@ export function RoundPanel({ cap }: { cap: CapitalView }) {
   const ok = r.open && Number.isFinite(n) && n > 0;
   return (
     <Panel testId="company-round" title={t('company.capital.round.title')} sub={t('company.capital.round.sub')} chip="private">
-      <Line k={t('company.capital.round.price')} v={r.pricePerShare === null ? '—' : price(r.pricePerShare)} testId="company-round-price" />
+      <Line k={t('company.capital.round.price')} v={r.pricePerShare === null ? '—' : sharePrice(r.pricePerShare)} testId="company-round-price" />
       <Line k={t('company.capital.round.max')} v={r.maxAmount === null ? '—' : money(r.maxAmount)} testId="company-round-max" />
       <Line k={t('company.capital.round.pool')} v={money(r.poolCash)} />
       {!r.open && r.refusal && <RefusalBox refusal={r.refusal as Refusal} testId="company-round-refusal" />}
@@ -129,7 +129,7 @@ export function IpoPanel({ cap }: { cap: CapitalView }) {
       </div>
       {ipo.book && (
         <div className="flex flex-col gap-1 rounded-md border border-brass/40 px-3 py-2 text-small" data-testid="company-ipo-book">
-          <Line k={t('company.capital.ipo.bookPrice')} v={price(ipo.book.price)} />
+          <Line k={t('company.capital.ipo.bookPrice')} v={sharePrice(ipo.book.price)} />
           <Line k={t('company.capital.ipo.bookShares')} v={qty(ipo.book.ipoShares)} />
           <Line k={t('company.capital.ipo.bookCap')} v={qty(ipo.book.cap)} testId="company-ipo-book-cap" />
           <Line k={t('company.capital.ipo.myOrder')} v={qty(ipo.book.myOrder)} testId="company-ipo-my-order" />
@@ -154,7 +154,7 @@ export function IpoPanel({ cap }: { cap: CapitalView }) {
           </label>
           {preview && (
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-small" data-testid="company-ipo-preview">
-              <Line k={t('company.capital.ipo.price')} v={price(preview.price)} />
+              <Line k={t('company.capital.ipo.price')} v={sharePrice(preview.price)} />
               <Line k={t('company.capital.ipo.newShares')} v={qty(preview.ipoShares)} />
               <Line k={t('company.capital.ipo.previewCap')} v={qty(preview.cap)} testId="company-ipo-preview-cap" />
               <Line k={t('company.capital.ipo.proceeds')} v={money(preview.proceeds)} />

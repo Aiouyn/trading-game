@@ -16,9 +16,12 @@ import { rivalMsg } from '@/world/text/roles';
 const AMPERSAND = String.fromCharCode(38);
 
 /** The monochrome mark of each fund, told apart by shape only (never a semantic colour). */
-function Mark({ id }: { id: string }) {
+function Mark({ id, name }: { id: string; name: string }) {
+  // the ladder's funds (R-10-7) have no shape of their own: their first letter stands in the same cell
+  const named = id === 'hale' || id === 'pinn' || id === 'vetch';
   return (
     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-ink-2" aria-hidden>
+      {!named && <span className="font-serif text-[18px] leading-none text-fg-muted">{name.charAt(0)}</span>}
       {id === 'hale' && <span className="font-serif text-[20px] leading-none text-fg-muted">{AMPERSAND}</span>}
       {id === 'pinn' && (
         <svg width="28" height="28" viewBox="0 0 28 28" className="text-fg-muted">
@@ -95,7 +98,7 @@ export function RivalsCard() {
                   onClick={() => setProfile(row.r.id)} aria-label={t('rivals.open', { name: row.r.name })}
                 >
                   <span className="num w-5 text-caption text-fg-faint">{row.r.rank}</span>
-                  <Mark id={row.r.id} />
+                  <Mark id={row.r.id} name={row.r.name} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{row.r.name}</span>
                     {board.nextUp?.id === row.r.id && (
@@ -147,7 +150,7 @@ function RivalProfile({ board, id, youDaily, onClose }: { board: RivalsBoardView
     <section className="mt-4 rounded-md border border-ink-2 bg-ink-1 p-4" data-testid="rival-profile" aria-label={row.name}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Mark id={row.id} />
+          <Mark id={row.id} name={row.name} />
           <div>
             <div className="font-serif text-title">{row.name}</div>
             <div className="text-small text-fg-muted" data-testid="rival-persona">{persona(row, chart[chart.length - 1]?.day ?? 0)}</div>

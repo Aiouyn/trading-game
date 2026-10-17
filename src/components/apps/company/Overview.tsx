@@ -6,15 +6,40 @@
 // number comes from the founder view; the screen only formats it and draws the lines.
 import { useState } from 'react';
 import { COMPANY } from '@/content/company';
-import { compactMoney, money, dec } from '@/game/format';
+import { compactMoney, money, dec, signedMoney } from '@/game/format';
 import { useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { Button, Segmented, Stat } from '@/components/ui';
 import type { CompanyFounderView } from '@/world/company/views';
 import type { DecisionLevel, PreviewLevel } from '@/world/company/preview';
 import { PrivateChip, RefusalNote, Section } from './Shared';
-import { GOAL_IDS, ROLE_IDS, roleLabel, tierLabel } from './labels';
+import { GOAL_IDS, ROLE_IDS, ledgerLabel, roleLabel, tierLabel } from './labels';
 import { refusalOf, type Refusal } from './model';
+
+/**
+ * The company's ledger for yesterday and today (R-10-7): each line with its named reason, so a first sale reads as sales and
+ * the receivables it leaves behind read as their own line.
+ */
+function LedgerToday({ co }: { co: CompanyFounderView }) {
+  return (
+    <Section title={t('company.ui.ledger.title')} testId="company-ledger">
+      {co.ledgerToday.length === 0 ? (
+        <p className="text-caption text-fg-faint">{t('company.ui.ledger.empty')}</p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {co.ledgerToday.map((r, i) => (
+            <li key={`${r.day}-${r.reason}-${i}`} className="flex items-baseline justify-between gap-3 text-small" data-testid="company-ledger-row">
+              <span className="text-fg-muted">
+                {ledgerLabel(r.reason)} <span className="text-caption text-fg-faint">{t('company.ui.ledger.day', { day: r.day })}</span>
+              </span>
+              <span className={`num ${r.amount < 0 ? 'text-loss' : 'text-fg'}`}>{signedMoney(r.amount)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
+  );
+}
 
 export function Overview({ co }: { co: CompanyFounderView }) {
   return (
@@ -31,6 +56,7 @@ export function Overview({ co }: { co: CompanyFounderView }) {
         <Stat label={t('company.ui.kpi.close')} value={t('company.ui.kpi.closeDay', { day: co.nextCloseDay })} testId="company-kpi-close" />
       </div>
       <DecisionCard co={co} />
+      <LedgerToday co={co} />
       <div className="grid gap-4 @2xl:grid-cols-2">
         <RunwayChart co={co} />
         <Checklist co={co} />

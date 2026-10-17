@@ -1,4 +1,6 @@
 import { currentLocale, type Locale } from '@/i18n';
+import { dexDigits, priceRule, type AssetClass } from '@/engine';
+import { groupSpace } from '@/i18n/tokens';
 
 /**
  * Number formatting per DESIGN.md: separators, 2 decimals, real minus U+2212. Every figure follows the viewer's locale
@@ -20,7 +22,7 @@ export function fmtNumber(n: number, min: number, max: number): string {
     f = new Intl.NumberFormat(TAG[loc], { minimumFractionDigits: min, maximumFractionDigits: max });
     formatters.set(key, f);
   }
-  return f.format(n);
+  return groupSpace(f.format(n));
 }
 
 const isFr = () => currentLocale() === 'fr';
@@ -47,7 +49,7 @@ export function dec(n: number, d: number): string {
     f = new Intl.NumberFormat(TAG[loc], { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: false });
     formatters.set(key, f);
   }
-  return f.format(n);
+  return groupSpace(f.format(n));
 }
 
 /** The percent sign alone, for a figure built outside this module (a whole percent on a chart label). */
@@ -55,25 +57,44 @@ export function pctUnit(): string {
   return isFr() ? `${NBSP}%` : '%';
 }
 
-function decimalsFor(price: number): number {
-  const a = Math.abs(price);
-  if (a >= 1) return 2;
-  if (a >= 0.01) return 4;
-  return 6;
+const SUBSCRIPT = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
+
+/**
+ * A price in its asset's own precision (R-10-3): the one formatter every price display uses (ticket, watchlist, chart axis and
+ * legend, positions, tape). The rules are priceRule in the engine (tick and decimals per class); a memecoin below a tenth of
+ * a cent is written in the DEX subscript form, 0.0₅82, with the zeros counted in a subscript. No currency sign.
+ */
+export function assetPrice(def: { assetClass: AssetClass }, n: number): string {
+  const r = priceRule(def.assetClass, n);
+  if (r.dex && n > 0) {
+    const zeros = String(r.dex.zeros).split('').map((c) => SUBSCRIPT[Number(c)]).join('');
+    return `${isFr() ? '0,0' : '0.0'}${zeros}${dexDigits(n, r.dex.zeros, r.dex.digits)}`;
+  }
+  return fixMinus(fmtNumber(n, r.decimals, r.decimals));
 }
 
-/** Plain price, no currency sign: 1,284.10 or 0.0342 for sub-dollar assets (1 284,10 in French). */
-export function price(n: number): string {
-  const d = decimalsFor(n);
-  return fixMinus(fmtNumber(n, d, d));
-}
-
-/** Signed change in the quote's own precision: +0.04 on a $141 stock, not +0.0394. */
-export function signedChange(change: number, ref: number): string {
-  const d = decimalsFor(ref);
+/** Signed change in the quote's own precision (R-10-3): +0.04 on a $141 stock, not +0.0394; the class decides the decimals. */
+export function signedChange(change: number, ref: number, assetClass: AssetClass = 'stock'): string {
+  const d = priceRule(assetClass, ref).decimals;
   const s = fmtNumber(Math.abs(change), d, d);
   const zero = !/[1-9]/.test(s);
   return `${change < 0 && !zero ? MINUS : '+'}${s}`;
+}
+
+/**
+ * A share price of a company or an exchange stock (no asset class of its own): the stock rule, 2 decimals and 4 below a
+ * dollar. The one formatter for every price display, so a stock reads the same on the ticket, the Exchange and the company.
+ */
+export function sharePrice(n: number): string {
+  return assetPrice({ assetClass: 'stock' }, n);
+}
+
+/**
+ * Deprecated: the shell's files (src/components/os, the UX fork's) still call it; it is assetPrice of a stock until they move
+ * (10A.6 hand-over). Every other price display reads assetPrice.
+ */
+export function price(n: number): string {
+  return assetPrice({ assetClass: 'stock' }, n);
 }
 
 /** $48,212.40 (48 212,40 $ in French) */
@@ -115,7 +136,12 @@ export function pct(fraction: number): string {
 
 /** Quantities: whole units as 40, fractional up to 4 decimals. */
 export function qty(n: number): string {
-  return fixMinus(Number.isInteger(n) ? fmtNumber(n, 0, 0) : fmtNumber(n, 0, 4));
+  return qtyIn(n, 4);
+}
+
+/** A quantity to at most `maxDp` decimals: a crypto size reads 0.00243902 at its own 8-decimal grid (R-10-4, 10A.5). */
+export function qtyIn(n: number, maxDp: number): string {
+  return fixMinus(Number.isInteger(n) ? fmtNumber(n, 0, 0) : fmtNumber(n, 0, maxDp));
 }
 
 /** Compact, chips and progress bars only: $5.2k, $20k, $1.4M (5,2 k$, 20 k$, 1,4 M$ in French). */

@@ -1,13 +1,13 @@
 'use client';
 
-import { earningsInfo, estimateFill, liquidationPrice, REGIONS, type OrderType, type Side } from '@/engine';
+import { earningsInfo, estimateFill, liquidationPrice, REGIONS, type AssetClass, type OrderType, type Side } from '@/engine';
 import { sectorLabel } from '@/game/sectorLabel';
-import { CHART_RANGES, INTERVALS, candleRealSeconds, intervalsFor, type ChartRange, type Interval } from '@/game/history';
+import { CHART_RANGES, INTERVALS, MAX_DAILY_BARS, RING_DAYS, candleRealSeconds, isIntraday, type ChartRange, type Interval } from '@/game/history';
 import { INDICATORS } from '@/game/indicators';
-import { fmtNumber, money, pctUnit, price, qty as fmtQty, signedChange, signedMoney, signedPct, tone, toneText, dec } from '@/game/format';
+import { assetPrice, fmtNumber, money, pctUnit, qty as fmtQty, signedChange, signedMoney, signedPct, tone, toneText, dec } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { t } from '@/i18n';
-import { type MouseEvent, useEffect, useState } from 'react';
+import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import { Chip, Flash, LockGlyph, Segmented } from '@/components/ui';
 import { PriceChart } from './PriceChart';
 import { kindLabel } from '@/components/os/eventText';
@@ -15,6 +15,10 @@ import { seriesInfo } from './seriesInfo';
 import { alertDir, alertFired, buildLevels, defaultExitPrice, priceSideRefusal, type ChartLevel, type LevelFormat } from './chartLevels';
 import { changeRefusal } from './ticketMath';
 import { useAlerts } from './alerts';
+import { DrawingToolbar } from './chart/DrawingToolbar';
+import { DrawingPanel } from './chart/DrawingPanel';
+import { useDrawingKeys } from './chart/useDrawingKeys';
+import { useDrawings } from './chart/drawingStore';
 
 /** A refusal's copy as a toast (the line says why, in the reader's language). */
 function refusedToast(key: string, vars?: Record<string, string | number>) {
@@ -27,14 +31,14 @@ const ORDER_LABEL: Record<OrderType, string> = {
 };
 
 /** The text of the chart's lines (spec 1.3): the pills of the average line, the take-profit and stop-loss, orders and alerts. */
-function levelFormat(): LevelFormat {
+function levelFormat(fmtP: (n: number) => string): LevelFormat {
   return {
-    avg: (p, usd, pct) => t('broker.level.avg', { price: price(p), usd: signedMoney(usd), pct: signedPct(pct) }),
-    exit: (k, p, usd, pct) => t(k === 'tp' ? 'broker.level.tp' : 'broker.level.sl', { price: price(p), usd: signedMoney(usd), pct: signedPct(pct) }),
+    avg: (p, usd, pct) => t('broker.level.avg', { price: fmtP(p), usd: signedMoney(usd), pct: signedPct(pct) }),
+    exit: (k, p, usd, pct) => t(k === 'tp' ? 'broker.level.tp' : 'broker.level.sl', { price: fmtP(p), usd: signedMoney(usd), pct: signedPct(pct) }),
     order: (side, type, p, q) => t('broker.level.order', {
-      side: t(side === 'buy' ? 'common.buy' : 'common.sell'), type: t(ORDER_LABEL[type]), price: price(p), qty: fmtQty(q),
+      side: t(side === 'buy' ? 'common.buy' : 'common.sell'), type: t(ORDER_LABEL[type]), price: fmtP(p), qty: fmtQty(q),
     }),
-    alert: (p) => t('broker.level.alert', { price: price(p) }),
+    alert: (p) => t('broker.level.alert', { price: fmtP(p) }),
     addTp: t('broker.level.addTp'),
     addSl: t('broker.level.addSl'),
   };
@@ -69,6 +73,9 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const setMode = useGame((s) => s.setChartMode);
   const playerId = useGame((s) => s.playerId);
   const info = seriesInfo(world, ticker, rankId);
+  /** the chart's prices in the asset's own precision (R-10-3), the one formatter the ticket uses */
+  const acls: AssetClass = info.cls === 'index' ? 'stock' : info.cls;
+  const fmtP = (n: number) => assetPrice({ assetClass: acls }, n);
   // the engine's own margin trigger for a held margin or short position (null when none applies): the chart draws it
   const liq = !isIndex(info.id) && world && playerId ? liquidationPrice(world, playerId, info.id) : null;
   const marks = liq === null ? [] : [{ price: liq, title: t('broker.liquidation') }];
@@ -81,12 +88,13 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const canShort = useGame((s) => s.me?.account?.canShort ?? false);
   const heldQty = pos?.qty ?? 0;
   // the cash the closing order would move now (a sell's proceeds, or a cover's cost), so the average line's P&L is what closing books
-  const closeTotal = world && heldQty !== 0 && !isIndex(info.id) ? estimateFill(world, { assetId: info.id, side: heldQty > 0 ? 'sell' : 'buy', qty: Math.abs(heldQty) }).total : 0;
+  const closeTotal = world && heldQty !== 0 && !isIndex(info.id) ? estimateFill(world, { assetId: info.id, side: heldQty > 0 ? 'sell' : 'buy', qty: Math.abs(heldQty), playerId: playerId ?? undefined }).total : 0;
   const levels = buildLevels({
+    assetClass: acls,
     qty: heldQty, avgCost: pos?.avgCost ?? 0, closeTotal,
     orders: (orders ?? []).filter((o) => o.assetId === info.id && o.status === 'open'),
     alerts: alerts.filter((a) => a.assetId === info.id).map((a) => ({ id: a.id, price: a.price, dir: a.dir })),
-    fmt: levelFormat(),
+    fmt: levelFormat(fmtP),
   });
   // Dragging a working order's line modifies that order: a stop moves its stop price, any other order its limit (spec 1.3).
   // A leg or stop that would sit on the wrong side of the mid is refused before it is sent (it would fire at once); the
@@ -96,11 +104,11 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
     const o = (orders ?? []).find((x) => x.id === l.orderId);
     if (!o) return;
     const leg = l.kind === 'tp' ? 'tp' : l.kind === 'sl' ? 'sl' : null;
-    const why = priceSideRefusal(o, leg, p, info.price);
-    if (why) { refusedToast(why.key, why.vars); return; }
+    const why = priceSideRefusal(o, leg, p, info.price, acls);
+    if (why) { refusedToast(why.key, { price: fmtP(why.vars.price), mid: fmtP(why.vars.mid) }); return; }
     const patch = o.type === 'stop' || o.type === 'stop_limit' ? { stopPrice: p } : { limitPrice: p };
     const r = await act({ type: 'order.modify', orderId: o.id, ...patch }, { silent: true });
-    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.moved', { price: price(p) }) });
+    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.moved', { price: fmtP(p) }) });
     else { const c = changeRefusal(r.error ?? '', o.side, canShort); refusedToast(c.key, c.vars); }
   };
   const cancelLevel = async (l: ChartLevel) => {
@@ -112,17 +120,24 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   };
   // +TP and +SL place the leg the position lacks, reduce-only, at the default distance (1% beyond the price when that distance
   // has already been passed); the line then drags like any other
-  const addLeg = async (_l: ChartLevel, key: 'addTp' | 'addSl') => {
+  const addLeg = async (_l: ChartLevel, key: 'addTp' | 'addSl' | 'close') => {
     if (!pos || pos.qty === 0) return;
+    if (key === 'close') {
+      // the position line's close: a reduce-only market order for the whole position
+      const r = await act({ type: 'position.close', assetId: info.id }, { silent: true });
+      if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.closeSent', { ticker: info.id }) });
+      else { const c = changeRefusal(r.error ?? '', pos.qty > 0 ? 'sell' : 'buy', canShort); refusedToast(c.key, c.vars); }
+      return;
+    }
     const kind = key === 'addTp' ? 'tp' : 'sl';
-    const p = defaultExitPrice(kind, pos.qty, pos.avgCost, info.price);
+    const p = defaultExitPrice(kind, pos.qty, pos.avgCost, info.price, acls);
     const type: OrderType = kind === 'tp' ? 'limit' : 'stop';
     const side: Side = pos.qty > 0 ? 'sell' : 'buy';
     const r = await act({
       type: 'order.place',
       order: { assetId: info.id, side, type, qty: Math.abs(pos.qty), reduceOnly: true, tif: 'gtc', ...(kind === 'tp' ? { limitPrice: p } : { stopPrice: p }) },
     }, { silent: true });
-    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.placed', { price: price(p) }) });
+    if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.placed', { price: fmtP(p) }) });
     else { const c = changeRefusal(r.error ?? '', side, canShort); refusedToast(c.key, c.vars); }
   };
   // The chart menu: a buy limit or sell stop fills the ticket at that price for the player to send (it never sends itself);
@@ -130,7 +145,7 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   const menuPick = (kind: 'buyLimit' | 'sellStop' | 'alert', p: number) => {
     if (kind === 'alert') {
       useAlerts.getState().add({ assetId: info.id, price: p, dir: alertDir(p, info.price) });
-      useGame.getState().toast({ tone: 'info', text: t('broker.alert.set', { ticker: info.id, price: price(p) }) });
+      useGame.getState().toast({ tone: 'info', text: t('broker.alert.set', { ticker: info.id, price: fmtP(p) }) });
       return;
     }
     const g = useGame.getState();
@@ -145,17 +160,27 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
     for (const a of st.alerts) {
       if (a.assetId !== info.id || !alertFired(a, info.price)) continue;
       st.remove(a.id);
-      useGame.getState().toast({ tone: 'info', text: t('broker.alert.fired', { ticker: a.assetId, price: price(a.price) }) });
+      useGame.getState().toast({ tone: 'info', text: t('broker.alert.fired', { ticker: a.assetId, price: assetPrice({ assetClass: acls }, a.price) }) });
     }
-  }, [info.price, info.id]);
+  }, [info.price, info.id, acls]);
   // the side the line sits off the visible range, or null when it is drawn on the chart
   const [offSide, setOffSide] = useState<'above' | 'below' | null>(null);
   const [percent, setPercent] = useState(false);
+  // the drawings: the player's saved list for this symbol is read once; the keys act on the chart the pointer is over
+  const drawAsset = info.id;
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const chartRoot = useRef<HTMLElement>(null);
+  useDrawingKeys(drawAsset, hover || focus, chartRoot);
+  const drawingsUndo = useDrawings((s) => (s.past[drawAsset]?.length ?? 0) > 0);
+  const drawingsRedo = useDrawings((s) => (s.future[drawAsset]?.length ?? 0) > 0);
+  useEffect(() => { void useDrawings.getState().load(drawAsset); }, [drawAsset]);
+  // the log scale switch (the bottom-right row of the chart); a percent axis wins over it
+  const [log, setLog] = useState(false);
   const day = useGame.getState().history.series[ticker]?.daily.at(-1);
   const toneCls = toneText[tone(info.change)];
   const region = REGIONS.find((r) => r.id === info.region);
   const tpd = world.config.ticksPerDay;
-  const allowed = intervalsFor(range);
   const candleName = interval;
   const realText = realTimeText(candleRealSeconds(interval, tpd));
   const candleTip = t('broker.chart.realTip', { candle: candleName, real: realText, day: realTimeText(candleRealSeconds('1D', tpd)) });
@@ -163,10 +188,13 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
     <div title={candleTip} data-testid="interval-group" className="flex shrink-0 items-center gap-2">
       <Segmented
         label={t('broker.chart.interval')} size="sm"
-        options={INTERVALS.filter((i) => allowed.includes(i)).map((i) => ({ value: i, label: i, testId: `interval-${i}` }))}
+        options={INTERVALS.map((i) => ({ value: i, label: i, testId: `interval-${i}` }))}
         value={interval} onChange={(v) => setInterval(v as Interval)}
       />
       <span className="num text-caption text-fg-faint" data-testid="candle-real">{t('broker.chart.candleReal', { candle: candleName, real: realText })}</span>
+      {isIntraday(interval) && (
+        <span className="text-caption text-fg-faint" data-testid="intraday-limit">{t('broker.chart.intradayLimit', { days: RING_DAYS, daily: MAX_DAILY_BARS })}</span>
+      )}
     </div>
   );
   const rangeSeg = (
@@ -183,16 +211,12 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
       value={mode} onChange={(v) => setMode(v as 'candles' | 'line')}
     />
   );
-  const pctBtn = (
-    <button
-      type="button" aria-pressed={percent} onClick={() => setPercent((p) => !p)} data-testid="pct-axis" title={t('broker.chart.pctTip')}
-      className={`h-7 shrink-0 rounded-md border px-2.5 text-caption ${percent ? 'border-brass/60 bg-brass/10 text-brass-hi' : 'border-ink-3 text-fg-faint hover:text-fg-muted'}`}
-    >
-      {t('broker.chart.pct')}
-    </button>
-  );
   return (
-    <section className="flex h-full min-h-0 flex-col" data-testid="chart-card">
+    <section
+      ref={chartRoot} className="flex h-full min-h-0 flex-col" data-testid="chart-card"
+      onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}
+      onFocus={() => setFocus(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocus(false); }}
+    >
       {/* The header: the ticker and price, then the controls. Phone widths keep one line of price and one scrolling toolbar,
           so the chart keeps its share of the height. */}
       <div className={narrow ? "px-3 pt-2" : "flex flex-wrap items-start justify-between gap-x-6 gap-y-2 px-3 pt-2.5"}>
@@ -208,24 +232,28 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
             {info.locked && <Chip className="border-steel/60 text-steel"><LockGlyph size={12} /> {t('broker.proLicense')}</Chip>}
           </div>
           <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3">
-            <Flash value={info.price} className="num text-price text-fg"><span data-testid="chart-price">{price(info.price)}</span></Flash>
-            <span className={`num text-small ${toneCls}`}>{signedChange(info.change, info.price)} ({signedPct(info.changePct)})</span>
+            <Flash value={info.price} className="num text-price text-fg"><span data-testid="chart-price">{fmtP(info.price)}</span></Flash>
+            <span className={`num text-small ${toneCls}`}>{signedChange(info.change, info.price, acls)} ({signedPct(info.changePct)})</span>
             <span className="text-caption text-fg-faint">{t('broker.todayPct')}</span>
           </div>
           {day && !narrow && (
             <div className="num mt-0.5 flex flex-wrap gap-4 text-caption text-fg-faint">
-              <span>{t('broker.ohlc.open')} <span className="text-fg-muted">{price(day.open)}</span></span>
-              <span>{t('broker.ohlc.high')} <span className="text-fg-muted">{price(day.high)}</span></span>
-              <span>{t('broker.ohlc.low')} <span className="text-fg-muted">{price(day.low)}</span></span>
+              <span>{t('broker.ohlc.open')} <span className="text-fg-muted">{fmtP(day.open)}</span></span>
+              <span>{t('broker.ohlc.high')} <span className="text-fg-muted">{fmtP(day.high)}</span></span>
+              <span>{t('broker.ohlc.low')} <span className="text-fg-muted">{fmtP(day.low)}</span></span>
               {day.volume !== undefined && <span>{t('broker.ohlc.volume')} <span className="text-fg-muted">{compactNum(day.volume)}</span></span>}
               <EarningsBadge assetId={info.id} />
             </div>
           )}
         </div>
+        {/* one row beside the price: the sizes and presets scroll sideways in a narrow window instead of wrapping under the
+            price and taking the chart's height */}
         {!narrow && (
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {intervalGroup}
-            {rangeSeg}
+          <div className="min-w-0 flex-1 basis-0 overflow-x-auto">
+            <div className="ml-auto flex w-max items-center gap-2">
+              {intervalGroup}
+              {rangeSeg}
+            </div>
           </div>
         )}
       </div>
@@ -234,31 +262,41 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
           {intervalGroup}
           {rangeSeg}
           {styleSeg}
-          {pctBtn}
           <IndicatorMenu />
         </div>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5">
           <div className="flex items-center gap-2">
             {styleSeg}
-            {pctBtn}
           </div>
           <IndicatorMenu />
         </div>
       )}
-      <div className="relative min-h-0 flex-1 px-1 pb-1">
+      <div className="relative flex min-h-0 flex-1 pb-1 pl-1 pr-1">
+        {!narrow && (
+          <DrawingToolbar
+            onDeleteAll={() => { const st = useDrawings.getState(); st.commit(drawAsset, []); st.select(null); }}
+            onUndo={() => useDrawings.getState().undo(drawAsset)} onRedo={() => useDrawings.getState().redo(drawAsset)}
+            canUndo={drawingsUndo} canRedo={drawingsRedo}
+          />
+        )}
+        <div className="relative min-h-0 min-w-0 flex-1">
         <PriceChart
-          assetId={info.id} marks={marks} onMarkOff={setOffSide} eventBand={eventBand} percent={percent}
+          drawings
+          assetId={info.id} assetClass={acls} marks={marks} onMarkOff={setOffSide} eventBand={eventBand} percent={percent} log={log}
+          onScaleMode={(m) => (m === 'percent' ? setPercent((p) => !p) : setLog((l) => !l))}
           levels={levels} onLevelCommit={commitLevel} onLevelCancel={cancelLevel} onLevelAction={addLeg}
           onMenuPick={isIndex(info.id) ? undefined : menuPick}
         />
+        <DrawingPanel assetId={drawAsset} />
+        </div>
       </div>
       {liq !== null && offSide !== null && (
         <p className="px-3 pb-1 text-caption text-fg-faint" data-testid="liquidation-off">
           {t(offSide === 'above' ? 'broker.liquidationOff.above' : 'broker.liquidationOff.below', { price: money(liq), pct: distancePct(liq, info.price) })}
         </p>
       )}
-      {liq !== null && offSide === null && <p className="px-3 pb-1 text-caption text-fg-faint" data-testid="liquidation-note">{t('broker.liquidationNote', { price: price(liq) })}</p>}
+      {liq !== null && offSide === null && <p className="px-3 pb-1 text-caption text-fg-faint" data-testid="liquidation-note">{t('broker.liquidationNote', { price: fmtP(liq) })}</p>}
     </section>
   );
 }
@@ -269,6 +307,8 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
  */
 export function IndicatorMenu() {
   const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLUListElement>(null);
   // the menu is placed under its button in the viewport: a toolbar that scrolls (the phone) would clip an absolute one
   const [at, setAt] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
   const indicators = useGame((s) => s.indicators);
@@ -281,18 +321,30 @@ export function IndicatorMenu() {
     }
     setOpen((o) => !o);
   };
+  // Escape closes the menu (and returns the focus to its button). A press anywhere else closes it too, but the press is not
+  // stopped: the click that closed it still reaches whatever it hit (no overlay sits over the page).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); btn.current?.focus(); } };
+    const onDown = (e: PointerEvent) => {
+      const at = e.target as Node | null;
+      if (at && (menu.current?.contains(at) || btn.current?.contains(at))) return;
+      setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onDown, true);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('pointerdown', onDown, true); };
+  }, [open]);
   return (
     <div className="relative shrink-0">
       <button
-        type="button" aria-expanded={open} aria-haspopup="menu" onClick={flip} data-testid="indicators-menu"
+        ref={btn} type="button" aria-expanded={open} aria-haspopup="menu" onClick={flip} data-testid="indicators-menu"
         className={`h-7 rounded-md border px-2.5 text-caption ${on > 0 ? 'border-brass/60 bg-brass/10 text-brass-hi' : 'border-ink-3 text-fg-faint hover:text-fg-muted'}`}
       >
         {t('broker.indicators')}{on > 0 ? ` (${on})` : ''}
       </button>
       {open && (
-        <>
-          <div className="fixed inset-0 z-[5]" onClick={() => setOpen(false)} aria-hidden />
-          <ul role="menu" aria-label={t('broker.indicators')} style={{ top: at.top, right: at.right }} className="fixed z-[6] w-64 rounded-md border border-ink-3 bg-ink-1 p-1 shadow-lg">
+        <ul ref={menu} role="menu" aria-label={t('broker.indicators')} style={{ top: at.top, right: at.right }} className="fixed z-[6] w-64 rounded-md border border-ink-3 bg-ink-1 p-1 shadow-lg">
             {INDICATORS.map((ind) => (
               <li key={ind.id} role="none">
                 <label role="menuitemcheckbox" aria-checked={!!indicators[ind.id]} title={t(`broker.ind.${ind.id}`)} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-small text-fg-muted hover:bg-ink-2 hover:text-fg">
@@ -301,8 +353,7 @@ export function IndicatorMenu() {
                 </label>
               </li>
             ))}
-          </ul>
-        </>
+        </ul>
       )}
     </div>
   );

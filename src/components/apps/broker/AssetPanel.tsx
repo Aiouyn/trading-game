@@ -3,7 +3,7 @@
 import { earningsInfo, indexMembers, newsBand, type WorldConfig, type WorldState } from '@/engine';
 import { consensusLabel, earningsGrade } from '@/content/news';
 import { rankIndex } from '@/content/lifestyle';
-import { compactMoney, money, price, signedPct, dec } from '@/game/format';
+import { compactMoney, money, assetPrice, signedPct, dec } from '@/game/format';
 import { assetDefOf, isIndex, useGame } from '@/game/store';
 import { isUntradable } from '@/game/universe';
 import { t } from '@/i18n';
@@ -131,7 +131,7 @@ export function AssetPanel({ ticker, onOptions, chainOpen }: { ticker: string; o
           <p className="mt-1 text-small text-fg">
             <span className={note.rating.includes('buy') ? 'text-gain' : note.rating.includes('ell') ? 'text-loss' : 'text-fg-muted'}>{note.rating}</span>.{' '}
             {t('broker.note.fair', {
-              fv: price(note.fairValue), band: Math.round(note.band * 100), diff: signedPct(note.fairValue / px - 1),
+              fv: assetPrice(assetDefOf(ticker) ?? { assetClass: 'stock' }, note.fairValue), band: Math.round(note.band * 100), diff: signedPct(note.fairValue / px - 1),
             })}
           </p>
           <p className="mt-1 text-caption text-fg-faint">{t('broker.note.explain')}</p>

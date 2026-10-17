@@ -16,7 +16,7 @@
 
 import { COMPANY } from '@/content/company';
 import { rankIndex } from '@/content/lifestyle';
-import { grantLockedShares, listCompanyStock, openAccount, restrictionsOf, setSellCap, type AssetDef, type WorldState } from '@/engine';
+import { FRACTIONAL_SHARE, grantLockedShares, listCompanyStock, openAccount, restrictionsOf, setSellCap, type AssetDef, type WorldState } from '@/engine';
 import { TPD, assetFlow, notify, pushWire, today } from '../core';
 import type { CommandResult, GameState, StepOutput } from '../types';
 import { isLinkedAccount, linkedAccounts } from '../collusion';
@@ -196,7 +196,7 @@ export function listingDef(s: WorldState, c: Company, ipo: IpoBook, assetId: str
     jumpsPerYear: 0,
     spreadBps,
     advNotional: I.advAtListing * floatCap,
-    qtyStep: 1,
+    qtyStep: FRACTIONAL_SHARE,
     listed: true,
     listedDay: day,
     valueSource: 'company',

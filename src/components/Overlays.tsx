@@ -5,7 +5,7 @@
 // over the trade surface. The phone keeps its own rules (the coach only over the apps it talks about).
 import { useEffect, useMemo, useRef } from 'react';
 import { portfolio } from '@/engine';
-import { price, signedMoney, signedPct } from '@/game/format';
+import { assetPrice, signedMoney, signedPct } from '@/game/format';
 import { assetDefOf, useGame } from '@/game/store';
 import { useIsPhone } from '@/game/useMedia';
 import { t, tm } from '@/i18n';
@@ -91,7 +91,7 @@ export function Coach() {
       const stop = Math.round(losing.avgCost * 0.95 * 100) / 100;
       card = {
         key: 3, title: t('coach.protect.title'), body: t('coach.protect.body', { ticker: losing.assetId, pct: signedPct(losing.unrealizedPct) }),
-        action: { label: t('coach.protect.action', { price: price(stop) }), run: () => { preset({ side: 'sell', type: 'stop', qty: losing.qty, stopPrice: stop }); void advance(3); } },
+        action: { label: t('coach.protect.action', { price: assetPrice(assetDefOf(losing.assetId) ?? { assetClass: 'stock' }, stop) }), run: () => { preset({ side: 'sell', type: 'stop', qty: losing.qty, stopPrice: stop }); void advance(3); } },
       };
     } else if (step >= 2 && bizCount > 0 && step < 4) {
       card = {

@@ -5,7 +5,8 @@ import {
 } from '@/engine';
 import { RANKS, rankIndex } from '@/content/lifestyle';
 import { contractProgress } from './players';
-import { changeOf, ghostReport, type GhostReport } from './ghosts';
+import { ghostReport, type GhostReport } from './ghosts';
+import { COURT_KINDS, evidenceFor } from './court';
 import { ledgerOf, tradesOf, valuationAndIncome } from './ledger';
 import { deskFileSummaries, deskWindow } from './desk';
 import { calendarFor, type CalendarItem } from './calendar';
@@ -192,7 +193,7 @@ export interface PlayerView {
    * cumulative external cash the change leaves out (grants, transfers, loans, court payments to the victim fund).
    */
   arrival: {
-    cash: number; change: number; changePct: number; external: number;
+    cash: number; invested: number; change: number; changePct: number; external: number;
     /** the change since arrival, split: trading (after fees), valuation of holdings, and income and costs (grants left out) */
     split: { trading: number; valuation: number; income: number };
   };
@@ -220,6 +221,8 @@ export interface PlayerView {
     honeypot: { kind: string; placedTick: number } | null;
   };
   cases: CourtCase[];
+  /** the evidence points a claim would rest on, per defendant with evidence or a default, per claim kind (court.ts evidenceFor); the Legal app disables File under the minimum */
+  filing: Record<string, Record<string, number>>;
   /** the market regulator's inquiries against this player (letters and stage only: never the score or the evidence) */
   regulator: EcaInquiryView[];
   deals: Deal[];
@@ -264,14 +267,15 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
   const floor = rIdx === 0 ? 5000 : RANKS[rIdx]!.threshold;
   const lab = g.lab[pid];
   const d = defenseOf(g, pid);
+  const arrival = arrivalView(g, pid);
   const away = g.market.tick - p.digestSeenTick > TPD / 2 ? inbox.filter((n) => n.tick > p.digestSeenTick).slice(0, 40) : [];
   return {
     player: { ...rest, inboxUnread: inbox.filter((n) => !n.read).length },
     account: g.market.accounts[pid] ?? null,
     orders: ordersOf(g, pid),
     netWorth: netWorthBreakdown(g, pid),
-    arrival: arrivalView(g, pid),
-    rivals: rivalsBoard(g, pid, tradingConfig(g.market).startingCash),
+    arrival,
+    rivals: rivalsBoard(g, pid, arrival),
     rank: {
       id: p.rankId, name: RANKS[rIdx]!.name,
       next: next ? { id: next.id, name: next.name, threshold: next.threshold } : null,
@@ -302,6 +306,7 @@ export function playerView(g: GameState, pid: string): PlayerView | null {
       honeypot: d.honeypot ? { kind: d.honeypot.kind, placedTick: d.honeypot.placedTick } : null,
     },
     cases: Object.values(g.court.cases).filter((c) => c.plaintiffId === pid || c.defendantId === pid),
+    filing: filingView(g, pid),
     regulator: ecaViewOf(g, pid),
     deals: Object.values(g.deals).filter((x) => x.fromId === pid || x.toId === pid).slice(-50),
     alliance: p.allianceId ? g.alliances[p.allianceId] ?? null : null,
@@ -323,8 +328,8 @@ const VIEW_CLOSES = 10;
 
 /**
  * The arrival comparison: the cash the player arrived with (the engine's starting cash) against the net worth less the
- * grants, transfers and loans received since (externalCash), so the change is trading and income only. The percentage
- * comes from here.
+ * grants, transfers and loans received since (externalCash), so the change is trading and income only. The percentage is
+ * against net invested capital (the starting cash plus the external cash, both sides), so a grant is never the base of a gain.
  */
 function arrivalView(g: GameState, pid: string): PlayerView['arrival'] {
   const cash = tradingConfig(g.market).startingCash;
@@ -339,7 +344,22 @@ function arrivalView(g: GameState, pid: string): PlayerView['arrival'] {
   const converted = open?.flow !== undefined ? (g.players[pid]?.assetFlow ?? 0) - open.flow : 0;
   const valuation = open?.val !== undefined ? now.val - open.val - converted : 0;
   const income = open?.inc !== undefined ? now.inc - open.inc : 0;
-  return { cash, change, changePct: changeOf(total, cash), external, split: { trading: change - valuation - income, valuation, income } };
+  // the return is against net invested capital (the starting cash plus external cash in, less out), not the starting cash alone
+  const invested = cash + external;
+  const changePct = invested > 0 ? change / invested : 0;
+  return { cash, invested, change, changePct, external, split: { trading: change - valuation - income, valuation, income } };
+}
+
+/** The filing evidence per defendant this player can name: the defendants with cyber evidence against them and the defaulters. */
+function filingView(g: GameState, pid: string): Record<string, Record<string, number>> {
+  const ids = new Set<string>();
+  for (const k of Object.keys(g.cyber.evidence)) if (k.endsWith(`>${pid}`)) ids.add(k.split('>')[0]!);
+  for (const d of Object.values(g.deals)) if (d.status === 'defaulted' && d.fromId === pid) ids.add(d.toId);
+  // Model residue can establish a theft claim without a cyber evidence entry. Include its engine count as well.
+  for (const id of Object.keys(g.lab)) if (id !== pid && evidenceFor(g, pid, id, 'model theft') > 0) ids.add(id);
+  const out: Record<string, Record<string, number>> = {};
+  for (const id of ids) out[id] = Object.fromEntries(COURT_KINDS.map((kind) => [kind, evidenceFor(g, pid, id, kind)]));
+  return out;
 }
 
 /** A stored close with its lines. Closes saved before the trading split carry only the net change, so all of it counts as trading. */

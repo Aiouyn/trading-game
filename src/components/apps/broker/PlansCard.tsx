@@ -11,10 +11,11 @@ import { Button, Card, CardHeader, Locked, NumberField, Segmented } from '@/comp
 import { unlockLine } from '../unlock';
 
 /** Whole units for a stock, six decimals otherwise: the same rounding the server applies to a block slice. */
-function unitsFor(assetClass: string, units: number, qtyStep: number | undefined): number {
+function unitsFor(assetClass: string, units: number, stepOf: number | undefined): number {
   if (!(units > 0)) return 0;
-  const step = qtyStep ?? (assetClass === 'stock' ? 1 : 0);
-  return step === 1 ? Math.floor(units + 1e-9) : Math.floor(units * 1e6) / 1e6;
+  // the asset's own step (R-10-4): stocks in 0.0001 shares, the rest in six decimals (the same rounding the server applies)
+  const step = stepOf ?? (assetClass === 'stock' ? 0.0001 : 0);
+  return step > 0 ? Number((Math.floor(units / step + 1e-9) * step).toFixed(8)) : Math.floor(units * 1e6) / 1e6;
 }
 
 function num(s: string): number {
@@ -36,6 +37,7 @@ export function PlansCard({ ticker }: { ticker: string }) {
   const world = useGame((s) => s.world);
   const me = useGame((s) => s.me);
   const config = useGame((s) => s.config);
+  const playerId = useGame((s) => s.playerId);
   const act = useGame((s) => s.act);
   const [dollars, setDollars] = useState('');
   const [every, setEvery] = useState(String(RECURRING.minEveryDays + 6));
@@ -63,7 +65,7 @@ export function PlansCard({ ticker }: { ticker: string }) {
   const blockOk = !blockLocked && !!def && Number.isInteger(slicesN) && slicesN >= BLOCK.minSlices && slicesN <= BLOCK.maxSlices
     && unitsN > 0 && slice >= 1;
   // the preview prices one slice with estimateFill (the same call the server makes), then multiplies it out
-  const expected = blockOk && world ? estimateFill(world, { assetId: ticker, side, qty: slice }).total * slicesN : 0;
+  const expected = blockOk && world ? estimateFill(world, { assetId: ticker, side, qty: slice, playerId: playerId ?? undefined }).total * slicesN : 0;
 
   return (
     <Card className="p-4" data-testid="plans-card">

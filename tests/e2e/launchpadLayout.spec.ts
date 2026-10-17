@@ -31,7 +31,7 @@ async function figuresFit(page: Page, bounds?: { left: number; right: number }):
       const size = parseFloat(getComputedStyle(e).fontSize) || 14;
       const outside = r.right > right + 1 || r.left < left - 1;
       const wrapped = r.height > size * 2.2;
-      if (outside || wrapped) out.push(e.textContent ?? '');
+      if (outside || wrapped) out.push(`${e.textContent ?? ''} @${(e.closest('[data-testid]') as HTMLElement | null)?.dataset.testid ?? '-'} [${Math.round(r.left)}..${Math.round(r.right)} h${Math.round(r.height)} vw${right}]`);
     }
     return out;
   }, bounds ?? null);

@@ -6,7 +6,7 @@
 // The stack is unsaved: it lives in this store for the session (P2-135).
 import { create } from 'zustand';
 import { t } from '@/i18n';
-import { useGame } from '@/game/store';
+import { knownSeries, useGame } from '@/game/store';
 import { APPS, type AppId, type WinProps, cleanProps, isAppId } from '@/shell/apps';
 import { PHONE_HOME, type PhoneState, phoneCanOpen, phoneClose, phoneHome, phonePath, phoneShow } from '@/shell/phone';
 import { notify, useShell } from './shellStore';
@@ -73,6 +73,19 @@ export function phoneOpen(app: AppId, props: WinProps = {}, push = true): boolea
   const tick = nowTick();
   usePhone.setState({ ...phoneShow(usePhone.getState(), app, props, tick), recentOpen: false, ...(app === 'wire' ? { wireSeen: tick } : {}) });
   writeHistory(app, props, push);
+  return true;
+}
+
+/** Replaces the visible Broker's ticker and history entry without opening any app or desktop window. */
+export function retargetPhoneBroker(ticker: string): boolean {
+  const store = usePhone.getState();
+  const entry = store.stack.find((e) => e.app === 'broker');
+  if (store.current !== 'broker' || entry === undefined || !knownSeries(useGame.getState().config, ticker)) return false;
+  if (entry.props.ticker === ticker) return false;
+  const props = { ...entry.props, ticker };
+  usePhone.setState({ stack: store.stack.map((e) => e === entry ? { ...e, props } : e) });
+  writeHistory('broker', props, false);
+  useGame.getState().select(ticker);
   return true;
 }
 

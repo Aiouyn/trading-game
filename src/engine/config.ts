@@ -35,12 +35,23 @@ export const DEFAULT_REGIMES: Record<RegimeId, RegimeDef> = {
 
 type AssetSpec = Pick<AssetDef, 'id' | 'name' | 'sector' | 'initialPrice' | 'vol'> & Partial<AssetDef>;
 
+/** R-10-4: the smallest share step a stock or ETF trades in (fractional shares). */
+export const FRACTIONAL_SHARE = 0.0001;
+
+/**
+ * R-10-2: a stock's full spread at normal volatility by market cap, in bps: large caps (40B and up) 2, mid caps (15B to 40B) 7,
+ * small caps (5B to 15B) 20, micro caps 35. The volatility regime widens it (trading.ts halfSpread).
+ */
+export function spreadForCap(marketCap: number): number {
+  return marketCap >= 40e9 ? 2 : marketCap >= 15e9 ? 7 : marketCap >= 5e9 ? 20 : 35;
+}
+
 function stock(spec: AssetSpec & { marketCap: number }): AssetDef {
   const { marketCap, ...rest } = spec;
-  // 01 §7.2: mega caps ~2 bps, small caps ~25 bps; daily turnover ~0.4% of market cap
-  const spreadBps = marketCap >= 100e9 ? 2 : marketCap >= 40e9 ? 6 : marketCap >= 25e9 ? 12 : 25;
+  // R-10-2 (real-world full spread): large caps 2 bps, mid caps 7, small caps 20 to 35; daily turnover ~0.4% of market cap
+  const spreadBps = spreadForCap(marketCap);
   return normalizeLoadings({
-    spreadBps, advNotional: marketCap * 0.004, qtyStep: 1,
+    spreadBps, advNotional: marketCap * 0.004, qtyStep: FRACTIONAL_SHARE,
     assetClass: 'stock', drift: 0.02, cycleBeta: 1, wMarket: 0.55, wSector: 0.45, wCrypto: 0,
     halfLifeDays: 20, jumpsPerYear: 3, jumpUpMean: 0.04, jumpDownMean: 0.06, jumpUpProb: 0.5,
     floor: 0.01, circuitBreaker: true,
@@ -279,8 +290,8 @@ export const DEFAULT_ASSETS: AssetDef[] = [
   stock({ id: 'SNTL', name: 'Sentinel Cyber', sector: 'security', initialPrice: 88, vol: 0.33, marketCap: 30e9, cycleBeta: 0.2, wMarket: 0.35, wSector: 0.45, halfLifeDays: 60 }),
 
   crypto({ id: 'AUC', name: 'Aurum Coin', sector: 'crypto', initialPrice: 41000, vol: 0.65, spreadBps: 5, advNotional: 20e9 }),
-  crypto({ id: 'LTX', name: 'Lattice', sector: 'crypto', initialPrice: 2300, vol: 0.80, cycleBeta: 1.8, spreadBps: 8, advNotional: 8e9 }),
-  crypto({ id: 'SYN', name: 'Synapse', sector: 'crypto', initialPrice: 3.4, vol: 1.10, cycleBeta: 2.2, wCrypto: 0.6, jumpsPerYear: 12, spreadBps: 60, advNotional: 300e6 }),
+  crypto({ id: 'LTX', name: 'Lattice', sector: 'crypto', initialPrice: 2300, vol: 0.80, cycleBeta: 1.8, spreadBps: 5, advNotional: 8e9 }),
+  crypto({ id: 'SYN', name: 'Synapse', sector: 'crypto', initialPrice: 3.4, vol: 1.10, cycleBeta: 2.2, wCrypto: 0.6, jumpsPerYear: 12, spreadBps: 15, advNotional: 300e6 }),
 
   commodity({ id: 'GOLD', name: 'Gold', sector: 'metals', initialPrice: 2100, vol: 0.15, cycleBeta: -0.4, wMarket: -0.15, wSector: 0.7, drift: 0.03 }),
   commodity({ id: 'OIL', name: 'Crude Oil', sector: 'energy', initialPrice: 78, vol: 0.35, cycleBeta: 0.8, wMarket: 0.3, wSector: 0.75, jumpsPerYear: 6 }),
@@ -293,15 +304,20 @@ export const DEFAULT_INDICES: IndexDef[] = [
   },
 ];
 
-/** 01 §7 and the bible: $5,000 start; commission 0.10% (min $1) on stocks and commodities, 0.20% on crypto. */
+/**
+ * $5,000 start. R-10-2 fee schedule, close to a real retail broker: stocks and ETFs $0.005 a share, $1 minimum, at most 1% of
+ * the value (IBKR-like); crypto 0.10% taker; FX $2 per $100k (0.2 bps); bonds and commodities 2 bps with no minimum (R-10-2 as
+ * ruled; a $1k bond order pays $0.20). Options pay
+ * feePerContract (options.ts). The fees are a booked sink (the Street or the book takes them), never a spread.
+ */
 export const DEFAULT_TRADING: TradingConfig = {
   startingCash: 5000,
   fees: {
-    stock: { rate: 0.001, min: 1 },
-    commodity: { rate: 0.001, min: 1 },
-    crypto: { rate: 0.002, min: 0 },
-    forex: { rate: 0.0002, min: 0 },
-    bond: { rate: 0.0005, min: 1 },
+    stock: { rate: 0, min: 1, perUnit: 0.005, max: 0.01 },
+    commodity: { rate: 0.0002, min: 0 },
+    crypto: { rate: 0.001, min: 0 },
+    forex: { rate: 0.00002, min: 0 },
+    bond: { rate: 0.0002, min: 0 },
     realestate: { rate: 0.01, min: 1 },
   },
   impactY: 0.8,

@@ -1,5 +1,5 @@
 import type { Msg } from '@/i18n';
-import { estimateFill, type Side, type StepEvent } from '@/engine';
+import { estimateFill, qtyStep, roundQty, type Side, type StepEvent } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { BLOCK, DRIP, RECURRING, SIMPLE_MODE } from '@/content/learning';
 import { cashOf, findOrder, priceOf, spendableCash, today } from './core';
@@ -49,15 +49,23 @@ function tradable(g: GameState, assetId: string): boolean {
 function roundUnits(g: GameState, assetId: string, units: number): number {
   const def = g.market.config.assets.find((a) => a.id === assetId);
   if (!def || !(units > 0)) return 0;
-  const step = def.qtyStep ?? (def.assetClass === 'stock' ? 1 : 0);
-  return step === 1 ? Math.floor(units + 1e-9) : Math.floor(units * 1e6) / 1e6;
+  // the asset's own step (R-10-4): a stock floors to 0.0001 shares, the rest to six decimals
+  return qtyStep(def) > 0 ? roundQty(def, units) : Math.floor(units * 1e6) / 1e6;
 }
 
 /** Units that a dollar amount buys at the current price, rounded to the quantity step. */
-function unitsFor(g: GameState, assetId: string, value: number): number {
+function unitsFor(g: GameState, assetId: string, value: number, pid: string): number {
   const px = priceOf(g, assetId);
   if (!(px > 0) || !(value > 0)) return 0;
-  return roundUnits(g, assetId, value / px);
+  // the dollars buy what the fill costs, spread and fee included (the ticket's rule, R-10-1): the first size at the mid is
+  // scaled down to the estimate, a few times at most, and rounded down to the step each time
+  let u = roundUnits(g, assetId, value / px);
+  for (let k = 0; k < 4 && u > 0; k++) {
+    const total = estimateFill(g.market, { assetId, side: 'buy', qty: u, playerId: pid }).total;
+    if (total <= value + 1e-9) break;
+    u = roundUnits(g, assetId, u * (value / total));
+  }
+  return u;
 }
 
 /** Add a recurring buy: `dollars` of one asset every `everyDays` game days, from cash only. The first buy is the next day's open. */
@@ -120,7 +128,7 @@ export function startBlock(g: GameState, p: Player, assetId: string, side: Side,
     if (held < total) return fail('you hold fewer units than the block');
   }
   const slice = roundUnits(g, assetId, total / slices);
-  const est = estimateFill(g.market, { assetId, side, qty: slice });
+  const est = estimateFill(g.market, { assetId, side, qty: slice, playerId: p.id });
   const expectedTotal = est.total * slices;
   L.plans.seq++;
   const plan: BlockPlan = {
@@ -164,7 +172,8 @@ function blockStep(g: GameState, p: Player, L: PlayerLedger, b: BlockPlan, out: 
   if (b.lastOrderId) {
     if (orderOpen(g, b.lastOrderId)) return; // the last slice is still working
     const o = findOrder(g, p.id, b.lastOrderId);
-    b.remaining = Math.max(0, b.remaining - (o?.filledQty ?? 0));
+    // fractional slices (R-10-4) leave float residue: the units left are kept to nine decimals, so a block that is filled ends
+    b.remaining = Math.max(0, Number((b.remaining - (o?.filledQty ?? 0)).toFixed(9)));
     b.lastOrderId = null;
   }
   const finish = (key: string, vars: Record<string, string | number>) => {
@@ -204,12 +213,12 @@ export function planDay(g: GameState, out: StepOutput | null): void {
     for (const r of L.plans.recurring) {
       if (d < r.nextDay) continue;
       r.nextDay = d + r.everyDays;
-      const qty = unitsFor(g, r.assetId, r.dollars);
+      const qty = unitsFor(g, r.assetId, r.dollars, pid);
       if (!(qty > 0)) {
         say(g, out, pid, 'plan', 'warn', { key: 'work.recurring.skipped.unit', vars: { asset: r.assetId } });
         continue;
       }
-      const est = estimateFill(g.market, { assetId: r.assetId, side: 'buy', qty });
+      const est = estimateFill(g.market, { assetId: r.assetId, side: 'buy', qty, playerId: pid });
       if (est.total > spendableCash(g, pid)) {
         say(g, out, pid, 'plan', 'warn', { key: 'work.recurring.skipped.cash', vars: { asset: r.assetId } });
         continue;
@@ -242,7 +251,7 @@ export function dripDay(g: GameState, out: StepOutput | null, events: StepEvent[
       if (!pos || !(pos.qty > 0)) continue;
       const carry = (L.plans.carry[assetId] ?? 0) + (paid.get(`${pid}\u0000${assetId}`) ?? 0);
       if (!(carry > 0)) continue;
-      const qty = unitsFor(g, assetId, Math.min(carry, cashOf(g, pid)));
+      const qty = unitsFor(g, assetId, Math.min(carry, cashOf(g, pid)), pid);
       if (!(qty > 0)) { L.plans.carry[assetId] = carry; continue; }
       const placed = placeChecked(g, p, { assetId, side: 'buy', type: 'market', qty }, 'dividend_reinvest');
       if (!placed.ok) { L.plans.carry[assetId] = carry; continue; }

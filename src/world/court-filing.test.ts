@@ -1,0 +1,96 @@
+import { describe, expect, it } from 'vitest';
+import { applyCommand, createGame, stepGame } from './game';
+import { FILING_FEE, COUNSEL_COST, filingMinimum } from './court';
+import { playerView } from './view';
+import type { GameState } from './types';
+import { emptyLab } from './lab';
+import { renderMsg } from './text/template';
+
+// R-10-7 (legal): the filing is refused below half the claim's bar (the Legal app disables File with the reason), and the
+// view carries the evidence per defendant so the app can show it. The fee is the filing fee plus counsel, never counsel twice.
+
+function two(seed: string): GameState {
+  const g = createGame(seed, { warmupDays: 1, npcs: false });
+  for (let k = 0; k < 10; k++) stepGame(g);
+  for (const [id, handle] of [['u1', 'trader_0'], ['u2', 'trader_1']] as const) {
+    const r = applyCommand(g, id, { type: 'join', handle, country: 'AV' });
+    if (!r.ok) throw new Error(r.error);
+  }
+  const grant = applyCommand(g, 'u1', { type: 'admin.grant', amount: 50_000 });
+  if (!grant.ok) throw new Error(grant.error);
+  return g;
+}
+
+describe('legal filing (R-10-7)', () => {
+  it('the minimum is half the bar: 20 points for a cyber intrusion, 27.5 for a model theft', () => {
+    expect(filingMinimum('cyber intrusion')).toBe(20);
+    expect(filingMinimum('contract breach')).toBe(20);
+    expect(filingMinimum('model theft')).toBe(27.5);
+  });
+
+  it('a filing below the minimum is refused, and the view shows the count the app blocks on', () => {
+    const g = two('legal-below-min');
+    g.cyber.evidence['u2>u1'] = 10;
+    const v = playerView(g, 'u1')!;
+    expect(v.filing.u2?.['cyber intrusion']).toBe(10);
+    const r = applyCommand(g, 'u1', { type: 'court.file', defendantId: 'u2', kind: 'cyber intrusion', counsel: 1 });
+    expect(r.ok).toBe(false);
+    expect(Object.keys(g.court.cases).length).toBe(0);
+  });
+
+  it('at the minimum the filing goes through and charges the filing fee plus counsel once', () => {
+    const g = two('legal-fee-once');
+    g.cyber.evidence['u2>u1'] = 25;
+    const before = g.market.accounts.u1!.cash;
+    const r = applyCommand(g, 'u1', { type: 'court.file', defendantId: 'u2', kind: 'cyber intrusion', counsel: 1 });
+    expect(r.ok).toBe(true);
+    const after = g.market.accounts.u1!.cash;
+    expect(before - after).toBeCloseTo(FILING_FEE + COUNSEL_COST[1]!, 6);
+  });
+
+  it('the view counts evidence per claim kind: a model theft has its own count (residue counts for it)', () => {
+    const g = two('legal-kinds');
+    g.cyber.evidence['u2>u1'] = 30;
+    const v = playerView(g, 'u1')!;
+    expect(v.filing.u2?.['cyber intrusion']).toBe(30);
+    // the theft has no residue here, so it reads the cyber evidence only (the same rule the engine applies)
+    expect(v.filing.u2?.['model theft']).toBe(30);
+  });
+
+  it('a defendant with no evidence and no default is not in the view (the app reads the absence as zero)', () => {
+    const g = two('legal-none');
+    expect(playerView(g, 'u1')!.filing.u2).toBeUndefined();
+  });
+
+  it('residue alone reaches Legal with the exact model-theft count used by the filing', () => {
+    const g = two('legal-residue-only');
+    g.lab.u2 = emptyLab();
+    g.lab.u2.models.push({ id: 'stolen', name: 'Student', kind: 'trading', mcs: 1, createdTick: 0, residue: 0.5 });
+    expect(playerView(g, 'u1')!.filing.u2?.['model theft']).toBe(30);
+    expect(playerView(g, 'u1')!.filing.u2?.['cyber intrusion']).toBe(0);
+    expect(applyCommand(g, 'u1', { type: 'court.file', defendantId: 'u2', kind: 'model theft', counsel: 0 }).ok).toBe(true);
+  });
+
+  it('the refusal names the filing minimum, preserving fractional evidence in French', () => {
+    const g = two('legal-refuse-minimum');
+    g.cyber.evidence['u2>u1'] = 26.5;
+    const r = applyCommand(g, 'u1', { type: 'court.file', defendantId: 'u2', kind: 'model theft', counsel: 0 });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('not enough evidence (26.5 of 27.5 points)');
+    expect(renderMsg(r.msg!, 'fr')).toBe('preuves insuffisantes (26,5 sur 27,5 points)');
+  });
+
+  it.each([0, 1, 2, 3])('counsel level %i charges once, while insufficient cash changes neither cash nor evidence', (counsel) => {
+    const g = two(`legal-cost-${counsel}`);
+    g.cyber.evidence['u2>u1'] = 40;
+    const total = FILING_FEE + COUNSEL_COST[counsel]!;
+    g.market.accounts.u1!.cash = total - 1;
+    expect(applyCommand(g, 'u1', { type: 'court.file', defendantId: 'u2', kind: 'cyber intrusion', counsel }).ok).toBe(false);
+    expect(g.market.accounts.u1!.cash).toBe(total - 1);
+    expect(g.cyber.evidence['u2>u1']).toBe(40);
+    g.market.accounts.u1!.cash = total;
+    expect(applyCommand(g, 'u1', { type: 'court.file', defendantId: 'u2', kind: 'cyber intrusion', counsel }).ok).toBe(true);
+    expect(g.market.accounts.u1!.cash).toBe(0);
+    expect(g.economy.sinks['legal fees']).toBe(total);
+  });
+});

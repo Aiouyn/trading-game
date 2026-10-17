@@ -1,7 +1,7 @@
 // The chart's lines for a position and its orders (spec 1.3): the average-cost line with its P&L, the take-profit and
 // stop-loss legs, the working orders and the viewer's alerts. Pure functions only: the price and pixel helpers, the P&L
 // math and the builder that turns the account into lines. The chart draws them (PriceChart, ChartLevels).
-import type { Order, OrderType, Side } from '@/engine';
+import { priceRule, type AssetClass, type Order, type OrderType, type Side } from '@/engine';
 
 /** The chart's view of its price scale: a price to a pixel row and back (lightweight-charts' series does both). */
 export interface PriceScale {
@@ -9,10 +9,20 @@ export interface PriceScale {
   yToPrice(y: number): number | null;
 }
 
-/** The tick a price is typed and dragged to: cents at a dollar and up, four decimals below (as the quote shows them). */
-export function roundPrice(p: number): number {
-  const d = p >= 1 ? 2 : 4;
+/**
+ * The tick a price is typed and dragged to: the asset's own precision (R-10-3), so a EURUSD level is 1.08123 and a memecoin
+ * level keeps its digits. Stocks take cents from a dollar up and four decimals below.
+ */
+export function roundPrice(p: number, assetClass: AssetClass = 'stock'): number {
+  const d = priceRule(assetClass, p).decimals;
   return Math.round(p * 10 ** d) / 10 ** d;
+}
+
+/** Move from the order's own price, even for a pill pinned off scale. Invalid pointer prices never become order edits. */
+export function draggedLevelPrice(base: number, start: number | null, pointer: number | null): number | null {
+  if (start === null || pointer === null || ![base, start, pointer].every(Number.isFinite)) return null;
+  const next = base + pointer - start;
+  return next > 0 && Number.isFinite(next) ? next : null;
 }
 
 /** The pixel row of a price, or null when the price is not a positive number or the scale has no row for it. */
@@ -23,10 +33,10 @@ export function yOfPrice(scale: PriceScale, price: number): number | null {
 }
 
 /** The price under a pixel row, rounded to the tick; null when the row is off the scale or does not give a positive price. */
-export function priceOfY(scale: PriceScale, y: number): number | null {
+export function priceOfY(scale: PriceScale, y: number, assetClass: AssetClass = 'stock'): number | null {
   const p = scale.yToPrice(y);
   if (p === null || !Number.isFinite(p) || p <= 0) return null;
-  return roundPrice(p);
+  return roundPrice(p, assetClass);
 }
 
 /**
@@ -88,9 +98,9 @@ export function exitSideKey(exitSide: Side, leg: 'tp' | 'sl', price: number, mid
  * copy key is a `broker.refuse.*` key and `price` is the mid, rounded to the tick, for the copy (the stop copy names it `mid`,
  * so both names are given).
  */
-export function priceSideRefusal(o: { side: Side; type: OrderType }, leg: 'tp' | 'sl' | null, price: number, mid: number): { key: string; vars: { price: number; mid: number } } | null {
+export function priceSideRefusal(o: { side: Side; type: OrderType }, leg: 'tp' | 'sl' | null, price: number, mid: number, assetClass: AssetClass = 'stock'): { key: string; vars: { price: number; mid: number } } | null {
   if (!(mid > 0) || !(price > 0)) return null;
-  const vars = { price: roundPrice(mid), mid: roundPrice(mid) };
+  const vars = { price: roundPrice(mid, assetClass), mid: roundPrice(mid, assetClass) };
   if (leg) {
     const k = exitSideKey(o.side, leg, price, mid);
     return k ? { key: `broker.refuse.${k}`, vars } : null;
@@ -106,22 +116,22 @@ export function priceSideRefusal(o: { side: Side; type: OrderType }, leg: 'tp' |
  * The price a new take-profit (+TP) or stop-loss (+SL) starts at, before it is dragged: 5% up or 3% down for a long, mirrored
  * for a short. When the price has already passed that level (it would fire at once), the leg starts 1% beyond the price.
  */
-export function defaultExitPrice(kind: 'tp' | 'sl', qty: number, avgCost: number, mid = 0): number {
+export function defaultExitPrice(kind: 'tp' | 'sl', qty: number, avgCost: number, mid = 0, assetClass: AssetClass = 'stock'): number {
   const long = qty > 0;
   const k = kind === 'tp' ? (long ? 1.05 : 0.95) : (long ? 0.97 : 1.03);
-  const at = roundPrice(avgCost * k);
+  const at = roundPrice(avgCost * k, assetClass);
   if (priceSideRefusal({ side: long ? 'sell' : 'buy', type: kind === 'tp' ? 'limit' : 'stop' }, kind, at, mid)) {
-    return roundPrice(mid * (kind === 'tp' ? (long ? 1.01 : 0.99) : (long ? 0.99 : 1.01)));
+    return roundPrice(mid * (kind === 'tp' ? (long ? 1.01 : 0.99) : (long ? 0.99 : 1.01)), assetClass);
   }
   return at;
 }
 
 /** The price an order's line sits at: the limit, the stop (stop-limit draws its stop), or a trailing stop's trigger from its best price. */
-export function orderPrice(o: Pick<Order, 'type' | 'side' | 'limitPrice' | 'stopPrice' | 'trailPct' | 'trailRef'>): number | null {
+export function orderPrice(o: Pick<Order, 'type' | 'side' | 'limitPrice' | 'stopPrice' | 'trailPct' | 'trailRef'>, assetClass: AssetClass = 'stock'): number | null {
   if (o.type === 'limit') return o.limitPrice ?? null;
   if (o.type === 'stop' || o.type === 'stop_limit') return o.stopPrice ?? null;
   if (o.type === 'trailing' && o.trailRef !== undefined && o.trailPct !== undefined) {
-    return roundPrice(o.side === 'sell' ? o.trailRef * (1 - o.trailPct) : o.trailRef * (1 + o.trailPct));
+    return roundPrice(o.side === 'sell' ? o.trailRef * (1 - o.trailPct) : o.trailRef * (1 + o.trailPct), assetClass);
   }
   return null;
 }
@@ -159,6 +169,8 @@ export interface ChartLevel {
   cancelable: boolean;
   /** the buttons on the average line: "+ TP" and "+ SL", for the legs the position lacks */
   actions?: { key: 'addTp' | 'addSl'; label: string }[];
+  /** the position line can be closed from its pill (a market close of the whole position, reduce-only) */
+  closable?: boolean;
   /** the pill's text at another price, while the line is dragged (a leg shows its $ and % move at that price too) */
   labelAt?: (price: number) => string;
 }
@@ -174,6 +186,7 @@ export interface LevelFormat {
 }
 
 export interface LevelInput {
+  assetClass?: AssetClass;
   /** the position on this asset: signed, and its average cost */
   qty: number;
   avgCost: number;
@@ -201,7 +214,7 @@ export function buildLevels(input: LevelInput): ChartLevel[] {
   for (const o of input.orders) {
     if (o.status !== 'open') continue;
     const role = exitRole(o, qty);
-    const price = orderPrice(o);
+    const price = orderPrice(o, input.assetClass);
     if (price === null || !(price > 0)) continue;
     const remaining = o.qty - o.filledQty;
     if (role === 'tp' && !hasTp) {
@@ -229,7 +242,7 @@ export function buildLevels(input: LevelInput): ChartLevel[] {
     if (!hasSl) actions.push({ key: 'addSl', label: fmt.addSl });
     out.push({
       id: 'avg', kind: 'avg', price: avgCost, label: fmt.avg(avgCost, pnl.usd, pnl.pct), tone: pnl.usd >= 0 ? 'gain' : 'loss',
-      dashed: true, draggable: false, cancelable: false, ...(actions.length ? { actions } : {}),
+      dashed: true, draggable: false, cancelable: false, ...(actions.length ? { actions } : {}), closable: true,
     });
   }
   out.push(...legs, ...working);

@@ -7,6 +7,8 @@
  *   "#susd:<value>"           the same with an explicit '+' when positive        +$12.00 / +12,00 $
  *   "#pct:<fraction>"         a percent from a fraction, two decimals           1.23% / 1,23 %
  *   "#spct:<fraction>"        the same with an explicit '+' when positive       +1.23% / +1,23 %
+ *   "#mpct:<fraction>"        a market move: one decimal, '+' or the true minus sign '−' (the wire's form)  +3.5% / −3,5 %
+ * Money and percent tokens may append ",<decimals>" to preserve a message's display precision (default: two, or one for mpct).
  * The French forms follow src/game/format.ts: a decimal comma, a no-break space before the dollar sign or the percent sign.
  */
 
@@ -14,6 +16,12 @@ export type TokenLocale = 'en' | 'fr';
 
 const NBSP = ' ';
 const TAG: Record<TokenLocale, string> = { en: 'en-US', fr: 'fr-FR' };
+
+/**
+ * Intl prints the French group separator as a narrow no-break space (U+202F), which the body and hero fonts draw with no gap
+ * ("8005250,00 $" on screen). French groups take the no-break space (U+00A0), the same character as the currency gap.
+ */
+export const groupSpace = (s: string): string => s.replace(/ /g, NBSP);
 const formatters = new Map<string, Intl.NumberFormat>();
 
 function formatterFor(locale: TokenLocale, min: number, max: number): Intl.NumberFormat {
@@ -28,7 +36,7 @@ function formatterFor(locale: TokenLocale, min: number, max: number): Intl.Numbe
 
 /** True for a string that is a number token (the "#" forms above). */
 export function isNumberToken(v: string): boolean {
-  return /^#(n|usd|susd|pct|spct):/.test(v);
+  return /^#(n|usd|susd|pct|spct|mpct):/.test(v);
 }
 
 /** A "#n:" token: a plain number with the given decimals, in the locale's separators. */
@@ -36,7 +44,7 @@ export function formatNumberToken(locale: TokenLocale, token: string): string {
   const [value = '', min = '0', max = '2'] = token.slice(3).split(',');
   const n = Number(value);
   if (!Number.isFinite(n)) return value;
-  return formatterFor(locale, Number(min), Number(max)).format(n);
+  return groupSpace(formatterFor(locale, Number(min), Number(max)).format(n));
 }
 
 /** Any number token, formatted in the locale. A token that does not parse is shown as typed, never as a crash. */
@@ -44,13 +52,18 @@ export function formatToken(locale: TokenLocale, token: string): string {
   if (token.startsWith('#n:')) return formatNumberToken(locale, token);
   const colon = token.indexOf(':');
   const kind = token.slice(1, colon);
-  const x = Number(token.slice(colon + 1));
-  if (!Number.isFinite(x)) return token.slice(colon + 1);
+  const [value = '', digits] = token.slice(colon + 1).split(',');
+  const x = Number(value);
+  if (!Number.isFinite(x)) return value;
   const signed = kind === 'susd' || kind === 'spct';
-  const sign = x < 0 ? '-' : signed && x > 0 ? '+' : '';
+  const move = kind === 'mpct';
+  // a market move always carries its sign: '+' when zero or up, the true minus sign when down (the wire has always printed that)
+  const sign = move ? (x < 0 ? '−' : '+') : x < 0 ? '-' : signed && x > 0 ? '+' : '';
   const a = Math.abs(x);
-  const figure = formatterFor(locale, 2, 2).format(kind === 'pct' || kind === 'spct' ? a * 100 : a);
-  if (kind === 'pct' || kind === 'spct') return locale === 'fr' ? `${sign}${figure}${NBSP}%` : `${sign}${figure}%`;
+  const requested = digits === undefined ? NaN : Number(digits);
+  const dec = Number.isInteger(requested) && requested >= 0 && requested <= 20 ? requested : move ? 1 : 2;
+  const figure = groupSpace(formatterFor(locale, dec, dec).format(kind === 'pct' || kind === 'spct' || move ? a * 100 : a));
+  if (kind === 'pct' || kind === 'spct' || move) return locale === 'fr' ? `${sign}${figure}${NBSP}%` : `${sign}${figure}%`;
   return locale === 'fr' ? `${sign}${figure}${NBSP}$` : `${sign}$${figure}`;
 }
 
