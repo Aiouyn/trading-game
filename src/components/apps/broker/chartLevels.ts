@@ -91,9 +91,9 @@ export function exitSideKey(exitSide: Side, leg: 'tp' | 'sl', price: number, mid
  * copy key is a `broker.refuse.*` key and `price` is the mid, rounded to the tick, for the copy (the stop copy names it `mid`,
  * so both names are given).
  */
-export function priceSideRefusal(o: { side: Side; type: OrderType }, leg: 'tp' | 'sl' | null, price: number, mid: number): { key: string; vars: { price: number; mid: number } } | null {
+export function priceSideRefusal(o: { side: Side; type: OrderType }, leg: 'tp' | 'sl' | null, price: number, mid: number, assetClass: AssetClass = 'stock'): { key: string; vars: { price: number; mid: number } } | null {
   if (!(mid > 0) || !(price > 0)) return null;
-  const vars = { price: roundPrice(mid), mid: roundPrice(mid) };
+  const vars = { price: roundPrice(mid, assetClass), mid: roundPrice(mid, assetClass) };
   if (leg) {
     const k = exitSideKey(o.side, leg, price, mid);
     return k ? { key: `broker.refuse.${k}`, vars } : null;
@@ -120,11 +120,11 @@ export function defaultExitPrice(kind: 'tp' | 'sl', qty: number, avgCost: number
 }
 
 /** The price an order's line sits at: the limit, the stop (stop-limit draws its stop), or a trailing stop's trigger from its best price. */
-export function orderPrice(o: Pick<Order, 'type' | 'side' | 'limitPrice' | 'stopPrice' | 'trailPct' | 'trailRef'>): number | null {
+export function orderPrice(o: Pick<Order, 'type' | 'side' | 'limitPrice' | 'stopPrice' | 'trailPct' | 'trailRef'>, assetClass: AssetClass = 'stock'): number | null {
   if (o.type === 'limit') return o.limitPrice ?? null;
   if (o.type === 'stop' || o.type === 'stop_limit') return o.stopPrice ?? null;
   if (o.type === 'trailing' && o.trailRef !== undefined && o.trailPct !== undefined) {
-    return roundPrice(o.side === 'sell' ? o.trailRef * (1 - o.trailPct) : o.trailRef * (1 + o.trailPct));
+    return roundPrice(o.side === 'sell' ? o.trailRef * (1 - o.trailPct) : o.trailRef * (1 + o.trailPct), assetClass);
   }
   return null;
 }
@@ -177,6 +177,7 @@ export interface LevelFormat {
 }
 
 export interface LevelInput {
+  assetClass?: AssetClass;
   /** the position on this asset: signed, and its average cost */
   qty: number;
   avgCost: number;
@@ -204,7 +205,7 @@ export function buildLevels(input: LevelInput): ChartLevel[] {
   for (const o of input.orders) {
     if (o.status !== 'open') continue;
     const role = exitRole(o, qty);
-    const price = orderPrice(o);
+    const price = orderPrice(o, input.assetClass);
     if (price === null || !(price > 0)) continue;
     const remaining = o.qty - o.filledQty;
     if (role === 'tp' && !hasTp) {

@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { commission, estimateFill, type Side } from '@/engine';
-import { money, qty as fmtQty } from '@/game/format';
+import { money, qtyIn } from '@/game/format';
 import { isIndex, useGame } from '@/game/store';
 import { t } from '@/i18n';
 import { getDraft, setDraft } from '@/components/os/drafts';
 import { Button, NumberField, Segmented } from '@/components/ui';
 import { OrderTicket } from './OrderTicket';
+import { quantityGrid } from './ticketSizing';
 
 function num(s: string): number {
   const v = Number(s);
@@ -28,6 +29,7 @@ export function TradeBar({ ticker, onReview }: { ticker: string; onReview: () =>
   const [q, setQ] = useState(saved?.q ?? '');
   const n = num(q);
   const def = config.assets.find((a) => a.id === ticker);
+  const grid = def ? quantityGrid(def) : { step: 0.0001, decimals: 4 };
   const est = world && def && !isIndex(ticker) && n > 0 ? estimateFill(world, { assetId: ticker, side, qty: n, playerId: playerId ?? undefined }) : null;
   const notional = est ? n * est.price : 0;
   const fee = est && world && def ? commission(world, def, notional, n) : 0;
@@ -47,12 +49,12 @@ export function TradeBar({ ticker, onReview }: { ticker: string; onReview: () =>
       />
       <NumberField
         value={q} onChange={(v) => write(side, v)}
-        step={def?.assetClass === 'stock' ? 1 : 'any'} testId="bar-qty" className="h-9 min-w-[4.5rem] flex-1 px-2"
+        step={grid.step} testId="bar-qty" className="h-9 min-w-[4.5rem] flex-1 px-2"
       />
       {/* no unit suffix and no field label in the bar: the input keeps its room, and the Review label truncates before it squeezes
           the input out (French labels are longer). The unit is in the sheet and in the summary. */}
       <Button variant="brass" size="md" className="min-w-0 max-w-[42%] shrink" disabled={!(n > 0) || !est} onClick={onReview} testId="bar-review">
-        <span className="truncate">{n > 0 && est ? t('broker.bar.review', { verb, qty: fmtQty(n), total: money(total) }) : t('broker.bar.enter')}</span>
+        <span className="truncate">{n > 0 && est ? t('broker.bar.review', { verb, qty: qtyIn(n, grid.decimals), total: money(total) }) : t('broker.bar.enter')}</span>
       </Button>
     </div>
   );

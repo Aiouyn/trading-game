@@ -4,6 +4,9 @@ Rulings: `docs/team/specs/lead-phase10.md` (binding). Evaluation: `docs/V1-EVALU
 `p10/fill` (R-10-1 to R-10-4), section 10A. The UX fork (shell, windows, symbol switching) and the other tracks are recorded
 in their own sections.
 
+Sections 10A.0–10A.9 retain the original track evidence. **10A.10 is the current repair/reviewer status** (2026-10-14);
+it supersedes the old precision coverage, fee minimum and halt residuals. Account splitting was accepted by R-10-1b.
+
 ## 10A. Fills, fees, spreads, precision and fractional shares (track p10/fill)
 
 ### 10A.0 Summary
@@ -70,9 +73,9 @@ at the same tick, the total temporary cost (half spread plus own impact) in bps 
 | HLCN | 5.55 | 2.33 | 1.32 |
 | AURH | 24.25 | 9.69 | 5.09 |
 
-The per-account tally (R-10-1, as ruled) lets N accounts split a block and pay only their own share of the impact. Under the
-shared tally of R-9-1c this was closed (the N-account rule). The ruling takes the per-account rule, so this is implemented as
-ruled. The lead should rule on it (see 10A.5).
+The per-account tally lets unlinked accounts split a block and pay only their own share of the impact. **R-10-1b accepts
+this V1 limit**; the shared permanent impact and linked-account surveillance remain. Shared temporary charging must not
+be restored to close this accepted finding.
 
 **Fees and spreads, unit level.** Stocks: 1,000 shares at $50 ($50,000) pay $5.00 ($0.005 a share, under the 1% cap); 10 shares at
 $50 pay the $1 minimum. Crypto: 0.10% of notional, no minimum. FX: $2 per $100k. Large caps quote 2 bp full spread; memecoins
@@ -119,15 +122,9 @@ orders moved, and their digests are re-pinned as stated in 10A.3.
 
 ### 10A.5 Rulings needed, deviations and residuals
 
-1. **N accounts dodge temporary impact (lead's ruling needed).** The per-account tally, as ruled, halves the temporary impact
-   of a block split over ten accounts (10A.2: 5.55 to 2.33 bp for HLCN, 24.25 to 9.69 bp for AURH). The mid still moves for
-   everyone (permanent impact on the shared tally), and the spread is still paid in full. Options for the lead: (a) keep the
-   ruling and accept it; (b) charge the temporary impact on the shared tally of the asset over a window (the R-9-1c rule) and
-   keep the per-account tally only for the own-clip cost; (c) a per-account share of the shared tally, pro rata to the
-   account's own flow in the window. Option (c) closes the dodge without charging other accounts' flow to a fill. I did not
-   pick one: it changes the ruling.
+1. **Account splitting accepted (R-10-1b).** The measured costs in 10A.2 are a recorded V1 limit, not a reviewer blocker.
 2. **Skipped laws (10A.3).** 12 expectations encode the shared tally across accounts. They are skipped with their reason, not
-   deleted, so the lead can restate them under whatever option 1 chooses.
+   deleted. They describe the superseded shared-temporary-impact rule, not the accepted R-10-1b contract.
 3. **Bonds and commodities keep their $1 minimum.** The ruling gives their rates (2 bps) and not their minimums. At $1k a 2 bp
    fee is $0.20, so the $1 minimum makes it 10 bps. I kept the existing minimum; the lead can drop it.
 4. **Halts.** Spreads do not widen in a halt: a halted asset's orders wait and fill nothing, so no spread is charged.
@@ -179,4 +176,61 @@ brokerOrders, trading-tools and rules on desktop and phone: 24 passed, 2 failed 
 - Code: `b14c1ca`, `670c99a`, `de9e12d`, `0c59e3f`, `239b8cf`, `038ff2f` (on `p10/fill`). Docs: this file (uncommitted until the final commit).
 - Gates at the final code: `tsc --noEmit` exit 0; eslint on every touched file 0 errors; full vitest 284 files passed, 2 skipped, 0 failing; i18n and broker 97 passed.
 - Ecology, bare, 8 seeds: 7 of 7 PASS, identical to the round-6 figures (10A.4).
-- Ecology, universe, 8 seeds: see below (run last; the figures are recorded here when the run ends).
+- Ecology, universe, 8 seeds: **no completed result recorded or recovered in this bounded repair**. Do not infer a pass from
+  the bare result. No ecology job was launched during the repair; the universe release gate remains unverified.
+
+### 10A.10 Bounded fill repair (2026-10-14, existing `p10/fill` worktree, uncommitted)
+
+Latest starting commit: `5385375`. The interrupted untracked `tests/e2e/p10FillShots.spec.ts` is preserved unchanged.
+No merge, commit, push, dependency edit, other worktree edit, VM run or background simulation job.
+
+**Fixed in this pass:**
+
+- The ticket estimates its actual submitted size, using the selected personal/fund account. Dollar buys and Max solve the
+  fee-included budget with quantity-dependent own impact. No hardcoded $1 reserve on FX, bonds or commodities. Tests compare
+  both fund and personal estimates to real same-state fills; next-tick price movement remains outside that equality.
+- Crypto retains eight quantity decimals, FX chips use whole base units, stock/ETF chips use 0.0001 shares, and configured
+  quantity steps win. Phone trade-bar quantity text and input steps use the same grid. Chips do not collapse to zero;
+  below-grid dollar amounts show the quantity-step reason in both languages.
+- Stock/ETF commission now applies the 1% maximum to the minimum too: a $1 notional pays $0.01, not $1. The old trading
+  assertion was corrected to enforce that cap. Bonds and commodities have zero minimum since `5385375`, and regression
+  checks require $0.20 on $1,000 for both. The FX fee label preserves 0.002% instead of rounding it to 0.00%.
+- A halt that crosses midnight marks its reopening day as halted before clearing orders, retaining the 1.5× spread after
+  reopening. Same-day and cross-day tests require no waiting fills and a wider reopening fill. Active halts quote 2×;
+  the existing volatility multiplier still applies. This is the existing day-based approximation, not a new decay clock.
+- Preset limit/stop inputs retain their numeric precision. Refusal text, chart trailing-order levels and sandbox suggested
+  prices use their asset class. English/French formatter regressions cover stocks, FX (including inverse-yen quotes),
+  crypto and DEX subscript-zero notation. Temporary impact remains per account, as accepted by R-10-1b.
+
+**Chart integration handoff (`PriceChart.tsx` deliberately unchanged):**
+
+- Main candle/line/area axes and crosshair prices already use `assetPrice` through `applyAxis` (lines 306–315), with
+  `priceRule(...).tick` as `minMove`; the data effects refresh that tick as magnitude changes (411 and 428). Keep this code.
+- Extend that custom price format to main-price indicator series in `lines.current` and price overlays in
+  `overlayS.current` (created at 354 and 395). Apply it both when creating a series and when `applyAxis` refreshes the class
+  or magnitude; applying it before a newly created series exists is insufficient. Keep volume as `type: 'volume'` and RSI
+  as an independent numeric format rather than assigning crypto/FX precision to them. Verify pointer labels on studies too.
+- The percent branch at 312 currently appends literal `%`; use `pctUnit()` so French spacing matches other price readouts.
+- If the generic `series` branch is used for an asset absent from the engine registry, provide an explicit asset-class prop
+  and resolve it before `assetDefOf(assetId)` falls back to stock (190). No such caller is present in this checkout yet.
+- Browser acceptance still needs desktop/phone, English/French, stock/FX/major crypto/memecoin axis and crosshair checks;
+  unit formatter checks alone do not establish chart integration.
+
+**Other coverage blockers:** `src/components/os/Launcher.tsx:203` and `PhoneRecents.tsx:220–221` still use the stock-default
+`price()` for asset quotes. The UX owner should pass the quote's definition to `assetPrice`. Launchpad's `copy.ts:111`
+retains its separate `lpPrice` convention; coordinate any DEX-format conversion with that track's tests. These files were
+not edited. The universe gate has no completed artifact in the worktree or the available Hermes scratch; it is unverified,
+not passing. No long ecology or full test suite was run.
+
+**Validation:** 168 tests passed in eleven targeted files (`fill-realism`, `priceRules`, `trading`, `ticketSizing`,
+`ticketMath`, `chartLevels`, `format.fr`, `format.price`, `plans`, i18n key parity and tokens) with `--maxWorkers=2`.
+The existing `format.price.test.ts` is byte-for-byte restored and all its original assertions are included.
+The focused `selfimpact` defaultConfig
+clip tests and `companyHooks` fingerprint check passed: 3 passed, 54 excluded by the test-name filter (no new skips added).
+The final typecheck/lint results and complete file list are saved in `test-results/p10-fill-repair/result.md`.
+
+**Browser attempt:** isolated ports 38742/38743 were checked free before launching owned servers. The world server failed
+before Playwright ran: `uv_os_get_passwd` returned `ENOMEM`. Sandbox CIM process-tree inspection was also denied. Owned root
+PIDs 68336 (already exited) and 372 (stopped explicitly) were cleaned up; subsequent bind probes confirmed both ports free.
+No browser tests or screenshots passed in this attempt, and no restriction was bypassed. The untracked screenshot spec
+was neither changed nor used to claim acceptance. Logs are in `test-results/p10-fill-repair/`.

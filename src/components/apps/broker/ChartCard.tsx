@@ -86,6 +86,7 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
   // the cash the closing order would move now (a sell's proceeds, or a cover's cost), so the average line's P&L is what closing books
   const closeTotal = world && heldQty !== 0 && !isIndex(info.id) ? estimateFill(world, { assetId: info.id, side: heldQty > 0 ? 'sell' : 'buy', qty: Math.abs(heldQty), playerId: playerId ?? undefined }).total : 0;
   const levels = buildLevels({
+    assetClass: acls,
     qty: heldQty, avgCost: pos?.avgCost ?? 0, closeTotal,
     orders: (orders ?? []).filter((o) => o.assetId === info.id && o.status === 'open'),
     alerts: alerts.filter((a) => a.assetId === info.id).map((a) => ({ id: a.id, price: a.price, dir: a.dir })),
@@ -99,8 +100,8 @@ export function ChartCard({ ticker, narrow = false }: { ticker: string; narrow?:
     const o = (orders ?? []).find((x) => x.id === l.orderId);
     if (!o) return;
     const leg = l.kind === 'tp' ? 'tp' : l.kind === 'sl' ? 'sl' : null;
-    const why = priceSideRefusal(o, leg, p, info.price);
-    if (why) { refusedToast(why.key, why.vars); return; }
+    const why = priceSideRefusal(o, leg, p, info.price, acls);
+    if (why) { refusedToast(why.key, { price: fmtP(why.vars.price), mid: fmtP(why.vars.mid) }); return; }
     const patch = o.type === 'stop' || o.type === 'stop_limit' ? { stopPrice: p } : { limitPrice: p };
     const r = await act({ type: 'order.modify', orderId: o.id, ...patch }, { silent: true });
     if (r.ok) useGame.getState().toast({ tone: 'info', text: t('broker.toast.moved', { price: fmtP(p) }) });

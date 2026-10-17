@@ -28,6 +28,15 @@ function order(over: Partial<Order>): Order {
 }
 
 describe('price and pixel helpers', () => {
+  it('FX and memecoin trailing lines and refusal prices use the asset tick', () => {
+    const fx = order({ type: 'trailing', side: 'sell', trailRef: 1.08123, trailPct: 0.01 });
+    expect(orderPrice(fx, 'forex')).toBe(1.07042);
+    const meme = order({ type: 'trailing', side: 'sell', trailRef: 0.0000082, trailPct: 0.01 });
+    expect(orderPrice(meme, 'crypto')).toBeCloseTo(0.000008118, 12);
+    expect(priceSideRefusal(fx, 'tp', 1, 1.08123, 'forex')!.vars.price).toBe(1.08123);
+    const levels = buildLevels({ assetClass: 'crypto', qty: 0, avgCost: 0, closeTotal: 0, orders: [meme], alerts: [], fmt });
+    expect(levels[0]!.price).toBeCloseTo(0.000008118, 12);
+  });
   it('a price and its pixel row convert both ways on a linear scale', () => {
     for (const p of [150, 179.37, 199.99]) {
       const y = yOfPrice(scale, p)!;

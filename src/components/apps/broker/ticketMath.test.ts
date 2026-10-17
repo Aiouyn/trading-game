@@ -24,6 +24,13 @@ describe('parseDecimal', () => {
 });
 
 describe('checkOrder: the first failing rule wins and sits under its field', () => {
+  it('FX and memecoin refusals retain their asset precision through the displayed copy', () => {
+    for (const [assetClass, mid] of [['forex', 1.08123], ['crypto', 0.0000082]] as const) {
+      const r = checkOrder(base({ assetClass, type: 'stop', mid, stop: mid, ref: mid })).refusal!;
+      expect(r.vars!.mid).toBeCloseTo(mid, 10);
+      expect(formatRefusalVars(r.vars, { money: String, qty: String, price: (n) => `price:${n}` })).toEqual({ mid: `price:${mid}` });
+    }
+  });
   it('a clean order has no refusal', () => {
     expect(checkOrder(base())).toEqual({ refusal: null, warning: null });
   });

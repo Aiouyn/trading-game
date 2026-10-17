@@ -1,7 +1,7 @@
 'use client';
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { assetIndex, buyingPower, commission, estimateFill, halfSpread, marginConfig, marginRuleApplies, mayShort, qtyStep, tradingConfig, type OrderType, type Side } from '@/engine';
+import { assetIndex, buyingPower, halfSpread, marginConfig, marginRuleApplies, mayShort, tradingConfig, type OrderType, type Side } from '@/engine';
 import { licenseFor, rankIndex } from '@/content/lifestyle';
 import { QUICK_ENTER, SIMPLE_MODE } from '@/content/learning';
 import { assetPrice, dec, money, pctUnit, qtyIn, signedMoney, signedPct } from '@/game/format';
@@ -17,6 +17,7 @@ import { RefusalBox } from '@/components/apps/exchange/Shared';
 import { type RefusalCopy, refusalCopy, rejectVars } from '@/components/apps/exchange/copy';
 import { quickEnterAllowed, tradeKeyIntent } from './tradeKeys';
 import { levelMove } from './chartLevels';
+import { floorQuantity, quantityGrid, ticketEstimate, unitsForBudget } from './ticketSizing';
 import { checkOrder, engineRefusal, formatRefusalVars, parseDecimal, tradeSummary, type EngineRefusal, type Refusal, type RefusalField } from './ticketMath';
 
 const TYPE_OPTS: { value: OrderType; key: string; testId: string }[] = [
@@ -94,8 +95,8 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const [type, setType] = useState<OrderType>(preset?.type ?? 'market');
   const [unit, setUnit] = useState<Unit>('shares');
   const [q, setQ] = useState(preset?.qty !== undefined ? String(preset.qty) : (saved?.q ?? ''));
-  const [limit, setLimit] = useState(preset?.limitPrice !== undefined ? preset.limitPrice.toFixed(2) : '');
-  const [stop, setStop] = useState(preset?.stopPrice !== undefined ? preset.stopPrice.toFixed(2) : '');
+  const [limit, setLimit] = useState(preset?.limitPrice !== undefined ? String(preset.limitPrice) : '');
+  const [stop, setStop] = useState(preset?.stopPrice !== undefined ? String(preset.stopPrice) : '');
   const [trail, setTrail] = useState('5');
   const [tif, setTif] = useState<'gtc' | 'day'>('gtc');
   // take profit and stop loss are always there (spec 1.4, also in simple mode): an empty field is no leg
@@ -110,7 +111,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   // The confirm line belongs to one order: it holds that order's signature, so any edit clears it without an effect.
   const [confirm, setConfirm] = useState<string | null>(null);
   const [engineSaid, setEngineSaid] = useState<EngineSaid | null>(null);
-  const signature = [side, type, unit, q, limit, stop, trail, tif, tp, sl].join('|');
+  const signature = [account, side, type, unit, q, limit, stop, trail, tif, tp, sl].join('|');
   // Unsent input is a session draft for this ticker (P2-160, P2-161): it stays when the ticket unmounts, and Recent
   // shows its dot. It is never sent from there. An empty quantity (a sent order clears it) leaves no draft.
   useEffect(() => {
@@ -136,7 +137,6 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const outside = fundMode && !!ctx && !!managed && !managed.mandate.classes.includes(ctx.def.assetClass);
   // a share (stocks, ETFs) trades in 0.0001 steps (R-10-4): the step is the asset's own, a fraction for the rest
   const shares = ctx?.def.assetClass === 'stock';
-  const step = ctx ? qtyStep(ctx.def) : 0;
   const firstTrade = !!me && me.player.stats.trades === 0 && !me.player.onboarding.skipped;
   const simple = firstTrade && !fundMode;
   // The order-type picker is hidden on a first trade (simple mode), except in the narrow layout (the trade sheet, UX 4).
@@ -144,26 +144,29 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const typeOpts = fundMode ? TYPE_OPTS.filter((o) => o.value === 'market' || o.value === 'limit') : TYPE_OPTS;
   // the size grid (R-10-4, 10A.5): a stock or ETF in 0.0001 shares; crypto in 1e-8 units (its own precision); FX in whole units
   // of the base currency (the lot a retail FX ticket takes); anything else in 1e-4 units. The engine accepts a finer fraction.
-  const unitDp = ctx?.def.assetClass === 'crypto' ? 8 : ctx?.def.assetClass === 'forex' ? 0 : 4;
-  const grid = step > 0 ? step : 10 ** -unitDp;
-  const roundQ = (x: number) => Number((Math.floor(x / grid + 1e-9) * grid).toFixed(unitDp));
+  const { decimals: unitDp, step: grid } = ctx ? quantityGrid(ctx.def) : { decimals: 4, step: 0.0001 };
+  const roundQ = (x: number) => ctx ? floorQuantity(ctx.def, x) : 0;
   // a size reads at the asset's own decimals (a crypto size keeps its 8 decimals; a share 4)
   const fmtQty = (n: number) => qtyIn(n, unitDp);
   // a size chip never rounds to zero (R-10-4): a chip that is affordable at all sizes to the smallest step, and the refusal says why
-  const chipQty = (x: number) => { const r = roundQ(x); return r > 0 || !(x > 0) ? r : grid; };
+  const chipQty = (x: number) => Math.max(grid, roundQ(x));
   // the size in units: the typed number, or a dollar amount converted at the price (the estimate at mid guesses the units)
   const typed = parseDecimal(q);
   const mid = ctx?.mid ?? 0;
   const guessQty = unit === 'shares' ? typed : (mid > 0 ? typed / mid : 0);
   // the preview prices under the account the order fills in: a fund trade fills in the fund's own account (R-10-1, funds/trade.ts)
   const fillAccount = fundMode && managed ? managed.accountId : playerId;
-  const est = world && ctx ? estimateFill(world, { assetId: selected, side, qty: Math.max(guessQty, step > 0 ? step : 0.0001), playerId: fillAccount ?? undefined }) : null;
-  const refPrice = est ? (type === 'limit' || type === 'stop_limit' ? parseDecimal(limit) || est.price : type === 'stop' ? parseDecimal(stop) || est.price : est.price) : 0;
-  const qtyN = unit === 'shares' ? typed : (refPrice > 0 ? roundQ(typed / refPrice) : 0);
-  // a dollar amount that does not reach one whole share at this price: said under the size, never sent as zero
-  const tooSmall = unit === 'usd' && shares && typed > 0 && qtyN === 0;
+  const entryPrice = type === 'limit' || type === 'stop_limit' ? parseDecimal(limit) : type === 'stop' ? parseDecimal(stop) : 0;
+  const guess = world && ctx ? ticketEstimate(world, selected, side, Math.max(0, guessQty), fillAccount ?? undefined, entryPrice) : null;
+  const qtyN = unit === 'shares' ? typed : world && ctx && guess
+    ? side === 'buy' ? unitsForBudget(world, selected, typed, fillAccount ?? undefined, entryPrice) : roundQ(typed / guess.price)
+    : 0;
+  const est = world && ctx ? ticketEstimate(world, selected, side, Math.max(0, qtyN), fillAccount ?? undefined, entryPrice) : null;
+  const refPrice = est?.price ?? 0;
+  // a dollar amount that does not reach one share step after fees: said under the size, never sent as zero
+  const tooSmall = unit === 'usd' && typed > 0 && qtyN === 0;
   const notional = qtyN * refPrice;
-  const fee = world && ctx ? commission(world, ctx.def, notional, qtyN) : 0;
+  const fee = est?.fee ?? 0;
   const total = side === 'buy' ? notional + fee : notional - fee;
   const bp = world && playerId ? buyingPower(world, playerId) : 0;
   // the margin rules bite for an account that borrows or holds a short; a cash-secured long account buys with its cash
@@ -176,7 +179,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const shortOk = !!world && !!acct && mayShort(world, acct, selected);
   const budget = side === 'buy' ? Math.min(margin ? bp : cashNow, capCash) : 0;
   const maxQty = !est ? 0 : side === 'buy'
-    ? Math.max(0, (budget - (ctx?.def.assetClass === 'crypto' ? 0 : 1)) / (est.price * 1.002))
+    ? world && ctx ? unitsForBudget(world, selected, budget, fillAccount ?? undefined, entryPrice) : 0
     : held > 0 ? held : shortOk ? bp / est.price : 0;
   const shorting = !fundMode && side === 'sell' && qtyN > Math.max(0, held) + 1e-9;
   // the notional this order opens: a buy's shares, or a sell's shares past the holding (a short), at the reference price
@@ -196,7 +199,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
 
   // The rules (ticketMath.ts): the first failing rule is the refusal, under its field. A fund trade keeps its own short list.
   const check = !ctx || !acct || !est || fundMode ? null : checkOrder({
-    side, type, qty: qtyN, mid: ctx?.mid ?? 0, ref: refPrice,
+    side, type, qty: qtyN, mid: ctx?.mid ?? 0, ref: refPrice, assetClass: ctx.def.assetClass,
     limit: parseDecimal(limit), stop: parseDecimal(stop), trail: parseDecimal(trail),
     tp: tp.trim() === '' ? null : parseDecimal(tp), sl: sl.trim() === '' ? null : parseDecimal(sl),
     cash: acct?.cash ?? 0, bp, margin, total, notional, held, simpleCap, capCash, capPct: firstCapVars.pct, capRank: firstCapVars.rank,
@@ -220,7 +223,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   const shown: { field: RefusalField; key: string; vars?: Record<string, string | number> } | null =
     invalid?.key ? { field: invalid.field, key: invalid.key, vars: invalid.vars } : said ? { field: said.field, key: said.key, vars: said.vars } : null;
   // refusal copy: the money and the size are formatted with the ticket's own formatters, never as raw floats (weakness 2)
-  const fmtVars = (vars: Record<string, string | number> | undefined) => formatRefusalVars(vars, { money, qty: fmtQty });
+  const fmtVars = (vars: Record<string, string | number> | undefined) => formatRefusalVars(vars, { money, qty: fmtQty, price: (n) => assetPrice(ctx?.def ?? { assetClass: 'stock' }, n) });
   const at = (field: RefusalField) => (shown && shown.field === field ? t(shown.key, fmtVars(shown.vars)) : null);
 
   const canSubmit = !invalid && qtyN > 0;
@@ -230,7 +233,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
     : shorting ? t('broker.verb.short') : t('broker.verb.sell');
   const actionLabel = t('broker.action', { verb, qty: qtyN > 0 ? fmtQty(qtyN) : '', ticker: selected }).replace(/\s+/g, ' ').trim();
   // The CTA says why it is disabled (spec 1.4): the refusal's short reason, or "Enter a size".
-  const ctaLabel = canSubmit ? actionLabel : invalid?.cta ? t(invalid.cta, fmtVars(invalid.vars)) : tooSmall ? t('broker.cta.tooSmall') : t('broker.cta.size');
+  const ctaLabel = canSubmit ? actionLabel : tooSmall ? t('broker.cta.tooSmall') : invalid?.cta ? t(invalid.cta, fmtVars(invalid.vars)) : t('broker.cta.size');
 
   const submit = async () => {
     setConfirm(null);
@@ -350,7 +353,7 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
   // R-10-2: a per-share schedule (stocks, ETFs) reads as its own rule; a rate schedule reads as its rate and minimum
   const feeText = feeRule.perUnit !== undefined
     ? t('broker.feeShare', { perShare: dec(feeRule.perUnit, 3), min: money(feeRule.min), max: `${dec((feeRule.max ?? 0) * 100, 0)}%` })
-    : t('broker.feeMin', { rate: `${dec(feeRule.rate * 100, 2)}%`, min: money(feeRule.min) });
+    : t('broker.feeMin', { rate: `${dec(feeRule.rate * 100, feeRule.rate > 0 && feeRule.rate < 0.0001 ? 3 : 2)}${pctUnit()}`, min: money(feeRule.min) });
   // the label keeps to one line; the full rule (max, value) is the row's hover text
   const feeShort = feeRule.perUnit !== undefined ? t('broker.feeShareShort', { perShare: dec(feeRule.perUnit, 3), min: money(feeRule.min) }) : feeText;
   const summary = tradeSummary({
@@ -477,13 +480,13 @@ function Ticket({ preset, selected, dense }: { preset: ReturnType<typeof useGame
                 />
               </div>
               {unit === 'usd' && qtyN > 0 && <p className="mt-1 text-caption text-fg-faint" data-testid="order-usd-shares">{t('broker.approxShares', { qty: fmtQty(qtyN) })}</p>}
-              {tooSmall && <p className="mt-1 text-caption text-warn" data-testid="order-too-small">{t('broker.refuse.tooSmall')}</p>}
+              {tooSmall && <p className="mt-1 text-caption text-warn" data-testid="order-too-small">{t('broker.refuse.tooSmall', { qty: fmtQty(grid) })}</p>}
               {under('qty')}
               <div className={`${dense ? 'mt-0.5' : 'mt-2'} grid grid-cols-4 gap-2`}>
                 {[0.1, 0.25, 0.5, 1].map((f) => (
                   <button
                     key={f} type="button"
-                    onClick={() => setQ(unit === 'usd' ? String(Math.floor(maxQty * f * d.price * 100) / 100) : String(side === 'sell' && f >= 1 ? maxQty : chipQty(maxQty * f)))}
+                    onClick={() => setQ(unit === 'usd' ? String(Math.max(0.01, Math.floor(maxQty * f * d.price * 100) / 100)) : String(side === 'sell' && f >= 1 && maxQty > 0 ? maxQty : chipQty(maxQty * f)))}
                     className={`${dense ? 'h-7' : 'h-9'} rounded-md border border-ink-3 text-caption text-fg-muted hover:border-brass/50 hover:text-fg`}
                     data-testid={`chip-${f === 1 ? 'Max' : Math.round(f * 100)}`}
                   >

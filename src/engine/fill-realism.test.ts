@@ -29,16 +29,35 @@ describe('R-10-2 fee schedule: stocks $0.005 a share, $1 minimum, 1% maximum; cr
     expect(commission(s, stock, 10_000, 100)).toBeCloseTo(1, 9); // 100 x $0.005 = $0.50, lifted to the $1 minimum
     expect(commission(s, stock, 10_000, 2000)).toBeCloseTo(10, 9); // 2,000 x $0.005 = $10 (0.1% of $10k)
     expect(commission(s, stock, 1000, 1e6)).toBeCloseTo(10, 9); // 5,000 raw, capped at 1% of $1,000
+    expect(commission(s, stock, 0.5, 0.25)).toBeCloseTo(0.005, 12); // the 1% maximum also caps the minimum
   });
   it('crypto 0.10% of notional, FX $2 per $100k, bonds and commodities 2 bps (no minimum, as ruled)', () => {
     expect(commission(s, def('AUC'), 100_000, 2.5)).toBeCloseTo(100, 9);
     expect(commission(s, def('MRE'), 100_000, 90_000)).toBeCloseTo(2, 9);
     expect(commission(s, def('AV10'), 50_000, 5000)).toBeCloseTo(10, 9);
     expect(commission(s, def('AV10'), 1000, 100)).toBeCloseTo(0.2, 9); // 2 bps of $1,000 is $0.20: no minimum on bonds
+    expect(commission(s, def('GOLD'), 1000, 0.5)).toBeCloseTo(0.2, 9);
   });
 });
 
 describe('R-10-2 spreads by class (full spread at normal volatility, the regime widens it)', () => {
+  it.each([10, cfg.ticksPerDay])('waiting orders fill at a widened spread on reopen across tick %s', (tick) => {
+    let s = openAccount(createWorld('reopen-spread', cfg), 'buyer', 5000);
+    const i = idx(s, 'HLCN');
+    s = { ...s, tick, assets: s.assets.map((a, n) => n === i ? { ...a, haltUntil: tick + 2, haltedToday: true } : a) };
+    s = placeOrder(s, { playerId: 'buyer', assetId: 'HLCN', side: 'buy', type: 'market', qty: 1 }).state;
+    const waiting = step(s);
+    expect(waiting.fills.filter((f) => f.playerId === 'buyer')).toHaveLength(0);
+    expect(halfSpread(waiting.state, i)).toBeGreaterThan(0);
+    const reopened = step(waiting.state);
+    expect(reopened.events.some((e) => e.type === 'reopen' && e.assetId === 'HLCN')).toBe(true);
+    const fill = reopened.fills.find((f) => f.playerId === 'buyer')!;
+    expect(fill).toBeDefined();
+    expect(reopened.state.assets[i]!.haltedToday).toBe(true);
+    const normal = { ...reopened.state, assets: reopened.state.assets.map((a, n) => n === i ? { ...a, haltedToday: false } : a) };
+    expect(halfSpread(reopened.state, i)).toBeCloseTo(halfSpread(normal, i) * 1.5, 12);
+    expect(fill.price).toBeGreaterThan(fill.mid * (1 + halfSpread(normal, i)));
+  });
   it('stock bands: large caps 2 bps, mid caps 7, small caps 20, micro caps 35', () => {
     expect(spreadForCap(420e9)).toBe(2);
     expect(spreadForCap(20e9)).toBe(7);

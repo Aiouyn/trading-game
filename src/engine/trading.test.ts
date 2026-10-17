@@ -98,8 +98,8 @@ describe('market orders', () => {
     expect(commission(s, s.config.assets[0]!, 500, 10)).toBe(1);
     // 1,000 shares of $50 = $50,000 -> $5 (0.01%, under the 1% cap)
     expect(commission(s, s.config.assets[0]!, 50_000, 1000)).toBeCloseTo(5, 9);
-    // a per-share fee never passes 1% of the value: 3 shares at $0.005 is $0.015 but the cap is 1% of $1
-    expect(commission(s, s.config.assets[0]!, 1, 3)).toBeCloseTo(1, 9);
+    // On $1 of value the 1% maximum caps even the $1 minimum: the fee is $0.01.
+    expect(commission(s, s.config.assets[0]!, 1, 3)).toBeCloseTo(0.01, 9);
     // crypto: 0.10% of notional, no minimum
     expect(commission(s, s.config.assets[1]!, 500, 0.01)).toBeCloseTo(0.5, 9);
     expect(commission(s, s.config.assets[1]!, 10, 0.0001)).toBeCloseTo(0.01, 9);

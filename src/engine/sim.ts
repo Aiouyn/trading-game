@@ -364,6 +364,8 @@ function advance(state: WorldState): StepResult {
         events.push({ type: 'reopen', tick, assetId: def.id, gap: Math.exp(a.pending) - 1 });
         a.pending = 0;
         a.haltUntil = -1;
+        // A halt can cross the day boundary, which cleared haltedToday above. The reopening day's fills still pay the wider spread.
+        a.haltedToday = true;
       }
     } else {
       a.lnP = Math.max(prev.lnP + r, Math.log(def.floor));

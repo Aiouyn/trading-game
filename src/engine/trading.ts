@@ -401,7 +401,7 @@ export function commission(state: WorldState, def: AssetDef, notional: number, u
   const f = fees[def.assetClass] ?? fees.stock;
   if (f.perUnit !== undefined) {
     const raw = f.perUnit * Math.max(0, units);
-    return Math.max(f.min, Math.min(raw, (f.max ?? Infinity) * notional));
+    return Math.min((f.max ?? Infinity) * notional, Math.max(f.min, raw));
   }
   return Math.max(f.min, f.rate * notional);
 }
