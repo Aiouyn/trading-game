@@ -1,0 +1,65 @@
+[
+  {
+    "dataset": "Slinky21/Pumpfun_Memecoin_Corpus",
+    "revision": "13bec2bf3089d56d50c35e602616d1b993bb37f5",
+    "file": "KNOWN_ISSUES.md",
+    "path": "C:\\Users\\Mathis\\AppData\\Local\\Temp\\memecoin-history\\KNOWN_ISSUES.md",
+    "bytes": 14974,
+    "sha256": "82534ee226e1447e5ab0c0eb4b1b5453f0241aa5426d561b8f4b00314d1da299",
+    "url": "https://huggingface.co/datasets/Slinky21/Pumpfun_Memecoin_Corpus/resolve/13bec2bf3089d56d50c35e602616d1b993bb37f5/KNOWN_ISSUES.md?download=true"
+  },
+  {
+    "dataset": "Slinky21/Pumpfun_Memecoin_Corpus",
+    "revision": "13bec2bf3089d56d50c35e602616d1b993bb37f5",
+    "file": "README.md",
+    "path": "C:\\Users\\Mathis\\AppData\\Local\\Temp\\memecoin-history\\README.md",
+    "bytes": 8253,
+    "sha256": "0cd64ffd8c20b6aee2ecb70c956d47fa7a24e786f44c7c84f85b4c4fffbc7639",
+    "url": "https://huggingface.co/datasets/Slinky21/Pumpfun_Memecoin_Corpus/resolve/13bec2bf3089d56d50c35e602616d1b993bb37f5/README.md?download=true"
+  },
+  {
+    "dataset": "Slinky21/Pumpfun_Memecoin_Corpus",
+    "revision": "13bec2bf3089d56d50c35e602616d1b993bb37f5",
+    "file": "trades/trades-00000.parquet",
+    "path": "C:\\Users\\Mathis\\AppData\\Local\\Temp\\memecoin-history\\trades-00000.parquet",
+    "bytes": 309225003,
+    "sha256": "646f56bba13514a7aa2cdbaf5ac37499175d4e0a6d5bee07f7f7f96c7e481154",
+    "url": "https://huggingface.co/datasets/Slinky21/Pumpfun_Memecoin_Corpus/resolve/13bec2bf3089d56d50c35e602616d1b993bb37f5/trades/trades-00000.parquet?download=true"
+  },
+  {
+    "dataset": "Slinky21/Pumpfun_Memecoin_Corpus",
+    "revision": "13bec2bf3089d56d50c35e602616d1b993bb37f5",
+    "file": "trades/trades-00017.parquet",
+    "path": "C:\\Users\\Mathis\\AppData\\Local\\Temp\\memecoin-history\\trades-00017.parquet",
+    "bytes": 27991939,
+    "sha256": "3e48808f2ee97c7238af48446ef1ee2028b93fed58f11715dce6ef5a15fbe580",
+    "url": "https://huggingface.co/datasets/Slinky21/Pumpfun_Memecoin_Corpus/resolve/13bec2bf3089d56d50c35e602616d1b993bb37f5/trades/trades-00017.parquet?download=true"
+  },
+  {
+    "dataset": "Slinky21/Pumpfun_Memecoin_Corpus",
+    "revision": "13bec2bf3089d56d50c35e602616d1b993bb37f5",
+    "file": "migrations.parquet",
+    "path": "C:\\Users\\Mathis\\AppData\\Local\\Temp\\memecoin-history\\migrations.parquet",
+    "bytes": 480591,
+    "sha256": "ef5d5141fd94acbcd121bed50e39e525cf7777d25338fc9852a67fd8a085105d",
+    "url": "https://huggingface.co/datasets/Slinky21/Pumpfun_Memecoin_Corpus/resolve/13bec2bf3089d56d50c35e602616d1b993bb37f5/migrations.parquet?download=true"
+  },
+  {
+    "dataset": "biznus1/pumpswap-historical-trades",
+    "revision": "7f6daff52a43ec4e430b42b9a495de7c9b51f019",
+    "file": "README.md",
+    "path": "C:\\Users\\Mathis\\AppData\\Local\\Temp\\memecoin-history\\pumpswap-README.md",
+    "bytes": 5253,
+    "sha256": "19a44220a076dc35babb1f9231030e4d6ef56f1d9967a579402de0f33ffc0299",
+    "url": "https://huggingface.co/datasets/biznus1/pumpswap-historical-trades/resolve/7f6daff52a43ec4e430b42b9a495de7c9b51f019/README.md?download=true"
+  },
+  {
+    "dataset": "biznus1/pumpswap-historical-trades",
+    "revision": "7f6daff52a43ec4e430b42b9a495de7c9b51f019",
+    "file": "pumpswap_sample_1hr.parquet",
+    "path": "C:\\Users\\Mathis\\AppData\\Local\\Temp\\memecoin-history\\pumpswap_sample_1hr.parquet",
+    "bytes": 3214946,
+    "sha256": "81fbcb297c4f0c66ebd510ad52ee880006743263c1f67797fe26538d478f47f7",
+    "url": "https://huggingface.co/datasets/biznus1/pumpswap-historical-trades/resolve/7f6daff52a43ec4e430b42b9a495de7c9b51f019/pumpswap_sample_1hr.parquet?download=true"
+  }
+]
