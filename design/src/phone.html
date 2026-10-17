@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><script src="chart.js"></script>
+<style>
+body{width:390px;height:844px;position:relative}
+.sb{height:44px;display:flex;justify-content:space-between;align-items:center;padding:0 26px;font-size:14px;font-weight:600}
+.hd{padding:6px 20px 0}
+.pos{display:flex;align-items:center;padding:11px 0;border-top:1px solid var(--ink-2)}
+.tk{font-weight:600;font-size:14px}.nm{color:var(--text-3);font-size:11.5px;margin-top:2px}
+.tabbar{position:absolute;bottom:0;left:0;right:0;height:84px;background:rgba(11,13,16,.96);border-top:1px solid var(--ink-2);display:flex;justify-content:space-around;padding-top:10px}
+.tb{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;color:var(--text-3)}
+.tb.on{color:var(--brass-hi)}
+.tb svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.5}
+.tabs{display:flex;gap:2px}.tabs span{font-size:11.5px;padding:5px 10px;border-radius:7px;color:var(--text-2);font-family:var(--mono)}.tabs span.on{background:var(--ink-3);color:var(--text-1)}
+</style></head><body>
+<div class="sb"><span>14:35</span><span style="letter-spacing:2px">▮▮▮ ◔</span></div>
+<div class="hd">
+ <div style="display:flex;justify-content:space-between;align-items:center">
+  <span class="chip brass">R1 · Hustler</span>
+  <div style="display:flex;align-items:center;gap:8px"><span class="mono dim" style="font-size:12px">Day 12 · 14:35</span><span id="tick"></span></div>
+ </div>
+ <div class="label" style="margin-top:18px">Net worth</div>
+ <div class="serif" style="font-size:48px;line-height:1.05;margin-top:4px">$48,212<span style="font-size:30px;color:var(--text-2)">.40</span></div>
+ <div class="mono gain" style="font-size:14px;margin-top:4px">+$1,284.10 · +2.74% today</div>
+ <div style="height:3px;background:var(--ink-3);border-radius:2px;margin-top:14px"><div style="width:19%;height:3px;background:var(--brass);border-radius:2px"></div></div>
+ <div class="faint mono" style="font-size:10.5px;margin-top:6px;display:flex;justify-content:space-between"><span>$48.2k / $250k to Owner</span><span>Bronze III · #7</span></div>
+</div>
+<div class="card" style="margin:16px 14px 0;padding:14px 12px 8px">
+ <div style="display:flex;justify-content:space-between;align-items:flex-start">
+  <div><div><span class="tk">HALD</span> <span class="dim" style="font-size:12px">Halden Dynamics</span></div>
+  <div style="margin-top:4px"><span class="mono" style="font-size:24px;font-weight:500">91.36</span> <span class="mono gain" style="font-size:12.5px">+3.12%</span></div></div>
+  <div class="tabs" style="margin-top:2px"><span>1H</span><span class="on">1D</span><span>1W</span><span>1Y</span></div>
+ </div>
+ <div id="chart" style="margin-top:6px"></div>
+</div>
+<div style="padding:16px 20px 0">
+ <div style="display:flex;justify-content:space-between;align-items:baseline"><div class="serif" style="font-size:22px">Positions</div><div class="dim" style="font-size:12px">Cash <span class="mono" style="color:var(--text-1)">$9,694.85</span></div></div>
+ <div class="pos" style="margin-top:8px"><div style="flex:1"><div class="tk">HALD</div><div class="nm">120 · avg 84.20</div></div><span class="sp" data-s="11" data-u="1" style="margin-right:14px"></span><div style="text-align:right"><div class="mono" style="font-size:13.5px">10,963.20</div><div class="mono gain" style="font-size:11.5px">+8.50%</div></div></div>
+ <div class="pos"><div style="flex:1"><div class="tk">VLRM</div><div class="nm">40 · avg 212.50</div></div><span class="sp" data-s="22" data-u="0" style="margin-right:14px"></span><div style="text-align:right"><div class="mono" style="font-size:13.5px">8,207.20</div><div class="mono loss" style="font-size:11.5px">−3.44%</div></div></div>
+ <div class="pos"><div style="flex:1"><div class="tk">ASTR</div><div class="nm">300 · avg 22.10</div></div><span class="sp" data-s="33" data-u="1" style="margin-right:14px"></span><div style="text-align:right"><div class="mono" style="font-size:13.5px">7,461.00</div><div class="mono gain" style="font-size:11.5px">+12.53%</div></div></div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:84px;height:110px;background:linear-gradient(180deg,rgba(11,13,16,0),#0B0D10 55%)"></div><button class="btn-brass" style="position:absolute;left:20px;right:20px;bottom:100px;height:50px;font-size:15px">Trade HALD</button>
+<div class="tabbar">
+ <div class="tb on"><svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 8-9"/><path d="M15 6h5v5"/></svg>Market</div>
+ <div class="tb"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v8h8"/></svg>Portfolio</div>
+ <div class="tb"><svg viewBox="0 0 24 24"><path d="M4 11l8-6 8 6v8H4z"/><path d="M10 19v-5h4v5"/></svg>Estate</div>
+ <div class="tb"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M8 9h8M8 12h8M8 15h5"/></svg>Wire</div>
+ <div class="tb"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/></svg>More</div>
+</div>
+<script>
+ring(document.getElementById('tick'),{size:22,frac:.62});
+candles(document.getElementById('chart'),{seed:7,n:48,start:80,vol:.011,drift:.0016,w:338,h:150,volH:26,pad:44,endAt:91.36});
+document.querySelectorAll('.sp').forEach(e=>spark(e,{seed:+e.dataset.s,w:56,h:20,up:e.dataset.u=='1'}));
+</script></body></html>

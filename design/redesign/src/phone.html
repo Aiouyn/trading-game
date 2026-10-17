@@ -1,0 +1,96 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="quay.css">
+<script src="palettes.js"></script><script src="glyphs.js"></script><script src="wallpaper.js"></script><script src="chart.js"></script>
+<style>
+body{width:390px;height:844px}
+#wall{position:absolute;inset:0}
+.veil{position:absolute;inset:0;background:linear-gradient(180deg,color-mix(in srgb,var(--bg0) 55%,transparent) 0%,transparent 40%,transparent 70%,color-mix(in srgb,var(--bg0) 50%,transparent) 100%)}
+.sb{position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;padding:0 22px;font-family:var(--mono);font-size:13px;z-index:2}
+.sb .qm{color:var(--acc);margin-right:8px;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;margin-left:-5px}
+.sb .qm.on{background:color-mix(in srgb,var(--acc) 16%,transparent)}
+.sb .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+.widget{position:absolute;left:16px;right:16px;top:54px;border-radius:20px;background:color-mix(in srgb,var(--win) 94%,transparent);border:1px solid var(--line);padding:16px 18px 16px;box-shadow:var(--shadow)}
+.widget .top{display:flex;align-items:center}
+.widget .big{font-family:var(--serif);font-size:44px;line-height:1;margin-top:8px;letter-spacing:-.005em}
+.widget .big small{font-size:28px;color:var(--muted)}
+.prog{height:3px;border-radius:2px;background:var(--line);margin-top:12px;overflow:hidden}
+.prog i{display:block;height:100%;width:8.3%;background:var(--acc)}
+.grid{position:absolute;left:14px;right:14px;top:262px;display:grid;grid-template-columns:repeat(4,1fr);row-gap:20px}
+.app{display:flex;flex-direction:column;align-items:center;gap:7px}
+.ic{position:relative;width:60px;height:60px;border-radius:16px;background:var(--win);border:1px solid var(--line);display:grid;place-items:center;color:var(--acc)}
+.dark .ic{box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 6px 14px rgba(0,0,0,.25)}
+.light .ic{box-shadow:0 4px 10px rgba(60,45,20,.08)}
+.app .nm{font-size:11.5px;color:var(--fg);white-space:nowrap;text-shadow:0 1px 2px color-mix(in srgb,var(--bg0) 70%,transparent)}
+.light .app .nm{text-shadow:none}
+.app.locked .ic{color:var(--dis);background:color-mix(in srgb,var(--win) 80%,transparent)}
+.app.locked .nm{color:var(--muted)}
+.tag{position:absolute;right:-5px;top:-5px;font-family:var(--mono);font-size:9px;padding:1px 4px;border-radius:5px;background:var(--win2);border:1px solid var(--line);color:var(--muted)}
+.badge{position:absolute;right:-2px;top:-2px;width:10px;height:10px;border-radius:50%;background:var(--acc);border:2px solid var(--win)}
+.row{position:absolute;left:14px;right:14px;bottom:34px;height:92px;border-radius:24px;background:color-mix(in srgb,var(--chrome) 88%,transparent);border:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);align-items:center;padding-top:2px}
+.edge{position:absolute;bottom:9px;left:50%;transform:translateX(-50%);color:var(--faint);opacity:.9}
+</style></head><body>
+<div id="wall"></div><div class="veil"></div>
+<div class="sb"><span class="qm" id="qm" data-testid="phone-quay"></span><span>D38 · 11:20</span><span class="r"><span class="dot" style="background:var(--gain);width:5px;height:5px"></span>$412.9k</span></div>
+<div class="widget" data-testid="home-widget">
+  <div class="top"><span class="label">Net worth</span><span class="chip acc" style="margin-left:auto">R2 · Owner</span></div>
+  <div class="big">$412,860<small>.15</small></div>
+  <div style="display:flex;align-items:center;margin-top:8px"><span class="mono gain" style="font-size:12.5px">+3,214.80 · +0.78%</span><span class="muted" style="font-size:12px;margin-left:6px">today</span><span id="sp" style="margin-left:auto"></span></div>
+  <div class="prog"><i></i></div>
+  <div style="display:flex;justify-content:space-between;margin-top:7px;font-size:11.5px" class="muted"><span>Next: Operator</span><span class="mono">$412.9k / $5M</span></div>
+</div>
+<div class="grid" id="grid"></div>
+<div class="row" id="row"></div>
+<div class="edge" id="edge"></div>
+<div id="rec"></div>
+<script>
+function recents(){
+  qm.classList.add('on');
+  const rows=[
+    ['broker','Broker','HLCN 84.62 · ticket open',true,'now'],
+    ['wire','Wire','2 new since 11:02',false,'11:19'],
+    ['portfolio','Portfolio','$412,860.15 · +0.78%',false,'11:16'],
+    ['messages','Messages','1 unread · Harbour Bank',false,'11:04'],
+    ['businesses','Businesses','Upkeep paid through Day 41',false,'D37',true],
+    ['bank','Bank & Credit','Credit line 40,000.00 · 6.20%',false,'D36'],
+  ];
+  rec.innerHTML=`<div class="scrim"></div><div class="sheet" data-testid="phone-recents"><div class="grab"></div>
+   <div class="sh-top"><span class="label">Recent</span><span class="faint" style="font-size:11.5px;margin-left:auto">Swipe left to close</span></div>
+   ${rows.map(([k,n,l,dot,t,sw])=>`<div class="rw-wrap${k==='bank'?' last':''}">${sw?'<div class="rw-close">Close</div>':''}<div class="rw${sw?' swiped':''}" data-testid="recents-row-${k}"><div class="rt">${glyph(k,20,1.5)}${dot?'<i class="adot"></i>':''}</div><div class="rx"><div class="rn">${n}</div><div class="rl mono">${l}</div></div><span class="rtime mono">${t}</span></div></div>`).join('')}
+   <div class="home-btn" data-testid="recents-home">${glyph('quay',16,1.6)}Home</div></div>`;
+}
+</script>
+<style>
+.sb{z-index:10!important}
+.edge{z-index:10}
+.scrim{position:absolute;inset:0;background:rgb(0 0 0 / .55);z-index:8}
+.light .scrim{background:rgb(27 26 23 / .35)}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:9;background:var(--win);border-top:1px solid var(--line);border-radius:20px 20px 0 0;padding:0 16px 40px;box-shadow:0 -12px 40px rgb(0 0 0 / .5)}
+.grab{width:36px;height:4px;border-radius:2px;background:var(--line);margin:9px auto 6px}
+.dark .grab{background:#3A404A}
+.sh-top{display:flex;align-items:center;height:34px;padding:0 4px}
+.rw-wrap{position:relative;border-bottom:1px solid var(--line);overflow:hidden}
+.rw-wrap.last{border-bottom:none}
+.rw{position:relative;display:flex;align-items:center;gap:12px;height:60px;padding:0 4px;background:var(--win)}
+.rw.swiped{transform:translateX(-72px)}
+.rw-close{position:absolute;right:0;top:0;bottom:0;width:72px;display:grid;place-items:center;font-size:13px;font-weight:600;color:var(--loss);background:color-mix(in srgb,var(--loss) 12%,var(--win))}
+.rt{position:relative;width:36px;height:36px;border-radius:10px;background:var(--win2);border:1px solid var(--line);display:grid;place-items:center;color:var(--acc);flex:none}
+.adot{position:absolute;right:-3px;top:-3px;width:9px;height:9px;border-radius:50%;background:var(--acc);border:2px solid var(--win)}
+.rx{flex:1;min-width:0}
+.rn{font-size:14px;font-weight:600}
+.rl{font-size:11.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rtime{font-size:10.5px;color:var(--faint)}
+.home-btn{margin-top:12px;height:44px;border:1px solid var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13.5px;font-weight:500;color:var(--fg)}
+.home-btn .g{color:var(--acc)}
+</style>
+<script>
+const slug=paletteSlug(); const P=applyPalette(slug);
+document.getElementById('wall').innerHTML=wallpaper(slug,390,844,P,.79);
+sp.innerHTML=spark(23,true,P,92,22);
+const tile=(k,n,o={})=>`<div class="app${o.locked?' locked':''}" data-testid="home-app-${k}"><div class="ic">${glyph(k,26,1.5)}${o.badge?'<i class="badge"></i>':''}${o.tag?`<span class="tag">${o.tag}</span>`:''}</div>${o.nolabel?'':`<span class="nm">${n}</span>`}</div>`;
+const lab={research:'Research Desk',bank:'Bank & Credit',legal:'Legal & Court'};
+grid.innerHTML=APPS.slice(4,12).map(([k,n])=>tile(k,lab[k]||n,{locked:k==='research',tag:k==='research'?'R3':''})).join('');
+row.innerHTML=APPS.slice(0,4).map(([k,n])=>tile(k,n,{badge:k==='messages'||k==='wire'})).join('');
+edge.innerHTML=glyph('quay',30,1.5); qm.innerHTML=glyph('quay',18,1.6);
+if(new URLSearchParams(location.search).get('recents')) recents();
+</script>
+</body></html>

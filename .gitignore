@@ -49,3 +49,16 @@ next-env.d.ts
 
 
 balance-out/
+
+# local agent worktrees, data and outputs (added before GitHub import)
+.claude/
+.hermes/
+world-data/
+*.db
+*.parquet
+proof/
+playwright-report/
+test-results/
+balance-out/
+.venv/
+out/

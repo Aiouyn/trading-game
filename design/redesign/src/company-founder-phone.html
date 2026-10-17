@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="quay.css"><link rel="stylesheet" href="company.css"><link rel="stylesheet" href="company-phone.css">
+<script src="palettes.js"></script><script src="glyphs.js"></script>
+</head><body>
+<div class="sb"><span class="qm" data-g="quay"></span><span>D41 · 09:10</span><span class="r"><span class="dot" style="background:var(--gain);width:5px;height:5px"></span>$431.2k</span></div>
+<div class="ab"><span class="bk" data-g="chev"></span><span class="t"><span data-g="company"></span>Company</span></div>
+<div class="tabs" data-testid="company-tabs"><div class="on">Overview</div><div>Products</div><div>R&amp;D</div><div>People</div><div>Operations</div><div>Marketing</div></div>
+<div class="body">
+  <div style="display:flex;align-items:flex-end">
+    <div><div class="serif" style="font-size:27px;line-height:1">Lantern Roasting Co.</div><div class="faint" style="font-size:11.5px;margin-top:6px">Seed · Private · Founded Day 36</div></div>
+  </div>
+  <div class="mtoggle" data-testid="company-view-toggle"><div class="on">Founder view</div><div>What the market sees</div></div>
+  <div class="card">
+    <div style="display:flex;align-items:flex-start">
+      <div><div class="label" style="display:flex;gap:8px;align-items:center">Cash <span class="priv">Private</span></div><div class="serif" style="font-size:34px;line-height:1;margin-top:6px">$182,400<span style="font-size:22px;color:var(--muted)">.00</span></div></div>
+      <div style="margin-left:auto;text-align:right"><div class="label">Runway</div><div class="serif" style="font-size:34px;line-height:1;margin-top:6px">14 wk</div></div>
+    </div>
+    <div class="bar" style="margin-top:12px;height:4px"><i style="width:54%"></i></div>
+    <div style="display:flex;justify-content:space-between;margin-top:7px;font-size:11.5px" class="muted"><span>Costs <span class="mono loss">−12,580.00</span> a week</span><span>No sales yet</span></div>
+  </div>
+  <div class="card dec" data-testid="company-decision">
+    <div class="chd" style="margin-bottom:8px"><span class="label" style="color:var(--acc-hi)">Decision · Day 42 close</span></div>
+    <h3 style="font-size:20px">How much goes into the House Blend quality project?</h3>
+    <div class="srow" style="margin-top:12px"><span>Budget per week</span><span><span class="faint" style="font-size:11px;margin-right:6px">was 4,000</span><span class="mono">8,000.00</span></span></div>
+    <div class="slider"><div class="tr"></div><div class="fl" style="width:53.3%"></div><div class="was" style="left:26.7%"></div><div class="kn" style="left:53.3%;width:22px;height:22px;margin-left:-11px;top:0"></div></div>
+    <div class="kv2" style="margin-top:4px"><span>Runway after</span><span class="mono">14 → 11 weeks</span></div>
+    <div class="kv2"><span>Success odds</span><span class="mono">70–80%</span></div>
+    <div class="lag" style="margin-top:6px"><span data-g="clock"></span><span>Quality moves when it completes, about Day 62.</span></div>
+    <div class="btn pri full" style="margin-top:12px">Confirm for Day 42 close</div>
+  </div>
+  <div class="card" data-testid="company-checklist">
+    <div class="chd" style="margin-bottom:4px"><span class="label">First week</span><span class="r mono faint" style="font-size:11px">2 of 5</span></div>
+    <div class="check done"><span class="bx" data-g="tick"></span><span class="tx">Register the company</span><span class="d">D36</span></div>
+    <div class="check done"><span class="bx" data-g="tick"></span><span class="tx">Hire an R&amp;D lead</span><span class="d">D37</span></div>
+    <div class="check now"><span class="bx"></span><span class="tx">Set the R&amp;D budget</span><span class="d" style="color:var(--acc)">due D42</span></div>
+    <div class="check"><span class="bx"></span><span class="tx">Pick a price band</span></div>
+  </div>
+</div>
+<div class="fade"></div><div class="edge" data-g="quaybig"></div>
+<script>
+G.clock='<circle cx="12" cy="12" r="8.25"/><path d="M12 7.5V12l3 2"/>'; G.tick='<path d="m5 12.5 4.5 4.5L19 7.5"/>'; G.quaybig=G.quay;
+applyPalette('ink-brass');
+document.querySelectorAll('[data-g]').forEach(e=>{const g=e.dataset.g; const sz={tick:11,quay:18,quaybig:30,chev:20,company:17}[g]||15; e.innerHTML=glyph(g,sz,g==='tick'?2:1.5)});
+</script>
+</body></html>

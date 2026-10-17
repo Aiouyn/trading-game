@@ -1,0 +1,50 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="quay.css"><link rel="stylesheet" href="company.css"><link rel="stylesheet" href="company-phone.css">
+<script src="palettes.js"></script><script src="glyphs.js"></script>
+<style>
+.body{top:88px;gap:11px}
+.steps{display:flex;gap:6px}.steps i{flex:1;height:3px;border-radius:2px;background:var(--acc)}.steps i.n{background:var(--line)}
+.owe{border:1px solid color-mix(in srgb,var(--warn) 45%,var(--line));border-radius:12px;padding:14px;background:color-mix(in srgb,var(--warn) 5%,var(--win))}
+.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.opt .r{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--muted);flex:none;margin-top:2px;position:relative}
+.opt.on{border-color:color-mix(in srgb,var(--acc) 55%,var(--line))}
+.opt.on .r{border-color:var(--acc)}.opt.on .r::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--acc)}
+.opt .t{font-size:13px;color:var(--fg)}.opt .s{font-size:11.5px;color:var(--muted);margin-top:2px}
+.opt .v{margin-left:auto;text-align:right;font-family:var(--mono);font-size:12px;white-space:nowrap}
+.ack{display:flex;gap:10px;align-items:flex-start;font-size:12px;color:var(--muted);line-height:1.45}
+.ack .b{width:18px;height:18px;border-radius:4px;border:1.5px solid var(--muted);flex:none;margin-top:1px}
+.hold{position:relative;height:46px;border-radius:10px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;color:var(--dis);background:var(--win2)}
+</style>
+</head><body>
+<div class="sb"><span class="qm" data-g="quay"></span><span>D402 · 11:30</span><span class="r"><span class="dot" style="background:var(--gain);width:5px;height:5px"></span>$24.6M</span></div>
+<div class="ab"><span class="bk" data-g="chev"></span><span class="t"><span data-g="company"></span>Borrow · Sign</span><span class="act mono faint" style="font-size:12px;margin-right:6px">3 of 3</span></div>
+<div class="body" data-testid="company-guarantee">
+  <div class="steps"><i></i><i></i><i></i></div>
+  <div>
+    <div class="faint" style="font-size:11.5px">Term loan · Harbour Mutual Bank · 5 years</div>
+    <div class="serif" style="font-size:32px;line-height:1.05;margin-top:4px">$2,000,000<span style="font-size:21px;color:var(--muted)">.00</span></div>
+  </div>
+  <div class="owe" data-testid="company-guarantee-amount">
+    <div class="label" style="color:var(--warn)">If you add a personal guarantee</div>
+    <div style="font-size:14.5px;line-height:1.45;margin-top:7px;color:var(--fg)">If Lantern Roasting Co. can't repay, you personally owe up to <span class="mono">$2,000,000.00</span> plus unpaid interest.</div>
+    <div style="font-size:12px;line-height:1.45;margin-top:6px;color:var(--muted)">It moves to your own debt on default and comes out of your cash and holdings first.</div>
+  </div>
+  <div class="opt on" data-testid="company-guarantee-without"><span class="r"></span><div><div class="t">Sign without a guarantee</div><div class="s">Only the company owes. Your stake can still fall to zero.</div></div><div class="v">0.034%<div class="faint" style="font-size:10.5px">a day</div></div></div>
+  <div class="opt" data-testid="company-guarantee-with"><span class="r"></span><div><div class="t">Sign with a guarantee</div><div class="s">Rate cut by a quarter. You owe the amount above on default.</div></div><div class="v">0.0255%<div class="faint" style="font-size:10.5px">a day</div></div></div>
+  <div class="card" style="padding:11px 13px">
+    <div class="kv2"><span>Interest a year, without</span><span class="mono">171,360.00</span></div>
+    <div class="kv2"><span>Interest a year, with</span><span class="mono">128,520.00</span></div>
+    <div class="kv2"><span>Covenants</span><span class="mono">debt ≤ 3.5× · cover ≥ 2.0×</span></div>
+    <div class="kv2"><span>If a covenant breaks</span><span class="mono">21 days to fix</span></div>
+  </div>
+  <div class="ack" data-testid="company-guarantee-ack"><span class="b"></span><span>I've read what this loan means for the company<span class="guar-only"> and for me</span>.</span></div>
+  <div class="hold" data-testid="company-guarantee-sign">Hold to sign</div>
+  <div class="faint" style="font-size:11px;text-align:center;margin-top:-4px">Tick the box first. Let go to stop. Back costs nothing.</div>
+</div>
+<div class="fade" style="height:30px"></div>
+<script>
+G.quaybig=G.quay;
+applyPalette('ink-brass');
+document.querySelectorAll('[data-g]').forEach(e=>{const g=e.dataset.g; const sz={quay:18,chev:20,company:17}[g]||15; e.innerHTML=glyph(g,sz,1.5)});
+</script>
+</body></html>

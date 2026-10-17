@@ -11,6 +11,7 @@ async function freshGame(page: Page, seed: string) {
   await page.waitForFunction(() => Boolean((window as unknown as { __tg?: unknown }).__tg), null, { timeout: 30_000 });
   await page.evaluate(() => (window as unknown as { __tg: { pause(): void } }).__tg.pause());
   await expect(page.getByTestId("net-worth")).toBeVisible();
+  await page.getByRole("button", { name: "Open Markets", exact: true }).click();
   return errors;
 }
 
@@ -53,6 +54,7 @@ test("core loop: buy within the first-trade cap, fill, persist across reload", a
   await page.goto("/");
   await page.waitForFunction(() => Boolean((window as unknown as { __tg?: unknown }).__tg), null, { timeout: 30_000 });
   await page.evaluate(() => (window as unknown as { __tg: { pause(): void } }).__tg.pause());
+  await page.getByRole("button", { name: "Open Markets", exact: true }).click();
   await expect(page.getByTestId("position-HLCN")).toBeVisible();
   expect(money(await page.getByTestId("cash").first().textContent()), "cash restored after reload").toBeCloseTo(cash1, 0);
   expect(errors, "console errors during the core loop").toEqual([]);

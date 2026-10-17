@@ -1,0 +1,53 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="quay.css"><link rel="stylesheet" href="company.css"><link rel="stylesheet" href="company-phone.css">
+<script src="palettes.js"></script><script src="glyphs.js"></script>
+<style>
+.body{top:88px}
+.bs{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:9px;overflow:hidden;height:40px;opacity:.45}
+.bs div{display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;color:var(--dis)}
+.fld{display:flex;align-items:center;height:40px;border:1px solid var(--line);border-radius:9px;padding:0 12px;background:var(--win2);opacity:.45;font-size:12px;color:var(--dis)}
+.fld .v{margin-left:auto;font-family:var(--mono)}
+.lock{border:1px solid color-mix(in srgb,var(--acc) 45%,var(--line));border-radius:12px;padding:14px;background:color-mix(in srgb,var(--acc) 5%,var(--win))}
+.lock .h{display:flex;align-items:center;gap:10px}
+.lock .ic{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);display:grid;place-items:center;color:var(--acc)}
+.pill{display:inline-flex;align-items:center;height:16px;padding:0 5px;border:1px solid color-mix(in srgb,var(--acc) 60%,transparent);border-radius:4px;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--acc-hi);margin-right:6px}
+.kvp{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);line-height:22px}
+.kvp .mono{color:var(--fg);font-size:12px}
+.wl{display:flex;gap:9px;font-size:12px;color:var(--muted);line-height:1.4;padding:9px 0 0;border-top:1px solid var(--line);margin-top:10px}
+</style>
+</head><body>
+<div class="sb"><span class="qm" data-g="quay"></span><span>D594 · 10:05</span><span class="r"><span class="dot" style="background:var(--gain);width:5px;height:5px"></span>$37.9M</span></div>
+<div class="ab"><span class="bk" data-g="chev"></span><span class="t"><span data-g="broker"></span>Broker</span><span class="act mono faint" style="font-size:12px;margin-right:6px">LNTN</span></div>
+<div class="body">
+  <div style="display:flex;align-items:flex-end">
+    <div><div style="font-weight:600;font-size:17px">LNTN <span class="muted" style="font-weight:400;font-size:13px;margin-left:4px">Lantern Roasting Co.</span></div><div class="faint" style="font-size:11px;margin-top:3px">Equity · Staples</div></div>
+    <div style="margin-left:auto;text-align:right"><div class="mono" style="font-size:22px">30.85</div><div class="mono loss" style="font-size:11.5px">−0.21 −0.68%</div></div>
+  </div>
+  <div id="chart"></div>
+  <div class="lock" data-testid="window-closed-ticket">
+    <div class="h"><span class="ic" data-g="lock"></span><div><div class="serif" style="font-size:21px;line-height:1.1">Window closed until Day 635</div><div class="faint" style="font-size:11px;margin-top:3px">You run Lantern, so this ticket is locked for now</div></div></div>
+    <div style="font-size:12.5px;color:var(--muted);line-height:1.45;margin-top:10px">LNTN, PACF and anything built on them trade only from 2 to 21 days after each filing. Next filing D633, window D635 to D654.</div>
+    <div class="wl"><span data-g="wire" style="color:var(--faint)"></span><span>D591 close: 1 open order cancelled, buy 2,000 PACF at 48.10.</span></div>
+  </div>
+  <div class="bs" aria-disabled="true"><div>Buy</div><div>Sell</div></div>
+  <div class="fld" aria-disabled="true">Quantity<span class="v">—</span></div>
+  <div class="card" data-testid="window-closed-plans">
+    <div class="chd" style="margin-bottom:4px"><span class="label">Committed plans still run</span><span class="r priv">Private</span></div>
+    <div class="kvp"><span><span class="mono" style="color:var(--loss)">Sell</span> PACF · D650, D655, D660</span><span class="mono">400 each</span></div>
+    <div class="kvp" style="font-size:11px;line-height:18px;margin-bottom:4px"><span style="display:flex;align-items:center"><span class="pill">PLAN</span>Locked: 1,200 PACF · min 44.00</span></div>
+    <div class="kvp"><span><span class="mono" style="color:var(--loss)">Sell</span> LNTN · D700, D710, D720</span><span class="mono">15,000 each</span></div>
+    <div class="kvp" style="font-size:11px;line-height:18px"><span style="display:flex;align-items:center"><span class="pill">PLAN</span>Locked: 45,000 shares · min 24.00</span></div>
+    <div class="btn gh full" style="margin-top:10px;height:38px">Open Trading plan</div>
+  </div>
+</div>
+<div class="fade"></div><div class="edge" data-g="quaybig"></div>
+<script>
+G.lock='<rect x="5.5" y="10.5" width="13" height="9" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>'; G.quaybig=G.quay;
+const P=applyPalette('ink-brass');
+document.querySelectorAll('[data-g]').forEach(e=>{const g=e.dataset.g; const sz={quay:18,quaybig:30,chev:20,broker:17}[g]||15; e.innerHTML=glyph(g,sz,1.5)});
+(function(){const w=358,h=120,n=50;let v=31.6,pts=[];for(let i=0;i<n;i++){v+=Math.sin(i*0.5)*0.05-0.016+Math.cos(i*0.23)*0.06;pts.push(v)}
+const mn=Math.min(...pts)-0.1,mx=Math.max(...pts)+0.1;const xy=pts.map((p,i)=>[i*w/(n-1),h-6-(p-mn)/(mx-mn)*(h-14)]);
+const d=xy.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join(' ');
+document.getElementById('chart').innerHTML=`<svg width="${w}" height="${h}"><line x1="0" x2="${w}" y1="${h/2}" y2="${h/2}" stroke="${P.line}" stroke-dasharray="2 4"/><path d="${d}" fill="none" stroke="${P.muted}" stroke-width="1.5"/></svg>`;})();
+</script>
+</body></html>

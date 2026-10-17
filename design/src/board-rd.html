@@ -1,0 +1,95 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><link rel="stylesheet" href="board.css">
+<style>
+.wrow{display:flex;align-items:center;padding:6px 0;font-size:13px}
+.wrow .l{width:118px;color:var(--text-2)}
+.wrow .b{flex:1;margin:0 10px;height:6px;position:relative}
+.wrow .b span{position:absolute;top:0;height:6px;border-radius:2px}
+.wrow .v{width:64px;text-align:right;font-family:var(--mono)}
+.frow{display:flex;align-items:center;padding:7px 0;font-size:13px}
+.frow .l{width:118px;color:var(--text-2)}
+.frow .b{flex:1;margin:0 10px;height:6px;position:relative;background:linear-gradient(90deg,transparent calc(50% - .5px),var(--ink-3) calc(50% - .5px),var(--ink-3) calc(50% + .5px),transparent calc(50% + .5px))}
+.frow .b span{position:absolute;top:0;height:6px;border-radius:2px}
+.frow .v{width:48px;text-align:right;font-family:var(--mono)}
+.spine{position:absolute;left:0;top:44px;bottom:0;width:1px;background:var(--brass)}
+.tier{border:1px solid var(--ink-3);border-radius:12px;padding:14px;margin-top:12px}
+.tier.sel{border-color:var(--brass)}
+.dchip{border:1px solid var(--ink-3);border-radius:8px;padding:7px 10px;font-family:var(--mono);font-size:12.5px}
+.hl{padding:9px 0;border-bottom:1px solid var(--ink-2);font-size:13px}
+</style></head><body>
+<div class="board">
+
+<!-- 1 hire -->
+<div><div class="cap">1 · Analyst: hire card</div>
+<div class="ph">
+ <div class="sb"><span>18:04</span><span>▮▮▮ ◔</span></div>
+ <div class="pad" style="padding-top:18px">
+  <div class="label">Analyst</div>
+  <div class="serif" style="font-size:32px;line-height:1.1;margin-top:10px">Someone to read the tape for you.</div>
+  <div class="dim small" style="margin-top:10px;line-height:1.5">Your journal already gives one line per trade. An analyst gives the whole breakdown.</div>
+  <div class="tier sel">
+   <div class="row"><span style="font-weight:600">Junior</span><span class="mono small">$900 / week</span></div>
+   <div class="dim small" style="margin-top:6px;line-height:1.45">Breaks every closed trade into market, sector, news, company noise and fees.</div>
+  </div>
+  <div class="tier">
+   <div class="row"><span style="font-weight:600">Senior</span><span class="mono small">$4,500 / week</span></div>
+   <div class="dim small" style="margin-top:6px;line-height:1.45">Adds which headline and which day, and the crowd's flow by type.</div>
+  </div>
+  <div class="mono cap2 faint" style="margin-top:8px">Prices are placeholders until Quant sizes them.</div>
+  <div class="btn btn-brass" style="margin-top:22px">Hire Junior · $900 a week</div>
+  <div class="cap2 faint" style="margin-top:10px;line-height:1.5;text-align:center">Paid a week ahead at the close. No refund if you let them go.<br>Held ad or comeback cash can't pay for this.</div>
+ </div>
+</div></div>
+
+<!-- 2 desk dossier -->
+<div><div class="cap">2 · Research Desk: the file</div>
+<div class="ph">
+ <div class="sb"><span>18:06</span><span>▮▮▮ ◔</span></div>
+ <div class="spine"></div>
+ <div class="pad" style="padding-top:14px">
+  <div style="display:flex;gap:8px"><span class="dchip">HLCN ▾</span><span class="dchip">From Day 30</span><span class="dchip">To Day 37</span></div>
+  <div class="cap2 faint" style="margin-top:6px">Day 38 · session open, can't be picked</div>
+  <div class="hair" style="margin-top:14px"></div>
+  <div class="label mono" style="margin-top:14px">Research Desk · File 0412</div>
+  <div class="serif" style="font-size:30px;line-height:1.1;margin-top:8px">Harlow Cycle, Day 30 to Day 37</div>
+  <div class="mono small" style="margin-top:8px"><span class="loss">−11.40%</span><span class="faint"> · GX </span><span class="loss">−2.10%</span></div>
+  <div class="serif" style="font-size:19px;line-height:1.3;margin-top:16px">The sector did most of it. Trend followers were already full and sold into Day 34's guidance cut. Value funds started buying on Day 36.</div>
+  <div class="label" style="margin-top:18px">Why it moved</div>
+  <div style="margin-top:6px">
+   <div class="wrow"><span class="l">Market (GX)</span><span class="b"><span style="left:0;width:18%;background:rgba(255,107,90,.7)"></span></span><span class="v loss">−2.10</span></div>
+   <div class="wrow"><span class="l">Sector</span><span class="b"><span style="left:18%;width:38%;background:rgba(255,107,90,.7)"></span></span><span class="v loss">−4.40</span></div>
+   <div class="wrow"><span class="l">News · 2</span><span class="b"><span style="left:56%;width:16%;background:rgba(255,107,90,.7)"></span></span><span class="v loss">−1.90</span></div>
+   <div class="wrow"><span class="l">Flow</span><span class="b"><span style="left:72%;width:22%;background:rgba(255,107,90,.7)"></span></span><span class="v loss">−2.60</span></div>
+   <div class="wrow"><span class="l">Company noise</span><span class="b"><span style="left:91%;width:3%;background:rgba(255,107,90,.7)"></span></span><span class="v loss">−0.40</span></div>
+   <div class="hair" style="margin:6px 0"></div>
+   <div class="row" style="padding:4px 0;font-size:13px"><span style="font-weight:600">Move</span><span class="mono loss" style="font-weight:600">−11.40 pts</span></div>
+  </div>
+ </div>
+</div></div>
+
+<!-- 3 flow + headlines -->
+<div><div class="cap">3 · Research Desk: the crowd, by type</div>
+<div class="ph">
+ <div class="sb"><span>18:06</span><span>▮▮▮ ◔</span></div>
+ <div class="spine"></div>
+ <div class="pad" style="padding-top:14px">
+  <div class="label">Flow by type</div>
+  <div class="row cap2 faint mono" style="margin-top:8px;padding:0 48px 0 118px"><span>sold</span><span>bought</span></div>
+  <div class="frow"><span class="l">Trend followers</span><span class="b"><span style="right:50%;width:34%;background:rgba(255,107,90,.7)"></span></span><span class="v loss">38%</span></div>
+  <div class="frow"><span class="l">Retail</span><span class="b"><span style="right:50%;width:14%;background:rgba(255,107,90,.7)"></span></span><span class="v loss">16%</span></div>
+  <div class="frow"><span class="l">Value funds</span><span class="b"><span style="left:50%;width:22%;background:rgba(63,209,176,.7)"></span></span><span class="v gain">25%</span></div>
+  <div class="frow"><span class="l">Pensions</span><span class="b"><span style="left:50%;width:3%;background:rgba(63,209,176,.7)"></span></span><span class="v gain">3%</span></div>
+  <div class="frow"><span class="l">Market makers</span><span class="b"><span style="left:50%;width:10%;background:rgba(63,209,176,.7)"></span></span><span class="v gain">12%</span></div>
+  <div class="frow"><span class="l">You</span><span class="b"><span style="right:50%;width:5%;background:rgba(201,164,92,.6)"></span></span><span class="v dim">6%</span></div>
+  <div class="cap2 faint" style="margin-top:8px">The crowd by type. Nobody is named.</div>
+  <div class="label" style="margin-top:22px">Headlines in the window</div>
+  <div class="hl"><span class="mono faint">Day 31 · </span>Rail freight volumes slip for a third month</div>
+  <div class="hl"><span class="mono faint">Day 34 · </span>Harlow cuts full-year guidance</div>
+  <div class="label" style="margin-top:22px">Files</div>
+  <div class="hl row"><span><span class="mono faint">0412 </span>HLCN · Day 30–37</span><span class="mono loss">−11.40%</span></div>
+  <div class="hl row"><span><span class="mono faint">0411 </span>GX · Day 37</span><span class="mono gain">+0.42%</span></div>
+  <div class="hl row"><span><span class="mono faint">0410 </span>BRNT · Day 21–28</span><span class="mono gain">+6.05%</span></div>
+  <div class="cap2 faint" style="margin-top:16px;line-height:1.5">Closed days only. The desk explains, it doesn't predict.<br>Upkeep paid through Day 42.</div>
+ </div>
+</div></div>
+
+</div></body></html>

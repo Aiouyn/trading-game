@@ -5,6 +5,7 @@ async function freshGame(page: Page, seed: string) {
   await page.goto(`/?seed=${seed}&fresh`);
   await expect(page.locator("html")).toHaveAttribute("data-game", "ready", { timeout: 30_000 });
   await page.evaluate(() => (window as unknown as { __tg: { pause(): void } }).__tg.pause());
+  await page.getByRole("button", { name: "Open Markets", exact: true }).click();
 }
 const advance = (page: Page, n: number) =>
   page.evaluate((k) => (window as unknown as { __tg: { advance(n: number): void } }).__tg.advance(k), n);
@@ -22,7 +23,7 @@ test("portfolio tab: net worth chart, stats, allocation and order history after 
   await advance(page, 3);
   await expect(page.getByTestId("position-HLCN")).toBeVisible();
 
-  await page.getByTestId(phone ? "tab-portfolio" : "nav-portfolio").click();
+  await page.getByRole("button", { name: "Open Portfolio", exact: true }).last().click();
   await expect(page.locator('[data-testid="main-column"],[data-testid="phone-main"]').first()).toHaveAttribute("data-tab", "portfolio");
   await expect(page.getByTestId("portfolio-view")).toBeVisible();
   await expect(page.getByTestId("networth-chart")).toBeVisible();

@@ -1,0 +1,175 @@
+import { describe, expect, it } from 'vitest';
+import { createWorld, quote, shockPrice, shockValue, step, stepMany } from './sim';
+import { defaultConfig } from './config';
+import { commission, estimateFill, halfSpread, impact, liquidationEquity, markCapOn, openAccount, permanentMove, placeOrder, portfolio, tradingConfig } from './trading';
+import type { WorldState } from './types';
+
+/**
+ * Clip splitting (Ledger, 2026-10-09). Tape's harness used SYN; this engine has SYN (Synapse, crypto,
+ * $300M ADV, the thinnest book in the default universe), so it is the main case. AURH (Aurelius Holdings,
+ * $72M ADV, the smallest-ADV stock) is checked too, in whole shares.
+ */
+const NOTIONAL = 1e6;
+const cfg = defaultConfig(); // the real 720 ticks per game day
+
+function idx(s: WorldState, id: string) { return s.config.assets.findIndex((a) => a.id === id); }
+
+/** lnP at the end of game day 0 after buying `units` either in one order at tick 1 or in 720 equal clips, one per tick */
+function dayLift(id: string, clips: number) {
+  const base = createWorld('clip', cfg);
+  const i = idx(base, id);
+  const def = cfg.assets[i]!;
+  const whole = def.qtyStep === 1;
+  const per = whole ? Math.floor(NOTIONAL / def.initialPrice / 720) : NOTIONAL / def.initialPrice / 720;
+  const total = per * 720;
+  let s = openAccount(base, 'p1', 3 * NOTIONAL);
+  let n = base;
+  const marks: number[] = [];
+  const mids: number[] = [];
+  for (let t = 0; t < cfg.ticksPerDay; t++) {
+    if (clips === 1 && t === 0) s = placeOrder(s, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: total }).state;
+    if (clips === 720) s = placeOrder(s, { playerId: 'p1', assetId: id, side: 'buy', type: 'market', qty: per }).state;
+    s = step(s).state;
+    n = step(n).state;
+    const a = s.accounts.p1!;
+    const qty = a.positions[id]?.qty ?? 0;
+    marks.push(a.cash + qty * Math.exp(n.assets[i]!.lnP)); // holdings on the tape nobody pushed
+    mids.push(a.cash + qty * Math.exp(s.assets[i]!.lnP)); // holdings at the mid you pushed
+  }
+  expect(s.accounts.p1!.positions[id]!.qty).toBeCloseTo(total, 6);
+  return { lift: s.assets[i]!.lnP - n.assets[i]!.lnP, state: s, marks, mids };
+}
+
+describe('self impact: clips cost the same permanent impact as one order', () => {
+  for (const id of ['SYN', 'AURH']) {
+    it(`self_impact_clip_ratio (${id}): 720 clips vs 1 clip, same notional, lift ratio <= 1.5`, { timeout: 60_000 }, () => {
+      const one = dayLift(id, 1);
+      const many = dayLift(id, 720);
+      const ratio = many.lift / one.lift;
+      console.log(`self_impact_clip_ratio ${id}: one-clip lift ${one.lift.toExponential(4)}, 720-clip lift ${many.lift.toExponential(4)}, ratio ${ratio.toFixed(4)}`);
+      expect(one.lift).toBeGreaterThan(0);
+      expect(ratio).toBeLessThanOrEqual(1.5);
+      expect(ratio).toBeGreaterThan(0.75);
+    });
+  }
+
+  it('self_mark_peak_pump: peak after the clip buy is not above the position marked on an unpushed tape', { timeout: 60_000 }, () => {
+    for (const clips of [720, 1]) {
+      const r = dayLift('SYN', clips);
+      const acct = r.state.accounts.p1!;
+      const unpumped = Math.max(3 * NOTIONAL, ...r.marks);
+      console.log(`self_mark_peak_pump SYN clips=${clips}: peak ${acct.peakEquity.toFixed(2)}, best no-pump mark ${unpumped.toFixed(2)}, best mid mark ${Math.max(...r.mids).toFixed(2)}, liquidation now ${liquidationEquity(r.state, 'p1').toFixed(2)}`);
+      expect(acct.peakEquity).toBeLessThanOrEqual(unpumped + 1e-6);
+      expect(portfolio(r.state, 'p1').peakEquity).toBeLessThanOrEqual(unpumped + 1e-6);
+      // the mid you pushed is above that mark; the peak is not built on it
+      if (clips === 720) expect(Math.max(...r.mids)).toBeGreaterThan(unpumped);
+    }
+  });
+});
+
+describe('daily cumulative impact accounting', () => {
+  const small = () => openAccount(createWorld('acct', defaultConfig({ ticksPerDay: 24 })), 'p1', 1e7);
+
+  it('splits add up: f(a+b) path equals one order of a+b, per side, and resets when the day rolls', () => {
+    let s = small();
+    const i = idx(s, 'OSTV');
+    s = placeOrder(s, { playerId: 'p1', assetId: 'OSTV', side: 'buy', type: 'market', qty: 3000 }).state;
+    s = step(s).state;
+    const t1 = s.assets[i]!.dayTraded!;
+    expect(t1.day).toBe(0);
+    expect(t1.sell).toBe(0);
+    s = placeOrder(s, { playerId: 'p1', assetId: 'OSTV', side: 'buy', type: 'market', qty: 3000 }).state;
+    s = step(s).state;
+    const t2 = s.assets[i]!.dayTraded!;
+    expect(t2.buy).toBeGreaterThan(t1.buy * 1.9);
+    // sum of the two log moves equals one move on the total (log1p of increments ~ increments)
+    const whole = permanentMove(s, i, 'buy', 0, t2.buy);
+    const split = permanentMove(s, i, 'buy', 0, t1.buy) + permanentMove(s, i, 'buy', t1.buy, t2.buy - t1.buy);
+    expect(split / whole).toBeGreaterThan(0.999);
+    expect(split / whole).toBeLessThan(1.001);
+    // sells keep their own total
+    s = placeOrder(s, { playerId: 'p1', assetId: 'OSTV', side: 'sell', type: 'market', qty: 1000 }).state;
+    s = step(s).state;
+    expect(s.assets[i]!.dayTraded!.sell).toBeGreaterThan(0);
+    expect(s.assets[i]!.dayTraded!.buy).toBe(t2.buy);
+    // next game day starts from zero
+    s = stepMany(s, 24 - 3).state;
+    s = placeOrder(s, { playerId: 'p1', assetId: 'OSTV', side: 'buy', type: 'market', qty: 10 }).state;
+    s = step(s).state;
+    const t3 = s.assets[i]!.dayTraded!;
+    expect(t3.day).toBe(1);
+    expect(t3.sell).toBe(0);
+    expect(t3.buy).toBeLessThan(t1.buy / 100);
+  });
+
+  it('a fill moves lnP by exactly sign · log1p(f(after) − f(before))', () => {
+    let s = small();
+    const i = idx(s, 'OSTV');
+    s = placeOrder(s, { playerId: 'p1', assetId: 'OSTV', side: 'buy', type: 'market', qty: 2000 }).state;
+    const withFill = step(s);
+    const noFill = step({ ...s, orders: [] }).state;
+    const f = withFill.fills[0]!;
+    const expected = permanentMove(withFill.state, i, 'buy', 0, f.qty * f.price);
+    expect(withFill.state.assets[i]!.lnP - noFill.assets[i]!.lnP).toBeCloseTo(expected, 14);
+    const share = tradingConfig(s).permanentImpactShare;
+    expect(expected).toBeCloseTo(Math.log1p(share * impact(withFill.state, i, f.qty * f.price)), 14);
+  });
+
+  it('an old save without dayTraded trades as if nothing was traded today; a stale account-keyed field is ignored', () => {
+    let s = small();
+    s = placeOrder(s, { playerId: 'p1', assetId: 'OSTV', side: 'buy', type: 'market', qty: 2000 }).state;
+    const legacy: WorldState = JSON.parse(JSON.stringify(s));
+    legacy.assets.forEach((a) => { delete a.dayTraded; });
+    expect(step(legacy).state).toEqual(step(s).state);
+    const stale: WorldState = JSON.parse(JSON.stringify(s));
+    stale.accounts.p1!.dayTraded = { OSTV: { day: 0, buy: 1e12, sell: 1e12 } };
+    expect(step(stale).state.assets).toEqual(step(s).state.assets);
+  });
+
+  it('a world where nobody trades prices exactly as before', () => {
+    const a = stepMany(createWorld('idle', defaultConfig({ ticksPerDay: 24 })), 24 * 10).state;
+    const b = stepMany(openAccount(createWorld('idle', defaultConfig({ ticksPerDay: 24 })), 'p1'), 24 * 10).state;
+    expect(b.assets).toEqual(a.assets);
+    expect(b.accounts.p1!.peakEquity).toBe(5000);
+  });
+
+  it('liquidationEquity is cash plus a full sell at estimateFill, below the mid mark', () => {
+    let s = small();
+    s = placeOrder(s, { playerId: 'p1', assetId: 'OSTV', side: 'buy', type: 'market', qty: 2000 }).state;
+    s = step(s).state;
+    const a = s.accounts.p1!;
+    const qty = a.positions.OSTV!.qty;
+    const sell = estimateFill(s, { assetId: 'OSTV', side: 'sell', qty });
+    // full ecology (the new-world default) caps the pre-exit mark at the public fair value: min(price, quote().fundamental)
+    const i = idx(s, 'OSTV'), q = quote(s, 'OSTV'), p = Math.min(q.price, q.fundamental);
+    const px = p * (1 - (halfSpread(s, i) + impact(s, i, qty * p)));
+    const capped = qty * px - commission(s, s.config.assets[i]!, qty * px);
+    expect(liquidationEquity(s, 'p1')).toBeCloseTo(a.cash + (markCapOn(s) ? capped : sell.total), 9);
+    expect(liquidationEquity(s, 'p1')).toBeLessThan(portfolio(s, 'p1').equity);
+    expect(portfolio(s, 'p1').liquidationEquity).toBeCloseTo(liquidationEquity(s, 'p1'), 9);
+    expect(() => liquidationEquity(s, 'nobody')).toThrow();
+  });
+});
+
+describe('shockValue (test-only)', () => {
+  it('moves lnV only, leaves lnP and the input alone', () => {
+    const s0 = stepMany(createWorld('sv', defaultConfig({ ticksPerDay: 24 })), 24).state;
+    const before = JSON.stringify(s0);
+    const s1 = shockValue(s0, 'HLCN', 0.1);
+    expect(JSON.stringify(s0)).toBe(before);
+    const i = idx(s0, 'HLCN');
+    expect(s1.assets[i]!.lnV - s0.assets[i]!.lnV).toBeCloseTo(Math.log(1.1), 12);
+    expect(s1.assets[i]!.lnP).toBe(s0.assets[i]!.lnP);
+    s1.assets.forEach((a, j) => { if (j !== i) expect(a).toBe(s0.assets[j]); });
+    // the pull then walks the price toward the new value
+    const later = stepMany(s1, 24 * 5).state.assets[i]!.lnP - stepMany(s0, 24 * 5).state.assets[i]!.lnP;
+    expect(later).toBeGreaterThan(0);
+  });
+  it('rejects unknown assets and impossible moves, like shockPrice', () => {
+    const s0 = createWorld('sv', defaultConfig({ ticksPerDay: 24 }));
+    expect(() => shockValue(s0, 'NOPE', 0.1)).toThrow();
+    expect(() => shockValue(s0, 'HLCN', -1)).toThrow();
+    expect(() => shockValue(s0, 'HLCN', Number.NaN)).toThrow();
+    expect(() => shockPrice(s0, 'NOPE', 0.1)).toThrow();
+  });
+});

@@ -1,0 +1,103 @@
+=== A. Faking break-even (v1.3 model), worst case staples sigma 16%, float 49%, founder 51%, turnover 0.8%, half spread 12.5 bps, no fee ===
+  v1.3 bound: full L all 20 window days (weekly cap irrelevant): break-even L = 2.685%  | at L=2.5%: best P&L = -0.0535% of shares out (x price), sold 40.00%
+  ramp, weekly cap 1.0%: break-even L = 50.000%  | at L=2.5%: best P&L = -0.2535% of shares out (x price), sold 40.00%
+  ramp, weekly cap 1.5%: break-even L = 3.650%  | at L=2.5%: best P&L = -0.1535% of shares out (x price), sold 40.00%
+  v1.3 bound + 0.10% fee: break-even L = 2.822%
+  ramp 1.5% + 0.10% fee: break-even L = 4.095%
+
+=== B. Sweep (sigma 16-35%, float 15-49%, turnover 0.4-0.8%), v1.3 model, best P&L at L = 2.5% (must be < 0) ===
+  v1.3 bound: 60 listings, max P&L at L=2.5% = -0.0535% of shares out at sigma/float/turnover (0.16, 0.49, 0.008); that listing's break-even L = 2.685%
+  ramp 1.5%: 60 listings, max P&L at L=2.5% = -0.1535% of shares out at sigma/float/turnover (0.16, 0.49, 0.008); that listing's break-even L = 3.650%
+
+=== C. Same price leg, incremental accounting (no reversal charged on the unsold stake), worst case, no fee ===
+  v1.3 bound: best price-leg P&L at L=2.5% = +0.2393% of shares out (sold 30.23%) = 9.6% of a 2.5% lift on the whole company
+  ramp 1.0%: best price-leg P&L at L=2.5% = +0.1521% of shares out (sold 20.85%) = 6.1% of a 2.5% lift on the whole company
+  ramp 1.5%: best price-leg P&L at L=2.5% = +0.1911% of shares out (sold 25.21%) = 7.6% of a 2.5% lift on the whole company
+
+=== D. cap_carry_edge: launch doubles backlog -> uncapped forward move J (v1.3: 3.3%), EWMA alpha 0.5, quarterly cap 2.5% ===
+  J=3.3%, weekly cap 1.0%: wk1: release 1.000% carry 0.650%; wk2: release 1.000% carry 0.475%; wk3: release 0.500% carry 0.388%; wk4: release 0.000% carry 0.594%; wk5: release 0.000% carry 0.697%; carry held to the close signal = 0.787% (-> 0.80% as weeks pass)
+  J=3.3%, weekly cap 1.5%: wk1: release 1.500% carry 0.150%; wk2: release 0.975% carry 0.000%; wk3: release 0.025% carry 0.388%; wk4: release 0.000% carry 0.594%; wk5: release 0.000% carry 0.697%; carry held to the close signal = 0.787% (-> 0.80% as weeks pass)
+  J=3.3%, EWMA lag alone (no cap) predictable next step after wk1 = 0.825%
+  J=5.0%, weekly cap 1.0%: wk1: release 1.000% carry 1.500%; wk2: release 1.000% carry 1.750%; wk3: release 0.500% carry 1.875%; wk4: release 0.000% carry 2.188%; wk5: release 0.000% carry 2.344%; carry held to the close signal = 2.480% (-> 2.50% as weeks pass)
+  J=5.0%, weekly cap 1.5%: wk1: release 1.500% carry 1.000%; wk2: release 1.000% carry 1.250%; wk3: release 0.000% carry 1.875%; wk4: release 0.000% carry 2.188%; wk5: release 0.000% carry 2.344%; carry held to the close signal = 2.480% (-> 2.50% as weeks pass)
+  J=5.0%, EWMA lag alone (no cap) predictable next step after wk1 = 1.250%
+
+=== E. Round trip of a small account at a $5B float-cap listing (spread = clamp(25+2000/sqrt(5000),25,200)) ===
+  spreadBps = 53.28
+  volScale 1.0, sigma 16%, ADV 0.8% of float cap: $10k RT 0.758%, $250k RT 0.860%, $1000k RT 0.988%
+  volScale 1.0, sigma 16%, ADV 0.4% of float cap: $10k RT 0.769%, $250k RT 0.913%, $1000k RT 1.093%
+  volScale 0.9, sigma 16%, ADV 0.8% of float cap: $10k RT 0.703%, $250k RT 0.794%, $1000k RT 0.909%
+  volScale 0.9, sigma 16%, ADV 0.4% of float cap: $10k RT 0.712%, $250k RT 0.842%, $1000k RT 1.004%
+  volScale 1.0, sigma 35%, ADV 0.8% of float cap: $10k RT 0.789%, $250k RT 1.012%, $1000k RT 1.291%
+  volScale 1.0, sigma 35%, ADV 0.4% of float cap: $10k RT 0.812%, $250k RT 1.127%, $1000k RT 1.522%
+  volScale 0.9, sigma 35%, ADV 0.8% of float cap: $10k RT 0.730%, $250k RT 0.931%, $1000k RT 1.182%
+  volScale 0.9, sigma 35%, ADV 0.4% of float cap: $10k RT 0.751%, $250k RT 1.035%, $1000k RT 1.389%
+
+=== F. v1.5-lit (literal reading: cap on ALL backlog change since the last filing; superseded for backlog by G13, rule kept for unbacked parts) release path: alpha = 1, weekly cap 1.5%, quarterly cap 2.5% with its carry released at the NEXT weekly signal (ceiling = max(2.5%, previous U)) ===
+  J=3.3% launch at signal 1: consensus step at the launch signal = 3.300% (v1.4 EWMA a=0.5: 1.650%); wk1: release 1.500% carry 1.800% (quarterly-held 0.800%); wk2: release 1.500% carry 0.300% (quarterly-held 0.000%); wk3: release 0.300% carry 0.000% (quarterly-held 0.000%); wk4: release 0.000% carry 0.000% (quarterly-held 0.000%); fully released at wk3
+  J=5.0% launch at signal 1: consensus step at the launch signal = 5.000% (v1.4 EWMA a=0.5: 2.500%); wk1: release 1.500% carry 3.500% (quarterly-held 2.500%); wk2: release 1.500% carry 2.000% (quarterly-held 0.000%); wk3: release 1.500% carry 0.500% (quarterly-held 0.000%); wk4: release 0.500% carry 0.000% (quarterly-held 0.000%); fully released at wk4
+  Two launches (U 2.0% at wk1, 4.0% from wk3), shows the quarterly cap binding: wk1: release 1.500% cum 1.500% quarterly-held 0.000%; wk2: release 0.500% cum 2.000% quarterly-held 0.000%; wk3: release 0.500% cum 2.500% quarterly-held 1.500%; wk4: release 1.500% cum 4.000% quarterly-held 0.000%; wk5: release 0.000% cum 4.000% quarterly-held 0.000%
+
+=== G. v1.5-lit cap_carry_edge, hold-to-close bot (buys after the launch signal, holds until the carry is released; v1.4: until the close signal) vs round trip at $5B ===
+  round trip $10k: 0.703%-0.812% (section E range)
+  round trip $250k: 0.794%-1.127% (section E range)
+  round trip $1000k: 0.909%-1.522% (section E range)
+  J=3.3%: carry after the launch signal v1.5 = 1.800% (released by wk3; next signal alone releases 1.500%), v1.4 (EWMA lag + caps, all in lnV by the close signal) = 1.800%, of which held by the quarterly cap to the close = 0.787%
+    vs $10k RT: gross carry - RT = +0.988% (dearest bucket) to +1.097% (cheapest) -> FAIL in every bucket; hold-to-next-signal only: +0.688% to +0.797%
+    vs $250k RT: gross carry - RT = +0.673% (dearest bucket) to +1.006% (cheapest) -> FAIL in every bucket; hold-to-next-signal only: +0.373% to +0.706%
+    vs $1000k RT: gross carry - RT = +0.278% (dearest bucket) to +0.891% (cheapest) -> FAIL in every bucket; hold-to-next-signal only: -0.022% to +0.591%
+    weekly cap needed for carry <= cheapest $10k RT (0.703%): W >= 2.597%
+  J=5.0%: carry after the launch signal v1.5 = 3.500% (released by wk4; next signal alone releases 1.500%), v1.4 (EWMA lag + caps, all in lnV by the close signal) = 3.500%, of which held by the quarterly cap to the close = 2.480%
+    vs $10k RT: gross carry - RT = +2.688% (dearest bucket) to +2.797% (cheapest) -> FAIL in every bucket; hold-to-next-signal only: +0.688% to +0.797%
+    vs $250k RT: gross carry - RT = +2.373% (dearest bucket) to +2.706% (cheapest) -> FAIL in every bucket; hold-to-next-signal only: +0.373% to +0.706%
+    vs $1000k RT: gross carry - RT = +1.978% (dearest bucket) to +2.591% (cheapest) -> FAIL in every bucket; hold-to-next-signal only: -0.022% to +0.591%
+    weekly cap needed for carry <= cheapest $10k RT (0.703%): W >= 4.297%
+  contingency w_b 0.25 (launch J halves to 1.65%): carry after the launch signal = 0.150%
+  contingency w_b 0.25 (launch J halves to 2.50%): carry after the launch signal = 1.000%
+
+=== H. v1.5-lit faking (front-loaded fake; the quarterly cap never binds on it because W < 2.5% and the ceiling then rises to U) ===
+  max lift reachable by window day 20 per signal alignment o (window day of the first in-window signal): o=0: 6.00%, o=1: 6.00%, o=2: 6.00%, o=3: 7.50%, o=4: 7.50%
+  o=0 (v1.4 ramp model): at L=2.5%: v1.3-model P&L -0.1535% of shares out (sold 40.00%), shares-sold-only +0.1911% (sold 25.21%); break-even L = 3.650% (4.095% with fee)
+    best v1.3-model P&L over reachable L (<= 6.00%) = +0.0765% at L = 4.50% (sold 40.00%); shares-sold-only at L = 6.00%: +0.7777% (sold 32.53%)
+  o=3 (worst alignment): at L=2.5%: v1.3-model P&L -0.1135% of shares out (sold 40.00%), shares-sold-only +0.2104% (sold 27.22%); break-even L = 2.994% (3.296% with fee)
+    best v1.3-model P&L over reachable L (<= 7.50%) = +0.2415% at L = 6.00% (sold 40.00%); shares-sold-only at L = 7.50%: +0.9952% (sold 35.52%)
+  v1.3 bound (full L all 20 days): L=2.5%: -0.0535% (shares-sold-only +0.2393%), break-even 2.685% (section A); at L=7.50%: +1.3965%
+  sweep, 60 listings (section B grid), best v1.3-model P&L at worst alignment over L in {2.5%, 4%, 5%, 6%, reach}:
+    P&L < 0 at L=2.5% in 60/60; max over reachable L = +0.2415% of shares out at L=6.00%, listing sigma/float/turnover (0.16, 0.49, 0.008)
+
+=== I. Noise, re-anchor and filing surprise under alpha = 1 (sens = m*w_b/(4n) = 0.5*0.5/0.6, backlog = 5/63 of Rev_q, sigma_sig 0.04) ===
+  alpha 0.5: weekly forward dlnV noise sd = 0.0764% (1.5% cap = 19.6 sd); close-consensus backlog error -> re-anchor sd = 0.0764% of lnV; rho contribution at sigma_Q 0.10 = 0.0076
+  alpha 1.0: weekly forward dlnV noise sd = 0.1871% (1.5% cap = 8.0 sd); close-consensus backlog error -> re-anchor sd = 0.1323% of lnV; rho contribution at sigma_Q 0.10 = 0.0132
+  if v1.4 rho = 0.150 exactly, v1.5 rho = 0.1504; at the 0.25 ceiling: 0.2502
+  launch J=3.3% k signals before the close: predictable re-anchor (EWMA lag at the close) v1.4 = k=1: 1.650%, k=2: 0.825%, k=3: 0.413%; v1.5 (alpha 1) = 0 for every k
+  launch J=5.0% k signals before the close: predictable re-anchor (EWMA lag at the close) v1.4 = k=1: 2.500%, k=2: 1.250%, k=3: 0.625%; v1.5 (alpha 1) = 0 for every k
+
+=== K. G13 cap scope. Three rule sets, launch J at signal 1, bots at a $5B listing (round trips from section E) ===
+  v1.4 = alpha 0.5, all forward parts capped (1.5%/wk, 2.5%/qtr held to the close). v1.5-lit = alpha 1, weekly cap on ALL backlog change since the last filing, quarterly carry released next signal (sections F-G).
+  v1.5 (G13) = alpha 1, backed backlog (real NPC orders in the weekly band, verifiable against the filed backlog field) uncapped; caps only on unbacked parts (hiring is cost-only, so only downward; utilization does not enter V).
+  J=3.3%: (i) lag-aware next-signal gross: v1.4 0.975% | v1.5-lit 1.500% | v1.5 (G13) 0.000%;  (ii) hold-to-close gross: v1.4 0.799% (enters when the 2.5% cap binds, wk3) | v1.5-lit 1.800% (enters after wk1) | v1.5 (G13) 0.000%
+    $10k RT 0.703-0.812%: (i) v1.4 FAIL all, v1.5-lit FAIL all, v1.5 PASS all;  (ii) v1.4 FAIL some, v1.5-lit FAIL all, v1.5 PASS all
+    $250k RT 0.794-1.127%: (i) v1.4 FAIL some, v1.5-lit FAIL all, v1.5 PASS all;  (ii) v1.4 FAIL some, v1.5-lit FAIL all, v1.5 PASS all
+    $1000k RT 0.909-1.522%: (i) v1.4 FAIL some, v1.5-lit FAIL some, v1.5 PASS all;  (ii) v1.4 PASS all, v1.5-lit FAIL all, v1.5 PASS all
+  J=5.0%: (i) lag-aware next-signal gross: v1.4 1.000% | v1.5-lit 1.500% | v1.5 (G13) 0.000%;  (ii) hold-to-close gross: v1.4 2.499% (enters when the 2.5% cap binds, wk2) | v1.5-lit 3.500% (enters after wk1) | v1.5 (G13) 0.000%
+    $10k RT 0.703-0.812%: (i) v1.4 FAIL all, v1.5-lit FAIL all, v1.5 PASS all;  (ii) v1.4 FAIL all, v1.5-lit FAIL all, v1.5 PASS all
+    $250k RT 0.794-1.127%: (i) v1.4 FAIL some, v1.5-lit FAIL all, v1.5 PASS all;  (ii) v1.4 FAIL all, v1.5-lit FAIL all, v1.5 PASS all
+    $1000k RT 0.909-1.522%: (i) v1.4 FAIL some, v1.5-lit FAIL some, v1.5 PASS all;  (ii) v1.4 FAIL all, v1.5-lit FAIL all, v1.5 PASS all
+
+=== L. G14 faking vs the honest founder who sells the SAME schedule (impact, spread and the unsold stake cancel): gain = sum_d x_d * L_d, before the cost of producing the fake ===
+  v1.4 bound (full 2.5% all 20 days): faker's own best schedule: gain 0.7558% of shares out (sold 30.23%, = L x 30.2%); max schedule 2%/gd x 20: gain 1.0000% (sold 40%)
+  v1.4 ramp 1.5%/wk to 2.5%: faker's own best schedule: gain 0.6048% of shares out (sold 25.21%, = L x 24.2%); max schedule 2%/gd x 20: gain 0.9000% (sold 40%)
+  v1.5-lit, L=2.5%, o=0: faker's own best schedule: gain 0.6048% of shares out (sold 25.21%, = L x 24.2%); max schedule 2%/gd x 20: gain 0.9000% (sold 40%)
+  v1.5-lit, reachable 6.0%, o=0: faker's own best schedule: gain 1.3880% of shares out (sold 32.53%, = L x 23.1%); max schedule 2%/gd x 20: gain 1.5000% (sold 40%)
+  v1.5-lit, reachable 7.5%, o=3: faker's own best schedule: gain 1.6728% of shares out (sold 35.52%, = L x 22.3%); max schedule 2%/gd x 20: gain 1.7400% (sold 40%)
+  v1.5 (G13) backed backlog uncapped, L=2.5% from day 1: faker's own best schedule: gain 0.7558% of shares out (sold 30.23%, = L x 30.2%); max schedule 2%/gd x 20: gain 1.0000% (sold 40%)
+  v1.5 (G13), L=5%: faker's own best schedule: gain 2.0000% of shares out (sold 40.00%, = L x 40.0%); max schedule 2%/gd x 20: gain 2.0000% (sold 40%)
+  v1.5 (G13), L=10%: faker's own best schedule: gain 4.0000% of shares out (sold 40.00%, = L x 40.0%); max schedule 2%/gd x 20: gain 4.0000% (sold 40%)
+  break-even production cost = the gain above, as % of mcap. Per 1% of shares sold by a planTimed plan on lifted days: gain = L x 1% (no impact difference).
+  backed-backlog fake (G13, uncapped): EV/S 1, sold 23%: faking pays unless producing $1 of fake backlog costs more than $0.38 (scale-free in L)
+  backed-backlog fake (G13, uncapped): EV/S 1, sold 40%: faking pays unless producing $1 of fake backlog costs more than $0.67 (scale-free in L)
+  backed-backlog fake (G13, uncapped): EV/S 2, sold 23%: faking pays unless producing $1 of fake backlog costs more than $0.77 (scale-free in L)
+  backed-backlog fake (G13, uncapped): EV/S 2, sold 40%: faking pays unless producing $1 of fake backlog costs more than $1.33 (scale-free in L)
+  backed-backlog fake (G13, uncapped): EV/S 4, sold 23%: faking pays unless producing $1 of fake backlog costs more than $1.53 (scale-free in L)
+  backed-backlog fake (G13, uncapped): EV/S 4, sold 40%: faking pays unless producing $1 of fake backlog costs more than $2.67 (scale-free in L)
+  contingency w_b 0.25: sens halves, so the backlog needed per point of lift doubles and the $ thresholds above halve.

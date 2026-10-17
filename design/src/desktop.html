@@ -1,0 +1,110 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><script src="chart.js"></script>
+<style>
+body{width:1440px;height:900px;display:grid;grid-template-columns:72px 1fr 344px;grid-template-rows:76px 1fr 34px}
+.rail{grid-row:1/4;background:var(--ink-0);border-right:1px solid var(--ink-2);display:flex;flex-direction:column;align-items:center;padding-top:22px;gap:6px}
+.mark{width:34px;height:34px;border:1px solid var(--brass);border-radius:9px;display:grid;place-items:center;font-family:var(--serif);font-size:22px;color:var(--brass-hi);margin-bottom:22px}
+.nav{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;color:var(--text-3)}
+.nav.on{background:var(--ink-2);color:var(--brass-hi);box-shadow:inset 2px 0 0 var(--brass)}
+.nav svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5}
+.top{grid-column:2/4;display:flex;align-items:center;padding:0 28px;gap:28px;border-bottom:1px solid var(--ink-2)}
+.nw .v{font-family:var(--serif);font-size:40px;line-height:1;letter-spacing:-.01em}
+.nw .v small{font-size:26px;color:var(--text-2)}
+.main{overflow:hidden;padding:20px 24px 16px 28px;display:grid;grid-template-rows:auto 1fr;gap:18px;min-height:0}
+.side{overflow:hidden;border-left:1px solid var(--ink-2);padding:22px 22px 18px;display:flex;flex-direction:column;gap:16px}
+.tabs{display:flex;gap:4px;background:var(--ink-1);border:1px solid var(--ink-3);border-radius:9px;padding:3px}
+.tabs span{font-size:11.5px;padding:4px 10px;border-radius:6px;color:var(--text-2);font-family:var(--mono)}
+.tabs span.on{background:var(--ink-3);color:var(--text-1)}
+table{width:100%;border-collapse:collapse}
+th{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);font-weight:500;text-align:right;padding:0 10px 10px}
+th:first-child,td:first-child{text-align:left;padding-left:18px}
+td{padding:7px 10px;text-align:right;font-family:var(--mono);font-size:13px;border-top:1px solid var(--ink-2)}
+.tk{font-family:var(--sans);font-weight:600;font-size:13px}.nm{font-family:var(--sans);color:var(--text-3);font-size:11.5px;margin-top:2px}
+.wl{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--ink-2);font-size:13px}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--ink-0);border:1px solid var(--ink-3);border-radius:10px;padding:3px}
+.seg div{text-align:center;padding:8px;border-radius:7px;font-weight:600;font-size:13px;color:var(--text-2)}
+.seg .buy{background:rgba(63,209,176,.12);color:var(--gain);box-shadow:inset 0 0 0 1px rgba(63,209,176,.35)}
+.field{display:flex;justify-content:space-between;align-items:center;background:var(--ink-0);border:1px solid var(--ink-3);border-radius:10px;padding:10px 12px}
+.row{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0}
+.wire{grid-column:2/4;border-top:1px solid var(--ink-2);display:flex;align-items:center;gap:26px;padding:0 28px;font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden}
+.wire b{color:var(--brass);font-weight:600;letter-spacing:.14em;font-size:10.5px}
+.dot{width:4px;height:4px;border-radius:50%;background:var(--text-3);display:inline-block}
+</style></head><body>
+<div class="rail">
+ <div class="mark">L</div>
+ <div class="nav on"><svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 8-9"/><path d="M15 6h5v5"/></svg></div>
+ <div class="nav"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v8h8"/></svg></div>
+ <div class="nav"><svg viewBox="0 0 24 24"><path d="M4 11l8-6 8 6v8H4z"/><path d="M10 19v-5h4v5"/></svg></div>
+ <div class="nav"><svg viewBox="0 0 24 24"><path d="M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3"/><path d="M8 3h8"/></svg></div>
+ <div class="nav"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/></svg></div>
+ <div class="nav"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M8 9h8M8 12h8M8 15h5"/></svg></div>
+ <div class="nav"><svg viewBox="0 0 24 24"><path d="M6 20V10M12 20V4M18 20v-7"/></svg></div>
+</div>
+<div class="top">
+ <div class="nw"><div class="label" style="margin-bottom:6px">Net worth</div><div class="v mono" style="font-family:var(--serif)">$48,212<small>.40</small></div></div>
+ <div><div class="label" style="margin-bottom:6px">Today</div><div class="mono gain" style="font-size:16px">+$1,284.10 <span style="opacity:.8">+2.74%</span></div></div>
+ <div style="width:1px;height:38px;background:var(--ink-3)"></div>
+ <div><div class="label" style="margin-bottom:7px">Rank</div><div style="display:flex;align-items:center;gap:10px"><span class="chip brass">R1 · Hustler</span><div style="width:170px"><div style="height:3px;background:var(--ink-3);border-radius:2px"><div style="width:19%;height:3px;background:var(--brass);border-radius:2px"></div></div><div class="faint mono" style="font-size:10.5px;margin-top:5px">$48.2k / $250k to Owner</div></div></div></div>
+ <div><div class="label" style="margin-bottom:7px">League</div><div style="font-size:13px">Bronze III · <span class="mono">#7</span><span class="faint"> of 50</span> <span class="dim" style="margin-left:8px">rival <b style="color:var(--text-1);font-weight:500">mika_q</b> <span class="mono loss">+$1.9k ahead</span></span></div></div>
+ <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+  <div style="text-align:right"><div class="mono" style="font-size:14px">Day 12 · 14:35</div><div style="font-size:11.5px;margin-top:3px"><span style="color:var(--gain)">●</span> <span class="dim">Market open · Port Avalon</span></div></div>
+  <div id="tick"></div>
+ </div>
+</div>
+<div class="main">
+ <div class="card" style="padding:18px 18px 12px;display:flex;flex-direction:column">
+  <div style="display:flex;align-items:flex-end;gap:16px;margin-bottom:10px">
+   <div><div style="display:flex;align-items:center;gap:10px"><span style="font-weight:600;font-size:15px">HALD</span><span class="dim" style="font-size:13px">Halden Dynamics</span><span class="chip" style="font-size:10.5px;padding:2px 8px">Industrials</span></div>
+   <div style="display:flex;align-items:baseline;gap:12px;margin-top:6px"><span class="mono" style="font-size:30px;font-weight:500;letter-spacing:-.02em">91.36</span><span class="mono gain" style="font-size:14px">+2.76 (+3.12%)</span></div></div>
+   <div style="margin-left:auto;display:flex;gap:10px;align-items:center"><div class="tabs"><span>1H</span><span class="on">1D</span><span>1W</span><span>1Q</span><span>1Y</span></div><div class="tabs"><span class="on">Candles</span><span>Line</span></div></div>
+  </div>
+  <div class="dim mono" style="font-size:11px;display:flex;gap:18px;margin-bottom:6px"><span>O <span style="color:var(--text-1)">88.71</span></span><span>H <span style="color:var(--text-1)">91.90</span></span><span>L <span style="color:var(--text-1)">88.12</span></span><span>Vol <span style="color:var(--text-1)">1.42M</span></span><span class="brass">◆ Earnings in 2 days</span></div>
+  <div id="chart"></div>
+ </div>
+ <div class="card" style="padding:16px 0 4px">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:0 18px 12px"><div class="serif" style="font-size:22px">Positions</div><div class="dim" style="font-size:12px">Cash <span class="mono" style="color:var(--text-1)">$9,694.85</span> · 20.1%</div></div>
+  <table><tr><th>Asset</th><th>Qty</th><th>Avg</th><th>Last</th><th>Value</th><th>P&amp;L</th><th>Weight</th><th style="padding-right:18px">5D</th></tr>
+  <tr><td><div class="tk">HALD</div><div class="nm">Halden Dynamics</div></td><td>120</td><td>84.20</td><td><span class="flash-up" style="padding:2px 4px">91.36</span></td><td>10,963.20</td><td class="gain">+859.20 <span style="opacity:.75">+8.50%</span></td><td>22.7%</td><td style="padding-right:18px"><span class="sp" data-s="11" data-u="1"></span></td></tr>
+  <tr><td><div class="tk">VLRM</div><div class="nm">Velour Maison</div></td><td>40</td><td>212.50</td><td><span class="flash-dn" style="padding:2px 4px">205.18</span></td><td>8,207.20</td><td class="loss">−292.80 <span style="opacity:.75">−3.44%</span></td><td>17.0%</td><td style="padding-right:18px"><span class="sp" data-s="22" data-u="0"></span></td></tr>
+  <tr><td><div class="tk">ASTR</div><div class="nm">Aster Robotics</div></td><td>300</td><td>22.10</td><td>24.87</td><td>7,461.00</td><td class="gain">+831.00 <span style="opacity:.75">+12.53%</span></td><td>15.5%</td><td style="padding-right:18px"><span class="sp" data-s="33" data-u="1"></span></td></tr>
+  <tr><td><div class="tk">NLGB</div><div class="nm">Northline 10Y Bond ETF</div></td><td>60</td><td>98.40</td><td>99.12</td><td>5,947.20</td><td class="gain">+43.20 <span style="opacity:.75">+0.73%</span></td><td>12.3%</td><td style="padding-right:18px"><span class="sp" data-s="44" data-u="1"></span></td></tr>
+  <tr><td><div class="tk">KORA</div><div class="nm">Kora (crypto)</div></td><td>0.85</td><td>6,800.00</td><td>6,987.00</td><td>5,938.95</td><td class="gain">+158.95 <span style="opacity:.75">+2.75%</span></td><td>12.3%</td><td style="padding-right:18px"><span class="sp" data-s="55" data-u="1"></span></td></tr>
+  </table>
+ </div>
+</div>
+<div class="side">
+ <div class="card" style="padding:16px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div class="serif" style="font-size:22px">Trade</div><span class="faint" style="font-size:11.5px">Retail broker</span></div>
+  <div class="seg" style="margin-bottom:10px"><div class="buy">Buy</div><div>Sell</div></div>
+  <div class="tabs" style="margin-bottom:12px;justify-content:space-between"><span class="on" style="flex:1;text-align:center">Market</span><span style="flex:1;text-align:center">Limit</span><span style="flex:1;text-align:center">Stop</span></div>
+  <div class="field" style="margin-bottom:8px"><span class="dim" style="font-size:12.5px">Quantity</span><span class="mono" style="font-size:16px">40 <span class="faint" style="font-size:12px">HALD</span></span></div>
+  <div style="display:flex;gap:6px;margin-bottom:14px"><span class="chip" style="flex:1;justify-content:center">10%</span><span class="chip brass" style="flex:1;justify-content:center">25%</span><span class="chip" style="flex:1;justify-content:center">50%</span><span class="chip" style="flex:1;justify-content:center">Max</span></div>
+  <div class="row"><span class="dim">Ask</span><span class="mono">91.38</span></div>
+  <div class="row"><span class="dim">Est. cost</span><span class="mono">$3,655.20</span></div>
+  <div class="row"><span class="dim">Fee 0.10%</span><span class="mono">$3.66</span></div>
+  <div class="row"><span class="dim">Est. slippage</span><span class="mono">≈ $0.80</span></div>
+  <div class="hair" style="margin:8px 0"></div>
+  <div class="row" style="font-size:13.5px"><span>Total</span><span class="mono" style="font-weight:600">$3,659.66</span></div>
+  <div class="row"><span class="faint">Buying power after</span><span class="mono faint">$6,035.19</span></div>
+  <button class="btn-brass" style="width:100%;height:46px;margin-top:12px;font-size:14.5px">Buy 40 HALD</button>
+ </div>
+ <div class="card" style="padding:14px 16px 6px;flex:1">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="serif" style="font-size:22px">Watchlist</div><span class="faint" style="font-size:11.5px">4</span></div>
+  <div class="wl"><div><div class="tk">GX</div><div class="nm">GX Composite</div></div><div style="text-align:right"><div class="mono">4,812.33</div><div class="mono gain" style="font-size:11.5px">+0.84%</div></div></div>
+  <div class="wl"><div><div class="tk">HALD</div><div class="nm">Halden Dynamics</div></div><div style="text-align:right"><div class="mono"><span class="flash-up" style="padding:1px 4px">91.36</span></div><div class="mono gain" style="font-size:11.5px">+3.12%</div></div></div>
+  <div class="wl"><div><div class="tk">ASTR</div><div class="nm">Aster Robotics</div></div><div style="text-align:right"><div class="mono">24.87</div><div class="mono gain" style="font-size:11.5px">+5.42%</div></div></div>
+  <div class="wl"><div><div class="tk">VLRM</div><div class="nm">Velour Maison</div></div><div style="text-align:right"><div class="mono">205.18</div><div class="mono loss" style="font-size:11.5px">−1.07%</div></div></div>
+  
+  
+ </div>
+</div>
+<div class="wire"><b>THE WIRE</b>
+ <span><span class="brass">Filing</span> · Halden Dynamics wins the Port Avalon grid contract</span><span class="dot"></span>
+ <span><span style="color:var(--info)">Macro</span> · Port Avalon central bank holds at 3.25%</span><span class="dot"></span>
+ <span><span class="loss">Earnings</span> · Velour Maison trims guidance, shares slip</span><span class="dot"></span>
+ <span><span class="brass">Purchase</span> · vega · Northline Capital bought a Kessler Field Regatta</span>
+</div>
+<script>
+ring(document.getElementById('tick'),{size:30,frac:.62});
+candles(document.getElementById('chart'),{seed:7,n:78,start:80,vol:.011,drift:.0012,w:928,h:250,endAt:91.36});
+document.querySelectorAll('.sp').forEach(e=>spark(e,{seed:+e.dataset.s,w:70,h:20,up:e.dataset.u=='1'}));
+</script></body></html>

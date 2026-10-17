@@ -1,0 +1,34 @@
+=== A. Faking break-even (v1.3 model), worst case staples sigma 16%, float 49%, founder 51%, turnover 0.8%, half spread 12.5 bps, no fee ===
+  v1.3 bound: full L all 20 window days (weekly cap irrelevant): break-even L = 2.685%  | at L=2.5%: best P&L = -0.0535% of shares out (x price), sold 40.00%
+  ramp, weekly cap 1.0%: break-even L = 50.000%  | at L=2.5%: best P&L = -0.2535% of shares out (x price), sold 40.00%
+  ramp, weekly cap 1.5%: break-even L = 3.650%  | at L=2.5%: best P&L = -0.1535% of shares out (x price), sold 40.00%
+  v1.3 bound + 0.10% fee: break-even L = 2.822%
+  ramp 1.5% + 0.10% fee: break-even L = 4.095%
+
+=== B. Sweep (sigma 16-35%, float 15-49%, turnover 0.4-0.8%), v1.3 model, best P&L at L = 2.5% (must be < 0) ===
+  v1.3 bound: 60 listings, max P&L at L=2.5% = -0.0535% of shares out at sigma/float/turnover (0.16, 0.49, 0.008); that listing's break-even L = 2.685%
+  ramp 1.5%: 60 listings, max P&L at L=2.5% = -0.1535% of shares out at sigma/float/turnover (0.16, 0.49, 0.008); that listing's break-even L = 3.650%
+
+=== C. Same price leg, incremental accounting (no reversal charged on the unsold stake), worst case, no fee ===
+  v1.3 bound: best price-leg P&L at L=2.5% = +0.2393% of shares out (sold 30.23%) = 9.6% of a 2.5% lift on the whole company
+  ramp 1.0%: best price-leg P&L at L=2.5% = +0.1521% of shares out (sold 20.85%) = 6.1% of a 2.5% lift on the whole company
+  ramp 1.5%: best price-leg P&L at L=2.5% = +0.1911% of shares out (sold 25.21%) = 7.6% of a 2.5% lift on the whole company
+
+=== D. cap_carry_edge: launch doubles backlog -> uncapped forward move J (v1.3: 3.3%), EWMA alpha 0.5, quarterly cap 2.5% ===
+  J=3.3%, weekly cap 1.0%: wk1: release 1.000% carry 0.650%; wk2: release 1.000% carry 0.475%; wk3: release 0.500% carry 0.388%; wk4: release 0.000% carry 0.594%; wk5: release 0.000% carry 0.697%; carry held to the close signal = 0.787% (-> 0.80% as weeks pass)
+  J=3.3%, weekly cap 1.5%: wk1: release 1.500% carry 0.150%; wk2: release 0.975% carry 0.000%; wk3: release 0.025% carry 0.388%; wk4: release 0.000% carry 0.594%; wk5: release 0.000% carry 0.697%; carry held to the close signal = 0.787% (-> 0.80% as weeks pass)
+  J=3.3%, EWMA lag alone (no cap) predictable next step after wk1 = 0.825%
+  J=5.0%, weekly cap 1.0%: wk1: release 1.000% carry 1.500%; wk2: release 1.000% carry 1.750%; wk3: release 0.500% carry 1.875%; wk4: release 0.000% carry 2.188%; wk5: release 0.000% carry 2.344%; carry held to the close signal = 2.480% (-> 2.50% as weeks pass)
+  J=5.0%, weekly cap 1.5%: wk1: release 1.500% carry 1.000%; wk2: release 1.000% carry 1.250%; wk3: release 0.000% carry 1.875%; wk4: release 0.000% carry 2.188%; wk5: release 0.000% carry 2.344%; carry held to the close signal = 2.480% (-> 2.50% as weeks pass)
+  J=5.0%, EWMA lag alone (no cap) predictable next step after wk1 = 1.250%
+
+=== E. Round trip of a small account at a $5B float-cap listing (spread = clamp(25+2000/sqrt(5000),25,200)) ===
+  spreadBps = 53.28
+  volScale 1.0, sigma 16%, ADV 0.8% of float cap: $10k RT 0.758%, $250k RT 0.860%, $1000k RT 0.988%
+  volScale 1.0, sigma 16%, ADV 0.4% of float cap: $10k RT 0.769%, $250k RT 0.913%, $1000k RT 1.093%
+  volScale 0.9, sigma 16%, ADV 0.8% of float cap: $10k RT 0.703%, $250k RT 0.794%, $1000k RT 0.909%
+  volScale 0.9, sigma 16%, ADV 0.4% of float cap: $10k RT 0.712%, $250k RT 0.842%, $1000k RT 1.004%
+  volScale 1.0, sigma 35%, ADV 0.8% of float cap: $10k RT 0.789%, $250k RT 1.012%, $1000k RT 1.291%
+  volScale 1.0, sigma 35%, ADV 0.4% of float cap: $10k RT 0.812%, $250k RT 1.127%, $1000k RT 1.522%
+  volScale 0.9, sigma 35%, ADV 0.8% of float cap: $10k RT 0.730%, $250k RT 0.931%, $1000k RT 1.182%
+  volScale 0.9, sigma 35%, ADV 0.4% of float cap: $10k RT 0.751%, $250k RT 1.035%, $1000k RT 1.389%

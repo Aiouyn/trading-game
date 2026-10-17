@@ -1,0 +1,50 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="quay.css"><link rel="stylesheet" href="company.css"><link rel="stylesheet" href="company-phone.css">
+<script src="palettes.js"></script><script src="glyphs.js"></script>
+<style>
+.req{font-size:12.5px}
+.ladder .step{font-size:10.5px}
+</style>
+</head><body>
+<div class="sb"><span class="qm" data-g="quay"></span><span>D500 · 14:40</span><span class="r"><span class="dot" style="background:var(--gain);width:5px;height:5px"></span>$31.9M</span></div>
+<div class="ab"><span class="bk" data-g="chev"></span><span class="t"><span data-g="company"></span>Company</span></div>
+<div class="tabs" data-testid="company-tabs"><div class="on">Listing</div><div>Filings</div><div>Finance</div><div>Overview</div><div>Products</div><div>R&amp;D</div></div>
+<div class="body">
+  <div><div class="serif" style="font-size:27px;line-height:1">Path to listing</div><div class="faint" style="font-size:11.5px;margin-top:6px">Lantern Roasting Co. · Late · Private · 84 staff</div></div>
+  <div class="card" style="padding:14px 6px 10px" data-testid="company-ladder">
+    <div class="ladder">
+      <div class="step done"><div class="o"></div>Seed</div>
+      <div class="step done"><div class="o"></div>Growth</div>
+      <div class="step cur"><div class="o"></div>Late</div>
+      <div class="step"><div class="o"></div>Eligible</div>
+      <div class="step"><div class="o"></div>Listed</div>
+    </div>
+  </div>
+  <div class="card" data-testid="company-listing-reqs">
+    <div class="chd" style="margin-bottom:2px"><span class="label">Requirements</span><span class="r mono faint" style="font-size:11px">4 of 6</span></div>
+    <div class="req no"><span class="st"></span>Engine value $50M+<span class="v">$46.8M</span></div>
+    <div class="req no"><span class="st"></span>Float plan 15–49%<span class="v">Not set</span></div>
+    <div class="faint" style="font-size:11px;margin-top:6px">4 more met: filed quarters, rank, record, covenants.</div>
+  </div>
+  <div class="card" data-testid="company-ipo-prep">
+    <div class="chd"><span class="label">At the IPO</span><span class="r priv">Private</span></div>
+    <div class="kv2"><span>Price</span><span class="mono">0.9 × engine value</span></div>
+    <div class="kv2"><span>New shares at 25% float</span><span class="mono">≈ 11.3M raised</span></div>
+    <div class="kv2" data-testid="company-ipo-no-cashout"><span style="color:var(--fg)">You cash out</span><span class="mono" style="color:var(--fg)">nothing</span></div>
+    <div class="kv2"><span>Your stake after</span><span class="mono">72.0% → 54.0%</span></div>
+    <div class="kv2"><span>Shares locked</span><span class="mono">168 game days</span></div>
+  </div>
+  <div class="card" data-testid="company-trading-window">
+    <div class="chd" style="margin-bottom:4px"><span class="label">Your trading window</span><span class="r mono faint" style="font-size:11px">D509–D528</span></div>
+    <div style="font-size:14px">Closed until Day 509</div>
+    <div class="faint" style="font-size:11.5px;line-height:1.45;margin-top:4px">Q8 files D507. PACF and anything built on it stay closed until then. GXI stays open.</div>
+  </div>
+  <div class="faint" style="font-size:10.5px;text-align:center">Simulated market. Not financial advice.</div>
+</div>
+<div class="fade"></div><div class="edge" data-g="quaybig"></div>
+<script>
+G.tick='<path d="m5 12.5 4.5 4.5L19 7.5"/>'; G.quaybig=G.quay;
+applyPalette('ink-brass');
+document.querySelectorAll('[data-g]').forEach(e=>{const g=e.dataset.g; const sz={tick:11,quay:18,quaybig:30,chev:20,company:17}[g]||15; e.innerHTML=glyph(g,sz,g==='tick'?2:1.5)});
+</script>
+</body></html>

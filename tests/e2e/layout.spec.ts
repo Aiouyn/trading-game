@@ -12,6 +12,7 @@ async function freshGame(page: Page, seed: string) {
   await page.goto(`/?seed=${seed}&fresh`);
   await expect(page.locator("html")).toHaveAttribute("data-game", "ready", { timeout: 30_000 });
   await page.evaluate(() => (window as unknown as { __tg: { pause(): void } }).__tg.pause());
+  await page.getByRole("button", { name: "Open Markets", exact: true }).click();
 }
 const advance = (page: Page, n: number) =>
   page.evaluate((k) => (window as unknown as { __tg: { advance(n: number): void } }).__tg.advance(k), n);
@@ -29,7 +30,7 @@ test.describe("phone layout", () => {
     await expect(page.getByTestId("toast").first()).toBeVisible();
     await expect(page.getByTestId("order-submit"), "sheet should close on a fill").toBeHidden();
     const toast = await box(page, "toast"), trade = await box(page, "open-trade");
-    const nav = (await page.getByRole("navigation", { name: "Main" }).boundingBox())!;
+    const nav = (await page.getByRole("navigation", { name: "Dock" }).boundingBox())!;
     const toastGap = trade.y - (toast.y + toast.height);
     const navGap = nav.y - (trade.y + trade.height);
     expect(toastGap, "toast bottom above Trade (spec 8px)").toBeGreaterThanOrEqual(4);
@@ -41,7 +42,7 @@ test.describe("phone layout", () => {
 
   test("scrolled to the bottom, the last row clears the Trade button", async ({ page }) => {
     await freshGame(page, "alpha");
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.getByTestId("scroll-market").evaluate((element) => element.scrollTo(0, element.scrollHeight));
     await page.waitForTimeout(200);
     const lastBottom = await page.getByTestId("phone-main").evaluate((m) => {
       const kids = [...m.children].filter((c) => (c as HTMLElement).offsetHeight > 0);

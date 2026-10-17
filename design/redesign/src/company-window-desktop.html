@@ -1,0 +1,171 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="quay.css"><link rel="stylesheet" href="os.css"><link rel="stylesheet" href="company.css">
+<script src="palettes.js"></script><script src="glyphs.js"></script><script src="wallpaper.js"></script><script src="shell.js"></script>
+<style>
+body{width:1440px;height:900px}
+.rail{width:156px}
+.btn{white-space:nowrap}
+.note{border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
+.cov{display:grid;grid-template-columns:auto 1fr;gap:3px 9px;font-size:12px;color:var(--muted);margin-top:8px}
+.cov i{width:5px;height:5px;border-radius:50%;background:var(--acc);margin-top:6px}
+.cov i.n{background:var(--dis)}
+.oo{display:flex;align-items:center;gap:10px;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-top:10px;background:var(--win2)}
+.prow{display:grid;grid-template-columns:70px 1fr 90px;align-items:center;height:29px;border-bottom:1px solid var(--line);font-size:12.5px}
+.prow .f{height:26px;border:1px solid var(--line);border-radius:6px;background:var(--win2);display:flex;align-items:center;justify-content:flex-end;padding:0 8px;font-family:var(--mono);font-size:12px}
+.sel{display:flex;gap:8px;margin:8px 0 10px}
+.sel .f{flex:1;height:34px;border:1px solid var(--line);border-radius:8px;background:var(--win2);display:flex;align-items:center;padding:0 10px;gap:8px;font-size:12.5px}
+.sel .f .k{font-size:11px;color:var(--faint)}
+.seg2{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;height:34px}
+.seg2 div{padding:0 14px;display:flex;align-items:center;font-size:12.5px;color:var(--muted)}
+.seg2 div.on{background:color-mix(in srgb,var(--loss) 12%,transparent);color:var(--loss);box-shadow:inset 0 -2px 0 var(--loss)}
+.hold{position:relative;height:42px;border-radius:9px;border:1px solid color-mix(in srgb,var(--acc) 60%,transparent);display:flex;align-items:center;justify-content:center;gap:10px;font-weight:600;font-size:13.5px;color:var(--acc-hi);overflow:hidden}
+.hold .p{position:absolute;left:0;top:0;bottom:0;width:38%;background:color-mix(in srgb,var(--acc) 22%,transparent)}
+.hold span{position:relative}
+.cp{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-top:10px}
+.cp .h{white-space:nowrap;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg)}
+.cp .h .chip{margin-left:auto;font-size:10.5px}
+.cp .d{display:flex;gap:6px;flex-wrap:nowrap;white-space:nowrap;margin-top:8px}
+.cp .d span{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:2px 6px}
+.cp .d span.done{color:var(--dis);text-decoration:line-through}
+.pill{display:inline-flex;align-items:center;height:16px;padding:0 5px;border:1px solid color-mix(in srgb,var(--acc) 60%,transparent);border-radius:4px;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--acc-hi);margin-right:6px}
+.lk{font-size:11px;color:var(--muted);margin-top:7px;display:flex;align-items:center}
+.banner{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid color-mix(in srgb,var(--gain) 35%,var(--line));font-size:12px;color:var(--fg);background:color-mix(in srgb,var(--gain) 6%,transparent)}
+.toast{width:356px;top:44px}
+.toast .ic{color:var(--acc)}
+</style></head><body>
+<div id="wall"></div><div id="strip"></div>
+
+<!-- Company: Finance › Trading plan -->
+<div class="win active" style="left:14px;top:46px;width:850px;height:794px" data-testid="win-company">
+  <div class="tb"><span class="gl" data-g="company"></span><span class="nm">Company</span><span class="sub">Lantern Roasting Co. · Finance · Trading plan</span><span id="c1"></span></div>
+  <div class="cwin">
+    <div class="rail">
+      <div class="co"><div class="lg">L</div><div><div class="t">Lantern</div><div class="s">Listed · LNTN</div></div></div>
+      <a>Overview</a><a>Products</a><a>R&amp;D</a><a>People</a><a>Operations</a><a>Marketing</a><a class="on">Finance</a><a>Filings <i class="pub"></i></a><a>Listing</a>
+      <div class="foot"><span style="display:inline-flex;align-items:center;gap:6px"><i class="dot" style="background:var(--info);width:5px;height:5px"></i>Filings is what others see.</span><br>Everything else is private to you.</div>
+    </div>
+    <div class="cmain">
+      <div class="vhead">
+        <div><h1>Trading plan</h1><div class="meta">Finance · Lantern listed D512 at 22.50 · lockup until D680</div></div>
+        <div class="toggle"><div class="on">Founder view</div><div>What the market sees</div></div>
+      </div>
+
+      <div class="card note" data-testid="company-window-notice">
+        <div class="chd"><span class="label" style="color:var(--acc-hi)">Your trading window</span><span class="chip acc" style="margin-left:8px">Open until Day 591 · closes in 5 days</span><span class="r priv">Private</span></div>
+        <div style="display:flex;gap:22px">
+          <div style="flex:1">
+            <div class="faint" style="font-size:11px;margin-top:2px">Covered for you and accounts you control:</div>
+            <div class="cov" style="margin-top:4px">
+              <i></i><span>Lantern stock, and options or futures on it</span>
+              <i></i><span>The sector fund PACF, and anything built on it</span>
+              <i class="n"></i><span>Index funds where Lantern is 5% or more · none now</span>
+            </div>
+            <div class="faint" style="font-size:11px;margin-top:6px">Broad funds such as GXI stay open. Next window D635–D654. The dates are public; this warning is only for you.</div>
+          </div>
+          <div style="width:260px">
+            <div class="faint" style="font-size:11px">Open orders in these are cancelled at the D591 close. The Wire tells you which.</div>
+            <div class="oo" data-testid="company-window-open-orders"><span class="mono" style="color:var(--gain)">Buy</span><span class="mono">2,000 PACF</span><span class="faint">limit 48.10</span><span class="mono faint" style="margin-left:auto;font-size:11px">1 open</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:14px;flex:1;min-height:0">
+        <div class="card dec" style="flex:1.1;display:flex;flex-direction:column" data-testid="company-plan-form">
+          <div class="chd"><span class="label" style="color:var(--acc-hi)">New plan</span><span class="r priv">Private</span></div>
+          <div class="sel">
+            <div class="f"><span class="k">Instrument</span><span class="mono" style="margin-left:auto">LNTN</span></div>
+            <div class="seg2"><div class="on">Sell only</div></div>
+          </div>
+          <div class="sel" style="margin:0" data-testid="company-plan-minprice">
+            <div class="f" style="border-color:var(--acc)"><span class="k" style="white-space:nowrap">Minimum sell price · required</span><span class="mono" style="margin-left:auto">24.00</span></div>
+          </div>
+          <div class="faint" style="font-size:10.5px;margin:4px 0 6px">At most 24.81 (80% of the last close, 31.02). Days below it are skipped.</div>
+          <div class="prow" style="height:24px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)"><span>Day</span><span></span><span style="text-align:right">Shares</span></div>
+          <div class="prow"><span class="mono">D700</span><span class="faint" style="font-size:11px">lockup ends D680</span><span class="f">15,000</span></div>
+          <div class="prow"><span class="mono">D710</span><span></span><span class="f">15,000</span></div>
+          <div class="prow"><span class="mono">D720</span><span></span><span class="f">15,000</span></div>
+          <div class="kv2" style="margin-top:8px"><span>Total</span><span class="mono">45,000 LNTN · 4.2% of yours</span></div>
+          <div class="kv2"><span>Earliest day</span><span class="mono">D650 <span class="faint">(one quarter out)</span></span></div>
+          <div class="kv2" data-testid="company-plan-reserve"><span style="color:var(--fg)">Reserves now</span><span class="mono" style="color:var(--fg)">45,000 LNTN</span></div>
+          <div class="hr" style="margin:8px 0"></div>
+          <div style="font-size:12.5px;color:var(--fg)" data-testid="company-plan-final">Can't be changed or cancelled once committed.</div>
+          <div class="faint" style="font-size:11px;margin-top:3px">Trades in LNTN and its options or futures are filed publicly the next day.</div>
+          <div class="hold" style="margin-top:auto" data-testid="company-plan-commit"><i class="p"></i><span>Hold to commit plan</span></div>
+          <div class="faint" style="font-size:10.5px;text-align:center;margin-top:6px">Let go to stop. Nothing commits until the hold completes.</div>
+        </div>
+        <div class="card" style="flex:1;display:flex;flex-direction:column" data-testid="company-plan-list">
+          <div class="chd"><span class="label">Plans · 1 of 2 live</span><span class="r priv">Private</span></div>
+          <div class="cp" data-testid="company-plan-row">
+            <div class="h"><span class="mono" style="color:var(--loss)">Sell</span><span class="mono">PACF</span><span class="chip">Committed D560</span></div>
+            <div class="d"><span>D650</span><span>D655</span><span>D660</span><em class="faint" style="font-size:11px;font-style:normal;margin-left:auto">400 a day · min 44.00</em></div>
+            <div class="lk" data-testid="company-plan-locked"><span class="pill">PLAN</span>Locked: 1,200 PACF</div>
+            <div class="lk" data-testid="company-plan-public"><span class="publ" style="margin-right:6px"><i class="dot" style="background:var(--info);width:4px;height:4px"></i>Public</span>Sell plan · D650–D660</div>
+          </div>
+          <div class="cp" data-testid="company-plan-row">
+            <div class="h"><span class="mono" style="color:var(--loss)">Sell</span><span class="mono">PACF</span><span class="chip">Completed D585</span></div>
+            <div class="d"><span class="done">D575</span><span class="done">D580</span><span class="done">D585</span><em class="faint" style="font-size:11px;font-style:normal;margin-left:auto">300 a day · min 46.00</em></div>
+            <div class="lk" data-testid="company-plan-skip" style="color:var(--fg)">D580: 0 of 300 sold; 45.70 was below your minimum.</div>
+            <div class="lk" data-testid="company-plan-locked-until"><span class="pill">PLAN</span>300 PACF locked until D648</div>
+            <div class="lk"><span class="publ" style="margin-right:6px"><i class="dot" style="background:var(--info);width:4px;height:4px"></i>Public</span>Sell plan · D575–D585 · D580 skipped: below minimum price</div>
+          </div>
+          <div class="faint" style="font-size:11px;line-height:1.45;margin-top:10px">Read-only: no edit, pause or cancel. Skips never carry over; shares unsold on a price skip stay locked 63 days after the plan ends. Locked shares can't be lent or used as collateral.</div>
+          <div class="muted" style="font-size:11.5px;line-height:1.45;margin-top:auto">Unusual profits in a stock just before its filing raise the odds of an insider-trading investigation through the courts. It is never automatic or certain.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Broker: LNTN, window open -->
+<div class="win" style="left:874px;top:190px;width:552px;height:650px" data-testid="win-broker">
+  <div class="tb"><span class="gl" data-g="broker"></span><span class="nm">Broker</span><span class="sub">LNTN · 1D</span><span id="c2"></span></div>
+  <div class="bhead">
+    <div><div><span class="tk">LNTN</span> <span class="muted" style="margin-left:6px">Lantern Roasting Co.</span></div><div class="faint" style="font-size:11.5px;margin-top:3px">Equity · Port Avalon Exchange · Staples</div></div>
+    <div style="margin-left:auto"><span class="px">31.40</span> <span class="mono gain" style="font-size:13px;margin-left:8px">+0.38 &nbsp;+1.22%</span></div>
+  </div>
+  <div style="padding:10px 16px 0"><div id="chart"></div></div>
+  <div style="padding:10px 16px 14px;display:flex;flex-direction:column;gap:10px" data-testid="ticket">
+    <div class="banner" data-testid="window-open-banner"><span data-g="clock" style="color:var(--gain)"></span>Your trading window: open until Day 591<span class="faint" style="margin-left:auto;font-size:11px">LNTN is covered</span></div>
+    <div class="bs"><div class="buy">Buy <kbd style="margin-left:6px">B</kbd></div><div>Sell <kbd style="margin-left:6px">S</kbd></div></div>
+    <div style="display:flex;gap:10px">
+      <div class="field focus" style="flex:1"><span class="k">Quantity</span><span class="v">500</span></div>
+      <div class="field" style="flex:1"><span class="k">Price</span><span class="v muted" style="font-size:13px">Market</span></div>
+    </div>
+    <div>
+      <div class="kv"><span>Est. cost</span><span class="mono">15,700.00</span></div>
+      <div class="kv"><span>Position after</span><span class="mono">1,082,500 LNTN</span></div>
+      <div class="kv"><span>Sells</span><span class="mono">locked until D680</span></div>
+    </div>
+    <div class="cta">Buy 500 LNTN <kbd>Enter</kbd></div>
+    <div class="faint" style="font-size:11px">Your trades in LNTN and its options or futures are filed publicly the next day.</div>
+  </div>
+</div>
+
+<!-- windowClosing toast -->
+<div class="toast" data-testid="company-window-toast">
+  <div class="ic" id="tic"></div>
+  <div style="flex:1;min-width:0">
+    <div class="t1"><span class="label" style="color:var(--muted);white-space:nowrap">Company</span><span class="mono faint" style="font-size:10.5px;white-space:nowrap">D587 · 09:00</span><span class="x" id="tx"></span></div>
+    <div class="t2">Window closes in 5 days</div>
+    <div class="t3">LNTN, PACF and anything built on them. Open orders in these are cancelled at the D591 close.</div>
+  </div>
+</div>
+
+<div id="shelf"></div>
+<script>
+G.clock='<circle cx="12" cy="12" r="8.25"/><path d="M12 7.5V12l3 2"/>';
+const P=applyPalette('ink-brass');
+wall.innerHTML=wallpaper('ink-brass',1440,900,P,.79);
+strip.outerHTML=osStrip({rel:'3',day:'Day 587 · 09:02',rank:'R3 · Operator',nw:'$38,120,904.55',pct:'+0.66%'});
+shelf.outerHTML=osShelf({running:{company:'on',broker:'run',wire:'run'},ws:3,wsOn:2,layout:'Company layout'});
+['c1','c2'].forEach(id=>document.getElementById(id).outerHTML=winCtl());
+tic.innerHTML=glyph('clock',15,1.5); tx.innerHTML=glyph('close',12,1.4);
+document.querySelectorAll('[data-g]').forEach(e=>{e.innerHTML=glyph(e.dataset.g,15,1.5)});
+// simple line chart
+(function(){const w=520,h=200,n=60;let v=30.2,pts=[];for(let i=0;i<n;i++){v+=Math.sin(i*0.7)*0.08+Math.cos(i*0.31)*0.12+0.02;pts.push(v)}
+const mn=Math.min(...pts)-0.2,mx=Math.max(...pts)+0.2;const xy=pts.map((p,i)=>[i*(w-40)/(n-1),h-14-(p-mn)/(mx-mn)*(h-24)]);
+const d=xy.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join(' ');
+let grid='';for(let k=0;k<4;k++){const y=10+k*(h-24)/3;grid+=`<line x1="0" x2="${w-40}" y1="${y}" y2="${y}" stroke="${P.line}" stroke-dasharray="2 4"/><text x="${w-34}" y="${y+4}" fill="${P.faint}" font-family="JetBrains Mono" font-size="10">${(mx-(mx-mn)*k/3).toFixed(2)}</text>`}
+document.getElementById('chart').innerHTML=`<svg width="${w}" height="${h}">${grid}<path d="${d} L${w-40} ${h-14} L0 ${h-14}Z" fill="${P.gain}" opacity=".07"/><path d="${d}" fill="none" stroke="${P.gain}" stroke-width="1.6"/></svg>`;})();
+</script>
+</body></html>
