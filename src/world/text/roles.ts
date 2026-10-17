@@ -1,6 +1,6 @@
 import type { Msg } from '@/i18n';
 import { earningsGrade, hashStr } from '@/content/news';
-import { pctToken } from '@/i18n/tokens';
+import { pctToken, usdToken } from '@/i18n/tokens';
 
 /**
  * The text roles' copy rules (Phase 7, P7-1). A role takes typed FACTS (ids, names, numbers and signs the world already
@@ -22,19 +22,19 @@ export function vkey(base: string, factId: string): string {
   return `${base}.${variantOf(factId)}`;
 }
 
-/** A signed percent with one decimal and the Wire's minus sign (+1.2%, −3.4%). */
+/** A locale-formatted signed percent with one decimal and the Wire's minus sign (+1.2%, −3.4%). */
 export function wirePct(f: number): string {
-  return `${f >= 0 ? '+' : '−'}${(Math.abs(f) * 100).toFixed(1)}%`;
+  return `#mpct:${f}`;
 }
 
 /** An unsigned percent with one decimal, from a fraction. */
 export function plainPct(f: number): string {
-  return `${(f * 100).toFixed(1)}%`;
+  return `#pct:${f},1`;
 }
 
-/** A whole dollar amount with thousands separated (en-US form in both languages, as the ledger prints it). */
+/** A rounded whole dollar amount, grouped and placed by the reader's locale. */
 export function usd0(x: number): string {
-  return `$${Math.round(x).toLocaleString('en-US')}`;
+  return `#usd:${Math.round(x)},0`;
 }
 
 /** The "when" phrase of a days-away count: tomorrow, or in N days (plural by count). */
@@ -134,24 +134,24 @@ export function newsroomMsg(f: NewsFacts): Msg {
       const verb = bp > 0 ? 'hike' : bp < 0 ? 'cut' : 'hold';
       return {
         key: vkey(`txt.news.rates.${verb}`, f.id),
-        vars: { bp: Math.abs(bp), policy: `${(f.policy * 100).toFixed(2)}%`, surprise: { key: `txt.news.surprise.${rateSurprise(f.change, f.expected)}` } },
+        vars: { bp: Math.abs(bp), policy: pctToken(f.policy), surprise: { key: `txt.news.surprise.${rateSurprise(f.change, f.expected)}` } },
       };
     }
     case 'listing':
-      return { key: vkey(`txt.news.listing.${f.event}`, f.id), vars: { name: f.name, px: `$${f.price.toFixed(2)}`, child: f.child } };
+      return { key: vkey(`txt.news.listing.${f.event}`, f.id), vars: { name: f.name, px: usdToken(f.price), child: f.child } };
     case 'index':
       if (f.phase === 'announced') {
         return { key: vkey('txt.news.index.announced', f.id), vars: { index: f.index, when: whenDays(f.days), change: changeMsg(f.adds, f.removes) } };
       }
       return { key: vkey('txt.news.index.effective', f.id), vars: { index: f.index, change: changeMsg(f.adds, f.removes) } };
     case 'squeeze':
-      return { key: vkey('txt.news.squeeze', f.id), vars: { name: f.name, pct: `${(f.cover * 100).toFixed(0)}%` } };
+      return { key: vkey('txt.news.squeeze', f.id), vars: { name: f.name, pct: `#pct:${f.cover},0` } };
     case 'filing':
-      return { key: vkey('txt.news.filing', f.id), vars: { handle: f.handle, name: f.name, pct: `${(f.level * 100).toFixed(1)}%` } };
+      return { key: vkey('txt.news.filing', f.id), vars: { handle: f.handle, name: f.name, pct: plainPct(f.level) } };
     case 'margin':
       return { key: vkey('txt.news.margin', f.id), vars: { equity: usd0(f.equity), required: usd0(f.required) } };
     case 'liquidated':
-      return { key: vkey('txt.news.liquidated', f.id), vars: { qty: f.qty, asset: f.asset, price: f.price.toFixed(2) } };
+      return { key: vkey('txt.news.liquidated', f.id), vars: { qty: `#n:${f.qty},0,4`, asset: f.asset, price: `#n:${f.price},2,2` } };
     case 'liquidation':
       return { key: vkey('txt.news.liquidation', f.id), vars: { asset: f.asset } };
     case 'option':
@@ -166,12 +166,11 @@ export function newsroomMsg(f: NewsFacts): Msg {
     case 'property':
       return { key: vkey('txt.news.property', f.id), vars: { handle: f.handle, type: f.type, district: f.district, city: f.city } };
     case 'bizEvent': {
-      const sign = f.mult >= 1 ? '+' : '−';
       return {
         key: vkey('txt.news.bizEvent', f.id),
         vars: {
           event: { key: `txt.biz.ev.${f.event}`, vars: { biz: f.biz, city: f.city } },
-          mult: `${sign}${Math.round(Math.abs(f.mult - 1) * 100)}%`,
+          mult: `#mpct:${f.mult - 1},0`,
           days: { key: 'txt.news.days', vars: { count: f.days, n: f.days } },
         },
       };
@@ -185,7 +184,7 @@ export function newsroomMsg(f: NewsFacts): Msg {
     case 'hallOfFame':
       return { key: vkey('txt.news.hof', f.id), vars: { rank: f.rank, number: f.number } };
     case 'priced':
-      return { key: vkey('txt.news.ipoPriced', f.id), vars: { name: f.name, ticker: f.ticker, price: `$${f.price.toFixed(2)}` } };
+      return { key: vkey('txt.news.ipoPriced', f.id), vars: { name: f.name, ticker: f.ticker, price: usdToken(f.price) } };
     case 'tradePlan':
       return { key: vkey('txt.news.plan', f.id), vars: { name: f.name, from: f.from, to: f.to } };
     case 'buyback':
@@ -296,7 +295,7 @@ export type MemoFacts =
 export function analystMsg(f: MemoFacts): Msg {
   switch (f.kind) {
     case 'move':
-      return { key: vkey(`txt.analyst.${f.dir}`, f.id), vars: { asset: f.asset, pct: `${(Math.abs(f.pct) * 100).toFixed(2)}%`, from: f.from, to: f.to } };
+      return { key: vkey(`txt.analyst.${f.dir}`, f.id), vars: { asset: f.asset, pct: pctToken(Math.abs(f.pct)), from: f.from, to: f.to } };
     case 'did':
       return { key: vkey('txt.analyst.did', f.id), vars: { part: `@journal.part.${f.part}` } };
     case 'flow':

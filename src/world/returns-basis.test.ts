@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { credit, netWorthBreakdown, priceOf } from './core';
+import { credit, netWorthBreakdown, priceOf, transfer } from './core';
 import { applyCommand, createGame, stepGame } from './game';
 import { dayClose } from './close';
 import { playerView } from './view';
@@ -18,6 +18,24 @@ function joined(seed: string): GameState {
 }
 
 describe('return bases (R-10-7)', () => {
+  it('cash transferred out reduces both the arrival and day percentage bases, without counting as a loss', () => {
+    const g = joined('returns-cash-out');
+    expect(applyCommand(g, 'u2', { type: 'join', handle: 'recipient_0', country: 'AV' }).ok).toBe(true);
+    while (g.market.tick < 720 + 300) stepGame(g);
+    const before = playerView(g, 'u1')!;
+    transfer(g, 'u1', 'u2', 1000);
+    credit(g, 'u1', 100, 'business income');
+    const after = playerView(g, 'u1')!;
+    expect(after.arrival.invested).toBeCloseTo(before.arrival.invested - 1000, 6);
+    expect(after.arrival.change).toBeCloseTo(before.arrival.change + 100, 6);
+    expect(after.arrival.changePct).toBeCloseTo(after.arrival.change / after.arrival.invested, 9);
+    expect(after.player.dayStart.netWorth).toBeCloseTo(before.player.dayStart.netWorth - 1000, 6);
+    while (g.market.tick < 2 * 720) stepGame(g);
+    const card = dayClose(g, 'u1', 1)!;
+    expect(card.external).toBeCloseTo(-1000, 6);
+    expect(card.nwChange).toBeCloseTo(100, 6);
+    expect(card.nwChangePct).toBeCloseTo(100 / (card.nwOpen - 1000), 9);
+  });
   it('the day close divides by the prior close equity plus the day\'s external cash', () => {
     const g = joined('returns-close-base');
     while (g.market.tick < 720 + 300) stepGame(g);

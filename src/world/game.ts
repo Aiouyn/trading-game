@@ -72,6 +72,7 @@ export function createGame(seed: string, opts: CreateOptions = {}): GameState {
   const g: GameState = {
     version: 2,
     seed,
+    auctionBandsFrom: 0,
     market,
     players: {},
     businesses: {},
@@ -120,6 +121,8 @@ export function createGame(seed: string, opts: CreateOptions = {}): GameState {
 
 /** Advance the world one tick (5 real seconds). Mutates `g` and returns what changed. */
 export function stepGame(g: GameState): StepOutput {
+  // Pin before advancing: a save at a week's last tick starts the band draw in the week about to open.
+  g.auctionBandsFrom ??= Math.floor(g.market.tick / TOURNAMENT_WEEK_TICKS) + 1;
   const out = newOutput();
   const realizedBefore: Record<string, number> = {};
   for (const [id, a] of Object.entries(g.market.accounts)) realizedBefore[id] = a.realizedPnl;

@@ -79,6 +79,12 @@ export interface GameState {
   tournament?: TournamentState;
   /** the weekly live auctions (auctions.ts). Absent until the first bid; worlds without one keep every fingerprint. */
   auctions?: AuctionState;
+  /**
+   * The first week whose auction lots are drawn per rank band (auctions.ts, R-10-7). Weeks before it keep the lot draw they
+   * were opened with. A world created now sets 0; an older save has none and is pinned by stepGame to the week after its
+   * current one, so no lot that is open at the deploy changes. Absent in a save that has not stepped since the deploy.
+   */
+  auctionBandsFrom?: number;
   /** the insurance market is open: a first policy went on, so the insurer exists and the loss sources roll (insurance.ts). Absent in worlds that never sold one. */
   insuranceMarket?: boolean;
 }

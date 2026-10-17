@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import en from './en.json';
 import fr from './fr.json';
 import { translate } from './index';
+import { analystMsg, newsroomMsg, type NewsFacts } from '@/world/text/roles';
+import { renderMsg } from '@/world/text/template';
 
 // R-10-7 (French): the rank and licence names are French, the numbers in French text use a decimal comma, and no English
 // rank or licence name leaks into French copy. The audit reads every French value, and the text the server builds for the
@@ -42,6 +44,36 @@ describe('French realism audit (R-10-7)', () => {
 });
 
 describe('French generated text (R-10-7)', () => {
+  const facts: NewsFacts[] = [
+    { kind: 'move', id: 'fr-move', name: 'Acme', move: -0.0345 },
+    { kind: 'auction', id: 'fr-auction', name: 'Acme', move: 0.0345 },
+    { kind: 'halt', id: 'fr-halt', name: 'Acme', move: -0.0345 },
+    { kind: 'reopen', id: 'fr-reopen', name: 'Acme', gap: 0.0345 },
+    { kind: 'earnings', id: 'fr-earnings', name: 'Acme', surprise: 0.9, move: 0.0345, quote: { key: 'txt.exec.none' } },
+    { kind: 'macro', id: 'fr-macro', macro: 'cpi', actual: 0.023, consensus: 0.021, diff: 0.002 },
+    { kind: 'rates', id: 'fr-rates', policy: 0.0525, change: 0.0025, expected: 0.0025 },
+    { kind: 'listing', id: 'fr-listing', event: 'ipo', name: 'Acme', price: 1284.25, child: '' },
+    { kind: 'filing', id: 'fr-filing', handle: 'Ada', name: 'Acme', level: 0.055 },
+    { kind: 'liquidated', id: 'fr-liquidated', qty: 0.1234, asset: 'ACME', price: 1284.25 },
+    { kind: 'priced', id: 'fr-priced', name: 'Acme', ticker: 'ACME', price: 1284.25 },
+    { kind: 'margin', id: 'fr-margin', equity: 12500, required: 15000 },
+    { kind: 'option', id: 'fr-option', contract: 'ACME|C|10', payout: 12500 },
+    { kind: 'sale', id: 'fr-sale', name: 'Acme', price: 12500 },
+  ];
+  it.each(facts)('formats generated $kind facts on both server and client in French', (fact) => {
+    const msg = newsroomMsg(fact);
+    const client = translate('fr', msg.key, msg.vars);
+    expect(renderMsg(msg, 'fr')).toBe(client);
+    expect(client).not.toMatch(DECIMAL_RE);
+    expect(client).not.toMatch(/\d,\d{3}(?:\D|$)/);
+    expect(client).not.toMatch(/\{\w+\}|#(?:usd|pct|n|mpct):/);
+  });
+
+  it('a Research Desk memo formats its percentage in French', () => {
+    const msg = analystMsg({ id: 'fr-desk', kind: 'move', dir: 'up', asset: 'ACME', pct: 0.0345, from: 1, to: 3 });
+    expect(translate('fr', msg.key, msg.vars)).toContain('3,45\u00a0%');
+    expect(renderMsg(msg, 'fr')).not.toMatch(DECIMAL_RE);
+  });
   it('the rank-up notes name the rank in French and carry no English rank name', () => {
     for (const id of ['R0', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6']) {
       const out = translate('fr', `rank.note.up.${id}`, { name: `@rank.${id}` });

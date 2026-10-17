@@ -3,7 +3,7 @@
 // Legal & Court (Velvet app 9): file a case, follow your cases, settle. Evidence decides; counsel nudges
 // the odds a little but cannot buy a verdict (bible 03). Filing spends money, so it goes through the CommitBar.
 import { useState } from 'react';
-import { compactMoney, money } from '@/game/format';
+import { compactMoney, fmtNumber, money } from '@/game/format';
 import { clockLabel } from '@/game/clock';
 import { useGame } from '@/game/store';
 import { usePublicPanel } from '@/game/usePublicPanel';
@@ -25,7 +25,7 @@ export function LegalApp() {
   const act = useGame((s) => s.act);
   const tick = useGame((s) => s.frame?.tick ?? 0);
   const others = directory.filter((d) => d.id !== me.player.id);
-  const evidenceIds = me.security.evidence.map((e) => e.against);
+  const evidenceIds = Object.keys(me.filing);
   const defaulters = me.deals.filter((d) => d.status === 'defaulted' && d.fromId === me.player.id).map((d) => d.toId);
   const suggested = [...new Set([...evidenceIds, ...defaulters])];
   // The directory can arrive after mount, so the defendant is derived: the pick while it is still a valid
@@ -37,18 +37,17 @@ export function LegalApp() {
   const [filing, setFiling] = useState(false);
   const name = (id: string) => directory.find((d) => d.id === id)?.handle ?? id;
   const mine = me.cases.slice().sort((a, b) => b.filedTick - a.filedTick);
-  const points = Math.round(me.security.evidence.find((e) => e.against === def)?.points ?? (defaulters.includes(def) ? 80 : 0));
+  const evidenceNow = me.filing[def]?.[kind] ?? 0;
+  const points = fmtNumber(evidenceNow, 0, 1);
   const cash = me.account?.cash ?? 0;
   const counselCost = COUNSEL_COST[Number(counsel)] ?? 0;
   const fee = FILING_FEE + counselCost;
-  // the filing is refused below the evidence minimum (court.ts fileCase) and above the cash it needs; the reason is shown here. A
-  // model theft against a player with no evidence in view has no known count, so the server decides it.
-  const evidenceNow = me.filing[def]?.[kind];
-  const evidenceShort = (evidenceNow !== undefined || kind !== 'model theft') && (evidenceNow ?? 0) < filingMinimum(kind);
+  // The view carries the engine's count for each claim, including residue-only theft evidence. Absence means zero.
+  const evidenceShort = evidenceNow < filingMinimum(kind);
   const cashShort = cash < fee;
   // no reason until a defendant is chosen: the button is off for that, and a reason would name nobody
   const blockReason = !def ? null : evidenceShort
-    ? t('legal.file.needEvidence', { min: Math.round(filingMinimum(kind)), name: name(def), points: Math.round(evidenceNow ?? 0) })
+    ? t('legal.file.needEvidence', { min: fmtNumber(filingMinimum(kind), 0, 1), name: name(def), points })
     : cashShort ? t('legal.file.needCash', { fee: money(fee), cash: money(cash) }) : null;
   const open = me.cases.filter((c) => c.status === 'filed').length;
   const won = me.cases.filter((c) => (c.status === 'won' && c.plaintiffId === me.player.id) || (c.status === 'lost' && c.defendantId === me.player.id)).length;

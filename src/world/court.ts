@@ -99,7 +99,8 @@ export function fileCase(g: GameState, pid: string, defendantId: string, kind: C
   if (cashOf(g, pid) < filingFee) return { ok: false, error: 'not enough cash for fees' };
   const evidence = evidenceFor(g, pid, defendantId, kind);
   const bar = filingBar(kind);
-  if (evidence < filingMinimum(kind)) return { ok: false, error: `not enough evidence (${Math.round(evidence)} of ${bar} points)`, msg: { key: 'court.refuse.evidence', vars: { n: `#n:${Math.round(evidence)},0,0`, bar } } };
+  const minimum = filingMinimum(kind);
+  if (evidence < minimum) return { ok: false, error: `not enough evidence (${evidence} of ${minimum} points)`, msg: { key: 'court.refuse.evidence', vars: { n: `#n:${evidence},0,1`, bar: `#n:${minimum},0,1` } } };
   debit(g, pid, filingFee, 'legal fees');
   g.court.seq++;
   const id = `case${g.court.seq}`;

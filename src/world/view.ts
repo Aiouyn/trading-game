@@ -355,6 +355,8 @@ function filingView(g: GameState, pid: string): Record<string, Record<string, nu
   const ids = new Set<string>();
   for (const k of Object.keys(g.cyber.evidence)) if (k.endsWith(`>${pid}`)) ids.add(k.split('>')[0]!);
   for (const d of Object.values(g.deals)) if (d.status === 'defaulted' && d.fromId === pid) ids.add(d.toId);
+  // Model residue can establish a theft claim without a cyber evidence entry. Include its engine count as well.
+  for (const id of Object.keys(g.lab)) if (id !== pid && evidenceFor(g, pid, id, 'model theft') > 0) ids.add(id);
   const out: Record<string, Record<string, number>> = {};
   for (const id of ids) out[id] = Object.fromEntries(COURT_KINDS.map((kind) => [kind, evidenceFor(g, pid, id, kind)]));
   return out;

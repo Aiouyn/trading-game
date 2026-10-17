@@ -33,8 +33,11 @@ describe('receivables by the buyer (R-10-7)', () => {
     const sales = c.ledgerTotals.sales ?? 0;
     const build = c.ledgerTotals['receivables build-up'] ?? 0;
     expect(sales).toBeGreaterThan(0);
+    expect(sales).toBeCloseTo(c.revenueTotal, 4);
     // over a run from zero receivables, the build-up is the receivable balance taken out of the cash
     expect(-build).toBeCloseTo(c.ar, 4);
+    expect(sales + build).toBeCloseTo(c.revenueTotal - c.ar, 4);
+    expect(Object.values(c.ledgerTotals).reduce((sum, amount) => sum + amount, 0)).toBeCloseTo(c.cash - COMPANY.founding.capital, 4);
   });
 
   it('a consumer company carries about a day of sales in receivables, a trade company about ten', () => {

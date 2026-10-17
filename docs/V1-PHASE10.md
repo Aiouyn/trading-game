@@ -134,3 +134,65 @@ rivals board, the portfolio, the legal app and the auctions in en and fr, 20 sho
    (a 25-minute hook). The rerun of the same five files with a 10-minute test timeout passes: 37 passed, 1 expected fail. So the
    failures are timing under the machine's load (102 node processes from other sessions), not assertions. A run on a quiet
    machine with the default timeouts is still wanted to close it.
+
+### 10D.7 Bounded repair pass (2026-10-14, existing p10-fix worktree)
+
+The starting tree had interrupted edits in `src/world/auctions.ts`, `src/world/game.ts`, `src/world/types.ts`, and an untracked
+`src/world/auction-draw.test.ts`. They were inspected and preserved. The auction test initially could not collect because the
+`bands` parameter and a local constant had the same name. Renaming the local constant repairs the compile error.
+
+- **Returns:** the formulas in `close.ts`, `view.ts`, `rivalsBoard.ts` and the read-only `NetWorthFigures.tsx` already follow
+  10D.1. No formula change. A new regression covers an external transfer out: it reduces net invested capital and the day
+  baseline without becoming a loss. The existing grant and open-position tests pass.
+- **Legal:** the fee/counsel/total arithmetic was already correct. Engine and rendered-component tests now cover all four
+  counsel levels, exact affordability, zero cash after, and refusal without charging. The remaining evidence bypass for
+  model theft is removed. Residue-only evidence now reaches `view.filing`; the selected claim displays that count; both the
+  view and the refusal preserve the 27.5-point minimum rather than rounding it or naming the 55-point verdict bar.
+- **Company sale cash:** sales already post full revenue and receivables build-up posts separately. Stronger accounting
+  assertions check sales against revenue, net collections against revenue less receivables, and every ledger total against
+  actual cash. No economics change; B2B at 30 days still needs the ruling described in 10D.2 item 4.
+- **French:** the grouping residual in 10D.6 item 1 was already repaired by `55ec9f1`. Rank/licence audits pass. Generated
+  Wire and Research Desk numbers still contained English decimal points and grouping; they now carry locale tokens. Optional
+  token precision retains whole-dollar and one-decimal news forms. Auction win notices also format their amount locally.
+  The existing business-copy assertion now requires the exact French `−40\u00a0%`, while its English assertion stays `+40%`.
+- **Auctions (R-10-7):** fresh games use bands from week zero. Untagged pre-band saves retain the historical hash draw for
+  the current week and start bands the next week. The historical algorithm was checked against `92463ab`. The pin now runs
+  before the engine advances, including at the week's last tick. Tests cover save round trips and a legacy-only lot's view,
+  continued bidding and settlement. No server/browser process or background simulation was started.
+
+Current checks (all foreground commands exited):
+
+- `node node_modules/vitest/vitest.mjs run src/world/auction-draw.test.ts src/world/auction-bands.test.ts src/world/auctions.test.ts src/world/view-memo.test.ts src/world/returns-basis.test.ts src/world/court-filing.test.ts src/world/company/receivables.test.ts src/world/company/company.test.ts src/world/rivalsBoard.test.ts src/world/text src/i18n src/game/format.fr.test.ts src/components/apps/legal/LegalApp.test.tsx --maxWorkers=2 --reporter=default --reporter=json --outputFile=test-results/p10-repair/targeted-final.json`:
+  **28 files passed, 238 tests passed, exit 0** (17.07 s). No timeouts or assertions were relaxed.
+- `node node_modules/next/dist/bin/next typegen`: exit 0.
+- `node node_modules/typescript/bin/tsc --noEmit`: exit 0.
+- `node node_modules/eslint/bin/eslint.js` on the 17 changed source/test files below: exit 0, no diagnostics.
+- Browser/Playwright, full suite and long simulation gates: **not run in this pass**. Browser verification remains deferred
+  under the requested ENOMEM constraint; static Legal rendering was tested in Node.
+
+Logs and JSON reports live only in ignored `test-results/p10-repair/`: `baseline-auction.log`, `regressions-before.log`,
+`repair-first.log`, `controls-accounting.log`, `targeted.log`, `targeted.json`, `targeted-final.log`, `targeted-final.json`,
+`typegen.log`, `typecheck.log`, and `lint.log`. Earlier failure logs are retained beside the final passing report.
+
+Exact dirty files after the repair (includes the preserved interrupted edits; no commits):
+
+```text
+docs/V1-PHASE10.md
+src/components/apps/legal/LegalApp.tsx
+src/components/apps/legal/LegalApp.test.tsx
+src/i18n/fr-realism.test.ts
+src/i18n/tokens.ts
+src/i18n/tokens.test.ts
+src/world/auctions.ts
+src/world/auctions.test.ts
+src/world/auction-draw.test.ts
+src/world/company/receivables.test.ts
+src/world/court.ts
+src/world/court-filing.test.ts
+src/world/game.ts
+src/world/returns-basis.test.ts
+src/world/text/copy.test.ts
+src/world/text/roles.ts
+src/world/types.ts
+src/world/view.ts
+```

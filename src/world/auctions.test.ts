@@ -5,6 +5,7 @@ import { creditExternal, debit } from './core';
 import { TOURNAMENT_WEEK_TICKS } from './tournamentWeek';
 import { LIFE_BY_ID } from '@/content/lifestyle';
 import type { GameState } from './types';
+import { translate } from '@/i18n';
 
 const WEEK = 0;
 const HOUR = AUCTION.hourTicks;
@@ -171,6 +172,10 @@ describe('auction settlement and money', () => {
     expect(cents(g.market.accounts[CONSIGNOR_ID]!.cash - consignorBefore)).toBe(cents(hammer - fee));
     expect(JSON.stringify(g.economy.faucets)).toBe(faucetsBefore);
     expect(g.players[b]!.lifestyle.some((o) => o.itemId === lot.itemId && o.paid === hammer)).toBe(true);
+    const msg = g.players[b]!.inbox.find((x) => x.msg?.key === 'auction.won')!.msg!;
+    const wonFr = translate('fr', msg.key, msg.vars);
+    expect(wonFr).not.toMatch(/\d\.\d/);
+    expect(wonFr).toContain(new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pay).replace(/\u202f/g, '\u00a0'));
   });
 
   it('leaves the losing bidder\'s cash untouched', () => {

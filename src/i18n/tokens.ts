@@ -8,6 +8,7 @@
  *   "#pct:<fraction>"         a percent from a fraction, two decimals           1.23% / 1,23 %
  *   "#spct:<fraction>"        the same with an explicit '+' when positive       +1.23% / +1,23 %
  *   "#mpct:<fraction>"        a market move: one decimal, '+' or the true minus sign '−' (the wire's form)  +3.5% / −3,5 %
+ * Money and percent tokens may append ",<decimals>" to preserve a message's display precision (default: two, or one for mpct).
  * The French forms follow src/game/format.ts: a decimal comma, a no-break space before the dollar sign or the percent sign.
  */
 
@@ -51,14 +52,16 @@ export function formatToken(locale: TokenLocale, token: string): string {
   if (token.startsWith('#n:')) return formatNumberToken(locale, token);
   const colon = token.indexOf(':');
   const kind = token.slice(1, colon);
-  const x = Number(token.slice(colon + 1));
-  if (!Number.isFinite(x)) return token.slice(colon + 1);
+  const [value = '', digits] = token.slice(colon + 1).split(',');
+  const x = Number(value);
+  if (!Number.isFinite(x)) return value;
   const signed = kind === 'susd' || kind === 'spct';
   const move = kind === 'mpct';
   // a market move always carries its sign: '+' when zero or up, the true minus sign when down (the wire has always printed that)
   const sign = move ? (x < 0 ? '−' : '+') : x < 0 ? '-' : signed && x > 0 ? '+' : '';
   const a = Math.abs(x);
-  const dec = move ? 1 : 2;
+  const requested = digits === undefined ? NaN : Number(digits);
+  const dec = Number.isInteger(requested) && requested >= 0 && requested <= 20 ? requested : move ? 1 : 2;
   const figure = groupSpace(formatterFor(locale, dec, dec).format(kind === 'pct' || kind === 'spct' || move ? a * 100 : a));
   if (kind === 'pct' || kind === 'spct' || move) return locale === 'fr' ? `${sign}${figure}${NBSP}%` : `${sign}${figure}%`;
   return locale === 'fr' ? `${sign}${figure}${NBSP}$` : `${sign}$${figure}`;

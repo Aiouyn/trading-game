@@ -3,6 +3,16 @@ import { formatToken, isNumberToken } from './tokens';
 import { translate } from './index';
 
 describe('number tokens in message descriptors (the reader locale formats them)', () => {
+  it('optional precision preserves whole money and one-decimal news percentages in both locales', () => {
+    expect(formatToken('en', '#usd:12500,0')).toBe('$12,500');
+    expect(formatToken('fr', '#usd:12500,0')).toBe('12\u00a0500\u00a0$');
+    expect(formatToken('en', '#pct:0.023,1')).toBe('2.3%');
+    expect(formatToken('fr', '#pct:0.023,1')).toBe('2,3\u00a0%');
+    expect(formatToken('en', '#mpct:-0.023')).toBe('−2.3%');
+    expect(formatToken('fr', '#mpct:-0.023')).toBe('−2,3\u00a0%');
+    expect(formatToken('fr', '#mpct:0.4,0')).toBe('+40\u00a0%');
+    for (const digits of ['oops', '-1', '21', '1.5']) expect(formatToken('en', `#pct:0.023,${digits}`)).toBe('2.30%');
+  });
   it('money reads $1,500.00 in English and 1 500,00 $ in French, with the sign only when asked', () => {
     expect(formatToken('en', '#usd:1500')).toBe('$1,500.00');
     expect(formatToken('fr', '#usd:1500')).toMatch(/^1\s500,00\s\$$/);
