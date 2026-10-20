@@ -659,7 +659,12 @@ export class LedgerWorld {
   checkpoint(): State { return cloneState(this.s); }
   restore(st: State): void {
     const cur = this.s.hookCursor; this.s = cloneState(st);
-    for (const [c, t] of cur) if (t > (this.s.hookCursor.get(c) ?? -1)) this.s.hookCursor.set(c, t); // Δ8: replay never re-fires hooks
+    // Δ8/L19: the cursor never moves back (replay never re-fires hooks) and follows the world tick forward: a restore to a later
+    // tick is not a committed tick, so the cursor lands on tick − 1 and the next commit advances it by exactly 1.
+    for (const c of CCYS) {
+      const t = [cur.get(c), this.s.hookCursor.get(c), this.s.tick - 1].reduce<number>((m, x) => (x !== undefined && x > m ? x : m), -1);
+      this.s.hookCursor.set(c, t);
+    }
     this.queue = []; this.committedVersion = this.s.accounts.version; }
 }
 

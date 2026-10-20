@@ -1,4 +1,5 @@
 // Pure template builders (T03-06 rail, T03-07 templates). They return data only; nothing is applied until P13 (E3).
+import { cpMismatch } from './cppolicy';
 import { accountKey, cbMirrorCode, cbkId, defaultMoneyCode, SYS_ID } from './accounts';
 import { ESCROW_ONLY_CODES, RESTRICTED_FAUCETS, RESTRICTED_OK_CODES, type ReasonCatalog, type TemplateId } from './catalog';
 import { allocate, divRoundHalfEven, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
@@ -181,6 +182,7 @@ function tplPay_(env: TemplateEnv, from: Id, to: Id, amt: Money, ccy: Ccy, code:
   const bad = prologue(env, 'PAY', code, [amt], [from, to]); if (bad) return bad;
   const A = valueLeg(env, code, 'A', o, DEFAULT_LEG.payerExpense); const B = valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome);
   if (!o?.accrualId && (ACCRUAL_LEGS.includes(A) || ACCRUAL_LEGS.includes(B))) return invalidEntry(env, 'PAY', code, 'INV-LED-007', `leg_mismatch ${A}/${B} without an accrual`, 'catalog legs (settlement pair only via settleAccrual)');
+  const cp = cpMismatch(code, from, to); if (cp) return invalidEntry(env, 'PAY', code, 'INV-LED-025', cp.observed, cp.expected);
   const d = cashLeg(env.rail, ent(env, from), ent(env, to), amt, ccy, code, { restrictedOk: rOk(code), fixedSources: o?.fixedSources });
   const sub = (x: number): string | undefined => (ACCRUAL_LEGS.includes(x) ? o?.accrualId : undefined);
   d.push(dr(accountKey(from, A, ccy, sub(A)), accountKey(to, B, ccy, sub(B)), amt, ccy, code));
@@ -192,6 +194,7 @@ function tplSwapAsset_(env: TemplateEnv, buyer: Id, seller: Id, assetId: Id, qty
   const bad = prologue(env, 'SWAP_ASSET', code, [amt, qty], [buyer, seller]); if (bad) return bad;
   const A = leg(env, 'SWAP_ASSET', code, 'A', o?.valueLegA ?? o?.assetAcct, null);
   const B = leg(env, 'SWAP_ASSET', code, 'B', o?.valueLegB ?? o?.assetAcctFrom, null);
+  const cp = cpMismatch(code, buyer, seller); if (cp) return invalidEntry(env, 'SWAP_ASSET', code, 'INV-LED-025', cp.observed, cp.expected);
   const d = cashLeg(env.rail, ent(env, buyer), ent(env, seller), amt, ccy, code, { restrictedOk: rOk(code), fixedSources: o?.fixedSources });
   const bk = accountKey(buyer, A, ccy, assetId); const sk = accountKey(seller, B, ccy, assetId);
   // An issuer account on the seller side (code ≥ 2000): issuance, no book value or gain legs.
