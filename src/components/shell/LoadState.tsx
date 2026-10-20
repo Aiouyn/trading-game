@@ -11,11 +11,14 @@ export function LoadState({ variant = "pill" }: { variant?: "pill" | "banner" })
   const open = sys.load !== "ok" || sys.offline;
   const loading = sys.load === "loading";
   const body = open && (
-    <div className="load-state-body" role="alert" data-testid={sys.offline ? "offline-state" : "load-error"}>
-      <span>{sys.offline ? S.offline : S.couldntLoad}</span>
+    <div className="load-state-body" data-testid={sys.offline ? "offline-state" : "load-error"}>
+      {/* Only the message is in the live region; Retry's label changes are never re-announced. */}
+      <span role="alert" data-testid="load-message">{sys.offline ? S.offline : S.couldntLoad}</span>
       <span aria-hidden="true">{" · "}</span>
       {/* The hidden pseudo-label reserves the width of the other label, so tapping never re-wraps the banner. */}
-      <button className="load-retry" data-testid="load-retry" data-alt={loading ? S.retry : S.retrying} onClick={retryLoad} disabled={loading}>
+      <button className="load-retry" data-testid="load-retry" data-alt={loading ? S.retry : S.retrying}
+        // aria-disabled (not disabled) so Retry keeps focus while pending; activation is ignored meanwhile.
+        aria-disabled={loading} onClick={() => { if (!loading) retryLoad(); }}>
         <span className="load-retry-label">{loading ? S.retrying : S.retry}</span>
       </button>
     </div>

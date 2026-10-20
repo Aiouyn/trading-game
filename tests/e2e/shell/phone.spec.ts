@@ -389,3 +389,42 @@ for (const width of [390, 320]) {
     });
   }
 }
+
+test("Retry a11y (QA r11): keeps focus, aria-disabled toggles, a second activation while pending does nothing, the alert text never changes, label left x fixed", async ({ page }) => {
+  await boot(page, "/?load=fail&retryMs=1500"); // hold Retrying… long enough to try a second activation
+  const retry = page.getByTestId("load-retry");
+  // The banner/pill's live region (Next's own route announcer is another role=alert on the page).
+  const alert = page.locator("[data-testid=load-message][role=alert]");
+  await expect(alert).toHaveCount(1);
+  const alertText = await alert.textContent();
+  expect(await retry.evaluate((b) => b.closest("[role=alert]"))).toBeNull(); // the button sits outside the live region
+  const state = () => page.evaluate(() => {
+    const b = document.querySelector("[data-testid=load-retry]")!;
+    return {
+      focused: document.activeElement === b,
+      ariaDisabled: b.getAttribute("aria-disabled"), disabledAttr: b.hasAttribute("disabled"),
+      labelLeft: b.querySelector(".load-retry-label")!.getBoundingClientRect().left,
+      label: b.querySelector(".load-retry-label")!.textContent,
+      alert: document.querySelector("[data-testid=load-message][role=alert]")!.textContent,
+      retries: (window as Window & { __quayRetries?: () => number }).__quayRetries?.() ?? -1,
+    };
+  });
+  await retry.focus();
+  const s0 = await state();
+  expect(s0).toMatchObject({ focused: true, ariaDisabled: "false", disabledAttr: false, label: "Retry", alert: alertText });
+  await page.keyboard.press("Enter");
+  await expect(retry).toHaveText("Retrying…");
+  const s1 = await state();
+  expect(s1).toMatchObject({ focused: true, ariaDisabled: "true", disabledAttr: false, label: "Retrying…", alert: alertText, retries: s0.retries + 1 });
+  expect(s1.labelLeft).toBe(s0.labelLeft); // Studio 01:05: labels left-aligned in the reserved slot
+  await page.keyboard.press("Enter"); // second activation while pending: ignored
+  // A real pointer tap (locator.click() would wait for aria-disabled to clear).
+  const rb = (await retry.boundingBox())!;
+  await page.mouse.click(rb.x + rb.width / 2, rb.y + rb.height / 2);
+  const s1b = await state();
+  expect(s1b).toMatchObject({ label: "Retrying…", ariaDisabled: "true", retries: s0.retries + 1 });
+  await expect(retry).toHaveText("Retry");
+  const s2 = await state();
+  expect(s2).toMatchObject({ focused: true, ariaDisabled: "false", disabledAttr: false, alert: alertText, retries: s0.retries + 1 });
+  expect(s2.labelLeft).toBe(s0.labelLeft);
+});

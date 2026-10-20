@@ -330,8 +330,8 @@ test("S1-19 axe: zero serious violations at 1440 and 1000", async ({ page }) => 
 
 test("S1-20 City dynamic-imports @/city in its own chunk; Broker route has no three.js and ≤200 KB gz", async ({ page, request }) => {
   const scripts = new Map<string, number>();
-  page.on("response", async (r) => {
-    if (r.request().resourceType() === "script") scripts.set(r.url(), (await r.body()).length);
+  page.on("response", (r) => {
+    if (r.request().resourceType() === "script") scripts.set(r.url(), 0); // record synchronously; size comes from request.get below
   });
   await boot(page, "/broker");
   await page.waitForLoadState("networkidle");
@@ -345,9 +345,12 @@ test("S1-20 City dynamic-imports @/city in its own chunk; Broker route has no th
   }
   console.log(`S1-20 broker first-load JS: ${brokerChunks.length} chunks, ${(gz / 1024).toFixed(1)} KB gzipped`);
   expect(gz).toBeLessThanOrEqual(200 * 1024);
+  // Deterministic: arm the wait for the first new script before the click that triggers the dynamic import.
+  const cityChunk = page.waitForResponse((r) => r.request().resourceType() === "script" && !brokerChunks.includes(r.url()));
   await page.getByTestId("tile-city").click();
+  const first = await cityChunk;
+  scripts.set(first.url(), 0);
   await expect(page.getByTestId("city-mount")).toBeAttached();
-  await page.waitForLoadState("networkidle");
   const cityChunks = [...scripts.keys()].filter((u) => !brokerChunks.includes(u));
   console.log(`S1-20 chunks loaded on opening City: ${cityChunks.join(", ")}`);
   expect(cityChunks.length).toBeGreaterThan(0);
@@ -431,4 +434,43 @@ test("Shelf spacing stays even when locked tiles widen (Studio round 6)", async 
   });
   expect(gaps.some((g) => g.wide)).toBe(true);
   expect(new Set(gaps.map((g) => g.gap))).toEqual(new Set([4]));
+});
+
+test("Retry a11y (QA r11): keeps focus, aria-disabled toggles, a second activation while pending does nothing, the alert text never changes, label left x fixed", async ({ page }) => {
+  await boot(page, "/?load=fail&retryMs=1500"); // hold Retrying… long enough to try a second activation
+  const retry = page.getByTestId("load-retry");
+  // The banner/pill's live region (Next's own route announcer is another role=alert on the page).
+  const alert = page.locator("[data-testid=load-message][role=alert]");
+  await expect(alert).toHaveCount(1);
+  const alertText = await alert.textContent();
+  expect(await retry.evaluate((b) => b.closest("[role=alert]"))).toBeNull(); // the button sits outside the live region
+  const state = () => page.evaluate(() => {
+    const b = document.querySelector("[data-testid=load-retry]")!;
+    return {
+      focused: document.activeElement === b,
+      ariaDisabled: b.getAttribute("aria-disabled"), disabledAttr: b.hasAttribute("disabled"),
+      labelLeft: b.querySelector(".load-retry-label")!.getBoundingClientRect().left,
+      label: b.querySelector(".load-retry-label")!.textContent,
+      alert: document.querySelector("[data-testid=load-message][role=alert]")!.textContent,
+      retries: (window as Window & { __quayRetries?: () => number }).__quayRetries?.() ?? -1,
+    };
+  });
+  await retry.focus();
+  const s0 = await state();
+  expect(s0).toMatchObject({ focused: true, ariaDisabled: "false", disabledAttr: false, label: "Retry", alert: alertText });
+  await page.keyboard.press("Enter");
+  await expect(retry).toHaveText("Retrying…");
+  const s1 = await state();
+  expect(s1).toMatchObject({ focused: true, ariaDisabled: "true", disabledAttr: false, label: "Retrying…", alert: alertText, retries: s0.retries + 1 });
+  expect(s1.labelLeft).toBe(s0.labelLeft); // Studio 01:05: labels left-aligned in the reserved slot
+  await page.keyboard.press("Enter"); // second activation while pending: ignored
+  // A real pointer tap (locator.click() would wait for aria-disabled to clear).
+  const rb = (await retry.boundingBox())!;
+  await page.mouse.click(rb.x + rb.width / 2, rb.y + rb.height / 2);
+  const s1b = await state();
+  expect(s1b).toMatchObject({ label: "Retrying…", ariaDisabled: "true", retries: s0.retries + 1 });
+  await expect(retry).toHaveText("Retry");
+  const s2 = await state();
+  expect(s2).toMatchObject({ focused: true, ariaDisabled: "false", disabledAttr: false, alert: alertText, retries: s0.retries + 1 });
+  expect(s2.labelLeft).toBe(s0.labelLeft);
 });

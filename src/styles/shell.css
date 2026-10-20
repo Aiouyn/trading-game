@@ -327,11 +327,12 @@ html[data-motion="reduce"] *:not(.tickring-sweep) { transition-duration: 0ms !im
 .load-state-body { display: contents; }
 .load-state { white-space: nowrap; max-width: calc(100% - 16px); position: fixed; left: 50%; transform: translateX(-50%); top: 42px; z-index: var(--z-banner); display: flex; align-items: center; gap: 6px; padding: 0 8px 0 12px; background: var(--win2); border: 1px solid var(--line); border-radius: var(--r-btn); color: var(--fg-muted); font-size: var(--fs-13); }
 /* Retry: the 44×44 tap area is the button itself (§4), so it always stays inside the banner / pill. */
-.load-retry { display: inline-grid; place-items: center; color: var(--fg); text-decoration: underline; min-width: 44px; min-height: 44px; padding: 0 4px; flex: none; }
+.load-retry { display: inline-grid; align-items: center; justify-items: start; color: var(--fg); text-decoration: underline; min-width: 44px; min-height: 44px; padding: 0 4px; flex: none; }
 /* Both labels share one grid cell; the inactive one (::after, from data-alt) is invisible but keeps its width. */
 .load-retry > .load-retry-label, .load-retry::after { grid-area: 1 / 1; }
 .load-retry::after { content: attr(data-alt); visibility: hidden; }
-.load-retry:disabled { color: var(--fg-disabled); }
+/* Studio amendment 01:05: both labels left-aligned in the reserved slot, so the gap after "·" is fixed. */
+.load-retry[aria-disabled="true"] { color: var(--fg-disabled); cursor: default; }
 /* Phone: in-flow banner under the status bar. 44 px minimum (holds Retry's 44×44 tap area), wraps and grows
    at large text, text vertically centred, pushes content down. The hairline is an inset shadow so it
    doesn't add height. */
