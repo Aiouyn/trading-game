@@ -14,7 +14,10 @@ export function LoadState({ variant = "pill" }: { variant?: "pill" | "banner" })
     <div className="load-state-body" role="alert" data-testid={sys.offline ? "offline-state" : "load-error"}>
       <span>{sys.offline ? S.offline : S.couldntLoad}</span>
       <span aria-hidden="true">{" · "}</span>
-      <button className="load-retry" data-testid="load-retry" onClick={retryLoad} disabled={loading}>{loading ? S.retrying : S.retry}</button>
+      {/* The hidden pseudo-label reserves the width of the other label, so tapping never re-wraps the banner. */}
+      <button className="load-retry" data-testid="load-retry" data-alt={loading ? S.retry : S.retrying} onClick={retryLoad} disabled={loading}>
+        <span className="load-retry-label">{loading ? S.retrying : S.retry}</span>
+      </button>
     </div>
   );
   if (variant === "banner") {

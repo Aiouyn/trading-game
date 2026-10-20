@@ -219,7 +219,6 @@ test("Phone error/offline banner: under the status bar, pushes content down, nev
   const sb = await rect("[data-testid=statusbar]");
   const label = await rect("[data-testid=widget] .label");
   const chip = await rect("[data-testid=widget] .chip");
-  const after = await rect("[data-testid=widget]");
   expect(banner.top).toBe(sb.bottom);
   expect(banner.right - banner.left).toBe(390);
   await expect.poll(async () => (await rect("[data-testid=widget]")).top).toBe(before.top + 44 + 8); // content moves down by banner height + the 8 px gap (after the ease)
@@ -344,6 +343,49 @@ for (const width of [390, 320]) {
       expect(home.h).toBeGreaterThanOrEqual(44);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.context().setOffline(false);
+    });
+  }
+}
+
+// QA r10: tapping Retry must not move anything. Banner height and content top are measured before the
+// tap, in the Retrying… state, and after it settles; all three must be identical (0 px change).
+const settled = (page: import("@playwright/test").Page) => expect.poll(() => page.evaluate(() => new Promise<boolean>((res) => {
+  const m = () => JSON.stringify(Array.from(document.querySelectorAll("[data-testid=phone-banner], .appbar, [data-testid=widget]")).map((e) => e.getBoundingClientRect().toJSON()));
+  const a = m(); requestAnimationFrame(() => requestAnimationFrame(() => res(a === m())));
+}))).toBe(true);
+const layoutNow = (page: import("@playwright/test").Page, content: string) => page.evaluate((sel) => ({
+  banner: document.querySelector("[data-testid=phone-banner]")!.getBoundingClientRect().height,
+  content: document.querySelector(sel)!.getBoundingClientRect().top,
+  retryW: document.querySelector("[data-testid=load-retry]")!.getBoundingClientRect().width,
+}), content);
+
+for (const width of [390, 320]) {
+  for (const scale of ["1", "1.5", "2"]) {
+    test(`Retry tap moves nothing at ${width} px, text scale ${scale}: offline and error, in app and home (r10)`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      const tapAndMeasure = async (label: string, content: string) => {
+        await settled(page);
+        const before = await layoutNow(page, content);
+        expect(before.banner, label).toBeGreaterThanOrEqual(44);
+        await page.getByTestId("load-retry").click();
+        await expect(page.getByTestId("load-retry")).toHaveText("Retrying…");
+        const during = await layoutNow(page, content);
+        await expect(page.getByTestId("load-retry")).toHaveText("Retry");
+        await settled(page);
+        const after = await layoutNow(page, content);
+        expect(during, `${label} retrying`).toEqual(before);
+        expect(after, `${label} after`).toEqual(before);
+      };
+      for (const state of ["error", "offline"] as const) {
+        await boot(page, state === "error" ? "/settings?load=fail" : "/settings");
+        await page.getByTestId("text-scale").selectOption(scale);
+        if (state === "offline") await page.context().setOffline(true);
+        await expect(page.getByTestId(state === "error" ? "load-error" : "offline-state")).toBeVisible();
+        await tapAndMeasure(`${state} in-app`, ".appbar");
+        await page.getByRole("button", { name: "Back" }).click();
+        await tapAndMeasure(`${state} home`, "[data-testid=widget]");
+        if (state === "offline") await page.context().setOffline(false);
+      }
     });
   }
 }
