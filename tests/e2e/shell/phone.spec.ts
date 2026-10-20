@@ -222,7 +222,7 @@ test("Phone error/offline banner: under the status bar, pushes content down, nev
   const after = await rect("[data-testid=widget]");
   expect(banner.top).toBe(sb.bottom);
   expect(banner.right - banner.left).toBe(390);
-  expect(after.top).toBe(before.top + 44); // content moves down
+  await expect.poll(async () => (await rect("[data-testid=widget]")).top).toBe(before.top + 44 + 8); // content moves down by banner height + the 8 px gap (after the ease)
   for (const r of [label, chip]) expect(r.top).toBeGreaterThanOrEqual(banner.bottom); // never overlaps
   const st = await page.getByTestId("phone-banner").evaluate((e) => {
     const probe = (v: string) => { const d = document.createElement("i"); d.style.color = `var(${v})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
@@ -230,7 +230,7 @@ test("Phone error/offline banner: under the status bar, pushes content down, nev
     const bg = document.createElement("i"); bg.style.backgroundColor = "var(--win2)"; document.body.appendChild(bg); const win2 = getComputedStyle(bg).backgroundColor; bg.remove();
     return { bg: cs.backgroundColor, win2, line: cs.boxShadow.includes(probe("--line")) ? probe("--line") : cs.boxShadow, lineTok: probe("--line"), bw: cs.boxShadow.endsWith("0px -1px 0px 0px inset") ? "1px" : cs.boxShadow, text: body.color, muted: probe("--fg-muted"), btn: btn.color, fg: probe("--fg"), ul: btn.textDecorationLine, dur: cs.transitionDuration, prop: cs.transitionProperty };
   });
-  expect(st).toEqual({ bg: st.win2, win2: st.win2, line: st.lineTok, lineTok: st.lineTok, bw: "1px", text: st.muted, muted: st.muted, btn: st.fg, fg: st.fg, ul: "underline", dur: "0.12s", prop: "min-height" });
+  expect(st).toEqual({ bg: st.win2, win2: st.win2, line: st.lineTok, lineTok: st.lineTok, bw: "1px", text: st.muted, muted: st.muted, btn: st.fg, fg: st.fg, ul: "underline", dur: "0.12s, 0.12s", prop: "min-height, margin-bottom" });
   await page.context().setOffline(false);
   await expect.poll(async () => (await rect("[data-testid=phone-banner]")).h).toBe(0);
   // Error state uses the same slot.
@@ -270,14 +270,39 @@ const retryGeometryNow = (page: import("@playwright/test").Page) => page.getByTe
   const banner = b.closest("[data-testid=phone-banner]")!.getBoundingClientRect();
   const others = Array.from(document.querySelectorAll(".statusbar button, .statusbar [role=button], .appbar button, .appbar a"))
     .map((e) => e.getBoundingClientRect());
-  const intersects = (o: DOMRect) => o.left < box.right && o.right > box.left && o.top < box.bottom && o.bottom > box.top;
+  // Separation between two boxes: the larger of the horizontal and vertical gaps (negative = overlap).
+  const gapTo = (o: DOMRect) => Math.max(o.left - box.right, box.left - o.right, o.top - box.bottom, box.top - o.bottom);
+  const gaps = others.map(gapTo);
   return {
     w: box.right - box.left, h: box.bottom - box.top,
     rect: insideHits && outsideMisses,
     inBanner: box.left >= banner.left && box.right <= banner.right && box.top >= banner.top && box.bottom <= banner.bottom,
     inViewport: r.left >= 0 && r.right <= window.innerWidth,
-    clear: others.length > 0 && !others.some(intersects),
+    minGap: others.length ? Math.min(...gaps) : -Infinity,
   };
+});
+
+test("Long app title at 320 px, text scale 2.0: one line, ellipsis, truly overflows, clear of the banner and Back", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await boot(page, "/settings");
+  await page.getByTestId("text-scale").selectOption("2");
+  await page.context().setOffline(true);
+  await expect(page.getByTestId("offline-state")).toBeVisible();
+  // No shipped app name overflows yet, so give the real title element a long name.
+  await page.locator(".appbar h1").evaluate((h) => { h.textContent = "Bank & Credit · Institutional Lending Desk"; });
+  await page.waitForTimeout(200);
+  const r = await page.locator(".appbar h1").evaluate((h) => {
+    const cs = getComputedStyle(h); const t = h.getBoundingClientRect();
+    const back = document.querySelector(".appbar .icon-btn")!.getBoundingClientRect();
+    const banner = document.querySelector("[data-testid=phone-banner]")!.getBoundingClientRect();
+    const lh = parseFloat(cs.lineHeight);
+    return {
+      oneLine: t.height <= lh + 0.5, ellipsis: cs.textOverflow, nowrap: cs.whiteSpace, overflows: h.scrollWidth > h.clientWidth,
+      clearOfBanner: t.top >= banner.bottom, clearOfBack: t.left >= back.right, insideViewport: t.right <= window.innerWidth,
+    };
+  });
+  expect(r).toEqual({ oneLine: true, ellipsis: "ellipsis", nowrap: "nowrap", overflows: true, clearOfBanner: true, clearOfBack: true, insideViewport: true });
+  await page.context().setOffline(false);
 });
 
 for (const width of [390, 320]) {
@@ -291,7 +316,9 @@ for (const width of [390, 320]) {
       await expect(page.getByTestId("offline-state")).toBeVisible();
       await page.waitForTimeout(200); // let the 120 ms ease finish
       const inApp = await retryGeometry(page);
-      expect(inApp, `in app ${JSON.stringify(inApp)}`).toMatchObject({ rect: true, inBanner: true, inViewport: true, clear: true });
+      expect(inApp, `in app ${JSON.stringify(inApp)}`).toMatchObject({ rect: true, inBanner: true, inViewport: true });
+      expect(inApp.minGap, "in-app gap to status/app bar targets").toBeGreaterThanOrEqual(8);
+      console.log(`GAP ${width} x${scale} in-app ${inApp.minGap}`);
       expect(inApp.w).toBeGreaterThanOrEqual(44);
       expect(inApp.h).toBeGreaterThanOrEqual(44);
       await page.context().setOffline(false);
@@ -307,10 +334,12 @@ for (const width of [390, 320]) {
       expect(b.top).toBe(await page.getByTestId("statusbar").evaluate((e) => e.getBoundingClientRect().bottom));
       expect(b.w).toBe(width);
       expect(b.h).toBeGreaterThanOrEqual(44);
-      expect(Math.abs((await top("[data-testid=widget]")) - (before + b.h))).toBeLessThanOrEqual(0.5); // pushed by the actual height
+      expect(Math.abs((await top("[data-testid=widget]")) - (before + b.h + 8))).toBeLessThanOrEqual(0.5); // pushed by the actual height + 8 px gap
       for (const sel of ["[data-testid=widget] .label", "[data-testid=widget] .chip"]) expect(await top(sel)).toBeGreaterThanOrEqual(b.bottom);
       const home = await retryGeometry(page);
-      expect(home, `home ${JSON.stringify(home)}`).toMatchObject({ rect: true, inBanner: true, inViewport: true, clear: true });
+      expect(home, `home ${JSON.stringify(home)}`).toMatchObject({ rect: true, inBanner: true, inViewport: true });
+      expect(home.minGap, "home gap to status bar targets").toBeGreaterThanOrEqual(8);
+      console.log(`GAP ${width} x${scale} home ${home.minGap}`);
       expect(home.w).toBeGreaterThanOrEqual(44);
       expect(home.h).toBeGreaterThanOrEqual(44);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
