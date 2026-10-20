@@ -48,3 +48,12 @@ export function heapMb(): number | null {
   const mem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
   return mem ? mem.usedJSHeapSize / (1024 * 1024) : null;
 }
+
+/**
+ * fps for a ui.perf sample (C-15): null when no frames were drawn since the previous sample
+ * (render-on-demand idle, T0) or when the value is not a finite positive number. Never NaN.
+ */
+export function sampleFps(framesSinceLastSample: number, meanFps: number | null): number | null {
+  if (framesSinceLastSample <= 0) return null;
+  return meanFps !== null && Number.isFinite(meanFps) && meanFps > 0 ? meanFps : null;
+}

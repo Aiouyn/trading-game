@@ -23,7 +23,7 @@ import { FLOATS_PER_PART } from '../worker/format';
 import { createTableView, type TableView } from '../table/table';
 import { displayName } from '../table/rows';
 import { createChrome, type Chrome } from '../chrome/chrome';
-import { FrameStats, heapMb } from '../diagnostics/perf';
+import { FrameStats, heapMb, sampleFps } from '../diagnostics/perf';
 import { autoStep, initialTier, isBatterySaver, measureFps, readBattery, MEASURE_MS } from '../tiers/select';
 import { clampZoom, panGround, rotate, viewDirection, type CameraState } from './camera';
 import { RenderLoop, browserScheduler, type Scheduler } from './loop';
@@ -33,7 +33,7 @@ import { FLAT_BRASS, partColors } from './overlay';
 import { pickParts } from './pick';
 import { lightAt, occupancy, DEFAULT_GAME_MINUTE } from './light';
 import { inPolygon, placeLabels as layoutLabels, type LabelBox, type Obstacle } from './labels';
-import { drawPicture } from './picture';
+import { drawPicture, type PictureResult } from './picture';
 import { GROUND_FRAG, GROUND_VERT, PART_FRAG, PART_VERT } from './shaders';
 
 /** Test-only seams. createCityRenderer (the public seam) never passes these. */
@@ -71,6 +71,10 @@ export interface CityTestApi {
   cutCount: () => number;
   partsOfEntity: (entityId: string) => number;
   /** Relative luminance (p50, p75) of the map under each label box, labels not drawn (WCAG). */
+  /** Take a ui.perf sample now (same path as the 60 s timer). */
+  samplePerfNow: () => void;
+  /** T0 only: the drawn city's vertical extent and its labels, CSS px. */
+  t0Picture: () => { top: number; bottom: number; height: number; labels: (LabelBox & { text: string })[] } | null;
   labelBackground: () => { text: string; p50: number; p75: number }[] | null;
   decodeMs: () => number;
   decodeInWorker: () => boolean;
@@ -610,6 +614,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     });
   }
 
+  let t0Info: PictureResult | null = null;
   function drawT0(): void {
     if (!chrome || !ramps || tier !== 'T0') return;
     const s = store.snapshot;
@@ -627,7 +632,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     const cs = getComputedStyle(probe);
     const font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
     probe.remove();
-    img.src = drawPicture({
+    t0Info = drawPicture({
       width: chrome.stage.clientWidth,
       height: chrome.stage.clientHeight,
       dpr: Math.min(2, window.devicePixelRatio || 1),
@@ -636,9 +641,10 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       colors: colors.colors,
       flat: colors.flat,
       ramps,
-      labels: labelSpecs().map((l) => ({ text: l.text, x: l.anchor[0], z: l.anchor[1] })),
+      labels: labelSpecs().map((l) => ({ text: l.text, ground: l.ground })),
       labelFont: font,
     });
+    img.src = t0Info.url;
   }
 
   // ---------- labels, picking, input ----------
@@ -1003,9 +1009,11 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   }
 
   let exposeEvents = false;
+  let rendersAtLastSample = 0;
   /**
    * ui.perf (17 §5.2) goes to the shell's injected sink, once a minute while visible. A value the
-   * browser cannot measure is NaN (never a made-up 0). The window event exists only behind the
+   * browser cannot measure is NaN (never a made-up 0); fps is null when no frame was drawn since
+   * the previous sample. The window event exists only behind the
    * dev/e2e window.__city hook.
    */
   function samplePerf(): void {
@@ -1013,10 +1021,11 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     const sample: PerfSample = {
       tickRenderMsP50: stats.renderP(50) ?? Number.NaN,
       tickRenderMsP95: stats.renderP(95) ?? Number.NaN,
-      fps: stats.fps() ?? Number.NaN,
+      fps: sampleFps(tier === 'T0' ? 0 : loop.renders - rendersAtLastSample, stats.fps()),
       heapMb: heapMb() ?? Number.NaN,
       renderTier: tier,
     };
+    rendersAtLastSample = loop.renders;
     perfSamples.push(sample);
     opts.onPerfSample?.(sample);
     if (exposeEvents) window.dispatchEvent(new CustomEvent('ui.perf', { detail: sample }));
@@ -1231,6 +1240,8 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       ambient: () => ({ on: ambientOn, msLeft: Math.max(0, AMBIENT_WINDOW_MS - (sched.now() - lastInputAt)) }),
       cutCount: () => cutCount,
       labelBackground: () => labelBackground(),
+      samplePerfNow: () => samplePerf(),
+      t0Picture: () => (tier === 'T0' && t0Info && chrome ? { top: t0Info.top, bottom: t0Info.bottom, height: chrome.stage.clientHeight, labels: t0Info.labels } : null),
       partsOfEntity: (id) => {
         const ei = model?.entityIndex.get(id);
         return ei === undefined ? 0 : (model!.partsOf.get(ei)?.length ?? 0);

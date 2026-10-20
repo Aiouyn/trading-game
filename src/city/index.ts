@@ -34,7 +34,11 @@ export interface CityRendererOptions {
 export interface PerfSample {
   tickRenderMsP50: number;
   tickRenderMsP95: number;
-  fps: number;
+  /**
+   * Mean fps over the sample window; null when no frames were drawn in it (render-on-demand idle,
+   * hidden, T0). Never NaN and never a made-up 0.
+   */
+  fps: number | null;
   heapMb: number;
   renderTier: CityTier;
 }

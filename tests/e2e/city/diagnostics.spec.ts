@@ -40,6 +40,28 @@ test('C-15 one ui.perf sample per minute while visible, to onPerfSample; none wh
   expect(await page.evaluate(() => (window as unknown as HarnessWindow).harness.perf.length)).toBe(1);
 });
 
+for (const tier of ['T1', 'T0'] as const) {
+  test(`C-15 fps is null (never NaN) when no frames were drawn since the last sample (${tier})`, async ({ page }) => {
+    await openCity(page, `tier=${tier}&reduced=1`);
+    await waitDrawn(page);
+    const r = await page.evaluate(async () => {
+      const w = window as unknown as HarnessWindow;
+      const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+      await sleep(1500); // render on demand: idle, no frames
+      w.__city.samplePerfNow(); // flushes whatever was drawn while loading
+      await sleep(1500);
+      w.__city.samplePerfNow(); // nothing drawn since the previous sample
+      const last = w.harness.perf[w.harness.perf.length - 1];
+      const values = w.harness.perf.flatMap((p) => [p.fps]);
+      return { fps: last.fps, isNull: last.fps === null, anyNaN: values.some((v) => typeof v === 'number' && Number.isNaN(v)), rafPending: w.__city.rafPending() };
+    });
+    console.log(`C-15 idle ${tier}`, JSON.stringify(r));
+    expect(r.rafPending).toBe(false);
+    expect(r.isNull).toBe(true);
+    expect(r.anyNaN).toBe(false);
+  });
+}
+
 test('C-05 dispose(): twice is a no-op; geometries and textures go to 0', async ({ page }) => {
   await openCity(page, 'tier=T2');
   await waitDrawn(page);
