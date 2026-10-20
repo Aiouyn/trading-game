@@ -1,0 +1,7 @@
+{
+  // City-only typecheck for .github/workflows/city.yml. The whole-app typecheck (which needs
+  // Next's generated route types) stays in ci.yml.
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": { "incremental": false, "plugins": [] },
+  "include": ["../../../src/city/**/*.ts", "../**/city/**/*.ts"]
+}

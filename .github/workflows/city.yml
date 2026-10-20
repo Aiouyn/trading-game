@@ -15,7 +15,7 @@ on:
       - 'package-lock.json'
       - '.github/workflows/city.yml'
   push:
-    branches: [main, v3/city-renderer]
+    branches: [main] # PR branches are covered by pull_request (no double runs)
     paths:
       - 'src/city/**'
       - 'tests/unit/city/**'
@@ -43,8 +43,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - name: typecheck
-        run: npx tsc --noEmit -p .
+      - name: typecheck (city paths)
+        run: npx tsc --noEmit -p tests/unit/city/tsconfig.json
       - name: lint (city paths)
         run: npx eslint src/city tests/unit/city tests/e2e/city
       - name: vitest (C-01, C-02, C-09, C-12, C-14, C-16, 17-AT-21 …)
