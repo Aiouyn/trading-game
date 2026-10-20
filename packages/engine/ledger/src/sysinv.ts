@@ -33,6 +33,7 @@ export const INV_LED_019 = (v: CheckView): Failure[] => {
     if (s.m0PlayerDelta !== want) out.push(F('INV-LED-019', `ΔM0_player(${c}) ${s.m0PlayerDelta}`, `N − (ctlIn − ctlOut) = ${want}`));
     if (s.F_p + s.F_s - s.K_p - s.K_s !== f.m0sysDelta) out.push(F('INV-LED-019', `F_p+F_s−K_p−K_s(${c}) ${s.F_p + s.F_s - s.K_p - s.K_s}`, `ΔM0_sys ${f.m0sysDelta}`));
     if (s.C_p + s.C_s !== v.sys.dM0cb(c)) out.push(F('INV-LED-019', `C_p+C_s(${c}) ${s.C_p + s.C_s}`, `ΔM0_cb ${v.sys.dM0cb(c)}`));
+    if (s.netDelta !== sumMap(s.faucet) - sumMap(s.sink)) out.push(F('INV-LED-019', `netDelta(${c}) ${s.netDelta}`, `Σ faucet − Σ sink ${sumMap(s.faucet) - sumMap(s.sink)}`));
   }
   return out;
 };
@@ -63,7 +64,15 @@ export const INV_LED_021 = (v: CheckView): Failure[] => {
   for (const c of CCYS) {
     const s = sysOf(v, c); if (!s) continue;
     const sum = (k: keyof HolderTerms): Money => HOLDER_CLASSES.reduce((a, h) => a + (s.byHolder.get(h) as HolderTerms)[k], 0n);
-    for (const h of HOLDER_CLASSES) out.push(...termsCheck('INV-LED-021', `${c}/${h}`, s.byHolder.get(h) as HolderTerms, false));
+    for (const h of HOLDER_CLASSES) {
+      const t = s.byHolder.get(h) as HolderTerms;
+      out.push(...termsCheck('INV-LED-021', `${c}/${h}`, t, false));
+      // E-13 sub terms: only npcRival carries them (Σ of its tags) and they net to 0n inside the class; other classes have none.
+      if (h !== 'npcRival') { for (const k of ['subIntraIn', 'subIntraOut', 'subReclassIn', 'subReclassOut'] as const)
+        if (t[k] !== 0n) out.push(F('INV-LED-021', `${c}/${h} ${k} ${t[k]}`, '0n (sub terms exist only for npcRival, E-13)')); }
+      else if (t.subIntraIn !== t.subIntraOut || t.subReclassIn !== t.subReclassOut)
+        out.push(F('INV-LED-021', `${c}/npcRival sub terms intra ${t.subIntraIn}/${t.subIntraOut} reclass ${t.subReclassIn}/${t.subReclassOut}`, 'net 0n inside the class'));
+    }
     const totals: [keyof HolderTerms, Money][] = [['F_p', s.F_p], ['K_p', s.K_p], ['X_in', sumMap(s.faucet)], ['X_out', sumMap(s.sink)], ['C_p', s.C_p],
       ['controlIn', sumMap(s.controlIn)], ['controlOut', sumMap(s.controlOut)], ['netFlow', s.netFlow], ['m0Delta', s.m0PlayerDelta]];
     for (const [k, tot] of totals) if (sum(k) !== tot) out.push(F('INV-LED-021', `Σ_class ${k}(${c}) ${sum(k)}`, `${tot}`));

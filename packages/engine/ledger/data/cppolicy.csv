@@ -116,12 +116,12 @@ INS_CAT_BOND_COUPON,!S,!S,,E-15.1 default
 INS_CAT_BOND_LOSS,!S,!S,,E-15.1 default
 INS_COMMISSION,!S,!S,,E-15.1 default
 BIZ_SALES_B2B,!S,!S,,E-15.1 default
-BIZ_SALES_GOV,!S,!S,,E-15.1 default
+BIZ_SALES_GOV,gov,*,,E-15.1 PD-13 gov wages/subsidies/contracts: payer gov
 BIZ_COGS_B2B,!S,!S,,E-15.1 default
 BIZ_ENERGY_B2B,!S,!S,,E-15.1 default
 BIZ_UPGRADE_CAPEX_B2B,!S,!S,,E-15.1 default
 BIZ_SALE_P2P,!S,!S,,E-15.1 trade
-BIZ_SUBSIDY_GOV,!S,!S,,E-15.1 default
+BIZ_SUBSIDY_GOV,gov,*,,E-15.1 PD-13 gov wages/subsidies/contracts: payer gov
 CMP_CAPITAL_CONTRIBUTION,!S,!S,,E-15.1 default
 CMP_CAPITAL_RETURN,!S,!S,,E-15.1 default
 CMP_INTERCOMPANY_LOAN,!S,!S,,E-15.1 default
@@ -139,7 +139,7 @@ PROP_DEVELOPMENT_CAPEX_B2B,!S,!S,,E-15.1 default
 PROP_LAND_AUCTION,!S,!S,,E-15.1 default
 PROP_CONCESSION_BID,!S,!S,,E-15.1 default
 PROP_CONCESSION_BUYOUT,!S,!S,,E-15.1 default
-CON_CONCESSION_PROFIT,*,*,,E-15.1 PD-13 gov wages/contracts (either side gov)
+CON_CONCESSION_PROFIT,*,*,,E-15.1 PD-13 city/construction contracts (either side gov)
 CITY_DEVELOPMENT_LEVY,*,gov|reg|crt,,E-15.1 tax/fine/levy
 LAB_COMPUTE_RENT_B2B,!S,!S,,E-15.1 default
 LAB_HARDWARE_PURCHASE_B2B,!S,!S,,E-15.1 default

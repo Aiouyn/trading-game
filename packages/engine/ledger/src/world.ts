@@ -402,8 +402,9 @@ export class LedgerWorld {
 
   // ───────── P13 ─────────
   /** Test-only access (03#38 corruption; INV-LED-009 negative test). Never used by the ledger itself. */
+  private lastView: CheckView | undefined;
   testHooks() {
-    return { queue: this.queue, accounts: this.s.accounts };
+    return { queue: this.queue, accounts: this.s.accounts, lastView: this.lastView };
   }
 
   /** Commit the tick (T03-09 runP13). Idempotent per tick: a rerun for a committed tick posts nothing. Then advances the tick. */
@@ -469,7 +470,7 @@ export class LedgerWorld {
     // Δ10: commit → holdings → control evaluation from committed state (sorted ids) → CONTROL entries → checks → rollDay → hooks.
     const victim = (id: Id): Id | undefined => escrows.get(id)?.victimId;
     const holdPost = foldHoldings(this.s.holdings, valid.flatMap((e) => e.postings), victim);
-    const before = (id: Id): SideTag | undefined => this.s.sides.get(id);
+    const sidesPrev = this.s.sides; const before = (id: Id): SideTag | undefined => sidesPrev.get(id);
     const sidesNext = new SortedMap<Id, SideTag>();
     for (const id of this.s.entities.keys()) { const t = sideOf(this.sideInputs(), id); if (t) sidesNext.set(id, t); }
     const after = (id: Id): SideTag | undefined => sidesNext.get(id);
@@ -513,6 +514,7 @@ export class LedgerWorld {
     view.sys = { before, after, ids, holdPost, anomalies, escrowVictim: victim,
       dM0cb: (c) => computeM0(post, c) - computeM0sys(post, c) - (computeM0(pre, c) - computeM0sys(pre, c)) };
     view.escrows = escrows; view.holds = holds; view.accruals = accruals;
+    this.lastView = view; // tests only (invariant mutation checks); not part of state
     const failures = [...TICK_INVARIANTS, ...SYS_INVARIANTS].flatMap(([, chk]) => chk(view));
     for (const row of archiveRows) {
       const ticks = [...this.s.tickFlows.values().filter((f) => f.ccy === row.ccy && Math.floor(f.tick / TICKS_PER_DAY) === dayIndex), flows.get(row.ccy) as TickFlows];
@@ -620,19 +622,15 @@ export class LedgerWorld {
   }
   /** Δ8 hooks after rollDay: modules sorted, ccys sorted, frozen flows, no LedgerApi, cursor per world; INV-LED-018 on the cursor. */
   private fireHooks(tick: Tick, flows: SortedMap<string, TickFlows>): Failure[] {
-    const out: Failure[] = [];
-    for (const c of [...CCYS].sort(cmpStr)) {
-      const cur = this.s.hookCursor.get(c) ?? tick - 1;
-      const replay = tick <= cur;
-      if (!replay) {
-        const frozen = freezeFlows(flows.get(c) as TickFlows);
-        this.inHook = true;
-        try { for (const h of this.hooks) h.fn(frozen, { tick, ccy: c }); } finally { this.inHook = false; }
-        this.s.hookCursor.set(c, tick);
-      }
-      out.push(...INV_LED_018(cur, this.s.hookCursor.get(c) as Tick, tick, replay));
-    }
-    return out;
+    const ccys = [...CCYS].sort(cmpStr);
+    const prev = new SortedMap<string, Tick>(ccys.map((c) => [c, this.s.hookCursor.get(c) ?? tick - 1]));
+    const live = ccys.filter((c) => tick > (prev.get(c) as Tick)); // replayed ticks never re-fire (Δ8)
+    const frozen = new SortedMap<string, Readonly<TickFlows>>(live.map((c) => [c, freezeFlows(flows.get(c) as TickFlows)]));
+    const hooks = [...this.hooks].sort((x, y) => cmpStr(x.module, y.module)); // modules sorted, then ccys sorted: a:EUN, a:FDL, …, b:EUN
+    this.inHook = true;
+    try { for (const h of hooks) for (const c of live) h.fn(frozen.get(c) as Readonly<TickFlows>, { tick, ccy: c as Ccy }); } finally { this.inHook = false; }
+    for (const c of live) this.s.hookCursor.set(c, tick);
+    return ccys.flatMap((c) => INV_LED_018(prev.get(c) as Tick, this.s.hookCursor.get(c) as Tick, tick, !live.includes(c)));
   }
 
   // ───────── FlowReader, log, snapshot ─────────

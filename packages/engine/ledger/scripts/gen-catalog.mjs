@@ -82,7 +82,8 @@ const cpRule = (r) => {
   if (c.startsWith('CBK_')) return ['*', '*', 'cbk', 'E-15.1 CBK'];
   if (TRADE.includes(c)) return ['!S', '!S', '', 'E-15.1 trade'];
   if (/^MKT_.*_FEE$/.test(c) || /^CCP_.*FEE/.test(c)) return ['*', 'exc|ccp', '', 'E-15.1 exchange/clearing fee'];
-  if (/_GOV_/.test(c) || c.startsWith('CITY_') || c.startsWith('CON_')) return ['*', '*', '', 'E-15.1 PD-13 gov wages/contracts (either side gov)'];
+  if (/_GOV(_|$)/.test(c)) return ['gov', '*', '', 'E-15.1 PD-13 gov wages/subsidies/contracts: payer gov'];
+  if (c.startsWith('CITY_') || c.startsWith('CON_')) return ['*', '*', '', 'E-15.1 PD-13 city/construction contracts (either side gov)'];
   if (c.startsWith('ESCROW_') || c.startsWith('CONFLICT_')) return ['!S', '!S', '', 'E-15.1 default (court escrow rails are not counterparties)'];
   if (OWNER_S[o]) return [OWNER_S[o] === '*' ? '*' : `!S|${OWNER_S[o]}`, OWNER_S[o] === '*' ? '*' : `!S|${OWNER_S[o]}`, '', `E-15.1 owner ${r.owner} lists ${OWNER_S[o]}`];
   return ['!S', '!S', '', 'E-15.1 default'];

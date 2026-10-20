@@ -438,7 +438,7 @@ export function tplEscrowSettle(env: TemplateEnv, row: ConflictEscrow, toAttacke
     d.push(...cashLeg(env.rail, court, ent(env, row.victimId), toVictim, ccy, c, { restrictedOk: false, fixedSources: fixed(toVictim), settlementOnly: true }));
     d.push(dr(accountKey(ESCROW_COURT, 2160, ccy, escrowId), accountKey(row.victimId, 1070, ccy, escrowId), toVictim, ccy, c));
   }
-  return finish(env, 'ESCROW_SETTLE', code, d, { ...o, refs: [...(o?.refs ?? []), row.opId, escrowId] }, { amount: row.amount, ccy },
+  return finish(env, 'ESCROW_SETTLE', code, d, { ...o, refs: [...(o?.refs ?? []), row.opId, escrowId, ...(toAttacker > 0n ? [row.code] : [])] } /* §6.11: the CONFLICT_* audit tag rides on the release */, { amount: row.amount, ccy },
     { parties: [row.victimId, row.attackerId], escrow: { op: 'SETTLE', escrowId, toAttacker, toVictim } });
 }
 /** Δ9/Δ13 CONTROL_RECLASS MEMO entry: Dr sys:9811:<e> / Cr sys:9812:<e> (LED_CONTROL_IN, LED_HOLDER_RECLASS), mirrored for LED_CONTROL_OUT. */
