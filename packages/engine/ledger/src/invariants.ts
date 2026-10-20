@@ -1,6 +1,6 @@
 // INV-LED-001..015 (spec §4). Each check is a pure function of a CheckView; observed strings start with the 03 §3.16 I-number.
-import { BMA_CODES, classOfCode, entityOfKey, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
-import { CBK_CREDIT_CODES, CBK_UNWIND_CODES, FLOW_CLASSES, RESTRICTED_OK_CODES, type FlowClass, type ReasonCatalog } from './catalog';
+import { BMA_CODES, classOfCode, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
+import { CBK_CREDIT_CODES, CBK_UNWIND_CODES, CLASS_TEMPLATES, FLOW_CLASSES, RESTRICTED_OK_CODES, type FlowClass, type ReasonCatalog } from './catalog';
 import { SortedMap } from './det';
 import { CCYS, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
 import { legKey } from './templates';
@@ -130,9 +130,18 @@ export const INV_LED_002: Check = (v) => {
   const out: Failure[] = [];
   for (const e of v.entries) {
     if (!v.catalog.templateAllowed(e.reason, e.template)) out.push(F('INV-LED-002', `I1: ${e.entryId} template ${e.template} for ${e.reason}`, 'allowed template'));
+    const primary = v.catalog.get(e.reason);
     for (const p of e.postings) {
-      if (v.catalog.resolveAlias(p.reason)) out.push(F('INV-LED-002', `I1: alias=${p.reason}`, 'canonical code'));
-      else if (!v.catalog.get(p.reason)) out.push(F('INV-LED-002', `I1: unknown reason ${p.reason}`, 'registered code'));
+      if (v.catalog.resolveAlias(p.reason)) { out.push(F('INV-LED-002', `I1: alias=${p.reason}`, 'canonical code')); continue; }
+      const d = v.catalog.get(p.reason);
+      if (!d) { out.push(F('INV-LED-002', `I1: unknown reason ${p.reason}`, 'registered code')); continue; }
+      if (p.reason === e.reason) continue;
+      // Supporting leg (T03-05 step 8, review A-5 / F3): its class must admit the entry's template, or it is a TAX_* TRANSFER inside a
+      // TRANSFER/SINK entry, or (beyond the card text, review F3 third branch) the template that built the leg is allowed for its code.
+      const ok = CLASS_TEMPLATES[d.cls].includes(e.template)
+        || (d.cls === 'TRANSFER' && p.reason.startsWith('TAX_') && (primary?.cls === 'TRANSFER' || primary?.cls === 'SINK'))
+        || (p.legTemplate !== undefined && d.allowedTemplates.includes(p.legTemplate));
+      if (!ok) out.push(F('INV-LED-002', `I1: supporting leg code=${p.reason} template=${p.legTemplate ?? e.template}`, 'leg allowed by T03-05 step 8'));
     }
   }
   return out;
@@ -155,6 +164,14 @@ export const INV_LED_003: Check = (v) => {
     // I17. Ambiguity A-2: elastic issuance (03#3 layout) books sys:2909:<sector>, not 5900/4900, so the 2909 bridge is added to netIssuance.
     const ni = netIssuance(v.post, ccy) + bridge2909(v.post, ccy); const s2900 = bal(v.post, `${SYS_ID}:2900:${ccy}`);
     if (ni !== -s2900 || computeM0sys(v.post, ccy) !== -s2900) out.push(F('INV-LED-003', `I17: netIssuance+2909 ${ni}, cbk 1910 ${computeM0sys(v.post, ccy)}, sys 2900 ${s2900}`, 'netIssuance + Σ sys 2909 = cbk 1910 = −sys 2900'));
+    // I17 mirror per elastic sector (review F2, erratum E-7): sys:2909:X + X:1009 = 0n.
+    const mirror = new SortedMap<string, Money>();
+    for (const [k, b] of v.post) {
+      const q = parseAccountKey(k); if (!q || q.ccy !== ccy) continue;
+      if (q.entityId === SYS_ID && q.code === 2909 && q.sub) mirror.set(q.sub, (mirror.get(q.sub) ?? 0n) + b.balance);
+      else if (q.code === 1009 && q.sub === undefined) mirror.set(q.entityId, (mirror.get(q.entityId) ?? 0n) + b.balance);
+    }
+    for (const [x, m] of mirror) if (m !== 0n) out.push(F('INV-LED-003', `I17 2909 mirror ${x} (${ccy}) off by ${m}`, '0n'));
     if (v.isDayClose && v.dayEntries && v.flowsToday) {
       const ledger = new SortedMap<FlowClass, Money>(FLOW_CLASSES.map((c) => [c, 0n]));
       for (const e of v.dayEntries) for (const p of e.postings) if (p.flowLeg && p.ccy === ccy) {
@@ -190,14 +207,7 @@ export const INV_LED_004: Check = (v) => {
         else if (m0cb !== 0n && cls !== 'FAUCET' && cls !== 'SINK') out.push(F('INV-LED-004', `I4: ${p.reason} moves M0_cb by ${m0cb}`, '0n'));
         if (cls === 'REVALUE' && eff.m2 !== 0n) out.push(F('INV-LED-004', `I4: REVALUE ${p.reason} moves M2 by ${eff.m2}`, '0n'));
       }
-      if ((e.template === 'LEND' || e.template === 'REPAY') && e.postings[0]?.ccy === ccy) {
-        const borrower = entityOfKey(e.template === 'LEND' ? e.postings[0].debitAccount : e.postings[0].creditAccount);
-        if (kindOfId(borrower) !== 'bnk') {
-          const m2 = e.postings.reduce((s, p) => s + postingEffect(p).m2, 0n);
-          const want = e.template === 'LEND' ? e.postings[0].amount : -e.postings[0].amount;
-          if (m2 !== want) out.push(F('INV-LED-004', `I4: ${e.entryId} M2 ${m2}`, `${want}`));
-        }
-      }
+      out.push(...m2EntryRules(v, e, ccy));
     }
     const dM0cb = computeM0(v.post, ccy) - computeM0sys(v.post, ccy) - (computeM0(v.pre, ccy) - computeM0sys(v.pre, ccy));
     if (dM0cb !== cbExpected) out.push(F('INV-LED-004', `I4: ΔM0_cb(${ccy}) ${dM0cb}`, `cb credit + cbk own-account ${cbExpected}`));
@@ -207,10 +217,53 @@ export const INV_LED_004: Check = (v) => {
   return out;
 };
 
+const isBankCreditCode = (c: string): boolean => c.startsWith('BNK_') || c.startsWith('REPO_BANK_') || c.startsWith('PB_');
+const isCbkCreditCode = (c: string): boolean => CBK_CREDIT_CODES.includes(c) || CBK_UNWIND_CODES.includes(c);
+/** Cash moved into non-bank 1001 by the entry's postings of one code (03#7: QE into a fund +amount; into bank reserves 0n). */
+function nonBankCashDelta(ps: readonly Posting[]): Money {
+  let s = 0n;
+  for (const p of ps) for (const [k, d] of sides(p)) {
+    const q = parseAccountKey(k); const kind = q && kindOfId(q.entityId);
+    if (q && q.code === 1001 && kind !== 'bnk' && kind !== 'cbk' && kind !== 'gov') s += d;
+  }
+  return s;
+}
+/**
+ * T03-11 step 7 per-entry M2 rules (review F1). Applied per (entry, reason code) so a composed entry's supporting legs are judged by
+ * their own class. Parties come from entry.meta, never from postings[0] (review X-4).
+ */
+function m2EntryRules(v: CheckView, e: Entry, ccy: Ccy): Failure[] {
+  const out: Failure[] = [];
+  const parties = e.meta?.parties ?? [];
+  const kinds = parties.map(kindOfId);
+  const moneyIssuerOrBank = kinds.some((k) => k === 'bnk' || k === 'cbk' || k === 'gov');
+  const groups = new SortedMap<string, Posting[]>();
+  for (const p of e.postings) if (p.ccy === ccy) groups.set(p.reason, [...(groups.get(p.reason) ?? []), p]);
+  for (const [code, ps] of groups) {
+    const cls = v.catalog.get(code)?.cls; if (!cls) continue;
+    const m2 = ps.reduce((s, p) => s + postingEffect(p).m2, 0n);
+    if (cls === 'REVALUE' && m2 !== 0n) out.push(F('INV-LED-004', `I4: ${e.entryId} REVALUE ${code} moves M2 by ${m2}`, '0n'));
+    if (cls === 'TRANSFER' && !moneyIssuerOrBank && m2 !== 0n) out.push(F('INV-LED-004', `I4: ${e.entryId} non-bank TRANSFER ${code} moves M2 by ${m2}`, '0n'));
+    if ((cls === 'FAUCET' && m2 < 0n) || (cls === 'SINK' && m2 > 0n)) out.push(F('INV-LED-004', `I4: ${e.entryId} ${cls} ${code} M2 sign ${m2}`, cls === 'FAUCET' ? '≥ 0n' : '≤ 0n'));
+    const borrower = e.meta?.borrowerId;
+    if (isBankCreditCode(code) && (cls === 'CREDIT_CREATE' || cls === 'CREDIT_DESTROY') && borrower !== undefined && kindOfId(borrower) !== 'bnk' && e.headline) {
+      const want = cls === 'CREDIT_CREATE' ? e.headline.amount : -e.headline.amount;
+      if (m2 !== want) out.push(F('INV-LED-004', `I4: ${e.entryId} bank credit ${code} M2 ${m2}`, `${want}`));
+    }
+    if (isCbkCreditCode(code) && m2 !== nonBankCashDelta(ps)) out.push(F('INV-LED-004', `I4: ${e.entryId} CB credit ${code} M2 ${m2}`, `non-bank cash moved ${nonBankCashDelta(ps)}`));
+  }
+  return out;
+}
+
 /** L5 (local half of I13): TRANSFER legs touch sys only through 9900 and never touch the issuance pair. */
 export const INV_LED_005: Check = (v) => {
   const out: Failure[] = [];
   for (const e of v.entries) for (const p of e.postings) {
+    // Virtual elastic money (X:1009, sys:2909) only via ELASTIC_IN/OUT (review F2).
+    if (e.template !== 'ELASTIC_IN' && e.template !== 'ELASTIC_OUT') for (const k of [p.debitAccount, p.creditAccount]) {
+      const q = parseAccountKey(k);
+      if (q && (q.code === 1009 || (q.entityId === SYS_ID && q.code === 2909))) out.push(F('INV-LED-005', `${p.reason} touches ${k}`, '1009/2909 only in ELASTIC_IN/OUT'));
+    }
     if (v.catalog.get(p.reason)?.cls !== 'TRANSFER') continue;
     for (const k of [p.debitAccount, p.creditAccount]) {
       const q = parseAccountKey(k);

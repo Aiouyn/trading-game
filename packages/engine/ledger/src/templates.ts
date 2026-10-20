@@ -30,8 +30,14 @@ type Draft = Omit<Posting, 'tick' | 'entryId' | 'postingSeq' | 'refs'>;
 const dr = (debitAccount: string, creditAccount: string, amount: Money, ccy: Ccy, reason: string, x: Partial<Draft> = {}): Draft =>
   ({ debitAccount, creditAccount, amount, ccy, reason, ...x });
 
-// TODO(systems): per-code default value legs (catalog legA/legB) are not in catalog.csv. Defaults until then:
+// Fallback value legs, used only when catalog v2 legA/legB is not an account code ('@ASSET', '@', '-', or a derived row: TODO(systems)).
 const DEFAULT_LEG = { payerExpense: 5000, payeeIncome: 4000, mintIncome: 4110, elasticExpense: 5200 } as const;
+/** Value-leg account: PostOpts override, else the catalog v2 default (T03-02 legend), else the fallback. */
+function valueLeg(env: TemplateEnv, code: string, side: 'A' | 'B', o: PostOpts | undefined, fallback: number): number {
+  const over = side === 'A' ? o?.valueLegA : o?.valueLegB; if (over !== undefined) return over;
+  const r = env.catalog.get(code); const d = side === 'A' ? r?.valueLegA : r?.valueLegB;
+  return typeof d === 'number' ? d : fallback;
+}
 
 // ───────────── rail (T03-06) ─────────────
 function moneyKey(e: LedgerEntity, ccy: Ccy): { key: string; holder: Id; code: 1001 | 1002 | 1003 } {
@@ -101,6 +107,13 @@ export function cashLeg(rail: RailState, payer: LedgerEntity, payee: LedgerEntit
 export function invalidEntry(env: TemplateEnv, tpl: TemplateId, code: string, invariantId: string, observed: string, expected: string): Entry {
   return { entryId: env.newEntryId(), tick: env.tick, template: tpl, reason: code, postings: [], requestedBy: env.requestedBy, invalid: { invariantId, observed, expected } };
 }
+/** catalog v2 `sector` column: an ELASTIC_IN/OUT code may only use its listed elastic sectors (PR #3 review F5). */
+function sectorCheck(env: TemplateEnv, tpl: TemplateId, code: string, sector: Id | undefined): Entry | null {
+  if (sector === undefined) return null;
+  const allowed = env.catalog.get(code)?.elasticSectors ?? [];
+  const k = sector.split('_')[0];
+  return allowed.includes(k) ? null : invalidEntry(env, tpl, code, 'INV-LED-002', `sector ${k} for ${code}`, `one of ${allowed.join(',') || '(none)'}`);
+}
 /** Prologue checks (INV-LED-002 / -007 eagerly). Returns an invalid entry, or null when the request may be built. */
 function prologue(env: TemplateEnv, tpl: TemplateId, code: string, amounts: readonly bigint[], ids: readonly Id[]): Entry | null {
   const alias = env.catalog.resolveAlias(code);
@@ -116,7 +129,7 @@ function prologue(env: TemplateEnv, tpl: TemplateId, code: string, amounts: read
 }
 /** Marks flowLeg (Δ5): the given index, else the first posting of each (reason, ccy, legId) group. */
 function finish(env: TemplateEnv, tpl: TemplateId, code: string, drafts: Draft[], o: PostOptsExt | undefined,
-  headline: Entry['headline'], flowIdx?: number): Entry {
+  headline: Entry['headline'], meta: Entry['meta'], flowIdx?: number): Entry {
   const entryId = env.newEntryId();
   const seen: Record<string, true> = {};
   const postings = drafts.map((d, i): Posting => {
@@ -127,7 +140,7 @@ function finish(env: TemplateEnv, tpl: TemplateId, code: string, drafts: Draft[]
     seen[leg] = true;
     return p;
   });
-  const e: Entry = { entryId, tick: env.tick, template: tpl, reason: code, postings, requestedBy: env.requestedBy, headline };
+  const e: Entry = { entryId, tick: env.tick, template: tpl, reason: code, postings, requestedBy: env.requestedBy, headline, meta };
   if (o?.holdId) e.holdId = o.holdId;
   return e;
 }
@@ -141,8 +154,8 @@ const rOk = (code: string): boolean => RESTRICTED_OK_CODES.includes(code);
 export function tplPay(env: TemplateEnv, from: Id, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'PAY', code, [amt], [from, to]); if (bad) return bad;
   const d = cashLeg(env.rail, ent(env, from), ent(env, to), amt, ccy, code, { restrictedOk: rOk(code), fixedSources: o?.fixedSources });
-  d.push(dr(accountKey(from, o?.valueLegA ?? DEFAULT_LEG.payerExpense, ccy), accountKey(to, o?.valueLegB ?? DEFAULT_LEG.payeeIncome, ccy), amt, ccy, code));
-  return finish(env, 'PAY', code, d, o, { amount: amt, ccy, counterpartyId: to });
+  d.push(dr(accountKey(from, valueLeg(env, code, 'A', o, DEFAULT_LEG.payerExpense), ccy), accountKey(to, valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome), ccy), amt, ccy, code));
+  return finish(env, 'PAY', code, d, o, { amount: amt, ccy, counterpartyId: to }, { parties: [from, to] });
 }
 
 export function tplSwapAsset(env: TemplateEnv, buyer: Id, seller: Id, assetId: Id, qty: Qty, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
@@ -152,17 +165,17 @@ export function tplSwapAsset(env: TemplateEnv, buyer: Id, seller: Id, assetId: I
   const bk = accountKey(buyer, acct, ccy, assetId); const sk = accountKey(seller, acct, ccy, assetId);
   if (o?.assetAcctFrom !== undefined) {
     d.push(dr(bk, accountKey(seller, o.assetAcctFrom, ccy, assetId), amt, ccy, code, { qty, assetId }));
-    return finish(env, 'SWAP_ASSET', code, d, o, { amount: amt, ccy, counterpartyId: seller });
+    return finish(env, 'SWAP_ASSET', code, d, o, { amount: amt, ccy, counterpartyId: seller }, { parties: [buyer, seller] });
   }
   const book = env.rail.bookValueOf(sk, qty);
   d.push(dr(bk, sk, book, ccy, code, { qty, assetId }));
   if (amt > book) d.push(dr(bk, accountKey(seller, 4060, ccy), amt - book, ccy, code)); // TODO(systems): 4090/5190 for non-financial assets
   if (amt < book) d.push(dr(accountKey(seller, 5160, ccy), bk, book - amt, ccy, code));
-  return finish(env, 'SWAP_ASSET', code, d.filter((x) => x.amount !== 0n || x.qty !== undefined), o, { amount: amt, ccy, counterpartyId: seller });
+  return finish(env, 'SWAP_ASSET', code, d.filter((x) => x.amount !== 0n || x.qty !== undefined), o, { amount: amt, ccy, counterpartyId: seller }, { parties: [buyer, seller] });
 }
 
 function issue(env: TemplateEnv, tpl: 'MINT' | 'ELASTIC_IN', to: Id, amt: Money, ccy: Ccy, code: string, o: PostOptsExt | undefined, sector?: Id): Entry {
-  const bad = prologue(env, tpl, code, [amt], sector ? [sector, to, cbkId(ccy), SYS_ID] : [to, cbkId(ccy), SYS_ID]); if (bad) return bad;
+  const bad = prologue(env, tpl, code, [amt], sector ? [sector, to, cbkId(ccy), SYS_ID] : [to, cbkId(ccy), SYS_ID]) ?? sectorCheck(env, tpl, code, sector); if (bad) return bad;
   const tag = RESTRICTED_FAUCETS[code];
   const payeeKey = tag ? accountKey(to, 1001, ccy, restrictedSub(env.tick + RESTRICTED_WINDOW_TICKS, tag)) : undefined;
   const d = cashLeg(env.rail, ent(env, cbkId(ccy)), ent(env, to), amt, ccy, code, { restrictedOk: false, payeeKey });
@@ -170,24 +183,24 @@ function issue(env: TemplateEnv, tpl: 'MINT' | 'ELASTIC_IN', to: Id, amt: Money,
   d.push(dr(accountKey(cbkId(ccy), 1910, ccy), accountKey(SYS_ID, 2900, ccy), amt, ccy, code));
   if (sector) {
     d.push(dr(accountKey(SYS_ID, 2909, ccy, sector), accountKey(sector, 1009, ccy), amt, ccy, code));
-    d.push(dr(accountKey(sector, o?.valueLegA ?? DEFAULT_LEG.elasticExpense, ccy), accountKey(to, o?.valueLegB ?? DEFAULT_LEG.payeeIncome, ccy), amt, ccy, code));
-  } else d.push(dr(accountKey(SYS_ID, 5900, ccy, code), accountKey(to, o?.valueLegB ?? DEFAULT_LEG.mintIncome, ccy), amt, ccy, code));
-  return finish(env, tpl, code, d, o, { amount: amt, ccy, counterpartyId: to }, flowIdx);
+    d.push(dr(accountKey(sector, valueLeg(env, code, 'A', o, DEFAULT_LEG.elasticExpense), ccy), accountKey(to, valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome), ccy), amt, ccy, code));
+  } else d.push(dr(accountKey(SYS_ID, 5900, ccy, code), accountKey(to, o?.valueLegB ?? valueLeg(env, code, 'A', undefined, DEFAULT_LEG.mintIncome), ccy), amt, ccy, code));
+  return finish(env, tpl, code, d, o, { amount: amt, ccy, counterpartyId: to }, { parties: sector ? [sector, to] : [to] }, flowIdx);
 }
 export const tplMint = (env: TemplateEnv, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry => issue(env, 'MINT', to, amt, ccy, code, o);
 export const tplElasticIn = (env: TemplateEnv, sector: Id, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry =>
   issue(env, 'ELASTIC_IN', to, amt, ccy, code, o, sector);
 
 function destroy(env: TemplateEnv, tpl: 'BURN' | 'ELASTIC_OUT', from: Id, amt: Money, ccy: Ccy, code: string, o: PostOptsExt | undefined, sector?: Id): Entry {
-  const bad = prologue(env, tpl, code, [amt], sector ? [sector, from, cbkId(ccy), SYS_ID] : [from, cbkId(ccy), SYS_ID]); if (bad) return bad;
+  const bad = prologue(env, tpl, code, [amt], sector ? [sector, from, cbkId(ccy), SYS_ID] : [from, cbkId(ccy), SYS_ID]) ?? sectorCheck(env, tpl, code, sector); if (bad) return bad;
   const d = cashLeg(env.rail, ent(env, from), ent(env, cbkId(ccy)), amt, ccy, code, { restrictedOk: rOk(code), fixedSources: o?.fixedSources });
   const flowIdx = d.length;
   d.push(dr(accountKey(SYS_ID, 2900, ccy), accountKey(cbkId(ccy), 1910, ccy), amt, ccy, code));
   if (sector) {
     d.push(dr(accountKey(sector, 1009, ccy), accountKey(SYS_ID, 2909, ccy, sector), amt, ccy, code));
-    d.push(dr(accountKey(from, o?.valueLegA ?? DEFAULT_LEG.elasticExpense, ccy), accountKey(sector, o?.valueLegB ?? DEFAULT_LEG.payeeIncome, ccy), amt, ccy, code));
-  } else d.push(dr(accountKey(from, o?.valueLegA ?? DEFAULT_LEG.payerExpense, ccy), accountKey(SYS_ID, 4900, ccy, code), amt, ccy, code));
-  return finish(env, tpl, code, d, o, { amount: amt, ccy }, flowIdx);
+    d.push(dr(accountKey(from, valueLeg(env, code, 'A', o, DEFAULT_LEG.elasticExpense), ccy), accountKey(sector, valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome), ccy), amt, ccy, code));
+  } else d.push(dr(accountKey(from, valueLeg(env, code, 'A', o, DEFAULT_LEG.payerExpense), ccy), accountKey(SYS_ID, 4900, ccy, code), amt, ccy, code));
+  return finish(env, tpl, code, d, o, { amount: amt, ccy }, { parties: sector ? [from, sector] : [from] }, flowIdx);
 }
 export const tplBurn = (env: TemplateEnv, from: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry => destroy(env, 'BURN', from, amt, ccy, code, o);
 export const tplElasticOut = (env: TemplateEnv, from: Id, sector: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry =>
@@ -198,16 +211,16 @@ export function tplLend(env: TemplateEnv, bank: Id, borrower: Id, amt: Money, cc
   const bad = prologue(env, 'LEND', code, [amt], [bank, borrower]); if (bad) return bad;
   return finish(env, 'LEND', code, [
     dr(accountKey(borrower, 1010, ccy, bank), accountKey(bank, 2100, ccy, borrower), amt, ccy, code),
-    dr(accountKey(bank, 1300, ccy, loanId), accountKey(borrower, 2200, ccy, loanId), amt, ccy, code),
-  ], o, { amount: amt, ccy, counterpartyId: borrower });
+    dr(accountKey(bank, valueLeg(env, code, 'A', o, 1300), ccy, loanId), accountKey(borrower, valueLeg(env, code, 'B', o, 2200), ccy, loanId), amt, ccy, code),
+  ], o, { amount: amt, ccy, counterpartyId: borrower }, { parties: [bank, borrower], borrowerId: borrower });
 }
 /** TODO(T03-06 rail): repayment is drawn from the borrower's deposit at the lending bank only. */
 export function tplRepay(env: TemplateEnv, borrower: Id, bank: Id, principal: Money, ccy: Ccy, code: string, loanId: Id, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'REPAY', code, [principal], [bank, borrower]); if (bad) return bad;
   return finish(env, 'REPAY', code, [
     dr(accountKey(bank, 2100, ccy, borrower), accountKey(borrower, 1010, ccy, bank), principal, ccy, code),
-    dr(accountKey(borrower, 2200, ccy, loanId), accountKey(bank, 1300, ccy, loanId), principal, ccy, code),
-  ], o, { amount: principal, ccy, counterpartyId: bank });
+    dr(accountKey(borrower, valueLeg(env, code, 'A', o, 2200), ccy, loanId), accountKey(bank, valueLeg(env, code, 'B', o, 1300), ccy, loanId), principal, ccy, code),
+  ], o, { amount: principal, ccy, counterpartyId: bank }, { parties: [borrower, bank], borrowerId: borrower });
 }
 
 /** Central-bank credit: settlement cash or reserves are issued (ISSUE_CB); the cb takes a claim or the asset (03#7). */
@@ -220,8 +233,8 @@ export function tplCbCredit(env: TemplateEnv, cb: Id, cpty: Id, amt: Money, ccy:
     d.push(dr(ck, sk, book, ccy, code, { qty: o.qty, assetId: o.assetId }));
     if (amt > book) d.push(dr(ck, accountKey(cpty, 4060, ccy), amt - book, ccy, code));
     if (amt < book) d.push(dr(accountKey(cpty, 5160, ccy), ck, book - amt, ccy, code));
-  } else d.push(dr(accountKey(cb, 1301, ccy, cpty), accountKey(cpty, 2201, ccy, cb), amt, ccy, code));
-  return finish(env, 'CB_CREDIT', code, d.filter((x) => x.amount !== 0n || x.qty !== undefined), o, { amount: amt, ccy, counterpartyId: cpty });
+  } else d.push(dr(accountKey(cb, valueLeg(env, code, 'A', o, 1301), ccy, cpty), accountKey(cpty, valueLeg(env, code, 'B', o, 2201), ccy, cb), amt, ccy, code));
+  return finish(env, 'CB_CREDIT', code, d.filter((x) => x.amount !== 0n || x.qty !== undefined), o, { amount: amt, ccy, counterpartyId: cpty }, { parties: [cb, cpty], borrowerId: cpty });
 }
 export function tplCbCreditUnwind(env: TemplateEnv, cpty: Id, cb: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'CB_CREDIT_UNWIND', code, [amt], [cb, cpty]); if (bad) return bad;
@@ -230,8 +243,8 @@ export function tplCbCreditUnwind(env: TemplateEnv, cpty: Id, cb: Id, amt: Money
   if (o?.assetId && o.qty) {
     const acct = o.assetAcct ?? 1520;
     d.push(dr(accountKey(cpty, acct, ccy, o.assetId), accountKey(cb, acct, ccy, o.assetId), amt, ccy, code, { qty: o.qty, assetId: o.assetId }));
-  } else d.push(dr(accountKey(cpty, 2201, ccy, cb), accountKey(cb, 1301, ccy, cpty), amt, ccy, code));
-  return finish(env, 'CB_CREDIT_UNWIND', code, d, o, { amount: amt, ccy, counterpartyId: cb });
+  } else d.push(dr(accountKey(cpty, valueLeg(env, code, 'A', o, 2201), ccy, cb), accountKey(cb, valueLeg(env, code, 'B', o, 1301), ccy, cpty), amt, ccy, code));
+  return finish(env, 'CB_CREDIT_UNWIND', code, d, o, { amount: amt, ccy, counterpartyId: cb }, { parties: [cpty, cb], borrowerId: cpty });
 }
 
 /** Negative amounts swap sides (03 §8 edge 18). */
@@ -239,7 +252,7 @@ export function tplAccrue(env: TemplateEnv, e: Id, amt: Money, ccy: Ccy, code: s
   const neg = amt < 0n; const a = neg ? -amt : amt;
   const bad = prologue(env, 'ACCRUE', code, [a], [e]); if (bad) return bad;
   const D = accountKey(e, drAcct, ccy, o?.sub); const C = accountKey(e, crAcct, ccy, o?.sub);
-  return finish(env, 'ACCRUE', code, [neg ? dr(C, D, a, ccy, code) : dr(D, C, a, ccy, code)], o, { amount: a, ccy });
+  return finish(env, 'ACCRUE', code, [neg ? dr(C, D, a, ccy, code) : dr(D, C, a, ccy, code)], o, { amount: a, ccy }, { parties: [e] });
 }
 /** TODO(systems): accrual pair legs; uses the bilateral pair 1150/2800 with default income/expense legs. */
 export function tplAccruePair(env: TemplateEnv, a: Id, b: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
@@ -247,7 +260,7 @@ export function tplAccruePair(env: TemplateEnv, a: Id, b: Id, amt: Money, ccy: C
   return finish(env, 'ACCRUE_PAIR', code, [
     dr(accountKey(a, 1150, ccy, b), accountKey(a, o?.valueLegB ?? DEFAULT_LEG.payeeIncome, ccy), amt, ccy, code),
     dr(accountKey(b, o?.valueLegA ?? DEFAULT_LEG.payerExpense, ccy), accountKey(b, 2800, ccy, a), amt, ccy, code),
-  ], o, { amount: amt, ccy, counterpartyId: b });
+  ], o, { amount: amt, ccy, counterpartyId: b }, { parties: [a, b] });
 }
 /** a pays amt1 of ccy1 to b; b pays amt2 of ccy2 to a; each entity balances per currency through 3800 (03#8). */
 export function tplFx(env: TemplateEnv, a: Id, b: Id, ccy1: Ccy, amt1: Money, ccy2: Ccy, amt2: Money, code: string, o?: PostOptsExt): Entry {
@@ -259,7 +272,7 @@ export function tplFx(env: TemplateEnv, a: Id, b: Id, ccy1: Ccy, amt1: Money, cc
     ...cashLeg(env.rail, B, A, amt2, ccy2, code, { restrictedOk: rOk(code) }),
     dr(accountKey(b, 3800, ccy2), accountKey(a, 3800, ccy2), amt2, ccy2, code),
   ];
-  return finish(env, 'FX', code, d, o, { amount: amt1, ccy: ccy1, counterpartyId: b });
+  return finish(env, 'FX', code, d, o, { amount: amt1, ccy: ccy1, counterpartyId: b }, { parties: [a, b] });
 }
 /** TODO(systems): value legs per code; defaults to 5000 / 4000 at book value. */
 export function tplMoveQty(env: TemplateEnv, from: Id, to: Id, assetId: Id, qty: Qty, bookValue: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
@@ -267,8 +280,8 @@ export function tplMoveQty(env: TemplateEnv, from: Id, to: Id, assetId: Id, qty:
   const acct = o?.assetAcct ?? 1500;
   return finish(env, 'MOVE_QTY', code, [
     dr(accountKey(to, acct, ccy, assetId), accountKey(from, acct, ccy, assetId), bookValue, ccy, code, { qty, assetId }),
-    dr(accountKey(from, o?.valueLegA ?? DEFAULT_LEG.payerExpense, ccy), accountKey(to, o?.valueLegB ?? DEFAULT_LEG.payeeIncome, ccy), bookValue, ccy, code),
-  ], o, { amount: bookValue, ccy, counterpartyId: to });
+    dr(accountKey(from, valueLeg(env, code, 'A', o, DEFAULT_LEG.payerExpense), ccy), accountKey(to, valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome), ccy), bookValue, ccy, code),
+  ], o, { amount: bookValue, ccy, counterpartyId: to }, { parties: [from, to] });
 }
 export function tplReclass(env: TemplateEnv, e: Id, amt: Money, ccy: Ccy, code: string, fromAcct: number, toAcct: number, o?: PostOptsExt): Entry {
   return reclassKeys(env, code, accountKey(e, fromAcct, ccy, o?.sub), accountKey(e, toAcct, ccy), amt, ccy, o);
@@ -276,15 +289,17 @@ export function tplReclass(env: TemplateEnv, e: Id, amt: Money, ccy: Ccy, code: 
 /** RECLASS between two keys of one entity (used for restricted-lot release: RESTRICTED sub -> 1001). */
 export function reclassKeys(env: TemplateEnv, code: string, fromKey: string, toKey: string, amt: Money, ccy: Ccy, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'RECLASS', code, [amt], [fromKey.split(':')[0]]); if (bad) return bad;
-  return finish(env, 'RECLASS', code, [dr(toKey, fromKey, amt, ccy, code)], o, { amount: amt, ccy });
+  return finish(env, 'RECLASS', code, [dr(toKey, fromKey, amt, ccy, code)], o, { amount: amt, ccy }, { parties: [fromKey.split(':')[0]] });
 }
 
 /** One entry; postings renumbered; every leg keeps its own reason (PD-5). Invalid if any part is invalid. */
 export function composeEntries(_env: TemplateEnv, primary: Entry, supporting: readonly Entry[]): Entry {
   const bad = [primary, ...supporting].find((e) => e.invalid);
   if (bad) return { ...primary, postings: [], invalid: bad.invalid };
-  const postings = [primary, ...supporting].flatMap((e) => e.postings).map((p, i) => ({ ...p, entryId: primary.entryId, postingSeq: i }));
-  return { ...primary, postings };
+  const postings = [primary, ...supporting].flatMap((e, j) => e.postings.map((p) => (j === 0 ? p : { ...p, legTemplate: e.template })))
+    .map((p, i) => ({ ...p, entryId: primary.entryId, postingSeq: i }));
+  const parties = [primary, ...supporting].flatMap((e) => e.meta?.parties ?? []).filter((x, i, a) => a.indexOf(x) === i);
+  return { ...primary, postings, meta: { ...primary.meta, parties } };
 }
 
 /** Pro-rata split (T03-07 :67): one entry, allocate() inside, zero parts skipped, payer pays exactly total (E4). */
@@ -296,9 +311,9 @@ export function payProRata(env: TemplateEnv, payer: Id, holders: SortedMap<Id, b
     if (amt === 0n) continue;
     const legOf = { legId: h, side: 'A' as const };
     for (const x of cashLeg(env.rail, ent(env, payer), ent(env, h), amt, ccy, code, { restrictedOk: rOk(code) })) d.push({ ...x, legOf });
-    d.push(dr(accountKey(payer, o?.valueLegA ?? DEFAULT_LEG.payerExpense, ccy), accountKey(h, o?.valueLegB ?? DEFAULT_LEG.payeeIncome, ccy), amt, ccy, code, { legOf }));
+    d.push(dr(accountKey(payer, valueLeg(env, code, 'A', o, DEFAULT_LEG.payerExpense), ccy), accountKey(h, valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome), ccy), amt, ccy, code, { legOf }));
   }
-  return finish(env, 'PAY', code, d, o, { amount: total, ccy });
+  return finish(env, 'PAY', code, d, o, { amount: total, ccy }, { parties: [payer, ...holders.keys()] });
 }
 
 /** T03-12 / spec §6.5: 72 real hours of 5 s ticks. */

@@ -24,20 +24,17 @@ export function divRoundHalfEven(n: bigint, d: bigint): bigint {
   return q;
 }
 
-/**
- * The ONLY float -> Money path (spec §2.1). assertFinite; round half-even at the micro digit.
- * The float is read through its shortest round-trip decimal (String(x)), so 0.0000005 is exactly 5e-7, not 4.999…e-7.
- */
+/** Round half to even on a float64 (V3 02 §3.9.2). */
+function roundHalfEvenNum(v: number): number {
+  const f = Math.floor(v); const r = v - f;
+  return r > 0.5 ? f + 1 : r < 0.5 ? f : f % 2 === 0 ? f : f + 1;
+}
+/** The ONLY float -> Money path (spec §2.1), V3 02 §3.9.2 verbatim: one IEEE multiply x * 1e6, then round half-even (PR #3 review F4). */
 export function toMoney(x: number, ccy: Ccy): Money {
   void ccy; // the scale is the same for every Ccy (G3); kept for the binding signature
   if (!Number.isFinite(x)) throw new Error(`toMoney: non-finite ${x}`);
-  const [mant, expStr] = String(x).toLowerCase().split('e');
-  const neg = mant.startsWith('-');
-  const [ip, fp = ''] = mant.replace('-', '').split('.');
-  const digits = BigInt(ip + fp);
-  const exp = Number(expStr ?? 0) - fp.length + 6; // value*1e6 = digits * 10^exp
-  const v = exp >= 0 ? digits * 10n ** BigInt(exp) : divRoundHalfEven(digits, 10n ** BigInt(-exp));
-  return neg ? -v : v;
+  const v = x * 1_000_000;
+  return Math.abs(v) < 9_007_199_254_740_992 ? BigInt(roundHalfEvenNum(v)) : BigInt(v);
 }
 
 export function mulRate(m: Money, rateE6: bigint): Money {

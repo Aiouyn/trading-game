@@ -15,8 +15,13 @@ describe('money (G3, Q-1, E1)', () => {
     expect(toMoney(1.005, 'FDL')).toBe(1_005_000n);
     expect(toMoney(0.125, 'EUN')).toBe(125_000n);
     expect(toMoney(5000, 'FDL')).toBe(5_000_000_000n);
-    expect(toMoney(1e21, 'FDL')).toBe(10n ** 27n);
+    expect(toMoney(1e21, 'FDL')).toBe(BigInt(1e21 * 1e6)); // V3 02 §3.9.2: one IEEE multiply, beyond 2^53 the float is exact as is
     expect(toMoney(1.5e-7, 'FDL')).toBe(0n);
+  });
+  it('toMoney = V3 02 §3.9.2 (x * 1e6 then half-even), PR #3 review F4 / X-1', () => {
+    expect(toMoney(1.0000005, 'FDL')).toBe(1_000_001n);
+    expect(toMoney(0.0000025, 'FDL')).toBe(2n);
+    expect(toMoney(2.0000015, 'FDL')).toBe(2_000_002n);
   });
   it('toMoney rejects NaN and Infinity', () => {
     expect(() => toMoney(NaN, 'FDL')).toThrow();

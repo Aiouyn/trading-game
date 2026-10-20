@@ -23,12 +23,16 @@ export interface Posting {
   amount: Money; ccy: Ccy; reason: string; refs: Id[];
   qty?: Qty; assetId?: Id; legOf?: { legId: string; side: 'A' | 'B' };
   flowLeg?: true;
+  /** composeEntries: the template that built a supporting leg (INV-LED-002 / T03-05 step 8, PR #3 review F3). */
+  legTemplate?: TemplateId;
 }
 export interface Entry {
   entryId: Id; tick: Tick; template: TemplateId; reason: string; postings: Posting[];
   requestedBy: { module: string; phase: PhaseId; entityId?: Id; intentId?: Id };
   holdId?: Id; headline?: { amount: Money; ccy: Ccy; counterpartyId?: Id };
   invalid?: { invariantId: string; observed: string; expected: string };
+  /** Parties the template was called with; borrowerId for LEND/REPAY/CB_CREDIT(_UNWIND) (PR #3 review F1, X-4). */
+  meta?: { parties: Id[]; borrowerId?: Id };
 }
 export interface Hold {
   holdId: Id; owner: Id; kind: 'CASH' | 'QTY'; ccy?: Ccy; assetId?: Id; amount: bigint; remaining: bigint;

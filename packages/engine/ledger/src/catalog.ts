@@ -1,5 +1,5 @@
 import { SortedMap, cmpStr } from './det';
-import { CATALOG_SEED } from './catalog-data';
+import { ALIAS_SEED, CATALOG_SEED } from './catalog-data';
 
 export type FlowClass = 'FAUCET' | 'SINK' | 'TRANSFER' | 'CREDIT_CREATE' | 'CREDIT_DESTROY' | 'REVALUE';
 export const FLOW_CLASSES: readonly FlowClass[] = ['CREDIT_CREATE', 'CREDIT_DESTROY', 'FAUCET', 'REVALUE', 'SINK', 'TRANSFER'];
@@ -12,8 +12,17 @@ export type CashFlow = 'OP' | 'INV' | 'FIN' | 'NC';
 export interface CodeRow {
   code: string; cls: FlowClass; owner: number; cf: CashFlow | ''; allowedTemplates: TemplateId[];
   taxTag?: string; stabilizerFamily?: string; descriptionKey: string;
+  /** catalog v2 (T03-02 legend): default value legs; '@ASSET' / '@' = the caller passes the account; undefined = not used. */
+  valueLegA?: number | '@ASSET' | '@'; valueLegB?: number | '@ASSET' | '@';
+  elasticSectors?: string[]; restrictedOk?: boolean; requestableBy?: number[] | 'ALL'; illicit?: boolean;
 }
-export type CatalogSeedRow = readonly [code: string, cls: FlowClass, owner: number, cf: CashFlow | '', tpl: readonly TemplateId[]];
+type Leg = number | '@ASSET' | '@' | null;
+/** One row of catalog.csv v2 (generated into catalog-data.ts). `derived` = class defaults, no card row (TODO(systems)). */
+export interface CatalogSeedRow {
+  code: string; cls: FlowClass; owner: number; cf: CashFlow | ''; tpl: readonly TemplateId[]; legA: Leg; legB: Leg;
+  sectors: readonly string[]; restrictedOk: boolean; requestableBy: readonly number[] | 'ALL'; illicit: boolean;
+  taxTag?: string; family?: string; derived?: true;
+}
 
 /** 03 §3.3.3 last paragraph (T03-02 :47-48). */
 export const CLASS_TEMPLATES: Readonly<Record<FlowClass, readonly TemplateId[]>> = {
@@ -30,15 +39,10 @@ export const CBK_CREDIT_CODES: readonly string[] = [
 export const CBK_UNWIND_CODES: readonly string[] = [
   'CBK_ASSET_SALE', 'CBK_EMERGENCY_LIQUIDITY_REPAY', 'CBK_FX_INTERVENTION_SELL', 'CBK_OPEN_MARKET_UNWIND', 'CBK_STANDING_FACILITY_REPAY',
 ];
-/** PD-12: the 12 names are canonical; the 03 OPS_* names are deprecated aliases. TODO(systems): the other 24 §8 alias rows. */
-export const ALIASES: readonly (readonly [alias: string, target: string])[] = [
-  ['OPS_LOOT_CASH', 'CONFLICT_CASH_LOOT'], ['OPS_RANSOM', 'CONFLICT_RANSOM'],
-];
-/**
- * TODO(systems): restrictedOk is a catalog column (03 §3.5.6) missing from catalog.csv. Until it arrives, only the codes the
- * cards name as restrictedOk are listed (T03-02 :BIZ_PURCHASE_NEW, T03-03 :MKT_TRADE, T03-12 :LIFE_PURCHASE). Every other code is not.
- */
-export const RESTRICTED_OK_CODES: readonly string[] = ['BIZ_PURCHASE_NEW', 'LIFE_PURCHASE', 'MKT_TRADE'];
+/** aliases.csv: 26 rows of 24 §8 + 2 of PD-12 (OPS_* -> CONFLICT_*). An alias is never postable (INV-LED-002). */
+export const ALIASES: readonly (readonly [alias: string, target: string])[] = ALIAS_SEED.map(([a, t]) => [a, t.join(' ')] as const);
+/** catalog v2 column R (03 §3.5.6): the 35 codes restricted cash may fund. */
+export const RESTRICTED_OK_CODES: readonly string[] = CATALOG_SEED.filter((r) => r.restrictedOk).map((r) => r.code).sort(cmpStr);
 /** T03-12: the faucets that credit restricted lots. */
 export const RESTRICTED_FAUCETS: Readonly<Record<string, 'AD_GRANT' | 'FRESH_START'>> = {
   ACCT_FRESH_START: 'FRESH_START', ACCT_REWARDED_AD: 'AD_GRANT',
@@ -52,8 +56,11 @@ export class ReasonCatalog {
   private readonly rows = new SortedMap<string, CodeRow>();
   private frozen = false;
   constructor(seed: readonly CatalogSeedRow[] = CATALOG_SEED) {
-    for (const [code, cls, owner, cf, tpl] of seed)
-      this.rows.set(code, { code, cls, owner, cf, allowedTemplates: [...tpl], descriptionKey: `led.code.${code}` });
+    for (const r of seed) this.rows.set(r.code, {
+      code: r.code, cls: r.cls, owner: r.owner, cf: r.cf, allowedTemplates: [...r.tpl], descriptionKey: `led.code.${r.code}`,
+      valueLegA: r.legA ?? undefined, valueLegB: r.legB ?? undefined, elasticSectors: [...r.sectors], restrictedOk: r.restrictedOk,
+      requestableBy: r.requestableBy === 'ALL' ? 'ALL' : [...r.requestableBy], illicit: r.illicit, taxTag: r.taxTag, stabilizerFamily: r.family,
+    });
   }
   get(code: string): CodeRow | undefined { return this.rows.get(code); }
   all(): CodeRow[] { return this.rows.values(); }
@@ -64,8 +71,11 @@ export class ReasonCatalog {
   }
   resolveAlias(name: string): string | undefined { return ALIASES.find(([a]) => a === name)?.[1]; }
   templateAllowed(code: string, tpl: TemplateId): boolean { return this.get(code)?.allowedTemplates.includes(tpl) ?? false; }
-  /** TODO(systems): requestableBy is not in catalog.csv, so only the owning module may request a code (spec §2.3 `owner`). */
-  mayRequest(code: string, module: number): boolean { return this.get(code)?.owner === module; }
+  /** The owner, or a module in the catalog v2 `requestableBy` column ('ALL' = any module). */
+  mayRequest(code: string, module: number): boolean {
+    const r = this.get(code); if (!r) return false;
+    return r.owner === module || r.requestableBy === 'ALL' || (r.requestableBy?.includes(module) ?? false);
+  }
   freeze(): void { this.frozen = true; }
 
   /** R23 extension (T03-02 :51,122) with the Δ1 prefix rule (PD-1). Returns `${code}: ${error}` strings; [] when all rows registered. */
