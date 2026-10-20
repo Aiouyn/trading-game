@@ -1,7 +1,7 @@
 // INV-LED-001..015 (spec §4). Each check is a pure function of a CheckView; observed strings start with the 03 §3.16 I-number.
 import { BMA_CODES, classOfCode, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
 import { CBK_CREDIT_CODES, CBK_UNWIND_CODES, CLASS_TEMPLATES, FLOW_CLASSES, RESTRICTED_OK_CODES, type FlowClass, type ReasonCatalog } from './catalog';
-import { cmpStr, SortedMap } from './det';
+import { SortedMap } from './det';
 import { CCYS, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
 import { legKey } from './templates';
 import type { Entry, LedgerEntity, Posting } from './types';
@@ -225,19 +225,27 @@ function nonBankCashDelta(ps: readonly Posting[]): Money {
   return s;
 }
 const RAIL_CODES = [1001, 1002, 1003, 1009, 1010, 1910, 2001, 2002, 2003, 2100];
-/** Entities of the value-leg postings of one reason-code group (postings touching no money/rail account), sorted. */
-export function groupParties(ps: readonly Posting[]): Id[] {
-  const out: Id[] = [];
+const MONEY_SIDE = ['bnk', 'cbk', 'gov'];
+/**
+ * Exemption from the non-bank TRANSFER M2 rule (QA PR #3 blockers): granted only when, inside this reason-code group, a value-leg
+ * posting (touching no money or rail account) has a bank/cbk/gov entity on one side and a NON-bank entity on the other.
+ * Same-entity postings never grant it.
+ */
+export function groupExempt(ps: readonly Posting[]): boolean {
   for (const p of ps) {
-    const qs = [p.debitAccount, p.creditAccount].map(parseAccountKey);
-    if (qs.some((q) => !q || RAIL_CODES.includes(q.code))) continue;
-    for (const q of qs) if (q && !out.includes(q.entityId)) out.push(q.entityId);
+    const [d, c] = [p.debitAccount, p.creditAccount].map(parseAccountKey);
+    if (!d || !c || RAIL_CODES.includes(d.code) || RAIL_CODES.includes(c.code) || d.entityId === c.entityId) continue;
+    const dm = MONEY_SIDE.includes(kindOfId(d.entityId) ?? ''); const cm = MONEY_SIDE.includes(kindOfId(c.entityId) ?? '');
+    if (dm !== cm) return true;
   }
-  return out.sort(cmpStr);
+  return false;
 }
+/** P2: an "M2 leg" = a posting that moves M2 against a non-money, non-rail account (a value account). A TAX_* group may carry none. */
+export const m2ValueLegs = (ps: readonly Posting[]): Posting[] => ps.filter((p) => postingEffect(p).m2 !== 0n
+  && [p.debitAccount, p.creditAccount].map(parseAccountKey).some((q) => !!q && !RAIL_CODES.includes(q.code)));
 /**
  * T03-11 step 7 per-entry M2 rules (review F1). Applied per (entry, reason code) so a composed entry's supporting legs are judged by
- * their own class. Bank/cbk/gov parties come from each group's own value legs (groupParties), never from postings[0] (review X-4).
+ * their own class. The bank/cbk/gov exemption comes from each group's own cross-entity value legs (groupExempt), never from postings[0] (review X-4).
  */
 function m2EntryRules(v: CheckView, e: Entry, ccy: Ccy): Failure[] {
   const out: Failure[] = [];
@@ -245,9 +253,9 @@ function m2EntryRules(v: CheckView, e: Entry, ccy: Ccy): Failure[] {
   for (const p of e.postings) if (p.ccy === ccy) groups.set(p.reason, [...(groups.get(p.reason) ?? []), p]);
   for (const [code, ps] of groups) {
     const cls = v.catalog.get(code)?.cls; if (!cls) continue;
-    // Bank/cbk/gov exemption per reason-code group (QA blocker on PR #3): the parties are the entities of this group's value legs,
-    // i.e. postings that touch no money or rail account. A gov_ tax leg therefore exempts only the TAX_* group, never the whole trade.
-    const moneyIssuerOrBank = groupParties(ps).some((id) => ['bnk', 'cbk', 'gov'].includes(kindOfId(id) ?? ''));
+    // Bank/cbk/gov exemption per reason-code group (QA blockers on PR #3): see groupExempt.
+    const moneyIssuerOrBank = groupExempt(ps);
+    if (code.startsWith('TAX_') && m2ValueLegs(ps).length > 0) out.push(F('INV-LED-004', `I4: ${e.entryId} TAX group ${code} carries an M2 leg`, 'no M2 legs in a TAX_* group'));
     const m2 = ps.reduce((s, p) => s + postingEffect(p).m2, 0n);
     if (cls === 'REVALUE' && m2 !== 0n) out.push(F('INV-LED-004', `I4: ${e.entryId} REVALUE ${code} moves M2 by ${m2}`, '0n'));
     if (cls === 'TRANSFER' && !moneyIssuerOrBank && m2 !== 0n) out.push(F('INV-LED-004', `I4: ${e.entryId} non-bank TRANSFER ${code} moves M2 by ${m2}`, '0n'));

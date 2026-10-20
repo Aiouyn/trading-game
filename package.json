@@ -12,7 +12,10 @@
     "e2e": "playwright test",
     "sim": "tsx scripts/sim.ts",
     "typecheck": "next typegen && tsc --noEmit",
-    "balance": "tsx scripts/balance/run.ts"
+    "balance": "tsx scripts/balance/run.ts",
+    "engine:check": "node scripts/engine-check.mjs",
+    "engine:ledger": "node scripts/engine-check.mjs ledger",
+    "engine:core": "node scripts/engine-check.mjs core"
   },
   "dependencies": {
     "lightweight-charts": "^5.2.1",

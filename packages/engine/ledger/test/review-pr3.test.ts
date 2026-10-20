@@ -107,8 +107,26 @@ describe('QA blocker: INV-LED-004 bank/cbk/gov exemption is per reason-code grou
     expect(obs(L.INV_LED_004(view([c])), 'INV-LED-004')).toEqual([]);
     const forged = extra(c, { debitAccount: 'bnk_N:2100:chr_B:FDL', creditAccount: 'bnk_N:5000:FDL', amount: 7n, reason: 'MKT_TRADE', qty: undefined, assetId: undefined });
     expect(obs(L.INV_LED_004(view([forged])), 'INV-LED-004')).toContain(`I4: ${c.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
-    expect(L.groupParties(c.postings.filter((p) => p.reason === 'TAX_SECURITIES_TX'))).toEqual(['chr_A', 'gov_FDL']);
-    expect(L.groupParties(c.postings.filter((p) => p.reason === 'MKT_TRADE'))).toEqual(['chr_A', 'chr_B']);
+    expect(L.groupExempt(c.postings.filter((p) => p.reason === 'TAX_SECURITIES_TX'))).toBe(true);
+    expect(L.groupExempt(c.postings.filter((p) => p.reason === 'MKT_TRADE'))).toBe(false);
+  });
+  const forge = { debitAccount: 'bnk_N:2100:chr_B:FDL', creditAccount: 'bnk_N:5000:FDL', amount: 7n, qty: undefined, assetId: undefined };
+  const taxed = () => L.composeEntries(env('05'), trade(), [L.tplPay(env('03'), 'chr_A', 'gov_FDL', 2n, 'FDL', 'TAX_SECURITIES_TX')]);
+  it('P5: a balanced same-entity gov self-posting (gov_FDL:5000 / gov_FDL:4000, 1 micro) in the MKT_TRADE group grants no exemption', () => {
+    const c = taxed();
+    const smuggled = extra(extra(c, { debitAccount: 'gov_FDL:5000:FDL', creditAccount: 'gov_FDL:4000:FDL', amount: 1n, reason: 'MKT_TRADE', qty: undefined, assetId: undefined }), { ...forge, reason: 'MKT_TRADE' });
+    expect(obs(L.INV_LED_004(view([smuggled])), 'INV-LED-004')).toContain(`I4: ${c.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
+  });
+  it('P6: a same-entity bank self-posting (bnk_N:5000 / bnk_N:4000) in the MKT_TRADE group grants no exemption', () => {
+    const c = taxed();
+    const smuggled = extra(extra(c, { debitAccount: 'bnk_N:5000:FDL', creditAccount: 'bnk_N:4000:FDL', amount: 1n, reason: 'MKT_TRADE', qty: undefined, assetId: undefined }), { ...forge, reason: 'MKT_TRADE' });
+    expect(obs(L.INV_LED_004(view([smuggled])), 'INV-LED-004')).toContain(`I4: ${c.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
+  });
+  it('P2: a TAX_* group carrying a forged M2 leg fails (the gov exemption does not cover M2 legs)', () => {
+    const c = taxed();
+    expect(obs(L.INV_LED_004(view([c])), 'INV-LED-004')).toEqual([]);
+    const forged = extra(c, { ...forge, reason: 'TAX_SECURITIES_TX' });
+    expect(obs(L.INV_LED_004(view([forged])), 'INV-LED-004')).toContain(`I4: ${c.entryId} TAX group TAX_SECURITIES_TX carries an M2 leg`);
   });
 });
 
