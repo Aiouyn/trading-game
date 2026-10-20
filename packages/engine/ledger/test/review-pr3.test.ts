@@ -247,7 +247,7 @@ describe('E-15.2 INV-LED-026: every leg entity registered and not DISSOLVED', ()
 });
 
 describe('QA G9 / K1 / K2: per-(bank, holder) deposit mirror and amount-rule killers', () => {
-  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
+  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 });
   const add = (e: Entry, ps: Partial<Posting>[]): Entry => ps.reduce((a, p) => extra(a, { qty: undefined, assetId: undefined, ...p }), e);
   const triplet = (n: bigint): Partial<Posting>[] => [
     { debitAccount: 'gov_FDL:1003:GENERAL:FDL', creditAccount: 'chr_A:1001:FDL', amount: n, reason: 'MKT_TRADE' },
