@@ -5,7 +5,7 @@ import { allocate, divRoundHalfEven, type Ccy, type Id, type Money, type Qty, ty
 import { restrictedSub } from './accounts';
 import { SortedMap } from './det';
 import { ACCRUAL_LEGS, appraisalPairOk, LEG_POLICY, resolveLeg } from './legpolicy';
-import type { Entry, LedgerEntity, Posting } from './types';
+import type { ConflictEscrow, Entry, LedgerEntity, Posting } from './types';
 
 export interface PostOpts { refs?: Id[]; holdId?: Id; valueLegA?: number; valueLegB?: number; sub?: string; memo?: string; accrualId?: Id }
 export interface PostOptsExt extends PostOpts {
@@ -393,3 +393,53 @@ export const tplCbCredit = guard(tplCbCredit_); export const tplCbCreditUnwind =
 export const tplAccrue = guard(tplAccrue_); export const tplAccruePair = guard(tplAccruePair_);
 export const tplFx = guard(tplFx_); export const tplMoveQty = guard(tplMoveQty_);
 export const tplReclass = guard(tplReclass_); export const payProRata = guard(payProRata_);
+
+// ───────────── Δ14 conflict escrow (spec §6.11; errata E-5, E-10, E-12) ─────────────
+/** 7 real days × 17,280 ticks per real day (§6.5, OD-4). */
+export const CONFLICT_ESCROW_TICKS = 120_960;
+/** The court entity that holds conflict escrows (TODO(unit-13): the real court id). */
+export const ESCROW_COURT = 'crt_COURT';
+export const escrowKey = (escrowId: Id, ccy: Ccy): string => accountKey(ESCROW_COURT, 1001, ccy, `ESCROW:${escrowId}`);
+/** escrowPlace: rail victim -> crt:1001:ESCROW:<id>; Dr victim:1070:<id> / Cr crt:2160:<id> (E-10 legs). E-12 layer 4: an op ref is required. */
+export function tplEscrowPlace(env: TemplateEnv, victim: Id, attacker: Id, amt: Money, ccy: Ccy, code: string, escrowId: Id, opId: Id | undefined, o?: PostOptsExt): Entry {
+  const bad = prologue(env, 'ESCROW_PLACE', code, [amt], [victim, attacker, ESCROW_COURT]); if (bad) return bad;
+  if (!opId) return invalidEntry(env, 'ESCROW_PLACE', code, 'INV-LED-002', `${code} without an op ref`, 'a SEALED ops.loot_posted / C03 op id (E-12 layer 4)');
+  const A = leg(env, 'ESCROW_PLACE', code, 'A', o?.valueLegA, 1070); const B = leg(env, 'ESCROW_PLACE', code, 'B', o?.valueLegB, 2160);
+  const d = cashLeg(env.rail, ent(env, victim), ent(env, ESCROW_COURT), amt, ccy, code, { restrictedOk: false, payeeKey: escrowKey(escrowId, ccy) });
+  d.push(dr(accountKey(victim, A, ccy, escrowId), accountKey(ESCROW_COURT, B, ccy, escrowId), amt, ccy, code));
+  const row: ConflictEscrow = { escrowId, victimId: victim, attackerId: attacker, opId, code, ccy, amount: amt, placedTick: env.tick,
+    expiresTick: env.tick + CONFLICT_ESCROW_TICKS, caseId: null, status: 'HELD' };
+  return finish(env, 'ESCROW_PLACE', code, d, { ...o, refs: [...(o?.refs ?? []), opId, escrowId] }, { amount: amt, ccy, counterpartyId: ESCROW_COURT },
+    { parties: [victim, attacker], escrow: { op: 'PLACE', row } });
+}
+/**
+ * escrowSettle: release toAttacker (ESCROW_CONFLICT_RELEASE: the P&L legs of the original code, victim Dr legA / Cr 1070, attacker
+ * Cr 4190 per E-10) and claw back toVictim (ESCROW_CONFLICT_CLAWBACK: 1070 against the victim's cash, no P&L). Sum = the escrowed amount.
+ */
+export function tplEscrowSettle(env: TemplateEnv, row: ConflictEscrow, toAttacker: Money, toVictim: Money, o?: PostOptsExt): Entry {
+  const code = toAttacker > 0n ? 'ESCROW_CONFLICT_RELEASE' : 'ESCROW_CONFLICT_CLAWBACK';
+  const bad = prologue(env, 'ESCROW_SETTLE', code, [toAttacker + toVictim], [row.victimId, row.attackerId, ESCROW_COURT]); if (bad) return bad;
+  if (toAttacker < 0n || toVictim < 0n || toAttacker + toVictim !== row.amount || row.status !== 'HELD')
+    return invalidEntry(env, 'ESCROW_SETTLE', code, 'INV-LED-007', `settle ${toAttacker}+${toVictim} of ${row.escrowId} (${row.status})`, `HELD, parts sum to ${row.amount}`);
+  const { ccy, escrowId } = row; const court = ent(env, ESCROW_COURT); const fixed = (a: Money) => [{ accountKey: escrowKey(escrowId, ccy), amount: a }];
+  const d: Draft[] = [];
+  const pnl = row.code === 'CONFLICT_CASH_LOOT' ? 5140 : 5230; // E-10 note: the OPS_LOOT_CASH / OPS_RANSOM P&L legs move to release
+  if (toAttacker > 0n) {
+    const c = 'ESCROW_CONFLICT_RELEASE';
+    d.push(...cashLeg(env.rail, court, ent(env, row.attackerId), toAttacker, ccy, c, { restrictedOk: false, fixedSources: fixed(toAttacker), settlementOnly: true }));
+    d.push(dr(accountKey(ESCROW_COURT, 2160, ccy, escrowId), accountKey(row.attackerId, 4190, ccy), toAttacker, ccy, c));
+    d.push(dr(accountKey(row.victimId, pnl, ccy), accountKey(row.victimId, 1070, ccy, escrowId), toAttacker, ccy, c));
+  }
+  if (toVictim > 0n) {
+    const c = 'ESCROW_CONFLICT_CLAWBACK';
+    d.push(...cashLeg(env.rail, court, ent(env, row.victimId), toVictim, ccy, c, { restrictedOk: false, fixedSources: fixed(toVictim), settlementOnly: true }));
+    d.push(dr(accountKey(ESCROW_COURT, 2160, ccy, escrowId), accountKey(row.victimId, 1070, ccy, escrowId), toVictim, ccy, c));
+  }
+  return finish(env, 'ESCROW_SETTLE', code, d, { ...o, refs: [...(o?.refs ?? []), row.opId, escrowId] }, { amount: row.amount, ccy },
+    { parties: [row.victimId, row.attackerId], escrow: { op: 'SETTLE', escrowId, toAttacker, toVictim } });
+}
+/** Δ9/Δ13 CONTROL_RECLASS MEMO entry: Dr sys:9811:<e> / Cr sys:9812:<e> (LED_CONTROL_IN, LED_HOLDER_RECLASS), mirrored for LED_CONTROL_OUT. */
+export function tplControl(env: TemplateEnv, code: 'LED_CONTROL_IN' | 'LED_CONTROL_OUT' | 'LED_HOLDER_RECLASS', e: Id, amt: Money, ccy: Ccy, refs: Id[]): Entry {
+  const a = accountKey(SYS_ID, 9811, ccy, e); const b = accountKey(SYS_ID, 9812, ccy, e);
+  return finish(env, 'CONTROL_RECLASS', code, [code === 'LED_CONTROL_OUT' ? dr(b, a, amt, ccy, code) : dr(a, b, amt, ccy, code)], { refs }, { amount: amt, ccy }, { parties: [e] });
+}

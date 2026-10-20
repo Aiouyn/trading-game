@@ -4,7 +4,8 @@ import { CBK_CREDIT_CODES, CBK_UNWIND_CODES, CLASS_TEMPLATES, FLOW_CLASSES, REST
 import { SortedMap } from './det';
 import { CCYS, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
 import { legKey } from './templates';
-import type { Entry, LedgerEntity, Posting } from './types';
+import type { AccrualRow, ConflictEscrow, Entry, Hold, LedgerEntity, Posting } from './types';
+import type { SideTag, SysSideFlows } from './sysside';
 
 export interface Bal { balance: Money; qty: Qty }
 export type Accounts = SortedMap<string, Bal>;
@@ -13,7 +14,7 @@ export interface TickFlows {
   id: string; ccy: Ccy; tick: Tick;
   byClass: SortedMap<FlowClass, Money>; byCode: SortedMap<string, Money>;
   m0sysDelta: Money; cbCredit: Money;
-  // Δ6 sysSide (INV-LED-016..022) is a follow-up; not part of this PR's scope.
+  sysSide?: SysSideFlows;                    // Δ6-B view (set by the world at P13; absent in pure tickFlowsOf results)
 }
 export interface CheckView {
   tick: Tick; isDayClose: boolean; catalog: ReasonCatalog;
@@ -27,6 +28,12 @@ export interface CheckView {
   dayHistory?: (ccy: Ccy, code: string) => Money[]; // day close only: previous days' totals, newest first (INV-LED-011)
   todayByCode?: (ccy: Ccy) => SortedMap<string, Money>;
   alarm: { mult: number; floorMicro: Money };
+  /** INV-LED-016/019/020/021/023 context (world P13 only). */
+  sys?: { before(id: Id): SideTag | undefined; after(id: Id): SideTag | undefined; ids: Id[]; holdPost: SortedMap<string, Money>;
+    anomalies: string[]; dM0cb(ccy: Ccy): Money; escrowVictim(id: Id): Id | undefined };
+  escrows?: SortedMap<Id, ConflictEscrow>;   // staged led.escrow (INV-LED-022)
+  holds?: SortedMap<Id, Hold>;               // staged holds (INV-LED-022 c)
+  accruals?: SortedMap<Id, AccrualRow>;      // staged accrual registry (INV-LED-024)
 }
 const F = (invariantId: string, observed: string, expected: string, severity: Failure['severity'] = 'FATAL'): Failure =>
   ({ invariantId, observed, expected, severity });
