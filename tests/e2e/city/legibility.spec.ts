@@ -117,6 +117,33 @@ test.describe('M7 T0 controls', () => {
   });
 });
 
+test.describe('M6 phone T0 picture', () => {
+  test('the city picture fills > 40 % of the viewport height; every label is whole, on canvas and not overlapping', async ({ page }) => {
+    await openCity(page, 'tier=T0');
+    await waitDrawn(page);
+    await page.evaluate(() => document.fonts.ready);
+    const r = await page.evaluate(() => (window as unknown as HarnessWindow).__city.t0Picture());
+    expect(r).not.toBeNull();
+    const view = page.viewportSize()!;
+    const fill = (r!.bottom - r!.top) / view.height;
+    console.log('M6 T0', view.width, 'fill', (fill * 100).toFixed(1), '%', JSON.stringify(r!.labels.map((l) => l.text)));
+    expect(fill).toBeGreaterThan(0.4);
+    expect(r!.labels.map((l) => l.text)).toContain('Financial Mile');
+    for (const b of r!.labels) {
+      expect(b.x, b.text).toBeGreaterThanOrEqual(0);
+      expect(b.y, b.text).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.w, b.text).toBeLessThanOrEqual(view.width);
+      expect(b.y + b.h, b.text).toBeLessThanOrEqual(view.height);
+    }
+    for (let i = 0; i < r!.labels.length; i++) for (let j = i + 1; j < r!.labels.length; j++) {
+      const a = r!.labels[i], b = r!.labels[j];
+      const ov = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+      expect(ov, `${a.text} × ${b.text}`).toBe(0);
+    }
+    expect(r!.labels.length).toBeGreaterThanOrEqual(isPhone(page) ? 5 : 8);
+  });
+});
+
 test.describe('M4/M5 table numbers and phone list', () => {
   test('numbers right-aligned in the mono face; Today shows "unavailable" without a quote; list layout below 560 px', async ({ page }) => {
     await openCity(page, 'tier=T1&reduced=1');

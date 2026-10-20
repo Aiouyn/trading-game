@@ -4,9 +4,21 @@ import type { Ramps } from '../art/ramps';
 import { FLOATS_PER_PART } from '../worker/format';
 import { projectOrtho, viewDirection } from './camera';
 import { FLAT_BRASS, FLAT_EXACT } from './overlay';
+import { placeLabels, type LabelBox } from './labels';
 
 const css = (c: Rgb, k = 1) => `color(srgb ${c[0] * k} ${c[1] * k} ${c[2] * k})`;
 export const PICTURE_PADDING_PX = 16;
+/** Portrait (phone) T0: the picture fills at least this share of the viewport height (review M6). */
+export const PORTRAIT_MIN_FILL = 0.45;
+
+export interface PictureResult {
+  url: string;
+  /** Vertical extent of the drawn city, CSS px from the top of the stage. */
+  top: number;
+  bottom: number;
+  /** Labels as drawn, CSS px; labels that would be clipped or overlap another are left out. */
+  labels: (LabelBox & { text: string })[];
+}
 
 /**
  * T0 picture [P]: a static canvas2d drawing of the city (no WebGL), returned as a data URL.
@@ -22,16 +34,17 @@ export function drawPicture(opts: {
   colors: Float32Array;
   flat: Uint8Array;
   ramps: Ramps;
-  labels: { text: string; x: number; z: number }[];
+  /** Each label: its text and candidate ground points (metres), most preferred first. */
+  labels: { text: string; ground: [number, number][] }[];
   labelFont: string;
-}): string {
+}): PictureResult {
   const { ramps } = opts;
   const canvas = document.createElement('canvas');
   const W = Math.max(1, Math.round(opts.width * opts.dpr)), H = Math.max(1, Math.round(opts.height * opts.dpr));
   canvas.width = W;
   canvas.height = H;
   const g = canvas.getContext('2d');
-  if (!g) return '';
+  if (!g) return { url: '', top: 0, bottom: 0, labels: [] };
   g.fillStyle = css(ramps.water);
   g.fillRect(0, 0, W, H);
   // fit: projected bounds of every part
@@ -47,8 +60,26 @@ export function drawPicture(opts: {
   }
   if (!Number.isFinite(u0)) [u0, u1, v0, v1] = [-1, 1, -1, 1];
   const pad = PICTURE_PADDING_PX * opts.dpr;
-  const scale = Math.min((W - 2 * pad) / Math.max(1e-6, u1 - u0), (H - 2 * pad) / Math.max(1e-6, v1 - v0));
-  const uc = (u0 + u1) / 2, vc = (v0 + v1) / 2;
+  const du = Math.max(1e-6, u1 - u0), dv = Math.max(1e-6, v1 - v0);
+  let scale = Math.min((W - 2 * pad) / du, (H - 2 * pad) / dv);
+  let uc = (u0 + u1) / 2;
+  const vc = (v0 + v1) / 2;
+  if (dv * scale < PORTRAIT_MIN_FILL * H) {
+    // portrait: a wide city fitted to the width would be a thin strip. Fill ≥ 45 % of the
+    // height instead and crop the sides, centred on the weighted centre of the built area
+    // (the dense core), clamped so no empty margin shows on either side.
+    scale = Math.min((PORTRAIT_MIN_FILL * H) / dv, (H - 2 * pad) / dv);
+    let su = 0, sw = 0;
+    for (let i = 0; i < n; i++) {
+      const o = i * FLOATS_PER_PART;
+      const wgt = opts.parts[o + 2] * opts.parts[o + 3] * Math.max(1, opts.parts[o + 5]);
+      su += projectOrtho([opts.parts[o], 0, opts.parts[o + 1]], 0)[0] * wgt;
+      sw += wgt;
+    }
+    const halfView = (W / 2 - pad) / scale;
+    const core = sw > 0 ? su / sw : uc;
+    uc = Math.min(u1 - halfView, Math.max(u0 + halfView, core));
+  }
   const toScreen = (x: number, y: number, z: number): [number, number] => {
     const [u, v] = projectOrtho([x, y, z], 0);
     return [W / 2 + (u - uc) * scale, H / 2 - (v - vc) * scale];
@@ -94,7 +125,10 @@ export function drawPicture(opts: {
     quad([toScreen(x0, y0, z1), toScreen(x1, y0, z1), toScreen(x1, y1, z1), toScreen(x0, y1, z1)], css(lit));
     quad([toScreen(x0, y1, z0), toScreen(x1, y1, z0), toScreen(x1, y1, z1), toScreen(x0, y1, z1)], css(top));
   }
-  // district labels: --fg with a 3 px --bg0 knockout stroke (no shadow)
+  // district labels: --fg with a 3 px --bg0 knockout stroke (no shadow). Laid out like the 3D
+  // labels: a label moves to another point of its district, or is left out, rather than being
+  // clipped by the edge or drawn over another label (review: "Financial Mile" on phone T0).
+  const fontPx = Number(/(\d+(?:\.\d+)?)px/.exec(opts.labelFont)?.[1] ?? 16);
   g.font = opts.labelFont.replace(/(\d+(\.\d+)?)px/, (_, px) => `${Number(px) * opts.dpr}px`);
   g.textAlign = 'center';
   g.textBaseline = 'middle';
@@ -102,10 +136,27 @@ export function drawPicture(opts: {
   g.lineWidth = 6 * opts.dpr; // 3 px each side of the glyph edge
   g.strokeStyle = css(ramps.labelHalo);
   g.fillStyle = css(ramps.label);
-  for (const l of opts.labels) {
-    const [sx, sy] = toScreen(l.x, 0, l.z);
-    g.strokeText(l.text, sx, sy);
-    g.fillText(l.text, sx, sy);
-  }
-  return canvas.toDataURL('image/png');
+  const k = opts.dpr;
+  const inputs = opts.labels.map((l) => ({
+    w: g.measureText(l.text).width / k + 6,
+    h: fontPx * 1.25 + 6,
+    candidates: l.ground.map(([x, z]) => {
+      const [sx, sy] = toScreen(x, 0, z);
+      return { x: sx / k, y: sy / k };
+    }),
+  }));
+  const boxes = placeLabels(inputs, [], { w: W / k, h: H / k }, 4);
+  const drawn: (LabelBox & { text: string })[] = [];
+  boxes.forEach((b, i) => {
+    const inside = b.x >= 0 && b.y >= 0 && b.x + b.w <= W / k && b.y + b.h <= H / k;
+    if (!inside) return;
+    const cx = (b.x + b.w / 2) * k, cy = (b.y + b.h / 2) * k;
+    g.strokeText(opts.labels[i].text, cx, cy);
+    g.fillText(opts.labels[i].text, cx, cy);
+    drawn.push({ ...b, text: opts.labels[i].text });
+  });
+  // vertical extent of the city as drawn (ground + parts), CSS px
+  const top = Math.max(0, (H / 2 - (v1 - vc) * scale) / k);
+  const bottom = Math.min(H / k, (H / 2 - (v0 - vc) * scale) / k);
+  return { url: canvas.toDataURL('image/png'), top, bottom, labels: drawn };
 }
