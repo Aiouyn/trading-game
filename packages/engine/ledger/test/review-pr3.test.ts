@@ -165,7 +165,7 @@ describe('F5 catalog v2 (catalog.csv v2 + aliases.csv)', () => {
 });
 
 describe('E-15(3) amount-based INV-LED-004 exemption: QA probes N1, N3-N6, N11, N12', () => {
-  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
+  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 });
   const FORGE = { debitAccount: 'bnk_N:2100:chr_B:FDL', creditAccount: 'bnk_N:5000:FDL', amount: 7n, qty: undefined, assetId: undefined };
   const add = (e: Entry, ps: Partial<Posting>[]): Entry => ps.reduce((a, p) => extra(a, { qty: undefined, assetId: undefined, ...p }), e);
   const triplet = (payer: string, gov: string, reason: string, n = 1n): Partial<Posting>[] => [
