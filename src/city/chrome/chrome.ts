@@ -1,5 +1,5 @@
 import type { CityOverlay } from '../index';
-import { cssVar } from '../art/tokens';
+import { cssVar, fontVar, sizeVar } from '../art/tokens';
 import { styleButton } from '../table/table';
 
 export const OVERLAYS: { id: CityOverlay; label: string }[] = [
@@ -49,7 +49,7 @@ export function createChrome(opts: {
     overflow: 'hidden',
     background: cssVar('bg0'),
     color: cssVar('fg'),
-    font: '13px/18px var(--font-inter, system-ui, sans-serif)',
+    font: `${sizeVar('small')}/18px ${fontVar('ui')}`,
     touchAction: 'none',
   });
   const stage = el('div', 'city-stage');
@@ -84,12 +84,19 @@ export function createChrome(opts: {
   // Control sheet
   const sheet = el('section', 'city-sheet');
   sheet.setAttribute('aria-label', 'Map controls');
+  // Title bar = toggle, with a 36×4 --line grab handle on phones (review m1)
   const handle = document.createElement('button');
   handle.type = 'button';
   handle.className = 'city-sheet-handle';
-  handle.textContent = 'Map controls';
   styleButton(handle);
-  Object.assign(handle.style, { width: '100%', height: '44px', minHeight: '44px', borderRadius: '10px 10px 0 0' });
+  Object.assign(handle.style, { width: '100%', height: '44px', minHeight: '44px', borderRadius: '10px 10px 0 0', border: '0', background: 'transparent', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+  const grab = el('span', 'city-sheet-grab');
+  grab.setAttribute('aria-hidden', 'true');
+  Object.assign(grab.style, { position: 'absolute', top: '6px', left: '50%', width: '36px', height: '4px', marginLeft: '-18px', borderRadius: '2px', background: cssVar('line') });
+  const handleText = el('span', 'city-sheet-title');
+  handleText.textContent = 'Map controls';
+  Object.assign(handleText.style, labelStyle(), { color: cssVar('fgMuted'), paddingTop: '6px' });
+  handle.append(grab, handleText);
   const body = el('div', 'city-sheet-body');
   body.id = `city-sheet-body-${Math.random().toString(36).slice(2, 8)}`;
   handle.setAttribute('aria-controls', body.id);
@@ -97,8 +104,13 @@ export function createChrome(opts: {
   const chips = new Map<CityOverlay, HTMLButtonElement>();
   const lensLabel = el('div', 'city-sheet-label');
   lensLabel.textContent = 'Map lens';
-  Object.assign(lensLabel.style, { width: '100%', color: cssVar('fgMuted'), fontSize: '11px', letterSpacing: '0.1em' });
-  body.append(lensLabel);
+  Object.assign(lensLabel.style, labelStyle(), { width: '100%' });
+  const t0Note = el('p', 'city-t0-note');
+  t0Note.textContent = 'Map picture · updates daily';
+  Object.assign(t0Note.style, { margin: '4px 0', color: cssVar('fgMuted'), width: '100%' });
+  t0Note.hidden = true;
+  const live: HTMLElement[] = [lensLabel];
+  body.append(t0Note, lensLabel);
   for (const o of OVERLAYS) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -107,24 +119,30 @@ export function createChrome(opts: {
     chip(b, false);
     b.addEventListener('click', () => opts.onOverlay(o.id));
     chips.set(o.id, b);
+    live.push(b);
     body.append(b);
   }
   const viewLabel = lensLabel.cloneNode() as HTMLElement;
   viewLabel.textContent = 'View';
+  live.push(viewLabel);
   body.append(viewLabel);
-  const tool = (label: string, aria: string, run: () => void) => {
+  // 24-grid, 1.5 px stroke glyphs in --fg, 44 px targets (review m3)
+  const tool = (paths: string, aria: string, run: () => void) => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.textContent = label;
     b.setAttribute('aria-label', aria);
+    b.className = 'city-tool';
+    b.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
     chip(b, false);
+    Object.assign(b.style, { color: cssVar('fg'), width: '44px', height: '44px', padding: '0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px' });
     b.addEventListener('click', run);
+    live.push(b);
     body.append(b);
   };
-  tool('⟲', 'Rotate left', () => opts.onRotate(-1));
-  tool('⟳', 'Rotate right', () => opts.onRotate(1));
-  tool('+', 'Zoom in', () => opts.onZoom(1.25));
-  tool('−', 'Zoom out', () => opts.onZoom(0.8));
+  tool('<path d="M4 10a8 8 0 1 1 2 7"/><path d="M4 4v6h6"/>', 'Rotate left', () => opts.onRotate(-1));
+  tool('<path d="M20 10a8 8 0 1 0-2 7"/><path d="M20 4v6h-6"/>', 'Rotate right', () => opts.onRotate(1));
+  tool('<path d="M12 5v14M5 12h14"/>', 'Zoom in', () => opts.onZoom(1.25));
+  tool('<path d="M5 12h14"/>', 'Zoom out', () => opts.onZoom(0.8));
   sheet.append(handle, body);
 
   let open = false;
@@ -182,6 +200,9 @@ export function createChrome(opts: {
     tableButton,
     sheet,
     setTierStyle(t0) {
+      // T0: no lenses or camera tools on a static picture (review M7)
+      t0Note.hidden = !t0;
+      for (const e of live) e.style.display = t0 ? 'none' : '';
       styleButton(tableButton, t0); // T0: the one accent button, and larger
       Object.assign(tableButton.style, t0
         ? { position: 'absolute', top: '', left: '50%', bottom: '64px', transform: 'translateX(-50%)', zIndex: '2', fontSize: '15px', padding: '0 20px' }
@@ -236,6 +257,11 @@ function el(tag: string, cls: string): HTMLElement {
   const e = document.createElement(tag);
   e.className = cls;
   return e;
+}
+
+/** Label style (17 §3.3.2): 10.5 px, 500, uppercase, 0.14em, --fg-faint. */
+function labelStyle(): Partial<CSSStyleDeclaration> {
+  return { font: `500 ${sizeVar('label')}/14px ${fontVar('ui')}`, letterSpacing: '0.14em', textTransform: 'uppercase', color: cssVar('fgFaint') };
 }
 
 /** Chips use --fg-muted/--line; the active chip uses --win2 + --fg (spec §7.3). */

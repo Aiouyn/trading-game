@@ -1,7 +1,11 @@
 import type { PickResult } from '../index';
-import type { CitySnapshot, EntityKind } from '../data/types';
+import type { CitySnapshot, EntityKind, MoneyString, Ccy } from '../data/types';
+import { districtName } from '../data/names';
 
 export type RowKind = EntityKind | 'district';
+
+/** A company's day return as the market view publishes it; null = no quote ("unavailable"). */
+export type QuoteBp = number | null;
 
 export interface TableRow {
   kind: RowKind;
@@ -9,8 +13,10 @@ export interface TableRow {
   parcelId: string;
   name: string;
   district: string;
-  dayReturn: number | null;
-  rent: number | null;
+  /** Districts only: office rent per m² per game day. */
+  rent: { amount: MoneyString; ccy: Ccy } | null;
+  /** HQs only: the owner's published day return in basis points, or null when unavailable. */
+  today: { bp: QuoteBp } | null;
   mine: boolean;
 }
 
@@ -24,28 +30,39 @@ export const KIND_LABEL: Record<RowKind, string> = {
   district: 'District',
 };
 
-/** Every pickable thing on the map, from the same snapshot the map draws (CTY-05). */
-export function tableRows(s: CitySnapshot, mine: ReadonlySet<string>): TableRow[] {
-  const districtName = new Map(s.districts.map((d) => [d.id, d.name]));
-  const rows: TableRow[] = s.districts.map((d) => ({
-    kind: 'district',
-    entityId: d.id,
-    parcelId: d.id,
-    name: d.name,
-    district: d.name,
-    dayReturn: null,
-    rent: d.rent,
-    mine: false,
-  }));
+/** Unnamed properties (no OWNERSHIP_PUBLIC) show their parcel, never an owner. */
+export function displayName(name: string | null, parcelId: string): string {
+  return name ?? `Parcel ${parcelId.replace(/^pcl_[a-z_]*?_(?=\d)/, '').replace(/^0+(?=\d)/, '')}`;
+}
+
+/**
+ * Every pickable thing on the map, from the same snapshot the map draws (CTY-05).
+ * Quotes are not in the city payload (SR Q8): `quote` reads the market view; without one → null.
+ */
+export function tableRows(s: CitySnapshot, mine: ReadonlySet<string>, quote: (companyId: string) => QuoteBp = () => null): TableRow[] {
+  const dName = new Map(s.districts.map((d) => [d.id, districtName(d.nameKey)]));
+  const rows: TableRow[] = s.districts.map((d) => {
+    const office = d.byUse.OFFICE ?? Object.values(d.byUse)[0];
+    return {
+      kind: 'district',
+      entityId: d.id,
+      parcelId: d.id,
+      name: dName.get(d.id)!,
+      district: dName.get(d.id)!,
+      rent: office ? { amount: office.rentPerM2PerGD, ccy: s.ccy } : null,
+      today: null,
+      mine: false,
+    };
+  });
   for (const e of s.entities) {
     rows.push({
       kind: e.kind,
       entityId: e.id,
       parcelId: e.parcelId,
-      name: e.name,
-      district: districtName.get(e.districtId) ?? '',
-      dayReturn: e.kind === 'company_hq' || e.kind === 'storefront' ? e.dayReturn : null,
+      name: displayName(e.name, e.parcelId),
+      district: dName.get(e.districtId) ?? '',
       rent: null,
+      today: e.kind === 'company_hq' ? { bp: e.companyId ? quote(e.companyId) : null } : null,
       mine: mine.has(e.id),
     });
   }
