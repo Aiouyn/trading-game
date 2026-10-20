@@ -12,7 +12,12 @@
     "e2e": "playwright test",
     "sim": "tsx scripts/sim.ts",
     "typecheck": "next typegen && tsc --noEmit",
-    "balance": "tsx scripts/balance/run.ts"
+    "balance": "tsx scripts/balance/run.ts",
+    "core:install": "npm --prefix packages/engine/core ci",
+    "core:typecheck": "npm --prefix packages/engine/core run typecheck",
+    "core:lint": "npm --prefix packages/engine/core run lint",
+    "core:test": "npm --prefix packages/engine/core test",
+    "core:check": "npm run core:typecheck && npm run core:lint && npm run core:test"
   },
   "dependencies": {
     "lightweight-charts": "^5.2.1",

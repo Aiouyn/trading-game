@@ -12,6 +12,10 @@ describe('cmpStr / sortBy (T02-01)', () => {
     const xs = [{ k: 'b', i: 0 }, { k: 'a', i: 1 }, { k: 'b', i: 2 }, { k: 'a', i: 3 }];
     expect(sortBy(xs, (x) => [x.k]).map((x) => x.i)).toEqual([1, 3, 0, 2]);
   });
+  it('QA M05: a strict prefix sorts first', () => {
+    expect(cmpKey(['a'], ['a', 'b'])).toBe(-1); expect(cmpKey(['a', 'b'], ['a'])).toBe(1); expect(cmpKey([], [0])).toBe(-1);
+    expect(sortBy([['a', 'b'], ['a']], (x) => x)).toEqual([['a'], ['a', 'b']]);
+  });
   it('mixed key types and NaN are EngineFault I0.sort_key', () => {
     expect(() => cmpKey(['a'], [1])).toThrow(EngineFault);
     expect(() => sortBy([1, NaN], (x) => [x])).toThrow(/NaN/);

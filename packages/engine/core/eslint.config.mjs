@@ -25,6 +25,8 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   { rules: { '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }] } },
   { files: ['**/*.ts'], ignores: ['**/*.test.ts'], rules: G8_RULES },
-  // canon.ts is the one place that enumerates plain-object keys; it sorts them by byte order before use.
-  { files: ['canon.ts'], rules: { 'no-restricted-syntax': 'off' } },
+  // canon.ts is the one place that enumerates plain-object keys (Object.keys only; it sorts them by byte order before use).
+  // Every other no-restricted-syntax rule (for…in, async, bare sort, Object.values/entries) still applies there.
+  { files: ['canon.ts'], rules: { 'no-restricted-syntax': ['error', ...G8_RULES['no-restricted-syntax'].slice(1).map((r) =>
+    (typeof r === 'object' && r.selector.includes('keys|values|entries') ? { ...r, selector: r.selector.replace('keys|values|entries', 'values|entries') } : r))] } },
 );

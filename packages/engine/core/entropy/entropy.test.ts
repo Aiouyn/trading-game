@@ -37,6 +37,12 @@ describe('entropy buffer (T02-07, 24 R28)', () => {
     expect(toHex(restored.eOf(5).value)).toBe(toHex(b.eOf(5).value));
     expect(Object.getOwnPropertyNames(EntropyBuffer.prototype).filter((m) => /secret/i.test(m))).toEqual(['setSecret']);
   });
+  it('QA M23: commits run exactly two epochs ahead of the current epoch (genesis 0-2; epoch 5 -> through 7)', () => {
+    const b = mk(); expect(b.ensureCommitted(0).map((c) => c.epoch)).toEqual([0, 1, 2]);
+    expect(b.ensureCommitted(5 * 720).map((c) => c.epoch)).toEqual([3, 4, 5, 6, 7]);
+    expect(b.ensureCommitted(5 * 720 + 719)).toEqual([]);
+    expect(b.commitments().find((c) => c.epoch === 7)!.publishedAtTick).toBe(6 * 720 - 1);
+  });
   it('fallback path: eOf on an epoch with no secret returns fallback true', () => {
     expect(mk().eOf(5).fallback).toBe(true);
     expect(toHex(fallbackEntropy(Uint8Array.of(1)))).toBe(createHash('sha256').update(Buffer.concat([Buffer.from('TYC/fallback'), Buffer.of(1)])).digest('hex'));

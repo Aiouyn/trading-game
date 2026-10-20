@@ -37,6 +37,15 @@ describe('envelope checks (T02-08)', () => {
     const npc = Array.from({ length: 30 }, (_, i) => raw({ intentId: `int_n${i}`, actorId: 'npc_S', nonce: 0n, channel: 'NPC', signatureValid: false }));
     expect(checkEnvelopes(input(npc)).accepted.length).toBe(30);
   });
+  it('QA M40b: a duplicate intentId is resolved in canonical order, never gateway (receivedSeq) order', () => {
+    for (const [sa, sb] of [[0, 1], [1, 0]]) {
+      const rs = [raw({ intentId: 'int_a', actorId: 'chr_B', receivedSeq: sa }), raw({ intentId: 'int_a', actorId: 'chr_A', receivedSeq: sb })];
+      for (const order of [rs, [...rs].reverse()]) {
+        const o = checkEnvelopes(input(order));
+        expect(o.accepted.map((r) => r.actorId)).toEqual(['chr_A']); expect(o.rejected.map((r) => r.actorId)).toEqual(['chr_B']);
+      }
+    }
+  });
   it('assembleTickBatch: a batch closed at sealedAtMs + 151 with grace 150 is rolled whole to N+1 and its gateway listed late', () => {
     const b = (g: string, closedAtMs: number) => ({ gatewayId: g, forTick: 100, closedAtMs, intents: [raw({ intentId: `int_${g}`, actorId: 'chr_A' })] });
     const r = assembleTickBatch(100, [b('gw_late', 1151), b('gw_ok', 1150)], 1000, 150);
