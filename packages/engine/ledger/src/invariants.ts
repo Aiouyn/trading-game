@@ -1,5 +1,5 @@
 // INV-LED-001..015 (spec §4). Each check is a pure function of a CheckView; observed strings start with the 03 §3.16 I-number.
-import { BMA_CODES, classOfCode, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
+import { accountKey, BMA_CODES, classOfCode, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
 import { CBK_CREDIT_CODES, CBK_UNWIND_CODES, CLASS_TEMPLATES, FLOW_CLASSES, RESTRICTED_OK_CODES, type FlowClass, type ReasonCatalog } from './catalog';
 import { SortedMap } from './det';
 import { CCYS, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
@@ -425,12 +425,32 @@ export const INV_LED_010: Check = (v) => {
       if (q.entityId === SYS_ID && (q.code === 1999 || q.code === 2999) && b.balance !== 0n) out.push(F('INV-LED-010', `I15: ${k} = ${b.balance}`, '0n'));
       if (kind === 'cbk' && q.code >= 2001 && q.code <= 2003) cbk += b.balance;
       if (kind !== 'cbk' && (BMA_CODES as readonly number[]).includes(q.code)) holders += b.balance;
-      if (kind === 'bnk' && q.code === 2100) dep.set(q.entityId, (dep.get(q.entityId) ?? 0n) + b.balance);
-      if (q.code === 1010 && q.sub) dep.set(q.sub, (dep.get(q.sub) ?? 0n) + b.balance);
+      const pk = depositPairKey(k); if (pk) dep.set(pk, (dep.get(pk) ?? 0n) + b.balance);
     }
     if (tb !== 0n) out.push(F('INV-LED-010', `I3: trial balance ${ccy} = ${tb}`, '0n'));
     if (cbk + holders !== 0n) out.push(F('INV-LED-010', `I5: cbk ${cbk} vs holders ${holders} (${ccy})`, 'mirror'));
-    for (const [bank, n] of dep) if (n !== 0n) out.push(F('INV-LED-010', `I6: ${bank} deposits off by ${n} (${ccy})`, 'mirror'));
+    for (const [pair, n] of dep) if (n !== 0n) out.push(F('INV-LED-010', `I6: ${pair} deposit off by ${n} (${ccy})`, 'bnk:2100:H = H:1010:bnk'));
+  }
+  return out;
+};
+/** I6 pair key (QA G9): bnk:2100:<H> and <H>:1010:<bnk> map to the same `bank|holder`; their balances must cancel per pair. */
+function depositPairKey(k: string): string | undefined {
+  const q = parseAccountKey(k); if (!q || !q.sub) return undefined;
+  if (q.code === 2100 && kindOfId(q.entityId) === 'bnk') return `${q.entityId}|${q.sub}`;
+  if (q.code === 1010) return `${q.sub}|${q.entityId}`;
+  return undefined;
+}
+/** I6 at the tick (O(postings)): every (bank, holder) deposit pair touched this tick mirrors exactly (bnk:2100:H + H:1010:bnk = 0n). */
+export const INV_LED_010_I6_TICK: Check = (v) => {
+  const out: Failure[] = []; const pairs = new SortedMap<string, string[]>();
+  for (const e of v.entries) for (const p of e.postings) for (const k of [p.debitAccount, p.creditAccount]) {
+    const pk = depositPairKey(k); const q = parseAccountKey(k); if (!pk || !q) continue;
+    const [bank, holder] = pk.split('|');
+    pairs.set(`${pk}|${q.ccy}`, [accountKey(bank, 2100, q.ccy, holder), accountKey(holder, 1010, q.ccy, bank)]);
+  }
+  for (const [pk, [a, b]] of pairs) {
+    const n = (v.post.get(a)?.balance ?? 0n) + (v.post.get(b)?.balance ?? 0n);
+    if (n !== 0n) out.push(F('INV-LED-010', `I6: ${pk} deposit off by ${n} at tick ${v.tick}`, 'bnk:2100:H = H:1010:bnk'));
   }
   return out;
 };
@@ -454,7 +474,7 @@ export const TICK_INVARIANTS: readonly [string, Check][] = [
   ['INV-LED-001', INV_LED_001], ['INV-LED-002', INV_LED_002], ['INV-LED-003', INV_LED_003], ['INV-LED-004', INV_LED_004],
   ['INV-LED-005', INV_LED_005], ['INV-LED-006', INV_LED_006], ['INV-LED-007', INV_LED_007], ['INV-LED-008', INV_LED_008],
   ['INV-LED-012', INV_LED_012], ['INV-LED-014', INV_LED_014], ['INV-LED-015', INV_LED_015], ['INV-LED-026', INV_LED_026],
-  ['INV-LED-010', INV_LED_010], ['INV-LED-011', INV_LED_011],
+  ['INV-LED-010', INV_LED_010], ['INV-LED-010', INV_LED_010_I6_TICK], ['INV-LED-011', INV_LED_011],
 ];
 
 function dedupe(f: Failure[]): Failure[] {

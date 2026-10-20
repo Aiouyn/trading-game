@@ -243,3 +243,37 @@ describe('E-15.2 INV-LED-026: every leg entity registered and not DISSOLVED', ()
     expect(L.TICK_INVARIANTS.map(([id]) => id)).toContain('INV-LED-026');
   });
 });
+
+describe('QA G9 / K1 / K2: per-(bank, holder) deposit mirror and amount-rule killers', () => {
+  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
+  const add = (e: Entry, ps: Partial<Posting>[]): Entry => ps.reduce((a, p) => extra(a, { qty: undefined, assetId: undefined, ...p }), e);
+  const triplet = (n: bigint): Partial<Posting>[] => [
+    { debitAccount: 'gov_FDL:1003:GENERAL:FDL', creditAccount: 'chr_A:1001:FDL', amount: n, reason: 'MKT_TRADE' },
+    { debitAccount: 'cbk_FDL:2001:chr_A:FDL', creditAccount: 'cbk_FDL:2003:gov_FDL:FDL', amount: n, reason: 'MKT_TRADE' },
+    { debitAccount: 'chr_A:5280:FDL', creditAccount: 'gov_FDL:4190:FDL', amount: n, reason: 'MKT_TRADE' }];
+  it('G9: a forged bnk_N:2100:chr_A → bnk_N:2100:chr_B deposit move (bank total unchanged) fails I6 per pair, at the tick and at day close', () => {
+    const g9 = add(trade(), [{ debitAccount: 'bnk_N:2100:chr_A:FDL', creditAccount: 'bnk_N:2100:chr_B:FDL', amount: 5n, reason: 'MKT_TRADE' }]);
+    const v = view([g9]);
+    expect(obs(L.INV_LED_010_I6_TICK(v), 'INV-LED-010').sort()).toEqual(['I6: bnk_N|chr_A|FDL deposit off by 5 at tick 10', 'I6: bnk_N|chr_B|FDL deposit off by -5 at tick 10']);
+    expect(obs(L.INV_LED_010({ ...v, isDayClose: true }), 'INV-LED-010').filter((o) => o.startsWith('I6')).sort())
+      .toEqual(['I6: bnk_N|chr_A deposit off by 5 (FDL)', 'I6: bnk_N|chr_B deposit off by -5 (FDL)']);
+    expect(L.TICK_INVARIANTS.some(([, c]) => c === L.INV_LED_010_I6_TICK)).toBe(true);
+    // the honest bank-rail payment (2100 and 1010 move together) passes both
+    const w = fixture(); w.setRail('chr_A', { payFrom: { kind: 'BANK', bankId: 'bnk_N' }, receiveInto: { kind: 'BANK', bankId: 'bnk_N' } });
+    w.setRail('chr_B', { payFrom: { kind: 'BANK', bankId: 'bnk_N' }, receiveInto: { kind: 'BANK', bankId: 'bnk_N' } });
+    const p = L.tplPay(w.env('21', 'P12'), 'chr_A', 'chr_B', 5n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    const vp = view([p]);
+    expect(L.INV_LED_010_I6_TICK(vp)).toEqual([]); expect(obs(L.INV_LED_010({ ...vp, isDayClose: true }), 'INV-LED-010').filter((o) => o.startsWith('I6'))).toEqual([]);
+  });
+  it('K1 (kills AR3 |M2| = |exempt|): a real 7-micro rail to gov plus a forged +14 deposit leg fails: M2 +7 vs exempt −7', () => {
+    const t = trade();
+    expect(obs(L.INV_LED_004(view([add(t, [...triplet(7n), { debitAccount: 'bnk_N:5000:FDL', creditAccount: 'bnk_N:2100:chr_B:FDL', amount: 14n, reason: 'MKT_TRADE' }])])), 'INV-LED-004'))
+      .toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by 7`);
+  });
+  it('K2 (kills AR7 any-rail): a non-rail chr_A:1001 ↔ gov value posting grants no exemption and fails', () => {
+    const t = trade();
+    expect(obs(L.INV_LED_004(view([add(t, [{ debitAccount: 'gov_FDL:5280:FDL', creditAccount: 'chr_A:1001:FDL', amount: 7n, reason: 'MKT_TRADE' },
+      { debitAccount: 'chr_A:5280:FDL', creditAccount: 'gov_FDL:4190:FDL', amount: 7n, reason: 'MKT_TRADE' }])])), 'INV-LED-004'))
+      .toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
+  });
+});
