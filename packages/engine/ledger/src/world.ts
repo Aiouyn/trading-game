@@ -657,7 +657,10 @@ export class LedgerWorld {
   }
   /** Restore from a structured clone of the state (TODO(unit-02): decode canonEncode snapshots). */
   checkpoint(): State { return cloneState(this.s); }
-  restore(st: State): void { this.s = cloneState(st); this.queue = []; this.committedVersion = this.s.accounts.version; }
+  restore(st: State): void {
+    const cur = this.s.hookCursor; this.s = cloneState(st);
+    for (const [c, t] of cur) if (t > (this.s.hookCursor.get(c) ?? -1)) this.s.hookCursor.set(c, t); // Δ8: replay never re-fires hooks
+    this.queue = []; this.committedVersion = this.s.accounts.version; }
 }
 
 const sideName = (t: SideTag): string => (t.side === 'S' ? 'S' : `${t.cls}${t.tag ? `/${t.tag}` : ''}`);
@@ -700,6 +703,11 @@ function cloneState(s: State): State {
     tickFlows: new SortedMap(s.tickFlows.entries().map(([k, f]) => [k, { ...f, byClass: f.byClass.clone(), byCode: f.byCode.clone() }])),
     today: new SortedMap(s.today.entries().map(([k, t]) => [k, { byClass: t.byClass.clone(), byCode: t.byCode.clone(), ownAccount: t.ownAccount }])),
     flowDays: m(s.flowDays), done: s.done.clone(), alerts: [...s.alerts],
+    // archive rows, dayAcc rows and sysSide are replaced, never mutated, after commit: shared by reference.
+    sides: s.sides.clone(), holdings: s.holdings.clone(), roles: s.roles.clone(), dynasty: s.dynasty.clone(), linkGroups: s.linkGroups.clone(),
+    escrows: new SortedMap(s.escrows.entries().map(([k, e]) => [k, { ...e }])), accruals: new SortedMap(s.accruals.entries().map(([k, e]) => [k, { ...e }])),
+    freshStart: s.freshStart.clone(), garnish: s.garnish.clone(), archive: s.archive.clone(), dayAcc: s.dayAcc.clone(),
+    hookCursor: s.hookCursor.clone(), flips: [...s.flips], m0PlayerOpen: s.m0PlayerOpen.clone(),
   };
 }
 export type { State as LedgerState, EntityKind };
