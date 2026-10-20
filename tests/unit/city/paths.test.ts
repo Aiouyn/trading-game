@@ -4,7 +4,8 @@ import { execSync } from 'node:child_process';
 // Spec 2 §1 ownership. package.json / package-lock.json: one-off, Producer-approved exception
 // (adds three + @types/three because Spec 1 had not landed them on main).
 const OWNED = [/^src\/city\//, /^public\/city\//, /^tests\/unit\/city\//, /^tests\/e2e\/city\//, /^docs\/city\//];
-const APPROVED_EXCEPTIONS = new Set(['package.json', 'package-lock.json']);
+// .github/workflows/city.yml: the city CI workflow, Producer-authorized (QA C-10/C-16).
+const APPROVED_EXCEPTIONS = new Set(['package.json', 'package-lock.json', '.github/workflows/city.yml']);
 
 describe('C-16 path check', () => {
   it('this branch touches no path outside Spec 2 ownership', () => {
