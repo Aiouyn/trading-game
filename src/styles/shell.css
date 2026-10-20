@@ -325,9 +325,13 @@ html[data-motion="reduce"] *:not(.tickring-sweep) { transition-duration: 0ms !im
 /* §5 error / offline (inline). [P] visual unspecified: banner layer + existing tokens. */
 .load-state-body { display: contents; }
 .load-state { white-space: nowrap; max-width: calc(100% - 16px); position: fixed; left: 50%; transform: translateX(-50%); top: 42px; z-index: var(--z-banner); display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--win2); border: 1px solid var(--line); border-radius: var(--r-btn); color: var(--fg-muted); font-size: var(--fs-13); }
-.load-retry { color: var(--fg); text-decoration: underline; min-height: 28px; padding: 0 4px; }
+/* Retry: visual stays small; the hit area is extended to ≥ 44×44 by a centred pseudo-element (§4). */
+.load-retry { position: relative; color: var(--fg); text-decoration: underline; min-height: 28px; padding: 0 4px; flex: none; }
+/* Extends downward (never up into the status bar / strip): 44 px tall from 1 px above the button. */
+.load-retry::after { content: ""; position: absolute; left: 50%; top: -1px; width: max(100%, 44px); height: max(calc(100% + 2px), 44px); transform: translateX(-50%); }
 .load-retry:disabled { color: var(--fg-disabled); }
-/* Phone: in-flow banner under the status bar (Studio, round 6). Pushes content down; safe-area aware. */
-.phone-banner { flex: none; height: 0; overflow: hidden; background: var(--win2); transition: height var(--dur-fast) var(--ease-out); }
-.phone-banner[data-open="true"] { height: 32px; border-bottom: 1px solid var(--line); }
-.phone-banner .load-state-body { display: flex; align-items: center; gap: 6px; height: 31px; padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); color: var(--fg-muted); font-size: var(--fs-13); white-space: nowrap; }
+/* Phone: in-flow banner under the status bar. 32 px minimum; wraps and grows at large text; pushes content down.
+   Not clipped when open, so Retry's extended hit area stays tappable (it sits above the content's top padding). */
+.phone-banner { box-sizing: border-box; flex: none; position: relative; z-index: 1; height: 0; min-height: 0; overflow: hidden; background: var(--win2); transition: min-height var(--dur-fast) var(--ease-out); }
+.phone-banner[data-open="true"] { height: auto; min-height: 32px; overflow: visible; border-bottom: 1px solid var(--line); }
+.phone-banner .load-state-body { box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; row-gap: 0; min-height: 31px; padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); color: var(--fg-muted); font-size: var(--fs-13); line-height: 1.3; }

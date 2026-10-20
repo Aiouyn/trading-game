@@ -58,4 +58,18 @@ test("desktop 1440×900 and 1280×800", async ({ page }, info) => {
 test("phone 390×844", async ({ page }, info) => {
   test.skip(info.project.name !== "phone");
   await four(page, "phone-390x844", true);
+  // Offline banner at 320 / 390 and text scale 1.0 / 2.0 (QA round 7), via the real textScale setting.
+  for (const width of [320, 390]) {
+    for (const scale of ["1", "2"]) {
+      await page.setViewportSize({ width, height: 844 });
+      await boot(page, "/settings");
+      await page.getByTestId("text-scale").selectOption(scale);
+      await page.getByRole("button", { name: "Back" }).click();
+      await page.context().setOffline(true);
+      await page.getByTestId("offline-state").waitFor();
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: `${OUT}/phone-${width}x844-offline-scale${scale}.png` });
+      await page.context().setOffline(false);
+    }
+  }
 });

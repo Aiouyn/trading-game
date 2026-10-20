@@ -370,6 +370,13 @@ test("S1-03 computed tokens per palette; DOM identical across palettes", async (
 test("§5 error / offline: inline \"Couldn't load · Retry\"; Retry reloads; offline shows the read-only snapshot", async ({ page }) => {
   await boot(page, "/?load=fail1");
   await expect(page.getByTestId("load-error")).toHaveText("Couldn't load · Retry");
+  // §4: the pill's Retry has a 44×44 hit box.
+  const hit = await page.getByTestId("load-retry").evaluate((b) => {
+    const r = b.getBoundingClientRect(); const cx = r.left + r.width / 2;
+    const hits = (x: number, y: number) => { const e = document.elementFromPoint(x, y); return !!e && (e === b || b.contains(e)); };
+    return [[cx - 21.5, r.top - 0.5], [cx + 21.5, r.top - 0.5], [cx - 21.5, r.top + 42.5], [cx + 21.5, r.top + 42.5]].every(([x, y]) => hits(x, y));
+  });
+  expect(hit).toBe(true);
   await expect(page.getByTestId("strip")).toBeVisible(); // the rest of the shell stays usable
   await page.getByTestId("load-retry").click();
   await expect(page.getByTestId("load-error")).toHaveCount(0);

@@ -230,7 +230,7 @@ test("Phone error/offline banner: under the status bar, pushes content down, nev
     const bg = document.createElement("i"); bg.style.backgroundColor = "var(--win2)"; document.body.appendChild(bg); const win2 = getComputedStyle(bg).backgroundColor; bg.remove();
     return { bg: cs.backgroundColor, win2, line: cs.borderBottomColor, lineTok: probe("--line"), bw: cs.borderBottomWidth, text: body.color, muted: probe("--fg-muted"), btn: btn.color, fg: probe("--fg"), ul: btn.textDecorationLine, dur: cs.transitionDuration, prop: cs.transitionProperty };
   });
-  expect(st).toEqual({ bg: st.win2, win2: st.win2, line: st.lineTok, lineTok: st.lineTok, bw: "1px", text: st.muted, muted: st.muted, btn: st.fg, fg: st.fg, ul: "underline", dur: "0.12s", prop: "height" });
+  expect(st).toEqual({ bg: st.win2, win2: st.win2, line: st.lineTok, lineTok: st.lineTok, bw: "1px", text: st.muted, muted: st.muted, btn: st.fg, fg: st.fg, ul: "underline", dur: "0.12s", prop: "min-height" });
   await page.context().setOffline(false);
   await expect.poll(async () => (await rect("[data-testid=phone-banner]")).h).toBe(0);
   // Error state uses the same slot.
@@ -247,3 +247,50 @@ test("Phone banner appears instantly under reduced motion", async ({ page }) => 
   expect(h).toEqual([32, "0s"]);
   await page.context().setOffline(false);
 });
+
+// §4 hit target: scan around Retry with elementFromPoint and measure the area that hits the button.
+export const retryHit = (page: import("@playwright/test").Page) => page.getByTestId("load-retry").evaluate((b) => {
+  const r = b.getBoundingClientRect();
+  const hits = (x: number, y: number) => { const e = document.elementFromPoint(x, y); return !!e && (e === b || b.contains(e)); };
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let y = r.top - 30; y <= r.bottom + 30; y += 0.5) for (let x = r.left - 30; x <= r.right + 30; x += 0.5) {
+    if (hits(x, y)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  }
+  // The four corners of the hit bounding box must hit too (a real rectangle, not a cross).
+  const rect = [hits(x0, y0), hits(x1, y0), hits(x0, y1), hits(x1, y1)].every(Boolean);
+  return {
+    w: x1 - x0 + 0.5, h: y1 - y0 + 0.5, rect,
+    inside: r.left >= 0 && r.right <= window.innerWidth && r.top >= 0 && r.bottom <= window.innerHeight,
+    right: r.right, vw: window.innerWidth,
+  };
+});
+
+for (const width of [390, 320]) {
+  for (const scale of ["1", "2"]) {
+    test(`Phone banner at ${width} px, text scale ${scale}: wraps, Retry fully visible with a 44×44 hit box, content pushed by the banner's height (QA r7)`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await boot(page, "/settings");
+      await page.getByTestId("text-scale").selectOption(scale); // the real AccountUiPrefs.textScale setting
+      await page.getByRole("button", { name: "Back" }).click();
+      const top = (sel: string) => page.locator(sel).first().evaluate((e) => e.getBoundingClientRect().top);
+      const before = await top("[data-testid=widget]");
+      await page.context().setOffline(true);
+      await expect(page.getByTestId("offline-state")).toBeVisible();
+      await expect.poll(async () => page.getByTestId("phone-banner").evaluate((e) => e.getBoundingClientRect().height)).toBeGreaterThanOrEqual(32);
+      await page.waitForTimeout(200); // let the 120 ms ease finish
+      const b = await page.getByTestId("phone-banner").evaluate((e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: r.height, w: r.width }; });
+      const sb = await page.getByTestId("statusbar").evaluate((e) => e.getBoundingClientRect().bottom);
+      expect(b.top).toBe(sb);
+      expect(b.w).toBe(width);
+      expect(b.h).toBeGreaterThanOrEqual(32);
+      expect(Math.abs((await top("[data-testid=widget]")) - (before + b.h))).toBeLessThanOrEqual(0.5); // pushed by the actual height
+      for (const sel of ["[data-testid=widget] .label", "[data-testid=widget] .chip"]) expect(await top(sel)).toBeGreaterThanOrEqual(b.bottom);
+      const h = await retryHit(page);
+      expect(h, JSON.stringify(h)).toMatchObject({ rect: true, inside: true });
+      expect(h.w).toBeGreaterThanOrEqual(44);
+      expect(h.h).toBeGreaterThanOrEqual(44);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.context().setOffline(false);
+    });
+  }
+}
