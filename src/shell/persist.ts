@@ -28,5 +28,25 @@ export async function loadLocal(accountId: string): Promise<Partial<ShellLocalSt
 export async function saveLocal(accountId: string, state: ShellLocalState): Promise<void> {
   if (typeof indexedDB === "undefined") return;
   const db = await open();
-  db.transaction(STORE, "readwrite").objectStore(STORE).put(state, localKey(accountId));
+  // Resolve only once the transaction has committed, so a reload right after sees the write.
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new DOMException("Transaction aborted", "AbortError"));
+    tx.objectStore(STORE).put(state, localKey(accountId));
+  });
+}
+
+/** Writes are serialised; `flushLocal()` resolves once every write queued so far has committed. */
+let queue: Promise<void> = Promise.resolve();
+export function queueSave(accountId: string, state: ShellLocalState): Promise<void> {
+  queue = queue.catch(() => {}).then(() => saveLocal(accountId, state));
+  return queue;
+}
+export function flushLocal(): Promise<void> {
+  return queue;
+}
+if (typeof window !== "undefined") {
+  (window as Window & { __quayFlush?: () => Promise<void> }).__quayFlush = flushLocal;
 }

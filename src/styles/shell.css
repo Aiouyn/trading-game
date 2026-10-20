@@ -18,6 +18,7 @@ button, .tile {
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .num { font-family: var(--font-num); font-feature-settings: "tnum"; }
 .muted { color: var(--fg-muted); }
+.fg { color: var(--fg); }
 .disabled { color: var(--fg-disabled); }
 .acc { color: var(--acc); }
 .gain { color: var(--gain); }
@@ -144,8 +145,10 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 .tile.on { background: var(--win2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
 .tile.locked { color: var(--fg-disabled); cursor: default; }
 /* Locked tag inside the tile, top-right, Label style (17 §3.3.2) */
-.lock-tag { position: absolute; top: 2px; right: 3px; font: 500 var(--fs-10_5) / 1 var(--font-ui); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-disabled); pointer-events: none; }
-.tile .lock-tag { font-size: calc(7.5px * var(--text-scale)); top: 2px; right: 2px; }
+.lock-tag { position: absolute; top: 2px; right: 3px; font: 500 var(--fs-10_5) / 1 var(--font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-disabled); pointer-events: none; }
+/* Locked tiles: the tag sits inside the tile above the glyph at Label style; the tile widens to fit it. */
+.tile.locked { width: auto; min-width: 40px; padding: 3px 5px 0; grid-template-rows: auto 1fr; gap: 1px; }
+.tile .lock-tag { position: static; order: -1; }
 .fresh-dot { position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--acc); }
 .run-dot { position: absolute; bottom: 2px; left: 50%; margin-left: -2px; width: 4px; height: 4px; border-radius: 50%; background: var(--fg-muted); }
 .shelf-tools { margin-left: 12px; flex: none; display: flex; align-items: center; gap: 10px; }
@@ -246,7 +249,7 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 /* TickRing */
 .tickring { flex: none; display: block; }
 .tickring-track { fill: none; stroke: var(--line); stroke-width: 2; }
-.tickring-sweep { fill: none; stroke: var(--acc); stroke-width: 2; animation: tick-sweep var(--dur-tick) linear forwards; }
+.tickring-sweep { fill: none; stroke: var(--fg-muted); stroke-width: 2; animation: tick-sweep var(--dur-tick) linear forwards; }
 html[data-motion="reduce"] .tickring-sweep { animation-duration: 5000ms; animation-timing-function: steps(5, end); }
 @keyframes tick-sweep { to { stroke-dashoffset: 0; } }
 
@@ -274,7 +277,7 @@ html[data-motion="reduce"] *:not(.tickring-sweep) { transition-duration: 0ms !im
 .phone-app:active .icon { color: var(--fg); }
 .phone-app.locked .icon { color: var(--fg-disabled); }
 .phone-app .icon-label { font-size: var(--fs-11_5); color: var(--fg-muted); text-align: center; max-width: 100%; overflow-wrap: anywhere; }
-.phone-app .lock-tag { top: 4px; right: 5px; }
+.phone-app .lock-tag { top: 4px; left: 0; right: 0; text-align: center; }
 .bottom-row { flex: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 10px 16px 14px; background: var(--chrome); border-top: 1px solid var(--line); }
 .phone-appview { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--win); }
 .appbar { height: 44px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 8px 0 0; border-bottom: 1px solid var(--line); }
@@ -318,3 +321,9 @@ html[data-motion="reduce"] *:not(.tickring-sweep) { transition-duration: 0ms !im
 .overlay p { margin: 0; }
 .overlay-held { z-index: var(--z-held); }
 .overlay-system { z-index: var(--z-system); border-color: var(--signal); }
+
+/* §5 error / offline (inline). [P] visual unspecified: banner layer + existing tokens. */
+.load-state { white-space: nowrap; max-width: calc(100% - 16px); position: fixed; left: 50%; transform: translateX(-50%); top: 42px; z-index: var(--z-banner); display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--win2); border: 1px solid var(--line); border-radius: var(--r-btn); color: var(--fg-muted); font-size: var(--fs-13); }
+.is-phone .load-state, .phone ~ .load-state { top: 52px; }
+.load-retry { color: var(--fg); text-decoration: underline; min-height: 28px; padding: 0 4px; }
+.load-retry:disabled { color: var(--fg-disabled); }

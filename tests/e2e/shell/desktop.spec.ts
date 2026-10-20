@@ -224,7 +224,19 @@ test("S1-16 reduced motion and reduced transparency in every shell state of §5,
   // the Settings toggle itself is exercised on the base state.
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }, { name: "prefers-reduced-transparency", value: "reduce" }] });
-  for (const q of ["", "?conn=reconnecting", "?held=1", "?halted=1", "?held=1&halted=1&prot=1"]) {
+  const flush = () => page.evaluate(() => (window as Window & { __quayFlush?: () => Promise<void> }).__quayFlush?.());
+  const expectReduced = async (n: string) => {
+    const r = await check(n);
+    expect(r.motion, r.n).toBe("reduce");
+    expect(r.transparency, r.n).toBe("reduce");
+    expect(r.bad, r.n).toEqual([]);
+  };
+  // Boot state (R0 boots for 900 ms): checked before the shell is ready.
+  await page.goto("/?rank=R0");
+  await expect(page.getByTestId("boot")).toBeVisible();
+  await expectReduced("boot");
+  await expect(page.getByTestId("quay-ready")).toBeVisible();
+  for (const q of ["", "?conn=reconnecting", "?load=fail", "?held=1", "?halted=1", "?held=1&halted=1&prot=1"]) {
     await boot(page, `/${q}`);
     // Held / halted overlays take input, so only the overlay state itself is checked there.
     const blocking = q.includes("held") || q.includes("halted");
@@ -246,10 +258,21 @@ test("S1-16 reduced motion and reduced transparency in every shell state of §5,
       expect(r.transparency, r.n).toBe("reduce");
       expect(r.bad, r.n).toEqual([]);
     }
-    if (!blocking) await page.keyboard.press("Control+."); // leave focus mode (it persists across reloads)
+    if (q === "?load=fail") await expect(page.getByTestId("load-error")).toBeVisible();
+    if (!blocking) {
+      await page.keyboard.press("Control+."); // leave focus mode: it persists across reloads...
+      await expect(page.getByTestId("shelf")).toBeVisible();
+      await flush(); // ...so wait for the committed IndexedDB write before the next page load.
+    }
     if (q.includes("held")) await expect(page.getByTestId("overlay-held")).toBeVisible();
     if (q.includes("halted")) await expect(page.getByTestId("overlay-halted")).toBeVisible();
   }
+  // Offline: read-only snapshot with Retry.
+  await boot(page, "/");
+  await page.context().setOffline(true);
+  await expect(page.getByTestId("offline-state")).toBeVisible();
+  await expectReduced("offline");
+  await page.context().setOffline(false);
 });
 
 test("S1-17 launcher, layouts, focus mode and shortcuts log zero intents", async ({ page }) => {
@@ -342,4 +365,41 @@ test("S1-03 computed tokens per palette; DOM identical across palettes", async (
     expect(await read(), p).toEqual(SPEC_TABLE.map((r) => r[i + 1]));
     expect(await snap(), p).toBe(base);
   }
+});
+
+test("§5 error / offline: inline \"Couldn't load · Retry\"; Retry reloads; offline shows the read-only snapshot", async ({ page }) => {
+  await boot(page, "/?load=fail1");
+  await expect(page.getByTestId("load-error")).toHaveText("Couldn't load · Retry");
+  await expect(page.getByTestId("strip")).toBeVisible(); // the rest of the shell stays usable
+  await page.getByTestId("load-retry").click();
+  await expect(page.getByTestId("load-error")).toHaveCount(0);
+  await boot(page, "/?load=fail");
+  await page.getByTestId("load-retry").click();
+  await expect(page.getByTestId("load-retry")).toHaveText("Retry");
+  await expect(page.getByTestId("load-error")).toBeVisible(); // still failing: stays, Retry re-enabled
+  await boot(page, "/");
+  await page.context().setOffline(true);
+  await expect(page.getByTestId("offline-state")).toContainText("Offline · read-only snapshot");
+  await page.getByTestId("load-retry").click();
+  await expect(page.getByTestId("load-retry")).toHaveText("Retry"); // retry while offline: still offline
+  await expect(page.getByTestId("offline-state")).toBeVisible();
+  await page.context().setOffline(false); // back online: the browser's online event clears it
+  await expect(page.getByTestId("offline-state")).toHaveCount(0);
+  expect(await intents(page)).toBe(0);
+});
+
+test("Lock tags: Label style 10.5 px, inside every locked shelf tile; Quay mark --fg; tick sweep --fg-muted", async ({ page }) => {
+  await boot(page, "/?rank=R1&nw=30000");
+  const r = await page.evaluate(() => {
+    const probe = (v: string) => { const d = document.createElement("i"); d.style.color = `var(${v})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
+    const tags = Array.from(document.querySelectorAll(".tile.locked")).map((t) => {
+      const tag = t.querySelector(".lock-tag")!; const a = tag.getBoundingClientRect(); const b = t.getBoundingClientRect(); const cs = getComputedStyle(tag);
+      return { inside: a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom, size: cs.fontSize, upper: cs.textTransform, color: cs.color, h: b.height };
+    });
+    return { tags, mark: getComputedStyle(document.querySelector("[data-testid=strip] .fg")!).color, sweep: getComputedStyle(document.querySelector(".tickring-sweep")!).stroke, fg: probe("--fg"), muted: probe("--fg-muted"), disabled: probe("--fg-disabled") };
+  });
+  expect(r.tags.length).toBeGreaterThan(0);
+  for (const t of r.tags) expect(t).toEqual({ inside: true, size: "10.5px", upper: "uppercase", color: r.disabled, h: 40 });
+  expect(r.mark).toBe(r.fg);
+  expect(r.sweep).toBe(r.muted);
 });

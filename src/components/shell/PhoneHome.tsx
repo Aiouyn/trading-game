@@ -64,7 +64,7 @@ function StatusBar() {
         pullY.current = null;
       }}
     >
-      <button className="quay-mark acc" data-testid="quay-mark" aria-label={S.home} onPointerDown={down} onPointerUp={up} onContextMenu={(e) => e.preventDefault()}>
+      <button className="quay-mark fg" data-testid="quay-mark" aria-label={S.home} onPointerDown={down} onPointerUp={up} onContextMenu={(e) => e.preventDefault()}>
         <Glyph name="quay" size={20} />
       </button>
       <span className="num clock">{`D${day} · ${hhmm}`}</span>

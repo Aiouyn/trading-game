@@ -37,7 +37,7 @@ export function StatusStrip() {
   return (
     <header className="strip" data-testid="strip">
       <div className="brand">
-        <span className="acc"><Glyph name="quay" size={20} /></span>
+        <span className="fg"><Glyph name="quay" size={20} /></span>
         <span className="wordmark">{S.quay}</span>
         <span className="num release" data-testid="release">{release}</span>
       </div>

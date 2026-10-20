@@ -50,6 +50,10 @@ export const S = {
   settingsTransparency: "Reduce transparency",
   keySheet: "Keys",
   keySheetFooter: "Nothing executes without Enter.",
+  couldntLoad: "Couldn't load",
+  offline: "Offline · read-only snapshot",
+  retry: "Retry",
+  retrying: "Retrying…",
 } as const;
 
 export const GROUP_LABELS = { trade: "Trade", build: "Build", shadow: "Shadow", world: "World", me: "Me" } as const;

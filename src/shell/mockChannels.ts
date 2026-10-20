@@ -16,7 +16,7 @@ export function mockChannels(q: URLSearchParams): Channels {
   return {
     clock: clockAt(Number(q.get("tick") ?? 38 * TICKS_PER_DAY + 340)),
     rank: { rank, thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf(rank)] ?? null },
-    system: { connection: q.get("conn") === "reconnecting" ? "reconnecting" : "live", halted: q.get("halted") === "1", held: q.get("held") === "1" },
+    system: { connection: q.get("conn") === "reconnecting" ? "reconnecting" : "live", halted: q.get("halted") === "1", held: q.get("held") === "1", load: q.get("load")?.startsWith("fail") ? "error" : "ok", offline: false },
     me: {
       nw: q.get("nw") ?? "412860.15",
       todayPct: q.get("pct") ?? "+0.78",

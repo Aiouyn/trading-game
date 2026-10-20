@@ -112,6 +112,10 @@ test("Phone glyphs: muted, locked disabled with tag inside the tile; never brass
     return {
       unlocked: ["markets", "security", "legal", "broker"].map((id) => getComputedStyle(icon(id)).color),
       locked: getComputedStyle(icon("quantlab")).color,
+      tags: Array.from(document.querySelectorAll(".phone-app.locked .icon")).map((i) => {
+        const t = i.querySelector(".lock-tag")!; const a = t.getBoundingClientRect(); const b = i.getBoundingClientRect();
+        return { inside: a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom, size: getComputedStyle(t).fontSize };
+      }),
       inside: tag.left >= box.left && tag.right <= box.right && tag.top >= box.top && tag.bottom <= box.bottom,
       muted: probe("--fg-muted"), disabled: probe("--fg-disabled"), acc: probe("--acc"),
     };
@@ -119,6 +123,7 @@ test("Phone glyphs: muted, locked disabled with tag inside the tile; never brass
   for (const c of r.unlocked) { expect(c).toBe(r.muted); expect(c).not.toBe(r.acc); }
   expect(r.locked).toBe(r.disabled);
   expect(r.inside).toBe(true);
+  for (const t of r.tags) expect(t).toEqual({ inside: true, size: "10.5px" });
 });
 
 test("Phone launcher: visible close and a Recent group; edge bar swipe up = Home, left-edge swipe = back (M4, m5)", async ({ page }) => {
@@ -149,11 +154,34 @@ test("Phone launcher: visible close and a Recent group; edge bar swipe up = Home
   await expect(page.getByTestId("launcher")).toHaveCount(0);
 });
 
+const badNow = (page: import("@playwright/test").Page) => page.evaluate(() => Array.from(document.querySelectorAll("*")).filter((el) => {
+  const cs = getComputedStyle(el);
+  if (cs.backdropFilter && cs.backdropFilter !== "none") return true;
+  if (el.classList.contains("tickring-sweep")) return false;
+  return [...cs.transitionDuration.split(","), ...cs.animationDuration.split(",")].some((d) => parseFloat(d) > 0);
+}).map((e) => e.className));
+
 test("S1-16 phone overlays: Recent sheet and launcher under reduced motion + transparency", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  // Set reduced transparency first (the Held overlay blocks input), then reload into the Held state.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }, { name: "prefers-reduced-transparency", value: "reduce" }] });
+  const reduced = () => page.evaluate(() => [document.documentElement.dataset.motion, document.documentElement.dataset.transparency]);
+  // Boot (R0, 900 ms), the error state and the offline state.
+  await page.goto("/?rank=R0");
+  await expect(page.getByTestId("boot")).toBeVisible();
+  expect(await reduced()).toEqual(["reduce", "reduce"]);
+  expect(await badNow(page)).toEqual([]);
+  await boot(page, "/?load=fail");
+  await expect(page.getByTestId("load-error")).toBeVisible();
+  expect(await badNow(page)).toEqual([]);
+  await page.context().setOffline(true);
+  await expect(page.getByTestId("offline-state")).toBeVisible();
+  expect(await badNow(page)).toEqual([]);
+  await page.context().setOffline(false);
+  // Set reduced transparency through Settings too, then the Held state (the overlay blocks input).
   await boot(page, "/settings");
   await page.locator("select").nth(1).selectOption("on");
+  await page.evaluate(() => (window as Window & { __quayFlush?: () => Promise<void> }).__quayFlush?.());
   await boot(page, "/?held=1");
   await expect(page.getByTestId("overlay-held")).toBeVisible();
   const bad = () => page.evaluate(() => Array.from(document.querySelectorAll("*")).filter((el) => {

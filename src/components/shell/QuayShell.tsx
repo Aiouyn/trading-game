@@ -6,7 +6,9 @@ import { useShellKeys } from "@/shell/keys";
 import { clockAt, mockChannels, TICK_MS } from "@/shell/mockChannels";
 import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
-import { loadLocal, saveLocal } from "@/shell/persist";
+import { loadLocal, queueSave } from "@/shell/persist";
+import { initLoader } from "@/shell/loader";
+import { LoadState } from "./LoadState";
 import { createShellStore } from "@/shell/store";
 import { viewportOf } from "@/shell/wm";
 import { Glyph } from "./Glyph";
@@ -61,7 +63,7 @@ function Surface() {
   }, []);
 
   if (!booted) {
-    return <div className="boot" data-testid="boot"><span className="acc"><Glyph name="quay" size={48} /></span></div>;
+    return <div className="boot" data-testid="boot"><span className="fg"><Glyph name="quay" size={48} /></span></div>;
   }
   const phone = viewportOf(vw) === "phone";
   return (
@@ -75,6 +77,7 @@ function Surface() {
           {!focusMode && <Shelf />}
         </>
       )}
+      <LoadState />
       <SystemOverlays />
       {launcherOpen && <Launcher />}
       {recentOpen && <Recent />}
@@ -89,6 +92,7 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
 
   useEffect(() => {
     const s = store.getState();
+    initLoader(store, new URLSearchParams(query));
     const fit = () => store.getState().setViewport(window.innerWidth, window.innerHeight);
     fit();
     window.addEventListener("resize", fit);
@@ -107,7 +111,7 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
       if (saved && !app) store.setState((st) => ({ local: { ...st.local, ...saved } }));
       // A new account starts in the Trade layout (17 §3.2.5), desktop only.
       if (!saved && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
-      unsub = store.subscribe((st, prev) => { if (st.local !== prev.local) void saveLocal(ACCOUNT, st.local); });
+      unsub = store.subscribe((st, prev) => { if (st.local !== prev.local) void queueSave(ACCOUNT, st.local).catch(() => {}); });
     }).catch(() => {});
     return () => { window.removeEventListener("resize", fit); window.clearInterval(t); unsub(); };
   }, [store, route, query]);

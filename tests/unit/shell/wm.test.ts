@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyLayout, layoutFits, LAYOUTS } from "@/shell/layouts";
 import { LAYOUT_RECTS_1440 } from "./layoutRects";
 import type { WindowRect } from "@/shell/types";
-import { clampSize, minSize, openApp, resizeWin, workArea } from "@/shell/wm";
+import { bringToFront, clampSize, closeWin, GUTTER, minSize, nextSnap, openApp, resizeWin, slotRect, SNAP_SLOTS, snapWin, viewportOf, workArea } from "@/shell/wm";
 import { workspacesFor } from "@/shell/store";
 import { RANKS } from "@/shell/registry";
 
@@ -81,5 +81,84 @@ describe("named layouts at 1440×900, minimums win (S1-10, PR #2 answer 2)", () 
     const r = openApp(w, "portfolio", A);
     expect(r.opened).toBe(false);
     expect(r.focused.context).toBeUndefined();
+  });
+});
+
+describe("snap slots (17 §3.2.6)", () => {
+  const W = workArea(1440, 900); // x 8, y 42, w 1424, h 798
+  it("halves, thirds and quarters tile the work area with one gutter between neighbours", () => {
+    const L = slotRect("L1/2", W), R = slotRect("R1/2", W);
+    expect(L).toEqual({ x: 8, y: 42, w: 708, h: 798 });
+    expect(R).toEqual({ x: 724, y: 42, w: 708, h: 798 });
+    const [a, b, c] = (["L1/3", "C1/3", "R1/3"] as const).map((s) => slotRect(s, W));
+    // Thirds are rounded to whole pixels, so a gutter may be off by one.
+    expect(Math.abs(b.x - (a.x + a.w) - GUTTER)).toBeLessThanOrEqual(1);
+    expect(Math.abs(c.x - (b.x + b.w) - GUTTER)).toBeLessThanOrEqual(1);
+    expect(c.x + c.w).toBe(W.x + W.w);
+    expect(Math.abs(slotRect("L2/3", W).w - (a.w + GUTTER + b.w))).toBeLessThanOrEqual(1);
+    expect(slotRect("R2/3", W).x + slotRect("R2/3", W).w).toBe(W.x + W.w);
+    const TL = slotRect("TL", W), BL = slotRect("BL", W), TR = slotRect("TR", W), BR = slotRect("BR", W);
+    expect(BL.y - (TL.y + TL.h)).toBe(GUTTER);
+    expect([TR.x, BR.x]).toEqual([R.x, R.x]);
+    expect(BR.y + BR.h).toBe(W.y + W.h);
+    expect(slotRect("FILL", W)).toEqual(W);
+  });
+  it("every slot stays inside the work area at 1200, 1440 and 1920", () => {
+    for (const vw of [1200, 1440, 1920]) {
+      const a = workArea(vw, 900);
+      for (const s of SNAP_SLOTS) {
+        const r = slotRect(s, a);
+        expect(r.x).toBeGreaterThanOrEqual(a.x);
+        expect(r.y).toBeGreaterThanOrEqual(a.y);
+        expect(r.x + r.w).toBeLessThanOrEqual(a.x + a.w);
+        expect(r.y + r.h).toBeLessThanOrEqual(a.y + a.h);
+      }
+    }
+  });
+  it("snapping fills the slot but never goes below the app minimum, and uncollapses", () => {
+    const wire = { ...openApp([], "wire", W).focused, collapsed: true };
+    const [half] = snapWin([wire], wire, "L1/2", W);
+    const w = openApp([], "broker", W).focused;
+    expect([half.x, half.w, half.snap, half.collapsed]).toEqual([8, 708, "L1/2", false]);
+    const [q] = snapWin([w], w, "TL", W); // TL is 708×395; Broker min is 720×420
+    expect([q.w, q.h]).toEqual([720, 420]);
+  });
+  it("resizing clears the snap slot", () => {
+    const w = snapWin([openApp([], "wire", W).focused], openApp([], "wire", W).focused, "R1/2", W)[0];
+    expect(resizeWin([w], w, 900, 500, W)[0].snap).toBeNull();
+  });
+  it("Ctrl ←/→ cycles halves then thirds on that side; ↑ fills; ↓ collapses", () => {
+    expect(nextSnap(null, "left")).toBe("L1/2");
+    expect(nextSnap("L1/2", "left")).toBe("L1/3");
+    expect(nextSnap("L1/3", "left")).toBe("L2/3");
+    expect(nextSnap("L2/3", "left")).toBe("L1/2");
+    expect(nextSnap("L1/2", "right")).toBe("R1/2");
+    expect(nextSnap("R2/3", "right")).toBe("R1/2");
+    expect(nextSnap("TL", "up")).toBe("FILL");
+    expect(nextSnap("FILL", "down")).toBe("collapse");
+  });
+});
+
+describe("window list operations", () => {
+  const W = workArea(1440, 900);
+  it("close removes only that instance; focus moves it to the top; unknown windows are ignored", () => {
+    let w = openApp([], "broker", W).windows;
+    w = openApp(w, "broker", W).windows;
+    w = openApp(w, "wire", W).windows;
+    const [b1, b2] = w;
+    expect(closeWin(w, b1).map((x) => `${x.app}${x.instance}`)).toEqual(["broker2", "wire1"]);
+    expect(bringToFront(w, b1).at(-1)).toEqual(b1);
+    expect(bringToFront(w, { ...b2, instance: 9 })).toBe(w);
+  });
+  it("new windows cascade and stay inside a small work area", () => {
+    const small = workArea(1000, 700);
+    let w: WindowRect[] = [];
+    for (const app of ["wire", "portfolio", "messages"] as const) w = openApp(w, app, small).windows;
+    expect(w[1].x - w[0].x).toBe(28);
+    for (const r of w) expect(r.w).toBeLessThanOrEqual(small.w);
+  });
+  it("viewport breakpoints and focus-mode work area", () => {
+    expect([viewportOf(767), viewportOf(768), viewportOf(1199), viewportOf(1200)]).toEqual(["phone", "compact", "compact", "desktop"]);
+    expect(workArea(1440, 900, true)).toEqual({ x: 8, y: 32, w: 1424, h: 860 });
   });
 });

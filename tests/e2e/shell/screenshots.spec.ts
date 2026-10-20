@@ -35,6 +35,17 @@ async function four(page: Page, prefix: string, phone: boolean) {
   }
   await boot(page, "/?prot=1");
   await page.screenshot({ path: `${OUT}/${prefix}-protection-chip.png` });
+  // §5 boot (R0, 900 ms), error and offline states.
+  await page.goto("/?rank=R0");
+  await page.getByTestId("boot").waitFor();
+  await page.screenshot({ path: `${OUT}/${prefix}-boot.png` });
+  await boot(page, "/?load=fail");
+  await page.screenshot({ path: `${OUT}/${prefix}-load-error.png` });
+  await boot(page, "/");
+  await page.context().setOffline(true);
+  await page.getByTestId("offline-state").waitFor();
+  await page.screenshot({ path: `${OUT}/${prefix}-offline.png` });
+  await page.context().setOffline(false);
 }
 
 test("desktop 1440×900 and 1280×800", async ({ page }, info) => {

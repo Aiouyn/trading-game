@@ -20,5 +20,11 @@ export interface MeChannel {
   myPlaces: string[];           // entity ids of the player's own places (client-only, never uploaded)
 }
 /** Connection and world state for the §5 shell states (stubbed; owners 02/13/19). */
-export interface SystemState { connection: "live" | "reconnecting"; halted: boolean; held: boolean }
+export interface SystemState {
+  connection: "live" | "reconnecting";
+  halted: boolean;
+  held: boolean;
+  load: "ok" | "loading" | "error"; // §5 error state: inline "Couldn't load · Retry"
+  offline: boolean;                  // §5 offline: read-only snapshot
+}
 export interface Channels { clock: ClockChannel; rank: RankChannel; me: MeChannel; system: SystemState }
