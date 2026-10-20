@@ -124,7 +124,11 @@ function prologue(env: TemplateEnv, tpl: TemplateId, code: string, amounts: read
   const mod = Number(env.requestedBy.module.slice(0, 2));
   if (!env.catalog.mayRequest(code, mod)) return invalidEntry(env, tpl, code, 'INV-LED-002', `module ${env.requestedBy.module}`, `owner ${row.owner}`);
   for (const a of amounts) if (typeof a !== 'bigint' || a <= 0n) return invalidEntry(env, tpl, code, 'INV-LED-007', `amount ${String(a)}`, '> 0n bigint');
-  for (const id of ids) if (!env.rail.entity(id)) return invalidEntry(env, tpl, code, 'INV-LED-007', `entity ${id}`, 'a registered entity');
+  for (const id of ids) {
+    const e = env.rail.entity(id);
+    if (!e || (e.status === 'DISSOLVED' && code !== 'LED_DISSOLUTION'))
+      return invalidEntry(env, tpl, code, 'INV-LED-026', `unknown_entity ${id}${e ? ' (DISSOLVED)' : ''}`, 'a registered, not dissolved entity (E-15.2)');
+  }
   return null;
 }
 /** Marks flowLeg (Δ5): the given index, else the first posting of each (reason, ccy, legId) group. */

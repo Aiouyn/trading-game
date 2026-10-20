@@ -14,6 +14,7 @@ export type PayAccountChoice = { kind: 'CASH' } | { kind: 'BANK'; bankId: Id };
 export interface LedgerEntity {
   id: Id; kind: EntityKind; ownerId: Id | null; reportingCcy: Ccy;
   payFrom: PayAccountChoice; receiveInto: PayAccountChoice;
+  status?: 'ACTIVE' | 'DISSOLVED';   // E-15.2: DISSOLVED entities take no posting except LED_DISSOLUTION
 }
 
 /** Spec §2.2 (T03-01) + Δ5 flowLeg. */

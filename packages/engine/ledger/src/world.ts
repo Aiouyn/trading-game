@@ -113,6 +113,8 @@ export class LedgerWorld {
     return spec.id;
   }
   entity = (id: Id): LedgerEntity | undefined => this.s.entities.get(id);
+  /** Unit 16 dissolution end state (E-15.2): later postings to the entity fail INV-LED-026 except LED_DISSOLUTION. */
+  markDissolved(id: Id): void { const e = this.s.entities.get(id); if (!e) throw new Error(`markDissolved: ${id}`); this.s.entities.set(id, { ...e, status: 'DISSOLVED' }); }
   setRail(id: Id, rail: { payFrom?: PayAccountChoice; receiveInto?: PayAccountChoice }): void {
     const e = this.s.entities.get(id); if (!e) throw new Error(`setRail: ${id}`);
     this.s.entities.set(id, { ...e, ...rail });

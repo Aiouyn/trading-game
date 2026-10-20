@@ -227,25 +227,27 @@ function nonBankCashDelta(ps: readonly Posting[]): Money {
 const RAIL_CODES = [1001, 1002, 1003, 1009, 1010, 1910, 2001, 2002, 2003, 2100];
 const MONEY_SIDE = ['bnk', 'cbk', 'gov'];
 /**
- * Exemption from the non-bank TRANSFER M2 rule (QA PR #3 blockers): granted only when, inside this reason-code group, a value-leg
- * posting (touching no money or rail account) has a bank/cbk/gov entity on one side and a NON-bank entity on the other.
- * Same-entity postings never grant it.
+ * E-15(3), amount-based INV-LED-004 exemption (Producer): the M2 a non-bank TRANSFER group may move equals the non-bank money
+ * (1001 cash, 1010 deposit claim) that the group's rail postings move to or from a bnk/cbk/gov entity. Any other M2 fails.
  */
-export function groupExempt(ps: readonly Posting[]): boolean {
+export function exemptM2(ps: readonly Posting[]): Money {
+  let s = 0n;
   for (const p of ps) {
     const [d, c] = [p.debitAccount, p.creditAccount].map(parseAccountKey);
-    if (!d || !c || RAIL_CODES.includes(d.code) || RAIL_CODES.includes(c.code) || d.entityId === c.entityId) continue;
-    const dm = MONEY_SIDE.includes(kindOfId(d.entityId) ?? ''); const cm = MONEY_SIDE.includes(kindOfId(c.entityId) ?? '');
-    if (dm !== cm) return true;
+    if (!d || !c || !RAIL_CODES.includes(d.code) || !RAIL_CODES.includes(c.code)) continue;
+    const money = (q: NonNullable<typeof d>): boolean => (q.code === 1001 || q.code === 1010) && !MONEY_SIDE.includes(kindOfId(q.entityId) ?? '');
+    const side = (q: NonNullable<typeof d>): boolean => MONEY_SIDE.includes(kindOfId(q.entityId) ?? '');
+    if (money(d) && side(c)) s += p.amount;
+    if (money(c) && side(d)) s -= p.amount;
   }
-  return false;
+  return s;
 }
 /** P2: an "M2 leg" = a posting that moves M2 against a non-money, non-rail account (a value account). A TAX_* group may carry none. */
 export const m2ValueLegs = (ps: readonly Posting[]): Posting[] => ps.filter((p) => postingEffect(p).m2 !== 0n
   && [p.debitAccount, p.creditAccount].map(parseAccountKey).some((q) => !!q && !RAIL_CODES.includes(q.code)));
 /**
  * T03-11 step 7 per-entry M2 rules (review F1). Applied per (entry, reason code) so a composed entry's supporting legs are judged by
- * their own class. The bank/cbk/gov exemption comes from each group's own cross-entity value legs (groupExempt), never from postings[0] (review X-4).
+ * their own class. The bank/cbk/gov exemption is the amount exemptM2 computes from each group's own rail postings (E-15(3)).
  */
 function m2EntryRules(v: CheckView, e: Entry, ccy: Ccy): Failure[] {
   const out: Failure[] = [];
@@ -253,12 +255,10 @@ function m2EntryRules(v: CheckView, e: Entry, ccy: Ccy): Failure[] {
   for (const p of e.postings) if (p.ccy === ccy) groups.set(p.reason, [...(groups.get(p.reason) ?? []), p]);
   for (const [code, ps] of groups) {
     const cls = v.catalog.get(code)?.cls; if (!cls) continue;
-    // Bank/cbk/gov exemption per reason-code group (QA blockers on PR #3): see groupExempt.
-    const moneyIssuerOrBank = groupExempt(ps);
     if (code.startsWith('TAX_') && m2ValueLegs(ps).length > 0) out.push(F('INV-LED-004', `I4: ${e.entryId} TAX group ${code} carries an M2 leg`, 'no M2 legs in a TAX_* group'));
     const m2 = ps.reduce((s, p) => s + postingEffect(p).m2, 0n);
     if (cls === 'REVALUE' && m2 !== 0n) out.push(F('INV-LED-004', `I4: ${e.entryId} REVALUE ${code} moves M2 by ${m2}`, '0n'));
-    if (cls === 'TRANSFER' && !moneyIssuerOrBank && m2 !== 0n) out.push(F('INV-LED-004', `I4: ${e.entryId} non-bank TRANSFER ${code} moves M2 by ${m2}`, '0n'));
+    if (cls === 'TRANSFER' && m2 !== exemptM2(ps)) out.push(F('INV-LED-004', `I4: ${e.entryId} non-bank TRANSFER ${code} moves M2 by ${m2}`, `${exemptM2(ps)} (non-bank money moved to/from bnk/cbk/gov by rail, E-15(3))`));
     if ((cls === 'FAUCET' && m2 < 0n) || (cls === 'SINK' && m2 > 0n)) out.push(F('INV-LED-004', `I4: ${e.entryId} ${cls} ${code} M2 sign ${m2}`, cls === 'FAUCET' ? '≥ 0n' : '≤ 0n'));
     const borrower = e.meta?.borrowerId;
     if (isBankCreditCode(code) && (cls === 'CREDIT_CREATE' || cls === 'CREDIT_DESTROY') && borrower !== undefined && kindOfId(borrower) !== 'bnk' && e.headline) {
@@ -270,6 +270,16 @@ function m2EntryRules(v: CheckView, e: Entry, ccy: Ccy): Failure[] {
   return out;
 }
 
+/** E-15.2 INV-LED-026 (L27): every leg's entity is registered and not DISSOLVED (LED_DISSOLUTION exempt); re-checked at P13 commit. */
+export const INV_LED_026: Check = (v) => {
+  const out: Failure[] = [];
+  for (const e of v.entries) for (const p of e.postings) for (const k of [p.debitAccount, p.creditAccount]) {
+    const id = parseAccountKey(k)?.entityId ?? k; const ent = v.entity(id);
+    if (!ent || (ent.status === 'DISSOLVED' && p.reason !== 'LED_DISSOLUTION'))
+      out.push(F('INV-LED-026', `unknown_entity ${id}${ent ? ' (DISSOLVED)' : ''} in ${e.entryId} ${p.reason}`, 'a registered, not dissolved entity'));
+  }
+  return out;
+};
 /** L5 (local half of I13): TRANSFER legs touch sys only through 9900 and never touch the issuance pair. */
 export const INV_LED_005: Check = (v) => {
   const out: Failure[] = [];
@@ -443,7 +453,7 @@ export const INV_LED_011: Check = (v) => {
 export const TICK_INVARIANTS: readonly [string, Check][] = [
   ['INV-LED-001', INV_LED_001], ['INV-LED-002', INV_LED_002], ['INV-LED-003', INV_LED_003], ['INV-LED-004', INV_LED_004],
   ['INV-LED-005', INV_LED_005], ['INV-LED-006', INV_LED_006], ['INV-LED-007', INV_LED_007], ['INV-LED-008', INV_LED_008],
-  ['INV-LED-012', INV_LED_012], ['INV-LED-014', INV_LED_014], ['INV-LED-015', INV_LED_015],
+  ['INV-LED-012', INV_LED_012], ['INV-LED-014', INV_LED_014], ['INV-LED-015', INV_LED_015], ['INV-LED-026', INV_LED_026],
   ['INV-LED-010', INV_LED_010], ['INV-LED-011', INV_LED_011],
 ];
 

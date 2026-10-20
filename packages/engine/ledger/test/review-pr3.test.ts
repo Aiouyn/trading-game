@@ -107,8 +107,8 @@ describe('QA blocker: INV-LED-004 bank/cbk/gov exemption is per reason-code grou
     expect(obs(L.INV_LED_004(view([c])), 'INV-LED-004')).toEqual([]);
     const forged = extra(c, { debitAccount: 'bnk_N:2100:chr_B:FDL', creditAccount: 'bnk_N:5000:FDL', amount: 7n, reason: 'MKT_TRADE', qty: undefined, assetId: undefined });
     expect(obs(L.INV_LED_004(view([forged])), 'INV-LED-004')).toContain(`I4: ${c.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
-    expect(L.groupExempt(c.postings.filter((p) => p.reason === 'TAX_SECURITIES_TX'))).toBe(true);
-    expect(L.groupExempt(c.postings.filter((p) => p.reason === 'MKT_TRADE'))).toBe(false);
+    expect(L.exemptM2(c.postings.filter((p) => p.reason === 'TAX_SECURITIES_TX'))).toBe(-2n); // 2 micro of chr cash moved to gov by rail
+    expect(L.exemptM2(c.postings.filter((p) => p.reason === 'MKT_TRADE'))).toBe(0n);
   });
   const forge = { debitAccount: 'bnk_N:2100:chr_B:FDL', creditAccount: 'bnk_N:5000:FDL', amount: 7n, qty: undefined, assetId: undefined };
   const taxed = () => L.composeEntries(env('05'), trade(), [L.tplPay(env('03'), 'chr_A', 'gov_FDL', 2n, 'FDL', 'TAX_SECURITIES_TX')]);
@@ -159,5 +159,87 @@ describe('F5 catalog v2 (catalog.csv v2 + aliases.csv)', () => {
     expect(L.tplElasticIn(env('09'), 'hh_C1', 'biz_B', 100n, 'FDL', 'BIZ_SALES_HH').invalid).toBeUndefined();
     const bad = L.tplElasticIn(env('09'), 'frm_FDL', 'biz_B', 100n, 'FDL', 'BIZ_SALES_HH');
     expect(bad.invalid).toEqual({ invariantId: 'INV-LED-002', observed: 'sector frm for BIZ_SALES_HH', expected: 'one of hh' });
+  });
+});
+
+describe('E-15(3) amount-based INV-LED-004 exemption: QA probes N1, N3-N6, N11, N12', () => {
+  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
+  const FORGE = { debitAccount: 'bnk_N:2100:chr_B:FDL', creditAccount: 'bnk_N:5000:FDL', amount: 7n, qty: undefined, assetId: undefined };
+  const add = (e: Entry, ps: Partial<Posting>[]): Entry => ps.reduce((a, p) => extra(a, { qty: undefined, assetId: undefined, ...p }), e);
+  const triplet = (payer: string, gov: string, reason: string, n = 1n): Partial<Posting>[] => [
+    { debitAccount: `${gov}:1003:GENERAL:FDL`, creditAccount: `${payer}:1001:FDL`, amount: n, reason },
+    { debitAccount: `cbk_FDL:2001:${payer}:FDL`, creditAccount: `cbk_FDL:2003:${gov}:FDL`, amount: n, reason },
+    { debitAccount: `${payer}:5280:FDL`, creditAccount: `${gov}:4190:FDL`, amount: n, reason }];
+  const vo = (a: string, b: string, reason: string): Partial<Posting> => ({ debitAccount: `${a}:5280:FDL`, creditAccount: `${b}:4190:FDL`, amount: 1n, reason });
+  const i4 = (e: Entry) => obs(L.INV_LED_004(view([e])), 'INV-LED-004');
+  it('N1: a full tax-shaped triplet (1 micro to gov) tagged MKT_TRADE plus a forged 7-micro M2 leg fails: M2 -8 vs exempt -1', () => {
+    const t = trade();
+    expect(i4(add(t, [...triplet('chr_A', 'gov_FDL', 'MKT_TRADE'), { ...FORGE, reason: 'MKT_TRADE' }]))).toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -8`);
+    // The bare triplet (no forge) still passes INV-LED-004: its M2 equals the cash moved to gov. E-15.1 cpPolicy (task 3) closes it.
+    expect(i4(add(t, triplet('chr_A', 'gov_FDL', 'MKT_TRADE')))).toEqual([]);
+  });
+  it('N3: a balanced value pair gov <-> unregistered shell (no cash) grants nothing; the forge fails', () => {
+    const t = trade();
+    expect(i4(add(t, [vo('chr_ZZ', 'gov_FDL', 'MKT_TRADE'), vo('gov_FDL', 'chr_ZZ', 'MKT_TRADE'), { ...FORGE, reason: 'MKT_TRADE' }]))).toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
+  });
+  it('N4: a balanced value pair gov <-> the forger itself grants nothing', () => {
+    const t = trade();
+    expect(i4(add(t, [vo('chr_A', 'gov_FDL', 'MKT_TRADE'), vo('gov_FDL', 'chr_A', 'MKT_TRADE'), { ...FORGE, reason: 'MKT_TRADE' }]))).toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
+  });
+  it('N5: the reversed-direction pair (gov first) grants nothing', () => {
+    const t = trade();
+    expect(i4(add(t, [vo('gov_FDL', 'chr_A', 'MKT_TRADE'), vo('chr_A', 'gov_FDL', 'MKT_TRADE'), { ...FORGE, reason: 'MKT_TRADE' }]))).toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
+  });
+  it('N6: a cbk sub-account value pair grants nothing', () => {
+    const t = trade();
+    expect(i4(add(t, [{ debitAccount: 'cbk_FDL:5000:x:FDL', creditAccount: 'chr_A:4190:FDL', amount: 1n, reason: 'MKT_TRADE' },
+      { debitAccount: 'chr_A:5280:FDL', creditAccount: 'cbk_FDL:4000:x:FDL', amount: 1n, reason: 'MKT_TRADE' }, { ...FORGE, reason: 'MKT_TRADE' }]))).toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
+  });
+  it('N11: a gov pair plus a forge inside a plain chr -> chr PAY fails', () => {
+    const p = L.tplPay(env('21'), 'chr_A', 'chr_B', 10n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    expect(i4(add(p, [vo('chr_A', 'gov_FDL', 'ADM_CORRECTION_TRANSFER'), vo('gov_FDL', 'chr_A', 'ADM_CORRECTION_TRANSFER'), { ...FORGE, reason: 'ADM_CORRECTION_TRANSFER' }])))
+      .toContain(`I4: ${p.entryId} non-bank TRANSFER ADM_CORRECTION_TRANSFER moves M2 by -7`);
+  });
+  it('N12: a bank value pair (bnk_N <-> chr_B) grants nothing', () => {
+    const t = trade();
+    expect(i4(add(t, [vo('chr_B', 'bnk_N', 'MKT_TRADE'), vo('bnk_N', 'chr_B', 'MKT_TRADE'), { ...FORGE, reason: 'MKT_TRADE' }]))).toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
+  });
+  it('only rail moves to or from bnk/cbk/gov count: a rail posting draining chr cash into a non-bank rail account (chr_A:1002) grants nothing', () => {
+    const t = trade();
+    expect(i4(add(t, [{ debitAccount: 'chr_A:1002:FDL', creditAccount: 'chr_B:1001:FDL', amount: 5n, reason: 'MKT_TRADE' }]))).toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -5`);
+  });
+  it('E-15 test 5: a rail payment to bnk passes exactly (cash and deposit rails); 1 more micro of other M2 fails', () => {
+    const fee = L.tplPay(env('07'), 'chr_A', 'bnk_N', 2n, 'FDL', 'BNK_LOAN_FEE');
+    expect(i4(fee)).toEqual([]);
+    expect(i4(add(fee, [{ ...FORGE, amount: 1n, reason: 'BNK_LOAN_FEE' }]))).toContain(`I4: ${fee.entryId} non-bank TRANSFER BNK_LOAN_FEE moves M2 by -3`);
+    const w = fixture(); w.setRail('chr_A', { payFrom: { kind: 'BANK', bankId: 'bnk_N' }, receiveInto: { kind: 'BANK', bankId: 'bnk_N' } });
+    const dep = L.tplPay(w.env('07', 'P12'), 'chr_A', 'bnk_X', 2n, 'FDL', 'BNK_LOAN_FEE');
+    expect(i4(dep)).toEqual([]);
+    expect(i4(add(dep, [{ ...FORGE, amount: 1n, reason: 'BNK_LOAN_FEE' }]))).toContain(`I4: ${dep.entryId} non-bank TRANSFER BNK_LOAN_FEE moves M2 by -3`);
+  });
+});
+
+describe('E-15.2 INV-LED-026: every leg entity registered and not DISSOLVED', () => {
+  it('posting to an unregistered id rejects with unknown_entity at posting and fails at P13 (QA N2 / chr_ZZ)', () => {
+    const e = L.tplPay(env('21'), 'chr_A', 'chr_ZZ', 1n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    expect(e.invalid?.invariantId).toBe('INV-LED-026'); expect(e.invalid?.observed).toMatch(/^unknown_entity chr_ZZ/);
+    const p = L.tplPay(env('21'), 'chr_A', 'chr_B', 1n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    const ghost = extra(p, { debitAccount: 'chr_ZZ:1001:FDL', creditAccount: 'chr_B:1001:FDL', amount: 1n });
+    expect(obs(L.INV_LED_026(view([ghost])), 'INV-LED-026')).toEqual([`unknown_entity chr_ZZ in ${p.entryId} ADM_CORRECTION_TRANSFER`]);
+    expect(obs(L.INV_LED_026(view([p])), 'INV-LED-026')).toEqual([]);
+  });
+  it('a DISSOLVED entity takes no posting (template and P13); LED_DISSOLUTION passes; INV-LED-026 runs in TICK_INVARIANTS', () => {
+    const w = fixture();
+    w.apiFor('21').ledger.mint('chr_A', 10n, 'FDL', 'ADM_CORRECTION_IN'); expect(w.runP13().failures).toEqual([]);
+    w.markDissolved('chr_B');
+    const e = L.tplPay(w.env('21', 'P12'), 'chr_A', 'chr_B', 1n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    expect(e.invalid?.observed).toBe('unknown_entity chr_B (DISSOLVED)');
+    const p = L.tplPay(env('21'), 'chr_A', 'chr_P', 1n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    const v = (es: Entry[]): CheckView => ({ ...view(es), entity: w.entity });
+    const toDead = extra(p, { debitAccount: 'chr_B:5000:FDL', creditAccount: 'chr_B:4000:FDL', amount: 1n });
+    expect(obs(L.INV_LED_026(v([toDead])), 'INV-LED-026')).toEqual(Array(2).fill(`unknown_entity chr_B (DISSOLVED) in ${p.entryId} ADM_CORRECTION_TRANSFER`)); // debit and credit leg
+    const diss = extra(p, { debitAccount: 'chr_B:5000:FDL', creditAccount: 'chr_B:4000:FDL', amount: 1n, reason: 'LED_DISSOLUTION' });
+    expect(obs(L.INV_LED_026(v([diss])), 'INV-LED-026')).toEqual([]);
+    expect(L.TICK_INVARIANTS.map(([id]) => id)).toContain('INV-LED-026');
   });
 });

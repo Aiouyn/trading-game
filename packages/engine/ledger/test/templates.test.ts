@@ -87,7 +87,7 @@ describe('templates (T03-07) and rail (T03-06)', () => {
     expect(tplPay(w.env('14', 'P12'), 'chr_A', 'chr_B', 1n, 'FDL', 'ACCT_START_CASH').invalid?.observed).toBe('template PAY');
     expect(tplMint(w.env('09', 'P12'), 'chr_A', 1n, 'FDL', 'ACCT_START_CASH').invalid?.observed).toBe('module 09');
     expect(tplPay(w.env('21', 'P12'), 'chr_A', 'chr_B', 0n, 'FDL', 'ADM_CORRECTION_TRANSFER').invalid?.invariantId).toBe('INV-LED-007');
-    expect(tplPay(w.env('21', 'P12'), 'chr_A', 'chr_Z', 1n, 'FDL', 'ADM_CORRECTION_TRANSFER').invalid?.invariantId).toBe('INV-LED-007');
+    expect(tplPay(w.env('21', 'P12'), 'chr_A', 'chr_Z', 1n, 'FDL', 'ADM_CORRECTION_TRANSFER').invalid?.invariantId).toBe('INV-LED-026'); // E-15.2: unknown_entity is INV-LED-026 (was 007)
   });
   it('negative ACCRUE swaps sides (03 §8 edge 18)', () => {
     const e = tplAccrue(fixture().env('03', 'P13'), 'chr_P', -5n, 'FDL', 'LED_MTM_DAILY', 1500, 4060);
