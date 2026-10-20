@@ -1,0 +1,6 @@
+import { cmpStr, sortBy } from '../order';
+import { SortedMap } from '../sorted';
+
+const m = new SortedMap<string, number>([['b', 2], ['a', 1]]);
+export const keys = sortBy([...m.keys()], (k) => [k]);
+export const first = cmpStr(keys[0] ?? '', 'a');

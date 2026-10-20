@@ -23,6 +23,7 @@ export const G8_RULES = {
 export default tseslint.config(
   { ignores: ['node_modules/**'] },
   ...tseslint.configs.recommended,
+  { rules: { '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }] } },
   { files: ['**/*.ts'], ignores: ['**/*.test.ts'], rules: G8_RULES },
   // canon.ts is the one place that enumerates plain-object keys; it sorts them by byte order before use.
   { files: ['canon.ts'], rules: { 'no-restricted-syntax': 'off' } },

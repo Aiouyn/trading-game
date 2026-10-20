@@ -19,6 +19,8 @@ const eslintConfig = defineConfig([
     "coverage/**",
     "sim-out/**",
     ".next-*/**",
+    // Isolated workspace packages lint and typecheck with their own configs:
+    "packages/**",
   ]),
 ]);
 

@@ -1,0 +1,68 @@
+import { createHash } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
+import { FACT_ID_LOG, FACT_ID_WRITTEN, ID_KIND_RE, IdFactory, idTick, INV_ENG_003, merkleProof, merkleRoot, toHex, utf8, verifyMerkleProof, type InvariantCtx } from './index';
+
+// independent straight-line implementation (node:crypto + BigInt base32)
+function expectedId(salt: Buffer, partition: string, tick: number, kind: string, seq: number): string {
+  const t = Buffer.alloc(6); t.writeUIntBE(tick, 0, 6); const s = Buffer.alloc(4); s.writeUInt32BE(seq);
+  const d = createHash('sha256').update(Buffer.concat([Buffer.from('TYC/id'), salt, Buffer.from(kind), t, Buffer.from(partition), s])).digest();
+  let v = BigInt(`0x${Buffer.concat([t, d.subarray(0, 10)]).toString('hex')}`) << 2n; // 128 bits + 2 pad = 130 = 26 × 5
+  let out = ''; for (let i = 0; i < 26; i++) { out = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[Number(v & 31n)] + out; v >>= 5n; }
+  return `${kind}_${out}`;
+}
+const SALT = new Uint8Array(32);
+
+describe('ids (T02-07)', () => {
+  it('worked example: salt 0×32, p_PLAYER_01, tick 541440, chr, seq 0', () => {
+    const f = new IdFactory(SALT, 'p_PLAYER_01', 541440);
+    const id = f.newId('chr');
+    expect(id).toBe(expectedId(Buffer.alloc(32), 'p_PLAYER_01', 541440, 'chr', 0));
+    expect(new IdFactory(SALT, 'p_PLAYER_01', 541440).newId('chr')).toBe(id);
+    const id1 = f.newId('chr');
+    expect(id1).not.toBe(id); expect(id1).toBe(expectedId(Buffer.alloc(32), 'p_PLAYER_01', 541440, 'chr', 1));
+    expect(idTick(id)).toBe(541440);
+    expect(id.slice(4)).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(f.log()).toEqual([{ id, kind: 'chr', seq: 0 }, { id: id1, kind: 'chr', seq: 1 }]);
+  });
+  it('10,000 ids of one tick are unique; bad kinds throw I0.id_kind', () => {
+    const f = new IdFactory(SALT, 'p', 7); const seen: Record<string, true> = {};
+    for (let i = 0; i < 10_000; i++) seen[f.newId(i % 2 ? 'mkt' : 'ord')] = true;
+    expect(Object.keys(seen).length).toBe(10_000);
+    for (const k of ['A', 'x', 'abcdef', 'a1']) expect(() => f.newId(k)).toThrow(/invalid id kind/);
+    expect(ID_KIND_RE.test('prop')).toBe(true);
+  });
+  it('INV-ENG-003: valid log passes; a one-char change fails; an id that exists pre-tick fails', () => {
+    const f = new IdFactory(SALT, 'p1', 12); const a = f.newId('chr'); f.newId('biz');
+    const rows = f.log().map((r) => ({ ...r, partitionId: 'p1' }));
+    const ctx = (log: unknown[], written: unknown[] = [], pre: Record<string, true> = {}): InvariantCtx => ({
+      tick: 12, worldSeedPublicSalt: SALT, facts: (k) => (k === FACT_ID_LOG ? log : k === FACT_ID_WRITTEN ? written : []), pre: { get: (_t, id) => pre[id] },
+    });
+    expect(INV_ENG_003.check(ctx(rows, [{ id: a, table: 'chr.entity' }]))).toEqual({ ok: true });
+    const tampered = [{ ...rows[0]!, id: rows[0]!.id.slice(0, -1) + (rows[0]!.id.endsWith('0') ? '1' : '0') }, rows[1]!];
+    expect(INV_ENG_003.check(ctx(tampered)).ok).toBe(false);
+    expect(INV_ENG_003.check(ctx([rows[0]!, rows[0]!])).ok).toBe(false);
+    expect(INV_ENG_003.check(ctx(rows, [{ id: a, table: 'chr.entity' }], { [a]: true }))).toMatchObject({ ok: false, entityIds: [a] });
+    expect(INV_ENG_003.def).toMatchObject({ id: 'INV-ENG-003', scope: 'TICK', severity: 'FATAL' });
+  });
+});
+
+describe('merkle (T02-07)', () => {
+  const leaves = (n: number) => Array.from({ length: n }, (_, i) => utf8(`leaf${i}`));
+  it('roots of 1, 2, 3 and 1000 leaves; every proof verifies; a modified leaf fails', () => {
+    for (const n of [1, 2, 3, 1000]) {
+      const L = leaves(n); const root = merkleRoot(L);
+      for (let i = 0; i < n; i += n > 10 ? 37 : 1) {
+        const p = merkleProof(L, i);
+        expect(verifyMerkleProof(root, L[i]!, p)).toBe(true);
+        expect(verifyMerkleProof(root, utf8('tampered'), p)).toBe(false);
+      }
+    }
+  });
+  it('layout: leaf 0x00, node 0x01, odd promoted, empty = sha256("TYC/empty")', () => {
+    const h = (...b: Buffer[]) => createHash('sha256').update(Buffer.concat(b)).digest();
+    const [a, b, c] = ['a', 'b', 'c'].map((s) => Buffer.from(s));
+    const la = h(Buffer.of(0), a!), lb = h(Buffer.of(0), b!), lc = h(Buffer.of(0), c!);
+    expect(toHex(merkleRoot([a!, b!, c!].map((x) => new Uint8Array(x))))).toBe(h(Buffer.of(1), h(Buffer.of(1), la, lb), lc).toString('hex'));
+    expect(toHex(merkleRoot([]))).toBe(h(Buffer.from('TYC/empty')).toString('hex'));
+  });
+});
