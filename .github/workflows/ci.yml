@@ -18,6 +18,10 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+      # City Dev (PR #4) configs: run only once they exist on the branch.
+      - name: City unit tests
+        if: hashFiles('tests/unit/city/vitest.config.ts') != ''
+        run: npx vitest run -c tests/unit/city/vitest.config.ts
   e2e:
     runs-on: ubuntu-latest
     needs: checks
@@ -28,6 +32,10 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test tests/e2e/shell
+        env: { CI: "1" }
+      - name: City e2e tests
+        if: hashFiles('tests/e2e/city/playwright.config.ts') != ''
+        run: npx playwright test -c tests/e2e/city/playwright.config.ts
         env: { CI: "1" }
       - uses: actions/upload-artifact@v4
         if: failure()
