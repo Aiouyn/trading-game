@@ -1,7 +1,7 @@
 // INV-LED-001..015 (spec §4). Each check is a pure function of a CheckView; observed strings start with the 03 §3.16 I-number.
 import { BMA_CODES, classOfCode, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
 import { CBK_CREDIT_CODES, CBK_UNWIND_CODES, CLASS_TEMPLATES, FLOW_CLASSES, RESTRICTED_OK_CODES, type FlowClass, type ReasonCatalog } from './catalog';
-import { SortedMap } from './det';
+import { cmpStr, SortedMap } from './det';
 import { CCYS, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
 import { legKey } from './templates';
 import type { Entry, LedgerEntity, Posting } from './types';
@@ -224,19 +224,30 @@ function nonBankCashDelta(ps: readonly Posting[]): Money {
   }
   return s;
 }
+const RAIL_CODES = [1001, 1002, 1003, 1009, 1010, 1910, 2001, 2002, 2003, 2100];
+/** Entities of the value-leg postings of one reason-code group (postings touching no money/rail account), sorted. */
+export function groupParties(ps: readonly Posting[]): Id[] {
+  const out: Id[] = [];
+  for (const p of ps) {
+    const qs = [p.debitAccount, p.creditAccount].map(parseAccountKey);
+    if (qs.some((q) => !q || RAIL_CODES.includes(q.code))) continue;
+    for (const q of qs) if (q && !out.includes(q.entityId)) out.push(q.entityId);
+  }
+  return out.sort(cmpStr);
+}
 /**
  * T03-11 step 7 per-entry M2 rules (review F1). Applied per (entry, reason code) so a composed entry's supporting legs are judged by
- * their own class. Parties come from entry.meta, never from postings[0] (review X-4).
+ * their own class. Bank/cbk/gov parties come from each group's own value legs (groupParties), never from postings[0] (review X-4).
  */
 function m2EntryRules(v: CheckView, e: Entry, ccy: Ccy): Failure[] {
   const out: Failure[] = [];
-  const parties = e.meta?.parties ?? [];
-  const kinds = parties.map(kindOfId);
-  const moneyIssuerOrBank = kinds.some((k) => k === 'bnk' || k === 'cbk' || k === 'gov');
   const groups = new SortedMap<string, Posting[]>();
   for (const p of e.postings) if (p.ccy === ccy) groups.set(p.reason, [...(groups.get(p.reason) ?? []), p]);
   for (const [code, ps] of groups) {
     const cls = v.catalog.get(code)?.cls; if (!cls) continue;
+    // Bank/cbk/gov exemption per reason-code group (QA blocker on PR #3): the parties are the entities of this group's value legs,
+    // i.e. postings that touch no money or rail account. A gov_ tax leg therefore exempts only the TAX_* group, never the whole trade.
+    const moneyIssuerOrBank = groupParties(ps).some((id) => ['bnk', 'cbk', 'gov'].includes(kindOfId(id) ?? ''));
     const m2 = ps.reduce((s, p) => s + postingEffect(p).m2, 0n);
     if (cls === 'REVALUE' && m2 !== 0n) out.push(F('INV-LED-004', `I4: ${e.entryId} REVALUE ${code} moves M2 by ${m2}`, '0n'));
     if (cls === 'TRANSFER' && !moneyIssuerOrBank && m2 !== 0n) out.push(F('INV-LED-004', `I4: ${e.entryId} non-bank TRANSFER ${code} moves M2 by ${m2}`, '0n'));

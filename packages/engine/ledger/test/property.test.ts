@@ -6,6 +6,13 @@ import { runDriver } from './driver';
 const fcParams = { numRuns: 25, seed: 20261020 };
 
 describe('property and long-run tests', () => {
+  it('FT3: the driver\'s composed trade + fee entries commit (valid, both codes posted); none is invalid', () => {
+    const w = runDriver(7, 200);
+    const composed = w.entryLog().filter((e) => e.template === 'SWAP_ASSET');
+    expect(composed.length).toBeGreaterThan(0);
+    expect(composed.filter((e) => e.invalid)).toEqual([]);
+    expect(composed.every((e) => e.postings.some((p) => p.reason === 'MKT_EXCHANGE_FEE'))).toBe(true);
+  });
   it('spec test 1 (INV-LED-015 property): (a)-(d) hold every tick for random entries incl. composed, cbCredit and REVALUE', () => {
     fc.assert(fc.property(fc.integer({ min: 1, max: 2 ** 31 - 1 }), (seed) => {
       runDriver(seed, 60, (w, r, before) => {

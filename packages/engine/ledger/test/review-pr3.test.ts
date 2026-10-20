@@ -90,6 +90,26 @@ describe('F3 INV-LED-002 supporting legs (T03-05 step 8 exactly)', () => {
     const c = L.composeEntries(env('05'), trade(), [tax]);
     expect(L.INV_LED_002(view([c]))).toEqual([]);
   });
+  it('FT4: a TAX_* TRANSFER leg on a SINK main entry passes by the TAX branch; a non-TAX TRANSFER leg there fails', () => {
+    const burn = () => L.tplBurn(env('21'), 'chr_A', 10n, 'FDL', 'ADM_CORRECTION_OUT');
+    const tax = L.tplPay(env('03'), 'chr_A', 'gov_FDL', 2n, 'FDL', 'TAX_SECURITIES_TX');
+    expect(L.INV_LED_002(view([L.composeEntries(env('21'), burn(), [tax])]))).toEqual([]);
+    const pay = L.tplPay(env('21'), 'chr_A', 'chr_B', 2n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    expect(obs(L.INV_LED_002(view([L.composeEntries(env('21'), burn(), [pay])])), 'INV-LED-002')).toContain('I1: supporting leg code=ADM_CORRECTION_TRANSFER template=BURN');
+  });
+});
+
+describe('QA blocker: INV-LED-004 bank/cbk/gov exemption is per reason-code group', () => {
+  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
+  it('a taxed trade (gov_ tax leg) passes; the same trade with a forged M2 leg under MKT_TRADE fails', () => {
+    const tax = L.tplPay(env('03'), 'chr_A', 'gov_FDL', 2n, 'FDL', 'TAX_SECURITIES_TX');
+    const c = L.composeEntries(env('05'), trade(), [tax]);
+    expect(obs(L.INV_LED_004(view([c])), 'INV-LED-004')).toEqual([]);
+    const forged = extra(c, { debitAccount: 'bnk_N:2100:chr_B:FDL', creditAccount: 'bnk_N:5000:FDL', amount: 7n, reason: 'MKT_TRADE', qty: undefined, assetId: undefined });
+    expect(obs(L.INV_LED_004(view([forged])), 'INV-LED-004')).toContain(`I4: ${c.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -7`);
+    expect(L.groupParties(c.postings.filter((p) => p.reason === 'TAX_SECURITIES_TX'))).toEqual(['chr_A', 'gov_FDL']);
+    expect(L.groupParties(c.postings.filter((p) => p.reason === 'MKT_TRADE'))).toEqual(['chr_A', 'chr_B']);
+  });
 });
 
 describe('F5 catalog v2 (catalog.csv v2 + aliases.csv)', () => {
