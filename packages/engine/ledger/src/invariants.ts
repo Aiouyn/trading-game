@@ -232,10 +232,10 @@ function nonBankCashDelta(ps: readonly Posting[]): Money {
   return s;
 }
 const RAIL_CODES = [1001, 1002, 1003, 1009, 1010, 1910, 2001, 2002, 2003, 2100];
-const MONEY_SIDE = ['bnk', 'cbk', 'gov'];
+const MONEY_SIDE = ['bnk', 'cbk', 'gov', 'ccp']; // E-16: ccp holds 1002 reserves outside M2 (exc is not exempt)
 /**
  * E-15(3), amount-based INV-LED-004 exemption (Producer): the M2 a non-bank TRANSFER group may move equals the non-bank money
- * (1001 cash, 1010 deposit claim) that the group's rail postings move to or from a bnk/cbk/gov entity. Any other M2 fails.
+ * (1001 cash, 1010 deposit claim) that the group's rail postings move to or from a bnk/cbk/gov/ccp entity (E-16 adds ccp). Any other M2 fails.
  */
 export function exemptM2(ps: readonly Posting[]): Money {
   let s = 0n;

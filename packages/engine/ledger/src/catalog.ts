@@ -66,21 +66,24 @@ export const RESTRICTED_FAUCETS: Readonly<Record<string, 'AD_GRANT' | 'FRESH_STA
 export type CatalogError =
   | 'PREFIX_CLASS_MISMATCH' | 'NAME_TAKEN' | 'OWNER_MISMATCH' | 'CLASS_MISMATCH' | 'TEMPLATE_CLASS_MISMATCH' | 'NO_TEMPLATE' | 'CATALOG_FROZEN' | 'ESCROW_ONLY';
 
+/** E-12 layer 1(iii): registered rows are frozen, so no later code path can add a template (e.g. PAY) to an existing code. */
+const frozenRow = (r: CodeRow): CodeRow => { Object.freeze(r.allowedTemplates); return Object.freeze(r); };
 /** One catalog per world (built from the seed, extended by registerReasonCodes, frozen when the world starts). */
 export class ReasonCatalog {
   private readonly rows = new SortedMap<string, CodeRow>();
   private frozen = false;
   constructor(seed: readonly CatalogSeedRow[] = CATALOG_SEED) {
-    for (const r of seed) this.rows.set(r.code, {
+    for (const r of seed) this.rows.set(r.code, frozenRow({
       code: r.code, cls: r.cls, owner: r.owner, cf: r.cf, allowedTemplates: [...r.tpl], descriptionKey: `led.code.${r.code}`,
       valueLegA: r.legA ?? undefined, valueLegB: r.legB ?? undefined, elasticSectors: [...r.sectors], restrictedOk: r.restrictedOk,
       requestableBy: r.requestableBy === 'ALL' ? 'ALL' : [...r.requestableBy], illicit: r.illicit, taxTag: r.taxTag, stabilizerFamily: r.family,
-    });
+    }));
     if (seed === CATALOG_SEED) for (const cls of ['REVALUE', 'TRANSFER'] as const) {
       const errs = this.registerReasonCodes(3, cls, LEDGER_EXTENSION_CODES.filter((r) => r.cls === cls));
       if (errs.length) throw new Error(`ledger extension codes: ${errs.join('; ')}`);
     }
   }
+  /** Rows are frozen (E-12 layer 1(iii)): a template can never be added to a registered code, escrow-only or not. */
   get(code: string): CodeRow | undefined { return this.rows.get(code); }
   all(): CodeRow[] { return this.rows.values(); }
   countByClass(): Record<FlowClass, number> {
@@ -104,7 +107,7 @@ export class ReasonCatalog {
       const e = this.check(module, cls, r);
       if (e) errs.push(`${r.code}: ${e}`);
     }
-    if (errs.length === 0) for (const r of rows) this.rows.set(r.code, { ...r, allowedTemplates: [...r.allowedTemplates] });
+    if (errs.length === 0) for (const r of rows) this.rows.set(r.code, frozenRow({ ...r, allowedTemplates: [...r.allowedTemplates] }));
     return errs.sort(cmpStr);
   }
   private check(module: number, cls: FlowClass, r: CodeRow): CatalogError | null {

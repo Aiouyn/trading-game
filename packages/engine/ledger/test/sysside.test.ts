@@ -13,7 +13,7 @@ const ok = (w: L.LedgerWorld): number => { const t = w.tick; expect(w.runP13().f
 const view = (s: SysSideFlows) => JSON.stringify(s, (_, v) => (typeof v === 'bigint' ? String(v) : v instanceof SortedMap ? Object.fromEntries(v.entries()) : v));
 
 /** §6.8 worked example (FDL, tick 10), optionally with the v0.7 PD-9 extension. */
-function workedExample(ext: boolean, ccpFee = true) {
+function workedExample(ext: boolean) {
   const w = fixture(); w.registerEntity({ id: 'ccp_C' });
   fund(w, [['gov_FDL', 1000], ['exc_X', 37], ['chr_P', 30]]);
   const a0 = w.aggregates('FDL'); const api = (m: string) => w.apiFor(m).ledger;
@@ -28,7 +28,7 @@ function workedExample(ext: boolean, ccpFee = true) {
     api('13').pay('chr_P', 'crt_COURT', M(10), 'FDL', 'LAW_FINE_VICTIM_FUND');     // X_out 10
     api('13').pay('crt_COURT', 'chr_P', M(4), 'FDL', 'LAW_RESTITUTION');           // X_in 4 (victim fund pays P)
     api('04').pay('cbk_FDL', 'gov_FDL', M(6), 'FDL', 'CBK_PROFIT_REMITTANCE');     // C_s 6
-    if (ccpFee) api('07').pay('chr_P', 'ccp_C', M(1), 'FDL', 'CCP_FEE');           // X_out 1
+    api('07').pay('chr_P', 'ccp_C', M(1), 'FDL', 'CCP_FEE');                       // X_out 1 (E-16: exempt M2 −1)
   }
   w.setController('exc_X', 'chr_A');                                              // X leaves S at P13 of t, m(X) = 40
   const t = w.tick; const r = w.runP13();
@@ -72,18 +72,44 @@ describe('Δ6-B sysSide: spec tests 9, 10, 14, 14b, 18, 21', () => {
     w.apiFor('05').ledger.pay('chr_P', 'exc_X', M(3), 'FDL', 'MKT_EXCHANGE_FEE');
     const s = sys(w, ok(w)); expect([L.sumMap(s.sink), s.netFlow]).toEqual([0n, 0n]);
   });
-  it('21: the v0.7 PD-9 extension without the CCP fee is exact (ΔM0_player 149, ΔΣ_S 35, ΔM0 184, N 109)', () => {
-    const { r, s, a0, a1 } = workedExample(true, false);
+  it('21 / E-16 (1): the v0.7 PD-9 extension with the CCP fee is exact (ΔM0_player 148, ΔΣ_S 36, ΔM0 184, N 108); fee M2 −1 exempt, X_out 1', () => {
+    const { r, s, a0, a1 } = workedExample(true);
     expect(r.failures).toEqual([]);
-    expect([s.m0PlayerDelta, s.sysDelta, a1.M0 - a0.M0, s.netFlow]).toEqual([M(149), M(35), M(184), M(109)]);
-    expect(s.C_s).toBe(M(6));
+    expect([s.m0PlayerDelta, s.sysDelta, a1.M0 - a0.M0, s.netFlow]).toEqual([M(148), M(36), M(184), M(108)]);
+    expect([s.C_s, s.sink.get('CCP_FEE'), s.treasury.get('ccp_C')]).toEqual([M(6), M(1), M(1)]);
   });
-  // OPEN (reported): the CCP fee leg pays into ccp:1002 (reserves; not M2), so the chr's M2 falls by 1 with no bnk/cbk/gov
-  // counterparty, and E-15(3)'s amount rule rejects it (INV-LED-004). The pre-E-15 presence rule rejected it too. Needs a
-  // Producer ruling (add ccp to the E-15(3) money side?). Until then this test pins the current behaviour.
-  it('21 (blocked by E-15(3)): with CCP_FEE the tick fails INV-LED-004 on the CCP_FEE group only', () => {
-    const { r } = workedExample(true, true);
-    expect(r.failures.map((f) => f.observed.replace(/ent_\d+/, 'E'))).toEqual(['I4: E non-bank TRANSFER CCP_FEE moves M2 by -1000000']);
+  const ccpFee = (extra: boolean) => {
+    const w = fixture(); w.registerEntity({ id: 'ccp_C' }); fund(w, [['chr_P', 10]]);
+    const m20 = w.aggregates('FDL').M2; const id = w.apiFor('07').ledger.pay('chr_P', 'ccp_C', M(2), 'FDL', 'CCP_FEE');
+    if (extra) { const q = w.testHooks().queue; const e = q[q.length - 1];
+      q[q.length - 1] = { ...e, postings: [...e.postings, { ...e.postings[0], postingSeq: e.postings.length, flowLeg: undefined, debitAccount: 'bnk_N:2100:chr_P:FDL', creditAccount: 'bnk_N:5000:FDL', amount: 1n }] }; }
+    const t = w.tick; const r = w.runP13(); return { w, t, r, id, m20 };
+  };
+  it('E-16 (1b): CCP_FEE f: TRANSFER, m0sysDelta 0, X_out +f, N −f, M0_player −f, TreasuryBalance(ccp) +f, M2 −f exempt', () => {
+    const { w, t, r, m20 } = ccpFee(false); expect(r.failures).toEqual([]);
+    const f = w.flowReader().tickFlows('FDL', t)!; const s = f.sysSide!;
+    expect([f.m0sysDelta, f.byClass.get('SINK') ?? 0n, f.byClass.get('TRANSFER')]).toEqual([0n, 0n, M(2)]);
+    expect([s.sink.get('CCP_FEE'), s.netFlow, s.m0PlayerDelta, s.treasury.get('ccp_C')]).toEqual([M(2), -M(2), -M(2), M(2)]);
+    expect(w.aggregates('FDL').M2 - m20).toBe(-M(2));
+  });
+  it('E-16 (2): CCP_FEE plus 1 micro of stray M2 in the same group fails INV-LED-004', () => {
+    const { r } = ccpFee(true);
+    expect(r.failures.filter((x) => x.invariantId === 'INV-LED-004').map((x) => x.observed.replace(/ent_\d+/, 'E'))).toContain('I4: E non-bank TRANSFER CCP_FEE moves M2 by -2000001');
+  });
+  it('E-16 (3): a fee to a chr-controlled exc leaves M2 unchanged and uses no exemption (exc stays non-exempt)', () => {
+    const w = fixture(); w.setController('exc_X', 'chr_B'); fund(w, [['chr_P', 10]]);
+    const m20 = w.aggregates('FDL').M2; const t = w.tick;
+    w.apiFor('05').ledger.pay('chr_P', 'exc_X', M(2), 'FDL', 'MKT_EXCHANGE_FEE'); expect(w.runP13().failures).toEqual([]);
+    expect(w.aggregates('FDL').M2).toBe(m20);
+    const e = w.entryLog().find((x) => x.tick === t && x.reason === 'MKT_EXCHANGE_FEE')!;
+    expect(L.exemptM2(e.postings)).toBe(0n); expect(L.sumMap(sys(w, t).sink)).toBe(0n);
+  });
+  it('E-16 (4): a ccp refund (CCP_DEFAULT_FUND) to a player: X_in = f, M2 +f exempt', () => {
+    const w = fixture(); w.registerEntity({ id: 'ccp_C' }); fund(w, [['chr_P', 10]]);
+    w.apiFor('07').ledger.pay('chr_P', 'ccp_C', M(3), 'FDL', 'CCP_FEE'); ok(w);
+    const m20 = w.aggregates('FDL').M2;
+    w.apiFor('07').ledger.pay('ccp_C', 'chr_P', M(2), 'FDL', 'CCP_DEFAULT_FUND'); const t = ok(w);
+    expect(sys(w, t).faucet.get('CCP_DEFAULT_FUND')).toBe(M(2)); expect(w.aggregates('FDL').M2 - m20).toBe(M(2));
   });
   it('21: cbCredit to an NPC bank is C_p; a cbk FX-reserve purchase in a foreign ccy from a bank ∉ S is X_out in that ccy', () => {
     const w = fixture();
