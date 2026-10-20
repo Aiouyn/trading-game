@@ -44,13 +44,6 @@ export class FrameStats {
   }
 }
 
-export interface UiPerfSample {
-  tickRenderMs: { p50: number | null; p95: number | null };
-  fps: number | null;
-  heapMb: number | null;
-  renderTier: string;
-}
-
 export function heapMb(): number | null {
   const mem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
   return mem ? mem.usedJSHeapSize / (1024 * 1024) : null;

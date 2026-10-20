@@ -24,11 +24,19 @@ export interface CityRendererOptions {
   channel: CityChannelClient;
   fetchChunk: (url: string) => Promise<ArrayBuffer>;
   locale: string;
-  /**
-   * Entity ids of the player's own places, computed locally from `me` and never uploaded
-   * (17 §2.2, 17-AT-21). Not in Spec 2 §2 yet: proposed addition, needs Spec 1 sign-off. [P]
-   */
-  myEntityIds?: readonly string[];
+  /** The player's own places, computed locally from `me`; never uploaded (17 §2.2, 17-AT-21). */
+  myEntityIds: readonly string[];
+  /** Shell-owned telemetry sink for ui.perf (17 §5.2); sampled once per minute while visible (S2 §9). */
+  onPerfSample?: (s: PerfSample) => void;
+}
+
+/** One ui.perf sample (17 §5.2). */
+export interface PerfSample {
+  tickRenderMsP50: number;
+  tickRenderMsP95: number;
+  fps: number;
+  heapMb: number;
+  renderTier: CityTier;
 }
 
 export interface CityChannelClient {
@@ -71,6 +79,8 @@ export interface CityRenderer {
   setVisibility(v: Visibility): void;
   setReducedMotion(on: boolean): void;
   setOverlay(o: CityOverlay): void;
+  /** Live my-places updates (holdings change during a session); client-only, never uploaded. */
+  setMyPlaces(ids: readonly string[]): void;
   setTimeOfDay(gameMinute: number): void;
   focus(target: { entityId: string } | { parcelId: string }): void;
   onPick(cb: (p: PickResult) => void): () => void;
@@ -86,4 +96,4 @@ export async function createCityRenderer(opts: CityRendererOptions): Promise<Cit
   return createRenderer(opts);
 }
 
-export type { CitySnapshot, CityDelta } from './data/types';
+export type { CitySnapshot, CityDelta, CityManifest } from './data/types';

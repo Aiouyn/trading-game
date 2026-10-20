@@ -1,4 +1,16 @@
-import type { ChunkRef, CityDelta, CityDistrict, CityEntity, CitySnapshot } from './types';
+import type {
+  ChunkRef,
+  CityDelta,
+  CityDistrict,
+  CityEntity,
+  CitySnapshot,
+  DistrictUse,
+  GroundRef,
+  PublicCityState,
+  UseClass,
+} from './types';
+import { isTombstone } from './types';
+import { byKey, canonicalJson } from './canonical';
 
 export type ApplyResult =
   | { status: 'applied'; changedChunks: ChunkRef[]; full: boolean }
@@ -6,51 +18,101 @@ export type ApplyResult =
   | { status: 'stale' }
   | { status: 'needs-snapshot' };
 
-/** Copies only the public fields. Anything else on the wire is dropped (privacy, 17-AT-21). */
+const str = (v: unknown): string => String(v);
+const strOrNull = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
+const int = (v: unknown): number => Math.trunc(Number(v));
+
+/** Copies only allowlisted fields (10 §3.24). Anything else on the wire is dropped (17-AT-21). */
 export function publicEntity(e: CityEntity): CityEntity {
-  return {
-    id: String(e.id),
+  const out: CityEntity = {
+    id: str(e.id),
     kind: e.kind,
-    parcelId: String(e.parcelId),
-    name: String(e.name),
-    districtId: String(e.districtId),
-    sector: String(e.sector),
-    dayReturn: Number(e.dayReturn) || 0,
-    forSale: Boolean(e.forSale),
-    atAuction: Boolean(e.atAuction),
-    development: Number.isFinite(e.development) ? Number(e.development) : 1,
+    parcelId: str(e.parcelId),
+    // a property is named only through OWNERSHIP_PUBLIC; the publisher sends null otherwise
+    name: strOrNull(e.name),
+    districtId: str(e.districtId),
+    sector: e.sector ?? null,
+    companyId: strOrNull(e.companyId),
+    forSale: e.forSale === true,
+    atAuction: e.atAuction === true,
+    lifecycle: e.lifecycle,
+    heightLevel: int(e.heightLevel),
   };
+  if (e.kind === 'crown_tower') {
+    out.title = e.title === 'city_crown' ? 'city_crown' : null;
+    out.archetypeId = str(e.archetypeId ?? '');
+  }
+  return out;
+}
+
+function publicUse(u: DistrictUse): DistrictUse {
+  return { rentPerM2PerGD: str(u.rentPerM2PerGD), vacancy: Number(u.vacancy), pressure: Number(u.pressure) };
 }
 
 function publicDistrict(d: CityDistrict): CityDistrict {
+  const byUse: CityDistrict['byUse'] = {};
+  for (const k of Object.keys(d.byUse ?? {}).sort() as UseClass[]) byUse[k] = publicUse(d.byUse[k]!);
   return {
-    id: String(d.id),
-    name: String(d.name),
-    center: [Number(d.center[0]), Number(d.center[1])],
-    index: Number(d.index),
-    rent: Number(d.rent),
-    listings: Number(d.listings),
+    id: str(d.id),
+    nameKey: str(d.nameKey),
+    tier: d.tier,
+    rentIndex: Number(d.rentIndex),
+    priceIndex: Number(d.priceIndex),
+    byUse,
+    listings: int(d.listings),
+    polygon: (d.polygon ?? []).map((p) => [int(p[0]), int(p[1])] as [number, number]),
   };
 }
 
-function publicChunk(c: ChunkRef): ChunkRef {
-  return { cx: c.cx, cz: c.cz, url: String(c.url), hash: String(c.hash) };
+const publicChunk = (c: ChunkRef): ChunkRef => ({ chunkKey: str(c.chunkKey), contentHash: str(c.contentHash) });
+const publicGround = (g: GroundRef): GroundRef => ({
+  contentHash: str(g.contentHash),
+  size: int(g.size),
+  cellCm: int(g.cellCm),
+  originCm: [int(g.originCm[0]), int(g.originCm[1])],
+});
+
+function header(s: PublicCityState): Omit<PublicCityState, 'districts' | 'entities' | 'chunks' | 'baseVersion'> {
+  return {
+    schemaVersion: 1,
+    cityId: str(s.cityId),
+    stateVersion: int(s.stateVersion),
+    publicSnapshotTick: int(s.publicSnapshotTick),
+    ccy: str(s.ccy),
+    ground: publicGround(s.ground),
+  };
 }
 
+/** Public, canonically ordered snapshot. */
 export function publicSnapshot(s: CitySnapshot): CitySnapshot {
   return {
-    type: 'snapshot',
-    cityId: String(s.cityId),
-    stateVersion: Number(s.stateVersion),
-    lagTicks: Number(s.lagTicks) || 0,
-    dayReturn: Number(s.dayReturn) || 0,
-    extent: Number(s.extent),
-    ground: { url: String(s.ground.url), size: Number(s.ground.size) },
-    districts: s.districts.map(publicDistrict),
-    entities: s.entities.map(publicEntity),
-    chunks: s.chunks.map(publicChunk),
-    brief: s.brief.map(String),
+    ...header(s),
+    baseVersion: null,
+    districts: s.districts.map(publicDistrict).sort(byKey((d) => d.id)),
+    entities: s.entities.filter((e) => !isTombstone(e)).map(publicEntity).sort(byKey((e) => e.id)),
+    chunks: s.chunks.map(publicChunk).sort(byKey((c) => c.chunkKey)),
   };
+}
+
+/** apply(snapshot(v-1), delta(v-1 → v)) → snapshot(v). Pure. Caller checks the base. */
+export function applyDelta(cur: CitySnapshot, d: CityDelta): CitySnapshot {
+  const entities = new Map(cur.entities.map((e) => [e.id, e]));
+  for (const e of d.entities) {
+    if (isTombstone(e)) entities.delete(str(e.id));
+    else entities.set(str(e.id), publicEntity(e));
+  }
+  const chunks = new Map(cur.chunks.map((c) => [c.chunkKey, c]));
+  for (const c of d.chunks) {
+    if ('removed' in c && c.removed) chunks.delete(str(c.chunkKey));
+    else chunks.set(str(c.chunkKey), publicChunk(c as ChunkRef));
+  }
+  const districts = new Map(cur.districts.map((x) => [x.id, x]));
+  for (const x of d.districts) districts.set(str(x.id), publicDistrict(x));
+  return publicSnapshot({ ...header(d), baseVersion: null, districts: [...districts.values()], entities: [...entities.values()], chunks: [...chunks.values()] });
+}
+
+export function isSnapshot(s: CitySnapshot | CityDelta): s is CitySnapshot {
+  return s.baseVersion === null;
 }
 
 /** The current public city. setData is idempotent by stateVersion. */
@@ -69,40 +131,25 @@ export class CityStore {
     const cur = this.snap;
     if (cur && input.stateVersion === cur.stateVersion) return { status: 'same' };
     if (cur && input.stateVersion < cur.stateVersion) return { status: 'stale' };
-    if (input.type === 'snapshot') {
-      const next = publicSnapshot(input);
-      const before = new Map((cur?.chunks ?? []).map((c) => [`${c.cx},${c.cz}`, c.hash]));
-      const changed = next.chunks.filter((c) => before.get(`${c.cx},${c.cz}`) !== c.hash);
-      const full = !cur || cur.ground.url !== next.ground.url;
-      this.snap = next;
-      return { status: 'applied', changedChunks: changed, full };
-    }
-    if (!cur || cur.stateVersion !== input.baseVersion) return { status: 'needs-snapshot' };
-    const entities = new Map(cur.entities.map((e) => [e.id, e]));
-    for (const id of input.remove ?? []) entities.delete(id);
-    for (const e of input.upsert ?? []) entities.set(String(e.id), publicEntity(e));
-    const chunks = new Map(cur.chunks.map((c) => [`${c.cx},${c.cz}`, c]));
-    const changed = (input.chunks ?? []).map(publicChunk);
-    for (const c of changed) chunks.set(`${c.cx},${c.cz}`, c);
-    this.snap = {
-      ...cur,
-      stateVersion: input.stateVersion,
-      lagTicks: Number(input.lagTicks) || 0,
-      dayReturn: input.dayReturn ?? cur.dayReturn,
-      districts: input.districts ? input.districts.map(publicDistrict) : cur.districts,
-      entities: [...entities.values()],
-      chunks: [...chunks.values()],
-      brief: input.brief ? input.brief.map(String) : cur.brief,
-    };
-    return { status: 'applied', changedChunks: changed, full: false };
+    let next: CitySnapshot;
+    if (isSnapshot(input)) next = publicSnapshot(input);
+    else if (!cur || cur.stateVersion !== input.baseVersion) return { status: 'needs-snapshot' };
+    else next = applyDelta(cur, input);
+    const before = new Map((cur?.chunks ?? []).map((c) => [c.chunkKey, c.contentHash]));
+    const changed = next.chunks.filter((c) => before.get(c.chunkKey) !== c.contentHash);
+    const removed = (cur?.chunks ?? []).some((c) => !next.chunks.some((n) => n.chunkKey === c.chunkKey));
+    const full = !cur || cur.ground.contentHash !== next.ground.contentHash || removed;
+    this.snap = next;
+    return { status: 'applied', changedChunks: changed, full };
   }
 }
 
-/** Stable FNV-1a hash of the render input (public snapshot without the version stamp). */
+/** Hash of the render input (public snapshot without the version stamps). FNV-1a over canonical JSON. */
 export function renderInputHash(s: CitySnapshot): string {
-  const { stateVersion: _v, ...rest } = publicSnapshot(s);
+  const { stateVersion: _v, publicSnapshotTick: _t, ...rest } = publicSnapshot(s);
   void _v;
-  const text = JSON.stringify(rest);
+  void _t;
+  const text = canonicalJson(rest);
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);

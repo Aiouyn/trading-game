@@ -9,7 +9,7 @@ export interface DecodeClient {
 }
 
 type Reply =
-  | { id: number; ok: true; ids: string[]; parts: Float32Array; ms: number }
+  | { id: number; ok: true; ids: string[]; parts: Float32Array; refs: DecodedChunk['refs']; ms: number }
   | { id: number; ok: false; error: string };
 
 /** Decodes chunks in a Web Worker (spec §5); falls back to inline decoding where Workers are missing. */
@@ -33,7 +33,7 @@ export function createDecodeClient(): DecodeClient {
       pending.delete(r.id);
       if (r.ok) {
         decodeMs += r.ms;
-        p.resolve({ ids: r.ids, parts: r.parts });
+        p.resolve({ ids: r.ids, parts: r.parts, refs: r.refs });
       } else p.reject(new Error(r.error));
     };
   }
