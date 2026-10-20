@@ -6,7 +6,7 @@ import { evaluate, moneyAtLeast, nextRankTarget, type Visibility } from "@/shell
 
 // S1-06 (17-AT-31): scripted characters across rank × license × flags × NW × game day.
 const me = (o: Partial<MeChannel>): MeChannel => ({
-  nw: "5000", todayPct: "0", todayChg: "0", license: "LIC0", charters: [], flags: [], onboardingMin: 60, onboardingDone: true, guest: true, protectionEndsRealMs: null, ...o,
+  nw: "5000", todayPct: "0", todayChg: "0", license: "LIC0", charters: [], flags: [], onboardingMin: 60, onboardingDone: true, guest: true, protectionEndsRealMs: null, myPlaces: [], ...o,
 });
 const ri = (r: Rank) => RANKS.indexOf(r);
 const rk = (rank: Rank): RankChannel => ({ rank, thresholds: [...RANK_THRESHOLDS], nextAt: null });

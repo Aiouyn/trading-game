@@ -1,8 +1,8 @@
 // Type-only stand-in for src/city/index.ts (owned by Spec 2) until City Dev's PR lands (Spec 1 §10).
 // Types copied from Spec 2 §2; the real module replaces this automatically (next.config.ts resolveAlias).
-import type { CityChannelClient, CityRenderer, CityRendererOptions, CityTier, TierReason } from "@/city";
+import type { CityChannelClient, CityOverlay, CityRenderer, CityRendererOptions, CityTier, TierReason } from "@/city";
 
-export type { CityChannelClient, CityRenderer, CityRendererOptions };
+export type { CityChannelClient, CityOverlay, CityRenderer, CityRendererOptions };
 
 /** Calls made on the stub, for e2e evidence (window.__cityCalls). */
 const calls: string[] = [];
@@ -18,7 +18,12 @@ export async function createCityRenderer(opts: CityRendererOptions): Promise<Cit
   let el: HTMLElement | null = null;
   const noop = () => {};
   return {
-    async mount(container) { el = container; log("mount"); },
+    async mount(container) {
+      el = container;
+      log("mount");
+      // One sample on mount so e2e can prove the injected sink is wired (the real renderer samples per minute).
+      opts.onPerfSample?.({ tickRenderMsP50: 0, tickRenderMsP95: 0, fps: 60, heapMb: 0, renderTier: tier });
+    },
     unmount() { el = null; log("unmount"); },
     setData: noop,
     setTier(t) { tier = t === "auto" ? "T1" : t; },
@@ -26,6 +31,7 @@ export async function createCityRenderer(opts: CityRendererOptions): Promise<Cit
     setVisibility(v) { log(`visibility:${v}`); },
     setReducedMotion(on) { log(`reducedMotion:${on}`); },
     setOverlay: noop,
+    setMyPlaces(ids) { log(`myPlaces:${ids.length}`); },
     setTimeOfDay: noop,
     focus: noop,
     onPick: () => noop,

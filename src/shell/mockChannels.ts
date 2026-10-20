@@ -26,6 +26,7 @@ export function mockChannels(q: URLSearchParams): Channels {
       flags,
       onboardingMin: Number(q.get("onb") ?? 60),
       onboardingDone: q.get("onbDone") !== "0",
+      myPlaces: (q.get("places") ?? "").split(",").filter(Boolean),
       guest: q.get("guest") === "1",
       protectionEndsRealMs: q.get("prot") === "1" ? 41 * 60_000 + 12_000 : null,
     },

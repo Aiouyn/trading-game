@@ -4,6 +4,8 @@ declare module "@/city" {
   export type CityTier = "T0" | "T1" | "T2";
   export type TierReason = "auto-fps" | "no-webgl2" | "battery-saver" | "override" | "context-lost" | "initial";
   export type Visibility = "visible" | "background" | "hidden";
+  export type CityOverlay =
+    | "none" | "my_places" | "districts" | "sectors" | "for_sale" | "auctions" | "movers" | "development";
   export type CitySnapshot = { stateVersion: number } & Record<string, unknown>;
   export type CityDelta = { stateVersion: number } & Record<string, unknown>;
 
@@ -19,6 +21,10 @@ declare module "@/city" {
     channel: CityChannelClient;
     fetchChunk: (url: string) => Promise<ArrayBuffer>;
     locale: string;
+    /** The player's own places, computed locally from `me`; never uploaded (17 §2.2, 17-AT-21). */
+    myEntityIds: readonly string[];
+    /** Shell-owned telemetry sink for ui.perf (17 §5.2); sampled once per minute while visible (S2 §9). */
+    onPerfSample?: (s: { tickRenderMsP50: number; tickRenderMsP95: number; fps: number; heapMb: number; renderTier: CityTier }) => void;
   }
   export interface PickResult {
     kind: "company_hq" | "storefront" | "property" | "landmark" | "crown_tower" | "district" | "listing";
@@ -40,7 +46,8 @@ declare module "@/city" {
     getTier(): { tier: CityTier; reason: TierReason };
     setVisibility(v: Visibility): void;
     setReducedMotion(on: boolean): void;
-    setOverlay(o: "none" | "my_places" | "districts" | "sectors" | "for_sale" | "auctions" | "movers" | "development"): void;
+    setOverlay(o: CityOverlay): void;
+    setMyPlaces(ids: readonly string[]): void;
     setTimeOfDay(gameMinute: number): void;
     focus(target: { entityId: string } | { parcelId: string }): void;
     onPick(cb: (p: PickResult) => void): () => void;

@@ -6,6 +6,7 @@ import type { CityRenderer, Visibility } from "@/city";
 import type { BodyState } from "@/components/shell/AppBody";
 import { useShell } from "@/components/shell/ShellContext";
 import { S } from "@/shell/strings";
+import { recordPerf } from "@/shell/telemetry";
 import { fetchChunk, stubCityChannel } from "./cityChannel";
 
 export const cityVisibility = (s: BodyState): Visibility => (s.hidden ? "hidden" : s.collapsed || s.background ? "background" : "visible");
@@ -30,10 +31,11 @@ export function CityWindow({ state }: { state: BodyState }) {
   const reducedMotion = usePrefersReducedMotion();
   const tierOverride = useShell((s) => s.local.renderTierOverride);
   const myCityOverlay = useShell((s) => s.local.myCityOverlay);
+  const myPlaces = useShell((s) => s.channels.me.myPlaces);
   const visibility = cityVisibility(state);
   // Latest values for the async mount without re-creating the renderer.
-  const latest = useRef({ reducedMotion, visibility });
-  useEffect(() => { latest.current = { reducedMotion, visibility }; });
+  const latest = useRef({ reducedMotion, visibility, myPlaces });
+  useEffect(() => { latest.current = { reducedMotion, visibility, myPlaces }; });
 
   useEffect(() => {
     let disposed = false;
@@ -43,6 +45,7 @@ export function CityWindow({ state }: { state: BodyState }) {
       const r = await mod.createCityRenderer({
         cityId: "port-avalon", tierOverride, reducedMotion: latest.current.reducedMotion, myCityOverlay,
         channel: stubCityChannel, fetchChunk, locale: document.documentElement.lang || "en",
+        myEntityIds: latest.current.myPlaces, onPerfSample: recordPerf,
       });
       if (disposed) { r.dispose(); return; }
       await r.mount(ref.current);
@@ -64,6 +67,7 @@ export function CityWindow({ state }: { state: BodyState }) {
   useEffect(() => { renderer.current?.setVisibility(visibility); }, [visibility]);
   useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
   useEffect(() => { renderer.current?.setTier(tierOverride); }, [tierOverride]);
+  useEffect(() => { renderer.current?.setMyPlaces(myPlaces); }, [myPlaces]);
 
   return (
     <div className="city-body" data-testid="city-body" data-visibility={visibility}>

@@ -17,6 +17,7 @@ export interface MeChannel {
   onboardingDone: boolean;      // finished or skipped (18)
   guest: boolean;
   protectionEndsRealMs: number | null;
+  myPlaces: string[];           // entity ids of the player's own places (client-only, never uploaded)
 }
 /** Connection and world state for the §5 shell states (stubbed; owners 02/13/19). */
 export interface SystemState { connection: "live" | "reconnecting"; halted: boolean; held: boolean }

@@ -136,8 +136,10 @@ test("City seam: createCityRenderer(CityRendererOptions), async mount, visibilit
   await boot(page, "/city?rank=R2");
   await expect.poll(() => page.evaluate(() => (window as Window & { __cityCalls?: string[] }).__cityCalls ?? [])).toContain("visibility:visible");
   const calls = () => page.evaluate(() => [...((window as Window & { __cityCalls?: string[] }).__cityCalls ?? [])]);
-  expect((await calls())[0]).toBe("create:channel,cityId,fetchChunk,locale,myCityOverlay,reducedMotion,tierOverride");
+  expect((await calls())[0]).toBe("create:channel,cityId,fetchChunk,locale,myCityOverlay,myEntityIds,onPerfSample,reducedMotion,tierOverride");
   expect(await calls()).toContain("mount");
+  // ui.perf arrives through the injected onPerfSample sink (no window event).
+  await expect.poll(() => page.evaluate(() => ((window as Window & { __quayPerf?: () => { event: string }[] }).__quayPerf?.() ?? []).map((e) => e.event))).toContain("ui.perf");
   await page.getByTestId("win-city").getByRole("button", { name: "Collapse" }).click();
   await expect.poll(calls).toContain("visibility:background");
   await page.getByTestId("win-city").getByRole("button", { name: "Collapse" }).click();
