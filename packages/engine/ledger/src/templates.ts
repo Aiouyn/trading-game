@@ -1,6 +1,6 @@
 // Pure template builders (T03-06 rail, T03-07 templates). They return data only; nothing is applied until P13 (E3).
 import { accountKey, cbMirrorCode, cbkId, defaultMoneyCode, SYS_ID } from './accounts';
-import { RESTRICTED_FAUCETS, RESTRICTED_OK_CODES, type ReasonCatalog, type TemplateId } from './catalog';
+import { ESCROW_ONLY_CODES, legPolicy, RESTRICTED_FAUCETS, RESTRICTED_OK_CODES, type ReasonCatalog, type TemplateId } from './catalog';
 import { allocate, divRoundHalfEven, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
 import { restrictedSub } from './accounts';
 import { SortedMap } from './det';
@@ -162,16 +162,35 @@ export function tplPay(env: TemplateEnv, from: Id, to: Id, amt: Money, ccy: Ccy,
   return finish(env, 'PAY', code, d, o, { amount: amt, ccy, counterpartyId: to }, { parties: [from, to] });
 }
 
+/**
+ * Errata E-11 (PENDING PRODUCER SIGN-OFF): the leg account per catalog legPolicy, or an invalid entry.
+ * FIXED → the catalog leg (a different given value is leg_mismatch); REQUIRED → the caller's (missing → leg_missing; '@ASSET'
+ * must be a holder 15xx-18xx or issuer 2300/2310/2600/3100/3150 account; '@' must not be a money account); CLASS → given ∈ set;
+ * QTY_ONLY → no value leg, any given value is leg_mismatch.
+ */
+export function policyLeg(env: TemplateEnv, tpl: TemplateId, code: string, side: 'A' | 'B', given: number | undefined): number | null | Entry {
+  const row = env.catalog.get(code); if (!row) return invalidEntry(env, tpl, code, 'INV-LED-002', `unknown code ${code}`, 'a registered reason code');
+  const pol = legPolicy(row, tpl, side);
+  const bad = (obs: string, exp: string): Entry => invalidEntry(env, tpl, code, 'INV-LED-007', `leg_${obs} ${side} observed=${given ?? '-'}`, `expected=${exp}`);
+  if (pol.kind === 'QTY_ONLY') return given === undefined ? null : bad('mismatch', 'none (QTY_ONLY)');
+  if (pol.kind === 'FIXED') return given === undefined || given === pol.acct ? pol.acct : bad('mismatch', String(pol.acct));
+  if (pol.kind === 'CLASS') return given === undefined ? bad('missing', pol.allowed.join('|')) : pol.allowed.includes(given) ? given : bad('mismatch', pol.allowed.join('|'));
+  if (given === undefined) return bad('missing', pol.marker);
+  if (pol.marker === '@ASSET') return (given >= 1500 && given <= 1899) || [2300, 2310, 2600, 3100, 3150].includes(given) ? given : bad('mismatch', '@ASSET (15xx-18xx or 2300/2310/2600/3100/3150)');
+  return [1001, 1002, 1003, 1009, 1910, 2001, 2002, 2003].includes(given) ? bad('mismatch', '@ (a non-money account)') : given;
+}
+const isEntry = (x: unknown): x is Entry => typeof x === 'object' && x !== null;
+
+/** SWAP_ASSET (E-11): A = buyer's account, B = seller's account, from the catalog legs; o.valueLegA/B (alias assetAcct/assetAcctFrom) only where the policy allows. */
 export function tplSwapAsset(env: TemplateEnv, buyer: Id, seller: Id, assetId: Id, qty: Qty, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'SWAP_ASSET', code, [amt, qty], [buyer, seller]); if (bad) return bad;
+  const A = policyLeg(env, 'SWAP_ASSET', code, 'A', o?.valueLegA ?? o?.assetAcct); if (isEntry(A)) return A;
+  const B = policyLeg(env, 'SWAP_ASSET', code, 'B', o?.valueLegB ?? o?.assetAcctFrom ?? o?.assetAcct); if (isEntry(B)) return B;
+  if (A === null || B === null) return invalidEntry(env, 'SWAP_ASSET', code, 'INV-LED-007', 'leg_missing', 'two value legs');
   const d = cashLeg(env.rail, ent(env, buyer), ent(env, seller), amt, ccy, code, { restrictedOk: rOk(code), fixedSources: o?.fixedSources });
-  const acct = o?.assetAcct ?? 1500;
-  const bk = accountKey(buyer, acct, ccy, assetId); const sk = accountKey(seller, acct, ccy, assetId);
-  if (o?.assetAcctFrom !== undefined) {
-    d.push(dr(bk, accountKey(seller, o.assetAcctFrom, ccy, assetId), amt, ccy, code, { qty, assetId }));
-    return finish(env, 'SWAP_ASSET', code, d, o, { amount: amt, ccy, counterpartyId: seller }, { parties: [buyer, seller] });
-  }
-  const book = env.rail.bookValueOf(sk, qty);
+  const bk = accountKey(buyer, A, ccy, assetId); const sk = accountKey(seller, B, ccy, assetId);
+  // An issuer account on the seller side (code ≥ 2000): issuance, no book value or gain legs.
+  const book = B >= 2000 ? amt : env.rail.bookValueOf(sk, qty);
   d.push(dr(bk, sk, book, ccy, code, { qty, assetId }));
   if (amt > book) d.push(dr(bk, accountKey(seller, 4060, ccy), amt - book, ccy, code)); // TODO(systems): 4090/5190 for non-financial assets
   if (amt < book) d.push(dr(accountKey(seller, 5160, ccy), bk, book - amt, ccy, code));
@@ -251,19 +270,27 @@ export function tplCbCreditUnwind(env: TemplateEnv, cpty: Id, cb: Id, amt: Money
   return finish(env, 'CB_CREDIT_UNWIND', code, d, o, { amount: amt, ccy, counterpartyId: cb }, { parties: [cpty, cb], borrowerId: cpty });
 }
 
-/** Negative amounts swap sides (03 §8 edge 18). */
+/** Negative amounts swap sides (03 §8 edge 18). E-11: drAcct = leg A, crAcct = leg B, checked against the catalog legPolicy. */
 export function tplAccrue(env: TemplateEnv, e: Id, amt: Money, ccy: Ccy, code: string, drAcct: number, crAcct: number, o?: PostOptsExt): Entry {
   const neg = amt < 0n; const a = neg ? -amt : amt;
   const bad = prologue(env, 'ACCRUE', code, [a], [e]); if (bad) return bad;
-  const D = accountKey(e, drAcct, ccy, o?.sub); const C = accountKey(e, crAcct, ccy, o?.sub);
+  const A = policyLeg(env, 'ACCRUE', code, 'A', drAcct); if (isEntry(A)) return A;
+  const B = policyLeg(env, 'ACCRUE', code, 'B', crAcct); if (isEntry(B)) return B;
+  const D = accountKey(e, A ?? drAcct, ccy, o?.sub); const C = accountKey(e, B ?? crAcct, ccy, o?.sub);
   return finish(env, 'ACCRUE', code, [neg ? dr(C, D, a, ccy, code) : dr(D, C, a, ccy, code)], o, { amount: a, ccy }, { parties: [e] });
 }
-/** TODO(systems): accrual pair legs; uses the bilateral pair 1150/2800 with default income/expense legs. */
+/**
+ * E-11 CLASS: A = a's receivable ∈ {1100,1110}, B = b's payable ∈ {2510,2520,2540}, both caller-supplied (o.valueLegA/B).
+ * The income/expense legs are the catalog legB (a's income, e.g. LED_ACCRUAL 4020) and 5000. TODO(systems): b's expense leg.
+ */
 export function tplAccruePair(env: TemplateEnv, a: Id, b: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'ACCRUE_PAIR', code, [amt], [a, b]); if (bad) return bad;
+  const A = policyLeg(env, 'ACCRUE_PAIR', code, 'A', o?.valueLegA); if (isEntry(A)) return A;
+  const B = policyLeg(env, 'ACCRUE_PAIR', code, 'B', o?.valueLegB); if (isEntry(B)) return B;
+  const inc = env.catalog.get(code)?.valueLegB;
   return finish(env, 'ACCRUE_PAIR', code, [
-    dr(accountKey(a, 1150, ccy, b), accountKey(a, o?.valueLegB ?? DEFAULT_LEG.payeeIncome, ccy), amt, ccy, code),
-    dr(accountKey(b, o?.valueLegA ?? DEFAULT_LEG.payerExpense, ccy), accountKey(b, 2800, ccy, a), amt, ccy, code),
+    dr(accountKey(a, A as number, ccy, b), accountKey(a, typeof inc === 'number' ? inc : DEFAULT_LEG.payeeIncome, ccy), amt, ccy, code),
+    dr(accountKey(b, DEFAULT_LEG.payerExpense, ccy), accountKey(b, B as number, ccy, a), amt, ccy, code),
   ], o, { amount: amt, ccy, counterpartyId: b }, { parties: [a, b] });
 }
 /** a pays amt1 of ccy1 to b; b pays amt2 of ccy2 to a; each entity balances per currency through 3800 (03#8). */
@@ -287,7 +314,12 @@ export function tplMoveQty(env: TemplateEnv, from: Id, to: Id, assetId: Id, qty:
     dr(accountKey(from, valueLeg(env, code, 'A', o, DEFAULT_LEG.payerExpense), ccy), accountKey(to, valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome), ccy), bookValue, ccy, code),
   ], o, { amount: bookValue, ccy, counterpartyId: to }, { parties: [from, to] });
 }
+/** E-11: toAcct (debit) = leg A, fromAcct (credit) = leg B, checked against the catalog legPolicy. */
 export function tplReclass(env: TemplateEnv, e: Id, amt: Money, ccy: Ccy, code: string, fromAcct: number, toAcct: number, o?: PostOptsExt): Entry {
+  // QTY_ONLY rows (EQ_SPLIT, LED_DISSOLUTION): the positional args are the qty accounts, not value legs; only an override is rejected.
+  const qtyOnly = env.catalog.get(code) && legPolicy(env.catalog.get(code) as NonNullable<ReturnType<ReasonCatalog['get']>>, 'RECLASS', 'A').kind === 'QTY_ONLY';
+  const A = policyLeg(env, 'RECLASS', code, 'A', qtyOnly ? o?.valueLegA : toAcct); if (isEntry(A)) return A;
+  const B = policyLeg(env, 'RECLASS', code, 'B', qtyOnly ? o?.valueLegB : fromAcct); if (isEntry(B)) return B;
   return reclassKeys(env, code, accountKey(e, fromAcct, ccy, o?.sub), accountKey(e, toAcct, ccy), amt, ccy, o);
 }
 /** RECLASS between two keys of one entity (used for restricted-lot release: RESTRICTED sub -> 1001). */
@@ -300,6 +332,8 @@ export function reclassKeys(env: TemplateEnv, code: string, fromKey: string, toK
 export function composeEntries(_env: TemplateEnv, primary: Entry, supporting: readonly Entry[]): Entry {
   const bad = [primary, ...supporting].find((e) => e.invalid);
   if (bad) return { ...primary, postings: [], invalid: bad.invalid };
+  const esc = supporting.find((e) => ESCROW_ONLY_CODES.includes(e.reason)); // E-12 layer 1: never a supporting leg
+  if (esc) return { ...primary, postings: [], invalid: { invariantId: 'INV-LED-002', observed: `supporting leg ${esc.reason}`, expected: 'escrow-only codes post via escrowPlace only' } };
   const postings = [primary, ...supporting].flatMap((e) => e.postings)
     .map((p, i) => ({ ...p, entryId: primary.entryId, postingSeq: i }));
   const parties = [primary, ...supporting].flatMap((e) => e.meta?.parties ?? []).filter((x, i, a) => a.indexOf(x) === i);

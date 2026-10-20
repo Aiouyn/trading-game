@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const dir = process.argv[2] ?? '/workspace/specs/ledger-ref';
-const TEMPLATES = ['PAY', 'SWAP_ASSET', 'MINT', 'BURN', 'ELASTIC_IN', 'ELASTIC_OUT', 'LEND', 'REPAY', 'CB_CREDIT', 'CB_CREDIT_UNWIND', 'ACCRUE', 'ACCRUE_PAIR', 'FX', 'MOVE_QTY', 'RECLASS'];
+const TEMPLATES = ['PAY', 'SWAP_ASSET', 'MINT', 'BURN', 'ELASTIC_IN', 'ELASTIC_OUT', 'LEND', 'REPAY', 'CB_CREDIT', 'CB_CREDIT_UNWIND', 'ACCRUE', 'ACCRUE_PAIR', 'FX', 'MOVE_QTY', 'RECLASS', 'ESCROW_PLACE', 'ESCROW_SETTLE', 'CONTROL_RECLASS'];
 
 function parseCsv(text) {
   const rows = []; let row = [], cell = '', q = false;

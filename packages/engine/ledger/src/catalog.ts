@@ -5,7 +5,8 @@ export type FlowClass = 'FAUCET' | 'SINK' | 'TRANSFER' | 'CREDIT_CREATE' | 'CRED
 export const FLOW_CLASSES: readonly FlowClass[] = ['CREDIT_CREATE', 'CREDIT_DESTROY', 'FAUCET', 'REVALUE', 'SINK', 'TRANSFER'];
 export type TemplateId =
   | 'PAY' | 'SWAP_ASSET' | 'MINT' | 'BURN' | 'ELASTIC_IN' | 'ELASTIC_OUT' | 'LEND' | 'REPAY'
-  | 'CB_CREDIT' | 'CB_CREDIT_UNWIND' | 'ACCRUE' | 'ACCRUE_PAIR' | 'FX' | 'MOVE_QTY' | 'RECLASS';
+  | 'CB_CREDIT' | 'CB_CREDIT_UNWIND' | 'ACCRUE' | 'ACCRUE_PAIR' | 'FX' | 'MOVE_QTY' | 'RECLASS'
+  | 'ESCROW_PLACE' | 'ESCROW_SETTLE' | 'CONTROL_RECLASS'; // errata E-5 (Δ14 escrow, Δ9 control)
 export type CashFlow = 'OP' | 'INV' | 'FIN' | 'NC';
 
 /** Spec §2.3. `cf: ''` only for the six 24 §8 rows whose cf the source does not give (TODO(systems)). */
@@ -27,10 +28,40 @@ export interface CatalogSeedRow {
 /** 03 §3.3.3 last paragraph (T03-02 :47-48). */
 export const CLASS_TEMPLATES: Readonly<Record<FlowClass, readonly TemplateId[]>> = {
   FAUCET: ['MINT', 'ELASTIC_IN'], SINK: ['BURN', 'ELASTIC_OUT'],
-  TRANSFER: ['PAY', 'SWAP_ASSET', 'FX', 'MOVE_QTY'],
+  TRANSFER: ['PAY', 'SWAP_ASSET', 'FX', 'MOVE_QTY', 'ESCROW_PLACE', 'ESCROW_SETTLE'],
   CREDIT_CREATE: ['LEND', 'CB_CREDIT'], CREDIT_DESTROY: ['REPAY', 'CB_CREDIT_UNWIND'],
-  REVALUE: ['ACCRUE', 'ACCRUE_PAIR', 'RECLASS'],
+  REVALUE: ['ACCRUE', 'ACCRUE_PAIR', 'RECLASS', 'CONTROL_RECLASS'],
 };
+/** Errata E-12 layer 1: codes that may only be posted by escrowPlace; never PAY, never a supporting leg, never extended. */
+export const ESCROW_ONLY_CODES: readonly string[] = ['CONFLICT_CASH_LOOT', 'CONFLICT_RANSOM'];
+
+/**
+ * Errata E-11 value-leg authority (Systems ruling; PENDING PRODUCER SIGN-OFF). Applies to SWAP_ASSET, ACCRUE, ACCRUE_PAIR, RECLASS.
+ * FIXED: a concrete catalog leg; an override/positional arg must equal it. REQUIRED: '@ASSET'/'@', the caller supplies it.
+ * CLASS: a card-declared set (only ACCRUE_PAIR per T03-07:92 / T03-15:60). QTY_ONLY: '-'/'-' RECLASS rows, no value leg at all.
+ * TODO(systems): the T03-15 settleAccrual A/B swap set and the T03-14 (e.g. OCI → 3400) sets are not in the reference; not built.
+ */
+export type LegPolicy = { kind: 'FIXED'; acct: number } | { kind: 'REQUIRED'; marker: '@ASSET' | '@' } | { kind: 'CLASS'; allowed: readonly number[] } | { kind: 'QTY_ONLY' };
+export const ACCRUE_PAIR_CLASS = { A: [1100, 1110], B: [2510, 2520, 2540] } as const;
+export function legPolicy(row: CodeRow, tpl: TemplateId, side: 'A' | 'B'): LegPolicy {
+  if (tpl === 'ACCRUE_PAIR') return { kind: 'CLASS', allowed: ACCRUE_PAIR_CLASS[side] };
+  const l = side === 'A' ? row.valueLegA : row.valueLegB;
+  if (typeof l === 'number') return { kind: 'FIXED', acct: l };
+  if (l === '@ASSET' || l === '@') return { kind: 'REQUIRED', marker: l };
+  return { kind: 'QTY_ONLY' };
+}
+
+/**
+ * Codes the ledger (owner 03) registers through registerReasonCodes at world creation: §2.5 Δ9 / Δ13 control memo codes and
+ * §6.11 Δ14 escrow settlement codes (errata E-5, E-10 note 3). Legs: TODO(systems) — the release P&L legs come from the
+ * escrow's original CONFLICT_* code (E-10 note), not from these rows.
+ */
+export const LEDGER_EXTENSION_CODES: readonly CodeRow[] = [
+  ...['LED_CONTROL_IN', 'LED_CONTROL_OUT', 'LED_HOLDER_RECLASS'].map((code): CodeRow => ({
+    code, cls: 'REVALUE', owner: 3, cf: 'NC', allowedTemplates: ['CONTROL_RECLASS'], descriptionKey: `led.code.${code}`, restrictedOk: false, requestableBy: [], illicit: false })),
+  ...['ESCROW_CONFLICT_CLAWBACK', 'ESCROW_CONFLICT_RELEASE'].map((code): CodeRow => ({
+    code, cls: 'TRANSFER', owner: 3, cf: 'OP', allowedTemplates: ['ESCROW_SETTLE'], descriptionKey: `led.code.${code}`, restrictedOk: false, requestableBy: [13], illicit: false })),
+];
 
 /** Systems answer (errata E-3): the only codes on CB_CREDIT / CB_CREDIT_UNWIND. They feed TickFlows.cbCredit. */
 export const CBK_CREDIT_CODES: readonly string[] = [
@@ -49,7 +80,7 @@ export const RESTRICTED_FAUCETS: Readonly<Record<string, 'AD_GRANT' | 'FRESH_STA
 };
 
 export type CatalogError =
-  | 'PREFIX_CLASS_MISMATCH' | 'NAME_TAKEN' | 'OWNER_MISMATCH' | 'CLASS_MISMATCH' | 'TEMPLATE_CLASS_MISMATCH' | 'NO_TEMPLATE' | 'CATALOG_FROZEN';
+  | 'PREFIX_CLASS_MISMATCH' | 'NAME_TAKEN' | 'OWNER_MISMATCH' | 'CLASS_MISMATCH' | 'TEMPLATE_CLASS_MISMATCH' | 'NO_TEMPLATE' | 'CATALOG_FROZEN' | 'ESCROW_ONLY';
 
 /** One catalog per world (built from the seed, extended by registerReasonCodes, frozen when the world starts). */
 export class ReasonCatalog {
@@ -61,6 +92,10 @@ export class ReasonCatalog {
       valueLegA: r.legA ?? undefined, valueLegB: r.legB ?? undefined, elasticSectors: [...r.sectors], restrictedOk: r.restrictedOk,
       requestableBy: r.requestableBy === 'ALL' ? 'ALL' : [...r.requestableBy], illicit: r.illicit, taxTag: r.taxTag, stabilizerFamily: r.family,
     });
+    if (seed === CATALOG_SEED) for (const cls of ['REVALUE', 'TRANSFER'] as const) {
+      const errs = this.registerReasonCodes(3, cls, LEDGER_EXTENSION_CODES.filter((r) => r.cls === cls));
+      if (errs.length) throw new Error(`ledger extension codes: ${errs.join('; ')}`);
+    }
   }
   get(code: string): CodeRow | undefined { return this.rows.get(code); }
   all(): CodeRow[] { return this.rows.values(); }
@@ -91,6 +126,7 @@ export class ReasonCatalog {
   private check(module: number, cls: FlowClass, r: CodeRow): CatalogError | null {
     if (this.frozen) return 'CATALOG_FROZEN';
     if (this.rows.has(r.code) || this.resolveAlias(r.code)) return 'NAME_TAKEN';
+    if (ESCROW_ONLY_CODES.includes(r.code)) return 'ESCROW_ONLY'; // E-12 layer 1 (unreachable while the seed holds them; defence in depth)
     if (r.owner !== module) return 'OWNER_MISMATCH';
     if (r.cls !== cls) return 'CLASS_MISMATCH';
     if ((r.code.startsWith('FAUCET_') && cls !== 'FAUCET') || (r.code.startsWith('SINK_') && cls !== 'SINK')) return 'PREFIX_CLASS_MISMATCH';

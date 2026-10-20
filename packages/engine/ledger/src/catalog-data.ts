@@ -385,14 +385,14 @@ export const CATALOG_SEED: readonly CatalogSeedRow[] = [
   { code: 'LAB_POISON_LOSS', cls: 'REVALUE', owner: 12, cf: 'NC', tpl: ['ACCRUE'], legA: 5140, legB: 1700, sectors: [], restrictedOk: false, requestableBy: [], illicit: false },
   { code: 'LAB_MODEL_DECAY', cls: 'REVALUE', owner: 11, cf: 'NC', tpl: ['ACCRUE'], legA: 5140, legB: 1700, sectors: [], restrictedOk: false, requestableBy: [], illicit: false },
   { code: 'LAB_COMPUTE_EXPIRY', cls: 'REVALUE', owner: 11, cf: 'NC', tpl: ['ACCRUE'], legA: 5140, legB: 1221, sectors: [], restrictedOk: false, requestableBy: [], illicit: false },
-  { code: 'ACCT_BACKGROUND_DISCOUNT', cls: 'FAUCET', owner: 14, cf: '', tpl: ['MINT'], legA: 4110, legB: null, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
-  { code: 'BIZ_MARKETING_B2B', cls: 'TRANSFER', owner: 9, cf: '', tpl: ['PAY'], legA: null, legB: null, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
-  { code: 'CBK_IOR_P', cls: 'FAUCET', owner: 4, cf: '', tpl: ['MINT'], legA: 4110, legB: null, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
-  { code: 'CBK_IOR_W', cls: 'TRANSFER', owner: 4, cf: '', tpl: ['PAY'], legA: null, legB: null, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
-  { code: 'CBK_DEPOSIT_INTEREST_P', cls: 'FAUCET', owner: 4, cf: '', tpl: ['MINT'], legA: 4110, legB: null, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
-  { code: 'CBK_DEPOSIT_INTEREST_W', cls: 'TRANSFER', owner: 4, cf: '', tpl: ['PAY'], legA: null, legB: null, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
-  { code: 'CONFLICT_RANSOM', cls: 'TRANSFER', owner: 12, cf: 'OP', tpl: ['PAY'], legA: 5230, legB: 4190, sectors: [], restrictedOk: false, requestableBy: [], illicit: true, taxTag: 'ILLICIT', derived: true },
-  { code: 'CONFLICT_CASH_LOOT', cls: 'TRANSFER', owner: 12, cf: 'OP', tpl: ['PAY'], legA: 5140, legB: 4190, sectors: [], restrictedOk: false, requestableBy: [], illicit: true, taxTag: 'ILLICIT', derived: true },
+  { code: 'ACCT_BACKGROUND_DISCOUNT', cls: 'FAUCET', owner: 14, cf: 'OP', tpl: ['MINT'], legA: 4110, legB: null, sectors: [], restrictedOk: false, requestableBy: [18], illicit: false, taxTag: 'EXEMPT', family: 'F6', derived: true },
+  { code: 'BIZ_MARKETING_B2B', cls: 'TRANSFER', owner: 9, cf: 'OP', tpl: ['PAY'], legA: 5050, legB: 4000, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, taxTag: 'BIZ', derived: true },
+  { code: 'CBK_IOR_P', cls: 'FAUCET', owner: 4, cf: 'OP', tpl: ['MINT'], legA: 4020, legB: null, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, taxTag: 'INT', derived: true },
+  { code: 'CBK_IOR_W', cls: 'TRANSFER', owner: 4, cf: 'OP', tpl: ['PAY'], legA: 5090, legB: 4020, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, taxTag: 'INT', derived: true },
+  { code: 'CBK_DEPOSIT_INTEREST_P', cls: 'FAUCET', owner: 4, cf: 'OP', tpl: ['MINT'], legA: 4020, legB: null, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, taxTag: 'INT', derived: true },
+  { code: 'CBK_DEPOSIT_INTEREST_W', cls: 'TRANSFER', owner: 4, cf: 'OP', tpl: ['PAY'], legA: 5090, legB: 4020, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, taxTag: 'INT', derived: true },
+  { code: 'CONFLICT_RANSOM', cls: 'TRANSFER', owner: 12, cf: 'OP', tpl: ['ESCROW_PLACE'], legA: 1070, legB: 2160, sectors: [], restrictedOk: false, requestableBy: [], illicit: true, taxTag: 'ILLICIT', derived: true },
+  { code: 'CONFLICT_CASH_LOOT', cls: 'TRANSFER', owner: 12, cf: 'OP', tpl: ['ESCROW_PLACE'], legA: 1070, legB: 2160, sectors: [], restrictedOk: false, requestableBy: [], illicit: true, taxTag: 'ILLICIT', derived: true },
 ];
 
 /** aliases.csv (26 rows of 24 §8 + 2 of PD-12): alias -> canonical code(s). Posting an alias is invalid (INV-LED-002). */
