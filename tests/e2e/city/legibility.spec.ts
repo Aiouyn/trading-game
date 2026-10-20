@@ -12,6 +12,9 @@ test.describe('B2 fonts', () => {
     await openCity(page, 'tier=T1&reduced=1');
     await waitDrawn(page);
     await page.evaluate(() => document.fonts.ready);
+    // the mono face is only used by the table, so it is not loaded on the map yet: load it
+    // explicitly (faces are lazy) and check that every face came from the self-hosted files
+    await page.evaluate(() => Promise.all(['16px "Instrument Serif"', '14px "Inter"', '14px "JetBrains Mono"'].map((f) => document.fonts.load(f))));
     const r = await page.evaluate(() => ({
       serif: document.fonts.check('16px "Instrument Serif"'),
       inter: document.fonts.check('14px "Inter"'),
@@ -22,7 +25,7 @@ test.describe('B2 fonts', () => {
     }));
     console.log('B2 fonts', JSON.stringify(r));
     expect(r.serif && r.inter && r.mono).toBe(true);
-    expect(r.loaded).toEqual(expect.arrayContaining(['Instrument Serif', 'Inter']));
+    expect(r.loaded).toEqual(expect.arrayContaining(['Instrument Serif', 'Inter', 'JetBrains Mono']));
     expect(r.label).toMatch(/Instrument Serif/);
     expect(r.chrome).toMatch(/Inter/);
   });
