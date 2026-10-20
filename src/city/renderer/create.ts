@@ -5,30 +5,34 @@ import type {
   CityRenderer,
   CityRendererOptions,
   CityTier,
+  PerfSample,
   PickResult,
   TierReason,
   Visibility,
 } from '../index';
-import type { CityDelta, CitySnapshot } from '../data/types';
+import type { CityDelta, CityManifest, CitySnapshot } from '../data/types';
 import { CityStore } from '../data/store';
-import { snapshotUrl } from '../data/urls';
+import { manifestUrl } from '../data/urls';
+import { districtName } from '../data/names';
 import { buildRamps, type Ramps } from '../art/ramps';
 import { deltaE as deltaE76 } from '../art/color';
-import { readTokens, cssVar } from '../art/tokens';
+import { readTokens, cssVar, fontVar, sizeVar } from '../art/tokens';
 import { createDecodeClient, type DecodeClient } from '../worker/client';
 import type { DecodedChunk } from '../worker/decode';
 import { FLOATS_PER_PART } from '../worker/format';
 import { createTableView, type TableView } from '../table/table';
+import { displayName } from '../table/rows';
 import { createChrome, type Chrome } from '../chrome/chrome';
-import { FrameStats, heapMb, type UiPerfSample } from '../diagnostics/perf';
+import { FrameStats, heapMb } from '../diagnostics/perf';
 import { autoStep, initialTier, isBatterySaver, measureFps, readBattery, MEASURE_MS } from '../tiers/select';
-import { clampZoom, panGround, rotate, type CameraState } from './camera';
+import { clampZoom, panGround, rotate, viewDirection, type CameraState } from './camera';
 import { RenderLoop, browserScheduler, type Scheduler } from './loop';
 import { CityScene, type GroundData, type SceneConfig } from './scene';
-import { buildModel, entityAnchor, type CityModel } from './model';
-import { partColors } from './overlay';
+import { buildModel, entityAnchor, groundBounds, polygonCentroid, type CityModel } from './model';
+import { FLAT_BRASS, partColors } from './overlay';
 import { pickParts } from './pick';
-import { lightAt, litRatio, DEFAULT_GAME_MINUTE } from './light';
+import { lightAt, occupancy, DEFAULT_GAME_MINUTE } from './light';
+import { inPolygon, placeLabels as layoutLabels, type LabelBox, type Obstacle } from './labels';
 import { drawPicture } from './picture';
 import { GROUND_FRAG, GROUND_VERT, PART_FRAG, PART_VERT } from './shaders';
 
@@ -57,7 +61,17 @@ export interface CityTestApi {
   brassCheck: (deltaE: number) => { brass: number; outside: number; maskPixels: number } | null;
   /** Forces continuous rendering with a moving camera for `ms`; returns rAF intervals and CPU ms. */
   benchmark: (ms: number) => Promise<{ intervals: number[]; cpu: number[] }>;
-  perfSamples: () => UiPerfSample[];
+  perfSamples: () => PerfSample[];
+  manifestFetches: () => number;
+  /** Placed district labels in CSS px (after collision-aware layout). */
+  labelBoxes: () => (LabelBox & { text: string })[];
+  /** Ambient life state: running, and ms left in the 60 s window. */
+  ambient: () => { on: boolean; msLeft: number };
+  /** Parts currently cut away in front of the selection. */
+  cutCount: () => number;
+  partsOfEntity: (entityId: string) => number;
+  /** Relative luminance (p50, p75) of the map under each label box, labels not drawn (WCAG). */
+  labelBackground: () => { text: string; p50: number; p75: number }[] | null;
   decodeMs: () => number;
   decodeInWorker: () => boolean;
 }
@@ -69,6 +83,17 @@ const TIER_CONFIG: Record<'T1' | 'T2', { dprCap: number; maxPixels: number; near
 
 const LONG_PRESS_MS = 500;
 const TAP_SLOP_PX = 6;
+/** Repeat taps within 8 px and 1.5 s cycle to the next building behind (review A.6). */
+const CYCLE_SLOP_PX = 8;
+const CYCLE_MS = 1500;
+/** T2 ambient life: ≤ 12 fps, for at most 60 s after the last input (review A.5). */
+const AMBIENT_FPS = 12;
+const AMBIENT_WINDOW_MS = 60_000;
+const CUT_FADE_MS = 180;
+/** Map labels: Instrument Serif 16/20 via the display font token (review B1/B2). */
+const LABEL_FONT = `400 ${sizeVar('mapLabel')}/20px ${fontVar('display')}`;
+/** "City update pending" once the published state is older than the last day close (SR Q11). */
+const PENDING_LAG_TICKS = 720;
 const TWEEN_MS = 350;
 const PERF_INTERVAL_MS = 60_000;
 /** window.__city is exposed in dev and e2e builds only (spec §9). Both are build-time constants. */
@@ -83,8 +108,8 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   const stats = new FrameStats();
   const pickCbs = new Set<(p: PickResult) => void>();
   const tierCbs = new Set<(t: CityTier, r: TierReason) => void>();
-  const perfSamples: UiPerfSample[] = [];
-  const mine = new Set(opts.myEntityIds ?? []);
+  const perfSamples: PerfSample[] = [];
+  let mine = new Set(opts.myEntityIds);
 
   let override = opts.tierOverride;
   let reducedMotion = opts.reducedMotion;
@@ -107,20 +132,38 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   let lastSceneInfo = { drawCalls: 0, triangles: 0, geometries: 0, textures: 0, gpuBytes: 0 };
 
   let ground: GroundData | null = null;
-  let groundUrl: string | null = null;
+  let groundHash: string | null = null;
   let model: CityModel | null = null;
   let colors: { colors: Float32Array; flat: Uint8Array } | null = null;
 
   let unsubscribe: (() => void) | null = null;
   let pendingFetch = false;
-  let snapshotInflight: number | null = null;
   let snapshotFetches = 0;
+  let manifestFetches = 0;
+  let manifest: CityManifest | null = null;
+  let manifestInflight: Promise<void> | null = null;
+  let urlRetryFor: number | null = null;
+  let lastInputAt = 0;
+  let lastAmbientFrame = 0;
+  let ambientOn = false;
+  let selectedEi = -1;
+  let cut: Uint8Array | null = null;
+  let cutCount = 0;
+  let cutT0 = 0;
+  let cutCam = '';
   let chunkFetches = 0;
   let perfTimer: number | null = null;
 
   let cam: CameraState = { target: [0, 0], rotation: 0, zoom: 1 };
   let tween: { from: CameraState; to: CameraState; t0: number } | null = null;
   let baseHalf = 400;
+  let cityExtent = 0;
+  /** Default view half-height: the whole city fits the width on narrow (phone) viewports too. */
+  const viewHalf = (): number => {
+    const w = chrome?.stage.clientWidth || 1, h = chrome?.stage.clientHeight || 1;
+    return Math.max(baseHalf, (cityExtent * 0.8 * h) / w);
+  };
+  let camSet = false;
 
   const t0 = performance.now();
   const loadMs = { importThree: 0, firstChunk: 0, firstFrame: 0 };
@@ -137,8 +180,9 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     draw(now, continuous) {
       if (!scene || !chrome) return;
       const w = chrome.stage.clientWidth, h = chrome.stage.clientHeight;
-      scene.setCamera(cam, w, h, baseHalf);
+      scene.setCamera(cam, w, h, viewHalf());
       scene.setTime(now / 1000);
+      updateCut(now);
       const c0 = performance.now();
       scene.render();
       const cpu = performance.now() - c0;
@@ -150,11 +194,12 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       }
       lastSceneInfo = scene.info();
       placeLabels();
+      if (ambientOn) lastAmbientFrame = now;
       if (model && model.parts.length && !partsDrawn) {
         partsDrawn = true;
         loadMs.firstFrame = performance.now() - t0;
         startMeasurement();
-        loop.wake(); // ambient life (T2) starts once the city is on screen
+        noteInput(); // the city appearing opens the first ambient window
       }
       if (measuring) {
         measureStamps.push(frameClock());
@@ -190,8 +235,16 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
         cam = { ...cam, target: [Math.sin(now / 900) * baseHalf * 0.3, Math.cos(now / 1100) * baseHalf * 0.3] };
         moving = true;
       }
-      const ambient = tier === 'T2' && !reducedMotion && scene !== null && partsDrawn;
-      return moving || ambient;
+      if (cut && selectedEi >= 0 && now - cutT0 < CUT_FADE_MS) moving = true; // cut-away fade
+      setAmbient(ambientWanted(now));
+      if (moving) return true;
+      if (!ambientOn) return false;
+      const wait = 1000 / AMBIENT_FPS - (now - lastAmbientFrame);
+      if (now + Math.max(0, wait) >= lastInputAt + AMBIENT_WINDOW_MS) {
+        setAmbient(false); // the next ambient frame would fall past the window: stop now
+        return false;
+      }
+      return wait <= 0 ? true : wait;
     },
     onBackgroundLong() {
       setSubscribed(false);
@@ -200,13 +253,34 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       if (!mounted) return;
       setSubscribed(true);
       const stamp = opts.channel.stateVersion(opts.cityId);
-      if (stamp !== null && stamp !== store.stateVersion) void fetchSnapshot(stamp);
+      if (stamp !== null && stamp !== store.stateVersion) void syncManifest();
       else if (pendingFetch) void ensureChunks();
     },
     onIdle() {
       stats.pause();
     },
   });
+
+  // ---------- ambient life ----------
+  function ambientWanted(now: number): boolean {
+    return tier === 'T2' && !reducedMotion && scene !== null && partsDrawn && now - lastInputAt < AMBIENT_WINDOW_MS;
+  }
+
+  function setAmbient(on: boolean): void {
+    if (on === ambientOn) return;
+    ambientOn = on;
+    scene?.setAmbient(on);
+    if (!on) loop.invalidate(); // one last still frame without boats, then the loop stops
+  }
+
+  /** Any input (or the city appearing) opens a new 60 s ambient window. */
+  function noteInput(): void {
+    lastInputAt = sched.now();
+    if (ambientWanted(lastInputAt)) {
+      setAmbient(true);
+      loop.wake();
+    }
+  }
 
   function startMeasurement(): void {
     if (override !== 'auto' || tier !== 'T2' || fpsFirst2s !== null) return;
@@ -237,41 +311,85 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     return mounted && !disposed && loop.state === 'visible';
   }
 
-  async function fetchSnapshot(version: number): Promise<void> {
-    if (snapshotInflight === version) return;
+  async function fetchJson<T>(url: string): Promise<T> {
+    const buf = await opts.fetchChunk(url);
+    return JSON.parse(new TextDecoder().decode(buf)) as T;
+  }
+
+  /**
+   * The manifest is the entry point (SR Q1): it names the snapshot, the deltas from the last two
+   * versions, and every chunk and the ground by content hash. A listed delta from our version is
+   * applied; anything else loads the snapshot.
+   */
+  function syncManifest(): Promise<void> {
     if (!visible()) {
       pendingFetch = true;
-      return;
+      return Promise.resolve();
     }
-    snapshotInflight = version;
-    try {
-      snapshotFetches++;
-      const buf = await opts.fetchChunk(snapshotUrl(opts.cityId, version));
-      const snap = JSON.parse(new TextDecoder().decode(buf)) as CitySnapshot;
-      if (!disposed) setData(snap);
-    } catch (err) {
-      console.warn('[city] snapshot fetch failed', err);
-    } finally {
-      snapshotInflight = null;
-    }
+    if (manifestInflight) return manifestInflight;
+    manifestInflight = (async () => {
+      try {
+        manifestFetches++;
+        const m = await fetchJson<CityManifest>(manifestUrl(opts.cityId));
+        if (disposed || m.cityId !== opts.cityId) return;
+        manifest = m;
+        const have = store.stateVersion;
+        if (have === m.snapshot.stateVersion) {
+          if (pendingFetch) void ensureChunks();
+          updatePending();
+          return;
+        }
+        const delta = have === null ? undefined : m.deltas.find((d) => d.base === have);
+        if (delta) {
+          const d = await fetchJson<CityDelta>(delta.url);
+          if (!disposed) {
+            const r = store.apply(d);
+            if (r.status === 'applied') {
+              afterApply(r.changedChunks.length === 0 && !r.full);
+              return;
+            }
+          }
+        }
+        snapshotFetches++;
+        const snap = await fetchJson<CitySnapshot>(m.snapshot.url);
+        if (!disposed) setData(snap);
+      } catch (err) {
+        console.warn('[city] manifest sync failed', err);
+      } finally {
+        manifestInflight = null;
+      }
+    })();
+    return manifestInflight;
   }
 
   function setData(input: CitySnapshot | CityDelta): void {
     if (disposed || input.cityId !== opts.cityId) return;
     const r = store.apply(input);
     if (r.status === 'needs-snapshot') {
-      void fetchSnapshot(input.stateVersion);
+      void syncManifest();
       return;
     }
     if (r.status !== 'applied') return;
+    afterApply(r.changedChunks.length === 0 && !r.full);
+  }
+
+  function afterApply(entitiesOnly: boolean): void {
     const s = store.snapshot!;
-    chrome?.setPending(s.lagTicks > 0 ? 'City update pending' : null);
+    updatePending();
     table?.update(s, mine);
-    if (r.changedChunks.length === 0 && !r.full && model) {
+    if (entitiesOnly && model) {
       rebuildModel(); // entity changes only
       return;
     }
     void ensureChunks();
+  }
+
+  /** lag = clock tick − publicSnapshotTick. The clock tick is not on the seam yet [open: Front Dev]. */
+  function updatePending(): void {
+    const s = store.snapshot;
+    const clock = (opts.channel as { clockTick?: () => number | null }).clockTick?.() ?? null;
+    const lag = s && clock !== null ? clock - s.publicSnapshotTick : 0;
+    chrome?.setPending(lag > PENDING_LAG_TICKS ? 'City update pending' : null);
   }
 
   async function ensureChunks(): Promise<void> {
@@ -283,23 +401,36 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     }
     pendingFetch = false;
     const version = s.stateVersion;
+    // every URL comes from the manifest, by content hash (SR Q1)
+    const urlOf = new Map<string, string>((manifest?.chunks ?? []).map((c) => [c.contentHash, c.url]));
+    if (manifest) urlOf.set(manifest.ground.contentHash, manifest.ground.url);
+    const missing = [s.ground.contentHash, ...s.chunks.map((c) => c.contentHash)].some((h) => !urlOf.has(h) && !decoded.has(h) && h !== groundHash);
+    if (missing) {
+      if (urlRetryFor !== version) {
+        urlRetryFor = version;
+        manifest = null;
+        void syncManifest().then(() => ensureChunks());
+      }
+      return;
+    }
     const jobs: Promise<unknown>[] = [];
-    if (groundUrl !== s.ground.url) {
-      const url = s.ground.url;
+    if (groundHash !== s.ground.contentHash) {
+      const g = s.ground;
       jobs.push(
-        opts.fetchChunk(url).then((buf) => {
+        opts.fetchChunk(urlOf.get(g.contentHash)!).then((buf) => {
           chunkFetches++;
-          ground = { mask: new Uint8Array(buf), size: s.ground.size, extent: s.extent };
-          groundUrl = url;
+          const b = groundBounds(g);
+          ground = { mask: new Uint8Array(buf), size: g.size, x0: b.x0, z0: b.z0, span: b.size };
+          groundHash = g.contentHash;
         }),
       );
     }
     for (const ref of s.chunks) {
-      if (decoded.has(ref.hash)) continue;
+      if (decoded.has(ref.contentHash)) continue;
       jobs.push(
-        opts.fetchChunk(ref.url).then(async (buf) => {
+        opts.fetchChunk(urlOf.get(ref.contentHash)!).then(async (buf) => {
           chunkFetches++;
-          decoded.set(ref.hash, await decoder.decode(buf));
+          decoded.set(ref.contentHash, await decoder.decode(buf));
         }),
       );
     }
@@ -310,7 +441,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       return;
     }
     if (disposed || store.stateVersion !== version) return;
-    const live = new Set(s.chunks.map((c) => c.hash));
+    const live = new Set(s.chunks.map((c) => c.contentHash));
     for (const h of decoded.keys()) if (!live.has(h)) decoded.delete(h);
     if (!loadMs.firstChunk) loadMs.firstChunk = performance.now() - t0;
     rebuildModel(true);
@@ -321,7 +452,13 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     if (!s || !ramps) return;
     if (geometryChanged || !model) {
       model = buildModel(s, decoded);
-      baseHalf = s.extent * 0.75;
+      const b = groundBounds(s.ground);
+      baseHalf = b.extent * 0.75;
+      cityExtent = b.extent;
+      if (!camSet) {
+        cam = { ...cam, target: [b.cx, b.cz] };
+        camSet = true;
+      }
     }
     recolor(geometryChanged);
   }
@@ -348,17 +485,17 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
 
   function isWater(x: number, z: number): boolean {
     if (!ground) return false;
-    const { size, extent, mask } = ground;
-    const i = Math.floor(((x + extent) / (2 * extent)) * size);
-    const j = Math.floor(((z + extent) / (2 * extent)) * size);
+    const { size, mask, x0, z0, span } = ground;
+    const i = Math.floor(((x - x0) / span) * size);
+    const j = Math.floor(((z - z0) / span) * size);
     if (i < 0 || j < 0 || i >= size || j >= size) return false;
     return mask[j * size + i] === 0;
   }
 
   function applyLight(): void {
     if (!scene || !ramps) return;
-    const l = lightAt(gameMinute, ramps);
-    scene.setLight({ ...l, litRatio: litRatio(store.snapshot?.dayReturn ?? 0) });
+    // default lighting = time of day × occupancy only (SR headline 1)
+    scene.setLight(lightAt(gameMinute, occupancy(store.snapshot?.districts ?? [])));
   }
 
   // ---------- tiers ----------
@@ -455,6 +592,24 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     loop.endContinuous();
   }
 
+  function labelSpecs(): { id: string; text: string; anchor: [number, number]; ground: [number, number][] }[] {
+    const s = store.snapshot;
+    if (!s) return [];
+    return s.districts.map((d) => {
+      const anchor = polygonCentroid(d.polygon);
+      // candidate ground points: rings around the centroid, inside the district, on land
+      const ground: [number, number][] = [anchor];
+      for (const r of [30, 60, 90, 130, 170]) {
+        for (let k = 0; k < 12; k++) {
+          const a = (k / 12) * Math.PI * 2;
+          const x = anchor[0] + Math.cos(a) * r, z = anchor[1] + Math.sin(a) * r;
+          if (inPolygon(x * 100, z * 100, d.polygon) && !isWater(x, z)) ground.push([x, z]);
+        }
+      }
+      return { id: d.id, text: districtName(d.nameKey), anchor, ground };
+    });
+  }
+
   function drawT0(): void {
     if (!chrome || !ramps || tier !== 'T0') return;
     const s = store.snapshot;
@@ -463,63 +618,113 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       Object.assign(img.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'contain' });
       chrome.stage.append(img);
     }
-    img.alt = s ? `Picture of ${opts.cityId}. Use View as table to browse the city.` : 'City picture loading';
+    img.alt = s ? 'Picture of the city. Use View as table to browse it.' : 'City picture loading';
     if (!s || !model || !colors) return;
+    // canvas needs the resolved font, not var(): read it back from a probe
+    const probe = document.createElement('span');
+    probe.style.font = LABEL_FONT;
+    chrome.labels.append(probe);
+    const cs = getComputedStyle(probe);
+    const font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    probe.remove();
     img.src = drawPicture({
       width: chrome.stage.clientWidth,
       height: chrome.stage.clientHeight,
-      extent: s.extent,
+      dpr: Math.min(2, window.devicePixelRatio || 1),
       ground,
       parts: model.parts,
       colors: colors.colors,
       flat: colors.flat,
       ramps,
+      labels: labelSpecs().map((l) => ({ text: l.text, x: l.anchor[0], z: l.anchor[1] })),
+      labelFont: font,
     });
   }
 
   // ---------- labels, picking, input ----------
-  let labelEls: { el: HTMLButtonElement; pos: [number, number, number] }[] = [];
+  // District labels: Instrument Serif 16/20 in --fg with a 3 px --bg0 knockout stroke (a text
+  // outline, not a shadow), placed away from tall parts (review B1).
+  let labelEls: { el: HTMLButtonElement; text: string; ground: [number, number][]; w: number; h: number }[] = [];
+  let labelKey = '';
+  let labelBoxes: LabelBox[] = [];
   function buildLabels(): void {
     if (!chrome) return;
     chrome.labels.replaceChildren();
     labelEls = [];
-    for (const d of store.snapshot?.districts ?? []) {
+    labelKey = '';
+    for (const spec of labelSpecs()) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'city-district-label';
-      b.textContent = d.name;
+      b.textContent = spec.text;
       Object.assign(b.style, {
         position: 'absolute',
-        transform: 'translate(-50%, -50%)',
+        left: '0',
+        top: '0',
         pointerEvents: 'auto',
         background: 'none',
         border: '0',
-        padding: '2px 4px',
+        padding: '0 4px',
         color: cssVar('fg'),
-        opacity: '0.72',
-        font: '18px/1 var(--font-instrument-serif, "Instrument Serif", serif)',
-        cursor: 'pointer',
+        font: LABEL_FONT,
         whiteSpace: 'nowrap',
-      });
-      b.addEventListener('click', () => emitPick(districtPick(d.id)));
+        cursor: 'pointer',
+        webkitTextStroke: `6px ${cssVar('bg0')}`, // centred stroke: 3 px outside the glyph
+        paintOrder: 'stroke fill',
+      } as Partial<CSSStyleDeclaration>);
+      const id = spec.id;
+      b.addEventListener('click', () => emitPick(districtPick(id)));
       chrome.labels.append(b);
-      labelEls.push({ el: b, pos: [d.center[0], 30, d.center[1]] });
+      labelEls.push({ el: b, text: spec.text, ground: spec.ground, w: 0, h: 0 });
     }
   }
 
   function placeLabels(): void {
-    if (!scene || !chrome) return;
+    if (!scene || !chrome || !model) return;
     const w = chrome.stage.clientWidth, h = chrome.stage.clientHeight;
+    const key = `${w}x${h}|${cam.target.join()}|${cam.zoom}|${cam.rotation}|${labelEls.length}|${model.parts.length}`;
+    if (key === labelKey) return;
+    labelKey = key;
     for (const l of labelEls) {
-      const p = scene.project(l.pos, w, h);
-      l.el.style.left = `${p.x}px`;
-      l.el.style.top = `${p.y}px`;
+      l.w = l.el.offsetWidth;
+      l.h = l.el.offsetHeight;
     }
+    const obstacles = partObstacles(w, h);
+    labelBoxes = layoutLabels(
+      labelEls.map((l) => ({ w: l.w, h: l.h, candidates: l.ground.map(([x, z]) => scene!.project([x, 0, z], w, h)) })),
+      obstacles,
+      { w, h },
+    );
+    labelEls.forEach((l, i) => {
+      const b = labelBoxes[i];
+      l.el.style.transform = `translate(${Math.round(b.x)}px, ${Math.round(b.y)}px)`;
+    });
+  }
+
+  /** Screen boxes of every part; tall and brass parts weigh more (their windows/brass are bright). */
+  function partObstacles(w: number, h: number): Obstacle[] {
+    if (!scene || !model) return [];
+    const out: Obstacle[] = [];
+    const p = model.parts;
+    for (let i = 0; i < p.length / FLOATS_PER_PART; i++) {
+      const o = i * FLOATS_PER_PART;
+      const [x, z, pw, pd, y0, ph] = [p[o], p[o + 1], p[o + 2], p[o + 3], p[o + 4], p[o + 5]];
+      let x0 = Infinity, x1 = -Infinity, y0s = Infinity, y1s = -Infinity;
+      for (const c of [[x - pw / 2, y0, z - pd / 2], [x + pw / 2, y0, z + pd / 2], [x - pw / 2, y0, z + pd / 2], [x + pw / 2, y0, z - pd / 2], [x - pw / 2, y0 + ph, z - pd / 2], [x + pw / 2, y0 + ph, z + pd / 2], [x - pw / 2, y0 + ph, z + pd / 2], [x + pw / 2, y0 + ph, z - pd / 2]] as [number, number, number][]) {
+        const s = scene.project(c, w, h);
+        x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x); y0s = Math.min(y0s, s.y); y1s = Math.max(y1s, s.y);
+      }
+      if (x1 < 0 || y1s < 0 || x0 > w || y0s > h) continue;
+      const brass = colors?.flat[i] === FLAT_BRASS;
+      out.push({ x: x0, y: y0s, w: x1 - x0, h: y1s - y0s, weight: brass ? 6 : y0 + ph > 40 ? 3 : 1 });
+    }
+    return out;
   }
 
   function districtPick(id: string): PickResult {
-    const d = store.snapshot?.districts.find((x) => x.id === id);
-    const screen = d && scene && chrome ? scene.project([d.center[0], 30, d.center[1]], chrome.stage.clientWidth, chrome.stage.clientHeight) : { x: 0, y: 0 };
+    const i = store.snapshot?.districts.findIndex((x) => x.id === id) ?? -1;
+    const b = labelBoxes[i];
+    const screen = b && scene ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : { x: 0, y: 0 };
     return { kind: 'district', entityId: id, parcelId: id, screen: round(screen) };
   }
 
@@ -552,12 +757,70 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       return { x: p[o], z: p[o + 1], w: p[o + 2], d: p[o + 3], y0: p[o + 4], h: p[o + 5] };
     });
     scene.setSelection(ei >= 0 ? boxes : []);
+    selectedEi = ei;
+    cutCam = '';
+    cutT0 = sched.now();
     loop.invalidate();
+  }
+
+  /**
+   * Cut-away (review A.6): parts in front of the selection, within its screen outline + 4 px, are
+   * not drawn, so the selected building is always visible. Fades over 180 ms; instant under
+   * reduced motion. Recomputed when the camera or selection changes.
+   */
+  function updateCut(now: number): void {
+    if (!scene || !model || !chrome) return;
+    if (selectedEi < 0 || !model.partsOf.has(selectedEi)) {
+      if (cut) {
+        cut = null;
+        cutCount = 0;
+        scene.setCut(new Uint8Array(model.parts.length / FLOATS_PER_PART), 0);
+      }
+      return;
+    }
+    const w = chrome.stage.clientWidth, h = chrome.stage.clientHeight;
+    const key = `${w}x${h}|${cam.target.join()}|${cam.zoom}|${cam.rotation}|${selectedEi}|${model.parts.length}`;
+    if (key !== cutCam) {
+      cutCam = key;
+      const [vx, , vz] = viewDirection(cam.rotation);
+      const p = model.parts;
+      const rect = (i: number) => {
+        const o = i * FLOATS_PER_PART;
+        const [x, z, pw, pd, y0, ph] = [p[o], p[o + 1], p[o + 2], p[o + 3], p[o + 4], p[o + 5]];
+        let x0 = Infinity, x1 = -Infinity, ya = Infinity, yb = -Infinity;
+        for (const c of [[x - pw / 2, y0, z - pd / 2], [x + pw / 2, y0, z + pd / 2], [x - pw / 2, y0, z + pd / 2], [x + pw / 2, y0, z - pd / 2], [x - pw / 2, y0 + ph, z - pd / 2], [x + pw / 2, y0 + ph, z + pd / 2], [x - pw / 2, y0 + ph, z + pd / 2], [x + pw / 2, y0 + ph, z - pd / 2]] as [number, number, number][]) {
+          const s = scene!.project(c, w, h);
+          x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x); ya = Math.min(ya, s.y); yb = Math.max(yb, s.y);
+        }
+        return { x0, x1, y0: ya, y1: yb, depth: x * vx + z * vz };
+      };
+      const own = model.partsOf.get(selectedEi)!;
+      const sel = own.map(rect);
+      const box = { x0: Math.min(...sel.map((r) => r.x0)) - 4, x1: Math.max(...sel.map((r) => r.x1)) + 4, y0: Math.min(...sel.map((r) => r.y0)) - 4, y1: Math.max(...sel.map((r) => r.y1)) + 4 };
+      const depth = Math.max(...sel.map((r) => r.depth));
+      const n = p.length / FLOATS_PER_PART;
+      const flags = new Uint8Array(n);
+      const ownSet = new Set(own);
+      let count = 0;
+      for (let i = 0; i < n; i++) {
+        if (ownSet.has(i)) continue;
+        const r = rect(i);
+        if (r.depth <= depth) continue; // behind (further from the camera)
+        if (r.x1 < box.x0 || r.x0 > box.x1 || r.y1 < box.y0 || r.y0 > box.y1) continue;
+        flags[i] = 1;
+        count++;
+      }
+      cut = flags;
+      cutCount = count;
+      scene.setCut(flags, reducedMotion ? 1 : Math.min(1, (now - cutT0) / CUT_FADE_MS));
+      return;
+    }
+    scene.setCut(null, reducedMotion ? 1 : Math.min(1, (now - cutT0) / CUT_FADE_MS));
   }
 
   // Tapping the same spot again picks the next entity behind (buildings hidden by taller ones
   // stay reachable on the map, CTY-05 / C-02).
-  let lastTap: { x: number; y: number; hits: number[]; at: number } | null = null;
+  let lastTap: { x: number; y: number; hits: number[]; at: number; t: number } | null = null;
   function pickAt(x: number, y: number, cycle = false): number {
     if (!scene || !model || !chrome) return -1;
     const { o, d } = scene.ray(x, y, chrome.stage.clientWidth, chrome.stage.clientHeight);
@@ -567,9 +830,10 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       if (ei >= 0 && !hits.includes(ei)) hits.push(ei);
     }
     if (!cycle) return hits[0] ?? -1;
-    const same = lastTap && Math.hypot(lastTap.x - x, lastTap.y - y) <= TAP_SLOP_PX && lastTap.hits.join() === hits.join();
+    const t = sched.now();
+    const same = lastTap && Math.hypot(lastTap.x - x, lastTap.y - y) <= CYCLE_SLOP_PX && t - lastTap.t <= CYCLE_MS && lastTap.hits.join() === hits.join();
     const at = same && lastTap ? (lastTap.at + 1) % Math.max(1, hits.length) : 0;
-    lastTap = { x, y, hits, at };
+    lastTap = { x, y, hits, at, t };
     return hits[at] ?? -1;
   }
 
@@ -593,7 +857,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
 
   function panPx(dxPx: number, dyPx: number): void {
     if (!chrome) return;
-    const mPerPx = (2 * baseHalf) / cam.zoom / Math.max(1, chrome.stage.clientHeight);
+    const mPerPx = (2 * viewHalf()) / cam.zoom / Math.max(1, chrome.stage.clientHeight);
     const [gx, gz] = panGround(cam.rotation, -dxPx * mPerPx, dyPx * mPerPx);
     setCam({ ...cam, target: [cam.target[0] + gx, cam.target[1] + gz] }, false);
   }
@@ -609,6 +873,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
     const onDown = (e: PointerEvent) => {
+      noteInput();
       cv.setPointerCapture?.(e.pointerId);
       const p = local(e);
       pointers.set(e.pointerId, p);
@@ -623,7 +888,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
           const pick = entityPick(ei);
           select(ei);
           const e2 = store.snapshot!.entities[ei];
-          chrome?.showMenu(p.x, p.y, e2.name, [
+          chrome?.showMenu(p.x, p.y, displayName(e2.name, e2.parcelId), [
             { label: 'Focus', run: () => focusEntity(ei) },
             { label: 'Show details', run: () => emitPick(pick) },
             { label: 'View as table', run: () => openTable() },
@@ -667,6 +932,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      noteInput();
       zoomBy(Math.exp(-e.deltaY * 0.0015));
     };
     const onKey = (e: KeyboardEvent) => {
@@ -685,6 +951,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       };
       const run = map[e.key];
       if (run) {
+        noteInput();
         e.preventDefault();
         run();
       }
@@ -710,6 +977,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     if (!model) return;
     const a = entityAnchor(model, ei);
     if (!a) return;
+    noteInput();
     select(ei);
     setCam({ ...cam, target: [a[0], a[2]], zoom: Math.max(cam.zoom, 2) }, true);
   }
@@ -734,16 +1002,24 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     (canvas ?? chrome?.tableButton)?.focus();
   }
 
+  let exposeEvents = false;
+  /**
+   * ui.perf (17 §5.2) goes to the shell's injected sink, once a minute while visible. A value the
+   * browser cannot measure is NaN (never a made-up 0). The window event exists only behind the
+   * dev/e2e window.__city hook.
+   */
   function samplePerf(): void {
     if (!visible()) return;
-    const sample: UiPerfSample = {
-      tickRenderMs: { p50: stats.renderP(50), p95: stats.renderP(95) },
-      fps: stats.fps(),
-      heapMb: heapMb(),
+    const sample: PerfSample = {
+      tickRenderMsP50: stats.renderP(50) ?? Number.NaN,
+      tickRenderMsP95: stats.renderP(95) ?? Number.NaN,
+      fps: stats.fps() ?? Number.NaN,
+      heapMb: heapMb() ?? Number.NaN,
       renderTier: tier,
     };
     perfSamples.push(sample);
-    window.dispatchEvent(new CustomEvent('ui.perf', { detail: sample }));
+    opts.onPerfSample?.(sample);
+    if (exposeEvents) window.dispatchEvent(new CustomEvent('ui.perf', { detail: sample }));
   }
 
   function setPerfTimer(on: boolean): void {
@@ -820,7 +1096,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
         else void ensureChunks();
       } else {
         const stamp = opts.channel.stateVersion(opts.cityId);
-        if (stamp !== null) void fetchSnapshot(stamp);
+        if (stamp !== null) void syncManifest();
       }
       if (hooks.expose ?? DEV_OR_E2E) exposeTestApi();
     },
@@ -870,6 +1146,11 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       }
       loop.invalidate();
     },
+    setMyPlaces(ids) {
+      mine = new Set(ids); // client-only: never sent anywhere (17-AT-21)
+      table?.update(store.snapshot, mine);
+      recolor(false);
+    },
     setOverlay(o) {
       overlay = o;
       chrome?.setOverlay(o);
@@ -911,6 +1192,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   };
 
   function exposeTestApi(): void {
+    exposeEvents = true;
     const t: CityTestApi = {
       diagnostics,
       rafPending: () => loop.pending,
@@ -925,7 +1207,10 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       tableRows: () => (table?.rows() ?? []).map((r) => ({ kind: r.kind, entityId: r.entityId, parcelId: r.parcelId, name: r.name, mine: r.mine })),
       anchorOf: anchorScreen,
       camera: () => cam,
-      setCamera: (c) => setCam({ ...cam, ...c }, false),
+      setCamera: (c) => {
+        noteInput();
+        setCam({ ...cam, ...c }, false);
+      },
       brassCheck: (dE) => brassCheck(dE),
       benchmark: (ms) =>
         new Promise((resolve) => {
@@ -941,17 +1226,50 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
           }, ms + 50);
         }),
       perfSamples: () => [...perfSamples],
+      manifestFetches: () => manifestFetches,
+      labelBoxes: () => labelBoxes.map((b, i) => ({ ...b, text: labelEls[i]?.text ?? '' })),
+      ambient: () => ({ on: ambientOn, msLeft: Math.max(0, AMBIENT_WINDOW_MS - (sched.now() - lastInputAt)) }),
+      cutCount: () => cutCount,
+      labelBackground: () => labelBackground(),
+      partsOfEntity: (id) => {
+        const ei = model?.entityIndex.get(id);
+        return ei === undefined ? 0 : (model!.partsOf.get(ei)?.length ?? 0);
+      },
       decodeMs: () => decoder.decodeMs,
       decodeInWorker: () => decoder.inWorker,
     };
     (window as unknown as { __city: CityTestApi }).__city = t;
   }
 
+  function labelBackground(): { text: string; p50: number; p75: number }[] | null {
+    if (!scene || !canvas || !chrome) return null;
+    const gl = scene.renderer.getContext();
+    const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
+    scene.setCamera(cam, chrome.stage.clientWidth, chrome.stage.clientHeight, viewHalf());
+    scene.render();
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const k = W / chrome.stage.clientWidth;
+    const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return labelBoxes.map((b, i) => {
+      const lum: number[] = [];
+      for (let y = Math.max(0, Math.floor(b.y * k)); y < Math.min(H, Math.ceil((b.y + b.h) * k)); y++) {
+        for (let x = Math.max(0, Math.floor(b.x * k)); x < Math.min(W, Math.ceil((b.x + b.w) * k)); x++) {
+          const o = ((H - 1 - y) * W + x) * 4;
+          lum.push(0.2126 * lin(px[o] / 255) + 0.7152 * lin(px[o + 1] / 255) + 0.0722 * lin(px[o + 2] / 255));
+        }
+      }
+      lum.sort((a, c) => a - c);
+      const q = (p: number) => lum[Math.min(lum.length - 1, Math.floor(p * lum.length))] ?? 0;
+      return { text: labelEls[i]?.text ?? '', p50: q(0.5), p75: q(0.75) };
+    });
+  }
+
   function brassCheck(dE: number): { brass: number; outside: number; maskPixels: number } | null {
     if (!scene || !canvas || !ramps || !chrome) return null;
     const gl = scene.renderer.getContext();
     const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
-    scene.setCamera(cam, chrome.stage.clientWidth, chrome.stage.clientHeight, baseHalf);
+    scene.setCamera(cam, chrome.stage.clientWidth, chrome.stage.clientHeight, viewHalf());
     scene.render();
     const color = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, color);
@@ -959,17 +1277,20 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     const mask = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, mask);
     scene.render();
-    const acc = ramps.brass;
+    const tones = [ramps.brass, ramps.brassHi, ramps.brassLo]; // --acc, --acc-hi, --acc-lo
     let brass = 0, outside = 0, maskPixels = 0;
     for (let i = 0; i < w * h; i++) {
       const m = mask[i * 4] > 127;
       if (m) maskPixels++;
       const r = color[i * 4] / 255, g = color[i * 4 + 1] / 255, b = color[i * 4 + 2] / 255;
-      // cheap prefilter before ΔE
-      if (Math.abs(r - acc[0]) > 0.12 || Math.abs(g - acc[1]) > 0.12 || Math.abs(b - acc[2]) > 0.12) continue;
-      if (deltaE76([r, g, b], acc) < dE) {
-        brass++;
-        if (!m) outside++;
+      for (const acc of tones) {
+        // cheap prefilter before ΔE
+        if (Math.abs(r - acc[0]) > 0.12 || Math.abs(g - acc[1]) > 0.12 || Math.abs(b - acc[2]) > 0.12) continue;
+        if (deltaE76([r, g, b], acc) < dE) {
+          brass++;
+          if (!m) outside++;
+          break;
+        }
       }
     }
     return { brass, outside, maskPixels };

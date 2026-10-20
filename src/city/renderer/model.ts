@@ -19,7 +19,7 @@ export function buildModel(s: CitySnapshot, chunks: ReadonlyMap<string, DecodedC
   let total = 0;
   const live: DecodedChunk[] = [];
   for (const ref of s.chunks) {
-    const c = chunks.get(ref.hash);
+    const c = chunks.get(ref.contentHash);
     if (c) {
       live.push(c);
       total += c.parts.length / FLOATS_PER_PART;
@@ -60,6 +60,30 @@ export function entityAnchor(m: CityModel, ei: number): [number, number, number]
   }
   const o = best * FLOATS_PER_PART;
   return [m.parts[o], m.parts[o + 4] + m.parts[o + 5], m.parts[o + 1]];
+}
+
+/** World bounds of the ground mask in metres. */
+export function groundBounds(g: CitySnapshot['ground']): { x0: number; z0: number; size: number; cx: number; cz: number; extent: number } {
+  const size = (g.size * g.cellCm) / 100;
+  const x0 = g.originCm[0] / 100, z0 = g.originCm[1] / 100;
+  return { x0, z0, size, cx: x0 + size / 2, cz: z0 + size / 2, extent: size / 2 };
+}
+
+/** Label anchor of a district: area centroid of its polygon (cm → m) [P, SR Q7]. */
+export function polygonCentroid(poly: readonly (readonly [number, number])[]): [number, number] {
+  let a = 0, cx = 0, cz = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [x0, z0] = poly[i], [x1, z1] = poly[(i + 1) % poly.length];
+    const f = x0 * z1 - x1 * z0;
+    a += f;
+    cx += (x0 + x1) * f;
+    cz += (z0 + z1) * f;
+  }
+  if (Math.abs(a) < 1e-9) {
+    const n = Math.max(1, poly.length);
+    return [poly.reduce((s, p) => s + p[0], 0) / n / 100, poly.reduce((s, p) => s + p[1], 0) / n / 100];
+  }
+  return [cx / (3 * a) / 100, cz / (3 * a) / 100];
 }
 
 /** Entity ids that have at least one part on the map, i.e. are reachable by a map pick. */

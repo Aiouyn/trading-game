@@ -13,17 +13,24 @@ export interface PartColorInput {
   mine: ReadonlySet<string>;
   overlay: CityOverlay;
   myCityOverlay: boolean;
+  /** Published day return of a company, from the market view; null = unavailable (SR Q8). */
+  quote?: (companyId: string) => number | null;
 }
 
+/** flat: 0 = lit facade, 1 = exact colour, 2 = shaded brass (--acc-hi / --acc / --acc-lo). */
+export const FLAT_LIT = 0;
+export const FLAT_EXACT = 1;
+export const FLAT_BRASS = 2;
+
 /**
- * Per-part colour and the "flat" flag (exact token colour, unlit). Brass discipline (17 §3.1.1):
- * --acc is used only for crown towers and the player's own places; selection is drawn separately.
+ * Per-part colour and shading mode. Brass discipline (17 §3.1.1): brass only on crown towers and
+ * the player's own places; selection is drawn separately.
  */
 export function partColors(p: PartColorInput, r: Ramps): { colors: Float32Array; flat: Uint8Array } {
   const n = p.entity.length;
   const colors = new Float32Array(n * 3);
   const flat = new Uint8Array(n);
-  const dIndex = new Map(p.districts.map((d) => [d.id, d.index]));
+  const dIndex = new Map(p.districts.map((d, i) => [d.id, i]));
   const showMine = p.myCityOverlay || p.overlay === 'my_places';
   for (let i = 0; i < n; i++) {
     const base = r.facades[p.style[i] & 3];
@@ -33,9 +40,9 @@ export function partColors(p: PartColorInput, r: Ramps): { colors: Float32Array;
     if (e) {
       if (e.kind === 'crown_tower' || (showMine && p.mine.has(e.id))) {
         c = r.brass;
-        flat[i] = 1;
+        flat[i] = FLAT_BRASS;
       } else {
-        c = overlayColor(p.overlay, e, base, r, dIndex);
+        c = overlayColor(p.overlay, e, base, r, dIndex, p.quote);
       }
     } else if (p.overlay !== 'none' && p.overlay !== 'my_places') {
       c = mixOklab(base, r.water, 0.35);
@@ -45,8 +52,11 @@ export function partColors(p: PartColorInput, r: Ramps): { colors: Float32Array;
   return { colors, flat };
 }
 
-function overlayColor(o: CityOverlay, e: CityEntity, base: Rgb, r: Ramps, dIndex: Map<string, number>): Rgb {
+const SECTOR_ORDER = ['TECH', 'SEMI', 'ENERGY', 'MATERIALS', 'INDUSTRIALS', 'FINANCIALS', 'HEALTH', 'STAPLES', 'DISCRETIONARY', 'REAL_ESTATE', 'MEDIA', 'SECURITY'];
+
+function overlayColor(o: CityOverlay, e: CityEntity, base: Rgb, r: Ramps, dIndex: Map<string, number>, quote?: (id: string) => number | null): Rgb {
   const dim = mixOklab(base, r.water, 0.35);
+  const hi = mixOklab(base, r.label, 0.55);
   switch (o) {
     case 'none':
     case 'my_places':
@@ -54,22 +64,19 @@ function overlayColor(o: CityOverlay, e: CityEntity, base: Rgb, r: Ramps, dIndex
     case 'districts':
       return r.districtHues[(dIndex.get(e.districtId) ?? 0) % r.districtHues.length];
     case 'sectors':
-      return r.districtHues[hash(e.sector) % r.districtHues.length];
+      return e.sector ? r.districtHues[SECTOR_ORDER.indexOf(e.sector) % r.districtHues.length] : dim;
     case 'for_sale':
-      return e.forSale || e.kind === 'listing' ? mixOklab(base, r.label, 0.55) : dim;
+      return e.forSale || e.kind === 'listing' ? hi : dim;
     case 'auctions':
-      return e.atAuction ? mixOklab(base, r.label, 0.55) : dim;
+      return e.atAuction ? hi : dim;
     case 'movers': {
-      const t = Math.min(1, Math.abs(e.dayReturn) / 0.05);
-      return mixOklab(base, e.dayReturn >= 0 ? r.gain : r.loss, 0.15 + 0.6 * t);
+      // HQs only, from the market view's quote; no quote → unavailable → dimmed like the rest
+      const bp = e.kind === 'company_hq' && e.companyId && quote ? quote(e.companyId) : null;
+      if (bp === null) return dim;
+      const t = Math.min(1, Math.abs(bp) / 500);
+      return mixOklab(base, bp >= 0 ? r.gain : r.loss, 0.15 + 0.6 * t);
     }
     case 'development':
-      return e.development < 1 ? mixOklab(base, r.label, 0.4) : dim;
+      return e.lifecycle === 'PLANNED' || e.lifecycle === 'SERVICED' || e.lifecycle === 'BUILDING' || e.lifecycle === 'REUSE' ? hi : dim;
   }
-}
-
-function hash(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
 }

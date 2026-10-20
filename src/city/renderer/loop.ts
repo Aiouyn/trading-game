@@ -15,8 +15,11 @@ export const BACKGROUND_UNSUBSCRIBE_MS = 30_000;
 export interface LoopHooks {
   /** Draws one frame. `continuous` is true when the next frame is already wanted. */
   draw(now: number, continuous: boolean): void;
-  /** Advances animations; returns true while something still moves. */
-  animate(now: number): boolean;
+  /**
+   * Advances animations. true = something moves, draw this frame and keep going at full rate;
+   * a number = capped-rate animation (ambient), next frame wanted in that many ms; false = still.
+   */
+  animate(now: number): boolean | number;
   onBackgroundLong(): void;
   onVisible(): void;
   onIdle(): void;
@@ -34,6 +37,7 @@ export class RenderLoop {
   private continuousUntil = 0;
   private visibility: Visibility = 'visible';
   private bgTimer: number | null = null;
+  private waitTimer: number | null = null;
   private disposed = false;
 
   constructor(
@@ -41,8 +45,9 @@ export class RenderLoop {
     private readonly hooks: LoopHooks,
   ) {}
 
+  /** A frame is scheduled (an rAF, or a capped-rate wait that ends in one). */
   get pending(): boolean {
-    return this.rafId !== null;
+    return this.rafId !== null || this.waitTimer !== null;
   }
 
   get state(): Visibility {
@@ -113,19 +118,27 @@ export class RenderLoop {
 
   private kick(): void {
     if (this.rafId !== null || !this.active()) return;
+    this.clearWait();
     this.rafId = this.s.raf(() => this.tick());
   }
 
   private stop(): void {
     if (this.rafId !== null) this.s.cancelRaf(this.rafId);
     this.rafId = null;
+    this.clearWait();
+  }
+
+  private clearWait(): void {
+    if (this.waitTimer !== null) this.s.clearTimeout(this.waitTimer);
+    this.waitTimer = null;
   }
 
   private tick(): void {
     this.rafId = null;
     if (!this.active()) return;
     const now = this.s.now();
-    const animating = this.hooks.animate(now);
+    const a = this.hooks.animate(now);
+    const animating = a === true;
     const forced = now < this.continuousUntil;
     if (this.dirty || animating || forced) {
       this.dirty = false;
@@ -134,7 +147,13 @@ export class RenderLoop {
       this.hooks.draw(now, animating || forced);
     }
     if (this.dirty || animating || now < this.continuousUntil) this.kick();
-    else this.hooks.onIdle();
+    else if (typeof a === 'number') {
+      this.hooks.onIdle(); // capped-rate frames are not counted as continuous frame intervals
+      this.waitTimer = this.s.setTimeout(() => {
+        this.waitTimer = null;
+        this.kick();
+      }, Math.max(0, a));
+    } else this.hooks.onIdle();
   }
 }
 

@@ -23,7 +23,10 @@ export interface SceneConfig {
 export interface GroundData {
   mask: Uint8Array;
   size: number;
-  extent: number;
+  /** world bounds in metres */
+  x0: number;
+  z0: number;
+  span: number;
 }
 
 const BOAT_COUNT = 24;
@@ -45,6 +48,8 @@ export class CityScene {
   partCount = 0;
   uploads = 0;
   private disposed = false;
+  private center: [number, number] = [0, 0];
+  private boatsWanted = true;
   private lastInfo = { geometries: 0, textures: 0 };
 
   constructor(
@@ -69,13 +74,18 @@ export class CityScene {
         uTime: { value: 0 },
         uKey: { value: v3(ramps.keyLight) },
         uFill: { value: v3(ramps.fillLight) },
-        uSunDir: { value: new T.Vector3(-0.5, 0.6, 0.4) },
-        uRoof: { value: v3(ramps.roof) },
+        uSunDir: { value: new T.Vector3(-1, 0.35, 0.3) },
+        uTop: { value: v3(ramps.top) },
+        uShadow: { value: v3(ramps.shadow) },
         uLit: { value: v3(ramps.litWindow) },
         uDark: { value: v3(ramps.darkWindow) },
-        uNight: { value: 1 },
-        uLitRatio: { value: 0.5 },
+        uBrass: { value: v3(ramps.brass) },
+        uBrassHi: { value: v3(ramps.brassHi) },
+        uBrassLo: { value: v3(ramps.brassLo) },
+        uExposure: { value: 1 },
+        uWindowsLit: { value: 0.4 },
         uMask: { value: 0 },
+        uCutK: { value: 0 },
         uFocus: { value: new T.Vector2(0, 0) },
         uNearRing: { value: 1e9 },
       },
@@ -89,8 +99,7 @@ export class CityScene {
         uLand: { value: v3(ramps.land) },
         uPark: { value: v3(ramps.park) },
         uRoad: { value: v3(ramps.road) },
-        uFill: { value: this.partMat.uniforms.uFill.value },
-        uKey: { value: this.partMat.uniforms.uKey.value },
+        uExposure: this.partMat.uniforms.uExposure,
         uMask: { value: 0 },
       },
     });
@@ -112,7 +121,7 @@ export class CityScene {
     this.config = c;
     this.renderer.setPixelRatio(c.dpr);
     this.partMat.uniforms.uNearRing.value = Number.isFinite(c.nearRing) ? c.nearRing : 1e9;
-    if (this.boats) this.boats.visible = c.boats;
+    if (this.boats) this.boats.visible = c.boats && this.boatsWanted;
   }
 
   setSize(w: number, h: number, dpr: number): void {
@@ -122,7 +131,8 @@ export class CityScene {
 
   setGround(g: GroundData): void {
     const T = this.T;
-    this.extent = g.extent;
+    this.extent = g.span / 2;
+    this.center = [g.x0 + g.span / 2, g.z0 + g.span / 2];
     if (this.ground) {
       this.ground.geometry.dispose();
       this.scene.remove(this.ground);
@@ -135,7 +145,7 @@ export class CityScene {
     tex.needsUpdate = true;
     this.groundTex = tex;
     this.groundMat.uniforms.uMaskTex.value = tex;
-    const geo = new T.PlaneGeometry(g.extent * 2, g.extent * 2).rotateX(-Math.PI / 2);
+    const geo = new T.PlaneGeometry(g.span, g.span).rotateX(-Math.PI / 2).translate(this.center[0], 0, this.center[1]);
     // PlaneGeometry uv.v grows with +y, which after rotateX(-90°) is -z; flip so v grows with +z.
     const uv = geo.getAttribute('uv');
     for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i));
@@ -209,13 +219,26 @@ export class CityScene {
     this.scene.add(this.selection);
   }
 
-  setLight(l: { sunDir: [number, number, number]; night: number; key: Rgb; fill: Rgb; litRatio: number }): void {
+  setLight(l: { sunDir: [number, number, number]; exposure: number; windowsLit: number }): void {
     const u = this.partMat.uniforms;
     (u.uSunDir.value as THREE_NS.Vector3).set(...l.sunDir);
-    (u.uKey.value as THREE_NS.Vector3).set(...l.key);
-    (u.uFill.value as THREE_NS.Vector3).set(...l.fill);
-    u.uNight.value = l.night;
-    u.uLitRatio.value = l.litRatio;
+    u.uExposure.value = l.exposure;
+    u.uWindowsLit.value = l.windowsLit;
+  }
+
+  /** Ambient life on/off (boats). Off = hidden, not frozen (review m5). */
+  setAmbient(on: boolean): void {
+    this.boatsWanted = on;
+    if (this.boats) this.boats.visible = this.config.boats && on;
+  }
+
+  /** Cut-away flags per part (1 = in front of the selection) and the fade amount 0..1. */
+  setCut(flags: Uint8Array | null, k: number): void {
+    this.partMat.uniforms.uCutK.value = k;
+    if (!this.parts || !flags) return;
+    const a = (this.parts.geometry as THREE_NS.InstancedBufferGeometry).getAttribute('iCut') as THREE_NS.InstancedBufferAttribute;
+    (a.array as Float32Array).set(flags);
+    a.needsUpdate = true;
   }
 
   setTime(seconds: number): void {
@@ -244,9 +267,12 @@ export class CityScene {
     this.partMat.uniforms.uMask.value = mask ? 1 : 0;
     this.groundMat.uniforms.uMask.value = mask ? 1 : 0;
     this.selectionMat.color.setRGB(...(mask ? ([1, 1, 1] as Rgb) : this.ramps.brass));
+    const boatsOn = this.boats?.visible ?? false;
+    if (mask && this.boats) this.boats.visible = false;
     this.renderer.setClearColor(new this.T.Color(...(mask ? ([0, 0, 0] as Rgb) : this.ramps.water)), 1);
     this.renderer.render(this.scene, this.camera);
     if (mask) {
+      if (this.boats) this.boats.visible = boatsOn;
       this.partMat.uniforms.uMask.value = 0;
       this.groundMat.uniforms.uMask.value = 0;
       this.selectionMat.color.setRGB(...this.ramps.brass);
@@ -326,6 +352,7 @@ export class CityScene {
     g.setAttribute('iSize', new T.InstancedBufferAttribute(size, 3));
     g.setAttribute('iColor', new T.InstancedBufferAttribute(new Float32Array(colors), 3));
     g.setAttribute('iMeta', new T.InstancedBufferAttribute(meta, 4));
+    g.setAttribute('iCut', new T.InstancedBufferAttribute(new Float32Array(n), 1));
     g.instanceCount = n;
     return g;
   }
@@ -341,8 +368,8 @@ export class CityScene {
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     for (let tries = 0; tries < 2000 && pos.length / 3 < BOAT_COUNT; tries++) {
-      const x = (rnd() * 2 - 1) * this.extent * 0.9;
-      const z = (rnd() * 2 - 1) * this.extent * 0.9;
+      const x = this.center[0] + (rnd() * 2 - 1) * this.extent * 0.9;
+      const z = this.center[1] + (rnd() * 2 - 1) * this.extent * 0.9;
       if (water(x, z) && water(x + 30, z + 30) && water(x - 30, z - 30)) pos.push(x, 0, z);
     }
     const n = pos.length / 3;
@@ -357,7 +384,7 @@ export class CityScene {
     }
     this.boats = new T.Mesh(this.instanced(new Float32Array(pos), size, colors, meta, n), this.partMat);
     this.boats.frustumCulled = false;
-    this.boats.visible = this.config.boats;
+    this.boats.visible = this.config.boats && this.boatsWanted;
     this.scene.add(this.boats);
   }
 }
