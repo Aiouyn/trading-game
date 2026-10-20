@@ -1,126 +1,158 @@
 /*
- * Ink & Brass design tokens. Owner: Velvet. Spec: docs/DESIGN.md.
- * Import from src/app/globals.css right after `@import "tailwindcss";`
- *   @import "../styles/tokens.css";
- * Fonts come from next/font in layout.tsx as --font-instrument-serif,
- * --font-inter and --font-jetbrains-mono (see DESIGN.md §3).
- * Change values here, never hard-code hex in components.
+ * Quay design tokens (Spec 1 §7, V3 17 §3.3). THE only file allowed to contain colour literals.
+ * src/styles/tokens.ts is generated from this file: npm run tokens.
  */
-
-@theme {
-  /* Surfaces: ink, darkest to lightest */
-  --color-ink-0: #0b0d10; /* app background */
-  --color-ink-1: #12151a; /* cards, panels */
-  --color-ink-2: #1a1e25; /* raised rows, hover, hairlines on ink-0 */
-  --color-ink-3: #262b33; /* borders, inputs, selected tabs */
-
-  /* Text */
-  --color-fg: #ece9e2;          /* primary text, 15:1 on ink-1 */
-  --color-fg-muted: #9aa0a8;    /* secondary text, 6.9:1 */
-  --color-fg-faint: #7e848e;    /* labels and captions, 4.9:1 on ink-1 (AA) */
-  --color-fg-disabled: #5f656e; /* disabled and decoration only, never body text */
-
-  /* Brass: wealth, rank, primary action. Use sparingly. */
-  --color-brass: #c9a45c;
-  --color-brass-hi: #e6cb8f;
-  --color-brass-lo: #b08a45;
-  --color-on-brass: #16120a;    /* text on brass buttons, 7.9:1 */
-
-  /* Market semantics */
-  --color-gain: #3fd1b0;
-  --color-loss: #ff6b5a;
-  --color-warn: #f2b33d;
-  --color-info: #6ea8fe;
-
-  /* Shadow sub-palette: Lab and Security Ops only */
-  --color-steel: #7c8a99;
-  --color-signal: #e5484d;      /* only for a defense-AI flag and Lockdown */
-
-  /* Type scale (size / line-height) */
-  --text-micro: 10.5px;  --text-micro--line-height: 14px;  --text-micro--letter-spacing: 0.14em;
-  --text-caption: 11.5px; --text-caption--line-height: 16px;
-  --text-small: 12.5px;  --text-small--line-height: 18px;
-  --text-body: 14px;     --text-body--line-height: 20px;
-  --text-title: 22px;    --text-title--line-height: 28px;   /* serif section titles */
-  --text-price: 30px;    --text-price--line-height: 36px;   /* mono hero price */
-  --text-hero: 40px;     --text-hero--line-height: 44px;    /* serif net worth, desktop */
-  --text-hero-lg: 48px;  --text-hero-lg--line-height: 50px; /* serif net worth, phone */
-
-  /* Radius */
-  --radius-chip: 999px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-
-  /* Elevation (dark UI: borders do most of the work) */
-  --shadow-brass: 0 1px 0 rgb(255 255 255 / 0.35) inset, 0 8px 24px rgb(201 164 92 / 0.18);
-  --shadow-sheet: 0 -12px 40px rgb(0 0 0 / 0.5);
-
-  /* Motion */
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --animate-flash-gain: flash-gain 420ms var(--ease-out);
-  --animate-flash-loss: flash-loss 420ms var(--ease-out);
-  --animate-tick: tick-ring 5000ms linear infinite;
-  --animate-shimmer: brass-shimmer 2400ms var(--ease-in-out);
-
-  @keyframes flash-gain { from { background-color: rgb(63 209 176 / 0.28); } to { background-color: transparent; } }
-  @keyframes flash-loss { from { background-color: rgb(255 107 90 / 0.28); } to { background-color: transparent; } }
-  @keyframes tick-ring  { from { stroke-dashoffset: var(--ring-length, 88); } to { stroke-dashoffset: 0; } }
-  @keyframes brass-shimmer { 0% { background-position: -150% 0; } 100% { background-position: 250% 0; } }
-}
-
-/* Fonts are runtime variables from next/font, so they must be inline. */
-@theme inline {
-  --font-serif: var(--font-instrument-serif), Georgia, "Times New Roman", serif;
-  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
-}
-
 :root {
+  --font-display: "Instrument Serif", var(--font-instrument-serif), Georgia, serif;
+  --font-ui: "Inter", var(--font-inter), system-ui, sans-serif;
+  --font-num: "JetBrains Mono", var(--font-jetbrains-mono), ui-monospace, monospace;
+  --fs-10_5: 10.5px; --fs-11_5: 11.5px; --fs-12_5: 12.5px; --fs-13: 13px; --fs-14: 14px;
+  --fs-16: 16px; --fs-20: 20px; --fs-22: 22px; --fs-28: 28px; --fs-30: 30px; --fs-40: 40px;
+  --fs-44: 44px; --fs-48: 48px; --fs-56: 56px; --fs-72: 72px;
+  --sp-2: 2px; --sp-4: 4px; --sp-8: 8px; --sp-12: 12px; --sp-16: 16px; --sp-20: 20px;
+  --sp-24: 24px; --sp-32: 32px; --sp-48: 48px; --sp-64: 64px;
+  --r-input: 6px; --r-btn: 10px; --r-window: 10px; --r-card: 14px; --r-sheet: 20px; --r-chip: 999px;
+  --elev-window: 0 12px 32px rgba(0, 0, 0, 0.35);
+  --elev-sheet: 0 -8px 24px rgba(0, 0, 0, 0.4);
+  --dur-fast: 120ms; --dur-base: 220ms; --dur-slow: 420ms; --dur-ambient: 2400ms; --dur-tick: 5000ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.6, 0, 0.2, 1);
+  --z-wallpaper: 0; --z-windows: 10; --z-chrome: 100; --z-banner: 110; --z-toast: 120;
+  --z-sheet: 130; --z-moment: 140; --z-held: 150; --z-system: 160;
+  --chrome-translucent: color-mix(in srgb, var(--chrome) 94%, transparent);
+  --btn-primary-style: solid;
+}
+
+:root,
+html[data-palette="ink-brass"] {
   color-scheme: dark;
-  /* Durations for JS-driven motion (number roll, sheets, charts) */
-  --dur-fast: 120ms;     /* hover, press, toggles */
-  --dur-base: 220ms;     /* sheets, tabs, row inserts */
-  --dur-slow: 420ms;     /* price flash, rank-up beats, settle */
-  --dur-ambient: 2400ms; /* brass shimmer, idle glows */
-  --dur-tick: 5000ms;    /* one market tick; the tick ring */
-  /* Layout */
-  --rail-w: 72px;
-  --side-w: 344px;
-  --topbar-h: 76px;
-  --tabbar-h: 84px;
-  --focus-ring: 0 0 0 2px var(--color-ink-0), 0 0 0 4px var(--color-brass-hi);
+  --bg0: #0B0D10;
+  --win: #12151A;
+  --win2: #1A1E25;
+  --line: #262B33;
+  --chrome: #0E1014;
+  --grid: #1A1E25;
+  --fg: #ECE9E2;
+  --fg-muted: #9AA0A8;
+  --fg-faint: #7E848E;
+  --fg-disabled: #5F656E;
+  --acc: #C9A45C;
+  --acc-hi: #E6CB8F;
+  --acc-lo: #B08A45;
+  --on-acc: #16120A;
+  --gain: #3FD1B0;
+  --loss: #FF6B5A;
+  --warn: #F2B33D;
+  --info: #6EA8FE;
+  --steel: #7C8A99;
+  --signal: #E5484D;
+  --acc-wealth: #C9A45C;
 }
 
-@layer base {
-  html { background: var(--color-ink-0); }
-  body {
-    background: var(--color-ink-0);
-    color: var(--color-fg);
-    font-family: var(--font-sans);
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-    -webkit-font-smoothing: antialiased;
-  }
-  :focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
-  ::selection { background: rgb(201 164 92 / 0.35); color: var(--color-fg); }
+html[data-palette="broadsheet"] {
+  color-scheme: light;
+  --bg0: #F2EDE3;
+  --win: #FFFFFF;
+  --win2: #F6F2EA;
+  --line: #D9D0BF;
+  --chrome: #E8E1D3;
+  --grid: #EEE8DC;
+  --fg: #1B1A17;
+  --fg-muted: #5E5A52;
+  --fg-faint: #67625A;
+  --fg-disabled: #A39C8F;
+  --acc: #8C2F2B;
+  --acc-hi: #A8443E;
+  --acc-lo: #6E2320;
+  --on-acc: #FFFFFF;
+  --gain: #1F7A5A;
+  --loss: #B3261E;
+  --warn: #9A6100;
+  --info: #2F5E9E;
+  --steel: #4F5B68;
+  --signal: #B3261E;
+  --acc-wealth: #8C2F2B;
 }
 
-@layer utilities {
-  /* Every number on screen: prices, quantities, P&L, clocks */
-  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero; }
-  .label { font-size: var(--text-micro); letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-fg-faint); font-weight: 500; }
-  .btn-brass {
-    background: linear-gradient(180deg, var(--color-brass-hi) 0%, var(--color-brass) 55%, var(--color-brass-lo) 100%);
-    color: var(--color-on-brass); font-weight: 600; border-radius: var(--radius-md); box-shadow: var(--shadow-brass);
-    transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
-  }
-  .btn-brass:hover { filter: brightness(1.06); }
-  .btn-brass:active { transform: translateY(1px) scale(0.99); }
+html[data-palette="phosphor"] {
+  color-scheme: dark;
+  --bg0: #070908;
+  --win: #0D110F;
+  --win2: #141A17;
+  --line: #1F2723;
+  --chrome: #090C0B;
+  --grid: #141A17;
+  --fg: #D8F3E6;
+  --fg-muted: #93AA9E;
+  --fg-faint: #7A9085;
+  --fg-disabled: #4A5A52;
+  --acc: #FFB23F;
+  --acc-hi: #FFC86E;
+  --acc-lo: #D9922A;
+  --on-acc: #1A1206;
+  --gain: #5CE1E6;
+  --loss: #FF5C8A;
+  --warn: #F5D547;
+  --info: #8AB4FF;
+  --steel: #7C8A99;
+  --signal: #FF5C8A;
+  --acc-wealth: #FFB23F;
+  --r-window: 6px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root { --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms; --dur-ambient: 0ms; }
-  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+html[data-palette="riviera"] {
+  color-scheme: dark;
+  --bg0: #0E1A2B;
+  --win: #142338;
+  --win2: #1C2E47;
+  --line: #2A3F5E;
+  --chrome: #0F1C2E;
+  --grid: #1C2E47;
+  --fg: #F4ECDD;
+  --fg-muted: #AEB6C2;
+  --fg-faint: #929CAB;
+  --fg-disabled: #5D6C82;
+  --acc: #E8836B;
+  --acc-hi: #F2A48F;
+  --acc-lo: #C96A53;
+  --on-acc: #1A0F0B;
+  --gain: #7FD4B5;
+  --loss: #F06C5F;
+  --warn: #F2C14E;
+  --info: #8FB8E8;
+  --steel: #8A98A8;
+  --signal: #F06C5F;
+  --acc-wealth: #E8836B;
+}
+
+/* Colour-blind pair (Phosphor gain/loss in every palette) */
+html[data-cb="1"] {
+  --gain: #5CE1E6;
+  --loss: #FF5C8A;
+}
+
+/* High contrast */
+html[data-hc="1"] {
+  --line: var(--fg-disabled);
+}
+
+/* Shadow sub-palette: AI Lab and Security window roots */
+[data-subpalette="shadow"] {
+  --acc: var(--steel);
+  --acc-hi: var(--steel);
+  --acc-lo: var(--steel);
+  --btn-primary-style: outline;
+}
+
+/* Reduced motion: every duration 0 except the tick ring step (handled in shell.css) */
+html[data-motion="reduce"] {
+  --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms; --dur-ambient: 0ms; --dur-tick: 0ms;
+}
+
+/* Reduced transparency: translucent chrome becomes opaque */
+html[data-transparency="reduce"] {
+  --chrome-translucent: var(--chrome);
+}
+html[data-transparency="reduce"] * {
+  backdrop-filter: none !important;
 }

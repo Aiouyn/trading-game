@@ -1,0 +1,50 @@
+// English copy for the shell (keys per 17 §3.17). Components never contain raw JSX text.
+import type { AppId } from "./registry";
+
+export const APP_NAMES: Record<AppId, string> = {
+  broker: "Broker", portfolio: "Portfolio", wire: "Wire", messages: "Messages", markets: "Markets",
+  risk: "Risk", quantlab: "Quant Lab", research: "Research Desk", businesses: "Businesses", company: "Company",
+  property: "Property", city: "City", bank: "Bank & Credit", funds: "Funds", insurance: "Insurance",
+  institutions: "Institutions", ailab: "AI Lab", security: "Security", legal: "Legal & Court", estate: "Estate",
+  boards: "Boards", profile: "Profile", alliance: "Alliance", contracts: "Contracts", auctions: "Auctions",
+  civic: "Civic", academy: "Academy", help: "Help", atelier: "Atelier", settings: "Settings", replay: "Replay", api: "API",
+};
+
+export const S = {
+  quay: "Quay",
+  launcherPlaceholder: "Find an app, a ticker, a command",
+  ctrlK: "Ctrl K",
+  ctrlDot: "Ctrl .",
+  comingLater: "Coming later",
+  loadingCity: "Loading city…",
+  marketOpen: "Market open · Port Avalon",
+  focus: "Focus",
+  layout: "Layout",
+  layouts: "Layouts",
+  workspace: "Workspace",
+  workspaces: "Workspaces",
+  shelf: "Shelf",
+  netWorth: "Net worth",
+  bell: "Notifications",
+  recent: "Recent",
+  noRecent: "Nothing open yet.",
+  nothingFound: "Nothing found · Search help",
+  close: "Close",
+  collapse: "Collapse",
+  fill: "Fill",
+  back: "Back",
+  home: "Home",
+  locked: "Locked",
+  more: "More",
+  next: "Next",
+  protected: "Protected",
+  settingsPalette: "Palette",
+  settingsMotion: "Reduce motion",
+  settingsTransparency: "Reduce transparency",
+  keySheet: "Keys",
+  keySheetFooter: "Nothing executes without Enter.",
+} as const;
+
+export const GROUP_LABELS = { trade: "Trade", build: "Build", shadow: "Shadow", world: "World", me: "Me" } as const;
+
+export const LAUNCHER_GROUPS = ["Apps", "Tickers", "Players and companies", "Commands", "Recent", "Help"] as const;
