@@ -77,7 +77,7 @@ function Surface() {
           {!focusMode && <Shelf />}
         </>
       )}
-      <LoadState />
+      {!phone && <LoadState />}
       <SystemOverlays />
       {launcherOpen && <Launcher />}
       {recentOpen && <Recent />}

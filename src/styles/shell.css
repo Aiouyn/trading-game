@@ -148,7 +148,7 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 .lock-tag { position: absolute; top: 2px; right: 3px; font: 500 var(--fs-10_5) / 1 var(--font-ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-disabled); pointer-events: none; }
 /* Locked tiles: the tag sits inside the tile above the glyph at Label style; the tile widens to fit it. */
 .tile.locked { width: auto; min-width: 40px; padding: 3px 5px 0; grid-template-rows: auto 1fr; gap: 1px; }
-.tile .lock-tag { position: static; order: -1; }
+.tile .lock-tag { position: static; order: -1; color: var(--fg-muted); }
 .fresh-dot { position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--acc); }
 .run-dot { position: absolute; bottom: 2px; left: 50%; margin-left: -2px; width: 4px; height: 4px; border-radius: 50%; background: var(--fg-muted); }
 .shelf-tools { margin-left: 12px; flex: none; display: flex; align-items: center; gap: 10px; }
@@ -323,7 +323,11 @@ html[data-motion="reduce"] *:not(.tickring-sweep) { transition-duration: 0ms !im
 .overlay-system { z-index: var(--z-system); border-color: var(--signal); }
 
 /* §5 error / offline (inline). [P] visual unspecified: banner layer + existing tokens. */
+.load-state-body { display: contents; }
 .load-state { white-space: nowrap; max-width: calc(100% - 16px); position: fixed; left: 50%; transform: translateX(-50%); top: 42px; z-index: var(--z-banner); display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--win2); border: 1px solid var(--line); border-radius: var(--r-btn); color: var(--fg-muted); font-size: var(--fs-13); }
-.is-phone .load-state, .phone ~ .load-state { top: 52px; }
 .load-retry { color: var(--fg); text-decoration: underline; min-height: 28px; padding: 0 4px; }
 .load-retry:disabled { color: var(--fg-disabled); }
+/* Phone: in-flow banner under the status bar (Studio, round 6). Pushes content down; safe-area aware. */
+.phone-banner { flex: none; height: 0; overflow: hidden; background: var(--win2); transition: height var(--dur-fast) var(--ease-out); }
+.phone-banner[data-open="true"] { height: 32px; border-bottom: 1px solid var(--line); }
+.phone-banner .load-state-body { display: flex; align-items: center; gap: 6px; height: 31px; padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); color: var(--fg-muted); font-size: var(--fs-13); white-space: nowrap; }

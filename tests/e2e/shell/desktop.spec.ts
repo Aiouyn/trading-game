@@ -396,10 +396,28 @@ test("Lock tags: Label style 10.5 px, inside every locked shelf tile; Quay mark 
       const tag = t.querySelector(".lock-tag")!; const a = tag.getBoundingClientRect(); const b = t.getBoundingClientRect(); const cs = getComputedStyle(tag);
       return { inside: a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom, size: cs.fontSize, upper: cs.textTransform, color: cs.color, h: b.height };
     });
-    return { tags, mark: getComputedStyle(document.querySelector("[data-testid=strip] .fg")!).color, sweep: getComputedStyle(document.querySelector(".tickring-sweep")!).stroke, fg: probe("--fg"), muted: probe("--fg-muted"), disabled: probe("--fg-disabled") };
+    return { tags, mark: getComputedStyle(document.querySelector("[data-testid=strip] .fg")!).color, acc: probe("--acc"), sweep: getComputedStyle(document.querySelector(".tickring-sweep")!).stroke, fg: probe("--fg"), muted: probe("--fg-muted"), disabled: probe("--fg-disabled") };
   });
   expect(r.tags.length).toBeGreaterThan(0);
-  for (const t of r.tags) expect(t).toEqual({ inside: true, size: "10.5px", upper: "uppercase", color: r.disabled, h: 40 });
+  for (const t of r.tags) expect(t).toEqual({ inside: true, size: "10.5px", upper: "uppercase", color: r.muted, h: 40 });
+  for (const t of r.tags) expect(t.color).not.toBe(r.acc);
   expect(r.mark).toBe(r.fg);
   expect(r.sweep).toBe(r.muted);
+});
+
+test("Shelf spacing stays even when locked tiles widen (Studio round 6)", async ({ page }) => {
+  await boot(page, "/?rank=R1&nw=30000");
+  const gaps = await page.getByTestId("shelf-tiles").evaluate((row) => {
+    const kids = Array.from(row.querySelectorAll(".tile"));
+    const out: { gap: number; wide: boolean }[] = [];
+    for (let i = 1; i < kids.length; i++) {
+      const [a, b] = [kids[i - 1], kids[i]];
+      if (b.parentElement!.querySelector(".shelf-divider")) continue; // across a group divider the divider sets the spacing
+      const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+      out.push({ gap: Math.round((rb.left - ra.right) * 10) / 10, wide: ra.width > 40 || rb.width > 40 });
+    }
+    return out;
+  });
+  expect(gaps.some((g) => g.wide)).toBe(true);
+  expect(new Set(gaps.map((g) => g.gap))).toEqual(new Set([4]));
 });

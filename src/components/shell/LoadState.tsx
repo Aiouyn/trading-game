@@ -1,19 +1,24 @@
 "use client";
-// §5 error / offline state: inline "Couldn't load · Retry" or "Offline · read-only snapshot · Retry".
-// [P] Visual not specified by Studio: reuses the banner layer (z 110), --win2 / --line / --fg-muted tokens.
+// §5 error / offline state. Desktop: inline pill under the strip (Studio-approved).
+// Phone: full-width 32 px banner in the flow directly under the status bar; it pushes content down
+// and never overlaps it. Height eases over --dur-fast (0 under reduced motion).
 import { retryLoad } from "@/shell/loader";
 import { S } from "@/shell/strings";
 import { useShell } from "./ShellContext";
 
-export function LoadState() {
+export function LoadState({ variant = "pill" }: { variant?: "pill" | "banner" }) {
   const sys = useShell((s) => s.channels.system);
-  if (sys.load === "ok" && !sys.offline) return null;
+  const open = sys.load !== "ok" || sys.offline;
   const loading = sys.load === "loading";
-  return (
-    <div className="load-state" role="alert" data-testid={sys.offline ? "offline-state" : "load-error"}>
+  const body = open && (
+    <div className="load-state-body" role="alert" data-testid={sys.offline ? "offline-state" : "load-error"}>
       <span>{sys.offline ? S.offline : S.couldntLoad}</span>
       <span aria-hidden="true">{" · "}</span>
       <button className="load-retry" data-testid="load-retry" onClick={retryLoad} disabled={loading}>{loading ? S.retrying : S.retry}</button>
     </div>
   );
+  if (variant === "banner") {
+    return <div className="phone-banner" data-testid="phone-banner" data-open={open}>{body}</div>;
+  }
+  return open ? <div className="load-state">{body}</div> : null;
 }

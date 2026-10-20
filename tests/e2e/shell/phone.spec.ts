@@ -207,3 +207,43 @@ test("S1-16 phone overlays: Recent sheet and launcher under reduced motion + tra
   await expect(page.getByTestId("launcher")).toBeVisible();
   expect(await bad()).toEqual([]);
 });
+
+test("Phone error/offline banner: under the status bar, pushes content down, never covers wealth (Studio round 6)", async ({ page }) => {
+  await boot(page, "/");
+  const rect = (sel: string) => page.locator(sel).first().evaluate((e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, h: r.height }; });
+  const before = await rect("[data-testid=widget]");
+  await page.context().setOffline(true);
+  await expect(page.getByTestId("offline-state")).toBeVisible();
+  await expect.poll(async () => (await rect("[data-testid=phone-banner]")).h).toBe(32);
+  const banner = await rect("[data-testid=phone-banner]");
+  const sb = await rect("[data-testid=statusbar]");
+  const label = await rect("[data-testid=widget] .label");
+  const chip = await rect("[data-testid=widget] .chip");
+  const after = await rect("[data-testid=widget]");
+  expect(banner.top).toBe(sb.bottom);
+  expect(banner.right - banner.left).toBe(390);
+  expect(after.top).toBe(before.top + 32); // content moves down
+  for (const r of [label, chip]) expect(r.top).toBeGreaterThanOrEqual(banner.bottom); // never overlaps
+  const st = await page.getByTestId("phone-banner").evaluate((e) => {
+    const probe = (v: string) => { const d = document.createElement("i"); d.style.color = `var(${v})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
+    const cs = getComputedStyle(e); const body = getComputedStyle(e.firstElementChild!); const btn = getComputedStyle(e.querySelector("button")!);
+    const bg = document.createElement("i"); bg.style.backgroundColor = "var(--win2)"; document.body.appendChild(bg); const win2 = getComputedStyle(bg).backgroundColor; bg.remove();
+    return { bg: cs.backgroundColor, win2, line: cs.borderBottomColor, lineTok: probe("--line"), bw: cs.borderBottomWidth, text: body.color, muted: probe("--fg-muted"), btn: btn.color, fg: probe("--fg"), ul: btn.textDecorationLine, dur: cs.transitionDuration, prop: cs.transitionProperty };
+  });
+  expect(st).toEqual({ bg: st.win2, win2: st.win2, line: st.lineTok, lineTok: st.lineTok, bw: "1px", text: st.muted, muted: st.muted, btn: st.fg, fg: st.fg, ul: "underline", dur: "0.12s", prop: "height" });
+  await page.context().setOffline(false);
+  await expect.poll(async () => (await rect("[data-testid=phone-banner]")).h).toBe(0);
+  // Error state uses the same slot.
+  await boot(page, "/?load=fail");
+  await expect(page.getByTestId("phone-banner").getByTestId("load-error")).toHaveText("Couldn't load · Retry");
+});
+
+test("Phone banner appears instantly under reduced motion", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await boot(page, "/");
+  await page.context().setOffline(true);
+  await expect(page.getByTestId("offline-state")).toBeVisible();
+  const h = await page.getByTestId("phone-banner").evaluate((e) => [e.getBoundingClientRect().height, getComputedStyle(e).transitionDuration]);
+  expect(h).toEqual([32, "0s"]);
+  await page.context().setOffline(false);
+});
