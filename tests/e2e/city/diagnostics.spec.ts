@@ -18,23 +18,26 @@ test('C-15 every diagnostics field is a finite number after the first frame (aut
   expect(typeof d.subscribed).toBe('boolean');
 });
 
-test('C-15 one ui.perf sample per minute while visible, none while background', async ({ page }) => {
+test('C-15 one ui.perf sample per minute while visible, to onPerfSample; none while background', async ({ page }) => {
   test.skip(isPhone(page), 'desktop only (130 s)');
   test.setTimeout(200_000);
   await openCity(page, 'tier=T1');
   await waitDrawn(page);
+  // the window event exists only behind the dev/e2e window.__city hook
   await page.evaluate(() => {
     (window as unknown as { __perf: unknown[] }).__perf = [];
     window.addEventListener('ui.perf', (e) => (window as unknown as { __perf: unknown[] }).__perf.push((e as CustomEvent).detail));
   });
   await page.waitForTimeout(61_000);
-  const visible = await page.evaluate(() => (window as unknown as { __perf: unknown[] }).__perf);
-  console.log('C-15 ui.perf', JSON.stringify(visible));
-  expect(visible.length).toBe(1);
-  expect(Object.keys(visible[0] as object).sort()).toEqual(['fps', 'heapMb', 'renderTier', 'tickRenderMs']);
+  const sink = await page.evaluate(() => (window as unknown as HarnessWindow).harness.perf);
+  const events = await page.evaluate(() => (window as unknown as { __perf: unknown[] }).__perf);
+  console.log('C-15 onPerfSample', JSON.stringify(sink));
+  expect(sink.length).toBe(1);
+  expect(Object.keys(sink[0]).sort()).toEqual(['fps', 'heapMb', 'renderTier', 'tickRenderMsP50', 'tickRenderMsP95']);
+  expect(events).toEqual(sink);
   await page.evaluate(() => (window as unknown as HarnessWindow).harness.setVisibility('background'));
   await page.waitForTimeout(61_000);
-  expect(await page.evaluate(() => (window as unknown as { __perf: unknown[] }).__perf.length)).toBe(1);
+  expect(await page.evaluate(() => (window as unknown as HarnessWindow).harness.perf.length)).toBe(1);
 });
 
 test('C-05 dispose(): twice is a no-op; geometries and textures go to 0', async ({ page }) => {

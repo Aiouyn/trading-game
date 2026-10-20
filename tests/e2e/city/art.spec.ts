@@ -1,7 +1,7 @@
 import { test } from '@playwright/test';
 import { expect, openCity, waitDrawn, saveJson, type HarnessWindow } from './helpers';
 
-// C-12: brass pixels (ΔE < 3 from --acc) only inside the mask of my places, crown towers and the
+// C-12: brass pixels (ΔE < 3 from --acc, --acc-hi or --acc-lo) only inside the mask of my places, crown towers and the
 // selection outline. The mask is rendered from the same scene with only those elements white.
 test.describe('C-12 brass discipline', () => {
   const cases = [
@@ -12,7 +12,7 @@ test.describe('C-12 brass discipline', () => {
       setup: () => {
         const w = window as unknown as HarnessWindow;
         w.harness.renderer.setOverlay('my_places');
-        w.harness.renderer.focus({ entityId: 'e100' });
+        w.harness.renderer.focus({ entityId: w.harness.info.mine[0] });
         w.__city.setCamera({ zoom: 1 });
       },
     },
@@ -30,6 +30,9 @@ test.describe('C-12 brass discipline', () => {
       expect(r).not.toBeNull();
       expect(r!.brass).toBeGreaterThan(0); // crown towers are on screen: the test can see brass
       expect(r!.outside).toBe(0);
+      const share = r!.brass / (page.viewportSize()!.width * page.viewportSize()!.height);
+      console.log('C-12 brass share', (share * 100).toFixed(2), '%');
+      if (c.name === 'default view') expect(share).toBeLessThanOrEqual(0.02); // review M2 [P]
     });
   }
 

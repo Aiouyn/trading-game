@@ -100,7 +100,7 @@ test.describe('C-03 View as table: present, focusable, accessible', () => {
       await expect(page.getByRole('region', { name: 'City as a table' })).toBeVisible();
       await expect(page.getByLabel('Search the city')).toBeFocused();
       await page.keyboard.type('Crown');
-      await expect(page.locator('.city-table tbody tr')).toHaveCount(3);
+      await expect(page.locator('.city-table tbody tr')).toHaveCount(2);
       // Tab order: search → Back to map → first row
       await page.keyboard.press('Tab');
       await expect(page.getByRole('button', { name: 'Back to map' })).toBeFocused();

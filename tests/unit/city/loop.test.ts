@@ -35,11 +35,11 @@ function fakeScheduler() {
   return { s, frame, advance, rafs, setHidden: (h: boolean) => (hidden = h) };
 }
 
-function setup(animating = () => false) {
+function setup(animating: (now: number) => boolean | number = () => false, onDraw: (now: number) => void = () => undefined) {
   const f = fakeScheduler();
   const log = { bgLong: 0, visible: 0 };
   const loop = new RenderLoop(f.s, {
-    draw: () => undefined,
+    draw: (now) => onDraw(now),
     animate: animating,
     onBackgroundLong: () => log.bgLong++,
     onVisible: () => log.visible++,
@@ -83,6 +83,52 @@ describe('C-06 render on demand', () => {
     loop.invalidate();
     f.advance(60_000);
     expect(loop.renders).toBe(0);
+  });
+});
+
+describe('C-06 (amended): T2 ambient life is capped and time-boxed', () => {
+  // the same policy create.ts applies: ≤ 12 fps for 60 s after the last input, then stop
+  function ambient() {
+    let lastInput = 0;
+    let lastFrame = -1e9;
+    const animate = (now: number) => {
+      const wait = 1000 / 12 - (now - lastFrame);
+      if (now + Math.max(0, wait) >= lastInput + 60_000) return false;
+      return wait <= 0 ? true : wait;
+    };
+    const r = setup(animate, (now) => (lastFrame = now));
+    return { ...r, input: () => (lastInput = r.f.s.now()) };
+  }
+  it('renders at ≤ 12 fps while the window is open', () => {
+    const { f, loop } = ambient();
+    loop.wake();
+    f.advance(5000);
+    expect(loop.renders).toBeGreaterThan(40);
+    expect(loop.renders).toBeLessThanOrEqual(5 * 12 + 1);
+  });
+  it('no pending frame within 60 s + 1 frame of the last input; input reopens the window', () => {
+    const { f, loop, input } = ambient();
+    loop.wake();
+    f.advance(60_000 + 16);
+    expect(loop.pending).toBe(false);
+    const r = loop.renders;
+    f.advance(10_000);
+    expect(loop.renders).toBe(r);
+    input();
+    loop.wake();
+    f.advance(1000);
+    expect(loop.renders).toBeGreaterThan(r);
+    expect(loop.pending).toBe(true);
+  });
+  it('hidden or background → zero frames immediately, even inside the window', () => {
+    const { f, loop } = ambient();
+    loop.wake();
+    f.advance(1000);
+    const r = loop.renders;
+    loop.setVisibility('background');
+    expect(loop.pending).toBe(false);
+    f.advance(5000);
+    expect(loop.renders).toBe(r);
   });
 });
 

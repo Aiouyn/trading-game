@@ -2,11 +2,10 @@
 // Broker route (broker.html), plus the reference-seed city files. Output goes outside the repo.
 import { defineConfig, type Plugin } from 'vite';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateCity } from '../fixtures/generate-city';
-import { snapshotUrl } from '../../../../src/city/data/urls';
+import { generateCity, CITY_ID } from '../fixtures/generate-city';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const OUT = process.env.CITY_HARNESS_OUT ?? join(tmpdir(), 'city-harness');
@@ -15,19 +14,39 @@ const OUT = process.env.CITY_HARNESS_OUT ?? join(tmpdir(), 'city-harness');
 function tokensCss(): string {
   const src = readFileSync(join(here, '../../../../src/styles/tokens.css'), 'utf8');
   const decls = [...src.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/gi)].map((m) => `  ${m[1]}: ${m[2].trim()};`);
-  return `:root {\n${decls.join('\n')}\n}\nhtml, body { margin: 0; height: 100%; background: var(--color-ink-0); }\n#app { position: fixed; inset: 0; }\n`;
+  // next/font's variables, pointing at the same faces loaded below (review B2)
+  const fontVars = `  --font-instrument-serif: "Instrument Serif";\n  --font-inter: "Inter";\n  --font-jetbrains-mono: "JetBrains Mono";`;
+  const faces = FONTS.map((f) => `@font-face { font-family: "${f.family}"; src: url("/fonts/${f.out}") format("truetype"); font-weight: ${f.weight}; font-display: block; }`).join('\n');
+  return `${faces}\n:root {\n${decls.join('\n')}\n${fontVars}\n}\nhtml, body { margin: 0; height: 100%; background: var(--color-ink-0); }\n#app { position: fixed; inset: 0; }\n`;
 }
+
+/**
+ * The real faces the app self-hosts via next/font (Inter, Instrument Serif, JetBrains Mono).
+ * The harness has no next/font, so it serves the same families from CITY_FONTS_DIR (default: the
+ * box's Google fonts folder). Missing files fail the fonts test rather than silently falling back.
+ */
+const FONTS_DIR = process.env.CITY_FONTS_DIR ?? '/usr/share/fonts/truetype/sand-box/google';
+const FONTS = [
+  { family: 'Instrument Serif', file: 'Instrument Serif/InstrumentSerif-Regular.ttf', out: 'instrument-serif.ttf', weight: '400' },
+  { family: 'Inter', file: 'Inter/Inter-VariableFont_opsz,wght.ttf', out: 'inter.ttf', weight: '100 900' },
+  { family: 'JetBrains Mono', file: 'JetBrains Mono/JetBrainsMono-VariableFont_wght.ttf', out: 'jetbrains-mono.ttf', weight: '100 800' },
+];
 
 function fixtures(): Plugin {
   return {
     name: 'city-fixtures',
     generateBundle() {
-      const v1 = generateCity();
-      // v2: same geometry, one public rename — the target of "delta with unknown base → snapshot".
-      const v2snap = { ...v1.snapshot, stateVersion: 2, entities: v1.snapshot.entities.map((e, i) => (i === 0 ? { ...e, name: `${e.name} (renamed)` } : e)) };
-      const files = new Map(v1.files);
-      files.set(snapshotUrl(v2snap.cityId, 2), new TextEncoder().encode(JSON.stringify(v2snap)));
-      for (const [url, bytes] of files) this.emitFile({ type: 'asset', fileName: url.slice(1), source: bytes });
+      const city = generateCity();
+      for (const [url, bytes] of city.files) this.emitFile({ type: 'asset', fileName: url.replace(/^\//, ''), source: bytes });
+      for (const [v, m] of city.manifests) this.emitFile({ type: 'asset', fileName: `city/${CITY_ID}/manifest.v${v}.json`, source: JSON.stringify(m) });
+      // my places for ?mine=1: a few storefronts and properties near the centre (client-only data)
+      const mine = city.snapshot.entities.filter((e) => e.kind === 'storefront' || e.kind === 'property').slice(5, 8).map((e) => e.id);
+      this.emitFile({ type: 'asset', fileName: 'fixture-info.json', source: JSON.stringify({ cityId: CITY_ID, mine, versions: [...city.manifests.keys()] }) });
+      for (const f of FONTS) {
+        const path = join(FONTS_DIR, f.file);
+        if (existsSync(path)) this.emitFile({ type: 'asset', fileName: `fonts/${f.out}`, source: readFileSync(path) });
+        else this.warn(`font missing: ${path}`);
+      }
       this.emitFile({ type: 'asset', fileName: 'tokens.css', source: tokensCss() });
     },
   };
@@ -63,7 +82,7 @@ export default defineConfig({
     minify: true,
     rollupOptions: { input: { city: join(here, 'city.html'), broker: join(here, 'broker.html') } },
   },
-  define: { 'process.env.NODE_ENV': '"production"', 'process.env.NEXT_PUBLIC_CITY_E2E': '"1"' },
+  define: { 'process.env.NODE_ENV': '"production"', 'process.env.NEXT_PUBLIC_CITY_E2E': '"1"', 'process.env.NEXT_PUBLIC_CITY_CDN': '""' },
   worker: { format: 'es' },
   plugins: [fixtures(), threeReport()],
   logLevel: 'warn',

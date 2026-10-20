@@ -22,12 +22,39 @@ test.describe('C-06 / C-11 render on demand', () => {
     });
   }
 
-  test('T2 without reduced motion keeps ambient life (renders grow)', async ({ page }) => {
+  test('T2 ambient life runs at ≤ 12 fps after input', async ({ page }) => {
     await openCity(page, 'tier=T2');
     await waitDrawn(page);
+    await page.waitForTimeout(3000); // past the 2 s tier measurement
     const a = (await diag(page)).renders;
+    await page.waitForTimeout(2000);
+    const n = (await diag(page)).renders - a;
+    console.log('C-06 ambient frames in 2 s:', n);
+    expect(n).toBeGreaterThan(5);
+    expect(n).toBeLessThanOrEqual(2 * 12 + 2);
+  });
+
+  test('T2 ambient stops within 60 s + 1 frame of the last input; boats hidden; input restarts it', async ({ page }) => {
+    test.skip(isPhone(page), 'desktop only (60 s)');
+    test.setTimeout(120_000);
+    await openCity(page, 'tier=T2');
+    await waitDrawn(page);
+    await page.evaluate(() => (window as unknown as HarnessWindow).__city.setCamera({ zoom: 1 })); // last input
+    const t0 = Date.now();
+    await page.waitForFunction(() => !(window as unknown as HarnessWindow).__city.rafPending(), null, { timeout: 70_000, polling: 16 });
+    const stoppedAfter = Date.now() - t0;
+    console.log('C-06 ambient stopped after', stoppedAfter, 'ms');
+    expect(stoppedAfter).toBeLessThanOrEqual(60_000 + 100);
+    expect(stoppedAfter).toBeGreaterThan(55_000);
+    const st = await page.evaluate(() => (window as unknown as HarnessWindow).__city.ambient());
+    expect(st.on).toBe(false);
+    const r = (await diag(page)).renders;
+    await page.waitForTimeout(3000);
+    expect((await diag(page)).renders).toBe(r);
+    await page.locator('canvas').focus();
+    await page.keyboard.press('+');
     await page.waitForTimeout(1000);
-    expect((await diag(page)).renders).toBeGreaterThan(a + 5);
+    expect((await diag(page)).renders).toBeGreaterThan(r + 3);
   });
 
   test('document.hidden for 60 s (simulated) → framesWhileHidden 0, no renders', async ({ page }) => {
@@ -93,18 +120,27 @@ test.describe('C-07 background', () => {
     await set('visible');
     await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().stateVersion === 2, null, { timeout: 5000 });
     const log = await page.evaluate(() => (window as unknown as HarnessWindow).harness.fetchLog);
-    expect(log.slice(f0)).toEqual(['/city/port-avalon/v2/snapshot.json']);
+    // manifest first, then the v1→v2 delta it lists (content-addressed); no snapshot, no chunks
+    const fresh = log.slice(f0);
+    expect(fresh[0]).toMatch(/\/manifest\.json$/);
+    expect(fresh[1]).toMatch(/\/h\/[0-9a-f]{64}\.json$/);
+    // then only the chunk(s) the delta lists as changed, by content hash
+    console.log('C-07 round 2 fetches', JSON.stringify(fresh));
+    expect(fresh.slice(2).length).toBeLessThanOrEqual(2);
+    for (const u of fresh.slice(2)) expect(u).toMatch(/\/h\/[0-9a-f]{64}\.bin$/);
   });
 });
 
 test.describe('C-08 chunks', () => {
-  test('same stateVersion twice → no re-upload; unknown-base delta → exactly one snapshot fetch; delta while background → no fetch', async ({ page }) => {
+  test('same stateVersion twice → no re-upload; unknown-base delta → manifest + listed delta; delta while background → no fetch', async ({ page }) => {
     await openCity(page, 'tier=T1');
     await waitDrawn(page);
     const r = await page.evaluate(async () => {
       const w = window as unknown as HarnessWindow;
       const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
-      const snap = JSON.parse(new TextDecoder().decode(await (await fetch(w.harness.snapshotUrl(1))).arrayBuffer()));
+      const m1 = await (await fetch(`/city/${w.harness.info.cityId}/manifest.v1.json`)).json();
+      const snap = await (await fetch(m1.snapshot.url)).json();
+      const delta = (base: number, v: number) => ({ schemaVersion: 1 as const, cityId: snap.cityId, baseVersion: base, stateVersion: v, publicSnapshotTick: 0, ccy: snap.ccy, ground: snap.ground, districts: [], entities: [], chunks: [] });
       const up0 = w.__city.uploads();
       const g0 = w.__city.diagnostics().geometries;
       w.harness.renderer.setData(snap);
@@ -112,21 +148,25 @@ test.describe('C-08 chunks', () => {
       await sleep(300);
       const sameVersion = { uploads: w.__city.uploads() - up0, geometries: w.__city.diagnostics().geometries - g0 };
       const f0 = w.harness.fetchLog.length;
-      w.harness.publish({ type: 'delta', cityId: 'port-avalon', baseVersion: 99, stateVersion: 2, lagTicks: 0 });
-      w.harness.publish({ type: 'delta', cityId: 'port-avalon', baseVersion: 98, stateVersion: 2, lagTicks: 0 });
+      w.harness.publish(delta(99, 2));
+      w.harness.publish(delta(98, 2));
       await sleep(1500);
       const unknownBase = w.harness.fetchLog.slice(f0);
       const v = w.__city.diagnostics().stateVersion;
       w.harness.setVisibility('background');
       const f1 = w.harness.fetchLog.length;
-      w.harness.publish({ type: 'delta', cityId: 'port-avalon', baseVersion: 2, stateVersion: 3, lagTicks: 0 });
+      w.harness.publish(delta(2, 3));
       await sleep(500);
       const whileBackground = w.harness.fetchLog.length - f1;
       w.harness.setVisibility('visible');
       return { sameVersion, unknownBase, v, whileBackground };
     });
     expect(r.sameVersion).toEqual({ uploads: 0, geometries: 0 });
-    expect(r.unknownBase).toEqual(['/city/port-avalon/v2/snapshot.json']);
+    expect(r.unknownBase[0]).toMatch(/\/manifest\.json$/);
+    expect(r.unknownBase[1]).toMatch(/\/h\/[0-9a-f]{64}\.json$/);
+    // + only the changed chunk(s) of the listed v1→v2 delta; never a snapshot or the full chunk set
+    expect(r.unknownBase.length).toBeLessThanOrEqual(4);
+    for (const u of r.unknownBase.slice(2)) expect(u).toMatch(/\/h\/[0-9a-f]{64}\.bin$/);
     expect(r.v).toBe(2);
     expect(r.whileBackground).toBe(0);
   });

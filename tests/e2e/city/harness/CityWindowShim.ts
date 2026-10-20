@@ -1,7 +1,7 @@
 // Stand-in for Spec 1's src/apps/city/CityWindow.tsx (not on main yet). It uses the seam exactly
 // as Spec 1 must: a dynamic import of '@/city' and every CityRenderer method, so `tsc` checks
 // the seam against its consumer (C-05).
-import type { CityChannelClient, CityRenderer, CityTier, PickResult, Visibility } from '@/city';
+import type { CityChannelClient, CityRenderer, CityTier, PerfSample, PickResult, Visibility } from '@/city';
 
 export interface WindowShimOptions {
   container: HTMLElement;
@@ -12,6 +12,7 @@ export interface WindowShimOptions {
   reducedMotion: boolean;
   myEntityIds: string[];
   onPick: (p: PickResult) => void;
+  onPerfSample?: (s: PerfSample) => void;
 }
 
 export async function openCityWindow(o: WindowShimOptions): Promise<CityRenderer> {
@@ -25,6 +26,7 @@ export async function openCityWindow(o: WindowShimOptions): Promise<CityRenderer
     fetchChunk: o.fetchChunk,
     locale: 'en-US',
     myEntityIds: o.myEntityIds,
+    onPerfSample: o.onPerfSample,
   });
   r.onPick(o.onPick);
   r.onTierChange(() => undefined);
@@ -37,6 +39,7 @@ export function exerciseSeam(r: CityRenderer, v: Visibility): void {
   r.setVisibility(v);
   r.setReducedMotion(false);
   r.setOverlay('none');
+  r.setMyPlaces(['x']);
   r.setTimeOfDay(1110);
   r.setTier('auto');
   const t: { tier: CityTier } = r.getTier();
