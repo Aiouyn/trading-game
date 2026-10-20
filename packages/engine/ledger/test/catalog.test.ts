@@ -38,6 +38,7 @@ describe('reason-code catalog (T03-02..05, INV-LED-002, Q-2)', () => {
     expect(c.registerReasonCodes(5, 'TRANSFER', [row('FAUCET_X', 'TRANSFER', 5, ['PAY'])])).toEqual(['FAUCET_X: PREFIX_CLASS_MISMATCH']);
     expect(c.registerReasonCodes(5, 'SINK', [row('SINK_X', 'SINK', 5, ['BURN'])])).toEqual([]);
     expect(c.get('SINK_X')?.cls).toBe('SINK');
+    expect(Object.isFrozen(c.get('SINK_X'))).toBe(true); // E-12 layer 1(iii): registered rows are frozen too
     expect(c.registerReasonCodes(5, 'SINK', [row('SINK_X', 'SINK', 5, ['BURN'])])).toEqual(['SINK_X: NAME_TAKEN']);
     expect(c.registerReasonCodes(5, 'TRANSFER', [row('MKT_TRADE', 'TRANSFER', 5, ['SWAP_ASSET'])])).toEqual(['MKT_TRADE: NAME_TAKEN']);
     expect(c.registerReasonCodes(12, 'TRANSFER', [row('OPS_RANSOM', 'TRANSFER', 12, ['PAY'])])).toEqual(['OPS_RANSOM: NAME_TAKEN']);

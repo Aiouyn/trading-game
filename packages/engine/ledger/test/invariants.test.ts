@@ -137,7 +137,7 @@ describe('INV-LED-010 / 011 day close', () => {
     const obs = (rows: [string, bigint][]) => L.INV_LED_010(view([], { isDayClose: true, post: accs(rows) })).map((x) => x.observed.slice(0, 3));
     expect(obs([['chr_A:1001:FDL', 1n]])).toEqual(expect.arrayContaining(['I3:', 'I5:']));
     expect(obs([['sys_SYSTEM:1999:FDL', 1n], ['sys_SYSTEM:2999:FDL', -1n]])).toEqual(['I15', 'I15']);
-    expect(obs([['chr_A:1010:bnk_N:FDL', 5n], ['bnk_N:2100:chr_A:FDL', -4n], ['bnk_N:4000:FDL', -1n]])).toEqual(['I6:']);
+    expect(obs([['chr_A:1010:bnk_N:FDL', 5n], ['bnk_N:2100:chr_A:FDL', -4n], ['bnk_N:4000:FDL', -1n]])).toEqual(['DC:', 'I6:']); // E-17 per-bank DC fires too
   });
   it('011 (ALERT): a code above mult × max(28-day mean, floor) alerts; below does not', () => {
     const v = (total: bigint, hist: bigint[]) => view([], {
