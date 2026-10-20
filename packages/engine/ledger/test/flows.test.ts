@@ -60,7 +60,7 @@ describe('flow aggregates', () => {
     w.apiFor('21').ledger.mint('chr_A', 2_000_000_000n, 'FDL', 'ADM_CORRECTION_IN');
     w.runP13();
     w.apiFor('05').ledger.compose(
-      ({ env, t: T }) => T.tplSwapAsset(env, 'chr_A', 'chr_B', 'ast_EQ_X', 10n, 1_000_000_000n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 }),
+      ({ env, t: T }) => T.tplSwapAsset(env, 'chr_A', 'chr_B', 'ast_EQ_X', 10n, 1_000_000_000n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 }),
       [({ env, t: T }) => T.tplPay(env, 'chr_A', 'exc_X', 2_000_000n, 'FDL', 'MKT_EXCHANGE_FEE'), ({ env, t: T }) => T.tplPay(env, 'chr_A', 'gov_FDL', 1_500_000n, 'FDL', 'TAX_SECURITIES_TX')],
     );
     expect(w.runP13().failures).toEqual([]);
@@ -97,7 +97,7 @@ describe('flow aggregates', () => {
   it('4 Δ4 replay: re-running P13 for a committed tick posts nothing; a scheduled accrual replayed after restore posts once', () => {
     const mk = () => {
       const w = fixture();
-      w.registerProcess({ name: 'led.mtm', module: '03', run: (tick) => [{ subject: 'chr_P', post: (L) => { L.accrue('chr_P', BigInt(tick + 1), 'FDL', 'LED_MTM_DAILY', 1500, 4060); } }] });
+      w.registerProcess({ name: 'led.mtm', module: '03', run: (tick) => [{ subject: 'chr_P', post: (L) => { L.accrue('chr_P', BigInt(tick + 1), 'FDL', 'LED_MTM_DAILY', 1500, 4070); } }] });
       return w;
     };
     const a = mk(); a.runTicks(10);

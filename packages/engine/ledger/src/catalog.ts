@@ -36,22 +36,6 @@ export const CLASS_TEMPLATES: Readonly<Record<FlowClass, readonly TemplateId[]>>
 export const ESCROW_ONLY_CODES: readonly string[] = ['CONFLICT_CASH_LOOT', 'CONFLICT_RANSOM'];
 
 /**
- * Errata E-11 value-leg authority (Systems ruling; PENDING PRODUCER SIGN-OFF). Applies to SWAP_ASSET, ACCRUE, ACCRUE_PAIR, RECLASS.
- * FIXED: a concrete catalog leg; an override/positional arg must equal it. REQUIRED: '@ASSET'/'@', the caller supplies it.
- * CLASS: a card-declared set (only ACCRUE_PAIR per T03-07:92 / T03-15:60). QTY_ONLY: '-'/'-' RECLASS rows, no value leg at all.
- * TODO(systems): the T03-15 settleAccrual A/B swap set and the T03-14 (e.g. OCI → 3400) sets are not in the reference; not built.
- */
-export type LegPolicy = { kind: 'FIXED'; acct: number } | { kind: 'REQUIRED'; marker: '@ASSET' | '@' } | { kind: 'CLASS'; allowed: readonly number[] } | { kind: 'QTY_ONLY' };
-export const ACCRUE_PAIR_CLASS = { A: [1100, 1110], B: [2510, 2520, 2540] } as const;
-export function legPolicy(row: CodeRow, tpl: TemplateId, side: 'A' | 'B'): LegPolicy {
-  if (tpl === 'ACCRUE_PAIR') return { kind: 'CLASS', allowed: ACCRUE_PAIR_CLASS[side] };
-  const l = side === 'A' ? row.valueLegA : row.valueLegB;
-  if (typeof l === 'number') return { kind: 'FIXED', acct: l };
-  if (l === '@ASSET' || l === '@') return { kind: 'REQUIRED', marker: l };
-  return { kind: 'QTY_ONLY' };
-}
-
-/**
  * Codes the ledger (owner 03) registers through registerReasonCodes at world creation: §2.5 Δ9 / Δ13 control memo codes and
  * §6.11 Δ14 escrow settlement codes (errata E-5, E-10 note 3). Legs: TODO(systems) — the release P&L legs come from the
  * escrow's original CONFLICT_* code (E-10 note), not from these rows.

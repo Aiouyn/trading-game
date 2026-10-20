@@ -197,7 +197,7 @@ export class LedgerWorld {
   private rail(): T.RailState {
     return {
       tick: this.s.tick, entity: this.entity, spendable: this.spendable, restrictedLots: (e, c) => this.lots(e, c),
-      bookValueOf: (key, qty) => T.bookValue(this.balance(key), this.qtyOf(key), qty),
+      bookValueOf: (key, qty) => T.bookValue(this.balance(key), this.qtyOf(key), qty), balance: (key) => this.balance(key),
     };
   }
   env(module: string, phase: PhaseId, intentId?: Id): T.TemplateEnv {

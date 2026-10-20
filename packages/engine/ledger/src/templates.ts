@@ -1,12 +1,13 @@
 // Pure template builders (T03-06 rail, T03-07 templates). They return data only; nothing is applied until P13 (E3).
 import { accountKey, cbMirrorCode, cbkId, defaultMoneyCode, SYS_ID } from './accounts';
-import { ESCROW_ONLY_CODES, legPolicy, RESTRICTED_FAUCETS, RESTRICTED_OK_CODES, type ReasonCatalog, type TemplateId } from './catalog';
+import { ESCROW_ONLY_CODES, RESTRICTED_FAUCETS, RESTRICTED_OK_CODES, type ReasonCatalog, type TemplateId } from './catalog';
 import { allocate, divRoundHalfEven, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
 import { restrictedSub } from './accounts';
 import { SortedMap } from './det';
+import { ACCRUAL_LEGS, appraisalPairOk, LEG_POLICY, resolveLeg } from './legpolicy';
 import type { Entry, LedgerEntity, Posting } from './types';
 
-export interface PostOpts { refs?: Id[]; holdId?: Id; valueLegA?: number; valueLegB?: number; sub?: string; memo?: string }
+export interface PostOpts { refs?: Id[]; holdId?: Id; valueLegA?: number; valueLegB?: number; sub?: string; memo?: string; accrualId?: Id }
 export interface PostOptsExt extends PostOpts {
   qty?: Qty; assetId?: Id; assetAcct?: number;
   assetAcctFrom?: number; // giver's account when it is an issuance account (e.g. 2600 issued securities): no book/gain legs
@@ -19,6 +20,7 @@ export interface RailState {
   /** 1001 RESTRICTED:* subs with balance > 0n, FIFO (releaseTick, key). */
   restrictedLots(entityId: Id, ccy: Ccy): readonly { accountKey: string; releaseTick: Tick; balance: Money }[];
   bookValueOf(accountKey: string, qty: Qty): Money;
+  balance(accountKey: string): Money;
 }
 export interface TemplateEnv {
   tick: Tick; catalog: ReasonCatalog; rail: RailState;
@@ -32,11 +34,30 @@ const dr = (debitAccount: string, creditAccount: string, amount: Money, ccy: Ccy
 
 // Fallback value legs, used only when catalog v2 legA/legB is not an account code ('@ASSET', '@', '-', or a derived row: TODO(systems)).
 const DEFAULT_LEG = { payerExpense: 5000, payeeIncome: 4000, mintIncome: 4110, elasticExpense: 5200 } as const;
-/** Value-leg account: PostOpts override, else the catalog v2 default (T03-02 legend), else the fallback. */
-function valueLeg(env: TemplateEnv, code: string, side: 'A' | 'B', o: PostOpts | undefined, fallback: number): number {
-  const over = side === 'A' ? o?.valueLegA : o?.valueLegB; if (over !== undefined) return over;
-  const r = env.catalog.get(code); const d = side === 'A' ? r?.valueLegA : r?.valueLegB;
-  return typeof d === 'number' ? d : fallback;
+/** Thrown inside a template when a leg breaks legPolicy; `guard` turns it into the invalid entry (templates stay pure). */
+class LegFail { constructor(readonly entry: Entry) {} }
+/**
+ * Value-leg account under legpolicy.csv (E-11): `given` (PostOpts override or positional arg) checked against the code's policy,
+ * else the catalog default, else the template fallback. Breaches throw LegFail -> INV-LED-007 leg_missing / leg_mismatch.
+ */
+function leg(env: TemplateEnv, tpl: TemplateId, code: string, side: 'A' | 'B', given: number | undefined, fallback: number | null, sysEntity = false): number {
+  const r = resolveLeg(code, side, given, sysEntity);
+  if ('err' in r) throw new LegFail(invalidEntry(env, tpl, code, 'INV-LED-007', `${r.err} ${side} observed=${given ?? '-'}`, `expected=${r.expected}`));
+  const a = r.acct ?? fallback;
+  if (a === null) throw new LegFail(invalidEntry(env, tpl, code, 'INV-LED-007', `leg_missing ${side}`, 'a value leg'));
+  return a;
+}
+function valueLeg(env: TemplateEnv, code: string, side: 'A' | 'B', o: PostOpts | undefined, fallback: number, tpl: TemplateId = 'PAY'): number {
+  return leg(env, tpl, code, side, side === 'A' ? o?.valueLegA : o?.valueLegB, fallback);
+}
+/** MINT payee leg = catalog legA (T03-02 legend); legB is NONE for MINT rows, so a valueLegB override is rejected by legPolicy. */
+function mintLeg(env: TemplateEnv, code: string, o: PostOpts | undefined): number {
+  if (o?.valueLegB !== undefined) leg(env, 'MINT', code, 'B', o.valueLegB, null);
+  return valueLeg(env, code, 'A', o, DEFAULT_LEG.mintIncome, 'MINT');
+}
+/** Wraps a template so a LegFail becomes its invalid entry. */
+function guard<A extends unknown[]>(f: (...a: A) => Entry): (...a: A) => Entry {
+  return (...a: A): Entry => { try { return f(...a); } catch (x) { if (x instanceof LegFail) return x.entry; throw x; } };
 }
 
 // ───────────── rail (T03-06) ─────────────
@@ -155,38 +176,22 @@ const ent = (env: TemplateEnv, id: Id): LedgerEntity => env.rail.entity(id) as L
 const rOk = (code: string): boolean => RESTRICTED_OK_CODES.includes(code);
 
 // ───────────── G7 templates ─────────────
-export function tplPay(env: TemplateEnv, from: Id, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
+/** PAY. E-14: a payable/receivable leg (settlement pair) is allowed only with o.accrualId (settleAccrual) and is keyed by it. */
+function tplPay_(env: TemplateEnv, from: Id, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'PAY', code, [amt], [from, to]); if (bad) return bad;
+  const A = valueLeg(env, code, 'A', o, DEFAULT_LEG.payerExpense); const B = valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome);
+  if (!o?.accrualId && (ACCRUAL_LEGS.includes(A) || ACCRUAL_LEGS.includes(B))) return invalidEntry(env, 'PAY', code, 'INV-LED-007', `leg_mismatch ${A}/${B} without an accrual`, 'catalog legs (settlement pair only via settleAccrual)');
   const d = cashLeg(env.rail, ent(env, from), ent(env, to), amt, ccy, code, { restrictedOk: rOk(code), fixedSources: o?.fixedSources });
-  d.push(dr(accountKey(from, valueLeg(env, code, 'A', o, DEFAULT_LEG.payerExpense), ccy), accountKey(to, valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome), ccy), amt, ccy, code));
+  const sub = (x: number): string | undefined => (ACCRUAL_LEGS.includes(x) ? o?.accrualId : undefined);
+  d.push(dr(accountKey(from, A, ccy, sub(A)), accountKey(to, B, ccy, sub(B)), amt, ccy, code));
   return finish(env, 'PAY', code, d, o, { amount: amt, ccy, counterpartyId: to }, { parties: [from, to] });
 }
 
-/**
- * Errata E-11 (PENDING PRODUCER SIGN-OFF): the leg account per catalog legPolicy, or an invalid entry.
- * FIXED → the catalog leg (a different given value is leg_mismatch); REQUIRED → the caller's (missing → leg_missing; '@ASSET'
- * must be a holder 15xx-18xx or issuer 2300/2310/2600/3100/3150 account; '@' must not be a money account); CLASS → given ∈ set;
- * QTY_ONLY → no value leg, any given value is leg_mismatch.
- */
-export function policyLeg(env: TemplateEnv, tpl: TemplateId, code: string, side: 'A' | 'B', given: number | undefined): number | null | Entry {
-  const row = env.catalog.get(code); if (!row) return invalidEntry(env, tpl, code, 'INV-LED-002', `unknown code ${code}`, 'a registered reason code');
-  const pol = legPolicy(row, tpl, side);
-  const bad = (obs: string, exp: string): Entry => invalidEntry(env, tpl, code, 'INV-LED-007', `leg_${obs} ${side} observed=${given ?? '-'}`, `expected=${exp}`);
-  if (pol.kind === 'QTY_ONLY') return given === undefined ? null : bad('mismatch', 'none (QTY_ONLY)');
-  if (pol.kind === 'FIXED') return given === undefined || given === pol.acct ? pol.acct : bad('mismatch', String(pol.acct));
-  if (pol.kind === 'CLASS') return given === undefined ? bad('missing', pol.allowed.join('|')) : pol.allowed.includes(given) ? given : bad('mismatch', pol.allowed.join('|'));
-  if (given === undefined) return bad('missing', pol.marker);
-  if (pol.marker === '@ASSET') return (given >= 1500 && given <= 1899) || [2300, 2310, 2600, 3100, 3150].includes(given) ? given : bad('mismatch', '@ASSET (15xx-18xx or 2300/2310/2600/3100/3150)');
-  return [1001, 1002, 1003, 1009, 1910, 2001, 2002, 2003].includes(given) ? bad('mismatch', '@ (a non-money account)') : given;
-}
-const isEntry = (x: unknown): x is Entry => typeof x === 'object' && x !== null;
-
-/** SWAP_ASSET (E-11): A = buyer's account, B = seller's account, from the catalog legs; o.valueLegA/B (alias assetAcct/assetAcctFrom) only where the policy allows. */
-export function tplSwapAsset(env: TemplateEnv, buyer: Id, seller: Id, assetId: Id, qty: Qty, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
+/** SWAP_ASSET (E-11): A = buyer's account, B = seller's account per legPolicy; o.valueLegA/B (aliases assetAcct / assetAcctFrom). */
+function tplSwapAsset_(env: TemplateEnv, buyer: Id, seller: Id, assetId: Id, qty: Qty, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'SWAP_ASSET', code, [amt, qty], [buyer, seller]); if (bad) return bad;
-  const A = policyLeg(env, 'SWAP_ASSET', code, 'A', o?.valueLegA ?? o?.assetAcct); if (isEntry(A)) return A;
-  const B = policyLeg(env, 'SWAP_ASSET', code, 'B', o?.valueLegB ?? o?.assetAcctFrom ?? o?.assetAcct); if (isEntry(B)) return B;
-  if (A === null || B === null) return invalidEntry(env, 'SWAP_ASSET', code, 'INV-LED-007', 'leg_missing', 'two value legs');
+  const A = leg(env, 'SWAP_ASSET', code, 'A', o?.valueLegA ?? o?.assetAcct, null);
+  const B = leg(env, 'SWAP_ASSET', code, 'B', o?.valueLegB ?? o?.assetAcctFrom, null);
   const d = cashLeg(env.rail, ent(env, buyer), ent(env, seller), amt, ccy, code, { restrictedOk: rOk(code), fixedSources: o?.fixedSources });
   const bk = accountKey(buyer, A, ccy, assetId); const sk = accountKey(seller, B, ccy, assetId);
   // An issuer account on the seller side (code ≥ 2000): issuance, no book value or gain legs.
@@ -207,11 +212,11 @@ function issue(env: TemplateEnv, tpl: 'MINT' | 'ELASTIC_IN', to: Id, amt: Money,
   if (sector) {
     d.push(dr(accountKey(SYS_ID, 2909, ccy, sector), accountKey(sector, 1009, ccy), amt, ccy, code));
     d.push(dr(accountKey(sector, valueLeg(env, code, 'A', o, DEFAULT_LEG.elasticExpense), ccy), accountKey(to, valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome), ccy), amt, ccy, code));
-  } else d.push(dr(accountKey(SYS_ID, 5900, ccy, code), accountKey(to, o?.valueLegB ?? valueLeg(env, code, 'A', undefined, DEFAULT_LEG.mintIncome), ccy), amt, ccy, code));
+  } else d.push(dr(accountKey(SYS_ID, 5900, ccy, code), accountKey(to, mintLeg(env, code, o), ccy), amt, ccy, code));
   return finish(env, tpl, code, d, o, { amount: amt, ccy, counterpartyId: to }, { parties: sector ? [sector, to] : [to] }, flowIdx);
 }
-export const tplMint = (env: TemplateEnv, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry => issue(env, 'MINT', to, amt, ccy, code, o);
-export const tplElasticIn = (env: TemplateEnv, sector: Id, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry =>
+const tplMint_ = (env: TemplateEnv, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry => issue(env, 'MINT', to, amt, ccy, code, o);
+const tplElasticIn_ = (env: TemplateEnv, sector: Id, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry =>
   issue(env, 'ELASTIC_IN', to, amt, ccy, code, o, sector);
 
 function destroy(env: TemplateEnv, tpl: 'BURN' | 'ELASTIC_OUT', from: Id, amt: Money, ccy: Ccy, code: string, o: PostOptsExt | undefined, sector?: Id): Entry {
@@ -225,12 +230,12 @@ function destroy(env: TemplateEnv, tpl: 'BURN' | 'ELASTIC_OUT', from: Id, amt: M
   } else d.push(dr(accountKey(from, valueLeg(env, code, 'A', o, DEFAULT_LEG.payerExpense), ccy), accountKey(SYS_ID, 4900, ccy, code), amt, ccy, code));
   return finish(env, tpl, code, d, o, { amount: amt, ccy }, { parties: sector ? [from, sector] : [from] }, flowIdx);
 }
-export const tplBurn = (env: TemplateEnv, from: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry => destroy(env, 'BURN', from, amt, ccy, code, o);
-export const tplElasticOut = (env: TemplateEnv, from: Id, sector: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry =>
+const tplBurn_ = (env: TemplateEnv, from: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry => destroy(env, 'BURN', from, amt, ccy, code, o);
+const tplElasticOut_ = (env: TemplateEnv, from: Id, sector: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry =>
   destroy(env, 'ELASTIC_OUT', from, amt, ccy, code, o, sector);
 
 /** Commercial credit: the deposit is created at the lending bank (03 §3.5.4). */
-export function tplLend(env: TemplateEnv, bank: Id, borrower: Id, amt: Money, ccy: Ccy, code: string, loanId: Id, o?: PostOptsExt): Entry {
+function tplLend_(env: TemplateEnv, bank: Id, borrower: Id, amt: Money, ccy: Ccy, code: string, loanId: Id, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'LEND', code, [amt], [bank, borrower]); if (bad) return bad;
   return finish(env, 'LEND', code, [
     dr(accountKey(borrower, 1010, ccy, bank), accountKey(bank, 2100, ccy, borrower), amt, ccy, code),
@@ -238,7 +243,7 @@ export function tplLend(env: TemplateEnv, bank: Id, borrower: Id, amt: Money, cc
   ], o, { amount: amt, ccy, counterpartyId: borrower }, { parties: [bank, borrower], borrowerId: borrower });
 }
 /** TODO(T03-06 rail): repayment is drawn from the borrower's deposit at the lending bank only. */
-export function tplRepay(env: TemplateEnv, borrower: Id, bank: Id, principal: Money, ccy: Ccy, code: string, loanId: Id, o?: PostOptsExt): Entry {
+function tplRepay_(env: TemplateEnv, borrower: Id, bank: Id, principal: Money, ccy: Ccy, code: string, loanId: Id, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'REPAY', code, [principal], [bank, borrower]); if (bad) return bad;
   return finish(env, 'REPAY', code, [
     dr(accountKey(bank, 2100, ccy, borrower), accountKey(borrower, 1010, ccy, bank), principal, ccy, code),
@@ -247,11 +252,11 @@ export function tplRepay(env: TemplateEnv, borrower: Id, bank: Id, principal: Mo
 }
 
 /** Central-bank credit: settlement cash or reserves are issued (ISSUE_CB); the cb takes a claim or the asset (03#7). */
-export function tplCbCredit(env: TemplateEnv, cb: Id, cpty: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
+function tplCbCredit_(env: TemplateEnv, cb: Id, cpty: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'CB_CREDIT', code, [amt], [cb, cpty]); if (bad) return bad;
   const d = cashLeg(env.rail, ent(env, cb), ent(env, cpty), amt, ccy, code, { restrictedOk: false, settlementOnly: true });
   if (o?.assetId && o.qty) {
-    const acct = o.assetAcct ?? 1520; const sk = accountKey(cpty, acct, ccy, o.assetId); const ck = accountKey(cb, acct, ccy, o.assetId);
+    const acct = leg(env, 'CB_CREDIT', code, 'A', o.valueLegA ?? o.assetAcct, 1520); const sk = accountKey(cpty, acct, ccy, o.assetId); const ck = accountKey(cb, acct, ccy, o.assetId);
     const book = env.rail.bookValueOf(sk, o.qty);
     d.push(dr(ck, sk, book, ccy, code, { qty: o.qty, assetId: o.assetId }));
     if (amt > book) d.push(dr(ck, accountKey(cpty, 4060, ccy), amt - book, ccy, code));
@@ -259,42 +264,48 @@ export function tplCbCredit(env: TemplateEnv, cb: Id, cpty: Id, amt: Money, ccy:
   } else d.push(dr(accountKey(cb, valueLeg(env, code, 'A', o, 1301), ccy, cpty), accountKey(cpty, valueLeg(env, code, 'B', o, 2201), ccy, cb), amt, ccy, code));
   return finish(env, 'CB_CREDIT', code, d.filter((x) => x.amount !== 0n || x.qty !== undefined), o, { amount: amt, ccy, counterpartyId: cpty }, { parties: [cb, cpty], borrowerId: cpty });
 }
-export function tplCbCreditUnwind(env: TemplateEnv, cpty: Id, cb: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
+function tplCbCreditUnwind_(env: TemplateEnv, cpty: Id, cb: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'CB_CREDIT_UNWIND', code, [amt], [cb, cpty]); if (bad) return bad;
   const p = ent(env, cpty);
   const d = cashLeg(env.rail, { ...p, payFrom: { kind: 'CASH' } }, ent(env, cb), amt, ccy, code, { restrictedOk: false, fixedSources: o?.fixedSources });
   if (o?.assetId && o.qty) {
-    const acct = o.assetAcct ?? 1520;
+    const acct = leg(env, 'CB_CREDIT_UNWIND', code, 'A', o.valueLegA ?? o.assetAcct, 1520);
     d.push(dr(accountKey(cpty, acct, ccy, o.assetId), accountKey(cb, acct, ccy, o.assetId), amt, ccy, code, { qty: o.qty, assetId: o.assetId }));
   } else d.push(dr(accountKey(cpty, valueLeg(env, code, 'A', o, 2201), ccy, cb), accountKey(cb, valueLeg(env, code, 'B', o, 1301), ccy, cpty), amt, ccy, code));
   return finish(env, 'CB_CREDIT_UNWIND', code, d, o, { amount: amt, ccy, counterpartyId: cb }, { parties: [cpty, cb], borrowerId: cpty });
 }
 
-/** Negative amounts swap sides (03 §8 edge 18). E-11: drAcct = leg A, crAcct = leg B, checked against the catalog legPolicy. */
-export function tplAccrue(env: TemplateEnv, e: Id, amt: Money, ccy: Ccy, code: string, drAcct: number, crAcct: number, o?: PostOptsExt): Entry {
+/**
+ * Negative amounts swap sides (03 §8 edge 18), only for legpolicy negative_swap=Y codes. The legs are checked as passed (drAcct = A,
+ * crAcct = B), before the swap (T03-07:76). LED_APPRAISAL: only the 4 card shapes, and a 3400 debit never takes the surplus below 0.
+ */
+function tplAccrue_(env: TemplateEnv, e: Id, amt: Money, ccy: Ccy, code: string, drAcct: number, crAcct: number, o?: PostOptsExt): Entry {
   const neg = amt < 0n; const a = neg ? -amt : amt;
   const bad = prologue(env, 'ACCRUE', code, [a], [e]); if (bad) return bad;
-  const A = policyLeg(env, 'ACCRUE', code, 'A', drAcct); if (isEntry(A)) return A;
-  const B = policyLeg(env, 'ACCRUE', code, 'B', crAcct); if (isEntry(B)) return B;
-  const D = accountKey(e, A ?? drAcct, ccy, o?.sub); const C = accountKey(e, B ?? crAcct, ccy, o?.sub);
-  return finish(env, 'ACCRUE', code, [neg ? dr(C, D, a, ccy, code) : dr(D, C, a, ccy, code)], o, { amount: a, ccy }, { parties: [e] });
+  const A = leg(env, 'ACCRUE', code, 'A', drAcct, drAcct); const B = leg(env, 'ACCRUE', code, 'B', crAcct, crAcct);
+  if (neg && LEG_POLICY.get(code)?.negSwap === false) return invalidEntry(env, 'ACCRUE', code, 'INV-LED-007', `negative amount ${amt}`, 'negative_swap=Y code');
+  const D = accountKey(e, A, ccy, o?.sub); const C = accountKey(e, B, ccy, o?.sub);
+  const [d, c] = neg ? [C, D] : [D, C];
+  if (code === 'LED_APPRAISAL') {
+    const dc = Number(d.split(':')[1]); const cc = Number(c.split(':')[1]);
+    if (!appraisalPairOk(dc, cc)) return invalidEntry(env, 'ACCRUE', code, 'INV-LED-007', `leg_mismatch pair ${dc}/${cc}`, 'asset/4070 | 5170/asset | asset/3400 | 3400/asset');
+    const surplus = -env.rail.balance(accountKey(e, 3400, ccy, o?.sub)); // credit balance
+    if (dc === 3400 && a > surplus) return invalidEntry(env, 'ACCRUE', code, 'INV-LED-007', `appr.surplus ${surplus} - ${a} < 0`, 'appr.surplus ≥ 0');
+  }
+  return finish(env, 'ACCRUE', code, [dr(d, c, a, ccy, code)], o, { amount: a, ccy }, { parties: [e] });
 }
-/**
- * E-11 CLASS: A = a's receivable ∈ {1100,1110}, B = b's payable ∈ {2510,2520,2540}, both caller-supplied (o.valueLegA/B).
- * The income/expense legs are the catalog legB (a's income, e.g. LED_ACCRUAL 4020) and 5000. TODO(systems): b's expense leg.
- */
-export function tplAccruePair(env: TemplateEnv, a: Id, b: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
+/** ACCRUE_PAIR: Dr a:A:<sub> / Cr a:income ; Dr b:expense / Cr b:B:<sub>. A, B per legPolicy (o.valueLegA/B); income/expense via o.memo-free defaults. */
+function tplAccruePair_(env: TemplateEnv, a: Id, b: Id, amt: Money, ccy: Ccy, code: string, o?: PostOptsExt & { income?: number; expense?: number }): Entry {
   const bad = prologue(env, 'ACCRUE_PAIR', code, [amt], [a, b]); if (bad) return bad;
-  const A = policyLeg(env, 'ACCRUE_PAIR', code, 'A', o?.valueLegA); if (isEntry(A)) return A;
-  const B = policyLeg(env, 'ACCRUE_PAIR', code, 'B', o?.valueLegB); if (isEntry(B)) return B;
-  const inc = env.catalog.get(code)?.valueLegB;
+  const A = leg(env, 'ACCRUE_PAIR', code, 'A', o?.valueLegA, null); const B = leg(env, 'ACCRUE_PAIR', code, 'B', o?.valueLegB, null);
+  const sub = o?.accrualId ?? o?.sub;
   return finish(env, 'ACCRUE_PAIR', code, [
-    dr(accountKey(a, A as number, ccy, b), accountKey(a, typeof inc === 'number' ? inc : DEFAULT_LEG.payeeIncome, ccy), amt, ccy, code),
-    dr(accountKey(b, DEFAULT_LEG.payerExpense, ccy), accountKey(b, B as number, ccy, a), amt, ccy, code),
+    dr(accountKey(a, A, ccy, sub ?? b), accountKey(a, o?.income ?? DEFAULT_LEG.payeeIncome, ccy), amt, ccy, code),
+    dr(accountKey(b, o?.expense ?? DEFAULT_LEG.payerExpense, ccy), accountKey(b, B, ccy, sub ?? a), amt, ccy, code),
   ], o, { amount: amt, ccy, counterpartyId: b }, { parties: [a, b] });
 }
 /** a pays amt1 of ccy1 to b; b pays amt2 of ccy2 to a; each entity balances per currency through 3800 (03#8). */
-export function tplFx(env: TemplateEnv, a: Id, b: Id, ccy1: Ccy, amt1: Money, ccy2: Ccy, amt2: Money, code: string, o?: PostOptsExt): Entry {
+function tplFx_(env: TemplateEnv, a: Id, b: Id, ccy1: Ccy, amt1: Money, ccy2: Ccy, amt2: Money, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'FX', code, [amt1, amt2], [a, b]); if (bad) return bad;
   const A = ent(env, a); const B = ent(env, b);
   const d = [
@@ -306,7 +317,7 @@ export function tplFx(env: TemplateEnv, a: Id, b: Id, ccy1: Ccy, amt1: Money, cc
   return finish(env, 'FX', code, d, o, { amount: amt1, ccy: ccy1, counterpartyId: b }, { parties: [a, b] });
 }
 /** TODO(systems): value legs per code; defaults to 5000 / 4000 at book value. */
-export function tplMoveQty(env: TemplateEnv, from: Id, to: Id, assetId: Id, qty: Qty, bookValue: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
+function tplMoveQty_(env: TemplateEnv, from: Id, to: Id, assetId: Id, qty: Qty, bookValue: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'MOVE_QTY', code, [qty, bookValue], [from, to]); if (bad) return bad;
   const acct = o?.assetAcct ?? 1500;
   return finish(env, 'MOVE_QTY', code, [
@@ -314,13 +325,14 @@ export function tplMoveQty(env: TemplateEnv, from: Id, to: Id, assetId: Id, qty:
     dr(accountKey(from, valueLeg(env, code, 'A', o, DEFAULT_LEG.payerExpense), ccy), accountKey(to, valueLeg(env, code, 'B', o, DEFAULT_LEG.payeeIncome), ccy), bookValue, ccy, code),
   ], o, { amount: bookValue, ccy, counterpartyId: to }, { parties: [from, to] });
 }
-/** E-11: toAcct (debit) = leg A, fromAcct (credit) = leg B, checked against the catalog legPolicy. */
-export function tplReclass(env: TemplateEnv, e: Id, amt: Money, ccy: Ccy, code: string, fromAcct: number, toAcct: number, o?: PostOptsExt): Entry {
-  // QTY_ONLY rows (EQ_SPLIT, LED_DISSOLUTION): the positional args are the qty accounts, not value legs; only an override is rejected.
-  const qtyOnly = env.catalog.get(code) && legPolicy(env.catalog.get(code) as NonNullable<ReturnType<ReasonCatalog['get']>>, 'RECLASS', 'A').kind === 'QTY_ONLY';
-  const A = policyLeg(env, 'RECLASS', code, 'A', qtyOnly ? o?.valueLegA : toAcct); if (isEntry(A)) return A;
-  const B = policyLeg(env, 'RECLASS', code, 'B', qtyOnly ? o?.valueLegB : fromAcct); if (isEntry(B)) return B;
-  return reclassKeys(env, code, accountKey(e, fromAcct, ccy, o?.sub), accountKey(e, toAcct, ccy), amt, ccy, o);
+/** E-11: toAcct (debit) = leg A, fromAcct (credit) = leg B. NONE rows (EQ_SPLIT, LED_DISSOLUTION): the positional args are the qty
+ *  accounts, not value legs; any valueLegA/B override is rejected. */
+function tplReclass_(env: TemplateEnv, e: Id, amt: Money, ccy: Ccy, code: string, fromAcct: number, toAcct: number, o?: PostOptsExt): Entry {
+  const none = LEG_POLICY.get(code)?.A.policy === 'NONE';
+  const sys = e === SYS_ID;
+  const A = leg(env, 'RECLASS', code, 'A', none ? o?.valueLegA : toAcct, toAcct, sys);
+  const B = leg(env, 'RECLASS', code, 'B', none ? o?.valueLegB : fromAcct, fromAcct, sys);
+  return reclassKeys(env, code, accountKey(e, B, ccy, o?.sub), accountKey(e, A, ccy), amt, ccy, o);
 }
 /** RECLASS between two keys of one entity (used for restricted-lot release: RESTRICTED sub -> 1001). */
 export function reclassKeys(env: TemplateEnv, code: string, fromKey: string, toKey: string, amt: Money, ccy: Ccy, o?: PostOptsExt): Entry {
@@ -341,7 +353,7 @@ export function composeEntries(_env: TemplateEnv, primary: Entry, supporting: re
 }
 
 /** Pro-rata split (T03-07 :67): one entry, allocate() inside, zero parts skipped, payer pays exactly total (E4). */
-export function payProRata(env: TemplateEnv, payer: Id, holders: SortedMap<Id, bigint>, total: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
+function payProRata_(env: TemplateEnv, payer: Id, holders: SortedMap<Id, bigint>, total: Money, ccy: Ccy, code: string, o?: PostOptsExt): Entry {
   const bad = prologue(env, 'PAY', code, [total], [payer, ...holders.keys()]); if (bad) return bad;
   const parts = allocate(total, holders);
   const d: Draft[] = [];
@@ -371,3 +383,13 @@ export function isBalancedPerEntity(postings: readonly { debitAccount: string; c
   }
   return net.values().every((v) => v === 0n);
 }
+
+// Public templates: LegFail (legPolicy breach) becomes the invalid entry.
+export const tplPay = guard(tplPay_); export const tplSwapAsset = guard(tplSwapAsset_);
+export const tplMint = guard(tplMint_); export const tplElasticIn = guard(tplElasticIn_);
+export const tplBurn = guard(tplBurn_); export const tplElasticOut = guard(tplElasticOut_);
+export const tplLend = guard(tplLend_); export const tplRepay = guard(tplRepay_);
+export const tplCbCredit = guard(tplCbCredit_); export const tplCbCreditUnwind = guard(tplCbCreditUnwind_);
+export const tplAccrue = guard(tplAccrue_); export const tplAccruePair = guard(tplAccruePair_);
+export const tplFx = guard(tplFx_); export const tplMoveQty = guard(tplMoveQty_);
+export const tplReclass = guard(tplReclass_); export const payProRata = guard(payProRata_);

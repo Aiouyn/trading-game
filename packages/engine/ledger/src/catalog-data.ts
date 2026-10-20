@@ -393,6 +393,13 @@ export const CATALOG_SEED: readonly CatalogSeedRow[] = [
   { code: 'CBK_DEPOSIT_INTEREST_W', cls: 'TRANSFER', owner: 4, cf: 'OP', tpl: ['PAY'], legA: 5090, legB: 4020, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, taxTag: 'INT', derived: true },
   { code: 'CONFLICT_RANSOM', cls: 'TRANSFER', owner: 12, cf: 'OP', tpl: ['ESCROW_PLACE'], legA: 1070, legB: 2160, sectors: [], restrictedOk: false, requestableBy: [], illicit: true, taxTag: 'ILLICIT', derived: true },
   { code: 'CONFLICT_CASH_LOOT', cls: 'TRANSFER', owner: 12, cf: 'OP', tpl: ['ESCROW_PLACE'], legA: 1070, legB: 2160, sectors: [], restrictedOk: false, requestableBy: [], illicit: true, taxTag: 'ILLICIT', derived: true },
+  { code: 'BIZ_WAGES_B2E', cls: 'TRANSFER', owner: 9, cf: 'OP', tpl: ['PAY'], legA: 5010, legB: 4190, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
+  { code: 'BIZ_UPKEEP_B2B', cls: 'TRANSFER', owner: 9, cf: 'OP', tpl: ['PAY'], legA: 5040, legB: 4000, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
+  { code: 'PROP_UPKEEP_B2B', cls: 'TRANSFER', owner: 10, cf: 'OP', tpl: ['PAY'], legA: 5040, legB: 4000, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
+  { code: 'LIFE_UPKEEP_B2B', cls: 'TRANSFER', owner: 14, cf: 'OP', tpl: ['PAY'], legA: 5200, legB: 4000, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
+  { code: 'BIZ_SUBSCRIPTION_B2B', cls: 'TRANSFER', owner: 9, cf: 'OP', tpl: ['PAY'], legA: 5080, legB: 4040, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
+  { code: 'LIFE_SUBSCRIPTION_B2B', cls: 'TRANSFER', owner: 14, cf: 'OP', tpl: ['PAY'], legA: 5080, legB: 4040, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
+  { code: 'BIZ_SERVICE_FEE_B2B', cls: 'TRANSFER', owner: 9, cf: 'OP', tpl: ['PAY'], legA: 5080, legB: 4040, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, derived: true },
 ];
 
 /** aliases.csv (26 rows of 24 §8 + 2 of PD-12): alias -> canonical code(s). Posting an alias is invalid (INV-LED-002). */
