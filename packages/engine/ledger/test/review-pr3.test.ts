@@ -39,6 +39,12 @@ describe('F1 INV-LED-004 per-entry M2 rules (T03-11 step 7)', () => {
     const bad = extra(burn, { debitAccount: 'chr_B:1001:FDL', creditAccount: 'chr_B:4190:FDL', amount: 50n });
     expect(obs(L.INV_LED_004(view([bad])), 'INV-LED-004').some((o) => /SINK ADM_CORRECTION_OUT M2 sign 40/.test(o))).toBe(true);
   });
+  it('CB_CREDIT into a fund: M2 = non-bank cash moved passes; a forged deposit leg makes M2 differ from it and fails (kills the CB-credit-rule mutant)', () => {
+    const qe = L.tplCbCredit(env('04'), 'cbk_FDL', 'fnd_F', 1_000n, 'FDL', 'CBK_ASSET_PURCHASE');
+    expect(obs(L.INV_LED_004(view([qe])), 'INV-LED-004')).toEqual([]);
+    const forged = extra(qe, { debitAccount: 'bnk_N:2100:fnd_F:FDL', creditAccount: 'bnk_N:3100:FDL', amount: 40n }); // M2 −40, non-bank 1001 unchanged
+    expect(obs(L.INV_LED_004(view([forged])), 'INV-LED-004')).toContain(`I4: ${qe.entryId} CB credit CBK_ASSET_PURCHASE M2 960`);
+  });
   it('CB_CREDIT into bank reserves gives ΔM2 = 0n and passes; bank LEND to a chr moves M2 by +amount (borrower from meta)', () => {
     const cb = L.tplCbCredit(env('04'), 'cbk_FDL', 'bnk_N', 9n, 'FDL', 'CBK_STANDING_FACILITY');
     expect(L.computeM2(applied([cb]), 'FDL')).toBe(0n);
@@ -68,24 +74,21 @@ describe('F2 elastic bridge (INV-LED-005, I17 mirror)', () => {
   });
 });
 
-describe('F3 INV-LED-002 supporting legs (T03-05 step 8, A-5 as Systems reads it)', () => {
+describe('F3 INV-LED-002 supporting legs (T03-05 step 8 exactly)', () => {
   const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
-  it('a SINK fee leg built by BURN inside a trade passes through its legTemplate (spec test 8)', () => {
+  it('a SINK fee leg (BURN) inside a SWAP_ASSET trade fails: class SINK does not admit SWAP_ASSET (card rule, no template-stamp branch)', () => {
     const fee = L.tplBurn(env('21'), 'chr_A', 1n, 'FDL', 'ADM_CORRECTION_OUT');
     const c = L.composeEntries(env('05'), trade(), [fee]);
-    expect(c.postings.filter((p) => p.reason === 'ADM_CORRECTION_OUT').every((p) => p.legTemplate === 'BURN')).toBe(true);
-    expect(L.INV_LED_002(view([c]))).toEqual([]);
+    expect(obs(L.INV_LED_002(view([c])), 'INV-LED-002')).toContain('I1: supporting leg code=ADM_CORRECTION_OUT template=SWAP_ASSET');
   });
-  it('the same SINK leg without its legTemplate fails (class SINK does not admit SWAP_ASSET)', () => {
-    const fee = L.tplBurn(env('21'), 'chr_A', 1n, 'FDL', 'ADM_CORRECTION_OUT');
-    const c = L.composeEntries(env('05'), trade(), [fee]);
-    const stripped = { ...c, postings: c.postings.map((p) => ({ ...p, legTemplate: undefined })) };
-    expect(obs(L.INV_LED_002(view([stripped])), 'INV-LED-002')).toContain('I1: supporting leg code=ADM_CORRECTION_OUT template=SWAP_ASSET');
+  it('a supporting TRANSFER leg inside a TRANSFER entry passes (class admits the template)', () => {
+    const fee = L.tplPay(env('21'), 'chr_A', 'chr_B', 1n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    expect(L.INV_LED_002(view([L.composeEntries(env('05'), trade(), [fee])]))).toEqual([]);
   });
   it('a TAX_* TRANSFER leg in a TRANSFER entry passes by the card rule', () => {
     const tax = L.tplPay(env('03'), 'chr_A', 'gov_FDL', 2n, 'FDL', 'TAX_SECURITIES_TX');
     const c = L.composeEntries(env('05'), trade(), [tax]);
-    expect(L.INV_LED_002(view([{ ...c, postings: c.postings.map((p) => ({ ...p, legTemplate: undefined })) }]))).toEqual([]);
+    expect(L.INV_LED_002(view([c]))).toEqual([]);
   });
 });
 

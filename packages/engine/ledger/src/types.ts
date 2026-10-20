@@ -23,8 +23,6 @@ export interface Posting {
   amount: Money; ccy: Ccy; reason: string; refs: Id[];
   qty?: Qty; assetId?: Id; legOf?: { legId: string; side: 'A' | 'B' };
   flowLeg?: true;
-  /** composeEntries: the template that built a supporting leg (INV-LED-002 / T03-05 step 8, PR #3 review F3). */
-  legTemplate?: TemplateId;
 }
 export interface Entry {
   entryId: Id; tick: Tick; template: TemplateId; reason: string; postings: Posting[];

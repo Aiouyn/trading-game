@@ -296,7 +296,7 @@ export function reclassKeys(env: TemplateEnv, code: string, fromKey: string, toK
 export function composeEntries(_env: TemplateEnv, primary: Entry, supporting: readonly Entry[]): Entry {
   const bad = [primary, ...supporting].find((e) => e.invalid);
   if (bad) return { ...primary, postings: [], invalid: bad.invalid };
-  const postings = [primary, ...supporting].flatMap((e, j) => e.postings.map((p) => (j === 0 ? p : { ...p, legTemplate: e.template })))
+  const postings = [primary, ...supporting].flatMap((e) => e.postings)
     .map((p, i) => ({ ...p, entryId: primary.entryId, postingSeq: i }));
   const parties = [primary, ...supporting].flatMap((e) => e.meta?.parties ?? []).filter((x, i, a) => a.indexOf(x) === i);
   return { ...primary, postings, meta: { ...primary.meta, parties } };

@@ -1,9 +1,9 @@
 import { LedgerWorld, accountKey as K, type Ccy } from '../src';
 
-/** Fixture world: P player, its fund F and business B; NPC company N; banks; treasury; elastic sectors. */
+/** Fixture world: P player, its fund F and business B; NPC company N; banks; treasury; exchange exc_X; elastic sectors. */
 export function fixture(opts: ConstructorParameters<typeof LedgerWorld>[0] = {}): LedgerWorld {
   const w = new LedgerWorld(opts);
-  for (const id of ['chr_P', 'chr_A', 'chr_B', 'chr_a', 'chr_b', 'chr_c', 'cmp_N', 'bnk_N', 'bnk_X', 'bnk_Y', 'gov_FDL', 'hh_C1', 'frm_FDL', 'npc_S'])
+  for (const id of ['chr_P', 'chr_A', 'chr_B', 'chr_a', 'chr_b', 'chr_c', 'cmp_N', 'bnk_N', 'bnk_X', 'bnk_Y', 'gov_FDL', 'hh_C1', 'frm_FDL', 'npc_S', 'exc_X'])
     w.registerEntity({ id });
   w.registerEntity({ id: 'fnd_F', ownerId: 'chr_P' });
   w.registerEntity({ id: 'biz_B', ownerId: 'chr_P' });

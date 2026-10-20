@@ -1,9 +1,8 @@
 // Spec §7 additions 1a, 1b, 2, 4, 6, 8 and the TickFlows / FlowDay / FlowReader plumbing (Δ2, PD-5, Δ5).
 import { describe, expect, it } from 'vitest';
-import { INV_LED_015, ReasonCatalog, SortedMap, type CodeRow, type TickFlows } from '../src';
+import { INV_LED_015, SortedMap, type TickFlows } from '../src';
 import { fixture } from './fixture';
 
-const sinkRow = (code: string): CodeRow => ({ code, cls: 'SINK', owner: 5, cf: 'OP', allowedTemplates: ['BURN'], descriptionKey: code });
 
 describe('flow aggregates', () => {
   it('1a no double count: MINT 5,000 FDL adds exactly 5_000_000_000n to byCode and byClass.FAUCET (not 3×, no headline)', () => {
@@ -54,25 +53,25 @@ describe('flow aggregates', () => {
     expect(step(() => w.apiFor('21').ledger.burn('chr_A', 4n, 'FDL', 'ADM_CORRECTION_OUT'))).toEqual([-4n, -4n]);
     expect(step(() => w.apiFor('21').ledger.pay('chr_A', 'chr_B', 5n, 'FDL', 'ADM_CORRECTION_TRANSFER'))).toEqual([0n, 0n]);
   });
+  // Erratum (Producer, Δ6-B): fee and tax legs of a trade are TRANSFER legs into system treasuries (exc_, gov_); the sysSide view
+  // classifies them. They were SINK legs, which T03-05 step 8 does not allow inside a SWAP_ASSET entry.
   it('8 trade with fee and tax legs (PD-5): per-leg codes, headline never added', () => {
-    const cat = new ReasonCatalog();
-    expect(cat.registerReasonCodes(5, 'SINK', [sinkRow('SINK_TEST_FEE'), sinkRow('SINK_TEST_TAX')])).toEqual([]);
-    const w = fixture({ catalog: cat }); const t = w.tick;
+    const w = fixture(); const t = w.tick;
     w.apiFor('21').ledger.mint('chr_A', 2_000_000_000n, 'FDL', 'ADM_CORRECTION_IN');
     w.runP13();
     w.apiFor('05').ledger.compose(
       ({ env, t: T }) => T.tplSwapAsset(env, 'chr_A', 'chr_B', 'ast_EQ_X', 10n, 1_000_000_000n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 }),
-      [({ env, t: T }) => T.tplBurn(env, 'chr_A', 2_000_000n, 'FDL', 'SINK_TEST_FEE'), ({ env, t: T }) => T.tplBurn(env, 'chr_A', 1_500_000n, 'FDL', 'SINK_TEST_TAX')],
+      [({ env, t: T }) => T.tplPay(env, 'chr_A', 'exc_X', 2_000_000n, 'FDL', 'MKT_EXCHANGE_FEE'), ({ env, t: T }) => T.tplPay(env, 'chr_A', 'gov_FDL', 1_500_000n, 'FDL', 'TAX_SECURITIES_TX')],
     );
     expect(w.runP13().failures).toEqual([]);
     const f = w.flowReader().tickFlows('FDL', t + 1)!;
-    expect(f.byCode.get('SINK_TEST_FEE')).toBe(2_000_000n);
-    expect(f.byCode.get('SINK_TEST_TAX')).toBe(1_500_000n);
-    expect(f.byClass.get('SINK')).toBe(3_500_000n);
+    expect(f.byCode.get('MKT_EXCHANGE_FEE')).toBe(2_000_000n);
+    expect(f.byCode.get('TAX_SECURITIES_TX')).toBe(1_500_000n);
+    expect(f.byClass.get('SINK')).toBe(0n);
     expect(f.byCode.get('MKT_TRADE')).toBe(1_000_000_000n);
-    expect(f.byClass.get('TRANSFER')).toBe(1_000_000_000n);
+    expect(f.byClass.get('TRANSFER')).toBe(1_003_500_000n);
     expect(f.byClass.get('FAUCET')).toBe(0n);
-    expect(f.m0sysDelta).toBe(-3_500_000n);
+    expect(f.m0sysDelta).toBe(0n);
     expect(w.entryLog().filter((e) => e.template === 'SWAP_ASSET').length).toBe(1); // one composed entry
   });
   it('2 Δ2 cost: P13 never reads the postings archive (runP13 throws if it does), across a day close', () => {

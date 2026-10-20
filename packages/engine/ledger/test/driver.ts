@@ -1,14 +1,11 @@
 // Seeded random driver posting valid FAUCET / SINK / TRANSFER / CREDIT / REVALUE entries, incl. composed entries and cbCredit.
-import { ReasonCatalog, type CodeRow, type LedgerWorld } from '../src';
+import type { LedgerWorld } from '../src';
 import { fixture, prng } from './fixture';
 
-const sinkRow = (code: string): CodeRow => ({ code, cls: 'SINK', owner: 5, cf: 'OP', allowedTemplates: ['BURN'], descriptionKey: code });
 const PEOPLE = ['chr_A', 'chr_B', 'chr_P', 'cmp_N', 'fnd_F'];
 
 export function driverWorld(): LedgerWorld {
-  const cat = new ReasonCatalog();
-  cat.registerReasonCodes(5, 'SINK', [sinkRow('SINK_TEST_FEE')]);
-  return fixture({ catalog: cat });
+  return fixture();
 }
 /** Posts 0..4 random valid operations into the open tick. */
 export function driveTick(w: LedgerWorld, rnd: () => number, loans: { id: string; amt: bigint; borrower: string }[]): void {
@@ -37,7 +34,7 @@ export function driveTick(w: LedgerWorld, rnd: () => number, loans: { id: string
         const price = 1n + (av - 1n) / 2n; const fee = 1n + price / 100n;
         w.apiFor('05').ledger.compose(
           ({ env, t }) => t.tplSwapAsset(env, a, 'cmp_N', 'ast_EQ_N', amt(10), price, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 }),
-          [({ env, t }) => t.tplBurn(env, a, fee, 'FDL', 'SINK_TEST_FEE')],
+          [({ env, t }) => t.tplPay(env, a, 'exc_X', fee, 'FDL', 'MKT_EXCHANGE_FEE')], // erratum: trade fees are TRANSFER legs into a system treasury (Δ6-B)
         );
         if (a === 'cmp_N') w.testHooks().queue.pop(); // no self-trade
         break;

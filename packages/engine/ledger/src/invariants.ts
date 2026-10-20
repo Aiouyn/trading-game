@@ -136,12 +136,11 @@ export const INV_LED_002: Check = (v) => {
       const d = v.catalog.get(p.reason);
       if (!d) { out.push(F('INV-LED-002', `I1: unknown reason ${p.reason}`, 'registered code')); continue; }
       if (p.reason === e.reason) continue;
-      // Supporting leg (T03-05 step 8, review A-5 / F3): its class must admit the entry's template, or it is a TAX_* TRANSFER inside a
-      // TRANSFER/SINK entry, or (beyond the card text, review F3 third branch) the template that built the leg is allowed for its code.
+      // Supporting leg, T03-05 step 8 exactly (review A-5 / F3): its class must admit the entry's template, or it is a TAX_* TRANSFER
+      // inside a TRANSFER/SINK entry.
       const ok = CLASS_TEMPLATES[d.cls].includes(e.template)
-        || (d.cls === 'TRANSFER' && p.reason.startsWith('TAX_') && (primary?.cls === 'TRANSFER' || primary?.cls === 'SINK'))
-        || (p.legTemplate !== undefined && d.allowedTemplates.includes(p.legTemplate));
-      if (!ok) out.push(F('INV-LED-002', `I1: supporting leg code=${p.reason} template=${p.legTemplate ?? e.template}`, 'leg allowed by T03-05 step 8'));
+        || (d.cls === 'TRANSFER' && p.reason.startsWith('TAX_') && (primary?.cls === 'TRANSFER' || primary?.cls === 'SINK'));
+      if (!ok) out.push(F('INV-LED-002', `I1: supporting leg code=${p.reason} template=${e.template}`, 'leg allowed by T03-05 step 8'));
     }
   }
   return out;
@@ -164,7 +163,7 @@ export const INV_LED_003: Check = (v) => {
     // I17. Ambiguity A-2: elastic issuance (03#3 layout) books sys:2909:<sector>, not 5900/4900, so the 2909 bridge is added to netIssuance.
     const ni = netIssuance(v.post, ccy) + bridge2909(v.post, ccy); const s2900 = bal(v.post, `${SYS_ID}:2900:${ccy}`);
     if (ni !== -s2900 || computeM0sys(v.post, ccy) !== -s2900) out.push(F('INV-LED-003', `I17: netIssuance+2909 ${ni}, cbk 1910 ${computeM0sys(v.post, ccy)}, sys 2900 ${s2900}`, 'netIssuance + Σ sys 2909 = cbk 1910 = −sys 2900'));
-    // I17 mirror per elastic sector (review F2, erratum E-7): sys:2909:X + X:1009 = 0n.
+    // I17 mirror per elastic sector (review F2, erratum E-8): sys:2909:X + X:1009 = 0n.
     const mirror = new SortedMap<string, Money>();
     for (const [k, b] of v.post) {
       const q = parseAccountKey(k); if (!q || q.ccy !== ccy) continue;
@@ -187,12 +186,12 @@ export const INV_LED_003: Check = (v) => {
 /**
  * L4, implemented as the card's I4 (T03-11 step 7; spec ambiguity A-1): (a) M0 moves only through FAUCET/SINK, central-bank
  * credit codes or cbk own-account postings, and ΔM0_cb = Σ cbCredit − Σ unwind + cbk own-account; (b) REVALUE never moves M2;
- * (c) commercial credit to a non-bank moves M2 by exactly ±amount; (d) ΔM2 from balances = Σ posting effects.
+ * (c) the T03-11 step 7 per-entry M2 rules (m2EntryRules; erratum E-7).
  */
 export const INV_LED_004: Check = (v) => {
   const out: Failure[] = [];
   for (const ccy of CCYS) {
-    let m2Sum = 0n; let cbExpected = 0n;
+    let cbExpected = 0n;
     for (const e of v.entries) {
       // cbk own-account entry: the cbk books a value leg itself (not only its issuer mirror 2001-2003 / 1910), e.g. CBK_PROFIT_REMITTANCE
       const cbkParty = e.postings.some((p) => [p.debitAccount, p.creditAccount].some((k) => {
@@ -201,7 +200,6 @@ export const INV_LED_004: Check = (v) => {
       for (const p of e.postings) {
         if (p.ccy !== ccy) continue;
         const cls = v.catalog.get(p.reason)?.cls; const eff = postingEffect(p);
-        m2Sum += eff.m2;
         const m0cb = eff.m0 - eff.m0sys;
         if (CBK_CREDIT_CODES.includes(p.reason) || CBK_UNWIND_CODES.includes(p.reason) || (cbkParty && cls !== 'FAUCET' && cls !== 'SINK')) cbExpected += m0cb;
         else if (m0cb !== 0n && cls !== 'FAUCET' && cls !== 'SINK') out.push(F('INV-LED-004', `I4: ${p.reason} moves M0_cb by ${m0cb}`, '0n'));
@@ -211,8 +209,6 @@ export const INV_LED_004: Check = (v) => {
     }
     const dM0cb = computeM0(v.post, ccy) - computeM0sys(v.post, ccy) - (computeM0(v.pre, ccy) - computeM0sys(v.pre, ccy));
     if (dM0cb !== cbExpected) out.push(F('INV-LED-004', `I4: ΔM0_cb(${ccy}) ${dM0cb}`, `cb credit + cbk own-account ${cbExpected}`));
-    const dM2 = computeM2(v.post, ccy) - computeM2(v.pre, ccy);
-    if (dM2 !== m2Sum) out.push(F('INV-LED-004', `I4: ΔM2(${ccy}) ${dM2}`, `Σ posting effects ${m2Sum}`));
   }
   return out;
 };
