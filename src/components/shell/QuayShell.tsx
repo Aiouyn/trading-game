@@ -18,6 +18,7 @@ import { ShellCtx, useShell } from "./ShellContext";
 import { Shelf } from "./Shelf";
 import { StatusStrip } from "./StatusStrip";
 import { Desktop } from "./Desktop";
+import { SystemOverlays } from "./SystemOverlays";
 
 const BOOT_MS = [900, 500, 0, 0, 0, 0, 0];
 
@@ -36,6 +37,7 @@ function useHtmlAttributes() {
     toggle("transparency", transp, "reduce");
     toggle("hc", prefs.highContrast, "1");
     toggle("cb", prefs.colorBlindPair, "1");
+    html.style.setProperty("--text-scale", String(prefs.textScale)); // every --fs-* scales (17 §2.1 textScale)
     RANKS.forEach((r) => html.classList.toggle(`shell-${r.toLowerCase()}`, r === rank));
   }, [palette, prefs, rank]);
 }
@@ -47,6 +49,7 @@ function Surface() {
   const keySheetOpen = useShell((s) => s.keySheetOpen);
   const focusMode = useShell((s) => s.local.focusMode);
   const rank = useShell((s) => s.channels.rank.rank);
+  const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const [booted, setBooted] = useState(false);
   useHtmlAttributes();
 
@@ -62,7 +65,7 @@ function Surface() {
   }
   const phone = viewportOf(vw) === "phone";
   return (
-    <div className={`quay${phone ? " is-phone" : " is-desktop"}${focusMode && !phone ? " focus-mode" : ""}`} data-testid="quay-ready">
+    <div className={`quay${phone ? " is-phone" : " is-desktop"}${focusMode && !phone ? " focus-mode" : ""}${reconnecting ? " reconnecting" : ""}`} data-testid="quay-ready">
       {phone ? <PhoneHome /> : (
         <>
           <StatusStrip />
@@ -72,6 +75,7 @@ function Surface() {
           {!focusMode && <Shelf />}
         </>
       )}
+      <SystemOverlays />
       {launcherOpen && <Launcher />}
       {recentOpen && <Recent />}
       {keySheetOpen && <KeySheet />}

@@ -44,15 +44,6 @@ export function slotRect(slot: SnapSlot, a: Area): Area {
   }
 }
 
-/** Layout corner slots next to a 2/3 column: the remaining 1/3 column split top/bottom. */
-export function thirdCorner(corner: "TR" | "BR", a: Area): Area {
-  const third = (a.w - 2 * GUTTER) / 3;
-  const rowH = (a.h - GUTTER) / 2;
-  const x = a.x + a.w - third;
-  const y = corner === "TR" ? a.y : a.y + rowH + GUTTER;
-  return { x: Math.round(x), y: Math.round(y), w: Math.round(third), h: Math.round(rowH) };
-}
-
 /** Minimum size for an app given the work-area width (narrow Broker form under 720). */
 export function minSize(app: AppId, areaW: number): { w: number; h: number } {
   const d = APPS[app];
@@ -75,7 +66,8 @@ export function openApp(windows: WindowRect[], app: AppId, a: Area, context?: st
   const mine = windows.filter((w) => w.app === app);
   const same = context ? mine.find((w) => w.context === context) : undefined;
   const cap = APPS[app].maxInstances;
-  const existing = same ?? (mine.length >= cap ? mine[mine.length - 1] : undefined);
+  // At the cap, focus the main instance (the Review layout's "Journal" Portfolio is never the target).
+  const existing = same ?? (mine.length >= cap ? (mine.find((w) => w.context !== "Journal") ?? mine[0]) : undefined);
   if (existing) return { windows: bringToFront(windows, existing), focused: existing, opened: false };
   const instance = mine.reduce((m, w) => Math.max(m, w.instance), 0) + 1;
   const size = clampSize(app, Math.min(a.w, 840), Math.min(a.h, 560), a.w);

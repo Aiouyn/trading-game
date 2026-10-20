@@ -1,9 +1,12 @@
 // Mock provider for the clock / rank / me channels (Spec 1 §2). Replaced by the gateway later.
-// Query params let tests script a character: ?rank=R3&lic=LIC2&nw=150000&day=3&flags=api.eligible&guest=0&prot=1
+// Mock server for the clock / rank / me channels (stands in for the gateway). Query params script a character:
+// ?rank=R3&lic=LIC2&nw=150000&flags=character.day3,api.eligible&guest=0&prot=1&onb=5&onbDone=0
 import type { Channels, ClockChannel } from "./channels";
 import { RANKS, type Rank } from "./registry";
 
 export const TICK_MS = 5000;
+/** 14's rank thresholds as the server would publish them (17 header): R1 $20k … R5 $2B. */
+export const RANK_THRESHOLDS = ["20000", "250000", "5000000", "100000000", "2000000000"] as const;
 export const TICKS_PER_DAY = 720;
 
 export function mockChannels(q: URLSearchParams): Channels {
@@ -12,15 +15,17 @@ export function mockChannels(q: URLSearchParams): Channels {
   const flags = (q.get("flags") ?? "").split(",").filter(Boolean);
   return {
     clock: clockAt(Number(q.get("tick") ?? 38 * TICKS_PER_DAY + 340)),
-    rank: { rank, nextAt: "5000000" },
+    rank: { rank, thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf(rank)] ?? null },
+    system: { connection: q.get("conn") === "reconnecting" ? "reconnecting" : "live", halted: q.get("halted") === "1", held: q.get("held") === "1" },
     me: {
       nw: q.get("nw") ?? "412860.15",
       todayPct: q.get("pct") ?? "+0.78",
+      todayChg: q.get("chg") ?? "+3204.10",
       license: q.get("lic") ?? "LIC1",
       charters: (q.get("charters") ?? "").split(",").filter(Boolean),
       flags,
-      gameDay: Number(q.get("day") ?? 5),
       onboardingMin: Number(q.get("onb") ?? 60),
+      onboardingDone: q.get("onbDone") !== "0",
       guest: q.get("guest") === "1",
       protectionEndsRealMs: q.get("prot") === "1" ? 41 * 60_000 + 12_000 : null,
     },

@@ -6,9 +6,22 @@
   --font-display: "Instrument Serif", var(--font-instrument-serif), Georgia, serif;
   --font-ui: "Inter", var(--font-inter), system-ui, sans-serif;
   --font-num: "JetBrains Mono", var(--font-jetbrains-mono), ui-monospace, monospace;
-  --fs-10_5: 10.5px; --fs-11_5: 11.5px; --fs-12_5: 12.5px; --fs-13: 13px; --fs-14: 14px;
-  --fs-16: 16px; --fs-20: 20px; --fs-22: 22px; --fs-28: 28px; --fs-30: 30px; --fs-40: 40px;
-  --fs-44: 44px; --fs-48: 48px; --fs-56: 56px; --fs-72: 72px;
+  --text-scale: 1; /* AccountUiPrefs.textScale 1.0..2.0, set on <html> */
+  --fs-10_5: calc(10.5px * var(--text-scale));
+  --fs-11_5: calc(11.5px * var(--text-scale));
+  --fs-12_5: calc(12.5px * var(--text-scale));
+  --fs-13: calc(13px * var(--text-scale));
+  --fs-14: calc(14px * var(--text-scale));
+  --fs-16: calc(16px * var(--text-scale));
+  --fs-20: calc(20px * var(--text-scale));
+  --fs-22: calc(22px * var(--text-scale));
+  --fs-28: calc(28px * var(--text-scale));
+  --fs-30: calc(30px * var(--text-scale));
+  --fs-40: calc(40px * var(--text-scale));
+  --fs-44: calc(44px * var(--text-scale));
+  --fs-48: calc(48px * var(--text-scale));
+  --fs-56: calc(56px * var(--text-scale));
+  --fs-72: calc(72px * var(--text-scale));
   --sp-2: 2px; --sp-4: 4px; --sp-8: 8px; --sp-12: 12px; --sp-16: 16px; --sp-20: 20px;
   --sp-24: 24px; --sp-32: 32px; --sp-48: 48px; --sp-64: 64px;
   --r-input: 6px; --r-btn: 10px; --r-window: 10px; --r-card: 14px; --r-sheet: 20px; --r-chip: 999px;

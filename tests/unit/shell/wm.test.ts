@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyLayout, LAYOUTS } from "@/shell/layouts";
+import { applyLayout, layoutFits, LAYOUTS } from "@/shell/layouts";
+import { LAYOUT_RECTS_1440 } from "./layoutRects";
 import type { WindowRect } from "@/shell/types";
 import { clampSize, minSize, openApp, resizeWin, workArea } from "@/shell/wm";
 import { workspacesFor } from "@/shell/store";
@@ -52,21 +53,33 @@ describe("workspaces by rank (S1-09)", () => {
   });
 });
 
-describe("named layouts at 1440×900 (S1-10)", () => {
+describe("named layouts at 1440×900, minimums win (S1-10, PR #2 answer 2)", () => {
   const all = () => true;
   const rect = (w: WindowRect) => [w.app, w.x, w.y, w.w, w.h];
-  const EXPECT: Record<string, (string | number)[][]> = {
-    trade: [["broker", 8, 42, 947, 798], ["wire", 963, 42, 469, 395], ["portfolio", 963, 445, 469, 395]],
-    review: [["portfolio", 8, 42, 708, 798], ["portfolio", 724, 42, 708, 798]],
-    research: [["research", 8, 42, 947, 798], ["broker", 963, 42, 469, 395], ["wire", 963, 445, 469, 395]],
-    operator: [["businesses", 8, 42, 708, 798], ["city", 724, 42, 708, 395], ["property", 724, 445, 708, 395]],
-    shadow: [["security", 8, 42, 708, 798], ["ailab", 724, 42, 708, 798]],
-    institution: [["institutions", 8, 42, 947, 798], ["messages", 963, 42, 469, 395], ["markets", 963, 445, 469, 395]],
-  };
   it.each(LAYOUTS.map((l) => l.id))("%s", (id) => {
-    expect(applyLayout(id, A, all).map(rect)).toEqual(EXPECT[id]);
+    expect(applyLayout(id, A, all).map(rect)).toEqual(LAYOUT_RECTS_1440[id]);
+  });
+  it("every window in every layout honours its minimum", () => {
+    for (const l of LAYOUTS) for (const w of applyLayout(l.id, A, all)) {
+      const m = minSize(w.app, A.w);
+      expect(w.w >= m.w && w.h >= m.h, `${l.id}/${w.app}`).toBe(true);
+    }
+  });
+  it("a layout that cannot fit is not offered (1200×700: only Review and Shadow fit)", () => {
+    const small = workArea(1200, 700);
+    expect(LAYOUTS.filter((l) => layoutFits(l.id, small)).map((l) => l.id)).toEqual(["review", "shadow"]);
+    expect(applyLayout("research", small, all)).toEqual([]);
+    // Trade needs Broker 720 + Portfolio 520 + gutter: offered from a 1264 px wide viewport.
+    expect(layoutFits("trade", workArea(1263, 900))).toBe(false);
+    expect(layoutFits("trade", workArea(1264, 900))).toBe(true);
   });
   it("locked apps leave their slot empty", () => {
     expect(applyLayout("shadow", A, (a) => a !== "ailab").map((w) => w.app)).toEqual(["security"]);
+  });
+  it("Review's Journal Portfolio is never the focus target of a normal open", () => {
+    const w = applyLayout("review", A, all);
+    const r = openApp(w, "portfolio", A);
+    expect(r.opened).toBe(false);
+    expect(r.focused.context).toBeUndefined();
   });
 });

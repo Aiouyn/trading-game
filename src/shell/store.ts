@@ -16,7 +16,7 @@ export interface ShellState {
   sticky: Set<AppId>;
   fresh: Set<AppId>;              // newly unlocked, not yet opened: one accent dot
   local: ShellLocalState;
-  prefs: Pick<AccountUiPrefs, "reducedMotion" | "reducedTransparency" | "highContrast" | "colorBlindPair">;
+  prefs: Pick<AccountUiPrefs, "reducedMotion" | "reducedTransparency" | "highContrast" | "colorBlindPair" | "textScale">;
   vw: number;
   vh: number;
   recent: AppId[];
@@ -61,7 +61,7 @@ export const createShellStore = (channels: Channels) =>
 
     return {
       channels, vis: first.vis, sticky: first.sticky, fresh: new Set(), local: initialLocal(),
-      prefs: { reducedMotion: "system", reducedTransparency: "system", highContrast: false, colorBlindPair: false },
+      prefs: { reducedMotion: "system", reducedTransparency: "system", highContrast: false, colorBlindPair: false, textScale: 1 },
       vw: 1440, vh: 900, recent: [], launcherOpen: false, recentOpen: false, keySheetOpen: false, phoneApp: null,
 
       setChannels(c) {
@@ -91,14 +91,20 @@ export const createShellStore = (channels: Channels) =>
       toggleCollapse(w) { setWindows(wm.updateWin(get().local.windows, w, { collapsed: !w.collapsed })); },
       layout(id) {
         const vis = get().vis;
-        setWindows(applyLayout(id, area(), (a) => vis[a] === "unlocked"), { activeWorkspace: 1 });
+        const windows = applyLayout(id, area(), (a) => vis[a] === "unlocked");
+        if (windows.length === 0) return;
+        setWindows(windows, { activeWorkspace: 1 });
+        set((s) => ({ recent: [...new Set([...windows.map((w) => w.app).reverse(), ...s.recent])].slice(0, 6) }));
       },
       setWorkspace(n) {
         if (n <= workspacesFor(get().channels.rank.rank)) set((s) => ({ local: { ...s.local, activeWorkspace: n } }));
       },
       toggleFocusMode() { set((s) => ({ local: { ...s.local, focusMode: !s.local.focusMode } })); },
       setPalette(palette) { set((s) => ({ local: { ...s.local, palette } })); },
-      setPrefs(p) { set((s) => ({ prefs: { ...s.prefs, ...p } })); },
+      setPrefs(p) {
+        const textScale = p.textScale === undefined ? undefined : Math.min(2, Math.max(1, p.textScale)); // 1.0..2.0 (17 §2.1)
+        set((s) => ({ prefs: { ...s.prefs, ...p, ...(textScale === undefined ? {} : { textScale }) } }));
+      },
       setLauncher(launcherOpen) { set({ launcherOpen }); },
       setRecent(recentOpen) { set({ recentOpen }); },
       setKeySheet(keySheetOpen) { set({ keySheetOpen }); },

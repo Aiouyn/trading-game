@@ -6,7 +6,8 @@ import { ComingLater } from "./ComingLater";
 import { LockTile } from "./LockTile";
 import { useShell } from "./ShellContext";
 
-export interface BodyState { focused: boolean; collapsed: boolean; background: boolean }
+/** focused window; collapsed; background = other workspace or covered in compact; hidden = not displayed at all. */
+export interface BodyState { focused: boolean; collapsed: boolean; background: boolean; hidden?: boolean }
 
 export function AppBody({ app, state }: { app: AppId; state: BodyState }) {
   const vis = useShell((s) => s.vis[app]);

@@ -1,7 +1,9 @@
 "use client";
-import { useRef } from "react";
+import { useRef, type PointerEvent as RPointerEvent } from "react";
 import { clockLabel } from "@/shell/mockChannels";
-import { APP_IDS, APPS, GROUPS, RANK_NAMES, RANKS, subPalette, type AppId } from "@/shell/registry";
+import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
+import { nextRankTarget } from "@/shell/unlock";
+import { Sparkline } from "./Sparkline";
 import { APP_NAMES, GROUP_LABELS, S } from "@/shell/strings";
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
@@ -25,9 +27,12 @@ function AppIcon({ app }: { app: AppId }) {
       aria-disabled={locked}
       onClick={() => !locked && store.getState().open(app)}
     >
-      <span className="icon"><Glyph name={app} size={24} />{fresh && <span className="fresh-dot" />}</span>
+      <span className="icon">
+        <Glyph name={app} size={24} />
+        {fresh && <span className="fresh-dot" />}
+        {locked && <span className="lock-tag" aria-hidden="true">{APPS[app].lockLabel}</span>}
+      </span>
       <span className="icon-label">{APP_NAMES[app]}</span>
-      {locked && <span className="lock-tag" aria-hidden="true">{APPS[app].lockLabel}</span>}
       {locked && <span className="sr-only">{`· ${APPS[app].lockHint}`}</span>}
     </button>
   );
@@ -75,12 +80,32 @@ export function PhoneHome() {
   const rank = useShell((s) => s.channels.rank);
   const phoneApp = useShell((s) => s.phoneApp);
   const store = useShellStore();
-  const ri = RANKS.indexOf(rank.rank);
-  const next = ri < RANKS.length - 1 ? RANKS[ri + 1] : null;
+  const next = nextRankTarget(rank);
+  const progress = next ? Math.min(1, Math.max(0, Number(me.nw) / Number(next.at))) : 1;
+  const edge = useRef<{ x: number; y: number } | null>(null);
+  // Edge gestures (17 §3.2.3): swipe up on the edge bar = Home; swipe from the left edge = back.
+  const gestures = {
+    onPointerDown: (e: RPointerEvent) => { edge.current = { x: e.clientX, y: e.clientY }; },
+    onPointerUp: (e: RPointerEvent) => {
+      const g = edge.current;
+      edge.current = null;
+      if (g && g.x < 16 && e.clientX - g.x > 60) store.getState().phoneBack();
+    },
+  };
+  const edgeBar = (
+    <div
+      className="edge-bar"
+      data-testid="edge-bar"
+      onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); edge.current = { x: e.clientX, y: e.clientY }; }}
+      onPointerUp={(e) => { const g = edge.current; edge.current = null; if (g && g.y - e.clientY > 30) store.getState().phoneBack(); }}
+    >
+      <span className="disabled"><Glyph name="quay" size={30} /></span>
+    </div>
+  );
 
   if (phoneApp) {
     return (
-      <div className="phone" data-testid="phone">
+      <div className="phone" data-testid="phone" {...gestures}>
         <StatusBar />
         <section className="phone-appview" role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
           <div className="appbar">
@@ -91,20 +116,29 @@ export function PhoneHome() {
             <AppBody app={phoneApp.app} state={{ focused: true, collapsed: false, background: false }} />
           </div>
         </section>
+        {edgeBar}
       </div>
     );
   }
 
   return (
-    <div className="phone" data-testid="phone">
+    <div className="phone" data-testid="phone" {...gestures}>
       <StatusBar />
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top"><span className="label">{S.netWorth}</span><span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span></div>
-          <div className="hero-nw"><MoneyText value={me.nw} ctx="hero" /></div>
-          <PctText value={me.todayPct} />
-          {next && rank.nextAt && (
-            <p className="num muted rank-next">{`${S.next}: ${RANK_NAMES[next]} · `}<MoneyText value={me.nw} compact />{" / "}<MoneyText value={rank.nextAt} compact /></p>
+          <div className="hero-nw" data-testid="hero-nw"><MoneyText value={me.nw} ctx="hero" /></div>
+          <div className="widget-row">
+            <span className="today" data-testid="today"><MoneyText value={me.todayChg} signed />{" "}<PctText value={me.todayPct} /></span>
+            <Sparkline />
+          </div>
+          {next && (
+            <>
+              <div className="rank-bar" data-testid="rank-bar" role="progressbar" aria-label={`${S.next}: ${RANK_NAMES[next.rank]}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
+                <span style={{ width: `${progress * 100}%` }} />
+              </div>
+              <p className="num muted rank-next" data-testid="rank-next">{`${S.next}: ${RANK_NAMES[next.rank]} · `}<MoneyText value={me.nw} compact />{" / "}<MoneyText value={next.at} compact /></p>
+            </>
           )}
         </section>
         <div className="app-grid" data-testid="app-grid">
@@ -123,6 +157,7 @@ export function PhoneHome() {
       <nav className="bottom-row" data-testid="bottom-row" aria-label={S.shelf}>
         {BOTTOM.map((a) => <AppIcon key={a} app={a} />)}
       </nav>
+      {edgeBar}
     </div>
   );
 }

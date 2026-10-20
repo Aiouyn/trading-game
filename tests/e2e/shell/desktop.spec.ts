@@ -1,9 +1,18 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { LAYOUT_RECTS_1440 } from "../../unit/shell/layoutRects";
 import { SPEC_TABLE } from "../../unit/shell/paletteTable";
 import { boot, box, intents } from "./helpers";
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "desktop project only"));
+
+test("Protection chip only while active; no shield chip without a data source", async ({ page }) => {
+  await boot(page);
+  await expect(page.getByTestId("protection-chip")).toHaveCount(0);
+  await boot(page, "/?prot=1");
+  await expect(page.getByTestId("protection-chip")).toHaveText("Protected · 41:12");
+  await expect(page.getByTestId("shield-chip")).toHaveCount(0);
+});
 
 test("S1-08 strip 34, shelf 52, release, phase, tick ring 22, NW, tiles, dividers", async ({ page }) => {
   await boot(page);
@@ -23,7 +32,7 @@ test("S1-08 strip 34, shelf 52, release, phase, tick ring 22, NW, tiles, divider
 });
 
 test("S1-07 every unlocked built:false app opens a ComingLater window; deep link shows the same", async ({ page }) => {
-  await boot(page, "/?rank=R6&lic=LIC2&nw=200000&day=3&flags=charter.anyAvailable,api.eligible&guest=0");
+  await boot(page, "/?rank=R6&lic=LIC2&nw=200000&flags=charter.anyAvailable,api.eligible,character.day3&guest=0");
   const ids = await page.locator("[data-testid^=tile-][data-state=unlocked]").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")!.slice(5)));
   expect(ids).toHaveLength(32);
   for (const id of ids.filter((i) => i !== "settings" && i !== "city")) {
@@ -49,31 +58,97 @@ test("S1-09 workspace slots by rank; apps open on workspace 1", async ({ page })
   await expect(page.getByTestId("win-markets")).toBeVisible();
 });
 
-test("S1-10 named layouts at 1440×900 and absent at 1000", async ({ page }) => {
-  const EXPECT: Record<string, [string, number, number, number, number][]> = {
-    trade: [["broker", 8, 42, 947, 798], ["wire", 963, 42, 469, 395], ["portfolio", 963, 445, 469, 395]],
-    review: [["portfolio", 8, 42, 708, 798], ["portfolio", 724, 42, 708, 798]],
-    research: [["research", 8, 42, 947, 798], ["broker", 963, 42, 469, 395], ["wire", 963, 445, 469, 395]],
-    operator: [["businesses", 8, 42, 708, 798], ["city", 724, 42, 708, 395], ["property", 724, 445, 708, 395]],
-    shadow: [["security", 8, 42, 708, 798], ["ailab", 724, 42, 708, 798]],
-    institution: [["institutions", 8, 42, 947, 798], ["messages", 963, 42, 469, 395], ["markets", 963, 445, 469, 395]],
-  };
+test("S1-10 named layouts at 1440×900 (clamped to minimums); hidden when they cannot fit", async ({ page }) => {
   await boot(page, "/?rank=R6&nw=200000&flags=charter.anyAvailable");
-  for (const [id, rects] of Object.entries(EXPECT)) {
+  for (const [id, rects] of Object.entries(LAYOUT_RECTS_1440)) {
     await page.getByTestId("layout-btn").click();
     await page.getByTestId(`layout-${id}`).click();
     const got = await page.locator("[role=dialog][data-testid^=win-]").evaluateAll((els) =>
       els.map((e) => { const r = e.getBoundingClientRect(); return [e.getAttribute("data-testid")!.slice(4), r.x, r.y, r.width, r.height] as const; }));
-    expect(got.length).toBe(rects.length);
-    rects.forEach((r, i) => {
+    expect(got.length, id).toBe(rects.length);
+    // DOM order is stable (not stacking order), so compare in a canonical order.
+    const key = (r: readonly [string, number, number, number, number]) => `${r[0]}:${Math.round(r[1])}:${Math.round(r[2])}`;
+    got.sort((a, b) => key(a).localeCompare(key(b)));
+    [...rects].sort((a, b) => key(a).localeCompare(key(b))).forEach((r, i) => {
       expect(got[i][0]).toBe(r[0]);
-      for (let k = 1; k < 5; k++) expect(Math.abs((got[i][k] as number) - (r[k] as number))).toBeLessThanOrEqual(1);
+      for (let k = 1; k < 5; k++) expect(Math.abs((got[i][k] as number) - (r[k] as number)), `${id} ${r[0]} [${k}]`).toBeLessThanOrEqual(1);
     });
   }
   expect(await intents(page)).toBe(0);
+  await page.setViewportSize({ width: 1200, height: 700 });
+  await page.getByTestId("layout-btn").click();
+  await expect(page.getByTestId("layouts-menu").getByRole("button")).toHaveText(["Review", "Shadow"]);
   await page.setViewportSize({ width: 1000, height: 800 });
   await expect(page.getByTestId("layout-btn")).toHaveCount(0);
   await expect(page.getByTestId("layouts-menu")).toHaveCount(0);
+});
+
+test("Shelf: tiles never sit under the tools at 1280, 1440, 1920; Broker first; fade on the clipped edge; Alt 1 = first tile", async ({ page }) => {
+  for (const width of [1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await boot(page, "/?rank=R6&nw=200000&lic=LIC2&flags=charter.anyAvailable,api.eligible,character.day3&guest=0");
+    const r = await page.evaluate(() => {
+      const row = document.querySelector("[data-testid=shelf-tiles]")!.getBoundingClientRect();
+      const tools = document.querySelector("[data-testid=shelf-tools]")!.getBoundingClientRect();
+      // A tile is drawn only where the row's clip rect shows it.
+      const overlaps = Array.from(document.querySelectorAll("[data-testid^=tile-]")).filter((t) => {
+        const b = t.getBoundingClientRect();
+        const visibleRight = Math.min(b.right, row.right);
+        return visibleRight > b.left && visibleRight > tools.left;
+      }).length;
+      const el = document.querySelector<HTMLElement>("[data-testid=shelf-tiles]")!;
+      return { overlaps, rowRight: row.right, toolsLeft: tools.left, first: document.querySelector("[data-testid^=tile-]")!.getAttribute("data-testid"), clipped: el.scrollWidth > el.clientWidth, fade: el.dataset.clipRight, mask: getComputedStyle(el).maskImage };
+    });
+    expect(r.overlaps, `${width}`).toBe(0);
+    expect(r.rowRight, `${width}`).toBeLessThanOrEqual(r.toolsLeft);
+    expect(r.first).toBe("tile-broker");
+    if (r.clipped) { expect(r.fade).toBe("true"); expect(r.mask).toContain("gradient"); }
+  }
+  await page.locator("body").click({ position: { x: 600, y: 400 } });
+  await page.keyboard.press("Alt+1");
+  await expect(page.getByTestId("win-broker").last()).toHaveClass(/active/);
+});
+
+test("Glyph colours: muted, white when active, disabled when locked; never brass (B1, m1–m3)", async ({ page }) => {
+  await boot(page, "/?rank=R1&nw=30000");
+  const c = await page.evaluate(() => {
+    const color = (sel: string) => getComputedStyle(document.querySelector(sel)!).color;
+    const probe = (v: string) => { const d = document.createElement("i"); d.style.color = `var(${v})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
+    const ws = document.querySelector("[data-testid=ws-1]")!;
+    const active = document.querySelector(".win.active")!;
+    return {
+      tile: color("[data-testid=tile-markets]:not(.on)"), locked: color("[data-testid=tile-quantlab]"), on: color(".tile.on"),
+      wsColor: getComputedStyle(ws).color, wsBorder: getComputedStyle(ws).borderTopColor,
+      winBorder: getComputedStyle(active).borderTopColor, winGlyph: color(".win.active .tb-glyph"),
+      before: getComputedStyle(active.querySelector(".titlebar")!, "::before").backgroundColor,
+      muted: probe("--fg-muted"), fg: probe("--fg"), disabled: probe("--fg-disabled"), acc: probe("--acc"),
+    };
+  });
+  expect(c.tile).toBe(c.muted);
+  expect(c.locked).toBe(c.disabled);
+  expect(c.on).toBe(c.fg);
+  expect(c.winGlyph).toBe(c.fg);
+  expect(c.winBorder).toBe(c.disabled);
+  for (const v of [c.tile, c.on, c.wsColor, c.wsBorder, c.winBorder, c.winGlyph, c.before]) expect(v).not.toBe(c.acc);
+});
+
+test("City seam: createCityRenderer(CityRendererOptions), async mount, visibility and reduced motion (S2 §2, §6)", async ({ page }) => {
+  await boot(page, "/city?rank=R2");
+  await expect.poll(() => page.evaluate(() => (window as Window & { __cityCalls?: string[] }).__cityCalls ?? [])).toContain("visibility:visible");
+  const calls = () => page.evaluate(() => [...((window as Window & { __cityCalls?: string[] }).__cityCalls ?? [])]);
+  expect((await calls())[0]).toBe("create:channel,cityId,fetchChunk,locale,myCityOverlay,reducedMotion,tierOverride");
+  expect(await calls()).toContain("mount");
+  await page.getByTestId("win-city").getByRole("button", { name: "Collapse" }).click();
+  await expect.poll(calls).toContain("visibility:background");
+  await page.getByTestId("win-city").getByRole("button", { name: "Collapse" }).click();
+  await page.getByTestId("ws-2").click();
+  await expect.poll(async () => (await calls()).filter((c) => c === "visibility:background").length).toBe(2);
+  await page.getByTestId("ws-1").click();
+  await page.getByTestId("tile-settings").click();
+  await page.getByTestId("win-settings").locator("select").first().selectOption("on");
+  await expect.poll(calls).toContain("reducedMotion:true");
+  await page.getByTestId("win-city").getByTestId("win-close").click();
+  await expect.poll(calls).toContain("dispose");
 });
 
 test("S1-11 5th Broker and same-ticker deep link focus the existing window", async ({ page }) => {
@@ -124,11 +199,9 @@ test("S1-15 Shadow sub-palette in AI Lab and Security; Broker stays brass", asyn
   expect((await read("legal")).acc.toUpperCase()).toBe("#C9A45C");
 });
 
-test("S1-16 reduced motion and reduced transparency in every shell state", async ({ page }) => {
+test("S1-16 reduced motion and reduced transparency in every shell state of §5, overlays included", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await boot(page, "/settings");
-  await page.locator("select").nth(1).selectOption("on");
-  const check = () => page.evaluate(() => {
+  const check = (name: string) => page.evaluate((n) => {
     const bad: string[] = [];
     for (const el of Array.from(document.querySelectorAll("*"))) {
       const cs = getComputedStyle(el);
@@ -137,21 +210,43 @@ test("S1-16 reduced motion and reduced transparency in every shell state", async
       const durs = [...cs.transitionDuration.split(","), ...cs.animationDuration.split(",")].map((d) => parseFloat(d));
       if (durs.some((d) => d > 0)) bad.push(`motion ${el.tagName}.${el.className}`);
     }
-    return { bad, motion: document.documentElement.dataset.motion, transparency: document.documentElement.dataset.transparency };
-  });
-  const states: [string, () => Promise<void>][] = [
-    ["normal", async () => {}],
-    ["layout menu", async () => { await page.getByTestId("layout-btn").click(); }],
-    ["launcher", async () => { await page.keyboard.press("Escape"); await page.keyboard.press("Control+k"); }],
-    ["key sheet", async () => { await page.keyboard.press("Escape"); await page.locator("body").click({ position: { x: 700, y: 600 } }); await page.keyboard.press("?"); }],
-    ["focus", async () => { await page.keyboard.press("Escape"); await page.keyboard.press("Control+."); }],
-  ];
-  for (const [name, go] of states) {
-    await go();
-    const r = await check();
-    expect(r.motion, name).toBe("reduce");
-    expect(r.transparency, name).toBe("reduce");
-    expect(r.bad, name).toEqual([]);
+    return { n, bad, motion: document.documentElement.dataset.motion, transparency: document.documentElement.dataset.transparency };
+  }, name);
+  const setTransparency = async () => {
+    await page.getByTestId("tile-settings").click();
+    await page.getByTestId("win-settings").locator("select").nth(1).selectOption("on");
+    await page.locator("body").click({ position: { x: 700, y: 600 } });
+  };
+  // Overlay / world states come from the mock channels: reconnecting, Held (z 150), halted world (z 160).
+  // The system-level setting covers the overlay states (overlays take input, so Settings cannot be reached there);
+  // the Settings toggle itself is exercised on the base state.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }, { name: "prefers-reduced-transparency", value: "reduce" }] });
+  for (const q of ["", "?conn=reconnecting", "?held=1", "?halted=1", "?held=1&halted=1&prot=1"]) {
+    await boot(page, `/${q}`);
+    // Held / halted overlays take input, so only the overlay state itself is checked there.
+    const blocking = q.includes("held") || q.includes("halted");
+    if (!q) await setTransparency();
+    // Saved prefs hydrate after first paint; wait for the reduce attributes before checking.
+    await expect.poll(() => page.evaluate(() => [document.documentElement.dataset.motion, document.documentElement.dataset.transparency])).toEqual(["reduce", "reduce"]);
+    const all: [string, () => Promise<void>][] = [
+      ["normal", async () => {}],
+      ["layout menu", async () => { await page.getByTestId("layout-btn").click(); }],
+      ["launcher", async () => { await page.keyboard.press("Escape"); await page.keyboard.press("Control+k"); }],
+      ["key sheet", async () => { await page.keyboard.press("Escape"); await page.locator("body").click({ position: { x: 700, y: 600 } }); await page.keyboard.press("?"); }],
+      ["focus", async () => { await page.keyboard.press("Escape"); await page.keyboard.press("Control+."); }],
+    ];
+    const states = blocking ? all.slice(0, 1) : all;
+    for (const [name, go] of states) {
+      await go();
+      const r = await check(`${q || "base"} ${name}`);
+      expect(r.motion, r.n).toBe("reduce");
+      expect(r.transparency, r.n).toBe("reduce");
+      expect(r.bad, r.n).toEqual([]);
+    }
+    if (!blocking) await page.keyboard.press("Control+."); // leave focus mode (it persists across reloads)
+    if (q.includes("held")) await expect(page.getByTestId("overlay-held")).toBeVisible();
+    if (q.includes("halted")) await expect(page.getByTestId("overlay-halted")).toBeVisible();
   }
 });
 
@@ -169,8 +264,10 @@ test("S1-17 launcher, layouts, focus mode and shortcuts log zero intents", async
   expect(await intents(page)).toBe(0);
 });
 
-test("S1-18 R0 and R6: same launcher results, Broker limit and keys", async ({ page }) => {
+test("S1-18 R0 and R6: same launcher results, Broker limit and keys", async ({ browser, baseURL }) => {
+  // Each rank in a fresh context so the first run's Recent list does not leak into the second.
   const run = async (rank: string) => {
+    const page = await (await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 } })).newPage();
     await boot(page, `/?rank=${rank}&nw=100&lic=LIC0`);
     const out: string[][] = [];
     for (const q of ["HALC", "open", "go to", "broker"]) {
@@ -183,6 +280,7 @@ test("S1-18 R0 and R6: same launcher results, Broker limit and keys", async ({ p
     out.push([String(await page.getByTestId("win-broker").count())]);
     await page.keyboard.press("?");
     out.push(await page.locator(".keysheet dl").allInnerTexts());
+    await page.context().close();
     return out;
   };
   const r0 = await run("R0");

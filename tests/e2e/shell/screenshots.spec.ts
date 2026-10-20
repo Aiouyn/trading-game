@@ -17,6 +17,7 @@ async function four(page: Page, prefix: string, phone: boolean) {
   } else {
     await page.keyboard.press("Control+k");
   }
+  await page.screenshot({ path: `${OUT}/${prefix}-launcher-recent.png` });
   await page.getByRole("combobox").fill("po");
   await page.screenshot({ path: `${OUT}/${prefix}-launcher.png` });
   await boot(page, "/?rank=R1&nw=30000");
@@ -24,6 +25,16 @@ async function four(page: Page, prefix: string, phone: boolean) {
   await page.screenshot({ path: `${OUT}/${prefix}-locked-tile.png` });
   await boot(page, "/markets");
   await page.screenshot({ path: `${OUT}/${prefix}-coming-later.png` });
+  // Shadow sub-palette windows (AI Lab, Security) and the protection chip (mocked active state).
+  await boot(page, "/ailab?nw=200000&prot=1");
+  if (!phone) await page.getByTestId("tile-security").click();
+  await page.screenshot({ path: `${OUT}/${prefix}-shadow-ailab-security${phone ? "-ailab" : ""}.png` });
+  if (phone) {
+    await boot(page, "/security?prot=1");
+    await page.screenshot({ path: `${OUT}/${prefix}-shadow-security.png` });
+  }
+  await boot(page, "/?prot=1");
+  await page.screenshot({ path: `${OUT}/${prefix}-protection-chip.png` });
 }
 
 test("desktop 1440×900 and 1280×800", async ({ page }, info) => {

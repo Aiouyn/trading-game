@@ -55,7 +55,7 @@ export function StatusStrip() {
         <TickRing tick={clock.tick} />
       </div>
       <div className="strip-right">
-        {me.protectionEndsRealMs !== null && <span className="chip">{`${S.protected} · ${mmss(me.protectionEndsRealMs)}`}</span>}
+        {me.protectionEndsRealMs !== null && <span className="chip" data-testid="protection-chip">{`${S.protected} · ${mmss(me.protectionEndsRealMs)}`}</span>}
         <span className="chip chip-acc" data-testid="rank-chip">{`${rank} · ${RANK_NAMES[rank]}`}</span>
         {nw}
         <button className="icon-btn" aria-label={S.bell}><Glyph name="bell" size={17} /></button>

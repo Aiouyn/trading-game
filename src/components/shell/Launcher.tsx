@@ -2,6 +2,8 @@
 import { useMemo, useState } from "react";
 import { search, type LauncherItem } from "@/shell/launcher";
 import { S } from "@/shell/strings";
+import { viewportOf } from "@/shell/wm";
+import { Glyph } from "./Glyph";
 import { useShell, useShellStore } from "./ShellContext";
 
 /** Launcher (SH-04): combobox + listbox. Desktop 640 px panel, phone full screen. Navigation only. */
@@ -13,6 +15,8 @@ export function Launcher() {
   const [sel, setSel] = useState(0);
   const items = useMemo(() => search(q, vis, recent), [q, vis, recent]);
   const groups = [...new Set(items.map((i) => i.group))];
+  const phone = useShell((s) => viewportOf(s.vw) === "phone");
+  const close = () => store.getState().setLauncher(false);
 
   const choose = (it: LauncherItem | undefined) => {
     if (!it) return;
@@ -24,6 +28,12 @@ export function Launcher() {
   return (
     <div className="scrim" data-testid="launcher-scrim" onPointerDown={(e) => e.target === e.currentTarget && store.getState().setLauncher(false)}>
       <div className="launcher" role="dialog" aria-modal="true" aria-label={S.launcherPlaceholder} data-testid="launcher">
+        {phone && (
+          <div className="launcher-bar" data-testid="launcher-bar">
+            <button className="icon-btn" aria-label={S.back} data-testid="launcher-back" onClick={close}><Glyph name="chevLeft" size={20} /></button>
+            <button className="cancel" data-testid="launcher-cancel" onClick={close}>{S.cancel}</button>
+          </div>
+        )}
         <input
           autoFocus
           role="combobox"

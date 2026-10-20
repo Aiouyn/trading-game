@@ -21,12 +21,23 @@ export function compactMoney(v: string): string {
   return `$${i}`;
 }
 
-export function MoneyText({ value, ctx = "list", compact = false }: { value: string; ctx?: MoneyCtx; compact?: boolean }) {
-  return <span className={`num money money-${ctx}`}>{compact ? compactMoney(value) : groupMoney(value)}</span>;
+export function MoneyText({ value, ctx = "list", compact = false, signed = false }: { value: string; ctx?: MoneyCtx; compact?: boolean; signed?: boolean }) {
+  const text = compact ? compactMoney(value) : groupMoney(value);
+  const sign = signed && !value.startsWith("-") ? "+" : "";
+  if (ctx === "hero" && !compact) {
+    // Hero NW: cents at 65% in --fg-muted (17 §3.3.2).
+    const dot = text.lastIndexOf(".");
+    return (
+      <span className="money money-hero">
+        {text.slice(0, dot)}<span className="cents" data-testid="hero-cents">{text.slice(dot)}</span>
+      </span>
+    );
+  }
+  return <span className={`num money money-${ctx}`}>{sign + text}</span>;
 }
 
 export function PctText({ value }: { value: string }) {
   const neg = value.startsWith("-");
-  const text = `${neg ? "\u2212" : value.startsWith("+") ? "+" : "+"}${value.replace(/^[-+]/, "")}%`;
+  const text = `${neg ? "\u2212" : "+"}${value.replace(/^[-+]/, "")}%`;
   return <span className={`num ${neg ? "loss" : "gain"}`}>{text}</span>;
 }

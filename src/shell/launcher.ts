@@ -23,6 +23,8 @@ export function search(query: string, vis: Record<AppId, Visibility>, recent: re
   const tickers: LauncherItem[] = TICKERS.filter((x) => hit(x.t) || hit(x.n))
     .map((x) => ({ id: `tk:${x.t}`, group: "Tickers", label: `${x.t} · ${x.n}`, app: "broker", context: x.t }));
   const cmds: LauncherItem[] = COMMANDS.filter((c) => hit(c.label)).map((c) => ({ id: `cmd:${c.label}`, group: "Commands", ...c }));
+  const rec: LauncherItem[] = recent.filter((a) => hit(APP_NAMES[a])).slice(0, 6)
+    .map((app) => ({ id: `recent:${app}`, group: "Recent", label: APP_NAMES[app], app }));
   const help: LauncherItem[] = HELP.filter((h) => hit(h.label)).map((h) => ({ id: `help:${h.label}`, group: "Help", ...h }));
-  return [...apps, ...tickers, ...cmds, ...help];
+  return [...apps, ...tickers, ...cmds, ...rec, ...help];
 }

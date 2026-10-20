@@ -8,10 +8,10 @@ import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { useShellStore } from "./ShellContext";
 
-interface Props { win: WindowRect; z: number; active: boolean; rect: Area; movable: boolean }
+interface Props { win: WindowRect; z: number; active: boolean; rect: Area; movable: boolean; background: boolean }
 
 /** One window: role=dialog + aria-labelledby (17 §3.16). Drag by the title bar, resize from the corner. */
-export function WindowFrame({ win, z, active, rect, movable }: Props) {
+export function WindowFrame({ win, z, active, rect, movable, background }: Props) {
   const store = useShellStore();
   const titleId = useId();
   const drag = useRef<{ x: number; y: number; ox: number; oy: number; mode: "move" | "resize" } | null>(null);
@@ -37,6 +37,7 @@ export function WindowFrame({ win, z, active, rect, movable }: Props) {
       role="dialog"
       aria-labelledby={titleId}
       className={`win${active ? " active" : ""}${win.collapsed ? " collapsed" : ""}`}
+      hidden={background}
       data-testid={`win-${win.app}`}
       data-instance={win.instance}
       data-subpalette={subPalette(win.app)}
@@ -53,11 +54,10 @@ export function WindowFrame({ win, z, active, rect, movable }: Props) {
           <button aria-label={S.close} data-testid="win-close" onClick={() => store.getState().close(win)}><Glyph name="close" size={14} /></button>
         </span>
       </div>
-      {!win.collapsed && (
-        <div className="win-body">
-          <AppBody app={win.app} state={{ focused: active, collapsed: win.collapsed, background: false }} />
-        </div>
-      )}
+      {/* The body stays mounted while collapsed or in the background so City can report visibility. */}
+      <div className="win-body" hidden={win.collapsed}>
+        <AppBody app={win.app} state={{ focused: active && !background, collapsed: win.collapsed, background }} />
+      </div>
       {movable && !win.collapsed && (
         <div className="resize-handle" data-testid="resize-handle" onPointerDown={(e) => start(e, "resize")} onPointerMove={onMove} onPointerUp={end} aria-hidden="true" />
       )}

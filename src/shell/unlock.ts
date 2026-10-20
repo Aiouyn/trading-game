@@ -28,7 +28,6 @@ export function moneyAtLeast(a: string, b: string): boolean {
 
 function flagsOf(me: MeChannel): Set<string> {
   const f = new Set(me.flags);
-  if (me.gameDay >= 3) f.add("character.day3");
   if (!me.guest) f.add("account.upgraded");
   return f;
 }
@@ -59,7 +58,7 @@ function teaserMet(app: AppDef, s: UnlockInput): boolean {
     case "none": return false;
     case "always": return true;
     case "fromRank": return rankAtLeast(s.rank.rank, t.rank);
-    case "fromOnboarding": return s.me.onboardingMin >= t.atMin || rankAtLeast(s.rank.rank, "R1");
+    case "fromOnboarding": return s.me.onboardingDone || s.me.onboardingMin >= t.atMin;
   }
 }
 
@@ -81,3 +80,10 @@ export function evaluate(s: UnlockInput, sticky: ReadonlySet<AppId>): { vis: Rec
 }
 
 export const appDef = (id: AppId) => APPS[id];
+
+/** Next rank and its NW target, read from the server `rank.thresholds` (17 §2.6). Null at R5+/R6. */
+export function nextRankTarget(r: RankChannel): { rank: Rank; at: string } | null {
+  const i = RANKS.indexOf(r.rank);
+  const at = r.thresholds[i];
+  return i < 5 && at !== undefined ? { rank: RANKS[i + 1], at } : null;
+}
