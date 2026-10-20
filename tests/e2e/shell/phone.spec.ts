@@ -214,7 +214,7 @@ test("Phone error/offline banner: under the status bar, pushes content down, nev
   const before = await rect("[data-testid=widget]");
   await page.context().setOffline(true);
   await expect(page.getByTestId("offline-state")).toBeVisible();
-  await expect.poll(async () => (await rect("[data-testid=phone-banner]")).h).toBe(32);
+  await expect.poll(async () => (await rect("[data-testid=phone-banner]")).h).toBe(44);
   const banner = await rect("[data-testid=phone-banner]");
   const sb = await rect("[data-testid=statusbar]");
   const label = await rect("[data-testid=widget] .label");
@@ -222,13 +222,13 @@ test("Phone error/offline banner: under the status bar, pushes content down, nev
   const after = await rect("[data-testid=widget]");
   expect(banner.top).toBe(sb.bottom);
   expect(banner.right - banner.left).toBe(390);
-  expect(after.top).toBe(before.top + 32); // content moves down
+  expect(after.top).toBe(before.top + 44); // content moves down
   for (const r of [label, chip]) expect(r.top).toBeGreaterThanOrEqual(banner.bottom); // never overlaps
   const st = await page.getByTestId("phone-banner").evaluate((e) => {
     const probe = (v: string) => { const d = document.createElement("i"); d.style.color = `var(${v})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
     const cs = getComputedStyle(e); const body = getComputedStyle(e.firstElementChild!); const btn = getComputedStyle(e.querySelector("button")!);
     const bg = document.createElement("i"); bg.style.backgroundColor = "var(--win2)"; document.body.appendChild(bg); const win2 = getComputedStyle(bg).backgroundColor; bg.remove();
-    return { bg: cs.backgroundColor, win2, line: cs.borderBottomColor, lineTok: probe("--line"), bw: cs.borderBottomWidth, text: body.color, muted: probe("--fg-muted"), btn: btn.color, fg: probe("--fg"), ul: btn.textDecorationLine, dur: cs.transitionDuration, prop: cs.transitionProperty };
+    return { bg: cs.backgroundColor, win2, line: cs.boxShadow.includes(probe("--line")) ? probe("--line") : cs.boxShadow, lineTok: probe("--line"), bw: cs.boxShadow.endsWith("0px -1px 0px 0px inset") ? "1px" : cs.boxShadow, text: body.color, muted: probe("--fg-muted"), btn: btn.color, fg: probe("--fg"), ul: btn.textDecorationLine, dur: cs.transitionDuration, prop: cs.transitionProperty };
   });
   expect(st).toEqual({ bg: st.win2, win2: st.win2, line: st.lineTok, lineTok: st.lineTok, bw: "1px", text: st.muted, muted: st.muted, btn: st.fg, fg: st.fg, ul: "underline", dur: "0.12s", prop: "min-height" });
   await page.context().setOffline(false);
@@ -244,51 +244,75 @@ test("Phone banner appears instantly under reduced motion", async ({ page }) => 
   await page.context().setOffline(true);
   await expect(page.getByTestId("offline-state")).toBeVisible();
   const h = await page.getByTestId("phone-banner").evaluate((e) => [e.getBoundingClientRect().height, getComputedStyle(e).transitionDuration]);
-  expect(h).toEqual([32, "0s"]);
+  expect(h).toEqual([44, "0s"]);
   await page.context().setOffline(false);
 });
 
-// §4 hit target: scan around Retry with elementFromPoint and measure the area that hits the button.
-export const retryHit = (page: import("@playwright/test").Page) => page.getByTestId("load-retry").evaluate((b) => {
+// §4 hit target, scanned with elementFromPoint: the area that hits Retry, plus the banner and the
+// other tap targets it must stay clear of (status bar buttons, app bar buttons).
+const retryGeometry = async (page: import("@playwright/test").Page) => {
+  // Wait for fonts and for the banner's layout to settle (two identical frames) before measuring.
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await expect.poll(() => page.evaluate(() => new Promise<boolean>((res) => {
+    const h = () => document.querySelector("[data-testid=phone-banner]")!.getBoundingClientRect().bottom;
+    const a = h(); requestAnimationFrame(() => requestAnimationFrame(() => res(a === h())));
+  }))).toBe(true);
+  return retryGeometryNow(page);
+};
+const retryGeometryNow = (page: import("@playwright/test").Page) => page.getByTestId("load-retry").evaluate((b) => {
   const r = b.getBoundingClientRect();
   const hits = (x: number, y: number) => { const e = document.elementFromPoint(x, y); return !!e && (e === b || b.contains(e)); };
-  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-  for (let y = r.top - 30; y <= r.bottom + 30; y += 0.5) for (let x = r.left - 30; x <= r.right + 30; x += 0.5) {
-    if (hits(x, y)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
-  }
-  // The four corners of the hit bounding box must hit too (a real rectangle, not a cross).
-  const rect = [hits(x0, y0), hits(x1, y0), hits(x0, y1), hits(x1, y1)].every(Boolean);
+  // The tap area is the button's own box (no pseudo-element): it hits just inside every edge and
+  // nowhere just outside it.
+  const box = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  const insideHits = [[r.left + 1, r.top + 1], [r.right - 1, r.top + 1], [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]].every(([x, y]) => hits(x, y));
+  const outsideMisses = [[r.left - 1, r.top + r.height / 2], [r.right + 1, r.top + r.height / 2], [r.left + r.width / 2, r.top - 1], [r.left + r.width / 2, r.bottom + 1]].every(([x, y]) => !hits(x, y));
+  const banner = b.closest("[data-testid=phone-banner]")!.getBoundingClientRect();
+  const others = Array.from(document.querySelectorAll(".statusbar button, .statusbar [role=button], .appbar button, .appbar a"))
+    .map((e) => e.getBoundingClientRect());
+  const intersects = (o: DOMRect) => o.left < box.right && o.right > box.left && o.top < box.bottom && o.bottom > box.top;
   return {
-    w: x1 - x0 + 0.5, h: y1 - y0 + 0.5, rect,
-    inside: r.left >= 0 && r.right <= window.innerWidth && r.top >= 0 && r.bottom <= window.innerHeight,
-    right: r.right, vw: window.innerWidth,
+    w: box.right - box.left, h: box.bottom - box.top,
+    rect: insideHits && outsideMisses,
+    inBanner: box.left >= banner.left && box.right <= banner.right && box.top >= banner.top && box.bottom <= banner.bottom,
+    inViewport: r.left >= 0 && r.right <= window.innerWidth,
+    clear: others.length > 0 && !others.some(intersects),
   };
 });
 
 for (const width of [390, 320]) {
   for (const scale of ["1", "2"]) {
-    test(`Phone banner at ${width} px, text scale ${scale}: wraps, Retry fully visible with a 44×44 hit box, content pushed by the banner's height (QA r7)`, async ({ page }) => {
+    test(`Phone banner at ${width} px, text scale ${scale}: Retry 44×44 inside the banner, clear of status bar and app bar, content pushed down (r8)`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
+      // Inside an open app (Settings, which also sets the real textScale pref)...
       await boot(page, "/settings");
-      await page.getByTestId("text-scale").selectOption(scale); // the real AccountUiPrefs.textScale setting
+      await page.getByTestId("text-scale").selectOption(scale);
+      await page.context().setOffline(true);
+      await expect(page.getByTestId("offline-state")).toBeVisible();
+      await page.waitForTimeout(200); // let the 120 ms ease finish
+      const inApp = await retryGeometry(page);
+      expect(inApp, `in app ${JSON.stringify(inApp)}`).toMatchObject({ rect: true, inBanner: true, inViewport: true, clear: true });
+      expect(inApp.w).toBeGreaterThanOrEqual(44);
+      expect(inApp.h).toBeGreaterThanOrEqual(44);
+      await page.context().setOffline(false);
+      await expect(page.getByTestId("offline-state")).toHaveCount(0);
+      // ...and on the home screen.
       await page.getByRole("button", { name: "Back" }).click();
       const top = (sel: string) => page.locator(sel).first().evaluate((e) => e.getBoundingClientRect().top);
       const before = await top("[data-testid=widget]");
       await page.context().setOffline(true);
       await expect(page.getByTestId("offline-state")).toBeVisible();
-      await expect.poll(async () => page.getByTestId("phone-banner").evaluate((e) => e.getBoundingClientRect().height)).toBeGreaterThanOrEqual(32);
-      await page.waitForTimeout(200); // let the 120 ms ease finish
+      await page.waitForTimeout(200);
       const b = await page.getByTestId("phone-banner").evaluate((e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: r.height, w: r.width }; });
-      const sb = await page.getByTestId("statusbar").evaluate((e) => e.getBoundingClientRect().bottom);
-      expect(b.top).toBe(sb);
+      expect(b.top).toBe(await page.getByTestId("statusbar").evaluate((e) => e.getBoundingClientRect().bottom));
       expect(b.w).toBe(width);
-      expect(b.h).toBeGreaterThanOrEqual(32);
+      expect(b.h).toBeGreaterThanOrEqual(44);
       expect(Math.abs((await top("[data-testid=widget]")) - (before + b.h))).toBeLessThanOrEqual(0.5); // pushed by the actual height
       for (const sel of ["[data-testid=widget] .label", "[data-testid=widget] .chip"]) expect(await top(sel)).toBeGreaterThanOrEqual(b.bottom);
-      const h = await retryHit(page);
-      expect(h, JSON.stringify(h)).toMatchObject({ rect: true, inside: true });
-      expect(h.w).toBeGreaterThanOrEqual(44);
-      expect(h.h).toBeGreaterThanOrEqual(44);
+      const home = await retryGeometry(page);
+      expect(home, `home ${JSON.stringify(home)}`).toMatchObject({ rect: true, inBanner: true, inViewport: true, clear: true });
+      expect(home.w).toBeGreaterThanOrEqual(44);
+      expect(home.h).toBeGreaterThanOrEqual(44);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.context().setOffline(false);
     });

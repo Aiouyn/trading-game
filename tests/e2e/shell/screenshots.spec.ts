@@ -64,6 +64,12 @@ test("phone 390×844", async ({ page }, info) => {
       await page.setViewportSize({ width, height: 844 });
       await boot(page, "/settings");
       await page.getByTestId("text-scale").selectOption(scale);
+      await page.context().setOffline(true); // inside an open app (Settings)
+      await page.getByTestId("offline-state").waitFor();
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: `${OUT}/phone-${width}x844-offline-scale${scale}-inapp.png` });
+      await page.context().setOffline(false);
+      await page.getByTestId("offline-state").waitFor({ state: "detached" });
       await page.getByRole("button", { name: "Back" }).click();
       await page.context().setOffline(true);
       await page.getByTestId("offline-state").waitFor();

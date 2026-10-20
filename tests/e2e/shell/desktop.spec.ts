@@ -370,13 +370,17 @@ test("S1-03 computed tokens per palette; DOM identical across palettes", async (
 test("§5 error / offline: inline \"Couldn't load · Retry\"; Retry reloads; offline shows the read-only snapshot", async ({ page }) => {
   await boot(page, "/?load=fail1");
   await expect(page.getByTestId("load-error")).toHaveText("Couldn't load · Retry");
-  // §4: the pill's Retry has a 44×44 hit box.
+  // §4: the pill's Retry is a 44×44 tap target inside the pill and clear of every other tap target.
   const hit = await page.getByTestId("load-retry").evaluate((b) => {
-    const r = b.getBoundingClientRect(); const cx = r.left + r.width / 2;
-    const hits = (x: number, y: number) => { const e = document.elementFromPoint(x, y); return !!e && (e === b || b.contains(e)); };
-    return [[cx - 21.5, r.top - 0.5], [cx + 21.5, r.top - 0.5], [cx - 21.5, r.top + 42.5], [cx + 21.5, r.top + 42.5]].every(([x, y]) => hits(x, y));
+    const r = b.getBoundingClientRect(); const pill = b.closest(".load-state")!.getBoundingClientRect();
+    const others = Array.from(document.querySelectorAll("button, a, [role=button], input")).filter((e) => e !== b).map((e) => e.getBoundingClientRect()).filter((o) => o.width > 0);
+    return {
+      w: r.width >= 44, h: r.height >= 44,
+      inside: r.left >= pill.left && r.right <= pill.right && r.top >= pill.top && r.bottom <= pill.bottom,
+      clear: !others.some((o) => o.left < r.right && o.right > r.left && o.top < r.bottom && o.bottom > r.top),
+    };
   });
-  expect(hit).toBe(true);
+  expect(hit).toEqual({ w: true, h: true, inside: true, clear: true });
   await expect(page.getByTestId("strip")).toBeVisible(); // the rest of the shell stays usable
   await page.getByTestId("load-retry").click();
   await expect(page.getByTestId("load-error")).toHaveCount(0);
