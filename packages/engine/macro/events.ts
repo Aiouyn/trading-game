@@ -35,9 +35,9 @@ export const MACRO_EVENTS: Record<string, z.ZodType> = {
   'macro.cb.guidance': o({ bloc, meetingId: id, score: num, textKey: z.string() }),
   'macro.cb.decision': o({ bloc, meetingId: id, previousRate: num, newRate: num, corridor: o({ depositRate: num, lendingRate: num }), emergency: z.boolean(),
     votes: o({ for: int.nonnegative(), against: int.nonnegative() }),
-    // rounded contributions (0.01 pp). The output-gap term is never public (E-41, 04#15): it is absent here and
-    // the strict object rejects any extra key. (The public outputGapEstimate is an emitter-task AC.)
-    ruleTerms: o({ neutral: num, inflation: num, inflationGap: num, finStress: num, fx: num, bias: num }),
+    // E-54 ruling / E-41 B2 / E-45 item 5: exactly the 7 04 §2.1 keys, published at 0.25 pp; `outputGap` = coef × outputGapEstimate
+    // (the CB's own estimate, never the true gap x). Strict: an extra or a missing key is rejected (AC-04-01b-RULETERMS-KEYS).
+    ruleTerms: o({ neutral: num, inflation: num, inflationGap: num, outputGap: num, finStress: num, fx: num, bias: num }),
     qeChangePerMonth: money, statementKey: z.string(), reasons: z.array(z.string()) }),
   'macro.cb.minutes': o({ bloc, meetingId: id, dissent: o({ hike: int.nonnegative(), hold: int.nonnegative(), cut: int.nonnegative() }), riskKeys: z.array(z.string()) }),
   'macro.cb.tool': o({ bloc, tool: cbTool, params: z.record(z.string(), z.union([num, z.string(), z.boolean()])) }),
@@ -101,7 +101,13 @@ export const MACRO_EVENT_VISIBILITY: Readonly<Record<string, Visibility>> = Obje
 });
 
 export const HIDDEN_FIELD_NAMES: readonly string[] = Object.freeze(['regime', 'outputGap', 'outputGapTarget', 'rStar', 'rStarEstimate', 'hawkishness',
-  'hawkDrift', 'creditGap', 'trueValue', 'plannedEndTick', 'precursorStartTick', 'severity', 'hHat', 'bids']);
+  'hawkDrift', 'creditGap', 'trueValue', 'plannedEndTick', 'precursorStartTick', 'severity', 'hHat', 'bids',
+  'gapEstNoise', 'outputGapTerm', 'outputGapTrue', 'trueOutputGap']);
+
+/** Public paths whose key collides with a hidden name but whose value is public by ruling (E-54: ruleTerms.outputGap is
+ *  coef × outputGapEstimate, never the true gap). Matched as the path suffix `ruleTerms.outputGap`. */
+export const PUBLIC_PATH_EXCEPTIONS: readonly string[] = Object.freeze(['ruleTerms.outputGap']);
+const isException = (p: string): boolean => PUBLIC_PATH_EXCEPTIONS.some((e) => p === e || p.endsWith(`.${e}`));
 
 /** Recursive key scan; returns the dotted paths of every hidden key (array items as `[i]`, keys in byte order). */
 export function assertNoHiddenFields(payload: unknown): string[] {
@@ -111,7 +117,7 @@ export function assertNoHiddenFields(payload: unknown): string[] {
     if (v === null || typeof v !== 'object') return;
     for (const k of Object.getOwnPropertyNames(v).sort(cmpStr)) {   // byte order: result independent of insertion order
       const p = path === '' ? k : `${path}.${k}`;
-      if (HIDDEN_FIELD_NAMES.includes(k)) out.push(p);
+      if (HIDDEN_FIELD_NAMES.includes(k) && !isException(p)) out.push(p);
       walk((v as Record<string, unknown>)[k], p);
     }
   };

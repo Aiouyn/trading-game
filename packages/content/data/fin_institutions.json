@@ -1,0 +1,465 @@
+{
+ "catalogVersion": 1,
+ "banks": [
+  {
+   "bankId": "bnk_avnb",
+   "name": "Avalon National Bank",
+   "bloc": "FDL",
+   "kind": "NPC_SIB",
+   "strategy": "INVESTMENT",
+   "hq": "Port Avalon",
+   "assetsPctGdp": 8.0,
+   "fixedAssets": null,
+   "listed": "AVNB",
+   "roles": [
+    "PD",
+    "TCH",
+    "PB"
+   ],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_lksb",
+   "name": "Lakeshore Bancorp",
+   "bloc": "FDL",
+   "kind": "NPC_COMMERCIAL",
+   "strategy": "BALANCED",
+   "hq": "Lakemont",
+   "assetsPctGdp": 4.0,
+   "fixedAssets": null,
+   "listed": "LKSB",
+   "roles": [
+    "PD",
+    "TCH",
+    "CUST",
+    "GUSD reserve bank"
+   ],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_chst",
+   "name": "Charter Street Bank",
+   "bloc": "FDL",
+   "kind": "NPC_COMMERCIAL",
+   "strategy": "GROWTH",
+   "hq": "Port Avalon",
+   "assetsPctGdp": 2.0,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Port Avalon"
+   ],
+   "dynasty": "Calloway"
+  },
+  {
+   "bankId": "bnk_nssl",
+   "name": "Northshore Savings and Loan",
+   "bloc": "FDL",
+   "kind": "NPC_REGIONAL",
+   "strategy": "REGIONAL",
+   "hq": "Lakemont",
+   "assetsPctGdp": 0.6,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Lakemont"
+   ],
+   "dynasty": "Whitlock"
+  },
+  {
+   "bankId": "bnk_rmsb",
+   "name": "Redmesa Savings Bank",
+   "bloc": "FDL",
+   "kind": "NPC_REGIONAL",
+   "strategy": "REGIONAL",
+   "hq": "Redmesa",
+   "assetsPctGdp": 0.6,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Redmesa"
+   ],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_mrdb",
+   "name": "Meridia Bank",
+   "bloc": "EUN",
+   "kind": "NPC_SIB",
+   "strategy": "INVESTMENT",
+   "hq": "Meridia",
+   "assetsPctGdp": 9.0,
+   "fixedAssets": null,
+   "listed": "MRDB",
+   "roles": [
+    "PD",
+    "TCH",
+    "PB"
+   ],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_bvlc",
+   "name": "Banca Valcourt",
+   "bloc": "EUN",
+   "kind": "NPC_COMMERCIAL",
+   "strategy": "BALANCED",
+   "hq": "Valcourt",
+   "assetsPctGdp": 4.5,
+   "fixedAssets": null,
+   "listed": "BVLC",
+   "roles": [
+    "PD",
+    "TCH",
+    "CUST",
+    "EUNX reserve bank"
+   ],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_blag",
+   "name": "Banque Lagunaire",
+   "bloc": "EUN",
+   "kind": "NPC_COMMERCIAL",
+   "strategy": "GROWTH",
+   "hq": "Meridia",
+   "assetsPctGdp": 2.0,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Meridia"
+   ],
+   "dynasty": "Serrano"
+  },
+  {
+   "bankId": "bnk_cevl",
+   "name": "Caisse d'Épargne de Valcourt",
+   "bloc": "EUN",
+   "kind": "NPC_REGIONAL",
+   "strategy": "REGIONAL",
+   "hq": "Valcourt",
+   "assetsPctGdp": 0.7,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Valcourt"
+   ],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_bmcb",
+   "name": "Belmara Cantonal Bank",
+   "bloc": "EUN",
+   "kind": "NPC_REGIONAL",
+   "strategy": "REGIONAL",
+   "hq": "Belmara",
+   "assetsPctGdp": 0.8,
+   "fixedAssets": null,
+   "listed": "no (subsidiary of BLMP)",
+   "roles": [],
+   "defaultRetailFor": [
+    "Belmara"
+   ],
+   "dynasty": "Halden"
+  },
+  {
+   "bankId": "bnk_kypb",
+   "name": "Kaiyo Pacific Bank",
+   "bloc": "PYN",
+   "kind": "NPC_SIB",
+   "strategy": "INVESTMENT",
+   "hq": "Kaiyo City",
+   "assetsPctGdp": 9.0,
+   "fixedAssets": null,
+   "listed": "KYPB",
+   "roles": [
+    "PD",
+    "TCH",
+    "PB"
+   ],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_tscb",
+   "name": "Tessan Commercial Bank",
+   "bloc": "PYN",
+   "kind": "NPC_COMMERCIAL",
+   "strategy": "BALANCED",
+   "hq": "Tessan",
+   "assetsPctGdp": 4.5,
+   "fixedAssets": null,
+   "listed": "TSCB",
+   "roles": [
+    "PD",
+    "TCH",
+    "CUST"
+   ],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_shtb",
+   "name": "Shinbashi Trust Bank",
+   "bloc": "PYN",
+   "kind": "NPC_COMMERCIAL",
+   "strategy": "CONSERVATIVE",
+   "hq": "Kaiyo City",
+   "assetsPctGdp": 2.5,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Kaiyo City"
+   ],
+   "dynasty": "Tachibana"
+  },
+  {
+   "bankId": "bnk_tdsb",
+   "name": "Tessan Delta Shinkin Bank",
+   "bloc": "PYN",
+   "kind": "NPC_REGIONAL",
+   "strategy": "REGIONAL",
+   "hq": "Tessan",
+   "assetsPctGdp": 0.6,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Tessan"
+   ],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_mirb",
+   "name": "Mirako Regional Bank",
+   "bloc": "PYN",
+   "kind": "NPC_REGIONAL",
+   "strategy": "REGIONAL",
+   "hq": "Mirako",
+   "assetsPctGdp": 0.5,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Mirako"
+   ],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_nrhb",
+   "name": "Nordhaven Bank",
+   "bloc": "NKR",
+   "kind": "NPC_SIB",
+   "strategy": "INVESTMENT",
+   "hq": "Nordhaven City",
+   "assetsPctGdp": 10.0,
+   "fixedAssets": null,
+   "listed": "NRHB",
+   "roles": [
+    "PD",
+    "TCH"
+   ],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_sksb",
+   "name": "Skarvik Sparebank",
+   "bloc": "NKR",
+   "kind": "NPC_COMMERCIAL",
+   "strategy": "BALANCED",
+   "hq": "Skarvik",
+   "assetsPctGdp": 5.0,
+   "fixedAssets": null,
+   "listed": "SKSB",
+   "roles": [
+    "PD",
+    "TCH",
+    "CUST"
+   ],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_fjbk",
+   "name": "Fjordbanken",
+   "bloc": "NKR",
+   "kind": "NPC_COMMERCIAL",
+   "strategy": "CONSERVATIVE",
+   "hq": "Nordhaven City",
+   "assetsPctGdp": 3.0,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Nordhaven City"
+   ],
+   "dynasty": "Halvorsen"
+  },
+  {
+   "bankId": "bnk_vtsb",
+   "name": "Vintra Sparebank",
+   "bloc": "NKR",
+   "kind": "NPC_REGIONAL",
+   "strategy": "REGIONAL",
+   "hq": "Vintra",
+   "assetsPctGdp": 0.8,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Vintra"
+   ],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_sksv",
+   "name": "Skerries Savings Bank",
+   "bloc": "NKR",
+   "kind": "NPC_REGIONAL",
+   "strategy": "REGIONAL",
+   "hq": "Skarvik",
+   "assetsPctGdp": 0.6,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Skarvik"
+   ],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_bsdr",
+   "name": "Banco Sundara",
+   "bloc": "SRL",
+   "kind": "NPC_SIB",
+   "strategy": "INVESTMENT",
+   "hq": "Sundara Coast",
+   "assetsPctGdp": 6.0,
+   "fixedAssets": null,
+   "listed": "BSDR",
+   "roles": [
+    "PD",
+    "TCH"
+   ],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_bavd",
+   "name": "Banco Alta Verde",
+   "bloc": "SRL",
+   "kind": "NPC_COMMERCIAL",
+   "strategy": "BALANCED",
+   "hq": "Alta Verde",
+   "assetsPctGdp": 3.5,
+   "fixedAssets": null,
+   "listed": "BAVD",
+   "roles": [
+    "PD",
+    "TCH",
+    "CUST"
+   ],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_bcob",
+   "name": "Banco del Cobre",
+   "bloc": "SRL",
+   "kind": "NPC_COMMERCIAL",
+   "strategy": "GROWTH",
+   "hq": "Cobreval",
+   "assetsPctGdp": 2.0,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Cobreval"
+   ],
+   "dynasty": "Cobos"
+  },
+  {
+   "bankId": "bnk_ccob",
+   "name": "Caja Cobreval",
+   "bloc": "SRL",
+   "kind": "NPC_REGIONAL",
+   "strategy": "REGIONAL",
+   "hq": "Cobreval",
+   "assetsPctGdp": 0.5,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [],
+   "dynasty": null
+  },
+  {
+   "bankId": "bnk_cpav",
+   "name": "Caja Popular Alta Verde",
+   "bloc": "SRL",
+   "kind": "NPC_REGIONAL",
+   "strategy": "REGIONAL",
+   "hq": "Alta Verde",
+   "assetsPctGdp": 0.6,
+   "fixedAssets": null,
+   "listed": "no",
+   "roles": [],
+   "defaultRetailFor": [
+    "Alta Verde",
+    "Sundara Coast"
+   ],
+   "dynasty": "Larrain"
+  },
+  {
+   "bankId": "bnk_serena",
+   "name": "Serena Private Bank",
+   "bloc": null,
+   "kind": "NPC_PRIVATE",
+   "strategy": "CONSERVATIVE",
+   "hq": "Isla Serena",
+   "assetsPctGdp": null,
+   "fixedAssets": 40000000000,
+   "listed": "no",
+   "roles": [
+    "TCH"
+   ],
+   "defaultRetailFor": [
+    "Isla Serena (wealth clients only)"
+   ],
+   "dynasty": null
+  }
+ ],
+ "dealers": [
+  {
+   "entityId": "npc_dlr_GRAY",
+   "name": "Graybridge Securities",
+   "kind": "NPC dealer firm",
+   "hq": "Port Avalon",
+   "roles": "TCH member; primary dealer in all 5 blocs; options market maker of 06"
+  },
+  {
+   "entityId": "npc_dlr_OSTP",
+   "name": "Ostrander & Pike",
+   "kind": "NPC dealer firm",
+   "hq": "Meridia",
+   "roles": "TCH member; primary dealer in all 5 blocs; FX and rates dealer"
+  },
+  {
+   "entityId": "npc_VAULTCLR",
+   "name": "Vault Clearing",
+   "kind": "crypto-native clearing member (owned by Vault Exchange)",
+   "hq": "Isla Serena",
+   "roles": "TCH member for CRY products"
+  }
+ ]
+}
