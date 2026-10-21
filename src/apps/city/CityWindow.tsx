@@ -109,8 +109,9 @@ export function CityWindow({ state }: { state: BodyState }) {
       {failed && (
         <div className="city-loading city-failed">
           <p className="muted" role="alert" data-testid="city-error">{S.couldntLoad}</p>
-          {/* Studio: the window's own secondary Retry disposes/re-creates only the CityRenderer. "View as table"
-              sits beside it once the table data is loaded; no table data source exists yet, so it is not shown. */}
+          {/* Studio: the window's own secondary Retry disposes/re-creates only the CityRenderer.
+              TODO(View as table): once table data is loaded, render <Button variant="ghost" size="sm"> "View as table"
+              BESIDE Retry (same row). No table data source exists yet, so it stays hidden. */}
           <Button variant="secondary" size="sm" data-testid="city-retry" onClick={() => { setFailed(false); setLoading(true); setAttempt((n) => n + 1); }}>{S.retry}</Button>
         </div>
       )}

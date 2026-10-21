@@ -117,3 +117,27 @@ test("phone: shots of home and shelf-equivalent bottom row", async ({ page }, in
   await boot(page, "/");
   await shot(page, "phone-home");
 });
+
+test("City error state: centred block, muted message, --fg Retry 8 px below, ≥44 touch hit, no 'View as table' yet", async ({ browser }, info) => {
+  const phone = info.project.name === "phone";
+  const ctx = await browser.newContext(phone ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  await boot(page, "/city?city=fail");
+  await expect(page.getByTestId("city-error")).toHaveText("Couldn't load");
+  const v = await page.evaluate(() => {
+    const probe = (x: string) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; };
+    const body = document.querySelector("[data-testid=city-body]")!.getBoundingClientRect();
+    const msg = document.querySelector("[data-testid=city-error]")!, btn = document.querySelector("[data-testid=city-retry]")!;
+    const m = msg.getBoundingClientRect(), b = btn.getBoundingClientRect();
+    return { mid: (m.top + b.bottom) / 2 - (body.top + body.bottom) / 2, hmid: (m.left + m.right) / 2 - (b.left + b.right) / 2,
+      gap: b.top - m.bottom, msg: getComputedStyle(msg).color, btn: getComputedStyle(btn).color, muted: probe("var(--fg-muted)"), fg: probe("var(--fg)"), h: b.height, w: b.width };
+  });
+  expect(Math.abs(v.mid)).toBeLessThanOrEqual(1);
+  expect(Math.abs(v.hmid)).toBeLessThanOrEqual(1);
+  expect(Math.round(v.gap)).toBe(8);
+  expect([v.msg, v.btn]).toEqual([v.muted, v.fg]);
+  if (phone) { expect(v.h).toBeGreaterThanOrEqual(44); expect(v.w).toBeGreaterThanOrEqual(44); }
+  await expect(page.getByText("View as table")).toHaveCount(0);
+  await shot(page, "city-error");
+  await ctx.close();
+});
