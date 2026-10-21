@@ -1,0 +1,203 @@
+{
+ "catalogVersion": 1,
+ "roles": [
+  {
+   "role": "Central bank",
+   "entityId": "cbk_<B>",
+   "names": {
+    "FDL": "Federal Monetary Board (FMB)",
+    "EUN": "Bank of the Compact (BoC)",
+    "PYN": "League Monetary Authority (LMA)",
+    "NKR": "Alliance Bank of the North (ABN)",
+    "SRL": "Coalition Reserve Bank (CRB)"
+   }
+  },
+  {
+   "role": "Central bank seat",
+   "entityId": null,
+   "names": {
+    "FDL": "Port Avalon, Financial Mile",
+    "EUN": "Meridia, Business District",
+    "PYN": "Kaiyo City, Loop Central",
+    "NKR": "Nordhaven City, Opera Quay",
+    "SRL": "Alta Verde, Government Hill"
+   }
+  },
+  {
+   "role": "Treasury (sovereign issuer, tax authority's parent)",
+   "entityId": "gov_<B>",
+   "names": {
+    "FDL": "Federal Treasury",
+    "EUN": "Compact Treasury",
+    "PYN": "League Ministry of Finance",
+    "NKR": "Nordic Treasury Office",
+    "SRL": "Coalition Ministry of Finance"
+   }
+  },
+  {
+   "role": "Bond brand (06 display)",
+   "entityId": null,
+   "names": {
+    "FDL": "Federal Notes / Federal Bills / Federal Bonds",
+    "EUN": "Compact Bonds",
+    "PYN": "League Bonds",
+    "NKR": "Nordic Bonds",
+    "SRL": "Coalition Bonds"
+   }
+  },
+  {
+   "role": "Tax authority (03 §2.9; 13's Revenue Office division)",
+   "entityId": "gov_<B>` sub-ledger",
+   "names": {
+    "FDL": "Federal Revenue Office",
+    "EUN": "Compact Revenue Office",
+    "PYN": "League Revenue Office",
+    "NKR": "Nordic Revenue Office",
+    "SRL": "Coalition Revenue Office"
+   }
+  },
+  {
+   "role": "Financial regulator (`reg_<B>`; contains the four 13 divisions, §2.3)",
+   "entityId": "reg_<B>",
+   "names": {
+    "FDL": "Federal Markets Authority (FMA)",
+    "EUN": "Compact Financial Authority (CFA)",
+    "PYN": "League Financial Services Agency (LFSA)",
+    "NKR": "Nordic Financial Supervisory Authority (NFSA)",
+    "SRL": "Coalition Securities and Banking Commission (CSBC)"
+   }
+  },
+  {
+   "role": "Court system (`crt_<B>`; regional circuit of the world courts, §2.4)",
+   "entityId": "crt_<B>",
+   "names": {
+    "FDL": "Federal Circuit",
+    "EUN": "Compact Circuit",
+    "PYN": "Pacific Circuit",
+    "NKR": "Northern Circuit",
+    "SRL": "Southern Circuit"
+   }
+  },
+  {
+   "role": "Legislature (16 §3.5, 300 seats)",
+   "entityId": null,
+   "names": {
+    "FDL": "Federal Congress",
+    "EUN": "Compact Assembly",
+    "PYN": "League Diet",
+    "NKR": "Alliance Thing",
+    "SRL": "Coalition Congress"
+   }
+  },
+  {
+   "role": "Deposit Guarantee Fund (07)",
+   "entityId": "npc_DGF_<B>",
+   "names": {
+    "FDL": "Federal Deposit Guarantee Fund",
+    "EUN": "Compact Deposit Guarantee Scheme",
+    "PYN": "League Deposit Protection Fund",
+    "NKR": "Nordic Deposit Guarantee Fund",
+    "SRL": "Coalition Deposit Insurance Fund"
+   }
+  },
+  {
+   "role": "Policyholder Guarantee Scheme (08)",
+   "entityId": "npc_PGS_<B>",
+   "names": {
+    "FDL": "Federal Policyholder Protection Fund",
+    "EUN": "Compact Insurance Guarantee Scheme",
+    "PYN": "League Policyholder Fund",
+    "NKR": "Nordic Policyholder Guarantee",
+    "SRL": "Coalition Insurance Guarantee Fund"
+   }
+  },
+  {
+   "role": "Bridge insurer (08, dormant until used)",
+   "entityId": "ins_BRIDGE_<B>",
+   "names": {
+    "FDL": "Federal Bridge Assurance",
+    "EUN": "Compact Bridge Assurance",
+    "PYN": "League Bridge Assurance",
+    "NKR": "Nordic Bridge Assurance",
+    "SRL": "Coalition Bridge Assurance"
+   }
+  },
+  {
+   "role": "Bad bank / asset management company (10, 07 resolution)",
+   "entityId": "npc_AMC_<B>",
+   "names": {
+    "FDL": "Federal Asset Recovery Corporation",
+    "EUN": "Compact Asset Workout Agency",
+    "PYN": "League Asset Management Company",
+    "NKR": "Nordic Recovery Holding",
+    "SRL": "Coalition Asset Recovery Trust"
+   }
+  },
+  {
+   "role": "Sovereign wealth fund (08, R6; NKR's is funded by surplus, 04 SURPLUS_SWF)",
+   "entityId": "fnd_SWF_<B>",
+   "names": {
+    "FDL": "Federal Strategic Fund",
+    "EUN": "Compact Future Fund",
+    "PYN": "League Investment Corporation",
+    "NKR": "Nordic Petroleum and Future Fund",
+    "SRL": "Coalition Development Fund"
+   }
+  },
+  {
+   "role": "Credit bureau (07 §3.4.1, one shared bureau with bloc desks)",
+   "entityId": "npc_BUREAU",
+   "names": {
+    "FDL": "Ledgerline Credit Bureau (Federal desk)",
+    "EUN": "Ledgerline (Compact desk)",
+    "PYN": "Ledgerline (Pacific desk)",
+    "NKR": "Ledgerline (Nordic desk)",
+    "SRL": "Ledgerline (Southern desk)"
+   }
+  },
+  {
+   "role": "Exchange (§1.2)",
+   "entityId": "exc_<B>",
+   "names": {
+    "FDL": "Port Avalon Exchange",
+    "EUN": "Meridia Bourse",
+    "PYN": "Kaiyo Securities Exchange",
+    "NKR": "Nordhaven Exchange",
+    "SRL": "Coalition Exchange"
+   }
+  },
+  {
+   "role": "NPC public warehouse at the bloc hub (06 §3.10.4)",
+   "entityId": "npc_WH_<B>",
+   "names": {
+    "FDL": "Avalon Bonded Warehouses",
+    "EUN": "Arsenal Yards Bonded Stores",
+    "PYN": "Delta Wharf Storage",
+    "NKR": "Skarvik Bonded Terminal",
+    "SRL": "Cobreval Ore and Grain Stores"
+   }
+  },
+  {
+   "role": "Independent valuer (08)",
+   "entityId": "npc_VAL_<B>",
+   "names": {
+    "FDL": "Ashcombe Valuation (Federal)",
+    "EUN": "Ashcombe Valuation (Compact)",
+    "PYN": "Ashcombe Valuation (Pacific)",
+    "NKR": "Ashcombe Valuation (Nordic)",
+    "SRL": "Ashcombe Valuation (Southern)"
+   }
+  },
+  {
+   "role": "Trustee and servicer (08 SPVs)",
+   "entityId": "npc_TRU_<B>",
+   "names": {
+    "FDL": "Keel Street Trust Services",
+    "EUN": "Compact Fiduciary SA",
+    "PYN": "League Trust and Custody",
+    "NKR": "Nordic Corporate Trustee",
+    "SRL": "Coalition Fiduciaria"
+   }
+  }
+ ]
+}

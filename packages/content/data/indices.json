@@ -1,0 +1,405 @@
+{
+ "catalogVersion": 1,
+ "indices": [
+  {
+   "indexId": "idx_GX100",
+   "name": "GX 100",
+   "method": "FFMC_CAPPED",
+   "universe": "100 largest equities world-wide by free-float cap in FDL",
+   "cap": "10%",
+   "rebalance": "quarterly",
+   "usedBy": "ETF GXH, index futures, options, GXV"
+  },
+  {
+   "indexId": "idx_FED30",
+   "name": "Federal 30",
+   "method": "FFMC_CAPPED",
+   "universe": "30 largest FDL-listed",
+   "cap": "10%",
+   "rebalance": "quarterly",
+   "usedBy": "FEDX, futures",
+   "bloc": "FDL",
+   "peNorm0": 16.79
+  },
+  {
+   "indexId": "idx_EUR30",
+   "name": "Euran 30",
+   "method": "FFMC_CAPPED",
+   "universe": "30 largest EUN-listed",
+   "cap": "10%",
+   "rebalance": "quarterly",
+   "usedBy": "EURX, futures",
+   "bloc": "EUN",
+   "peNorm0": 16.94
+  },
+  {
+   "indexId": "idx_PAC30",
+   "name": "Pacific 30",
+   "method": "FFMC_CAPPED",
+   "universe": "30 largest PYN-listed",
+   "cap": "10%",
+   "rebalance": "quarterly",
+   "usedBy": "PACX, futures",
+   "bloc": "PYN",
+   "peNorm0": 17.77
+  },
+  {
+   "indexId": "idx_NOR30",
+   "name": "Nordic 30",
+   "method": "FFMC_CAPPED",
+   "universe": "30 largest NKR-listed",
+   "cap": "10%",
+   "rebalance": "quarterly",
+   "usedBy": "NORX, futures",
+   "bloc": "NKR",
+   "peNorm0": 14.63
+  },
+  {
+   "indexId": "idx_SOU30",
+   "name": "Southern 30",
+   "method": "FFMC_CAPPED",
+   "universe": "30 largest SRL-listed",
+   "cap": "10%",
+   "rebalance": "quarterly",
+   "usedBy": "SOUX, futures",
+   "bloc": "SRL",
+   "peNorm0": 15.45
+  },
+  {
+   "indexId": "idx_GXS_TECH",
+   "name": "GX Technology",
+   "sectorId": "TECH",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_SEMI",
+   "name": "GX Semiconductors and Compute",
+   "sectorId": "SEMI",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_ENERGY",
+   "name": "GX Energy",
+   "sectorId": "ENERGY",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_MATERIALS",
+   "name": "GX Materials and Mining",
+   "sectorId": "MATERIALS",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_INDUSTRIALS",
+   "name": "GX Industrials and Logistics",
+   "sectorId": "INDUSTRIALS",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_FINANCIALS",
+   "name": "GX Financials",
+   "sectorId": "FINANCIALS",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_HEALTH",
+   "name": "GX Healthcare and Biotech",
+   "sectorId": "HEALTH",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_STAPLES",
+   "name": "GX Consumer Staples",
+   "sectorId": "STAPLES",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_DISCRETIONARY",
+   "name": "GX Consumer Discretionary and Luxury",
+   "sectorId": "DISCRETIONARY",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_REAL_ESTATE",
+   "name": "GX Real Estate",
+   "sectorId": "REAL_ESTATE",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_MEDIA",
+   "name": "GX Media and Entertainment",
+   "sectorId": "MEDIA",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXS_SECURITY",
+   "name": "GX Security and Defence",
+   "sectorId": "SECURITY",
+   "method": "FFMC_CAPPED",
+   "universe": "all listed equities of the sector",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "sector ETFs, 05 `SEC_<sector>` factor reference"
+  },
+  {
+   "indexId": "idx_GXDIV30",
+   "name": "GX Dividend 30",
+   "method": "FFMC_CAPPED",
+   "universe": "30 highest trailing yields, payout ≤ 90%",
+   "cap": "6%",
+   "rebalance": "semiannual",
+   "usedBy": "GDIV"
+  },
+  {
+   "indexId": "idx_GXREIT",
+   "name": "GX REIT",
+   "method": "FFMC_CAPPED",
+   "universe": "the listed REITs",
+   "cap": "20%",
+   "rebalance": "quarterly",
+   "usedBy": "GREI"
+  },
+  {
+   "indexId": "idx_GXAGG",
+   "name": "GX Bond Aggregate",
+   "method": "RULE_BOND",
+   "universe": "government + IG corporate, ≥ 1y",
+   "cap": "—",
+   "rebalance": "monthly",
+   "usedBy": "GAGG"
+  },
+  {
+   "indexId": "idx_GXIG",
+   "name": "GX Investment Grade Credit",
+   "method": "RULE_BOND",
+   "universe": "corporate bonds rated BBB− or better",
+   "cap": "3% per issuer",
+   "rebalance": "monthly",
+   "usedBy": "08 IG reference, NPC IG funds"
+  },
+  {
+   "indexId": "idx_GXHY",
+   "name": "GX High Yield",
+   "method": "RULE_BOND",
+   "universe": "corporate bonds below BBB−",
+   "cap": "3% per issuer",
+   "rebalance": "monthly",
+   "usedBy": "GHYB"
+  },
+  {
+   "indexId": "idx_GXC40",
+   "name": "GX Credit 40",
+   "method": "RULE_BOND (CDS)",
+   "universe": "equal-weight CDS of the 40 most liquid corporate reference entities",
+   "cap": "equal",
+   "rebalance": "semiannual roll",
+   "usedBy": "CDS index (06 swaps), 05 `CREDIT` factor reference"
+  },
+  {
+   "indexId": "idx_TSY_FDL",
+   "name": "Federal Treasury Index",
+   "method": "RULE_BOND",
+   "universe": "the bloc's government bonds ≥ 1y (SRL: local-currency only)",
+   "cap": "—",
+   "rebalance": "monthly",
+   "usedBy": "treasury ETFs, 05 `RATES_<bloc>` reference"
+  },
+  {
+   "indexId": "idx_TSY_EUN",
+   "name": "Compact Treasury Index",
+   "method": "RULE_BOND",
+   "universe": "the bloc's government bonds ≥ 1y (SRL: local-currency only)",
+   "cap": "—",
+   "rebalance": "monthly",
+   "usedBy": "treasury ETFs, 05 `RATES_<bloc>` reference"
+  },
+  {
+   "indexId": "idx_TSY_PYN",
+   "name": "League Treasury Index",
+   "method": "RULE_BOND",
+   "universe": "the bloc's government bonds ≥ 1y (SRL: local-currency only)",
+   "cap": "—",
+   "rebalance": "monthly",
+   "usedBy": "treasury ETFs, 05 `RATES_<bloc>` reference"
+  },
+  {
+   "indexId": "idx_TSY_NKR",
+   "name": "Nordic Treasury Index",
+   "method": "RULE_BOND",
+   "universe": "the bloc's government bonds ≥ 1y (SRL: local-currency only)",
+   "cap": "—",
+   "rebalance": "monthly",
+   "usedBy": "treasury ETFs, 05 `RATES_<bloc>` reference"
+  },
+  {
+   "indexId": "idx_TSY_SRL",
+   "name": "Coalition Treasury Index",
+   "method": "RULE_BOND",
+   "universe": "the bloc's government bonds ≥ 1y (SRL: local-currency only)",
+   "cap": "—",
+   "rebalance": "monthly",
+   "usedBy": "treasury ETFs, 05 `RATES_<bloc>` reference"
+  },
+  {
+   "indexId": "idx_CMX",
+   "name": "CMX Commodity",
+   "method": "RULE_COMMODITY",
+   "universe": "13 physical, front-month futures, weights §4.6",
+   "cap": "—",
+   "rebalance": "monthly roll days 5–9",
+   "usedBy": "GCMX"
+  },
+  {
+   "indexId": "idx_GOLD_SPOT",
+   "name": "Gold Spot Reference",
+   "method": "RULE_COMMODITY",
+   "universe": "ast_CM_GOLD benchmark hub spot",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "GLDT"
+  },
+  {
+   "indexId": "idx_CRX10",
+   "name": "CRX10",
+   "method": "RULE_CRYPTO",
+   "universe": "10 largest non-stable tokens by free-float cap",
+   "cap": "25%",
+   "rebalance": "monthly",
+   "usedBy": "CR10, 05 `CRYPTO` factor reference"
+  },
+  {
+   "indexId": "idx_GXV",
+   "name": "GX Volatility Index (GXV)",
+   "method": "VOL",
+   "universe": "30-game-day implied vol of GX100",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "06 §3.5.3"
+  },
+  {
+   "indexId": "idx_FRX",
+   "name": "FRX Freight Index",
+   "method": "rule",
+   "universe": "fleet utilisation (06 §3.10.5)",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "shipping businesses, 09"
+  },
+  {
+   "indexId": "idx_AIRACE",
+   "name": "AI Race Index",
+   "method": "owned by 11",
+   "universe": "0–100",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "05 `AI_RACE` factor, 16 eras"
+  },
+  {
+   "indexId": "idx_LUXCPI",
+   "name": "Luxury CPI",
+   "method": "owned by 03 (Stabilizer lever L2)",
+   "universe": "—",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "14 price display"
+  },
+  {
+   "indexId": "idx_CI_WATCH",
+   "name": "Watches",
+   "method": "owned by 06 §2.7 (driven by top-1% wealth growth and the hype cycle)",
+   "universe": "—",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "14 valuation of LIMITED/UNIQUE items"
+  },
+  {
+   "indexId": "idx_CI_CAR",
+   "name": "Classic Cars",
+   "method": "owned by 06 §2.7 (driven by top-1% wealth growth and the hype cycle)",
+   "universe": "—",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "14 valuation of LIMITED/UNIQUE items"
+  },
+  {
+   "indexId": "idx_CI_ART",
+   "name": "Art",
+   "method": "owned by 06 §2.7 (driven by top-1% wealth growth and the hype cycle)",
+   "universe": "—",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "14 valuation of LIMITED/UNIQUE items"
+  },
+  {
+   "indexId": "idx_CI_WINE",
+   "name": "Fine Wine",
+   "method": "owned by 06 §2.7 (driven by top-1% wealth growth and the hype cycle)",
+   "universe": "—",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "14 valuation of LIMITED/UNIQUE items"
+  },
+  {
+   "indexId": "idx_CI_YACHT",
+   "name": "Yachts",
+   "method": "owned by 06 §2.7 (driven by top-1% wealth growth and the hype cycle)",
+   "universe": "—",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "14 valuation of LIMITED/UNIQUE items"
+  },
+  {
+   "indexId": "idx_CI_JET",
+   "name": "Jets",
+   "method": "owned by 06 §2.7 (driven by top-1% wealth growth and the hype cycle)",
+   "universe": "—",
+   "cap": "—",
+   "rebalance": "—",
+   "usedBy": "14 valuation of LIMITED/UNIQUE items"
+  }
+ ]
+}
