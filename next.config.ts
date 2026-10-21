@@ -24,6 +24,7 @@ const nextConfig: NextConfig = {
     QUAY_DS: process.env.QUAY_DS === "1" ? "1" : "0",
     NEXT_PUBLIC_QUAY_MOCK_PHASE: process.env.NEXT_PUBLIC_QUAY_MOCK_PHASE === "1" ? "1" : "0",
     NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL: process.env.NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL === "1" ? "1" : "0",
+    NEXT_PUBLIC_QUAY_MOCK_LOAD_FAIL: process.env.NEXT_PUBLIC_QUAY_MOCK_LOAD_FAIL === "1" ? "1" : "0",
   },
 };
 
