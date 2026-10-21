@@ -78,3 +78,4 @@ html[data-motion="reduce"] .set-switch-knob { transition: none; }
 
 /* Touch: 44 px targets (17A C5). Last so it wins over the pointer sizes above. */
 @media (pointer: coarse) { .scale input[type="range"], .set-nav-item, .set-link, .swatch, .set-seg button { min-height: 44px; } .set-switch { min-width: 44px; min-height: 44px; } }
+.settings-phone .set-nav { flex: none; width: 100%; border-right: 0; }
