@@ -32,7 +32,7 @@ describe('C-12 art', () => {
       const m = css.match(new RegExp(`${name}:\\s*#([0-9a-f]{6})`, 'i'))!;
       return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255) as Rgb;
     };
-    const t = Object.fromEntries(Object.entries(TOKEN_VARS).map(([k, [, fallback]]) => [k, v(fallback)])) as Parameters<typeof buildRamps>[0];
+    const t = Object.fromEntries(Object.entries(TOKEN_VARS).map(([k, name]) => [k, v(name)])) as Parameters<typeof buildRamps>[0];
     const r = buildRamps(t);
     const others: Rgb[] = [r.water, r.land, r.park, r.road, ...r.facades, r.top, r.shadow, r.litWindow, r.darkWindow, ...r.districtHues];
     for (const c of others) for (const b of [r.brass, r.brassHi, r.brassLo]) expect(deltaE(c, b)).toBeGreaterThan(3);
@@ -61,12 +61,10 @@ describe('C-12 art', () => {
 });
 
 describe('V3 token names (review A.4)', () => {
-  // Fails once Spec 1's tokens.css is on main and any V3 name this module reads is missing there.
-  // Until then (main has only the Ink & Brass names) it checks Spec 1's branch file if present.
+  // Spec 1's tokens.css is on main: every name this module reads must be defined there.
   const main = join(__dirname, '../../../src/styles/tokens.css');
   const css = readFileSync(main, 'utf8');
-  const hasV3 = /--bg0\s*:/.test(css);
-  it.skipIf(!hasV3)('every V3 token name read by src/city is defined by Spec 1', () => {
+  it('every V3 token name read by src/city is defined by Spec 1', () => {
     const missing = V3_TOKEN_NAMES.filter((n) => !new RegExp(`${n.replace(/[-]/g, '\\-')}\\s*:`).test(css));
     expect(missing).toEqual([]);
   });

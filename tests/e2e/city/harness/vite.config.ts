@@ -5,19 +5,21 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateCity, CITY_ID } from '../fixtures/generate-city';
+import { buildWorld, generateCity, publish, CITY_ID } from '../fixtures/generate-city';
+
+/** The cityId Spec 1's real CityWindow.tsx passes today (C-05 page). Spec 22 / Systems use CITY_ID. */
+const SHELL_CITY_ID = 'port-avalon';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const OUT = process.env.CITY_HARNESS_OUT ?? join(tmpdir(), 'city-harness');
 
-/** Turns Spec 1's Tailwind @theme tokens into plain :root custom properties for the harness. */
+/** Spec 1's tokens.css from main, served as is, plus the self-hosted faces and next/font's variables. */
 function tokensCss(): string {
   const src = readFileSync(join(here, '../../../../src/styles/tokens.css'), 'utf8');
-  const decls = [...src.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/gi)].map((m) => `  ${m[1]}: ${m[2].trim()};`);
   // next/font's variables, pointing at the same faces loaded below (review B2)
-  const fontVars = `  --font-instrument-serif: "Instrument Serif";\n  --font-inter: "Inter";\n  --font-jetbrains-mono: "JetBrains Mono";`;
+  const fontVars = `:root {\n  --font-instrument-serif: "Instrument Serif";\n  --font-inter: "Inter";\n  --font-jetbrains-mono: "JetBrains Mono";\n}`;
   const faces = FONTS.map((f) => `@font-face { font-family: "${f.family}"; src: url("/fonts/${f.out}") format("truetype"); font-weight: ${f.weight}; font-display: block; }`).join('\n');
-  return `${faces}\n:root {\n${decls.join('\n')}\n${fontVars}\n}\nhtml, body { margin: 0; height: 100%; background: var(--color-ink-0); }\n#app { position: fixed; inset: 0; }\n`;
+  return `${faces}\n${src}\n${fontVars}\nhtml, body { margin: 0; height: 100%; background: var(--bg0); }\n#app { position: fixed; inset: 0; }\n`;
 }
 
 /**
@@ -39,6 +41,10 @@ function fixtures(): Plugin {
       const city = generateCity();
       for (const [url, bytes] of city.files) this.emitFile({ type: 'asset', fileName: url.replace(/^\//, ''), source: bytes });
       for (const [v, m] of city.manifests) this.emitFile({ type: 'asset', fileName: `city/${CITY_ID}/manifest.v${v}.json`, source: JSON.stringify(m) });
+      // the same city published under the real CityWindow's cityId, at the plain manifest URL
+      const shell = publish(buildWorld(), 1, 14_400, SHELL_CITY_ID);
+      for (const [url, bytes] of shell.files) this.emitFile({ type: 'asset', fileName: url.replace(/^\//, ''), source: bytes });
+      this.emitFile({ type: 'asset', fileName: `city/${SHELL_CITY_ID}/manifest.json`, source: JSON.stringify(shell.manifest) });
       // my places for ?mine=1: a few storefronts and properties near the centre (client-only data)
       const mine = city.snapshot.entities.filter((e) => e.kind === 'storefront' || e.kind === 'property').slice(5, 8).map((e) => e.id);
       this.emitFile({ type: 'asset', fileName: 'fixture-info.json', source: JSON.stringify({ cityId: CITY_ID, mine, versions: [...city.manifests.keys()] }) });
@@ -80,7 +86,7 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     minify: true,
-    rollupOptions: { input: { city: join(here, 'city.html'), broker: join(here, 'broker.html') } },
+    rollupOptions: { input: { city: join(here, 'city.html'), citywindow: join(here, 'citywindow.html'), broker: join(here, 'broker.html') } },
   },
   define: { 'process.env.NODE_ENV': '"production"', 'process.env.NEXT_PUBLIC_CITY_E2E': '"1"', 'process.env.NEXT_PUBLIC_CITY_CDN': '""' },
   worker: { format: 'es' },

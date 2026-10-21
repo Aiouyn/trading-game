@@ -1104,8 +1104,9 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
         if (model) recolor(true);
         else void ensureChunks();
       } else {
-        const stamp = opts.channel.stateVersion(opts.cityId);
-        if (stamp !== null) void syncManifest();
+        // no data yet: the manifest is the source of truth, whether or not the channel has a
+        // stamp (Spec 1's stub channel reports null until the gateway lands)
+        void syncManifest();
       }
       if (hooks.expose ?? DEV_OR_E2E) exposeTestApi();
     },

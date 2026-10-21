@@ -42,7 +42,7 @@ test.describe('C-12 brass discipline', () => {
       await waitDrawn(page);
       const n = await page.evaluate(() => {
         const probe = document.createElement('span');
-        probe.style.color = 'var(--acc, var(--color-brass))';
+        probe.style.color = 'var(--acc)';
         document.body.append(probe);
         const acc = getComputedStyle(probe).color;
         probe.remove();

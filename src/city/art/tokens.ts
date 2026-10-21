@@ -1,65 +1,61 @@
 import { parseComputedColor, type Rgb } from './color';
 
-// The one place that knows token names (PR #4 review A.4). V3 names (17 §2.5, S1 §7.1) are
-// binding; the second name is the Ink & Brass name on main, kept for one release only. When
-// Spec 1's tokens land on main, delete the fallbacks here and nowhere else.
+// The one place that knows token names (PR #4 review A.4): the V3 names (17 §2.5, S1 §7.1) as
+// defined by Spec 1's src/styles/tokens.css on main. No fallbacks: the Ink & Brass names are gone.
 
-/** Colour tokens: [V3 name, fallback on main]. */
+/** Colour tokens. */
 export const TOKEN_VARS = {
-  bg0: ['--bg0', '--color-ink-0'],
-  win: ['--win', '--color-ink-1'],
-  win2: ['--win2', '--color-ink-2'],
-  line: ['--line', '--color-ink-3'],
-  fg: ['--fg', '--color-fg'],
-  fgMuted: ['--fg-muted', '--color-fg-muted'],
-  fgFaint: ['--fg-faint', '--color-fg-faint'],
-  acc: ['--acc', '--color-brass'],
-  accHi: ['--acc-hi', '--color-brass-hi'],
-  accLo: ['--acc-lo', '--color-brass-lo'],
-  gain: ['--gain', '--color-gain'],
-  loss: ['--loss', '--color-loss'],
-  info: ['--info', '--color-info'],
-  signal: ['--signal', '--color-signal'],
+  bg0: '--bg0',
+  win: '--win',
+  win2: '--win2',
+  line: '--line',
+  fg: '--fg',
+  fgMuted: '--fg-muted',
+  fgFaint: '--fg-faint',
+  acc: '--acc',
+  accHi: '--acc-hi',
+  accLo: '--acc-lo',
+  gain: '--gain',
+  loss: '--loss',
+  info: '--info',
+  signal: '--signal',
 } as const;
 
-/** Font tokens (S1 §7.1): [V3 name, fallback on main]. */
+/** Font tokens (S1 §7.1). */
 export const FONT_VARS = {
-  display: ['--font-display', '--font-serif'],
-  ui: ['--font-ui', '--font-sans'],
-  num: ['--font-num', '--font-mono'],
+  display: '--font-display',
+  ui: '--font-ui',
+  num: '--font-num',
 } as const;
 
-/** Type-scale tokens used by the city chrome: [V3 name, fallback px]. */
+/** Type-scale tokens used by the city chrome. */
 export const SIZE_VARS = {
-  label: ['--fs-10_5', '10.5px'],
-  small: ['--fs-12_5', '12.5px'],
-  body: ['--fs-14', '14px'],
-  mapLabel: ['--fs-16', '16px'],
+  label: '--fs-10_5',
+  small: '--fs-12_5',
+  body: '--fs-14',
+  mapLabel: '--fs-16',
 } as const;
 
 /** Every V3 name this module reads; the token-presence test checks Spec 1 defines each one. */
 export const V3_TOKEN_NAMES: readonly string[] = [
-  ...Object.values(TOKEN_VARS).map((v) => v[0]),
-  ...Object.values(FONT_VARS).map((v) => v[0]),
-  ...Object.values(SIZE_VARS).map((v) => v[0]),
+  ...Object.values(TOKEN_VARS),
+  ...Object.values(FONT_VARS),
+  ...Object.values(SIZE_VARS),
 ];
 
 export type TokenName = keyof typeof TOKEN_VARS;
 export type Tokens = Record<TokenName, Rgb>;
 
 export function cssVar(name: TokenName): string {
-  const [a, b] = TOKEN_VARS[name];
-  return `var(${a}, var(${b}))`;
+  return `var(${TOKEN_VARS[name]})`;
 }
 
 export function fontVar(name: keyof typeof FONT_VARS): string {
-  const [a, b] = FONT_VARS[name];
-  return `var(${a}, var(${b}))`;
+  return `var(${FONT_VARS[name]})`;
 }
 
 export function sizeVar(name: keyof typeof SIZE_VARS): string {
-  const [a, b] = SIZE_VARS[name];
-  return `var(${a}, ${b})`;
+  return `var(${SIZE_VARS[name]})`;
 }
 
 /** Reads every colour token through getComputedStyle on a probe element inside `host`. */
@@ -81,7 +77,7 @@ export function readTokens(host: HTMLElement): Tokens {
   return out;
 }
 
-/** V3 names that do not resolve on `host` (no fallback). Empty once Spec 1's tokens are live. */
+/** Token names that do not resolve on `host`. Empty when Spec 1's tokens are loaded. */
 export function missingV3Tokens(host: HTMLElement): string[] {
   const cs = getComputedStyle(host);
   return V3_TOKEN_NAMES.filter((n) => cs.getPropertyValue(n).trim() === '');

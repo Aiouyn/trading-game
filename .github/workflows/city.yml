@@ -1,9 +1,8 @@
 # City renderer (Spec 2, PR #4) — Producer-authorized, separate from Front Dev's ci.yml (PR #2).
 # Runs the city unit suite (incl. C-16 paths) and the city e2e suite (incl. C-10 budgets) on
 # Node 22. Path-filtered, so it only runs for changes that can affect the city.
-# Overlap: ci.yml (PR #2) also runs these two configs, as extra steps guarded by hashFiles. Once
-# both are on main, a city PR runs them twice; this workflow is the one that uploads the city
-# evidence. See the PR #4 body for the proposed de-duplication.
+# This workflow is the only owner of the city tests: ci.yml no longer runs them (PR #7). The
+# whole-app lint/typecheck/build stays in ci.yml.
 name: city
 on:
   pull_request:

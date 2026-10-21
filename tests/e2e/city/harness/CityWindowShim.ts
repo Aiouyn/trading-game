@@ -1,6 +1,5 @@
-// Stand-in for Spec 1's src/apps/city/CityWindow.tsx (not on main yet). It uses the seam exactly
-// as Spec 1 must: a dynamic import of '@/city' and every CityRenderer method, so `tsc` checks
-// the seam against its consumer (C-05).
+// Harness driver for city.html (fixture city, test hooks). C-05 no longer uses it: the seam is
+// checked against Spec 1's real src/apps/city/CityWindow.tsx (citywindow.html, diagnostics.spec).
 import type { CityChannelClient, CityRenderer, CityTier, PerfSample, PickResult, Visibility } from '@/city';
 
 export interface WindowShimOptions {

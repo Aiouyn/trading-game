@@ -42,10 +42,10 @@ test.describe('B1 label legibility', () => {
         const el = document.querySelector<HTMLElement>('.city-district-label')!;
         const cs = getComputedStyle(el);
         const probe = document.createElement('span');
-        probe.style.color = 'var(--fg, var(--color-fg))';
+        probe.style.color = 'var(--fg)';
         document.body.append(probe);
         const fg = getComputedStyle(probe).color;
-        probe.style.color = 'var(--bg0, var(--color-ink-0))';
+        probe.style.color = 'var(--bg0)';
         const bg0 = getComputedStyle(probe).color;
         probe.remove();
         return {

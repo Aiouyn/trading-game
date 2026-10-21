@@ -22,7 +22,8 @@ npx playwright test -c tests/e2e/city/playwright.config.ts # e2e: builds a vite 
 ```
 
 The e2e harness (`tests/e2e/city/harness`) has two pages:
-- `city.html` stands in for Spec 1's `CityWindow.tsx` and reaches the renderer only through `import('@/city')`.
+- `city.html` drives the renderer through `import('@/city')` with the fixture city and test hooks.
+- `citywindow.html` mounts Spec 1's real `src/apps/city/CityWindow.tsx` in a real shell store (C-05).
 - `broker.html` stands in for the Broker route. It is used for the bundle check (C-04).
 
 Test cities come from `tests/e2e/city/fixtures/generate-city.ts`. This generator is tooling only.
