@@ -15,7 +15,7 @@ export function normalizeEntity(v: unknown, table: string, id: Id): unknown {
     if (typeof x === 'bigint' || typeof x === 'string' || typeof x === 'boolean' || x === null) return x;
     if (x instanceof Uint8Array) return new Uint8Array(x);   // typed arrays cannot be frozen; stored as a private copy
     if (Array.isArray(x)) {
-      const out = x.map((e, i) => { if (e === undefined) throw new EngineFault('I0.store_type', `${at(`${path}[${i}]`)}: undefined in array`, [id]); return go(e, `${path}[${i}]`); });
+      const out = x.map((e, i) => go(e, `${path}[${i}]`));   // undefined in an array falls through to I0.store_type
       return Object.freeze(out);
     }
     if (typeof x === 'object' && (Object.getPrototypeOf(x) === Object.prototype || Object.getPrototypeOf(x) === null)) {

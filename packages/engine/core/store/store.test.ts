@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { canonEncode } from '../canon';
 import { sha256, sha256Concat } from '../crypto/sha256';
 import { toHex } from '../crypto/hex';
+import { merkleRoot } from '../merkle';
 import { toMoney, toPrice, toQty } from '../fixed';
 import type { InvariantCtx, TruthStoreRead } from '../invariants';
 import { EngineFault, type Ccy } from '../types';
@@ -119,6 +120,17 @@ describe('T02-09 PartitionStore', () => {
     expect(toHex(s.stateHash())).toBe(toHex(want));
     expect(toHex(s.commitTick().stateHash)).toBe(toHex(want));
     expect(toHex(s.stateHash())).toBe(toHex(want));   // cached leaves path
+  });
+  it('partition stateHash worked example: leaf = sha256(table ‖ 0x00 ‖ id ‖ 0x00 ‖ eh), T02-07 tree, order kindTag → table → id', () => {
+    const r = reg(); r.add({ name: 'chr.other', module: '04', idOf: (e: Chr) => e.id });
+    const s = new PartitionStore(r, 'p1'); s.beginTick(1);
+    const w4 = s.bind({ module: '04', phase: 'P1' }), w3 = s.bind({ module: '03', phase: 'P1' });
+    const es: [string, Chr][] = [['led.account', { id: 'chr_A', n: 1 }], ['chr.other', { id: 'chr_0', n: 2 }], ['chr.entity', { id: 'chr_B', n: 3 }], ['led.account', { id: 'bnk_Z', n: 4 }]];
+    for (const [t, e] of es) (t === 'led.account' ? w3 : w4).put(t, e);
+    const leaf = (t: string, e: Chr): Uint8Array => sha256Concat(t, Uint8Array.of(0), e.id, Uint8Array.of(0), sha256(canonEncode(e)));
+    // bnk before chr (KIND_TAG_ORDER); within chr: table first (chr.entity < chr.other < led.account), then id
+    const order = [es[3]!, es[2]!, es[1]!, es[0]!];
+    expect(toHex(s.stateHash())).toBe(toHex(merkleRoot(order.map(([t, e]) => leaf(t, e)))));
   });
 
   it('determinism: 100,000 random ops, run twice from the same seed, give identical hashes; state equals a plain-model replay', () => {
