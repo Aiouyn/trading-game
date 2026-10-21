@@ -24,7 +24,7 @@ declare module "@/city" {
     /** The player's own places, computed locally from `me`; never uploaded (17 §2.2, 17-AT-21). */
     myEntityIds: readonly string[];
     /** Shell-owned telemetry sink for ui.perf (17 §5.2); sampled once per minute while visible (S2 §9). */
-    onPerfSample?: (s: { tickRenderMsP50: number; tickRenderMsP95: number; fps: number; heapMb: number; renderTier: CityTier }) => void;
+    onPerfSample?: (s: { tickRenderMsP50: number; tickRenderMsP95: number; fps: number | null; heapMb: number; renderTier: CityTier }) => void;
   }
   export interface PickResult {
     kind: "company_hq" | "storefront" | "property" | "landmark" | "crown_tower" | "district" | "listing";

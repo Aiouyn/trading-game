@@ -18,6 +18,9 @@
     "core:lint": "npm --prefix packages/engine/core run lint",
     "core:test": "npm --prefix packages/engine/core test",
     "core:check": "npm run core:typecheck && npm run core:lint && npm run core:test",
+    "engine:check": "node scripts/engine-check.mjs",
+    "engine:ledger": "node scripts/engine-check.mjs ledger",
+    "engine:core": "node scripts/engine-check.mjs core",
     "tokens": "node tools/lint/gen-tokens.mjs",
     "check:paths": "bash tools/lint/check-paths.sh"
   },
