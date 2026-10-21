@@ -2,11 +2,12 @@
 // rank, lic, nw, flags, guest, prot, onb, onbDone, … (dev and e2e builds only; see hooks.ts).
 import type { Channels, ClockChannel, MarketPhase } from "./channels";
 import { MOCK_HOOKS } from "./hooks";
+import { loadHookStartsFailed } from "./loader";
 import { RANKS, type Rank } from "./registry";
 
 export const TICK_MS = 5000;
-/** 14's rank thresholds as the server would publish them (17 header): R1 $20k … R5 $2B. */
-export const RANK_THRESHOLDS = ["20000", "250000", "5000000", "100000000", "2000000000"] as const;
+/** Rank thresholds as the server would publish them (17 header; R6 $20B per errata E-21): R1 $20k … R6 $20B. */
+export const RANK_THRESHOLDS = ["20000", "250000", "5000000", "100000000", "2000000000", "20000000000"] as const;
 export const TICKS_PER_DAY = 720;
 
 const DEFAULT_TICK = 38 * TICKS_PER_DAY + 340;
@@ -50,7 +51,7 @@ export function mockChannels(q: URLSearchParams): Channels {
   return {
     clock: { ...clockAt(Number(q.get("tick") ?? DEFAULT_TICK)), ...(phaseOverride(q) ? { phase: phaseOverride(q)! } : {}) },
     rank: { rank, thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf(rank)] ?? null },
-    system: { connection: q.get("conn") === "reconnecting" ? "reconnecting" : "live", halted: q.get("halted") === "1", held: q.get("held") === "1", load: q.get("load")?.startsWith("fail") ? "error" : "ok", offline: false },
+    system: { connection: q.get("conn") === "reconnecting" ? "reconnecting" : "live", halted: q.get("halted") === "1", held: q.get("held") === "1", load: loadHookStartsFailed(q) ? "error" : "ok", offline: false },
     me: {
       nw: q.get("nw") ?? d.me.nw,
       todayPct: q.get("pct") ?? d.me.todayPct,

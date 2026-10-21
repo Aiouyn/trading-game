@@ -4,7 +4,7 @@ import type { Rank } from "./registry";
 export type MarketPhase = "pre" | "open_auction" | "continuous" | "close_auction" | "after" | "weekend";
 
 export interface ClockChannel { tick: number; gameDay: number; tickOfDay: number; phase: MarketPhase }
-/** `rank` channel (17 §2.6). thresholds[i] is the NW needed for rank R(i+1) (R1..R5); R6 is not NW-only. */
+/** `rank` channel (17 §2.6). thresholds[i] is the NW needed for rank R(i+1) (R1..R6; R6 $20B per E-21). */
 export interface RankChannel { rank: Rank; thresholds: string[]; nextAt: string | null }
 export interface MeChannel {
   nw: string;
