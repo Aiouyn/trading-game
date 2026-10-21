@@ -209,3 +209,37 @@ test("T5 screenshots: P0 banner, world banner, both stacked (1440)", async ({ pa
   await shot(page, "banners-stacked");
   await axe(page, "banners-stacked");
 });
+
+test("T5 halt chip (Studio 08:04): Continue hides the overlay; steel chip in strip / status bar reopens it", async ({ page }, info) => {
+  const phone = info.project.name === "phone";
+  await boot(page, "/?halted=1");
+  await expect(page.getByTestId("overlay-halted")).toBeVisible();
+  await page.getByTestId("overlay-halted-action").click();
+  await expect(page.getByTestId("overlay-halted")).toHaveCount(0);
+  const chip = page.locator(`${phone ? "[data-testid=statusbar]" : "header"} [data-testid=halt-chip]`);
+  await expect(chip).toHaveText("Trading halted");
+  const c = await chip.evaluate((e) => { const p = document.createElement("i"); p.style.color = "var(--steel)"; document.body.append(p); const want = getComputedStyle(p).color; const a = document.createElement("i"); a.style.color = "var(--acc)"; document.body.append(a); const brass = getComputedStyle(a).color; p.remove(); a.remove(); return { got: getComputedStyle(e).color, want, brass }; });
+  expect(c.got).toBe(c.want);
+  expect(c.got).not.toBe(c.brass);
+  const hit = await chip.evaluate((e) => { const r = e.getBoundingClientRect(); const b = getComputedStyle(e, "::before"); return r.height - parseFloat(b.top) - parseFloat(b.bottom); });
+  expect(hit).toBeGreaterThanOrEqual(phone ? 44 : 28);
+  await shot(page, "halt-chip");
+  await axe(page, "halt-chip");
+  await chip.click();
+  await expect(page.getByTestId("overlay-halted")).toBeVisible();
+});
+
+test("T5 halt flow: order entry disabled with the reason; resume clears the chip and is announced politely; next halt reopens", async ({ page }) => {
+  await ds(page, "halted,haltflow");
+  await page.getByTestId("overlay-halted-action").click();
+  await expect(page.getByTestId("halt-chip")).toBeVisible();
+  await expect(page.getByTestId("mock-order-entry")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("order-entry-wrap")).toHaveAttribute("title", /halted.*Reason: market integrity review/);
+  await expect(page.getByTestId("halt-live")).toHaveAttribute("aria-live", "polite");
+  await page.getByTestId("toggle-halt").click();
+  await expect(page.getByTestId("halt-chip")).toHaveCount(0);
+  await expect(page.getByTestId("halt-live")).toHaveText("Trading resumed");
+  await expect(page.getByTestId("mock-order-entry")).not.toHaveAttribute("aria-disabled", "true");
+  await page.getByTestId("toggle-halt").click();
+  await expect(page.getByTestId("overlay-halted")).toBeVisible();
+});

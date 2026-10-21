@@ -58,8 +58,15 @@ html[data-motion="reduce"] .qsheet { animation: none; }
 
 /* /__ds/notices demo frame (dev only): a 34 px strip stand-in, then the two slots, then a desk. */
 .ds-notices { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg0); }
-.ds-strip { height: var(--strip-h); flex: none; background: var(--chrome); border-bottom: 1px solid var(--line); }
+.ds-strip { height: var(--strip-h); flex: none; display: flex; align-items: center; justify-content: flex-end; padding: 0 16px; background: var(--chrome); border-bottom: 1px solid var(--line); }
 .ds-notices-desk { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 16px; align-items: flex-start; }
 .ds-orderpad { width: 280px; height: 200px; flex: none; background: var(--win); border: 1px solid var(--line); border-radius: var(--r-window); padding: 12px; color: var(--fg-muted); }
 .ds-readonly { flex: 1; align-self: stretch; overflow: auto; background: var(--win); border: 1px solid var(--line); border-radius: var(--r-window); padding: 0 12px; color: var(--fg-muted); }
 .ds-sheet-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+
+/* Halt chip (Studio 08:04): approved .chip shape with --steel text, never brass. Visible chip is the .chip box;
+   the hit area grows invisibly to 28 px pointer / 44 px touch. */
+.halt-chip { position: relative; color: var(--steel); cursor: pointer; }
+.halt-chip::before { content: ""; position: absolute; inset: -6px -4px; }
+@media (pointer: coarse) { .halt-chip::before { inset: -14px -4px; } }
+.halt-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }

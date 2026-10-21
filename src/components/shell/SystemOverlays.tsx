@@ -2,7 +2,7 @@
 // 17 §7.1 system overlays (17A T5 §6): Held (z 150) and halt / disconnect / forced update (z 160). Full-window
 // --bg0 92% [P], serif title, one action. The backdrop lets pointer and wheel events through, so read-only
 // windows behind stay usable (17-AT-32); only the card takes input.
-import { useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { S } from "@/shell/strings";
 import { Button } from "@/components/ui/Button";
 import { useShell } from "./ShellContext";
@@ -29,16 +29,61 @@ export function SystemOverlay({ kind, onAction }: { kind: OverlayKind; onAction?
   );
 }
 
+// Halt dismissal is shared by the overlay and the strip / status-bar chip. "Continue read-only" hides the overlay
+// until the next halt (halted → false → true); the chip reopens it.
+let haltHidden = false;
+const subs = new Set<() => void>();
+const setHaltHidden = (v: boolean) => { if (haltHidden !== v) { haltHidden = v; subs.forEach((f) => f()); } };
+const useHaltHidden = () => useSyncExternalStore((f) => { subs.add(f); return () => subs.delete(f); }, () => haltHidden, () => false);
+
+/** Order entry lock for any order surface (OrderPad, tickets): disabled while halted, with the halt reason. */
+export function orderEntryLock(halted: boolean): { disabled: boolean; reason: string | null } {
+  return halted ? { disabled: true, reason: `${S.orderEntryHalted} ${S.haltedReason}` } : { disabled: false, reason: null };
+}
+
+/** Persistent steel chip while the halt lasts (Studio 08:04): strip (desktop) and status bar (phone). Reopens the overlay. */
+export function HaltChip({ halted }: { halted: boolean }) {
+  if (!halted) return null;
+  return (
+    <button className="chip halt-chip" data-testid="halt-chip" aria-haspopup="dialog" onClick={() => setHaltHidden(false)}>
+      {S.haltedChip}
+    </button>
+  );
+}
+
+/** Polite announcement when trading resumes (halted true → false). */
+export function HaltAnnouncer({ halted }: { halted: boolean }) {
+  const prev = useRef(halted);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    if (prev.current && !halted) setMsg(S.haltedResumed);
+    if (!prev.current && halted) setMsg("");
+    prev.current = halted;
+  }, [halted]);
+  return <div className="sr-only" role="status" aria-live="polite" data-testid="halt-live">{msg}</div>;
+}
+
+/** Halt overlay + announcer, driven by a `halted` flag (channel in the shell, a toggle in /__ds/notices). */
+export function HaltLayer({ halted }: { halted: boolean }) {
+  const hidden = useHaltHidden();
+  const [last, setLast] = useState(halted);
+  if (halted !== last) { setLast(halted); if (!halted) setHaltHidden(false); }
+  return (
+    <>
+      {halted && !hidden && <SystemOverlay kind="halted" onAction={() => setHaltHidden(true)} />}
+      <HaltAnnouncer halted={halted} />
+    </>
+  );
+}
+
+// TODO(17A T5): wire the "disconnected" and "update" overlays when the connection-state source exists
+// (trigger: the connection-state source, which arrives with the server unit). SystemOverlay supports both kinds now.
 export function SystemOverlays() {
   const sys = useShell((s) => s.channels.system);
-  // "Continue read-only" hides the halt overlay until the next halt event (halted → false → true).
-  const [dismissedHalt, setDismissedHalt] = useState(false);
-  const [lastHalted, setLastHalted] = useState(sys.halted);
-  if (sys.halted !== lastHalted) { setLastHalted(sys.halted); if (!sys.halted) setDismissedHalt(false); }
   return (
     <>
       {sys.held && <SystemOverlay kind="held" />}
-      {sys.halted && !dismissedHalt && <SystemOverlay kind="halted" onAction={() => setDismissedHalt(true)} />}
+      <HaltLayer halted={sys.halted} />
     </>
   );
 }

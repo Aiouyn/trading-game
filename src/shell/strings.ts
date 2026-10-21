@@ -54,7 +54,11 @@ export const S = {
   offline: "Offline · read-only snapshot",
   retry: "Retry",
   retrying: "Retrying…",
-  // 17A T5 notices [P copy, pending Studio]: world-event banner and system overlays
+  // 17A T5 notices. PROVISIONAL COPY (Producer 08:03): world-event tokens, overlay bodies and actions below are
+  // placeholders pending Studio sign-off, except haltedChip / haltedChipHint which Studio marked final (08:04).
+  haltedChip: "Trading halted",
+  haltedResumed: "Trading resumed",
+  orderEntryHalted: "Order entry is disabled while trading is halted.",
   worldDay: "DAY",
   worldSince: "since it began",
   worldToday: "Today",

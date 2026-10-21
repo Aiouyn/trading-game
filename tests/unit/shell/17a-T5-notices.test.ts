@@ -23,3 +23,13 @@ describe("17A T5 world-event banner (T5-04, 17-AT-20)", () => {
     expect(three).not.toMatch(/left|remain|until|ends|\b(27|30)\b/i);
   });
 });
+
+import { orderEntryLock } from "@/components/shell/SystemOverlays";
+describe("17A T5 order entry lock while halted", () => {
+  it("disabled with the halt reason", () => {
+    const l = orderEntryLock(true);
+    expect(l.disabled).toBe(true);
+    expect(l.reason).toContain("Reason: market integrity review");
+  });
+  it("enabled otherwise", () => expect(orderEntryLock(false)).toEqual({ disabled: false, reason: null }));
+});
