@@ -7,6 +7,8 @@ import { canonDecode } from '../canon';
 import { sha256 } from '../crypto/sha256';
 import { toHex } from '../crypto/hex';
 import { EngineFault } from '../types';
+import { roundToF64 } from '../../../../tools/dmath-ref/bigfloat';
+import { refErf, refNormCdf } from '../../../../tools/dmath-ref/ref-special';
 import * as dmath from './index';
 import { bitsToF64, erf, erfc, f64ToBits, lgamma, normCdf, normInv, normPdf, ulpDistance } from './index';
 
@@ -58,6 +60,31 @@ describe('02#14 dmath.exp, ln, pow, sin, cos, normInv, erf match the 20 test-vec
       for (let i = 7; i >= 0; i--) bytes.push(Number((b >> BigInt(8 * i)) & 0xffn));
     }
     expect(toHex(sha256(Uint8Array.from(bytes)))).toBe(readFileSync(join(DIR, 'golden.sha256'), 'utf8').trim());
+  });
+});
+
+describe('T02-03 Quant rulings on #33', () => {
+  it('erfc keeps the CALERF 26.543 cutoff and returns exactly +0 past it', () => {
+    for (const x of [26.543, 26.5430001, 27, 30, 1e10, 1e300]) expect(Object.is(erfc(x), 0)).toBe(true);
+    expect(erfc(26.542)).toBeGreaterThan(0);
+    for (const x of [26.543, 40, 1e300]) expect(erfc(-x)).toBe(2);
+  });
+  it('AC-02-03-ERF-SPLIT (E-63.5): within 4 ULP of the 256-bit reference on a dense grid over [0.46875, 0.5] (both signs); split stays at 0.5', () => {
+    let max = 0;
+    for (let i = 0; i <= 2000; i++) {
+      const x = 0.46875 + (0.5 - 0.46875) * i / 2000;
+      for (const s of [1, -1]) max = Math.max(max, ulpDistance(erf(s * x), roundToF64(refErf(s * x))));
+    }
+    console.log(`ERF-SPLIT: max ${max} ULP over 4002 points in ±[0.46875, 0.5] (bound 4)`);
+    expect(max).toBeLessThanOrEqual(4);
+  });
+  it('AC-02-03-NORMCDF-TAIL: relative error ≤ 5e-13 on [-37.5, 0] vs the reference; exactly 0 below -26.543·√2', () => {
+    let max = 0;
+    for (let i = 0; i <= 3000; i++) { const x = -37.5 * i / 3000; const e = roundToF64(refNormCdf(x)); max = Math.max(max, Math.abs(normCdf(x) - e) / e); }
+    console.log(`NORMCDF-TAIL: max relative ${max.toExponential(3)} over 3001 points in [-37.5, 0]`);
+    expect(max).toBeLessThanOrEqual(5e-13);
+    const edge = -26.543 * Math.SQRT2;
+    for (const x of [edge - 1e-12, -37.54, -38, -100, -1e300, -Infinity]) expect(Object.is(normCdf(x), 0)).toBe(true);
   });
 });
 
