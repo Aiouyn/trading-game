@@ -1,0 +1,119 @@
+{
+ "catalogVersion": 1,
+ "offices": [
+  {
+   "blocId": "FDL",
+   "statisticsOfficeName": "Federal Statistics Bureau (FSB)",
+   "cycleCommitteeName": "FSB Business Cycle Dating Committee"
+  },
+  {
+   "blocId": "EUN",
+   "statisticsOfficeName": "Compact Statistical Office (CSO)",
+   "cycleCommitteeName": "CSO Cycle Council"
+  },
+  {
+   "blocId": "PYN",
+   "statisticsOfficeName": "League Bureau of Statistics (LBS)",
+   "cycleCommitteeName": "LBS Economic Cycle Panel"
+  },
+  {
+   "blocId": "NKR",
+   "statisticsOfficeName": "Statistics Nordic (SN)",
+   "cycleCommitteeName": "SN Cycle Committee"
+  },
+  {
+   "blocId": "SRL",
+   "statisticsOfficeName": "Coalition Institute of Statistics (CIS)",
+   "cycleCommitteeName": "CIS Cycle Board"
+  }
+ ],
+ "releaseKinds": [
+  {
+   "kind": "CPI",
+   "name": "Consumer Price Index",
+   "shortLabel": "CPI"
+  },
+  {
+   "kind": "JOBS",
+   "name": "Payrolls and Unemployment Report",
+   "shortLabel": "Jobs"
+  },
+  {
+   "kind": "GDP_ADV",
+   "name": "GDP, Advance Estimate",
+   "shortLabel": "GDP adv."
+  },
+  {
+   "kind": "GDP_REV1",
+   "name": "GDP, Second Estimate",
+   "shortLabel": "GDP 2nd"
+  },
+  {
+   "kind": "GDP_REV2",
+   "name": "GDP, Third Estimate",
+   "shortLabel": "GDP 3rd"
+  },
+  {
+   "kind": "PMI",
+   "name": "Purchasing Managers' Survey",
+   "shortLabel": "PMI"
+  },
+  {
+   "kind": "RETAIL",
+   "name": "Retail Sales",
+   "shortLabel": "Retail"
+  },
+  {
+   "kind": "TRADE",
+   "name": "Trade Balance",
+   "shortLabel": "Trade"
+  },
+  {
+   "kind": "SENTIMENT",
+   "name": "Household Sentiment Survey",
+   "shortLabel": "Sentiment"
+  },
+  {
+   "kind": "HOUSING",
+   "name": "Housing Starts and Prices",
+   "shortLabel": "Housing"
+  },
+  {
+   "kind": "CREDIT",
+   "name": "Bank Credit Conditions Survey",
+   "shortLabel": "Credit"
+  },
+  {
+   "kind": "FISCAL",
+   "name": "Monthly Treasury Statement",
+   "shortLabel": "Fiscal"
+  },
+  {
+   "kind": "CB_DECISION",
+   "name": "Policy Rate Decision",
+   "shortLabel": "Rate decision"
+  },
+  {
+   "kind": "CB_GUIDANCE",
+   "name": "Policy Statement and Projections",
+   "shortLabel": "Guidance"
+  },
+  {
+   "kind": "CB_MINUTES",
+   "name": "Minutes of the Policy Meeting",
+   "shortLabel": "Minutes"
+  },
+  {
+   "kind": "RESERVES",
+   "name": "Official Reserves Report",
+   "shortLabel": "Reserves"
+  }
+ ],
+ "blocAdjectives": {
+  "FDL": "Federal",
+  "EUN": "Compact",
+  "PYN": "League",
+  "NKR": "Nordic",
+  "SRL": "Coalition"
+ }
+}

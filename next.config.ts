@@ -17,11 +17,12 @@ const dsNotices = dsOn ? "./src/app/%5F_ds/notices/NoticesSheet.tsx" : "./src/ap
 const nextConfig: NextConfig = {
   turbopack: { root, resolveAlias: { "@/city": cityEntry, "@ds/notices-sheet": dsNotices } },
   outputFileTracingRoot: root,
-  // Test-only gates are ALWAYS defined (as "1" or "0") so the bundler inlines a literal and the dev-only
-  // /__ds sheets fold to notFound() at build time; an unset var would stay a runtime process.env read.
-  // Only the e2e build (playwright.config webServer env) sets QUAY_DS=1.
+  // Test-only gates and hook flags are ALWAYS defined (as "1" or "0") so the bundler inlines a literal and folds
+  // the gate: an unset var would stay a runtime `process.env` read and the hook / dev-only /__ds code would ship.
+  // Only the e2e build (playwright.config webServer env) sets them to "1".
   env: {
     QUAY_DS: process.env.QUAY_DS === "1" ? "1" : "0",
+    NEXT_PUBLIC_QUAY_MOCK_PHASE: process.env.NEXT_PUBLIC_QUAY_MOCK_PHASE === "1" ? "1" : "0",
   },
 };
 

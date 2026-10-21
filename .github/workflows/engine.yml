@@ -1,9 +1,9 @@
 name: engine
 on:
   push:
-    paths: ['packages/engine/**', 'scripts/engine-check.mjs', '.github/workflows/engine.yml']
+    paths: ['packages/engine/**', 'packages/content/**', 'scripts/engine-check.mjs', '.github/workflows/engine.yml']
   pull_request:
-    paths: ['packages/engine/**', 'scripts/engine-check.mjs', '.github/workflows/engine.yml']
+    paths: ['packages/engine/**', 'packages/content/**', 'scripts/engine-check.mjs', '.github/workflows/engine.yml']
   schedule:
     - cron: '0 2 * * *' # nightly: long runs (TYCOON_LONG=1)
   workflow_dispatch:
@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pkg: [core, ledger]
+        pkg: [core, ledger, macro, content]
     env:
       TYCOON_LONG: ${{ (github.event_name == 'schedule' || inputs.long) && '1' || '' }}
       # long runs hold the committed entry log in memory (~2.5 MB per game day, by design): give the heap room
