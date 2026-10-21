@@ -4,7 +4,8 @@ import { CBK_CREDIT_CODES, CBK_UNWIND_CODES, CLASS_TEMPLATES, FLOW_CLASSES, REST
 import { SortedMap } from './det';
 import { CCYS, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
 import { legKey } from './templates';
-import type { Entry, LedgerEntity, Posting } from './types';
+import type { AccrualRow, ConflictEscrow, Entry, Hold, LedgerEntity, Posting } from './types';
+import type { SideTag, SysSideFlows } from './sysside';
 
 export interface Bal { balance: Money; qty: Qty }
 export type Accounts = SortedMap<string, Bal>;
@@ -13,7 +14,7 @@ export interface TickFlows {
   id: string; ccy: Ccy; tick: Tick;
   byClass: SortedMap<FlowClass, Money>; byCode: SortedMap<string, Money>;
   m0sysDelta: Money; cbCredit: Money;
-  // Δ6 sysSide (INV-LED-016..022) is a follow-up; not part of this PR's scope.
+  sysSide?: SysSideFlows;                    // Δ6-B view (set by the world at P13; absent in pure tickFlowsOf results)
 }
 export interface CheckView {
   tick: Tick; isDayClose: boolean; catalog: ReasonCatalog;
@@ -27,6 +28,12 @@ export interface CheckView {
   dayHistory?: (ccy: Ccy, code: string) => Money[]; // day close only: previous days' totals, newest first (INV-LED-011)
   todayByCode?: (ccy: Ccy) => SortedMap<string, Money>;
   alarm: { mult: number; floorMicro: Money };
+  /** INV-LED-016/019/020/021/023 context (world P13 only). */
+  sys?: { before(id: Id): SideTag | undefined; after(id: Id): SideTag | undefined; ids: Id[]; holdPost: SortedMap<string, Money>;
+    anomalies: string[]; dM0cb(ccy: Ccy): Money; escrowVictim(id: Id): Id | undefined };
+  escrows?: SortedMap<Id, ConflictEscrow>;   // staged led.escrow (INV-LED-022)
+  holds?: SortedMap<Id, Hold>;               // staged holds (INV-LED-022 c)
+  accruals?: SortedMap<Id, AccrualRow>;      // staged accrual registry (INV-LED-024)
 }
 const F = (invariantId: string, observed: string, expected: string, severity: Failure['severity'] = 'FATAL'): Failure =>
   ({ invariantId, observed, expected, severity });
@@ -36,12 +43,20 @@ const QTY_ONLY_CODES = ['EQ_SPLIT', 'LED_DISSOLUTION'];
 
 // ───────── money aggregates (T03-11; computed from balances) ─────────
 export function computeM0(a: Accounts, ccy: Ccy): Money {
+  return a.memo(`computeM0:${ccy}`, () => computeM0Scan(a, ccy));
+}
+/** Full recompute (no cache); the cached computeM0 above returns the same value for an unchanged map. */
+export function computeM0Scan(a: Accounts, ccy: Ccy): Money {
   let s = 0n;
   for (const [k, v] of a) { const p = parseAccountKey(k); if (p && p.ccy === ccy && kindOfId(p.entityId) === 'cbk' && p.code >= 2001 && p.code <= 2003) s -= v.balance; }
   return s;
 }
 export const computeM0sys = (a: Accounts, ccy: Ccy): Money => bal(a, `cbk_${ccy}:1910:${ccy}`);
 export function computeM2(a: Accounts, ccy: Ccy): Money {
+  return a.memo(`computeM2:${ccy}`, () => computeM2Scan(a, ccy));
+}
+/** Full recompute (no cache); the cached computeM2 above returns the same value for an unchanged map. */
+export function computeM2Scan(a: Accounts, ccy: Ccy): Money {
   let s = 0n;
   for (const [k, v] of a) {
     const p = parseAccountKey(k); if (!p || p.ccy !== ccy) continue;
@@ -58,6 +73,10 @@ export function computePEM(a: Accounts, ccy: Ccy, perimeterOf: (id: Id) => strin
 }
 /** netIssuance = sys 3990 + 5900 + 4900, debit-positive, all subs (T03-11). */
 export function netIssuance(a: Accounts, ccy: Ccy): Money {
+  return a.memo(`netIssuance:${ccy}`, () => netIssuanceScan(a, ccy));
+}
+/** Full recompute (no cache); the cached netIssuance above returns the same value for an unchanged map. */
+export function netIssuanceScan(a: Accounts, ccy: Ccy): Money {
   let s = 0n;
   for (const [k, v] of a) { const p = parseAccountKey(k); if (p && p.ccy === ccy && p.entityId === SYS_ID && [3990, 4900, 5900].includes(p.code)) s += v.balance; }
   return s;
@@ -78,6 +97,10 @@ export function postingEffect(p: Posting): { m0: Money; m0sys: Money; m2: Money 
 }
 
 export function bridge2909(a: Accounts, ccy: Ccy): Money {
+  return a.memo(`bridge2909:${ccy}`, () => bridge2909Scan(a, ccy));
+}
+/** Full recompute (no cache); the cached bridge2909 above returns the same value for an unchanged map. */
+export function bridge2909Scan(a: Accounts, ccy: Ccy): Money {
   let s = 0n;
   for (const [k, v] of a) { const p = parseAccountKey(k); if (p && p.ccy === ccy && p.entityId === SYS_ID && p.code === 2909) s += v.balance; }
   return s;
@@ -225,10 +248,10 @@ function nonBankCashDelta(ps: readonly Posting[]): Money {
   return s;
 }
 const RAIL_CODES = [1001, 1002, 1003, 1009, 1010, 1910, 2001, 2002, 2003, 2100];
-const MONEY_SIDE = ['bnk', 'cbk', 'gov'];
+const MONEY_SIDE = ['bnk', 'cbk', 'gov', 'ccp']; // E-16: ccp holds 1002 reserves outside M2 (exc is not exempt)
 /**
  * E-15(3), amount-based INV-LED-004 exemption (Producer): the M2 a non-bank TRANSFER group may move equals the non-bank money
- * (1001 cash, 1010 deposit claim) that the group's rail postings move to or from a bnk/cbk/gov entity. Any other M2 fails.
+ * (1001 cash, 1010 deposit claim) that the group's rail postings move to or from a bnk/cbk/gov/ccp entity (E-16 adds ccp). Any other M2 fails.
  */
 export function exemptM2(ps: readonly Posting[]): Money {
   let s = 0n;
@@ -274,9 +297,13 @@ function m2EntryRules(v: CheckView, e: Entry, ccy: Ccy): Failure[] {
 export const INV_LED_026: Check = (v) => {
   const out: Failure[] = [];
   for (const e of v.entries) for (const p of e.postings) for (const k of [p.debitAccount, p.creditAccount]) {
-    const id = parseAccountKey(k)?.entityId ?? k; const ent = v.entity(id);
-    if (!ent || (ent.status === 'DISSOLVED' && p.reason !== 'LED_DISSOLUTION'))
-      out.push(F('INV-LED-026', `unknown_entity ${id}${ent ? ' (DISSOLVED)' : ''} in ${e.entryId} ${p.reason}`, 'a registered, not dissolved entity'));
+    // QA pr3i: a deposit-pair sub (bnk:2100:<H>, <H>:1010:<bnk>) names an entity too and is validated like the front of the key
+    const q = parseAccountKey(k); const pr = depositPair(k);
+    for (const id of [q?.entityId ?? k, ...(pr ? [q?.code === 1010 ? pr[0] : pr[1]] : [])]) {
+      const ent = v.entity(id);
+      if (!ent || (ent.status === 'DISSOLVED' && p.reason !== 'LED_DISSOLUTION'))
+        out.push(F('INV-LED-026', `unknown_entity ${id}${ent ? ' (DISSOLVED)' : ''} in ${e.entryId} ${p.reason}`, 'a registered, not dissolved entity'));
+    }
   }
   return out;
 };
@@ -416,41 +443,51 @@ export const INV_LED_010: Check = (v) => {
   if (!v.isDayClose) return [];
   const out: Failure[] = [];
   for (const ccy of CCYS) {
-    let tb = 0n; let cbk = 0n; let holders = 0n;
-    const dep = new SortedMap<string, Money>();
+    let tb = 0n; let cbk = 0n; let holders = 0n; let res1002 = 0n; let cbk2002 = 0n;
+    const dep = new SortedMap<Id, SortedMap<Id, Money>>();
     for (const [k, b] of v.post) {
       const q = parseAccountKey(k); if (!q || q.ccy !== ccy) continue;
       const kind = kindOfId(q.entityId);
       if (classOfCode(q.code) !== 'MEMO') tb += b.balance;
       if (q.entityId === SYS_ID && (q.code === 1999 || q.code === 2999) && b.balance !== 0n) out.push(F('INV-LED-010', `I15: ${k} = ${b.balance}`, '0n'));
       if (kind === 'cbk' && q.code >= 2001 && q.code <= 2003) cbk += b.balance;
+      if (kind === 'cbk' && q.code === 2002) cbk2002 += b.balance;
+      if (q.code === 1002) res1002 += b.balance; // every 1002 holder (bnk, ccp) vs cbk 2002
       if (kind !== 'cbk' && (BMA_CODES as readonly number[]).includes(q.code)) holders += b.balance;
-      const pk = depositPairKey(k); if (pk) dep.set(pk, (dep.get(pk) ?? 0n) + b.balance);
+      const pr = depositPair(k); if (pr) addPair(dep, pr, (o) => (o ?? 0n) + b.balance);
     }
     if (tb !== 0n) out.push(F('INV-LED-010', `I3: trial balance ${ccy} = ${tb}`, '0n'));
     if (cbk + holders !== 0n) out.push(F('INV-LED-010', `I5: cbk ${cbk} vs holders ${holders} (${ccy})`, 'mirror'));
-    for (const [pair, n] of dep) if (n !== 0n) out.push(F('INV-LED-010', `I6: ${pair} deposit off by ${n} (${ccy})`, 'bnk:2100:H = H:1010:bnk'));
+    // E-17 day close: Σ_b 1002 = cbk 2002 reserve mirror; each bank's 2100 = Σ its non-bank holders' 1010 (E-17 text says 1001: typo, 1010 is the deposit mirror)
+    if (res1002 + cbk2002 !== 0n) out.push(F('INV-LED-027', `DC: Σ1002 ${res1002} vs cbk 2002 ${-cbk2002} (${ccy})`, 'equal'));
+    for (const [bank, hs] of dep) { let n = 0n; for (const [h, x] of hs) if (kindOfId(h) !== 'bnk') n += x; if (n !== 0n) out.push(F('INV-LED-027', `DC: ${bank} 2100 vs Σ holders 1010 off by ${n} (${ccy})`, '0n')); }
+    for (const [bank, hs] of dep) for (const [holder, n] of hs) if (n !== 0n) out.push(F('INV-LED-010', `I6: ${bank}|${holder} deposit off by ${n} (${ccy})`, 'bnk:2100:H = H:1010:bnk'));
   }
   return out;
 };
-/** I6 pair key (QA G9): bnk:2100:<H> and <H>:1010:<bnk> map to the same `bank|holder`; their balances must cancel per pair. */
-function depositPairKey(k: string): string | undefined {
+/** I6 pair (QA G9): bnk:2100:<H> and <H>:1010:<bnk> map to the same structured (bank, holder); their balances must cancel per pair.
+ *  Never a joined string: an id containing '|' must not alias another pair (QA pr3i). */
+function depositPair(k: string): readonly [Id, Id] | undefined {
   const q = parseAccountKey(k); if (!q || !q.sub) return undefined;
-  if (q.code === 2100 && kindOfId(q.entityId) === 'bnk') return `${q.entityId}|${q.sub}`;
-  if (q.code === 1010) return `${q.sub}|${q.entityId}`;
+  if (q.code === 2100 && kindOfId(q.entityId) === 'bnk') return [q.entityId, q.sub];
+  if (q.code === 1010) return [q.sub, q.entityId];
   return undefined;
+}
+function addPair<T>(m: SortedMap<Id, SortedMap<Id, T>>, [bank, holder]: readonly [Id, Id], f: (old: T | undefined) => T): void {
+  const inner = m.get(bank) ?? new SortedMap<Id, T>(); inner.set(holder, f(inner.get(holder))); m.set(bank, inner);
 }
 /** I6 at the tick (O(postings)): every (bank, holder) deposit pair touched this tick mirrors exactly (bnk:2100:H + H:1010:bnk = 0n). */
 export const INV_LED_010_I6_TICK: Check = (v) => {
-  const out: Failure[] = []; const pairs = new SortedMap<string, string[]>();
-  for (const e of v.entries) for (const p of e.postings) for (const k of [p.debitAccount, p.creditAccount]) {
-    const pk = depositPairKey(k); const q = parseAccountKey(k); if (!pk || !q) continue;
-    const [bank, holder] = pk.split('|');
-    pairs.set(`${pk}|${q.ccy}`, [accountKey(bank, 2100, q.ccy, holder), accountKey(holder, 1010, q.ccy, bank)]);
-  }
-  for (const [pk, [a, b]] of pairs) {
-    const n = (v.post.get(a)?.balance ?? 0n) + (v.post.get(b)?.balance ?? 0n);
-    if (n !== 0n) out.push(F('INV-LED-010', `I6: ${pk} deposit off by ${n} at tick ${v.tick}`, 'bnk:2100:H = H:1010:bnk'));
+  const out: Failure[] = [];
+  for (const ccy of CCYS) {
+    const pairs = new SortedMap<Id, SortedMap<Id, true>>();
+    for (const e of v.entries) for (const p of e.postings) for (const k of [p.debitAccount, p.creditAccount]) {
+      const q = parseAccountKey(k); const pr = depositPair(k); if (pr && q && q.ccy === ccy) addPair(pairs, pr, () => true);
+    }
+    for (const [bank, hs] of pairs) for (const [holder] of hs) {
+      const n = (v.post.get(accountKey(bank, 2100, ccy, holder))?.balance ?? 0n) + (v.post.get(accountKey(holder, 1010, ccy, bank))?.balance ?? 0n);
+      if (n !== 0n) out.push(F('INV-LED-010', `I6: ${bank}|${holder}|${ccy} deposit off by ${n} at tick ${v.tick}`, 'bnk:2100:H = H:1010:bnk'));
+    }
   }
   return out;
 };
@@ -470,11 +507,67 @@ export const INV_LED_011: Check = (v) => {
   return out;
 };
 
+/** E-18/E-19: a cbk account is an OWN leg unless it is an issuer mirror (2001-2003 holder money, 1910 mirror of sys:2900). */
+export const isCbkOwnLeg = (code: number): boolean => !(code >= 2001 && code <= 2003) && code !== 1910;
+/** E-17 exemption list (QA pr6 #1): bank income/expense codes (fees, interest, wages). Only under these codes does a bank's own leg
+ *  exempt it (its own 4xxx/5xxx or settlement leg); any other code (MKT_TRADE, ADM_*, …) never turns INV-LED-027 off. CREDIT_CREATE/DESTROY are skipped by class. */
+export const E17_BANK_OWN_CODES: readonly string[] = ['BNK_DEPOSIT_INTEREST', 'BNK_LOAN_INTEREST', 'BNK_LOAN_FEE', 'BNK_INTERBANK_INTEREST',
+  'BNK_DEPOSIT_INSURANCE_PREMIUM', 'BNK_FX_MARGIN', 'BNK_ENFORCEMENT_FEE', 'BNK_ELASTIC_LOAN_INTEREST', 'BNK_ELASTIC_FEES',
+  'BNK_ELASTIC_DEPOSIT_INTEREST', 'BNK_OPEX_ELASTIC', 'BIZ_WAGES', 'BIZ_WAGES_B2E']; // E-18(1)
+/** E-18 addendum: bank income codes (5080/4040) exempt only when the bank is the PAYEE. */
+export const E17_BANK_PAYEE_ONLY_CODES: readonly string[] = ['BNK_FX_MARGIN', 'BNK_ENFORCEMENT_FEE', 'BNK_ELASTIC_FEES'];
+/**
+ * E-17 INV-LED-027 (L28) reserve-follows-deposit, per (entry, reason) group of class TRANSFER/FAUCET/SINK and per (bank, ccy):
+ * Δ1002(b) + Δ2100(b, non-bank holders) = 0n (debit-positive; "both sides signed as balances" = equal in natural sign), and
+ * ΣΔ1002 + Δ cbk 2002 reserve mirror = 0n. Literal reading: E-17 says "2003"; the reserve (1002) mirror is cbk 2002 (03 §3.5.3).
+ * Exempt: CREDIT_CREATE/DESTROY groups; a bank b with any leg of its own other than 1002/2100 (b is payer or payee).
+ */
+export const INV_LED_027: Check = (v) => {
+  const out: Failure[] = [];
+  for (const e of v.entries) {
+    const groups = new SortedMap<string, Posting[]>();
+    for (const p of e.postings) { const g = `${p.reason}|${p.ccy}`; groups.set(g, [...(groups.get(g) ?? []), p]); }
+    for (const [, ps] of groups) {
+      const code = ps[0].reason; const ccy = ps[0].ccy; const cls = v.catalog.get(code)?.cls;
+      if (cls !== 'TRANSFER' && cls !== 'FAUCET' && cls !== 'SINK') continue;
+      const res = new SortedMap<Id, Money>(); const dep = new SortedMap<Id, Money>(); const own = new SortedMap<Id, Money>(); let mirror = 0n; let allRes = 0n;
+      // E-19: Δ1002_cbk(b) = b's 1002 movement in postings whose counter side is a cbk account (cbk's own trade), read from the postings, never meta
+      // only in a group where cbk books an own leg (not a 2001-2003 / 1910 issuer mirror); a plain mint (cbk 2002 + 1910 only) gets no netting
+      const cbkGroup = ps.some((p) => [p.debitAccount, p.creditAccount].some((k) => { const q = parseAccountKey(k); return !!q && kindOfId(q.entityId) === 'cbk' && isCbkOwnLeg(q.code); }));
+      const cbkRes = new SortedMap<Id, Money>();
+      for (const p of ps) for (const [mine, other, sgn] of [[p.debitAccount, p.creditAccount, 1n], [p.creditAccount, p.debitAccount, -1n]] as const) {
+        const q = parseAccountKey(mine); const o = parseAccountKey(other);
+        if (q && o && q.code === 1002 && kindOfId(q.entityId) === 'bnk' && cbkGroup && kindOfId(o.entityId) === 'cbk') cbkRes.set(q.entityId, (cbkRes.get(q.entityId) ?? 0n) + sgn * p.amount);
+      }
+      for (const p of ps) for (const [k, sgn] of [[p.debitAccount, 1n], [p.creditAccount, -1n]] as const) {
+        const q = parseAccountKey(k); if (!q) continue; const d = sgn * p.amount;
+        if (kindOfId(q.entityId) === 'cbk' && q.code === 2002) { mirror += d; continue; }
+        if (q.code === 1002 && kindOfId(q.entityId) !== 'bnk') { allRes += d; continue; } // ccp also holds 1002 reserves (E-16): mirror side only
+        if (kindOfId(q.entityId) !== 'bnk') continue;
+        if (q.code === 1002) res.set(q.entityId, (res.get(q.entityId) ?? 0n) + d);
+        else if (q.code === 2100 && q.sub && kindOfId(q.sub) !== 'bnk') dep.set(q.entityId, (dep.get(q.entityId) ?? 0n) + d);
+        else if (q.code !== 2100 && E17_BANK_OWN_CODES.includes(code) && (sgn < 0n || !E17_BANK_PAYEE_ONLY_CODES.includes(code)))
+          own.set(q.entityId, (own.get(q.entityId) ?? 0n) + d); // E-18(1): b's own leg as payer/payee of the listed code; counted by amount, never a switch
+      }
+      const banks = new SortedMap<Id, true>(); for (const [b] of res) banks.set(b, true); for (const [b] of dep) banks.set(b, true);
+      let sumRes = allRes;
+      for (const [b] of banks) {
+        sumRes += res.get(b) ?? 0n; // E-19 replaces the E-18(2) skip: no bank is skipped; cbk's own reserve legs are netted out
+        const r = (res.get(b) ?? 0n) - (cbkRes.get(b) ?? 0n); const d = dep.get(b) ?? 0n; const o = own.get(b) ?? 0n;
+        // E-18(1): under a listed code the bank's own income/expense (or settlement) leg balances its deposit/reserve change exactly; a 1-micro leg can't
+        if (r + d + o !== 0n) out.push(F('INV-LED-027', `${e.entryId} ${code} ${b} Δ1002 ${r} vs Δ2100 ${-d} (${ccy})`, 'reserves follow deposits'));
+      }
+      if (sumRes + mirror !== 0n) out.push(F('INV-LED-027', `${e.entryId} ${code} ΣΔ1002 ${sumRes} vs cbk 2002 mirror ${-mirror} (${ccy})`, 'equal'));
+    }
+  }
+  return out;
+};
+
 export const TICK_INVARIANTS: readonly [string, Check][] = [
   ['INV-LED-001', INV_LED_001], ['INV-LED-002', INV_LED_002], ['INV-LED-003', INV_LED_003], ['INV-LED-004', INV_LED_004],
   ['INV-LED-005', INV_LED_005], ['INV-LED-006', INV_LED_006], ['INV-LED-007', INV_LED_007], ['INV-LED-008', INV_LED_008],
   ['INV-LED-012', INV_LED_012], ['INV-LED-014', INV_LED_014], ['INV-LED-015', INV_LED_015], ['INV-LED-026', INV_LED_026],
-  ['INV-LED-010', INV_LED_010], ['INV-LED-010', INV_LED_010_I6_TICK], ['INV-LED-011', INV_LED_011],
+  ['INV-LED-010', INV_LED_010], ['INV-LED-010', INV_LED_010_I6_TICK], ['INV-LED-011', INV_LED_011], ['INV-LED-027', INV_LED_027],
 ];
 
 function dedupe(f: Failure[]): Failure[] {

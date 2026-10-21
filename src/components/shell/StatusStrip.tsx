@@ -6,6 +6,7 @@ import { S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
+import { HaltChip } from "./SystemOverlays";
 import { TickRing } from "./TickRing";
 
 const PHASE_LABEL = { pre: "Pre-market", open_auction: "Opening auction", continuous: "Market open", close_auction: "Closing auction", after: "After hours", weekend: "Weekend" } as const;
@@ -16,6 +17,7 @@ export function StatusStrip() {
   const store = useShellStore();
   const clock = useShell((s) => s.channels.clock);
   const rank = useShell((s) => s.channels.rank.rank);
+  const sys = useShell((s) => s.channels.system);
   const me = useShell((s) => s.channels.me);
   const focusMode = useShell((s) => s.local.focusMode);
   const { day, hhmm } = clockLabel(clock);
@@ -31,6 +33,7 @@ export function StatusStrip() {
       <header className="strip strip-focus" data-testid="strip">
         <span className="num clock">{`Day ${day} · ${hhmm}`}</span>
         <TickRing tick={clock.tick} />
+        <HaltChip halted={sys.halted} />
         {nw}
       </header>
     );
@@ -56,6 +59,7 @@ export function StatusStrip() {
         <TickRing tick={clock.tick} />
       </div>
       <div className="strip-right">
+        <HaltChip halted={sys.halted} />
         {me.protectionEndsRealMs !== null && <Chip data-testid="protection-chip">{`${S.protected} · ${mmss(me.protectionEndsRealMs)}`}</Chip>}
         <Chip tone="acc" data-testid="rank-chip">{`${rank} · ${RANK_NAMES[rank]}`}</Chip>
         {nw}

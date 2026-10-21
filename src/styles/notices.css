@@ -1,9 +1,42 @@
 /* Notices (17A T1 → T5): banner slot, overlays, load-state pill and phone banner. Moved verbatim from shell.css. */
 .banner-slot { height: 0; flex: none; z-index: var(--z-banner); }
-.overlay { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); width: min(520px, calc(100% - 32px)); padding: 16px; background: var(--win); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--elev-sheet); }
-.overlay p { margin: 0; }
+/* T5 §6 system overlays: full window, --bg0 92% [P], serif title, one action. The backdrop passes pointer and
+   wheel events through so read-only windows behind stay scrollable (17-AT-32); only the card takes input. */
+.sys-overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: color-mix(in oklab, var(--bg0) 92%, transparent); pointer-events: none; }
+.sys-card { pointer-events: auto; max-width: 520px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.sys-card p { margin: 0; }
+.sys-title { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: var(--fs-28); color: var(--fg); }
 .overlay-held { z-index: var(--z-held); }
-.overlay-system { z-index: var(--z-system); border-color: var(--signal); }
+.overlay-system { z-index: var(--z-system); }
+
+/* T5 §3/§4 alert + world-event banners: each in its own slot under the strip, 0 or 34 px, in the flow. */
+.alert-slot, .world-slot { flex: none; height: 0; overflow: hidden; z-index: var(--z-banner); }
+.alert-slot[data-open="true"], .world-slot[data-open="true"] { height: 34px; }
+.alert-banner, .world-banner { box-sizing: border-box; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 16px; background: var(--win); border-bottom: 1px solid var(--line); color: var(--fg); font-size: var(--fs-13); white-space: nowrap; overflow: hidden; }
+/* P0: --loss 1 px left edge [P], --fg text on --win; never a full-width colour fill (17 §3.13). */
+.alert-p0 { box-shadow: inset 1px 0 0 var(--loss); }
+.alert-icon { display: inline-grid; place-items: center; flex: none; }
+.alert-p0 .alert-icon { color: var(--loss); }
+.alert-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.alert-action { margin-left: auto; color: var(--fg); text-decoration: underline; flex: none; position: relative; }
+.alert-action::before { content: ""; position: absolute; inset: -8px -6px; }
+.world-banner { background: var(--win2); color: var(--fg-muted); }
+.world-dot { color: var(--loss); }
+.world-name { color: var(--fg); letter-spacing: 0.04em; }
+
+/* T5 §5 Sheet: radius 20 top corners, --elev-sheet, --win, z --z-sheet, enters with --dur-base --ease-out.
+   Scrim --bg0 60% [P]; no backdrop-filter by default or under reduced transparency. */
+.qs-layer { position: fixed; inset: 0; z-index: var(--z-sheet); }
+.qs-scrim { position: absolute; inset: 0; background: color-mix(in oklab, var(--bg0) 60%, transparent); backdrop-filter: none; }
+.qsheet { position: absolute; background: var(--win); box-shadow: var(--elev-sheet); backdrop-filter: none; display: flex; flex-direction: column; outline: none; }
+.qsheet:focus-visible { box-shadow: var(--elev-sheet), var(--focus-ring); }
+.qs-bottom { left: 0; right: 0; bottom: 0; max-height: 85%; border-radius: var(--r-sheet) var(--r-sheet) 0 0; animation: sheet-up var(--dur-base) var(--ease-out); }
+.qs-right { top: 0; right: 0; bottom: 0; width: min(420px, 100%); border-radius: var(--r-sheet) 0 0 var(--r-sheet); animation: sheet-left var(--dur-base) var(--ease-out); }
+.qs-handle { align-self: center; width: 36px; height: 4px; margin: 8px 0 4px; border-radius: 2px; background: var(--line); flex: none; }
+.qs-body { overflow: auto; padding: 16px; }
+@keyframes sheet-up { from { transform: translateY(100%); } }
+@keyframes sheet-left { from { transform: translateX(100%); } }
+html[data-motion="reduce"] .qsheet { animation: none; }
 
 /* §5 error / offline (inline). [P] visual unspecified: banner layer + existing tokens. */
 .load-state-body { display: contents; }
@@ -22,3 +55,18 @@
 /* Studio amendment 2026-10-21: ≥ 8 px between the banner hairline and the content below (a gap, not a shrink). */
 .phone-banner[data-open="true"] { height: auto; min-height: 44px; margin-bottom: var(--sp-8); overflow: visible; box-shadow: inset 0 -1px 0 var(--line); }
 .phone-banner .load-state-body { box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; align-content: center; column-gap: 6px; row-gap: 0; min-height: 44px; padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); color: var(--fg-muted); font-size: var(--fs-13); line-height: calc(18px * var(--text-scale)); }
+
+/* /__ds/notices demo frame (dev only): a 34 px strip stand-in, then the two slots, then a desk. */
+.ds-notices { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg0); }
+.ds-strip { height: var(--strip-h); flex: none; display: flex; align-items: center; justify-content: flex-end; padding: 0 16px; background: var(--chrome); border-bottom: 1px solid var(--line); }
+.ds-notices-desk { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 16px; align-items: flex-start; }
+.ds-orderpad { width: 280px; height: 200px; flex: none; background: var(--win); border: 1px solid var(--line); border-radius: var(--r-window); padding: 12px; color: var(--fg-muted); }
+.ds-readonly { flex: 1; align-self: stretch; overflow: auto; background: var(--win); border: 1px solid var(--line); border-radius: var(--r-window); padding: 0 12px; color: var(--fg-muted); }
+.ds-sheet-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+
+/* Halt chip (Studio 08:04): approved .chip shape with --steel text, never brass. Visible chip is the .chip box;
+   the hit area grows invisibly to 28 px pointer / 44 px touch. */
+.halt-chip { position: relative; color: var(--steel); cursor: pointer; }
+.halt-chip::before { content: ""; position: absolute; inset: -6px -4px; }
+@media (pointer: coarse) { .halt-chip::before { inset: -14px -4px; } }
+.halt-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }

@@ -7,3 +7,7 @@ export * from './templates';
 export * from './invariants';
 export * from './stubs';
 export * from './world';
+export * from './legpolicy';
+export * from './sysside';
+export * from './sysinv';
+export * from './cppolicy';
