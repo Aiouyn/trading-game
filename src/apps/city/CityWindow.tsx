@@ -7,6 +7,7 @@ import type { BodyState } from "@/components/shell/AppBody";
 import { useShell } from "@/components/shell/ShellContext";
 import { S } from "@/shell/strings";
 import { recordPerf } from "@/shell/telemetry";
+import { createShellCityRenderer } from "./createShellCityRenderer";
 import { fetchChunk, stubCityChannel } from "./cityChannel";
 
 export const cityVisibility = (s: BodyState): Visibility => (s.hidden ? "hidden" : s.collapsed || s.background ? "background" : "visible");
@@ -40,10 +41,9 @@ export function CityWindow({ state }: { state: BodyState }) {
   useEffect(() => {
     let disposed = false;
     (async () => {
-      const mod = await import("@/city");
       if (disposed || !ref.current) return;
-      const r = await mod.createCityRenderer({
-        cityId: "port-avalon", tierOverride, reducedMotion: latest.current.reducedMotion, myCityOverlay,
+      const r = await createShellCityRenderer({
+        tierOverride, reducedMotion: latest.current.reducedMotion, myCityOverlay,
         channel: stubCityChannel, fetchChunk, locale: document.documentElement.lang || "en",
         myEntityIds: latest.current.myPlaces, onPerfSample: recordPerf,
       });
