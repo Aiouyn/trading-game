@@ -30,7 +30,7 @@
    "rebalance": "quarterly",
    "usedBy": "EURX, futures",
    "bloc": "EUN",
-   "peNorm0": 16.89
+   "peNorm0": 16.94
   },
   {
    "indexId": "idx_PAC30",
@@ -63,7 +63,7 @@
    "rebalance": "quarterly",
    "usedBy": "SOUX, futures",
    "bloc": "SRL",
-   "peNorm0": 15.32
+   "peNorm0": 15.45
   },
   {
    "indexId": "idx_GXS_TECH",

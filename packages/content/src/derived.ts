@@ -13,10 +13,14 @@ export const INDEX_SIZE = 30;
 
 export function peBaseKey(s: SectorId): string { return `eq_sector_${s.toLowerCase()}_pe_base`; }
 
-/** Step 5: Σcap / Σ(cap / PE_base) over the 30 largest b-listed equities by cap0 × freeFloat (ties by assetId). */
+/** The bloc's 30-stock index members: the 30 largest b-listed equities by cap0 × freeFloat, ties by assetId (22 §4.8, 06 §3.5.1). */
+export function top30Of(b: BlocId, eq: ContentView['equities']): ReturnType<ContentView['equities']>[number][] {
+  return sortBy(eq().filter((e) => e.bloc === b), (e) => [-(Number(e.cap0) * e.freeFloat), e.assetId]).slice(0, INDEX_SIZE);
+}
+
+/** Step 5: Σcap / Σ(cap / PE_base) over top30Of(b); free float only selects members, weights are full cap0. */
 export function peNorm0Of(b: BlocId, eq: ContentView['equities'], params: ParamsView): number {
-  const mine = eq().filter((e) => e.bloc === b);
-  const top = sortBy(mine, (e) => [-(Number(e.cap0) * e.freeFloat), e.assetId]).slice(0, INDEX_SIZE);
+  const top = top30Of(b, eq);
   let cap = 0;
   let earn = 0;
   for (const e of top) {
@@ -42,3 +46,8 @@ export function swfRegistration(b: BlocId): { entityId: string; holderClass: 'np
 }
 
 export function sortedIds(xs: readonly string[]): string[] { return sortBy(xs, (x) => [x]); }
+
+/** E-58.1: registration spec of the statistics office npc_STATS_<B> (kind npc; never holds money, no reason code posts to it). */
+export function statisticsOfficeRegistration(b: BlocId): { entityId: string; kind: 'npc'; holderClass: 'npcFirm'; ownerId: string; holdsMoney: false } {
+  return { entityId: `npc_STATS_${b}`, kind: 'npc', holderClass: 'npcFirm', ownerId: `gov_${b}`, holdsMoney: false };
+}

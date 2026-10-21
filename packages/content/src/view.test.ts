@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { toMoney, type ParamsView } from '@tycoon/engine-core';
 import { BLOC_ALIAS_04, BLOC_IDS, canonicalBloc, canonicalEntityId, ContentError, type BlocId } from './blocs';
-import { cbSellOwnForFdl, peBaseKey, peNorm0Of, SECTOR_IDS, swfRegistration } from './derived';
+import { cbSellOwnForFdl, peBaseKey, peNorm0Of, SECTOR_IDS, statisticsOfficeRegistration, swfRegistration, top30Of } from './derived';
 import { contentHashOf } from './hash';
 import { FULL_FILES, loadContent, type ContentView, type SectorId } from './view';
 
@@ -92,6 +92,13 @@ describe('T22A-01 ContentView', () => {
     expect(r.statisticsOfficeName).toBe('Statistics Nordic (SN)');
     expect(r.cycleCommitteeName).toBe('SN Cycle Committee');
     expect(full().releases('FDL').cycleCommitteeName).toBe('FSB Business Cycle Dating Committee');
+    // E-58.1: npc_STATS_<B> for every bloc; a valid 03 entity id (assertEntityId is not built yet: ENTITY_ID_RE of ledger/src/world.ts)
+    const ENTITY_ID_RE = /^(?:[a-z]{3}|hh|prop)_[A-Za-z0-9_]+$/;
+    for (const b of BLOC_IDS) {
+      const id = full().releases(b).statisticsOfficeId;
+      expect(id).toBe(`npc_STATS_${b}`); expect(id).toMatch(ENTITY_ID_RE);
+      expect(statisticsOfficeRegistration(b)).toEqual({ entityId: id, kind: 'npc', holderClass: 'npcFirm', ownerId: `gov_${b}`, holdsMoney: false });
+    }
   });
 
   it('AC-22A-01-CITIES: 15 rows, 3 per bloc, shares sum to 1, betas in [0.6, 1.8]; Serena separate', () => {
@@ -122,9 +129,8 @@ describe('T22A-01 ContentView', () => {
       expect(Math.abs(v.blocEquityIndex(b).peNorm0 - got[i]!)).toBeLessThanOrEqual(0.01);
       expect(got[i]!).toBeGreaterThanOrEqual(8); expect(got[i]!).toBeLessThanOrEqual(40);
     }
-    // Card table matches for EUN 16.89 and SRL 15.32; FDL / PYN / NKR recompute to 16.79 / 17.77 / 14.63 (card 17.08 / 17.94 / 14.69).
-    // OPEN QUESTION (reported): the card's own formula and the 22 §4.1 data do not reproduce those three values.
-    expect(got.map((x) => Math.round(x * 100) / 100)).toEqual([16.79, 16.89, 17.77, 14.63, 15.32]);
+    // Quant's corrected card table (dynasty free float 0.60 included)
+    expect(got.map((x) => Math.round(x * 100) / 100)).toEqual([16.79, 16.94, 17.77, 14.63, 15.45]);
     const tech16 = paramsWith({ TECH: 16 });
     const dF = peNorm0Of('FDL', v.equities, tech16) - got[0]!, dN = peNorm0Of('NKR', v.equities, tech16) - got[3]!;
     expect(dF).toBeLessThan(0);
@@ -133,14 +139,15 @@ describe('T22A-01 ContentView', () => {
     const hi = paramsWith(Object.fromEntries(SECTOR_IDS.map((x) => [x, 100])) as Record<SectorId, number>);
     const atHi = withFile('indices.json', (f) => { for (const r of f.indices as Rec[]) if (r.peNorm0 !== undefined) r.peNorm0 = 100; });
     expect(errCode(() => loadContent({ base: 'full', patch: atHi }, hi))).toBe('CONTENT_PENORM0_RANGE');
-    const stale = withFile('indices.json', (f) => { (f.indices as Rec[]).find((r) => r.indexId === 'idx_PAC30')!.peNorm0 = 17.94; });
+    const stale = withFile('indices.json', (f) => { (f.indices as Rec[]).find((r) => r.indexId === 'idx_PAC30')!.peNorm0 = 17.77 + 0.02; });
     expect(errCode(() => loadContent({ base: 'full', patch: stale }, P))).toBe('CONTENT_PENORM0_STALE');
     const missing = withFile('indices.json', (f) => { delete (f.indices as Rec[]).find((r) => r.indexId === 'idx_SOU30')!.peNorm0; });
     expect(errCode(() => loadContent({ base: 'full', patch: missing }, P))).toBe('CONTENT_PENORM0_STALE');
     // units: the same formula on float cap0 ($B) gives the same value to 1e-9
-    const eq = (FULL_FILES['instruments.json'] as { equities: { assetId: string; bloc: string; sector: SectorId; cap0Bn: number; notes: string }[] }).equities;
+    const eq = (FULL_FILES['instruments.json'] as { equities: { assetId: string; ticker: string; bloc: string; sector: SectorId; cap0Bn: number; notes: string }[] }).equities;
+    const dyn = (FULL_FILES['dynasties.json'] as { dynasties: { listedStakes: { ticker: string }[] }[] }).dynasties.flatMap((d) => d.listedStakes.map((x) => x.ticker));
     for (const [i, b] of BLOC_IDS.entries()) {
-      const top = eq.filter((e) => e.bloc === b).map((e) => ({ ...e, ff: e.notes.includes('listed REIT') ? 0.9 : 0.75 }))
+      const top = eq.filter((e) => e.bloc === b).map((e) => ({ ...e, ff: e.notes.includes('listed REIT') ? 0.9 : dyn.includes(e.ticker) ? 0.6 : 0.75 }))
         .sort((x, y) => y.cap0Bn * y.ff - x.cap0Bn * x.ff || (x.assetId < y.assetId ? -1 : 1)).slice(0, 30);
       const f = top.reduce((s, e) => s + e.cap0Bn, 0) / top.reduce((s, e) => s + e.cap0Bn / PE[e.sector], 0);
       expect(Math.abs(f - got[i]!)).toBeLessThanOrEqual(1e-9);
@@ -208,11 +215,11 @@ describe('T22A-01 ContentView', () => {
     expect(errCode(() => v.fxAssetId('XX' as 'EUN'))).toBe('CONTENT_UNKNOWN_BLOC');
   });
 
-  it('AC-22A-01-FXSIDE: EUN sells EUNFDL at p; NKR/PYN/SRL buy FDLxxx at 1/p', () => {
+  it('AC-22A-01-FXSIDE (E-58.2): EUN sells EUNFDL at p; NKR/PYN/SRL buy FDLxxx at 1/p', () => {
     const v = full();
     expect(cbSellOwnForFdl('EUN', 1.1, v.fxAssetId('EUN'), 4)).toEqual({ assetId: 'ast_FX_EUNFDL', side: 'SELL', price: 1.1 });
     expect(cbSellOwnForFdl('NKR', 0.095, v.fxAssetId('NKR'), 4)).toEqual({ assetId: 'ast_FX_FDLNKR', side: 'BUY', price: 10.5263 });
-    expect(cbSellOwnForFdl('PYN', 0.15, v.fxAssetId('PYN'), 2).side).toBe('BUY');
+    expect(cbSellOwnForFdl('PYN', 0.15, v.fxAssetId('PYN'), 2)).toEqual({ assetId: 'ast_FX_FDLPYN', side: 'BUY', price: 6.67 });
     expect(cbSellOwnForFdl('SRL', 0.2, v.fxAssetId('SRL'), 4)).toEqual({ assetId: 'ast_FX_FDLSRL', side: 'BUY', price: 5 });
   });
 
@@ -233,23 +240,29 @@ describe('T22A-01 ContentView', () => {
     expect(loadContent('full', P).params).toBe(P);
   });
 
-  it('AC-22A-01-MINIMAL: own hash; every getter works on the FDL subset', () => {
-    const m = loadContent('minimal', P);
-    expect(m.contentHash).not.toBe(full().contentHash);
-    expect(m.contentHash).toBe(loadContent('minimal', P).contentHash);
-    // same files, different preset: the preset name is hashed
-    expect(loadContent({ base: 'minimal', patch: FULL_FILES }, P).contentHash).not.toBe(loadContent({ base: 'full', patch: FULL_FILES }, P).contentHash);
-    expect(m.blocs().map((b) => b.blocId)).toEqual(['FDL']);
-    expect(m.cities()).toHaveLength(3);
-    expect(m.equities().every((e) => e.bloc === 'FDL')).toBe(true);
-    expect(m.npcBanks().map((b) => b.bloc).every((b) => b === 'FDL' || b === null)).toBe(true);
-    expect(m.blocEquityIndex('FDL').indexId).toBe('idx_FED30');
-    expect(m.primaryDealers('FDL')).toEqual(['bnk_avnb', 'bnk_lksb', 'npc_dlr_GRAY', 'npc_dlr_OSTP']);
-    expect(m.sectors()).toHaveLength(12);
-    expect(m.releases('FDL').statisticsOfficeName).toContain('Federal');
-    expect(m.serena().cityId).toBe('cty_isla_serena');
-    expect(errCode(() => m.bloc('EUN'))).toBe('CONTENT_NOT_IN_SUBSET');
-    expect(errCode(() => m.fxAssetId('EUN'))).toBe('CONTENT_NOT_IN_SUBSET');
+  it('AC-22A-01-FULLONLY: only full content loads (presets belong to T22B)', () => {
+    expect(errCode(() => loadContent('minimal' as 'full', P))).toBe('CONTENT_UNKNOWN_SOURCE');
+    expect(errCode(() => loadContent({ base: 'minimal' as 'full', patch: {} }, P))).toBe('CONTENT_UNKNOWN_SOURCE');
+    expect(errCode(() => loadContent('MICRO' as 'full', P))).toBe('CONTENT_UNKNOWN_SOURCE');
+    expect(full().blocs()).toHaveLength(5);
+  });
+
+  it('AC-22A-01-FREEFLOAT: REIT 0.90, 22 §10.4 listed-stake tickers 0.60, else 0.75; index membership by float cap', () => {
+    const v = full(), eq = v.equities();
+    const dynTickers = (FULL_FILES['dynasties.json'] as { dynasties: { listedStakes: { ticker: string }[] }[] }).dynasties.flatMap((d) => d.listedStakes.map((x) => x.ticker));
+    expect(dynTickers).toHaveLength(45);
+    expect(eq.filter((e) => e.freeFloat === 0.9)).toHaveLength(10);
+    expect(eq.filter((e) => e.freeFloat === 0.6).map((e) => e.ticker).sort()).toEqual([...dynTickers].sort());
+    expect(eq.filter((e) => e.freeFloat === 0.75)).toHaveLength(240 - 10 - 45);
+    for (const t of ['DNBR', 'CMAL', 'HLVR', 'AVNB']) expect(eq.find((e) => e.ticker === t)!.freeFloat).toBe(0.6);
+    const members = (b: BlocId): string[] => top30Of(b, v.equities).map((e) => e.ticker);
+    expect(v.blocEquityIndex('EUN').indexId).toBe('idx_EUR30');
+    expect(members('EUN')).not.toContain('DNBR'); expect(members('EUN')).toContain('CLAR');
+    expect(v.blocEquityIndex('SRL').indexId).toBe('idx_SOU30');
+    expect(members('SRL')).not.toContain('CMAL'); expect(members('SRL')).toContain('BCMP');
+    for (const b of BLOC_IDS) expect(members(b)).toHaveLength(30);
+    const badStake = withFile('dynasties.json', (f) => { (f.dynasties as { listedStakes: Rec[] }[])[0]!.listedStakes[0]!.ticker = 'ZZZZ'; });
+    expect(errCode(() => loadContent({ base: 'full', patch: badStake }, P))).toBe('CV04');
   });
 
   it('22 §18 loader checks: CV01 duplicate ids, CV03 counts, CV04 foreign keys', () => {
@@ -257,6 +270,8 @@ describe('T22A-01 ContentView', () => {
     expect(errCode(() => loadContent({ base: 'full', patch: dup }, P))).toBe('CV01');
     const cross = withFile('fin_institutions.json', (f) => { (f.banks as Rec[])[0]!.bankId = 'ast_EQ_HALC'; });
     expect(errCode(() => loadContent({ base: 'full', patch: cross }, P))).toBe('CV01');
+    const dupDyn = withFile('dynasties.json', (f) => { (f.dynasties as Rec[])[1]!.dynastyId = 'dyn_calloway'; });
+    expect(errCode(() => loadContent({ base: 'full', patch: dupDyn }, P))).toBe('CV01');
     const fewer = withFile('instruments.json', (f) => { (f.fxPairs as Rec[]).pop(); });
     expect(errCode(() => loadContent({ base: 'full', patch: fewer }, P))).toBe('CV03');
     expect(errCode(() => loadContent({ base: 'full', patch: withFile('cities.json', (f) => { (f.cities as Rec[])[0]!.bloc = 'XYZ'; }) }, P))).toBe('CV04');

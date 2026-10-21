@@ -1,0 +1,348 @@
+{
+ "catalogVersion": 1,
+ "dynasties": [
+  {
+   "dynastyId": "dyn_calloway",
+   "family": "Calloway",
+   "bloc": "FDL",
+   "seat": "Summit Estates, Port Avalon",
+   "succession": "PRIMOGENITURE",
+   "holdingCompanies": [
+    "Calloway Holdings",
+    "Sterling & Vane Holdings"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "AVNB",
+     "pct": 8
+    },
+    {
+     "ticker": "BCNB",
+     "pct": 22
+    },
+    {
+     "ticker": "HRLW",
+     "pct": 12
+    },
+    {
+     "ticker": "MRQR",
+     "pct": 9
+    }
+   ],
+   "influenceAssets": "lender Charter Street Bank; outlet Beacon Broadcasting; industrial Harlow Machinery; RE portfolio Port Avalon; 2 political ties"
+  },
+  {
+   "dynastyId": "dyn_whitlock",
+   "family": "Whitlock",
+   "bloc": "FDL",
+   "seat": "The Bluffs, Lakemont",
+   "succession": "DESIGNATED",
+   "holdingCompanies": [
+    "Whitlock Family Office"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "LKSB",
+     "pct": 11
+    },
+    {
+     "ticker": "LKCH",
+     "pct": 18
+    },
+    {
+     "ticker": "UNRL",
+     "pct": 14
+    }
+   ],
+   "influenceAssets": "lender Northshore Savings and Loan; industrial Lakemont Chemical; RE portfolio Lakemont; 2 political ties"
+  },
+  {
+   "dynastyId": "dyn_ashby",
+   "family": "Ashby",
+   "bloc": "FDL",
+   "seat": "Mesa Heights, Redmesa",
+   "succession": "MERIT",
+   "holdingCompanies": [
+    "Ashby Capital",
+    "Mesa Land Trust"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "MGRD",
+     "pct": 9
+    },
+    {
+     "ticker": "SNWL",
+     "pct": 15
+    },
+    {
+     "ticker": "GRPK",
+     "pct": 30
+    },
+    {
+     "ticker": "BAYL",
+     "pct": 10
+    }
+   ],
+   "influenceAssets": "logistics Bayline Logistics; industrial Granite Peak Aggregates; RE portfolio Redmesa; outlet Cardinal News Group; 1 political tie"
+  },
+  {
+   "dynastyId": "dyn_serrano",
+   "family": "Serrano",
+   "bloc": "EUN",
+   "seat": "Palazzo Serrano, Meridia",
+   "succession": "PRIMOGENITURE",
+   "holdingCompanies": [
+    "Serrano Holding",
+    "Laguna Nominees"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "ARCM",
+     "pct": 20
+    },
+    {
+     "ticker": "IMRL",
+     "pct": 25
+    },
+    {
+     "ticker": "MRCA",
+     "pct": 15
+    },
+    {
+     "ticker": "FTRG",
+     "pct": 8
+    }
+   ],
+   "influenceAssets": "lender Banque Lagunaire; outlet Arcadia Media; RE portfolio Meridia; 2 political ties"
+  },
+  {
+   "dynastyId": "dyn_halden",
+   "family": "Halden",
+   "bloc": "EUN",
+   "seat": "Lakeside Promenade, Belmara",
+   "succession": "COUNCIL_VOTE",
+   "holdingCompanies": [
+    "Halden Familienholding",
+    "Halden Motorenwerk"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "BLMP",
+     "pct": 30
+    },
+    {
+     "ticker": "VAEL",
+     "pct": 12
+    },
+    {
+     "ticker": "ALPG",
+     "pct": 20
+    }
+   ],
+   "influenceAssets": "lender Belmara Cantonal Bank; industrial Halden Motorenwerk; insurer Halden Assurance (private); RE portfolio Belmara; 2 political ties"
+  },
+  {
+   "dynastyId": "dyn_delacourt",
+   "family": "Delacourt",
+   "bloc": "EUN",
+   "seat": "Cathedral Rise, Valcourt",
+   "succession": "DESIGNATED",
+   "holdingCompanies": [
+    "Delacourt Participations"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "FOLM",
+     "pct": 18
+    },
+    {
+     "ticker": "OSTR",
+     "pct": 14
+    },
+    {
+     "ticker": "LCRX",
+     "pct": 9
+    },
+    {
+     "ticker": "DNBR",
+     "pct": 12
+    }
+   ],
+   "influenceAssets": "outlet Folio Media; industrial Ostrava Steel; logistics Danubia Rail; RE portfolio Valcourt; 1 political tie"
+  },
+  {
+   "dynastyId": "dyn_tachibana",
+   "family": "Tachibana",
+   "bloc": "PYN",
+   "seat": "Temple Hill, Mirako",
+   "succession": "PRIMOGENITURE",
+   "holdingCompanies": [
+    "Tachibana Kōsan",
+    "Shinbashi Nominees"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "SHBN",
+     "pct": 25
+    },
+    {
+     "ticker": "RYJN",
+     "pct": 10
+    },
+    {
+     "ticker": "KYSB",
+     "pct": 16
+    },
+    {
+     "ticker": "KYLD",
+     "pct": 12
+    }
+   ],
+   "influenceAssets": "lender Shinbashi Trust Bank; outlet Shinbun Media Group; industrial Kaiyo Shipbuilding; shipping Kaiyo Shipbuilding yards; RE portfolio Kaiyo City and Mirako (2); 2 political ties"
+  },
+  {
+   "dynastyId": "dyn_amamiya",
+   "family": "Amamiya",
+   "bloc": "PYN",
+   "seat": "Fab Island, Tessan",
+   "succession": "MERIT",
+   "holdingCompanies": [
+    "Amamiya Holdings"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "TFAB",
+     "pct": 12
+    },
+    {
+     "ticker": "HKRB",
+     "pct": 15
+    },
+    {
+     "ticker": "ATLF",
+     "pct": 9
+    },
+    {
+     "ticker": "TSIP",
+     "pct": 20
+    }
+   ],
+   "influenceAssets": "outlet Hikaru Broadcasting; shipping Atlas Freight; industrial Tessan Fab Works; RE portfolio Tessan; 2 political ties"
+  },
+  {
+   "dynastyId": "dyn_halvorsen",
+   "family": "Halvorsen",
+   "bloc": "NKR",
+   "seat": "Birch Hills, Nordhaven City",
+   "succession": "PRIMOGENITURE",
+   "holdingCompanies": [
+    "Halvorsen Holding AS",
+    "Fjord Nominees"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "HLVR",
+     "pct": 35
+    },
+    {
+     "ticker": "NRDL",
+     "pct": 34
+    },
+    {
+     "ticker": "SAGA",
+     "pct": 15
+    }
+   ],
+   "influenceAssets": "lender Fjordbanken; shipping Nordline Shipping; outlet Saga Broadcasting; RE portfolio Nordhaven City; 2 political ties"
+  },
+  {
+   "dynastyId": "dyn_strandberg",
+   "family": "Strandberg",
+   "bloc": "NKR",
+   "seat": "Herring Quay, Skarvik",
+   "succession": "COUNCIL_VOTE",
+   "holdingCompanies": [
+    "Strandberg Invest"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "SKOF",
+     "pct": 18
+    },
+    {
+     "ticker": "HVBK",
+     "pct": 25
+    },
+    {
+     "ticker": "VARG",
+     "pct": 12
+    },
+    {
+     "ticker": "MRGN",
+     "pct": 10
+    }
+   ],
+   "influenceAssets": "shipping Varg Marine Engineering; industrial Skarvik Offshore; outlet Morgen Media Group; RE portfolio Skarvik and Vintra (2); 1 political tie"
+  },
+  {
+   "dynastyId": "dyn_cobos",
+   "family": "Cobos",
+   "bloc": "SRL",
+   "seat": "Old Town Hill, Cobreval",
+   "succession": "PRIMOGENITURE",
+   "holdingCompanies": [
+    "Grupo Cobos",
+    "Cerro Nominees"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "CBMY",
+     "pct": 22
+    },
+    {
+     "ticker": "PTSL",
+     "pct": 18
+    },
+    {
+     "ticker": "CNSL",
+     "pct": 12
+    },
+    {
+     "ticker": "CMAL",
+     "pct": 15
+    }
+   ],
+   "influenceAssets": "lender Banco del Cobre; shipping Puerto Sur Logistics; industrial Cobre Mayor and Cementos Alta (2); outlet Canal Sol; 2 political ties"
+  },
+  {
+   "dynastyId": "dyn_larrain",
+   "family": "Larrain",
+   "bloc": "SRL",
+   "seat": "Coffee Slopes, Alta Verde",
+   "succession": "DESIGNATED",
+   "holdingCompanies": [
+    "Inversiones Larrain"
+   ],
+   "listedStakes": [
+    {
+     "ticker": "CFTU",
+     "pct": 30
+    },
+    {
+     "ticker": "GRDV",
+     "pct": 14
+    },
+    {
+     "ticker": "DIAU",
+     "pct": 20
+    },
+    {
+     "ticker": "PLYA",
+     "pct": 8
+    }
+   ],
+   "influenceAssets": "lender Caja Popular Alta Verde; outlet Diario Austral Group; industrial Cafetales Unidos; RE portfolio Alta Verde and Sundara Coast (2); 1 political tie"
+  }
+ ]
+}

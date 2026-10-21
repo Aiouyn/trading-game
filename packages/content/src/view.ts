@@ -1,6 +1,7 @@
 // T22A-01: ContentView, a typed, pure, hashed read API over packages/content/data/*.json (22 §0.1).
 import { toMoney, type Money, type ParamsView } from '@tycoon/engine-core';
 import cities from '../data/cities.json' with { type: 'json' };
+import dynasties from '../data/dynasties.json' with { type: 'json' };
 import finInstitutions from '../data/fin_institutions.json' with { type: 'json' };
 import indices from '../data/indices.json' with { type: 'json' };
 import institutions from '../data/institutions.json' with { type: 'json' };
@@ -43,7 +44,7 @@ export interface ContentView {
   equities(): readonly EquityContent[];
   realFields(catalog: string): readonly string[];
 }
-export interface ContentOverrides { base: 'full' | 'minimal'; patch: Readonly<Record<string, unknown>> }
+export interface ContentOverrides { base: 'full'; patch: Readonly<Record<string, unknown>> }
 
 // ---- raw file shapes (one table row = one object, 22 §0.1 rule 2) ----
 type Rec = Record<string, unknown>;
@@ -57,24 +58,26 @@ interface IndexRow { indexId: string; name: string; sectorId?: string; bloc?: st
 
 /** The shipped files, keyed by file name (sorted by cmpStr; canon sorts them again). */
 export const FULL_FILES: Readonly<Record<string, unknown>> = deepFreeze({
-  'cities.json': cities, 'fin_institutions.json': finInstitutions, 'indices.json': indices, 'institutions.json': institutions,
+  'cities.json': cities, 'dynasties.json': dynasties, 'fin_institutions.json': finInstitutions, 'indices.json': indices, 'institutions.json': institutions,
   'instruments.json': instruments, 'releases.json': releases, 'world.json': world,
 });
-const FILE_NAMES: readonly string[] = ['cities.json', 'fin_institutions.json', 'indices.json', 'institutions.json', 'instruments.json', 'releases.json', 'world.json'];
+const FILE_NAMES: readonly string[] = ['cities.json', 'dynasties.json', 'fin_institutions.json', 'indices.json', 'institutions.json', 'instruments.json', 'releases.json', 'world.json'];
 
 /** 22 explicitly labels no column of these catalogs as real (22 §0.1 rule 2: money columns are nominal genesis FDL). */
 const REAL_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({});
 
-/** 22 §4.1: REIT free float 90%, otherwise 75%. (Dynasty-linked 60% needs §10.4 dynasties.json, not in this card: open question.) */
+/** 22 §4.1 (l.521): REITs 90%; dynasty-linked companies (a ticker in any 22 §10.4 listed-stakes cell) 60%; otherwise 75%.
+ *  Free float only selects index membership (top 30); index weights use full cap0. */
 export const FREE_FLOAT_DEFAULT = 0.75;
 export const FREE_FLOAT_REIT = 0.9;
+export const FREE_FLOAT_DYNASTY = 0.6;
 export function isReit(notes: string): boolean { return notes.includes('listed REIT'); }
 
 /** 22 §5.1 commercial bank A per bloc (the listed commercial bank with PD, TCH, CUST). */
 const COMMERCIAL_A: Readonly<Record<BlocId, string>> = Object.freeze({ FDL: 'bnk_lksb', EUN: 'bnk_bvlc', PYN: 'bnk_tscb', NKR: 'bnk_sksb', SRL: 'bnk_bavd' });
 const REGIONAL_INDEX: Readonly<Record<BlocId, string>> = Object.freeze({ FDL: 'idx_FED30', EUN: 'idx_EUR30', PYN: 'idx_PAC30', NKR: 'idx_NOR30', SRL: 'idx_SOU30' });
 const DEALERS: readonly string[] = ['npc_dlr_GRAY', 'npc_dlr_OSTP'];
-/** 22 §1.4 lists office names but no entity id; the id below is a placeholder pattern (open question). */
+/** E-58.1: the statistics office is the `npc` institution npc_STATS_<B> (holder class npcFirm, ownerId gov_<B>, never holds money). */
 export function statisticsOfficeId(b: BlocId): string { return `npc_STATS_${b}`; }
 
 /** 22 §3.1: the HQ / retail columns use city display names; "(wealth clients only)" style qualifiers are dropped for the FK. */
@@ -87,36 +90,21 @@ function rows<T>(file: unknown, key: string): T[] {
   return v as T[];
 }
 
-const LAUNCH_COUNTS = { blocs: 5, cities: 16, equities: 240, fxPairs: 10, banks: 26 } as const;
+const LAUNCH_COUNTS = { blocs: 5, cities: 16, equities: 240, fxPairs: 10, banks: 26, dynasties: 12 } as const;
 
-function minimalFiles(): Record<string, unknown> {
-  // 20B minimal preset: FDL only (plus no-bloc Serena rows and the cross-bloc dealers).
-  const w = world as unknown as WorldFile;
-  const keep = (b: unknown): boolean => b === 'FDL' || b === null;
-  const f = FULL_FILES as Record<string, Rec>;
-  return {
-    'cities.json': { ...f['cities.json'], cities: rows<CityRow>(f['cities.json'], 'cities').filter((r) => keep(r.bloc)) },
-    'fin_institutions.json': { ...f['fin_institutions.json'], banks: rows<BankRow>(f['fin_institutions.json'], 'banks').filter((r) => keep(r.bloc)) },
-    'indices.json': { ...f['indices.json'], indices: rows<IndexRow>(f['indices.json'], 'indices').filter((r) => r.bloc === undefined || r.bloc === 'FDL') },
-    'institutions.json': f['institutions.json'],
-    'instruments.json': { ...f['instruments.json'], equities: rows<EqRow>(f['instruments.json'], 'equities').filter((r) => r.bloc === 'FDL'), fxPairs: [] },
-    'releases.json': { ...f['releases.json'], offices: rows<{ blocId: string }>(f['releases.json'], 'offices').filter((r) => r.blocId === 'FDL') },
-    'world.json': { ...w, blocs: w.blocs.filter((r) => r.blocId === 'FDL') },
-  };
-}
-
-export function loadContent(src: 'full' | 'minimal' | ContentOverrides, params: ParamsView): ContentView {
+/** Ruling (AC-22A-01-FULLONLY): only the full content ships; presets (MICRO etc.) belong to T22B. */
+export function loadContent(src: 'full' | ContentOverrides, params: ParamsView): ContentView {
   const base = typeof src === 'string' ? src : src.base;
+  if (base !== 'full') fail('CONTENT_UNKNOWN_SOURCE', `only 'full' content ships (got ${String(base)})`);
   const patch = typeof src === 'string' ? null : src.patch;
-  const files: Record<string, unknown> = base === 'full' ? { ...FULL_FILES } : minimalFiles();
+  const files: Record<string, unknown> = { ...FULL_FILES };
   if (patch !== null) for (const k of Object.getOwnPropertyNames(patch)) files[k] = patch[k];
   const hashObj: Record<string, unknown> = { ...files };
-  if (base === 'minimal') hashObj['$preset'] = 'minimal';
   if (patch !== null) hashObj['$patch'] = patch;
-  return build(files, contentHashOf(hashObj), params, base === 'full');
+  return build(files, contentHashOf(hashObj), params);
 }
 
-function build(files: Record<string, unknown>, contentHash: string, params: ParamsView, checkLaunchCounts: boolean): ContentView {
+function build(files: Record<string, unknown>, contentHash: string, params: ParamsView): ContentView {
   // ---- step 1: catalogVersion (22 §0.1 rule 5) ----
   const catalogVersions: Record<string, number> = {};
   for (const n of FILE_NAMES) {
@@ -137,12 +125,14 @@ function build(files: Record<string, unknown>, contentHash: string, params: Para
   const dealerRows = rows<{ entityId: string }>(files['fin_institutions.json'], 'dealers');
   const indexRows = rows<IndexRow>(files['indices.json'], 'indices');
   const officeRows = rows<{ blocId: string; statisticsOfficeName: string; cycleCommitteeName: string }>(files['releases.json'], 'offices');
+  const dynRows = rows<{ dynastyId: string; bloc: string; listedStakes: { ticker: string; pct: number }[] }>(files['dynasties.json'], 'dynasties');
+  const dynastyTickers = dynRows.flatMap((d) => d.listedStakes.map((x) => x.ticker));
   const blocIds = w.blocs.map((b) => canonicalBloc(b.blocId));
 
   // ---- CV03 launch counts (full content only; the catalogs this card covers) ----
-  if (checkLaunchCounts) {
-    const got = { blocs: w.blocs.length, cities: cityRows.length, equities: eqRows.length, fxPairs: fxRows.length, banks: bankRows.length };
-    for (const k of ['blocs', 'cities', 'equities', 'fxPairs', 'banks'] as const)
+  {
+    const got = { blocs: w.blocs.length, cities: cityRows.length, equities: eqRows.length, fxPairs: fxRows.length, banks: bankRows.length, dynasties: dynRows.length };
+    for (const k of ['blocs', 'cities', 'equities', 'fxPairs', 'banks', 'dynasties'] as const)
       if (got[k] !== LAUNCH_COUNTS[k]) fail('CV03', `${k}: ${got[k]} != ${LAUNCH_COUNTS[k]}`);
   }
   // ---- CV01 unique ids (within and across catalogs) ----
@@ -154,6 +144,7 @@ function build(files: Record<string, unknown>, contentHash: string, params: Para
   for (const r of bankRows) uniq(r.bankId);
   for (const r of dealerRows) uniq(r.entityId);
   for (const r of indexRows) uniq(r.indexId);
+  for (const r of dynRows) uniq(r.dynastyId);
   // ---- CV04 foreign keys ----
   const cityByName = (n: string): CityRow => cityRows.find((c) => c.name === cityName(n)) ?? fail('CV04', `unknown city ${n}`);
   const blocFk = (b: string | null, where: string): void => { if (b !== null && !blocIds.includes(b as BlocId)) fail('CV04', `${where}: unknown bloc ${b}`); };
@@ -165,6 +156,10 @@ function build(files: Record<string, unknown>, contentHash: string, params: Para
     // (HQ city FK: checked by cityByName when the typed row is built)
     // ---- CV25 money units: cap0 is a whole, non-negative FDL amount ----
     if (!(e.cap0Bn >= 0) || !Number.isInteger(e.cap0Bn * 1e9)) fail('CV25', `${e.assetId}: cap0 ${e.cap0Bn}`);
+  }
+  for (const d of dynRows) {
+    blocFk(d.bloc, d.dynastyId);
+    for (const x of d.listedStakes) if (!eqRows.some((e) => e.ticker === x.ticker)) fail('CV04', `${d.dynastyId}: unknown listed stake ${x.ticker}`);
   }
   for (const r of bankRows) {
     blocFk(r.bloc, r.bankId);
@@ -190,7 +185,7 @@ function build(files: Record<string, unknown>, contentHash: string, params: Para
   const serenaOut: SerenaContent = { cityId: 'cty_isla_serena', name: sr.name, bloc: null, homeBloc: 'SERENA', reportingCcy: 'FDL' };
   const equitiesOut: EquityContent[] = eqRows.map((e) => ({ assetId: e.assetId, ticker: e.ticker, bloc: canonicalBloc(e.bloc), sector: e.sector as SectorId,
     cityId: cityByName(e.hq).cityId, cap0: toMoney(e.cap0Bn * 1e9, 'FDL'), size: e.size as 'L' | 'M' | 'S',
-    freeFloat: isReit(e.notes) ? FREE_FLOAT_REIT : FREE_FLOAT_DEFAULT }));
+    freeFloat: isReit(e.notes) ? FREE_FLOAT_REIT : dynastyTickers.includes(e.ticker) ? FREE_FLOAT_DYNASTY : FREE_FLOAT_DEFAULT }));
   const banksOut: NpcBankContent[] = bankRows.map((r) => ({ bankId: r.bankId, name: r.name, bloc: r.bloc === null ? null : canonicalBloc(r.bloc),
     kind: r.kind as NpcBankKind, strategy: r.strategy, hq: r.hq, assetsPctGdp: r.assetsPctGdp,
     fixedAssets: r.fixedAssets === null ? null : toMoney(r.fixedAssets, 'FDL'),
