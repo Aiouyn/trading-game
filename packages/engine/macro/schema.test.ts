@@ -138,7 +138,7 @@ const SAMPLES: Record<string, unknown> = {
   'macro.cycle.declared': { bloc: 'EUN', cycleLabel: 'CONTRACTION', sinceDay: 40 },
   'macro.cb.guidance': { bloc: 'FDL', meetingId: 'm', score: 0.3, textKey: 'k' },
   'macro.cb.decision': { bloc: 'FDL', meetingId: 'm', previousRate: 0.03, newRate: 0.0325, corridor: { depositRate: 0.0275, lendingRate: 0.0375 }, emergency: false,
-    votes: { for: 7, against: 2 }, ruleTerms: { neutral: 0.0275, inflation: 0.02, inflationGap: 0.0025, outputGapTerm: 0.001, finStress: 0, fx: 0, bias: 0 },
+    votes: { for: 7, against: 2 }, ruleTerms: { neutral: 0.0275, inflation: 0.02, inflationGap: 0.0025, finStress: 0, fx: 0, bias: 0 },
     qeChangePerMonth: '0', statementKey: 's', reasons: ['r1'] },
   'macro.cb.minutes': { bloc: 'FDL', meetingId: 'm', dissent: { hike: 1, hold: 7, cut: 1 }, riskKeys: ['k'] },
   'macro.cb.tool': { bloc: 'PYN', tool: 'YCC_START', params: { capYield: 0.01 } },
@@ -200,6 +200,12 @@ describe('events (04 §5)', () => {
     expect(MACRO_EVENTS['macro.cb.facility.daily']!.safeParse({ bloc: 'FDL', repoOutstanding: 100, elaOutstanding: '0', deposits: '5' }).success).toBe(false);
     expect(MACRO_EVENTS['macro.cb.facility.daily']!.safeParse({ bloc: 'FDL', repoOutstanding: '1.5', elaOutstanding: '0', deposits: '5' }).success).toBe(false);
     expect(MACRO_EVENTS['macro.cb.facility.daily']!.safeParse({ bloc: 'FU', repoOutstanding: '1', elaOutstanding: '0', deposits: '5' }).success).toBe(false);
+  });
+  it('macro.cb.decision never publishes the output-gap term (E-41, 04#15)', () => {
+    const d = SAMPLES['macro.cb.decision'] as { ruleTerms: object };
+    for (const extra of [{ outputGap: 0.001 }, { outputGapTerm: 0.001 }]) {
+      expect(MACRO_EVENTS['macro.cb.decision']!.safeParse({ ...d, ruleTerms: { ...d.ruleTerms, ...extra } }).success).toBe(false);
+    }
   });
   it('macro.event.internal carries the plan (hidden fields allowed there only)', () => {
     expect(assertNoHiddenFields(SAMPLES['macro.event.internal'])).toEqual(['plannedEndTick', 'precursorStartTick', 'severity']);

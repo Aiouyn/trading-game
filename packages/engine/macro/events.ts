@@ -35,8 +35,9 @@ export const MACRO_EVENTS: Record<string, z.ZodType> = {
   'macro.cb.guidance': o({ bloc, meetingId: id, score: num, textKey: z.string() }),
   'macro.cb.decision': o({ bloc, meetingId: id, previousRate: num, newRate: num, corridor: o({ depositRate: num, lendingRate: num }), emergency: z.boolean(),
     votes: o({ for: int.nonnegative(), against: int.nonnegative() }),
-    // rounded contributions (0.01 pp). CbDecision.ruleTerms.outputGap is published as `outputGapTerm`: `outputGap` is a hidden field name (§2.4)
-    ruleTerms: o({ neutral: num, inflation: num, inflationGap: num, outputGapTerm: num, finStress: num, fx: num, bias: num }),
+    // rounded contributions (0.01 pp). The output-gap term is never public (E-41, 04#15): it is absent here and
+    // the strict object rejects any extra key. (The public outputGapEstimate is an emitter-task AC.)
+    ruleTerms: o({ neutral: num, inflation: num, inflationGap: num, finStress: num, fx: num, bias: num }),
     qeChangePerMonth: money, statementKey: z.string(), reasons: z.array(z.string()) }),
   'macro.cb.minutes': o({ bloc, meetingId: id, dissent: o({ hike: int.nonnegative(), hold: int.nonnegative(), cut: int.nonnegative() }), riskKeys: z.array(z.string()) }),
   'macro.cb.tool': o({ bloc, tool: cbTool, params: z.record(z.string(), z.union([num, z.string(), z.boolean()])) }),
