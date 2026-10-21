@@ -221,6 +221,10 @@ describe('E-73 store ACs', () => {
     for (const r of [s.committed.get<E>('chr.entity', 'chr_A')!, [...s.committed.iter<E>('chr.entity')][0]!, [...s.committed.range<E>('chr.entity', 'chr_A', 'chr_B')][0]!]) { r.b[1] = 77; }
     expect([...s.committed.get<E>('chr.entity', 'chr_A')!.b]).toEqual([1, 2, 3]);
     expect(toHex(s.entityHash('chr.entity', 'chr_A')!)).toBe(h0);
+    // bytes held only inside an array are copied on read as well
+    s.beginTick(2); w.put('chr.entity', { id: 'chr_Q', n: 0, arr: [Uint8Array.from([5])] });
+    const q = s.current.get<{ arr: Uint8Array[] }>('chr.entity', 'chr_Q')!; q.arr[0]![0] = 66;
+    expect([...s.current.get<{ arr: Uint8Array[] }>('chr.entity', 'chr_Q')!.arr[0]!]).toEqual([5]);
     expect(toHex(s.entityHash('chr.entity', 'chr_A')!)).toBe(toHex(entityHash({ id: 'chr_A', n: 0, b: Uint8Array.from([1, 2, 3]), nest: [{ c: Uint8Array.from([9]) }] })));
   });
 });
