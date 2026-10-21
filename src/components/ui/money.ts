@@ -28,7 +28,8 @@ export const shouldAbbreviate = (p: ParsedAmount) => p.int.length >= 5;
 
 const UNITS: readonly (readonly [number, string])[] = [[12, "T"], [9, "B"], [6, "M"], [3, "k"]];
 
-/** 3 significant figures, half up, trailing zeros dropped: 12400 -> "12.4k", 4200000000000 -> "4.2T". */
+/** 3 significant figures, half up, trailing zeros dropped: 12400 -> "12.4k", 4200000000000 -> "4.2T".
+ *  From 1,000T up the whole number of T is shown (no larger unit in 17 §3.4.1). */
 export function abbreviateDigits(int: string): string {
   let digits = int;
   const head = digits.slice(0, 3);
