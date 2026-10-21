@@ -27,10 +27,10 @@ describe("T1-01 tokens.ts mirrors every var in tokens.css", () => {
   const blocks = cssBlocks().filter((b) => Object.keys(b.vars).length > 0);
   const mirrored = (selector: string): Record<string, string> | undefined => {
     if (selector === ":root") return ROOT_TOKENS;
-    const pal = /data-palette="([\w-]+)"/.exec(selector)?.[1];
-    if (pal) return (PALETTES as Record<string, Record<string, string>>)[pal];
     const mode = Object.entries(MODE_SELECTORS).find(([, s]) => s === selector)?.[0];
-    return mode ? (MODE_TOKENS as Record<string, Record<string, string>>)[mode] : undefined;
+    if (mode) return (MODE_TOKENS as Record<string, Record<string, string>>)[mode];
+    const pal = /data-palette="([\w-]+)"/.exec(selector)?.[1];
+    return pal ? (PALETTES as Record<string, Record<string, string>>)[pal] : undefined;
   };
   it.each(blocks.map((b) => [b.selector, b] as const))("%s", (_sel, b) => {
     expect(mirrored(b.selector)).toEqual(b.vars);
