@@ -37,5 +37,7 @@ describe('AC-02-11-PARAMS-PKG: @tycoon/params ParamsView over the test registry'
   it('list returns a frozen copy; the view is frozen', () => {
     const l = p.list<string>('test_list'); expect(Object.isFrozen(l)).toBe(true); expect(Object.isFrozen(p)).toBe(true);
     expect(() => { (l as string[]).push('x'); }).toThrow(); expect(p.list('test_list')).toHaveLength(2);
+    const src = ['a'], q = createParamsView(TEST_PARAM_REGISTRY, { overrides: { test_list: src } }), r = q.list<string>('test_list');
+    expect(r).not.toBe(src); expect(Object.isFrozen(r)).toBe(true); src.push('b'); expect(r).toEqual(['a']);
   });
 });

@@ -53,6 +53,9 @@ describe('T02-11 module registry', () => {
     ['MOD_TWO_LEDGERS', () => buildModuleSet([mod('02'), mod('03', { services: { ledger: provider } }), mod('04', { services: { ledger: provider } })])],
   ];
   for (const [code, f] of cases) it(`ModuleSetError ${code}`, () => { expect(err(f)?.code).toBe(code); });
+  it('MOD_TWO_LEDGERS when the only ledger provider is not module 03', () => {
+    expect(err(() => buildModuleSet([mod('02'), mod('03'), mod('04', { services: { ledger: provider } })]))?.message).toContain("must come from module '03'");
+  });
   it('MOD_TWO_LEDGERS also when two 03 units provide one', () => {
     expect(err(() => buildModuleSet([mod('03', { services: { ledger: provider } }), mod('03', { id: '03B', services: { ledger: provider } })]))?.code).toBe('MOD_UNKNOWN_UNIT');
     expect(err(() => buildModuleSet([mod('02'), mod('03', { services: { ledger: provider } }), mod('02', { id: '02', services: { ledger: provider } })]))?.code).toBe('MOD_DUP_UNIT');
