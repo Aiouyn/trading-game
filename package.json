@@ -11,7 +11,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "sim": "tsx scripts/sim.ts",
-    "ci:streams": "tsx tools/ci/scan-stream-keys.ts",
+    "ci:streams": "tsx tools/ci/scan-stream-keys-cli.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "balance": "tsx scripts/balance/run.ts",
     "core:install": "npm --prefix packages/engine/core ci",

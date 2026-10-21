@@ -1,0 +1,13 @@
+{
+  "_doc": "E-69 (AC-02-06-REGISTRY-SCOPE): the ONLY exclusions of tools/ci/scan-stream-keys.ts. Exact repo-relative paths (a trailing / means everything under that exact directory) plus test-file suffixes; no directory-name matching. Printed on every run.",
+  "roots": ["packages/engine/", "src/"],
+  "extensions": [".ts", ".tsx", ".mts", ".js"],
+  "paths": [
+    "tools/ci/fixtures/",
+    "packages/engine/core/__lint_fixtures__/",
+    "packages/engine/core/node_modules/",
+    "packages/engine/ledger/node_modules/",
+    "packages/engine/macro/node_modules/"
+  ],
+  "testFileSuffixes": [".test.ts", ".test.tsx", ".test.mts", ".test.js"]
+}

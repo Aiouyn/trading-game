@@ -4,14 +4,15 @@
 // AC-02-06-REGISTRY-HELPERS (E-63): stream keys come only from registered template helpers, never concatenated at call sites.
 // A helper is a property of an object literal exported as a const from a file named `streams.ts` whose value is an arrow
 // function returning a string or template literal; its template (each ${…} replaced by a sample segment) must match a registry
-// row. Every ctx.rng(...) argument must be a direct call `<HelperObject>.<helper>(...)` of such a helper. CLI: `pnpm ci:streams`.
+// row. Every ctx.rng(...) argument must be a direct call `<HelperObject>.<helper>(...)` of such a helper. CLI: `npm run ci:streams` (scan-stream-keys-cli.ts).
 // QA #36 / E-68: beyond ctx.rng, ANY call argument that is a string literal, template or '+' concatenation building a registered
 // key (a literal whose text is a registered key or starts with a registered '<prefix>:'), and any such template / concatenation
 // anywhere outside a streams.ts helper body, is reported, e.g. m.stream('04', ['macro.fx'], 'macro.fx:' + b). Literal registered
 // keys are rejected too (E-68); each finding carries a hint naming the helper to use. Excluded by path, never by inline
-// suppression: *.test.ts, *.d.ts, node_modules, and fixture directories (__fixtures__, fixtures, __lint_fixtures__, test).
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+// suppression. E-69 (AC-02-06-REGISTRY-SCOPE): roots packages/engine/ and src/, extensions .ts .tsx .mts .js, and the exclusions
+// are an explicit list of exact paths plus *.test.{ts,tsx,mts,js}, all in scan-allowlist.json (printed on every run).
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { STREAM_REGISTRY, matchStream, streamPrefix } from '../../packages/engine/core/rng/registry';
@@ -26,15 +27,29 @@ export interface ScanResult {
   unregisteredHelpers: { file: string; line: number; helper: string; key: string }[];
 }
 
-/** E-68: excluded by path only. */
-const EXCLUDED_DIRS = new Set(['node_modules', '__lint_fixtures__', '__fixtures__', 'fixtures', 'test']);
+/** E-69: scan roots, extensions and the exclusion allowlist live in one file (scan-allowlist.json) and are printed on every run. */
+export interface ScanAllowlist { roots: string[]; extensions: string[]; paths: string[]; testFileSuffixes: string[] }
+export const ALLOWLIST_FILE = join(dirname(fileURLToPath(import.meta.url)), 'scan-allowlist.json');
+export function loadAllowlist(file = ALLOWLIST_FILE): ScanAllowlist {
+  const { roots, extensions, paths, testFileSuffixes } = JSON.parse(readFileSync(file, 'utf8')) as ScanAllowlist;
+  return { roots, extensions, paths, testFileSuffixes };
+}
+/** The allowlist as printed by the CLI (one line per entry). */
+export function formatAllowlist(a: ScanAllowlist): string {
+  return [...a.roots.map((r) => `scan root: ${r}`), `scan extensions: ${a.extensions.join(' ')}`,
+    ...a.paths.map((p) => `excluded path: ${p}`), ...a.testFileSuffixes.map((x) => `excluded test files: *${x}`)].join('\n');
+}
+/** Exact-path exclusion: rel equals an entry, or lies under an entry ending in '/'; or ends with a test-file suffix. */
+function excluded(rel: string, a: ScanAllowlist): boolean {
+  return a.paths.some((p) => (p.endsWith('/') ? `${rel}/`.startsWith(p) : rel === p)) || a.testFileSuffixes.some((x) => rel.endsWith(x));
+}
 
-function walk(dir: string, out: string[]): void {
+function walk(repoRoot: string, dir: string, a: ScanAllowlist, out: string[]): void {
   for (const name of readdirSync(dir).sort()) {
-    if (EXCLUDED_DIRS.has(name)) continue;
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) walk(p, out);
-    else if (name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts')) out.push(p);
+    const p = join(dir, name), rel = relative(repoRoot, p).split(sep).join('/');
+    if (excluded(rel, a)) continue;
+    if (statSync(p).isDirectory()) walk(repoRoot, p, a, out);
+    else if (a.extensions.some((x) => name.endsWith(x))) out.push(p);
   }
 }
 
@@ -115,9 +130,9 @@ function keyBuiltBy(e: ts.Expression): StreamSpec | undefined {
 const outer = (n: ts.Node): ts.Node => { let p = n.parent; while (ts.isParenthesizedExpression(p)) p = p.parent; return p; };
 const isBuilt = (e: ts.Node): boolean => ts.isTemplateExpression(e) || (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken);
 
-export function scanStreamKeys(repoRoot: string): ScanResult {
+export function scanStreamKeys(repoRoot: string, allow: ScanAllowlist = loadAllowlist()): ScanResult {
   const files: string[] = [];
-  walk(join(repoRoot, 'packages/engine'), files);
+  for (const r of allow.roots) { const d = join(repoRoot, r); if (existsSync(d)) walk(repoRoot, d, allow, files); }
   const res: ScanResult = { unknown: [], unregisteredPrefixes: [], callSiteKeys: [], unregisteredHelpers: [] };
   const { names: helpers, hintFor, bodies } = collectHelpers(repoRoot, files, res);
   const isHelperCall = (a: ts.Expression): boolean => ts.isCallExpression(a) && ts.isPropertyAccessExpression(a.expression)
@@ -159,10 +174,12 @@ export function scanStreamKeys(repoRoot: string): ScanResult {
   return res;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const root = join(fileURLToPath(new URL('.', import.meta.url)), '../..');
-  const r = scanStreamKeys(root);
-  console.log(JSON.stringify(r, null, 2));
-  for (const c of r.callSiteKeys) console.error(`${c.file}:${c.line}: stream key ${c.text} not built by a registered helper (E-68): ${c.hint}`);
-  if (r.unknown.length + r.unregisteredPrefixes.length + r.callSiteKeys.length + r.unregisteredHelpers.length > 0) process.exit(1);
+/** CLI body: prints the allowlist, the result and one line per finding; returns the exit code (1 on any finding). */
+export function runCli(root: string, log: (s: string) => void = console.log, err: (s: string) => void = console.error): number {
+  const allow = loadAllowlist();
+  err(`ci:streams allowlist (${relative(root, ALLOWLIST_FILE).split(sep).join('/')}):\n${formatAllowlist(allow)}`);
+  const r = scanStreamKeys(root, allow);
+  log(JSON.stringify(r, null, 2));
+  for (const c of r.callSiteKeys) err(`${c.file}:${c.line}: stream key ${c.text} not built by a registered helper (E-68): ${c.hint}`);
+  return r.unknown.length + r.unregisteredPrefixes.length + r.callSiteKeys.length + r.unregisteredHelpers.length > 0 ? 1 : 0;
 }

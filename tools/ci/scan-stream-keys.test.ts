@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { scanStreamKeys } from './scan-stream-keys';
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { ALLOWLIST_FILE, formatAllowlist, loadAllowlist, runCli, scanStreamKeys } from './scan-stream-keys';
 
 function fixture(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), 'scan-streams-'));
@@ -99,10 +101,10 @@ describe('AC-02-06-REGISTRY-HELPERS (amended by E-68) and QA #36: literal keys r
     expect(r2.unknown.map((u) => u.key)).toEqual(['mkt.nope:${…}']);
     expect(clean(r2)).toBe(false);
   });
-  it('(d) literals in excluded test paths are not reported (*.test.ts and fixture directories, excluded by path)', () => {
-    const lit = "export function f(ctx: any, m: any, b: string) { ctx.rng('macro.fx:EUN:FDL'); m.stream('04', ['macro.fx'], 'macro.fx:' + b); }";
-    const r = run("export const ok = 1;", { 'packages/engine/macro/x.test.ts': lit, 'packages/engine/macro/__fixtures__/a.ts': lit, 'packages/engine/macro/fixtures/b.ts': lit });
-    expect(clean(r)).toBe(true);
+  it('(d) literals in allowlisted test files are not reported; fixture-named directories are NOT excluded (E-69): macro/fixtures/prod.ts is caught', () => {
+    const lit = "export function f(ctx: any) { ctx.rng('macro.fx:EUN:FDL'); }";
+    const r = run('export const ok = 1;', { 'packages/engine/macro/x.test.ts': lit, 'packages/engine/macro/fixtures/prod.ts': lit, 'packages/engine/macro/__fixtures__/a.ts': lit });
+    expect(r.callSiteKeys.map((c) => [c.file, c.hint])).toEqual([['packages/engine/macro/__fixtures__/a.ts', 'use S.fx(base, quote)'], ['packages/engine/macro/fixtures/prod.ts', 'use S.fx(base, quote)']]);
   });
   it("QA's injection: m.stream('04', ['macro.fx'], 'macro.fx:' + b) is reported (dynamic name beyond ctx.rng)", () => {
     const r = run("export function f(m: any, b: string) { return m.stream('04', ['macro.fx'], 'macro.fx:' + b).normal(); }");
@@ -124,4 +126,49 @@ describe('AC-02-06-REGISTRY-HELPERS (amended by E-68) and QA #36: literal keys r
     const r = run("export function f(m: any) { m.stream('05', [], 'mkt.idio:ast_A'); }");
     expect(r.callSiteKeys.map((c) => c.hint)).toEqual(['no registered helper builds mkt.idio:<assetId>: add one to a streams.ts']);
   });
+});
+
+describe('AC-02-06-REGISTRY-SCOPE (E-69): roots packages/engine/ and src/, .ts/.tsx/.mts/.js, exact-path allowlist printed on every run', () => {
+  const lit = "export function f(ctx: any) { return ctx.rng('macro.fx:EUN:FDL'); }";
+  const STREAMS = "export const S = Object.freeze({ fx: (base: string, quote: string): string => `macro.fx:${base}:${quote}` });";
+  it('(a) a literal key in a .tsx, .mts or .js file under packages/engine/ or src/ is reported (exit 1)', () => {
+    const r = scanStreamKeys(fixture({ 'packages/engine/macro/streams.ts': STREAMS, 'packages/engine/macro/v.tsx': lit, 'packages/engine/macro/m.mts': lit,
+      'packages/engine/macro/j.js': lit, 'src/components/w.tsx': lit, 'src/lib/k.ts': lit, 'other/z.ts': lit }));
+    expect(r.callSiteKeys.map((c) => c.file)).toEqual(['packages/engine/macro/j.js', 'packages/engine/macro/m.mts', 'packages/engine/macro/v.tsx', 'src/components/w.tsx', 'src/lib/k.ts']);
+  });
+  it('(b) the same literal in an allowlisted test file (*.test.ts/.tsx/.mts/.js) or allowlisted path is not reported', () => {
+    const r = scanStreamKeys(fixture({ 'packages/engine/macro/streams.ts': STREAMS, 'packages/engine/macro/a.test.ts': lit, 'packages/engine/macro/b.test.tsx': lit,
+      'src/c.test.mts': lit, 'src/d.test.js': lit, 'packages/engine/core/__lint_fixtures__/e.ts': lit, 'packages/engine/core/node_modules/x/f.js': lit }));
+    expect(r.callSiteKeys).toEqual([]);
+  });
+  it('(c) a non-test file in ledger/test is scanned (only its *.test.ts files are excluded); so is any other test/ directory', () => {
+    const r = scanStreamKeys(fixture({ 'packages/engine/macro/streams.ts': STREAMS, 'packages/engine/ledger/test/driver.ts': lit,
+      'packages/engine/ledger/test/x.test.ts': lit, 'packages/engine/macro/test/h.ts': lit }));
+    expect(r.callSiteKeys.map((c) => c.file)).toEqual(['packages/engine/ledger/test/driver.ts', 'packages/engine/macro/test/h.ts']);
+  });
+  it('(d) the printed allowlist matches the allowlist file, and the CLI prints it on every run', () => {
+    const raw = JSON.parse(readFileSync(ALLOWLIST_FILE, 'utf8')) as Record<string, string[]>, a = loadAllowlist();
+    expect(a).toEqual({ roots: raw.roots, extensions: raw.extensions, paths: raw.paths, testFileSuffixes: raw.testFileSuffixes });
+    expect(a.paths).toEqual(expect.arrayContaining(['tools/ci/fixtures/', 'packages/engine/core/__lint_fixtures__/']));
+    expect(a.testFileSuffixes).toEqual(['.test.ts', '.test.tsx', '.test.mts', '.test.js']);
+    expect(a.extensions).toEqual(['.ts', '.tsx', '.mts', '.js']); expect(a.roots).toEqual(['packages/engine/', 'src/']);
+    const lines = formatAllowlist(a).split('\n');
+    expect(lines).toEqual([...raw.roots!.map((r) => `scan root: ${r}`), `scan extensions: ${raw.extensions!.join(' ')}`,
+      ...raw.paths!.map((p) => `excluded path: ${p}`), ...raw.testFileSuffixes!.map((x) => `excluded test files: *${x}`)]);
+    const err: string[] = [];
+    runCli(fixture({ 'packages/engine/macro/ok.ts': 'export const ok = 1;' }), () => undefined, (s) => err.push(s));
+    expect(err[0]!.split('\n').slice(1)).toEqual(lines);
+  });
+});
+
+describe('ci:streams CLI exit code (subprocess)', () => {
+  const REPO = join(dirname(fileURLToPath(import.meta.url)), '../..');
+  const cli = (root: string) => spawnSync(process.execPath, [join(REPO, 'packages/engine/core/node_modules/vite-node/vite-node.mjs'), join(REPO, 'tools/ci/scan-stream-keys-cli.ts'), '--', '--root', root], { encoding: 'utf8' });
+  it('exits 1 on a literal key, 0 on a clean tree, and prints the allowlist both times', () => {
+    const bad = cli(fixture({ 'packages/engine/macro/fixtures/prod.ts': "export function f(ctx: any) { return ctx.rng('macro.fx:EUN:FDL'); }" }));
+    expect(bad.status).toBe(1); expect(bad.stderr).toContain('excluded path: packages/engine/core/__lint_fixtures__/');
+    expect(bad.stderr).toContain("packages/engine/macro/fixtures/prod.ts:1: stream key 'macro.fx:EUN:FDL' not built by a registered helper");
+    const ok = cli(fixture({ 'packages/engine/macro/ok.ts': 'export const ok = 1;' }));
+    expect(ok.status).toBe(0); expect(ok.stderr).toContain('scan root: src/');
+  }, 120000);
 });
