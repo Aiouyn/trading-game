@@ -65,6 +65,8 @@ export function DesignSystemSheet({ palette }: { palette: string }) {
       <Row title="money states">
         <span data-testid="ds-money-estimated"><MoneyText amount="1284.10" estimated /></span>
         <span data-testid="ds-money-estimated-neg"><MoneyText amount="-1284.10" ctx="delta" estimated /></span>
+        <span data-testid="ds-money-estimated-pos"><MoneyText amount="1284.10" ctx="delta" estimated /></span>
+        <span data-testid="ds-money-chip-neg-big"><MoneyText amount="-3210000" ctx="chip" /></span>
         <span data-testid="ds-money-estimated-zero"><MoneyText amount="0" ctx="delta" estimated /></span>
         <span data-testid="ds-money-ad"><MoneyText amount="500" restricted="AD" /></span>
         <span data-testid="ds-money-start"><MoneyText amount="2500" restricted="START" /></span>

@@ -116,3 +116,75 @@ test("Ruling 8: colour-blind Broadsheet uses #08657A / #A8235A; dark palettes ke
     if (pal === "broadsheet") await shot(page, "cb-broadsheet");
   }
 });
+
+// Studio answers to ruling 5 (pill placement and content) and 7 (estimated positive delta).
+async function touchPage(browser: import("@playwright/test").Browser, phone: boolean) {
+  const ctx = await browser.newContext({ viewport: phone ? { width: 390, height: 844 } : { width: 1440, height: 900 }, hasTouch: true });
+  const page = await ctx.newPage();
+  await ds(page);
+  return { ctx, page };
+}
+/** Long-press the amount under testId at its centre (or at a given point); returns the finger point. */
+async function longPress(page: Page, testId: string, at?: { x: number; y: number }) {
+  const host = page.getByTestId(testId).locator(".money-tip-wrap, [role=img]").first();
+  const b = (await host.boundingBox())!;
+  const p = at ?? { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  await host.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, bubbles: true, clientX: p.x, clientY: p.y });
+  await page.waitForTimeout(650);
+  return { p, b };
+}
+
+test("Answer 1: pill uses mono figures and the true sign (U+2212), win2/line/11.5px, 8 px above the amount", async ({ browser }, info) => {
+  const { ctx, page } = await touchPage(browser, info.project.name === "phone");
+  const { b } = await longPress(page, "ds-money-chip-neg-big");
+  const tip = page.getByTestId("money-tip");
+  await expect(tip).toHaveText("\u2212$3,210,000.00");
+  const v = await tip.evaluate((e) => { const c = getComputedStyle(e), r = e.getBoundingClientRect(); return { font: c.fontFamily, size: c.fontSize, bg: c.backgroundColor, border: c.borderTopColor, bottom: r.bottom }; });
+  const mono = await page.evaluate(() => { const e = document.createElement("span"); e.style.fontFamily = "var(--font-num)"; document.body.append(e); const f = getComputedStyle(e).fontFamily; e.remove(); return f; });
+  expect(v.font).toBe(mono);
+  expect(v.size).toBe("11.5px");
+  expect(v.bg).toBe(await resolve(page, "var(--win2)"));
+  expect(v.border).toBe(await resolve(page, "var(--line)"));
+  expect(Math.round(b.y - v.bottom)).toBe(8);
+  await shot(page, "money-longpress-tip-negative");
+  await ctx.close();
+});
+
+test("Answer 1: pill is clamped inside the viewport and never under the finger", async ({ browser }, info) => {
+  const { ctx, page } = await touchPage(browser, info.project.name === "phone");
+  const vw = page.viewportSize()!.width;
+  const pin = (css: string) => page.getByTestId("ds-money-chip-1050000000").evaluate((e, c) => { (e as HTMLElement).style.cssText = c; }, css);
+  // Right edge: the pill stays ≥ 8 px inside.
+  await pin("position:fixed; right:0; top:300px");
+  await longPress(page, "ds-money-chip-1050000000");
+  let r = (await page.getByTestId("money-tip").boundingBox())!;
+  expect(r.x + r.width).toBeLessThanOrEqual(vw - 8 + 0.5);
+  expect(r.x).toBeGreaterThanOrEqual(8 - 0.5);
+  await page.getByTestId("ds-money-chip-1050000000").locator(".money-tip-wrap").dispatchEvent("pointerdown", { pointerType: "touch", bubbles: true });
+  await expect(page.getByTestId("money-tip")).toHaveCount(0);
+  // Top edge: no room above, so it flips below the finger, clear of the 44 px contact area.
+  await pin("position:fixed; left:0; top:0");
+  const { p } = await longPress(page, "ds-money-chip-1050000000");
+  r = (await page.getByTestId("money-tip").boundingBox())!;
+  expect(r.y).toBeGreaterThanOrEqual(p.y + 22 + 8 - 0.5);
+  expect(r.x).toBeGreaterThanOrEqual(8 - 0.5);
+  await ctx.close();
+});
+
+test("Answer 2: no pill when the amount is not abbreviated", async ({ browser }, info) => {
+  const { ctx, page } = await touchPage(browser, info.project.name === "phone");
+  await longPress(page, "ds-money-list-1284.10");
+  await page.getByTestId("ds-money-table-1050000000").locator("[role=img]").dispatchEvent("pointerdown", { pointerType: "touch", bubbles: true });
+  await page.waitForTimeout(650);
+  await expect(page.getByTestId("money-tip")).toHaveCount(0);
+  await ctx.close();
+});
+
+test("Answer 3: estimated positive delta is gain with ≈; estimated neutral stays muted", async ({ page }) => {
+  await ds(page);
+  const pos = page.getByTestId("ds-money-estimated-pos").locator("[role=img]");
+  await expect(pos).toHaveText("≈+$1,284.10");
+  expect(await pos.evaluate((e) => getComputedStyle(e).color)).toBe(await resolve(page, "var(--gain)"));
+  const neutral = page.getByTestId("ds-money-estimated").locator("[role=img]");
+  expect(await neutral.evaluate((e) => getComputedStyle(e).color)).toBe(await resolve(page, "var(--fg-muted)"));
+});

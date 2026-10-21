@@ -73,7 +73,7 @@
 .money-wealth-tone { color: var(--acc-wealth); }
 /* Ruling 5: long-press pill tooltip with the full value (touch). */
 .money-tip-wrap { position: relative; display: inline-flex; }
-.money-tip { position: absolute; bottom: calc(100% + var(--sp-4)); left: 50%; transform: translateX(-50%); z-index: var(--z-toast); padding: 2px var(--sp-8); border: 1px solid var(--line); border-radius: 999px; background: var(--win2); color: var(--fg); font-size: var(--fs-11_5); white-space: nowrap; pointer-events: none; }
+.money-tip { position: fixed; z-index: var(--z-toast); padding: 2px var(--sp-8); border: 1px solid var(--line); border-radius: 999px; background: var(--win2); color: var(--fg); font-size: var(--fs-11_5); white-space: nowrap; pointer-events: none; }
 .money-restricted { display: inline-flex; align-items: center; gap: var(--sp-4); }
 
 /* /__ds sheet layout (dev-only page, 17A T1 [P]) */
