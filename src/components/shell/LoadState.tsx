@@ -4,9 +4,10 @@
 // and never overlaps it. Height eases over --dur-fast (0 under reduced motion).
 import { retryLoad } from "@/shell/loader";
 import { S } from "@/shell/strings";
+import { MoreButton } from "./Banner";
 import { useShell } from "./ShellContext";
 
-export function LoadState({ variant = "pill" }: { variant?: "pill" | "banner" }) {
+export function LoadState({ variant = "pill", extra = 0, onMore }: { variant?: "pill" | "banner"; extra?: number; onMore?: () => void }) {
   const sys = useShell((s) => s.channels.system);
   const open = sys.load !== "ok" || sys.offline;
   const loading = sys.load === "loading";
@@ -21,6 +22,7 @@ export function LoadState({ variant = "pill" }: { variant?: "pill" | "banner" })
         aria-disabled={loading} onClick={() => { if (!loading) retryLoad(); }}>
         <span className="load-retry-label">{loading ? S.retrying : S.retry}</span>
       </button>
+      {extra > 0 && <MoreButton n={extra} onMore={onMore} />}
     </div>
   );
   if (variant === "banner") {

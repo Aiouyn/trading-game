@@ -7,6 +7,8 @@ import { Glyph } from "./Glyph";
 import { PctText } from "./MoneyText";
 
 export type AlertPriority = "P0" | "P1";
+/** P0 glyph (Studio 08:31): the triangle-with-bar 'alert' glyph, in --loss. */
+export const ALERT_ICON = "alert" as const;
 export interface Alert { id: string; priority: AlertPriority; text: string; action: { label: string; href: string } }
 
 /** At most one alert banner at a time: P0 before P1, then arrival order. The rest stay queued. */
@@ -15,7 +17,7 @@ export function pickAlert(queue: readonly Alert[]): { shown: Alert | null; queue
   return { shown: order[0] ?? null, queued: order.slice(1) };
 }
 
-export function Banner({ alerts }: { alerts: readonly Alert[] }) {
+export function Banner({ alerts, onNavigate, extra = 0, onMore }: { alerts: readonly Alert[]; onNavigate?: (href: string) => void; extra?: number; onMore?: () => void }) {
   const { shown, queued } = useMemo(() => pickAlert(alerts), [alerts]);
   return (
     <div className="alert-slot" data-testid="alert-slot" data-open={!!shown} data-queued={queued.length}>
@@ -24,9 +26,11 @@ export function Banner({ alerts }: { alerts: readonly Alert[] }) {
           role={shown.priority === "P0" ? "alert" : "status"} aria-live={shown.priority === "P0" ? "assertive" : "polite"}>
           {/* Always icon + text, never colour alone (17 §3.1.3). */}
           {/* P0 gets the dedicated alert glyph (Studio); the bell stays for notifications only. */}
-          <span className="alert-icon" data-testid="alert-icon" data-glyph={shown.priority === "P0" ? "alert" : "bell"}><Glyph name={shown.priority === "P0" ? "alert" : "bell"} size={16} /></span>
+          <span className="alert-icon" data-testid="alert-icon" data-glyph={shown.priority === "P0" ? ALERT_ICON : "bell"}><Glyph name={shown.priority === "P0" ? ALERT_ICON : "bell"} size={16} /></span>
           <span className="alert-text">{shown.text}</span>
-          <a className="alert-action" href={shown.action.href}>{shown.action.label}</a>
+          {/* A real link (keyboard, a11y), routed through the shell's deep-link handling when one is given. */}
+          <a className="alert-action" href={shown.action.href} onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate(shown.action.href); } }}>{shown.action.label}</a>
+          {extra > 0 && <MoreButton n={extra} onMore={onMore} />}
         </div>
       )}
     </div>
@@ -41,7 +45,12 @@ export function worldEventText(e: WorldEvent): string {
   return `${e.name.toUpperCase()} · ${S.worldDay} ${e.day} · ${e.index} ${pct(e.sincePct)} ${S.worldSince} · ${S.worldToday} ${pct(e.todayPct)}`;
 }
 
-export function WorldEventBanner({ event }: { event: WorldEvent | null }) {
+/** "+N" count on the last visible phone banner; opens the alerts sheet (Producer 08:20). */
+export function MoreButton({ n, onMore }: { n: number; onMore?: () => void }) {
+  return <button className="banner-more" data-testid="banner-more" aria-label={`+${n} ${S.moreAlerts}`} onClick={onMore}>{`+${n}`}</button>;
+}
+
+export function WorldEventBanner({ event, extra = 0, onMore }: { event: WorldEvent | null; extra?: number; onMore?: () => void }) {
   return (
     <div className="world-slot" data-testid="world-slot" data-open={!!event}>
       {event && (
@@ -52,6 +61,7 @@ export function WorldEventBanner({ event }: { event: WorldEvent | null }) {
           <span>{event.index} <PctText value={event.sincePct} /> {S.worldSince}</span>
           <span aria-hidden="true">{"·"}</span>
           <span>{S.worldToday} <PctText value={event.todayPct} /></span>
+          {extra > 0 && <MoreButton n={extra} onMore={onMore} />}
         </div>
       )}
     </div>
