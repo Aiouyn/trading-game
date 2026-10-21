@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
 import { seedHistory, useBackStack } from "@/shell/back";
-import { clockAt, mockChannels, TICK_MS } from "@/shell/mockChannels";
+import { clockAt, mockChannels, phaseOverride, TICK_MS } from "@/shell/mockChannels";
 import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
 import { loadLocal, queueSave } from "@/shell/persist";
@@ -99,9 +99,11 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
     fit();
     window.addEventListener("resize", fit);
     // Mock clock channel: one delta per tick (5 s). The TickRing follows it; it never runs its own timer.
+    const pinned = phaseOverride(new URLSearchParams(query));
     const t = window.setInterval(() => {
       const c = store.getState().channels;
-      store.getState().setChannels({ ...c, clock: clockAt(c.clock.tick + 1) });
+      const next = clockAt(c.clock.tick + 1);
+      store.getState().setChannels({ ...c, clock: pinned ? { ...next, phase: pinned } : next });
     }, TICK_MS);
     // Deep link /{appId}/...: after restoring saved windows, open it, or focus and front the open instance
     // (Audit A-8, 17A T4-04): openApp never creates a window past the instance cap.

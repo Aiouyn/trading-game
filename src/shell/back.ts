@@ -40,6 +40,9 @@ const focusedOf = (st: ReturnType<ShellStore["getState"]>) =>
 const write = (e: Entry, url: string, replace = false) => {
   if (replace) history.replaceState(e, "", url); else history.pushState(e, "", url);
 };
+/** Seeded entries (the load's own entry and its deep-link stack) keep the load's query string, so state the page was loaded with (mock channel
+ *  params, e2e hooks such as ?city=fail read later by lazily mounted apps) is not dropped by the rewrite. */
+const withLoadQuery = (url: string) => (url.includes("?") ? url : url + location.search);
 
 /**
  * Seed history for the page load, after the deep link (if any) is applied. On phone a deep link builds the whole
@@ -51,13 +54,13 @@ export function seedHistory(store: ShellStore, screenId?: string): void {
   const st = store.getState();
   if (viewportOf(st.vw) === "phone") {
     const a = st.phoneApp;
-    write({ quay: "phone", lvl: 0 }, "/", true);
+    write({ quay: "phone", lvl: 0 }, withLoadQuery("/"), true);
     if (!a) return;
-    write({ quay: "phone", lvl: 1, app: a.app, context: a.context }, urlOf(a));
-    if (screenId) { setScreen(screenId); write({ quay: "phone", lvl: 2, app: a.app, context: a.context, screen: screenId }, urlOf(a, screenId)); }
+    write({ quay: "phone", lvl: 1, app: a.app, context: a.context }, withLoadQuery(urlOf(a)));
+    if (screenId) { setScreen(screenId); write({ quay: "phone", lvl: 2, app: a.app, context: a.context, screen: screenId }, withLoadQuery(urlOf(a, screenId))); }
   } else {
     const f = focusedOf(st);
-    write({ quay: "desk", app: f?.app, instance: f?.instance }, urlOf(f), true);
+    write({ quay: "desk", app: f?.app, instance: f?.instance }, withLoadQuery(urlOf(f)), true);
   }
 }
 

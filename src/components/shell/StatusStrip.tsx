@@ -6,10 +6,10 @@ import { S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
+import { MarketPhase } from "./MarketPhase";
 import { HaltChip } from "./SystemOverlays";
 import { TickRing } from "./TickRing";
 
-const PHASE_LABEL = { pre: "Pre-market", open_auction: "Opening auction", continuous: "Market open", close_auction: "Closing auction", after: "After hours", weekend: "Weekend" } as const;
 
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 
@@ -22,7 +22,8 @@ export function StatusStrip() {
   const focusMode = useShell((s) => s.local.focusMode);
   const { day, hhmm } = clockLabel(clock);
   const release = `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
-  const open = clock.phase === "continuous";
+  const halted = useShell((s) => s.channels.system.halted);
+  const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const nw = (
     <span className="strip-nw" data-testid="strip-nw">
       <MoneyText amount={me.nw} ctx="chip" /> <PctText value={me.todayPct} />
@@ -52,10 +53,7 @@ export function StatusStrip() {
       </button>
       <div className="strip-mid">
         <span className="num clock" data-testid="clock">{`Day ${day} · ${hhmm}`}</span>
-        <span className="phase" data-testid="phase">
-          <span className={`dot ${open ? "dot-gain" : "dot-faint"}`} />
-          {`${PHASE_LABEL[clock.phase]} · Port Avalon`}
-        </span>
+        <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} />
         <TickRing tick={clock.tick} />
       </div>
       <div className="strip-right">
