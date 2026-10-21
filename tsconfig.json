@@ -19,6 +19,7 @@
       }
     ],
     "paths": {
+      "@ds/notices-sheet": ["./src/app/%5F_ds/notices/NoticesSheet.tsx"],
       "@/city/*": ["./src/city/*"],
       "@/city*": ["./src/city/index.ts", "./tests/unit/shell/__mocks__/city.ts"],
       "@/*": ["./src/*"]

@@ -52,7 +52,7 @@ describe("17A T6 deep links + phone stack", () => {
   });
 });
 
-import { sheetRows } from "@/components/shell/PhoneBanners";
+import { rowGlyph, sheetRows } from "@/components/shell/PhoneBanners";
 describe("17A T6 alerts-sheet order (Studio 08:31)", () => {
   const al = (id: string, priority: "P0" | "P1"): Alert => ({ id, priority, text: id, action: { label: "Open", href: "/risk" } });
   const w: WorldEvent = { name: "Crash", day: 3, index: "GX", sincePct: "-1", todayPct: "-1" };
@@ -65,4 +65,12 @@ describe("17A T6 alerts-sheet order (Studio 08:31)", () => {
     expect(sheetRows([al("order-partly-filled", "P1")], { offline: false }, null).map(key)).toEqual(["load", "order-partly-filled"]);
   });
   it("omits absent sections", () => expect(sheetRows([], null, null)).toEqual([]));
+});
+
+describe("alerts sheet row glyphs (Studio 08:43)", () => {
+  it("P0 alert, P1 bell, world world, load error", () => {
+    const al = (id: string, priority: "P0" | "P1"): Alert => ({ id, priority, text: id, action: { label: "Open", href: "/risk" } });
+    const w: WorldEvent = { name: "Crash", day: 3, index: "GX", sincePct: "-18.40", todayPct: "-2.10" };
+    expect(sheetRows([al("b", "P1"), al("a", "P0")], { offline: false }, w).map(rowGlyph)).toEqual(["alert", "error", "world", "bell"]);
+  });
 });

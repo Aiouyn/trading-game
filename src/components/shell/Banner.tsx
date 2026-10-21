@@ -7,8 +7,8 @@ import { Glyph } from "./Glyph";
 import { PctText } from "./MoneyText";
 
 export type AlertPriority = "P0" | "P1";
-/** P0 glyph. Studio 08:31 wants the triangle-with-bar in --loss; it isn't in the glyph set yet, so this is the one swap point. */
-export const ALERT_ICON = "bell" as const;
+/** P0 glyph (Studio 08:31): the triangle-with-bar 'alert' glyph, in --loss. */
+export const ALERT_ICON = "alert" as const;
 export interface Alert { id: string; priority: AlertPriority; text: string; action: { label: string; href: string } }
 
 /** At most one alert banner at a time: P0 before P1, then arrival order. The rest stay queued. */
@@ -25,7 +25,8 @@ export function Banner({ alerts, onNavigate, extra = 0, onMore }: { alerts: read
         <div className={`alert-banner alert-${shown.priority.toLowerCase()}`} data-testid="alert-banner" data-priority={shown.priority}
           role={shown.priority === "P0" ? "alert" : "status"} aria-live={shown.priority === "P0" ? "assertive" : "polite"}>
           {/* Always icon + text, never colour alone (17 §3.1.3). */}
-          <span className="alert-icon" data-testid="alert-icon"><Glyph name={ALERT_ICON} size={16} /></span>
+          {/* P0 gets the dedicated alert glyph (Studio); the bell stays for notifications only. */}
+          <span className="alert-icon" data-testid="alert-icon" data-glyph={shown.priority === "P0" ? ALERT_ICON : "bell"}><Glyph name={shown.priority === "P0" ? ALERT_ICON : "bell"} size={16} /></span>
           <span className="alert-text">{shown.text}</span>
           {/* A real link (keyboard, a11y), routed through the shell's deep-link handling when one is given. */}
           <a className="alert-action" href={shown.action.href} onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate(shown.action.href); } }}>{shown.action.label}</a>
@@ -41,7 +42,7 @@ export interface WorldEvent { name: string; day: number; index: string; sincePct
 /** Plain text of the world-event banner. Elapsed time only, never remaining (17-AT-20). */
 export function worldEventText(e: WorldEvent): string {
   const pct = (v: string) => `${v.startsWith("-") ? "\u2212" : "+"}${v.replace(/^[-+]/, "")}%`;
-  return `● ${e.name.toUpperCase()} · ${S.worldDay} ${e.day} · ${e.index} ${pct(e.sincePct)} ${S.worldSince} · ${S.worldToday} ${pct(e.todayPct)}`;
+  return `${e.name.toUpperCase()} · ${S.worldDay} ${e.day} · ${e.index} ${pct(e.sincePct)} ${S.worldSince} · ${S.worldToday} ${pct(e.todayPct)}`;
 }
 
 /** "+N" count on the last visible phone banner; opens the alerts sheet (Producer 08:20). */
@@ -54,7 +55,7 @@ export function WorldEventBanner({ event, extra = 0, onMore }: { event: WorldEve
     <div className="world-slot" data-testid="world-slot" data-open={!!event}>
       {event && (
         <div className="world-banner" data-testid="world-banner" role="status" aria-live="polite" aria-label={worldEventText(event)}>
-          <span className="world-dot" aria-hidden="true">{"●"}</span>
+          <span className="world-dot" data-testid="world-glyph" aria-hidden="true"><Glyph name="world" size={16} /></span>
           <span className="world-name">{`${event.name.toUpperCase()} · ${S.worldDay} ${event.day}`}</span>
           <span aria-hidden="true">{"·"}</span>
           <span>{event.index} <PctText value={event.sincePct} /> {S.worldSince}</span>

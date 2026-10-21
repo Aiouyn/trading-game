@@ -31,7 +31,7 @@ test("T6-02 feed → one P0 banner (second queued, malformed dropped) + world ba
   await expect(page.getByTestId("alert-banner")).toHaveAttribute("data-priority", "P0");
   await expect(page.getByTestId("alert-slot")).toHaveAttribute("data-queued", "1");
   await expect(page.getByTestId("alert-banner")).not.toContainText("malformed");
-  await expect(page.getByTestId("world-banner")).toHaveAttribute("aria-label", "● CRASH · DAY 3 · GX \u221218.40% since it began · Today \u22122.10%");
+  await expect(page.getByTestId("world-banner")).toHaveAttribute("aria-label", "CRASH · DAY 3 · GX \u221218.40% since it began · Today \u22122.10%");
   const strip = (await page.getByTestId("strip").boundingBox())!;
   const a = (await page.getByTestId("alert-banner").boundingBox())!;
   const w = (await page.getByTestId("world-banner").boundingBox())!;
@@ -111,6 +111,14 @@ test("T6-06 phone stack: P0 → error → world order, max 2, +N opens the alert
   expect(await p0Row.evaluate((e) => getComputedStyle(e).color)).toBe(loss);
   expect(await page.getByTestId("alert-icon").first().evaluate((e) => getComputedStyle(e).color)).toBe(loss);
   await expect(page.locator("[data-testid=alerts-item][data-kind=world] .row-text")).not.toContainText("●");
+  // Studio 08:43/08:44: glyphs per row — P0 'alert' (--loss, also on the banner), P1 'bell', world 'world', error row 'error' in --fg-muted (never red).
+  expect(await page.getByTestId("row-glyph").evaluateAll((g) => g.map((e) => (e as HTMLElement).dataset.glyph))).toEqual(["alert", "error", "world", "bell"]);
+  await expect(page.getByTestId("alert-icon").first()).toHaveAttribute("data-glyph", "alert");
+  const muted = await page.evaluate(() => { const p = document.createElement("i"); p.style.color = "var(--fg-muted)"; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; });
+  const errGlyph = page.locator("[data-testid=alerts-item][data-kind=load] [data-testid=row-glyph]");
+  await expect(errGlyph.locator("svg")).toHaveCount(1);
+  expect(await errGlyph.evaluate((e) => getComputedStyle(e).color)).toBe(muted);
+  expect(muted).not.toBe(loss);
   const loadRow = page.locator("[data-testid=alerts-item][data-kind=load]");
   const retry = page.getByTestId("sheet-retry");
   await expect(retry).toHaveText("Retry");

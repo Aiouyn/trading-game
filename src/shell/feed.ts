@@ -57,8 +57,13 @@ export function reduceFeed(s: FeedState, e: FeedEvent): FeedState {
 /** A feed source delivers raw (unparsed) messages. */
 export type FeedSource = (emit: (raw: unknown) => void) => () => void;
 
+/** Build-time gate (next.config env, always "1" or "0"): a no-flag production build inlines false and drops the mock. */
+export const FEED_HOOKS = process.env.QUAY_HOOKS === "1";
+const NO_FEED: FeedSource = () => () => {};
+
 /** Mock source: `?alerts=p0,p1,p0b&world=crash` (dev / e2e only). Raw objects, parsed like the real feed. */
 export function mockFeedSource(q: URLSearchParams): FeedSource {
+  if (!FEED_HOOKS) return NO_FEED;
   const MOCK: Record<string, unknown> = {
     p0: { kind: "alert", alert: { id: "m-p0", priority: "P0", text: "Margin call: equity below maintenance on 2 positions", action: { label: "Open Risk", href: "/risk" } } },
     p0b: { kind: "alert", alert: { id: "m-p0b", priority: "P0", text: "Second P0 (queued)", action: { label: "Open Broker", href: "/broker" } } },

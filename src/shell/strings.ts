@@ -59,8 +59,10 @@ export const S = {
   haltedChip: "Trading halted",
   moreAlerts: "More alerts",
   alerts: "Alerts",
-  haltedResumed: "Trading resumed",
-  orderEntryHalted: "Order entry is disabled while trading is halted.",
+  haltedResumed: "Trading resumed · Port Avalon", // Studio final copy
+  orderEntryHalted: "Orders are paused while trading is halted.", // Studio final copy
+  orderEntryHaltReason: (reason: string) => `Reason: ${reason}.`, // Studio final copy; omitted when no reason
+  haltReasonMock: "market integrity review", // mock channel's halt reason (demo data, not copy)
   worldDay: "DAY",
   worldSince: "since it began",
   worldToday: "Today",

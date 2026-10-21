@@ -36,9 +36,13 @@ const subs = new Set<() => void>();
 const setHaltHidden = (v: boolean) => { if (haltHidden !== v) { haltHidden = v; subs.forEach((f) => f()); } };
 const useHaltHidden = () => useSyncExternalStore((f) => { subs.add(f); return () => subs.delete(f); }, () => haltHidden, () => false);
 
-/** Order entry lock for any order surface (OrderPad, tickets): disabled while halted, with the halt reason. */
-export function orderEntryLock(halted: boolean): { disabled: boolean; reason: string | null } {
-  return halted ? { disabled: true, reason: `${S.orderEntryHalted} ${S.haltedReason}` } : { disabled: false, reason: null };
+/** Order entry lock for any order surface (OrderPad, tickets): disabled while halted. Tooltip (Studio final):
+ *  "Orders are paused while trading is halted. Reason: {reason}." — the second sentence is dropped with no reason.
+ *  NOTE: only testable on the /__ds/notices mock until a real order entry exists. */
+export function orderEntryLock(halted: boolean, reason?: string | null): { disabled: boolean; reason: string | null } {
+  if (!halted) return { disabled: false, reason: null };
+  const why = reason?.trim();
+  return { disabled: true, reason: why ? `${S.orderEntryHalted} ${S.orderEntryHaltReason(why)}` : S.orderEntryHalted };
 }
 
 /** Persistent steel chip while the halt lasts (Studio 08:04): strip (desktop) and status bar (phone). Reopens the overlay. */

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { EMPTY_FEED, mockFeedSource, parseFeedEvent, reduceFeed, type FeedEvent } from "@/shell/feed";
+import { describe, expect, it, vi } from "vitest";
+import { EMPTY_FEED, parseFeedEvent, reduceFeed, type FeedEvent } from "@/shell/feed";
 
 const alert = { kind: "alert", alert: { id: "a", priority: "P0", text: "t", action: { label: "Open", href: "/risk" } } };
 const world = { kind: "world-event", event: { name: "Crash", day: 3, index: "GX", sincePct: "-18.40", todayPct: "-2.10" } };
@@ -38,7 +38,19 @@ describe("17A T6 feed reducer", () => {
     expect(s.world?.name).toBe("Crash");
     expect(reduceFeed(s, { kind: "world-event-ended" }).world).toBeNull();
   });
-  it("mock source emits raw messages from the URL, including the malformed one", () => {
+  it("mock source is gated at build time: QUAY_HOOKS=0 emits nothing", async () => {
+    vi.resetModules(); vi.stubEnv("QUAY_HOOKS", "0");
+    const m = await import("@/shell/feed");
+    const got: unknown[] = [];
+    m.mockFeedSource(new URLSearchParams("alerts=p0&world=crash"))((r) => got.push(r));
+    expect(m.FEED_HOOKS).toBe(false);
+    expect(got).toHaveLength(0);
+    vi.unstubAllEnvs(); vi.resetModules();
+  });
+  it("mock source emits raw messages from the URL, including the malformed one", async () => {
+    vi.resetModules(); vi.stubEnv("QUAY_HOOKS", "1");
+    const { mockFeedSource } = await import("@/shell/feed");
+    vi.unstubAllEnvs();
     const got: unknown[] = [];
     mockFeedSource(new URLSearchParams("alerts=p0,bad&world=crash"))((r) => got.push(r));
     expect(got).toHaveLength(3);

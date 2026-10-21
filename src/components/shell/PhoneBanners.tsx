@@ -37,6 +37,11 @@ export function sheetRows(alerts: readonly Alert[], load: { offline: boolean } |
 }
 
 
+/** Leading glyph per sheet row (Studio 08:31 / 08:44): P0 'alert', other alerts 'bell', world 'world', load 'error'. */
+export function rowGlyph(r: SheetRow): "alert" | "bell" | "world" | "error" {
+  return r.kind === "alert" ? (r.alert.priority === "P0" ? ALERT_ICON : "bell") : r.kind === "world" ? "world" : "error";
+}
+
 export function AlertsSheetBody({ onNavigate }: { onNavigate: (href: string) => void }) {
   const feed = useFeedState();
   const sys = useShell((s) => s.channels.system);
@@ -49,9 +54,8 @@ export function AlertsSheetBody({ onNavigate }: { onNavigate: (href: string) => 
       <ul className="alerts-list" data-testid="alerts-list">
         {rows.map((r) => (
           <li key={r.kind === "alert" ? r.alert.id : r.kind} data-testid="alerts-item" data-kind={r.kind} data-priority={r.kind === "alert" ? r.alert.priority : undefined}>
-            <span className={`row-glyph${r.kind === "alert" && r.alert.priority === "P0" ? " p0" : ""}`} data-testid="row-glyph" aria-hidden="true">
-              {r.kind === "alert" ? <Glyph name={ALERT_ICON} size={16} /> : r.kind === "world" ? <span className="world-dot">{"●"}</span> : null}
-            </span>
+            <span className={`row-glyph ${r.kind === "alert" ? (r.alert.priority === "P0" ? "p0" : "p1") : r.kind}`} data-testid="row-glyph"
+              data-glyph={rowGlyph(r)} aria-hidden="true"><Glyph name={rowGlyph(r)} size={16} /></span>
             {r.kind === "alert" && <>
               <span className="row-text">{r.alert.text}</span>
               <a className="alert-action" href={r.alert.action.href} onClick={(e) => { e.preventDefault(); closeSheet(); onNavigate(r.alert.action.href); }}>{r.alert.action.label}</a>
