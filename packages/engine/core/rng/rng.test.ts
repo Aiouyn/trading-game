@@ -1,4 +1,7 @@
 // T02-06: generator, seeding, lazy mixing, epoch rotation, registry, manager faults, ledger, checkpoint, INV-ENG-002 (02#18).
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { InvariantCtx } from '../invariant-port';
 import { sha256, sha256Concat } from '../crypto/sha256';
@@ -156,10 +159,12 @@ describe('T02-06 manager', () => {
 });
 
 describe('T02-06 registry (02 §3.10.4)', () => {
-  it('row count = the 02 §3.10.4 table (79 live rows + sim.bot = 80); unique patterns', () => {
-    expect(STREAM_REGISTRY.length).toBe(80);
+  it('row count = the 02 §3.10.4 table + E-63 macro.nowcast (80 live rows + sim.bot = 81); unique patterns', () => {
+    expect(STREAM_REGISTRY.length).toBe(81);
     expect(STREAM_REGISTRY.filter((s) => s.root === 'HARNESS').map((s) => s.pattern)).toEqual(['sim.bot:<botId>']);
-    expect(new Set(STREAM_REGISTRY.map((s) => s.pattern)).size).toBe(80);
+    expect(new Set(STREAM_REGISTRY.map((s) => s.pattern)).size).toBe(81);
+    expect(matchStream('macro.fx:EUN:FDL')!.pattern).toBe('macro.fx:<base>:<quote>'); expect(matchStream('macro.fx:EUN/FDL')).toBeUndefined(); expect(matchStream('macro.fx:EUN')).toBeUndefined();
+    expect(matchStream('macro.nowcast:chr_1:rel_2')).toMatchObject({ module: '04', root: 'PUBLIC' });
   });
   it('matchStream / streamPrefix', () => {
     expect(matchStream('mkt.idio:ast_A')!.module).toBe('05');
@@ -195,5 +200,29 @@ describe('T02-06 INV-ENG-002', () => {
     expect(INV_ENG_002.check(ctx([{ key: 'sim.bot:x', draws: 1 }], [{ key: 'sim.bot:x', before: 0n, after: 1n }])).ok).toBe(false);
     expect(INV_ENG_002.check(ctx([{ key: 'mkt.idio:a', draws: 2 }], [])).ok).toBe(false);
     expect(INV_ENG_002.check(ctx([], [{ key: 'mkt.idio:a', before: 0n, after: 1n }])).ok).toBe(false);
+  });
+});
+
+describe('AC-02-06-FAULTS: every I0.rng_* fault code (the full set raised by rng/*.ts)', () => {
+  it('nine codes, each raised by its own guard', () => {
+    const m = new RngManager(roots); m.beginTick(0, 1, words(0));
+    const r = m.stream('05', MKT, 'mkt.idio:f');
+    const got: Record<string, string | null> = {
+      'I0.rng_unregistered': thrown(() => m.stream('05', MKT, 'mkt.foo:x')),
+      'I0.rng_foreign': thrown(() => m.stream('05', MKT, 'macro.shock:EUN')),
+      'I0.rng_no_tick': thrown(() => new RngManager(roots).stream('05', MKT, 'mkt.idio:f')),
+      'I0.rng_entropy': thrown(() => m.beginTick(1, 1, new Uint32Array(3))),
+      'I0.rng_int': thrown(() => r.int(0)),
+      'I0.rng_student_t': thrown(() => r.studentT(9)),
+      'I0.rng_exponential': thrown(() => r.exponential(0)),
+      'I0.rng_poisson': thrown(() => r.poisson(31)),
+      'I0.rng_categorical': thrown(() => r.categorical([['b', 1], ['a', 1]])),
+    };
+    for (const [code, v] of Object.entries(got)) expect(v).toBe(code);
+    expect(Object.keys(got).length).toBe(9);
+    // the code list is exactly the set used in the sources
+    const dir = dirname(fileURLToPath(import.meta.url)), used: string[] = [];
+    for (const f of readdirSync(dir).sort()) if (f.endsWith('.ts') && !f.endsWith('.test.ts')) for (const c of readFileSync(join(dir, f), 'utf8').match(/I0\.rng_[a-z_]+/g) ?? []) if (!used.includes(c)) used.push(c);
+    expect(used.sort()).toEqual(Object.keys(got).sort());
   });
 });

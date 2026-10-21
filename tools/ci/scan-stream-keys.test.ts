@@ -36,8 +36,45 @@ describe('02#42 every stream key used by any module appears in the 02 §3.10.4 r
     expect(r.unknown.map((u) => u.key)).toEqual(['mkt.nope:${…}', 'sim.bot:b1']);
     expect(r.unregisteredPrefixes).toEqual([{ module: '05', prefix: 'mkt.bogus' }]);
   });
-  it('the real repo has no unknown keys or prefixes', () => {
+  it('the real repo has no unknown keys, prefixes, call-site keys or unregistered helpers', () => {
     const r = scanStreamKeys(join(dirname(fileURLToPath(import.meta.url)), '../..'));
-    expect(r).toEqual({ unknown: [], unregisteredPrefixes: [] });
+    expect(r).toEqual({ unknown: [], unregisteredPrefixes: [], callSiteKeys: [], unregisteredHelpers: [] });
+  });
+});
+
+describe('AC-02-06-REGISTRY-HELPERS: stream keys come only from registered template helpers, never concatenated at call sites', () => {
+  const STREAMS = [
+    "export const S = Object.freeze({",
+    "  idio: (a: string): string => `mkt.idio:${a}`,",
+    "  fx: (b: string): string => `macro.fx:${b}:FDL`,",
+    "  bad: (a: string): string => `mkt.foo:${a}`,",
+    "  slash: (b: string): string => `macro.fx:${b}/FDL`,",
+    "});",
+  ].join('\n');
+  it('helper calls pass; literals, templates, concatenation and variables at call sites are reported', () => {
+    const root = fixture({
+      'packages/engine/markets/streams.ts': STREAMS,
+      'packages/engine/markets/use.ts': [
+        "import { S } from './streams';",
+        "export function g(ctx: any, id: string, k: string) {",
+        "  ctx.rng(S.idio(id)); ctx.rng(S.fx('EUN'));",
+        "  ctx.rng(`mkt.idio:${id}`); ctx.rng('mkt.idio:' + id); ctx.rng('mkt.idio:ast_A'); ctx.rng(k); ctx.rng(T.idio(id)); ctx.rng(S.nothere(id));",
+        "}",
+      ].join('\n'),
+    });
+    const r = scanStreamKeys(root);
+    expect(r.callSiteKeys.map((c) => c.text)).toEqual(['`mkt.idio:${id}`', "'mkt.idio:' + id", "'mkt.idio:ast_A'", 'k', 'T.idio(id)', 'S.nothere(id)']);
+    expect(r.callSiteKeys.every((c) => c.file === 'packages/engine/markets/use.ts' && c.line === 4)).toBe(true);
+  });
+  it('helpers whose template does not match a registry row are reported (E-63 macro.fx:<base>:<quote>)', () => {
+    const r = scanStreamKeys(fixture({ 'packages/engine/markets/streams.ts': STREAMS }));
+    expect(r.unregisteredHelpers.map((h) => [h.helper, h.key, h.line])).toEqual([['S.bad', 'mkt.foo:x0', 4], ['S.slash', 'macro.fx:x0/FDL', 5]]);
+  });
+  it('helper objects outside a streams.ts are not registered helpers', () => {
+    const r = scanStreamKeys(fixture({
+      'packages/engine/markets/keys.ts': "export const S = Object.freeze({ idio: (a: string): string => `mkt.idio:${a}` });",
+      'packages/engine/markets/use.ts': "export function g(ctx: any, id: string) { ctx.rng(S.idio(id)); }",
+    }));
+    expect(r.callSiteKeys.map((c) => c.text)).toEqual(['S.idio(id)']);
   });
 });

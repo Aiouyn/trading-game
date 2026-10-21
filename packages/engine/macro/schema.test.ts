@@ -1,4 +1,4 @@
-import { ID_KIND_RE } from '@tycoon/engine-core';
+import { ID_KIND_RE, matchStream, STREAM_REGISTRY, streamPrefix } from '@tycoon/engine-core';
 import { describe, expect, it } from 'vitest';
 import { BLOC_ALIAS, BLOC_ORDER, ALL_MACRO_TABLES, macroTables, type BlocId } from './schema';
 import { BLOC_DEFAULTS, blocDef, ISLA_SERENA_CITY, SECTOR_COUNT } from './blocs';
@@ -225,22 +225,21 @@ describe('events (04 §5)', () => {
   });
 });
 
-// Fixture: 02 §3.10.4 rows for module 04 (key prefix before ':').
-const REGISTRY_04 = ['macro.global_regime', 'macro.regime', 'macro.shock', 'macro.cb_decision', 'macro.cb_personality', 'macro.fiscal', 'macro.fx', 'macro.gapest', 'macro.crisis', 'macro.sovereign_event'];
 describe('streams (02 §3.10.4)', () => {
   it('keys', () => {
-    expect(S.regime('SRL')).toBe('macro.regime:SRL'); expect(S.fx('PYN')).toBe('macro.fx:PYN/FDL');
+    expect(S.regime('SRL')).toBe('macro.regime:SRL'); expect(S.fx('PYN')).toBe('macro.fx:PYN:FDL');
     expect(S.globalRegime()).toBe('macro.global_regime'); expect(S.shock('EUN')).toBe('macro.shock:EUN');
     expect(S.cbPersonality('NKR')).toBe('macro.cb_personality:cbk_NKR'); expect(S.cbDecision('FDL')).toBe('macro.cb_decision:cbk_FDL');
     expect(S.fiscal('SRL')).toBe('macro.fiscal:gov_SRL'); expect(S.crisis()).toBe('macro.crisis'); expect(S.sov('PYN')).toBe('macro.sovereign_event:gov_PYN');
     expect(S.nowcast('chr_1', 'macro_rel_2')).toBe('macro.nowcast:chr_1:macro_rel_2');
   });
-  it('every stream except macro.nowcast is in the registry; every S key uses a listed stream', () => {
-    for (const k of MACRO_STREAMS) expect(REGISTRY_04.includes(k)).toBe(k !== 'macro.nowcast');
+  it('every S key matches a module-04 row of the 02 §3.10.4 registry (T02-06 STREAM_REGISTRY, E-63) and uses a listed stream', () => {
     const b: BlocId = 'FDL';
-    for (const key of [S.globalRegime(), S.regime(b), S.shock(b), S.cbPersonality(b), S.cbDecision(b), S.fiscal(b), S.fx(b), S.crisis(), S.sov(b), S.nowcast('c', 'r')]) {
+    for (const key of [S.globalRegime(), S.regime(b), S.shock(b), S.cbPersonality(b), S.cbDecision(b), S.fiscal(b), S.fx('PYN'), S.gapest(b), S.crisis(), S.sov(b), S.nowcast('chr_1', 'rel_2')]) {
+      expect(matchStream(key)?.module).toBe('04');
       expect(MACRO_STREAMS).toContain(key.split(':')[0]);
     }
+    for (const k of MACRO_STREAMS) expect(STREAM_REGISTRY.some((r) => r.module === '04' && streamPrefix(r) === k)).toBe(true);
   });
 });
 

@@ -6,11 +6,11 @@
 //   04 hawk draws, hawk drift, member offsets, governor r* bias → macro.cb_personality:cbk_<bloc>
 //   04 guidance noise                                 → macro.cb_decision:cbk_<bloc>
 //   04 fiscal                                         → macro.fiscal:gov_<bloc>
-//   04 fx                                             → macro.fx:<CCY>/FDL
+//   04 fx                                             → macro.fx:<CCY>:FDL          (<base>:<quote>, E-63)
 //   04 macro:events, macro:events:kind                → macro.crisis                (fixed order)
 //   04 sovereign HAZARD default draw, NPC exchange votes → macro.sovereign_event:gov_<bloc>
 //   04 CB output-gap estimate noise ε (E-45)        → macro.gapest:<bloc>          (S root; T04-01b)
-//   04 nowcast                                        → macro.nowcast:<chrId>:<releaseId>   REGISTRY GAP: not in 02 §3.10.4
+//   04 nowcast                                        → macro.nowcast:<chrId>:<releaseId>   (registry row added by E-63)
 import type { Ccy, Id } from '@tycoon/engine-core';
 import type { BlocId } from './schema';
 
@@ -24,7 +24,7 @@ export const S = Object.freeze({
   cbPersonality: (b: BlocId): string => `macro.cb_personality:cbk_${b}`,
   cbDecision: (b: BlocId): string => `macro.cb_decision:cbk_${b}`,
   fiscal: (b: BlocId): string => `macro.fiscal:gov_${b}`,
-  fx: (c: Ccy): string => `macro.fx:${c}/FDL`,
+  fx: (c: Ccy): string => `macro.fx:${c}:FDL`,
   gapest: (b: BlocId): string => `macro.gapest:${b}`,
   crisis: (): string => 'macro.crisis',
   sov: (b: BlocId): string => `macro.sovereign_event:gov_${b}`,

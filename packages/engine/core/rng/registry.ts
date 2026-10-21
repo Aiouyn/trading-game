@@ -1,6 +1,6 @@
 // T02-06: the 02 §3.10.4 stream registry as data. This file IS the registry: a module that needs a new stream adds a row here
 // (19 CI, tools/ci/scan-stream-keys.ts, rejects unknown keys). Rows transcribed in table order; `sim.bot:<botId>` is the table's
-// harness-seed row (root HARNESS, never in the live world).
+// harness-seed row (root HARNESS, never in the live world). E-63: macro.fx keyed <base>:<quote>; macro.nowcast row added (81 rows).
 import type { RootKind } from './stream';
 
 export interface StreamSpec { module: string; pattern: string; root: RootKind | 'HARNESS'; usedFor: string }
@@ -14,10 +14,11 @@ export const STREAM_REGISTRY: readonly StreamSpec[] = Object.freeze([
   { module: '04', pattern: 'macro.cb_decision:<cbk>', root: 'PUBLIC', usedFor: 'meeting-decision noise around the rule' },
   { module: '04', pattern: 'macro.cb_personality:<cbk>', root: 'SECRET', usedFor: 'hidden hawkishness trait drift (01 §5.4)' },
   { module: '04', pattern: 'macro.fiscal:<gov>', root: 'PUBLIC', usedFor: 'fiscal surprises, auction cover noise' },
-  { module: '04', pattern: 'macro.fx:<pair>', root: 'PUBLIC', usedFor: 'FX fundamental noise' },
+  { module: '04', pattern: 'macro.fx:<base>:<quote>', root: 'PUBLIC', usedFor: 'FX fundamental noise (key form <base>:<quote> per E-63)' },
   { module: '04', pattern: 'macro.gapest:<bloc>', root: 'SECRET', usedFor: 'CB output-gap estimate noise ε, AR(1) ρ 0.98, σ 0.5 pp (E-45, PROVISIONAL [Quant]); secret root so the true gap cannot be recovered' },
   { module: '04', pattern: 'macro.crisis', root: 'PUBLIC', usedFor: 'crisis trigger draws (rates set by 04)' },
   { module: '04', pattern: 'macro.sovereign_event:<gov>', root: 'PUBLIC', usedFor: 'downgrade, restructuring triggers' },
+  { module: '04', pattern: 'macro.nowcast:<chrId>:<releaseId>', root: 'PUBLIC', usedFor: '04 nowcast noise per character and release (row added per E-63)' },
   { module: '05', pattern: 'mkt.factor:<factorId>', root: 'PUBLIC', usedFor: 'factor returns (global, sector, region, rates, risk appetite, FX, crypto)' },
   { module: '05', pattern: 'mkt.idio:<assetId>', root: 'PUBLIC', usedFor: 'idiosyncratic Student-t(4) noise' },
   { module: '05', pattern: 'mkt.jump:<assetId>', root: 'PUBLIC', usedFor: 'Kou jumps (occurrence, sign, size)' },
