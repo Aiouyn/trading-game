@@ -241,4 +241,14 @@ describe("CityWindow → @/city", () => {
     expect(renderer.dispose).toHaveBeenCalledTimes(1);
     expect(renderer.setVisibility).not.toHaveBeenCalled();
   });
+
+  it("mount() rejecting and dispose() throwing still reaches the error state", async () => {
+    renderer.mount.mockImplementationOnce(async () => { throw new Error("webgl lost"); });
+    renderer.dispose.mockImplementationOnce(() => { throw new Error("dispose blew up"); });
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    await render(VISIBLE);
+    await vi.waitFor(() => expect(host.querySelector("[data-testid=city-error]")?.textContent).toBe("Couldn't load"));
+    expect(host.textContent).not.toContain("Loading city");
+    expect(renderer.dispose).toHaveBeenCalledTimes(1);
+  });
 });
