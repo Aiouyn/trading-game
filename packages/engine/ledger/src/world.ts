@@ -90,6 +90,10 @@ export const GARNISH_RATE_E6 = 300_000n;          // OD-2: 30%
 interface State {
   tick: Tick; lastCommitted: Tick; safeMode: boolean; idCounter: number;
   entities: SortedMap<Id, LedgerEntity>; accounts: Accounts; holds: SortedMap<Id, Hold>;
+  /** Perf (PR #6 option A): accounts whose balance and qty are both exactly 0n are parked here after the commit that zeroed them, so
+   *  the per-tick scans (computeM0, netIssuance, bridge2909, the INV checks) only visit live accounts. Disjoint from `accounts`;
+   *  accounts() and snapshot() report the union, so nothing observable changes. A zero account contributes nothing to any scan. */
+  dormant: Accounts;
   facts: SortedMap<string, Money>;                // `OVERDRAFT_LIMIT:<key>` | `INTRADAY_CREDIT_LIMIT:<bankId>`
   log: Entry[];                                   // committed entry log (valid and invalid), the postings archive
   day: Entry[];                                   // this game day's committed valid entries (I18)
@@ -130,7 +134,7 @@ export class LedgerWorld {
     this.params = { ...DEFAULT_PARAMS, ...opts.params };
     const t = opts.tick ?? 0;
     this.s = {
-      tick: t, lastCommitted: t - 1, safeMode: false, idCounter: 0, entities: new SortedMap(), accounts: new SortedMap(), holds: new SortedMap(),
+      tick: t, lastCommitted: t - 1, safeMode: false, idCounter: 0, entities: new SortedMap(), accounts: new SortedMap(), dormant: new SortedMap(), holds: new SortedMap(),
       facts: new SortedMap(), log: [], day: [], tickFlows: new SortedMap(), today: new SortedMap(), flowDays: new SortedMap(), done: new SortedMap(), alerts: [],
       sides: new SortedMap(), holdings: new SortedMap(), roles: new SortedMap(), dynasty: new SortedMap(), linkGroups: new SortedMap(), escrows: new SortedMap(),
       accruals: new SortedMap(), freshStart: new SortedMap(), garnish: new SortedMap(), archive: new SortedMap(), dayAcc: new SortedMap(),
@@ -210,7 +214,13 @@ export class LedgerWorld {
   // ───────── reads (committed state only) ─────────
   balance(key: string): Money { return this.s.accounts.get(key)?.balance ?? 0n; }
   qtyOf(key: string): Qty { return this.s.accounts.get(key)?.qty ?? 0n; }
-  accounts(): [string, Bal][] { return this.s.accounts.entries().map(([k, v]) => [k, { ...v }]); }
+  accounts(): [string, Bal][] { return this.allAccounts().entries().map(([k, v]) => [k, { ...v }]); }
+  /** Live ∪ dormant: the full account map, as it was before dormant accounts were parked (full-recompute view). */
+  allAccounts(): Accounts {
+    const a = new SortedMap<string, Bal>(this.s.accounts.entries());
+    for (const [k, v] of this.s.dormant) a.set(k, v);
+    return a;
+  }
   private payKey(e: LedgerEntity, ccy: Ccy): string {
     if (e.payFrom.kind === 'BANK') return accountKey(e.id, 1010, ccy, e.payFrom.bankId);
     const c = defaultMoneyCode(e.kind);
@@ -410,7 +420,7 @@ export class LedgerWorld {
   /** Test-only access (03#38 corruption; INV-LED-009 negative test). Never used by the ledger itself. */
   private lastView: CheckView | undefined;
   testHooks() {
-    return { queue: this.queue, accounts: this.s.accounts, lastView: this.lastView };
+    return { queue: this.queue, accounts: this.s.accounts, dormant: this.s.dormant, lastView: this.lastView };
   }
 
   /** Commit the tick (T03-09 runP13). Idempotent per tick: a rerun for a committed tick posts nothing. Then advances the tick. */
@@ -522,6 +532,7 @@ export class LedgerWorld {
     view.escrows = escrows; view.holds = holds; view.accruals = accruals;
     this.lastView = view; // tests only (invariant mutation checks); not part of state
     const failures = [...TICK_INVARIANTS, ...SYS_INVARIANTS].flatMap(([, chk]) => chk(view));
+    if (isDayClose) failures.push(...dormantCrossCheck(pre, this.s.dormant));
     for (const row of archiveRows) {
       const ticks = [...this.s.tickFlows.values().filter((f) => f.ccy === row.ccy && Math.floor(f.tick / TICKS_PER_DAY) === dayIndex), flows.get(row.ccy) as TickFlows];
       failures.push(...INV_LED_017(row, ticks, this.s.archive.get(`${row.ccy}:${dayIndex - 1}`) ?? this.lastArchive(row.ccy)));
@@ -537,6 +548,7 @@ export class LedgerWorld {
       return res;
     }
     this.s.accounts = post; this.s.holds = holds;
+    parkZeroAccounts(post, this.s.dormant, valid);
     this.s.log.push(...valid, ...invalid);
     this.s.day.push(...valid);
     this.s.today = today;
@@ -631,7 +643,8 @@ export class LedgerWorld {
     const ccys = [...CCYS].sort(cmpStr);
     const prev = new SortedMap<string, Tick>(ccys.map((c) => [c, this.s.hookCursor.get(c) ?? tick - 1]));
     const live = ccys.filter((c) => tick > (prev.get(c) as Tick)); // replayed ticks never re-fire (Δ8)
-    const frozen = new SortedMap<string, Readonly<TickFlows>>(live.map((c) => [c, freezeFlows(flows.get(c) as TickFlows)]));
+    // Perf: the frozen copies are only read by hooks; with no hooks registered there is nothing to copy (same result).
+    const frozen = new SortedMap<string, Readonly<TickFlows>>(this.hooks.length === 0 ? [] : live.map((c) => [c, freezeFlows(flows.get(c) as TickFlows)]));
     const hooks = [...this.hooks].sort((x, y) => cmpStr(x.module, y.module)); // modules sorted, then ccys sorted: a:EUN, a:FDL, …, b:EUN
     this.inHook = true;
     try { for (const h of hooks) for (const c of live) h.fn(frozen.get(c) as Readonly<TickFlows>, { tick, ccy: c as Ccy }); } finally { this.inHook = false; }
@@ -657,7 +670,8 @@ export class LedgerWorld {
     const fold = foldBalances(this.s.log);
     const nonzero = (m: Accounts): string => canonEncode(new SortedMap(m.entries().filter(([, b]) => b.balance !== 0n || b.qty !== 0n)));
     if (nonzero(fold) !== nonzero(this.s.accounts)) throw new Error('INV-LED-013: snapshot is not the fold of the postings archive');
-    return canonEncode({ ...this.s, holds: this.s.holds, done: this.s.done });
+    const { dormant: _parked, ...rest } = this.s; void _parked; // parked accounts are reported inside `accounts` (live ∪ dormant)
+    return canonEncode({ ...rest, accounts: this.allAccounts(), holds: this.s.holds, done: this.s.done });
   }
   /** Restore from a structured clone of the state (TODO(unit-02): decode canonEncode snapshots). */
   checkpoint(): State { return cloneState(this.s); }
@@ -692,6 +706,22 @@ export function applyPosting(a: Accounts, p: { debitAccount: string; creditAccou
   const c = a.get(p.creditAccount) ?? { balance: 0n, qty: 0n };
   a.set(p.creditAccount, { balance: c.balance - p.amount, qty: c.qty - (p.qty ?? 0n) });
 }
+/** Perf: after a commit, move every account this tick's postings touched that now holds exactly 0n balance and 0n qty from the live
+ *  map to `dormant`, and take any touched account that is live again out of `dormant` (the two stay disjoint). O(postings). */
+export function parkZeroAccounts(live: Accounts, dormant: Accounts, entries: readonly Entry[]): void {
+  for (const e of entries) for (const p of e.postings) for (const k of [p.debitAccount, p.creditAccount]) {
+    const b = live.get(k);
+    if (b && b.balance === 0n && b.qty === 0n) { live.delete(k); dormant.set(k, b); } else if (b && dormant.has(k)) dormant.delete(k);
+  }
+}
+/** Day-close full cross-check of the parking (FATAL, same path as the other invariants): every dormant account is exactly 0n/0n
+ *  and none is also live, so live-only scans equal the full recompute over live ∪ dormant (M0, M2, netIssuance, 2909, …). */
+export function dormantCrossCheck(live: Accounts, dormant: Accounts): Failure[] {
+  return dormant.keysWhere((b, k) => b.balance !== 0n || b.qty !== 0n || live.has(k)).map((k) => ({
+    invariantId: 'INV-LED-013', severity: 'FATAL' as const, expected: 'dormant accounts are 0n/0n and not live (live scans = full recompute)',
+    observed: `dormant ${k} = ${dormant.get(k)?.balance}/${dormant.get(k)?.qty}${live.has(k) ? ' (also live)' : ''}`,
+  }));
+}
 /** INV-LED-013 fold (T03-09 foldBalances). */
 export function foldBalances(entries: Iterable<Entry>): Accounts {
   const a: Accounts = new SortedMap();
@@ -708,7 +738,7 @@ function settleHold(h: Hold | undefined, e: Entry): void {
 function cloneState(s: State): State {
   const m = <K extends string, V>(x: SortedMap<K, V>): SortedMap<K, V> => new SortedMap(x.entries().map(([k, v]) => [k, structuredClone(v)]));
   return {
-    ...s, entities: m(s.entities), accounts: m(s.accounts), holds: m(s.holds), facts: m(s.facts), log: structuredClone(s.log), day: structuredClone(s.day),
+    ...s, entities: m(s.entities), accounts: m(s.accounts), dormant: m(s.dormant), holds: m(s.holds), facts: m(s.facts), log: structuredClone(s.log), day: structuredClone(s.day),
     tickFlows: new SortedMap(s.tickFlows.entries().map(([k, f]) => [k, { ...f, byClass: f.byClass.clone(), byCode: f.byCode.clone() }])),
     today: new SortedMap(s.today.entries().map(([k, t]) => [k, { byClass: t.byClass.clone(), byCode: t.byCode.clone(), ownAccount: t.ownAccount }])),
     flowDays: m(s.flowDays), done: s.done.clone(), alerts: [...s.alerts],

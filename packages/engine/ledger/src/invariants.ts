@@ -43,12 +43,20 @@ const QTY_ONLY_CODES = ['EQ_SPLIT', 'LED_DISSOLUTION'];
 
 // ───────── money aggregates (T03-11; computed from balances) ─────────
 export function computeM0(a: Accounts, ccy: Ccy): Money {
+  return a.memo(`computeM0:${ccy}`, () => computeM0Scan(a, ccy));
+}
+/** Full recompute (no cache); the cached computeM0 above returns the same value for an unchanged map. */
+export function computeM0Scan(a: Accounts, ccy: Ccy): Money {
   let s = 0n;
   for (const [k, v] of a) { const p = parseAccountKey(k); if (p && p.ccy === ccy && kindOfId(p.entityId) === 'cbk' && p.code >= 2001 && p.code <= 2003) s -= v.balance; }
   return s;
 }
 export const computeM0sys = (a: Accounts, ccy: Ccy): Money => bal(a, `cbk_${ccy}:1910:${ccy}`);
 export function computeM2(a: Accounts, ccy: Ccy): Money {
+  return a.memo(`computeM2:${ccy}`, () => computeM2Scan(a, ccy));
+}
+/** Full recompute (no cache); the cached computeM2 above returns the same value for an unchanged map. */
+export function computeM2Scan(a: Accounts, ccy: Ccy): Money {
   let s = 0n;
   for (const [k, v] of a) {
     const p = parseAccountKey(k); if (!p || p.ccy !== ccy) continue;
@@ -65,6 +73,10 @@ export function computePEM(a: Accounts, ccy: Ccy, perimeterOf: (id: Id) => strin
 }
 /** netIssuance = sys 3990 + 5900 + 4900, debit-positive, all subs (T03-11). */
 export function netIssuance(a: Accounts, ccy: Ccy): Money {
+  return a.memo(`netIssuance:${ccy}`, () => netIssuanceScan(a, ccy));
+}
+/** Full recompute (no cache); the cached netIssuance above returns the same value for an unchanged map. */
+export function netIssuanceScan(a: Accounts, ccy: Ccy): Money {
   let s = 0n;
   for (const [k, v] of a) { const p = parseAccountKey(k); if (p && p.ccy === ccy && p.entityId === SYS_ID && [3990, 4900, 5900].includes(p.code)) s += v.balance; }
   return s;
@@ -85,6 +97,10 @@ export function postingEffect(p: Posting): { m0: Money; m0sys: Money; m2: Money 
 }
 
 export function bridge2909(a: Accounts, ccy: Ccy): Money {
+  return a.memo(`bridge2909:${ccy}`, () => bridge2909Scan(a, ccy));
+}
+/** Full recompute (no cache); the cached bridge2909 above returns the same value for an unchanged map. */
+export function bridge2909Scan(a: Accounts, ccy: Ccy): Money {
   let s = 0n;
   for (const [k, v] of a) { const p = parseAccountKey(k); if (p && p.ccy === ccy && p.entityId === SYS_ID && p.code === 2909) s += v.balance; }
   return s;
