@@ -495,7 +495,9 @@ export const INV_LED_011: Check = (v) => {
  *  exempt it (its own 4xxx/5xxx or settlement leg); any other code (MKT_TRADE, ADM_*, …) never turns INV-LED-027 off. CREDIT_CREATE/DESTROY are skipped by class. */
 export const E17_BANK_OWN_CODES: readonly string[] = ['BNK_DEPOSIT_INTEREST', 'BNK_LOAN_INTEREST', 'BNK_LOAN_FEE', 'BNK_INTERBANK_INTEREST',
   'BNK_DEPOSIT_INSURANCE_PREMIUM', 'BNK_FX_MARGIN', 'BNK_ENFORCEMENT_FEE', 'BNK_ELASTIC_LOAN_INTEREST', 'BNK_ELASTIC_FEES',
-  'BNK_ELASTIC_DEPOSIT_INTEREST', 'BNK_OPEX_ELASTIC', 'BIZ_WAGES', 'BIZ_WAGES_B2E', 'BIZ_WAGES_NPC'];
+  'BNK_ELASTIC_DEPOSIT_INTEREST', 'BNK_OPEX_ELASTIC', 'BIZ_WAGES', 'BIZ_WAGES_B2E']; // E-18(1)
+/** E-18 addendum: bank income codes (5080/4040) exempt only when the bank is the PAYEE. */
+export const E17_BANK_PAYEE_ONLY_CODES: readonly string[] = ['BNK_FX_MARGIN', 'BNK_ENFORCEMENT_FEE', 'BNK_ELASTIC_FEES'];
 /**
  * E-17 INV-LED-027 (L28) reserve-follows-deposit, per (entry, reason) group of class TRANSFER/FAUCET/SINK and per (bank, ccy):
  * Δ1002(b) + Δ2100(b, non-bank holders) = 0n (debit-positive; "both sides signed as balances" = equal in natural sign), and
@@ -510,9 +512,9 @@ export const INV_LED_027: Check = (v) => {
     for (const [, ps] of groups) {
       const code = ps[0].reason; const ccy = ps[0].ccy; const cls = v.catalog.get(code)?.cls;
       if (cls !== 'TRANSFER' && cls !== 'FAUCET' && cls !== 'SINK') continue;
-      // E-17: "cbCredit and other cbk operations stay governed by E-3 and INV-LED-010 I5": a group where cbk books an own leg (not its 2001-2003 mirror)
-      if (ps.some((p) => [p.debitAccount, p.creditAccount].some((k) => { const q = parseAccountKey(k); return !!q && kindOfId(q.entityId) === 'cbk' && !(q.code >= 2001 && q.code <= 2003); }))) continue;
-      const res = new SortedMap<Id, Money>(); const dep = new SortedMap<Id, Money>(); const own: Record<string, true> = {}; let mirror = 0n; let allRes = 0n;
+      // E-18(2): a group where cbk books an own leg (not its 2001-2003 / 1910 issuer mirrors; FX_SPOT, E-3, I5) skips only the per-bank equality; Σ still applies
+      const cbkOwn = ps.some((p) => [p.debitAccount, p.creditAccount].some((k) => { const q = parseAccountKey(k); return !!q && kindOfId(q.entityId) === 'cbk' && !(q.code >= 2001 && q.code <= 2003) && q.code !== 1910; })); // 1910 = issuer mirror of sys:2900, not an own leg
+      const res = new SortedMap<Id, Money>(); const dep = new SortedMap<Id, Money>(); const own = new SortedMap<Id, Money>(); let mirror = 0n; let allRes = 0n;
       for (const p of ps) for (const [k, sgn] of [[p.debitAccount, 1n], [p.creditAccount, -1n]] as const) {
         const q = parseAccountKey(k); if (!q) continue; const d = sgn * p.amount;
         if (kindOfId(q.entityId) === 'cbk' && q.code === 2002) { mirror += d; continue; }
@@ -520,14 +522,16 @@ export const INV_LED_027: Check = (v) => {
         if (kindOfId(q.entityId) !== 'bnk') continue;
         if (q.code === 1002) res.set(q.entityId, (res.get(q.entityId) ?? 0n) + d);
         else if (q.code === 2100 && q.sub && kindOfId(q.sub) !== 'bnk') dep.set(q.entityId, (dep.get(q.entityId) ?? 0n) + d);
-        else if (q.code !== 2100 && E17_BANK_OWN_CODES.includes(code)) own[q.entityId] = true; // b is payer/payee (own 4xxx/5xxx or accrual leg) under a listed code
+        else if (q.code !== 2100 && E17_BANK_OWN_CODES.includes(code) && (sgn < 0n || !E17_BANK_PAYEE_ONLY_CODES.includes(code)))
+          own.set(q.entityId, (own.get(q.entityId) ?? 0n) + d); // E-18(1): b's own leg as payer/payee of the listed code; counted by amount, never a switch
       }
       const banks = new SortedMap<Id, true>(); for (const [b] of res) banks.set(b, true); for (const [b] of dep) banks.set(b, true);
       let sumRes = allRes;
       for (const [b] of banks) {
-        sumRes += res.get(b) ?? 0n; if (own[b]) continue;
-        const r = res.get(b) ?? 0n; const d = dep.get(b) ?? 0n;
-        if (r + d !== 0n) out.push(F('INV-LED-027', `${e.entryId} ${code} ${b} Δ1002 ${r} vs Δ2100 ${-d} (${ccy})`, 'reserves follow deposits'));
+        sumRes += res.get(b) ?? 0n; if (cbkOwn) continue; // E-18(2): cbk-own groups skip only this per-bank check; the Σ check below always runs
+        const r = res.get(b) ?? 0n; const d = dep.get(b) ?? 0n; const o = own.get(b) ?? 0n;
+        // E-18(1): under a listed code the bank's own income/expense (or settlement) leg balances its deposit/reserve change exactly; a 1-micro leg can't
+        if (r + d + o !== 0n) out.push(F('INV-LED-027', `${e.entryId} ${code} ${b} Δ1002 ${r} vs Δ2100 ${-d} (${ccy})`, 'reserves follow deposits'));
       }
       if (sumRes + mirror !== 0n) out.push(F('INV-LED-027', `${e.entryId} ${code} ΣΔ1002 ${sumRes} vs cbk 2002 mirror ${-mirror} (${ccy})`, 'equal'));
     }

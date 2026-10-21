@@ -171,3 +171,74 @@ describe('QA pr6 NO-GO: INV-027 exemption by code list, I6 1010 key, ccp reading
     expect(L.tplPay(w.env('03', 'P12'), 'chr_A', 'gov_FDL', 5n, 'FDL', 'TAX_SECURITIES_TX').invalid).toBeUndefined();
   });
 });
+
+describe('E-18 rulings on PR #6 (INV-LED-027 scope, cbk legs, reserve seeding, ids, TAX self-pay)', () => {
+  const fatal27 = (e: Entry) => L.INV_LED_027(view([e])).filter((f) => f.invariantId === 'INV-LED-027' && f.severity === 'FATAL').map((f) => f.observed);
+  const okRun = (w: L.LedgerWorld) => { const r = w.runP13(); expect(r.failures).toEqual([]); return r; };
+  const fatalRun = (w: L.LedgerWorld) => { const before = w.accounts(); const r = w.runP13(); expect(r.safeMode).toBe(true); expect(r.failedInvariants).toContain('INV-LED-027');
+    expect(r.failures.filter((f) => f.invariantId === 'INV-LED-027').every((f) => f.severity === 'FATAL')).toBe(true); expect(w.accounts()).toEqual(before); };
+  it('(1) an MKT_TRADE bank-own leg (4190/5280) with a deposit move but no reserve move is fatal', () => {
+    const t = L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 });
+    const e = extra(extra(t, { debitAccount: 'bnk_N:2100:chr_A:FDL', creditAccount: 'bnk_N:4190:FDL', amount: 5n, qty: undefined, assetId: undefined }),
+      { debitAccount: 'chr_A:5280:FDL', creditAccount: 'chr_A:1010:bnk_N:FDL', amount: 5n, qty: undefined, assetId: undefined });
+    expect(fatal27(e)).toEqual([`${t.entryId} MKT_TRADE bnk_N Δ1002 0 vs Δ2100 -5 (FDL)`]);
+  });
+  it('(1) BNK_LOAN_FEE charged by b passes; the exempt list is exactly E-18(1) (no BIZ_WAGES_NPC)', () => {
+    const w = fixture(); bankRail(w, 'chr_A', 'bnk_X');
+    expect(fatal27(L.tplPay(w.env('07', 'P12'), 'chr_A', 'bnk_X', 5n, 'FDL', 'BNK_LOAN_FEE'))).toEqual([]);
+    expect([...L.E17_BANK_OWN_CODES].sort()).toEqual(['BIZ_WAGES', 'BIZ_WAGES_B2E', 'BNK_DEPOSIT_INSURANCE_PREMIUM', 'BNK_DEPOSIT_INTEREST', 'BNK_ELASTIC_DEPOSIT_INTEREST',
+      'BNK_ELASTIC_FEES', 'BNK_ELASTIC_LOAN_INTEREST', 'BNK_ENFORCEMENT_FEE', 'BNK_FX_MARGIN', 'BNK_INTERBANK_INTEREST', 'BNK_LOAN_FEE', 'BNK_LOAN_INTEREST', 'BNK_OPEX_ELASTIC']);
+  });
+  it('(1) BIZ_WAGES_B2E chr→chr across banks with no 1002 move is fatal (listed code, no bank payer/payee)', () => {
+    const e = pay('bnk_X', 'bnk_Y'); const d: Entry = { ...e, postings: e.postings.filter((p) => !/:1002:|:2002:/.test(p.debitAccount)).map((p) => ({ ...p, reason: 'BIZ_WAGES_B2E' })) };
+    expect(fatal27(d)).toEqual([`${e.entryId} BIZ_WAGES_B2E bnk_X Δ1002 0 vs Δ2100 -7 (FDL)`, `${e.entryId} BIZ_WAGES_B2E bnk_Y Δ1002 0 vs Δ2100 7 (FDL)`]);
+  });
+  it('(2)+(3) cbCredit seeding passes; FX_SPOT with cbk passes; the same FX with a 1-micro 2002 mismatch is fatal', () => {
+    const w = fixture(); w.apiFor('04').ledger.cbCredit('cbk_EUN', 'bnk_N', 10_000_000n, 'EUN', 'CBK_STANDING_FACILITY'); okRun(w);
+    w.apiFor('06').ledger.fx('bnk_N', 'cbk_FDL', 'EUN', 4_000_000n, 'FDL', 5_000_000n, 'FX_SPOT'); okRun(w);
+    w.apiFor('06').ledger.fx('bnk_N', 'cbk_FDL', 'EUN', 1_000_000n, 'FDL', 1_000_000n, 'FX_SPOT');
+    const q = w.testHooks().queue; const e = q[q.length - 1]; const m = e.postings.findIndex((p) => /^cbk_\w+:2002:/.test(p.debitAccount) || /^cbk_\w+:2002:/.test(p.creditAccount));
+    expect(m).toBeGreaterThanOrEqual(0); e.postings[m] = { ...e.postings[m], amount: e.postings[m].amount + 1n }; // test-only
+    fatalRun(w);
+  });
+  it('(3) a mint straight into bnk 1002 is fatal', () => {
+    const w = fixture(); w.apiFor('21').ledger.mint('bnk_N', 10n, 'FDL', 'ADM_CORRECTION_IN'); fatalRun(w);
+  });
+  it('(4) ids hh_X and prop_1 pass; Hh_X and xy_1 reject', () => {
+    const w = fixture(); expect(w.registerEntity({ id: 'hh_X' })).toBe('hh_X'); expect(w.registerEntity({ id: 'prop_1' })).toBe('prop_1');
+    for (const id of ['Hh_X', 'xy_1']) expect(() => w.registerEntity({ id })).toThrow(/registerEntity/);
+  });
+  it('(5) TAX_* gov→gov is rejected cp_self_pay (E-18(5) addendum)', () => {
+    const e = L.tplPay(fixture().env('03', 'P12'), 'gov_FDL', 'gov_FDL', 5n, 'FDL', 'TAX_SECURITIES_TX');
+    expect(e.invalid?.invariantId).toBe('INV-LED-025'); expect(e.invalid?.observed).toBe('cp_self_pay TAX_SECURITIES_TX payer=payee=gov_FDL');
+  });
+});
+
+describe('E-18 addendum: exemption by amount, payee-only income codes', () => {
+  const I = (e: Entry) => L.INV_LED_027(view([e])).map((f) => f.observed);
+  const leg = (e: Entry, d: string, c: string, n: bigint, reason: string): Entry => extra(e, { debitAccount: d, creditAccount: c, amount: n, reason });
+  it('a listed code (BNK_LOAN_FEE) with a 1-micro own leg does not switch INV-027 off: a 7 deposit drop is still caught', () => {
+    const e = pay('bnk_X', 'bnk_Y'); let d: Entry = { ...e, postings: e.postings.filter((p) => !/:1002:|:2002:/.test(p.debitAccount)).map((p) => ({ ...p, reason: 'BNK_LOAN_FEE' })) };
+    d = leg(d, 'bnk_X:5080:FDL', 'bnk_X:4040:FDL', 1n, 'BNK_LOAN_FEE'); d = leg(d, 'chr_A:5080:FDL', 'bnk_X:4040:FDL', 1n, 'BNK_LOAN_FEE');
+    expect(I(d)).toEqual([`${e.entryId} BNK_LOAN_FEE bnk_X Δ1002 0 vs Δ2100 -7 (FDL)`, `${e.entryId} BNK_LOAN_FEE bnk_Y Δ1002 0 vs Δ2100 7 (FDL)`]);
+  });
+  it('BNK_FX_MARGIN / BNK_ENFORCEMENT_FEE / BNK_ELASTIC_FEES: bank as payee is exempt; bank as payer is not', () => {
+    const base = pay('bnk_X', 'bnk_X');
+    for (const code of L.E17_BANK_PAYEE_ONLY_CODES) {
+      const mk = (ps: [string, string][]): Entry => ({ ...base, postings: ps.map(([dr, cr], i) => ({ ...base.postings[0], postingSeq: i, debitAccount: dr, creditAccount: cr, amount: 5n, reason: code, flowLeg: undefined })) });
+      const payee = mk([['bnk_X:2100:chr_A:FDL', 'bnk_X:4040:FDL'], ['chr_A:5080:FDL', 'chr_A:1010:bnk_X:FDL']]);
+      expect(I(payee), code).toEqual([]);
+      const payer = mk([['bnk_X:5080:FDL', 'bnk_X:2100:chr_A:FDL'], ['chr_A:1010:bnk_X:FDL', 'chr_A:4040:FDL']]);
+      expect(I(payer), code).toEqual([`${base.entryId} ${code} bnk_X Δ1002 0 vs Δ2100 5 (FDL)`]);
+    }
+    expect([...L.E17_BANK_PAYEE_ONLY_CODES].sort()).toEqual(['BNK_ELASTIC_FEES', 'BNK_ENFORCEMENT_FEE', 'BNK_FX_MARGIN']);
+    // a two-way code (BNK_DEPOSIT_INTEREST) paid BY the bank stays exempt
+    const di: Entry = { ...base, postings: [['bnk_X:5090:FDL', 'bnk_X:2100:chr_A:FDL'], ['chr_A:1010:bnk_X:FDL', 'chr_A:4020:FDL']].map(([dr, cr], i) => ({ ...base.postings[0], postingSeq: i, debitAccount: dr, creditAccount: cr, amount: 5n, reason: 'BNK_DEPOSIT_INTEREST', flowLeg: undefined })) };
+    expect(I(di)).toEqual([]);
+  });
+  it('E-18(2): a cbk-own-leg group with reserves moved but no 2002 mirror fails the Σ check', () => {
+    const e = pay('bnk_X', 'bnk_X');
+    const d: Entry = { ...e, postings: [{ ...e.postings[0], postingSeq: 0, debitAccount: 'bnk_X:1002:FDL', creditAccount: 'cbk_FDL:4000:FDL', amount: 3n, reason: 'FX_SPOT', flowLeg: undefined }] };
+    expect(I(d)).toEqual([`${e.entryId} FX_SPOT ΣΔ1002 3 vs cbk 2002 mirror 0 (FDL)`]);
+  });
+});
