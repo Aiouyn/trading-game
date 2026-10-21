@@ -181,7 +181,16 @@ async function edges(page: Page) {
   });
 }
 const winBox = (page: Page) => page.getByTestId("win-wire").first().evaluate((e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: r.height }; });
+/** Wait until the window and the shelf are stable across two animation frames (no fixed timeouts). */
+async function settled(page: Page) {
+  await expect.poll(() => page.evaluate(() => new Promise<boolean>((done) => {
+    const snap = () => JSON.stringify([document.querySelector("[data-testid=win-wire]")?.getBoundingClientRect(), document.querySelector("[data-testid=shelf]")?.getBoundingClientRect()]);
+    const a = snap();
+    requestAnimationFrame(() => requestAnimationFrame(() => done(snap() === a)));
+  }))).toBe(true);
+}
 async function expectInside(page: Page, label: string) {
+  await settled(page);
   const [e, b] = [await edges(page), await winBox(page)];
   expect([label, b.top >= e.top - 1, b.bottom <= e.bottom + 1]).toEqual([label, true, true]);
   return { e, b };
@@ -232,6 +241,26 @@ for (const [vw, vh] of [[1440, 900], [1280, 720]] as const) {
     await expectInside(page, "viewport 1024x640");
   });
 }
+
+test("AC-WM-SHELF-CLAMP §3 refit: a viewport height change pushes a bottom-docked window up off the shelf (fitRect moves it)", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await boot(page, "/wire");
+  const win = page.getByTestId("win-wire").first();
+  // Dock the window's bottom on clampBottom (the drag stops there).
+  const tb = (await win.locator(".titlebar").boundingBox())!;
+  await page.mouse.move(tb.x + 200, tb.y + 10); await page.mouse.down();
+  await page.mouse.move(tb.x + 200, 1200, { steps: 6 }); await page.mouse.up();
+  let { e, b } = await expectInside(page, "docked at 900");
+  expect(Math.abs(b.bottom - e.bottom)).toBeLessThanOrEqual(1);
+  const h0 = b.h;
+  // Shorter viewport (still desktop width): the stored rect now overlaps the shelf; only fitRect's move-up keeps it clear.
+  await page.setViewportSize({ width: 1440, height: 760 });
+  ({ e, b } = await expectInside(page, "after height change"));
+  expect(b.bottom).toBeLessThanOrEqual(e.bottom + 1);
+  expect(Math.abs(b.bottom - e.bottom)).toBeLessThanOrEqual(1); // moved up to clampBottom
+  expect(Math.abs(b.h - h0)).toBeLessThanOrEqual(1); // moved, not shrunk (it still fits)
+});
 
 test("AC-WM-SHELF-CLAMP §6 phone: no floating windows", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "phone only");
