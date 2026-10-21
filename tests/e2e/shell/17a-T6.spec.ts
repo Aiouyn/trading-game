@@ -102,6 +102,24 @@ test("T6-06 phone stack: P0 → error → world order, max 2, +N opens the alert
   await expect(page.getByTestId("alerts-sheet")).toBeVisible();
   await expect(page.getByTestId("alerts-sheet")).toHaveClass(/qs-bottom/);
   await expect(page.getByTestId("alerts-item")).toHaveCount(4); // 2 alerts + error + world
+  // Studio 08:31: order P0 → error → world → rest; leading glyph column on every row; Retry on the right of the error row.
+  expect(await page.getByTestId("alerts-item").evaluateAll((li) => li.map((e) => (e as HTMLElement).dataset.kind + ((e as HTMLElement).dataset.priority ?? "")))).toEqual(["alertP0", "load", "world", "alertP1"]);
+  expect(await page.getByTestId("alerts-item").evaluateAll((li) => li.map((e) => !!e.firstElementChild?.matches("[data-testid=row-glyph]")))).toEqual([true, true, true, true]);
+  const loss = await page.evaluate(() => { const p = document.createElement("i"); p.style.color = "var(--loss)"; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; });
+  const p0Row = page.locator("[data-testid=alerts-item][data-priority=P0] [data-testid=row-glyph]");
+  await expect(p0Row.locator("svg")).toHaveCount(1);
+  expect(await p0Row.evaluate((e) => getComputedStyle(e).color)).toBe(loss);
+  expect(await page.getByTestId("alert-icon").first().evaluate((e) => getComputedStyle(e).color)).toBe(loss);
+  await expect(page.locator("[data-testid=alerts-item][data-kind=world] .row-text")).not.toContainText("●");
+  const loadRow = page.locator("[data-testid=alerts-item][data-kind=load]");
+  const retry = page.getByTestId("sheet-retry");
+  await expect(retry).toHaveText("Retry");
+  const [lr, rr] = [(await loadRow.boundingBox())!, (await retry.boundingBox())!];
+  expect(lr.x + lr.width - (rr.x + rr.width)).toBeLessThan(4); // right-aligned like the other rows' actions
+  expect(rr.height).toBeGreaterThanOrEqual(44);
+  const before = await page.evaluate(() => (window as Window & { __quayRetries?: () => number }).__quayRetries?.() ?? -1);
+  await retry.click();
+  await expect.poll(() => page.evaluate(() => (window as Window & { __quayRetries?: () => number }).__quayRetries?.() ?? -1)).toBeGreaterThan(before);
   await page.waitForTimeout(300);
   await shot(page, "phone-alerts-sheet");
   await page.keyboard.press("Escape");

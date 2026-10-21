@@ -5,8 +5,10 @@
 import { dispatchFeed, parseDeepLink, useFeedState } from "@/shell/feed";
 import { openSheet, closeSheet } from "@/shell/sheetHost";
 import { S } from "@/shell/strings";
-import { Banner, pickAlert, WorldEventBanner, worldEventText, type Alert, type WorldEvent } from "./Banner";
+import { ALERT_ICON, Banner, pickAlert, WorldEventBanner, worldEventText, type Alert, type WorldEvent } from "./Banner";
 import { LoadState } from "./LoadState";
+import { Glyph } from "./Glyph";
+import { retryLoad } from "@/shell/loader";
 import { useShell, useShellStore } from "./ShellContext";
 
 export const MAX_PHONE_BANNERS = 2;
@@ -19,17 +21,50 @@ export function phoneStack(alerts: readonly Alert[], loadOpen: boolean, world: W
   return { shown: items.slice(0, MAX_PHONE_BANNERS), extra: Math.max(0, items.length - MAX_PHONE_BANNERS) + queued.length };
 }
 
-export function AlertsSheetBody({ alerts, world, load, onNavigate }: { alerts: readonly Alert[]; world: WorldEvent | null; load: string | null; onNavigate: (href: string) => void }) {
+export type SheetRow =
+  | { kind: "alert"; alert: Alert }
+  | { kind: "load"; offline: boolean }
+  | { kind: "world"; event: WorldEvent };
+
+/**
+ * Alerts-sheet rows in the stack's priority (Studio 08:31): P0 alerts, then offline / error, then the world event,
+ * then everything else by time (arrival order).
+ */
+export function sheetRows(alerts: readonly Alert[], load: { offline: boolean } | null, world: WorldEvent | null): SheetRow[] {
+  const p0 = alerts.filter((a) => a.priority === "P0").map((alert) => ({ kind: "alert" as const, alert }));
+  const rest = alerts.filter((a) => a.priority !== "P0").map((alert) => ({ kind: "alert" as const, alert }));
+  return [...p0, ...(load ? [{ kind: "load" as const, offline: load.offline }] : []), ...(world ? [{ kind: "world" as const, event: world }] : []), ...rest];
+}
+
+
+export function AlertsSheetBody({ onNavigate }: { onNavigate: (href: string) => void }) {
+  const feed = useFeedState();
+  const sys = useShell((s) => s.channels.system);
+  const loadOpen = sys.load !== "ok" || sys.offline;
+  const loading = sys.load === "loading";
+  const rows = sheetRows(feed.alerts, loadOpen ? { offline: sys.offline } : null, feed.world);
   return (
     <>
       <h2 className="label">{S.alerts}</h2>
       <ul className="alerts-list" data-testid="alerts-list">
-        {pickAlert(alerts).shown && [pickAlert(alerts).shown!, ...pickAlert(alerts).queued].map((a) => (
-          <li key={a.id} data-testid="alerts-item"><span>{a.text}</span>{" "}
-            <a className="alert-action" href={a.action.href} onClick={(e) => { e.preventDefault(); closeSheet(); onNavigate(a.action.href); }}>{a.action.label}</a></li>
+        {rows.map((r) => (
+          <li key={r.kind === "alert" ? r.alert.id : r.kind} data-testid="alerts-item" data-kind={r.kind} data-priority={r.kind === "alert" ? r.alert.priority : undefined}>
+            <span className={`row-glyph${r.kind === "alert" && r.alert.priority === "P0" ? " p0" : ""}`} data-testid="row-glyph" aria-hidden="true">
+              {r.kind === "alert" ? <Glyph name={ALERT_ICON} size={16} /> : r.kind === "world" ? <span className="world-dot">{"●"}</span> : null}
+            </span>
+            {r.kind === "alert" && <>
+              <span className="row-text">{r.alert.text}</span>
+              <a className="alert-action" href={r.alert.action.href} onClick={(e) => { e.preventDefault(); closeSheet(); onNavigate(r.alert.action.href); }}>{r.alert.action.label}</a>
+            </>}
+            {r.kind === "load" && <>
+              <span className="row-text" data-testid="sheet-load-message">{r.offline ? S.offline : S.couldntLoad}</span>
+              <button className="load-retry alert-action" data-testid="sheet-retry" data-alt={loading ? S.retry : S.retrying} aria-disabled={loading} onClick={() => { if (!loading) retryLoad(); }}>
+                <span className="load-retry-label">{loading ? S.retrying : S.retry}</span>
+              </button>
+            </>}
+            {r.kind === "world" && <span className="row-text">{worldEventText(r.event).replace(/^● /, "")}</span>}
+          </li>
         ))}
-        {load && <li data-testid="alerts-item">{load}</li>}
-        {world && <li data-testid="alerts-item">{worldEventText(world)}</li>}
       </ul>
     </>
   );
@@ -48,7 +83,7 @@ export function PhoneBannerStack() {
   const { shown, extra } = phoneStack(feed.alerts, loadOpen, feed.world);
   const last = shown.at(-1);
   const onMore = () => openSheet({ side: "bottom", label: S.alerts, testId: "alerts-sheet",
-    content: <AlertsSheetBody alerts={feed.alerts} world={feed.world} load={loadOpen ? (sys.offline ? S.offline : S.couldntLoad) : null} onNavigate={navigate} /> });
+    content: <AlertsSheetBody onNavigate={navigate} /> });
   return (
     <div className="phone-stack" data-testid="phone-stack" data-count={shown.length} data-last={last ?? ""}>
       {shown.includes("alert") && <Banner alerts={feed.alerts.filter((a) => a.id === pickAlert(feed.alerts).shown?.id)} onNavigate={navigate} extra={last === "alert" ? extra : 0} onMore={onMore} />}

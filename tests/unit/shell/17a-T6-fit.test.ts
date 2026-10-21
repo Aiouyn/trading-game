@@ -51,3 +51,18 @@ describe("17A T6 deep links + phone stack", () => {
     expect(phoneStack([], false, null)).toEqual({ shown: [], extra: 0 });
   });
 });
+
+import { sheetRows } from "@/components/shell/PhoneBanners";
+describe("17A T6 alerts-sheet order (Studio 08:31)", () => {
+  const al = (id: string, priority: "P0" | "P1"): Alert => ({ id, priority, text: id, action: { label: "Open", href: "/risk" } });
+  const w: WorldEvent = { name: "Crash", day: 3, index: "GX", sincePct: "-1", todayPct: "-1" };
+  const key = (r: ReturnType<typeof sheetRows>[number]) => (r.kind === "alert" ? r.alert.id : r.kind);
+  it("P0s, then offline/error, then world, then the rest by arrival time", () => {
+    const rows = sheetRows([al("p1-early", "P1"), al("p0-a", "P0"), al("p1-late", "P1"), al("p0-b", "P0")], { offline: false }, w);
+    expect(rows.map(key)).toEqual(["p0-a", "p0-b", "load", "world", "p1-early", "p1-late"]);
+  });
+  it("'Order partly filled' (P1) comes after 'Couldn't load'", () => {
+    expect(sheetRows([al("order-partly-filled", "P1")], { offline: false }, null).map(key)).toEqual(["load", "order-partly-filled"]);
+  });
+  it("omits absent sections", () => expect(sheetRows([], null, null)).toEqual([]));
+});
