@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { canonEncode, CCYS, FLOW_CLASSES, hashHex, legKey, SortedMap, tickFlowsOf, type FlowClass } from '../src';
-import { runDriver } from './driver';
+import { runDriver, runDriverYielding } from './driver';
+import type { Entry, LedgerWorld } from '../src';
 
 const fcParams = { numRuns: 25, seed: 20261020 };
 
@@ -42,23 +43,40 @@ describe('property and long-run tests', () => {
     }), fcParams);
   });
 
-  it('03#39 / p10 zerosum port: 14 game days; FlowDay totals = sums recomputed from the postings; exact 0n residual every day', () => {
+  // AC4 (amended): under TYCOON_LONG=1 the 2688-day run must finish within 60 min on a clean nightly runner (test timeout 3_600_000 ms).
+  it(`03#39 / p10 zerosum port: ${process.env.TYCOON_LONG === '1' ? 2688 : 14} game days (default 14; TYCOON_LONG=1: 2688); FlowDay totals = sums recomputed from the postings; exact 0n residual every day`, { timeout: process.env.TYCOON_LONG === '1' ? 3_600_000 : 120_000 }, async () => {
     const days = process.env.TYCOON_LONG === '1' ? 2688 : 14;
-    const w = runDriver(39, 720 * days, (_w, r) => expect(r.failures).toEqual([]));
-    const log = w.entryLog();
-    let m0sys = 0n;
-    for (let d = 0; d < days; d++) {
+    // Each day is checked once, at its own day close (inside the run), against only that day's entries: O(days) total, and every
+    // day is read while it is still inside the FlowDay retention window (364 days), so TYCOON_LONG=1 (2688 days) checks every day.
+    let m0sys = 0n; let cursor = 0; let checked = 0;
+    const pending = new SortedMap<string, Entry[]>();
+    const checkDay = (w: LedgerWorld, d: number) => {
       const fd = w.flowReader().dayFlows('FDL', d)!;
+      expect(fd).toBeDefined();
       const sums = new SortedMap<FlowClass, bigint>(FLOW_CLASSES.map((c) => [c, 0n]));
       const byCode = new SortedMap<string, bigint>();
-      for (const e of log) if (!e.invalid && Math.floor(e.tick / 720) === d) for (const p of e.postings) if (p.flowLeg && p.ccy === 'FDL') {
+      for (const e of pending.get(String(d)) ?? []) if (!e.invalid) for (const p of e.postings) if (p.flowLeg && p.ccy === 'FDL') {
         const c = w.catalog.get(p.reason)!.cls; sums.set(c, sums.get(c)! + p.amount); byCode.set(p.reason, (byCode.get(p.reason) ?? 0n) + p.amount);
       }
+      pending.delete(String(d));
       for (const c of FLOW_CLASSES) expect(fd.byClass[c]).toBe(String(sums.get(c)));
       for (const [code, a] of byCode) if (['FAUCET', 'SINK'].includes(w.catalog.get(code)!.cls)) expect(fd.byCode[code]).toBe(String(a)); // test 1: Σ TickFlows = FlowDay
       m0sys += sums.get('FAUCET')! - sums.get('SINK')!;
       expect(BigInt(fd.M0_sys)).toBe(m0sys); // residual exactly 0n (p10 tolerated < 0.01/day)
-    }
+      checked++;
+    };
+    let t = 0; const long = process.env.TYCOON_LONG === '1'; let dayStart = performance.now();
+    await runDriverYielding(39, 720 * days, (w, r) => {
+      expect(r.failures).toEqual([]);
+      const log = w.entryLog();
+      for (; cursor < log.length; cursor++) { const e = log[cursor]; const d = String(Math.floor(e.tick / 720)); const b = pending.get(d); if (b) b.push(e); else pending.set(d, [e]); }
+      if (t % 720 === 719) {
+        checkDay(w, Math.floor(t / 720));
+        if (long) { const now = performance.now(); console.log(`[03#39] day ${Math.floor(t / 720) + 1} ms ${Math.round(now - dayStart)}`); dayStart = now; } // timing only (logs), no assertion
+      }
+      t++;
+    });
+    expect(checked).toBe(days);
   });
 
   it('spec test 5 / p10 invariants.property port: two runs with the same seed are byte-identical; another seed differs', () => {

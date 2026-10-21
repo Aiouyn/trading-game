@@ -7,15 +7,23 @@ on:
   schedule:
     - cron: '0 2 * * *' # nightly: long runs (TYCOON_LONG=1)
   workflow_dispatch:
+    inputs:
+      long:
+        description: 'Run the long tests (TYCOON_LONG=1: 03#39 2688 days, test 12 1344 days)'
+        type: boolean
+        default: false
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 180 # long runs (nightly / dispatch long=true); the short suite takes ~2 min
     strategy:
       fail-fast: false
       matrix:
         pkg: [core, ledger, macro]
     env:
-      TYCOON_LONG: ${{ github.event_name == 'schedule' && '1' || '' }}
+      TYCOON_LONG: ${{ (github.event_name == 'schedule' || inputs.long) && '1' || '' }}
+      # long runs hold the committed entry log in memory (~2.5 MB per game day, by design): give the heap room
+      NODE_OPTIONS: ${{ (github.event_name == 'schedule' || inputs.long) && '--max-old-space-size=8192' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

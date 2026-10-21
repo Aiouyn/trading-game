@@ -29,7 +29,8 @@ const motion = {
 
 // Every other block that sets custom properties (17A T1-01: tokens.ts mirrors every var).
 const MODES = {
-  colorBlind: 'html[data-cb="1"]',
+  colorBlind: 'html[data-cb="1"] {',
+  colorBlindBroadsheet: 'html[data-cb="1"][data-palette="broadsheet"] {',
   highContrast: 'html[data-hc="1"]',
   shadow: '[data-subpalette="shadow"] {',
   reducedMotion: 'html[data-motion="reduce"] {',
