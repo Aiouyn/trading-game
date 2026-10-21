@@ -12,6 +12,13 @@ const cityEntry = existsSync(path.join(root, "src/city/index.ts")) ? "./src/city
 const nextConfig: NextConfig = {
   turbopack: { root, resolveAlias: { "@/city": cityEntry } },
   outputFileTracingRoot: root,
+  // Test-only hook flags are ALWAYS defined (as "1" or "0") so the bundler inlines a literal and folds the
+  // gate: without this, an unset NEXT_PUBLIC_* var is left as a runtime `process.env` read and the hook code
+  // ships. Only the e2e build (playwright.config webServer env) sets them to "1".
+  env: {
+    NEXT_PUBLIC_QUAY_MOCK_PHASE: process.env.NEXT_PUBLIC_QUAY_MOCK_PHASE === "1" ? "1" : "0",
+    NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL: process.env.NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL === "1" ? "1" : "0",
+  },
 };
 
 export default nextConfig;
