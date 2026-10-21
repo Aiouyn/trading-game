@@ -149,6 +149,12 @@ html[data-cb="1"] {
   --loss: #FF5C8A;
 }
 
+/* Colour-blind pair on Broadsheet (Studio T1 ruling 8): same hues, darker for the light palette. */
+html[data-cb="1"][data-palette="broadsheet"] {
+  --gain: #08657A;
+  --loss: #A8235A;
+}
+
 /* High contrast */
 html[data-hc="1"] {
   --line: var(--fg-disabled);
