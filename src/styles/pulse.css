@@ -1,0 +1,10 @@
+/* Pulse (17A T1 → T3): tick ring and market phase. Moved verbatim from shell.css. */
+.phase { display: flex; align-items: center; gap: 6px; font-size: calc(12px * var(--text-scale)); color: var(--fg-muted); white-space: nowrap; }
+/* TickRing */
+.tickring { flex: none; display: block; }
+.tickring-track { fill: none; stroke: var(--line); stroke-width: 2; }
+.tickring-sweep { fill: none; stroke: var(--fg-muted); stroke-width: 2; animation: tick-sweep var(--dur-tick) linear forwards; }
+html[data-motion="reduce"] .tickring-sweep { animation-duration: 5000ms; animation-timing-function: steps(5, end); }
+@keyframes tick-sweep { to { stroke-dashoffset: 0; } }
+.reconnecting .clock { color: var(--fg-faint); text-decoration: underline dashed var(--fg-faint); }
+.reconnecting .tickring-track, .reconnecting .tickring-sweep { stroke-dasharray: 2 2; }

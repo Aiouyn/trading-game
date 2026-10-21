@@ -1,0 +1,20 @@
+/* Primitives (17A T1): chip, dot, icon button, primary button, MoneyText. Moved verbatim from shell.css. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  padding: 2px 9px;
+  font-size: var(--fs-11_5);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.chip-acc { border-color: color-mix(in srgb, var(--acc) 50%, transparent); color: var(--acc); }
+.dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex: none; }
+.dot-gain { background: var(--gain); }
+.dot-faint { background: var(--fg-faint); }
+.icon-btn { display: grid; place-items: center; min-width: 28px; min-height: 28px; color: var(--fg-muted); }
+.btn-primary { height: 36px; padding: 0 var(--sp-16); border-radius: var(--r-btn); font-weight: 600; background: var(--acc); color: var(--on-acc); border: 1px solid var(--acc); }
+[data-subpalette="shadow"] .btn-primary { background: transparent; color: var(--steel); border-color: var(--steel); }
+.cents { font-size: 65%; color: var(--fg-muted); }

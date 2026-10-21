@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @import "../styles/tokens.css";
 @import "../styles/shell.css";
+/* Area files after the base rules, in the original cascade order (17A T1 CSS split). */
+@import "../styles/primitives.css";
+@import "../styles/chrome.css";
+@import "../styles/pulse.css";
+@import "../styles/nav.css";
+@import "../styles/notices.css";
 
 /* Tailwind 4 utilities read the Quay tokens (bg-win, text-fg-muted, border-line, ...). */
 @theme inline {
