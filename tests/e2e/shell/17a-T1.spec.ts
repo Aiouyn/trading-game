@@ -8,10 +8,24 @@ const PALETTES = ["ink-brass", "broadsheet", "phosphor", "riviera"] as const;
 const SHOTS = "tests/e2e/shell/__screenshots__/17a/T1";
 const EXTRA = process.env.SHOTS_COPY_DIR; // also drop copies here (PR evidence)
 
+/**
+ * Open /__ds in a palette and wait until it is settled. The palette is applied in an effect after the first paint
+ * (ink-brass until then), and .btn animates `color` over --dur-fast (120 ms), so right after the switch a Broadsheet
+ * ghost button can still paint Ink & Brass's --fg-muted (#9AA0A8) on Broadsheet's white: the 2.63:1 C4 flake (#25).
+ * So: wait for the attribute, park the mouse (no stray :hover), then wait for every running transition to finish.
+ */
 async function ds(page: Page, palette: string = "ink-brass") {
   await page.goto(`/__ds?palette=${palette}`);
   await expect(page.getByTestId("ds-ready")).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.palette)).toBe(palette);
+  await settle(page);
+}
+async function settle(page: Page) {
+  await page.mouse.move(0, 0);
+  await page.evaluate(async () => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // style recalc after the switch
+    await Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished.catch(() => undefined)));
+  });
 }
 
 /** Resolve a CSS expression to its computed value through a probe element. */
@@ -105,6 +119,42 @@ test("C4 axe: 0 serious/critical on /__ds (Ink & Brass, Broadsheet)", async ({ p
     const r = await new AxeBuilder({ page }).include("[data-testid=ds-ready]").analyze();
     expect(r.violations.filter((v) => v.impact === "serious" || v.impact === "critical").flatMap((v) => v.nodes.map((n) => `${p}: ${v.id} ${n.target.join(" ")} ${n.any[0]?.message ?? ""}`))).toEqual([]);
   }
+});
+
+// Every ghost button state in every palette, read after transitions finish (computed colour vs the effective
+// background behind the transparent button). Disabled is reported but exempt from 1.4.3 (inactive control).
+const GHOST_PALETTES = ["ink-brass", "broadsheet", "phosphor", "riviera"] as const;
+test("C4 ghost button contrast ≥ 4.5:1 at rest, hover, focus and active in all 4 palettes (deterministic)", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "pointer states: desktop project");
+  const ratio = (id: string) => page.getByTestId(id).evaluate(async (el) => {
+    await Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined)));
+    const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).map(Number);
+    const lum = ([r, g, b]: number[]) => [r!, g!, b!].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i]!, 0);
+    let bgEl: Element | null = el, bg = "rgba(0, 0, 0, 0)";
+    while (bgEl) { bg = getComputedStyle(bgEl).backgroundColor; if (rgb(bg)[3] !== 0 && bg !== "transparent") break; bgEl = bgEl.parentElement; }
+    if (!bgEl) bg = getComputedStyle(document.documentElement).backgroundColor;
+    const [a, b] = [lum(rgb(getComputedStyle(el).color)), lum(rgb(bg))];
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  });
+  const low: string[] = [];
+  for (const p of GHOST_PALETTES) {
+    await ds(page, p);
+    for (const scope of ["base", "shadow"]) {
+      for (const size of ["md", "sm"]) {
+        const id = `ds-btn-${scope}-ghost-${size}`;
+        if (!(await page.getByTestId(id).count())) continue;
+        const btn = page.getByTestId(id);
+        const check = async (state: string) => { const r = await ratio(id); if (r < 4.5) low.push(`${p} ${id} ${state} ${r.toFixed(2)}`); };
+        await settle(page); await check("rest");
+        await btn.hover(); await check("hover");
+        await page.mouse.down(); await check("active"); await page.mouse.up();
+        await settle(page);
+        await btn.focus(); await page.keyboard.press("Shift+Tab"); await page.keyboard.press("Tab"); await check("focus");
+        await btn.blur();
+      }
+    }
+  }
+  expect(low).toEqual([]);
 });
 
 test("C5 hit targets: ≥44 touch, ≥28 pointer", async ({ page }, info) => {
