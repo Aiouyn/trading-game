@@ -1,0 +1,100 @@
+{
+ "catalogVersion": 1,
+ "blocs": [
+  {
+   "blocId": "FDL",
+   "alias04": "FU",
+   "name": "Federal Union",
+   "currencyName": "Federal Dollar",
+   "code": "FDL",
+   "display": "$",
+   "politicalCapital": "Port Avalon",
+   "financialCentre": "Port Avalon",
+   "cities": [
+    "Port Avalon",
+    "Lakemont",
+    "Redmesa"
+   ]
+  },
+  {
+   "blocId": "EUN",
+   "alias04": "EC",
+   "name": "Euran Compact",
+   "currencyName": "Euran Mark",
+   "code": "EUN",
+   "display": "EUN prefix",
+   "politicalCapital": "Meridia",
+   "financialCentre": "Meridia",
+   "cities": [
+    "Meridia",
+    "Valcourt",
+    "Belmara"
+   ]
+  },
+  {
+   "blocId": "PYN",
+   "alias04": "PL",
+   "name": "Pacific League",
+   "currencyName": "Pacific Tael",
+   "code": "PYN",
+   "display": "PYN prefix",
+   "politicalCapital": "Kaiyo City",
+   "financialCentre": "Kaiyo City",
+   "cities": [
+    "Kaiyo City",
+    "Tessan",
+    "Mirako"
+   ]
+  },
+  {
+   "blocId": "NKR",
+   "alias04": "NA",
+   "name": "Nordic Alliance",
+   "currencyName": "Nordic Rune",
+   "code": "NKR",
+   "display": "NKR prefix",
+   "politicalCapital": "Nordhaven City",
+   "financialCentre": "Nordhaven City",
+   "cities": [
+    "Nordhaven City",
+    "Skarvik",
+    "Vintra"
+   ]
+  },
+  {
+   "blocId": "SRL",
+   "alias04": "SC",
+   "name": "Southern Coalition",
+   "currencyName": "Southern Sol",
+   "code": "SRL",
+   "display": "SRL prefix",
+   "politicalCapital": "Alta Verde",
+   "financialCentre": "Sundara Coast",
+   "cities": [
+    "Sundara Coast",
+    "Cobreval",
+    "Alta Verde"
+   ]
+  }
+ ],
+ "serena": {
+  "cityId": "cty_isla_serena",
+  "name": "Isla Serena",
+  "bloc": null,
+  "homeBloc": "SERENA",
+  "reportingCcy": "FDL"
+ },
+ "aliasTable": {
+  "FU": "FDL",
+  "EC": "EUN",
+  "PL": "PYN",
+  "NA": "NKR",
+  "SC": "SRL"
+ },
+ "initialFxFdlPerUnit": {
+  "EUN": 1.1,
+  "PYN": 0.15,
+  "NKR": 0.095,
+  "SRL": 0.2
+ }
+}

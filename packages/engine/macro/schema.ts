@@ -98,6 +98,7 @@ export interface BlocMacroState {
   shocks: ActiveShock[];
   // card additions (stored state used by later 04 rules)
   rStarRw: number;                 // §3.4.4 random walk
+  gapEstNoise: number;             // T04-01b: ε of outputGapEstimate (hidden: with x̂ public it would reveal x)
   credit: number; creditGdpTrend: number; peNorm: number; fiscalImpulse: number; unemployment12mLow: number;
   dep: number;                     // effective depreciation yoy
   sentiment: number; consumptionSignal: number;
@@ -351,7 +352,8 @@ type Ns = { L: number; S: number; C: number; lambda: number };
 export interface CurveState { id: BlocId; tick: Tick; hHat: number; marketImplied: { horizonQuarters: 1 | 2 | 4 | 8; rate: number }[]; nInf: number;
   nodes: CurvePoint[]; ois: CurvePoint[]; ns: Ns; nsOis: Ns; nsReal: Ns; tp10: number; breakeven: CurvePoint[]; basis: number; inversionDays: number }
 export interface DailyHistoryRow { id: string /* `${bloc}:${gameDay}` or `GLOBAL:${gameDay}` */; bloc: BlocId | 'GLOBAL'; gameDay: number;
-  realGdpIndex: number; cpiLevel: number; coreCpiLevel: number; outputGap: number; energyIndex: number; foodIndex: number; worldTradeIndex: number;
+  realGdpIndex: number; cpiLevel: number; coreCpiLevel: number; outputGap: number;
+  outputGapEstimate: number /* E-45: public x̂ = x + ε, ε AR(1) per GD, ρ 0.98, σ 0.005, stream `macro.gapest:<bloc>`, PROVISIONAL [Quant] (T04-01b) */; energyIndex: number; foodIndex: number; worldTradeIndex: number;
   equityIndex: number | null; spotVsFdl: number; effectiveFx: number; reservesFdl: string; policyRate: number; y3m: number; y10: number;
   deficitPrimaryGdp: number; creditGdp: number; housePriceIndex: number | null; fearIndex: number; fsi: number; regime: Regime }
 export interface HookCall { id: Id; owner: '05' | '06' | '07' | '08' | '10' | '11' | '12' | '16'; hook: string; args: Record<string, number | string | string[] | null>;
