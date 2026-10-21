@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
+import { seedHistory, useBackStack } from "@/shell/back";
 import { clockAt, mockChannels, phaseOverride, TICK_MS } from "@/shell/mockChannels";
 import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
@@ -89,6 +90,7 @@ function Surface() {
 export function QuayShell({ route, query }: { route: string[]; query: string }) {
   const [store] = useState(() => createShellStore(mockChannels(new URLSearchParams(query))));
   useShellKeys(store);
+  useBackStack(store);
 
   useEffect(() => {
     const s = store.getState();
@@ -103,18 +105,23 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
       const next = clockAt(c.clock.tick + 1);
       store.getState().setChannels({ ...c, clock: pinned ? { ...next, phase: pinned } : next });
     }, TICK_MS);
-    // Deep link /{appId}/...: open, or focus the open instance (Audit A-8).
+    // Deep link /{appId}/...: after restoring saved windows, open it, or focus and front the open instance
+    // (Audit A-8, 17A T4-04): openApp never creates a window past the instance cap.
     const app = route[0];
-    if (app && isAppId(app)) s.open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true });
-    // Device-local state: IndexedDB `quay.<accountId>` (17 §2.2). Restored unless a deep link opened a window.
+    const deepLink = () => {
+      if (app && isAppId(app)) s.open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true });
+      seedHistory(store, route[1]);
+    };
+    // Device-local state: IndexedDB `quay.<accountId>` (17 §2.2).
     const ACCOUNT = "guest";
     let unsub = () => {};
     loadLocal(ACCOUNT).then((saved) => {
-      if (saved && !app) store.setState((st) => ({ local: { ...st.local, ...saved } }));
+      if (saved) store.setState((st) => ({ local: { ...st.local, ...saved } }));
+      deepLink();
       // A new account starts in the Trade layout (17 §3.2.5), desktop only.
       if (!saved && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
       unsub = store.subscribe((st, prev) => { if (st.local !== prev.local) void queueSave(ACCOUNT, st.local).catch(() => {}); });
-    }).catch(() => {});
+    }).catch(deepLink);
     return () => { window.removeEventListener("resize", fit); window.clearInterval(t); unsub(); };
   }, [store, route, query]);
 

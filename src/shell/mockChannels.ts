@@ -6,8 +6,8 @@ import { loadHookStartsFailed } from "./loader";
 import { RANKS, type Rank } from "./registry";
 
 export const TICK_MS = 5000;
-/** 14's rank thresholds as the server would publish them (17 header): R1 $20k … R5 $2B. */
-export const RANK_THRESHOLDS = ["20000", "250000", "5000000", "100000000", "2000000000"] as const;
+/** Rank thresholds as the server would publish them (17 header; R6 $20B per errata E-21): R1 $20k … R6 $20B. */
+export const RANK_THRESHOLDS = ["20000", "250000", "5000000", "100000000", "2000000000", "20000000000"] as const;
 export const TICKS_PER_DAY = 720;
 
 const PHASES: readonly MarketPhase[] = ["pre", "open_auction", "continuous", "close_auction", "after", "weekend"];

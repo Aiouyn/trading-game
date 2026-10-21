@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { search, type LauncherItem } from "@/shell/launcher";
 import { S } from "@/shell/strings";
 import { viewportOf } from "@/shell/wm";
@@ -17,6 +17,11 @@ export function Launcher() {
   const groups = [...new Set(items.map((i) => i.group))];
   const phone = useShell((s) => viewportOf(s.vw) === "phone");
   const close = () => store.getState().setLauncher(false);
+  // T4-01: focus returns to whatever had it before the launcher opened (Esc, Cancel, scrim, or choosing).
+  const [prev] = useState(() => (typeof document === "undefined" ? null : document.activeElement as HTMLElement | null));
+  useEffect(() => {
+    return () => { if (prev && prev.isConnected && prev !== document.body) prev.focus(); };
+  }, [prev]);
 
   const choose = (it: LauncherItem | undefined) => {
     if (!it) return;
