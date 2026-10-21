@@ -47,7 +47,40 @@ test('perf: frame timing, load and decode', async ({ page }) => {
       ...extra,
     };
     console.log(`perf ${phone ? 'phone' : 'desktop'} ${tier}`, JSON.stringify(results[tier]));
-    expect(iv.length).toBeGreaterThan(10);
+    // Wall-clock fps and frame intervals are reported only: under box load they measure the box.
+    // Asserted: per-frame budgets from the hook (draw calls, triangles, CPU ms to submit a frame).
+    // Frame counts are asserted deterministically on the fake clock (test below).
+    expect(iv.length).toBeGreaterThan(0);
+    expect(d.drawCalls).toBeLessThanOrEqual(phone ? 60 : 120);
+    expect(d.triangles).toBeLessThanOrEqual(phone ? 150_000 : 400_000);
+    expect(percentile(b.cpu, 50), 'CPU ms per frame (p50)').toBeLessThanOrEqual(phone ? 16 : 8);
   }
   saveJson(`perf-${phone ? `phone-cpu${THROTTLE}x` : 'desktop'}.json`, { viewport: page.viewportSize(), cpuThrottle: phone ? THROTTLE : 1, results });
 });
+
+// Deterministic frame count: on Playwright's fake clock (rAF every 16 ms) a 2 s benchmark must
+// render on every tick, whatever the box load, and stay within the per-frame budgets.
+for (const tier of ['T2', 'T1'] as const) {
+  test(`perf: benchmark renders every frame, within budgets (fake clock, ${tier})`, async ({ page }) => {
+    const phone = isPhone(page);
+    await page.clock.install();
+    await openCity(page, `tier=${tier}`);
+    await waitDrawn(page);
+    await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
+    const r0 = (await diag(page)).renders;
+    const pending = page.evaluate(() => (window as unknown as HarnessWindow).__city.benchmark(2000));
+    await page.clock.runFor(2000 + 100);
+    const b = await pending;
+    const d = await diag(page);
+    const frames = d.renders - r0;
+    console.log(`perf fake-clock ${phone ? 'phone' : 'desktop'} ${tier}: frames ${frames}, samples ${b.cpu.length}, drawCalls ${d.drawCalls}, triangles ${d.triangles}`);
+    // 2000 ms / 16 ms rAF ticks = 125; allow the edges
+    expect(b.cpu.length).toBeGreaterThanOrEqual(120);
+    expect(b.cpu.length).toBeLessThanOrEqual(130);
+    expect(frames).toBeGreaterThanOrEqual(b.cpu.length);
+    expect(Math.max(...b.intervals.slice(1))).toBeLessThanOrEqual(17); // no skipped tick
+    expect(d.tier).toBe(tier);
+    expect(d.drawCalls).toBeLessThanOrEqual(phone ? 60 : 120);
+    expect(d.triangles).toBeLessThanOrEqual(phone ? 150_000 : 400_000);
+  });
+}
