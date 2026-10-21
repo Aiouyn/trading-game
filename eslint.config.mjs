@@ -38,6 +38,7 @@ const eslintConfig = defineConfig([
     "engine-drops/**",
     "design/**",
     "tools/lint/fixtures/**",
+    "tools/dmath-ref/**",   // Node tool; typechecked by its own tsconfig (engine:check core)
   ]),
 ]);
 
