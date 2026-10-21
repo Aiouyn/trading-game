@@ -1,5 +1,6 @@
 import { test } from '@playwright/test';
 import { expect, isPhone, openCity, saveJson, waitDrawn, type HarnessWindow } from './helpers';
+import { PORTRAIT_FLOOR } from '../../../src/city/renderer/picture';
 
 const relLum = (rgb: number[]) => {
   const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -130,7 +131,8 @@ test.describe('M6 phone T0 picture', () => {
     const view = page.viewportSize()!;
     const fill = (r!.bottom - r!.top) / view.height;
     console.log('M6 T0', view.width, 'fill', (fill * 100).toFixed(1), '%', JSON.stringify(r!.labels.map((l) => l.text)));
-    expect(fill).toBeGreaterThan(0.4);
+    // QA: several seeds sit at exactly the floor (41.000 %), so allow float noise
+    expect(fill).toBeGreaterThanOrEqual(PORTRAIT_FLOOR - 1e-9);
     expect(r!.labels.map((l) => l.text)).toContain('Financial Mile');
     for (const b of r!.labels) {
       expect(b.x, b.text).toBeGreaterThanOrEqual(0);
