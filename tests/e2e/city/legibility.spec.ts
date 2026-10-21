@@ -121,7 +121,7 @@ test.describe('M7 T0 controls', () => {
 });
 
 test.describe('M6 phone T0 picture', () => {
-  test('the city picture fills > 40 % of the viewport height; every label is whole, on canvas and not overlapping', async ({ page }) => {
+  test('the city picture fills > 40 % of the viewport height; every district is labelled, each label whole, on canvas and not overlapping', async ({ page }) => {
     await openCity(page, 'tier=T0');
     await waitDrawn(page);
     await page.evaluate(() => document.fonts.ready);
@@ -143,7 +143,10 @@ test.describe('M6 phone T0 picture', () => {
       const ov = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
       expect(ov, `${a.text} × ${b.text}`).toBe(0);
     }
-    expect(r!.labels.length).toBeGreaterThanOrEqual(isPhone(page) ? 5 : 8);
+    // every district is labelled, on phone too (the portrait crop once dropped Industrial Basin)
+    const districts = await page.evaluate(() => (window as unknown as HarnessWindow).__city.tableRows().filter((x) => x.kind === 'district').map((x) => x.name).sort());
+    expect(districts.length).toBe(8);
+    expect(r!.labels.map((l) => l.text).sort()).toEqual(districts);
   });
 });
 
