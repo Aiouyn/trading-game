@@ -1,10 +1,24 @@
-/* Pulse (17A T1 → T3): tick ring and market phase. Moved verbatim from shell.css. */
+/* Pulse (17A T3): tick ring and market phase. The only elements allowed to repeat (17 §3.1.5). */
+/* MarketPhase */
 .phase { display: flex; align-items: center; gap: 6px; font-size: calc(12px * var(--text-scale)); color: var(--fg-muted); white-space: nowrap; }
+.mp-gain { background: var(--gain); }
+.mp-warn { background: var(--warn); }
+.mp-faint { background: var(--fg-faint); }
+.mp-steel { background: var(--steel); }
+.mp-dot-only { display: inline-flex; align-items: center; }
+.mp-label { display: inline-grid; }
+.mp-text { grid-area: 1 / 1; }
+.mp-in { animation: mp-fade-in var(--dur-base) var(--ease-out) both; }
+.mp-out { animation: mp-fade-out var(--dur-base) var(--ease-out) both; }
+@keyframes mp-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mp-fade-out { from { opacity: 1; } to { opacity: 0; visibility: hidden; } }
 /* TickRing */
-.tickring { flex: none; display: block; }
+.tickring { flex: none; display: inline-flex; }
+.tickring-svg { display: block; }
 .tickring-track { fill: none; stroke: var(--line); stroke-width: 2; }
-.tickring-sweep { fill: none; stroke: var(--fg-muted); stroke-width: 2; animation: tick-sweep var(--dur-tick) linear forwards; }
+.tickring-sweep { fill: none; stroke: var(--fg-muted); stroke-width: 2; stroke-dasharray: 100; stroke-dashoffset: 100; animation: tick-sweep var(--dur-tick) linear forwards; }
 html[data-motion="reduce"] .tickring-sweep { animation-duration: 5000ms; animation-timing-function: steps(5, end); }
 @keyframes tick-sweep { to { stroke-dashoffset: 0; } }
+.tickring[data-state="reconnecting"] .tickring-track { stroke: var(--fg-faint); stroke-dasharray: 2 2; }
+.tickring-pause { fill: none; stroke: var(--steel); stroke-width: 2; stroke-linecap: round; }
 .reconnecting .clock { color: var(--fg-faint); text-decoration: underline dashed var(--fg-faint); }
-.reconnecting .tickring-track, .reconnecting .tickring-sweep { stroke-dasharray: 2 2; }
