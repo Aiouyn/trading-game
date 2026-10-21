@@ -26,29 +26,54 @@ export const phaseOverride: (q: URLSearchParams) => MarketPhase | null = PHASE_H
     }
   : () => null;
 
-export function mockChannels(q: URLSearchParams): Channels {
-  const rankParam = q.get("rank") ?? "R2";
-  const rank: Rank = (RANKS as readonly string[]).includes(rankParam) ? (rankParam as Rank) : "R2";
-  const flags = (q.get("flags") ?? "").split(",").filter(Boolean);
+/** The whole mock-channel query surface (?rank=, ?tick=, ?halted=, ?conn=, ?nw=, … see the header) is an e2e/dev hook.
+ *  Build-time gate: QUAY_HOOKS is always defined ("1"/"0") in next.config.ts env and inlined, so a production build
+ *  without QUAY_HOOKS=1 folds MOCK_QUERY_HOOK to false: mockChannels ignores the query and `readMockQuery` (every
+ *  `q.get(...)` below) is dead code that never reaches the bundle. On in `next dev`; the e2e build opts in. */
+export const MOCK_QUERY_HOOK: boolean = process.env.NODE_ENV !== "production" || process.env.QUAY_HOOKS === "1";
+
+/** Plain scripted values for the mock character; every field is optional and falls back to the default. */
+interface MockScript {
+  rank?: string | null; flags?: string | null; tick?: string | null; conn?: string | null; halted?: string | null; held?: string | null;
+  nw?: string | null; pct?: string | null; chg?: string | null; lic?: string | null; charters?: string | null; onb?: string | null;
+  onbDone?: string | null; places?: string | null; guest?: string | null; prot?: string | null;
+}
+
+function readMockQuery(q: URLSearchParams): MockScript {
   return {
-    clock: { ...clockAt(Number(q.get("tick") ?? 38 * TICKS_PER_DAY + 340)), ...(phaseOverride(q) ? { phase: phaseOverride(q)! } : {}) },
+    rank: q.get("rank"), flags: q.get("flags"), tick: q.get("tick"), conn: q.get("conn"), halted: q.get("halted"), held: q.get("held"),
+    nw: q.get("nw"), pct: q.get("pct"), chg: q.get("chg"), lic: q.get("lic"), charters: q.get("charters"), onb: q.get("onb"),
+    onbDone: q.get("onbDone"), places: q.get("places"), guest: q.get("guest"), prot: q.get("prot"),
+  };
+}
+
+function buildChannels(m: MockScript, phase: MarketPhase | null, loadFailed: boolean): Channels {
+  const rankParam = m.rank ?? "R2";
+  const rank: Rank = (RANKS as readonly string[]).includes(rankParam) ? (rankParam as Rank) : "R2";
+  const list = (v: string | null | undefined) => (v ?? "").split(",").filter(Boolean);
+  return {
+    clock: { ...clockAt(Number(m.tick ?? 38 * TICKS_PER_DAY + 340)), ...(phase ? { phase } : {}) },
     rank: { rank, thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf(rank)] ?? null },
-    system: { connection: q.get("conn") === "reconnecting" ? "reconnecting" : "live", halted: q.get("halted") === "1", held: q.get("held") === "1", load: loadHookStartsFailed(q) ? "error" : "ok", offline: false },
+    system: { connection: m.conn === "reconnecting" ? "reconnecting" : "live", halted: m.halted === "1", held: m.held === "1", load: loadFailed ? "error" : "ok", offline: false },
     me: {
-      nw: q.get("nw") ?? "412860.15",
-      todayPct: q.get("pct") ?? "+0.78",
-      todayChg: q.get("chg") ?? "+3204.10",
-      license: q.get("lic") ?? "LIC1",
-      charters: (q.get("charters") ?? "").split(",").filter(Boolean),
-      flags,
-      onboardingMin: Number(q.get("onb") ?? 60),
-      onboardingDone: q.get("onbDone") !== "0",
-      myPlaces: (q.get("places") ?? "").split(",").filter(Boolean),
-      guest: q.get("guest") === "1",
-      protectionEndsRealMs: q.get("prot") === "1" ? 41 * 60_000 + 12_000 : null,
+      nw: m.nw ?? "412860.15",
+      todayPct: m.pct ?? "+0.78",
+      todayChg: m.chg ?? "+3204.10",
+      license: m.lic ?? "LIC1",
+      charters: list(m.charters),
+      flags: list(m.flags),
+      onboardingMin: Number(m.onb ?? 60),
+      onboardingDone: m.onbDone !== "0",
+      myPlaces: list(m.places),
+      guest: m.guest === "1",
+      protectionEndsRealMs: m.prot === "1" ? 41 * 60_000 + 12_000 : null,
     },
   };
 }
+
+export const mockChannels: (q: URLSearchParams) => Channels = MOCK_QUERY_HOOK
+  ? (q) => buildChannels(readMockQuery(q), phaseOverride(q), loadHookStartsFailed(q))
+  : (q) => buildChannels({}, phaseOverride(q), loadHookStartsFailed(q));
 
 /** Clock from a tick: 720 ticks per game day, each tick = 2 game minutes. */
 export function clockAt(tick: number): ClockChannel {

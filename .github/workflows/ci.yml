@@ -17,6 +17,8 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      # AC-HOOKS-PROD: the build above has no e2e flags; it must contain no test/mock hook string.
+      - run: node tools/check-hooks.mjs .next/static
       - run: npm test
   e2e:
     runs-on: ubuntu-latest

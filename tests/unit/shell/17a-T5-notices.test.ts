@@ -46,3 +46,14 @@ describe("Studio T5 glyphs: alert, world, error", () => {
       for (const d of UI_GLYPHS[k]) for (const n of d.match(/-?\d+(\.\d+)?/g)!.map(Number)) expect(Math.abs(n)).toBeLessThanOrEqual(24);
   });
 });
+
+import { renderToStaticMarkup as rsm } from "react-dom/server";
+import { createElement as ce } from "react";
+import { HaltChip } from "@/components/shell/SystemOverlays";
+describe("#24 info: halt chip vs its role=status overlay", () => {
+  it("does not claim aria-haspopup (the overlay is not a dialog)", () => {
+    const html = rsm(ce(HaltChip, { halted: true }));
+    expect(html).toContain('data-testid="halt-chip"');
+    expect(html).not.toContain("aria-haspopup");
+  });
+});
