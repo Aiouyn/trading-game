@@ -8,7 +8,7 @@ import { sin } from './trig';
 
 const SQRPI = 5.6418958354775628695e-1;   // 1/√π (CALERF SQRPI)
 const ERF_SPLIT1 = 0.5, ERF_SPLIT2 = 4;    // card step 3: |x| ≤ 0.5, 0.5 < |x| ≤ 4, |x| > 4
-const ERFC_XBIG = 26.543;                  // CALERF XBIG: erfc(x) underflows to 0 above
+const ERFC_XBIG = 26.543;                  // E-67: erfc(x) = 0 for x > 26.543 (strict)
 const CA = [3.16112374387056560e00, 1.13864154151050156e02, 3.77485237685302021e02, 3.20937758913846947e03, 1.85777706184603153e-1] as const;
 const CB = [2.36012909523441209e01, 2.44024637934444173e02, 1.28261652607737228e03, 2.84423683343917062e03] as const;
 const CC = [5.64188496988670089e-1, 8.88314979438837594e00, 6.61191906371416295e01, 2.98635138197400131e02,
@@ -19,6 +19,28 @@ const CP = [3.05326634961232344e-1, 3.60344899949804439e-1, 1.25781726111229246e
   6.58749161529837803e-4, 1.63153871373020978e-2] as const;
 const CQ = [2.56852019228982242e00, 1.87295284992346047e00, 5.27905102951428412e-1, 6.05183413124413191e-2,
   2.33520497626869185e-3] as const;
+
+// erfc: fdlibm s_erf.c erfc (netlib fdlibm, Sun Microsystems 1993), coefficients copied verbatim (QA #33 NO-GO: the Cody region 2/3
+// erfc reached 5.81 ULP). fdlibm forms exp(−x²) as exp(−z² − 0.5625)·exp((z − x)(z + x) + R/S), z = x with the low 32 bits cleared.
+const ERX = 8.45062911510467529297e-01;
+const PP = [1.28379167095512558561e-01, -3.25042107247001499370e-01, -2.84817495755985104766e-02, -5.77027029648944159157e-03, -2.37630166566501626084e-05] as const;
+const QQ = [0, 3.97917223959155352819e-01, 6.50222499887672944485e-02, 5.08130628187576562776e-03, 1.32494738004321644526e-04, -3.96022827877536812320e-06] as const;
+const PA = [-2.36211856075265944077e-03, 4.14856118683748331666e-01, -3.72207876035701323847e-01, 3.18346619901161753674e-01, -1.10894694282396677476e-01, 3.54783043256182359371e-02, -2.16637559486879084300e-03] as const;
+const QA = [0, 1.06420880400844228286e-01, 5.40397917702171048937e-01, 7.18286544141962662868e-02, 1.26171219808761642112e-01, 1.36370839120290507362e-02, 1.19844998467991074170e-02] as const;
+const RA = [-9.86494403484714822705e-03, -6.93858572707181764372e-01, -1.05586262253232909814e+01, -6.23753324503260060396e+01, -1.62396669462573470355e+02, -1.84605092906711035994e+02, -8.12874355063065934246e+01, -9.81432934416914548592e+00] as const;
+const SA = [0, 1.96512716674392571292e+01, 1.37657754143519042600e+02, 4.34565877475229228821e+02, 6.45387271733267880336e+02, 4.29008140027567833386e+02, 1.08635005541779435134e+02, 6.57024977031928170135e+00, -6.04244152148580987438e-02] as const;
+const RB = [-9.86494292470009928597e-03, -7.99283237680523006574e-01, -1.77579549177547519889e+01, -1.60636384855821916062e+02, -6.37566443368389627722e+02, -1.02509513161107724954e+03, -4.83519191608651397019e+02] as const;
+const SB = [0, 3.03380607434824582924e+01, 3.25792512996573918826e+02, 1.53672958608443695994e+03, 3.19985821950859553908e+03, 2.55305040643316442583e+03, 4.74528541206955367215e+02, -2.24409524465858183362e+01] as const;
+/** c[0] + s·(c[1] + s·(… + s·c[n])), with c[0] replaced by 1 when one is set (fdlibm's "one + s·(…)" denominators). */
+function horner(c: readonly number[], s: number, one = false): number {
+  let r = c[c.length - 1]!;
+  for (let i = c.length - 2; i >= 1; i--) r = c[i]! + s * r;
+  return (one ? 1 : c[0]!) + s * r;
+}
+const BUF = new DataView(new ArrayBuffer(8));
+/** x with the low 32 bits of its binary64 pattern cleared (fdlibm __LO(z) = 0). */
+function clearLo(x: number): number { BUF.setFloat64(0, x); BUF.setUint32(4, 0); return BUF.getFloat64(0); }
+const ERFC_HIGH = 2.857142857142857;   // 1/0.35 (fdlibm ix < 0x4006DB6D)
 
 const nan = (x: number, fn: string): void => { if (x !== x) throw new EngineFault('I0.nan', `${fn}(NaN)`); };
 const trunc = (v: number): number => (v < 0 ? -Math.floor(-v) : Math.floor(v));
@@ -42,7 +64,7 @@ function erfcPos(y: number): number {
     for (let i = 0; i < 7; i++) { num = (num + CC[i]!) * y; den = (den + CD[i]!) * y; }
     return expNegSq(y) * ((num + CC[7]) / (den + CD[7]));
   }
-  if (y >= ERFC_XBIG) return 0;
+  if (y > ERFC_XBIG) return 0;
   const ysq = 1 / (y * y);
   let num = CP[5] * ysq, den = ysq;
   for (let i = 0; i < 4; i++) { num = (num + CP[i]!) * ysq; den = (den + CQ[i]!) * ysq; }
@@ -61,16 +83,36 @@ export function erf(x: number): number {
 
 export function erfc(x: number): number {
   nan(x, 'erfc');
-  const y = Math.abs(x);
-  if (y <= ERF_SPLIT1) return 1 - erfSmall(x);
-  if (y === Infinity) return x > 0 ? 0 : 2;
-  const r = erfcPos(y);
-  return x < 0 ? 2 - r : r;
+  const ax = Math.abs(x);
+  if (ax === Infinity) return x > 0 ? 0 : 2;
+  if (ax < 0.84375) {
+    if (ax < 1.3877787807814457e-17) return 1 - x;                       // |x| < 2^−56
+    const z = x * x, y = horner(PP, z) / horner(QQ, z, true);
+    if (x < 0.25) return 1 - (x + x * y);
+    return 0.5 - (x * y + (x - 0.5));
+  }
+  if (ax < 1.25) {
+    const sv = ax - 1, P = horner(PA, sv), Q = horner(QA, sv, true);
+    return x >= 0 ? (1 - ERX) - P / Q : 1 + (ERX + P / Q);
+  }
+  if (x > ERFC_XBIG) return 0;                                            // E-67: strict >, erfc(26.543) itself is computed
+  if (x <= -6) return 2;                                                  // fdlibm: two − tiny rounds to 2
+  const sv = 1 / (ax * ax);
+  const R = ax < ERFC_HIGH ? horner(RA, sv) : horner(RB, sv), S = ax < ERFC_HIGH ? horner(SA, sv, true) : horner(SB, sv, true);
+  const z = clearLo(ax);
+  const r = exp(-z * z - 0.5625) * exp((z - ax) * (z + ax) + R / S);
+  return x > 0 ? r / ax : 2 - r / ax;
 }
 
 const SQRT2 = 1.4142135623730951;
 const SQRT_2PI = 2.5066282746310007;      // √(2π)
-export function normCdf(x: number): number { nan(x, 'normCdf'); return 0.5 * erfc(-x / SQRT2); }
+/** −26.543·√2 in binary64; −NORMCDF_CUT/√2 rounds to exactly 26.543, so x ≥ NORMCDF_CUT maps into the computed erfc range. */
+const NORMCDF_CUT = -ERFC_XBIG * SQRT2;
+export function normCdf(x: number): number {
+  nan(x, 'normCdf');
+  if (x < NORMCDF_CUT) return 0;                                          // E-67: 0 only for x < −26.543·√2 (strict)
+  return 0.5 * erfc(-x / SQRT2);
+}
 export function normPdf(x: number): number { nan(x, 'normPdf'); return exp(-x * x / 2) / SQRT_2PI; }
 
 // AS241 PPND16.
