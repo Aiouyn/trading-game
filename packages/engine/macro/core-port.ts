@@ -4,7 +4,7 @@
 //   G6 / T02-09: TableDef, IndexDef, StoreRead (not yet exported by @tycoon/engine-core)
 //   G6 / T02-xx: PhaseCtx (only newId is used by 04's id helpers)
 //   T22A-??:     ContentView readers used by 04 (blocs, cities, blocEquityIndex, primaryDealers); field names are 04's (card Imports)
-import type { Id } from '@tycoon/engine-core';
+import type { Id, ParamsView } from '@tycoon/engine-core';
 import type { BlocId } from './schema';
 
 export interface IndexDef<T> { name: string; key(e: T): string | null }    // T02-09: null = not indexed
@@ -16,8 +16,9 @@ export interface StoreRead {                                                 // 
   index<T>(table: string, indexName: string, key: string): Iterable<T>;
   count(table: string): number;
 }
-/** The part of G6 PhaseCtx that 04's id helpers use. */
-export interface PhaseCtx { newId(kind: string): Id }
+export interface Store extends StoreRead { put<T>(table: string, entity: T): void; del(table: string, id: Id): void }   // G6
+/** The part of G6 PhaseCtx that 04 uses so far (newId: ids; store + params: T04-02 schedule rows). */
+export interface PhaseCtx { newId(kind: string): Id; readonly store: Store; readonly params: ParamsView }
 
 /** T22A ContentView readers 04 references (TYPES only). */
 export interface ContentBloc { id: BlocId; name: string; cityIds: [string, string, string]; statisticsOfficeNameKey: string; cycleCommitteeNameKey: string; sectorWeights: number[] }

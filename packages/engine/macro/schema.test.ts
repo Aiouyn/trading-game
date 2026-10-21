@@ -93,7 +93,7 @@ describe('aliases, ids', () => {
     for (const x of ['cbk_FU', 'gov_FDLX', 'npc_CSF', 'bnk_FDL', 'xcbk_FDL', '']) expect(blocOfEntity(x)).toBeNull();
   });
   it('generated ids use kinds mrl, mtg, auc, crs', () => {
-    const kinds: string[] = []; const ctx = { newId: (k: string) => { kinds.push(k); return `${k}_1`; } };
+    const kinds: string[] = []; const ctx = { newId: (k: string) => { kinds.push(k); return `${k}_1`; } } as never;
     releaseId(ctx, 'FDL', 'CPI'); meetingId(ctx); auctionId(ctx); crisisId(ctx);
     expect(kinds).toEqual(['mrl', 'mtg', 'auc', 'crs']);
     for (const k of kinds) expect(ID_KIND_RE.test(k)).toBe(true);   // core IdFactory accepts every kind
