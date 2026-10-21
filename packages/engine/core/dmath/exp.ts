@@ -64,11 +64,10 @@ export function ln(x: number): number {
   nanCheck(x, 'ln');
   if (!(x > 0)) throw new EngineFault('I0.domain', `ln(${x})`);
   if (x === Infinity) throw new EngineFault('I0.overflow', 'ln(Infinity)');
-  let { m, e } = frexp(x);                    // m in [0.5, 1); frexp scales subnormals by 2^54
-  if (m < SQRT1_2) { m *= 2; e -= 1; }       // m in [√½, √2)
-  const s = (m - 1) / (m + 1), s2 = s * s;
-  const series = 2 * s * horner(s2, INV_ODD, 0, 10);   // 2(s + s³/3 + … + s²¹/21)
-  return e * LN2_HI + (series + e * LN2_LO);
+  // QA #25: the single-double series lost up to 3 ULP near 1 (s = (m−1)/(m+1) and 2s·Σ each round once at the result's own
+  // magnitude, with nothing to absorb it). Root fix: evaluate the same reduction in double-double (lnDD) and round once.
+  const l = lnDD(x);
+  return l.hi + l.lo;
 }
 
 export function log1p(x: number): number {
@@ -106,20 +105,27 @@ function ddAdd(a: DD, b: DD): DD {
   return norm(h, err + (a.lo + b.lo));
 }
 /** Double-double product (a.hi + a.lo)(b.hi + b.lo), renormalised. */
-function ddMul(a: { hi: number; lo: number }, b: { hi: number; lo: number }): { hi: number; lo: number } {
-  const t = twoProd(a.hi, b.hi), lo = t.err + (a.hi * b.lo + a.lo * b.hi), hi = t.p + lo;
+function ddMul(a: DD, b: DD): DD {
+  const t = twoProd(a.hi, b.hi);
+  if (!Number.isFinite(t.err)) return { hi: t.p, lo: 0 };   // split overflow near 2^1024: the product is ≥ 2^996, hi alone
+  const lo = t.err + (a.hi * b.lo + a.lo * b.hi), hi = t.p + lo;
   return { hi, lo: lo - (hi - t.p) };
 }
 /** x^n for integer 1 ≤ n ≤ 64 by repeated squaring (fixed loop over the bits of n), carried in double-double so the result is exact
  *  whenever x^n is representable and otherwise within the 4 ULP pow bound (plain double squaring drifts by up to ~12 ULP at n = 57). */
-function powInt(x: number, n: number): { hi: number; lo: number } {
-  let r = { hi: 1, lo: 0 }, b = { hi: x, lo: 0 };
+function powInt(base: DD, n: number): DD {
+  let r: DD = { hi: 1, lo: 0 }, b = base;
   for (;;) {
     if (n % 2 === 1) r = ddMul(r, b);
     n = Math.floor(n / 2);
     if (n === 0) return r;
     b = ddMul(b, b);
   }
+}
+/** 1/x as a double-double (Dekker remainder of the division). */
+function ddRecip(x: number): DD {
+  const q = 1 / x, t = twoProd(q, x);
+  return norm(q, ((1 - t.p) - t.err) / x);
 }
 
 /** ln x as hi + lo (≈ 2^-100 relative): the §3.8 ln reduction (m in [√½, √2), s = (m−1)/(m+1), odd series to s^21) carried in
@@ -149,10 +155,10 @@ export function pow(x: number, y: number): number {
   if (x < 0) throw new EngineFault('I0.domain', `pow(${x}, ${y})`);
   // Small integer exponents (|y| ≤ 64) use repeated squaring: exact whenever the power is representable (2^10 = 1024 exactly).
   if (Math.floor(y) === y && Math.abs(y) <= 64) {
-    const r = powInt(x, Math.abs(y));
-    let v: number;
-    if (y > 0) v = r.hi + r.lo;
-    else { const q = 1 / r.hi, t = twoProd(q, r.hi); v = q + q * (((1 - t.p) - t.err) - q * r.lo); }   // 1/(hi + lo), one Newton step
+    // QA #25: y < 0 used 1/(x^|y|), which overflowed in x^|y| although the result is finite. Now (1/x)^|y|: every partial product
+    // lies between 1 and the result, so it overflows only if the result does and underflows (to 0 / subnormal) with it.
+    const r = powInt(y > 0 ? { hi: x, lo: 0 } : ddRecip(x), Math.abs(y));
+    const v = r.hi + r.lo;
     if (!Number.isFinite(v)) throw new EngineFault('I0.overflow', `pow(${x}, ${y}) overflows`);
     return v;
   }

@@ -12,6 +12,8 @@ import { EngineFault } from '../types';
 import * as dmath from './index';
 import { bitsToF64, clamp, exp, expm1, f64ToBits, frexp, kahanSum, lerp, ln, log10, log1p, log2, pow, scalb, sigmoid, tanh, ulpDistance } from './index';
 
+/** 256-bit reference value of ln(x) from the committed ln.vec (the input must be one of its vectors). */
+const refLnPoint = (x: number): number => { const v = load('ln'); const i = v.inputs.findIndex((a) => a[0] === f64ToBits(x)); if (i < 0) throw new Error(`no ln vector for ${x}`); return bitsToF64(v.expected[i]!); };
 const DIR = join(dirname(fileURLToPath(import.meta.url)), 'vectors');
 /** 02 §3.8 max error per function (ULP). */
 const BOUND = { exp: 2, expm1: 2, ln: 2, log1p: 2, log2: 3, log10: 3, pow: 4, tanh: 3, sigmoid: 3 } as const;
@@ -71,6 +73,28 @@ describe('T02-02 dmath: worked examples', () => {
     expect(thrown(() => pow(1e300, 2))).toBe('I0.overflow');      // integer branch
     expect(thrown(() => pow(1e300, 2.5))).toBe('I0.overflow');    // exp branch
     expect(exp(-Infinity)).toBe(0); expect(exp(-1e300)).toBe(0);
+  });
+  it('QA #25: pow(0, 0) = 1 (y = 0 is checked before x = 0); ln(+Infinity) throws I0.overflow (card, E-53)', () => {
+    expect(pow(0, 0)).toBe(1); expect(pow(0, -0)).toBe(1);
+    expect(thrown(() => ln(Infinity))).toBe('I0.overflow');
+    expect(thrown(() => log2(Infinity))).toBe('I0.overflow');
+  });
+  it('QA #25: ln near 1 within 2 ULP (double-double reduction)', () => {
+    // 256-bit reference (tools/dmath-ref refLn), also in ln.vec
+    for (const x of [1.0002431733420274, 1.0155840120081805, 1 + 2 ** -52, 1 - 2 ** -53])
+      expect(ulpDistance(ln(x), refLnPoint(x))).toBeLessThanOrEqual(2);
+  });
+  it('QA #25: pow with integer y in −64..−1 does not overflow on finite results; underflows to subnormal / 0', () => {
+    // expected = correctly rounded (1/x)^n, computed exactly with rationals (≡ the 256-bit reference after rounding)
+    const cases: [number, number, number][] = [[438748.6334683518, -54, 2.0909712036790256e-305], [4.34e-8, -41, 7.29324982039474e+301],
+      [75912.29952825277, -64, 4.5711195229e-313], [10627020.847781157, -46, 5e-324]];
+    for (const [x, y, want] of cases) expect(ulpDistance(pow(x, y), want)).toBeLessThanOrEqual(4);
+    expect(pow(1e10, -64)).toBe(0);                                   // result below the subnormal range
+    expect(thrown(() => pow(1e-10, -64))).toBe('I0.overflow');         // genuinely infinite result still faults
+    expect(pow(2, -1074)).toBe(5e-324);
+    // results near 2^1024: the Veltkamp split overflows inside ddMul; the product must stay finite (no NaN fault)
+    expect(ulpDistance(pow(1.3e154, 2), 1.6899999999999998e+308)).toBeLessThanOrEqual(4);
+    expect(ulpDistance(pow(7.7e-155, -2), 1.6866250632484398e+308)).toBeLessThanOrEqual(4);                                // exp branch unchanged (|y| > 64)
   });
   it('domain edges: exp(709.78) finite, exp(-745.2) = 0, expm1 → −1, tanh/sigmoid saturate', () => {
     expect(Number.isFinite(exp(709.78))).toBe(true); expect(exp(-745.2)).toBe(0);
