@@ -1,6 +1,6 @@
 # City renderer (Spec 2, PR #4) — Producer-authorized, separate from Front Dev's ci.yml (PR #2).
 # Runs the city unit suite (incl. C-16 paths) and the city e2e suite (incl. C-10 budgets) on
-# Node 22. Path-filtered, so it only runs for changes that can affect the city.
+# Node 22. PRs are path-filtered; every push to main runs it in full.
 # This workflow is the only owner of the city tests: ci.yml no longer runs them (PR #7). The
 # whole-app lint/typecheck/build stays in ci.yml.
 name: city
@@ -14,14 +14,10 @@ on:
       - 'package-lock.json'
       - '.github/workflows/city.yml'
   push:
-    branches: [main] # PR branches are covered by pull_request (no double runs)
-    paths:
-      - 'src/city/**'
-      - 'tests/unit/city/**'
-      - 'tests/e2e/city/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/city.yml'
+    # Every push to main runs the full city suite, no path filter: main can break the city through
+    # files outside these paths (shared config, deps, merges), and the path filter left city.yml
+    # last green at ca9b76c while main moved on. PR branches stay path-filtered (no double runs).
+    branches: [main]
   workflow_dispatch:
 concurrency:
   group: city-${{ github.ref }}
@@ -73,7 +69,7 @@ jobs:
       - name: playwright (C-03 … C-15, incl. C-10 budgets)
         run: npx playwright test -c tests/e2e/city/playwright.config.ts
         env:
-          CI: '1'
+          CI: 'true' # GitHub's own value; loop.spec's real-clock check runs only when CI === 'true'
           CITY_EVIDENCE_DIR: ${{ runner.temp }}/city-evidence
       - uses: actions/upload-artifact@v4
         if: always()

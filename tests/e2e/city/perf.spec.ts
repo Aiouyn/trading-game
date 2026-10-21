@@ -51,8 +51,8 @@ test('perf: frame timing, load and decode', async ({ page }) => {
     // Asserted: per-frame budgets from the hook (draw calls, triangles, CPU ms to submit a frame).
     // Frame counts are asserted deterministically on the fake clock (test below).
     expect(iv.length).toBeGreaterThan(0);
-    expect(d.drawCalls).toBeLessThanOrEqual(phone ? 60 : 120);
-    expect(d.triangles).toBeLessThanOrEqual(phone ? 150_000 : 400_000);
+    expect(d.drawCalls).toBeLessThanOrEqual(4);
+    expect(d.triangles).toBeLessThanOrEqual(16_000);
     expect(percentile(b.cpu, 50), 'CPU ms per frame (p50)').toBeLessThanOrEqual(phone ? 16 : 8);
   }
   saveJson(`perf-${phone ? `phone-cpu${THROTTLE}x` : 'desktop'}.json`, { viewport: page.viewportSize(), cpuThrottle: phone ? THROTTLE : 1, results });
@@ -80,7 +80,7 @@ for (const tier of ['T2', 'T1'] as const) {
     expect(frames).toBeGreaterThanOrEqual(b.cpu.length);
     expect(Math.max(...b.intervals.slice(1))).toBeLessThanOrEqual(17); // no skipped tick
     expect(d.tier).toBe(tier);
-    expect(d.drawCalls).toBeLessThanOrEqual(phone ? 60 : 120);
-    expect(d.triangles).toBeLessThanOrEqual(phone ? 150_000 : 400_000);
+    expect(d.drawCalls).toBeLessThanOrEqual(4);
+    expect(d.triangles).toBeLessThanOrEqual(16_000);
   });
 }

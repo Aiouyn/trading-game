@@ -1,10 +1,10 @@
 import { test } from '@playwright/test';
-import { diag, expect, isPhone, openCity, waitDrawn, type HarnessWindow } from './helpers';
+import { diag, expect, waitFpsFirst2s, waitState, isPhone, openCity, waitDrawn, type HarnessWindow } from './helpers';
 
 test('C-15 every diagnostics field is a finite number after the first frame (auto tier)', async ({ page }) => {
   await openCity(page);
   await waitDrawn(page);
-  await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().fpsFirst2s !== null, null, { timeout: 30_000 });
+  await waitFpsFirst2s(page);
   const d = await diag(page);
   console.log('C-15', JSON.stringify(d));
   const nums: [string, unknown][] = [
@@ -68,9 +68,9 @@ test('C-05 the real CityWindow.tsx (Spec 1) drives the seam: mount, setters, per
     cityWindow: { setBody: (s: { focused: boolean; collapsed: boolean; background: boolean; hidden?: boolean }) => void; setTierOverride: (t: 'auto' | 'T0' | 'T1' | 'T2') => void; setMyPlaces: (ids: string[]) => void; unmount: () => void };
     __quayPerf?: () => readonly { event: string; fps: number | null; renderTier: string }[];
   } & HarnessWindow;
-  await page.waitForFunction(() => !!document.querySelector('[data-testid="city-mount"] .city-root') && !!(window as unknown as W).__city, null, { timeout: 30_000 });
+  await waitState(page, 'C-05: CityWindow mount (.city-root + __city) not present', () => !!document.querySelector('[data-testid="city-mount"] .city-root') && !!(window as unknown as W).__city);
   // data arrives through the real window's own fetchChunk (cityChannel.ts)
-  await page.waitForFunction(() => (window as unknown as W).__city.diagnostics().buildingParts > 0, null, { timeout: 30_000 });
+  await waitState(page, 'C-05: no building parts from the real fetchChunk', () => (window as unknown as W).__city.diagnostics().buildingParts > 0);
   await expect(page.locator('[data-testid="city-body"]')).toHaveAttribute('data-visibility', 'visible');
   // store → renderer setters, through the component's effects
   await page.evaluate(() => (window as unknown as W).cityWindow.setBody({ focused: false, collapsed: false, background: true }));

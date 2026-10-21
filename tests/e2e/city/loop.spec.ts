@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { diag, expect, isPhone, openCity, waitDrawn, type HarnessWindow } from './helpers';
+import { diag, expect, isPhone, openCity, waitDrawn, waitState, type HarnessWindow } from './helpers';
 
 const simulateHidden = (hidden: boolean) => {
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
@@ -74,6 +74,31 @@ test.describe('C-06 / C-11 render on demand', () => {
     await page.clock.runFor(1000);
     expect((await diag(page)).renders).toBeGreaterThan(r + 3);
     console.log('C-06 ambient test wall time', Date.now() - t0, 'ms');
+  });
+
+  test('real clock (loose): T2 ambient stops 60 s ± 1 s after the last input', async ({ page }) => {
+    // Loose wall-clock companion to the fake-clock test above: proves the real timers, not just the
+    // fake ones, stop ambient near 60 s. Measured in the page (performance.now at the input and at the
+    // first poll that sees ambient off, 50 ms polls), so Playwright round trips don't count.
+    test.skip(isPhone(page), 'desktop only (60 s)');
+    test.skip(process.env.CI !== 'true', 'real-clock ±1 s check runs on CI only (a loaded local box stops late)');
+    test.setTimeout(240_000);
+    await openCity(page, 'tier=T2');
+    await waitDrawn(page);
+    // tier=T2 is forced, so no 2 s auto-tier measurement runs (fpsFirst2s stays null): the condition
+    // to wait for is just T2 drawing, no sleep.
+    await waitState(page, 'C-06 real clock: tier is not T2 after the tier measurement', () => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2');
+    const ms = await page.evaluate(() => new Promise<number>((resolve) => {
+      const w = window as unknown as HarnessWindow;
+      w.__city.setCamera({ zoom: 1 }); // last input
+      const t = performance.now();
+      const iv = setInterval(() => {
+        if (!w.__city.ambient().on) { clearInterval(iv); resolve(performance.now() - t); }
+      }, 50);
+    }));
+    console.log('C-06 real-clock ambient stopped after', Math.round(ms), 'ms');
+    expect(ms).toBeGreaterThanOrEqual(59_000);
+    expect(ms).toBeLessThanOrEqual(61_000);
   });
 
   test('document.hidden for 60 s (simulated) → framesWhileHidden 0, no renders', async ({ page }) => {
