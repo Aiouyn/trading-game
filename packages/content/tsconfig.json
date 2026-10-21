@@ -3,7 +3,7 @@
     "target": "ES2022", "lib": ["ES2022"], "module": "ESNext", "moduleResolution": "Bundler",
     "strict": true, "noEmit": true, "noUnusedLocals": true, "noUnusedParameters": true, "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true, "types": ["node"], "isolatedModules": true, "resolveJsonModule": true,
-    "paths": { "@tycoon/engine-core": ["../engine/core/index.ts"] }
+    "paths": { "@tycoon/content": ["./src/view.ts"], "zod": ["./node_modules/zod"], "@tycoon/params": ["../params/src/index.ts"], "@tycoon/engine-core": ["../engine/core/index.ts"] }
   },
   "include": ["src/**/*.ts", "data/*.json", "eslint.config.mjs", "vitest.config.ts"],
   "exclude": ["node_modules"]
