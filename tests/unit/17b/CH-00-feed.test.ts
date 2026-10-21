@@ -271,7 +271,7 @@ describe("applyOps never treats inherited names as present (QA #34 round 2)", ()
 });
 
 describe("applyOps mid-path walk follows own keys only (QA #34 round 3)", () => {
-  const frame = (path: string) => JSON.parse(`{"body":{"a":{"b":1}},"ops":[{"op":"set","path":"${path}","v":"yes"}]}`) as { body: Record<string, unknown>; ops: import("@/shell/contracts/delta").DeltaOp[] };
+  const frame = (path: string) => JSON.parse(`{"body":{"a":{"b":1}},"ops":[{"op":"set","path":"${path}","v":"yes"}]}`) as { body: Record<string, unknown>; ops: import("@/shell/contracts/channels").DeltaOp[] };
   it.each(["/__proto__/polluted", "/a/__proto__/polluted", "/constructor/prototype/x", "/a/constructor/prototype/x"])("set %s throws DeltaError and pollutes nothing", async (path) => {
     const { applyOps, DeltaError } = await import("@/shell/contracts/delta");
     const f = frame(path);
