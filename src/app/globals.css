@@ -1,2 +1,27 @@
 @import "tailwindcss";
 @import "../styles/tokens.css";
+@import "../styles/shell.css";
+
+/* Tailwind 4 utilities read the Quay tokens (bg-win, text-fg-muted, border-line, ...). */
+@theme inline {
+  --color-bg0: var(--bg0);
+  --color-win: var(--win);
+  --color-win2: var(--win2);
+  --color-line: var(--line);
+  --color-chrome: var(--chrome);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+  --color-fg-disabled: var(--fg-disabled);
+  --color-acc: var(--acc);
+  --color-on-acc: var(--on-acc);
+  --color-gain: var(--gain);
+  --color-loss: var(--loss);
+  --color-warn: var(--warn);
+  --color-info: var(--info);
+  --color-steel: var(--steel);
+  --color-signal: var(--signal);
+  --font-display: var(--font-display);
+  --font-ui: var(--font-ui);
+  --font-num: var(--font-num);
+}

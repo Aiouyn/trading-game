@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint && stylelint \"src/**/*.css\" && node tools/lint/contrast.mjs && bash tools/lint/check-fixtures.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
@@ -15,31 +15,40 @@
     "balance": "tsx scripts/balance/run.ts",
     "engine:check": "node scripts/engine-check.mjs",
     "engine:ledger": "node scripts/engine-check.mjs ledger",
-    "engine:core": "node scripts/engine-check.mjs core"
+    "engine:core": "node scripts/engine-check.mjs core",
+    "tokens": "node tools/lint/gen-tokens.mjs",
+    "check:paths": "bash tools/lint/check-paths.sh"
   },
   "dependencies": {
     "lightweight-charts": "^5.2.1",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "three": "^0.186.1",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.20.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.186.0",
     "@vitest/coverage-v8": "^5.0.3",
+    "axe-core": "^4.14.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
     "postcss": "^8.5.29",
+    "stylelint": "^17.16.0",
+    "stylelint-config-standard": "^40.0.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",
+    "vite": "^8.3.3",
     "vitest": "^5.0.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   }
 }

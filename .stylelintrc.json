@@ -1,0 +1,7 @@
+{
+  "rules": {
+    "color-no-hex": true,
+    "function-disallowed-list": ["rgb", "rgba", "hsl", "hsla"]
+  },
+  "ignoreFiles": ["src/styles/tokens.css", "node_modules/**", ".next/**"]
+}
