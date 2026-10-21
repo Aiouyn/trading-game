@@ -74,6 +74,14 @@ describe('INV-LED-004 M0_cb and M2 (I4, card reading A-1)', () => {
     const forged = withPostings(pay(), (ps) => [{ ...ps[0], debitAccount: 'chr_B:1001:FDL', creditAccount: 'cbk_FDL:2001:chr_B:FDL' }, { ...ps[ps.length - 1], postingSeq: 1, debitAccount: 'chr_B:5000:FDL' }]);
     expect(L.INV_LED_004(view([forged])).some((x) => /moves M0_cb/.test(x.observed))).toBe(true);
   });
+  it('Q004_1910_site: a cbk 1910 issuer-mirror leg does not make an entry a cbk own-account party; a TRANSFER moving M0_cb still fails', () => {
+    const forged = withPostings(pay(), (ps) => [
+      { ...ps[0], debitAccount: 'chr_B:1001:FDL', creditAccount: 'cbk_FDL:2001:chr_B:FDL' },
+      { ...ps[ps.length - 1], postingSeq: 1, debitAccount: 'chr_B:5000:FDL' },
+      { ...ps[0], postingSeq: 2, debitAccount: 'cbk_FDL:1910:FDL', creditAccount: 'sys_SYSTEM:2900:FDL' },
+    ]);
+    expect(L.INV_LED_004(view([forged])).some((x) => /moves M0_cb/.test(x.observed))).toBe(true);
+  });
   it('cbCredit to a bank passes (M0_cb = credit)', () => {
     expect(L.INV_LED_004(view([L.tplCbCredit(env('04'), 'cbk_FDL', 'bnk_N', 9n, 'FDL', 'CBK_STANDING_FACILITY')]))).toEqual([]);
   });

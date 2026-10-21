@@ -255,11 +255,12 @@ describe('Δ7 archive (tests 11, 12) and INV-LED-017', () => {
   // Producer-approved gate (03#39 pattern): default = a short run with flowday_keep_days 2 and the same invariants; TYCOON_LONG=1
   // (nightly CI) runs the spec's 2 chapters = 1,344 game days = 967,680 ticks with the real 364-day FlowDay retention.
   const DAYS = longRun ? 1344 : 6; const KEEP = longRun ? 364 : 2;
-  it(`12: ${DAYS} days: every archive row = Σ of its ticks (INV-017 each day close), FlowDay drops rows older than ${KEEP} days, archive keeps all; a broken hash fails`, { timeout: longRun ? 3_600_000 : 60_000 }, () => {
+  it(`12: ${DAYS} days: every archive row = Σ of its ticks (INV-017 each day close), FlowDay drops rows older than ${KEEP} days, archive keeps all; a broken hash fails`, { timeout: longRun ? 3_600_000 : 60_000 }, async () => {
     const w = fixture({ params: { flowday_keep_days: KEEP } }); fund(w, [['chr_P', 1_000_000]]);
     for (let d = 0; d < DAYS; d++) {
       w.apiFor('03').ledger.pay('chr_P', 'gov_FDL', BigInt(d + 1), 'FDL', 'TAX_SECURITIES_TX');
       for (let i = 0; i < 720; i++) expect(w.runP13().failures).toEqual([]);
+      await new Promise<void>((res) => setImmediate(res)); // yield one macrotask per game day (vitest worker RPC heartbeat)
     }
     const days = Math.floor(w.tick / 720);
     for (let d = 0; d < days; d++) expect(w.flowReader().archiveDay('FDL', d)).toBeDefined();
