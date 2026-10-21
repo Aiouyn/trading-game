@@ -64,12 +64,15 @@ describe('property and long-run tests', () => {
       expect(BigInt(fd.M0_sys)).toBe(m0sys); // residual exactly 0n (p10 tolerated < 0.01/day)
       checked++;
     };
-    let t = 0;
+    let t = 0; const long = process.env.TYCOON_LONG === '1'; let dayStart = performance.now();
     await runDriverYielding(39, 720 * days, (w, r) => {
       expect(r.failures).toEqual([]);
       const log = w.entryLog();
       for (; cursor < log.length; cursor++) { const e = log[cursor]; const d = String(Math.floor(e.tick / 720)); const b = pending.get(d); if (b) b.push(e); else pending.set(d, [e]); }
-      if (t % 720 === 719) checkDay(w, Math.floor(t / 720));
+      if (t % 720 === 719) {
+        checkDay(w, Math.floor(t / 720));
+        if (long) { const now = performance.now(); console.log(`[03#39] day ${Math.floor(t / 720) + 1} ms ${Math.round(now - dayStart)}`); dayStart = now; } // timing only (logs), no assertion
+      }
       t++;
     });
     expect(checked).toBe(days);
