@@ -35,7 +35,7 @@ describe('INV-LED-001 double entry (I2, I8)', () => {
     expect(L.INV_LED_001(view([bad]))[0].observed).toMatch(/^I2:/);
   });
   it('qty created from nothing fails I8', () => {
-    const e = L.tplAccrue(env('03'), 'chr_A', 5n, 'FDL', 'LED_MTM_DAILY', 1500, 4060, { sub: 'ast_X' });
+    const e = L.tplAccrue(env('03'), 'chr_A', 5n, 'FDL', 'LED_MTM_DAILY', 1500, 4070, { sub: 'ast_X' });
     const post = applied(accs(), [e]); post.set('chr_A:1500:ast_X:FDL', { balance: 5n, qty: 3n });
     expect(L.INV_LED_001(view([e], { post }))[0].observed).toMatch(/^I8:/);
   });
@@ -48,7 +48,7 @@ describe('INV-LED-002 reason codes', () => {
     expect(r(withPostings(mint(), (ps) => { ps[0].reason = 'OPS_RANSOM'; return ps; }))).toContain('I1: alias=OPS_RANSOM');
     expect(r({ ...mint(), template: 'PAY' })[0]).toMatch(/template PAY/);
     expect(r(mint())).toEqual([]);
-    const trade = L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
+    const trade = L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 });
     const tax = L.tplPay(env('03'), 'chr_A', 'gov_FDL', 2n, 'FDL', 'TAX_SECURITIES_TX');
     expect(r(L.composeEntries(env('05'), trade, [tax]))).toEqual([]);
   });
@@ -68,10 +68,18 @@ describe('INV-LED-003 M0_sys = Σ FAUCET − Σ SINK (I4, I17)', () => {
 
 describe('INV-LED-004 M0_cb and M2 (I4, card reading A-1)', () => {
   it('a REVALUE posting that moves M2 fails; LEND passes; a non-cbk TRANSFER that moves M0 fails', () => {
-    const bad = withPostings(L.tplAccrue(env('03'), 'chr_A', 5n, 'FDL', 'LED_MTM_DAILY', 1500, 4060), (ps) => { ps[0].debitAccount = 'chr_A:1001:FDL'; return ps; });
+    const bad = withPostings(L.tplAccrue(env('03'), 'chr_A', 5n, 'FDL', 'LED_MTM_DAILY', 1500, 4070), (ps) => { ps[0].debitAccount = 'chr_A:1001:FDL'; return ps; });
     expect(L.INV_LED_004(view([bad])).map((x) => x.observed)).toContain('I4: REVALUE LED_MTM_DAILY moves M2 by 5');
     expect(L.INV_LED_004(view([L.tplLend(env('07'), 'bnk_N', 'chr_P', 50n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'ln')]))).toEqual([]);
     const forged = withPostings(pay(), (ps) => [{ ...ps[0], debitAccount: 'chr_B:1001:FDL', creditAccount: 'cbk_FDL:2001:chr_B:FDL' }, { ...ps[ps.length - 1], postingSeq: 1, debitAccount: 'chr_B:5000:FDL' }]);
+    expect(L.INV_LED_004(view([forged])).some((x) => /moves M0_cb/.test(x.observed))).toBe(true);
+  });
+  it('Q004_1910_site: a cbk 1910 issuer-mirror leg does not make an entry a cbk own-account party; a TRANSFER moving M0_cb still fails', () => {
+    const forged = withPostings(pay(), (ps) => [
+      { ...ps[0], debitAccount: 'chr_B:1001:FDL', creditAccount: 'cbk_FDL:2001:chr_B:FDL' },
+      { ...ps[ps.length - 1], postingSeq: 1, debitAccount: 'chr_B:5000:FDL' },
+      { ...ps[0], postingSeq: 2, debitAccount: 'cbk_FDL:1910:FDL', creditAccount: 'sys_SYSTEM:2900:FDL' },
+    ]);
     expect(L.INV_LED_004(view([forged])).some((x) => /moves M0_cb/.test(x.observed))).toBe(true);
   });
   it('cbCredit to a bank passes (M0_cb = credit)', () => {
@@ -86,7 +94,8 @@ describe('INV-LED-005 / 006 / 007', () => {
     expect(ids(L.INV_LED_005(view([bad])))).toEqual(['INV-LED-005']);
   });
   it('006: LED_MTM_DAILY on 1001 fails; LED_RECLASS RESTRICTED -> 1001 passes', () => {
-    const bad = L.tplAccrue(env('03'), 'chr_A', 5n, 'FDL', 'LED_MTM_DAILY', 1001, 4060);
+    // legPolicy (E-11) rejects the 1001 leg at the template; forge it after building to reach the invariant.
+    const bad = withPostings(L.tplAccrue(env('03'), 'chr_A', 5n, 'FDL', 'LED_MTM_DAILY', 1500, 4070), (ps) => { ps[0].debitAccount = 'chr_A:1001:FDL'; return ps; });
     expect(ids(L.INV_LED_006(view([bad])))).toContain('INV-LED-006');
     const ok = L.reclassKeys(env('03'), 'LED_RECLASS', 'chr_A:1001:RESTRICTED:5:AD_GRANT:FDL', 'chr_A:1001:FDL', 5n, 'FDL');
     expect(L.INV_LED_006(view([ok]))).toEqual([]);
@@ -136,7 +145,7 @@ describe('INV-LED-010 / 011 day close', () => {
     const obs = (rows: [string, bigint][]) => L.INV_LED_010(view([], { isDayClose: true, post: accs(rows) })).map((x) => x.observed.slice(0, 3));
     expect(obs([['chr_A:1001:FDL', 1n]])).toEqual(expect.arrayContaining(['I3:', 'I5:']));
     expect(obs([['sys_SYSTEM:1999:FDL', 1n], ['sys_SYSTEM:2999:FDL', -1n]])).toEqual(['I15', 'I15']);
-    expect(obs([['chr_A:1010:bnk_N:FDL', 5n], ['bnk_N:2100:chr_A:FDL', -4n], ['bnk_N:4000:FDL', -1n]])).toEqual(['I6:']);
+    expect(obs([['chr_A:1010:bnk_N:FDL', 5n], ['bnk_N:2100:chr_A:FDL', -4n], ['bnk_N:4000:FDL', -1n]])).toEqual(['DC:', 'I6:']); // E-17 per-bank DC fires too
   });
   it('011 (ALERT): a code above mult × max(28-day mean, floor) alerts; below does not', () => {
     const v = (total: bigint, hist: bigint[]) => view([], {

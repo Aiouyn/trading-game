@@ -6,9 +6,9 @@ const row = (code: string, cls: CodeRow['cls'], owner: number, t: CodeRow['allow
 
 describe('reason-code catalog (T03-02..05, INV-LED-002, Q-2)', () => {
   const cat = new ReasonCatalog();
-  it('live catalog: 390 codes, FAUCET 40 / SINK 86 / TRANSFER 212 / CREDIT_CREATE 12 / CREDIT_DESTROY 13 / REVALUE 27', () => {
-    expect(cat.countByClass()).toEqual({ FAUCET: 40, SINK: 86, TRANSFER: 212, CREDIT_CREATE: 12, CREDIT_DESTROY: 13, REVALUE: 27 });
-    expect(cat.all().length).toBe(390);
+  it('live catalog: 397 seed codes (catalog v3, E-14) + 5 ledger extension codes (E-5) = 402; TRANSFER 221, REVALUE 30', () => {
+    expect(cat.countByClass()).toEqual({ FAUCET: 40, SINK: 86, TRANSFER: 221, CREDIT_CREATE: 12, CREDIT_DESTROY: 13, REVALUE: 30 });
+    expect(cat.all().length).toBe(402);
   });
   it('03#1 / p10 books.ts port: every code has exactly one class and only templates of that class; no default class', () => {
     for (const r of cat.all()) {
@@ -38,6 +38,7 @@ describe('reason-code catalog (T03-02..05, INV-LED-002, Q-2)', () => {
     expect(c.registerReasonCodes(5, 'TRANSFER', [row('FAUCET_X', 'TRANSFER', 5, ['PAY'])])).toEqual(['FAUCET_X: PREFIX_CLASS_MISMATCH']);
     expect(c.registerReasonCodes(5, 'SINK', [row('SINK_X', 'SINK', 5, ['BURN'])])).toEqual([]);
     expect(c.get('SINK_X')?.cls).toBe('SINK');
+    expect(Object.isFrozen(c.get('SINK_X'))).toBe(true); // E-12 layer 1(iii): registered rows are frozen too
     expect(c.registerReasonCodes(5, 'SINK', [row('SINK_X', 'SINK', 5, ['BURN'])])).toEqual(['SINK_X: NAME_TAKEN']);
     expect(c.registerReasonCodes(5, 'TRANSFER', [row('MKT_TRADE', 'TRANSFER', 5, ['SWAP_ASSET'])])).toEqual(['MKT_TRADE: NAME_TAKEN']);
     expect(c.registerReasonCodes(12, 'TRANSFER', [row('OPS_RANSOM', 'TRANSFER', 12, ['PAY'])])).toEqual(['OPS_RANSOM: NAME_TAKEN']);

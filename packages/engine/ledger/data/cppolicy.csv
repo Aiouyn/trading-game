@@ -1,0 +1,203 @@
+code,payer,payee,one_side,source
+LED_INTRAGROUP_SWEEP,!S,!S,,E-15.1 default
+ACCT_ESTATE_AUCTION_PROCEEDS,!S,!S,,E-15.1 default
+TAX_PERSONAL_INCOME,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_CAPITAL_GAINS,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_CORPORATE,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_PROPERTY,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_VAT_REMIT,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_SECURITIES_TX,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_STAMP_DUTY,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_P2P_TRANSFER,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_WITHHOLDING,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_EXIT,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_REFUND,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_LATE_INTEREST,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_AUDIT_ASSESSMENT,*,gov|reg|crt,,E-15.1 tax/fine/levy
+TAX_PENALTY,*,gov|reg|crt,,E-15.1 tax/fine/levy
+MKT_TRADE,!S,!S,,E-15.1 trade
+MKT_EXCHANGE_FEE,*,exc|ccp,,E-15.1 exchange/clearing fee
+MKT_MAKER_REBATE,!S,!S,,E-15.1 default
+MKT_LISTING_FEE,*,exc|ccp,,E-15.1 exchange/clearing fee
+MKT_BLOCK_TRADE,!S,!S,,E-15.1 trade
+OTC_TRADE,!S,!S,,E-15.1 trade
+EQ_DIVIDEND,!S,!S,,E-15.1 default
+EQ_BUYBACK,!S,!S,,E-15.1 default
+EQ_ISSUE_PRIMARY,!S,!S,,E-15.1 default
+EQ_MERGER_CASH,!S,!S,,E-15.1 default
+EQ_DELIST_CASHOUT,!S,!S,,E-15.1 default
+EQ_WARRANT_EXERCISE,!S,!S,,E-15.1 default
+BOND_ISSUE,!S,!S,,E-15.1 default
+BOND_COUPON,!S,!S,,E-15.1 default
+BOND_REDEMPTION,!S,!S,,E-15.1 default
+BOND_ACCRUED_INTEREST,!S,!S,,E-15.1 default
+BOND_DEFAULT_RECOVERY,!S,!S,,E-15.1 default
+SOV_BOND_ISSUE,!S|gov|cbk,!S|gov|cbk,,E-15.1 owner 04 lists gov|cbk
+SOV_COUPON,!S|gov|cbk,!S|gov|cbk,,E-15.1 owner 04 lists gov|cbk
+SOV_REDEMPTION,!S|gov|cbk,!S|gov|cbk,,E-15.1 owner 04 lists gov|cbk
+CMDTY_PHYSICAL_DELIVERY,!S,!S,,E-15.1 default
+CMDTY_STORAGE_FEE_B2B,!S,!S,,E-15.1 default
+CMDTY_FREIGHT_B2B,!S,!S,,E-15.1 default
+DEFI_AMM_SWAP,!S,!S,,E-15.1 trade
+DEFI_LP_DEPOSIT,!S,!S,,E-15.1 default
+DEFI_LP_WITHDRAW,!S,!S,,E-15.1 default
+DEFI_LP_FEE,!S,!S,,E-15.1 default
+DEFI_LEND_DEPOSIT,!S,!S,,E-15.1 default
+DEFI_LEND_WITHDRAW,!S,!S,,E-15.1 default
+DEFI_LEND_INTEREST,!S,!S,,E-15.1 default
+DEFI_BORROW,!S,!S,,E-15.1 default
+DEFI_REPAY,!S,!S,,E-15.1 default
+DEFI_STABLE_MINT,!S,!S,,E-15.1 default
+DEFI_STABLE_REDEEM,!S,!S,,E-15.1 default
+DEFI_BRIDGE_FEE,!S,!S,,E-15.1 default
+DRV_OPTION_PREMIUM,!S,!S,,E-15.1 default
+DRV_OPTION_EXERCISE,!S,!S,,E-15.1 default
+DRV_FUTURES_FINAL_SETTLE,!S,!S,,E-15.1 default
+DRV_PERP_FUNDING,!S,!S,,E-15.1 default
+DRV_SWAP_PAYMENT,!S,!S,,E-15.1 default
+DRV_CDS_PREMIUM,!S,!S,,E-15.1 default
+DRV_CDS_CREDIT_EVENT,!S,!S,,E-15.1 default
+COLL_AUCTION_SETTLE,!S,!S,,E-15.1 default
+BNK_DEPOSIT_IN,!S,!S,,E-15.1 default
+BNK_DEPOSIT_OUT,!S,!S,,E-15.1 default
+BNK_DEPOSIT_INTEREST,!S,!S,,E-15.1 default
+BNK_LOAN_INTEREST,!S,!S,,E-15.1 default
+BNK_LOAN_FEE,!S,!S,,E-15.1 default
+BNK_INTERBANK_LEND,!S,!S,,E-15.1 default
+BNK_INTERBANK_REPAY,!S,!S,,E-15.1 default
+BNK_INTERBANK_INTEREST,!S,!S,,E-15.1 default
+BNK_DEPOSIT_INSURANCE_PREMIUM,!S,!S,,E-15.1 default
+BNK_DEPOSIT_INSURANCE_PAYOUT,!S,!S,,E-15.1 default
+BNK_CAPITAL_INJECTION,!S,!S,,E-15.1 default
+INSOLV_CLAIM_TRADE,!S,!S,,E-15.1 trade
+INSOLV_DISTRIBUTION,!S,!S,,E-15.1 default
+REPO_LEND,!S,!S,,E-15.1 default
+REPO_UNWIND,!S,!S,,E-15.1 default
+REPO_INTEREST,!S,!S,,E-15.1 default
+SECLEND_FEE,!S,!S,,E-15.1 default
+SECLEND_COLLATERAL,!S,!S,,E-15.1 default
+SECLEND_MANUFACTURED_DIVIDEND,!S,!S,,E-15.1 default
+SECLEND_BUYIN,!S,!S,,E-15.1 default
+PB_MARGIN_INTEREST,!S,!S,,E-15.1 default
+PB_FEE,!S,!S,,E-15.1 default
+PB_CUSTODY_FEE,!S,!S,,E-15.1 default
+CCP_INITIAL_MARGIN,!S,!S,,E-15.1 default
+CCP_VARIATION_MARGIN,!S,!S,,E-15.1 default
+CCP_DEFAULT_FUND,!S,!S,,E-15.1 default
+CCP_FEE,*,exc|ccp,,E-15.1 exchange/clearing fee
+CCP_INTEREST_ON_MARGIN,!S,!S,,E-15.1 default
+CCP_WATERFALL_ALLOCATION,!S,!S,,E-15.1 default
+CCP_ASSESSMENT,!S,!S,,E-15.1 default
+CCP_LIQUIDATION_PROCEEDS,!S,!S,,E-15.1 default
+CCP_LIQUIDATION_PENALTY,!S,!S,,E-15.1 default
+BNK_FX_MARGIN,!S,!S,,E-15.1 default
+BNK_ENFORCEMENT_FEE,!S,!S,,E-15.1 default
+CLR_DEBT_REPAY,!S,!S,,E-15.1 default
+ESCROW_DEPOSIT,!S,!S,,E-15.1 default (court escrow rails are not counterparties)
+ESCROW_RELEASE,!S,!S,,E-15.1 default (court escrow rails are not counterparties)
+ESCROW_REFUND,!S,!S,,E-15.1 default (court escrow rails are not counterparties)
+FND_SUBSCRIPTION,!S,!S,,E-15.1 default
+FND_REDEMPTION,!S,!S,,E-15.1 default
+FND_MGMT_FEE,!S,!S,,E-15.1 default
+FND_PERF_FEE,!S,!S,,E-15.1 default
+FND_DISTRIBUTION,!S,!S,,E-15.1 default
+ETF_AP_FEE,!S,!S,,E-15.1 default
+SPV_POOL_PURCHASE,!S,!S,,E-15.1 default
+SPV_TRANCHE_ISSUE,!S,!S,,E-15.1 default
+SPV_WATERFALL_INTEREST,!S,!S,,E-15.1 default
+SPV_WATERFALL_PRINCIPAL,!S,!S,,E-15.1 default
+SPV_SERVICING_FEE,!S,!S,,E-15.1 default
+RAT_RATING_FEE,!S,!S,,E-15.1 default
+INS_PREMIUM,!S,!S,,E-15.1 default
+INS_CLAIM_PAYOUT,!S,!S,,E-15.1 default
+INS_REINSURANCE_PREMIUM,!S,!S,,E-15.1 default
+INS_REINSURANCE_RECOVERY,!S,!S,,E-15.1 default
+INS_CAT_BOND_COUPON,!S,!S,,E-15.1 default
+INS_CAT_BOND_LOSS,!S,!S,,E-15.1 default
+INS_COMMISSION,!S,!S,,E-15.1 default
+BIZ_SALES_B2B,!S,!S,,E-15.1 default
+BIZ_SALES_GOV,gov,*,,E-15.1 PD-13 gov wages/subsidies/contracts: payer gov
+BIZ_COGS_B2B,!S,!S,,E-15.1 default
+BIZ_ENERGY_B2B,!S,!S,,E-15.1 default
+BIZ_UPGRADE_CAPEX_B2B,!S,!S,,E-15.1 default
+BIZ_SALE_P2P,!S,!S,,E-15.1 trade
+BIZ_SUBSIDY_GOV,gov,*,,E-15.1 PD-13 gov wages/subsidies/contracts: payer gov
+CMP_CAPITAL_CONTRIBUTION,!S,!S,,E-15.1 default
+CMP_CAPITAL_RETURN,!S,!S,,E-15.1 default
+CMP_INTERCOMPANY_LOAN,!S,!S,,E-15.1 default
+CMP_INTERCOMPANY_INTEREST,!S,!S,,E-15.1 default
+CMP_INTRAGROUP_SERVICE,!S,!S,,E-15.1 default
+CMP_UNDERWRITING_FEE,!S,!S,,E-15.1 default
+CMP_ADVISORY_FEE_B2B,!S,!S,,E-15.1 default
+CMP_STARTUP_ROUND,!S,!S,,E-15.1 default
+CMP_LIQ_PREF_PAYOUT,!S,!S,,E-15.1 default
+CMP_AUDIT_FEE_B2B,!S,!S,,E-15.1 default
+PROP_RENT_CORE,!S,!S,,E-15.1 default
+PROP_SALE_P2P,!S,!S,,E-15.1 trade
+PROP_MANAGEMENT_FEE_B2B,!S,!S,,E-15.1 default
+PROP_DEVELOPMENT_CAPEX_B2B,!S,!S,,E-15.1 default
+PROP_LAND_AUCTION,!S,!S,,E-15.1 default
+PROP_CONCESSION_BID,!S,!S,,E-15.1 default
+PROP_CONCESSION_BUYOUT,!S,!S,,E-15.1 default
+CON_CONCESSION_PROFIT,*,*,,E-15.1 PD-13 city/construction contracts (either side gov)
+CITY_DEVELOPMENT_LEVY,*,gov|reg|crt,,E-15.1 tax/fine/levy
+LAB_COMPUTE_RENT_B2B,!S,!S,,E-15.1 default
+LAB_HARDWARE_PURCHASE_B2B,!S,!S,,E-15.1 default
+LAB_DATA_LICENSE_B2B,!S,!S,,E-15.1 default
+LAB_MODEL_LICENSE_FEE,!S,!S,,E-15.1 default
+OPS_DEFENSE_B2B,!S,!S,,E-15.1 default
+OPS_LOCKDOWN_RECONNECT,!S,!S,,E-15.1 default
+OPS_PI_FEE_B2B,!S,!S,,E-15.1 default
+OPS_BRIBE_CORE,!S,!S,,E-15.1 default
+LAW_FINE_VICTIM_FUND,*,gov|reg|crt,,E-15.1 tax/fine/levy
+LAW_FINE_WHISTLE_POOL,*,gov|reg|crt,,E-15.1 tax/fine/levy
+LAW_RESTITUTION,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LAW_DISGORGEMENT_VICTIM,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LAW_SETTLEMENT,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LAW_LEGAL_FEE_B2B,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LAW_ARBITRATION_FEE_B2B,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LAW_GARNISHMENT,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LAW_WHISTLE_REWARD,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LAW_BOUNTY_PAYOUT,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LAW_VICTIM_FUND_PAYOUT,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LAW_FORCED_DIVESTITURE,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LAW_CLASS_ACTION_AWARD,!S|gov|reg|crt,!S|gov|reg|crt,,E-15.1 owner 13 lists gov|reg|crt
+LIFE_GIFT_P2P,!S,!S,,E-15.1 default
+LIFE_PURCHASE_P2P,!S,!S,,E-15.1 trade
+SOC_P2P_TRANSFER,!S,!S,,E-15.1 default
+SOC_CONTRACT_PAYMENT,!S,!S,,E-15.1 default
+SOC_CONTRACT_PENALTY,!S,!S,,E-15.1 default
+SOC_LOAN_P2P_ADVANCE,!S,!S,,E-15.1 default
+SOC_LOAN_P2P_REPAY,!S,!S,,E-15.1 default
+SOC_LOAN_P2P_INTEREST,!S,!S,,E-15.1 default
+SOC_REVENUE_SHARE,!S,!S,,E-15.1 default
+SOC_LEASE_PAYMENT,!S,!S,,E-15.1 default
+SOC_OPTION_PREMIUM_P2P,!S,!S,,E-15.1 default
+SOC_ALLIANCE_DUES,!S,!S,,E-15.1 default
+SOC_ALLIANCE_PAYOUT,!S,!S,,E-15.1 default
+SOC_EMBEZZLEMENT,!S,!S,,E-15.1 default
+CBK_INTEREST_ON_RESERVES,*,*,cbk,E-15.1 CBK
+CBK_FACILITY_INTEREST,*,*,cbk,E-15.1 CBK
+CBK_PROFIT_REMITTANCE,*,*,cbk,E-15.1 CBK
+MAC_GOV_TRANSFER_CORE,gov,*,,E-15.1 MAC gov transfer
+MAC_TREASURY_SWEEP,gov,*,,E-15.1 MAC gov transfer
+ADM_CORRECTION_TRANSFER,*,*,,E-15.1 owner 21 lists *
+WLD_NPC_ACTOR_DEAL,!S,!S,,E-15.1 default
+BNK_LOAN_REPAY,!S,!S,,E-15.1 default
+BNK_MORTGAGE_REPAY,!S,!S,,E-15.1 default
+BNK_CREDIT_LINE_REPAY,!S,!S,,E-15.1 default
+BNK_OVERDRAFT_REPAY,!S,!S,,E-15.1 default
+BNK_SECURITY_SALE,!S,!S,,E-15.1 default
+REPO_BANK_UNWIND,!S,!S,,E-15.1 default
+PB_MARGIN_REPAY,!S,!S,,E-15.1 default
+BNK_COLLATERAL_PROCEEDS_APPLY,!S,!S,,E-15.1 default
+BIZ_MARKETING_B2B,!S,!S,,E-15.1 default
+CBK_IOR_W,*,*,cbk,E-15.1 CBK
+CBK_DEPOSIT_INTEREST_W,*,*,cbk,E-15.1 CBK
+BIZ_WAGES_B2E,!S,!S,,E-15.1 default
+BIZ_UPKEEP_B2B,!S,!S,,E-15.1 default
+PROP_UPKEEP_B2B,!S,!S,,E-15.1 default
+LIFE_UPKEEP_B2B,!S,!S,,E-15.1 default
+BIZ_SUBSCRIPTION_B2B,!S,!S,,E-15.1 default
+LIFE_SUBSCRIPTION_B2B,!S,!S,,E-15.1 default
+BIZ_SERVICE_FEE_B2B,!S,!S,,E-15.1 default
