@@ -2,13 +2,19 @@
 // City placeholder window: the one seam with Spec 2 (Spec 1 §10, Spec 2 §2). Spec 1 never writes src/city/**.
 // `@/city` resolves to src/city/index.ts (Spec 2); until it lands, next.config.ts points it at the stub.
 import { useEffect, useRef, useState } from "react";
-import type { CityRenderer, Visibility } from "@/city";
+import type { CityOverlay, CityRenderer, Visibility } from "@/city";
 import type { BodyState } from "@/components/shell/AppBody";
 import { useShell } from "@/components/shell/ShellContext";
 import { S } from "@/shell/strings";
 import { recordPerf } from "@/shell/telemetry";
 import { createShellCityRenderer } from "./createShellCityRenderer";
 import { fetchChunk, stubCityChannel } from "./cityChannel";
+
+/** The Settings "my city" toggle maps onto the renderer's overlay (Spec 2 §2 CityOverlay). */
+const overlayOf = (myCityOverlay: boolean): CityOverlay => (myCityOverlay ? "my_places" : "none");
+
+/** myPlaces arrives as a fresh array on every channel update; compare by content, not reference. */
+export const samePlaces = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
 
 export const cityVisibility = (s: BodyState): Visibility => (s.hidden ? "hidden" : s.collapsed || s.background ? "background" : "visible");
 
@@ -29,28 +35,47 @@ export function CityWindow({ state }: { state: BodyState }) {
   const ref = useRef<HTMLDivElement>(null);
   const renderer = useRef<CityRenderer | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const appliedPlaces = useRef<readonly string[]>([]);
   const reducedMotion = usePrefersReducedMotion();
   const tierOverride = useShell((s) => s.local.renderTierOverride);
   const myCityOverlay = useShell((s) => s.local.myCityOverlay);
   const myPlaces = useShell((s) => s.channels.me.myPlaces);
   const visibility = cityVisibility(state);
-  // Latest values for the async mount without re-creating the renderer.
-  const latest = useRef({ reducedMotion, visibility, myPlaces });
-  useEffect(() => { latest.current = { reducedMotion, visibility, myPlaces }; });
+  // Latest values for the async mount without re-creating the renderer. Anything changed while the
+  // renderer loads is re-applied from here once it is ready (latest wins).
+  const latest = useRef({ reducedMotion, visibility, myPlaces, tierOverride, myCityOverlay });
+  useEffect(() => { latest.current = { reducedMotion, visibility, myPlaces, tierOverride, myCityOverlay }; });
 
   useEffect(() => {
     let disposed = false;
     (async () => {
       if (disposed || !ref.current) return;
-      const r = await createShellCityRenderer({
-        tierOverride, reducedMotion: latest.current.reducedMotion, myCityOverlay,
-        channel: stubCityChannel, fetchChunk, locale: document.documentElement.lang || "en",
-        myEntityIds: latest.current.myPlaces, onPerfSample: recordPerf,
-      });
-      if (disposed) { r.dispose(); return; }
-      await r.mount(ref.current);
+      const created = latest.current;
+      let r: CityRenderer | null = null;
+      try {
+        r = await createShellCityRenderer({
+          tierOverride: created.tierOverride, reducedMotion: created.reducedMotion, myCityOverlay: created.myCityOverlay,
+          channel: stubCityChannel, fetchChunk, locale: document.documentElement.lang || "en",
+          myEntityIds: created.myPlaces, onPerfSample: recordPerf,
+        });
+        if (disposed) { r.dispose(); return; }
+        await r.mount(ref.current);
+      } catch {
+        // createCityRenderer or mount() rejected: show the shell's error state instead of loading forever.
+        r?.dispose();
+        if (!disposed) { setLoading(false); setFailed(true); }
+        return;
+      }
       if (disposed) { r.unmount(); r.dispose(); return; }
-      r.setVisibility(latest.current.visibility);
+      // Re-apply only what changed while loading (setTier re-runs tier detection in the real renderer).
+      const now = latest.current;
+      r.setVisibility(now.visibility);
+      if (now.reducedMotion !== created.reducedMotion) r.setReducedMotion(now.reducedMotion);
+      if (now.tierOverride !== created.tierOverride) r.setTier(now.tierOverride);
+      if (now.myCityOverlay !== created.myCityOverlay) r.setOverlay(overlayOf(now.myCityOverlay));
+      if (!samePlaces(now.myPlaces, created.myPlaces)) r.setMyPlaces(now.myPlaces);
+      appliedPlaces.current = now.myPlaces;
       renderer.current = r;
       setLoading(false);
     })();
@@ -60,18 +85,25 @@ export function CityWindow({ state }: { state: BodyState }) {
       renderer.current?.dispose();
       renderer.current = null;
     };
-    // The renderer is created once per window; tier and overlay changes go through its setters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The renderer is created once per window; later changes go through its setters (effects below).
   }, []);
 
   useEffect(() => { renderer.current?.setVisibility(visibility); }, [visibility]);
   useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
   useEffect(() => { renderer.current?.setTier(tierOverride); }, [tierOverride]);
-  useEffect(() => { renderer.current?.setMyPlaces(myPlaces); }, [myPlaces]);
+  useEffect(() => {
+    const r = renderer.current;
+    if (!r || samePlaces(appliedPlaces.current, myPlaces)) return;
+    r.setMyPlaces(myPlaces);
+    appliedPlaces.current = myPlaces;
+  }, [myPlaces]);
+  useEffect(() => { renderer.current?.setOverlay(overlayOf(myCityOverlay)); }, [myCityOverlay]);
 
   return (
     <div className="city-body" data-testid="city-body" data-visibility={visibility}>
       {loading && <p className="muted city-loading">{S.loadingCity}</p>}
+      {/* The shell's existing error message ("Couldn't load"), in the loading slot, in a role=alert region. */}
+      {failed && <p className="muted city-loading" role="alert" data-testid="city-error">{S.couldntLoad}</p>}
       <div ref={ref} className="city-mount" data-testid="city-mount" />
     </div>
   );

@@ -22,7 +22,9 @@ test("S1-08 strip 34, shelf 52, release, phase, tick ring 22, NW, tiles, divider
   await expect(page.getByTestId("phase")).toHaveText("Market open · Port Avalon");
   const ring = await box(page, "tickring");
   expect([ring.width, ring.height]).toEqual([22, 22]);
-  await expect(page.getByTestId("strip-nw")).toContainText("$412,860.15");
+  // 17A T2: the strip NW is MoneyText ctx=chip (abbreviated, full value in title).
+  await expect(page.getByTestId("strip-nw")).toContainText("$413k");
+  await expect(page.getByTestId("strip-nw").locator("[title]")).toHaveAttribute("title", "$412,860.15");
   const tiles = page.locator("[data-testid^=tile-]");
   expect(await tiles.first().getAttribute("data-testid")).toBe("tile-broker");
   const t = await tiles.first().boundingBox();
@@ -132,8 +134,9 @@ test("Glyph colours: muted, white when active, disabled when locked; never brass
   for (const v of [c.tile, c.on, c.wsColor, c.wsBorder, c.winBorder, c.winGlyph, c.before]) expect(v).not.toBe(c.acc);
 });
 
-// Observable behaviour only, so it holds for the stub and for the real renderer (PR #4); cityId and the
-// option wiring are covered by Vitest (tests/unit/shell/cityWindow.test.ts).
+// Observable behaviour only, so it holds for the stub and for the real renderer (PR #4). The seam calls
+// (cityId, setVisibility on collapse / workspace switch, setReducedMotion, unmount + dispose on close,
+// ui.perf via onPerfSample) are asserted in tests/unit/shell/cityWindow.test.ts.
 test("City seam: the City window mounts a canvas with no error state, and closing removes it", async ({ page }) => {
   await boot(page, "/city?rank=R2");
   const win = page.getByTestId("win-city");

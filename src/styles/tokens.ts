@@ -40,9 +40,9 @@ export const PALETTES: Record<PaletteId, Record<string, string>> = {
     "acc-hi": "#A8443E",
     "acc-lo": "#6E2320",
     "on-acc": "#FFFFFF",
-    "gain": "#1F7A5A",
+    "gain": "#1D7153",
     "loss": "#B3261E",
-    "warn": "#9A6100",
+    "warn": "#8E5900",
     "info": "#2F5E9E",
     "steel": "#4F5B68",
     "signal": "#B3261E",
@@ -105,4 +105,106 @@ export const MOTION = {
   "tick": 5000,
   "easeOut": "cubic-bezier(0.22, 1, 0.36, 1)",
   "easeInOut": "cubic-bezier(0.6, 0, 0.2, 1)"
+} as const;
+/** Every custom property on :root, by name without the leading dashes. */
+export const ROOT_TOKENS = {
+  "font-display": "\"Instrument Serif\", var(--font-instrument-serif), Georgia, serif",
+  "font-ui": "\"Inter\", var(--font-inter), system-ui, sans-serif",
+  "font-num": "\"JetBrains Mono\", var(--font-jetbrains-mono), ui-monospace, monospace",
+  "text-scale": "1",
+  "fs-10_5": "calc(10.5px * var(--text-scale))",
+  "fs-11_5": "calc(11.5px * var(--text-scale))",
+  "fs-12_5": "calc(12.5px * var(--text-scale))",
+  "fs-13": "calc(13px * var(--text-scale))",
+  "fs-14": "calc(14px * var(--text-scale))",
+  "fs-16": "calc(16px * var(--text-scale))",
+  "fs-20": "calc(20px * var(--text-scale))",
+  "fs-22": "calc(22px * var(--text-scale))",
+  "fs-28": "calc(28px * var(--text-scale))",
+  "fs-30": "calc(30px * var(--text-scale))",
+  "fs-40": "calc(40px * var(--text-scale))",
+  "fs-44": "calc(44px * var(--text-scale))",
+  "fs-48": "calc(48px * var(--text-scale))",
+  "fs-56": "calc(56px * var(--text-scale))",
+  "fs-72": "calc(72px * var(--text-scale))",
+  "sp-2": "2px",
+  "sp-4": "4px",
+  "sp-8": "8px",
+  "sp-12": "12px",
+  "sp-16": "16px",
+  "sp-20": "20px",
+  "sp-24": "24px",
+  "sp-32": "32px",
+  "sp-48": "48px",
+  "sp-64": "64px",
+  "r-input": "6px",
+  "r-btn": "10px",
+  "r-window": "10px",
+  "r-card": "14px",
+  "r-sheet": "20px",
+  "r-chip": "999px",
+  "elev-window": "0 12px 32px rgba(0, 0, 0, 0.35)",
+  "elev-sheet": "0 -8px 24px rgba(0, 0, 0, 0.4)",
+  "dur-fast": "120ms",
+  "dur-base": "220ms",
+  "dur-slow": "420ms",
+  "dur-ambient": "2400ms",
+  "dur-tick": "5000ms",
+  "ease-out": "cubic-bezier(0.22, 1, 0.36, 1)",
+  "ease-in-out": "cubic-bezier(0.6, 0, 0.2, 1)",
+  "z-wallpaper": "0",
+  "z-windows": "10",
+  "z-chrome": "100",
+  "z-banner": "110",
+  "z-toast": "120",
+  "z-sheet": "130",
+  "z-moment": "140",
+  "z-held": "150",
+  "z-system": "160",
+  "chrome-translucent": "color-mix(in srgb, var(--chrome) 94%, transparent)",
+  "btn-primary-style": "solid",
+  "focus-ring": "0 0 0 2px var(--bg0), 0 0 0 4px var(--acc)",
+  "hit-touch": "44px",
+  "hit-pointer": "28px",
+  "tile-shelf": "40px",
+  "tile-phone": "60px",
+  "strip-h": "34px",
+  "strip-h-focus": "24px",
+  "shelf-h": "52px",
+  "statusbar-h": "44px",
+  "appbar-h": "44px"
+} as const;
+export type RootToken = keyof typeof ROOT_TOKENS;
+/** Overrides applied by html/data-* modes (colour-blind, high contrast, Shadow, reduced motion/transparency). */
+export const MODE_TOKENS = {
+  "colorBlind": {
+    "gain": "#5CE1E6",
+    "loss": "#FF5C8A"
+  },
+  "highContrast": {
+    "line": "var(--fg-disabled)"
+  },
+  "shadow": {
+    "acc": "var(--steel)",
+    "acc-hi": "var(--steel)",
+    "acc-lo": "var(--steel)",
+    "btn-primary-style": "outline"
+  },
+  "reducedMotion": {
+    "dur-fast": "0ms",
+    "dur-base": "0ms",
+    "dur-slow": "0ms",
+    "dur-ambient": "0ms",
+    "dur-tick": "0ms"
+  },
+  "reducedTransparency": {
+    "chrome-translucent": "var(--chrome)"
+  }
+} as const;
+export const MODE_SELECTORS = {
+  "colorBlind": "html[data-cb=\"1\"]",
+  "highContrast": "html[data-hc=\"1\"]",
+  "shadow": "[data-subpalette=\"shadow\"]",
+  "reducedMotion": "html[data-motion=\"reduce\"]",
+  "reducedTransparency": "html[data-transparency=\"reduce\"]"
 } as const;

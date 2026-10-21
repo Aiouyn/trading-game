@@ -54,6 +54,12 @@ export const S = {
   offline: "Offline · read-only snapshot",
   retry: "Retry",
   retrying: "Retrying…",
+  // MoneyText speech and restricted-cash pills (17 §3.4.6, §3.5)
+  moneyMinus: "minus",
+  moneyAbout: "about",
+  moneyDollars: "dollars",
+  restrictedAD: "AD",
+  restrictedSTART: "START",
 } as const;
 
 export const GROUP_LABELS = { trade: "Trade", build: "Build", shadow: "Shadow", world: "World", me: "Me" } as const;

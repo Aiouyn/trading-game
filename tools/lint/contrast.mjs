@@ -25,5 +25,17 @@ for (const [pal, t] of Object.entries(PALETTES)) {
     }
   }
 }
+// 17A T1 (C6) + Studio T1 ruling 6: primary label on the accent fill, Shadow primary (steel on win), and every
+// tone as 11.5 px chip text on --chrome (strip), --bg0 and --win, in all 4 palettes. Text floor 4.5.
+const TONES = ["acc", "gain", "loss", "warn", "info", "signal"];
+const PAIRS = [["on-acc", "acc"], ["steel", "win"], ...TONES.flatMap((t) => ["chrome", "bg0", "win"].map((bg) => [t, bg]))];
+for (const [pal, t] of Object.entries(PALETTES)) {
+  for (const [fg, bg] of PAIRS) {
+    const r = ratio(t[fg], t[bg]);
+    const ok = r >= 4.5;
+    if (!ok) failed++;
+    console.log(`${ok ? "ok  " : "FAIL"} ${pal.padEnd(10)} ${fg.padEnd(9)} on ${bg.padEnd(6)} ${r.toFixed(2)} >= 4.5 (17A)`);
+  }
+}
 if (failed) { console.error(`${failed} contrast checks failed`); process.exit(1); }
 console.log("contrast: all floors met");
