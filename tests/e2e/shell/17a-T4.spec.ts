@@ -239,7 +239,6 @@ test("T4-10 C8 phone text scale 2.0: no horizontal scroll, no label broken mid-w
     .filter((w) => { const r = document.createRange(); r.selectNodeContents(w); return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size > 1; })
     .map((w) => w.textContent));
   expect(broken).toEqual([]);
-  await shot(page, "home-scale2");
 });
 
 test("T4-10 touch focus ring on the visible 60 px phone tile", async ({ page }, info) => {
@@ -284,26 +283,38 @@ test("T4 Studio label rulings at text scale 2.0: 'Research Desk' wraps to 2 line
       title: b.title, aria: b.getAttribute("aria-label"), trunc: b.dataset.trunc ?? null,
     };
   });
-  // Research Desk wraps at the space: 'Research' on line 1, 'Desk' on line 2. Never broken inside a word.
-  // OPEN (Studio): at 390 px / scale 2.0 the column is 84 px and 'Research' is 101 px, so line 1 still needs the
-  // ellipsis under the never-shrink / floor-0 rules; 'Desk' is whole. If the word fits (wider viewport), no ellipsis.
-  const rd = await label("icon-research");
-  expect(rd).toMatchObject({ words: ["Research", "Desk"], lines: 2 });
-  expect(rd.over.filter((w) => w !== "Research")).toEqual([]);
-  if (rd.over.length === 0) expect([rd.trunc, rd.aria]).toEqual([null, null]);
-  else expect([rd.title, rd.aria]).toEqual(["Research Desk", "Research Desk"]);
-  // Longest single word among visible tiles takes the ellipsis, full name in title + aria-label.
-  const id = await page.evaluate(() => {
-    const tiles = [...document.querySelectorAll<HTMLElement>(".app-grid .phone-app")].filter((t) => t.querySelectorAll(".w").length === 1);
-    const len = (t: HTMLElement) => t.querySelector(".w")!.textContent!.length;
-    return tiles.sort((x, y) => len(y) - len(x))[0]!.dataset.testid!;
-  });
-  const lw = await label(id);
-  const name = lw.words[0]!;
-  expect(lw.over).toEqual([name]);
-  expect([lw.lines, lw.ellipsis[0], lw.hy, lw.ls >= 0, lw.trunc]).toEqual([1, "ellipsis", "none", true, "1"]);
-  expect(lw.title).toContain(name);
-  expect(lw.aria).toContain(name);
+  // Studio 08:20: the grid reflows to 2 columns at 2.0, so 'Research Desk' and 'Businesses' fit with no ellipsis.
+  for (const id of ["icon-research", "icon-businesses"]) {
+    const r = await label(id);
+    expect([id, r.over, r.trunc, r.aria]).toEqual([id, [], null, null]);
+  }
+  expect((await label("icon-research")).lines).toBeLessThanOrEqual(2);
+  // Last resort still works: a synthetic overlong word (injected) takes the ellipsis with the name in title + aria-label.
+  const long = "Supercalifragilisticexpialidocious";
+  await page.getByTestId("icon-markets").locator(".w").first().evaluate((w, t) => { w.textContent = t; }, long);
+  await page.evaluate(() => document.documentElement.style.setProperty("--x-refit", "1"));
+  const lw = await label("icon-markets");
+  expect(lw.over).toEqual([long]);
+  expect([lw.ellipsis[0], lw.hy, lw.ls >= 0, lw.trunc]).toEqual(["ellipsis", "none", true, "1"]);
+  expect(lw.aria).toContain("Markets");
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
   await shot(page, "label-trunc-scale2");
+});
+
+test("T4 Studio 08:20: grid columns by text scale (4 / 3 / 2); tiles keep their size; bottom row unchanged", async ({ page }, info) => {
+  phoneOnly(info.project.name);
+  await boot(page, "/?rank=R6");
+  const tile0 = (await page.getByTestId("icon-markets").locator(".icon").boundingBox())!;
+  const bottom0 = await page.getByTestId("bottom-row").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length);
+  for (const [scale, cols, name] of [[1, 4, "home-scale1"], [1.5, 3, "home-scale1.5"], [2, 2, "home-scale2"]] as const) {
+    await page.evaluate((v) => document.documentElement.style.setProperty("--text-scale", String(v)), scale);
+    await expect(page.getByTestId("grid-trade")).toHaveAttribute("data-cols", String(cols));
+    expect(await page.getByTestId("grid-trade").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length)).toBe(cols);
+    const t = (await page.getByTestId("icon-markets").locator(".icon").boundingBox())!;
+    expect([t.width, t.height]).toEqual([tile0.width, tile0.height]);
+    expect(await page.getByTestId("bottom-row").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length)).toBe(bottom0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+    await page.waitForTimeout(150);
+    await shot(page, name);
+  }
 });

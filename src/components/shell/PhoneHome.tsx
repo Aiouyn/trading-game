@@ -53,6 +53,20 @@ function useFitLabel(name: string) {
   return { ref, trunc };
 }
 
+/** Phone grid columns by text scale (Studio 08:20): 4 below 1.3, 3 from 1.3 to below 1.75, 2 at 1.75 and up. */
+export const gridColsFor = (scale: number) => (scale >= 1.75 ? 2 : scale >= 1.3 ? 3 : 4);
+function useGridCols() {
+  const [cols, setCols] = useState(4);
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    const read = () => setCols(gridColsFor(parseFloat(getComputedStyle(html).getPropertyValue("--text-scale")) || 1));
+    read();
+    const mo = new MutationObserver(read); mo.observe(html, { attributes: true, attributeFilter: ["style", "class", "data-text-scale"] });
+    return () => mo.disconnect();
+  }, []);
+  return cols;
+}
+
 /** Each word is its own unbreakable box, so wrapping only ever happens at spaces. */
 const Words = ({ text }: { text: string }) => <>{text.split(" ").map((w, i) => <span key={i}>{i > 0 && " "}<span className="w">{w}</span></span>)}</>;
 
@@ -128,6 +142,7 @@ export function PhoneHome() {
   const screen = usePhoneScreen();
   const store = useShellStore();
   const next = nextRankTarget(rank);
+  const cols = useGridCols();
   const bar = phoneApp ? appBarLabels(phoneApp.app, screen) : null;
   const progress = next ? Math.min(1, Math.max(0, Number(me.nw) / Number(next.at))) : 1;
   const edge = useRef<{ x: number; y: number } | null>(null);
@@ -198,7 +213,7 @@ export function PhoneHome() {
             return (
               <section key={g} className="grid-group" data-testid={`group-${g}`}>
                 <h2 className="label">{GROUP_LABELS[g]}</h2>
-                <div className="grid4">{apps.map((a) => <AppIcon key={a} app={a} />)}</div>
+                <div className="grid4" data-cols={cols} data-testid={`grid-${g}`}>{apps.map((a) => <AppIcon key={a} app={a} />)}</div>
               </section>
             );
           })}
