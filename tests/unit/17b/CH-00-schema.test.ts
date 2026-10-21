@@ -114,3 +114,12 @@ describe("inherited names are not contract keys (Object.hasOwn, QA #34)", () => 
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });
+
+describe("QA #34 round 2: optional-key schemas and inherited-name deltas", () => {
+  const j = (s: string) => JSON.parse(s) as unknown;
+  it("an opt-bearing schema rejects an inherited name as an extra key (boardRow via board body)", () => {
+    const row = '{"rank":1,"handle":"a","country":"PA","constructor":1}';
+    expect(() => S.parseFrame(j(`{"t":"snap","ch":"board:nwi:global","seq":1,"tick":1,"body":{"boardId":"nwi","scope":"global","rows":[${row}]}}`))).toThrow(/constructor: key not in contract/);
+    expect(() => S.obj({ a: S.int }, { b: S.int })(j('{"a":1,"constructor":2}'))).toThrow(/constructor: key not in contract/);
+  });
+});

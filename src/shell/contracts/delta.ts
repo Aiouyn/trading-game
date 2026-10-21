@@ -23,7 +23,8 @@ function update(node: J, keys: string[], fn: (leaf: J, parent: J, key: string) =
     if (!(Object.hasOwn(node, k))) throw new DeltaError(`missing ${k}`);
     return { ...node, [k]: update(node[k], rest, fn) };
   }
-  const v = fn(node[k], node, k);
+  // Only own keys are leaves: an inherited name (constructor, toString, …) reads as missing, never the prototype's.
+  const v = fn(Object.hasOwn(node, k) ? node[k] : undefined, node, k);
   if (v === DELETE) { const { [k]: _gone, ...keep } = node; void _gone; return keep; }
   return { ...node, [k]: v };
 }

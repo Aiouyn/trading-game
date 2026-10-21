@@ -258,3 +258,14 @@ describe("delta ops", () => {
     expect(() => applyOps({ a: 1 }, [{ op: "del", path: "/z" }])).toThrow(DeltaError);
   });
 });
+
+describe("applyOps never treats inherited names as present (QA #34 round 2)", () => {
+  it.each(["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"])("del /%s on a body that doesn't own it throws and leaves the prototype alone", async (k) => {
+    const { applyOps, DeltaError } = await import("@/shell/contracts/delta");
+    const body = { a: 1 };
+    expect(() => applyOps(body, [{ op: "del", path: `/${k}` }])).toThrow(DeltaError);
+    expect(() => applyOps({ n: { a: 1 } }, [{ op: "del", path: `/n/${k}` }])).toThrow(DeltaError);
+    expect(Object.getPrototypeOf(body)).toBe(Object.prototype);
+    expect(typeof ({} as Record<string, unknown>).constructor).toBe("function");
+  });
+});
