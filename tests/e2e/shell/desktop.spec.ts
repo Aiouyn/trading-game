@@ -132,8 +132,9 @@ test("Glyph colours: muted, white when active, disabled when locked; never brass
   for (const v of [c.tile, c.on, c.wsColor, c.wsBorder, c.winBorder, c.winGlyph, c.before]) expect(v).not.toBe(c.acc);
 });
 
-// Observable behaviour only, so it holds for the stub and for the real renderer (PR #4); cityId and the
-// option wiring are covered by Vitest (tests/unit/shell/cityWindow.test.ts).
+// Observable behaviour only, so it holds for the stub and for the real renderer (PR #4). The seam calls
+// (cityId, setVisibility on collapse / workspace switch, setReducedMotion, unmount + dispose on close,
+// ui.perf via onPerfSample) are asserted in tests/unit/shell/cityWindow.test.ts.
 test("City seam: the City window mounts a canvas with no error state, and closing removes it", async ({ page }) => {
   await boot(page, "/city?rank=R2");
   const win = page.getByTestId("win-city");
