@@ -1,0 +1,18 @@
+name: engine-core
+on:
+  push:
+    paths: ['packages/engine/core/**', '.github/workflows/engine-core.yml', 'package.json']
+  pull_request:
+    paths: ['packages/engine/core/**', '.github/workflows/engine-core.yml', 'package.json']
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/engine/core/package-lock.json
+      - run: npm run core:install
+      - run: npm run core:check

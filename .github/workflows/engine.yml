@@ -1,0 +1,25 @@
+name: engine
+on:
+  push:
+    paths: ['packages/engine/**', 'scripts/engine-check.mjs', '.github/workflows/engine.yml']
+  pull_request:
+    paths: ['packages/engine/**', 'scripts/engine-check.mjs', '.github/workflows/engine.yml']
+  schedule:
+    - cron: '0 2 * * *' # nightly: long runs (TYCOON_LONG=1)
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: [core, ledger]
+    env:
+      TYCOON_LONG: ${{ github.event_name == 'schedule' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: typecheck, lint, test (skipped when the package is absent)
+        run: node scripts/engine-check.mjs ${{ matrix.pkg }}
