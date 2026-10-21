@@ -89,6 +89,7 @@ export const createShellStore = (channels: Channels) =>
         const r = wm.openApp(get().local.windows, app, area(), context);
         setWindows(r.windows, { activeWorkspace: 1 });
       },
+      // TODO(17A T4): ask before closing a window with unsent ticket input (trigger: ticket input exists).
       close(w) { setWindows(wm.closeWin(get().local.windows, w)); },
       focus(w) { setWindows(wm.bringToFront(get().local.windows, w)); },
       snap(w, slot) { setWindows(wm.snapWin(get().local.windows, w, slot, area())); },

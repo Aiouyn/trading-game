@@ -56,7 +56,7 @@ describe('E-17 INV-LED-027 (L28) reserve-follows-deposit', () => {
   });
   it('5: a LEND from bnk_Y to chr_B (+2100, no reserve move) is exempt (CREDIT_CREATE)', () => {
     const w = fixture(); bankRail(w, 'chr_B', 'bnk_Y');
-    const e = L.tplLend(w.env('07', 'P12'), 'bnk_Y', 'chr_B', 7n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'loan_1');
+    const e = L.tplLend(w.env('07', 'P12'), 'bnk_Y', 'chr_B', 7n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'lon_1');
     expect(e.invalid).toBeUndefined(); expect(e.postings.some((p) => p.creditAccount.startsWith('bnk_Y:2100'))).toBe(true); expect(I27(e)).toEqual([]);
   });
   it('6: a bnk_X fee (BNK_LOAN_FEE) charged to chr_A (2100 −f, 4xxx +f) is exempt (the bank is payee); the same legs under a non-listed code fail', () => {
