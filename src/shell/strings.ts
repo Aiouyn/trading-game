@@ -55,6 +55,7 @@ export const S = {
   keySheet: "Keys",
   keySheetFooter: "Nothing executes without Enter.",
   couldntLoad: "Couldn't load",
+  cityCouldntLoad: "Couldn't load the city",
   offline: "Offline · read-only snapshot",
   retry: "Retry",
   retrying: "Retrying…",
