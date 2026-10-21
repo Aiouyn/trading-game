@@ -332,3 +332,15 @@ describe('Producer ruling #21: within-tick order', () => {
     expect(WITHIN_TICK_RANK.CB_DECISION).toBeLessThan(WITHIN_TICK_RANK.AUCTION_ANNOUNCE);
   });
 });
+
+describe('happeningsInRange look-ahead (T04-01b queue note)', () => {
+  it('every auction announcement is found by a one-tick window at its announce tick, including ones announced before their quarter starts', () => {
+    let early = 0;
+    for (const holidays of MODES) for (let q = 0; q < 364 * 2; q += 91) for (const b of BLOC_ORDER) for (const a of auctionsInQuarter(b, q, pv, holidays)) {
+      if (a.announceTick < q * 720) early++;
+      const hs = happeningsInRange(a.announceTick, a.announceTick + 1, pv, holidays);
+      expect(hs.some((h) => h.kind === 'AUCTION_ANNOUNCE' && h.bloc === b && h.auction.tenor === a.tenor && h.auction.auctionTick === a.auctionTick)).toBe(true);
+    }
+    expect(early).toBeGreaterThan(0);   // the cross-quarter case the look-ahead exists for is exercised
+  });
+});
