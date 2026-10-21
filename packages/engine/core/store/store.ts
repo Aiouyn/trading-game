@@ -55,7 +55,6 @@ export class PartitionStore {
   private stamps: ReadStamp[] = [];
   private viol: StoreViolation[] = [];
   private sum = 0n;            // logicalStateHash of current
-  private tickStartSum = 0n;
   readonly committed: StoreRead;
   readonly current: StoreRead;
 
@@ -171,7 +170,7 @@ export class PartitionStore {
 
   beginTick(tick: number): void {
     if (this.log.length > 0 || [...this.t.values()].some((t) => t.overlay.size > 0)) throw new EngineFault('I0.store_open_tick', 'beginTick with an open tick');
-    void tick; this.stamps = []; this.viol = []; this.seq = 0; this.tickStartSum = this.sum;
+    void tick; this.stamps = []; this.viol = []; this.seq = 0;
   }
   /** New records each call; before/after holding bytes are copied (E-73 AC-02-09-BYTES-ISOLATION). */
   writeSet(): readonly WriteRecord[] { return this.log.map((w) => ({ ...w, before: copyBytesOut(w.before), after: copyBytesOut(w.after) })); }
@@ -185,7 +184,7 @@ export class PartitionStore {
 
   rollbackTick(): void {
     for (const t of this.t.values()) for (const id of [...t.overlay.keys()]) this.setCurrent(t, id, null);
-    this.log = []; this.sum = this.tickStartSum;
+    this.log = [];
   }
   rollbackEntity(table: string, id: Id): void {
     const t = this.tbl(table);
@@ -200,7 +199,7 @@ export class PartitionStore {
       for (const [id, e] of t.overlay) { dirty++; if (e.slot === TOMB) t.base.delete(id); else t.base.set(id, e.slot); }
       t.overlay = new SortedMap();
     }
-    this.log = []; this.tickStartSum = this.sum;
+    this.log = [];
     return { stateHash: this.stateHash(), logicalStateHash: this.sum, dirty };
   }
 
