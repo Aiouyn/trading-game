@@ -54,6 +54,17 @@ export const S = {
   offline: "Offline · read-only snapshot",
   retry: "Retry",
   retrying: "Retrying…",
+  // 17A T5 notices [P copy, pending Studio]: world-event banner and system overlays
+  worldDay: "DAY",
+  worldSince: "since it began",
+  worldToday: "Today",
+  haltedAction: "Continue read-only",
+  disconnected: "Disconnected",
+  disconnectedBody: "The connection to the Exchange was lost. Read-only screens stay open.",
+  disconnectedAction: "Reconnect",
+  updateRequired: "Update required",
+  updateBody: "A new version of Quay is available. Reload to continue.",
+  updateAction: "Reload",
   // MoneyText speech and restricted-cash pills (17 §3.4.6, §3.5)
   moneyMinus: "minus",
   moneyAbout: "about",
