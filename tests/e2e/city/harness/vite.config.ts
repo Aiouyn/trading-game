@@ -5,10 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildWorld, generateCity, publish, CITY_ID } from '../fixtures/generate-city';
-
-/** The cityId Spec 1's real CityWindow.tsx passes today (C-05 page). Spec 22 / Systems use CITY_ID. */
-const SHELL_CITY_ID = 'port-avalon';
+import { generateCity, CITY_ID } from '../fixtures/generate-city';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const OUT = process.env.CITY_HARNESS_OUT ?? join(tmpdir(), 'city-harness');
@@ -41,10 +38,8 @@ function fixtures(): Plugin {
       const city = generateCity();
       for (const [url, bytes] of city.files) this.emitFile({ type: 'asset', fileName: url.replace(/^\//, ''), source: bytes });
       for (const [v, m] of city.manifests) this.emitFile({ type: 'asset', fileName: `city/${CITY_ID}/manifest.v${v}.json`, source: JSON.stringify(m) });
-      // the same city published under the real CityWindow's cityId, at the plain manifest URL
-      const shell = publish(buildWorld(), 1, 14_400, SHELL_CITY_ID);
-      for (const [url, bytes] of shell.files) this.emitFile({ type: 'asset', fileName: url.replace(/^\//, ''), source: bytes });
-      this.emitFile({ type: 'asset', fileName: `city/${SHELL_CITY_ID}/manifest.json`, source: JSON.stringify(shell.manifest) });
+      // the plain manifest URL, as Spec 1's real CityWindow fetches it (C-05; cityId city_port_avalon)
+      this.emitFile({ type: 'asset', fileName: `city/${CITY_ID}/manifest.json`, source: JSON.stringify(city.manifests.get(1)) });
       // my places for ?mine=1: a few storefronts and properties near the centre (client-only data)
       const mine = city.snapshot.entities.filter((e) => e.kind === 'storefront' || e.kind === 'property').slice(5, 8).map((e) => e.id);
       this.emitFile({ type: 'asset', fileName: 'fixture-info.json', source: JSON.stringify({ cityId: CITY_ID, mine, versions: [...city.manifests.keys()] }) });
