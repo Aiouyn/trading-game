@@ -22,3 +22,4 @@ export * from './intake/batch';
 export * from './params';
 export * as dmath from './dmath';
 export * from './calendar';
+export * from './fixed';
