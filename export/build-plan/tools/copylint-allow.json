@@ -1,0 +1,5 @@
+{
+  "note": "copylint (E-66) allowlist. tokens: brand/product names allowed as hard-coded literals (exact match after trimming separators/punctuation). exclude_globs: dev-only routes never shown to players (paths relative to the repo root, fnmatch).",
+  "tokens": ["Quay", "Port Avalon", "Avalon"],
+  "exclude_globs": ["src/app/%5F_ds/*", "src/app/%5F_ds/**", "src/app/_ds/**", "src/app/__ds/**"]
+}
