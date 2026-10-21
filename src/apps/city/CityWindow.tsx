@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CityOverlay, CityRenderer, Visibility } from "@/city";
 import type { BodyState } from "@/components/shell/AppBody";
 import { useShell } from "@/components/shell/ShellContext";
+import { Button } from "@/components/ui/Button";
 import { S } from "@/shell/strings";
 import { recordPerf } from "@/shell/telemetry";
 import { createShellCityRenderer } from "./createShellCityRenderer";
@@ -36,6 +37,8 @@ export function CityWindow({ state }: { state: BodyState }) {
   const renderer = useRef<CityRenderer | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  // Bumped by the window's own Retry: re-runs only the renderer effect below (never the shell loader).
+  const [attempt, setAttempt] = useState(0);
   const appliedPlaces = useRef<readonly string[]>([]);
   const reducedMotion = usePrefersReducedMotion();
   const tierOverride = useShell((s) => s.local.renderTierOverride);
@@ -86,8 +89,8 @@ export function CityWindow({ state }: { state: BodyState }) {
       renderer.current?.dispose();
       renderer.current = null;
     };
-    // The renderer is created once per window; later changes go through its setters (effects below).
-  }, []);
+    // The renderer is created once per window (and again per Retry); later changes go through its setters.
+  }, [attempt]);
 
   useEffect(() => { renderer.current?.setVisibility(visibility); }, [visibility]);
   useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
@@ -101,10 +104,18 @@ export function CityWindow({ state }: { state: BodyState }) {
   useEffect(() => { renderer.current?.setOverlay(overlayOf(myCityOverlay)); }, [myCityOverlay]);
 
   return (
-    <div className="city-body" data-testid="city-body" data-visibility={visibility}>
+    <div className="city-body" data-testid="city-body" data-visibility={visibility} data-failed={failed || undefined}>
       {loading && <p className="muted city-loading">{S.loadingCity}</p>}
-      {/* The shell's existing error message ("Couldn't load"), in the loading slot, in a role=alert region. */}
-      {failed && <p className="muted city-loading" role="alert" data-testid="city-error">{S.couldntLoad}</p>}
+      {/* The shell's existing error message ("Couldn't load the city"), in the loading slot, in a role=alert region. */}
+      {failed && (
+        <div className="city-loading city-failed">
+          <p className="muted" role="alert" data-testid="city-error">{S.cityCouldntLoad}</p>
+          {/* Studio: the window's own secondary Retry disposes/re-creates only the CityRenderer.
+              TODO(View as table): once table data is loaded, render <Button variant="ghost" size="sm"> "View as table"
+              BESIDE Retry (same row). No table data source exists yet, so it stays hidden. */}
+          <Button variant="secondary" size="sm" data-testid="city-retry" onClick={() => { setFailed(false); setLoading(true); setAttempt((n) => n + 1); }}>{S.retry}</Button>
+        </div>
+      )}
       <div ref={ref} className="city-mount" data-testid="city-mount" />
     </div>
   );
