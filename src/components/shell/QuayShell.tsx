@@ -1,6 +1,6 @@
 "use client";
 // Quay OS shell root: picks phone / compact / desktop, applies html attributes, wires keys and channels.
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
 import { clockAt, mockChannels, TICK_MS } from "@/shell/mockChannels";
@@ -16,7 +16,8 @@ import { KeySheet } from "./KeySheet";
 import { Launcher } from "./Launcher";
 import { PhoneHome } from "./PhoneHome";
 import { Recent } from "./Recent";
-import { ShellCtx, useShell } from "./ShellContext";
+import { ShellCtx, useShell, useShellStore } from "./ShellContext";
+import { useDeepLinkNavigate } from "./PhoneBanners";
 import { Shelf } from "./Shelf";
 import { StatusStrip } from "./StatusStrip";
 import { Desktop } from "./Desktop";
@@ -63,6 +64,12 @@ function Surface() {
   const feedSource = useMemo(() => mockFeedSource(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)), []);
   const feed = useFeed(feedSource);
   const sheet = useSheetRequest();
+  const navigate = useDeepLinkNavigate();
+  const storeApi = useShellStore();
+  const vwNow = useShell((s) => s.vw);
+  const deskBannerH = viewportOf(vwNow) === "phone" ? 0 : (feed.alerts.length ? 34 : 0) + (feed.world ? 34 : 0);
+  // Desktop banners shrink the work area; windows refit to it (wm.fitRect).
+  useEffect(() => { storeApi.getState().setBannerH(deskBannerH); }, [storeApi, deskBannerH]);
   useEffect(() => {
     // Mock-only: `?sheet=demo` opens an empty shell sheet so the mount point can be exercised before any consumer.
     if (new URLSearchParams(window.location.search).get("sheet") === "demo") openSheet({ label: S.recent, content: <p className="muted">{S.noRecent}</p>, testId: "shell-sheet" });
@@ -80,11 +87,11 @@ function Surface() {
   }
   const phone = viewportOf(vw) === "phone";
   return (
-    <div className={`quay${phone ? " is-phone" : " is-desktop"}${focusMode && !phone ? " focus-mode" : ""}${reconnecting ? " reconnecting" : ""}`} data-testid="quay-ready" style={{ "--banner-h": `${phone ? 0 : (feed.alerts.length ? 34 : 0) + (feed.world ? 34 : 0)}px` } as CSSProperties}>
+    <div className={`quay${phone ? " is-phone" : " is-desktop"}${focusMode && !phone ? " focus-mode" : ""}${reconnecting ? " reconnecting" : ""}`} data-testid="quay-ready">
       {phone ? <PhoneHome /> : (
         <>
           <StatusStrip />
-          <Banner alerts={feed.alerts} />
+          <Banner alerts={feed.alerts} onNavigate={navigate} />
           <WorldEventBanner event={feed.world} />
           <Desktop />
           {!focusMode && <Shelf />}

@@ -1,5 +1,5 @@
 "use client";
-import { viewportOf, workArea, slotRect, type Area } from "@/shell/wm";
+import { viewportOf, workArea, slotRect, type Area, fitRect } from "@/shell/wm";
 import type { WindowRect } from "@/shell/types";
 import { useShell } from "./ShellContext";
 import { WindowFrame } from "./WindowFrame";
@@ -18,12 +18,14 @@ export function Desktop() {
   const vw = useShell((s) => s.vw);
   const vh = useShell((s) => s.vh);
   const vp = viewportOf(vw);
-  const area = workArea(vw, vh, focusMode);
+  const bannerH = useShell((s) => s.bannerH);
+  const area = workArea(vw, vh, focusMode, bannerH);
+  const full = workArea(vw, vh, focusMode);
   const onWs = windows.filter((w) => w.workspace === ws);
 
   const shown = new Map<WindowRect, Area>();
   if (vp === "desktop") {
-    onWs.forEach((w) => shown.set(w, w));
+    onWs.forEach((w) => shown.set(w, fitRect(w, area, full)));
   } else {
     const [a, b] = onWs.slice(-2);
     const halves = vw >= 1000 && a && b && new Set([a.snap, b.snap]).size === 2 && [a.snap, b.snap].every((s) => s === "L1/2" || s === "R1/2");

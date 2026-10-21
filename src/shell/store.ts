@@ -27,6 +27,9 @@ export interface ShellState {
 
   setChannels(c: Channels): void;
   setViewport(w: number, h: number): void;
+  /** Height of the open desktop banners (0 / 34 / 68), which shrinks the work area (17A T6). */
+  bannerH: number;
+  setBannerH(h: number): void;
   open(app: AppId, context?: string, opts?: { deepLink?: boolean }): void;
   close(w: WindowRect): void;
   focus(w: WindowRect): void;
@@ -53,6 +56,7 @@ export const initialLocal = (): ShellLocalState => ({
 export const createShellStore = (channels: Channels) =>
   create<ShellState>()((set, get) => {
     const first = evaluate(channels, new Set());
+    // Stored rects use the full work area; banners are applied at display time (wm.fitRect), so nothing double-shrinks.
     const area = () => wm.workArea(get().vw, get().vh, get().local.focusMode);
     const setWindows = (windows: WindowRect[], extra: Partial<ShellLocalState> = {}) =>
       set((s) => ({ local: { ...s.local, ...extra, windows } }));
@@ -74,6 +78,8 @@ export const createShellStore = (channels: Channels) =>
         set({ channels: c, vis: next.vis, sticky: next.sticky, fresh });
       },
       setViewport(vw, vh) { set({ vw, vh }); },
+      bannerH: 0,
+      setBannerH(h) { if (get().bannerH !== h) set({ bannerH: h }); },
       open(app, context, opts) {
         const v = get().vis[app];
         // Locked apps open only from a deep link, showing the LockTile body; hidden apps never open.

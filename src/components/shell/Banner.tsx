@@ -15,7 +15,7 @@ export function pickAlert(queue: readonly Alert[]): { shown: Alert | null; queue
   return { shown: order[0] ?? null, queued: order.slice(1) };
 }
 
-export function Banner({ alerts }: { alerts: readonly Alert[] }) {
+export function Banner({ alerts, onNavigate, extra = 0, onMore }: { alerts: readonly Alert[]; onNavigate?: (href: string) => void; extra?: number; onMore?: () => void }) {
   const { shown, queued } = useMemo(() => pickAlert(alerts), [alerts]);
   return (
     <div className="alert-slot" data-testid="alert-slot" data-open={!!shown} data-queued={queued.length}>
@@ -25,7 +25,9 @@ export function Banner({ alerts }: { alerts: readonly Alert[] }) {
           {/* Always icon + text, never colour alone (17 §3.1.3). */}
           <span className="alert-icon" data-testid="alert-icon"><Glyph name="bell" size={16} /></span>
           <span className="alert-text">{shown.text}</span>
-          <a className="alert-action" href={shown.action.href}>{shown.action.label}</a>
+          {/* A real link (keyboard, a11y), routed through the shell's deep-link handling when one is given. */}
+          <a className="alert-action" href={shown.action.href} onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate(shown.action.href); } }}>{shown.action.label}</a>
+          {extra > 0 && <MoreButton n={extra} onMore={onMore} />}
         </div>
       )}
     </div>
@@ -40,7 +42,12 @@ export function worldEventText(e: WorldEvent): string {
   return `● ${e.name.toUpperCase()} · ${S.worldDay} ${e.day} · ${e.index} ${pct(e.sincePct)} ${S.worldSince} · ${S.worldToday} ${pct(e.todayPct)}`;
 }
 
-export function WorldEventBanner({ event }: { event: WorldEvent | null }) {
+/** "+N" count on the last visible phone banner; opens the alerts sheet (Producer 08:20). */
+export function MoreButton({ n, onMore }: { n: number; onMore?: () => void }) {
+  return <button className="banner-more" data-testid="banner-more" aria-label={`+${n} ${S.moreAlerts}`} onClick={onMore}>{`+${n}`}</button>;
+}
+
+export function WorldEventBanner({ event, extra = 0, onMore }: { event: WorldEvent | null; extra?: number; onMore?: () => void }) {
   return (
     <div className="world-slot" data-testid="world-slot" data-open={!!event}>
       {event && (
@@ -51,6 +58,7 @@ export function WorldEventBanner({ event }: { event: WorldEvent | null }) {
           <span>{event.index} <PctText value={event.sincePct} /> {S.worldSince}</span>
           <span aria-hidden="true">{"·"}</span>
           <span>{S.worldToday} <PctText value={event.todayPct} /></span>
+          {extra > 0 && <MoreButton n={extra} onMore={onMore} />}
         </div>
       )}
     </div>

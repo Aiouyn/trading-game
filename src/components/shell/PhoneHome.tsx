@@ -3,7 +3,7 @@ import { useRef, type PointerEvent as RPointerEvent } from "react";
 import { clockLabel } from "@/shell/mockChannels";
 import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
 import { nextRankTarget } from "@/shell/unlock";
-import { LoadState } from "./LoadState";
+import { PhoneBannerStack } from "./PhoneBanners";
 import { Sparkline } from "./Sparkline";
 import { APP_NAMES, GROUP_LABELS, S } from "@/shell/strings";
 import { AppBody } from "./AppBody";
@@ -111,7 +111,7 @@ export function PhoneHome() {
     return (
       <div className="phone" data-testid="phone" {...gestures}>
         <StatusBar />
-        <LoadState variant="banner" />
+        <PhoneBannerStack />
         <section className="phone-appview" role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
           <div className="appbar">
             <button className="icon-btn" aria-label={S.back} onClick={() => store.getState().phoneBack()}><Glyph name="chevLeft" size={20} /></button>
@@ -129,7 +129,7 @@ export function PhoneHome() {
   return (
     <div className="phone" data-testid="phone" {...gestures}>
       <StatusBar />
-      <LoadState variant="banner" />
+      <PhoneBannerStack />
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top"><span className="label">{S.netWorth}</span><span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span></div>

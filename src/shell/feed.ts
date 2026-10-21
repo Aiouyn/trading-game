@@ -2,7 +2,8 @@
 // anything malformed is dropped (never trusted into the UI). The mock source scripts events from the URL.
 // TODO(17A T6): Engine wires the real alert / world-event feed into `subscribeFeed` (trigger: the engine's
 // notification channel exists). Until then only the mock source below emits.
-import { useEffect, useReducer } from "react";
+import { useEffect, useSyncExternalStore } from "react";
+import { isAppId, type AppId } from "./registry";
 import type { Alert, WorldEvent } from "@/components/shell/Banner";
 
 export type FeedEvent =
@@ -63,15 +64,35 @@ export function mockFeedSource(q: URLSearchParams): FeedSource {
     p0b: { kind: "alert", alert: { id: "m-p0b", priority: "P0", text: "Second P0 (queued)", action: { label: "Open Broker", href: "/broker" } } },
     p1: { kind: "alert", alert: { id: "m-p1", priority: "P1", text: "Order partly filled: 400 of 1,000 GX", action: { label: "Open Broker", href: "/broker" } } },
     bad: { kind: "alert", alert: { id: "m-bad", priority: "P9", text: "malformed", action: { label: "x", href: "javascript:alert(1)" } } },
+    p1b: { kind: "alert", alert: { id: "m-p1b", priority: "P1", text: "Price alert: GX crossed 4,200", action: { label: "Open Markets", href: "/markets" } } },
     crash: { kind: "world-event", event: { name: "Crash", day: 3, index: "GX", sincePct: "-18.40", todayPct: "-2.10" } },
   };
   const keys = [...(q.get("alerts") ?? "").split(","), q.get("world") ?? ""].filter(Boolean);
   return (emit) => { keys.forEach((k) => MOCK[k] !== undefined && emit(MOCK[k])); return () => {}; };
 }
 
-/** Subscribe the shell to a source; malformed messages are dropped at the boundary. */
-export function useFeed(source: FeedSource): FeedState & { dispatch: (raw: unknown) => void } {
-  const [state, apply] = useReducer((s: FeedState, raw: unknown) => { const e = parseFeedEvent(raw); return e ? reduceFeed(s, e) : s; }, EMPTY_FEED);
-  useEffect(() => source(apply), [source]);
-  return { ...state, dispatch: apply };
+// One feed per page: a tiny external store so the desktop slots and the phone stack read the same state.
+let state: FeedState = EMPTY_FEED;
+const subs = new Set<() => void>();
+/** Parse at the boundary, then reduce; malformed messages are dropped. */
+export function dispatchFeed(raw: unknown): void {
+  const e = parseFeedEvent(raw);
+  if (!e) return;
+  const next = reduceFeed(state, e);
+  if (next !== state) { state = next; subs.forEach((f) => f()); }
+}
+export const useFeedState = () => useSyncExternalStore((f) => { subs.add(f); return () => subs.delete(f); }, () => state, () => EMPTY_FEED);
+
+/** Connect the shell to a source (resets state for this page). */
+export function useFeed(source: FeedSource): FeedState {
+  useEffect(() => { state = EMPTY_FEED; subs.forEach((f) => f()); return source(dispatchFeed); }, [source]);
+  return useFeedState();
+}
+
+/** Parse an in-app deep link (`/app` or `/app?asset=X`, the alert action format) into an app + context. */
+export function parseDeepLink(href: string): { app: AppId; context?: string } | null {
+  const m = /^\/([\w-]+)(?:\/[\w-]+)?(?:\?(.*))?$/.exec(href);
+  if (!m || !isAppId(m[1]!)) return null;
+  const asset = new URLSearchParams(m[2] ?? "").get("asset");
+  return { app: m[1] as AppId, context: asset ?? undefined };
 }

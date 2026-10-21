@@ -21,9 +21,9 @@ export function moveWin(windows: WindowRect[], w: WindowRect, x: number, y: numb
 
 export interface Area { x: number; y: number; w: number; h: number }
 
-/** Work area between strip and shelf, inset by the gutter. */
-export function workArea(vw: number, vh: number, focusMode = false): Area {
-  const top = focusMode ? 24 : STRIP_H;
+/** Work area between strip (+ open banners, T6) and shelf, inset by the gutter. */
+export function workArea(vw: number, vh: number, focusMode = false, bannerH = 0): Area {
+  const top = (focusMode ? 24 : STRIP_H) + bannerH;
   const bottom = focusMode ? 0 : SHELF_H;
   return { x: GUTTER, y: top + GUTTER, w: vw - 2 * GUTTER, h: vh - top - bottom - 2 * GUTTER };
 }
@@ -125,4 +125,24 @@ export function nextSnap(current: SnapSlot | null, dir: "left" | "right" | "up" 
   const cycle: SnapSlot[] = dir === "left" ? ["L1/2", "L1/3", "L2/3"] : ["R1/2", "R1/3", "R2/3"];
   const i = current ? cycle.indexOf(current) : -1;
   return cycle[(i + 1) % cycle.length];
+}
+
+/**
+ * Displayed rect of a desktop window inside the banner-shrunk work area `a` (17A T6, Producer 08:20). `full` is the
+ * work area without banners. Stored rects are untouched, so windows return to their place when banners close.
+ * - Maximized (FILL) and tiled (any snap / layout pane) windows are rescaled vertically from `full` into `a`,
+ *   never below their minimum height (then they overlap the shelf's top edge instead).
+ * - Floating windows keep their size and move down only as far as needed to clear the banners; one that can't fit
+ *   above the shelf overlaps the shelf's top edge rather than shrinking.
+ */
+export function fitRect(w: WindowRect, a: Area, full: Area = a): Area {
+  if (w.snap) {
+    if (a.y === full.y && a.h === full.h) return { x: w.x, y: w.y, w: w.w, h: w.h };
+    const k = a.h / full.h;
+    const m = minSize(w.app, a.w);
+    return { x: w.x, y: Math.round(a.y + (w.y - full.y) * k), w: w.w, h: Math.max(m.h, Math.round(w.h * k)) };
+  }
+  // Floor = strip bottom + hit band + banner height: only windows that would sit under a banner move down.
+  const delta = a.y - full.y;
+  return { x: w.x, y: delta > 0 ? Math.max(w.y, full.y - GUTTER + STRIP_HIT_BAND + delta) : w.y, w: w.w, h: w.h };
 }

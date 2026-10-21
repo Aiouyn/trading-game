@@ -70,3 +70,19 @@ html[data-motion="reduce"] .qsheet { animation: none; }
 .halt-chip::before { content: ""; position: absolute; inset: -6px -4px; }
 @media (pointer: coarse) { .halt-chip::before { inset: -14px -4px; } }
 .halt-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* T6 phone banner stack (Producer 08:20): in flow under the status bar; alert / world banners grow to 44 px on phone
+   so their action and the +N count get 44 px targets. ≥ 8 px gap below the last banner. */
+.phone-stack { flex: none; display: flex; flex-direction: column; }
+.phone-stack .alert-slot[data-open="true"], .phone-stack .world-slot[data-open="true"] { height: auto; overflow: visible; }
+.phone-stack .alert-banner, .phone-stack .world-banner { height: auto; min-height: 44px; padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); border-bottom: 0; box-shadow: inset 0 -1px 0 var(--line); white-space: normal; }
+.phone-stack .alert-p0 { box-shadow: inset 1px 0 0 var(--loss), inset 0 -1px 0 var(--line); }
+.phone-stack .alert-banner .alert-action { min-height: 44px; display: inline-flex; align-items: center; }
+.phone-stack .alert-banner .alert-action::before { inset: 0 -6px; }
+.phone-stack[data-last="alert"], .phone-stack[data-last="world"] { margin-bottom: var(--sp-8); }
+.phone-stack[data-last="world"] .phone-banner[data-open="true"] { margin-bottom: 0; }
+.banner-more { flex: none; min-width: 44px; min-height: 44px; margin-left: auto; color: var(--fg); text-decoration: underline; position: relative; }
+.is-desktop .banner-more { min-height: 28px; min-width: 28px; }
+.alerts-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; }
+.alerts-list li { min-height: 44px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); color: var(--fg); }
+.alerts-list .alert-action { margin-left: auto; min-height: 44px; display: inline-flex; align-items: center; }
