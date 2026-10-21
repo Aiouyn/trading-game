@@ -164,7 +164,7 @@ describe('T02-06 registry (02 §3.10.4)', () => {
     expect(STREAM_REGISTRY.filter((s) => s.root === 'HARNESS').map((s) => s.pattern)).toEqual(['sim.bot:<botId>']);
     expect(new Set(STREAM_REGISTRY.map((s) => s.pattern)).size).toBe(81);
     expect(matchStream('macro.fx:EUN:FDL')!.pattern).toBe('macro.fx:<base>:<quote>'); expect(matchStream('macro.fx:EUN/FDL')).toBeUndefined(); expect(matchStream('macro.fx:EUN')).toBeUndefined();
-    expect(matchStream('macro.nowcast:chr_1:rel_2')).toMatchObject({ module: '04', root: 'PUBLIC' });
+    expect(matchStream('macro.nowcast:chr_1:rel_2')).toMatchObject({ module: '04', root: 'SECRET' });
   });
   it('matchStream / streamPrefix', () => {
     expect(matchStream('mkt.idio:ast_A')!.module).toBe('05');
@@ -224,5 +224,12 @@ describe('AC-02-06-FAULTS: every I0.rng_* fault code (the full set raised by rng
     const dir = dirname(fileURLToPath(import.meta.url)), used: string[] = [];
     for (const f of readdirSync(dir).sort()) if (f.endsWith('.ts') && !f.endsWith('.test.ts')) for (const c of readFileSync(join(dir, f), 'utf8').match(/I0\.rng_[a-z_]+/g) ?? []) if (!used.includes(c)) used.push(c);
     expect(used.sort()).toEqual(Object.keys(got).sort());
+  });
+});
+
+describe('E-63.5: macro.nowcast root class is S (SECRET)', () => {
+  it('nowcast keys resolve to the SECRET root', () => {
+    expect(STREAM_REGISTRY.find((s) => s.pattern === 'macro.nowcast:<chrId>:<releaseId>')?.root).toBe('SECRET');
+    expect(matchStream('macro.nowcast:chr_7:rel_3')?.root).toBe('SECRET');
   });
 });

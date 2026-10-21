@@ -18,7 +18,7 @@ export const STREAM_REGISTRY: readonly StreamSpec[] = Object.freeze([
   { module: '04', pattern: 'macro.gapest:<bloc>', root: 'SECRET', usedFor: 'CB output-gap estimate noise ε, AR(1) ρ 0.98, σ 0.5 pp (E-45, PROVISIONAL [Quant]); secret root so the true gap cannot be recovered' },
   { module: '04', pattern: 'macro.crisis', root: 'PUBLIC', usedFor: 'crisis trigger draws (rates set by 04)' },
   { module: '04', pattern: 'macro.sovereign_event:<gov>', root: 'PUBLIC', usedFor: 'downgrade, restructuring triggers' },
-  { module: '04', pattern: 'macro.nowcast:<chrId>:<releaseId>', root: 'PUBLIC', usedFor: '04 nowcast noise per character and release (row added per E-63)' },
+  { module: '04', pattern: 'macro.nowcast:<chrId>:<releaseId>', root: 'SECRET', usedFor: '04 nowcast noise per character and release (row per E-63; root S per E-63.5)' },
   { module: '05', pattern: 'mkt.factor:<factorId>', root: 'PUBLIC', usedFor: 'factor returns (global, sector, region, rates, risk appetite, FX, crypto)' },
   { module: '05', pattern: 'mkt.idio:<assetId>', root: 'PUBLIC', usedFor: 'idiosyncratic Student-t(4) noise' },
   { module: '05', pattern: 'mkt.jump:<assetId>', root: 'PUBLIC', usedFor: 'Kou jumps (occurrence, sign, size)' },
