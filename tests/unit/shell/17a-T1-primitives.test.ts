@@ -1,0 +1,146 @@
+// @vitest-environment happy-dom
+// 17A T1: token parity (T1-01) and primitive behaviour (T1-06, T1-08, Button). Computed-style ACs live in
+// tests/e2e/shell/17a-T1.spec.ts.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { createElement, act } from "react";
+import { createRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import { MoneyText, speakMoney, type MoneyCtx, type MoneyTextProps } from "@/components/shell/MoneyText";
+import { abbreviateDigits } from "@/components/ui/money";
+import { Button } from "@/components/ui/Button";
+import { MODE_SELECTORS, MODE_TOKENS, PALETTES, ROOT_TOKENS } from "@/styles/tokens";
+
+const css = readFileSync(resolve(process.cwd(), "src/styles/tokens.css"), "utf8");
+
+/** Every `selector { --name: value; }` block in tokens.css, comments stripped. */
+function cssBlocks(): { selector: string; vars: Record<string, string> }[] {
+  const src = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  return [...src.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, sel, body]) => ({
+    selector: sel.trim().replace(/\s+/g, " "),
+    vars: Object.fromEntries([...body.matchAll(/--([\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()])),
+  }));
+}
+
+describe("T1-01 tokens.ts mirrors every var in tokens.css", () => {
+  const blocks = cssBlocks().filter((b) => Object.keys(b.vars).length > 0);
+  const mirrored = (selector: string): Record<string, string> | undefined => {
+    if (selector === ":root") return ROOT_TOKENS;
+    const pal = /data-palette="([\w-]+)"/.exec(selector)?.[1];
+    if (pal) return (PALETTES as Record<string, Record<string, string>>)[pal];
+    const mode = Object.entries(MODE_SELECTORS).find(([, s]) => s === selector)?.[0];
+    return mode ? (MODE_TOKENS as Record<string, Record<string, string>>)[mode] : undefined;
+  };
+  it.each(blocks.map((b) => [b.selector, b] as const))("%s", (_sel, b) => {
+    expect(mirrored(b.selector)).toEqual(b.vars);
+  });
+  it("includes the 17A additions", () => {
+    expect(ROOT_TOKENS).toMatchObject({
+      "focus-ring": "0 0 0 2px var(--bg0), 0 0 0 4px var(--acc)", "hit-touch": "44px", "hit-pointer": "28px",
+      "tile-shelf": "40px", "tile-phone": "60px", "strip-h": "34px", "strip-h-focus": "24px", "shelf-h": "52px",
+      "statusbar-h": "44px", "appbar-h": "44px",
+    });
+    expect(MODE_TOKENS.colorBlind).toEqual({ gain: "#5CE1E6", loss: "#FF5C8A" });
+    expect(MODE_TOKENS.highContrast).toEqual({ line: "var(--fg-disabled)" });
+  });
+});
+
+const html = (amount: string, ctx?: MoneyCtx, extra: Partial<MoneyTextProps> = {}) =>
+  renderToStaticMarkup(createElement(MoneyText, { amount, ctx, ...extra }));
+const text = (markup: string) => markup.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&");
+
+describe("T1-06 MoneyText formatting", () => {
+  it.each([["12400", "$12.4k"], ["3210000", "$3.21M"], ["1050000000", "$1.05B"], ["4200000000000", "$4.2T"]])("list %s -> %s", (a, want) => {
+    expect(text(html(a, "list"))).toBe(want);
+  });
+  it("chip and sentence abbreviate too; below 10,000 stays full", () => {
+    expect(text(html("12400", "chip"))).toBe("$12.4k");
+    expect(text(html("12400", "sentence"))).toBe("$12.4k");
+    expect(text(html("9999.99", "list"))).toBe("$9,999.99");
+  });
+  it("abbreviated values keep full precision in title", () => {
+    expect(html("3210000", "list")).toContain('title="$3,210,000.00"');
+  });
+  it("table keeps full precision", () => {
+    expect(text(html("4200000000000", "table"))).toBe("$4,200,000,000,000.00");
+  });
+  it("negatives use U+2212 and --loss", () => {
+    const m = html("-42.10", "table");
+    expect(text(m)).toBe("\u2212$42.10");
+    expect(m).toContain("loss");
+  });
+  it("zero renders $0.00 in --fg-muted with no sign, even as a delta", () => {
+    for (const ctx of ["list", "delta", "hero"] as const) {
+      const m = html("0", ctx);
+      expect(text(m)).toBe("$0.00");
+      expect(m).toContain("muted");
+    }
+  });
+  it("positive delta gets + and --gain; wealth uses --acc-wealth; estimated gets ≈ and muted", () => {
+    expect(text(html("12.5", "delta"))).toBe("+$12.50");
+    expect(html("12.5", "delta")).toContain("gain");
+    expect(html("1", "wealth")).toContain("money-wealth-tone");
+    const est = html("1284.10", "table", { estimated: true });
+    expect(text(est)).toBe("≈$1,284.10");
+    expect(est).toContain("muted");
+  });
+  it("restricted cash shows an acc-outline pill beside it", () => {
+    const m = html("500", "list", { restricted: "AD" });
+    expect(m).toMatch(/class="chip chip-acc chip-outline">AD</);
+  });
+  it.each([["99950", "100k"], ["999500", "1M"], ["123456", "123k"], ["10000", "10k"], ["1234567890123456", "1234T"]])("rounds %s -> %s", (a, want) => {
+    expect(abbreviateDigits(a)).toBe(want);
+  });
+  it("rejects non-decimal input instead of guessing", () => {
+    expect(() => html("12e3")).toThrow();
+  });
+});
+
+describe("T1-08 MoneyText speech", () => {
+  it("−42.10 FDL reads 'minus 42.10 dollars'", () => {
+    expect(speakMoney("-42.10")).toBe("minus 42.10 dollars");
+    expect(html("-42.10", "table")).toContain('aria-label="minus 42.10 dollars"');
+  });
+  it("estimated reads 'about …'", () => expect(speakMoney("5", true)).toBe("about 5.00 dollars"));
+});
+
+describe("Button", () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const mount = (...els: ReturnType<typeof createElement>[]) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => root.render(createElement("div", null, ...els)));
+    return { host, unmount: () => act(() => root.unmount()) };
+  };
+
+  it("disabled stays focusable (aria-disabled) and ignores activation", () => {
+    const onClick = vi.fn();
+    const { host, unmount } = mount(createElement(Button, { disabled: true, onClick }, "Go"));
+    const b = host.querySelector("button")!;
+    expect(b.getAttribute("aria-disabled")).toBe("true");
+    expect(b.hasAttribute("disabled")).toBe(false);
+    act(() => b.click());
+    expect(onClick).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("warns in dev when two primaries share one view, not for one", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const one = mount(createElement(Button, { variant: "primary" }, "A"));
+    expect(warn).not.toHaveBeenCalled();
+    one.unmount();
+    document.body.innerHTML = "";
+    const two = mount(createElement(Button, { variant: "primary", key: 1 }, "A"), createElement(Button, { variant: "primary", key: 2 }, "B"));
+    expect(warn).toHaveBeenCalled();
+    two.unmount();
+    warn.mockRestore();
+  });
+
+  it("renders variant and size classes", () => {
+    const m = renderToStaticMarkup(createElement(Button, { variant: "ghost", size: "sm" }, "x"));
+    expect(m).toContain('class="btn btn-ghost btn-sm"');
+    expect(m).toContain('type="button"');
+  });
+});

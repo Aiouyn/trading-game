@@ -14,6 +14,8 @@ export default defineConfig({
   webServer: {
     command: `npm run build && npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}`,
+    // QUAY_DS=1 serves the dev-only /__ds primitives sheet in the production build (17A T1).
+    env: { QUAY_DS: "1" },
     reuseExistingServer: !process.env.CI,
     timeout: 240_000,
   },

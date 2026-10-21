@@ -1,6 +1,59 @@
-// MoneyText stub (17 §3.4.1): formats a server decimal string; never computes money.
-export type MoneyCtx = "hero" | "table" | "list" | "chip" | "sentence" | "wealth";
+// MoneyText (17 §3.4.1, §3.5): formats a server decimal string; never computes money (17-AT-05).
+import { Chip } from "@/components/ui/Chip";
+import { abbreviateDigits, fullDigits, isZero, MINUS, parseAmount, shouldAbbreviate } from "@/components/ui/money";
+import { S } from "@/shell/strings";
 
+export type MoneyCtx = "hero" | "table" | "list" | "chip" | "sentence" | "delta" | "wealth";
+export type Restricted = "AD" | "START";
+
+export interface MoneyTextProps {
+  /** Decimal string from the server, e.g. "-42.10". */
+  amount: string;
+  ccy?: "FDL";
+  ctx?: MoneyCtx;
+  /** Shows ≈ in --fg-muted. */
+  estimated?: boolean;
+  /** Restricted cash: an acc-outline pill beside the amount. */
+  restricted?: Restricted;
+}
+
+/** @deprecated Pre-17A props, kept so StatusStrip (T2) and PhoneHome (T4) render unchanged until they migrate. */
+export interface LegacyMoneyTextProps { value: string; ctx?: MoneyCtx; compact?: boolean; signed?: boolean }
+
+const ABBREVIATED: ReadonlySet<MoneyCtx> = new Set(["list", "chip", "sentence"]);
+const RESTRICTED_TEXT: Record<Restricted, string> = { AD: S.restrictedAD, START: S.restrictedSTART };
+
+/** Spoken form (17 §3.4.6): "-42.10" -> "minus 42.10 dollars". */
+export function speakMoney(amount: string, estimated = false): string {
+  const p = parseAmount(amount);
+  return [estimated && S.moneyAbout, p.negative && S.moneyMinus, fullDigits(p), S.moneyDollars].filter(Boolean).join(" ");
+}
+
+export function MoneyText(props: MoneyTextProps | LegacyMoneyTextProps) {
+  if ("value" in props) return <LegacyMoneyText {...props} />;
+  const { amount, ctx = "list", estimated = false, restricted } = props;
+  const p = parseAmount(amount);
+  const zero = isZero(p);
+  const abbreviated = !zero && ABBREVIATED.has(ctx) && shouldAbbreviate(p);
+  const digits = zero ? "0.00" : abbreviated ? abbreviateDigits(p.int) : fullDigits(p);
+  const sign = p.negative ? MINUS : ctx === "delta" && !zero ? "+" : "";
+  const tone = zero || estimated ? "muted" : p.negative ? "loss" : ctx === "delta" ? "gain" : ctx === "wealth" ? "money-wealth-tone" : "";
+  const cls = ["num", "money", `money-${ctx}`, tone].filter(Boolean).join(" ");
+  const text = `${estimated ? "≈" : ""}${sign}$${digits}`;
+  const dot = text.lastIndexOf(".");
+  const body = ctx === "hero" && dot > 0
+    ? <><span data-testid="money-int">{text.slice(0, dot)}</span><span className="cents" data-testid="money-cents">{text.slice(dot)}</span></>
+    : text;
+  const money = (
+    <span className={cls} role="img" aria-label={speakMoney(amount, estimated)} title={abbreviated ? `$${fullDigits(p)}` : undefined}>
+      {body}
+    </span>
+  );
+  if (!restricted) return money;
+  return <span className="money-restricted">{money}<Chip tone="acc" outline>{RESTRICTED_TEXT[restricted]}</Chip></span>;
+}
+
+// ---- legacy rendering, byte-for-byte the pre-17A output ----
 export function groupMoney(v: string, cents = true): string {
   const neg = v.startsWith("-");
   const [i, f = ""] = v.replace(/^[-+]/, "").split(".");
@@ -21,11 +74,10 @@ export function compactMoney(v: string): string {
   return `$${i}`;
 }
 
-export function MoneyText({ value, ctx = "list", compact = false, signed = false }: { value: string; ctx?: MoneyCtx; compact?: boolean; signed?: boolean }) {
+function LegacyMoneyText({ value, ctx = "list", compact = false, signed = false }: LegacyMoneyTextProps) {
   const text = compact ? compactMoney(value) : groupMoney(value);
   const sign = signed && !value.startsWith("-") ? "+" : "";
   if (ctx === "hero" && !compact) {
-    // Hero NW: cents at 65% in --fg-muted (17 §3.3.2).
     const dot = text.lastIndexOf(".");
     return (
       <span className="money money-hero">
