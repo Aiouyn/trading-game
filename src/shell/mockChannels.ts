@@ -1,7 +1,7 @@
-// Mock provider for the clock / rank / me channels (Spec 1 §2). Replaced by the gateway later.
 // Mock server for the clock / rank / me channels (stands in for the gateway). Query params script a character:
-// ?rank=R3&lic=LIC2&nw=150000&flags=character.day3,api.eligible&guest=0&prot=1&onb=5&onbDone=0
+// rank, lic, nw, flags, guest, prot, onb, onbDone, … (dev and e2e builds only; see hooks.ts).
 import type { Channels, ClockChannel } from "./channels";
+import { MOCK_HOOKS } from "./hooks";
 import { RANKS, type Rank } from "./registry";
 
 export const TICK_MS = 5000;
@@ -9,24 +9,42 @@ export const TICK_MS = 5000;
 export const RANK_THRESHOLDS = ["20000", "250000", "5000000", "100000000", "2000000000"] as const;
 export const TICKS_PER_DAY = 720;
 
-export function mockChannels(q: URLSearchParams): Channels {
-  const rankParam = q.get("rank") ?? "R2";
-  const rank: Rank = (RANKS as readonly string[]).includes(rankParam) ? (rankParam as Rank) : "R2";
-  const flags = (q.get("flags") ?? "").split(",").filter(Boolean);
+const DEFAULT_TICK = 38 * TICKS_PER_DAY + 340;
+
+/** The unscripted mock character (what a no-flag production build always serves). */
+export function defaultChannels(): Channels {
   return {
-    clock: clockAt(Number(q.get("tick") ?? 38 * TICKS_PER_DAY + 340)),
+    clock: clockAt(DEFAULT_TICK),
+    rank: { rank: "R2", thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf("R2")] ?? null },
+    system: { connection: "live", halted: false, held: false, load: "ok", offline: false },
+    me: {
+      nw: "412860.15", todayPct: "+0.78", todayChg: "+3204.10", license: "LIC1", charters: [], flags: [],
+      onboardingMin: 60, onboardingDone: true, myPlaces: [], guest: false, protectionEndsRealMs: null,
+    },
+  };
+}
+
+/** Mock channels scripted by the URL. Gated at build time (src/shell/hooks.ts): off, the overrides are compiled out. */
+export function mockChannels(q: URLSearchParams): Channels {
+  const d = defaultChannels();
+  if (!MOCK_HOOKS) return d;
+  const rankParam = q.get("rank") ?? d.rank.rank;
+  const rank: Rank = (RANKS as readonly string[]).includes(rankParam) ? (rankParam as Rank) : "R2";
+  const list = (k: string) => (q.get(k) ?? "").split(",").filter(Boolean);
+  return {
+    clock: clockAt(Number(q.get("tick") ?? DEFAULT_TICK)),
     rank: { rank, thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf(rank)] ?? null },
     system: { connection: q.get("conn") === "reconnecting" ? "reconnecting" : "live", halted: q.get("halted") === "1", held: q.get("held") === "1", load: q.get("load")?.startsWith("fail") ? "error" : "ok", offline: false },
     me: {
-      nw: q.get("nw") ?? "412860.15",
-      todayPct: q.get("pct") ?? "+0.78",
-      todayChg: q.get("chg") ?? "+3204.10",
-      license: q.get("lic") ?? "LIC1",
-      charters: (q.get("charters") ?? "").split(",").filter(Boolean),
-      flags,
-      onboardingMin: Number(q.get("onb") ?? 60),
+      nw: q.get("nw") ?? d.me.nw,
+      todayPct: q.get("pct") ?? d.me.todayPct,
+      todayChg: q.get("chg") ?? d.me.todayChg,
+      license: q.get("lic") ?? d.me.license,
+      charters: list("charters"),
+      flags: list("flags"),
+      onboardingMin: Number(q.get("onb") ?? d.me.onboardingMin),
       onboardingDone: q.get("onbDone") !== "0",
-      myPlaces: (q.get("places") ?? "").split(",").filter(Boolean),
+      myPlaces: list("places"),
       guest: q.get("guest") === "1",
       protectionEndsRealMs: q.get("prot") === "1" ? 41 * 60_000 + 12_000 : null,
     },
