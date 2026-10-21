@@ -53,7 +53,7 @@ export interface DistrictUse {
 }
 
 export interface CityDistrict {
-  id: string; // dist_<city>_<district>
+  id: string; // dst_<city>_<district>
   nameKey: string;
   tier: DistrictTier;
   rentIndex: number;

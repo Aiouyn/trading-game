@@ -22,7 +22,7 @@ import type {
 } from '../../../../src/city/data/types';
 
 export const REFERENCE_SEED = 20261020;
-export const CITY_ID = 'city_port_avalon';
+export const CITY_ID = 'cty_port_avalon';
 const EXTENT = 512; // m, half size
 const CELL_CM = 200;
 const GROUND = (2 * EXTENT * 100) / CELL_CM; // 512 cells
@@ -59,7 +59,7 @@ export const DISTRICTS: DistrictDef[] = [
   D('glasshill', 'Glasshill', 'prime', [-270, -40], ['lmk_glasshill_observatory', 'Glasshill Observatory']),
   D('summit_estates_on_gilt_hill', 'Summit Estates on Gilt Hill', 'trophy', [-300, -290], ['lmk_gilt_hill_gates', 'Gilt Hill Gates']),
 ];
-const distId = (d: DistrictDef) => `dist_port_avalon_${d.slug}`;
+const distId = (d: DistrictDef) => `dst_port_avalon_${d.slug}`;
 
 const COMPANIES: [string, string, SectorId][] = [
   ['cmp_halc', 'Halcyon Systems', 'TECH'], ['cmp_qrmd', 'Quorum Data', 'TECH'], ['cmp_glfs', 'Gulfstar Petroleum', 'ENERGY'],

@@ -62,7 +62,7 @@ describe('Wire formats (Systems rulings)', () => {
   it('fixtures use 22 ids and names (8 Port Avalon districts, no West Bank)', () => {
     const { snapshot } = generateCity();
     expect(snapshot.districts.map((d) => d.id).sort()).toEqual(
-      ['eastside_docks', 'financial_mile', 'glasshill', 'industrial_basin', 'midtown', 'old_harbor', 'riverside_lofts', 'summit_estates_on_gilt_hill'].map((x) => `dist_port_avalon_${x}`),
+      ['eastside_docks', 'financial_mile', 'glasshill', 'industrial_basin', 'midtown', 'old_harbor', 'riverside_lofts', 'summit_estates_on_gilt_hill'].map((x) => `dst_port_avalon_${x}`),
     );
     const crowns = snapshot.entities.filter((e) => e.kind === 'crown_tower');
     expect(crowns.every((c) => c.companyId && c.name !== 'Private')).toBe(true);

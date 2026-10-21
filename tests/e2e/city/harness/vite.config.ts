@@ -38,7 +38,7 @@ function fixtures(): Plugin {
       const city = generateCity();
       for (const [url, bytes] of city.files) this.emitFile({ type: 'asset', fileName: url.replace(/^\//, ''), source: bytes });
       for (const [v, m] of city.manifests) this.emitFile({ type: 'asset', fileName: `city/${CITY_ID}/manifest.v${v}.json`, source: JSON.stringify(m) });
-      // the plain manifest URL, as Spec 1's real CityWindow fetches it (C-05; cityId city_port_avalon)
+      // the plain manifest URL, as Spec 1's real CityWindow fetches it (C-05; cityId cty_port_avalon)
       this.emitFile({ type: 'asset', fileName: `city/${CITY_ID}/manifest.json`, source: JSON.stringify(city.manifests.get(1)) });
       // my places for ?mine=1: a few storefronts and properties near the centre (client-only data)
       const mine = city.snapshot.entities.filter((e) => e.kind === 'storefront' || e.kind === 'property').slice(5, 8).map((e) => e.id);
