@@ -1,6 +1,6 @@
 "use client";
 // Quay OS shell root: picks phone / compact / desktop, applies html attributes, wires keys and channels.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
 import { clockAt, mockChannels, TICK_MS } from "@/shell/mockChannels";
@@ -21,6 +21,11 @@ import { Shelf } from "./Shelf";
 import { StatusStrip } from "./StatusStrip";
 import { Desktop } from "./Desktop";
 import { SystemOverlays } from "./SystemOverlays";
+import { Banner, WorldEventBanner } from "./Banner";
+import { Sheet } from "./Sheet";
+import { mockFeedSource, useFeed } from "@/shell/feed";
+import { closeSheet, openSheet, useSheetRequest } from "@/shell/sheetHost";
+import { S } from "@/shell/strings";
 
 const BOOT_MS = [900, 500, 0, 0, 0, 0, 0];
 
@@ -54,6 +59,14 @@ function Surface() {
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const [booted, setBooted] = useState(false);
   useHtmlAttributes();
+  // Mock feed until Engine wires the real one (see TODO in shell/feed.ts). Read once per load, like mockChannels.
+  const feedSource = useMemo(() => mockFeedSource(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)), []);
+  const feed = useFeed(feedSource);
+  const sheet = useSheetRequest();
+  useEffect(() => {
+    // Mock-only: `?sheet=demo` opens an empty shell sheet so the mount point can be exercised before any consumer.
+    if (new URLSearchParams(window.location.search).get("sheet") === "demo") openSheet({ label: S.recent, content: <p className="muted">{S.noRecent}</p>, testId: "shell-sheet" });
+  }, []);
 
   useEffect(() => {
     const t = window.setTimeout(() => setBooted(true), BOOT_MS[RANKS.indexOf(rank)]);
@@ -67,12 +80,12 @@ function Surface() {
   }
   const phone = viewportOf(vw) === "phone";
   return (
-    <div className={`quay${phone ? " is-phone" : " is-desktop"}${focusMode && !phone ? " focus-mode" : ""}${reconnecting ? " reconnecting" : ""}`} data-testid="quay-ready">
+    <div className={`quay${phone ? " is-phone" : " is-desktop"}${focusMode && !phone ? " focus-mode" : ""}${reconnecting ? " reconnecting" : ""}`} data-testid="quay-ready" style={{ "--banner-h": `${phone ? 0 : (feed.alerts.length ? 34 : 0) + (feed.world ? 34 : 0)}px` } as CSSProperties}>
       {phone ? <PhoneHome /> : (
         <>
           <StatusStrip />
-          <div className="banner-slot" data-testid="alert-banner-slot" />
-          <div className="banner-slot" data-testid="world-banner-slot" />
+          <Banner alerts={feed.alerts} />
+          <WorldEventBanner event={feed.world} />
           <Desktop />
           {!focusMode && <Shelf />}
         </>
@@ -82,6 +95,11 @@ function Surface() {
       {launcherOpen && <Launcher />}
       {recentOpen && <Recent />}
       {keySheetOpen && <KeySheet />}
+      {sheet && (
+        <Sheet side={sheet.side ?? (phone ? "bottom" : "right")} label={sheet.label} onClose={closeSheet} testId={sheet.testId ?? "shell-sheet"}>
+          {sheet.content}
+        </Sheet>
+      )}
     </div>
   );
 }

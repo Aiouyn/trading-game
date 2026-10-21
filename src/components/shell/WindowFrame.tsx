@@ -41,7 +41,8 @@ export function WindowFrame({ win, z, active, rect, movable, background }: Props
       data-testid={`win-${win.app}`}
       data-instance={win.instance}
       data-subpalette={subPalette(win.app)}
-      style={{ left: rect.x, top: Math.max(rect.y, minWindowTop(store.getState().local.focusMode)), width: rect.w, height: win.collapsed ? 32 : rect.h, zIndex: 10 + z }}
+      style={{ left: rect.x, // T6: open alert / world banners push the window floor down by --banner-h (0, 34 or 68 px) so they never cover a title bar.
+        top: `max(${rect.y}px, calc(${minWindowTop(store.getState().local.focusMode)}px + var(--banner-h, 0px)))`, width: rect.w, height: win.collapsed ? 32 : rect.h, zIndex: 10 + z }}
       onPointerDown={() => !active && store.getState().focus(win)}
     >
       <div className="titlebar" onPointerDown={(e) => start(e, "move")} onPointerMove={onMove} onPointerUp={end}>
