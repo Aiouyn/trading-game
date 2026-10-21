@@ -1,7 +1,7 @@
 // Mock provider for the clock / rank / me channels (Spec 1 §2). Replaced by the gateway later.
 // Mock server for the clock / rank / me channels (stands in for the gateway). Query params script a character:
 // ?rank=R3&lic=LIC2&nw=150000&flags=character.day3,api.eligible&guest=0&prot=1&onb=5&onbDone=0
-import { parseEntitlements, type AcctEntitlements, type Channels, type ClockChannel, type ShellId } from "./channels";
+import { parseEntitlements, type AcctEntitlements, type Channels, type ClockChannel, type MarketPhase, type ShellId } from "./channels";
 import { MOCK_HOOKS } from "./hooks";
 import { RANKS, type Rank } from "./registry";
 
@@ -10,12 +10,28 @@ export const TICK_MS = 5000;
 export const RANK_THRESHOLDS = ["20000", "250000", "5000000", "100000000", "2000000000"] as const;
 export const TICKS_PER_DAY = 720;
 
+const PHASES: readonly MarketPhase[] = ["pre", "open_auction", "continuous", "close_auction", "after", "weekend"];
+/** Mock-only `?phase=` override (17A T3 screenshots/e2e): pins the market phase across ticks.
+ *  Build-time gate: Next inlines NODE_ENV and NEXT_PUBLIC_* at build time, so in a production build without
+ *  NEXT_PUBLIC_QUAY_MOCK_PHASE=1 this folds to `false` and the override below is eliminated as dead code
+ *  (no runtime env check survives; the "phase" query read is not in the bundle). The e2e build opts in. */
+export const PHASE_HOOK: boolean =
+  process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_QUAY_MOCK_PHASE === "1";
+/** @deprecated kept for callers; equals the build-time constant. */
+export const phaseOverrideEnabled = () => PHASE_HOOK;
+export const phaseOverride: (q: URLSearchParams) => MarketPhase | null = PHASE_HOOK
+  ? (q) => {
+      const p = q.get("phase");
+      return p && (PHASES as readonly string[]).includes(p) ? (p as MarketPhase) : null;
+    }
+  : () => null;
+
 export function mockChannels(q: URLSearchParams): Channels {
   const rankParam = q.get("rank") ?? "R2";
   const rank: Rank = (RANKS as readonly string[]).includes(rankParam) ? (rankParam as Rank) : "R2";
   const flags = (q.get("flags") ?? "").split(",").filter(Boolean);
   return {
-    clock: clockAt(Number(q.get("tick") ?? 38 * TICKS_PER_DAY + 340)),
+    clock: { ...clockAt(Number(q.get("tick") ?? 38 * TICKS_PER_DAY + 340)), ...(phaseOverride(q) ? { phase: phaseOverride(q)! } : {}) },
     rank: { rank, thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf(rank)] ?? null, shellsEarned: mockShells(q, rank) },
     entitlements: mockEntitlements(q),
     system: { connection: q.get("conn") === "reconnecting" ? "reconnecting" : "live", halted: q.get("halted") === "1", held: q.get("held") === "1", load: q.get("load")?.startsWith("fail") ? "error" : "ok", offline: false },
