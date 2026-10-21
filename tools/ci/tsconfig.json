@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "typeRoots": [
+      "../../packages/engine/core/node_modules/@types"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "typescript": [
+        "../../packages/engine/core/node_modules/typescript"
+      ],
+      "vitest": [
+        "../../packages/engine/core/node_modules/vitest"
+      ]
+    }
+  },
+  "include": [
+    "*.ts"
+  ]
+}

@@ -37,7 +37,7 @@ describe('V3 03 §10 binding tests', () => {
   it('03#5 bank loan of $1M raises M2 and leaves M0, M0_sys and both book NWs unchanged', () => {
     const w = fixture();
     const a0 = w.aggregates('FDL'); const nw = [w.netWorth('chr_P'), w.netWorth('bnk_N')];
-    w.apiFor('07').ledger.lend('bnk_N', 'chr_P', 1_000_000_000_000n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'loan_1');
+    w.apiFor('07').ledger.lend('bnk_N', 'chr_P', 1_000_000_000_000n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'lon_1');
     expect(w.runP13().failures).toEqual([]);
     const a1 = w.aggregates('FDL');
     expect(a1.M2 - a0.M2).toBe(1_000_000_000_000n);
@@ -49,10 +49,10 @@ describe('V3 03 §10 binding tests', () => {
     const w = fixture();
     w.setRail('chr_P', { payFrom: { kind: 'BANK', bankId: 'bnk_N' }, receiveInto: { kind: 'BANK', bankId: 'bnk_N' } });
     w.apiFor('14').ledger.mint('chr_P', 10_000_000_000n, 'FDL', 'ACCT_START_CASH');
-    w.apiFor('07').ledger.lend('bnk_N', 'chr_P', 1_000_000_000_000n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'loan_1');
+    w.apiFor('07').ledger.lend('bnk_N', 'chr_P', 1_000_000_000_000n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'lon_1');
     expect(w.runP13().failures).toEqual([]);
     const m2a = w.aggregates('FDL').M2;
-    w.apiFor('07').ledger.repay('chr_P', 'bnk_N', 1_000_000_000_000n, 'FDL', 'BNK_LOAN_REPAY', 'loan_1');
+    w.apiFor('07').ledger.repay('chr_P', 'bnk_N', 1_000_000_000_000n, 'FDL', 'BNK_LOAN_REPAY', 'lon_1');
     expect(w.runP13().failures).toEqual([]);
     const m2b = w.aggregates('FDL').M2;
     expect(m2b - m2a).toBe(-1_000_000_000_000n);
