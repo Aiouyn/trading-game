@@ -4,7 +4,7 @@
 .strip {
   position: relative;
   z-index: var(--z-chrome);
-  height: 34px;
+  height: var(--strip-h);
   flex: none;
   display: flex;
   align-items: center;
@@ -13,7 +13,7 @@
   background: var(--chrome-translucent);
   border-bottom: 1px solid var(--line);
 }
-.strip-focus { height: 24px; justify-content: center; }
+.strip-focus { height: var(--strip-h-focus); justify-content: center; }
 .brand { flex: none; display: flex; align-items: center; gap: var(--sp-8); }
 .wordmark { font: 400 var(--fs-20) / 1 var(--font-display); }
 .release { font-size: var(--fs-10_5); color: var(--fg-faint); }
@@ -56,7 +56,7 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 .shelf {
   position: relative;
   z-index: var(--z-chrome);
-  height: 52px;
+  height: var(--shelf-h);
   flex: none;
   display: flex;
   align-items: center;
@@ -156,3 +156,8 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 .settings .seg button.on { background: var(--win2); color: var(--fg); border-color: var(--fg-disabled); }
 .settings .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .settings select { background: var(--win2); color: var(--fg); border: 1px solid var(--line); border-radius: var(--r-input); padding: 4px 8px; font-size: calc(16px * var(--text-scale)); }
+
+/* Phone grid tile (17 §3.2.3, 17A T2 §4): visual only; T4's PhoneHome adopts the class. Radius 14 [P]. */
+.tile-phone { position: relative; width: var(--tile-phone); height: var(--tile-phone); border-radius: var(--r-card); border: 1px solid var(--line); background: var(--win); display: grid; place-items: center; color: var(--fg-muted); }
+.tile-phone.locked { color: var(--fg-disabled); }
+.tile-phone .lock-tag { position: absolute; top: 4px; right: 5px; left: auto; order: 0; color: var(--fg-muted); }

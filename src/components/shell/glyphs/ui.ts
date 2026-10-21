@@ -1,0 +1,14 @@
+// Shell UI glyphs (24 px grid) and the 16 px window-control set. `app` is the neutral fallback frame.
+export const UI_GLYPHS = {
+  quay: ["M3 9h18M7 9v7M17 9v7", "M3 19.5h3.5M10.25 19.5h3.5M17.5 19.5H21"],
+  bell: ["M6.5 16v-4.5a5.5 5.5 0 0 1 11 0V16l1.5 2h-14z", "M10 20.5h4"],
+  search: ["M10.5 4.5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM15 15l5 5"],
+  focus: ["M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"],
+  layout: ["M5 5h14a1.5 1.5 0 0 1 1.5 1.5v11A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 5 5zM14 5v14M14 12h6.5"],
+  chevLeft: ["m15 6-6 6 6 6"],
+  app: ["M7 4.5h10A2.5 2.5 0 0 1 19.5 7v10a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 17V7A2.5 2.5 0 0 1 7 4.5z", "M9 12h6"],
+} satisfies Record<string, readonly string[]>;
+
+export const SMALL_GLYPHS = {
+  collapse: "M4.5 12h7", fill: "M6.5 4H4v8h2.5M9.5 4H12v8H9.5", close: "m4.5 4.5 7 7M11.5 4.5l-7 7",
+} satisfies Record<string, string>;

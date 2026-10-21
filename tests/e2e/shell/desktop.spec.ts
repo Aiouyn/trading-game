@@ -22,7 +22,9 @@ test("S1-08 strip 34, shelf 52, release, phase, tick ring 22, NW, tiles, divider
   await expect(page.getByTestId("phase")).toHaveText("Market open · Port Avalon");
   const ring = await box(page, "tickring");
   expect([ring.width, ring.height]).toEqual([22, 22]);
-  await expect(page.getByTestId("strip-nw")).toContainText("$412,860.15");
+  // 17A T2: the strip NW is MoneyText ctx=chip (abbreviated, full value in title).
+  await expect(page.getByTestId("strip-nw")).toContainText("$413k");
+  await expect(page.getByTestId("strip-nw").locator("[title]")).toHaveAttribute("title", "$412,860.15");
   const tiles = page.locator("[data-testid^=tile-]");
   expect(await tiles.first().getAttribute("data-testid")).toBe("tile-broker");
   const t = await tiles.first().boundingBox();

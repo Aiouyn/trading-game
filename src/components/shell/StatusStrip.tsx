@@ -1,4 +1,5 @@
 "use client";
+import { Chip } from "@/components/ui/Chip";
 import { clockLabel } from "@/shell/mockChannels";
 import { RANK_NAMES, RANKS } from "@/shell/registry";
 import { S } from "@/shell/strings";
@@ -22,7 +23,7 @@ export function StatusStrip() {
   const open = clock.phase === "continuous";
   const nw = (
     <span className="strip-nw" data-testid="strip-nw">
-      <MoneyText value={me.nw} /> <PctText value={me.todayPct} />
+      <MoneyText amount={me.nw} ctx="chip" /> <PctText value={me.todayPct} />
     </span>
   );
   if (focusMode) {
@@ -55,8 +56,8 @@ export function StatusStrip() {
         <TickRing tick={clock.tick} />
       </div>
       <div className="strip-right">
-        {me.protectionEndsRealMs !== null && <span className="chip" data-testid="protection-chip">{`${S.protected} · ${mmss(me.protectionEndsRealMs)}`}</span>}
-        <span className="chip chip-acc" data-testid="rank-chip">{`${rank} · ${RANK_NAMES[rank]}`}</span>
+        {me.protectionEndsRealMs !== null && <Chip data-testid="protection-chip">{`${S.protected} · ${mmss(me.protectionEndsRealMs)}`}</Chip>}
+        <Chip tone="acc" data-testid="rank-chip">{`${rank} · ${RANK_NAMES[rank]}`}</Chip>
         {nw}
         <button className="icon-btn" aria-label={S.bell}><Glyph name="bell" size={17} /></button>
       </div>
