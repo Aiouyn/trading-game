@@ -43,7 +43,8 @@ describe('property and long-run tests', () => {
     }), fcParams);
   });
 
-  it('03#39 / p10 zerosum port: 14 game days; FlowDay totals = sums recomputed from the postings; exact 0n residual every day', { timeout: process.env.TYCOON_LONG === '1' ? 3_600_000 : 120_000 }, async () => {
+  // AC4 (amended): under TYCOON_LONG=1 the 2688-day run must finish within 60 min on a clean nightly runner (test timeout 3_600_000 ms).
+  it(`03#39 / p10 zerosum port: ${process.env.TYCOON_LONG === '1' ? 2688 : 14} game days (default 14; TYCOON_LONG=1: 2688); FlowDay totals = sums recomputed from the postings; exact 0n residual every day`, { timeout: process.env.TYCOON_LONG === '1' ? 3_600_000 : 120_000 }, async () => {
     const days = process.env.TYCOON_LONG === '1' ? 2688 : 14;
     // Each day is checked once, at its own day close (inside the run), against only that day's entries: O(days) total, and every
     // day is read while it is still inside the FlowDay retention window (364 days), so TYCOON_LONG=1 (2688 days) checks every day.
