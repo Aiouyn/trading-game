@@ -14,9 +14,19 @@ export const STRIP_HIT_BAND = 5;
 /** Lowest allowed window top: strip bottom + the hit band (Studio T2 condition 2). */
 export const minWindowTop = (focusMode = false) => (focusMode ? 24 : STRIP_H) + STRIP_HIT_BAND;
 
-/** Move a window; its top is clamped below the strip's hit band so the title bar never sits under it. */
-export function moveWin(windows: WindowRect[], w: WindowRect, x: number, y: number, focusMode = false): WindowRect[] {
-  return updateWin(windows, w, { x, y: Math.max(y, minWindowTop(focusMode)), snap: null });
+/** AC-WM-SHELF-CLAMP §1: at least this much of the title bar stays inside the viewport horizontally. */
+export const TITLE_KEEP = 96;
+
+/**
+ * Move a window; its top is clamped below the strip's hit band so the title bar never sits under it. With the work
+ * area `a` (desktop, banners included) the window stops at AC-WM-SHELF-CLAMP's edges: top ≥ clampTop (= a.y),
+ * bottom ≤ clampBottom (= a.y + a.h), and ≥ 96 px of the title bar inside the viewport `vw`. It stops, never snaps back.
+ */
+export function moveWin(windows: WindowRect[], w: WindowRect, x: number, y: number, focusMode = false, a?: Area, vw?: number): WindowRect[] {
+  if (!a) return updateWin(windows, w, { x, y: Math.max(y, minWindowTop(focusMode)), snap: null });
+  const ny = Math.max(a.y, Math.min(y, a.y + a.h - w.h));
+  const nx = vw === undefined ? x : Math.max(TITLE_KEEP - w.w, Math.min(x, vw - TITLE_KEEP));
+  return updateWin(windows, w, { x: nx, y: ny, snap: null });
 }
 
 export interface Area { x: number; y: number; w: number; h: number }
@@ -106,9 +116,12 @@ export function updateWin(windows: WindowRect[], w: WindowRect, patch: Partial<W
   return windows.map((x) => (sameWin(x, w) ? { ...x, ...patch } : x));
 }
 
-/** Resize honouring the §2 minimums; never below min, never past the work area. */
+/**
+ * Resize honouring the §2 minimums. AC-WM-SHELF-CLAMP §2: the bottom / corner handle stops at clampBottom
+ * (a.y + a.h); the minimum size still wins over the clamp.
+ */
 export function resizeWin(windows: WindowRect[], w: WindowRect, width: number, height: number, a: Area): WindowRect[] {
-  const s = clampSize(w.app, width, height, a.w);
+  const s = clampSize(w.app, width, Math.min(height, a.y + a.h - w.y), a.w);
   return updateWin(windows, w, { w: s.w, h: s.h, snap: null });
 }
 
@@ -128,21 +141,35 @@ export function nextSnap(current: SnapSlot | null, dir: "left" | "right" | "up" 
 }
 
 /**
- * Displayed rect of a desktop window inside the banner-shrunk work area `a` (17A T6, Producer 08:20). `full` is the
- * work area without banners. Stored rects are untouched, so windows return to their place when banners close.
- * - Maximized (FILL) and tiled (any snap / layout pane) windows are rescaled vertically from `full` into `a`,
- *   never below their minimum height (then they overlap the shelf's top edge instead).
- * - Floating windows keep their size and move down only as far as needed to clear the banners; one that can't fit
- *   above the shelf overlaps the shelf's top edge rather than shrinking.
+ * AC-WM-SHELF-CLAMP §3–§5: the displayed rect of a desktop window inside the work area `a` (clampTop = menu bar or
+ * banner stack bottom + 8, clampBottom = shelf top − 8; `full` = the same area without banners). Runs at display
+ * time (before first paint, also on restore / session load, §4); the stored (pre-clamp) rect is never modified, so a
+ * window returns to its size when space comes back.
+ * - Maximised (FILL) fills exactly clampTop..clampBottom (§5).
+ * - Tiled (other snaps / layout panes) rescale vertically from `full` into `a`, then go through the clamp steps.
+ * - Floating: per axis, first move it in, then shrink it (down to the minimum), and if the minimum still doesn't fit,
+ *   maximise into the work area (§3). Horizontally a floating window may hang off-screen as far as drag allows (§1).
+ * Phone (< 768) never calls this: apps fill the screen there (§6).
  */
-export function fitRect(w: WindowRect, a: Area, full: Area = a): Area {
-  if (w.snap) {
-    if (a.y === full.y && a.h === full.h) return { x: w.x, y: w.y, w: w.w, h: w.h };
+export function fitRect(w: WindowRect, a: Area, full: Area = a, vw = a.x * 2 + a.w): Area {
+  if (w.snap === "FILL") return { ...a };
+  const m = minSize(w.app, a.w);
+  let r: Area = { x: w.x, y: w.y, w: w.w, h: w.h };
+  if (w.snap && !(a.y === full.y && a.h === full.h)) {
     const k = a.h / full.h;
-    const m = minSize(w.app, a.w);
-    return { x: w.x, y: Math.round(a.y + (w.y - full.y) * k), w: w.w, h: Math.max(m.h, Math.round(w.h * k)) };
+    r = { ...r, y: Math.round(a.y + (w.y - full.y) * k), h: Math.max(m.h, Math.round(w.h * k)) };
   }
-  // Floor = strip bottom + hit band + banner height: only windows that would sit under a banner move down.
-  const delta = a.y - full.y;
-  return { x: w.x, y: delta > 0 ? Math.max(w.y, full.y - GUTTER + STRIP_HIT_BAND + delta) : w.y, w: w.w, h: w.h };
+  // Width: shrink to the area (not below the minimum), else maximise; x keeps ≥ 96 px of title bar on screen.
+  if (r.w > a.w) {
+    if (m.w > a.w) return { ...a };
+    r.w = a.w;
+  }
+  r.x = w.snap ? Math.max(a.x, Math.min(r.x, a.x + a.w - r.w)) : Math.max(TITLE_KEEP - r.w, Math.min(r.x, vw - TITLE_KEEP));
+  // Height: move up (then down below clampTop), then shrink to the minimum, then maximise.
+  if (r.h > a.h) {
+    if (m.h > a.h) return { ...a };
+    r.h = a.h;
+  }
+  r.y = Math.max(a.y, Math.min(r.y, a.y + a.h - r.h));
+  return r;
 }

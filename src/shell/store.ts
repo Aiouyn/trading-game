@@ -92,8 +92,12 @@ export const createShellStore = (channels: Channels) =>
       close(w) { setWindows(wm.closeWin(get().local.windows, w)); },
       focus(w) { setWindows(wm.bringToFront(get().local.windows, w)); },
       snap(w, slot) { setWindows(wm.snapWin(get().local.windows, w, slot, area())); },
-      resize(w, width, height) { setWindows(wm.resizeWin(get().local.windows, w, width, height, area())); },
-      move(w, x, y) { setWindows(wm.moveWin(get().local.windows, w, x, y, get().local.focusMode)); },
+      resize(w, width, height) { const s = get(); setWindows(wm.resizeWin(s.local.windows, w, width, height, wm.workArea(s.vw, s.vh, s.local.focusMode, s.bannerH))); },
+      move(w, x, y) {
+        // AC-WM-SHELF-CLAMP: drag stops at the banner-aware work area on desktop.
+        const s = get(), desk = wm.viewportOf(s.vw) === "desktop";
+        setWindows(wm.moveWin(s.local.windows, w, x, y, s.local.focusMode, desk ? wm.workArea(s.vw, s.vh, s.local.focusMode, s.bannerH) : undefined, s.vw));
+      },
       toggleCollapse(w) { setWindows(wm.updateWin(get().local.windows, w, { collapsed: !w.collapsed })); },
       layout(id) {
         const vis = get().vis;

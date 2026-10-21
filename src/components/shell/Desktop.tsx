@@ -25,7 +25,7 @@ export function Desktop() {
 
   const shown = new Map<WindowRect, Area>();
   if (vp === "desktop") {
-    onWs.forEach((w) => shown.set(w, fitRect(w, area, full)));
+    onWs.forEach((w) => shown.set(w, fitRect(w, area, full, vw)));
   } else {
     const [a, b] = onWs.slice(-2);
     const halves = vw >= 1000 && a && b && new Set([a.snap, b.snap]).size === 2 && [a.snap, b.snap].every((s) => s === "L1/2" || s === "R1/2");

@@ -24,7 +24,7 @@ import { Desktop } from "./Desktop";
 import { SystemOverlays } from "./SystemOverlays";
 import { Banner, WorldEventBanner } from "./Banner";
 import { Sheet } from "./Sheet";
-import { mockFeedSource, useFeed } from "@/shell/feed";
+import { FEED_HOOKS, mockFeedSource, useFeed } from "@/shell/feed";
 import { closeSheet, openSheet, useSheetRequest } from "@/shell/sheetHost";
 import { S } from "@/shell/strings";
 
@@ -72,7 +72,7 @@ function Surface() {
   useEffect(() => { storeApi.getState().setBannerH(deskBannerH); }, [storeApi, deskBannerH]);
   useEffect(() => {
     // Mock-only: `?sheet=demo` opens an empty shell sheet so the mount point can be exercised before any consumer.
-    if (new URLSearchParams(window.location.search).get("sheet") === "demo") openSheet({ label: S.recent, content: <p className="muted">{S.noRecent}</p>, testId: "shell-sheet" });
+    if (FEED_HOOKS && new URLSearchParams(window.location.search).get("sheet") === "demo") openSheet({ label: S.recent, content: <p className="muted">{S.noRecent}</p>, testId: "shell-sheet" });
   }, []);
 
   useEffect(() => {

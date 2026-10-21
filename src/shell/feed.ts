@@ -86,6 +86,8 @@ export function dispatchFeed(raw: unknown): void {
   const next = reduceFeed(state, e);
   if (next !== state) { state = next; subs.forEach((f) => f()); }
 }
+// e2e: add / resolve alerts at runtime (AC-WM-SHELF-CLAMP §7 banner add/remove). Build-gated like the mock source.
+if (FEED_HOOKS && typeof window !== "undefined") (window as Window & { __quayFeed?: (raw: unknown) => void }).__quayFeed = dispatchFeed;
 export const useFeedState = () => useSyncExternalStore((f) => { subs.add(f); return () => subs.delete(f); }, () => state, () => EMPTY_FEED);
 
 /** Connect the shell to a source (resets state for this page). */

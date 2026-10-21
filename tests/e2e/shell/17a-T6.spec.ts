@@ -169,3 +169,76 @@ test("T6-07 desktop: banners shrink the workspace; maximized and tiled refit, fl
   expect(w1.height).toBeGreaterThanOrEqual(w0.height - 0.5);
   await shot(page, "desk-floating-banners");
 });
+
+// AC-WM-SHELF-CLAMP (Studio 09:10): windows stay between clampTop (menu bar / banner stack + 8) and clampBottom
+// (shelf top − 8); drag and resize stop there; viewport / banner changes refit (move, shrink, maximise). ±1 px.
+async function edges(page: Page) {
+  return page.evaluate(() => {
+    const shelf = document.querySelector("[data-testid=shelf]")!.getBoundingClientRect();
+    const strip = document.querySelector("[data-testid=strip]")!.getBoundingClientRect();
+    const banners = [...document.querySelectorAll("[data-testid=alert-slot][data-open=true], [data-testid=world-slot][data-open=true]")].map((e) => e.getBoundingClientRect().bottom);
+    return { top: Math.max(strip.bottom, ...banners) + 8, bottom: shelf.top - 8 };
+  });
+}
+const winBox = (page: Page) => page.getByTestId("win-wire").first().evaluate((e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: r.height }; });
+async function expectInside(page: Page, label: string) {
+  const [e, b] = [await edges(page), await winBox(page)];
+  expect([label, b.top >= e.top - 1, b.bottom <= e.bottom + 1]).toEqual([label, true, true]);
+  return { e, b };
+}
+const P0 = { kind: "alert", alert: { id: "clamp-p0", priority: "P0", text: "Margin call", action: { label: "Open Risk", href: "/risk" } } };
+
+for (const [vw, vh] of [[1440, 900], [1280, 720]] as const) {
+  test(`AC-WM-SHELF-CLAMP ${vw}×${vh}: drag, resize handle, banner add/remove, viewport shrink`, async ({ page }, info) => {
+    desktopOnly(info.project.name);
+    await page.setViewportSize({ width: vw, height: vh });
+    await boot(page, "/wire");
+    const win = page.getByTestId("win-wire").first();
+    // 1. drag far below the shelf: bottom stops at clampBottom (±1 px), no snap-back
+    const tb = (await win.locator(".titlebar").boundingBox())!;
+    await page.mouse.move(tb.x + 200, tb.y + 10); await page.mouse.down();
+    await page.mouse.move(tb.x + 200, vh + 300, { steps: 6 }); await page.mouse.up();
+    let { e, b } = await expectInside(page, "drag bottom");
+    expect(Math.abs(b.bottom - e.bottom)).toBeLessThanOrEqual(1);
+    // drag far above: top stops at clampTop
+    const tb2 = (await win.locator(".titlebar").boundingBox())!;
+    await page.mouse.move(tb2.x + 200, tb2.y + 10); await page.mouse.down();
+    await page.mouse.move(tb2.x + 200, -200, { steps: 6 }); await page.mouse.up();
+    ({ e, b } = await expectInside(page, "drag top"));
+    expect(Math.abs(b.top - e.top)).toBeLessThanOrEqual(1);
+    // 2. resize handle dragged to the bottom: stops at clampBottom
+    const h = (await page.getByTestId("resize-handle").first().boundingBox())!;
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2); await page.mouse.down();
+    await page.mouse.move(h.x + h.width / 2, vh + 200, { steps: 6 }); await page.mouse.up();
+    ({ e, b } = await expectInside(page, "resize bottom"));
+    expect(Math.abs(b.bottom - e.bottom)).toBeLessThanOrEqual(1);
+    const fullH = b.h;
+    // 3. add a banner: the window refits (moves / shrinks) under it; remove it: the original size comes back
+    await page.evaluate((raw) => (window as Window & { __quayFeed?: (r: unknown) => void }).__quayFeed!(raw), P0);
+    await expect(page.getByTestId("alert-banner")).toBeVisible();
+    ({ e, b } = await expectInside(page, "banner added"));
+    expect(Math.abs(b.top - e.top)).toBeLessThanOrEqual(1);
+    expect(b.h).toBeLessThan(fullH);
+    await page.evaluate(() => (window as Window & { __quayFeed?: (r: unknown) => void }).__quayFeed!({ kind: "alert-resolved", id: "clamp-p0" }));
+    await expect(page.getByTestId("alert-banner")).toHaveCount(0);
+    ({ e, b } = await expectInside(page, "banner removed"));
+    expect(Math.abs(b.h - fullH)).toBeLessThanOrEqual(1);
+    // 4. maximised fills exactly clampTop..clampBottom
+    await win.getByRole("button", { name: /fill|maximi/i }).click();
+    ({ e, b } = await expectInside(page, "maximised"));
+    expect([Math.abs(b.top - e.top) <= 1, Math.abs(b.bottom - e.bottom) <= 1]).toEqual([true, true]);
+    // 5. viewport shrink to 1024×640
+    await page.setViewportSize({ width: 1024, height: 640 });
+    await expectInside(page, "viewport 1024x640");
+  });
+}
+
+test("AC-WM-SHELF-CLAMP §6 phone: no floating windows", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "phone only");
+  await boot(page, "/wire");
+  const floating = await page.evaluate(() => [...document.querySelectorAll("*")].filter((el) => {
+    const s = getComputedStyle(el);
+    return s.position === "absolute" && el.matches("[role=dialog]") && (el as HTMLElement).style.top !== "";
+  }).length);
+  expect(floating).toBe(0);
+});
