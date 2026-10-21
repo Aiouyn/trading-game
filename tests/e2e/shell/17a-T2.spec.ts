@@ -183,7 +183,7 @@ async function hitAreas(page: Page, min: number) {
       .filter(({ r }) => r.width > 0);
     const small = rects.filter(({ r }) => r.width < m - 0.5 || r.height < m - 0.5).map(({ id, r }) => `${id} ${Math.round(r.width)}x${Math.round(r.height)}`);
     // Hit areas of the workspace slots and the launcher field must not overlap their neighbours.
-    const watched = [...document.querySelectorAll(".ws button, .launch-field")];
+    const watched = [...document.querySelectorAll(".ws button, .launch-field, .strip .icon-btn, .tool")];
     const overlaps: string[] = [];
     for (const w of watched) {
       const a = w.getBoundingClientRect();
@@ -213,9 +213,53 @@ test("C5 desktop under touch: workspace slots and launcher field ≥44 with no o
   const page = await ctx.newPage();
   await boot(page, "/wire");
   const r = await hitAreas(page, 44);
-  // Studio T2 ruling 1 scope: workspace slots and the launcher field.
-  expect({ small: r.small.filter((s) => /^ws-|launch/.test(s)), overlaps: r.overlaps }).toEqual({ small: [], overlaps: [] });
+  // Studio T2 ruling 1 + condition 3: workspace slots, launcher field, Notifications, layout and focus.
+  expect({ small: r.small.filter((s) => /^ws-|launch|Notifications|layout-btn|focus-btn/.test(s)), overlaps: r.overlaps }).toEqual({ small: [], overlaps: [] });
   await shot(page, "hit-areas-touch");
+  await ctx.close();
+});
+
+test("Condition 3: Notifications, layout and focus keep their visible size; touch hit areas are 44", async ({ browser }, info) => {
+  desktopOnly(info.project.name);
+  const sizes = async (touch: boolean) => {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, hasTouch: touch });
+    const page = await ctx.newPage();
+    await boot(page, "/");
+    const v = await page.evaluate(() => [".strip .icon-btn svg", "[data-testid=layout-btn]", "[data-testid=focus-btn]"].map((sel) => {
+      const n = document.querySelector(sel)!, r = n.getBoundingClientRect(), b = sel.endsWith("svg") ? null : getComputedStyle(n, "::before");
+      // x is excluded: on touch the approved edge-to-edge workspace slots shift the shelf tools left.
+      const vis = b ? { y: Math.round(r.top + parseFloat(b.top)), w: Math.round(r.width), h: Math.round(r.height - parseFloat(b.top) - parseFloat(b.bottom)) }
+        : { y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+      return vis;
+    }));
+    await ctx.close();
+    return v;
+  };
+  expect(await sizes(true)).toEqual(await sizes(false));
+});
+
+test("Condition 2: the strip's hit layer sits above window title bars; drags never put a title bar in the band", async ({ browser }, info) => {
+  desktopOnly(info.project.name);
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, hasTouch: true });
+  const page = await ctx.newPage();
+  await boot(page, "/wire");
+  const win = page.getByTestId("win-wire");
+  // Force a title bar under the band (as a stale persisted rect might) to prove stacking, not just placement.
+  await win.evaluate((n) => { (n as HTMLElement).style.top = "34px"; (n as HTMLElement).style.left = "300px"; });
+  const lf = await page.locator(".launch-field").boundingBox();
+  const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest(".launch-field, .titlebar")?.className, [lf!.x + 100, 34 + 3]);
+  expect(hit).toBe("launch-field");
+  // A drag starting in the band does not move the window underneath; a tap there opens the launcher.
+  await page.mouse.move(lf!.x + 100, 37); await page.mouse.down(); await page.mouse.move(lf!.x + 300, 400, { steps: 5 }); await page.mouse.up();
+  expect(await win.evaluate((n) => (n as HTMLElement).style.top)).toBe("34px");
+  await page.mouse.click(lf!.x + 100, 37);
+  await expect(page.getByTestId("launcher")).toBeVisible();
+  await page.keyboard.press("Escape");
+  // Drag the real title bar far up: its top is clamped to strip bottom + 5.
+  await page.reload(); await boot(page, "/wire");
+  const tb = await page.getByTestId("win-wire").locator(".titlebar").boundingBox();
+  await page.mouse.move(tb!.x + 200, tb!.y + 10); await page.mouse.down(); await page.mouse.move(tb!.x + 200, -50, { steps: 5 }); await page.mouse.up();
+  expect(Math.round((await page.getByTestId("win-wire").boundingBox())!.y)).toBe(39);
   await ctx.close();
 });
 

@@ -98,13 +98,23 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
   display: flex;
   align-items: center;
   gap: 7px;
+  position: relative;
+  isolation: isolate;
   height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  padding: 0 11px;
   color: var(--fg-muted);
   font-size: calc(12px * var(--text-scale));
   white-space: nowrap;
+}
+/* Studio T2 condition 3: the visible 30 px pill is ::before (focus ring too); the button is the hit area, 44 px on touch. */
+.tool::before { content: ""; position: absolute; inset: 0; z-index: -1; border: 1px solid var(--line); border-radius: 8px; }
+.tool:focus-visible { outline: none; }
+.tool:focus-visible::before { box-shadow: var(--focus-ring); }
+@media (pointer: coarse) {
+  .tool { height: var(--hit-touch); }
+  .tool::before { inset: 7px 0; }
+  /* Bell: invisible 44 px hit area, negative margin so nothing moves. */
+  .strip .icon-btn { min-width: var(--hit-touch); min-height: var(--hit-touch); margin: -8px; }
 }
 .layouts-wrap { position: relative; }
 .layouts-menu {
