@@ -67,12 +67,13 @@ html[data-motion="reduce"] .qsheet { animation: none; }
    the hit area grows invisibly to 28 px pointer / 44 px touch. */
 .halt-chip { position: relative; color: var(--steel); cursor: pointer; }
 /* C5: invisible hit area centred on the chip, never smaller than the chip itself; the focus ring stays on the
-   visible .chip shape (box-shadow on the button, not ::before). */
+   visible .chip shape (box-shadow on the button, not ::before). An absolute box's % resolves against the PADDING box,
+   so 100% would be the chip minus its 1 px border on each side; + 2px covers the whole border box (QA #29). */
 .halt-chip::before {
   content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: max(100%, 28px); height: max(100%, 28px);
+  width: max(calc(100% + 2px), 28px); height: max(calc(100% + 2px), 28px);
 }
-@media (pointer: coarse) { .halt-chip::before { width: max(100%, 44px); height: max(100%, 44px); } }
+@media (pointer: coarse) { .halt-chip::before { width: max(calc(100% + 2px), 44px); height: max(calc(100% + 2px), 44px); } }
 .halt-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* Studio T5 glyphs: world rose in --steel; error glyph in --signal (never --loss). */
