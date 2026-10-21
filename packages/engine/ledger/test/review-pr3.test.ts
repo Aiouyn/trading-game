@@ -51,7 +51,7 @@ describe('F1 INV-LED-004 per-entry M2 rules (T03-11 step 7)', () => {
     const cb = L.tplCbCredit(env('04'), 'cbk_FDL', 'bnk_N', 9n, 'FDL', 'CBK_STANDING_FACILITY');
     expect(L.computeM2(applied([cb]), 'FDL')).toBe(0n);
     expect(obs(L.INV_LED_004(view([cb])), 'INV-LED-004')).toEqual([]);
-    const lend = L.tplLend(env('07'), 'bnk_N', 'chr_A', 1_000n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'loan_1');
+    const lend = L.tplLend(env('07'), 'bnk_N', 'chr_A', 1_000n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'lon_1');
     expect(lend.meta).toEqual({ parties: ['bnk_N', 'chr_A'], borrowerId: 'chr_A' });
     expect(obs(L.INV_LED_004(view([lend])), 'INV-LED-004')).toEqual([]);
     const reordered = { ...lend, postings: [lend.postings[1], lend.postings[0]].map((p, i) => ({ ...p, postingSeq: i })) };
