@@ -27,3 +27,22 @@ export function normalizeEntity(v: unknown, table: string, id: Id): unknown {
   };
   return go(v, '');
 }
+
+/** E-73 AC-02-09-BYTES-ISOLATION: true when the normalised value holds any Uint8Array. */
+export function hasBytes(v: unknown): boolean {
+  if (v instanceof Uint8Array) return true;
+  if (Array.isArray(v)) return v.some(hasBytes);
+  if (typeof v === 'object' && v !== null) { for (const k of Object.getOwnPropertyNames(v)) if (hasBytes((v as Record<string, unknown>)[k])) return true; }
+  return false;
+}
+/** Read-side copy: every Uint8Array is copied (containers rebuilt and frozen), so no caller ever holds the stored buffer. */
+export function copyBytesOut(v: unknown): unknown {
+  if (v instanceof Uint8Array) return new Uint8Array(v);
+  if (Array.isArray(v)) return Object.freeze(v.map(copyBytesOut));
+  if (typeof v === 'object' && v !== null) {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.getOwnPropertyNames(v)) out[k] = copyBytesOut((v as Record<string, unknown>)[k]);
+    return Object.freeze(out);
+  }
+  return v;
+}

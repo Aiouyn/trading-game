@@ -49,6 +49,24 @@ describe('ids (T02-07)', () => {
     expect(INV_ENG_003.check(ctx(rows, [], {}, null))).toMatchObject({ ok: false, observed: `fact ${FACT_ID_SALT} missing` });
     expect(INV_ENG_003.check(ctx([], [], {}, null))).toEqual({ ok: true });
   });
+  it('AC-02-09-SALT-FACT (E-73): a missing salt with id-log rows fails; an empty log passes; the fact holds the 32-byte public salt only', () => {
+    const PUB = Uint8Array.from({ length: 32 }, (_, i) => i + 1), OTHER = Uint8Array.from({ length: 32 }, (_, i) => 200 - i);
+    const f = new IdFactory(PUB, 'p1', 12); f.newId('chr'); f.newId('biz');
+    const rows = f.log().map((r) => ({ ...r, partitionId: 'p1' }));
+    const none: TruthStoreRead = { get: () => undefined, iter: () => [], count: () => 0 };
+    const ctx = (log: unknown[], salt: unknown): InvariantCtx => ({
+      tick: 12, phase: 'P13', scope: 'TICK', partitionId: 'p1', safeMode: false, writeSet: [], postings: [], events: [], num: () => 0, post: none, pre: none,
+      facts: { get: <T,>(k: string) => (k === FACT_ID_LOG ? log : k === FACT_ID_SALT ? salt : undefined) as T | undefined },
+    });
+    expect(INV_ENG_003.check(ctx(rows, PUB))).toEqual({ ok: true });
+    expect(INV_ENG_003.check(ctx(rows, undefined))).toMatchObject({ ok: false, observed: `fact ${FACT_ID_SALT} missing`, entityIds: rows.map((r) => r.id) });
+    expect(INV_ENG_003.check(ctx([], undefined))).toEqual({ ok: true });
+    expect(INV_ENG_003.check(ctx(rows, OTHER)).ok).toBe(false);                        // any other salt (e.g. a secret) does not verify
+    expect(INV_ENG_003.check(ctx(rows, new Uint8Array(32))).ok).toBe(false);
+    for (const bad of [PUB.slice(0, 31), Uint8Array.from([...PUB, 0]), 'salt', [...PUB]])
+      expect(INV_ENG_003.check(ctx(rows, bad))).toMatchObject({ ok: false, observed: `fact ${FACT_ID_SALT} is not a 32-byte salt` });
+    expect(FACT_ID_SALT).toBe('core.ids.worldSeedPublicSalt');
+  });
 });
 
 describe('merkle (T02-07)', () => {

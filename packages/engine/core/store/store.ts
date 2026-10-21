@@ -3,10 +3,11 @@
 // `current` reads the overlay first, commit merges it into the base. The undo log is the ordered WriteRecord list.
 import { cmpStr } from '../order';
 import { SortedMap, SortedSet } from '../sorted';
-import { EngineFault, type Id, type PhaseId } from '../types';
+import { EngineFault, phaseIndex, type Id, type PhaseId } from '../types';
 import { entityHash, logicalTerm, MOD_2_256, merkleOfLeaves, partitionLeaf, cmpLeaf } from './hash';
 import { type TableDef, type TableRegistry } from './table';
-import { normalizeEntity, type WriteRecord } from './undo';
+import { copyBytesOut, hasBytes, normalizeEntity, type WriteRecord } from './undo';
+import { sortBy } from '../order';
 
 export type { WriteRecord } from './undo';
 export interface StoreRead { get<T>(table: string, id: Id): T | undefined; iter<T>(table: string): Iterable<T>; range<T>(table: string, fromId: Id, toId: Id): Iterable<T>;
@@ -18,14 +19,16 @@ export class OwnershipViolation extends EngineFault {
 }
 export interface StoreBinding { module: string; phase: PhaseId; entityScope?: Id }
 export interface ReadStamp { table: string; id: Id; readerPhase: PhaseId; writerPhase: PhaseId; readerModule: string }
-export interface StoreViolation { module: string; table: string; id: Id; phase: PhaseId }
+export interface StoreViolation { partitionId: string; module: string; table: string; id: Id; phase: PhaseId }
 
 const TOMB = Symbol('tombstone');
-type Slot = { v: unknown; eh: Uint8Array } | typeof TOMB;
+type Slot = { v: unknown; eh: Uint8Array; bytes?: true } | typeof TOMB;
+/** E-73: values holding bytes are copied on every read. */
+const out = (s: { v: unknown; bytes?: true }): unknown => (s.bytes ? copyBytesOut(s.v) : s.v);
 interface OverlayEntry { slot: Slot; phase: PhaseId }
 interface Tbl {
   def: TableDef<unknown>;
-  base: SortedMap<Id, { v: unknown; eh: Uint8Array }>;
+  base: SortedMap<Id, { v: unknown; eh: Uint8Array; bytes?: true }>;
   overlay: SortedMap<Id, OverlayEntry>;
   /** current-state secondary indexes: index name -> key -> ids. */
   idx: SortedMap<string, SortedMap<string, SortedSet<Id>>>;
@@ -33,7 +36,7 @@ interface Tbl {
 }
 
 /** Merge of the base and overlay maps in id order (overlay wins; tombstones drop). */
-function* merged(t: Tbl, from?: Id, to?: Id): Generator<[Id, { v: unknown; eh: Uint8Array }, OverlayEntry | undefined]> {
+function* merged(t: Tbl, from?: Id, to?: Id): Generator<[Id, { v: unknown; eh: Uint8Array; bytes?: true }, OverlayEntry | undefined]> {
   const b = from === undefined ? t.base.entries() : t.base.range(from, to!), o = from === undefined ? t.overlay.entries() : t.overlay.range(from, to!);
   let nb = b.next(), no = o.next();
   while (!nb.done || !no.done) {
@@ -83,28 +86,28 @@ export class PartitionStore {
         const t = self.tbl(table);
         if (view === 'current') {
           const e = t.overlay.get(id);
-          if (e) { stamp(table, id, e); return e.slot === TOMB ? undefined : (e.slot.v as T); }
+          if (e) { stamp(table, id, e); return e.slot === TOMB ? undefined : (out(e.slot) as T); }
         }
-        return t.base.get(id)?.v as T | undefined;
+        const b0 = t.base.get(id); return b0 ? (out(b0) as T) : undefined;
       },
       *iter<T>(table: string): Iterable<T> {
         const t = self.tbl(table);
-        if (view === 'committed') { for (const v of t.base.values()) yield v.v as T; return; }
-        for (const [id, s, e] of merged(t)) { stamp(table, id, e); yield s.v as T; }
+        if (view === 'committed') { for (const v of t.base.values()) yield out(v) as T; return; }
+        for (const [id, s, e] of merged(t)) { stamp(table, id, e); yield out(s) as T; }
       },
       *range<T>(table: string, fromId: Id, toId: Id): Iterable<T> {
         const t = self.tbl(table);
-        if (view === 'committed') { for (const [, v] of t.base.range(fromId, toId)) yield v.v as T; return; }
-        for (const [id, s, e] of merged(t, fromId, toId)) { stamp(table, id, e); yield s.v as T; }
+        if (view === 'committed') { for (const [, v] of t.base.range(fromId, toId)) yield out(v) as T; return; }
+        for (const [id, s, e] of merged(t, fromId, toId)) { stamp(table, id, e); yield out(s) as T; }
       },
       *index<T>(table: string, indexName: string, key: string): Iterable<T> {
         const t = self.tbl(table), d = t.def.indexes?.find((i) => i.name === indexName);
         if (!d) throw new EngineFault('TBL_UNKNOWN', `unknown index '${indexName}' on '${table}'`);
-        if (view === 'committed') { for (const v of t.base.values()) if (d.key(v.v) === key) yield v.v as T; return; }
+        if (view === 'committed') { for (const v of t.base.values()) if (d.key(v.v) === key) yield out(v) as T; return; }
         for (const id of t.idx.get(indexName)!.get(key) ?? []) {
           const e = t.overlay.get(id); stamp(table, id, e);
           const s = e ? e.slot : t.base.get(id);
-          if (s && s !== TOMB) yield s.v as T;
+          if (s && s !== TOMB) yield out(s) as T;
         }
       },
       count(table: string): number {
@@ -145,11 +148,11 @@ export class PartitionStore {
     const t = this.t.get(table);
     if (!t) throw new EngineFault('TBL_UNKNOWN', `unknown table '${table}'`);
     if (t.def.module !== b.module) {
-      this.viol.push({ module: b.module, table, id, phase: b.phase });
+      this.viol.push({ partitionId: this.partitionId, module: b.module, table, id, phase: b.phase });
       throw new OwnershipViolation(`module '${b.module}' wrote table '${table}' owned by '${t.def.module}'`, [id]);
     }
     const before = this.cur(t, id)?.v;
-    const slot: Slot = entity === TOMB ? TOMB : (() => { const v = normalizeEntity(entity, table, id); return { v, eh: entityHash(v) }; })();
+    const slot: Slot = entity === TOMB ? TOMB : (() => { const v = normalizeEntity(entity, table, id); return hasBytes(v) ? { v, eh: entityHash(v), bytes: true as const } : { v, eh: entityHash(v) }; })();
     this.setCurrent(t, id, { slot, phase: b.phase });
     this.log.push({ table, id, module: b.module, phase: b.phase, kind: entity === TOMB ? 'DEL' : 'PUT', before, after: slot === TOMB ? undefined : slot.v, seq: this.seq++ });
   }
@@ -170,10 +173,15 @@ export class PartitionStore {
     if (this.log.length > 0 || [...this.t.values()].some((t) => t.overlay.size > 0)) throw new EngineFault('I0.store_open_tick', 'beginTick with an open tick');
     void tick; this.stamps = []; this.viol = []; this.seq = 0; this.tickStartSum = this.sum;
   }
-  writeSet(): readonly WriteRecord[] { return this.log.slice(); }
+  /** New records each call; before/after holding bytes are copied (E-73 AC-02-09-BYTES-ISOLATION). */
+  writeSet(): readonly WriteRecord[] { return this.log.map((w) => ({ ...w, before: copyBytesOut(w.before), after: copyBytesOut(w.after) })); }
   readStamps(): readonly ReadStamp[] { return this.stamps.slice(); }
   /** OwnershipViolation records caught this tick (the engine supplies them as fact 'core.store.violations' to INV-ENG-001). */
-  violations(): readonly StoreViolation[] { return this.viol.slice(); }
+  /** E-73 AC-02-09-VIOLATIONS: a new array of new records, ordered by partition, then key (table, id), then module and phase;
+   *  ties keep write order (sortBy is stable). */
+  violations(): StoreViolation[] {
+    return sortBy(this.viol, (v) => [v.partitionId, v.table, v.id, v.module, phaseIndex(v.phase)]).map((v) => ({ ...v }));
+  }
 
   rollbackTick(): void {
     for (const t of this.t.values()) for (const id of [...t.overlay.keys()]) this.setCurrent(t, id, null);

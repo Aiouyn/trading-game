@@ -41,7 +41,7 @@ describe('T02-09 PartitionStore', () => {
     const w = s.bind({ module: '03', phase: 'P5' });
     expect(() => w.put('chr.entity', { id: 'chr_A', n: 1 })).toThrow(OwnershipViolation);
     try { w.del('chr.entity', 'chr_A'); } catch (e) { expect((e as EngineFault).code).toBe('INV-ENG-001'); }
-    expect(s.violations()).toEqual([{ module: '03', table: 'chr.entity', id: 'chr_A', phase: 'P5' }, { module: '03', table: 'chr.entity', id: 'chr_A', phase: 'P5' }]);
+    expect(s.violations()).toEqual([{ partitionId: 'p1', module: '03', table: 'chr.entity', id: 'chr_A', phase: 'P5' }, { partitionId: 'p1', module: '03', table: 'chr.entity', id: 'chr_A', phase: 'P5' }]);
     expect(s.current.get('chr.entity', 'chr_A')).toBeUndefined();
     s.bind({ module: '04', phase: 'P5' }).put('chr.entity', { id: 'chr_A', n: 1 });
     expect(s.writeSet()).toMatchObject([{ table: 'chr.entity', id: 'chr_A', module: '04', phase: 'P5', kind: 'PUT', seq: 0 }]);
@@ -179,7 +179,47 @@ describe('T02-09 PartitionStore', () => {
   });
 });
 
+describe('E-73 store ACs', () => {
+  it('AC-02-09-VIOLATIONS: violations() is a new array in (partition, key) order; mutating it leaves the store unchanged', () => {
+    const s = new PartitionStore(reg(), 'p1'); s.beginTick(1);
+    const bad = (m: string, ph: 'P2' | 'P9', t: string, id: string): void => { expect(() => s.bind({ module: m, phase: ph }).put(t, { id, n: 0 })).toThrow(OwnershipViolation); };
+    bad('03', 'P9', 'chr.entity', 'chr_B'); bad('05', 'P2', 'led.account', 'bnk_A'); bad('03', 'P2', 'chr.entity', 'chr_A'); bad('01', 'P2', 'chr.entity', 'chr_B');
+    const v = s.violations();
+    expect(v.map((x) => `${x.partitionId}|${x.table}|${x.id}|${x.module}`)).toEqual(['p1|chr.entity|chr_A|03', 'p1|chr.entity|chr_B|01', 'p1|chr.entity|chr_B|03', 'p1|led.account|bnk_A|05']);
+    expect(s.violations()).not.toBe(v);
+    v.pop(); v[0]!.module = 'zz'; v.reverse();
+    expect(s.violations().map((x) => x.module)).toEqual(['03', '01', '03', '05']);
+    const p2 = new PartitionStore(reg(), 'p2'); p2.beginTick(1);
+    expect(() => p2.bind({ module: '03', phase: 'P2' }).put('chr.entity', { id: 'chr_A', n: 0 })).toThrow(OwnershipViolation);
+    expect(sortVi([...p2.violations(), ...s.violations()]).map((x) => x.partitionId)).toEqual(['p1', 'p1', 'p1', 'p1', 'p2']);
+  });
+  it('AC-02-09-BYTES-ISOLATION: mutating the input after a write, or any read result, leaves the stored bytes unchanged', () => {
+    const s = new PartitionStore(reg(), 'p1'); s.beginTick(1); const w = s.bind({ module: '04', phase: 'P1' });
+    const buf = Uint8Array.from([1, 2, 3]), src = { id: 'chr_A', n: 0, b: buf, nest: [{ c: Uint8Array.from([9]) }] };
+    w.put('chr.entity', src); const h0 = toHex(s.entityHash('chr.entity', 'chr_A')!);
+    buf[0] = 99; src.nest[0]!.c[0] = 99;
+    type E = { b: Uint8Array; nest: { c: Uint8Array }[] };
+    const reads = (): E[] => [s.current.get<E>('chr.entity', 'chr_A')!, [...s.current.iter<E>('chr.entity')][0]!, [...s.current.range<E>('chr.entity', 'chr_A', 'chr_B')][0]!,
+      w.get<E>('chr.entity', 'chr_A')!, ...(s.writeSet()[0]!.after ? [s.writeSet()[0]!.after as E] : [])];
+    for (const r of reads()) { expect([...r.b]).toEqual([1, 2, 3]); expect([...r.nest[0]!.c]).toEqual([9]); r.b[0] = 77; r.nest[0]!.c[0] = 77; }
+    for (const r of reads()) { expect([...r.b]).toEqual([1, 2, 3]); expect([...r.nest[0]!.c]).toEqual([9]); }
+    s.commitTick();
+    for (const r of [s.committed.get<E>('chr.entity', 'chr_A')!, [...s.committed.iter<E>('chr.entity')][0]!, [...s.committed.range<E>('chr.entity', 'chr_A', 'chr_B')][0]!]) { r.b[1] = 77; }
+    expect([...s.committed.get<E>('chr.entity', 'chr_A')!.b]).toEqual([1, 2, 3]);
+    expect(toHex(s.entityHash('chr.entity', 'chr_A')!)).toBe(h0);
+    expect(toHex(s.entityHash('chr.entity', 'chr_A')!)).toBe(toHex(entityHash({ id: 'chr_A', n: 0, b: Uint8Array.from([1, 2, 3]), nest: [{ c: Uint8Array.from([9]) }] })));
+  });
+});
+
 describe('AC-02-09-WRAPPERS (E-70 (2))', () => {
+  it('E-73: exactly 1 notifyMoney call on success, 0 on a fault', () => {
+    const p = new MoneyProvenance(); setActiveProvenance(p);
+    const spy = vi.spyOn(MoneyProvenance.prototype, 'note');
+    const calls: [() => unknown, boolean][] = [[() => provenanceWrappers.toMoney(1, 'FDL'), true], [() => provenanceWrappers.toMoney(NaN, 'FDL'), false],
+      [() => provenanceWrappers.toQty(2, 1n), true], [() => provenanceWrappers.toQty(Infinity, 1n), false], [() => provenanceWrappers.toPrice(3), true], [() => provenanceWrappers.toPrice(NaN), false]];
+    for (const [f, okCall] of calls) { spy.mockClear(); if (okCall) f(); else expect(f).toThrow(EngineFault); expect(spy).toHaveBeenCalledTimes(okCall ? 1 : 0); }
+    spy.mockRestore(); setActiveProvenance(null);
+  });
   const cases = (): number[] => { const r = lcg(7), xs = [0, -0, 0.5, 1.25, -2.5, 1e12, 123.456789, 1e-9]; for (let i = 0; i < 2000; i++) xs.push((r() - 0.5) * 10 ** Math.floor(r() * 14)); return xs; };
   it('the list is exactly toMoney, toQty, toPrice', () => { expect(Object.keys(provenanceWrappers).sort()).toEqual(['toMoney', 'toPrice', 'toQty']); });
   it('property: each wrapper returns exactly what its base constructor returns, including faults', () => {
@@ -220,5 +260,6 @@ describe('AC-02-09-PORT-MIGRATED (E-71: T02-09 scope is INV-ENG-003; 002 moves i
   });
 });
 
+const sortVi = <T extends { partitionId: string }>(xs: T[]): T[] => [...xs].sort((a, b) => (a.partitionId < b.partitionId ? -1 : a.partitionId > b.partitionId ? 1 : 0));
 const none: TruthStoreRead = { get: () => undefined, iter: () => [], count: () => 0 };
 const ctxBase: InvariantCtx = { tick: 1, phase: 'P13', scope: 'TICK', partitionId: 'p1', safeMode: false, pre: none, post: none, writeSet: [], postings: [], events: [], facts: { get: () => undefined }, num: () => 0 };

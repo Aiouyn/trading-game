@@ -21,7 +21,8 @@ export function base32Crockford(bytes: Uint8Array): string {
 export const ID_KIND_RE = /^[a-z]{2,5}$/;
 export const FACT_ID_LOG = 'core.ids.log';          // rows { id, kind, seq, partitionId }
 export const FACT_ID_WRITTEN = 'core.ids.written';  // rows { id, table } supplied by the engine
-/** E-70 migration: the T20A-01 InvariantCtx has no salt member, so the engine supplies the world seed's public salt as a fact. */
+/** E-70/E-73 AC-02-09-SALT-FACT: the T20A-01 InvariantCtx has no salt member, so the engine supplies the world seed's PUBLIC salt
+ *  (32 bytes, never a secret) as this fact. Missing with id-log rows -> fail; empty log -> pass. */
 export const FACT_ID_SALT = 'core.ids.worldSeedPublicSalt';   // Uint8Array
 
 function digestId(salt: Uint8Array, partitionId: string, tick: number, kind: string, seq: number): string {
@@ -65,6 +66,8 @@ export const INV_ENG_003: InvariantImpl = {
     const seen = new SortedSet<string>(), bad: string[] = [];
     const log = ctx.facts.get<readonly IdLogRow[]>(FACT_ID_LOG) ?? [], salt = ctx.facts.get<Uint8Array>(FACT_ID_SALT);
     if (log.length > 0 && salt === undefined) return { ok: false, entityIds: log.map((r) => r.id), observed: `fact ${FACT_ID_SALT} missing`, expected: 'the engine supplies the public salt' };
+    if (log.length > 0 && !(salt instanceof Uint8Array && salt.length === 32))
+      return { ok: false, entityIds: log.map((r) => r.id), observed: `fact ${FACT_ID_SALT} is not a 32-byte salt`, expected: 'the 32-byte world-seed public salt only' };
     for (const r of log) {
       const ok = ID_KIND_RE.test(r.kind) && digestId(salt!, r.partitionId, ctx.tick, r.kind, r.seq) === r.id;
       if (!ok || seen.has(r.id)) bad.push(r.id);
