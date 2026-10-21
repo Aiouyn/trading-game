@@ -24,8 +24,9 @@ export function appBarLabels(app: AppId, screen: string | null): { title: string
 }
 
 /**
- * Long single words (Studio T4 ruling 2): tighten letter-spacing toward a floor of 0; if a word still overflows,
- * one line with an ellipsis and the full name in title + aria-label. Never shrinks the font, never hyphenates.
+ * Label fit (Studio T4 rulings, 07:46 + 08:04): wrap at spaces first, at most 2 lines; never break inside a word.
+ * A word wider than the line first tightens letter-spacing (floor 0), then takes an ellipsis on its own line.
+ * Anything truncated puts the full name in title + aria-label. Never shrinks the font, never hyphenates.
  */
 function useFitLabel(name: string) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -34,15 +35,14 @@ function useFitLabel(name: string) {
     const el = ref.current;
     if (!el) return;
     const fit = () => {
-      el.style.letterSpacing = ""; el.classList.remove("trunc");
-      const overflow = () => {
-        const w = el.clientWidth; const n = el.firstChild; if (!n?.textContent) return false;
-        return [...n.textContent.matchAll(/\S+/g)].some((m) => { const r = document.createRange(); r.setStart(n, m.index!); r.setEnd(n, m.index! + m[0].length); return r.getBoundingClientRect().width > w + 0.5; });
-      };
+      el.style.letterSpacing = "";
+      const words = [...el.querySelectorAll<HTMLElement>(".w")];
+      const wordOver = () => words.some((w) => w.scrollWidth > w.clientWidth + 0.5);
       let ls = parseFloat(getComputedStyle(el).letterSpacing) || 0;
-      while (overflow() && ls > 0) { ls = Math.max(0, ls - 0.25); el.style.letterSpacing = `${ls}px`; }
-      const t = overflow();
-      el.classList.toggle("trunc", t);
+      while (wordOver() && ls > 0) { ls = Math.max(0, ls - 0.25); el.style.letterSpacing = `${ls}px`; }
+      const lines = new Set(words.map((w) => Math.round(w.offsetTop))).size;
+      const t = wordOver() || lines > 2 || el.scrollHeight > el.clientHeight + 0.5;
+      el.dataset.lines = String(Math.min(lines, 2));
       setTrunc(t);
     };
     // ResizeObserver fires once on observe, so this also runs the first fit.
@@ -52,6 +52,9 @@ function useFitLabel(name: string) {
   }, [name]);
   return { ref, trunc };
 }
+
+/** Each word is its own unbreakable box, so wrapping only ever happens at spaces. */
+const Words = ({ text }: { text: string }) => <>{text.split(" ").map((w, i) => <span key={i}>{i > 0 && " "}<span className="w">{w}</span></span>)}</>;
 
 function AppIcon({ app }: { app: AppId }) {
   const store = useShellStore();
@@ -75,7 +78,7 @@ function AppIcon({ app }: { app: AppId }) {
         {fresh && <span className="fresh-dot" />}
         {locked && <span className="lock-tag" aria-hidden="true">{APPS[app].lockLabel}</span>}
       </span>
-      <span className="icon-label" ref={labelRef}>{APP_NAMES[app]}</span>
+      <span className="icon-label" ref={labelRef}><Words text={APP_NAMES[app]} /></span>
       {locked && <span className="sr-only">{`· ${APPS[app].lockHint}`}</span>}
     </button>
   );

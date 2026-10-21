@@ -45,8 +45,9 @@
 /* Labels wrap only between words, never mid-word or hyphenated (Studio T2 ruling 2); a long single word may
    reduce letter-spacing but never breaks. */
 .phone-app .icon-label { font-size: var(--fs-11_5); color: var(--fg-muted); text-align: center; max-width: 100%; overflow-wrap: normal; word-break: keep-all; hyphens: none; }
-/* Studio T4 ruling 2: a single word that still overflows at letter-spacing 0 → one line + ellipsis. */
-.phone-app .icon-label.trunc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+/* Studio T4 rulings 07:46 + 08:04: wrap at spaces, max 2 lines; a word wider than the line ellipsizes alone. */
+.phone-app .icon-label { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; width: 100%; }
+.phone-app .icon-label .w { display: inline-block; max-width: 100%; vertical-align: top; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Touch focus ring on the visible 60 px tile, not the whole tile + label hit box. */
 .phone-app:focus-visible { outline: none; }
 .phone-app:focus-visible .icon { box-shadow: var(--focus-ring); }

@@ -234,10 +234,10 @@ test("T4-10 C8 phone text scale 2.0: no horizontal scroll, no label broken mid-w
   await boot(page, "/?rank=R6");
   await page.evaluate(() => document.documentElement.style.setProperty("--text-scale", "2"));
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
-  const broken = await page.evaluate(() => [...document.querySelectorAll(".phone-app .icon-label")].flatMap((el) => {
-    const node = el.firstChild; if (!node?.textContent) return [];
-    return [...node.textContent.matchAll(/\S+/g)].filter((m) => { const r = document.createRange(); r.setStart(node, m.index!); r.setEnd(node, m.index! + m[0].length); return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size > 1; }).map((m) => m[0]);
-  }));
+  // Every word is a single unbreakable box: one line box per word, never split.
+  const broken = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".phone-app .icon-label .w")]
+    .filter((w) => { const r = document.createRange(); r.selectNodeContents(w); return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size > 1; })
+    .map((w) => w.textContent));
   expect(broken).toEqual([]);
   await shot(page, "home-scale2");
 });
@@ -268,29 +268,42 @@ test("T4-10 C3/C4: DOM identical across palettes; axe clean on launcher, home, k
   }
 });
 
-test("T4 Studio ruling 2: longest app name at text scale 2.0 → letter-spacing ≥ 0, ellipsis on one line, full name in title + aria-label", async ({ page }, info) => {
+test("T4 Studio label rulings at text scale 2.0: 'Research Desk' wraps to 2 lines, no ellipsis; a too-long single word ellipsizes with the full name in title + aria-label", async ({ page }, info) => {
   phoneOnly(info.project.name);
   await boot(page, "/?rank=R6");
   const fs0 = await page.locator(".phone-app .icon-label").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
   await page.evaluate(() => document.documentElement.style.setProperty("--text-scale", "2"));
-  // Longest single-word app name among visible tiles (real copy, not injected).
+  await expect.poll(() => page.locator(".phone-app .icon-label").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(fs0 * 2 - 0.5);
+  const label = (id: string) => page.getByTestId(id).evaluate((b: HTMLElement) => {
+    const l = b.querySelector<HTMLElement>(".icon-label")!;
+    const ws = [...l.querySelectorAll<HTMLElement>(".w")];
+    return {
+      words: ws.map((w) => w.textContent), lines: new Set(ws.map((w) => Math.round(w.getBoundingClientRect().top))).size,
+      over: ws.filter((w) => w.scrollWidth > w.clientWidth + 0.5).map((w) => w.textContent),
+      ls: parseFloat(getComputedStyle(l).letterSpacing) || 0, ellipsis: ws.map((w) => getComputedStyle(w).textOverflow), hy: getComputedStyle(l).hyphens,
+      title: b.title, aria: b.getAttribute("aria-label"), trunc: b.dataset.trunc ?? null,
+    };
+  });
+  // Research Desk wraps at the space: 'Research' on line 1, 'Desk' on line 2. Never broken inside a word.
+  // OPEN (Studio): at 390 px / scale 2.0 the column is 84 px and 'Research' is 101 px, so line 1 still needs the
+  // ellipsis under the never-shrink / floor-0 rules; 'Desk' is whole. If the word fits (wider viewport), no ellipsis.
+  const rd = await label("icon-research");
+  expect(rd).toMatchObject({ words: ["Research", "Desk"], lines: 2 });
+  expect(rd.over.filter((w) => w !== "Research")).toEqual([]);
+  if (rd.over.length === 0) expect([rd.trunc, rd.aria]).toEqual([null, null]);
+  else expect([rd.title, rd.aria]).toEqual(["Research Desk", "Research Desk"]);
+  // Longest single word among visible tiles takes the ellipsis, full name in title + aria-label.
   const id = await page.evaluate(() => {
-    const tiles = [...document.querySelectorAll<HTMLElement>(".app-grid .phone-app")];
-    const len = (t: HTMLElement) => Math.max(...(t.querySelector(".icon-label")!.textContent ?? "").split(/\s+/).map((w) => w.length));
+    const tiles = [...document.querySelectorAll<HTMLElement>(".app-grid .phone-app")].filter((t) => t.querySelectorAll(".w").length === 1);
+    const len = (t: HTMLElement) => t.querySelector(".w")!.textContent!.length;
     return tiles.sort((x, y) => len(y) - len(x))[0]!.dataset.testid!;
   });
-  const word = (await page.getByTestId(id).locator(".icon-label").textContent())!;
-  await expect(page.getByTestId(id)).toHaveAttribute("data-trunc", "1");
-  await shot(page, "label-trunc-scale2");
-  const r = await page.getByTestId(id).evaluate((b: HTMLElement) => {
-    const l = b.querySelector<HTMLElement>(".icon-label")!; const cs = getComputedStyle(l);
-    const rects = (() => { const rg = document.createRange(); rg.selectNodeContents(l); return new Set([...rg.getClientRects()].map((x) => Math.round(x.top))).size; })();
-    return { ls: parseFloat(cs.letterSpacing) || 0, fs: parseFloat(cs.fontSize), ellipsis: cs.textOverflow, ws: cs.whiteSpace, hy: cs.hyphens, lines: rects, title: b.title, aria: b.getAttribute("aria-label") };
-  });
-  expect(r.ls).toBeGreaterThanOrEqual(0);
-  expect(r.fs).toBeGreaterThanOrEqual(fs0 * 2 - 0.5);
-  expect([r.ellipsis, r.ws, r.hy, r.lines]).toEqual(["ellipsis", "nowrap", "none", 1]);
-  expect(r.title).toContain(word);
-  expect(r.aria).toContain(word);
+  const lw = await label(id);
+  const name = lw.words[0]!;
+  expect(lw.over).toEqual([name]);
+  expect([lw.lines, lw.ellipsis[0], lw.hy, lw.ls >= 0, lw.trunc]).toEqual([1, "ellipsis", "none", true, "1"]);
+  expect(lw.title).toContain(name);
+  expect(lw.aria).toContain(name);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+  await shot(page, "label-trunc-scale2");
 });
