@@ -75,6 +75,53 @@ describe('AC-02-06-REGISTRY-HELPERS: stream keys come only from registered templ
       'packages/engine/markets/keys.ts': "export const S = Object.freeze({ idio: (a: string): string => `mkt.idio:${a}` });",
       'packages/engine/markets/use.ts': "export function g(ctx: any, id: string) { ctx.rng(S.idio(id)); }",
     }));
-    expect(r.callSiteKeys.map((c) => c.text)).toEqual(['S.idio(id)']);
+    expect(r.callSiteKeys.map((c) => c.text)).toEqual(['`mkt.idio:${a}`', 'S.idio(id)']);   // E-68: a template outside streams.ts is a built key
+  });
+});
+
+describe('AC-02-06-REGISTRY-HELPERS (amended by E-68) and QA #36: literal keys rejected with a helper hint; dynamic names caught at any call', () => {
+  const STREAMS = "export const S = Object.freeze({ fx: (base: string, quote: string): string => `macro.fx:${base}:${quote}`, gapest: (b: string): string => `macro.gapest:${b}` });";
+  const run = (use: string, extra: Record<string, string> = {}) => scanStreamKeys(fixture({ 'packages/engine/macro/streams.ts': STREAMS, 'packages/engine/macro/use.ts': use, ...extra }));
+  const clean = (r: ReturnType<typeof scanStreamKeys>): boolean => r.unknown.length + r.unregisteredPrefixes.length + r.callSiteKeys.length + r.unregisteredHelpers.length === 0;
+  it('(a) a literal key matching a registered template in src fails, and the finding names the helper to use', () => {
+    const r = run("export function f(ctx: any) { return ctx.rng('macro.fx:EUN:FDL').normal(); }");
+    expect(clean(r)).toBe(false);
+    expect(r.callSiteKeys).toEqual([{ file: 'packages/engine/macro/use.ts', line: 1, text: "'macro.fx:EUN:FDL'", hint: 'use S.fx(base, quote)' }]);
+    expect(r.unknown).toEqual([]);
+  });
+  it('(b) the same key built by the helper passes', () => {
+    expect(clean(run("import { S } from './streams';\nexport function f(ctx: any) { return ctx.rng(S.fx('EUN', 'FDL')).normal(); }"))).toBe(true);
+  });
+  it('(c) an unregistered template fails (helper template and call-site template)', () => {
+    const r = scanStreamKeys(fixture({ 'packages/engine/macro/streams.ts': "export const S = Object.freeze({ fx: (b: string): string => `macro.fxx:${b}` });" }));
+    expect(r.unregisteredHelpers.map((h) => h.key)).toEqual(['macro.fxx:x0']);
+    const r2 = run('export function f(ctx: any, b: string) { return ctx.rng(`mkt.nope:${b}`); }');
+    expect(r2.unknown.map((u) => u.key)).toEqual(['mkt.nope:${…}']);
+    expect(clean(r2)).toBe(false);
+  });
+  it('(d) literals in excluded test paths are not reported (*.test.ts and fixture directories, excluded by path)', () => {
+    const lit = "export function f(ctx: any, m: any, b: string) { ctx.rng('macro.fx:EUN:FDL'); m.stream('04', ['macro.fx'], 'macro.fx:' + b); }";
+    const r = run("export const ok = 1;", { 'packages/engine/macro/x.test.ts': lit, 'packages/engine/macro/__fixtures__/a.ts': lit, 'packages/engine/macro/fixtures/b.ts': lit });
+    expect(clean(r)).toBe(true);
+  });
+  it("QA's injection: m.stream('04', ['macro.fx'], 'macro.fx:' + b) is reported (dynamic name beyond ctx.rng)", () => {
+    const r = run("export function f(m: any, b: string) { return m.stream('04', ['macro.fx'], 'macro.fx:' + b).normal(); }");
+    expect(r.callSiteKeys.map((c) => [c.text, c.hint])).toEqual([["'macro.fx:' + b", 'use S.fx(base, quote)']]);
+  });
+  it('templates, parenthesised / nested concatenations, literals at any call, and built keys stored in variables are reported', () => {
+    const r = run([
+      'export function f(m: any, b: string, q: string) {',
+      '  m.stream(\'04\', [], `macro.gapest:${b}`);',
+      "  m.stream('04', [], b + ('macro.fx:' + b) + q);",
+      "  m.other('macro.gapest:EUN');",
+      "  const k = 'macro.gapest:' + b; m.stream('04', [], k);",
+      "  m.stream('04', ['macro.fx', 'macro.gapest'], S.gapest(b));",
+      '}',
+    ].join('\n'));
+    expect(r.callSiteKeys.map((c) => [c.line, c.text])).toEqual([[2, '`macro.gapest:${b}`'], [3, "b + ('macro.fx:' + b) + q"], [4, "'macro.gapest:EUN'"], [5, "'macro.gapest:' + b"]]);
+  });
+  it('a registered row with no helper gets a hint to add one', () => {
+    const r = run("export function f(m: any) { m.stream('05', [], 'mkt.idio:ast_A'); }");
+    expect(r.callSiteKeys.map((c) => c.hint)).toEqual(['no registered helper builds mkt.idio:<assetId>: add one to a streams.ts']);
   });
 });

@@ -1,6 +1,7 @@
 // T02-06: the 02 §3.10.4 stream registry as data. This file IS the registry: a module that needs a new stream adds a row here
 // (19 CI, tools/ci/scan-stream-keys.ts, rejects unknown keys). Rows transcribed in table order; `sim.bot:<botId>` is the table's
 // harness-seed row (root HARNESS, never in the live world). E-63: macro.fx keyed <base>:<quote>; macro.nowcast row added (81 rows).
+import { EngineFault } from '../types';
 import type { RootKind } from './stream';
 
 export interface StreamSpec { module: string; pattern: string; root: RootKind | 'HARNESS'; usedFor: string }
@@ -101,4 +102,12 @@ const MATCHERS: readonly { re: RegExp; spec: StreamSpec }[] = STREAM_REGISTRY.ma
 export function matchStream(key: string): StreamSpec | undefined {
   for (const m of MATCHERS) if (m.re.test(key)) return m.spec;
   return undefined;
+}
+
+const SEGMENT_RE = new RegExp(`^${SEGMENT}$`);
+/** One <placeholder> segment of a stream key, checked against the registry key charset [A-Za-z0-9_\-.]+ (no ':' or '/').
+ *  Template helpers (streams.ts) pass every argument through this, so a helper cannot build a key outside its row. */
+export function streamSegment(seg: string, helper: string): string {
+  if (typeof seg !== 'string' || !SEGMENT_RE.test(seg)) throw new EngineFault('I0.rng_unregistered', `${helper}: key segment "${String(seg)}" is outside the registry charset [A-Za-z0-9_\\-.]+`);
+  return seg;
 }

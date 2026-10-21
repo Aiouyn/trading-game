@@ -1,4 +1,5 @@
-import { ID_KIND_RE, matchStream, STREAM_REGISTRY, streamPrefix } from '@tycoon/engine-core';
+import { EngineFault, ID_KIND_RE, matchStream, STREAM_REGISTRY, streamPrefix } from '@tycoon/engine-core';
+import type { Ccy } from '@tycoon/engine-core';
 import { describe, expect, it } from 'vitest';
 import { BLOC_ALIAS, BLOC_ORDER, ALL_MACRO_TABLES, macroTables, type BlocId } from './schema';
 import { BLOC_DEFAULTS, blocDef, ISLA_SERENA_CITY, SECTOR_COUNT } from './blocs';
@@ -227,15 +228,30 @@ describe('events (04 §5)', () => {
 
 describe('streams (02 §3.10.4)', () => {
   it('keys', () => {
-    expect(S.regime('SRL')).toBe('macro.regime:SRL'); expect(S.fx('PYN')).toBe('macro.fx:PYN:FDL');
+    expect(S.regime('SRL')).toBe('macro.regime:SRL'); expect(S.fx('PYN', 'FDL')).toBe('macro.fx:PYN:FDL');
     expect(S.globalRegime()).toBe('macro.global_regime'); expect(S.shock('EUN')).toBe('macro.shock:EUN');
     expect(S.cbPersonality('NKR')).toBe('macro.cb_personality:cbk_NKR'); expect(S.cbDecision('FDL')).toBe('macro.cb_decision:cbk_FDL');
     expect(S.fiscal('SRL')).toBe('macro.fiscal:gov_SRL'); expect(S.crisis()).toBe('macro.crisis'); expect(S.sov('PYN')).toBe('macro.sovereign_event:gov_PYN');
     expect(S.nowcast('chr_1', 'macro_rel_2')).toBe('macro.nowcast:chr_1:macro_rel_2');
   });
+  it('QA #36: every helper validates each segment against the registry key charset; a bad segment throws I0.rng_unregistered', () => {
+    const code = (f: () => unknown): string | null => { try { f(); return null; } catch (e) { return e instanceof EngineFault ? e.code : `non-fault ${String(e)}`; } };
+    expect(S.fx('EUN', 'FDL')).toBe('macro.fx:EUN:FDL');
+    expect(code(() => S.fx('EUN/X' as Ccy, 'FDL'))).toBe('I0.rng_unregistered');
+    expect(code(() => S.fx('a:b' as Ccy, 'FDL'))).toBe('I0.rng_unregistered');
+    expect(code(() => S.fx('EUN', 'a:b' as Ccy))).toBe('I0.rng_unregistered');
+    expect(code(() => S.fx('' as Ccy, 'FDL'))).toBe('I0.rng_unregistered');
+    const bad = ['a:b', 'x/y', '', 'a b'] as const;
+    for (const v of bad) {
+      for (const f of [() => S.regime(v as BlocId), () => S.shock(v as BlocId), () => S.cbPersonality(v as BlocId), () => S.cbDecision(v as BlocId),
+        () => S.fiscal(v as BlocId), () => S.gapest(v as BlocId), () => S.sov(v as BlocId), () => S.nowcast(v, 'rel_1'), () => S.nowcast('chr_1', v)]) {
+        expect(code(f)).toBe('I0.rng_unregistered');
+      }
+    }
+  });
   it('every S key matches a module-04 row of the 02 §3.10.4 registry (T02-06 STREAM_REGISTRY, E-63) and uses a listed stream', () => {
     const b: BlocId = 'FDL';
-    for (const key of [S.globalRegime(), S.regime(b), S.shock(b), S.cbPersonality(b), S.cbDecision(b), S.fiscal(b), S.fx('PYN'), S.gapest(b), S.crisis(), S.sov(b), S.nowcast('chr_1', 'rel_2')]) {
+    for (const key of [S.globalRegime(), S.regime(b), S.shock(b), S.cbPersonality(b), S.cbDecision(b), S.fiscal(b), S.fx('PYN', 'FDL'), S.gapest(b), S.crisis(), S.sov(b), S.nowcast('chr_1', 'rel_2')]) {
       expect(matchStream(key)?.module).toBe('04');
       expect(MACRO_STREAMS).toContain(key.split(':')[0]);
     }

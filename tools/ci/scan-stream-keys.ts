@@ -5,24 +5,33 @@
 // A helper is a property of an object literal exported as a const from a file named `streams.ts` whose value is an arrow
 // function returning a string or template literal; its template (each ${…} replaced by a sample segment) must match a registry
 // row. Every ctx.rng(...) argument must be a direct call `<HelperObject>.<helper>(...)` of such a helper. CLI: `pnpm ci:streams`.
+// QA #36 / E-68: beyond ctx.rng, ANY call argument that is a string literal, template or '+' concatenation building a registered
+// key (a literal whose text is a registered key or starts with a registered '<prefix>:'), and any such template / concatenation
+// anywhere outside a streams.ts helper body, is reported, e.g. m.stream('04', ['macro.fx'], 'macro.fx:' + b). Literal registered
+// keys are rejected too (E-68); each finding carries a hint naming the helper to use. Excluded by path, never by inline
+// suppression: *.test.ts, *.d.ts, node_modules, and fixture directories (__fixtures__, fixtures, __lint_fixtures__, test).
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { STREAM_REGISTRY, matchStream, streamPrefix } from '../../packages/engine/core/rng/registry';
+import type { StreamSpec } from '../../packages/engine/core/rng/registry';
 
 export interface ScanResult {
   unknown: { file: string; line: number; key: string }[];
   unregisteredPrefixes: { module: string; prefix: string }[];
   /** AC-02-06-REGISTRY-HELPERS (E-63): ctx.rng(...) arguments that are not a call to a registered template helper. */
-  callSiteKeys: { file: string; line: number; text: string }[];
+  callSiteKeys: { file: string; line: number; text: string; hint: string }[];
   /** Helpers (in a `streams.ts`) whose key template does not match a registry row. */
   unregisteredHelpers: { file: string; line: number; helper: string; key: string }[];
 }
 
+/** E-68: excluded by path only. */
+const EXCLUDED_DIRS = new Set(['node_modules', '__lint_fixtures__', '__fixtures__', 'fixtures', 'test']);
+
 function walk(dir: string, out: string[]): void {
   for (const name of readdirSync(dir).sort()) {
-    if (name === 'node_modules' || name === '__lint_fixtures__' || name === 'test') continue;
+    if (EXCLUDED_DIRS.has(name)) continue;
     const p = join(dir, name);
     if (statSync(p).isDirectory()) walk(p, out);
     else if (name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts')) out.push(p);
@@ -56,8 +65,9 @@ function sampleKey(e: ts.Expression): string | null {
 }
 
 /** Registered helper objects: exported const <Name> = Object.freeze({...}) or {...} in any streams.ts. */
-function collectHelpers(repoRoot: string, files: string[], res: ScanResult): Record<string, Record<string, true>> {
-  const out: Record<string, Record<string, true>> = {};
+interface Helpers { names: Record<string, Record<string, true>>; hintFor: Record<string, string>; bodies: Set<string> }
+function collectHelpers(repoRoot: string, files: string[], res: ScanResult): Helpers {
+  const out: Record<string, Record<string, true>> = {}, hintFor: Record<string, string> = {}, bodies = new Set<string>();
   for (const f of files) {
     if (!f.endsWith('/streams.ts')) continue;
     const rel = relative(repoRoot, f), src = ts.createSourceFile(f, readFileSync(f, 'utf8'), ts.ScriptTarget.ES2022, true);
@@ -73,32 +83,61 @@ function collectHelpers(repoRoot: string, files: string[], res: ScanResult): Rec
           if (!ts.isPropertyAssignment(p) || !ts.isIdentifier(p.name) || !ts.isArrowFunction(p.initializer)) continue;
           const body = p.initializer.body, key = ts.isExpression(body) ? sampleKey(body) : null;
           if (key === null) continue;
-          names[p.name.text] = true;
+          names[p.name.text] = true; bodies.add(`${rel}@${body.getStart(src)}`);
           const spec = matchStream(key);
+          if (spec && spec.root !== 'HARNESS') hintFor[spec.pattern] ??= `use ${d.name.text}.${p.name.text}(${p.initializer.parameters.map((q) => q.name.getText(src)).join(', ')})`;
           if (!spec || spec.root === 'HARNESS') res.unregisteredHelpers.push({ file: rel, line: src.getLineAndCharacterOfPosition(p.getStart(src)).line + 1, helper: `${d.name.text}.${p.name.text}`, key });
         }
         if (Object.keys(names).length > 0) out[d.name.text] = { ...(out[d.name.text] ?? {}), ...names };
       }
     }
   }
-  return out;
+  return { names: out, hintFor, bodies };
 }
+
+const LIVE_PREFIXES = [...PREFIXES].sort();
+/** The registry row a literal names: a full registered key, or a text starting with a registered '<prefix>:'. */
+function rowOfLiteral(text: string): StreamSpec | undefined {
+  const full = matchStream(text);
+  if (full) return full.root === 'HARNESS' ? undefined : full;
+  const pre = LIVE_PREFIXES.find((p) => text.startsWith(`${p}:`));
+  return pre === undefined ? undefined : STREAM_REGISTRY.find((r) => r.root !== 'HARNESS' && streamPrefix(r) === pre);
+}
+/** Registry row built by a literal / template / '+' concatenation expression, if any of its literal parts names one. */
+function keyBuiltBy(e: ts.Expression): StreamSpec | undefined {
+  if (ts.isParenthesizedExpression(e)) return keyBuiltBy(e.expression);
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return rowOfLiteral(e.text);
+  if (ts.isTemplateExpression(e)) return rowOfLiteral(e.head.text);
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken) return keyBuiltBy(e.left) ?? keyBuiltBy(e.right);
+  return undefined;
+}
+/** The nearest non-parenthesis ancestor. */
+const outer = (n: ts.Node): ts.Node => { let p = n.parent; while (ts.isParenthesizedExpression(p)) p = p.parent; return p; };
+const isBuilt = (e: ts.Node): boolean => ts.isTemplateExpression(e) || (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken);
 
 export function scanStreamKeys(repoRoot: string): ScanResult {
   const files: string[] = [];
   walk(join(repoRoot, 'packages/engine'), files);
   const res: ScanResult = { unknown: [], unregisteredPrefixes: [], callSiteKeys: [], unregisteredHelpers: [] };
-  const helpers = collectHelpers(repoRoot, files, res);
+  const { names: helpers, hintFor, bodies } = collectHelpers(repoRoot, files, res);
   const isHelperCall = (a: ts.Expression): boolean => ts.isCallExpression(a) && ts.isPropertyAccessExpression(a.expression)
     && ts.isIdentifier(a.expression.expression) && helpers[a.expression.expression.text]?.[a.expression.name.text] === true;
+  const hint = (spec: StreamSpec | undefined): string => (spec === undefined ? 'build the key with a registered streams.ts template helper'
+    : hintFor[spec.pattern] ?? `no registered helper builds ${spec.pattern}: add one to a streams.ts`);
   for (const f of files) {
     const rel = relative(repoRoot, f), src = ts.createSourceFile(f, readFileSync(f, 'utf8'), ts.ScriptTarget.ES2022, true);
     const line = (n: ts.Node): number => src.getLineAndCharacterOfPosition(n.getStart(src)).line + 1;
+    const reported = new Set<ts.Node>();
+    const report = (a: ts.Expression, spec: StreamSpec | undefined): void => {
+      if (reported.has(a)) return;
+      reported.add(a); res.callSiteKeys.push({ file: rel, line: line(a), text: a.getText(src), hint: hint(spec) });
+    };
     const visit = (n: ts.Node): void => {
+      if (bodies.has(`${rel}@${n.getStart(src)}`) && ts.isExpression(n)) return;   // a registered helper's own template
       if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'rng'
         && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'ctx' && n.arguments.length > 0) {
         const a = n.arguments[0]!;
-        if (!isHelperCall(a)) res.callSiteKeys.push({ file: rel, line: line(a), text: a.getText(src) });
+        if (!isHelperCall(a)) report(a, keyBuiltBy(a));
         if (ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a)) {
           const spec = matchStream(a.text);
           if (!spec || spec.root === 'HARNESS') res.unknown.push({ file: rel, line: line(a), key: a.text });
@@ -106,6 +145,8 @@ export function scanStreamKeys(repoRoot: string): ScanResult {
           if (!headKnown(a.head.text)) res.unknown.push({ file: rel, line: line(a), key: `${a.head.text}\${…}` });
         }
       }
+      if (ts.isCallExpression(n)) for (const a of n.arguments) { const spec = keyBuiltBy(a); if (spec) report(a, spec); }   // any stream-taking call
+      if (isBuilt(n) && !isBuilt(outer(n))) { const spec = keyBuiltBy(n as ts.Expression); if (spec) report(n as ts.Expression, spec); }
       if (ts.isPropertyAssignment(n) && ts.isIdentifier(n.name) && n.name.text === 'streams' && ts.isArrayLiteralExpression(n.initializer)) {
         for (const e of n.initializer.elements) {
           if (ts.isStringLiteralLike(e) && !PREFIXES.has(e.text)) res.unregisteredPrefixes.push({ module: moduleOf(n.parent, rel), prefix: e.text });
@@ -122,5 +163,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const root = join(fileURLToPath(new URL('.', import.meta.url)), '../..');
   const r = scanStreamKeys(root);
   console.log(JSON.stringify(r, null, 2));
+  for (const c of r.callSiteKeys) console.error(`${c.file}:${c.line}: stream key ${c.text} not built by a registered helper (E-68): ${c.hint}`);
   if (r.unknown.length + r.unregisteredPrefixes.length + r.callSiteKeys.length + r.unregisteredHelpers.length > 0) process.exit(1);
 }
