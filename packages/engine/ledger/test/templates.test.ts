@@ -31,10 +31,10 @@ describe('templates (T03-07) and rail (T03-06)', () => {
     expect(e.postings.filter((p) => p.flowLeg).length).toBe(1);
   });
   it('LEND $1M: deposit created at the bank and loan booked; balanced', () => {
-    const e = tplLend(fixture().env('07', 'P12'), 'bnk_N', 'chr_P', 1_000_000_000_000n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'loan_1');
+    const e = tplLend(fixture().env('07', 'P12'), 'bnk_N', 'chr_P', 1_000_000_000_000n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'lon_1');
     expect(simple(e)).toEqual([
       'Dr chr_P:1010:bnk_N:FDL / Cr bnk_N:2100:chr_P:FDL 1000000000000',
-      'Dr bnk_N:1300:loan_1:FDL / Cr chr_P:2200:loan_1:FDL 1000000000000',
+      'Dr bnk_N:1300:lon_1:FDL / Cr chr_P:2200:lon_1:FDL 1000000000000',
     ]);
     expect(isBalancedPerEntity(e.postings)).toBe(true);
   });

@@ -19,6 +19,7 @@
       }
     ],
     "paths": {
+      "@ds/notices-sheet": ["./src/app/%5F_ds/notices/NoticesSheet.tsx"],
       "@/city/*": ["./src/city/*"],
       "@/city*": ["./src/city/index.ts", "./tests/unit/shell/__mocks__/city.ts"],
       "@/*": ["./src/*"]
@@ -32,5 +33,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "packages", "engine-staging", "tools/lint/fixtures", "tools/dmath-ref"]
+  "exclude": ["node_modules", "packages", "engine-staging", "tools/lint/fixtures", "tools/dmath-ref", "tools/ci"]
 }

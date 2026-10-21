@@ -38,11 +38,22 @@
 .grid-group { margin-bottom: 12px; }
 .grid-group .label { margin-bottom: 8px; }
 .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 8px; }
+/* Studio 08:20: reflow by text scale; tiles keep their size, only the column count changes. */
+.grid4[data-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid4[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .phone-app { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
 .phone-app .icon { position: relative; width: 60px; height: 60px; border-radius: var(--r-card); border: 1px solid var(--line); background: var(--win); display: grid; place-items: center; color: var(--fg-muted); }
 .phone-app:active .icon { color: var(--fg); }
 .phone-app.locked .icon { color: var(--fg-disabled); }
-.phone-app .icon-label { font-size: var(--fs-11_5); color: var(--fg-muted); text-align: center; max-width: 100%; overflow-wrap: anywhere; }
+/* Labels wrap only between words, never mid-word or hyphenated (Studio T2 ruling 2); a long single word may
+   reduce letter-spacing but never breaks. */
+.phone-app .icon-label { font-size: var(--fs-11_5); color: var(--fg-muted); text-align: center; max-width: 100%; overflow-wrap: normal; word-break: keep-all; hyphens: none; }
+/* Studio T4 rulings 07:46 + 08:04: wrap at spaces, max 2 lines; a word wider than the line ellipsizes alone. */
+.phone-app .icon-label { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; width: 100%; }
+.phone-app .icon-label .w { display: inline-block; max-width: 100%; vertical-align: top; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Touch focus ring on the visible 60 px tile, not the whole tile + label hit box. */
+.phone-app:focus-visible { outline: none; }
+.phone-app:focus-visible .icon { box-shadow: var(--focus-ring); }
 .phone-app .lock-tag { top: 4px; left: 0; right: 0; text-align: center; }
 .bottom-row { flex: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 10px 16px 14px; background: var(--chrome); border-top: 1px solid var(--line); }
 .phone-appview { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--win); }
