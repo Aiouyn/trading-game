@@ -10,6 +10,8 @@ const css = (c: Rgb, k = 1) => `color(srgb ${c[0] * k} ${c[1] * k} ${c[2] * k})`
 export const PICTURE_PADDING_PX = 16;
 /** Portrait (phone) T0: the picture fills at least this share of the viewport height (review M6). */
 export const PORTRAIT_MIN_FILL = 0.45;
+/** ...and never less than this, even to keep every district label on screen. */
+export const PORTRAIT_FLOOR = 0.41;
 
 export interface PictureResult {
   url: string;
@@ -64,6 +66,10 @@ export function drawPicture(opts: {
   let scale = Math.min((W - 2 * pad) / du, (H - 2 * pad) / dv);
   let uc = (u0 + u1) / 2;
   const vc = (v0 + v1) / 2;
+  // label metrics first: the portrait crop must keep every district label on the picture
+  const fontPx = Number(/(\d+(?:\.\d+)?)px/.exec(opts.labelFont)?.[1] ?? 16);
+  g.font = opts.labelFont.replace(/(\d+(\.\d+)?)px/, (_, px) => `${Number(px) * opts.dpr}px`);
+  const labelW = opts.labels.map((l) => g.measureText(l.text).width + 6 * opts.dpr);
   if (dv * scale < PORTRAIT_MIN_FILL * H) {
     // portrait: a wide city fitted to the width would be a thin strip. Fill ≥ 45 % of the
     // height instead and crop the sides, centred on the weighted centre of the built area
@@ -76,9 +82,40 @@ export function drawPicture(opts: {
       su += projectOrtho([opts.parts[o], 0, opts.parts[o + 1]], 0)[0] * wgt;
       sw += wgt;
     }
-    const halfView = (W / 2 - pad) / scale;
     const core = sw > 0 ? su / sw : uc;
-    uc = Math.min(u1 - halfView, Math.max(u0 + halfView, core));
+    // every district must stay labelled (Industrial Basin was cropped away): fit the span of the
+    // label anchors, each with half its label width, into the view. Shrink the picture only as
+    // far as that needs, never below the 40 % floor.
+    // per district, the candidate label point closest to the core (any point of the district will do)
+    const anchors = opts.labels.map((l, i) => {
+      let best = l.ground.length ? projectOrtho([l.ground[0][0], 0, l.ground[0][1]], 0)[0] : core;
+      for (const [x, z] of l.ground) {
+        const u = projectOrtho([x, 0, z], 0)[0];
+        if (Math.abs(u - core) < Math.abs(best - core)) best = u;
+      }
+      return { u: best, half: labelW[i] / 2 };
+    });
+    const span = (k: number) => {
+      let lo = Infinity, hi = -Infinity;
+      for (const a of anchors) {
+        lo = Math.min(lo, a.u - a.half / k);
+        hi = Math.max(hi, a.u + a.half / k);
+      }
+      return { lo, hi };
+    };
+    const room = W - 2 * pad;
+    const floor = (PORTRAIT_FLOOR * H) / dv;
+    for (let it = 0; it < 30 && anchors.length; it++) {
+      const { lo, hi } = span(scale);
+      if ((hi - lo) * scale <= room || scale <= floor) break;
+      scale = Math.max(floor, Math.min(scale * 0.97, room / (hi - lo)));
+    }
+    const halfView = (W / 2 - pad) / scale;
+    const { lo, hi } = anchors.length ? span(scale) : { lo: core, hi: core };
+    // centre on the core, shifted just enough to keep every label anchor in view
+    uc = Math.min(lo + halfView, Math.max(hi - halfView, core));
+    uc = Math.min(u1 - halfView, Math.max(u0 + halfView, uc));
+    if (anchors.length && (hi - lo) * scale <= room) uc = Math.min(lo + halfView, Math.max(hi - halfView, uc));
   }
   const toScreen = (x: number, y: number, z: number): [number, number] => {
     const [u, v] = projectOrtho([x, y, z], 0);
@@ -128,8 +165,6 @@ export function drawPicture(opts: {
   // district labels: --fg with a 3 px --bg0 knockout stroke (no shadow). Laid out like the 3D
   // labels: a label moves to another point of its district, or is left out, rather than being
   // clipped by the edge or drawn over another label (review: "Financial Mile" on phone T0).
-  const fontPx = Number(/(\d+(?:\.\d+)?)px/.exec(opts.labelFont)?.[1] ?? 16);
-  g.font = opts.labelFont.replace(/(\d+(\.\d+)?)px/, (_, px) => `${Number(px) * opts.dpr}px`);
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.lineJoin = 'round';
