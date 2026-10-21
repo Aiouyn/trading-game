@@ -1,4 +1,4 @@
-// T02-03: sin, cos, atan, atan2 (02 §3.8). Coefficient literals are copied from fdlibm (netlib k_sin.c, k_cos.c, e_rem_pio2.c).
+// T02-03: sin, cos, atan, atan2 (02 §3.8). Coefficient literals are copied from fdlibm (netlib k_sin.c, k_cos.c, e_rem_pio2.c, s_atan.c, e_atan2.c).
 import { EngineFault } from '../types';
 import { bitsToF64, f64ToBits } from './bits';
 
@@ -16,10 +16,7 @@ const C1 = 4.16666666666666019037e-02, C2 = -1.38888888888741095749e-03, C3 = 2.
 const PIO4 = 0.7853981633974483;
 
 const PI = 3.141592653589793, PI_LO = 1.2246467991473532e-16;          // π = PI + PI_LO
-const PIO2 = 1.5707963267948966, PIO2_LO = 6.123233995736766e-17;      // π/2
-const PIO6 = 0.5235987755982989, PIO6_LO = -5.360408832255455e-17;     // π/6
-const SQRT3 = 1.7320508075688772;
-const TAN_PI12 = 0.2679491924311227;                                    // tan(π/12) = 2 − √3
+const PIO2 = 1.5707963267948966;                                          // π/2
 
 function nanDomain(x: number, fn: string): void {
   if (x !== x) throw new EngineFault('I0.nan', `${fn}(NaN)`);
@@ -80,30 +77,34 @@ export function cos(x: number): number {
   }
 }
 
-/** 1/(2k+1)·(−1)^k for k = 0..11: the odd series of atan to degree 23 (card step 2). */
-const ATAN_C = [1, -1 / 3, 1 / 5, -1 / 7, 1 / 9, -1 / 11, 1 / 13, -1 / 15, 1 / 17, -1 / 19, 1 / 21, -1 / 23] as const;
-/** atan(t) for 0 ≤ t ≤ tan(π/12): t + t·z·P(z), z = t². */
-function atanSeries(t: number): number {
-  const z = t * t;
-  let p = ATAN_C[11];
-  for (let k = 10; k >= 1; k--) p = p * z + ATAN_C[k]!;
-  return t + t * (z * p);
-}
-/** atan on 0 ≤ x ≤ 1 as hi + lo (the π/6 shift kept compensated). */
-function atan01(x: number): { hi: number; lo: number } {
-  if (x <= TAN_PI12) return { hi: atanSeries(x), lo: 0 };
-  const t = (x * SQRT3 - 1) / (x + SQRT3);
-  return { hi: PIO6, lo: PIO6_LO + atanSeries(t) };
+/** fdlibm s_atan.c (netlib, Sun Microsystems 1993): atan(atanhi[i]) breakpoints 0.5, 1, 1.5, ∞ as hi + lo. */
+const ATANHI = [4.63647609000806093515e-01, 7.85398163397448278999e-01, 9.82793723247329054082e-01, 1.57079632679489655800e+00] as const;
+const ATANLO = [2.26987774529616870924e-17, 3.06161699786838301793e-17, 1.39033110312309984516e-17, 6.12323399573676603587e-17] as const;
+/** fdlibm s_atan.c aT[0..10]: atan(x) ≈ x − x·(s1 + s2) on |x| < 7/16. */
+const AT = [3.33333333333329318027e-01, -1.99999999998764832476e-01, 1.42857142725034663711e-01, -1.11111104054623557880e-01,
+  9.09088713343650656196e-02, -7.69187620504482999495e-02, 6.66107313738753120669e-02, -5.83357013379057348645e-02,
+  4.97687799461593236017e-02, -3.65315727442169155270e-02, 1.62858201153657823623e-02] as const;
+
+/** atan(ax) for finite ax ≥ 0, the fdlibm s_atan.c reduction (QA #33: replaces the π/6-shift series, 3.34 ULP at tan(π/12)). */
+function atanPos(ax: number): number {
+  if (ax >= 7.378697629483821e19) return ATANHI[3] + ATANLO[3];          // ≥ 2^66
+  let id = -1, x = ax;
+  if (ax < 0.4375) { if (ax < 1.862645149230957e-9) return ax; }        // < 2^−29
+  else if (ax < 1.1875) {
+    if (ax < 0.6875) { id = 0; x = (2 * ax - 1) / (2 + ax); } else { id = 1; x = (ax - 1) / (ax + 1); }
+  } else if (ax < 2.4375) { id = 2; x = (ax - 1.5) / (1 + 1.5 * ax); } else { id = 3; x = -1 / ax; }
+  const z = x * x, w = z * z;
+  const s1 = z * (AT[0] + w * (AT[2] + w * (AT[4] + w * (AT[6] + w * (AT[8] + w * AT[10])))));
+  const s2 = w * (AT[1] + w * (AT[3] + w * (AT[5] + w * (AT[7] + w * AT[9]))));
+  if (id < 0) return x - x * (s1 + s2);
+  return ATANHI[id]! - ((x * (s1 + s2) - ATANLO[id]!) - x);
 }
 
 export function atan(x: number): number {
   nanDomain(x, 'atan');
-  const ax = Math.abs(x);
-  let r: number;
-  if (ax === Infinity) r = PIO2;
-  else if (ax <= 1) { const a = atan01(ax); r = a.hi + a.lo; }
-  else { const a = atan01(1 / ax); r = PIO2 - a.hi + (PIO2_LO - a.lo); }
-  return x < 0 ? -r : x === 0 ? x : r;
+  if (x === 0) return x;
+  const r = Math.abs(x) === Infinity ? PIO2 : atanPos(Math.abs(x));
+  return x < 0 ? -r : r;
 }
 
 const isNeg = (z: number): boolean => z < 0 || Object.is(z, -0);
@@ -118,12 +119,12 @@ export function atan2(y: number, x: number): number {
   if (x === -Infinity) return y === Infinity || y === -Infinity ? sy * 3 * PIO4 : sy * PI;
   if (y === Infinity || y === -Infinity) return sy * PIO2;
   const ay = Math.abs(y), ax = Math.abs(x);
-  // a = atan(ay/ax) ∈ [0, π/2] as hi + lo; the quotient is formed once (its rounding is the one unavoidable error).
-  let hi: number, lo: number;
-  if (ay <= ax) { const q = ay / ax; const a = atan01(q); hi = a.hi; lo = a.lo; }
-  else { const q = ax / ay; const a = atan01(q); hi = PIO2 - a.hi; lo = PIO2_LO - a.lo; }
-  let r: number;
-  if (isNeg(x)) r = (PI - hi) + (PI_LO - lo);                         // π − a
-  else r = hi + lo;
+  // fdlibm e_atan2.c: z = atan(|y/x|) with the |y/x| > 2^60 and (x < 0, |y/x| < 2^−60) shortcuts, then π − (z − π_lo) for x < 0.
+  const q = ay / ax;
+  let z: number;
+  if (q > 1.152921504606847e18) z = PIO2 + 0.5 * PI_LO;
+  else if (isNeg(x) && q < 8.673617379884035e-19) z = 0;
+  else z = atanPos(q);
+  const r = isNeg(x) ? PI - (z - PI_LO) : z;
   return sy * r;
 }

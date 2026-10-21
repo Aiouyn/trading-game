@@ -8,7 +8,7 @@ import { sha256 } from '../crypto/sha256';
 import { toHex } from '../crypto/hex';
 import { EngineFault } from '../types';
 import { roundToF64 } from '../../../../tools/dmath-ref/bigfloat';
-import { refErf, refNormCdf } from '../../../../tools/dmath-ref/ref-special';
+import { refErf, refLgamma, refNormCdf } from '../../../../tools/dmath-ref/ref-special';
 import * as dmath from './index';
 import { bitsToF64, erf, erfc, f64ToBits, lgamma, normCdf, normInv, normPdf, ulpDistance } from './index';
 
@@ -132,4 +132,28 @@ describe('T02-03 worked examples (card test plan)', () => {
     expect(sum(['C', 'D'])).toBeCloseTo(49.33206503301610289036, 10);
     expect(sum(['E', 'F'])).toBeCloseTo(47.52583317549289671629, 10);
   });
+});
+
+describe('AC-02-03-LGAMMA-ZEROS (Quant ruling): |lgamma − ref| ≤ 1e-14 absolute on [0.5, 3]; lgamma(1) = lgamma(2) = 0 exactly', () => {
+  it('lgamma.vec (10,000 vectors): absolute ≤ 1e-14 on [0.5, 3], relative ≤ 1e-14 elsewhere for x > 0', () => {
+    const v = load('lgamma'); let mAbs = 0, mRel = 0, nIn = 0;
+    v.inputs.forEach((a, i) => {
+      const x = bitsToF64(a[0]!), o = lgamma(x), e = bitsToF64(v.expected[i]!);
+      if (x >= 0.5 && x <= 3) { nIn++; mAbs = Math.max(mAbs, Math.abs(o - e)); } else mRel = Math.max(mRel, rel(o, e));
+    });
+    console.log(`lgamma.vec: ${nIn} inputs in [0.5, 3] max abs ${mAbs.toExponential(3)}; others max rel ${mRel.toExponential(3)}`);
+    expect(mAbs).toBeLessThanOrEqual(1e-14); expect(mRel).toBeLessThanOrEqual(1e-14);
+  });
+  it('lgamma(1) and lgamma(2) are exactly +0', () => {
+    expect(Object.is(lgamma(1), 0)).toBe(true); expect(Object.is(lgamma(2), 0)).toBe(true);
+  });
+  it('10,001-point grid on [0.5, 3.0] against the tools/dmath-ref reference: absolute error ≤ 1e-14', async () => {
+    let m = 0;
+    for (let i = 0; i <= 10000; i++) {
+      const x = 0.5 + 2.5 * i / 10000;
+      m = Math.max(m, Math.abs(lgamma(x) - roundToF64(refLgamma(x))));
+      if (i % 250 === 0) await new Promise((r) => setTimeout(r, 0));   // keep the vitest worker RPC alive during the ~60 s reference run
+    }
+    expect(m).toBeLessThanOrEqual(1e-14);
+  }, 600000);
 });
