@@ -134,25 +134,19 @@ test("Glyph colours: muted, white when active, disabled when locked; never brass
   for (const v of [c.tile, c.on, c.wsColor, c.wsBorder, c.winBorder, c.winGlyph, c.before]) expect(v).not.toBe(c.acc);
 });
 
-test("City seam: createCityRenderer(CityRendererOptions), async mount, visibility and reduced motion (S2 §2, §6)", async ({ page }) => {
+// Observable behaviour only, so it holds for the stub and for the real renderer (PR #4); cityId and the
+// option wiring are covered by Vitest (tests/unit/shell/cityWindow.test.ts).
+test("City seam: the City window mounts a canvas with no error state, and closing removes it", async ({ page }) => {
   await boot(page, "/city?rank=R2");
-  await expect.poll(() => page.evaluate(() => (window as Window & { __cityCalls?: string[] }).__cityCalls ?? [])).toContain("visibility:visible");
-  const calls = () => page.evaluate(() => [...((window as Window & { __cityCalls?: string[] }).__cityCalls ?? [])]);
-  expect((await calls())[0]).toBe("create:channel,cityId,fetchChunk,locale,myCityOverlay,myEntityIds,onPerfSample,reducedMotion,tierOverride");
-  expect(await calls()).toContain("mount");
-  // ui.perf arrives through the injected onPerfSample sink (no window event).
-  await expect.poll(() => page.evaluate(() => ((window as Window & { __quayPerf?: () => { event: string }[] }).__quayPerf?.() ?? []).map((e) => e.event))).toContain("ui.perf");
-  await page.getByTestId("win-city").getByRole("button", { name: "Collapse" }).click();
-  await expect.poll(calls).toContain("visibility:background");
-  await page.getByTestId("win-city").getByRole("button", { name: "Collapse" }).click();
-  await page.getByTestId("ws-2").click();
-  await expect.poll(async () => (await calls()).filter((c) => c === "visibility:background").length).toBe(2);
-  await page.getByTestId("ws-1").click();
-  await page.getByTestId("tile-settings").click();
-  await page.getByTestId("win-settings").locator("select").first().selectOption("on");
-  await expect.poll(calls).toContain("reducedMotion:true");
-  await page.getByTestId("win-city").getByTestId("win-close").click();
-  await expect.poll(calls).toContain("dispose");
+  const win = page.getByTestId("win-city");
+  await expect(win.getByTestId("city-mount").locator("canvas")).toHaveCount(1, { timeout: 20_000 });
+  await expect(win.getByTestId("city-body")).toHaveAttribute("data-visibility", "visible");
+  await expect(win.getByText("Loading city…")).toHaveCount(0);
+  await expect(page.getByTestId("load-message")).toHaveCount(0);
+  await expect(page.getByRole("alert").filter({ hasText: /\S/ })).toHaveCount(0);
+  await win.getByTestId("win-close").click();
+  await expect(page.getByTestId("win-city")).toHaveCount(0);
+  await expect(page.locator("canvas")).toHaveCount(0);
 });
 
 test("S1-11 5th Broker and same-ticker deep link focus the existing window", async ({ page }) => {
@@ -388,7 +382,7 @@ test("§5 error / offline: inline \"Couldn't load · Retry\"; Retry reloads; off
   expect(hit).toEqual({ w: true, h: true, inside: true, clear: true });
   await expect(page.getByTestId("strip")).toBeVisible(); // the rest of the shell stays usable
   await page.getByTestId("load-retry").click();
-  await expect(page.getByTestId("load-error")).toHaveCount(0);
+  await expect(page.getByTestId("load-message")).toHaveCount(0);
   await boot(page, "/?load=fail");
   await page.getByTestId("load-retry").click();
   await expect(page.getByTestId("load-retry")).toHaveText("Retry");

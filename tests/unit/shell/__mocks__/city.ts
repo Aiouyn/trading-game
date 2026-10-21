@@ -21,10 +21,12 @@ export async function createCityRenderer(opts: CityRendererOptions): Promise<Cit
     async mount(container) {
       el = container;
       log("mount");
+      // Like the real renderer, mounting puts a canvas in the container (the e2e asserts only this).
+      container.append(document.createElement("canvas"));
       // One sample on mount so e2e can prove the injected sink is wired (the real renderer samples per minute).
       opts.onPerfSample?.({ tickRenderMsP50: 0, tickRenderMsP95: 0, fps: 60, heapMb: 0, renderTier: tier });
     },
-    unmount() { el = null; log("unmount"); },
+    unmount() { el?.querySelector("canvas")?.remove(); el = null; log("unmount"); },
     setData: noop,
     setTier(t) { tier = t === "auto" ? "T1" : t; },
     getTier: () => ({ tier, reason }),
