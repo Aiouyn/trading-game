@@ -104,12 +104,15 @@ const ROWS: Row[] = [
   { id: "api", group: "trade", unlock: { kind: "flag", flag: "api.eligible" } },
 ];
 
+/** Apps with a real body. 17B CH-00 flips broker, portfolio and wire (lazy-loaded, ComingLater until their cards). */
+const BUILT: ReadonlySet<AppId> = new Set(["settings", "broker", "portfolio", "wire"]);
+
 export const REGISTRY: readonly AppDef[] = ROWS.map((r, i) => ({
   minW: 420, minH: 300, maxInstances: 1, unlock: ALWAYS, teaser: NONE,
   ...r,
   nameKey: `app.${r.id}.name` as const,
   order: i + 1,
-  built: r.id === "settings",
+  built: BUILT.has(r.id),
 }));
 
 export const APPS: Record<AppId, AppDef> = Object.fromEntries(REGISTRY.map((a) => [a.id, a])) as Record<AppId, AppDef>;

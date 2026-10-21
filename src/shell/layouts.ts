@@ -26,7 +26,11 @@ export const LAYOUTS_MAX_CUSTOM = 5; // ui_layouts_max
 type Placed = { pane: Pane; rect: Area; snap: SnapSlot };
 
 /** Clamped rects for a layout, or null when it cannot fit with all minimums. */
+/** Trade is not offered below this viewport width: Broker 720 + Portfolio 520 + 3 × 8 px gutters (17A T4 §3). */
+export const TRADE_MIN_VW = 1264;
+
 export function planLayout(def: LayoutDef, a: Area): Placed[] | null {
+  if (def.id === "trade" && a.w + 2 * GUTTER < TRADE_MIN_VW) return null;
   const mins = (p: Pane) => minSize(p.app, a.w);
   const third = (a.w - 2 * GUTTER) / 3;
   const half = (a.w - GUTTER) / 2;
@@ -61,6 +65,11 @@ export const layoutFits = (id: LayoutId, a: Area) => planLayout(LAYOUTS.find((l)
 export function applyLayout(id: LayoutId, a: Area, isUnlocked: (app: AppId) => boolean): WindowRect[] {
   const def = LAYOUTS.find((l) => l.id === id);
   const plan = def ? planLayout(def, a) : null;
+  // A new account below 1264 px opens Broker alone instead of the Trade layout.
+  if (!plan && id === "trade" && isUnlocked("broker")) {
+    const s = minSize("broker", a.w);
+    return [{ app: "broker", instance: 1, x: a.x, y: a.y, w: Math.min(a.w, Math.max(s.w, Math.min(a.w, 840))), h: Math.min(a.h, Math.max(s.h, 560)), snap: null, workspace: 1, collapsed: false }];
+  }
   if (!plan) return [];
   const count: Partial<Record<AppId, number>> = {};
   return plan.filter((p) => isUnlocked(p.pane.app)).map(({ pane, rect, snap }) => {

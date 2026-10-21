@@ -1,8 +1,7 @@
 import { sha256, sha256Concat } from '../crypto/sha256';
 import { toHex, u32be } from '../crypto/hex';
 
-/** SPEC GAP: EpochRoots is owned by T02-06 (not built); minimal local port. */
-export interface EpochRoots { publicRoot(epoch: number): Uint8Array; secretEpochRoot(epoch: number): Uint8Array }
+import type { EpochRoots } from '../rng/manager';   // T02-06 owns EpochRoots (was a local port here)
 
 export class EpochRootStore implements EpochRoots {
   private readonly secretRoot: Uint8Array; private readonly publicRootFor: (chapter: number) => Uint8Array;

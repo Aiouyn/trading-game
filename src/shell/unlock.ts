@@ -81,9 +81,9 @@ export function evaluate(s: UnlockInput, sticky: ReadonlySet<AppId>): { vis: Rec
 
 export const appDef = (id: AppId) => APPS[id];
 
-/** Next rank and its NW target, read from the server `rank.thresholds` (17 §2.6). Null at R5+/R6. */
+/** Next rank and its NW target, read from the server `rank.thresholds` (17 §2.6; R6 $20B per E-21). Null only at R6. */
 export function nextRankTarget(r: RankChannel): { rank: Rank; at: string } | null {
   const i = RANKS.indexOf(r.rank);
   const at = r.thresholds[i];
-  return i < 5 && at !== undefined ? { rank: RANKS[i + 1], at } : null;
+  return i < RANKS.length - 1 && at !== undefined ? { rank: RANKS[i + 1], at } : null;
 }

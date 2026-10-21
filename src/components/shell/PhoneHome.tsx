@@ -1,12 +1,13 @@
 "use client";
-import { useRef, type PointerEvent as RPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
+import { goBack, usePhoneScreen } from "@/shell/back";
 import { clockLabel } from "@/shell/mockChannels";
 import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
 import { nextRankTarget } from "@/shell/unlock";
-import { LoadState } from "./LoadState";
+import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
 import { Sparkline } from "./Sparkline";
-import { APP_NAMES, GROUP_LABELS, S } from "@/shell/strings";
+import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES } from "@/shell/strings";
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { HaltChip } from "./SystemOverlays";
@@ -15,9 +16,107 @@ import { useShell, useShellStore } from "./ShellContext";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
 const LONG_PRESS_MS = 400;
+/** Left-edge back swipe must start within this many px of the edge [P]. */
+const EDGE_START = 20;
 
-function AppIcon({ app }: { app: AppId }) {
+/** Phone app-bar title and back label (Studio T4 ruling 1): no breadcrumb, current screen only. */
+export function appBarLabels(app: AppId, screen: string | null): { title: string; back: string } {
+  if (screen) return { title: SCREEN_NAMES[screen] ?? screen, back: `${S.backTo} ${APP_NAMES[app]}` };
+  return { title: APP_NAMES[app], back: `${S.backTo} ${S.home}` };
+}
+
+/**
+ * Label fit (Studio T4 rulings, 07:46 + 08:04): wrap at spaces first, at most 2 lines; never break inside a word.
+ * A word wider than the line first tightens letter-spacing (floor 0), then takes an ellipsis on its own line.
+ * Anything truncated puts the full name in title + aria-label. Never shrinks the font, never hyphenates.
+ */
+function useFitLabel(name: string, off = false) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [trunc, setTrunc] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || off) return;
+    const fit = () => {
+      el.style.letterSpacing = "";
+      const words = [...el.querySelectorAll<HTMLElement>(".w")];
+      const wordOver = () => words.some((w) => w.scrollWidth > w.clientWidth + 0.5);
+      let ls = parseFloat(getComputedStyle(el).letterSpacing) || 0;
+      while (wordOver() && ls > 0) { ls = Math.max(0, ls - 0.25); el.style.letterSpacing = `${ls}px`; }
+      const lines = new Set(words.map((w) => Math.round(w.offsetTop))).size;
+      const t = wordOver() || lines > 2 || el.scrollHeight > el.clientHeight + 0.5;
+      el.dataset.lines = String(Math.min(lines, 2));
+      setTrunc(t);
+    };
+    // ResizeObserver fires once on observe, so this also runs the first fit.
+    const ro = new ResizeObserver(fit); ro.observe(el.parentElement ?? el);
+    const mo = new MutationObserver(fit); mo.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class", "data-palette"] });
+    return () => { ro.disconnect(); mo.disconnect(); };
+  }, [name, off]);
+  return { ref, trunc: off ? false : trunc };
+}
+
+/** Phone grid columns by text scale (Studio 08:20): 4 below 1.3, 3 from 1.3 to below 1.75, 2 at 1.75 and up. */
+export const gridColsFor = (scale: number) => (scale >= 1.75 ? 2 : scale >= 1.3 ? 3 : 4);
+function useTextScale() {
+  const [scale, setScale] = useState(1);
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    const read = () => setScale(parseFloat(getComputedStyle(html).getPropertyValue("--text-scale")) || 1);
+    read();
+    const mo = new MutationObserver(read); mo.observe(html, { attributes: true, attributeFilter: ["style", "class", "data-text-scale"] });
+    return () => mo.disconnect();
+  }, []);
+  return scale;
+}
+/** Studio 08:31: at text scale 1.5 and up the bottom row is an icon-only dock (no visible labels, never truncated). */
+export const DOCK_ICON_ONLY_AT = 1.5;
+const DOCK_TIP_MS = 500;
+const DOCK_TIP_LINGER_MS = 1500;
+
+/** Long-press pill with the full name, in the approved MoneyText pill style (T1 ruling 5): 8 px above, clamped. */
+function useDockTip(name: string) {
+  const host = useRef<HTMLButtonElement>(null);
+  const tip = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const linger = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppress = useRef(false);
+  const clear = (t: typeof timer) => { if (t.current) { clearTimeout(t.current); t.current = null; } };
+  useLayoutEffect(() => {
+    if (!open || !host.current || !tip.current) { setPos(null); return; }
+    const a = host.current.getBoundingClientRect(), t = tip.current.getBoundingClientRect();
+    const left = Math.min(Math.max(4, a.left + a.width / 2 - t.width / 2), window.innerWidth - t.width - 4);
+    setPos({ left, top: Math.max(4, a.top - 8 - t.height) });
+  }, [open, name]);
+  useEffect(() => () => { clear(timer); clear(linger); }, []);
+  const handlers = {
+    onPointerDown: () => {
+      if (open) { setOpen(false); clear(linger); suppress.current = true; return; } // next tap closes
+      suppress.current = false;
+      clear(timer);
+      timer.current = setTimeout(() => { setOpen(true); suppress.current = true; }, DOCK_TIP_MS);
+    },
+    onPointerUp: () => { clear(timer); if (open) { clear(linger); linger.current = setTimeout(() => setOpen(false), DOCK_TIP_LINGER_MS); } },
+    onPointerCancel: () => clear(timer),
+    onContextMenu: (e: { preventDefault: () => void }) => e.preventDefault(),
+  };
+  const node = open ? (
+    <span ref={tip} className="money-tip dock-tip" data-testid="dock-tip" aria-hidden="true"
+      style={pos ? { left: pos.left, top: pos.top } : { visibility: "hidden", left: 0, top: 0 }}>{name}</span>
+  ) : null;
+  /** True when this click ended a long-press (or closed the tip); the app must not open. */
+  const consumeClick = () => { const s = suppress.current; suppress.current = false; return s; };
+  return { host, handlers, node, consumeClick };
+}
+
+/** Each word is its own unbreakable box, so wrapping only ever happens at spaces. */
+const Words = ({ text }: { text: string }) => <>{text.split(" ").map((w, i) => <span key={i}>{i > 0 && " "}<span className="w">{w}</span></span>)}</>;
+
+function AppIcon({ app, dock = false }: { app: AppId; dock?: boolean }) {
   const store = useShellStore();
+  const tip = useDockTip(APP_NAMES[app]);
+  const { ref: labelRef, trunc } = useFitLabel(APP_NAMES[app], dock);
   const vis = useShell((s) => s.vis[app]);
   const fresh = useShell((s) => s.fresh.has(app));
   const locked = vis === "locked";
@@ -26,16 +125,23 @@ function AppIcon({ app }: { app: AppId }) {
       className={`phone-app${locked ? " locked" : ""}`}
       data-testid={`icon-${app}`}
       data-state={vis}
-      title={locked ? APPS[app].lockHint : undefined}
+      ref={dock ? tip.host : undefined}
+      {...(dock ? tip.handlers : {})}
+      data-dock={dock ? "1" : undefined}
+      title={dock ? undefined : trunc ? (locked ? `${APP_NAMES[app]} · ${APPS[app].lockHint}` : APP_NAMES[app]) : locked ? APPS[app].lockHint : undefined}
+      aria-label={dock || trunc ? (locked ? `${APP_NAMES[app]} · ${APPS[app].lockHint}` : APP_NAMES[app]) : undefined}
+      data-trunc={trunc ? "1" : undefined}
       aria-disabled={locked}
-      onClick={() => !locked && store.getState().open(app)}
+      onClick={() => { if (dock && tip.consumeClick()) return; if (!locked) store.getState().open(app); }}
     >
       <span className="icon">
         <Glyph name={app} size={24} />
         {fresh && <span className="fresh-dot" />}
         {locked && <span className="lock-tag" aria-hidden="true">{APPS[app].lockLabel}</span>}
       </span>
-      <span className="icon-label">{APP_NAMES[app]}</span>
+      {/* Dock (scale ≥ 1.5): no visible label at all, so it can never be truncated; the name is in aria-label. */}
+      {!dock && <span className="icon-label" ref={labelRef}><Words text={APP_NAMES[app]} /></span>}
+      {dock && tip.node}
       {locked && <span className="sr-only">{`· ${APPS[app].lockHint}`}</span>}
     </button>
   );
@@ -85,8 +191,13 @@ export function PhoneHome() {
   const me = useShell((s) => s.channels.me);
   const rank = useShell((s) => s.channels.rank);
   const phoneApp = useShell((s) => s.phoneApp);
+  const screen = usePhoneScreen();
   const store = useShellStore();
   const next = nextRankTarget(rank);
+  const scale = useTextScale();
+  const cols = gridColsFor(scale);
+  const dock = scale >= DOCK_ICON_ONLY_AT;
+  const bar = phoneApp ? appBarLabels(phoneApp.app, screen) : null;
   const progress = next ? Math.min(1, Math.max(0, Number(me.nw) / Number(next.at))) : 1;
   const edge = useRef<{ x: number; y: number } | null>(null);
   // Edge gestures (17 §3.2.3): swipe up on the edge bar = Home; swipe from the left edge = back.
@@ -95,7 +206,7 @@ export function PhoneHome() {
     onPointerUp: (e: RPointerEvent) => {
       const g = edge.current;
       edge.current = null;
-      if (g && g.x < 16 && e.clientX - g.x > 60) store.getState().phoneBack();
+      if (g && g.x <= EDGE_START && e.clientX - g.x > 60) goBack();
     },
   };
   const edgeBar = (
@@ -105,7 +216,7 @@ export function PhoneHome() {
       onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); edge.current = { x: e.clientX, y: e.clientY }; }}
       onPointerUp={(e) => { const g = edge.current; edge.current = null; if (g && g.y - e.clientY > 30) store.getState().phoneBack(); }}
     >
-      <span className="disabled"><Glyph name="quay" size={30} /></span>
+      <span className="fg" data-testid="edge-mark"><Glyph name="quay" size={30} /></span>
     </div>
   );
 
@@ -113,11 +224,11 @@ export function PhoneHome() {
     return (
       <div className="phone" data-testid="phone" {...gestures}>
         <StatusBar />
-        <LoadState variant="banner" />
-        <section className="phone-appview" role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
+        <PhoneBannerStack />
+        <section className="phone-appview" data-testid="phone-appview" data-app={phoneApp.app} data-screen={screen ?? ""} role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
           <div className="appbar">
-            <button className="icon-btn" aria-label={S.back} onClick={() => store.getState().phoneBack()}><Glyph name="chevLeft" size={20} /></button>
-            <h1 id="phone-app-title">{APP_NAMES[phoneApp.app]}</h1>
+            <button className="icon-btn" aria-label={bar!.back} data-testid="app-back" onClick={goBack}><Glyph name="chevLeft" size={20} /></button>
+            <h1 id="phone-app-title" data-testid="app-title">{bar!.title}</h1>
           </div>
           <div className="phone-appbody">
             <AppBody app={phoneApp.app} state={{ focused: true, collapsed: false, background: false }} />
@@ -131,7 +242,7 @@ export function PhoneHome() {
   return (
     <div className="phone" data-testid="phone" {...gestures}>
       <StatusBar />
-      <LoadState variant="banner" />
+      <PhoneBannerStack />
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top"><span className="label">{S.netWorth}</span><span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span></div>
@@ -156,14 +267,14 @@ export function PhoneHome() {
             return (
               <section key={g} className="grid-group" data-testid={`group-${g}`}>
                 <h2 className="label">{GROUP_LABELS[g]}</h2>
-                <div className="grid4">{apps.map((a) => <AppIcon key={a} app={a} />)}</div>
+                <div className="grid4" data-cols={cols} data-testid={`grid-${g}`}>{apps.map((a) => <AppIcon key={a} app={a} />)}</div>
               </section>
             );
           })}
         </div>
       </main>
-      <nav className="bottom-row" data-testid="bottom-row" aria-label={S.shelf}>
-        {BOTTOM.map((a) => <AppIcon key={a} app={a} />)}
+      <nav className="bottom-row" data-testid="bottom-row" data-dock={dock ? "1" : undefined} aria-label={S.shelf}>
+        {BOTTOM.map((a) => <AppIcon key={a} app={a} dock={dock} />)}
       </nav>
       {edgeBar}
     </div>
