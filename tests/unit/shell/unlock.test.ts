@@ -9,7 +9,7 @@ const me = (o: Partial<MeChannel>): MeChannel => ({
   nw: "5000", todayPct: "0", todayChg: "0", license: "LIC0", charters: [], flags: [], onboardingMin: 60, onboardingDone: true, guest: true, protectionEndsRealMs: null, myPlaces: [], ...o,
 });
 const ri = (r: Rank) => RANKS.indexOf(r);
-const rk = (rank: Rank): RankChannel => ({ rank, thresholds: [...RANK_THRESHOLDS], nextAt: null });
+const rk = (rank: Rank): RankChannel => ({ rank, thresholds: [...RANK_THRESHOLDS], nextAt: null, shellsEarned: [] });
 
 /** Independent oracle written from the 17 §3.2.4 table (not from registry.ts). */
 function expected(id: AppId, rank: Rank, lic: number, flags: string[], nw100k: boolean, guest: boolean): Visibility {
@@ -92,5 +92,5 @@ describe("rank widget target from rank.thresholds (B2)", () => {
   it.each([["R0", "R1", "20000"], ["R1", "R2", "250000"], ["R2", "R3", "5000000"], ["R3", "R4", "100000000"], ["R4", "R5", "2000000000"], ["R5", "R6", "20000000000"]] as const)(
     "%s → next %s at %s", (r, next, at) => expect(nextRankTarget(rk(r))).toEqual({ rank: next, at }));
   it("R6 (top rank) has no next target", () => expect(nextRankTarget(rk("R6"))).toBeNull());
-  it("reads the channel, not a constant", () => expect(nextRankTarget({ rank: "R1", thresholds: ["1", "2"], nextAt: null })).toEqual({ rank: "R2", at: "2" }));
+  it("reads the channel, not a constant", () => expect(nextRankTarget({ rank: "R1", thresholds: ["1", "2"], nextAt: null, shellsEarned: [] })).toEqual({ rank: "R2", at: "2" }));
 });

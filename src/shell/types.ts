@@ -4,7 +4,7 @@ import type { PaletteId } from "@/styles/tokens";
 
 export type { PaletteId };
 export type Tick = number;
-export type ShellId = "r0" | "r1" | "r2" | "r3" | "r4" | "r5" | "r6" | `cosmetic_${string}`;
+export type ShellId = "r0" | "r1" | "r2" | "r3" | "r4" | "r5" | "r6" | `cos_shell_${string}`;
 export type Locale = "en" | "fr";
 export type DetailMode = "simple" | "pro";
 export type NotifyCategory =

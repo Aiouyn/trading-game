@@ -200,12 +200,6 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 .city-failed { place-content: center; justify-items: center; gap: var(--sp-8); }
 .city-failed p { margin: 0; }
 
-.settings { display: flex; flex-direction: column; gap: 12px; }
-.settings .seg { display: flex; gap: 4px; flex-wrap: wrap; }
-.settings .seg button { border: 1px solid var(--line); border-radius: var(--r-input); padding: 6px 10px; min-height: 32px; }
-.settings .seg button.on { background: var(--win2); color: var(--fg); border-color: var(--fg-disabled); }
-.settings .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.settings select { background: var(--win2); color: var(--fg); border: 1px solid var(--line); border-radius: var(--r-input); padding: 4px 8px; font-size: calc(16px * var(--text-scale)); }
 
 /* Phone grid tile (17 §3.2.3, 17A T2 §4): visual only; T4's PhoneHome adopts the class. Radius 14 [P]. */
 .tile-phone { position: relative; width: var(--tile-phone); height: var(--tile-phone); border-radius: var(--r-card); border: 1px solid var(--line); background: var(--win); display: grid; place-items: center; color: var(--fg-muted); }
