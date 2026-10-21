@@ -59,19 +59,8 @@
 .appbar .icon-btn { width: 44px; height: 44px; }
 .appbar h1 { font-size: var(--fs-16); font-weight: 600; margin: 0; line-height: 1.2; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .phone-appbody { flex: 1; overflow: auto; padding: 16px; }
-.sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--win);
-  border-top: 1px solid var(--line);
-  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
-  box-shadow: var(--elev-sheet);
-  padding: 16px;
-}
-.sheet ul { list-style: none; margin: 8px 0 0; padding: 0; }
-.sheet li button { width: 100%; text-align: left; min-height: 44px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.recent-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.recent-list li button { width: 100%; text-align: left; min-height: 44px; padding: 0 8px; border-bottom: 1px solid var(--line); }
 @media (max-width: 767px) {
   .scrim { align-items: stretch; }
   .launcher { margin-top: 0; width: 100%; border-radius: 0; }
