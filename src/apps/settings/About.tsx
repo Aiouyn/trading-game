@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/Label";
+import { Glyph } from "@/components/shell/Glyph";
 import { CREDITS, LICENCES, buildSha, release } from "./about-data";
 import { settingsStrings } from "./strings";
 import "./about.css";
@@ -11,8 +12,7 @@ import "./about.css";
 function ExternalLink({ href, children, newTab }: { href: string; children: React.ReactNode; newTab: string }) {
   return (
     <a className="about-ext" href={href} target="_blank" rel="noopener noreferrer">
-      {/* External-link glyph: not in the approved set yet (question to Studio); the hidden text carries the meaning. */}
-      {children}<span className="sr-only"> {newTab}</span>
+      {children}<span className="about-ext-glyph" data-testid="ext-glyph"><Glyph name="external" size={12} /></span><span className="sr-only"> {newTab}</span>
     </a>
   );
 }
@@ -57,7 +57,7 @@ export function About({ locale = "en" }: { locale?: string }) {
       </section>
       <section className="about-sec">
         <Label>{t.credits}</Label>
-        <ul className="about-list">{CREDITS.map((c) => <li key={c} className="about-row">{c}</li>)}</ul>
+        <ul className="about-list">{CREDITS.map((c) => <li key={c.name} className="about-row">{`${c.name} · ${t.roles[c.roleKey]}`}</li>)}</ul>
       </section>
       <section className="about-sec">
         <div className="about-row"><Link href="/markets/MKT-08" data-testid="about-integrity">{t.integrity}</Link></div>

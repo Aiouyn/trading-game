@@ -1,8 +1,11 @@
 // Settings copy (17B SET-02 / SET-08), EN + FR. Kept here so src/shell/strings.ts stays untouched [P].
 // [P] = proposed copy pending Studio; FR = proposed translations pending review.
 import type { PaletteId } from "@/styles/tokens";
+import { formatVersion } from "./about-data";
 
 export type SettingsLocale = "en" | "fr";
+
+const cosmeticBase = (id: string) => id.replace(/^cos_shell_/, "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
 const EN = {
   title: "Settings",
@@ -19,7 +22,8 @@ const EN = {
   shell: "Shell",
   purchased: "Purchased",
   shellName: (n: number, rankName: string) => `Quay ${n} · ${rankName}`,
-  cosmeticName: (id: string) => id.replace(/^cosmetic_/, "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()), // [P] until Studio names cosmetics
+  // Studio ruling: "Glass · Cosmetic", derived from the id until the server catalog names cosmetics (Systems).
+  cosmeticName: (id: string) => `${cosmeticBase(id)} · Cosmetic`,
   shellThumb: "Shell artwork coming later", // [P] placeholder alt
   textScale: "Text scale",
   percent: (n: number) => `${n} percent`,
@@ -36,7 +40,7 @@ const EN = {
   systemState: (on: boolean) => `System: ${on ? "on" : "off"}`,
   // About (SET-08)
   version: "Version",
-  versionLine: (release: string, sha: string) => `Quay ${release} · build ${sha}`,
+  versionLine: formatVersion,
   copyVersion: "Copy version",
   copied: "Copied",
   disclaimers: "Disclaimers",
@@ -46,6 +50,7 @@ const EN = {
   colComponent: "Component", colLicence: "Licence", colLink: "Link",
   chartsBy: "Charts by TradingView",
   credits: "Credits",
+  roles: { design: "design", shellApps: "shell and apps", city: "Port Avalon", markets: "markets", quay: "Quay" },
   integrity: "Public integrity report",
   newTab: "(opens in a new tab)",
 };
@@ -58,34 +63,34 @@ const FR: Strings = {
   sections: "Sections des réglages",
   section: {
     "SET-01": "Compte", "SET-02": "Apparence", "SET-03": "Son", "SET-04": "Notifications",
-    "SET-05": "Raccourcis", "SET-06": "Confidentialité", "SET-07": "Trading", "SET-08": "À propos",
+    "SET-05": "Raccourcis", "SET-06": "Confidentialité", "SET-07": "Ordres", "SET-08": "À propos",
   },
-  comingLater: "Bientôt disponible",
+  comingLater: "Bientôt",
   palette: "Palette",
   paletteNames: { "ink-brass": "Ink & Brass", broadsheet: "Broadsheet", phosphor: "Phosphor", riviera: "Riviera" },
   paletteHint: "La palette est enregistrée sur cet appareil.",
   shell: "Coque",
   purchased: "Achetée",
   shellName: (n: number, rankName: string) => `Quay ${n} · ${rankName}`,
-  cosmeticName: EN.cosmeticName,
+  cosmeticName: (id: string) => `${cosmeticBase(id)} · Cosmétique`,
   shellThumb: "Illustration de la coque à venir",
   textScale: "Taille du texte",
   percent: (n: number) => `${n} pour cent`,
   previewLabel: "Aperçu",
-  previewNw: "Valeur nette",
+  previewNw: "Patrimoine net",
   previewRow: "Halcyon Shipping",
   highContrast: "Contraste élevé",
-  colorBlind: "Paire daltonienne",
-  colorBlindHint: "Phosphor est conçue pour cela.",
+  colorBlind: "Mode daltonien",
+  colorBlindHint: "Phosphor est pensée pour ça.",
   usePhosphor: "Utiliser Phosphor",
   reduceMotion: "Réduire les animations",
   reduceTransparency: "Réduire la transparence",
   modes: { system: "Système", on: "Activé", off: "Désactivé" },
-  systemState: (on: boolean) => `Système : ${on ? "activé" : "désactivé"}`,
+  systemState: (on: boolean) => `Système\u00A0: ${on ? "activé" : "désactivé"}`,
   version: "Version",
-  versionLine: (release: string, sha: string) => `Quay ${release} · build ${sha}`,
+  versionLine: formatVersion,
   copyVersion: "Copier la version",
-  copied: "Copié",
+  copied: "Copiée",
   disclaimers: "Avertissements",
   disclaimerGame: "Un jeu de finance multijoueur. Marchés et sociétés fictifs, sans argent réel.",
   disclaimerAdvice: "Rien ici ne constitue un conseil financier.",
@@ -93,8 +98,9 @@ const FR: Strings = {
   colComponent: "Composant", colLicence: "Licence", colLink: "Lien",
   chartsBy: "Charts by TradingView", // attribution line stays verbatim (licence requirement)
   credits: "Crédits",
-  integrity: "Rapport d'intégrité public",
-  newTab: "(s'ouvre dans un nouvel onglet)",
+  roles: { design: "conception", shellApps: "interface et applis", city: "Port Avalon", markets: "marchés", quay: "Quay" },
+  integrity: "Rapport d’intégrité public",
+  newTab: "(s’ouvre dans un nouvel onglet)",
 };
 
 export const SETTINGS_STRINGS: Record<SettingsLocale, Strings> = { en: EN, fr: FR };

@@ -1,12 +1,14 @@
 // The one place html attributes and the shell class are set (17B SET-02; moved out of QuayShell).
-import type { RankChannel, ShellId } from "./channels";
+import { ownedShells, type AcctEntitlements, type RankChannel, type ShellId } from "./channels";
 import type { ShellState } from "./store";
 import type { PaletteId } from "./types";
 
 export interface AppearanceInput {
   palette: PaletteId;
   prefs: ShellState["prefs"];
-  rank: Pick<RankChannel, "rank" | "shellsEarned" | "shellsOwned">;
+  rank: Pick<RankChannel, "rank" | "shellsEarned">;
+  /** acct:entitlements (E-64): owned cosmetic shells are its SHELL_STYLE items. */
+  entitlements: AcctEntitlements;
   /** window.matchMedia(q).matches; injectable for tests. */
   media: (query: string) => boolean;
 }
@@ -14,12 +16,12 @@ export interface AppearanceInput {
 export const rankShell = (rank: RankChannel["rank"]): ShellId => rank.toLowerCase() as ShellId;
 
 /** Shells the picker lists: earned ones, plus owned cosmetics (deduplicated, earned order first). */
-export const availableShells = (rank: AppearanceInput["rank"]): ShellId[] => [...new Set([...rank.shellsEarned, ...rank.shellsOwned])];
+export const availableShells = (rank: AppearanceInput["rank"], ent: AcctEntitlements): ShellId[] => [...new Set([...rank.shellsEarned, ...ownedShells(ent)])];
 
 /** A stale prefs.shell (no longer earned or owned) falls back to the rank shell (17B SET-02). */
-export function chosenShell(prefs: AppearanceInput["prefs"], rank: AppearanceInput["rank"]): ShellId {
+export function chosenShell(prefs: AppearanceInput["prefs"], rank: AppearanceInput["rank"], ent: AcctEntitlements): ShellId {
   const want = prefs.shell as ShellId;
-  return availableShells(rank).includes(want) ? want : rankShell(rank.rank);
+  return availableShells(rank, ent).includes(want) ? want : rankShell(rank.rank);
 }
 
 export function reducedTransparency(prefs: AppearanceInput["prefs"], media: AppearanceInput["media"]): boolean {
@@ -28,7 +30,7 @@ export function reducedTransparency(prefs: AppearanceInput["prefs"], media: Appe
 
 /** The class actually applied: R5's glass renders as R4 under reduced transparency (17 §3.12). */
 export function effectiveShell(input: AppearanceInput): ShellId {
-  const s = chosenShell(input.prefs, input.rank);
+  const s = chosenShell(input.prefs, input.rank, input.entitlements);
   return s === "r5" && reducedTransparency(input.prefs, input.media) ? "r4" : s;
 }
 

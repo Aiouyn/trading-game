@@ -1,5 +1,7 @@
 // 17B S1 (Settings frame + SET-02 Appearance) and S1-14 (SET-08 About in-app). Run by path:
 //   E2E_PORT=… npx playwright test tests/e2e/settings --output=/tmp/…
+import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { PALETTE_IDS, PALETTES } from "../../../src/styles/tokens";
@@ -40,15 +42,28 @@ test("S1-01: frame — 8 sections; desktop selects Appearance; phone pushes with
   }
 });
 
-test("S1-02: /settings/SET-08 focuses the open window and selects About; SET-03 is ComingLater", async ({ page }, info) => {
+test("S1-02: with Settings open, a client-side deep link to /settings/SET-08 focuses the same window and selects About", async ({ page }, info) => {
   test.skip(isPhone(info));
   await boot(page, "/settings");
-  const n = await page.locator("[data-testid^=win-]").count();
-  await boot(page, "/settings/SET-08");
-  await expect(page.getByTestId("settings-about")).toBeVisible();
-  expect(await page.locator("[data-testid^=win-]").count()).toBe(n);
-  await page.getByTestId("set-nav-SET-03").click();
-  await expect(page.getByTestId("win-settings").getByTestId("coming-later")).toBeVisible();
+  const win = page.getByTestId("win-settings");
+  await expect(win).toHaveCount(1);
+  // Open a second app so focus has to move back to Settings.
+  await page.getByTestId("tile-portfolio").click();
+  const count = await page.locator("[data-testid^=win-]").count();
+  const winId = await win.getAttribute("data-instance");
+  await page.evaluate(() => { (window as unknown as { __quayMark: boolean }).__quayMark = true; });
+  // Client-side navigation through the Next app router (no document reload).
+  await page.evaluate(() => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push("/settings/SET-08"));
+  await expect(page).toHaveURL(/\/settings\/SET-08$/);
+  expect(await page.evaluate(() => (window as unknown as { __quayMark?: boolean }).__quayMark)).toBe(true); // same document
+  await expect(win.getByTestId("settings-about")).toBeVisible();
+  await expect(win.getByTestId("set-nav-SET-08")).toHaveAttribute("aria-current", "page");
+  expect(await page.locator("[data-testid^=win-]").count()).toBe(count);
+  expect(await win.getAttribute("data-instance")).toBe(winId);
+  await expect(win).toHaveClass(/\bactive\b/);
+  // An unbuilt section shows ComingLater.
+  await win.getByTestId("set-nav-SET-03").click();
+  await expect(win.getByTestId("coming-later")).toBeVisible();
 });
 
 test("S1-03/04/13: swatches set the palette; tokens match; DOM identical; ring is --fg; no brass", async ({ page }, info) => {
@@ -90,9 +105,9 @@ test("S1-05: palette persists from device storage; prefs memo has no palette", a
 });
 
 test("S1-06: shell list, Purchased chip, selection applies shell-r1", async ({ page }, info) => {
-  await openAppearance(page, info, "?rank=R3&shells=r0,r1,r2,r3,cosmetic_glass&owned=cosmetic_glass");
+  await openAppearance(page, info, "?rank=R3&shells=r0,r1,r2,r3&owned=cos_shell_glass");
   await expect(page.locator(".shell-row")).toHaveCount(5);
-  await expect(page.getByTestId("shell-cosmetic_glass").getByTestId("purchased")).toHaveText("Purchased");
+  await expect(page.getByTestId("shell-cos_shell_glass").getByTestId("purchased")).toHaveText("Purchased");
   expect(await page.evaluate(() => document.documentElement.classList.contains("shell-r3"))).toBe(true);
   await page.getByTestId("shell-r1").click();
   const cls = await page.evaluate(() => [...document.documentElement.classList]);
@@ -203,7 +218,10 @@ test("S1-14: About in-app (S2-01..07)", async ({ page, context }, info) => {
   await expect(about).toBeVisible();
   if (isPhone(info)) await expect(page.locator("#phone-app-title")).toHaveText("About");
   const version = (await page.getByTestId("about-version").textContent())!;
-  expect(version).toMatch(/^Quay .+ · build .+$/);
+  // The e2e build is from this checkout, so the built bundle carries the real HEAD sha (Producer ruling (a)).
+  const sha = execSync("git rev-parse --short=7 HEAD").toString().trim();
+  const pkgVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
+  expect(version).toBe(`${pkgVersion} (${sha})`);
   await expect(about.getByTestId("about-licence-row")).toHaveCount(5);
   await expect(about.getByRole("link", { name: /Charts by TradingView/ })).toHaveAttribute("href", "https://www.tradingview.com");
   for (const a of await about.locator("a[target]").all()) {
@@ -243,4 +261,55 @@ test("S1-14: About in-app (S2-01..07)", async ({ page, context }, info) => {
   await expect(page).toHaveURL(/\/markets\/MKT-08/);
   await expect(page.getByTestId("coming-later").filter({ hasText: "Markets" })).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("Studio #38: switch / segment / swatch badge / thumbnail / glyph geometry", async ({ page }, info) => {
+  await openAppearance(page, info, "?rank=R3&shells=r0,r3&owned=cos_shell_glass");
+  const near = (a: number, b: number) => expect(Math.abs(a - b), `${a} vs ${b}`).toBeLessThanOrEqual(1);
+  const box = (sel: string) => page.locator(sel).first().evaluate((e) => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e); return { w: r.width, h: r.height, x: r.x, y: r.y, radius: parseFloat(cs.borderTopLeftRadius), bg: cs.backgroundColor, border: cs.borderTopColor, tr: cs.transitionDuration, ease: cs.transitionTimingFunction }; });
+  // Switch track / knob.
+  const track = await box("[data-testid=switch-hc] .set-switch-track");
+  near(track.w, 32); near(track.h, 18); near(track.radius, 9);
+  expect(track.bg).toBe(await rgb(page, "var(--line)"));
+  const knob = await box("[data-testid=switch-hc] .set-switch-knob");
+  near(knob.w, 14); near(knob.h, 14); near(knob.x - track.x, 2); near(knob.y - track.y, 2);
+  expect(knob.bg).toBe(await rgb(page, "var(--fg)"));
+  expect(knob.tr).toBe("0.12s"); expect(knob.ease).toBe("ease-out");
+  await page.getByTestId("switch-hc").click();
+  await page.waitForTimeout(200);
+  const on = await box("[data-testid=switch-hc] .set-switch-track"), knobOn = await box("[data-testid=switch-hc] .set-switch-knob");
+  expect(on.bg).toBe(await rgb(page, "var(--fg-muted)"));
+  near(knobOn.x - knob.x, 14);
+  await expect(page.getByTestId("switch-hc")).toHaveAttribute("aria-checked", "true");
+  await page.getByTestId("switch-hc").click();
+  const hit = await box("[data-testid=switch-hc]");
+  expect(Math.min(hit.w, hit.h)).toBeGreaterThanOrEqual(isPhone(info) ? 44 : 28);
+  // Segment.
+  const seg = await box("[data-testid=seg-reducedMotion]");
+  near(seg.radius, 6);
+  expect(seg.border).toBe(await rgb(page, "var(--line)"));
+  const segBtn = await box("[data-testid=seg-reducedMotion] [aria-checked=true]");
+  if (!isPhone(info)) near(segBtn.h, 28);
+  expect(segBtn.bg).toBe(await rgb(page, "var(--win2)"));
+  expect(await page.locator("[data-testid=seg-reducedMotion] [aria-checked=true]").evaluate((e) => getComputedStyle(e).fontWeight)).toBe("500");
+  // Swatch badge, thumbnail, cosmetic name.
+  await expect(page.locator("[data-testid=swatch-check]")).toHaveCount(1);
+  await expect(page.locator("[aria-checked=true] [data-testid=swatch-check]")).toHaveCount(1);
+  const badge = await box("[data-testid=swatch-check]"); near(badge.w, 12); near(badge.h, 12);
+  const thumb = await box(".shell-thumb"); near(thumb.w, 32); near(thumb.h, 20);
+  expect(await page.locator(".shell-thumb").first().evaluate((e) => getComputedStyle(e).borderTopStyle)).toBe("dashed");
+  await expect(page.getByTestId("shell-cos_shell_glass")).toContainText("Glass · Cosmetic");
+  // Reduced motion: the knob moves instantly.
+  await page.getByTestId("seg-reducedMotion").getByRole("radio", { name: "On", exact: true }).click();
+  expect(parseFloat((await box("[data-testid=switch-hc] .set-switch-knob")).tr)).toBe(0);
+  // Text scale 2.0: segments stack vertically, labels never truncate.
+  const s = page.getByTestId("text-scale"); await s.fill("2"); await s.blur();
+  const ys = await page.locator("[data-testid=seg-reducedMotion] button").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().y));
+  expect(ys[1]).toBeGreaterThan(ys[0]); expect(ys[2]).toBeGreaterThan(ys[1]);
+  expect(await page.locator(".set-seg button").evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).length)).toBe(0);
+  // External glyph in About: 12 px, --fg-muted, after the label.
+  if (isPhone(info)) await page.locator(".appbar .icon-btn").click();
+  await page.getByTestId("set-nav-SET-08").click();
+  const g = await box("[data-testid=ext-glyph] svg"); near(g.w, 12); near(g.h, 12);
+  expect(await page.locator("[data-testid=ext-glyph]").first().evaluate((e) => getComputedStyle(e).color)).toBe(await rgb(page, "var(--fg-muted)"));
 });

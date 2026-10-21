@@ -3,7 +3,7 @@
 import { Chip } from "@/components/ui/Chip";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { availableShells, chosenShell } from "@/shell/appearance";
-import type { ShellId } from "@/shell/channels";
+import { ownedShells, type ShellId } from "@/shell/channels";
 import { RANK_NAMES, RANKS } from "@/shell/registry";
 import { useSettingsStrings } from "./useSettingsStrings";
 
@@ -11,9 +11,11 @@ export function ShellPicker() {
   const t = useSettingsStrings();
   const store = useShellStore();
   const rank = useShell((s) => s.channels.rank);
+  const ent = useShell((s) => s.channels.entitlements);
   const prefs = useShell((s) => s.prefs);
-  const shells = availableShells(rank);
-  const current = chosenShell(prefs, rank);
+  const shells = availableShells(rank, ent);
+  const owned = ownedShells(ent);
+  const current = chosenShell(prefs, rank, ent);
   const name = (id: ShellId) => {
     const m = /^r([0-6])$/.exec(id);
     return m ? t.shellName(Number(m[1]), RANK_NAMES[RANKS[Number(m[1])]]) : t.cosmeticName(id);
@@ -26,7 +28,7 @@ export function ShellPicker() {
           {/* Thumbnail placeholder until Studio supplies hardware art (17 §3.12). */}
           <span className="shell-thumb" role="img" aria-label={t.shellThumb} />
           <span className="shell-name">{name(id)}</span>
-          {id.startsWith("cosmetic_") && rank.shellsOwned.includes(id) && <Chip tone="neutral" data-testid="purchased">{t.purchased}</Chip>}
+          {id.startsWith("cos_shell_") && owned.includes(id) && <Chip tone="neutral" data-testid="purchased">{t.purchased}</Chip>}
         </button>
       ))}
     </div>

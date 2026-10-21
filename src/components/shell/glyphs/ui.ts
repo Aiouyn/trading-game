@@ -5,9 +5,11 @@ export const search = ["M10.5 4.5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM15 15l5 5"] as 
 export const focus = ["M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"] as const;
 export const layout = ["M5 5h14a1.5 1.5 0 0 1 1.5 1.5v11A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 5 5zM14 5v14M14 12h6.5"] as const;
 export const chevLeft = ["m15 6-6 6 6 6"] as const;
+/** External link (17B SET-08, Studio ruling): up-right arrow, drawn after the label. */
+export const external = ["M8 16 16 8", "M9.5 8H16v6.5"] as const;
 export const app = ["M7 4.5h10A2.5 2.5 0 0 1 19.5 7v10a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 17V7A2.5 2.5 0 0 1 7 4.5z", "M9 12h6"] as const;
 
-export const UI_GLYPHS = { quay, bell, search, focus, layout, chevLeft, app };
+export const UI_GLYPHS = { quay, bell, search, focus, layout, chevLeft, external, app };
 
 // 16 px window controls.
 export const collapse = "M4.5 12h7";

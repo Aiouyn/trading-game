@@ -11,9 +11,20 @@ export const LICENCES: readonly LicenceRow[] = [
 ];
 
 /** Team roles only, never personal data [P]. */
-export const CREDITS: readonly string[] = ["Avalon Studio · design", "Front Dev · shell and apps", "City Dev · Port Avalon", "Engine Dev · markets", "Producer · Quay"];
+export type CreditRole = "design" | "shellApps" | "city" | "markets" | "quay";
+export interface Credit { name: string; roleKey: CreditRole }
+export const CREDITS: readonly Credit[] = [
+  { name: "Avalon Studio", roleKey: "design" },
+  { name: "Front Dev", roleKey: "shellApps" },
+  { name: "City Dev", roleKey: "city" },
+  { name: "Engine Dev", roleKey: "markets" },
+  { name: "Producer", roleKey: "quay" },
+];
 
 /** Release shown in the version line [P]: package version, injected at build (next.config env). */
 export const release = () => process.env.NEXT_PUBLIC_RELEASE || "dev";
 /** Build commit [P]: NEXT_PUBLIC_BUILD_SHA at build, else "dev". */
 export const buildSha = () => process.env.NEXT_PUBLIC_BUILD_SHA || "dev";
+
+/** Version line (Producer ruling 2026-10-21): "<version> (<sha7>)". Not language-specific. */
+export const formatVersion = (version: string, sha: string) => `${version} (${sha})`;

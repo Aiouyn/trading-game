@@ -30,9 +30,10 @@ function useHtmlAttributes() {
   const palette = useShell((s) => s.local.palette);
   const prefs = useShell((s) => s.prefs);
   const rank = useShell((s) => s.channels.rank);
+  const entitlements = useShell((s) => s.channels.entitlements);
   useEffect(() => {
-    applyAppearance(document.documentElement, { palette, prefs, rank, media: (q) => window.matchMedia(q).matches });
-  }, [palette, prefs, rank]);
+    applyAppearance(document.documentElement, { palette, prefs, rank, entitlements, media: (q) => window.matchMedia(q).matches });
+  }, [palette, prefs, rank, entitlements]);
 }
 
 function Surface() {

@@ -6,7 +6,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { About } from "@/apps/settings/About";
-import { LICENCES } from "@/apps/settings/about-data";
+import { formatVersion, LICENCES } from "@/apps/settings/about-data";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.mock("next/link", () => ({ default: ({ href, children, ...p }: { href: string; children: React.ReactNode }) => <a href={href} {...p}>{children}</a> }));
@@ -21,12 +21,23 @@ function mount(locale = "en") {
 afterEach(() => { document.body.innerHTML = ""; vi.unstubAllEnvs(); });
 
 describe("17B S2 About", () => {
-  it("S2-01: version line uses NEXT_PUBLIC_BUILD_SHA, else dev", () => {
+  it("S2-01: version line is '<version> (<sha7>)'; 'dev' when not built from git", () => {
+    expect(formatVersion("0.1.0", "abc1234")).toBe("0.1.0 (abc1234)");
+    vi.stubEnv("NEXT_PUBLIC_RELEASE", "0.1.0");
     vi.stubEnv("NEXT_PUBLIC_BUILD_SHA", "abc1234");
-    expect(mount().querySelector("[data-testid=about-version]")!.textContent).toContain("build abc1234");
+    expect(mount().querySelector("[data-testid=about-version]")!.textContent).toBe("0.1.0 (abc1234)");
     document.body.innerHTML = "";
     vi.stubEnv("NEXT_PUBLIC_BUILD_SHA", "");
-    expect(mount().querySelector("[data-testid=about-version]")!.textContent).toContain("build dev");
+    expect(mount().querySelector("[data-testid=about-version]")!.textContent).toBe("0.1.0 (dev)");
+  });
+
+  it("S2-01: next.config injects package.json version and `git rev-parse --short=7 HEAD`, else dev", async () => {
+    const { execSync } = await import("node:child_process");
+    const env = (await import("../../../next.config")).default.env!;
+    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"));
+    expect(env.NEXT_PUBLIC_RELEASE).toBe(pkg.version);
+    expect(env.NEXT_PUBLIC_BUILD_SHA).toBe(execSync("git rev-parse --short=7 HEAD").toString().trim());
+    expect(env.NEXT_PUBLIC_BUILD_SHA).toMatch(/^[0-9a-f]{7}$/);
   });
 
   it("S2-02: licence rows, verified against node_modules package.json", () => {
@@ -61,6 +72,15 @@ describe("17B S2 About", () => {
     expect(btn.getAttribute("aria-label")).toBeTruthy();
     await act(async () => { btn.click(); });
     expect(writeText).toHaveBeenCalledWith(el.querySelector("[data-testid=about-version]")!.textContent);
+  });
+
+  it("Studio #38: external links carry the 12 px external glyph after the label, plus sr-only text", () => {
+    const a = mount().querySelector("a[target]")!;
+    const g = a.querySelector("[data-testid=ext-glyph] svg")!;
+    expect(g.getAttribute("width")).toBe("12");
+    expect(g.getAttribute("data-glyph")).toBe("external");
+    expect(a.querySelector(".sr-only")!.textContent).toContain("opens in a new tab");
+    expect(a.lastElementChild!.className).toBe("sr-only");
   });
 
   it("FR strings render", () => {

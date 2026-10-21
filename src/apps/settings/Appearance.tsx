@@ -11,6 +11,8 @@ import { ShellPicker } from "./ShellPicker";
 import { useSettingsStrings } from "./useSettingsStrings";
 
 type Mode = AccountUiPrefs["reducedMotion"];
+/** Studio: at large text scale the segments stack vertically. Threshold [P]. */
+const STACK_AT = 1.75;
 
 function useMedia(q: string): boolean {
   return useSyncExternalStore(
@@ -31,7 +33,7 @@ export function Appearance() {
   const modeRow = (label: string, key: "reducedMotion" | "reducedTransparency", os: boolean) => (
     <div className="set-block">
       <span className="set-row-label">{label}</span>
-      <Segment<Mode> label={label} value={prefs[key]} options={modes} onChange={(v) => set({ [key]: v })} testId={`seg-${key}`} />
+      <Segment<Mode> label={label} value={prefs[key]} options={modes} onChange={(v) => set({ [key]: v })} testId={`seg-${key}`} stacked={prefs.textScale >= STACK_AT} />
       {prefs[key] === "system" && <p className="muted set-hint" data-testid={`os-${key}`}>{t.systemState(os)}</p>}
     </div>
   );

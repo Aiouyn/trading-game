@@ -27,6 +27,11 @@ export function PaletteSwatches() {
             (e.currentTarget.parentElement?.querySelector(`[data-testid="swatch-${next}"]`) as HTMLElement | null)?.focus();
           }}>
           <span className="swatch-mini" data-palette={p} style={scoped(p)} data-testid={`swatch-mini-${p}`} aria-hidden="true">
+            {palette === p && (
+              <span className="swatch-check" data-testid="swatch-check">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="m3.5 6.2 1.7 1.7 3.3-3.6" /></svg>
+              </span>
+            )}
             <span className="swatch-win"><span className="swatch-acc" /><span className="swatch-ticks"><i className="g" /><i className="l" /></span></span>
           </span>
           <span className="swatch-name">{t.paletteNames[p]}</span>

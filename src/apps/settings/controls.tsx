@@ -1,6 +1,5 @@
 "use client";
-// Switch and segmented control for Settings. 17A has no switch/segment primitive yet; visuals here are only what
-// 17B specifies ("on" = --fg knob on --line, no brass). Everything else is an open question to Studio.
+// Switch and segmented control for Settings, to Studio's #38 rulings (sizes in settings.css).
 import { useId } from "react";
 
 export function Switch({ label, checked, onChange, testId }: { label: string; checked: boolean; onChange: (v: boolean) => void; testId?: string }) {
@@ -15,15 +14,15 @@ export function Switch({ label, checked, onChange, testId }: { label: string; ch
   );
 }
 
-export function Segment<T extends string>({ label, value, options, onChange, testId }: {
-  label: string; value: T; options: readonly { id: T; label: string }[]; onChange: (v: T) => void; testId?: string;
+export function Segment<T extends string>({ label, value, options, onChange, testId, stacked = false }: {
+  label: string; value: T; options: readonly { id: T; label: string }[]; onChange: (v: T) => void; testId?: string; stacked?: boolean;
 }) {
   const move = (dir: number) => {
     const i = options.findIndex((o) => o.id === value);
     onChange(options[(i + dir + options.length) % options.length].id);
   };
   return (
-    <div className="set-seg" role="radiogroup" aria-label={label} data-testid={testId}
+    <div className={`set-seg${stacked ? " stacked" : ""}`} role="radiogroup" aria-label={label} data-testid={testId}
       onKeyDown={(e) => {
         if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); move(1); }
         if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); move(-1); }

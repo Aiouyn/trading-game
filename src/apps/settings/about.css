@@ -16,3 +16,4 @@
   .about-licences td { display: flex; gap: var(--sp-8); border: 0; padding: 2px 0; overflow-wrap: anywhere; }
   .about-licences td::before { content: attr(data-label); color: var(--fg-muted); min-width: 7em; }
 }
+.about-ext-glyph { display: inline-flex; color: var(--fg-muted); }
