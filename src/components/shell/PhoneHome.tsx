@@ -9,6 +9,7 @@ import { Sparkline } from "./Sparkline";
 import { APP_NAMES, GROUP_LABELS, S } from "@/shell/strings";
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
+import { HaltChip } from "./SystemOverlays";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
 
@@ -73,6 +74,7 @@ function StatusBar() {
       </button>
       <span className="num clock">{`D${day} · ${hhmm}`}</span>
       <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} variant="dot" />
+      <HaltChip halted={halted} />
       <span className="sb-nw"><MoneyText value={me.nw} compact /></span>
     </header>
   );
