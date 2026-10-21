@@ -3,7 +3,8 @@
 // exceptions (Producer).
 
 export const OWNED = [/^src\/city\//, /^public\/city\//, /^tests\/unit\/city\//, /^tests\/e2e\/city\//, /^docs\/city\//];
-export const APPROVED_EXCEPTIONS = new Set(['package.json', 'package-lock.json', '.github/workflows/city.yml']);
+// next.config.ts: the NEXT_PUBLIC_CITY_E2E define (Producer-authorized, prod hook leak).
+export const APPROVED_EXCEPTIONS = new Set(['package.json', 'package-lock.json', '.github/workflows/city.yml', 'next.config.ts']);
 
 /** City Dev's branches: v3/city-* and city/*. Every other branch belongs to someone else. */
 export const isCityBranch = (branch: string): boolean => /^(v3\/city-|city\/)/.test(branch.replace(/^refs\/heads\//, ''));
