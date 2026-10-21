@@ -8,6 +8,8 @@ import { toMoney, toPrice, toQty } from '../fixed';
 import type { InvariantCtx, TruthStoreRead } from '../invariants';
 import { EngineFault, type Ccy } from '../types';
 import * as prov from './provenance';
+import { INV_ENG_002 } from '../rng/invariants';
+import { INV_ENG_003 } from '../ids';
 import {
   entityHash, FACT_READ_STAMPS, FACT_STORE_VIOLATIONS, hex256, INV_ENG_001, INV_ENG_006, logicalTerm, MoneyProvenance, OwnershipViolation,
   PartitionStore, partitionMerkle, provenanceWrappers, setActiveProvenance, TableError, TableRegistry,
@@ -250,13 +252,14 @@ describe('AC-02-09-WRAPPERS (E-70 (2))', () => {
   });
 });
 
-describe('AC-02-09-PORT-MIGRATED (E-71: T02-09 scope is INV-ENG-003; 002 moves in #36)', () => {
+describe('AC-02-09-PORT-MIGRATED (E-70/E-71): no invariant-port imports; INV-ENG-002 and INV-ENG-003 are on the T20A-01 types', () => {
   it('no module under packages/engine imports invariant-port, and the file is gone', () => {
     const root = join(__dirname, '..', '..'), hits: string[] = [];
     const walk = (d: string): void => { for (const n of readdirSync(d)) { if (n === 'node_modules') continue; const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (/\.(ts|tsx|mts|js)$/.test(n) && /from\s+['"][^'"]*invariant-port['"]/.test(readFileSync(p, 'utf8'))) hits.push(p); } };
     walk(root);
     expect(hits).toEqual([]);
     expect(() => statSync(join(__dirname, '..', 'invariant-port.ts'))).toThrow();
+    for (const d of [INV_ENG_002.def, INV_ENG_003.def]) expect(d).toMatchObject({ module: '02', scope: 'TICK', severity: 'FATAL', sampling: 'NEVER', sinceEngineVersion: '1.0.0' });
   });
 });
 
