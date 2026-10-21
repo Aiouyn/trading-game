@@ -59,6 +59,17 @@ describe("CH-05 every mock frame passes; extra keys are rejected", () => {
     expect(S.tickerRow(row)).toEqual(row);
   });
 
+  it("rejects a MISSING required field, one case per parsed shape", () => {
+    const { last: _l, ...noLast } = row; void _l;
+    expect(() => S.tickerRow(noLast)).toThrow(/last: missing required key/); // ticker row
+    expect(() => S.tickerRow({ ...row, chg: undefined })).toThrow(S.ParseError); // nullable ≠ optional
+    expect(() => S.parseFrame({ t: "snap", ch: "ticker:wl", tick: 1, body: { listId: "wl", rows: {} } })).toThrow(/seq: missing required key/); // envelope
+    expect(() => S.parseFrame({ t: "snap", ch: "ticker:wl", seq: 1, tick: 1 })).toThrow(/body: missing required key/);
+    expect(() => S.parseFrame({ t: "err", ch: "me" })).toThrow(/code: missing required key/); // error frame
+    expect(() => S.parseFrame({ t: "delta", ch: "me", seq: 2, tick: 1 })).toThrow(/ops: missing required key/); // delta
+    expect(() => S.parseFrame({ t: "delta", ch: "me", seq: 2, tick: 1, ops: [{ op: "set", path: "/nw" }] })).toThrow(/v: missing required key/); // delta op
+  });
+
   it("a delta that would add a non-contract key never reaches the UI (store resyncs)", () => {
     let push: (r: unknown) => void = () => {};
     const resync = vi.fn();

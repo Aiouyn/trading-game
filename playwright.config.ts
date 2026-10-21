@@ -4,6 +4,8 @@ const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "tests/e2e",
+  // City e2e runs only with its own config/harness (tests/e2e/city/playwright.config.ts), never against the Next app.
+  testIgnore: ["city/**"],
   outputDir: "test-results",
   reporter: [["list"], ["html", { open: "never" }]],
   use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure", screenshot: "only-on-failure" },

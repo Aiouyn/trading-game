@@ -44,7 +44,10 @@ export function obj<S extends Shape, O extends Shape = Record<never, never>>(req
     if (!isObj(v)) return fail(p, "expected object");
     for (const k of Object.keys(v)) if (!(k in req) && !(opt && k in opt)) fail(`${p}/${k}`, "key not in contract");
     const out: Record<string, unknown> = {};
-    for (const [k, s] of Object.entries(req)) out[k] = s(v[k], `${p}/${k}`);
+    for (const [k, s] of Object.entries(req)) {
+      if (!(k in v)) fail(`${p}/${k}`, "missing required key"); // even for `unknown` / nullable fields
+      out[k] = s(v[k], `${p}/${k}`);
+    }
     if (opt) for (const [k, s] of Object.entries(opt)) if (k in v) out[k] = s(v[k], `${p}/${k}`);
     return out as never;
   };
