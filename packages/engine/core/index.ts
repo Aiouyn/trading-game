@@ -21,3 +21,4 @@ export * from './intake/limits';
 export * from './intake/batch';
 export * from './params';
 export * from './calendar';
+export * from './fixed';
