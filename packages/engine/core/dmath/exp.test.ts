@@ -17,6 +17,9 @@ const refLnPoint = (x: number): number => { const v = load('ln'); const i = v.in
 const DIR = join(dirname(fileURLToPath(import.meta.url)), 'vectors');
 /** 02 §3.8 max error per function (ULP). */
 const BOUND = { exp: 2, expm1: 2, ln: 2, log1p: 2, log2: 3, log10: 3, pow: 4, tanh: 3, sigmoid: 3 } as const;
+/** Every vector file in golden order (gen-vectors VECTOR_FNS; T02-03 appended the last nine). */
+const ALL_FNS = ['exp', 'expm1', 'ln', 'log1p', 'log2', 'log10', 'pow', 'tanh', 'sigmoid',
+  'sin', 'cos', 'atan', 'atan2', 'erf', 'erfc', 'normCdf', 'normInv', 'lgamma'] as const;
 const FNS = ['exp', 'expm1', 'ln', 'log1p', 'log2', 'log10', 'pow', 'tanh', 'sigmoid'] as const;
 const fcParams = { numRuns: 200, seed: 20202 };   // PARAM.tm_property_runs_pr default (20 §3.4)
 
@@ -37,9 +40,9 @@ describe('T02-02 dmath: reference vectors', () => {
       expect(max).toBeLessThanOrEqual(BOUND[fn]);
     });
   }
-  it('golden.sha256 equals SHA-256 of the concatenated output bit patterns (cross-platform check)', () => {
+  it('golden.sha256 equals SHA-256 of the concatenated output bit patterns (cross-platform check; T02-03 extends it to 18 files)', () => {
     const bytes: number[] = [];
-    for (const fn of FNS) for (const a of load(fn).inputs) bytes.push(...be8(f64ToBits(call(fn, a.map(bitsToF64)))));
+    for (const fn of ALL_FNS) for (const a of load(fn).inputs) bytes.push(...be8(f64ToBits((dmath as unknown as Record<string, (...x: number[]) => number>)[fn]!(...a.map(bitsToF64)))));
     expect(toHex(sha256(Uint8Array.from(bytes)))).toBe(readFileSync(join(DIR, 'golden.sha256'), 'utf8').trim());
   });
 });

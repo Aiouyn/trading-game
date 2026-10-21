@@ -6,8 +6,8 @@ import { S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
-import { HaltChip } from "./SystemOverlays";
 import { MarketPhase } from "./MarketPhase";
+import { HaltChip } from "./SystemOverlays";
 import { TickRing } from "./TickRing";
 
 
