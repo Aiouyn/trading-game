@@ -89,8 +89,8 @@ describe("Alliance day 3 comes from the server (PR #2 answer 7)", () => {
 });
 
 describe("rank widget target from rank.thresholds (B2)", () => {
-  it.each([["R0", "R1", "20000"], ["R1", "R2", "250000"], ["R2", "R3", "5000000"], ["R3", "R4", "100000000"], ["R4", "R5", "2000000000"]] as const)(
+  it.each([["R0", "R1", "20000"], ["R1", "R2", "250000"], ["R2", "R3", "5000000"], ["R3", "R4", "100000000"], ["R4", "R5", "2000000000"], ["R5", "R6", "20000000000"]] as const)(
     "%s → next %s at %s", (r, next, at) => expect(nextRankTarget(rk(r))).toEqual({ rank: next, at }));
-  it("R5 has no NW target (R6 is not NW-only)", () => expect(nextRankTarget(rk("R5"))).toBeNull());
+  it("R6 (top rank) has no next target", () => expect(nextRankTarget(rk("R6"))).toBeNull());
   it("reads the channel, not a constant", () => expect(nextRankTarget({ rank: "R1", thresholds: ["1", "2"], nextAt: null, shellsEarned: [] })).toEqual({ rank: "R2", at: "2" }));
 });

@@ -154,12 +154,14 @@ test("S1-11 5th Broker and same-ticker deep link focus the existing window", asy
   await boot(page);
   for (let i = 0; i < 5; i++) await page.getByTestId("tile-broker").click();
   await expect(page.getByTestId("win-broker")).toHaveCount(4);
+  await page.waitForTimeout(400); // persisted
+  // 17A T4-04: a deep link restores saved windows, then focuses the existing instance at the cap.
   await boot(page, "/broker?asset=HALC");
-  await expect(page.getByTestId("win-broker")).toHaveCount(1);
+  await expect(page.getByTestId("win-broker")).toHaveCount(4);
   await page.keyboard.press("Control+k");
-  await page.getByRole("combobox").fill("HALC");
+  await page.locator(".launcher input").fill("HALC");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("win-broker")).toHaveCount(1);
+  await expect(page.getByTestId("win-broker")).toHaveCount(4);
 });
 
 test("S1-12 windows cannot be resized below their minimum", async ({ page }) => {

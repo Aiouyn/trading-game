@@ -37,6 +37,9 @@ export interface ShellState {
 
   setChannels(c: Channels): void;
   setViewport(w: number, h: number): void;
+  /** Height of the open desktop banners (0 / 34 / 68), which shrinks the work area (17A T6). */
+  bannerH: number;
+  setBannerH(h: number): void;
   open(app: AppId, context?: string, opts?: { deepLink?: boolean }): void;
   close(w: WindowRect): void;
   focus(w: WindowRect): void;
@@ -63,6 +66,7 @@ export const initialLocal = (): ShellLocalState => ({
 export const createShellStore = (channels: Channels) =>
   create<ShellState>()((set, get) => {
     const first = evaluate(channels, new Set());
+    // Stored rects use the full work area; banners are applied at display time (wm.fitRect), so nothing double-shrinks.
     const area = () => wm.workArea(get().vw, get().vh, get().local.focusMode);
     const setWindows = (windows: WindowRect[], extra: Partial<ShellLocalState> = {}) =>
       set((s) => ({ local: { ...s.local, ...extra, windows } }));
@@ -88,6 +92,8 @@ export const createShellStore = (channels: Channels) =>
         set({ channels: c, vis: next.vis, sticky: next.sticky, fresh });
       },
       setViewport(vw, vh) { set({ vw, vh }); },
+      bannerH: 0,
+      setBannerH(h) { if (get().bannerH !== h) set({ bannerH: h }); },
       open(app, context, opts) {
         const v = get().vis[app];
         // Locked apps open only from a deep link, showing the LockTile body; hidden apps never open.
@@ -97,11 +103,16 @@ export const createShellStore = (channels: Channels) =>
         const r = wm.openApp(get().local.windows, app, area(), context);
         setWindows(r.windows, { activeWorkspace: 1 });
       },
+      // TODO(17A T4): ask before closing a window with unsent ticket input (trigger: ticket input exists).
       close(w) { setWindows(wm.closeWin(get().local.windows, w)); },
       focus(w) { setWindows(wm.bringToFront(get().local.windows, w)); },
       snap(w, slot) { setWindows(wm.snapWin(get().local.windows, w, slot, area())); },
-      resize(w, width, height) { setWindows(wm.resizeWin(get().local.windows, w, width, height, area())); },
-      move(w, x, y) { setWindows(wm.moveWin(get().local.windows, w, x, y, get().local.focusMode)); },
+      resize(w, width, height) { const s = get(); setWindows(wm.resizeWin(s.local.windows, w, width, height, wm.workArea(s.vw, s.vh, s.local.focusMode, s.bannerH))); },
+      move(w, x, y) {
+        // AC-WM-SHELF-CLAMP: drag stops at the banner-aware work area on desktop.
+        const s = get(), desk = wm.viewportOf(s.vw) === "desktop";
+        setWindows(wm.moveWin(s.local.windows, w, x, y, s.local.focusMode, desk ? wm.workArea(s.vw, s.vh, s.local.focusMode, s.bannerH) : undefined, s.vw));
+      },
       toggleCollapse(w) { setWindows(wm.updateWin(get().local.windows, w, { collapsed: !w.collapsed })); },
       layout(id) {
         const vis = get().vis;

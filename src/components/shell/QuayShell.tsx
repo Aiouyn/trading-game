@@ -1,8 +1,9 @@
 "use client";
 // Quay OS shell root: picks phone / compact / desktop, applies html attributes, wires keys and channels.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
+import { seedHistory, useBackStack } from "@/shell/back";
 import { clockAt, mockChannels, phaseOverride, TICK_MS } from "@/shell/mockChannels";
 import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
@@ -19,10 +20,16 @@ import { Launcher } from "./Launcher";
 import { PhoneHome } from "./PhoneHome";
 import { Recent } from "./Recent";
 import { ShellCtx, useShell, useShellStore } from "./ShellContext";
+import { useDeepLinkNavigate } from "./PhoneBanners";
 import { Shelf } from "./Shelf";
 import { StatusStrip } from "./StatusStrip";
 import { Desktop } from "./Desktop";
 import { SystemOverlays } from "./SystemOverlays";
+import { Banner, WorldEventBanner } from "./Banner";
+import { Sheet } from "./Sheet";
+import { FEED_HOOKS, mockFeedSource, useFeed } from "@/shell/feed";
+import { closeSheet, openSheet, useSheetRequest } from "@/shell/sheetHost";
+import { S } from "@/shell/strings";
 
 const BOOT_MS = [900, 500, 0, 0, 0, 0, 0];
 
@@ -47,6 +54,20 @@ function Surface() {
   const booted = useShell((s) => s.booted);
   const store = useShellStore();
   useHtmlAttributes();
+  // Mock feed until Engine wires the real one (see TODO in shell/feed.ts). Read once per load, like mockChannels.
+  const feedSource = useMemo(() => mockFeedSource(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)), []);
+  const feed = useFeed(feedSource);
+  const sheet = useSheetRequest();
+  const navigate = useDeepLinkNavigate();
+  const storeApi = useShellStore();
+  const vwNow = useShell((s) => s.vw);
+  const deskBannerH = viewportOf(vwNow) === "phone" ? 0 : (feed.alerts.length ? 34 : 0) + (feed.world ? 34 : 0);
+  // Desktop banners shrink the work area; windows refit to it (wm.fitRect).
+  useEffect(() => { storeApi.getState().setBannerH(deskBannerH); }, [storeApi, deskBannerH]);
+  useEffect(() => {
+    // Mock-only: `?sheet=demo` opens an empty shell sheet so the mount point can be exercised before any consumer.
+    if (FEED_HOOKS && new URLSearchParams(window.location.search).get("sheet") === "demo") openSheet({ label: S.recent, content: <p className="muted">{S.noRecent}</p>, testId: "shell-sheet" });
+  }, []);
 
   useEffect(() => {
     if (store.getState().booted) return; // once per page load (module-scope store)
@@ -65,8 +86,8 @@ function Surface() {
       {phone ? <PhoneHome /> : (
         <>
           <StatusStrip />
-          <div className="banner-slot" data-testid="alert-banner-slot" />
-          <div className="banner-slot" data-testid="world-banner-slot" />
+          <Banner alerts={feed.alerts} onNavigate={navigate} />
+          <WorldEventBanner event={feed.world} />
           <Desktop />
           {!focusMode && <Shelf />}
         </>
@@ -76,6 +97,11 @@ function Surface() {
       {launcherOpen && <Launcher />}
       {recentOpen && <Recent />}
       {keySheetOpen && <KeySheet />}
+      {sheet && (
+        <Sheet side={sheet.side ?? (phone ? "bottom" : "right")} label={sheet.label} onClose={closeSheet} testId={sheet.testId ?? "shell-sheet"}>
+          {sheet.content}
+        </Sheet>
+      )}
     </div>
   );
 }
@@ -88,6 +114,7 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
   // and the deep-link effect below focuses the existing instance (17B S1-02, Audit A-8).
   const [store] = useState(() => (docStore ??= createShellStore(mockChannels(new URLSearchParams(query)))));
   useShellKeys(store);
+  useBackStack(store);
 
   useEffect(() => {
     const s = store.getState();
@@ -102,20 +129,25 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
       const next = clockAt(c.clock.tick + 1);
       store.getState().setChannels({ ...c, clock: pinned ? { ...next, phase: pinned } : next });
     }, TICK_MS);
-    // Deep link /{appId}/...: open, or focus the open instance (Audit A-8).
+    // Deep link /{appId}/...: after restoring saved windows, open it, or focus and front the open instance
+    // (Audit A-8, 17A T4-04): openApp never creates a window past the instance cap.
     const app = route[0];
-    if (app && isAppId(app)) s.open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true });
-    // /settings/SET-xx opens that section (17B SET-01).
-    if (app === "settings" && isSectionId(route[1])) settingsNav.open(route[1]);
-    // Device-local state: IndexedDB `quay.<accountId>` (17 §2.2). Restored unless a deep link opened a window.
+    const deepLink = () => {
+      if (app && isAppId(app)) s.open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true });
+      seedHistory(store, route[1]);
+      // /settings/SET-xx opens that section (17B SET-01).
+      if (app === "settings" && isSectionId(route[1])) settingsNav.open(route[1]);
+    };
+    // Device-local state: IndexedDB `quay.<accountId>` (17 §2.2).
     const ACCOUNT = "guest";
     let unsub = () => {};
     loadLocal(ACCOUNT).then((saved) => {
-      if (saved && !app) store.setState((st) => ({ local: { ...st.local, ...saved } }));
+      if (saved) store.setState((st) => ({ local: { ...st.local, ...saved } }));
+      deepLink();
       // A new account starts in the Trade layout (17 §3.2.5), desktop only.
       if (!saved && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
       unsub = store.subscribe((st, prev) => { if (st.local !== prev.local) void queueSave(ACCOUNT, st.local).catch(() => {}); });
-    }).catch(() => {});
+    }).catch(deepLink);
     return () => { window.removeEventListener("resize", fit); window.clearInterval(t); unsub(); };
   }, [store, route, query]);
 
