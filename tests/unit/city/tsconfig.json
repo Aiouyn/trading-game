@@ -1,0 +1,8 @@
+{
+  // City-only typecheck for .github/workflows/city.yml. The whole-app typecheck (which needs
+  // Next's generated route types) stays in ci.yml. Includes the C-05 page, which typechecks
+  // Spec 1's real CityWindow.tsx against the real seam.
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": { "incremental": false, "plugins": [] },
+  "include": ["../../../src/city/**/*.ts", "../**/city/**/*.ts", "../**/city/**/*.tsx"]
+}
