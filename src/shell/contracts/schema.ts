@@ -32,7 +32,8 @@ export const arr = <T>(s: Schema<T>): Schema<T[]> => (v, p = "") => (Array.isArr
 export const rec = <T>(s: Schema<T>): Schema<Record<string, T>> => (v, p = "") => {
   if (!isObj(v)) return fail(p, "expected object");
   const out: Record<string, T> = {};
-  for (const [k, x] of Object.entries(v)) out[k] = s(x, `${p}/${k}`);
+  // defineProperty, not assignment: an own "__proto__" key must stay data, never reset the prototype.
+  for (const [k, x] of Object.entries(v)) Object.defineProperty(out, k, { value: s(x, `${p}/${k}`), enumerable: true, writable: true, configurable: true });
   return out;
 };
 
@@ -42,13 +43,13 @@ type Out<S extends Shape, O extends Shape> = { [K in keyof S]: ReturnType<S[K]> 
 export function obj<S extends Shape, O extends Shape = Record<never, never>>(req: S, opt?: O): Schema<{ [K in keyof Out<S, O>]: Out<S, O>[K] }> {
   return (v, p = "") => {
     if (!isObj(v)) return fail(p, "expected object");
-    for (const k of Object.keys(v)) if (!(k in req) && !(opt && k in opt)) fail(`${p}/${k}`, "key not in contract");
+    for (const k of Object.keys(v)) if (!(Object.hasOwn(req, k)) && !(opt && Object.hasOwn(opt, k))) fail(`${p}/${k}`, "key not in contract");
     const out: Record<string, unknown> = {};
     for (const [k, s] of Object.entries(req)) {
-      if (!(k in v)) fail(`${p}/${k}`, "missing required key"); // even for `unknown` / nullable fields
+      if (!(Object.hasOwn(v, k))) fail(`${p}/${k}`, "missing required key"); // even for `unknown` / nullable fields
       out[k] = s(v[k], `${p}/${k}`);
     }
-    if (opt) for (const [k, s] of Object.entries(opt)) if (k in v) out[k] = s(v[k], `${p}/${k}`);
+    if (opt) for (const [k, s] of Object.entries(opt)) if (Object.hasOwn(v, k)) out[k] = s(v[k], `${p}/${k}`);
     return out as never;
   };
 }

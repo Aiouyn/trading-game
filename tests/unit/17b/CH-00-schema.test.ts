@@ -85,3 +85,32 @@ describe("CH-05 every mock frame passes; extra keys are rejected", () => {
     store.close();
   });
 });
+
+describe("inherited names are not contract keys (Object.hasOwn, QA #34)", () => {
+  const NAMES = ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"];
+  // JSON.parse makes every key an own property, including "__proto__".
+  const j = (s: string) => JSON.parse(s) as unknown;
+  it.each(NAMES)("rejects extra envelope key %s", (k) => {
+    expect(() => S.parseFrame(j(`{"t":"err","ch":"me","code":"INTERNAL","${k}":1}`))).toThrow(/key not in contract/);
+    expect(() => S.parseFrame(j(`{"t":"snap","ch":"ticker:wl","seq":1,"tick":1,"body":{"listId":"wl","rows":{}},"${k}":1}`))).toThrow(/key not in contract/);
+    expect(() => S.parseFrame(j(`{"t":"delta","ch":"me","seq":2,"tick":1,"ops":[],"${k}":1}`))).toThrow(/key not in contract/);
+  });
+  it.each(NAMES)("rejects extra delta-op key %s", (k) => {
+    for (const op of ['{"op":"set","path":"/a","v":1', '{"op":"del","path":"/a"', '{"op":"ins","path":"/a","idx":0,"v":1', '{"op":"trim","path":"/a","keepLast":1']) {
+      expect(() => S.parseFrame(j(`{"t":"delta","ch":"me","seq":2,"tick":1,"ops":[${op},"${k}":1}]}`))).toThrow(/key not in contract/);
+    }
+  });
+  it.each(NAMES)("rejects extra body key %s", (k) => {
+    expect(() => S.parseFrame(j(`{"t":"snap","ch":"ticker:wl","seq":1,"tick":1,"body":{"listId":"wl","rows":{},"${k}":1}}`))).toThrow(/key not in contract/);
+  });
+  it.each(NAMES)("an inherited name never satisfies a required key (%s)", (k) => {
+    const schema = S.obj({ [k]: S.int });
+    expect(() => schema(j("{}"))).toThrow(/missing required key/);
+  });
+  it("a record keeps an own __proto__ key as data and never swaps the prototype", () => {
+    const out = S.rec(S.int)(j('{"__proto__":{"polluted":1},"a":1}'.replace('{"polluted":1}', "5")));
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect(Object.hasOwn(out, "__proto__")).toBe(true);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});

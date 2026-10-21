@@ -20,7 +20,7 @@ function update(node: J, keys: string[], fn: (leaf: J, parent: J, key: string) =
   }
   if (!isObj(node)) throw new DeltaError(`not a container at ${k}`);
   if (rest.length) {
-    if (!(k in node)) throw new DeltaError(`missing ${k}`);
+    if (!(Object.hasOwn(node, k))) throw new DeltaError(`missing ${k}`);
     return { ...node, [k]: update(node[k], rest, fn) };
   }
   const v = fn(node[k], node, k);
@@ -55,7 +55,7 @@ export const deepEqual = (a: J, b: J): boolean => {
   if (Array.isArray(a)) return Array.isArray(b) && a.length === b.length && a.every((x, i) => deepEqual(x, b[i]));
   if (isObj(a) && isObj(b)) {
     const ka = Object.keys(a), kb = Object.keys(b);
-    return ka.length === kb.length && ka.every((k) => k in b && deepEqual(a[k], b[k]));
+    return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && deepEqual(a[k], b[k]));
   }
   return false;
 };
@@ -78,9 +78,9 @@ export function diffOps(prev: J, next: J, rings: ReadonlySet<string> = new Set()
   }
   if (isObj(prev) && isObj(next)) {
     const ops: DeltaOp[] = [];
-    for (const k of Object.keys(prev)) if (!(k in next)) ops.push({ op: "del", path: `${path}/${k}` });
+    for (const k of Object.keys(prev)) if (!(Object.hasOwn(next, k))) ops.push({ op: "del", path: `${path}/${k}` });
     for (const k of Object.keys(next)) {
-      if (!(k in prev)) ops.push({ op: "set", path: `${path}/${k}`, v: next[k] });
+      if (!(Object.hasOwn(prev, k))) ops.push({ op: "set", path: `${path}/${k}`, v: next[k] });
       else ops.push(...diffOps(prev[k], next[k], rings, `${path}/${k}`));
     }
     return ops;
