@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { canonEncode, CCYS, FLOW_CLASSES, hashHex, legKey, SortedMap, tickFlowsOf, type FlowClass } from '../src';
-import { runDriver } from './driver';
+import { runDriver, runDriverYielding } from './driver';
 
 const fcParams = { numRuns: 25, seed: 20261020 };
 
@@ -42,9 +42,9 @@ describe('property and long-run tests', () => {
     }), fcParams);
   });
 
-  it('03#39 / p10 zerosum port: 14 game days; FlowDay totals = sums recomputed from the postings; exact 0n residual every day', () => {
+  it('03#39 / p10 zerosum port: 14 game days; FlowDay totals = sums recomputed from the postings; exact 0n residual every day', async () => {
     const days = process.env.TYCOON_LONG === '1' ? 2688 : 14;
-    const w = runDriver(39, 720 * days, (_w, r) => expect(r.failures).toEqual([]));
+    const w = await runDriverYielding(39, 720 * days, (_w, r) => expect(r.failures).toEqual([]));
     const log = w.entryLog();
     let m0sys = 0n;
     for (let d = 0; d < days; d++) {
@@ -58,6 +58,7 @@ describe('property and long-run tests', () => {
       for (const [code, a] of byCode) if (['FAUCET', 'SINK'].includes(w.catalog.get(code)!.cls)) expect(fd.byCode[code]).toBe(String(a)); // test 1: Σ TickFlows = FlowDay
       m0sys += sums.get('FAUCET')! - sums.get('SINK')!;
       expect(BigInt(fd.M0_sys)).toBe(m0sys); // residual exactly 0n (p10 tolerated < 0.01/day)
+      await new Promise<void>((res) => setImmediate(res)); // yield between days (CI heartbeat)
     }
   });
 

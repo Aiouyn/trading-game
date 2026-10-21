@@ -52,3 +52,17 @@ export function runDriver(seed: number, ticks: number, onTick?: (w: LedgerWorld,
   }
   return w;
 }
+
+/** Same run as runDriver (identical PRNG and tick sequence), but yields one macrotask per game day (720 ticks) so a long run never
+ *  blocks the vitest worker's RPC heartbeat ("Timeout calling onTaskUpdate"). Test harness only; src stays synchronous (G8). */
+export async function runDriverYielding(seed: number, ticks: number, onTick?: Parameters<typeof runDriver>[2]): Promise<LedgerWorld> {
+  const w = driverWorld(); const rnd = prng(seed); const loans: { id: string; amt: bigint; borrower: string }[] = [];
+  for (let t = 0; t < ticks; t++) {
+    if (t > 0 && t % 720 === 0) await new Promise<void>((res) => setImmediate(res));
+    driveTick(w, rnd, loans);
+    const before = w.aggregates('FDL');
+    const r = w.runP13();
+    onTick?.(w, r, before);
+  }
+  return w;
+}
