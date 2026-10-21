@@ -1,12 +1,12 @@
 "use client";
-import { useRef, type PointerEvent as RPointerEvent } from "react";
+import { useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { goBack, usePhoneScreen } from "@/shell/back";
 import { clockLabel } from "@/shell/mockChannels";
 import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
 import { nextRankTarget } from "@/shell/unlock";
 import { LoadState } from "./LoadState";
 import { Sparkline } from "./Sparkline";
-import { APP_NAMES, GROUP_LABELS, S } from "@/shell/strings";
+import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES } from "@/shell/strings";
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { MoneyText, PctText } from "./MoneyText";
@@ -17,8 +17,45 @@ const LONG_PRESS_MS = 400;
 /** Left-edge back swipe must start within this many px of the edge [P]. */
 const EDGE_START = 20;
 
+/** Phone app-bar title and back label (Studio T4 ruling 1): no breadcrumb, current screen only. */
+export function appBarLabels(app: AppId, screen: string | null): { title: string; back: string } {
+  if (screen) return { title: SCREEN_NAMES[screen] ?? screen, back: `${S.backTo} ${APP_NAMES[app]}` };
+  return { title: APP_NAMES[app], back: `${S.backTo} ${S.home}` };
+}
+
+/**
+ * Long single words (Studio T4 ruling 2): tighten letter-spacing toward a floor of 0; if a word still overflows,
+ * one line with an ellipsis and the full name in title + aria-label. Never shrinks the font, never hyphenates.
+ */
+function useFitLabel(name: string) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [trunc, setTrunc] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.letterSpacing = ""; el.classList.remove("trunc");
+      const overflow = () => {
+        const w = el.clientWidth; const n = el.firstChild; if (!n?.textContent) return false;
+        return [...n.textContent.matchAll(/\S+/g)].some((m) => { const r = document.createRange(); r.setStart(n, m.index!); r.setEnd(n, m.index! + m[0].length); return r.getBoundingClientRect().width > w + 0.5; });
+      };
+      let ls = parseFloat(getComputedStyle(el).letterSpacing) || 0;
+      while (overflow() && ls > 0) { ls = Math.max(0, ls - 0.25); el.style.letterSpacing = `${ls}px`; }
+      const t = overflow();
+      el.classList.toggle("trunc", t);
+      setTrunc(t);
+    };
+    // ResizeObserver fires once on observe, so this also runs the first fit.
+    const ro = new ResizeObserver(fit); ro.observe(el.parentElement ?? el);
+    const mo = new MutationObserver(fit); mo.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class", "data-palette"] });
+    return () => { ro.disconnect(); mo.disconnect(); };
+  }, [name]);
+  return { ref, trunc };
+}
+
 function AppIcon({ app }: { app: AppId }) {
   const store = useShellStore();
+  const { ref: labelRef, trunc } = useFitLabel(APP_NAMES[app]);
   const vis = useShell((s) => s.vis[app]);
   const fresh = useShell((s) => s.fresh.has(app));
   const locked = vis === "locked";
@@ -27,7 +64,9 @@ function AppIcon({ app }: { app: AppId }) {
       className={`phone-app${locked ? " locked" : ""}`}
       data-testid={`icon-${app}`}
       data-state={vis}
-      title={locked ? APPS[app].lockHint : undefined}
+      title={trunc ? (locked ? `${APP_NAMES[app]} · ${APPS[app].lockHint}` : APP_NAMES[app]) : locked ? APPS[app].lockHint : undefined}
+      aria-label={trunc ? (locked ? `${APP_NAMES[app]} · ${APPS[app].lockHint}` : APP_NAMES[app]) : undefined}
+      data-trunc={trunc ? "1" : undefined}
       aria-disabled={locked}
       onClick={() => !locked && store.getState().open(app)}
     >
@@ -36,7 +75,7 @@ function AppIcon({ app }: { app: AppId }) {
         {fresh && <span className="fresh-dot" />}
         {locked && <span className="lock-tag" aria-hidden="true">{APPS[app].lockLabel}</span>}
       </span>
-      <span className="icon-label">{APP_NAMES[app]}</span>
+      <span className="icon-label" ref={labelRef}>{APP_NAMES[app]}</span>
       {locked && <span className="sr-only">{`· ${APPS[app].lockHint}`}</span>}
     </button>
   );
@@ -86,6 +125,7 @@ export function PhoneHome() {
   const screen = usePhoneScreen();
   const store = useShellStore();
   const next = nextRankTarget(rank);
+  const bar = phoneApp ? appBarLabels(phoneApp.app, screen) : null;
   const progress = next ? Math.min(1, Math.max(0, Number(me.nw) / Number(next.at))) : 1;
   const edge = useRef<{ x: number; y: number } | null>(null);
   // Edge gestures (17 §3.2.3): swipe up on the edge bar = Home; swipe from the left edge = back.
@@ -115,8 +155,8 @@ export function PhoneHome() {
         <LoadState variant="banner" />
         <section className="phone-appview" data-testid="phone-appview" data-app={phoneApp.app} data-screen={screen ?? ""} role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
           <div className="appbar">
-            <button className="icon-btn" aria-label={S.back} data-testid="app-back" onClick={goBack}><Glyph name="chevLeft" size={20} /></button>
-            <h1 id="phone-app-title">{APP_NAMES[phoneApp.app]}</h1>
+            <button className="icon-btn" aria-label={bar!.back} data-testid="app-back" onClick={goBack}><Glyph name="chevLeft" size={20} /></button>
+            <h1 id="phone-app-title" data-testid="app-title">{bar!.title}</h1>
           </div>
           <div className="phone-appbody">
             <AppBody app={phoneApp.app} state={{ focused: true, collapsed: false, background: false }} />

@@ -33,6 +33,7 @@ export const S = {
   collapse: "Collapse",
   fill: "Fill",
   back: "Back",
+  backTo: "Back to",
   cancel: "Cancel",
   textScale: "Text size",
   halted: "Trading halted by the Exchange",
@@ -62,6 +63,14 @@ export const S = {
   restrictedSTART: "START",
 } as const;
 
+/** Phone app-bar titles for in-app screens (level 2); the app root shows APP_NAMES (Studio T4 ruling 1). */
+export const SCREEN_NAMES: Record<string, string> = { journal: "Journal" };
+
+/** French copy for the T4 app-bar keys. TODO: wire when a locale switch exists (no FR runtime yet). */
+export const S_FR = { back: "Retour", backTo: "Retour à", home: "Accueil" } as const;
+export const SCREEN_NAMES_FR: Record<string, string> = { journal: "Journal" };
+
 export const GROUP_LABELS = { trade: "Trade", build: "Build", shadow: "Shadow", world: "World", me: "Me" } as const;
 
+// TODO(17A T4): the "Players and companies" group stays empty until a search data source exists (trigger: player/company search source).
 export const LAUNCHER_GROUPS = ["Apps", "Tickers", "Players and companies", "Commands", "Recent", "Help"] as const;

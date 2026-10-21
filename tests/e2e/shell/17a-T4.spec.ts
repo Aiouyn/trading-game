@@ -144,13 +144,20 @@ test("T4-07 phone back stack: chevron, browser Back, left-edge swipe", async ({ 
   await boot(page, "/");
   await page.getByTestId("icon-wire").click();
   await expect(page.getByTestId("phone-appview")).toHaveAttribute("data-app", "wire");
+  // Studio T4 ruling 1: root title = app name, back names the parent (Home); no breadcrumb.
+  await expect(page.getByTestId("app-title")).toHaveText("Wire");
+  await expect(page.getByTestId("app-back")).toHaveAttribute("aria-label", "Back to Home");
   await shot(page, "app-chevron");
   await page.getByTestId("app-back").click();
   await expect(page.getByTestId("phone-appview")).toHaveCount(0);
   // Portfolio → journal screen (deep link), Back → Portfolio root → Home → still Home.
   await boot(page, "/portfolio/journal");
   await expect(page.getByTestId("phone-appview")).toHaveAttribute("data-screen", "journal");
+  await expect(page.getByTestId("app-title")).toHaveText("Journal");
+  await expect(page.getByTestId("app-back")).toHaveAttribute("aria-label", "Back to Portfolio");
+  await shot(page, "app-journal");
   await page.goBack();
+  await expect(page.getByTestId("app-title")).toHaveText("Portfolio");
   await expect(page.getByTestId("phone-appview")).toHaveAttribute("data-screen", "");
   await page.goBack();
   await expect(page.getByTestId("phone-appview")).toHaveCount(0);
@@ -193,8 +200,11 @@ test("T4-09 rank progress text R0..R5 = next rank + threshold; R1 'Next: Owner �
     names[r] = t ?? "";
     expect(t).toMatch(/^Next: \S.* · .+ \/ \$/);
   }
-  // R5: the mock channel publishes no R6 threshold (R1 $20k … R5 $2B), so no progress line (Producer question).
-  await boot(page, "/?rank=R5");
+  // R5 → R6 Dynasty at $20B (E-21); only R6 itself hides the line.
+  await boot(page, "/?rank=R5&nw=4200000000");
+  await expect(page.getByTestId("rank-next")).toHaveText(/^Next: Dynasty · .+ \/ \$20B$/);
+  await shot(page, "home-r5");
+  await boot(page, "/?rank=R6");
   await expect(page.getByTestId("rank-next")).toHaveCount(0);
   expect(names.R1).toMatch(/^Next: Owner · .+ \/ \$250k$/);
   await boot(page, "/?rank=R1&nw=30000");
@@ -256,4 +266,31 @@ test("T4-10 C3/C4: DOM identical across palettes; axe clean on launcher, home, k
     await page.keyboard.press("?"); await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" }).or(page.locator(".keysheet"))).toBeVisible();
     await ax("keysheet"); await shot(page, "keysheet");
   }
+});
+
+test("T4 Studio ruling 2: longest app name at text scale 2.0 → letter-spacing ≥ 0, ellipsis on one line, full name in title + aria-label", async ({ page }, info) => {
+  phoneOnly(info.project.name);
+  await boot(page, "/?rank=R6");
+  const fs0 = await page.locator(".phone-app .icon-label").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+  await page.evaluate(() => document.documentElement.style.setProperty("--text-scale", "2"));
+  // Longest single-word app name among visible tiles (real copy, not injected).
+  const id = await page.evaluate(() => {
+    const tiles = [...document.querySelectorAll<HTMLElement>(".app-grid .phone-app")];
+    const len = (t: HTMLElement) => Math.max(...(t.querySelector(".icon-label")!.textContent ?? "").split(/\s+/).map((w) => w.length));
+    return tiles.sort((x, y) => len(y) - len(x))[0]!.dataset.testid!;
+  });
+  const word = (await page.getByTestId(id).locator(".icon-label").textContent())!;
+  await expect(page.getByTestId(id)).toHaveAttribute("data-trunc", "1");
+  await shot(page, "label-trunc-scale2");
+  const r = await page.getByTestId(id).evaluate((b: HTMLElement) => {
+    const l = b.querySelector<HTMLElement>(".icon-label")!; const cs = getComputedStyle(l);
+    const rects = (() => { const rg = document.createRange(); rg.selectNodeContents(l); return new Set([...rg.getClientRects()].map((x) => Math.round(x.top))).size; })();
+    return { ls: parseFloat(cs.letterSpacing) || 0, fs: parseFloat(cs.fontSize), ellipsis: cs.textOverflow, ws: cs.whiteSpace, hy: cs.hyphens, lines: rects, title: b.title, aria: b.getAttribute("aria-label") };
+  });
+  expect(r.ls).toBeGreaterThanOrEqual(0);
+  expect(r.fs).toBeGreaterThanOrEqual(fs0 * 2 - 0.5);
+  expect([r.ellipsis, r.ws, r.hy, r.lines]).toEqual(["ellipsis", "nowrap", "none", 1]);
+  expect(r.title).toContain(word);
+  expect(r.aria).toContain(word);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
 });
