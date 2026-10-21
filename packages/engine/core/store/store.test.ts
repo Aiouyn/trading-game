@@ -1,0 +1,224 @@
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { canonEncode } from '../canon';
+import { sha256, sha256Concat } from '../crypto/sha256';
+import { toHex } from '../crypto/hex';
+import { toMoney, toPrice, toQty } from '../fixed';
+import type { InvariantCtx, TruthStoreRead } from '../invariants';
+import { EngineFault, type Ccy } from '../types';
+import * as prov from './provenance';
+import {
+  entityHash, FACT_READ_STAMPS, FACT_STORE_VIOLATIONS, hex256, INV_ENG_001, INV_ENG_006, logicalTerm, MoneyProvenance, OwnershipViolation,
+  PartitionStore, partitionMerkle, provenanceWrappers, setActiveProvenance, TableError, TableRegistry,
+} from './index';
+
+interface Chr { id: string; n: number; tag?: string }
+const reg = (): TableRegistry => {
+  const r = new TableRegistry();
+  r.add({ name: 'chr.entity', module: '04', idOf: (e: Chr) => e.id, indexes: [{ name: 'byTag', key: (e: Chr) => e.tag ?? null }] });
+  r.add({ name: 'led.account', module: '03', idOf: (e: Chr) => e.id });
+  return r;
+};
+const ids = <T extends { id: string }>(it: Iterable<T>): string[] => [...it].map((e) => e.id);
+const lcg = (seed: number) => { let s = seed >>> 0; return (): number => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 2 ** 32; }; };
+
+describe('T02-09 TableRegistry', () => {
+  it('rejects bad names, duplicates and unknown owners', () => {
+    const r = reg();
+    expect(() => r.add({ name: 'chr.entity', module: '04', idOf: (e: Chr) => e.id })).toThrow(expect.objectContaining({ code: 'TBL_DUPLICATE' }));
+    expect(() => r.add({ name: 'Chr.x', module: '04', idOf: (e: Chr) => e.id })).toThrow(expect.objectContaining({ code: 'TBL_BAD_NAME' }));
+    expect(() => r.add({ name: 'c.x', module: '04', idOf: (e: Chr) => e.id })).toThrow(TableError);
+    expect(() => r.owner('nope.x')).toThrow(expect.objectContaining({ code: 'TBL_UNKNOWN' }));
+    expect(r.owner('led.account')).toBe('03');
+    expect(r.all().map((d) => d.name)).toEqual(['chr.entity', 'led.account']);
+  });
+});
+
+describe('T02-09 PartitionStore', () => {
+  it('ownership: a non-owner write throws OwnershipViolation (INV-ENG-001) and is recorded; the owner write lands', () => {
+    const s = new PartitionStore(reg(), 'p1'); s.beginTick(1);
+    const w = s.bind({ module: '03', phase: 'P5' });
+    expect(() => w.put('chr.entity', { id: 'chr_A', n: 1 })).toThrow(OwnershipViolation);
+    try { w.del('chr.entity', 'chr_A'); } catch (e) { expect((e as EngineFault).code).toBe('INV-ENG-001'); }
+    expect(s.violations()).toEqual([{ module: '03', table: 'chr.entity', id: 'chr_A', phase: 'P5' }, { module: '03', table: 'chr.entity', id: 'chr_A', phase: 'P5' }]);
+    expect(s.current.get('chr.entity', 'chr_A')).toBeUndefined();
+    s.bind({ module: '04', phase: 'P5' }).put('chr.entity', { id: 'chr_A', n: 1 });
+    expect(s.writeSet()).toMatchObject([{ table: 'chr.entity', id: 'chr_A', module: '04', phase: 'P5', kind: 'PUT', seq: 0 }]);
+  });
+
+  it('committed vs current, commitTick, rollbackTick and rollbackEntity restore state, indexes and hashes', () => {
+    const s = new PartitionStore(reg(), 'p1'); const sys = (): ReturnType<PartitionStore['bind']> => s.bind({ module: '04', phase: 'P3' });
+    s.beginTick(1); sys().put('chr.entity', { id: 'chr_A', n: 1, tag: 'x' }); sys().put('chr.entity', { id: 'chr_B', n: 2, tag: 'x' });
+    expect(s.committed.count('chr.entity')).toBe(0); expect(s.current.count('chr.entity')).toBe(2);
+    const c1 = s.commitTick(); expect(c1.dirty).toBe(2);
+    const h1 = toHex(s.stateHash()), l1 = s.logicalStateHash();
+    s.beginTick(2);
+    sys().put('chr.entity', { id: 'chr_A', n: 9, tag: 'y' }); sys().del('chr.entity', 'chr_B'); sys().put('chr.entity', { id: 'chr_C', n: 3 });
+    expect(s.committed.get<Chr>('chr.entity', 'chr_A')!.n).toBe(1); expect(s.current.get<Chr>('chr.entity', 'chr_A')!.n).toBe(9);
+    expect(ids(s.current.iter<Chr>('chr.entity'))).toEqual(['chr_A', 'chr_C']); expect(s.current.count('chr.entity')).toBe(2);
+    expect(ids(s.current.index<Chr>('chr.entity', 'byTag', 'x'))).toEqual([]); expect(ids(s.current.index<Chr>('chr.entity', 'byTag', 'y'))).toEqual(['chr_A']);
+    expect(toHex(s.stateHash())).not.toBe(h1); expect(s.logicalStateHash()).not.toBe(l1);
+    s.rollbackEntity('chr.entity', 'chr_A');
+    expect(s.current.get<Chr>('chr.entity', 'chr_A')!.n).toBe(1); expect(s.writeSet().map((w) => w.id)).toEqual(['chr_B', 'chr_C']);
+    s.rollbackTick();
+    expect(ids(s.current.iter<Chr>('chr.entity'))).toEqual(['chr_A', 'chr_B']); expect(s.writeSet()).toEqual([]);
+    expect(ids(s.current.index<Chr>('chr.entity', 'byTag', 'x'))).toEqual(['chr_A', 'chr_B']);
+    expect(toHex(s.stateHash())).toBe(h1); expect(s.logicalStateHash()).toBe(l1);
+    expect(() => { s.beginTick(3); sys().put('chr.entity', { id: 'chr_Z', n: 0 }); s.beginTick(4); }).toThrow(expect.objectContaining({ code: 'I0.store_open_tick' }));
+  });
+
+  it('iteration and range are in id order (cmpStr) regardless of insertion order; range is [from, to)', () => {
+    const s = new PartitionStore(reg(), 'p1'); s.beginTick(1); const w = s.bind({ module: '04', phase: 'P1' });
+    for (const id of ['chr_b', 'chr_B', 'chr_a', 'chr_C', 'chr_A']) w.put('chr.entity', { id, n: 0 });
+    expect(ids(s.current.iter<Chr>('chr.entity'))).toEqual(['chr_A', 'chr_B', 'chr_C', 'chr_a', 'chr_b']);
+    expect(ids(s.current.range<Chr>('chr.entity', 'chr_B', 'chr_a'))).toEqual(['chr_B', 'chr_C']);
+    s.commitTick(); s.beginTick(2); w.del('chr.entity', 'chr_C'); w.put('chr.entity', { id: 'chr_BB', n: 1 });
+    expect(ids(s.current.range<Chr>('chr.entity', 'chr_B', 'chr_a'))).toEqual(['chr_B', 'chr_BB']);
+    expect(ids(s.committed.range<Chr>('chr.entity', 'chr_B', 'chr_a'))).toEqual(['chr_B', 'chr_C']);
+  });
+
+  it('02 §3.7.2 normalisation: -0 -> +0, NaN/Infinity fault I0.nan, Map/Set/class rejected, stored copy is frozen', () => {
+    const s = new PartitionStore(reg(), 'p1'); s.beginTick(1); const w = s.bind({ module: '04', phase: 'P1' });
+    const src = { id: 'chr_A', n: -0, deep: { v: [-0, 1n] }, gone: undefined };
+    w.put('chr.entity', src);
+    const got = s.current.get<{ n: number; deep: { v: unknown[] } }>('chr.entity', 'chr_A')!;
+    expect(Object.is(got.n, 0)).toBe(true); expect(Object.is(got.deep.v[0], 0)).toBe(true); expect('gone' in got).toBe(false);
+    expect(Object.isFrozen(got) && Object.isFrozen(got.deep) && Object.isFrozen(got.deep.v)).toBe(true);
+    src.n = 5; expect(got.n).toBe(0);
+    expect(toHex(s.entityHash('chr.entity', 'chr_A')!)).toBe(toHex(entityHash({ id: 'chr_A', n: 0, deep: { v: [0, 1n] } })));
+    for (const bad of [NaN, Infinity]) expect(() => w.put('chr.entity', { id: 'chr_N', n: bad })).toThrow(expect.objectContaining({ code: 'I0.nan' }));
+    for (const bad of [new Map(), new Set(), new Date(0)]) expect(() => w.put('chr.entity', { id: 'chr_M', n: 0, x: bad })).toThrow(expect.objectContaining({ code: 'I0.store_type' }));
+    expect(() => w.put('chr.entity', { id: 'chr_U', n: 0, x: [undefined] })).toThrow(expect.objectContaining({ code: 'I0.store_type' }));
+    expect(s.current.get('chr.entity', 'chr_N')).toBeUndefined();
+  });
+
+  it('logicalStateHash worked example: Σ u256(SHA-256(id ‖ SHA-256(canonEncode(e)))) mod 2^256, partition-independent', () => {
+    const a = { id: 'chr_A', n: 1 }, b = { id: 'led_B', n: 2 };
+    const term = (e: { id: string }): bigint => BigInt(`0x${toHex(sha256Concat(e.id, sha256(canonEncode(e))))}`);
+    expect(logicalTerm(a.id, entityHash(a))).toBe(term(a));
+    const one = new PartitionStore(reg(), 'p1'); one.beginTick(1);
+    one.bind({ module: '04', phase: 'P1' }).put('chr.entity', a); one.bind({ module: '03', phase: 'P1' }).put('led.account', b); one.commitTick();
+    const p1 = new PartitionStore(reg(), 'p1'), p2 = new PartitionStore(reg(), 'p2');
+    p1.beginTick(1); p1.bind({ module: '04', phase: 'P1' }).put('chr.entity', a); p1.commitTick();
+    p2.beginTick(1); p2.bind({ module: '03', phase: 'P1' }).put('led.account', b); p2.commitTick();
+    const expected = (term(a) + term(b)) % (1n << 256n);
+    expect(one.logicalStateHash()).toBe(expected);
+    expect((p1.logicalStateHash() + p2.logicalStateHash()) % (1n << 256n)).toBe(expected);
+    expect(hex256(expected)).toMatch(/^[0-9a-f]{64}$/); expect(hex256(-1n)).toBe('f'.repeat(64));
+  });
+
+  it('partition stateHash = Merkle over (table, id, eh) in kindTag, table, id order; empty = sha256("TYC/empty")', () => {
+    const s = new PartitionStore(reg(), 'p1');
+    expect(toHex(s.stateHash())).toBe(toHex(sha256Concat('TYC/empty')));
+    s.beginTick(1);
+    s.bind({ module: '04', phase: 'P1' }).put('chr.entity', { id: 'chr_A', n: 1 }); s.bind({ module: '03', phase: 'P1' }).put('led.account', { id: 'bnk_Z', n: 1 });
+    const want = partitionMerkle([{ table: 'chr.entity', id: 'chr_A', eh: entityHash({ id: 'chr_A', n: 1 }) }, { table: 'led.account', id: 'bnk_Z', eh: entityHash({ id: 'bnk_Z', n: 1 }) }]);
+    expect(toHex(s.stateHash())).toBe(toHex(want));
+    expect(toHex(s.commitTick().stateHash)).toBe(toHex(want));
+    expect(toHex(s.stateHash())).toBe(toHex(want));   // cached leaves path
+  });
+
+  it('determinism: 100,000 random ops, run twice from the same seed, give identical hashes; state equals a plain-model replay', () => {
+    const run = (): { h: string; l: bigint; model: string } => {
+      const r = lcg(42), s = new PartitionStore(reg(), 'p1'), model: Record<string, number> = {};
+      const w = s.bind({ module: '04', phase: 'P4' });
+      s.beginTick(0);
+      for (let i = 0; i < 100_000; i++) {
+        const id = `chr_${Math.floor(r() * 500)}`, op = r();
+        if (op < 0.6) { const n = Math.floor(r() * 1000); w.put('chr.entity', { id, n }); model[id] = n; }
+        else if (op < 0.8) { w.del('chr.entity', id); delete model[id]; }
+        else if (op < 0.85) { const snap = { ...model }; s.commitTick(); s.beginTick(i); void snap; }
+        else if (op < 0.86) { s.rollbackTick(); for (const k of Object.keys(model)) delete model[k]; for (const e of s.committed.iter<Chr>('chr.entity')) model[e.id] = e.n; }
+      }
+      s.commitTick();
+      const got = [...s.committed.iter<Chr>('chr.entity')].map((e) => `${e.id}=${e.n}`).join(',');
+      const want = Object.keys(model).sort().map((k) => `${k}=${model[k]}`).join(',');
+      expect(got).toBe(want);
+      return { h: toHex(s.stateHash()), l: s.logicalStateHash(), model: got };
+    };
+    const a = run(), b = run();
+    expect(a).toEqual(b);
+  }, 120_000);
+
+  it('phase stamps: reads of this-tick writes are stamped; INV-ENG-006 fails a read from an earlier phase than the write', () => {
+    const s = new PartitionStore(reg(), 'p1'); s.beginTick(1);
+    s.bind({ module: '04', phase: 'P7' }).put('chr.entity', { id: 'chr_A', n: 1, tag: 't' });
+    const early = s.bind({ module: '04', phase: 'P3' }), late = s.bind({ module: '04', phase: 'P9' });
+    early.get('chr.entity', 'chr_A'); late.get('chr.entity', 'chr_A'); void [...early.iter('chr.entity')]; void [...early.index('chr.entity', 'byTag', 't')];
+    expect(s.readStamps()).toEqual([
+      { table: 'chr.entity', id: 'chr_A', readerPhase: 'P3', writerPhase: 'P7', readerModule: '04' },
+      { table: 'chr.entity', id: 'chr_A', readerPhase: 'P9', writerPhase: 'P7', readerModule: '04' },
+      { table: 'chr.entity', id: 'chr_A', readerPhase: 'P3', writerPhase: 'P7', readerModule: '04' },
+      { table: 'chr.entity', id: 'chr_A', readerPhase: 'P3', writerPhase: 'P7', readerModule: '04' },
+    ]);
+    const ctx = (facts: Record<string, unknown>): InvariantCtx => ({ ...ctxBase, facts: { get: <T,>(k: string) => facts[k] as T | undefined } });
+    expect(INV_ENG_006.check(ctx({ [FACT_READ_STAMPS]: s.readStamps().slice(1, 2) }))).toEqual({ ok: true });
+    expect(INV_ENG_006.check(ctx({ [FACT_READ_STAMPS]: s.readStamps() }))).toMatchObject({ ok: false, entityIds: ['chr_A', 'chr_A', 'chr_A'] });
+    // P10 vs P9: index order, not string order ('P10' < 'P9' as strings)
+    expect(INV_ENG_006.check(ctx({ [FACT_READ_STAMPS]: [{ table: 't.x', id: 'chr_A', readerPhase: 'P10', writerPhase: 'P9', readerModule: '04' }] }))).toEqual({ ok: true });
+    expect(INV_ENG_006.check(ctx({}))).toEqual({ ok: true });
+    s.commitTick(); s.beginTick(2); early.get('chr.entity', 'chr_A'); expect(s.readStamps()).toEqual([]);
+  });
+
+  it('INV-ENG-001 fails on any recorded violation and passes on none', () => {
+    const s = new PartitionStore(reg(), 'p1'); s.beginTick(1);
+    expect(() => s.bind({ module: '03', phase: 'P2' }).put('chr.entity', { id: 'chr_A', n: 1 })).toThrow(OwnershipViolation);
+    const ctx = (v: unknown): InvariantCtx => ({ ...ctxBase, facts: { get: <T,>(k: string) => (k === FACT_STORE_VIOLATIONS ? v : undefined) as T | undefined } });
+    expect(INV_ENG_001.check(ctx(s.violations()))).toEqual({ ok: false, entityIds: ['chr_A'], observed: 'module=03 table=chr.entity', expected: 'writes only by the owning module' });
+    expect(INV_ENG_001.check(ctx([]))).toEqual({ ok: true }); expect(INV_ENG_001.check(ctx(undefined))).toEqual({ ok: true });
+    expect([INV_ENG_001.def, INV_ENG_006.def]).toMatchObject([{ id: 'INV-ENG-001', scope: 'TICK', severity: 'FATAL' }, { id: 'INV-ENG-006', scope: 'TICK', severity: 'FATAL' }]);
+  });
+
+  it('StoreRead satisfies the T20A-01 TruthStoreRead structurally', () => { const s = new PartitionStore(reg(), 'p1'); const r: TruthStoreRead = s.current; expect(r.count('chr.entity')).toBe(0); });
+  it('asSystem() bypasses ownership in testMode only', () => {
+    expect(() => new PartitionStore(reg(), 'p1').asSystem()).toThrow(expect.objectContaining({ code: 'I0.test_only' }));
+    const s = new PartitionStore(reg(), 'p1', { testMode: true }); s.beginTick(1);
+    s.asSystem().put('led.account', { id: 'bnk_A', n: 1 }); s.asSystem().put('chr.entity', { id: 'chr_A', n: 1 });
+    expect(s.writeSet().map((w) => w.module)).toEqual(['03', '04']); expect(s.violations()).toEqual([]);
+  });
+});
+
+describe('AC-02-09-WRAPPERS (E-70 (2))', () => {
+  const cases = (): number[] => { const r = lcg(7), xs = [0, -0, 0.5, 1.25, -2.5, 1e12, 123.456789, 1e-9]; for (let i = 0; i < 2000; i++) xs.push((r() - 0.5) * 10 ** Math.floor(r() * 14)); return xs; };
+  it('the list is exactly toMoney, toQty, toPrice', () => { expect(Object.keys(provenanceWrappers).sort()).toEqual(['toMoney', 'toPrice', 'toQty']); });
+  it('property: each wrapper returns exactly what its base constructor returns, including faults', () => {
+    const same = (a: () => unknown, b: () => unknown): void => {
+      let ra: unknown, rb: unknown, ea: unknown, eb: unknown;
+      try { ra = a(); } catch (e) { ea = e; } try { rb = b(); } catch (e) { eb = e; }
+      expect(rb).toBe(ra); expect((eb as EngineFault | undefined)?.code).toBe((ea as EngineFault | undefined)?.code); expect(eb === undefined).toBe(ea === undefined);
+    };
+    for (const x of [...cases(), NaN, Infinity, 1e300]) {
+      for (const c of ['FDL', 'EUN', 'PYN'] as Ccy[]) same(() => toMoney(x, c), () => provenanceWrappers.toMoney(x, c));
+      for (const l of [1n, 100n]) for (const m of ['HALF_EVEN', 'LOT_FLOOR'] as const) same(() => toQty(x, l, m), () => provenanceWrappers.toQty(x, l, m));
+      same(() => toQty(x, 10n), () => provenanceWrappers.toQty(x, 10n));
+      same(() => toPrice(x), () => provenanceWrappers.toPrice(x));
+    }
+  });
+  it('spy: notifyMoney is called exactly once per call with the returned value; nothing is recorded with no active log', () => {
+    const p = new MoneyProvenance(); setActiveProvenance(p); p.begin();
+    const m = provenanceWrappers.toMoney(1.25, 'FDL'), q = provenanceWrappers.toQty(3.5, 1n), pr = provenanceWrappers.toPrice(2.5);
+    expect(p.rows()).toEqual([{ v: m, source: 'toMoney' }, { v: q, source: 'toQty' }, { v: pr, source: 'toPrice' }]);
+    expect(p.has(m) && !p.has(-1n)).toBe(true);
+    const spy = vi.spyOn(MoneyProvenance.prototype, 'note');
+    for (let i = 0; i < 5; i++) { provenanceWrappers.toMoney(i, 'FDL'); provenanceWrappers.toQty(i, 1n); provenanceWrappers.toPrice(i); }
+    expect(spy).toHaveBeenCalledTimes(15);
+    expect(spy.mock.calls.map((c) => c[1])).toEqual(Array.from({ length: 5 }, () => ['toMoney', 'toQty', 'toPrice']).flat());
+    setActiveProvenance(null); spy.mockClear(); provenanceWrappers.toPrice(1); expect(spy).not.toHaveBeenCalled();
+    expect(prov.notifyMoney(7n, 'x')).toBe(7n);
+    spy.mockRestore();
+  });
+});
+
+describe('AC-02-09-PORT-MIGRATED (E-71: T02-09 scope is INV-ENG-003; 002 moves in #36)', () => {
+  it('no module under packages/engine imports invariant-port, and the file is gone', () => {
+    const root = join(__dirname, '..', '..'), hits: string[] = [];
+    const walk = (d: string): void => { for (const n of readdirSync(d)) { if (n === 'node_modules') continue; const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (/\.(ts|tsx|mts|js)$/.test(n) && /from\s+['"][^'"]*invariant-port['"]/.test(readFileSync(p, 'utf8'))) hits.push(p); } };
+    walk(root);
+    expect(hits).toEqual([]);
+    expect(() => statSync(join(__dirname, '..', 'invariant-port.ts'))).toThrow();
+  });
+});
+
+const none: TruthStoreRead = { get: () => undefined, iter: () => [], count: () => 0 };
+const ctxBase: InvariantCtx = { tick: 1, phase: 'P13', scope: 'TICK', partitionId: 'p1', safeMode: false, pre: none, post: none, writeSet: [], postings: [], events: [], facts: { get: () => undefined }, num: () => 0 };
