@@ -22,44 +22,69 @@ const setPalette = (page: Page, p: string) => page.evaluate((v) => { document.do
 
 test("T3-01 sweep restarts within one frame of each tick; with ticks stopped 12 s it holds full and never loops", async ({ page }, info) => {
   desktopOnly(info.project.name);
-  // Fake timers: boot to quay-ready first, then pause; the mock clock only ticks when the test advances it.
-  await bootPaused(page, "/");
-  // Measured in animation time, not wall-clock (robust under CPU load, keeps Studio's one-frame criterion):
-  // when the sweep is re-added, a probe Web Animation starts on the same trigger; its startTime is the timeline
-  // time of the FIRST frame after the trigger. The new sweep's Animation.startTime must be no later than that.
-  // (rAF is faked by page.clock, so the probe animation stands in for "the first rAF after the trigger".)
+  // Measured in animation time from the TICK itself (QA #18 r3), not from the sweep's DOM insertion:
+  // a test-side init script (registered after page.clock.install, so it wraps the FAKE setInterval; no production
+  // hook) wraps the shell's 5 s clock-channel interval. When armed, it starts a probe Web Animation synchronously in
+  // the tick's own task, before the channel update runs. A pending animation's startTime resolves to the timeline
+  // time of the first frame rendered after it was created, so probe.startTime = the first frame after the tick.
+  // The i-th new sweep's Animation.startTime is then compared with the i-th tick probe.
+  //
+  // Limit 0.5 ms: timeline times are frame-quantized (all animations made pending in the same task start in the
+  // same frame and get the identical startTime), so a sweep that starts in the first frame after its tick gives
+  // exactly 0, whatever the load (a slow frame delays probe and sweep alike). Any later start is a whole frame or
+  // more: +16.7 ms at 60 Hz, +4.2 ms even at 240 Hz. 0.5 ms only absorbs float rounding, so "≤ one frame after
+  // the tick" (Studio) passes and one extra frame — late remount OR late animation start — fails.
+  await bootPaused(page, "/", undefined, () => page.addInitScript(() => {
+    const w = window as unknown as { __tickArmed: boolean; __tickProbes: Animation[] };
+    w.__tickArmed = false; w.__tickProbes = [];
+    const orig = window.setInterval;
+    (window as unknown as { setInterval: unknown }).setInterval = (cb: TimerHandler, ms?: number, ...rest: unknown[]) => {
+      if (ms !== 5000 || typeof cb !== "function") return orig(cb, ms, ...rest);
+      return orig(() => {
+        if (w.__tickArmed) {
+          const el = document.createElement("i"); el.style.cssText = "position:fixed;width:0;height:0;"; document.documentElement.append(el);
+          w.__tickProbes.push(el.animate([{ opacity: 1 }, { opacity: 1 }], { duration: 60_000 }));
+        }
+        (cb as (...a: unknown[]) => void)(...rest);
+      }, ms);
+    };
+  }));
   await page.evaluate(() => {
-    const w = window as unknown as { __restarts: number; __late: number[] };
-    w.__restarts = 0; w.__late = [];
-    const probeEl = document.createElement("i"); probeEl.style.cssText = "position:fixed;width:0;height:0;"; document.body.append(probeEl);
+    const w = window as unknown as { __tickArmed: boolean; __sweepStarts: (number | null)[] };
+    w.__sweepStarts = [];
+    const fEl = document.createElement("i"); fEl.style.cssText = "position:fixed;width:0;height:0;"; document.documentElement.append(fEl);
+    // Next rendered frame without rAF (faked by page.clock): a fresh animation's ready resolves on it.
+    const nextFrame = () => { const f = fEl.animate([{ opacity: 1 }, { opacity: 1 }], { duration: 1000 }); return f.ready.then(() => f.cancel()); };
     new MutationObserver((ms) => {
       for (const m of ms) for (const n of m.addedNodes) if ((n as Element).classList?.contains("tickring-sweep")) {
-        w.__restarts++;
-        const probe = probeEl.animate([{ opacity: 1 }, { opacity: 1 }], { duration: 1000 });
-        const sweep = (n as Element).getAnimations()[0]!;
-        // Next frame without rAF (faked): a fresh probe animation's ready resolves on the next rendered frame.
-        const nextFrame = () => { const f = probeEl.animate([{ opacity: 1 }, { opacity: 1 }], { duration: 1000 }); return f.ready.then(() => f.cancel()); };
+        const i = w.__sweepStarts.push(null) - 1;
+        const a = (n as Element).getAnimations()[0]!;
+        // Snapshot startTime as soon as the sweep is running (a held sweep has none yet; a removed one goes idle).
         void (async () => {
-          await probe.ready;
-          // Wait until the sweep is actually running with a resolved start time (a held/paused sweep has none yet).
-          for (let i = 0; i < 20 && !(sweep.playState === "running" && sweep.startTime != null); i++) await nextFrame();
-          w.__late.push((sweep.startTime as number) - (probe.startTime as number));
-          probe.cancel();
+          for (let k = 0; k < 30 && !(a.playState === "running" && a.startTime != null); k++) await nextFrame();
+          w.__sweepStarts[i] = a.startTime as number;
         })();
       }
     }).observe(document.querySelector("[data-testid=tickring]")!, { childList: true, subtree: true });
+    w.__tickArmed = true;
   });
-  for (let i = 0; i < 3; i++) { await page.clock.runFor(5000); await page.waitForTimeout(100); }
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __late: number[] }).__late.length)).toBe(3);
-  const { restarts, late } = await page.evaluate(() => { const w = window as unknown as { __restarts: number; __late: number[] }; return { restarts: w.__restarts, late: w.__late }; });
-  expect(restarts).toBe(3);
-  // ≤ 0: the sweep started in (or before) the first frame after its tick. One extra frame shows up as ≈ +16.7.
+  for (let i = 0; i < 3; i++) {
+    await page.clock.runFor(5000);
+    await expect.poll(() => page.evaluate((n) => (window as unknown as { __sweepStarts: (number | null)[] }).__sweepStarts.filter((v) => v != null).length >= n, i + 1)).toBe(true);
+  }
+  const { ticks, restarts, late } = await page.evaluate(() => {
+    const w = window as unknown as { __tickProbes: Animation[]; __sweepStarts: number[] };
+    return { ticks: w.__tickProbes.length, restarts: w.__sweepStarts.length, late: w.__sweepStarts.map((t, i) => t - (w.__tickProbes[i]!.startTime as number)) };
+  });
+  expect([ticks, restarts]).toEqual([3, 3]);
+  console.log(`T3-01 tick→sweep start (ms): ${late.map((l) => l.toFixed(3)).join(", ")}`);
   for (const l of late) expect(l).toBeLessThanOrEqual(0.5);
+  await page.evaluate(() => (window as unknown as { __tickProbes: Animation[] }).__tickProbes.forEach((a) => a.cancel()));
   // No more ticks: 12 s of real time. The sweep is not replaced, finishes, and holds full.
   await page.waitForTimeout(12_000);
   const held = await page.evaluate(() => {
     const s = document.querySelector(".tickring-sweep")!;
-    return { restarts: (window as unknown as { __restarts: number }).__restarts, state: s.getAnimations()[0]?.playState, offset: getComputedStyle(s).strokeDashoffset, iter: getComputedStyle(s).animationIterationCount };
+    return { restarts: (window as unknown as { __sweepStarts: unknown[] }).__sweepStarts.length, state: s.getAnimations()[0]?.playState, offset: getComputedStyle(s).strokeDashoffset, iter: getComputedStyle(s).animationIterationCount };
   });
   expect(held).toEqual({ restarts: 3, state: "finished", offset: "0px", iter: "1" });
 });

@@ -16,8 +16,9 @@ export const intents = (page: Page) =>
 
 /** Deterministic fake-clock boot: install fake timers (running), boot until quay-ready, THEN pause.
  *  Pausing before boot starves the shell's boot timers so quay-ready can never appear (QA #18 flake). */
-export async function bootPaused(page: Page, path = "/", time = new Date("2026-10-21T08:00:00Z")) {
+export async function bootPaused(page: Page, path = "/", time = new Date("2026-10-21T08:00:00Z"), afterInstall?: () => Promise<unknown>) {
   await page.clock.install({ time });
+  if (afterInstall) await afterInstall();
   await boot(page, path);
   // The fake clock keeps running between reading it and pausing, so a target can slip into the past;
   // re-read and retry rather than racing it with a fixed margin.
