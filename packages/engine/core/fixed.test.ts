@@ -1,4 +1,6 @@
 // T02-04 tests (02 §3.9; AT 02#15–#17).
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { accrue, allocate, assertFinite, divRoundHalfEven, fromMoney, fxConvert, MICRO, MICRO_N, mulRate, mulRateE12, normZero, notional,
@@ -111,5 +113,33 @@ describe('T02-04 fixed', () => {
     expect(safeDiv(1, 0, 7)).toBe(7); expect(safeDiv(6, 3, 7)).toBe(2); expect(safeDiv(1e308, 1e-308, 7)).toBe(7);
     expect(Object.is(normZero(-0), 0)).toBe(true); expect(normZero(-1)).toBe(-1);
     expect(assertFinite(3, 'x')).toBe(3); expect(code(() => assertFinite(NaN, 'x'))).toBe('I0.nan');
+  });
+
+  it('AC-02-04-ACCRUE-DAYS (E-55): non-safe-integer days throw I0.accrue_days, never RangeError', () => {
+    for (const d of [1.5, NaN, Infinity, -Infinity, 2 ** 53]) expect(code(() => accrue(1_000_000n, 36_400n, d))).toBe('I0.accrue_days');
+    expect(accrue(1_000_000n, 36_400n, 0)).toBe(0n);
+    expect(accrue(1_000_000n, 36_400n, -364)).toBe(-36_400n);
+  });
+
+  it('AC-02-04-ALLOC-ORDER (E-55): keys ascending by cmpStr for any input order; ties by id; one scoped Map disable', () => {
+    const ws = [{ id: 'c', w: 1n }, { id: 'a', w: 1n }, { id: 'B', w: 1n }, { id: 'b', w: 1n }];
+    const ref = allocate(10n, ws);
+    expect([...ref.keys()]).toEqual(['B', 'a', 'b', 'c']);
+    expect(obj(ref)).toEqual({ B: 3n, a: 3n, b: 2n, c: 2n });   // remainder 2 tie-broken by id ascending
+    fc.assert(fc.property(fc.shuffledSubarray(ws, { minLength: 4, maxLength: 4 }), (sh) => {
+      const m = allocate(10n, sh);
+      expect([...m.keys()]).toEqual(['B', 'a', 'b', 'c']);
+      expect(obj(m)).toEqual(obj(ref));
+    }), { numRuns: 200 });
+    expect(code(() => allocate(1n, [{ id: 'x', w: 1n }, { id: 'x', w: 2n }]))).toBe('I0.allocate_dup');
+    const src = readFileSync(fileURLToPath(new URL('./fixed.ts', import.meta.url)), 'utf8');
+    expect(src.split('eslint-disable-next-line no-restricted-globals').length - 1).toBe(1);
+    expect(src.split('eslint-disable').length - 1).toBe(1);
+  });
+
+  it('AC-02-04-LOTSCALE (E-55): lotScale outside 1..2^31 throws I0.lot_scale', () => {
+    for (const l of [0n, -1n, 2n ** 31n + 1n]) expect(code(() => toQty(1, l))).toBe('I0.lot_scale');
+    expect(toQty(1, 1n)).toBe(1n);
+    expect(toQty(1, 2n ** 31n)).toBe(2n ** 31n);
   });
 });

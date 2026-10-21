@@ -81,6 +81,7 @@ export function mulRate(m: Money, rateE6: bigint): Money { return divRoundHalfEv
 export function mulRateE12(m: Money, rateE12: bigint): Money { return divRoundHalfEven(m * rateE12, 10n ** 12n); }
 /** Act/364 daily interest (03 §3.3.7). */
 export function accrue(m: Money, annualRateE6: bigint, days: number): Money {
+  if (!Number.isSafeInteger(days)) throw new EngineFault('I0.accrue_days', `accrue: days ${days} is not a safe integer`); // E-55: before BigInt()
   return divRoundHalfEven(m * annualRateE6 * BigInt(days), 1_000_000n * 364n);
 }
 export function notional(qty: Qty, price: Price, lotScale: bigint): Money { return divRoundHalfEven(qty * price, lotScale); }
