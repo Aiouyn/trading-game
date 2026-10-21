@@ -1,5 +1,5 @@
-// T02-03: Black-Scholes price and greeks with continuous dividend yield (02 §3.8; used by 06). T in years, vega per 1.00 vol,
-// theta per year (calendar convention of the caller).
+// T02-03: Black-Scholes price and greeks with continuous dividend yield (02 §3.8; used by 06). T in years on ACT_364 (T = game days / 364, E-63.6),
+// vega per 1.00 vol, theta per ACT_364 year: the engine never divides theta per day.
 import { EngineFault } from '../types';
 import { exp, ln } from './exp';
 import { normCdf, normPdf } from './special';
@@ -56,14 +56,16 @@ export function bsGreeks(i: BsInput): BsGreeks {
 
 /** Limits (T clamped to 0, F = S·e^{−qT}, Kd = K·e^{−rT}): call delta = e^{−qT}·1[F > Kd] (½·e^{−qT} at an exact tie), put delta =
  *  call delta − e^{−qT}; gamma = vega = 0; theta = 0 at T ≤ 0; call rho = T·Kd·1[F > Kd], put rho = −T·Kd·1[F < Kd].
- *  σ = 0 with T > 0 (theta not given by the ruling): the σ → 0 limit of the closed form, call qF·1[F > Kd] − rKd·1[F > Kd],
- *  put rKd·1[F < Kd] − qF·1[F < Kd] (open question on #33). */
+ *  σ = 0 with T > 0 (Quant ruling): call theta = (qF − rKd)·I, put theta = (rKd − qF)·J, I = 1[F > Kd], J = 1[F < Kd],
+ *  I = J = ½ at an exact tie; per ACT_364 year (E-63.6; no per-day division in the engine). */
 function greekLimits(i: BsInput): BsGreeks {
   const { T, eq, F, Kd } = legs(i);
   const itmCall = F > Kd, itmPut = F < Kd, live = T > 0;   // explicit branches: no −0 from 0·(negative)
-  const callDelta = itmCall ? eq : F === Kd ? 0.5 * eq : 0;
+  const tie = F === Kd;
+  const callDelta = itmCall ? eq : tie ? 0.5 * eq : 0;
+  const I = itmCall ? 1 : tie ? 0.5 : 0, J = itmPut ? 1 : tie ? 0.5 : 0;
   if (i.kind === 'CALL') {
-    return { delta: callDelta, gamma: 0, vega: 0, theta: live && itmCall ? i.q * F - i.r * Kd : 0, rho: live && itmCall ? T * Kd : 0 };
+    return { delta: callDelta, gamma: 0, vega: 0, theta: live && I > 0 ? (i.q * F - i.r * Kd) * I : 0, rho: live && itmCall ? T * Kd : 0 };
   }
-  return { delta: callDelta - eq, gamma: 0, vega: 0, theta: live && itmPut ? i.r * Kd - i.q * F : 0, rho: live && itmPut ? -T * Kd : 0 };
+  return { delta: callDelta - eq, gamma: 0, vega: 0, theta: live && J > 0 ? (i.r * Kd - i.q * F) * J : 0, rho: live && itmPut ? -T * Kd : 0 };
 }
