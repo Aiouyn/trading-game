@@ -1,4 +1,4 @@
-// Mock loader for the §5 error / offline states. `?load=fail` always fails, `?load=fail1` fails once
+// Mock loader for the §5 error / offline states. In dev / e2e builds a URL script makes it fail always or once
 // (Retry then succeeds). Offline follows the browser's online/offline events.
 import type { SystemState } from "./channels";
 import type { ShellStore } from "./store";
