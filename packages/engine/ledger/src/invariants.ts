@@ -491,6 +491,11 @@ export const INV_LED_011: Check = (v) => {
   return out;
 };
 
+/** E-17 exemption list (QA pr6 #1): bank income/expense codes (fees, interest, wages). Only under these codes does a bank's own leg
+ *  exempt it (its own 4xxx/5xxx or settlement leg); any other code (MKT_TRADE, ADM_*, …) never turns INV-LED-027 off. CREDIT_CREATE/DESTROY are skipped by class. */
+export const E17_BANK_OWN_CODES: readonly string[] = ['BNK_DEPOSIT_INTEREST', 'BNK_LOAN_INTEREST', 'BNK_LOAN_FEE', 'BNK_INTERBANK_INTEREST',
+  'BNK_DEPOSIT_INSURANCE_PREMIUM', 'BNK_FX_MARGIN', 'BNK_ENFORCEMENT_FEE', 'BNK_ELASTIC_LOAN_INTEREST', 'BNK_ELASTIC_FEES',
+  'BNK_ELASTIC_DEPOSIT_INTEREST', 'BNK_OPEX_ELASTIC', 'BIZ_WAGES', 'BIZ_WAGES_B2E', 'BIZ_WAGES_NPC'];
 /**
  * E-17 INV-LED-027 (L28) reserve-follows-deposit, per (entry, reason) group of class TRANSFER/FAUCET/SINK and per (bank, ccy):
  * Δ1002(b) + Δ2100(b, non-bank holders) = 0n (debit-positive; "both sides signed as balances" = equal in natural sign), and
@@ -505,6 +510,8 @@ export const INV_LED_027: Check = (v) => {
     for (const [, ps] of groups) {
       const code = ps[0].reason; const ccy = ps[0].ccy; const cls = v.catalog.get(code)?.cls;
       if (cls !== 'TRANSFER' && cls !== 'FAUCET' && cls !== 'SINK') continue;
+      // E-17: "cbCredit and other cbk operations stay governed by E-3 and INV-LED-010 I5": a group where cbk books an own leg (not its 2001-2003 mirror)
+      if (ps.some((p) => [p.debitAccount, p.creditAccount].some((k) => { const q = parseAccountKey(k); return !!q && kindOfId(q.entityId) === 'cbk' && !(q.code >= 2001 && q.code <= 2003); }))) continue;
       const res = new SortedMap<Id, Money>(); const dep = new SortedMap<Id, Money>(); const own: Record<string, true> = {}; let mirror = 0n; let allRes = 0n;
       for (const p of ps) for (const [k, sgn] of [[p.debitAccount, 1n], [p.creditAccount, -1n]] as const) {
         const q = parseAccountKey(k); if (!q) continue; const d = sgn * p.amount;
@@ -513,7 +520,7 @@ export const INV_LED_027: Check = (v) => {
         if (kindOfId(q.entityId) !== 'bnk') continue;
         if (q.code === 1002) res.set(q.entityId, (res.get(q.entityId) ?? 0n) + d);
         else if (q.code === 2100 && q.sub && kindOfId(q.sub) !== 'bnk') dep.set(q.entityId, (dep.get(q.entityId) ?? 0n) + d);
-        else if (q.code !== 2100) own[q.entityId] = true;
+        else if (q.code !== 2100 && E17_BANK_OWN_CODES.includes(code)) own[q.entityId] = true; // b is payer/payee (own 4xxx/5xxx or accrual leg) under a listed code
       }
       const banks = new SortedMap<Id, true>(); for (const [b] of res) banks.set(b, true); for (const [b] of dep) banks.set(b, true);
       let sumRes = allRes;

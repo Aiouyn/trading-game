@@ -59,14 +59,14 @@ describe('E-17 INV-LED-027 (L28) reserve-follows-deposit', () => {
     const e = L.tplLend(w.env('07', 'P12'), 'bnk_Y', 'chr_B', 7n, 'FDL', 'BNK_LOAN_DRAWDOWN', 'loan_1');
     expect(e.invalid).toBeUndefined(); expect(e.postings.some((p) => p.creditAccount.startsWith('bnk_Y:2100'))).toBe(true); expect(I27(e)).toEqual([]);
   });
-  it('6: a bnk_X fee charged to chr_A (2100 −f, 4xxx +f) is exempt (the bank is payee); the same deposit drop with no bank leg fails', () => {
-    const base = pay('bnk_X', 'bnk_X');
-    const fee: Entry = { ...base, postings: [
-      { ...base.postings[0], postingSeq: 0, debitAccount: 'bnk_X:2100:chr_A:FDL', creditAccount: 'bnk_X:4000:FDL', amount: 5n, flowLeg: undefined },
-      { ...base.postings[0], postingSeq: 1, debitAccount: 'chr_A:5000:FDL', creditAccount: 'chr_A:1010:bnk_X:FDL', amount: 5n, flowLeg: undefined }] };
+  it('6: a bnk_X fee (BNK_LOAN_FEE) charged to chr_A (2100 −f, 4xxx +f) is exempt (the bank is payee); the same legs under a non-listed code fail', () => {
+    const w = fixture(); bankRail(w, 'chr_A', 'bnk_X');
+    const fee = L.tplPay(w.env('07', 'P12'), 'chr_A', 'bnk_X', 5n, 'FDL', 'BNK_LOAN_FEE');
+    expect(fee.invalid).toBeUndefined(); expect(legs(fee).some((l) => l.startsWith('bnk_X:2100:chr_A:FDL<'))).toBe(true);
     expect(I27(fee)).toEqual([]);
-    const forged = { ...fee, postings: [{ ...fee.postings[0], creditAccount: 'chr_B:4000:FDL' }, fee.postings[1]] };
-    expect(I27(forged)).toEqual([`${base.entryId} ADM_CORRECTION_TRANSFER bnk_X Δ1002 0 vs Δ2100 -5 (FDL)`]);
+    const relabeled = { ...fee, postings: fee.postings.map((p) => ({ ...p, reason: 'ADM_CORRECTION_TRANSFER' })) };
+    expect(I27(relabeled)).toEqual([`${fee.entryId} ADM_CORRECTION_TRANSFER bnk_X Δ1002 0 vs Δ2100 -5 (FDL)`]);
+    expect(L.E17_BANK_OWN_CODES).toContain('BNK_LOAN_FEE'); expect(L.E17_BANK_OWN_CODES).not.toContain('MKT_TRADE');
   });
   it('7: day close Σ1002 = cbk 2002 per ccy and each bank 2100 = Σ holders 1010; a 1-micro seed fails DC', () => {
     const dc = (rows: [string, bigint][]) => obs(L.INV_LED_010({ ...view([], new SortedMap(rows.map(([k, b]) => [k, { balance: b, qty: 0n }]))), isDayClose: true }), 'INV-LED-027');
@@ -94,5 +94,80 @@ describe("QA pr3i: structured I6 pair key, INV-LED-026 on deposit subs, two-step
     const g = extra(trade(), forge('chr_GHOST', 'chr_B'));
     expect(obs(L.INV_LED_026(view([g])), 'INV-LED-026')).toEqual([`unknown_entity chr_GHOST in ${g.entryId} MKT_TRADE`]);
     expect(obs(L.INV_LED_026(view([extra(trade(), forge('chr_A', 'chr_B'))])), 'INV-LED-026')).toEqual([]);
+  });
+});
+
+// QA pr6 NO-GO follow-ups (/tmp/pr6-logs). The I1 and A1 probes are ported verbatim; only the logging is replaced by assertions.
+type Acc2 = SortedMap<string, { balance: bigint; qty: bigint }>;
+const FUND = (): Acc2 => { const w0 = fixture(); const env21 = w0.env('21', 'P12'); const es = ['chr_A', 'chr_B', 'chr_P'].map((id) => L.tplMint(env21, id, 1_000_000n, 'FDL', 'ADM_CORRECTION_IN'));
+  const dep = (h: string, b: string, n: bigint) => ({ ...es[0], postings: [{ ...es[0].postings[0], debitAccount: `${h}:1010:${b}:FDL`, creditAccount: `${b}:2100:${h}:FDL`, amount: n, reason: 'ADM_CORRECTION_TRANSFER' }] });
+  return applied([...es, dep('chr_A', 'bnk_N', 50n), dep('chr_A', 'bnk_X', 50n), dep('chr_B', 'bnk_N', 50n), dep('bnk_X', 'bnk_N', 50n), dep('cbk_FDL', 'bnk_N', 50n)]); };
+function viewF(entries: Entry[]): CheckView {
+  const w = fixture(); const pre = FUND(); const p = applied(entries, pre);
+  return { tick: 10, isDayClose: false, catalog: w.catalog, entries, pre, post: p, entity: w.entity,
+    facts: { overdraftLimit: () => 0n, intradayLimit: () => 0n }, alarm: { mult: 10, floorMicro: 1_000_000_000_000n },
+    flows: L.tickFlowsOf(entries, w.catalog, 10, (c) => L.computeM0sys(p, c) - L.computeM0sys(pre, c)) };
+}
+const allOf = (w: L.LedgerWorld | undefined, v: CheckView) => L.TICK_INVARIANTS.flatMap(([, c]) => c(w ? { ...v, entity: w.entity } : v)).map((f) => `${f.invariantId}: ${f.observed}`);
+
+describe('QA pr6 NO-GO: INV-027 exemption by code list, I6 1010 key, ccp reading 4, fatal path, id registry, TAX self-pay', () => {
+  const P = (d: string, c: string, n: bigint, reason = 'MKT_TRADE') => ({ debitAccount: d, creditAccount: c, amount: n, reason });
+  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 });
+  const add = (e: Entry, ps: Partial<Posting>[]) => ps.reduce((a, p) => extra(a, { qty: undefined, assetId: undefined, ...p }), e);
+  it('QA I1: cross-bank swap A: bnk_N->bnk_X liability, 1010 claims adjusted, banks balanced by value legs (MKT_TRADE 4190/5280) fails INV-LED-027', () => {
+    const e = add(trade(), [
+      P('bnk_N:2100:chr_A:FDL', 'bnk_N:4190:FDL', 5n), P('bnk_X:5280:FDL', 'bnk_X:2100:chr_A:FDL', 5n),
+      P('chr_A:1010:bnk_X:FDL', 'chr_A:1010:bnk_N:FDL', 5n)]);
+    const a = allOf(undefined, viewF([e])).filter((x) => x.startsWith('INV-LED-027'));
+    expect(a).toEqual([`INV-LED-027: ${e.entryId} MKT_TRADE bnk_N Δ1002 0 vs Δ2100 -5 (FDL)`, `INV-LED-027: ${e.entryId} MKT_TRADE bnk_X Δ1002 0 vs Δ2100 5 (FDL)`]);
+  });
+  it('QA A1: cross-bank deposit move with reserves dropped plus 1-micro own no-op legs at both banks still fails INV-LED-027', () => {
+    const w = fixture(); bankRail(w, 'chr_A', 'bnk_X'); bankRail(w, 'chr_B', 'bnk_Y');
+    const e = L.tplPay(w.env('21', 'P12'), 'chr_A', 'chr_B', 7n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    let d: Entry = { ...e, postings: e.postings.filter((p) => !/:1002:/.test(p.debitAccount) && !/:2002:/.test(p.debitAccount)) };
+    d = extra(d, { debitAccount: 'bnk_X:5000:FDL', creditAccount: 'bnk_X:4000:FDL', amount: 1n });
+    d = extra(d, { debitAccount: 'bnk_Y:5000:FDL', creditAccount: 'bnk_Y:4000:FDL', amount: 1n });
+    expect(allOf(w, view([d])).filter((x) => x.startsWith('INV-LED-027'))).toEqual([
+      `INV-LED-027: ${e.entryId} ADM_CORRECTION_TRANSFER bnk_X Δ1002 0 vs Δ2100 -7 (FDL)`, `INV-LED-027: ${e.entryId} ADM_CORRECTION_TRANSFER bnk_Y Δ1002 0 vs Δ2100 7 (FDL)`]);
+  });
+  it("I6 1010 side: a '|' holder on <H>:1010:<bnk> is its own pair (kills splitting the 1010-side key on '|')", () => {
+    const e = add(trade(), [P('chr_A|q:1010:bnk_N:FDL', 'chr_A:1010:bnk_N:FDL', 5n)]);
+    expect(obs(L.INV_LED_010_I6_TICK(view([e])), 'INV-LED-010').sort()).toEqual(['I6: bnk_N|chr_A|FDL deposit off by -5 at tick 10', 'I6: bnk_N|chr_A|q|FDL deposit off by 5 at tick 10']);
+  });
+  it('reading 4: ccp 1002 counts in the Σ-vs-mirror check only, never as a bank', () => {
+    const w = fixture(); w.registerEntity({ id: 'ccp_C' }); bankRail(w, 'chr_A', 'bnk_X');
+    const fee = L.tplPay(w.env('07', 'P12'), 'chr_A', 'ccp_C', 4n, 'FDL', 'CCP_FEE');
+    expect(legs(fee)).toContain('ccp_C:1002:FDL<bnk_X:1002:FDL:4');
+    expect(I27(fee)).toEqual([]); // with ccp in the Σ: bnk_X −4 + ccp +4 = 0 = mirror; per bank only bnk_X (Δ1002 −4 vs Δ2100 −4)
+    const noMirror = { ...fee, postings: fee.postings.filter((p) => !p.debitAccount.startsWith('cbk_FDL:2002')) };
+    expect(I27(noMirror)).toEqual([]); // the 2002 legs cancel inside the group, so dropping them changes nothing
+    const lost = extra(fee, { debitAccount: 'chr_A:5000:FDL', creditAccount: 'ccp_C:1002:FDL', amount: 1n });
+    expect(I27(lost)).toEqual([`${fee.entryId} CCP_FEE ΣΔ1002 -1 vs cbk 2002 mirror 0 (FDL)`]); // ccp reserves lost: Σ only, no per-bank line for ccp
+  });
+  it('end to end: an INV-LED-027 mismatch takes the FATAL path (tick aborted, safe mode, nothing visible)', () => {
+    const w = fixture(); bankRail(w, 'chr_A', 'bnk_X'); bankRail(w, 'chr_B', 'bnk_Y');
+    w.apiFor('21').ledger.mint('chr_A', 100n, 'FDL', 'ADM_CORRECTION_IN'); expect(w.runP13().failures).toEqual([]);
+    const before = w.accounts(); const logLen = w.entryLog().length;
+    const id = w.apiFor('21').ledger.pay('chr_A', 'chr_B', 7n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    const q = w.testHooks().queue; const e = q[q.length - 1];
+    const n = e.postings.length; e.postings = e.postings.filter((p) => !/:1002:|:2002:/.test(p.debitAccount)); expect(e.postings.length).toBe(n - 2); // test-only: QA I1 drop
+    const r = w.runP13();
+    expect(r.committed).toBe(true); expect(r.safeMode).toBe(true); expect(r.failedInvariants).toContain('INV-LED-027');
+    expect(r.failures.filter((f) => f.invariantId === 'INV-LED-027').every((f) => f.severity === 'FATAL')).toBe(true);
+    expect(w.accounts()).toEqual(before); expect(w.entryLog().length).toBe(logLen); expect(w.entryLog().some((x) => x.entryId === id)).toBe(false);
+  });
+  it('registerEntity accepts only ^(kkk|hh|prop)_[A-Za-z0-9_]+$ ids; rejects delimiters, whitespace, non-ASCII and empty', () => {
+    const w = fixture();
+    for (const id of ['chr_A|q', 'chr_A:1010', 'chr_\uff21', 'chr_A ', 'chr_\u200bA', '', 'bnk_X:1002', 'chr_A\n', 'chr_', 'CHR_A', 'chr-A', 'xx_A'])
+      expect(() => w.registerEntity({ id }), JSON.stringify(id)).toThrow(/registerEntity/);
+    for (const id of ['chr_Z9', 'bnk_New_1', 'hh_C2', 'prop_P1', 'ccp_C']) expect(w.registerEntity({ id })).toBe(id);
+  });
+  it('cpPolicy: TAX_* with payer = payee rejects (chr self and gov self); a normal TAX passes', () => {
+    const w = fixture();
+    for (const [a, b] of [['chr_A', 'chr_A'], ['gov_FDL', 'gov_FDL']]) {
+      const e = L.tplPay(w.env('03', 'P12'), a, b, 5n, 'FDL', 'TAX_SECURITIES_TX');
+      expect(e.invalid?.invariantId).toBe('INV-LED-025'); expect(e.invalid?.observed).toBe(`cp_self_pay TAX_SECURITIES_TX payer=payee=${a}`);
+    }
+    expect(L.tplPay(w.env('03', 'P12'), 'chr_A', 'gov_FDL', 5n, 'FDL', 'TAX_SECURITIES_TX').invalid).toBeUndefined();
   });
 });

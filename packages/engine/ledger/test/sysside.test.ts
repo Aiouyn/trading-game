@@ -115,7 +115,7 @@ describe('Δ6-B sysSide: spec tests 9, 10, 14, 14b, 18, 21', () => {
     const w = fixture();
     w.apiFor('04').ledger.cbCredit('cbk_FDL', 'bnk_N', M(30), 'FDL', 'CBK_STANDING_FACILITY');
     const t = ok(w); expect(sys(w, t).C_p).toBe(M(30)); expect(sys(w, t).byHolder.get('npcFirm')!.C_p).toBe(M(30));
-    w.apiFor('21').ledger.mint('bnk_N', M(10), 'EUN', 'ADM_CORRECTION_IN'); ok(w);
+    w.apiFor('04').ledger.cbCredit('cbk_EUN', 'bnk_N', M(10), 'EUN', 'CBK_STANDING_FACILITY'); ok(w); // E-17: a mint straight into bank reserves now fails INV-027
     w.apiFor('06').ledger.fx('bnk_N', 'cbk_FDL', 'EUN', M(4), 'FDL', M(5), 'FX_SPOT'); // cbk buys 4 EUN reserves for 5 FDL
     const t2 = ok(w);
     expect(sys(w, t2, 'EUN').sink.get('FX_SPOT')).toBe(M(4)); expect(sys(w, t2, 'EUN').netFlow).toBe(-M(4));

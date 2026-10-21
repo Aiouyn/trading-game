@@ -80,6 +80,9 @@ export interface FlowReader {
   archiveDay(ccy: Ccy, dayIndex: number): FlowDayArchive | undefined;
 }
 export type TickFlowsHook = (flows: Readonly<TickFlows>, at: { tick: Tick; ccy: Ccy }) => void;
+/** QA pr6 #5: entity ids are ASCII `kkk_Name`; no ':' / '|' / whitespace / non-ASCII, so ids never alias account-key or pair delimiters.
+ *  OPEN: QA's literal ^[a-z]{3}_ would reject the spec's own 'hh' and 'prop' kinds (accounts.ts kindOfId), so those two prefixes are admitted. */
+export const ENTITY_ID_RE = /^(?:[a-z]{3}|hh|prop)_[A-Za-z0-9_]+$/;
 export const FRESH_START_COOLDOWN_TICKS = 967_680; // OD-2: 56 real days per link group
 export const GARNISH_RATE_E6 = 300_000n;          // OD-2: 30%
 
@@ -147,6 +150,7 @@ export class LedgerWorld {
   /** Idempotent (T03-08 :99). */
   registerEntity(spec: RegisterEntitySpec): Id {
     if (this.s.entities.has(spec.id)) return spec.id;
+    if (!ENTITY_ID_RE.test(spec.id)) throw new Error(`registerEntity: invalid id '${spec.id}' (must match ${ENTITY_ID_RE.source})`);
     const kind = kindOfId(spec.id);
     if (!kind) throw new Error(`registerEntity: unknown kind for ${spec.id}`);
     this.s.entities.set(spec.id, {

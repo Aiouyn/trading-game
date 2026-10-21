@@ -210,7 +210,7 @@ describe('E-15(3) amount-based INV-LED-004 exemption: QA probes N1, N3-N6, N11, 
     const t = trade();
     expect(i4(add(t, [{ debitAccount: 'chr_A:1002:FDL', creditAccount: 'chr_B:1001:FDL', amount: 5n, reason: 'MKT_TRADE' }]))).toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -5`);
   });
-  it('E-15 test 5: a rail payment to bnk passes exactly (cash and deposit rails); 1 more micro of other M2 fails', () => {
+  it('E-15 test 5 (E-15(3) amount rule, id E15-T5): a rail payment to bnk passes exactly (cash and deposit rails); 1 more micro of other M2 fails', () => {
     const fee = L.tplPay(env('07'), 'chr_A', 'bnk_N', 2n, 'FDL', 'BNK_LOAN_FEE');
     expect(i4(fee)).toEqual([]);
     expect(i4(add(fee, [{ ...FORGE, amount: 1n, reason: 'BNK_LOAN_FEE' }]))).toContain(`I4: ${fee.entryId} non-bank TRANSFER BNK_LOAN_FEE moves M2 by -3`);

@@ -18,6 +18,7 @@ export function kindAllowed(spec: string, id: Id): boolean {
 }
 /** null when the pair fits the code's policy (or the code has none); else the observed / expected text for INV-LED-025. */
 export function cpMismatch(code: string, payer: Id, payee: Id): { observed: string; expected: string } | null {
+  if (code.startsWith('TAX_') && payer === payee) return { observed: `cp_self_pay ${code} payer=payee=${payer}`, expected: 'TAX_* payer ≠ payee' }; // QA pr6 #6
   const r = CP_POLICY.get(code); if (!r) return null;
   const okSide = r.oneSide === undefined || kindOfId(payer) === r.oneSide || kindOfId(payee) === r.oneSide;
   if (kindAllowed(r.payer, payer) && kindAllowed(r.payee, payee) && okSide) return null;
