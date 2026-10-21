@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { ALLOWLIST_FILE, formatAllowlist, loadAllowlist, runCli, scanStreamKeys } from './scan-stream-keys';
+import { ALLOWLIST_FILE, formatAllowlist, isExcludedTestFile, loadAllowlist, runCli, scanStreamKeys } from './scan-stream-keys';
 
 function fixture(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), 'scan-streams-'));
@@ -146,6 +146,24 @@ describe('AC-02-06-REGISTRY-SCOPE (E-69): roots packages/engine/ and src/, .ts/.
       'packages/engine/ledger/test/x.test.ts': lit, 'packages/engine/macro/test/h.ts': lit }));
     expect(r.callSiteKeys.map((c) => c.file)).toEqual(['packages/engine/ledger/test/driver.ts', 'packages/engine/macro/test/h.ts']);
   });
+  it('(e) over-match (QA #36): test suffixes match a FILE basename only; directories named *.test.ts, near-miss names and *.spec.ts are scanned', () => {
+    const r = scanStreamKeys(fixture({ 'packages/engine/macro/streams.ts': STREAMS,
+      'packages/engine/macro/evil.test.ts/prod.ts': lit,        // a directory ending in .test.ts: its files are scanned
+      'src/x.test.js/deep/k.ts': lit,
+      'packages/engine/macro/a.test.helper.ts': lit,            // contains '.test.' but does not end in a test suffix
+      'packages/engine/macro/b.spec.ts': lit,                   // .spec.ts is not on the E-69 list
+      'packages/engine/macro/c.test.ts': lit }));               // control: excluded
+    expect(r.callSiteKeys.map((c) => c.file)).toEqual(['packages/engine/macro/a.test.helper.ts', 'packages/engine/macro/b.spec.ts',
+      'packages/engine/macro/evil.test.ts/prod.ts', 'src/x.test.js/deep/k.ts']);
+  });
+  it('(e2) isExcludedTestFile: exactly the four suffixes, on the basename', () => {
+    const a = loadAllowlist();
+    for (const n of ['a.test.ts', 'a.test.tsx', 'a.test.mts', 'a.test.js']) expect(isExcludedTestFile(n, a)).toBe(true);
+    for (const n of ['a.spec.ts', 'a.test.helper.ts', 'test.ts', 'a.tests.ts', 'a.test.cjs']) expect(isExcludedTestFile(n, a)).toBe(false);
+  });
+  it('(e3) CLI exits 1 for a literal under a directory named evil.test.ts', () => {
+    expect(runCli(fixture({ 'packages/engine/macro/evil.test.ts/prod.ts': lit }), () => undefined, () => undefined)).toBe(1);
+  });
   it('(d) the printed allowlist matches the allowlist file, and the CLI prints it on every run', () => {
     const raw = JSON.parse(readFileSync(ALLOWLIST_FILE, 'utf8')) as Record<string, string[]>, a = loadAllowlist();
     expect(a).toEqual({ roots: raw.roots, extensions: raw.extensions, paths: raw.paths, testFileSuffixes: raw.testFileSuffixes });
@@ -163,7 +181,7 @@ describe('AC-02-06-REGISTRY-SCOPE (E-69): roots packages/engine/ and src/, .ts/.
 
 describe('ci:streams CLI exit code (subprocess)', () => {
   const REPO = join(dirname(fileURLToPath(import.meta.url)), '../..');
-  const cli = (root: string) => spawnSync(process.execPath, [join(REPO, 'packages/engine/core/node_modules/vite-node/vite-node.mjs'), join(REPO, 'tools/ci/scan-stream-keys-cli.ts'), '--', '--root', root], { encoding: 'utf8' });
+  const cli = (root: string) => spawnSync(process.execPath, [join(REPO, 'packages/engine/core/node_modules/vite-node/vite-node.mjs'), '--config', join(REPO, 'packages/engine/core/vitest.config.ts'), join(REPO, 'tools/ci/scan-stream-keys-cli.ts'), '--', '--root', root], { encoding: 'utf8' });
   it('exits 1 on a literal key, 0 on a clean tree, and prints the allowlist both times', () => {
     const bad = cli(fixture({ 'packages/engine/macro/fixtures/prod.ts': "export function f(ctx: any) { return ctx.rng('macro.fx:EUN:FDL'); }" }));
     expect(bad.status).toBe(1); expect(bad.stderr).toContain('excluded path: packages/engine/core/__lint_fixtures__/');

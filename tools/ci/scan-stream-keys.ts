@@ -40,16 +40,21 @@ export function formatAllowlist(a: ScanAllowlist): string {
     ...a.paths.map((p) => `excluded path: ${p}`), ...a.testFileSuffixes.map((x) => `excluded test files: *${x}`)].join('\n');
 }
 /** Exact-path exclusion: rel equals an entry, or lies under an entry ending in '/'; or ends with a test-file suffix. */
-function excluded(rel: string, a: ScanAllowlist): boolean {
-  return a.paths.some((p) => (p.endsWith('/') ? `${rel}/`.startsWith(p) : rel === p)) || a.testFileSuffixes.some((x) => rel.endsWith(x));
+/** Exact-path exclusions (a trailing / = everything under that exact directory). Applies to files and directories. */
+function excludedPath(rel: string, a: ScanAllowlist): boolean {
+  return a.paths.some((p) => (p.endsWith('/') ? `${rel}/`.startsWith(p) : rel === p));
+}
+/** Test-file exclusion: the suffix is matched on a FILE's basename only, never on a directory (QA #36: evil.test.ts/prod.ts is scanned). */
+export function isExcludedTestFile(basename: string, a: ScanAllowlist): boolean {
+  return a.testFileSuffixes.some((x) => basename.endsWith(x));
 }
 
 function walk(repoRoot: string, dir: string, a: ScanAllowlist, out: string[]): void {
   for (const name of readdirSync(dir).sort()) {
     const p = join(dir, name), rel = relative(repoRoot, p).split(sep).join('/');
-    if (excluded(rel, a)) continue;
+    if (excludedPath(rel, a)) continue;
     if (statSync(p).isDirectory()) walk(repoRoot, p, a, out);
-    else if (a.extensions.some((x) => name.endsWith(x))) out.push(p);
+    else if (a.extensions.some((x) => name.endsWith(x)) && !isExcludedTestFile(name, a)) out.push(p);
   }
 }
 
