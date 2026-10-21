@@ -21,7 +21,6 @@
 .alert-action { margin-left: auto; color: var(--fg); text-decoration: underline; flex: none; position: relative; }
 .alert-action::before { content: ""; position: absolute; inset: -8px -6px; }
 .world-banner { background: var(--win2); color: var(--fg-muted); }
-.world-dot { color: var(--loss); }
 .world-name { color: var(--fg); letter-spacing: 0.04em; }
 
 /* T5 §5 Sheet: radius 20 top corners, --elev-sheet, --win, z --z-sheet, enters with --dur-base --ease-out.
@@ -67,6 +66,16 @@ html[data-motion="reduce"] .qsheet { animation: none; }
 /* Halt chip (Studio 08:04): approved .chip shape with --steel text, never brass. Visible chip is the .chip box;
    the hit area grows invisibly to 28 px pointer / 44 px touch. */
 .halt-chip { position: relative; color: var(--steel); cursor: pointer; }
-.halt-chip::before { content: ""; position: absolute; inset: -6px -4px; }
-@media (pointer: coarse) { .halt-chip::before { inset: -14px -4px; } }
+/* C5: invisible hit area centred on the chip, never smaller than the chip itself; the focus ring stays on the
+   visible .chip shape (box-shadow on the button, not ::before). */
+.halt-chip::before {
+  content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: max(100%, 28px); height: max(100%, 28px);
+}
+@media (pointer: coarse) { .halt-chip::before { width: max(100%, 44px); height: max(100%, 44px); } }
 .halt-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Studio T5 glyphs: world rose in --steel; error glyph in --signal (never --loss). */
+.world-dot { display: inline-grid; place-items: center; flex: none; color: var(--steel); }
+.glyph-error { color: var(--signal); }
+.ds-glyphs { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); }
