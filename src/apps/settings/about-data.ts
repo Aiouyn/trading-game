@@ -25,6 +25,3 @@ export const CREDITS: readonly Credit[] = [
 export const release = () => process.env.NEXT_PUBLIC_RELEASE || "dev";
 /** Build commit [P]: NEXT_PUBLIC_BUILD_SHA at build, else "dev". */
 export const buildSha = () => process.env.NEXT_PUBLIC_BUILD_SHA || "dev";
-
-/** Version line (Producer ruling 2026-10-21): "<version> (<sha7>)". Not language-specific. */
-export const formatVersion = (version: string, sha: string) => `${version} (${sha})`;

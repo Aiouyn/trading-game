@@ -6,7 +6,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { About } from "@/apps/settings/About";
-import { formatVersion, LICENCES } from "@/apps/settings/about-data";
+import { LICENCES } from "@/apps/settings/about-data";
+import { SETTINGS_STRINGS } from "@/apps/settings/strings";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.mock("next/link", () => ({ default: ({ href, children, ...p }: { href: string; children: React.ReactNode }) => <a href={href} {...p}>{children}</a> }));
@@ -21,14 +22,15 @@ function mount(locale = "en") {
 afterEach(() => { document.body.innerHTML = ""; vi.unstubAllEnvs(); });
 
 describe("17B S2 About", () => {
-  it("S2-01: version line is '<version> (<sha7>)'; 'dev' when not built from git", () => {
-    expect(formatVersion("0.1.0", "abc1234")).toBe("0.1.0 (abc1234)");
+  it("S2-01: version line is '<version> (build <sha7>)' in EN and FR; 'dev' when not built from git", () => {
+    expect(SETTINGS_STRINGS.en.versionLine("0.1.0", "abc1234")).toBe("0.1.0 (build abc1234)");
+    expect(SETTINGS_STRINGS.fr.versionLine("0.1.0", "abc1234")).toBe("0.1.0 (build abc1234)");
     vi.stubEnv("NEXT_PUBLIC_RELEASE", "0.1.0");
     vi.stubEnv("NEXT_PUBLIC_BUILD_SHA", "abc1234");
-    expect(mount().querySelector("[data-testid=about-version]")!.textContent).toBe("0.1.0 (abc1234)");
+    expect(mount().querySelector("[data-testid=about-version]")!.textContent).toBe("0.1.0 (build abc1234)");
     document.body.innerHTML = "";
     vi.stubEnv("NEXT_PUBLIC_BUILD_SHA", "");
-    expect(mount().querySelector("[data-testid=about-version]")!.textContent).toBe("0.1.0 (dev)");
+    expect(mount().querySelector("[data-testid=about-version]")!.textContent).toBe("0.1.0 (build dev)");
   });
 
   it("S2-01: next.config injects package.json version and `git rev-parse --short=7 HEAD`, else dev", async () => {

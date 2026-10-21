@@ -1,7 +1,6 @@
 // Settings copy (17B SET-02 / SET-08), EN + FR. Kept here so src/shell/strings.ts stays untouched [P].
 // [P] = proposed copy pending Studio; FR = proposed translations pending review.
 import type { PaletteId } from "@/styles/tokens";
-import { formatVersion } from "./about-data";
 
 export type SettingsLocale = "en" | "fr";
 
@@ -40,7 +39,7 @@ const EN = {
   systemState: (on: boolean) => `System: ${on ? "on" : "off"}`,
   // About (SET-08)
   version: "Version",
-  versionLine: formatVersion,
+  versionLine: (version: string, sha: string) => `${version} (build ${sha})`,
   copyVersion: "Copy version",
   copied: "Copied",
   disclaimers: "Disclaimers",
@@ -88,7 +87,7 @@ const FR: Strings = {
   modes: { system: "Système", on: "Activé", off: "Désactivé" },
   systemState: (on: boolean) => `Système\u00A0: ${on ? "activé" : "désactivé"}`,
   version: "Version",
-  versionLine: formatVersion,
+  versionLine: (version: string, sha: string) => `${version} (build ${sha})`, // FR keeps "build" (Designer)
   copyVersion: "Copier la version",
   copied: "Copiée",
   disclaimers: "Avertissements",

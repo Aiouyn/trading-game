@@ -221,7 +221,7 @@ test("S1-14: About in-app (S2-01..07)", async ({ page, context }, info) => {
   // The e2e build is from this checkout, so the built bundle carries the real HEAD sha (Producer ruling (a)).
   const sha = execSync("git rev-parse --short=7 HEAD").toString().trim();
   const pkgVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
-  expect(version).toBe(`${pkgVersion} (${sha})`);
+  expect(version).toBe(`${pkgVersion} (build ${sha})`);
   await expect(about.getByTestId("about-licence-row")).toHaveCount(5);
   await expect(about.getByRole("link", { name: /Charts by TradingView/ })).toHaveAttribute("href", "https://www.tradingview.com");
   for (const a of await about.locator("a[target]").all()) {
