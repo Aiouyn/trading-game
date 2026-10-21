@@ -24,27 +24,42 @@ test("T3-01 sweep restarts within one frame of each tick; with ticks stopped 12 
   desktopOnly(info.project.name);
   // Fake timers: boot to quay-ready first, then pause; the mock clock only ticks when the test advances it.
   await bootPaused(page, "/");
+  // Measured in animation time, not wall-clock (robust under CPU load, keeps Studio's one-frame criterion):
+  // when the sweep is re-added, a probe Web Animation starts on the same trigger; its startTime is the timeline
+  // time of the FIRST frame after the trigger. The new sweep's Animation.startTime must be no later than that.
+  // (rAF is faked by page.clock, so the probe animation stands in for "the first rAF after the trigger".)
   await page.evaluate(() => {
-    const w = window as unknown as { __restarts: number[]; __lag: number[] };
-    w.__restarts = []; w.__lag = [];
+    const w = window as unknown as { __restarts: number; __late: number[] };
+    w.__restarts = 0; w.__late = [];
+    const probeEl = document.createElement("i"); probeEl.style.cssText = "position:fixed;width:0;height:0;"; document.body.append(probeEl);
     new MutationObserver((ms) => {
       for (const m of ms) for (const n of m.addedNodes) if ((n as Element).classList?.contains("tickring-sweep")) {
-        const added = document.timeline.currentTime as number;
-        w.__restarts.push(added);
-        const a = (n as Element).getAnimations()[0];
-        void a.ready.then(() => w.__lag.push((a.startTime as number) - added));
+        w.__restarts++;
+        const probe = probeEl.animate([{ opacity: 1 }, { opacity: 1 }], { duration: 1000 });
+        const sweep = (n as Element).getAnimations()[0]!;
+        // Next frame without rAF (faked): a fresh probe animation's ready resolves on the next rendered frame.
+        const nextFrame = () => { const f = probeEl.animate([{ opacity: 1 }, { opacity: 1 }], { duration: 1000 }); return f.ready.then(() => f.cancel()); };
+        void (async () => {
+          await probe.ready;
+          // Wait until the sweep is actually running with a resolved start time (a held/paused sweep has none yet).
+          for (let i = 0; i < 20 && !(sweep.playState === "running" && sweep.startTime != null); i++) await nextFrame();
+          w.__late.push((sweep.startTime as number) - (probe.startTime as number));
+          probe.cancel();
+        })();
       }
     }).observe(document.querySelector("[data-testid=tickring]")!, { childList: true, subtree: true });
   });
   for (let i = 0; i < 3; i++) { await page.clock.runFor(5000); await page.waitForTimeout(100); }
-  const { restarts, lag } = await page.evaluate(() => { const w = window as unknown as { __restarts: number[]; __lag: number[] }; return { restarts: w.__restarts.length, lag: w.__lag }; });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __late: number[] }).__late.length)).toBe(3);
+  const { restarts, late } = await page.evaluate(() => { const w = window as unknown as { __restarts: number; __late: number[] }; return { restarts: w.__restarts, late: w.__late }; });
   expect(restarts).toBe(3);
-  for (const l of lag) expect(l).toBeLessThanOrEqual(17);
+  // ≤ 0: the sweep started in (or before) the first frame after its tick. One extra frame shows up as ≈ +16.7.
+  for (const l of late) expect(l).toBeLessThanOrEqual(0.5);
   // No more ticks: 12 s of real time. The sweep is not replaced, finishes, and holds full.
   await page.waitForTimeout(12_000);
   const held = await page.evaluate(() => {
     const s = document.querySelector(".tickring-sweep")!;
-    return { restarts: (window as unknown as { __restarts: number[] }).__restarts.length, state: s.getAnimations()[0]?.playState, offset: getComputedStyle(s).strokeDashoffset, iter: getComputedStyle(s).animationIterationCount };
+    return { restarts: (window as unknown as { __restarts: number }).__restarts, state: s.getAnimations()[0]?.playState, offset: getComputedStyle(s).strokeDashoffset, iter: getComputedStyle(s).animationIterationCount };
   });
   expect(held).toEqual({ restarts: 3, state: "finished", offset: "0px", iter: "1" });
 });
