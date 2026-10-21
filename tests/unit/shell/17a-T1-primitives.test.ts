@@ -144,3 +144,19 @@ describe("Button", () => {
     expect(m).toContain('type="button"');
   });
 });
+
+// Studio T1 ruling 7: direction beats certainty.
+import { renderToStaticMarkup as _r } from "react-dom/server";
+import { createElement as _c } from "react";
+import { MoneyText as _M } from "@/components/shell/MoneyText";
+describe("ruling 7: estimated tone", () => {
+  const cls = (amount: string, ctx?: "delta" | "list") => /class="([^"]*)"/.exec(_r(_c(_M, { amount, ctx, estimated: true })))![1].split(" ");
+  it("estimated negative is loss, not muted", () => { expect(cls("-12.50")).toContain("loss"); expect(cls("-12.50")).not.toContain("muted"); });
+  it("estimated zero and neutral values are muted", () => { expect(cls("0", "delta")).toContain("muted"); expect(cls("12.50")).toContain("muted"); });
+  it("estimated positive delta is gain with the ≈ prefix (Studio answer 3)", () => {
+    expect(cls("12.50", "delta")).toContain("gain");
+    expect(cls("12.50", "delta")).not.toContain("muted");
+    expect(_r(_c(_M, { amount: "12.50", ctx: "delta", estimated: true }))).toContain("≈+$12.50");
+  });
+  it("keeps the ≈ prefix", () => expect(_r(_c(_M, { amount: "-12.50", estimated: true }))).toContain("≈−$12.50"));
+});

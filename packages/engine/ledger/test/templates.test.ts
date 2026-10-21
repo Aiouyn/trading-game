@@ -90,8 +90,8 @@ describe('templates (T03-07) and rail (T03-06)', () => {
     expect(tplPay(w.env('21', 'P12'), 'chr_A', 'chr_Z', 1n, 'FDL', 'ADM_CORRECTION_TRANSFER').invalid?.invariantId).toBe('INV-LED-026'); // E-15.2: unknown_entity is INV-LED-026 (was 007)
   });
   it('negative ACCRUE swaps sides (03 §8 edge 18)', () => {
-    const e = tplAccrue(fixture().env('03', 'P13'), 'chr_P', -5n, 'FDL', 'LED_MTM_DAILY', 1500, 4060);
-    expect(simple(e)).toEqual(['Dr chr_P:4060:FDL / Cr chr_P:1500:FDL 5']);
+    const e = tplAccrue(fixture().env('03', 'P13'), 'chr_P', -5n, 'FDL', 'LED_MTM_DAILY', 1500, 4070);
+    expect(simple(e)).toEqual(['Dr chr_P:4070:FDL / Cr chr_P:1500:FDL 5']);
   });
   it('template purity (p10 stakes.ts:139 / failure.ts:286 port): builders return plain data, no closures (E3)', () => {
     const w = fixture();

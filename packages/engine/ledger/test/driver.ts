@@ -29,11 +29,11 @@ export function driveTick(w: LedgerWorld, rnd: () => number, loans: { id: string
         else { const id = `ln_${w.tick}_${i}`; const x = amt(3_000_000_000); w.apiFor('07').ledger.lend('bnk_N', a, x, 'FDL', 'BNK_LOAN_DRAWDOWN', id); loans.push({ id, amt: x, borrower: a }); }
         break;
       }
-      case 7: w.apiFor('03').ledger.accrue(a, amt(1_000_000) - 500_000n, 'FDL', 'LED_MTM_DAILY', 1500, 4060); break;
+      case 7: w.apiFor('03').ledger.accrue(a, amt(1_000_000) - 500_000n, 'FDL', 'LED_MTM_DAILY', 1500, 4070); break;
       case 8: if (av > 4n) {
         const price = 1n + (av - 1n) / 2n; const fee = 1n + price / 100n;
         w.apiFor('05').ledger.compose(
-          ({ env, t }) => t.tplSwapAsset(env, a, 'cmp_N', 'ast_EQ_N', amt(10), price, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 }),
+          ({ env, t }) => t.tplSwapAsset(env, a, 'cmp_N', 'ast_EQ_N', amt(10), price, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 }),
           [({ env, t }) => t.tplPay(env, a, 'exc_X', fee, 'FDL', 'MKT_EXCHANGE_FEE')], // erratum: trade fees are TRANSFER legs into a system treasury (Δ6-B)
         );
         if (a === 'cmp_N') w.testHooks().queue.pop(); // no self-trade
@@ -45,6 +45,20 @@ export function driveTick(w: LedgerWorld, rnd: () => number, loans: { id: string
 export function runDriver(seed: number, ticks: number, onTick?: (w: LedgerWorld, r: ReturnType<LedgerWorld['runP13']>, before: ReturnType<LedgerWorld['aggregates']>) => void): LedgerWorld {
   const w = driverWorld(); const rnd = prng(seed); const loans: { id: string; amt: bigint; borrower: string }[] = [];
   for (let t = 0; t < ticks; t++) {
+    driveTick(w, rnd, loans);
+    const before = w.aggregates('FDL');
+    const r = w.runP13();
+    onTick?.(w, r, before);
+  }
+  return w;
+}
+
+/** Same run as runDriver (identical PRNG and tick sequence), but yields one macrotask per game day (720 ticks) so a long run never
+ *  blocks the vitest worker's RPC heartbeat ("Timeout calling onTaskUpdate"). Test harness only; src stays synchronous (G8). */
+export async function runDriverYielding(seed: number, ticks: number, onTick?: Parameters<typeof runDriver>[2]): Promise<LedgerWorld> {
+  const w = driverWorld(); const rnd = prng(seed); const loans: { id: string; amt: bigint; borrower: string }[] = [];
+  for (let t = 0; t < ticks; t++) {
+    if (t > 0 && t % 720 === 0) await new Promise<void>((res) => setImmediate(res));
     driveTick(w, rnd, loans);
     const before = w.aggregates('FDL');
     const r = w.runP13();

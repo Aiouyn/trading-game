@@ -1,4 +1,5 @@
 // Spec §7 additions 1a, 1b, 2, 4, 6, 8 and the TickFlows / FlowDay / FlowReader plumbing (Δ2, PD-5, Δ5).
+import * as L from '../src';
 import { describe, expect, it } from 'vitest';
 import { INV_LED_015, SortedMap, type TickFlows } from '../src';
 import { fixture } from './fixture';
@@ -60,7 +61,7 @@ describe('flow aggregates', () => {
     w.apiFor('21').ledger.mint('chr_A', 2_000_000_000n, 'FDL', 'ADM_CORRECTION_IN');
     w.runP13();
     w.apiFor('05').ledger.compose(
-      ({ env, t: T }) => T.tplSwapAsset(env, 'chr_A', 'chr_B', 'ast_EQ_X', 10n, 1_000_000_000n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 }),
+      ({ env, t: T }) => T.tplSwapAsset(env, 'chr_A', 'chr_B', 'ast_EQ_X', 10n, 1_000_000_000n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 }),
       [({ env, t: T }) => T.tplPay(env, 'chr_A', 'exc_X', 2_000_000n, 'FDL', 'MKT_EXCHANGE_FEE'), ({ env, t: T }) => T.tplPay(env, 'chr_A', 'gov_FDL', 1_500_000n, 'FDL', 'TAX_SECURITIES_TX')],
     );
     expect(w.runP13().failures).toEqual([]);
@@ -73,6 +74,26 @@ describe('flow aggregates', () => {
     expect(f.byClass.get('FAUCET')).toBe(0n);
     expect(f.m0sysDelta).toBe(0n);
     expect(w.entryLog().filter((e) => e.template === 'SWAP_ASSET').length).toBe(1); // one composed entry
+    // E-9 / Δ6-B: exc_X is NPC-controlled, so both legs cross into S.
+    const s = f.sysSide!;
+    expect(L.sumMap(s.sink)).toBe(3_500_000n); // X_out
+    expect([s.sink.get('MKT_EXCHANGE_FEE'), s.sink.get('TAX_SECURITIES_TX')]).toEqual([2_000_000n, 1_500_000n]);
+    expect(s.netFlow).toBe(-3_500_000n); expect(s.m0PlayerDelta).toBe(-3_500_000n);
+    expect(s.byHolder.get('human')!.X_out).toBe(3_500_000n);
+    expect(L.sumMap(s.treasury) - L.sumMap(w.flowReader().tickFlows('FDL', t)!.sysSide!.treasury)).toBe(3_500_000n);
+    expect(w.aggregates('FDL').M0).toBe(2_000_000_000n);
+  });
+  it('8 variant: a chr-controlled exc_X makes the fee a same-side MOVE; X_out = 1,500,000 (tax only)', () => {
+    const w = fixture(); w.setController('exc_X', 'chr_B');
+    w.apiFor('21').ledger.mint('chr_A', 2_000_000_000n, 'FDL', 'ADM_CORRECTION_IN');
+    w.runP13(); const t = w.tick;
+    w.apiFor('05').ledger.compose(
+      ({ env, t: T }) => T.tplSwapAsset(env, 'chr_A', 'chr_B', 'ast_EQ_X', 10n, 1_000_000_000n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 }),
+      [({ env, t: T }) => T.tplPay(env, 'chr_A', 'exc_X', 2_000_000n, 'FDL', 'MKT_EXCHANGE_FEE'), ({ env, t: T }) => T.tplPay(env, 'chr_A', 'gov_FDL', 1_500_000n, 'FDL', 'TAX_SECURITIES_TX')],
+    );
+    expect(w.runP13().failures).toEqual([]);
+    const s = w.flowReader().tickFlows('FDL', t)!.sysSide!;
+    expect(L.sumMap(s.sink)).toBe(1_500_000n); expect(s.sink.get('MKT_EXCHANGE_FEE')).toBeUndefined(); expect(s.netFlow).toBe(-1_500_000n);
   });
   it('2 Δ2 cost: P13 never reads the postings archive (runP13 throws if it does), across a day close', () => {
     const w = fixture();
@@ -97,7 +118,7 @@ describe('flow aggregates', () => {
   it('4 Δ4 replay: re-running P13 for a committed tick posts nothing; a scheduled accrual replayed after restore posts once', () => {
     const mk = () => {
       const w = fixture();
-      w.registerProcess({ name: 'led.mtm', module: '03', run: (tick) => [{ subject: 'chr_P', post: (L) => { L.accrue('chr_P', BigInt(tick + 1), 'FDL', 'LED_MTM_DAILY', 1500, 4060); } }] });
+      w.registerProcess({ name: 'led.mtm', module: '03', run: (tick) => [{ subject: 'chr_P', post: (L) => { L.accrue('chr_P', BigInt(tick + 1), 'FDL', 'LED_MTM_DAILY', 1500, 4070); } }] });
       return w;
     };
     const a = mk(); a.runTicks(10);

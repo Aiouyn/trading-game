@@ -66,7 +66,8 @@ export function CityWindow({ state }: { state: BodyState }) {
         await r.mount(ref.current);
       } catch {
         // createCityRenderer or mount() rejected: show the shell's error state instead of loading forever.
-        r?.dispose();
+        // A throwing dispose() must not swallow the error state.
+        try { r?.dispose(); } catch { /* already broken; nothing more to release */ }
         if (!disposed) { setLoading(false); setFailed(true); }
         return;
       }
@@ -103,7 +104,7 @@ export function CityWindow({ state }: { state: BodyState }) {
   useEffect(() => { renderer.current?.setOverlay(overlayOf(myCityOverlay)); }, [myCityOverlay]);
 
   return (
-    <div className="city-body" data-testid="city-body" data-visibility={visibility}>
+    <div className="city-body" data-testid="city-body" data-visibility={visibility} data-failed={failed || undefined}>
       {loading && <p className="muted city-loading">{S.loadingCity}</p>}
       {/* The shell's existing error message ("Couldn't load the city"), in the loading slot, in a role=alert region. */}
       {failed && (

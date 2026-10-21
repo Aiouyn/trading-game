@@ -16,18 +16,24 @@ describe("contrast lint: ruling 8 (data-cb=\"1\")", () => {
   });
 });
 
-describe("?city=fail e2e hook is unreachable in a production build", () => {
-  it("production without the opt-in ignores it; with it (or in dev) it forces failure", async () => {
-    const { cityFailForced } = await import("@/apps/city/createShellCityRenderer");
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL", "");
-    expect(cityFailForced("?city=fail")).toBe(false);
-    vi.stubEnv("NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL", "1");
-    expect(cityFailForced("?city=fail")).toBe(true);
-    vi.stubEnv("NODE_ENV", "development");
-    vi.stubEnv("NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL", "");
-    expect(cityFailForced("?city=fail")).toBe(true);
-    expect(cityFailForced("?city=ok")).toBe(false);
+describe("?city=fail e2e hook is gated at build time (module-level constant the bundler folds)", () => {
+  const load = async (env: Record<string, string>) => {
+    vi.resetModules();
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    const m = await import("@/apps/city/createShellCityRenderer");
     vi.unstubAllEnvs();
+    return m;
+  };
+  it("production without the opt-in: hook compiled out", async () => {
+    const m = await load({ NODE_ENV: "production", NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL: "0" });
+    expect(m.CITY_FAIL_HOOK).toBe(false);
+    expect(m.cityFailForced("?city=fail")).toBe(false);
+  });
+  it("production e2e build and dev force failure only for ?city=fail", async () => {
+    for (const env of [{ NODE_ENV: "production", NEXT_PUBLIC_QUAY_MOCK_CITY_FAIL: "1" }, { NODE_ENV: "development" }] as Record<string, string>[]) {
+      const m = await load(env);
+      expect(m.cityFailForced("?city=fail")).toBe(true);
+      expect(m.cityFailForced("?city=ok")).toBe(false);
+    }
   });
 });

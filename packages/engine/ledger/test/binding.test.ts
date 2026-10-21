@@ -68,7 +68,7 @@ describe('V3 03 §10 binding tests', () => {
     const L = w.apiFor('04').ledger;
     L.mint('fnd_F', 10_000_000_000_000n, 'FDL', 'MAC_GENESIS_ENDOWMENT');
     w.runP13();
-    w.apiFor('05').ledger.swapAsset('fnd_F', 'gov_FDL', 'ast_BOND_X', 1000n, 10_000_000_000_000n, 'FDL', 'MKT_TRADE', { assetAcct: 1520, assetAcctFrom: 2600 }); // gov issues the bond
+    w.apiFor('04').ledger.swapAsset('fnd_F', 'gov_FDL', 'ast_BOND_X', 1000n, 10_000_000_000_000n, 'FDL', 'SOV_BOND_ISSUE', { assetAcct: 1520 }); // gov issues the bond (E-15.1: not MKT_TRADE)
     expect(w.runP13().failures).toEqual([]);
     const a0 = w.aggregates('FDL'); const nw0 = w.netWorth('fnd_F');
     L.cbCredit('cbk_FDL', 'fnd_F', 10_000_000_000_000n, 'FDL', 'CBK_ASSET_PURCHASE', { qty: 1000n, assetId: 'ast_BOND_X', assetAcct: 1520 });

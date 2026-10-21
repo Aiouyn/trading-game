@@ -1,0 +1,83 @@
+# City renderer (Spec 2, PR #4) — Producer-authorized, separate from Front Dev's ci.yml (PR #2).
+# Runs the city unit suite (incl. C-16 paths) and the city e2e suite (incl. C-10 budgets) on
+# Node 22. Path-filtered, so it only runs for changes that can affect the city.
+# This workflow is the only owner of the city tests: ci.yml no longer runs them (PR #7). The
+# whole-app lint/typecheck/build stays in ci.yml.
+name: city
+on:
+  pull_request:
+    paths:
+      - 'src/city/**'
+      - 'tests/unit/city/**'
+      - 'tests/e2e/city/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/city.yml'
+  push:
+    branches: [main] # PR branches are covered by pull_request (no double runs)
+    paths:
+      - 'src/city/**'
+      - 'tests/unit/city/**'
+      - 'tests/e2e/city/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/city.yml'
+  workflow_dispatch:
+concurrency:
+  group: city-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  # google/fonts at a fixed commit: the faces the app self-hosts via next/font (OFL)
+  FONTS_SHA: 47d54ca1ebb14fd864695f1d39dc734f39017c33
+jobs:
+  unit:
+    name: city unit (Node 22)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 } # C-16 diffs against the base branch
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: typecheck (city paths)
+        run: npx tsc --noEmit -p tests/unit/city/tsconfig.json
+      - name: lint (city paths)
+        run: npx eslint src/city tests/unit/city tests/e2e/city
+      - name: vitest (C-01, C-02, C-09, C-12, C-14, C-16, 17-AT-21 …)
+        run: npx vitest run -c tests/unit/city/vitest.config.ts
+        env:
+          CITY_BASE_REF: origin/${{ github.base_ref || 'main' }}
+  e2e:
+    name: city e2e (Node 22, Chromium + SwiftShader)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: fonts (Inter, Instrument Serif, JetBrains Mono)
+        run: |
+          d="$RUNNER_TEMP/fonts"
+          mkdir -p "$d/Instrument Serif" "$d/Inter" "$d/JetBrains Mono"
+          base="https://raw.githubusercontent.com/google/fonts/$FONTS_SHA/ofl"
+          curl -fsSL -o "$d/Instrument Serif/InstrumentSerif-Regular.ttf" "$base/instrumentserif/InstrumentSerif-Regular.ttf"
+          curl -fsSL -o "$d/Inter/Inter-VariableFont_opsz,wght.ttf" "$base/inter/Inter%5Bopsz,wght%5D.ttf"
+          curl -fsSL -o "$d/JetBrains Mono/JetBrainsMono-VariableFont_wght.ttf" "$base/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf"
+          echo "CITY_FONTS_DIR=$d" >> "$GITHUB_ENV"
+      - name: playwright (C-03 … C-15, incl. C-10 budgets)
+        run: npx playwright test -c tests/e2e/city/playwright.config.ts
+        env:
+          CI: '1'
+          CITY_EVIDENCE_DIR: ${{ runner.temp }}/city-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: city-evidence
+          path: ${{ runner.temp }}/city-evidence
+          retention-days: 14

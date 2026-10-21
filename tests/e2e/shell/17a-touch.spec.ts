@@ -141,3 +141,27 @@ test("City error state: centred block, muted message, --fg Retry 8 px below, ≥
   await shot(page, "city-error");
   await ctx.close();
 });
+
+// #19 QA: Retry must be reachable by a REAL pointer click (1440) and a REAL touch tap (390): the error layer stacks
+// above the canvas mount and the mount never intercepts. No force:true, no dispatchEvent.
+for (const mode of ["click-1440", "tap-390"] as const) {
+  test(`City Retry: real ${mode} re-creates the renderer (error layer above the mount)`, async ({ browser }, info) => {
+    test.skip(info.project.name !== "desktop", "each case drives its own context");
+    const tap = mode === "tap-390";
+    const ctx = await browser.newContext(tap ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: { width: 1440, height: 900 } });
+    const page = await ctx.newPage();
+    await boot(page, "/city?city=fail");
+    const retry = page.getByTestId("city-retry");
+    await expect(page.getByTestId("city-error")).toHaveText("Couldn't load the city");
+    // Hit test at the button's centre lands on Retry itself, not the city mount.
+    const top = await retry.evaluate((b) => { const r = b.getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e === b || b.contains(e); });
+    expect(top).toBe(true);
+    // Let the next attempt succeed: drop the failure hook from the URL (the click/tap itself stays real).
+    await page.evaluate(() => history.replaceState(null, "", location.pathname));
+    if (tap) await retry.tap(); else await retry.click();
+    await expect(page.getByTestId("city-error")).toHaveCount(0);
+    await expect(page.getByTestId("city-retry")).toHaveCount(0);
+    await expect(page.locator("[data-testid=city-mount] canvas")).toHaveCount(1, { timeout: 15_000 });
+    await ctx.close();
+  });
+}

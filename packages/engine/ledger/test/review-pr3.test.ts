@@ -24,7 +24,9 @@ const extra = (e: Entry, p: Partial<Posting>): Entry => ({ ...e, postings: [...e
 
 describe('F1 INV-LED-004 per-entry M2 rules (T03-11 step 7)', () => {
   it('a REVALUE posting on 1001 fails', () => {
-    const e = L.tplAccrue(env('03'), 'chr_A', 5n, 'FDL', 'LED_MTM_DAILY', 1001, 4070);
+    // legPolicy (E-11) now rejects a 1001 leg at the template; the forged posting reaches the invariant directly.
+    const ok = L.tplAccrue(env('03'), 'chr_A', 5n, 'FDL', 'LED_MTM_DAILY', 1500, 4070);
+    const e = { ...ok, postings: [{ ...ok.postings[0], debitAccount: 'chr_A:1001:FDL' }] };
     expect(obs(L.INV_LED_004(view([e])), 'INV-LED-004').some((o) => /REVALUE LED_MTM_DAILY moves M2/.test(o))).toBe(true);
   });
   it('a chr -> chr pay passes; the same pay with a forged extra 2100 leg fails (non-bank TRANSFER moves M2)', () => {
@@ -40,7 +42,7 @@ describe('F1 INV-LED-004 per-entry M2 rules (T03-11 step 7)', () => {
     expect(obs(L.INV_LED_004(view([bad])), 'INV-LED-004').some((o) => /SINK ADM_CORRECTION_OUT M2 sign 40/.test(o))).toBe(true);
   });
   it('CB_CREDIT into a fund: M2 = non-bank cash moved passes; a forged deposit leg makes M2 differ from it and fails (kills the CB-credit-rule mutant)', () => {
-    const qe = L.tplCbCredit(env('04'), 'cbk_FDL', 'fnd_F', 1_000n, 'FDL', 'CBK_ASSET_PURCHASE');
+    const qe = L.tplCbCredit(env('04'), 'cbk_FDL', 'fnd_F', 1_000n, 'FDL', 'CBK_ASSET_PURCHASE', { assetId: 'ast_B', qty: 1n, assetAcct: 1520 });
     expect(obs(L.INV_LED_004(view([qe])), 'INV-LED-004')).toEqual([]);
     const forged = extra(qe, { debitAccount: 'bnk_N:2100:fnd_F:FDL', creditAccount: 'bnk_N:3100:FDL', amount: 40n }); // M2 −40, non-bank 1001 unchanged
     expect(obs(L.INV_LED_004(view([forged])), 'INV-LED-004')).toContain(`I4: ${qe.entryId} CB credit CBK_ASSET_PURCHASE M2 960`);
@@ -75,7 +77,7 @@ describe('F2 elastic bridge (INV-LED-005, I17 mirror)', () => {
 });
 
 describe('F3 INV-LED-002 supporting legs (T03-05 step 8 exactly)', () => {
-  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
+  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 });
   it('a SINK fee leg (BURN) inside a SWAP_ASSET trade fails: class SINK does not admit SWAP_ASSET (card rule, no template-stamp branch)', () => {
     const fee = L.tplBurn(env('21'), 'chr_A', 1n, 'FDL', 'ADM_CORRECTION_OUT');
     const c = L.composeEntries(env('05'), trade(), [fee]);
@@ -100,7 +102,7 @@ describe('F3 INV-LED-002 supporting legs (T03-05 step 8 exactly)', () => {
 });
 
 describe('QA blocker: INV-LED-004 bank/cbk/gov exemption is per reason-code group', () => {
-  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
+  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 });
   it('a taxed trade (gov_ tax leg) passes; the same trade with a forged M2 leg under MKT_TRADE fails', () => {
     const tax = L.tplPay(env('03'), 'chr_A', 'gov_FDL', 2n, 'FDL', 'TAX_SECURITIES_TX');
     const c = L.composeEntries(env('05'), trade(), [tax]);
@@ -147,11 +149,11 @@ describe('F5 catalog v2 (catalog.csv v2 + aliases.csv)', () => {
     expect(cat.mayRequest(r.code, 99)).toBe(false);
     expect(cat.mayRequest(r.code, r.owner)).toBe(true);
   });
-  it('catalog legA/legB are the default value legs (PAY, MINT); PostOpts still override', () => {
+  it('catalog legA/legB are the default value legs (PAY, MINT); a FIXED-leg override is rejected (legpolicy.csv, E-11)', () => {
     const pay = L.tplPay(env('07'), 'chr_A', 'chr_B', 10n, 'FDL', 'BNK_LOAN_FEE');
     expect(pay.postings.at(-1)).toMatchObject({ debitAccount: 'chr_A:5080:FDL', creditAccount: 'chr_B:4040:FDL' });
     const over = L.tplPay(env('07'), 'chr_A', 'chr_B', 10n, 'FDL', 'BNK_LOAN_FEE', { valueLegA: 5000 });
-    expect(over.postings.at(-1)?.debitAccount).toBe('chr_A:5000:FDL');
+    expect(over.invalid).toMatchObject({ invariantId: 'INV-LED-007', observed: 'leg_mismatch A observed=5000', expected: 'expected=5080' });
     const mint = L.tplMint(env('21'), 'chr_A', 10n, 'FDL', 'ADM_CORRECTION_IN');
     expect(mint.postings.at(-1)?.creditAccount).toBe('chr_A:4190:FDL');
   });
@@ -163,7 +165,7 @@ describe('F5 catalog v2 (catalog.csv v2 + aliases.csv)', () => {
 });
 
 describe('E-15(3) amount-based INV-LED-004 exemption: QA probes N1, N3-N6, N11, N12', () => {
-  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
+  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 });
   const FORGE = { debitAccount: 'bnk_N:2100:chr_B:FDL', creditAccount: 'bnk_N:5000:FDL', amount: 7n, qty: undefined, assetId: undefined };
   const add = (e: Entry, ps: Partial<Posting>[]): Entry => ps.reduce((a, p) => extra(a, { qty: undefined, assetId: undefined, ...p }), e);
   const triplet = (payer: string, gov: string, reason: string, n = 1n): Partial<Posting>[] => [
@@ -208,7 +210,7 @@ describe('E-15(3) amount-based INV-LED-004 exemption: QA probes N1, N3-N6, N11, 
     const t = trade();
     expect(i4(add(t, [{ debitAccount: 'chr_A:1002:FDL', creditAccount: 'chr_B:1001:FDL', amount: 5n, reason: 'MKT_TRADE' }]))).toContain(`I4: ${t.entryId} non-bank TRANSFER MKT_TRADE moves M2 by -5`);
   });
-  it('E-15 test 5: a rail payment to bnk passes exactly (cash and deposit rails); 1 more micro of other M2 fails', () => {
+  it('E-15 test 5 (E-15(3) amount rule, id E15-T5): a rail payment to bnk passes exactly (cash and deposit rails); 1 more micro of other M2 fails', () => {
     const fee = L.tplPay(env('07'), 'chr_A', 'bnk_N', 2n, 'FDL', 'BNK_LOAN_FEE');
     expect(i4(fee)).toEqual([]);
     expect(i4(add(fee, [{ ...FORGE, amount: 1n, reason: 'BNK_LOAN_FEE' }]))).toContain(`I4: ${fee.entryId} non-bank TRANSFER BNK_LOAN_FEE moves M2 by -3`);
@@ -245,7 +247,7 @@ describe('E-15.2 INV-LED-026: every leg entity registered and not DISSOLVED', ()
 });
 
 describe('QA G9 / K1 / K2: per-(bank, holder) deposit mirror and amount-rule killers', () => {
-  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcctFrom: 2600 });
+  const trade = () => L.tplSwapAsset(env('05'), 'chr_A', 'chr_B', 'ast_EQ', 1n, 100n, 'FDL', 'MKT_TRADE', { assetAcct: 1500, assetAcctFrom: 2600 });
   const add = (e: Entry, ps: Partial<Posting>[]): Entry => ps.reduce((a, p) => extra(a, { qty: undefined, assetId: undefined, ...p }), e);
   const triplet = (n: bigint): Partial<Posting>[] => [
     { debitAccount: 'gov_FDL:1003:GENERAL:FDL', creditAccount: 'chr_A:1001:FDL', amount: n, reason: 'MKT_TRADE' },

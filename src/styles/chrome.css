@@ -192,7 +192,11 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 .coming-later, .lock-body { padding: var(--sp-8); }
 .coming-later p, .lock-body p { margin: 0; }
 .city-body, .city-mount { width: 100%; height: 100%; position: relative; }
-.city-loading { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; }
+/* Loading/error layer sits ABOVE the canvas mount (#19 QA): both are positioned, and the mount comes later in
+   the DOM, so without a z-index the empty mount painted over Retry and swallowed clicks/taps. The mount is also
+   inert to pointers while the window is in its error state. */
+.city-loading { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; z-index: 1; }
+.city-body[data-failed] .city-mount { pointer-events: none; }
 .city-failed { place-content: center; justify-items: center; gap: var(--sp-8); }
 .city-failed p { margin: 0; }
 

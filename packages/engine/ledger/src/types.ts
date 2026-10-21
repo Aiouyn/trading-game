@@ -31,7 +31,12 @@ export interface Entry {
   holdId?: Id; headline?: { amount: Money; ccy: Ccy; counterpartyId?: Id };
   invalid?: { invariantId: string; observed: string; expected: string };
   /** Parties the template was called with; borrowerId for LEND/REPAY/CB_CREDIT(_UNWIND) (PR #3 review F1, X-4). */
-  meta?: { parties: Id[]; borrowerId?: Id };
+  meta?: {
+    parties: Id[]; borrowerId?: Id;
+    escrow?: { op: 'PLACE'; row: ConflictEscrow } | { op: 'SETTLE'; escrowId: Id; toAttacker: Money; toVictim: Money };
+    accrual?: { id: Id; accrued?: Money; settled?: Money };
+    garnish?: { id: Id; amount: Money };
+  };
 }
 export interface Hold {
   holdId: Id; owner: Id; kind: 'CASH' | 'QTY'; ccy?: Ccy; assetId?: Id; amount: bigint; remaining: bigint;
@@ -43,3 +48,11 @@ export interface Reject { code: 'LED_INSUFFICIENT_FUNDS' | 'LED_INSUFFICIENT_QTY
 export function isReject(x: unknown): x is Reject {
   return typeof x === 'object' && x !== null && 'code' in x;
 }
+
+/** led.escrow row (spec §6.11 Δ14). */
+export interface ConflictEscrow {
+  escrowId: Id; victimId: Id; attackerId: Id; opId: Id; code: string; ccy: Ccy; amount: Money;
+  placedTick: Tick; expiresTick: Tick; caseId: Id | null; status: 'HELD' | 'RELEASED' | 'CLAWED_BACK' | 'SPLIT';
+}
+/** Accrual registry row (errata E-14). a = receivable holder (payee), b = payer. */
+export interface AccrualRow { accrualId: Id; kind: string; code: string; module: number; a: Id; b: Id; ccy: Ccy; payable: number; accrued: Money; settled: Money }
