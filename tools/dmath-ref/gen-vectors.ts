@@ -1,4 +1,4 @@
-// T02-02 vector generator (Node tool, NOT engine code). Usage: npx tsx tools/dmath-ref/gen-vectors.ts [count=10000] [seed=20202]
+// T02-02/T02-03 vector generator (Node tool, NOT engine code). Usage: npx tsx tools/dmath-ref/gen-vectors.ts [count=10000] [seed=20202]
 // Writes packages/engine/core/dmath/vectors/<fn>.vec = canonEncode({ fn, inputs: [[bits…]], expected: [bits] }), every double as its
 // u64 IEEE-754 bit pattern (bigint), expected = refX(input) correctly rounded (half-even) to binary64.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -11,8 +11,11 @@ import * as dmath from '../../packages/engine/core/dmath';
 
 import { BigFloat, roundToF64 } from './bigfloat';
 import { refExp, refExpm1, refLn, refLog10, refLog1p, refLog2, refPow, refSigmoid, refTanh } from './ref-exp';
+import { refErf, refErfc, refLgamma, refNormCdf, refNormInv } from './ref-special';
+import { refAtan, refAtan2, refCos, refSin } from './ref-trig';
 
-export const VECTOR_FNS = ['exp', 'expm1', 'ln', 'log1p', 'log2', 'log10', 'pow', 'tanh', 'sigmoid'] as const;
+export const VECTOR_FNS = ['exp', 'expm1', 'ln', 'log1p', 'log2', 'log10', 'pow', 'tanh', 'sigmoid',
+  'sin', 'cos', 'atan', 'atan2', 'erf', 'erfc', 'normCdf', 'normInv', 'lgamma'] as const;   // T02-03 appends the last nine
 export const VECTOR_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../packages/engine/core/dmath/vectors');
 
 const bits = (x: number): bigint => { const v = new DataView(new ArrayBuffer(8)); v.setFloat64(0, x); return v.getBigUint64(0); };
@@ -44,6 +47,16 @@ const EDGES: Record<(typeof VECTOR_FNS)[number], number[][]> = {
     [10627020.847781157, -46], [18762152.589803282, -42], [1e10, -64]],
   tanh: [[0], [5e-324], [-5e-324], [0.55], [-0.55], [0.5499999999999999], [22], [-22], [22.5], [1e300], [-1e300]],
   sigmoid: [[0], [5e-324], [-5e-324], [1], [-1], [36], [-36], [745], [-745], [800], [-800], [1e300], [-1e300]],
+  sin: [[0], [-0], [5e-324], [1e-9], [Math.PI / 6], [Math.PI / 4], [Math.PI / 2], [Math.PI], [3], [1e6], [-1e6], [710.4], [0.3], [0.78125], [355]],
+  cos: [[0], [5e-324], [Math.PI / 4], [Math.PI / 2], [Math.PI], [1e6], [-1e6], [0.3], [0.78125], [0.29999999999999993], [355]],
+  atan: [[0], [-0], [5e-324], [1], [-1], [0.2679491924311227], [0.26794919243112275], [1e300], [-1e300], [1.0000000000000002], [0.9999999999999999]],
+  atan2: [[0, 1], [-0, 1], [0, -1], [-0, -1], [1, 0], [-1, 0], [1, -1], [-1, -1], [1, 1], [1e-300, 1e300], [1e300, 1e-300], [1e-300, -1e300]],
+  erf: [[0], [-0], [5e-324], [1e-20], [0.5], [0.5000000000000001], [1], [-1], [3], [4], [4.000000000000001], [5.9], [6], [-6]],
+  erfc: [[0], [0.5], [0.5000000000000001], [-0.5], [1], [3], [4], [4.000000000000001], [10], [26.5], [26.6], [-6], [27]],
+  normCdf: [[0], [1.959963984540054], [-1.959963984540054], [1], [-1], [-8], [-20], [-37.5], [8.2], [5e-324]],
+  normInv: [[0.5], [0.975], [0.025], [0.075], [0.925], [1e-300], [5e-324], [0.9999999999999999], [1e-10], [0.5 - 0.425], [0.5 + 0.425],
+    [6.388754400538087e-12]],
+  lgamma: [[1], [2], [10], [0.5], [0.4999999999999999], [5e-324], [1e-300], [3], [1e300], [2.5], [100], [1e-8]],
 };
 const GENS: Record<(typeof VECTOR_FNS)[number], Gen> = {
   exp: mixed(-745, 709, -300, 2.85),
@@ -57,10 +70,29 @@ const GENS: Record<(typeof VECTOR_FNS)[number], Gen> = {
   },
   tanh: mixed(-30, 30, -300, 300),
   sigmoid: mixed(-800, 800, -300, 300),
+  sin: mixed(-1e6, 1e6, -300, 6), cos: mixed(-1e6, 1e6, -300, 6),
+  atan: (r, i) => i % 4 === 0 ? [20 * r.u() - 10] : [r.sign() * logU(r.u(), -300, 300)],
+  atan2: (r, i) => i % 4 === 0 ? [20 * r.u() - 10, 20 * r.u() - 10] : [r.sign() * logU(r.u(), -50, 50), r.sign() * logU(r.u(), -50, 50)],
+  erf: mixed(-6, 6, -300, 0.78), erfc: mixed(-6, 27, -300, 1.43), normCdf: mixed(-38, 9, -300, 1.58),
+  normInv: (r, i) => {   // p ∈ (0, 1): uniform, lower tail log-uniform in [1e-300, 0.5), upper tail 1 − 10^[-16, -0.302]
+    if (i % 3 === 0) return [r.u() || 0.5];
+    if (i % 3 === 1) return [logU(r.u(), -300, -0.302)];
+    return [1 - logU(r.u(), -16, -0.302)];
+  },
+  lgamma: (r, i) => i % 2 === 0 ? [30 * r.u() || 1] : [logU(r.u(), -300, 300)],
 };
 const REFS: Record<(typeof VECTOR_FNS)[number], (...a: number[]) => BigFloat> = {
   exp: (x) => refExp(x!), expm1: (x) => refExpm1(x!), ln: (x) => refLn(x!), log1p: (x) => refLog1p(x!), log2: (x) => refLog2(x!),
   log10: (x) => refLog10(x!), pow: (x, y) => refPow(x!, y!), tanh: (x) => refTanh(x!), sigmoid: (x) => refSigmoid(x!),
+  sin: (x) => refSin(x!), cos: (x) => refCos(x!), atan: (x) => refAtan(x!), atan2: (y, x) => refAtan2(y!, x!),
+  erf: (x) => refErf(x!), erfc: (x) => refErfc(x!), normCdf: (x) => refNormCdf(x!),
+  normInv: (p) => refNormInv(p!, dmath.normInv(p!)),   // Newton start only; the 5 Newton steps on refNormCdf fix the value
+  lgamma: (x) => refLgamma(x!),
+};
+/** Signed-zero results the BigFloat path cannot carry (BigFloat has one zero). */
+const SIGNED_ZERO: Partial<Record<(typeof VECTOR_FNS)[number], (...a: number[]) => number | null>> = {
+  sin: (x) => (x === 0 ? x : null), atan: (x) => (x === 0 ? x : null), erf: (x) => (x === 0 ? x : null),
+  atan2: (y, x) => (y === 0 && !(Object.is(x, -0) || x! < 0) ? y : null),
 };
 
 export function generateVectors(fn: string, count: number, seed: number): { inputs: number[][]; expected: number[] } {
@@ -69,7 +101,7 @@ export function generateVectors(fn: string, count: number, seed: number): { inpu
   const r = xorshift(seed ^ (VECTOR_FNS.indexOf(f) * 0x9e3779b1));
   const inputs: number[][] = [...EDGES[f]];
   for (let i = 0; inputs.length < count; i++) inputs.push(GENS[f](r, i));
-  const expected = inputs.map((a) => roundToF64(REFS[f](...a)));
+  const expected = inputs.map((a) => SIGNED_ZERO[f]?.(...a) ?? roundToF64(REFS[f](...a)));
   writeFileSync(join(VECTOR_DIR, `${fn}.vec`), canonEncode({ fn, inputs: inputs.map((a) => a.map(bits)), expected: expected.map(bits) }));
   return { inputs, expected };
 }
