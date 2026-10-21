@@ -4,7 +4,9 @@
 .mp-gain { background: var(--gain); }
 .mp-warn { background: var(--warn); }
 .mp-faint { background: var(--fg-faint); }
-.mp-steel { background: var(--steel); }
+/* Halted: steel pause bars; reconnecting: dashed --fg-faint ring (shape, not colour only). */
+.mp-steel { background: none; border-radius: 0; border-left: 2px solid var(--steel); border-right: 2px solid var(--steel); }
+.mp-reconnecting { background: none; border: 1px dashed var(--fg-faint); }
 .mp-dot-only { display: inline-flex; align-items: center; }
 .mp-label { display: inline-grid; }
 .mp-text { grid-area: 1 / 1; }

@@ -38,7 +38,7 @@ export const S = {
   halted: "Trading halted by the Exchange",
   tick: "Tick",
   cityName: "Port Avalon",
-  phaseHalted: "Halted",
+  phaseHalted: "Trading halted",
   haltedReason: "Reason: market integrity review. Read-only screens stay open.",
   held: "Held",
   heldBody: "Your account is held. Read-only screens stay open.",

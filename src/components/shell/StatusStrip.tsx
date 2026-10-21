@@ -21,6 +21,7 @@ export function StatusStrip() {
   const { day, hhmm } = clockLabel(clock);
   const release = `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
   const halted = useShell((s) => s.channels.system.halted);
+  const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const nw = (
     <span className="strip-nw" data-testid="strip-nw">
       <MoneyText amount={me.nw} ctx="chip" /> <PctText value={me.todayPct} />
@@ -49,7 +50,7 @@ export function StatusStrip() {
       </button>
       <div className="strip-mid">
         <span className="num clock" data-testid="clock">{`Day ${day} · ${hhmm}`}</span>
-        <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} />
+        <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} />
         <TickRing tick={clock.tick} />
       </div>
       <div className="strip-right">

@@ -10,20 +10,29 @@ export const PHASE_LABEL: Record<Phase, string> = {
   pre: "Pre-market", open_auction: "Opening auction", continuous: "Market open",
   close_auction: "Closing auction", after: "After hours", weekend: "Weekend",
 };
-export type PhaseTone = "gain" | "warn" | "faint" | "steel";
-export const phaseTone = (phase: Phase, halted: boolean): PhaseTone =>
-  halted ? "steel" : phase === "continuous" ? "gain" : phase === "open_auction" || phase === "close_auction" ? "warn" : "faint";
-export const phaseLabel = (phase: Phase, halted: boolean, city: string) => `${halted ? S.phaseHalted : PHASE_LABEL[phase]} · ${city}`;
+export type PhaseTone = "gain" | "warn" | "faint" | "steel" | "reconnecting";
+/** Halted wins over reconnecting; both are carried by shape too (pause bars / dashed ring), not colour alone. */
+export const phaseTone = (phase: Phase, halted: boolean, reconnecting = false): PhaseTone =>
+  halted ? "steel" : reconnecting ? "reconnecting" : phase === "continuous" ? "gain" : phase === "open_auction" || phase === "close_auction" ? "warn" : "faint";
+export const phaseLabel = (phase: Phase, halted: boolean, city: string, reconnecting = false) =>
+  `${halted ? S.phaseHalted : reconnecting ? S.reconnecting : PHASE_LABEL[phase]} · ${city}`;
 
-export function MarketPhase({ phase, city, halted = false, variant = "full" }: { phase: Phase; city: string; halted?: boolean; variant?: "full" | "dot" }) {
-  const label = phaseLabel(phase, halted, city);
-  const tone = phaseTone(phase, halted);
+export function MarketPhase({ phase, city, halted = false, reconnecting = false, variant = "full" }: { phase: Phase; city: string; halted?: boolean; reconnecting?: boolean; variant?: "full" | "dot" }) {
+  const label = phaseLabel(phase, halted, city, reconnecting);
+  const tone = phaseTone(phase, halted, reconnecting);
   // Previous label kept in state (React's "adjust state on prop change" pattern) so it can fade out.
   const [cur, setCur] = useState(label);
   const [old, setOld] = useState<string | null>(null);
   if (cur !== label) { setOld(cur); setCur(label); }
+  // Phase changes are always announced (polite), never the initial state; per-tick announcements are separate.
+  const announce = <span className="sr-only" aria-live="polite" data-testid="phase-live">{old ? label : ""}</span>;
   if (variant === "dot") {
-    return <span className="mp mp-dot-only" data-testid="phase" data-tone={tone} role="img" aria-label={label}><span className={`dot mp-dot mp-${tone}`} /></span>;
+    return (
+      <span className="mp mp-dot-only" data-testid="phase" data-tone={tone}>
+        <span className={`dot mp-dot mp-${tone}`} role="img" aria-label={label} data-testid="phase-dot" />
+        {announce}
+      </span>
+    );
   }
   return (
     <span className="mp phase" data-testid="phase" data-tone={tone}>
@@ -32,6 +41,7 @@ export function MarketPhase({ phase, city, halted = false, variant = "full" }: {
         {old && <span className="mp-text mp-out" aria-hidden="true" key={`o-${old}`}>{old}</span>}
         <span className="mp-text mp-in" key={label} data-testid="phase-label">{label}</span>
       </span>
+      {announce}
     </span>
   );
 }

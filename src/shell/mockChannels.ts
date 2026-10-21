@@ -10,8 +10,12 @@ export const RANK_THRESHOLDS = ["20000", "250000", "5000000", "100000000", "2000
 export const TICKS_PER_DAY = 720;
 
 const PHASES: readonly MarketPhase[] = ["pre", "open_auction", "continuous", "close_auction", "after", "weekend"];
-/** Mock-only `?phase=` override (17A T3 screenshots/e2e): pins the market phase across ticks. */
+/** Mock-only `?phase=` override (17A T3 screenshots/e2e): pins the market phase across ticks. Unreachable in a
+ *  production build unless that build opts in with NEXT_PUBLIC_QUAY_MOCK_PHASE=1 (the e2e build does). */
+export const phaseOverrideEnabled = () =>
+  process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_QUAY_MOCK_PHASE === "1";
 export const phaseOverride = (q: URLSearchParams): MarketPhase | null => {
+  if (!phaseOverrideEnabled()) return null;
   const p = q.get("phase");
   return p && (PHASES as readonly string[]).includes(p) ? (p as MarketPhase) : null;
 };

@@ -22,6 +22,7 @@ const setPalette = (page: Page, p: string) => page.evaluate((v) => { document.do
 
 test("T3-01 sweep restarts within one frame of each tick; with ticks stopped 12 s it holds full and never loops", async ({ page }, info) => {
   desktopOnly(info.project.name);
+  await boot(page, "/"); // warm the server before freezing timers
   // Fake timers, paused: the mock clock channel only ticks when the test advances it.
   await page.clock.install({ time: new Date("2026-10-21T08:00:00Z") });
   await page.clock.pauseAt(new Date("2026-10-21T08:00:00.010Z"));
@@ -70,8 +71,8 @@ test("T3-03 reconnecting: dashed 2 2 in --fg-faint; halted: --steel pause glyph,
   expect(rec).toEqual({ dash: "2px, 2px", stroke: await probe(page, "var(--fg-faint)"), sweeps: 0 });
   await shot(page, "strip-reconnecting", ".strip-mid");
   await boot(page, "/?halted=1");
-  const h = await page.evaluate(() => ({ pause: getComputedStyle(document.querySelector(".tickring-pause")!).stroke, sweeps: document.querySelectorAll(".tickring-sweep").length, dot: getComputedStyle(document.querySelector("[data-testid=phase] .mp-dot")!).backgroundColor, label: document.querySelector("[data-testid=phase-label]")!.textContent }));
-  expect(h).toEqual({ pause: await probe(page, "var(--steel)"), sweeps: 0, dot: await probe(page, "var(--steel)"), label: "Halted · Port Avalon" });
+  const h = await page.evaluate(() => ({ pause: getComputedStyle(document.querySelector(".tickring-pause")!).stroke, sweeps: document.querySelectorAll(".tickring-sweep").length, dot: getComputedStyle(document.querySelector("[data-testid=phase] .mp-dot")!).borderLeftColor, label: document.querySelector("[data-testid=phase-label]")!.textContent }));
+  expect(h).toEqual({ pause: await probe(page, "var(--steel)"), sweeps: 0, dot: await probe(page, "var(--steel)"), label: "Trading halted · Port Avalon" });
   await shot(page, "strip-halted", ".strip-mid");
 });
 
@@ -99,8 +100,8 @@ test("T3-05 MarketPhase: desktop label + dot token per phase; phone dot only wit
     const dot = await el.locator(".mp-dot").evaluate((d) => getComputedStyle(d).backgroundColor);
     expect([phase, dot]).toEqual([phase, await probe(page, `var(${token})`)]);
     if (phone) {
-      await expect(el).toHaveAttribute("aria-label", `${label} · Port Avalon`);
-      expect(await el.innerText()).toBe("");
+      await expect(page.getByTestId("phase-dot")).toHaveAttribute("aria-label", `${label} · Port Avalon`);
+      expect((await el.innerText()).trim()).toBe("");
     } else {
       await expect(page.getByTestId("phase-label")).toHaveText(`${label} · Port Avalon`);
       if (["pre", "continuous", "close_auction", "weekend"].includes(phase)) { await page.waitForTimeout(1500); await shot(page, `strip-phase-${phase}`, ".strip-mid"); }
@@ -185,4 +186,39 @@ test("C8 text scale 2.0 at 390: status bar has no horizontal scroll and the phas
   const dot = (await page.getByTestId("phase").boundingBox())!;
   expect(dot.x + dot.width).toBeLessThanOrEqual(sb.x + sb.width);
   expect(dot.width).toBeGreaterThan(0);
+});
+
+test("Studio T3: desktop reconnecting shows 'Reconnecting… · Port Avalon' with a dashed --fg-faint dot", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  await boot(page, "/?conn=reconnecting");
+  await expect(page.getByTestId("phase-label")).toHaveText("Reconnecting… · Port Avalon");
+  const d = await page.locator("[data-testid=phase] .mp-dot").evaluate((e) => { const c = getComputedStyle(e); return { style: c.borderTopStyle, color: c.borderTopColor }; });
+  expect(d).toEqual({ style: "dashed", color: await probe(page, "var(--fg-faint)") });
+  await shot(page, "strip-reconnecting", ".strip-mid");
+});
+
+test("Studio T3: phone has no tick ring; the dot carries halted (steel pause bars) and reconnecting (dashed) with full aria-label", async ({ page }, info) => {
+  phoneOnly(info.project.name);
+  await boot(page, "/");
+  expect(await page.locator("[data-testid=statusbar] [data-testid=tickring]").count()).toBe(0);
+  await boot(page, "/?halted=1");
+  const dot = page.getByTestId("phase-dot");
+  await expect(dot).toHaveAttribute("aria-label", "Trading halted · Port Avalon");
+  const h = await dot.evaluate((e) => { const c = getComputedStyle(e); return { l: c.borderLeftStyle, r: c.borderRightStyle, t: c.borderTopWidth, bg: c.backgroundColor, color: c.borderLeftColor }; });
+  expect(h).toEqual({ l: "solid", r: "solid", t: "0px", bg: "rgba(0, 0, 0, 0)", color: await probe(page, "var(--steel)") });
+  await shot(page, "statusbar-halted", "[data-testid=statusbar]");
+  await boot(page, "/?conn=reconnecting");
+  await expect(dot).toHaveAttribute("aria-label", "Reconnecting… · Port Avalon");
+  expect(await dot.evaluate((e) => getComputedStyle(e).borderTopStyle)).toBe("dashed");
+});
+
+test("Studio T3: phase changes are always announced via a polite live region (not the initial phase)", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-10-21T08:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-10-21T08:00:00.010Z"));
+  await boot(page, `/?tick=${DAY + 284}`);
+  const live = page.getByTestId("phase-live");
+  await expect(live).toHaveAttribute("aria-live", "polite");
+  await expect(live).toHaveText("");
+  await page.clock.runFor(5000);
+  await expect(live).toHaveText("Market open · Port Avalon");
 });

@@ -17,7 +17,7 @@ const CASES = [
   ["close_auction", false, "Closing auction · Port Avalon", "warn"],
   ["after", false, "After hours · Port Avalon", "faint"],
   ["weekend", false, "Weekend · Port Avalon", "faint"],
-  ["continuous", true, "Halted · Port Avalon", "steel"],
+  ["continuous", true, "Trading halted · Port Avalon", "steel"],
 ] as const;
 
 describe("T3-05 MarketPhase", () => {
@@ -32,6 +32,45 @@ describe("T3-05 MarketPhase", () => {
     const html = renderToStaticMarkup(createElement(MarketPhase, { phase, city: "Port Avalon", halted, variant: "dot" }));
     expect(html).toContain(`aria-label="${label}"`);
     expect(html).not.toContain(`>${label}<`);
+  });
+});
+
+describe("Studio T3 answers", () => {
+  it("reconnecting: 'Reconnecting… · Port Avalon', dashed tone; halted wins over reconnecting", () => {
+    const html = renderToStaticMarkup(createElement(MarketPhase, { phase: "continuous", city: "Port Avalon", reconnecting: true }));
+    expect(html).toContain(">Reconnecting… · Port Avalon</span>");
+    expect(html).toContain("mp-reconnecting");
+    expect(phaseTone("continuous", true, true)).toBe("steel");
+  });
+  it("phone dot carries the full phase text in aria-label for halted and reconnecting", () => {
+    for (const [props, label] of [[{ halted: true }, "Trading halted · Port Avalon"], [{ reconnecting: true }, "Reconnecting… · Port Avalon"]] as const) {
+      const html = renderToStaticMarkup(createElement(MarketPhase, { phase: "pre", city: "Port Avalon", variant: "dot", ...props }));
+      expect(html).toMatch(new RegExp(`role="img" aria-label="${label}"`));
+    }
+  });
+  it("initial render announces nothing (only changes are announced)", () => {
+    const html = renderToStaticMarkup(createElement(MarketPhase, { phase: "pre", city: "Port Avalon" }));
+    expect(html).toContain('aria-live="polite" data-testid="phase-live"></span>');
+  });
+});
+
+describe("?phase= override is unreachable in a production build", () => {
+  it("production without the e2e opt-in ignores ?phase=", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_QUAY_MOCK_PHASE", "");
+    const { phaseOverride, mockChannels } = await import("@/shell/mockChannels");
+    const q = new URLSearchParams("phase=weekend&tick=" + (38 * 720 + 340));
+    expect(phaseOverride(q)).toBeNull();
+    expect(mockChannels(q).clock.phase).toBe("continuous");
+    vi.stubEnv("NEXT_PUBLIC_QUAY_MOCK_PHASE", "1");
+    expect(phaseOverride(q)).toBe("weekend");
+    vi.unstubAllEnvs();
+  });
+  it("development honours it", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const { phaseOverride } = await import("@/shell/mockChannels");
+    expect(phaseOverride(new URLSearchParams("phase=weekend"))).toBe("weekend");
+    vi.unstubAllEnvs();
   });
 });
 

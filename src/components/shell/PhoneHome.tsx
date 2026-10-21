@@ -44,6 +44,7 @@ function StatusBar() {
   const store = useShellStore();
   const clock = useShell((s) => s.channels.clock);
   const halted = useShell((s) => s.channels.system.halted);
+  const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const me = useShell((s) => s.channels.me);
   const timer = useRef<number | null>(null);
   const pullY = useRef<number | null>(null);
@@ -71,7 +72,7 @@ function StatusBar() {
         <Glyph name="quay" size={20} />
       </button>
       <span className="num clock">{`D${day} · ${hhmm}`}</span>
-      <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} variant="dot" />
+      <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} variant="dot" />
       <span className="sb-nw"><MoneyText value={me.nw} compact /></span>
     </header>
   );
