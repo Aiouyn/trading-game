@@ -26,7 +26,7 @@ export function driveTick(w: LedgerWorld, rnd: () => number, loans: { id: string
       case 6: {
         const loan = loans.find((l) => w.balance(`${l.borrower}:1010:bnk_N:FDL`) >= l.amt);
         if (loan && rnd() < 0.5) { w.apiFor('07').ledger.repay(loan.borrower, 'bnk_N', loan.amt, 'FDL', 'BNK_LOAN_REPAY', loan.id); loans.splice(loans.indexOf(loan), 1); }
-        else { const id = `ln_${w.tick}_${i}`; const x = amt(3_000_000_000); w.apiFor('07').ledger.lend('bnk_N', a, x, 'FDL', 'BNK_LOAN_DRAWDOWN', id); loans.push({ id, amt: x, borrower: a }); }
+        else { const id = `lon_${w.tick}_${i}`; const x = amt(3_000_000_000); w.apiFor('07').ledger.lend('bnk_N', a, x, 'FDL', 'BNK_LOAN_DRAWDOWN', id); loans.push({ id, amt: x, borrower: a }); }
         break;
       }
       case 7: w.apiFor('03').ledger.accrue(a, amt(1_000_000) - 500_000n, 'FDL', 'LED_MTM_DAILY', 1500, 4070); break;
