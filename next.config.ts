@@ -12,11 +12,12 @@ const cityEntry = existsSync(path.join(root, "src/city/index.ts")) ? "./src/city
 const nextConfig: NextConfig = {
   turbopack: { root, resolveAlias: { "@/city": cityEntry } },
   outputFileTracingRoot: root,
-  // Mock URL overrides and test hooks (src/shell/hooks.ts) are ALWAYS defined as "1" or "0" so the bundler inlines a
-  // literal and a no-flag production build drops them. On in `next dev`; in a production build only with
-  // QUAY_HOOKS=1 (the e2e build, playwright.config webServer env).
+  // Mock URL overrides and test hooks are ALWAYS defined as "1" or "0" so the bundler inlines a literal and a
+  // no-flag production build drops them (src/shell/hooks.ts QUAY_HOOKS; mockChannels PHASE_HOOK). On in `next dev`
+  // for QUAY_HOOKS; in a production build only when the e2e build (playwright.config webServer env) sets "1".
   env: {
     QUAY_HOOKS: process.env.NODE_ENV !== "production" || process.env.QUAY_HOOKS === "1" ? "1" : "0",
+    NEXT_PUBLIC_QUAY_MOCK_PHASE: process.env.NEXT_PUBLIC_QUAY_MOCK_PHASE === "1" ? "1" : "0",
   },
 };
 

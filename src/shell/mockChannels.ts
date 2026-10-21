@@ -1,6 +1,6 @@
 // Mock server for the clock / rank / me channels (stands in for the gateway). Query params script a character:
 // rank, lic, nw, flags, guest, prot, onb, onbDone, … (dev and e2e builds only; see hooks.ts).
-import type { Channels, ClockChannel } from "./channels";
+import type { Channels, ClockChannel, MarketPhase } from "./channels";
 import { MOCK_HOOKS } from "./hooks";
 import { RANKS, type Rank } from "./registry";
 
@@ -10,6 +10,22 @@ export const RANK_THRESHOLDS = ["20000", "250000", "5000000", "100000000", "2000
 export const TICKS_PER_DAY = 720;
 
 const DEFAULT_TICK = 38 * TICKS_PER_DAY + 340;
+
+const PHASES: readonly MarketPhase[] = ["pre", "open_auction", "continuous", "close_auction", "after", "weekend"];
+/** Mock-only `?phase=` override (17A T3 screenshots/e2e): pins the market phase across ticks.
+ *  Build-time gate: Next inlines NODE_ENV and NEXT_PUBLIC_* at build time, so in a production build without
+ *  NEXT_PUBLIC_QUAY_MOCK_PHASE=1 this folds to `false` and the override below is eliminated as dead code
+ *  (no runtime env check survives; the "phase" query read is not in the bundle). The e2e build opts in. */
+export const PHASE_HOOK: boolean =
+  process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_QUAY_MOCK_PHASE === "1";
+/** @deprecated kept for callers; equals the build-time constant. */
+export const phaseOverrideEnabled = () => PHASE_HOOK;
+export const phaseOverride: (q: URLSearchParams) => MarketPhase | null = PHASE_HOOK
+  ? (q) => {
+      const p = q.get("phase");
+      return p && (PHASES as readonly string[]).includes(p) ? (p as MarketPhase) : null;
+    }
+  : () => null;
 
 /** The unscripted mock character (what a no-flag production build always serves). */
 export function defaultChannels(): Channels {
@@ -32,7 +48,7 @@ export function mockChannels(q: URLSearchParams): Channels {
   const rank: Rank = (RANKS as readonly string[]).includes(rankParam) ? (rankParam as Rank) : "R2";
   const list = (k: string) => (q.get(k) ?? "").split(",").filter(Boolean);
   return {
-    clock: clockAt(Number(q.get("tick") ?? DEFAULT_TICK)),
+    clock: { ...clockAt(Number(q.get("tick") ?? DEFAULT_TICK)), ...(phaseOverride(q) ? { phase: phaseOverride(q)! } : {}) },
     rank: { rank, thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf(rank)] ?? null },
     system: { connection: q.get("conn") === "reconnecting" ? "reconnecting" : "live", halted: q.get("halted") === "1", held: q.get("held") === "1", load: q.get("load")?.startsWith("fail") ? "error" : "ok", offline: false },
     me: {
