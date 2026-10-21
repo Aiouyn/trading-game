@@ -56,6 +56,13 @@ describe('D016 table (flag ON)', () => {
     expect(validateHolidayTable([{ ...base, blocs: ['XXX' as BlocCode] }])).toEqual(['hol_PYN_TIDE: unknown bloc XXX']);
     expect(validateHolidayTable([{ ...base, dayOfYear: 365 }])).toEqual(['hol_PYN_TIDE: dayOfYear 365 out of range']);
   });
+  it('AC-02-05-GENESIS: Genesis Day (doy 1, a quarter first day) is exempt from the quarter-edge rule; it closes markets only with the flag on (E-51)', () => {
+    const gen = HOLIDAYS[0]!;
+    expect(gen.id).toBe('hol_GENESIS'); expect(gen.dayOfYear).toBe(1);
+    expect(validateHolidayTable([gen])).toEqual([]);
+    expect(validateHolidayTable([{ ...HOLIDAYS[1]!, dayOfYear: 1 }])).toEqual(['hol_PYN_TIDE: quarter first/last day']);   // only Genesis is exempt
+    for (const b of BLOCS) { expect(isTradingDay(b, 364, true)).toBe(false); expect(isTradingDay(b, 364)).toBe(true); }
+  });
   it('lookup', () => {
     expect(holidayOn('FDL', 60, true)?.id).toBe('hol_FDL_CHARTER'); expect(holidayOn('EUN', 60, true)).toBeUndefined();
     expect(holidayOn('NKR', 1, true)?.id).toBe('hol_GENESIS');
