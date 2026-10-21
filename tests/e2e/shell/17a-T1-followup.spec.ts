@@ -1,9 +1,9 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 
 // Studio T1 rulings 1, 2, 5, 7, 8 (/workspace/specs/17A-T1-studio-rulings.md) on the /__ds sheet.
+// Repo-relative (CI-safe); PR evidence copies are made outside the test run.
 const SHOTS = "tests/e2e/shell/__screenshots__/17a/T1-followup";
-const EXTRA = "/workspace/avalon/front-dev-shots/17a-t1-followup";
 
 async function ds(page: Page, palette = "ink-brass") {
   await page.goto(`/__ds?palette=${palette}`);
@@ -21,10 +21,9 @@ const resolve = (page: Page, value: string, inShadow = false) => page.evaluate((
 const css = (page: Page, id: string, prop: string) => page.getByTestId(id).evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
 async function shot(page: Page, name: string, target?: string) {
   const vp = page.viewportSize()!;
-  mkdirSync(SHOTS, { recursive: true }); mkdirSync(EXTRA, { recursive: true });
+  mkdirSync(SHOTS, { recursive: true });
   const path = `${SHOTS}/${name}-${vp.width}x${vp.height}.png`;
   if (target) await page.getByTestId(target).screenshot({ path }); else await page.screenshot({ path });
-  copyFileSync(path, `${EXTRA}/${name}-${vp.width}x${vp.height}.png`);
 }
 
 test("Ruling 1: hover and pressed per variant, 120 ms (0 under reduced motion), pressed never moves", async ({ page }, info) => {
