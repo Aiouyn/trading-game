@@ -26,9 +26,13 @@ export interface HarnessWindow {
   };
 }
 
+// State waits, not wall-clock budgets: these wait for a page state with no timeout of their own
+// (timeout: 0), so only the test timeout (180 s) bounds them. A fixed 30 s cap failed 11 T0 tests
+// on a loaded box (load 24–29), where the first T0 picture blocked the main thread for 11–13 s and
+// longer under contention. Correctness is asserted by the tests after the wait, not by its speed.
 export async function openCity(page: Page, query = ''): Promise<void> {
   await page.goto(`/city.html?${query}`);
-  await page.waitForFunction(() => document.body.dataset.ready === '1', null, { timeout: 30_000 });
+  await page.waitForFunction(() => document.body.dataset.ready === '1', null, { timeout: 0 });
 }
 
 /** Waits until the city has drawn its parts (or its T0 picture). */
@@ -39,7 +43,7 @@ export async function waitDrawn(page: Page): Promise<CityDiagnostics> {
     if (!d) return false;
     if (d.tier === 'T0') return !!document.querySelector('.city-stage img[src^="data:"]');
     return d.buildingParts > 0 && d.renders > 0 && d.loadMs.firstFrame > 0;
-  }, null, { timeout: 30_000 });
+  }, null, { timeout: 0, polling: 100 });
   return diag(page);
 }
 

@@ -19,7 +19,7 @@ test.describe('C-01 tiers (17-AT-24)', () => {
   test('injected frame-time source < 45 fps in the first 2 s → T1 (auto-fps)', async ({ page }) => {
     await openCity(page, 'slowclock=1');
     await waitDrawn(page);
-    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().fpsFirst2s !== null, null, { timeout: 30_000 });
+    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().fpsFirst2s !== null, null, { timeout: 0 });
     const d = await diag(page);
     expect(d.fpsFirst2s).toBeCloseTo(25, 0);
     expect(d.tier).toBe('T1');
