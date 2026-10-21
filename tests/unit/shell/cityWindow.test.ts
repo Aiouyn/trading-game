@@ -15,6 +15,8 @@ const renderer = {
 };
 const createCityRenderer = vi.fn(async (o: CityRendererOptions) => { void o; return renderer as never; });
 vi.mock("@/city", () => ({ createCityRenderer }));
+const retryLoad = vi.fn();
+vi.mock("@/shell/loader", () => ({ retryLoad, initLoader: vi.fn() }));
 
 // Minimal reactive stand-in for the shell store: components re-render when `setStore` changes it.
 type Store = { prefs: { reducedMotion: "on" | "off" | "system" }; local: { renderTierOverride: string; myCityOverlay: boolean }; channels: { me: { myPlaces: string[] } } };
@@ -173,7 +175,7 @@ describe("CityWindow → @/city", () => {
     await vi.waitFor(() => expect(host.querySelector("[data-testid=city-error]")).not.toBeNull());
     const err = host.querySelector("[data-testid=city-error]")!;
     expect(err.getAttribute("role")).toBe("alert");
-    expect(err.textContent).toBe("Couldn't load");
+    expect(err.textContent).toBe("Couldn't load the city");
     expect(host.textContent).not.toContain("Loading city");
     expect(renderer.mount).not.toHaveBeenCalled();
   });
@@ -182,7 +184,7 @@ describe("CityWindow → @/city", () => {
     renderer.mount.mockImplementationOnce(async () => { throw new Error("webgl lost"); });
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
     await render(VISIBLE);
-    await vi.waitFor(() => expect(host.querySelector("[role=alert]")?.textContent).toBe("Couldn't load"));
+    await vi.waitFor(() => expect(host.querySelector("[role=alert]")?.textContent).toBe("Couldn't load the city"));
     expect(host.textContent).not.toContain("Loading city");
     expect(renderer.dispose).toHaveBeenCalledTimes(1);
     expect(renderer.unmount).not.toHaveBeenCalled();
@@ -242,12 +244,31 @@ describe("CityWindow → @/city", () => {
     expect(renderer.setVisibility).not.toHaveBeenCalled();
   });
 
+  it("the window's own Retry disposes the failed renderer and re-creates only the CityRenderer (never the shell)", async () => {
+    renderer.mount.mockImplementationOnce(async () => { throw new Error("webgl lost"); });
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    await render(VISIBLE);
+    await vi.waitFor(() => expect(host.querySelector("[data-testid=city-retry]")).not.toBeNull());
+    const retry = host.querySelector<HTMLButtonElement>("[data-testid=city-retry]")!;
+    expect(retry.className).toContain("btn-secondary");
+    expect(retry.textContent).toBe("Retry");
+    expect(host.textContent).not.toContain("View as table");
+    expect(renderer.dispose).toHaveBeenCalledTimes(1);
+    await act(async () => retry.click());
+    await vi.waitFor(() => expect(renderer.setVisibility).toHaveBeenCalled());
+    expect(createCityRenderer).toHaveBeenCalledTimes(2);
+    expect(renderer.mount).toHaveBeenCalledTimes(2);
+    expect(host.querySelector("[data-testid=city-error]")).toBeNull();
+    expect(host.querySelector("[data-testid=city-retry]")).toBeNull();
+    expect(retryLoad).not.toHaveBeenCalled();
+  });
+
   it("mount() rejecting and dispose() throwing still reaches the error state", async () => {
     renderer.mount.mockImplementationOnce(async () => { throw new Error("webgl lost"); });
     renderer.dispose.mockImplementationOnce(() => { throw new Error("dispose blew up"); });
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
     await render(VISIBLE);
-    await vi.waitFor(() => expect(host.querySelector("[data-testid=city-error]")?.textContent).toBe("Couldn't load"));
+    await vi.waitFor(() => expect(host.querySelector("[data-testid=city-error]")?.textContent).toBe("Couldn't load the city"));
     expect(host.textContent).not.toContain("Loading city");
     expect(renderer.dispose).toHaveBeenCalledTimes(1);
   });
