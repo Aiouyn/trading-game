@@ -35,26 +35,45 @@ test.describe('C-06 / C-11 render on demand', () => {
   });
 
   test('T2 ambient stops within 60 s + 1 frame of the last input; boats hidden; input restarts it', async ({ page }) => {
+    // Deterministic: the page runs on Playwright's fake clock (Date, performance.now, timers and
+    // rAF), paused once the city is drawn and then advanced by hand, so load or wall time can't
+    // move the stop (it failed locally at 60.6 s vs 60.1 s under load).
     test.skip(isPhone(page), 'desktop only (60 s)');
     test.setTimeout(120_000);
+    const t0 = Date.now();
+    await page.clock.install();
     await openCity(page, 'tier=T2');
     await waitDrawn(page);
+    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2');
+    await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 3000); // past the 2 s tier measurement
     await page.evaluate(() => (window as unknown as HarnessWindow).__city.setCamera({ zoom: 1 })); // last input
-    const t0 = Date.now();
-    await page.waitForFunction(() => !(window as unknown as HarnessWindow).__city.rafPending(), null, { timeout: 70_000, polling: 16 });
-    const stoppedAfter = Date.now() - t0;
-    console.log('C-06 ambient stopped after', stoppedAfter, 'ms');
-    expect(stoppedAfter).toBeLessThanOrEqual(60_000 + 100);
-    expect(stoppedAfter).toBeGreaterThan(55_000);
+    expect((await page.evaluate(() => (window as unknown as HarnessWindow).__city.ambient())).on).toBe(true);
+    const r0 = (await diag(page)).renders;
+    await page.clock.runFor(59_000);
+    const st59 = await page.evaluate(() => (window as unknown as HarnessWindow).__city.ambient());
+    expect(st59.on, 'still running just before 60 s').toBe(true);
+    expect(st59.msLeft).toBeGreaterThan(0);
+    expect(st59.msLeft).toBeLessThanOrEqual(1000);
+    expect(await page.evaluate(() => (window as unknown as HarnessWindow).__city.rafPending())).toBe(true);
+    const n59 = (await diag(page)).renders - r0;
+    console.log('C-06 ambient frames in 59 s (fake clock):', n59);
+    // the 12 fps cap holds on the fake clock too, and it really animated
+    expect(n59).toBeLessThanOrEqual(59 * 12 + 2);
+    // fake rAF ticks every 16 ms, so a 83.3 ms frame lands on the 96 ms tick (~10.4 fps)
+    expect(n59).toBeGreaterThanOrEqual(59 * 10);
+    await page.clock.runFor(1000 + 1000 / 12); // 60 s + one ambient frame
     const st = await page.evaluate(() => (window as unknown as HarnessWindow).__city.ambient());
-    expect(st.on).toBe(false);
+    expect(st.on, 'stopped right after 60 s').toBe(false);
+    expect(await page.evaluate(() => (window as unknown as HarnessWindow).__city.rafPending())).toBe(false);
     const r = (await diag(page)).renders;
-    await page.waitForTimeout(3000);
-    expect((await diag(page)).renders).toBe(r);
+    await page.clock.runFor(3000);
+    expect((await diag(page)).renders, 'flat render count after the stop').toBe(r);
+    // input restarts it
     await page.locator('canvas').focus();
     await page.keyboard.press('+');
-    await page.waitForTimeout(1000);
+    await page.clock.runFor(1000);
     expect((await diag(page)).renders).toBeGreaterThan(r + 3);
+    console.log('C-06 ambient test wall time', Date.now() - t0, 'ms');
   });
 
   test('document.hidden for 60 s (simulated) → framesWhileHidden 0, no renders', async ({ page }) => {

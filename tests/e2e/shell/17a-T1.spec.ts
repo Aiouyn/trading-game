@@ -142,7 +142,7 @@ test("C4 ghost button contrast ≥ 4.5:1 at rest, hover, focus and active in all
     for (const scope of ["base", "shadow"]) {
       for (const size of ["md", "sm"]) {
         const id = `ds-btn-${scope}-ghost-${size}`;
-        if (!(await page.getByTestId(id).count())) continue;
+        expect(await page.getByTestId(id).count(), `${p}: ${id} must render`).toBeGreaterThanOrEqual(1);
         const btn = page.getByTestId(id);
         const check = async (state: string) => { const r = await ratio(id); if (r < 4.5) low.push(`${p} ${id} ${state} ${r.toFixed(2)}`); };
         await settle(page); await check("rest");
