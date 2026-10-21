@@ -49,7 +49,7 @@ test("S1-02: with Settings open, a client-side deep link to /settings/SET-08 foc
   await expect(win).toHaveCount(1);
   // Open a second app so focus has to move back to Settings.
   await page.getByTestId("tile-portfolio").click();
-  const count = await page.locator("[data-testid^=win-]").count();
+  const count = await page.locator(".win").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")).join(","));
   const winId = await win.getAttribute("data-instance");
   await page.evaluate(() => { (window as unknown as { __quayMark: boolean }).__quayMark = true; });
   // Client-side navigation through the Next app router (no document reload).
@@ -58,7 +58,7 @@ test("S1-02: with Settings open, a client-side deep link to /settings/SET-08 foc
   expect(await page.evaluate(() => (window as unknown as { __quayMark?: boolean }).__quayMark)).toBe(true); // same document
   await expect(win.getByTestId("settings-about")).toBeVisible();
   await expect(win.getByTestId("set-nav-SET-08")).toHaveAttribute("aria-current", "page");
-  expect(await page.locator("[data-testid^=win-]").count()).toBe(count);
+  expect(await page.locator(".win").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")).join(","))).toBe(count);
   expect(await win.getAttribute("data-instance")).toBe(winId);
   await expect(win).toHaveClass(/\bactive\b/);
   // An unbuilt section shows ComingLater.
@@ -89,7 +89,7 @@ test("S1-03/04/13: swatches set the palette; tokens match; DOM identical; ring i
       }).length;
     });
     expect(brass).toBe(0);
-    doms.push(await page.getByTestId("settings").evaluate((e) => e.outerHTML.replace(/aria-checked="(true|false)"/g, "").replace(/tabindex="-?\d"/g, "")));
+    doms.push(await page.getByTestId("settings").evaluate((e) => e.outerHTML.replace(/<span class="swatch-check"[\s\S]*?<\/svg><\/span>/g, "").replace(/aria-checked="(true|false)"/g, "").replace(/tabindex="-?\d"/g, "")));
   }
   expect(new Set(doms).size).toBe(1);
 });

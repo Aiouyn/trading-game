@@ -78,8 +78,13 @@ function Surface() {
   );
 }
 
+let docStore: ReturnType<typeof createShellStore> | null = null;
+
 export function QuayShell({ route, query }: { route: string[]; query: string }) {
-  const [store] = useState(() => createShellStore(mockChannels(new URLSearchParams(query))));
+  // One store per document. The App Router remounts the catch-all page when the route param changes (a client-side
+  // deep link such as /settings → /settings/SET-08), so the store lives at module scope: windows and focus survive
+  // and the deep-link effect below focuses the existing instance (17B S1-02, Audit A-8).
+  const [store] = useState(() => (docStore ??= createShellStore(mockChannels(new URLSearchParams(query)))));
   useShellKeys(store);
 
   useEffect(() => {
