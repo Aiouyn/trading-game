@@ -3,7 +3,7 @@ import { useId, useRef, type PointerEvent as RPointerEvent } from "react";
 import { subPalette } from "@/shell/registry";
 import { APP_NAMES, S } from "@/shell/strings";
 import type { WindowRect } from "@/shell/types";
-import type { Area } from "@/shell/wm";
+import { minWindowTop, type Area } from "@/shell/wm";
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { useShellStore } from "./ShellContext";
@@ -41,7 +41,7 @@ export function WindowFrame({ win, z, active, rect, movable, background }: Props
       data-testid={`win-${win.app}`}
       data-instance={win.instance}
       data-subpalette={subPalette(win.app)}
-      style={{ left: rect.x, top: rect.y, width: rect.w, height: win.collapsed ? 32 : rect.h, zIndex: 10 + z }}
+      style={{ left: rect.x, top: Math.max(rect.y, minWindowTop(store.getState().local.focusMode)), width: rect.w, height: win.collapsed ? 32 : rect.h, zIndex: 10 + z }}
       onPointerDown={() => !active && store.getState().focus(win)}
     >
       <div className="titlebar" onPointerDown={(e) => start(e, "move")} onPointerMove={onMove} onPointerUp={end}>

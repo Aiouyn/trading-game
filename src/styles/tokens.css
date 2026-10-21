@@ -83,9 +83,9 @@ html[data-palette="broadsheet"] {
   --acc-hi: #A8443E;
   --acc-lo: #6E2320;
   --on-acc: #FFFFFF;
-  --gain: #1F7A5A;
+  --gain: #1D7153; /* Studio T1 ruling 6: tuned from #1F7A5A for 4.5:1 on chrome/bg0 (pending sign-off) */
   --loss: #B3261E;
-  --warn: #9A6100;
+  --warn: #8E5900; /* Studio T1 ruling 6: tuned from #9A6100 (pending sign-off) */
   --info: #2F5E9E;
   --steel: #4F5B68;
   --signal: #B3261E;

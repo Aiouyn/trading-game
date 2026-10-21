@@ -87,7 +87,7 @@ export const createShellStore = (channels: Channels) =>
       focus(w) { setWindows(wm.bringToFront(get().local.windows, w)); },
       snap(w, slot) { setWindows(wm.snapWin(get().local.windows, w, slot, area())); },
       resize(w, width, height) { setWindows(wm.resizeWin(get().local.windows, w, width, height, area())); },
-      move(w, x, y) { setWindows(wm.updateWin(get().local.windows, w, { x, y, snap: null })); },
+      move(w, x, y) { setWindows(wm.moveWin(get().local.windows, w, x, y, get().local.focusMode)); },
       toggleCollapse(w) { setWindows(wm.updateWin(get().local.windows, w, { collapsed: !w.collapsed })); },
       layout(id) {
         const vis = get().vis;

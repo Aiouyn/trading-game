@@ -9,6 +9,16 @@ export const GUTTER = 8; // [P] desktop gutter, same as compact (17 §3.2.2)
 export type Viewport = "phone" | "compact" | "desktop";
 export const viewportOf = (w: number): Viewport => (w < 768 ? "phone" : w < 1200 ? "compact" : "desktop");
 
+/** The launcher's touch hit area sticks out this far below the strip; no window top may sit in that band. */
+export const STRIP_HIT_BAND = 5;
+/** Lowest allowed window top: strip bottom + the hit band (Studio T2 condition 2). */
+export const minWindowTop = (focusMode = false) => (focusMode ? 24 : STRIP_H) + STRIP_HIT_BAND;
+
+/** Move a window; its top is clamped below the strip's hit band so the title bar never sits under it. */
+export function moveWin(windows: WindowRect[], w: WindowRect, x: number, y: number, focusMode = false): WindowRect[] {
+  return updateWin(windows, w, { x, y: Math.max(y, minWindowTop(focusMode)), snap: null });
+}
+
 export interface Area { x: number; y: number; w: number; h: number }
 
 /** Work area between strip and shelf, inset by the gutter. */

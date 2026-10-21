@@ -7,14 +7,14 @@ vi.mock("@/city", () => ({ createCityRenderer }));
 import { createShellCityRenderer } from "@/apps/city/createShellCityRenderer";
 
 describe("CityWindow → createCityRenderer", () => {
-  it("passes cityId 'city_port_avalon'", async () => {
+  it("passes cityId 'cty_port_avalon'", async () => {
     await createShellCityRenderer({
       tierOverride: "auto", reducedMotion: false, myCityOverlay: false,
       channel: { subscribe: () => () => {}, stateVersion: () => null },
       fetchChunk: async () => new ArrayBuffer(0), locale: "en", myEntityIds: [],
     });
     expect(createCityRenderer).toHaveBeenCalledTimes(1);
-    expect(createCityRenderer.mock.calls[0][0].cityId).toBe("city_port_avalon");
+    expect(createCityRenderer.mock.calls[0][0].cityId).toBe("cty_port_avalon");
   });
 });
 
@@ -29,6 +29,6 @@ describe("cityId lock", () => {
     } as unknown as Parameters<typeof createShellCityRenderer>[0];
     await createShellCityRenderer(opts);
     expect(createCityRenderer).toHaveBeenCalledTimes(1);
-    expect(createCityRenderer.mock.calls[0][0].cityId).toBe("city_port_avalon");
+    expect(createCityRenderer.mock.calls[0][0].cityId).toBe("cty_port_avalon");
   });
 });
