@@ -13,6 +13,9 @@
     "sim": "tsx scripts/sim.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "balance": "tsx scripts/balance/run.ts",
+    "engine:check": "node scripts/engine-check.mjs",
+    "engine:ledger": "node scripts/engine-check.mjs ledger",
+    "engine:core": "node scripts/engine-check.mjs core",
     "tokens": "node tools/lint/gen-tokens.mjs",
     "check:paths": "bash tools/lint/check-paths.sh"
   },
