@@ -63,3 +63,9 @@ describe('T0 picture phone crop (#26)', () => {
     });
   }
 });
+
+describe('PORTRAIT_FLOOR', () => {
+  it('is pinned to the review M6 literal 0.41 (41 %)', () => {
+    expect(PORTRAIT_FLOOR).toBe(0.41);
+  });
+});
