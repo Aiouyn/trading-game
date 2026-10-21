@@ -160,3 +160,31 @@ describe('T04-01b', () => {
     expect(body).toMatch(/outputGapCoef \* outputGapEstimate/);
   });
 });
+
+describe('T04-01b follow-ups (QA)', () => {
+  /** Rng whose normal() returns the scripted values in order. */
+  const scriptedCtx = (zs: number[], rows: Record<string, Record<string, unknown>>): PhaseCtx => {
+    let i = 0;
+    const rng = { normal: () => zs[i++]! } as unknown as Rng;
+    const store = { get: (_t: string, id: string) => rows[id], put: (_t: string, e: { id: string }) => { rows[e.id] = e as never; } };
+    return { newId: () => 'x', params: {}, store, rng: () => rng } as unknown as PhaseCtx;
+  };
+  it('AC-04-01b-GAPEST-SIGMA: σ is pinned to 0.5 pp; innovation = 0.005·√(1 − 0.98²) exactly; one step uses it', () => {
+    expect(GAPEST_SIGMA).toBe(0.005);
+    expect(GAPEST_INNOVATION).toBe(0.005 * Math.sqrt(1 - 0.98 * 0.98));
+    expect(GAPEST_INNOVATION).toBeCloseTo(0.000994987437106620, 17);
+    const rows: Record<string, Record<string, unknown>> = { EUN: { id: 'EUN', gapEstNoise: 0 } };
+    const ctx = scriptedCtx([2, 1], rows);
+    expect(genesisOutputGapEstimate(ctx, 'EUN', 0)).toBe(0.005 * 2);           // ε0 = 0.005·Z0, Z0 = 2
+    expect(rows.EUN!.gapEstNoise).toBe(0.01);
+    expect(stepOutputGapEstimate(ctx, 'EUN', 0)).toBe(0.98 * 0.01 + 0.005 * Math.sqrt(1 - 0.98 * 0.98) * 1);
+  });
+  it('AC-04-01b-GAPEST-GENESIS-RETURN: genesisOutputGapEstimate returns outputGap + 0.005·Z0 (the value it stores)', () => {
+    for (const [g, z] of [[0.012, -1.5], [-0.03, 0.25], [0, 0]] as const) {
+      const rows: Record<string, Record<string, unknown>> = { PYN: { id: 'PYN', gapEstNoise: 99 } };
+      const r = genesisOutputGapEstimate(scriptedCtx([z, 7], rows), 'PYN', g);
+      expect(r).toBe(g + 0.005 * z);
+      expect(r).toBe(g + (rows.PYN!.gapEstNoise as number));
+    }
+  });
+});
