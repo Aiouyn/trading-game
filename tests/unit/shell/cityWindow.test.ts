@@ -59,10 +59,10 @@ beforeEach(() => {
 afterEach(() => { act(() => root?.unmount()); root = undefined; document.body.innerHTML = ""; });
 
 describe("CityWindow → @/city", () => {
-  it("creates the renderer with cityId 'city_port_avalon', mounts it into the window and shows it", async () => {
+  it("creates the renderer with cityId 'cty_port_avalon', mounts it into the window and shows it", async () => {
     const host = await open();
     expect(createCityRenderer).toHaveBeenCalledTimes(1);
-    expect(lastOpts().cityId).toBe("city_port_avalon");
+    expect(lastOpts().cityId).toBe("cty_port_avalon");
     expect(renderer.mount).toHaveBeenCalledWith(host.querySelector("[data-testid=city-mount]"));
     expect(renderer.setVisibility).toHaveBeenLastCalledWith("visible");
   });
@@ -150,10 +150,11 @@ describe("CityWindow → @/city", () => {
     await act(async () => setStore({ ...store, prefs: { reducedMotion: "on" }, local: { renderTierOverride: "T2", myCityOverlay: true } }));
     await act(async () => resolve(renderer as never));
     await vi.waitFor(() => expect(renderer.setVisibility).toHaveBeenCalled());
-    expect(renderer.setTier).toHaveBeenLastCalledWith("T2");
-    expect(renderer.setReducedMotion).toHaveBeenLastCalledWith(true);
-    expect(renderer.setOverlay).toHaveBeenLastCalledWith("my_places");
-    expect(renderer.setMyPlaces).toHaveBeenLastCalledWith(["a", "b"]);
+    // Exactly once each, with the latest value.
+    for (const [fn, v] of [[renderer.setTier, "T2"], [renderer.setReducedMotion, true], [renderer.setOverlay, "my_places"], [renderer.setMyPlaces, ["a", "b"]]] as const) {
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(fn).toHaveBeenCalledWith(v);
+    }
   });
 
   it("nothing changed while loading → no extra setter calls on ready (setTier would re-run tier detection)", async () => {
@@ -162,5 +163,82 @@ describe("CityWindow → @/city", () => {
     expect(renderer.setReducedMotion).not.toHaveBeenCalled();
     expect(renderer.setOverlay).not.toHaveBeenCalled();
     expect(renderer.setMyPlaces).not.toHaveBeenCalled();
+  });
+
+  // ---- hardening ----
+  it("createCityRenderer rejecting shows the error state, not 'Loading city…' forever", async () => {
+    createCityRenderer.mockImplementationOnce(async () => { throw new Error("chunk 500"); });
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    await render(VISIBLE);
+    await vi.waitFor(() => expect(host.querySelector("[data-testid=city-error]")).not.toBeNull());
+    const err = host.querySelector("[data-testid=city-error]")!;
+    expect(err.getAttribute("role")).toBe("alert");
+    expect(err.textContent).toBe("Couldn't load");
+    expect(host.textContent).not.toContain("Loading city");
+    expect(renderer.mount).not.toHaveBeenCalled();
+  });
+
+  it("mount() rejecting shows the error state and disposes the renderer (never unmounts a failed mount)", async () => {
+    renderer.mount.mockImplementationOnce(async () => { throw new Error("webgl lost"); });
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    await render(VISIBLE);
+    await vi.waitFor(() => expect(host.querySelector("[role=alert]")?.textContent).toBe("Couldn't load"));
+    expect(host.textContent).not.toContain("Loading city");
+    expect(renderer.dispose).toHaveBeenCalledTimes(1);
+    expect(renderer.unmount).not.toHaveBeenCalled();
+    expect(renderer.setVisibility).not.toHaveBeenCalled();
+    act(() => root!.unmount()); root = undefined;
+    expect(renderer.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("non-default initial options reach createCityRenderer; nothing re-applied on ready", async () => {
+    store = { prefs: { reducedMotion: "on" }, local: { renderTierOverride: "T1", myCityOverlay: true }, channels: { me: { myPlaces: ["p1", "p2"] } } };
+    await open();
+    expect(lastOpts()).toMatchObject({ cityId: "cty_port_avalon", tierOverride: "T1", reducedMotion: true, myCityOverlay: true, myEntityIds: ["p1", "p2"] });
+    for (const fn of [renderer.setTier, renderer.setReducedMotion, renderer.setOverlay, renderer.setMyPlaces]) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("after mount, a tier override change calls setTier once with the new tier", async () => {
+    await open();
+    await act(async () => setStore({ ...store, local: { ...store.local, renderTierOverride: "T0" } }));
+    expect(renderer.setTier).toHaveBeenCalledTimes(1);
+    expect(renderer.setTier).toHaveBeenCalledWith("T0");
+  });
+
+  it("after mount, myPlaces is compared by content: a new array with the same ids is ignored, new ids are applied", async () => {
+    store = { ...initial(), channels: { me: { myPlaces: ["a"] } } };
+    await open();
+    await act(async () => setStore({ ...store, channels: { me: { myPlaces: ["a"] } } }));
+    expect(renderer.setMyPlaces).not.toHaveBeenCalled();
+    await act(async () => setStore({ ...store, channels: { me: { myPlaces: ["a", "b"] } } }));
+    expect(renderer.setMyPlaces).toHaveBeenCalledTimes(1);
+    expect(renderer.setMyPlaces).toHaveBeenCalledWith(["a", "b"]);
+    await act(async () => setStore({ ...store, channels: { me: { myPlaces: ["a", "b"] } } }));
+    expect(renderer.setMyPlaces).toHaveBeenCalledTimes(1);
+  });
+
+  it("while loading, a same-content myPlaces array is not re-applied on ready", async () => {
+    let resolve!: (r: never) => void;
+    createCityRenderer.mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    await render(VISIBLE);
+    await act(async () => setStore({ ...store, channels: { me: { myPlaces: [] } } }));
+    await act(async () => resolve(renderer as never));
+    await vi.waitFor(() => expect(renderer.setVisibility).toHaveBeenCalled());
+    expect(renderer.setMyPlaces).not.toHaveBeenCalled();
+  });
+
+  it("closing during mount() unmounts and disposes once mount settles, and never shows it", async () => {
+    let settle!: () => void;
+    renderer.mount.mockImplementationOnce(() => new Promise<void>((r) => { settle = r; }));
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    await render(VISIBLE);
+    await vi.waitFor(() => expect(renderer.mount).toHaveBeenCalledTimes(1));
+    act(() => root!.unmount()); root = undefined;
+    expect(renderer.dispose).not.toHaveBeenCalled();
+    await act(async () => settle());
+    expect(renderer.unmount).toHaveBeenCalledTimes(1);
+    expect(renderer.dispose).toHaveBeenCalledTimes(1);
+    expect(renderer.setVisibility).not.toHaveBeenCalled();
   });
 });
