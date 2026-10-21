@@ -58,6 +58,12 @@ describe('perf: live-only scans = full recompute (PR #6 option A)', () => {
     L.parkZeroAccounts(live, dormant, [entry]);
     expect(live.has(k)).toBe(true); expect(dormant.has(k)).toBe(false);     // balance 0n alone does not park
     expect(live.has(m)).toBe(false); expect(dormant.has(m)).toBe(true);     // 0n/0n parks
+    // balance 0n with NEGATIVE qty must stay live too (kills the 'parks when qty <= 0n' mutant)
+    const n = 'fnd_F:1520:ast_C', o = 'chr_A:1001:EUN';
+    const live2 = new SortedMap<string, Bal>([[n, { balance: 0n, qty: -4n }], [o, { balance: 0n, qty: 0n }]]), dormant2 = new SortedMap<string, Bal>();
+    L.parkZeroAccounts(live2, dormant2, [{ postings: [{ debitAccount: o, creditAccount: n, amount: 0n, qty: 4n }] } as unknown as L.Entry]);
+    expect(live2.get(n)).toEqual({ balance: 0n, qty: -4n }); expect(dormant2.has(n)).toBe(false);
+    expect(live2.has(o)).toBe(false); expect(dormant2.has(o)).toBe(true);
     expect(L.dormantCrossCheck(new SortedMap(), new SortedMap([[k, { balance: 0n, qty: 3n }]])).map((f) => [f.invariantId, f.observed]))
       .toEqual([['INV-LED-013', `dormant ${k} = 0/3`]]);
     const w = fixture(); w.apiFor('21').ledger.mint('chr_A', 50n, 'FDL', 'ADM_CORRECTION_IN'); w.runP13();
