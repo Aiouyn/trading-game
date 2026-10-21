@@ -22,6 +22,9 @@ export interface ShellState {
   local: ShellLocalState;
   prefs: Pick<AccountUiPrefs, "reducedMotion" | "reducedTransparency" | "highContrast" | "colorBlindPair" | "textScale" | "shell" | "locale">;
   /** Phone: an app's pushed screen (17B SET: "Back to Settings"). The app bar shows its title and the back chevron pops it. */
+  /** Boot screen already shown on this page load (it never replays on a client-side route change). */
+  booted: boolean;
+  setBooted(): void;
   phoneSub: { title: string; backLabel: string; onBack: () => void } | null;
   setPhoneSub(sub: ShellState["phoneSub"]): void;
   vw: number;
@@ -69,6 +72,8 @@ export const createShellStore = (channels: Channels) =>
     return {
       channels, vis: first.vis, sticky: first.sticky, fresh: new Set(), local: initialLocal(),
       prefs: { reducedMotion: "system", reducedTransparency: "system", highContrast: false, colorBlindPair: false, textScale: 1, shell: channels.rank.rank.toLowerCase() as ShellId, locale: "en" },
+      booted: false,
+      setBooted() { set({ booted: true }); },
       phoneSub: null,
       setPhoneSub(phoneSub) { set({ phoneSub }); },
       vw: 1440, vh: 900, recent: [], launcherOpen: false, recentOpen: false, keySheetOpen: false, phoneApp: null,

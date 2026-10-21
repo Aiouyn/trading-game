@@ -66,6 +66,28 @@ test("S1-02: with Settings open, a client-side deep link to /settings/SET-08 foc
   await expect(win.getByTestId("coming-later")).toBeVisible();
 });
 
+test("Boot runs once per page load: an R0 client-side route change shows no boot and keeps windows", async ({ page }, info) => {
+  test.skip(isPhone(info));
+  await page.goto("/settings?rank=R0");
+  await expect(page.getByTestId("boot")).toBeVisible(); // R0 boot (900 ms)
+  await expect(page.getByTestId("quay-ready")).toBeVisible();
+  await page.getByTestId("tile-help").click();
+  const before = await page.locator(".win").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")).sort().join(","));
+  expect(before).toBe("win-help,win-settings");
+  await page.evaluate(() => {
+    const w = window as unknown as { __bootSeen: boolean };
+    w.__bootSeen = false;
+    new MutationObserver(() => { if (document.querySelector("[data-testid=boot]")) w.__bootSeen = true; }).observe(document.body, { childList: true, subtree: true });
+  });
+  await page.evaluate(() => (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push("/settings/SET-08?rank=R0"));
+  await expect(page).toHaveURL(/\/settings\/SET-08\?rank=R0$/);
+  await expect(page.getByTestId("win-settings").getByTestId("settings-about")).toBeVisible();
+  await page.waitForTimeout(1200); // longer than the R0 boot
+  expect(await page.evaluate(() => (window as unknown as { __bootSeen: boolean }).__bootSeen)).toBe(false);
+  await expect(page.getByTestId("boot")).toHaveCount(0);
+  expect(await page.locator(".win").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")).sort().join(","))).toBe(before);
+});
+
 test("S1-03/04/13: swatches set the palette; tokens match; DOM identical; ring is --fg; no brass", async ({ page }, info) => {
   await openAppearance(page, info);
   const doms: string[] = [];

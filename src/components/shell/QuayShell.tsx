@@ -18,7 +18,7 @@ import { KeySheet } from "./KeySheet";
 import { Launcher } from "./Launcher";
 import { PhoneHome } from "./PhoneHome";
 import { Recent } from "./Recent";
-import { ShellCtx, useShell } from "./ShellContext";
+import { ShellCtx, useShell, useShellStore } from "./ShellContext";
 import { Shelf } from "./Shelf";
 import { StatusStrip } from "./StatusStrip";
 import { Desktop } from "./Desktop";
@@ -44,11 +44,13 @@ function Surface() {
   const focusMode = useShell((s) => s.local.focusMode);
   const rank = useShell((s) => s.channels.rank.rank);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
-  const [booted, setBooted] = useState(false);
+  const booted = useShell((s) => s.booted);
+  const store = useShellStore();
   useHtmlAttributes();
 
   useEffect(() => {
-    const t = window.setTimeout(() => setBooted(true), BOOT_MS[RANKS.indexOf(rank)]);
+    if (store.getState().booted) return; // once per page load (module-scope store)
+    const t = window.setTimeout(() => store.getState().setBooted(), BOOT_MS[RANKS.indexOf(rank)]);
     return () => window.clearTimeout(t);
     // Boot runs once per load.
     // eslint-disable-next-line react-hooks/exhaustive-deps

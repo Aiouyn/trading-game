@@ -58,3 +58,12 @@ describe("17B S1 appearance", () => {
     expect(Object.keys(saved)).not.toContain("palette");
   });
 });
+
+describe("boot once per page load", () => {
+  it("the store carries a boot-seen flag", () => {
+    const s = createShellStore(mockChannels(new URLSearchParams("rank=R0")));
+    expect(s.getState().booted).toBe(false);
+    s.getState().setBooted();
+    expect(s.getState().booted).toBe(true);
+  });
+});
