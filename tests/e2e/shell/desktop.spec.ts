@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { LAYOUT_RECTS_1440 } from "../../unit/shell/layoutRects";
 import { SPEC_TABLE } from "../../unit/shell/paletteTable";
-import { boot, box, intents } from "./helpers";
+import { boot, box, intents, setReducedTransparency } from "./helpers";
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "desktop project only"));
 
@@ -213,7 +213,7 @@ test("S1-16 reduced motion and reduced transparency in every shell state of §5,
   }, name);
   const setTransparency = async () => {
     await page.getByTestId("tile-settings").click();
-    await page.getByTestId("win-settings").locator("select").nth(1).selectOption("on");
+    await setReducedTransparency(page, "On");
     await page.locator("body").click({ position: { x: 700, y: 600 } });
   };
   // Overlay / world states come from the mock channels: reconnecting, Held (z 150), halted world (z 160).

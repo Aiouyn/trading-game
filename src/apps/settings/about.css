@@ -1,0 +1,18 @@
+/* SET-08 About (17 §3.1.4 hairlines, §3.3.2). Tokens only; no accent surfaces. */
+.about { display: flex; flex-direction: column; gap: var(--sp-16); }
+.about-sec { display: flex; flex-direction: column; gap: var(--sp-8); }
+.about-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12); min-height: 44px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.about-muted { color: var(--fg-muted); font-size: var(--fs-14); margin: 0; }
+.about-list { list-style: none; margin: 0; padding: 0; }
+.about a { color: var(--fg); text-decoration: underline; display: inline-flex; align-items: center; gap: 4px; min-height: 28px; }
+@media (pointer: coarse) { .about a { min-height: 44px; } }
+.about-licences { width: 100%; border-collapse: collapse; }
+.about-licences th { text-align: left; color: var(--fg-muted); font-weight: 500; padding: var(--sp-8) 0; border-bottom: 1px solid var(--line); }
+.about-licences td { padding: var(--sp-8) var(--sp-8) var(--sp-8) 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+/* S2-08 [P]: at narrow widths / large text the table reflows to stacked rows, never scrolling sideways. */
+@container settings (max-width: 520px) {
+  .about-licences thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .about-licences tr { display: block; border-bottom: 1px solid var(--line); padding: var(--sp-8) 0; }
+  .about-licences td { display: flex; gap: var(--sp-8); border: 0; padding: 2px 0; overflow-wrap: anywhere; }
+  .about-licences td::before { content: attr(data-label); color: var(--fg-muted); min-width: 7em; }
+}

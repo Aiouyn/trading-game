@@ -11,6 +11,8 @@ import { initLoader } from "@/shell/loader";
 import { LoadState } from "./LoadState";
 import { createShellStore } from "@/shell/store";
 import { viewportOf } from "@/shell/wm";
+import { applyAppearance } from "@/shell/appearance";
+import { isSectionId, settingsNav } from "@/apps/settings/sections";
 import { Glyph } from "./Glyph";
 import { KeySheet } from "./KeySheet";
 import { Launcher } from "./Launcher";
@@ -27,20 +29,9 @@ const BOOT_MS = [900, 500, 0, 0, 0, 0, 0];
 function useHtmlAttributes() {
   const palette = useShell((s) => s.local.palette);
   const prefs = useShell((s) => s.prefs);
-  const rank = useShell((s) => s.channels.rank.rank);
+  const rank = useShell((s) => s.channels.rank);
   useEffect(() => {
-    const html = document.documentElement;
-    const mq = (q: string) => window.matchMedia(q).matches;
-    const motion = prefs.reducedMotion === "on" || (prefs.reducedMotion === "system" && mq("(prefers-reduced-motion: reduce)"));
-    const transp = prefs.reducedTransparency === "on" || (prefs.reducedTransparency === "system" && mq("(prefers-reduced-transparency: reduce)"));
-    html.dataset.palette = palette;
-    const toggle = (k: string, on: boolean, v: string) => { if (on) html.dataset[k] = v; else delete html.dataset[k]; };
-    toggle("motion", motion, "reduce");
-    toggle("transparency", transp, "reduce");
-    toggle("hc", prefs.highContrast, "1");
-    toggle("cb", prefs.colorBlindPair, "1");
-    html.style.setProperty("--text-scale", String(prefs.textScale)); // every --fs-* scales (17 §2.1 textScale)
-    RANKS.forEach((r) => html.classList.toggle(`shell-${r.toLowerCase()}`, r === rank));
+    applyAppearance(document.documentElement, { palette, prefs, rank, media: (q) => window.matchMedia(q).matches });
   }, [palette, prefs, rank]);
 }
 
@@ -104,6 +95,8 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
     // Deep link /{appId}/...: open, or focus the open instance (Audit A-8).
     const app = route[0];
     if (app && isAppId(app)) s.open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true });
+    // /settings/SET-xx opens that section (17B SET-01).
+    if (app === "settings" && isSectionId(route[1])) settingsNav.open(route[1]);
     // Device-local state: IndexedDB `quay.<accountId>` (17 §2.2). Restored unless a deep link opened a window.
     const ACCOUNT = "guest";
     let unsub = () => {};

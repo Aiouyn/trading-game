@@ -1,45 +1,63 @@
 "use client";
-// Settings placeholder: palette, motion and transparency only (the rest of SET is out of scope).
+// Settings frame (17 §7.2, 17B SET-01): desktop = section list + content; phone = list root with a push stack.
+import { useEffect } from "react";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
-import { S } from "@/shell/strings";
-import { PALETTE_IDS, type PaletteId } from "@/styles/tokens";
+import { viewportOf } from "@/shell/wm";
+import { About } from "./About";
+import { Appearance } from "./Appearance";
+import { BUILT_SECTIONS, SECTION_IDS, settingsNav, useSettingsNav, type SectionId } from "./sections";
+import { useSettingsStrings } from "./useSettingsStrings";
+import "./settings.css";
+import "./about.css";
 
-const PALETTE_NAMES: Record<PaletteId, string> = { "ink-brass": "Ink & Brass", broadsheet: "Broadsheet", phosphor: "Phosphor", riviera: "Riviera" };
-const MODES = ["system", "on", "off"] as const;
-const SCALES = [1, 1.25, 1.5, 1.75, 2] as const;
+function SectionBody({ id }: { id: SectionId }) {
+  const locale = useShell((s) => s.prefs.locale);
+  const t = useSettingsStrings();
+  if (id === "SET-02") return <Appearance />;
+  if (id === "SET-08") return <About locale={locale} />;
+  return (
+    <section className="coming-later" data-testid="coming-later">
+      <h2 className="section-title">{t.section[id]}</h2>
+      <p className="muted">{t.comingLater}</p>
+    </section>
+  );
+}
 
 export function SettingsApp() {
+  const t = useSettingsStrings();
   const store = useShellStore();
-  const palette = useShell((s) => s.local.palette);
-  const prefs = useShell((s) => s.prefs);
-  return (
-    <section className="settings">
-      <h2 className="section-title">{S.settingsPalette}</h2>
-      <div className="seg" role="radiogroup" aria-label={S.settingsPalette}>
-        {PALETTE_IDS.map((p) => (
-          <button key={p} role="radio" aria-checked={palette === p} className={palette === p ? "on" : ""} onClick={() => store.getState().setPalette(p)}>
-            {PALETTE_NAMES[p]}
-          </button>
+  const phone = useShell((s) => viewportOf(s.vw) === "phone");
+  const nav = useSettingsNav();
+  const current = phone ? nav.pushed : nav.desktop;
+
+  // Phone: a pushed section titles the app bar and its chevron pops back to the list (SR T4).
+  useEffect(() => {
+    if (!phone) return;
+    store.getState().setPhoneSub(nav.pushed ? { title: t.section[nav.pushed], backLabel: t.backToSettings, onBack: () => settingsNav.back() } : null);
+  }, [phone, nav.pushed, store, t]);
+  useEffect(() => () => store.getState().setPhoneSub(null), [store]);
+
+  const list = (
+    <nav className="set-nav" aria-label={t.sections}>
+      <ul>
+        {SECTION_IDS.map((id) => (
+          <li key={id}>
+            <button type="button" className="set-nav-item" data-testid={`set-nav-${id}`} data-built={BUILT_SECTIONS.has(id) ? "1" : "0"}
+              aria-current={!phone && current === id ? "page" : undefined} onClick={() => settingsNav.open(id)}>
+              {t.section[id]}
+            </button>
+          </li>
         ))}
-      </div>
-      <label className="row">
-        <span>{S.settingsMotion}</span>
-        <select value={prefs.reducedMotion} onChange={(e) => store.getState().setPrefs({ reducedMotion: e.target.value as (typeof MODES)[number] })}>
-          {MODES.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-      </label>
-      <label className="row">
-        <span>{S.settingsTransparency}</span>
-        <select value={prefs.reducedTransparency} onChange={(e) => store.getState().setPrefs({ reducedTransparency: e.target.value as (typeof MODES)[number] })}>
-          {MODES.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-      </label>
-      <label className="row">
-        <span>{S.textScale}</span>
-        <select data-testid="text-scale" value={prefs.textScale} onChange={(e) => store.getState().setPrefs({ textScale: Number(e.target.value) })}>
-          {SCALES.map((v) => <option key={v} value={v}>{`${Math.round(v * 100)}%`}</option>)}
-        </select>
-      </label>
-    </section>
+      </ul>
+    </nav>
+  );
+  if (phone) {
+    return <div className="settings settings-phone" data-testid="settings">{current ? <div className="set-content"><SectionBody id={current} /></div> : list}</div>;
+  }
+  return (
+    <div className="settings settings-desktop" data-testid="settings">
+      {list}
+      <div className="set-content" data-testid={`set-section-${current}`}><SectionBody id={current ?? "SET-02"} /></div>
+    </div>
   );
 }

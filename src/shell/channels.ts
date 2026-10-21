@@ -1,11 +1,18 @@
 // Shapes the shell reads from the server channels (17 §2.6). Money is a decimal string.
 import type { Rank } from "./registry";
+import type { ShellId } from "./types";
+
+export type { ShellId };
 
 export type MarketPhase = "pre" | "open_auction" | "continuous" | "close_auction" | "after" | "weekend";
 
 export interface ClockChannel { tick: number; gameDay: number; tickOfDay: number; phase: MarketPhase }
-/** `rank` channel (17 §2.6). thresholds[i] is the NW needed for rank R(i+1) (R1..R5); R6 is not NW-only. */
-export interface RankChannel { rank: Rank; thresholds: string[]; nextAt: string | null }
+/**
+ * `rank` channel (17 §2.6). thresholds[i] is the NW needed for rank R(i+1) (R1..R5); R6 is not NW-only.
+ * shellsEarned (17 §2.6) lists the shells the player may use; shellsOwned [P] marks the purchased cosmetic ones
+ * (Systems to rule which channel carries them; 17B-settings §3).
+ */
+export interface RankChannel { rank: Rank; thresholds: string[]; nextAt: string | null; shellsEarned: ShellId[]; shellsOwned: ShellId[] }
 export interface MeChannel {
   nw: string;
   todayPct: string;
