@@ -255,11 +255,17 @@ test("Condition 2: the strip's hit layer sits above window title bars; drags nev
   await page.mouse.click(lf!.x + 100, 37);
   await expect(page.getByTestId("launcher")).toBeVisible();
   await page.keyboard.press("Escape");
-  // Drag the real title bar far up: its top is clamped to strip bottom + 5.
+  // Drag the real title bar far up: it stops at clampTop = strip bottom (or the banner stack bottom, when one shows)
+  // + 8 (AC-WM-SHELF-CLAMP, Studio 09:10; ruled again for #28), measured from the live rects.
   await page.reload(); await boot(page, "/wire");
   const tb = await page.getByTestId("win-wire").locator(".titlebar").boundingBox();
   await page.mouse.move(tb!.x + 200, tb!.y + 10); await page.mouse.down(); await page.mouse.move(tb!.x + 200, -50, { steps: 5 }); await page.mouse.up();
-  expect(Math.round((await page.getByTestId("win-wire").boundingBox())!.y)).toBe(39);
+  const clampTop = await page.evaluate(() => {
+    const strip = document.querySelector("[data-testid=strip]")!.getBoundingClientRect().bottom;
+    const banners = [...document.querySelectorAll("[data-testid=alert-slot][data-open=true], [data-testid=world-slot][data-open=true]")].map((e) => e.getBoundingClientRect().bottom);
+    return Math.round(Math.max(strip, ...banners) + 8);
+  });
+  expect(Math.round((await page.getByTestId("win-wire").boundingBox())!.y)).toBe(clampTop);
   await ctx.close();
 });
 

@@ -4,7 +4,7 @@ import { goBack, usePhoneScreen } from "@/shell/back";
 import { clockLabel } from "@/shell/mockChannels";
 import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
 import { nextRankTarget } from "@/shell/unlock";
-import { LoadState } from "./LoadState";
+import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
 import { Sparkline } from "./Sparkline";
 import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES } from "@/shell/strings";
@@ -224,7 +224,7 @@ export function PhoneHome() {
     return (
       <div className="phone" data-testid="phone" {...gestures}>
         <StatusBar />
-        <LoadState variant="banner" />
+        <PhoneBannerStack />
         <section className="phone-appview" data-testid="phone-appview" data-app={phoneApp.app} data-screen={screen ?? ""} role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
           <div className="appbar">
             <button className="icon-btn" aria-label={bar!.back} data-testid="app-back" onClick={goBack}><Glyph name="chevLeft" size={20} /></button>
@@ -242,7 +242,7 @@ export function PhoneHome() {
   return (
     <div className="phone" data-testid="phone" {...gestures}>
       <StatusBar />
-      <LoadState variant="banner" />
+      <PhoneBannerStack />
       <main className="phone-home">
         <section className="widget" data-testid="widget">
           <div className="widget-top"><span className="label">{S.netWorth}</span><span className="chip chip-acc">{`${rank.rank} · ${RANK_NAMES[rank.rank]}`}</span></div>
