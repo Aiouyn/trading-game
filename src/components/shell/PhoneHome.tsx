@@ -1,5 +1,6 @@
 "use client";
 import { useRef, type PointerEvent as RPointerEvent } from "react";
+import { goBack, usePhoneScreen } from "@/shell/back";
 import { clockLabel } from "@/shell/mockChannels";
 import { APP_IDS, APPS, GROUPS, RANK_NAMES, subPalette, type AppId } from "@/shell/registry";
 import { nextRankTarget } from "@/shell/unlock";
@@ -13,6 +14,8 @@ import { useShell, useShellStore } from "./ShellContext";
 
 const BOTTOM: AppId[] = ["broker", "portfolio", "wire", "messages"];
 const LONG_PRESS_MS = 400;
+/** Left-edge back swipe must start within this many px of the edge [P]. */
+const EDGE_START = 20;
 
 function AppIcon({ app }: { app: AppId }) {
   const store = useShellStore();
@@ -80,6 +83,7 @@ export function PhoneHome() {
   const me = useShell((s) => s.channels.me);
   const rank = useShell((s) => s.channels.rank);
   const phoneApp = useShell((s) => s.phoneApp);
+  const screen = usePhoneScreen();
   const store = useShellStore();
   const next = nextRankTarget(rank);
   const progress = next ? Math.min(1, Math.max(0, Number(me.nw) / Number(next.at))) : 1;
@@ -90,7 +94,7 @@ export function PhoneHome() {
     onPointerUp: (e: RPointerEvent) => {
       const g = edge.current;
       edge.current = null;
-      if (g && g.x < 16 && e.clientX - g.x > 60) store.getState().phoneBack();
+      if (g && g.x <= EDGE_START && e.clientX - g.x > 60) goBack();
     },
   };
   const edgeBar = (
@@ -100,7 +104,7 @@ export function PhoneHome() {
       onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); edge.current = { x: e.clientX, y: e.clientY }; }}
       onPointerUp={(e) => { const g = edge.current; edge.current = null; if (g && g.y - e.clientY > 30) store.getState().phoneBack(); }}
     >
-      <span className="disabled"><Glyph name="quay" size={30} /></span>
+      <span className="fg" data-testid="edge-mark"><Glyph name="quay" size={30} /></span>
     </div>
   );
 
@@ -109,9 +113,9 @@ export function PhoneHome() {
       <div className="phone" data-testid="phone" {...gestures}>
         <StatusBar />
         <LoadState variant="banner" />
-        <section className="phone-appview" role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
+        <section className="phone-appview" data-testid="phone-appview" data-app={phoneApp.app} data-screen={screen ?? ""} role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
           <div className="appbar">
-            <button className="icon-btn" aria-label={S.back} onClick={() => store.getState().phoneBack()}><Glyph name="chevLeft" size={20} /></button>
+            <button className="icon-btn" aria-label={S.back} data-testid="app-back" onClick={goBack}><Glyph name="chevLeft" size={20} /></button>
             <h1 id="phone-app-title">{APP_NAMES[phoneApp.app]}</h1>
           </div>
           <div className="phone-appbody">
