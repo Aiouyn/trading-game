@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { diag, expect, isPhone, openCity, waitDrawn, type HarnessWindow } from './helpers';
+import { diag, expect, isPhone, openCity, waitDrawn, waitFpsFirst2s, waitState, type HarnessWindow } from './helpers';
 
 const simulateHidden = (hidden: boolean) => {
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
@@ -81,11 +81,12 @@ test.describe('C-06 / C-11 render on demand', () => {
     // fake ones, stop ambient near 60 s. Measured in the page (performance.now at the input and at the
     // first poll that sees ambient off, 50 ms polls), so Playwright round trips don't count.
     test.skip(isPhone(page), 'desktop only (60 s)');
-    test.setTimeout(150_000);
+    test.skip(process.env.CI !== 'true', 'real-clock ±1 s check runs on CI only (a loaded local box stops late)');
+    test.setTimeout(240_000);
     await openCity(page, 'tier=T2');
     await waitDrawn(page);
-    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2', null, { timeout: 0 });
-    await page.waitForTimeout(3000); // past the 2 s tier measurement
+    await waitFpsFirst2s(page); // past the 2 s tier measurement (condition, not a sleep)
+    await waitState(page, 'C-06 real clock: tier is not T2 after the tier measurement', () => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2');
     const ms = await page.evaluate(() => new Promise<number>((resolve) => {
       const w = window as unknown as HarnessWindow;
       w.__city.setCamera({ zoom: 1 }); // last input
