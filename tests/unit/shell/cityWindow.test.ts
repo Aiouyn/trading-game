@@ -175,7 +175,7 @@ describe("CityWindow → @/city", () => {
     await vi.waitFor(() => expect(host.querySelector("[data-testid=city-error]")).not.toBeNull());
     const err = host.querySelector("[data-testid=city-error]")!;
     expect(err.getAttribute("role")).toBe("alert");
-    expect(err.textContent).toBe("Couldn't load");
+    expect(err.textContent).toBe("Couldn't load the city");
     expect(host.textContent).not.toContain("Loading city");
     expect(renderer.mount).not.toHaveBeenCalled();
   });
@@ -184,7 +184,7 @@ describe("CityWindow → @/city", () => {
     renderer.mount.mockImplementationOnce(async () => { throw new Error("webgl lost"); });
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
     await render(VISIBLE);
-    await vi.waitFor(() => expect(host.querySelector("[role=alert]")?.textContent).toBe("Couldn't load"));
+    await vi.waitFor(() => expect(host.querySelector("[role=alert]")?.textContent).toBe("Couldn't load the city"));
     expect(host.textContent).not.toContain("Loading city");
     expect(renderer.dispose).toHaveBeenCalledTimes(1);
     expect(renderer.unmount).not.toHaveBeenCalled();

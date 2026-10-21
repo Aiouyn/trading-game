@@ -105,10 +105,10 @@ export function CityWindow({ state }: { state: BodyState }) {
   return (
     <div className="city-body" data-testid="city-body" data-visibility={visibility}>
       {loading && <p className="muted city-loading">{S.loadingCity}</p>}
-      {/* The shell's existing error message ("Couldn't load"), in the loading slot, in a role=alert region. */}
+      {/* The shell's existing error message ("Couldn't load the city"), in the loading slot, in a role=alert region. */}
       {failed && (
         <div className="city-loading city-failed">
-          <p className="muted" role="alert" data-testid="city-error">{S.couldntLoad}</p>
+          <p className="muted" role="alert" data-testid="city-error">{S.cityCouldntLoad}</p>
           {/* Studio: the window's own secondary Retry disposes/re-creates only the CityRenderer.
               TODO(View as table): once table data is loaded, render <Button variant="ghost" size="sm"> "View as table"
               BESIDE Retry (same row). No table data source exists yet, so it stays hidden. */}

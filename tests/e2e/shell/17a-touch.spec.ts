@@ -123,7 +123,7 @@ test("City error state: centred block, muted message, --fg Retry 8 px below, ≥
   const ctx = await browser.newContext(phone ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   await boot(page, "/city?city=fail");
-  await expect(page.getByTestId("city-error")).toHaveText("Couldn't load");
+  await expect(page.getByTestId("city-error")).toHaveText("Couldn't load the city");
   const v = await page.evaluate(() => {
     const probe = (x: string) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; };
     const body = document.querySelector("[data-testid=city-body]")!.getBoundingClientRect();
