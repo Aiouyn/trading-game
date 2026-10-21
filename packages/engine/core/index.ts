@@ -20,3 +20,4 @@ export * from './intake/order';
 export * from './intake/limits';
 export * from './intake/batch';
 export * from './params';
+export * from './fixed';
