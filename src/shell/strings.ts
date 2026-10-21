@@ -33,6 +33,7 @@ export const S = {
   collapse: "Collapse",
   fill: "Fill",
   back: "Back",
+  backTo: "Back to",
   cancel: "Cancel",
   textScale: "Text size",
   halted: "Trading halted by the Exchange",
@@ -58,6 +59,23 @@ export const S = {
   offline: "Offline · read-only snapshot",
   retry: "Retry",
   retrying: "Retrying…",
+  // 17A T5 notices. PROVISIONAL COPY (Producer 08:03): world-event tokens, overlay bodies and actions below are
+  // placeholders pending Studio sign-off, except haltedChip / haltedChipHint which Studio marked final (08:04).
+  haltedChip: "Trading halted",
+  haltedResumed: "Trading resumed · Port Avalon", // Studio final copy
+  orderEntryHalted: "Orders are paused while trading is halted.", // Studio final copy
+  orderEntryHaltReason: (reason: string) => `Reason: ${reason}.`, // Studio final copy; omitted when no reason
+  haltReasonMock: "market integrity review", // mock channel's halt reason (demo data, not copy)
+  worldDay: "DAY",
+  worldSince: "since it began",
+  worldToday: "Today",
+  haltedAction: "Continue read-only",
+  disconnected: "Disconnected",
+  disconnectedBody: "The connection to the Exchange was lost. Read-only screens stay open.",
+  disconnectedAction: "Reconnect",
+  updateRequired: "Update required",
+  updateBody: "A new version of Quay is available. Reload to continue.",
+  updateAction: "Reload",
   // MoneyText speech and restricted-cash pills (17 §3.4.6, §3.5)
   moneyMinus: "minus",
   moneyAbout: "about",
@@ -66,6 +84,14 @@ export const S = {
   restrictedSTART: "START",
 } as const;
 
+/** Phone app-bar titles for in-app screens (level 2); the app root shows APP_NAMES (Studio T4 ruling 1). */
+export const SCREEN_NAMES: Record<string, string> = { journal: "Journal" };
+
+/** French copy for the T4 app-bar keys. TODO: wire when a locale switch exists (no FR runtime yet). */
+export const S_FR = { back: "Retour", backTo: "Retour à", home: "Accueil" } as const;
+export const SCREEN_NAMES_FR: Record<string, string> = { journal: "Journal" };
+
 export const GROUP_LABELS = { trade: "Trade", build: "Build", shadow: "Shadow", world: "World", me: "Me" } as const;
 
+// TODO(17A T4): the "Players and companies" group stays empty until a search data source exists (trigger: player/company search source).
 export const LAUNCHER_GROUPS = ["Apps", "Tickers", "Players and companies", "Commands", "Recent", "Help"] as const;
