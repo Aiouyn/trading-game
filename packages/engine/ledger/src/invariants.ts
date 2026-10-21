@@ -491,6 +491,8 @@ export const INV_LED_011: Check = (v) => {
   return out;
 };
 
+/** E-18/E-19: a cbk account is an OWN leg unless it is an issuer mirror (2001-2003 holder money, 1910 mirror of sys:2900). */
+export const isCbkOwnLeg = (code: number): boolean => !(code >= 2001 && code <= 2003) && code !== 1910;
 /** E-17 exemption list (QA pr6 #1): bank income/expense codes (fees, interest, wages). Only under these codes does a bank's own leg
  *  exempt it (its own 4xxx/5xxx or settlement leg); any other code (MKT_TRADE, ADM_*, …) never turns INV-LED-027 off. CREDIT_CREATE/DESTROY are skipped by class. */
 export const E17_BANK_OWN_CODES: readonly string[] = ['BNK_DEPOSIT_INTEREST', 'BNK_LOAN_INTEREST', 'BNK_LOAN_FEE', 'BNK_INTERBANK_INTEREST',
@@ -512,9 +514,15 @@ export const INV_LED_027: Check = (v) => {
     for (const [, ps] of groups) {
       const code = ps[0].reason; const ccy = ps[0].ccy; const cls = v.catalog.get(code)?.cls;
       if (cls !== 'TRANSFER' && cls !== 'FAUCET' && cls !== 'SINK') continue;
-      // E-18(2): a group where cbk books an own leg (not its 2001-2003 / 1910 issuer mirrors; FX_SPOT, E-3, I5) skips only the per-bank equality; Σ still applies
-      const cbkOwn = ps.some((p) => [p.debitAccount, p.creditAccount].some((k) => { const q = parseAccountKey(k); return !!q && kindOfId(q.entityId) === 'cbk' && !(q.code >= 2001 && q.code <= 2003) && q.code !== 1910; })); // 1910 = issuer mirror of sys:2900, not an own leg
       const res = new SortedMap<Id, Money>(); const dep = new SortedMap<Id, Money>(); const own = new SortedMap<Id, Money>(); let mirror = 0n; let allRes = 0n;
+      // E-19: Δ1002_cbk(b) = b's 1002 movement in postings whose counter side is a cbk account (cbk's own trade), read from the postings, never meta
+      // only in a group where cbk books an own leg (not a 2001-2003 / 1910 issuer mirror); a plain mint (cbk 2002 + 1910 only) gets no netting
+      const cbkGroup = ps.some((p) => [p.debitAccount, p.creditAccount].some((k) => { const q = parseAccountKey(k); return !!q && kindOfId(q.entityId) === 'cbk' && isCbkOwnLeg(q.code); }));
+      const cbkRes = new SortedMap<Id, Money>();
+      for (const p of ps) for (const [mine, other, sgn] of [[p.debitAccount, p.creditAccount, 1n], [p.creditAccount, p.debitAccount, -1n]] as const) {
+        const q = parseAccountKey(mine); const o = parseAccountKey(other);
+        if (q && o && q.code === 1002 && kindOfId(q.entityId) === 'bnk' && cbkGroup && kindOfId(o.entityId) === 'cbk') cbkRes.set(q.entityId, (cbkRes.get(q.entityId) ?? 0n) + sgn * p.amount);
+      }
       for (const p of ps) for (const [k, sgn] of [[p.debitAccount, 1n], [p.creditAccount, -1n]] as const) {
         const q = parseAccountKey(k); if (!q) continue; const d = sgn * p.amount;
         if (kindOfId(q.entityId) === 'cbk' && q.code === 2002) { mirror += d; continue; }
@@ -528,8 +536,8 @@ export const INV_LED_027: Check = (v) => {
       const banks = new SortedMap<Id, true>(); for (const [b] of res) banks.set(b, true); for (const [b] of dep) banks.set(b, true);
       let sumRes = allRes;
       for (const [b] of banks) {
-        sumRes += res.get(b) ?? 0n; if (cbkOwn) continue; // E-18(2): cbk-own groups skip only this per-bank check; the Σ check below always runs
-        const r = res.get(b) ?? 0n; const d = dep.get(b) ?? 0n; const o = own.get(b) ?? 0n;
+        sumRes += res.get(b) ?? 0n; // E-19 replaces the E-18(2) skip: no bank is skipped; cbk's own reserve legs are netted out
+        const r = (res.get(b) ?? 0n) - (cbkRes.get(b) ?? 0n); const d = dep.get(b) ?? 0n; const o = own.get(b) ?? 0n;
         // E-18(1): under a listed code the bank's own income/expense (or settlement) leg balances its deposit/reserve change exactly; a 1-micro leg can't
         if (r + d + o !== 0n) out.push(F('INV-LED-027', `${e.entryId} ${code} ${b} Δ1002 ${r} vs Δ2100 ${-d} (${ccy})`, 'reserves follow deposits'));
       }

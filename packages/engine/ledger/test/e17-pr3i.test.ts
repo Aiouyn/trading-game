@@ -242,3 +242,45 @@ describe('E-18 addendum: exemption by amount, payee-only income codes', () => {
     expect(I(d)).toEqual([`${e.entryId} FX_SPOT ΣΔ1002 3 vs cbk 2002 mirror 0 (FDL)`]);
   });
 });
+
+describe('E-19: cbk own reserve legs are netted per bank (replaces the E-18(2) skip); 1910 carve-out; id length cap', () => {
+  const sev = (e: Entry) => L.INV_LED_027(view([e])).map((f) => `${f.severity} ${f.observed}`);
+  const fx = (bank = 'bnk_N', amt = 4_000_000n) => L.tplFx(fixture().env('06', 'P12'), bank, 'cbk_FDL', 'EUN', amt, 'FDL', 5_000_000n, 'FX_SPOT');
+  const plus = (e: Entry, ls: [string, string, bigint][]): Entry => ({ ...e, postings: [...e.postings, ...ls.map(([d, c, a], i) => ({ ...e.postings[0], postingSeq: e.postings.length + i, flowLeg: undefined, debitAccount: d, creditAccount: c, amount: a, ccy: 'FDL' as L.Ccy }))] });
+  it('(1) a clean FX_SPOT with one bank passes', () => { const e = fx(); expect(e.invalid).toBeUndefined(); expect(sev(e)).toEqual([]); });
+  it('(2) QA probe f2: FX_SPOT plus an unbacked bnk_X→bnk_Y deposit move is fatal', () => {
+    const e = plus(fx(), [['bnk_X:2100:chr_A:FDL', 'chr_A:1010:bnk_X:FDL', 7n], ['chr_B:1010:bnk_Y:FDL', 'bnk_Y:2100:chr_B:FDL', 7n]]);
+    expect(sev(e)).toEqual([`FATAL ${e.entryId} FX_SPOT bnk_X Δ1002 0 vs Δ2100 -7 (FDL)`, `FATAL ${e.entryId} FX_SPOT bnk_Y Δ1002 0 vs Δ2100 7 (FDL)`]);
+  });
+  it('(3) the same move riding on bnk_N, the cbk counterparty bank, is still fatal', () => {
+    const e = plus(fx(), [['bnk_N:2100:chr_A:FDL', 'chr_A:1010:bnk_N:FDL', 7n], ['chr_B:1010:bnk_Y:FDL', 'bnk_Y:2100:chr_B:FDL', 7n]]);
+    expect(sev(e)).toEqual([`FATAL ${e.entryId} FX_SPOT bnk_N Δ1002 0 vs Δ2100 -7 (FDL)`, `FATAL ${e.entryId} FX_SPOT bnk_Y Δ1002 0 vs Δ2100 7 (FDL)`]);
+  });
+  it('(4) an FX_SPOT with two banks, each with its own cbk leg, passes', () => {
+    const a = fx('bnk_N'); const b = fx('bnk_X', 3_000_000n);
+    const both: Entry = { ...a, postings: [...a.postings, ...b.postings.map((p, i) => ({ ...p, postingSeq: a.postings.length + i }))] };
+    expect(sev(both)).toEqual([]);
+  });
+  it('(5) a forged meta naming cbk with no cbk posting gets no netting and is fatal', () => {
+    const e = pay('bnk_X', 'bnk_Y');
+    const d: Entry = { ...e, meta: { ...(e.meta ?? { parties: [] }), parties: ['cbk_FDL', 'bnk_X', 'bnk_Y'] }, postings: e.postings.filter((p) => !/:1002:|:2002:/.test(p.debitAccount)) };
+    expect(sev(d)).toEqual([`FATAL ${e.entryId} ADM_CORRECTION_TRANSFER bnk_X Δ1002 0 vs Δ2100 -7 (FDL)`, `FATAL ${e.entryId} ADM_CORRECTION_TRANSFER bnk_Y Δ1002 0 vs Δ2100 7 (FDL)`]);
+  });
+  it('only 1002 legs whose counter side is cbk are netted: a bank-to-bank reserve move riding on an FX_SPOT is fatal', () => {
+    const e = plus(fx(), [['bnk_X:1002:FDL', 'bnk_Y:1002:FDL', 6n]]);
+    expect(sev(e)).toEqual([`FATAL ${e.entryId} FX_SPOT bnk_X Δ1002 6 vs Δ2100 0 (FDL)`, `FATAL ${e.entryId} FX_SPOT bnk_Y Δ1002 -6 vs Δ2100 0 (FDL)`]);
+  });
+  it('1910 carve-out: 1910 (and 2001-2003) are issuer mirrors, not cbk own legs; a reserve leg against cbk 1910 is not netted and is fatal', () => {
+    expect([1910, 2001, 2002, 2003].map(L.isCbkOwnLeg)).toEqual([false, false, false, false]);
+    expect([1001, 3800, 4000].map(L.isCbkOwnLeg)).toEqual([true, true, true]);
+    const base = pay('bnk_X', 'bnk_X');
+    const e: Entry = { ...base, postings: [{ ...base.postings[0], postingSeq: 0, flowLeg: undefined, debitAccount: 'bnk_X:1002:FDL', creditAccount: 'cbk_FDL:1910:FDL', amount: 3n, reason: 'ADM_CORRECTION_IN' },
+      { ...base.postings[0], postingSeq: 1, flowLeg: undefined, debitAccount: 'cbk_FDL:1910:FDL', creditAccount: 'cbk_FDL:2002:bnk_X:FDL', amount: 3n, reason: 'ADM_CORRECTION_IN' }] };
+    expect(sev(e)).toEqual([`FATAL ${base.entryId} ADM_CORRECTION_IN bnk_X Δ1002 3 vs Δ2100 0 (FDL)`]);
+  });
+  it('registerEntity: an id of 64 chars passes, 65 rejects', () => {
+    const w = fixture(); const id64 = 'chr_' + 'x'.repeat(60); const id65 = 'chr_' + 'x'.repeat(61);
+    expect(id64.length).toBe(64); expect(L.ENTITY_ID_MAX).toBe(64);
+    expect(w.registerEntity({ id: id64 })).toBe(id64); expect(() => w.registerEntity({ id: id65 })).toThrow(/longer than 64/);
+  });
+});
