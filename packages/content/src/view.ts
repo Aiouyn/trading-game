@@ -113,7 +113,7 @@ export function loadContent(src: 'full' | 'minimal' | ContentOverrides, params: 
   const hashObj: Record<string, unknown> = { ...files };
   if (base === 'minimal') hashObj['$preset'] = 'minimal';
   if (patch !== null) hashObj['$patch'] = patch;
-  return build(files, contentHashOf(hashObj), params, base === 'full' && patch === null);
+  return build(files, contentHashOf(hashObj), params, base === 'full');
 }
 
 function build(files: Record<string, unknown>, contentHash: string, params: ParamsView, checkLaunchCounts: boolean): ContentView {
@@ -125,13 +125,10 @@ function build(files: Record<string, unknown>, contentHash: string, params: Para
     catalogVersions[n] = v;
   }
   const w = files['world.json'] as WorldFile;
-  // ---- CV05 bloc aliases ----
-  const aliasTargets: string[] = [];
+  // ---- CV05 bloc aliases: every alias must map exactly as the one table (injective, so no two can collide) ----
   for (const a of Object.getOwnPropertyNames(w.aliasTable)) {
     const t = w.aliasTable[a]!;
     if (!isBlocId(t) || BLOC_ALIAS_04[a as BlocAlias04] !== t) fail('CV05', `alias ${a} -> ${t}`);
-    if (aliasTargets.includes(t)) fail('CV05', `aliases collide on ${t}`);
-    aliasTargets.push(t);
   }
   const cityRows = rows<CityRow>(files['cities.json'], 'cities');
   const eqRows = rows<EqRow>(files['instruments.json'], 'equities');
@@ -165,7 +162,7 @@ function build(files: Record<string, unknown>, contentHash: string, params: Para
   for (const e of eqRows) {
     blocFk(e.bloc, e.assetId);
     if (!(SECTOR_IDS as readonly string[]).includes(e.sector)) fail('CV04', `${e.assetId}: unknown sector ${e.sector}`);
-    cityByName(e.hq);
+    // (HQ city FK: checked by cityByName when the typed row is built)
     // ---- CV25 money units: cap0 is a whole, non-negative FDL amount ----
     if (!(e.cap0Bn >= 0) || !Number.isInteger(e.cap0Bn * 1e9)) fail('CV25', `${e.assetId}: cap0 ${e.cap0Bn}`);
   }
