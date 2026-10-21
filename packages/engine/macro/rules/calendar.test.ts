@@ -5,7 +5,7 @@ import { auctionsCountInQuarter, auctionsInQuarter, meetingPlan, meetingsInRange
   writeQuarterSchedule } from './calendar';
 import { BLOC_ORDER, type BlocId } from '../schema';
 
-const P: Record<string, number> = { macro_cb_meetings_per_year: 4, macro_cb_decision_tick: 420, macro_auction_tick: 330 };
+const P: Record<string, number> = { macro_cb_meetings_per_year: 4, macro_cb_decision_tick: 420, macro_auction_tick: 330, macro_auction_announce_tick: 420 };
 const params = (o: Record<string, number> = {}): ParamsView => {
   const m = { ...P, ...o };
   return { num: (k) => { if (!(k in m)) throw new Error(k); return m[k]!; }, int: (k) => { if (!(k in m)) throw new Error(k); return m[k]!; } };
@@ -244,3 +244,69 @@ describe('writeQuarterSchedule', () => {
     expect([...rows.keys()].filter((k) => k.startsWith('FDL:CB_GUIDANCE'))).toEqual(['FDL:CB_GUIDANCE:20580']);
   });
 });
+
+describe('E-51 acceptance criteria', () => {
+  it('AC-04-02-ANNOUNCE: announcements use macro_auction_announce_tick; retuning macro_cb_decision_tick moves neither auctions nor consensus', () => {
+    const base = auctionsInQuarter('FDL', 91, pv), moved = auctionsInQuarter('FDL', 91, params({ macro_cb_decision_tick: 400 }));
+    expect(moved).toEqual(base);
+    expect(base.every((a) => a.announceTick % 720 === 420)).toBe(true);
+    expect(auctionsInQuarter('FDL', 91, params({ macro_auction_announce_tick: 400 })).every((a) => a.announceTick % 720 === 400 && a.bidOpenTick === a.announceTick)).toBe(true);
+    const r0 = releasesInRange(91, 182, pv), r1 = releasesInRange(91, 182, params({ macro_cb_decision_tick: 400 }));
+    expect(r1).toEqual(r0); expect(r0.every((r) => r.consensusTick % 720 === 420)).toBe(true);
+    expect(releasesInRange(91, 182, params({ macro_auction_announce_tick: 400 }))).toEqual(r0);   // consensus stays literal t = 420
+  });
+  it('AC-04-02-REFPERIOD: first PMI (referencePeriod.index 0) lands in month 1; no month-0 monthly; no quarter-0 GDP/FISCAL print', () => {
+    const y = releasesInRange(0, 364, pv);
+    const pmi = y.filter((r) => r.bloc === 'FDL' && r.kind === 'PMI');
+    expect(pmi[0]!.referencePeriod).toEqual({ kind: 'MONTH', index: 0 }); expect(monthStartDay(Math.floor(pmi[0]!.tick / 720))).toBe(28);
+    expect(y.filter((r) => r.referencePeriod.kind === 'MONTH' && Math.floor(r.tick / 720) < 28)).toEqual([]);
+    expect(y.filter((r) => ['GDP_ADV', 'GDP_REV1', 'GDP_REV2', 'FISCAL'].includes(r.kind) && Math.floor(r.tick / 720) < 91)).toEqual([]);
+    expect(y.every((r) => r.referencePeriod.index >= 0)).toBe(true);
+  });
+  it('AC-04-02-OFFSET: no bloc offset for N30Y, L10Y and the SRL Global FDL 10Y', () => {
+    for (const b of ['FDL', 'EUN', 'PYN', 'NKR'] as const) {
+      const a = auctionsInQuarter(b, 0, pv);
+      expect(a.filter((x) => x.tenor === 'N30Y' && !x.syndicated).map((x) => x.dayIndex)).toEqual([28 + 15]);   // td 12 of month 2
+      expect(a.filter((x) => x.tenor === 'N30Y' && x.syndicated).map((x) => x.dayIndex)).toEqual([25]);         // td 20 of Q1
+      expect(a.filter((x) => x.tenor === 'L10Y').map((x) => x.dayIndex)).toEqual([56 + 15]);                    // td 12 of month 3
+    }
+    expect(auctionsInQuarter('SRL', 0, pv).filter((x) => x.fxDenominated).map((x) => x.dayIndex)).toEqual([25]);   // td 20 of month 1, no +4
+  });
+  it('AC-04-02-ZEROSHARE: stub until T04-11 (AC-04-11-MIXSTUB) - only SRL N30Y and L10Y are absent', () => {
+    for (const b of BLOC_ORDER) for (const t of ['N30Y', 'L10Y'] as const) expect(auctionsCountInQuarter(b, 0, t, pv) === 0).toBe(b === 'SRL');
+    for (const b of BLOC_ORDER) for (const t of ['B3M', 'B6M', 'B1Y', 'N2Y', 'N5Y', 'N10Y'] as const) expect(auctionsCountInQuarter(b, 0, t, pv)).toBeGreaterThan(0);
+  });
+  it('AC-04-02-PREGENESIS: NKR guidance on day −6 is skipped; no negative tick is written', () => {
+    expect(meetingPlan('NKR', 0, pv).guidanceTick).toBe(-6 * 720 + 420);
+    const rows = new Map<string, { id: string }>();
+    const store = { get: (_t: string, id: string) => rows.get(id), put: (_t: string, e: { id: string }) => { rows.set(e.id, e); }, del: () => undefined,
+      iter: () => [], range: () => [], index: () => [], count: () => rows.size };
+    writeQuarterSchedule({ newId: () => 'x', params: pv, store } as never, 0);
+    const ticks = [...rows.keys()].map((k) => Number(k.split(':')[2]));
+    expect(ticks.every((t) => t >= 0)).toBe(true);
+    expect([...rows.keys()].some((k) => k.startsWith('NKR:CB_GUIDANCE:'))).toBe(false);
+    expect(releasesInRange(-91, 91, pv).every((r) => r.tick >= 0 && r.consensusTick >= 0)).toBe(true);
+  });
+  it('AC-04-02-RANGE: releasesInRange and meetingsInRange are [from, to)', () => {
+    const fdlCpi = releasesInRange(0, 364, pv).find((r) => r.bloc === 'FDL' && r.kind === 'CPI')!;
+    const d = Math.floor(fdlCpi.tick / 720);
+    expect(releasesInRange(d, d + 1, pv).some((r) => r.tick === fdlCpi.tick)).toBe(true);
+    expect(releasesInRange(d + 1, d + 2, pv).some((r) => r.tick === fdlCpi.tick)).toBe(false);
+    expect(releasesInRange(d - 1, d, pv).some((r) => r.tick === fdlCpi.tick)).toBe(false);
+    const m = meetingPlan('FDL', 0, pv).meetingTick;
+    expect(meetingsInRange(m, m + 1, pv).map((x) => x.bloc)).toEqual(['FDL']);
+    expect(meetingsInRange(m - 1, m, pv)).toEqual([]);
+  });
+  it('AC-04-02-SCHEDULE: auctions are not written to mac.schedule (readers use auctionsInQuarter)', () => {
+    const rows = new Map<string, { id: string; kind: string }>();
+    const store = { get: (_t: string, id: string) => rows.get(id), put: (_t: string, e: { id: string; kind: string }) => { rows.set(e.id, e); }, del: () => undefined,
+      iter: () => [], range: () => [], index: () => [], count: () => rows.size };
+    writeQuarterSchedule({ newId: () => 'x', params: pv, store } as never, 91);
+    const kinds = [...rows.values()].map((r) => r.kind);
+    for (const t of TENORS_ALL) expect(kinds).not.toContain(t);
+    const auctionTicks = BLOC_ORDER.flatMap((b) => auctionsInQuarter(b, 91, pv).map((a) => `${b}:${a.tenor}:${a.auctionTick}`));
+    for (const k of auctionTicks) expect(rows.has(k)).toBe(false);
+    expect(auctionTicks.length).toBeGreaterThan(0);
+  });
+});
+const TENORS_ALL = ['B3M', 'B6M', 'B1Y', 'N2Y', 'N5Y', 'N10Y', 'N30Y', 'L10Y'];

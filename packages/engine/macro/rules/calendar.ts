@@ -127,12 +127,12 @@ export function releasesInRange(fromDay: number, toDay: number, params: ParamsVi
 // ───────── sovereign auctions (§3.10.2) ─────────
 export interface ScheduledAuction { bloc: BlocId; tenor: Tenor; dayIndex: number; auctionTick: Tick; announceTick: Tick; bidOpenTick: Tick;
   newLine: boolean; syndicated: boolean; fxDenominated: boolean }
-/** Tenors with a zero issuance share (§3.10.1): until T04-11 owns the mix, the two zero rows of the table (SC N30Y, L10Y). */
+/** STUB (E-51 AC-04-02-ZEROSHARE): tenors with a zero issuance share (§3.10.1, the two 0% rows: SC N30Y, L10Y). Replaced by the T04-11 mix table (AC-04-11-MIXSTUB). */
 const ZERO_SHARE: Readonly<Partial<Record<BlocId, readonly Tenor[]>>> = { SRL: ['N30Y', 'L10Y'] };
 const tenorRank = (t: Tenor): number => TENORS.indexOf(t);
 
 export function auctionsInQuarter(b: BlocId, quarterStart: number, params: ParamsView, holidays: boolean = HOLIDAYS_ENABLED_DEFAULT): ScheduledAuction[] {
-  const at = params.int('macro_auction_tick'), ann = params.int('macro_cb_decision_tick');   // announcement at t = 420 (§3.10.2)
+  const at = params.int('macro_auction_tick'), ann = params.int('macro_auction_announce_tick');   // E-51: own key (value 420, §3.10.2)
   const h = holidays, off = BLOC_DEFAULTS[b].releaseOffset, zero = ZERO_SHARE[b] ?? [];
   const out: ScheduledAuction[] = [];
   const add = (tenor: Tenor, day: number, x: { newLine?: boolean; syndicated?: boolean; fxDenominated?: boolean } = {}): void => {
@@ -172,7 +172,8 @@ export function utcHourOfTick(header: { tick: Tick; sealUtcMs: bigint }, k: Tick
 export function utcBandOf(hour: number): 0 | 1 | 2 { return hour < 8 ? 0 : hour < 16 ? 1 : 2; }
 
 // ───────── schedule rows ─────────
-/** mac.schedule rows for the quarter (all blocs): releases and CB_GUIDANCE / CB_DECISION / CB_MINUTES; id `${bloc}:${kind}:${tick}`; idempotent. */
+/** mac.schedule rows for the quarter (all blocs): releases and CB_GUIDANCE / CB_DECISION / CB_MINUTES; id `${bloc}:${kind}:${tick}`; idempotent.
+ *  Auctions are not ReleaseKinds and are never written here: readers call auctionsInQuarter (E-51 AC-04-02-SCHEDULE). */
 export function writeQuarterSchedule(ctx: PhaseCtx, quarterStart: number, holidays: boolean = HOLIDAYS_ENABLED_DEFAULT): void {
   const T = macroTables.schedule.name;
   const rows: (ReleaseSchedule & { id: string })[] = [];
