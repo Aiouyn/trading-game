@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { PhaseCtx, Rng } from './core-port';
 import { BLOC_DEFAULTS, blocDef } from './blocs';
 import { assertNoHiddenFields, HIDDEN_FIELD_NAMES, MACRO_EVENTS } from './events';
-import { GAPEST_RHO, GAPEST_SIGMA, publicRuleTerms, roundToQuarterPp, RULE_TERMS_KEYS, stepOutputGapEstimate } from './gapest';
+import { GAPEST_INNOVATION, GAPEST_RHO, GAPEST_SIGMA, genesisOutputGapEstimate, publicRuleTerms, roundToQuarterPp, RULE_TERMS_KEYS, stepOutputGapEstimate } from './gapest';
 import { blocOfRegionSlug, type RegionSlug } from './regionSlug';
 import { BLOC_ORDER, macroTables, type BlocId } from './schema';
 
@@ -19,19 +19,20 @@ function testRng(seed: string): Rng {
   return { next: u, u53: u, uOpen: u, int: no, bernoulli: no, normal: () => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u()),
     studentT: no, exponential: no, poisson: no, kouJump: no, categorical: no, shuffle: no } as Rng;
 }
+/** Synthetic true gap path (deterministic, not from the engine): a slow cycle. */
+const trueGap = (b: number, d: number): number => 0.01 * Math.sin((d + 37 * b) / 90);
 interface World { ctx: PhaseCtx; rows: Record<string, Record<string, unknown>>; streamsUsed: string[] }
 function world(seed: string): World {
   const rows: Record<string, Record<string, unknown>> = {};
-  for (const b of BLOC_ORDER) rows[b] = { id: b, bloc: b, outputGap: 0, regime: 'EXPANSION', gapEstNoise: 0, rStar: 0.01 };
+  for (const b of BLOC_ORDER) rows[b] = { id: b, bloc: b, outputGap: 0, regime: 'EXPANSION', gapEstNoise: 0, rStar: 0.01 };   // gapEstNoise set at genesis
   const streams: Record<string, Rng> = {}, used: string[] = [];
   const store = { get: (_t: string, id: string) => rows[id], put: (t: string, e: { id: string }) => { expect(t).toBe(macroTables.bloc.name); rows[e.id] = e as never; },
     del: () => undefined, iter: () => [], range: () => [], index: () => [], count: () => 0 };
   const ctx = { newId: () => 'x', params: { num: () => 0, int: () => 0 }, store,
     rng: (k: string) => { used.push(k); return (streams[k] ??= testRng(`${seed}|${k}`)); } } as unknown as PhaseCtx;
+  for (const [i, b] of BLOC_ORDER.entries()) genesisOutputGapEstimate(ctx, b, trueGap(i, -1));
   return { ctx, rows, streamsUsed: used };
 }
-/** Synthetic true gap path (deterministic, not from the engine): a slow cycle. */
-const trueGap = (b: number, d: number): number => 0.01 * Math.sin((d + 37 * b) / 90);
 
 describe('T04-01b', () => {
   it('AC-04-01-SLUG: region slugs → canonical blocs; unknown throws; defaults keyed by canonical codes; E-41 B1 sectorWeights sum to 1', () => {
@@ -51,15 +52,15 @@ describe('T04-01b', () => {
     for (const b of BLOC_ORDER) { expect(Math.abs(W[b].reduce((s, x) => s + x, 0) - 1)).toBeLessThan(1e-9); expect(blocDef(content as never, b).sectorWeights).toEqual(W[b]); }
   });
 
-  it('AC-04-01-GAPEST-STATS: stationary σ within ±10% of 0.005, lag-1 autocorrelation within ±10% of 0.98 (5 blocs × 4,000 GD pooled)', () => {
+  it('AC-04-01-GAPEST-STATS: stationary σ within ±10% of 0.005, lag-1 autocorrelation within ±10% of 0.98 (5 blocs × 4,000 GD pooled, no burn-in)', () => {
     const w = world('stats');
     let n = 0, s2 = 0, c1 = 0, c0 = 0;
     for (const [i, b] of BLOC_ORDER.entries()) {
-      let prev: number | null = null;
+      let prev: number | null = w.rows[b]!.gapEstNoise as number;
       for (let d = 0; d < 4000; d++) {
         const x = trueGap(i, d), e = stepOutputGapEstimate(w.ctx, b, x) - x;
         expect(w.rows[b]!.gapEstNoise).toBeCloseTo(e, 15);
-        if (d >= 200) { n++; s2 += e * e; if (prev !== null) { c1 += prev * e; c0 += prev * prev; } }   // 200 GD burn-in from ε0 = 0
+        n++; s2 += e * e; if (prev !== null) { c1 += prev * e; c0 += prev * prev; }   // ε0 is stationary (genesis draw): no burn-in
         prev = e;
       }
     }
@@ -70,6 +71,23 @@ describe('T04-01b', () => {
     expect(rho).toBeGreaterThan(0.95);   // tighter than ±10% so a ρ mutant (e.g. 0.9) cannot pass
   });
 
+  it('AC-04-01b-GAPEST-INIT: ε0 = 0.005 × the first draw of macro.gapest:<bloc>; the first GD step uses the second draw', () => {
+    for (const seed of ['init-a', 'init-b']) {
+      const w = world(seed), w2 = world(seed);
+      for (const [i, b] of BLOC_ORDER.entries()) {
+        const r = testRng(`${seed}|macro.gapest:${b}`), z0 = r.normal(), z1 = r.normal();
+        const e0 = w.rows[b]!.gapEstNoise as number;
+        expect(e0).toBe(GAPEST_SIGMA * z0);
+        expect(e0).not.toBe(0);
+        expect(w2.rows[b]!.gapEstNoise).toBe(e0);                                   // deterministic per seed
+        const x = trueGap(i, 0);
+        expect(stepOutputGapEstimate(w.ctx, b, x) - x).toBeCloseTo(GAPEST_RHO * e0 + GAPEST_INNOVATION * z1, 15);
+      }
+    }
+    const g = world('init-a'), r = testRng('init-a|macro.gapest:FDL');
+    expect(genesisOutputGapEstimate(g.ctx, 'FDL', 0.01)).not.toBe(0.01 + GAPEST_SIGMA * r.normal());   // a second genesis call draws Z1, not Z0 again
+  });
+
   it('AC-04-01-GAPEST-DET: same seed → identical ε paths; one draw from macro.gapest:<bloc> per call; other fields untouched', () => {
     const a = world('det'), b = world('det'), c = world('other');
     const pa: number[] = [], pb: number[] = [], pc: number[] = [];
@@ -78,7 +96,7 @@ describe('T04-01b', () => {
     }
     expect(pa).toEqual(pb); expect(pa).not.toEqual(pc);
     expect([...new Set(a.streamsUsed)].sort()).toEqual(BLOC_ORDER.map((x) => `macro.gapest:${x}`).sort());
-    expect(a.streamsUsed).toHaveLength(300 * 5);
+    expect(a.streamsUsed).toHaveLength(300 * 5 + 5);   // + one genesis draw per bloc
     for (const bl of BLOC_ORDER) {
       const { gapEstNoise: _e, ...rest } = a.rows[bl]!;
       expect(rest).toEqual({ id: bl, bloc: bl, outputGap: 0, regime: 'EXPANSION', rStar: 0.01 });

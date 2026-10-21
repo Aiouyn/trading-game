@@ -10,14 +10,25 @@ export const GAPEST_SIGMA = 0.005;
 /** Innovation scale σ·√(1 − ρ²), so the stationary σ of ε is GAPEST_SIGMA. */
 export const GAPEST_INNOVATION = GAPEST_SIGMA * Math.sqrt(1 - GAPEST_RHO * GAPEST_RHO);
 
+/** Genesis (Quant/Producer ruling on #31, AC-04-01b-GAPEST-INIT): ε0 = σ·Z0, Z0 = the FIRST draw of `macro.gapest:<bloc>`, so ε starts
+ *  in its stationary distribution (no burn-in). Stores ε0 on the bloc row and returns outputGap + ε0. */
+export function genesisOutputGapEstimate(ctx: PhaseCtx, bloc: BlocId, outputGap: number): number {
+  const z0 = ctx.rng(S.gapest(bloc)).normal();
+  const eps0 = GAPEST_SIGMA * z0;
+  const row = ctx.store.get<BlocMacroState & { id: BlocId }>(macroTables.bloc.name, bloc);
+  if (row !== undefined) ctx.store.put(macroTables.bloc.name, { ...row, gapEstNoise: eps0 });
+  return outputGap + eps0;
+}
+
 /** Step 3, at each day close per bloc: ε ← ρ·ε + σ·√(1−ρ²)·Z (one draw from `macro.gapest:<bloc>`); returns outputGap + ε.
- *  ε is stored on the bloc row (`gapEstNoise`, hidden); a missing row starts from ε = 0. */
+ *  ε is stored on the bloc row (`gapEstNoise`, hidden), seeded by genesisOutputGapEstimate. */
 export function stepOutputGapEstimate(ctx: PhaseCtx, bloc: BlocId, outputGap: number): number {
   const z = ctx.rng(S.gapest(bloc)).normal();
   const row = ctx.store.get<BlocMacroState & { id: BlocId }>(macroTables.bloc.name, bloc);
-  const prev = row?.gapEstNoise ?? 0;
+  if (row === undefined) throw new EngineFault('I0.macro_bloc', `no bloc row ${bloc} (genesisOutputGapEstimate first)`);
+  const prev = row.gapEstNoise;
   const eps = GAPEST_RHO * prev + GAPEST_INNOVATION * z;
-  if (row !== undefined) ctx.store.put(macroTables.bloc.name, { ...row, gapEstNoise: eps });
+  ctx.store.put(macroTables.bloc.name, { ...row, gapEstNoise: eps });
   return outputGap + eps;
 }
 
