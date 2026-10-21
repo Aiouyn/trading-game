@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { FACT_ID_LOG, FACT_ID_WRITTEN, ID_KIND_RE, IdFactory, idTick, INV_ENG_003, merkleProof, merkleRoot, toHex, utf8, verifyMerkleProof, type InvariantCtx } from './index';
+import { FACT_ID_LOG, FACT_ID_WRITTEN, ID_KIND_RE, IdFactory, idTick, INV_ENG_003, FACT_ID_SALT, merkleProof, merkleRoot, toHex, utf8, verifyMerkleProof, type InvariantCtx, type TruthStoreRead } from './index';
 
 // independent straight-line implementation (node:crypto + BigInt base32)
 function expectedId(salt: Buffer, partition: string, tick: number, kind: string, seq: number): string {
@@ -34,15 +34,38 @@ describe('ids (T02-07)', () => {
   it('INV-ENG-003: valid log passes; a one-char change fails; an id that exists pre-tick fails', () => {
     const f = new IdFactory(SALT, 'p1', 12); const a = f.newId('chr'); f.newId('biz');
     const rows = f.log().map((r) => ({ ...r, partitionId: 'p1' }));
-    const ctx = (log: unknown[], written: unknown[] = [], pre: Record<string, true> = {}): InvariantCtx => ({
-      tick: 12, worldSeedPublicSalt: SALT, facts: (k) => (k === FACT_ID_LOG ? log : k === FACT_ID_WRITTEN ? written : []), pre: { get: (_t, id) => pre[id] },
+    const none: TruthStoreRead = { get: () => undefined, iter: () => [], count: () => 0 };
+    const ctx = (log: unknown[], written: unknown[] = [], pre: Record<string, true> = {}, salt: Uint8Array | null = SALT): InvariantCtx => ({
+      tick: 12, phase: 'P13', scope: 'TICK', partitionId: 'p1', safeMode: false, writeSet: [], postings: [], events: [], num: () => 0, post: none,
+      facts: { get: <T,>(k: string) => (k === FACT_ID_LOG ? log : k === FACT_ID_WRITTEN ? written : k === FACT_ID_SALT ? (salt ?? undefined) : undefined) as T | undefined },
+      pre: { ...none, get: <T,>(_t: string, id: string) => pre[id] as T | undefined },
     });
     expect(INV_ENG_003.check(ctx(rows, [{ id: a, table: 'chr.entity' }]))).toEqual({ ok: true });
     const tampered = [{ ...rows[0]!, id: rows[0]!.id.slice(0, -1) + (rows[0]!.id.endsWith('0') ? '1' : '0') }, rows[1]!];
     expect(INV_ENG_003.check(ctx(tampered)).ok).toBe(false);
     expect(INV_ENG_003.check(ctx([rows[0]!, rows[0]!])).ok).toBe(false);
     expect(INV_ENG_003.check(ctx(rows, [{ id: a, table: 'chr.entity' }], { [a]: true }))).toMatchObject({ ok: false, entityIds: [a] });
-    expect(INV_ENG_003.def).toMatchObject({ id: 'INV-ENG-003', scope: 'TICK', severity: 'FATAL' });
+    expect(INV_ENG_003.def).toMatchObject({ id: 'INV-ENG-003', scope: 'TICK', severity: 'FATAL', module: '02', sampling: 'NEVER' });
+    expect(INV_ENG_003.check(ctx(rows, [], {}, null))).toMatchObject({ ok: false, observed: `fact ${FACT_ID_SALT} missing` });
+    expect(INV_ENG_003.check(ctx([], [], {}, null))).toEqual({ ok: true });
+  });
+  it('AC-02-09-SALT-FACT (E-73): a missing salt with id-log rows fails; an empty log passes; the fact holds the 32-byte public salt only', () => {
+    const PUB = Uint8Array.from({ length: 32 }, (_, i) => i + 1), OTHER = Uint8Array.from({ length: 32 }, (_, i) => 200 - i);
+    const f = new IdFactory(PUB, 'p1', 12); f.newId('chr'); f.newId('biz');
+    const rows = f.log().map((r) => ({ ...r, partitionId: 'p1' }));
+    const none: TruthStoreRead = { get: () => undefined, iter: () => [], count: () => 0 };
+    const ctx = (log: unknown[], salt: unknown): InvariantCtx => ({
+      tick: 12, phase: 'P13', scope: 'TICK', partitionId: 'p1', safeMode: false, writeSet: [], postings: [], events: [], num: () => 0, post: none, pre: none,
+      facts: { get: <T,>(k: string) => (k === FACT_ID_LOG ? log : k === FACT_ID_SALT ? salt : undefined) as T | undefined },
+    });
+    expect(INV_ENG_003.check(ctx(rows, PUB))).toEqual({ ok: true });
+    expect(INV_ENG_003.check(ctx(rows, undefined))).toMatchObject({ ok: false, observed: `fact ${FACT_ID_SALT} missing`, entityIds: rows.map((r) => r.id) });
+    expect(INV_ENG_003.check(ctx([], undefined))).toEqual({ ok: true });
+    expect(INV_ENG_003.check(ctx(rows, OTHER)).ok).toBe(false);                        // any other salt (e.g. a secret) does not verify
+    expect(INV_ENG_003.check(ctx(rows, new Uint8Array(32))).ok).toBe(false);
+    for (const bad of [PUB.slice(0, 31), Uint8Array.from([...PUB, 0]), 'salt', [...PUB]])
+      expect(INV_ENG_003.check(ctx(rows, bad))).toMatchObject({ ok: false, observed: `fact ${FACT_ID_SALT} is not a 32-byte salt` });
+    expect(FACT_ID_SALT).toBe('core.ids.worldSeedPublicSalt');
   });
 });
 

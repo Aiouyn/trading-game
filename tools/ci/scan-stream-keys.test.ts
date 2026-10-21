@@ -164,6 +164,13 @@ describe('AC-02-06-REGISTRY-SCOPE (E-69): roots packages/engine/ and src/, .ts/.
   it('(e3) CLI exits 1 for a literal under a directory named evil.test.ts', () => {
     expect(runCli(fixture({ 'packages/engine/macro/evil.test.ts/prod.ts': lit }), () => undefined, () => undefined)).toBe(1);
   });
+  it('(f) E-72: the node_modules exclusions are exactly these three exact directory paths (no glob, no bare node_modules/, trailing slash kept)', () => {
+    const nm = loadAllowlist().paths.filter((p) => p.includes('node_modules'));
+    expect(nm).toEqual(['packages/engine/core/node_modules/', 'packages/engine/ledger/node_modules/', 'packages/engine/macro/node_modules/']);
+    const r = scanStreamKeys(fixture({ 'packages/engine/macro/streams.ts': STREAMS, 'packages/engine/content/node_modules/x/a.js': lit,
+      'packages/engine/macro/sub/node_modules/b.ts': lit, 'packages/engine/core/node_modules_evil/c.ts': lit, 'packages/engine/ledger/node_modules/d.js': lit }));
+    expect(r.callSiteKeys.map((c) => c.file)).toEqual(['packages/engine/content/node_modules/x/a.js', 'packages/engine/core/node_modules_evil/c.ts', 'packages/engine/macro/sub/node_modules/b.ts']);
+  });
   it('(d) the printed allowlist matches the allowlist file, and the CLI prints it on every run', () => {
     const raw = JSON.parse(readFileSync(ALLOWLIST_FILE, 'utf8')) as Record<string, string[]>, a = loadAllowlist();
     expect(a).toEqual({ roots: raw.roots, extensions: raw.extensions, paths: raw.paths, testFileSuffixes: raw.testFileSuffixes });

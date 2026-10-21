@@ -1,6 +1,6 @@
 import { sha256Concat } from './crypto/sha256';
 import { u32be, u48be } from './crypto/hex';
-import type { InvariantCtx, InvariantImpl, InvariantResult } from './invariant-port';
+import type { InvariantCtx, InvariantImpl, InvariantOutcome } from './invariants';
 import { SortedMap, SortedSet } from './sorted';
 import { EngineFault } from './types';
 
@@ -21,6 +21,9 @@ export function base32Crockford(bytes: Uint8Array): string {
 export const ID_KIND_RE = /^[a-z]{2,5}$/;
 export const FACT_ID_LOG = 'core.ids.log';          // rows { id, kind, seq, partitionId }
 export const FACT_ID_WRITTEN = 'core.ids.written';  // rows { id, table } supplied by the engine
+/** E-70/E-73 AC-02-09-SALT-FACT: the T20A-01 InvariantCtx has no salt member, so the engine supplies the world seed's PUBLIC salt
+ *  (32 bytes, never a secret) as this fact. Missing with id-log rows -> fail; empty log -> pass. */
+export const FACT_ID_SALT = 'core.ids.worldSeedPublicSalt';   // Uint8Array
 
 function digestId(salt: Uint8Array, partitionId: string, tick: number, kind: string, seq: number): string {
   const tickB = u48be(tick);
@@ -57,15 +60,20 @@ interface IdLogRow { id: string; kind: string; seq: number; partitionId: string 
 interface IdWrittenRow { id: string; table: string }
 
 export const INV_ENG_003: InvariantImpl = {
-  def: { id: 'INV-ENG-003', scope: 'TICK', severity: 'FATAL', module: '02' },
-  check(ctx: InvariantCtx): InvariantResult {
+  def: { id: 'INV-ENG-003', module: '02', scope: 'TICK', severity: 'FATAL', costClass: 'O_TOUCHED', sampling: 'NEVER', sinceEngineVersion: '1.0.0',
+    description: 'ID determinism: every id created this tick equals hash(worldSeed, kind, creationTick, sequence) (00 §3.2), and no id collides with an existing id' },
+  check(ctx: InvariantCtx): InvariantOutcome {
     const seen = new SortedSet<string>(), bad: string[] = [];
-    for (const r of ctx.facts(FACT_ID_LOG) as IdLogRow[]) {
-      const ok = ID_KIND_RE.test(r.kind) && digestId(ctx.worldSeedPublicSalt, r.partitionId, ctx.tick, r.kind, r.seq) === r.id;
+    const log = ctx.facts.get<readonly IdLogRow[]>(FACT_ID_LOG) ?? [], salt = ctx.facts.get<Uint8Array>(FACT_ID_SALT);
+    if (log.length > 0 && salt === undefined) return { ok: false, entityIds: log.map((r) => r.id), observed: `fact ${FACT_ID_SALT} missing`, expected: 'the engine supplies the public salt' };
+    if (log.length > 0 && !(salt instanceof Uint8Array && salt.length === 32))
+      return { ok: false, entityIds: log.map((r) => r.id), observed: `fact ${FACT_ID_SALT} is not a 32-byte salt`, expected: 'the 32-byte world-seed public salt only' };
+    for (const r of log) {
+      const ok = ID_KIND_RE.test(r.kind) && digestId(salt!, r.partitionId, ctx.tick, r.kind, r.seq) === r.id;
       if (!ok || seen.has(r.id)) bad.push(r.id);
       seen.add(r.id);
     }
-    for (const w of ctx.facts(FACT_ID_WRITTEN) as IdWrittenRow[]) if (ctx.pre.get(w.table, w.id) !== undefined) bad.push(w.id);
+    for (const w of ctx.facts.get<readonly IdWrittenRow[]>(FACT_ID_WRITTEN) ?? []) if (ctx.pre.get(w.table, w.id) !== undefined) bad.push(w.id);
     if (bad.length === 0) return { ok: true };
     return { ok: false, entityIds: bad, observed: `${bad.length} invalid, duplicate or pre-existing id(s)`, expected: 'every new id recomputes, is unique and is new' };
   },
