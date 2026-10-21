@@ -318,3 +318,43 @@ test("T4 Studio 08:20: grid columns by text scale (4 / 3 / 2); tiles keep their 
     await shot(page, name);
   }
 });
+
+test("T4 Studio 08:31: bottom row is an icon-only dock at text scale ≥ 1.5; aria-label, long-press tip, 44 px, no truncation", async ({ page }, info) => {
+  phoneOnly(info.project.name);
+  await boot(page, "/?rank=R6");
+  const dock = page.getByTestId("bottom-row");
+  const items = ["broker", "portfolio", "wire", "messages"] as const;
+  // Below 1.5: unchanged, visible labels.
+  await page.evaluate(() => document.documentElement.style.setProperty("--text-scale", "1.4"));
+  await expect(dock).not.toHaveAttribute("data-dock", "1");
+  await expect(dock.locator(".icon-label")).toHaveCount(4);
+  for (const scale of [1.5, 2]) {
+    await page.evaluate((v) => document.documentElement.style.setProperty("--text-scale", String(v)), scale);
+    await expect(dock).toHaveAttribute("data-dock", "1");
+    await expect(dock.locator(".icon-label")).toHaveCount(0);
+    expect(await dock.evaluate((d) => [...d.querySelectorAll("*")].filter((e) => getComputedStyle(e).textOverflow === "ellipsis").length)).toBe(0);
+    for (const a of items) {
+      const b = dock.getByTestId(`icon-${a}`);
+      await expect(b).toHaveAccessibleName(new RegExp(`^${{ broker: "Broker", portfolio: "Portfolio", wire: "Wire", messages: "Messages" }[a]}`));
+      const bb = (await b.boundingBox())!;
+      expect([a, bb.width >= 44, bb.height >= 44]).toEqual([a, true, true]);
+    }
+  }
+  // Long-press shows the full name 8 px above, doesn't open the app; release + 1.5 s closes it.
+  const b = dock.getByTestId("icon-portfolio");
+  await b.dispatchEvent("pointerdown");
+  await page.waitForTimeout(600);
+  const tip = page.getByTestId("dock-tip");
+  await expect(tip).toHaveText("Portfolio");
+  const [tr, br] = [(await tip.boundingBox())!, (await b.boundingBox())!];
+  expect(Math.round(br.y - (tr.y + tr.height))).toBe(8);
+  expect(tr.x).toBeGreaterThanOrEqual(0);
+  expect(tr.x + tr.width).toBeLessThanOrEqual(390);
+  await b.dispatchEvent("pointerup");
+  await b.dispatchEvent("click");
+  await expect(page.getByTestId("phone-appview")).toHaveCount(0);
+  await expect(tip).toHaveCount(0, { timeout: 2500 });
+  // A normal tap opens the app, no tip.
+  await b.click();
+  await expect(page.getByTestId("phone-appview")).toHaveAttribute("data-app", "portfolio");
+});
