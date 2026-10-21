@@ -1,3 +1,4 @@
+// TODO: DELETE when core exports TableDef/IndexDef, StoreRead, PhaseCtx — remove these copies in that same PR
 // Types-only stand-ins for upstream names this card imports but that are not built yet in this repo (private helper of T04-01).
 // Each is the binding signature from the pack, verbatim; no behaviour. Replace with the real exports when they land:
 //   G6 / T02-09: TableDef, IndexDef, StoreRead (not yet exported by @tycoon/engine-core)

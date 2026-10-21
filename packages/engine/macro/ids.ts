@@ -27,8 +27,8 @@ export function blocOfEntity(id: Id): BlocId | null {
   return null;
 }
 
-/** ctx.newId('macro_rel'); bloc and kind live in the release payload (02 owns the id format). */
-export function releaseId(ctx: PhaseCtx, _b: BlocId, _k: ReleaseKind): Id { return ctx.newId('macro_rel'); }
+/** ctx.newId('mrl') (Producer ruling on 04 §2.1 macro_rel: core id kinds are 2-5 letters); bloc and kind live in the release payload (02 owns the id format). */
+export function releaseId(ctx: PhaseCtx, _b: BlocId, _k: ReleaseKind): Id { return ctx.newId('mrl'); }
 export function meetingId(ctx: PhaseCtx): Id { return ctx.newId('mtg'); }
 export function auctionId(ctx: PhaseCtx): Id { return ctx.newId('auc'); }
 export function crisisId(ctx: PhaseCtx): Id { return ctx.newId('crs'); }

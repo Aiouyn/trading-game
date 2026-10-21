@@ -1,3 +1,4 @@
+import { ID_KIND_RE } from '@tycoon/engine-core';
 import { describe, expect, it } from 'vitest';
 import { BLOC_ALIAS, BLOC_ORDER, ALL_MACRO_TABLES, macroTables, type BlocId } from './schema';
 import { BLOC_DEFAULTS, blocDef, ISLA_SERENA_CITY, SECTOR_COUNT } from './blocs';
@@ -91,10 +92,11 @@ describe('aliases, ids', () => {
     for (const b of BLOC_ORDER) for (const f of [cbkId, govId, excId, regId, crtId]) expect(blocOfEntity(f(b))).toBe(b);
     for (const x of ['cbk_FU', 'gov_FDLX', 'npc_CSF', 'bnk_FDL', 'xcbk_FDL', '']) expect(blocOfEntity(x)).toBeNull();
   });
-  it('generated ids use kinds macro_rel, mtg, auc, crs', () => {
+  it('generated ids use kinds mrl, mtg, auc, crs', () => {
     const kinds: string[] = []; const ctx = { newId: (k: string) => { kinds.push(k); return `${k}_1`; } };
     releaseId(ctx, 'FDL', 'CPI'); meetingId(ctx); auctionId(ctx); crisisId(ctx);
-    expect(kinds).toEqual(['macro_rel', 'mtg', 'auc', 'crs']);
+    expect(kinds).toEqual(['mrl', 'mtg', 'auc', 'crs']);
+    for (const k of kinds) expect(ID_KIND_RE.test(k)).toBe(true);   // core IdFactory accepts every kind
   });
 });
 
