@@ -138,6 +138,18 @@ describe('T04-01b', () => {
     expect(roundToQuarterPp(0.00125)).toBe(0); expect(Object.is(roundToQuarterPp(-0.001), 0)).toBe(true);
   });
 
+  it('roundToQuarterPp signed zero and range (02 §3.7.2 rule 3; core roundHalfEven since #37)', () => {
+    // -0 in: core roundHalfEven(-0) is -0 (02 §3.9.1 verbatim); roundToQuarterPp normalises it, as for every value that rounds to 0
+    for (const v of [-0, -0.00125, -0.001, -1e-300, -Number.MIN_VALUE]) expect(Object.is(roundToQuarterPp(v), 0)).toBe(true);
+    expect(roundToQuarterPp(-0.00375)).toBeCloseTo(-0.005, 15);
+    // #37 behaviour note: v / 0.0025 overflows to ±Infinity for |v| > 4.494232837155789e305 (= MAX_VALUE × 0.0025, the largest finite
+    // quotient input) and core roundHalfEven throws I0.nan; the pre-#37 local rounding returned ±Infinity there and NaN for NaN.
+    const code = (f: () => unknown): string | null => { try { f(); return null; } catch (e) { return (e as { code?: string }).code ?? 'non-fault'; } };
+    const LAST = 4.494232837155789e305, FIRST = 4.49423283715579e305;   // adjacent doubles
+    expect(Number.isFinite(roundToQuarterPp(LAST))).toBe(true); expect(Number.isFinite(roundToQuarterPp(-LAST))).toBe(true);
+    for (const v of [FIRST, -FIRST, Number.MAX_VALUE, Infinity, -Infinity, NaN]) expect(code(() => roundToQuarterPp(v))).toBe('I0.nan');
+  });
+
   it('AC-04-01b-NOTRUEGAP: published outputGap = 0.25 pp of coef × estimate; differs from coef × true gap; never a true-gap field', () => {
     const w = world('notrue'), coef = 0.5;
     let differs = 0, n = 0;

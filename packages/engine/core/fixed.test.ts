@@ -31,6 +31,15 @@ describe('T02-04 fixed', () => {
     expect(toMoney(1e12, 'FDL')).toBe(1_000_000_000_000_000_000n);
     expect(divRoundHalfEven(5n, 2n)).toBe(2n); expect(divRoundHalfEven(7n, 2n)).toBe(4n);
   });
+  it('roundHalfEven signed zero (02 §3.9.1 verbatim, §3.7.2 rule 3): negatives that round to zero give +0; -0 in gives -0, normalised by normZero', () => {
+    // floor(x) = -1 and d ≥ 0.5 for every x in [-0.5, 0): the result is f + 1 = -1 + 1 = +0 (ties included: -0.5 -> f odd -> f + 1)
+    for (const x of [-0.5, -0.49999999999999994, -0.3, -1e-300, -Number.MIN_VALUE]) expect(Object.is(roundHalfEven(x), 0)).toBe(true);
+    expect(Object.is(roundHalfEven(0), 0)).toBe(true); expect(Object.is(roundHalfEven(0.3), 0)).toBe(true);
+    // -0: floor(-0) = -0, d = 0 < 0.5 -> returns f = -0. §3.9.1 has no normalisation step; §3.7.2 rule 3 normalises at the state write.
+    expect(Object.is(roundHalfEven(-0), -0)).toBe(true);
+    expect(Object.is(normZero(roundHalfEven(-0)), 0)).toBe(true);
+    for (const x of [-0.5, -0.3, -1e-300]) expect(Object.is(normZero(roundHalfEven(x)), 0)).toBe(true);
+  });
   it('roundHalfEven: |x| ≥ 2^52 unchanged; non-finite -> I0.nan', () => {
     expect(roundHalfEven(2 ** 52 + 1)).toBe(2 ** 52 + 1); expect(roundHalfEven(-(2 ** 52) - 3)).toBe(-(2 ** 52) - 3);
     expect(roundHalfEven(4503599627370495.5)).toBe(4503599627370496);   // just below 2^52: tie to even
