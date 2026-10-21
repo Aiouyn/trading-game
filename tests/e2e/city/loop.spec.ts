@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { diag, expect, isPhone, openCity, waitDrawn, waitFpsFirst2s, waitState, type HarnessWindow } from './helpers';
+import { diag, expect, isPhone, openCity, waitDrawn, waitState, type HarnessWindow } from './helpers';
 
 const simulateHidden = (hidden: boolean) => {
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
@@ -85,7 +85,8 @@ test.describe('C-06 / C-11 render on demand', () => {
     test.setTimeout(240_000);
     await openCity(page, 'tier=T2');
     await waitDrawn(page);
-    await waitFpsFirst2s(page); // past the 2 s tier measurement (condition, not a sleep)
+    // tier=T2 is forced, so no 2 s auto-tier measurement runs (fpsFirst2s stays null): the condition
+    // to wait for is just T2 drawing, no sleep.
     await waitState(page, 'C-06 real clock: tier is not T2 after the tier measurement', () => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2');
     const ms = await page.evaluate(() => new Promise<number>((resolve) => {
       const w = window as unknown as HarnessWindow;
