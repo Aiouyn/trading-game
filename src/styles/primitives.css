@@ -39,11 +39,20 @@
 [data-subpalette="shadow"] .btn.btn-primary { background: transparent; color: var(--steel); border-color: var(--steel); }
 .btn-secondary { background: var(--win2); border-color: var(--line); color: var(--fg); }
 .btn-ghost { background: transparent; color: var(--fg-muted); }
-.btn-ghost:hover:not([aria-disabled="true"]) { background: var(--win2); }
+/* Studio T1 rulings 1-2: hover and pressed share --dur-fast (0 under reduced motion); pressed never moves or scales.
+   Ghost has no hover or pressed change. */
+.btn.btn-primary:hover:not([aria-disabled="true"]) { background: color-mix(in oklab, var(--acc) 90%, var(--fg)); }
+.btn.btn-primary:active:not([aria-disabled="true"]) { background: color-mix(in oklab, var(--acc) 88%, var(--bg0)); }
+.btn-secondary:hover:not([aria-disabled="true"]) { background: var(--win2); border-color: var(--fg-muted); }
+.btn-secondary:active:not([aria-disabled="true"]) { background: var(--line); }
+.btn-icon:hover:not([aria-disabled="true"]) { background: var(--win2); }
+.btn-icon:active:not([aria-disabled="true"]) { background: var(--line); }
 .btn-icon { min-width: var(--hit-pointer); min-height: var(--hit-pointer); padding: 0; color: var(--fg-muted); background: transparent; }
 @media (pointer: coarse) { .btn-icon { min-width: var(--hit-touch); min-height: var(--hit-touch); } }
 .btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.btn[aria-disabled="true"], .btn.btn-primary[aria-disabled="true"], [data-subpalette="shadow"] .btn.btn-primary[aria-disabled="true"] { color: var(--fg-disabled); cursor: default; }
+.btn[aria-disabled="true"] { color: var(--fg-disabled); cursor: default; }
+/* Ruling 2: disabled primary drops the brass fill (also inside Shadow). */
+.btn.btn-primary[aria-disabled="true"], [data-subpalette="shadow"] .btn.btn-primary[aria-disabled="true"] { background: var(--win2); border-color: var(--line); color: var(--fg-disabled); }
 
 /* Chip tones (17 §3.5): text in the tone colour; `outline` draws the 1 px border in it too. */
 .chip-gain { color: var(--gain); }
@@ -63,6 +72,9 @@
 
 /* MoneyText (17 §3.4.1, §3.5) */
 .money-wealth-tone { color: var(--acc-wealth); }
+/* Ruling 5: long-press pill tooltip with the full value (touch). */
+.money-tip-wrap { position: relative; display: inline-flex; }
+.money-tip { position: fixed; z-index: var(--z-toast); padding: 2px var(--sp-8); border: 1px solid var(--line); border-radius: 999px; background: var(--win2); color: var(--fg); font-size: var(--fs-11_5); white-space: nowrap; pointer-events: none; }
 .money-restricted { display: inline-flex; align-items: center; gap: var(--sp-4); }
 
 /* /__ds sheet layout (dev-only page, 17A T1 [P]) */

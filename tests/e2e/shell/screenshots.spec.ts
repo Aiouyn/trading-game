@@ -48,11 +48,13 @@ async function four(page: Page, prefix: string, phone: boolean) {
   await page.context().setOffline(false);
 }
 
-test("desktop 1440×900 and 1280×800", async ({ page }, info) => {
+test("desktop 1440×900 and 1280×800", async ({ page, browser, baseURL }, info) => {
   test.skip(info.project.name !== "desktop");
   await four(page, "desktop-1440x900", false);
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await four(page, "desktop-1280x800", false);
+  // 1280 gets a fresh context (empty IndexedDB), so it never reuses the windows the 1440 pass opened.
+  const ctx = await browser.newContext({ baseURL, viewport: { width: 1280, height: 800 } });
+  await four(await ctx.newPage(), "desktop-1280x800", false);
+  await ctx.close();
 });
 
 test("phone 390×844", async ({ page }, info) => {

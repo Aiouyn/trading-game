@@ -181,6 +181,10 @@ export const MODE_TOKENS = {
     "gain": "#5CE1E6",
     "loss": "#FF5C8A"
   },
+  "colorBlindBroadsheet": {
+    "gain": "#08657A",
+    "loss": "#A8235A"
+  },
   "highContrast": {
     "line": "var(--fg-disabled)"
   },
@@ -203,6 +207,7 @@ export const MODE_TOKENS = {
 } as const;
 export const MODE_SELECTORS = {
   "colorBlind": "html[data-cb=\"1\"]",
+  "colorBlindBroadsheet": "html[data-cb=\"1\"][data-palette=\"broadsheet\"]",
   "highContrast": "html[data-hc=\"1\"]",
   "shadow": "[data-subpalette=\"shadow\"]",
   "reducedMotion": "html[data-motion=\"reduce\"]",

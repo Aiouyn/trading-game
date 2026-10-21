@@ -5,7 +5,14 @@ export type AccountClass = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENS
 export const SYS_ID = 'sys_SYSTEM';
 export const cbkId = (ccy: Ccy): Id => `cbk_${ccy}`;
 
+/** Pure memo of kindOfId (ids are immutable strings); holds no world state. */
+const KIND: Record<string, EntityKind | null> = Object.create(null);
 export function kindOfId(id: Id): EntityKind | undefined {
+  const hit = KIND[id];
+  if (hit !== undefined) return hit ?? undefined;
+  const r = kindUncached(id); KIND[id] = r ?? null; return r;
+}
+function kindUncached(id: Id): EntityKind | undefined {
   const k = id.split('_')[0];
   return (['sys', 'cbk', 'gov', 'reg', 'crt', 'exc', 'ccp', 'rat', 'bnk', 'ins', 'fnd', 'spv', 'cmp', 'biz', 'prop', 'ali', 'npc', 'hh', 'frm', 'row', 'chr'] as const)
     .find((x) => x === k);
