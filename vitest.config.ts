@@ -15,7 +15,7 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "scripts/**/*.test.ts", "tests/unit/**/*.test.ts", "tests/contract/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "scripts/**/*.test.ts", "tests/unit/**/*.test.ts", "tests/unit/**/*.test.tsx", "tests/contract/**/*.test.ts"],
     exclude: ["node_modules", ".next", "tests/e2e/**"],
     environment: "node",
     passWithNoTests: true,

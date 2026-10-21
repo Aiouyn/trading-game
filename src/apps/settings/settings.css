@@ -70,6 +70,9 @@ html[data-motion="reduce"] .set-switch-knob { transition: none; }
 .set-seg button + button { border-left: 1px solid var(--line); }
 .set-seg button[aria-checked="true"] { color: var(--fg); background: var(--win2); font-weight: 500; }
 .set-seg.stacked { flex-direction: column; width: 100%; }
+/* Transient measuring state for overflow detection (controls.tsx rowOverflows). */
+.set-seg.measure-row { flex-direction: row; width: max-content; max-width: none; }
+.set-seg.measure-row button { white-space: nowrap; }
 .set-seg.stacked button { text-align: left; }
 .set-seg.stacked button + button { border-left: 0; border-top: 1px solid var(--line); }
 

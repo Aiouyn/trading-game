@@ -11,8 +11,8 @@ import { ShellPicker } from "./ShellPicker";
 import { useSettingsStrings } from "./useSettingsStrings";
 
 type Mode = AccountUiPrefs["reducedMotion"];
-/** Studio: at large text scale the segments stack vertically. Threshold [P]. */
-const STACK_AT = 1.75;
+/** Studio #38: segments stack from text scale 1.5 (same threshold as the icon-only dock), or whenever a row would overflow. */
+export const STACK_AT = 1.5;
 
 function useMedia(q: string): boolean {
   return useSyncExternalStore(

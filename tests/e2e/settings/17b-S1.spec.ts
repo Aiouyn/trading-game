@@ -302,8 +302,21 @@ test("Studio #38: switch / segment / swatch badge / thumbnail / glyph geometry",
   // Reduced motion: the knob moves instantly.
   await page.getByTestId("seg-reducedMotion").getByRole("radio", { name: "On", exact: true }).click();
   expect(parseFloat((await box("[data-testid=switch-hc] .set-switch-knob")).tr)).toBe(0);
-  // Text scale 2.0: segments stack vertically, labels never truncate.
-  const s = page.getByTestId("text-scale"); await s.fill("2"); await s.blur();
+  // Studio #38: one row at 1.25 (when it fits), stacked from 1.5; at scale 1 a too-narrow container also stacks.
+  const s = page.getByTestId("text-scale");
+  const segLoc = page.getByTestId("seg-reducedMotion");
+  if (!isPhone(info)) {
+    await s.fill("1.25"); await s.blur();
+    await expect(segLoc).not.toHaveAttribute("data-stacked", /./);
+  }
+  await s.fill("1.5"); await s.blur();
+  await expect(segLoc).toHaveAttribute("data-stacked", "scale");
+  await s.fill("1"); await s.blur();
+  await segLoc.evaluate((e) => { (e.parentElement as HTMLElement).style.width = "90px"; });
+  await expect(segLoc).toHaveAttribute("data-stacked", "overflow");
+  expect(await page.locator("[data-testid=seg-reducedMotion] button").evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).length)).toBe(0);
+  await segLoc.evaluate((e) => { (e.parentElement as HTMLElement).style.width = ""; });
+  await s.fill("2"); await s.blur();
   const ys = await page.locator("[data-testid=seg-reducedMotion] button").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().y));
   expect(ys[1]).toBeGreaterThan(ys[0]); expect(ys[2]).toBeGreaterThan(ys[1]);
   expect(await page.locator(".set-seg button").evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).length)).toBe(0);
