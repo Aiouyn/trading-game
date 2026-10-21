@@ -2,7 +2,7 @@
 import type { PhaseCtx } from './core-port';
 import { macroTables, type BlocId, type BlocMacroState } from './schema';
 import { S } from './streams';
-import { EngineFault } from '@tycoon/engine-core';
+import { EngineFault, roundHalfEven } from '@tycoon/engine-core';
 
 /** E-45 / 02 §3.10.4 row `macro.gapest:<bloc>`: AR(1) ρ 0.98, stationary σ 0.5 pp. PROVISIONAL [Quant]. */
 export const GAPEST_RHO = 0.98;
@@ -38,11 +38,9 @@ export type RuleTermKey = (typeof RULE_TERMS_KEYS)[number];
 
 /** E-45 item 5: published at 0.25 pp = 0.0025 in rate units. */
 export const RULE_TERMS_PUBLIC_STEP = 0.0025;
-/** Round half-even to the 0.25 pp grid (local; T02-04 roundHalfEven is not on main yet). */
+/** Round half-even to the 0.25 pp grid with the shared core roundHalfEven (02 §3.9.1, T02-04). */
 export function roundToQuarterPp(v: number): number {
-  const q = v / RULE_TERMS_PUBLIC_STEP, f = Math.floor(q), d = q - f;
-  const n = d > 0.5 ? f + 1 : d < 0.5 ? f : (f % 2 === 0 ? f : f + 1);
-  const r = n * RULE_TERMS_PUBLIC_STEP;
+  const r = roundHalfEven(v / RULE_TERMS_PUBLIC_STEP) * RULE_TERMS_PUBLIC_STEP;
   return r === 0 ? 0 : r;
 }
 
