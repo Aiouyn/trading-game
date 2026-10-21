@@ -1,4 +1,6 @@
+"use client";
 // MoneyText (17 §3.4.1, §3.5): formats a server decimal string; never computes money (17-AT-05).
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Chip } from "@/components/ui/Chip";
 import { abbreviateDigits, fullDigits, isZero, MINUS, parseAmount, shouldAbbreviate } from "@/components/ui/money";
 import { S } from "@/shell/strings";
@@ -11,7 +13,7 @@ export interface MoneyTextProps {
   amount: string;
   ccy?: "FDL";
   ctx?: MoneyCtx;
-  /** Shows ≈ in --fg-muted. */
+  /** Shows ≈; muted only for zero/neutral values, a negative estimate stays loss (Studio T1 ruling 7). */
   estimated?: boolean;
   /** Restricted cash: an acc-outline pill beside the amount. */
   restricted?: Restricted;
@@ -37,7 +39,7 @@ export function MoneyText(props: MoneyTextProps | LegacyMoneyTextProps) {
   const abbreviated = !zero && ABBREVIATED.has(ctx) && shouldAbbreviate(p);
   const digits = zero ? "0.00" : abbreviated ? abbreviateDigits(p.int) : fullDigits(p);
   const sign = p.negative ? MINUS : ctx === "delta" && !zero ? "+" : "";
-  const tone = zero || estimated ? "muted" : p.negative ? "loss" : ctx === "delta" ? "gain" : ctx === "wealth" ? "money-wealth-tone" : "";
+  const tone = zero ? "muted" : p.negative ? "loss" : estimated ? "muted" : ctx === "delta" ? "gain" : ctx === "wealth" ? "money-wealth-tone" : "";
   const cls = ["num", "money", `money-${ctx}`, tone].filter(Boolean).join(" ");
   const text = `${estimated ? "≈" : ""}${sign}$${digits}`;
   const dot = text.lastIndexOf(".");
@@ -49,8 +51,41 @@ export function MoneyText(props: MoneyTextProps | LegacyMoneyTextProps) {
       {body}
     </span>
   );
-  if (!restricted) return money;
-  return <span className="money-restricted">{money}<Chip tone="acc" outline>{RESTRICTED_TEXT[restricted]}</Chip></span>;
+  const shown = abbreviated ? <LongPressTip full={`$${fullDigits(p)}`}>{money}</LongPressTip> : money;
+  if (!restricted) return shown;
+  return <span className="money-restricted">{shown}<Chip tone="acc" outline>{RESTRICTED_TEXT[restricted]}</Chip></span>;
+}
+
+export const LONG_PRESS_MS = 500;
+export const TIP_LINGER_MS = 1500;
+
+/** Studio T1 ruling 5: on touch, a 500 ms long-press shows the full value in a pill; it closes 1.5 s after the
+ *  finger lifts, or on the next tap. A normal tap shows nothing. aria-label keeps the full value regardless. */
+function LongPressTip({ full, children }: { full: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const press = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const linger = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clear = (t: typeof press) => { if (t.current) clearTimeout(t.current); t.current = null; };
+  useEffect(() => () => { clear(press); clear(linger); }, []);
+  return (
+    <span
+      className="money-tip-wrap"
+      onPointerDown={(e) => {
+        if (e.pointerType !== "touch") return;
+        if (open) { clear(linger); setOpen(false); return; }
+        press.current = setTimeout(() => setOpen(true), LONG_PRESS_MS);
+      }}
+      onPointerUp={() => {
+        clear(press);
+        if (open) { clear(linger); linger.current = setTimeout(() => setOpen(false), TIP_LINGER_MS); }
+      }}
+      onPointerCancel={() => clear(press)}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {children}
+      {open && <span className="money-tip" data-testid="money-tip" aria-hidden="true">{full}</span>}
+    </span>
+  );
 }
 
 // ---- legacy rendering, byte-for-byte the pre-17A output ----

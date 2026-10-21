@@ -23,7 +23,7 @@ function Row({ title, children }: { title: string; children: ReactNode }) {
 
 function Buttons({ scope }: { scope: string }) {
   return (
-    <>
+    <div data-testid={`ds-buttons-${scope}`}>
       {VARIANTS.map((v) => (
         <Row key={v} title={`${scope} button ${v}`}>
           {(["md", "sm"] as const).map((size) => (
@@ -36,7 +36,7 @@ function Buttons({ scope }: { scope: string }) {
           </Button>
         </Row>
       ))}
-    </>
+    </div>
   );
 }
 
@@ -64,6 +64,8 @@ export function DesignSystemSheet({ palette }: { palette: string }) {
       ))}
       <Row title="money states">
         <span data-testid="ds-money-estimated"><MoneyText amount="1284.10" estimated /></span>
+        <span data-testid="ds-money-estimated-neg"><MoneyText amount="-1284.10" ctx="delta" estimated /></span>
+        <span data-testid="ds-money-estimated-zero"><MoneyText amount="0" ctx="delta" estimated /></span>
         <span data-testid="ds-money-ad"><MoneyText amount="500" restricted="AD" /></span>
         <span data-testid="ds-money-start"><MoneyText amount="2500" restricted="START" /></span>
       </Row>

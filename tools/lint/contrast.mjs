@@ -37,5 +37,18 @@ for (const [pal, t] of Object.entries(PALETTES)) {
     console.log(`${ok ? "ok  " : "FAIL"} ${pal.padEnd(10)} ${fg.padEnd(9)} on ${bg.padEnd(6)} ${r.toFixed(2)} >= 4.5 (17A T1)`);
   }
 }
+// Studio T1 ruling 8: the colour-blind pair (data-cb="1") in all 4 palettes, on bg0, win, win2 and chrome, as text.
+const MODES = JSON.parse(/MODE_TOKENS = (\{[\s\S]*?\n\}) as const;/.exec(src)[1]);
+for (const [pal, t] of Object.entries(PALETTES)) {
+  const cb = { ...MODES.colorBlind, ...(pal === "broadsheet" ? MODES.colorBlindBroadsheet : {}) };
+  for (const fg of ["gain", "loss"]) {
+    for (const bg of ["bg0", "win", "win2", "chrome"]) {
+      const r = ratio(cb[fg], t[bg]);
+      const ok = r >= 4.5;
+      if (!ok) failed++;
+      console.log(`${ok ? "ok  " : "FAIL"} ${pal.padEnd(10)} cb ${fg.padEnd(6)} on ${bg.padEnd(6)} ${r.toFixed(2)} >= 4.5 (ruling 8)`);
+    }
+  }
+}
 if (failed) { console.error(`${failed} contrast checks failed`); process.exit(1); }
 console.log("contrast: all floors met");
