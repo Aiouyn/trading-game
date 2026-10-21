@@ -28,6 +28,9 @@ describe('T02-11 module registry', () => {
     expect(set.ownsStream('05', 'mkt.idio:ast_X')).toBe(true); expect(set.ownsStream('05', 'mkt.jump:ast_X')).toBe(false);   // jump not declared
     expect(set.ownsStream('04', 'mkt.idio:ast_X')).toBe(false); expect(set.ownsStream('05', 'nope:x')).toBe(false);
     expect(buildModuleSet([mod('02'), mod('03'), mod('04')]).ledger).toBeUndefined();
+    // ownsStream checks the registry owner too, even for a set built from modules that skipped defineModule
+    const raw = buildModuleSet([mod('02'), mod('03'), mod('04', { streams: ['mkt.idio'] })]);
+    expect(raw.ownsStream('04', 'mkt.idio:ast_X')).toBe(false);
   });
   it('lookups: intent, eventSchema, view', () => {
     const h = handler('mkt.buy'), v = view('mkt.book'), ev = z.object({ a: z.number() });
