@@ -4,8 +4,9 @@ import { Banner, WorldEventBanner, type Alert, type WorldEvent } from "@/compone
 import { Sheet } from "@/components/shell/Sheet";
 import { HaltChip, HaltLayer, orderEntryLock, SystemOverlay, type OverlayKind } from "@/components/shell/SystemOverlays";
 import { Button } from "@/components/ui/Button";
+import { Glyph } from "@/components/shell/Glyph";
 import { PALETTE_IDS, type PaletteId } from "@/styles/tokens";
-import { APP_NAMES } from "@/shell/strings";
+import { APP_NAMES, S } from "@/shell/strings";
 
 // Demo data only (not copy): exercises the components' states for tests and screenshots.
 const P0: Alert = { id: "a1", priority: "P0", text: "Margin call: equity below maintenance on 2 positions", action: { label: "Open Risk", href: "/risk" } };
@@ -24,13 +25,20 @@ export function NoticesSheet({ show, palette }: { show: string; palette: string 
   const [sheet, setSheet] = useState<"bottom" | "right" | null>(parts.has("sheet-right") ? "right" : parts.has("sheet-bottom") ? "bottom" : null);
   const overlay = (["disconnected", "update"] as OverlayKind[]).find((k) => parts.has(k));
   const [halted, setHalted] = useState(parts.has("halted"));
-  const lock = orderEntryLock(halted);
+  const lock = orderEntryLock(halted, parts.has("noreason") ? null : S.haltReasonMock);
   return (
     <div className="quay is-desktop ds-notices" data-testid="ds-notices">
       <div className="ds-strip" data-testid="ds-strip"><HaltChip halted={halted} /></div>
       <Banner alerts={alerts} />
       <WorldEventBanner event={event} />
       <main className="ds-notices-desk" data-testid="ds-desk">
+        {parts.has("glyphs") && (
+          <div className="ds-glyphs" data-testid="ds-glyphs">
+            <span className="alert-p0"><span className="alert-icon" data-glyph="alert"><Glyph name="alert" size={16} /></span>{" alert"}</span>
+            <span className="world-dot" data-glyph="world"><Glyph name="world" size={16} /></span><span>{"world"}</span>
+            <span className="glyph-error" data-glyph="error"><Glyph name="error" size={16} /></span><span>{"error"}</span>
+          </div>
+        )}
         {parts.has("orderpad") && <div className="ds-orderpad" data-testid="mock-orderpad">{"OrderPad (mock)"}</div>}
         {parts.has("haltflow") && <Button data-testid="toggle-halt" onClick={() => setHalted((h) => !h)}>{"Toggle halt (mock)"}</Button>}
         <span title={lock.reason ?? undefined} data-testid="order-entry-wrap"><Button variant="primary" disabled={lock.disabled} data-testid="mock-order-entry" aria-describedby={lock.reason ? "order-lock-reason" : undefined}>{"Place order (mock)"}</Button></span>

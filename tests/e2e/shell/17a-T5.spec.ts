@@ -101,7 +101,7 @@ test("T5-03 one alert banner for two P0s; banners never intersect the OrderPad",
 test("T5-04 world-event banner shows elapsed only", async ({ page }) => {
   await ds(page, "world");
   const t = await page.getByTestId("world-banner").getAttribute("aria-label");
-  expect(t).toBe("● CRASH · DAY 3 · GX \u221218.40% since it began · Today \u22122.10%");
+  expect(t).toBe("CRASH · DAY 3 · GX \u221218.40% since it began · Today \u22122.10%");
   expect(t).not.toMatch(/left|remain|until|ends/i);
 });
 
@@ -221,8 +221,23 @@ test("T5 halt chip (Studio 08:04): Continue hides the overlay; steel chip in str
   const c = await chip.evaluate((e) => { const p = document.createElement("i"); p.style.color = "var(--steel)"; document.body.append(p); const want = getComputedStyle(p).color; const a = document.createElement("i"); a.style.color = "var(--acc)"; document.body.append(a); const brass = getComputedStyle(a).color; p.remove(); a.remove(); return { got: getComputedStyle(e).color, want, brass }; });
   expect(c.got).toBe(c.want);
   expect(c.got).not.toBe(c.brass);
-  const hit = await chip.evaluate((e) => { const r = e.getBoundingClientRect(); const b = getComputedStyle(e, "::before"); return r.height - parseFloat(b.top) - parseFloat(b.bottom); });
-  expect(hit).toBeGreaterThanOrEqual(phone ? 44 : 28);
+  // C5: invisible ::before hit area ≥ 28 px tall on pointer, ≥ 44×44 on touch, centred on the visible chip.
+  const min = phone ? 44 : 28;
+  const hit = await chip.evaluate((e) => { const b = getComputedStyle(e, "::before"); return { w: parseFloat(b.width), h: parseFloat(b.height), content: b.content }; });
+  expect(hit.content).not.toBe("none");
+  expect(hit.h).toBeGreaterThanOrEqual(min);
+  if (phone) expect(hit.w).toBeGreaterThanOrEqual(44);
+  // …and the extra area really receives pointer input: hit-test 1 px inside the top and bottom edges of the hit box.
+  const edges = await chip.evaluate((e, m) => {
+    const r = e.getBoundingClientRect(), cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+    const at = (x: number, y: number) => { const n = document.elementFromPoint(x, y); return n === e || e.contains(n); };
+    return [at(cx, cy - m / 2 + 1), at(cx, cy + m / 2 - 1)];
+  }, min);
+  expect(edges).toEqual([true, true]);
+  // Focus ring on the visible shape (the chip box), not on the invisible hit area.
+  await chip.focus();
+  const ring = await chip.evaluate((e) => ({ el: getComputedStyle(e).boxShadow, before: getComputedStyle(e, "::before").boxShadow }));
+  expect(ring.before).toBe("none");
   await shot(page, "halt-chip");
   await axe(page, "halt-chip");
   await chip.click();
@@ -234,12 +249,53 @@ test("T5 halt flow: order entry disabled with the reason; resume clears the chip
   await page.getByTestId("overlay-halted-action").click();
   await expect(page.getByTestId("halt-chip")).toBeVisible();
   await expect(page.getByTestId("mock-order-entry")).toHaveAttribute("aria-disabled", "true");
-  await expect(page.getByTestId("order-entry-wrap")).toHaveAttribute("title", /halted.*Reason: market integrity review/);
+  await expect(page.getByTestId("order-entry-wrap")).toHaveAttribute("title", "Orders are paused while trading is halted. Reason: market integrity review.");
   await expect(page.getByTestId("halt-live")).toHaveAttribute("aria-live", "polite");
   await page.getByTestId("toggle-halt").click();
   await expect(page.getByTestId("halt-chip")).toHaveCount(0);
-  await expect(page.getByTestId("halt-live")).toHaveText("Trading resumed");
+  await expect(page.getByTestId("halt-live")).toHaveText("Trading resumed · Port Avalon");
   await expect(page.getByTestId("mock-order-entry")).not.toHaveAttribute("aria-disabled", "true");
   await page.getByTestId("toggle-halt").click();
   await expect(page.getByTestId("overlay-halted")).toBeVisible();
+});
+
+test("T5 order lock (mock only until a real order entry exists): no halt reason drops the second sentence", async ({ page }) => {
+  await ds(page, "halted,haltflow,noreason");
+  await page.getByTestId("overlay-halted-action").click();
+  await expect(page.getByTestId("mock-order-entry")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("order-entry-wrap")).toHaveAttribute("title", "Orders are paused while trading is halted.");
+  await expect(page.locator("#order-lock-reason")).toHaveText("Orders are paused while trading is halted.");
+});
+
+test("Studio T5: P0 uses the dedicated 'alert' glyph in --loss; P1 keeps the bell", async ({ page }) => {
+  await ds(page, "alert");
+  const icon = page.getByTestId("alert-icon");
+  await expect(icon).toHaveAttribute("data-glyph", "alert");
+  await expect(icon.locator("svg path")).toHaveCount(3);
+  const c = await icon.evaluate((e) => { const p = document.createElement("i"); p.style.color = "var(--loss)"; document.body.append(p); const want = getComputedStyle(p).color; p.remove(); return { got: getComputedStyle(e.querySelector("svg")!).color, want }; });
+  expect(c.got).toBe(c.want);
+  await ds(page, "p1");
+  await expect(page.getByTestId("alert-icon")).toHaveAttribute("data-glyph", "bell");
+});
+
+test("Studio T5: world banner uses the 'world' compass glyph in --steel (no '●'); error glyph is --signal, never --loss", async ({ page }, info) => {
+  await ds(page, "world,glyphs");
+  await expect(page.getByTestId("world-banner")).not.toContainText("●");
+  await expect(page.getByTestId("world-glyph").locator("svg")).toHaveCount(1);
+  const col = (sel: string, v: string) => page.locator(sel).first().evaluate((e, v) => { const p = document.createElement("i"); p.style.color = v; document.body.append(p); const want = getComputedStyle(p).color; p.remove(); return [getComputedStyle(e.querySelector("svg")!).color, want]; }, v);
+  const [w, steel] = await col("[data-testid=world-glyph]", "var(--steel)");
+  expect(w).toBe(steel);
+  const [er, signal] = await col("[data-glyph=error]", "var(--signal)");
+  const [, loss] = await col("[data-glyph=error]", "var(--loss)");
+  expect(er).toBe(signal);
+  expect(er).not.toBe(loss);
+  const dir = "/workspace/avalon/front-dev-shots/17a-t5"; const vp = page.viewportSize()!;
+  if (process.env.SHOTS_EXTRA) {
+    mkdirSync(dir, { recursive: true });
+    await page.screenshot({ path: `${dir}/glyphs-${vp.width}x${vp.height}.png` });
+    if (info.project.name === "desktop") {
+      await page.evaluate(() => { document.documentElement.dataset.cb = "1"; });
+      await page.screenshot({ path: `${dir}/glyphs-colourblind-${vp.width}x${vp.height}.png` });
+    }
+  }
 });

@@ -23,7 +23,8 @@ export function Banner({ alerts }: { alerts: readonly Alert[] }) {
         <div className={`alert-banner alert-${shown.priority.toLowerCase()}`} data-testid="alert-banner" data-priority={shown.priority}
           role={shown.priority === "P0" ? "alert" : "status"} aria-live={shown.priority === "P0" ? "assertive" : "polite"}>
           {/* Always icon + text, never colour alone (17 §3.1.3). */}
-          <span className="alert-icon" data-testid="alert-icon"><Glyph name="bell" size={16} /></span>
+          {/* P0 gets the dedicated alert glyph (Studio); the bell stays for notifications only. */}
+          <span className="alert-icon" data-testid="alert-icon" data-glyph={shown.priority === "P0" ? "alert" : "bell"}><Glyph name={shown.priority === "P0" ? "alert" : "bell"} size={16} /></span>
           <span className="alert-text">{shown.text}</span>
           <a className="alert-action" href={shown.action.href}>{shown.action.label}</a>
         </div>
@@ -37,7 +38,7 @@ export interface WorldEvent { name: string; day: number; index: string; sincePct
 /** Plain text of the world-event banner. Elapsed time only, never remaining (17-AT-20). */
 export function worldEventText(e: WorldEvent): string {
   const pct = (v: string) => `${v.startsWith("-") ? "\u2212" : "+"}${v.replace(/^[-+]/, "")}%`;
-  return `● ${e.name.toUpperCase()} · ${S.worldDay} ${e.day} · ${e.index} ${pct(e.sincePct)} ${S.worldSince} · ${S.worldToday} ${pct(e.todayPct)}`;
+  return `${e.name.toUpperCase()} · ${S.worldDay} ${e.day} · ${e.index} ${pct(e.sincePct)} ${S.worldSince} · ${S.worldToday} ${pct(e.todayPct)}`;
 }
 
 export function WorldEventBanner({ event }: { event: WorldEvent | null }) {
@@ -45,7 +46,7 @@ export function WorldEventBanner({ event }: { event: WorldEvent | null }) {
     <div className="world-slot" data-testid="world-slot" data-open={!!event}>
       {event && (
         <div className="world-banner" data-testid="world-banner" role="status" aria-live="polite" aria-label={worldEventText(event)}>
-          <span className="world-dot" aria-hidden="true">{"●"}</span>
+          <span className="world-dot" data-testid="world-glyph" aria-hidden="true"><Glyph name="world" size={16} /></span>
           <span className="world-name">{`${event.name.toUpperCase()} · ${S.worldDay} ${event.day}`}</span>
           <span aria-hidden="true">{"·"}</span>
           <span>{event.index} <PctText value={event.sincePct} /> {S.worldSince}</span>
