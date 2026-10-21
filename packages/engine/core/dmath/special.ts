@@ -113,6 +113,7 @@ const TINY = 2 ** -30;
 export function lgamma(x: number): number {
   nan(x, 'lgamma');
   if (!(x > 0) || x === Infinity) throw new EngineFault('I0.domain', `lgamma(${x}) requires 0 < x < ∞`);
+  if (x === 1 || x === 2) return 0;   // AC-02-03-LGAMMA-ZEROS: Γ(1) = Γ(2) = 1, exactly 0 (special-cased, Quant ruling)
   // Reflection (card step 5). For x < 2^-30, sin(πx)/(πx) = 1 − (πx)²/6 rounds to 1, so ln(π/sin(πx)) = −ln x exactly in binary64;
   // using that form avoids π/sin(πx) overflowing (x = 5e-324) and the subnormal rounding of πx.
   if (x < TINY) return -ln(x) - lgamma(1 - x);

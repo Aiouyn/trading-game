@@ -5,7 +5,7 @@ import { refExpBF, refLnBF } from '../../../../tools/dmath-ref/ref-exp';
 import { refNormCdfBF } from '../../../../tools/dmath-ref/ref-special';
 import { bfSqrt, refPi } from '../../../../tools/dmath-ref/ref-trig';
 import { EngineFault } from '../types';
-import { bsGreeks, bsPrice, cholesky, matVec, newton, solveBisection, ulpDistance } from './index';
+import { exp as dexp, bsGreeks, bsPrice, cholesky, matVec, newton, solveBisection, ulpDistance } from './index';
 import type { BsInput } from './index';
 
 const rel = (a: number, b: number): number => Math.abs(a - b) / Math.abs(b);
@@ -90,6 +90,26 @@ describe('T02-03 Black-Scholes', () => {
       expect(thrown(() => bsGreeks({ ...B, ...bad }))).toBe('I0.domain'); expect(thrown(() => bsPrice({ ...B, ...bad }))).toBe('I0.domain');
     }
     expect(thrown(() => bsGreeks({ ...B, S: NaN }))).toBe('I0.nan');
+  });
+  it('Quant theta ruling (σ = 0, T > 0): call (qF − rKd)·I, put (rKd − qF)·J, I = J = ½ at an exact tie; per ACT_364 year (E-63.6)', () => {
+    // exact tie with T > 0: q = 0 so F = S exactly, S := K·e^{−rT} computed with the engine's exp
+    for (const [K, T, r] of [[100, 1, 0.05], [80, 0.25, 0.03], [120, 2, -0.01]] as const) {
+      const Kd = K * dexp(-r * T), tie: BsInput = { kind: 'CALL', S: Kd, K, T, r, q: 0, sigma: 0 };
+      expect(bsGreeks(tie).theta).toBe(0.5 * (0 * Kd - r * Kd));
+      expect(bsGreeks({ ...tie, kind: 'PUT' }).theta).toBe(0.5 * (r * Kd - 0 * Kd));
+      expect(bsGreeks(tie).theta).not.toBe(0);
+    }
+    // theta = 0 at T ≤ 0 regardless of σ
+    for (const T of [0, -1]) for (const sigma of [0, 0.2]) for (const kind of ['CALL', 'PUT'] as const) expect(bsGreeks({ kind, S: 110, K: 100, T, r: 0.05, q: 0.02, sigma }).theta).toBe(0);
+  });
+  it('AC-02-03-THETA-PARITY: callTheta − putTheta = qF − rKd for T > 0 only (σ = 0 and σ > 0; T ≤ 0 excluded: both thetas are 0)', () => {
+    for (const sigma of [0, 0.2, 0.6]) for (const S of [60, 90, 100, 110, 160]) for (const [T, r, q] of [[1, 0.05, 0.02], [0.25, 0.03, 0.06], [2, -0.01, 0.04], [0.5, 0, 0]] as const) {
+      const i: BsInput = { kind: 'CALL', S, K: 100, T, r, q, sigma };
+      const F = S * dexp(-q * T), Kd = 100 * dexp(-r * T), lhs = bsGreeks(i).theta - bsGreeks({ ...i, kind: 'PUT' }).theta, rhs = q * F - r * Kd;
+      expect(Math.abs(lhs - rhs)).toBeLessThanOrEqual(1e-12 * Math.max(1, Math.abs(F), Math.abs(Kd)));
+    }
+    const tie: BsInput = { kind: 'CALL', S: 100 * dexp(-0.05), K: 100, T: 1, r: 0.05, q: 0, sigma: 0 };   // tie: ½ + ½ = 1
+    expect(bsGreeks(tie).theta - bsGreeks({ ...tie, kind: 'PUT' }).theta).toBe(-0.05 * tie.S);
   });
   it('AC-02-03-GREEK-LIMITS: at T = 1e-9, σ = 0.2 the closed-form greeks are within 1e-6 of the limits away from the strike', () => {
     for (const S of [50, 90, 99, 101, 110, 200]) for (const kind of ['CALL', 'PUT'] as const) for (const [r, q] of [[0, 0], [0.05, 0.02]] as const) {
