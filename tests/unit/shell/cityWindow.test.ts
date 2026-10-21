@@ -11,7 +11,7 @@ import type { BodyState } from "@/components/shell/AppBody";
 
 const renderer = {
   mount: vi.fn(async (el: HTMLElement) => { void el; }), unmount: vi.fn(), dispose: vi.fn(), setVisibility: vi.fn(),
-  setReducedMotion: vi.fn(), setTier: vi.fn(), setMyPlaces: vi.fn(),
+  setReducedMotion: vi.fn(), setTier: vi.fn(), setMyPlaces: vi.fn(), setOverlay: vi.fn(),
 };
 const createCityRenderer = vi.fn(async (o: CityRendererOptions) => { void o; return renderer as never; });
 vi.mock("@/city", () => ({ createCityRenderer }));
@@ -126,5 +126,41 @@ describe("CityWindow → @/city", () => {
       { event: "ui.perf", tickRenderMsP50: 1, tickRenderMsP95: 2, fps: null, heapMb: 3, renderTier: "T1" },
       { event: "ui.perf", tickRenderMsP50: 1, tickRenderMsP95: 2, fps: 58, heapMb: 3, renderTier: "T2" },
     ]);
+  });
+
+  it("toggling the my-city overlay after mount calls setOverlay", async () => {
+    await open();
+    await act(async () => setStore({ ...store, local: { ...store.local, myCityOverlay: true } }));
+    expect(renderer.setOverlay).toHaveBeenLastCalledWith("my_places");
+    await act(async () => setStore({ ...store, local: { ...store.local, myCityOverlay: false } }));
+    expect(renderer.setOverlay).toHaveBeenLastCalledWith("none");
+  });
+
+  it("tier, reduced motion, overlay and my places changed while loading are applied when ready (latest wins)", async () => {
+    let resolve!: (r: never) => void;
+    createCityRenderer.mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await render(VISIBLE);
+    expect(lastOpts()).toMatchObject({ tierOverride: "auto", reducedMotion: false, myCityOverlay: false, myEntityIds: [] });
+    // Two changes each while loading: only the latest may reach the renderer.
+    await act(async () => setStore({ prefs: { reducedMotion: "on" }, local: { renderTierOverride: "T1", myCityOverlay: true }, channels: { me: { myPlaces: ["a"] } } }));
+    await act(async () => setStore({ prefs: { reducedMotion: "off" }, local: { renderTierOverride: "T0", myCityOverlay: false }, channels: { me: { myPlaces: ["a", "b"] } } }));
+    await act(async () => setStore({ ...store, prefs: { reducedMotion: "on" }, local: { renderTierOverride: "T2", myCityOverlay: true } }));
+    await act(async () => resolve(renderer as never));
+    await vi.waitFor(() => expect(renderer.setVisibility).toHaveBeenCalled());
+    expect(renderer.setTier).toHaveBeenLastCalledWith("T2");
+    expect(renderer.setReducedMotion).toHaveBeenLastCalledWith(true);
+    expect(renderer.setOverlay).toHaveBeenLastCalledWith("my_places");
+    expect(renderer.setMyPlaces).toHaveBeenLastCalledWith(["a", "b"]);
+  });
+
+  it("nothing changed while loading → no extra setter calls on ready (setTier would re-run tier detection)", async () => {
+    await open();
+    expect(renderer.setTier).not.toHaveBeenCalled();
+    expect(renderer.setReducedMotion).not.toHaveBeenCalled();
+    expect(renderer.setOverlay).not.toHaveBeenCalled();
+    expect(renderer.setMyPlaces).not.toHaveBeenCalled();
   });
 });
