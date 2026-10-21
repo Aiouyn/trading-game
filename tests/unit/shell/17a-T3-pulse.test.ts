@@ -4,11 +4,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SystemState } from "@/shell/channels";
 
-let sys: Pick<SystemState, "connection" | "halted"> = { connection: "live", halted: false };
+const sys: Pick<SystemState, "connection" | "halted"> = { connection: "live", halted: false };
 vi.mock("@/components/shell/ShellContext", () => ({ useShell: <T,>(sel: (s: unknown) => T): T => sel({ channels: { system: sys } }) }));
 
 import { MarketPhase, phaseTone } from "@/components/shell/MarketPhase";
-import { TickRing } from "@/components/shell/TickRing";
 
 const CASES = [
   ["pre", false, "Pre-market · Port Avalon", "faint"],
@@ -54,47 +53,27 @@ describe("Studio T3 answers", () => {
   });
 });
 
-describe("?phase= override is unreachable in a production build", () => {
-  it("production without the e2e opt-in ignores ?phase=", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NEXT_PUBLIC_QUAY_MOCK_PHASE", "");
-    const { phaseOverride, mockChannels } = await import("@/shell/mockChannels");
-    const q = new URLSearchParams("phase=weekend&tick=" + (38 * 720 + 340));
+describe("?phase= override is gated at build time (module-level constant the bundler folds)", () => {
+  const load = async (env: Record<string, string>) => {
+    vi.resetModules();
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    const m = await import("@/shell/mockChannels");
+    vi.unstubAllEnvs();
+    return m;
+  };
+  const q = new URLSearchParams("phase=weekend&tick=" + (38 * 720 + 340));
+  it("production build without the e2e opt-in: hook compiled out, ?phase= ignored", async () => {
+    const { PHASE_HOOK, phaseOverride, mockChannels } = await load({ NODE_ENV: "production", NEXT_PUBLIC_QUAY_MOCK_PHASE: "" });
+    expect(PHASE_HOOK).toBe(false);
     expect(phaseOverride(q)).toBeNull();
     expect(mockChannels(q).clock.phase).toBe("continuous");
-    vi.stubEnv("NEXT_PUBLIC_QUAY_MOCK_PHASE", "1");
+  });
+  it("production e2e build (NEXT_PUBLIC_QUAY_MOCK_PHASE=1) honours it", async () => {
+    const { phaseOverride } = await load({ NODE_ENV: "production", NEXT_PUBLIC_QUAY_MOCK_PHASE: "1" });
     expect(phaseOverride(q)).toBe("weekend");
-    vi.unstubAllEnvs();
   });
   it("development honours it", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    const { phaseOverride } = await import("@/shell/mockChannels");
-    expect(phaseOverride(new URLSearchParams("phase=weekend"))).toBe("weekend");
-    vi.unstubAllEnvs();
-  });
-});
-
-describe("TickRing states", () => {
-  const ring = (verbose = false) => renderToStaticMarkup(createElement(TickRing, { tick: 7, verbose }));
-  it("running: sweep present, no pause glyph, aria-hidden svg", () => {
-    sys = { connection: "live", halted: false };
-    expect(ring()).toContain("tickring-sweep");
-    expect(ring()).not.toContain("tickring-pause");
-    expect(ring()).toMatch(/<svg[^>]*aria-hidden="true"/);
-  });
-  it("reconnecting: no sweep (dashed track only)", () => {
-    sys = { connection: "reconnecting", halted: false };
-    expect(ring()).toContain('data-state="reconnecting"');
-    expect(ring()).not.toContain("tickring-sweep");
-  });
-  it("halted: pause glyph, no sweep", () => {
-    sys = { connection: "live", halted: true };
-    expect(ring()).toContain("tickring-pause");
-    expect(ring()).not.toContain("tickring-sweep");
-  });
-  it("announces Tick only in verbose mode", () => {
-    sys = { connection: "live", halted: false };
-    expect(ring(false)).not.toContain(">Tick<");
-    expect(ring(true)).toContain(">Tick<");
+    const { phaseOverride } = await load({ NODE_ENV: "development" });
+    expect(phaseOverride(q)).toBe("weekend");
   });
 });

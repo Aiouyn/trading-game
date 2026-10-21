@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { boot } from "./helpers";
+import { boot, bootPaused } from "./helpers";
 
 // 17A T3: TickRing + MarketPhase (T3-01..T3-07). Screenshots go to the repo dir only (CI-safe).
 const SHOTS = "tests/e2e/shell/__screenshots__/17a/T3";
@@ -22,11 +22,8 @@ const setPalette = (page: Page, p: string) => page.evaluate((v) => { document.do
 
 test("T3-01 sweep restarts within one frame of each tick; with ticks stopped 12 s it holds full and never loops", async ({ page }, info) => {
   desktopOnly(info.project.name);
-  await boot(page, "/"); // warm the server before freezing timers
-  // Fake timers, paused: the mock clock channel only ticks when the test advances it.
-  await page.clock.install({ time: new Date("2026-10-21T08:00:00Z") });
-  await page.clock.pauseAt(new Date("2026-10-21T08:00:00.010Z"));
-  await boot(page, "/");
+  // Fake timers: boot to quay-ready first, then pause; the mock clock only ticks when the test advances it.
+  await bootPaused(page, "/");
   await page.evaluate(() => {
     const w = window as unknown as { __restarts: number[]; __lag: number[] };
     w.__restarts = []; w.__lag = [];
@@ -123,9 +120,7 @@ test("T3-05 MarketPhase: desktop label + dot token per phase; phone dot only wit
 
 test("T3-05 phase change cross-fades the label over --dur-base (0 under reduced motion)", async ({ page }, info) => {
   desktopOnly(info.project.name);
-  await page.clock.install({ time: new Date("2026-10-21T08:00:00Z") });
-  await page.clock.pauseAt(new Date("2026-10-21T08:00:00.010Z"));
-  await boot(page, `/?tick=${DAY + 284}`);
+  await bootPaused(page, `/?tick=${DAY + 284}`);
   await expect(page.getByTestId("phase-label")).toHaveText("Pre-market · Port Avalon");
   await page.clock.runFor(5000);
   await expect(page.getByTestId("phase-label")).toHaveText("Market open · Port Avalon");
@@ -213,9 +208,7 @@ test("Studio T3: phone has no tick ring; the dot carries halted (steel pause bar
 });
 
 test("Studio T3: phase changes are always announced via a polite live region (not the initial phase)", async ({ page }) => {
-  await page.clock.install({ time: new Date("2026-10-21T08:00:00Z") });
-  await page.clock.pauseAt(new Date("2026-10-21T08:00:00.010Z"));
-  await boot(page, `/?tick=${DAY + 284}`);
+  await bootPaused(page, `/?tick=${DAY + 284}`);
   const live = page.getByTestId("phase-live");
   await expect(live).toHaveAttribute("aria-live", "polite");
   await expect(live).toHaveText("");

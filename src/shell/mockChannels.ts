@@ -10,15 +10,20 @@ export const RANK_THRESHOLDS = ["20000", "250000", "5000000", "100000000", "2000
 export const TICKS_PER_DAY = 720;
 
 const PHASES: readonly MarketPhase[] = ["pre", "open_auction", "continuous", "close_auction", "after", "weekend"];
-/** Mock-only `?phase=` override (17A T3 screenshots/e2e): pins the market phase across ticks. Unreachable in a
- *  production build unless that build opts in with NEXT_PUBLIC_QUAY_MOCK_PHASE=1 (the e2e build does). */
-export const phaseOverrideEnabled = () =>
+/** Mock-only `?phase=` override (17A T3 screenshots/e2e): pins the market phase across ticks.
+ *  Build-time gate: Next inlines NODE_ENV and NEXT_PUBLIC_* at build time, so in a production build without
+ *  NEXT_PUBLIC_QUAY_MOCK_PHASE=1 this folds to `false` and the override below is eliminated as dead code
+ *  (no runtime env check survives; the "phase" query read is not in the bundle). The e2e build opts in. */
+export const PHASE_HOOK: boolean =
   process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_QUAY_MOCK_PHASE === "1";
-export const phaseOverride = (q: URLSearchParams): MarketPhase | null => {
-  if (!phaseOverrideEnabled()) return null;
-  const p = q.get("phase");
-  return p && (PHASES as readonly string[]).includes(p) ? (p as MarketPhase) : null;
-};
+/** @deprecated kept for callers; equals the build-time constant. */
+export const phaseOverrideEnabled = () => PHASE_HOOK;
+export const phaseOverride: (q: URLSearchParams) => MarketPhase | null = PHASE_HOOK
+  ? (q) => {
+      const p = q.get("phase");
+      return p && (PHASES as readonly string[]).includes(p) ? (p as MarketPhase) : null;
+    }
+  : () => null;
 
 export function mockChannels(q: URLSearchParams): Channels {
   const rankParam = q.get("rank") ?? "R2";
