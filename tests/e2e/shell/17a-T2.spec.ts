@@ -176,16 +176,95 @@ test("C4 axe: home, R1 home, focus mode, Shadow window, ComingLater", async ({ p
   }
 });
 
-test("C5 hit targets in strip, shelf and windows (pointer ≥28, touch ≥44)", async ({ page }, info) => {
+async function hitAreas(page: Page, min: number) {
+  return page.evaluate((m) => {
+    const els = [...document.querySelectorAll(".strip button, .shelf button, .win button, .statusbar button, .bottom-row button, .phone-app")];
+    const rects = els.map((el) => ({ id: el.getAttribute("data-testid") ?? el.getAttribute("aria-label") ?? el.className, r: el.getBoundingClientRect() }))
+      .filter(({ r }) => r.width > 0);
+    const small = rects.filter(({ r }) => r.width < m - 0.5 || r.height < m - 0.5).map(({ id, r }) => `${id} ${Math.round(r.width)}x${Math.round(r.height)}`);
+    // Hit areas of the workspace slots and the launcher field must not overlap their neighbours.
+    const watched = [...document.querySelectorAll(".ws button, .launch-field")];
+    const overlaps: string[] = [];
+    for (const w of watched) {
+      const a = w.getBoundingClientRect();
+      for (const o of els) {
+        if (o === w || o.contains(w) || w.contains(o)) continue;
+        const raw = o.getBoundingClientRect();
+        // Tiles scrolled out of the shelf's scroller are clipped and not hittable: clip to the scroller.
+        const clip = o.closest(".shelf-tiles")?.getBoundingClientRect();
+        const b = clip ? { left: Math.max(raw.left, clip.left), right: Math.min(raw.right, clip.right), top: raw.top, bottom: raw.bottom } : raw;
+        if (b.right - b.left <= 0) continue;
+        if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) overlaps.push(`${w.getAttribute("data-testid") ?? w.className} × ${o.getAttribute("data-testid") ?? o.className}`);
+      }
+    }
+    return { small, overlaps };
+  }, min);
+}
+
+test("C5 hit targets in strip, shelf and windows: pointer ≥28, touch ≥44, no exemptions, no overlaps", async ({ page }, info) => {
   const phone = info.project.name === "phone";
   await boot(page, phone ? "/?rank=R2" : "/wire");
-  const min = phone ? 44 : 28;
-  // Known exceptions pending Studio (see PR): the 20 px workspace slots and the 24 px launcher field.
-  const small = await page.evaluate((m) => [...document.querySelectorAll(".strip button, .shelf button, .win button, .statusbar button, .bottom-row button, .phone-app")]
-    .filter((el) => !el.closest(".ws") && !el.classList.contains("launch-field"))
-    .map((el) => ({ id: el.getAttribute("data-testid") ?? el.getAttribute("aria-label"), r: el.getBoundingClientRect() }))
-    .filter(({ r }) => r.width > 0 && (r.width < m || r.height < m)).map(({ id, r }) => `${id} ${Math.round(r.width)}x${Math.round(r.height)}`), min);
-  expect(small).toEqual([]);
+  expect(await hitAreas(page, phone ? 44 : 28)).toEqual({ small: [], overlaps: [] });
+});
+
+test("C5 desktop under touch: workspace slots and launcher field ≥44 with no overlaps", async ({ browser }, info) => {
+  desktopOnly(info.project.name);
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, hasTouch: true });
+  const page = await ctx.newPage();
+  await boot(page, "/wire");
+  const r = await hitAreas(page, 44);
+  // Studio T2 ruling 1 scope: workspace slots and the launcher field.
+  expect({ small: r.small.filter((s) => /^ws-|launch/.test(s)), overlaps: r.overlaps }).toEqual({ small: [], overlaps: [] });
+  await shot(page, "hit-areas-touch");
+  await ctx.close();
+});
+
+test("Ruling 1: visible workspace slot and launcher field keep their size; focus ring follows the visible shape", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  await boot(page, "/");
+  const ring = await page.evaluate(() => { const e = document.createElement("i"); e.style.boxShadow = "var(--focus-ring)"; document.body.append(e); const v = getComputedStyle(e).boxShadow; e.remove(); return v; });
+  for (const id of ["ws-1", "launch"]) {
+    const el = id === "launch" ? page.locator(".launch-field") : page.getByTestId(id);
+    await el.focus();
+    const v = await el.evaluate((n) => {
+      const r = n.getBoundingClientRect(), b = getComputedStyle(n, "::before");
+      return { h: r.height - parseFloat(b.top) - parseFloat(b.bottom), w: r.width - parseFloat(b.left) - parseFloat(b.right),
+        ownRing: getComputedStyle(n).boxShadow, ownOutline: getComputedStyle(n).outlineStyle, ring: b.boxShadow, visible: n.matches(":focus-visible") };
+    });
+    expect(v.visible).toBe(true);
+    expect([id, v.ownRing, v.ownOutline, v.ring]).toEqual([id, "none", "none", ring]);
+    expect([id, v.w, v.h]).toEqual(id === "launch" ? [id, 312, 24] : [id, 30, 20]);
+  }
+  // Debug shot: hit areas outlined.
+  await page.addStyleTag({ content: ".ws button, .launch-field { outline: 1px dashed var(--warn) !important; }" });
+  await page.getByTestId("shelf").screenshot({ path: `${SHOTS}/hit-areas-debug-shelf-1440x900.png` });
+  await page.getByTestId("strip").screenshot({ path: `${SHOTS}/hit-areas-debug-strip-1440x900.png` });
+  if (EXTRA) for (const n of ["shelf", "strip"]) copyFileSync(`${SHOTS}/hit-areas-debug-${n}-1440x900.png`, `${EXTRA}/hit-areas-debug-${n}-1440x900.png`);
+});
+
+/** Words split across lines in the matched labels (Range rects per word). */
+const brokenWords = (page: Page, selector: string) => page.evaluate((sel) => [...document.querySelectorAll(sel)].flatMap((el) => {
+  const node = [...el.childNodes].find((n) => n.nodeType === Node.TEXT_NODE);
+  if (!node || !node.textContent) return [];
+  const out: string[] = [];
+  for (const m of node.textContent.matchAll(/\S+/g)) {
+    const r = document.createRange();
+    r.setStart(node, m.index!); r.setEnd(node, m.index! + m[0].length);
+    const lines = new Set([...r.getClientRects()].map((x) => Math.round(x.top)));
+    if (lines.size > 1) out.push(m[0]);
+  }
+  return out;
+}), selector);
+
+test("Ruling 2: app labels (INSTITUTIONS included) never break mid-word, at text scale 1.0 and 2.0", async ({ page }) => {
+  for (const scale of ["1", "2"]) {
+    await page.goto("/__ds");
+    await page.evaluate((s) => document.documentElement.style.setProperty("--text-scale", s), scale);
+    expect([scale, await brokenWords(page, ".ds-glyph figcaption")]).toEqual([scale, []]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+  }
+  const caption = page.getByTestId("ds-glyph-institutions").locator("figcaption");
+  expect(await caption.evaluate((e) => getComputedStyle(e).hyphens)).not.toBe("auto");
 });
 
 test("C7 reduced motion → 0 ms in chrome; reduced transparency → opaque strip, no backdrop-filter", async ({ page }, info) => {

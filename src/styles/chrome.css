@@ -17,20 +17,28 @@
 .brand { flex: none; display: flex; align-items: center; gap: var(--sp-8); }
 .wordmark { font: 400 var(--fs-20) / 1 var(--font-display); }
 .release { font-size: var(--fs-10_5); color: var(--fg-faint); }
+/* Studio T2 ruling 1: the visible field stays 312×24; the button itself is the (invisible) hit area,
+   28 px tall on pointer and 44 px on touch. The visible shape is drawn by ::before, and so is the focus ring. */
 .launch-field {
+  position: relative;
+  isolation: isolate;
   flex: none;
   display: flex;
   align-items: center;
   gap: var(--sp-8);
-  height: 24px;
+  height: var(--hit-pointer);
   width: 312px;
-  padding: 0 6px 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--win);
+  padding: 0 7px 0 10px;
   color: var(--fg-faint);
   font-size: calc(12px * var(--text-scale));
   text-align: left;
+}
+.launch-field::before { content: ""; position: absolute; inset: 2px 0; z-index: -1; border: 1px solid var(--line); border-radius: 7px; background: var(--win); }
+.launch-field:focus-visible { outline: none; }
+.launch-field:focus-visible::before { box-shadow: var(--focus-ring); }
+@media (pointer: coarse) {
+  .launch-field { height: var(--hit-touch); }
+  .launch-field::before { inset: 10px 0; }
 }
 .launch-field span { flex: 1; white-space: nowrap; overflow: hidden; }
 .strip-mid { flex: none; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
@@ -114,9 +122,21 @@ html[data-hc="1"] .desktop, .desktop.no-wallpaper { background-image: none; }
 }
 .layouts-menu button { width: 100%; text-align: left; padding: 6px 10px; border-radius: 6px; }
 .layouts-menu button:hover { background: var(--win2); }
+/* Studio T2 ruling 1: visible slots stay 30×20 (drawn by ::before, which also carries the focus ring);
+   the button is the invisible hit area: 30×28 on pointer, 44×44 on touch. Hit areas never overlap. */
 .ws { display: flex; gap: 5px; }
-.ws button { width: 30px; height: 20px; border: 1px solid var(--line); border-radius: 4px; font: calc(10px * var(--text-scale)) var(--font-num); color: var(--fg-muted); }
-.ws button.on { background: var(--win2); color: var(--fg); }
+.ws button { position: relative; isolation: isolate; width: 30px; height: var(--hit-pointer); font: calc(10px * var(--text-scale)) var(--font-num); color: var(--fg-muted); }
+.ws button::before { content: ""; position: absolute; inset: 4px 0; z-index: -1; border: 1px solid var(--line); border-radius: 4px; }
+.ws button.on { color: var(--fg); }
+.ws button.on::before { background: var(--win2); }
+.ws button:focus-visible { outline: none; }
+.ws button:focus-visible::before { box-shadow: var(--focus-ring); }
+@media (pointer: coarse) {
+  /* 44 px hit areas need a 44 px pitch, so the slots sit edge to edge here (visible gap 14 px). */
+  .ws { gap: 0; }
+  .ws button { width: var(--hit-touch); height: var(--hit-touch); }
+  .ws button::before { inset: 12px 7px; }
+}
 
 /* Windows */
 .win {
