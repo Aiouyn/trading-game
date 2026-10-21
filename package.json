@@ -44,6 +44,7 @@
     "axe-core": "^4.14.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
+    "happy-dom": "^21.0.4",
     "postcss": "^8.5.29",
     "stylelint": "^17.16.0",
     "stylelint-config-standard": "^40.0.0",

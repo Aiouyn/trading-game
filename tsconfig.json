@@ -19,6 +19,8 @@
       }
     ],
     "paths": {
+      "@/city/*": ["./src/city/*"],
+      "@/city*": ["./src/city/index.ts", "./tests/unit/shell/__mocks__/city.ts"],
       "@/*": ["./src/*"]
     }
   },
