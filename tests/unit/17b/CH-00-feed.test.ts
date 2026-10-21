@@ -269,3 +269,15 @@ describe("applyOps never treats inherited names as present (QA #34 round 2)", ()
     expect(typeof ({} as Record<string, unknown>).constructor).toBe("function");
   });
 });
+
+describe("applyOps mid-path walk follows own keys only (QA #34 round 3)", () => {
+  const frame = (path: string) => JSON.parse(`{"body":{"a":{"b":1}},"ops":[{"op":"set","path":"${path}","v":"yes"}]}`) as { body: Record<string, unknown>; ops: import("@/shell/contracts/delta").DeltaOp[] };
+  it.each(["/__proto__/polluted", "/a/__proto__/polluted", "/constructor/prototype/x", "/a/constructor/prototype/x"])("set %s throws DeltaError and pollutes nothing", async (path) => {
+    const { applyOps, DeltaError } = await import("@/shell/contracts/delta");
+    const f = frame(path);
+    expect(() => applyOps(f.body, f.ops)).toThrow(DeltaError);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect((Object.prototype as Record<string, unknown>).x).toBeUndefined();
+    expect(Object.getPrototypeOf(f.body)).toBe(Object.prototype);
+  });
+});
