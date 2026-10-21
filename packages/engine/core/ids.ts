@@ -36,7 +36,11 @@ function digestId(salt: Uint8Array, partitionId: string, tick: number, kind: str
 export class IdFactory {
   private seqs = new SortedMap<string, number>();
   private created: { id: string; kind: string; seq: number }[] = [];
-  constructor(private readonly worldSeedPublicSalt: Uint8Array, private readonly partitionId: string, private readonly tick: number) {}
+  constructor(private readonly worldSeedPublicSalt: Uint8Array, private readonly partitionId: string, private readonly tick: number) {
+    // E-74 AC-02-09-SALT-LENGTH: the public salt is exactly 32 bytes.
+    if (!(worldSeedPublicSalt instanceof Uint8Array) || worldSeedPublicSalt.length !== 32)
+      throw new EngineFault('I0.id_salt_length', `world-seed public salt must be 32 bytes, got ${worldSeedPublicSalt instanceof Uint8Array ? worldSeedPublicSalt.length : typeof worldSeedPublicSalt}`);
+  }
   newId(kind: string): string {
     if (!ID_KIND_RE.test(kind)) throw new EngineFault('I0.id_kind', `invalid id kind '${kind}'`);
     const seq = this.seqs.get(kind) ?? 0; this.seqs.set(kind, seq + 1);

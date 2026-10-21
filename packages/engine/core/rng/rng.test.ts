@@ -192,6 +192,15 @@ describe('T02-06 INV-ENG-002', () => {
     const before = m.drawsBigint('mkt.idio:a'); m.stream('05', MKT, 'mkt.idio:a').normal();
     expect(INV_ENG_002.check(ctx(m.ledger(), [{ key: 'mkt.idio:a', before, after: m.drawsBigint('mkt.idio:a') }]))).toEqual({ ok: true });
   });
+  it('a fact holding a single row (not an array) is read as one row', () => {
+    expect(INV_ENG_002.check(ctx({ key: 'mkt.idio:a', draws: 5 }, { key: 'mkt.idio:a', before: 10n, after: 15n }))).toEqual({ ok: true });
+    expect(INV_ENG_002.check(ctx({ key: 'mkt.idio:a', draws: 4 }, { key: 'mkt.idio:a', before: 10n, after: 15n }))).toMatchObject({ ok: false, entityIds: ['mkt.idio:a'] });
+    expect(INV_ENG_002.check(ctx({ key: 'nope:x', draws: 0 }, undefined))).toMatchObject({ ok: false, entityIds: ['nope:x'] });
+  });
+  it('a ledger row with 0 draws and no counter delta passes; with draws > 0 and no delta it fails', () => {
+    expect(INV_ENG_002.check(ctx([{ key: 'mkt.idio:a', draws: 0 }], []))).toEqual({ ok: true });
+    expect(INV_ENG_002.check(ctx([{ key: 'mkt.idio:a', draws: 2 }], []))).toMatchObject({ ok: false, observed: 'mkt.idio:a: no counter delta' });
+  });
   it('negative: counter delta 5 but ledger 4 -> fails', () => {
     const r = INV_ENG_002.check(ctx([{ key: 'mkt.idio:a', draws: 4 }], [{ key: 'mkt.idio:a', before: 10n, after: 15n }]));
     expect(r.ok).toBe(false); if (!r.ok) expect(r.entityIds).toEqual(['mkt.idio:a']);
