@@ -96,6 +96,29 @@ describe('T02-02 dmath: worked examples', () => {
     expect(ulpDistance(pow(1.3e154, 2), 1.6899999999999998e+308)).toBeLessThanOrEqual(4);
     expect(ulpDistance(pow(7.7e-155, -2), 1.6866250632484398e+308)).toBeLessThanOrEqual(4);                                // exp branch unchanged (|y| > 64)
   });
+  it('QA #25 (2): pow integer y < 0 near the range ends: 1/x via rescaled mantissa (no split overflow)', () => {
+    // expected = correctly rounded exact rational (1/x)^n, i.e. the tools/dmath-ref value after rounding
+    expect(ulpDistance(pow(1.18e304, -1), 8.474576271186441e-305)).toBeLessThanOrEqual(4);
+    expect(pow(2.2250738585072014e-308, -1)).toBe(2 ** 1022);
+    expect(ulpDistance(pow(1.7976931348623157e308, -1), 5.562684646268003e-309)).toBeLessThanOrEqual(4);   // subnormal
+    expect(pow(1e301, -2)).toBe(0);
+    expect(pow(1e301, -64)).toBe(0);
+    expect(thrown(() => pow(5e-324, -1))).toBe('I0.overflow');   // 2^1074 is not finite
+  });
+  it('QA #25 (2): full-range sweep, integer |y| ≤ 64: no fault on a finite result, overflow only when the result overflows', () => {
+    let n = 0;
+    for (let i = 0; i <= 2200; i++) {
+      const x = 2 ** (-1074 + i * (2097 / 2200)) * 1.37;
+      if (!(x > 0) || !Number.isFinite(x)) continue;
+      for (let y = -64; y <= 64; y++) {
+        if (y === 0) continue;
+        const L = y * log2(x);
+        if (L < 1023.99) { expect(thrown(() => pow(x, y))).toBeNull(); n++; }
+        else if (L > 1024.01) expect(thrown(() => pow(x, y))).toBe('I0.overflow');
+      }
+    }
+    expect(n).toBeGreaterThan(150000);
+  });
   it('domain edges: exp(709.78) finite, exp(-745.2) = 0, expm1 → −1, tanh/sigmoid saturate', () => {
     expect(Number.isFinite(exp(709.78))).toBe(true); expect(exp(-745.2)).toBe(0);
     expect(expm1(-800)).toBe(-1); expect(tanh(23)).toBe(1); expect(tanh(-23)).toBe(-1);

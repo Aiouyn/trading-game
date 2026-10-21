@@ -122,10 +122,13 @@ function powInt(base: DD, n: number): DD {
     b = ddMul(b, b);
   }
 }
-/** 1/x as a double-double (Dekker remainder of the division). */
+/** 1/x as a double-double (Dekker remainder of the division). QA #25: the Veltkamp split inside twoProd overflows for
+ *  |x| or 1/x near 2^1024, so the division runs on the mantissa m ∈ [0.5, 1) and the result is rescaled by 2^−e
+ *  (exact power-of-two scaling; only a subnormal result rounds). */
 function ddRecip(x: number): DD {
-  const q = 1 / x, t = twoProd(q, x);
-  return norm(q, ((1 - t.p) - t.err) / x);
+  const { m, e } = frexp(x);
+  const q = 1 / m, t = twoProd(q, m);
+  return { hi: scalb(q, -e), lo: scalb(((1 - t.p) - t.err) / m, -e) };
 }
 
 /** ln x as hi + lo (≈ 2^-100 relative): the §3.8 ln reduction (m in [√½, √2), s = (m−1)/(m+1), odd series to s^21) carried in
