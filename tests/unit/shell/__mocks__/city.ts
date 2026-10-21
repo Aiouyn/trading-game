@@ -1,6 +1,6 @@
 // Type-only stand-in for src/city/index.ts (owned by Spec 2) until City Dev's PR lands (Spec 1 §10).
 // Types copied from Spec 2 §2; the real module replaces this automatically (next.config.ts resolveAlias).
-import type { CityChannelClient, CityOverlay, CityRenderer, CityRendererOptions, CityTier, TierReason } from "./city-types";
+import type { CityRenderer, CityRendererOptions, CityTier, TierReason } from "./city-types";
 
 export type * from "./city-types";
 

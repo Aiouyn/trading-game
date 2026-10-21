@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CityRendererOptions } from "@/city";
 
-const createCityRenderer = vi.fn(async (_o: CityRendererOptions) => ({}) as never);
+const createCityRenderer = vi.fn(async (o: CityRendererOptions) => { void o; return {} as never; });
 vi.mock("@/city", () => ({ createCityRenderer }));
 
 import { createShellCityRenderer } from "@/apps/city/createShellCityRenderer";
