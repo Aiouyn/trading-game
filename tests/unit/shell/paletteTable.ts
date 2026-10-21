@@ -1,4 +1,5 @@
 // S1-03 (static half): tokens.css values equal the Spec 1 §7.1 table, including steel and signal.
+// Broadsheet gain/warn follow Studio 17A T1 ruling 6 (tuned for 4.5:1 chip text; pending sign-off).
 const T = `bg0 #0B0D10 #F2EDE3 #070908 #0E1A2B
 win #12151A #FFFFFF #0D110F #142338
 win2 #1A1E25 #F6F2EA #141A17 #1C2E47
@@ -13,9 +14,9 @@ acc #C9A45C #8C2F2B #FFB23F #E8836B
 acc-hi #E6CB8F #A8443E #FFC86E #F2A48F
 acc-lo #B08A45 #6E2320 #D9922A #C96A53
 on-acc #16120A #FFFFFF #1A1206 #1A0F0B
-gain #3FD1B0 #1F7A5A #5CE1E6 #7FD4B5
+gain #3FD1B0 #1D7153 #5CE1E6 #7FD4B5
 loss #FF6B5A #B3261E #FF5C8A #F06C5F
-warn #F2B33D #9A6100 #F5D547 #F2C14E
+warn #F2B33D #8E5900 #F5D547 #F2C14E
 info #6EA8FE #2F5E9E #8AB4FF #8FB8E8
 steel #7C8A99 #4F5B68 #7C8A99 #8A98A8
 signal #E5484D #B3261E #FF5C8A #F06C5F`;

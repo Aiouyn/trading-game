@@ -10,7 +10,8 @@
   color: var(--fg-muted);
   white-space: nowrap;
 }
-.chip-acc { border-color: color-mix(in srgb, var(--acc) 50%, transparent); color: var(--acc); }
+/* Studio T1 ruling 4: the acc chip keeps the --line border unless outlined. */
+.chip-acc { color: var(--acc); }
 .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex: none; }
 .dot-gain { background: var(--gain); }
 .dot-faint { background: var(--fg-faint); }
