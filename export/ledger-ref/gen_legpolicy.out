@@ -1,0 +1,36 @@
+rows 392
+legA CLASS    6
+legA FIXED    329
+legA NONE     7
+legA REQUIRED 50
+legB CLASS    16
+legB FIXED    293
+legB NONE     30
+legB REQUIRED 53
+focus ('ACCRUE', 'CLASS', 'CLASS') 2
+focus ('ACCRUE', 'FIXED', 'FIXED') 13
+focus ('ACCRUE', 'FIXED', 'REQUIRED') 7
+focus ('ACCRUE', 'REQUIRED', 'CLASS') 1
+focus ('ACCRUE_PAIR', 'CLASS', 'CLASS') 1
+focus ('RECLASS', 'CLASS', 'CLASS') 1
+focus ('RECLASS', 'NONE', 'NONE') 2
+focus ('RECLASS', 'REQUIRED', 'REQUIRED') 1
+focus ('SWAP_ASSET', 'FIXED', 'FIXED') 12
+focus ('SWAP_ASSET', 'FIXED', 'REQUIRED') 6
+focus ('SWAP_ASSET', 'REQUIRED', 'FIXED') 7
+focus ('SWAP_ASSET', 'REQUIRED', 'REQUIRED') 17
+CLASS codes: ['TAX_PERSONAL_INCOME', 'TAX_CAPITAL_GAINS', 'TAX_CORPORATE', 'TAX_PROPERTY', 'TAX_VAT_REMIT', 'TAX_WITHHOLDING', 'TAX_EXIT', 'TAX_REFUND', 'TAX_AUDIT_ASSESSMENT', 'BNK_LOAN_INTEREST', 'CMP_INTERCOMPANY_INTEREST', 'SOC_LOAN_P2P_INTEREST', 'LED_MTM_DAILY', 'LED_PERIOD_CLOSE', 'LED_ACCRUAL', 'LED_APPRAISAL']
+card calls not in catalog: []
+ambiguous: 12
+   LED_MTM_DAILY :: cards/03/T03-14.md:125: legB passed as variable `a.code`; resolved by rule, not by the call site
+   LED_PERIOD_CLOSE :: cards/03/T03-15.md:157: legA passed as variable `t`; resolved by rule, not by the call site | cards/03/T03-15.md:157: legB passed as variable `code`; resolved by rule, not by the call site | cards/03/T03-15.md:158: legA passed as variable `code`; resolved by rule, not by the call site | cards/03/T03-15.md:158: legB passed as variable `t`; resolved by rule, not by the call site | legA '@' covers every P&L account; sys 4900/5900 must be allowed here (normally sys is barred for '@'); 3200 vs 3900 depends on entity kind (chr/ali -> 3900), sys -> 3990
+   LED_APPRAISAL :: pnl part 'as above' (T03-14:165) may use 5170 on losses like LED_MTM_DAILY (T03-14:125); not added
+   LED_RECLASS :: '@'/'@' plus card use 3400->4070 (T03-14:170) and the INV-LED-006 restricted release 1001:RESTRICTED->1001; REQUIRED, no closed set
+   ACCT_BACKGROUND_DISCOUNT :: catalog legs PROVISIONAL (E-10)
+   BIZ_MARKETING_B2B :: catalog legs PROVISIONAL (E-10)
+   CBK_IOR_P :: catalog legs PROVISIONAL (E-10)
+   CBK_IOR_W :: catalog legs PROVISIONAL (E-10)
+   CBK_DEPOSIT_INTEREST_P :: catalog legs PROVISIONAL (E-10)
+   CBK_DEPOSIT_INTEREST_W :: catalog legs PROVISIONAL (E-10)
+   CONFLICT_RANSOM :: catalog legs PROVISIONAL (E-10)
+   CONFLICT_CASH_LOOT :: catalog legs PROVISIONAL (E-10)
