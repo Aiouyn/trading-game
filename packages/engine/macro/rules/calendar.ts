@@ -162,6 +162,25 @@ export function auctionsCountInQuarter(b: BlocId, quarterStart: number, tenor: T
   return auctionsInQuarter(b, quarterStart, params, holidays).filter((a) => a.tenor === tenor).length;
 }
 
+// ───────── within-tick order (Producer ruling on #21) ─────────
+/** On a CB meeting day the auction announcement shares t = 420 with the rate decision: the decision orders FIRST, the announcement SECOND. */
+export const WITHIN_TICK_RANK = { CB_DECISION: 0, AUCTION_ANNOUNCE: 1 } as const;
+export type TickHappening =
+  | { kind: 'CB_DECISION'; tick: Tick; bloc: BlocId }
+  | { kind: 'AUCTION_ANNOUNCE'; tick: Tick; bloc: BlocId; auction: ScheduledAuction };
+/** CB decisions and auction announcements of every bloc in [fromTick, toTick), sorted by the deterministic key
+ *  (tick, WITHIN_TICK_RANK, BLOC_ORDER, tenor, fxDenominated). */
+export function happeningsInRange(fromTick: Tick, toTick: Tick, params: ParamsView, holidays: boolean = HOLIDAYS_ENABLED_DEFAULT): TickHappening[] {
+  const out: TickHappening[] = [];
+  for (const m of meetingsInRange(fromTick, toTick, params, holidays)) out.push({ kind: 'CB_DECISION', tick: m.meetingTick, bloc: m.bloc });
+  const q0 = quarterStartDay(Math.floor(fromTick / D)), q1 = quarterStartDay(Math.floor(toTick / D)) + 2 * Q;   // announcements run up to 3 trading days ahead
+  for (let q = q0; q <= q1; q += Q) for (const b of BLOC_ORDER) for (const a of auctionsInQuarter(b, q, params, holidays))
+    if (a.announceTick >= fromTick && a.announceTick < toTick) out.push({ kind: 'AUCTION_ANNOUNCE', tick: a.announceTick, bloc: b, auction: a });
+  const key = (h: TickHappening): number[] => [h.tick, WITHIN_TICK_RANK[h.kind], BLOC_ORDER.indexOf(h.bloc),
+    h.kind === 'AUCTION_ANNOUNCE' ? tenorRank(h.auction.tenor) : -1, h.kind === 'AUCTION_ANNOUNCE' ? Number(h.auction.fxDenominated) : 0];
+  return out.sort((x, y) => { const a = key(x), b = key(y); for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i]! - b[i]!; return 0; });
+}
+
 // ───────── UTC bands ─────────
 /** 0..23 on the planned map sealUtcMs + (k − tick)·5000 ms; bigint math, never Date. */
 export function utcHourOfTick(header: { tick: Tick; sealUtcMs: bigint }, k: Tick): number {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isTradingDay, tradingDaysBetween, type ParamsView } from '@tycoon/engine-core';
-import { auctionsCountInQuarter, auctionsInQuarter, meetingPlan, meetingsInRange, monthStartDay, nthTradingDay, previousTradingDay, quarterStartDay,
+import { happeningsInRange, WITHIN_TICK_RANK, auctionsCountInQuarter, auctionsInQuarter, meetingPlan, meetingsInRange, monthStartDay, nthTradingDay, previousTradingDay, quarterStartDay,
   releasesInRange, tradingDayIndexInMonth, tradingDayIndexInQuarter, tradingDayIndexInYear, tradingDaysOfPeriod, utcBandOf, utcHourOfTick,
   writeQuarterSchedule } from './calendar';
 import { BLOC_ORDER, type BlocId } from '../schema';
@@ -310,3 +310,25 @@ describe('E-51 acceptance criteria', () => {
   });
 });
 const TENORS_ALL = ['B3M', 'B6M', 'B1Y', 'N2Y', 'N5Y', 'N10Y', 'N30Y', 'L10Y'];
+
+describe('Producer ruling #21: within-tick order', () => {
+  it('AC-04-02-ANNOUNCE-ORDER: on a CB meeting day the rate decision orders before an auction announcement at the same tick (t = 420)', () => {
+    let shared = 0;
+    for (let q = 0; q < 364 * 2; q += 91) {
+      const hs = happeningsInRange(q * 720, (q + 91) * 720, pv);
+      for (let i = 0; i < hs.length; i++) {
+        const h = hs[i]!;
+        if (h.kind !== 'CB_DECISION') continue;
+        const same = hs.filter((x) => x.tick === h.tick && x.kind === 'AUCTION_ANNOUNCE');
+        if (same.length === 0) continue;
+        shared++;
+        expect(h.tick % 720).toBe(420);
+        expect(hs.findIndex((x) => x.tick === h.tick)).toBeLessThanOrEqual(i);
+        for (const a of same) expect(hs.indexOf(a)).toBeGreaterThan(i);
+        expect(hs.filter((x) => x.tick === h.tick).map((x) => x.kind)).toEqual([...hs.filter((x) => x.tick === h.tick && x.kind === 'CB_DECISION').map(() => 'CB_DECISION'), ...same.map(() => 'AUCTION_ANNOUNCE')]);
+      }
+    }
+    expect(shared).toBeGreaterThan(0);   // the collision really occurs in the first two years
+    expect(WITHIN_TICK_RANK.CB_DECISION).toBeLessThan(WITHIN_TICK_RANK.AUCTION_ANNOUNCE);
+  });
+});
