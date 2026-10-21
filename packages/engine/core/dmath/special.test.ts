@@ -8,7 +8,7 @@ import { sha256 } from '../crypto/sha256';
 import { toHex } from '../crypto/hex';
 import { EngineFault } from '../types';
 import { roundToF64 } from '../../../../tools/dmath-ref/bigfloat';
-import { refErf, refLgamma, refNormCdf } from '../../../../tools/dmath-ref/ref-special';
+import { refErf, refErfc, refLgamma, refNormCdf } from '../../../../tools/dmath-ref/ref-special';
 import * as dmath from './index';
 import { bitsToF64, erf, erfc, f64ToBits, lgamma, normCdf, normInv, normPdf, ulpDistance } from './index';
 
@@ -40,18 +40,27 @@ describe('02#14 dmath.exp, ln, pow, sin, cos, normInv, erf match the 20 test-vec
     console.log(`normInv: max relative ${max.toExponential(3)} (${maxU} ULP) over 10000 vectors (bound 1e-15)`);
     expect(max).toBeLessThanOrEqual(1e-15);
   });
-  it('unbounded functions (atan, atan2, erfc, normCdf, lgamma): 10000 vectors each, error reported, golden-hash pinned', () => {
-    for (const fn of ['atan', 'atan2', 'erfc', 'normCdf', 'lgamma']) {
+  it('erfc ≤ 4 ULP, normCdf ≤ 4 ULP for x ≥ 0 and ≤ 5e-13 relative for x < 0, atan / atan2 ≤ 3 ULP (02 §3.8; E-63.5, E-67): 10000 vectors each', () => {
+    const bound: Record<string, number> = { erfc: 4, atan: 3, atan2: 3 };
+    for (const fn of ['atan', 'atan2', 'erfc', 'normCdf']) {
       const v = load(fn); expect(v.inputs.length).toBe(10000);
-      let maxU = 0, maxR = 0, flushed = 0;
+      let maxU = 0, maxRel = 0, cut = 0;
       v.inputs.forEach((a, i) => {
-        const o = call(fn, a.map(bitsToF64)), e = bitsToF64(v.expected[i]!);
-        if (o === 0 && e !== 0 && Math.abs(e) < 2.3e-308) { flushed++; return; }   // CALERF XBIG flush (erfc ≥ 26.543)
-        maxU = Math.max(maxU, ulpDistance(o, e)); maxR = Math.max(maxR, rel(o, e));
+        const args = a.map(bitsToF64), o = call(fn, args), e = bitsToF64(v.expected[i]!);
+        if (fn === 'erfc' && args[0]! > 26.543) { expect(Object.is(o, 0)).toBe(true); cut++; return; }   // E-67 cutoff
+        if (fn === 'normCdf' && args[0]! < -26.543 * Math.SQRT2) { expect(Object.is(o, 0)).toBe(true); cut++; return; }
+        if (fn === 'normCdf' && args[0]! < 0) maxRel = Math.max(maxRel, rel(o, e)); else maxU = Math.max(maxU, ulpDistance(o, e));
       });
-      console.log(`${fn}: max ${maxU} ULP, max relative ${maxR.toExponential(3)}, ${flushed} subnormal results flushed to 0`);
-      expect(Number.isFinite(maxU)).toBe(true);
+      console.log(`${fn}: max ${maxU} ULP${fn === 'normCdf' ? `, x < 0 max relative ${maxRel.toExponential(3)}` : ''}, ${cut} inputs past the E-67 cutoff (exactly 0)`);
+      expect(maxU).toBeLessThanOrEqual(bound[fn] ?? 4);
+      expect(maxRel).toBeLessThanOrEqual(5e-13);
     }
+  });
+  it('lgamma: 10000 vectors, error reported (bounds in AC-02-03-LGAMMA-ZEROS)', () => {
+    const v = load('lgamma'); let maxU = 0;
+    v.inputs.forEach((a, i) => { maxU = Math.max(maxU, ulpDistance(lgamma(bitsToF64(a[0]!)), bitsToF64(v.expected[i]!))); });
+    console.log(`lgamma: max ${maxU} ULP`);
+    expect(Number.isFinite(maxU)).toBe(true);
   });
   it('golden.sha256 equals SHA-256 of the engine output bit patterns over all 18 vector files', () => {
     const bytes: number[] = [];
@@ -64,11 +73,40 @@ describe('02#14 dmath.exp, ln, pow, sin, cos, normInv, erf match the 20 test-vec
 });
 
 describe('T02-03 Quant rulings on #33', () => {
-  it('erfc keeps the CALERF 26.543 cutoff and returns exactly +0 past it', () => {
-    for (const x of [26.543, 26.5430001, 27, 30, 1e10, 1e300]) expect(Object.is(erfc(x), 0)).toBe(true);
+  it('AC-02-03-ERFC-CUTOFF (E-67): erfc(26.543) is computed (≤ 4 ULP of 2.2558350220539375e-308 and of the 256-bit reference); 0 only for x > 26.543', () => {
+    const at = erfc(26.543);
+    expect(ulpDistance(at, 2.2558350220539375e-308)).toBeLessThanOrEqual(4);
+    expect(ulpDistance(at, roundToF64(refErfc(26.543)))).toBeLessThanOrEqual(4);
+    const up = 26.543 + 3.552713678800501e-15;                                 // nextUp(26.543), ulp = 2^−48
+    expect(up > 26.543 && (up - 26.543) === 3.552713678800501e-15).toBe(true);
+    expect(Object.is(erfc(up), 0)).toBe(true);
+    for (const x of [26.5430001, 27, 30, 1e10, 1e300]) expect(Object.is(erfc(x), 0)).toBe(true);
     expect(erfc(26.542)).toBeGreaterThan(0);
     for (const x of [26.543, 40, 1e300]) expect(erfc(-x)).toBe(2);
   });
+  it('AC-02-03-ERFC-CUTOFF (E-67): normCdf is 0 only for x < −26.543·√2 (strict): nonzero at the boundary, 0 at nextDown of it', () => {
+    const edge = -26.543 * Math.SQRT2, down = edge - 7.105427357601002e-15;   // ulp(37.5) = 2^−47
+    expect(down < edge && edge - down === 7.105427357601002e-15).toBe(true);
+    expect(normCdf(edge)).toBeGreaterThan(0);
+    expect(Math.abs(normCdf(edge) - roundToF64(refNormCdf(edge))) / roundToF64(refNormCdf(edge))).toBeLessThanOrEqual(5e-13);
+    expect(Object.is(normCdf(down), 0)).toBe(true);
+  });
+  it('QA #33 NO-GO: every erfc sweep point that was over 4 ULP is within 4 ULP of the 256-bit reference', () => {
+    let max = 0;
+    for (const x of [0.8242960228562559, 0.825809606891581, 1.710227461195383, 2.2015914553307763, 2.523788551269444, 3.467847413224071, 3.4828785547606937, 3.576300418382221, 17.31055163881003, 17.427095499760707, 19.298771200469776, 19.805941116812296, 20.373912905934546, 20.911189796194865, 21.05919048926113, 21.611195490831125, 21.80824884873358, 22.992597366046535, 23.174554045819082, 23.619630977384613, 23.98549312727354, 24.49494261572291, 24.747565752712244, 24.99922049232644, 25.93654548513454]) max = Math.max(max, ulpDistance(erfc(x), roundToF64(refErfc(x))));
+    console.log(`QA erfc points: max ${max} ULP`);
+    expect(max).toBeLessThanOrEqual(4);
+  });
+  it('erfc dense sweep: 20,001 points on [−6, 26.543] within 4 ULP of the 256-bit reference', async () => {
+    let max = 0;
+    for (let i = 0; i <= 20000; i++) {
+      const x = -6 + 32.543 * i / 20000;
+      max = Math.max(max, ulpDistance(erfc(x), roundToF64(refErfc(x))));
+      if (i % 500 === 0) await new Promise((r) => setTimeout(r, 0));
+    }
+    console.log(`erfc sweep: max ${max} ULP over 20001 points`);
+    expect(max).toBeLessThanOrEqual(4);
+  }, 600000);
   it('AC-02-03-ERF-SPLIT (E-63.5): within 4 ULP of the 256-bit reference on a dense grid over [0.46875, 0.5] (both signs); split stays at 0.5', () => {
     let max = 0;
     for (let i = 0; i <= 2000; i++) {

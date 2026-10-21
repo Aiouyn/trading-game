@@ -65,4 +65,14 @@ describe('QA #33: atan / atan2 within 3 ULP of the 256-bit reference (fdlibm s_a
     }
     expect(m).toBeLessThanOrEqual(3);
   }, 300000);
+  it('QA #33: all 13 atan2 points and both atan points from the QA sweep (were 3.02–3.85 ULP) within 3 ULP of the 256-bit reference', () => {
+    const a2: [number, number][] = [[-0.0006531721650319494, 0.002441475742905426], [-0.018703325432415128, 0.06999036627197196], [5.699734016722951, 21.28666310971861], [-0.04654323407191307, 0.17483213536099476], [0.0003390230015136235, 0.0012698999627597887], [-0.026576886608544802, 0.09884550309906276], [0.004411431526494908, 0.01634178488545474], [81.50838074244584, 305.2244033821189], [0.5136602016342157, 2.013501533239715], [0.001639593107904619, 0.006076838903425111], [0.043512893811208146, 0.16233108149465525], [-0.10103952668205493, 0.38244025508978774], [-0.5527034216017089, 2.080966478341087]];
+    expect(a2.length).toBe(13);
+    for (const [y, x] of a2) expect(ulpDistance(atan2(y, x), ref(refAtan2(y, x)))).toBeLessThanOrEqual(3);
+    for (const x of [0.2679491924311227, 0.26480663379395875]) expect(ulpDistance(atan(x), ref(refAtan(x)))).toBeLessThanOrEqual(3);
+  });
+  it('fdlibm breakpoint 0.6875 pinned (QA M15): [0.6875, 1.1875) uses the atan(1) table entry; bit-exact outputs', () => {
+    const pinned: [number, number][] = [[0.6875375, 0.6023128098801557], [0.6875625, 0.6023297852149655], [0.6876125, 0.6023637346958408], [0.68765, 0.602389195766362]];
+    for (const [x, y] of pinned) { expect(atan(x)).toBe(y); expect(ulpDistance(y, ref(refAtan(x)))).toBeLessThanOrEqual(3); }
+  });
 });
