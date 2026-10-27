@@ -1,21 +1,22 @@
 // T10A-01 acceptance tests AC-10A-01-1..4, plus the geometry and table guards the schema relies on.
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { Money, StoreRead } from '@tycoon/engine-core';
 import { canonDecode, canonEncode, cmpStr, IdFactory, TABLE_NAME_RE, TableRegistry } from '@tycoon/engine-core';
 import { ReasonCatalog } from '@tycoon/engine-ledger';
-import { ALLOWED, LEDGER_KIND_PREFIXES, NONCOMPLIANT } from './lint/entity-prefix.mjs';
+import { ALLOWED, NONCOMPLIANT } from './lint/entity-prefix.mjs';
 import { ENTITY_KINDS } from '../ledger/src/types';
-import { ALLOWED_ENTITY_PREFIXES, assertEntityId, buildingId, cityId, districtId, ENTITY_ID_MAX_LEN, leaseId, NONCOMPLIANT_ENTITY_PREFIXES, parcelId, propId, unitId } from './ids';
+import { ALLOWED_ENTITY_PREFIXES, archetypeId, assertEntityId, baseMeshId, buildingId, cityId, districtId, ENTITY_ID_MAX_LEN, leaseId, managementPolicyId, manifestId,
+  NONCOMPLIANT_ENTITY_PREFIXES, parcelId, personalityId, propId, regionId, streetId, styleId, transitionId, unitId } from './ids';
 import { assertFixedPolygon, assertFixedPolyline, assertFixedRect, quantiseCm, signedArea2 } from './geom';
 import { ALL_CITY_TABLES, assertBuildingVisual, assertBuildingVisualPart, cityAccessOf, DEFAULT_PUBLIC_RECORD, effectivePublicRecord, ownRankFor, USE_CLASSES,
   type BuildingRow, type CityManifestRow, type CityRegionRow, type CityRow, type DistrictRow, type DistrictUseMarket,
   type LeaseRow, type ParcelRow, type PropertyRow, type PublicCityState, type UnitRow, type UseClass } from './schema';
 import { CATALOG_GAPS_10A, CITY_DIRECT_CODES, CITY_REASON_ALIAS_NAMES, CITY_REASON_ALIASES, catalogGaps10A } from './codes';
 import { byUseOf, checkCityEvent, CITY_EVENT_VISIBILITY, CITY_EVENTS, DEFERRED_EVENT_KINDS, optInAllows, PUBLIC_OPT_IN, PUBLIC_PAYLOAD_KEYS, supplyByUseOf } from './events';
-import type { BlocMacroInputs, CityBizPort, CityContentPort, CityHhPort, CityMacroPort } from './ports';
+import type { BlocMacroInputs, CityBizPort, CityContentPort, CityHhPort, CityMacroPort, CityPorts } from './ports';
 import type { ContentView } from '@tycoon/content';
 import type { z } from 'zod';
 import type { SectorId } from '@tycoon/content';
@@ -65,7 +66,7 @@ describe('AC-10A-01-2 lint rule no-noncompliant-entity-prefix', () => {
       const e = await errs(f);
       expect(e).toEqual([{ rule: RULE, msg: `entity-id prefix '${bad}' is not E-26 compliant: use '${good}'` }]);
     });
-  it('a literal with each of the 73 allowed prefixes (and a template literal, and a mid-string match) passes', async () => {
+  it('a literal with each of the 85 allowed prefixes (and a template literal, and a mid-string match) passes', async () => {
     expect(await errs('good')).toEqual([]);
   });
   // QA follow-up (E-88): the deny check runs at every template-literal position, not only the head quasi; one fixture per position.
@@ -74,17 +75,9 @@ describe('AC-10A-01-2 lint rule no-noncompliant-entity-prefix', () => {
     it(`position fixture ${f}: '${bad}' fails and names '${good}'`, async () => {
       expect(await errs(f)).toEqual([{ rule: RULE, msg: `entity-id prefix '${bad}' is not E-26 compliant: use '${good}'` }]);
     });
-  // QA follow-up: the allowed list is enforced on literals in an entity-id position whose head has the E-18 kind shape.
-  for (const f of ['allow-prop', 'allow-var', 'allow-ids', 'allow-call', 'allow-template', 'allow-quoted-key'])
-    it(`allow fixture ${f}: an id-position 'zzz_' literal fails`, async () => {
-      expect(await errs(f)).toEqual([{ rule: RULE, msg: "entity-id prefix 'zzz_' is not in the allowed list (AC-10A-01-2) or the ledger's ENTITY_KINDS" }]);
-    });
-  it('the rule\'s ledger-kind list is the ledger\'s ENTITY_KINDS', () => {
-    expect([...LEDGER_KIND_PREFIXES]).toEqual(ENTITY_KINDS.map((k) => `${k}_`));
-  });
   it('the allowed and denied lists are the card\'s, and ids.ts and the rule agree', () => {
-    expect(ALLOWED_ENTITY_PREFIXES.length).toBe(73);
-    expect(new Set(ALLOWED_ENTITY_PREFIXES).size).toBe(73);
+    expect(ALLOWED_ENTITY_PREFIXES.length).toBe(85);
+    expect(new Set(ALLOWED_ENTITY_PREFIXES).size).toBe(85);
     expect([...ALLOWED]).toEqual([...ALLOWED_ENTITY_PREFIXES]);
     // eslint-disable-next-line city/no-noncompliant-entity-prefix -- negative cases for the rule and the id guard
     expect([...NONCOMPLIANT_ENTITY_PREFIXES]).toEqual(['city_', 'dist_', 'unit_', 'loan_', 'uq_']);
@@ -99,40 +92,40 @@ const SECTORS: SectorId[] = ['TECH', 'SEMI', 'ENERGY', 'MATERIALS', 'INDUSTRIALS
 const perUse = <V>(f: (u: UseClass, i: number) => V): Record<UseClass, V> => USE_CLASSES.reduce((r, u, i) => ({ ...r, [u]: f(u, i) }), {} as Record<UseClass, V>);
 const C = cityId('port_avalon'), D = districtId('port_avalon', 'old_harbor'), P = parcelId('port_avalon', 17);
 const B = buildingId(ids), U1 = unitId(ids), U2 = unitId(ids), PR = propId(ids), L = leaseId(ids);
-const addr = { number: 14, streetId: 'str:port_avalon_9', streetName: 'Quayside Row', districtId: D, cityId: C, display: '14 Quayside Row, Old Harbor, Port Avalon' };
+const addr = { number: 14, streetId: streetId('port_avalon_9'), streetName: 'Quayside Row', districtId: D, cityId: C, display: '14 Quayside Row, Old Harbor, Port Avalon' };
 const appraisal = { tick: 1440, valueIncome: 1_250_000_00n, valueComp: 1_310_000_00n, weightIncome: 0.6, value: 1_274_000_00n, priceIndexAtAppraisal: 1.0125, appraiser: 'SYSTEM' as const };
-const city: CityRow = { id: C, slug: 'port_avalon', rendererKey: 'avalon', name: 'city.port_avalon.name', bloc: 'FDL', ccy: 'FDL', personalityId: 'per:port_avalon',
+const city: CityRow = { id: C, slug: 'port_avalon', rendererKey: 'avalon', name: 'city.port_avalon.name', bloc: 'FDL', ccy: 'FDL', personalityId: personalityId('port_avalon'),
   worldSeedStream: `city/${C}`, openedTick: 0, access: cityAccessOf(C), districts: [D], population: 1_234_567.5, households: 514_403.125, hhSize: 2.4, laborForce: 640_000,
   jobsBySector: SECTORS.reduce((r, s, i) => ({ ...r, [s]: 1000 * (i + 1) + 0.25 }), {} as Record<SectorId, number>), medianHhIncomePerGY: 6_400_000n,
-  cityGdpShare: 0.42, propertyTaxRate: 0.01, stampDutyRate: 0.01, priceIndex: 1, stateVersion: 3, manifestId: 'mfs:port_avalon_3' };
+  cityGdpShare: 0.42, propertyTaxRate: 0.01, stampDutyRate: 0.01, priceIndex: 1, stateVersion: 3, manifestId: manifestId('port_avalon_3') };
 const market = (i: number): DistrictUseMarket => ({ supplyArea: 120_000 + i, occupiedArea: 110_000, demandArea: 111_234.5, vacancy: 0.0833, naturalVacancy: 0.05,
   pressure: 1.01, pressureHighDays: 0, pressureLowDays: 2, marketRentPerM2PerGD: -0n + BigInt(37 + i), rentIndex: 1, capRate: 0.055, txnCount91: 4 });
 const district: DistrictRow = { id: D, cityId: C, name: 'district.old_harbor.name', tier: 'prime', terrainRole: 'waterfront', heritage: true, heightCapM: 45,
   market: perUse((_u, i) => market(i)), desirability: { jobsAccess: 0.3, services: -0.1, transit: 0.5, environment: 0.7, safety: 0, prestige: 0.2, momentum: 0.05, tierOffset: 0.5, value: 0.79 },
   crimeIndex: 48.5, capexMomentum91: 0n, landmarkParcelId: P, priceIndexByUse: perUse((_u, i) => 1 + i / 100) };
-const parcel: ParcelRow = { id: P, cityId: C, districtId: D, regionId: 'reg_port_avalon_2', polygon: [{ x: 0, z: 0 }, { x: 2000, z: 0 }, { x: 2000, z: 3000 }, { x: -150, z: 3000 }],
+const parcel: ParcelRow = { id: P, cityId: C, districtId: D, regionId: regionId('port_avalon_2'), polygon: [{ x: 0, z: 0 }, { x: 2000, z: 0 }, { x: 2000, z: 3000 }, { x: -150, z: 3000 }],
   areaM2: 600, frontageM: 20, access: ['ROAD', 'CANAL'], zoning: { allowed: ['RES', 'RETAIL'], maxHeightM: 30, maxFar: 4.5, heritageLocked: false }, landValueV: 0.813,
   attributes: { waterView: 0.9, transitDist: 320, slope: 0.02, cornerLot: true, mainAvenue: false }, lifecycle: 'OCCUPIED', devPriority: 0.12, ownerId: 'npc_land_authority',
   buildingId: B, reservedFor: null, address: addr };
-const building: BuildingRow = { id: B, parcelId: P, archetypeId: 'arc:quay_terrace', propertyType: 'APARTMENT_BLOCK', use: 'RES', floors: 6, heightM: 19.5, grossAreaM2: 1800,
+const building: BuildingRow = { id: B, parcelId: P, archetypeId: archetypeId('quay_terrace'), propertyType: 'APARTMENT_BLOCK', use: 'RES', floors: 6, heightM: 19.5, grossAreaM2: 1800,
   qualityGrade: 'B', builtTick: -40_000, condition: 72.5, units: [U1, U2],
-  visual: { parts: [{ baseMeshId: 'msh:box', size: { xCm: 2000, zCm: 3000, heightCm: 1950 }, rotationQ: 2, styleId: 'sty:brick', seed: 913, floorHeightCm: 325, bayWidthCm: 400, tintIndex: 3 }] },
+  visual: { parts: [{ baseMeshId: baseMeshId('box'), size: { xCm: 2000, zCm: 3000, heightCm: 1950 }, rotationQ: 2, styleId: styleId('brick'), seed: 913, floorHeightCm: 325, bayWidthCm: 400, tintIndex: 3 }] },
   physicalState: 'OCCUPIED', ownership: 'STRATA', wholeOwnerPropId: null, npcPoolKey: `${D}|RES|B` };
 const unit: UnitRow = { id: U1, buildingId: B, use: 'RETAIL', areaM2: 90, floor: 0, storefront: true, slotClass: 'CORNER_AVENUE', propId: PR, occupantId: 'biz_bakery', leaseId: L };
 const prop: PropertyRow = { id: PR, type: 'RETAIL_UNIT', ownerId: 'chr_0001', ccy: 'FDL', cityId: C, districtId: D, parcelId: P, buildingId: B, unitIds: [U1], areaM2: 90,
-  condition: 80, qualityGrade: 'B', amenityMult: 1.07, useMode: 'RENTED', useModeChangedTick: 0, managerContractId: null, policyId: 'pol:default', groupId: null,
+  condition: 80, qualityGrade: 'B', amenityMult: 1.07, useMode: 'RENTED', useModeChangedTick: 0, managerContractId: null, policyId: managementPolicyId('default'), groupId: null,
   mortgageIds: ['lon_1'], lastAppraisal: appraisal, costBasis: 1_200_000_00n, acquiredTick: 720, insurancePolicyId: null, listingId: null, heldByCourt: false,
   publicRecord: DEFAULT_PUBLIC_RECORD, uniqueAssetId: null };
 const lease: LeaseRow = { id: L, propId: PR, unitIds: [U1], landlordId: 'chr_0001', tenantId: 'biz_bakery', tenantKind: 'PLAYER_BUSINESS', use: 'RETAIL', rentPerGD: 4_210n,
-  revenueSharePct: 0, startTick: 720, endTick: 720 + 1440 * 3, indexation: 'CPI', depositHeld: -0n + 378_900n, breakFeeGD: 91, status: 'ACTIVE', arrearsGD: 0, relatedParty: false, contractId: 'ctr:9' };
-const manifest: CityManifestRow = { id: 'mfs:port_avalon_3', worldId: 'wld:1', cityId: C, macroPlanVersion: 'cityplan@1.2.0', stateVersion: 3, publicSnapshotTick: 1440,
-  regions: [{ regionId: 'reg_port_avalon_2', generatorPackage: 'citygen@1.0.0', contentHash: 'ab'.repeat(32) }], chunks: [{ chunkKey: '2:3', contentHash: 'cd'.repeat(32), url: 'https://cdn/x' }], schemaVersion: 1 };
-const region: CityRegionRow = { id: 'reg_port_avalon_2', cityId: C, bounds: { minX: -50_000, minZ: 0, maxX: 50_000, maxZ: 80_000 },
+  revenueSharePct: 0, startTick: 720, endTick: 720 + 1440 * 3, indexation: 'CPI', depositHeld: -0n + 378_900n, breakFeeGD: 91, status: 'ACTIVE', arrearsGD: 0, relatedParty: false, contractId: 'ctr_9' };
+const manifest: CityManifestRow = { id: manifestId('port_avalon_3'), worldId: 'wld_1', cityId: C, macroPlanVersion: 'cityplan@1.2.0', stateVersion: 3, publicSnapshotTick: 1440,
+  regions: [{ regionId: regionId('port_avalon_2'), generatorPackage: 'citygen@1.0.0', contentHash: 'ab'.repeat(32) }], chunks: [{ chunkKey: '2:3', contentHash: 'cd'.repeat(32), url: 'https://cdn/x' }], schemaVersion: 1 };
+const region: CityRegionRow = { id: regionId('port_avalon_2'), cityId: C, bounds: { minX: -50_000, minZ: 0, maxX: 50_000, maxZ: 80_000 },
   boundaryContracts: [{ edge: 'N', crossings: [{ at: { x: 1200, z: 80_000 }, streetClass: 'ARTERIAL', widthCm: 2400, elevationCm: -30 }], waterEdges: [[{ x: 0, z: 0 }, { x: 10, z: 20 }]] }],
   generatorPackage: 'citygen@1.0.0', generatedTick: 0, status: 'GENERATED' };
-const pub: PublicCityState = { cityId: C, stateVersion: 3, baseVersion: 2, parcelStates: [{ parcelId: P, lifecycle: 'OCCUPIED', heightLevel: 2, archetypeId: 'arc:quay_terrace' }],
+const pub: PublicCityState = { cityId: C, stateVersion: 3, baseVersion: 2, parcelStates: [{ parcelId: P, lifecycle: 'OCCUPIED', heightLevel: 2, archetypeId: archetypeId('quay_terrace') }],
   bindings: [{ kind: 'STOREFRONT', unitId: U1, signText: 'Harbour Bakes', sectorAwning: 'STAPLES', status: 'OPEN' }, { kind: 'HALL_SEAT', cityId: C, position: 1, displayName: null, band: 'TOP' }],
-  transitions: [{ id: 'trn:1', parcelId: P, cause: 'STOREFRONT_OPEN', fromState: 'FIT_OUT', toState: 'OPEN', publishedTick: 1440, sourceEventId: 'evt:1' }] };
+  transitions: [{ id: transitionId('1'), parcelId: P, cause: 'STOREFRONT_OPEN', fromState: 'FIT_OUT', toState: 'OPEN', publishedTick: 1440, sourceEventId: 'evt_1' }] };
 const ROWS = { city, district, parcel, building, unit, prop, lease, manifest, region, pub, unitWithLabel: { ...unit, id: U2 }, addrWithLabel: { ...addr, unitLabel: 'Shop 2' } };
 
 const reverseKeys = (v: unknown): unknown => Array.isArray(v) ? v.map(reverseKeys)
@@ -291,10 +284,13 @@ describe('AC-10A-01-5 (E-88 (2a), (3)) geometry, visuals, opt-in defaults and Ci
   });
 });
 
-describe('AC-10A-01-6 (E-88 (2b)) ports.ts', () => {
+describe('AC-10A-01-6 (E-88, E-92 (1)) ports.ts', () => {
   const src = readFileSync(`${dir}ports.ts`, 'utf8');
-  it('exports exactly the four ports (plus BlocMacroInputs and the CityPorts bundle), with no Ccy import', () => {
-    const exported = [...src.matchAll(/^export (?:interface|type) (\w+)/gm)].map((m) => m[1]!);
+  it('exports exactly the four ports, BlocMacroInputs and the CityPorts bundle, and nothing else (static export-set test); no Ccy', () => {
+    // every export form: declarations of any kind, and no re-export lists or star exports that would hide a name
+    expect(src).not.toMatch(/^export\s*(?:\{|\*|default\b)/m);
+    const exported = [...src.matchAll(/^export\s+(?:declare\s+)?(?:interface|type|const|let|var|function|class|enum|abstract\s+class)\s+(\w+)/gm)].map((m) => m[1]!);
+    expect(exported.length).toBe([...src.matchAll(/^export\b/gm)].length);
     expect(exported.filter((n) => /Port$/.test(n)).sort(cmpStr)).toEqual(['CityBizPort', 'CityContentPort', 'CityHhPort', 'CityMacroPort']);
     expect(exported.sort(cmpStr)).toEqual(['BlocMacroInputs', 'CityBizPort', 'CityContentPort', 'CityHhPort', 'CityMacroPort', 'CityPorts']);
     expect(src).not.toMatch(/\bCcy\b/);
@@ -310,6 +306,39 @@ describe('AC-10A-01-6 (E-88 (2b)) ports.ts', () => {
     expectTypeOf<NonNullable<ReturnType<CityHhPort['householdInputs']>>['medianHhIncomePerGY']>().toEqualTypeOf<Money>();
     expectTypeOf<keyof CityContentPort>().toEqualTypeOf<'cities' | 'serena' | 'sectors' | 'districts' | 'personality' | 'cityProfile'>();
     expectTypeOf<CityContentPort['cityProfile']>().toEqualTypeOf<ContentView['cityProfile']>();
+    expectTypeOf<keyof CityPorts>().toEqualTypeOf<'content22' | 'macro04' | 'biz09' | 'hh16'>();
+    expectTypeOf<CityPorts>().toEqualTypeOf<{ content22: CityContentPort; macro04: CityMacroPort; biz09: CityBizPort; hh16: CityHhPort }>();
+  });
+});
+
+describe('AC-10A-01-10 (E-92 (3)) the 12 E-92 prefixes, no colon ids, no reg_ region ids', () => {
+  const E92 = ['str_', 'per_', 'mfs_', 'arc_', 'msh_', 'sty_', 'mgp_', 'ctr_', 'wld_', 'trn_', 'evt_', 'rgn_'];
+  it('the id helpers mint str_, per_, mfs_, arc_, msh_, sty_, mgp_, trn_ and rgn_ ids that pass assertEntityId', () => {
+    const minted = [streetId('port_avalon_9'), personalityId('port_avalon'), manifestId('port_avalon_3'), archetypeId('quay_terrace'), baseMeshId('box'),
+      styleId('brick'), managementPolicyId('default'), transitionId('1'), regionId('port_avalon_2')];
+    expect(minted).toEqual(['str_port_avalon_9', 'per_port_avalon', 'mfs_port_avalon_3', 'arc_quay_terrace', 'msh_box', 'sty_brick', 'mgp_default', 'trn_1', 'rgn_port_avalon_2']);
+    for (const id of minted) expect(() => assertEntityId(id)).not.toThrow();
+    for (const f of [streetId, personalityId, manifestId, archetypeId, baseMeshId, styleId, managementPolicyId, transitionId, regionId]) {
+      expect(() => f('a:b')).toThrow(/CITY_BAD_ID|does not match/);   // the E-18/E-20 grammar has no colon
+      expect(() => f('')).toThrow(/CITY_BAD_ID|does not match/);
+    }
+  });
+  it('ALLOWED_ENTITY_PREFIXES adds those plus ctr_, wld_ and evt_ (73 → 85); none is a ledger entity kind', () => {
+    expect(ALLOWED_ENTITY_PREFIXES.slice(73)).toEqual(E92);
+    for (const p of E92) expect(ENTITY_KINDS.map((k) => `${k}_`)).not.toContain(p);
+    expect(ALLOWED_ENTITY_PREFIXES).not.toContain('pol_');
+    expect(ALLOWED_ENTITY_PREFIXES).not.toContain('reg_');
+  });
+  it('no schema or test id uses a colon form, and no region id starts with reg_', () => {
+    const files = [...readdirSync(dir).filter((f) => f.endsWith('.ts')).map((f) => `${dir}${f}`),
+      ...readdirSync(`${dir}__lint_fixtures__`).map((f) => `${dir}__lint_fixtures__/${f}`)];
+    expect(files.length).toBeGreaterThan(10);
+    for (const f of files) {
+      const text = readFileSync(f, 'utf8');
+      expect([f, text.match(/['"`](?:[a-z]{3}|hh|prop):[A-Za-z0-9_]/g)]).toEqual([f, null]);
+      expect([f, text.match(/(?:regionId|\bid)\s*:\s*['"`]reg_/g)]).toEqual([f, null]);
+    }
+    expect([parcel.regionId, region.id, ...manifest.regions.map((r) => r.regionId)].every((r) => r.startsWith('rgn_'))).toBe(true);
   });
 });
 

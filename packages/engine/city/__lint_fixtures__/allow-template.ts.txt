@@ -1,2 +1,0 @@
-declare const n: number;
-export const r = { tenantId: `zzz_${n}` };

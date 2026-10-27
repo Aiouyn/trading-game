@@ -56,7 +56,8 @@ describe('BLOC_DEFAULTS (04 §2.2)', () => {
     }
   });
   it('constants', () => { expect(SECTOR_COUNT).toBe(12); expect(ISLA_SERENA_CITY).toBe('cty_isla_serena'); });
-  it('ISLA_SERENA_CITY is the content catalog id: present in cities.json with the cty_ prefix every city id uses', () => {
+  it('E-92 (2): ISLA_SERENA_CITY is cty_isla_serena (E-26 city prefix, never the legacy city_), the id content cities.json carries', () => {
+    expect(ISLA_SERENA_CITY.startsWith('city_')).toBe(false);
     const ids = (JSON.parse(readFileSync(new URL('../../content/data/cities.json', import.meta.url), 'utf8')) as { cities: { cityId: string }[] }).cities.map((c) => c.cityId);
     expect(ids).toContain(ISLA_SERENA_CITY);
     expect(ids.every((id) => id.startsWith('cty_'))).toBe(true);
