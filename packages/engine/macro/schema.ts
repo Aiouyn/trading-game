@@ -105,7 +105,10 @@ export interface BlocMacroState {
 }
 
 // ───────── §2.4 public macro view ─────────
-export interface LatestPrint { kind: ReleaseKind; tick: Tick; actual: number; consensus: number; prior: number; revisedPrior?: number; surprise: number }
+/** E-81: `actual` is the headline value (CPI: headline yoy). `extra` carries the same release's other fields, `{}` for kinds without
+ *  extras; CPI: `coreYoy`, `headlineMom`, `coreMom`; JOBS: `payrollIndex`. */
+export interface LatestPrint { kind: ReleaseKind; tick: Tick; actual: number; consensus: number; prior: number; revisedPrior?: number; surprise: number;
+  extra: Readonly<Record<string, number>> }
 export interface CurvePoint { tenorYears: number; yield: number }
 export interface PublicMacroView {
   bloc: BlocId; asOfTick: Tick;
@@ -336,6 +339,7 @@ export interface DataRelease {
   actual: number; consensus: number; consensusDispersion: number;
   prior: number; revisedPrior?: number;
   surprise: number;
+  extra: Readonly<Record<string, number>>;   // E-81, as LatestPrint.extra
 }
 
 // ───────── §2.13 Concord Stability Facility ─────────
