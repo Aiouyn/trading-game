@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { FACT_ID_LOG, FACT_ID_WRITTEN, ID_KIND_RE, IdFactory, idTick, INV_ENG_003, FACT_ID_SALT, merkleProof, merkleRoot, toHex, utf8, verifyMerkleProof, type InvariantCtx, type TruthStoreRead } from './index';
@@ -66,6 +68,33 @@ describe('ids (T02-07)', () => {
     for (const bad of [PUB.slice(0, 31), Uint8Array.from([...PUB, 0]), 'salt', [...PUB]])
       expect(INV_ENG_003.check(ctx(rows, bad))).toMatchObject({ ok: false, observed: `fact ${FACT_ID_SALT} is not a 32-byte salt` });
     expect(FACT_ID_SALT).toBe('core.ids.worldSeedPublicSalt');
+  });
+  it('AC-02-09-SALT-LENGTH (E-74): 16, 31 and 33 bytes fail both INV-ENG-003 and IdFactory; 32 passes; a fixed salt matches the golden id vector', () => {
+    const PUB = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
+    const f = new IdFactory(PUB, 'p_PLAYER_01', 541440), id = f.newId('chr');
+    expect(id).toBe('chr_00000223038S3FS8EQR1YV9FC8');                                   // golden vector (salt 0x01..0x20)
+    expect(id).toBe(expectedId(Buffer.from(PUB), 'p_PLAYER_01', 541440, 'chr', 0));
+    const rows = f.log().map((r) => ({ ...r, partitionId: 'p_PLAYER_01' }));
+    const none: TruthStoreRead = { get: () => undefined, iter: () => [], count: () => 0 };
+    const ctx = (salt: Uint8Array): InvariantCtx => ({ tick: 541440, phase: 'P13', scope: 'TICK', partitionId: 'p_PLAYER_01', safeMode: false, writeSet: [], postings: [], events: [], num: () => 0, post: none, pre: none,
+      facts: { get: <T,>(k: string) => (k === FACT_ID_LOG ? rows : k === FACT_ID_SALT ? salt : undefined) as T | undefined } });
+    expect(INV_ENG_003.check(ctx(PUB))).toEqual({ ok: true });
+    for (const n of [0, 16, 31, 33, 64]) {
+      const bad = new Uint8Array(n); bad.set(PUB.subarray(0, Math.min(n, 32)));
+      let code: string | undefined; try { new IdFactory(bad, 'p', 0); } catch (e) { code = (e as { code: string }).code; }
+      expect(code).toBe('I0.id_salt_length');
+      expect(INV_ENG_003.check(ctx(bad))).toMatchObject({ ok: false, observed: `fact ${FACT_ID_SALT} is not a 32-byte salt` });
+    }
+    expect(() => new IdFactory(new Uint8Array(32), 'p', 0)).not.toThrow();
+  });
+  it('AC-02-09-SALT-FACT: the seed root is not reachable from the fact (ids.ts imports only hashing/encoding/sorted/types/invariant types; reads no other fact)', () => {
+    const src = readFileSync(fileURLToPath(new URL('./ids.ts', import.meta.url)), 'utf8');
+    const imports = [...src.matchAll(/^import .* from '([^']+)';$/gm)].map((m) => m[1]).sort();
+    expect(imports).toEqual(['./crypto/hex', './crypto/sha256', './invariants', './sorted', './types']);
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');   // comments stripped
+    expect(code).not.toMatch(/secret|seedRoot|EpochRoot|entropy|rng/i);
+    const facts = [...src.matchAll(/facts\.get<[^>]*>\(([A-Z_]+)\)/g)].map((m) => m[1]).sort();
+    expect(facts).toEqual(['FACT_ID_LOG', 'FACT_ID_SALT', 'FACT_ID_WRITTEN']);
   });
 });
 

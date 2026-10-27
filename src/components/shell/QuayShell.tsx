@@ -1,6 +1,6 @@
 "use client";
 // Quay OS shell root: picks phone / compact / desktop, applies html attributes, wires keys and channels.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
 import { seedHistory, useBackStack } from "@/shell/back";
@@ -17,11 +17,17 @@ import { KeySheet } from "./KeySheet";
 import { Launcher } from "./Launcher";
 import { PhoneHome } from "./PhoneHome";
 import { Recent } from "./Recent";
-import { ShellCtx, useShell } from "./ShellContext";
+import { ShellCtx, useShell, useShellStore } from "./ShellContext";
+import { useDeepLinkNavigate } from "./PhoneBanners";
 import { Shelf } from "./Shelf";
 import { StatusStrip } from "./StatusStrip";
 import { Desktop } from "./Desktop";
 import { SystemOverlays } from "./SystemOverlays";
+import { Banner, WorldEventBanner } from "./Banner";
+import { Sheet } from "./Sheet";
+import { FEED_HOOKS, mockFeedSource, useFeed } from "@/shell/feed";
+import { closeSheet, openSheet, useSheetRequest } from "@/shell/sheetHost";
+import { S } from "@/shell/strings";
 
 const BOOT_MS = [900, 500, 0, 0, 0, 0, 0];
 
@@ -55,6 +61,20 @@ function Surface() {
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
   const [booted, setBooted] = useState(false);
   useHtmlAttributes();
+  // Mock feed until Engine wires the real one (see TODO in shell/feed.ts). Read once per load, like mockChannels.
+  const feedSource = useMemo(() => mockFeedSource(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)), []);
+  const feed = useFeed(feedSource);
+  const sheet = useSheetRequest();
+  const navigate = useDeepLinkNavigate();
+  const storeApi = useShellStore();
+  const vwNow = useShell((s) => s.vw);
+  const deskBannerH = viewportOf(vwNow) === "phone" ? 0 : (feed.alerts.length ? 34 : 0) + (feed.world ? 34 : 0);
+  // Desktop banners shrink the work area; windows refit to it (wm.fitRect).
+  useEffect(() => { storeApi.getState().setBannerH(deskBannerH); }, [storeApi, deskBannerH]);
+  useEffect(() => {
+    // Mock-only: `?sheet=demo` opens an empty shell sheet so the mount point can be exercised before any consumer.
+    if (FEED_HOOKS && new URLSearchParams(window.location.search).get("sheet") === "demo") openSheet({ label: S.recent, content: <p className="muted">{S.noRecent}</p>, testId: "shell-sheet" });
+  }, []);
 
   useEffect(() => {
     const t = window.setTimeout(() => setBooted(true), BOOT_MS[RANKS.indexOf(rank)]);
@@ -72,8 +92,8 @@ function Surface() {
       {phone ? <PhoneHome /> : (
         <>
           <StatusStrip />
-          <div className="banner-slot" data-testid="alert-banner-slot" />
-          <div className="banner-slot" data-testid="world-banner-slot" />
+          <Banner alerts={feed.alerts} onNavigate={navigate} />
+          <WorldEventBanner event={feed.world} />
           <Desktop />
           {!focusMode && <Shelf />}
         </>
@@ -83,6 +103,11 @@ function Surface() {
       {launcherOpen && <Launcher />}
       {recentOpen && <Recent />}
       {keySheetOpen && <KeySheet />}
+      {sheet && (
+        <Sheet side={sheet.side ?? (phone ? "bottom" : "right")} label={sheet.label} onClose={closeSheet} testId={sheet.testId ?? "shell-sheet"}>
+          {sheet.content}
+        </Sheet>
+      )}
     </div>
   );
 }

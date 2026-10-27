@@ -130,6 +130,14 @@ describe('T02-09 PartitionStore', () => {
     const leaf = (t: string, e: Chr): Uint8Array => sha256Concat(t, Uint8Array.of(0), e.id, Uint8Array.of(0), sha256(canonEncode(e)));
     // bnk before chr (KIND_TAG_ORDER); within chr: table first (chr.entity < chr.other < led.account), then id
     const order = [es[3]!, es[2]!, es[1]!, es[0]!];
+    // odd leaf count: the last node is promoted, not duplicated (T02-07 shape); 3 leaves
+    const s3 = new PartitionStore(r, 'p1'); s3.beginTick(1);
+    for (const [tb, e] of es.slice(1)) (tb === 'led.account' ? s3.bind({ module: '03', phase: 'P1' }) : s3.bind({ module: '04', phase: 'P1' })).put(tb, e);
+    const l3 = [es[3]!, es[2]!, es[1]!].map(([tb, e]) => leaf(tb, e)), lh = (x: Uint8Array): Uint8Array => sha256Concat(Uint8Array.of(0), x);
+    const promoted = sha256Concat(Uint8Array.of(1), sha256Concat(Uint8Array.of(1), lh(l3[0]!), lh(l3[1]!)), lh(l3[2]!));
+    expect(toHex(s3.stateHash())).toBe(toHex(promoted)); expect(toHex(s3.stateHash())).toBe(toHex(merkleRoot(l3)));
+    const dup = sha256Concat(Uint8Array.of(1), sha256Concat(Uint8Array.of(1), lh(l3[0]!), lh(l3[1]!)), sha256Concat(Uint8Array.of(1), lh(l3[2]!), lh(l3[2]!)));
+    expect(toHex(s3.stateHash())).not.toBe(toHex(dup));
     expect(toHex(s.stateHash())).toBe(toHex(merkleRoot(order.map(([t, e]) => leaf(t, e)))));
   });
 
@@ -172,6 +180,8 @@ describe('T02-09 PartitionStore', () => {
     // P10 vs P9: index order, not string order ('P10' < 'P9' as strings)
     expect(INV_ENG_006.check(ctx({ [FACT_READ_STAMPS]: [{ table: 't.x', id: 'chr_A', readerPhase: 'P10', writerPhase: 'P9', readerModule: '04' }] }))).toEqual({ ok: true });
     expect(INV_ENG_006.check(ctx({}))).toEqual({ ok: true });
+    // same-phase read of a same-phase write is allowed (reader index == writer index)
+    expect(INV_ENG_006.check(ctx({ [FACT_READ_STAMPS]: [{ table: 'chr.entity', id: 'chr_A', readerPhase: 'P7', writerPhase: 'P7', readerModule: '04' }] }))).toEqual({ ok: true });
     s.commitTick(); s.beginTick(2); early.get('chr.entity', 'chr_A'); expect(s.readStamps()).toEqual([]);
   });
 
@@ -229,12 +239,45 @@ describe('E-73 store ACs', () => {
   });
 });
 
+describe('#45 QA pins', () => {
+  it('E-73 (4): an index key function that writes into its argument cannot touch the stored bytes or stale the entity hash', () => {
+    interface B { id: string; b: Uint8Array }
+    const r = new TableRegistry();
+    r.add({ name: 'chr.blob', module: '04', idOf: (e: B) => e.id, indexes: [{ name: 'k', key: (e: B) => { const k = String(e.b[0]); e.b[0] = 222; return k; } }] });
+    const s = new PartitionStore(r, 'p1'); s.beginTick(1); const w = s.bind({ module: '04', phase: 'P1' });
+    w.put('chr.blob', { id: 'chr_A', b: Uint8Array.from([1, 2]) });
+    const h = toHex(s.entityHash('chr.blob', 'chr_A')!);
+    expect([...s.current.get<B>('chr.blob', 'chr_A')!.b]).toEqual([1, 2]);
+    expect(h).toBe(toHex(entityHash({ id: 'chr_A', b: Uint8Array.from([1, 2]) })));
+    expect([...s.current.index<B>('chr.blob', 'k', '1')].map((e) => [...e.b])).toEqual([[1, 2]]);
+    w.put('chr.blob', { id: 'chr_A', b: Uint8Array.from([3]) });   // reindex calls key(before) and key(after)
+    s.commitTick();
+    expect([...s.committed.index<B>('chr.blob', 'k', '3')].map((e) => [...e.b])).toEqual([[3]]);   // committed path calls key() per row
+    expect([...s.committed.get<B>('chr.blob', 'chr_A')!.b]).toEqual([3]);
+    expect(toHex(s.entityHash('chr.blob', 'chr_A')!)).toBe(toHex(entityHash({ id: 'chr_A', b: Uint8Array.from([3]) })));
+  });
+  it('writeSet().before bytes are copied', () => {
+    const s = new PartitionStore(reg(), 'p1'); s.beginTick(1); const w = s.bind({ module: '04', phase: 'P1' });
+    w.put('chr.entity', { id: 'chr_A', n: 0, b: Uint8Array.from([1]) }); s.commitTick(); s.beginTick(2);
+    w.put('chr.entity', { id: 'chr_A', n: 1, b: Uint8Array.from([2]) });
+    const before = s.writeSet()[0]!.before as { b: Uint8Array }; before.b[0] = 99;
+    expect([...(s.writeSet()[0]!.before as { b: Uint8Array }).b]).toEqual([1]);
+    expect([...s.committed.get<{ b: Uint8Array }>('chr.entity', 'chr_A')!.b]).toEqual([1]);
+  });
+  it('table-name regex is exactly ^[a-z]{2,8}\\.[a-z0-9_]+$ (1 and 9 letters fail, 2 and 8 pass)', () => {
+    const ok = (n: string): boolean => { try { new TableRegistry().add({ name: n, module: '04', idOf: (e: Chr) => e.id }); return true; } catch { return false; } };
+    expect([ok('a.x'), ok('ab.x'), ok('abcdefgh.x'), ok('abcdefghi.x'), ok('ab.'), ok('ab.X'), ok('ab.x_9'), ok('a1.x')]).toEqual([false, true, true, false, false, false, true, false]);
+  });
+});
+
 describe('AC-02-09-WRAPPERS (E-70 (2))', () => {
   it('E-73: exactly 1 notifyMoney call on success, 0 on a fault', () => {
     const p = new MoneyProvenance(); setActiveProvenance(p);
     const spy = vi.spyOn(MoneyProvenance.prototype, 'note');
     const calls: [() => unknown, boolean][] = [[() => provenanceWrappers.toMoney(1, 'FDL'), true], [() => provenanceWrappers.toMoney(NaN, 'FDL'), false],
       [() => provenanceWrappers.toQty(2, 1n), true], [() => provenanceWrappers.toQty(Infinity, 1n), false], [() => provenanceWrappers.toPrice(3), true], [() => provenanceWrappers.toPrice(NaN), false]];
+    calls.push([() => provenanceWrappers.toQty(2, 0n), false], [() => provenanceWrappers.toQty(2, (1n << 31n) + 1n), false],
+      [() => provenanceWrappers.toMoney(1, 'XXX' as Ccy), false], [() => provenanceWrappers.toQty(1e308, 1n << 31n), false]);
     for (const [f, okCall] of calls) { spy.mockClear(); if (okCall) f(); else expect(f).toThrow(EngineFault); expect(spy).toHaveBeenCalledTimes(okCall ? 1 : 0); }
     spy.mockRestore(); setActiveProvenance(null);
   });

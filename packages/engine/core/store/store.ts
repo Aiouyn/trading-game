@@ -102,7 +102,7 @@ export class PartitionStore {
       *index<T>(table: string, indexName: string, key: string): Iterable<T> {
         const t = self.tbl(table), d = t.def.indexes?.find((i) => i.name === indexName);
         if (!d) throw new EngineFault('TBL_UNKNOWN', `unknown index '${indexName}' on '${table}'`);
-        if (view === 'committed') { for (const v of t.base.values()) if (d.key(v.v) === key) yield out(v) as T; return; }
+        if (view === 'committed') { for (const v of t.base.values()) if (d.key(copyBytesOut(v.v)) === key) yield out(v) as T; return; }
         for (const id of t.idx.get(indexName)!.get(key) ?? []) {
           const e = t.overlay.get(id); stamp(table, id, e);
           const s = e ? e.slot : t.base.get(id);
@@ -127,7 +127,8 @@ export class PartitionStore {
   private reindex(t: Tbl, id: Id, before: unknown, after: unknown): void {
     for (const d of t.def.indexes ?? []) {
       const m = t.idx.get(d.name)!;
-      const kb = before === undefined ? null : d.key(before), ka = after === undefined ? null : d.key(after);
+      // E-73 (4): key functions get a copy, never the stored buffer
+      const kb = before === undefined ? null : d.key(copyBytesOut(before)), ka = after === undefined ? null : d.key(copyBytesOut(after));
       if (kb === ka) continue;
       if (kb !== null) { const s = m.get(kb)!; s.delete(id); if (s.size === 0) m.delete(kb); }
       if (ka !== null) { let s = m.get(ka); if (!s) { s = new SortedSet(); m.set(ka, s); } s.add(id); }
