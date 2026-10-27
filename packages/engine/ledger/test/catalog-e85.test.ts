@@ -112,6 +112,9 @@ describe('AC-03-02-SECTORS-RULE (E-85 (c), structural)', () => {
     expect(ctorErrors(mutate('CONFLICT_RANSOM', { sectors: ['frm'] }))).toEqual(['CONFLICT_RANSOM: ELASTIC_SECTORS_MISMATCH']);
     expect(ctorErrors(mutate('CITY_COSMETIC', { sectors: ['hh'] }))).toEqual(['CITY_COSMETIC: ELASTIC_SECTORS_MISMATCH']);
   });
+  it('rule 2 needs class TRANSFER: a SINK row with PAY and sectors reports both TEMPLATE_CLASS_MISMATCH and ELASTIC_SECTORS_MISMATCH', () => {
+    expect(ctorErrors(mutate('CITY_COSMETIC', { tpl: ['PAY'], sectors: ['hh'] })).sort()).toEqual(['CITY_COSMETIC: ELASTIC_SECTORS_MISMATCH', 'CITY_COSMETIC: TEMPLATE_CLASS_MISMATCH']);
+  });
   it('a TRANSFER PAY row with no sectors constructs (sectors stay optional on TRANSFER)', () => {
     expect(seedRow('CMP_WAIVER_FEE')).toMatchObject({ cls: 'TRANSFER', tpl: ['PAY'], sectors: [] });
     expect(new ReasonCatalog().get('CMP_WAIVER_FEE')?.elasticSectors).toEqual([]);
