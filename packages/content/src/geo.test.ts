@@ -59,7 +59,7 @@ describe('T22A-02 ContentView geography', () => {
     expect(errCode(() => loadContent({ base: 'full', patch: withFile('districts.json', (f) => { (f.districts as Rec[])[0]!.cityId = 'cty_atlantis'; }) }, P))).toBe('CV04');
   });
 
-  it('AC-22A-02-FLAGS: every §3.2 name resolves; per-flag city entries C 9, CL 3, R 7, F 5, H 11; a renamed district fails', () => {
+  it('AC-22A-02-FLAGS: 73 §3.2 name entries resolve to 71 districts with 77 flag assignments; per-flag city entries C 9, CL 3, R 7, F 5, H 11; a renamed district fails', () => {
     const v = full(), d = v.districts();
     // 73 name entries in the §3.2 column (71 distinct districts; Temple Hill and Mirador carry two flags each), all resolved:
     const flagged = d.filter((x) => x.flags.length > 0);
@@ -71,6 +71,8 @@ describe('T22A-02 ContentView geography', () => {
     expect(byName('cty_port_avalon', 'Summit Estates on Gilt Hill')).toEqual(['H']);   // prefix resolution
     expect(byName('cty_tessan', 'Fab Island')).toEqual(['C', 'R']);                    // C/R
     expect(byName('cty_lakemont', 'Lakefront')).toEqual(['CL']);                       // C (lake)
+    expect(byName('cty_mirako', 'Temple Hill')).toEqual(['F', 'H']);                   // E-88 (4): two entries (H and F), one district
+    expect(byName('cty_cobreval', 'Mirador')).toEqual(['F', 'H']);
     expect(count(d, (x) => x.cityId === 'cty_meridia' && x.flags.length === 0)).toBeGreaterThan(0);
     for (const x of d) if (x.flags.length === 0) expect(x.flags).toEqual([]);
     const rename = (from: string, to: string) => withFile('districts.json', (f) => { for (const r of f.districts as Rec[]) if (r.name === from) r.name = to; });
@@ -98,14 +100,24 @@ describe('T22A-02 ContentView geography', () => {
       ((f.personalities as Rec[])[0]!.perils as Rec).quake = 4; }) }, P))).toBe('CONTENT_SHAPE');
   });
 
-  it('AC-22A-02-PROFILE: Port Avalon profile; every unlock in {R0, R2, R6}', () => {
+  it('AC-22A-02-PROFILE: Port Avalon profile; viewRank R0 everywhere, ownRank R0 for the 3 FDL cities and R2 for the other 12 (E-88 (3))', () => {
     const v = full();
-    expect(v.cityProfile('cty_port_avalon')).toEqual({ cityId: 'cty_port_avalon', launchPop: 240000, districtCount: 8, unlock: 'R0',
+    expect(v.cityProfile('cty_port_avalon')).toEqual({ cityId: 'cty_port_avalon', launchPop: 240000, districtCount: 8, viewRank: 'R0', ownRank: 'R0',
       geographicConstraint: 'crescent harbour bay, hill to the west', coastal: true, commodityHub: 'FDL hub (Eastside Docks)', cityRentMult: 1.0,
       hhSize: 2.4, ownerOccupierShare: 0.55, propertyTaxPctPerGY: 1.0, cbdHeightCapM: 320 });
-    for (const c of ALL16(v)) expect(['R0', 'R2', 'R6']).toContain(v.cityProfile(c).unlock);
+    for (const c of ALL16(v)) { expect(['R0', 'R2', 'R6']).toContain(v.cityProfile(c).viewRank); expect(['R0', 'R2', 'R6']).toContain(v.cityProfile(c).ownRank); }
+    expect(ALL16(v).map((c) => v.cityProfile(c).viewRank)).toEqual(ALL16(v).map(() => 'R0'));
+    const own = v.cities().map((c) => [c.bloc, v.cityProfile(c.cityId).ownRank] as const);
+    expect(own.filter(([b, r]) => b === 'FDL' && r === 'R0').length).toBe(3);
+    expect(own.filter(([b, r]) => b !== 'FDL' && r === 'R2').length).toBe(12);
+    expect(own.length).toBe(15);
     expect(v.cityProfile('cty_lakemont')).toMatchObject({ coastal: false, commodityHub: null, launchPop: 180000 });   // "no (lake port only)"
-    expect(v.cityProfile('cty_isla_serena')).toMatchObject({ launchPop: 0, coastal: true, unlock: 'R6', districtCount: 1 });   // see PR: unlock interpretation
+    expect(v.cityProfile('cty_isla_serena')).toMatchObject({ launchPop: 0, coastal: true, viewRank: 'R0', ownRank: 'R6', districtCount: 1 });   // AC-22A-02-SERENA: view R0, own R6 (E-88 (3))
+    for (const bad of ['R4', 'r2', 'view R0 own R6', 'view R4, own R6', 'own R6, view R0', '']) {
+      expect(errCode(() => loadContent({ base: 'full', patch: withFile('cities.json', (f) => { (f.cities as Rec[])[5]!.unlock = bad; }) }, P))).toBe('CONTENT_CITY_UNLOCK_UNPARSED');
+    }
+    const w2 = loadContent({ base: 'full', patch: withFile('cities.json', (f) => { (f.cities as Rec[])[5]!.unlock = 'view R2, own R6'; }) }, P);
+    expect(w2.cityProfile(w2.cities()[5]!.cityId)).toMatchObject({ viewRank: 'R2', ownRank: 'R6' });
     expect(errCode(() => v.cityProfile('cty_x'))).toBe('CONTENT_UNKNOWN_CITY');
     for (const hub of ['-', '', ' - ']) {
       const w = loadContent({ base: 'full', patch: withFile('cities.json', (f) => { (f.cities as Rec[])[0]!.commodityHub = hub; }) }, P);

@@ -10,7 +10,7 @@ export interface DistrictContent { distId: string; cityId: string; name: string;
   heritage: boolean; landmarkId: string; landmarkBrief: string; flags: readonly DistrictFlag[] }
 export interface CityPersonality { cityId: string; palette: string; streetTrees: string; archetypeFamily: string;
   perils: { flood: PerilClass; coastalStorm: PerilClass; quake: PerilClass; wildfire: PerilClass; heatwave: PerilClass; snowIce: PerilClass } }
-export interface CityProfile { cityId: string; launchPop: number; districtCount: number; unlock: 'R0' | 'R2' | 'R6';
+export interface CityProfile { cityId: string; launchPop: number; districtCount: number; viewRank: 'R0' | 'R2' | 'R6'; ownRank: 'R0' | 'R2' | 'R6';
   geographicConstraint: string; coastal: boolean; commodityHub: string | null; cityRentMult: number; hhSize: number;
   ownerOccupierShare: number; propertyTaxPctPerGY: number; cbdHeightCapM: number }
 
@@ -64,10 +64,13 @@ function parseYesNo(cityId: string, s: string): boolean {
   const m = /^(yes|no)(?: \(.*\))?$/.exec(s);
   return m === null ? fail('CONTENT_SHAPE', `${cityId}: coastal '${s}'`) : m[1] === 'yes';
 }
-/** R0/R2/R6; Isla Serena's "view R0, own R6" takes the ownership gate R6 (interpretation, see PR). */
-function parseUnlock(cityId: string, s: string): CityProfile['unlock'] {
-  const m = /^(R0|R2|R6)$/.exec(s) ?? /^view R[026], own (R0|R2|R6)$/.exec(s);
-  return m === null ? fail('CONTENT_SHAPE', `${cityId}: unlock '${s}'`) : m[1] as CityProfile['unlock'];
+/** E-88 (3): "Rn" gives ownRank Rn and viewRank R0 (no spec gates viewing a city); "view Rx, own Ry" gives Rx and Ry. Else CONTENT_CITY_UNLOCK_UNPARSED. */
+function parseUnlock(cityId: string, s: string): Pick<CityProfile, 'viewRank' | 'ownRank'> {
+  const one = /^(R0|R2|R6)$/.exec(s);
+  if (one !== null) return { viewRank: 'R0', ownRank: one[1] as CityProfile['ownRank'] };
+  const two = /^view (R0|R2|R6), own (R0|R2|R6)$/.exec(s);
+  if (two !== null) return { viewRank: two[1] as CityProfile['viewRank'], ownRank: two[2] as CityProfile['ownRank'] };
+  return fail('CONTENT_CITY_UNLOCK_UNPARSED', `${cityId}: unlock '${s}'`);
 }
 
 export interface Geo { districts: DistrictContent[]; personalities: CityPersonality[]; profiles: CityProfile[] }
@@ -93,7 +96,7 @@ export function buildGeo(cityIds: readonly string[], districtRows: readonly Dist
       heritage: d.heritage, landmarkId: d.landmarkId, landmarkBrief: d.landmarkBrief, flags: DISTRICT_FLAGS.filter((f) => s.includes(f)) };
   });
   const profiles: CityProfile[] = profileRows.map((r) => ({ cityId: r.cityId, launchPop: parsePop(r.cityId, r.launchPop), districtCount: r.districts,
-    unlock: parseUnlock(r.cityId, r.unlock), geographicConstraint: r.geographicConstraint, coastal: parseYesNo(r.cityId, r.coastal),
+    ...parseUnlock(r.cityId, r.unlock), geographicConstraint: r.geographicConstraint, coastal: parseYesNo(r.cityId, r.coastal),
     commodityHub: r.commodityHub === null || r.commodityHub.trim() === '' || r.commodityHub.trim() === '-' ? null : r.commodityHub,
     cityRentMult: r.cityRentMult, hhSize: r.hhSize, ownerOccupierShare: r.ownerOccupierShare, propertyTaxPctPerGY: r.propertyTaxPctPerGY,
     cbdHeightCapM: r.cbdHeightCapM }));
