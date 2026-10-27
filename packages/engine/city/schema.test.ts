@@ -41,8 +41,8 @@ describe('AC-10A-01-1 every id helper output passes assertEntityId', () => {
     expect(() => assertEntityId('hh_x')).not.toThrow();
     expect(() => cityId('port avalon')).toThrow();
     expect(() => districtId('port_avalon', `x${'a'.repeat(60)}`)).toThrow();
-    expect(() => parcelId('port_avalon', -1)).toThrow();
-    expect(() => parcelId('port_avalon', 1.5)).toThrow();
+    expect(() => parcelId('port_avalon', -1)).toThrow(/^parcel seq -1 is not a non-negative integer/);
+    expect(() => parcelId('port_avalon', 1.5)).toThrow(/^parcel seq 1\.5 is not a non-negative integer/);
   });
 });
 
@@ -172,7 +172,7 @@ describe('geometry: integer centimetres, counter-clockwise polygons (10 §2.11)'
     expect(() => assertFixedPolygon([...parcel.polygon].reverse())).toThrow(/counter-clockwise/);
     expect(() => assertFixedPolygon([{ x: 0, z: 0 }, { x: 1, z: 1 }, { x: 2, z: 2 }])).toThrow(/counter-clockwise/);
     expect(() => assertFixedPolygon([{ x: 0, z: 0 }, { x: 1, z: 0 }])).toThrow(/< 3/);
-    expect(() => assertFixedPolygon([{ x: 0, z: 0 }, { x: 1.5, z: 0 }, { x: 0, z: 2 }])).toThrow(/integer/);
+    expect(() => assertFixedPolygon([{ x: 0, z: 0 }, { x: 1.5, z: 0 }, { x: 0, z: 2 }])).toThrow(/^vertex \(1\.5, 0\) is not integer centimetres/);
     expect(() => assertFixedRect(region.bounds)).not.toThrow();
     expect(() => assertFixedRect({ minX: 1, minZ: 0, maxX: 0, maxZ: 0 })).toThrow(/min exceeds max/);
     expect(() => assertFixedRect({ minX: 0, minZ: 0, maxX: 0.5, maxZ: 0 })).toThrow(/integer/);
