@@ -1,7 +1,7 @@
 // T04-01: dependency-inversion ports (G6.1) through which 04 reads modules built after it.
 // Every function is pure over StoreRead; null/undefined = input missing → the last value holds (§3.14.5, edge 23).
 import type { Ccy, Id, Money, Price, Qty, Tick } from '@tycoon/engine-core';
-import type { StoreRead } from './core-port';
+import type { StoreRead } from '@tycoon/engine-core';
 import type { BlocId, FiscalProgram, Tenor } from './schema';
 
 export interface MacroMarketPort {   // 05

@@ -1,8 +1,9 @@
 // T02-21 params.ts only (the rest of T02-21, ModuleDef / TestWorld, depends on T02-09..20 and is not part of this PR).
 import { PHASES, type PhaseId } from './types';
 
-/** SPEC GAP: ParamsView is owned by T23 (@tycoon/params, not built). Minimal port of the accessors coreParams uses. */
-export interface ParamsView { num(key: string): number; int(key: string): number }
+import type { ParamsView } from '@tycoon/params';
+/** E-70 (4): ParamsView is owned by @tycoon/params; core re-exports the type and declares none (AC-02-11-PARAMS-PKG). */
+export type { ParamsView } from '@tycoon/params';
 
 export interface CoreParams { intentsPerTickPerActor: number; intentsPerTickPerPrincipal: number; intentMaxAgeTicks: number; sealGraceMs: number; safeModeMaxAttempts: number;
   safeModeSubsystemRepeatHalt: number; resumeNoticeMs: number; versionNoticeTicks: number; shadowVerifyFraction: number; catchupMinIntervalMs: number; catchupMaxLagMs: number;

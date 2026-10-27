@@ -240,8 +240,11 @@ test("T5 halt chip (Studio 08:04): Continue hides the overlay; steel chip in str
   expect(ring.before).toBe("none");
   await shot(page, "halt-chip");
   await axe(page, "halt-chip");
+  // The overlay it reopens is role=status (not a dialog), so the chip must not claim aria-haspopup=dialog.
+  await expect(chip).not.toHaveAttribute("aria-haspopup");
   await chip.click();
   await expect(page.getByTestId("overlay-halted")).toBeVisible();
+  await expect(page.getByTestId("overlay-halted")).toHaveAttribute("role", "status");
 });
 
 test("T5 halt flow: order entry disabled with the reason; resume clears the chip and is announced politely; next halt reopens", async ({ page }) => {
@@ -297,5 +300,33 @@ test("Studio T5: world banner uses the 'world' compass glyph in --steel (no '●
       await page.evaluate(() => { document.documentElement.dataset.cb = "1"; });
       await page.screenshot({ path: `${dir}/glyphs-colourblind-${vp.width}x${vp.height}.png` });
     }
+  }
+});
+
+test("T5 halt chip (QA #29): the whole hit box is the chip's own target, 1 px inside all four edges (desktop pointer)", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  await boot(page, "/?halted=1");
+  await page.getByTestId("overlay-halted-action").click();
+  await expect(page.getByTestId("overlay-halted")).toHaveCount(0);
+  const chip = page.locator("header [data-testid=halt-chip]");
+  // Hit box = chip box widened/heightened to the invisible ::before (≥ 28 px tall on pointer).
+  const g = await chip.evaluate((e) => {
+    const r = e.getBoundingClientRect(), b = getComputedStyle(e, "::before");
+    const w = Math.max(r.width, parseFloat(b.width)), h = Math.max(r.height, parseFloat(b.height));
+    const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+    return { l: cx - w / 2, r: cx + w / 2, t: cy - h / 2, b: cy + h / 2, cx, cy };
+  });
+  const pts: [string, number, number][] = [
+    ["left", g.l + 1, g.cy], ["right", g.r - 1, g.cy], ["top", g.cx, g.t + 1], ["bottom", g.cx, g.b - 1],
+    ["top-left", g.l + 1, g.t + 1], ["top-right", g.r - 1, g.t + 1], ["bottom-left", g.l + 1, g.b - 1], ["bottom-right", g.r - 1, g.b - 1],
+  ];
+  const misses = await chip.evaluate((e, ps) => ps.filter(([, x, y]) => { const n = document.elementFromPoint(x, y); return !(n === e || e.contains(n)); })
+    .map(([k, x, y]) => `${k} ${x.toFixed(1)},${y.toFixed(1)} -> ${(document.elementFromPoint(x, y) as HTMLElement | null)?.className}`), pts);
+  expect(misses).toEqual([]);
+  for (const [k, x, y] of pts.slice(0, 4)) {
+    await page.mouse.click(x, y);
+    await expect(page.getByTestId("overlay-halted"), `click ${k}`).toBeVisible();
+    await page.getByTestId("overlay-halted-action").click();
+    await expect(page.getByTestId("overlay-halted")).toHaveCount(0);
   }
 });
