@@ -1,9 +1,9 @@
 name: engine-core
 on:
   push:
-    paths: ['packages/engine/core/**', '.github/workflows/engine-core.yml', 'package.json']
+    paths: ['packages/engine/core/**', 'packages/params/**', 'packages/content/**', '.github/workflows/engine-core.yml', 'package.json']
   pull_request:
-    paths: ['packages/engine/core/**', '.github/workflows/engine-core.yml', 'package.json']
+    paths: ['packages/engine/core/**', 'packages/params/**', 'packages/content/**', '.github/workflows/engine-core.yml', 'package.json']
 jobs:
   core:
     runs-on: ubuntu-latest

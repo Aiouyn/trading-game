@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createParamsView } from '@tycoon/params';
 import { isTradingDay, tradingDaysBetween, type ParamsView } from '@tycoon/engine-core';
 import { happeningsInRange, WITHIN_TICK_RANK, auctionsCountInQuarter, auctionsInQuarter, meetingPlan, meetingsInRange, monthStartDay, nthTradingDay, previousTradingDay, quarterStartDay,
   releasesInRange, tradingDayIndexInMonth, tradingDayIndexInQuarter, tradingDayIndexInYear, tradingDaysOfPeriod, utcBandOf, utcHourOfTick,
@@ -8,7 +9,7 @@ import { BLOC_ORDER, type BlocId } from '../schema';
 const P: Record<string, number> = { macro_cb_meetings_per_year: 4, macro_cb_decision_tick: 420, macro_auction_tick: 330, macro_auction_announce_tick: 420 };
 const params = (o: Record<string, number> = {}): ParamsView => {
   const m = { ...P, ...o };
-  return { num: (k) => { if (!(k in m)) throw new Error(k); return m[k]!; }, int: (k) => { if (!(k in m)) throw new Error(k); return m[k]!; } };
+  return { ...createParamsView([]), num: (k) => { if (!(k in m)) throw new Error(k); return m[k]!; }, int: (k) => { if (!(k in m)) throw new Error(k); return m[k]!; } };
 };
 const pv = params();
 const MODES = [false, true] as const;   // D071 default (no holidays) and the D016 table

@@ -1,13 +1,12 @@
 // T04-01: deterministic ids of 04 §2.1 (institutions authored per bloc, 00 §3.2; generated ids via 02's ctx.newId).
 import type { Id } from '@tycoon/engine-core';
-import type { PhaseCtx } from './core-port';
+import type { PhaseCtx } from '@tycoon/engine-core';
 import type { BlocId, ReleaseKind } from './schema';
+// cbkId and govId live once, in the ledger (E-81 (i), AC-04-01-IDS-FROM-LEDGER); macro callers import them from there, not from here.
+import { cbkId, govId } from '@tycoon/engine-ledger';
 
 const BLOCS: readonly BlocId[] = ['FDL', 'EUN', 'PYN', 'NKR', 'SRL'];
-const PREFIXES = ['cbk_', 'gov_', 'exc_', 'reg_', 'crt_'] as const;
 
-export const cbkId = (b: BlocId): Id => `cbk_${b}`;
-export const govId = (b: BlocId): Id => `gov_${b}`;
 export const excId = (b: BlocId): Id => `exc_${b}`;
 export const regId = (b: BlocId): Id => `reg_${b}`;
 export const crtId = (b: BlocId): Id => `crt_${b}`;
@@ -15,15 +14,12 @@ export const CSF_ID = 'npc_CSF' as const;
 export const STAB_ID = 'sys_STAB' as const;
 export const DEALER_POOL_ID = (b: BlocId): Id => `npc_PD_${b}`;
 
+/** The five per-bloc institution ids (cbk_ and gov_ from the ledger, E-81 (i)). */
+const INSTITUTION_IDS: readonly ((b: BlocId) => Id)[] = [cbkId, govId, excId, regId, crtId];
+
 /** Bloc of one of the five per-bloc institutions (`cbk_|gov_|exc_|reg_|crt_` + bloc), else null. */
 export function blocOfEntity(id: Id): BlocId | null {
-  for (const p of PREFIXES) {
-    if (id.startsWith(p)) {
-      const rest = id.slice(p.length);
-      for (const b of BLOCS) if (rest === b) return b;
-      return null;
-    }
-  }
+  for (const f of INSTITUTION_IDS) for (const b of BLOCS) if (f(b) === id) return b;
   return null;
 }
 

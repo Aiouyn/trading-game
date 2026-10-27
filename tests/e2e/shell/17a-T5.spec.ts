@@ -240,8 +240,11 @@ test("T5 halt chip (Studio 08:04): Continue hides the overlay; steel chip in str
   expect(ring.before).toBe("none");
   await shot(page, "halt-chip");
   await axe(page, "halt-chip");
+  // The overlay it reopens is role=status (not a dialog), so the chip must not claim aria-haspopup=dialog.
+  await expect(chip).not.toHaveAttribute("aria-haspopup");
   await chip.click();
   await expect(page.getByTestId("overlay-halted")).toBeVisible();
+  await expect(page.getByTestId("overlay-halted")).toHaveAttribute("role", "status");
 });
 
 test("T5 halt flow: order entry disabled with the reason; resume clears the chip and is announced politely; next halt reopens", async ({ page }) => {

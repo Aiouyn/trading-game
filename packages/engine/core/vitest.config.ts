@@ -3,6 +3,6 @@ import { defineConfig } from 'vitest/config';
 // tools/ci tests run under core: resolve their bare imports from core's node_modules (CI installs only core's dependencies).
 const nm = (m: string): string => fileURLToPath(new URL(`./node_modules/${m}`, import.meta.url));
 export default defineConfig({
-  resolve: { alias: { typescript: nm('typescript') } },
+  resolve: { alias: { typescript: nm('typescript'), '@tycoon/params': fileURLToPath(new URL('../../params/src/index.ts', import.meta.url)) } },
   test: { include: ['**/*.test.ts', '../../../tools/ci/*.test.ts'], exclude: ['node_modules/**'], environment: 'node', testTimeout: 120_000 },
 });

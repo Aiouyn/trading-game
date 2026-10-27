@@ -10,12 +10,14 @@ const root = path.resolve(__dirname);
 const cityEntry = existsSync(path.join(root, "src/city/index.ts")) ? "./src/city/index.ts" : "./tests/unit/shell/__mocks__/city.ts";
 
 // Dev-only design-system sheets: on in `next dev`, and in a production build only with QUAY_DS=1 (e2e).
-// Off, the demo module is swapped for an empty stub at resolve time, so none of it reaches .next/static.
+// Off, the demo modules (/__ds primitives, /__ds/notices) are swapped for empty stubs at resolve time, so none of
+// it reaches .next/static or .next/server (tools/check-hooks.mjs scans both).
 const dsOn = process.env.NODE_ENV !== "production" || process.env.QUAY_DS === "1";
 const dsNotices = dsOn ? "./src/app/%5F_ds/notices/NoticesSheet.tsx" : "./src/app/%5F_ds/notices/NoticesSheet.off.tsx";
+const dsPrimitives = dsOn ? "./src/app/%5F_ds/DesignSystemSheet.tsx" : "./src/app/%5F_ds/DesignSystemSheet.off.tsx";
 
 const nextConfig: NextConfig = {
-  turbopack: { root, resolveAlias: { "@/city": cityEntry, "@ds/notices-sheet": dsNotices } },
+  turbopack: { root, resolveAlias: { "@/city": cityEntry, "@ds/notices-sheet": dsNotices, "@ds/primitives-sheet": dsPrimitives } },
   outputFileTracingRoot: root,
   // Test-only gates and hook flags are ALWAYS defined (as "1" or "0") so the bundler inlines a literal and folds
   // the gate: an unset var would stay a runtime `process.env` read and the hook / dev-only /__ds code would ship.
