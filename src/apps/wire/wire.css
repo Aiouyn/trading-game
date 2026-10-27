@@ -67,20 +67,39 @@
 }
 .wire-filters::before { left: 0; background: linear-gradient(to right, var(--win), transparent); }
 .wire-filters::after { right: 0; background: linear-gradient(to left, var(--win), transparent); }
+/* The button is the hit box (28 px pointer / 44 px touch, transparent); the visible chip is its face, which never grows. */
 .wire-chip {
   display: inline-flex;
   flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--hit-pointer);
+  min-height: var(--hit-pointer);
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: var(--fs-11_5);
+  color: var(--fg-muted);
+  white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+@media (pointer: coarse) {
+  .wire-chip { min-width: var(--hit-touch); min-height: var(--hit-touch); }
+}
+.wire-chip-face {
+  display: inline-flex;
   align-items: center;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   padding: 2px 9px;
   background: transparent;
-  font-size: var(--fs-11_5);
-  color: var(--fg-muted);
-  white-space: nowrap;
-  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
-.wire-chip[aria-checked="true"] { background: var(--win2); color: var(--fg); }
+.wire-chip[aria-checked="true"] { color: var(--fg); }
+.wire-chip[aria-checked="true"] > .wire-chip-face { background: var(--win2); }
+.wire-chip:focus-visible { outline: none; }
+.wire-chip:focus-visible > .wire-chip-face { box-shadow: var(--focus-ring); }
 
 .wire-updating { flex: none; margin: 0; padding: var(--sp-4) var(--sp-16); font-size: var(--fs-11_5); color: var(--fg-muted); }
 

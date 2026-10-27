@@ -45,12 +45,12 @@ export function FilterChips({ value, onChange, t }: { value: WireFilter; onChang
             role="radio"
             aria-checked={f === value}
             tabIndex={f === value ? 0 : -1}
-            className="wire-chip wire-hit"
+            className="wire-chip"
             data-filter={f}
             data-testid={`wire-filter-${f}`}
             onClick={() => onChange(f)}
           >
-            {t.filter[f]}
+            <span className="wire-chip-face">{t.filter[f]}</span>
           </button>
         ))}
       </div>

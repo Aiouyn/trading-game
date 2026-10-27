@@ -364,7 +364,7 @@ test("S1-03 computed tokens per palette; DOM identical across palettes", async (
   expect(await read()).toEqual(SPEC_TABLE.map((r) => r[1]));
   const snap = () => page.locator("[data-testid=quay-ready]").evaluate((el) => el.outerHTML);
   // The default layout opens Wire (built since UI card 1); its feed loads asynchronously, so let it settle first.
-  await expect(page.getByTestId("wire")).not.toHaveAttribute("data-state", "loading");
+  await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
   const base = await snap();
   for (const [i, p] of ["ink-brass", "broadsheet", "phosphor", "riviera"].entries()) {
     await page.evaluate((v) => (document.documentElement.dataset.palette = v), p);

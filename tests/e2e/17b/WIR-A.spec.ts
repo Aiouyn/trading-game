@@ -30,13 +30,14 @@ async function setPalette(page: Page, palette: string) {
   await page.evaluate((p) => { document.documentElement.dataset.palette = p; }, palette);
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.palette)).toBe(palette);
 }
-/** Hit box of a control: its rect grown to its ::after hit area (centered). */
+/** Hit box of a control: its rect grown to its ::after hit area (centered); `vis` is the visible part (a chip's face). */
 const hitBox = (l: Locator) => l.evaluate((el) => {
   const r = el.getBoundingClientRect();
   const a = getComputedStyle(el, "::after");
   const w = Math.max(r.width, parseFloat(a.width) || 0), h = Math.max(r.height, parseFloat(a.height) || 0);
   const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-  return { x: cx - w / 2, y: cy - h / 2, w, h, vis: { w: r.width, h: r.height } };
+  const v = (el.querySelector(".wire-chip-face") ?? el).getBoundingClientRect();
+  return { x: cx - w / 2, y: cy - h / 2, w, h, vis: { w: v.width, h: v.height } };
 });
 /** Every probe point just inside the hit box lands on the control (or a child). */
 const hitsAt = (l: Locator) => l.evaluate((el) => {
@@ -258,10 +259,10 @@ test.describe("WIR-A wire feed", () => {
       }
       const sel = page.getByTestId("wire-filter-all");
       await expect(sel).toHaveAttribute("aria-checked", "true");
-      await expect(sel).toHaveCSS("background-color", await resolve(page, "var(--win2)"));
+      await expect(sel.locator(".wire-chip-face")).toHaveCSS("background-color", await resolve(page, "var(--win2)"));
       await expect(sel).toHaveCSS("color", await resolve(page, "var(--fg)"));
       await expect(page.getByTestId("wire-filter-news")).toHaveCSS("color", await resolve(page, "var(--fg-muted)"));
-      await expect(page.getByTestId("wire-filter-news")).toHaveCSS("border-top-color", await resolve(page, "var(--line)"));
+      await expect(page.getByTestId("wire-filter-news").locator(".wire-chip-face")).toHaveCSS("border-top-color", await resolve(page, "var(--line)"));
       await expect(page.getByTestId("wire-breaking")).toBeVisible();
       await expectHitAreas(page, 28);
     }
