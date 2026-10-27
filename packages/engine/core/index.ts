@@ -25,3 +25,4 @@ export * from './calendar';
 export * from './fixed';
 export * from './store';
 export * from './rng';
+export * from './module';

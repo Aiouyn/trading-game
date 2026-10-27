@@ -1,12 +1,11 @@
 // T04-03 acceptance tests: regime chain (04 §3.3.1-§3.3.4), 04#5, worked examples, coupling, minimum length and draw count.
 import { describe, expect, it } from 'vitest';
-import type { ParamsView } from '@tycoon/engine-core';
+import type { ParamsView, Rng } from '@tycoon/engine-core';
 import { REGIMES, type Regime } from '../schema';
 import { BLOC_DEFAULTS } from '../blocs';
 import { ALLOWED, applyCoupling, forceRegime, HAZARD_WEIGHTS, P_BASE, regimeParams, stepRegime, transitionMultipliers, type RegimeParams } from './regime';
-import type { Rng } from '../core-port';
 
-/** Test-only fast deterministic Rng (sfc32, 53-bit uniforms); the engine's T02-06 Rng is not on main. Counts draws. */
+/** Test-only fast deterministic Rng (sfc32, 53-bit uniforms) implementing the T02-06 Rng interface from @tycoon/engine-core. Counts draws. */
 function fastRng(seed: number): Rng & { draws: number } {
   let a = 0x9e3779b9 ^ seed, b = 0x243f6a88, c = 0xb7e15162 ^ (seed * 31), d = 1;
   const u32 = (): number => { a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; let t = (a + b) | 0; a = b ^ (b >>> 9); b = (c + (c << 3)) | 0; c = (c << 21) | (c >>> 11); d = (d + 1) | 0; t = (t + d) | 0; c = (c + t) | 0; return t >>> 0; };
