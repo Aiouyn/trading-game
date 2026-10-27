@@ -1,6 +1,6 @@
 // AC-03-MAP-NO-DUP (errata E-79) for the T03-01 symbols.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -23,6 +23,11 @@ const FILES = tsFiles(SCAN).filter((p) => p !== SELF).map((p) => ({ rel: relativ
 /** The text with import / export specifier lists (`import { type X }`, `export type { X }`, `export { X } from`) and `import type X` removed:
  *  naming a symbol there is not a definition. */
 const declText = (t: string): string => t.replace(/\b(import|export)\s+(type\s+)?\{[^}]*\}/g, '').replace(/\bimport\s+type\s+[\w$]+/g, '');
+/** Every module specifier in `text`, in either quote style: `from '…'`, `import('…')`, side-effect `import '…'`. */
+const specs = (text: string): string[] =>
+  [...text.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)(['"])([^'"\s]+)\1/gm)].map((m) => m[2]);
+/** A relative specifier resolved from file `rel` (repo-relative), or undefined for a package specifier. */
+const target = (rel: string, spec: string): string | undefined => (spec.startsWith('.') ? resolve(dirname(join(REPO, rel)), spec) : undefined);
 const DECL = FILES.map((f) => ({ rel: f.rel, text: declText(f.text) }));
 /** Every definition of `name`: exported or not, ambient (`declare`) or not, anywhere on a line (`type A = 1; type B = 2;`), one entry per
  *  declaration (two in one file count twice). */
@@ -90,9 +95,9 @@ describe('AC-03-MAP-NO-DUP', () => {
     const ledger = FILES.filter((f) => f.rel.startsWith('packages/engine/ledger/'));
     expect(ledger.length).toBeGreaterThan(20);
     for (const f of ledger) {
-      for (const m of f.text.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)(['"])([^'"\s]+)\1/gm)) {   // from '…' / from "…" / import('…') / import '…'
-        const spec = m[2];
-        const ok = spec.startsWith('.') ? !/\/(state|rules|catalog|invariants)\/|schema$/.test(spec)
+      for (const spec of specs(f.text)) {
+        const to = target(f.rel, spec);   // a relative import must stay inside packages/engine/ledger
+        const ok = to !== undefined ? (to + sep).startsWith(LEDGER) && !/\/(state|rules|catalog|invariants)\/|schema$/.test(spec)
           : ['zod', '@tycoon/engine-core', 'vitest', 'vitest/config', 'fast-check', 'typescript-eslint', 'eslint'].includes(spec) || spec.startsWith('node:');
         expect(ok, `${f.rel}: ${spec}`).toBe(true);
       }
@@ -118,7 +123,19 @@ describe('AC-04-01-IDS-FROM-LEDGER (E-81 (i))', () => {
   it('no file under packages/engine/ledger imports @tycoon/engine-macro', () => {
     const ledger = FILES.filter((f) => f.rel.startsWith('packages/engine/ledger/'));
     expect(ledger.length).toBeGreaterThan(20);
-    for (const f of ledger) expect(f.text, f.rel).not.toMatch(/from '@tycoon\/engine-macro'|from '[./]*\/macro\//);
+    for (const f of ledger) {
+      for (const spec of specs(f.text)) {
+        const to = target(f.rel, spec);
+        const macro = to !== undefined ? (to + sep).startsWith(join(REPO, 'packages/engine/macro') + sep) : /^@tycoon\/engine-macro(\/|$)/.test(spec);
+        expect(macro, `${f.rel}: ${spec}`).toBe(false);
+      }
+    }
+  });
+  it('specs() sees both quote styles, import() and side-effect imports; target() resolves relative ones', () => {
+    expect(specs(`import type {} from "../../macro/ids";\nexport const f = () => import('../../macro/ids');\nimport 'x';\nimport { a } from '@tycoon/engine-macro';`))
+      .toEqual(['../../macro/ids', '../../macro/ids', 'x', '@tycoon/engine-macro']);
+    expect(target('packages/engine/ledger/src/accounts.ts', '../../macro/ids')).toBe(join(REPO, 'packages/engine/macro/ids'));
+    expect(target('packages/engine/ledger/src/accounts.ts', '@tycoon/engine-macro')).toBeUndefined();
   });
   it('the ledger package is @tycoon/engine-ledger', () => {
     expect(JSON.parse(readFileSync(join(LEDGER, 'package.json'), 'utf8')).name).toBe('@tycoon/engine-ledger');
