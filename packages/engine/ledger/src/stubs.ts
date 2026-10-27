@@ -10,9 +10,11 @@ export interface Params {
   flowday_keep_days: number;    // binding FlowDay retention (T03-11 :47-49)
   led_control_alarm_share_e6: bigint; // §6.5 PROVISIONAL 0.01 of M0_player per game day (rate × 1e6)
   led_control_alarm_flips: number;     // §6.5 PROVISIONAL 2 changes per entity per 7 game days
+  /** E-84 condition 4: also run the full-scan balance side and the incremental = full cross-check on every tick (nightly, one seed). */
+  ledger_inv_full_scan_every_tick: boolean;
 }
 export const DEFAULT_PARAMS: Readonly<Params> = { led_code_alarm_mult: 10, led_code_alarm_floor: 1_000_000, led_tickflows_keep: 720, flowday_keep_days: 364,
-  led_control_alarm_share_e6: 10_000n, led_control_alarm_flips: 2 };
+  led_control_alarm_share_e6: 10_000n, led_control_alarm_flips: 2, ledger_inv_full_scan_every_tick: false };
 /** TODO(unit-02): MSI (money scale index). Not used by INV-LED-001..015; stubbed at 1. */
 export const msi = (): number => 1;
 

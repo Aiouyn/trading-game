@@ -2,7 +2,7 @@
 import { accountKey, parseAccountKey } from './accounts';
 import { ESCROW_ONLY_CODES } from './catalog';
 import { canonEncode, hashHex, SortedMap } from './det';
-import type { CheckView, Failure, TickFlows } from './invariants';
+import { balanceSide, type CheckView, type Failure, type TickFlows } from './invariants';
 import { CCYS, type Ccy, type Money, type Tick } from './money';
 import { RECEIVABLE, SETTLEMENT_CODES, type AccrualKind } from './legpolicy';
 import { addSys, controlChanges, emptySys, HOLDER_CLASSES, RIVAL_TAGS, sumMap, TERM_KEYS, type HolderTerms, type SysSideFlows } from './sysside';
@@ -104,9 +104,7 @@ export const INV_LED_022 = (v: CheckView): Failure[] => {
   if (!v.escrows) return [];
   const out: Failure[] = [];
   for (const c of CCYS) { // (a)
-    let esc = 0n; let liab = 0n; let claim = 0n;
-    for (const [k, b] of v.post) { const q = parseAccountKey(k); if (!q || q.ccy !== c) continue;
-      if (q.code === 1001 && q.sub?.startsWith('ESCROW:')) esc += b.balance; if (q.code === 2160) liab -= b.balance; if (q.code === 1070) claim += b.balance; }
+    const t = balanceSide(v).end(c); const esc = t.escrow1001; const liab = -t.sum2160; const claim = t.sum1070; // E-84 running totals
     const held = v.escrows.values().filter((e) => e.ccy === c && e.status === 'HELD').reduce((s, e) => s + e.amount, 0n);
     if (esc !== held || liab !== held || claim !== held) out.push(F('INV-LED-022', `(a) ${c}: ESCROW ${esc}, 2160 ${liab}, 1070 ${claim}`, `Σ HELD ${held}`));
   }
@@ -124,7 +122,8 @@ export const INV_LED_022 = (v: CheckView): Failure[] => {
   for (const h of v.holds?.values() ?? []) if (h.status === 'ACTIVE') for (const part of h.parts) if (isEscrowKey(part.accountKey)) out.push(F('INV-LED-022', `(c) hold ${h.holdId} on ${part.accountKey}`, 'no holds on escrow accounts'));
   for (const e of v.escrows.values()) {
     if (e.status === 'HELD' && e.caseId === null && v.tick >= e.expiresTick) out.push(F('INV-LED-022', `(d) ${e.escrowId} HELD at ${v.tick} ≥ expiry ${e.expiresTick} with no case`, 'released at expiry'));
-    for (const [k, b] of v.post) { const q = parseAccountKey(k); if (q && q.entityId === e.attackerId && q.sub === e.escrowId && b.balance !== 0n) out.push(F('INV-LED-022', `(e) attacker ${k} = ${b.balance}`, 'attacker never holds escrowed money')); }
+    const mine = v.index ? v.index.withSub(e.attackerId, e.escrowId) : v.post.entries().map(([k, b]): [string, Money] => [k, b.balance]);
+    for (const [k, bal] of mine) { const q = parseAccountKey(k); if (q && q.entityId === e.attackerId && q.sub === e.escrowId && bal !== 0n) out.push(F('INV-LED-022', `(e) attacker ${k} = ${bal}`, 'attacker never holds escrowed money')); }
   }
   return out;
 };
