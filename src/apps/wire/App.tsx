@@ -1,6 +1,12 @@
-// 17B CH-00 placeholder: the Wire app renders ComingLater until WIR-A replaces this file (ownership transfers, G7).
-import { ComingLater } from "@/components/shell/ComingLater";
+// 17B Wire (UI card 1 · WIR-A): the news feed on the existing mock `news` channel.
+"use client";
+import { useChannel } from "@/shell/contracts/useChannel";
+import { Feed } from "./Feed";
+import { useWireStrings } from "./strings";
+import "./wire.css";
 
 export default function WireApp() {
-  return <ComingLater app="wire" />;
+  const view = useChannel("news");
+  const t = useWireStrings();
+  return <Feed view={view} t={t} />;
 }
