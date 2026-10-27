@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { anchors, DISTRICT_MATERIALS, fnv1a32, lch, material, materialId, MATERIAL_PLAIN, partLook, RUST_BELOW, visSeed, type Lch } from '@/city/art/materials';
+import { anchors, DISTRICT_MATERIALS, fnv1a32, lch, material, materialId, MATERIAL_PLAIN, partLook, RUST_BELOW, matPalette, visSeed, WALL_SPLIT_M, type Lch } from '@/city/art/materials';
 import { deltaE, srgbToOklab, type Rgb } from '@/city/art/color';
 import { TOKEN_VARS, type Tokens } from '@/city/art/tokens';
 import { buildRamps } from '@/city/art/ramps';
@@ -99,5 +99,55 @@ describe('seed bit split (Studio ruling 1)', () => {
     expect(Math.abs(hue.C - o.C)).toBeLessThan(2e-4);
     expect(Math.abs(chr.C / o.C - 1)).toBeGreaterThan(0.08);
     expect(Math.abs(chr.h - o.h)).toBeLessThan(0.3);
+  });
+});
+
+describe('material data path (card 2 §2.1 iMat / uMat)', () => {
+  it('iMat variant is 2 exactly on rust accent parts; window seed is bits 24–31', () => {
+    const rusty = partLook(A, 7, (RUST_BELOW - 1) << 16 | (0xab << 24));
+    const plain = partLook(A, 7, RUST_BELOW << 16);
+    expect(rusty.rust).toBe(true);
+    expect(rusty.mat).toEqual([7, 2]);
+    expect(plain.mat).toEqual([7, 0]);
+    expect(rusty.windowSeed).toBe(0xab);
+  });
+  it('palette: wall2 delta only at split ids, top = material top, trim on the shaft for Financial Mile', () => {
+    const P = matPalette(A);
+    const at = (a: Float32Array, id: number) => Array.from(a.subarray(id * 3, id * 3 + 3));
+    for (let id = 0; id < 9; id++) {
+      const d = Math.hypot(...at(P.wall2, id));
+      if (WALL_SPLIT_M[id] !== undefined) expect(d).toBeGreaterThan(0.01);
+      else expect(d).toBe(0);
+      at(P.top, id).forEach((x, k) => expect(x).toBeCloseTo(lch(A, material(id).top)[k], 6));
+    }
+    expect(WALL_SPLIT_M).toEqual({ 4: 12, 7: 4, 8: 3 });
+    const shaft = lch(A, material(4).wall2!), podium = lch(A, material(4).wall);
+    const tr = at(P.trim, 4);
+    const dist = (c: number[]) => Math.hypot(...c.map((x, k) => x - tr[k]));
+    expect(dist(shaft)).toBeLessThan(dist(podium));
+  });
+});
+
+describe('partColors iMat and window seed', () => {
+  const ent = (id: string, districtId: string): CityEntity =>
+    ({ id, kind: 'property', parcelId: `par_${id}`, name: null, districtId, sector: null, companyId: null, forSale: false, atAuction: false, lifecycle: 'BUILT', heightLevel: 1 }) as unknown as CityEntity;
+  const entities = [ent('a', 'dst_port_avalon_old_harbor'), ent('b', 'dst_port_avalon_industrial_basin')];
+  const base = { entity: Int32Array.from([0, 1, -1]), style: new Uint8Array(3), entities, districts: [], mine: new Set<string>(), myCityOverlay: false, quote: () => 0.01, materials: { anchors: A, cityId: 'port_avalon' } };
+  const r = buildRamps(t);
+  it('none / my_places carry the material id and seed; entity-less parts stay plain', () => {
+    for (const overlay of ['none', 'my_places'] as const) {
+      const pc = partColors({ ...base, overlay }, r);
+      expect([pc.mat[0], pc.mat[2], pc.mat[4]]).toEqual([1, 7, 0]);
+      const s = partLook(A, 1, visSeed('port_avalon', 'par_a')).windowSeed / 256;
+      expect(pc.windowSeed[0]).toBeCloseTo(s, 7);
+      expect(pc.windowSeed[2]).toBe(-1);
+    }
+  });
+  it('a data overlay turns materials off: id 0, card-1 window hash, card-1 colours', () => {
+    const pc = partColors({ ...base, overlay: 'districts' as const }, r);
+    const plain = partColors({ ...base, overlay: 'districts' as const, materials: undefined }, r);
+    expect(Array.from(pc.mat)).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(Array.from(pc.windowSeed)).toEqual([-1, -1, -1]);
+    expect(Array.from(pc.colors)).toEqual(Array.from(plain.colors));
   });
 });

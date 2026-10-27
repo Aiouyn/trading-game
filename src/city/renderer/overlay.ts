@@ -29,18 +29,35 @@ export const FLAT_BRASS = 2;
  * Per-part colour and shading mode. Brass discipline (17 §3.1.1): brass only on crown towers and
  * the player's own places; selection is drawn separately.
  */
-export function partColors(p: PartColorInput, r: Ramps): { colors: Float32Array; flat: Uint8Array } {
+export interface PartColors {
+  colors: Float32Array;
+  flat: Uint8Array;
+  /** iMat per part (id, variant); id 0 = plain (no entity, no materials, or a data overlay) */
+  mat: Float32Array;
+  /** window seed per part, 0..1 (seed bits 24–31), or −1 = the card-1 per-part hash */
+  windowSeed: Float32Array;
+}
+
+export function partColors(p: PartColorInput, r: Ramps): PartColors {
   const n = p.entity.length;
   const colors = new Float32Array(n * 3);
   const flat = new Uint8Array(n);
+  const mat = new Float32Array(n * 2);
+  const windowSeed = new Float32Array(n).fill(-1);
+  // with a data overlay on, materials switch off so overlay colours read exactly as card 1 (§1)
+  const matOn = p.materials && (p.overlay === 'none' || p.overlay === 'my_places') ? p.materials : undefined;
   const dIndex = new Map(p.districts.map((d, i) => [d.id, i]));
   const showMine = p.myCityOverlay || p.overlay === 'my_places';
   for (let i = 0; i < n; i++) {
     const base = r.facades[p.style[i] & 3];
     const ei = p.entity[i];
     const e = ei >= 0 ? p.entities[ei] : undefined;
-    const m = p.materials;
-    const look = e && m ? partLook(m.anchors, materialId(e.districtId, m.cityId), visSeed(m.cityId, e.parcelId)).wall : base;
+    const L = e && matOn ? partLook(matOn.anchors, materialId(e.districtId, matOn.cityId), visSeed(matOn.cityId, e.parcelId)) : undefined;
+    const look = L ? L.wall : base;
+    if (L) {
+      mat.set(L.mat, i * 2);
+      windowSeed[i] = L.windowSeed / 256;
+    }
     let c: Rgb = base;
     if (e) {
       if (e.kind === 'crown_tower' || (showMine && p.mine.has(e.id))) {
@@ -54,7 +71,7 @@ export function partColors(p: PartColorInput, r: Ramps): { colors: Float32Array;
     }
     colors.set(c, i * 3);
   }
-  return { colors, flat };
+  return { colors, flat, mat, windowSeed };
 }
 
 const SECTOR_ORDER = ['TECH', 'SEMI', 'ENERGY', 'MATERIALS', 'INDUSTRIALS', 'FINANCIALS', 'HEALTH', 'STAPLES', 'DISCRETIONARY', 'REAL_ESTATE', 'MEDIA', 'SECURITY'];

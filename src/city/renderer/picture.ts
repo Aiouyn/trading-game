@@ -96,6 +96,9 @@ export function drawPicture(opts: {
   colors: Float32Array;
   flat: Uint8Array;
   ramps: Ramps;
+  /** card 2 §2.1: iMat per part and the material top colours (9 × 3); T0 draws flat wall/top, no pattern */
+  mat?: Float32Array;
+  matTop?: Float32Array;
   /** card 2 §2.3: the hour's key and sky light; absent = dusk (card 1: --acc-lo .16, --info .10) */
   light?: { key: Rgb; keyK: number; sky: Rgb; skyK: number };
   /** Each label: its text and candidate ground points (metres), most preferred first. */
@@ -209,7 +212,8 @@ export function drawPicture(opts: {
     const f = opts.flat[i];
     // camera sits at +x/+z; the dusk key comes from the west-south-west, so +z (south) faces are
     // lit and +x (east) faces are in shadow, as in T1/T2
-    const top = f === FLAT_BRASS ? ramps.brassHi : f === FLAT_EXACT ? c : mixOklab(c, ramps.top, 0.55);
+    const id = opts.mat && opts.matTop ? Math.round(opts.mat[i * 2]) : 0;
+    const top = f === FLAT_BRASS ? ramps.brassHi : f === FLAT_EXACT ? c : id > 0 ? ([opts.matTop![id * 3], opts.matTop![id * 3 + 1], opts.matTop![id * 3 + 2]] as Rgb) : mixOklab(c, ramps.top, 0.55);
     const lit = f === FLAT_BRASS ? ramps.brass : f === FLAT_EXACT ? c : mixOklab(mixOklab(c, L.key, L.keyK), L.sky, L.skyK);
     const shade = f === FLAT_BRASS ? ramps.brassLo : f === FLAT_EXACT ? c : mixOklab(mixOklab(c, ramps.shadow, 0.42), L.sky, L.skyK);
     const x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2, y1 = y0 + h;

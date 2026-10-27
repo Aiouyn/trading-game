@@ -9,7 +9,10 @@ attribute vec3 iSize;  // w, h, d
 attribute vec3 iColor;
 attribute vec4 iMeta;  // seed, flat (0 lit, 1 exact colour, 2 shaded brass), vx, vz (boats)
 attribute float iCut;  // 1 = in front of the selection: cut away
+attribute vec2 iMat;   // card 2: material id 0–8, variant (2 = rust accent)
 uniform float uTime;
+varying vec2 vMat;
+varying vec2 vPart;    // metres above the part's base, part height
 varying vec3 vNormal;
 varying vec3 vColor;
 varying vec2 vFacade;  // metres along the facade, metres above the base
@@ -26,6 +29,8 @@ void main() {
   vSeed = iMeta.x;
   vFlat = iMeta.y;
   vCut = iCut;
+  vMat = iMat;
+  vPart = vec2(p.y, iSize.y);
   vFacade = vec2(abs(normal.x) > 0.5 ? p.z : p.x, p.y);
   vWorld = w;
   gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
@@ -50,6 +55,13 @@ uniform float uMask;
 uniform float uCutK;
 uniform vec2 uFocus;
 uniform float uNearRing;
+uniform vec3 uMatWall2[9];
+uniform vec3 uMatTrim[9];
+uniform vec3 uMatTop[9];
+uniform float uPatterns;
+uniform float uPatK;
+varying vec2 vMat;
+varying vec2 vPart;
 varying vec3 vNormal;
 varying vec3 vColor;
 varying vec2 vFacade;
@@ -57,6 +69,32 @@ varying vec3 vWorld;
 varying float vSeed;
 varying float vFlat;
 varying float vCut;
+// 1 within w/2 of a line every period metres along t; antialiased, and faded out as the line
+// narrows under 1 device px (card 1 rule)
+float lines(float t, float period, float w) {
+  float fw = max(fwidth(t), 1e-4);
+  float d = abs(t - period * floor(t / period + 0.5));
+  return (1.0 - smoothstep(w * 0.5 - fw * 0.5, w * 0.5 + fw * 0.5, d)) * smoothstep(0.5, 1.0, w / fw);
+}
+float band(float t, float a, float b) { float fw = max(fwidth(t), 1e-4); return smoothstep(a - fw * 0.5, a + fw * 0.5, t) * (1.0 - smoothstep(b - fw * 0.5, b + fw * 0.5, t)); }
+// §2.1 patterns on a wall: returns the base colour (wall, or wall2 above the split) with trim lines
+vec3 material(int id, vec3 wall) {
+  bool accent = vMat.y > 1.5;
+  float y = vWorld.y;
+  float split = id == 4 ? 12.0 : id == 7 ? 4.0 : id == 8 ? 3.0 : -1.0;
+  bool upper = !accent && split > 0.0 && y > split;
+  vec3 c = upper ? wall + uMatWall2[id] : wall;
+  vec3 trim = uMatTrim[id];
+  float t = 0.0;
+  if (id == 1 || id == 2 || id == 6) t = max(t, lines(y, 3.0, 0.3) * step(1.0, y));           // storey course
+  if (id == 1 || id == 6) t = max(t, band(vPart.x, vPart.y - 0.6, vPart.y + 1.0));             // cornice
+  if (id == 5) t = max(t, band(y, -1.0, 4.0));                                                  // stone base band
+  if (uPatterns > 1.5) {
+    if (id == 3 || id == 5 || (id == 4 && upper)) t = max(t, lines(vFacade.x, 1.5, 0.15));     // mullions
+    if ((id == 7 || id == 8) && upper) c *= 1.0 + (lines(vFacade.x, 0.5, 0.25) * 2.0 - 1.0) * 0.08 * uPatK; // ribs ≈ ±.03 L
+  }
+  return c + (trim - c) * min(1.0, t * uPatK);
+}
 float h21(vec2 p) { p = fract(p * vec2(0.1031, 0.1030)); p += dot(p, p.yx + 33.33); return fract((p.x + p.y) * p.x); }
 void main() {
   // cut-away: dithered so it can fade in; uCutK = 1 is a full cut (instant under reduced motion)
@@ -68,7 +106,13 @@ void main() {
   if (vFlat > 1.5) { gl_FragColor = vec4(top ? uBrassHi : lit ? uBrass : uBrassLo, 1.0); return; }
   if (vFlat > 0.5) { gl_FragColor = vec4(vColor, 1.0); return; }
   vec3 c;
-  if (top) c = mix(vColor, uTop, 0.55);
+  int id = int(vMat.x + 0.5);
+  if (top && id > 0) c = uMatTop[id];
+  else if (top) c = mix(vColor, uTop, 0.55);
+  else if (id > 0) {
+    vec3 w = material(id, vColor);
+    c = lit ? mix(w, uKey, uKeyK) * 1.12 : mix(w, uShadow, 0.42);
+  }
   else if (lit) c = mix(vColor, uKey, uKeyK) * 1.12;
   else c = mix(vColor, uShadow, 0.42);
   c = mix(c, uFill, uFillK) * uExposure;

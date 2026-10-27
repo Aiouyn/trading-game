@@ -90,7 +90,7 @@ export function lighter(c: Rgb, dL: number): Rgb {
 export interface PartLook {
   /** jittered wall colour (goes into iColor) */
   wall: Rgb;
-  /** iMat: material id 0–8, variant 0–1 (Old Harbor: oxblood↔umber mix t) */
+  /** iMat: material id 0–8, variant 0–1 (Old Harbor: oxblood↔umber mix t); 2 = rust accent (whole wall, no split or ribs) */
   mat: [number, number];
   rust: boolean;
   /** bits 24–31: window seed (replaces iMeta.x's slot × x hash) */
@@ -117,5 +117,26 @@ export function partLook(a: Anchors, id: number, seed: number): PartLook {
     const w = m.wall, w2 = m.wall2;
     wall = lch(a, { u: w.u + (w2.u - w.u) * variant, C: w.C + (w2.C - w.C) * variant, h: w.h + (w2.h - w.h) * variant }, dL, dh, kC);
   } else wall = lch(a, m.wall, dL, dh, kC);
-  return { wall, mat: [id, variant], rust, windowSeed: byte(seed, 3) };
+  return { wall, mat: [id, rust ? 2 : variant], rust, windowSeed: byte(seed, 3) };
+}
+
+/** Material ids at which the shader splits the wall by world height (metres): podium / base below, `wall2` above. */
+export const WALL_SPLIT_M: Readonly<Record<number, number>> = { 4: 12, 7: 4, 8: 3 };
+
+/**
+ * The shader's material palette (§2.1 "Data path"): 9 × 3 vec3 uniforms, unjittered.
+ * wall2: `wall2 − wall` (added to the jittered iColor above the split), trim, top.
+ */
+export function matPalette(a: Anchors): { wall2: Float32Array; trim: Float32Array; top: Float32Array } {
+  const wall2 = new Float32Array(27), trim = new Float32Array(27), top = new Float32Array(27);
+  for (let id = 0; id < 9; id++) {
+    const m = material(id);
+    const w = lch(a, m.wall);
+    const w2 = m.wall2 && WALL_SPLIT_M[id] !== undefined ? lch(a, m.wall2) : w;
+    wall2.set([w2[0] - w[0], w2[1] - w[1], w2[2] - w[2]], id * 3);
+    // trim relative to the wall it sits on: the shaft for Financial Mile's mullions
+    trim.set('dL' in m.trim ? lighter(id === 4 ? w2 : w, m.trim.dL) : lch(a, m.trim), id * 3);
+    top.set(lch(a, m.top), id * 3);
+  }
+  return { wall2, trim, top };
 }

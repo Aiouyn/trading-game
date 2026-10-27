@@ -30,8 +30,9 @@ import { clampZoom, panGround, rotate, viewDirection, type CameraState } from '.
 import { RenderLoop, browserScheduler, type Scheduler } from './loop';
 import { CityScene, type GroundData, type SceneConfig } from './scene';
 import { buildModel, entityAnchor, groundBounds, polygonCentroid, type CityModel } from './model';
-import { FLAT_BRASS, partColors } from './overlay';
+import { FLAT_BRASS, partColors, type PartColors } from './overlay';
 import { pickParts } from './pick';
+import { anchors, matPalette, type Anchors } from '../art/materials';
 import { dayKeys, lightAt, lightMinute, occupancy, DEFAULT_GAME_MINUTE, type DayKeys } from './light';
 import { inPolygon, placeLabels as layoutLabels, type LabelBox, type Obstacle } from './labels';
 import { drawPicture, type PictureResult } from './picture';
@@ -85,9 +86,9 @@ export interface CityTestApi {
   projectGround: (x: number, z: number) => { x: number; y: number } | null;
 }
 
-const TIER_CONFIG: Record<'T1' | 'T2', { dprCap: number; maxPixels: number; nearRing: number; boats: boolean; crosswalks: boolean }> = {
-  T2: { dprCap: 1.5, maxPixels: 2_400_000, nearRing: Infinity, boats: true, crosswalks: true },
-  T1: { dprCap: 1.0, maxPixels: 2_000_000, nearRing: 220, boats: false, crosswalks: false },
+const TIER_CONFIG: Record<'T1' | 'T2', { dprCap: number; maxPixels: number; nearRing: number; boats: boolean; crosswalks: boolean; patterns: 1 | 2 }> = {
+  T2: { dprCap: 1.5, maxPixels: 2_400_000, nearRing: Infinity, boats: true, crosswalks: true, patterns: 2 },
+  T1: { dprCap: 1.0, maxPixels: 2_000_000, nearRing: 220, boats: false, crosswalks: false, patterns: 1 },
 };
 
 const LONG_PRESS_MS = 500;
@@ -137,6 +138,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   let overlay: CityOverlay = 'none';
   let gameMinute = DEFAULT_GAME_MINUTE;
   let days: DayKeys | null = null;
+  let matAnchors: Anchors | null = null;
   let tier: CityTier = 'T2';
   let reason: TierReason = 'initial';
   let disposed = false;
@@ -159,7 +161,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   /** e2e: wall-clock ms of each ground-field task (coast EDT, road EDT, pack, coast loops) */
   const fieldMs: number[] = [];
   let model: CityModel | null = null;
-  let colors: { colors: Float32Array; flat: Uint8Array } | null = null;
+  let colors: PartColors | null = null;
 
   let unsubscribe: (() => void) | null = null;
   let pendingFetch = false;
@@ -499,14 +501,14 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     const s = store.snapshot;
     if (!s || !model || !ramps) return;
     colors = partColors(
-      { entity: model.entity, style: model.style, entities: s.entities, districts: s.districts, mine, overlay, myCityOverlay: opts.myCityOverlay },
+      { entity: model.entity, style: model.style, entities: s.entities, districts: s.districts, mine, overlay, myCityOverlay: opts.myCityOverlay, materials: matAnchors ? { anchors: matAnchors, cityId: s.cityId } : undefined },
       ramps,
     );
     if (scene) {
       if (upload) {
         if (ground && groundField) scene.setGround(ground, groundField);
-        scene.setParts({ parts: model.parts, colors: colors.colors, flat: colors.flat, entity: model.entity }, isWater);
-      } else scene.setColors(colors.colors, colors.flat);
+        scene.setParts({ parts: model.parts, colors: colors.colors, flat: colors.flat, mat: colors.mat, windowSeed: colors.windowSeed, entity: model.entity }, isWater);
+      } else scene.setColors(colors.colors, colors.flat, colors.mat);
       applyLight();
       buildLabels();
       loop.invalidate();
@@ -577,6 +579,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
         bindInput(cv);
         scene = new CityScene(THREE, cv, gl, ramps, sceneConfig(next));
         scene.setShaders({ partVert: PART_VERT, partFrag: PART_FRAG, groundVert: GROUND_VERT, groundFrag: GROUND_FRAG });
+        if (matAnchors) scene.setMaterials(matPalette(matAnchors), document.documentElement.dataset.hc === '1');
         tier = next;
         reason = why;
         resize();
@@ -595,7 +598,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
 
   function sceneConfig(t: 'T1' | 'T2'): SceneConfig {
     const c = TIER_CONFIG[t];
-    return { dpr: currentDpr(t), nearRing: c.nearRing, boats: c.boats, crosswalks: c.crosswalks };
+    return { dpr: currentDpr(t), nearRing: c.nearRing, boats: c.boats, crosswalks: c.crosswalks, patterns: c.patterns };
   }
 
   function currentDpr(t: 'T1' | 'T2'): number {
@@ -674,6 +677,8 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       colors: colors.colors,
       flat: colors.flat,
       ramps,
+      mat: colors.mat,
+      matTop: matAnchors ? matPalette(matAnchors).top : undefined,
       light: days ? lightAt(Math.floor(gameMinute / 60) * 60, 0, days) : undefined,
       labels: labelSpecs().map((l) => ({ text: l.text, ground: l.ground })),
       labelFont: font,
@@ -1115,6 +1120,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       const tokens = readTokens(chrome.root);
       ramps = buildRamps(tokens, { highContrast: document.documentElement.dataset.hc === '1' });
       days = dayKeys(tokens);
+      matAnchors = anchors(tokens);
       table = createTableView({
         host: chrome.tableHost,
         anchor: (id) => anchorScreen(id) ?? { x: 0, y: 0 },

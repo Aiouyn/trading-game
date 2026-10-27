@@ -12,6 +12,10 @@ export interface PartTable {
   parts: Float32Array;
   colors: Float32Array; // 3 per part
   flat: Uint8Array; // 1 per part
+  /** card 2 iMat: 2 per part (material id, variant); absent = plain */
+  mat?: Float32Array;
+  /** card 2: window seed per part 0..1, −1 = card 1's per-part hash */
+  windowSeed?: Float32Array;
   entity: Int32Array; // index into entityIds, -1 = none
 }
 
@@ -21,6 +25,8 @@ export interface SceneConfig {
   boats: boolean;
   /** card 1: zebra crosswalks (T2 only) */
   crosswalks: boolean;
+  /** card 2 §2.1: 2 = all patterns (T2), 1 = courses, bands and splits only, no mullions or ribs (T1) */
+  patterns: 1 | 2;
 }
 
 export interface GroundData {
@@ -94,6 +100,12 @@ export class CityScene {
         uCutK: { value: 0 },
         uFocus: { value: new T.Vector2(0, 0) },
         uNearRing: { value: 1e9 },
+        // card 2 §2.1 material palette (9 × 3 vec3) and pattern switches
+        uMatWall2: { value: Array.from({ length: 9 }, () => new T.Vector3()) },
+        uMatTrim: { value: Array.from({ length: 9 }, () => new T.Vector3()) },
+        uMatTop: { value: Array.from({ length: 9 }, () => new T.Vector3()) },
+        uPatterns: { value: 2 },
+        uPatK: { value: 1 },
       },
     });
     this.groundMat = new T.ShaderMaterial({
@@ -139,6 +151,7 @@ export class CityScene {
     this.config = c;
     this.renderer.setPixelRatio(c.dpr);
     this.partMat.uniforms.uNearRing.value = Number.isFinite(c.nearRing) ? c.nearRing : 1e9;
+    this.partMat.uniforms.uPatterns.value = c.patterns;
     this.groundMat.uniforms.uCrosswalks.value = c.crosswalks ? 1 : 0;
     if (this.boats) this.boats.visible = c.boats && this.boatsWanted;
   }
@@ -187,6 +200,15 @@ export class CityScene {
   }
 
   /** Uploads every part as one instanced draw. */
+  /** card 2: the material palette (unjittered, per palette) and the high-contrast line step (§4: ×2). */
+  setMaterials(p: { wall2: Float32Array; trim: Float32Array; top: Float32Array }, highContrast: boolean): void {
+    const u = this.partMat.uniforms;
+    for (const [k, a] of [['uMatWall2', p.wall2], ['uMatTrim', p.trim], ['uMatTop', p.top]] as const) {
+      (u[k].value as THREE_NS.Vector3[]).forEach((v, i) => v.set(a[i * 3], a[i * 3 + 1], a[i * 3 + 2]));
+    }
+    u.uPatK.value = highContrast ? 2 : 1;
+  }
+
   setParts(t: PartTable, water: (x: number, z: number) => boolean): void {
     const T = this.T;
     this.uploads++;
@@ -203,16 +225,17 @@ export class CityScene {
       const o = i * FLOATS_PER_PART;
       pos.set([t.parts[o], t.parts[o + 4], t.parts[o + 1]], i * 3);
       size.set([t.parts[o + 2], t.parts[o + 5], t.parts[o + 3]], i * 3);
-      meta.set([fract(t.parts[o + 6] * 0.618 + t.parts[o] * 0.013), t.flat[i], 0, 0], i * 4);
+      const ws = t.windowSeed?.[i] ?? -1;
+      meta.set([ws >= 0 ? ws : fract(t.parts[o + 6] * 0.618 + t.parts[o] * 0.013), t.flat[i], 0, 0], i * 4);
     }
-    this.parts = new T.Mesh(this.instanced(pos, size, t.colors, meta, n), this.partMat);
+    this.parts = new T.Mesh(this.instanced(pos, size, t.colors, meta, n, t.mat), this.partMat);
     this.parts.frustumCulled = false;
     this.scene.add(this.parts);
     this.buildBoats(water);
   }
 
   /** Recolours parts in place (overlays) without rebuilding geometry. */
-  setColors(colors: Float32Array, flat: Uint8Array): void {
+  setColors(colors: Float32Array, flat: Uint8Array, mat?: Float32Array): void {
     if (!this.parts) return;
     const g = this.parts.geometry as THREE_NS.InstancedBufferGeometry;
     const c = g.getAttribute('iColor') as THREE_NS.InstancedBufferAttribute;
@@ -221,6 +244,10 @@ export class CityScene {
     const m = g.getAttribute('iMeta') as THREE_NS.InstancedBufferAttribute;
     for (let i = 0; i < flat.length; i++) (m.array as Float32Array)[i * 4 + 1] = flat[i];
     m.needsUpdate = true;
+    const im = g.getAttribute('iMat') as THREE_NS.InstancedBufferAttribute;
+    if (mat) (im.array as Float32Array).set(mat);
+    else (im.array as Float32Array).fill(0);
+    im.needsUpdate = true;
   }
 
   setSelection(boxes: { x: number; z: number; w: number; d: number; y0: number; h: number }[]): void {
@@ -381,6 +408,7 @@ export class CityScene {
     colors: Float32Array,
     meta: Float32Array,
     n: number,
+    mat?: Float32Array,
   ): THREE_NS.InstancedBufferGeometry {
     const T = this.T;
     const g = new T.InstancedBufferGeometry();
@@ -393,6 +421,7 @@ export class CityScene {
     g.setAttribute('iColor', new T.InstancedBufferAttribute(new Float32Array(colors), 3));
     g.setAttribute('iMeta', new T.InstancedBufferAttribute(meta, 4));
     g.setAttribute('iCut', new T.InstancedBufferAttribute(new Float32Array(n), 1));
+    g.setAttribute('iMat', new T.InstancedBufferAttribute(mat ? new Float32Array(mat) : new Float32Array(n * 2), 2)); // card 2: 8 B per part
     g.instanceCount = n;
     return g;
   }
