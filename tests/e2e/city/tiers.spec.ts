@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { diag, expect, openCity, waitDrawn, type HarnessWindow } from './helpers';
+import { diag, expect, openCity, waitDrawn, waitFpsFirst2s, type HarnessWindow } from './helpers';
 
 const countContexts = () => {
   const w = window as unknown as { __gl: { asked: string[]; created: string[] } };
@@ -19,7 +19,7 @@ test.describe('C-01 tiers (17-AT-24)', () => {
   test('injected frame-time source < 45 fps in the first 2 s → T1 (auto-fps)', async ({ page }) => {
     await openCity(page, 'slowclock=1');
     await waitDrawn(page);
-    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().fpsFirst2s !== null, null, { timeout: 30_000 });
+    await waitFpsFirst2s(page);
     const d = await diag(page);
     expect(d.fpsFirst2s).toBeCloseTo(25, 0);
     expect(d.tier).toBe('T1');
