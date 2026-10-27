@@ -1,5 +1,6 @@
 import { EngineFault, ID_KIND_RE, matchStream, STREAM_REGISTRY, streamPrefix } from '@tycoon/engine-core';
 import type { Ccy } from '@tycoon/engine-core';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { BLOC_ALIAS, BLOC_ORDER, ALL_MACRO_TABLES, macroTables, type BlocId } from './schema';
 import { BLOC_DEFAULTS, blocDef, ISLA_SERENA_CITY, SECTOR_COUNT } from './blocs';
@@ -54,7 +55,12 @@ describe('BLOC_DEFAULTS (04 §2.2)', () => {
       expect('sectorWeights' in d).toBe(false);
     }
   });
-  it('constants', () => { expect(SECTOR_COUNT).toBe(12); expect(ISLA_SERENA_CITY).toBe('city_isla_serena'); });
+  it('constants', () => { expect(SECTOR_COUNT).toBe(12); expect(ISLA_SERENA_CITY).toBe('cty_isla_serena'); });
+  it('ISLA_SERENA_CITY is the content catalog id: present in cities.json with the cty_ prefix every city id uses', () => {
+    const ids = (JSON.parse(readFileSync(new URL('../../content/data/cities.json', import.meta.url), 'utf8')) as { cities: { cityId: string }[] }).cities.map((c) => c.cityId);
+    expect(ids).toContain(ISLA_SERENA_CITY);
+    expect(ids.every((id) => id.startsWith('cty_'))).toBe(true);
+  });
 });
 
 const content = (w: number[]): ContentView => ({
