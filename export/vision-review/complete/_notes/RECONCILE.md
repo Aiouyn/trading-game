@@ -1,0 +1,30 @@
+- Q8 Held in sandbox: 13 and 19 say Held off in sandbox (fines/bans/record only). 20/21 writer was told "runs on game time". 13 owns -> fix 20/21 to Held off.
+- 19: intents 20/tick per character + 20 per operator, cap 100 combined. Put in 00 §5.5 / 24.
+- Old-vision contradictions (00 wins): business ops every 12 ticks vs 30; 10 vs 20 intents; cents vs micro-dollars; age 13+ vs 16+.
+- 19 assumes 20 §3.9 defines gates G1–G4.
+- 17/18: new business first operation runs at next tick (then hourly stagger) -> check 09 agrees.
+- 18: $250 grant pays LIC1 fee; starter watch $840 7-day sale lock; rival limit 3x NW; ranks update at day close.
+- 09: V3 Q4 crises emergent only, vs 20/21 writer told "named replayable scenarios as well as emergent" -> decide in 24 (live world emergent; scenarios only in practice worlds).
+- 09: IPO any company EV>=$50M + 3 quarters; 05 must use 09.fundamentalValue for player-listed stocks; business loans min(50% EV, 4x EBITDA) -> check 07.
+- 09: banks R4, exchanges R5 (V3 Q1). Dormant businesses IDLE.
+- 20/21 followed Held-on-game-time in sandbox (20 §3.15, 21 §3.21) -> must change to Held off (13 owns).
+- Real-money store renamed "Atelier" -> 17 app 29 must change.
+- Ad grant/$1,000 line scaled by MSI (=L12 at launch). 19 needs sys.wallclock_mark every 15 real min. Cosmetics owned on platform side (14).
+- Needs Mathis yes: ad network choice and "no tracking".
+- 11: MCS exponents changed alpha 0.34->0.15, beta 0.28->0.12, k 2.31, gamma 0.02 (T5/T0 ~300-500x to fit AP bands). Check 12 uses AP=round(MCS*q) consistent. Flag in 24 as DEFAULT changing old number.
+- 11: hardware throughput 336*rating PFd/GD; old "days" timers = 8 GD; Lab opens $100k, T1 needs $250k (R2); frontier products start MCS 600; model sale = licensing only.
+- 10: R0 rented room ~$5.40/GD; district lists merged; camera 30 deg; Hall of Patrons.
+- 03 must add reason codes: CCP_LIQUIDATION_PENALTY, CCP_INS_FUND_SWEEP, BNK_FX_MARGIN, BNK_ENFORCEMENT_FEE, CLR_DEBT_REPAY.
+- 06: player tokens specified but off (player_tokens_enabled=false) per L10. Short filings >=1% float. FX uip pass 0.30. Index GXV renamed.
+- 07: banks COMMUNITY/COMMERCIAL R4, UNIVERSAL R5; player bank can fail permanently (V3 Q2).
+- Expert API gate: 03/02 say LIC2+2FA+7d; 20/21 told LIC1+7d+2FA; 19 "eligibility". Decide: LIC2 + 2FA + 7 days (24) and fix others.
+- Fresh start once per chapter; restricted cash 72 real h; commit-reveal +720/+1000 ticks; step budget 2,500 ms.
+- API gate now 3-way: 03 LIC2+2FA+7d, 15 says R2, 20/21 LIC1. Decide LIC2+R2? -> pick LIC2 + 2FA + 7 days account age (24), fix 15/19/20/21.
+- Banks: 09 says R4, 07 COMMUNITY/COMMERCIAL R4 UNIVERSAL R5, 14 banks/insurers/custodians R4; exchanges R5. consistent.
+- V3 Q4: 09 emergent only; 14-16 named scenarios only in challenges/Academy; 20/21 told both. Decide: live world emergent only; named scenarios in challenges, Academy, practice worlds.
+- Inactive 14d, dormant 30d, estate 90d. Holdings filings quarterly funds + LIC4>=$1B. R6 needs top 50 + $20B + House.
+- Player tokens: 06 flag off; 16 unlock at FINTECH lvl3, era 2 + LiveOps flag. consistent-ish.
+- Stabilizer defined twice: 03 §3.7 (L3 transaction levy) vs 04 §3.17 (L4 high-volume fee multiplier). 03 owns ledger/stabilizer per 00 §5.4 -> unify in 03, make 04 §3.17 reference it.
+- CB meetings quarterly per bloc, staggered. NPC GDP $100T at 5,000 players.
+- 13 places fresh start/half leverage in 05; belong to 14 and 07.
+- Old whale auto-news removed everywhere (L11).
