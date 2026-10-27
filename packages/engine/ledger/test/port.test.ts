@@ -2,7 +2,7 @@
 // augments core's LedgerPortTypes). These checks run here because only a program that includes the ledger sees the augmentation.
 import { describe, expectTypeOf, it } from 'vitest';
 import type { LedgerPartition, LedgerPort, LedgerProvider, PhaseCtx, ValidateCtx } from '@tycoon/engine-core';
-import type { Hold, HoldApi, LedgerApi, Posting } from '../src';
+import { emitLedger, type Hold, type HoldApi, type LedgerApi, type Posting } from '../src';
 
 describe('E-81 (i): core\'s ledger port carries the ledger\'s own types (E-79: one definition each, in the ledger)', () => {
   it('ctx.ledger / ctx.holds are LedgerApi / HoldApi; the partition and provider postings are Posting', () => {
@@ -19,5 +19,8 @@ describe('E-81 (i): core\'s ledger port carries the ledger\'s own types (E-79: o
     expectTypeOf<'pay'|'swapAsset'|'mint'|'burn'|'elasticIn'|'elasticOut'|'lend'|'repay'|'cbCredit'|'cbCreditUnwind'|'accrue'|'accruePair'|'fx'|'moveQty'|'reclass'|'balance'|'cash'|'available'|'position'|'availableQty'|'netWorth'>().toMatchTypeOf<keyof PhaseCtx['ledger']>();
     expectTypeOf<'placeCash'|'placeQty'|'release'|'reduce'|'get'|'placeCashFor'>().toMatchTypeOf<keyof PhaseCtx['holds']>();
     expectTypeOf<NonNullable<ReturnType<PhaseCtx['holds']['get']>>>().toEqualTypeOf<Hold>();
+  });
+  it('emitLedger takes the emit half of core\'s PhaseCtx (no local copy of its signature)', () => {
+    expectTypeOf<Parameters<typeof emitLedger>[0]>().toEqualTypeOf<Pick<PhaseCtx, 'emit'>>();
   });
 });

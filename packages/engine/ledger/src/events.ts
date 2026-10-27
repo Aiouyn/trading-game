@@ -1,6 +1,6 @@
 // T03-01 step 6: zod 4 payload schemas for every 03 §5 engine event (E-79: the one new file of the mapping).
 import { z } from 'zod';
-import type { Id, Visibility } from '@tycoon/engine-core';
+import type { Id, PhaseCtx, Visibility } from '@tycoon/engine-core';
 import type { ClaimRank, TaxType } from './types';
 
 /** Money as a decimal integer string (micro units). */
@@ -87,8 +87,8 @@ export const LEDGER_EVENT_VISIBILITY: Readonly<Record<LedgerEventKind, Visibilit
   'ledger.invariant.failed': 'SEALED',
 });
 
-/** The emit half of T02-11's PhaseCtx (`ctx.emit(kind, subjectIds, payload, visibility, partyIds?)`). */
-interface EmitCtx { emit(kind: string, subjectIds: Id[], payload: unknown, visibility: Visibility, partyIds?: Id[]): void }
+/** The emit half of T02-11's PhaseCtx (`ctx.emit(kind, subjectIds, payload, visibility, partyIds?)`), now that #46 is on main. */
+type EmitCtx = Pick<PhaseCtx, 'emit'>;
 
 /**
  * The ledger's only emit path (E-81 (iii)): the visibility is always LEDGER_EVENT_VISIBILITY[kind]; there is no visibility parameter.
