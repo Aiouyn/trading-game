@@ -1,0 +1,2 @@
+declare function assertEntityId(s: string): void;
+assertEntityId('zzz_1');

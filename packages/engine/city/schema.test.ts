@@ -5,7 +5,8 @@ import { ESLint } from 'eslint';
 import { describe, expect, it } from 'vitest';
 import { canonDecode, canonEncode, cmpStr, IdFactory, TABLE_NAME_RE, TableRegistry } from '@tycoon/engine-core';
 import { ReasonCatalog } from '@tycoon/engine-ledger';
-import { ALLOWED, NONCOMPLIANT } from './lint/entity-prefix.mjs';
+import { ALLOWED, LEDGER_KIND_PREFIXES, NONCOMPLIANT } from './lint/entity-prefix.mjs';
+import { ENTITY_KINDS } from '../ledger/src/types';
 import { ALLOWED_ENTITY_PREFIXES, assertEntityId, buildingId, cityId, districtId, ENTITY_ID_MAX_LEN, leaseId, NONCOMPLIANT_ENTITY_PREFIXES, parcelId, propId, unitId } from './ids';
 import { assertFixedPolygon, assertFixedRect, quantiseCm, signedArea2 } from './geom';
 import { ALL_CITY_TABLES, USE_CLASSES, type BuildingRow, type CityManifestRow, type CityRegionRow, type CityRow, type DistrictRow, type DistrictUseMarket,
@@ -62,6 +63,20 @@ describe('AC-10A-01-2 lint rule no-noncompliant-entity-prefix', () => {
   it('a literal with each of the 73 allowed prefixes (and a template literal, and a mid-string match) passes', async () => {
     expect(await errs('good')).toEqual([]);
   });
+  // QA follow-up (E-88): the deny check runs at every template-literal position, not only the head quasi; one fixture per position.
+  // eslint-disable-next-line city/no-noncompliant-entity-prefix -- negative cases for the rule
+  for (const [f, bad, good] of [['pos-head', 'city_', 'cty_'], ['pos-middle', 'dist_', 'dst_'], ['pos-quasi-start', 'unit_', 'unt_'], ['pos-tail', 'loan_', 'lon_'], ['pos-token', 'uq_', 'unq_']] as const)
+    it(`position fixture ${f}: '${bad}' fails and names '${good}'`, async () => {
+      expect(await errs(f)).toEqual([{ rule: RULE, msg: `entity-id prefix '${bad}' is not E-26 compliant: use '${good}'` }]);
+    });
+  // QA follow-up: the allowed list is enforced on literals in an entity-id position whose head has the E-18 kind shape.
+  for (const f of ['allow-prop', 'allow-var', 'allow-ids', 'allow-call', 'allow-template', 'allow-quoted-key'])
+    it(`allow fixture ${f}: an id-position 'zzz_' literal fails`, async () => {
+      expect(await errs(f)).toEqual([{ rule: RULE, msg: "entity-id prefix 'zzz_' is not in the allowed list (AC-10A-01-2) or the ledger's ENTITY_KINDS" }]);
+    });
+  it('the rule\'s ledger-kind list is the ledger\'s ENTITY_KINDS', () => {
+    expect([...LEDGER_KIND_PREFIXES]).toEqual(ENTITY_KINDS.map((k) => `${k}_`));
+  });
   it('the allowed and denied lists are the card\'s, and ids.ts and the rule agree', () => {
     expect(ALLOWED_ENTITY_PREFIXES.length).toBe(73);
     expect(new Set(ALLOWED_ENTITY_PREFIXES).size).toBe(73);
@@ -79,12 +94,12 @@ const SECTORS: SectorId[] = ['TECH', 'SEMI', 'ENERGY', 'MATERIALS', 'INDUSTRIALS
 const perUse = <V>(f: (u: UseClass, i: number) => V): Record<UseClass, V> => USE_CLASSES.reduce((r, u, i) => ({ ...r, [u]: f(u, i) }), {} as Record<UseClass, V>);
 const C = cityId('port_avalon'), D = districtId('port_avalon', 'old_harbor'), P = parcelId('port_avalon', 17);
 const B = buildingId(ids), U1 = unitId(ids), U2 = unitId(ids), PR = propId(ids), L = leaseId(ids);
-const addr = { number: 14, streetId: 'str_port_avalon_9', streetName: 'Quayside Row', districtId: D, cityId: C, display: '14 Quayside Row, Old Harbor, Port Avalon' };
+const addr = { number: 14, streetId: 'str:port_avalon_9', streetName: 'Quayside Row', districtId: D, cityId: C, display: '14 Quayside Row, Old Harbor, Port Avalon' };
 const appraisal = { tick: 1440, valueIncome: 1_250_000_00n, valueComp: 1_310_000_00n, weightIncome: 0.6, value: 1_274_000_00n, priceIndexAtAppraisal: 1.0125, appraiser: 'SYSTEM' as const };
-const city: CityRow = { id: C, slug: 'port_avalon', rendererKey: 'avalon', name: 'city.port_avalon.name', bloc: 'FDL', ccy: 'FDL', personalityId: 'per_port_avalon',
+const city: CityRow = { id: C, slug: 'port_avalon', rendererKey: 'avalon', name: 'city.port_avalon.name', bloc: 'FDL', ccy: 'FDL', personalityId: 'per:port_avalon',
   worldSeedStream: `city/${C}`, openedTick: 0, unlockRank: 'R0', districts: [D], population: 1_234_567.5, households: 514_403.125, hhSize: 2.4, laborForce: 640_000,
   jobsBySector: SECTORS.reduce((r, s, i) => ({ ...r, [s]: 1000 * (i + 1) + 0.25 }), {} as Record<SectorId, number>), medianHhIncomePerGY: 6_400_000n,
-  cityGdpShare: 0.42, propertyTaxRate: 0.01, stampDutyRate: 0.01, priceIndex: 1, stateVersion: 3, manifestId: 'mfs_port_avalon_3' };
+  cityGdpShare: 0.42, propertyTaxRate: 0.01, stampDutyRate: 0.01, priceIndex: 1, stateVersion: 3, manifestId: 'mfs:port_avalon_3' };
 const market = (i: number): DistrictUseMarket => ({ supplyArea: 120_000 + i, occupiedArea: 110_000, demandArea: 111_234.5, vacancy: 0.0833, naturalVacancy: 0.05,
   pressure: 1.01, pressureHighDays: 0, pressureLowDays: 2, marketRentPerM2PerGD: -0n + BigInt(37 + i), rentIndex: 1, capRate: 0.055, txnCount91: 4 });
 const district: DistrictRow = { id: D, cityId: C, name: 'district.old_harbor.name', tier: 'prime', terrainRole: 'waterfront', heritage: true, heightCapM: 45,
@@ -94,25 +109,25 @@ const parcel: ParcelRow = { id: P, cityId: C, districtId: D, regionId: 'reg_port
   areaM2: 600, frontageM: 20, access: ['ROAD', 'CANAL'], zoning: { allowed: ['RES', 'RETAIL'], maxHeightM: 30, maxFar: 4.5, heritageLocked: false }, landValueV: 0.813,
   attributes: { waterView: 0.9, transitDist: 320, slope: 0.02, cornerLot: true, mainAvenue: false }, lifecycle: 'OCCUPIED', devPriority: 0.12, ownerId: 'npc_land_authority',
   buildingId: B, reservedFor: null, address: addr };
-const building: BuildingRow = { id: B, parcelId: P, archetypeId: 'arc_quay_terrace', propertyType: 'APARTMENT_BLOCK', use: 'RES', floors: 6, heightM: 19.5, grossAreaM2: 1800,
+const building: BuildingRow = { id: B, parcelId: P, archetypeId: 'arc:quay_terrace', propertyType: 'APARTMENT_BLOCK', use: 'RES', floors: 6, heightM: 19.5, grossAreaM2: 1800,
   qualityGrade: 'B', builtTick: -40_000, condition: 72.5, units: [U1, U2],
-  visual: { parts: [{ baseMeshId: 'msh_box', size: { xCm: 2000, zCm: 3000, heightCm: 1950 }, rotationQ: 2, styleId: 'sty_brick', seed: 913, floorHeightCm: 325, bayWidthCm: 400, tintIndex: 3 }] },
+  visual: { parts: [{ baseMeshId: 'msh:box', size: { xCm: 2000, zCm: 3000, heightCm: 1950 }, rotationQ: 2, styleId: 'sty:brick', seed: 913, floorHeightCm: 325, bayWidthCm: 400, tintIndex: 3 }] },
   physicalState: 'OCCUPIED', ownership: 'STRATA', wholeOwnerPropId: null, npcPoolKey: `${D}|RES|B` };
 const unit: UnitRow = { id: U1, buildingId: B, use: 'RETAIL', areaM2: 90, floor: 0, storefront: true, slotClass: 'CORNER_AVENUE', propId: PR, occupantId: 'biz_bakery', leaseId: L };
 const prop: PropertyRow = { id: PR, type: 'RETAIL_UNIT', ownerId: 'chr_0001', ccy: 'FDL', cityId: C, districtId: D, parcelId: P, buildingId: B, unitIds: [U1], areaM2: 90,
-  condition: 80, qualityGrade: 'B', amenityMult: 1.07, useMode: 'RENTED', useModeChangedTick: 0, managerContractId: null, policyId: 'pol_default', groupId: null,
+  condition: 80, qualityGrade: 'B', amenityMult: 1.07, useMode: 'RENTED', useModeChangedTick: 0, managerContractId: null, policyId: 'pol:default', groupId: null,
   mortgageIds: ['lon_1'], lastAppraisal: appraisal, costBasis: 1_200_000_00n, acquiredTick: 720, insurancePolicyId: null, listingId: null, heldByCourt: false,
   publicRecord: { publicOwnership: false }, uniqueAssetId: null };
 const lease: LeaseRow = { id: L, propId: PR, unitIds: [U1], landlordId: 'chr_0001', tenantId: 'biz_bakery', tenantKind: 'PLAYER_BUSINESS', use: 'RETAIL', rentPerGD: 4_210n,
-  revenueSharePct: 0, startTick: 720, endTick: 720 + 1440 * 3, indexation: 'CPI', depositHeld: -0n + 378_900n, breakFeeGD: 91, status: 'ACTIVE', arrearsGD: 0, relatedParty: false, contractId: 'ctr_9' };
-const manifest: CityManifestRow = { id: 'mfs_port_avalon_3', worldId: 'wld_1', cityId: C, macroPlanVersion: 'cityplan@1.2.0', stateVersion: 3, publicSnapshotTick: 1440,
+  revenueSharePct: 0, startTick: 720, endTick: 720 + 1440 * 3, indexation: 'CPI', depositHeld: -0n + 378_900n, breakFeeGD: 91, status: 'ACTIVE', arrearsGD: 0, relatedParty: false, contractId: 'ctr:9' };
+const manifest: CityManifestRow = { id: 'mfs:port_avalon_3', worldId: 'wld:1', cityId: C, macroPlanVersion: 'cityplan@1.2.0', stateVersion: 3, publicSnapshotTick: 1440,
   regions: [{ regionId: 'reg_port_avalon_2', generatorPackage: 'citygen@1.0.0', contentHash: 'ab'.repeat(32) }], chunks: [{ chunkKey: '2:3', contentHash: 'cd'.repeat(32), url: 'https://cdn/x' }], schemaVersion: 1 };
 const region: CityRegionRow = { id: 'reg_port_avalon_2', cityId: C, bounds: { minX: -50_000, minZ: 0, maxX: 50_000, maxZ: 80_000 },
   boundaryContracts: [{ edge: 'N', crossings: [{ at: { x: 1200, z: 80_000 }, streetClass: 'ARTERIAL', widthCm: 2400, elevationCm: -30 }], waterEdges: [[{ x: 0, z: 0 }, { x: 10, z: 20 }]] }],
   generatorPackage: 'citygen@1.0.0', generatedTick: 0, status: 'GENERATED' };
-const pub: PublicCityState = { cityId: C, stateVersion: 3, baseVersion: 2, parcelStates: [{ parcelId: P, lifecycle: 'OCCUPIED', heightLevel: 2, archetypeId: 'arc_quay_terrace' }],
+const pub: PublicCityState = { cityId: C, stateVersion: 3, baseVersion: 2, parcelStates: [{ parcelId: P, lifecycle: 'OCCUPIED', heightLevel: 2, archetypeId: 'arc:quay_terrace' }],
   bindings: [{ kind: 'STOREFRONT', unitId: U1, signText: 'Harbour Bakes', sectorAwning: 'STAPLES', status: 'OPEN' }, { kind: 'HALL_SEAT', cityId: C, position: 1, displayName: null, band: 'TOP' }],
-  transitions: [{ id: 'trn_1', parcelId: P, cause: 'STOREFRONT_OPEN', fromState: 'FIT_OUT', toState: 'OPEN', publishedTick: 1440, sourceEventId: 'evt_1' }] };
+  transitions: [{ id: 'trn:1', parcelId: P, cause: 'STOREFRONT_OPEN', fromState: 'FIT_OUT', toState: 'OPEN', publishedTick: 1440, sourceEventId: 'evt:1' }] };
 const ROWS = { city, district, parcel, building, unit, prop, lease, manifest, region, pub, unitWithLabel: { ...unit, id: U2 }, addrWithLabel: { ...addr, unitLabel: 'Shop 2' } };
 
 const reverseKeys = (v: unknown): unknown => Array.isArray(v) ? v.map(reverseKeys)
