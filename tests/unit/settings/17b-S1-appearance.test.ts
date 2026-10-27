@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // 17B S1: applyAppearance (shell choice, fallback, R5 glass), mock shells, prefs persistence seam.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyAppearance, availableShells, effectiveShell } from "@/shell/appearance";
 import type { AcctEntitlements, RankChannel } from "@/shell/channels";
 import { mockChannels } from "@/shell/mockChannels";
@@ -56,6 +56,21 @@ describe("17B S1 appearance", () => {
     expect(saved.highContrast).toBe(true);
     expect(JSON.stringify(saved)).not.toContain("riviera");
     expect(Object.keys(saved)).not.toContain("palette");
+  });
+  it("S1-05: a palette change alone never reaches prefsClient, before or after a prefs write", async () => {
+    // The palette is device-local (17 §2.2): no read-modify-write of the account prefs may carry it.
+    const put = vi.spyOn(prefsClient, "put");
+    try {
+      const store = createShellStore(mockChannels(new URLSearchParams()));
+      store.getState().setPrefs({ colorBlindPair: true });
+      await new Promise((r) => setTimeout(r, 0));
+      const writes = put.mock.calls.length;
+      store.getState().setPalette("phosphor");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(put.mock.calls.length).toBe(writes);
+      for (const [p] of put.mock.calls) expect(Object.keys(p)).not.toContain("palette");
+      expect(JSON.stringify(prefsClient.memo.get(PREFS_ACCOUNT))).not.toContain("phosphor");
+    } finally { put.mockRestore(); }
   });
 });
 
