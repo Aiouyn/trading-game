@@ -44,14 +44,32 @@ const write = (e: Entry, url: string, replace = false) => {
  *  params, e2e hooks such as ?city=fail read later by lazily mounted apps) is not dropped by the rewrite. */
 const withLoadQuery = (url: string) => (url.includes("?") ? url : url + location.search);
 
+/** A deep link being applied: the store change it causes must not write history (see applyDeepLink). Also set while a
+ *  popstate is replayed into the store. */
+let quiet = false;
+
 /**
- * Seed history for the page load, after the deep link (if any) is applied. On phone a deep link builds the whole
- * stack (Home, app, screen) so Back pops level by level. `screenId` is the deep link's second segment.
+ * Apply a deep link `/{app}/{screen}` (page load or a client-side navigation through the Next router), then seed
+ * history for it. `open` runs quiet: on a client-side navigation Next has already committed the target URL, and the
+ * focus change `open` causes would otherwise make the focus subscriber push a section-less `/{app}` over it
+ * (`/settings/SET-08` → `/settings`, 17B S1-02); whether that write or Next's own URL sync landed last decided the URL.
+ */
+export function applyDeepLink(store: ShellStore, link: { app?: string; screen?: string }, open: () => void): void {
+  quiet = true;
+  try { open(); } finally { quiet = false; }
+  seedHistory(store, link);
+}
+
+/**
+ * Seed history for the page load or a client-side deep link, after the deep link (if any) is applied. On phone a deep
+ * link builds the whole stack (Home, app, screen) so Back pops level by level. On desktop the current entry is
+ * replaced with the focused window's URL, keeping the deep link's screen segment when that window is the linked app.
  */
 let seeded = false;
-export function seedHistory(store: ShellStore, screenId?: string): void {
+function seedHistory(store: ShellStore, link: { app?: string; screen?: string }): void {
   seeded = true;
   const st = store.getState();
+  const screenId = link.screen;
   if (viewportOf(st.vw) === "phone") {
     const a = st.phoneApp;
     write({ quay: "phone", lvl: 0 }, withLoadQuery("/"), true);
@@ -60,18 +78,17 @@ export function seedHistory(store: ShellStore, screenId?: string): void {
     if (screenId) { setScreen(screenId); write({ quay: "phone", lvl: 2, app: a.app, context: a.context, screen: screenId }, withLoadQuery(urlOf(a, screenId))); }
   } else {
     const f = focusedOf(st);
-    write({ quay: "desk", app: f?.app, instance: f?.instance }, withLoadQuery(urlOf(f)), true);
+    write({ quay: "desk", app: f?.app, instance: f?.instance }, withLoadQuery(urlOf(f, f && f.app === link.app ? screenId : undefined)), true);
   }
 }
 
 /** Wire the shell store to browser history: each new phone level or focused desktop window is one entry. */
 export function useBackStack(store: ShellStore): void {
   useEffect(() => {
-    let applying = false;
     const phone = () => viewportOf(store.getState().vw) === "phone";
     const push = write;
     const unsub = store.subscribe((st, prev) => {
-      if (applying || !seeded) return;
+      if (quiet || !seeded) return;
       if (phone()) {
         if (st.phoneApp && st.phoneApp !== prev.phoneApp) {
           setScreen(null);
@@ -91,7 +108,7 @@ export function useBackStack(store: ShellStore): void {
     const onPop = () => {
       const e = state();
       if (!e) return;
-      applying = true;
+      quiet = true;
       try {
         if (e.quay === "phone") {
           setScreen(e.lvl === 2 ? e.screen ?? null : null);
@@ -101,7 +118,7 @@ export function useBackStack(store: ShellStore): void {
           const w = st.local.windows.find((x) => x.app === e.app && x.instance === e.instance);
           if (w) st.focus(w); // refocus only: never close, never re-create
         }
-      } finally { applying = false; }
+      } finally { quiet = false; }
     };
     window.addEventListener("popstate", onPop);
     return () => { unsub(); window.removeEventListener("popstate", onPop); };

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
-import { seedHistory, useBackStack } from "@/shell/back";
+import { applyDeepLink, useBackStack } from "@/shell/back";
 import { clockAt, mockChannels, phaseOverride, TICK_MS } from "@/shell/mockChannels";
 import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
@@ -107,6 +107,10 @@ function Surface() {
 }
 
 let docStore: ReturnType<typeof createShellStore> | null = null;
+// Once per document, like docStore: the loader hooks, the saved-window restore and the save subscription. A client-side
+// deep link remounts QuayShell; re-running the restore would overwrite the live windows with the last saved snapshot
+// (focus included) before the deep link applies.
+let docBoot: Promise<void> | null = null;
 
 export function QuayShell({ route, query }: { route: string[]; query: string }) {
   // One store per document. The App Router remounts the catch-all page when the route param changes (a client-side
@@ -117,8 +121,6 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
   useBackStack(store);
 
   useEffect(() => {
-    const s = store.getState();
-    initLoader(store, new URLSearchParams(query));
     const fit = () => store.getState().setViewport(window.innerWidth, window.innerHeight);
     fit();
     window.addEventListener("resize", fit);
@@ -132,23 +134,25 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
     // Deep link /{appId}/...: after restoring saved windows, open it, or focus and front the open instance
     // (Audit A-8, 17A T4-04): openApp never creates a window past the instance cap.
     const app = route[0];
-    const deepLink = () => {
-      if (app && isAppId(app)) s.open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true });
-      seedHistory(store, route[1]);
+    const deepLink = () => applyDeepLink(store, { app, screen: route[1] }, () => {
+      if (app && isAppId(app)) store.getState().open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true });
       // /settings/SET-xx opens that section (17B SET-01).
       if (app === "settings" && isSectionId(route[1])) settingsNav.open(route[1]);
-    };
+    });
     // Device-local state: IndexedDB `quay.<accountId>` (17 §2.2).
     const ACCOUNT = "guest";
-    let unsub = () => {};
-    loadLocal(ACCOUNT).then((saved) => {
-      if (saved) store.setState((st) => ({ local: { ...st.local, ...saved } }));
-      deepLink();
-      // A new account starts in the Trade layout (17 §3.2.5), desktop only.
-      if (!saved && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
-      unsub = store.subscribe((st, prev) => { if (st.local !== prev.local) void queueSave(ACCOUNT, st.local).catch(() => {}); });
-    }).catch(deepLink);
-    return () => { window.removeEventListener("resize", fit); window.clearInterval(t); unsub(); };
+    let live = true;
+    docBoot ??= (() => {
+      initLoader(store, new URLSearchParams(query));
+      return loadLocal(ACCOUNT).then((saved) => {
+        if (saved) store.setState((st) => ({ local: { ...st.local, ...saved } }));
+        // A new account starts in the Trade layout (17 §3.2.5), desktop only.
+        if (!saved && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
+        store.subscribe((st, prev) => { if (st.local !== prev.local) void queueSave(ACCOUNT, st.local).catch(() => {}); });
+      }, () => {});
+    })();
+    void docBoot.then(() => { if (live) deepLink(); });
+    return () => { live = false; window.removeEventListener("resize", fit); window.clearInterval(t); };
   }, [store, route, query]);
 
   return (
