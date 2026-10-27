@@ -166,7 +166,7 @@ export function drawPicture(opts: {
           for (let k = 2; k < l.length; k += 2) coast.lineTo(...toScreen(l[k], 0, l[k + 1]));
           coast.closePath();
         }
-        g.clip(coast, 'evenodd');
+        // MUTANT M2 (reverted next commit): g.clip(coast, 'evenodd');
       }
       g.imageSmoothingEnabled = false;
       g.setTransform(ax - ox, ay - oy, bx - ox, by - oy, ox, oy);
@@ -249,6 +249,8 @@ export function drawPicture(opts: {
   lap('labels');
   const url = canvas.toDataURL('image/png');
   lap('encode');
+  // MUTANT T0x1.3 (reverted next commit): 22 ms busy-wait = 30% of main's 74 ms median T0 longest task
+  for (const end = performance.now() + 22; performance.now() < end;);
   return { url, top, bottom, labels: drawn, ms };
 }
 
