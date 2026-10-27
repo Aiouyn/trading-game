@@ -10,7 +10,7 @@ const REPO = join(LEDGER, '../../..');
 const SCAN = REPO;
 function tsFiles(dir: string, out: string[] = []): string[] {
   for (const n of readdirSync(dir).sort()) {
-    if (n === 'node_modules' || n === '.git') continue;
+    if (n.startsWith('node_modules') || n === '.git') continue;   // node_modules (and a parked node_modules.off copy)
     const p = join(dir, n);
     if (statSync(p).isDirectory()) tsFiles(p, out);
     else if (/\.(ts|tsx|mts|cts)$/.test(n)) out.push(p);
@@ -36,7 +36,12 @@ const LEGACY: Record<string, string[]> = {
   // not exported: the shell's own navigation-stack entry (`type Entry = PhoneEntry | DeskEntry`), found once non-exported definitions count
   Entry: ['src/shell/back.ts'],
 };
-const engineDefs = (name: string): string[] => { const legacy = LEGACY[name] ?? []; return defs(name).filter((r) => !legacy.includes(r)); };
+/** defs(name) less each legacy exemption, once: a second definition in an exempt file still counts. */
+const engineDefs = (name: string): string[] => {
+  const out = defs(name);
+  for (const r of LEGACY[name] ?? []) { const i = out.indexOf(r); if (i >= 0) out.splice(i, 1); }
+  return out;
+};
 
 /** T03-01 rows of the E-79 table, by their V3 name, and the file each must live in. */
 const MAPPED: Record<string, string> = {
@@ -60,7 +65,7 @@ describe('AC-03-MAP-NO-DUP', () => {
     expect(FILES.length).toBeGreaterThan(300);
     for (const top of ['packages/engine/', 'packages/content/', 'src/city/', 'src/engine/', 'src/shell/', 'engine-staging/', 'tools/'])
       expect(FILES.some((f) => f.rel.startsWith(top)), top).toBe(true);
-    expect(FILES.some((f) => f.rel.split('/').includes('node_modules'))).toBe(false);
+    expect(FILES.some((f) => f.rel.split('/').some((s) => s.startsWith('node_modules')))).toBe(false);
   });
   it('the legacy exemptions still exist (the list cannot go stale) and are the only non-engine definitions it exempts', () => {
     for (const [name, rels] of Object.entries(LEGACY)) for (const r of rels) expect(defs(name), `${name} in ${r}`).toContain(r);
