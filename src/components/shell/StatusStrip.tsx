@@ -2,7 +2,7 @@
 import { Chip } from "@/components/ui/Chip";
 import { clockLabel } from "@/shell/mockChannels";
 import { RANK_NAMES, RANKS } from "@/shell/registry";
-import { S } from "@/shell/strings";
+import { clockStrings, S } from "@/shell/strings";
 import { Glyph } from "./Glyph";
 import { MoneyText, PctText } from "./MoneyText";
 import { useShell, useShellStore } from "./ShellContext";
@@ -21,6 +21,7 @@ export function StatusStrip() {
   const me = useShell((s) => s.channels.me);
   const focusMode = useShell((s) => s.local.focusMode);
   const { day, hhmm } = clockLabel(clock);
+  const clockText = clockStrings(useShell((s) => s.prefs.locale)).strip(day, hhmm);
   const release = `${S.quay} ${RANKS.indexOf(rank)} · ${RANK_NAMES[rank]}`;
   const halted = useShell((s) => s.channels.system.halted);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
@@ -32,7 +33,7 @@ export function StatusStrip() {
   if (focusMode) {
     return (
       <header className="strip strip-focus" data-testid="strip">
-        <span className="num clock">{`Day ${day} · ${hhmm}`}</span>
+        <span className="num clock">{clockText}</span>
         <TickRing tick={clock.tick} />
         <HaltChip halted={sys.halted} />
         {nw}
@@ -52,7 +53,7 @@ export function StatusStrip() {
         <kbd>{S.ctrlK}</kbd>
       </button>
       <div className="strip-mid">
-        <span className="num clock" data-testid="clock">{`Day ${day} · ${hhmm}`}</span>
+        <span className="num clock" data-testid="clock">{clockText}</span>
         <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} />
         <TickRing tick={clock.tick} />
       </div>
