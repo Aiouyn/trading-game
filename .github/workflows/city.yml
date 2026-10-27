@@ -129,6 +129,8 @@ jobs:
         run: |
           base=$(git merge-base HEAD "origin/${{ github.base_ref || 'main' }}")
           echo "A/B base: $base ($(git log -1 --format=%s "$base"))"
+          echo "CITY_AB_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "T0 A/B base (merge-base with origin/${{ github.base_ref || 'main' }}): \`$base\`" >> "$GITHUB_STEP_SUMMARY"
           git worktree add --detach "$RUNNER_TEMP/base" "$base"
           if cmp -s package-lock.json "$RUNNER_TEMP/base/package-lock.json"; then ln -s "$PWD/node_modules" "$RUNNER_TEMP/base/node_modules"; else (cd "$RUNNER_TEMP/base" && npm ci); fi
           (cd "$RUNNER_TEMP/base" && CITY_HARNESS_OUT="$RUNNER_TEMP/h-base" npx vite build -c tests/e2e/city/harness/vite.config.ts)
