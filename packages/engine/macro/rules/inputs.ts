@@ -2,7 +2,7 @@
 // staleKeys (edge 23; T04-20 emits one SEALED macro.input.stale per day with the list).
 // MacroInputs.values keys (this card's storage decision):
 //   'energy', 'food'                         energyIndex / foodIndex (genesis 100 until 06 provides every genesis price)
-//   'g0:<COMMODITY>'                         genesis close of each index commodity, captured at the first day close 06 provides it
+//   'g0:<COMMODITY>'                         genesis close of each index commodity, captured per basket at the first day close where every member prints (E-87 (5))
 //   'aiRaceIndex', 'worldHackRate', 'geopoliticalTension', 'politicalStability:<bloc>'
 // Genesis defaults (unit decision): aiRaceIndex 50, worldHackRate 0, geopoliticalTension 30, politicalStability 0.7.
 import type { StoreRead, Tick } from '@tycoon/engine-core';
@@ -36,14 +36,16 @@ export function collectInputs(store: StoreRead, ports: MacroPorts, prev: MacroIn
     if (now === null || now === undefined) { stale.push(key); values[key] = held(key, dflt); } else values[key] = now;
   };
 
-  // commodity closes: capture each genesis close the first time 06 provides it (held thereafter)
+  // commodity closes. E-87 (5): a basket's genesis closes (g0:<COMMODITY>) are captured together, at the first day close where
+  // every member of the basket prints; until then the index holds at 100. The first computed index is therefore exactly 100.
   const close: Partial<Record<Commodity, number>> = {};
   for (const c of [...ENERGY, ...FOOD]) {
     const px = ports.assets.commodityClose(store, c);
-    const g0 = prev.values[`g0:${c}`];
-    if (g0 !== undefined) values[`g0:${c}`] = g0;
-    else if (px !== null && px !== undefined) values[`g0:${c}`] = px;
     if (px !== null && px !== undefined) close[c] = px;
+  }
+  for (const basket of [ENERGY, FOOD]) {
+    if (basket.every((c) => prev.values[`g0:${c}`] !== undefined)) for (const c of basket) values[`g0:${c}`] = prev.values[`g0:${c}`]!;
+    else if (basket.every((c) => close[c] !== undefined)) for (const c of basket) values[`g0:${c}`] = close[c]!;
   }
   const all = (cs: readonly Commodity[]): boolean => cs.every((c) => close[c] !== undefined && values[`g0:${c}`] !== undefined);
   const px = (c: Commodity): number => close[c]!;

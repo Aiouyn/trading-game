@@ -16,7 +16,7 @@ describe('T04-05 credit aggregates (04 §3.14.4)', () => {
     const ports = defaultMacroPorts();
     expect(ports.credit).toBeNull();
     const g = 0.045 / 364;                         // nominal GDP log growth per day
-    let gdp = 1_000; let st: CreditStateIn = { credit: 1.0 * gdp, creditGdpTrend: 1.0, credit364: null };   // genesis: credit = 1.0 × GDP, trend = creditGdp
+    let gdp = 1_000; let st: CreditStateIn = { credit: 1.0 * gdp, creditGdpTrend: 1.0, credit364: null, credit0: 1.0 * gdp, days: 1 };   // genesis: credit = 1.0 × GDP, trend = creditGdp
     const credits: number[] = [st.credit];
     for (let d = 1; d <= 400; d++) {
       gdp *= dmath.exp(g);
@@ -28,36 +28,52 @@ describe('T04-05 credit aggregates (04 §3.14.4)', () => {
       expect(finite(out.credit, out.creditGdp, out.trend, out.creditGap, out.creditGrowth)).toBe(true);
       expect(out.credit / st.credit).toBeCloseTo(dmath.exp(g * (1 - 0.0904)), 6);
       expect(out.creditGap).toBeCloseTo(out.creditGdp - out.trend, 15);
-      if (d >= 364) expect(out.creditGrowth).toBeCloseTo(364 * g * (1 + 0.5 * out.creditConditions), 12);   // yoy = nominal yoy × (1 − 0.0904)
-      else expect(out.creditGrowth).toBe(0);
+      // yoy = nominal yoy × (1 − 0.0904); before day 364 annualized from genesis (E-87 (3)), the same rate on this path
+      expect(out.creditGrowth).toBeCloseTo(364 * g * (1 + 0.5 * out.creditConditions), 12);
       credits.push(out.credit);
-      st = { credit: out.credit, creditGdpTrend: out.trend, credit364: d + 1 >= 364 ? credits[d + 1 - 364]! : null };
+      st = { credit: out.credit, creditGdpTrend: out.trend, credit364: d + 1 >= 364 ? credits[d + 1 - 364]! : null, credit0: 1_000, days: d + 1 };
     }
     expect(st.credit / 1_000).toBeCloseTo(dmath.exp(400 * g * (1 - 0.0904)), 6);
   });
 
   it('04#43 stub of the macro day step (inputs → credit → regime z inputs) runs 30 game days on defaultMacroPorts', () => {
     const ports = defaultMacroPorts(); let prev = EMPTY; let gdp = 500;
-    let st: CreditStateIn = { credit: gdp, creditGdpTrend: 1, credit364: null };
+    let st: CreditStateIn = { credit: gdp, creditGdpTrend: 1, credit364: null, credit0: gdp, days: 1 };
     for (let d = 1; d <= 30; d++) {
       const { inputs } = collectInputs(store, ports, prev, d * 720 - 1); prev = inputs;
       gdp *= dmath.exp(0.03 / 364);
       const out = creditAggregates(gdp, st, ports.credit?.creditAggregates(store, 'EUN') ?? null, { Rtilde: -0.002, regime: 'RECOVERY', nominalGdpGrowthLn: 0.03 / 364 });
       expect(finite(out.creditGap, out.creditGrowth, out.creditConditions, inputs.values.energy!, inputs.values.aiRaceIndex!)).toBe(true);
-      st = { credit: out.credit, creditGdpTrend: out.trend, credit364: null };
+      st = { credit: out.credit, creditGdpTrend: out.trend, credit364: null, credit0: 500, days: d + 1 };
     }
   });
 
   it('supplied credit 1.1 × GDP for 1 day after trend 1.0: gap = 1.1 − (1.0 + 0.1·(1 − 2^(−1/1092)))', () => {
-    const out = creditAggregates(100, { credit: 100, creditGdpTrend: 1.0, credit364: null }, { credit: 110, creditConditions: 0.25, interbankSpread: 0.004 },
+    const out = creditAggregates(100, { credit: 100, creditGdpTrend: 1.0, credit364: null, credit0: 100, days: 0 }, { credit: 110, creditConditions: 0.25, interbankSpread: 0.004 },
       { Rtilde: 0.05, regime: 'CONTRACTION', nominalGdpGrowthLn: 0.5 });
     expect(out.creditGdp).toBeCloseTo(1.1, 15);
     expect(out.trend).toBeCloseTo(1.0 + 0.1 * ALPHA, 15);
     expect(out.creditGap).toBeCloseTo(1.1 - (1.0 + 0.1 * (1 - dmath.pow(2, -1 / 1092))), 15);
     expect(out.creditGap).toBeCloseTo(0.1 * (1 - 0.000635), 6);
     expect(out).toMatchObject({ credit: 110, creditConditions: 0.25, interbankSpread: 0.004, creditGrowth: 0 });
-    expect(creditAggregates(100, { credit: 100, creditGdpTrend: 1.0, credit364: 100 }, { credit: 110, creditConditions: 0, interbankSpread: 0 },
+    expect(creditAggregates(100, { credit: 100, creditGdpTrend: 1.0, credit364: 100, credit0: 50, days: 364 }, { credit: 110, creditConditions: 0, interbankSpread: 0 },
       { Rtilde: 0, regime: 'EXPANSION', nominalGdpGrowthLn: 0 }).creditGrowth).toBeCloseTo(dmath.ln(1.1), 15);
+  });
+
+  it('E-87 (3) creditGrowth: 0 at day 0, ln(credit/credit0)·364/days before day 364, ln(credit/credit364) from day 364', () => {
+    const c0 = 1_000; const sup = (credit: number) => ({ credit, creditConditions: 0, interbankSpread: 0 });
+    const fb = { Rtilde: 0, regime: 'EXPANSION' as Regime, nominalGdpGrowthLn: 0 };
+    const g = (credit: number, days: number, credit364: number | null = null) => creditAggregates(1_000, { credit: c0, creditGdpTrend: 1, credit364, credit0: c0, days }, sup(credit), fb).creditGrowth;
+    expect(Math.abs(g(c0 * dmath.exp(0.01), 182) - 0.02)).toBeLessThanOrEqual(1e-12);   // AC E87-3
+    expect(g(c0 * dmath.exp(0.01), 0)).toBe(0);
+    expect(g(c0 * dmath.exp(0.01), 1)).toBeCloseTo(3.64, 12);
+    expect(g(c0 * dmath.exp(0.01), 363)).toBeCloseTo(0.01 * 364 / 363, 14);
+    const c364 = c0 * dmath.exp(0.004);   // AC E87-3b: from day 364 the base is credit_364, not credit0
+    expect(g(c0 * dmath.exp(0.01), 364, c364)).toBeCloseTo(0.006, 14);
+    expect(g(c0 * dmath.exp(0.01), 900, c364)).toBeCloseTo(0.006, 14);
+    expect(() => g(c0, 364)).toThrow('day 364: credit364 missing');
+    expect(() => g(c0, -1)).toThrow('days=-1');
+    expect(() => g(c0, 1.5)).toThrow('days=1.5');
   });
 
   it('fallbackCreditConditions: 0.5·tanh(−2R̃/0.01) + tilt (EXP 0.2, OVH 0.3, CON −0.5, REC 0)', () => {
@@ -122,12 +138,19 @@ describe('T04-05 other inputs (04 §3.14.5)', () => {
     expect(d3.inputs.values.aiRaceIndex).toBe(70);
   });
 
-  it('indices stay 100 until 06 provides a genesis close', () => {
+  it('E-87 (5) indices stay 100 until every basket member prints; g0 captured per basket so the first computed index is exactly 100', () => {
     const d1 = collectInputs(store, portsWith({ ...PX0, MWH: null }), EMPTY, 719);
     expect(d1.inputs.values.energy).toBe(100);
     expect(d1.stale).toEqual(['energy', 'aiRaceIndex', 'worldHackRate', 'geopoliticalTension', ...BLOC_ORDER.map((b) => `politicalStability:${b}`)]);
+    expect(d1.inputs.values['g0:CRUDE']).toBeUndefined();   // energy basket incomplete: nothing captured
+    expect(d1.inputs.values['g0:WHEAT']).toBe(6);            // food basket complete on d1
+    expect(d1.inputs.values.food).toBe(100);                 // AC E87-5: first computed foodIndex exactly 100
     const d2 = collectInputs(store, portsWith({ ...PX0, CRUDE: 160, MWH: 30 }), d1.inputs, 1439);
-    expect(d2.inputs.values['g0:MWH']).toBe(30);
-    expect(d2.inputs.values.energy).toBeCloseTo(100 * (0.5 * 2 + 0.3 + 0.2), 12);
+    expect(d2.inputs.values).toMatchObject({ 'g0:CRUDE': 160, 'g0:GAS': 3, 'g0:MWH': 30 });
+    expect(d2.inputs.values.energy).toBe(100);               // AC E87-5: first computed energyIndex exactly 100
+    expect(d2.stale).not.toContain('energy');
+    const d3 = collectInputs(store, portsWith({ ...PX0, CRUDE: 320, MWH: 30 }), d2.inputs, 2159);
+    expect(d3.inputs.values['g0:CRUDE']).toBe(160);
+    expect(d3.inputs.values.energy).toBeCloseTo(100 * (0.5 * 2 + 0.3 + 0.2), 12);
   });
 });

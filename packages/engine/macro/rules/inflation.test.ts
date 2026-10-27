@@ -24,18 +24,16 @@ function run(cred: number, days: number, shockDays: number, shock = 0.03): { dE5
 }
 
 describe('T04-05 inflation (04 §3.5)', () => {
-  it('04#8 credibility anchors long expectations: cred 0.9 moves π_e5 by < 0.3 pp; cred 0.3 by far more', () => {
-    const hi = run(0.9, 364, 364); const lo = run(0.3, 364, 364);
-    expect(hi.dE5).toBeCloseTo(1.09e-5, 7);
-    expect(hi.dE5).toBeLessThan(0.003);
-    expect(lo.dE5).toBeCloseTo(0.004235, 6);
-    expect(run(0.3, 4 * 364, 364).peak).toBeCloseTo(0.005843, 6);
-    expect(lo.dE5).toBeGreaterThan(0.003);
-    expect(lo.dE5).toBeGreaterThan(300 * hi.dE5);
-  });
-  // §3.5 formulas cannot reach the 04#8 literal "more than 0.8 pp" with cred 0.3 (peak 0.5843 pp): spec contradiction, reported.
-  it.fails('04#8 literal band (spec contradiction): cred 0.3 moves π_e5 by more than 0.8 pp', () => {
-    expect(run(0.3, 4 * 364, 364).peak).toBeGreaterThan(0.008);
+  // E-87 (1): spec 04#8 amended to "drifts more than 0.5 pp (peak within 4 game years)"; params unchanged. E-87 (2): π_e5 updates
+  // from the post-update π_e1 (spec order); the pre-update variant gives 0.0042190 and fails AC E87-1b/E87-2.
+  it('04#8 credibility anchors long expectations: cred 0.9 moves π_e5 by < 0.3 pp; cred 0.3 drifts more than 0.5 pp (peak within 4 game years)', () => {
+    const hi = run(0.9, 364, 364); const lo = run(0.3, 364, 364); const peak = run(0.3, 4 * 364, 364).peak;
+    expect(hi.dE5).toBeLessThan(0.003);                                   // AC E87-1a
+    expect(Math.abs(hi.dE5 - 1.09e-5)).toBeLessThanOrEqual(1e-7);         // AC E87-1a pin
+    expect(Math.abs(lo.dE5 - 0.004235)).toBeLessThanOrEqual(1e-6);        // AC E87-1b, AC E87-2
+    expect(Math.abs(peak - 0.005843)).toBeLessThanOrEqual(1e-6);          // AC E87-1c
+    expect(peak).toBeGreaterThan(0.005);                                  // AC E87-1c
+    expect(lo.dE5).toBeGreaterThan(300 * hi.dE5);                         // AC E87-1d
   });
 
   it('worked core step: π_core 0.02, target* 0.0275 (π_e1 0.02 + 0.25·0.01 + 0.05·0.10) → 0.0200286', () => {
