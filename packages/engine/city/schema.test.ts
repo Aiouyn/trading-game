@@ -380,6 +380,10 @@ describe('AC-10A-01-9 (E-88 (2f)) byUse keys iff supply > 0', () => {
     expect(fault(() => checkCityEvent('city.districtMarket', { districtId: D, byUse: { HOSPITALITY: { rentIndex: 1, vacancy: 0, pressure: 1, capRate: 0.05, priceIndex: 1 } } },
       { supplyByUse: supply }))).toBe('CITY_EVENT_BYUSE_PRESENCE');
     expect(fault(() => checkCityEvent('city.dayClose', day(vac, rent)))).toBe('CITY_EVENT_SCOPE_MISSING');
-    expect(fault(() => checkCityEvent('city.dayClose', day({ ...vac, HOSPITALITY: 0 }, rent), { supplyByUse: { ...supply, HOSPITALITY: 0 } }))).toBe('CITY_EVENT_BYUSE_PRESENCE');
+    // An explicit 0 in supplyByUse counts as no supply: a key there fails, and its absence passes.
+    const zero = { ...supply, HOSPITALITY: 0 };
+    expect(fault(() => checkCityEvent('city.dayClose', day({ ...vac, HOSPITALITY: 0 }, { ...rent, HOSPITALITY: 1 }), { supplyByUse: zero }))).toBe('CITY_EVENT_BYUSE_PRESENCE');
+    expect(checkCityEvent('city.dayClose', day(vac, rent), { supplyByUse: zero })).toEqual(day(vac, rent));
+    expect('HOSPITALITY' in byUseOf(zero, () => 1)).toBe(false);
   });
 });
