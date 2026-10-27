@@ -2,6 +2,7 @@
 import { lazy, Suspense } from "react";
 import { CityWindow } from "@/apps/city/CityWindow";
 import { SettingsApp } from "@/apps/settings/SettingsApp";
+import { WireLoading } from "@/apps/wire/Skeleton";
 import type { AppId } from "@/shell/registry";
 import { ComingLater } from "./ComingLater";
 import { LockTile } from "./LockTile";
@@ -25,8 +26,10 @@ export function AppBody({ app, state }: { app: AppId; state: BodyState }) {
   if (app === "city") return <CityWindow state={state} />;
   if (isBuiltApp(app)) {
     const Body = BUILT_APPS[app];
-    // Fallback = the placeholder the chunk renders today, so loading the chunk never changes the DOM (S1-03).
-    return <Suspense fallback={<ComingLater app={app} />}><Body /></Suspense>;
+    // Fallback = what the chunk shows first: Wire's loading skeleton (Studio: a built app never flashes "Coming later");
+    // Broker / Portfolio still render the ComingLater placeholder, so loading their chunk never changes the DOM (S1-03).
+    const fallback = app === "wire" ? <WireLoading /> : <ComingLater app={app} />;
+    return <Suspense fallback={fallback}><Body /></Suspense>;
   }
   // Every other app is built:false in Spec 1.
   return <ComingLater app={app} />;

@@ -45,8 +45,9 @@ test("S1-07 phone: ComingLater full screen and deep link", async ({ page }) => {
   await boot(page);
   await page.getByTestId("icon-markets").click();
   await expect(page.getByTestId("coming-later")).toHaveText(/Markets\s*Coming later/);
-  await boot(page, "/wire");
-  await expect(page.getByTestId("coming-later")).toHaveText(/Wire\s*Coming later/);
+  // Deep link: was /wire until Wire was built (UI card 1, WIR-A); Messages is still ComingLater.
+  await boot(page, "/messages");
+  await expect(page.getByTestId("coming-later")).toHaveText(/Messages\s*Coming later/);
 });
 
 test("S1-14 long-press 400 ms on the Quay mark opens Recent with ≤ 6 entries", async ({ page }) => {
