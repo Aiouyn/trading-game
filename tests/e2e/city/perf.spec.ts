@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { diag, expect, isPhone, openCity, P41, saveJson, waitDrawn, type HarnessWindow } from './helpers';
+import { diag, expect, isPhone, openCity, card1Limit, saveJson, waitDrawn, type HarnessWindow } from './helpers';
 import { percentile } from '../../../src/city/diagnostics/perf';
 
 // Real frame timing in headless Chromium: rAF intervals while the camera moves every frame
@@ -52,7 +52,7 @@ test('perf: frame timing, load and decode', async ({ page }) => {
     // Frame counts are asserted deterministically on the fake clock (test below).
     expect(iv.length).toBeGreaterThan(0);
     // card 1 (ground + coast): +1 call, +2k triangles over #41
-    const LIMIT = phone ? { calls: P41.calls + 1, tris: P41.tris + 2_000 } : { calls: 5, tris: 18_000 };
+    const LIMIT = card1Limit(phone);
     expect(d.drawCalls).toBeLessThanOrEqual(LIMIT.calls);
     expect(d.triangles).toBeLessThanOrEqual(LIMIT.tris);
     expect(percentile(b.cpu, 50), 'CPU ms per frame (p50)').toBeLessThanOrEqual(phone ? 16 : 8);
@@ -83,7 +83,7 @@ for (const tier of ['T2', 'T1'] as const) {
     expect(Math.max(...b.intervals.slice(1))).toBeLessThanOrEqual(17); // no skipped tick
     expect(d.tier).toBe(tier);
     // card 1 (ground + coast): +1 call, +2k triangles over #41
-    const LIMIT = phone ? { calls: P41.calls + 1, tris: P41.tris + 2_000 } : { calls: 5, tris: 18_000 };
+    const LIMIT = card1Limit(phone);
     expect(d.drawCalls).toBeLessThanOrEqual(LIMIT.calls);
     expect(d.triangles).toBeLessThanOrEqual(LIMIT.tris);
   });

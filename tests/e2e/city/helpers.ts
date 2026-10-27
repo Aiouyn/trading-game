@@ -104,5 +104,10 @@ export function isPhone(page: Page): boolean {
 
 export { expect };
 
-/** #41's per-frame limits (both projects); card 1 and later cards add their allocation on top. */
-export const P41 = { calls: 4, tris: 16_000 } as const;
+/** Per-frame draw calls and triangles on main 2875fb72 (after #54), seed 20261020; card1.spec re-measures it. */
+export const MAIN_BASE = { desktop: { calls: 3, tris: 14_798 }, phone: { calls: 2, tris: 14_510 } } as const;
+/** Card 1: main's baseline + 1 call and + 2k triangles, capped by the brief (5 calls / 18k on both projects). */
+export function card1Limit(phone: boolean) {
+  const b = MAIN_BASE[phone ? 'phone' : 'desktop'];
+  return { calls: Math.min(b.calls + 1, 5), tris: Math.min(b.tris + 2_000, 18_000) };
+}
