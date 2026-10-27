@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { CBK_CREDIT_CODES, CBK_UNWIND_CODES, CLASS_TEMPLATES, FLOW_CLASSES, ReasonCatalog, type CodeRow } from '../src';
+import { CBK_CREDIT_CODES, CBK_UNWIND_CODES, CLASS_TEMPLATES, FLOW_CLASSES, LedgerWorld, ReasonCatalog, type CodeRow } from '../src';
 
 const row = (code: string, cls: CodeRow['cls'], owner: number, t: CodeRow['allowedTemplates']): CodeRow =>
   ({ code, cls, owner, cf: 'OP', allowedTemplates: t, descriptionKey: code });
 
 describe('reason-code catalog (T03-02..05, INV-LED-002, Q-2)', () => {
-  const cat = new ReasonCatalog();
+  const cat = new LedgerWorld().catalog; // E-86 (a): the world's runtime catalog (seed + ledger extension codes)
   it('live catalog: 454 seed codes (E-85 world counts) + 5 ledger extension codes (E-5) = 459; TRANSFER 247, REVALUE 33', () => {
     expect(cat.countByClass()).toEqual({ FAUCET: 41, SINK: 113, TRANSFER: 247, CREDIT_CREATE: 12, CREDIT_DESTROY: 13, REVALUE: 33 });
     expect(cat.all().length).toBe(459);
