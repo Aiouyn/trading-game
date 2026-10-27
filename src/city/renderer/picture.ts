@@ -34,14 +34,16 @@ export function groundBitmap(mask: Uint8Array, size: number, step: number, class
  * through a gap. In place; 4-neighbour, one pass.
  */
 export function dilateLand(data: Uint8ClampedArray, n: number): void {
-  const src = data.slice();
-  const solid = (o: number) => src[o + 3] !== 0;
+  // one 32-bit word per pixel (a T0 hot loop: ~2-3 ms per-byte on CI, explain-the-number #60)
+  const px = new Uint32Array(data.buffer, data.byteOffset, n * n);
+  const src = px.slice();
+  const alpha = new Uint8Array(src.buffer);
+  const solid = (p: number) => alpha[p * 4 + 3] !== 0;
   for (let j = 0; j < n; j++) {
-    for (let i = 0; i < n; i++) {
-      const o = (j * n + i) * 4;
-      if (solid(o)) continue;
-      const from = i > 0 && solid(o - 4) ? o - 4 : i < n - 1 && solid(o + 4) ? o + 4 : j > 0 && solid(o - n * 4) ? o - n * 4 : j < n - 1 && solid(o + n * 4) ? o + n * 4 : -1;
-      if (from >= 0) data.set(src.subarray(from, from + 4), o);
+    for (let i = 0, p = j * n; i < n; i++, p++) {
+      if (solid(p)) continue;
+      const from = i > 0 && solid(p - 1) ? p - 1 : i < n - 1 && solid(p + 1) ? p + 1 : j > 0 && solid(p - n) ? p - n : j < n - 1 && solid(p + n) ? p + n : -1;
+      if (from >= 0) px[p] = src[from];
     }
   }
 }
