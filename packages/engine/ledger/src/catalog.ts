@@ -132,8 +132,15 @@ export class ReasonCatalog {
     }
     if (errs.length) throw new Error(`reason catalog: ${errs.sort(cmpStr).join('; ')}`);
     this.aliases = new SortedMap<string, string>(aliases.map(([a, t]) => [a, t.join(' ')]));
-    if (seed === CATALOG_SEED) for (const cls of ['REVALUE', 'TRANSFER'] as const) {
-      const errs = this.registerReasonCodes(3, cls, LEDGER_EXTENSION_CODES.filter((r) => r.cls === cls));
+  }
+  /**
+   * E-86 (a) AC-03-02-COUNT-SCOPE: the catalog holds the seed only; the ledger (owner 03) registers LEDGER_EXTENSION_CODES at
+   * world creation (LedgerWorld constructor), which takes the 454 seed rows to the 459-row runtime catalog. Idempotent.
+   */
+  registerLedgerExtensions(): void {
+    for (const cls of ['REVALUE', 'TRANSFER'] as const) {
+      const rows = LEDGER_EXTENSION_CODES.filter((r) => r.cls === cls && !this.rows.has(r.code));
+      const errs = this.registerReasonCodes(3, cls, rows);
       if (errs.length) throw new Error(`ledger extension codes: ${errs.join('; ')}`);
     }
   }

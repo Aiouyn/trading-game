@@ -54,8 +54,10 @@ describe('AC-03-02-SEED-CONSTRUCTS (E-85)', () => {
     const seed = Object.fromEntries(Object.keys(WORLD).map((k) => [k, CATALOG_SEED.filter((r) => r.cls === k).length]));
     expect(seed).toEqual(WORLD);
     expect(CATALOG_SEED.length).toBe(454);
-    // countByClass() also holds the 5 ledger extension codes registered by the constructor (E-5): REVALUE +3, TRANSFER +2.
+    // E-86 (a): the catalog is the seed; the ledger registers the 5 extension codes at world creation (REVALUE +3, TRANSFER +2).
+    expect(cat.countByClass()).toEqual(WORLD);
     expect(LEDGER_EXTENSION_CODES.map((r) => r.cls)).toEqual(['REVALUE', 'REVALUE', 'REVALUE', 'TRANSFER', 'TRANSFER']);
+    cat.registerLedgerExtensions();
     expect(cat.countByClass()).toEqual({ ...WORLD, REVALUE: 33, TRANSFER: 247 });
     expect(cat.all().length).toBe(459);
   });

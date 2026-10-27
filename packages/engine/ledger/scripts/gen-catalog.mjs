@@ -46,7 +46,7 @@ for (const r of cat.filter((x) => !aliasNames.has(x.code))) {
   out.push(`  { code: '${r.code}', cls: '${r.class}', owner: ${Number(r.owner)}, cf: '${r.cf}', tpl: [${tpl.map((t) => `'${t}'`).join(', ')}], legA: ${lit(leg(r.legA))}, legB: ${lit(leg(r.legB))}, ` +
     `sectors: ${sec}, restrictedOk: ${r.restrictedOk === 'Y'}, requestableBy: ${req}, illicit: ${r.illicit === 'Y'}${opt('taxTag', r.taxTag)}${opt('family', r.family)}${r.derived ? ', derived: true' : ''} },`);
 }
-out.push('];', '', '/** aliases.csv (26 rows of 24 §8 + 2 of PD-12): alias -> canonical code(s). Posting an alias is invalid (INV-LED-002). */',
+out.push('];', '', '/** aliases.csv (56 rows, E-86 (b): 26 of 24 §8 (T03-05) + 2 of PD-12 + 28 of errata E-26 to E-52): alias -> canonical code(s). Posting an alias is invalid (INV-LED-002). */',
   'export const ALIAS_SEED: readonly (readonly [alias: string, targets: readonly string[]])[] = [');
 for (const a of ali) out.push(`  ['${a.alias}', [${a.targets.split(/[\s|]+/).filter(Boolean).map((t) => `'${t}'`).join(', ')}]],`);
 out.push('];', '');

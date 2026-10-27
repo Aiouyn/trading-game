@@ -459,7 +459,7 @@ export const CATALOG_SEED: readonly CatalogSeedRow[] = [
   { code: 'WIRE_POST_FEE', cls: 'SINK', owner: 15, cf: 'OP', tpl: ['BURN'], legA: 5250, legB: null, sectors: [], restrictedOk: false, requestableBy: [], illicit: false, family: 'S6', derived: true },
 ];
 
-/** aliases.csv (26 rows of 24 §8 + 2 of PD-12): alias -> canonical code(s). Posting an alias is invalid (INV-LED-002). */
+/** aliases.csv (56 rows, E-86 (b): 26 of 24 §8 (T03-05) + 2 of PD-12 + 28 of errata E-26 to E-52): alias -> canonical code(s). Posting an alias is invalid (INV-LED-002). */
 export const ALIAS_SEED: readonly (readonly [alias: string, targets: readonly string[]])[] = [
   ['AD_GRANT', ['ACCT_REWARDED_AD']],
   ['START_CASH', ['ACCT_START_CASH']],
