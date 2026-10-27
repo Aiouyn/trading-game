@@ -105,6 +105,17 @@ function groundClass(F: Field, gx: number, gz: number): 'water' | 'park' | 'verg
   if (s <= 4 && F.district(gx, gz) <= 1.5 && F.r(gx, gz) > 15) return 'verge';
   return 'held';
 }
+/** groundClass at an image pixel, with a pixel tolerance: a boat hull reaches up to 2 px over the quay
+ *  edge, and the park tint is filtered 1 px past its cell (both measured in CI run 40602934708). */
+function pixelClass(F: Field, gm: Awaited<ReturnType<typeof groundMap>>, x: number, y: number): 'water' | 'park' | 'verge' | 'held' {
+  const k = groundClass(F, ...gm.toGround(x + 0.5, y + 0.5));
+  if (k !== 'held') return k;
+  const near = (r: number, want: 'water' | 'park') => {
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (groundClass(F, ...gm.toGround(x + dx + 0.5, y + dy + 0.5)) === want) return true;
+    return false;
+  };
+  return near(2, 'water') ? 'water' : near(1, 'park') ? 'park' : 'held';
+}
 
 /** Pixels changed by > 3/255 in the whole frame; water is counted apart (boats sail between page loads, [P]). */
 const frameDiff = (F: Field, a: Img, b: Img, gm: Awaited<ReturnType<typeof groundMap>>) => {
@@ -170,7 +181,7 @@ test('card 2 A/B vs card 1 @ 19:00 — AC1 budget, AC2 data, AC3 coverage, AC4 g
       o[i] = o[i + 1] = o[i + 2] = g; o[i + 3] = 255;
       if (!changed(a, at(B.im, x, y))) continue;
       if (covered(A.cv, A.im, x, y, 1) || covered(B.cv, A.im, x, y, 1)) { n.onParts++; o[i + 2] = 255; continue; }
-      const k = groundClass(F, ...A.gm.toGround(x + 0.5, y + 0.5));
+      const k = pixelClass(F, A.gm, x, y);
       n[k]++;
       if (k === 'held') { o[i] = 255; o[i + 1] = o[i + 2] = 0; } else o[i + 1] = 255;
     }
@@ -212,7 +223,7 @@ for (const clock of ['19:00', '08:00', '13:00', '23:00'] as const) test(`card 2 
         row.partPx = px.length;
         row.meanL = +meanL(px).toFixed(4);
         row.litPx = litCount(px);
-        row.maxSat = +Math.max(0, ...px.map(hslSat)).toFixed(3);
+        row.maxSat = +px.reduce((m, c) => Math.max(m, hslSat(c)), 0).toFixed(3); // no spread: phone DPR3 overflows the stack
         if (p.name === 'P1') { L[`${vp} ${clock}`] = row.meanL as number; lit[`${vp} ${clock}`] = row.litPx as number; }
         if (clock === '13:00') {
           // AC 5: no part pixel outside brass above 45 % HSL saturation (no lit windows at 13:00)
