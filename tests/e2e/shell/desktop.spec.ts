@@ -40,6 +40,7 @@ test("S1-07 every unlocked built:false app opens a ComingLater window; deep link
   for (const id of ids.filter((i) => i !== "settings" && i !== "city")) {
     await page.getByTestId(`tile-${id}`).click();
     const win = page.getByTestId(`win-${id}`).first();
+    if (id === "portfolio") { await expect(win.getByTestId("portfolio")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 2
     await expect(win.getByTestId("coming-later")).toContainText("Coming later");
     await expect(win.getByRole("heading")).toHaveText(await win.locator(".tb-name").innerText());
     await expect(win.getByRole("button", { name: /buy|sell/i })).toHaveCount(0);

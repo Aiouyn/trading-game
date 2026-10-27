@@ -1,0 +1,53 @@
+/* Portfolio (UI card 2, 17B PF-A). Tokens only; no brass on the frame (the rank chip is the one acc use, 17 §3.1.1). */
+.pf { container-type: inline-size; display: flex; flex-direction: column; gap: var(--sp-16); min-width: 0; }
+
+/* Tab row, Studio #38 segment: 28 px, 1 px --line border, radius 6, hairline dividers, selected --win2 + --fg medium.
+   Hit 28 pointer / 44 touch. Stacks at text scale >= 1.5. */
+.pf-seg { display: flex; border: 1px solid var(--line); border-radius: 6px; width: fit-content; max-width: 100%; overflow: hidden; }
+.pf-seg button { min-height: 28px; min-width: 44px; padding: 4px 12px; color: var(--fg-muted); overflow-wrap: anywhere; }
+.pf-seg button + button { border-left: 1px solid var(--line); }
+.pf-seg button[aria-selected="true"] { color: var(--fg); background: var(--win2); font-weight: 500; }
+.pf-seg.stacked { flex-direction: column; width: 100%; }
+.pf-seg.stacked button { text-align: left; }
+.pf-seg.stacked button + button { border-left: 0; border-top: 1px solid var(--line); }
+
+/* Overview: one column (DOM order = phone order: hero, rank, summary, restricted, stats). */
+.pf-ov { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-24); align-items: start; min-width: 0; }
+.pf-ov.pf-phone { padding: var(--sp-16); gap: var(--sp-20); }
+/* Two columns from 900 px of window width: hero + summary (+ restricted) left, stats + rank right. */
+@container (min-width: 900px) {
+  .pf-ov:not(.pf-phone) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: var(--sp-48); }
+  .pf-ov:not(.pf-phone) > .pf-hero { grid-column: 1; grid-row: 1; }
+  .pf-ov:not(.pf-phone) > .pf-summary { grid-column: 1; grid-row: 2; }
+  .pf-ov:not(.pf-phone) > .pf-restricted { grid-column: 1; grid-row: 3; }
+  .pf-ov:not(.pf-phone) > .pf-stats { grid-column: 2; grid-row: 1; }
+  .pf-ov:not(.pf-phone) > .pf-rank { grid-column: 2; grid-row: 2; }
+  .pf-ov:not(.pf-phone):not([data-stats="1"]) > .pf-rank { grid-row: 1; }
+}
+
+.pf-label { color: var(--fg-muted); }
+.pf-hero { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.pf-hero-nw { font: 400 var(--fs-44) / 1.1 var(--font-display); overflow-wrap: anywhere; min-width: 0; }
+.pf-phone .pf-hero-nw { font-size: var(--fs-30); }
+.pf-hero-nw .money { font-family: inherit; white-space: normal; }
+.pf-hero-nw .money:not(.loss):not(.muted) { color: var(--acc-wealth); }
+.pf-updating { margin: 0; font-size: var(--fs-12_5); }
+.pf-skel { height: var(--fs-44); width: min(320px, 100%); border-radius: var(--r-input); background: var(--win2); }
+.pf-phone .pf-skel { height: var(--fs-30); }
+
+.pf-rows { width: 100%; border-collapse: collapse; }
+.pf-rows tr { border-bottom: 1px solid var(--line); }
+.pf-rows th { text-align: left; font-weight: 400; color: var(--fg-muted); padding: var(--sp-8) var(--sp-8) var(--sp-8) 0; overflow-wrap: anywhere; }
+.pf-rows td { text-align: right; padding: var(--sp-8) 0; font-family: var(--font-num); font-feature-settings: "tnum"; overflow-wrap: anywhere; }
+.pf-rows td.pf-cell-amount { text-align: left; }
+.pf-rows td.pf-cell-note { font-family: var(--font-ui); }
+.pf-restricted .money-restricted { flex-wrap: wrap; }
+.pf-block { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.pf-rank { align-items: flex-start; }
+.pf-next { margin: 0; color: var(--fg-muted); }
+.pf-empty { margin: var(--sp-8) 0 0; }
+.pf-error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-8); }
+
+.pf-phone-nav { padding: 0 var(--sp-16) var(--sp-16); }
+.pf-nav-item { width: 100%; text-align: left; min-height: 28px; padding: 6px 0; color: var(--fg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+@media (pointer: coarse) { .pf-seg button, .pf-nav-item { min-height: 44px; } }
