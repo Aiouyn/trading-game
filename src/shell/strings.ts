@@ -62,6 +62,8 @@ export const S = {
   // 17A T5 notices. PROVISIONAL COPY (Producer 08:03): world-event tokens, overlay bodies and actions below are
   // placeholders pending Studio sign-off, except haltedChip / haltedChipHint which Studio marked final (08:04).
   haltedChip: "Trading halted",
+  moreAlerts: "More alerts",
+  alerts: "Alerts",
   haltedResumed: "Trading resumed · Port Avalon", // Studio final copy
   orderEntryHalted: "Orders are paused while trading is halted.", // Studio final copy
   orderEntryHaltReason: (reason: string) => `Reason: ${reason}.`, // Studio final copy; omitted when no reason

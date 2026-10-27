@@ -1,0 +1,48 @@
+---
+id: T10A-13
+unit: "10A"
+stage: S3
+title: District placement flags (content) - port and station flags plus the derived DistrictRole for every district of the 14 launch cities other than Port Avalon (and Isla Serena), authored by Systems and Designer for T10A-12
+depends_on: ["T10A-02", "T10A-12"]
+spec: ["10§3.2.2", "22§3.3"]
+context: ["10§3.19.4", "09§3.1.4"]
+catalog: []
+tests: []
+invariants: []
+decisions: []
+params: []
+files:
+  - packages/content/data/district-flags.json
+  - packages/content/src/district-flags.test.ts
+est_loc: 250
+---
+
+## Goal
+STUB, follow-up from the T10A-12 Producer review. T10A-12 derives a `DistrictRole` from tier, terrain role and plan, but 22 §3.3 has no port or station flag for each district. This card adds that content data for every district of the other 14 launch cities and Isla Serena, so the derivation is total. Systems writes the rules column; Designer authors the content (22). No code logic: data plus a schema and consistency test.
+
+## Exports
+```jsonc
+// district-flags.json
+{ "catalogVersion": "district-flags.v1",
+  "districts": [ { "distId": "dst_<city>_<slug>", "port": false, "station": false, "cbd": false, "riverOrCanal": false, "role": "<DistrictRole>" } ] }
+```
+
+## Implementation steps
+1. Designer fills one row per district in 10 §3.2.2 / 22 §3.3, using ids exactly as in 22 (no new names).
+2. Systems checks each `role` against the T10A-12 `districtRole` derivation and resolves disagreements in 22, not in code.
+3. Port Avalon rows restate T10A-12's role table (AC-10A-12-ROLE-PA) so there is one source.
+
+## Test plan
+`district-flags.test.ts`:
+- **AC-10A-13-COVER:** every district id in 22 §3.3 has exactly one row; no unknown id; Port Avalon has 8 rows.
+- **AC-10A-13-RULES:** each city with a CBD tier has exactly one `cbd: true`; every `port: true` district has a waterfront terrain role; every city has at least one INDUSTRIAL or PORT role (except Isla Serena); `role` equals T10A-12 `districtRole(flags)` for every row.
+- **AC-10A-13-TONE:** tonelint reports 0 hits on the file.
+
+## Open questions
+- Ownership of `packages/content/**` edits: Designer (content) or City Dev. Producer to assign.
+
+## Done when
+- [ ] All three ACs pass; T10A-12 U2 consumes the file for non-Port Avalon cities.
+
+## Ownership (Producer, 2026-10-21)
+City Dev edits `packages/content/data/district-flags.json` and owns that file only. Designer writes the values table in this card, and City Dev transcribes it. **AC-10A-13-TABLE-MATCH:** a schema test shows the JSON equals the card table row for row.

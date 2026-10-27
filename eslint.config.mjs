@@ -39,6 +39,7 @@ const eslintConfig = defineConfig([
     "design/**",
     "tools/lint/fixtures/**",
     "tools/dmath-ref/**",   // Node tool; typechecked by its own tsconfig (engine:check core)
+    "tools/ci/**",          // T02-06 stream-key scan; typechecked and tested under engine:check core
   ]),
 ]);
 
