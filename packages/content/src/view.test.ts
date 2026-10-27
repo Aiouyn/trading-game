@@ -2,7 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { toMoney, type ParamsView } from '@tycoon/engine-core';
+import { toMoney } from '@tycoon/engine-core';
+import { createParamsView, type ParamsView } from '@tycoon/params';
 import { BLOC_ALIAS_04, BLOC_IDS, canonicalBloc, canonicalEntityId, ContentError, type BlocId } from './blocs';
 import { cbSellOwnForFdl, peBaseKey, peNorm0Of, SECTOR_IDS, statisticsOfficeRegistration, swfRegistration, top30Of } from './derived';
 import { contentHashOf } from './hash';
@@ -15,7 +16,7 @@ function paramsWith(over: Partial<Record<SectorId, number>> = {}, extra: Record<
   const t: Record<string, number> = { ...extra };
   for (const s of SECTOR_IDS) t[peBaseKey(s)] = over[s] ?? PE[s];
   const get = (k: string): number => { const v = t[k]; if (v === undefined) throw new Error(`no param ${k}`); return v; };
-  return { num: get, int: get };
+  return { ...createParamsView([]), num: get, int: get };
 }
 const P = paramsWith();
 const errCode = (f: () => unknown): string | null => { try { f(); return null; } catch (e) { return e instanceof ContentError ? e.code : `other: ${String(e)}`; } };

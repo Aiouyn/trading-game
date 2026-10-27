@@ -1,7 +1,8 @@
 "use client";
 // MarketPhase (17 §3.2.1, §3.1.3, 17A T3): 6 px dot + "Market open · Port Avalon". The label is always present
 // (colour is never the only signal); the phone variant shows the dot only and keeps the label in aria-label.
-// A phase change cross-fades the label over --dur-base (0 under reduced motion).
+// A phase change cross-fades the label over --dur-base (0 under reduced motion). The first label does not fade in:
+// it is shown at full opacity on mount, so nothing (axe included) ever sees it at partial contrast after boot.
 import { useState } from "react";
 import type { MarketPhase as Phase } from "@/shell/channels";
 import { S } from "@/shell/strings";
@@ -39,7 +40,7 @@ export function MarketPhase({ phase, city, halted = false, reconnecting = false,
       <span className={`dot mp-dot mp-${tone}`} aria-hidden="true" />
       <span className="mp-label">
         {old && <span className="mp-text mp-out" aria-hidden="true" key={`o-${old}`}>{old}</span>}
-        <span className="mp-text mp-in" key={label} data-testid="phase-label">{label}</span>
+        <span className={`mp-text${old ? " mp-in" : ""}`} key={label} data-testid="phase-label">{label}</span>
       </span>
       {announce}
     </span>
