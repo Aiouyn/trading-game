@@ -48,6 +48,7 @@ function main(roots) {
   const files = [];
   const walk = (d) => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (!p.endsWith(".map")) files.push(p); } };
   for (const r of roots) { try { walk(r); } catch { console.error(`check-hooks: ${r} not found (run a no-flag next build first)`); process.exit(2); } }
+  if (!files.length) { console.error(`check-hooks: no files under ${roots.join(" + ")} (run a no-flag next build first)`); process.exit(2); }
   let n = 0;
   for (const f of files) {
     const text = readFileSync(f, "utf8");
