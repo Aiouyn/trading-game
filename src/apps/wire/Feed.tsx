@@ -10,6 +10,7 @@ import { BreakingStrip } from "./BreakingStrip";
 import { FilterChips, filterItems } from "./FilterChips";
 import { fill, type WireFilter, type WireStrings } from "./strings";
 import { WireItemRow } from "./WireItemRow";
+import { WireSkeletonList } from "./Skeleton";
 
 /** Newest first by tick; equal ticks keep array order. */
 export function orderNewest(items: readonly WireItem[]): WireItem[] {
@@ -73,10 +74,7 @@ export function Feed({ view, t }: { view: ChannelView<NewsBody>; t: WireStrings 
           )}
         </div>
         {view.state === "loading" ? (
-          <ul className="wire-list" aria-busy="true" data-testid="wire-loading">
-            <li className="sr-only">{t.loading}</li>
-            {[0, 1, 2].map((k) => <li key={k} className="wire-skel" aria-hidden="true" data-testid="wire-skeleton" />)}
-          </ul>
+          <WireSkeletonList label={t.loading} />
         ) : rows.length === 0 ? (
           <p className="wire-state" data-testid="wire-empty">{t.empty}</p>
         ) : (

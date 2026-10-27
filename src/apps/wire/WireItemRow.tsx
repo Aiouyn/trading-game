@@ -2,19 +2,19 @@
 // only when the item carries them. Bands are words, never a score or a %.
 "use client";
 import { Glyph } from "@/components/shell/Glyph";
-import { Chip, type ChipTone } from "@/components/ui/Chip";
+import { Chip } from "@/components/ui/Chip";
 import type { WireItem, WireKind } from "@/shell/contracts/channels";
 import { fill, headline, timeLabel, type WireStrings } from "./strings";
 
-/** FILING / PURCHASE in --acc; VERDICT, RUMOR, WORLD_EVENT styled in wire.css; the rest neutral. Never --signal. */
-const KIND_TONE: Partial<Record<WireKind, ChipTone>> = { FILING: "acc", PURCHASE: "acc" };
 
 /** Source record shows for RUMOR, and for STATEMENT when it carries one. */
 const showsRecord = (i: WireItem) => (i.kind === "RUMOR" || i.kind === "STATEMENT") && i.sourceRecord !== undefined;
 
+/** Every kind chip is neutral (--line outline, --fg-muted text; Studio: brass is only wealth, rank and the primary
+ *  action). RUMOR alone is dashed (wire.css). Never a tone, never --acc or --signal. */
 export function KindChip({ kind, t }: { kind: WireKind; t: WireStrings }) {
   return (
-    <Chip tone={KIND_TONE[kind] ?? "neutral"} className={`wire-kind wire-kind-${kind.toLowerCase()}`} data-testid="wire-kind" data-kind={kind}>
+    <Chip tone="neutral" className={`wire-kind wire-kind-${kind.toLowerCase()}`} data-testid="wire-kind" data-kind={kind}>
       {kind === "WORLD_EVENT" && <Glyph name="world" size={12} />}
       {t.kind[kind]}
     </Chip>

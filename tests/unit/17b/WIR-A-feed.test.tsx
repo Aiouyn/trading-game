@@ -66,7 +66,7 @@ describe("WIR-1-05 breaking strip", () => {
     const strip = el.querySelector<HTMLElement>("[data-testid=wire-breaking]")!;
     expect(strip.dataset.id).toBe("n-4");
     expect(strip.textContent).toContain("Breaking");
-    expect(strip.textContent).toContain("Block trade: 50000 KILN");
+    expect(strip.textContent).toContain("Block trade: 50,000 KILN");
     await act(async () => root!.unmount()); root = null;
     await render(live({ items: b.items.map((i) => ({ ...i, breaking: false })) }));
     expect(el.querySelector("[data-testid=wire-breaking]")).toBeNull();

@@ -33,7 +33,10 @@ export function FilterChips({ value, onChange, t }: { value: WireFilter; onChang
     if (next < 0) return;
     e.preventDefault();
     onChange(FILTERS[next]!);
-    e.currentTarget.querySelector<HTMLButtonElement>(`[data-filter="${FILTERS[next]}"]`)?.focus();
+    const chip = e.currentTarget.querySelector<HTMLButtonElement>(`[data-filter="${FILTERS[next]}"]`);
+    chip?.focus({ preventScroll: true });
+    // Reveal the whole chip and its focus ring: scrollIntoView honours scroll-margin (fade + ring, wire.css).
+    chip?.scrollIntoView({ block: "nearest", inline: "nearest" });
   };
   return (
     <div className="wire-filters">

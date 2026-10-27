@@ -1,5 +1,5 @@
 // UI card 1 WIR-1-11: Wire never does arithmetic parsing on WireItem fields (they are display strings / bands).
-// Only `tick` is numeric, and it is formatted by game/clock, so no Wire file calls Number( / parseFloat / parseInt.
+// Only `tick` is numeric, and it is formatted by the shell clock (clockAt + clockLabel), so no Wire file calls Number( / parseFloat / parseInt.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";

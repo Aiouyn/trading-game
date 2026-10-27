@@ -1,16 +1,4 @@
-/* Wire feed (UI card 1 · WIR-A). Tokens only. Window >= 520 px: chip column / headline / time; narrower (phone): stacked. */
-.win-body:has(> .wire),
-.phone-appbody:has(> .wire) { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
-
-.wire {
-  container: wire / inline-size;
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--win);
-  color: var(--fg);
-}
+/* Wire feed (UI card 1 · WIR-A). Tokens only. Container, list and skeleton rules live in skeleton.css (shell chunk). Window >= 520 px: chip column / headline / time; narrower (phone): stacked. */
 
 /* Invisible hit area: 28 px with a pointer, 44 px on touch; the control itself never grows. */
 .wire-hit { position: relative; }
@@ -98,14 +86,16 @@
 }
 .wire-chip[aria-checked="true"] { color: var(--fg); }
 .wire-chip[aria-checked="true"] > .wire-chip-face { background: var(--win2); }
-.wire-chip:focus-visible { outline: none; }
+/* Focus: the shell's ring token (its 2 px --bg0 offset + 2 px ring) on the visible face, never on the hit box. The
+   focused chip paints above the edge fades, and scroll-margin (16 px fade + 4 px ring) keeps it clear of the scroller's edges, so the ring is
+   never clipped or faded. */
+.wire-chip { scroll-margin-inline: var(--sp-20); }
+.wire-chip:focus-visible { position: relative; z-index: 2; outline: none; }
 .wire-chip:focus-visible > .wire-chip-face { box-shadow: var(--focus-ring); }
 
 .wire-updating { flex: none; margin: 0; padding: var(--sp-4) var(--sp-16); font-size: var(--fs-11_5); color: var(--fg-muted); }
 
 /* ---- List ---- */
-.wire-body { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; }
-.wire-list { flex: 1; min-height: 0; margin: 0; padding: 0; overflow-y: auto; overflow-anchor: none; list-style: none; }
 .wire-pill-slot {
   position: absolute;
   top: var(--sp-8);
@@ -145,12 +135,9 @@
 .wire-priced { display: inline-flex; align-items: center; gap: var(--sp-4); }
 .chip.wire-band { border-color: var(--steel); color: var(--fg); }
 
-/* Kind chips: FILING / PURCHASE use .chip-acc; never --signal on a row. */
-.chip.wire-kind-verdict { color: var(--fg); }
-.chip.wire-kind-rumor { border-style: dashed; color: var(--fg-muted); }
-.chip.wire-kind-world_event { color: var(--steel); }
+/* Kind chips are all neutral (.chip: --line outline, --fg-muted text); RUMOR is dashed. No brass, never --signal. */
+.chip.wire-kind-rumor { border-style: dashed; }
 
-.wire-skel { min-height: 40px; border-bottom: 1px solid var(--line); background: var(--win2); }
 .wire-state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); margin: 0; padding: var(--sp-24) var(--sp-16); color: var(--fg-muted); }
 
 @container wire (min-width: 520px) {

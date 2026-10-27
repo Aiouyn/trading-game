@@ -9,6 +9,9 @@ const TICK_MS = 5000;
 const ROTATION_MS = 12 * TICK_MS; // one rotation item every NEWS_EVERY = 12 ticks
 const PALETTES = ["ink-brass", "broadsheet", "phosphor", "riviera"] as const;
 const isPhone = (info: TestInfo) => info.project.name === "phone";
+/** Brass tokens (tokens.css): never on a Wire kind chip (Studio art ruling a). */
+const BRASS = ["--acc", "--acc-hi", "--acc-lo", "--acc-wealth"] as const;
+const KINDS = ["NEWS", "RUMOR", "FILING", "VERDICT", "MARKET", "PURCHASE", "ALLIANCE", "STATEMENT", "OUTLET", "CHAPTER", "RECORD", "RANK", "PHILANTHROPY", "WORLD_EVENT", "DAILY_CLOSE"] as const;
 
 /** The Wire root: the desktop window or the phone app view. */
 const wire = (page: Page) => page.getByTestId("wire");
@@ -68,6 +71,45 @@ async function expectHitAreas(page: Page, min: number) {
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) expect(overlap(boxes[i]!, boxes[j]!), `chips ${i}/${j}`).toBe(false);
 }
 
+/** Focus ring of a focused control, drawn on its visible face (a chip's .wire-chip-face, else the control): the face's
+ *  box-shadow is the shell's --focus-ring token (2 px --bg0 offset + 2 px ring, built into the token), the control has
+ *  no UA outline, and the ring (face + 4 px) lies inside every clipping ancestor and the viewport; where it meets a
+ *  displayed chip-row fade, the control must paint above that fade. Returns the failures, empty when all hold. */
+const ringProblems = (l: Locator) => l.evaluate((el) => {
+  const out: string[] = [];
+  const face = el.querySelector<HTMLElement>(".wire-chip-face") ?? (el as HTMLElement);
+  const probe = document.createElement("i"); probe.style.boxShadow = "var(--focus-ring)";
+  el.closest(".wire")!.append(probe); const token = getComputedStyle(probe).boxShadow; probe.remove();
+  const name = el.getAttribute("data-testid");
+  if (!el.matches(":focus-visible")) out.push(`${name} not :focus-visible`);
+  if (getComputedStyle(face).boxShadow !== token) out.push(`${name} shadow ${getComputedStyle(face).boxShadow} != token ${token}`);
+  const cs = getComputedStyle(el);
+  if (cs.outlineStyle !== "none" && cs.outlineWidth !== "0px") out.push(`${name} outline ${cs.outlineStyle} ${cs.outlineWidth}`);
+  const f = face.getBoundingClientRect(), R = 4;
+  const ring = { l: f.left - R, t: f.top - R, r: f.right + R, b: f.bottom + R };
+  const outside = (L: number, T: number, Rt: number, B: number) => ring.l < L - 0.5 || ring.t < T - 0.5 || ring.r > Rt + 0.5 || ring.b > B + 0.5;
+  for (let a = face.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+    const as = getComputedStyle(a);
+    if (as.overflowX === "visible" && as.overflowY === "visible") continue;
+    const r = a.getBoundingClientRect(), L = r.left + a.clientLeft, T = r.top + a.clientTop;
+    if (outside(L, T, L + a.clientWidth, T + a.clientHeight)) out.push(`${name} ring clipped by .${a.className.toString().replace(/ /g, ".")}`);
+  }
+  if (outside(0, 0, window.innerWidth, window.innerHeight)) out.push(`${name} ring outside the viewport`);
+  const filters = el.closest(".wire-filters");
+  if (filters) {
+    const fr = filters.getBoundingClientRect();
+    for (const pe of ["::before", "::after"] as const) {
+      const ps = getComputedStyle(filters, pe);
+      if (ps.display === "none" || ps.content === "none") continue;
+      const w = parseFloat(ps.width), x = pe === "::before" ? fr.left : fr.right - w;
+      const meets = ring.r > x + 0.5 && ring.l < x + w - 0.5;
+      const above = cs.position !== "static" && (parseInt(cs.zIndex) || 0) > (parseInt(ps.zIndex) || 0);
+      if (meets && !above) out.push(`${name} ring under the ${pe} fade`);
+    }
+  }
+  return out;
+});
+
 /** Boot on a paused fake clock, then step it so React reveals the lazy Wire chunk (Suspense throttles on timers)
  * and its first snapshot (SNAP_DELAY_MS) lands. */
 async function bootWirePaused(page: Page, path: string) {
@@ -86,17 +128,90 @@ async function fillUntilScrollable(page: Page) {
 }
 
 test.describe("WIR-A wire feed", () => {
-  test("WIR-1-02 kind chips: FILING = --acc, RUMOR dashed, no --signal anywhere on a row (4 palettes)", async ({ page }) => {
+  test("Wire chunk loading shows the feed skeleton, never 'Coming later' (Studio ruling)", async ({ page }, info) => {
+    // Count, from the first DOM mutation on, every Wire "Coming later" placeholder and every skeleton fallback.
+    await page.addInitScript(() => {
+      const w = window as Window & { __wireSeen?: { comingLater: number; skeleton: number } };
+      const seen = (w.__wireSeen = { comingLater: 0, skeleton: 0 });
+      new MutationObserver(() => {
+        for (const c of document.querySelectorAll("[data-testid=coming-later]")) if (c.querySelector("h2")?.textContent === "Wire") seen.comingLater += 1;
+        if (document.querySelector("[data-testid=wire-boot] [data-testid=wire-skeleton]")) seen.skeleton += 1;
+      }).observe(document, { childList: true, subtree: true, characterData: true });
+    });
+    const holdChunks = () => page.route("**/_next/static/chunks/**", async (r) => { await new Promise((res) => setTimeout(res, 1200)); await r.continue(); });
+    const read = () => page.evaluate(() => (window as Window & { __wireSeen?: { comingLater: number; skeleton: number } }).__wireSeen!);
+    if (!isPhone(info)) {
+      // Desktop: the default Trade layout opens Wire at boot, so hold every chunk from the first request; the lazy
+      // Wire chunk then resolves after hydration and the window must go from skeleton (or SSR'd feed) to feed.
+      await holdChunks();
+      await boot(page, "/");
+      await expect(wire(page)).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("wire-boot")).toHaveCount(0);
+      const seen = await read();
+      test.info().annotations.push({ type: "wire-boot", description: `skeleton mutations seen: ${seen.skeleton}` });
+      expect(seen.comingLater).toBe(0);
+      return;
+    }
+    // Phone: Wire is not open at boot, so its chunk loads on the first tap; hold every chunk from then on.
+    await boot(page, "/");
+    await expect(wire(page)).toHaveCount(0);
+    await holdChunks();
+    await page.getByTestId("icon-wire").click();
+    const fallback = page.getByTestId("wire-boot");
+    await expect(fallback).toBeVisible();
+    await expect(fallback.getByTestId("wire-skeleton")).toHaveCount(3);
+    await expect(fallback.getByTestId("wire-loading")).toHaveAttribute("aria-busy", "true");
+    await expect(wire(page)).toBeVisible({ timeout: 15_000 });
+    await expect(fallback).toHaveCount(0);
+    const seen = await read();
+    expect(seen.comingLater).toBe(0);
+    expect(seen.skeleton).toBeGreaterThan(0);
+  });
+
+  test("Wire Suspense fallback renders the skeleton while the chunk is pending (paused clock)", async ({ page }) => {
+    await bootPaused(page, "/wire");
+    // React reveals the lazy chunk only when timers run; until then the fallback must be the skeleton.
+    const fallback = page.getByTestId("wire-boot");
+    if (await wire(page).count() === 0) {
+      await expect(fallback).toBeVisible();
+      await expect(fallback.getByTestId("wire-skeleton")).toHaveCount(3);
+    }
+    await expect(page.getByTestId("coming-later").filter({ hasText: "Wire" })).toHaveCount(0);
+    await expect.poll(async () => { await page.clock.runFor(100); return wire(page).count(); }, { timeout: 15_000 }).toBe(1);
+    await expect(page.getByTestId("coming-later").filter({ hasText: "Wire" })).toHaveCount(0);
+  });
+
+  test("WIR-1-02 kind chips: all neutral (--line outline, --fg-muted), no brass on any kind, RUMOR dashed, no --signal on a row (4 palettes)", async ({ page }) => {
     await boot(page, "/wire?tier=terminal");
     await expect(rows(page)).toHaveCount(4);
     for (const p of PALETTES) {
       await setPalette(page, p);
-      const acc = await resolve(page, "var(--acc)");
-      const signal = await resolve(page, "var(--signal)");
-      const filing = row(page, "n-3").getByTestId("wire-kind");
-      await expect(filing, p).toHaveCSS("color", acc);
-      await expect(row(page, "n-2").getByTestId("wire-kind"), p).toHaveCSS("border-top-style", "dashed");
-      await expect(row(page, "n-1").getByTestId("wire-kind"), p).toHaveCSS("border-top-style", "solid");
+      const [muted, line, signal] = [await resolve(page, "var(--fg-muted)"), await resolve(page, "var(--line)"), await resolve(page, "var(--signal)")];
+      const brass = await Promise.all(BRASS.map((v) => resolve(page, `var(${v})`)));
+      // Real rows (NEWS, RUMOR, FILING, MARKET) plus a probe chip per kind with the exact classes KindChip renders
+      // (the unit test pins those classes), so PURCHASE, VERDICT, WORLD_EVENT … are checked against the live CSS too.
+      const chips = await wire(page).evaluate((root, kinds) => {
+        const probe = document.createElement("div"); probe.style.cssText = "position:absolute;visibility:hidden"; root.append(probe);
+        for (const k of kinds) { const c = document.createElement("span"); c.className = `chip wire-kind wire-kind-${k.toLowerCase()}`; c.dataset.kind = k; c.dataset.probe = "1"; c.innerHTML = "<svg width=12 height=12></svg>x"; probe.append(c); }
+        const out = [...root.querySelectorAll<HTMLElement>("[data-testid=wire-kind], [data-probe]")].map((c) => {
+          const cs = getComputedStyle(c);
+          const kids = [...c.querySelectorAll("*")].map((k) => getComputedStyle(k)).flatMap((k) => [k.color, k.fill, k.stroke]);
+          return { kind: c.dataset.kind!, color: cs.color, border: [cs.borderTopColor, cs.borderRightColor, cs.borderBottomColor, cs.borderLeftColor], style: cs.borderTopStyle, bg: cs.backgroundColor, kids };
+        });
+        probe.remove();
+        return out;
+      }, KINDS);
+      expect(chips.length, p).toBe(4 + KINDS.length);
+      for (const c of chips) {
+        const where = `${p} ${c.kind}`;
+        expect(c.color, where).toBe(muted);
+        expect(new Set(c.border), where).toEqual(new Set([line]));
+        expect(c.style, where).toBe(c.kind === "RUMOR" ? "dashed" : "solid");
+        for (const v of [c.color, ...c.border, c.bg, ...c.kids]) {
+          expect(brass, `${where} brass ${v}`).not.toContain(v);
+          expect(v, `${where} --signal`).not.toBe(signal);
+        }
+      }
       const hits = await wire(page).evaluate((root, sig) => {
         const out: string[] = [];
         for (const el of root.querySelectorAll("[data-testid=wire-row], [data-testid=wire-row] *")) {
@@ -153,7 +268,7 @@ test.describe("WIR-A wire feed", () => {
     const strip = page.getByTestId("wire-breaking");
     await expect(strip).toHaveAttribute("data-id", "n-4");
     await expect(strip).toContainText("Breaking");
-    await expect(strip).toContainText("Block trade: 50000 KILN");
+    await expect(strip).toContainText("Block trade: 50,000 KILN");
     const b = (await strip.boundingBox())!;
     expect(Math.round(b.height)).toBe(32);
     await expect(strip).toHaveCSS("border-left-width", "3px");
@@ -278,6 +393,25 @@ test.describe("WIR-A wire feed", () => {
     await expect(rows(page)).toHaveCount(1);
   });
 
+  test("WIR-1-09 focus ring: every chip, reached by keyboard, shows the shell ring on its face, never clipped or faded", async ({ page }) => {
+    await boot(page, "/wire");
+    await expect(page.getByTestId("wire-filter-all")).toBeVisible();
+    const chips = page.getByTestId("wire-filters").getByRole("radio");
+    const n = await chips.count();
+    expect(n).toBeGreaterThan(5);
+    await page.getByTestId("wire-filter-all").focus();
+    const seen = new Set<string>();
+    for (let i = 0; i <= n; i++) { // all chips, then wrap back to "All"
+      if (i > 0) await page.keyboard.press("ArrowRight");
+      const focused = page.locator("[data-testid=wire-filters] [role=radio]:focus");
+      await expect(focused).toHaveCount(1);
+      seen.add((await focused.getAttribute("data-testid"))!);
+      await page.waitForTimeout(50); // let focus scrolling settle
+      expect(await ringProblems(focused)).toEqual([]);
+    }
+    expect(seen.size).toBe(n);
+  });
+
   for (const scale of ["1", "2"]) {
     test(`WIR-1-10 phone at text scale ${scale}: chips scroll, no page overflow, no mid-word break, hits ≥ 44, no overlap`, async ({ page }, info) => {
       test.skip(!isPhone(info), "phone");
@@ -338,6 +472,8 @@ test.describe("WIR-A wire feed", () => {
     expect(b.w).toBeGreaterThanOrEqual(min);
     expect(b.vis.h).toBeLessThanOrEqual(28);
     expect(await hitsAt(pill)).toBe(true);
+    await pill.focus(); // keyboard focus: the shell ring on the visible pill, not clipped by the list or the window
+    expect(await ringProblems(pill)).toEqual([]);
   });
 });
 
