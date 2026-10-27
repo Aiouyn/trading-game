@@ -75,7 +75,7 @@ export interface CityTestApi {
   /** Take a ui.perf sample now (same path as the 60 s timer). */
   samplePerfNow: () => void;
   /** T0 only: the drawn city's vertical extent and its labels, CSS px. */
-  t0Picture: () => { top: number; bottom: number; height: number; labels: (LabelBox & { text: string })[] } | null;
+  t0Picture: () => { top: number; bottom: number; height: number; labels: (LabelBox & { text: string })[]; ms: { field: number[]; picture: Record<string, number> } } | null;
   labelBackground: () => { text: string; p50: number; p75: number }[] | null;
   decodeMs: () => number;
   decodeInWorker: () => boolean;
@@ -155,6 +155,8 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   let ground: GroundData | null = null;
   let groundHash: string | null = null;
   let groundField: GroundField | null = null;
+  /** e2e: wall-clock ms of each ground-field task (coast EDT, road EDT, pack, coast loops) */
+  const fieldMs: number[] = [];
   let model: CityModel | null = null;
   let colors: { colors: Float32Array; flat: Uint8Array } | null = null;
 
@@ -445,7 +447,10 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
           const next = { mask: new Uint8Array(buf), size: g.size, x0: b.x0, z0: b.z0, span: b.size };
           // card 1: the coast / road field runs once per mask, split over tasks of its own
           await nextTask();
-          groundField = await buildGroundFieldInTasks(next, s.districts, nextTask);
+          let t = performance.now();
+          const lap = () => { const now = performance.now(); fieldMs.push(Math.round((now - t) * 10) / 10); return now; };
+          groundField = await buildGroundFieldInTasks(next, s.districts, async () => { lap(); await nextTask(); t = performance.now(); });
+          lap();
           ground = next;
           groundHash = g.contentHash;
         }),
@@ -666,6 +671,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       ramps,
       labels: labelSpecs().map((l) => ({ text: l.text, ground: l.ground })),
       labelFont: font,
+      profile: DEV_OR_E2E && new URLSearchParams(location.search).has('t0prof'),
     });
     img.src = t0Info.url;
   }
@@ -1266,7 +1272,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       cutCount: () => cutCount,
       labelBackground: () => labelBackground(),
       samplePerfNow: () => samplePerf(),
-      t0Picture: () => (tier === 'T0' && t0Info && chrome ? { top: t0Info.top, bottom: t0Info.bottom, height: chrome.stage.clientHeight, labels: t0Info.labels } : null),
+      t0Picture: () => (tier === 'T0' && t0Info && chrome ? { top: t0Info.top, bottom: t0Info.bottom, height: chrome.stage.clientHeight, labels: t0Info.labels, ms: { field: fieldMs, picture: t0Info.ms } } : null),
       partsOfEntity: (id) => {
         const ei = model?.entityIndex.get(id);
         return ei === undefined ? 0 : (model!.partsOf.get(ei)?.length ?? 0);

@@ -74,6 +74,8 @@ export interface PictureResult {
   bottom: number;
   /** Labels as drawn, CSS px; labels that would be clipped or overlap another are left out. */
   labels: (LabelBox & { text: string })[];
+  /** Wall-clock ms per drawing stage (explains the T0 long task; read by the e2e hook only). */
+  ms: Record<string, number>;
 }
 
 /**
@@ -95,8 +97,13 @@ export function drawPicture(opts: {
   /** Each label: its text and candidate ground points (metres), most preferred first. */
   labels: { text: string; ground: [number, number][] }[];
   labelFont: string;
+  /** e2e profiling: flush the canvas (1 px read-back) at each stage so `ms` holds raster time too */
+  profile?: boolean;
 }): PictureResult {
   const { ramps } = opts;
+  const ms: Record<string, number> = {};
+  let t = performance.now();
+  const lap = (k: string) => { if (opts.profile) g?.getImageData(0, 0, 1, 1); const now = performance.now(); ms[k] = Math.round((now - t) * 10) / 10; t = now; };
   const canvas = document.createElement('canvas');
   const W = Math.max(1, Math.round(opts.width * opts.dpr)), H = Math.max(1, Math.round(opts.height * opts.dpr));
   canvas.width = W;
@@ -105,7 +112,7 @@ export function drawPicture(opts: {
   // accelerated canvas on a software GPU (SwiftShader: CI, the box, blocklisted GPUs) spent seconds
   // in that one flush (T0 profile, 2026-10-27).
   const g = canvas.getContext('2d', { willReadFrequently: true });
-  if (!g) return { url: '', top: 0, bottom: 0, labels: [] };
+  if (!g) return { url: '', top: 0, bottom: 0, labels: [], ms };
   g.fillStyle = css(ramps.water);
   g.fillRect(0, 0, W, H);
   // label metrics first: the portrait crop must keep every district label on the picture
@@ -134,8 +141,11 @@ export function drawPicture(opts: {
     const step = groundStep(size);
     const s = (span / size) * step;
     const fills = [css(ramps.water), css(ramps.land), css(ramps.park), css(ramps.road)];
+    lap('setup');
     const bmp = groundBitmap(mask, size, step, fillBytes(fills));
+    lap('bitmap');
     if (opts.coast) dilateLand(bmp.data, bmp.n);
+    lap('dilate');
     const src = document.createElement('canvas');
     src.width = bmp.n;
     src.height = bmp.n;
@@ -161,6 +171,7 @@ export function drawPicture(opts: {
       g.drawImage(src, 0, 0);
       g.restore();
     }
+    lap('clip+ground');
     if (opts.coast) {
       // quay coping: the coast segments whose both ends are quay, one stroke, at least 1 px
       const { loops, quay } = opts.coast;
@@ -179,6 +190,7 @@ export function drawPicture(opts: {
       g.lineWidth = Math.max(1, 0.5 * scale);
       g.stroke(cope);
       g.restore();
+      lap('coping');
     }
   }
   const [dx, , dz] = viewDirection(0);
@@ -200,6 +212,7 @@ export function drawPicture(opts: {
     quad([toScreen(x0, y0, z1), toScreen(x1, y0, z1), toScreen(x1, y1, z1), toScreen(x0, y1, z1)], css(lit));
     quad([toScreen(x0, y1, z0), toScreen(x1, y1, z0), toScreen(x1, y1, z1), toScreen(x0, y1, z1)], css(top));
   }
+  lap('parts');
   // district labels: --fg with a 3 px --bg0 knockout stroke (no shadow). Laid out like the 3D
   // labels: a label moves to another point of its district, or is left out, rather than being
   // clipped by the edge or drawn over another label (review: "Financial Mile" on phone T0).
@@ -231,7 +244,10 @@ export function drawPicture(opts: {
   // vertical extent of the city as drawn (ground + parts), CSS px
   const top = Math.max(0, (H / 2 - (v1 - vc) * scale) / k);
   const bottom = Math.min(H / k, (H / 2 - (v0 - vc) * scale) / k);
-  return { url: canvas.toDataURL('image/png'), top, bottom, labels: drawn };
+  lap('labels');
+  const url = canvas.toDataURL('image/png');
+  lap('encode');
+  return { url, top, bottom, labels: drawn, ms };
 }
 
 /**
