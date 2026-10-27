@@ -1,6 +1,7 @@
 // INV-LED-001..015 (spec §4). Each check is a pure function of a CheckView; observed strings start with the 03 §3.16 I-number.
-import { accountKey, BMA_CODES, classOfCode, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
+import { accountKey, BMA_CODES, classOfCode, isMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, type ParsedKey, SYS_ID } from './accounts';
 import { CBK_CREDIT_CODES, CBK_UNWIND_CODES, CLASS_TEMPLATES, FLOW_CLASSES, RESTRICTED_OK_CODES, type FlowClass, type ReasonCatalog } from './catalog';
+import { overdraftScope, scanSide, type BalanceSide, type TickIndex } from './balside';
 import { SortedMap } from './det';
 import { CCYS, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
 import { legKey } from './templates';
@@ -20,6 +21,11 @@ export interface CheckView {
   tick: Tick; isDayClose: boolean; catalog: ReasonCatalog;
   entries: readonly Entry[];                 // valid entries applied this tick, in queue order
   pre: Accounts; post: Accounts;
+  /** E-84 balance side (ΔM0, ΔM0_sys, ΔM0_cb, I17 totals, qty movement): the world passes the incremental one, read from the
+   *  store-layer dirty set and the running totals; absent (pure views) = the full scan of pre and post. Never from postings. */
+  balances?: BalanceSide;
+  /** E-84 condition 5: the accounts a scan check must visit (negative balances, written accounts, sub groups); absent = all of post. */
+  index?: TickIndex;
   entity(id: Id): LedgerEntity | undefined;
   facts: { overdraftLimit(key: string): Money; intradayLimit(bankId: Id): Money };
   flows: SortedMap<string, TickFlows>;       // what the aggregator wrote this tick, id = ccy
@@ -29,7 +35,7 @@ export interface CheckView {
   todayByCode?: (ccy: Ccy) => SortedMap<string, Money>;
   alarm: { mult: number; floorMicro: Money };
   /** INV-LED-016/019/020/021/023 context (world P13 only). */
-  sys?: { before(id: Id): SideTag | undefined; after(id: Id): SideTag | undefined; ids: Id[]; holdPost: SortedMap<string, Money>;
+  sys?: { before(id: Id): SideTag | undefined; after(id: Id): SideTag | undefined; ids: Id[] /* entities whose side tag changed this tick (sorted) */; holdPost: SortedMap<string, Money>;
     anomalies: string[]; dM0cb(ccy: Ccy): Money; escrowVictim(id: Id): Id | undefined };
   escrows?: SortedMap<Id, ConflictEscrow>;   // staged led.escrow (INV-LED-022)
   holds?: SortedMap<Id, Hold>;               // staged holds (INV-LED-022 c)
@@ -39,6 +45,8 @@ const F = (invariantId: string, observed: string, expected: string, severity: Fa
   ({ invariantId, observed, expected, severity });
 const bal = (m: Accounts, k: string): Money => m.get(k)?.balance ?? 0n;
 const sides = (p: Posting): [string, Money][] => [[p.debitAccount, p.amount], [p.creditAccount, -p.amount]];
+/** The tick's balance side: the world's incremental one, or (pure views) a full scan of pre and post. */
+export const balanceSide = (v: CheckView): BalanceSide => v.balances ?? scanSide(v.pre, v.post);
 const QTY_ONLY_CODES = ['EQ_SPLIT', 'LED_DISSOLUTION'];
 
 // ───────── money aggregates (T03-11; computed from balances) ─────────
@@ -106,6 +114,12 @@ export function bridge2909Scan(a: Accounts, ccy: Ccy): Money {
   return s;
 }
 
+/** ΔM0_cb = Δ(M0 − M0_sys) over the tick, from the balance side. */
+export function dM0cbOf(bs: BalanceSide, ccy: Ccy): Money {
+  const s = bs.start(ccy); const e = bs.end(ccy);
+  return e.m0 - e.m0sys - (s.m0 - s.m0sys);
+}
+
 // ───────── Δ2 / PD-5 aggregator: O(postings this tick) ─────────
 export function tickFlowsOf(entries: readonly Entry[], catalog: ReasonCatalog, tick: Tick, m0sysDelta: (ccy: Ccy) => Money): SortedMap<string, TickFlows> {
   const out = new SortedMap<string, TickFlows>();
@@ -143,6 +157,8 @@ export const INV_LED_001: Check = (v) => {
     for (const [k, b] of m) if (b.qty !== 0n) { const q = parseAccountKey(k); if (q?.sub) s.set(`${q.sub}|${q.ccy}`, (s.get(`${q.sub}|${q.ccy}`) ?? 0n) + b.qty); }
     return s;
   };
+  // E-84: the balance side says whether any qty moved net; the full scans below only run to word a failure.
+  if (balanceSide(v).qtyDelta.size === 0) return dedupe(out);
   const a = qty(v.pre); const b = qty(v.post);
   for (const k of [...a.keys(), ...b.keys()]) if ((a.get(k) ?? 0n) !== (b.get(k) ?? 0n)) out.push(F('INV-LED-001', `I8: qty of ${k} ${a.get(k) ?? 0n} -> ${b.get(k) ?? 0n}`, 'qty conserved'));
   return dedupe(out);
@@ -181,19 +197,14 @@ export const INV_LED_003: Check = (v) => {
       if (eff !== 0n && cls !== 'FAUCET' && cls !== 'SINK') out.push(F('INV-LED-003', `I4: ${cls} posting ${e.entryId}#${p.postingSeq} moves M0_sys by ${eff}`, 'only FAUCET/SINK move M0_sys'));
       if (cls === 'FAUCET' || cls === 'SINK') fs += eff;
     }
-    const d = computeM0sys(v.post, ccy) - computeM0sys(v.pre, ccy);
+    const bs = balanceSide(v); const end = bs.end(ccy);
+    const d = end.m0sys - bs.start(ccy).m0sys;
     if (d !== fs) out.push(F('INV-LED-003', `I4: ΔM0_sys(${ccy}) ${d}`, `Σ FAUCET − Σ SINK = ${fs}`));
     // I17. Ambiguity A-2: elastic issuance (03#3 layout) books sys:2909:<sector>, not 5900/4900, so the 2909 bridge is added to netIssuance.
-    const ni = netIssuance(v.post, ccy) + bridge2909(v.post, ccy); const s2900 = bal(v.post, `${SYS_ID}:2900:${ccy}`);
-    if (ni !== -s2900 || computeM0sys(v.post, ccy) !== -s2900) out.push(F('INV-LED-003', `I17: netIssuance+2909 ${ni}, cbk 1910 ${computeM0sys(v.post, ccy)}, sys 2900 ${s2900}`, 'netIssuance + Σ sys 2909 = cbk 1910 = −sys 2900'));
-    // I17 mirror per elastic sector (review F2, erratum E-8): sys:2909:X + X:1009 = 0n.
-    const mirror = new SortedMap<string, Money>();
-    for (const [k, b] of v.post) {
-      const q = parseAccountKey(k); if (!q || q.ccy !== ccy) continue;
-      if (q.entityId === SYS_ID && q.code === 2909 && q.sub) mirror.set(q.sub, (mirror.get(q.sub) ?? 0n) + b.balance);
-      else if (q.code === 1009 && q.sub === undefined) mirror.set(q.entityId, (mirror.get(q.entityId) ?? 0n) + b.balance);
-    }
-    for (const [x, m] of mirror) if (m !== 0n) out.push(F('INV-LED-003', `I17 2909 mirror ${x} (${ccy}) off by ${m}`, '0n'));
+    const ni = end.netIssuance + end.bridge2909; const s2900 = bal(v.post, `${SYS_ID}:2900:${ccy}`);
+    if (ni !== -s2900 || end.m0sys !== -s2900) out.push(F('INV-LED-003', `I17: netIssuance+2909 ${ni}, cbk 1910 ${end.m0sys}, sys 2900 ${s2900}`, 'netIssuance + Σ sys 2909 = cbk 1910 = −sys 2900'));
+    // I17 mirror per elastic sector (review F2, erratum E-8): sys:2909:X + X:1009 = 0n (E-84: a running total per sector).
+    for (const [x, m] of end.mirror) if (m !== 0n) out.push(F('INV-LED-003', `I17 2909 mirror ${x} (${ccy}) off by ${m}`, '0n'));
     if (v.isDayClose && v.dayEntries && v.flowsToday) {
       const ledger = new SortedMap<FlowClass, Money>(FLOW_CLASSES.map((c) => [c, 0n]));
       for (const e of v.dayEntries) for (const p of e.postings) if (p.flowLeg && p.ccy === ccy) {
@@ -230,7 +241,7 @@ export const INV_LED_004: Check = (v) => {
       }
       out.push(...m2EntryRules(v, e, ccy));
     }
-    const dM0cb = computeM0(v.post, ccy) - computeM0sys(v.post, ccy) - (computeM0(v.pre, ccy) - computeM0sys(v.pre, ccy));
+    const bs = balanceSide(v); const dM0cb = dM0cbOf(bs, ccy);
     if (dM0cb !== cbExpected) out.push(F('INV-LED-004', `I4: ΔM0_cb(${ccy}) ${dM0cb}`, `cb credit + cbk own-account ${cbExpected}`));
   }
   return out;
@@ -360,11 +371,11 @@ export const INV_LED_007: Check = (v) => {
 /** L8 (I9, I10): no negative cash or deposit beyond its recorded facility; bank reserves to the intraday limit, ≥ 0n at day close. */
 export const INV_LED_008: Check = (v) => {
   const out: Failure[] = [];
-  for (const [k, b] of v.post) {
-    if (b.balance >= 0n) continue;
-    const q = parseAccountKey(k); if (!q) continue;
-    const kind = kindOfId(q.entityId);
-    if (kind === 'cbk' || kind === 'sys' || !(q.code === 1001 || q.code === 1002 || q.code === 1003 || q.code === 1010)) continue;
+  for (const k of v.index ? v.index.negatives() : v.post.keys()) { // E-84: only negative balances can fail; the index lists them all
+    const b = v.post.get(k);
+    if (!b || b.balance >= 0n) continue;
+    if (!overdraftScope(k)) continue;
+    const q = parseAccountKey(k) as ParsedKey; const kind = kindOfId(q.entityId);
     // TODO(T03-15): the day-close conversion of negative reserves into CBK_STANDING_FACILITY is not built; literal reading: ≥ 0n at close.
     const limit = q.code === 1002 && kind === 'bnk' && !v.isDayClose ? v.facts.intradayLimit(q.entityId) : v.facts.overdraftLimit(k);
     if (-b.balance > limit) out.push(F('INV-LED-008', `I10: ${k} = ${b.balance}`, `≥ −${limit}`));
@@ -377,7 +388,8 @@ export const INV_LED_012: Check = (v) => {
   const out: Failure[] = [];
   for (const e of v.entries) for (const p of e.postings) if (typeof p.amount !== 'bigint' || (p.qty !== undefined && typeof p.qty !== 'bigint'))
     out.push(F('INV-LED-012', `I16: ${e.entryId}#${p.postingSeq} non-bigint`, 'bigint from toMoney'));
-  for (const [k, b] of v.post) if (typeof b.balance !== 'bigint' || typeof b.qty !== 'bigint') out.push(F('INV-LED-012', `I0: ${k} non-bigint`, 'bigint'));
+  // E-84: a value only changes when it is written, and the store journals every write: the written accounts are the ones to type-check.
+  for (const [k, b] of v.index ? v.index.written() : v.post.entries()) if (typeof b.balance !== 'bigint' || typeof b.qty !== 'bigint') out.push(F('INV-LED-012', `I0: ${k} non-bigint`, 'bigint'));
   return out;
 };
 
@@ -432,7 +444,7 @@ export const INV_LED_015: Check = (v) => {
     if (!same(byCode, t.byCode)) out.push(F('INV-LED-015', `(b) byCode(${ccy}) differs from the flowLeg fold`, 'equal'));
     if (!same(byClass, t.byClass) || t.byClass.size !== 6) out.push(F('INV-LED-015', `(b) byClass(${ccy}) differs`, 'Σ by class, six classes'));
     const fs = (t.byClass.get('FAUCET') ?? 0n) - (t.byClass.get('SINK') ?? 0n);
-    const d = computeM0sys(v.post, ccy) - computeM0sys(v.pre, ccy);
+    const bs = balanceSide(v); const d = bs.end(ccy).m0sys - bs.start(ccy).m0sys;
     if (t.m0sysDelta !== fs || fs !== d) out.push(F('INV-LED-015', `(c) m0sysDelta ${t.m0sysDelta}, FAUCET−SINK ${fs}, ΔM0_sys ${d}`, 'all equal'));
   }
   return out;

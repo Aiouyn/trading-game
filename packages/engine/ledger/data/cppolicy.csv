@@ -1,4 +1,5 @@
 code,payer,payee,one_side,source
+OPS_FENCE_SALE_NPC,!S,!S,,E-15.1 default
 LED_INTRAGROUP_SWEEP,!S,!S,,E-15.1 default
 ACCT_ESTATE_AUCTION_PROCEEDS,!S,!S,,E-15.1 default
 TAX_PERSONAL_INCOME,*,gov|reg|crt,,E-15.1 tax/fine/levy
@@ -201,3 +202,27 @@ LIFE_UPKEEP_B2B,!S,!S,,E-15.1 default
 BIZ_SUBSCRIPTION_B2B,!S,!S,,E-15.1 default
 LIFE_SUBSCRIPTION_B2B,!S,!S,,E-15.1 default
 BIZ_SERVICE_FEE_B2B,!S,!S,,E-15.1 default
+LIFE_EDITION_SALE,!S,!S,,E-15.1 default
+LIFE_SLOT_RENT_P2P,!S,!S,,E-15.1 default
+CTR_OPTION_SETTLE,!S,!S,,E-15.1 default
+CITY_NAMING_RIGHT,*,*,,E-15.1 PD-13 city/construction contracts (either side gov)
+CITY_SPONSORSHIP,*,*,,E-15.1 PD-13 city/construction contracts (either side gov)
+FACT_SALE_NPC,!S,!S,,E-15.1 default
+CCP_DEFICIT_ABSORB,!S,!S,,E-15.1 default
+CCP_ISA_FEE,*,exc|ccp,,E-15.1 exchange/clearing fee
+CCP_CUSTODY_FEE,*,exc|ccp,,E-15.1 exchange/clearing fee
+CCP_BILATERAL_CLOSEOUT,!S,!S,,E-15.1 default
+PROP_TXN_COST_NPC,!S,!S,,E-15.1 default
+PROP_FORECLOSURE_COST_NPC,!S,!S,,E-15.1 default
+PROP_SITE_SECURITY_NPC,!S,!S,,E-15.1 default
+PROP_OBJECTION_FEE,!S,!S,,E-15.1 default
+EQ_DIVIDEND_NPC,!S,!S,,E-15.1 default
+EQ_TENDER_OFFER_NPC,!S,!S,,E-15.1 default
+EQ_IPO_PROCEEDS_NPC,!S,!S,,E-15.1 default
+CMP_WAIVER_FEE,!S,!S,,E-15.1 default
+CMP_IPO_FAIL_FEE,!S,!S,,E-15.1 default
+CMP_GOLDEN_PARACHUTE_NPC,!S,!S,,E-15.1 default
+CONFLICT_COMPUTE_LEECH,!S,!S,,E-15.1 default (court escrow rails are not counterparties)
+ALI_CONTRIBUTION,!S,!S,,E-15.1 default
+ALI_MEMBER_TAX,!S,!S,,E-15.1 default
+ALI_MERGE,!S,!S,,E-15.1 default

@@ -7,7 +7,7 @@ import { nextRankTarget } from "@/shell/unlock";
 import { PhoneBannerStack } from "./PhoneBanners";
 import { MarketPhase } from "./MarketPhase";
 import { Sparkline } from "./Sparkline";
-import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES } from "@/shell/strings";
+import { APP_NAMES, GROUP_LABELS, S, SCREEN_NAMES, clockStrings } from "@/shell/strings";
 import { AppBody } from "./AppBody";
 import { Glyph } from "./Glyph";
 import { HaltChip } from "./SystemOverlays";
@@ -156,6 +156,7 @@ function StatusBar() {
   const timer = useRef<number | null>(null);
   const pullY = useRef<number | null>(null);
   const { day, hhmm } = clockLabel(clock);
+  const clockText = clockStrings(useShell((s) => s.prefs.locale)).phone(day, hhmm);
   const down = () => { timer.current = window.setTimeout(() => { timer.current = null; store.getState().setRecent(true); }, LONG_PRESS_MS); };
   const up = () => {
     if (timer.current !== null) { window.clearTimeout(timer.current); timer.current = null; store.getState().phoneBack(); }
@@ -178,7 +179,7 @@ function StatusBar() {
       <button className="quay-mark fg" data-testid="quay-mark" aria-label={S.home} onPointerDown={down} onPointerUp={up} onContextMenu={(e) => e.preventDefault()}>
         <Glyph name="quay" size={20} />
       </button>
-      <span className="num clock">{`D${day} · ${hhmm}`}</span>
+      <span className="num clock">{clockText}</span>
       <MarketPhase phase={clock.phase} city={S.cityName} halted={halted} reconnecting={reconnecting} variant="dot" />
       <HaltChip halted={halted} />
       <span className="sb-nw"><MoneyText value={me.nw} compact /></span>
