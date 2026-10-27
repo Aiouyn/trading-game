@@ -5,7 +5,8 @@ import { mkdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { boot, setTextScale } from "../shell/helpers";
 
-const SHOTS = process.env.POS_SHOTS_DIR ?? "/workspace/avalon/front-dev-shots/portfolio-positions";
+// Same place as the other specs (CI sets SHOTS=1); POS_SHOTS_DIR overrides it for local review shots.
+const SHOTS = process.env.POS_SHOTS_DIR ?? "tests/e2e/17b/__screenshots__/PF-B";
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
 const inject = (page: Page, patch: object) => page.addInitScript((p) => { (window as Window & { __quayFeedMe?: object }).__quayFeedMe = p; }, patch);
