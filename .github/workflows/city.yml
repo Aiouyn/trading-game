@@ -12,6 +12,7 @@ on:
       - 'tests/e2e/city/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'next.config.ts'
       - '.github/workflows/city.yml'
   push:
     # Every push to main runs the full city suite, no path filter: main can break the city through
@@ -46,6 +47,19 @@ jobs:
         run: npx vitest run -c tests/unit/city/vitest.config.ts
         env:
           CITY_BASE_REF: origin/${{ github.base_ref || 'main' }}
+  prod-hook:
+    # AC (spec §9): a prod `next build` without NEXT_PUBLIC_CITY_E2E ships 0 e2e-hook strings in
+    # .next/static; the flag=1 build is the positive control. Two builds, about 1 min.
+    name: city prod build has no e2e hook (Node 22)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: node tests/e2e/city/prod-hook-check.mjs
   e2e:
     name: city e2e (Node 22, Chromium + SwiftShader)
     runs-on: ubuntu-latest
