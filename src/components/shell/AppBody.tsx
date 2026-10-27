@@ -11,9 +11,9 @@ import { useShell } from "./ShellContext";
 /** focused window; collapsed; background = other workspace or covered in compact; hidden = not displayed at all. */
 export interface BodyState { focused: boolean; collapsed: boolean; background: boolean; hidden?: boolean }
 
-// 17B CH-00: each 17B app is its own chunk, loaded on first open (keeps Broker first-load JS in budget, G4).
+// 17B CH-00: each built 17B app is its own chunk, loaded on first open (keeps the first-load JS in budget, G4).
+// Broker is built:false until BRK-A, so it renders ComingLater directly below, with no chunk and no loading fallback.
 const BUILT_APPS = {
-  broker: lazy(() => import("@/apps/broker/App")),
   portfolio: lazy(() => import("@/apps/portfolio/App")),
   wire: lazy(() => import("@/apps/wire/App")),
 } as const;
@@ -27,10 +27,10 @@ export function AppBody({ app, state }: { app: AppId; state: BodyState }) {
   if (isBuiltApp(app)) {
     const Body = BUILT_APPS[app];
     // Fallback = what the chunk shows first: Wire's loading skeleton (Studio: a built app never flashes "Coming later");
-    // Broker / Portfolio still render the ComingLater placeholder, so loading their chunk never changes the DOM (S1-03).
+    // Portfolio still renders the ComingLater placeholder, so loading its chunk never changes the DOM (S1-03).
     const fallback = app === "wire" ? <WireLoading /> : <ComingLater app={app} />;
     return <Suspense fallback={fallback}><Body /></Suspense>;
   }
-  // Every other app is built:false in Spec 1.
+  // Every other app (Broker included, until BRK-A) is built:false.
   return <ComingLater app={app} />;
 }

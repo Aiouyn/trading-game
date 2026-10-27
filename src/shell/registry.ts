@@ -104,8 +104,9 @@ const ROWS: Row[] = [
   { id: "api", group: "trade", unlock: { kind: "flag", flag: "api.eligible" } },
 ];
 
-/** Apps with a real body. 17B CH-00 flips broker, portfolio and wire (lazy-loaded, ComingLater until their cards). */
-const BUILT: ReadonlySet<AppId> = new Set(["settings", "broker", "portfolio", "wire"]);
+/** Apps with a real body. 17B CH-00 flipped portfolio and wire (lazy-loaded). Broker stays built:false until BRK-A
+ *  ships its body: it shows "Coming later" straight away and is not presented as a built app (Producer). */
+const BUILT: ReadonlySet<AppId> = new Set(["settings", "portfolio", "wire"]);
 
 export const REGISTRY: readonly AppDef[] = ROWS.map((r, i) => ({
   minW: 420, minH: 300, maxInstances: 1, unlock: ALWAYS, teaser: NONE,
