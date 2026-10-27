@@ -117,13 +117,23 @@ describe('AC-02-11-PARAMS-PKG / E-70 (3)', () => {
 });
 
 describe('AC-03-MAP-NO-DUP (a) for T02-11 (E-79)', () => {
-  const root = join(__dirname, '..', '..');   // packages/engine
-  const files = (d: string, out: string[] = []): string[] => { for (const n of readdirSync(d)) { if (n === 'node_modules') continue; const p = join(d, n); if (statSync(p).isDirectory()) files(p, out); else if (n.endsWith('.ts')) out.push(p); } return out; };
-  it.each(['HoldApi', 'Hold', 'Posting', 'LedgerApi'])('%s has exactly one exported definition, in packages/engine/ledger/src; ledger-port.ts re-exports it', (name) => {
-    const re = new RegExp(`export (type|interface|function|const|class) ${name}\\b`);
-    const hits = files(root).filter((f) => re.test(readFileSync(f, 'utf8'))).map((f) => f.slice(root.length + 1));
+  const root = join(__dirname, '..', '..', '..', '..');   // the repo root: every package, app and tool, not only packages/engine
+  const SKIP = ['node_modules', 'dist', '.git'];
+  const files = (d: string, out: string[] = []): string[] => {
+    for (const n of readdirSync(d)) { if (SKIP.includes(n)) continue; const p = join(d, n); if (statSync(p).isDirectory()) files(p, out); else if (/\.(ts|tsx|mts|cts)$/.test(n)) out.push(p); }
+    return out;
+  };
+  const all = files(root);
+  it('the scan covers the whole repo (engine, content and the app sources)', () => {
+    const rel = all.map((f) => f.slice(root.length + 1));
+    for (const top of ['packages/engine/', 'packages/content/', 'src/']) expect(rel.some((f) => f.startsWith(top)), top).toBe(true);
+    expect(rel.some((f) => f.split('/').includes('node_modules'))).toBe(false);
+  });
+  it.each(['HoldApi', 'Hold', 'Posting', 'PostOpts', 'LedgerApi'])('%s has exactly one definition in the repo (exported or not), in packages/engine/ledger/src; ledger-port.ts re-exports it', (name) => {
+    const re = new RegExp(`^[ \\t]*(export[ \\t]+)?(declare[ \\t]+)?(type|interface|function|const|let|class|enum)[ \\t]+${name}(?=[ \\t]*[<={(:]|[ \\t]+extends\\b)`, 'm');   // a declaration, exported or local (not an import specifier)
+    const hits = all.filter((f) => re.test(readFileSync(f, 'utf8'))).map((f) => f.slice(root.length + 1));
     expect(hits).toHaveLength(1);
-    expect(hits[0]).toMatch(/^ledger\/src\//);
+    expect(hits[0]).toMatch(/^packages\/engine\/ledger\/src\//);
     expect(readFileSync(join(__dirname, 'ledger-port.ts'), 'utf8')).toMatch(new RegExp(`export type \\{[^}]*\\b${name}\\b[^}]*\\} from '@tycoon/engine-ledger'`));
   });
 });
