@@ -1,7 +1,6 @@
 // T04-03 step 1: business-cycle regimes (04 §3.3.1, §3.3.2, §3.3.4; D054, D055). Called by T04-20 as macro day step 3,
 // global chain first, then blocs in BLOC_ORDER (§3.19 draw order). Streams: bloc S.regime(b), global S.globalRegime().
-import { dmath, type ParamsView } from '@tycoon/engine-core';
-import type { Rng } from '../core-port';
+import { dmath, type ParamsView, type Rng } from '@tycoon/engine-core';
 import type { ImbalanceKey, Regime } from '../schema';
 
 /** §3.3.1 allowed transitions, in this fixed order (the target pick walks it). */

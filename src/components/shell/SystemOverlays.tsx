@@ -49,7 +49,7 @@ export function orderEntryLock(halted: boolean, reason?: string | null): { disab
 export function HaltChip({ halted }: { halted: boolean }) {
   if (!halted) return null;
   return (
-    <button className="chip halt-chip" data-testid="halt-chip" aria-haspopup="dialog" onClick={() => setHaltHidden(false)}>
+    <button className="chip halt-chip" data-testid="halt-chip" onClick={() => setHaltHidden(false)}>
       {S.haltedChip}
     </button>
   );

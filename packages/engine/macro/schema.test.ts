@@ -3,11 +3,12 @@ import type { Ccy } from '@tycoon/engine-core';
 import { describe, expect, it } from 'vitest';
 import { BLOC_ALIAS, BLOC_ORDER, ALL_MACRO_TABLES, macroTables, type BlocId } from './schema';
 import { BLOC_DEFAULTS, blocDef, ISLA_SERENA_CITY, SECTOR_COUNT } from './blocs';
-import { auctionId, blocOfEntity, cbkId, crisisId, crtId, CSF_ID, DEALER_POOL_ID, excId, govId, meetingId, regId, releaseId, STAB_ID } from './ids';
+import { cbkId, govId } from '@tycoon/engine-ledger';
+import { auctionId, blocOfEntity, crisisId, crtId, CSF_ID, DEALER_POOL_ID, excId, meetingId, regId, releaseId, STAB_ID } from './ids';
 import { assertNoHiddenFields, HIDDEN_FIELD_NAMES, MACRO_EVENT_VISIBILITY, MACRO_EVENTS } from './events';
 import { MACRO_STREAMS, S } from './streams';
 import { defaultMacroPorts } from './ports';
-import type { ContentView } from './core-port';
+import type { BlocContentReader as ContentView } from './blocs';
 
 // 04 §2.2 table + card step 3 numbers, FU/EC/PL/NA/SC (independent transcription of the spec, not of blocs.ts).
 const T: Record<string, [unknown, unknown, unknown, unknown, unknown]> = {
@@ -58,8 +59,7 @@ describe('BLOC_DEFAULTS (04 §2.2)', () => {
 
 const content = (w: number[]): ContentView => ({
   blocs: () => BLOC_ORDER.map((b) => ({ id: b, name: `N_${b}`, cityIds: [`c1_${b}`, `c2_${b}`, `c3_${b}`] as [string, string, string],
-    statisticsOfficeNameKey: 's', cycleCommitteeNameKey: 'c', sectorWeights: w })),
-  cities: () => [], blocEquityIndex: () => ({ peNorm0: 0 }), primaryDealers: () => [],
+    sectorWeights: w })),
 });
 const W12 = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05];
 describe('blocDef', () => {

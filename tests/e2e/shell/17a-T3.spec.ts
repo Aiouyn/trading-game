@@ -170,6 +170,29 @@ test("T3-05 phase change cross-fades the label over --dur-base (0 under reduced 
   expect(await page.evaluate(() => getComputedStyle(document.querySelector(".mp-in")!).animationDuration)).toBe("0s");
 });
 
+// Root cause of the intermittent S1-19 / C4 axe colour-contrast failures: the label also played its 220 ms fade-in when
+// it first mounted, and axe ran right after quay-ready, often inside that fade (axe blends opacity into the colour:
+// 1.41:1 at 5 %, 3.87:1 at 20 %). Only a phase change cross-fades. Deterministic: any mp-fade-in present after boot
+// is frozen at 5 % before axe runs, so a mount fade fails every time instead of on timing luck.
+test("T3-05 initial phase label does not fade in on mount (axe never sees it mid-fade)", async ({ page }, info) => {
+  desktopOnly(info.project.name);
+  await page.addInitScript(() => {
+    const w = window as Window & { __mpFades?: string[] };
+    w.__mpFades = [];
+    document.addEventListener("animationstart", (e) => { if (e.animationName === "mp-fade-in") w.__mpFades!.push((e.target as Element).textContent ?? ""); }, true);
+  });
+  for (const path of ["/", "/markets", "/?conn=reconnecting"]) {
+    await boot(page, path);
+    const frozen = await page.evaluate(() => document.getAnimations().filter((a) => (a as CSSAnimation).animationName === "mp-fade-in").map((a) => {
+      a.pause(); a.currentTime = Number(a.effect!.getComputedTiming().duration) * 0.05; return (a.effect as KeyframeEffect).target!.textContent;
+    }));
+    const r = await new AxeBuilder({ page }).include("[data-testid=phase]").withRules(["color-contrast"]).analyze();
+    const fades = await page.evaluate(() => (window as Window & { __mpFades?: string[] }).__mpFades);
+    expect([path, frozen, fades, await page.getByTestId("phase-label").evaluate((e) => getComputedStyle(e).opacity), r.violations.map((v) => v.id)])
+      .toEqual([path, [], [], "1", []]);
+  }
+});
+
 test("T3-06 nothing flashes more than once per second (opacity sampled per frame for 10 s)", async ({ page }, info) => {
   desktopOnly(info.project.name);
   await boot(page, "/");

@@ -20,6 +20,7 @@
     ],
     "paths": {
       "@ds/notices-sheet": ["./src/app/%5F_ds/notices/NoticesSheet.tsx"],
+      "@ds/primitives-sheet": ["./src/app/%5F_ds/DesignSystemSheet.tsx"],
       "@/city/*": ["./src/city/*"],
       "@/city*": ["./src/city/index.ts", "./tests/unit/shell/__mocks__/city.ts"],
       "@/*": ["./src/*"]

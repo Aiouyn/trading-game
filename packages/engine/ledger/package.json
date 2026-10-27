@@ -1,5 +1,5 @@
 {
-  "name": "@avalon/ledger",
+  "name": "@tycoon/engine-ledger",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -15,5 +15,8 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.72.0",
     "vitest": "^3.2.7"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
   }
 }

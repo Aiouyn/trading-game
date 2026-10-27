@@ -1,7 +1,7 @@
 // T04-01: 04 macro schema. Enums and entity interfaces of 04 §2.1–§2.13, transcribed field for field (bloc ids are currency
 // codes, 24 R39), plus the storage additions the card decides, and the macro tables (module '04', COORD-homed, no home function).
 import type { Ccy, Id, Money, Price, Qty, SortedMap, Tick } from '@tycoon/engine-core';
-import type { TableDef } from './core-port';
+import type { TableDef } from '@tycoon/engine-core';
 
 // ───────── §2.1 identifiers and enums ─────────
 // Bloc ids are currency codes (24 R39): 04's two-letter ids are aliases only.

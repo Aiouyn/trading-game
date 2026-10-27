@@ -1,5 +1,5 @@
 // T04-01b steps 2-4: the public CB output-gap estimate (E-41 B2, E-45 items 4-5, E-54) and the exact public ruleTerms key set.
-import type { PhaseCtx } from './core-port';
+import type { PhaseCtx } from '@tycoon/engine-core';
 import { macroTables, type BlocId, type BlocMacroState } from './schema';
 import { S } from './streams';
 import { EngineFault, roundHalfEven } from '@tycoon/engine-core';
