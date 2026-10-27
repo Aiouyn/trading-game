@@ -106,8 +106,16 @@ function rowErrors(r: CodeRow): CatalogError[] {
   return e;
 }
 
-/** Field-for-field form of a row (keys sorted; an absent field and an undefined one compare equal). */
-const rowForm = (r: CodeRow): string => JSON.stringify(r, Object.keys(r).sort(cmpStr));
+/** Every CodeRow field, for the field-for-field comparison (the type check below fails if CodeRow gains a field not listed). */
+const ROW_FIELDS = ['code', 'cls', 'owner', 'cf', 'allowedTemplates', 'taxTag', 'stabilizerFamily', 'descriptionKey', 'valueLegA', 'valueLegB',
+  'elasticSectors', 'restrictedOk', 'requestableBy', 'illicit'] as const satisfies readonly (keyof CodeRow)[];
+const ROW_FIELDS_COMPLETE: [Exclude<keyof CodeRow, (typeof ROW_FIELDS)[number]>] extends [never] ? true : never = true;
+void ROW_FIELDS_COMPLETE;
+const fieldEq = (x: unknown, y: unknown): boolean =>
+  Array.isArray(x) || Array.isArray(y) ? Array.isArray(x) && Array.isArray(y) && x.length === y.length && x.every((v, i) => v === y[i]) : x === y;
+/** Field for field (an absent field equals an undefined one; arrays compare element-wise in order). */
+const sameRow = (a: CodeRow, b: CodeRow): boolean => ROW_FIELDS.every((k) => fieldEq(a[k], b[k]));
+
 /** E-12 layer 1(iii): registered rows are frozen, so no later code path can add a template (e.g. PAY) to an existing code. */
 const frozenRow = (r: CodeRow): CodeRow => { Object.freeze(r.allowedTemplates); return Object.freeze(r); };
 /** One catalog per world (built from the seed, extended by registerReasonCodes, frozen when the world starts). */
@@ -143,7 +151,7 @@ export class ReasonCatalog {
   registerLedgerExtensions(): void {
     for (const x of LEDGER_EXTENSION_CODES) {
       const have = this.rows.get(x.code);
-      if (have !== undefined && rowForm(have) !== rowForm(x)) throw new Error(`LEDGER_EXTENSION_CONFLICT: ${x.code} is already registered with a different row`);
+      if (have !== undefined && !sameRow(have, x)) throw new Error(`LEDGER_EXTENSION_CONFLICT: ${x.code} is already registered with a different row`);
     }
     for (const cls of ['REVALUE', 'TRANSFER'] as const) {
       const rows = LEDGER_EXTENSION_CODES.filter((r) => r.cls === cls && !this.rows.has(r.code));
