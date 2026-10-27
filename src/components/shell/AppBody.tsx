@@ -27,10 +27,10 @@ export function AppBody({ app, state }: { app: AppId; state: BodyState }) {
   if (isBuiltApp(app)) {
     const Body = BUILT_APPS[app];
     // Fallback = what the chunk shows first: Wire's loading skeleton (Studio: a built app never flashes "Coming later");
-    // Portfolio still renders the ComingLater placeholder, so loading its chunk never changes the DOM (S1-03).
+    // Broker / Portfolio still render the ComingLater placeholder, so loading their chunk never changes the DOM (S1-03).
     const fallback = app === "wire" ? <WireLoading /> : <ComingLater app={app} />;
     return <Suspense fallback={fallback}><Body /></Suspense>;
   }
-  // Every other app (Broker included, until BRK-A) is built:false.
+  // Every other app is built:false in Spec 1.
   return <ComingLater app={app} />;
 }
