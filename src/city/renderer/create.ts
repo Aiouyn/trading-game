@@ -1080,6 +1080,8 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   }
 
   const onDocVisibility = () => loop.docVisibilityChanged();
+  // a label measured before its web font loaded keeps the fallback width until the camera moves: re-place on load
+  const onFontsLoaded = () => { labelKey = ''; loop.invalidate(); };
 
   function diagnostics(): CityDiagnostics {
     const info = scene ? scene.info() : lastSceneInfo;
@@ -1136,6 +1138,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       resizeObs = new ResizeObserver(() => resize());
       resizeObs.observe(chrome.root);
       document.addEventListener('visibilitychange', onDocVisibility);
+      document.fonts?.addEventListener('loadingdone', onFontsLoaded);
       if (loop.state === 'visible') {
         setSubscribed(true);
         setPerfTimer(true);
@@ -1164,6 +1167,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       resizeObs?.disconnect();
       resizeObs = null;
       document.removeEventListener('visibilitychange', onDocVisibility);
+      document.fonts?.removeEventListener('loadingdone', onFontsLoaded);
       setPerfTimer(false);
       setSubscribed(false);
       table?.dispose();
