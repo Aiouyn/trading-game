@@ -6,6 +6,42 @@ import { projectOrtho, viewDirection } from './camera';
 import { FLAT_BRASS, FLAT_EXACT } from './overlay';
 import { placeLabels, type LabelBox } from './labels';
 
+/** Ground cells per bitmap pixel: the mask is drawn at ≤ 256 cells a side. */
+export const groundStep = (size: number) => Math.max(1, Math.floor(size / 256));
+
+/**
+ * The ground mask as RGBA, one pixel per drawn cell (every step-th cell of the mask, as the old
+ * per-cell loop sampled it). Class 0 (water) is transparent: the water fill underneath shows.
+ * classRgba: 4 bytes per mask class, read back from the canvas so the colours are the ones
+ * the per-cell fills produced.
+ */
+export function groundBitmap(mask: Uint8Array, size: number, step: number, classRgba: Uint8ClampedArray): { n: number; data: Uint8ClampedArray<ArrayBuffer> } {
+  const n = Math.ceil(size / step);
+  const data = new Uint8ClampedArray(n * n * 4);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const k = mask[j * step * size + i * step];
+      if (k === 0) continue;
+      data.set(classRgba.subarray(k * 4, k * 4 + 4), (j * n + i) * 4);
+    }
+  }
+  return { n, data };
+}
+
+/** Each CSS fill as the canvas resolves it: one 1×1 fill per class, read back as RGBA bytes. */
+function fillBytes(fills: string[]): Uint8ClampedArray {
+  const c = document.createElement('canvas');
+  c.width = fills.length;
+  c.height = 1;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  if (!g) return new Uint8ClampedArray(fills.length * 4);
+  fills.forEach((f, i) => {
+    g.fillStyle = f;
+    g.fillRect(i, 0, 1, 1);
+  });
+  return g.getImageData(0, 0, fills.length, 1).data;
+}
+
 const css = (c: Rgb, k = 1) => `color(srgb ${c[0] * k} ${c[1] * k} ${c[2] * k})`;
 export const PICTURE_PADDING_PX = 16;
 /** Portrait (phone) T0: the picture fills at least this share of the viewport height (review M6). */
@@ -45,7 +81,10 @@ export function drawPicture(opts: {
   const W = Math.max(1, Math.round(opts.width * opts.dpr)), H = Math.max(1, Math.round(opts.height * opts.dpr));
   canvas.width = W;
   canvas.height = H;
-  const g = canvas.getContext('2d');
+  // willReadFrequently: a CPU (software) canvas. The picture is read back once (toDataURL), and an
+  // accelerated canvas on a software GPU (SwiftShader: CI, the box, blocklisted GPUs) spent seconds
+  // in that one flush (T0 profile, 2026-10-27).
+  const g = canvas.getContext('2d', { willReadFrequently: true });
   if (!g) return { url: '', top: 0, bottom: 0, labels: [] };
   g.fillStyle = css(ramps.water);
   g.fillRect(0, 0, W, H);
@@ -130,17 +169,27 @@ export function drawPicture(opts: {
     g.fill();
   };
   if (opts.ground) {
+    // one n×n bitmap of the mask (one pixel per cell), mapped onto the ground plane by the
+    // projection's affine transform: 1 drawImage instead of ~52k per-cell fills (T0 profile)
     const { mask, size, x0: gx, z0: gz, span } = opts.ground;
-    const step = Math.max(1, Math.floor(size / 256));
-    const cell = span / size;
+    const step = groundStep(size);
+    const s = (span / size) * step;
     const fills = [css(ramps.water), css(ramps.land), css(ramps.park), css(ramps.road)];
-    for (let j = 0; j < size; j += step) {
-      for (let i = 0; i < size; i += step) {
-        const k = mask[j * size + i];
-        if (k === 0) continue;
-        const x0 = gx + i * cell, z0 = gz + j * cell, s = cell * step;
-        quad([toScreen(x0, 0, z0), toScreen(x0 + s, 0, z0), toScreen(x0 + s, 0, z0 + s), toScreen(x0, 0, z0 + s)], fills[k]);
-      }
+    const bmp = groundBitmap(mask, size, step, fillBytes(fills));
+    const src = document.createElement('canvas');
+    src.width = bmp.n;
+    src.height = bmp.n;
+    const sg = src.getContext('2d', { willReadFrequently: true });
+    if (sg) {
+      sg.putImageData(new ImageData(bmp.data, bmp.n, bmp.n), 0, 0);
+      const [ox, oy] = toScreen(gx, 0, gz);
+      const [ax, ay] = toScreen(gx + s, 0, gz);
+      const [bx, by] = toScreen(gx, 0, gz + s);
+      g.save();
+      g.imageSmoothingEnabled = false;
+      g.setTransform(ax - ox, ay - oy, bx - ox, by - oy, ox, oy);
+      g.drawImage(src, 0, 0);
+      g.restore();
     }
   }
   const [dx, , dz] = viewDirection(0);
