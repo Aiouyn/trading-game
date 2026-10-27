@@ -30,11 +30,12 @@ export const HOOK_STRINGS = [
  *  testid, demo copy), not CSS class names: the global stylesheets keep their .ds-* layout rules. */
 export const DS_STRINGS = ["QUAY_DS", "ds-ready", "Label on win2", "mock-orderpad", "OrderPad (mock)"];
 
-/** `.get("<key>")` with any receiver (minified names are arbitrary), unless the call's result is used as a promise:
- *  URLSearchParams.get returns string | null, so `.get("guest").then(` is an async store read (prefsClient.get(PREFS_ACCOUNT)
- *  in src/shell/store.ts), never a query hook. */
+/** `.get("<key>")` with any receiver (minified names are arbitrary). One exception: `.get("guest").then(` is the async
+ *  prefs store read (prefsClient.get(PREFS_ACCOUNT) in src/shell/store.ts), never a query hook (URLSearchParams.get
+ *  returns string | null). The exception is for the guest key only: `.get("sheet").then(` or any other key still hits.
+ *  Not in the list: `asset`, the production deep-link param (`/markets?asset=X`, QuayShell + feed.ts parseDeepLink). */
 const keyAlt = QUERY_KEYS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-const QUERY_RE = new RegExp(`\\.get\\((["'\`])(${keyAlt})\\1\\)(?!\\s*\\.then\\s*\\()`, "g");
+const QUERY_RE = new RegExp(`\\.get\\s*\\(\\s*(["'\`])(${keyAlt})\\1\\s*\\)(?!(?<=guest["'\`]\\s*\\))\\s*\\.then\\s*\\()`, "g");
 
 /** All hits in one file's text: { hook, index }. */
 export function scan(text) {
@@ -47,8 +48,11 @@ export function scan(text) {
 function main(roots) {
   const files = [];
   const walk = (d) => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (!p.endsWith(".map")) files.push(p); } };
-  for (const r of roots) { try { walk(r); } catch { console.error(`check-hooks: ${r} not found (run a no-flag next build first)`); process.exit(2); } }
-  if (!files.length) { console.error(`check-hooks: no files under ${roots.join(" + ")} (run a no-flag next build first)`); process.exit(2); }
+  for (const r of roots) {
+    const before = files.length;
+    try { walk(r); } catch { console.error(`check-hooks: ${r} not found (run a no-flag next build first)`); process.exit(2); }
+    if (files.length === before) { console.error(`check-hooks: no files under ${r} (run a no-flag next build first)`); process.exit(2); }
+  }
   let n = 0;
   for (const f of files) {
     const text = readFileSync(f, "utf8");

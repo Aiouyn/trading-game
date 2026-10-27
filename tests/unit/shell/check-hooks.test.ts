@@ -12,6 +12,16 @@ describe("check-hooks matcher", () => {
     expect(hooks("a.get('guest') .then(f)")).toEqual([]);
   });
 
+  it("limits the promise exception to the guest key: a .then on any other key is still a hook", () => {
+    // QA r2 escape mutant: an ungated demo-sheet read chained with .then shipped and passed the key-agnostic exclusion.
+    expect(hooks('qaQ.get("sheet").then(e=>{"demo"===e&&open()})')).toEqual(['.get("sheet")']);
+    expect(hooks('q.get("halted").then(a)')).toEqual(['.get("halted")']);
+    expect(hooks('q.get( "sheet" ) .then(a)')).toEqual(['.get("sheet")']);
+    expect(hooks('q.get("sheet")?.then(a)')).toEqual(['.get("sheet")']);
+    for (const k of (QUERY_KEYS as string[]).filter((k) => k !== "guest")) expect(hooks(`q.get("${k}").then(a)`)).toEqual([`.get("${k}")`]);
+    expect(hooks('y.get("guest").then(e=>1)')).toEqual([]);
+  });
+
   it("still flags a query read of the same key", () => {
     expect(hooks('e.get("guest")')).toEqual(['.get("guest")']);
     expect(hooks('const g=e.get("guest");g.then')).toEqual(['.get("guest")']);
