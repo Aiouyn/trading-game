@@ -3,7 +3,8 @@
 import { EngineFault } from '@tycoon/engine-core';
 import type { BlocDef, BlocId } from './schema';
 import type { ContentView } from './core-port';
-import { cbkId, crtId, excId, govId, regId } from './ids';
+import { cbkId, govId } from '@tycoon/engine-ledger';
+import { crtId, excId, regId } from './ids';
 
 /** 04 §2.2 numbers. `sectorWeights` is not here: card step 3 takes it from content (22), so it is excluded from the defaults. */
 export interface BlocDefaults extends Omit<BlocDef, 'name' | 'cityIds' | 'cbkId' | 'govId' | 'excId' | 'regId' | 'crtId' | 'sectorWeights'> {

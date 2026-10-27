@@ -17,7 +17,9 @@ function tsFiles(dir: string, out: string[] = []): string[] {
   }
   return out;
 }
-const FILES = tsFiles(SCAN).map((p) => ({ rel: relative(REPO, p), text: readFileSync(p, 'utf8') }));
+/** This file quotes the patterns it greps for, so it is not part of its own scan. */
+const SELF = fileURLToPath(import.meta.url);
+const FILES = tsFiles(SCAN).filter((p) => p !== SELF).map((p) => ({ rel: relative(REPO, p), text: readFileSync(p, 'utf8') }));
 const defs = (name: string): string[] =>
   FILES.filter((f) => new RegExp(`export (declare )?(type|interface|function|const|class|enum) ${name}\\b`).test(f.text)).map((f) => f.rel);
 
@@ -31,7 +33,8 @@ const MAPPED: Record<string, string> = {
   classOfCode: 'accounts.ts', isMoneyCode: 'accounts.ts', accountKey: 'accounts.ts', entityOfKey: 'accounts.ts', parseAccountKey: 'accounts.ts',
   SYS_ID: 'accounts.ts', kindOfId: 'accounts.ts', frmId: 'accounts.ts', hhId: 'accounts.ts',
   ROW_ID: 'accounts.ts', CCP_ID: 'accounts.ts', SERENA_AUTHORITY_GOV: 'accounts.ts', suspenseSub: 'accounts.ts',
-  LEDGER_EVENTS: 'events.ts', LedgerEventKind: 'events.ts', LEDGER_EVENT_VISIBILITY: 'events.ts',
+  LEDGER_EVENTS: 'events.ts', LedgerEventKind: 'events.ts', LEDGER_EVENT_VISIBILITY: 'events.ts', Levers: 'events.ts',
+  MoneySupplyReport: 'events.ts', emitLedger: 'events.ts',
 };
 /** Card names E-79 replaces with a V3 name, and symbols E-79 says are not built: zero definitions. */
 const NOT_DEFINED = ['ENTITY_KIND_ORDER', 'CashFlowClass', 'ReasonCodeDef', 'getCatalog', 'catalogErrors', 'TBL', 'entityTable', 'accountTable',
@@ -44,8 +47,10 @@ describe('AC-03-MAP-NO-DUP', () => {
     // BlocCode already exists in core (T02-01 calendar); ledger types.ts re-exports it instead of a second definition.
     expect(defs('BlocCode')).toEqual(['packages/engine/core/calendar/holidays.ts']);
     expect(FILES.find((f) => f.rel === 'packages/engine/ledger/src/types.ts')?.text).toMatch(/export type \{ BlocCode \};/);
+    // E-81 (iv): Ccy and Id are core's; ledger money.ts re-exports them.
+    for (const name of ['Ccy', 'Id']) expect(defs(name), name).toEqual(['packages/engine/core/types.ts']);
+    expect(FILES.find((f) => f.rel === 'packages/engine/ledger/src/money.ts')?.text).toMatch(/export type \{ Ccy, Id \};/);
   });
-  // OPEN (Systems): packages/engine/macro/ids.ts (T04-01, on main) also exports cbkId and govId.
   it('(a) cbkId and govId have one exported definition', () => {
     for (const name of ['cbkId', 'govId']) expect(defs(name), name).toEqual(['packages/engine/ledger/src/accounts.ts']);
   });
@@ -66,5 +71,38 @@ describe('AC-03-MAP-NO-DUP', () => {
   });
   it('(c) no ledger/{state,rules,catalog,invariants} dir and no ledger/schema.ts', () => {
     for (const d of ['state', 'rules', 'catalog', 'invariants', 'schema.ts']) expect(existsSync(join(LEDGER, d)), d).toBe(false);
+  });
+});
+
+describe('AC-04-01-IDS-FROM-LEDGER (E-81 (i))', () => {
+  it('export const cbkId / govId: exactly one hit each, in ledger src/accounts.ts', () => {
+    for (const name of ['cbkId', 'govId']) {
+      const hits = FILES.filter((f) => new RegExp(`export const ${name}\\b`).test(f.text)).map((f) => f.rel);
+      expect(hits, name).toEqual(['packages/engine/ledger/src/accounts.ts']);
+    }
+  });
+  it('macro/ids.ts imports cbkId and govId from @tycoon/engine-ledger and does not re-export them', () => {
+    const ids = FILES.find((f) => f.rel === 'packages/engine/macro/ids.ts')!.text;
+    expect(ids).toMatch(/import \{ cbkId, govId \} from '@tycoon\/engine-ledger';/);
+    expect(ids).not.toMatch(/export \{[^}]*\b(cbkId|govId)\b/);
+  });
+  it('no file under packages/engine/ledger imports @tycoon/engine-macro', () => {
+    const ledger = FILES.filter((f) => f.rel.startsWith('packages/engine/ledger/'));
+    expect(ledger.length).toBeGreaterThan(20);
+    for (const f of ledger) expect(f.text, f.rel).not.toMatch(/from '@tycoon\/engine-macro'|from '[./]*\/macro\//);
+  });
+  it('the ledger package is @tycoon/engine-ledger', () => {
+    expect(JSON.parse(readFileSync(join(LEDGER, 'package.json'), 'utf8')).name).toBe('@tycoon/engine-ledger');
+  });
+});
+
+describe('AC-03-01-VIS-FIXED (b) (E-81 (iii))', () => {
+  it('only src/events.ts calls ctx.emit(, and emitLedger has no visibility parameter', () => {
+    const callers = FILES.filter((f) => f.rel.startsWith('packages/engine/ledger/') && !f.rel.includes('/test/') && /\bctx\.emit\(/.test(f.text)).map((f) => f.rel);
+    expect(callers).toEqual(['packages/engine/ledger/src/events.ts']);
+    const ev = FILES.find((f) => f.rel === 'packages/engine/ledger/src/events.ts')!.text;
+    const sig = /export function emitLedger<[^>]*>\((.*)\): void \{/.exec(ev)?.[1] ?? '';
+    expect(sig.split(',').map((p) => p.trim().split(':')[0])).toEqual(['ctx', 'kind', 'subjectIds', 'payload', 'partyIds?']);
+    expect(sig).not.toMatch(/visibility|Visibility/);
   });
 });
