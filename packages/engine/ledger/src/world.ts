@@ -161,9 +161,14 @@ export class LedgerWorld {
   get alerts(): readonly Failure[] { return this.s.alerts; }
 
   // ───────── entities & facts ─────────
-  /** Idempotent (T03-08 :99). */
+  /** Idempotent (T03-08 :99). E-92 (5) defect fix: re-registering a known entity whose owner is still null sets the given owner (the
+   *  constructor pre-registers cbk_<ccy> with no owner, so T04-21's `cbk_<B>` ownerId govId(b) was lost). Nothing else is updated. */
   registerEntity(spec: RegisterEntitySpec): Id {
-    if (this.s.entities.has(spec.id)) return spec.id;
+    const known = this.s.entities.get(spec.id);
+    if (known) {
+      if (known.ownerId === null && spec.ownerId !== undefined && spec.ownerId !== null) this.s.entities.set(spec.id, { ...known, ownerId: spec.ownerId });
+      return spec.id;
+    }
     if (spec.id.length > ENTITY_ID_MAX) throw new Error(`registerEntity: id longer than ${ENTITY_ID_MAX} chars`);
     if (!ENTITY_ID_RE.test(spec.id)) throw new Error(`registerEntity: invalid id '${spec.id}' (must match ${ENTITY_ID_RE.source})`);
     const kind = kindOfId(spec.id);
