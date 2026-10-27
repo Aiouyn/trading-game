@@ -4,7 +4,7 @@
 // `holidays` flag so the D016 table can be switched on without changing callers.
 import { GAME_DAYS_PER_GAME_YEAR, GAME_DAYS_PER_QUARTER, HOLIDAYS_ENABLED_DEFAULT, isTradingDay, MONTH_LENGTHS, TICKS_PER_GAME_DAY,
   EngineFault, type ParamsView, type Tick } from '@tycoon/engine-core';
-import type { PhaseCtx } from '../core-port';
+import type { PhaseCtx } from '@tycoon/engine-core';
 import { BLOC_DEFAULTS } from '../blocs';
 import { BLOC_ORDER, macroTables, RELEASE_KINDS, TENORS, type BlocId, type ReleaseKind, type ReleaseSchedule, type Tenor } from '../schema';
 
