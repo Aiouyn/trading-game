@@ -191,6 +191,7 @@ export function PhoneHome() {
   const me = useShell((s) => s.channels.me);
   const rank = useShell((s) => s.channels.rank);
   const phoneApp = useShell((s) => s.phoneApp);
+  const phoneSub = useShell((s) => s.phoneSub);
   const screen = usePhoneScreen();
   const store = useShellStore();
   const next = nextRankTarget(rank);
@@ -227,8 +228,8 @@ export function PhoneHome() {
         <PhoneBannerStack />
         <section className="phone-appview" data-testid="phone-appview" data-app={phoneApp.app} data-screen={screen ?? ""} role="dialog" aria-labelledby="phone-app-title" data-subpalette={subPalette(phoneApp.app)}>
           <div className="appbar">
-            <button className="icon-btn" aria-label={bar!.back} data-testid="app-back" onClick={goBack}><Glyph name="chevLeft" size={20} /></button>
-            <h1 id="phone-app-title" data-testid="app-title">{bar!.title}</h1>
+            <button className="icon-btn" aria-label={phoneSub?.backLabel ?? bar!.back} data-testid="app-back" onClick={() => (phoneSub ? phoneSub.onBack() : goBack())}><Glyph name="chevLeft" size={20} /></button>
+            <h1 id="phone-app-title" data-testid="app-title">{phoneSub?.title ?? bar!.title}</h1>
           </div>
           <div className="phone-appbody">
             <AppBody app={phoneApp.app} state={{ focused: true, collapsed: false, background: false }} />

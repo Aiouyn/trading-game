@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "@/shell/intentLog";
 import { useShellKeys } from "@/shell/keys";
-import { seedHistory, useBackStack } from "@/shell/back";
+import { applyDeepLink, useBackStack } from "@/shell/back";
 import { clockAt, mockChannels, phaseOverride, TICK_MS } from "@/shell/mockChannels";
 import { isAppId, RANKS } from "@/shell/registry";
 import { DEFAULT_LAYOUT } from "@/shell/layouts";
@@ -12,6 +12,8 @@ import { initLoader } from "@/shell/loader";
 import { LoadState } from "./LoadState";
 import { createShellStore } from "@/shell/store";
 import { viewportOf } from "@/shell/wm";
+import { applyAppearance } from "@/shell/appearance";
+import { isSectionId, settingsNav } from "@/apps/settings/sections";
 import { Glyph } from "./Glyph";
 import { KeySheet } from "./KeySheet";
 import { Launcher } from "./Launcher";
@@ -34,21 +36,11 @@ const BOOT_MS = [900, 500, 0, 0, 0, 0, 0];
 function useHtmlAttributes() {
   const palette = useShell((s) => s.local.palette);
   const prefs = useShell((s) => s.prefs);
-  const rank = useShell((s) => s.channels.rank.rank);
+  const rank = useShell((s) => s.channels.rank);
+  const entitlements = useShell((s) => s.channels.entitlements);
   useEffect(() => {
-    const html = document.documentElement;
-    const mq = (q: string) => window.matchMedia(q).matches;
-    const motion = prefs.reducedMotion === "on" || (prefs.reducedMotion === "system" && mq("(prefers-reduced-motion: reduce)"));
-    const transp = prefs.reducedTransparency === "on" || (prefs.reducedTransparency === "system" && mq("(prefers-reduced-transparency: reduce)"));
-    html.dataset.palette = palette;
-    const toggle = (k: string, on: boolean, v: string) => { if (on) html.dataset[k] = v; else delete html.dataset[k]; };
-    toggle("motion", motion, "reduce");
-    toggle("transparency", transp, "reduce");
-    toggle("hc", prefs.highContrast, "1");
-    toggle("cb", prefs.colorBlindPair, "1");
-    html.style.setProperty("--text-scale", String(prefs.textScale)); // every --fs-* scales (17 §2.1 textScale)
-    RANKS.forEach((r) => html.classList.toggle(`shell-${r.toLowerCase()}`, r === rank));
-  }, [palette, prefs, rank]);
+    applyAppearance(document.documentElement, { palette, prefs, rank, entitlements, media: (q) => window.matchMedia(q).matches });
+  }, [palette, prefs, rank, entitlements]);
 }
 
 function Surface() {
@@ -59,7 +51,8 @@ function Surface() {
   const focusMode = useShell((s) => s.local.focusMode);
   const rank = useShell((s) => s.channels.rank.rank);
   const reconnecting = useShell((s) => s.channels.system.connection === "reconnecting");
-  const [booted, setBooted] = useState(false);
+  const booted = useShell((s) => s.booted);
+  const store = useShellStore();
   useHtmlAttributes();
   // Mock feed until Engine wires the real one (see TODO in shell/feed.ts). Read once per load, like mockChannels.
   const feedSource = useMemo(() => mockFeedSource(new URLSearchParams(typeof window === "undefined" ? "" : window.location.search)), []);
@@ -77,7 +70,8 @@ function Surface() {
   }, []);
 
   useEffect(() => {
-    const t = window.setTimeout(() => setBooted(true), BOOT_MS[RANKS.indexOf(rank)]);
+    if (store.getState().booted) return; // once per page load (module-scope store)
+    const t = window.setTimeout(() => store.getState().setBooted(), BOOT_MS[RANKS.indexOf(rank)]);
     return () => window.clearTimeout(t);
     // Boot runs once per load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -112,14 +106,21 @@ function Surface() {
   );
 }
 
+let docStore: ReturnType<typeof createShellStore> | null = null;
+// Once per document, like docStore: the loader hooks, the saved-window restore and the save subscription. A client-side
+// deep link remounts QuayShell; re-running the restore would overwrite the live windows with the last saved snapshot
+// (focus included) before the deep link applies.
+let docBoot: Promise<void> | null = null;
+
 export function QuayShell({ route, query }: { route: string[]; query: string }) {
-  const [store] = useState(() => createShellStore(mockChannels(new URLSearchParams(query))));
+  // One store per document. The App Router remounts the catch-all page when the route param changes (a client-side
+  // deep link such as /settings → /settings/SET-08), so the store lives at module scope: windows and focus survive
+  // and the deep-link effect below focuses the existing instance (17B S1-02, Audit A-8).
+  const [store] = useState(() => (docStore ??= createShellStore(mockChannels(new URLSearchParams(query)))));
   useShellKeys(store);
   useBackStack(store);
 
   useEffect(() => {
-    const s = store.getState();
-    initLoader(store, new URLSearchParams(query));
     const fit = () => store.getState().setViewport(window.innerWidth, window.innerHeight);
     fit();
     window.addEventListener("resize", fit);
@@ -133,21 +134,25 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
     // Deep link /{appId}/...: after restoring saved windows, open it, or focus and front the open instance
     // (Audit A-8, 17A T4-04): openApp never creates a window past the instance cap.
     const app = route[0];
-    const deepLink = () => {
-      if (app && isAppId(app)) s.open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true });
-      seedHistory(store, route[1]);
-    };
+    const deepLink = () => applyDeepLink(store, { app, screen: route[1] }, () => {
+      if (app && isAppId(app)) store.getState().open(app, new URLSearchParams(query).get("asset") ?? undefined, { deepLink: true });
+      // /settings/SET-xx opens that section (17B SET-01).
+      if (app === "settings" && isSectionId(route[1])) settingsNav.open(route[1]);
+    });
     // Device-local state: IndexedDB `quay.<accountId>` (17 §2.2).
     const ACCOUNT = "guest";
-    let unsub = () => {};
-    loadLocal(ACCOUNT).then((saved) => {
-      if (saved) store.setState((st) => ({ local: { ...st.local, ...saved } }));
-      deepLink();
-      // A new account starts in the Trade layout (17 §3.2.5), desktop only.
-      if (!saved && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
-      unsub = store.subscribe((st, prev) => { if (st.local !== prev.local) void queueSave(ACCOUNT, st.local).catch(() => {}); });
-    }).catch(deepLink);
-    return () => { window.removeEventListener("resize", fit); window.clearInterval(t); unsub(); };
+    let live = true;
+    docBoot ??= (() => {
+      initLoader(store, new URLSearchParams(query));
+      return loadLocal(ACCOUNT).then((saved) => {
+        if (saved) store.setState((st) => ({ local: { ...st.local, ...saved } }));
+        // A new account starts in the Trade layout (17 §3.2.5), desktop only.
+        if (!saved && !app && viewportOf(window.innerWidth) === "desktop") store.getState().layout(DEFAULT_LAYOUT);
+        store.subscribe((st, prev) => { if (st.local !== prev.local) void queueSave(ACCOUNT, st.local).catch(() => {}); });
+      }, () => {});
+    })();
+    void docBoot.then(() => { if (live) deepLink(); });
+    return () => { live = false; window.removeEventListener("resize", fit); window.clearInterval(t); };
   }, [store, route, query]);
 
   return (
