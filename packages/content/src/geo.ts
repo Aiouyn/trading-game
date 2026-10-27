@@ -16,7 +16,7 @@ export interface CityProfile { cityId: string; launchPop: number; districtCount:
 
 export const DISTRICT_TIERS: readonly DistrictTier[] = Object.freeze(['working', 'mid', 'prime', 'trophy'] as const);
 export const TERRAIN_ROLES: readonly TerrainRole[] = Object.freeze(['waterfront', 'industrial_shore', 'riverside', 'flat_center', 'hill', 'edge', 'island', 'reclaimed'] as const);
-/** Flag order inside DistrictContent.flags (the DistrictFlag declaration order). */
+/** The five DistrictFlag values. DistrictContent.flags keeps the §3.2 entry order (E-88 (4)); `C/R` gives ['C', 'R']. */
 export const DISTRICT_FLAGS: readonly DistrictFlag[] = Object.freeze(['C', 'CL', 'R', 'F', 'H'] as const);
 /** 22 §3.2 "Flagged districts" labels: `C/R` gives both flags, `C (lake)` gives CL. */
 const FLAG_LABELS: Readonly<Record<string, readonly DistrictFlag[]>> = Object.freeze({
@@ -93,7 +93,7 @@ export function buildGeo(cityIds: readonly string[], districtRows: readonly Dist
   const districts: DistrictContent[] = districtRows.map((d) => {
     const s = flagsById[d.distId] ?? [];
     return { distId: d.distId, cityId: d.cityId, name: d.name, tier: d.tier as DistrictTier, terrainRole: d.terrainRole as TerrainRole,
-      heritage: d.heritage, landmarkId: d.landmarkId, landmarkBrief: d.landmarkBrief, flags: DISTRICT_FLAGS.filter((f) => s.includes(f)) };
+      heritage: d.heritage, landmarkId: d.landmarkId, landmarkBrief: d.landmarkBrief, flags: [...s] };   // §3.2 entry order (E-88 (4): Temple Hill, Mirador ['H', 'F'])
   });
   const profiles: CityProfile[] = profileRows.map((r) => ({ cityId: r.cityId, launchPop: parsePop(r.cityId, r.launchPop), districtCount: r.districts,
     ...parseUnlock(r.cityId, r.unlock), geographicConstraint: r.geographicConstraint, coastal: parseYesNo(r.cityId, r.coastal),

@@ -71,8 +71,8 @@ describe('T22A-02 ContentView geography', () => {
     expect(byName('cty_port_avalon', 'Summit Estates on Gilt Hill')).toEqual(['H']);   // prefix resolution
     expect(byName('cty_tessan', 'Fab Island')).toEqual(['C', 'R']);                    // C/R
     expect(byName('cty_lakemont', 'Lakefront')).toEqual(['CL']);                       // C (lake)
-    expect(byName('cty_mirako', 'Temple Hill')).toEqual(['F', 'H']);                   // E-88 (4): two entries (H and F), one district
-    expect(byName('cty_cobreval', 'Mirador')).toEqual(['F', 'H']);
+    expect(byName('cty_mirako', 'Temple Hill')).toEqual(['H', 'F']);                   // E-88 (4): two entries (H then F), one district
+    expect(byName('cty_cobreval', 'Mirador')).toEqual(['H', 'F']);
     expect(count(d, (x) => x.cityId === 'cty_meridia' && x.flags.length === 0)).toBeGreaterThan(0);
     for (const x of d) if (x.flags.length === 0) expect(x.flags).toEqual([]);
     const rename = (from: string, to: string) => withFile('districts.json', (f) => { for (const r of f.districts as Rec[]) if (r.name === from) r.name = to; });
