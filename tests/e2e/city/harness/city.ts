@@ -12,6 +12,9 @@ interface FixtureInfo {
 }
 
 const q = new URLSearchParams(location.search);
+// card 1 AC 10: high contrast / colour-blind modes, as the app sets them on <html>
+if (q.get('hc') === '1') document.documentElement.dataset.hc = '1';
+if (q.get('cb') === '1') document.documentElement.dataset.cb = '1';
 const info = (await (await fetch('/fixture-info.json')).json()) as FixtureInfo;
 const cityId = info.cityId;
 const fetchLog: string[] = [];

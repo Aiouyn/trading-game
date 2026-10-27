@@ -91,3 +91,49 @@ jobs:
           name: city-evidence
           path: ${{ runner.temp }}/city-evidence
           retention-days: 14
+  t0-ab:
+    # Producer's ruling on #60: T0's longest task is compared against main's city built and sampled
+    # in this same job (5 interleaved runs each, medians, <= 1.1x), not against a number from
+    # another run. PRs only: on main the merge-base is HEAD itself.
+    name: city T0 A/B vs main (Node 22, Chromium + SwiftShader)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: fonts (Inter, Instrument Serif, JetBrains Mono)
+        run: |
+          d="$RUNNER_TEMP/fonts"
+          mkdir -p "$d/Instrument Serif" "$d/Inter" "$d/JetBrains Mono"
+          base="https://raw.githubusercontent.com/google/fonts/$FONTS_SHA/ofl"
+          curl -fsSL -o "$d/Instrument Serif/InstrumentSerif-Regular.ttf" "$base/instrumentserif/InstrumentSerif-Regular.ttf"
+          curl -fsSL -o "$d/Inter/Inter-VariableFont_opsz,wght.ttf" "$base/inter/Inter%5Bopsz,wght%5D.ttf"
+          curl -fsSL -o "$d/JetBrains Mono/JetBrainsMono-VariableFont_wght.ttf" "$base/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf"
+          echo "CITY_FONTS_DIR=$d" >> "$GITHUB_ENV"
+      - name: main's city harness (merge-base), served on 3211
+        run: |
+          base=$(git merge-base HEAD "origin/${{ github.base_ref }}")
+          echo "A/B base: $base ($(git log -1 --format=%s "$base"))"
+          git worktree add --detach "$RUNNER_TEMP/base" "$base"
+          if cmp -s package-lock.json "$RUNNER_TEMP/base/package-lock.json"; then ln -s "$PWD/node_modules" "$RUNNER_TEMP/base/node_modules"; else (cd "$RUNNER_TEMP/base" && npm ci); fi
+          (cd "$RUNNER_TEMP/base" && CITY_HARNESS_OUT="$RUNNER_TEMP/h-base" npx vite build -c tests/e2e/city/harness/vite.config.ts)
+          nohup node tests/e2e/city/serve.mjs "$RUNNER_TEMP/h-base" 3211 > "$RUNNER_TEMP/serve-base.log" 2>&1 &
+          for i in $(seq 30); do curl -fs -o /dev/null http://localhost:3211/city.html && exit 0; sleep 1; done; exit 1
+      - name: T0 A/B (5 interleaved runs each, per viewport)
+        run: npx playwright test -c tests/e2e/city/playwright.config.ts t0-ab.spec.ts
+        env:
+          CI: 'true'
+          CITY_AB_BASE_URL: http://localhost:3211
+          CITY_EVIDENCE_DIR: ${{ runner.temp }}/city-ab
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: city-t0-ab
+          path: ${{ runner.temp }}/city-ab
+          retention-days: 14

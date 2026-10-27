@@ -12,7 +12,11 @@ import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "./fixtures/a
 import { POSITIONS, START_CASH_MINOR } from "./fixtures/me";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
-import { MOCK_HOOKS } from "../hooks";
+
+// Build-time gate (QUAY_HOOKS is always defined as "1"/"0" by next.config `env`, the single source of truth).
+// Keep it a MODULE-LOCAL const: an exported const read from another module is emitted as a runtime property read
+// on that module's exports once the module is shared by two chunks, and the gated branch then ships (see PR notes).
+const MOCK_HOOKS = process.env.QUAY_HOOKS === "1";
 
 export const FEED_TICK_MS = 5000; // spec: 5,000 ms tick; tests use a fake clock at 1,000 ms
 export const SNAP_DELAY_MS = 40; // mock latency before the first snap (state `loading` until then)
@@ -139,7 +143,7 @@ export class MockFeed {
   private tierNews(n: WireItem): WireItem {
     // Q6: pricedInBand only for Terminal; [P] fixed band per item in the mock.
     if (this.scenario.tier !== "terminal" || n.kind === "FILING") return n;
-    return { ...n, pricedInBand: n.breaking ? "early" : "mid", pricedInAsOf: n.tick - (n.tick % 720) - 1 };
+    return { ...n, pricedInBand: n.breaking ? "early" : "mid", pricedInAsOf: this.tick }; // as of the mock clock now, so "as of" reads like the top bar
   }
 
   private settle(): void {
