@@ -28,13 +28,13 @@ async function mount(vw: number, feed = new MockFeed({}, { tickMs: 1000 })) {
 const click = (n: HTMLElement) => act(async () => { n.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
 
 describe("PF-2-09 desktop frame", () => {
-  it("tab row Overview · Positions; Positions shows ComingLater; arrows move selection", async () => {
+  it("tab row Overview · Positions; Positions shows card 3 Positions; arrows move selection", async () => {
     await mount(1440);
     const tabs = [...el.querySelectorAll('[role="tab"]')].map((t) => [t.textContent, t.getAttribute("aria-selected")]);
     expect(tabs).toEqual([["Overview", "true"], ["Positions", "false"]]);
     expect(q("pf-overview")?.dataset.state).toBe("live");
     await click(q("pf-tab-positions")!);
-    expect(q("coming-later")).not.toBeNull();
+    expect(q("pf-positions")).not.toBeNull();
     expect(q("pf-overview")).toBeNull();
     await act(async () => { q("pf-tabs")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })); });
     expect(q("pf-tab-overview")!.getAttribute("aria-selected")).toBe("true");
@@ -57,7 +57,7 @@ describe("PF-2-10 phone push", () => {
     await click(q("pf-open-positions")!);
     const sub = store.getState().phoneSub!;
     expect([sub.title, sub.backLabel]).toEqual(["Positions", "Back to Portfolio"]);
-    expect(q("coming-later")).not.toBeNull();
+    expect(q("pf-positions")).not.toBeNull();
     await act(async () => sub.onBack());
     expect(q("pf-overview")).not.toBeNull();
     expect(store.getState().phoneSub).toBeNull();

@@ -1,0 +1,49 @@
+/* Positions (UI card 3, 17B PF-B). Tokens only; no brass (--acc) anywhere on a row (Studio PF-B). */
+.pos { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.pos.pos-phone { padding: var(--sp-16); }
+
+/* Table: 36 px rows, --line hairlines on --win; numbers mono, tabular, right-aligned. */
+.pos-table { width: 100%; border-collapse: collapse; background: var(--win); }
+.pos-table th, .pos-table td { padding: var(--sp-8); text-align: right; vertical-align: middle; }
+.pos-table th:first-child, .pos-table td:first-child { text-align: left; padding-left: 0; }
+.pos-table thead th { font-weight: 400; color: var(--fg-muted); font-size: var(--fs-12_5); border-bottom: 1px solid var(--line); }
+.pos-tr { height: 36px; border-bottom: 1px solid var(--line); }
+.pos-tr:focus-visible, .pos-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.pos .num, .pos-table td { font-family: var(--font-num); font-feature-settings: "tnum"; white-space: nowrap; }
+.pos-asset { font-family: var(--font-ui); }
+.pos-ticker { color: var(--fg); font-weight: 600; }
+.pos-asset .pos-badges { margin-left: var(--sp-8); }
+.pos-stale { color: var(--fg-disabled); }
+
+/* Narrow window (< 640 px): Avg cost and Last leave the table; the row label still speaks them. */
+@container (max-width: 639px) { .pos-col-avg, .pos-col-last { display: none; } }
+
+/* Today and P&L: colour from the leading sign, with an arrow so colour is never the only cue. */
+.pos-today, .pos-pnl { display: inline-flex; align-items: baseline; gap: var(--sp-2); white-space: nowrap; }
+.pos-arrow { font-size: 0.75em; }
+
+/* Badges. Neutral chips (#67): --steel outline, --fg-muted text. Halted: --steel text. */
+.pos-badges { display: inline-flex; flex-wrap: wrap; gap: var(--sp-4); align-items: center; vertical-align: middle; }
+.pos .chip.pos-chip { border-color: var(--steel); color: var(--fg-muted); }
+.pos .chip.pos-halted { color: var(--steel); }
+.pos .chip.pos-margin-call { border-color: var(--signal); color: var(--signal); }
+.pos .chip.pos-margin-alert { border-color: var(--loss); color: var(--loss); }
+.pos .chip.pos-margin-closed { border-color: var(--fg-disabled); color: var(--fg-disabled); }
+.pos-liq { white-space: nowrap; font-size: var(--fs-12_5); }
+.pos-liq-label, .pos-approx { color: var(--fg-muted); font-family: var(--font-ui); }
+.pos-approx { font-variant-caps: all-small-caps; }
+
+/* Cards: phone, and any text scale >= 1.5 (#67: label line on top, value line below; an amount never splits from
+   its code). 56 px minimum, no horizontal scroll. */
+.pos-list { list-style: none; margin: 0; padding: 0; }
+.pos-card { display: flex; flex-direction: column; gap: var(--sp-4); min-height: 56px; padding: var(--sp-8) 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.pos-line { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-8); flex-wrap: wrap; min-width: 0; }
+.pos-id { display: flex; flex-direction: column; min-width: 0; }
+.pos-card .pos-value .money { color: var(--fg-muted); }
+.pos-card .money, .pos-card .num { white-space: nowrap; }
+.pos-card .pos-badges { margin-top: var(--sp-2); }
+
+.pos-skel { height: 36px; border-radius: var(--r-input); background: var(--win2); }
+.pos-cards .pos-skel { height: 56px; }
+.pos-empty p { margin: 0; }
+.pos-empty-title { color: var(--fg); }

@@ -1,12 +1,12 @@
 "use client";
 // Portfolio frame (UI card 2, 17B PF-A). Desktop: "Overview · Positions" tab row (segment per Studio #38).
 // Phone: Overview is the root ("Portfolio" app bar); Positions is a pushed screen, back label "Back to Portfolio" (SR T4).
-// Positions renders ComingLater until card 3.
+// Positions: UI card 3 (17B PF-B).
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { ComingLater } from "@/components/shell/ComingLater";
 import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
 import { Overview } from "./Overview";
+import { Positions } from "./Positions";
 import { pfStrings } from "./strings";
 import "./portfolio.css";
 
@@ -33,7 +33,7 @@ export function PortfolioFrame() {
   if (phone) {
     return (
       <div className="pf pf-phone-root" data-testid="portfolio" data-tab={tab}>
-        {tab === "positions" ? <ComingLater app="portfolio" /> : (
+        {tab === "positions" ? <Positions phone /> : (
           <>
             <Overview phone />
             <nav className="pf-phone-nav" aria-label={t.views}>
@@ -64,7 +64,7 @@ export function PortfolioFrame() {
         ))}
       </div>
       <div className="pf-panel" role="tabpanel" id={`pf-panel-${tab}`} aria-labelledby={`pf-tab-${tab}`}>
-        {tab === "overview" ? <Overview phone={false} /> : <ComingLater app="portfolio" />}
+        {tab === "overview" ? <Overview phone={false} /> : <Positions phone={false} />}
       </div>
     </div>
   );

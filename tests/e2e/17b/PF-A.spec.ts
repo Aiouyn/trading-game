@@ -131,7 +131,7 @@ test("PF-2-09 desktop: tabs (#38), maximised two columns, 520 minimum one column
   expect((await win.boundingBox())!.width).toBe(520);
   await expect.poll(async () => (await xs()).oneCol).toBe(true);
   await tabs.nth(1).click();
-  await expect(win.getByTestId("coming-later")).toBeVisible();
+  await expect(win.getByTestId("pf-positions")).toBeVisible();
   await expect(win.getByTestId("pf-overview")).toHaveCount(0);
 });
 
