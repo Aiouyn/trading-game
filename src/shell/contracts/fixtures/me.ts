@@ -1,8 +1,8 @@
 // 17B CH-00 seeded `me` fixture: cash and opening positions (whole units, prices in minor units). Demo data.
 /** THE mock net worth at START_TICK: one source for the shell top bar (mockChannels `me.nw`) and the `me` feed (the
  *  Portfolio hero). The feed derives opening FDL cash from it (cash = NW - positions at their base marks) and, once
- *  live, the shell copies every `me.nw` frame into its store (src/components/shell/MeNwBridge.tsx), so both always
- *  show the same string. */
+ *  live, the top bar reads the same `me` channel (src/components/shell/useNw.ts), so both always show the same
+ *  string. */
 export const START_NW = "412860.15";
 export const START_NW_MINOR = 41_286_015;
 /** Second wallet (E-61 code, no symbol). A separate currency: not converted, not part of `nw` (nothing converts in the mock). */

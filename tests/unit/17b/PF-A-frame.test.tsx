@@ -4,7 +4,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PortfolioApp from "@/apps/portfolio/App";
-import { MeNwBridge } from "@/components/shell/MeNwBridge";
+import { useNw } from "@/components/shell/useNw";
 import { speakMoney } from "@/components/shell/MoneyText";
 import { ShellCtx } from "@/components/shell/ShellContext";
 import type { MeTradingBody } from "@/shell/contracts/channels";
@@ -133,21 +133,23 @@ describe("Producer 3/4: the me mock carries stats, a second currency and restric
 });
 
 describe("Producer 3 / Studio fix b: one NW source", () => {
-  it("the shell boots on START_NW, the feed opens on START_NW, and every me frame lands in the shell store", async () => {
+  // What the top bar and phone status bar read (StatusStrip / PhoneHome call useNw).
+  function NwProbe() { return createElement("span", { "data-testid": "nw-probe" }, useNw()); }
+  it("the shell boots on START_NW, the feed opens on START_NW, and the top bar's NW follows every me frame", async () => {
     expect(store.getState().channels.me.nw).toBe(START_NW);
     const feed = new MockFeed({}, { tickMs: 1000 });
     expect((feed.body("me") as MeTradingBody).nw).toBe(START_NW);
     setFeed(feed);
     store.setState({ vw: 1440 });
-    await act(async () => { root.render(createElement(ShellCtx.Provider, { value: store }, createElement(MeNwBridge), createElement(PortfolioApp))); });
+    await act(async () => { root.render(createElement(ShellCtx.Provider, { value: store }, createElement(NwProbe), createElement(PortfolioApp))); });
     await act(async () => { vi.advanceTimersByTime(SNAP_DELAY_MS); });
     for (let i = 0; i < 5; i++) {
       await act(async () => { vi.advanceTimersByTime(1000); });
       const nw = (feed.body("me") as MeTradingBody).nw;
-      expect(store.getState().channels.me.nw).toBe(nw);
+      expect(q("nw-probe")!.textContent).toBe(nw);
       expect(q("pf-hero-nw")!.querySelector("[role=img]")!.getAttribute("aria-label")).toBe(speakMoney(nw));
     }
-    expect(store.getState().channels.me.nw).not.toBe(START_NW); // the marks moved: the store follows the feed, not a constant
+    expect(q("nw-probe")!.textContent).not.toBe(START_NW); // the marks moved: the top bar follows the feed, not a constant
   });
   it("a ?nw= pin keeps me.nw exactly the pinned string while marks move", () => {
     const feed = new MockFeed({ nw: "200000" }, { tickMs: 1000, autoStart: false });

@@ -1,8 +1,9 @@
 // UI card 2 (17B PF-A) Portfolio overview: hero, summary, restricted, stats, rank, states, desktop frame, phone push.
 // The mock feed sends nwStats, an MDOL wallet and AD/START restricted buckets (?empty=1 is the new player without them),
-// and is the one NW source: the hero, the desktop strip and the phone status bar all read its me.nw (MeNwBridge).
+// and is the one NW source: the hero, the desktop strip and the phone status bar all read its me.nw (useNw).
 import { expect, test, type Page } from "@playwright/test";
 import { boot, setTextScale } from "../shell/helpers";
+import { START_NW } from "../../../src/shell/contracts/fixtures/me";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -11,6 +12,16 @@ const pf = (page: Page) => page.getByTestId("pf-overview").first();
 
 async function openPortfolio(page: Page, query = "") {
   await boot(page, `/portfolio${query}`);
+  await expect(pf(page)).toHaveAttribute("data-state", "live");
+}
+// Text scale lives in the shell store for this document: open Portfolio in-app after changing it, not via a reload.
+async function openPortfolioInApp(page: Page, project: string) {
+  if (project === "phone") {
+    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByTestId("icon-portfolio").click();
+  } else {
+    await page.getByTestId("tile-portfolio").click();
+  }
   await expect(pf(page)).toHaveAttribute("data-state", "live");
 }
 
@@ -39,6 +50,23 @@ test("PF-2-02/03 hero: nominal NW, serif, 44 desktop / 30 phone, --acc-wealth in
   expect(r.centsColor).toBe(await color(page, "var(--fg-muted)"));
   expect(r.label).toBe(await color(page, "var(--fg-muted)"));
   await expect(hero.getByRole("img")).toHaveAttribute("aria-label", /dollars/);
+});
+
+test("PF-2-02 hero NW: exact text of the shared mock NW string; the top bar shows its compact form (desktop + phone)", async ({ page }, info) => {
+  // ?nw= pins the feed's NW to the shared START_NW string (fixtures/me), so the exact text is stable across ticks.
+  await openPortfolio(page, `?nw=${START_NW}`);
+  const full = `$${Number(START_NW).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  expect(full).toBe("$412,860.15");
+  const hero = pf(page).getByTestId("pf-hero-nw").getByRole("img");
+  await expect(hero).toHaveText(full);
+  await expect(hero).toHaveAttribute("aria-label", "412,860.15 dollars");
+  if (info.project.name === "desktop") {
+    const strip = page.getByTestId("strip-nw").locator("[title]");
+    await expect(strip).toHaveAttribute("title", full);
+    await expect(strip).toHaveText("$413k"); // MoneyText ctx=chip: abbreviated, rounded
+  } else {
+    await expect(page.locator(".sb-nw")).toHaveText("$412k"); // compactMoney: truncated
+  }
 });
 
 test("PF-2-04 stats: mock drawdownReal '-4.2' renders '−4.2%' (U+2212, locale percent); absent for the new player", async ({ page }) => {
@@ -75,7 +103,7 @@ test("PF-2-07 restricted: one row per mock bucket, AD/START pills --steel outlin
   await expect(pill).toHaveText("AD");
   const [border, fg] = await pill.evaluate((e) => [getComputedStyle(e).borderTopColor, getComputedStyle(e).color]);
   expect([border, fg]).toEqual([await color(page, "var(--steel)"), await color(page, "var(--fg-muted)")]);
-  await expect(pf(page).locator(".chip-acc")).toHaveCount(0);
+  await expect(pf(page).getByTestId("pf-restricted").locator(".chip-acc")).toHaveCount(0); // the rank chip keeps its accent
   await openPortfolio(page, "?empty=1");
   await expect(pf(page).getByTestId("pf-restricted")).toHaveCount(0);
 });
@@ -112,10 +140,10 @@ test("Studio b: one NW string; the hero and the top bar (compact) agree on deskt
   expect(seen.size, "the mock NW moves with marks, and both views follow").toBeGreaterThan(1);
 });
 
-test("Studio c: at text scale 2 each row stacks label over value; amounts never split from their code", async ({ page }) => {
+test("Studio c: at text scale 2 each row stacks label over value; amounts never split from their code", async ({ page }, info) => {
   await boot(page, "/settings");
   await setTextScale(page, "2");
-  await openPortfolio(page);
+  await openPortfolioInApp(page, info.project.name);
   await expect(pf(page)).toHaveClass(/pf-stacked/);
   const r = await pf(page).evaluate((root) => [...root.querySelectorAll(".pf-rows tr")].map((tr) => {
     const [th, td] = [tr.children[0] as HTMLElement, tr.children[1] as HTMLElement];
@@ -126,8 +154,9 @@ test("Studio c: at text scale 2 each row stacks label over value; amounts never 
   }));
   expect(r.length).toBeGreaterThan(3);
   for (const row of r) expect(row).toEqual({ below: true, left: true, nowrap: true, oneLine: true });
+  await boot(page, "/settings");
   await setTextScale(page, "1");
-  await openPortfolio(page);
+  await openPortfolioInApp(page, info.project.name);
   await expect(pf(page)).not.toHaveClass(/pf-stacked/);
 });
 
@@ -223,7 +252,9 @@ test("PF-2-10 phone: Overview root, Positions push with 'Back to Portfolio', hit
     // Studio Q1: a nav row, 44 px, the whole row is the target, chevron at the right edge
     const ob = (await open.boundingBox())!, cb = (await open.getByTestId("pf-nav-chevron").boundingBox())!;
     expect(ob.height).toBeGreaterThanOrEqual(44);
-    expect(ob.width).toBeGreaterThan(page.viewportSize()!.width - 40);
+    // full width of the overview's content box (the app view and the overview each pad 16 px)
+    const content = await pf(page).evaluate((e) => { const cs = getComputedStyle(e); return e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); });
+    expect(Math.abs(ob.width - content)).toBeLessThan(1);
     expect(ob.x + ob.width - (cb.x + cb.width)).toBeLessThan(24);
     await open.click();
     await expect(page.getByTestId("app-title")).toHaveText("Positions");
