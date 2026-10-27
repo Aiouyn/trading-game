@@ -24,7 +24,8 @@ function dataConfirms(s: Regime, prints: Prints, unemployment12mLow: number | nu
     case 'RECOVERY':
       return g !== null && g > 0;
     case 'OVERHEATING':
-      return cpi !== null && jobs !== null && cpi.actual >= inflationTarget + 0.01 && jobs.actual < nairu;
+      // E-81 (AC-04-03-CORE-PRINT): published core CPI yoy = prints.CPI.extra.coreYoy, never the headline `actual` or the true core.
+      return cpi !== null && jobs !== null && cpi.extra.coreYoy !== undefined && cpi.extra.coreYoy >= inflationTarget + 0.01 && jobs.actual < nairu;
   }
 }
 

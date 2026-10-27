@@ -54,9 +54,9 @@ describe('T04-03 imbalances', () => {
 });
 
 const KINDS = RELEASE_KINDS;
-function prints(p: Partial<Record<ReleaseKind, [number, number]>>): PublicMacroView['prints'] {
+function prints(p: Partial<Record<ReleaseKind, [actual: number, tick: number, extra?: Record<string, number>]>>): PublicMacroView['prints'] {
   const out = {} as Record<ReleaseKind, LatestPrint | null>;
-  for (const k of KINDS) { const v = p[k]; out[k] = v === undefined ? null : { kind: k, tick: v[1], actual: v[0], consensus: v[0], prior: v[0], surprise: 0 }; }
+  for (const k of KINDS) { const v = p[k]; out[k] = v === undefined ? null : { kind: k, tick: v[1], actual: v[0], consensus: v[0], prior: v[0], surprise: 0, extra: v[2] ?? {} }; }
   return out;
 }
 
@@ -88,9 +88,18 @@ describe('T04-03 Cycle Committee', () => {
     expect(cycleLabelStep('RECOVERY', 21, 'CONTRACTION', prints({ GDP_REV2: [0.001, 1] }), null, NAIRU, TGT, LAG)).toEqual({ label: 'RECOVERY', changed: true });
     expect(cycleLabelStep('EXPANSION', 40, 'EXPANSION', prints({ GDP_ADV: [0.02, 1] }), null, NAIRU, TGT, LAG).changed).toBe(false);   // already labelled
   });
-  it('OVERHEATING: CPI print ≥ target + 0.01 and unemployment < NAIRU', () => {
-    expect(cycleLabelStep('OVERHEATING', 21, 'EXPANSION', prints({ CPI: [0.03, 1], JOBS: [0.044, 1] }), null, NAIRU, TGT, LAG).changed).toBe(true);
-    expect(cycleLabelStep('OVERHEATING', 21, 'EXPANSION', prints({ CPI: [0.0299, 1], JOBS: [0.044, 1] }), null, NAIRU, TGT, LAG).changed).toBe(false);
-    expect(cycleLabelStep('OVERHEATING', 21, 'EXPANSION', prints({ CPI: [0.04, 1], JOBS: [0.045, 1] }), null, NAIRU, TGT, LAG).changed).toBe(false);
+  it('OVERHEATING: published core CPI yoy ≥ target + 0.01 and unemployment < NAIRU', () => {
+    const cpi = (core: number): [number, number, Record<string, number>] => [core, 1, { coreYoy: core, headlineMom: 0, coreMom: 0 }];
+    expect(cycleLabelStep('OVERHEATING', 21, 'EXPANSION', prints({ CPI: cpi(0.03), JOBS: [0.044, 1] }), null, NAIRU, TGT, LAG).changed).toBe(true);
+    expect(cycleLabelStep('OVERHEATING', 21, 'EXPANSION', prints({ CPI: cpi(0.0299), JOBS: [0.044, 1] }), null, NAIRU, TGT, LAG).changed).toBe(false);
+    expect(cycleLabelStep('OVERHEATING', 21, 'EXPANSION', prints({ CPI: cpi(0.04), JOBS: [0.045, 1] }), null, NAIRU, TGT, LAG).changed).toBe(false);
+    expect(cycleLabelStep('OVERHEATING', 21, 'EXPANSION', prints({ CPI: [0.04, 1], JOBS: [0.044, 1] }), null, NAIRU, TGT, LAG).changed).toBe(false);   // no coreYoy extra → not confirmed
+  });
+  it('AC-04-03-CORE-PRINT (E-81): OVERHEATING reads prints.CPI.extra.coreYoy, never the headline actual', () => {
+    const at = (headline: number, core: number) => cycleLabelStep('OVERHEATING', 21, 'EXPANSION',
+      prints({ CPI: [headline, 1, { coreYoy: core, headlineMom: 0.004, coreMom: 0.002 }], JOBS: [0.044, 1] }), null, NAIRU, TGT, LAG);
+    expect(NAIRU).toBeGreaterThan(0.044); expect(TGT).toBe(0.02);   // u < NAIRU, target 0.020
+    expect(at(0.050, 0.020)).toEqual({ label: 'EXPANSION', changed: false });
+    expect(at(0.020, 0.031)).toEqual({ label: 'OVERHEATING', changed: true });
   });
 });

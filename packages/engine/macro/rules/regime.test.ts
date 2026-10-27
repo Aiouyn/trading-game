@@ -40,35 +40,44 @@ describe('T04-03 regime', () => {
     expect(transitionMultipliers('EXPANSION', { credit: -9 }).CONTRACTION).toBeCloseTo(Math.exp(0.4 * -2), 12);
   });
 
-  it('04#5 (a): weightScale 0, 200,000 post-minimum EXPANSION days → P = 1 − e^(−1/637) within 5%, OVH:CON 0.80:0.20 within 0.02', () => {
-    const rng = fastRng(5), m = transitionMultipliers('EXPANSION', {}, 0);
-    let days = 0, trans = 0, ovh = 0, daysIn = 0;
-    while (days < 200_000) {
+  // AC-04-03-EVENT-STOP (E-80, Quant ruling on 04#5): event-count stopping, deterministic per seed, both parts sized to 4σ.
+  // (a) 6,400 transitions out of EXPANSION: rel. SE of p̂ = 1/√6400 = 1.25% → 5% = 4σ; SE of the OVH share = √(0.8·0.2/6400) = 0.005 → 0.02 = 4σ.
+  // (b) two arms of 3,200 EXP→CON transitions: rel. SE of the hazard ratio ≈ √(2/3200) = 2.5% → 10% = 4σ.
+  /** Runs EXPANSION (restarting there after each exit) until `stopAt` exits counted by `stop`; at-risk days = days after the minimum. */
+  const runExp = (seed: number, m: Partial<Record<Regime, number>>, stop: 'ANY' | 'CONTRACTION', stopAt: number) => {
+    const rng = fastRng(seed);
+    let atRisk = 0, trans = 0, ovh = 0, con = 0, daysIn = 0;
+    while ((stop === 'ANY' ? trans : con) < stopAt) {
       const s = stepRegime(rng, 'EXPANSION', daysIn, m, RP);
-      if (daysIn >= RP.minDays.EXPANSION) days++;
-      if (s.transitioned) { trans++; if (s.next === 'OVERHEATING') ovh++; daysIn = 0; } else daysIn++;
+      if (daysIn >= RP.minDays.EXPANSION) atRisk++;
+      if (s.transitioned) { trans++; if (s.next === 'OVERHEATING') ovh++; else con++; daysIn = 0; } else daysIn++;
     }
-    const p = trans / days, want = 1 - Math.exp(-1 / 637);
-    expect(want).toBeCloseTo(0.0015686, 7);
-    expect(rel(p, want)).toBeLessThan(0.05);
-    expect(Math.abs(ovh / trans - 0.8)).toBeLessThan(0.02);
-  });
+    return { atRisk, trans, ovh, con };
+  };
+  /** EXP→CON hazard: total hazard −ln(1 − p̂) times the CON share of exits. */
+  const conHazard = (r: { atRisk: number; trans: number; con: number }): number => -Math.log(1 - r.trans / r.atRisk) * (r.con / r.trans);
+  const AC_SEEDS = [1, 2, 3] as const;
 
-  it('04#5 (b): credit z = +2 → M[CON] = e^0.8, M[OVH] = e^0.6; EXP→CON hazard over 400,000 days = e^0.8 × zero-z within 10%', () => {
-    const m = transitionMultipliers('EXPANSION', { credit: 2 });
-    expect(m.CONTRACTION).toBeCloseTo(2.225541, 6); expect(m.OVERHEATING).toBeCloseTo(1.822119, 6);
-    const measure = (mm: typeof m, seed: number): number => {
-      const rng = fastRng(seed); let days = 0, con = 0, daysIn = 0;
-      while (days < 400_000) {
-        const s = stepRegime(rng, 'EXPANSION', daysIn, mm, RP);
-        if (daysIn >= RP.minDays.EXPANSION) days++;
-        if (s.transitioned) { if (s.next === 'CONTRACTION') con++; daysIn = 0; } else daysIn++;
-      }
-      return con / days;
-    };
-    const zeroZ = 0.2 / 637;   // λ·P_base·1
-    expect(rel(measure(m, 6), Math.exp(0.8) * zeroZ)).toBeLessThan(0.10);
-  });
+  for (const seed of AC_SEEDS) {
+    it(`AC-04-03-EVENT-STOP 04#5 (a) seed ${seed}: weightScale 0, until 6,400 EXP exits → p̂ = 1 − e^(−1/637) within 5%, OVH:CON 0.80:0.20 within 0.02`, () => {
+      const r = runExp(seed, transitionMultipliers('EXPANSION', {}, 0), 'ANY', 6_400);
+      const want = 1 - Math.exp(-1 / 637);
+      expect(want).toBeCloseTo(0.0015686, 7);
+      expect(r.trans).toBe(6_400);
+      console.log(`[AC-04-03-EVENT-STOP (a) seed ${seed}] events ${r.trans} (OVH ${r.ovh}, CON ${r.con}), at-risk days ${r.atRisk}, p̂ ${(r.trans / r.atRisk).toFixed(7)} vs ${want.toFixed(7)}, OVH share ${(r.ovh / r.trans).toFixed(4)}`);
+      expect(rel(r.trans / r.atRisk, want)).toBeLessThan(0.05);
+      expect(Math.abs(r.ovh / r.trans - 0.8)).toBeLessThan(0.02);
+    });
+    it(`AC-04-03-EVENT-STOP 04#5 (b) seed ${seed}: arms z = 0 and z = {credit: 2}, each until 3,200 EXP→CON → hazard ratio e^0.8 within 10%`, () => {
+      const m = transitionMultipliers('EXPANSION', { credit: 2 });
+      expect(m.CONTRACTION).toBeCloseTo(2.225541, 6); expect(m.OVERHEATING).toBeCloseTo(1.822119, 6);
+      const zero = runExp(seed, transitionMultipliers('EXPANSION', {}), 'CONTRACTION', 3_200);
+      const cred = runExp(seed + 1_000, m, 'CONTRACTION', 3_200);
+      expect([zero.con, cred.con]).toEqual([3_200, 3_200]);
+      console.log(`[AC-04-03-EVENT-STOP (b) seed ${seed}] events z=0 ${zero.con} CON / ${zero.trans} exits, credit ${cred.con} CON / ${cred.trans} exits, HR ${(conHazard(cred) / conHazard(zero)).toFixed(4)} vs e^0.8 ${Math.exp(0.8).toFixed(4)}`);
+      expect(rel(conHazard(cred) / conHazard(zero), Math.exp(0.8))).toBeLessThan(0.10);
+    });
+  }
 
   it('worked total hazard with credit z 2: H, P(transition), CON share; u2 pick follows cumulative weights', () => {
     const m = transitionMultipliers('EXPANSION', { credit: 2 });
