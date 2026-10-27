@@ -22,7 +22,9 @@ export interface Material {
 const slate: Lch = { u: 0.14, C: 0.012, h: 250 };
 const concrete: Lch = { u: 0.48, C: 0.008, h: 80 };
 const metal: Lch = { u: 0.35, C: 0.01, h: 240 };
-const rust: Lch = { u: 0.35, C: 0.06, h: 45 };
+// C 0.056: base HSL sat 36.0 %, worst case with full jitter (L ±.02, hue ±4°, chroma ×1.1) 44.8 % ≤ AC-LOOK-04's 45 %
+// (Studio ruling 2: no clamp; Studio's quoted 40.9 % base was not reproduced here, measured base at C .06 is 38.7 %, worst 48.6 %)
+const rust: Lch = { u: 0.35, C: 0.056, h: 45 };
 const mullion: Rel = { dL: 0.06 };
 
 /** Material id 0: parts with no entity (and any data overlay): concrete, no pattern. Ids 1–8: the districts. */
@@ -97,8 +99,8 @@ export interface PartLook {
 
 /**
  * The look of one entity's parts from its material and seed (§2.1 "Seed jitter"):
- * bits 0–7 L ±0.02; bits 8–15 hue ±4° (low nibble) and chroma ×(1 ± 0.10) (high nibble) [spec gives
- * both to the same 8 bits without a split]; bits 16–23 variant / rust accent; bits 24–31 window seed.
+ * bits 0–7 L ±0.02; bits 8–11 hue ±4°; bits 12–15 chroma ×(1 ± 0.10) (Studio ruling 1);
+ * bits 16–23 variant / rust accent; bits 24–31 window seed.
  */
 export function partLook(a: Anchors, id: number, seed: number): PartLook {
   const m = material(id);
@@ -110,9 +112,7 @@ export function partLook(a: Anchors, id: number, seed: number): PartLook {
   const variant = id === 1 ? b2 / 255 : 0;
   let wall: Rgb;
   if (id === MATERIAL_PLAIN) wall = lch(a, m.wall);
-  // rust sits at ~38.7 % HSL saturation; chroma ×1.10 would take it to 46 %, over AC-LOOK-04's 45 %,
-  // so accents take no chroma boost (spec conflict, flagged to Studio)
-  else if (rust) wall = lch(a, m.trim as Lch, dL, dh, Math.min(kC, 1));
+  else if (rust) wall = lch(a, m.trim as Lch, dL, dh, kC);
   else if (id === 1 && m.wall2) {
     const w = m.wall, w2 = m.wall2;
     wall = lch(a, { u: w.u + (w2.u - w.u) * variant, C: w.C + (w2.C - w.C) * variant, h: w.h + (w2.h - w.h) * variant }, dL, dh, kC);

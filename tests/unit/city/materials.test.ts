@@ -85,3 +85,19 @@ describe('partColors with materials (card 2 §2.1)', () => {
     expect(rgb(on.colors, 3)).toEqual(rgb(off.colors, 3));
   });
 });
+
+describe('seed bit split (Studio ruling 1)', () => {
+  const hc = (seed: number) => {
+    const [, a, b] = srgbToOklab(partLook(A, 2, seed).wall);
+    return { h: (Math.atan2(b, a) * 180) / Math.PI, C: Math.hypot(a, b) };
+  };
+  it('bits 8–11 move hue only, bits 12–15 move chroma only', () => {
+    const o = hc(0x80 | (0x8 << 8) | (0x8 << 12)); // mid nibbles ≈ no jitter
+    const hue = hc(0x80 | (0xf << 8) | (0x8 << 12));
+    const chr = hc(0x80 | (0x8 << 8) | (0xf << 12));
+    expect(Math.abs(hue.h - o.h)).toBeGreaterThan(3);
+    expect(Math.abs(hue.C - o.C)).toBeLessThan(2e-4);
+    expect(Math.abs(chr.C / o.C - 1)).toBeGreaterThan(0.08);
+    expect(Math.abs(chr.h - o.h)).toBeLessThan(0.3);
+  });
+});

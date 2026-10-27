@@ -19,6 +19,8 @@ export const TOKEN_VARS = {
   loss: '--loss',
   info: '--info',
   signal: '--signal',
+  /** card 2 night key light; per palette from tokens.css (Studio ruling 3) */
+  steel: '--steel',
 } as const;
 
 /** Font tokens (S1 §7.1). */
