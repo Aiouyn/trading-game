@@ -1,5 +1,6 @@
 import { test } from '@playwright/test';
 import { expect, isPhone, openCity, saveJson, waitDrawn, type HarnessWindow } from './helpers';
+import { PORTRAIT_FLOOR } from '../../../src/city/renderer/picture';
 
 const relLum = (rgb: number[]) => {
   const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -121,7 +122,7 @@ test.describe('M7 T0 controls', () => {
 });
 
 test.describe('M6 phone T0 picture', () => {
-  test('the city picture fills > 40 % of the viewport height; every district is labelled, each label whole, on canvas and not overlapping', async ({ page }) => {
+  test('the city picture fills >= 41 % of the viewport height (PORTRAIT_FLOOR, pinned literally); every district is labelled, each label whole, on canvas and not overlapping', async ({ page }) => {
     await openCity(page, 'tier=T0');
     await waitDrawn(page);
     await page.evaluate(() => document.fonts.ready);
@@ -130,7 +131,9 @@ test.describe('M6 phone T0 picture', () => {
     const view = page.viewportSize()!;
     const fill = (r!.bottom - r!.top) / view.height;
     console.log('M6 T0', view.width, 'fill', (fill * 100).toFixed(1), '%', JSON.stringify(r!.labels.map((l) => l.text)));
-    expect(fill).toBeGreaterThan(0.4);
+    // QA: several seeds sit at exactly the floor (41.000 %), so allow float noise
+    expect(PORTRAIT_FLOOR).toBe(0.41);
+    expect(fill).toBeGreaterThanOrEqual(0.41 - 1e-9);
     expect(r!.labels.map((l) => l.text)).toContain('Financial Mile');
     for (const b of r!.labels) {
       expect(b.x, b.text).toBeGreaterThanOrEqual(0);
