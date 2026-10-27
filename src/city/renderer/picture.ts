@@ -84,7 +84,7 @@ export function drawPicture(opts: {
   // willReadFrequently: a CPU (software) canvas. The picture is read back once (toDataURL), and an
   // accelerated canvas on a software GPU (SwiftShader: CI, the box, blocklisted GPUs) spent seconds
   // in that one flush (T0 profile, 2026-10-27).
-  const g = canvas.getContext('2d', { willReadFrequently: true });
+  const g = canvas.getContext('2d');
   if (!g) return { url: '', top: 0, bottom: 0, labels: [] };
   g.fillStyle = css(ramps.water);
   g.fillRect(0, 0, W, H);
