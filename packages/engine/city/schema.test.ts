@@ -2,17 +2,22 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { Money, StoreRead } from '@tycoon/engine-core';
 import { canonDecode, canonEncode, cmpStr, IdFactory, TABLE_NAME_RE, TableRegistry } from '@tycoon/engine-core';
 import { ReasonCatalog } from '@tycoon/engine-ledger';
 import { ALLOWED, LEDGER_KIND_PREFIXES, NONCOMPLIANT } from './lint/entity-prefix.mjs';
 import { ENTITY_KINDS } from '../ledger/src/types';
 import { ALLOWED_ENTITY_PREFIXES, assertEntityId, buildingId, cityId, districtId, ENTITY_ID_MAX_LEN, leaseId, NONCOMPLIANT_ENTITY_PREFIXES, parcelId, propId, unitId } from './ids';
-import { assertFixedPolygon, assertFixedRect, quantiseCm, signedArea2 } from './geom';
-import { ALL_CITY_TABLES, USE_CLASSES, type BuildingRow, type CityManifestRow, type CityRegionRow, type CityRow, type DistrictRow, type DistrictUseMarket,
+import { assertFixedPolygon, assertFixedPolyline, assertFixedRect, quantiseCm, signedArea2 } from './geom';
+import { ALL_CITY_TABLES, assertBuildingVisual, assertBuildingVisualPart, cityAccessOf, DEFAULT_PUBLIC_RECORD, effectivePublicRecord, ownRankFor, USE_CLASSES,
+  type BuildingRow, type CityManifestRow, type CityRegionRow, type CityRow, type DistrictRow, type DistrictUseMarket,
   type LeaseRow, type ParcelRow, type PropertyRow, type PublicCityState, type UnitRow, type UseClass } from './schema';
 import { CATALOG_GAPS_10A, CITY_DIRECT_CODES, CITY_REASON_ALIAS_NAMES, CITY_REASON_ALIASES, catalogGaps10A } from './codes';
-import { CITY_EVENT_VISIBILITY, CITY_EVENTS, DEFERRED_EVENT_KINDS } from './events';
+import { byUseOf, checkCityEvent, CITY_EVENT_VISIBILITY, CITY_EVENTS, DEFERRED_EVENT_KINDS, optInAllows, PUBLIC_OPT_IN, PUBLIC_PAYLOAD_KEYS, supplyByUseOf } from './events';
+import type { BlocMacroInputs, CityBizPort, CityContentPort, CityHhPort, CityMacroPort } from './ports';
+import type { ContentView } from '@tycoon/content';
+import type { z } from 'zod';
 import type { SectorId } from '@tycoon/content';
 
 const dir = fileURLToPath(new URL('.', import.meta.url));
@@ -97,7 +102,7 @@ const B = buildingId(ids), U1 = unitId(ids), U2 = unitId(ids), PR = propId(ids),
 const addr = { number: 14, streetId: 'str:port_avalon_9', streetName: 'Quayside Row', districtId: D, cityId: C, display: '14 Quayside Row, Old Harbor, Port Avalon' };
 const appraisal = { tick: 1440, valueIncome: 1_250_000_00n, valueComp: 1_310_000_00n, weightIncome: 0.6, value: 1_274_000_00n, priceIndexAtAppraisal: 1.0125, appraiser: 'SYSTEM' as const };
 const city: CityRow = { id: C, slug: 'port_avalon', rendererKey: 'avalon', name: 'city.port_avalon.name', bloc: 'FDL', ccy: 'FDL', personalityId: 'per:port_avalon',
-  worldSeedStream: `city/${C}`, openedTick: 0, unlockRank: 'R0', districts: [D], population: 1_234_567.5, households: 514_403.125, hhSize: 2.4, laborForce: 640_000,
+  worldSeedStream: `city/${C}`, openedTick: 0, access: cityAccessOf(C), districts: [D], population: 1_234_567.5, households: 514_403.125, hhSize: 2.4, laborForce: 640_000,
   jobsBySector: SECTORS.reduce((r, s, i) => ({ ...r, [s]: 1000 * (i + 1) + 0.25 }), {} as Record<SectorId, number>), medianHhIncomePerGY: 6_400_000n,
   cityGdpShare: 0.42, propertyTaxRate: 0.01, stampDutyRate: 0.01, priceIndex: 1, stateVersion: 3, manifestId: 'mfs:port_avalon_3' };
 const market = (i: number): DistrictUseMarket => ({ supplyArea: 120_000 + i, occupiedArea: 110_000, demandArea: 111_234.5, vacancy: 0.0833, naturalVacancy: 0.05,
@@ -117,7 +122,7 @@ const unit: UnitRow = { id: U1, buildingId: B, use: 'RETAIL', areaM2: 90, floor:
 const prop: PropertyRow = { id: PR, type: 'RETAIL_UNIT', ownerId: 'chr_0001', ccy: 'FDL', cityId: C, districtId: D, parcelId: P, buildingId: B, unitIds: [U1], areaM2: 90,
   condition: 80, qualityGrade: 'B', amenityMult: 1.07, useMode: 'RENTED', useModeChangedTick: 0, managerContractId: null, policyId: 'pol:default', groupId: null,
   mortgageIds: ['lon_1'], lastAppraisal: appraisal, costBasis: 1_200_000_00n, acquiredTick: 720, insurancePolicyId: null, listingId: null, heldByCourt: false,
-  publicRecord: { publicOwnership: false }, uniqueAssetId: null };
+  publicRecord: DEFAULT_PUBLIC_RECORD, uniqueAssetId: null };
 const lease: LeaseRow = { id: L, propId: PR, unitIds: [U1], landlordId: 'chr_0001', tenantId: 'biz_bakery', tenantKind: 'PLAYER_BUSINESS', use: 'RETAIL', rentPerGD: 4_210n,
   revenueSharePct: 0, startTick: 720, endTick: 720 + 1440 * 3, indexation: 'CPI', depositHeld: -0n + 378_900n, breakFeeGD: 91, status: 'ACTIVE', arrearsGD: 0, relatedParty: false, contractId: 'ctr:9' };
 const manifest: CityManifestRow = { id: 'mfs:port_avalon_3', worldId: 'wld:1', cityId: C, macroPlanVersion: 'cityplan@1.2.0', stateVersion: 3, publicSnapshotTick: 1440,
@@ -189,8 +194,9 @@ describe('geometry: integer centimetres, counter-clockwise polygons (10 §2.11)'
     expect(() => assertFixedPolygon([{ x: 0, z: 0 }, { x: 1, z: 0 }])).toThrow(/< 3/);
     expect(() => assertFixedPolygon([{ x: 0, z: 0 }, { x: 1.5, z: 0 }, { x: 0, z: 2 }])).toThrow(/^vertex \(1\.5, 0\) is not integer centimetres/);
     expect(() => assertFixedRect(region.bounds)).not.toThrow();
-    expect(() => assertFixedRect({ minX: 1, minZ: 0, maxX: 0, maxZ: 0 })).toThrow(/min exceeds max/);
-    expect(() => assertFixedRect({ minX: 0, minZ: 0, maxX: 0.5, maxZ: 0 })).toThrow(/integer/);
+    expect(() => assertFixedRect({ minX: 1, minZ: 0, maxX: 0, maxZ: 0 })).toThrow(/degenerate/);
+    expect(() => assertFixedRect({ minX: 0, minZ: 0, maxX: 0, maxZ: 5 })).toThrow(/degenerate/);
+    expect(() => assertFixedRect({ minX: 0, minZ: 0, maxX: 0.5, maxZ: 1 })).toThrow(/integer/);
   });
 });
 
@@ -229,5 +235,151 @@ describe('tables and events', () => {
   it('dev.completed carries the PRIVATE appraisal, so it is not PUBLIC; the sealed 13 evidence kinds are SEALED', () => {
     expect(CITY_EVENT_VISIBILITY['dev.completed']).toBe('PRIVATE');
     expect(CITY_EVENT_VISIBILITY['prop.relatedPartyLease']).toBe('SEALED'); expect(CITY_EVENT_VISIBILITY['prop.appraisalByPlayerFirm']).toBe('SEALED');
+  });
+});
+
+// Keys a zod payload schema can carry, recursing through objects, records, optional and nullable (zod v4 def shapes).
+const schemaKeys = (t: z.ZodType): string[] => {
+  const d = (t as unknown as { def: { type: string; shape?: Record<string, z.ZodType>; innerType?: z.ZodType; valueType?: z.ZodType; element?: z.ZodType } }).def;
+  if (d.type === 'object') return Object.entries(d.shape!).flatMap(([k, v]) => [k, ...schemaKeys(v)]);
+  if (d.type === 'optional' || d.type === 'nullable') return schemaKeys(d.innerType!);
+  if (d.type === 'record') return schemaKeys(d.valueType!);
+  if (d.type === 'array') return schemaKeys(d.element!);
+  return [];
+};
+const fault = (f: () => unknown): string => { try { f(); } catch (e) { return (e as { code?: string }).code ?? String(e); } return 'NO_THROW'; };
+const part = building.visual.parts[0]!;
+
+describe('AC-10A-01-5 (E-88 (2a), (3)) geometry, visuals, opt-in defaults and CityAccess', () => {
+  it('rejects a non-integer BuildingVisualPart field and a seed outside 0..2^32−1; accepts the bounds; 1..4 parts', () => {
+    expect(() => assertBuildingVisual(building.visual)).not.toThrow();
+    for (const bad of [{ ...part, rotationQ: 1.5 }, { ...part, tintIndex: 0.5 }, { ...part, floorHeightCm: 325.5 }, { ...part, bayWidthCm: NaN },
+      { ...part, size: { ...part.size, heightCm: 1950.25 } }, { ...part, seed: -1 }, { ...part, seed: 2 ** 32 }, { ...part, seed: 0.5 }])
+      expect(fault(() => assertBuildingVisualPart(bad))).toBe('CITY_BAD_VISUAL');
+    expect(() => assertBuildingVisualPart({ ...part, seed: 0 })).not.toThrow();
+    expect(() => assertBuildingVisualPart({ ...part, seed: 2 ** 32 - 1 })).not.toThrow();
+    expect(fault(() => assertBuildingVisual({ parts: [] }))).toBe('CITY_BAD_VISUAL');
+    expect(fault(() => assertBuildingVisual({ parts: [part, part, part, part, part] }))).toBe('CITY_BAD_VISUAL');
+    expect(() => assertBuildingVisual({ parts: [part, part, part, part] })).not.toThrow();
+  });
+  it('rejects a degenerate rect and a 1-point polyline', () => {
+    expect(fault(() => assertFixedRect({ minX: 0, minZ: 0, maxX: 0, maxZ: 0 }))).toBe('CITY_BAD_GEOMETRY');
+    expect(fault(() => assertFixedRect({ minX: 0, minZ: 3, maxX: 9, maxZ: 3 }))).toBe('CITY_BAD_GEOMETRY');
+    expect(() => assertFixedRect({ minX: 0, minZ: 3, maxX: 1, maxZ: 4 })).not.toThrow();
+    expect(fault(() => assertFixedPolyline([{ x: 0, z: 0 }]))).toBe('CITY_BAD_GEOMETRY');
+    expect(fault(() => assertFixedPolyline([]))).toBe('CITY_BAD_GEOMETRY');
+    expect(fault(() => assertFixedPolyline([{ x: 0, z: 0 }, { x: 1.5, z: 0 }]))).toBe('CITY_BAD_GEOMETRY');
+    expect(() => assertFixedPolyline([{ x: 0, z: 0 }, { x: 10, z: 20 }])).not.toThrow();
+    for (const w of region.boundaryContracts[0]!.waterEdges) expect(() => assertFixedPolyline(w)).not.toThrow();
+  });
+  it('PublicPropertyRecord defaults to all false; publicAddress counts only with visitableEstate', () => {
+    expect(DEFAULT_PUBLIC_RECORD).toEqual({ publicOwnership: false, visitableEstate: false, publicAddress: false });
+    expect(Object.isFrozen(DEFAULT_PUBLIC_RECORD)).toBe(true);
+    expect(effectivePublicRecord({ publicOwnership: false, visitableEstate: false, publicAddress: true }).publicAddress).toBe(false);
+    expect(effectivePublicRecord({ publicOwnership: true, visitableEstate: true, publicAddress: true })).toEqual({ publicOwnership: true, visitableEstate: true, publicAddress: true });
+  });
+  it('CityAccess: cty_isla_serena is R0/R4/R4/R6; every other cities.json city is R0/R0/R2/null', () => {
+    const cities = (JSON.parse(readFileSync(`${dir}../../content/data/cities.json`, 'utf8')) as { cities: { cityId: string }[] }).cities.map((c) => c.cityId);
+    expect([cities.length, cities.includes('cty_isla_serena')]).toEqual([16, true]);   // 15 bloc cities + Isla Serena
+    expect(cityAccessOf('cty_isla_serena')).toEqual({ viewRank: 'R0', homeBlocOwnRank: 'R4', otherBlocOwnRank: 'R4', islandRank: 'R6' });
+    for (const c of cities.filter((x) => x !== 'cty_isla_serena'))
+      expect([c, cityAccessOf(c)]).toEqual([c, { viewRank: 'R0', homeBlocOwnRank: 'R0', otherBlocOwnRank: 'R2', islandRank: null }]);
+    expect(ownRankFor(cityAccessOf(C), 'FDL', 'FDL')).toBe('R0');
+    expect(ownRankFor(cityAccessOf(C), 'FDL', 'EUN')).toBe('R2');
+    expect(ownRankFor(cityAccessOf('cty_isla_serena'), null, 'FDL')).toBe('R4');
+    expect(city.access).toEqual(cityAccessOf(C));
+  });
+});
+
+describe('AC-10A-01-6 (E-88 (2b)) ports.ts', () => {
+  const src = readFileSync(`${dir}ports.ts`, 'utf8');
+  it('exports exactly the four ports (plus BlocMacroInputs and the CityPorts bundle), with no Ccy import', () => {
+    const exported = [...src.matchAll(/^export (?:interface|type) (\w+)/gm)].map((m) => m[1]!);
+    expect(exported.filter((n) => /Port$/.test(n)).sort(cmpStr)).toEqual(['CityBizPort', 'CityContentPort', 'CityHhPort', 'CityMacroPort']);
+    expect(exported.sort(cmpStr)).toEqual(['BlocMacroInputs', 'CityBizPort', 'CityContentPort', 'CityHhPort', 'CityMacroPort', 'CityPorts']);
+    expect(src).not.toMatch(/\bCcy\b/);
+    expect(src).not.toMatch(/^\s+\w*[dD]emand\w*\(/m);   // no port method returns a demand
+  });
+  it('shapes match E-88 (2b): bloc-keyed macro, cityId-keyed 09/16, Money median income', () => {
+    expectTypeOf<Parameters<CityMacroPort['blocInputs']>>().toEqualTypeOf<[StoreRead, import('@tycoon/engine-macro').BlocId]>();
+    expectTypeOf<ReturnType<CityMacroPort['blocInputs']>>().toEqualTypeOf<BlocMacroInputs | null>();
+    expectTypeOf<BlocMacroInputs>().toEqualTypeOf<{ g: number; pi: number; u: number; i: number; y10: number; c: number }>();
+    expectTypeOf<Parameters<CityMacroPort['fearIndex']>>().toEqualTypeOf<[StoreRead]>();
+    expectTypeOf<ReturnType<CityBizPort['jobsByUse']>>().toEqualTypeOf<Partial<Record<UseClass, number>> | null>();
+    expectTypeOf<ReturnType<CityHhPort['frmJobsByUse']>>().toEqualTypeOf<Partial<Record<UseClass, number>> | null>();
+    expectTypeOf<NonNullable<ReturnType<CityHhPort['householdInputs']>>['medianHhIncomePerGY']>().toEqualTypeOf<Money>();
+    expectTypeOf<keyof CityContentPort>().toEqualTypeOf<'cities' | 'serena' | 'sectors' | 'districts' | 'personality' | 'cityProfile'>();
+    expectTypeOf<CityContentPort['cityProfile']>().toEqualTypeOf<ContentView['cityProfile']>();
+  });
+});
+
+describe('AC-10A-01-7 (E-88 (2d)) deferred kinds and city.employmentDelta', () => {
+  it('every deferred entry names an owner card; emitting it throws CITY_EVENT_SCHEMA_MISSING', () => {
+    expect(Object.keys(DEFERRED_EVENT_KINDS).length).toBe(21);
+    for (const [k, owner] of Object.entries(DEFERRED_EVENT_KINDS)) {
+      expect([k, owner]).toEqual([k, expect.stringMatching(/^T10[AB]-\d\d$/)]);
+      expect(fault(() => checkCityEvent(k, {}))).toBe('CITY_EVENT_SCHEMA_MISSING');
+    }
+    expect([DEFERRED_EVENT_KINDS['prop.damage'], DEFERRED_EVENT_KINDS['prop.appraisalByPlayerFirm'], DEFERRED_EVENT_KINDS['hall.snapshot'], DEFERRED_EVENT_KINDS['land.auction']])
+      .toEqual(['T10A-06', 'T10A-07', 'T10A-10', 'T10B-01']);
+    expect(fault(() => checkCityEvent('city.nope', {}))).toBe('CITY_EVENT_SCHEMA_MISSING');
+  });
+  it('city.employmentDelta validates and is PUBLIC', () => {
+    const ok = { cityId: C, districtId: D, jobs: -12, sector: 'STAPLES', cause: 'biz_bakery' };
+    expect(CITY_EVENT_VISIBILITY['city.employmentDelta']).toBe('PUBLIC');
+    expect(checkCityEvent('city.employmentDelta', ok)).toEqual(ok);
+    expect(checkCityEvent('city.employmentDelta', { ...ok, districtId: null }).districtId).toBeNull();
+    for (const bad of [{ ...ok, jobs: 1.5 }, { ...ok, sector: 'FARMING' }, { ...ok, cause: '' }, { ...ok, extra: 1 }, { ...ok, districtId: undefined }])
+      expect(fault(() => checkCityEvent('city.employmentDelta', bad))).toBe('CITY_EVENT_BAD_PAYLOAD');
+  });
+});
+
+describe('AC-10A-01-8 (E-88 (2e)) PUBLIC payloads are inside the 10 §3.24 allowlist', () => {
+  it('every key of every PUBLIC kind with a schema is in PUBLIC_PAYLOAD_KEYS', () => {
+    const pubKinds = Object.keys(CITY_EVENTS).filter((k) => CITY_EVENT_VISIBILITY[k] === 'PUBLIC');
+    expect(pubKinds.length).toBe(12);
+    for (const k of pubKinds) for (const key of schemaKeys(CITY_EVENTS[k]!)) expect([k, key, key in PUBLIC_PAYLOAD_KEYS]).toEqual([k, key, true]);
+    expect(schemaKeys(CITY_EVENTS['prop.leaseSigned']!)).toContain('rentPerGD');
+    expect('rentPerGD' in PUBLIC_PAYLOAD_KEYS).toBe(false);
+  });
+  it('buyer, owner and address keys pass only behind their opt-in', () => {
+    expect(PUBLIC_OPT_IN).toEqual({ buyerDisplay: 'publicOwnership', ownerDisplay: 'publicOwnership', address: 'publicAddress' });
+    const pur = { propId: PR, type: 'RETAIL_UNIT', districtId: D, price: '1250000', buyerDisplay: 'Harbour Bakes Ltd' };
+    expect(fault(() => checkCityEvent('prop.purchased', pur))).toBe('CITY_EVENT_NOT_OPTED_IN');
+    expect(fault(() => checkCityEvent('prop.purchased', pur, { publicRecord: DEFAULT_PUBLIC_RECORD }))).toBe('CITY_EVENT_NOT_OPTED_IN');
+    expect(checkCityEvent('prop.purchased', pur, { publicRecord: { ...DEFAULT_PUBLIC_RECORD, publicOwnership: true } })).toEqual(pur);
+    const { buyerDisplay: _b, ...anon } = pur;
+    expect(checkCityEvent('prop.purchased', anon)).toEqual(anon);
+    const R = (o: boolean, v: boolean, a: boolean) => ({ publicOwnership: o, visitableEstate: v, publicAddress: a });
+    expect([optInAllows('ownerDisplay'), optInAllows('ownerDisplay', R(true, false, false))]).toEqual([false, true]);
+    expect([optInAllows('address', R(true, false, true)), optInAllows('address', R(false, true, false)), optInAllows('address', R(false, true, true))]).toEqual([false, false, true]);
+    expect(optInAllows('price')).toBe(true);
+  });
+});
+
+describe('AC-10A-01-9 (E-88 (2f)) byUse keys iff supply > 0', () => {
+  const noHosp = { ...district.market, HOSPITALITY: { ...district.market.HOSPITALITY, supplyArea: 0 } };
+  const supply = supplyByUseOf(noHosp);
+  const day = (v: object, r: object) => ({ cityId: C, population: 1, households: 1, jobs: 1, priceIndex: 1, vacancyByUse: v, rentIndexByUse: r });
+  it('a district with no HOSPITALITY stock emits no HOSPITALITY key', () => {
+    expect('HOSPITALITY' in supply).toBe(false);
+    expect(Object.keys(supply).length).toBe(USE_CLASSES.length - 1);
+    const vac = byUseOf(supply, (u) => noHosp[u].vacancy), rent = byUseOf(supply, (u) => noHosp[u].rentIndex);
+    expect('HOSPITALITY' in vac || 'HOSPITALITY' in rent).toBe(false);
+    expect(checkCityEvent('city.dayClose', day(vac, rent), { supplyByUse: supply })).toEqual(day(vac, rent));
+    const dm = { districtId: D, byUse: byUseOf(supply, (u) => ({ rentIndex: 1, vacancy: noHosp[u].vacancy, pressure: 1, capRate: 0.05, priceIndex: 1 })) };
+    expect('HOSPITALITY' in dm.byUse).toBe(false);
+    expect(checkCityEvent('city.districtMarket', dm, { supplyByUse: supply })).toEqual(dm);
+  });
+  it('a key whose supply is 0 fails; a missing key with supply fails; no scope fails', () => {
+    const vac = byUseOf(supply, () => 0.05), rent = byUseOf(supply, () => 1);
+    expect(fault(() => checkCityEvent('city.dayClose', day({ ...vac, HOSPITALITY: 0 }, rent), { supplyByUse: supply }))).toBe('CITY_EVENT_BYUSE_PRESENCE');
+    expect(fault(() => checkCityEvent('city.dayClose', day(vac, { ...rent, HOSPITALITY: 1 }), { supplyByUse: supply }))).toBe('CITY_EVENT_BYUSE_PRESENCE');
+    const { RES: _r, ...noRes } = vac;
+    expect(fault(() => checkCityEvent('city.dayClose', day(noRes, rent), { supplyByUse: supply }))).toBe('CITY_EVENT_BYUSE_PRESENCE');
+    expect(fault(() => checkCityEvent('city.districtMarket', { districtId: D, byUse: { HOSPITALITY: { rentIndex: 1, vacancy: 0, pressure: 1, capRate: 0.05, priceIndex: 1 } } },
+      { supplyByUse: supply }))).toBe('CITY_EVENT_BYUSE_PRESENCE');
+    expect(fault(() => checkCityEvent('city.dayClose', day(vac, rent)))).toBe('CITY_EVENT_SCOPE_MISSING');
+    expect(fault(() => checkCityEvent('city.dayClose', day({ ...vac, HOSPITALITY: 0 }, rent), { supplyByUse: { ...supply, HOSPITALITY: 0 } }))).toBe('CITY_EVENT_BYUSE_PRESENCE');
   });
 });
