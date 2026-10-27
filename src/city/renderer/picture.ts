@@ -249,8 +249,6 @@ export function drawPicture(opts: {
   lap('labels');
   const url = canvas.toDataURL('image/png');
   lap('encode');
-  // MUTANT T0x1.3 (reverted next commit): 22 ms busy-wait = 30% of main's 74 ms median T0 longest task
-  for (const end = performance.now() + 22; performance.now() < end;);
   return { url, top, bottom, labels: drawn, ms };
 }
 
