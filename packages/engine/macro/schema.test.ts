@@ -1,7 +1,7 @@
 import { EngineFault, ID_KIND_RE, matchStream, STREAM_REGISTRY, streamPrefix } from '@tycoon/engine-core';
 import type { Ccy } from '@tycoon/engine-core';
-import { describe, expect, it } from 'vitest';
-import { BLOC_ALIAS, BLOC_ORDER, ALL_MACRO_TABLES, macroTables, type BlocId } from './schema';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import { BLOC_ALIAS, BLOC_ORDER, ALL_MACRO_TABLES, macroTables, type BlocId, type BlocMacroState, type DailyHistoryRow, type PublicMacroView } from './schema';
 import { BLOC_DEFAULTS, blocDef, ISLA_SERENA_CITY, SECTOR_COUNT } from './blocs';
 import { cbkId, govId } from '@tycoon/engine-ledger';
 import { auctionId, blocOfEntity, crisisId, crtId, CSF_ID, DEALER_POOL_ID, excId, meetingId, regId, releaseId, STAB_ID } from './ids';
@@ -273,5 +273,45 @@ describe('defaultMacroPorts', () => {
         else expect([null, false].includes(v as never) || (Array.isArray(v) && v.length === 0), `${mod}.${fn}`).toBe(true);
       }
     }
+  });
+});
+
+/** Every key path (deep) in a payload whose key is one of `names`. */
+function keysNamed(payload: unknown, names: readonly string[], path = ''): string[] {
+  if (payload === null || typeof payload !== 'object') return [];
+  const out: string[] = [];
+  if (Array.isArray(payload)) { payload.forEach((v, i) => out.push(...keysNamed(v, names, `${path}[${i}]`))); return out; }
+  for (const [k, v] of Object.entries(payload)) {
+    const p = path === '' ? k : `${path}.${k}`;
+    if (names.includes(k)) out.push(p);
+    out.push(...keysNamed(v, names, p));
+  }
+  return out;
+}
+
+describe('E-90 credit0 / history credit schema', () => {
+  it('AC E-90-1: BlocMacroState.credit0: number; DailyHistoryRow.credit: number | null; a bigint fails to compile on both', () => {
+    expectTypeOf<BlocMacroState['credit0']>().toEqualTypeOf<number>();
+    expectTypeOf<BlocMacroState['credit']>().toEqualTypeOf<number>();
+    expectTypeOf<DailyHistoryRow['credit']>().toEqualTypeOf<number | null>();
+    // @ts-expect-error bigint is not assignable to credit0 (E-90 (1): float, not Money)
+    const a: BlocMacroState['credit0'] = 1n;
+    // @ts-expect-error bigint is not assignable to the history row credit
+    const b: DailyHistoryRow['credit'] = 1n;
+    expect([typeof a, typeof b]).toEqual(['bigint', 'bigint']);   // runtime values are irrelevant; the check is the two directives above
+  });
+
+  it('AC E-90-8: credit0 and credit are not hidden names, not PublicMacroView keys, and no PUBLIC event sample carries them', () => {
+    expect(HIDDEN_FIELD_NAMES).not.toContain('credit0');
+    expect(HIDDEN_FIELD_NAMES).not.toContain('credit');
+    expectTypeOf<Extract<keyof PublicMacroView, 'credit0' | 'credit'>>().toEqualTypeOf<never>();
+    const publicKinds = Object.keys(MACRO_EVENT_VISIBILITY).filter((k) => MACRO_EVENT_VISIBILITY[k] === 'PUBLIC');
+    expect(publicKinds.length).toBeGreaterThan(0);
+    for (const k of publicKinds) {
+      expect(SAMPLES[k], k).toBeDefined();
+      expect(keysNamed(SAMPLES[k], ['credit0', 'credit']), k).toEqual([]);
+      expect(assertNoHiddenFields(SAMPLES[k]), k).toEqual([]);
+    }
+    expect(keysNamed({ a: [{ credit0: 1 }], credit: null }, ['credit0', 'credit'])).toEqual(['a[0].credit0', 'credit']);   // the scanner itself
   });
 });
