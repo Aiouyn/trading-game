@@ -4,7 +4,7 @@
     "strict": true, "noEmit": true, "noUnusedLocals": true, "noUnusedParameters": true, "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true, "types": ["node"], "isolatedModules": true,
     "resolveJsonModule": true,
-    "paths": { "@tycoon/engine-core": ["./index.ts"], "@tycoon/params": ["../../params/src/index.ts"], "@tycoon/content": ["../../content/src/view.ts"] }
+    "paths": { "@tycoon/engine-core": ["./index.ts"], "@tycoon/params": ["../../params/src/index.ts"], "@tycoon/engine-ledger": ["../ledger/src/index.ts"], "@tycoon/content": ["../../content/src/view.ts"] }
   },
   "include": ["**/*.ts", "eslint.config.mjs"],
   "exclude": ["node_modules"]

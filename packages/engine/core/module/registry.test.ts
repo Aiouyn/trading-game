@@ -5,9 +5,10 @@ import { z } from 'zod';
 import type { ParamsView } from '@tycoon/params';
 import type { ContentView } from '@tycoon/content';
 import type { Store } from '../store';
+import type * as Ledger from '@tycoon/engine-ledger';
 import {
   BUILD_UNITS, buildModuleSet, defineModule, INTENT_NAMESPACES, ModuleSetError, NON_MODULE_UNITS, NPC_INTENT_KIND,
-  type HoldApi, type IntentHandler, type LedgerApi, type LedgerProvider, type ModuleDef, type PhaseCtx, type ValidateCtx, type ViewHandler,
+  type Hold, type HoldApi, type IntentHandler, type LedgerApi, type LedgerProvider, type ModuleDef, type Posting, type PhaseCtx, type ValidateCtx, type ViewHandler,
 } from './index';
 
 const provider: LedgerProvider = { createPartition: () => { throw new Error('unused'); }, globalCheck: () => ({ ok: true, failures: [] }) };
@@ -93,9 +94,11 @@ describe('T02-11 type-level contract (expectTypeOf)', () => {
     expectTypeOf<PhaseCtx['content']>().toEqualTypeOf<ContentView>();
     expectTypeOf<PhaseCtx['store']>().toEqualTypeOf<Store>();
   });
-  it('LedgerApi has the 21 G7 methods; HoldApi the 5', () => {
-    expectTypeOf<keyof LedgerApi>().toEqualTypeOf<'pay'|'swapAsset'|'mint'|'burn'|'elasticIn'|'elasticOut'|'lend'|'repay'|'cbCredit'|'cbCreditUnwind'|'accrue'|'accruePair'|'fx'|'moveQty'|'reclass'|'balance'|'cash'|'available'|'position'|'availableQty'|'netWorth'>();
-    expectTypeOf<keyof HoldApi>().toEqualTypeOf<'placeCash'|'placeQty'|'release'|'reduce'|'get'>();
+  it('LedgerApi / HoldApi / Hold / Posting are the ledger\'s own types (E-79); they keep the 21 G7 methods and the 5 HoldApi members', () => {
+    expectTypeOf<LedgerApi>().toEqualTypeOf<Ledger.LedgerApi>(); expectTypeOf<HoldApi>().toEqualTypeOf<Ledger.HoldApi>();
+    expectTypeOf<Hold>().toEqualTypeOf<Ledger.Hold>(); expectTypeOf<Posting>().toEqualTypeOf<Ledger.Posting>();
+    expectTypeOf<'pay'|'swapAsset'|'mint'|'burn'|'elasticIn'|'elasticOut'|'lend'|'repay'|'cbCredit'|'cbCreditUnwind'|'accrue'|'accruePair'|'fx'|'moveQty'|'reclass'|'balance'|'cash'|'available'|'position'|'availableQty'|'netWorth'>().toMatchTypeOf<keyof LedgerApi>();
+    expectTypeOf<'placeCash'|'placeQty'|'release'|'reduce'|'get'|'placeCashFor'>().toMatchTypeOf<keyof HoldApi>();
   });
 });
 
@@ -110,5 +113,26 @@ describe('AC-02-11-PARAMS-PKG / E-70 (3)', () => {
   it('zod is imported in core only by the handler-schema files (module/ctx.ts, module/views.ts, module/define.ts, module/registry.ts) and their test', () => {
     const users = files(coreDir).filter((f) => /from\s+['"]zod['"]/.test(readFileSync(f, 'utf8'))).map((f) => f.slice(coreDir.length + 1)).sort();
     expect(users).toEqual(['module/ctx.ts', 'module/define.ts', 'module/registry.test.ts', 'module/registry.ts', 'module/views.ts']);
+  });
+});
+
+describe('AC-03-MAP-NO-DUP (a) for T02-11 (E-79)', () => {
+  const root = join(__dirname, '..', '..');   // packages/engine
+  const files = (d: string, out: string[] = []): string[] => { for (const n of readdirSync(d)) { if (n === 'node_modules') continue; const p = join(d, n); if (statSync(p).isDirectory()) files(p, out); else if (n.endsWith('.ts')) out.push(p); } return out; };
+  it.each(['HoldApi', 'Hold', 'Posting', 'LedgerApi'])('%s has exactly one exported definition, in packages/engine/ledger/src; ledger-port.ts re-exports it', (name) => {
+    const re = new RegExp(`export (type|interface|function|const|class) ${name}\\b`);
+    const hits = files(root).filter((f) => re.test(readFileSync(f, 'utf8'))).map((f) => f.slice(root.length + 1));
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatch(/^ledger\/src\//);
+    expect(readFileSync(join(__dirname, 'ledger-port.ts'), 'utf8')).toMatch(new RegExp(`export type \\{[^}]*\\b${name}\\b[^}]*\\} from '@tycoon/engine-ledger'`));
+  });
+});
+
+describe('T02-11 module order: module number, then unit id within a module', () => {
+  it('same-module units sort by unit id whatever the input order (22A before 22B; 17A before 17B)', () => {
+    expect(BUILD_UNITS['22B']!.every((d) => NON_MODULE_UNITS.includes(d) || d === '22A')).toBe(true);
+    expect(buildModuleSet([mod('22B'), mod('22A')]).modules.map((m) => m.id)).toEqual(['22A', '22B']);
+    expect(buildModuleSet([mod('22A'), mod('22B')]).modules.map((m) => m.id)).toEqual(['22A', '22B']);
+    expect(buildModuleSet([mod('22B'), mod('17B'), mod('22A'), mod('17A')]).modules.map((m) => m.id)).toEqual(['17A', '17B', '22A', '22B']);
   });
 });

@@ -1,39 +1,13 @@
 // T02-11: G7 LedgerApi / HoldApi verbatim (types only; unit 03 implements them) and the LedgerProvider port through which 03 supplies
 // ctx.ledger / ctx.holds. Without a provider the engine makes ctx.ledger / ctx.holds throw EngineFault('I0.no_ledger').
-import type { Ccy, Id, Money, PhaseId, Qty, Tick } from '../types';
+import type { Ccy, Id, Money, PhaseId, Tick } from '../types';
 import type { StoreRead } from '../store';
-import type { Reject } from './ctx';
+import type { HoldApi, LedgerApi, Posting } from '@tycoon/engine-ledger';
 
-export interface PostOpts { refs?: Id[]; holdId?: Id; valueLegA?: number; valueLegB?: number; sub?: string; memo?: string }
-export interface LedgerApi {
-  pay(from: Id, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOpts): Id;                 // TRANSFER
-  swapAsset(buyer: Id, seller: Id, assetId: Id, qty: Qty, amt: Money, ccy: Ccy, code: string, o?: PostOpts): Id;
-  mint(to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOpts): Id;                          // FAUCET, no elastic sector
-  burn(from: Id, amt: Money, ccy: Ccy, code: string, o?: PostOpts): Id;                        // SINK
-  elasticIn(sector: Id, to: Id, amt: Money, ccy: Ccy, code: string, o?: PostOpts): Id;          // FAUCET from hh/frm/row
-  elasticOut(from: Id, sector: Id, amt: Money, ccy: Ccy, code: string, o?: PostOpts): Id;       // SINK to hh/frm/row
-  lend(bank: Id, borrower: Id, amt: Money, ccy: Ccy, code: string, loanId: Id, o?: PostOpts): Id;   // CREDIT_CREATE
-  repay(borrower: Id, bank: Id, principal: Money, ccy: Ccy, code: string, loanId: Id, o?: PostOpts): Id; // CREDIT_DESTROY
-  cbCredit(cb: Id, bank: Id, amt: Money, ccy: Ccy, code: string, o?: PostOpts): Id;
-  cbCreditUnwind(bank: Id, cb: Id, amt: Money, ccy: Ccy, code: string, o?: PostOpts): Id;
-  accrue(e: Id, amt: Money, ccy: Ccy, code: string, drAcct: number, crAcct: number, o?: PostOpts): Id; // REVALUE, one entity
-  accruePair(a: Id, b: Id, amt: Money, ccy: Ccy, code: string, o?: PostOpts): Id;
-  fx(a: Id, b: Id, ccy1: Ccy, amt1: Money, ccy2: Ccy, amt2: Money, code: string, o?: PostOpts): Id;
-  moveQty(from: Id, to: Id, assetId: Id, qty: Qty, bookValue: Money, ccy: Ccy, code: string, o?: PostOpts): Id;
-  reclass(e: Id, amt: Money, ccy: Ccy, code: string, fromAcct: number, toAcct: number, o?: PostOpts): Id;
-  // reads (committed state + this tick's queued entries are NOT included unless stated)
-  balance(accountKey: string): Money; cash(entityId: Id, ccy: Ccy): Money; available(entityId: Id, ccy: Ccy): Money; // cash − active holds
-  position(entityId: Id, assetId: Id): Qty; availableQty(entityId: Id, assetId: Id): Qty;
-  netWorth(entityId: Id): Money;   // marked, in reporting currency (03 §3.10)
-}
-export interface Hold { holdId: Id; ownerEntityId: Id; account: string; amount: Money; qty?: Qty; assetId?: Id; ccy: string; purpose: string;
-  placedTick: Tick; expiresTick: Tick; status: 'ACTIVE'|'SETTLED'|'RELEASED' }   // 02 §2.8
-export interface HoldApi {
-  placeCash(owner: Id, ccy: Ccy, amt: Money, expiresTick: Tick, ref: Id): Id | Reject;   // Reject {code:'LED_INSUFFICIENT_FUNDS'}
-  placeQty(owner: Id, assetId: Id, qty: Qty, expiresTick: Tick, ref: Id): Id | Reject;
-  release(holdId: Id): void; reduce(holdId: Id, byAmount: bigint): void; get(holdId: Id): Hold | undefined;
-}
-export interface Posting { tick: Tick; entryId: Id; debitAccount: string; creditAccount: string; amount: Money; ccy: Ccy; reason: string; refs: Id[] }  // 00 §5.4
+// E-79 (AC-03-MAP-NO-DUP (a)): LedgerApi, HoldApi (src/world.ts), Hold, Posting (src/types.ts) and PostOpts (src/templates.ts) have one
+// definition, in the ledger; T02-11 re-exports them and defines none of its own. `@tycoon/engine-ledger` is the E-81 package name
+// (tsconfig path to ../ledger/src/index.ts); type-only, so nothing is imported at runtime.
+export type { HoldApi, Hold, LedgerApi, Posting, PostOpts } from '@tycoon/engine-ledger';
 export interface SuspenseReport { pairs: { from: string; to: string; ccy: Ccy; balance: Money }[] }   // sys:9900 balances (02 §3.14.2)
 export interface PostingLeg { entryId: Id; legId: string; fromPartition: string; toPartition: string; body: unknown }   // body owned by 03
 export interface LedgerPartition {                               // one per partition, created by the provider
