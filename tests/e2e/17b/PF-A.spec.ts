@@ -8,7 +8,7 @@ const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
 const inject = (page: Page, patch: object) => page.addInitScript((p) => { (window as Window & { __quayFeedMe?: object }).__quayFeedMe = p; }, patch);
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const pf = (page: Page) => page.getByTestId("pf-overview").first();
-const STATS = { window: "90d", drawdownReal: "-4.2%", sharpe: "1.31", twrIdx: "100.0", bench: "100.0" };
+const STATS = { window: "90d", drawdownReal: "-4.2", sharpe: "1.31", twrIdx: "100.0", bench: "100.0" };
 
 async function openPortfolio(page: Page, query = "") {
   await boot(page, `/portfolio${query}`);
@@ -47,7 +47,7 @@ test("PF-2-04 stats: absent without nwStats; verbatim when injected; null Sharpe
   await expect(pf(page).getByTestId("pf-stats")).toHaveCount(0);
   await inject(page, { nwStats: STATS });
   await openPortfolio(page);
-  await expect(pf(page).getByTestId("pf-stats")).toHaveText("Drawdown (real)-4.2%Sharpe (whole NW)1.31");
+  await expect(pf(page).getByTestId("pf-stats")).toHaveText("Drawdown (real)-4.2Sharpe (whole NW)1.31");
   await inject(page, { nwStats: { ...STATS, sharpe: null } });
   await openPortfolio(page);
   await expect(pf(page).getByTestId("pf-sharpe")).toHaveText("—");

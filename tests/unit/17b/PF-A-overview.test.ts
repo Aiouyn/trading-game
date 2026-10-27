@@ -28,7 +28,7 @@ const block = (s: string, testid: string) => {
 
 describe("PF-2-02 hero = nominal NW", () => {
   it("shows me.nw through MoneyText hero, never nwi / realNw / nwStats", () => {
-    const body = { ...ME, nw: "123456.78", nwi: "999.9", nwStats: { window: "90d", drawdownReal: "-4.2%", sharpe: "1.31", twrIdx: "777.7", bench: "888.8" } };
+    const body = { ...ME, nw: "123456.78", nwi: "999.9", nwStats: { window: "90d", drawdownReal: "-4.2", sharpe: "1.31", twrIdx: "777.7", bench: "888.8" } };
     const hero = block(html({ view: live(body) }), "pf-hero")!;
     expect(hero).toContain("money-hero");
     expect(text(hero)).toBe("Net worth $123,456 .78");
@@ -48,14 +48,14 @@ describe("PF-2-03 cents split", () => {
 });
 
 describe("PF-2-04 stats", () => {
-  const stats = { window: "90d", drawdownReal: "-4.2%", sharpe: "1.31", twrIdx: "1", bench: "1" };
+  const stats = { window: "90d", drawdownReal: "-4.2", sharpe: "1.31", twrIdx: "1", bench: "1" };
   it("absent without nwStats (mock default)", () => {
     expect(ME.nwStats).toBeUndefined();
     expect(html()).not.toContain("pf-stats");
   });
   it("renders drawdownReal and sharpe verbatim", () => {
     const s = text(block(html({ view: live({ ...ME, nwStats: stats }) }), "pf-stats")!);
-    expect(s).toBe("Drawdown (real) -4.2% Sharpe (whole NW) 1.31");
+    expect(s).toBe("Drawdown (real) -4.2 Sharpe (whole NW) 1.31");
   });
   it("sharpe null renders an em dash", () => {
     const s = block(html({ view: live({ ...ME, nwStats: { ...stats, sharpe: null } }) }), "pf-sharpe")!;
