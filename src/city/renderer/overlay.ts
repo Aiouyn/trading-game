@@ -2,6 +2,7 @@ import type { CityOverlay } from '../index';
 import type { Ramps } from '../art/ramps';
 import { mixOklab, type Rgb } from '../art/color';
 import type { CityDistrict, CityEntity } from '../data/types';
+import { materialId, partLook, visSeed, type Anchors } from '../art/materials';
 
 export interface PartColorInput {
   /** per part: entity index into `entities` or -1 */
@@ -15,6 +16,8 @@ export interface PartColorInput {
   myCityOverlay: boolean;
   /** Published day return of a company, from the market view; null = unavailable (SR Q8). */
   quote?: (companyId: string) => number | null;
+  /** Card 2 district materials (§2.1). Absent = card-1 facade ramp (not wired in create.ts yet). */
+  materials?: { anchors: Anchors; cityId: string };
 }
 
 /** flat: 0 = lit facade, 1 = exact colour, 2 = shaded brass (--acc-hi / --acc / --acc-lo). */
@@ -36,13 +39,15 @@ export function partColors(p: PartColorInput, r: Ramps): { colors: Float32Array;
     const base = r.facades[p.style[i] & 3];
     const ei = p.entity[i];
     const e = ei >= 0 ? p.entities[ei] : undefined;
-    let c: Rgb = base;
+    const m = p.materials;
+    const look = e && m ? partLook(m.anchors, materialId(e.districtId, m.cityId), visSeed(m.cityId, e.parcelId)).wall : base;
+    let c: Rgb = look;
     if (e) {
       if (e.kind === 'crown_tower' || (showMine && p.mine.has(e.id))) {
         c = r.brass;
         flat[i] = FLAT_BRASS;
       } else {
-        c = overlayColor(p.overlay, e, base, r, dIndex, p.quote);
+        c = overlayColor(p.overlay, e, look, r, dIndex, p.quote);
       }
     } else if (p.overlay !== 'none' && p.overlay !== 'my_places') {
       c = mixOklab(base, r.water, 0.35);
