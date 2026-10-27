@@ -5,6 +5,7 @@ export * from './accounts';
 export * from './types';
 export * from './templates';
 export * from './invariants';
+export * from './balside';
 export * from './stubs';
 export * from './world';
 export * from './legpolicy';

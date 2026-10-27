@@ -134,10 +134,10 @@ describe('QA blocker: INV-LED-004 bank/cbk/gov exemption is per reason-code grou
 
 describe('F5 catalog v2 (catalog.csv v2 + aliases.csv)', () => {
   const cat = new L.ReasonCatalog();
-  it('35 restrictedOk codes, 28 aliases, 8 illicit-or-inherited rows load', () => {
-    expect(L.RESTRICTED_OK_CODES.length).toBe(35);
+  it('44 restrictedOk codes and 56 aliases (the E-85 seed in export/ledger-ref), illicit rows load', () => {
+    expect(L.RESTRICTED_OK_CODES.length).toBe(44);
     expect(L.RESTRICTED_OK_CODES).toContain('TAX_SECURITIES_TX');
-    expect(L.ALIASES.length).toBe(28);
+    expect(L.ALIASES.length).toBe(56);
     expect(cat.resolveAlias('BIZ_REVENUE_NPC')).toBe('BIZ_SALES_HH BIZ_SALES_FRM BIZ_SALES_ROW');
     expect(cat.get('CONFLICT_RANSOM')?.illicit).toBe(true);
     for (const [a] of L.ALIASES) expect(cat.get(a)).toBeUndefined(); // no ALIAS_SHADOWS_CODE

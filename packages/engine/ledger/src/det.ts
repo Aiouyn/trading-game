@@ -27,8 +27,20 @@ export class SortedMap<K extends string, V> {
   get size(): number { return this.m.size; }
   get(k: K): V | undefined { return this.m.get(k); }
   has(k: K): boolean { return this.m.has(k); }
-  set(k: K, v: V): this { if (!this.m.has(k)) this.sorted = null; this.m.set(k, v); this.version++; return this; }
-  delete(k: K): boolean { this.sorted = null; this.version++; return this.m.delete(k); }
+  set(k: K, v: V): this { this.note(k); if (!this.m.has(k)) this.sorted = null; this.m.set(k, v); this.version++; return this; }
+  delete(k: K): boolean { this.note(k); this.sorted = null; this.version++; return this.m.delete(k); }
+  /** E-84 store-layer dirty set: when on, every write by any path (set/delete, the ledger writer or not) records the key's value
+   *  before its first write since the last resetWrites(). Off by default; clone() never copies it. */
+  private journal: Map<K, V | undefined> | null = null;
+  private note(k: K): void { if (this.journal && !this.journal.has(k)) this.journal.set(k, this.m.get(k)); }
+  /** Start (or restart) write tracking with an empty dirty set. */
+  trackWrites(): void { this.journal = new Map(); }
+  /** Empty the dirty set (tracking stays on if it was on). */
+  resetWrites(): void { if (this.journal) this.journal = new Map(); }
+  /** Number of keys written since the last reset (0 when tracking is off). */
+  get writeCount(): number { return this.journal?.size ?? 0; }
+  /** Every key written since the last reset, in byte order, with its value before the first write (undefined: was absent). */
+  writes(): [K, V | undefined][] { return this.journal ? [...this.journal.entries()].sort((a, b) => cmpStr(a[0], b[0])) : []; }
   /** The cached byte-ordered key array. Never mutated in place (a write replaces it), so internal readers may share it. */
   private sortedKeys(): K[] { return (this.sorted ??= [...this.m.keys()].sort(cmpStr)); }
   keys(): K[] { return [...this.sortedKeys()]; }

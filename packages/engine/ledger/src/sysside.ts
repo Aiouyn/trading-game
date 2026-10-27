@@ -3,7 +3,7 @@ import { cbkId, kindOfId, parseAccountKey } from './accounts';
 import type { ReasonCatalog } from './catalog';
 import { cmpStr, SortedMap } from './det';
 import type { Ccy, Id, Money } from './money';
-import type { Entry, LedgerEntity, Posting } from './types';
+import type { Entry, LedgerEntity } from './types';
 
 export type HolderClass = 'human' | 'npcFirm' | 'npcRival';
 export const HOLDER_CLASSES: readonly HolderClass[] = ['human', 'npcFirm', 'npcRival'];
@@ -70,16 +70,6 @@ export function bmaHolder(key: string, ccy: Ccy, escrowVictim: (escrowId: Id) =>
   return q.entityId;
 }
 const isIssuer = (key: string, ccy: Ccy): boolean => { const q = parseAccountKey(key); return !!q && q.entityId === cbkId(ccy) && q.code >= 2001 && q.code <= 2003; };
-
-/** m(e) per `${id}|${ccy}`, folded by posting deltas (O(postings)) from the committed holdings. */
-export function foldHoldings(pre: SortedMap<string, Money>, postings: readonly Posting[], escrowVictim: (id: Id) => Id | undefined): SortedMap<string, Money> {
-  const out = pre.clone();
-  for (const p of postings) for (const [k, d] of [[p.debitAccount, p.amount], [p.creditAccount, -p.amount]] as const) {
-    const h = bmaHolder(k, p.ccy, escrowVictim); if (!h) continue;
-    const key = `${h}|${p.ccy}`; out.set(key, (out.get(key) ?? 0n) + d);
-  }
-  return out;
-}
 
 export interface ControlChange { id: Id; ccy: Ccy; code: 'LED_CONTROL_IN' | 'LED_CONTROL_OUT' | 'LED_HOLDER_RECLASS'; amount: Money; before: SideTag; after: SideTag }
 /** Control / class / tag changes of tick t, sorted by id (Δ10): one per entity per ccy with m(e) ≠ 0n at the end of t. */

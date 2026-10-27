@@ -2,15 +2,16 @@
 // All state lives on the instance (Δ11 spirit); nothing is process-global.
 import { accountKey, cbkId, defaultMoneyCode, kindOfId, parseAccountKey, RESTRICTED_PREFIX, SYS_ID } from './accounts';
 import { FLOW_CLASSES, RESTRICTED_OK_CODES, type FlowClass, ReasonCatalog } from './catalog';
+import { AccountIndex, advanceHoldings, advanceTotals, incrementalSide, scanHoldings, scanIndex, scanSide, scanTotals, tickIndex, totalsCrossCheck, type CcyTotals, type DirtyRow, type Totals } from './balside';
 import { canonEncode, SortedMap } from './det';
 import {
-  computeM0, computeM0sys, computeM2, computePEM, INV_LED_012, postingEffect, TICK_INVARIANTS, tickFlowsOf,
+  computePEM, dM0cbOf, INV_LED_012, postingEffect, TICK_INVARIANTS, tickFlowsOf,
   type Accounts, type Bal, type CheckView, type Failure, type TickFlows,
 } from './invariants';
 import { CCYS, mulRate, toMoney, type Ccy, type Id, type Money, type Qty, type Tick } from './money';
 import { DEFAULT_PARAMS, IntentEnvelope, rootOwnerOf, type Params } from './stubs';
 import * as T from './templates';
-import { classify, controlChanges, foldHoldings, sideOf, sumMap, type HolderClass, type SideTag } from './sysside';
+import { classify, controlChanges, sameSide, sideOf, sumMap, type HolderClass, type SideTag } from './sysside';
 import { addTick, archiveHash, emptyArchive, INV_LED_017, INV_LED_018, SYS_INVARIANTS, type FlowDayArchive } from './sysinv';
 import { RECEIVABLE, SETTLEMENT_CODES, SETTLEMENT_PAYABLE, type AccrualKind } from './legpolicy';
 import { cmpStr } from './det';
@@ -126,6 +127,12 @@ export class LedgerWorld {
   private queue: Entry[] = [];
   private processes: ScheduledProcess[] = [];
   private committedVersion = 0;
+  /** E-84 running totals per ccy (M0, M0_sys, M2, netIssuance, 2909 bridge, I17 mirror) as of the last commit. Derived state: kept
+   *  out of State (snapshots, determinism hashes), updated from balance deltas of the store-layer dirty set at each commit, rebuilt
+   *  from a full scan on construction, restore and abort, and cross-checked against a full scan at every DAY_CLOSE. */
+  private totals: Totals;
+  /** E-84: negative and sub-grouped non-zero accounts as of the last commit (balside AccountIndex); derived like `totals`. */
+  private index: AccountIndex;
   /** Test instrumentation for spec test 2 (Δ2 cost): counts reads of the postings archive. */
   archiveReads = 0;
 
@@ -144,6 +151,7 @@ export class LedgerWorld {
     this.registerEntity({ id: SYS_ID });
     for (const c of CCYS) this.registerEntity({ id: cbkId(c), reportingCcy: c });
     this.registerEntity({ id: T.ESCROW_COURT });
+    this.s.accounts.trackWrites(); this.totals = scanTotals(this.s.accounts); this.index = AccountIndex.scan(this.s.accounts);
     this.committedVersion = this.s.accounts.version;
   }
 
@@ -274,8 +282,14 @@ export class LedgerWorld {
     return s;
   }
   aggregates(ccy: Ccy): { M0: Money; M0_sys: Money; M0_cb: Money; M2: Money; PEM: Money } {
-    const a = this.s.accounts; const M0 = computeM0(a, ccy); const M0_sys = computeM0sys(a, ccy);
-    return { M0, M0_sys, M0_cb: M0 - M0_sys, M2: computeM2(a, ccy), PEM: computePEM(a, ccy, this.perimeterOf) };
+    const t = this.totalsNow(ccy); const M0 = t.m0; const M0_sys = t.m0sys;
+    return { M0, M0_sys, M0_cb: M0 - M0_sys, M2: t.m2, PEM: computePEM(this.s.accounts, ccy, this.perimeterOf) };
+  }
+  /** Running totals of the store as it is now: the committed totals plus any writes since the last commit (O(dirty)). */
+  private totalsNow(ccy: Ccy): CcyTotals {
+    const a = this.s.accounts;
+    const t = a.writeCount === 0 ? this.totals : advanceTotals(this.totals, a.writes().map(([k, s]): DirtyRow => [k, s, a.get(k)]));
+    return t.get(ccy) as CcyTotals;
   }
   ownAccountToday(ccy: Ccy): Money { return this.s.today.get(ccy)?.ownAccount ?? 0n; }
 
@@ -420,7 +434,9 @@ export class LedgerWorld {
   /** Test-only access (03#38 corruption; INV-LED-009 negative test). Never used by the ledger itself. */
   private lastView: CheckView | undefined;
   testHooks() {
-    return { queue: this.queue, accounts: this.s.accounts, dormant: this.s.dormant, lastView: this.lastView };
+    return { queue: this.queue, accounts: this.s.accounts, dormant: this.s.dormant, lastView: this.lastView,
+      /** E-84 INCR-MUTANT (b): the running totals as of the last commit (derived state, not in snapshots). */
+      totals: this.totals, index: this.index };
   }
 
   /** Commit the tick (T03-09 runP13). Idempotent per tick: a rerun for a committed tick posts nothing. Then advances the tick. */
@@ -462,9 +478,11 @@ export class LedgerWorld {
       this.queue = []; this.s.lastCommitted = tick; this.s.tick = tick + 1; this.s.safeMode = true;
       return { ...res, safeMode: true, failures: prov, failedInvariants: ['INV-LED-012'] };
     }
-    // Stage all-or-nothing.
-    const pre = this.s.accounts;
-    const post = new SortedMap<string, Bal>(pre.entries().map(([k, v]) => [k, { ...v }]));
+    // Stage all-or-nothing, in place on the live store (E-84 condition 5: no full copy). The store journals every write by any
+    // path: what it holds now are the writes since the last commit that bypassed this writer (INV-LED-009), which join this tick's
+    // dirty set; from here it journals the staging, so an abort can roll exactly those writes back.
+    const post = this.s.accounts;
+    const outsideWrites = post.writes(); post.resetWrites();
     const valid: Entry[] = []; const invalid: Entry[] = [];
     for (const e of this.queue) {
       if (e.invalid) { invalid.push(e); continue; }
@@ -485,12 +503,18 @@ export class LedgerWorld {
     }
     // Δ10: commit → holdings → control evaluation from committed state (sorted ids) → CONTROL entries → checks → rollDay → hooks.
     const victim = (id: Id): Id | undefined => escrows.get(id)?.victimId;
-    const holdPost = foldHoldings(this.s.holdings, valid.flatMap((e) => e.postings), victim);
+    // E-84 condition 1: the dirty set, each written account's balance at the last commit and now (store reads only, any writer).
+    const dirtyNow = (): DirtyRow[] => {
+      const start = new SortedMap<string, Bal | undefined>(post.writes()); for (const [k, b] of outsideWrites) start.set(k, b);
+      return start.entries().map(([k, b]): DirtyRow => [k, b, post.get(k)]);
+    };
+    const holdPost = advanceHoldings(this.s.holdings, dirtyNow(), victim);
     const sidesPrev = this.s.sides; const before = (id: Id): SideTag | undefined => sidesPrev.get(id);
     const sidesNext = new SortedMap<Id, SideTag>();
     for (const id of this.s.entities.keys()) { const t = sideOf(this.sideInputs(), id); if (t) sidesNext.set(id, t); }
     const after = (id: Id): SideTag | undefined => sidesNext.get(id);
-    const ids = sidesNext.keys();
+    // Only an entity whose side tag changed can need a CONTROL entry (controlChanges skips the rest), so the checks get just those.
+    const ids = sidesNext.keys().filter((id) => { const b = before(id); const a = after(id); return !!b && !!a && !sameSide(a, b); });
     const changes = CCYS.flatMap((c) => controlChanges(ids, c, before, after, holdPost));
     const cenv = this.env('03', 'P13');
     for (const ch of changes) {
@@ -498,7 +522,19 @@ export class LedgerWorld {
       for (const p of e.postings) applyPosting(post, p);
       valid.push(e);
     }
-    const flows = tickFlowsOf(valid, this.catalog, tick, (c) => computeM0sys(post, c) - computeM0sys(pre, c));
+    // The balance side of every check: the running totals advanced over the dirty set (E-84). `pre` (the store at the last commit)
+    // is only materialised when a check walks it (a failure path, INV-LED-014 lots, or the full-scan flag).
+    const dirty = dirtyNow();
+    let preMat: Accounts | undefined;
+    const pre = (): Accounts => {
+      if (!preMat) { preMat = post.clone(); for (const [k, b] of dirty) if (b === undefined) preMat.delete(k); else preMat.set(k, b); }
+      return preMat;
+    };
+    const inc = incrementalSide(this.totals, dirty);
+    const fullEveryTick = this.params.ledger_inv_full_scan_every_tick;
+    const bs = fullEveryTick ? scanSide(pre(), post) : inc;
+    const incIdx = tickIndex(this.index, dirty);
+    const flows = tickFlowsOf(valid, this.catalog, tick, (c) => bs.end(c).m0sys - bs.start(c).m0sys);
     const anomalies: string[] = [];
     for (const c of CCYS) {
       const r = classify({ ccy: c, entries: valid, catalog: this.catalog, before, after, escrowVictim: victim, holdPre: this.s.holdings, holdPost }, changes);
@@ -517,7 +553,7 @@ export class LedgerWorld {
     }
     const today = this.foldToday(valid, flows);
     const view: CheckView = {
-      tick, isDayClose, catalog: this.catalog, entries: valid, pre, post, entity: this.entity, flows,
+      tick, isDayClose, catalog: this.catalog, entries: valid, pre: undefined as unknown as Accounts, post, balances: bs, entity: this.entity, flows,
       facts: { overdraftLimit: (k) => this.s.facts.get(`OVERDRAFT_LIMIT:${k}`) ?? 0n, intradayLimit: (b) => this.s.facts.get(`INTRADAY_CREDIT_LIMIT:${b}`) ?? 0n },
       alarm: { mult: this.params.led_code_alarm_mult, floorMicro: toMoney(this.params.led_code_alarm_floor, 'FDL') },
       ...(isDayClose ? {
@@ -527,12 +563,14 @@ export class LedgerWorld {
         dayHistory: (c: Ccy, code: string) => this.dayHistory(c, code),
       } : {}),
     };
-    view.sys = { before, after, ids, holdPost, anomalies, escrowVictim: victim,
-      dM0cb: (c) => computeM0(post, c) - computeM0sys(post, c) - (computeM0(pre, c) - computeM0sys(pre, c)) };
-    view.escrows = escrows; view.holds = holds; view.accruals = accruals;
+    Object.defineProperty(view, 'pre', { get: pre, enumerable: true, configurable: true });
+    view.sys = { before, after, ids, holdPost, anomalies, escrowVictim: victim, dM0cb: (c) => dM0cbOf(bs, c) };
+    view.escrows = escrows; view.holds = holds; view.accruals = accruals; view.index = fullEveryTick ? scanIndex(post) : incIdx;
     this.lastView = view; // tests only (invariant mutation checks); not part of state
     const failures = [...TICK_INVARIANTS, ...SYS_INVARIANTS].flatMap(([, chk]) => chk(view));
-    if (isDayClose) failures.push(...dormantCrossCheck(pre, this.s.dormant));
+    if (isDayClose) failures.push(...dormantCrossCheck(pre(), this.s.dormant));
+    // E-84 condition 3 (and 4: every tick when ledger_inv_full_scan_every_tick): running totals and m(e) = full recompute, FATAL.
+    if (isDayClose || fullEveryTick) failures.push(...totalsCrossCheck(inc.endTotals, scanTotals(post), holdPost, scanHoldings(post, victim), incIdx, post));
     for (const row of archiveRows) {
       const ticks = [...this.s.tickFlows.values().filter((f) => f.ccy === row.ccy && Math.floor(f.tick / TICKS_PER_DAY) === dayIndex), flows.get(row.ccy) as TickFlows];
       failures.push(...INV_LED_017(row, ticks, this.s.archive.get(`${row.ccy}:${dayIndex - 1}`) ?? this.lastArchive(row.ccy)));
@@ -544,11 +582,18 @@ export class LedgerWorld {
     this.s.lastCommitted = tick; this.s.tick = tick + 1;
     if (fatal.length > 0) { // abort: nothing of this tick becomes visible (03#38)
       this.s.safeMode = true; res.safeMode = true;
-      if (outside) this.committedVersion = this.s.accounts.version;
+      for (const [k, b] of post.writes()) if (b === undefined) post.delete(k); else post.set(k, b); // roll the staging back
+      post.resetWrites();
+      // Outside writes stay in the store (as before); the derived state follows the store, and the run never continues on
+      // incremental values that failed a check: totals rebuilt by a full scan.
+      if (outsideWrites.length > 0) this.s.holdings = advanceHoldings(this.s.holdings, outsideWrites.map(([k, b]): DirtyRow => [k, b, post.get(k)]), (id) => this.s.escrows.get(id)?.victimId);
+      this.totals = scanTotals(post); this.index = AccountIndex.scan(post);
+      this.committedVersion = post.version;
       return res;
     }
-    this.s.accounts = post; this.s.holds = holds;
+    this.s.holds = holds;
     parkZeroAccounts(post, this.s.dormant, valid);
+    post.resetWrites(); this.totals = inc.endTotals; this.index.apply(dirty);
     this.s.log.push(...valid, ...invalid);
     this.s.day.push(...valid);
     this.s.today = today;
@@ -683,6 +728,7 @@ export class LedgerWorld {
       const t = [cur.get(c), this.s.hookCursor.get(c), this.s.tick - 1].reduce<number>((m, x) => (x !== undefined && x > m ? x : m), -1);
       this.s.hookCursor.set(c, t);
     }
+    this.s.accounts.trackWrites(); this.totals = scanTotals(this.s.accounts); this.index = AccountIndex.scan(this.s.accounts); // E-84: derived state rebuilt from a full scan on load
     this.queue = []; this.committedVersion = this.s.accounts.version; }
 }
 

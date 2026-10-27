@@ -42,8 +42,8 @@ export function driveTick(w: LedgerWorld, rnd: () => number, loans: { id: string
     }
   }
 }
-export function runDriver(seed: number, ticks: number, onTick?: (w: LedgerWorld, r: ReturnType<LedgerWorld['runP13']>, before: ReturnType<LedgerWorld['aggregates']>) => void): LedgerWorld {
-  const w = driverWorld(); const rnd = prng(seed); const loans: { id: string; amt: bigint; borrower: string }[] = [];
+export function runDriver(seed: number, ticks: number, onTick?: (w: LedgerWorld, r: ReturnType<LedgerWorld['runP13']>, before: ReturnType<LedgerWorld['aggregates']>) => void,
+  w: LedgerWorld = driverWorld()): LedgerWorld { const rnd = prng(seed); const loans: { id: string; amt: bigint; borrower: string }[] = [];
   for (let t = 0; t < ticks; t++) {
     driveTick(w, rnd, loans);
     const before = w.aggregates('FDL');
