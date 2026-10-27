@@ -1,0 +1,1 @@
+export const a = `loan_${1}`;

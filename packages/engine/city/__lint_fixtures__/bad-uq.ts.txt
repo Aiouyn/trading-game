@@ -1,0 +1,1 @@
+export const a = 'uq_island_7';
