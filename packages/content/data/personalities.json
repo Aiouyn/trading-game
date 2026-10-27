@@ -1,0 +1,245 @@
+{
+  "catalogVersion": 1,
+  "personalities": [
+    {
+      "cityId": "cty_port_avalon",
+      "palette": "brick, brass, slate",
+      "streetTrees": "plane, oak",
+      "archetypeFamily": "harbour brick, glass towers",
+      "perils": {
+        "flood": 2,
+        "coastalStorm": 2,
+        "quake": 0,
+        "wildfire": 0,
+        "heatwave": 1,
+        "snowIce": 1
+      },
+      "flaggedDistricts": "C: Eastside Docks, Industrial Basin, Old Harbor; R: Riverside Lofts; H: Glasshill, Summit Estates"
+    },
+    {
+      "cityId": "cty_lakemont",
+      "palette": "glass, cedar, limestone",
+      "streetTrees": "cedar, birch",
+      "archetypeFamily": "campus modern, lake towers",
+      "perils": {
+        "flood": 1,
+        "coastalStorm": 1,
+        "quake": 0,
+        "wildfire": 1,
+        "heatwave": 1,
+        "snowIce": 2
+      },
+      "flaggedDistricts": "C (lake): Lakefront, Northshore, Cedar Point; H: The Bluffs"
+    },
+    {
+      "cityId": "cty_redmesa",
+      "palette": "terracotta, sand, steel",
+      "streetTrees": "palo verde, desert willow",
+      "archetypeFamily": "adobe low-rise, solar canopies",
+      "perils": {
+        "flood": 1,
+        "coastalStorm": 0,
+        "quake": 1,
+        "wildfire": 2,
+        "heatwave": 3,
+        "snowIce": 0
+      },
+      "flaggedDistricts": "F: Canyon Row; H: Mesa Heights, Saguaro Hills"
+    },
+    {
+      "cityId": "cty_meridia",
+      "palette": "ochre, marble, terracotta",
+      "streetTrees": "cypress, oleander",
+      "archetypeFamily": "canal palazzi, mainland blocks",
+      "perils": {
+        "flood": 3,
+        "coastalStorm": 1,
+        "quake": 1,
+        "wildfire": 0,
+        "heatwave": 2,
+        "snowIce": 0
+      },
+      "flaggedDistricts": "C: Lido Strand, San Telmo Islands, Grand Canal, New Lagoon, Arsenal Yards"
+    },
+    {
+      "cityId": "cty_valcourt",
+      "palette": "limestone, slate, iron",
+      "streetTrees": "lime, chestnut",
+      "archetypeFamily": "river terraces, mills",
+      "perils": {
+        "flood": 2,
+        "coastalStorm": 0,
+        "quake": 0,
+        "wildfire": 0,
+        "heatwave": 1,
+        "snowIce": 1
+      },
+      "flaggedDistricts": "R: Foundry Bank, Lock Quarter, Southern Mills; H: Cathedral Rise"
+    },
+    {
+      "cityId": "cty_belmara",
+      "palette": "timber, stone, copper",
+      "streetTrees": "larch, pine",
+      "archetypeFamily": "chalets, grand hotels",
+      "perils": {
+        "flood": 1,
+        "coastalStorm": 0,
+        "quake": 1,
+        "wildfire": 0,
+        "heatwave": 0,
+        "snowIce": 3
+      },
+      "flaggedDistricts": "C (lake): Lakeside Promenade; H: Vineyard Slopes, Pinecrest"
+    },
+    {
+      "cityId": "cty_kaiyo",
+      "palette": "steel, neon glass, tile",
+      "streetTrees": "ginkgo, cherry",
+      "archetypeFamily": "dense towers, alley blocks",
+      "perils": {
+        "flood": 2,
+        "coastalStorm": 2,
+        "quake": 3,
+        "wildfire": 0,
+        "heatwave": 1,
+        "snowIce": 0
+      },
+      "flaggedDistricts": "C: Harbor Freight, Reclaim Grid, Shiomi Docks; F: Loop Central, Neon Ward; R: Riverbend, Delta Markets"
+    },
+    {
+      "cityId": "cty_tessan",
+      "palette": "concrete, jade tile, steel",
+      "streetTrees": "banyan, bamboo",
+      "archetypeFamily": "delta shophouses, fab halls",
+      "perils": {
+        "flood": 3,
+        "coastalStorm": 3,
+        "quake": 1,
+        "wildfire": 0,
+        "heatwave": 2,
+        "snowIce": 0
+      },
+      "flaggedDistricts": "C/R: Fab Island, Delta Wharf, Canal Homes, Market Bridge"
+    },
+    {
+      "cityId": "cty_mirako",
+      "palette": "lacquer, timber, stone",
+      "streetTrees": "maple, pine",
+      "archetypeFamily": "temple roofs, terrace houses",
+      "perils": {
+        "flood": 1,
+        "coastalStorm": 1,
+        "quake": 2,
+        "wildfire": 1,
+        "heatwave": 1,
+        "snowIce": 1
+      },
+      "flaggedDistricts": "R: Riverside Arcades; H: Terrace Steps, Temple Hill, Maple Slopes; F: Temple Hill"
+    },
+    {
+      "cityId": "cty_nordhaven",
+      "palette": "white render, birch, glass",
+      "streetTrees": "birch, spruce",
+      "archetypeFamily": "pitched roofs, quay blocks",
+      "perils": {
+        "flood": 1,
+        "coastalStorm": 2,
+        "quake": 0,
+        "wildfire": 0,
+        "heatwave": 0,
+        "snowIce": 3
+      },
+      "flaggedDistricts": "C: Harbor Works, Fjord Quarter, Opera Quay, Isle Mouth; H: Birch Hills"
+    },
+    {
+      "cityId": "cty_skarvik",
+      "palette": "red timber, granite",
+      "streetTrees": "rowan, pine",
+      "archetypeFamily": "fishing sheds, rig yards",
+      "perils": {
+        "flood": 2,
+        "coastalStorm": 3,
+        "quake": 0,
+        "wildfire": 0,
+        "heatwave": 0,
+        "snowIce": 2
+      },
+      "flaggedDistricts": "C: Rig Yards, Herring Quay, Skerries, Harbor Exchange"
+    },
+    {
+      "cityId": "cty_vintra",
+      "palette": "slate, pine, concrete",
+      "streetTrees": "spruce, aspen",
+      "archetypeFamily": "mill towns, data halls",
+      "perils": {
+        "flood": 1,
+        "coastalStorm": 1,
+        "quake": 0,
+        "wildfire": 1,
+        "heatwave": 0,
+        "snowIce": 3
+      },
+      "flaggedDistricts": "C (lake): Lakeside; R: Hydro Flats, Turbine Valley, Old Mill; H: Spruce Ridge"
+    },
+    {
+      "cityId": "cty_sundara",
+      "palette": "white stucco, teal tile",
+      "streetTrees": "palm, bougainvillea",
+      "archetypeFamily": "beach towers, barrio stairs",
+      "perils": {
+        "flood": 2,
+        "coastalStorm": 3,
+        "quake": 1,
+        "wildfire": 1,
+        "heatwave": 2,
+        "snowIce": 0
+      },
+      "flaggedDistricts": "C: Sunset Strip, Marina Quarter, Palm Bay, Ocean Towers; H: Hill Barrios, Cliffside"
+    },
+    {
+      "cityId": "cty_cobreval",
+      "palette": "copper, adobe, whitewash",
+      "streetTrees": "jacaranda, eucalyptus",
+      "archetypeFamily": "colonial hill town, smelters",
+      "perils": {
+        "flood": 1,
+        "coastalStorm": 1,
+        "quake": 2,
+        "wildfire": 2,
+        "heatwave": 2,
+        "snowIce": 0
+      },
+      "flaggedDistricts": "C: Ore Docks, Smelter Flats; R: Riverside Colonia; H: Old Town Hill, Copper Terraces, Mirador; F: Mirador"
+    },
+    {
+      "cityId": "cty_alta_verde",
+      "palette": "green tile, stone, timber",
+      "streetTrees": "ceiba, coffee shade trees",
+      "archetypeFamily": "colonial centre, highland villas",
+      "perils": {
+        "flood": 1,
+        "coastalStorm": 1,
+        "quake": 2,
+        "wildfire": 1,
+        "heatwave": 1,
+        "snowIce": 0
+      },
+      "flaggedDistricts": "H: Government Hill, Coffee Slopes, Highland Park; F: Colonial Center"
+    },
+    {
+      "cityId": "cty_isla_serena",
+      "palette": "coral stone, white timber",
+      "streetTrees": "coconut palm, sea grape",
+      "archetypeFamily": "private estates",
+      "perils": {
+        "flood": 1,
+        "coastalStorm": 3,
+        "quake": 0,
+        "wildfire": 0,
+        "heatwave": 2,
+        "snowIce": 0
+      },
+      "flaggedDistricts": "C: The Cays"
+    }
+  ]
+}
