@@ -5,7 +5,8 @@ import type { BlocDef, BlocId } from './schema';
 /** 04's bloc reader. MISSING EXPORT (T22A-01): @tycoon/content's ContentView.blocs() has no `id` / `sectorWeights`, so blocDef keeps
  *  this narrow input type until T22A exports them (reported on T02-11; core-port.ts itself is deleted). */
 export interface BlocContentReader { blocs(): readonly { id: BlocId; name: string; cityIds: [string, string, string]; sectorWeights: number[] }[] }
-import { cbkId, crtId, excId, govId, regId } from './ids';
+import { cbkId, govId } from '@tycoon/engine-ledger';
+import { crtId, excId, regId } from './ids';
 
 /** 04 §2.2 numbers. `sectorWeights` is not here: card step 3 takes it from content (22), so it is excluded from the defaults. */
 export interface BlocDefaults extends Omit<BlocDef, 'name' | 'cityIds' | 'cbkId' | 'govId' | 'excId' | 'regId' | 'crtId' | 'sectorWeights'> {
