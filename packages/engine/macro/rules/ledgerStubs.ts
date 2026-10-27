@@ -1,3 +1,6 @@
+// TEMPORARY FILE (producer ruling). The T03-11 and T03-24 PRs delete it: when ledger exports computeNa (T03-11) and buildDailyReport,
+// ControllerStep, StabSampleMsg (T03-24), importers switch to @tycoon/engine-ledger. pewFromReport is T04-04's own (AC-04-04-PEW-BIGINT)
+// and moves out of this file before it is deleted. Do not add anything else here.
 // T04-04 typed stubs for the two 03 exports it imports (E-88 (5)). T03-11 and T03-24 are not merged on main, so T04-04 takes them through
 // these stubs with E-88's signatures and does not re-implement them. Delete this file when ledger exports `computeNa` (T03-11,
 // ledger/money/aggregates.ts) and `buildDailyReport` (T03-24, ledger/stabilizer/report.ts); callers then import from @tycoon/engine-ledger.

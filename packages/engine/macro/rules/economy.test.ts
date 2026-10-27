@@ -58,14 +58,12 @@ describe('smoothRealRateGap (§3.4.1 step 1, E-87 (7))', () => {
     expect(smoothRealRateGap(0.004, 0.004, 0, 0, p)).toBe(0.004);
     expect(smoothRealRateGap(0.01, 0, 0, 0, p)).toBeCloseTo(0.01 * (1 - a), 16);
   });
-  it('AC E87-7: a constant R of 0.01 from R̃_0 = 0 reaches 0.0087786 ± 1e-9 after 364 days', () => {
+  it('AC E87-7: a constant R of 0.01 from R̃_0 = 0 reaches 0.00877855004 ± 1e-9 after 364 days', () => {
     let R = 0;
     for (let d = 0; d < 364; d++) R = smoothRealRateGap(R, 0.01, 0, 0, p);
     expect(R).toBeCloseTo(0.01 * (1 - 2 ** (-364 / 120)), 15);
-    // Spec question: 0.0087786 is the 7-dp rounding of 0.00877855004; |R − 0.0087786| = 5.0e-8, so the literal ±1e-9 band only holds
-    // against the unrounded figure. Pinned: the unrounded value ± 1e-9, and the 7-dp figure at toBeCloseTo(…, 7).
-    expect(Math.abs(R - 0.00877855004)).toBeLessThan(1e-9);
-    expect(R).toBeCloseTo(0.0087786, 7);
+    // Producer ruling: pin the computed value 0.00877855004 at ±1e-9 (0.0087786 in the AC is its 7-dp rounding).
+    expect(Math.abs(R - 0.00877855004)).toBeLessThanOrEqual(1e-9);
   });
 });
 
