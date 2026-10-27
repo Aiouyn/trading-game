@@ -6,22 +6,37 @@ import { describe, expect, it } from 'vitest';
 
 const LEDGER = fileURLToPath(new URL('..', import.meta.url));
 const REPO = join(LEDGER, '../../..');
-/** AC (a) grep scope: the engine packages (src/city and the legacy src/engine app define unrelated EntityKind/Account types). */
-const SCAN = join(REPO, 'packages');
+/** AC (a) grep scope: the whole repo (every package, app, tool and export dir), .d.ts included; only node_modules and .git are skipped. */
+const SCAN = REPO;
 function tsFiles(dir: string, out: string[] = []): string[] {
   for (const n of readdirSync(dir).sort()) {
-    if (n === 'node_modules' || n === '.git' || n === 'dist') continue;
+    if (n === 'node_modules' || n === '.git') continue;
     const p = join(dir, n);
     if (statSync(p).isDirectory()) tsFiles(p, out);
-    else if (/\.(ts|tsx|mts)$/.test(n) && !n.endsWith('.d.ts')) out.push(p);
+    else if (/\.(ts|tsx|mts|cts)$/.test(n)) out.push(p);
   }
   return out;
 }
 /** This file quotes the patterns it greps for, so it is not part of its own scan. */
 const SELF = fileURLToPath(import.meta.url);
 const FILES = tsFiles(SCAN).filter((p) => p !== SELF).map((p) => ({ rel: relative(REPO, p), text: readFileSync(p, 'utf8') }));
-const defs = (name: string): string[] =>
-  FILES.filter((f) => new RegExp(`export (declare )?(type|interface|function|const|class|enum) ${name}\\b`).test(f.text)).map((f) => f.rel);
+/** The text with import / export specifier lists (`import { type X }`, `export type { X }`, `export { X } from`) and `import type X` removed:
+ *  naming a symbol there is not a definition. */
+const declText = (t: string): string => t.replace(/\b(import|export)\s+(type\s+)?\{[^}]*\}/g, '').replace(/\bimport\s+type\s+[\w$]+/g, '');
+const DECL = FILES.map((f) => ({ rel: f.rel, text: declText(f.text) }));
+/** Every definition of `name`: exported or not, ambient (`declare`) or not, anywhere on a line (`type A = 1; type B = 2;`), one entry per
+ *  declaration (two in one file count twice). */
+const defs = (name: string): string[] => DECL.flatMap((f) => [...f.text.matchAll(new RegExp(
+  `(?<![\\w$.'"\`])(type|interface|function\\*?|const|let|var|class|enum|namespace)\\s+${name}(?![\\w$'"\`])`, 'g'))]
+  .map(() => f.rel));
+/** The only definitions outside the engine with a T03-01 name: the legacy app's own, unrelated types (src/city, src/engine). Each must still
+ *  exist, so the list cannot go stale; nothing else is exempt. */
+const LEGACY: Record<string, string[]> = {
+  EntityKind: ['src/city/data/types.ts'], Ccy: ['src/city/data/types.ts'], Account: ['engine-staging/src/engine/types.ts', 'src/engine/types.ts'],
+  // not exported: the shell's own navigation-stack entry (`type Entry = PhoneEntry | DeskEntry`), found once non-exported definitions count
+  Entry: ['src/shell/back.ts'],
+};
+const engineDefs = (name: string): string[] => { const legacy = LEGACY[name] ?? []; return defs(name).filter((r) => !legacy.includes(r)); };
 
 /** T03-01 rows of the E-79 table, by their V3 name, and the file each must live in. */
 const MAPPED: Record<string, string> = {
@@ -41,17 +56,26 @@ const NOT_DEFINED = ['ENTITY_KIND_ORDER', 'CashFlowClass', 'ReasonCodeDef', 'get
   'entryTable', 'holdTable', 'factTable'];
 
 describe('AC-03-MAP-NO-DUP', () => {
-  it('scans the repo', () => expect(FILES.length).toBeGreaterThan(100));
-  it('(a) every T03-01 symbol has exactly one exported definition, in its E-79 file', () => {
-    for (const [name, file] of Object.entries(MAPPED)) expect(defs(name), name).toEqual([`packages/engine/ledger/src/${file}`]);
+  it('scans the whole repo: every top-level dir, .d.ts included, node_modules excluded', () => {
+    expect(FILES.length).toBeGreaterThan(300);
+    for (const top of ['packages/engine/', 'packages/content/', 'src/city/', 'src/engine/', 'src/shell/', 'engine-staging/', 'tools/'])
+      expect(FILES.some((f) => f.rel.startsWith(top)), top).toBe(true);
+    expect(FILES.some((f) => f.rel.split('/').includes('node_modules'))).toBe(false);
+  });
+  it('the legacy exemptions still exist (the list cannot go stale) and are the only non-engine definitions it exempts', () => {
+    for (const [name, rels] of Object.entries(LEGACY)) for (const r of rels) expect(defs(name), `${name} in ${r}`).toContain(r);
+    expect(Object.values(LEGACY).flat().every((r) => !r.startsWith('packages/'))).toBe(true);
+  });
+  it('(a) every T03-01 symbol has exactly one definition in the repo (exported or not, .d.ts included), in its E-79 file', () => {
+    for (const [name, file] of Object.entries(MAPPED)) expect(engineDefs(name), name).toEqual([`packages/engine/ledger/src/${file}`]);
     // BlocCode already exists in core (T02-01 calendar); ledger types.ts re-exports it instead of a second definition.
     expect(defs('BlocCode')).toEqual(['packages/engine/core/calendar/holidays.ts']);
     expect(FILES.find((f) => f.rel === 'packages/engine/ledger/src/types.ts')?.text).toMatch(/export type \{ BlocCode \};/);
     // E-81 (iv): Ccy and Id are core's; ledger money.ts re-exports them.
-    for (const name of ['Ccy', 'Id']) expect(defs(name), name).toEqual(['packages/engine/core/types.ts']);
+    for (const name of ['Ccy', 'Id']) expect(engineDefs(name), name).toEqual(['packages/engine/core/types.ts']);
     expect(FILES.find((f) => f.rel === 'packages/engine/ledger/src/money.ts')?.text).toMatch(/export type \{ Ccy, Id \};/);
   });
-  it('(a) cbkId and govId have one exported definition', () => {
+  it('(a) cbkId and govId have one definition in the repo', () => {
     for (const name of ['cbkId', 'govId']) expect(defs(name), name).toEqual(['packages/engine/ledger/src/accounts.ts']);
   });
   it('(a)/(d) replaced card names, getCatalog and the deferred tables have no definition', () => {
@@ -61,8 +85,8 @@ describe('AC-03-MAP-NO-DUP', () => {
     const ledger = FILES.filter((f) => f.rel.startsWith('packages/engine/ledger/'));
     expect(ledger.length).toBeGreaterThan(20);
     for (const f of ledger) {
-      for (const m of f.text.matchAll(/\bfrom '([^']+)'/g)) {
-        const spec = m[1];
+      for (const m of f.text.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)(['"])([^'"\s]+)\1/gm)) {   // from '…' / from "…" / import('…') / import '…'
+        const spec = m[2];
         const ok = spec.startsWith('.') ? !/\/(state|rules|catalog|invariants)\/|schema$/.test(spec)
           : ['zod', '@tycoon/engine-core', 'vitest', 'vitest/config', 'fast-check', 'typescript-eslint', 'eslint'].includes(spec) || spec.startsWith('node:');
         expect(ok, `${f.rel}: ${spec}`).toBe(true);

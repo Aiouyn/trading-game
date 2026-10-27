@@ -102,6 +102,9 @@ describe('T03-01 LEDGER_EVENTS', () => {
     ]);
     expect(calls[0]).toHaveLength(4);
     expect(calls[4]![4]).toEqual(['chr_A', 'bnk_1']);
+    // partyIds never change the visibility: a kind whose fixed visibility is not PARTIES keeps it when partyIds are given
+    emitLedger(ctx, 'ledger.statement.ready', ['x'], SAMPLES['ledger.statement.ready'][0] as never, ['chr_A']);
+    expect([calls[5]![3], calls[5]![4]]).toEqual(['PRIVATE', ['chr_A']]);
   });
   it('E-81 (ii): MoneySupplyReport is z.infer of stab.daily.report, with Levers from T03-01', () => {
     const [sample] = SAMPLES['stab.daily.report'];
