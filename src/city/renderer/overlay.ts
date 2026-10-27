@@ -41,7 +41,7 @@ export function partColors(p: PartColorInput, r: Ramps): { colors: Float32Array;
     const e = ei >= 0 ? p.entities[ei] : undefined;
     const m = p.materials;
     const look = e && m ? partLook(m.anchors, materialId(e.districtId, m.cityId), visSeed(m.cityId, e.parcelId)).wall : base;
-    let c: Rgb = look;
+    let c: Rgb = base;
     if (e) {
       if (e.kind === 'crown_tower' || (showMine && p.mine.has(e.id))) {
         c = r.brass;
