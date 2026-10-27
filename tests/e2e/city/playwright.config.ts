@@ -10,7 +10,7 @@ const GL_ARGS = (process.env.CITY_GL_ARGS ?? '--enable-unsafe-swiftshader --use-
 
 export default defineConfig({
   testDir: '.',
-  testMatch: /.*\.spec\.ts/,
+  testMatch: /\.spec\.tsx?$/,
   outputDir: join(tmpdir(), 'city-e2e-results'),
   timeout: 180_000,
   workers: 1,
