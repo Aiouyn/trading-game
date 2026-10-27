@@ -73,9 +73,9 @@ describe('02#14 dmath.exp, ln, pow, sin, cos, normInv, erf match the 20 test-vec
 });
 
 describe('T02-03 Quant rulings on #33', () => {
-  it('AC-02-03-ERFC-CUTOFF (E-67): erfc(26.543) is computed (≤ 4 ULP of the 256-bit reference value 2.255835022053937e-308, E-75); 0 only for x > 26.543', () => {
+  it('AC-02-03-ERFC-CUTOFF (E-67): erfc(26.543) is computed (≤ 4 ULP of the 256-bit reference value 2.255835022053937e-308, E-77); 0 only for x > 26.543', () => {
     const at = erfc(26.543);
-    expect(roundToF64(refErfc(26.543))).toBe(2.255835022053937e-308);             // expected = 256-bit reference (E-75), not CPython's
+    expect(roundToF64(refErfc(26.543))).toBe(2.255835022053937e-308);             // expected = 256-bit reference (E-77), not CPython's
     expect(ulpDistance(at, 2.255835022053937e-308)).toBeLessThanOrEqual(4);
     expect(ulpDistance(at, roundToF64(refErfc(26.543)))).toBeLessThanOrEqual(4);
     const up = 26.543 + 3.552713678800501e-15;                                 // nextUp(26.543), ulp = 2^−48
