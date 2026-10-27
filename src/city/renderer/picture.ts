@@ -88,74 +88,13 @@ export function drawPicture(opts: {
   if (!g) return { url: '', top: 0, bottom: 0, labels: [] };
   g.fillStyle = css(ramps.water);
   g.fillRect(0, 0, W, H);
-  // fit: projected bounds of every part
-  const n = opts.parts.length / FLOATS_PER_PART;
-  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-  for (let i = 0; i < n; i++) {
-    const o = i * FLOATS_PER_PART;
-    const [x, z, w, d, y0, h] = [opts.parts[o], opts.parts[o + 1], opts.parts[o + 2], opts.parts[o + 3], opts.parts[o + 4], opts.parts[o + 5]];
-    for (const [cx, cy, cz] of [[x - w / 2, y0, z - d / 2], [x + w / 2, y0, z + d / 2], [x - w / 2, y0, z + d / 2], [x + w / 2, y0, z - d / 2], [x, y0 + h, z]] as [number, number, number][]) {
-      const [u, v] = projectOrtho([cx, cy, cz], 0);
-      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
-    }
-  }
-  if (!Number.isFinite(u0)) [u0, u1, v0, v1] = [-1, 1, -1, 1];
-  const pad = PICTURE_PADDING_PX * opts.dpr;
-  const du = Math.max(1e-6, u1 - u0), dv = Math.max(1e-6, v1 - v0);
-  let scale = Math.min((W - 2 * pad) / du, (H - 2 * pad) / dv);
-  let uc = (u0 + u1) / 2;
-  const vc = (v0 + v1) / 2;
   // label metrics first: the portrait crop must keep every district label on the picture
   const fontPx = Number(/(\d+(?:\.\d+)?)px/.exec(opts.labelFont)?.[1] ?? 16);
   g.font = opts.labelFont.replace(/(\d+(\.\d+)?)px/, (_, px) => `${Number(px) * opts.dpr}px`);
   const labelW = opts.labels.map((l) => g.measureText(l.text).width + 6 * opts.dpr);
-  if (dv * scale < PORTRAIT_MIN_FILL * H) {
-    // portrait: a wide city fitted to the width would be a thin strip. Fill ≥ 45 % of the
-    // height instead and crop the sides, centred on the weighted centre of the built area
-    // (the dense core), clamped so no empty margin shows on either side.
-    scale = Math.min((PORTRAIT_MIN_FILL * H) / dv, (H - 2 * pad) / dv);
-    let su = 0, sw = 0;
-    for (let i = 0; i < n; i++) {
-      const o = i * FLOATS_PER_PART;
-      const wgt = opts.parts[o + 2] * opts.parts[o + 3] * Math.max(1, opts.parts[o + 5]);
-      su += projectOrtho([opts.parts[o], 0, opts.parts[o + 1]], 0)[0] * wgt;
-      sw += wgt;
-    }
-    const core = sw > 0 ? su / sw : uc;
-    // every district must stay labelled (Industrial Basin was cropped away): fit the span of the
-    // label anchors, each with half its label width, into the view. Shrink the picture only as
-    // far as that needs, never below the 40 % floor.
-    // per district, the candidate label point closest to the core (any point of the district will do)
-    const anchors = opts.labels.map((l, i) => {
-      let best = l.ground.length ? projectOrtho([l.ground[0][0], 0, l.ground[0][1]], 0)[0] : core;
-      for (const [x, z] of l.ground) {
-        const u = projectOrtho([x, 0, z], 0)[0];
-        if (Math.abs(u - core) < Math.abs(best - core)) best = u;
-      }
-      return { u: best, half: labelW[i] / 2 };
-    });
-    const span = (k: number) => {
-      let lo = Infinity, hi = -Infinity;
-      for (const a of anchors) {
-        lo = Math.min(lo, a.u - a.half / k);
-        hi = Math.max(hi, a.u + a.half / k);
-      }
-      return { lo, hi };
-    };
-    const room = W - 2 * pad;
-    const floor = (PORTRAIT_FLOOR * H) / dv;
-    for (let it = 0; it < 30 && anchors.length; it++) {
-      const { lo, hi } = span(scale);
-      if ((hi - lo) * scale <= room || scale <= floor) break;
-      scale = Math.max(floor, Math.min(scale * 0.97, room / (hi - lo)));
-    }
-    const halfView = (W / 2 - pad) / scale;
-    const { lo, hi } = anchors.length ? span(scale) : { lo: core, hi: core };
-    // centre on the core, shifted just enough to keep every label anchor in view
-    uc = Math.min(lo + halfView, Math.max(hi - halfView, core));
-    uc = Math.min(u1 - halfView, Math.max(u0 + halfView, uc));
-    if (anchors.length && (hi - lo) * scale <= room) uc = Math.min(lo + halfView, Math.max(hi - halfView, uc));
-  }
+  const n = opts.parts.length / FLOATS_PER_PART;
+  const pad = PICTURE_PADDING_PX * opts.dpr;
+  const { scale, uc, vc, v0, v1 } = fitPicture({ parts: opts.parts, labels: opts.labels.map((l, i) => ({ ground: l.ground, w: labelW[i] })), W, H, pad });
   const toScreen = (x: number, y: number, z: number): [number, number] => {
     const [u, v] = projectOrtho([x, y, z], 0);
     return [W / 2 + (u - uc) * scale, H / 2 - (v - vc) * scale];
@@ -243,4 +182,86 @@ export function drawPicture(opts: {
   const top = Math.max(0, (H / 2 - (v1 - vc) * scale) / k);
   const bottom = Math.min(H / k, (H / 2 - (v0 - vc) * scale) / k);
   return { url: canvas.toDataURL('image/png'), top, bottom, labels: drawn };
+}
+
+/**
+ * The picture's projection (pure, unit-tested): scale and centre for a W×H device-px canvas.
+ * "Contain" by default. In portrait, where a wide city would be a thin strip, it fills
+ * PORTRAIT_MIN_FILL of the height and crops the sides around the dense core, but keeps one
+ * label point of every district (with half its label width) in view, shrinking the picture
+ * for that only down to PORTRAIT_FLOOR of the height (#26: Industrial Basin was cropped away).
+ */
+export function fitPicture(o: {
+  parts: Float32Array;
+  /** Per district label: candidate ground points (metres) and label width in device px. */
+  labels: { ground: [number, number][]; w: number }[];
+  W: number;
+  H: number;
+  pad: number;
+}): { scale: number; uc: number; vc: number; u0: number; u1: number; v0: number; v1: number; anchors: number[] } {
+  const { W, H, pad } = o;
+  const n = o.parts.length / FLOATS_PER_PART;
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const p = i * FLOATS_PER_PART;
+    const [x, z, w, d, y0, h] = [o.parts[p], o.parts[p + 1], o.parts[p + 2], o.parts[p + 3], o.parts[p + 4], o.parts[p + 5]];
+    for (const [cx, cy, cz] of [[x - w / 2, y0, z - d / 2], [x + w / 2, y0, z + d / 2], [x - w / 2, y0, z + d / 2], [x + w / 2, y0, z - d / 2], [x, y0 + h, z]] as [number, number, number][]) {
+      const [u, v] = projectOrtho([cx, cy, cz], 0);
+      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    }
+  }
+  if (!Number.isFinite(u0)) [u0, u1, v0, v1] = [-1, 1, -1, 1];
+  const du = Math.max(1e-6, u1 - u0), dv = Math.max(1e-6, v1 - v0);
+  let scale = Math.min((W - 2 * pad) / du, (H - 2 * pad) / dv);
+  let uc = (u0 + u1) / 2;
+  const vc = (v0 + v1) / 2;
+  let chosen: number[] = [];
+  if (dv * scale < PORTRAIT_MIN_FILL * H) {
+    // portrait: fill ≥ 45 % of the height and crop the sides, centred on the weighted centre of
+    // the built area (the dense core), clamped so no empty margin shows on either side.
+    scale = Math.min((PORTRAIT_MIN_FILL * H) / dv, (H - 2 * pad) / dv);
+    let su = 0, sw = 0;
+    for (let i = 0; i < n; i++) {
+      const p = i * FLOATS_PER_PART;
+      const wgt = o.parts[p + 2] * o.parts[p + 3] * Math.max(1, o.parts[p + 5]);
+      su += projectOrtho([o.parts[p], 0, o.parts[p + 1]], 0)[0] * wgt;
+      sw += wgt;
+    }
+    const core = sw > 0 ? su / sw : uc;
+    // every district must stay labelled: fit the span of the label anchors, each with half its
+    // label width, into the view. Shrink the picture only as far as that needs, never below the
+    // PORTRAIT_FLOOR (41 %) of the height. Per district, the anchor is its candidate label point
+    // closest to the core (any point of the district will do).
+    const anchors = o.labels.map((l) => {
+      let best = l.ground.length ? projectOrtho([l.ground[0][0], 0, l.ground[0][1]], 0)[0] : core;
+      for (const [x, z] of l.ground) {
+        const u = projectOrtho([x, 0, z], 0)[0];
+        if (Math.abs(u - core) < Math.abs(best - core)) best = u;
+      }
+      return { u: best, half: l.w / 2 };
+    });
+    chosen = anchors.map((a) => a.u);
+    const span = (k: number) => {
+      let lo = Infinity, hi = -Infinity;
+      for (const a of anchors) {
+        lo = Math.min(lo, a.u - a.half / k);
+        hi = Math.max(hi, a.u + a.half / k);
+      }
+      return { lo, hi };
+    };
+    const room = W - 2 * pad;
+    const floor = (PORTRAIT_FLOOR * H) / dv;
+    for (let it = 0; it < 30 && anchors.length; it++) {
+      const { lo, hi } = span(scale);
+      if ((hi - lo) * scale <= room || scale <= floor) break;
+      scale = Math.max(floor, Math.min(scale * 0.97, room / (hi - lo)));
+    }
+    const halfView = (W / 2 - pad) / scale;
+    const { lo, hi } = anchors.length ? span(scale) : { lo: core, hi: core };
+    // centre on the core, shifted just enough to keep every label anchor in view
+    uc = Math.min(lo + halfView, Math.max(hi - halfView, core));
+    uc = Math.min(u1 - halfView, Math.max(u0 + halfView, uc));
+    if (anchors.length && (hi - lo) * scale <= room) uc = Math.min(lo + halfView, Math.max(hi - halfView, uc));
+  }
+  return { scale, uc, vc, u0, u1, v0, v1, anchors: chosen };
 }
