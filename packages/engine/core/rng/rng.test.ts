@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { InvariantCtx } from '../invariant-port';
+import type { InvariantCtx, TruthStoreRead } from '../invariants';
 import { sha256, sha256Concat } from '../crypto/sha256';
 import { u32be, utf8 } from '../crypto/hex';
 import { EngineFault } from '../types';
@@ -181,15 +181,25 @@ describe('T02-06 registry (02 §3.10.4)', () => {
 });
 
 describe('T02-06 INV-ENG-002', () => {
+  const none: TruthStoreRead = { get: () => undefined, iter: () => [], count: () => 0 };
   const ctx = (ledger: unknown, deltas: unknown): InvariantCtx => ({
-    tick: 1, worldSeedPublicSalt: new Uint8Array(), pre: { get: () => undefined },
-    facts: (k) => (k === FACT_RNG_LEDGER ? [ledger] : k === FACT_RNG_DELTAS ? [deltas] : []),
+    tick: 1, phase: 'P13', scope: 'TICK', partitionId: 'p1', safeMode: false, pre: none, post: none, writeSet: [], postings: [], events: [], num: () => 0,
+    facts: { get: <T,>(k: string) => (k === FACT_RNG_LEDGER ? ledger : k === FACT_RNG_DELTAS ? deltas : undefined) as T | undefined },
   });
-  it('def: TICK, FATAL', () => { expect(INV_ENG_002.def).toMatchObject({ id: 'INV-ENG-002', scope: 'TICK', severity: 'FATAL' }); });
+  it('def: TICK, FATAL', () => { expect(INV_ENG_002.def).toMatchObject({ id: 'INV-ENG-002', module: '02', scope: 'TICK', severity: 'FATAL', sampling: 'NEVER' }); });
   it('passes when every counter advanced exactly by the ledger draws', () => {
     const m = new RngManager(roots); m.beginTick(0, 1, words(0));
     const before = m.drawsBigint('mkt.idio:a'); m.stream('05', MKT, 'mkt.idio:a').normal();
     expect(INV_ENG_002.check(ctx(m.ledger(), [{ key: 'mkt.idio:a', before, after: m.drawsBigint('mkt.idio:a') }]))).toEqual({ ok: true });
+  });
+  it('a fact holding a single row (not an array) is read as one row', () => {
+    expect(INV_ENG_002.check(ctx({ key: 'mkt.idio:a', draws: 5 }, { key: 'mkt.idio:a', before: 10n, after: 15n }))).toEqual({ ok: true });
+    expect(INV_ENG_002.check(ctx({ key: 'mkt.idio:a', draws: 4 }, { key: 'mkt.idio:a', before: 10n, after: 15n }))).toMatchObject({ ok: false, entityIds: ['mkt.idio:a'] });
+    expect(INV_ENG_002.check(ctx({ key: 'nope:x', draws: 0 }, undefined))).toMatchObject({ ok: false, entityIds: ['nope:x'] });
+  });
+  it('a ledger row with 0 draws and no counter delta passes; with draws > 0 and no delta it fails', () => {
+    expect(INV_ENG_002.check(ctx([{ key: 'mkt.idio:a', draws: 0 }], []))).toEqual({ ok: true });
+    expect(INV_ENG_002.check(ctx([{ key: 'mkt.idio:a', draws: 2 }], []))).toMatchObject({ ok: false, observed: 'mkt.idio:a: no counter delta' });
   });
   it('negative: counter delta 5 but ledger 4 -> fails', () => {
     const r = INV_ENG_002.check(ctx([{ key: 'mkt.idio:a', draws: 4 }], [{ key: 'mkt.idio:a', before: 10n, after: 15n }]));
