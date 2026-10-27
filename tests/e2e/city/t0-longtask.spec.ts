@@ -3,28 +3,37 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EVIDENCE, expect, openCity, saveJson, waitDrawn } from './helpers';
 
-// T0 first picture: the build must never hold the main thread for over 1 s.
+// T0 first picture: the build must never hold the main thread for over 250 ms.
 // Before the bitmap ground, the ~52k queued per-cell ground fills were painted in one
-// synchronous flush at toDataURL (up to 6.9 s on a loaded box, 754 ms on CI).
-const LONG_TASK_MAX_MS = 1000;
-// On CI's GPU-less runner the restored per-cell fills stay under 1 s (702 ms desktop, mutant run
-// 40530691284), so the time bound alone cannot catch them there. The fill() count is the
-// machine-independent signal: ~3.6k part faces after the fix, ~56k with per-cell ground fills.
-const FILL_CALLS_MAX = 10_000;
+// synchronous flush at toDataURL (up to 6.9 s on a loaded box, 754 ms on CI). After the fix CI
+// logged 80 ms desktop / 69 ms phone (run 40547475243); QA's local box 72–99 ms. QA's mutant
+// "no willReadFrequently" (accelerated canvas on SwiftShader) took 428 ms locally.
+const LONG_TASK_MAX_MS = 250;
+// Time alone is machine-dependent (QA's per-pixel fillRect ground mutant took only 107 ms), so the
+// canvas call count is the machine-independent signal: fill() + fillRect() + drawImage() on any
+// 2D context. ~3.6k after the fix (part faces + a handful of fillRects + 1 drawImage); ~56k with
+// per-cell ground fills, ~65k with a per-pixel fillRect ground bitmap.
+const CANVAS_CALLS_MAX = 10_000;
+// The ground is one bitmap mapped by one drawImage; nothing else in the T0 picture uses drawImage.
+const GROUND_DRAW_IMAGES = 1;
 
-interface LongTaskWindow { __longTasks: { start: number; duration: number }[]; __fills: number }
+interface Calls { fill: number; fillRect: number; drawImage: number }
+interface LongTaskWindow { __longTasks: { start: number; duration: number }[]; __calls: Calls }
 
 test.describe('T0 picture long tasks', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       const w = window as unknown as LongTaskWindow;
       w.__longTasks = [];
-      w.__fills = 0;
-      const fill = CanvasRenderingContext2D.prototype.fill;
-      CanvasRenderingContext2D.prototype.fill = function (this: CanvasRenderingContext2D, ...a: [] | [CanvasFillRule?] | [Path2D, CanvasFillRule?]) {
-        w.__fills++;
-        return (fill as (...x: unknown[]) => void).apply(this, a);
-      };
+      w.__calls = { fill: 0, fillRect: 0, drawImage: 0 };
+      const proto = CanvasRenderingContext2D.prototype as unknown as Record<keyof Calls, (...a: unknown[]) => unknown>;
+      for (const k of ['fill', 'fillRect', 'drawImage'] as const) {
+        const orig = proto[k];
+        proto[k] = function (this: CanvasRenderingContext2D, ...a: unknown[]) {
+          w.__calls[k]++;
+          return orig.apply(this, a);
+        };
+      }
       new PerformanceObserver((list) => {
         for (const e of list.getEntries()) w.__longTasks.push({ start: Math.round(e.startTime), duration: Math.round(e.duration) });
       }).observe({ type: 'longtask', buffered: true });
@@ -36,18 +45,20 @@ test.describe('T0 picture long tasks', () => {
     return page.evaluate(() => (window as unknown as LongTaskWindow).__longTasks);
   };
 
-  test('no long task over 1 s while building the T0 picture', async ({ page }, info) => {
+  test('no long task over 250 ms while building the T0 picture, < 10k canvas draws, ground in one drawImage', async ({ page }, info) => {
     await openCity(page, 'tier=T0');
     const d = await waitDrawn(page);
     expect(d.tier).toBe('T0');
     const tasks = await longTasks(page);
     const longest = Math.max(0, ...tasks.map((t) => t.duration));
-    const fills = await page.evaluate(() => (window as unknown as LongTaskWindow).__fills);
-    saveJson(`t0-longtasks-${info.project.name}.json`, { longest, fills, tasks });
-    console.log(`[t0-longtask] ${info.project.name}: longest ${longest} ms, ${tasks.length} long tasks, ${fills} fill() calls`);
+    const calls = await page.evaluate(() => (window as unknown as LongTaskWindow).__calls);
+    const total = calls.fill + calls.fillRect + calls.drawImage;
+    saveJson(`t0-longtasks-${info.project.name}.json`, { longest, calls, total, tasks });
+    console.log(`[t0-longtask] ${info.project.name}: longest ${longest} ms, ${tasks.length} long tasks, canvas calls ${JSON.stringify(calls)} total ${total}`);
     expect(tasks.filter((t) => t.duration > LONG_TASK_MAX_MS), `long tasks > ${LONG_TASK_MAX_MS} ms`).toEqual([]);
-    expect(fills, 'canvas fill() calls in the T0 build (per-cell ground fills are back?)').toBeLessThan(FILL_CALLS_MAX);
-    expect(fills, 'the T0 picture drew its part faces').toBeGreaterThan(0);
+    expect(total, 'fill + fillRect + drawImage calls in the T0 build (per-cell or per-pixel ground draws are back?)').toBeLessThan(CANVAS_CALLS_MAX);
+    expect(calls.drawImage, 'the T0 ground is one bitmap drawn by one drawImage').toBe(GROUND_DRAW_IMAGES);
+    expect(calls.fill, 'the T0 picture drew its part faces').toBeGreaterThan(0);
   });
 
   test('evidence: T0 trace and picture', async ({ page, browser }, info) => {
