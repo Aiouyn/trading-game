@@ -2,7 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ALIASES, LEDGER_EXTENSION_CODES, RESTRICTED_OK_CODES, ReasonCatalog, type CatalogSeedRow, type FlowClass } from '../src/catalog';
+import { ALIASES, LEDGER_EXTENSION_CODES, RESTRICTED_OK_CODES, ReasonCatalog, type CatalogSeedRow, type CodeRow, type FlowClass } from '../src/catalog';
+import { cmpStr } from '../src/det';
 import { ALIAS_SEED, CATALOG_SEED } from '../src/catalog-data';
 import { LedgerWorld } from '../src/world';
 
@@ -56,6 +57,34 @@ describe('AC-03-02-COUNT-SCOPE (E-86 (a))', () => {
   });
 });
 
+describe('AC-03-02-EXT-IDEMPOTENT (E-88 (7))', () => {
+  const asTransfer = (code: string): CatalogSeedRow => ({ ...CATALOG_SEED.find((r) => r.cls === 'TRANSFER' && r.owner === 3)!, code });
+  it('two LedgerWorlds built on one catalog leave 459 rows; new ReasonCatalog().countByClass() totals 454', () => {
+    const cat = new ReasonCatalog();
+    expect(Object.values(cat.countByClass()).reduce((s, n) => s + n, 0)).toBe(454);
+    new LedgerWorld({ catalog: cat }); new LedgerWorld({ catalog: cat });
+    expect(cat.all().length).toBe(459);
+    expect(cat.countByClass()).toEqual({ ...SEED, TRANSFER: 247, REVALUE: 33 });
+  });
+  it('a catalog seeded with LED_CONTROL_IN as TRANSFER makes new LedgerWorld({ catalog }) throw LEDGER_EXTENSION_CONFLICT', () => {
+    const cat = new ReasonCatalog([...CATALOG_SEED, asTransfer('LED_CONTROL_IN')]);
+    expect(() => new LedgerWorld({ catalog: cat })).toThrow(/^LEDGER_EXTENSION_CONFLICT: LED_CONTROL_IN /);
+    expect(cat.all().length).toBe(455);   // nothing registered on a conflict
+  });
+  it('field for field: a same-class row differing in one field conflicts; the identical row is skipped', () => {
+    const ext = LEDGER_EXTENSION_CODES.find((r) => r.code === 'ESCROW_CONFLICT_RELEASE')!;
+    for (const change of [{ requestableBy: [13, 9] }, { cf: 'FIN' }, { allowedTemplates: ['ESCROW_SETTLE', 'PAY'] }, { owner: 13 }, { restrictedOk: true }, { descriptionKey: 'x' }] as Partial<CodeRow>[]) {
+      const cat = new ReasonCatalog();
+      expect(cat.registerReasonCodes(change.owner ?? 3, 'TRANSFER', [{ ...ext, ...change }])).toEqual([]);
+      expect(() => cat.registerLedgerExtensions()).toThrow(/^LEDGER_EXTENSION_CONFLICT: ESCROW_CONFLICT_RELEASE /);
+    }
+    const same = new ReasonCatalog();
+    expect(same.registerReasonCodes(3, 'TRANSFER', [{ ...ext, allowedTemplates: [...ext.allowedTemplates] }])).toEqual([]);
+    same.registerLedgerExtensions();
+    expect(same.all().length).toBe(459);
+  });
+});
+
 describe('AC-03-02-RESTRICTED-ALIASES (E-86 (b))', () => {
   it('RESTRICTED_OK_CODES.length === 44: SINK 22, TRANSFER 21, REVALUE 1 (AI_STARTER_COMPUTE)', () => {
     expect(RESTRICTED_OK_CODES.length).toBe(44);
@@ -75,7 +104,15 @@ describe('AC-03-02-RESTRICTED-ALIASES (E-86 (b))', () => {
     const cat = new ReasonCatalog();
     expect(ALIASES.length).toBe(56);
     expect(ALIAS_SEED.map(([a]) => a).filter((a, i, xs) => xs.indexOf(a) === i).length).toBe(56);
-    // E-86 (b) also says "53 map to 1 target and 3 to 2"; aliases.csv has 47 / 7 / 2 (1 / 2 / 3 targets). Not pinned (outside the AC); asked.
+    // E-88 (1) AC-03-02-RESTRICTED-ALIASES (amended): aliases.csv splits 47 / 7 / 2 by target count (1 / 2 / 3), 67 target references.
+    expect([1, 2, 3].map((n) => ALIAS_SEED.filter(([, t]) => t.length === n).length)).toEqual([47, 7, 2]);
+    expect(ALIAS_SEED.every(([, t]) => t.length >= 1 && t.length <= 3)).toBe(true);
+    expect(ALIAS_SEED.reduce((s, [, t]) => s + t.length, 0)).toBe(67);
+    expect(ALIAS_SEED.filter(([, t]) => t.length === 2).map(([a]) => a).sort(cmpStr)).toEqual(
+      ['BIZ_UPGRADE_NPC', 'CBK_DEPOSIT_INTEREST', 'INS_CLAIM', 'INS_CLAIM_NPC', 'RE_MAINTENANCE', 'RE_MGMT_FEE', 'RE_RENT_IN']);
+    expect(ALIAS_SEED.filter(([, t]) => t.length === 3).map(([a, t]) => [a, [...t].sort(cmpStr)]).sort((x, y) => cmpStr(x[0] as string, y[0] as string))).toEqual([
+      ['BIZ_REVENUE_NPC', ['BIZ_SALES_FRM', 'BIZ_SALES_HH', 'BIZ_SALES_ROW']],
+      ['INTEGRITY_CLAWBACK', ['ADM_CORRECTION_IN', 'ADM_CORRECTION_OUT', 'ADM_CORRECTION_TRANSFER']]]);
     for (const [a, t] of ALIASES) {
       for (const x of t.split(/[\s|]+/)) expect([a, x, cat.get(x) !== undefined]).toEqual([a, x, true]);
       expect([a, cat.get(a)]).toEqual([a, undefined]);

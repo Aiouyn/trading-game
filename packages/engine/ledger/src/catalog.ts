@@ -106,6 +106,8 @@ function rowErrors(r: CodeRow): CatalogError[] {
   return e;
 }
 
+/** Field-for-field form of a row (keys sorted; an absent field and an undefined one compare equal). */
+const rowForm = (r: CodeRow): string => JSON.stringify(r, Object.keys(r).sort(cmpStr));
 /** E-12 layer 1(iii): registered rows are frozen, so no later code path can add a template (e.g. PAY) to an existing code. */
 const frozenRow = (r: CodeRow): CodeRow => { Object.freeze(r.allowedTemplates); return Object.freeze(r); };
 /** One catalog per world (built from the seed, extended by registerReasonCodes, frozen when the world starts). */
@@ -135,9 +137,14 @@ export class ReasonCatalog {
   }
   /**
    * E-86 (a) AC-03-02-COUNT-SCOPE: the catalog holds the seed only; the ledger (owner 03) registers LEDGER_EXTENSION_CODES at
-   * world creation (LedgerWorld constructor), which takes the 454 seed rows to the 459-row runtime catalog. Idempotent.
+   * world creation (LedgerWorld constructor), which takes the 454 seed rows to the 459-row runtime catalog. Idempotent: E-88 (7)
+   * AC-03-02-EXT-IDEMPOTENT, a code already present must equal its extension row field for field, else LEDGER_EXTENSION_CONFLICT.
    */
   registerLedgerExtensions(): void {
+    for (const x of LEDGER_EXTENSION_CODES) {
+      const have = this.rows.get(x.code);
+      if (have !== undefined && rowForm(have) !== rowForm(x)) throw new Error(`LEDGER_EXTENSION_CONFLICT: ${x.code} is already registered with a different row`);
+    }
     for (const cls of ['REVALUE', 'TRANSFER'] as const) {
       const rows = LEDGER_EXTENSION_CODES.filter((r) => r.cls === cls && !this.rows.has(r.code));
       const errs = this.registerReasonCodes(3, cls, rows);
