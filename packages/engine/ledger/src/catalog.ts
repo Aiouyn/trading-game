@@ -57,8 +57,10 @@ export const CBK_UNWIND_CODES: readonly string[] = [
 ];
 /** aliases.csv (24 §8 and PD-12 OPS_* -> CONFLICT_*). An alias is never postable (INV-LED-002). */
 export const ALIASES: readonly (readonly [alias: string, target: string])[] = ALIAS_SEED.map(([a, t]) => [a, t.join(' ')] as const);
-/** catalog v2 column R (03 §3.5.6): the 35 codes restricted cash may fund. */
+/** catalog.csv column restrictedOk (03 §3.5.6): the codes restricted cash may fund (44 in the E-85 seed). */
 export const RESTRICTED_OK_CODES: readonly string[] = CATALOG_SEED.filter((r) => r.restrictedOk).map((r) => r.code).sort(cmpStr);
+/** E-82: the codes with `illicit: true` in the seed (no hand list). */
+export const ILLICIT_CODES: readonly string[] = CATALOG_SEED.filter((r) => r.illicit).map((r) => r.code).sort(cmpStr);
 /** T03-12: the faucets that credit restricted lots. */
 export const RESTRICTED_FAUCETS: Readonly<Record<string, 'AD_GRANT' | 'FRESH_START'>> = {
   ACCT_FRESH_START: 'FRESH_START', ACCT_REWARDED_AD: 'AD_GRANT',
@@ -68,19 +70,38 @@ export type CatalogError =
   | 'PREFIX_CLASS_MISMATCH' | 'NAME_TAKEN' | 'OWNER_MISMATCH' | 'CLASS_MISMATCH' | 'TEMPLATE_CLASS_MISMATCH' | 'NO_TEMPLATE' | 'CATALOG_FROZEN' | 'ESCROW_ONLY'
   // E-82 AC-03-02-CATALOG-CHECKS: (a) seed and alias checks of the constructor; (b) the T03-02 validateCodeEntry rules.
   | 'DUPLICATE' | 'ALIAS_TARGET_MISSING' | 'ALIAS_SHADOWS_CODE'
-  | 'BAD_CODE' | 'ELASTIC_SECTORS_MISMATCH' | 'REVALUE_CF_NOT_NC' | 'LEG_NOT_IN_CHART' | 'MINT_BURN_LEG_B';
+  | 'BAD_CODE' | 'ELASTIC_SECTORS_MISMATCH' | 'REVALUE_CF_NOT_NC' | 'LEG_NOT_IN_CHART' | 'MINT_BURN_LEG_B'
+  // E-85: names for the card's owner and cf rules.
+  | 'BAD_OWNER' | 'BAD_CF';
 
 const ELASTIC: readonly TemplateId[] = ['ELASTIC_IN', 'ELASTIC_OUT'];
 const MINT_BURN: readonly TemplateId[] = ['MINT', 'BURN'];
-/** T03-02 validateCodeEntry rules (E-82 (b)), applied to every seed row and every registered row. [] when valid. */
+const LEG_MARKERS: readonly string[] = ['@ASSET', '@'];
+const CASH_FLOWS: readonly CashFlow[] = ['OP', 'INV', 'FIN', 'NC'];
+const NPC_COUNTERPARTY: readonly TemplateId[] = ['PAY', 'SWAP_ASSET'];
+/**
+ * E-85 (c), structural (replaces E-82's "sectors non-empty exactly when an ELASTIC template is allowed"):
+ * 1. a row allowing ELASTIC_IN / ELASTIC_OUT has non-empty elasticSectors;
+ * 2. a row with non-empty elasticSectors and no ELASTIC template is TRANSFER with every template in {PAY, SWAP_ASSET}
+ *    (the sectors name the NPC-sector counterparty, E-39 / E-44 / E-46). Sectors stay optional on TRANSFER.
+ */
+function sectorsOk(r: CodeRow): boolean {
+  const sectors = (r.elasticSectors ?? []).length > 0;
+  if (r.allowedTemplates.some((t) => ELASTIC.includes(t))) return sectors;
+  return !sectors || (r.cls === 'TRANSFER' && r.allowedTemplates.every((t) => NPC_COUNTERPARTY.includes(t)));
+}
+/** T03-02 validateCodeEntry rules (E-82 (b), E-85 (c) sectors rule and the BAD_OWNER / BAD_CF names), applied to every seed row and every registered row. [] when valid. */
 function rowErrors(r: CodeRow): CatalogError[] {
   const e: CatalogError[] = [];
   if (!/^[A-Z][A-Z0-9_]*$/.test(r.code)) e.push('BAD_CODE');
   if (r.allowedTemplates.length === 0) e.push('NO_TEMPLATE');
   else if (r.allowedTemplates.some((t) => !CLASS_TEMPLATES[r.cls].includes(t))) e.push('TEMPLATE_CLASS_MISMATCH');
-  if (r.allowedTemplates.some((t) => ELASTIC.includes(t)) !== (r.elasticSectors ?? []).length > 0) e.push('ELASTIC_SECTORS_MISMATCH');
+  if (!Number.isInteger(r.owner) || r.owner < 2 || r.owner > 21) e.push('BAD_OWNER');
+  if (!(CASH_FLOWS as readonly string[]).includes(r.cf)) e.push('BAD_CF');
+  if (!sectorsOk(r)) e.push('ELASTIC_SECTORS_MISMATCH');
   if (r.cls === 'REVALUE' && r.cf !== 'NC') e.push('REVALUE_CF_NOT_NC');
-  if ([r.valueLegA, r.valueLegB].some((l) => typeof l === 'number' && !chartEntry(l))) e.push('LEG_NOT_IN_CHART');
+  // A leg is a chart account or a caller marker ('@ASSET' / '@'); anything else (e.g. the E-85 (d) cell '5200|5050') is not a Leg.
+  if ([r.valueLegA, r.valueLegB].some((l) => l !== undefined && (typeof l === 'number' ? !chartEntry(l) : !LEG_MARKERS.includes(l)))) e.push('LEG_NOT_IN_CHART');
   if (r.allowedTemplates.length > 0 && r.allowedTemplates.every((t) => MINT_BURN.includes(t)) && r.valueLegB !== undefined) e.push('MINT_BURN_LEG_B');
   return e;
 }

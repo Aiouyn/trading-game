@@ -291,8 +291,6 @@ export const LEGPOLICY_SEED: readonly LegPolicyRow[] = [
   { code: 'LAB_DATA_LICENSE_B2B', A: { policy: 'FIXED', def: 1720, allowed: { nums: [1720] } }, B: { policy: 'FIXED', def: 4140, allowed: { nums: [4140] } }, negSwap: false },
   { code: 'LAB_MODEL_LICENSE_FEE', A: { policy: 'FIXED', def: 5060, allowed: { nums: [5060] } }, B: { policy: 'FIXED', def: 4140, allowed: { nums: [4140] } }, negSwap: false },
   { code: 'LAB_COMPUTE_HIJACK', A: { policy: 'FIXED', def: 5140, allowed: { nums: [5140] } }, B: { policy: 'FIXED', def: 4190, allowed: { nums: [4190] } }, negSwap: false },
-  { code: 'OPS_LOOT_CASH', A: { policy: 'FIXED', def: 5140, allowed: { nums: [5140] } }, B: { policy: 'FIXED', def: 4190, allowed: { nums: [4190] } }, negSwap: false },
-  { code: 'OPS_RANSOM', A: { policy: 'FIXED', def: 5230, allowed: { nums: [5230] } }, B: { policy: 'FIXED', def: 4190, allowed: { nums: [4190] } }, negSwap: false },
   { code: 'OPS_DEFENSE_B2B', A: { policy: 'FIXED', def: 5230, allowed: { nums: [5230] } }, B: { policy: 'FIXED', def: 4040, allowed: { nums: [4040] } }, negSwap: false },
   { code: 'OPS_LOCKDOWN_RECONNECT', A: { policy: 'FIXED', def: 5230, allowed: { nums: [5230] } }, B: { policy: 'FIXED', def: 4190, allowed: { nums: [4190] } }, negSwap: false },
   { code: 'OPS_PI_FEE_B2B', A: { policy: 'FIXED', def: 5230, allowed: { nums: [5230] } }, B: { policy: 'FIXED', def: 4040, allowed: { nums: [4040] } }, negSwap: false },

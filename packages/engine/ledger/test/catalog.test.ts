@@ -6,9 +6,9 @@ const row = (code: string, cls: CodeRow['cls'], owner: number, t: CodeRow['allow
 
 describe('reason-code catalog (T03-02..05, INV-LED-002, Q-2)', () => {
   const cat = new ReasonCatalog();
-  it('live catalog: 397 seed codes (catalog v3, E-14) + 5 ledger extension codes (E-5) = 402; TRANSFER 221, REVALUE 30', () => {
-    expect(cat.countByClass()).toEqual({ FAUCET: 40, SINK: 86, TRANSFER: 221, CREDIT_CREATE: 12, CREDIT_DESTROY: 13, REVALUE: 30 });
-    expect(cat.all().length).toBe(402);
+  it('live catalog: 454 seed codes (E-85 world counts) + 5 ledger extension codes (E-5) = 459; TRANSFER 247, REVALUE 33', () => {
+    expect(cat.countByClass()).toEqual({ FAUCET: 41, SINK: 113, TRANSFER: 247, CREDIT_CREATE: 12, CREDIT_DESTROY: 13, REVALUE: 33 });
+    expect(cat.all().length).toBe(459);
   });
   it('03#1 / p10 books.ts port: every code has exactly one class and only templates of that class; no default class', () => {
     for (const r of cat.all()) {
