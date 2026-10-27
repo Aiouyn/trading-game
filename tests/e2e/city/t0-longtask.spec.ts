@@ -7,14 +7,24 @@ import { EVIDENCE, expect, openCity, saveJson, waitDrawn } from './helpers';
 // Before the bitmap ground, the ~52k queued per-cell ground fills were painted in one
 // synchronous flush at toDataURL (up to 6.9 s on a loaded box, 754 ms on CI).
 const LONG_TASK_MAX_MS = 1000;
+// On CI's GPU-less runner the restored per-cell fills stay under 1 s (702 ms desktop, mutant run
+// 40530691284), so the time bound alone cannot catch them there. The fill() count is the
+// machine-independent signal: ~3.6k part faces after the fix, ~56k with per-cell ground fills.
+const FILL_CALLS_MAX = 10_000;
 
-interface LongTaskWindow { __longTasks: { start: number; duration: number }[] }
+interface LongTaskWindow { __longTasks: { start: number; duration: number }[]; __fills: number }
 
 test.describe('T0 picture long tasks', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       const w = window as unknown as LongTaskWindow;
       w.__longTasks = [];
+      w.__fills = 0;
+      const fill = CanvasRenderingContext2D.prototype.fill;
+      CanvasRenderingContext2D.prototype.fill = function (this: CanvasRenderingContext2D, ...a: [] | [CanvasFillRule?] | [Path2D, CanvasFillRule?]) {
+        w.__fills++;
+        return (fill as (...x: unknown[]) => void).apply(this, a);
+      };
       new PerformanceObserver((list) => {
         for (const e of list.getEntries()) w.__longTasks.push({ start: Math.round(e.startTime), duration: Math.round(e.duration) });
       }).observe({ type: 'longtask', buffered: true });
@@ -32,9 +42,12 @@ test.describe('T0 picture long tasks', () => {
     expect(d.tier).toBe('T0');
     const tasks = await longTasks(page);
     const longest = Math.max(0, ...tasks.map((t) => t.duration));
-    saveJson(`t0-longtasks-${info.project.name}.json`, { longest, tasks });
-    console.log(`[t0-longtask] ${info.project.name}: longest ${longest} ms, ${tasks.length} long tasks`);
+    const fills = await page.evaluate(() => (window as unknown as LongTaskWindow).__fills);
+    saveJson(`t0-longtasks-${info.project.name}.json`, { longest, fills, tasks });
+    console.log(`[t0-longtask] ${info.project.name}: longest ${longest} ms, ${tasks.length} long tasks, ${fills} fill() calls`);
     expect(tasks.filter((t) => t.duration > LONG_TASK_MAX_MS), `long tasks > ${LONG_TASK_MAX_MS} ms`).toEqual([]);
+    expect(fills, 'canvas fill() calls in the T0 build (per-cell ground fills are back?)').toBeLessThan(FILL_CALLS_MAX);
+    expect(fills, 'the T0 picture drew its part faces').toBeGreaterThan(0);
   });
 
   test('evidence: T0 trace and picture', async ({ page, browser }, info) => {
