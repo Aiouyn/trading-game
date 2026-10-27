@@ -7,13 +7,13 @@ import { useShell, useShellStore } from "@/components/shell/ShellContext";
 import { viewportOf } from "@/shell/wm";
 import { Overview } from "./Overview";
 import { Positions } from "./Positions";
-import { pfStrings } from "./strings";
+import { STACK_SCALE, pfStrings } from "./strings";
 import "./portfolio.css";
 
 export type PfTab = "overview" | "positions";
 const TABS: readonly PfTab[] = ["overview", "positions"];
 /** #38: the segment stacks at text scale >= 1.5 (two short labels cannot overflow the 520 px minimum window at 1.0-1.4). */
-export const STACK_SCALE = 1.5;
+export { STACK_SCALE };
 
 export function PortfolioFrame() {
   const store = useShellStore();
@@ -37,7 +37,13 @@ export function PortfolioFrame() {
           <>
             <Overview phone />
             <nav className="pf-phone-nav" aria-label={t.views}>
-              <button type="button" className="pf-nav-item" data-testid="pf-open-positions" onClick={() => setTab("positions")}>{t.positions}</button>
+              {/* Studio Q1: a real nav row (44 px, whole row tappable, chevron right) that pushes Positions. */}
+              <button type="button" className="pf-nav-item" data-testid="pf-open-positions" onClick={() => setTab("positions")}>
+                <span className="pf-nav-label">{t.positions}</span>
+                <svg className="pf-nav-chevron" data-testid="pf-nav-chevron" aria-hidden="true" width="16" height="16" viewBox="0 0 16 16">
+                  <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
             </nav>
           </>
         )}

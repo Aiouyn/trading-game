@@ -1,9 +1,14 @@
 // Mock server for the clock / rank / me channels (stands in for the gateway). Query params script a character:
-// rank, lic, nw, flags, guest, prot, onb, onbDone, … (dev and e2e builds only; see hooks.ts).
+// rank, lic, nw, flags, guest, prot, onb, onbDone, … (dev and e2e builds only; build-gated by QUAY_HOOKS).
 import { parseEntitlements, type AcctEntitlements, type Channels, type ClockChannel, type MarketPhase, type ShellId } from "./channels";
-import { MOCK_HOOKS } from "./hooks";
 import { loadHookStartsFailed } from "./loader";
 import { RANKS, type Rank } from "./registry";
+import { START_NW } from "./contracts/fixtures/me";
+
+// Build-time gate (QUAY_HOOKS is always defined as "1"/"0" by next.config `env`, the single source of truth).
+// Keep it a MODULE-LOCAL const: an exported const read from another module is emitted as a runtime property read
+// on that module's exports once the module is shared by two chunks, and the gated branch then ships (see PR notes).
+const MOCK_HOOKS = process.env.QUAY_HOOKS === "1";
 
 export const TICK_MS = 5000;
 /** Rank thresholds as the server would publish them (17 header; R6 $20B per errata E-21): R1 $20k … R6 $20B. */
@@ -36,13 +41,13 @@ export function defaultChannels(): Channels {
     entitlements: mockEntitlements(new URLSearchParams()),
     system: { connection: "live", halted: false, held: false, load: "ok", offline: false },
     me: {
-      nw: "412860.15", todayPct: "+0.78", todayChg: "+3204.10", license: "LIC1", charters: [], flags: [],
+      nw: START_NW /* one NW source with the me feed */, todayPct: "+0.78", todayChg: "+3204.10", license: "LIC1", charters: [], flags: [],
       onboardingMin: 60, onboardingDone: true, myPlaces: [], guest: false, protectionEndsRealMs: null,
     },
   };
 }
 
-/** Mock channels scripted by the URL. Gated at build time (src/shell/hooks.ts): off, the overrides are compiled out. */
+/** Mock channels scripted by the URL. Gated at build time (QUAY_HOOKS, module-local): off, the overrides are compiled out. */
 export function mockChannels(q: URLSearchParams): Channels {
   const d = defaultChannels();
   if (!MOCK_HOOKS) return d;
@@ -89,7 +94,7 @@ export function clockLabel(c: ClockChannel): { day: number; hhmm: string } {
 const isRankShell = (v: string): v is ShellId => /^r[0-6]$/.test(v);
 /**
  * Earned rank shells: every rank shell up to the current rank by default. In dev / e2e builds only (build-gated,
- * src/shell/hooks.ts) a URL script can list them: `shells=r0,r1`.
+ * QUAY_HOOKS) a URL script can list them: `shells=r0,r1`.
  */
 export function mockShells(q: URLSearchParams, rank: Rank): ShellId[] {
   const byRank = RANKS.slice(0, RANKS.indexOf(rank) + 1).map((r) => r.toLowerCase() as ShellId);

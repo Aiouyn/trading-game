@@ -45,8 +45,9 @@ test("S1-07 phone: ComingLater full screen and deep link", async ({ page }) => {
   await boot(page);
   await page.getByTestId("icon-markets").click();
   await expect(page.getByTestId("coming-later")).toHaveText(/Markets\s*Coming later/);
-  await boot(page, "/wire");
-  await expect(page.getByTestId("coming-later")).toHaveText(/Wire\s*Coming later/);
+  // Deep link: was /wire until Wire was built (UI card 1, WIR-A); Messages is still ComingLater.
+  await boot(page, "/messages");
+  await expect(page.getByTestId("coming-later")).toHaveText(/Messages\s*Coming later/);
 });
 
 test("S1-14 long-press 400 ms on the Quay mark opens Recent with ≤ 6 entries", async ({ page }) => {
@@ -85,7 +86,7 @@ test("S1-19 axe: phone home, launcher, ComingLater", async ({ page }) => {
 test("Phone widget: sparkline, rank bar, today's change, cents at 65% muted, rank target from thresholds (M2, M3, B2)", async ({ page }) => {
   await boot(page, "/?rank=R1&nw=30000");
   await expect(page.getByTestId("rank-next")).toHaveText("Next: Owner · $30k / $250k");
-  await boot(page);
+  await boot(page, "/?nw=412860.15"); // pinned: the mock feed now moves NW with marks every tick (one NW source, #67)
   await expect(page.getByTestId("rank-next")).toHaveText("Next: Mogul · $412k / $5M");
   const sp = await page.getByTestId("sparkline").boundingBox();
   expect([sp?.width, sp?.height]).toEqual([92, 22]);

@@ -5,6 +5,9 @@ export type ReleaseUnit = "minute" | "hour" | "day";
 
 const NBSP = "\u00A0";
 
+/** #38 / Studio fix c: from text scale 1.5 the tab segment and every overview row stack. */
+export const STACK_SCALE = 1.5;
+
 const EN = {
   views: "Portfolio views",
   overview: "Overview",
@@ -20,6 +23,7 @@ const EN = {
   restricted: "Restricted cash",
   releasesIn: (n: string, unit: ReleaseUnit, one: boolean) => `releases in ${n} ${unit}${one ? "" : "s"}`,
   held: "held",
+  restrictedCode: (code: string) => `Restricted (${code})`,
   stats: "Net worth stats",
   drawdownReal: "Drawdown (real)",
   sharpe: "Sharpe (whole NW)",
@@ -49,6 +53,7 @@ const FR: Strings = {
   restricted: "Liquidités bloquées",
   releasesIn: (n: string, unit: ReleaseUnit, one: boolean) => `déblocage dans ${n}${NBSP}${FR_UNITS[unit][one ? 0 : 1]}`,
   held: "retenu",
+  restrictedCode: (code: string) => `Bloqué (${code})`,
   stats: "Statistiques du patrimoine net",
   drawdownReal: "Drawdown (réel)",
   sharpe: "Sharpe (patrimoine total)",

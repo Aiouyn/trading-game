@@ -1,9 +1,10 @@
-// UI card 2 (17B PF-A): the pure Overview view per channel state (PF-2-02..08). Bodies come from the mock feed,
-// with injected fields the mock never sends (nwStats, MDOL, restricted) marked as such.
+// UI card 2 (17B PF-A): the pure Overview view per channel state (PF-2-02..08). Bodies come from the mock feed (which
+// sends nwStats, MDOL and restricted buckets; `empty: true` is the new player without them), with overrides per case.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { OverviewView, releaseText, type OverviewViewProps } from "@/apps/portfolio/Overview";
+import { OverviewView, drawdownText, releaseText, type OverviewViewProps } from "@/apps/portfolio/Overview";
+import { formatPercent } from "@/components/ui/percent";
 import { pfStrings } from "@/apps/portfolio/strings";
 import type { MeTradingBody } from "@/shell/contracts/channels";
 import { MockFeed } from "@/shell/contracts/mockFeed";
@@ -49,13 +50,31 @@ describe("PF-2-03 cents split", () => {
 
 describe("PF-2-04 stats", () => {
   const stats = { window: "90d", drawdownReal: "-4.2", sharpe: "1.31", twrIdx: "1", bench: "1" };
-  it("absent without nwStats (mock default)", () => {
-    expect(ME.nwStats).toBeUndefined();
-    expect(html()).not.toContain("pf-stats");
+  it("the mock sends nwStats; absent for the new player (empty)", () => {
+    expect(ME.nwStats).toEqual({ window: "90d", drawdownReal: "-4.2", sharpe: "1.31", twrIdx: "1.0842", bench: "1.0315" });
+    expect(html()).toContain("pf-stats");
+    expect(ME_EMPTY.nwStats).toBeUndefined();
+    expect(html({ view: live(ME_EMPTY) })).not.toContain("pf-stats");
   });
-  it("renders drawdownReal and sharpe verbatim", () => {
+  it("drawdownReal (bare decimal, percent units) renders '−4.2%' with U+2212; sharpe verbatim", () => {
     const s = text(block(html({ view: live({ ...ME, nwStats: stats }) }), "pf-stats")!);
-    expect(s).toBe("Drawdown (real) -4.2 Sharpe (whole NW) 1.31");
+    expect(s).toBe("Drawdown (real) \u22124.2% Sharpe (whole NW) 1.31");
+  });
+  it("FR: decimal comma and a narrow no-break space (U+202F) before %", () => {
+    expect(drawdownText("-4.2", "fr")).toBe("\u22124,2\u202F%");
+    const s = block(html({ locale: "fr", view: live({ ...ME, nwStats: stats }) }), "pf-drawdown")!;
+    expect(s).toContain(">\u22124,2\u202F%</td>"); // raw markup: text() would fold U+202F into a space
+  });
+  it.each([
+    ["-4.2", "en-US", "\u22124.2%"], ["4.2", "en-US", "4.2%"], ["0", "en-US", "0%"], ["-0.0", "en-US", "0.0%"],
+    ["-12.75", "en-US", "\u221212.75%"], ["-1234.5", "en-US", "\u22121,234.5%"], ["-1234.5", "fr-FR", "\u22121\u202F234,5\u202F%"],
+    ["+3", "en-US", "3%"],
+  ])("formatPercent(%s, %s) = %s (digits as sent, punctuation from the locale)", (v, loc, want) => {
+    expect(formatPercent(v, loc)).toBe(want);
+  });
+  it("a value that is not a plain decimal shows as sent (never guessed)", () => {
+    expect(formatPercent("-4.2%", "en-US")).toBeNull();
+    expect(drawdownText("n/a", "en")).toBe("n/a");
   });
   it("sharpe null renders an em dash", () => {
     const s = block(html({ view: live({ ...ME, nwStats: { ...stats, sharpe: null } }) }), "pf-sharpe")!;
@@ -89,9 +108,26 @@ describe("PF-2-06 new player", () => {
 
 describe("PF-2-07 restricted", () => {
   const t = pfStrings("en");
-  it("absent when empty (mock default)", () => {
-    expect(ME.restricted).toEqual([]);
-    expect(html()).not.toContain("pf-restricted");
+  it("the mock sends AD (releases in 3 hours) and START (held); none for the new player", () => {
+    expect(ME.restricted).toEqual([{ reason: "AD", amount: "500.00", untilRealMs: 3 * 3600_000 }, { reason: "START", amount: "2500.00", untilRealMs: null }]);
+    expect(ME_EMPTY.restricted).toEqual([]);
+    expect(html({ view: live(ME_EMPTY) })).not.toContain("pf-restricted");
+  });
+  it("Studio fix a: AD / START pills are a --steel outline with --fg-muted text, never brass", () => {
+    const r = block(html(), "pf-restricted")!;
+    expect(r.match(/class="chip chip-steel chip-outline"/g)).toHaveLength(2);
+    expect(r).not.toContain("chip-acc");
+  });
+  it("Studio Q2: an unlabelled reason shows its raw code in the neutral chip, named 'Restricted (CODE)' (EN + FR)", () => {
+    const restricted = [{ reason: "LOCKUP", amount: "75.00", untilRealMs: null }];
+    const en = block(html({ view: live({ ...ME, restricted }) }), "pf-restricted-code")!;
+    expect(en).toMatch(/^<span title="Restricted \(LOCKUP\)" aria-label="Restricted \(LOCKUP\)" data-testid="pf-restricted-code" class="chip chip-steel chip-outline">LOCKUP<\/span>$/);
+    const fr = block(html({ locale: "fr", view: live({ ...ME, restricted }) }), "pf-restricted-code")!;
+    expect(fr).toContain('title="Bloqué (LOCKUP)" aria-label="Bloqué (LOCKUP)"');
+  });
+  it("Studio fix c: stacked view at text scale ≥ 1.5 (class hook; CSS stacks label over value, nowrap)", () => {
+    expect(html({ stacked: true })).toContain('class="pf-ov pf-stacked"');
+    expect(html({ phone: true, stacked: true })).toContain('class="pf-ov pf-phone pf-stacked"');
   });
   it("one row per bucket with the AD/START pill and a written unit or 'held'", () => {
     const restricted = [

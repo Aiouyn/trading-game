@@ -15,7 +15,7 @@ test("Protection chip only while active; no shield chip without a data source", 
 });
 
 test("S1-08 strip 34, shelf 52, release, phase, tick ring 22, NW, tiles, dividers", async ({ page }) => {
-  await boot(page);
+  await boot(page, "/?nw=412860.15"); // pinned: the mock feed now moves NW with marks every tick (one NW source, #67)
   expect((await box(page, "strip")).height).toBe(34);
   expect((await box(page, "shelf")).height).toBe(52);
   await expect(page.getByTestId("release")).toHaveText("Quay 2 · Owner");
@@ -37,7 +37,8 @@ test("S1-07 every unlocked built:false app opens a ComingLater window; deep link
   await boot(page, "/?rank=R6&lic=LIC2&nw=200000&flags=charter.anyAvailable,api.eligible,character.day3&guest=0");
   const ids = await page.locator("[data-testid^=tile-][data-state=unlocked]").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")!.slice(5)));
   expect(ids).toHaveLength(32);
-  for (const id of ids.filter((i) => i !== "settings" && i !== "city")) {
+  // Wire is built (UI card 1, WIR-A): it renders its feed, covered by tests/e2e/17b/WIR-A.spec.ts.
+  for (const id of ids.filter((i) => i !== "settings" && i !== "city" && i !== "wire")) {
     await page.getByTestId(`tile-${id}`).click();
     const win = page.getByTestId(`win-${id}`).first();
     if (id === "portfolio") { await expect(win.getByTestId("portfolio")).toBeVisible(); await win.getByTestId("win-close").click(); continue; } // built since card 2
@@ -46,8 +47,9 @@ test("S1-07 every unlocked built:false app opens a ComingLater window; deep link
     await expect(win.getByRole("button", { name: /buy|sell/i })).toHaveCount(0);
     await win.getByTestId("win-close").click();
   }
-  await boot(page, "/wire");
-  await expect(page.getByTestId("win-wire").getByTestId("coming-later")).toHaveText(/Wire\s*Coming later/);
+  // Deep link: was /wire until Wire was built (UI card 1); Research is still ComingLater and not in the default layout.
+  await boot(page, "/research?rank=R6&lic=LIC2&nw=200000&flags=charter.anyAvailable,api.eligible,character.day3&guest=0");
+  await expect(page.getByTestId("win-research").getByTestId("coming-later")).toHaveText(/Research Desk\s*Coming later/);
 });
 
 test("S1-09 workspace slots by rank; apps open on workspace 1", async ({ page }) => {
@@ -362,6 +364,8 @@ test("S1-03 computed tokens per palette; DOM identical across palettes", async (
   await page.evaluate(() => delete document.documentElement.dataset.palette);
   expect(await read()).toEqual(SPEC_TABLE.map((r) => r[1]));
   const snap = () => page.locator("[data-testid=quay-ready]").evaluate((el) => el.outerHTML);
+  // The default layout opens Wire (built since UI card 1); its feed loads asynchronously, so let it settle first.
+  await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
   const base = await snap();
   for (const [i, p] of ["ink-brass", "broadsheet", "phosphor", "riviera"].entries()) {
     await page.evaluate((v) => (document.documentElement.dataset.palette = v), p);

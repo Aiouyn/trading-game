@@ -1,8 +1,10 @@
 "use client";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ReactElement } from "react";
 import { CityWindow } from "@/apps/city/CityWindow";
 import { SettingsApp } from "@/apps/settings/SettingsApp";
+import { WireLoading } from "@/apps/wire/Skeleton";
 import type { AppId } from "@/shell/registry";
+import { AppSkeleton } from "./AppSkeleton";
 import { ComingLater } from "./ComingLater";
 import { LockTile } from "./LockTile";
 import { useShell } from "./ShellContext";
@@ -17,6 +19,8 @@ const BUILT_APPS = {
   wire: lazy(() => import("@/apps/wire/App")),
 } as const;
 const isBuiltApp = (a: AppId): a is keyof typeof BUILT_APPS => a in BUILT_APPS;
+/** App-specific chunk-loading skeletons, when an app's first paint has its own shape. Everything else: AppSkeleton. */
+const APP_SKELETONS: Partial<Record<keyof typeof BUILT_APPS, ReactElement>> = { wire: <WireLoading /> };
 
 export function AppBody({ app, state }: { app: AppId; state: BodyState }) {
   const vis = useShell((s) => s.vis[app]);
@@ -25,8 +29,10 @@ export function AppBody({ app, state }: { app: AppId; state: BodyState }) {
   if (app === "city") return <CityWindow state={state} />;
   if (isBuiltApp(app)) {
     const Body = BUILT_APPS[app];
-    // Fallback = the placeholder the chunk renders today, so loading the chunk never changes the DOM (S1-03).
-    return <Suspense fallback={<ComingLater app={app} />}><Body /></Suspense>;
+    // Studio Q3: while a built app's chunk loads, the window shows a skeleton, never "Coming later" (that is only for
+    // built:false apps below). The generic AppSkeleton is the default; Wire keeps its own, which is its first paint.
+    const fallback = app in APP_SKELETONS ? APP_SKELETONS[app as keyof typeof APP_SKELETONS] : <AppSkeleton app={app} />;
+    return <Suspense fallback={fallback}><Body /></Suspense>;
   }
   // Every other app is built:false in Spec 1.
   return <ComingLater app={app} />;

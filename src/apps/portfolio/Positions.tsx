@@ -8,11 +8,12 @@ import type { MeTradingBody, TickerBody, TickerRow } from "@/shell/contracts/cha
 import { getFeed, useChannel, type ChannelView } from "@/shell/contracts/useChannel";
 import { PositionRow, type PositionData } from "./PositionRow";
 import { posStrings } from "./positions/strings";
+import { STACK_SCALE } from "./strings";
 import "./positions.css";
 
 export const POS_TICKER = "ticker:wl_default" as const;
 /** Rows stack into cards from this text scale (#67 ruling, same threshold as the tab segment). */
-export const POS_STACK_SCALE = 1.5;
+export const POS_STACK_SCALE = STACK_SCALE;
 const SKELETON_ROWS = 3;
 
 export interface PositionsViewProps {
