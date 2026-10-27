@@ -1,5 +1,6 @@
 // T22A-01: ContentView, a typed, pure, hashed read API over packages/content/data/*.json (22 §0.1).
-import { toMoney, type Money, type ParamsView } from '@tycoon/engine-core';
+import { toMoney, type Money } from '@tycoon/engine-core';
+import type { ParamsView } from '@tycoon/params';
 import cities from '../data/cities.json' with { type: 'json' };
 import dynasties from '../data/dynasties.json' with { type: 'json' };
 import finInstitutions from '../data/fin_institutions.json' with { type: 'json' };

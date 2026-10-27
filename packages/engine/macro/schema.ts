@@ -1,7 +1,7 @@
 // T04-01: 04 macro schema. Enums and entity interfaces of 04 §2.1–§2.13, transcribed field for field (bloc ids are currency
 // codes, 24 R39), plus the storage additions the card decides, and the macro tables (module '04', COORD-homed, no home function).
 import type { Ccy, Id, Money, Price, Qty, SortedMap, Tick } from '@tycoon/engine-core';
-import type { TableDef } from './core-port';
+import type { TableDef } from '@tycoon/engine-core';
 
 // ───────── §2.1 identifiers and enums ─────────
 // Bloc ids are currency codes (24 R39): 04's two-letter ids are aliases only.
@@ -105,7 +105,10 @@ export interface BlocMacroState {
 }
 
 // ───────── §2.4 public macro view ─────────
-export interface LatestPrint { kind: ReleaseKind; tick: Tick; actual: number; consensus: number; prior: number; revisedPrior?: number; surprise: number }
+/** E-81: `actual` is the headline value (CPI: headline yoy). `extra` carries the same release's other fields, `{}` for kinds without
+ *  extras; CPI: `coreYoy`, `headlineMom`, `coreMom`; JOBS: `payrollIndex`. */
+export interface LatestPrint { kind: ReleaseKind; tick: Tick; actual: number; consensus: number; prior: number; revisedPrior?: number; surprise: number;
+  extra: Readonly<Record<string, number>> }
 export interface CurvePoint { tenorYears: number; yield: number }
 export interface PublicMacroView {
   bloc: BlocId; asOfTick: Tick;
@@ -336,6 +339,7 @@ export interface DataRelease {
   actual: number; consensus: number; consensusDispersion: number;
   prior: number; revisedPrior?: number;
   surprise: number;
+  extra: Readonly<Record<string, number>>;   // E-81, as LatestPrint.extra
 }
 
 // ───────── §2.13 Concord Stability Facility ─────────

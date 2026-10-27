@@ -47,6 +47,11 @@ describe("Studio T3 answers", () => {
       expect(html).toMatch(new RegExp(`role="img" aria-label="${label}"`));
     }
   });
+  it("initial render does not fade the label in (only a phase change cross-fades)", () => {
+    const html = renderToStaticMarkup(createElement(MarketPhase, { phase: "pre", city: "Port Avalon" }));
+    expect(html).toContain('<span class="mp-text" data-testid="phase-label">Pre-market · Port Avalon</span>');
+    expect(html).not.toContain("mp-in");
+  });
   it("initial render announces nothing (only changes are announced)", () => {
     const html = renderToStaticMarkup(createElement(MarketPhase, { phase: "pre", city: "Port Avalon" }));
     expect(html).toContain('aria-live="polite" data-testid="phase-live"></span>');
