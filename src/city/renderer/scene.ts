@@ -78,6 +78,8 @@ export class CityScene {
         uTime: { value: 0 },
         uKey: { value: v3(ramps.keyLight) },
         uFill: { value: v3(ramps.fillLight) },
+        uKeyK: { value: 0.16 },
+        uFillK: { value: 0.1 },
         uSunDir: { value: new T.Vector3(-1, 0.35, 0.3) },
         uTop: { value: v3(ramps.top) },
         uShadow: { value: v3(ramps.shadow) },
@@ -248,8 +250,12 @@ export class CityScene {
     this.scene.add(this.selection);
   }
 
-  setLight(l: { sunDir: [number, number, number]; exposure: number; windowsLit: number }): void {
+  setLight(l: { sunDir: [number, number, number]; exposure: number; windowsLit: number; key: Rgb; keyK: number; sky: Rgb; skyK: number }): void {
     const u = this.partMat.uniforms;
+    (u.uKey.value as THREE_NS.Vector3).set(...l.key);
+    (u.uFill.value as THREE_NS.Vector3).set(...l.sky);
+    u.uKeyK.value = l.keyK;
+    u.uFillK.value = l.skyK;
     (u.uSunDir.value as THREE_NS.Vector3).set(...l.sunDir);
     u.uExposure.value = l.exposure;
     u.uWindowsLit.value = l.windowsLit;

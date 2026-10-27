@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { lightAt, litRatio } from '@/city/renderer/light';
+import { dayKeys, lightAt, litRatio } from '@/city/renderer/light';
+import { inkBrass } from './tokens-fixture';
+
+const K = dayKeys(inkBrass);
 import { V3_TOKEN_NAMES, TOKEN_VARS } from '@/city/art/tokens';
 import { existsSync } from 'node:fs';
 import { deltaE, mixOklab, oklabToSrgb, srgbToOklab, type Rgb } from '@/city/art/color';
@@ -48,9 +51,9 @@ describe('C-12 art', () => {
     expect(mixOklab(c, c, 0.5).map((x) => +x.toFixed(4))).toEqual(c.map((x) => +x.toFixed(4)));
   });
   it('dusk grade: at 19:00 a normal city has 30–50 % of windows lit; none at noon', () => {
-    expect(lightAt(19 * 60, 0.88).windowsLit).toBeGreaterThanOrEqual(0.3);
-    expect(lightAt(19 * 60, 0.88).windowsLit).toBeLessThanOrEqual(0.5);
-    expect(lightAt(12 * 60, 0.88).windowsLit).toBe(0);
+    expect(lightAt(19 * 60, 0.88, K).windowsLit).toBeGreaterThanOrEqual(0.3);
+    expect(lightAt(19 * 60, 0.88, K).windowsLit).toBeLessThanOrEqual(0.5);
+    expect(lightAt(12 * 60, 0.88, K).windowsLit).toBe(0);
   });
   it('market lights: litRatio = 0.50 + 0.30·clamp(dayReturn/0.05, −1, 1)', () => {
     expect(litRatio(0)).toBe(0.5);

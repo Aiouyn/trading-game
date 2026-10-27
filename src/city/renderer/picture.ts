@@ -96,6 +96,8 @@ export function drawPicture(opts: {
   colors: Float32Array;
   flat: Uint8Array;
   ramps: Ramps;
+  /** card 2 §2.3: the hour's key and sky light; absent = dusk (card 1: --acc-lo .16, --info .10) */
+  light?: { key: Rgb; keyK: number; sky: Rgb; skyK: number };
   /** Each label: its text and candidate ground points (metres), most preferred first. */
   labels: { text: string; ground: [number, number][] }[];
   labelFont: string;
@@ -103,6 +105,7 @@ export function drawPicture(opts: {
   profile?: boolean;
 }): PictureResult {
   const { ramps } = opts;
+  const L = opts.light ?? { key: ramps.keyLight, keyK: 0.16, sky: ramps.fillLight, skyK: 0.1 };
   const ms: Record<string, number> = {};
   let t = performance.now();
   const lap = (k: string) => { if (opts.profile) g?.getImageData(0, 0, 1, 1); const now = performance.now(); ms[k] = Math.round((now - t) * 10) / 10; t = now; };
@@ -207,8 +210,8 @@ export function drawPicture(opts: {
     // camera sits at +x/+z; the dusk key comes from the west-south-west, so +z (south) faces are
     // lit and +x (east) faces are in shadow, as in T1/T2
     const top = f === FLAT_BRASS ? ramps.brassHi : f === FLAT_EXACT ? c : mixOklab(c, ramps.top, 0.55);
-    const lit = f === FLAT_BRASS ? ramps.brass : f === FLAT_EXACT ? c : mixOklab(mixOklab(c, ramps.keyLight, 0.16), ramps.fillLight, 0.1);
-    const shade = f === FLAT_BRASS ? ramps.brassLo : f === FLAT_EXACT ? c : mixOklab(mixOklab(c, ramps.shadow, 0.42), ramps.fillLight, 0.1);
+    const lit = f === FLAT_BRASS ? ramps.brass : f === FLAT_EXACT ? c : mixOklab(mixOklab(c, L.key, L.keyK), L.sky, L.skyK);
+    const shade = f === FLAT_BRASS ? ramps.brassLo : f === FLAT_EXACT ? c : mixOklab(mixOklab(c, ramps.shadow, 0.42), L.sky, L.skyK);
     const x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2, y1 = y0 + h;
     quad([toScreen(x1, y0, z0), toScreen(x1, y0, z1), toScreen(x1, y1, z1), toScreen(x1, y1, z0)], css(shade));
     quad([toScreen(x0, y0, z1), toScreen(x1, y0, z1), toScreen(x1, y1, z1), toScreen(x0, y1, z1)], css(lit));

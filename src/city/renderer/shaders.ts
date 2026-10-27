@@ -34,6 +34,8 @@ void main() {
 export const PART_FRAG = /* glsl */ `
 uniform vec3 uKey;
 uniform vec3 uFill;
+uniform float uKeyK;
+uniform float uFillK;
 uniform vec3 uSunDir;
 uniform vec3 uTop;
 uniform vec3 uShadow;
@@ -67,9 +69,9 @@ void main() {
   if (vFlat > 0.5) { gl_FragColor = vec4(vColor, 1.0); return; }
   vec3 c;
   if (top) c = mix(vColor, uTop, 0.55);
-  else if (lit) c = mix(vColor, uKey, 0.16) * 1.12;
+  else if (lit) c = mix(vColor, uKey, uKeyK) * 1.12;
   else c = mix(vColor, uShadow, 0.42);
-  c = mix(c, uFill, 0.10) * uExposure;
+  c = mix(c, uFill, uFillK) * uExposure;
   bool near = distance(vWorld.xz, uFocus) < uNearRing;
   if (!top && near) {
     vec2 cell = vec2(3.0, 3.2);

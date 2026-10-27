@@ -32,7 +32,7 @@ import { CityScene, type GroundData, type SceneConfig } from './scene';
 import { buildModel, entityAnchor, groundBounds, polygonCentroid, type CityModel } from './model';
 import { FLAT_BRASS, partColors } from './overlay';
 import { pickParts } from './pick';
-import { lightAt, occupancy, DEFAULT_GAME_MINUTE } from './light';
+import { dayKeys, lightAt, lightMinute, occupancy, DEFAULT_GAME_MINUTE, type DayKeys } from './light';
 import { inPolygon, placeLabels as layoutLabels, type LabelBox, type Obstacle } from './labels';
 import { drawPicture, type PictureResult } from './picture';
 import { GROUND_FRAG, GROUND_VERT, PART_FRAG, PART_VERT } from './shaders';
@@ -136,6 +136,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   let reducedMotion = opts.reducedMotion;
   let overlay: CityOverlay = 'none';
   let gameMinute = DEFAULT_GAME_MINUTE;
+  let days: DayKeys | null = null;
   let tier: CityTier = 'T2';
   let reason: TierReason = 'initial';
   let disposed = false;
@@ -524,9 +525,9 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   }
 
   function applyLight(): void {
-    if (!scene || !ramps) return;
+    if (!scene || !ramps || !days) return;
     // default lighting = time of day × occupancy only (SR headline 1)
-    scene.setLight(lightAt(gameMinute, occupancy(store.snapshot?.districts ?? [])));
+    scene.setLight(currentLight());
   }
 
   // ---------- tiers ----------
@@ -642,6 +643,10 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
   }
 
   let t0Info: PictureResult | null = null;
+  function currentLight() {
+    return lightAt(lightMinute(gameMinute, reducedMotion), occupancy(store.snapshot?.districts ?? []), days!);
+  }
+
   function drawT0(): void {
     if (!chrome || !ramps || tier !== 'T0') return;
     const s = store.snapshot;
@@ -669,6 +674,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       colors: colors.colors,
       flat: colors.flat,
       ramps,
+      light: days ? lightAt(Math.floor(gameMinute / 60) * 60, 0, days) : undefined,
       labels: labelSpecs().map((l) => ({ text: l.text, ground: l.ground })),
       labelFont: font,
       profile: DEV_OR_E2E && new URLSearchParams(location.search).has('t0prof'),
@@ -1106,7 +1112,9 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
         onZoom: zoomBy,
         onTable: openTable,
       });
-      ramps = buildRamps(readTokens(chrome.root), { highContrast: document.documentElement.dataset.hc === '1' });
+      const tokens = readTokens(chrome.root);
+      ramps = buildRamps(tokens, { highContrast: document.documentElement.dataset.hc === '1' });
+      days = dayKeys(tokens);
       table = createTableView({
         host: chrome.tableHost,
         anchor: (id) => anchorScreen(id) ?? { x: 0, y: 0 },
@@ -1180,6 +1188,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     },
     setReducedMotion(on) {
       reducedMotion = on;
+      applyLight();
       if (on && tween) {
         cam = tween.to;
         tween = null;
@@ -1197,8 +1206,10 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       recolor(false);
     },
     setTimeOfDay(m) {
+      const hourChanged = Math.floor(m / 60) !== Math.floor(gameMinute / 60);
       gameMinute = m;
       applyLight();
+      if (tier === 'T0' && hourChanged) drawT0(); // T0 redraws on a game-hour change only (§2.3)
       loop.invalidate();
     },
     focus(target) {
