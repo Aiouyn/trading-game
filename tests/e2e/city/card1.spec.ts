@@ -1,5 +1,5 @@
 import { test, type Page } from '@playwright/test';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { generateCity } from './fixtures/generate-city';
@@ -13,6 +13,8 @@ import { diag, EVIDENCE, expect, isPhone, openCity, card1Limit, MAIN_BASE, waitD
  */
 // 'pose' runs on the card-1 tree first and only picks P4 (the before tree has no projectGround / coverage hooks)
 const PHASE = (['before', 'pose'] as const).find((p) => p === process.env.CITY_CARD1_PHASE) ?? 'after';
+/** The after phase compares against a before run on main; without one (CI) the spec has nothing to compare and skips. */
+const needsBefore = (vp: string) => PHASE === 'after' && !existsSync(join(DIR, `card1-${vp}-before.json`));
 const DIR = process.env.CITY_CARD1_DIR ?? join(EVIDENCE, 'card1');
 mkdirSync(DIR, { recursive: true });
 const CLOCK = new Date('2026-10-20T19:00:00Z'); // pinned; the city default is 19:00 game time
@@ -220,6 +222,7 @@ test.describe.configure({ mode: 'serial' });
 
 test('card 1: desktop 1440x900 T2 (+T0) — same-seed captures and ACs 1-6, 8, 10', async ({ page }) => {
   test.skip(isPhone(page), 'desktop only');
+  test.skip(needsBefore('1440x900'), 'no before run in CITY_CARD1_DIR (local A/B against main only)');
   test.setTimeout(170_000);
   const vp = '1440x900';
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -400,6 +403,7 @@ test('card 1: desktop 1440x900 T2 (+T0) — same-seed captures and ACs 1-6, 8, 1
 
 test('card 1: phone 390x844 T1 (+T0) — same-seed captures and ACs 1, 3, 7, 8', async ({ page }) => {
   test.skip(!isPhone(page), 'phone only');
+  test.skip(needsBefore('390x844'), 'no before run in CITY_CARD1_DIR (local A/B against main only)');
   test.setTimeout(170_000);
   const vp = '390x844';
   await open(page, 'tier=T1&reduced=1');
