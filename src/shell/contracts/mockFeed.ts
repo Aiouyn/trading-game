@@ -143,7 +143,7 @@ export class MockFeed {
   private tierNews(n: WireItem): WireItem {
     // Q6: pricedInBand only for Terminal; [P] fixed band per item in the mock.
     if (this.scenario.tier !== "terminal" || n.kind === "FILING") return n;
-    return { ...n, pricedInBand: n.breaking ? "early" : "mid", pricedInAsOf: n.tick - (n.tick % 720) - 1 };
+    return { ...n, pricedInBand: n.breaking ? "early" : "mid", pricedInAsOf: this.tick }; // as of the mock clock now, so "as of" reads like the top bar
   }
 
   private settle(): void {
