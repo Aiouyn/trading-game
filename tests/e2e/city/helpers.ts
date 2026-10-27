@@ -20,6 +20,7 @@ export interface HarnessWindow {
     publish: (d: CityDelta) => void;
     setStamp: (v: number) => void;
     setClock: (t: number | null) => void;
+    setTimeOfDay: (minute: number) => void;
     manifestUrl: () => string;
     info: { cityId: string; mine: string[]; versions: number[] };
     perf: { tickRenderMsP50: number; tickRenderMsP95: number; fps: number; heapMb: number; renderTier: string }[];
