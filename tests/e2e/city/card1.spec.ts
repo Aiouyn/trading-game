@@ -147,7 +147,7 @@ type Field = {
   s: (x: number, z: number) => number; r: (x: number, z: number) => number; district: (x: number, z: number) => number; jDist: (x: number, z: number) => number;
   /** junction boxes (connected J cells): centre and size in cells */
   junctions: { x: number; z: number; cells: number; w: number; h: number }[];
-  /** park cell (mask 2) within one cell: park and verge are tinted from --gain, which cb remaps (as on main) */
+  /** park cell (mask 2) within two cells (park and verge), reported separately for AC10 */
   nearPark: (x: number, z: number) => boolean;
 };
 let fieldP: Promise<Field> | null = null;
@@ -385,8 +385,8 @@ test('card 1: desktop 1440x900 T2 (+T0) — same-seed captures and ACs 1-6, 8, 1
       // boats sail between page loads and are not in the parts coverage: water is left out
       const gp = maps.P2.toGround(x + 0.5, y + 0.5);
       if (F.s(...gp) < 0) continue;
-      // park and verge take --gain, which cb remaps; the park ramp is main's, card 1 adds no hue-coded ground
-      if (F.nearPark(...gp)) { cbPark = Math.max(cbPark, dist(at(cbImg, x, y), at(shots.P2, x, y))); continue; }
+      // card 2 §2.5: the olive park takes no --gain, so park and verge are no longer left out
+      if (F.nearPark(...gp)) cbPark = Math.max(cbPark, dist(at(cbImg, x, y), at(shots.P2, x, y)));
       if (dist(at(cbImg, x, y), at(shots.P2, x, y)) > 3) cbChanged++;
     }
     ac.AC10 = { kerbVsRoadNormal: +normal.toFixed(1), kerbVsRoadHc: +hc.toFixed(1), cbGroundPxChanged: cbChanged, cbParkMaxDist: +cbPark.toFixed(2) };

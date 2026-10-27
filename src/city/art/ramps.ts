@@ -1,4 +1,4 @@
-import { adjust, mixOklab, srgbToOklab, withHue, type Rgb } from './color';
+import { adjust, mixOklab, oklabToSrgb, srgbToOklab, withHue, type Rgb } from './color';
 import type { Tokens } from './tokens';
 
 /** Scene colours that are not UI tokens, derived from tokens in OKLab (spec §1, §7, review M1–M3). */
@@ -41,7 +41,10 @@ export function buildRamps(t: Tokens, opts: { highContrast?: boolean } = {}): Ra
   // water: --bg0 mixed 15 % with --info, then held at --bg0's lightness so it stays the darkest
   const tinted = mixOklab(t.bg0, t.info, 0.15);
   const water = adjust(tinted, lightness(t.bg0) / lightness(tinted), 1);
-  const park = mixOklab(land, t.gain, 0.07);
+  // card 2 §2.5: olive park, OKLCH(L(land) + .040, .028, 112°). No --gain input, so data-cb
+  // leaves it alone; it reads by value (+.04 L over land), the verge halfway.
+  const PARK_H = (112 * Math.PI) / 180;
+  const park = oklabToSrgb([lightness(land) + 0.04, 0.028 * Math.cos(PARK_H), 0.028 * Math.sin(PARK_H)]);
   const hcEdge = opts.highContrast ? mixOklab(t.line, t.fg, 0.45) : null;
   return {
     water,
