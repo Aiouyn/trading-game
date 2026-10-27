@@ -1,6 +1,6 @@
 // T04-01: deterministic ids of 04 §2.1 (institutions authored per bloc, 00 §3.2; generated ids via 02's ctx.newId).
 import type { Id } from '@tycoon/engine-core';
-import type { PhaseCtx } from './core-port';
+import type { PhaseCtx } from '@tycoon/engine-core';
 import type { BlocId, ReleaseKind } from './schema';
 // cbkId and govId live once, in the ledger (E-81 (i), AC-04-01-IDS-FROM-LEDGER); macro callers import them from there, not from here.
 import { cbkId, govId } from '@tycoon/engine-ledger';

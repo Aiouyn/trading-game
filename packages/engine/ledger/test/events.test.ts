@@ -1,5 +1,5 @@
 // T03-01 step 6: every 03 §5 event kind has a zod schema and a visibility.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import { emitLedger, LEDGER_EVENT_VISIBILITY, LEDGER_EVENTS, type LedgerEventKind, type Levers, type MoneySupplyReport } from '../src';
 
 const ranks = { SECURED: '1', ADMIN: '0', TAX: '0', WAGES: '0', DEPOSITS_INSURED: '0', SENIOR_UNSECURED: '0', SUBORDINATED: '0', PREFERRED_EQUITY: '0', COMMON_EQUITY: '0' };
@@ -30,7 +30,7 @@ const SAMPLES: Record<LedgerEventKind, [Record<string, unknown>, string, unknown
   'ledger.related_party.flag': [{ entryId: 'e1', deviationPct: 0.3 }, 'deviationPct', '0.3'],
   'stab.daily.report': [{
     dayIndex: 4, byCcy: { FDL: { M0: '1', M0_sys: '0', M2: '2' } }, pem: '1', pew: '2', na: 3, e: 0.1, u: 0.05, levers, leverChange: levers,
-    familiesDay: { START_CASH: '5' }, familiesYear: { START_CASH: 5 }, rho: 1, msi: 1, mode: 'OBSERVE',
+    familiesDay: { START_CASH: '5' }, familiesYear: { START_CASH: '1820' }, rho: 1, msi: 1, mode: 'OBSERVE',
   }, 'pem', 1],
   'stab.lever.changed': [{ lever: 'L2', from: 1, to: 1.1 }, 'from', '1'],
   'stab.alert': [{ alert: 'RHO_BAND', value: 1.4 }, 'value', '1.4'],
@@ -102,6 +102,9 @@ describe('T03-01 LEDGER_EVENTS', () => {
     ]);
     expect(calls[0]).toHaveLength(4);
     expect(calls[4]![4]).toEqual(['chr_A', 'bnk_1']);
+    // partyIds never change the visibility: a kind whose fixed visibility is not PARTIES keeps it when partyIds are given
+    emitLedger(ctx, 'ledger.statement.ready', ['x'], SAMPLES['ledger.statement.ready'][0] as never, ['chr_A']);
+    expect([calls[5]![3], calls[5]![4]]).toEqual(['PRIVATE', ['chr_A']]);
   });
   it('E-81 (ii): MoneySupplyReport is z.infer of stab.daily.report, with Levers from T03-01', () => {
     const [sample] = SAMPLES['stab.daily.report'];
@@ -111,5 +114,14 @@ describe('T03-01 LEDGER_EVENTS', () => {
     expect(Object.keys(LEDGER_EVENTS['stab.daily.report'].shape).sort()).toEqual(
       ['dayIndex', 'byCcy', 'pem', 'pew', 'na', 'e', 'u', 'levers', 'leverChange', 'familiesDay', 'familiesYear', 'rho', 'msi', 'mode'].sort());
     expect(LEDGER_EVENTS['stab.daily.report'].safeParse({ ...sample, mode: 'PASSIVE' }).success).toBe(false);
+  });
+  it('E-83 (2): familiesDay and familiesYear are both money strings (never a JS number)', () => {
+    const [sample] = SAMPLES['stab.daily.report'];
+    const r: MoneySupplyReport = LEDGER_EVENTS['stab.daily.report'].parse(sample);
+    expectTypeOf(r.familiesYear).toEqualTypeOf<Record<string, string>>(); expectTypeOf(r.familiesDay).toEqualTypeOf<Record<string, string>>();
+    for (const field of ['familiesDay', 'familiesYear'] as const) {
+      expect(LEDGER_EVENTS['stab.daily.report'].safeParse({ ...sample, [field]: { START_CASH: 1820 } }).success, field).toBe(false);
+      expect(LEDGER_EVENTS['stab.daily.report'].safeParse({ ...sample, [field]: { START_CASH: '18.5' } }).success, field).toBe(false);
+    }
   });
 });

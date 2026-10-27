@@ -41,7 +41,7 @@ export interface InternalHooks {
   /** Frame-time source for the 2 s tier measurement (17-AT-24 test). */
   frameClock?: () => number;
   scheduler?: Scheduler;
-  /** Expose window.__city (dev/e2e builds, spec §9). */
+  /** Set false to keep window.__city off in a dev/e2e build. Prod builds never expose it (spec §9). */
   expose?: boolean;
   perfIntervalMs?: number;
 }
@@ -1108,7 +1108,8 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
         // stamp (Spec 1's stub channel reports null until the gateway lands)
         void syncManifest();
       }
-      if (hooks.expose ?? DEV_OR_E2E) exposeTestApi();
+      // DEV_OR_E2E first: a literal false in prod builds makes exposeTestApi dead code (no hook strings ship)
+      if (DEV_OR_E2E && hooks.expose !== false) exposeTestApi();
     },
     unmount() {
       if (!mounted) return;

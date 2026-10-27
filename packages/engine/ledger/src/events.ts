@@ -1,6 +1,6 @@
 // T03-01 step 6: zod 4 payload schemas for every 03 §5 engine event (E-79: the one new file of the mapping).
 import { z } from 'zod';
-import type { Id, Visibility } from '@tycoon/engine-core';
+import type { Id, PhaseCtx, Visibility } from '@tycoon/engine-core';
 import type { ClaimRank, TaxType } from './types';
 
 /** Money as a decimal integer string (micro units). */
@@ -40,11 +40,12 @@ export const LEDGER_EVENTS = {
   'ledger.insolvency.personal.closed': insolvency,
   'ledger.freshStart': z.object({ chrId: id, amount: money }),
   'ledger.related_party.flag': z.object({ entryId: id, deviationPct: z.number() }),
-  /** 03 §3.7.7 Money Supply Report with T03-24's field names plus msi and mode (E-81 (ii)); T03-24 `MoneySupplyReport` is z.infer of it. */
+  /** 03 §3.7.7 Money Supply Report with T03-24's field names plus msi and mode (E-81 (ii)); T03-24 `MoneySupplyReport` is z.infer of it.
+   *  familiesDay and familiesYear are both money strings (E-83 (2)). */
   'stab.daily.report': z.object({
     dayIndex: z.number().int(), byCcy: z.record(z.string(), z.object({ M0: money, M0_sys: money, M2: money })), pem: money, pew: money,
     na: z.number(), e: z.number(), u: z.number(), levers, leverChange: levers,
-    familiesDay: z.record(z.string(), money), familiesYear: z.record(z.string(), z.number()), rho: z.number(), msi: z.number(),
+    familiesDay: z.record(z.string(), money), familiesYear: z.record(z.string(), money), rho: z.number(), msi: z.number(),
     mode: z.enum(['OBSERVE', 'ACTIVE']),
   }),
   'stab.lever.changed': z.object({ lever: z.enum(['L1', 'L2', 'L3', 'L4']), from: z.number(), to: z.number() }),
@@ -87,8 +88,8 @@ export const LEDGER_EVENT_VISIBILITY: Readonly<Record<LedgerEventKind, Visibilit
   'ledger.invariant.failed': 'SEALED',
 });
 
-/** The emit half of T02-11's PhaseCtx (`ctx.emit(kind, subjectIds, payload, visibility, partyIds?)`). */
-interface EmitCtx { emit(kind: string, subjectIds: Id[], payload: unknown, visibility: Visibility, partyIds?: Id[]): void }
+/** The emit half of T02-11's PhaseCtx (`ctx.emit(kind, subjectIds, payload, visibility, partyIds?)`), now that #46 is on main. */
+type EmitCtx = Pick<PhaseCtx, 'emit'>;
 
 /**
  * The ledger's only emit path (E-81 (iii)): the visibility is always LEDGER_EVENT_VISIBILITY[kind]; there is no visibility parameter.

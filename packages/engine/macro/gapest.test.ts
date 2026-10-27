@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { PhaseCtx, Rng } from './core-port';
+import type { PhaseCtx, Rng } from '@tycoon/engine-core';
 import { BLOC_DEFAULTS, blocDef } from './blocs';
 import { assertNoHiddenFields, HIDDEN_FIELD_NAMES, MACRO_EVENTS } from './events';
 import { GAPEST_INNOVATION, GAPEST_RHO, GAPEST_SIGMA, genesisOutputGapEstimate, publicRuleTerms, roundToQuarterPp, RULE_TERMS_KEYS, stepOutputGapEstimate } from './gapest';

@@ -2,7 +2,9 @@
 // Values in FU, EC, PL, NA, SC order = FDL, EUN, PYN, NKR, SRL.
 import { EngineFault } from '@tycoon/engine-core';
 import type { BlocDef, BlocId } from './schema';
-import type { ContentView } from './core-port';
+/** 04's bloc reader. MISSING EXPORT (T22A-01): @tycoon/content's ContentView.blocs() has no `id` / `sectorWeights`, so blocDef keeps
+ *  this narrow input type until T22A exports them (reported on T02-11; core-port.ts itself is deleted). */
+export interface BlocContentReader { blocs(): readonly { id: BlocId; name: string; cityIds: [string, string, string]; sectorWeights: number[] }[] }
 import { cbkId, govId } from '@tycoon/engine-ledger';
 import { crtId, excId, regId } from './ids';
 
@@ -57,7 +59,7 @@ export const SECTOR_COUNT = 12;
 export const ISLA_SERENA_CITY = 'city_isla_serena';
 
 /** Merges content names, cityIds and sectorWeights with BLOC_DEFAULTS numbers. sectorWeights: 12 entries summing to 1 ± 1e−9. */
-export function blocDef(content: ContentView, b: BlocId): BlocDef {
+export function blocDef(content: BlocContentReader, b: BlocId): BlocDef {
   let c = null;
   for (const x of content.blocs()) if (x.id === b) { c = x; break; }
   if (c === null) throw new EngineFault('I0.macro_bloc', `content has no bloc ${b}`);
