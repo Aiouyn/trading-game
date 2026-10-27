@@ -15,7 +15,7 @@ import { CityStore } from '../data/store';
 import { manifestUrl } from '../data/urls';
 import { districtName } from '../data/names';
 import { buildRamps, type Ramps } from '../art/ramps';
-import { buildGroundField, type GroundField } from './groundfield';
+import { buildGroundFieldInTasks, type GroundField } from './groundfield';
 import { deltaE as deltaE76 } from '../art/color';
 import { readTokens, cssVar, fontVar, sizeVar } from '../art/tokens';
 import { createDecodeClient, type DecodeClient } from '../worker/client';
@@ -443,9 +443,9 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
           chunkFetches++;
           const b = groundBounds(g);
           const next = { mask: new Uint8Array(buf), size: g.size, x0: b.x0, z0: b.z0, span: b.size };
-          // card 1: the coast / road field (~20–70 ms) runs in a task of its own, once per mask
+          // card 1: the coast / road field runs once per mask, split over tasks of its own
           await nextTask();
-          groundField = buildGroundField(next, s.districts);
+          groundField = await buildGroundFieldInTasks(next, s.districts, nextTask);
           ground = next;
           groundHash = g.contentHash;
         }),

@@ -162,17 +162,29 @@ export function junctionCells(mask: Uint8Array, size: number, cellM: number): Ui
   return out;
 }
 
+type GroundInput = { mask: Uint8Array; size: number; x0: number; z0: number; span: number };
+
 /** Builds the RGBA8 field and the coast loops for one ground mask. */
-export function buildGroundField(
-  g: { mask: Uint8Array; size: number; x0: number; z0: number; span: number },
-  districts: readonly FieldDistrict[],
-): GroundField {
+export function buildGroundField(g: GroundInput, districts: readonly FieldDistrict[]): GroundField {
+  const steps = groundFieldSteps(g, districts);
+  for (;;) { const r = steps.next(); if (r.done) return r.value; }
+}
+
+/** The same build, with `pause()` (a new task) between its stages, so no one task runs it all. */
+export async function buildGroundFieldInTasks(g: GroundInput, districts: readonly FieldDistrict[], pause: () => Promise<void>): Promise<GroundField> {
+  const steps = groundFieldSteps(g, districts);
+  for (;;) { const r = steps.next(); if (r.done) return r.value; await pause(); }
+}
+
+function* groundFieldSteps(g: GroundInput, districts: readonly FieldDistrict[]): Generator<void, GroundField> {
   const { mask, size, x0, z0 } = g;
   const cellM = g.span / size;
   const water = new Uint8Array(size * size), road = new Uint8Array(size * size);
   for (let k = 0; k < mask.length; k++) { water[k] = mask[k] === 0 ? 1 : 0; road[k] = mask[k] === 3 ? 1 : 0; }
   const coastSd = signedDistance(water, size, cellM, COAST_BLUR_CELLS); // + land
+  yield;
   const roadSd = signedDistance(road, size, cellM, ROAD_BLUR_CELLS); // − road
+  yield;
   const dist = districtCells(districts, size, x0, z0, cellM);
   const junction = junctionCells(mask, size, cellM);
   const rgba = new Uint8Array(size * size * 4);
@@ -182,6 +194,7 @@ export function buildGroundField(
     rgba[k * 4 + 2] = dist[k];
     rgba[k * 4 + 3] = junction[k] ? 255 : 0;
   }
+  yield;
   const coast: Float32Array[] = [], quay: Uint8Array[] = [];
   const at = (x: number, z: number) => {
     const i = Math.min(size - 1, Math.max(0, Math.floor((x - x0) / cellM))), j = Math.min(size - 1, Math.max(0, Math.floor((z - z0) / cellM)));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateCity, DISTRICTS } from '../../e2e/city/fixtures/generate-city';
-import { buildGroundField, decodeDistance, FIELD_DISTRICT, signedDistance } from '@/city/renderer/groundfield';
+import { buildGroundField, decodeDistance, encodeDistance, FIELD_DISTRICT, FIELD_RANGE_M, junctionCells, signedDistance } from '@/city/renderer/groundfield';
 import { dilateLand } from '@/city/renderer/picture';
 
 // Card 1 (spec §6 AC4): the ground field's coast follows the analytic coastline, not the 2 m cells.
@@ -78,6 +78,32 @@ describe('card 1 ground field', () => {
     expect(counts[FIELD_DISTRICT.none]).toBe(0);
     expect(counts[FIELD_DISTRICT.quay]).toBeGreaterThan(0);
     expect(counts[FIELD_DISTRICT.crosswalks]).toBeGreaterThan(0);
+    // each district's own cells carry its code: sample the cell at the polygon's vertex mean (inside for these convex-ish blocks)
+    let checked = 0;
+    for (const d of city.snapshot.districts) {
+      const n = d.polygon.length, cx = d.polygon.reduce((a, p) => a + p[0], 0) / n / 100, cz = d.polygon.reduce((a, p) => a + p[1], 0) / n / 100;
+      const i = Math.floor((cx - g.x0) / 2), j = Math.floor((cz - g.z0) / 2);
+      if (i < 0 || j < 0 || i >= 512 || j >= 512) continue;
+      expect(field.rgba[(j * 512 + i) * 4 + 2], d.id).toBe(d.tier === 'working' ? FIELD_DISTRICT.quay : FIELD_DISTRICT.crosswalks);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(3);
+  });
+
+  it('distance bytes round-trip to within half an 8-bit step across the ±FIELD_RANGE_M range', () => {
+    const step = FIELD_RANGE_M / 127;
+    for (let d = -FIELD_RANGE_M; d <= FIELD_RANGE_M; d += 0.37) expect(Math.abs(decodeDistance(encodeDistance(d)) - d)).toBeLessThanOrEqual(step / 2 + 1e-9);
+  });
+
+  it('junction cells: a road crossing marks its centre, a straight road and a non-road cell do not', () => {
+    const size = 64, m = new Uint8Array(size * size).fill(1);
+    for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) if ((j >= 28 && j <= 35) || (i >= 28 && i <= 35)) m[j * size + i] = 3; // 16 m wide plus
+    m[33 * size + 33] = 1; // a land cell (a planter) inside the crossing
+    const jc = junctionCells(m, size, 2);
+    expect(jc[31 * size + 31]).toBe(1);
+    expect(jc[31 * size + 10]).toBe(0); // straight stretch of the x road
+    expect(jc[10 * size + 31]).toBe(0); // straight stretch of the z road
+    expect(jc[33 * size + 33]).toBe(0);
   });
 
   it('junctions: every junction cell is road, and some exist', () => {

@@ -138,6 +138,8 @@ type Field = {
   s: (x: number, z: number) => number; r: (x: number, z: number) => number; district: (x: number, z: number) => number; jDist: (x: number, z: number) => number;
   /** junction boxes (connected J cells): centre and size in cells */
   junctions: { x: number; z: number; cells: number; w: number; h: number }[];
+  /** park cell (mask 2) within one cell: park and verge are tinted from --gain, which cb remaps (as on main) */
+  nearPark: (x: number, z: number) => boolean;
 };
 let fieldP: Promise<Field> | null = null;
 function field(): Promise<Field> {
@@ -167,7 +169,8 @@ function field(): Promise<Field> {
       }
       junctions.push({ x: -512 + (sx / n + 0.5) * 2, z: -512 + (sz / n + 0.5) * 2, cells: n, w: i1 - i0 + 1, h: j1 - j0 + 1 });
     }
-    return { s: bil(0), r: bil(1), district: (x, z) => f.rgba[cell(x, z) * 4 + 2], jDist: (x, z) => Math.sqrt(jsq[cell(x, z)]) * 2, junctions };
+    return { s: bil(0), r: bil(1), district: (x, z) => f.rgba[cell(x, z) * 4 + 2], jDist: (x, z) => Math.sqrt(jsq[cell(x, z)]) * 2, junctions,
+      nearPark: (x, z) => [-2, 0, 2].some((dx) => [-2, 0, 2].some((dz) => mask[cell(x + dx, z + dz)] === 2)) };
   })();
   return fieldP;
 }
@@ -365,15 +368,18 @@ test('card 1: desktop 1440x900 T2 (+T0) — same-seed captures and ACs 1-6, 8, 1
     await setPose(page, p2, home);
     const cbImg = await shoot(page, file('P2', vp, 'T2', 'cb-after'));
     const cbCv = await coverage(page);
-    let cbChanged = 0;
+    let cbChanged = 0, cbPark = 0;
     for (let y = 0; y < cbImg.h; y++) for (let x = 0; x < cbImg.w; x++) {
       // margin 1: at dpr 1.5 a CSS pixel on a part's edge blends part device pixels, and cb recolours parts
       if (covered(cbCv, cbImg, x, y, 1) || covered(covers.P2, cbImg, x, y, 1)) continue;
       // boats sail between page loads and are not in the parts coverage: water is left out
-      if (F.s(...maps.P2.toGround(x + 0.5, y + 0.5)) < 0) continue;
+      const gp = maps.P2.toGround(x + 0.5, y + 0.5);
+      if (F.s(...gp) < 0) continue;
+      // park and verge take --gain, which cb remaps; the park ramp is main's, card 1 adds no hue-coded ground
+      if (F.nearPark(...gp)) { cbPark = Math.max(cbPark, dist(at(cbImg, x, y), at(shots.P2, x, y))); continue; }
       if (dist(at(cbImg, x, y), at(shots.P2, x, y)) > 3) cbChanged++;
     }
-    ac.AC10 = { kerbVsRoadNormal: +normal.toFixed(1), kerbVsRoadHc: +hc.toFixed(1), cbGroundPxChanged: cbChanged };
+    ac.AC10 = { kerbVsRoadNormal: +normal.toFixed(1), kerbVsRoadHc: +hc.toFixed(1), cbGroundPxChanged: cbChanged, cbParkMaxDist: +cbPark.toFixed(2) };
     expect.soft(hc, 'AC10 hc kerb contrast').toBeGreaterThan(normal * 1.3);
     expect.soft(cbChanged, 'AC10 cb ground pixels changed').toBe(0);
   }
