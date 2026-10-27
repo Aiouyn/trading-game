@@ -1,0 +1,1 @@
+export const a = (c: string) => `dist_${c}_old_harbor`;

@@ -3,7 +3,7 @@
 import { existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
-const all = ['core', 'ledger', 'macro', 'content', 'params'];
+const all = ['core', 'ledger', 'macro', 'content', 'params', 'city'];
 const want = process.argv.slice(2).length ? process.argv.slice(2) : all;
 for (const p of want) {
   const dir = p === 'content' || p === 'params' ? `packages/${p}` : `packages/engine/${p}`; // T22A-01: content, T02-11 / E-70: params live outside engine
