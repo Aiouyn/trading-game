@@ -40,11 +40,12 @@ export const LEDGER_EVENTS = {
   'ledger.insolvency.personal.closed': insolvency,
   'ledger.freshStart': z.object({ chrId: id, amount: money }),
   'ledger.related_party.flag': z.object({ entryId: id, deviationPct: z.number() }),
-  /** 03 §3.7.7 Money Supply Report with T03-24's field names plus msi and mode (E-81 (ii)); T03-24 `MoneySupplyReport` is z.infer of it. */
+  /** 03 §3.7.7 Money Supply Report with T03-24's field names plus msi and mode (E-81 (ii)); T03-24 `MoneySupplyReport` is z.infer of it.
+   *  familiesDay and familiesYear are both money strings (E-83 (2)). */
   'stab.daily.report': z.object({
     dayIndex: z.number().int(), byCcy: z.record(z.string(), z.object({ M0: money, M0_sys: money, M2: money })), pem: money, pew: money,
     na: z.number(), e: z.number(), u: z.number(), levers, leverChange: levers,
-    familiesDay: z.record(z.string(), money), familiesYear: z.record(z.string(), z.number()), rho: z.number(), msi: z.number(),
+    familiesDay: z.record(z.string(), money), familiesYear: z.record(z.string(), money), rho: z.number(), msi: z.number(),
     mode: z.enum(['OBSERVE', 'ACTIVE']),
   }),
   'stab.lever.changed': z.object({ lever: z.enum(['L1', 'L2', 'L3', 'L4']), from: z.number(), to: z.number() }),
