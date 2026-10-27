@@ -88,14 +88,18 @@ test.describe('C-06 / C-11 render on demand', () => {
     // tier=T2 is forced, so no 2 s auto-tier measurement runs (fpsFirst2s stays null): the condition
     // to wait for is just T2 drawing, no sleep.
     await waitState(page, 'C-06 real clock: tier is not T2 after the tier measurement', () => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2');
-    const ms = await page.evaluate(() => new Promise<number>((resolve) => {
-      const w = window as unknown as HarnessWindow;
+    type StopWindow = HarnessWindow & { __ambientStopMs?: number };
+    // in-page 50 ms sampling of the stop time; the wait for it goes through waitState (120 s default)
+    await page.evaluate(() => {
+      const w = window as unknown as StopWindow;
       w.__city.setCamera({ zoom: 1 }); // last input
       const t = performance.now();
       const iv = setInterval(() => {
-        if (!w.__city.ambient().on) { clearInterval(iv); resolve(performance.now() - t); }
+        if (!w.__city.ambient().on) { clearInterval(iv); w.__ambientStopMs = performance.now() - t; }
       }, 50);
-    }));
+    });
+    await waitState(page, 'C-06 real clock: ambient still on after the last input', () => (window as unknown as StopWindow).__ambientStopMs !== undefined);
+    const ms = await page.evaluate(() => (window as unknown as StopWindow).__ambientStopMs!);
     console.log('C-06 real-clock ambient stopped after', Math.round(ms), 'ms');
     expect(ms).toBeGreaterThanOrEqual(59_000);
     expect(ms).toBeLessThanOrEqual(61_000);
