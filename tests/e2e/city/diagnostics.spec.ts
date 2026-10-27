@@ -77,7 +77,7 @@ test('C-05 the real CityWindow.tsx (Spec 1) drives the seam: mount, setters, per
   await expect(page.locator('[data-testid="city-body"]')).toHaveAttribute('data-visibility', 'background');
   await page.evaluate(() => (window as unknown as W).cityWindow.setBody({ focused: true, collapsed: false, background: false }));
   await page.evaluate(() => (window as unknown as W).cityWindow.setTierOverride('T1'));
-  await page.waitForFunction(() => (window as unknown as W).__city.diagnostics().tier === 'T1', null, { timeout: 10_000 });
+  await waitState(page, 'C-05: tier not T1 after setTierOverride(T1)', () => (window as unknown as W).__city.diagnostics().tier === 'T1');
   await page.evaluate(() => (window as unknown as W).cityWindow.setMyPlaces(['bnd_000001_parcel']));
   const r = await page.evaluate(async () => {
     const w = window as unknown as W;

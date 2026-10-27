@@ -44,7 +44,7 @@ test.describe('C-06 / C-11 render on demand', () => {
     await page.clock.install();
     await openCity(page, 'tier=T2');
     await waitDrawn(page);
-    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2');
+    await waitState(page, 'C-06 fake clock: tier not T2 after waitDrawn', () => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2');
     await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 3000); // past the 2 s tier measurement
     await page.evaluate(() => (window as unknown as HarnessWindow).__city.setCamera({ zoom: 1 })); // last input
     expect((await page.evaluate(() => (window as unknown as HarnessWindow).__city.ambient())).on).toBe(true);
@@ -140,7 +140,8 @@ test.describe('C-07 background', () => {
     const t0 = Date.now();
     await page.waitForTimeout(29_000);
     expect(await subscribed()).toBe(true);
-    await page.waitForFunction(() => !(window as unknown as HarnessWindow).__city.diagnostics().subscribed, null, { timeout: 5000, polling: 50 });
+    // 5 s bound: the check is unsubscribed at 30 s ± 1 s, measured from 29 s; polling 50 ms keeps the timing precise
+    await waitState(page, 'C-07: still subscribed 29 s + 5 s after going background', () => !(window as unknown as HarnessWindow).__city.diagnostics().subscribed, { timeoutMs: 5000, polling: 50 });
     const unsubAt = (Date.now() - t0) / 1000;
     console.log('C-07 unsubscribed after', unsubAt.toFixed(2), 's');
     expect(Math.abs(unsubAt - 30)).toBeLessThanOrEqual(1);
@@ -148,7 +149,8 @@ test.describe('C-07 background', () => {
     const f0 = await fetches();
     const tv = Date.now();
     await set('visible');
-    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().subscribed, null, { timeout: 1000, polling: 20 });
+    // 1 s bound is the C-07 contract (resubscribe < 1 s after visible)
+    await waitState(page, 'C-07: not resubscribed within 1 s of visible', () => (window as unknown as HarnessWindow).__city.diagnostics().subscribed, { timeoutMs: 1000, polling: 20 });
     console.log('C-07 resubscribed after', Date.now() - tv, 'ms');
     await page.waitForTimeout(1500);
     expect((await diag(page)).renders).toBe(r0 + 1);
@@ -162,7 +164,8 @@ test.describe('C-07 background', () => {
     await page.waitForTimeout(1000);
     expect(await fetches()).toBe(f0);
     await set('visible');
-    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().stateVersion === 2, null, { timeout: 5000 });
+    // 5 s bound: this runs ~70 s into a 180 s test, so the 120 s default would end in Playwright's test timeout, not this named error
+    await waitState(page, 'C-07 round 2: stateVersion not 2 within 5 s of visible', () => (window as unknown as HarnessWindow).__city.diagnostics().stateVersion === 2, { timeoutMs: 5000 });
     const log = await page.evaluate(() => (window as unknown as HarnessWindow).harness.fetchLog);
     // manifest first, then the v1→v2 delta it lists (content-addressed); no snapshot, no chunks
     const fresh = log.slice(f0);
