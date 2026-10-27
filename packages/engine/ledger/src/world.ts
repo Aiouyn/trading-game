@@ -138,6 +138,7 @@ export class LedgerWorld {
 
   constructor(opts: { catalog?: ReasonCatalog; params?: Partial<Params>; tick?: Tick } = {}) {
     this.catalog = opts.catalog ?? new ReasonCatalog();
+    this.catalog.registerLedgerExtensions();   // E-86 (a): world creation registers the 5 E-5 extension codes
     this.params = { ...DEFAULT_PARAMS, ...opts.params };
     const t = opts.tick ?? 0;
     this.s = {
