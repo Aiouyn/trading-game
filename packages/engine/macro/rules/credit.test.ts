@@ -109,6 +109,12 @@ describe('T04-05 credit aggregates (04 §3.14.4)', () => {
     expect(g(c0 * dmath.exp(0.01), 364)).toBeCloseTo(0.01, 14);
     expect(g(c0 * dmath.exp(0.01), 500)).toBeCloseTo(0.01 * 364 / 500, 14);
     expect(g(c0 * dmath.exp(0.01), 500, c364)).toBeCloseTo(0.006, 14);
+    // the branch is chosen by days alone (E-87 (3)): day 0 is 0 even if prev.credit ≠ credit0; days < 364 ignores a supplied credit364
+    const h = (days: number, credit364: number | null) => creditAggregates(1_000, { credit: 2_000, creditGdpTrend: 1, credit364, credit0: c0, days }, sup(3_000), fb).creditGrowth;
+    expect(h(0, null)).toBe(0);
+    expect(h(0, 1_500)).toBe(0);
+    expect(h(363, 1_500)).toBeCloseTo(dmath.ln(3) * 364 / 363, 14);
+    expect(h(364, 1_500)).toBeCloseTo(dmath.ln(2), 14);
     expect(() => g(c0, -1)).toThrow('days=-1');
     expect(() => g(c0, 1.5)).toThrow('days=1.5');
   });
