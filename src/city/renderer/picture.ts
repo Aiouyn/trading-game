@@ -169,27 +169,16 @@ export function drawPicture(opts: {
     g.fill();
   };
   if (opts.ground) {
-    // one n×n bitmap of the mask (one pixel per cell), mapped onto the ground plane by the
-    // projection's affine transform: 1 drawImage instead of ~52k per-cell fills (T0 profile)
+    // MUTANT: the pre-fix ~52k per-cell ground fills (must fail t0-longtask)
     const { mask, size, x0: gx, z0: gz, span } = opts.ground;
     const step = groundStep(size);
-    const s = (span / size) * step;
+    const cell = span / size;
     const fills = [css(ramps.water), css(ramps.land), css(ramps.park), css(ramps.road)];
-    const bmp = groundBitmap(mask, size, step, fillBytes(fills));
-    const src = document.createElement('canvas');
-    src.width = bmp.n;
-    src.height = bmp.n;
-    const sg = src.getContext('2d', { willReadFrequently: true });
-    if (sg) {
-      sg.putImageData(new ImageData(bmp.data, bmp.n, bmp.n), 0, 0);
-      const [ox, oy] = toScreen(gx, 0, gz);
-      const [ax, ay] = toScreen(gx + s, 0, gz);
-      const [bx, by] = toScreen(gx, 0, gz + s);
-      g.save();
-      g.imageSmoothingEnabled = false;
-      g.setTransform(ax - ox, ay - oy, bx - ox, by - oy, ox, oy);
-      g.drawImage(src, 0, 0);
-      g.restore();
+    for (let j = 0; j < size; j += step) for (let i = 0; i < size; i += step) {
+      const k = mask[j * size + i];
+      if (k === 0) continue;
+      const x0 = gx + i * cell, z0 = gz + j * cell, s = cell * step;
+      quad([toScreen(x0, 0, z0), toScreen(x0 + s, 0, z0), toScreen(x0 + s, 0, z0 + s), toScreen(x0, 0, z0 + s)], fills[k]);
     }
   }
   const [dx, , dz] = viewDirection(0);
