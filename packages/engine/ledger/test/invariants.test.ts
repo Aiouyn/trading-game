@@ -112,6 +112,7 @@ describe('INV-LED-008 negative money (I9, I10) and E5 (p10 core.ts:176 port)', (
   it('chr 1001 at −1 fails; within a recorded overdraft passes; bank reserves within the intraday limit pass intraday, fail at day close', () => {
     expect(ids(L.INV_LED_008(view([], { post: accs([['chr_A:1001:FDL', -1n]]) })))).toEqual(['INV-LED-008']);
     expect(L.INV_LED_008(view([], { post: accs([['chr_A:1001:FDL', -1n]]), facts: { overdraftLimit: () => 5n, intradayLimit: () => 0n } }))).toEqual([]);
+    expect(ids(L.INV_LED_008(view([], { post: accs([['chr_A:1010:bnk_N:FDL', -1n]]) })))).toEqual(['INV-LED-008']); // a holder's deposit mirror (1010) is in scope too
     const f = { overdraftLimit: () => 0n, intradayLimit: () => 100n };
     expect(L.INV_LED_008(view([], { post: accs([['bnk_N:1002:FDL', -50n]]), facts: f }))).toEqual([]);
     expect(ids(L.INV_LED_008(view([], { post: accs([['bnk_N:1002:FDL', -50n]]), facts: f, isDayClose: true })))).toEqual(['INV-LED-008']);

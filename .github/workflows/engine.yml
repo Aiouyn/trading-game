@@ -24,10 +24,15 @@ jobs:
       TYCOON_LONG: ${{ (github.event_name == 'schedule' || inputs.long) && '1' || '' }}
       # long runs hold the committed entry log in memory (~2.5 MB per game day, by design): give the heap room
       NODE_OPTIONS: ${{ (github.event_name == 'schedule' || inputs.long) && '--max-old-space-size=8192' || '' }}
+      # E-84 condition 4: the nightly run sets ledger_inv_full_scan_every_tick = true for one seed (test/incremental.test.ts)
+      LEDGER_FULL_SCAN_SEED: ${{ (github.event_name == 'schedule' || inputs.long) && '39' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: runner CPU (E-84 INCR-PERF timings are read against it)
+        if: ${{ github.event_name == 'schedule' || inputs.long }}
+        run: lscpu
       - name: typecheck, lint, test (skipped when the package is absent)
         run: node scripts/engine-check.mjs ${{ matrix.pkg }}

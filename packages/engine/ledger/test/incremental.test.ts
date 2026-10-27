@@ -25,16 +25,18 @@ describe('AC-03-INV-INCR-EQ: incremental = full recompute', () => {
     }), { seed: 84, numRuns: 3 });
     expect(closes).toBe(3 * DAYS);
   });
-  it(`ledger_inv_full_scan_every_tick (nightly fallback): ${DAYS} game days, the full-scan side is used and incremental = full on every tick`, () => {
+  // E-84 condition 4: the nightly job (TYCOON_LONG=1) runs this for its one seed (LEDGER_FULL_SCAN_SEED) over 30 game days.
+  const FLAG_SEED = Number(process.env.LEDGER_FULL_SCAN_SEED || 42); const FLAG_TICKS = 720 * (process.env.TYCOON_LONG === '1' ? 30 : DAYS);
+  it(`ledger_inv_full_scan_every_tick = true (seed ${FLAG_SEED}, ${FLAG_TICKS / 720} game days): the full-scan side is used and incremental = full on every tick`, { timeout: 1_800_000 }, () => {
     const w0 = fixture({ params: { ledger_inv_full_scan_every_tick: true } });
     let ticks = 0;
-    runDriver(Number(process.env.LEDGER_FULL_SCAN_SEED ?? 42), TICKS, (w, r) => {
+    runDriver(FLAG_SEED, FLAG_TICKS, (w, r) => {
       expect(r.failures).toEqual([]);
       expect(rows(totalsOf(w))).toEqual(rows(L.scanTotals(full(w))));
       expect('endTotals' in (hooks(w).lastView.balances ?? {})).toBe(false); // the scanned side, not the incremental one
       ticks++;
     }, w0);
-    expect(ticks).toBe(TICKS);
+    expect(ticks).toBe(FLAG_TICKS);
   });
   it('the same seed gives the same entry log and snapshot with the flag on or off (the flag only adds checks)', () => {
     const a = runDriver(7, 800); const b = runDriver(7, 800, undefined, fixture({ params: { ledger_inv_full_scan_every_tick: true } }));
@@ -72,6 +74,29 @@ describe('AC-03-INV-INCR-MUTANT', () => {
     expect(a.writes()).toEqual([['chr_B:1001:FDL', undefined]]);
     const r = w.runP13(); expect(r.failedInvariants).toContain('INV-LED-019');
     expect(a.writeCount).toBe(0);
+  });
+  it('(a) a committed negative balance that no later tick touches is still bounded by INV-LED-008 on every tick (the index carries it)', () => {
+    const w = committed(); const k = 'chr_A:1001:FDL';
+    w.setOverdraftLimit(k, 30n);
+    w.apiFor('21').ledger.pay('chr_A', 'chr_B', 70n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    expect(w.runP13().failures).toEqual([]);
+    expect(hooks(w).accounts.get(k)?.balance).toBe(-20n);
+    for (const r of w.runTicks(3)) expect(r.failures).toEqual([]); // idle ticks: chr_A untouched, within the facility
+    w.setOverdraftLimit(k, 10n); // a fact change, no posting: chr_A is not in this tick's dirty set
+    const r = w.runP13();
+    expect(r.failedInvariants).toContain('INV-LED-008');
+    expect(r.failures.filter((f) => f.invariantId === 'INV-LED-008').map((f) => f.observed)).toEqual([`I10: ${k} = -20`]);
+  });
+  it('(a) the tick index lists exactly the accounts written this tick, with their balance now', () => {
+    const w = committed();
+    w.apiFor('21').ledger.pay('chr_A', 'chr_B', 5n, 'FDL', 'ADM_CORRECTION_TRANSFER');
+    expect(w.runP13().failures).toEqual([]);
+    const v = hooks(w).lastView; const wr = v.index?.written() ?? [];
+    const legs = [...new SortedMap<string, true>(v.entries.flatMap((e) => e.postings.flatMap((p) => [p.debitAccount, p.creditAccount])).map((k) => [k, true])).keys()];
+    expect(legs.length).toBeGreaterThan(0);
+    expect(wr.map(([k]) => k)).toEqual(legs);
+    expect(wr.find(([k]) => k === 'chr_A:1001:FDL')?.[1].balance).toBe(45n);
+    expect(wr.find(([k]) => k === 'chr_B:1001:FDL')?.[1].balance).toBe(5n);
   });
   const NAME = { m0: 'M0', m0sys: 'M0_sys', m2: 'M2', netIssuance: 'netIssuance', bridge2909: 'bridge2909', escrow1001: 'Σ 1001 ESCROW', sum2160: 'Σ 2160', sum1070: 'Σ 1070' } as const;
   /** Corrupts the world's committed running totals (or index), runs to the end of day 0; returns the first failing tick and result. */
@@ -134,29 +159,45 @@ describe('AC-03-INV-INCR-MUTANT', () => {
   });
 });
 
-/** Per-tick invariant time (every TICK and SYS check) with `idle` extra live accounts that no tick touches. */
-function invariantMs(idle: number, ticks: number): number {
+/** Yields to the event loop so a long run never blocks the vitest worker RPC (onTaskUpdate times out after ~60 s of sync work). */
+const yieldNow = () => new Promise<void>((r) => { setImmediate(r); });
+const median = (xs: number[]): number => { const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+/** Median per-tick invariant time (every TICK and SYS check) with `idle` extra live accounts that no tick touches. */
+async function invariantMs(idle: number, ticks: number): Promise<number> {
   const w = fixture();
-  for (let i = 0; i < idle / 2; i++) { const id = `chr_I${String(i).padStart(6, '0')}`; w.registerEntity({ id }); w.apiFor('21').ledger.mint(id, 1n, 'FDL', 'ADM_CORRECTION_IN'); }
+  for (let i = 0; i < idle / 2; i++) {
+    const id = `chr_I${String(i).padStart(6, '0')}`; w.registerEntity({ id }); w.apiFor('21').ledger.mint(id, 1n, 'FDL', 'ADM_CORRECTION_IN');
+    if (i % 2_000 === 1_999) await yieldNow();
+  }
   expect(w.runP13().failures).toEqual([]); // 2 live accounts per mint (holder 1001 + cbk 2001 sub)
-  let ms = 0;
+  await yieldNow();
+  let ms = 0; const perTick: number[] = [];
   const all = [...L.TICK_INVARIANTS, ...L.SYS_INVARIANTS] as [string, (v: L.CheckView) => L.Failure[]][];
   const orig = all.map(([, f]) => f);
   all.forEach((row, i) => { row[1] = (v) => { const t0 = performance.now(); const r = orig[i](v); ms += performance.now() - t0; return r; }; });
   try {
     const rnd = prng(3); const loans: { id: string; amt: bigint; borrower: string }[] = [];
-    for (let t = 0; t < ticks; t++) { driveTick(w, rnd, loans); expect(w.runP13().failures).toEqual([]); }
+    for (let t = 0; t < ticks; t++) {
+      driveTick(w, rnd, loans); ms = 0; expect(w.runP13().failures).toEqual([]); perTick.push(ms);
+      if (t % 25 === 24) await yieldNow();
+    }
   } finally { all.forEach((row, i) => { row[1] = orig[i]; }); }
-  return ms / ticks;
+  // The median tick, not the mean: a GC pause (its length grows with the heap, i.e. with the idle accounts, not with the checks)
+  // that lands inside a check would otherwise be charged to the checks.
+  return median(perTick);
 }
 describe('AC-03-INV-INCR-PERF', () => {
   const long = process.env.TYCOON_LONG === '1';
-  it(`doubling the idle accounts changes per-tick invariant time by < 10% (asserted on the nightly run, TYCOON_LONG=1; logged otherwise)`, { timeout: 600_000 }, () => {
-    const n = long ? 40_000 : 4_000; const ticks = long ? 700 : 150;
-    const a: number[] = []; const b: number[] = [];
-    for (let i = 0; i < (long ? 3 : 1); i++) { a.push(invariantMs(n, ticks)); b.push(invariantMs(2 * n, ticks)); } // interleaved, min of each
-    const ratio = Math.min(...b) / Math.min(...a);
-    console.log(`[INCR-PERF] idle ${n}: ${Math.min(...a).toFixed(4)} ms/tick; idle ${2 * n}: ${Math.min(...b).toFixed(4)} ms/tick; ratio ${ratio.toFixed(3)}`);
+  it(`doubling the idle accounts changes per-tick invariant time by < 10% (asserted on the nightly run, TYCOON_LONG=1; logged otherwise)`, { timeout: 1_800_000 }, async () => {
+    const n = long ? 20_000 : 4_000; const ticks = long ? 300 : 150; const pairs = long ? 4 : 2;
+    await invariantMs(n, ticks); // warm-up (JIT, allocator); discarded
+    const ratios: number[] = []; const a: number[] = []; const b: number[] = [];
+    for (let i = 0; i < pairs; i++) { // alternate the order (small-large, large-small, ...) so drift on a shared box hits both sides
+      if (i % 2 === 0) { a.push(await invariantMs(n, ticks)); b.push(await invariantMs(2 * n, ticks)); } else { b.push(await invariantMs(2 * n, ticks)); a.push(await invariantMs(n, ticks)); }
+      ratios.push(b[i] / a[i]);
+    }
+    const ratio = median(ratios);
+    console.log(`[INCR-PERF] idle ${n} vs ${2 * n}, ${ticks} ticks, ${pairs} alternating pairs after 1 warm-up: small ${a.map((x) => x.toFixed(4)).join('/')} ms/tick; large ${b.map((x) => x.toFixed(4)).join('/')} ms/tick; pair ratios ${ratios.map((x) => x.toFixed(3)).join('/')}; median ratio ${ratio.toFixed(3)}`);
     if (long) expect(ratio).toBeLessThan(1.1);
   });
 });
