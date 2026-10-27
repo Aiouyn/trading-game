@@ -28,6 +28,24 @@ export function groundBitmap(mask: Uint8Array, size: number, step: number, class
   return { n, data };
 }
 
+/**
+ * Card 1 T0: grows land (non-transparent) pixels by one into the water, so the coast clip path,
+ * which runs up to half a cell outside the stair-stepped mask, never shows the water fill
+ * through a gap. In place; 4-neighbour, one pass.
+ */
+export function dilateLand(data: Uint8ClampedArray, n: number): void {
+  const src = data.slice();
+  const solid = (o: number) => src[o + 3] !== 0;
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const o = (j * n + i) * 4;
+      if (solid(o)) continue;
+      const from = i > 0 && solid(o - 4) ? o - 4 : i < n - 1 && solid(o + 4) ? o + 4 : j > 0 && solid(o - n * 4) ? o - n * 4 : j < n - 1 && solid(o + n * 4) ? o + n * 4 : -1;
+      if (from >= 0) data.set(src.subarray(from, from + 4), o);
+    }
+  }
+}
+
 /** Each CSS fill as the canvas resolves it: one 1×1 fill per class, read back as RGBA bytes. */
 function fillBytes(fills: string[]): Uint8ClampedArray {
   const c = document.createElement('canvas');
@@ -68,6 +86,8 @@ export function drawPicture(opts: {
   height: number;
   dpr: number;
   ground: { mask: Uint8Array; size: number; x0: number; z0: number; span: number } | null;
+  /** card 1: world-space coast loops (x, z pairs, land inside under even-odd) and per-vertex quay flags */
+  coast: { loops: Float32Array[]; quay: Uint8Array[] } | null;
   parts: Float32Array;
   colors: Float32Array;
   flat: Uint8Array;
@@ -115,6 +135,7 @@ export function drawPicture(opts: {
     const s = (span / size) * step;
     const fills = [css(ramps.water), css(ramps.land), css(ramps.park), css(ramps.road)];
     const bmp = groundBitmap(mask, size, step, fillBytes(fills));
+    if (opts.coast) dilateLand(bmp.data, bmp.n);
     const src = document.createElement('canvas');
     src.width = bmp.n;
     src.height = bmp.n;
@@ -125,9 +146,38 @@ export function drawPicture(opts: {
       const [ax, ay] = toScreen(gx + s, 0, gz);
       const [bx, by] = toScreen(gx, 0, gz + s);
       g.save();
+      if (opts.coast) {
+        // the vector shoreline: canvas AA on the clip gives the smooth coast, river banks and map edge
+        const coast = new Path2D();
+        for (const l of opts.coast.loops) {
+          coast.moveTo(...toScreen(l[0], 0, l[1]));
+          for (let k = 2; k < l.length; k += 2) coast.lineTo(...toScreen(l[k], 0, l[k + 1]));
+          coast.closePath();
+        }
+        g.clip(coast, 'evenodd');
+      }
       g.imageSmoothingEnabled = false;
       g.setTransform(ax - ox, ay - oy, bx - ox, by - oy, ox, oy);
       g.drawImage(src, 0, 0);
+      g.restore();
+    }
+    if (opts.coast) {
+      // quay coping: the coast segments whose both ends are quay, one stroke, at least 1 px
+      const { loops, quay } = opts.coast;
+      const cope = new Path2D();
+      loops.forEach((l, li) => {
+        const q = quay[li], m = q.length;
+        for (let k = 0; k < m; k++) {
+          const k2 = (k + 1) % m;
+          if (!q[k] || !q[k2]) continue;
+          cope.moveTo(...toScreen(l[k * 2], 0, l[k * 2 + 1]));
+          cope.lineTo(...toScreen(l[k2 * 2], 0, l[k2 * 2 + 1]));
+        }
+      });
+      g.save();
+      g.strokeStyle = css(ramps.coping);
+      g.lineWidth = Math.max(1, 0.5 * scale);
+      g.stroke(cope);
       g.restore();
     }
   }

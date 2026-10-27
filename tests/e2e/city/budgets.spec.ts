@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { diag, expect, isPhone, openCity, saveJson, waitDrawn, type HarnessWindow } from './helpers';
+import { diag, expect, isPhone, openCity, P41, saveJson, waitDrawn, type HarnessWindow } from './helpers';
 
 // C-10. Reference seed, default view, then the worst case (zoomed fully out).
 test('C-10 budgets', async ({ page }) => {
@@ -13,6 +13,10 @@ test('C-10 budgets', async ({ page }) => {
     await page.waitForTimeout(300);
     const d = await diag(page);
     views[name] = d;
+    // card 1 (ground + coast): +1 call, +2k triangles over #41
+    const LIMIT = phone ? { calls: P41.calls + 1, tris: P41.tris + 2_000 } : { calls: 5, tris: 18_000 };
+    expect(d.drawCalls, `${name}: draw calls`).toBeLessThanOrEqual(LIMIT.calls);
+    expect(d.triangles, `${name}: triangles`).toBeLessThanOrEqual(LIMIT.tris);
     if (phone) {
       expect(d.tier).toBe('T1');
       expect(d.drawCalls).toBeLessThanOrEqual(60);

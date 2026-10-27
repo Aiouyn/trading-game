@@ -103,3 +103,6 @@ export function isPhone(page: Page): boolean {
 }
 
 export { expect };
+
+/** #41's per-frame limits (both projects); card 1 and later cards add their allocation on top. */
+export const P41 = { calls: 4, tris: 16_000 } as const;
