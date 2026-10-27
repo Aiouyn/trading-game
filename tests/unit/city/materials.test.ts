@@ -7,6 +7,7 @@ import { TOKEN_VARS, type Tokens } from '@/city/art/tokens';
 import { buildRamps } from '@/city/art/ramps';
 import { FLAT_BRASS, partColors } from '@/city/renderer/overlay';
 import type { CityEntity } from '@/city/data/types';
+import { generateCity } from '../../e2e/city/fixtures/generate-city';
 
 const css = readFileSync(join(__dirname, '../../../src/styles/tokens.css'), 'utf8');
 const v = (name: string): Rgb => {
@@ -149,5 +150,47 @@ describe('partColors iMat and window seed', () => {
     expect(Array.from(pc.mat)).toEqual([0, 0, 0, 0, 0, 0]);
     expect(Array.from(pc.windowSeed)).toEqual([-1, -1, -1]);
     expect(Array.from(pc.colors)).toEqual(Array.from(plain.colors));
+  });
+});
+
+describe('seed determinism on the reference city (card 2 AC 6)', () => {
+  // partColors takes no tier: T2 and T1 upload the same iColor / iMat (the tier only gates patterns in the shader)
+  const r = buildRamps(t);
+  const mk = () => {
+    const ents = generateCity().snapshot.entities as CityEntity[];
+    // three parts per entity, with mixed styles, as an entity's parts reach the renderer
+    const entity = Int32Array.from(ents.flatMap((_, i) => [i, i, i]));
+    return { entity, style: Uint8Array.from(entity, (_, k) => k % 4), entities: ents, districts: generateCity().snapshot.districts, mine: new Set<string>(), overlay: 'none' as const, myCityOverlay: false, materials: { anchors: A, cityId: 'port_avalon' } };
+  };
+  const bytes = (f: Float32Array) => Buffer.from(f.buffer, f.byteOffset, f.byteLength).toString('hex');
+  it('two loads give byte-identical iColor and iMat; every part of one entity has the same wall', () => {
+    const a = partColors(mk(), r), b = partColors(mk(), r);
+    expect(bytes(a.colors)).toBe(bytes(b.colors));
+    expect(bytes(a.mat)).toBe(bytes(b.mat));
+    expect(bytes(a.windowSeed)).toBe(bytes(b.windowSeed));
+    const n = a.flat.length / 3;
+    let withMat = 0;
+    for (let e = 0; e < n; e++) {
+      const p = (k: number) => Array.from(a.colors.subarray((e * 3 + k) * 3, (e * 3 + k) * 3 + 3));
+      expect(p(1)).toEqual(p(0));
+      expect(p(2)).toEqual(p(0));
+      withMat += +(a.mat[e * 6] > 0);
+    }
+    expect(withMat).toBeGreaterThan(n / 2); // the fixture's entities do carry districts
+  });
+  it('changing one parcelId changes only that entity', () => {
+    const base = mk();
+    const a = partColors(base, r);
+    const e = base.entities.findIndex((x, i) => x.kind !== 'crown_tower' && a.mat[i * 6] > 0);
+    const ents = base.entities.slice();
+    ents[e] = { ...ents[e], parcelId: `${ents[e].parcelId}_x` };
+    const b = partColors({ ...base, entities: ents }, r);
+    const diff: number[] = [];
+    for (let k = 0; k < base.entity.length; k++) {
+      const same = [0, 1, 2].every((c) => a.colors[k * 3 + c] === b.colors[k * 3 + c]) && a.windowSeed[k] === b.windowSeed[k];
+      if (!same) diff.push(base.entity[k]);
+    }
+    expect(diff.length).toBeGreaterThan(0);
+    expect(new Set(diff)).toEqual(new Set([e]));
   });
 });
