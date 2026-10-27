@@ -93,6 +93,19 @@ export const SCREEN_NAMES: Record<string, string> = { journal: "Journal" };
 export const S_FR = { back: "Retour", backTo: "Retour à", home: "Accueil" } as const;
 export const SCREEN_NAMES_FR: Record<string, string> = { journal: "Journal" };
 
+/**
+ * Game clock (E-66 copylint): "Day 38 · 11:20" in the status strip, "D38 · 11:20" in the phone status bar.
+ * The calendar word is a key per locale (17 §8: "the game calendar words (Day, Wk, Q, Y, Ch) are keys"); `hhmm` is
+ * the game's 24-hour HH:mm in both locales. FR: no-break spaces (U+00A0) keep the word with its number and
+ * the separator with the day, as French typography requires.
+ */
+export type ShellLocale = "en" | "fr";
+export const CLOCK_STRINGS: Record<ShellLocale, { strip: (day: number, hhmm: string) => string; phone: (day: number, hhmm: string) => string }> = {
+  en: { strip: (day, hhmm) => `Day ${day} · ${hhmm}`, phone: (day, hhmm) => `D${day} · ${hhmm}` },
+  fr: { strip: (day, hhmm) => `Jour\u00a0${day}\u00a0· ${hhmm}`, phone: (day, hhmm) => `J${day}\u00a0· ${hhmm}` },
+};
+export const clockStrings = (locale: string) => CLOCK_STRINGS[locale === "fr" ? "fr" : "en"];
+
 export const GROUP_LABELS = { trade: "Trade", build: "Build", shadow: "Shadow", world: "World", me: "Me" } as const;
 
 // TODO(17A T4): the "Players and companies" group stays empty until a search data source exists (trigger: player/company search source).
