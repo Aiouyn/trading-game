@@ -121,7 +121,10 @@ describe('§3.2 step 7 monitor and AC-04-04-PEW-BIGINT (E-88 (5))', () => {
     expect(pewFromReport(report('007'))).toBe(7n);
   });
   it('rejects a non-integer pew string', () => {
-    expect(() => pewFromReport({ pew: '1.5' })).toThrow(/I0.macro_pew|decimal/);
+    expect(() => pewFromReport({ pew: '1.5' })).toThrow(/decimal/);
+    let code: unknown = null;
+    try { pewFromReport({ pew: '1e3' }); } catch (e) { code = (e as { code?: unknown }).code; }
+    expect(code).toBe('I0.macro_pew');
     expect(() => pewFromReport({ pew: '' })).toThrow(/decimal/);
     expect(() => pewFromReport({ pew: '1e21' })).toThrow(/decimal/);
   });
