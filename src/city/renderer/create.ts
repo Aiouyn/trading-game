@@ -80,8 +80,8 @@ export interface CityTestApi {
   labelBackground: () => { text: string; p50: number; p75: number }[] | null;
   decodeMs: () => number;
   decodeInWorker: () => boolean;
-  /** Card 1 AC 3: a mask render with every part 1 and the ground 0; bits row-major from the top, base64. */
-  coverage: (what: 'parts') => { w: number; h: number; bits: string } | null;
+  /** Card 1 AC 3: a mask render with every part 1 and the ground 0; bits row-major from the top, base64. Card 2: `material`, only parts with that iMat id; `brass`, the brass mask. */
+  coverage: (what: 'parts' | 'material' | 'brass', id?: number) => { w: number; h: number; bits: string } | null;
   /** Card 1: a ground point (y = 0) in CSS px relative to the canvas (T1/T2). */
   projectGround: (x: number, z: number) => { x: number; y: number } | null;
 }
@@ -1296,7 +1296,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       },
       decodeMs: () => decoder.decodeMs,
       decodeInWorker: () => decoder.inWorker,
-      coverage: () => partsCoverage(),
+      coverage: (what, id) => partsCoverage(what === 'material' ? (id ?? 0) : what),
       projectGround: (x, z) => {
         if (!scene || !chrome) return null;
         scene.setCamera(cam, chrome.stage.clientWidth, chrome.stage.clientHeight, viewHalf());
@@ -1330,12 +1330,12 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     });
   }
 
-  function partsCoverage(): { w: number; h: number; bits: string } | null {
+  function partsCoverage(mode: 'parts' | 'brass' | number): { w: number; h: number; bits: string } | null {
     if (!scene || !chrome) return null;
     const gl = scene.renderer.getContext();
     const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
     scene.setCamera(cam, chrome.stage.clientWidth, chrome.stage.clientHeight, viewHalf());
-    scene.render('parts');
+    scene.render(mode);
     const px = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
     scene.render();

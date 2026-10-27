@@ -325,10 +325,10 @@ export class CityScene {
     (this.partMat.uniforms.uFocus.value as THREE_NS.Vector2).set(cam.target[0], cam.target[1]);
   }
 
-  /** mode 'brass': the selection mask; 'parts': every part white on black (card 1 coverage hook). */
-  render(mode: 'normal' | 'brass' | 'parts' = 'normal'): void {
+  /** mode 'brass': the selection mask; 'parts': every part white on black (card 1 coverage hook); a number: parts of that material id (card 2). */
+  render(mode: 'normal' | 'brass' | 'parts' | number = 'normal'): void {
     const mask = mode !== 'normal';
-    this.partMat.uniforms.uMask.value = mode === 'parts' ? 2 : mask ? 1 : 0;
+    this.partMat.uniforms.uMask.value = typeof mode === 'number' ? 3 + mode : mode === 'parts' ? 2 : mask ? 1 : 0;
     this.groundMat.uniforms.uMask.value = mask ? 1 : 0;
     this.selectionMat.color.setRGB(...(mask ? ([1, 1, 1] as Rgb) : this.ramps.brass));
     const boatsOn = this.boats?.visible ?? false;
