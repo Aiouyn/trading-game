@@ -63,10 +63,11 @@ jobs:
   e2e:
     name: city e2e (Node 22, Chromium + SwiftShader)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     needs: unit
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 } # card2.spec's before tree (card 1, #60 @ 96b9771e)
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
@@ -80,11 +81,19 @@ jobs:
           curl -fsSL -o "$d/Inter/Inter-VariableFont_opsz,wght.ttf" "$base/inter/Inter%5Bopsz,wght%5D.ttf"
           curl -fsSL -o "$d/JetBrains Mono/JetBrainsMono-VariableFont_wght.ttf" "$base/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf"
           echo "CITY_FONTS_DIR=$d" >> "$GITHUB_ENV"
+      - name: card 1's city harness (#60 @ 96b9771e, card 2 spec §5 before), served on 3212
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/card1" 96b9771e
+          if cmp -s package-lock.json "$RUNNER_TEMP/card1/package-lock.json"; then ln -s "$PWD/node_modules" "$RUNNER_TEMP/card1/node_modules"; else (cd "$RUNNER_TEMP/card1" && npm ci); fi
+          (cd "$RUNNER_TEMP/card1" && CITY_HARNESS_OUT="$RUNNER_TEMP/h-card1" npx vite build -c tests/e2e/city/harness/vite.config.ts)
+          nohup node tests/e2e/city/serve.mjs "$RUNNER_TEMP/h-card1" 3212 > "$RUNNER_TEMP/serve-card1.log" 2>&1 &
+          for i in $(seq 30); do curl -fs -o /dev/null http://localhost:3212/city.html && exit 0; sleep 1; done; exit 1
       - name: playwright (C-03 … C-15, incl. C-10 budgets)
         run: npx playwright test -c tests/e2e/city/playwright.config.ts
         env:
           CI: 'true' # GitHub's own value; loop.spec's real-clock check runs only when CI === 'true'
           CITY_EVIDENCE_DIR: ${{ runner.temp }}/city-evidence
+          CITY_CARD2_BEFORE_URL: http://localhost:3212
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -94,9 +103,9 @@ jobs:
   t0-ab:
     # Producer's ruling on #60: T0's longest task is compared against main's city built and sampled
     # in this same job (5 interleaved runs each, medians, <= 1.1x), not against a number from
-    # another run. PRs only: on main the merge-base is HEAD itself.
+    # another run. PRs and manual runs of a branch: on main the merge-base is HEAD itself.
     name: city T0 A/B vs main (Node 22, Chromium + SwiftShader)
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: unit
@@ -118,7 +127,7 @@ jobs:
           echo "CITY_FONTS_DIR=$d" >> "$GITHUB_ENV"
       - name: main's city harness (merge-base), served on 3211
         run: |
-          base=$(git merge-base HEAD "origin/${{ github.base_ref }}")
+          base=$(git merge-base HEAD "origin/${{ github.base_ref || 'main' }}")
           echo "A/B base: $base ($(git log -1 --format=%s "$base"))"
           git worktree add --detach "$RUNNER_TEMP/base" "$base"
           if cmp -s package-lock.json "$RUNNER_TEMP/base/package-lock.json"; then ln -s "$PWD/node_modules" "$RUNNER_TEMP/base/node_modules"; else (cd "$RUNNER_TEMP/base" && npm ci); fi
