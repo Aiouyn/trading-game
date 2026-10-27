@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
-import { boot } from "./helpers";
+import { boot, setTextScale } from "./helpers";
 
 // S1-22: screenshots of home, launcher, a locked tile and a ComingLater window. Run with SHOTS=1.
 const OUT = process.env.SHOTS_DIR ?? "tests/e2e/shell/__screenshots__";
@@ -65,7 +65,7 @@ test("phone 390×844", async ({ page }, info) => {
     for (const scale of ["1", "2"]) {
       await page.setViewportSize({ width, height: 844 });
       await boot(page, "/settings");
-      await page.getByTestId("text-scale").selectOption(scale);
+      await setTextScale(page, scale);
       await page.context().setOffline(true); // inside an open app (Settings)
       await page.getByTestId("offline-state").waitFor();
       await page.waitForTimeout(200);

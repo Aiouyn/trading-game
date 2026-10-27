@@ -1,6 +1,6 @@
 // Mock server for the clock / rank / me channels (stands in for the gateway). Query params script a character:
 // rank, lic, nw, flags, guest, prot, onb, onbDone, … (dev and e2e builds only; see hooks.ts).
-import type { Channels, ClockChannel, MarketPhase } from "./channels";
+import { parseEntitlements, type AcctEntitlements, type Channels, type ClockChannel, type MarketPhase, type ShellId } from "./channels";
 import { MOCK_HOOKS } from "./hooks";
 import { loadHookStartsFailed } from "./loader";
 import { RANKS, type Rank } from "./registry";
@@ -32,7 +32,8 @@ export const phaseOverride: (q: URLSearchParams) => MarketPhase | null = PHASE_H
 export function defaultChannels(): Channels {
   return {
     clock: clockAt(DEFAULT_TICK),
-    rank: { rank: "R2", thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf("R2")] ?? null },
+    rank: { rank: "R2", thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf("R2")] ?? null, shellsEarned: mockShells(new URLSearchParams(), "R2") },
+    entitlements: mockEntitlements(new URLSearchParams()),
     system: { connection: "live", halted: false, held: false, load: "ok", offline: false },
     me: {
       nw: "412860.15", todayPct: "+0.78", todayChg: "+3204.10", license: "LIC1", charters: [], flags: [],
@@ -50,7 +51,8 @@ export function mockChannels(q: URLSearchParams): Channels {
   const list = (k: string) => (q.get(k) ?? "").split(",").filter(Boolean);
   return {
     clock: { ...clockAt(Number(q.get("tick") ?? DEFAULT_TICK)), ...(phaseOverride(q) ? { phase: phaseOverride(q)! } : {}) },
-    rank: { rank, thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf(rank)] ?? null },
+    rank: { rank, thresholds: [...RANK_THRESHOLDS], nextAt: RANK_THRESHOLDS[RANKS.indexOf(rank)] ?? null, shellsEarned: mockShells(q, rank) },
+    entitlements: mockEntitlements(q),
     system: { connection: q.get("conn") === "reconnecting" ? "reconnecting" : "live", halted: q.get("halted") === "1", held: q.get("held") === "1", load: loadHookStartsFailed(q) ? "error" : "ok", offline: false },
     me: {
       nw: q.get("nw") ?? d.me.nw,
@@ -82,4 +84,27 @@ export function clockLabel(c: ClockChannel): { day: number; hhmm: string } {
   const hh = String(Math.floor(m / 60)).padStart(2, "0");
   const mm = String(m % 60).padStart(2, "0");
   return { day: c.gameDay, hhmm: `${hh}:${mm}` };
+}
+
+const isRankShell = (v: string): v is ShellId => /^r[0-6]$/.test(v);
+/**
+ * Earned rank shells: every rank shell up to the current rank by default. In dev / e2e builds only (build-gated,
+ * src/shell/hooks.ts) a URL script can list them: `shells=r0,r1`.
+ */
+export function mockShells(q: URLSearchParams, rank: Rank): ShellId[] {
+  const byRank = RANKS.slice(0, RANKS.indexOf(rank) + 1).map((r) => r.toLowerCase() as ShellId);
+  const shells = MOCK_HOOKS ? q.get("shells") : null;
+  return shells === null ? byRank : shells.split(",").filter(isRankShell);
+}
+
+/**
+ * Mock `acct:entitlements` (E-64). Empty by default; in dev / e2e builds only, `owned=cos_shell_glass,...` grants
+ * SHELL_STYLE items. Goes through the strict parser like the real channel will.
+ */
+export function mockEntitlements(q: URLSearchParams): AcctEntitlements {
+  const owned = MOCK_HOOKS ? (q.get("owned") ?? "").split(",").filter((v) => /^cos_shell_[a-z0-9_]+$/.test(v)) : [];
+  const items = [...new Set(owned)].sort().map((itemId) => ({
+    itemId, slot: "SHELL_STYLE", source: "purchase", labelPurchased: "Purchased", grantedAt: "2026-10-01T00:00:00Z",
+  }));
+  return parseEntitlements({ items });
 }

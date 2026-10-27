@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { boot, box } from "./helpers";
+import { boot, box, setReducedTransparency, setTextScale } from "./helpers";
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== "phone", "phone project only"));
 
@@ -20,7 +20,7 @@ test("S1-13 phone home: status bar 44, 4-col 60×60 grid, 5 groups, bottom row, 
   expect(await noHScroll()).toBe(true);
   // 17-AT-17 at text scale 2.0, through the real AccountUiPrefs.textScale setting (Settings › Text size).
   await page.getByTestId("icon-settings").click();
-  await page.getByTestId("text-scale").selectOption("2");
+  await setTextScale(page, "2");
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--text-scale").trim())).toBe("2");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole("button", { name: "Back" }).click();
@@ -180,7 +180,7 @@ test("S1-16 phone overlays: Recent sheet and launcher under reduced motion + tra
   await page.context().setOffline(false);
   // Set reduced transparency through Settings too, then the Held state (the overlay blocks input).
   await boot(page, "/settings");
-  await page.locator("select").nth(1).selectOption("on");
+  await setReducedTransparency(page, "On");
   await page.evaluate(() => (window as Window & { __quayFlush?: () => Promise<void> }).__quayFlush?.());
   await boot(page, "/?held=1");
   await expect(page.getByTestId("overlay-held")).toBeVisible();
@@ -284,7 +284,7 @@ const retryGeometryNow = (page: import("@playwright/test").Page) => page.getByTe
 test("Long app title at 320 px, text scale 2.0: one line, ellipsis, truly overflows, clear of the banner and Back", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 });
   await boot(page, "/settings");
-  await page.getByTestId("text-scale").selectOption("2");
+  await setTextScale(page, "2");
   await page.context().setOffline(true);
   await expect(page.getByTestId("offline-state")).toBeVisible();
   // No shipped app name overflows yet, so give the real title element a long name.
@@ -310,7 +310,7 @@ for (const width of [390, 320]) {
       await page.setViewportSize({ width, height: 844 });
       // Inside an open app (Settings, which also sets the real textScale pref)...
       await boot(page, "/settings");
-      await page.getByTestId("text-scale").selectOption(scale);
+      await setTextScale(page, scale);
       await page.context().setOffline(true);
       await expect(page.getByTestId("offline-state")).toBeVisible();
       await page.waitForTimeout(200); // let the 120 ms ease finish
@@ -378,7 +378,7 @@ for (const width of [390, 320]) {
       };
       for (const state of ["error", "offline"] as const) {
         await boot(page, state === "error" ? "/settings?load=fail" : "/settings");
-        await page.getByTestId("text-scale").selectOption(scale);
+        await setTextScale(page, scale);
         if (state === "offline") await page.context().setOffline(true);
         await expect(page.getByTestId(state === "error" ? "load-error" : "offline-state")).toBeVisible();
         await tapAndMeasure(`${state} in-app`, ".appbar");

@@ -1,0 +1,81 @@
+/* Settings (17 §7.2, 17B SET-01/02). Tokens only. Selection is --fg, never brass (17 §3.1.1). */
+.settings { display: flex; flex-direction: column; gap: 12px; container: settings / inline-size; }
+.settings .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.settings .seg button { border: 1px solid var(--line); border-radius: var(--r-input); padding: 6px 10px; min-height: 32px; }
+.settings .seg button.on { background: var(--win2); color: var(--fg); border-color: var(--fg-disabled); }
+.settings .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.settings select { background: var(--win2); color: var(--fg); border: 1px solid var(--line); border-radius: var(--r-input); padding: 4px 8px; font-size: calc(16px * var(--text-scale)); }
+
+.settings-desktop { flex-direction: row; align-items: stretch; gap: var(--sp-16); height: 100%; min-height: 0; }
+.set-nav { flex: 0 0 200px; border-right: 1px solid var(--line); align-self: stretch; }
+.set-nav ul { list-style: none; margin: 0; padding: 0; }
+.set-nav-item { width: 100%; text-align: left; min-height: 28px; padding: 6px 10px; color: var(--fg-muted); border-radius: var(--r-input); overflow-wrap: anywhere; }
+.set-nav-item[aria-current="page"] { color: var(--fg); background: var(--win2); }
+.settings-phone .set-nav-item { min-height: 44px; border-bottom: 1px solid var(--line); border-radius: 0; color: var(--fg); }
+.set-content { flex: 1; min-width: 0; container: settings / inline-size; }
+/* Studio #38 item 6: the pane scrolls inside the window (fits any WM size ≥ the 300 px min). */
+.settings-desktop .set-content, .settings-desktop .set-nav { overflow-y: auto; min-height: 0; }
+
+.appearance { display: flex; flex-direction: column; gap: var(--sp-24); }
+.appearance section { display: flex; flex-direction: column; gap: var(--sp-8); }
+.set-hint { margin: 0; font-size: var(--fs-14); }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12); min-height: 44px; flex-wrap: wrap; }
+.set-row-label { overflow-wrap: anywhere; }
+.set-block { display: flex; flex-direction: column; gap: var(--sp-4); }
+.set-link { text-decoration: underline; color: var(--fg); min-height: 28px; }
+
+.swatches { display: flex; gap: var(--sp-12); flex-wrap: wrap; }
+.swatch { display: flex; flex-direction: column; align-items: center; gap: var(--sp-4); padding: 2px; border-radius: var(--r-card); }
+.swatch-mini { position: relative; display: block; width: 72px; height: 48px; padding: 6px; background: var(--bg0); border: 1px solid var(--line); border-radius: var(--r-input); outline: 2px solid transparent; outline-offset: 2px; }
+.swatch[aria-checked="true"] .swatch-mini { outline-color: var(--fg); }
+.swatch-win { display: flex; flex-direction: column; justify-content: space-between; height: 100%; background: var(--win); border-radius: 2px; padding: 4px; }
+.swatch-acc { display: block; height: 4px; width: 60%; background: var(--acc); }
+.swatch-ticks { display: flex; gap: 3px; }
+.swatch-ticks i { display: block; width: 3px; height: 8px; }
+.swatch-ticks .g { background: var(--gain); }
+.swatch-ticks .l { background: var(--loss); }
+.swatch-check { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; border-radius: 50%; display: grid; place-items: center; color: var(--fg); background: var(--bg0); border: 1px solid var(--fg); box-sizing: border-box; }
+.swatch-check svg { width: 10px; height: 10px; }
+.swatch-name { font-size: var(--fs-13); text-align: center; white-space: nowrap; }
+
+.shells { display: flex; flex-direction: column; }
+.shell-row { display: flex; align-items: center; gap: var(--sp-12); min-height: 44px; border-bottom: 1px solid var(--line); text-align: left; padding: 4px 6px; flex-wrap: wrap; }
+.shell-row[aria-checked="true"] { box-shadow: inset 2px 0 0 var(--fg); }
+.shell-thumb { box-sizing: border-box; width: 32px; height: 20px; border: 1px dashed var(--line); border-radius: var(--r-input); flex: none; }
+.shell-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+.scale input[type="range"] { width: 100%; min-height: 28px; accent-color: var(--fg); }
+.preview { border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--sp-12); display: flex; flex-direction: column; gap: var(--sp-4); }
+.preview-hero { font: 400 var(--fs-30) / 1.1 var(--font-display); overflow-wrap: anywhere; }
+.preview-hero .num { font-family: var(--font-display); }
+.preview-row { display: flex; justify-content: space-between; gap: var(--sp-8); border-top: 1px solid var(--line); padding-top: var(--sp-4); flex-wrap: wrap; }
+.preview-row .num { text-align: right; margin-left: auto; }
+
+/* Switch (Studio #38): track 32×18 r9; off --line fill + 1px --line border; on --fg-muted fill; knob 14 --fg, 2px inset,
+   travels 14px in 120ms ease-out (0 under reduced motion via --dur-fast). Hit 28 pointer / 44 touch. Never brass. */
+.set-switch { min-width: 28px; min-height: 28px; display: inline-grid; place-items: center; border-radius: var(--r-input); }
+.set-switch-track { position: relative; box-sizing: border-box; width: 32px; height: 18px; border-radius: 9px; border: 1px solid var(--line); background: var(--line); display: block; }
+.set-switch-knob { position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); transition: transform var(--dur-fast) ease-out; }
+.set-switch[aria-checked="true"] .set-switch-track { background: var(--fg-muted); }
+.set-switch[aria-checked="true"] .set-switch-knob { transform: translateX(14px); }
+html[data-motion="reduce"] .set-switch-knob { transition: none; }
+.set-switch:focus-visible { outline: none; }
+.set-switch:focus-visible .set-switch-track { outline: 2px solid var(--fg); outline-offset: 2px; }
+.set-switch[aria-disabled="true"] .set-switch-track { background: var(--fg-disabled); border-color: var(--fg-disabled); }
+.set-switch[aria-disabled="true"] .set-switch-knob { background: var(--fg-disabled); }
+
+/* Segment (Studio #38): 28 tall, 1px --line border, r6, hairlines; selected --win2 + --fg 500; never truncates. */
+.set-seg { display: flex; border: 1px solid var(--line); border-radius: 6px; width: fit-content; max-width: 100%; overflow: hidden; }
+.set-seg button { min-height: 28px; min-width: 44px; padding: 4px 12px; color: var(--fg-muted); white-space: normal; overflow-wrap: normal; }
+.set-seg button + button { border-left: 1px solid var(--line); }
+.set-seg button[aria-checked="true"] { color: var(--fg); background: var(--win2); font-weight: 500; }
+.set-seg.stacked { flex-direction: column; width: 100%; }
+/* Transient measuring state for overflow detection (controls.tsx rowOverflows). */
+.set-seg.measure-row { flex-direction: row; width: max-content; max-width: none; }
+.set-seg.measure-row button { white-space: nowrap; }
+.set-seg.stacked button { text-align: left; }
+.set-seg.stacked button + button { border-left: 0; border-top: 1px solid var(--line); }
+
+/* Touch: 44 px targets (17A C5). Last so it wins over the pointer sizes above. */
+@media (pointer: coarse) { .scale input[type="range"], .set-nav-item, .set-link, .swatch, .set-seg button { min-height: 44px; } .set-switch { min-width: 44px; min-height: 44px; } }
+.settings-phone .set-nav { flex: none; width: 100%; border-right: 0; }

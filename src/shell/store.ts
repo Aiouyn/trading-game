@@ -4,9 +4,13 @@ import { create } from "zustand";
 import type { Channels } from "./channels";
 import { applyLayout, type LayoutId } from "./layouts";
 import { RANKS, type AppId, type Rank } from "./registry";
-import type { AccountUiPrefs, PaletteId, ShellLocalState, SnapSlot, WindowRect } from "./types";
+import type { AccountUiPrefs, PaletteId, ShellId, ShellLocalState, SnapSlot, WindowRect } from "./types";
 import { evaluate, type Visibility } from "./unlock";
 import * as wm from "./wm";
+import { prefsClient } from "./prefs";
+
+/** Account id for the prefs stub (same guest account as the device store in QuayShell). */
+export const PREFS_ACCOUNT = "guest";
 
 export const workspacesFor = (r: Rank): 1 | 2 | 3 => (RANKS.indexOf(r) >= 3 ? 3 : RANKS.indexOf(r) === 2 ? 2 : 1);
 
@@ -16,7 +20,13 @@ export interface ShellState {
   sticky: Set<AppId>;
   fresh: Set<AppId>;              // newly unlocked, not yet opened: one accent dot
   local: ShellLocalState;
-  prefs: Pick<AccountUiPrefs, "reducedMotion" | "reducedTransparency" | "highContrast" | "colorBlindPair" | "textScale">;
+  prefs: Pick<AccountUiPrefs, "reducedMotion" | "reducedTransparency" | "highContrast" | "colorBlindPair" | "textScale" | "shell" | "locale">;
+  /** Phone: an app's pushed screen (17B SET: "Back to Settings"). The app bar shows its title and the back chevron pops it. */
+  /** Boot screen already shown on this page load (it never replays on a client-side route change). */
+  booted: boolean;
+  setBooted(): void;
+  phoneSub: { title: string; backLabel: string; onBack: () => void } | null;
+  setPhoneSub(sub: ShellState["phoneSub"]): void;
   vw: number;
   vh: number;
   recent: AppId[];
@@ -65,7 +75,11 @@ export const createShellStore = (channels: Channels) =>
 
     return {
       channels, vis: first.vis, sticky: first.sticky, fresh: new Set(), local: initialLocal(),
-      prefs: { reducedMotion: "system", reducedTransparency: "system", highContrast: false, colorBlindPair: false, textScale: 1 },
+      prefs: { reducedMotion: "system", reducedTransparency: "system", highContrast: false, colorBlindPair: false, textScale: 1, shell: channels.rank.rank.toLowerCase() as ShellId, locale: "en" },
+      booted: false,
+      setBooted() { set({ booted: true }); },
+      phoneSub: null,
+      setPhoneSub(phoneSub) { set({ phoneSub }); },
       vw: 1440, vh: 900, recent: [], launcherOpen: false, recentOpen: false, keySheetOpen: false, phoneApp: null,
 
       setChannels(c) {
@@ -115,11 +129,13 @@ export const createShellStore = (channels: Channels) =>
       setPrefs(p) {
         const textScale = p.textScale === undefined ? undefined : Math.min(2, Math.max(1, p.textScale)); // 1.0..2.0 (17 §2.1)
         set((s) => ({ prefs: { ...s.prefs, ...p, ...(textScale === undefined ? {} : { textScale }) } }));
+        // Account prefs go through the REST stub (19 owns PUT /account/prefs; 17 §2.1). The palette never does (device-local).
+        void prefsClient.get(PREFS_ACCOUNT).then((cur) => prefsClient.put({ ...cur, ...get().prefs }));
       },
       setLauncher(launcherOpen) { set({ launcherOpen }); },
       setRecent(recentOpen) { set({ recentOpen }); },
       setKeySheet(keySheetOpen) { set({ keySheetOpen }); },
-      phoneBack() { set({ phoneApp: null }); },
+      phoneBack() { const sub = get().phoneSub; if (sub) sub.onBack(); else set({ phoneApp: null }); },
     };
   });
 

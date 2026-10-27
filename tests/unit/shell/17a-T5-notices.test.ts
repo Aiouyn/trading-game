@@ -38,8 +38,8 @@ describe("17A T5 order entry lock while halted", () => {
 
 import { UI_GLYPHS } from "@/components/shell/glyphs/ui";
 describe("Studio T5 glyphs: alert, world, error", () => {
-  it("are in the UI set (7 → 10 UI glyphs), distinct, on the 24-unit grid", () => {
-    expect(Object.keys(UI_GLYPHS)).toHaveLength(10);
+  it("are in the UI set (7 → 10 UI glyphs, + external from 17B SET-08 = 11), distinct, on the 24-unit grid", () => {
+    expect(Object.keys(UI_GLYPHS)).toHaveLength(11);
     const keys = (["alert", "world", "error", "bell"] as const).map((k) => UI_GLYPHS[k].join("|"));
     expect(new Set(keys).size).toBe(4);
     for (const k of ["alert", "world", "error"] as const)
