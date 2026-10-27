@@ -6,7 +6,7 @@ import { execSync } from 'node:child_process';
 import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const HOOK_STRINGS = ['__city', 'labelBackground', 'samplePerfNow', 'brassCheck', 'partsOfEntity', 't0Picture', 'NEXT_PUBLIC_CITY_E2E'];
+const HOOK_STRINGS = ['__city', 'labelBackground', 'samplePerfNow', 'brassCheck', 'partsOfEntity', 't0Picture', 'projectGround', 'NEXT_PUBLIC_CITY_E2E'];
 const STATIC = '.next/static';
 
 function files(dir) {
@@ -39,5 +39,7 @@ rmSync('.next', { recursive: true, force: true });
 let ok = true;
 if (total(off) !== 0) { console.error('FAIL: the prod build without the flag ships e2e hook strings'); ok = false; }
 if (on.__city === 0) { console.error('FAIL (control): the flag=1 build has no window.__city hook'); ok = false; }
+// card 1 (decision 4): the coverage / projectGround hooks are e2e-only too
+if (on.projectGround === 0) { console.error('FAIL (control): the flag=1 build has no projectGround hook'); ok = false; }
 console.log(ok ? 'PASS' : 'FAILED');
 process.exit(ok ? 0 : 1);

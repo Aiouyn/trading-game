@@ -15,6 +15,7 @@ import { CityStore } from '../data/store';
 import { manifestUrl } from '../data/urls';
 import { districtName } from '../data/names';
 import { buildRamps, type Ramps } from '../art/ramps';
+import { buildGroundFieldInTasks, type GroundField } from './groundfield';
 import { deltaE as deltaE76 } from '../art/color';
 import { readTokens, cssVar, fontVar, sizeVar } from '../art/tokens';
 import { createDecodeClient, type DecodeClient } from '../worker/client';
@@ -74,15 +75,19 @@ export interface CityTestApi {
   /** Take a ui.perf sample now (same path as the 60 s timer). */
   samplePerfNow: () => void;
   /** T0 only: the drawn city's vertical extent and its labels, CSS px. */
-  t0Picture: () => { top: number; bottom: number; height: number; labels: (LabelBox & { text: string })[] } | null;
+  t0Picture: () => { top: number; bottom: number; height: number; labels: (LabelBox & { text: string })[]; ms: { field: number[]; picture: Record<string, number> } } | null;
   labelBackground: () => { text: string; p50: number; p75: number }[] | null;
   decodeMs: () => number;
   decodeInWorker: () => boolean;
+  /** Card 1 AC 3: a mask render with every part 1 and the ground 0; bits row-major from the top, base64. */
+  coverage: (what: 'parts') => { w: number; h: number; bits: string } | null;
+  /** Card 1: a ground point (y = 0) in CSS px relative to the canvas (T1/T2). */
+  projectGround: (x: number, z: number) => { x: number; y: number } | null;
 }
 
-const TIER_CONFIG: Record<'T1' | 'T2', { dprCap: number; maxPixels: number; nearRing: number; boats: boolean }> = {
-  T2: { dprCap: 1.5, maxPixels: 2_400_000, nearRing: Infinity, boats: true },
-  T1: { dprCap: 1.0, maxPixels: 2_000_000, nearRing: 220, boats: false },
+const TIER_CONFIG: Record<'T1' | 'T2', { dprCap: number; maxPixels: number; nearRing: number; boats: boolean; crosswalks: boolean }> = {
+  T2: { dprCap: 1.5, maxPixels: 2_400_000, nearRing: Infinity, boats: true, crosswalks: true },
+  T1: { dprCap: 1.0, maxPixels: 2_000_000, nearRing: 220, boats: false, crosswalks: false },
 };
 
 const LONG_PRESS_MS = 500;
@@ -101,6 +106,18 @@ const PENDING_LAG_TICKS = 720;
 const TWEEN_MS = 350;
 const PERF_INTERVAL_MS = 60_000;
 /** window.__city is exposed in dev and e2e builds only (spec §9). Both are build-time constants. */
+/** Yields to the event loop for one task (MessageChannel: not paused by a test's fake clock). */
+function nextTask(): Promise<void> {
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      ch.port1.close();
+      resolve();
+    };
+    ch.port2.postMessage(0);
+  });
+}
+
 const DEV_OR_E2E = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_CITY_E2E === '1';
 
 export async function createRenderer(opts: CityRendererOptions, hooks: InternalHooks = {}): Promise<CityRenderer> {
@@ -137,6 +154,9 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
 
   let ground: GroundData | null = null;
   let groundHash: string | null = null;
+  let groundField: GroundField | null = null;
+  /** e2e: wall-clock ms of each ground-field task (coast EDT, road EDT, pack, coast loops) */
+  const fieldMs: number[] = [];
   let model: CityModel | null = null;
   let colors: { colors: Float32Array; flat: Uint8Array } | null = null;
 
@@ -421,10 +441,17 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     if (groundHash !== s.ground.contentHash) {
       const g = s.ground;
       jobs.push(
-        opts.fetchChunk(urlOf.get(g.contentHash)!).then((buf) => {
+        opts.fetchChunk(urlOf.get(g.contentHash)!).then(async (buf) => {
           chunkFetches++;
           const b = groundBounds(g);
-          ground = { mask: new Uint8Array(buf), size: g.size, x0: b.x0, z0: b.z0, span: b.size };
+          const next = { mask: new Uint8Array(buf), size: g.size, x0: b.x0, z0: b.z0, span: b.size };
+          // card 1: the coast / road field runs once per mask, split over tasks of its own
+          await nextTask();
+          let t = performance.now();
+          const lap = () => { const now = performance.now(); fieldMs.push(Math.round((now - t) * 10) / 10); return now; };
+          groundField = await buildGroundFieldInTasks(next, s.districts, async () => { lap(); await nextTask(); t = performance.now(); });
+          lap();
+          ground = next;
           groundHash = g.contentHash;
         }),
       );
@@ -476,7 +503,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     );
     if (scene) {
       if (upload) {
-        if (ground) scene.setGround(ground);
+        if (ground && groundField) scene.setGround(ground, groundField);
         scene.setParts({ parts: model.parts, colors: colors.colors, flat: colors.flat, entity: model.entity }, isWater);
       } else scene.setColors(colors.colors, colors.flat);
       applyLight();
@@ -567,7 +594,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
 
   function sceneConfig(t: 'T1' | 'T2'): SceneConfig {
     const c = TIER_CONFIG[t];
-    return { dpr: currentDpr(t), nearRing: c.nearRing, boats: c.boats };
+    return { dpr: currentDpr(t), nearRing: c.nearRing, boats: c.boats, crosswalks: c.crosswalks };
   }
 
   function currentDpr(t: 'T1' | 'T2'): number {
@@ -637,12 +664,14 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       height: chrome.stage.clientHeight,
       dpr: Math.min(2, window.devicePixelRatio || 1),
       ground,
+      coast: groundField && { loops: groundField.coast, quay: groundField.quay },
       parts: model.parts,
       colors: colors.colors,
       flat: colors.flat,
       ramps,
       labels: labelSpecs().map((l) => ({ text: l.text, ground: l.ground })),
       labelFont: font,
+      profile: DEV_OR_E2E && new URLSearchParams(location.search).has('t0prof'),
     });
     img.src = t0Info.url;
   }
@@ -1077,7 +1106,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
         onZoom: zoomBy,
         onTable: openTable,
       });
-      ramps = buildRamps(readTokens(chrome.root));
+      ramps = buildRamps(readTokens(chrome.root), { highContrast: document.documentElement.dataset.hc === '1' });
       table = createTableView({
         host: chrome.tableHost,
         anchor: (id) => anchorScreen(id) ?? { x: 0, y: 0 },
@@ -1243,13 +1272,19 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
       cutCount: () => cutCount,
       labelBackground: () => labelBackground(),
       samplePerfNow: () => samplePerf(),
-      t0Picture: () => (tier === 'T0' && t0Info && chrome ? { top: t0Info.top, bottom: t0Info.bottom, height: chrome.stage.clientHeight, labels: t0Info.labels } : null),
+      t0Picture: () => (tier === 'T0' && t0Info && chrome ? { top: t0Info.top, bottom: t0Info.bottom, height: chrome.stage.clientHeight, labels: t0Info.labels, ms: { field: fieldMs, picture: t0Info.ms } } : null),
       partsOfEntity: (id) => {
         const ei = model?.entityIndex.get(id);
         return ei === undefined ? 0 : (model!.partsOf.get(ei)?.length ?? 0);
       },
       decodeMs: () => decoder.decodeMs,
       decodeInWorker: () => decoder.inWorker,
+      coverage: () => partsCoverage(),
+      projectGround: (x, z) => {
+        if (!scene || !chrome) return null;
+        scene.setCamera(cam, chrome.stage.clientWidth, chrome.stage.clientHeight, viewHalf());
+        return scene.project([x, 0, z], chrome.stage.clientWidth, chrome.stage.clientHeight);
+      },
     };
     (window as unknown as { __city: CityTestApi }).__city = t;
   }
@@ -1278,6 +1313,27 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     });
   }
 
+  function partsCoverage(): { w: number; h: number; bits: string } | null {
+    if (!scene || !chrome) return null;
+    const gl = scene.renderer.getContext();
+    const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+    scene.setCamera(cam, chrome.stage.clientWidth, chrome.stage.clientHeight, viewHalf());
+    scene.render('parts');
+    const px = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    scene.render();
+    const bits = new Uint8Array(Math.ceil((w * h) / 8));
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const k = y * w + x;
+        if (px[((h - 1 - y) * w + x) * 4] > 127) bits[k >> 3] |= 1 << (k & 7);
+      }
+    }
+    let bin = '';
+    for (let i = 0; i < bits.length; i += 0x8000) bin += String.fromCharCode(...bits.subarray(i, i + 0x8000));
+    return { w, h, bits: btoa(bin) };
+  }
+
   function brassCheck(dE: number): { brass: number; outside: number; maskPixels: number } | null {
     if (!scene || !canvas || !ramps || !chrome) return null;
     const gl = scene.renderer.getContext();
@@ -1286,7 +1342,7 @@ export async function createRenderer(opts: CityRendererOptions, hooks: InternalH
     scene.render();
     const color = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, color);
-    scene.render(true);
+    scene.render('brass');
     const mask = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, mask);
     scene.render();

@@ -28,6 +28,26 @@ export function groundBitmap(mask: Uint8Array, size: number, step: number, class
   return { n, data };
 }
 
+/**
+ * Card 1 T0: grows land (non-transparent) pixels by one into the water, so the coast clip path,
+ * which runs up to half a cell outside the stair-stepped mask, never shows the water fill
+ * through a gap. In place; 4-neighbour, one pass.
+ */
+export function dilateLand(data: Uint8ClampedArray, n: number): void {
+  // one 32-bit word per pixel (a T0 hot loop: ~2-3 ms per-byte on CI, explain-the-number #60)
+  const px = new Uint32Array(data.buffer, data.byteOffset, n * n);
+  const src = px.slice();
+  const alpha = new Uint8Array(src.buffer);
+  const solid = (p: number) => alpha[p * 4 + 3] !== 0;
+  for (let j = 0; j < n; j++) {
+    for (let i = 0, p = j * n; i < n; i++, p++) {
+      if (solid(p)) continue;
+      const from = i > 0 && solid(p - 1) ? p - 1 : i < n - 1 && solid(p + 1) ? p + 1 : j > 0 && solid(p - n) ? p - n : j < n - 1 && solid(p + n) ? p + n : -1;
+      if (from >= 0) px[p] = src[from];
+    }
+  }
+}
+
 /** Each CSS fill as the canvas resolves it: one 1×1 fill per class, read back as RGBA bytes. */
 function fillBytes(fills: string[]): Uint8ClampedArray {
   const c = document.createElement('canvas');
@@ -56,6 +76,8 @@ export interface PictureResult {
   bottom: number;
   /** Labels as drawn, CSS px; labels that would be clipped or overlap another are left out. */
   labels: (LabelBox & { text: string })[];
+  /** Wall-clock ms per drawing stage (explains the T0 long task; read by the e2e hook only). */
+  ms: Record<string, number>;
 }
 
 /**
@@ -68,6 +90,8 @@ export function drawPicture(opts: {
   height: number;
   dpr: number;
   ground: { mask: Uint8Array; size: number; x0: number; z0: number; span: number } | null;
+  /** card 1: world-space coast loops (x, z pairs, land inside under even-odd) and per-vertex quay flags */
+  coast: { loops: Float32Array[]; quay: Uint8Array[] } | null;
   parts: Float32Array;
   colors: Float32Array;
   flat: Uint8Array;
@@ -75,8 +99,13 @@ export function drawPicture(opts: {
   /** Each label: its text and candidate ground points (metres), most preferred first. */
   labels: { text: string; ground: [number, number][] }[];
   labelFont: string;
+  /** e2e profiling: flush the canvas (1 px read-back) at each stage so `ms` holds raster time too */
+  profile?: boolean;
 }): PictureResult {
   const { ramps } = opts;
+  const ms: Record<string, number> = {};
+  let t = performance.now();
+  const lap = (k: string) => { if (opts.profile) g?.getImageData(0, 0, 1, 1); const now = performance.now(); ms[k] = Math.round((now - t) * 10) / 10; t = now; };
   const canvas = document.createElement('canvas');
   const W = Math.max(1, Math.round(opts.width * opts.dpr)), H = Math.max(1, Math.round(opts.height * opts.dpr));
   canvas.width = W;
@@ -85,7 +114,7 @@ export function drawPicture(opts: {
   // accelerated canvas on a software GPU (SwiftShader: CI, the box, blocklisted GPUs) spent seconds
   // in that one flush (T0 profile, 2026-10-27).
   const g = canvas.getContext('2d', { willReadFrequently: true });
-  if (!g) return { url: '', top: 0, bottom: 0, labels: [] };
+  if (!g) return { url: '', top: 0, bottom: 0, labels: [], ms };
   g.fillStyle = css(ramps.water);
   g.fillRect(0, 0, W, H);
   // label metrics first: the portrait crop must keep every district label on the picture
@@ -114,7 +143,11 @@ export function drawPicture(opts: {
     const step = groundStep(size);
     const s = (span / size) * step;
     const fills = [css(ramps.water), css(ramps.land), css(ramps.park), css(ramps.road)];
+    lap('setup');
     const bmp = groundBitmap(mask, size, step, fillBytes(fills));
+    lap('bitmap');
+    if (opts.coast) dilateLand(bmp.data, bmp.n);
+    lap('dilate');
     const src = document.createElement('canvas');
     src.width = bmp.n;
     src.height = bmp.n;
@@ -125,10 +158,41 @@ export function drawPicture(opts: {
       const [ax, ay] = toScreen(gx + s, 0, gz);
       const [bx, by] = toScreen(gx, 0, gz + s);
       g.save();
+      if (opts.coast) {
+        // the vector shoreline: canvas AA on the clip gives the smooth coast, river banks and map edge
+        const coast = new Path2D();
+        for (const l of opts.coast.loops) {
+          coast.moveTo(...toScreen(l[0], 0, l[1]));
+          for (let k = 2; k < l.length; k += 2) coast.lineTo(...toScreen(l[k], 0, l[k + 1]));
+          coast.closePath();
+        }
+        g.clip(coast, 'evenodd');
+      }
       g.imageSmoothingEnabled = false;
       g.setTransform(ax - ox, ay - oy, bx - ox, by - oy, ox, oy);
       g.drawImage(src, 0, 0);
       g.restore();
+    }
+    lap('clip+ground');
+    if (opts.coast) {
+      // quay coping: the coast segments whose both ends are quay, one stroke, at least 1 px
+      const { loops, quay } = opts.coast;
+      const cope = new Path2D();
+      loops.forEach((l, li) => {
+        const q = quay[li], m = q.length;
+        for (let k = 0; k < m; k++) {
+          const k2 = (k + 1) % m;
+          if (!q[k] || !q[k2]) continue;
+          cope.moveTo(...toScreen(l[k * 2], 0, l[k * 2 + 1]));
+          cope.lineTo(...toScreen(l[k2 * 2], 0, l[k2 * 2 + 1]));
+        }
+      });
+      g.save();
+      g.strokeStyle = css(ramps.coping);
+      g.lineWidth = Math.max(1, 0.5 * scale);
+      g.stroke(cope);
+      g.restore();
+      lap('coping');
     }
   }
   const [dx, , dz] = viewDirection(0);
@@ -150,6 +214,7 @@ export function drawPicture(opts: {
     quad([toScreen(x0, y0, z1), toScreen(x1, y0, z1), toScreen(x1, y1, z1), toScreen(x0, y1, z1)], css(lit));
     quad([toScreen(x0, y1, z0), toScreen(x1, y1, z0), toScreen(x1, y1, z1), toScreen(x0, y1, z1)], css(top));
   }
+  lap('parts');
   // district labels: --fg with a 3 px --bg0 knockout stroke (no shadow). Laid out like the 3D
   // labels: a label moves to another point of its district, or is left out, rather than being
   // clipped by the edge or drawn over another label (review: "Financial Mile" on phone T0).
@@ -181,7 +246,10 @@ export function drawPicture(opts: {
   // vertical extent of the city as drawn (ground + parts), CSS px
   const top = Math.max(0, (H / 2 - (v1 - vc) * scale) / k);
   const bottom = Math.min(H / k, (H / 2 - (v0 - vc) * scale) / k);
-  return { url: canvas.toDataURL('image/png'), top, bottom, labels: drawn };
+  lap('labels');
+  const url = canvas.toDataURL('image/png');
+  lap('encode');
+  return { url, top, bottom, labels: drawn, ms };
 }
 
 /**

@@ -103,3 +103,43 @@ export function isPhone(page: Page): boolean {
 }
 
 export { expect };
+
+/** Per-frame draw calls and triangles on main 2875fb72 (after #54), seed 20261020; card1.spec re-measures it. */
+export const MAIN_BASE = { desktop: { calls: 3, tris: 14_798 }, phone: { calls: 2, tris: 14_510 } } as const;
+/** Card 1: main's baseline + 1 call and + 2k triangles, capped by the brief (5 calls / 18k on both projects). */
+export function card1Limit(phone: boolean) {
+  const b = MAIN_BASE[phone ? 'phone' : 'desktop'];
+  return { calls: Math.min(b.calls + 1, 5), tris: Math.min(b.tris + 2_000, 18_000) };
+}
+
+/** The T0 build probe: long tasks (PerformanceObserver) and fill/fillRect/drawImage counts on any 2D context. */
+export interface T0Calls { fill: number; fillRect: number; drawImage: number }
+interface T0ProbeWindow { __longTasks: { start: number; duration: number }[]; __calls: T0Calls }
+
+export async function installT0Probe(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const w = window as unknown as T0ProbeWindow;
+    w.__longTasks = [];
+    w.__calls = { fill: 0, fillRect: 0, drawImage: 0 };
+    const proto = CanvasRenderingContext2D.prototype as unknown as Record<keyof T0Calls, (...a: unknown[]) => unknown>;
+    for (const k of ['fill', 'fillRect', 'drawImage'] as const) {
+      const orig = proto[k];
+      proto[k] = function (this: CanvasRenderingContext2D, ...a: unknown[]) {
+        w.__calls[k]++;
+        return orig.apply(this, a);
+      };
+    }
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) w.__longTasks.push({ start: Math.round(e.startTime), duration: Math.round(e.duration) });
+    }).observe({ type: 'longtask', buffered: true });
+  });
+}
+
+export async function t0LongTasks(page: Page): Promise<{ start: number; duration: number }[]> {
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 50)))); // let the observer flush
+  return page.evaluate(() => (window as unknown as T0ProbeWindow).__longTasks);
+}
+
+export function t0Calls(page: Page): Promise<T0Calls> {
+  return page.evaluate(() => (window as unknown as T0ProbeWindow).__calls);
+}
