@@ -131,18 +131,6 @@ jobs:
           CI: 'true'
           CITY_AB_BASE_URL: http://localhost:3211
           CITY_EVIDENCE_DIR: ${{ runner.temp }}/city-ab
-      - name: one-off capture of card 1's before files on main (merge-base), for tests/e2e/city/fixtures/card1-before
-        if: always()
-        run: |
-          d="$RUNNER_TEMP/city-ab/card1-before"
-          CITY_CARD1_PHASE=pose CITY_CARD1_DIR="$d" CITY_CARD1_BEFORE_DIR="$d" npx playwright test -c tests/e2e/city/playwright.config.ts card1.spec.ts
-          cp tests/e2e/city/card1.spec.ts tests/e2e/city/helpers.ts "$RUNNER_TEMP/base/tests/e2e/city/"
-          cp src/city/renderer/groundfield.ts "$RUNNER_TEMP/base/src/city/renderer/"
-          git -C "$RUNNER_TEMP/base" rev-parse HEAD > "$d/SHA"
-          cd "$RUNNER_TEMP/base"
-          CITY_CARD1_PHASE=before CITY_CARD1_DIR="$d" CITY_E2E_PORT=3212 CITY_HARNESS_OUT="$RUNNER_TEMP/h-base2" npx playwright test -c tests/e2e/city/playwright.config.ts card1.spec.ts
-        env:
-          CI: 'true'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
