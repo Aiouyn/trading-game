@@ -49,15 +49,49 @@ describe('T04-05 credit aggregates (04 §3.14.4)', () => {
   });
 
   it('supplied credit 1.1 × GDP for 1 day after trend 1.0: gap = 1.1 − (1.0 + 0.1·(1 − 2^(−1/1092)))', () => {
-    const out = creditAggregates(100, { credit: 100, creditGdpTrend: 1.0, credit364: null, credit0: 100, days: 0 }, { credit: 110, creditConditions: 0.25, interbankSpread: 0.004 },
+    // days = 1 (E-90 (3): at days = 0 credit holds, so the supplied 110 would not be taken)
+    const out = creditAggregates(100, { credit: 100, creditGdpTrend: 1.0, credit364: null, credit0: 100, days: 1 }, { credit: 110, creditConditions: 0.25, interbankSpread: 0.004 },
       { Rtilde: 0.05, regime: 'CONTRACTION', nominalGdpGrowthLn: 0.5 });
     expect(out.creditGdp).toBeCloseTo(1.1, 15);
     expect(out.trend).toBeCloseTo(1.0 + 0.1 * ALPHA, 15);
     expect(out.creditGap).toBeCloseTo(1.1 - (1.0 + 0.1 * (1 - dmath.pow(2, -1 / 1092))), 15);
     expect(out.creditGap).toBeCloseTo(0.1 * (1 - 0.000635), 6);
-    expect(out).toMatchObject({ credit: 110, creditConditions: 0.25, interbankSpread: 0.004, creditGrowth: 0 });
+    expect(out).toMatchObject({ credit: 110, creditConditions: 0.25, interbankSpread: 0.004 });
+    expect(out.creditGrowth).toBeCloseTo(dmath.ln(1.1) * 364, 12);
     expect(creditAggregates(100, { credit: 100, creditGdpTrend: 1.0, credit364: 100, credit0: 50, days: 364 }, { credit: 110, creditConditions: 0, interbankSpread: 0 },
       { Rtilde: 0, regime: 'EXPANSION', nominalGdpGrowthLn: 0 }).creditGrowth).toBeCloseTo(dmath.ln(1.1), 15);
+  });
+
+  it('E-90 (3) day-0 close: credit holds at prev.credit on the supplied and the fallback path; the rest is computed as usual', () => {
+    const prev: CreditStateIn = { credit: 100, creditGdpTrend: 1.0, credit364: null, credit0: 100, days: 0 };
+    const sup = creditAggregates(80, prev, { credit: 110, creditConditions: 0.25, interbankSpread: 0.004 }, { Rtilde: 0.05, regime: 'CONTRACTION', nominalGdpGrowthLn: 0.5 });
+    expect(sup).toEqual({ credit: 100, creditGdp: 1.25, trend: 1.0 + 0.25 * ALPHA, creditGap: 1.25 - (1.0 + 0.25 * ALPHA), creditGrowth: 0, creditConditions: 0.25, interbankSpread: 0.004 });
+    const fb = creditAggregates(80, prev, null, { Rtilde: 0.0025, regime: 'EXPANSION', nominalGdpGrowthLn: 0.5 });
+    expect(fb).toEqual({ credit: 100, creditGdp: 1.25, trend: 1.0 + 0.25 * ALPHA, creditGap: 1.25 - (1.0 + 0.25 * ALPHA), creditGrowth: 0,
+      creditConditions: fallbackCreditConditions(0.0025, 'EXPANSION'), interbankSpread: null });
+    // day 1 moves credit on both paths
+    expect(creditAggregates(80, { ...prev, days: 1 }, { credit: 110, creditConditions: 0, interbankSpread: 0 }, { Rtilde: 0, regime: 'EXPANSION', nominalGdpGrowthLn: 0.5 }).credit).toBe(110);
+    expect(creditAggregates(80, { ...prev, days: 1 }, null, { Rtilde: 0, regime: 'RECOVERY', nominalGdpGrowthLn: 0.5 }).credit).toBe(100 * dmath.exp(0.5));
+  });
+
+  it('AC E-90-4 (unit level): credit = credit0·e^(0.0001·d) → creditGrowth 0.0364 ± 1e−12 at days 182, 364 (both branches), 500 (row 136)', () => {
+    const c0 = 6.4e12; const fb = { Rtilde: 0, regime: 'EXPANSION' as Regime, nominalGdpGrowthLn: 0 };
+    const rows: number[] = [];   // rows[d] = closing credit of day d (history row credit)
+    let st: CreditStateIn = { credit: c0, creditGdpTrend: 1, credit364: null, credit0: c0, days: 0 };
+    const growth: number[] = [];
+    for (let d = 0; d <= 500; d++) {
+      st = { ...st, credit364: d >= 364 ? rows[d - 364]! : null, days: d };
+      const out = creditAggregates(c0, st, { credit: c0 * dmath.exp(0.0001 * d), creditConditions: 0, interbankSpread: 0 }, fb);
+      rows.push(out.credit); growth.push(out.creditGrowth);
+      st = { ...st, credit: out.credit, creditGdpTrend: out.trend };
+    }
+    expect(rows[0]).toBe(c0);   // E-90 (3): row(0).credit === credit0
+    expect(growth[0]).toBe(0);
+    for (const d of [182, 364, 500]) expect(Math.abs(growth[d]! - 0.0364)).toBeLessThanOrEqual(1e-12);
+    const c0Branch = creditAggregates(c0, { credit: rows[363]!, creditGdpTrend: 1, credit364: null, credit0: c0, days: 364 },
+      { credit: c0 * dmath.exp(0.0364), creditConditions: 0, interbankSpread: 0 }, fb).creditGrowth;   // production fallback at the same day
+    expect(Math.abs(growth[364]! - c0Branch)).toBeLessThanOrEqual(1e-12);
+    expect(growth[500]).toBe(dmath.ln(rows[500]! / rows[136]!));
   });
 
   it('E-87 (3) creditGrowth: 0 at day 0, ln(credit/credit0)·364/days before day 364, ln(credit/credit364) from day 364', () => {
@@ -71,7 +105,10 @@ describe('T04-05 credit aggregates (04 §3.14.4)', () => {
     const c364 = c0 * dmath.exp(0.004);   // AC E87-3b: from day 364 the base is credit_364, not credit0
     expect(g(c0 * dmath.exp(0.01), 364, c364)).toBeCloseTo(0.006, 14);
     expect(g(c0 * dmath.exp(0.01), 900, c364)).toBeCloseTo(0.006, 14);
-    expect(() => g(c0, 364)).toThrow('day 364: credit364 missing');
+    // E-90 (4): credit364 null at days ≥ 364 (missing history row, production fallback) takes the credit0 branch, no throw
+    expect(g(c0 * dmath.exp(0.01), 364)).toBeCloseTo(0.01, 14);
+    expect(g(c0 * dmath.exp(0.01), 500)).toBeCloseTo(0.01 * 364 / 500, 14);
+    expect(g(c0 * dmath.exp(0.01), 500, c364)).toBeCloseTo(0.006, 14);
     expect(() => g(c0, -1)).toThrow('days=-1');
     expect(() => g(c0, 1.5)).toThrow('days=1.5');
   });

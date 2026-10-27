@@ -12,13 +12,14 @@ const TILT: Readonly<Record<Regime, number>> = Object.freeze({ EXPANSION: 0.2, O
 /** E-87 (3): credit0 = genesis credit (set by T04-20); days = game days since genesis of the day being computed. */
 export interface CreditStateIn { credit: number; creditGdpTrend: number; credit364: number | null; credit0: number; days: number }
 
-/** E-87 (3), headline convention: 0 at day 0; ln(credit/credit0)·364/days for 1 ≤ days < 364; ln(credit/credit364) from day 364 on. */
+/** E-87 (3), headline convention: 0 at day 0; ln(credit/credit0)·364/days for 1 ≤ days < 364; ln(credit/credit364) from day 364 on.
+ *  E-90 (4): credit364 null at days ≥ 364 (a missing history row) takes the credit0 branch; the MAC_HISTORY_GAP test/dev fault is
+ *  raised by T04-20's history lookup, not here. */
 function creditGrowthOf(credit: number, prev: CreditStateIn): number {
   const { days } = prev;
   if (!Number.isInteger(days) || days < 0) throw new EngineFault('I0.macro_credit_days', `days=${days}`);
   if (days === 0) return 0;
-  if (days < 364) return dmath.ln(credit / prev.credit0) * 364 / days;
-  if (prev.credit364 === null) throw new EngineFault('I0.macro_credit_days', `day ${days}: credit364 missing`);
+  if (days < 364 || prev.credit364 === null) return dmath.ln(credit / prev.credit0) * 364 / days;
   return dmath.ln(credit / prev.credit364);
 }
 
@@ -29,7 +30,8 @@ export function fallbackCreditConditions(Rtilde: number, regime: Regime): number
 
 /**
  * One day of §3.14.4. supplied = 07's row (null → fallback: credit ← credit × exp(g × (1 + 0.5·creditConditions)) with g the
- * day's nominal GDP log growth, interbankSpread null). creditGrowth per creditGrowthOf (E-87 (3)).
+ * day's nominal GDP log growth, interbankSpread null). creditGrowth per creditGrowthOf (E-87 (3)). At days = 0 credit holds at
+ * prev.credit (E-90 (3)); creditGdp, the trend, the gap, creditConditions and interbankSpread are computed as usual.
  */
 export function creditAggregates(nominalGdp: number, prev: CreditStateIn, supplied: { credit: number; creditConditions: number; interbankSpread: number } | null,
   fallback: { Rtilde: number; regime: Regime; nominalGdpGrowthLn: number }): { credit: number; creditGdp: number; trend: number; creditGap: number; creditGrowth: number; creditConditions: number; interbankSpread: number | null } {
@@ -41,6 +43,8 @@ export function creditAggregates(nominalGdp: number, prev: CreditStateIn, suppli
     credit = prev.credit * dmath.exp(fallback.nominalGdpGrowthLn * (1 + 0.5 * creditConditions));
     interbankSpread = null;
   }
+  // E-90 (3): the day-0 close does not move credit on either path, so row(b, 0).credit === credit0.
+  if (prev.days === 0) credit = prev.credit;
   const creditGdp = credit / nominalGdp;
   const trend = prev.creditGdpTrend + TREND_ALPHA * (creditGdp - prev.creditGdpTrend);
   const creditGrowth = creditGrowthOf(credit, prev);
