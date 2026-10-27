@@ -41,7 +41,7 @@ export async function waitState(
   predicate: () => unknown,
   opts: { timeoutMs?: number; polling?: number } = {},
 ): Promise<void> {
-  const timeoutMs = opts.timeoutMs ?? STATE_WAIT_MS;
+  const timeoutMs = opts.timeoutMs ?? 0;
   try {
     await page.waitForFunction(predicate, null, { timeout: timeoutMs, polling: opts.polling ?? 100 });
   } catch (e) {
