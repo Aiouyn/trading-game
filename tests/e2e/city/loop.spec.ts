@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { diag, expect, isPhone, openCity, waitDrawn, type HarnessWindow } from './helpers';
+import { diag, expect, isPhone, openCity, waitDrawn, waitState, type HarnessWindow } from './helpers';
 
 const simulateHidden = (hidden: boolean) => {
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
@@ -44,7 +44,7 @@ test.describe('C-06 / C-11 render on demand', () => {
     await page.clock.install();
     await openCity(page, 'tier=T2');
     await waitDrawn(page);
-    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2');
+    await waitState(page, 'C-06 fake clock: tier not T2 after waitDrawn', () => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2');
     await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 3000); // past the 2 s tier measurement
     await page.evaluate(() => (window as unknown as HarnessWindow).__city.setCamera({ zoom: 1 })); // last input
     expect((await page.evaluate(() => (window as unknown as HarnessWindow).__city.ambient())).on).toBe(true);
@@ -74,6 +74,35 @@ test.describe('C-06 / C-11 render on demand', () => {
     await page.clock.runFor(1000);
     expect((await diag(page)).renders).toBeGreaterThan(r + 3);
     console.log('C-06 ambient test wall time', Date.now() - t0, 'ms');
+  });
+
+  test('real clock (loose): T2 ambient stops 60 s ± 1 s after the last input', async ({ page }) => {
+    // Loose wall-clock companion to the fake-clock test above: proves the real timers, not just the
+    // fake ones, stop ambient near 60 s. Measured in the page (performance.now at the input and at the
+    // first poll that sees ambient off, 50 ms polls), so Playwright round trips don't count.
+    test.skip(isPhone(page), 'desktop only (60 s)');
+    test.skip(process.env.CI !== 'true', 'real-clock ±1 s check runs on CI only (a loaded local box stops late)');
+    test.setTimeout(240_000);
+    await openCity(page, 'tier=T2');
+    await waitDrawn(page);
+    // tier=T2 is forced, so no 2 s auto-tier measurement runs (fpsFirst2s stays null): the condition
+    // to wait for is just T2 drawing, no sleep.
+    await waitState(page, 'C-06 real clock: tier is not T2 after the tier measurement', () => (window as unknown as HarnessWindow).__city.diagnostics().tier === 'T2');
+    type StopWindow = HarnessWindow & { __ambientStopMs?: number };
+    // in-page 50 ms sampling of the stop time; the wait for it goes through waitState (120 s default)
+    await page.evaluate(() => {
+      const w = window as unknown as StopWindow;
+      w.__city.setCamera({ zoom: 1 }); // last input
+      const t = performance.now();
+      const iv = setInterval(() => {
+        if (!w.__city.ambient().on) { clearInterval(iv); w.__ambientStopMs = performance.now() - t; }
+      }, 50);
+    });
+    await waitState(page, 'C-06 real clock: ambient still on after the last input', () => (window as unknown as StopWindow).__ambientStopMs !== undefined);
+    const ms = await page.evaluate(() => (window as unknown as StopWindow).__ambientStopMs!);
+    console.log('C-06 real-clock ambient stopped after', Math.round(ms), 'ms');
+    expect(ms).toBeGreaterThanOrEqual(59_000);
+    expect(ms).toBeLessThanOrEqual(61_000);
   });
 
   test('document.hidden for 60 s (simulated) → framesWhileHidden 0, no renders', async ({ page }) => {
@@ -115,7 +144,8 @@ test.describe('C-07 background', () => {
     const t0 = Date.now();
     await page.waitForTimeout(29_000);
     expect(await subscribed()).toBe(true);
-    await page.waitForFunction(() => !(window as unknown as HarnessWindow).__city.diagnostics().subscribed, null, { timeout: 5000, polling: 50 });
+    // 5 s bound: the check is unsubscribed at 30 s ± 1 s, measured from 29 s; polling 50 ms keeps the timing precise
+    await waitState(page, 'C-07: still subscribed 29 s + 5 s after going background', () => !(window as unknown as HarnessWindow).__city.diagnostics().subscribed, { timeoutMs: 5000, polling: 50 });
     const unsubAt = (Date.now() - t0) / 1000;
     console.log('C-07 unsubscribed after', unsubAt.toFixed(2), 's');
     expect(Math.abs(unsubAt - 30)).toBeLessThanOrEqual(1);
@@ -123,7 +153,8 @@ test.describe('C-07 background', () => {
     const f0 = await fetches();
     const tv = Date.now();
     await set('visible');
-    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().subscribed, null, { timeout: 1000, polling: 20 });
+    // 1 s bound is the C-07 contract (resubscribe < 1 s after visible)
+    await waitState(page, 'C-07: not resubscribed within 1 s of visible', () => (window as unknown as HarnessWindow).__city.diagnostics().subscribed, { timeoutMs: 1000, polling: 20 });
     console.log('C-07 resubscribed after', Date.now() - tv, 'ms');
     await page.waitForTimeout(1500);
     expect((await diag(page)).renders).toBe(r0 + 1);
@@ -137,7 +168,8 @@ test.describe('C-07 background', () => {
     await page.waitForTimeout(1000);
     expect(await fetches()).toBe(f0);
     await set('visible');
-    await page.waitForFunction(() => (window as unknown as HarnessWindow).__city.diagnostics().stateVersion === 2, null, { timeout: 5000 });
+    // 5 s bound: this runs ~70 s into a 180 s test, so the 120 s default would end in Playwright's test timeout, not this named error
+    await waitState(page, 'C-07 round 2: stateVersion not 2 within 5 s of visible', () => (window as unknown as HarnessWindow).__city.diagnostics().stateVersion === 2, { timeoutMs: 5000 });
     const log = await page.evaluate(() => (window as unknown as HarnessWindow).harness.fetchLog);
     // manifest first, then the v1→v2 delta it lists (content-addressed); no snapshot, no chunks
     const fresh = log.slice(f0);
