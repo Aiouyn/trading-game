@@ -21,9 +21,9 @@ mkdirSync(DIR, { recursive: true });
  */
 const FIXTURE = join(__dirname, 'fixtures/card1-before');
 const BEFORE = process.env.CITY_CARD1_BEFORE_DIR ?? (existsSync(join(FIXTURE, 'SHA')) ? FIXTURE : DIR);
-const before = (name: string) => join(PHASE === 'after' ? BEFORE : DIR, name);
+const beforeFile = (name: string) => join(PHASE === 'after' ? BEFORE : DIR, name);
 /** The after phase compares against a capture of main; without one the spec has nothing to compare and skips. */
-const needsBefore = (vp: string) => PHASE === 'after' && !existsSync(before(`card1-${vp}-before.json`));
+const needsBefore = (vp: string) => PHASE === 'after' && !existsSync(beforeFile(`card1-${vp}-before.json`));
 const CLOCK = new Date('2026-10-20T19:00:00Z'); // pinned; the city default is 19:00 game time
 
 type Pose = { name: string; target?: [number, number]; zoom: number };
@@ -257,7 +257,7 @@ test('card 1: desktop 1440x900 T2 (+T0) — same-seed captures and ACs 1-6, 8, 1
     writeFileSync(join(DIR, `card1-${vp}-T0-before.json`), JSON.stringify(await page.evaluate(() => (window as unknown as HarnessWindow).__city.t0Picture()), null, 2));
     return;
   }
-  const before = JSON.parse(readFileSync(before(`card1-${vp}-before.json`), 'utf8'));
+  const before = JSON.parse(readFileSync(beforeFile(`card1-${vp}-before.json`), 'utf8'));
   const ac: Record<string, unknown> = {};
   // the before run is main 2875fb72: it re-measures the baseline the limit is built on
   expect.soft({ calls: before.P1.drawCalls, tris: before.P1.triangles }, 'AC1 baseline on main').toEqual(MAIN_BASE.desktop);
@@ -282,7 +282,7 @@ test('card 1: desktop 1440x900 T2 (+T0) — same-seed captures and ACs 1-6, 8, 1
     await setPose(page, p, home);
     maps[p.name] = await groundMap(page);
     covers[p.name] = await coverage(page);
-    const d = await diffOutsideParts(before(`card1-${p.name}-${vp}-T2-before.png`), shots[p.name], covers[p.name], file(p.name, vp, 'T2', 'diff'));
+    const d = await diffOutsideParts(beforeFile(`card1-${p.name}-${vp}-T2-before.png`), shots[p.name], covers[p.name], file(p.name, vp, 'T2', 'diff'));
     ac3[p.name] = { ...d, coveredPx: covers[p.name].bits.reduce((n, b) => n + popcount(b), 0), mPerPx: +maps[p.name].mPerPx.toFixed(4) };
   }
   ac.AC3 = ac3;
@@ -401,7 +401,7 @@ test('card 1: desktop 1440x900 T2 (+T0) — same-seed captures and ACs 1-6, 8, 1
     await page.waitForTimeout(400);
     const t0im = await shoot(page, file('P1', vp, 'T0', 'after'), true);
     const t0 = await page.evaluate(() => (window as unknown as HarnessWindow).__city.t0Picture());
-    const t0b = JSON.parse(readFileSync(before(`card1-${vp}-T0-before.json`), 'utf8'));
+    const t0b = JSON.parse(readFileSync(beforeFile(`card1-${vp}-T0-before.json`), 'utf8'));
     expect.soft(t0?.labels, 'AC8 T0 labels').toEqual(t0b.labels);
     const steps = hardCoastSteps(t0im);
     ac.AC8 = { labels: t0?.labels.length, top: t0?.top, bottom: t0?.bottom, hardCoastSteps: steps };
@@ -439,7 +439,7 @@ test('card 1: phone 390x844 T1 (+T0) — same-seed captures and ACs 1, 3, 7, 8',
     writeFileSync(join(DIR, `card1-${vp}-T0-before.json`), JSON.stringify(await page.evaluate(() => (window as unknown as HarnessWindow).__city.t0Picture()), null, 2));
     return;
   }
-  const before = JSON.parse(readFileSync(before(`card1-${vp}-before.json`), 'utf8'));
+  const before = JSON.parse(readFileSync(beforeFile(`card1-${vp}-before.json`), 'utf8'));
   const ac: Record<string, unknown> = {};
   // the before run is main 2875fb72: it re-measures the baseline the limit is built on
   expect.soft({ calls: before.P1.drawCalls, tris: before.P1.triangles }, 'AC1 baseline on main').toEqual(MAIN_BASE.phone);
@@ -462,7 +462,7 @@ test('card 1: phone 390x844 T1 (+T0) — same-seed captures and ACs 1, 3, 7, 8',
     await setPose(page, p, home);
     maps[p.name] = await groundMap(page);
     covers[p.name] = await coverage(page);
-    ac3[p.name] = await diffOutsideParts(before(`card1-${p.name}-${vp}-T1-before.png`), shots[p.name], covers[p.name], file(p.name, vp, 'T1', 'diff'));
+    ac3[p.name] = await diffOutsideParts(beforeFile(`card1-${p.name}-${vp}-T1-before.png`), shots[p.name], covers[p.name], file(p.name, vp, 'T1', 'diff'));
     expect.soft((ac3[p.name] as { changedOnParts: number }).changedOnParts, `AC3 ${p.name}: pixels changed on parts`).toBe(0);
   }
   ac.AC3 = ac3;
@@ -490,7 +490,7 @@ test('card 1: phone 390x844 T1 (+T0) — same-seed captures and ACs 1, 3, 7, 8',
     await page.waitForTimeout(400);
     const t0im = await shoot(page, file('P1', vp, 'T0', 'after'), true);
     const t0 = await page.evaluate(() => (window as unknown as HarnessWindow).__city.t0Picture());
-    const t0b = JSON.parse(readFileSync(before(`card1-${vp}-T0-before.json`), 'utf8'));
+    const t0b = JSON.parse(readFileSync(beforeFile(`card1-${vp}-T0-before.json`), 'utf8'));
     expect.soft(t0?.labels, 'AC8 T0 labels').toEqual(t0b.labels);
     const steps = hardCoastSteps(t0im);
     ac.AC8 = { labels: t0?.labels.length, hardCoastSteps: steps };
@@ -646,7 +646,7 @@ function hardCoastSteps(im: Img): number {
 /** Decision 5: the crosswalk junction nearest [-51, 35] with all four arms in view at zoom 4, > 20 m from the crown plaza. */
 async function p4Target(page: Page, F: Field, vp: string): Promise<[number, number]> {
   const saved = join(DIR, `card1-${vp}-P4-target.json`);
-  if (PHASE !== 'pose') return JSON.parse(readFileSync(PHASE === 'after' ? before(`card1-${vp}-P4-target.json`) : saved, 'utf8'));
+  if (PHASE !== 'pose') return JSON.parse(readFileSync(PHASE === 'after' ? beforeFile(`card1-${vp}-P4-target.json`) : saved, 'utf8'));
   const im = await decode(await page.locator('canvas').first().screenshot({ scale: 'css' }));
   const gm = await groundMap(page), cv = await coverage(page);
   const arms = crossings(im, gm, cv, F, () => false);
