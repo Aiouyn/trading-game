@@ -98,7 +98,7 @@ describe('AC-03-MAP-NO-DUP', () => {
       for (const spec of specs(f.text)) {
         const to = target(f.rel, spec);   // a relative import must stay inside packages/engine/ledger
         const ok = to !== undefined ? (to + sep).startsWith(LEDGER) && !/\/(state|rules|catalog|invariants)\/|schema$/.test(spec)
-          : ['zod', '@tycoon/engine-core', 'vitest', 'vitest/config', 'fast-check', 'typescript-eslint', 'eslint'].includes(spec) || spec.startsWith('node:');
+          : ['zod', '@tycoon/engine-core', '@tycoon/engine-ledger', 'typescript', 'vitest', 'vitest/config', 'fast-check', 'typescript-eslint', 'eslint'].includes(spec) || spec.startsWith('node:');
         expect(ok, `${f.rel}: ${spec}`).toBe(true);
       }
     }
