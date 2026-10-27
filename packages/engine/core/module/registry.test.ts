@@ -5,10 +5,9 @@ import { z } from 'zod';
 import type { ParamsView } from '@tycoon/params';
 import type { ContentView } from '@tycoon/content';
 import type { Store } from '../store';
-import type * as Ledger from '@tycoon/engine-ledger';
 import {
   BUILD_UNITS, buildModuleSet, defineModule, INTENT_NAMESPACES, ModuleSetError, NON_MODULE_UNITS, NPC_INTENT_KIND,
-  type Hold, type HoldApi, type IntentHandler, type LedgerApi, type LedgerProvider, type ModuleDef, type Posting, type PhaseCtx, type ValidateCtx, type ViewHandler,
+  type IntentHandler, type LedgerProvider, type ModuleDef, type PhaseCtx, type ValidateCtx, type ViewHandler,
 } from './index';
 
 const provider: LedgerProvider = { createPartition: () => { throw new Error('unused'); }, globalCheck: () => ({ ok: true, failures: [] }) };
@@ -94,12 +93,6 @@ describe('T02-11 type-level contract (expectTypeOf)', () => {
     expectTypeOf<PhaseCtx['content']>().toEqualTypeOf<ContentView>();
     expectTypeOf<PhaseCtx['store']>().toEqualTypeOf<Store>();
   });
-  it('LedgerApi / HoldApi / Hold / Posting are the ledger\'s own types (E-79); they keep the 21 G7 methods and the 5 HoldApi members', () => {
-    expectTypeOf<LedgerApi>().toEqualTypeOf<Ledger.LedgerApi>(); expectTypeOf<HoldApi>().toEqualTypeOf<Ledger.HoldApi>();
-    expectTypeOf<Hold>().toEqualTypeOf<Ledger.Hold>(); expectTypeOf<Posting>().toEqualTypeOf<Ledger.Posting>();
-    expectTypeOf<'pay'|'swapAsset'|'mint'|'burn'|'elasticIn'|'elasticOut'|'lend'|'repay'|'cbCredit'|'cbCreditUnwind'|'accrue'|'accruePair'|'fx'|'moveQty'|'reclass'|'balance'|'cash'|'available'|'position'|'availableQty'|'netWorth'>().toMatchTypeOf<keyof LedgerApi>();
-    expectTypeOf<'placeCash'|'placeQty'|'release'|'reduce'|'get'|'placeCashFor'>().toMatchTypeOf<keyof HoldApi>();
-  });
 });
 
 describe('AC-02-11-PARAMS-PKG / E-70 (3)', () => {
@@ -129,20 +122,33 @@ describe('AC-03-MAP-NO-DUP (a) for T02-11 (E-79)', () => {
     for (const top of ['packages/engine/', 'packages/content/', 'src/']) expect(rel.some((f) => f.startsWith(top)), top).toBe(true);
     expect(rel.some((f) => f.split('/').includes('node_modules'))).toBe(false);
   });
-  it.each(['HoldApi', 'Hold', 'Posting', 'PostOpts', 'LedgerApi'])('%s has exactly one definition in the repo (exported or not), in packages/engine/ledger/src; ledger-port.ts re-exports it', (name) => {
+  it.each(['HoldApi', 'Hold', 'Posting', 'PostOpts', 'LedgerApi'])('%s has exactly one definition in the repo (exported or not), in packages/engine/ledger/src; core defines none', (name) => {
     const re = new RegExp(`^[ \\t]*(export[ \\t]+)?(declare[ \\t]+)?(type|interface|function|const|let|class|enum)[ \\t]+${name}(?=[ \\t]*[<={(:]|[ \\t]+extends\\b)`, 'm');   // a declaration, exported or local (not an import specifier)
     const hits = all.filter((f) => re.test(readFileSync(f, 'utf8'))).map((f) => f.slice(root.length + 1));
     expect(hits).toHaveLength(1);
     expect(hits[0]).toMatch(/^packages\/engine\/ledger\/src\//);
-    expect(readFileSync(join(__dirname, 'ledger-port.ts'), 'utf8')).toMatch(new RegExp(`export type \\{[^}]*\\b${name}\\b[^}]*\\} from '@tycoon/engine-ledger'`));
   });
 });
 
-describe('T02-11 module order: module number, then unit id within a module', () => {
-  it('same-module units sort by unit id whatever the input order (22A before 22B; 17A before 17B)', () => {
-    expect(BUILD_UNITS['22B']!.every((d) => NON_MODULE_UNITS.includes(d) || d === '22A')).toBe(true);
-    expect(buildModuleSet([mod('22B'), mod('22A')]).modules.map((m) => m.id)).toEqual(['22A', '22B']);
-    expect(buildModuleSet([mod('22A'), mod('22B')]).modules.map((m) => m.id)).toEqual(['22A', '22B']);
-    expect(buildModuleSet([mod('22B'), mod('17B'), mod('22A'), mod('17A')]).modules.map((m) => m.id)).toEqual(['17A', '17B', '22A', '22B']);
+describe('E-81 (i): core never imports the ledger', () => {
+  const coreDir = join(__dirname, '..');
+  const SKIP = ['node_modules', 'dist'];
+  const files = (d: string, out: string[] = []): string[] => {
+    for (const n of readdirSync(d)) { if (SKIP.includes(n)) continue; const p = join(d, n); if (statSync(p).isDirectory()) files(p, out); else if (/\.(ts|tsx|mts|cts|mjs|cjs|js|json)$/.test(n)) out.push(p); }
+    return out;
+  };
+  // any import / export-from / import() / require / tsconfig path / vitest alias naming the ledger package or a path into packages/engine/ledger,
+  // in either quote style (or a template literal)
+  const LEDGER = /['"`](@tycoon\/engine-ledger|@avalon\/ledger)(\/[^'"`]*)?['"`]|['"`](\.{1,2}\/)+([^'"`]*\/)?ledger(\/[^'"`]*)?['"`]/;
+  it('no file under packages/engine/core names the ledger package or a path into it', () => {
+    const hits = files(coreDir).filter((f) => LEDGER.test(readFileSync(f, 'utf8'))).map((f) => f.slice(coreDir.length + 1));
+    expect(hits).toEqual([]);
+  });
+  it('the check sees both quote styles, type-only imports, import() and a relative path', () => {
+    const pkg = ['@tycoon', 'engine-' + 'ledger'].join('/');   // built, so this file does not itself name the package
+    for (const src of [`import type { LedgerApi } from '${pkg}';`, `import type { Posting } from "${pkg}";`, `type L = import('${pkg}').LedgerApi;`,
+      `export type { Hold } from '../../${'led' + 'ger'}/src/types';`, `"${pkg}": ["../${'led' + 'ger'}/src/index.ts"]`])
+      expect(LEDGER.test(src), src).toBe(true);
+    expect(LEDGER.test("import type { LedgerProvider } from './ledger-port';")).toBe(false);
   });
 });

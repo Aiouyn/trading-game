@@ -12,3 +12,5 @@ export * from './legpolicy';
 export * from './sysside';
 export * from './sysinv';
 export * from './cppolicy';
+export * from './events';
+export type * from './port';

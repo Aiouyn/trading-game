@@ -2,7 +2,8 @@
   "compilerOptions": {
     "target": "ES2022", "lib": ["ES2022"], "module": "ESNext", "moduleResolution": "Bundler",
     "strict": true, "noEmit": true, "noUnusedLocals": true, "noUnusedParameters": true, "noFallthroughCasesInSwitch": true,
-    "exactOptionalPropertyTypes": false, "skipLibCheck": true, "types": ["node"], "isolatedModules": true
+    "exactOptionalPropertyTypes": false, "skipLibCheck": true, "types": ["node"], "isolatedModules": true,
+    "paths": { "zod": ["./node_modules/zod"], "@tycoon/engine-core": ["../core/index.ts"], "@tycoon/engine-ledger": ["./src/index.ts"], "@tycoon/params": ["../../params/src/index.ts"], "@tycoon/content": ["../../content/src/view.ts"] }
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "*.ts", "eslint.config.mjs"]
 }

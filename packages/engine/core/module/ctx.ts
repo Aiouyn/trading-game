@@ -7,7 +7,7 @@ import type { G6SealedIntent } from '../intake/types';
 import type { Rng } from '../rng';
 import type { Store } from '../store';
 import type { Id, PhaseId, Tick, Visibility } from '../types';
-import type { HoldApi, LedgerApi } from './ledger-port';
+import type { LedgerPort } from './ledger-port';
 
 export interface Reject { code: string; params?: Record<string, string> }
 export type SealedIntent<P = unknown> = G6SealedIntent<P>;
@@ -24,7 +24,7 @@ export interface TickHeaderView { worldId: string; tick: Tick; engineVersion: st
  */
 export interface PhaseCtx { readonly tick: Tick; readonly phase: PhaseId; readonly cal: CalendarInfo; readonly header: TickHeaderView; readonly module: string; readonly safeMode: boolean;
   readonly store: Store; rng(key: string): Rng; newId(kind: string): Id; readonly params: ParamsView; readonly content: ContentView;
-  readonly ledger: LedgerApi; readonly holds: HoldApi;
+  readonly ledger: LedgerPort<'ledger'>; readonly holds: LedgerPort<'holds'>;
   emit(kind: string, subjectIds: Id[], payload: unknown, visibility: Visibility, partyIds?: Id[]): void;
   send(toEntity: Id, kind: string, body: unknown, when: 'B1'|'B2'|'B3'|'NEXT'): void;
   inbox(kind?: string): readonly PhaseMessage[];

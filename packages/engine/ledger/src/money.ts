@@ -1,12 +1,13 @@
 import { SortedMap, cmpStr } from './det';
 
-export type Ccy = 'FDL' | 'EUN' | 'PYN' | 'NKR' | 'SRL';
+/** Ccy and Id are core's (E-81 (iv), AC-03-MAP-NO-DUP (a)); re-exported here, not redeclared. */
+import type { Ccy, Id } from '@tycoon/engine-core';
+export type { Ccy, Id };
 export const CCYS: readonly Ccy[] = ['EUN', 'FDL', 'NKR', 'PYN', 'SRL']; // sorted byte order (spec §2.5 Δ8 rule 2)
 export type Money = bigint;
 export type Qty = bigint;
 export type Price = bigint;
 export type Tick = number;
-export type Id = string;
 export const MONEY_SCALE = 1_000_000n;
 
 export function isCcy(s: string): s is Ccy {
