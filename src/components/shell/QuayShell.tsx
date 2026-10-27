@@ -10,6 +10,7 @@ import { DEFAULT_LAYOUT } from "@/shell/layouts";
 import { loadLocal, queueSave } from "@/shell/persist";
 import { initLoader } from "@/shell/loader";
 import { LoadState } from "./LoadState";
+import { MeNwBridge } from "./MeNwBridge";
 import { createShellStore } from "@/shell/store";
 import { viewportOf } from "@/shell/wm";
 import { applyAppearance } from "@/shell/appearance";
@@ -157,6 +158,7 @@ export function QuayShell({ route, query }: { route: string[]; query: string }) 
 
   return (
     <ShellCtx.Provider value={store}>
+      <MeNwBridge />
       <Surface />
     </ShellCtx.Provider>
   );

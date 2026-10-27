@@ -7,12 +7,13 @@ import { Chip } from "@/components/ui/Chip";
 import { Label } from "@/components/ui/Label";
 import { MINUS, fullDigits, parseAmount } from "@/components/ui/money";
 import { MoneyText, type Restricted } from "@/components/shell/MoneyText";
+import { formatPercent } from "@/components/ui/percent";
 import { useShell } from "@/components/shell/ShellContext";
 import type { MeTradingBody, Money, NwStats, RestrictedBucket } from "@/shell/contracts/channels";
 import { getFeed, useChannel, type ChannelView } from "@/shell/contracts/useChannel";
 import type { RankChannel } from "@/shell/channels";
 import { RANK_NAMES } from "@/shell/registry";
-import { pfNumberLocale, pfStrings, type ReleaseUnit } from "./strings";
+import { STACK_SCALE, pfNumberLocale, pfStrings, type ReleaseUnit } from "./strings";
 
 type T = ReturnType<typeof pfStrings>;
 
@@ -51,7 +52,14 @@ function RestrictedRows({ buckets, t, locale }: { buckets: RestrictedBucket[]; t
             <td className="pf-cell-amount">
               {PILL[b.reason]
                 ? <MoneyText amount={b.amount} ctx="table" restricted={PILL[b.reason]} />
-                : <span className="money-restricted"><MoneyText amount={b.amount} ctx="table" /><Chip tone="acc" outline>{b.reason}</Chip></span>}
+                : (
+                  // Studio Q2: a reason code with no client label shows the raw code in the same neutral chip, named
+                  // for AT and on hover ("Restricted (CODE)"). The label key is missing upstream (Engine).
+                  <span className="money-restricted">
+                    <MoneyText amount={b.amount} ctx="table" />
+                    <Chip tone="steel" outline title={t.restrictedCode(b.reason)} aria-label={t.restrictedCode(b.reason)} data-testid="pf-restricted-code">{b.reason}</Chip>
+                  </span>
+                )}
             </td>
             <td className="pf-cell-note muted" data-testid="pf-release">{releaseText(b.untilRealMs, t, locale)}</td>
           </tr>
@@ -61,11 +69,17 @@ function RestrictedRows({ buckets, t, locale }: { buckets: RestrictedBucket[]; t
   );
 }
 
-function Stats({ stats, t }: { stats: NwStats; t: T }) {
+/** `drawdownReal` is a bare decimal in percent units ("-4.2"); the percent sign and its spacing come from the locale
+ *  (EN "−4.2%", FR "−4,2 %" with U+202F). A value that is not a plain decimal shows as sent. */
+export function drawdownText(value: string, locale: string): string {
+  return formatPercent(value, pfNumberLocale(locale)) ?? value;
+}
+
+function Stats({ stats, t, locale }: { stats: NwStats; t: T; locale: string }) {
   return (
     <section className="pf-block pf-stats" data-testid="pf-stats" aria-label={t.stats}>
       <table className="pf-rows"><tbody>
-        <tr><th scope="row">{t.drawdownReal}</th><td className="num" data-testid="pf-drawdown">{stats.drawdownReal}</td></tr>
+        <tr><th scope="row">{t.drawdownReal}</th><td className="num" data-testid="pf-drawdown">{drawdownText(stats.drawdownReal, locale)}</td></tr>
         <tr><th scope="row">{t.sharpe}</th><td className="num" data-testid="pf-sharpe">{stats.sharpe ?? t.none}</td></tr>
       </tbody></table>
     </section>
@@ -98,13 +112,15 @@ export interface OverviewViewProps {
   rank: RankChannel;
   locale: string;
   phone: boolean;
+  /** Text scale >= 1.5 (STACK_SCALE): each row stacks, label line on top, value line below (Studio fix c). */
+  stacked?: boolean;
   onRetry: () => void;
 }
 
 /** Pure view of one `me` channel state (unit-testable without a feed). */
-export function OverviewView({ view, rank, locale, phone, onRetry }: OverviewViewProps) {
+export function OverviewView({ view, rank, locale, phone, stacked = false, onRetry }: OverviewViewProps) {
   const t = pfStrings(locale);
-  const cls = `pf-ov${phone ? " pf-phone" : ""}`;
+  const cls = `pf-ov${phone ? " pf-phone" : ""}${stacked ? " pf-stacked" : ""}`;
   if (view.state === "loading") {
     return (
       <div className={cls} data-testid="pf-overview" data-state="loading">
@@ -140,7 +156,7 @@ export function OverviewView({ view, rank, locale, phone, onRetry }: OverviewVie
         {empty && <p className="pf-empty muted" data-testid="pf-empty">{t.emptyCash}</p>}
       </section>
       {me.restricted.length > 0 && <RestrictedRows buckets={me.restricted} t={t} locale={locale} />}
-      {me.nwStats && <Stats stats={me.nwStats} t={t} />}
+      {me.nwStats && <Stats stats={me.nwStats} t={t} locale={locale} />}
     </div>
   );
 }
@@ -149,5 +165,8 @@ export function Overview({ phone }: { phone: boolean }) {
   const view = useChannel("me");
   const rank = useShell((s) => s.channels.rank);
   const locale = useShell((s) => s.prefs.locale);
-  return <OverviewView view={view} rank={rank} locale={locale} phone={phone} onRetry={() => getFeed().resync("me")} />;
+  const stacked = useShell((s) => s.prefs.textScale >= STACK_SCALE);
+  // Retry asks the feed for a fresh snap. Against the mock's error / denied modes it is a no-op by design (the mode is
+  // fixed for the page); against the server it re-requests the channel.
+  return <OverviewView view={view} rank={rank} locale={locale} phone={phone} stacked={stacked} onRetry={() => getFeed().resync("me")} />;
 }

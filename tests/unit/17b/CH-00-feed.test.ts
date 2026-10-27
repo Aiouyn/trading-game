@@ -226,9 +226,9 @@ describe("mock scenarios, intents and req ops", () => {
 
 describe("URL scenario (build-gated)", () => {
   it("parses the documented params and ignores junk", () => {
-    expect(scenarioFromQuery(new URLSearchParams("feed=stale&halt=HALC&thin=VOLT&tier=terminal&empty=1&reject=MKT_INSUFFICIENT_FUNDS&seed=9")))
-      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_FUNDS" });
-    expect(scenarioFromQuery(new URLSearchParams("feed=boom&halt=ZZZ&reject=<x>&seed=-1"))).toEqual(DEFAULT_SCENARIO);
+    expect(scenarioFromQuery(new URLSearchParams("feed=stale&halt=HALC&thin=VOLT&tier=terminal&empty=1&reject=MKT_INSUFFICIENT_FUNDS&seed=9&nw=200000")))
+      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_FUNDS", nw: "200000" });
+    expect(scenarioFromQuery(new URLSearchParams("feed=boom&halt=ZZZ&reject=<x>&seed=-1&nw=1e9"))).toEqual(DEFAULT_SCENARIO);
   });
   it("QUAY_HOOKS=0 compiles the overrides out: the URL is ignored", async () => {
     vi.resetModules(); vi.stubEnv("QUAY_HOOKS", "0");

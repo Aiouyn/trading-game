@@ -1,14 +1,13 @@
 // UI card 2 (17B PF-A) Portfolio overview: hero, summary, restricted, stats, rank, states, desktop frame, phone push.
-// Bodies the mock never sends (nwStats, MDOL, restricted) are injected through the QUAY_HOOKS-only window.__quayFeedMe.
+// The mock feed sends nwStats, an MDOL wallet and AD/START restricted buckets (?empty=1 is the new player without them),
+// and is the one NW source: the hero, the desktop strip and the phone status bar all read its me.nw (MeNwBridge).
 import { expect, test, type Page } from "@playwright/test";
 import { boot, setTextScale } from "../shell/helpers";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
-const inject = (page: Page, patch: object) => page.addInitScript((p) => { (window as Window & { __quayFeedMe?: object }).__quayFeedMe = p; }, patch);
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const pf = (page: Page) => page.getByTestId("pf-overview").first();
-const STATS = { window: "90d", drawdownReal: "-4.2", sharpe: "1.31", twrIdx: "100.0", bench: "100.0" };
 
 async function openPortfolio(page: Page, query = "") {
   await boot(page, `/portfolio${query}`);
@@ -42,19 +41,14 @@ test("PF-2-02/03 hero: nominal NW, serif, 44 desktop / 30 phone, --acc-wealth in
   await expect(hero.getByRole("img")).toHaveAttribute("aria-label", /dollars/);
 });
 
-test("PF-2-04 stats: absent without nwStats; verbatim when injected; null Sharpe is an em dash", async ({ page }) => {
+test("PF-2-04 stats: mock drawdownReal '-4.2' renders '−4.2%' (U+2212, locale percent); absent for the new player", async ({ page }) => {
   await openPortfolio(page);
+  await expect(pf(page).getByTestId("pf-stats")).toHaveText("Drawdown (real)\u22124.2%Sharpe (whole NW)1.31");
+  await openPortfolio(page, "?empty=1");
   await expect(pf(page).getByTestId("pf-stats")).toHaveCount(0);
-  await inject(page, { nwStats: STATS });
-  await openPortfolio(page);
-  await expect(pf(page).getByTestId("pf-stats")).toHaveText("Drawdown (real)-4.2Sharpe (whole NW)1.31");
-  await inject(page, { nwStats: { ...STATS, sharpe: null } });
-  await openPortfolio(page);
-  await expect(pf(page).getByTestId("pf-sharpe")).toHaveText("—");
 });
 
-test("PF-2-05 summary: Cash · FDL via MoneyText; MDOL '1250.00' renders '1,250.00 MDOL'", async ({ page }) => {
-  await inject(page, { balances: { MDOL: "1250.00" } });
+test("PF-2-05 summary: Cash · FDL via MoneyText; mock MDOL '1250.00' renders '1,250.00 MDOL'", async ({ page }) => {
   await openPortfolio(page);
   await expect(pf(page).getByTestId("pf-balance-FDL").locator("th")).toHaveText("Cash · FDL");
   await expect(pf(page).getByTestId("pf-balance-FDL").getByRole("img")).toHaveText(/^\$[\d,]+\.\d\d$/);
@@ -71,16 +65,90 @@ test("PF-2-06 new player (?empty=1): EmptyState copy, no button, no positions ta
   await expect(pf(page).getByRole("table")).toHaveCount(1); // the cash summary only
 });
 
-test("PF-2-07 restricted: one row per bucket, AD/START pills, unit written; none when empty", async ({ page }) => {
-  await openPortfolio(page);
-  await expect(pf(page).getByTestId("pf-restricted")).toHaveCount(0);
-  await inject(page, { restricted: [{ reason: "AD", amount: "120.00", untilRealMs: 10_800_000 }, { reason: "START", amount: "500.00", untilRealMs: null }] });
+test("PF-2-07 restricted: one row per mock bucket, AD/START pills --steel outline + --fg-muted (no brass); none when empty", async ({ page }) => {
   await openPortfolio(page);
   const rows = pf(page).getByTestId("pf-restricted-row");
   await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0)).toHaveText("$120.00ADreleases in 3 hours");
-  await expect(rows.nth(1)).toHaveText("$500.00STARTheld");
-  await expect(rows.nth(0).locator(".chip.chip-acc.chip-outline")).toHaveText("AD");
+  await expect(rows.nth(0)).toHaveText("$500.00ADreleases in 3 hours");
+  await expect(rows.nth(1)).toHaveText("$2,500.00STARTheld");
+  const pill = rows.nth(0).locator(".chip.chip-steel.chip-outline");
+  await expect(pill).toHaveText("AD");
+  const [border, fg] = await pill.evaluate((e) => [getComputedStyle(e).borderTopColor, getComputedStyle(e).color]);
+  expect([border, fg]).toEqual([await color(page, "var(--steel)"), await color(page, "var(--fg-muted)")]);
+  await expect(pf(page).locator(".chip-acc")).toHaveCount(0);
+  await openPortfolio(page, "?empty=1");
+  await expect(pf(page).getByTestId("pf-restricted")).toHaveCount(0);
+});
+
+test("Studio b: one NW string; the hero and the top bar (compact) agree on desktop and phone, tick after tick", async ({ page }, info) => {
+  await openPortfolio(page);
+  const read = () => page.evaluate(() => {
+    const hero = document.querySelector("[data-testid=pf-hero-nw] [role=img]")!.textContent!;
+    const strip = document.querySelector("[data-testid=strip-nw] [title]");
+    const sb = document.querySelector(".sb-nw");
+    return { hero, stripTitle: strip?.getAttribute("title") ?? null, stripText: strip?.textContent ?? null, sb: sb?.textContent ?? null };
+  });
+  // phone status bar: compactMoney of the same string (integer digits, k/M/B/T, one decimal under 3 head digits)
+  const compact = (full: string) => {
+    const i = full.replace(/[^\d.]/g, "").split(".")[0];
+    for (const [d, u] of [[12, "T"], [9, "B"], [6, "M"], [3, "k"]] as const) if (i.length > d) {
+      const head = i.slice(0, i.length - d), dec = i.slice(i.length - d, i.length - d + 1);
+      return `$${head}${head.length < 3 && dec !== "0" ? `.${dec}` : ""}${u}`;
+    }
+    return `$${i}`;
+  };
+  const seen = new Set<string>();
+  for (let k = 0; k < 3; k++) {
+    const r = await read();
+    seen.add(r.hero);
+    if (info.project.name === "desktop") {
+      expect(r.stripTitle).toBe(r.hero);
+      expect(r.stripText).toMatch(/^\$\d{1,3}(\.\d)?[kMBT]$/); // the chip's abbreviated form of that same string
+    } else {
+      expect(r.sb).toBe(compact(r.hero));
+    }
+    if (k < 2) await page.waitForTimeout(5_200); // one mock tick
+  }
+  expect(seen.size, "the mock NW moves with marks, and both views follow").toBeGreaterThan(1);
+});
+
+test("Studio c: at text scale 2 each row stacks label over value; amounts never split from their code", async ({ page }) => {
+  await boot(page, "/settings");
+  await setTextScale(page, "2");
+  await openPortfolio(page);
+  await expect(pf(page)).toHaveClass(/pf-stacked/);
+  const r = await pf(page).evaluate((root) => [...root.querySelectorAll(".pf-rows tr")].map((tr) => {
+    const [th, td] = [tr.children[0] as HTMLElement, tr.children[1] as HTMLElement];
+    const a = th.getBoundingClientRect(), b = td.getBoundingClientRect();
+    const money = [...td.querySelectorAll(".money, .money-restricted")] as HTMLElement[];
+    return { below: b.top >= a.bottom - 0.5, left: Math.abs(a.left - b.left) < 1, nowrap: money.every((m) => getComputedStyle(m).whiteSpace === "nowrap"),
+      oneLine: money.every((m) => m.getClientRects().length === 1 || m.getBoundingClientRect().height < parseFloat(getComputedStyle(m).fontSize) * 2.2) };
+  }));
+  expect(r.length).toBeGreaterThan(3);
+  for (const row of r) expect(row).toEqual({ below: true, left: true, nowrap: true, oneLine: true });
+  await setTextScale(page, "1");
+  await openPortfolio(page);
+  await expect(pf(page)).not.toHaveClass(/pf-stacked/);
+});
+
+test("Studio Q3: a built app's chunk shows the generic window skeleton while it loads, never 'Coming later'", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  await page.route(/\/_next\/static\/chunks\/.*\.js/, async (route) => {
+    const body = await (await route.fetch()).text();
+    if (body.includes("pf-overview")) await held; // the Portfolio chunk only
+    await route.fulfill({ status: 200, contentType: "application/javascript", body });
+  });
+  await page.goto("/portfolio");
+  const sk = page.getByTestId("app-skeleton").first();
+  await expect(sk).toBeVisible();
+  await expect(sk).toHaveAttribute("data-app", "portfolio");
+  await expect(sk).toHaveAttribute("aria-busy", "true");
+  await expect(sk.getByRole("status")).toHaveText("Loading Portfolio…");
+  await expect(page.getByTestId("coming-later")).toHaveCount(0);
+  release();
+  await expect(pf(page)).toHaveAttribute("data-state", "live");
+  await expect(page.getByTestId("app-skeleton")).toHaveCount(0);
 });
 
 test("PF-2-08 states: loading skeleton, stale 'Updating…' without dimming, denied/error Couldn't load + Retry", async ({ page }) => {
@@ -106,7 +174,6 @@ test("PF-2-08 states: loading skeleton, stale 'Updating…' without dimming, den
 
 test("PF-2-09 desktop: tabs (#38), maximised two columns, 520 minimum one column, segment hit ≥ 28", async ({ page }, info) => {
   desktopOnly(info.project.name);
-  await inject(page, { nwStats: STATS });
   await openPortfolio(page);
   const win = page.getByTestId("win-portfolio").first();
   const tabs = win.getByRole("tab");
@@ -151,9 +218,13 @@ test("PF-2-10 phone: Overview root, Positions push with 'Back to Portfolio', hit
     expect(await noOverflow(), `scale ${scale}`).toBe(true);
     expect(await heroWhole(), `scale ${scale}`).toBe(true);
     const order = await page.locator("[data-testid=pf-overview] > section").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
-    expect(order).toEqual(["pf-hero", "pf-rank", "pf-summary"]);
+    expect(order).toEqual(["pf-hero", "pf-rank", "pf-summary", "pf-restricted", "pf-stats"]);
     const open = page.getByTestId("pf-open-positions");
-    expect((await open.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    // Studio Q1: a nav row, 44 px, the whole row is the target, chevron at the right edge
+    const ob = (await open.boundingBox())!, cb = (await open.getByTestId("pf-nav-chevron").boundingBox())!;
+    expect(ob.height).toBeGreaterThanOrEqual(44);
+    expect(ob.width).toBeGreaterThan(page.viewportSize()!.width - 40);
+    expect(ob.x + ob.width - (cb.x + cb.width)).toBeLessThan(24);
     await open.click();
     await expect(page.getByTestId("app-title")).toHaveText("Positions");
     const back = page.getByTestId("app-back");

@@ -60,8 +60,18 @@ describe("CSS hooks", () => {
     expect(css).toMatch(/\.pf-seg \{[^}]*border: 1px solid var\(--line\); border-radius: 6px;/);
     expect(css).toMatch(/\.pf-seg button \{ min-height: 28px;/);
     expect(css).toMatch(/\.pf-seg button\[aria-selected="true"\] \{ color: var\(--fg\); background: var\(--win2\); font-weight: 500; \}/);
-    expect(css).toMatch(/@media \(pointer: coarse\) \{ \.pf-seg button, \.pf-nav-item \{ min-height: 44px; \} \}/);
+    expect(css).toMatch(/@media \(pointer: coarse\) \{ \.pf-seg button \{ min-height: 44px; \} \}/);
     expect(css).not.toMatch(/var\(--acc\)|--brass/);
+  });
+  it("Studio Q1: phone nav row is 44 px at any pointer, label left, chevron right", () => {
+    expect(css).toMatch(/\.pf-nav-item \{ display: flex; align-items: center; justify-content: space-between;[^}]*width: 100%; min-height: 44px;/);
+    expect(css).toMatch(/\.pf-nav-chevron \{ flex: none; color: var\(--fg-muted\); \}/);
+  });
+  it("Studio fix c: amounts, pills and release notes never wrap; stacked rows put the label line over the value line", () => {
+    expect(css).toMatch(/\.pf-rows \.money, \.pf-rows \.money-restricted, \.pf-rows td\.pf-cell-note \{ white-space: nowrap; \}/);
+    expect(css).toMatch(/\.pf-restricted \.money-restricted \{ flex-wrap: nowrap; \}/);
+    expect(css).toMatch(/\.pf-stacked \.pf-rows tr \{ display: flex; flex-direction: column;/);
+    expect(css).toMatch(/\.pf-stacked \.pf-rows th, \.pf-stacked \.pf-rows td \{ display: block;[^}]*text-align: left; \}/);
   });
   it("two columns from 900 px; no animation", () => {
     expect(css).toContain("@container (min-width: 900px)");

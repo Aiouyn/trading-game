@@ -15,7 +15,7 @@ test("Protection chip only while active; no shield chip without a data source", 
 });
 
 test("S1-08 strip 34, shelf 52, release, phase, tick ring 22, NW, tiles, dividers", async ({ page }) => {
-  await boot(page);
+  await boot(page, "/?nw=412860.15"); // pinned: the mock feed now moves NW with marks every tick (one NW source, #67)
   expect((await box(page, "strip")).height).toBe(34);
   expect((await box(page, "shelf")).height).toBe(52);
   await expect(page.getByTestId("release")).toHaveText("Quay 2 · Owner");
