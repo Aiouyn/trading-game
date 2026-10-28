@@ -48,6 +48,7 @@ import { buildCurve, impliedHawk, marketPath, stepHHat, type CurveBuildInputs } 
 import { coeffsFromHawk, ruleRate, type PublishedData } from './cb';
 import { termPremiumAt as tpAt } from './curves';
 import { sovSpread } from './sovCredit';
+import { nsFit } from './nelsonSiegel';
 import { cbWorld } from '../testkit/cbWorld';
 import type { SovereignCreditState } from '../schema';
 
@@ -88,6 +89,9 @@ describe('T04-07 ĥ, market path, buildCurve', () => {
     expect(c.marketImplied.map((x) => x.rate)).toEqual([0.0275, 0.0275, 0.0275, 0.0275]);
     expect(c.breakeven[5]!.yield).toBeCloseTo(0.02 + 0.002, 12);
     expect([c.id, c.tick, c.hHat, c.inversionDays, c.nInf]).toEqual(['FDL', 100, 0.5, 0, 0.0275]);
+    expect(c.nsOis).toEqual(nsFit(c.ois, 1.8));
+    expect(c.nsReal).toEqual(nsFit(c.nodes.map((n, k) => ({ tenorYears: n.tenorYears, yield: n.yield - c.breakeven[k]!.yield })), 1.8));
+    expect(buildCurve(ss({ piE1: 0.03 }), 100).nInf).toBe(0.0275);   // n∞ = r*_cb + π_e5
   });
   it('04#18 curve half: path 0.0275 → 0.0300 lifts OIS(2) 23.44 bp, OIS(10) 11.45 bp; Δy(2) ∈ [5, 25] bp and Δy(10) < Δy(2)', () => {
     const a = buildCurve(ss(), 100), b = buildCurve(ss({ dotsPath: flat(0.03), modelPathRates: flat(0.03) }), 100);
@@ -122,6 +126,13 @@ describe('T04-07 recomputeCurve (store)', () => {
     w.put(macroTables.curve.name, { ...c, hHat: 0.7, inversionDays: 3 } as CurveState);
     const c2 = recomputeCurve(w.ctx, 'FDL', 'RELEASE');
     expect([c2.hHat, c2.inversionDays]).toEqual([0.7, 3]);
+  });
+  it('published dots feed the market path (model path only when dots are empty); r*_cb includes rStarBias', () => {
+    const w = world(), cb = w.rows(macroTables.cb.name)[0] as Record<string, unknown>;
+    w.put(macroTables.cb.name, { ...cb, dots: flat(0.04), rStarBias: 0.001 } as never);
+    const c = recomputeCurve(w.ctx, 'FDL', 'CB_DECISION');
+    expect(c.marketImplied[0]!.rate).toBeGreaterThan(0.034);   // 0.8·0.04 + 0.2·model; the model path alone stays near 0.0275
+    expect(c.nInf).toBeCloseTo(0.0075 + 0.001 + 0.02, 15);
   });
   it('tp10 shocks feed the term premium (stand-in for T04-18 activeShockSum)', () => {
     const sh = { id: 's', target: 'tp10', value: 0.001, startTick: 0, endTick: 10_000, shape: 'STEP', halfLifeDays: 0 };

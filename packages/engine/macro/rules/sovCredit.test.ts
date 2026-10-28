@@ -183,4 +183,21 @@ describe('T04-07 stepSovereignCredit / igExclusionCheck (store)', () => {
     stepSovereignCredit(w.ctx, 'FDL', ports(0.05, ['BBB-', 'BB+', 'BB+']));
     expect(w.rows(macroTables.hookCall.name)).toHaveLength(1);   // already non-IG: no second hook
   });
+  const Z0: HazardInputs = { b: 'FDL', debtGdp: 0.95, dStar: 1.10, rEff: 0.03, gPot: 0.02, target: 0.02, primaryBalanceGdp: 0, fxDebtShare: 0, depVsFdlYoy: 0,
+    reserveCoverMonths: 6, fxRegime: 'FREE_FLOAT', fear: 50, politicalStability: 0.5, failedAuctions21d: 0, coreInflation: 0.02 };
+  const want = (o: Partial<HazardInputs>, mods: { postRestructuringDays?: number | null } = {}) =>
+    stepHazard(0.0005, hazardRaw(0.0005, hazardZ({ ...Z0, ...o }), hazardWeights('FDL'), 'FDL', { ...NOMODS, ...mods }), false);
+  const edit = (w: ReturnType<typeof world>, f: (r: BlocMacroState) => BlocMacroState) => w.put(macroTables.bloc.name, f(w.rows(macroTables.bloc.name)[0] as BlocMacroState) as never);
+  it('inputs: face-weighted r_eff over the lines; fxDebt/debt; stored political stability and depth when the ports have none; POST_RESTRUCTURING days from resolvedTick', () => {
+    const p = ports(0.05), two = { ...p, assets: { ...p.assets, sovereignLines: () => [LINE, { ...LINE, assetId: 'gb_FDL_30', couponRate: 0.06, faceOutstanding: M(2e9), onTheRun: false }] } };
+    expect(stepSovereignCredit(world().ctx, 'FDL', two).hazard).toBeCloseTo(want({ rEff: 0.05 }), 15);
+    const wf = world(); edit(wf, (r) => ({ ...r, fiscal: { ...r.fiscal, debt: M(100), fxDebt: M(25) } }));
+    const sf = stepSovereignCredit(wf.ctx, 'FDL', ports(0.05));
+    expect([sf.ratingInputs.fxDebtShare, sf.hazard]).toEqual([0.25, expect.closeTo(want({ fxDebtShare: 0.25 }), 15)]);
+    const ws = world({ ratingInputs: { politicalStability: 0.7 }, depthIndex: 0.7 }), ss = stepSovereignCredit(ws.ctx, 'FDL', ports(0.05));
+    expect([ss.ratingInputs.politicalStability, ss.depthIndex, ss.hazard]).toEqual([0.7, 0.7, expect.closeTo(want({ politicalStability: 0.7 }), 15)]);
+    const wp = world({ status: 'POST_RESTRUCTURING', defaultCase: { resolvedTick: 0 } }), t = wp.ctx.tick;
+    wp.setTick(182 * 720 + (t % 720));
+    expect(stepSovereignCredit(wp.ctx, 'FDL', ports(0.05)).hazard).toBeCloseTo(want({}, { postRestructuringDays: 182 }), 15);
+  });
 });
