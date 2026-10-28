@@ -21,7 +21,7 @@ export interface Material {
 
 const slate: Lch = { u: 0.14, C: 0.012, h: 250 };
 const concrete: Lch = { u: 0.48, C: 0.008, h: 80 };
-const metal: Lch = { u: 0.35, C: 0.01, h: 240 };
+const metal: Lch = { u: 0.42, C: 0.01, h: 240 }; // Studio AC5 round 2 (1a): .35 → .42, lighter roofs/trim city-wide accepted
 // C 0.056: base HSL sat 36.0 %, worst case with full jitter (L ±.02, hue ±4°, chroma ×1.1) 44.8 % ≤ AC-LOOK-04's 45 %
 // (Studio rulings 2 and AC5 3a: no clamp; numbers of record at C .056: base 36.0 %, worst case 44.9 %)
 const rust: Lch = { u: 0.35, C: 0.056, h: 45 };
@@ -32,7 +32,7 @@ export const MATERIAL_PLAIN = 0;
 export const DISTRICT_MATERIALS: readonly (readonly [string, Material])[] = [
   ['old_harbor', { wall: { u: 0.31, C: 0.055, h: 35 }, wall2: { u: 0.35, C: 0.045, h: 55 }, trim: { u: 0.67, C: 0.015, h: 80 }, top: slate }],
   ['riverside_lofts', { wall: { u: 0.4, C: 0.04, h: 60 }, trim: metal, top: concrete }],
-  ['midtown', { wall: { u: 0.18, C: 0.012, h: 245 }, trim: mullion, top: metal }],
+  ['midtown', { wall: { u: 0.27, C: 0.012, h: 245 }, trim: mullion, top: metal }],
   ['financial_mile', { wall: { u: 0.57, C: 0.015, h: 80 }, wall2: { u: 0.2, C: 0.014, h: 240 }, trim: mullion, top: metal }],
   ['glasshill', { wall: { u: 0.35, C: 0.018, h: 225 }, trim: { u: 0.7, C: 0.012, h: 85 }, top: metal }],
   ['summit_estates_on_gilt_hill', { wall: { u: 0.82, C: 0.025, h: 85 }, trim: { dL: -0.06 }, top: slate }],

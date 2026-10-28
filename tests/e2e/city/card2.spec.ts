@@ -21,6 +21,8 @@ const CLOCK = new Date('2026-10-20T19:00:00Z'); // the wall clock, pinned as in 
 const HIDE = 'body * { visibility: hidden !important; } canvas, .city-stage img { visibility: visible !important; }';
 /** Material ids (src/city/art/materials.ts DISTRICT_MATERIALS order + 1) of the four canon districts (AC 5). */
 const CANON = { old_harbor: 1, midtown: 3, summit_estates_on_gilt_hill: 6, industrial_basin: 7 } as const;
+/** Checked against midtown only where visible (Studio AC5 round 2) */
+const WHERE_VISIBLE = { financial_mile: 4 } as const;
 
 type Pose = { name: string; target?: [number, number]; zoom: number };
 const vpOf = (page: Page) => (isPhone(page) ? '390x844' : '1440x900');
@@ -230,7 +232,7 @@ for (const clock of ['19:00', '08:00', '13:00', '23:00'] as const) test(`card 2 
           // AC 5: no part pixel outside brass above 45 % HSL saturation (no lit windows at 13:00)
           expect.soft(row.maxSat as number, `AC5 ${p.name}: max HSL saturation of part pixels`).toBeLessThanOrEqual(0.45);
           const med: Record<string, RGB> = {};
-          for (const [name, id] of Object.entries(CANON)) {
+          for (const [name, id] of Object.entries({ ...CANON, ...WHERE_VISIBLE })) {
             const mp = pixelsIn(im, await coverage(page, 'material', id), bm);
             if (mp.length) med[name] = median(mp);
             row[`${name}Px`] = mp.length;
@@ -243,7 +245,7 @@ for (const clock of ['19:00', '08:00', '13:00', '23:00'] as const) test(`card 2 
               const { C, h } = oklch(oh);
               expect.soft(h, 'AC5 P2: Old Harbor median wall hue (°)').toBeGreaterThanOrEqual(25);
               expect.soft(h, 'AC5 P2: Old Harbor median wall hue (°)').toBeLessThanOrEqual(60);
-              expect.soft(C, 'AC5 P2: Old Harbor median wall chroma').toBeGreaterThanOrEqual(0.035);
+              expect.soft(C, 'AC5 P2: Old Harbor median wall chroma').toBeGreaterThanOrEqual(0.028); // Studio AC5 round 2: .035 → .028
             }
           } else {
             const names = Object.keys(CANON);
@@ -256,6 +258,13 @@ for (const clock of ['19:00', '08:00', '13:00', '23:00'] as const) test(`card 2 
               expect.soft(dE >= 4 || dL >= 0.04, `AC5 P1 ${names[i]} vs ${names[j]}: ΔE ${dE.toFixed(2)}, ΔL ${dL.toFixed(3)}`).toBe(true);
             }
             row.pairs = pairs;
+          }
+          for (const name of Object.keys(WHERE_VISIBLE)) {
+            const a = med.midtown, c = med[name];
+            if (!a || !c) { row[`midtown~${name}`] = 'not both in view'; continue; }
+            const dE = deltaE(rgb(a), rgb(c)), dL = Math.abs(srgbToOklab(rgb(a))[0] - srgbToOklab(rgb(c))[0]);
+            row[`midtown~${name}`] = { dE: +dE.toFixed(2), dL: +dL.toFixed(4) };
+            expect.soft(dE >= 4 || dL >= 0.04, `AC5 ${p.name} midtown vs ${name}: ΔE ${dE.toFixed(2)}, ΔL ${dL.toFixed(3)}`).toBe(true);
           }
         }
       }
