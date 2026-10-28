@@ -80,7 +80,11 @@ export function SimpleTicket({ t, locale, side, qtyText, onSide, onQty, onQtyBlu
           aria-invalid={message?.tone === "warn" || undefined} aria-describedby={message ? msgId : undefined}
           onChange={(e) => onQty(e.target.value)} onBlur={onQtyBlur} />
       </label>
-      {message && <p id={msgId} className={`br-msg ${message.tone}`} data-testid="br-qty-msg">{message.text}</p>}
+      {/* The slot keeps one message line reserved, so showing "Enter a quantity." on blur moves nothing below it
+          (a tap that starts the blur must land where it was aimed). Studio's reserved-slot rule, 17A Retry slot. */}
+      <div className="br-msg-slot" data-testid="br-qty-msg-slot">
+        {message && <p id={msgId} className={`br-msg ${message.tone}`} data-testid="br-qty-msg">{message.text}</p>}
+      </div>
       <p className="br-kind muted" data-testid="br-kind">{kind}</p>
       {preview && <PreviewRows t={t} locale={locale} res={preview} />}
       {pending && <p className="br-refreshing muted" role="status" data-testid="br-est-pending">{t.refreshing}</p>}

@@ -1,0 +1,17 @@
+/* Price chart plot (UI card 7), the lazy chunk's styles. Colours are tokens; the canvas reads its own through
+   chartTheme.ts. The tag and the halted band are positioned by transform only (no layout shift). */
+.cc { position: absolute; inset: 0; background: var(--win); }
+.cc-plot { position: absolute; inset: 0; border-radius: var(--r-input); }
+.cc-plot:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+html[data-hc="1"] .cc-plot { border: 1px solid var(--fg-muted); }
+.cc-tag {
+  position: absolute; top: 0; left: 0; z-index: 2; pointer-events: none;
+  padding: 1px var(--sp-4); border-radius: var(--r-input);
+  background: var(--win2); color: var(--fg); font-family: var(--font-num); font-size: var(--fs-11_5); line-height: 1.4;
+  white-space: nowrap; will-change: transform;
+}
+.cc-band {
+  position: absolute; top: 0; left: 0; z-index: 1; width: 24px; pointer-events: none;
+  background: color-mix(in srgb, var(--steel) 24%, transparent); will-change: transform;
+}
+.cc-halted { position: absolute; top: var(--sp-8); left: var(--sp-8); z-index: 2; color: var(--steel); font-size: var(--fs-12_5); font-weight: 500; pointer-events: none; }

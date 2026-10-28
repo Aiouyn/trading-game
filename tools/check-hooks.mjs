@@ -14,6 +14,8 @@ export const QUERY_KEYS = [
   "shells", "owned", "locale",
   // mock feed scenario (src/shell/contracts/mockFeed.ts)
   "feed", "seed", "reject", "tier", "empty", "halt", "thin", "pledge", "replyMs", "cancelReject", "cancelKeep", "partFill", "cancelGone", "cancelFill",
+  // chart history transport hooks (src/shell/contracts/history.ts)
+  "history",
   // other URL hooks: phase, load failure, city failure, alert/world banners (feed.ts), the demo sheet (QuayShell), /__ds palette
   "phase", "load", "retryMs", "city", "alerts", "world", "sheet", "palette",
 ];
@@ -23,6 +25,7 @@ export const HOOK_STRINGS = [
   "forced city load failure", "__quayFeed",
   "NEXT_PUBLIC_QUAY_MOCK_", "QUAY_HOOKS",
   "Place order (mock)", "Toggle halt (mock)",
+  "__quayHistory", "__quayChart",
 ];
 
 /** Dev-only /__ds routes (QUAY_DS): markers of DesignSystemSheet (/__ds) and NoticesSheet (/__ds/notices), plus the

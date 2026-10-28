@@ -6,6 +6,7 @@
 // FR typography: U+202F before "%", "pb" and ":", and inside « ».
 // UI card 5 (limit / stop / Open orders) keys follow the card's copy table; s.QUEUED_AUCTION is `haltedQueued` (orderStatus).
 // UI card 6 (cancel) keys follow the card's copy table; sideName [provisional] is the arrow-less side its examples use.
+// UI card 7 (price chart) keys follow the card's copy table; chartLoading [provisional] is the skeleton's aria-label.
 export type BrLocale = "en" | "fr";
 
 const NNBSP = "\u202F";
@@ -108,6 +109,20 @@ const EN = {
   cancelled: (side: string, qty: string, ticker: string, terms: string) => `Order cancelled: ${side} ${qty} ${ticker}, ${terms}`,
   cancelRejectedCode: (code: string) => `Cancel refused (code ${code})`,
   cancelSendFailed: "Couldn't send. Try again.",
+  // ---- UI card 7: price chart (retry / updating / halted reuse card 4 keys) ----
+  chartTitle: "Price",
+  range: { "1H": "1H", "1D": "1D", "1W": "1W", "1Q": "1Q", "1Y": "1Y", All: "All" } as Record<"1H" | "1D" | "1W" | "1Q" | "1Y" | "All", string>,
+  rangeAria: "Chart range",
+  chartAria: (ticker: string, range: string, first: string, last: string) => `${ticker} price, ${range}: from ${first} to ${last}`,
+  crosshairAria: (time: string, close: string) => `${time}: close ${close}`,
+  tickLabel: (n: string) => `t ${n}`,
+  viewTable: "View as table",
+  viewChart: "View as chart",
+  col: { time: "Time", open: "Open", high: "High", low: "Low", close: "Close", volume: "Volume" },
+  chartError: "Couldn't load chart",
+  noHistory: "No price history yet.",
+  /** [provisional] aria-label of the chart skeleton (aria-busy). */
+  chartLoading: "Loading price chart",
 };
 export type BrStrings = typeof EN;
 
@@ -194,6 +209,18 @@ const FR: BrStrings = {
   cancelled: (side, qty, ticker, terms) => `Ordre annulé${NNBSP}: ${side} ${qty} ${ticker}, ${terms}`,
   cancelRejectedCode: (code) => `Annulation refusée (code «${NNBSP}${code}${NNBSP}»)`,
   cancelSendFailed: "Envoi impossible. Réessayez.",
+  chartTitle: "Cours",
+  range: { "1H": `1${NNBSP}h`, "1D": `1${NNBSP}j`, "1W": `1${NNBSP}sem.`, "1Q": `1${NNBSP}trim.`, "1Y": `1${NNBSP}an`, All: "Tout" },
+  rangeAria: "Période du graphique",
+  chartAria: (ticker, range, first, last) => `Cours de ${ticker}, ${range}${NNBSP}: de ${first} à ${last}`,
+  crosshairAria: (time, close) => `${time}${NNBSP}: clôture ${close}`,
+  tickLabel: (n) => `t ${n}`,
+  viewTable: "Voir le tableau",
+  viewChart: "Voir le graphique",
+  col: { time: "Heure", open: "Ouverture", high: "Plus haut", low: "Plus bas", close: "Clôture", volume: "Volume" },
+  chartError: "Impossible de charger le graphique",
+  noHistory: "Pas encore d’historique de cours.",
+  chartLoading: "Chargement du graphique de cours",
 };
 
 export const BR_STRINGS: Record<BrLocale, BrStrings> = { en: EN, fr: FR };

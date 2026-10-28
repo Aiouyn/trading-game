@@ -94,3 +94,7 @@ html[data-hc="1"] .br-oo .btn.br-oo-btn { border-width: 2px; }
 @keyframes br-oo-leave { from { max-height: 120px; opacity: 1; } to { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; } }
 .br-oo-leaving { overflow: hidden; animation: br-oo-leave var(--dur-base) ease-in forwards; pointer-events: none; }
 html[data-motion="reduce"] .br-oo-leaving { animation: none; display: none; }
+
+/* QA #87 carry-over: on phone the last row's Cancel scrolls clear of #edge-bar (the list ends one edge-bar height
+   above the window floor). Padding cannot move the unscrolled position; it guarantees the gap at the scroll end. */
+.br-phone .br-oo-list { padding-bottom: calc(var(--edge-bar-h) + env(safe-area-inset-bottom)); }

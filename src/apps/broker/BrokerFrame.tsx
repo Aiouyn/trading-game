@@ -3,6 +3,8 @@
 // (market, limit, stop, stop limit), and the read-only Open orders list. The server previews, the server validates, the
 // server acks; this file only schedules requests and picks which server string to show.
 // Phases: edit -> review -> placed (pending until our IntentResult is on `me`, then the acked panel).
+// UI card 7: the price chart sits in the header column (PriceChart; its plot is a lazy chunk). It reads its own
+// `candles` channel, so it shows in the loading and error branches too when the asset is known.
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useShell } from "@/components/shell/ShellContext";
 import { Sheet } from "@/components/shell/Sheet";
@@ -11,6 +13,7 @@ import type { IntentResult, MeTradingBody, PreviewRes, Side } from "@/shell/cont
 import { dayDraft, parseAssetId, parsePriceInput, parseQtyInput, placeOrder, previewOrder, type DayDraft, type DayOrderType, type IntentId, type OrderTerms } from "@/shell/contracts/orders";
 import { getFeed, useChannel } from "@/shell/contracts/useChannel";
 import { viewportOf } from "@/shell/wm";
+import { PriceChart } from "@/components/market/PriceChart";
 import { AssetHeader } from "./AssetHeader";
 import { OpenOrders } from "./OpenOrders";
 import { OrderType, termsText, typeLabel } from "./OrderType";
@@ -42,8 +45,8 @@ function termsOf(type: DayOrderType, limitText: string, stopText: string): Order
     case "stop_limit": return stop.kind === "price" && limit.kind === "price" ? { type, stop: stop.price, limit: limit.price } : null;
   }
 }
-/** Keys typed inside the Open orders list never drive the ticket (BR-5-07: a row is not a control). */
-const inOpenOrders = (el: EventTarget): boolean => el instanceof Element && el.closest("[data-oo]") !== null;
+/** Keys typed inside the Open orders list or the price chart never drive the ticket (BR-5-07: a row is not a control). */
+const inOpenOrders = (el: EventTarget): boolean => el instanceof Element && el.closest("[data-oo], [data-chart]") !== null;
 /** The asset select keeps its own letter keys (type-to-find). */
 const isSelect = (el: EventTarget): boolean => el instanceof HTMLSelectElement;
 
@@ -156,6 +159,10 @@ export function BrokerFrame({ context }: { context?: string }) {
 
   const retry = () => { getFeed().resync("ticker:wl_default"); getFeed().resync("me"); };
   const cls = ["br", phone && "br-phone", stacked && "br-stacked"].filter(Boolean).join(" ");
+  const chartAsset = parseAssetId(assetId);
+  const chart = chartAsset && (
+    <PriceChart key={chartAsset} assetId={chartAsset} last={row?.last ?? null} halted={halted} frameStale={frozen} t={t} locale={locale} />
+  );
 
   // Open orders reads `me` on its own (card 5 States): skeleton rows, Updating…, or its own Couldn't load + Retry.
   const restingId = result && result.status === "ACCEPTED" && me.body ? restingOrderId(result, me.body) : null;
@@ -169,7 +176,7 @@ export function BrokerFrame({ context }: { context?: string }) {
     return (
       <div className={cls} data-testid="broker" data-state="loading" aria-busy="true" aria-label={t.loading}>
         <div className="br-grid">
-          <div className="br-col br-col-head"><div className="br-skel br-skel-head" data-testid="br-loading" /></div>
+          <div className="br-col br-col-head"><div className="br-skel br-skel-head" data-testid="br-loading" />{chart}</div>
           <div className="br-col br-col-ticket"><div className="br-skel br-skel-ticket" /></div>
           {orders}
         </div>
@@ -180,6 +187,7 @@ export function BrokerFrame({ context }: { context?: string }) {
     return (
       <div className={cls} data-testid="broker" data-state={ticker.body === null ? ticker.state : me.state}>
         <div className="br-grid">
+          {chart && <div className="br-col br-col-head">{chart}</div>}
           <div className="br-col br-col-ticket">
             <div className="br-error" data-testid="br-error">
               <span role="alert">{t.couldntLoad}</span>
@@ -223,7 +231,7 @@ export function BrokerFrame({ context }: { context?: string }) {
       <div className="br-grid">
         <div className="br-col br-col-head">
           <AssetHeader t={t} locale={locale} assetId={assetId} row={row} choices={fixedAsset ? null : choices}
-            onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} />
+            onPick={(a) => { if (phase.kind === "edit") setDraft((d) => ({ ...d, assetId: a })); }} holdQty={holdQty} cash={body.balances.FDL} chart={chart} />
           {frozen && <p className="br-updating muted" data-testid="br-updating">{t.updating}</p>}
         </div>
         <div className="br-col br-col-ticket">
