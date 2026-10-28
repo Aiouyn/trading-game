@@ -1,6 +1,6 @@
-// Legacy number amounts on the shared floor compact formatter (src/components/ui/money.ts, from #70) through an exact
-// decimal-string adapter (src/game/format.ts decimalString). Negative amounts floor toward −∞ (−412,860.15 -> −$413k):
-// current Studio #67 behaviour, kept pending Studio's ruling on negative rounding.
+// Legacy number amounts on the shared compact formatter (src/components/ui/money.ts, from #70) through an exact
+// decimal-string adapter (src/game/format.ts decimalString). The magnitude truncates toward zero for both signs
+// (Studio ruling 2026-10-28, specs/ui-card-2-portfolio-overview.md): −412,860.15 -> −$412k.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -46,8 +46,9 @@ describe("compactMoneyText: MoneyText's abbreviating text as a string", () => {
     ["250000", "$250k"],
     ["1999999", "$1.99M"],
     ["412860.15", "$412k"],
-    ["-412860.15", `${M}$413k`],
+    ["-412860.15", `${M}$412k`],
     ["-412000", `${M}$412k`],
+    ["-412000.01", `${M}$412k`],
     ["4200000000000", "$4.2T"],
     ["10000", "$10k"],
     ["9999.99", "$9,999.99"],
@@ -81,8 +82,8 @@ describe("legacy callers use the shared formatter; compactMoney is gone", () => 
     expect(lockedFor("institutional")).toBe("Institutional license at Mogul, $100M");
     expect(RANKS.filter((r) => r.threshold > 0).map((r) => compactMoneyText(decimalString(r.threshold)))).toEqual(["$20k", "$250k", "$5M", "$100M", "$2B"]);
   });
-  it("floors instead of rounding: 1,999,999 reads $1.99M where the deleted compactMoney read $2M", () => {
+  it("truncates instead of rounding: ±1,999,999 reads (−)$1.99M where the deleted compactMoney read $2M", () => {
     expect(compactMoneyText(decimalString(1_999_999))).toBe("$1.99M");
-    expect(compactMoneyText(decimalString(-1_999_999))).toBe(`${M}$2M`);
+    expect(compactMoneyText(decimalString(-1_999_999))).toBe(`${M}$1.99M`);
   });
 });

@@ -39,7 +39,7 @@ export function MoneyText(props: MoneyTextProps | LegacyMoneyTextProps) {
   const p = parseAmount(amount);
   const zero = isZero(p);
   const abbreviated = !zero && ABBREVIATED.has(ctx) && shouldAbbreviate(p);
-  const digits = zero ? "0.00" : abbreviated ? abbreviateDigits(p.int, p.negative, p.frac) : fullDigits(p);
+  const digits = zero ? "0.00" : abbreviated ? abbreviateDigits(p.int) : fullDigits(p);
   const sign = p.negative ? MINUS : ctx === "delta" && !zero ? "+" : "";
   const tone = zero ? "muted" : p.negative ? "loss" : ctx === "delta" ? "gain" : estimated ? "muted" : ctx === "wealth" ? "money-wealth-tone" : "";
   const cls = ["num", "money", `money-${ctx}`, tone].filter(Boolean).join(" ");
