@@ -2,13 +2,13 @@
 // BR-10-02 the Trade | About switch (draft kept, focus), 08 a News row opens that story in Wire, 09 the states,
 // 10 the 1440 and 520 window layouts, 11 phone at text scale 1 / 2 with reduced motion, cb / hc and axe. 01, 03-07 and
 // 12 are unit tests (tests/unit/17b/BR-10-*). Compared baselines: tests/e2e/17b/__screenshots__/BR-10/<state>-<vw>x<vh>.png
-// (desktop frames mask only their r×r corners, winShot.ts); PR shots also go to $BR10_SHOTS_DIR when set.
+// (shots mask only the band along each corner arc of the window and its rounded controls, winShot.ts); PR shots also go to $BR10_SHOTS_DIR when set.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { bootPaused, intents, setTextScale } from "../shell/helpers";
 import { openBrokerPaused } from "./openPaused";
 import { pinHtml } from "./pin";
-import { expectOnlySquaresMasked, winShot } from "./winShot";
+import { expectOnlyBandMasked, winShot } from "./winShot";
 
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
@@ -19,13 +19,15 @@ const tab = (page: Page, k: "overview" | "news") => page.getByTestId(`br-about-t
 const stories = (page: Page) => page.getByTestId("ap-story");
 const frame = (page: Page) => page.locator('[data-testid="win-broker"], [data-testid="phone-appview"]').first();
 /**
- * The rounded controls whose r×r corner squares every shot masks (winShot), besides the window's own: the asset select, the
+ * The rounded controls whose corner arc bands every shot masks (winShot), besides the window's own: the asset select, the
  * About tab list and its tabs, and the News rows. Their corners are antialiased one level differently on some page loads,
  * the same host noise as the window corners: PR #98 QA saw phone-cb differ on 3 of 5 loads, 12 px at x 32-34 on the
  * select's left corners; the --repeat-each=5 proof then caught window-520 differing by 1 level on 12 px, all on the tab
  * list's left corners and the selected tab's bottom-right one.
  */
 const rounded = (page: Page) => frame(page).locator('.br-select, .ap-tabs, .ap-tabs [role="tab"], .ap-story');
+/** Labels next to those corners whose ink must stay compared: the select's value, the tab names and the News rows. */
+const labels = (page: Page) => frame(page).locator('.br-select, .ap-tabs [role="tab"], .ap-story');
 /**
  * Every baseline is taken at the same feed tick. The mock ticks every 5 s of fake time, and the steps before and between
  * shots run the paused clock a varying amount (chunk loads, `until`), so a shot could land either side of a tick and read
@@ -62,7 +64,7 @@ async function holdStill(page: Page) {
 }
 async function shot(page: Page, state: string) {
   await holdStill(page);
-  await winShot(page, frame(page), "BR-10", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.BR10_SHOTS_DIR, rounded(page));
+  await winShot(page, frame(page), "BR-10", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, { shotsDir: process.env.BR10_SHOTS_DIR, rounded: rounded(page) });
 }
 
 async function openBroker(page: Page, query = "") {
@@ -399,26 +401,27 @@ for (const scale of ["1", "2"] as const) {
   });
 }
 
-/** Held still: the whole 1 px ring round every mask square of the shot is compared and every pixel inside is masked
- *  (expectOnlySquaresMasked); `min` squares at least, so a scene that lost its rounded controls can't pass empty. */
-async function onlySquaresMasked(page: Page, min: number) {
+/** Held still: the whole 1 px ring round every masked band of the shot is compared, every pixel in it is masked and no label
+ *  ink is (expectOnlyBandMasked); `min` corners at least, so a scene that lost its rounded controls can't pass empty. */
+async function onlyBandMasked(page: Page, min: number) {
   await holdStill(page);
-  const n = await expectOnlySquaresMasked(page, frame(page), rounded(page));
-  expect(n.squares, "mask squares in the shot").toBeGreaterThanOrEqual(min);
-  expect(n.ring, "ring pixels checked").toBeGreaterThan(n.squares * 4);
+  const n = await expectOnlyBandMasked(page, frame(page), rounded(page), labels(page));
+  expect(n.corners, "masked corners in the shot").toBeGreaterThanOrEqual(min);
+  expect(n.ring, "ring pixels checked").toBeGreaterThan(n.masked);
+  expect(n.ink, "label first-column pixels checked").toBeGreaterThan(0);
 }
 
-test("BR-10 shots mask only the r×r corner squares of the window, select, About tabs and News rows: every pixel of the ring round each square is caught", async ({ page }, info) => {
+test("BR-10 shots mask only the band along the corner arcs of the window, select, About tabs and News rows: the whole ring on both sides of each band is caught, and no label ink is masked", async ({ page }, info) => {
   if (info.project.name !== "phone") await openBroker(page);
   else {
     await bootPaused(page, "/broker");
     await until(page, async () => (await page.getByTestId("br-asset-select").count()) === 1);
     await page.getByTestId("br-asset-select").selectOption("HALC");
     await until(page, async () => (await brk(page).getAttribute("data-state")) === "live");
-    await onlySquaresMasked(page, 4);
+    await onlyBandMasked(page, 4);
   }
   await toAbout(page);
   await toNews(page);
   await expect(stories(page).first()).toBeVisible();
-  await onlySquaresMasked(page, 12);
+  await onlyBandMasked(page, 12);
 });
