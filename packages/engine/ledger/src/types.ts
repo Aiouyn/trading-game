@@ -38,8 +38,8 @@ export interface LedgerEntity {
  */
 export interface Account {
   key: string; entityId: Id; code: number; sub?: string; ccy: Ccy; class: AccountClass;
-  /** `openedTick` is optional: V3 opens accounts lazily and stores no open tick (E-79; T03-08 `accountsOfAsset` leaves it unset). */
-  balance: Money; qty?: Qty; assetId?: Id; isMoney: boolean; openedTick?: Tick;
+  /** `openedTick` (E-79): the commit tick that created the account. */
+  balance: Money; qty?: Qty; assetId?: Id; isMoney: boolean; openedTick: Tick;
 }
 
 /** Spec §2.2 (T03-01) + Δ5 flowLeg. */
