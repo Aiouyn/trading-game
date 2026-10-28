@@ -2,7 +2,7 @@
 // Order type (UI card 5, BRK-A ProTicket slice): Market · Limit · Stop · Stop limit, TIF fixed Day. A #38 segment under
 // Side and the type's price boxes (stop first). The boxes check format only (`parsePriceInput`); tick size, bands and
 // which side of the market a stop sits on are the server's `valid` / `reasonCode` (card 5 Gap 2).
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { Label } from "@/components/ui/Label";
 import { decText } from "@/apps/portfolio/positions/format";
 import { parsePriceInput, type DayOrderType } from "@/shell/contracts/orders";
@@ -51,14 +51,15 @@ export interface OrderTypeProps {
 }
 
 export function OrderType({ t, type, limitText, stopText, readOnly, stacked, onType, onPrice }: OrderTypeProps) {
-  const overflow = useSegOverflow();
+  const segRef = useRef<HTMLDivElement>(null);
+  const segStack = useSegOverflow(segRef);
   const [touched, setTouched] = useState({ limit: false, stop: false });
   const text = { limit: limitText, stop: stopText };
   return (
     <>
       <div className="br-field">
         <Label id="br-type-label">{t.orderType}</Label>
-        <div ref={overflow.ref} className={`br-seg br-type-seg${stacked || overflow.on ? " br-seg-stack" : ""}`} role="group" aria-labelledby="br-type-label" data-testid="br-type">
+        <div ref={segRef} className={`br-seg br-type-seg${stacked || segStack ? " br-seg-stack" : ""}`} role="group" aria-labelledby="br-type-label" data-testid="br-type">
           {ORDER_TYPES.map((k) => (
             <button key={k} type="button" aria-pressed={type === k} data-testid={`br-type-${k}`} disabled={readOnly} onClick={() => onType(k)}>
               {typeLabel(t, k)}
@@ -87,8 +88,7 @@ export function OrderType({ t, type, limitText, stopText, readOnly, stacked, onT
 }
 
 /** The four buttons no longer fit on one line: stack them. Remembers the one-line width so a wider window un-stacks. */
-function useSegOverflow() {
-  const ref = useRef<HTMLDivElement>(null);
+function useSegOverflow(ref: RefObject<HTMLDivElement | null>): boolean {
   const need = useRef(0);
   const [on, setOn] = useState(false);
   useLayoutEffect(() => {
@@ -103,6 +103,6 @@ function useSegOverflow() {
     const ro = new ResizeObserver(check);
     if (el.parentElement) ro.observe(el.parentElement);
     return () => ro.disconnect();
-  }, []);
-  return { ref, on };
+  }, [ref]);
+  return on;
 }
