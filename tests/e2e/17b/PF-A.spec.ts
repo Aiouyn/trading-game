@@ -18,11 +18,11 @@ async function shot(page: Page, name: string) {
   const vp = page.viewportSize()!;
   await page.screenshot({ path: `${SHOTS}/${name}-${vp.width}x${vp.height}.png` });
 }
-/** The top bars' compact NW, through the one shared floor formatter (src/components/ui/money.ts abbreviateDigits) applied to
+/** The top bars' compact NW, through the one shared compact formatter (truncates toward zero) (src/components/ui/money.ts abbreviateDigits) applied to
  *  the shared NW source (the hero prints the me channel's nw in full): "$412,860.15" -> "$412k"; under 10,000 in full. */
 const compactNw = (full: string) => {
   const p = parseAmount(full.replace(/[$,]/g, ""));
-  return p.int.length >= 5 ? `$${abbreviateDigits(p.int, p.negative, p.frac)}` : full;
+  return p.int.length >= 5 ? `$${abbreviateDigits(p.int)}` : full;
 };
 
 async function openPortfolio(page: Page, query = "") {
@@ -136,7 +136,7 @@ test("Studio b: one NW string; the hero and the top bar (compact) agree on deskt
     const sb = document.querySelector(".sb-nw [title]");
     return { hero, stripTitle: strip?.getAttribute("title") ?? null, stripText: strip?.textContent ?? null, sbTitle: sb?.getAttribute("title") ?? null, sb: sb?.textContent ?? null };
   });
-  // Both top bars show the hero's NW (the shared me-channel source) through the one shared floor formatter (compactNw);
+  // Both top bars show the hero's NW (the shared me-channel source) through the one shared compact formatter (truncates toward zero) (compactNw);
   // the title carries the full amount, so a bar reading the store's boot NW fails as soon as the mock NW moves.
   const seen = new Set<string>();
   for (let k = 0; k < 3; k++) {

@@ -190,6 +190,37 @@ describe('T04-15 hourlyFear', () => {
     hourlyFear(d88.ctx, ports({ rv: 0.16, r: 0, lvl: 5500, ig: null }));
     expect(d88.global().fearIndex).toBeCloseTo(g0({ gxReturn63d: 0.1 }), 9);
   });
+  it('#72 (a): r63Day honours the holidays flag (day 100: day 10 with holidays off, day 9 with the D016 table on: FDL day 60 is closed)', () => {
+    const off = fakeWorld({}, [hist(10, 5000), hist(9, 2500)], 100);
+    hourlyFear(off.ctx, ports({ rv: 0.16, r: 0, lvl: 5500, ig: null }));
+    expect(off.global().fearIndex).toBeCloseTo(g0({ gxReturn63d: 0.1 }), 9);
+    const on = fakeWorld({}, [hist(10, 5000), hist(9, 2500)], 100);
+    hourlyFear(on.ctx, ports({ rv: 0.16, r: 0, lvl: 5500, ig: null }), true);
+    expect(on.global().fearIndex).toBeCloseTo(g0({ gxReturn63d: 1.2 }), 9);
+    // day 237: the latest close skips the FDL HARVEST holiday (day 236) too → day 147 (148 if the latest-close walk ignored it)
+    const harvest = fakeWorld({}, [hist(147, 5000), hist(148, 2500)], 237);
+    hourlyFear(harvest.ctx, ports({ rv: 0.16, r: 0, lvl: 5500, ig: null }), true);
+    expect(harvest.global().fearIndex).toBeCloseTo(g0({ gxReturn63d: 0.1 }), 9);
+  });
+  it('#72 (c): once the history row exists a null GX level holds the last r63 and lists gxReturn63d stale (once); never held → 0', () => {
+    const w = fakeWorld({}, [hist(10, 5000)], 100);
+    hourlyFear(w.ctx, ports({ rv: 0.16, r: 0, lvl: 5500, ig: null }));
+    expect(w.hourly().values['gxReturn63d']).toBeCloseTo(0.1, 15);
+    expect(w.hourly().staleKeys).not.toContain('gxReturn63d');
+    const F1 = w.global().fearIndex;
+    hourlyFear(w.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: null }));
+    hourlyFear(w.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: null }));
+    const raw = fearRaw({ ...NEUTRAL, tension: 30, hackRate: 0, gxReturn63d: 0.1 });
+    expect(w.global().fearIndex).toBe(stepFear(stepFear(F1, raw), raw));   // 0.1 held, not 0
+    expect(w.hourly().staleKeys.filter((k) => k === 'gxReturn63d')).toEqual(['gxReturn63d']);
+    const fresh = fakeWorld({}, [hist(10, 5000)], 100);
+    hourlyFear(fresh.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: null }));
+    expect(fresh.global().fearIndex).toBe(g0());
+    expect(fresh.hourly().staleKeys).toContain('gxReturn63d');
+    const early = fakeWorld({}, [], 100);
+    hourlyFear(early.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: null }));
+    expect(early.hourly().staleKeys).not.toContain('gxReturn63d');   // before history exists: 0, nothing held
+  });
   it('E-93 (4): missing GLOBAL or HOURLY row → MAC_STATE_MISSING with the row id', () => {
     expect(() => hourlyFear(fakeWorld(null).ctx, defaultMacroPorts())).toThrow(expect.objectContaining({ code: 'MAC_STATE_MISSING', entityIds: ['GLOBAL'] }));
     expect(() => hourlyFear(fakeWorld({}, [], 10, { hourly: false }).ctx, defaultMacroPorts())).toThrow(expect.objectContaining({ code: 'MAC_STATE_MISSING', entityIds: ['HOURLY'] }));
