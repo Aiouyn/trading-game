@@ -135,6 +135,7 @@ export interface GlobalMacroState {
   globalRegime: Regime; globalRegimeSinceTick: Tick;
   fearIndex: number; riskAppetite: number; financialStressIndex: number;
   worldTradeIndex: number; tariffLevel: number; worldScale: number;
+  tariffBase: number;   // policy tariff before shocks (16), genesis 0.03; tariffLevel = effectiveTariff(tariffBase, shock sum) (E-94 (a))
   worldNominalGdpFdl: Money;
   energyIndex: number; foodIndex: number;
   aiRaceIndex: number; worldHackRate: number; geopoliticalTension: number;
@@ -370,7 +371,7 @@ export interface DepositFacilityBalance { id: string /* `${bloc}:${bankId}` */; 
 export interface PrimaryDealerStatus { id: string /* `${bloc}:${entityId}` */; bloc: BlocId; entityId: Id; npc: boolean; status: 'APPLIED' | 'ACTIVE' | 'RESIGNING' | 'REVOKED';
   fromQuarter: number; revokedUntilQuarter: number | null; auctionsThisQuarter: number; auctionsBidThisQuarter: number; missesThisQuarter: number;
   awardedFaceQuarter: SortedMap<string, string> /* quarter -> face */ }
-export interface MacroInputs { id: 'INPUTS'; tick: Tick; staleKeys: string[]; values: Record<string, number> }   // last values of §3.14.5 inputs, held on miss (edge 23)
+export interface MacroInputs { id: 'INPUTS' | 'HOURLY'; tick: Tick; staleKeys: string[]; values: Record<string, number> }   // last values of §3.14.5 inputs, held on miss (edge 23); 'INPUTS' daily (T04-05), 'HOURLY' the held hourly fear and FSI inputs (T04-15, E-93 (2))
 export interface SovExchangeVote { id: string /* `${offerId}:${holderId}:${assetId}` */; offerId: string; holderId: Id; assetId: string; face: Qty; vote: 'ACCEPT' | 'REJECT' }
 export interface SyndicationOrder { id: Id; syndicationId: string; bidderId: Id; face: Qty; limitSpreadBp: number | null; holdId: Id; tick: Tick }
 export interface BuybackOffer { id: Id; buybackId: string; holderId: Id; assetId: string; face: Qty; minPrice: Price; holdId: Id; tick: Tick }
