@@ -56,6 +56,14 @@ function holdKey(h: { row: MacroInputs; changed: boolean }, key: string, now: nu
   if (!h.row.staleKeys.includes(key)) { h.row.staleKeys.push(key); h.changed = true; }
   return h.row.values[key];
 }
+/** E-103 (3) AC-04-15-IGCLOSE: every call deletes every `igClose.<d>` with d ≤ today − 364 (no orphans after read gaps). Deletion is
+ *  order-independent, so the own-key walk is G8-safe. */
+function pruneIgCloses(h: { row: MacroInputs; changed: boolean }, today: number): void {
+  for (const k of Object.getOwnPropertyNames(h.row.values)) {
+    const m = /^igClose\.(0|[1-9][0-9]*)$/.exec(k);
+    if (m && Number(m[1]) <= today - IG_WINDOW_DAYS) { delete h.row.values[k]; h.changed = true; }
+  }
+}
 /** mac.global GLOBAL, or MAC_STATE_MISSING (E-93 (4)). */
 function globalRow(s: StoreRead): GlobalMacroState & { id: 'GLOBAL' } {
   const g = s.get<GlobalMacroState & { id: 'GLOBAL' }>(macroTables.global.name, 'GLOBAL');
@@ -82,23 +90,25 @@ export function hourlyFear(ctx: PhaseCtx, ports: MacroPorts, holidays: boolean =
   // creditSpreadIdx = IG / mean of the daily IG closes over the last 364 game days (today's latest value included); IG absent → 1
   const igNow = ports.assets.igCreditSpreadIndex(s);
   const ig = holdKey(h, 'igCreditSpreadIndex', igNow);
-  if (igNow !== null && igNow !== undefined) {
-    holdKey(h, igCloseKey(day), igNow);
-    if (h.row.values[igCloseKey(day - IG_WINDOW_DAYS)] !== undefined) { delete h.row.values[igCloseKey(day - IG_WINDOW_DAYS)]; h.changed = true; }
-  }
+  if (igNow !== null && igNow !== undefined) holdKey(h, igCloseKey(day), igNow);
+  pruneIgCloses(h, day);
   let csi: number = NEUTRAL.creditSpreadIdx;
   if (ig !== undefined) {
     let sum = 0, n = 0;
     for (let d = day - IG_WINDOW_DAYS + 1; d <= day; d++) { const v = h.row.values[igCloseKey(d)]; if (v !== undefined) { sum += v; n++; } }
     if (n > 0 && sum > 0) csi = ig / (sum / n);
   }
-  // r63 (E-93 (3)): GX level now vs DailyHistoryRow.equityIndex 63 trading days back; 0 until that row exists. Once it exists a null
-  // GX level holds the last r63 in HOURLY.gxReturn63d and lists it stale (#72 (c)); never held → 0.
+  // r63 (E-93 (3), E-103 (4) AC-04-15-R63HOLD): GX level now vs DailyHistoryRow.equityIndex 63 trading days back.
   const lvl = ports.markets.gxLevel(s);
   const d63 = r63Day(day, holidays);
-  const past = d63 === null ? null : s.get<DailyHistoryRow>(macroTables.history.name, `GLOBAL:${d63}`)?.equityIndex ?? null;
-  const r63 = past === null || past <= 0 ? NEUTRAL.gxReturn63d
-    : holdKey(h, 'gxReturn63d', lvl === null || lvl === undefined ? null : lvl / past - 1) ?? NEUTRAL.gxReturn63d;
+  const row = d63 === null ? undefined : s.get<DailyHistoryRow>(macroTables.history.name, `GLOBAL:${d63}`);
+  const lvlOk = lvl !== null && lvl !== undefined, past = row?.equityIndex ?? null;
+  let r63: number;
+  if (row === undefined) {   // (a) warm-up: 0, nothing held; a null level is still listed
+    r63 = NEUTRAL.gxReturn63d;
+    if (!lvlOk) holdKey(h, 'gxReturn63d', null);
+  } else if (lvlOk && past !== null && past > 0) r63 = holdKey(h, 'gxReturn63d', lvl / past - 1) as number;   // (b)
+  else r63 = holdKey(h, 'gxReturn63d', null) ?? NEUTRAL.gxReturn63d;   // (c) held (0 if none), listed; never faults
 
   const x: FearInputs = {
     rv21Gx: holdKey(h, 'rv21Gx', ports.markets.rv21Gx(s)) ?? NEUTRAL.rv21Gx,
