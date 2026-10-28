@@ -18,8 +18,28 @@ const about = (page: Page) => page.getByTestId("br-about");
 const tab = (page: Page, k: "overview" | "news") => page.getByTestId(`br-about-tabs-${k}`);
 const stories = (page: Page) => page.getByTestId("ap-story");
 const frame = (page: Page) => page.locator('[data-testid="win-broker"], [data-testid="phone-appview"]').first();
-const shot = (page: Page, state: string) =>
-  winShot(page, frame(page), "BR-10", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.BR10_SHOTS_DIR);
+/**
+ * Every baseline is taken in the same feed tick. The mock ticks every 5 s of fake time, and the steps before a shot run
+ * the paused clock a varying amount (chunk loads, `until`), so a shot could land either side of a tick and read another
+ * Last / Today. The status strip's tick ring remounts its sweep once per tick (TickRing `key={tick}`); an init script
+ * counts those remounts, and a shot first runs the clock to tick SHOT_TICK, then fails if it is already past it.
+ */
+const SHOT_TICK = 3;
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { brTicks: number };
+    w.brTicks = 0;
+    new MutationObserver((recs) => {
+      for (const r of recs) for (const n of r.addedNodes) if (n instanceof SVGElement && n.classList.contains("tickring-sweep")) w.brTicks++;
+    }).observe(document, { childList: true, subtree: true });
+  });
+});
+const ticks = (page: Page) => page.evaluate(() => (window as unknown as { brTicks: number }).brTicks);
+async function shot(page: Page, state: string) {
+  for (let i = 0; i < 200 && (await ticks(page)) < SHOT_TICK; i++) await page.clock.runFor(100);
+  expect(await ticks(page), "feed ticks seen before the shot").toBe(SHOT_TICK);
+  await winShot(page, frame(page), "BR-10", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.BR10_SHOTS_DIR);
+}
 
 async function openBroker(page: Page, query = "") {
   await openBrokerPaused(page, `/broker?asset=HALC${query}`, brk(page));
