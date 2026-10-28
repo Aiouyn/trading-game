@@ -6,14 +6,16 @@
 import type { ComponentType } from "react";
 import type { AppId } from "./registry";
 
+/** What every app body receives: the window's context (Broker: the assetId; Portfolio: "Journal"), when it has one. */
+export interface AppBodyProps { context?: string }
 /** Its own chunk, loaded on first open (17B CH-00: keeps the first-load JS in budget, G4). */
-interface LazyBody { kind: "lazy"; load: () => Promise<{ default: ComponentType }> }
+interface LazyBody { kind: "lazy"; load: () => Promise<{ default: ComponentType<AppBodyProps> }> }
 /** Statically imported by AppBody, which must give every eager id a component. */
 interface EagerBody { kind: "eager" }
 
-// Broker has no entry until BRK-A ships its body: it is built:false and renders ComingLater, with no chunk.
 export const APP_MODULES = {
   settings: { kind: "eager" },
+  broker: { kind: "lazy", load: () => import("@/apps/broker/App") }, // UI card 4 (BRK-A)
   portfolio: { kind: "lazy", load: () => import("@/apps/portfolio/App") },
   wire: { kind: "lazy", load: () => import("@/apps/wire/App") },
 } as const satisfies Partial<Record<AppId, LazyBody | EagerBody>>;

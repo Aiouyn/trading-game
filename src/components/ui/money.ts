@@ -1,7 +1,6 @@
-// Money formatting for MoneyText (17 §3.4.1, 17-AT-05). Server amounts are decimal strings; this module
-// only rearranges their digits. src/game/format.ts (number-based, no 3-significant-figure or T unit)
-// cannot format them without converting to floats, so this thin string adapter does it instead [P]. Legacy number
-// callers come in through src/game/format.ts decimalString (exact decimal string) and use compactMoneyText below.
+// Money formatting for MoneyText (17 §3.4.1, 17-AT-05). Server amounts are decimal strings; this module only
+// rearranges their digits, never converting to floats [P]. src/game/format.ts is number-based (no 3-significant-figure
+// or T unit) and, since #83 deleted the legacy sim, has no src caller that routes numbers here via decimalString.
 
 export const MINUS = "\u2212";
 

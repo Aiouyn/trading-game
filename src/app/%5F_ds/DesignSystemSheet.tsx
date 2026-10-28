@@ -71,6 +71,8 @@ export function DesignSystemSheet({ palette }: { palette: string }) {
         <span data-testid="ds-money-estimated-neg"><MoneyText amount="-1284.10" ctx="delta" estimated /></span>
         <span data-testid="ds-money-estimated-pos"><MoneyText amount="1284.10" ctx="delta" estimated /></span>
         <span data-testid="ds-money-chip-neg-big"><MoneyText amount="-3210000" ctx="chip" /></span>
+        {/* QA #76 follow-up: a negative compact whose magnitude truncates (−$412k) where flooring would read −$413k. */}
+        <span data-testid="ds-money-chip-neg-412k"><MoneyText amount="-412000.01" ctx="chip" /></span>
         <span data-testid="ds-money-estimated-zero"><MoneyText amount="0" ctx="delta" estimated /></span>
         <span data-testid="ds-money-ad"><MoneyText amount="500" restricted="AD_GRANT" /></span>
         <span data-testid="ds-money-start"><MoneyText amount="2500" restricted="FRESH_START" /></span>

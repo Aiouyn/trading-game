@@ -96,4 +96,7 @@ describe("strings", () => {
     expect(en.cash("FDL")).toBe("Cash · FDL");
     expect(en.emptyCash).toBe("Your money is all cash. Broker or Businesses are good first stops.");
   });
+  it("emptyCash FR is the Studio ruling (2026-10-28): app names as given, the registry has no FR names", () => {
+    expect(PF_STRINGS.fr.emptyCash).toBe("Tout votre argent est en liquidités. Le Courtier ou les Entreprises sont de bons points de départ.");
+  });
 });

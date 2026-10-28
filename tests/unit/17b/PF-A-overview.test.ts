@@ -102,10 +102,10 @@ describe("PF-2-06 new player", () => {
     expect(text(block(h, "pf-empty")!)).toBe("Your money is all cash. Broker or Businesses are good first stops.");
     expect(block(h, "pf-summary")).not.toContain("<button");
   });
-  it("FR copy is the Positions empty body, « Tout votre argent est en liquidités. » (Studio ruling 2026-10-28)", () => {
+  it("FR copy opens with the Positions empty body, then the two first stops (Studio emptyCash text, UI card 4 brief)", () => {
     const h = html({ locale: "fr", view: live(ME_EMPTY) });
-    expect(text(block(h, "pf-empty")!)).toBe("Tout votre argent est en liquidités.");
-    expect(pfStrings("fr").emptyCash).toBe(posStrings("fr").emptyBody);
+    expect(text(block(h, "pf-empty")!)).toBe("Tout votre argent est en liquidités. Le Courtier ou les Entreprises sont de bons points de départ.");
+    expect(pfStrings("fr").emptyCash.startsWith(posStrings("fr").emptyBody)).toBe(true);
   });
   it("with positions there is no EmptyState", () => {
     expect(html()).not.toContain("pf-empty");

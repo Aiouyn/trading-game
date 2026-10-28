@@ -48,12 +48,14 @@ export function MoneyText(props: MoneyTextProps | LegacyMoneyTextProps) {
   const body = ctx === "hero" && dot > 0
     ? <><span data-testid="money-int">{text.slice(0, dot)}</span><span className="cents" data-testid="money-cents">{text.slice(dot)}</span></>
     : text;
+  // The full value behind an abbreviation, true sign included: the hover title and the long-press pill show the same.
+  const full = `${p.negative ? MINUS : ""}$${fullDigits(p)}`;
   const money = (
-    <span className={cls} role="img" aria-label={speakMoney(amount, estimated)} title={abbreviated ? `$${fullDigits(p)}` : undefined}>
+    <span className={cls} role="img" aria-label={speakMoney(amount, estimated)} title={abbreviated ? full : undefined}>
       {body}
     </span>
   );
-  const shown = abbreviated ? <LongPressTip full={`${p.negative ? MINUS : ""}$${fullDigits(p)}`}>{money}</LongPressTip> : money;
+  const shown = abbreviated ? <LongPressTip full={full}>{money}</LongPressTip> : money;
   if (!restricted) return shown;
   return <span className="money-restricted">{shown}<Chip tone="steel" outline>{RESTRICTED_LABELS[locale === "fr" ? "fr" : "en"][restricted]}</Chip></span>;
 }

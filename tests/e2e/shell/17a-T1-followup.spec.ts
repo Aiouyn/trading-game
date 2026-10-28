@@ -187,3 +187,12 @@ test("Answer 3: estimated positive delta is gain with ≈; estimated neutral sta
   const neutral = page.getByTestId("ds-money-estimated").locator("[role=img]");
   expect(await neutral.evaluate((e) => getComputedStyle(e).color)).toBe(await resolve(page, "var(--fg-muted)"));
 });
+
+test("Compact negatives truncate toward zero on a rendered surface (Studio ruling, QA #76 follow-up): −412,000.01 → −$412k", async ({ page }) => {
+  await ds(page);
+  const amount = page.getByTestId("ds-money-chip-neg-412k").locator("[role=img]");
+  await expect(amount).toHaveText("\u2212$412k"); // floor toward −∞ would read −$413k
+  await expect(amount).toHaveClass(/\bloss\b/);
+  await expect(amount).toHaveAttribute("title", "\u2212$412,000.01"); // the hover title keeps the minus
+  await expect(amount).toHaveAttribute("aria-label", /minus 412,000\.01/);
+});

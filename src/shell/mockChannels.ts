@@ -92,6 +92,10 @@ export function clockLabel(c: ClockChannel): { day: number; hhmm: string } {
   return { day: c.gameDay + 1, hhmm: `${hh}:${mm}` };
 }
 
+/** `?locale=fr` (QUAY_HOOKS, e2e only): the document starts in French. The product has no locale switch yet, so this is
+ *  the only way an e2e run renders the FR copy. Without the gate the read is compiled out. */
+export const mockLocale = (q: URLSearchParams): "fr" | null => (MOCK_HOOKS && q.get("locale") === "fr" ? "fr" : null);
+
 const isRankShell = (v: string): v is ShellId => /^r[0-6]$/.test(v);
 /**
  * Earned rank shells: every rank shell up to the current rank by default. In dev / e2e builds only (build-gated,
