@@ -69,6 +69,18 @@ describe("BR-10-02 Trade | About", () => {
     expect(q(h, "br-side-sell")!.getAttribute("aria-pressed")).toBe("true");
     expect(document.activeElement).toBe(q(h, "br-ticker"));
   });
+  it("after Back to Trade the heading focus is one-shot: focus qty, a tick re-renders, focus stays on qty", async () => {
+    const feed = await mount(h, { context: "HALC" });
+    await toAbout();
+    await click(viewBtn("trade"));
+    expect(document.activeElement).toBe(q(h, "br-ticker"));
+    const qty = q(h, "br-qty")!;
+    await act(async () => qty.focus());
+    const last = text(h, "br-last");
+    for (let i = 0; i < 3 && text(h, "br-last") === last; i++) await tick(feed);
+    expect(text(h, "br-last"), "a tick re-rendered the frame").not.toBe(last);
+    expect(document.activeElement).toBe(qty);
+  });
   it("no-context window: back to Trade focuses the asset select", async () => {
     await mount(h);
     await toAbout();
@@ -155,6 +167,25 @@ describe("BR-10-05 trading state", () => {
     expect(text(h, "ap-state")).toBe("Open");
     expect(q(h, "ap-halted")).toBeNull();
   });
+  // Spec §Overview: "`halted` → steel "Halted" chip (as card 4)": the chip follows the row's `halted` flag (true only in
+  // HALTED, mockFeed), not the state. Pre-open and the auctions show their state label and no chip.
+  const overview = async (state: TradingState, halted: boolean) => {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    const row = { last: "42.18", chg: "0", chgPct: "0", vol: "0", state, halted } as unknown as TickerBody["rows"][string];
+    await act(async () => root.render(createElement(AssetOverview, { t: EN, locale: "en", assetId: "HALC", row, position: undefined })));
+    const got = { state: el.querySelector('[data-testid="ap-state"]')!.textContent, chip: el.querySelector('[data-testid="ap-halted"]')?.textContent ?? null };
+    await act(async () => root.unmount());
+    el.remove();
+    return got;
+  };
+  it.each(["PRE_OPEN", "OPENING_AUCTION", "CLOSING_AUCTION"] as const)("%s (not halted): its state label, no Halted chip", async (st) => {
+    expect(await overview(st, false)).toEqual({ state: EN.st[st], chip: null });
+  });
+  it("HALTED with halted: the Halted label and the chip", async () => {
+    expect(await overview("HALTED", true)).toEqual({ state: EN.st.HALTED, chip: EN.halted });
+  });
   it("every TradingState has a distinct EN and FR label", () => {
     const states: TradingState[] = ["CLOSED", "PRE_OPEN", "OPENING_AUCTION", "CONTINUOUS", "CLOSING_AUCTION", "AFTER_HOURS", "HALTED", "VOL_INTERRUPTION", "LIMIT_LOCKED", "SUSPENDED"];
     for (const L of [BR_STRINGS.en, BR_STRINGS.fr]) {
@@ -203,6 +234,17 @@ describe("BR-10-07 News filter and order", () => {
     expect(assetStories(NEWS, "HALC").map((i) => i.id)).toEqual(["n-1"]);
     const its = [item("b", 5, ["VOLT"]), item("a", 5, ["VOLT", "HALC"]), item("c", 9, ["VOLT"]), item("d", 9, ["VOLT"], "company"), item("e", 1, ["HALC"])];
     expect(assetStories(its, "VOLT").map((i) => i.id)).toEqual(["c", "a", "b"]);
+  });
+  it("the asset matches wherever it sits in entities, not only first; a company entity with the same id does not", () => {
+    const mixed = (id: string, tick: number, es: [string, "asset" | "company"][]): WireItem =>
+      ({ ...NEWS[0]!, id, tick, entities: es.map(([e, kind]) => ({ id: e, kind, label: e })) }) as WireItem;
+    const its = [
+      mixed("last", 3, [["VOLT", "asset"], ["GX", "asset"], ["HALC", "asset"]]),
+      mixed("mid", 4, [["HALC", "company"], ["HALC", "asset"]]),
+      mixed("co", 5, [["VOLT", "asset"], ["HALC", "company"]]),
+      mixed("none", 6, [["VOLT", "asset"]]),
+    ];
+    expect(assetStories(its, "HALC").map((i) => i.id)).toEqual(["mid", "last"]);
   });
   it("HALC lists n-1 only; rows are KindChip + headline + time, one button each", async () => {
     await mount(h, { context: "HALC" });
