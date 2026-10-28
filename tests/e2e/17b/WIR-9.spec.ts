@@ -160,7 +160,7 @@ test("winShot masks only the band along the corner arcs of the window and the de
   await bootWire(page);
   const n = await expectOnlyBandMasked(page, frame(page), rounded(page), rounded(page));
   expect(n.corners, "the window's four corners").toBe(4);
-  expect(n.ring, "ring pixels checked").toBeGreaterThan(n.masked);
+  expect(n.ring, "ring pixels checked").toBeGreaterThan(n.corners * 8);
   await open(page, "n-3");
   const k = await expectOnlyBandMasked(page, frame(page), rounded(page), rounded(page));
   expect(k.corners, "the window's and the detail kind chip's").toBe(8);

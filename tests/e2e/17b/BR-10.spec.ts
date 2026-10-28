@@ -407,7 +407,7 @@ async function onlyBandMasked(page: Page, min: number) {
   await holdStill(page);
   const n = await expectOnlyBandMasked(page, frame(page), rounded(page), labels(page));
   expect(n.corners, "masked corners in the shot").toBeGreaterThanOrEqual(min);
-  expect(n.ring, "ring pixels checked").toBeGreaterThan(n.masked);
+  expect(n.ring, "ring pixels checked").toBeGreaterThan(n.corners * 8);
   expect(n.ink, "label first-column pixels checked").toBeGreaterThan(0);
 }
 

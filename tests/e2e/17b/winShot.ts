@@ -204,8 +204,8 @@ async function expectBand(frame: Locator, rounded: Locator | undefined, runs: Ru
  * The page held still, pixel-exact as winShot compares: paint every pixel of the 1 px ring round the mask (every unmasked
  * pixel of the frame next to a masked one, so both sides of each band and its ends) in the inverse of its colour, and every
  * one must change the masked capture, and nothing else may; then paint every masked pixel, and the capture must not change
- * at all. For each visible `labels` element, no ink pixel of its content box (a pixel not of the box's commonest colour) is
- * masked, and painting the first ink column changes every one of its pixels in the capture. Returns the counts so the
+ * at all. For each visible `labels` element, no pixel of its text ink (the pixels that change when its text is made transparent)
+ * is masked, and painting the first ink column changes every one of its pixels in the capture. Returns the counts so the
  * caller can check there was something to test.
  */
 export async function expectOnlyBandMasked(page: Page, frame: Locator, rounded?: Locator, labels?: Locator): Promise<{ corners: number; masked: number; ring: number; ink: number }> {
@@ -244,26 +244,26 @@ export async function expectOnlyBandMasked(page: Page, frame: Locator, rounded?:
     expect([...ringChanged].filter((k) => !ring.has(k)).map(fmt), "pixels that changed but weren't painted").toEqual([]);
     expect([...await paint([...masked.values()])].map(fmt), "masked pixels that showed through the mask").toEqual([]);
     let ink = 0;
-    const boxes = labels ? await labels.evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => {
-      const b = e.getBoundingClientRect(), cs = getComputedStyle(e), n = (v: string) => parseFloat(v) || 0;
-      const l = b.x + n(cs.borderLeftWidth) + n(cs.paddingLeft), t = b.y + n(cs.borderTopWidth) + n(cs.paddingTop);
-      return { l, t, r: b.right - n(cs.borderRightWidth) - n(cs.paddingRight), b: b.bottom - n(cs.borderBottomWidth) - n(cs.paddingBottom), what: `${e.tagName.toLowerCase()}.${[...e.classList].join(".")} "${(e.textContent ?? "").trim().slice(0, 24)}"` };
-    })) : [];
     const plain = decodePng(await capture(page, clip, []));
-    const word = (k: number) => new DataView(plain.data.buffer, plain.data.byteOffset + k * 4, 4).getUint32(0);
-    for (const box of boxes) {
-      const px: [number, number][] = [];
-      for (let y = Math.floor(box.t); y < Math.ceil(box.b); y++) for (let x = Math.floor(box.l); x < Math.ceil(box.r); x++) if (inClip(x, y)) px.push([x, y]);
-      const counts = new Map<number, number>();
-      for (const [x, y] of px) counts.set(word(key(x, y)), (counts.get(word(key(x, y))) ?? 0) + 1);
-      const bg = [...counts].sort((a, b) => b[1] - a[1])[0]![0];
-      const inked = px.filter(([x, y]) => word(key(x, y)) !== bg);
-      expect(inked.length, `${box.what}: ink in its content box`).toBeGreaterThan(0);
-      expect(inked.filter(([x, y]) => masked.has(key(x, y))).map(([x, y]) => fmt(key(x, y))), `${box.what}: ink pixels under the mask`).toEqual([]);
+    for (const el of labels ? await labels.all() : []) {
+      if (!(await el.isVisible())) continue;
+      const what = await el.evaluate((e) => `${e.tagName.toLowerCase()}.${[...e.classList].join(".")} "${(e.textContent ?? "").trim().slice(0, 24)}"`);
+      await el.evaluate((e) => {
+        e.setAttribute("data-winshot-ink", "");
+        const st = document.createElement("style");
+        st.dataset.winshotInk = "";
+        st.textContent = "[data-winshot-ink], [data-winshot-ink] * { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; }";
+        document.head.append(st);
+      });
+      const blank = decodePng(await capture(page, clip, []));
+      await el.evaluate((e) => { e.removeAttribute("data-winshot-ink"); document.querySelectorAll("style[data-winshot-ink]").forEach((s) => s.remove()); });
+      const inked = differingPixels(plain, blank).map((k) => [clip.x + (k % plain.width), clip.y + Math.floor(k / plain.width)] as [number, number]);
+      expect(inked.length, `${what}: text ink (pixels that change with its text colour)`).toBeGreaterThan(0);
+      expect(inked.filter(([x, y]) => masked.has(key(x, y))).map(([x, y]) => fmt(key(x, y))), `${what}: ink pixels under the mask`).toEqual([]);
       const first = Math.min(...inked.map(([x]) => x));
       const column = inked.filter(([x]) => x === first);
       const changed = await paint(column);
-      expect(column.map(([x, y]) => key(x, y)).filter((k) => !changed.has(k)).map(fmt), `${box.what}: first ink column pixels the masked capture missed`).toEqual([]);
+      expect(column.map(([x, y]) => key(x, y)).filter((k) => !changed.has(k)).map(fmt), `${what}: first ink column pixels the masked capture missed`).toEqual([]);
       ink += column.length;
     }
     return { corners, masked: masked.size, ring: ring.size, ink };
