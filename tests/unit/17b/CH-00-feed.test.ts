@@ -249,8 +249,10 @@ describe("mock scenarios, intents and req ops", () => {
 describe("URL scenario (build-gated)", () => {
   it("parses the documented params and ignores junk", () => {
     expect(scenarioFromQuery(new URLSearchParams("feed=stale&halt=HALC&thin=VOLT&tier=terminal&empty=1&reject=MKT_INSUFFICIENT_BP&seed=9&nw=200000&pledge=HALC:40")))
-      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_BP", nw: "200000", pledge: { assetId: "HALC", qty: 40 }, replyMs: 0 });
+      .toEqual({ seed: 9, feed: "stale", halt: "HALC", thin: "VOLT", tier: "terminal", empty: true, reject: "MKT_INSUFFICIENT_BP", nw: "200000", pledge: { assetId: "HALC", qty: 40 }, replyMs: 0, cancelReject: null });
     expect(scenarioFromQuery(new URLSearchParams("replyMs=1500")).replyMs).toBe(1500);
+    expect(scenarioFromQuery(new URLSearchParams("cancelReject=MKT_ORDER_NOT_FOUND")).cancelReject).toBe("MKT_ORDER_NOT_FOUND");
+    for (const junk of ["x", "<x>", "mkt_x", "A"]) expect(scenarioFromQuery(new URLSearchParams(`cancelReject=${junk}`)).cancelReject).toBeNull();
     for (const junk of ["-5", "1.5", "x", "60001"]) expect(scenarioFromQuery(new URLSearchParams(`replyMs=${junk}`)).replyMs).toBe(0);
     expect(scenarioFromQuery(new URLSearchParams("feed=boom&halt=ZZZ&reject=<x>&seed=-1&nw=1e9&pledge=ZZZ:4"))).toEqual(DEFAULT_SCENARIO);
     expect(scenarioFromQuery(new URLSearchParams("pledge=HALC:0")).pledge).toBeNull();

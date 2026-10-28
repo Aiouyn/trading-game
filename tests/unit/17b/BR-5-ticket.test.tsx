@@ -253,15 +253,15 @@ describe("BR-5-06 Open orders rows", () => {
   });
 });
 
-describe("BR-5-07 rows are not controls", () => {
+describe("BR-5-07 rows are not controls (card 6: the row's only control is its Cancel, BR-6-01)", () => {
   const extra = { "o-90": oo({ orderId: "o-90", placedTick: 100 }) };
-  it("no button, link or menu inside a row; rows are focusable", async () => {
+  it("no link, menu or field inside a row and one Cancel button; the row itself is focusable, not a control", async () => {
     await mount(h, { context: "HALC", feed: new InjectFeed(extra) });
     const r = q(h, "br-oo-row-o-90")!;
-    expect(r.querySelector("button, a, [role=menu], [role=menuitem], [role=button], input, select")).toBeNull();
+    expect(r.querySelector("a, [role=menu], [role=menuitem], [role=button], input, select")).toBeNull();
+    expect([...r.querySelectorAll("button")].map((b) => b.dataset.testid)).toEqual(["br-oo-cancel"]);
     expect(r.getAttribute("role"), "the row itself is not a control").toBeNull();
     expect(r.tabIndex).toBe(0);
-    expect(q(h, "br-oo")!.querySelector("button")).toBeNull();
   });
   it("click / Enter / B / S on a row leave the intent log and the ticket unchanged, even in review", async () => {
     await mount(h, { context: "HALC", feed: new InjectFeed(extra) });

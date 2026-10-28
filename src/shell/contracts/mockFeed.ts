@@ -12,6 +12,7 @@ import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "./fixtures/a
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
+import { ORDER_POLICY, type OrderPolicy } from "./orderPolicy";
 
 // Build-time gate (QUAY_HOOKS is always defined as "1"/"0" by next.config `env`, the single source of truth).
 // Keep it a MODULE-LOCAL const: an exported const read from another module is emitted as a runtime property read
@@ -33,11 +34,14 @@ export interface Scenario { seed: number; feed: FeedMode; halt: string | null; t
   pledge: { assetId: string; qty: number } | null;
   /** `?replyMs=N` (QUAY_HOOKS): the order door answers `submit` N ms after the intent is logged, like a slow gateway.
    *  0 answers at once. Lets an e2e press Place again while the reply is still out (17-AT-07). */
-  replyMs: number }
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0 };
+  replyMs: number;
+  /** `?cancelReject=CODE` (QUAY_HOOKS): every cancel intent is REJECTED with CODE and the order stays (card 6). `reject`
+   *  rejects places too, so a list to cancel from needs its own hook. */
+  cancelReject: string | null }
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null };
 
 /**
- * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&seed=N&nw=D&pledge=ID:QTY`).
+ * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
  * Gated at build time: without QUAY_HOOKS the overrides (and their names) are compiled out.
  */
 export function scenarioFromQuery(q: URLSearchParams): Scenario {
@@ -49,16 +53,19 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const nw = q.get("nw");
   const pledge = /^([A-Z0-9]{1,12}):(\d{1,9})$/.exec(q.get("pledge") ?? "");
   const replyMs = Number(q.get("replyMs"));
+  const cancelReject = q.get("cancelReject");
+  const code = (v: string | null) => (v && /^[A-Z][A-Z0-9_]{2,63}$/.test(v) ? v : null);
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
     feed: feed === "stale" || feed === "denied" || feed === "error" || feed === "loading" ? feed : "live",
     halt: asset("halt"), thin: asset("thin"),
     tier: q.get("tier") === "terminal" ? "terminal" : "free",
     empty: q.get("empty") === "1",
-    reject: reject && /^[A-Z][A-Z0-9_]{2,63}$/.test(reject) ? reject : null,
+    reject: code(reject),
     nw: nw && /^\d{1,13}(\.\d{1,2})?$/.test(nw) ? nw : null,
     pledge: pledge && ASSET_BY_ID[pledge[1]!] && Number(pledge[2]) > 0 ? { assetId: pledge[1]!, qty: Number(pledge[2]) } : null,
     replyMs: Number.isSafeInteger(replyMs) && replyMs > 0 && replyMs <= 60_000 ? replyMs : 0,
+    cancelReject: code(cancelReject),
   };
 }
 
@@ -102,7 +109,12 @@ const IMPACT_BP = (qty: number, lot: number) => (lot <= 0 ? 0 : qty <= lot ? 1 :
 type Listener = (raw: unknown) => void;
 interface Sub { ch: ChannelName; fn: Listener; seq: number; sent: unknown; count: number; snapTimer: ReturnType<typeof setTimeout> | null }
 
-export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: boolean }
+export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: boolean;
+  /** The ENGINE-TBD order rules (orderPolicy.ts). Tests pass another policy to prove the mock reads it. */
+  policy?: OrderPolicy }
+
+/** One intent waiting for the next tick: a place (card 4/5) or a cancel (card 6). */
+type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string };
 
 export class MockFeed {
   readonly scenario: Scenario;
@@ -116,7 +128,8 @@ export class MockFeed {
   private fills: MyFill[] = [];
   private intents: IntentResult[] = [];
   private news: WireItem[];
-  private pending: { intentId: string; draft: OrderDraft }[] = [];
+  private pending: Pending[] = [];
+  readonly policy: OrderPolicy;
   private nextId = 1;
   private subs = new Set<Sub>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -127,6 +140,7 @@ export class MockFeed {
     this.tickMs = opts.tickMs ?? FEED_TICK_MS;
     this.tick = opts.startTick ?? START_TICK;
     this.autoStart = opts.autoStart ?? true;
+    this.policy = opts.policy ?? ORDER_POLICY;
     this.rand = rng(this.scenario.seed);
     for (const a of ASSETS) {
       const prevClose = Math.round(a.base * (1 + (this.rand() - 0.5) * 0.02));
@@ -174,7 +188,9 @@ export class MockFeed {
   private settle(): void {
     const due = this.pending;
     this.pending = [];
-    for (const { intentId, draft } of due) {
+    for (const p of due) {
+      if (p.kind === "cancel") { this.settleCancel(p.intentId, p.orderId); continue; }
+      const { intentId, draft } = p;
       const a = ASSET_BY_ID[draft.assetId];
       // Halt (Quant E-96 (3), Producer E-98 (1)): a halted asset still takes orders; a market day order is accepted with
       // no fill and waits for the reopen auction (QUEUED_AUCTION). Sell beyond the holding (E-96 (4)): rejected whole,
@@ -187,7 +203,9 @@ export class MockFeed {
       const qty = Number(draft.qty);
       const orderId = `o-${this.nextId++}`;
       if (draft.type !== "market") {
-        this.orders = { ...this.orders, [orderId]: { orderId, assetId: a.assetId, side: draft.side, type: draft.type, qty: draft.qty, filled: "0", ...(draft.limit ? { limit: draft.limit } : {}), ...(draft.stop ? { stop: draft.stop } : {}), tif: draft.tif, status: "WORKING", placedTick: this.tick, avgPrice: fmt(0, a.displayDecimals) } };
+        // A priced order rests; on a halted asset it rests with the policy's status (E-98 (1)). // ENGINE-TBD
+        const status = this.tradingState(a.assetId) === "HALTED" ? this.policy.haltedRestingStatus : "WORKING";
+        this.orders = { ...this.orders, [orderId]: { orderId, assetId: a.assetId, side: draft.side, type: draft.type, qty: draft.qty, filled: "0", ...(draft.limit ? { limit: draft.limit } : {}), ...(draft.stop ? { stop: draft.stop } : {}), tif: draft.tif, status, placedTick: this.tick, avgPrice: fmt(0, a.displayDecimals) } };
         this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`order:${orderId}`] }].slice(-RING_KEEP);
         continue;
       }
@@ -209,6 +227,28 @@ export class MockFeed {
       this.fills = [...this.fills, <MyFill>{ fillId, tick: this.tick, assetId: a.assetId, orderId, side: draft.side, qty: draft.qty, price: fmt(px, a.displayDecimals), fee: fmt(fee, 2), feeCcy: a.ccy, liquidity: "TAKER", counterpartyKind: "NPC" }].slice(-RING_KEEP);
       this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`fill:${fillId}`] }].slice(-RING_KEEP);
     }
+  }
+
+  /** A cancel settles on the tick after it was sent (card 6). ACCEPTED removes the order and names it in `effects`. */
+  private settleCancel(intentId: string, orderId: string): void {
+    const result = (r: Omit<IntentResult, "intentId" | "tick">) => {
+      this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, ...r }].slice(-RING_KEEP);
+    };
+    if (this.scenario.cancelReject) return result({ status: "REJECTED", rejectCode: this.scenario.cancelReject });
+    const o = this.orders[orderId];
+    if (!o) {
+      // Unknown or already gone: the policy's answer (Gap 1). // ENGINE-TBD
+      const u = this.policy.cancelUnknown;
+      return result(u.status === "ACCEPTED" ? { status: "ACCEPTED" } : { status: "REJECTED", rejectCode: u.code });
+    }
+    // Halt / suspension (Gap 2): only the policy's states take a cancel. // ENGINE-TBD
+    if (!this.policy.cancelIn.includes(this.tradingState(o.assetId))) return result({ status: "REJECTED", rejectCode: this.policy.cancelClosedCode });
+    // Partly filled (Gap 3): "removeRemainder" is the only typed rule, so every accepted cancel removes the order;
+    // its fills stay in `me.fills` and the position. // ENGINE-TBD
+    const { [orderId]: _gone, ...rest } = this.orders;
+    void _gone;
+    this.orders = rest;
+    result({ status: "ACCEPTED", effects: [`order:${orderId}`] });
   }
 
   // ---- bodies (the full server state of a channel at the current tick) ----
@@ -419,15 +459,25 @@ export class MockFeed {
     if (draft.limit) payload.limit = draft.limit;
     if (draft.stop) payload.stop = draft.stop;
     submitIntent({ kind: "mkt.order.place", payload });
-    this.pending.push({ intentId, draft });
+    this.pending.push({ kind: "place", intentId, draft });
     return intentId;
   }
-  /** The order door (orders.ts `mockTransport`): `preview` and `submit`, with the submit reply held `scenario.replyMs`. */
-  orderDoor(): { preview(draft: OrderDraft): PreviewRes; submit(draft: OrderDraft): string | Promise<string> } {
+  /** Cancel an open order: one `mkt.order.cancel` intent; the IntentResult lands on `me` next tick (card 6). */
+  cancel(orderId: string): string {
+    const intentId = `i-${this.nextId++}`;
+    submitIntent({ kind: "mkt.order.cancel", payload: { orderId } });
+    this.pending.push({ kind: "cancel", intentId, orderId });
+    return intentId;
+  }
+  /** The order door (orders.ts `mockTransport`): `preview`, `submit` and `cancel`, with the submit and cancel replies
+   *  held `scenario.replyMs`. */
+  orderDoor(): { preview(draft: OrderDraft): PreviewRes; submit(draft: OrderDraft): string | Promise<string>; cancel(orderId: string): string | Promise<string> } {
     const ms = this.scenario.replyMs;
+    const held = (id: string) => (ms > 0 ? new Promise<string>((r) => setTimeout(() => r(id), ms)) : id);
     return {
       preview: (d) => this.preview(d),
-      submit: (d) => { const id = this.submit(d); return ms > 0 ? new Promise((r) => setTimeout(() => r(id), ms)) : id; },
+      submit: (d) => held(this.submit(d)),
+      cancel: (id) => held(this.cancel(id)),
     };
   }
 }
