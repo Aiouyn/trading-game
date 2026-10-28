@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 import { CHART_TOKENS } from "@/components/market/chartTheme";
 import { BR_STRINGS } from "@/apps/broker/strings";
 
-const CHART = ["src/components/market/CandleChart.tsx", "src/components/market/ChartTable.tsx", "src/components/market/chartTheme.ts"];
-const ALL = [...CHART, "src/components/market/PriceChart.tsx", "src/components/market/candleChart.css", "src/shell/contracts/history.ts", "src/apps/broker/BrokerFrame.tsx", "src/apps/broker/AssetHeader.tsx"];
+const BR7_CHART_FILES = ["src/components/market/CandleChart.tsx", "src/components/market/ChartTable.tsx", "src/components/market/chartTheme.ts"];
+const ALL = [...BR7_CHART_FILES, "src/components/market/PriceChart.tsx", "src/components/market/candleChart.css", "src/shell/contracts/history.ts", "src/apps/broker/BrokerFrame.tsx", "src/apps/broker/AssetHeader.tsx"];
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 const src = (f: string) => strip(readFileSync(f, "utf8"));
 const NUM = /\bNumber\(|parseFloat|parseInt|BigInt\(|\bMath\.(?:abs|sign)\b|(?:^|[^\w.])[+](?:[\w$]+\.)+[ohlcv]\b/;
@@ -21,13 +21,13 @@ function toPointsBody(s: string): string {
 
 describe("BR-7-04 G1: numbers only in toPoints()", () => {
   it("Number( / parseFloat appear in CandleChart.tsx only inside toPoints()", () => {
-    const s = src(CHART[0]!);
+    const s = src(BR7_CHART_FILES[0]!);
     const body = toPointsBody(s);
     expect(body).toMatch(/Number\(b\.c\)/);
     const rest = s.replace(body, "");
     expect(rest.split("\n").filter((l) => NUM.test(l))).toEqual([]);
   });
-  for (const f of ALL.filter((x) => x !== CHART[0])) {
+  for (const f of ALL.filter((x) => x !== BR7_CHART_FILES[0])) {
     it(`${f}: no number parsing`, () => {
       expect(src(f).split("\n").filter((l) => NUM.test(l.replace(/"[^"]*"|'[^']*'|`[^`]*`/g, '""')))).toEqual([]);
     });
@@ -47,7 +47,7 @@ describe("BR-7-04 G1: numbers only in toPoints()", () => {
 
 describe("BR-7-05 colours are tokens", () => {
   it("no hex (or rgb/hsl literal) in the 3 chart files and the chart CSS", () => {
-    for (const f of [...CHART, "src/components/market/candleChart.css"]) {
+    for (const f of [...BR7_CHART_FILES, "src/components/market/candleChart.css"]) {
       expect(src(f).match(/#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/g), f).toBeNull();
     }
   });
@@ -68,7 +68,7 @@ describe("BR-7-01 the plot is a lazy chunk (source side; the network check is e2
     const pc = src("src/components/market/PriceChart.tsx");
     expect(pc).toMatch(/import\("\.\/CandleChart"\)/);
     expect(pc).not.toMatch(/^import (?!type )[^;]*from "\.\/CandleChart"/m);
-    for (const f of ALL.filter((x) => x !== CHART[0])) expect(src(f), f).not.toMatch(/lightweight-charts/);
+    for (const f of ALL.filter((x) => x !== BR7_CHART_FILES[0])) expect(src(f), f).not.toMatch(/lightweight-charts/);
     expect(pc).toMatch(/^import type \{ CandleChartProps \} from "\.\/CandleChart";$/m);
   });
 });
