@@ -29,5 +29,10 @@ export async function watchScripts(page: Page): Promise<Map<string, ScriptSeen>>
   return seen;
 }
 
-/** First-load JS budget (gzipped) of the one catch-all route `/` (src/app/[[...route]]) that serves /broker; card 9 raised it from 200 KB. S1-20 and BR-7-01 read it. */
+/** First-load JS budget (gzipped) of the Broker route /broker (served by the catch-all src/app/[[...route]]); card 9 raised it from 200 KB.
+ *  S1-20, BR-7-01 and tools/ci/route-budget.mjs read it. It is measured on /broker only; `/` (212.9 KB at #93) is not budgeted. */
 export const FIRST_LOAD_BUDGET_KB = 215;
+/** At most this much (gzipped) of the lazy plot chunk is left out of the first load; any excess counts. One rule for S1-20, BR-7-01 and the CI step. */
+export const PLOT_EXCLUDE_CAP_KB = 60;
+/** Counted first-load bytes: the other scripts plus the part of the lazy plot chunk above PLOT_EXCLUDE_CAP_KB. */
+export const firstLoadBytes = (otherBytes: number, lazyPlotBytes: number): number => otherBytes + Math.max(0, lazyPlotBytes - PLOT_EXCLUDE_CAP_KB * 1024);

@@ -1,6 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+// AC-04-17-SDCEND runs the full macro day loop: the T03 exports are stubbed as in macro-crisis-calibration.test.ts.
+vi.mock('./t03Stubs', () => ({ effectiveMark: vi.fn(() => null), accountsOfEntity: vi.fn(() => []), committedBalance: vi.fn(() => 0n), putFact: vi.fn() }));
+vi.mock('../views/ledgerSources', async (orig) => ({ ...(await orig<object>()), msiValue: vi.fn(() => 0) }));
 import { canonEncode, isTradingDay, TICKS_PER_GAME_DAY } from '@tycoon/engine-core';
-import { macroTables, type WorldEvent } from '../schema';
+import { macroTables, type BlocMacroState, type WorldEvent } from '../schema';
+import { macroGenesis } from '../core/genesis';
+import { ref16Ports } from '../harness/scenarios/macro-crisis-calibration';
+import { macroWorld } from '../testkit/macroWorld';
+import { runDays } from '../testkit/macroLoop';
+import { RECOVERY_MAX_DAYS } from './crisisCatalog';
+import { shockValue } from './shocks';
 import { schedWorld, type SchedWorld } from '../testkit/schedWorld';
 import { activeWorldEvents, attachEmergent, publicEventView, stepPhases } from './phases';
 import { forceEvent, schedOf } from './scheduler';
@@ -94,4 +103,26 @@ describe('T04-17 phase chain', () => {
     expect(w.events[w.events.length - 1]!.kind).toBe('macro.event.phase');
     expect(schedOf(w.store).activeMajorId).toBe(ev.id);
   });
+});
+
+describe('T04-17 ENDED closes the event\'s lambda_raw_mult (E-108 (3))', () => {
+  it('AC-04-17-SDCEND: forced SOVEREIGN_DEBT_CRISIS seed 0: after ENDED its lambda_raw_mult shock ends at the ENDED tick and adds no multiplier on the next close', () => {
+    const p = ref16Ports(), w = macroWorld('crisis:SOVEREIGN_DEBT_CRISIS:0', 0);
+    macroGenesis(w.ctx, p);
+    runDays(w, p, 0, 1);
+    const ev0 = forceEvent(w.ctx, 'SOVEREIGN_DEBT_CRISIS', { severity: 1 });
+    let ev = ev0, day = 1;
+    for (; day < 1 + 400 && ev.phase !== 'ENDED'; day++) { runDays(w, p, day, day + 1); ev = w.store.get<WorldEvent>(macroTables.event.name, ev0.id)!; }
+    expect(ev.phase).toBe('ENDED');
+    const ended = ev.phaseSinceTick, b = ev.blocs[0]!;
+    const lam = w.store.get<BlocMacroState>(macroTables.bloc.name, b)!.shocks.filter((x) => x.sourceCrisisId === ev.id && x.target === 'lambda_raw_mult');
+    process.stdout.write(`SDCEND seed 0: trigger ${ev.triggerTick} ENDED ${ended} lambda_raw_mult ${JSON.stringify(lam.map((x) => [x.value, x.startTick, x.endTick]))}\n`);
+    expect(lam.length).toBe(1);
+    expect(lam[0]!.startTick).toBe(ev.triggerTick);
+    expect(lam[0]!.endTick).toBe(ended);
+    expect(ended).toBeLessThan(ev.plannedEndTick + RECOVERY_MAX_DAYS * D);
+    const nextClose = (day + 1) * D - 1;
+    expect(lam.map((x) => shockValue(x, nextClose))).toEqual([0]);
+    expect(lam.map((x) => shockValue(x, ended - 1))).toEqual([16]);
+  }, 120_000);
 });

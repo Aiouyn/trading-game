@@ -5,6 +5,7 @@ import { BLOC_DEFAULTS } from '../blocs';
 import type { MacroPorts } from '../ports';
 import { macroTables, type BlocId, type BlocMacroState, type CentralBank, type ConcordFacility, type CurveState, type GlobalMacroState, type SwapLine } from '../schema';
 import { crossCurrencyBasis, oisZero } from './curves';
+import { bookCbkFdl } from './fxReserves';
 
 export const SWAP_DRAW_MSG = 'mac.swap.draw', SWAP_REPAY_MSG = 'mac.swap.repay';
 const SPREAD = 0.0025, ONLEND = 0.0010, LIMIT_GDP = 0.03, CALM_DAYS = 10, BASIS_ON = -0.004, FSI_ON = 0.6;
@@ -53,7 +54,7 @@ export function swapLineStep(ctx: PhaseCtx, ports: MacroPorts): void {
   const lines: SwapLine[] = [];
   for (const b of SWAP_BLOCS) {
     const id = cbkId(b), old = cb.swapLinesOut.find((l) => l.counterpartyCbk === id);
-    if (old && old.drawn > 0n) ctx.ledger.pay(id, cbkId('FDL'), accrue(old.drawn, e6(rate), 1), 'FDL', 'CBK_SWAP_LINE_INTEREST');
+    if (old && old.drawn > 0n) { const int = accrue(old.drawn, e6(rate), 1); ctx.ledger.pay(id, cbkId('FDL'), int, 'FDL', 'CBK_SWAP_LINE_INTEREST'); bookCbkFdl(ctx, b, -int); }
     const eligible = b !== 'SRL' || concordActive(ctx.store, b, ctx.tick);
     const gdp = ctx.store.get<BlocMacroState>(macroTables.bloc.name, b)?.nominalGdp ?? 0n;
     const limit = swapLineLimit(gdp, spotOf(ctx.store, ports, b));
@@ -89,10 +90,11 @@ export function handleSwapDraws(ctx: PhaseCtx, ports?: MacroPorts): void {
     if (amt <= 0n) continue;
     const spot = ports ? spotOf(ctx.store, ports, r.bloc) : BLOC_DEFAULTS[r.bloc].fx0;
     const local = divRoundHalfEven(amt * MICRO_N, e6(spot));
-    if (draw) ctx.ledger.fx(cbkId('FDL'), id, 'FDL', amt, r.bloc as Ccy, local, 'CBK_SWAP_LINE_DRAW');
-    else ctx.ledger.fx(id, cbkId('FDL'), r.bloc as Ccy, local, 'FDL', amt, 'CBK_SWAP_LINE_REPAY');
     const lines = [...cb.swapLinesOut];
     lines[k] = { ...line, drawn: draw ? line.drawn + amt : line.drawn - amt };
     ctx.store.put<CentralBank>(T, { ...cb, swapLinesOut: lines });
+    // E-106 (2): the borrowing cbk's FDL leg, as posted (the REPAY template moves FDL cbk_FDL → cbk_X; see PR Decisions).
+    if (draw) { ctx.ledger.fx(cbkId('FDL'), id, 'FDL', amt, r.bloc as Ccy, local, 'CBK_SWAP_LINE_DRAW'); bookCbkFdl(ctx, r.bloc, amt); }
+    else { ctx.ledger.fx(id, cbkId('FDL'), r.bloc as Ccy, local, 'FDL', amt, 'CBK_SWAP_LINE_REPAY'); bookCbkFdl(ctx, r.bloc, amt); }
   }
 }

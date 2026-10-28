@@ -5,7 +5,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { aggregate, CALIB_DAYS, finishAcc, finishSeed, foldDay, newAcc, startSeed, stepSeed, type BlocSample, type DaySample, type SeedResult } from './macro-calibration';
-import { BLOC_ORDER, type Regime } from '../../schema';
+import { BLOC_ORDER, macroTables, type HookCall, type Regime } from '../../schema';
 vi.mock('../../rules/t03Stubs', () => ({ effectiveMark: vi.fn(() => null), accountsOfEntity: vi.fn(() => []), committedBalance: vi.fn(() => 0n), putFact: vi.fn() }));
 vi.mock('../../views/ledgerSources', async (orig) => ({ ...(await orig<object>()), msiValue: vi.fn(() => 0) }));  // MISSING EXPORT T03-24 led.msi
 
@@ -68,6 +68,12 @@ describe('macro-calibration fold', () => {
     expect(off.map((c) => c.pass)).toEqual([false, false, false, false, false]);
     expect(aggregate(rs.map((r) => ({ ...r, spells: { ...r.spells, OVERHEATING: { n: 1, sum: 314 } } })))[0]!.pass).toBe(false);   // 314/273 = +15.0…%
     expect(aggregate([]).every((c) => !c.pass)).toBe(true);
+  });
+  it('E-108 (7): the nightly seed runs on the reference 16 political-stability stub (genesis 0.7, plus active politicalStabilityShock deltas)', () => {
+    const r = startSeed(0);
+    expect(r.p.world.politicalStability(r.w.store, 'SRL')).toBeCloseTo(0.7, 12);
+    r.w.store.put<HookCall>(macroTables.hookCall.name, { id: 'h', owner: '16', hook: 'politicalStabilityShock', args: { bloc: 'SRL', delta: -0.3, days: 63 }, startTick: 0, worldEventId: 'e' } as unknown as HookCall);
+    expect(r.p.world.politicalStability(r.w.store, 'SRL')).toBeCloseTo(0.4, 12);
   });
 });
 

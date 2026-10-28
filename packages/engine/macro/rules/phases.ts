@@ -3,15 +3,15 @@
 // STORM and RIPPLE: TRIGGER → CONTAGION → ENDED at plannedEndTick (no POLICY or RECOVERY; unit decision).
 import { isTradingDay, TICKS_PER_GAME_DAY, type Id, type PhaseCtx, type StoreRead, type Tick } from '@tycoon/engine-core';
 import { defaultMacroPorts, type MacroPorts } from '../ports';
-import { macroTables, type BlocId, type CrisisKind, type CrisisPhase, type DailyHistoryRow, type EventTier, type GlobalMacroState, type WorldEvent } from '../schema';
-import { MAJORS } from './crisisCatalog';
+import { BLOC_ORDER, macroTables, type BlocId, type BlocMacroState, type CrisisKind, type CrisisPhase, type DailyHistoryRow, type EventTier, type GlobalMacroState, type WorldEvent } from '../schema';
+import { MAJORS, RECOVERY_MAX_DAYS } from './crisisCatalog';
 import { measureOutcomes } from './emergent';
 import { crisisResponseFired, fireResponse } from './hooks';
 import { globalOf, schedOf, startEvent, type SchedState } from './scheduler';
 import { applyEventShocks, storyShocks } from './shocks';
 
 const D = TICKS_PER_GAME_DAY;
-const CALM_DAYS = 10, CALM_F = 40, CALM_FSI = 0.3, RECOVERY_MAX_DAYS = 180;
+const CALM_DAYS = 10, CALM_F = 40, CALM_FSI = 0.3;
 const EMERGENT_CONTAGION_DAYS = 17.5;   // midpoint of 5 + 25u (unit decision; emergent events draw nothing)
 
 export type PublicEventView = { id: string; tier: EventTier; kind: string; blocs: BlocId[]; phase: CrisisPhase | 'UNANNOUNCED'; publicTitleKey: string | null; sinceTick: Tick };
@@ -60,8 +60,18 @@ function calm(store: StoreRead, tick: Tick, fromTick: Tick): boolean {
   return n >= CALM_DAYS;
 }
 
+/** E-108 (3) (Designer): no hidden hazard tail after ENDED; the event's `lambda_raw_mult` shocks end at the ENDED tick. */
+function closeLambdaMult(ctx: PhaseCtx, ev: WorldEvent): void {
+  const live = (x: BlocMacroState['shocks'][number]): boolean => x.sourceCrisisId === ev.id && x.target === 'lambda_raw_mult' && x.endTick > ctx.tick;
+  for (const b of BLOC_ORDER) {
+    const st = ctx.store.get<BlocMacroState>(macroTables.bloc.name, b);
+    if (st && st.shocks.some(live)) ctx.store.put<BlocMacroState>(macroTables.bloc.name, { ...st, shocks: st.shocks.map((x) => (live(x) ? { ...x, endTick: ctx.tick } : x)) });
+  }
+}
+
 function end(ctx: PhaseCtx, ev: WorldEvent): void {
   const done = setPhase(ctx, ev, 'ENDED');
+  closeLambdaMult(ctx, ev);
   ctx.emit('macro.event.ended', [] as Id[], { eventId: ev.id, outcomes: measureOutcomes(ctx.store, done) }, 'PUBLIC');
   const s = schedOf(ctx.store), g = globalOf(ctx.store);
   const next: SchedState = ev.tier === 'MAJOR' ? { ...s, activeMajorId: s.activeMajorId === ev.id ? null : s.activeMajorId, lastMajorEndTick: ctx.tick }

@@ -6,6 +6,7 @@ import { BLOC_ORDER, macroTables, type BlocId, type BlocMacroState, type Central
 import { genesisNominalGdp, launchDebtSplit, LAUNCH_DEBT_MIX, macroGenesis } from './genesis';
 import { macroWorld, type MacroWorld } from '../testkit/macroWorld';
 import { stubPorts } from '../testkit/cbWorld';
+import { openingReservesFdl } from '../institutions';
 vi.mock('../rules/t03Stubs', () => ({ effectiveMark: vi.fn(() => null), accountsOfEntity: vi.fn(() => []), committedBalance: vi.fn(() => 0n), putFact: vi.fn() }));
 
 const P: Record<string, number> = { macro_world_gdp_ref: 100e12, macro_scale_min: 0.2 };
@@ -87,6 +88,13 @@ describe('T04-20 macroGenesis', () => {
     expect(bl(w, 'FDL').credit).toBe(fromMoney(6400000000000000000n));
     // E-103 (1): reserve cover0 EUN 4, PYN 10, NKR 4, SRL 11 months (FDL 0, the reserve currency)
     expect(BLOC_ORDER.map((b) => bl(w, b).fx.reserveCoverMonths)).toEqual([0, 4, 10, 4, 11]);
+    // E-106 (1): cb.reserves.fdl seeded with the minted opening reserves (FDL's own CB 0)
+    expect(BLOC_ORDER.map((b) => w.store.get<CentralBank>(macroTables.cb.name, cbkId(b))!.reserves.fdl)).toEqual(BLOC_ORDER.map((b) => (b === 'FDL' ? 0n : openingReservesFdl(b, 0.2, w.ctx.params))));
+    expect(BLOC_ORDER.map((b) => bl(w, b).fx.reservesFdl)).toEqual(BLOC_ORDER.map((b) => (b === 'FDL' ? 0n : openingReservesFdl(b, 0.2, w.ctx.params))));
+  });
+  it('E-106 (8): genesis ratingInputs.politicalStability is 0.7 (the input snapshot default), every bloc', () => {
+    const w = run();
+    expect(BLOC_ORDER.map((b) => bl(w, b).sovereign.ratingInputs!.politicalStability)).toEqual([0.7, 0.7, 0.7, 0.7, 0.7]);
   });
   it('curve hHat 0.5, inversionDays 0; public view labelled EXPANSION; cb coefficients from hawkishness', () => {
     const w = run();

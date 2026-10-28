@@ -40,6 +40,13 @@ const maxOf = (xs: number[]): number => xs.reduce((m, x) => (x > m ? x : m), Num
 const ALL = (): BlocId[] => [...BLOC_ORDER];
 const band = (metric: string, lo: number, hi: number, measuredBy: CalibrationBand['measuredBy'], withinDays = 0): CalibrationBand => ({ metric, lo, hi, withinDays, measuredBy });
 const INF = Number.POSITIVE_INFINITY;
+/** Longest RECOVERY phase in game days (T04-17 phases; 04 §3.16.3). */
+export const RECOVERY_MAX_DAYS = 180;
+/** SOVEREIGN_DEBT_CRISIS trigger 16 `politicalStabilityShock` length in game days (04 §3.16.4). E-108 (3): whether it also ends at ENDED is open for Designer. */
+export const SDC_POLSTAB_SHOCK_DAYS = 63;
+/** E-108 (3): a trigger shock that lasts until the event's ENDED transition: `endTick` past any possible life (plannedEndTick + RECOVERY_MAX_DAYS);
+ *  T04-17 `end()` closes the event's `lambda_raw_mult` shocks at the ENDED tick. */
+const toEnded = (ev: WorldEvent, bloc: BlocId, target: string, value: number): ShockSpec => shock(bloc, target, value, ev.triggerTick, ev.plannedEndTick + RECOVERY_MAX_DAYS * D);
 
 const eqBlocs = (s: CatalogInputs): BlocId[] => ranked((b) => (s.blocZ[b]!['valuation']! >= 1 && s.gdpShareFdl[b]! >= 0.2 ? s.blocZ[b]!['valuation']! : null));
 const crBlocs = (s: CatalogInputs): BlocId[] => ranked((b) => (s.blocZ[b]!['credit']! >= 0.5 || s.defaultRateRising ? s.blocZ[b]!['credit']! : null));
@@ -63,7 +70,7 @@ export const MAJORS: readonly MajorDef[] = Object.freeze<MajorDef[]>([
     precursor: (ev) => [pre(ev, 'WORLD', 'interbank_add', 0.002), pre(ev, 'WORLD', `sector_value:${FINANCIALS}`, -0.10)],
     trigger: (ev, s) => [hook('07', 'depositConfidenceShock', { bankIds: s.weakestNpcBanks.slice(0, 1 + Math.floor(3 * U(ev))), delta: -0.4 * ev.severity }),
       trg(ev, 'WORLD', 'interbank_add', 0.015 * ev.severity, null), trg(ev, 'WORLD', 'fear_add', 20 * ev.severity, null)],
-    response: ['ELA', 'DEPOSIT_GUARANTEE', 'RESCUE_MERGERS'], calibration: [band('peak_fsi', 0.28, INF, '04'), band('peak_fsi', 0.7, INF, '07')] /* E-104 (1) */ },
+    response: ['ELA', 'DEPOSIT_GUARANTEE', 'RESCUE_MERGERS'], calibration: [band('peak_fsi', 0.195, INF, '04'), band('peak_fsi', 0.7, INF, '07')] /* E-104 (1); '04' 0.195 E-107 (2) */ },
   { kind: 'CRYPTO_WINTER', base: 0.8, eligible: (s) => (s.cryptoHype !== null && s.cryptoHype >= 0.5) || (s.minStablecoinBacking !== null && s.minStablecoinBacking < 1.02),
     vuln: (s) => (s.cryptoHype === null ? 0 : 2 * (s.cryptoHype - 0.5) / 0.5), blocs: ALL,
     precursor: () => [wire('CRYPTO_WINTER', 'redemptions'), wire('CRYPTO_WINTER', 'exchange_outflow_rumors')],
@@ -82,7 +89,7 @@ export const MAJORS: readonly MajorDef[] = Object.freeze<MajorDef[]>([
     response: ['BREAK_RULE', 'CONCORD'], calibration: [band('srl_fair_change', Number.NEGATIVE_INFINITY, -0.40, '04'), band('capital_controls_days', 3, INF, '04')] },
   { kind: 'SOVEREIGN_DEBT_CRISIS', base: 0.6, eligible: (s) => sovBlocs(s).length > 0, vuln: (s) => dmath.ln(maxOf(sovBlocs(s).map((b) => s.lambda[b]!)) / 0.01), blocs: (s) => sovBlocs(s).slice(0, 1),
     precursor: (ev) => each(ev, (b) => [pre(ev, b, 'auction_stress', 0.05), hook('16', 'politicalStabilityShock', { bloc: b, delta: -0.1, days: pDays(ev) })]),
-    trigger: (ev) => each(ev, (b) => [hook('16', 'politicalStabilityShock', { bloc: b, delta: -0.3 * ev.severity, days: 63 }), trg(ev, b, 'lambda_raw_mult', 3, 63), trg(ev, b, 'auction_stress', 0.3, null)]),
+    trigger: (ev) => each(ev, (b) => [hook('16', 'politicalStabilityShock', { bloc: b, delta: -0.3 * ev.severity, days: SDC_POLSTAB_SHOCK_DAYS }), toEnded(ev, b, 'lambda_raw_mult', 16 /* E-108 (4) */), trg(ev, b, 'auction_stress', 0.3, null)]),
     response: ['CONCORD', 'AUSTERITY'], calibration: [band('s10_peak', 0.10, INF, '04')] },
   { kind: 'AI_BUBBLE', base: 0.7, eligible: (s) => s.aiRace >= 70 && s.semisValuationZ !== null && s.semisValuationZ >= 1, vuln: (s) => (s.aiRace - 70) / 10, blocs: ALL,
     precursor: () => [wire('AI_BUBBLE', 'compute_spot_up_20')],

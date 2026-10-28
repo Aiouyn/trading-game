@@ -16,7 +16,14 @@ import { bandCenter, bandOrders, breakRuleCheck, coordinatedOrders, emp, execute
 const calls = vi.hoisted(() => ({ meet: [] as unknown[][], rr: [] as unknown[][] }));
 vi.mock('./cb', () => ({ runMeeting: (_c: unknown, ...a: unknown[]) => { calls.meet.push(a); return {}; } }));
 vi.mock('./reserves', () => ({ adjustRr: (_c: unknown, ...a: unknown[]) => { calls.rr.push(a); } }));
-beforeEach(() => { calls.meet.length = 0; calls.rr.length = 0; });
+/** E-106 (2) bookCbkFdl runs for real except in fixtures that pin reserves at a set level for the EMP / break-back rules (mirror.on = false;
+ *  the CA-absorption mirror is covered by AC-04-20-RESMIRROR and AC-04-18-CAPFLOW). */
+const mirror = vi.hoisted(() => ({ on: true }));
+vi.mock('./fxReserves', async (orig) => {
+  const m = await orig<typeof import('./fxReserves')>();
+  return { ...m, bookCbkFdl: (...a: Parameters<typeof m.bookCbkFdl>) => (mirror.on ? m.bookCbkFdl(...a) : undefined) };
+});
+beforeEach(() => { calls.meet.length = 0; calls.rr.length = 0; mirror.on = true; });
 
 const GDP: Record<BlocId, number> = { FDL: 40e12, EUN: 25e12, PYN: 10e12, NKR: 10e12, SRL: 15e12 };
 type X = 'EUN' | 'PYN' | 'NKR' | 'SRL';
@@ -111,6 +118,7 @@ describe('T04-14 FX regimes', () => {
   });
 
   function attack(hazard: number, u = 0.5) {
+    mirror.on = false;   // reserves held at R (fixture), see the mirror note above
     const d0 = firstTradingDay('SRL', 100), w = world(d0 * D, { hazard });
     Object.assign(w.ctx, { rng: () => ({ uOpen: () => u, normal: () => 0 }) });
     const imp = importsMonthFdl(w.ctx.store, 'SRL'), R = imp * 29n / 10n, R5 = R * 9n / 8n;
@@ -170,6 +178,7 @@ describe('T04-14 FX regimes', () => {
   it('peg break-back: FDL reserves < 0.8 × M0 × spot breaks a hard peg to FREE_FLOAT; equality holds the peg; a float is untouched', () => {
     expect(pegBreakBack(M(1e9), M(6.25e9), 0.2)).toBe(false);
     expect(pegBreakBack(M(1e9), M(6.25e9) + 10n, 0.2)).toBe(true);
+    mirror.on = false;   // reserves held at 1e9 at the read (fixture)
     for (const [m0, regime, want] of [[6.25e9, 'HARD_PEG', 'HARD_PEG'], [6.3e9, 'HARD_PEG', 'FREE_FLOAT'], [6.3e9, 'FREE_FLOAT', 'FREE_FLOAT']] as const) {
       const w = world(100 * D, { fdlRes: { SRL: M(1e9) } });
       w.m0.SRL = M(m0); Object.assign(w.ctx, { rng: () => ({ uOpen: () => 0.5, normal: () => 0 }) });
@@ -260,26 +269,24 @@ describe('T04-14 FX regimes', () => {
   });
 });
 
-describe('AC-04-18-CAPFLOW (E-104 (1)): capital_flow drains a managed regime\'s FDL reserves', () => {
+describe('AC-04-18-CAPFLOW (E-104 (1), E-106 (5)): capital_flow drains a managed regime\'s FDL reserves', () => {
   const K = 0.15;
   const step = (id: string, value: number, a: number, b: number) => ({ id, target: 'capital_flow', value, startTick: a, endTick: b, shape: 'STEP' as const });
   const setShocks = (w: W, b: BlocId, shocks: unknown[]) => { const r = w.ctx.store.get<Record<string, unknown>>(macroTables.bloc.name, b)!; w.put(macroTables.bloc.name, { ...r, shocks } as never); };
   const resOf = (w: W, b: BlocId) => w.ctx.store.get<{ reserves: { fdl: bigint } }>(macroTables.cb.name, cbkId(b))!.reserves.fdl;
   const setRes = (w: W, b: BlocId, fdl: bigint) => w.put(macroTables.cb.name, { ...w.ctx.store.get<object>(macroTables.cb.name, cbkId(b))!, reserves: { fdl, gold: 0n, otherFx: {} } } as never);
   const cf = (w: W) => w.posts.filter((p) => p.code === 'MAC_FX_CAPITAL_FLOW');
+  /** Net FDL into cbk_SRL from MAC_FX_CA_ABSORB posts from index k0 (absorption runs before capital_flow on the same close, E-106 (2)). */
+  const caIn = (w: W, k0: number) => w.posts.slice(k0).filter((p) => p.code === 'MAC_FX_CA_ABSORB' && p.ccy === 'FDL')
+    .reduce((a, p) => a + (p.to === cbkId('SRL') ? p.amt : p.from === cbkId('SRL') ? -p.amt : 0n), 0n);
   /** round half-even of R × rate, the rate carried at 1e-12 */
   const expected = (R: bigint, rate: number) => { const q = R * BigInt(Math.round(rate * 1e12)), d = 1_000_000_000_000n, f = q / d, r = q - f * d; return 2n * r > d || (2n * r === d && f % 2n === 1n) ? f + 1n : f; };
   /** Precursor −0.2 for 8 days, trigger −0.8 for 30, SRL MANAGED_FLOAT at cover 11 with λ 0.30 (no Concord). The balance stub applies the
-   *  MAC_FX_CAPITAL_FLOW FDL leg to cb.reserves as it posts. Dispatch's t = 45 call is
+   *  MAC_FX_CAPITAL_FLOW / MAC_FX_CA_ABSORB FDL legs to cb.reserves as they post (E-106 (2) bookCbkFdl, no test stub). Dispatch's t = 45 call is
    *  breakRuleCheck at t = 45 of every day. */
   function attack(d0: number) {
     const w = world(d0 * D, { hazard: 0.3 }), trig = d0 + 8, imp = importsMonthFdl(w.ctx.store, 'SRL');
     Object.assign(w.ctx, { rng: () => ({ uOpen: () => 0.5, normal: () => 0 }) });
-    // balance stub: a MAC_FX_CAPITAL_FLOW FDL leg out of the CB moves cb.reserves.fdl when it is posted (CA absorption kept out, as in Quant's model)
-    const fx0 = w.ctx.ledger.fx.bind(w.ctx.ledger);
-    Object.assign(w.ctx.ledger, { fx: (a: string, b: string, c1: string, a1: bigint, c2: string, a2: bigint, code: string) => {
-      if (code === 'MAC_FX_CAPITAL_FLOW' && a === cbkId('SRL') && c1 === 'FDL') setRes(w, 'SRL', resOf(w, 'SRL') - a1);
-      return fx0(a, b, c1 as never, a1, c2 as never, a2, code); } });
     setFx(w, 'SRL', { regime: 'MANAGED_FLOAT' });
     setRes(w, 'SRL', imp * 11n);
     setShocks(w, 'SRL', [step('p', -0.2, d0 * D, trig * D), step('t', -0.8, trig * D, (trig + 30) * D)]);
@@ -288,8 +295,9 @@ describe('AC-04-18-CAPFLOW (E-104 (1)): capital_flow drains a managed regime\'s 
     for (let d = d0; d < trig + 30 && breakDay === null; d++) {
       w.setTick(d * D + 45);
       if (breakRuleCheck(w.ctx, 'SRL', w.ports) === 'BREAK') { breakDay = d - trig; break; }
-      const R = resOf(w, 'SRL'), k0 = cf(w).length;
+      const R0 = resOf(w, 'SRL'), k0 = cf(w).length, p0 = w.posts.length;
       close(w, d);
+      const R = R0 + caIn(w, p0);
       const legs = cf(w).slice(k0), out = legs.filter((p) => p.from === cbkId('SRL') && p.ccy === 'FDL');
       const fx = fxOf(w, 'SRL');
       log.push({ day: d, trading: isTradingDay('SRL', d), R, n: legs.length / 2, amt: out[0]?.amt ?? null, cover: fx.reserveCoverMonths, emp: fx.exchangeMarketPressure, armed: !!fx.breakArmed });
@@ -307,7 +315,7 @@ describe('AC-04-18-CAPFLOW (E-104 (1)): capital_flow drains a managed regime\'s 
     expect(log.some((l) => l.trading && l.day < trig)).toBe(true);
     expect(Number(log.find((l) => l.trading && l.day >= trig)!.amt) / 1e6).toBeCloseTo(0.12 * Number(log.find((l) => l.trading && l.day >= trig)!.R) / 1e6, 0);
   });
-  it('cover first < 3, then 5 closes with EMP > 2 arm the break; the t = 45 call breaks 17 to 19 game days after trigger over the 7 start weekdays', () => {
+  it('cover first < 3, then 5 closes with EMP > 2 arm the break; the t = 45 call breaks 16 to 22 game days after trigger over the 7 start weekdays', () => {
     const first = firstTradingDay('SRL', 100), breaks: number[] = [];
     for (let k = 0; k < 7; k++) {
       const { log, breakDay } = attack(first + k), t = log.filter((l) => l.trading);
@@ -318,8 +326,8 @@ describe('AC-04-18-CAPFLOW (E-104 (1)): capital_flow drains a managed regime\'s 
       expect(t.slice(0, i).every((l) => !l.armed)).toBe(true);
       breaks.push(breakDay!);
     }
-    expect(Math.min(...breaks)).toBeGreaterThanOrEqual(17);
-    expect(Math.max(...breaks)).toBeLessThanOrEqual(19);
+    expect(Math.min(...breaks)).toBeGreaterThanOrEqual(16);
+    expect(Math.max(...breaks)).toBeLessThanOrEqual(22);
     expect(new Set(breaks).size).toBeGreaterThan(1);
   });
   it('Σ > 0 buys at the same rate; FREE_FLOAT → no posting; Σ = 0 → no posting', () => {
@@ -329,8 +337,11 @@ describe('AC-04-18-CAPFLOW (E-104 (1)): capital_flow drains a managed regime\'s 
     close(w, d);
     const buy = cf(w);
     expect(buy.map((p) => [p.from, p.ccy])).toEqual([[cbkId('SRL'), 'SRL'], ['row', 'FDL']]);
-    expect(buy[1]!.amt).toBe(expected(R, K * 0.8));
+    const ca = caIn(w, 0);
+    expect(ca).not.toBe(0n);
+    expect(buy[1]!.amt).toBe(expected(R + ca, K * 0.8));
     expect(buy[0]!.amt).toBe(buy[1]!.amt * 5n);   // X leg at spot 0.2
+    expect(resOf(w, 'SRL')).toBe(R + ca + buy[1]!.amt);   // E-106 (2): both FDL legs mirrored into cb.reserves.fdl
     w.posts.length = 0;
     setShocks(w, 'SRL', [step('a', 0.5, d * D, (d + 5) * D), step('b', -0.5, d * D, (d + 5) * D)]);
     close(w, d);

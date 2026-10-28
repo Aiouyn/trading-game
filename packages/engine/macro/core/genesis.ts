@@ -18,6 +18,8 @@ import { planQuarter } from '../rules/issuance';
 import { potentialGrowth } from '../rules/economy';
 import { liquidityPremium, pdAt, sovSpread, stressIndexOf } from '../rules/sovCredit';
 import { nominalGdpFdl } from '../rules/fxReserves';
+import { openingReservesFdl } from '../institutions';
+import { GENESIS_DEFAULT } from '../rules/inputs';
 
 const UNIT = 1000000000n;   // one 1,000-face launch bond unit in micro
 
@@ -57,14 +59,11 @@ export function launchDebtSplit(b: BlocId, S: number, p: ParamsView): LaunchDebt
   return { debt: D - residue, residue, units: Object.freeze(units), fdlUnits, fdlEq };
 }
 
-/** MISSING EXPORT: T04-22 openingReservesFdl (E-93 (6): the amount T04-22 mints). Typed stub: 0 until T04-22 lands. */
-export function openingReservesFdl(_b: BlocId, _S: number, _p: ParamsView): Money { return 0n; }
-
 const D = TICKS_PER_GAME_DAY;
 const FSI_KEYS = ['interbank', 'repoHaircut', 'ccpFund', 'bankEquityDd', 'stablecoinDepeg', 'etfDiscount'] as const;
 const zeroImbalance = (): Record<ImbalanceKey, number> => { const o = {} as Record<ImbalanceKey, number>; for (const k of IMBALANCE_KEYS) o[k] = 0; return o; };
 
-function genesisCb(b: BlocId, tick: number, p: ParamsView): CentralBank {
+function genesisCb(b: BlocId, S0: number, tick: number, p: ParamsView): CentralBank {
   const d = BLOC_DEFAULTS[b], ccy0 = {} as Record<BlocId, Money>;
   for (const c of BLOC_ORDER) ccy0[c] = 0n;
   const meet = [meetingPlan(b, 0, p).meetingTick, meetingPlan(b, 91, p).meetingTick].filter((t) => t >= tick);
@@ -75,7 +74,7 @@ function genesisCb(b: BlocId, tick: number, p: ParamsView): CentralBank {
     qe: { state: 'NONE', purchasesPerMonth: 0n, eligible: { govBonds: 1, corpIG: 0, abs: 0 }, holdingsCapGdp: 0.35, qtRunoffCapPerMonth: 0 }, ycc: null,
     macroprudential: { ccyb: 0, ltvCapResidential: 0.80, ltvCapCommercial: 0.65, dtiCap: 0.40 },
     facilities: { lendingRate: d.initialPolicyRate, depositRate: d.initialPolicyRate, collateralHaircuts: {}, elaPenaltySpread: 0.015, maxTermDays: 7 },
-    swapLinesOut: [], reserves: { fdl: 0n, gold: 0n, otherFx: ccy0 },
+    swapLinesOut: [], reserves: { fdl: b === 'FDL' ? 0n : openingReservesFdl(b, S0, p), gold: 0n, otherFx: ccy0 }, // E-106 (1)
     balanceSheet: { govBonds: 0n, corpBonds: 0n, abs: 0n, loansToBanks: 0n, elaOutstanding: 0n, bankReserves: 0n, currencyInCirculation: 0n },
     emergencyCountQuarter: 0, memberOffsets: [], rStarBias: 0, governorNpcId: null, governorTermEndTick: 0, offTargetDays: 0, ycc10Streak: 0, yccHighInflDays: 0,
     yccRaises: 0, lowDepthDays: 0, ltroOpenUntilTick: null, ccybPending: null, emergencyQuarter: 0, pendingEmergency: null };
@@ -100,7 +99,7 @@ function genesisBloc(b: BlocId, S: number, aiRace: number, p: ParamsView): BlocM
     sovereign: { hazard: lambda0, pd1y: pdAt(1, lambda0), pd5y: pdAt(5, lambda0), spread10y: sovSpread(10, lambda0, lgd), liquidityPremium: liquidityPremium(b, 1, 0),
       convenienceYield: d.conv, stressIndex: stressIndexOf(lambda0, lambda0), failedAuctions21d: 0, status: 'PERFORMING', depthIndex: 1,
       ratingInputs: { govId: govId(b), tick: 0, debtGdp, interestRevenue: 0, primaryBalanceGdp: d.initialPrimaryBalanceGdp, realGrowthTrend: d.potentialGrowth0,
-        inflationVol: 0, reserveCoverMonths: fx.reserveCoverMonths, fxDebtShare: d.fxDebtShare0, cbCredibility: d.personality.credibility0, politicalStability: 0,
+        inflationVol: 0, reserveCoverMonths: fx.reserveCoverMonths, fxDebtShare: d.fxDebtShare0, cbCredibility: d.personality.credibility0, politicalStability: GENESIS_DEFAULT.politicalStability,   // 0.7, the input snapshot default (E-106 (8), Producer ruling)
         marketPd1y: pdAt(1, lambda0), modelPd1y: pdAt(1, lambda0) } },
     imbalance: zeroImbalance(), shocks: [], rStarRw: 0, gapEstNoise: 0, credit: g, credit0: g, creditGdpTrend: 1, peNorm: 0, fiscalImpulse: 0,
     unemployment12mLow: d.nairu, dep: 0, sentiment: 0, consumptionSignal: 0 };
@@ -135,7 +134,7 @@ export function macroGenesis(ctx: PhaseCtx, ports: MacroPorts): void {
   for (const b of BLOC_ORDER) {
     const row = { ...genesisBloc(b, S0, ai0, p), peNorm: peNorm0(ctx, b, ports) };
     s.put(macroTables.bloc.name, row);
-    s.put(macroTables.cb.name, genesisCb(b, ctx.tick, p));
+    s.put(macroTables.cb.name, genesisCb(b, S0, ctx.tick, p));
     appointGovernor(ctx, b, 'GENESIS', ports);
     genesisOutputGapEstimate(ctx, b, 0);
     const cb = s.get<CentralBank>(macroTables.cb.name, cbkId(b))!;

@@ -65,13 +65,14 @@ describe('AC-04-18 every shock target has a consumer', () => {
     expect(Number.isFinite(a) && Number.isFinite(b)).toBe(true);
     expect(Math.sign(b - a)).toBe(dir);
   }, 120_000);
-  it('fear_add 5 over 5 days: F sits 5 above the unshocked path each day (no accumulation through the stored F), and returns to it after', () => {
+  it('AC-04-18-FEARADD (E-106 (6)): fear_add +5 STEP for 3 days: day 1 ΔF = 5 (1e-9), days 2–3 ΔF ∈ [5, 5.15], |ΔF| < 0.5 after the end', () => {
     const u = world(), x = world(), sh: ActiveShock = { id: 'shk_unit', target: 'fear_add', value: 5, startTick: DAY * D, endTick: (DAY + 3) * D, shape: 'STEP' };
     const r = blocOf(x.store); x.store.put(macroTables.bloc.name, { ...r, shocks: [...r.shocks, sh] });
     const diff: number[] = [];
     for (let d = DAY; d < DAY + 5; d++) { runDays(u, ports, d, d + 1); runDays(x, ports, d, d + 1); diff.push(glob(x.store).fearIndex - glob(u.store).fearIndex); }
-    for (const v of diff.slice(0, 3)) expect(v).toBeCloseTo(5, 1);
-    for (const v of diff.slice(3)) expect(Math.abs(v)).toBeLessThan(0.5);   // feedback through z5 etc. only
+    expect(Math.abs(diff[0]! - 5)).toBeLessThan(1e-9);
+    for (const v of diff.slice(1, 3)) { expect(v).toBeGreaterThanOrEqual(5); expect(v).toBeLessThanOrEqual(5.15); }   // second-order via FSI / sovereign inputs
+    for (const v of diff.slice(3)) expect(Math.abs(v)).toBeLessThan(0.5);
   }, 120_000);
   it('auction_stress: a 0.05 STEP adds 0.05 to the §3.10.4 stress while active', () => {
     const w = world(), r = blocOf(w.store), t = DAY * D;
