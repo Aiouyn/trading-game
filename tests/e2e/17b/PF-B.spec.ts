@@ -44,6 +44,8 @@ test("PF-3-01 three rows A→Z with the contract strings", async ({ page }, info
 
 test("PF-3-02 Today: chgPct + %, sign colour and arrow", async ({ page }, info) => {
   await openPositions(page, "", isPhone(info.project.name));
+  // Positions can go live before the markets channel; Today shows "—" until each ticker arrives.
+  await expect(pos(page).locator('[data-testid="pos-today"][data-dir]')).toHaveCount(3);
   for (const t of await pos(page).getByTestId("pos-today").all()) {
     const txt = (await t.textContent())!;
     expect(txt).toMatch(/^(▲\d+\.\d\d%|▼−\d+\.\d\d%|0\.00%)$/);
