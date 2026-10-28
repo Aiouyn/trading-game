@@ -110,8 +110,8 @@ export function announceDue(ctx: PhaseCtx, ports: MacroPorts): void {
       if (!a.reopening) s.put<SovereignIssue & { id: string }>(macroTables.issue.name, { id: a.assetId, assetId: a.assetId, govId: a.govId, tenor: a.tenor, ccy: b, couponRate,
         issueTick: a.auctionTick, maturityTick, faceOutstanding: 0n, inflationLinked: a.tenor === 'L10Y', fxDenominated: false, cac: { threshold: 0.75, aggregated: true }, onTheRun: false });
       s.put<SovAuction>(macroTables.auction.name, { ...a, whenIssuedYield: yWi });
-      ctx.emit('macro.sov.auction.announced', [a.govId], { auctionId: a.id, bloc: b, tenor: a.tenor, assetId: a.assetId, reopening: a.reopening, auctionTick: a.auctionTick,
-        offeredFace: a.offeredFace.toString(), whenIssuedYield: yWi, couponRate, maturityTick }, 'PUBLIC');
+      ctx.emit('macro.sov.auction.announced', [a.govId], { auctionId: a.id, govId: a.govId, assetId: a.assetId, tenor: a.tenor, reopening: a.reopening, announceTick: a.announceTick,
+        bidOpenTick: a.bidOpenTick, auctionTick: a.auctionTick, offeredFace: a.offeredFace.toString(), whenIssuedYield: yWi }, 'PUBLIC');
     }
   }
 }

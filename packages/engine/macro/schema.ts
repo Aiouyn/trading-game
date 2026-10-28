@@ -262,7 +262,8 @@ export interface SovAuction {
              awardedFace: Qty; npcShare: number; playerShare: number; failed: boolean };
 }
 export interface Buyback { id: string; govId: string; assetIds: string[]; maxFace: Qty; tick: Tick; offers: { offerId: string; holderId: string; assetId: string; face: Qty; minPrice: Price }[] }
-export interface Syndication { id: string; govId: string; assetId: string; size: Qty; leadManagers: string[]; bookOpenTick: Tick; pricingTick: Tick; guidanceSpreadBp: number; feeRate: number }
+export interface Syndication { id: string; govId: string; assetId: string; size: Qty; leadManagers: string[]; bookOpenTick: Tick; pricingTick: Tick; guidanceSpreadBp: number; feeRate: number;
+  tenor?: 'N30Y' | 'N10Y_FDL' /* T04-12 */; pricedTick?: Tick /* T04-12: set at pricing; a priced book takes no orders */ }
 
 // ───────── §2.8 sovereign credit ─────────
 export interface SovereignRatingInputs {
@@ -382,7 +383,8 @@ export interface FacilityLoan { id: Id; kind: 'REPO' | 'ELA' | 'LTRO' | 'SWAP_ON
 export interface DepositFacilityBalance { id: string /* `${bloc}:${bankId}` */; bloc: BlocId; bankId: Id; amount: Money; holdId?: Id /* T04-08 earmark */ }
 export interface PrimaryDealerStatus { id: string /* `${bloc}:${entityId}` */; bloc: BlocId; entityId: Id; npc: boolean; status: 'APPLIED' | 'ACTIVE' | 'RESIGNING' | 'REVOKED';
   fromQuarter: number; revokedUntilQuarter: number | null; auctionsThisQuarter: number; auctionsBidThisQuarter: number; missesThisQuarter: number;
-  awardedFaceQuarter: SortedMap<string, string> /* quarter -> face */ }
+  awardedFaceQuarter: SortedMap<string, string> /* quarter -> face */;
+  nameInLeague?: boolean /* T04-12: league-table opt-in (bank.primaryDealer.apply) */ }
 export interface MacroInputs { id: 'INPUTS' | 'HOURLY'; tick: Tick; staleKeys: string[]; values: Record<string, number> }   // last values of §3.14.5 inputs, held on miss (edge 23); 'INPUTS' daily (T04-05), 'HOURLY' the held hourly fear and FSI inputs (T04-15, E-93 (2))
 export interface SovExchangeVote { id: string /* `${offerId}:${holderId}:${assetId}` */; offerId: string; holderId: Id; assetId: string; face: Qty; vote: 'ACCEPT' | 'REJECT' }
 export interface SyndicationOrder { id: Id; syndicationId: string; bidderId: Id; face: Qty; limitSpreadBp: number | null; holdId: Id; tick: Tick }

@@ -5,7 +5,7 @@ import { DEALER_POOL_ID } from '../ids';
 import { macroTables, type AuctionBid, type BlocId, type CentralBank, type SovAuction } from '../schema';
 import { cbRow, cbWorld, stubPorts, type CbWorld } from '../testkit/cbWorld';
 import { putBloc } from '../testkit/fiscalWorld';
-import { afterFailedOrWeak, applyGroupCap, backstopOrders, cashFor, clearAuction, ladderParams, NONCOMP_MAX_FACE, npcLadder, runAuction, type ClearingResult } from './auction';
+import { afterFailedOrWeak, applyGroupCap, auctionPrice, backstopOrders, cashFor, clearAuction, ladderParams, NONCOMP_MAX_FACE, npcLadder, runAuction, type ClearingResult } from './auction';
 
 const D = 720, F = (x: number): Qty => BigInt(x) * MICRO_N, AT = 100 * D + 330;
 const auc = (b: BlocId, o: Partial<SovAuction> = {}): SovAuction => ({ id: `auc_${b}_N10Y_100`, govId: `gov_${b}`, assetId: `ast_SOV_${b}_N10Y_3740`, tenor: 'N10Y', reopening: false,
@@ -92,7 +92,8 @@ describe('04#21 uniform price, Σ awards ≤ offered, group cap 35%', () => {
     const r = runAuction(w.ctx, a, ports);
     expect(r.awardedFace).toBe(a.offeredFace);
     expect(sum(r.awards.filter((x) => linked.includes(x.bidderId)))).toBe(F(3_500_000_000));
-    const res = w.events.find((e) => e.kind === 'macro.sov.auction.result')!, P = (res.payload as { price: number }).price;
+    const res = w.events.find((e) => e.kind === 'macro.sov.auction.result')!, P = auctionPrice(w.ctx.store, ports, a, r.stopYield, w.ctx.tick);
+    expect(res.payload).toMatchObject({ govId: 'gov_FDL', failed: false });
     const swaps = w.posts.filter((p) => p.op === 'swapAsset');
     expect(swaps.length).toBe(r.awards.filter((x) => x.bidderId !== DEALER_POOL_ID('FDL')).length);
     for (const s of swaps) { const aw = r.awards.find((x) => x.bidderId === s.from)!; expect(s.amt).toBe(cashFor(aw.face, P)); expect(s.code).toBe('SOV_BOND_ISSUE'); }

@@ -124,7 +124,7 @@ describe('debt management', () => {
     const w = world('FDL'), a = planQuarter(w.ctx, 'FDL', ports).find((x) => x.reopening && x.assetId === 'ast_SOV_FDL_N2Y_120')!;
     w.setTick(a.announceTick);
     announceDue(w.ctx, ports);
-    expect(w.events.find((e) => (e.payload as { auctionId: string }).auctionId === a.id)!.payload).toMatchObject({ couponRate: 0.025, reopening: true, maturityTick: 120 * D + 330 });
+    expect(w.events.find((e) => (e.payload as { auctionId: string }).auctionId === a.id)!.payload).toMatchObject({ reopening: true, assetId: 'ast_SOV_FDL_N2Y_120' });
     expect(w.rows(macroTables.issue.name).filter((x) => (x as { assetId: string }).assetId === a.assetId)).toEqual([expect.objectContaining({ couponRate: 0.025, faceOutstanding: F(500e9) })]);
   });
   it('y_WI: 05 line yield, else the NS zero, else the genesis policy rate', () => {

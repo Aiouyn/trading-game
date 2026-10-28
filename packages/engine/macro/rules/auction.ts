@@ -1,6 +1,7 @@
 // T04-11 primary auctions (04 §3.10.3–§3.10.4): NPC dealer ladder, owner-group cap, uniform-price clearing, settlement, failed and weak auctions,
 // and the CB secondary-market backstop.
 import { divRoundHalfEven, dmath, fnv1a32, MICRO_N, roundHalfEven, TICKS_PER_GAME_DAY, type PhaseCtx, type Qty, type StoreRead, type Tick } from '@tycoon/engine-core';
+import { recordDealerAuction } from './dealers';
 import { cbkId, govId } from '@tycoon/engine-ledger';
 import { blocOfEntity, CSF_ID, DEALER_POOL_ID } from '../ids';
 import type { MacroPorts } from '../ports';
@@ -134,7 +135,7 @@ export function settleAuction(ctx: PhaseCtx, auction: SovAuction, r: ClearingRes
   for (const x of [...s.index<AuctionBid & { id: string }>(macroTables.bid.name, 'auctionId', auction.id)].sort((p, q) => (p.id < q.id ? -1 : 1))) {
     if (x.cashHoldId) ctx.holds.release(x.cashHoldId);
     const face = r.awards.find((a) => a.bidId === x.bidId)?.face ?? 0n;
-    ctx.emit('macro.sov.bid.result', [x.bidderId], { auctionId: auction.id, bidId: x.bidId, awardedFace: face.toString(), price: P }, 'PARTIES', [x.bidderId]);
+    ctx.emit('macro.sov.bid.result', [x.bidderId], { auctionId: auction.id, bidId: x.bidId, awardedFace: face.toString(), price: cashFor(MICRO_N, P).toString() /* Price per unit face */ }, 'PARTIES', [x.bidderId]);
     s.del(macroTables.bid.name, x.id);
   }
   if (issue) {
@@ -145,7 +146,8 @@ export function settleAuction(ctx: PhaseCtx, auction: SovAuction, r: ClearingRes
   const result = { stopYield: r.stopYield, allotmentAtStopPct: r.allotmentAtStopPct, bidToCover: r.bidToCover, tailBp: r.tailBp, awardedFace: r.awardedFace,
     npcShare: r.npcShare, playerShare: r.playerShare, failed: r.failed };
   s.put<SovAuction>(macroTables.auction.name, { ...auction, bids: [], result });
-  ctx.emit('macro.sov.auction.result', [gov], { auctionId: auction.id, bloc: b, assetId: auction.assetId, ...result, awardedFace: r.awardedFace.toString(), weak: r.weak, price: P }, 'PUBLIC');
+  ctx.emit('macro.sov.auction.result', [gov], { auctionId: auction.id, govId: gov, stopYield: r.stopYield, bidToCover: r.bidToCover, tailBp: r.tailBp, allotmentAtStopPct: r.allotmentAtStopPct,
+    awardedFace: r.awardedFace.toString(), npcShare: r.npcShare, playerShare: r.playerShare, failed: r.failed, weak: r.weak }, 'PUBLIC');
 }
 
 export function failedAuctions21d(store: StoreRead, b: BlocId, tick: Tick): number {
@@ -217,6 +219,7 @@ export function runAuction(ctx: PhaseCtx, auction: SovAuction, ports: MacroPorts
   const ladder = npcLadder(auction, yWi, ladderParams(b, auctionStress(s, b, ctx.tick), fear, auction.offeredFace, avg));
   const bids = [...s.index<AuctionBid & { id: string }>(macroTables.bid.name, 'auctionId', auction.id)];
   const r = clearAuction(auction, [...bids, ...ladder], yWi, (id) => ports.players.ownerGroupOf(s, id), (id) => id === npc, NONCOMP_MAX_FACE);
+  recordDealerAuction(ctx, b, auction.offeredFace, yWi, bids, r.awards);
   settleAuction(ctx, auction, r, ports);
   afterFailedOrWeak(ctx, b, auction, r);
   return r;

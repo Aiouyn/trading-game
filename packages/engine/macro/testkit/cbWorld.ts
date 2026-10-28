@@ -2,6 +2,7 @@
 import { roundHalfEven, type Id, type PhaseCtx, type PhaseMessage } from '@tycoon/engine-core';
 import { createParamsView, MACRO_T04_08_PARAMS } from '@tycoon/params';
 import { cbkId } from '@tycoon/engine-ledger';
+import { MACRO_EVENTS } from '../events';
 import { defaultMacroPorts, type MacroPorts } from '../ports';
 import { BLOC_ORDER, macroTables, type BlocId, type CentralBank } from '../schema';
 
@@ -75,7 +76,9 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
   const content = { sectors: () => SECTORS.map((sectorId) => ({ sectorId, name: sectorId })), swfEntityId: (b: BlocId) => `fnd_SWF_${b}`,
     cities: () => BLOC_ORDER.flatMap((b) => [0, 1, 2].map((slot) => ({ cityId: `cty_${b.toLowerCase()}_${slot}`, name: '', bloc: b, slot, cityGdpShare: 1 / 3, cycleBeta: 1 }))) };
   const ctx = { get tick() { return tick; }, phase: 'P8', params, content, newId: (k: string) => `${k}_${n++}`, store, ledger, holds: hb,
-    emit: (kind: string, subjectIds: Id[], payload: unknown, vis: string, partyIds?: Id[]) => { events.push({ kind, subjectIds, payload, vis, ...(partyIds ? { partyIds } : {}) }); },
+    emit: (kind: string, subjectIds: Id[], payload: unknown, vis: string, partyIds?: Id[]) => {
+      if (kind.startsWith('macro.sov.')) MACRO_EVENTS[kind]!.parse(payload);   // strict T04-01 payload schemas
+      events.push({ kind, subjectIds, payload, vis, ...(partyIds ? { partyIds } : {}) }); },
     send: (to: Id, kind: string, body: unknown) => { sent.push({ to, kind, body }); },
     inbox: (kind?: string) => inbox.filter((m) => kind === undefined || m.kind === kind) } as unknown as PhaseCtx;
   return { ctx, posts, events, holds, sent, rows: (t) => (tables[t] ?? []).map((r) => r.e), put, cash, qty,

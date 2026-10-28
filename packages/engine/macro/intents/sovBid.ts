@@ -65,7 +65,7 @@ export const sovBidIntent: IntentHandler<BidP> = {
     const row: Row = { id: bidId, bidId, auctionId: v.a.id, bidderId: i.payload.accountId, kind: i.payload.kind, ...(v.bp100 !== undefined ? { yieldBp: v.bp100 } : {}),
       face: v.face, cashHoldId: h, submittedTick: ctx.tick, primaryDealer: ctx.store.get<PrimaryDealerStatus>(macroTables.dealer.name, `${blocOfEntity(v.a.govId)}:${i.payload.accountId}`)?.status === 'ACTIVE' };
     ctx.store.put<Row>(B, row);
-    ctx.emit('macro.sov.bid.accepted', [row.bidderId], { auctionId: row.auctionId, bidId, kind: row.kind, face: i.payload.face, yieldBp: v.bp100 ?? null, holdAmount: v.hold.toString() },
+    ctx.emit('macro.sov.bid.accepted', [row.bidderId], { auctionId: row.auctionId, bidId, kind: row.kind, face: i.payload.face, ...(v.bp100 !== undefined ? { yieldBp: v.bp100 } : {}) },
       'PARTIES', [row.bidderId]);
     return null;
   },
