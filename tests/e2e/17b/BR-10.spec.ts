@@ -19,11 +19,13 @@ const tab = (page: Page, k: "overview" | "news") => page.getByTestId(`br-about-t
 const stories = (page: Page) => page.getByTestId("ap-story");
 const frame = (page: Page) => page.locator('[data-testid="win-broker"], [data-testid="phone-appview"]').first();
 /**
- * The rounded controls whose r×r corner squares every shot masks (winShot), besides the window's own: the asset select and
- * the News rows. Their left corners are antialiased one level differently on some page loads (PR #98 QA: phone-cb 3 of 5
- * loads, 12 px at x 32-34 on the select's left corners), the same host noise as the window corners.
+ * The rounded controls whose r×r corner squares every shot masks (winShot), besides the window's own: the asset select, the
+ * About tab list and its tabs, and the News rows. Their corners are antialiased one level differently on some page loads,
+ * the same host noise as the window corners: PR #98 QA saw phone-cb differ on 3 of 5 loads, 12 px at x 32-34 on the
+ * select's left corners; the --repeat-each=5 proof then caught window-520 differing by 1 level on 12 px, all on the tab
+ * list's left corners and the selected tab's bottom-right one.
  */
-const rounded = (page: Page) => frame(page).locator(".br-select, .ap-story");
+const rounded = (page: Page) => frame(page).locator('.br-select, .ap-tabs, .ap-tabs [role="tab"], .ap-story');
 /**
  * Every baseline is taken at the same feed tick. The mock ticks every 5 s of fake time, and the steps before and between
  * shots run the paused clock a varying amount (chunk loads, `until`), so a shot could land either side of a tick and read
@@ -426,7 +428,7 @@ async function maskedOnlyCorners(page: Page, c: Locator) {
   expect(await changed(l, bt), "pixel inside the bottom-left corner square").toBe(false);
 }
 
-test("BR-10 shots mask only the r×r corner squares of the select and News rows: edge and inner pixels outside them are caught", async ({ page }, info) => {
+test("BR-10 shots mask only the r×r corner squares of the select, About tabs and News rows: edge and inner pixels outside them are caught", async ({ page }, info) => {
   phoneOnly(info.project.name);
   await bootPaused(page, "/broker");
   await until(page, async () => (await page.getByTestId("br-asset-select").count()) === 1);
@@ -435,5 +437,6 @@ test("BR-10 shots mask only the r×r corner squares of the select and News rows:
   await maskedOnlyCorners(page, page.getByTestId("br-asset-select"));
   await toAbout(page);
   await toNews(page);
+  await maskedOnlyCorners(page, page.getByTestId("br-about-tabs"));
   await maskedOnlyCorners(page, stories(page).first());
 });
