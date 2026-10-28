@@ -28,11 +28,13 @@ export const NEWS_KEEP = 100; // [P]
 export type FeedMode = "live" | "stale" | "denied" | "error" | "loading";
 export interface Scenario { seed: number; feed: FeedMode; halt: string | null; thin: string | null; tier: "free" | "terminal"; empty: boolean; reject: string | null;
   /** `?nw=` pin (QUAY_HOOKS): `me.nw` stays exactly this string (cash absorbs mark moves), matching the shell's override. */
-  nw: string | null }
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null };
+  nw: string | null;
+  /** `?pledge=HALC:40` (QUAY_HOOKS): that held position reports pledgedQty 40 (PF-B badge); otherwise every pledgedQty is "0". */
+  pledge: { assetId: string; qty: number } | null }
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null };
 
 /**
- * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&seed=N&nw=D`).
+ * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&seed=N&nw=D&pledge=ID:QTY`).
  * Gated at build time: without QUAY_HOOKS the overrides (and their names) are compiled out.
  */
 export function scenarioFromQuery(q: URLSearchParams): Scenario {
@@ -42,6 +44,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const seed = Number(q.get("seed"));
   const reject = q.get("reject");
   const nw = q.get("nw");
+  const pledge = /^([A-Z0-9]{1,12}):(\d{1,9})$/.exec(q.get("pledge") ?? "");
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
     feed: feed === "stale" || feed === "denied" || feed === "error" || feed === "loading" ? feed : "live",
@@ -50,6 +53,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
     empty: q.get("empty") === "1",
     reject: reject && /^[A-Z][A-Z0-9_]{2,63}$/.test(reject) ? reject : null,
     nw: nw && /^\d{1,13}(\.\d{1,2})?$/.test(nw) ? nw : null,
+    pledge: pledge && ASSET_BY_ID[pledge[1]!] && Number(pledge[2]) > 0 ? { assetId: pledge[1]!, qty: Number(pledge[2]) } : null,
   };
 }
 
@@ -253,14 +257,18 @@ export class MockFeed {
     return Number(i) * 100 + Number(f.padEnd(2, "0"));
   }
   private meBody(): MeTradingBody {
-    const positions: Record<string, Position> = {};
-    for (const [id, l] of this.lots) {
-      const a = ASSET_BY_ID[id]!, mark = this.assets.get(id)!.last;
-      positions[id] = { assetId: id, qty: String(l.qty), avgCost: fmt(l.avgCost, a.displayDecimals), mark: fmt(mark, a.displayDecimals), value: fmt(mark * l.qty, 2), upl: fmt((mark - l.avgCost) * l.qty, 2), pledgedQty: "0", lentQty: "0" };
-    }
     const held = this.heldMinor(), pin = this.pinnedNwMinor();
     const cash = pin === null ? this.cash : pin - held;
     const nw = cash + held;
+    const positions: Record<string, Position> = {};
+    for (const [id, l] of this.lots) {
+      const a = ASSET_BY_ID[id]!, mark = this.assets.get(id)!.last;
+      // Proposed PF-B fields (server side, so the client never computes): pnlPct = upl / cost, weightPct = value / nw,
+      // both percent units with 1 dp, integer maths on minor units.
+      const pnlPct = l.avgCost ? fmt(((mark - l.avgCost) * 1000) / l.avgCost, 1) : "0.0";
+      const weightPct = nw > 0 ? fmt((mark * l.qty * 1000) / nw, 1) : "0.0";
+      positions[id] = { assetId: id, qty: String(l.qty), avgCost: fmt(l.avgCost, a.displayDecimals), mark: fmt(mark, a.displayDecimals), value: fmt(mark * l.qty, 2), upl: fmt((mark - l.avgCost) * l.qty, 2), pledgedQty: this.scenario.pledge?.assetId === id ? String(Math.min(this.scenario.pledge.qty, l.qty)) : "0", lentQty: "0", pnlPct, weightPct };
+    }
     const empty = this.scenario.empty;
     // Restricted buckets live inside the FDL balance (so inside nw); untilRealMs = real ms remaining (5 s per tick),
     // and a bucket leaves the list once released (its cash stays in FDL). `?empty=1` is a new player: FDL only.

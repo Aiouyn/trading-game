@@ -23,7 +23,7 @@ test("S1-08 strip 34, shelf 52, release, phase, tick ring 22, NW, tiles, divider
   const ring = await box(page, "tickring");
   expect([ring.width, ring.height]).toEqual([22, 22]);
   // 17A T2: the strip NW is MoneyText ctx=chip (abbreviated, full value in title).
-  await expect(page.getByTestId("strip-nw")).toContainText("$413k");
+  await expect(page.getByTestId("strip-nw")).toContainText("$412k"); // shared compact formatter: rounds down
   await expect(page.getByTestId("strip-nw").locator("[title]")).toHaveAttribute("title", "$412,860.15");
   const tiles = page.locator("[data-testid^=tile-]");
   expect(await tiles.first().getAttribute("data-testid")).toBe("tile-broker");
@@ -366,6 +366,8 @@ test("S1-03 computed tokens per palette; DOM identical across palettes", async (
   const snap = () => page.locator("[data-testid=quay-ready]").evaluate((el) => el.outerHTML);
   // The default layout opens Wire (built since UI card 1); its feed loads asynchronously, so let it settle first.
   await expect(page.getByTestId("wire")).toHaveAttribute("data-state", /^(?!loading$)/);
+  // Other windows (Broker's ComingLater) load their own chunks behind AppSkeleton; wait until none is showing.
+  await expect(page.getByTestId("app-skeleton")).toHaveCount(0);
   const base = await snap();
   for (const [i, p] of ["ink-brass", "broadsheet", "phosphor", "riviera"].entries()) {
     await page.evaluate((v) => (document.documentElement.dataset.palette = v), p);

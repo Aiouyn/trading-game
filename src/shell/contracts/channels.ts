@@ -32,13 +32,15 @@ export interface CandleHistoryReq { assetId: string; res: CandleRes; from: Tick;
 export interface CandleHistoryRes { bars: Candle[] }
 
 // me: own character, every tick (17 §2.6; 19 Rule 3.8.2; IntentResult 19 §2.3; Fill 05 §2.5). Shape per Q4 answered (E-56 §2); delta paths keyed by id are stable; rings use `trim`.
-export interface Position { assetId: string; qty: Qty; avgCost: Price; mark: Price; value: Money; upl: Money; pledgedQty: Qty; lentQty: Qty } // Q4 (06 §2). No pnlPct/weight/class/marginState/liqPrice in me.positions; see PF-B open points
+export interface Position { assetId: string; qty: Qty; avgCost: Price; mark: Price; value: Money; upl: Money; pledgedQty: Qty; lentQty: Qty; pnlPct?: string; weightPct?: string } // Q4 (06 §2). pnlPct (upl / cost) and weightPct (value / nw): optional pp strings, 1 dp, server-computed; PROPOSED contract addition for UI card 3 (Studio PF-B), Engine to confirm. No class/marginState/liqPrice in me.positions; see PF-B open points
 export interface OpenOrder { orderId: string; assetId: string; side: Side; type: string; qty: Qty; filled: Qty; limit?: Price; stop?: Price; tif: string; status: 'PENDING'|'WORKING'|'PARTIAL'|'QUEUED_AUCTION'; placedTick: Tick; avgPrice: Price } // Q4: 05 Order minus ownerGroupId/actorId/holdId/arrivalRefPrice/priorityTick/displayedRemaining; avgPrice server-computed. Field names mirror 05 Order on SWAP
 export interface MyFill { fillId: string; tick: Tick; assetId: string; orderId: string; side: Side; qty: Qty; price: Price; fee: Money; feeCcy: string; liquidity: 'MAKER'|'TAKER'|'AUCTION'; counterpartyKind: 'PLAYER'|'NPC' }
 export interface IntentResult { intentId: string; tick: Tick; status: 'ACCEPTED'|'REJECTED'|'PARTIAL'|'QUEUED_NEXT'; rejectCode?: string; rejectParams?: Record<string,string>; effects?: string[] }
 /** One restricted-cash bucket. `untilRealMs`: real (wall-clock) MILLISECONDS REMAINING until release, counted down by
  *  the server on each frame; not a timestamp and not game ticks. null = held with no release time. */
-export interface RestrictedBucket { reason: string; amount: Money; untilRealMs: number | null }
+export interface RestrictedBucket { reason: string /* engine code; known: RestrictedReason. Others render raw ("Restricted (CODE)") */; amount: Money; untilRealMs: number | null }
+/** The engine's restricted-cash codes that have a client label (#70 round 2, renamed from AD / START). */
+export type RestrictedReason = "AD_GRANT" | "FRESH_START";
 export interface MeTradingBody { balances: Record<string, Money>; nw: Money; nwi: string; restricted: RestrictedBucket[]; positions: Record<string, Position>; orders: Record<string, OpenOrder>; fills: MyFill[] /* ring keepLast 50 */; margin: MarginSummary | null /* 07 */; holds: Record<string, unknown>; intents: IntentResult[] /* ring keepLast 50 */; alerts: unknown[] /* ring */; nwStats?: NwStats; nwBreakdown?: NwBreakdown } // Q4 + Q10 (E-56 §2, §12). buyingPower/license not in Q4 list: open point
 export type MarginSummary = Record<string, Money>; // 07 summary, opaque until 07
 /** `drawdownReal`: a bare decimal in PERCENT units, no "%" ("-4.2" = -4.2 %); the UI adds the sign glyph and the

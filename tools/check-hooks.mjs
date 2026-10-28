@@ -13,7 +13,7 @@ export const QUERY_KEYS = [
   "rank", "flags", "tick", "conn", "halted", "held", "nw", "pct", "chg", "lic", "charters", "onb", "onbDone", "places", "guest", "prot",
   "shells", "owned",
   // mock feed scenario (src/shell/contracts/mockFeed.ts)
-  "feed", "seed", "reject", "tier", "empty", "halt", "thin",
+  "feed", "seed", "reject", "tier", "empty", "halt", "thin", "pledge",
   // other URL hooks: phase, load failure, city failure, alert/world banners (feed.ts), the demo sheet (QuayShell), /__ds palette
   "phase", "load", "retryMs", "city", "alerts", "world", "sheet", "palette",
 ];
@@ -37,10 +37,19 @@ export const DS_STRINGS = ["QUAY_DS", "ds-ready", "Label on win2", "mock-orderpa
 const keyAlt = QUERY_KEYS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
 const QUERY_RE = new RegExp(`\\.get\\s*\\(\\s*(["'\`])(${keyAlt})\\1\\s*\\)(?!(?<=guest["'\`]\\s*\\))\\s*\\.then\\s*\\()`, "g");
 
+/** Mock asset-name keys read through a helper, not `.get` directly: mockFeed's scenarioFromQuery has
+ *  `const asset = (k) => { const v = q.get(k); … }; halt: asset("halt"), thin: asset("thin")`, so the bundle carries
+ *  `<fn>("halt")` (minified name arbitrary) and a `.get(k)` with no literal key. Any one-string-argument call with
+ *  these keys is a hit (QA #67 follow-up c); `.get("halt")` is already reported by QUERY_RE. */
+export const ASSET_KEYS = ["halt", "thin"];
+const assetAlt = ASSET_KEYS.join("|");
+const ASSET_RE = new RegExp(`(\\.?)([A-Za-z_$][\\w$]*)\\s*\\(\\s*(["'\`])(${assetAlt})\\3\\s*\\)`, "g");
+
 /** All hits in one file's text: { hook, index }. */
 export function scan(text) {
   const hits = [];
   for (const m of text.matchAll(QUERY_RE)) hits.push({ hook: `.get("${m[2]}")`, index: m.index });
+  for (const m of text.matchAll(ASSET_RE)) if (!(m[1] === "." && m[2] === "get")) hits.push({ hook: `asset("${m[4]}")`, index: m.index });
   for (const h of [...HOOK_STRINGS, ...DS_STRINGS]) for (let i = text.indexOf(h); i !== -1; i = text.indexOf(h, i + 1)) hits.push({ hook: h, index: i });
   return hits;
 }
@@ -58,7 +67,7 @@ function main(roots) {
     const text = readFileSync(f, "utf8");
     for (const { hook, index } of scan(text)) { n++; console.error(`HIT ${JSON.stringify(hook)} in ${f}: …${text.slice(Math.max(0, index - 40), index + hook.length + 40).replace(/\s+/g, " ")}…`); }
   }
-  const strings = QUERY_KEYS.length + HOOK_STRINGS.length + DS_STRINGS.length;
+  const strings = QUERY_KEYS.length + ASSET_KEYS.length + HOOK_STRINGS.length + DS_STRINGS.length;
   console.log(`check-hooks: ${roots.join(" + ")}: ${files.length} files, ${strings} hook patterns, ${n} hit(s)`);
   process.exit(n ? 1 : 0);
 }
