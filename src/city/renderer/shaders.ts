@@ -37,7 +37,7 @@ void main() {
 }`;
 
 /** Studio AC5 ruling 2: shadow mix on material walls, the floor of the ruling (.25 to .42); see evidence/city-card2/ac5-shadow.ts */
-export const MAT_SHADOW_MIX = 0.25;
+export const MAT_SHADOW_MIX = 0.45;
 
 export const PART_FRAG = /* glsl */ `
 uniform vec3 uKey;
