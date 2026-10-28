@@ -102,9 +102,9 @@ describe('aliases, ids', () => {
 });
 
 describe('tables', () => {
-  it('28 tables, mac.* names matching the T02-09 regex, module 04, unique', () => {
+  it('29 tables, mac.* names matching the T02-09 regex, module 04, unique', () => {
     expect(ALL_MACRO_TABLES.length).toBe(Object.keys(macroTables).length);
-    expect(ALL_MACRO_TABLES.length).toBe(28);
+    expect(ALL_MACRO_TABLES.length).toBe(29);   // 28 + mac.indicator_hold (T04-15, #72 ruling item 4)
     const names = ALL_MACRO_TABLES.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
     for (const t of ALL_MACRO_TABLES) { expect(t.name).toMatch(/^mac\.[a-z0-9_]+$/); expect(t.name).toMatch(/^[a-z]{2,8}\.[a-z0-9_]+$/); expect(t.module).toBe('04'); }

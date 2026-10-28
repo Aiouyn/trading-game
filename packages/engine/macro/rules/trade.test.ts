@@ -63,14 +63,32 @@ describe('T04-15 dailyTrade', () => {
     const storm = { id: 'st', phase: 'TRIGGER', shocks: [shock('s', 0.02, tick - 1)] };
     const ripple = { id: 'rp', phase: 'TRIGGER', shocks: [shock('r', 0.01, tick)] };
     const w = fakeWorld({ scheduler: sched({ activeMajorId: 'mj', activeStormIds: ['st'], activeRippleIds: ['rp'] }) },
-      [[macroTables.event.name, major], [macroTables.event.name, storm], [macroTables.event.name, ripple]]);
+      [[macroTables.event.name, major], [macroTables.event.name, storm], [macroTables.event.name, ripple], ...BLOC_ORDER.map((b): [string, Record<string, unknown>] => [macroTables.bloc.name, { id: b, realGdpIndex: 100 }])]);
     dailyTrade(w.ctx, withDelta(0));
     expect(w.global().tariffLevel).toBeCloseTo(0.06, 15);
   });
   it('tariff clamps at 0.4', () => {
-    const w = fakeWorld({ tariffLevel: 0.39 });
+    const w = fakeWorld({ tariffLevel: 0.39 }, [...BLOC_ORDER.map((b): [string, Record<string, unknown>] => [macroTables.bloc.name, { id: b, realGdpIndex: 100 }])]);
     dailyTrade(w.ctx, withDelta(0.05));
     expect(w.global().tariffLevel).toBe(0.4);
+  });
+  it('#72 item 5 reading: a tariff_level shock is applied once, on the day it starts, not again the next day', () => {
+    const tick = 10 * 720;
+    const ev = { id: 'tw', phase: 'TRIGGER', shocks: [{ id: 'k', target: 'tariff_level', value: 0.05, startTick: tick - 3, endTick: tick + 9999, shape: 'STEP' }] };
+    const w = fakeWorld({ scheduler: sched({ activeMajorId: 'tw' }) }, [[macroTables.event.name, ev], ...BLOC_ORDER.map((b): [string, Record<string, unknown>] => [macroTables.bloc.name, { id: b, realGdpIndex: 100 }])]);
+    dailyTrade(w.ctx, withDelta(0));
+    expect(w.global().tariffLevel).toBeCloseTo(0.08, 15);
+    const next = { ...w.ctx, tick: tick + 720, cal: { gameDay: 11, tickOfDay: 0 } } as typeof w.ctx;
+    dailyTrade(next, withDelta(0));
+    expect(w.global().tariffLevel).toBeCloseTo(0.08, 15);
+  });
+  it('#72 item 7: no fallback to 100, a missing bloc row or realGdpIndex is I0.macro_bloc', () => {
+    const rows = (skip: string, row: Record<string, unknown>): Array<[string, Record<string, unknown>]> =>
+      BLOC_ORDER.filter((b) => b !== skip).map((b): [string, Record<string, unknown>] => [macroTables.bloc.name, { id: b, realGdpIndex: 100 }]).concat(row.id ? [[macroTables.bloc.name, row]] : []);
+    expect(() => dailyTrade(fakeWorld({}, rows('SRL', {})).ctx, defaultMacroPorts())).toThrow(expect.objectContaining({ code: 'I0.macro_bloc' }));
+    expect(() => dailyTrade(fakeWorld({}, rows('EUN', { id: 'EUN' })).ctx, defaultMacroPorts())).toThrow(expect.objectContaining({ code: 'I0.macro_bloc' }));
+    expect(() => dailyTrade(fakeWorld({}, rows('PYN', { id: 'PYN', realGdpIndex: Number.NaN })).ctx, defaultMacroPorts())).toThrow(expect.objectContaining({ code: 'I0.macro_bloc' }));
+    expect(() => dailyTrade(fakeWorld({}, rows('', {})).ctx, defaultMacroPorts())).not.toThrow();
   });
   it('throws without the GLOBAL row', () => { expect(() => dailyTrade(fakeWorld(null).ctx, defaultMacroPorts())).toThrow(expect.objectContaining({ code: 'I0.macro_global' })); });
 });

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { PhaseCtx } from '@tycoon/engine-core';
 import { assertNoHiddenFields, MACRO_EVENTS } from '../events';
 import { defaultMacroPorts, type MacroPorts } from '../ports';
-import { macroTables, type GlobalMacroState, type MacroInputs } from '../schema';
+import { macroTables, type GlobalIndicatorHold, type GlobalMacroState, type MacroInputs } from '../schema';
+import { hourlyFsi } from './fsi';
 import { crisisTerm, fearRaw, hourlyFear, impliedVolAnchor, riskAppetite, stepFear, type FearInputs } from './fear';
 
 const NEUTRAL: FearInputs = { rv21Gx: 0.16, creditSpreadIdx: 1, fsi: 0, crisisTerm: 0, tension: 50, hackRate: 50, gxReturnToday: 0, gxReturn63d: 0 };
@@ -20,7 +21,8 @@ function fakeWorld(global: Record<string, unknown> | null, extra: Array<[string,
   const store = { get: (t: string, id: string) => rows.get(key(t, id)), put: (t: string, e: { id: string }) => { rows.set(key(t, e.id), e); },
     del: () => undefined, iter: () => [], range: () => [], index: () => [], count: () => 0 };
   const ctx = { tick: gameDay * 720, cal: { gameDay, tickOfDay: 0 }, store, emit: (kind: string, _s: unknown, payload: unknown, vis: string) => { events.push({ kind, payload, vis }); } } as unknown as PhaseCtx;
-  return { ctx, events, global: () => rows.get(key(macroTables.global.name, 'GLOBAL')) as GlobalMacroState, inputs: () => rows.get(key(macroTables.inputs.name, 'INPUTS')) as MacroInputs | undefined };
+  return { ctx, events, global: () => rows.get(key(macroTables.global.name, 'GLOBAL')) as GlobalMacroState, inputs: () => rows.get(key(macroTables.inputs.name, 'INPUTS')) as MacroInputs | undefined,
+    hold: () => rows.get(key(macroTables.indicatorHold.name, 'GLOBAL')) as GlobalIndicatorHold | undefined };
 }
 const ports = (o: { rv?: number | null; r?: number | null; lvl?: number | null; ig?: number | null } = {}): MacroPorts => {
   const p = defaultMacroPorts();
@@ -87,7 +89,8 @@ describe('T04-15 hourlyFear', () => {
   });
   it('uses live inputs, this hour’s FSI and the snapshot’s tension and hack rate', () => {
     const w = fakeWorld({ fearIndex: 22, financialStressIndex: 0.3, scheduler: sched({ activeStormIds: ['s'] }) },
-      [[macroTables.inputs.name, { id: 'INPUTS', tick: 0, staleKeys: [], values: { geopoliticalTension: 60, worldHackRate: 50, 'ig:9': 0.01 } }],
+      [[macroTables.inputs.name, { id: 'INPUTS', tick: 0, staleKeys: [], values: { geopoliticalTension: 60, worldHackRate: 50 } }],
+       [macroTables.indicatorHold.name, { id: 'GLOBAL', tick: 0, fear: {}, fsi: {}, igCloses: { '9': 0.01 } }],
        [macroTables.history.name, { id: 'GLOBAL:-53', equityIndex: 1000 }]]);
     hourlyFear(w.ctx, ports({ rv: 0.24, r: -0.01, lvl: 950, ig: 0.0122222222222222 }));
     // csi = 0.012222/mean(0.01, 0.012222) = 1.1; r63 = 950/1000 − 1 = −5% → the storm example
@@ -103,18 +106,37 @@ describe('T04-15 hourlyFear', () => {
     const raw = fearRaw({ ...NEUTRAL, rv21Gx: 0.24, tension: 30, hackRate: 0 });
     expect(F1).toBe(stepFear(22, raw));
     expect(w.global().fearIndex).toBe(stepFear(stepFear(F1, raw), raw));   // 0.24 held, not 0.16
-    expect(w.inputs()!.values['fear:rv21Gx']).toBe(0.24);
+    expect(w.hold()!.fear['rv21Gx']).toBe(0.24);
+    expect(w.inputs()!.values).toEqual({});   // #72 ruling item 4: nothing held in INPUTS
     expect(w.inputs()!.staleKeys.filter((k) => k === 'rv21Gx')).toEqual(['rv21Gx']);
     expect(w.inputs()!.staleKeys).toContain('gxReturn63d');
     expect(w.inputs()!.staleKeys).not.toContain('creditSpreadIdx');
   });
   it('IG history: the 364-day mean drops the close 364 days back', () => {
-    const vals: Record<string, number> = { 'ig:-354': 0.05 };   // day 10 − 364: leaves the window today
-    for (let d = -353; d < 10; d++) vals[`ig:${d}`] = 0.01;
-    const w = fakeWorld({}, [[macroTables.inputs.name, { id: 'INPUTS', tick: 0, staleKeys: [], values: vals }]]);
+    const vals: Record<string, number> = { '-354': 0.05 };   // day 10 − 364: leaves the window today
+    for (let d = -353; d < 10; d++) vals[String(d)] = 0.01;
+    const w = fakeWorld({}, [[macroTables.indicatorHold.name, { id: 'GLOBAL', tick: 0, fear: {}, fsi: {}, igCloses: vals }]]);
     hourlyFear(w.ctx, ports({ rv: 0.16, r: 0, lvl: null, ig: 0.01 }));
-    expect(w.inputs()!.values['ig:-354']).toBeUndefined();
-    expect(w.inputs()!.values['fear:creditSpreadIdx']).toBeCloseTo(1, 12);
+    expect(w.hold()!.igCloses['-354']).toBeUndefined();
+    expect(w.hold()!.igCloses['10']).toBe(0.01);
+    expect(w.hold()!.fear['creditSpreadIdx']).toBeCloseTo(1, 12);
+    expect(w.inputs()!.values).toEqual({});
+  });
+  it('#72 item 3: card order inside the hour, hourlyFsi then hourlyFear reading the FSI just written', () => {
+    const w = fakeWorld({ financialStressIndex: 0 });
+    const p = defaultMacroPorts();
+    const q: MacroPorts = { ...p, markets: { ...p.markets, bankEquityDrawdown364: () => 0.5 } };   // FSI = 0.15 · clamp(0.5/0.50) = 0.15
+    hourlyFsi(w.ctx, q);
+    expect(w.global().financialStressIndex).toBeCloseTo(0.15, 12);
+    hourlyFear(w.ctx, q);
+    expect(w.global().fearIndex).toBeCloseTo(stepFear(22, fearRaw({ ...NEUTRAL, fsi: 0.15, tension: 30, hackRate: 0 })), 12);
+  });
+  it('#72 item 5 reading: r63 is the GX close 63 game days back (history GLOBAL:<day − 63>), not 62 or 64', () => {
+    const w = fakeWorld({}, [[macroTables.history.name, { id: 'GLOBAL:-53', equityIndex: 1000 }], [macroTables.history.name, { id: 'GLOBAL:-52', equityIndex: 500 }],
+      [macroTables.history.name, { id: 'GLOBAL:-54', equityIndex: 500 }]]);
+    hourlyFear(w.ctx, ports({ rv: 0.16, r: 0, lvl: 1100, ig: 0.01 }));
+    expect(w.global().fearIndex).toBeCloseTo(stepFear(22, fearRaw({ ...NEUTRAL, gxReturn63d: 0.1, tension: 30, hackRate: 0 })), 9);
+    expect(w.hold()!.fear['gxReturn63d']).toBeCloseTo(0.1, 12);
   });
   it('throws without the GLOBAL row', () => { expect(() => hourlyFear(fakeWorld(null).ctx, defaultMacroPorts())).toThrow(expect.objectContaining({ code: 'I0.macro_global' })); });
 });

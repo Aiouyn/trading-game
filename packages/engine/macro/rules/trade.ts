@@ -37,6 +37,11 @@ export function dailyTrade(ctx: PhaseCtx, ports: MacroPorts): void {
   }
   const tariffLevel = stepTariff(g.tariffLevel, deltas);
   const real = {} as Record<BlocId, number>;
-  for (const b of BLOC_ORDER) real[b] = s.get<BlocMacroState>(macroTables.bloc.name, b)?.realGdpIndex ?? 100;
+  // #72 Producer ruling item 7: no fallback to 100; a missing bloc row or realGdpIndex is a fault.
+  for (const b of BLOC_ORDER) {
+    const r = s.get<BlocMacroState>(macroTables.bloc.name, b)?.realGdpIndex;
+    if (r === undefined || !Number.isFinite(r)) throw new EngineFault('I0.macro_bloc', `no realGdpIndex on mac.bloc ${b} (T04-04 writes it daily)`);
+    real[b] = r;
+  }
   s.put(macroTables.global.name, { ...g, tariffLevel, worldTradeIndex: worldTradeIndex(real, tariffLevel) });
 }

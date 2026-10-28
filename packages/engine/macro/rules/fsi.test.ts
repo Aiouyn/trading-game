@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PhaseCtx } from '@tycoon/engine-core';
 import { assertNoHiddenFields, MACRO_EVENTS } from '../events';
 import { defaultMacroPorts, type MacroCreditPort, type MacroPorts } from '../ports';
-import { BLOC_ORDER, macroTables, type GlobalMacroState, type MacroInputs } from '../schema';
+import { BLOC_ORDER, macroTables, type GlobalIndicatorHold, type GlobalMacroState, type MacroInputs } from '../schema';
 import { FSI_DIVISORS, FSI_WEIGHTS, fsiOf, hourlyFsi, type FsiComponents } from './fsi';
 
 type Ev = { kind: string; payload: unknown; vis: string };
@@ -17,7 +17,8 @@ function fakeWorld(global: Record<string, unknown> | null, extra: Array<[string,
   const store = { get: (t: string, id: string) => rows.get(key(t, id)), put: (t: string, e: { id: string }) => { rows.set(key(t, e.id), e); },
     del: () => undefined, iter: () => [], range: () => [], index: () => [], count: () => 0 };
   const ctx = { tick: gameDay * 720, cal: { gameDay, tickOfDay: 0 }, store, emit: (kind: string, _s: unknown, payload: unknown, vis: string) => { events.push({ kind, payload, vis }); } } as unknown as PhaseCtx;
-  return { ctx, events, global: () => rows.get(key(macroTables.global.name, 'GLOBAL')) as GlobalMacroState, inputs: () => rows.get(key(macroTables.inputs.name, 'INPUTS')) as MacroInputs | undefined };
+  return { ctx, events, global: () => rows.get(key(macroTables.global.name, 'GLOBAL')) as GlobalMacroState, inputs: () => rows.get(key(macroTables.inputs.name, 'INPUTS')) as MacroInputs | undefined,
+    hold: () => rows.get(key(macroTables.indicatorHold.name, 'GLOBAL')) as GlobalIndicatorHold | undefined };
 }
 const WORKED: FsiComponents = { interbank: 0.006, repoHaircut: 3, ccpFund: 0, bankEquityDd: 0.2, igSpread: 0.012, stablecoinDepeg: 0.01, etfDiscount: 0.01, sovStressMax: 0.3 };
 const KEYS = Object.freeze(['interbank', 'repoHaircut', 'ccpFund', 'bankEquityDd', 'igSpread', 'stablecoinDepeg', 'etfDiscount', 'sovStressMax'] as const);
@@ -95,6 +96,8 @@ describe('T04-15 hourlyFsi', () => {
     hourlyFsi(w.ctx, portsOf(credit({ ib: null }), {}));
     expect(w.global().financialStressIndex).toBeCloseTo(0.85, 12);
     expect(w.inputs()!.staleKeys).toEqual(['interbank', 'repoHaircut', 'ccpFund', 'bankEquityDd', 'igSpread', 'stablecoinDepeg', 'etfDiscount']);
+    expect(w.hold()!.fsi).toEqual({ interbank: 0.015, repoHaircut: 10, ccpFund: 0.25, bankEquityDd: 0.5, igSpread: 0.03, stablecoinDepeg: 0.1, etfDiscount: 0.05 });
+    expect(w.inputs()!.values).toEqual({});   // #72 ruling item 4: held values live in mac.indicator_hold, not INPUTS
     const fresh = fakeWorld({});
     hourlyFsi(fresh.ctx, portsOf(credit({ ib: null })));
     expect(fresh.global().financialStressIndex).toBe(0);
