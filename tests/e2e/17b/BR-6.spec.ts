@@ -182,7 +182,7 @@ test("BR-6-03/04/05 fake clock: Yes logs one cancel (double press too); Cancelli
   await confirmCancel(rows(page).first());
   await expect(list(page).getByTestId("br-oo-line")).toBeEmpty(); // the line clears on the next action in the list
   await runUntil(page, async () => (await rows(page).count()) === 0);
-  await expect(list(page).locator("#br-oo-title")).toBeFocused();
+  await expect(list(page).getByTestId("br-oo-title")).toBeFocused();
   await expect(list(page).getByTestId("br-oo-empty")).toHaveText("No open orders.");
   await expect(list(page).getByTestId("br-oo-line")).toHaveText("Order cancelled: Buy 40 HALC, Limit 42.10");
 });
@@ -242,7 +242,7 @@ test("BR-6-08 ?partFill=18: a row turns partly filled (18 / 40) the tick after i
   await runUntil(page, async () => (await list(page).getByTestId(`br-oo-row-${id}`).count()) === 0);
   await expect(list(page).getByTestId("br-oo-line")).toHaveText("Order cancelled: Buy 18 / 40 filled HALC, Limit 42.10");
   await expect(list(page).getByTestId("br-oo-empty")).toHaveText("No open orders.");
-  await expect(list(page).locator("#br-oo-title")).toBeFocused();
+  await expect(list(page).getByTestId("br-oo-title")).toBeFocused();
   await page.clock.runFor(2_000);
   expect(await youHold(page), "the filled part stays in holdings").toBe(held0 + 18);
 });

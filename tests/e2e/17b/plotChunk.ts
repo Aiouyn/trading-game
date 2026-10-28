@@ -28,3 +28,6 @@ export async function watchScripts(page: Page): Promise<Map<string, ScriptSeen>>
   });
   return seen;
 }
+
+/** First-load JS budget (gzipped) of the one catch-all route `/` (src/app/[[...route]]) that serves /broker; card 9 raised it from 200 KB. S1-20 and BR-7-01 read it. */
+export const FIRST_LOAD_BUDGET_KB = 215;

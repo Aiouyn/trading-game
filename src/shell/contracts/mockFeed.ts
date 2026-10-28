@@ -4,7 +4,7 @@
 // All arithmetic here is server-side mock arithmetic on integer minor units (G1 forbids it in the UI, not here).
 import type {
   AssetDetail, BoardBody, BookBody, Candle, CandleHistoryReq, CandleHistoryRes, CandleRes, CandlesBody, ChannelName,
-  DepthLevel, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, OpenOrder, OrderDraft, Position, PreviewRes,
+  DepthLevel, FilingsBody, IntentResult, MeTradingBody, MyFill, NewsBody, OpenOrder, OrderDraft, OrderHistoryRow, Position, PreviewRes,
   ServerFrame, TapeBody, TapePrint, TickerBody, TickerRow, TradingState, WireItem,
 } from "./channels";
 import { diffOps } from "./delta";
@@ -12,7 +12,8 @@ import { ASSETS, ASSET_BY_ID, WATCHLISTS, type AssetFixture } from "./fixtures/a
 import { MDOL_BALANCE, NW_STATS, POSITIONS, RESTRICTED, START_NW_MINOR } from "./fixtures/me";
 import { BOARD_ROWS, FILINGS, NEWS, NEWS_EVERY, NEWS_ROTATION } from "./fixtures/news";
 import { submitIntent } from "../intentLog";
-import { ORDER_POLICY, type OrderPolicy } from "./orderPolicy";
+import { ORDER_HISTORY_POLICY, ORDER_POLICY, type OrderHistoryPolicy, type OrderPolicy } from "./orderPolicy";
+import type { OrderHistoryReq, OrderHistoryRes } from "./orderHistory";
 
 // Build-time gate (QUAY_HOOKS is always defined as "1"/"0" by next.config `env`, the single source of truth).
 // Keep it a MODULE-LOCAL const: an exported const read from another module is emitted as a runtime property read
@@ -54,12 +55,17 @@ export interface Scenario { seed: number; feed: FeedMode; halt: string | null; t
   /** `?cancelFill=N` (QUAY_HOOKS): a cancel is held one extra tick. On the tick after it is sent, N of the order fill (a
    *  MAKER fill at its price; the order stays open, PARTIAL); the cancel settles on the tick after that (card 6 spec
    *  line 34: a fill lands while the row is cancelling). N is capped so the order stays open. */
-  cancelFill: number | null }
-export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null };
+  cancelFill: number | null;
+  /** `?filings=error|loading` (QUAY_HOOKS, card 9): the `filings` channel alone errors or never answers; every other
+   *  channel follows `feed`. An errored filings sub answers the next `resync("filings")` with a snap, so an e2e proves
+   *  the Wire detail's Retry asked for that channel (with `?feed=error` a resync is ignored, so Retry could not show). */
+  filings: FilingsHook }
+export type FilingsHook = "error" | "loading" | null;
+export const DEFAULT_SCENARIO: Scenario = { seed: 17, feed: "live", halt: null, thin: null, tier: "free", empty: false, reject: null, nw: null, pledge: null, replyMs: 0, cancelReject: null, cancelKeep: null, partFill: null, cancelGone: false, cancelFill: null, history: null, filings: null };
 const KEEP_STATUSES: ReadonlySet<string> = new Set<OpenOrder["status"]>(["PENDING", "WORKING", "PARTIAL", "QUEUED_AUCTION"]);
 
 /**
- * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&history=bad|flaky|hold&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
+ * Scenario from the URL (`?feed=stale|denied|error|loading&halt=HALC&thin=HALC&tier=terminal&empty=1&reject=CODE&cancelReject=CODE&cancelKeep=STATUS&partFill=N&cancelGone=1&cancelFill=N&history=bad|flaky|hold&filings=error|loading&seed=N&nw=D&pledge=ID:QTY&replyMs=N`).
  * Gated at build time: without QUAY_HOOKS the overrides (and their names) are compiled out.
  */
 export function scenarioFromQuery(q: URLSearchParams): Scenario {
@@ -76,6 +82,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
   const partFill = Number(q.get("partFill"));
   const cancelFill = Number(q.get("cancelFill"));
   const history = q.get("history");
+  const filings = q.get("filings");
   const code = (v: string | null) => (v && /^[A-Z][A-Z0-9_]{2,63}$/.test(v) ? v : null);
   return {
     seed: Number.isSafeInteger(seed) && seed > 0 ? seed : DEFAULT_SCENARIO.seed,
@@ -93,6 +100,7 @@ export function scenarioFromQuery(q: URLSearchParams): Scenario {
     cancelGone: q.get("cancelGone") === "1",
     history: history === "bad" || history === "flaky" || history === "hold" ? history : null,
     cancelFill: Number.isSafeInteger(cancelFill) && cancelFill > 0 ? cancelFill : null,
+    filings: filings === "error" || filings === "loading" ? filings : null,
   };
 }
 
@@ -134,11 +142,15 @@ export function exchangeFeeMinor(notionalMinor: number, rateBp: number): number 
 const IMPACT_BP = (qty: number, lot: number) => (lot <= 0 ? 0 : qty <= lot ? 1 : qty <= lot * 5 ? 4 : qty <= lot * 20 ? 12 : 30); // fixed table
 
 type Listener = (raw: unknown) => void;
-interface Sub { ch: ChannelName; fn: Listener; seq: number; sent: unknown; count: number; snapTimer: ReturnType<typeof setTimeout> | null }
+interface Sub { ch: ChannelName; fn: Listener; seq: number; sent: unknown; count: number; snapTimer: ReturnType<typeof setTimeout> | null;
+  /** Errored by `?filings=error`: the next resync of this channel answers with a snap. */
+  recoverOnResync: boolean }
 
 export interface FeedOptions { tickMs?: number; startTick?: number; autoStart?: boolean;
   /** The ENGINE-TBD order rules (orderPolicy.ts). Tests pass another policy to prove the mock reads it. */
-  policy?: OrderPolicy }
+  policy?: OrderPolicy;
+  /** The ENGINE-TBD order history rules (orderPolicy.ts, card 8). */
+  historyPolicy?: OrderHistoryPolicy }
 
 /** One intent waiting for the next tick: a place (card 4/5) or a cancel (card 6). */
 type Pending = { kind: "place"; intentId: string; draft: OrderDraft } | { kind: "cancel"; intentId: string; orderId: string; held?: true /* ?cancelFill: its fill landed */ }
@@ -158,6 +170,9 @@ export class MockFeed {
   private news: WireItem[];
   private pending: Pending[] = [];
   readonly policy: OrderPolicy;
+  readonly historyPolicy: OrderHistoryPolicy;
+  /** Closed orders for GET /orders/me (card 8), oldest first: FILLED, CANCELLED, REJECTED. ENGINE-TBD (orderHistory.ts). */
+  private closed: OrderHistoryRow[] = [];
   private nextId = 1;
   private subs = new Set<Sub>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -169,6 +184,7 @@ export class MockFeed {
     this.tick = opts.startTick ?? START_TICK;
     this.autoStart = opts.autoStart ?? true;
     this.policy = opts.policy ?? ORDER_POLICY;
+    this.historyPolicy = opts.historyPolicy ?? ORDER_HISTORY_POLICY;
     this.rand = rng(this.scenario.seed);
     for (const a of ASSETS) {
       const prevClose = Math.round(a.base * (1 + (this.rand() - 0.5) * 0.02));
@@ -243,7 +259,10 @@ export class MockFeed {
       // MKT_NO_LOCATE (a cash-account ticket has no locate); never a negative lot.
       const reject = this.scenario.reject ?? (!a ? "MKT_UNKNOWN_ASSET" : this.oversells(draft) ? "MKT_NO_LOCATE" : null);
       if (reject || !a) {
-        this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "REJECTED", rejectCode: reject ?? "MKT_UNKNOWN_ASSET" }].slice(-RING_KEEP);
+        const rejectCode = reject ?? "MKT_UNKNOWN_ASSET";
+        this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "REJECTED", rejectCode }].slice(-RING_KEEP);
+        // A rejected place has no orderId: history lists it under its intentId (ORDER_HISTORY_POLICY). // ENGINE-TBD
+        this.close({ orderId: intentId, assetId: draft.assetId, side: draft.side, type: draft.type, qty: draft.qty, filled: "0", avgPrice: a ? fmt(0, a.displayDecimals) : "0", status: "REJECTED", rejectCode });
         continue;
       }
       const qty = Number(draft.qty);
@@ -263,7 +282,9 @@ export class MockFeed {
         this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`order:${orderId}`] }].slice(-RING_KEEP);
         continue;
       }
-      const fillId = this.bookFill(a, orderId, draft.side, qty, this.assets.get(a.assetId)!.last, "TAKER");
+      const px = this.assets.get(a.assetId)!.last;
+      const fillId = this.bookFill(a, orderId, draft.side, qty, px, "TAKER");
+      this.close({ orderId, assetId: a.assetId, side: draft.side, type: draft.type, qty: draft.qty, filled: draft.qty, avgPrice: fmt(px, a.displayDecimals), status: "FILLED" });
       this.intents = [...this.intents, <IntentResult>{ intentId, tick: this.tick, status: "ACCEPTED", effects: [`fill:${fillId}`] }].slice(-RING_KEEP);
     }
   }
@@ -288,7 +309,13 @@ export class MockFeed {
     const px = Math.round(Number(o.limit ?? o.stop ?? 0) * 10 ** a.displayDecimals);
     this.bookFill(a, orderId, o.side, qty, px, "MAKER");
     const filled = Number(o.filled) + qty;
-    if (filled >= Number(o.qty)) { const { [orderId]: _done, ...open } = this.orders; void _done; this.orders = open; return; }
+    if (filled >= Number(o.qty)) {
+      const { [orderId]: _done, ...open } = this.orders;
+      void _done;
+      this.orders = open;
+      // Every mock fill of a resting order is at its own price, so that price is the average.
+      return this.close({ orderId, assetId: o.assetId, side: o.side, type: o.type, qty: o.qty, filled: String(filled), avgPrice: fmt(px, a.displayDecimals), status: "FILLED" });
+    }
     this.orders = { ...this.orders, [orderId]: { ...o, filled: String(filled), status: "PARTIAL", avgPrice: fmt(px, a.displayDecimals) } };
   }
   private fillRest(orderId: string): void {
@@ -320,7 +347,21 @@ export class MockFeed {
     const { [orderId]: _gone, ...rest } = this.orders;
     void _gone;
     this.orders = rest;
+    this.close({ orderId, assetId: o.assetId, side: o.side, type: o.type, qty: o.qty, filled: o.filled, avgPrice: o.avgPrice, status: "CANCELLED" });
     result({ status: "ACCEPTED", effects: [`order:${orderId}`] });
+  }
+  private close(row: Omit<OrderHistoryRow, "tick">): void {
+    this.closed.push({ ...row, tick: this.tick });
+  }
+  /** GET /api/v1/orders/me (card 8, ENGINE-TBD): closed orders newest first, filtered by status and from..to ticks,
+   *  `historyPolicy.pageSize` a page; the cursor is the next row's index as a string (opaque to the client). */
+  ordersHistory(req: OrderHistoryReq): OrderHistoryRes {
+    const hits = [...this.closed].reverse().filter((r) => (req.status === undefined || r.status === req.status)
+      && (req.from === undefined || r.tick >= req.from) && (req.to === undefined || r.tick <= req.to));
+    const at = req.cursor === undefined ? 0 : Number(req.cursor);
+    const start = Number.isSafeInteger(at) && at >= 0 ? at : hits.length;
+    const end = start + this.historyPolicy.pageSize;
+    return { rows: hits.slice(start, end), nextCursor: end < hits.length ? String(end) : null };
   }
 
   // ---- bodies (the full server state of a channel at the current tick) ----
@@ -423,10 +464,11 @@ export class MockFeed {
   // ---- channel transport ----
   /** Subscribe to a channel. Frames are delivered as plain JSON (a wire copy), never shared objects. */
   subscribe(ch: ChannelName, fn: Listener): () => void {
-    const sub: Sub = { ch, fn, seq: 0, sent: null, count: 0, snapTimer: null };
+    const filingsHook = ch === "filings" ? this.scenario.filings : null;
+    const sub: Sub = { ch, fn, seq: 0, sent: null, count: 0, snapTimer: null, recoverOnResync: filingsHook === "error" };
     this.subs.add(sub);
     if (this.autoStart) this.start();
-    const mode = this.scenario.feed;
+    const mode = filingsHook ?? this.scenario.feed;
     if (mode !== "loading") sub.snapTimer = setTimeout(() => {
       sub.snapTimer = null;
       if (mode === "denied") return this.send(sub, { t: "err", ch, code: "CHANNEL_DENIED" });
@@ -441,7 +483,11 @@ export class MockFeed {
   }
   /** Client asks for a fresh snap (seq gap or unappliable delta; 19 Rule 3.8.8). */
   resync(ch: ChannelName): void {
-    for (const s of this.subs) if (s.ch === ch && s.sent !== null) this.sendSnap(s);
+    for (const s of this.subs) {
+      if (s.ch !== ch || (s.sent === null && !s.recoverOnResync)) continue;
+      s.recoverOnResync = false;
+      this.sendSnap(s);
+    }
   }
   private sendSnap(sub: Sub) {
     const body = this.body(sub.ch);

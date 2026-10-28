@@ -162,7 +162,7 @@ describe("BR-6-05 ack removes the row", () => {
     await openConfirm("o-3");
     await yes("o-3");
     await tick(f);
-    expect(document.activeElement).toBe(document.getElementById("br-oo-title"));
+    expect(document.activeElement).toBe(document.querySelector("[data-testid=br-oo-title]"));
     expect(text(h, "br-oo-empty")).toBe(EN.noOpenOrders);
   });
   it("the status line clears on the next action in the list", async () => {

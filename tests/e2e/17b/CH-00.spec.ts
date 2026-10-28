@@ -1,7 +1,7 @@
 // 17B CH-00 CH-07: Broker, Portfolio and Wire are built:true and lazy-loaded. Wire renders its feed since UI card 1
 // (WIR-A) and Broker its ticket since UI card 4 (BRK-A, which undoes #71's built:false); Portfolio has real UI since
 // card 2 (PF-A.spec), so the APPS loop covers Broker and Wire. No screenshots here (BR-4.spec and WIR-A take them).
-// The Broker ≤ 200 KB first-load check is S1-20.
+// The Broker first-load budget check (FIRST_LOAD_BUDGET_KB, 215 KB in plotChunk.ts) is S1-20 and BR-7-01.
 import { expect, test, type Locator } from "@playwright/test";
 import { REGISTRY } from "../../../src/shell/registry";
 import { boot } from "../shell/helpers";
