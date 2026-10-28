@@ -71,18 +71,13 @@ export function liquidityPremium(b: BlocId, depthIndex: number, ruleBreachPremiu
   return b === 'FDL' ? ruleBreachPremium : 0.001 * (1 + 2 * (1 - depthIndex)) + ruleBreachPremium;
 }
 
-/** λ for a spread s at tenor τ: normal shape first, the distress shape if that λ exceeds 0.08. */
-function impliedLambda(spread: number, tau: number, lgd: number): number {
-  const n = spread / (lgd * hTerm(tau, 0));
-  return n > DISTRESS ? spread / (lgd * hTerm(tau, 1)) : n;
-}
-
-/** §3.11.3 market-implied λ (exploit 8: never feeds λ, triggers or the curve). CDS takes precedence when listed with adv ≥ the on-the-run
- *  10y line's adv (or no line adv); else from y10Mkt; neither → null. */
+/** §3.11.3 market-implied λ = s / (LGD·h(τ)) (exploit 8: never feeds λ, triggers or the curve). τ is 5 (CDS) or 10 (bond), where h = 1 in both
+ *  the normal and the distress shape, so λ = s / LGD. CDS takes precedence when listed with adv ≥ the on-the-run 10y line's adv (or no line adv);
+ *  else from y10Mkt; neither → null. */
 export function marketHazard(y10Mkt: number | null, ois10: number, tp10: number, liq: number, conv: number, lgd: number, cds: { spread5y: number; adv: number } | null, bondAdv: number | null): number | null {
-  if (cds !== null && (bondAdv === null || cds.adv >= bondAdv)) return impliedLambda(cds.spread5y, 5, lgd);
+  if (cds !== null && (bondAdv === null || cds.adv >= bondAdv)) return cds.spread5y / lgd;
   if (y10Mkt === null) return null;
-  return impliedLambda(Math.max(0, y10Mkt - ois10 - tp10 - liq + conv), 10, lgd);
+  return Math.max(0, y10Mkt - ois10 - tp10 - liq + conv) / lgd;
 }
 
 const gradeIndex = (g: string): number => (GRADES as readonly string[]).indexOf(g);

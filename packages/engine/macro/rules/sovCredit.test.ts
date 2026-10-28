@@ -57,6 +57,12 @@ describe('T04-07 sovereign hazard (§3.11.1)', () => {
     expect(hazardRaw(0.003, z4, hazardWeights('EUN'), 'EUN', NOMODS)).toBe(0.60);
     expect(hazardRaw(0.0005, [-3, -3, -3, -3, 0, -3, -3, -3], hazardWeights('FDL'), 'FDL', NOMODS)).toBe(1e-5);
   });
+  it('z below −3 is clamped to −3 in the sum', () => {
+    const z = hazardZ(base({ b: 'EUN', debtGdp: 0, dStar: 2.0 }));
+    expect(z[0]).toBeCloseTo(-5, 12);
+    const zc = [...z]; zc[0] = -3;
+    expect(hazardRaw(0.003, z, hazardWeights('EUN'), 'EUN', NOMODS)).toBe(hazardRaw(0.003, zc, hazardWeights('EUN'), 'EUN', NOMODS));
+  });
   it('edge 17: debtGdp 5.0 → z1 clamped to 4 in the sum', () => {
     const z = hazardZ(base({ b: 'EUN', debtGdp: 5.0, dStar: 0.6, rEff: 0.045 }));
     expect(z[0]).toBeCloseTo(11, 12);
@@ -100,7 +106,8 @@ describe('T04-07 liquidity, market PD, cliffs (§3.11.2–§3.11.4)', () => {
     expect(marketHazard(0.02, 0.03, 0.004, 0.0016, 0, LGD, null, 1000)).toBe(0);
     close(marketHazard(0.05, 0.03, 0.004, 0.0016, 0.002, LGD, null, 1000)!, 0.0273333, 7);   // + conv
   });
-  it('market λ two-pass shape: above 0.08 recomputed with the distress shape', () => {
+  it('market λ at τ 5 / 10: h = 1 in both shapes, so λ = s / LGD above and below 0.08', () => {
+    expect(hTerm(5, 0)).toBe(1); expect(hTerm(5, 0.5)).toBe(1); expect(hTerm(10, 0)).toBe(1); expect(hTerm(10, 0.5)).toBe(1);
     close(marketHazard(0.03 + 0.06, 0.03, 0, 0, 0, LGD, null, 1)!, 0.1, 12);   // h(10) = 1 in both shapes
     close(marketHazard(null, 0, 0, 0, 0, LGD, { spread5y: 0.06, adv: 1 }, null)!, 0.1, 12);
   });
@@ -109,6 +116,7 @@ describe('T04-07 liquidity, market PD, cliffs (§3.11.2–§3.11.4)', () => {
     expect(isInvestmentGrade(['AAA', 'NR', 'NR'])).toBe(false); expect(isInvestmentGrade(['AAA', 'AA'])).toBe(true);
     expect(lowestOfTwoBest(['A', 'BBB', 'BB'])).toBe('BBB'); expect(lowestOfTwoBest(['BB', 'A', 'BBB'])).toBe('BBB');
     expect(lowestOfTwoBest(['AA', 'AA', 'D'])).toBe('AA'); expect(lowestOfTwoBest(['A'])).toBeNull();
+    expect(lowestOfTwoBest(['A', 'NR'])).toBeNull(); expect(lowestOfTwoBest(['A', 'NR', 'BBB'])).toBe('BBB');
     expect(GRADES).toHaveLength(20); expect(GRADES[0]).toBe('AAA'); expect(GRADES.indexOf('BBB-')).toBe(9); expect(GRADES[19]).toBe('D');
   });
 });
