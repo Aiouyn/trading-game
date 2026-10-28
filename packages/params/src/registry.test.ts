@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createParamsView, ParamsError, TEST_PARAM_REGISTRY, type ParamsView } from './index';
+import { createParamsView, MACRO_T04_07_PARAMS, ParamsError, TEST_PARAM_REGISTRY, type ParamsView } from './index';
 
 const code = (f: () => unknown): string | undefined => { try { f(); } catch (e) { return (e as ParamsError).code; } return undefined; };
 
@@ -39,5 +39,22 @@ describe('AC-02-11-PARAMS-PKG: @tycoon/params ParamsView over the test registry'
     expect(() => { (l as string[]).push('x'); }).toThrow(); expect(p.list('test_list')).toHaveLength(2);
     const src = ['a'], q = createParamsView(TEST_PARAM_REGISTRY, { overrides: { test_list: src } }), r = q.list<string>('test_list');
     expect(r).not.toBe(src); expect(Object.isFrozen(r)).toBe(true); src.push('b'); expect(r).toEqual(['a']);
+  });
+});
+
+describe('T04-07 params (E-100)', () => {
+  const p = createParamsView(MACRO_T04_07_PARAMS);
+  it('macro_ns_lambda 1.8, macro_irp 0.002, macro_sov_lgd 0.6', () => {
+    expect(p.num('macro_ns_lambda')).toBe(1.8); expect(p.num('macro_irp')).toBe(0.002); expect(p.num('macro_sov_lgd')).toBe(0.6);
+    expect(MACRO_T04_07_PARAMS.map((d) => d.key)).toEqual(['macro_ns_lambda', 'macro_irp', 'macro_sov_lgd', 'macro_sovereign_base_hazard']);
+  });
+  it('macro_sovereign_base_hazard per bloc in BLOC_ORDER = BLOC_DEFAULTS.sovereignBaseHazard', () => {
+    expect(p.list<{ bloc: string; hazard: number }>('macro_sovereign_base_hazard')).toEqual([
+      { bloc: 'FDL', hazard: 0.0005 }, { bloc: 'EUN', hazard: 0.003 }, { bloc: 'PYN', hazard: 0.002 }, { bloc: 'NKR', hazard: 0.0003 }, { bloc: 'SRL', hazard: 0.02 }]);
+    expect(code(() => p.num('macro_sovereign_base_hazard'))).toBe('PARAM_TYPE');
+    expect(Object.isFrozen(p.list<object>('macro_sovereign_base_hazard')[0])).toBe(true);
+  });
+  it('combines with the test registry without a duplicate key', () => {
+    expect(createParamsView([...TEST_PARAM_REGISTRY, ...MACRO_T04_07_PARAMS]).num('macro_irp')).toBe(0.002);
   });
 });
