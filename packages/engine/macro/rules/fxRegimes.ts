@@ -174,6 +174,10 @@ export function hardPegCheck(ctx: PhaseCtx, b: BlocId): boolean {
   emitRegime(ctx, b, fx.regime, next, 0);
   return true;
 }
+/** Peg break-back: FDL reserves < 0.8 × computeM0(X) in FDL (M0 × spot, FDL per X), via LedgerApi.m0 (T03-11 computeM0). */
+export function pegBreakBack(reservesFdl: Money, m0X: Money, spotFdlPerX: number): boolean {
+  return reservesFdl * 10n < 8n * divRoundHalfEven(m0X * micro(spotFdlPerX), MICRO_N);
+}
 /** i_FDL + s_sov(0.25). */
 export function pegPolicyRate(store: StoreRead, b: BlocId): number {
   return cbOf(store, 'FDL').policyRate + sovSpread(0.25, blocOf(store, b).sovereign.hazard, LGD);
@@ -236,6 +240,7 @@ export function stepFxDay(ctx: PhaseCtx, ports: MacroPorts): void {
       }
     }
     putFx(ctx, c, fx);
+    if (fx.regime === 'HARD_PEG' && pegBreakBack(reserves, ctx.ledger.m0(c), sp)) { executeBreak(ctx, c); continue; }
     if (trading && meetingToday(s, c, day)) {
       if (c === 'PYN') realignAtMeeting(ctx, 'PYN');
       hardPegCheck(ctx, c);

@@ -10,7 +10,7 @@ import { tradingDaysOfPeriod } from './calendar';
 import { sovSpread } from './sovCredit';
 import { stepCapitalControls } from './capitalControls';
 import { importsMonthFdl } from './fxReserves';
-import { bandCenter, bandOrders, breakRuleCheck, coordinatedOrders, emp, executeBreak, fxPair, managedFloatOrders, pegOrders, pegPolicyRate, stepFxDay } from './fxRegimes';
+import { bandCenter, bandOrders, breakRuleCheck, coordinatedOrders, emp, executeBreak, fxPair, managedFloatOrders, pegBreakBack, pegOrders, pegPolicyRate, stepFxDay } from './fxRegimes';
 
 const calls = vi.hoisted(() => ({ meet: [] as unknown[][], rr: [] as unknown[][] }));
 vi.mock('./cb', () => ({ runMeeting: (_c: unknown, ...a: unknown[]) => { calls.meet.push(a); return {}; } }));
@@ -164,6 +164,18 @@ describe('T04-14 FX regimes', () => {
       expect(fxOf(w, 'PYN').band).toBeUndefined();
       expect(w.ctx.store.get<{ credibility: number }>(macroTables.cb.name, cbkId('PYN'))!.credibility).toBeCloseTo(0.7, 12);
       expect(calls.rr).toEqual([]);
+    }
+  });
+  it('peg break-back: FDL reserves < 0.8 × M0 × spot breaks a hard peg to FREE_FLOAT; equality holds the peg; a float is untouched', () => {
+    expect(pegBreakBack(M(1e9), M(6.25e9), 0.2)).toBe(false);
+    expect(pegBreakBack(M(1e9), M(6.25e9) + 10n, 0.2)).toBe(true);
+    for (const [m0, regime, want] of [[6.25e9, 'HARD_PEG', 'HARD_PEG'], [6.3e9, 'HARD_PEG', 'FREE_FLOAT'], [6.3e9, 'FREE_FLOAT', 'FREE_FLOAT']] as const) {
+      const w = world(100 * D, { fdlRes: { SRL: M(1e9) } });
+      w.m0.SRL = M(m0); Object.assign(w.ctx, { rng: () => ({ next: () => 0.5, normal: () => 0 }) });
+      setFx(w, 'SRL', regime === 'HARD_PEG' ? { regime, pegLn: Math.log(0.2) } : { regime });
+      close(w, 100);
+      expect(fxOf(w, 'SRL').regime).toBe(want);
+      expect(fxOf(w, 'SRL').breakTick).toBe(want !== regime ? w.ctx.tick : undefined);
     }
   });
   it('hard peg: π_core 0.26 for 91 days after a break → peg at the next meeting at the then-spot; peg orders ±0.001, SELL 10 × ADV', () => {

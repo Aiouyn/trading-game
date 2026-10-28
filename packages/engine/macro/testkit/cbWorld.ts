@@ -15,6 +15,8 @@ export interface HoldRow { id: Id; owner: Id; assetId?: string; amt: bigint; exp
 export interface CbWorld { ctx: PhaseCtx; posts: Post[]; events: Ev[]; holds: HoldRow[]; sent: { to: Id; kind: string; body: unknown }[];
   rows(table: string): unknown[]; put(table: string, e: { id: string }): void; setTick(t: number): void; deliver(): void;
   cash: Record<string, bigint>; qty: Record<string, bigint>;
+  /** LedgerApi.m0(ccy) per currency (micro); 0 when unset. */
+  m0: Record<string, bigint>;
   /** Overlay `params.num`/`params.int` keys not in the registry yet (T04-10: macro_rev_base_*, T23). */
   nums(m: Record<string, number>): void;
   /** T04-11: make the next placeCash calls fail (SOV_HOLD_FAILED path). */
@@ -35,7 +37,7 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
   for (const cb of cbs) put(macroTables.cb.name, cb as unknown as { id: string });
   const posts: Post[] = [], events: Ev[] = [], holds: HoldRow[] = [], sent: { to: Id; kind: string; body: unknown }[] = [];
   let inbox: PhaseMessage[] = [], tick = tick0, n = 0, failCash = false;
-  const cash: Record<string, bigint> = {}, qtyKeys: string[] = [];
+  const cash: Record<string, bigint> = {}, m0: Record<string, bigint> = {}, qtyKeys: string[] = [];
   // qty keys are `${entity}:${asset}`; the proxy records each key so accountsOfAsset can list holders without Object.keys (G8).
   const qty = new Proxy({} as Record<string, bigint>, { set: (o, k, v) => { if (typeof k === 'string' && !(k in o)) { qtyKeys.push(k); qtyKeys.sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)); } o[k as string] = v as bigint; return true; } });
   const P = (op: string) => (a: Id, b: Id, amt: bigint, ccy: string, code: string, o?: { sub?: string }) => {
@@ -57,7 +59,7 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
       posts.push({ op: 'moveQty', from, to, amt: 0n, ccy, code, sub: `${a}:${q}` }); return `e${posts.length}`; },
     accountsOfAsset: (a: string) => qtyKeys.filter((k) => k.endsWith(`:${a}`) && k.slice(0, k.length - a.length - 1).indexOf(':') < 0)
       .map((k) => ({ key: k, entityId: k.slice(0, k.length - a.length - 1), assetId: a, qty: qty[k] })),
-    committedQty: (k: string) => qty[k] ?? 0n,
+    committedQty: (k: string) => qty[k] ?? 0n, m0: (c: string) => m0[c] ?? 0n,
     available: (e: Id, ccy: string) => cash[`${e}:${ccy}`] ?? 0n, availableQty: (e: Id, a: string) => qty[`${e}:${a}`] ?? 0n,
     netWorth: (e: Id) => cash[`${e}:FDL`] ?? 0n,   // T04-12: the FDL cash stands in for book NW
   };
@@ -90,7 +92,7 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
       events.push({ kind, subjectIds, payload, vis, ...(partyIds ? { partyIds } : {}) }); },
     send: (to: Id, kind: string, body: unknown) => { sent.push({ to, kind, body }); },
     inbox: (kind?: string) => inbox.filter((m) => kind === undefined || m.kind === kind) } as unknown as PhaseCtx;
-  return { ctx, posts, events, holds, sent, rows: (t) => (tables[t] ?? []).map((r) => r.e), put, cash, qty,
+  return { ctx, posts, events, holds, sent, rows: (t) => (tables[t] ?? []).map((r) => r.e), put, cash, qty, m0,
     setTick: (t) => { tick = t; }, nums: (m) => { Object.assign(over, m); }, failCash: (on) => { failCash = on; },
     deliver: () => { inbox = sent.splice(0).map((s) => ({ fromEntity: 'x', toEntity: s.to, phase: 'P8', tick, kind: s.kind, body: s.body, canonicalKey: '' })); } };
 }
