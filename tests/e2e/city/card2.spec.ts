@@ -110,11 +110,12 @@ function groundClass(F: Field, gx: number, gz: number): 'water' | 'park' | 'verg
 function pixelClass(F: Field, gm: Awaited<ReturnType<typeof groundMap>>, x: number, y: number): 'water' | 'park' | 'verge' | 'held' {
   const k = groundClass(F, ...gm.toGround(x + 0.5, y + 0.5));
   if (k !== 'held') return k;
-  const near = (r: number, want: 'water' | 'park') => {
+  const near = (r: number, want: 'water' | 'park' | 'verge') => {
     for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (groundClass(F, ...gm.toGround(x + dx + 0.5, y + dy + 0.5)) === want) return true;
     return false;
   };
-  return near(2, 'water') ? 'water' : near(1, 'park') ? 'park' : 'held';
+  // verge gets park's 1 px AA fringe: run 40605465589 V held 24 px, a 1 px line along the verge strip's outer edge
+  return near(2, 'water') ? 'water' : near(1, 'park') ? 'park' : near(1, 'verge') ? 'verge' : 'held';
 }
 
 /** Pixels changed by > 3/255 in the whole frame; water is counted apart (boats sail between page loads, [P]). */
