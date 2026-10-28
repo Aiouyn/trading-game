@@ -13,6 +13,13 @@ import { winShot } from "./winShot";
 const desktopOnly = (n: string) => test.skip(n !== "desktop", "desktop project only");
 const phoneOnly = (n: string) => test.skip(n !== "phone", "phone project only");
 
+/**
+ * One retry, for rasteriser noise only: on some page loads Chromium antialiases the left corners of the rounded asset
+ * select and story rows (x 29-35) one level off the baseline, stable within that load (toHaveScreenshot's two matching
+ * captures) and seen on about 1 in 8 loads with the feed held, transitions settled and the pointer parked. The same
+ * class of noise winShot masks for window corners; masking these would hide real header pixels, so a fresh load decides.
+ */
+test.describe.configure({ retries: 1 });
 const brk = (page: Page) => page.getByTestId("broker").first();
 const about = (page: Page) => page.getByTestId("br-about");
 const tab = (page: Page, k: "overview" | "news") => page.getByTestId(`br-about-tabs-${k}`);
