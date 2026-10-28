@@ -263,7 +263,8 @@ export interface SovAuction {
 }
 export interface Buyback { id: string; govId: string; assetIds: string[]; maxFace: Qty; tick: Tick; offers: { offerId: string; holderId: string; assetId: string; face: Qty; minPrice: Price }[] }
 export interface Syndication { id: string; govId: string; assetId: string; size: Qty; leadManagers: string[]; bookOpenTick: Tick; pricingTick: Tick; guidanceSpreadBp: number; feeRate: number;
-  tenor?: 'N30Y' | 'N10Y_FDL' /* T04-12 */; pricedTick?: Tick /* T04-12: set at pricing; a priced book takes no orders */ }
+  tenor?: 'N30Y' | 'N10Y_FDL' /* T04-12 */; curveYield?: number /* T04-12: curve zero at the maturity, fixed at book open */;
+  pricedTick?: Tick /* T04-12: set at pricing; a priced book takes no orders */ }
 
 // ───────── §2.8 sovereign credit ─────────
 export interface SovereignRatingInputs {

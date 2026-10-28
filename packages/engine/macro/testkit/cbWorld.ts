@@ -51,6 +51,7 @@ export function cbWorld(cbs: CentralBank[], tick0 = 41 * 720 + 700): CbWorld {
     cash: (e: Id, ccy: string) => cash[`${e}:${ccy}`] ?? 0n,
     position: (e: Id, a: string) => qty[`${e}:${a}`] ?? 0n,
     available: (e: Id, ccy: string) => cash[`${e}:${ccy}`] ?? 0n, availableQty: (e: Id, a: string) => qty[`${e}:${a}`] ?? 0n,
+    netWorth: (e: Id) => cash[`${e}:FDL`] ?? 0n,   // T04-12: the FDL cash stands in for book NW
   };
   const hold = (owner: Id, assetId: string | undefined, amt: bigint, expires: number, ref: Id): Id => {
     const id = `hold_${holds.length}`; holds.push({ id, owner, ...(assetId ? { assetId } : {}), amt, expires, ref, open: true }); return id; };

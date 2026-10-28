@@ -53,7 +53,7 @@ export function recordDealerAuction(ctx: PhaseCtx, b: BlocId, offered: Qty, yWi:
 }
 /** Decision: runs at the first tick of the new game quarter, reviewing the quarter just ended (q = quarterOf(tick) − 1), so APPLIED is ACTIVE exactly at the quarter start.
  *  ACTIVE with ≥ 3 misses → REVOKED until quarter q + 2 (the start of the quarter after next); RESIGNING → removed; REVOKED whose ban ended → removed (may apply again);
- *  APPLIED → ACTIVE (fromQuarter = q + 1); quarter counters reset. */
+ *  APPLIED → ACTIVE once fromQuarter ≤ current (fromQuarter = q + 1); quarter counters reset. */
 export function quarterEndDealerReview(ctx: PhaseCtx, b: BlocId): void {
   const s = ctx.store, cur = quarterOf(ctx.tick), q = cur - 1;
   for (const r of rowsOf(s, b)) {
@@ -61,7 +61,7 @@ export function quarterEndDealerReview(ctx: PhaseCtx, b: BlocId): void {
     const reset = { auctionsThisQuarter: 0, auctionsBidThisQuarter: 0, missesThisQuarter: 0 };
     if (r.status === 'RESIGNING' || (r.status === 'REVOKED' && (r.revokedUntilQuarter ?? 0) <= cur)) s.del(T, r.id);
     else if (r.status === 'ACTIVE' && r.missesThisQuarter >= 3) s.put<PrimaryDealerStatus>(T, { ...r, ...reset, status: 'REVOKED', revokedUntilQuarter: q + 2 });
-    else if (r.status === 'APPLIED') s.put<PrimaryDealerStatus>(T, { ...r, ...reset, status: 'ACTIVE', fromQuarter: q + 1 });
+    else if (r.status === 'APPLIED' && r.fromQuarter <= cur) s.put<PrimaryDealerStatus>(T, { ...r, ...reset, status: 'ACTIVE', fromQuarter: q + 1 });
     else if (r.status === 'ACTIVE') s.put<PrimaryDealerStatus>(T, { ...r, ...reset });
   }
 }
