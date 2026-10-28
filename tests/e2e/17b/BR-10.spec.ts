@@ -48,6 +48,7 @@ async function shot(page: Page, state: string) {
   for (let i = 0; i < 200 && (await ticks(page)) < SHOT_TICK; i++) await page.clock.runFor(100);
   await page.evaluate(() => { (window as unknown as { brHold: boolean }).brHold = true; });
   expect(await ticks(page), "feed ticks seen before the shot").toBe(SHOT_TICK);
+  await still(page);
   await winShot(page, frame(page), "BR-10", `${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, process.env.BR10_SHOTS_DIR);
 }
 
@@ -69,18 +70,21 @@ async function toNews(page: Page) {
   await until(page, async () => (await page.locator('[data-testid="ap-news"], [data-testid="ap-news-error"]').count()) > 0);
 }
 /**
- * After a theme pin: run the paused clock, then wait out the colour transitions the swap started on every button
- * (shell.css; CSS transitions run on real time, not the paused clock). Without it a cb / hc shot caught one mid-way,
- * a few edge pixels off one level. A second, real-time pass catches a transition that only starts after the first
- * (a re-render from the clock run).
+ * Before a shot: wait out CSS transitions (theme swap colours on every button, shell.css; hover after a drag). They run
+ * on real time, not the paused clock, and one can start a beat after another ends, so wait until two real-time checks
+ * 100 ms apart find none running. Without it a shot caught one mid-way, a few edge pixels off one level.
  */
-async function settle(page: Page) {
-  await page.clock.runFor(100);
-  const done = () => page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
-  await done();
-  await page.waitForTimeout(150);
-  await done();
+async function still(page: Page) {
+  let quiet = 0;
+  for (let i = 0; i < 40 && quiet < 2; i++) {
+    const running = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === "running").length);
+    quiet = running === 0 ? quiet + 1 : 0;
+    await page.waitForTimeout(100);
+  }
+  expect(quiet, "animations still running before the shot").toBe(2);
 }
+/** After a theme pin: let the re-render it starts run on the paused clock (`shot` then waits the transitions out). */
+const settle = (page: Page) => page.clock.runFor(100);
 const color = (page: Page, v: string) => page.evaluate((x) => { const e = document.createElement("i"); e.style.color = x; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }, v);
 const colours = (l: Locator) => l.evaluate((el) => {
   const out = new Set<string>();
