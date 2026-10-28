@@ -2,8 +2,9 @@
 // `LEVER_SPEC`; T03-11 `flowDayTable`. Shapes are the T03-24 / T03-11 card exports; the readers read those tables and nothing else.
 // Delete this file when T03-11 and T03-24 land; callers then import from @tycoon/engine-ledger.
 import { EngineFault, type StoreRead } from '@tycoon/engine-core';
+import type { Levers } from '@tycoon/engine-ledger';
 
-export interface Levers { L1_demand: number; L2_lifestyle_price: number; L3_levy_bp: number; L4_upkeep: number }
+export type { Levers };   // AC-03-MAP-NO-DUP: the one definition is ledger/src/events.ts (E-81 (ii))
 /** LEVER_SPEC key order (T03-24); the spec values themselves are 03's and are not read by 04. */
 export const LEVER_KEYS: readonly (keyof Levers)[] = Object.freeze(['L1_demand', 'L2_lifestyle_price', 'L3_levy_bp', 'L4_upkeep']);
 export interface LedStabilizerState { id: 'world'; mode: 'OBSERVE' | 'ACTIVE'; integral: number; lastError: number; levers: Levers;
