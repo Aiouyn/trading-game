@@ -1,5 +1,5 @@
-// 17B CH-00 CH-07: Portfolio and Wire are built:true and lazy-loaded. Portfolio still renders ComingLater as windows
-// (desktop) and screens (phone); Wire renders its feed since UI card 1 (WIR-A). Broker is built:false until BRK-A
+// 17B CH-00 CH-07: Portfolio and Wire are built:true and lazy-loaded. Wire renders its feed since UI card 1 (WIR-A);
+// Portfolio has real UI since card 2 (PF-A.spec), so the APPS loop covers Wire only. Broker is built:false until BRK-A
 // (Producer follow-up to #67): ComingLater straight away, no chunk, no loading state. No screenshots (spec: no UI).
 // The Broker ≤ 200 KB first-load check is S1-20.
 import { expect, test } from "@playwright/test";
